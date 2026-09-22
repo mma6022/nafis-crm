@@ -62,3 +62,4 @@ screenshots/
 .env.*
 !.env.example
 exports/
+deploy/
