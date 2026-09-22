@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "CRM مشتریان"
+description = "یک پنل CRM فارسی برای مدیریت مشتریان، پیگیری تماس‌ها، یادآورها، فروشندگان و روند درخواست‌های تسهیلات بر اساس داده‌های واقعی کسب‌وکار."
+version = "1.0.0"
+id = "artifacts/crm-dashboard"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23062
+
+[services.development]
+run = "pnpm --filter @workspace/crm-dashboard run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/crm-dashboard", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/crm-dashboard/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23062"
+BASE_PATH = "/"
