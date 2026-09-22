@@ -61,3 +61,4 @@ screenshots/
 .env
 .env.*
 !.env.example
+exports/
