@@ -1,0 +1,35 @@
+modules = ["nodejs-24", "python-base-3.13"]
+
+[deployment]
+router = "application"
+deploymentTarget = "autoscale"
+
+[deployment.postBuild]
+args = ["pnpm", "store", "prune"]
+env = { "CI" = "true" }
+
+[workflows]
+runButton = "Project"
+
+[agent]
+stack = "PNPM_WORKSPACE"
+expertMode = true
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 20000
+
+[nix]
+channel = "stable-25_05"
+packages = ["freetype", "gumbo", "harfbuzz", "jbig2dec", "libjpeg_turbo", "mupdf", "openjpeg", "swig", "xcbuild", "libreoffice", "noto-fonts", "noto-fonts-cjk-sans", "liberation_ttf"]
+
+[userenv]
+
+[userenv.development]
+DEPLOY_DOMAIN = "test.nafisvam.com"
+DEPLOY_SSH_HOST = "91.228.186.251"
+DEPLOY_SSH_PORT = "22"
+DEPLOY_SSH_USER = "root"
+
+[userenv.shared]
+ICS24_BASE_URL = "https://mycredit.ics24.ir"
