@@ -4,7 +4,6 @@ import { Link, Redirect, useLocation, useSearch } from 'wouter';
 import { AlertCircle, ArrowRight, ChevronLeft, Clock, LockKeyhole, Pencil, RefreshCw } from 'lucide-react';
 import { portalApi, PortalApiError } from './api';
 import { useWizard, type WizardStep } from '@/components/wizard/Wizard';
-import { SUPPORT_PHONE } from './customer-stage-map';
 import logoUrl from './assets/nafis-logo-full.svg';
 import './portal.css';
 import './nfp.css';
@@ -39,11 +38,11 @@ const countdown = (seconds: number) => fa(`${Math.floor(seconds / 60)}:${String(
 const message = (error: unknown) => error instanceof Error ? error.message : 'درخواست انجام نشد. دوباره تلاش کنید.';
 const I = ({ icon: Icon, small, className = '' }: { icon: typeof Clock; small?: boolean; className?: string }) => <Icon className={`nfp-i${small ? ' nfp-s' : ''} ${className}`} aria-hidden="true" />;
 
-/** Server message + support phone for account conflicts (409) and unavailable SMS/registration (503). */
+/** Server message + «contact your sales expert» hint for account conflicts (409) and unavailable SMS/registration (503). */
 export function AuthError({ error, testId }: { error: unknown; testId?: string }) {
   const text = typeof error === 'string' ? error : message(error);
   const support = error instanceof PortalApiError && (error.status === 409 || error.status === 503);
-  return <div className="nfp-alert" role="alert" data-testid={testId}><I icon={AlertCircle} /><span>{text}{support && <> پشتیبانی: <a href={`tel:${SUPPORT_PHONE.tel}`} className="nfp-ltr" dir="ltr">{SUPPORT_PHONE.display}</a></>}</span></div>;
+  return <div className="nfp-alert" role="alert" data-testid={testId}><I icon={AlertCircle} /><span>{text}{support && <> برای پیگیری با کارشناس فروش تماس بگیرید.</>}</span></div>;
 }
 
 const STEP_INDEX = { mobile: 1, code: 2, identity: 3 } as const;
@@ -67,7 +66,7 @@ export function AuthFrame({ step, titleId, onBack, footer, children }: { step: k
       <ol><li><span>۱</span><div><b>ورود با شماره همراه</b><small>کد یک‌بارمصرف پیامکی</small></div></li>
         <li><span>۲</span><div><b>احراز هویت، فقط بار اول</b><small>کد ملی و تاریخ تولد</small></div></li>
         <li><span>۳</span><div><b>دیدن وضعیت و مرحله‌ی بعدی</b><small>امضا، مدارک و کارشناس پرونده</small></div></li></ol>
-      <p style={{ fontSize: 14 }}>پشتیبانی: <a href={`tel:${SUPPORT_PHONE.tel}`} className="nfp-ltr" dir="ltr">{SUPPORT_PHONE.display}</a></p>
+      <p style={{ fontSize: 14 }}>سؤالی دارید؟ با کارشناس فروش تماس بگیرید.</p>
     </aside></div>
   </main></div>;
 }

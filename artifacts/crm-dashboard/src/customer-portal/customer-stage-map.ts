@@ -61,8 +61,7 @@ export const DOC_STATUS: Record<'approved' | 'pending' | 'rejected' | 'incomplet
 export const UNKNOWN_AMOUNT = 'بعداً اعلام می‌شود';
 export const EMZAME_URL = 'https://web.emzame.ir/';
 export const CHAT_HREF = '/customer/advice/chat';
-// The mockup shows ۰۲۱-۹۱۰۹۰۳۸۰; the live nafisvam.com contact page uses 021-91303819. Confirm before release.
-export const SUPPORT_PHONE = { display: '۰۲۱-۹۱۳۰۳۸۱۹', tel: '+982191303819' };
+// The company landline is not operational (decision pending): no support number is shown anywhere.
 
 export const stageLabel = (stage?: string | null) => (stage && stages[stage]) || 'در جریان';
 export const stageCopy = (stage?: string | null): StageCopy => (stage && STAGE_MAP[stage]) || FALLBACK_STAGE;
