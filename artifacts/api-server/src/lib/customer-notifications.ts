@@ -94,7 +94,38 @@ function recordDelivery(customerId: number, channel: string, status: string, err
   );
 }
 
-async function sendTelegram(customer: NotificationCustomer, settings: NotificationSettings): Promise<void> {
+/**
+ * Per-call options for {@link notifyNewCustomer}. Every field is optional and the defaults are exactly the
+ * historic behaviour (staff Telegram + customer SMS), so only callers that opt in change anything.
+ */
+export type NewCustomerNotificationOptions = {
+  /** `false` skips the customer SMS (ippanel) for this call only. Default: send. */
+  customerSms?: boolean;
+  /** Marks the staff Telegram with where the lead came from. */
+  source?: "website";
+  /** Website "call me back" request instead of the full request wizard. */
+  kind?: "request" | "callback";
+  /** Free-text preferred call time from the site; shown to staff whenever present. */
+  preferredTime?: string;
+};
+
+function cleanLine(value: unknown, max: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+  return text || undefined;
+}
+
+function telegramText(customer: NotificationCustomer, settings: NotificationSettings, options: NewCustomerNotificationOptions): string {
+  const body = fillTemplate(settings.telegramMessageTemplate, customer);
+  if (options.source !== "website") return body;
+  const header = [options.kind === "callback" ? "🌐 منبع: سایت (درخواست تماس)" : "🌐 منبع: سایت"];
+  const preferredTime = cleanLine(options.preferredTime, 120);
+  if (preferredTime) header.push(`⏰ زمان ترجیحی تماس: ${preferredTime}`);
+  if (options.customerSms === false) header.push("ℹ️ پیامک خودکار برای مشتری ارسال نشد؛ لطفاً تماس بگیرید.");
+  return `${header.join("\n")}\n\n${body}`;
+}
+
+async function sendTelegram(customer: NotificationCustomer, settings: NotificationSettings, options: NewCustomerNotificationOptions = {}): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!settings.telegramEnabled) return;
   if (!token) {
@@ -106,7 +137,7 @@ async function sendTelegram(customer: NotificationCustomer, settings: Notificati
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       chat_id: settings.telegramGroupChatId,
-      text: fillTemplate(settings.telegramMessageTemplate, customer),
+      text: telegramText(customer, settings, options),
     }),
   });
   if (!response.ok) throw new Error(`Telegram returned HTTP ${response.status}`);
@@ -232,7 +263,7 @@ export async function sendWalletShareSms(
   return String(id);
 }
 
-export async function notifyNewCustomer(customerId: number): Promise<void> {
+export async function notifyNewCustomer(customerId: number, options: NewCustomerNotificationOptions = {}): Promise<void> {
   const customer = queryRow<NotificationCustomer>(
     `SELECT c.id, c.name, c.phone, c.description,
        s.name AS salespersonName, s.mobile AS salespersonMobile
@@ -243,10 +274,11 @@ export async function notifyNewCustomer(customerId: number): Promise<void> {
   );
   if (!customer) return;
   const settings = getNotificationSettings();
-  const channels = [
-    ["telegram", () => sendTelegram(customer, settings)],
-    ["ippanel", () => sendIppanel(customer, settings)],
-  ] as const;
+  const channels: Array<readonly ["telegram" | "ippanel", () => Promise<void>]> = [
+    ["telegram", () => sendTelegram(customer, settings, options)],
+  ];
+  // Explicit opt-out only (website leads); any other value keeps the customer SMS.
+  if (options.customerSms !== false) channels.push(["ippanel", () => sendIppanel(customer, settings)]);
   await Promise.all(channels.map(async ([channel, send]) => {
     try {
       await send();

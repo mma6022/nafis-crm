@@ -1,7 +1,7 @@
 import express, { type Express, type NextFunction, type Request, type Response, Router } from "express";
 import { trustedClientIp } from "../lib/client-ip";
 import { logger } from "../lib/logger";
-import { notifyNewCustomer } from "../lib/customer-notifications";
+import { notifyNewCustomer, type NewCustomerNotificationOptions } from "../lib/customer-notifications";
 import { hashLeadIp, leadCounts, recordPublicLead, validatePublicLead, ensurePublicLeadSchema } from "../lib/public-leads";
 
 export const PUBLIC_LEADS_PATH = "/api/public/leads";
@@ -56,6 +56,20 @@ export class AttemptLimiter {
   get size(): number {
     return this.hits.size;
   }
+}
+
+/**
+ * Notification options for a lead created through this endpoint: no customer SMS, Telegram labelled «سایت».
+ * `type`/`preferredTime` are read structurally so a callback variant of the form carries its time automatically.
+ */
+export function websiteLeadNotification(lead: object): NewCustomerNotificationOptions {
+  const extra = lead as { type?: unknown; preferredTime?: unknown };
+  return {
+    customerSms: false,
+    source: "website",
+    kind: extra.type === "callback" ? "callback" : "request",
+    ...(typeof extra.preferredTime === "string" && extra.preferredTime.trim() ? { preferredTime: extra.preferredTime } : {}),
+  };
 }
 
 function fail(res: Response, status: number, error: string, extra: Record<string, unknown> = {}): void {
@@ -126,7 +140,8 @@ export function createPublicLeadsRouter(limiter = new AttemptLimiter()): Router 
       logger.info({ customerId: result.customerId, created: result.created, src: lead.src }, "Website lead recorded");
       // Only the fresh, random reference: nothing from the request is echoed back.
       res.status(201).json({ ok: true, trackingCode: result.trackingCode });
-      if (result.created) void notifyNewCustomer(result.customerId);
+      // Product decision (website leads): staff Telegram only, never the automatic customer SMS.
+      if (result.created) void notifyNewCustomer(result.customerId, websiteLeadNotification(lead));
     },
   );
   router.all("/", (_req, res): void => {

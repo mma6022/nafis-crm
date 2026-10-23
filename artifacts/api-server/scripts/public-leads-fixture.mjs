@@ -37,7 +37,7 @@ const fixtureDbModule = `
 `;
 const notifyModule = `
   import { appendFileSync } from "node:fs";
-  export async function notifyNewCustomer(id){ appendFileSync(process.env.NOTIFY_LOG, String(id)+"\\n"); }
+  export async function notifyNewCustomer(id, options){ appendFileSync(process.env.NOTIFY_LOG, JSON.stringify({ id, options })+"\\n"); }
 `;
 
 const workerSource = `
@@ -307,6 +307,10 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   const { readFileSync } = await import("node:fs");
   assert.equal(readFileSync(notifyLog, "utf8").trim().split("\n").filter(Boolean).length, 1, "new customer notified once");
+  {
+    const [call] = readFileSync(notifyLog, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    assert.deepEqual(call.options, { customerSms: false, source: "website", kind: "request" }, "website lead: no customer SMS, Telegram labelled website");
+  }
 
   // Double submit within minutes: success, but no duplicate row.
   const again = await post(lead({ phone: "۰۹۱۲۱۱۱۲۲۳۳" }));
