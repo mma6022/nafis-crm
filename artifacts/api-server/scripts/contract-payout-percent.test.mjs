@@ -29,7 +29,8 @@ const context = vm.createContext({
 });
 vm.runInContext((await transform(code, { loader: "ts", target: "es2022" })).code, context);
 const field = "loanPlan.customerPayoutPercent";
-assert.equal(vm.runInContext(`loanPlanFields["${field}"]`, context), "درصد واریز به مشتری");
+assert.equal(vm.runInContext(`loanPlanFields["${field}"]`, context), "درصد واریز به مشتری (کالا)");
+assert.equal(vm.runInContext(`loanPlanFields["loanPlan.depositPercents"]`, context), "درصد واریز به مشتری (طبق تعداد اقساط)");
 assert.equal(context.loanPlanFieldValue({ id: 20 }, field), "60");
 settings = 6025;
 assert.equal(context.loanPlanFieldValue({ id: 20 }, field), "60.25");
