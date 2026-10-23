@@ -4,9 +4,11 @@ import { getListCustomerWalletShareLinksQueryKey } from '@workspace/api-client-r
 import React, { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { clearLoanDraft, readLoanDraft, writeLoanDraft } from "@/lib/loan-draft";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   useListCustomers,
+  getGetCustomerQueryKey,
   useGetAuthSession,
   getGetAuthSessionQueryKey,
   useGetCustomer,
@@ -116,7 +118,7 @@ function apiErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-export function CreateWizard({ onClose }: { onClose: () => void }) {
+export function CreateWizard({ onClose, initialCustomerId, resumeDraft }: { onClose: () => void; initialCustomerId?: number; resumeDraft?: boolean }) {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const reduceMotion = useReducedMotion();
@@ -172,6 +174,45 @@ export function CreateWizard({ onClose }: { onClose: () => void }) {
     const planStep = planMaximum >= 100_000_000 ? 1_000_000 : planMaximum >= 10_000_000 ? 100_000 : 10_000;
     setAmount(String(Math.min(planStep, planMaximum || planStep)));
   };
+
+  // Entry from the customer page: customer pre-selected, wizard starts at step 2.
+  const userId = session.data?.user?.id;
+  const entryCustomer = useGetCustomer(initialCustomerId ?? 0, { query: { queryKey: getGetCustomerQueryKey(initialCustomerId ?? 0), enabled: Boolean(initialCustomerId) } });
+  const entryApplied = useRef(false);
+  const draftRestore = useRef<{ planId: number | null; amount: string; duration: string } | null>(null);
+  const [restoredDraft, setRestoredDraft] = useState(false);
+  useEffect(() => {
+    if (entryApplied.current || !initialCustomerId || !entryCustomer.data || !session.data) return;
+    entryApplied.current = true;
+    selectCustomer(entryCustomer.data as unknown as Customer);
+    setStep(2);
+    const draft = resumeDraft ? readLoanDraft(userId, initialCustomerId) : null;
+    if (draft) {
+      draftRestore.current = { planId: draft.planId, amount: draft.amount, duration: draft.duration };
+      if (draft.planId) setSelectedPlanId(draft.planId);
+      setRestoredDraft(true);
+    }
+  }, [entryCustomer.data, initialCustomerId, resumeDraft, session.data, userId]);
+  useEffect(() => {
+    const restore = draftRestore.current;
+    if (!restore || !selectedPlan || selectedPlan.planId !== restore.planId) return;
+    draftRestore.current = null;
+    if (restore.amount) setAmount(restore.amount);
+    if (restore.duration) setDuration(restore.duration);
+  }, [selectedPlan]);
+  // Draft saving (client-side only): remember the customer, furthest step and chosen terms.
+  useEffect(() => {
+    if (!selectedCustomer || !userId || step < 2) return;
+    const previous = readLoanDraft(userId, selectedCustomer.id);
+    writeLoanDraft(userId, {
+      customerId: selectedCustomer.id, customerName: selectedCustomer.name,
+      step: Math.max(step, previous?.step ?? 0),
+      planId: selectedPlanId ?? previous?.planId ?? null,
+      planName: selectedPlan?.name ?? previous?.planName ?? null,
+      amount: selectedPlan ? amount : previous?.amount ?? '',
+      duration: selectedPlan ? duration : previous?.duration ?? '',
+    });
+  }, [selectedCustomer?.id, step, selectedPlanId, selectedPlan?.planId, amount, duration, userId]);
 
   const handleNext = () => setStep((s) => Math.min(s + 1, 6) as any);
   const handlePrev = () => setStep((s) => Math.max(s - 1, 1) as any);
@@ -236,6 +277,7 @@ export function CreateWizard({ onClose }: { onClose: () => void }) {
       const application = await createMutation.mutateAsync({ data: applicationInput });
       await queryClient.invalidateQueries({ queryKey: ["/api/loan-applications"] });
       window.sessionStorage.removeItem(`loan-fee:${selectedCustomer.id}:${selectedPlan.planId}`);
+      clearLoanDraft(userId, selectedCustomer.id);
       setLocation(`/loan-applications/${application.id}`);
       onClose();
     } catch (error) {
@@ -318,6 +360,7 @@ export function CreateWizard({ onClose }: { onClose: () => void }) {
           <bdi dir="ltr" data-testid="wizard-customer-national-code">{selectedCustomer ? selectedCustomer.nationalCode || 'ثبت نشده' : '—'}</bdi>
         </div>
       </section>
+      {restoredDraft && step <= 3 ? <p role="status" data-testid="wizard-draft-restored" style={{ margin: '0 0 12px', padding: '10px 14px', borderRadius: 12, background: '#eef2fb', color: '#1F2A7A', fontSize: 14, fontWeight: 600 }}>پیش‌نویس قبلی این مشتری بازیابی شد. اعتبار مشتری دوباره بررسی می‌شود و طرح و مبلغ انتخابی قبلی در مرحله «طرح و شرایط» پیشنهاد می‌شود.</p> : null}
       {step !== 6 && submitError && <p className="form-error" role="alert" data-testid="wizard-recovery-error">{submitError}</p>}
       <div className="wizard-stepper" data-testid="wizard-stepper" style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between' }}>
         {WIZARD_STEPS.map((s, index) => (

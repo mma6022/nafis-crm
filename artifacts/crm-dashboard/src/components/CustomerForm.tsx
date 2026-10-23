@@ -1,11 +1,13 @@
-import { ClipboardPaste, LoaderCircle, Settings2, Sparkles, X } from 'lucide-react';
+import { AlertCircle, ClipboardPaste, LoaderCircle, Settings2, Sparkles } from 'lucide-react';
+import { Link } from 'wouter';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getGetAuthSessionQueryKey, getListAllocationProgramsQueryKey, getListCustomerTagsQueryKey, lookupCustomerByPhone, useCreateCustomer, useCreateCustomerRepeatRequest, useGetAuthSession, useListAllocationPrograms, useListCustomerTags, useParseCustomerText, useUpdateCustomer, useUpdateCustomerTags, type Customer, type Salesperson } from '@workspace/api-client-react';
 import { initials } from './CrmShell';
 import { AllocationProgramManager } from './AllocationProgramManager';
 import { PersianDatePicker } from './PersianDatePicker';
-import { Modal } from './DataTools';
+import { Sheet } from '@/pages/customers-ui';
+import '@/pages/customers.css';
 import { normalizeDigits } from '@/lib/customer-field-validation';
 import { formatPhoneForDisplay } from '@/lib/phone';
 import { refreshCustomerViews } from './RepeatRequestReview';
@@ -26,6 +28,7 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved }:
   const [explanation, setExplanation] = useState('');
   const [error, setError] = useState('');
   const [checking, setChecking] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [createdForTags, setCreatedForTags] = useState<Customer | null>(null);
   const session = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   const isAdmin = session.data?.user.role === 'admin';
@@ -38,7 +41,7 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved }:
     setForm({ name: customer?.name ?? '', phone: customer?.phone ?? '', nationalCode: customer?.nationalCode ?? '', postalCode: customer?.postalCode ?? '', birthDateJalali: customer?.birthDateJalali ?? '', description: customer?.description ?? '', salespersonId: customer?.salespersonId ? String(customer.salespersonId) : '', priority: customer?.priority ? String(customer.priority) : '', status: customer?.status ?? 'in_progress', isUrgent: customer?.isUrgent ?? false });
     setSourceText('');
     setTags(customer?.tags.filter(tag => tag !== 'repeat_request') ?? []);
-    setMatched(null); setExplanation(''); setError(''); setCreatedForTags(null);
+    setMatched(null); setExplanation(''); setError(''); setCreatedForTags(null); setFieldErrors({});
   }, [customer, open]);
   useEffect(() => {
     if (!open || customer || !defaultProgram || !isAdmin) return;
@@ -76,7 +79,11 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved }:
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!form.name.trim() || form.phone.trim().length < 3) return;
+    const errors: Record<string, string> = {};
+    if (!form.name.trim()) errors.name = 'نام مشتری را وارد کنید.';
+    if (form.phone.trim().length < 3) errors.phone = 'شماره موبایل را وارد کنید.';
+    setFieldErrors(errors);
+    if (Object.keys(errors).length) { window.setTimeout(() => document.getElementById(errors.name ? 'customer-name' : 'customer-phone')?.focus(), 0); return; }
     setError('');
     if (createdForTags) { await saveTagsAndFinish(createdForTags); return; }
     const allocationProgramId = isAdmin && form.salespersonId.startsWith('allocation:') ? Number(form.salespersonId.split(':')[1]) : null;
@@ -108,93 +115,98 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved }:
     } finally { setChecking(false); }
   };
   const pending = checking || create.isPending || update.isPending || updateTags.isPending;
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
-    <div className="modal customer-form-modal" role="dialog" aria-modal="true" aria-labelledby="customer-form-title">
-      <div className="modal-head"><div><div className="eyebrow">{isEditing ? 'ویرایش پرونده' : 'پرونده تازه'}</div><h3 id="customer-form-title">{isEditing ? `ویرایش ${initials(customer?.name)}` : 'افزودن مشتری جدید'}</h3></div><button className="modal-close" onClick={onClose} aria-label="بستن" data-testid="button-close-customer-form"><X size={19} /></button></div>
-      <form onSubmit={submit}>
+  const salespersonField = isAdmin ? <div className="field">
+    <div className="field-label-actions"><label htmlFor="customer-salesperson">کارشناس فروش</label>{!isEditing ? <button type="button" className="field-link-button" onClick={() => setProgramsOpen(true)} data-testid="button-manage-allocation-programs"><Settings2 size={13} /> تعریف برنامه تخصیص</button> : null}</div>
+    <select id="customer-salesperson" value={form.salespersonId} onChange={(e) => setValue('salespersonId', e.target.value)} data-testid="select-customer-salesperson">
+      <option value="">بدون تخصیص</option>
+      {!isEditing && (programs.data ?? []).map((program) => <option value={`allocation:${program.id}`} key={`allocation-${program.id}`}>تخصیص عادلانه — {program.name}{program.isDefault ? ' (پیش‌فرض)' : ''}</option>)}
+      {salespersons.map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}
+    </select>
+    <p className="hint">فقط مدیر می‌تواند کارشناس تعیین کند.</p>
+  </div> : null;
+  const moreFields = <>
+    <div className="field"><label htmlFor="customer-national-code">کد ملی</label><input id="customer-national-code" dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={(e) => setValue('nationalCode', e.target.value)} maxLength={10} data-testid="input-customer-national-code" /></div>
+    <div className="field"><label htmlFor="customer-postal-code">کد پستی</label><input id="customer-postal-code" dir="ltr" inputMode="numeric" value={form.postalCode} onChange={(e) => setValue('postalCode', e.target.value)} maxLength={10} data-testid="input-customer-postal-code" /></div>
+    <div className="field"><label>تاریخ تولد (شمسی)</label><PersianDatePicker value={form.birthDateJalali} onChange={(v) => setValue('birthDateJalali', v)} placeholder="YYYY/MM/DD" testId="input-customer-birth-date" birthDate /></div>
+    <div className="field"><label htmlFor="customer-priority">اولویت پیگیری</label><select id="customer-priority" value={form.priority} onChange={(e) => setValue('priority', e.target.value)} data-testid="select-customer-priority"><option value="">بدون اولویت</option>{[1, 2, 3].map((value) => <option value={value} key={value}>اولویت {value}</option>)}</select></div>
+    <div className="field"><label htmlFor="customer-status">وضعیت</label><select id="customer-status" value={form.status} onChange={(e) => setValue('status', e.target.value)} data-testid="select-customer-status"><option value="in_progress">در حال انجام</option><option value="cancelled">لغو شده</option><option value="completed">اتمام</option></select></div>
+    <div className="field"><label className="boolean-field"><input type="checkbox" checked={form.isUrgent} onChange={(e) => setForm(c => ({ ...c, isUrgent: e.target.checked }))} data-testid="checkbox-customer-is-urgent" /> <strong>مشتری فوری</strong> (نیاز به پیگیری سریع)</label></div>
+    <div className="field"><label>برچسب‌های مشتری</label>
+      {tagsCatalog.isLoading ? <div className="skeleton loading-line" /> : tagsCatalog.isError ? <div className="profile-form-error" role="alert">فهرست برچسب‌ها دریافت نشد. <button type="button" className="field-link-button" onClick={() => void tagsCatalog.refetch()}>تلاش دوباره</button></div> : <div className="tag-selector">{(tagsCatalog.data ?? []).filter(tag => tag.key !== 'repeat_request').map(tag => <label className="tag-choice" key={tag.key}><input type="checkbox" checked={tags.includes(tag.key)} onChange={e => setTags(current => e.target.checked ? [...current, tag.key] : current.filter(key => key !== tag.key))} data-testid={`checkbox-form-tag-${tag.key}`} />{tag.label}</label>)}</div>}
+      <CustomerTagCreate onCreated={tag => setTags(current => current.includes(tag.key) ? current : [...current, tag.key])} />
+    </div>
+  </>;
+  const createRepeat = () => matched && repeat.mutate({ data: { phone: normalizeDigits(form.phone.trim()), requestedName: form.name.trim(), submittedDescription: form.description.trim() || null, explanation: explanation.trim() } }, { onSuccess: () => { refreshCustomerViews(queryClient, matched.id); onSaved(); }, onError: (cause) => { const failure = cause as { status?: number }; if (failure.status === 404) setError('پرونده با این شماره دیگر پیدا نشد. دوباره بررسی کنید.'); } });
+  return <div className="csx csx-formhost" dir="rtl">
+    <Sheet title={isEditing ? `ویرایش ${initials(customer?.name)}` : 'مشتری جدید'} onClose={onClose} testId="customer-form" initialFocus="#customer-name"
+      footer={<>
+        <button className="csx-ghost" type="button" onClick={onClose} data-testid="button-cancel-customer">انصراف</button>
+        <button className="csx-primary" type="submit" form="customer-form-el" disabled={pending} data-testid="button-save-customer">{pending ? 'در حال بررسی و ذخیره…' : createdForTags ? 'تلاش دوباره برای ذخیره برچسب‌ها' : isEditing ? 'ذخیره تغییرات' : 'ثبت مشتری'}</button>
+      </>}>
+      <span className="csx-sr" id="customer-form-title">{isEditing ? 'ویرایش پرونده' : 'افزودن مشتری جدید'}</span>
+      <button type="button" className="csx-sr" onClick={onClose} data-testid="button-close-customer-form">بستن</button>
+      {error && <div className="csx-note bad" role="alert" data-testid="error-save-customer"><p>{error}</p></div>}
+      <form id="customer-form-el" onSubmit={submit} noValidate>
         <div className="form-grid">
-          {!isEditing ? <div className="field full ai-customer-import">
-            <div className="ai-customer-import-head">
-              <div><label htmlFor="customer-source-text"><Sparkles size={14} /> استخراج خودکار اطلاعات مشتری</label><p>متن دایرکت اینستاگرام را اینجا پیست کنید.</p></div>
-              <button type="button" className="btn btn-ghost ai-extract-button" disabled={parseText.isPending || sourceText.trim().length < 3} onClick={() => analyzeCustomerText()} data-testid="button-parse-customer-text">
+          {!isEditing ? <details className="csx-more ai-customer-import" open={sourceText.length > 0 || undefined}>
+            <summary><Sparkles size={18} aria-hidden="true" /> استخراج خودکار از متن پیام</summary>
+            <div className="body">
+              <label htmlFor="customer-source-text" className="hint">متن دایرکت اینستاگرام را اینجا پیست کنید.</label>
+              <div className="ai-customer-textarea-wrap">
+                <ClipboardPaste size={17} />
+                <textarea id="customer-source-text" value={sourceText} onChange={(event) => setSourceText(event.target.value)}
+                  onPaste={(event) => { event.preventDefault(); const text = event.clipboardData.getData('text'); setSourceText(text); window.setTimeout(() => analyzeCustomerText(text), 0); }}
+                  placeholder={'مثلاً:\nسلام من علی مرادی‌ام\n09120504376\nلطفاً زودتر تماس بگیرید'} data-testid="textarea-customer-source" />
+              </div>
+              <button type="button" className="csx-ghost" disabled={parseText.isPending || sourceText.trim().length < 3} onClick={() => analyzeCustomerText()} data-testid="button-parse-customer-text">
                 {parseText.isPending ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}
                 {parseText.isPending ? 'در حال تحلیل…' : 'تحلیل متن'}
               </button>
+              {parseText.isError ? <p className="err" role="alert" data-testid="error-parse-customer-text">تحلیل متن انجام نشد. دوباره تلاش کنید یا اطلاعات را دستی وارد کنید.</p> : null}
+              {parseText.isSuccess ? <p className="hint ok" data-testid="success-parse-customer-text">نام، شماره تماس و توضیحات استخراج شد؛ لطفاً قبل از ثبت بررسی کنید.</p> : null}
             </div>
-            <div className="ai-customer-textarea-wrap">
-              <ClipboardPaste size={17} />
-              <textarea
-                id="customer-source-text"
-                value={sourceText}
-                onChange={(event) => setSourceText(event.target.value)}
-                onPaste={(event) => {
-                  event.preventDefault();
-                  const text = event.clipboardData.getData('text');
-                  setSourceText(text);
-                  window.setTimeout(() => analyzeCustomerText(text), 0);
-                }}
-                placeholder={'مثلاً:\\nسلام من علی مرادی‌ام\\n09120504376\\nلطفاً زودتر تماس بگیرید'}
-                data-testid="textarea-customer-source"
-              />
-            </div>
-            {parseText.isError ? <div className="profile-form-error" data-testid="error-parse-customer-text">تحلیل متن انجام نشد. دوباره تلاش کنید یا اطلاعات را دستی وارد کنید.</div> : null}
-            {parseText.isSuccess ? <div className="ai-extract-success" data-testid="success-parse-customer-text">نام، شماره تماس و توضیحات استخراج شد؛ لطفاً قبل از ثبت بررسی کنید.</div> : null}
-          </div> : null}
-          <div className="field"><label htmlFor="customer-name">نام مشتری</label><input id="customer-name" value={form.name} onChange={(e) => setValue('name', e.target.value)} required data-testid="input-customer-name" /></div>
-          <div className="field"><label htmlFor="customer-phone">شماره تماس</label><input id="customer-phone" dir="ltr" value={form.phone} onChange={(e) => setValue('phone', e.target.value)} required minLength={3} data-testid="input-customer-phone" /></div>
-          <div className="field"><label htmlFor="customer-national-code">کد ملی</label><input id="customer-national-code" dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={(e) => setValue('nationalCode', e.target.value)} maxLength={10} data-testid="input-customer-national-code" /></div>
-          <div className="field"><label htmlFor="customer-postal-code">کد پستی</label><input id="customer-postal-code" dir="ltr" inputMode="numeric" value={form.postalCode} onChange={(e) => setValue('postalCode', e.target.value)} maxLength={10} data-testid="input-customer-postal-code" /></div>
-          <div className="field"><label>تاریخ تولد (شمسی)</label><PersianDatePicker value={form.birthDateJalali} onChange={(v) => setValue('birthDateJalali', v)} placeholder="YYYY/MM/DD" testId="input-customer-birth-date" birthDate /></div>
-          <div className="field"><label htmlFor="customer-priority">اولویت پیگیری</label><select id="customer-priority" value={form.priority} onChange={(e) => setValue('priority', e.target.value)} data-testid="select-customer-priority"><option value="">بدون اولویت</option>{[1, 2, 3].map((value) => <option value={value} key={value}>اولویت {value}</option>)}</select></div>
-          {isAdmin ? <div className="field">
-            <div className="field-label-actions"><label htmlFor="customer-salesperson">کارشناس فروش</label>{!isEditing ? <button type="button" className="field-link-button" onClick={() => setProgramsOpen(true)} data-testid="button-manage-allocation-programs"><Settings2 size={13} /> تعریف برنامه تخصیص</button> : null}</div>
-            <select id="customer-salesperson" value={form.salespersonId} onChange={(e) => setValue('salespersonId', e.target.value)} data-testid="select-customer-salesperson">
-              <option value="">بدون تخصیص</option>
-              {!isEditing && (programs.data ?? []).map((program) => <option value={`allocation:${program.id}`} key={`allocation-${program.id}`}>تخصیص عادلانه — {program.name}{program.isDefault ? ' (پیش‌فرض)' : ''}</option>)}
-              {salespersons.map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}
-            </select>
-          </div> : null}
-          <div className="field"><label htmlFor="customer-status">وضعیت</label><select id="customer-status" value={form.status} onChange={(e) => setValue('status', e.target.value)} data-testid="select-customer-status"><option value="in_progress">در حال انجام</option><option value="cancelled">لغو شده</option><option value="completed">اتمام</option></select></div>
-          <div className="field full"><label className="boolean-field"><input type="checkbox" checked={form.isUrgent} onChange={(e) => setForm(c => ({ ...c, isUrgent: e.target.checked }))} data-testid="checkbox-customer-is-urgent" /> <strong>مشتری فوری</strong> (نیاز به پیگیری سریع)</label></div>
-          <div className="field full"><label>برچسب‌های مشتری</label>
-            {tagsCatalog.isLoading ? <div className="skeleton loading-line" /> : tagsCatalog.isError ? <div className="profile-form-error" role="alert">فهرست برچسب‌ها دریافت نشد. <button type="button" className="field-link-button" onClick={() => void tagsCatalog.refetch()}>تلاش دوباره</button></div> : <div className="tag-selector">{(tagsCatalog.data ?? []).filter(tag => tag.key !== 'repeat_request').map(tag => <label className="tag-choice" key={tag.key}><input type="checkbox" checked={tags.includes(tag.key)} onChange={e => setTags(current => e.target.checked ? [...current, tag.key] : current.filter(key => key !== tag.key))} data-testid={`checkbox-form-tag-${tag.key}`} />{tag.label}</label>)}</div>}
-            <CustomerTagCreate onCreated={tag => setTags(current => current.includes(tag.key) ? current : [...current, tag.key])} />
+          </details> : null}
+          <div className="field"><label htmlFor="customer-name">نام و نام خانوادگی</label><input id="customer-name" value={form.name} onChange={(e) => { setValue('name', e.target.value); setFieldErrors(c => ({ ...c, name: '' })); }} required aria-invalid={Boolean(fieldErrors.name) || undefined} aria-describedby={fieldErrors.name ? 'customer-name-err' : undefined} data-testid="input-customer-name" />
+            {fieldErrors.name ? <p className="err" id="customer-name-err"><AlertCircle size={16} aria-hidden="true" /> {fieldErrors.name}</p> : null}</div>
+          <div className="field"><label htmlFor="customer-phone">شماره موبایل</label><input id="customer-phone" dir="ltr" inputMode="tel" value={form.phone} onChange={(e) => { setValue('phone', e.target.value); setFieldErrors(c => ({ ...c, phone: '' })); setMatched(null); }} required minLength={3} aria-invalid={Boolean(fieldErrors.phone || matched) || undefined} aria-describedby={fieldErrors.phone || matched ? 'customer-phone-err' : undefined} data-testid="input-customer-phone" />
+            {fieldErrors.phone ? <p className="err" id="customer-phone-err"><AlertCircle size={16} aria-hidden="true" /> {fieldErrors.phone}</p> : null}
+            {matched ? <p className="err" id="customer-phone-err"><AlertCircle size={16} aria-hidden="true" /> این شماره برای «{matched.name}» ثبت شده است.</p> : null}
           </div>
-          <div className="field full"><label htmlFor="customer-description">توضیحات</label><textarea id="customer-description" value={form.description} onChange={(e) => setValue('description', e.target.value)} placeholder="زمینه تماس یا نیاز مالی مشتری..." data-testid="textarea-customer-description" /></div>
+          {matched ? <div className="csx-dupe" data-testid="duplicate-mobile">
+            <Link href={`/customers/${matched.id}`} className="csx-link" onClick={onClose} data-testid="link-open-existing-customer">باز کردن پرونده موجود</Link>
+            <p className="hint">پرونده جدید ساخته نمی‌شود و کارشناس فعلی تغییر نمی‌کند. اگر مشتری درخواست تازه‌ای دارد، دلیل تماس دوباره را بنویسید تا برای همان پرونده ثبت شود.</p>
+            <details className="csx-more">
+              <summary>اطلاعات پرونده موجود</summary>
+              <div className="body duplicate-profile" data-testid="profile-existing-customer">
+                {([
+                  ['نام مشتری', matched.name], ['شماره همراه', formatPhoneForDisplay(matched.phone)], ['شناسه', `#${matched.id.toLocaleString('fa-IR', { useGrouping: false })}`],
+                  ['کارشناس فعلی', matched.salespersonName || 'بدون تخصیص'], ['کد ملی', matched.nationalCode || 'ثبت نشده'],
+                  ['کد پستی', matched.postalCode || 'ثبت نشده'], ['تاریخ تولد', matched.birthDateJalali || 'ثبت نشده'],
+                  ['وضعیت', matched.status === 'completed' ? 'اتمام' : matched.status === 'cancelled' ? 'لغو شده' : 'در حال انجام'],
+                  ['اولویت', matched.priority?.toLocaleString('fa-IR') || 'بدون اولویت'],
+                  ['فوری', matched.isUrgent ? 'بله' : 'خیر'],
+                  ['تعداد فعالیت‌ها', matched.activityCount.toLocaleString('fa-IR')],
+                  ['درخواست‌های جدید', matched.pendingRepeatRequestCount.toLocaleString('fa-IR')],
+                  ['توضیحات پرونده', matched.description || 'ثبت نشده'],
+                ] as [string, string][]).map(([label, value]) => <div key={label}><small>{label}</small><strong>{value}</strong></div>)}
+              </div>
+            </details>
+            <div className="field"><label htmlFor="repeat-explanation">دلیل درخواست دوباره</label><textarea id="repeat-explanation" value={explanation} onChange={e => setExplanation(e.target.value)} placeholder="این بار مشتری چه درخواستی دارد؟" data-testid="textarea-repeat-explanation" /></div>
+            {repeat.isError && <p className="err" role="alert">ثبت درخواست جدید انجام نشد. دوباره تلاش کنید.</p>}
+            <div className="csx-two">
+              <button className="csx-ghost" type="button" onClick={() => setMatched(null)} disabled={repeat.isPending} data-testid="button-cancel-repeat-request">انصراف</button>
+              <button className="csx-primary" type="button" disabled={!explanation.trim() || repeat.isPending} onClick={createRepeat} data-testid="button-create-repeat-request">{repeat.isPending ? 'در حال ثبت…' : 'ثبت درخواست برای پرونده موجود'}</button>
+            </div>
+          </div> : null}
+          <div className="field"><label htmlFor="customer-description">توضیح (اختیاری)</label><textarea id="customer-description" value={form.description} onChange={(e) => setValue('description', e.target.value)} placeholder="زمینه تماس یا نیاز مالی مشتری..." data-testid="textarea-customer-description" /></div>
+          {salespersonField}
+          {isEditing ? moreFields : <details className="csx-more" data-testid="customer-form-more">
+            <summary>اطلاعات بیشتر (اختیاری)</summary>
+            <div className="body">{moreFields}</div>
+          </details>}
         </div>
-        {error && <div className="profile-form-error" role="alert" data-testid="error-save-customer">{error}</div>}
-        <div className="form-footer"><button className="btn btn-primary" type="submit" disabled={pending} data-testid="button-save-customer">{pending ? 'در حال بررسی و ذخیره…' : createdForTags ? 'تلاش دوباره برای ذخیره برچسب‌ها' : isEditing ? 'ذخیره تغییرات' : 'ثبت مشتری'}</button><button className="btn btn-ghost" type="button" onClick={onClose} data-testid="button-cancel-customer">انصراف</button></div>
       </form>
       {programsOpen && isAdmin ? <AllocationProgramManager salespersons={salespersons} onClose={() => setProgramsOpen(false)} /> : null}
-      {matched && <Modal title="این شماره همراه قبلاً ثبت شده است" eyebrow="درخواست دوباره مشتری" onClose={() => setMatched(null)} testId="duplicate-mobile" wide>
-        <p className="profile-form-note">پرونده جدید ساخته نمی‌شود و کارشناس فعلی تغییر نمی‌کند. برای ثبت درخواست جدید، دلیل تماس دوباره را بنویسید.</p>
-        <div className="duplicate-profile" data-testid="profile-existing-customer">
-          {([
-            ['نام مشتری', matched.name], ['شماره همراه', formatPhoneForDisplay(matched.phone)], ['شناسه', `#${matched.id.toLocaleString('fa-IR')}`],
-            ['کارشناس فعلی', matched.salespersonName || 'بدون تخصیص'], ['کد ملی', matched.nationalCode || 'ثبت نشده'],
-            ['کد پستی', matched.postalCode || 'ثبت نشده'], ['تاریخ تولد', matched.birthDateJalali || 'ثبت نشده'],
-            ['نام', matched.firstName || 'ثبت نشده'], ['نام خانوادگی', matched.lastName || 'ثبت نشده'],
-            ['نام پدر', matched.fatherName || 'ثبت نشده'], ['نشانی', matched.address || 'ثبت نشده'],
-            ['ایمیل', matched.email || 'ثبت نشده'], ['وضعیت', matched.status],
-            ['اولویت', matched.priority?.toLocaleString('fa-IR') || 'بدون اولویت'],
-            ['فوری', matched.isUrgent ? 'بله' : 'خیر'], ['وضعیت احراز', matched.verificationStatus],
-            ['تاریخ ثبت', matched.createdAt], ['آخرین فعالیت', matched.lastActivityAt || 'ثبت نشده'],
-            ['نام رسمی', [matched.officialFirstName, matched.officialLastName].filter(Boolean).join(' ') || 'ثبت نشده'],
-            ['نام پدر رسمی', matched.officialFatherName || 'ثبت نشده'],
-            ['نشانی رسمی', matched.officialAddress || 'ثبت نشده'],
-            ['کد پستی رسمی', matched.officialPostalCode || 'ثبت نشده'],
-            ['رتبه اعتباری', matched.creditRank || 'ثبت نشده'],
-            ['امتیاز اعتباری', matched.creditScore == null ? 'ثبت نشده' : String(matched.creditScore)],
-            ['تعداد فعالیت‌ها', matched.activityCount.toLocaleString('fa-IR')],
-            ['برچسب‌ها', matched.tags.join('، ') || 'بدون برچسب'],
-            ['درخواست‌های جدید', matched.pendingRepeatRequestCount.toLocaleString('fa-IR')],
-            ['توضیحات پرونده', matched.description || 'ثبت نشده'],
-          ] as [string, string][]).map(([label, value]) => <div key={label}><small>{label}</small><strong>{value}</strong></div>)}
-        </div>
-        <div className="field"><label htmlFor="repeat-explanation">دلیل درخواست دوباره</label><textarea id="repeat-explanation" required value={explanation} onChange={e => setExplanation(e.target.value)} placeholder="این بار مشتری چه درخواستی دارد؟" data-testid="textarea-repeat-explanation" /></div>
-        {repeat.isError && <div className="profile-form-error" role="alert">ثبت درخواست جدید انجام نشد. دوباره تلاش کنید.</div>}
-        <div className="form-footer"><button className="btn btn-primary" type="button" disabled={!explanation.trim() || repeat.isPending} onClick={() => repeat.mutate({ data: { phone: normalizeDigits(form.phone.trim()), requestedName: form.name.trim(), submittedDescription: form.description.trim() || null, explanation: explanation.trim() } }, { onSuccess: () => { refreshCustomerViews(queryClient, matched.id); onSaved(); }, onError: (cause) => { const failure = cause as { status?: number }; if (failure.status === 404) setError('پرونده با این شماره دیگر پیدا نشد. دوباره بررسی کنید.'); } })} data-testid="button-create-repeat-request">{repeat.isPending ? 'در حال ثبت…' : 'ثبت درخواست برای پرونده موجود'}</button><button className="btn btn-ghost" type="button" onClick={() => setMatched(null)} disabled={repeat.isPending} data-testid="button-cancel-repeat-request">انصراف</button></div>
-      </Modal>}
-    </div>
+    </Sheet>
   </div>;
 }

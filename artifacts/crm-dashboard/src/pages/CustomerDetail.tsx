@@ -1,17 +1,18 @@
-import { ArrowRight, Edit3, PhoneCall, Phone, Save, Trash2, UserRound, ShieldCheck, RefreshCw, FileText, Copy } from 'lucide-react';
+import { AlertCircle, ArrowRight, Check, ChevronLeft, Copy, FileText, Flag, Gauge, History, Layers, Lock, MessageSquarePlus, Pencil, Phone, PhoneCall, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, Wallet, X } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useParams, Link, useLocation } from 'wouter';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getGetAuthSessionQueryKey, getGetCustomerQueryKey, getGetCustomerWalletPaymentQueryKey, getListCustomerActivityQueryKey, getListCustomerTagsQueryKey, getListCustomersQueryKey, getListConsultationsQueryKey, getListSalespersonsQueryKey, getListCustomerCreditChecksQueryKey, useDeleteCustomer, useGetAuthSession, useGetCustomer, useGetCustomerWalletPayment, useListCustomerActivity, useListCustomerTags, useListSalespersons, useListCustomerCreditChecks, useInitiateCustomerCreditCheck, useValidateCustomerCreditCheck, useRenewCustomerCreditCheckOtp, useRefreshCustomerCreditCheckStatus, useUpdateCustomer, useCreateConsultation, type CustomerUpdateStatus, type ConsultationInput } from '@workspace/api-client-react';
-import { ErrorState, formatDate, formatDateTime, initials, Priority, SkeletonPanel, statusLabel } from '@/components/CrmShell';
+import { getGetAuthSessionQueryKey, getGetCustomerQueryKey, getGetCustomerWalletPaymentQueryKey, getListCustomerActivityQueryKey, getListCustomerTagsQueryKey, getListCustomersQueryKey, getListConsultationsQueryKey, getListSalespersonsQueryKey, getListCustomerCreditChecksQueryKey, getListLoanApplicationsQueryKey, getListCallsQueryKey, getListRemindersQueryKey, useDeleteCustomer, useGetAuthSession, useGetCustomer, useGetCustomerWalletPayment, useListCustomerActivity, useListCustomerTags, useListSalespersons, useListCustomerCreditChecks, useInitiateCustomerCreditCheck, useValidateCustomerCreditCheck, useRenewCustomerCreditCheckOtp, useRefreshCustomerCreditCheckStatus, useUpdateCustomer, useCreateConsultation, useCreateCall, useListLoanApplications, type CallInput, type CustomerUpdateStatus, type ConsultationInput, type LoanApplication } from '@workspace/api-client-react';
+import { ErrorState, formatDateTime } from '@/components/CrmShell';
 import { formatPhoneForDisplay } from '@/lib/phone';
-import { CreateConsultationForm } from '@/components/Forms';
+import { CallForm, CreateConsultationForm } from '@/components/Forms';
 import { CustomerConsultationStatus } from '@/components/CustomerConsultationStatus';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { WalletPaymentResult } from '@/components/WalletPaymentResult';
 import { PaymentReconciliation } from '@/components/PaymentReconciliation';
 import { useVoip } from '@/components/voip/VoipProvider';
 import { useVoipHistory } from '@/components/voip/voip-api';
+import { removeCompletedAfterCallFromQueue } from '@/components/voip/after-call-cache';
 import { WalletShareHistory } from '@/components/WalletShareHistory';
 import { CustomerPlanWallets } from '@/components/PlanWallets';
 import { requestWalletShare } from '@/lib/wallet-share';
@@ -19,7 +20,21 @@ import { getListCustomerWalletShareLinksQueryKey } from '@workspace/api-client-r
 import { normalizeDigits, serverFieldErrors, validateIranianMobile, validateIranianNationalCode, validateIranianPostalCode, validateJalaliBirthDate, validateOtp } from '@/lib/customer-field-validation';
 import { CustomerTagEditor } from '@/components/CustomerTagEditor';
 import { RepeatRequestReview, RepeatRequestTag } from '@/components/RepeatRequestReview';
+import { clearLoanDraft, loanWizardHref, readLoanDraft, type LoanDraft } from '@/lib/loan-draft';
+import { ConfirmDialog, initialsOf, jalaliDate, PriorityLabel, relativeTime, Sheet, STATUS_LABEL, StatusPill } from './customers-ui';
+import './customers.css';
 
+const faNum = (n: number) => n.toLocaleString('fa-IR');
+const faId = (n: number) => n.toLocaleString('fa-IR', { useGrouping: false });
+const faDigits = (value: string) => value.replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
+const toman = (value: string | null | undefined) => { try { return BigInt(value || '0').toLocaleString('fa-IR'); } catch { return value || '—'; } };
+const WIZARD_STEP_TITLES = ['انتخاب مشتری', 'پروفایل و اعتبار', 'طرح و شرایط', 'هزینه تشکیل پرونده', 'مدارک هویتی', 'تایید نهایی'];
+const LOAN_STATUS: Record<string, [string, string]> = {
+  requested: ['ثبت شده', 'open'], reviewing: ['در حال بررسی', 'open'], approved: ['تأیید شده', 'approved'], rejected: ['رد شده', 'rejected'],
+};
+const VERIFY_ITEMS: Array<[ 'shahkarLite' | 'personInfo' | 'postalCodeInfo' | 'sana', string ]> = [
+  ['shahkarLite', 'تطبیق مالکیت موبایل (شاهکار)'], ['personInfo', 'اطلاعات هویتی ثبت احوال'], ['postalCodeInfo', 'نشانی و کد پستی'], ['sana', 'عضویت سامانه ثنا'],
+];
 function inquiryErrorMessage(error: unknown, fallback: string) {
   const typed = error as { data?: { error?: unknown; message?: unknown }; response?: { data?: { error?: unknown; message?: unknown } }; message?: unknown } | null;
   const payload = typed?.data ?? typed?.response?.data;
@@ -196,8 +211,64 @@ export default function CustomerDetail() {
     const timer = window.setInterval(checkStatus, latestCredit.status === 'processing' ? 10000 : 30000);
     return () => window.clearInterval(timer);
   }, [latestCredit?.id, latestCredit?.status]);
-  if (customerQuery.isLoading) return <section><div className="page-intro"><div><h2>پرونده مشتری</h2></div></div><SkeletonPanel rows={5} /></section>;
-  if (customerQuery.isError || !customer) return <section><div className="page-intro"><div><h2>پرونده پیدا نشد</h2><p>اطلاعات این مشتری در دسترس نیست.</p></div></div><ErrorState onRetry={() => customerQuery.refetch()} /></section>;
+
+  // ---- redesign-only UI state (no data logic) ----
+  const role = session.data?.user.role ?? '';
+  const perms = session.data?.user.permissions ?? [];
+  const isAdmin = role === 'admin';
+  const can = (permission: string) => isAdmin || perms.includes(permission);
+  const canUpdate = can('customers.update');
+  const canCallsCreate = can('calls.create');
+  const canConsult = can('consultations.create');
+  const canLoansView = can('loan_applications.view');
+  const canNewLoan = can('loan_applications.create');
+  const walletRole = ['admin', 'salesperson', 'registrar'].includes(role);
+  const userId = session.data?.user.id;
+  const loansQuery = useListLoanApplications({ customerId: id, limit: 20 }, { query: { queryKey: getListLoanApplicationsQueryKey({ customerId: id, limit: 20 }), enabled: Number.isSafeInteger(id) && canLoansView } });
+  const loans: LoanApplication[] = loansQuery.data && 'items' in loansQuery.data ? loansQuery.data.items : [];
+  const loansTotal = loansQuery.data && 'total' in loansQuery.data ? loansQuery.data.total : loans.length;
+  const [draft, setDraft] = useState<LoanDraft | null>(null);
+  useEffect(() => {
+    const sync = () => setDraft(readLoanDraft(userId, id));
+    sync();
+    window.addEventListener('nafis-loan-draft', sync);
+    window.addEventListener('storage', sync);
+    return () => { window.removeEventListener('nafis-loan-draft', sync); window.removeEventListener('storage', sync); };
+  }, [userId, id]);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [toast, setToast] = useState('');
+  useEffect(() => { if (!toast) return; const t = window.setTimeout(() => setToast(''), 2600); return () => window.clearTimeout(t); }, [toast]);
+  const [quickError, setQuickError] = useState('');
+  const [callFormOpen, setCallFormOpen] = useState(false);
+  const createCall = useCreateCall();
+  const [activeSec, setActiveSec] = useState('info');
+  useEffect(() => {
+    if (!customer) return;
+    const ids = ['info', 'loans', 'calls', 'wallet'];
+    const nodes = ids.map((key) => document.getElementById(`sec-${key}`)).filter(Boolean) as HTMLElement[];
+    if (!nodes.length || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+      if (visible) setActiveSec(visible.target.id.replace('sec-', ''));
+    }, { rootMargin: '-80px 0px -55% 0px' });
+    nodes.forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
+  }, [customer?.id, canLoansView, walletRole]);
+  if (customerQuery.isLoading) return <div className="csx" dir="rtl" aria-busy="true" data-testid="customer-detail-loading">
+    <span className="csx-sr" role="status">در حال بارگذاری پرونده مشتری…</span>
+    <div className="csx-crumb"><Link href="/customers" data-testid="link-back-customers"><ArrowRight size={16} /> مشتریان</Link></div>
+    {[0, 1, 2].map((key) => <div key={key} className="csx-sec" aria-hidden="true"><span className="csx-sk" style={{ width: '50%', height: 28 }} /><span className="csx-sk" style={{ width: '80%', height: 18 }} /><span className="csx-sk" style={{ width: '100%', height: 52 }} /></div>)}
+  </div>;
+  if (customerQuery.isError || !customer) return <div className="csx" dir="rtl">
+    <div className="csx-crumb"><Link href="/customers" data-testid="link-back-customers"><ArrowRight size={16} /> مشتریان</Link></div>
+    <div className="csx-empty err" role="alert" data-testid="customer-detail-error">
+      <span className="big"><AlertCircle size={30} /></span>
+      <h2>پرونده مشتری باز نشد</h2>
+      <p>ممکن است این مشتری حذف یا با پرونده دیگری ادغام شده باشد، یا اتصال قطع باشد.</p>
+      <button type="button" className="csx-primary" onClick={() => customerQuery.refetch()} data-testid="button-retry-customer"><RefreshCw size={18} /> تلاش دوباره</button>
+      <Link href="/customers" className="csx-link">بازگشت به مشتریان</Link>
+    </div>
+  </div>;
   const save = (event: FormEvent) => {
     event.preventDefault();
     const errors: Record<string, string> = {};
@@ -207,9 +278,14 @@ export default function CustomerDetail() {
     if (form.postalCode.trim() && !validateIranianPostalCode(form.postalCode)) errors.postalCode = 'کد پستی باید ۱۰ رقم باشد.';
     if (form.birthDateJalali.trim() && !validateJalaliBirthDate(form.birthDateJalali)) errors.birthDateJalali = 'تاریخ تولد شمسی معتبر و در گذشته وارد کنید.';
     setProfileErrors(errors);
-    if (Object.keys(errors).length) return;
+    if (Object.keys(errors).length) {
+      const first = ['name', 'phone', 'nationalCode', 'postalCode', 'birthDateJalali'].find((key) => errors[key]);
+      const testIds: Record<string, string> = { name: 'input-detail-name', phone: 'input-detail-phone', nationalCode: 'input-detail-national-code', postalCode: 'input-detail-postal-code', birthDateJalali: 'input-detail-birth-date' };
+      if (first) window.requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-testid="${testIds[first]}"]`)?.focus());
+      return;
+    }
     update.mutate({ id, data: { name: form.name.trim(), phone: normalizeDigits(form.phone.trim()), nationalCode: normalizeDigits(form.nationalCode.trim()), postalCode: form.postalCode.trim() ? normalizeDigits(form.postalCode.trim()) : null, birthDateJalali: form.birthDateJalali.trim() || null, description: form.description, priority: form.priority ? Number(form.priority) : null, status: form.status, isUrgent: form.isUrgent } }, {
-      onSuccess: () => { setEditing(false); setProfileErrors({}); customerQuery.refetch(); },
+      onSuccess: () => { setEditing(false); setProfileErrors({}); customerQuery.refetch(); setToast('تغییرات پرونده ذخیره شد.'); },
       onError: (error) => {
         const mapped = serverFieldErrors(error);
         setProfileErrors(current => ({ ...current, ...(Object.keys(mapped).length ? mapped : { _form: inquiryErrorMessage(error, 'ذخیره اطلاعات انجام نشد. دوباره تلاش کنید.') }) }));
@@ -237,15 +313,270 @@ export default function CustomerDetail() {
       void queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() });
     }, onError: () => setSalespersonError('تغییر کارشناس فروش انجام نشد. دوباره تلاش کنید.') });
   };
+
   const deleteCustomer = () => {
-    if (!window.confirm(`مشتری «${customer.name}» و تمام تماس‌ها و مشاوره‌های مرتبط برای همیشه حذف شوند؟ این عملیات قابل بازگشت نیست.`)) return;
     remove.mutate({ id }, { onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() });
+      setConfirmDelete(false);
       setLocation('/customers');
     } });
   };
+  const quickUpdate = (data: { status?: CustomerUpdateStatus; priority?: number | null; isUrgent?: boolean }) => {
+    setQuickError('');
+    update.mutate({ id, data }, {
+      onSuccess: () => { void customerQuery.refetch(); void queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() }); setToast('وضعیت پرونده به‌روز شد.'); },
+      onError: (error) => setQuickError(inquiryErrorMessage(error, 'تغییر وضعیت ذخیره نشد. دوباره تلاش کنید.')),
+    });
+  };
+  const handleSaveCall = async (data: CallInput) => {
+    try {
+      const saved = await createCall.mutateAsync({ data });
+      setCallFormOpen(false);
+      await removeCompletedAfterCallFromQueue(queryClient, { callLogId: saved.id });
+      void queryClient.invalidateQueries({ queryKey: getListCallsQueryKey() });
+      void queryClient.invalidateQueries({ queryKey: getListRemindersQueryKey() });
+      void queryClient.invalidateQueries({ queryKey: getListCustomerActivityQueryKey(id) });
+      void customerQuery.refetch();
+      setToast('تماس ثبت شد.');
+    } catch {
+      // Mutation error state is rendered inside the call form.
+    }
+  };
+  const copyPhone = () => { void navigator.clipboard?.writeText(customer.phone).then(() => setToast('شماره کپی شد.'), () => setToast('کپی انجام نشد.')); };
   const activity = activityQuery.data ?? customer.activity ?? [];
-  return <section>
+  const tagLabel = (key: string) => tagCatalog.data?.find(item => item.key === key)?.label ?? key;
+  const visibleTags = customer.tags.filter(key => key !== 'repeat_request');
+  const verified = customer.verificationStatus === 'verified';
+  const readOnlyRole = !canUpdate && !canCallsCreate && !walletRole;
+  const secs: Array<[string, string, number | null]> = [
+    ['info', 'اطلاعات', null],
+    ...(canLoansView ? [['loans', 'تسهیلات', loansQuery.data ? loansTotal : null] as [string, string, number | null]] : []),
+    ['calls', 'تماس‌ها', activity.length],
+    ...(walletRole ? [['wallet', 'کیف پول', null] as [string, string, number | null]] : []),
+  ];
+  const fieldErr = (key: string, testId: string) => profileErrors[key] ? <p className="err" id={`${testId}-err`} role="alert"><AlertCircle size={16} /> {profileErrors[key]}</p> : null;
+
+  const hero = <section className="csx-sec csx-hero" aria-labelledby="customer-hero-name" data-testid="customer-hero">
+    <div style={{ display: 'grid', gap: 10, minWidth: 0 }}>
+      <div className="who">
+        <span className="csx-av" aria-hidden="true">{initialsOf(customer.name)}</span>
+        <div style={{ minWidth: 0 }}>
+          <h2 id="customer-hero-name" data-testid="text-customer-name">{customer.name}</h2>
+          <div className="sub"><span data-testid="text-customer-id">کد مشتری {faId(customer.id)}</span>، کارشناس: {customer.salespersonName || 'بدون تخصیص'}</div>
+        </div>
+      </div>
+      <div className="csx-chips" style={{ gap: 6 }}>
+        <StatusPill status={customer.status} />
+        <PriorityLabel value={customer.priority} />
+        {customer.isUrgent ? <span className="csx-tag warn">فوری</span> : null}
+        {verified ? <span className="csx-tag ok"><ShieldCheck size={14} /> احراز شده</span> : <span className="csx-tag bad">احراز نشده</span>}
+        {visibleTags.map(key => <span className="csx-tag" key={key}>{tagLabel(key)}</span>)}
+        <RepeatRequestTag customer={customer} onClick={() => setReviewingRepeat(true)} />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Phone size={18} aria-hidden="true" style={{ color: 'var(--nf-ink-muted)' }} />
+        <b className="ltr" style={{ fontSize: 19 }} data-testid="text-customer-phone">{faDigits(formatPhoneForDisplay(customer.phone))}</b>
+        <button type="button" className="csx-ib" onClick={copyPhone} aria-label="کپی شماره موبایل" data-testid="button-copy-customer-phone"><Copy size={18} /></button>
+      </div>
+    </div>
+    <div className="acts">
+      {canCallsCreate || isAdmin ? <a className="csx-call" href={`tel:${customer.phone}`} data-testid="link-call-customer"><PhoneCall size={20} /> تماس</a> : null}
+      {canUpdate ? <button type="button" className="csx-ghost" onClick={() => setEditing(true)} data-testid="button-toggle-customer-edit" aria-haspopup="dialog"><Pencil size={18} /> ویرایش</button> : null}
+      {canNewLoan ? <Link href={loanWizardHref(customer.id)} className="csx-primary wide" data-testid="button-new-loan-from-customer"><Plus size={20} /> درخواست تسهیلات جدید</Link> : null}
+    </div>
+    {canCall || canConsult ? <div className="acts2">
+      {canCall ? <button type="button" className="csx-ghost sm" title={canDialSystem ? 'تماس با تلفن شرکت' : 'برای تماس سیستمی، ابتدا در بخش تلفن شرکت متصل شوید'} onClick={() => { if (canDialSystem) dial(customer.phone); else setLocation('/phone'); }} data-testid="button-sys-call-customer"><Phone size={18} color={canDialSystem ? undefined : '#94a3b8'} /> تماس سیستمی</button> : null}
+      {canConsult ? <button type="button" className="csx-ghost sm" onClick={() => setConsultationFormOpen(true)} data-testid="button-create-consultation"><FileText size={18} /> ثبت درخواست مشاوره</button> : null}
+    </div> : null}
+  </section>;
+
+  const infoSec = <section className="csx-sec" id="sec-info" aria-labelledby="h-info">
+    <header><h2 id="h-info"><UserRound size={20} /> اطلاعات هویتی</h2>{verified ? <span className="csx-tag ok">احراز شده</span> : <span className="csx-tag bad">احراز نشده</span>}</header>
+    <dl className="dl">
+      <dt>کد ملی</dt><dd>{customer.nationalCode ? <span className="ltr">{faDigits(customer.nationalCode)}</span> : '—'}</dd>
+      <dt>تاریخ تولد</dt><dd>{customer.birthDateJalali ? <span className="ltr">{faDigits(customer.birthDateJalali)}</span> : '—'}</dd>
+      <dt>کد پستی</dt><dd>{customer.postalCode ? <span className="ltr">{faDigits(customer.postalCode)}</span> : '—'}</dd>
+      <dt>نام پدر</dt><dd>{customer.officialFatherName || customer.fatherName || '—'}</dd>
+      <dt>نشانی رسمی</dt><dd>{customer.officialAddress || customer.address || '—'}</dd>
+      {customer.email ? <><dt>ایمیل</dt><dd><span className="ltr">{customer.email}</span></dd></> : null}
+      <dt>ثبت</dt><dd>{jalaliDate(customer.createdAt)}</dd>
+      <dt>توضیح</dt><dd style={{ fontWeight: 500 }}>{customer.description || '—'}</dd>
+    </dl>
+    {verified && customer.verificationChecks ? <div className="vchk">{VERIFY_ITEMS.map(([key, label]) => { const ok = customer.verificationChecks?.[key]?.ok; return <div key={key} className={ok ? 'ok' : 'no'}>{ok ? <Check size={18} /> : <X size={18} />}{label}</div>; })}</div>
+      : !verified ? <div className="csx-note warn" data-testid="note-customer-unverified"><AlertCircle size={18} /><p>هویت این مشتری هنوز استعلام نشده است. استعلام در مرحله «احراز هویت» ثبت درخواست تسهیلات انجام می‌شود.</p></div> : null}
+    {canUpdate ? <p className="hint">ویرایش کد ملی، تاریخ تولد، کد پستی یا موبایل، وضعیت احراز را به «احراز نشده» برمی‌گرداند.</p> : null}
+    <details className="csx-sub"><summary>برچسب‌ها و سابقه مشاوره <ChevronLeft size={16} /></summary>
+      <CustomerTagEditor customer={customer} />
+      <CustomerConsultationStatus customerId={id} />
+    </details>
+  </section>;
+
+  const statusSec = <section className="csx-sec" aria-labelledby="h-status" data-testid="section-customer-status">
+    <header><h2 id="h-status"><Flag size={20} /> وضعیت پیگیری</h2></header>
+    {canUpdate ? <>
+      <div className="csx-chips" role="radiogroup" aria-label="وضعیت">{(['in_progress', 'completed', 'cancelled'] as CustomerUpdateStatus[]).map((key) => <button key={key} type="button" className="csx-chip" role="radio" aria-checked={customer.status === key} data-s={key} disabled={update.isPending} onClick={() => customer.status !== key && quickUpdate({ status: key })} data-testid={`chip-status-${key}`}>{STATUS_LABEL[key]}</button>)}</div>
+      <div className="csx-chips" role="radiogroup" aria-label="اولویت">{[1, 2, 3, null].map((value) => <button key={String(value)} type="button" className="csx-chip" role="radio" aria-checked={(customer.priority ?? null) === value} data-p={value ?? undefined} disabled={update.isPending} onClick={() => (customer.priority ?? null) !== value && quickUpdate({ priority: value })} data-testid={`chip-priority-${value ?? 'none'}`}>{value ? `اولویت ${faNum(value)}` : 'بدون اولویت'}</button>)}</div>
+      <label className="csx-chip" style={{ justifySelf: 'start' }}><input type="checkbox" checked={customer.isUrgent ?? false} disabled={update.isPending} onChange={(event) => quickUpdate({ isUrgent: event.target.checked })} style={{ width: 20, height: 20 }} data-testid="checkbox-quick-urgent" /> فوری</label>
+      {quickError ? <div className="csx-note bad" role="alert"><AlertCircle size={18} /><p>{quickError}</p></div> : null}
+    </> : <div className="csx-chips" style={{ gap: 6 }}><StatusPill status={customer.status} /><PriorityLabel value={customer.priority} />{customer.isUrgent ? <span className="csx-tag warn">فوری</span> : null}</div>}
+    {isAdmin ? <form className="csx-fld" onSubmit={reassignSalesperson} data-testid="panel-customer-salesperson-assignment" style={{ display: 'grid', gap: 8 }}>
+      <label className="lbl" htmlFor="customer-salesperson-reassignment">کارشناس فروش</label>
+      <select id="customer-salesperson-reassignment" className="csx-inp" value={salespersonSelection} onChange={(event) => { setSalespersonSelection(event.target.value); setSalespersonError(''); }} disabled={salespersons.isLoading || salespersons.isError || update.isPending} data-testid="select-customer-salesperson-reassignment" aria-describedby="sp-hint">
+        <option value="">بدون تخصیص</option>
+        {customer.salespersonId && !(salespersons.data ?? []).some((person) => person.id === customer.salespersonId) ? <option value={customer.salespersonId} disabled>{customer.salespersonName || 'کارشناس فعلی'} (در فهرست موجود نیست)</option> : null}
+        {(salespersons.data ?? []).map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+      </select>
+      <p className="hint" id="sp-hint">فقط مدیر می‌تواند کارشناس را تغییر دهد.</p>
+      {salespersons.isLoading ? <p className="hint" role="status">در حال دریافت فهرست کارشناسان…</p> : null}
+      {salespersons.isError ? <p className="err" role="alert">فهرست کارشناسان دریافت نشد. صفحه را تازه‌سازی کنید.</p> : null}
+      {salespersonError ? <p className="err" role="alert" data-testid="error-customer-salesperson-reassignment">{salespersonError}</p> : null}
+      <button className="csx-ghost sm" type="submit" disabled={salespersons.isLoading || salespersons.isError || update.isPending} data-testid="button-save-customer-salesperson">{update.isPending ? 'در حال ذخیره…' : 'ذخیره کارشناس'}</button>
+    </form> : <div className="csx-fld"><span className="lbl">کارشناس فروش</span><div className="asg">{customer.salespersonName ? <><span className="csx-av" aria-hidden="true">{initialsOf(customer.salespersonName)}</span>{customer.salespersonName}</> : <span className="muted">بدون کارشناس فروش</span>}</div></div>}
+  </section>;
+
+  const activeCheck = creditChecks.data?.find(c => c.status === 'processing' || c.status === 'awaiting_otp');
+  const lastReport = creditChecks.data?.find(c => c.status === 'report_generated');
+  const creditSec = canCreditCheck ? <section className="csx-sec" aria-labelledby="h-credit" data-testid="panel-credit-check">
+    <header><h2 id="h-credit"><Gauge size={20} /> اعتبارسنجی</h2></header>
+    {customer.creditRank ? <div className="rank"><span className="big" data-testid="text-credit-rank">{customer.creditRank}</span><dl className="dl"><dt>امتیاز</dt><dd>{customer.creditScore != null ? faNum(customer.creditScore) : '—'}</dd><dt>آخرین استعلام</dt><dd>{jalaliDate(customer.creditCheckedAt)}</dd></dl></div>
+      : <div className="rank"><span className="big none">—</span><p className="muted" style={{ margin: 0 }}>هنوز استعلام اعتباری انجام نشده است.</p></div>}
+    {lastReport ? <a className="csx-ghost sm" href={`/api/customers/${id}/credit-checks/${lastReport.id}/report.pdf`} download><FileText size={18} /> دانلود گزارش PDF</a> : null}
+    {creditError ? <div className="csx-note bad" role="alert"><AlertCircle size={18} /><p>{creditError}</p></div> : null}
+    {creditChecks.isError ? <div role="alert" className="csx-note bad"><AlertCircle size={18} /><p>دریافت سابقه استعلام اعتبارسنجی انجام نشد. اتصال سامانه را بررسی و دوباره تلاش کنید.</p></div> : null}
+    {activeCheck ? (activeCheck.status === 'awaiting_otp' ? (
+      <form noValidate className="csx-fld" style={{ display: 'grid', gap: 8 }} onSubmit={(event) => {
+        event.preventDefault();
+        if (!validateOtp(otp)) { setOtpError('کد یک‌بارمصرف باید بین ۴ تا ۸ رقم باشد.'); return; }
+        setOtpError(''); setCreditError('');
+        validateCredit.mutate({ id, checkId: activeCheck.id, data: { otp: normalizeDigits(otp) } }, {
+          onSuccess: () => { setOtp(''); refreshBoth(); },
+          onError: (error) => { setCreditError(inquiryErrorMessage(error, 'تأیید کد یک‌بارمصرف انجام نشد.')); setOtpError(serverFieldErrors(error).otp ?? ''); },
+        });
+      }}>
+        <div className="csx-note"><ShieldCheck size={18} /><p>رمز یک‌بارمصرف برای موبایل مشتری ارسال شد.</p></div>
+        <label className="lbl" htmlFor="credit-otp">رمز یک‌بارمصرف</label>
+        <input id="credit-otp" className="csx-inp ltr" dir="ltr" inputMode="numeric" value={otp} onChange={(event) => { setOtp(normalizeDigits(event.target.value).replace(/\D/g, '').slice(0, 8)); setOtpError(''); }} maxLength={8} aria-invalid={Boolean(otpError)} aria-describedby={otpError ? 'credit-otp-err' : undefined} data-testid="input-credit-otp" />
+        {otpError && <p className="err" id="credit-otp-err" role="alert" data-testid="error-credit-otp">{otpError}</p>}
+        <div className="csx-two">
+          <button className="csx-primary" type="submit" disabled={validateCredit.isPending}>{validateCredit.isPending ? 'در حال بررسی…' : 'تأیید و دریافت گزارش'}</button>
+          <button className="csx-ghost" type="button" onClick={() => renewCredit.mutate({ id, checkId: activeCheck.id }, { onSuccess: refreshBoth, onError: (error) => { setCreditError(inquiryErrorMessage(error, 'ارسال مجدد کد یک‌بارمصرف انجام نشد.')); refreshBoth(); } })} disabled={renewCredit.isPending}>ارسال مجدد</button>
+        </div>
+      </form>
+    ) : <div className="csx-note" role="status"><RefreshCw size={18} className="spin" /><p><b>گزارش در حال آماده‌سازی است.</b> وضعیت به‌صورت خودکار به‌روزرسانی می‌شود.</p></div>) : (
+      <details className="csx-sub"><summary>استعلام اعتبار جدید <ChevronLeft size={16} /></summary>
+        <form noValidate className="csx-fld" style={{ display: 'grid', gap: 8 }} onSubmit={(event) => {
+          event.preventDefault();
+          if (!validateIranianNationalCode(nationalCode)) { setNationalCodeError('کد ملی ۱۰ رقمی معتبر وارد کنید.'); return; }
+          setNationalCodeError('');
+          setCreditError('برای شروع استعلام، ابتدا در ثبت درخواست تسهیلات هزینه ثابت تشکیل پرونده را از کیف پول نقدی پرداخت کنید.');
+        }}>
+          <label className="lbl" htmlFor="credit-national-code">کد ملی مشتری</label>
+          <input id="credit-national-code" className="csx-inp ltr" dir="ltr" inputMode="numeric" value={nationalCode} onChange={(event) => { setNationalCode(event.target.value); setNationalCodeError(''); }} placeholder="۱۰ رقم" maxLength={10} aria-invalid={Boolean(nationalCodeError)} aria-describedby={nationalCodeError ? 'credit-nc-err' : undefined} data-testid="input-credit-national-code" />
+          {nationalCodeError && <p className="err" id="credit-nc-err" role="alert" data-testid="error-credit-national-code">{nationalCodeError}</p>}
+          <button className="csx-ghost sm" type="submit"><ShieldCheck size={18} /> راهنمای شروع استعلام</button>
+        </form>
+      </details>
+    )}
+    <p className="hint">استعلام جدید به پرداخت هزینه تشکیل پرونده در ثبت درخواست تسهیلات نیاز دارد.</p>
+    {creditChecks.data && creditChecks.data.length > 0 ? <details className="csx-sub"><summary>سابقه استعلام‌ها ({faNum(creditChecks.data.length)}) <ChevronLeft size={16} /></summary>
+      <ul className="csx-tl">{creditChecks.data.map(check => <li key={check.id}>
+        <span className="ic" aria-hidden="true"><Gauge size={16} /></span>
+        <div>
+          <p className="tt">{check.scoreLabel || 'بدون امتیاز'}، <span className={`csx-tag ${check.status === 'report_generated' ? 'ok' : check.status === 'failed' ? 'bad' : 'info'}`}>{check.status === 'report_generated' ? 'موفق' : check.status === 'failed' ? 'خطا' : 'در حال انجام'}</span></p>
+          {check.summary ? <p className="tx">{check.summary}</p> : null}
+          <div className="who">{check.status === 'report_generated' ? 'دریافت گزارش' : check.status === 'failed' ? 'آخرین تلاش' : 'آخرین به‌روزرسانی'}: {formatDateTime(check.completedAt || check.updatedAt)}</div>
+          {check.status === 'report_generated' ? <a className="csx-link" href={`/api/customers/${id}/credit-checks/${check.id}/report.pdf`} download><FileText size={16} /> دانلود PDF</a> : null}
+          {check.status === 'failed' && check.errorMessage ? <p className="err">{inquiryErrorMessage({ data: { message: check.errorMessage } }, 'استعلام اعتبارسنجی ناموفق بود.')}</p> : null}
+        </div>
+      </li>)}</ul>
+    </details> : null}
+  </section> : null;
+
+  const draftNote = canNewLoan && draft ? <div className="csx-note warn" data-testid="loan-draft-note">
+    <History size={18} />
+    <div style={{ display: 'grid', gap: 6, flex: 1 }}>
+      <p><b>پیش‌نویس درخواست تسهیلات</b>، مرحله {faNum(Math.min(draft.step, 6))} از ۶ ({WIZARD_STEP_TITLES[Math.min(draft.step, 6) - 1]}){draft.planName ? `، ${draft.planName}` : ''}، {relativeTime(draft.updatedAt)}</p>
+      <p className="hint">فقط روی همین مرورگر ذخیره شده است.</p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <Link href={loanWizardHref(customer.id, true)} className="csx-ghost sm" data-testid="link-resume-loan-draft">ادامه پیش‌نویس</Link>
+        <button type="button" className="csx-link" onClick={() => { clearLoanDraft(userId, customer.id); setToast('پیش‌نویس حذف شد.'); }} data-testid="button-discard-loan-draft">حذف پیش‌نویس</button>
+      </div>
+    </div>
+  </div> : null;
+
+  const loansSec = canLoansView ? <section className="csx-sec" id="sec-loans" aria-labelledby="h-loans" data-testid="section-customer-loans">
+    <header><h2 id="h-loans"><Layers size={20} /> درخواست‌های تسهیلات</h2>{loansQuery.data ? <span className="muted">{faNum(loansTotal)} پرونده</span> : null}</header>
+    {draftNote}
+    {loansQuery.isLoading ? <div className="stack" aria-busy="true"><span className="csx-sk" style={{ height: 72 }} /><span className="csx-sk" style={{ height: 72 }} /></div>
+      : loansQuery.isError ? <div className="csx-note bad" role="alert"><AlertCircle size={18} /><p>فهرست تسهیلات دریافت نشد. <button type="button" className="csx-link" onClick={() => loansQuery.refetch()}>تلاش دوباره</button></p></div>
+      : loans.length ? <div className="stack">{loans.map((loan) => { const [label, tone] = LOAN_STATUS[loan.status] ?? [loan.status, 'open']; return <Link key={loan.id} href={`/loan-applications/${loan.id}`} className="csx-loan" data-ls={tone} data-testid={`link-customer-loan-${loan.id}`}>
+        <div className="r1"><b>پرونده #{faId(loan.id)}</b><span className="csx-st">{label}</span></div>
+        <div className="muted">{loan.planName || 'طرح تسهیلات'}، {toman(loan.approvedAmount || loan.requestedAmount)} تومان{(loan.durationMonths ?? loan.requestedDurationMonths) ? `، ${faNum(Number(loan.durationMonths ?? loan.requestedDurationMonths))} ماهه` : ''}</div>
+        <div className="muted">ثبت {jalaliDate(loan.createdAt)}</div>
+      </Link>; })}</div>
+      : <p className="muted" style={{ margin: 0 }}>برای این مشتری هنوز درخواست تسهیلاتی ثبت نشده است.</p>}
+    {canNewLoan ? <Link href={loanWizardHref(customer.id)} className="csx-ghost sm" data-testid="link-new-loan-for-customer"><Plus size={18} /> ثبت درخواست تسهیلات برای این مشتری</Link> : null}
+  </section> : null;
+
+  const callsSec = <section className="csx-sec" id="sec-calls" aria-labelledby="h-calls" data-testid="section-customer-calls">
+    <header><h2 id="h-calls"><History size={20} /> خط زمانی ارتباط</h2><span className="muted">{faNum(activity.length)} مورد</span></header>
+    {activityQuery.isLoading ? <div className="stack" aria-busy="true"><span className="csx-sk" style={{ height: 56 }} /><span className="csx-sk" style={{ height: 56 }} /></div>
+      : activity.length ? <ol className="csx-tl">{activity.map((item) => <li key={item.id}>
+        <span className="ic" aria-hidden="true"><PhoneCall size={16} /></span>
+        <div style={{ minWidth: 0 }}>
+          <div className="who">{item.salespersonName || 'کارشناس تیم'}، {formatDateTime(item.createdAt)}</div>
+          <p className="tx"><b>{item.subject || 'تماس با مشتری'}</b></p>
+          <p className="tx q">{item.customerRequest || 'درخواست مشتری ثبت نشده است.'}{item.expertNotes ? ` — ${item.expertNotes}` : ''}</p>
+        </div>
+      </li>)}</ol>
+      : <p className="muted" style={{ margin: 0 }}>هنوز تماس یا یادداشتی ثبت نشده است.</p>}
+    {canCallsCreate ? <button type="button" className="csx-ghost sm" onClick={() => setCallFormOpen(true)} data-testid="button-add-call-detail"><MessageSquarePlus size={18} /> ثبت تماس / یادداشت</button> : null}
+    {hasCallsView ? <details className="csx-sub" data-testid="section-voip-history"><summary>تماس‌های تلفن شرکت{historyQuery.data ? ` (${faNum(historyQuery.data.total)})` : ''} <ChevronLeft size={16} /></summary>
+      {historyQuery.isLoading ? <span className="csx-sk" style={{ height: 48 }} /> : historyQuery.isError ? <ErrorState onRetry={() => historyQuery.refetch()} /> : historyQuery.data?.items && historyQuery.data.items.length > 0 ? <>
+        <ol className="csx-tl">{historyQuery.data.items.map(record => <li key={record.id}>
+          <span className="ic" aria-hidden="true"><Phone size={16} /></span>
+          <div><p className="tt">{record.direction === 'incoming' ? 'تماس ورودی' : 'تماس خروجی'} — {record.status === 'completed' ? 'پاسخ داده شده' : record.status === 'missed' ? 'از دست رفته' : record.status === 'rejected' ? 'رد شده' : record.status === 'failed' ? 'ناموفق' : record.status}</p>
+            <div className="who">کارشناس: {record.actorName} (داخلی {record.extension})، {formatDateTime(record.startedAt)}</div></div>
+        </li>)}</ol>
+        {historyQuery.data.total > historyQuery.data.limit && <div className="csx-two">
+          <button className="csx-ghost sm" disabled={historyPage === 1} onClick={() => setHistoryPage(p => p - 1)}>قبلی</button>
+          <button className="csx-ghost sm" disabled={historyPage * historyQuery.data.limit >= historyQuery.data.total} onClick={() => setHistoryPage(p => p + 1)}>بعدی</button>
+        </div>}
+      </> : <p className="muted" style={{ margin: 0 }}>تا به حال تماس سیستمی با این مشتری ثبت نشده است.</p>}
+    </details> : null}
+  </section>;
+
+  const walletSec = walletRole ? <section className="csx-sec" id="sec-wallet" aria-labelledby="h-wallet" data-testid="section-customer-wallet">
+    <header><h2 id="h-wallet"><Wallet size={20} /> کیف پول مشتری</h2><button type="button" className="csx-link" onClick={() => walletQuery.refetch()}>به‌روزرسانی</button></header>
+    {walletQuery.isLoading ? <div className="bal" aria-busy="true"><span className="csx-sk" style={{ height: 64 }} /><span className="csx-sk" style={{ height: 64 }} /></div>
+      : walletQuery.isError ? <div className="csx-note bad" role="alert"><AlertCircle size={18} /><p>دریافت کیف پول ممکن نشد. دوباره تلاش کنید.</p></div>
+      : walletQuery.data && <>
+        <div className="bal"><div><span>موجودی نقدی</span><b>{toman(walletQuery.data.cash.balanceToman)}</b> <small>تومان</small></div><div><span>اعتبار تسهیلات</span><b>{toman(walletQuery.data.credit.balanceToman)}</b> <small>تومان</small></div></div>
+        <div className="csx-fld" style={{ display: 'grid', gap: 8 }}>
+          <label className="lbl" htmlFor="wallet-cash-amount">مبلغ شارژ نقدی (تومان)</label>
+          <input id="wallet-cash-amount" className="csx-inp" type="number" min="1" inputMode="numeric" value={cashAmount} onChange={e => setCashAmount(e.target.value)} placeholder="مبلغ به تومان" data-testid="input-wallet-cash-amount" />
+          <div className="csx-two">
+            <button type="button" className="csx-ghost sm" disabled={sharePending} onClick={createWalletShareLink} data-testid="button-wallet-share-link">{sharePending ? 'در حال ارسال…' : shareLink ? 'ساخت لینک تازه' : 'ارسال لینک شارژ (پیامک)'}</button>
+            <button type="button" className="csx-ghost sm" disabled={paymentPending} onClick={startCashPayment} data-testid="button-wallet-cash-payment">پرداخت و شارژ نقدی</button>
+          </div>
+        </div>
+        {shareSmsSent && <div className="csx-note ok" role="status"><Check size={18} /><p>لینک شارژ با پیامک برای مشتری ارسال شد.</p></div>}
+        {shareLink && <div className="wallet-share-link"><span>مبلغ لینک: <strong>{toman(shareAmount || '0')} تومان</strong></span><div><input readOnly dir="ltr" value={shareLink} /><button type="button" className="csx-ghost sm" onClick={() => void navigator.clipboard?.writeText(shareLink)}><Copy size={16} /> کپی</button></div></div>}
+        {walletError && <div className="csx-note bad" role="alert"><AlertCircle size={18} /><p>{walletError}</p></div>}
+        <details className="csx-sub"><summary>تراکنش‌های کیف پول <ChevronLeft size={16} /></summary>{(['cash', 'credit'] as const).map(type => <div key={type}><h3>{type === 'cash' ? 'نقدی' : 'اعتباری'}</h3>{walletQuery.data![type].ledger.length ? walletQuery.data![type].ledger.map((entry, i) => <p key={i} className="tx">{entry.kind === 'transfer_out' ? 'برداشت' : 'واریز'} {toman(entry.amountToman)} تومان، {entry.kind === 'transfer_out' || entry.kind === 'transfer_in' ? 'انتقال بین مشتریان' : entry.kind === 'cash_payment' ? 'شارژ نقدی از درگاه' : entry.kind.startsWith('loan_credit') ? 'شارژ اعتبار تسهیلات' : 'سابقه کیف پول'}، {formatDateTime(entry.createdAt)}</p>) : <p className="muted">تراکنشی ثبت نشده است.</p>}</div>)}</details>
+      </>}
+    {perms.includes('customers.view') ? <details className="csx-sub"><summary>لینک‌های شارژ ارسال‌شده <ChevronLeft size={16} /></summary><WalletShareHistory key={id} customerId={id} /></details> : null}
+    <details className="csx-sub"><summary>کیف پول طرح‌ها <ChevronLeft size={16} /></summary><CustomerPlanWallets key={`pw-${id}`} customerId={id} /></details>
+    {isAdmin ? <details className="csx-sub" open={returnedPaymentId !== null}><summary>تطبیق پرداخت‌ها (مدیر) <ChevronLeft size={16} /></summary><PaymentReconciliation customerId={id} returnedPaymentId={returnedPaymentId} /></details> : null}
+  </section> : <div className="csx-pw-solo"><CustomerPlanWallets key={`pw-${id}`} customerId={id} /></div>;
+
+  const adminSec = isAdmin ? <section className="csx-sec danger-zone" aria-labelledby="h-admin" data-testid="section-admin-tools">
+    <header><h2 id="h-admin"><Lock size={20} /> عملیات مدیر</h2></header>
+    <button type="button" className="csx-ghost sm danger" onClick={() => setConfirmDelete(true)} disabled={remove.isPending} data-testid="button-delete-customer-detail"><Trash2 size={18} /> {remove.isPending ? 'در حال حذف…' : 'حذف مشتری'}</button>
+    <p className="hint">حذف دائمی است و تماس‌ها و مشاوره‌های مشتری هم حذف می‌شوند.</p>
+  </section> : null;
+
+  return <div className="csx csx-detail" dir="rtl" data-testid="customer-detail">
     {reviewingRepeat && <RepeatRequestReview customer={customer} onClose={() => setReviewingRepeat(false)} />}
     {returnedPaymentId !== null && <WalletPaymentResult
       result={returnedPayment.data}
@@ -254,206 +585,39 @@ export default function CustomerDetail() {
       onRetry={() => returnedPayment.refetch()}
       onClose={closePaymentResult}
     />}
-    <div className="page-intro"><div><Link href="/customers" className="text-link" style={{ display: 'inline-flex', gap: 5, alignItems: 'center', marginBottom: 10 }} data-testid="link-back-customers"><ArrowRight size={14} /> بازگشت به مشتریان</Link><h2>پرونده مشتری</h2><p>جزئیات ارتباط و زمینه مشاوره مالی</p></div><div style={{ display: 'flex', gap: 8 }}>{session.data?.user.role === 'admin' ? <button className="btn btn-danger" onClick={deleteCustomer} disabled={remove.isPending} data-testid="button-delete-customer-detail"><Trash2 size={15} /> {remove.isPending ? 'در حال حذف…' : 'حذف مشتری'}</button> : null}<button className="btn btn-gold" onClick={() => setConsultationFormOpen(true)} data-testid="button-create-consultation"><FileText size={15} /> ثبت درخواست مشاوره</button><button className="btn btn-primary" onClick={() => setEditing(!editing)} data-testid="button-toggle-customer-edit"><Edit3 size={15} /> {editing ? 'بستن ویرایش' : 'ویرایش پرونده'}</button></div></div>
-    {['admin', 'salesperson', 'registrar'].includes(session.data?.user.role || '') && <div className="panel" style={{ marginBottom: 16 }}>
-      <div className="panel-head"><div><h3>کیف پول مشتری</h3><p>موجودی نقدی و اعتبار تسهیلات، به تومان</p></div><button className="btn btn-ghost" onClick={() => walletQuery.refetch()}>به‌روزرسانی</button></div>
-      {walletQuery.isLoading ? <p>در حال دریافت موجودی…</p> : walletQuery.isError ? <p role="alert">دریافت کیف پول ممکن نشد. دوباره تلاش کنید.</p> : walletQuery.data && <>
-        <div className="metric-grid">
-          <div><span className="metric-label">کیف پول نقدی</span><strong className="metric-value">{BigInt(walletQuery.data.cash.balanceToman).toLocaleString('fa-IR')} تومان</strong></div>
-          <div><span className="metric-label">کیف پول اعتباری</span><strong className="metric-value">{BigInt(walletQuery.data.credit.balanceToman).toLocaleString('fa-IR')} تومان</strong></div>
-        </div>
-         <div className="field" style={{ marginTop: 16 }}><label>افزایش موجودی نقدی با پرداخت واقعی زرین‌پال (تومان)</label><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><input type="number" min="1" inputMode="numeric" value={cashAmount} onChange={e => setCashAmount(e.target.value)} placeholder="مبلغ به تومان" /><button className="btn btn-primary" disabled={paymentPending} onClick={startCashPayment}>پرداخت و شارژ نقدی</button><button className="btn btn-gold" disabled={sharePending} onClick={createWalletShareLink}>{sharePending ? 'در حال ارسال…' : shareLink ? 'ساخت لینک تازه برای پرداخت جدید' : 'ارسال لینک شارژ کیف پول'}</button></div></div>
-         {shareSmsSent && <p role="status" style={{ color: '#047857' }}>لینک شارژ با پیامک برای مشتری ارسال شد.</p>}
-          {shareLink && <div className="wallet-share-link"><span>مبلغ لینک: <strong>{BigInt(shareAmount || '0').toLocaleString('fa-IR')} تومان</strong></span><div><input readOnly dir="ltr" value={shareLink} /><button className="btn btn-ghost" onClick={() => void navigator.clipboard?.writeText(shareLink)}><Copy size={15} /> کپی</button></div></div>}
-        {walletError && <p role="alert" style={{ color: '#be123c' }}>{walletError}</p>}
-        <details style={{ marginTop: 16 }}><summary>تراکنش‌های کیف پول</summary>{(['cash', 'credit'] as const).map(type => <div key={type}><h4>{type === 'cash' ? 'نقدی' : 'اعتباری'}</h4>{walletQuery.data![type].ledger.length ? walletQuery.data![type].ledger.map((entry, i) => <p key={i}>{entry.kind === 'transfer_out' ? 'برداشت' : 'واریز'} {BigInt(entry.amountToman).toLocaleString('fa-IR')} تومان · {entry.kind === 'transfer_out' || entry.kind === 'transfer_in' ? 'انتقال بین مشتریان' : entry.kind === 'cash_payment' ? 'شارژ نقدی از درگاه' : entry.kind.startsWith('loan_credit') ? 'شارژ اعتبار تسهیلات' : 'سابقه کیف پول'} · {formatDateTime(entry.createdAt)}</p>) : <p>تراکنشی ثبت نشده است.</p>}</div>)}</details>
-      </>}
-    </div>}
-    {['admin', 'salesperson', 'registrar'].includes(session.data?.user.role || '') && session.data?.user.permissions?.includes('customers.view') && <WalletShareHistory key={id} customerId={id} />}
-    <CustomerPlanWallets key={`pw-${id}`} customerId={id} />
-    {session.data?.user.role === 'admin' && <PaymentReconciliation customerId={id} returnedPaymentId={returnedPaymentId} />}
-     {session.data?.user.role === 'admin' && <div className="panel" style={{ marginBottom: 16 }} data-testid="panel-customer-salesperson-assignment">
-       <div className="panel-head"><div><h3>تغییر کارشناس فروش</h3><p>تخصیص این مشتری فقط توسط مدیر سیستم قابل تغییر است.</p></div></div>
-       <form onSubmit={reassignSalesperson}>
-         <div className="field">
-           <label htmlFor="customer-salesperson-reassignment">کارشناس فروش</label>
-           <select id="customer-salesperson-reassignment" value={salespersonSelection} onChange={(event) => { setSalespersonSelection(event.target.value); setSalespersonError(''); }} disabled={salespersons.isLoading || salespersons.isError || update.isPending} data-testid="select-customer-salesperson-reassignment">
-             <option value="">بدون تخصیص</option>
-             {customer.salespersonId && !(salespersons.data ?? []).some((person) => person.id === customer.salespersonId) ? <option value={customer.salespersonId} disabled>{customer.salespersonName || 'کارشناس فعلی'} (در فهرست موجود نیست)</option> : null}
-             {(salespersons.data ?? []).map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
-           </select>
-         </div>
-         {salespersons.isLoading ? <p role="status">در حال دریافت فهرست کارشناسان…</p> : null}
-         {salespersons.isError ? <p role="alert">فهرست کارشناسان دریافت نشد. صفحه را تازه‌سازی کنید.</p> : null}
-         {salespersonError ? <p role="alert" data-testid="error-customer-salesperson-reassignment">{salespersonError}</p> : null}
-         <div className="form-footer"><button className="btn btn-primary" type="submit" disabled={salespersons.isLoading || salespersons.isError || update.isPending} data-testid="button-save-customer-salesperson">{update.isPending ? 'در حال ذخیره…' : 'ذخیره کارشناس'}</button></div>
-       </form>
-     </div>}
-    <CustomerTagEditor customer={customer} />
-    <div className="detail-grid">
-      <div className="profile-card">
-        <div className="profile-avatar">{initials(customer.name)}</div>
-        <div className="profile-name-block">
-          <h3 data-testid="text-customer-name">{customer.name}</h3>
-          <div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>کارشناس فروش: {customer.salespersonName || 'بدون تخصیص'}</div>
-          <div className="customer-tags">
-            {customer.isUrgent && <span className="customer-tag customer-tag-urgent">فوری</span>}
-            {customer.verificationStatus === 'unverified' && <span className="customer-tag customer-tag-unverified">احراز نشده</span>}
-             {customer.tags.filter(key => key !== 'repeat_request').map(key => <span className="customer-tag" key={key}>{tagCatalog.data?.find(item => item.key === key)?.label ?? key}</span>)}
-          </div>
-           <RepeatRequestTag customer={customer} onClick={() => setReviewingRepeat(true)} />
-        </div><div className="phone" dir="ltr" data-testid="text-customer-phone">{formatPhoneForDisplay(customer.phone)}</div><div className="customer-identifier" data-testid="text-customer-id">شناسه مشتری: #{customer.id.toLocaleString('fa-IR')}</div>
-        <div style={{ marginTop: 14 }}><span className={`status-pill ${customer.status === 'completed' ? 'status-active' : customer.status === 'in_progress' ? 'status-new' : 'status-muted'}`}>{statusLabel(customer.status)}</span></div>
-        <div className="profile-meta"><div><span>کارشناس فروش</span><strong>{customer.salespersonName || 'بدون تخصیص'}</strong></div><div><span>اولویت</span><Priority value={customer.priority} /></div><div><span>ساخته شده</span><strong>{formatDate(customer.createdAt)}</strong></div><div><span>تعداد فعالیت</span><strong>{(customer.activityCount ?? activity.length).toLocaleString('fa-IR')}</strong></div>{customer.nationalCode && <div><span>کد ملی</span><strong>{customer.nationalCode}</strong></div>}{customer.postalCode && <div><span>کد پستی</span><strong>{customer.postalCode}</strong></div>}{customer.birthDateJalali && <div><span>تاریخ تولد</span><strong dir="ltr" style={{ display: 'inline-block' }}>{customer.birthDateJalali}</strong></div>}{customer.creditRank && <div><span>رتبه اعتباری</span><strong style={{ color: '#99f6e4' }}>{customer.creditRank}</strong></div>}{customer.creditScore != null && <div><span>امتیاز اعتباری</span><strong style={{ color: '#99f6e4' }}>{customer.creditScore}</strong></div>}{customer.creditCheckedAt && <div><span>آخرین استعلام</span><strong style={{ color: '#99f6e4' }}>{formatDate(customer.creditCheckedAt)}</strong></div>}</div>
-        <div className="detail-actions">
-          <a className="icon-button" title="تماس با موبایل" href={`tel:${customer.phone}`} data-testid="link-call-customer"><PhoneCall size={16} /></a>
-          {canCall && (
-            <button 
-              className="icon-button" 
-              title={canDialSystem ? "تماس سیستمی" : "برای تماس سیستمی، ابتدا در بخش تلفن شرکت متصل شوید"} 
-              onClick={() => {
-                if (canDialSystem) dial(customer.phone);
-                else setLocation('/phone');
-              }} 
-              data-testid="button-sys-call-customer"
-            >
-              <Phone size={16} color={canDialSystem ? undefined : '#94a3b8'} />
-            </button>
-          )}
-        </div>
-      </div>
-      {canCreditCheck ? <div className="panel" data-testid="panel-credit-check">
-        <div className="panel-head"><div><h3><ShieldCheck size={17} style={{ verticalAlign: 'middle', marginLeft: 6 }} /> استعلام اعتبار آنلاین</h3><p>استعلام مستقیم از سامانه اعتبارسنجی ایران</p></div><RefreshCw size={18} color="#9aa4b3" /></div>
-        {creditError ? <div className="error-state" style={{ marginBottom: 12 }}>{creditError}</div> : null}
-        {creditChecks.isError ? <div role="alert" className="error-state" style={{ marginBottom: 12 }}>دریافت سابقه استعلام اعتبارسنجی انجام نشد. اتصال سامانه را بررسی و دوباره تلاش کنید.</div> : null}
-        {(() => {
-          const activeCheck = creditChecks.data?.find(c => c.status === 'processing' || c.status === 'awaiting_otp');
-
-          return (
-            <>
-              <div className="credit-check-form-wrapper">
-                {activeCheck ? (
-                  activeCheck.status === 'awaiting_otp' ? (
-                    <form noValidate onSubmit={(event) => {
-                      event.preventDefault();
-                      if (!validateOtp(otp)) { setOtpError('کد یک‌بارمصرف باید بین ۴ تا ۸ رقم باشد.'); return; }
-                      setOtpError(''); setCreditError('');
-                      validateCredit.mutate({ id, checkId: activeCheck.id, data: { otp: normalizeDigits(otp) } }, {
-                        onSuccess: () => { setOtp(''); refreshBoth(); },
-                        onError: (error) => { setCreditError(inquiryErrorMessage(error, 'تأیید کد یک‌بارمصرف انجام نشد.')); setOtpError(serverFieldErrors(error).otp ?? ''); },
-                      });
-                    }}>
-                      <div className="credit-check-alert"><ShieldCheck /><p style={{ margin: 0 }}>رمز یک‌بارمصرف برای موبایل مشتری ارسال شد.</p></div>
-                      <div className="credit-check-row">
-                        <div className="field"><label>رمز یک‌بارمصرف</label><input dir="ltr" inputMode="numeric" value={otp} onChange={(event) => { setOtp(normalizeDigits(event.target.value).replace(/\D/g, '').slice(0, 8)); setOtpError(''); }} maxLength={8} aria-invalid={Boolean(otpError)} data-testid="input-credit-otp" />{otpError && <small role="alert" style={{ color: '#be123c' }} data-testid="error-credit-otp">{otpError}</small>}</div>
-                        <button className="btn btn-gold" type="submit" disabled={validateCredit.isPending}>{validateCredit.isPending ? 'در حال بررسی…' : 'تأیید و دریافت گزارش'}</button>
-                        <button className="btn btn-ghost" type="button" onClick={() => renewCredit.mutate({ id, checkId: activeCheck.id }, { onSuccess: refreshBoth, onError: (error) => { setCreditError(inquiryErrorMessage(error, 'ارسال مجدد کد یک‌بارمصرف انجام نشد.')); refreshBoth(); } })} disabled={renewCredit.isPending}>ارسال مجدد</button>
-                      </div>
-                    </form>
-                  ) : (
-                    <div className="empty-state" style={{ padding: '24px 10px' }}><RefreshCw className="spin" /><strong>گزارش در حال آماده‌سازی است</strong><p>وضعیت به‌صورت خودکار به‌روزرسانی می‌شود.</p></div>
-                  )
-                ) : (
-                  <form noValidate onSubmit={(event) => {
-                    event.preventDefault();
-                    if (!validateIranianNationalCode(nationalCode)) { setNationalCodeError('کد ملی ۱۰ رقمی معتبر وارد کنید.'); return; }
-                    setNationalCodeError('');
-                    setCreditError('برای شروع استعلام، ابتدا در ثبت درخواست تسهیلات هزینه ثابت تشکیل پرونده را از کیف پول نقدی پرداخت کنید.');
-                  }}>
-                    <div className="credit-check-row">
-                      <div className="field"><label>کد ملی مشتری</label><input dir="ltr" inputMode="numeric" value={nationalCode} onChange={(event) => { setNationalCode(event.target.value); setNationalCodeError(''); }} placeholder="۱۰ رقم" maxLength={10} aria-invalid={Boolean(nationalCodeError)} data-testid="input-credit-national-code" />{nationalCodeError && <small role="alert" style={{ color: '#be123c' }} data-testid="error-credit-national-code">{nationalCodeError}</small>}</div>
-                      <button className="btn btn-gold" type="submit"><ShieldCheck size={15} /> راهنمای شروع استعلام</button>
-                    </div>
-                  </form>
-                )}
-              </div>
-              {creditChecks.data && creditChecks.data.length > 0 ? (
-                <div className="credit-history">
-                  {creditChecks.data.map(check => (
-                    <div key={check.id} className="credit-history-item">
-                      <div className="credit-history-main">
-                        <div className="credit-history-title">
-                          {check.scoreLabel || 'بدون امتیاز'}
-                          <span className={`credit-history-status ${check.status === 'report_generated' ? 'generated' : check.status === 'failed' ? 'failed' : 'pending'}`}>
-                            {check.status === 'report_generated' ? 'موفق' : check.status === 'failed' ? 'خطا' : 'در حال انجام'}
-                          </span>
-                        </div>
-                        {check.summary ? <div className="credit-history-meta">{check.summary}</div> : null}
-                        <div className="credit-history-meta" style={{ marginTop: 4 }}>
-                          {check.status === 'report_generated' ? 'دریافت گزارش' : check.status === 'failed' ? 'آخرین تلاش' : 'آخرین به‌روزرسانی'}: {formatDateTime(check.completedAt || check.updatedAt)}
-                        </div>
-                      </div>
-                      {check.status === 'report_generated' ? (
-                        <a className="btn btn-ghost" style={{ padding: '0 12px', minHeight: '34px', fontSize: '11px' }} href={`/api/customers/${id}/credit-checks/${check.id}/report.pdf`} download><FileText size={14} /> دانلود PDF</a>
-                      ) : null}
-                      {check.status === 'failed' && check.errorMessage ? (
-                        <div style={{ color: '#be123c', fontSize: '11px', maxWidth: '150px' }}>{inquiryErrorMessage({ data: { message: check.errorMessage } }, 'استعلام اعتبارسنجی ناموفق بود.')}</div>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </>
-          );
-        })()}
-      </div> : null}
-      {editing ? <div className="panel">
-        <div className="panel-head"><div><h3>ویرایش اطلاعات پایه</h3><p>تغییرات پرونده را ذخیره کنید.</p></div></div>
-        <form noValidate onSubmit={save}>
-          <div className="form-grid">
-            <div className="field"><label>نام مشتری</label><input value={form.name} onChange={(e) => { setForm({ ...form, name: e.target.value }); setProfileErrors(current => ({ ...current, name: '' })); }} aria-invalid={Boolean(profileErrors.name)} data-testid="input-detail-name" />{profileErrors.name && <small role="alert" style={{ color: '#be123c' }}>{profileErrors.name}</small>}</div>
-            <div className="field"><label>شماره تماس</label><input dir="ltr" inputMode="tel" value={form.phone} onChange={(e) => { setForm({ ...form, phone: e.target.value }); setProfileErrors(current => ({ ...current, phone: '' })); }} aria-invalid={Boolean(profileErrors.phone)} data-testid="input-detail-phone" />{profileErrors.phone && <small role="alert" style={{ color: '#be123c' }}>{profileErrors.phone}</small>}</div>
-            <div className="field"><label>کد ملی</label><input dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={(e) => { setForm({ ...form, nationalCode: e.target.value }); setProfileErrors(current => ({ ...current, nationalCode: '' })); }} maxLength={10} aria-invalid={Boolean(profileErrors.nationalCode)} data-testid="input-detail-national-code" />{profileErrors.nationalCode && <small role="alert" style={{ color: '#be123c' }}>{profileErrors.nationalCode}</small>}</div>
-            <div className="field"><label>کد پستی</label><input dir="ltr" inputMode="numeric" value={form.postalCode} onChange={(e) => { setForm({ ...form, postalCode: e.target.value }); setProfileErrors(current => ({ ...current, postalCode: '' })); }} maxLength={10} aria-invalid={Boolean(profileErrors.postalCode)} data-testid="input-detail-postal-code" />{profileErrors.postalCode && <small role="alert" style={{ color: '#be123c' }}>{profileErrors.postalCode}</small>}</div>
-            <div className="field"><label>تاریخ تولد (شمسی)</label><PersianDatePicker value={form.birthDateJalali} onChange={(v) => { setForm({ ...form, birthDateJalali: v }); setProfileErrors(current => ({ ...current, birthDateJalali: '' })); }} testId="input-detail-birth-date" birthDate />{profileErrors.birthDateJalali && <small role="alert" style={{ color: '#be123c' }}>{profileErrors.birthDateJalali}</small>}</div>
-            <div className="field"><label>اولویت</label><select value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} data-testid="select-detail-priority"><option value="">بدون اولویت</option>{[1,2,3].map((value) => <option key={value} value={value}>اولویت {value}</option>)}</select></div>
-            <div className="field"><label>وضعیت</label><select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as CustomerUpdateStatus })} data-testid="select-detail-status"><option value="in_progress">در حال انجام</option><option value="cancelled">لغو شده</option><option value="completed">اتمام</option></select></div>
-            <div className="field full"><label className="boolean-field"><input type="checkbox" checked={form.isUrgent} onChange={(e) => setForm({ ...form, isUrgent: e.target.checked })} data-testid="checkbox-detail-is-urgent" /> <strong>مشتری فوری</strong></label></div>
-            <div className="field full"><label>توضیحات</label><textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} data-testid="textarea-detail-description" /></div>
-          </div>
-          {profileErrors._form && <div role="alert" className="profile-form-error">{profileErrors._form}</div>}
-          <div className="form-footer"><button className="btn btn-primary" type="submit" disabled={update.isPending} data-testid="button-save-detail"><Save size={15} /> {update.isPending ? 'در حال ذخیره...' : 'ذخیره تغییرات'}</button><button className="btn btn-ghost" type="button" onClick={() => { setEditing(false); setProfileErrors({}); }}>انصراف</button></div>
-        </form>
-      </div> : <div className="panel"><div className="panel-head"><div><h3>خلاصه پرونده</h3><p>اطلاعات زمینه‌ای ثبت‌شده توسط تیم</p></div><UserRound size={18} color="#9aa4b3" /></div><p style={{ color: '#66738a', fontSize: 13, lineHeight: 2, margin: 0 }}>{customer.description || 'برای این پرونده توضیحی ثبت نشده است.'}</p><div style={{ marginTop: 20, paddingTop: 15, borderTop: '1px solid #edf0f4', display: 'flex', gap: 22, color: '#7b8697', fontSize: 11 }}><span>آخرین فعالیت: <strong style={{ color: '#26395f' }}>{formatDate(customer.lastActivityAt)}</strong></span><span>شناسه پرونده: <strong style={{ color: '#26395f', fontFamily: 'var(--app-font-mono)' }}>#{customer.id}</strong></span></div></div>}
-      <div style={{ gridColumn: "1 / -1" }}><CustomerConsultationStatus customerId={id} /></div><div className="panel"><div className="panel-head"><div><h3>خط زمانی ارتباط</h3><p>تماس‌ها و یادداشت‌های کارشناسان</p></div><PhoneCall size={18} color="#9aa4b3" /></div>{activityQuery.isLoading ? <div className="loading-stack"><div className="skeleton loading-line" /><div className="skeleton loading-line" /></div> : activity.length ? <div className="timeline">{activity.map((item) => <div className="timeline-item" key={item.id}><h4>{item.subject || 'تماس با مشتری'}</h4><p>{item.customerRequest || 'درخواست مشتری ثبت نشده است.'}{item.expertNotes ? ` — ${item.expertNotes}` : ''}</p><time>{item.salespersonName || 'کارشناس تیم'} · {formatDateTime(item.createdAt)}</time></div>)}</div> : <div className="empty-state"><PhoneCall /><strong>هنوز فعالیتی ثبت نشده</strong><p>بعد از اولین تماس، خط زمانی اینجا شکل می‌گیرد.</p></div>}</div>
-      {hasCallsView && <div className="panel">
-        <div className="panel-head">
-          <div>
-            <h3>تماس‌های سیستمی</h3>
-            <p>سوابق تماس با تلفن شرکت</p>
-          </div>
-          <Phone size={18} color="#9aa4b3" />
-        </div>
-        {historyQuery.isLoading ? <div className="loading-stack"><div className="skeleton loading-line" /><div className="skeleton loading-line" /></div> : 
-         historyQuery.isError ? <ErrorState onRetry={() => historyQuery.refetch()} /> : (
-          historyQuery.data?.items && historyQuery.data.items.length > 0 ? (
-            <>
-              <div className="timeline">
-                {historyQuery.data.items.map(record => (
-                  <div className="timeline-item" key={record.id}>
-                    <h4>{record.direction === 'incoming' ? 'تماس ورودی' : 'تماس خروجی'} — {record.status === 'completed' ? 'پاسخ داده شده' : record.status === 'missed' ? 'از دست رفته' : record.status === 'rejected' ? 'رد شده' : record.status === 'failed' ? 'ناموفق' : record.status}</h4>
-                    <p>کارشناس: {record.actorName} (داخلی {record.extension})</p>
-                    <time>{formatDateTime(record.startedAt)}</time>
-                  </div>
-                ))}
-              </div>
-              {historyQuery.data.total > historyQuery.data.limit && (
-                <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'center' }}>
-                  <button className="btn btn-ghost" disabled={historyPage === 1} onClick={() => setHistoryPage(p => p - 1)}>قبلی</button>
-                  <button className="btn btn-ghost" disabled={historyPage * historyQuery.data.limit >= historyQuery.data.total} onClick={() => setHistoryPage(p => p + 1)}>بعدی</button>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="empty-state">
-              <Phone />
-              <strong>بدون تماس سیستمی</strong>
-              <p>تا به حال تماس سیستمی با این مشتری ثبت نشده است.</p>
-            </div>
-          )
-        )}
-      </div>}
+    <nav className="csx-crumb" aria-label="مسیر"><Link href="/customers" data-testid="link-back-customers"><ArrowRight size={16} /> مشتریان</Link><ChevronLeft size={14} aria-hidden="true" /><span aria-current="page">{customer.name}</span></nav>
+    {hero}
+    {readOnlyRole ? <div className="csx-note warn" data-testid="note-readonly-role"><Lock size={18} /><p>فقط مشاهده — ویرایش، تماس و کیف پول برای نقش شما فعال نیست.</p></div> : null}
+    <nav className="csx-secnav m-only" aria-label="بخش‌های پرونده">{secs.map(([key, label, n]) => <a key={key} href={`#sec-${key}`} aria-current={activeSec === key ? 'true' : undefined} onClick={(event) => { event.preventDefault(); setActiveSec(key); document.getElementById(`sec-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>{label}{n != null ? <span className="n">{faNum(n)}</span> : null}</a>)}</nav>
+    <div className="csx-dgrid">
+      <div className="colA">{infoSec}{loansSec}{callsSec}</div>
+      <div className="colB">{statusSec}{creditSec}{walletSec}{adminSec}</div>
     </div>
+    {editing ? <div className="csx-formhost"><Sheet title={`ویرایش پرونده ${customer.name}`} onClose={() => { setEditing(false); setProfileErrors({}); }} testId="customer-edit-sheet" initialFocus='[data-testid="input-detail-name"]' footer={<>
+      <button className="csx-ghost" type="button" onClick={() => { setEditing(false); setProfileErrors({}); }}>انصراف</button>
+      <button className="csx-primary" type="submit" form="customer-edit-form" disabled={update.isPending} data-testid="button-save-detail">{update.isPending ? 'در حال ذخیره...' : 'ذخیره تغییرات'}</button>
+    </>}>
+      {profileErrors._form && <div role="alert" className="csx-note bad profile-form-error"><AlertCircle size={18} /><p>{profileErrors._form}</p></div>}
+      <form id="customer-edit-form" noValidate onSubmit={save} className="csx-sheet-body" style={{ display: 'grid', gap: 14 }}>
+        <div className="field"><label htmlFor="detail-name">نام و نام خانوادگی</label><input id="detail-name" value={form.name} onChange={(e) => { setForm({ ...form, name: e.target.value }); setProfileErrors(current => ({ ...current, name: '' })); }} aria-invalid={Boolean(profileErrors.name)} aria-describedby={profileErrors.name ? 'detail-name-err' : undefined} data-testid="input-detail-name" />{fieldErr('name', 'detail-name')}</div>
+        <div className="field"><label htmlFor="detail-phone">شماره موبایل</label><input id="detail-phone" dir="ltr" inputMode="tel" value={form.phone} onChange={(e) => { setForm({ ...form, phone: e.target.value }); setProfileErrors(current => ({ ...current, phone: '' })); }} aria-invalid={Boolean(profileErrors.phone)} aria-describedby={profileErrors.phone ? 'detail-phone-err' : undefined} data-testid="input-detail-phone" />{fieldErr('phone', 'detail-phone')}</div>
+        <div className="field"><label htmlFor="detail-nc">کد ملی</label><input id="detail-nc" dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={(e) => { setForm({ ...form, nationalCode: e.target.value }); setProfileErrors(current => ({ ...current, nationalCode: '' })); }} maxLength={10} aria-invalid={Boolean(profileErrors.nationalCode)} aria-describedby={profileErrors.nationalCode ? 'detail-nc-err' : undefined} data-testid="input-detail-national-code" />{fieldErr('nationalCode', 'detail-nc')}</div>
+        <div className="field"><label htmlFor="detail-pc">کد پستی (اختیاری)</label><input id="detail-pc" dir="ltr" inputMode="numeric" value={form.postalCode} onChange={(e) => { setForm({ ...form, postalCode: e.target.value }); setProfileErrors(current => ({ ...current, postalCode: '' })); }} maxLength={10} aria-invalid={Boolean(profileErrors.postalCode)} aria-describedby={profileErrors.postalCode ? 'detail-pc-err' : undefined} data-testid="input-detail-postal-code" />{fieldErr('postalCode', 'detail-pc')}</div>
+        <div className="field"><label>تاریخ تولد (شمسی، اختیاری)</label><PersianDatePicker value={form.birthDateJalali} onChange={(v) => { setForm({ ...form, birthDateJalali: v }); setProfileErrors(current => ({ ...current, birthDateJalali: '' })); }} testId="input-detail-birth-date" birthDate />{fieldErr('birthDateJalali', 'detail-bd')}</div>
+        <div className="csx-two">
+          <div className="field"><label htmlFor="detail-priority">اولویت</label><select id="detail-priority" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} data-testid="select-detail-priority"><option value="">بدون اولویت</option>{[1, 2, 3].map((value) => <option key={value} value={value}>اولویت {faNum(value)}</option>)}</select></div>
+          <div className="field"><label htmlFor="detail-status">وضعیت</label><select id="detail-status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as CustomerUpdateStatus })} data-testid="select-detail-status"><option value="in_progress">در حال انجام</option><option value="cancelled">لغو شده</option><option value="completed">اتمام</option></select></div>
+        </div>
+        <label className="csx-check"><input type="checkbox" checked={form.isUrgent} onChange={(e) => setForm({ ...form, isUrgent: e.target.checked })} data-testid="checkbox-detail-is-urgent" /> مشتری فوری</label>
+        <div className="field"><label htmlFor="detail-desc">توضیح</label><textarea id="detail-desc" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} data-testid="textarea-detail-description" /></div>
+        <p className="hint">ویرایش کد ملی، تاریخ تولد، کد پستی یا موبایل، وضعیت احراز را به «احراز نشده» برمی‌گرداند.</p>
+      </form>
+    </Sheet></div> : null}
+    {confirmDelete ? <ConfirmDialog title={`حذف «${customer.name}»؟`} confirmLabel="حذف دائمی مشتری" pendingLabel="در حال حذف…" pending={remove.isPending} error={remove.isError ? 'حذف انجام نشد. دوباره تلاش کنید.' : undefined} onConfirm={deleteCustomer} onClose={() => setConfirmDelete(false)} testId="dialog-delete-customer">
+      <p>این کار برگشت‌پذیر نیست.</p>
+      <p className="hint">پرونده و تمام تماس‌ها و مشاوره‌های مرتبط برای همیشه حذف می‌شوند.</p>
+    </ConfirmDialog> : null}
+    {callFormOpen ? <CallForm customers={[customer]} salespersons={salespersons.data ?? []} pending={createCall.isPending} error={createCall.isError} initialCustomerId={customer.id} onClose={() => setCallFormOpen(false)} onSave={handleSaveCall} /> : null}
     {consultationFormOpen && (
       <CreateConsultationForm
         customers={[customer]}
@@ -472,5 +636,6 @@ export default function CustomerDetail() {
         }}
       />
     )}
-  </section>;
+    {toast ? <div className="csx-toast" role="status">{toast}</div> : null}
+  </div>;
 }
