@@ -38,7 +38,7 @@ const ERR_FA: Record<string, string> = {
   too_soon: 'هنوز زود است؛ بین دو تلاش باید فاصله باشد.',
   max_attempts: 'سقف تلاش‌ها پر شده؛ «لغو» یا «تماس گرفته شد» را بزنید.',
   cancel_reason_required: 'دلیل لغو را انتخاب کنید.',
-  already_assigned: 'این درخواست همین حالا به همکار دیگری سپرده شد.',
+  already_assigned: 'این درخواست همین حالا به همکار دیگری تخصیص داده شد.',
   invalid_transition: 'این تغییر وضعیت ممکن نیست؛ فهرست به‌روز شد.',
   forbidden: 'دسترسی لازم برای این کار را ندارید.',
   not_found: 'این درخواست دیگر در فهرست شما نیست.',
@@ -104,7 +104,7 @@ export default function CallbackRequests() {
   };
   const outcome = (item: CallbackItem, to: CallbackStatus) =>
     run(() => callbacksApi.status(item.id, to), () => { setCalledId(null); say(`وضعیت: ${CALLBACK_STATUS_FA[to]}`); });
-  const take = (item: CallbackItem) => meta && run(() => callbacksApi.assign(item.id, meta.me), () => say('به شما سپرده شد'));
+  const take = (item: CallbackItem) => meta && run(() => callbacksApi.assign(item.id, meta.me), () => say('به شما تخصیص داده شد'));
 
   const selectedItem = items.find(i => i.id === selected) ?? null;
   const counts = list.data?.counts;
@@ -329,7 +329,7 @@ function CallbackDetail({ item, meta, wide, assignees, busy, run, say, onClose, 
                   {item.assignedUserId
                     ? <><UserAvatar userId={item.assignedUserId} name={item.assignedUserName} size={28} />{item.assignedUserName}{item.assignedUserId === meta.me ? ' (شما)' : ''}</>
                     : <><span className="none">بدون مسئول</span>{meta.canManage && <button type="button" className="cbx-text" disabled={busy}
-                        onClick={() => run(() => callbacksApi.assign(item.id, meta.me), () => say('به شما سپرده شد'))} data-testid="button-take-detail">به من بسپار</button>}</>}
+                        onClick={() => run(() => callbacksApi.assign(item.id, meta.me), () => say('به شما تخصیص داده شد'))} data-testid="button-take-detail">به من بسپار</button>}</>}
                 </div>}
           </div>
           {meta.canConvert && !item.convertedAt && item.status !== 'cancelled' && (
