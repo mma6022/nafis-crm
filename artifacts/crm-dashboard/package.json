@@ -5,14 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite --config vite.config.ts --host 0.0.0.0",
-    "build": "vite build --config vite.config.ts",
+    "build": "vite build --config vite.config.ts && node scripts/dashboard-no-landline-fixture.mjs",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:wizard-flow": "node scripts/create-wizard-flow-fixture.mjs",
     "test:loan-document-review": "node scripts/loan-document-review-fixture.mjs",
     "test:plan-finder-answers": "node --experimental-transform-types scripts/plan-finder-answers-fixture.mjs",
     "test:search-normalization": "node --experimental-strip-types scripts/search-normalization-fixture.mjs",
-    "test:portal-no-landline": "node scripts/portal-no-landline-fixture.mjs"
+    "test:portal-no-landline": "node scripts/portal-no-landline-fixture.mjs",
+    "test:dashboard-no-landline": "node scripts/dashboard-no-landline-fixture.mjs"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
