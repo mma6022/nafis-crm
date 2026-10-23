@@ -1,0 +1,145 @@
+---
+import type { GetStaticPaths } from 'astro';
+import { render } from 'astro:content';
+import { Image } from 'astro:assets';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Breadcrumbs from '../../components/Breadcrumbs.astro';
+import PostCard from '../../components/blog/PostCard.astro';
+import ButtonLink from '../../components/ui/ButtonLink.astro';
+import {
+  getPosts,
+  postPath,
+  categoryPath,
+  categoryLabel,
+  tagPath,
+  readingMinutes,
+  relatedPosts,
+  type Post,
+} from '../../lib/blog';
+import { articleLd, breadcrumbLd } from '../../lib/seo';
+import { formatDateFa, toFaDigits } from '../../lib/format';
+
+export const getStaticPaths = (async () => {
+  const posts = await getPosts();
+  return posts.map((post) => ({ params: { slug: post.id }, props: { post, related: relatedPosts(post, posts) } }));
+}) satisfies GetStaticPaths;
+
+const { post, related } = Astro.props as { post: Post; related: Post[] };
+const d = post.data;
+const { Content } = await render(post);
+const path = postPath(post);
+const minutes = readingMinutes(post.body);
+const crumbs = [
+  { name: 'خانه', path: '/' },
+  { name: 'مجله', path: '/blog' },
+  { name: categoryLabel(d.category), path: categoryPath(d.category) },
+  { name: d.title, path },
+];
+const ogImage = d.cover?.src;
+---
+
+<BaseLayout
+  title={d.title}
+  description={d.description}
+  ogType="article"
+  image={ogImage}
+  noindex={d.sample || d.draft}
+  publishedTime={d.date}
+  modifiedTime={d.updated ?? d.date}
+  jsonLd={[
+    articleLd({
+      title: d.title,
+      description: d.description,
+      path,
+      date: d.date,
+      updated: d.updated,
+      author: d.author,
+      image: ogImage,
+      category: categoryLabel(d.category),
+      tags: d.tags,
+    }),
+    breadcrumbLd(crumbs),
+  ]}
+>
+  <article class="container-nf max-w-3xl py-8 sm:py-12">
+    <Breadcrumbs items={crumbs} />
+    {d.sample && (
+      <p class="mb-5 rounded-[var(--radius)] border border-danger/20 bg-danger-50 px-4 py-3 text-sm font-semibold text-danger">
+        این یک نوشته نمونه برای اسکلت سایت است و محتوای نهایی نیست (noindex).
+      </p>
+    )}
+    <header>
+      <a href={categoryPath(d.category)} class="text-sm font-bold text-gold-700 hover:underline">
+        {categoryLabel(d.category)}
+      </a>
+      <h1 class="mt-2 text-[28px] leading-[1.5] font-extrabold sm:text-4xl sm:leading-[1.45]">{d.title}</h1>
+      <p class="mt-4 text-lg text-ink-muted">{d.description}</p>
+      <p class="mt-4 flex flex-wrap gap-x-3 text-sm text-ink-faint">
+        <span>{d.author}</span>·<time datetime={d.date.toISOString()}>{formatDateFa(d.date)}</time>
+        {d.updated && (
+          <>
+            ·{' '}
+            <span>
+              به‌روزرسانی: <time datetime={d.updated.toISOString()}>{formatDateFa(d.updated)}</time>
+            </span>
+          </>
+        )}
+        · <span>{toFaDigits(minutes)} دقیقه مطالعه</span>
+      </p>
+    </header>
+    {d.cover && (
+      <Image
+        src={d.cover}
+        alt={d.coverAlt ?? ''}
+        widths={[640, 1024, 1280]}
+        sizes="(min-width: 768px) 768px, 100vw"
+        class="mt-8 w-full rounded-[var(--radius-xl)]"
+        loading="eager"
+      />
+    )}
+
+    <div class="prose-nf mt-8">
+      <Content />
+    </div>
+
+    {d.tags.length > 0 && (
+      <ul class="mt-10 flex flex-wrap gap-2" aria-label="برچسب‌ها">
+        {d.tags.map((t) => (
+          <li>
+            <a
+              href={tagPath(t)}
+              class="inline-flex min-h-10 items-center rounded-full bg-surface-2 px-4 text-sm font-semibold text-ink-soft hover:bg-brand-50 hover:text-brand-600"
+            >
+              #{t}
+            </a>
+          </li>
+        ))}
+      </ul>
+    )}
+
+    <aside class="mt-10 rounded-[var(--radius-xl)] bg-brand-700 p-6 text-white sm:p-8">
+      <p class="text-xl font-extrabold">برای انتخاب وام مناسب کمک می‌خواهید؟</p>
+      <p class="mt-2 text-brand-100">در چند قدم ساده درخواست بدهید؛ مشاوره اول بدون تعهد است.</p>
+      <ButtonLink href="/request" variant="gold" class="mt-5">
+        درخواست مشاوره رایگان
+      </ButtonLink>
+    </aside>
+  </article>
+
+  {related.length > 0 && (
+    <section class="defer-render border-t border-line bg-white py-12" aria-labelledby="related-title">
+      <div class="container-nf">
+        <h2 id="related-title" class="mb-6 text-2xl font-extrabold">
+          مطالب مرتبط
+        </h2>
+        <ul class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {related.map((p) => (
+            <li>
+              <PostCard post={p} headingLevel="h3" />
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  )}
+</BaseLayout>

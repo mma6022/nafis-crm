@@ -1,0 +1,55 @@
+---
+/** TODO(spec): final hero copy/visual from the PM. Copy below is from the current live site. */
+import ButtonLink from '../ui/ButtonLink.astro';
+---
+
+<section class="relative overflow-hidden bg-white">
+  <div
+    class="pointer-events-none absolute -left-24 -top-24 size-80 rounded-full bg-brand-50 blur-2xl"
+    aria-hidden="true"
+  ></div>
+  <div class="container-nf relative grid items-center gap-10 py-12 sm:py-16 lg:grid-cols-[1.1fr_.9fr] lg:py-24">
+    <div>
+      <p class="mb-3 inline-flex rounded-full bg-gold-50 px-3 py-1 text-sm font-bold text-gold-700">
+        مشاوره رایگان و بدون تعهد
+      </p>
+      <h1 class="text-[32px] leading-[1.45] font-extrabold text-ink sm:text-5xl sm:leading-[1.35]">
+        برای فردای بهتر، <span class="text-brand-600">وام مناسب</span> را پیدا کنید
+      </h1>
+      <p class="mt-5 max-w-xl text-lg text-ink-soft">
+        بین طرح‌های مختلف تسهیلات، مبلغ و اقساطی را انتخاب کنید که با واقعیت زندگی‌تان جور باشد؛ شفاف، مرحله‌به‌مرحله و
+        بدون عجله.
+      </p>
+      <div class="mt-8 flex flex-col gap-3 sm:flex-row">
+        <ButtonLink href="/request" size="lg">
+          درخواست وام در ۲ دقیقه
+        </ButtonLink>
+        <ButtonLink href="/calculator" size="lg" variant="secondary">
+          محاسبه قسط
+        </ButtonLink>
+      </div>
+      <ul class="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-[15px] text-ink-muted">
+        <li>✓ توضیح ساده شرایط</li>
+        <li>✓ متناسب با توان بازپرداخت</li>
+        <li>✓ بدون تعهد در گفت‌وگوی اول</li>
+      </ul>
+    </div>
+    <div class="hidden lg:block">
+      <div class="rounded-[var(--radius-xl)] border border-line bg-surface p-6 shadow-card">
+        <p class="text-sm text-ink-muted">نمونه برآورد</p>
+        <p class="mt-1 text-3xl font-extrabold">۳۰۰ میلیون تومان</p>
+        <div class="mt-5 grid grid-cols-2 gap-3">
+          <div class="rounded-[var(--radius)] bg-white p-4">
+            <p class="text-sm text-ink-muted">بازپرداخت</p>
+            <p class="text-xl font-bold">۲۴ ماهه</p>
+          </div>
+          <div class="rounded-[var(--radius)] bg-white p-4">
+            <p class="text-sm text-ink-muted">نرخ سود</p>
+            <p class="text-xl font-bold">۲۳٪</p>
+          </div>
+        </div>
+        <p class="mt-4 text-xs text-ink-faint">TODO(spec): تصویر/المان اصلی هیرو</p>
+      </div>
+    </div>
+  </div>
+</section>

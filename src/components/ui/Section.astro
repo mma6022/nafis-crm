@@ -1,0 +1,64 @@
+---
+/** Page section with optional kicker/title/lead. `defer` = below-the-fold (content-visibility:auto). */
+interface Props {
+  id?: string;
+  kicker?: string;
+  title?: string;
+  lead?: string;
+  tone?: 'plain' | 'white' | 'brand';
+  defer?: boolean;
+  center?: boolean;
+  class?: string;
+  headingLevel?: 'h1' | 'h2';
+}
+const {
+  id,
+  kicker,
+  title,
+  lead,
+  tone = 'plain',
+  defer = false,
+  center = false,
+  class: cls = '',
+  headingLevel: H = 'h2',
+} = Astro.props;
+---
+
+<section
+  id={id}
+  class:list={[
+    'py-14 sm:py-20',
+    tone === 'white' && 'bg-white',
+    tone === 'brand' && 'bg-brand-700 text-white',
+    defer && 'defer-render',
+    cls,
+  ]}
+  aria-labelledby={title && id ? `${id}-title` : undefined}
+>
+  <div class="container-nf">
+    {(kicker || title || lead) && (
+      <div class:list={['mb-8 sm:mb-10', center && 'mx-auto max-w-2xl text-center']}>
+        {kicker && (
+          <p class:list={['mb-2 text-sm font-bold', tone === 'brand' ? 'text-gold-100' : 'text-gold-700']}>{kicker}</p>
+        )}
+        {title && (
+          <H
+            id={id ? `${id}-title` : undefined}
+            class:list={[
+              'text-[26px] leading-snug font-extrabold sm:text-3xl lg:text-4xl',
+              tone === 'brand' ? 'text-white' : 'text-ink',
+            ]}
+          >
+            {title}
+          </H>
+        )}
+        {lead && (
+          <p class:list={['mt-3 text-base sm:text-lg', tone === 'brand' ? 'text-brand-100' : 'text-ink-muted']}>
+            {lead}
+          </p>
+        )}
+      </div>
+    )}
+    <slot />
+  </div>
+</section>

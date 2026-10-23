@@ -1,0 +1,26 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageHeader from '../components/PageHeader.astro';
+import Section from '../components/ui/Section.astro';
+import Placeholder from '../components/ui/Placeholder.astro';
+import { breadcrumbLd } from '../lib/seo';
+const crumbs = [
+  { name: 'خانه', path: '/' },
+  { name: 'شرایط استفاده', path: Astro.url.pathname },
+];
+---
+
+<BaseLayout
+  title="شرایط استفاده"
+  description="شرایط و قوانین استفاده از وب‌سایت و خدمات مشاوره تسهیلات نفیس وام."
+  jsonLd={[breadcrumbLd(crumbs)]}
+>
+  <PageHeader title="شرایط استفاده" crumbs={crumbs} />
+  <Section>
+    <Placeholder
+      label="متن شرایط استفاده"
+      note="TODO(legal): متن نهایی باید توسط محمد/مشاور حقوقی تأیید شود."
+      minH="min-h-64"
+    />
+  </Section>
+</BaseLayout>

@@ -1,0 +1,36 @@
+---
+import type { GetStaticPaths, Page } from 'astro';
+import BaseLayout from '../../../../layouts/BaseLayout.astro';
+import PageHeader from '../../../../components/PageHeader.astro';
+import PostGrid from '../../../../components/blog/PostGrid.astro';
+import Pagination from '../../../../components/blog/Pagination.astro';
+import { getPosts, POSTS_PER_PAGE, collectTags, type Post } from '../../../../lib/blog';
+import { breadcrumbLd } from '../../../../lib/seo';
+
+export const getStaticPaths = (async ({ paginate }) => {
+  const tags = collectTags(await getPosts());
+  return [...tags.entries()].flatMap(([tag, t]) =>
+    paginate(t.posts, { params: { tag }, props: { label: t.label }, pageSize: POSTS_PER_PAGE }),
+  );
+}) satisfies GetStaticPaths;
+
+const { page, label } = Astro.props as { page: Page<Post>; label: string };
+const crumbs = [
+  { name: 'خانه', path: '/' },
+  { name: 'مجله', path: '/blog' },
+  { name: `#${label}`, path: Astro.url.pathname },
+];
+---
+
+<BaseLayout
+  title={`برچسب ${label} — مجله`}
+  description={`مقالات مجله نفیس وام با برچسب «${label}»: آموزش وام، تسهیلات و اقساط به زبان ساده.`}
+  jsonLd={[breadcrumbLd(crumbs)]}
+  noindex={!page.data.some((p) => !p.data.sample && !p.data.draft)}
+>
+  <PageHeader title={`#${label}`} lead="مطالب مرتبط با این برچسب" crumbs={crumbs} />
+  <div class="container-nf py-10">
+    <PostGrid posts={page.data} />
+    <Pagination page={page} />
+  </div>
+</BaseLayout>

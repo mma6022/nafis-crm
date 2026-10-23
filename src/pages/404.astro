@@ -1,0 +1,21 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import ButtonLink from '../components/ui/ButtonLink.astro';
+---
+
+<BaseLayout title="صفحه پیدا نشد" description="صفحه‌ای که دنبالش بودید پیدا نشد." noindex>
+  <div class="container-nf py-20 text-center">
+    <p class="text-6xl font-extrabold text-brand-200">۴۰۴</p>
+    <h1 class="mt-4 text-3xl font-extrabold">این صفحه پیدا نشد</h1>
+    <p class="mt-3 text-ink-muted">شاید آدرس تغییر کرده باشد. از اینجا ادامه دهید:</p>
+    <div class="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
+      <ButtonLink href="/">صفحه اصلی</ButtonLink>
+      <ButtonLink href="/request" variant="secondary">
+        درخواست وام
+      </ButtonLink>
+      <ButtonLink href="/blog" variant="secondary">
+        مجله نفیس وام
+      </ButtonLink>
+    </div>
+  </div>
+</BaseLayout>

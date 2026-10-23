@@ -1,0 +1,10 @@
+---
+interface Props {
+  data: unknown | unknown[];
+}
+const items = (Array.isArray(Astro.props.data) ? Astro.props.data : [Astro.props.data]).filter(Boolean);
+---
+
+{items.map((d) => (
+  <script type="application/ld+json" set:html={JSON.stringify(d).replace(/</g, '\\u003c')} />
+))}

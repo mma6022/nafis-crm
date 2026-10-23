@@ -1,0 +1,152 @@
+/* Self-hosted Vazirmatn (fontsource) — no Google Fonts CDN, so it loads inside Iran. */
+@import '@fontsource/vazirmatn/400.css';
+@import '@fontsource/vazirmatn/500.css';
+@import '@fontsource/vazirmatn/700.css';
+@import '@fontsource/vazirmatn/800.css';
+@import 'tailwindcss';
+
+/*
+ * Nafis design tokens — same palette as the CRM theme
+ * (nafis-crm/artifacts/crm-dashboard/src/theme/nafis-theme.css): navy brand + gold accent,
+ * with Vamon's calm, large design language (16px+ body, 48px controls, soft shadows, 12–18px radii).
+ */
+@theme {
+  --font-sans: 'Vazirmatn', Tahoma, system-ui, sans-serif;
+
+  --color-brand-50: #eef2fb;
+  --color-brand-100: #dfe6f7;
+  --color-brand-200: #c2cfee;
+  --color-brand-300: #93a8de;
+  --color-brand-500: #304d91;
+  --color-brand-600: #1c3687;
+  --color-brand-700: #152b6e;
+  --color-brand-800: #102257;
+
+  --color-gold-50: #faf4ea;
+  --color-gold-100: #f2e4cc;
+  --color-gold-500: #bc9252;
+  --color-gold-700: #8a6a35;
+
+  --color-ink: #172950;
+  --color-ink-soft: #44536f;
+  --color-ink-muted: #67748c;
+  --color-ink-faint: #9aa5b8;
+  --color-line: #e1e6ef;
+  --color-line-soft: #edf1f7;
+  --color-surface: #f5f7fb;
+  --color-surface-2: #eef2f8;
+  --color-danger: #c0263d;
+  --color-danger-50: #fdeef0;
+  --color-success: #157a55;
+  --color-success-50: #e8f6ef;
+
+  --radius-sm: 10px;
+  --radius: 12px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+
+  --shadow-card: 0 1px 2px rgba(23, 41, 80, 0.04), 0 4px 16px -4px rgba(23, 41, 80, 0.07);
+  --shadow-pop: 0 12px 40px -8px rgba(23, 41, 80, 0.28);
+
+  --spacing-control: 48px;
+}
+
+@layer base {
+  html {
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+  @media (min-width: 1024px) {
+    html {
+      font-size: 17px;
+    }
+  }
+  body {
+    @apply bg-surface text-ink font-sans antialiased;
+    line-height: 1.8;
+    overflow-x: hidden;
+  }
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+  input,
+  select,
+  textarea,
+  button {
+    font: inherit;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-brand-300);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--color-brand-100);
+  }
+  img,
+  svg,
+  video {
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+@layer components {
+  .container-nf {
+    @apply mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8;
+  }
+  .ltr {
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+  /* Below-the-fold sections: let the browser skip layout/paint until needed (Lighthouse-friendly). */
+  .defer-render {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 600px;
+  }
+  .skip-link {
+    @apply focus:shadow-pop sr-only focus:not-sr-only focus:fixed focus:top-3 focus:right-3 focus:z-50 focus:rounded-[var(--radius)] focus:bg-white focus:px-4 focus:py-2;
+  }
+
+  /* Long-form article typography (blog) — no plugin needed */
+  .prose-nf {
+    @apply text-ink-soft text-[17px] leading-[2];
+  }
+  .prose-nf h2 {
+    @apply text-ink mt-10 mb-4 text-2xl font-extrabold;
+  }
+  .prose-nf h3 {
+    @apply text-ink mt-8 mb-3 text-xl font-bold;
+  }
+  .prose-nf p {
+    @apply my-4;
+  }
+  .prose-nf ul {
+    @apply my-4 list-disc pr-6;
+  }
+  .prose-nf ol {
+    @apply my-4 list-decimal pr-6;
+  }
+  .prose-nf li {
+    @apply my-1.5;
+  }
+  .prose-nf a {
+    @apply text-brand-600 decoration-brand-200 hover:decoration-brand-500 font-semibold underline underline-offset-4;
+  }
+  .prose-nf blockquote {
+    @apply border-gold-500 bg-gold-50 text-ink my-6 rounded-[var(--radius-lg)] border-r-4 px-5 py-3;
+  }
+  .prose-nf strong {
+    @apply text-ink;
+  }
+  .prose-nf table {
+    @apply my-6 block w-full overflow-x-auto text-sm;
+  }
+  .prose-nf th,
+  .prose-nf td {
+    @apply border-line border px-3 py-2 text-right;
+  }
+  .prose-nf img {
+    @apply my-6 rounded-[var(--radius-xl)];
+  }
+}

@@ -1,0 +1,19 @@
+---
+import PostCard from './PostCard.astro';
+import type { Post } from '../../lib/blog';
+interface Props {
+  posts: Post[];
+}
+---
+
+{Astro.props.posts.length === 0 ? (
+  <p class="text-ink-muted">هنوز مطلبی منتشر نشده است.</p>
+) : (
+  <ul class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+    {Astro.props.posts.map((p) => (
+      <li>
+        <PostCard post={p} />
+      </li>
+    ))}
+  </ul>
+)}

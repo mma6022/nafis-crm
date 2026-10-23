@@ -1,0 +1,102 @@
+---
+import { MAIN_NAV, SITE } from '../lib/site';
+import ButtonLink from './ui/ButtonLink.astro';
+interface Props {
+  hideCta?: boolean;
+}
+const { hideCta = false } = Astro.props;
+const current = Astro.url.pathname.replace(/\/$/, '') || '/';
+const isActive = (href: string) => current === href || (href !== '/' && current.startsWith(href + '/'));
+---
+
+<header class="sticky top-0 z-40 border-b border-line bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+  <div class="container-nf flex h-16 items-center gap-3 lg:h-20">
+    <a href="/" class="flex shrink-0 items-center gap-2.5" aria-label={`${SITE.name} — صفحه اصلی`}>
+      <img src="/brand-logo.png" alt="" width="44" height="44" class="size-10 object-contain lg:size-12" />
+      <span class="text-lg font-extrabold text-ink lg:text-xl">{SITE.name}</span>
+    </a>
+
+    <nav aria-label="منوی اصلی" class="mx-auto hidden lg:block">
+      <ul class="flex items-center gap-1">
+        {MAIN_NAV.map((i) => (
+          <li>
+            <a
+              href={i.href}
+              aria-current={isActive(i.href) ? 'page' : undefined}
+              class:list={[
+                'rounded-[var(--radius)] px-3 py-2 text-[15px] font-semibold transition-colors',
+                isActive(i.href) ? 'bg-brand-50 text-brand-600' : 'text-ink-soft hover:bg-surface-2 hover:text-ink',
+              ]}
+            >
+              {i.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+
+    <div class="ms-auto flex items-center gap-2 lg:ms-0">
+      <a
+        href={`tel:${SITE.phone}`}
+        class="hidden items-center gap-2 rounded-[var(--radius)] px-3 py-2 text-sm font-bold text-ink-soft hover:bg-surface-2 xl:flex"
+      >
+        <span class="ltr">{SITE.phone.replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[+d]!)}</span>
+      </a>
+      {!hideCta && (
+        <ButtonLink href="/request" size="md" class="px-4 sm:px-5">
+          درخواست وام
+        </ButtonLink>
+      )}
+
+      <!-- Mobile menu: <details> = zero JS -->
+      <details class="group relative lg:hidden">
+        <summary
+          class="flex size-12 cursor-pointer list-none items-center justify-center rounded-[var(--radius)] border border-line bg-white text-ink [&::-webkit-details-marker]:hidden"
+          aria-label="باز کردن منو"
+        >
+          <svg
+            class="size-6 group-open:hidden"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            aria-hidden="true"
+          >
+            <path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round" />
+          </svg>
+          <svg
+            class="hidden size-6 group-open:block"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            aria-hidden="true"
+          >
+            <path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" />
+          </svg>
+        </summary>
+        <nav
+          aria-label="منوی موبایل"
+          class="absolute left-0 top-14 w-[min(18rem,calc(100vw-2rem))] rounded-[var(--radius-xl)] border border-line bg-white p-2 shadow-pop"
+        >
+          <ul>
+            {MAIN_NAV.map((i) => (
+              <li>
+                <a
+                  href={i.href}
+                  aria-current={isActive(i.href) ? 'page' : undefined}
+                  class:list={[
+                    'flex min-h-12 items-center rounded-[var(--radius)] px-4 text-base font-semibold',
+                    isActive(i.href) ? 'bg-brand-50 text-brand-600' : 'text-ink hover:bg-surface-2',
+                  ]}
+                >
+                  {i.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      </details>
+    </div>
+  </div>
+</header>

@@ -1,0 +1,21 @@
+---
+/** Zero-JS accordion using <details>. */
+interface Props {
+  items: { q: string; a: string }[];
+}
+const { items } = Astro.props;
+---
+
+<div class="mx-auto max-w-3xl space-y-3">
+  {items.map((i) => (
+    <details class="group rounded-[var(--radius-lg)] border border-line bg-white open:shadow-card">
+      <summary class="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-5 py-3 font-bold text-ink [&::-webkit-details-marker]:hidden">
+        {i.q}
+        <span class="shrink-0 text-xl text-brand-500 transition-transform group-open:rotate-45" aria-hidden="true">
+          +
+        </span>
+      </summary>
+      <p class="px-5 pb-5 text-ink-soft">{i.a}</p>
+    </details>
+  ))}
+</div>

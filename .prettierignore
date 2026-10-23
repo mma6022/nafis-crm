@@ -1,0 +1,4 @@
+dist
+.astro
+pnpm-lock.yaml
+src/data/loan-plans.snapshot.json

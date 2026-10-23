@@ -1,0 +1,22 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageHeader from '../components/PageHeader.astro';
+import Section from '../components/ui/Section.astro';
+import Placeholder from '../components/ui/Placeholder.astro';
+import { breadcrumbLd } from '../lib/seo';
+const crumbs = [
+  { name: 'خانه', path: '/' },
+  { name: 'درباره ما', path: Astro.url.pathname },
+];
+---
+
+<BaseLayout
+  title="درباره نفیس وام"
+  description="نفیس وام کیست و چطور به شما کمک می‌کند تا آگاهانه و شفاف، تسهیلات و وام متناسب با شرایط خود را انتخاب کنید."
+  jsonLd={[breadcrumbLd(crumbs)]}
+>
+  <PageHeader title="درباره نفیس وام" crumbs={crumbs} />
+  <Section>
+    <Placeholder label="درباره ما" note="TODO(spec): داستان برند، تیم، مجوزها، ارزش‌ها." minH="min-h-64" />
+  </Section>
+</BaseLayout>

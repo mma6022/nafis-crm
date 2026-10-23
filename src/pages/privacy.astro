@@ -1,0 +1,26 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageHeader from '../components/PageHeader.astro';
+import Section from '../components/ui/Section.astro';
+import Placeholder from '../components/ui/Placeholder.astro';
+import { breadcrumbLd } from '../lib/seo';
+const crumbs = [
+  { name: 'خانه', path: '/' },
+  { name: 'حریم خصوصی', path: Astro.url.pathname },
+];
+---
+
+<BaseLayout
+  title="حریم خصوصی"
+  description="سیاست حریم خصوصی نفیس وام: چه اطلاعاتی جمع‌آوری می‌کنیم، چرا، و چطور از آن محافظت می‌کنیم."
+  jsonLd={[breadcrumbLd(crumbs)]}
+>
+  <PageHeader title="حریم خصوصی" crumbs={crumbs} />
+  <Section>
+    <Placeholder
+      label="متن حریم خصوصی"
+      note="TODO(legal): متن نهایی باید توسط محمد/مشاور حقوقی تأیید شود."
+      minH="min-h-64"
+    />
+  </Section>
+</BaseLayout>

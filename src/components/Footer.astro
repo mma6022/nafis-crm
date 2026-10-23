@@ -1,0 +1,50 @@
+---
+import { FOOTER_NAV, SITE } from '../lib/site';
+import { toFaDigits } from '../lib/format';
+const year = toFaDigits(
+  new Intl.DateTimeFormat('en-US-u-ca-persian', { year: 'numeric' }).format(new Date()).replace(/\D/g, ''),
+);
+---
+
+<footer class="mt-16 border-t border-line bg-white">
+  <div class="container-nf grid gap-10 py-12 md:grid-cols-[1.4fr_repeat(3,1fr)]">
+    <div>
+      <a href="/" class="flex items-center gap-2.5">
+        <img src="/brand-logo.png" alt="" width="44" height="44" loading="lazy" class="size-11 object-contain" />
+        <span class="text-lg font-extrabold">{SITE.name}</span>
+      </a>
+      <p class="mt-4 max-w-xs text-[15px] text-ink-muted">
+        نفیس وام، همراه شما برای شناخت بهتر گزینه‌های تسهیلات و رسیدن به یک انتخاب روشن‌تر.
+      </p>
+      <ul class="mt-4 space-y-1 text-[15px]">
+        <li>
+          <a class="font-bold text-ink hover:text-brand-600" href={`tel:${SITE.phone}`}>
+            <span class="ltr">{toFaDigits(SITE.phone)}</span>
+          </a>
+        </li>
+        <li>
+          <a class="text-ink-soft hover:text-brand-600" href={`mailto:${SITE.email}`}>
+            <span class="ltr">{SITE.email}</span>
+          </a>
+        </li>
+      </ul>
+    </div>
+    {FOOTER_NAV.map((col) => (
+      <nav aria-label={col.title}>
+        <p class="mb-3 text-sm font-bold text-ink-faint">{col.title}</p>
+        <ul class="space-y-1">
+          {col.items.map((i) => (
+            <li>
+              <a href={i.href} class="inline-flex min-h-10 items-center text-[15px] text-ink-soft hover:text-brand-600">
+                {i.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+    ))}
+  </div>
+  <div class="border-t border-line-soft py-5 text-center text-sm text-ink-muted">
+    © {year} {SITE.name} — استفاده از مطالب با ذکر منبع مجاز است.
+  </div>
+</footer>

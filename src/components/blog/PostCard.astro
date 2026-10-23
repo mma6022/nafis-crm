@@ -1,0 +1,50 @@
+---
+import { Image } from 'astro:assets';
+import type { Post } from '../../lib/blog';
+import { postPath, categoryLabel, categoryPath, readingMinutes } from '../../lib/blog';
+import { formatDateFa, toFaDigits } from '../../lib/format';
+interface Props {
+  post: Post;
+  headingLevel?: 'h2' | 'h3';
+}
+const { post, headingLevel: H = 'h2' } = Astro.props;
+const d = post.data;
+---
+
+<article class="group flex flex-col overflow-hidden rounded-[var(--radius-xl)] border border-line bg-white shadow-card">
+  {d.cover ? (
+    <Image
+      src={d.cover}
+      alt={d.coverAlt ?? ''}
+      widths={[400, 800]}
+      sizes="(min-width: 1024px) 360px, 100vw"
+      class="aspect-[16/9] w-full object-cover"
+      loading="lazy"
+    />
+  ) : (
+    <div
+      class="flex aspect-[16/9] items-center justify-center bg-gradient-to-bl from-brand-50 to-gold-50 text-4xl font-extrabold text-brand-200"
+      aria-hidden="true"
+    >
+      نفیس
+    </div>
+  )}
+  <div class="flex flex-1 flex-col p-5">
+    <div class="mb-2 flex flex-wrap items-center gap-2 text-sm">
+      <a href={categoryPath(d.category)} class="relative z-10 font-bold text-gold-700 hover:underline">
+        {categoryLabel(d.category)}
+      </a>
+      {d.sample && <span class="rounded-full bg-danger-50 px-2 py-0.5 text-xs font-bold text-danger">نمونه</span>}
+    </div>
+    <H class="text-lg leading-snug font-extrabold text-ink">
+      <a href={postPath(post)} class="hover:text-brand-600">
+        {d.title}
+      </a>
+    </H>
+    <p class="mt-2 line-clamp-3 text-[15px] text-ink-muted">{d.description}</p>
+    <p class="mt-auto pt-4 text-sm text-ink-faint">
+      <time datetime={d.date.toISOString()}>{formatDateFa(d.date)}</time> · {toFaDigits(readingMinutes(post.body))}{' '}
+      دقیقه مطالعه
+    </p>
+  </div>
+</article>

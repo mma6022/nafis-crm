@@ -1,0 +1,21 @@
+---
+import Section from '../ui/Section.astro';
+import ButtonLink from '../ui/ButtonLink.astro';
+import LoanPlansList from '../islands/LoanPlansList';
+import { LOAN_PLANS_SNAPSHOT } from '../../lib/loan-plans.snapshot';
+---
+
+<Section
+  id="loan-plans"
+  kicker="طرح‌های فعال"
+  title="طرح‌های تسهیلاتی نفیس وام"
+  lead="فهرست زنده از CRM؛ مبالغ برآوردی هستند."
+  defer
+>
+  <LoanPlansList client:visible snapshot={LOAN_PLANS_SNAPSHOT} limit={6} />
+  <div class="mt-8 text-center">
+    <ButtonLink href="/loan-plans" variant="secondary">
+      مشاهده همه طرح‌ها
+    </ButtonLink>
+  </div>
+</Section>

@@ -1,0 +1,51 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageHeader from '../components/PageHeader.astro';
+import Section from '../components/ui/Section.astro';
+import Card from '../components/ui/Card.astro';
+import ButtonLink from '../components/ui/ButtonLink.astro';
+import Placeholder from '../components/ui/Placeholder.astro';
+import { SITE } from '../lib/site';
+import { toFaDigits } from '../lib/format';
+import { breadcrumbLd } from '../lib/seo';
+const crumbs = [
+  { name: 'خانه', path: '/' },
+  { name: 'تماس با ما', path: '/contact' },
+];
+---
+
+<BaseLayout
+  title="تماس با نفیس وام"
+  description="راه‌های تماس با نفیس وام: تلفن، ایمیل و ثبت درخواست مشاوره رایگان وام و تسهیلات."
+  jsonLd={[breadcrumbLd(crumbs)]}
+>
+  <PageHeader title="تماس با ما" lead="هیچ سوالی برای شروع مسیر مالی شما کوچک نیست." crumbs={crumbs} />
+  <Section>
+    <div class="grid gap-4 sm:grid-cols-3">
+      <Card>
+        <p class="text-sm text-ink-muted">تلفن</p>
+        <a href={`tel:${SITE.phone}`} class="text-xl font-extrabold">
+          <span class="ltr">{toFaDigits(SITE.phone)}</span>
+        </a>
+      </Card>
+      <Card>
+        <p class="text-sm text-ink-muted">ایمیل</p>
+        <a href={`mailto:${SITE.email}`} class="text-lg font-extrabold break-all">
+          <span class="ltr">{SITE.email}</span>
+        </a>
+      </Card>
+      <Card>
+        <p class="text-sm text-ink-muted">درخواست آنلاین</p>
+        <ButtonLink href="/request" class="mt-2 w-full">
+          درخواست وام
+        </ButtonLink>
+      </Card>
+    </div>
+    <div class="mt-6">
+      <Placeholder
+        label="آدرس، ساعات کاری، نقشه، شبکه‌های اجتماعی"
+        note="TODO(spec): اطلاعات نهایی از محمد. نقشه باید ارائه‌دهنده داخلی (نشان/بلد) باشد، نه Google Maps."
+      />
+    </div>
+  </Section>
+</BaseLayout>

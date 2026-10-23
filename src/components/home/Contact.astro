@@ -1,0 +1,24 @@
+---
+import Section from '../ui/Section.astro';
+import Card from '../ui/Card.astro';
+import { SITE } from '../../lib/site';
+import { toFaDigits } from '../../lib/format';
+---
+
+<Section id="contact" kicker="ارتباط با ما" title="سوالی دارید؟ با ما صحبت کنید" tone="white" defer>
+  <div class="grid gap-4 sm:grid-cols-2">
+    <Card>
+      <p class="text-sm text-ink-muted">تلفن</p>
+      <a href={`tel:${SITE.phone}`} class="text-xl font-extrabold text-ink">
+        <span class="ltr">{toFaDigits(SITE.phone)}</span>
+      </a>
+    </Card>
+    <Card>
+      <p class="text-sm text-ink-muted">ایمیل</p>
+      <a href={`mailto:${SITE.email}`} class="text-xl font-extrabold text-ink">
+        <span class="ltr">{SITE.email}</span>
+      </a>
+    </Card>
+  </div>
+  <p class="mt-4 text-sm text-ink-faint">TODO(spec): آدرس، ساعات کاری، شبکه‌های اجتماعی، نقشه.</p>
+</Section>

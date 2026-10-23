@@ -1,0 +1,27 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageHeader from '../components/PageHeader.astro';
+import Section from '../components/ui/Section.astro';
+import LoanCalculator from '../components/islands/LoanCalculator';
+import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
+import { breadcrumbLd } from '../lib/seo';
+const crumbs = [
+  { name: 'خانه', path: '/' },
+  { name: 'محاسبه قسط', path: '/calculator' },
+];
+---
+
+<BaseLayout
+  title="محاسبه‌گر قسط وام"
+  description="با محاسبه‌گر قسط نفیس وام، طرح و مدت بازپرداخت را انتخاب کنید و مبلغ واریزی و قسط ماهانه را فوراً ببینید."
+  jsonLd={[breadcrumbLd(crumbs)]}
+>
+  <PageHeader
+    title="محاسبه‌گر قسط وام"
+    lead="طرح و مدت بازپرداخت را انتخاب کنید تا مبلغ واریزی و قسط ماهانه را ببینید."
+    crumbs={crumbs}
+  />
+  <Section>
+    <LoanCalculator client:load snapshot={LOAN_PLANS_SNAPSHOT} />
+  </Section>
+</BaseLayout>

@@ -1,0 +1,32 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Hero from '../components/home/Hero.astro';
+import TrustBar from '../components/home/TrustBar.astro';
+import Services from '../components/home/Services.astro';
+import HowItWorks from '../components/home/HowItWorks.astro';
+import LoanPlans from '../components/home/LoanPlans.astro';
+import Calculator from '../components/home/Calculator.astro';
+import FAQ from '../components/home/FAQ.astro';
+import Contact from '../components/home/Contact.astro';
+import FinalCTA from '../components/home/FinalCTA.astro';
+import { SITE } from '../lib/site';
+import { financialServiceLd, faqLd } from '../lib/seo';
+import { FAQ_ITEMS } from '../data/faq';
+---
+
+<BaseLayout
+  rawTitle
+  title={`${SITE.name} | ${SITE.tagline}`}
+  description={SITE.description}
+  jsonLd={[financialServiceLd(), faqLd(FAQ_ITEMS)]}
+>
+  <Hero />
+  <TrustBar />
+  <Services />
+  <HowItWorks />
+  <LoanPlans />
+  <Calculator />
+  <FAQ />
+  <Contact />
+  <FinalCTA />
+</BaseLayout>

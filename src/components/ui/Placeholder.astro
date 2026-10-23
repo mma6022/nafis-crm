@@ -1,0 +1,20 @@
+---
+/** Visible dashed box marking where spec content will go. Remove once the section is built. */
+interface Props {
+  label: string;
+  note?: string;
+  minH?: string;
+}
+const { label, note, minH = 'min-h-40' } = Astro.props;
+---
+
+<div
+  class:list={[
+    'flex flex-col items-center justify-center gap-1 rounded-[var(--radius-xl)] border-2 border-dashed border-brand-200 bg-brand-50/50 p-6 text-center',
+    minH,
+  ]}
+  data-placeholder
+>
+  <p class="font-bold text-brand-600">{label}</p>
+  {note && <p class="max-w-md text-sm text-ink-muted">{note}</p>}
+</div>

@@ -1,0 +1,45 @@
+---
+import type { GetStaticPaths, Page } from 'astro';
+import BaseLayout from '../../../../layouts/BaseLayout.astro';
+import PageHeader from '../../../../components/PageHeader.astro';
+import PostGrid from '../../../../components/blog/PostGrid.astro';
+import Pagination from '../../../../components/blog/Pagination.astro';
+import BlogNav from '../../../../components/blog/BlogNav.astro';
+import { getPosts, POSTS_PER_PAGE, categoryPath, type Post } from '../../../../lib/blog';
+import { CATEGORIES, type CategoryKey } from '../../../../data/blog-taxonomy';
+import { breadcrumbLd } from '../../../../lib/seo';
+
+export const getStaticPaths = (async ({ paginate }) => {
+  const posts = await getPosts();
+  // every category gets a page (even empty) so links never 404
+  return (Object.keys(CATEGORIES) as CategoryKey[]).flatMap((category) =>
+    paginate(
+      posts.filter((p) => p.data.category === category),
+      { params: { category }, pageSize: POSTS_PER_PAGE },
+    ),
+  );
+}) satisfies GetStaticPaths;
+
+const { page } = Astro.props as { page: Page<Post> };
+const category = Astro.params.category as CategoryKey;
+const cat = CATEGORIES[category];
+const crumbs = [
+  { name: 'خانه', path: '/' },
+  { name: 'مجله', path: '/blog' },
+  { name: cat.label, path: categoryPath(category) },
+];
+---
+
+<BaseLayout
+  title={`${cat.label} — مجله`}
+  description={`${cat.description} مقالات آموزشی دسته «${cat.label}» در مجله نفیس وام.`}
+  noindex={!page.data.some((p) => !p.data.sample && !p.data.draft)}
+  jsonLd={[breadcrumbLd(crumbs)]}
+>
+  <PageHeader title={cat.label} lead={cat.description} crumbs={crumbs} />
+  <div class="container-nf py-10">
+    <BlogNav active={category} />
+    <PostGrid posts={page.data} />
+    <Pagination page={page} />
+  </div>
+</BaseLayout>

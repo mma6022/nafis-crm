@@ -1,0 +1,13 @@
+---
+import { cardClass } from './styles';
+interface Props {
+  as?: 'div' | 'article' | 'li' | 'section';
+  class?: string;
+  padded?: boolean;
+}
+const { as: Tag = 'div', class: cls = '', padded = true } = Astro.props;
+---
+
+<Tag class:list={[cardClass, padded && 'p-5 sm:p-6', cls]}>
+  <slot />
+</Tag>

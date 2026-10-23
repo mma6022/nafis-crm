@@ -1,0 +1,33 @@
+---
+import type { GetStaticPaths, Page } from 'astro';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import PageHeader from '../../components/PageHeader.astro';
+import PostGrid from '../../components/blog/PostGrid.astro';
+import Pagination from '../../components/blog/Pagination.astro';
+import BlogNav from '../../components/blog/BlogNav.astro';
+import { getPosts, POSTS_PER_PAGE, type Post } from '../../lib/blog';
+import { breadcrumbLd } from '../../lib/seo';
+import { toFaDigits } from '../../lib/format';
+
+export const getStaticPaths = (async ({ paginate }) =>
+  paginate(await getPosts(), { pageSize: POSTS_PER_PAGE })) satisfies GetStaticPaths;
+const { page } = Astro.props as { page: Page<Post> };
+const crumbs = [
+  { name: 'خانه', path: '/' },
+  { name: 'مجله', path: '/blog' },
+];
+const suffix = page.currentPage > 1 ? ` — صفحه ${toFaDigits(page.currentPage)}` : '';
+---
+
+<BaseLayout
+  title={`مجله آموزشی وام و تسهیلات${suffix}`}
+  description="مجله نفیس وام: آموزش ساده انواع وام، محاسبه قسط، اعتبارسنجی و سواد مالی برای انتخاب آگاهانه تسهیلات."
+  jsonLd={[breadcrumbLd(crumbs)]}
+>
+  <PageHeader title="مجله نفیس وام" lead="آموزش وام و تسهیلات به زبان ساده." crumbs={crumbs} />
+  <div class="container-nf py-10">
+    <BlogNav />
+    <PostGrid posts={page.data} />
+    <Pagination page={page} />
+  </div>
+</BaseLayout>

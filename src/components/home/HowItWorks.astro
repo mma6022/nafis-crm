@@ -1,0 +1,25 @@
+---
+import Section from '../ui/Section.astro';
+import { toFaDigits } from '../../lib/format';
+const steps = [
+  { t: 'درخواست کوتاه ثبت کنید', d: 'در چند قدم ساده نیاز و شماره‌تان را بگذارید.' },
+  { t: 'گزینه‌ها را کنار هم ببینید', d: 'مبلغ، مدت، مدارک و نکات هر طرح را شفاف توضیح می‌دهیم.' },
+  { t: 'با خیال راحت انتخاب کنید', d: 'تا دریافت تسهیلات کنارتان می‌مانیم.' },
+];
+---
+
+<Section id="how-it-works" kicker="فرآیند روشن" title="یک قدم در هر لحظه" tone="white" defer>
+  <ol class="grid gap-4 md:grid-cols-3">
+    {steps.map((s, i) => (
+      <li class="flex gap-4 rounded-[var(--radius-xl)] bg-surface p-5">
+        <span class="flex size-11 shrink-0 items-center justify-center rounded-full bg-brand-600 text-lg font-extrabold text-white">
+          {toFaDigits(i + 1)}
+        </span>
+        <div>
+          <h3 class="text-lg font-bold">{s.t}</h3>
+          <p class="mt-1 text-ink-muted">{s.d}</p>
+        </div>
+      </li>
+    ))}
+  </ol>
+</Section>

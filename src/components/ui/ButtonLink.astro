@@ -1,0 +1,15 @@
+---
+import { buttonClass, type ButtonSize, type ButtonVariant } from './styles';
+interface Props {
+  href: string;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  class?: string;
+  [k: string]: unknown;
+}
+const { href, variant = 'primary', size = 'md', class: cls = '', ...rest } = Astro.props;
+---
+
+<a href={href} class={buttonClass(variant, size, cls)} {...rest}>
+  <slot />
+</a>

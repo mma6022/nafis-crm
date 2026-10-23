@@ -1,0 +1,39 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageHeader from '../components/PageHeader.astro';
+import Section from '../components/ui/Section.astro';
+import Card from '../components/ui/Card.astro';
+import Placeholder from '../components/ui/Placeholder.astro';
+import FinalCTA from '../components/home/FinalCTA.astro';
+import { breadcrumbLd, financialServiceLd } from '../lib/seo';
+import { SERVICES } from '../data/services';
+const crumbs = [
+  { name: 'خانه', path: '/' },
+  { name: 'خدمات', path: '/services' },
+];
+---
+
+<BaseLayout
+  title="خدمات مشاوره وام و تسهیلات"
+  description="خدمات نفیس وام: مشاوره وام شخصی، وام کالایی، تسهیلات کسب‌وکار و وام خودرو با توضیح شفاف شرایط و اقساط."
+  jsonLd={[breadcrumbLd(crumbs), financialServiceLd()]}
+>
+  <PageHeader title="خدمات نفیس وام" lead="هر هدف مالی، یک مسیر مناسب دارد." crumbs={crumbs} />
+  <Section>
+    <ul class="grid gap-4 sm:grid-cols-2">
+      {SERVICES.map((s) => (
+        <Card as="li">
+          <h2 class="text-xl font-bold">{s.t}</h2>
+          <p class="mt-1 text-ink-muted">{s.d}</p>
+        </Card>
+      ))}
+    </ul>
+    <div class="mt-6">
+      <Placeholder
+        label="جزئیات هر خدمت"
+        note="TODO(spec): صفحه/بخش جدا برای هر خدمت (برای سئو) — شرایط، مدارک، مثال."
+      />
+    </div>
+  </Section>
+  <FinalCTA />
+</BaseLayout>

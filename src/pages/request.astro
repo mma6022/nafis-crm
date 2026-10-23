@@ -1,0 +1,25 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import RequestWizard from '../components/islands/RequestWizard';
+import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
+import { SITE } from '../lib/site';
+import { toFaDigits } from '../lib/format';
+---
+
+<BaseLayout
+  title="درخواست وام"
+  description="درخواست وام و مشاوره رایگان نفیس وام در چند قدم ساده؛ بدون تعهد، کارشناسان ما با شما تماس می‌گیرند."
+  hideHeaderCta
+>
+  <div class="container-nf max-w-2xl py-6 sm:py-12">
+    <p class="mb-4 text-center text-sm text-ink-muted">
+      ثبت درخواست بدون تعهد است · پشتیبانی:{' '}
+      <a class="font-bold text-ink" href={`tel:${SITE.phone}`}>
+        <span class="ltr">{toFaDigits(SITE.phone)}</span>
+      </a>
+    </p>
+    <div class="rounded-[var(--radius-xl)] border border-line bg-white p-5 shadow-card sm:p-8">
+      <RequestWizard client:load plans={LOAN_PLANS_SNAPSHOT} />
+    </div>
+  </div>
+</BaseLayout>

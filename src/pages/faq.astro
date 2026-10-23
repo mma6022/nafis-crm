@@ -1,0 +1,25 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageHeader from '../components/PageHeader.astro';
+import Section from '../components/ui/Section.astro';
+import FaqList from '../components/FaqList.astro';
+import FinalCTA from '../components/home/FinalCTA.astro';
+import { FAQ_ITEMS } from '../data/faq';
+import { breadcrumbLd, faqLd } from '../lib/seo';
+const crumbs = [
+  { name: 'خانه', path: '/' },
+  { name: 'سوالات متداول', path: '/faq' },
+];
+---
+
+<BaseLayout
+  title="سوالات متداول وام و تسهیلات"
+  description="پاسخ سوالات رایج درباره مدارک وام، وام بدون ضامن، زمان بررسی درخواست، محاسبه قسط و هزینه مشاوره در نفیس وام."
+  jsonLd={[breadcrumbLd(crumbs), faqLd(FAQ_ITEMS)]}
+>
+  <PageHeader title="سوالات متداول" crumbs={crumbs} />
+  <Section>
+    <FaqList items={FAQ_ITEMS} />
+  </Section>
+  <FinalCTA />
+</BaseLayout>

@@ -1,0 +1,37 @@
+---
+import { CATEGORIES, type CategoryKey } from '../../data/blog-taxonomy';
+import { categoryPath } from '../../lib/blog';
+interface Props {
+  active?: CategoryKey;
+}
+const { active } = Astro.props;
+---
+
+<nav aria-label="دسته‌بندی‌های مجله" class="-mx-4 mb-8 overflow-x-auto px-4">
+  <ul class="flex w-max gap-2">
+    <li>
+      <a
+        href="/blog"
+        class:list={[
+          'inline-flex min-h-11 items-center rounded-full border px-4 font-bold',
+          !active ? 'border-brand-600 bg-brand-600 text-white' : 'border-line bg-white text-ink-soft',
+        ]}
+      >
+        همه
+      </a>
+    </li>
+    {(Object.keys(CATEGORIES) as CategoryKey[]).map((c) => (
+      <li>
+        <a
+          href={categoryPath(c)}
+          class:list={[
+            'inline-flex min-h-11 items-center rounded-full border px-4 font-bold',
+            active === c ? 'border-brand-600 bg-brand-600 text-white' : 'border-line bg-white text-ink-soft',
+          ]}
+        >
+          {CATEGORIES[c].label}
+        </a>
+      </li>
+    ))}
+  </ul>
+</nav>
