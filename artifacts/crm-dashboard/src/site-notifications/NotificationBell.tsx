@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Inbox, X } from 'lucide-react';
+import { Inbox, Phone, Star, X } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { fetchNotifications, markAllNotificationsRead, markNotificationRead, safeTarget, NotificationApiError, type NotificationUser, type SiteNotification } from './api';
 import './notifications.css';
@@ -16,6 +16,16 @@ export function pageForPath(path: string): string | null {
   return PAGE_ENUMS.includes(seg) ? seg : null;
 }
 const isLoan = (n: SiteNotification) => n.page === 'loan-applications' || n.target?.startsWith('/loan-applications');
+/** New priority-1 customer for a closer (team sales). Sticky toast until acted on. */
+export const isP1 = (n: SiteNotification) => n.kind === 'p1_assigned';
+async function customerPhone(customerId: number): Promise<string | null> {
+  try {
+    const r = await fetch(`${(import.meta.env.BASE_URL || '/').replace(/\/$/, '')}/api/customers/${customerId}`, { credentials: 'include' });
+    if (!r.ok) return null;
+    const body = await r.json();
+    return typeof body?.phone === 'string' && /^\+?\d{6,15}$/.test(body.phone) ? body.phone : null;
+  } catch { return null; }
+}
 
 const fmtTime = (iso: string) => {
   const d = new Date(iso);
@@ -67,14 +77,18 @@ function ProviderInner({ children }: { children: ReactNode }) {
       if (myGen !== gen.current) { again.current = true; return; }
       const changed = scope.current !== null && scope.current !== page.scopeVersion;
       scope.current = page.scopeVersion;
-      if (changed) { localRead.current.clear(); setToasts([]); setToastError(''); lastSeen.current = null; }
+      // A new priority-1 customer changes the closer's scope (she now owns the customer). Older events of newly
+      // visible customers must not toast, but the p1_assigned event created after our last poll still should.
+      const prevSeen = lastSeen.current;
+      const freshP1 = changed && prevSeen !== null ? page.items.filter((n) => isP1(n) && n.id > prevSeen && !n.readAt) : [];
+      if (changed) { localRead.current.clear(); setToasts(freshP1.sort((a, b) => a.id - b.id).slice(-MAX_TOASTS)); setToastError(''); lastSeen.current = null; }
       setScopeVersion(`${authEpoch.current}:${page.scopeVersion}`);
       countsRef.current = { unread: page.unreadCount, pages: page.pageCounts ?? {} };
       setUnreadCount(page.unreadCount);
       setPageCounts(page.pageCounts ?? {});
       if (lastSeen.current === null) lastSeen.current = page.latestId;
       else {
-        const fresh = page.items.filter((n) => n.id > lastSeen.current! && !n.readAt && !localRead.current.has(n.id) && isLoan(n)).sort((a, b) => a.id - b.id);
+        const fresh = page.items.filter((n) => n.id > lastSeen.current! && !n.readAt && !localRead.current.has(n.id) && (isLoan(n) || isP1(n))).sort((a, b) => a.id - b.id);
         lastSeen.current = Math.max(lastSeen.current, page.latestId);
         if (fresh.length) setToasts((t) => [...t, ...fresh.filter((n) => !t.some((x) => x.id === n.id))].slice(-MAX_TOASTS));
       }
@@ -101,8 +115,10 @@ function ProviderInner({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   useEffect(() => {
-    if (!toasts.length) return;
-    const timer = setTimeout(() => setToasts((t) => t.slice(1)), TOAST_MS);
+    // Priority-1 toasts stay until the closer acts on or dismisses them; others auto-dismiss.
+    const first = toasts.find((n) => !isP1(n));
+    if (!first) return;
+    const timer = setTimeout(() => setToasts((t) => t.filter((x) => x.id !== first.id)), TOAST_MS);
     return () => clearTimeout(timer);
   }, [toasts]);
 
@@ -150,9 +166,31 @@ function ProviderInner({ children }: { children: ReactNode }) {
   return (
     <NotifCtx.Provider value={value}>
       {children}
-      {toasts.length ? (
+      {toasts.some(isP1) ? (
+        <div className="sn-toasts sn-top" role="status" aria-live="assertive" data-testid="notification-toasts-p1">
+          {toasts.filter(isP1).map((n) => (
+            <div className="sn-toast p1" key={n.id} data-testid={`toast-notification-${n.id}`} data-kind="p1_assigned">
+              <div className="sn-p1-row">
+                <span className="sn-p1-ic" aria-hidden="true"><Star size={20} /></span>
+                <div className="sn-p1-text"><strong>{n.title}</strong><span>{n.body}</span></div>
+                <button type="button" className="sn-toast-x" aria-label="بستن اعلان" onClick={() => setToasts((t) => t.filter((x) => x.id !== n.id))} data-testid={`button-toast-dismiss-${n.id}`}><X size={15} /></button>
+              </div>
+              <div className="sn-p1-acts">
+                <button type="button" className="sn-p1-call" onClick={() => { setToastError(''); void (async () => {
+                  const phone = await customerPhone(n.customerId);
+                  if (!phone) { openItem(n).catch(() => setToastError('باز کردن پرونده انجام نشد.')); return; }
+                  markNotificationRead(n.id).then(() => applyRead(n), () => applyRead(n));
+                  window.location.href = `tel:${phone}`;
+                })(); }} data-testid={`button-toast-call-${n.id}`}><Phone size={16} /> تماس</button>
+                <button type="button" className="sn-p1-open" onClick={() => { setToastError(''); openItem(n).catch((e) => setToastError(e instanceof Error ? e.message : 'باز کردن اعلان انجام نشد.')); }} data-testid={`button-toast-open-${n.id}`}>پرونده</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {toasts.some((n) => !isP1(n)) ? (
         <div className="sn-toasts" role="status" aria-live="polite" data-testid="notification-toasts">
-          {toasts.map((n) => (
+          {toasts.filter((n) => !isP1(n)).map((n) => (
             <div className="sn-toast" key={n.id} data-testid={`toast-notification-${n.id}`}>
               <button type="button" className="sn-toast-main" onClick={() => { setToastError(''); openItem(n).catch((e) => setToastError(e instanceof Error ? e.message : 'باز کردن اعلان انجام نشد.')); }} data-testid={`button-toast-open-${n.id}`}>
                 <strong>{n.title}</strong>
@@ -163,7 +201,7 @@ function ProviderInner({ children }: { children: ReactNode }) {
           ))}
         </div>
       ) : null}
-      {toastError ? <div className="sn-toasts" style={{ bottom: toasts.length ? 16 + toasts.length * 70 : 16 }} role="alert" data-testid="toast-notification-error"><div className="sn-toast"><span style={{ flex: 1, fontSize: 12 }}>{toastError}</span><button type="button" className="sn-toast-x" aria-label="بستن" onClick={() => setToastError('')}><X size={15} /></button></div></div> : null}
+      {toastError ? <div className="sn-toasts" style={{ bottom: toasts.some((n) => !isP1(n)) ? 16 + toasts.filter((n) => !isP1(n)).length * 70 : 16 }} role="alert" data-testid="toast-notification-error"><div className="sn-toast"><span style={{ flex: 1, fontSize: 12 }}>{toastError}</span><button type="button" className="sn-toast-x" aria-label="بستن" onClick={() => setToastError('')}><X size={15} /></button></div></div> : null}
     </NotifCtx.Provider>
   );
 }
@@ -337,8 +375,8 @@ function BellInner() {
                 <ul className="sn-list" aria-label="فهرست اعلان‌ها" data-testid="list-notifications">
                   {visible.map((n) => (
                     <li key={n.id} className="sn-row">
-                      <button type="button" className={`sn-item ${n.readAt ? '' : 'unread'}`} onClick={() => void activate(n)} data-testid={`item-notification-${n.id}`}>
-                        <span className="sn-title">{n.title}</span>
+                      <button type="button" className={`sn-item ${n.readAt ? '' : 'unread'}${isP1(n) ? ' p1' : ''}`} onClick={() => void activate(n)} data-testid={`item-notification-${n.id}`}>
+                        <span className="sn-title">{isP1(n) ? <Star size={14} className="sn-star" aria-label="اولویت ۱" /> : null}{n.title}</span>
                         <span className="sn-body">{n.body}</span>
                         <span className="sn-meta"><span>{n.customerName}{allScope && n.page && PAGE_LABELS[n.page] ? ` · ${PAGE_LABELS[n.page]}` : ''}</span><time dateTime={n.createdAt}>{fmtTime(n.createdAt)}</time></span>
                       </button>

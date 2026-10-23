@@ -187,14 +187,14 @@ function promoteInTx(c: CustomerState, actor: Actor, cfg: TeamSalesConfig, sourc
     `INSERT INTO call_logs (customer_id, salesperson_id, subject, customer_request, expert_notes, created_at, salesperson_name_snapshot)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [c.id, actor.salespersonId ?? null, `ارتقا به اولویت ۱ توسط ${shortName(actorName)}`, null,
-      [`واگذاری به ${closerName} (نوبت چرخشی) · قبلاً ${prev}${fromForm ? " · از فرم تماس اول" : ""}`,
+      [`واگذاری به ${closerName} (نوبت چرخشی) — قبلاً ${prev}${fromForm ? " — از فرم تماس اول" : ""}`,
         `مهلت تماس ${closerName}: ${fa(cfg.closerFirstCallWorkingHours)} ساعت کاری (تا ${dueLabel})`,
         note ? `یادداشت: ${note}` : null].filter(Boolean).join("\n"),
       nowIso, actorName]);
 
   // Exactly one bell event for the closer: reuse the customers-UPDATE trigger row, drop the call_logs one.
   const title = `مشتری اولویت ۱ جدید: ${c.name}`;
-  const body = `${fromForm ? `از فرم تماس اول ${actorName}` : `ارتقا توسط ${actorName}`} · مهلت تماس تا ${dueLabel}`;
+  const body = `${fromForm ? `از فرم تماس اول ${actorName}` : `ارتقا توسط ${actorName}`} — مهلت تماس تا ${dueLabel}`;
   const triggered = queryRows<{ id: number; resource_type: string }>(
     "SELECT id, resource_type FROM site_notification_events WHERE id>? AND customer_id=? ORDER BY id", [preMax, c.id]);
   const keep = triggered.find((e) => e.resource_type === "customer");
@@ -237,7 +237,7 @@ function promoteInTx(c: CustomerState, actor: Actor, cfg: TeamSalesConfig, sourc
        ON CONFLICT(reminder_id) DO UPDATE SET status='rejected', error_code='in_app_only'`, [reminderId]);
   }
   logPriorityChange({ customerId: c.id, oldPriority: c.priority, newPriority: 1, oldSalespersonId: c.salesperson_id,
-    newSalespersonId: closer, actorUserId: actor.id, source, reason: [reason, note].filter(Boolean).join(" · ") || null, at: nowIso });
+    newSalespersonId: closer, actorUserId: actor.id, source, reason: [reason, note].filter(Boolean).join(" — ") || null, at: nowIso });
   return { customerId: c.id, closerSalespersonId: closer, closerName, dueAt, dueLabel, reminderId, callLogId, notificationId,
     message: `به ${closerName} واگذار شد` };
 }

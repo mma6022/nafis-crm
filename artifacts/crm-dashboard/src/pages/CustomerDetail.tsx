@@ -24,6 +24,9 @@ import { clearLoanDraft, loanWizardHref, readLoanDraft, type LoanDraft } from '@
 import { BUSINESS_STATUS_LABELS, WIZARD_DISPLAY_STEPS, WIZARD_TOTAL_STEPS, loanBusinessStatus, loanStageLabel } from '@/lib/loan-labels';
 import { ConfirmDialog, initialsOf, jalaliDate, PriorityLabel, relativeTime, Sheet, STATUS_LABEL, StatusPill } from './customers-ui';
 import './customers.css';
+import { useTeamSalesConfig, type PromoteResult, type QualifyResult } from '@/features/team-sales/api';
+import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
+import { TsToast, UpgradeCard, UpgradeDialog, UpgradedCard } from '@/features/team-sales/UpgradeToP1';
 
 const faNum = (n: number) => n.toLocaleString('fa-IR');
 const faId = (n: number) => n.toLocaleString('fa-IR', { useGrouping: false });
@@ -242,6 +245,13 @@ export default function CustomerDetail() {
   const [callFormOpen, setCallFormOpen] = useState(false);
   const createCall = useCreateCall();
   const [activeSec, setActiveSec] = useState('info');
+  // ---- team sales (qualifier Kazemi): simple call form + upgrade to P1. Priority is decided by the server. ----
+  const tsConfig = useTeamSalesConfig(Boolean(session.data?.user));
+  const [simpleFormOpen, setSimpleFormOpen] = useState(false);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [handoff, setHandoff] = useState<PromoteResult | null>(null);
+  const [tsToast, setTsToast] = useState('');
+  useEffect(() => { setHandoff(null); setSimpleFormOpen(false); setUpgradeOpen(false); }, [id]);
   useEffect(() => {
     if (!customer) return;
     const ids = ['info', 'loans', 'calls', 'wallet'];
@@ -342,8 +352,29 @@ export default function CustomerDetail() {
       // Mutation error state is rendered inside the call form.
     }
   };
+  const isQualifier = tsConfig.data?.enabled === true && session.data?.user.salespersonId != null && session.data.user.salespersonId === tsConfig.data.qualifierSalespersonId;
+  const ownsCustomer = isQualifier && customer.salespersonId === tsConfig.data?.qualifierSalespersonId;
+  const showSimpleForm = ownsCustomer && !handoff && canCallsCreate && customer.status === 'in_progress';
+  const showUpgrade = ownsCustomer && !handoff && canUpdate && customer.status === 'in_progress' && customer.priority !== 1;
+  const tsCard = handoff ? <UpgradedCard result={handoff} /> : showUpgrade ? <UpgradeCard onOpen={() => setUpgradeOpen(true)} /> : null;
+  const afterHandoff = (result: PromoteResult, toast = true) => {
+    // The customer leaves the qualifier's scope, so do not refetch this page (it would 404); keep showing local state.
+    setHandoff(result);
+    if (toast) setTsToast(result.message);
+    void queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() });
+  };
+  const afterSimpleForm = (r: QualifyResult) => {
+    if (r.handoff) { afterHandoff(r.handoff, false); return; }
+    void queryClient.invalidateQueries({ queryKey: getListCustomerActivityQueryKey(id) });
+    void queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() });
+    void queryClient.invalidateQueries({ queryKey: getListRemindersQueryKey() });
+    void customerQuery.refetch();
+  };
   const copyPhone = () => { void navigator.clipboard?.writeText(customer.phone).then(() => setToast('شماره کپی شد.'), () => setToast('کپی انجام نشد.')); };
-  const activity = activityQuery.data ?? customer.activity ?? [];
+  const baseActivity = activityQuery.data ?? customer.activity ?? [];
+  const activity = handoff && !baseActivity.some((item) => item.id === handoff.callLogId)
+    ? [{ ...(baseActivity[0] ?? {}), id: handoff.callLogId, salespersonName: session.data?.user.salespersonName ?? session.data?.user.fullName ?? null, createdAt: new Date().toISOString(), subject: `ارتقا به اولویت ۱ توسط ${(session.data?.user.salespersonName ?? '').replace(/^(آقای|خانم)\s+/, '') || 'کارشناس'}`, customerRequest: `واگذاری به ${handoff.closerName} (نوبت چرخشی)`, expertNotes: `مهلت تماس تا ${handoff.dueLabel}` } as (typeof baseActivity)[number], ...baseActivity]
+    : baseActivity;
   const tagLabel = (key: string) => tagCatalog.data?.find(item => item.key === key)?.label ?? key;
   const visibleTags = customer.tags.filter(key => key !== 'repeat_request');
   const verified = customer.verificationStatus === 'verified';
@@ -362,12 +393,12 @@ export default function CustomerDetail() {
         <span className="csx-av" aria-hidden="true">{initialsOf(customer.name)}</span>
         <div style={{ minWidth: 0 }}>
           <h2 id="customer-hero-name" data-testid="text-customer-name">{customer.name}</h2>
-          <div className="sub"><span data-testid="text-customer-id">کد مشتری {faId(customer.id)}</span>، کارشناس: {customer.salespersonName || 'بدون تخصیص'}</div>
+          <div className="sub"><span data-testid="text-customer-id">کد مشتری {faId(customer.id)}</span>، کارشناس: {handoff ? handoff.closerName : customer.salespersonName || 'بدون تخصیص'}</div>
         </div>
       </div>
       <div className="csx-chips" style={{ gap: 6 }}>
         <StatusPill status={customer.status} />
-        <PriorityLabel value={customer.priority} />
+        <PriorityLabel value={handoff ? 1 : customer.priority} />
         {customer.isUrgent ? <span className="csx-tag warn">فوری</span> : null}
         {verified ? <span className="csx-tag ok"><ShieldCheck size={14} /> احراز شده</span> : <span className="csx-tag bad">احراز نشده</span>}
         {visibleTags.map(key => <span className="csx-tag" key={key}>{tagLabel(key)}</span>)}
@@ -380,7 +411,8 @@ export default function CustomerDetail() {
       </div>
     </div>
     <div className="acts">
-      {canCallsCreate || isAdmin ? <a className="csx-call" href={`tel:${customer.phone}`} data-testid="link-call-customer"><PhoneCall size={20} /> تماس</a> : null}
+      {showSimpleForm ? <button type="button" className="csx-call" onClick={() => setSimpleFormOpen(true)} data-testid="button-ts-simple-form"><PhoneCall size={20} /> تماس و فرم</button>
+        : canCallsCreate || isAdmin ? <a className="csx-call" href={`tel:${customer.phone}`} data-testid="link-call-customer"><PhoneCall size={20} /> تماس</a> : null}
       {canUpdate ? <button type="button" className="csx-ghost" onClick={() => setEditing(true)} data-testid="button-toggle-customer-edit" aria-haspopup="dialog"><Pencil size={18} /> ویرایش</button> : null}
       {canNewLoan ? <Link href={loanWizardHref(customer.id)} className="csx-primary wide" data-testid="button-new-loan-from-customer"><Plus size={20} /> درخواست تسهیلات جدید</Link> : null}
     </div>
@@ -588,11 +620,12 @@ export default function CustomerDetail() {
     />}
     <nav className="csx-crumb" aria-label="مسیر"><Link href="/customers" data-testid="link-back-customers"><ArrowRight size={16} /> مشتریان</Link><ChevronLeft size={14} aria-hidden="true" /><span aria-current="page">{customer.name}</span></nav>
     {hero}
+    {tsCard ? <div className="m-only">{tsCard}</div> : null}
     {readOnlyRole ? <div className="csx-note warn" data-testid="note-readonly-role"><Lock size={18} /><p>فقط مشاهده — ویرایش، تماس و کیف پول برای نقش شما فعال نیست.</p></div> : null}
     <nav className="csx-secnav m-only" aria-label="بخش‌های پرونده">{secs.map(([key, label, n]) => <a key={key} href={`#sec-${key}`} aria-current={activeSec === key ? 'true' : undefined} onClick={(event) => { event.preventDefault(); setActiveSec(key); document.getElementById(`sec-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>{label}{n != null ? <span className="n">{faNum(n)}</span> : null}</a>)}</nav>
     <div className="csx-dgrid">
       <div className="colA">{infoSec}{loansSec}{callsSec}</div>
-      <div className="colB">{statusSec}{creditSec}{walletSec}{adminSec}</div>
+      <div className="colB">{tsCard ? <div className="d-only">{tsCard}</div> : null}{statusSec}{creditSec}{walletSec}{adminSec}</div>
     </div>
     {editing ? <div className="csx-formhost"><Sheet title={`ویرایش پرونده ${customer.name}`} onClose={() => { setEditing(false); setProfileErrors({}); }} testId="customer-edit-sheet" initialFocus='[data-testid="input-detail-name"]' footer={<>
       <button className="csx-ghost" type="button" onClick={() => { setEditing(false); setProfileErrors({}); }}>انصراف</button>
@@ -638,5 +671,8 @@ export default function CustomerDetail() {
       />
     )}
     {toast ? <div className="csx-toast" role="status">{toast}</div> : null}
+    {simpleFormOpen ? <SimpleCallForm customer={customer} userId={userId} noteMin={tsConfig.data?.noteMinLength ?? 30} onClose={() => setSimpleFormOpen(false)} onDone={afterSimpleForm} onNext={() => { setSimpleFormOpen(false); setLocation('/customers'); }} /> : null}
+    {upgradeOpen ? <UpgradeDialog customer={customer} onClose={() => setUpgradeOpen(false)} onDone={(r) => { setUpgradeOpen(false); afterHandoff(r); }} /> : null}
+    {tsToast ? <TsToast text={tsToast} onClose={() => setTsToast('')} onLink={() => document.getElementById('sec-calls')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} /> : null}
   </div>;
 }

@@ -50,8 +50,8 @@ export function ReminderDetailsDialog({ reminder, onClose }: { reminder: Reminde
         <dt>موعد یادآوری</dt><dd>{formatDateTime(reminder.remindAt)}</dd>
         <dt>زمان ثبت</dt><dd>{formatDateTime(reminder.createdAt)}</dd>
         <dt>زمان نمایش اعلان</dt><dd>{reminder.notifiedAt ? formatDateTime(reminder.notifiedAt) : 'هنوز نمایش داده نشده'}</dd>
-        <dt>پیامک کارشناس</dt><dd data-testid="reminder-sms-status">{reminder.smsSent ? 'ارسال‌شده' : smsLabels[reminder.smsStatus ?? 'pending'] ?? 'ارسال نشده'}
-          {reminder.smsError && <small style={{ display: 'block', color: '#be123c', marginTop: 5 }}>{smsErrors[reminder.smsError] ?? 'ارسال پیامک با مشکل مواجه شده است.'}</small>}
+        <dt>پیامک کارشناس</dt><dd data-testid="reminder-sms-status">{reminder.smsError === 'in_app_only' ? 'برای این یادآور پیامک ارسال نمی‌شود (فقط داخل CRM).' : reminder.smsSent ? 'ارسال‌شده' : smsLabels[reminder.smsStatus ?? 'pending'] ?? 'ارسال نشده'}
+          {reminder.smsError && reminder.smsError !== 'in_app_only' && <small style={{ display: 'block', color: '#be123c', marginTop: 5 }}>{smsErrors[reminder.smsError] ?? 'ارسال پیامک با مشکل مواجه شده است.'}</small>}
         </dd>
       </dl>
       <h4>متن کامل یادآور</h4>

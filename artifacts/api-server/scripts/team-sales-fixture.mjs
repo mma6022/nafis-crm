@@ -130,7 +130,7 @@ try {
   ok("timeline call_log «ارتقا به اولویت ۱ توسط کاظمی»", () => {
     const cl = queryRow("SELECT subject, expert_notes, salesperson_id FROM call_logs WHERE id=?", [r1.callLogId]);
     assert.equal(cl.subject, "ارتقا به اولویت ۱ توسط کاظمی"); assert.equal(Number(cl.salesperson_id), 6);
-    assert.match(cl.expert_notes, /^واگذاری به خانم حسنی \(نوبت چرخشی\) · قبلاً /);
+    assert.match(cl.expert_notes, /^واگذاری به خانم حسنی \(نوبت چرخشی\) — قبلاً /);
     assert.match(cl.expert_notes, /یادداشت: مشتری آماده است/);
   });
   ok("exactly one p1_assigned bell event per promote, for the closer", () => {
@@ -138,7 +138,7 @@ try {
     assert.equal(evs.length, 1);
     assert.equal(evs[0].kind, "p1_assigned"); assert.equal(Number(evs[0].owner_id), 3);
     assert.equal(evs[0].title, `مشتری اولویت ۱ جدید: ${queryRow("SELECT name FROM customers WHERE id=?", [a]).name}`);
-    assert.equal(evs[0].body, "ارتقا توسط آقای کاظمی · مهلت تماس تا فردا ۱۱:۰۰");
+    assert.equal(evs[0].body, "ارتقا توسط آقای کاظمی — مهلت تماس تا فردا ۱۱:۰۰");
   });
   ok("closer's older events of that customer are pre-marked read", () => {
     const unread = Number(queryRow(`SELECT COUNT(*) n FROM site_notification_events e WHERE e.customer_id=? AND e.id<=?
@@ -198,7 +198,7 @@ try {
     const r = ts.submitQualification(e, kazemi, base, longNote, now);
     assert.equal(r.result.priority, 1); assert.equal(r.handoff.closerSalespersonId, 4);
     const ev = queryRow("SELECT kind, body FROM site_notification_events WHERE id=?", [r.handoff.notificationId]);
-    assert.equal(ev.kind, "p1_assigned"); assert.match(ev.body, /^از فرم تماس اول آقای کاظمی · مهلت تماس تا /);
+    assert.equal(ev.kind, "p1_assigned"); assert.match(ev.body, /^از فرم تماس اول آقای کاظمی — مهلت تماس تا /);
     assert.equal(Number(queryRow("SELECT salesperson_id s FROM customers WHERE id=?", [e]).s), 4);
     assert.equal(queryRow("SELECT call_result FROM team_sales_qualifications WHERE customer_id=? ORDER BY id DESC", [e]).call_result, "answered");
   });
