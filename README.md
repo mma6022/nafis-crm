@@ -11,15 +11,16 @@ Node 22+, pnpm. (On the shared box: `export PATH=~/.local/node22/bin:$PATH`.)
 | `pnpm dev` | Dev server on :4321 |
 | `pnpm test` | Unit tests (`node --test`, plan finder + lead payload) |
 | `pnpm lint` | ESLint |
-| `pnpm build` | `astro check` → `astro build` → marker report (`dist/`) |
+| `pnpm build` | `astro check` → `astro build` → marker report → JSON-LD check (`dist/`) |
 | `pnpm build:fast` | Build only |
 | `pnpm preview` | Serve `dist/` |
 | `pnpm check:markers [--strict]` | Placeholder-marker report (see below) |
+| `pnpm check:jsonld` | Validates every JSON-LD block; FAQPage shape; post FAQ section ⇔ FAQPage |
 
 ## Content (fa / en)
 - **Visitor-facing copy is Persian** and lives in Markdown/MDX:
   - `src/content/pages/*.mdx`: home (`slug: /`) + 6 keyword landing pages (frontmatter: title, description, primaryKeyword, h1, cta, faq…). Routes come from `slug`.
-  - `src/content/blog/*.mdx`: magazine posts; categories/tags in `src/data/blog-taxonomy.ts`.
+  - `src/content/blog/*.mdx`: magazine posts (frontmatter `faq` → visible FAQ section + FAQPage JSON-LD, markers stripped from the JSON-LD); categories/tags in `src/data/blog-taxonomy.ts`.
   - `src/data/faq.ts`: shared FAQ.
 - **Code, comments, and commit messages are English.**
 - Plan facts (amounts, installments, terms, review time) are **never typed by hand**. They come from `src/data/loan-plans.snapshot.json` (build-time) and are refreshed client-side from `https://nafisvam.com/loan-plans.json` (`src/scripts/live-facts.ts`). Frontmatter/MDX text may use `{planCount}`, `{cashCount}`, `{goodsCount}`, `{bankCount}` (filled by `fillFacts`), and components like `<PlanCards>` / `<Calculator>`.

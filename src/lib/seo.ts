@@ -1,5 +1,6 @@
 /** JSON-LD builders. Output is injected with <JsonLd> in the <head>. */
 import { SITE, absoluteUrl } from './site';
+import { stripMarkers } from './markers';
 
 export type Crumb = { name: string; path: string };
 
@@ -49,10 +50,16 @@ export const websiteLd = () => ({
   publisher: { '@id': `${SITE.url}/#organization` },
 });
 
-export const faqLd = (items: { q: string; a: string }[]) => ({
+/** FAQPage JSON-LD. Placeholder markers are stripped (they stay visible on the page). */
+export const faqLd = (items: { q: string; a: string }[], path?: string) => ({
   '@context': 'https://schema.org',
   '@type': 'FAQPage',
-  mainEntity: items.map((i) => ({ '@type': 'Question', name: i.q, acceptedAnswer: { '@type': 'Answer', text: i.a } })),
+  ...(path ? { url: absoluteUrl(path) } : {}),
+  mainEntity: items.map((i) => ({
+    '@type': 'Question',
+    name: stripMarkers(i.q),
+    acceptedAnswer: { '@type': 'Answer', text: stripMarkers(i.a) },
+  })),
 });
 
 export const breadcrumbLd = (crumbs: Crumb[]) => ({

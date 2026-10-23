@@ -3,6 +3,8 @@ import { glob } from 'astro/loaders';
 import { z } from 'astro/zod';
 import { categoryKey } from './data/blog-taxonomy';
 
+const faq = z.array(z.object({ q: z.string().min(5), a: z.string().min(10) })).default([]);
+
 const blog = defineCollection({
   // The glob loader uses frontmatter `slug` as the entry id → /blog/<slug>
   loader: glob({ pattern: '**/*.{md,mdx}', base: './src/content/blog' }),
@@ -29,12 +31,12 @@ const blog = defineCollection({
       coverAlt: z.string().optional(),
       keywords: z.array(z.string()).default([]),
       relatedPlans: z.array(z.number()).default([]),
+      faq, // rendered as a visible FAQ section + FAQPage JSON-LD
       draft: z.boolean().default(false),
       sample: z.boolean().default(false), // placeholder posts — shown with a "نمونه" badge, noindex
     }),
 });
 
-const faq = z.array(z.object({ q: z.string(), a: z.string() })).default([]);
 const cta = z.object({ text: z.string(), href: z.string() });
 
 /** Keyword landing pages + home copy (from nafis-site-ux/content/pages). Title/h1 may contain {planCount} / {goodsCount}. */

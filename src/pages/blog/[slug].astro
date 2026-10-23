@@ -16,7 +16,8 @@ import {
   relatedPosts,
   type Post,
 } from '../../lib/blog';
-import { articleLd, breadcrumbLd } from '../../lib/seo';
+import { articleLd, breadcrumbLd, faqLd } from '../../lib/seo';
+import FAQ from '../../components/mdx/FAQ.astro';
 import { formatDateFa, toFaDigits } from '../../lib/format';
 import { mdxComponents } from '../../components/mdx';
 
@@ -28,7 +29,10 @@ export const getStaticPaths = (async () => {
 const { post, related } = Astro.props as { post: Post; related: Post[] };
 const d = post.data;
 const { Content, headings } = await render(post);
-Astro.locals.headings = headings;
+const faqItems = d.faq;
+Astro.locals.faq = faqItems;
+// The FAQ section is rendered by the page (not the MDX), so add it to the TOC.
+Astro.locals.headings = faqItems.length ? [...headings, { depth: 2, slug: 'faq-title', text: 'سؤالات متداول' }] : headings;
 const path = postPath(post);
 const minutes = readingMinutes(post.body);
 const crumbs = [
@@ -61,6 +65,7 @@ const ogImage = d.cover?.src;
       tags: d.tags,
     }),
     breadcrumbLd(crumbs),
+    ...(faqItems.length ? [faqLd(faqItems, path)] : []),
   ]}
 >
   <article class="container-nf max-w-3xl py-8 sm:py-12">
@@ -103,6 +108,8 @@ const ogImage = d.cover?.src;
     <div class="prose-nf mt-8">
       <Content components={mdxComponents} />
     </div>
+
+    <FAQ items={faqItems} />
 
     {d.tags.length > 0 && (
       <ul class="mt-10 flex flex-wrap gap-2" aria-label="برچسب‌ها">
