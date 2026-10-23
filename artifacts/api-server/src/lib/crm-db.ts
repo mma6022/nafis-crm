@@ -929,8 +929,8 @@ crmDb.exec(`
     ('collateral_type', 'promissory', 'سفته', 4, 1),
     ('collateral_type', 'salary_deduction', 'گواهی کسر از حقوق', 5, 1),
     ('collateral_type', 'property', 'سند ملکی', 6, 1),
-    ('collateral_type', 'vehicle', 'سند خودرو', 7, 1),
-    ('collateral_type', 'deposit', 'حساب مسدودی بانکی', 8, 1);
+    ('collateral_type', 'vehicle', 'سند خودرو', 7, 1);
+  -- No bank-deposit collateral option: it does not exist as a product (removed; live rows are deactivated by scripts/remove-deposit-collateral.mjs).
 `);
 function migrateAutomatedRepeatRequestProvenance(): void {
   const columns = crmDb

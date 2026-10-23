@@ -346,7 +346,7 @@ function requiredCollateralSlots(condition: any): CollateralSlot[] {
   const slots: CollateralSlot[] = [];
   const add = (party: "customer" | "guarantor", rawType: unknown) => {
     const type = String(rawType ?? "").trim();
-    if (!type || ["none", "null", "undefined"].includes(type)) return;
+    if (!type || ["none", "null", "undefined", "deposit"].includes(type)) return; // "deposit": removed option, legacy values ignored
     const normalized = type.includes("check") ? "check" : type.includes("promissory") ? "promissory" : type.includes("salary") ? "salary_deduction" : type;
     const title = normalized === "check" ? "چک" : normalized === "promissory" ? "سفته" : normalized === "salary_deduction" ? "گواهی کسر از حقوق" : "وثیقه";
     const owner = party === "customer" ? "مشتری" : "ضامن";

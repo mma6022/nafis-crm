@@ -364,7 +364,7 @@ try {
   for (const [from, to, action] of transitionCases.slice(1)) {
     if (from === "collateral_upload") {
       db.prepare("INSERT INTO loan_application_collateral(application_id,collateral_type,status,created_at) VALUES(?,?,?,?)")
-        .run(appId, "deposit", "approved", timestamp);
+        .run(appId, "property", "approved", timestamp);
     }
     const moved = await jsonRequest(`${apiBase}/api/loan-applications/${appId}/${action}`, cookie, { method: "POST", body: "{}" });
     assert(moved.response.ok && moved.body.stage === to, `${from} -> ${to} failed: ${JSON.stringify(moved.body)}`);

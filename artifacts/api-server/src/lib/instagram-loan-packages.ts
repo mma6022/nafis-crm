@@ -261,15 +261,13 @@ type SearchState = {
   collateralBurden: number;
 };
 
-function collateralRank(values: string[] | null | undefined): number {
+export function collateralRank(values: string[] | null | undefined): number {
   if (values === null || values === undefined) return 2;
   if (!values.length) return 0;
   const normalized = values.map(normalizePersianText);
   const onlyNotes = normalized.every((value) => value.includes("سفته"));
   if (onlyNotes) return 1;
-  // Deposit collateral is labelled «حساب مسدودی بانکی»; the old wording is still matched only so legacy/cached
-  // plan labels keep their burden rank (input matching only, never shown — see no-sepordeh check exception).
-  if (normalized.some((value) => /چک|ملک|خودرو|مسدودی|سپرده|کسر از حقوق/u.test(value))) return 3;
+  if (normalized.some((value) => /چک|ملک|خودرو|کسر از حقوق/u.test(value))) return 3;
   return 2;
 }
 

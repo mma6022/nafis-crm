@@ -50,7 +50,7 @@
 .cbx .src.big { font-size: 15px; }
 .cbx .asg { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--nf-ink-soft); min-height: 44px; }
 .cbx .asg .none { color: var(--cbx-warning); font-weight: 600; }
-.cbx-text { background: none; border: 0; color: var(--nf-brand-600); min-height: 44px; padding: 0 8px; font-weight: 800; font-size: 15px; cursor: pointer; text-decoration: underline; text-underline-offset: 6px; text-decoration-color: var(--nf-brand-200); }
+.cbx-text { white-space: nowrap; background: none; border: 0; color: var(--nf-brand-600); min-height: 44px; padding: 0 8px; font-weight: 800; font-size: 15px; cursor: pointer; text-decoration: underline; text-underline-offset: 6px; text-decoration-color: var(--nf-brand-200); }
 .cbx .asg .cbx-text { margin-inline-start: auto; }
 .cbx-text:disabled { opacity: .5; cursor: default; }
 .cbx .acts { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
