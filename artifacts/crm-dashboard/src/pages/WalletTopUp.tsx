@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Copy, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { paymentReturnPath } from '../customer-portal/payment-return';
+import { PaymentResult } from '../customer-portal/PaymentResult';
 
 type ShareLinkData = {
   customerName: string;
@@ -90,6 +91,9 @@ export default function WalletTopUp() {
       window.location.assign(body.paymentUrl);
     } catch (e) { setError(e instanceof Error ? e.message : 'شروع پرداخت انجام نشد.'); setStarting(false); }
   };
+
+  // Customer receipt after the gateway: Nafis portal design. The share-token (third-party payer) flow below is unchanged.
+  if (receipt) return <PaymentResult data={error && !data ? null : data} loading={loading} onRefresh={() => void load()} />;
 
   return <main className="wallet-topup-page" dir="rtl">
     <div className="wallet-topup-card">
