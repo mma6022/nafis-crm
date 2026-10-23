@@ -257,6 +257,10 @@ body { font-size: var(--nf-font-body); line-height: 1.75; color: var(--nf-ink); 
 /* Hide floating helpers while a modal/drawer/sheet is open or a sticky action footer is on screen (phones) — see useFloatingGuard */
 body.nf-overlay-open .diag-floating, body.nf-overlay-open .ic-launch,
 body.nf-footer-visible .diag-floating, body.nf-footer-visible .ic-launch { visibility: hidden; pointer-events: none !important; }
+/* A chat composer is on screen: the «گزارش خطا» pill rides just above it (never over send/attach) and the
+   message list gets room at the end so the last bubble can scroll clear of the pill — see useFloatingGuard */
+body.nf-composer-visible .diag-floating { bottom: var(--nf-composer-lift, 90px) !important; }
+body.nf-composer-visible .tg-msgs { padding-bottom: 60px; }
 /* Phones: the bottom tab bar (z 40) sat on top of modal footers (modal-backdrop z 20); hide it while a modal is open (not for the nav drawer itself) */
 @media (max-width: 640px) { body.nf-overlay-open:not(.nf-drawer-open) .app-sidebar { visibility: hidden; } }
 @keyframes nf-fade { from { opacity: 0; } }

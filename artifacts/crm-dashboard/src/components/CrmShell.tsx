@@ -95,6 +95,8 @@ function useMediaQuery(query: string) {
 
 export function CrmShell({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
+  // On the chat pages themselves the floating «گفتگو» bubble is redundant and sat on top of the composer's send button.
+  const onChatPage = /^\/(chat|internal-chat)(\/|$)/.test(location);
   const queryClient = useQueryClient();
   const [profileOpen, setProfileOpen] = useState(false);
   const [reminderFormOpen, setReminderFormOpen] = useState(false);
@@ -334,7 +336,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
         </header>
         <DiagnosticPageBoundary key={location}>{children}</DiagnosticPageBoundary>
       </main>
-      {user && (canChat || canTeam) ? <FloatingChat key={phone ? 'phone' : 'wide'} bottomOffset={phone ? 84 : 20} actor={`staff:${user.id}`} items={[...(canChat ? [{ href: '/chat', label: 'گفتگو با مشتریان', count: unread.data?.count ?? 0 }] : []), ...(canTeam ? [{ href: '/internal-chat', label: 'گفتگوی داخلی', count: team.data?.unreadCount ?? 0 }] : [])]} /> : null}
+      {user && (canChat || canTeam) && !onChatPage ? <FloatingChat key={phone ? 'phone' : 'wide'} bottomOffset={phone ? 84 : 20} actor={`staff:${user.id}`} items={[...(canChat ? [{ href: '/chat', label: 'گفتگو با مشتریان', count: unread.data?.count ?? 0 }] : []), ...(canTeam ? [{ href: '/internal-chat', label: 'گفتگوی داخلی', count: team.data?.unreadCount ?? 0 }] : [])]} /> : null}
       {profileOpen && user ? <ProfileModal user={user} onClose={() => setProfileOpen(false)} /> : null}
       {reminderFormOpen ? <CreateReminderForm onClose={() => setReminderFormOpen(false)} /> : null}
       {dueReminder ? (
