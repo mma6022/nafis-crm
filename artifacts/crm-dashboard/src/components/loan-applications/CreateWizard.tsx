@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { requestWalletShare } from '@/lib/wallet-share';
 import { documentFileAccept, supportedDocumentFile } from '@/lib/document-upload-type';
 import { getListCustomerWalletShareLinksQueryKey } from '@workspace/api-client-react';
@@ -5,6 +6,10 @@ import React, { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { clearLoanDraft, readLoanDraft, writeLoanDraft } from "@/lib/loan-draft";
+import { WIZARD_DISPLAY_STEPS, WIZARD_PHASES, WIZARD_TOTAL_STEPS } from "@/lib/loan-labels";
+import { ConfirmDialog, useMinWidth } from "@/pages/customers-ui";
+import "@/pages/customers.css";
+import "@/pages/loan-requests.css";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   useListCustomers,
@@ -48,10 +53,12 @@ import {
   User,
   Check,
   ChevronRight,
+  ChevronLeft,
+  X,
   Info,
-  Copy
+  Copy,
+  FileClock
 } from "lucide-react";
-import { Modal, EmptyState } from "@/components/DataTools";
 import { PersianDatePicker } from "@/components/PersianDatePicker";
 import { formatPhoneForDisplay } from "@/lib/phone";
 import { Priority, formatDate, formatDateTime } from "@/components/CrmShell";
@@ -118,11 +125,48 @@ function apiErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-export function CreateWizard({ onClose, initialCustomerId, resumeDraft }: { onClose: () => void; initialCustomerId?: number; resumeDraft?: boolean }) {
+// Display parts per internal step (see WIZARD_DISPLAY_STEPS): the six internal steps are
+// shown as ten small screens; the internal step order and its guards are unchanged.
+const STEP_PARTS: Record<number, number> = { 1: 1, 2: 3, 3: 2, 4: 1, 5: 1, 6: 2 };
+const STEP_LEADS: Record<number, string> = {
+  1: "مشتری را جستجو و انتخاب کنید.",
+  2: "برای استعلام هویت لازم است. اگر قبلاً ثبت شده، فقط بررسی کنید.",
+  3: "اطلاعات هویتی با شاهکار، ثبت احوال، نشانی و ثنا استعلام می‌شود.",
+  4: "رتبه اعتباری با کد یک‌بارمصرف ارسال‌شده به موبایل مشتری استعلام می‌شود.",
+  5: "یکی از طرح‌های واجد شرایط و یکی از شروط آن را انتخاب کنید.",
+  6: "مبلغ درخواستی و مدت بازپرداخت را در حدود شرط انتخاب‌شده مشخص کنید.",
+  7: "هزینه ثابت تشکیل پرونده از کیف پول نقدی مشتری کسر می‌شود.",
+  8: "پنج مدرک هویتی مشتری برای پرونده لازم است.",
+  9: "فیلدهای دستی قالب قرارداد این طرح را تکمیل کنید.",
+  10: "اطلاعات را بازبینی و پرونده را ثبت کنید.",
+};
+
+export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCustomer }: { onClose: () => void; initialCustomerId?: number; resumeDraft?: boolean; fromCustomer?: boolean }) {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const reduceMotion = useReducedMotion();
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
+  // Display sub-part of the current internal step; reset whenever the internal step changes.
+  const [sub, setSub] = useState(0);
+  const [subFor, setSubFor] = useState<number>(1);
+  const pendingSub = useRef<number | null>(null);
+  if (subFor !== step) {
+    setSubFor(step);
+    setSub(Math.min(pendingSub.current ?? 0, (STEP_PARTS[step] ?? 1) - 1));
+    pendingSub.current = null;
+  }
+  const displayStep = WIZARD_DISPLAY_STEPS.find((d) => d.s === step && d.p === sub)?.n ?? 1;
+  const isDesktop = useMinWidth(1024);
+  const [exitOpen, setExitOpen] = useState(false);
+  const titleRef = useRef<HTMLHeadingElement | null>(null);
+  const mainRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    titleRef.current?.focus();
+    return () => { document.body.style.overflow = previous; };
+  }, []);
+  useEffect(() => { mainRef.current?.scrollTo?.({ top: 0 }); }, [displayStep]);
   const session = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   const canIgnoreCreditRank = ["admin", "salesperson"].includes(session.data?.user?.role ?? "");
   const [ignoreCreditRank, setIgnoreCreditRank] = useState(false);
@@ -206,16 +250,33 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft }: { onCl
     const previous = readLoanDraft(userId, selectedCustomer.id);
     writeLoanDraft(userId, {
       customerId: selectedCustomer.id, customerName: selectedCustomer.name,
-      step: Math.max(step, previous?.step ?? 0),
+      step: Math.max(displayStep, previous?.step ?? 0),
       planId: selectedPlanId ?? previous?.planId ?? null,
       planName: selectedPlan?.name ?? previous?.planName ?? null,
       amount: selectedPlan ? amount : previous?.amount ?? '',
       duration: selectedPlan ? duration : previous?.duration ?? '',
     });
-  }, [selectedCustomer?.id, step, selectedPlanId, selectedPlan?.planId, amount, duration, userId]);
+  }, [selectedCustomer?.id, step, displayStep, selectedPlanId, selectedPlan?.planId, amount, duration, userId]);
 
-  const handleNext = () => setStep((s) => Math.min(s + 1, 6) as any);
-  const handlePrev = () => setStep((s) => Math.max(s - 1, 1) as any);
+  const handleNext = () => {
+    if (sub + 1 < (STEP_PARTS[step] ?? 1)) { setSub(sub + 1); return; }
+    pendingSub.current = 0;
+    setStep((s) => Math.min(s + 1, 6) as any);
+  };
+  const handlePrev = () => {
+    if (sub > 0) { setSub(sub - 1); return; }
+    const target = Math.max(step - 1, 1);
+    pendingSub.current = (STEP_PARTS[target] ?? 1) - 1;
+    setStep((s) => Math.max(s - 1, 1) as any);
+  };
+  // Rail / «ویرایش» / «تغییر مشتری»: only steps already passed can be revisited.
+  const jumpTo = (n: number) => {
+    const target = WIZARD_DISPLAY_STEPS[n - 1];
+    if (!target || n >= displayStep) return;
+    if (target.s === step) { setSub(target.p); return; }
+    pendingSub.current = target.p;
+    setStep(target.s as 1 | 2 | 3 | 4 | 5 | 6);
+  };
 
   const createMutation = useCreateLoanApplication();
 
@@ -255,6 +316,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft }: { onCl
       if (!current || selectionTerms(current) !== selectionTerms(selectedPlan)) {
         setSelectedPlan(current ?? null);
         setTermsAttempted(false);
+        pendingSub.current = (previewAllPlans || latest.credit.fresh) ? 0 : 2;
         setStep((previewAllPlans || latest.credit.fresh) ? 3 : 2);
         setSubmitError((previewAllPlans || latest.credit.fresh)
           ? 'شرایط طرح هنگام تکمیل فرم تغییر کرده است. شرایط فعلی همین طرح را بررسی و انتخاب کنید؛ هزینه پرداخت‌شده حفظ شده و دوباره کسر نمی‌شود.'
@@ -293,6 +355,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft }: { onCl
       } else if (code === 'identity_documents_missing') {
         setStep(5);
       } else if (code === 'credit_check_stale' || code === 'customer_identity_not_verified') {
+        pendingSub.current = code === 'credit_check_stale' ? 2 : 1;
         setStep(2);
       } else if (code === 'filing_fee_required') {
         setFeeChargeId(null);
@@ -335,62 +398,76 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft }: { onCl
     { id: 5, title: "مدارک هویتی" },
     { id: 6, title: "تایید نهایی" },
   ];
+  void WIZARD_STEPS; // internal steps; the shell shows the 10 display steps below.
 
-  return (
-    <Modal
-      title="ثبت درخواست جدید"
-      onClose={onClose}
-      testId="create-loan-application-wizard"
-    >
-      <section
-        aria-label="مشخصات مشتری درخواست"
-        data-testid="wizard-customer-summary"
-        style={{ position: 'sticky', top: -22, zIndex: 2, display: 'flex', flexWrap: 'wrap', gap: '8px 20px', padding: '12px 14px', marginBottom: 16, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, color: '#0f172a', fontSize: 13, boxShadow: '0 3px 8px rgb(15 23 42 / 5%)' }}
-      >
-        <div style={{ flex: '1 1 160px', minWidth: 0, overflowWrap: 'anywhere' }}>
-          <span style={{ color: '#64748b' }}>نام مشتری: </span>
-          <strong data-testid="wizard-customer-name">{selectedCustomer?.name || 'هنوز انتخاب نشده'}</strong>
+  const current = WIZARD_DISPLAY_STEPS[displayStep - 1];
+  const upcoming = WIZARD_DISPLAY_STEPS[displayStep];
+  const fa = (n: number) => n.toLocaleString('fa-IR');
+  const requestExit = () => {
+    if (selectedCustomer && step > 1) setExitOpen(true);
+    else onClose();
+  };
+  const rail = (
+    <nav className="lwz-rail" aria-label="مراحل ثبت درخواست" data-testid="wizard-stepper">
+      {WIZARD_PHASES.map((phaseName, phase) => (
+        <div key={phaseName} className="lwz-phase">
+          <span className="ph">{phaseName}</span>
+          <ol>
+            {WIZARD_DISPLAY_STEPS.filter((d) => d.phase === phase).map((d) => {
+              const state = d.n < displayStep ? 'done' : d.n === displayStep ? 'cur' : 'todo';
+              const clickable = state === 'done' && !isSubmitting;
+              const inner = <><span className="num" aria-hidden="true">{state === 'done' ? <Check size={15} /> : fa(d.n)}</span><span className="lb">{d.label}</span></>;
+              return <li key={d.n} className={`lwz-ri ${state}`}>
+                {clickable
+                  ? <button type="button" onClick={() => jumpTo(d.n)} data-testid={`wizard-rail-step-${d.n}`}>{inner}<span className="lwz-sr"> (انجام شد؛ بازگشت به این مرحله)</span></button>
+                  : <span aria-current={state === 'cur' ? 'step' : undefined} data-testid={`wizard-rail-step-${d.n}`}>{inner}</span>}
+              </li>;
+            })}
+          </ol>
         </div>
-        <div>
-          <span style={{ color: '#64748b' }}>موبایل: </span>
-          <bdi dir="ltr" data-testid="wizard-customer-phone">{selectedCustomer?.phone ? formatPhoneForDisplay(selectedCustomer.phone) : '—'}</bdi>
-        </div>
-        <div>
-          <span style={{ color: '#64748b' }}>کد ملی: </span>
-          <bdi dir="ltr" data-testid="wizard-customer-national-code">{selectedCustomer ? selectedCustomer.nationalCode || 'ثبت نشده' : '—'}</bdi>
-        </div>
-      </section>
-      {restoredDraft && step <= 3 ? <p role="status" data-testid="wizard-draft-restored" style={{ margin: '0 0 12px', padding: '10px 14px', borderRadius: 12, background: '#eef2fb', color: '#1F2A7A', fontSize: 14, fontWeight: 600 }}>پیش‌نویس قبلی این مشتری بازیابی شد. اعتبار مشتری دوباره بررسی می‌شود و طرح و مبلغ انتخابی قبلی در مرحله «طرح و شرایط» پیشنهاد می‌شود.</p> : null}
-      {step !== 6 && submitError && <p className="form-error" role="alert" data-testid="wizard-recovery-error">{submitError}</p>}
-      <div className="wizard-stepper" data-testid="wizard-stepper" style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between' }}>
-        {WIZARD_STEPS.map((s, index) => (
-          <React.Fragment key={s.id}>
-            <div
-              className={`wizard-step ${step === s.id ? "active" : step > s.id ? "completed" : ""}`}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                opacity: step >= s.id ? 1 : 0.4,
-                transition: 'opacity 0.2s'
-              }}
-            >
-              <div style={{
-                width: 20, height: 20, borderRadius: '50%', 
-                background: step > s.id ? 'var(--teal)' : step === s.id ? 'var(--nafiss-blue)' : '#e2e8f0',
-                color: step >= s.id ? '#fff' : '#64748b',
-                display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 'bold'
-              }}>
-                {step > s.id ? <Check size={12} /> : s.id}
-              </div>
-              <span style={{ fontSize: 11, fontWeight: step === s.id ? 700 : 500, color: step >= s.id ? 'var(--ink-deep)' : '#64748b' }}>
-                {s.title}
-              </span>
-            </div>
-            {index < WIZARD_STEPS.length - 1 && (
-              <div style={{ height: 1, flex: 1, background: '#e2e8f0', margin: '10px 8px 0' }} />
-            )}
-          </React.Fragment>
-        ))}
+      ))}
+    </nav>
+  );
+  const progress = (
+    <div className="lwz-progress" data-testid="wizard-stepper">
+      <div className="lwz-bar" role="progressbar" aria-valuemin={1} aria-valuemax={WIZARD_TOTAL_STEPS} aria-valuenow={displayStep} aria-label={`مرحله ${fa(displayStep)} از ${fa(WIZARD_TOTAL_STEPS)}`}>
+        {WIZARD_DISPLAY_STEPS.map((d) => <i key={d.n} className={d.n < displayStep ? 'done' : d.n === displayStep ? 'cur' : ''} />)}
       </div>
+      <div className="meta">
+        <span>مرحله <b>{fa(displayStep)} از {fa(WIZARD_TOTAL_STEPS)}</b> · {current ? WIZARD_PHASES[current.phase] : ''}</span>
+        {upcoming ? <span className="nx">بعدی: {upcoming.label}</span> : <span className="nx">مرحله آخر</span>}
+      </div>
+    </div>
+  );
+
+  return createPortal(
+    <div className="csx lwz" role="dialog" aria-modal="true" aria-labelledby="lwz-title" dir="rtl" data-testid="create-loan-application-wizard"
+      onKeyDown={(event) => { if (event.key === 'Escape' && !exitOpen) { event.stopPropagation(); requestExit(); } }}>
+      <header className="lwz-top">
+        <button type="button" className="lwz-x" onClick={requestExit} aria-label="بستن ثبت درخواست" data-testid="wizard-close"><X size={24} /></button>
+        <h2 id="lwz-title" tabIndex={-1} ref={titleRef}>ثبت درخواست تسهیلات</h2>
+        {selectedCustomer && step > 1 ? <span className="lwz-saved" role="status" data-testid="wizard-draft-saved"><Check size={16} aria-hidden="true" /> <span className="t">ذخیره شد</span></span> : null}
+        <section className="lwz-chip" aria-label="مشخصات مشتری درخواست" data-testid="wizard-customer-summary">
+          <span className="av" aria-hidden="true">{selectedCustomer?.name ? selectedCustomer.name.trim().charAt(0) : <User size={16} />}</span>
+          <span className="tx">
+            <strong data-testid="wizard-customer-name">{selectedCustomer?.name || 'هنوز انتخاب نشده'}</strong>
+            <small><bdi dir="ltr" data-testid="wizard-customer-phone">{selectedCustomer?.phone ? formatPhoneForDisplay(selectedCustomer.phone) : '—'}</bdi> · کد ملی <bdi dir="ltr" data-testid="wizard-customer-national-code">{selectedCustomer ? selectedCustomer.nationalCode || 'ثبت نشده' : '—'}</bdi></small>
+          </span>
+        </section>
+      </header>
+      {!isDesktop ? progress : null}
+      <div className="lwz-body">
+        {isDesktop ? rail : null}
+        <main className="lwz-main" ref={mainRef}>
+          <div className="lwz-inner">
+            {fromCustomer && selectedCustomer && entryApplied.current && displayStep > 1 ? <p className="lwz-note ok" data-testid="wizard-from-customer-note"><User size={18} aria-hidden="true" /> <span>مشتری از پرونده مشتری انتخاب شد: <b>{selectedCustomer.name}</b>. <button type="button" className="text-link" onClick={() => jumpTo(1)} disabled={isSubmitting} data-testid="btn-change-customer">تغییر مشتری</button></span></p> : null}
+            {restoredDraft && step <= 3 ? <p className="lwz-note" role="status" data-testid="wizard-draft-restored"><FileClock size={18} aria-hidden="true" /> <span><b>پیش‌نویس بازیابی شد.</b> اعتبار مشتری دوباره بررسی می‌شود و طرح و مبلغ انتخابی قبلی در مرحله «طرح و شرط» پیشنهاد می‌شود.</span></p> : null}
+            {step !== 6 && submitError && <p className="form-error" role="alert" data-testid="wizard-recovery-error">{submitError}</p>}
+            <div className="lwz-head">
+              <span className="k">مرحله {fa(displayStep)} از {fa(WIZARD_TOTAL_STEPS)}</span>
+              <h3 data-testid="wizard-step-title">{current?.label}</h3>
+              {STEP_LEADS[displayStep] ? <p>{STEP_LEADS[displayStep]}</p> : null}
+            </div>
 
       <AnimatePresence mode="wait">
         <motion.div
@@ -399,7 +476,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft }: { onCl
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: 10 }}
           transition={{ duration: reduceMotion ? 0 : 0.15 }}
-          style={{ minHeight: 400, display: 'flex', flexDirection: 'column' }}
+          className="lwz-motion"
         >
           {step === 1 && (
             <Step1Customer 
@@ -427,6 +504,8 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft }: { onCl
                onNext={handleNext}
                onPrev={handlePrev}
                onCustomerUpdate={setSelectedCustomer}
+               part={sub}
+               onExitToCustomer={fromCustomer ? onClose : undefined}
             />
            )}
            {step === 3 && selectedCustomer && (
@@ -447,6 +526,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft }: { onCl
                 onAttempt={() => setTermsAttempted(true)}
                onNext={handleNext}
                onPrev={handlePrev}
+               part={sub}
             />
           )}
             {step === 4 && selectedCustomer && selectedPlan && (
@@ -471,11 +551,31 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft }: { onCl
                 isPending={isSubmitting}
                 error={submitError}
                 serverErrors={submitFieldErrors}
+                part={sub}
+                onPartNext={handleNext}
+                onEdit={jumpTo}
+                feePaid={Boolean(feeChargeId)}
             />
           )}
         </motion.div>
       </AnimatePresence>
-    </Modal>
+          </div>
+        </main>
+      </div>
+      {exitOpen ? <ConfirmDialog
+        title="خروج از ثبت درخواست؟"
+        confirmLabel="خروج"
+        cancelLabel="ماندن"
+        tone="primary"
+        onConfirm={() => { setExitOpen(false); onClose(); }}
+        onClose={() => setExitOpen(false)}
+        testId="wizard-exit-dialog"
+      >
+        <p>پیش‌نویس روی همین دستگاه ذخیره شد و بعداً از فهرست درخواست‌ها یا پرونده مشتری قابل ادامه است.</p>
+        <p>هزینه پرداخت‌شده، مدارک و استعلام‌ها روی سرور ثبت شده‌اند.</p>
+      </ConfirmDialog> : null}
+    </div>,
+    document.body,
   );
 }
 
@@ -548,37 +648,35 @@ function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, on
     }
   };
 
-  return <div className="panel" style={{ padding: 20, display: 'grid', gap: 16 }} data-testid="wizard-filing-fee">
-    <h3>پرداخت هزینه ثابت تشکیل پرونده</h3>
-    <p>طرح و شرایط درخواست انتخاب شده است. مبلغ ثابت همین طرح فقط یک بار از کیف پول نقدی مشتری کسر و به کیف پول نقدی شرکت منتقل می‌شود.</p>
-    {isLoading ? <p>در حال دریافت طرح‌ها...</p> : error ? <p role="alert">دریافت طرح‌ها ناموفق بود. <button type="button" onClick={() => refetch()}>تلاش دوباره</button></p> : (
+  return <div className="lwz-step" data-testid="wizard-filing-fee">
+    <p className="lwz-muted">طرح و شرایط درخواست انتخاب شده است. مبلغ ثابت همین طرح فقط یک بار از کیف پول نقدی مشتری کسر و به کیف پول نقدی شرکت منتقل می‌شود.</p>
+    {isLoading ? <p className="lwz-loading" role="status">در حال دریافت طرح‌ها...</p> : error ? <p role="alert" className="lwz-note bad">دریافت طرح‌ها ناموفق بود. <button type="button" className="text-link" onClick={() => refetch()}>تلاش دوباره</button></p> : (
       <>
         {!plan && (
-          <p role="alert" style={{ color: '#9f1239' }}>طرح انتخاب‌شده دیگر واجد شرایط پرداخت نیست و مبلغی کسر نمی‌شود. برای بررسی طرح و شرایط به مرحله قبل برگردید.</p>
+          <p role="alert" className="lwz-note bad">طرح انتخاب‌شده دیگر واجد شرایط پرداخت نیست و مبلغی کسر نمی‌شود. برای بررسی طرح و شرایط به مرحله قبل برگردید.</p>
         )}
-        <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12 }}>
-          <span style={{ display: 'block', color: '#64748b', fontSize: 11 }}>طرح انتخاب‌شده</span>
-          <strong data-testid="filing-fee-plan-name">{selectedPlan.name}</strong>
-        </div>
-        <p>موجودی نقدی مشتری: <strong>{BigInt(data?.cashBalanceToman ?? '0').toLocaleString('fa-IR')} تومان</strong></p>
-        {plan && <p>هزینه ثابت تشکیل پرونده: <strong>{BigInt(plan.filingFeeToman).toLocaleString('fa-IR')} تومان</strong></p>}
-        {plan && !affordable && !feeChargeId && !hasPendingKey && <p role="alert">موجودی کافی نیست. ابتدا کیف پول نقدی مشتری را از <a href={`/customers/${customer.id}`}>پرونده مشتری</a> شارژ کنید، سپس به این مرحله برگردید.</p>}
-        {feeError && <p role="alert" style={{ color: '#b91c1c' }}>{feeError}</p>}
-         {!feeChargeId && plan && <div style={{ display: 'grid', gap: 8, padding: 12, border: '1px solid #bae6fd', borderRadius: 8, background: '#f0f9ff' }}>
+        <dl className="lwz-card lwz-kv lwz-fee">
+          <div className="full"><dt>طرح انتخاب‌شده</dt><dd data-testid="filing-fee-plan-name">{selectedPlan.name}</dd></div>
+          {plan && <div><dt>هزینه ثابت تشکیل پرونده</dt><dd className="big">{BigInt(plan.filingFeeToman).toLocaleString('fa-IR')} <small>تومان</small></dd></div>}
+          <div><dt>موجودی نقدی مشتری</dt><dd className={`big${plan && !affordable && !feeChargeId ? ' lwz-errtext' : ''}`}>{BigInt(data?.cashBalanceToman ?? '0').toLocaleString('fa-IR')} <small>تومان</small></dd></div>
+        </dl>
+        {plan && !affordable && !feeChargeId && !hasPendingKey && <p role="alert" className="lwz-note warn">موجودی کافی نیست. ابتدا کیف پول نقدی مشتری را از <a href={`/customers/${customer.id}`}>پرونده مشتری</a> شارژ کنید، سپس به این مرحله برگردید.</p>}
+        {feeError && <p role="alert" className="lwz-note bad">{feeError}</p>}
+         {!feeChargeId && plan && <div className="lwz-card lwz-share">
            <strong>پرداخت توسط مشتری</strong>
-           <span style={{ fontSize: 12, color: '#475569' }}>لینک شارژ کسری کیف پول را برای مشتری ارسال کنید؛ شارژ بدون تأیید پرداخت انجام نمی‌شود.</span>
-           <button type="button" className="btn btn-gold" disabled={sharePending || Boolean(shareUrl)} onClick={createShareLink}>{sharePending ? 'در حال ارسال…' : shareSmsSent ? 'پیامک ارسال شد' : 'ارسال لینک شارژ کیف پول'}</button>
-           {shareSmsSent && <span role="status" style={{ color: '#047857' }}>لینک شارژ با پیامک برای مشتری ارسال شد.</span>}
-           {shareUrl && <><span style={{ fontSize: 12 }}>مبلغ لینک: <strong>{BigInt(shareAmount || '0').toLocaleString('fa-IR')} تومان</strong></span><div className="wallet-share-link"><div><input readOnly dir="ltr" value={shareUrl} /><button type="button" className="btn btn-ghost" onClick={async () => { try { await navigator.clipboard.writeText(shareUrl); } catch { setFeeError('کپی لینک انجام نشد؛ لینک را به‌صورت دستی از کادر انتخاب و کپی کنید.'); } }}><Copy size={15} /> کپی</button></div></div><button type="button" className="btn btn-ghost" onClick={() => refetch()}><RefreshCw size={15} /> به‌روزرسانی موجودی پس از پرداخت</button></>}
+           <span className="lwz-muted">لینک شارژ کسری کیف پول را برای مشتری ارسال کنید؛ شارژ بدون تأیید پرداخت انجام نمی‌شود.</span>
+           <button type="button" className="btn btn-gold" disabled={sharePending || Boolean(shareUrl)} onClick={createShareLink}>{sharePending ? 'در حال ارسال…' : shareSmsSent ? 'پیامک ارسال شد' : 'ارسال لینک شارژ کیف پول (پیامک)'}</button>
+           {shareSmsSent && <span role="status" className="lwz-ok">لینک شارژ با پیامک برای مشتری ارسال شد.</span>}
+           {shareUrl && <><span>مبلغ لینک: <strong>{BigInt(shareAmount || '0').toLocaleString('fa-IR')} تومان</strong></span><div className="wallet-share-link"><div><input readOnly dir="ltr" value={shareUrl} aria-label="لینک شارژ" /><button type="button" className="btn btn-ghost" onClick={async () => { try { await navigator.clipboard.writeText(shareUrl); } catch { setFeeError('کپی لینک انجام نشد؛ لینک را به‌صورت دستی از کادر انتخاب و کپی کنید.'); } }}><Copy size={16} /> کپی</button></div></div><button type="button" className="btn btn-ghost" onClick={() => refetch()}><RefreshCw size={16} /> به‌روزرسانی موجودی پس از پرداخت</button></>}
          </div>}
-        {feeChargeId && <p role="status" style={{ color: '#047857' }}>هزینه همین طرح ثبت شد؛ می‌توانید مدارک پرونده را تکمیل کنید.</p>}
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button type="button" className="btn" onClick={onPrev}>بازگشت</button>
-          {!feeChargeId && <button type="button" className="btn btn-primary" disabled={!plan || (!affordable && !hasPendingKey) || pending} onClick={pay}>{pending ? 'در حال ثبت...' : hasPendingKey ? 'بازیابی نتیجه پرداخت و ادامه' : 'کسر هزینه و ادامه'}</button>}
-          {feeChargeId && <button type="button" className="btn btn-primary" onClick={onNext}>ادامه</button>}
-        </div>
+        {feeChargeId && <p role="status" className="lwz-note ok"><CheckCircle2 size={18} aria-hidden="true" /> هزینه همین طرح ثبت شد؛ طرح، شرط و مبلغ قفل شدند و می‌توانید مدارک پرونده را تکمیل کنید.</p>}
       </>
     )}
+    <div className="form-footer">
+      <button type="button" className="btn btn-ghost" onClick={onPrev}><ChevronRight size={18} /> قبلی</button>
+      {!feeChargeId && <button type="button" className="btn btn-primary" disabled={!plan || (!affordable && !hasPendingKey) || pending} onClick={pay} data-testid="btn-pay-filing-fee">{pending ? 'در حال ثبت...' : hasPendingKey ? 'بازیابی نتیجه پرداخت و ادامه' : 'کسر هزینه و ادامه'}</button>}
+      {feeChargeId && <button type="button" className="btn btn-primary" onClick={onNext} data-testid="btn-next-fee">ادامه <ChevronLeft size={18} /></button>}
+    </div>
   </div>;
 }
 
@@ -593,47 +691,42 @@ function Step1Customer({ search, setSearch, customers, loading, selectedCustomer
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-      <div className="searchbar" style={{ marginBottom: 16 }}>
-        <Search size={16} />
+    <div className="lwz-step" data-testid="wizard-step-1">
+      <label className="lwz-search">
+        <Search size={20} aria-hidden="true" />
+        <span className="lwz-sr">جستجوی مشتری</span>
         <input
-          type="text"
-          placeholder="جستجوی مشتری (نام یا موبایل)..."
+          type="search"
+          placeholder="نام، موبایل یا کد ملی مشتری"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           autoFocus
           data-testid="input-customer-search"
         />
-      </div>
-      <div style={{ flex: 1, overflowY: "auto", maxHeight: 320, border: "1px solid #e2e8f0", borderRadius: 10, background: '#f8fafc' }}>
+      </label>
+      <div className="lwz-opts" role="radiogroup" aria-label="مشتریان" aria-describedby={attempted && !selectedCustomer ? 'err-selected-customer' : undefined}>
         {loading ? (
-           <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>در حال جستجو...</div>
+           <div className="lwz-loading" role="status">در حال جستجو...</div>
         ) : filteredCustomers.map((c: any) => (
-          <label
-            key={c.id}
-            style={{
-              display: "flex", alignItems: "center", gap: 12, padding: 12, borderBottom: "1px solid #e2e8f0", cursor: "pointer",
-              background: selectedCustomer?.id === c.id ? "#eff6ff" : "#fff",
-              transition: 'background 0.2s'
-            }}
-          >
+          <label key={c.id} className={`lwz-opt${selectedCustomer?.id === c.id ? ' on' : ''}`} data-testid={`wizard-customer-option-${c.id}`}>
             <input type="radio" name="customer" checked={selectedCustomer?.id === c.id} onChange={() => setSelectedCustomer(c)} />
-            <div style={{ flex: 1 }}>
-              <strong style={{ display: "block", fontSize: 13, color: "var(--ink-deep)" }}>{c.name}</strong>
-              <span style={{ display: "block", fontSize: 11, color: "#64748b" }}>کارشناس فروش: {c.salespersonName || "بدون تخصیص"}</span>
-              <span style={{ fontSize: 11, color: "#64748b" }}>{c.phone} - {c.nationalCode || "بدون کدملی"}</span>
-            </div>
-            {c.verificationStatus === 'verified' && <CheckCircle2 size={16} color="#0f766e" />}
+            <span className="txt">
+              <strong>{c.name}</strong>
+              <small><bdi dir="ltr">{c.phone}</bdi> · {c.nationalCode || "بدون کدملی"}</small>
+              <small>کارشناس فروش: {c.salespersonName || "بدون تخصیص"}</small>
+            </span>
+            {c.verificationStatus === 'verified' ? <span className="lwz-ok lwz-badge"><CheckCircle2 size={16} aria-hidden="true" /> احراز شده</span> : <span className="lwz-muted lwz-badge">احراز نشده</span>}
           </label>
         ))}
         {!loading && filteredCustomers.length === 0 && (
-          <div style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 12 }}>مشتری یافت نشد.</div>
+          <div className="lwz-loading">مشتری یافت نشد. مشتری جدید را از بخش «مشتریان» ثبت کنید.</div>
         )}
       </div>
-      {attempted && !selectedCustomer && <small role="alert" style={{ color: '#be123c', marginTop: 8 }} data-testid="error-selected-customer">برای ادامه یک مشتری را انتخاب کنید.</small>}
-      <div className="form-footer" style={{ justifyContent: "flex-end", marginTop: 24 }}>
-        <button type="button" className="btn btn-primary" onClick={() => { setAttempted(true); if (selectedCustomer) onNext(); }}>
-          تایید و ادامه
+      {attempted && !selectedCustomer && <small role="alert" className="lwz-err" id="err-selected-customer" data-testid="error-selected-customer">برای ادامه یک مشتری را انتخاب کنید.</small>}
+      <div className="form-footer">
+        <span />
+        <button type="button" className="btn btn-primary" onClick={() => { setAttempted(true); if (selectedCustomer) onNext(); }} data-testid="btn-next-1">
+          ادامه <ChevronLeft size={18} />
         </button>
       </div>
     </div>
@@ -641,7 +734,7 @@ function Step1Customer({ search, setSearch, customers, loading, selectedCustomer
 }
 
 // --- Step 2 ---
-function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, canIgnoreCreditRank, ignoreCreditRank, onIgnoreCreditRankChange, previewLocked }: any) {
+function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, canIgnoreCreditRank, ignoreCreditRank, onIgnoreCreditRankChange, previewLocked, part = 0, onExitToCustomer }: any) {
   const queryClient = useQueryClient();
   const updateCustomer = useUpdateCustomer();
   const verifyIdentity = useVerifyCustomerIdentity();
@@ -730,6 +823,7 @@ function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, can
       onSuccess: (updated) => {
         onCustomerUpdate(updated);
         setEditing(false);
+        if (part === 0) onNext();
         setProfileErrors({});
         setVerifyResult(null);
         setVerifyError('');
@@ -905,181 +999,170 @@ function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, can
   };
 
   const isReadyForNext = isVerified && (hasFreshCredit || ignoreCreditRank);
+  const [partAttempted, setPartAttempted] = useState(false);
+  useEffect(() => { setPartAttempted(false); }, [part]);
+  const profileFormId = `wizard-profile-form-${customer.id}`;
+  const continuePart = () => {
+    setPartAttempted(true);
+    if (part === 0) {
+      if (editMode) return;
+      if (Object.keys(validateProfile()).length) { setEditing(true); return; }
+      onNext();
+    } else if (part === 1) {
+      if (isVerified) onNext();
+    } else if (isReadyForNext) {
+      onNext();
+    }
+  };
+  const prevButton = part === 0 && onExitToCustomer
+    ? <button type="button" className="btn btn-ghost" onClick={onExitToCustomer} data-testid="btn-back-to-customer"><ChevronRight size={18} /> پرونده مشتری</button>
+    : <button type="button" className="btn btn-ghost" onClick={onPrev} data-testid="btn-prev-2"><ChevronRight size={18} /> قبلی</button>;
+  const fieldError = (key: string) => profileErrors[key] ? <small className="lwz-err" role="alert" id={`err-profile-${key}`}>{profileErrors[key]}</small> : null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, gap: 20 }} data-testid="wizard-step-2">
-      {/* Profile Section */}
-      <div className="panel" style={{ padding: 16 }}>
-         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-            <h4 style={{ fontSize: 13, margin: 0 }}>اطلاعات پایه و هویتی</h4>
-            {!editMode && !isVerified && (
-               <button type="button" className="text-link" onClick={() => setEditing(true)} data-testid="btn-edit-profile">ویرایش</button>
-            )}
-         </div>
-         {editMode ? (
-            <form noValidate onSubmit={handleSaveProfile} className="form-grid" style={{ gap: 10 }}>
-               <div className="field"><label>کد ملی</label><input dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={e => { setForm({...form, nationalCode: e.target.value}); setProfileErrors(current => ({ ...current, nationalCode: '' })); }} aria-invalid={Boolean(profileErrors.nationalCode)} data-testid="input-national-code" />{profileErrors.nationalCode && <small role="alert" style={{ color: '#be123c' }}>{profileErrors.nationalCode}</small>}</div>
-               <div className="field"><label>موبایل</label><input dir="ltr" inputMode="tel" value={form.phone} onChange={e => { setForm({...form, phone: e.target.value}); setProfileErrors(current => ({ ...current, phone: '' })); }} aria-invalid={Boolean(profileErrors.phone)} data-testid="input-phone" />{profileErrors.phone && <small role="alert" style={{ color: '#be123c' }}>{profileErrors.phone}</small>}</div>
-               <div className="field"><label>تاریخ تولد (شمسی)</label><PersianDatePicker value={form.birthDateJalali} onChange={v => { setForm({...form, birthDateJalali: v}); setProfileErrors(current => ({ ...current, birthDateJalali: '' })); }} testId="input-birth-date" birthDate />{profileErrors.birthDateJalali && <small role="alert" style={{ color: '#be123c' }}>{profileErrors.birthDateJalali}</small>}</div>
-               <div className="field"><label>کد پستی</label><input dir="ltr" inputMode="numeric" value={form.postalCode} onChange={e => { setForm({...form, postalCode: e.target.value}); setProfileErrors(current => ({ ...current, postalCode: '' })); }} aria-invalid={Boolean(profileErrors.postalCode)} data-testid="input-postal-code" />{profileErrors.postalCode && <small role="alert" style={{ color: '#be123c' }}>{profileErrors.postalCode}</small>}</div>
-               {profileError && <div className="profile-form-error field full" role="alert" data-testid="error-save-profile">{profileError}</div>}
-              <div className="field full" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-                <button type="submit" className="btn btn-gold" disabled={updateCustomer.isPending} data-testid="btn-save-profile">
-                  {updateCustomer.isPending ? 'در حال ذخیره...' : 'ذخیره اطلاعات'}
-                </button>
-              </div>
-           </form>
-         ) : (
-           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12 }}>
-             <div><span style={{color: '#64748b'}}>کد ملی:</span> <strong data-testid="display-national-code">{customer.nationalCode}</strong></div>
-             <div><span style={{color: '#64748b'}}>موبایل:</span> <strong dir="ltr" data-testid="display-phone">{customer.phone}</strong></div>
-             <div><span style={{color: '#64748b'}}>تاریخ تولد:</span> <strong data-testid="display-birth-date">{customer.birthDateJalali}</strong></div>
-             <div><span style={{color: '#64748b'}}>وضعیت:</span> 
-               {isVerified ? <span style={{ color: '#0f766e', fontWeight: 'bold' }} data-testid="status-verified"> احراز شده</span> : <span style={{ color: '#b45309' }} data-testid="status-unverified"> احراز نشده</span>}
-             </div>
-             
-              <div style={{ gridColumn: '1 / -1', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, marginTop: 8 }}>
-                 {!isVerified && (
-                   <div style={{ fontSize: 11, color: '#475569', marginBottom: 10 }}>جهت ادامه، باید هویت مشتری (شاهکار، ثبت احوال، ثنا و نشانی) احراز شود.</div>
-                 )}
-                 {lastVerificationCheckedAt && (
-                   <div style={{ fontSize: 11, color: '#64748b', marginBottom: 10 }} data-testid="last-verification-time">
-                     آخرین استعلام: {formatDateTime(lastVerificationCheckedAt)}
-                   </div>
-                 )}
-                  <button type="button" className="btn btn-primary" onClick={doVerify} disabled={isVerified || editMode || verifyIdentity.isPending} style={{ width: '100%' }} data-testid="btn-verify-identity">
-                   {verifyIdentity.isPending
-                     ? 'در حال استعلام...'
-                     : isVerified ? 'هویت مشتری تأیید شده است'
-                     : lastVerificationCheckedAt
-                       ? 'تلاش دوباره فقط برای موارد ناموفق'
-                       : 'استعلام و احراز هویت'}
-                 </button>
-                  {verifyError && <div role="alert" style={{ color: '#be123c', fontSize: 11, marginTop: 8 }} data-testid="verify-error">{verifyError}</div>}
-                  {identityInquiryFailed && !editMode && validateIranianNationalCode(form.nationalCode) && validateIranianMobile(form.phone) && validateJalaliBirthDate(form.birthDateJalali) && (
-                    <div style={{ marginTop: 10, display: 'grid', gap: 7 }}>
-                      <p style={{ margin: 0, color: '#475569', fontSize: 11 }}>موارد موفق تأیید شده‌اند. فقط موارد قرمز به ادمین ارجاع می‌شوند؛ رتبهٔ اعتباری قابل تأیید دستی نیست.</p>
-                      <button type="button" className="btn btn-ghost" onClick={submitManualVerificationRequest} disabled={manualRequestAttempted || manualRequestPending} data-testid="btn-manual-verification-request">
-                        {manualRequestPending ? 'در انتظار بررسی مدیر...' : 'ارسال به ادمین'}
-                      </button>
-                      {manualRequestMessage && <div role={manualRequestPending ? 'status' : manualRequestError ? 'alert' : 'status'} style={{ color: manualRequestPending ? '#92400e' : manualRequestError ? '#be123c' : '#047857', fontSize: 11 }} data-testid="manual-verification-request-status">{manualRequestMessage}</div>}
-                    </div>
-                  )}
-                <div style={{ display: 'grid', gap: 7, marginTop: 12 }} data-testid="identity-checks">
-                  {checkRows.map(([key, label]) => {
-                    const check = verificationChecks?.[key];
-                    const ok = check?.ok === true;
-                    const providerStatus = typeof check?.providerStatus === 'string' ? check.providerStatus.toLowerCase() : '';
-                    const providerStatusMessage = !ok && providerStatus && !['ok', 'success', 'verified', 'completed'].includes(providerStatus)
-                      ? providerStatus.includes('unavailable') || providerStatus.includes('timeout')
-                        ? 'سرویس استعلام پاسخ‌گو یا در دسترس نبود.'
-                        : 'استعلام این سرویس ناموفق بود.'
-                      : '';
-                    return (
-                      <div key={key} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 10px', borderRadius: 7, background: ok ? '#ecfdf5' : '#fff1f2', color: ok ? '#047857' : '#be123c' }} data-testid={`identity-check-${key}`}>
-                        <span>{label}</span>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontWeight: 700 }}>
-                          {ok ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
-                          {ok ? 'تأیید شد' : 'تأیید نشد'}
-                        </span>
-                        {providerStatusMessage && <small style={{ color: '#9f1239', display: 'block', flexBasis: '100%' }}>{providerStatusMessage}</small>}
-                      </div>
-                    );
-                  })}
-                </div>
-                <div style={{ borderTop: '1px solid #e2e8f0', marginTop: 12, paddingTop: 12 }}>
-                  <strong style={{ display: 'block', marginBottom: 9 }}>نتیجه رسمی استعلام</strong>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    <div><span style={{ color: '#64748b' }}>نام رسمی:</span> <strong data-testid="official-first-name">{officialIdentity.firstName || '—'}</strong></div>
-                    <div><span style={{ color: '#64748b' }}>نام خانوادگی رسمی:</span> <strong data-testid="official-last-name">{officialIdentity.lastName || '—'}</strong></div>
-                    <div><span style={{ color: '#64748b' }}>نام پدر:</span> <strong data-testid="official-father-name">{officialIdentity.fatherName || '—'}</strong></div>
-                    <div><span style={{ color: '#64748b' }}>کد پستی رسمی:</span> <strong dir="ltr" data-testid="official-postal-code">{officialIdentity.postalCode || '—'}</strong></div>
-                    <div style={{ gridColumn: '1 / -1' }}><span style={{ color: '#64748b' }}>نشانی رسمی:</span> <strong data-testid="official-address">{officialIdentity.address || '—'}</strong></div>
-                  </div>
-                </div>
-              </div>
-           </div>
-         )}
-      </div>
+    <div className="lwz-step" data-testid="wizard-step-2" data-part={part}>
+      {part === 0 && (editMode ? (
+        <form id={profileFormId} noValidate onSubmit={handleSaveProfile} className="lwz-form" data-testid="wizard-profile-form">
+          {customer.verificationCheckedAt ? <p className="lwz-note warn" role="note"><AlertCircle size={18} aria-hidden="true" /> تغییر این اطلاعات، احراز هویت قبلی مشتری را باطل می‌کند.</p> : null}
+          <div className="field"><label htmlFor="wz-national-code">کد ملی</label><input id="wz-national-code" dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={e => { setForm({...form, nationalCode: e.target.value}); setProfileErrors(current => ({ ...current, nationalCode: '' })); }} aria-invalid={Boolean(profileErrors.nationalCode)} aria-describedby={profileErrors.nationalCode ? 'err-profile-nationalCode' : undefined} data-testid="input-national-code" />{fieldError('nationalCode')}</div>
+          <div className="field"><label htmlFor="wz-phone">شماره همراه</label><input id="wz-phone" dir="ltr" inputMode="tel" value={form.phone} onChange={e => { setForm({...form, phone: e.target.value}); setProfileErrors(current => ({ ...current, phone: '' })); }} aria-invalid={Boolean(profileErrors.phone)} aria-describedby={profileErrors.phone ? 'err-profile-phone' : undefined} data-testid="input-phone" />{fieldError('phone')}</div>
+          <div className="field"><label>تاریخ تولد (شمسی)</label><PersianDatePicker value={form.birthDateJalali} onChange={v => { setForm({...form, birthDateJalali: v}); setProfileErrors(current => ({ ...current, birthDateJalali: '' })); }} testId="input-birth-date" birthDate />{fieldError('birthDateJalali')}</div>
+          <div className="field"><label htmlFor="wz-postal-code">کد پستی</label><input id="wz-postal-code" dir="ltr" inputMode="numeric" value={form.postalCode} onChange={e => { setForm({...form, postalCode: e.target.value}); setProfileErrors(current => ({ ...current, postalCode: '' })); }} aria-invalid={Boolean(profileErrors.postalCode)} aria-describedby={profileErrors.postalCode ? 'err-profile-postalCode' : undefined} data-testid="input-postal-code" />{fieldError('postalCode')}</div>
+          {profileError && <div className="profile-form-error" role="alert" data-testid="error-save-profile">{profileError}</div>}
+        </form>
+      ) : (
+        <div className="lwz-card">
+          <div className="lwz-cardh"><strong>اطلاعات ثبت‌شده</strong>
+            {!isVerified && <button type="button" className="text-link" onClick={() => setEditing(true)} data-testid="btn-edit-profile">ویرایش</button>}
+          </div>
+          <dl className="lwz-kv">
+            <div><dt>کد ملی</dt><dd data-testid="display-national-code">{customer.nationalCode}</dd></div>
+            <div><dt>شماره همراه</dt><dd dir="ltr" data-testid="display-phone">{customer.phone}</dd></div>
+            <div><dt>تاریخ تولد</dt><dd data-testid="display-birth-date">{customer.birthDateJalali}</dd></div>
+            <div><dt>کد پستی</dt><dd dir="ltr">{customer.postalCode || '—'}</dd></div>
+            <div><dt>وضعیت هویت</dt><dd>{isVerified ? <span className="lwz-ok" data-testid="status-verified">احراز شده</span> : <span className="lwz-warn" data-testid="status-unverified">احراز نشده</span>}</dd></div>
+          </dl>
+        </div>
+      ))}
 
-      {/* Credit Section */}
-      <div className="panel" style={{ padding: 16, opacity: isVerified ? 1 : 0.5, pointerEvents: isVerified ? 'auto' : 'none' }}>
-         <h4 style={{ fontSize: 13, margin: '0 0 12px' }}>وضعیت اعتباری</h4>
-         {canIgnoreCreditRank && <div style={{ marginBottom: 12 }}>
-           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-             <input type="checkbox" checked={ignoreCreditRank} onChange={(event) => onIgnoreCreditRankChange(event.target.checked)} data-testid="checkbox-ignore-credit-rank" />
-             عدم در نظر گرفتن رتبه اعتباری در تمام مراحل پرونده
-           </label>
-           <p style={{ fontSize: 11, color: '#64748b', margin: '6px 0 0' }}>با فعال کردن این گزینه، رتبه و تازگی استعلام در ادامهٔ همین پرونده بررسی نمی‌شوند؛ احراز هویت، سقف مبلغ، اقساط مجاز و مدارک همچنان الزامی‌اند.{previewLocked ? ' طرح پرداخت‌شده همچنان قفل است.' : ''}</p>
-         </div>}
-          {creditError && (
-            <div className="profile-form-error" style={{ marginBottom: 10 }} data-testid="credit-check-error">
-              {creditError}
-            </div>
-          )}
-          {creditChecksError && (
-            <div className="profile-form-error" style={{ marginBottom: 10 }} role="alert" data-testid="credit-list-error">
-              دریافت سابقه استعلام اعتبارسنجی انجام نشد. وضعیت اتصال سرویس را بررسی و دوباره تلاش کنید.
-            </div>
-          )}
-          {latestCredit?.status === 'failed' && latestCredit.errorMessage && (
-            <div className="profile-form-error" style={{ marginBottom: 10 }} role="alert" data-testid="credit-latest-error">
-              {apiErrorMessage({ data: { message: latestCredit.errorMessage } }, latestCredit.errorMessage)}
-            </div>
-          )}
-         {hasFreshCredit ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#ecfdf5', border: '1px solid #a7f3d0', padding: 12, borderRadius: 8 }} data-testid="credit-status-fresh">
-               <ShieldCheck color="#059669" />
-               <div>
-                   <strong style={{ display: 'block', fontSize: 13, color: '#065f46' }}>رتبه اعتباری: {freshCredit?.scoreLabel || 'نامشخص'}</strong>
-                   <span style={{ fontSize: 11, color: '#047857' }}>بروزرسانی: {formatDateTime(freshCredit?.completedAt || freshCredit?.updatedAt)}</span>
-               </div>
-            </div>
-         ) : latestCredit?.status === 'awaiting_otp' ? (
-             <form onSubmit={confirmCreditOtp} style={{ background: '#fffbeb', border: '1px solid #fde68a', padding: 12, borderRadius: 8 }} data-testid="credit-status-otp">
-               <strong style={{ display: 'block', fontSize: 12, color: '#b45309', marginBottom: 6 }}>نیاز به تایید پیامکی</strong>
-                <p style={{ fontSize: 11, color: '#92400e', margin: '0 0 10px' }}>کد اعتبارسنجی ارسال‌شده به موبایل مشتری را همین‌جا وارد کنید.</p>
-                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(140px, 1fr) auto', gap: 8, alignItems: 'end' }}>
-                  <div className="field">
-                    <label>کد اعتبارسنجی</label>
-                    <input
-                      dir="ltr"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      value={creditOtp}
-                       onChange={(event) => { setCreditOtp(normalizeDigits(event.target.value).replace(/\D/g, '').slice(0, 8)); setCreditOtpError(''); }}
-                      minLength={4}
-                      maxLength={8}
-                      data-testid="input-credit-otp"
-                    />
-                    {creditOtpError && <small role="alert" style={{ color: '#be123c' }} data-testid="error-credit-otp">{creditOtpError}</small>}
-                  </div>
-                  <button type="submit" className="btn btn-gold" disabled={validateCredit.isPending} data-testid="btn-confirm-credit-otp">
-                    {validateCredit.isPending ? 'در حال بررسی...' : 'تأیید و دریافت رتبه اعتباری'}
-                  </button>
-                </div>
-                <button type="button" className="text-link" onClick={resendCreditOtp} disabled={renewCredit.isPending} style={{ marginTop: 10 }} data-testid="btn-resend-credit-otp">
-                  {renewCredit.isPending ? 'در حال ارسال...' : 'ارسال مجدد کد'}
-                </button>
-             </form>
-         ) : latestCredit?.status === 'processing' ? (
-            <div style={{ padding: 12, textAlign: 'center', fontSize: 12, color: '#64748b' }} data-testid="credit-status-processing">
-               <RefreshCw size={14} className="spin" style={{ display: 'inline-block', verticalAlign: 'middle', marginLeft: 6 }} />
-                در حال دریافت رتبه اعتباری...
-            </div>
-         ) : (
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12 }}>
-               <div style={{ fontSize: 11, color: '#475569', marginBottom: 10 }}>برای انتخاب طرح تسهیلاتی، رتبه اعتباری ۲۴ ساعت اخیر الزامی است.</div>
-               <button type="button" className="btn btn-gold" onClick={startCreditCheck} disabled={initiateCredit.isPending} style={{ width: '100%' }} data-testid="btn-start-credit-check">
-                  {initiateCredit.isPending ? 'در حال ارسال...' : 'استعلام رتبه اعتباری'}
-               </button>
-            </div>
-         )}
-      </div>
+      {part === 1 && <div className="lwz-card" data-testid="wizard-identity-verify">
+        {!isVerified && <p className="lwz-muted">جهت ادامه، باید هویت مشتری (شاهکار، ثبت احوال، ثنا و نشانی) احراز شود.</p>}
+        {lastVerificationCheckedAt && <p className="lwz-muted" data-testid="last-verification-time">آخرین استعلام: {formatDateTime(lastVerificationCheckedAt)}</p>}
+        <button type="button" className="btn btn-primary lwz-wide" onClick={doVerify} disabled={isVerified || editMode || verifyIdentity.isPending} data-testid="btn-verify-identity">
+          {verifyIdentity.isPending
+            ? 'در حال استعلام...'
+            : isVerified ? 'هویت مشتری تأیید شده است'
+            : lastVerificationCheckedAt
+              ? 'تلاش دوباره فقط برای موارد ناموفق'
+              : 'استعلام و احراز هویت'}
+        </button>
+        {editMode && <p className="lwz-note warn" role="alert">اطلاعات هویتی کامل یا معتبر نیست. به مرحله قبل برگردید و اطلاعات را اصلاح کنید.</p>}
+        {verifyError && <div role="alert" className="lwz-err" data-testid="verify-error">{verifyError}</div>}
+        {identityInquiryFailed && !editMode && validateIranianNationalCode(form.nationalCode) && validateIranianMobile(form.phone) && validateJalaliBirthDate(form.birthDateJalali) && (
+          <div className="lwz-manual">
+            <p className="lwz-muted">موارد موفق تأیید شده‌اند. فقط موارد قرمز به ادمین ارجاع می‌شوند؛ رتبهٔ اعتباری قابل تأیید دستی نیست.</p>
+            <button type="button" className="btn btn-ghost" onClick={submitManualVerificationRequest} disabled={manualRequestAttempted || manualRequestPending} data-testid="btn-manual-verification-request">
+              {manualRequestPending ? 'در انتظار بررسی مدیر...' : 'ارسال به ادمین برای بررسی دستی'}
+            </button>
+            {manualRequestMessage && <div role={manualRequestPending ? 'status' : manualRequestError ? 'alert' : 'status'} className={manualRequestPending ? 'lwz-warn' : manualRequestError ? 'lwz-err' : 'lwz-ok'} data-testid="manual-verification-request-status">{manualRequestMessage}</div>}
+          </div>
+        )}
+        <ul className="lwz-checks" data-testid="identity-checks">
+          {checkRows.map(([key, label]) => {
+            const check = verificationChecks?.[key];
+            const ok = check?.ok === true;
+            const providerStatus = typeof check?.providerStatus === 'string' ? check.providerStatus.toLowerCase() : '';
+            const providerStatusMessage = !ok && providerStatus && !['ok', 'success', 'verified', 'completed'].includes(providerStatus)
+              ? providerStatus.includes('unavailable') || providerStatus.includes('timeout')
+                ? 'سرویس استعلام پاسخ‌گو یا در دسترس نبود.'
+                : 'استعلام این سرویس ناموفق بود.'
+              : '';
+            return (
+              <li key={key} className={ok ? 'ok' : check ? 'bad' : 'idle'} data-testid={`identity-check-${key}`}>
+                <span>{label}</span>
+                <b>{ok ? <CheckCircle2 size={18} /> : check ? <XCircle size={18} /> : null}{ok ? 'تأیید شد' : check ? 'تأیید نشد' : 'استعلام نشده'}</b>
+                {providerStatusMessage && <small>{providerStatusMessage}</small>}
+              </li>
+            );
+          })}
+        </ul>
+        <div className="lwz-official">
+          <strong>نتیجه رسمی استعلام</strong>
+          <dl className="lwz-kv">
+            <div><dt>نام رسمی</dt><dd data-testid="official-first-name">{officialIdentity.firstName || '—'}</dd></div>
+            <div><dt>نام خانوادگی رسمی</dt><dd data-testid="official-last-name">{officialIdentity.lastName || '—'}</dd></div>
+            <div><dt>نام پدر</dt><dd data-testid="official-father-name">{officialIdentity.fatherName || '—'}</dd></div>
+            <div><dt>کد پستی رسمی</dt><dd dir="ltr" data-testid="official-postal-code">{officialIdentity.postalCode || '—'}</dd></div>
+            <div className="full"><dt>نشانی رسمی</dt><dd data-testid="official-address">{officialIdentity.address || '—'}</dd></div>
+          </dl>
+        </div>
+        {partAttempted && !isVerified && <p className="lwz-err" role="alert" data-testid="error-identity-required">برای ادامه، هویت مشتری باید احراز شود.</p>}
+      </div>}
 
-      <div className="form-footer" style={{ justifyContent: "space-between", marginTop: 'auto' }}>
-        <button type="button" className="btn btn-ghost" onClick={onPrev} data-testid="btn-prev-2">بازگشت</button>
-        <button type="button" className="btn btn-primary" onClick={onNext} disabled={!isReadyForNext} data-testid="btn-next-2">تایید و ادامه</button>
+      {part === 2 && <div className="lwz-card" data-testid="wizard-credit">
+        {canIgnoreCreditRank && <div className="lwz-toggle">
+          <label>
+            <input type="checkbox" checked={ignoreCreditRank} onChange={(event) => onIgnoreCreditRankChange(event.target.checked)} data-testid="checkbox-ignore-credit-rank" />
+            عدم در نظر گرفتن رتبه اعتباری در تمام مراحل پرونده
+          </label>
+          <p className="lwz-muted">با فعال کردن این گزینه، رتبه و تازگی استعلام در ادامهٔ همین پرونده بررسی نمی‌شوند؛ احراز هویت، سقف مبلغ، اقساط مجاز و مدارک همچنان الزامی‌اند.{previewLocked ? ' طرح پرداخت‌شده همچنان قفل است.' : ''}</p>
+        </div>}
+        {creditError && <div className="profile-form-error" data-testid="credit-check-error">{creditError}</div>}
+        {creditChecksError && <div className="profile-form-error" role="alert" data-testid="credit-list-error">دریافت سابقه استعلام اعتبارسنجی انجام نشد. وضعیت اتصال سرویس را بررسی و دوباره تلاش کنید.</div>}
+        {latestCredit?.status === 'failed' && latestCredit.errorMessage && (
+          <div className="profile-form-error" role="alert" data-testid="credit-latest-error">
+            {apiErrorMessage({ data: { message: latestCredit.errorMessage } }, latestCredit.errorMessage)}
+          </div>
+        )}
+        {!isVerified ? <p className="lwz-note warn" role="note">ابتدا هویت مشتری باید احراز شود.</p> : hasFreshCredit ? (
+          <div className="lwz-result ok" data-testid="credit-status-fresh">
+            <ShieldCheck size={28} aria-hidden="true" />
+            <div>
+              <strong>رتبه اعتباری: {freshCredit?.scoreLabel || 'نامشخص'}</strong>
+              <span>بروزرسانی: {formatDateTime(freshCredit?.completedAt || freshCredit?.updatedAt)} · اعتبار ۲۴ ساعت</span>
+            </div>
+          </div>
+        ) : latestCredit?.status === 'awaiting_otp' ? (
+          <form onSubmit={confirmCreditOtp} className="lwz-otp" data-testid="credit-status-otp">
+            <strong>نیاز به تأیید پیامکی</strong>
+            <p className="lwz-muted">کد اعتبارسنجی ارسال‌شده به موبایل مشتری را همین‌جا وارد کنید.</p>
+            <div className="field">
+              <label htmlFor="wz-credit-otp">کد اعتبارسنجی</label>
+              <input id="wz-credit-otp" dir="ltr" inputMode="numeric" autoComplete="one-time-code" value={creditOtp}
+                onChange={(event) => { setCreditOtp(normalizeDigits(event.target.value).replace(/\D/g, '').slice(0, 8)); setCreditOtpError(''); }}
+                minLength={4} maxLength={8} aria-invalid={Boolean(creditOtpError)} aria-describedby={creditOtpError ? 'err-credit-otp' : undefined} data-testid="input-credit-otp" />
+              {creditOtpError && <small className="lwz-err" role="alert" id="err-credit-otp" data-testid="error-credit-otp">{creditOtpError}</small>}
+            </div>
+            <div className="lwz-row">
+              <button type="submit" className="btn btn-gold" disabled={validateCredit.isPending} data-testid="btn-confirm-credit-otp">
+                {validateCredit.isPending ? 'در حال بررسی...' : 'تأیید و دریافت رتبه اعتباری'}
+              </button>
+              <button type="button" className="text-link" onClick={resendCreditOtp} disabled={renewCredit.isPending} data-testid="btn-resend-credit-otp">
+                {renewCredit.isPending ? 'در حال ارسال...' : 'ارسال مجدد کد'}
+              </button>
+            </div>
+          </form>
+        ) : latestCredit?.status === 'processing' ? (
+          <div className="lwz-result" data-testid="credit-status-processing">
+            <RefreshCw size={22} className="spin" aria-hidden="true" />
+            <div><strong>در حال دریافت رتبه اعتباری...</strong><span>نتیجه به‌صورت خودکار نمایش داده می‌شود.</span></div>
+          </div>
+        ) : (
+          <div className="lwz-start">
+            <p className="lwz-muted">برای انتخاب طرح تسهیلاتی، رتبه اعتباری ۲۴ ساعت اخیر الزامی است. کد یک‌بارمصرف به موبایل مشتری ارسال می‌شود.</p>
+            <button type="button" className="btn btn-gold lwz-wide" onClick={startCreditCheck} disabled={initiateCredit.isPending} data-testid="btn-start-credit-check">
+              {initiateCredit.isPending ? 'در حال ارسال...' : 'استعلام رتبه اعتباری'}
+            </button>
+          </div>
+        )}
+        {partAttempted && !isReadyForNext && isVerified && <p className="lwz-err" role="alert" data-testid="error-credit-required">برای ادامه، رتبه اعتباری ۲۴ ساعت اخیر لازم است.</p>}
+      </div>}
+
+      <div className="form-footer">
+        {prevButton}
+        {part === 0 && editMode
+          ? <button type="submit" form={profileFormId} className="btn btn-primary" disabled={updateCustomer.isPending} data-testid="btn-save-profile">{updateCustomer.isPending ? 'در حال ذخیره...' : 'ذخیره و ادامه'} <ChevronLeft size={18} /></button>
+          : <button type="button" className="btn btn-primary" onClick={continuePart} data-testid={part === 2 ? 'btn-next-2' : `btn-next-2-${part}`}>ادامه <ChevronLeft size={18} /></button>}
       </div>
     </div>
   );
@@ -1103,9 +1186,12 @@ type Step3PlanAndTermsProps = {
   onAttempt: () => void;
   onNext: () => void;
   onPrev: () => void;
+  part?: number;
 };
 
-function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPlanGroup, onSelectPlan, planLocked, feeRecoveryPending, amount, setAmount, duration, setDuration, onNext, onPrev, attempted, onAttempt, ignoreCreditRank }: Step3PlanAndTermsProps) {
+function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPlanGroup, onSelectPlan, planLocked, feeRecoveryPending, amount, setAmount, duration, setDuration, onNext, onPrev, attempted, onAttempt, ignoreCreditRank, part = 0 }: Step3PlanAndTermsProps) {
+  const [planAttempted, setPlanAttempted] = useState(false);
+  const planTried = attempted || planAttempted;
   const { data: eligibleResponse, isLoading, isError, refetch } = useListCustomerEligiblePlans(customer.id, { ignoreCreditRank }, {
     query: { queryKey: ["eligible-plans", customer.id, ignoreCreditRank], staleTime: 0 }
   });
@@ -1156,15 +1242,21 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
     if (!amountError && !durationError) onNext();
   };
 
+  const continuePlan = () => {
+    setPlanAttempted(true);
+    if (currentCondition) onNext();
+  };
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, gap: 16 }} data-testid="wizard-step-3">
-      {ignoreCreditRank && <div role="status" style={{ fontSize: 12, padding: 12, background: '#fffbeb', borderRadius: 10 }}>انتخاب طرح، شرط و ثبت پرونده بدون تطابق رتبه اعتباری؛ این انتخاب در پرونده ثبت می‌شود و سایر کنترل‌های هویتی و مالی برقرارند.</div>}
-      {ignoreCreditRank && <p role="status">در این حالت رتبه، نبود نتیجه یا قدیمی بودن استعلام اعتباری مانع ادامه پرونده نمی‌شود؛ کنترل‌های هویتی، مبلغ، اقساط و مدارک برقرارند.</p>}
-      <div style={{ flex: 1, overflowY: "auto", maxHeight: 220 }}>
+    <div className="lwz-step" data-testid="wizard-step-3" data-part={part}>
+      {part === 0 && <>
+      {ignoreCreditRank && <div role="status" className="lwz-note warn">انتخاب طرح، شرط و ثبت پرونده بدون تطابق رتبه اعتباری؛ این انتخاب در پرونده ثبت می‌شود و سایر کنترل‌های هویتی و مالی برقرارند.</div>}
+      {ignoreCreditRank && <p role="status" className="lwz-muted">در این حالت رتبه، نبود نتیجه یا قدیمی بودن استعلام اعتباری مانع ادامه پرونده نمی‌شود؛ کنترل‌های هویتی، مبلغ، اقساط و مدارک برقرارند.</p>}
+      <div className="lwz-plans">
          {isLoading ? (
-            <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>در حال بارگذاری طرح‌ها...</div>
-          ) : isError ? <div role="alert">دریافت طرح‌ها ناموفق بود. <button type="button" onClick={() => void refetch()}>تلاش دوباره</button></div> : eligibleMatches.length > 0 ? (
-            <div style={{ display: 'grid', gap: 10 }}>
+            <div className="lwz-loading" role="status">در حال بارگذاری طرح‌ها...</div>
+          ) : isError ? <div role="alert" className="lwz-note bad">دریافت طرح‌ها ناموفق بود. <button type="button" className="text-link" onClick={() => void refetch()}>تلاش دوباره</button></div> : eligibleMatches.length > 0 ? (
+            <div className="lwz-opts" role="group" aria-label="طرح‌های واجد شرایط">
                {groupedPlans.map((matches) => {
                  const plan = matches[0];
                  const planMaximum = Math.max(...matches.map((match) => Number(match.maximumAmount)));
@@ -1176,35 +1268,28 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
                     onClick={() => onSelectPlanGroup(plan.planId)}
                     disabled={!plan.primaryContractPresent || planLocked}
                     aria-pressed={selectedPlanId === plan.planId}
-                   style={{
-                      border: `1px solid ${selectedPlanId === plan.planId ? 'var(--nafiss-blue)' : '#e2e8f0'}`,
-                      background: selectedPlanId === plan.planId ? 'var(--nafiss-light)' : (plan.primaryContractPresent ? '#fff' : '#f8fafc'),
-                      padding: 14, borderRadius: 10, textAlign: 'right', width: '100%',
-                      cursor: plan.primaryContractPresent && !planLocked ? 'pointer' : 'not-allowed',
-                     transition: 'all 0.2s',
-                      opacity: plan.primaryContractPresent && (!planLocked || selectedPlanId === plan.planId) ? 1 : 0.6
-                   }}
+                    className={`lwz-opt${selectedPlanId === plan.planId ? ' on' : ''}`}
+                    style={{ opacity: plan.primaryContractPresent && (!planLocked || selectedPlanId === plan.planId) ? 1 : 0.6 }}
                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                       <strong style={{ fontSize: 13, color: 'var(--ink-deep)' }}>{plan.name}</strong>
-                        <span style={{ fontSize: 11, color: '#0f766e', background: '#ccfbf1', padding: '2px 8px', borderRadius: 10 }}>تا {planMaximum.toLocaleString('fa-IR')} تومان · {matches.length.toLocaleString('fa-IR')} شرط</span>
-                    </div>
-                    {!plan.primaryContractPresent && (
-                       <div style={{ fontSize: 11, color: '#be123c', marginTop: 8 }}>قرارداد اصلی برای این طرح تعریف نشده است.</div>
-                    )}
+                    <span className="dot" aria-hidden="true" />
+                    <span className="txt">
+                       <strong>{plan.name}</strong>
+                       <small>تا {planMaximum.toLocaleString('fa-IR')} تومان · {matches.length.toLocaleString('fa-IR')} شرط</small>
+                       {!plan.primaryContractPresent && <small className="lwz-err">قرارداد اصلی برای این طرح تعریف نشده است.</small>}
+                    </span>
                   </button>
                 ); })}
             </div>
          ) : (
-             <div style={{ padding: 20, textAlign: "center", color: "#9f1239", fontSize: 12 }} data-testid="empty-plans">
-               با نتیجه اعتبارسنجی فعلی، طرح واجد شرایطی برای ثبت درخواست وجود ندارد.
+             <div className="lwz-note bad" data-testid="empty-plans">
+               <b>طرح واجد شرایطی نیست.</b> با نتیجه اعتبارسنجی فعلی، طرح واجد شرایطی برای ثبت درخواست وجود ندارد.
              </div>
          )}
       </div>
-       {attempted && !selectedPlanId && <small role="alert" style={{ color: '#be123c' }} data-testid="error-plan-selection">برای ادامه یک طرح تسهیلاتی انتخاب کنید.</small>}
+       {planTried && !selectedPlanId && <small role="alert" className="lwz-err" data-testid="error-plan-selection">برای ادامه یک طرح تسهیلاتی انتخاب کنید.</small>}
 
       {planLocked && (
-        <p role="status" style={{ margin: 0, color: '#047857', fontSize: 12 }}>
+        <p role="status" className="lwz-note ok">
           {feeRecoveryPending
             ? "نتیجه تلاش پرداخت این طرح باید در مرحله بعد بازیابی شود؛ تا آن زمان طرح قابل تغییر نیست."
             : "هزینه این طرح پرداخت شده است؛ برای جلوگیری از کسر دوباره، طرح انتخاب‌شده قابل تغییر نیست."}
@@ -1212,26 +1297,31 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
       )}
 
        {selectedGroup && (
-         <div className="loan-condition-picker" data-testid="plan-conditions">
-           <strong>شرط دریافت این طرح را انتخاب کنید</strong>
-           <div className="loan-condition-options">
+         <div className="lwz-conds" data-testid="plan-conditions">
+           <strong className="lwz-label">شرط دریافت این طرح را انتخاب کنید</strong>
+           <div className="lwz-opts" role="group" aria-label="شروط طرح">
              {selectedGroup.map((condition) => (
                <button type="button" key={condition.conditionId}
-                 className={currentCondition?.conditionId === condition.conditionId ? 'active' : ''}
+                 className={`lwz-opt${currentCondition?.conditionId === condition.conditionId ? ' on' : ''}`}
                  aria-pressed={currentCondition?.conditionId === condition.conditionId}
                  data-testid={`condition-${condition.conditionId}`}
                  disabled={condition.conditionId <= 0 || Number(condition.maximumAmount) <= 0 || !condition.allowedDurations.length}
                  onClick={() => onSelectPlan(condition)}>
+                 <span className="dot" aria-hidden="true" />
+                 <span className="txt">
                  <strong>{condition.conditionName} · {condition.needsGuarantor ? 'با ضامن' : 'بدون ضامن'}</strong>
                  <small>سقف {Number(condition.maximumAmount).toLocaleString('fa-IR')} تومان · {condition.allowedDurations.map((months) => `${months.toLocaleString('fa-IR')} ماهه`).join('، ')}</small>
                  {condition.conditionNotes && <small>{condition.conditionNotes}</small>}
+                 </span>
                </button>
              ))}
            </div>
-           {attempted && !currentCondition && <small role="alert" style={{ color: '#be123c' }} data-testid="error-condition-selection">یکی از شروط طرح را انتخاب کنید.</small>}
+           {planTried && !currentCondition && <small role="alert" className="lwz-err" data-testid="error-condition-selection">یکی از شروط طرح را انتخاب کنید.</small>}
          </div>
        )}
-       {currentCondition && (
+      </>}
+       {part === 1 && !currentCondition && !isLoading && <p className="lwz-note warn" role="alert" data-testid="error-terms-condition">برای ادامه یکی از شروط طرح را انتخاب کنید. <button type="button" className="text-link" onClick={onPrev}>بازگشت به «طرح و شرط»</button></p>}
+       {part === 1 && currentCondition && (
           <div className="loan-amount-picker">
              <div className="loan-amount-picker-head">
                <div>
@@ -1256,7 +1346,7 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
                />
                <span>تومان</span>
              </div>
-              {attempted && amountError && <small role="alert" style={{ color: '#be123c', display: 'block', marginTop: 5 }} data-testid="error-amount">{amountError}</small>}
+              {attempted && amountError && <small role="alert" className="lwz-err" data-testid="error-amount">{amountError}</small>}
 
              <input
                className="loan-amount-range"
@@ -1293,14 +1383,16 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
                    </button>
                  ))}
                </div>
-                {attempted && durationError && <small role="alert" style={{ color: '#be123c', display: 'block', marginTop: 6 }} data-testid="error-duration">{durationError}</small>}
+                {attempted && durationError && <small role="alert" className="lwz-err" data-testid="error-duration">{durationError}</small>}
              </div>
          </div>
       )}
 
-      <div className="form-footer" style={{ justifyContent: "space-between", marginTop: 'auto' }}>
-        <button type="button" className="btn btn-ghost" onClick={onPrev} data-testid="btn-prev-3">بازگشت</button>
-        <button type="button" className="btn btn-primary" onClick={continueTerms} disabled={!eligibleResponse || (!ignoreCreditRank && !eligibleResponse.credit.fresh) || isLoading || isError} data-testid="btn-next-3">تایید و ادامه</button>
+      <div className="form-footer">
+        <button type="button" className="btn btn-ghost" onClick={onPrev} data-testid={part === 1 ? 'btn-prev-3' : 'btn-prev-3-0'}><ChevronRight size={18} /> قبلی</button>
+        {part === 0
+          ? <button type="button" className="btn btn-primary" onClick={continuePlan} disabled={isLoading} data-testid="btn-next-3-0">ادامه <ChevronLeft size={18} /></button>
+          : <button type="button" className="btn btn-primary" onClick={continueTerms} disabled={!eligibleResponse || (!ignoreCreditRank && !eligibleResponse.credit.fresh) || isLoading || isError} data-testid="btn-next-3">ادامه <ChevronLeft size={18} /></button>}
       </div>
     </div>
   );
@@ -1371,134 +1463,129 @@ function Step4IdentityDocs({ customer, onNext, onPrev }: any) {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, gap: 16 }} data-testid="wizard-step-4">
-       <div style={{ fontSize: 12, color: '#475569', background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}>
-          مدارک هویتی زیر برای پرونده الزامی است. مدارک قبلی مشتری به صورت خودکار شناسایی شده‌اند.
-       </div>
-       <div style={{ flex: 1, overflowY: "auto", maxHeight: 250, display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div className="lwz-step" data-testid="wizard-step-4">
+       <p className="lwz-muted">مدارک هویتی زیر برای پرونده الزامی است. مدارک قبلی مشتری به صورت خودکار شناسایی شده‌اند. فرمت مجاز: JPG، PNG یا PDF.</p>
+       <ul className="lwz-docs">
           {isLoading ? (
-             <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>در حال بررسی مدارک...</div>
+             <li className="lwz-loading" role="status">در حال بررسی مدارک...</li>
           ) : requiredTypes.map(req => {
              const existing = docs.find(d => d.documentType === req.key);
               const isUploading = uploadingType === req.key;
               const downloadUrl = existing
                 ? `${getDownloadCustomerIdentityDocumentUrl(customer.id, existing.id)}?preview=1`
                 : "";
+              const rowError = uploadErrors[req.key] || (continueAttempted && !existing ? 'بارگذاری این مدرک الزامی است.' : '');
              return (
-                <div key={req.key} style={{ display: 'grid', gap: 8, padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 8, background: existing ? '#ecfdf5' : '#fff' }} data-testid={`identity-doc-row-${req.key}`}>
-                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                         <FileText size={16} color={existing ? '#059669' : '#94a3b8'} />
-                         <span style={{ fontSize: 12, color: existing ? '#065f46' : '#334155', fontWeight: 500 }}>{req.label}</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                         {existing && (
-                           <>
-                             <span style={{ fontSize: 10, color: '#047857', fontWeight: 'bold' }} data-testid={`identity-doc-status-${req.key}`}>تکمیل شده</span>
-                             <a
-                               className="btn btn-ghost"
-                               href={downloadUrl}
-                               target="_blank"
-                               rel="noreferrer"
-                               style={{ height: 28, fontSize: 10, padding: '0 10px', textDecoration: 'none' }}
-                               data-testid={`identity-doc-view-${req.key}`}
-                             >
-                               <Search size={14} /> مشاهده فایل
-                             </a>
-                           </>
-                         )}
-                         <label style={{ cursor: uploadingType ? 'not-allowed' : 'pointer' }}>
-                            <span className="btn btn-ghost" style={{ height: 28, fontSize: 10, padding: '0 10px', opacity: uploadingType && !isUploading ? 0.55 : 1 }} data-testid={`identity-doc-upload-${req.key}`}>
-                              {isUploading ? <><RefreshCw size={14} className="spin" /> در حال بارگذاری...</> : <><UploadCloud size={14} /> {existing ? "آپلود مجدد" : "بارگذاری"}</>}
-                            </span>
-                            <input type="file" disabled={Boolean(uploadingType)} style={{ display: 'none' }} onChange={(e) => handleFileChange(e, req.key)} accept={documentFileAccept} />
-                         </label>
-                      </div>
-                  </div>
-                    {uploadErrors[req.key] ? <div role="alert" style={{ color: '#b91c1c', fontSize: 10 }} data-testid={`error-identity-doc-${req.key}`}>{uploadErrors[req.key]}</div>
-                      : continueAttempted && !existing ? <div role="alert" style={{ color: '#b91c1c', fontSize: 10 }} data-testid={`error-identity-doc-${req.key}`}>بارگذاری این مدرک الزامی است.</div> : null}
-               </div>
+                <li key={req.key} className={`lwz-doc${existing ? ' ok' : ''}${rowError ? ' bad' : ''}`} data-testid={`identity-doc-row-${req.key}`}>
+                   <div className="lwz-doch">
+                      <FileText size={22} aria-hidden="true" />
+                      <span className="nm">{req.label}</span>
+                      {existing ? <span className="lwz-ok" data-testid={`identity-doc-status-${req.key}`}><CheckCircle2 size={16} aria-hidden="true" /> تکمیل شده</span> : <span className="lwz-muted">بارگذاری نشده</span>}
+                   </div>
+                   <div className="lwz-docacts">
+                      {existing && (
+                        <a className="btn btn-ghost" href={downloadUrl} target="_blank" rel="noreferrer" data-testid={`identity-doc-view-${req.key}`}>
+                          <Search size={16} /> مشاهده فایل
+                        </a>
+                      )}
+                      <label className="lwz-upload" style={{ cursor: uploadingType ? 'not-allowed' : 'pointer' }}>
+                         <span className={`btn ${existing ? 'btn-ghost' : 'btn-gold'}`} style={{ opacity: uploadingType && !isUploading ? 0.55 : 1 }} data-testid={`identity-doc-upload-${req.key}`}>
+                           {isUploading ? <><RefreshCw size={16} className="spin" /> در حال بارگذاری...</> : <><UploadCloud size={16} /> {existing ? "آپلود مجدد" : "بارگذاری"}</>}
+                         </span>
+                         <input type="file" disabled={Boolean(uploadingType)} className="lwz-file" onChange={(e) => handleFileChange(e, req.key)} accept={documentFileAccept} aria-label={`بارگذاری ${req.label}`} />
+                      </label>
+                   </div>
+                   {rowError ? <div role="alert" className="lwz-err" data-testid={`error-identity-doc-${req.key}`}>{rowError}</div> : null}
+               </li>
              );
           })}
-       </div>
-       
-       <div className="form-footer" style={{ justifyContent: "space-between", marginTop: 'auto' }}>
-        <button type="button" className="btn btn-ghost" onClick={onPrev} data-testid="btn-prev-4">بازگشت</button>
-         <button type="button" className="btn btn-primary" onClick={continueToReview} disabled={Boolean(uploadingType)} data-testid="btn-next-4">تایید و ادامه</button>
+       </ul>
+
+       <div className="form-footer">
+        <button type="button" className="btn btn-ghost" onClick={onPrev} data-testid="btn-prev-4"><ChevronRight size={18} /> قبلی</button>
+         <button type="button" className="btn btn-primary" onClick={continueToReview} disabled={Boolean(uploadingType)} data-testid="btn-next-4">ادامه <ChevronLeft size={18} /></button>
       </div>
     </div>
   );
 }
 
 // --- Step 5 ---
-function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPending, error, serverErrors = {} }: any) {
+function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPending, error, serverErrors = {}, part = 0, onPartNext, onEdit, feePaid }: any) {
   const [manualValues, setManualValues] = useState<Record<string, string>>({});
   const [attempted, setAttempted] = useState(false);
   const manualVariables = plan.manualVariables ?? [];
   const manualComplete = manualVariables.every((item: any) => String(manualValues[item.variable] ?? "").trim());
+  const serverManualError = manualVariables.some((item: any) => serverErrors[item.variable]);
+  const continueManual = () => {
+    setAttempted(true);
+    if (manualComplete) onPartNext();
+  };
   const submitReview = () => {
     setAttempted(true);
     if (manualComplete && plan.contractTemplateId) onNext(manualValues);
   };
+  const editLink = (n: number, label: string) => onEdit ? <button type="button" className="text-link" onClick={() => onEdit(n)} disabled={isPending} aria-label={`ویرایش ${label}`}>ویرایش</button> : null;
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, gap: 16 }} data-testid="wizard-step-5">
-      <div className="review-card" style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
-         <h4 style={{ margin: '0 0 16px', fontSize: 14, color: 'var(--ink-deep)' }}>خلاصه درخواست</h4>
-         <div style={{ display: 'grid', gap: 12, fontSize: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e2e8f0', paddingBottom: 8 }}>
-               <span style={{ color: '#64748b' }}>مشتری:</span>
-               <strong style={{ color: 'var(--ink-deep)' }} data-testid="review-customer-name">{customer.name} ({customer.nationalCode})</strong>
-               <span style={{ display: 'block', fontSize: 11, color: '#64748b' }}>کارشناس فروش: {customer.salespersonName || 'بدون تخصیص'}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e2e8f0', paddingBottom: 8 }}>
-               <span style={{ color: '#64748b' }}>طرح تسهیلاتی:</span>
-               <strong style={{ color: 'var(--ink-deep)' }} data-testid="review-plan-name">{plan.name}</strong>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #e2e8f0', paddingBottom: 8 }}>
-               <span style={{ color: '#64748b' }}>مبلغ درخواستی:</span>
-               <strong style={{ color: 'var(--ink-deep)' }} dir="ltr" data-testid="review-amount">{Number(amount).toLocaleString('fa-IR')} تومان</strong>
-                {serverErrors.amount && <small role="alert" style={{ color: '#be123c' }} data-testid="error-submit-amount">{serverErrors.amount}</small>}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-               <span style={{ color: '#64748b' }}>مدت اقساط:</span>
-               <strong style={{ color: 'var(--ink-deep)' }} data-testid="review-duration">{duration} ماه</strong>
-                {serverErrors.duration && <small role="alert" style={{ color: '#be123c' }} data-testid="error-submit-duration">{serverErrors.duration}</small>}
-            </div>
-         </div>
-      </div>
-
-      {manualVariables.length > 0 && (
-        <div style={{ display: "grid", gap: 10 }}>
-          <h4 style={{ margin: 0, fontSize: 13 }}>اطلاعات تکمیلی قرارداد</h4>
-          {manualVariables.map((item: any) => (
+    <div className="lwz-step" data-testid="wizard-step-5" data-part={part}>
+      {part === 0 && (manualVariables.length > 0 ? (
+        <div className="lwz-form" data-testid="wizard-contract-fields">
+          {manualVariables.map((item: any) => {
+            const missing = attempted && !String(manualValues[item.variable] ?? '').trim();
+            return (
             <label key={item.variable} className="field">
               <span>{item.label}</span>
               <input
                 value={manualValues[item.variable] ?? ""}
                 onChange={(event) => setManualValues((current) => ({ ...current, [item.variable]: event.target.value }))}
                 disabled={isPending}
-                aria-invalid={Boolean((attempted && !String(manualValues[item.variable] ?? '').trim()) || serverErrors[item.variable])}
+                aria-invalid={Boolean(missing || serverErrors[item.variable])}
                 data-testid={`contract-variable-${item.variable}`}
               />
-              {attempted && !String(manualValues[item.variable] ?? '').trim() && <small role="alert" style={{ color: '#be123c' }} data-testid={`error-contract-variable-${item.variable}`}>تکمیل این فیلد برای تولید قرارداد الزامی است.</small>}
-              {serverErrors[item.variable] && <small role="alert" style={{ color: '#be123c' }} data-testid={`error-contract-variable-server-${item.variable}`}>{serverErrors[item.variable]}</small>}
+              {missing && <small role="alert" className="lwz-err" data-testid={`error-contract-variable-${item.variable}`}>تکمیل این فیلد برای تولید قرارداد الزامی است.</small>}
+              {serverErrors[item.variable] && <small role="alert" className="lwz-err" data-testid={`error-contract-variable-server-${item.variable}`}>{serverErrors[item.variable]}</small>}
             </label>
-          ))}
+          ); })}
         </div>
-      )}
-      
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: '#eff6ff', color: '#1e3a8a', padding: 12, borderRadius: 8, fontSize: 11 }}>
-         <Info size={16} style={{ flexShrink: 0, marginTop: 2 }} />
-         <div>با ادامه، فقط پرونده ثبت می‌شود. کارشناس ثبت ابتدا شرایط تسهیلات را تأیید می‌کند؛ قرارداد پس از این تصمیم در صفحه پرونده صادر خواهد شد.</div>
-      </div>
-      {error && <div className="form-error" role="alert">{error}</div>}
-      {attempted && !plan.contractTemplateId && <div className="form-error" role="alert" data-testid="error-contract-template">برای طرح انتخاب‌شده قالب قرارداد قابل استفاده ثبت نشده است.</div>}
+      ) : <p className="lwz-note" role="note" data-testid="wizard-no-contract-fields"><Info size={18} aria-hidden="true" /> قالب قرارداد این طرح فیلد دستی ندارد؛ ادامه دهید.</p>)}
 
-      <div className="form-footer" style={{ justifyContent: "space-between", marginTop: 'auto' }}>
-          <button type="button" className="btn btn-ghost" onClick={onPrev} disabled={isPending} data-testid="btn-prev-5">بازگشت</button>
-          <button type="button" className="btn btn-primary" onClick={submitReview} disabled={isPending} data-testid="btn-submit-wizard">
-            {isPending ? 'در حال ثبت پرونده...' : 'ثبت پرونده و مشاهده جزئیات'}
-          </button>
+      {part === 1 && <>
+        <section className="lwz-card lwz-review" aria-label="مشتری">
+          <div className="lwz-cardh"><strong>مشتری</strong>{editLink(2, 'اطلاعات هویتی')}</div>
+          <dl className="lwz-kv">
+            <div className="full"><dt>نام و کد ملی</dt><dd data-testid="review-customer-name">{customer.name} ({customer.nationalCode})</dd></div>
+            <div className="full"><dt>کارشناس فروش</dt><dd>{customer.salespersonName || 'بدون تخصیص'}</dd></div>
+          </dl>
+        </section>
+        <section className="lwz-card lwz-review" aria-label="تسهیلات">
+          <div className="lwz-cardh"><strong>تسهیلات</strong>{feePaid ? <span className="lwz-muted">قفل پس از پرداخت هزینه</span> : editLink(5, 'طرح و شرط')}</div>
+          <dl className="lwz-kv">
+            <div className="full"><dt>طرح تسهیلاتی</dt><dd data-testid="review-plan-name">{plan.name}</dd></div>
+            <div><dt>مبلغ درخواستی</dt><dd data-testid="review-amount">{Number(amount).toLocaleString('fa-IR')} تومان</dd>
+              {serverErrors.amount && <small role="alert" className="lwz-err" data-testid="error-submit-amount">{serverErrors.amount}</small>}</div>
+            <div><dt>مدت اقساط</dt><dd data-testid="review-duration">{Number(duration).toLocaleString('fa-IR')} ماه</dd>
+              {serverErrors.duration && <small role="alert" className="lwz-err" data-testid="error-submit-duration">{serverErrors.duration}</small>}</div>
+          </dl>
+        </section>
+        <section className="lwz-card lwz-review" aria-label="پرداخت و مدارک">
+          <div className="lwz-cardh"><strong>پرداخت و مدارک</strong>{editLink(8, 'مدارک هویتی')}</div>
+          <dl className="lwz-kv">
+            <div><dt>هزینه تشکیل پرونده</dt><dd>{feePaid ? <span className="lwz-ok">پرداخت شد</span> : '—'}</dd></div>
+            <div><dt>مدارک هویتی</dt><dd><span className="lwz-ok">کامل</span></dd></div>
+          </dl>
+        </section>
+        <p className="lwz-note" role="note"><Info size={18} aria-hidden="true" /> با ثبت، فقط پرونده ثبت می‌شود. کارشناس ثبت ابتدا شرایط تسهیلات را تأیید می‌کند؛ قرارداد پس از این تصمیم در صفحه پرونده صادر خواهد شد.</p>
+        {(serverManualError || (attempted && !manualComplete)) && <p className="lwz-note bad" role="alert" data-testid="error-review-manual-fields">بعضی از فیلدهای قرارداد کامل یا پذیرفته نشده‌اند. <button type="button" className="text-link" onClick={onPrev}>بازگشت به «اطلاعات تکمیلی قرارداد»</button></p>}
+        {error && <div className="form-error" role="alert">{error}</div>}
+        {attempted && !plan.contractTemplateId && <div className="form-error" role="alert" data-testid="error-contract-template">برای طرح انتخاب‌شده قالب قرارداد قابل استفاده ثبت نشده است.</div>}
+      </>}
+
+      <div className="form-footer">
+          <button type="button" className="btn btn-ghost" onClick={onPrev} disabled={isPending} data-testid={part === 1 ? 'btn-prev-5' : 'btn-prev-5-0'}><ChevronRight size={18} /> قبلی</button>
+          {part === 0
+            ? <button type="button" className="btn btn-primary" onClick={continueManual} data-testid="btn-next-5-0">ادامه <ChevronLeft size={18} /></button>
+            : <button type="button" className="btn btn-primary" onClick={submitReview} disabled={isPending} data-testid="btn-submit-wizard">
+                {isPending ? <><RefreshCw size={18} className="spin" /> در حال ثبت پرونده...</> : 'ثبت پرونده و مشاهده جزئیات'}
+              </button>}
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { documentFileAccept } from '@/lib/document-upload-type';
-import { useLocation, useParams } from 'wouter';
+import { Link, useLocation, useParams } from 'wouter';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   useGetLoanApplication,
@@ -64,6 +64,10 @@ import { PhysicalSubmission } from '@/components/loan-applications/PhysicalSubmi
 import { classifySignatureVerificationError, providerReportsSigned, providerReportsRejected, type SignatureStatusWorkflowOutcome } from '@/lib/loan-signature-verification-errors.mjs';
 import { CaseNotesRoom } from '@/loan-case-history/CaseNotesRoom';
 import { CaseHistoryDialog } from '@/loan-case-history/CaseHistoryDialog';
+import { ACTION_ROLE_NAMES, BUSINESS_STATUS_LABELS, loanBusinessStatus } from '@/lib/loan-labels';
+import '@/pages/customers.css';
+import '@/pages/loan-requests.css';
+import { ChevronLeft as ChevronLeftIcon, User as UserIcon } from 'lucide-react';
 
 const STAGE_LABELS: Record<string, string> = {
   funder_initial_approval: 'تصویب مبلغ وام',
@@ -241,7 +245,7 @@ export default function LoanApplicationDetail() {
     query: { queryKey: getGetAuthSessionQueryKey(), retry: false },
   });
   const user = session?.user;
-  const { data: app, isLoading, isError, refetch } = useGetLoanApplication(appId, {
+  const { data: app, isLoading, isError, error, refetch } = useGetLoanApplication(appId, {
     query: { queryKey: getGetLoanApplicationQueryKey(appId), enabled: !isNaN(appId), refetchInterval: 20000, refetchOnWindowFocus: true }
   });
   const caseOpen = app?.status !== 'rejected';
@@ -413,8 +417,18 @@ export default function LoanApplicationDetail() {
     }
   };
 
-  if (isLoading) return <section className="data-page"><SkeletonPanel rows={8} /></section>;
-  if (isError || !app) return <section className="data-page"><ErrorState onRetry={() => refetch()} /></section>;
+  if (isLoading) return <section className="data-page csx ldx" aria-busy="true"><SkeletonPanel rows={8} /></section>;
+  if (isError || !app) {
+    const notFound = !isError || (error as any)?.status === 404 || (error as any)?.response?.status === 404;
+    return <section className="data-page csx ldx" data-testid="loan-application-detail-error">
+      <nav className="ldx-crumb" aria-label="مسیر"><Link href="/loan-applications">درخواست تسهیلات</Link><ChevronLeftIcon /><span>پرونده #{appId}</span></nav>
+      <div className="ldx-card ldx-miss">
+        <h1>{notFound ? 'پرونده پیدا نشد' : 'بارگذاری پرونده ناموفق بود'}</h1>
+        <p>{notFound ? 'این پرونده وجود ندارد یا به شما تخصیص داده نشده است.' : 'اتصال را بررسی کنید و دوباره تلاش کنید.'}</p>
+        {notFound ? <Link className="csx-primary" href="/loan-applications">بازگشت به درخواست‌ها</Link> : <ErrorState onRetry={() => refetch()} />}
+      </div>
+    </section>;
+  }
 
   const customerDocs = (app.documents || []).filter((doc: any) =>
     doc.source !== 'identity_vault' && !['guarantee_check', 'guarantee_promissory'].includes(doc.requirement_key || doc.requirementKey)
@@ -516,36 +530,46 @@ export default function LoanApplicationDetail() {
 
   const activeStepId = selectedStepId || currentStepId;
 
+  const businessStatus = loanBusinessStatus(app);
+  const appAny = app as typeof app & { actionRequired?: boolean; actionRole?: string | null; customerSalespersonName?: string | null };
+  const closed = businessStatus === 'completed' || businessStatus === 'canceled';
+  const turnText = closed ? '' : appAny.actionRequired ? 'نیازمند اقدام شما' : businessStatus === 'waiting_customer_signature' ? 'نوبت اقدام: مشتری' : appAny.actionRole ? `نوبت اقدام: ${ACTION_ROLE_NAMES[appAny.actionRole] ?? appAny.actionRole}` : '';
+  const fa = (n: number) => n.toLocaleString('fa-IR');
+
   return (
-    <section className="data-page">
-      <div className="page-intro">
-        <div>
-          <div className="eyebrow">پرونده تسهیلات #{app.id}</div>
-          <h2>{app.customerName || 'مشتری'}</h2>
+    <section className="data-page csx ldx" data-testid="loan-application-detail">
+      <nav className="ldx-crumb" aria-label="مسیر"><Link href="/loan-applications">درخواست تسهیلات</Link><ChevronLeftIcon /><span>پرونده #{app.id}</span></nav>
+      <div className="ldx-grid">
+        <div className="ldx-col">
+      <div className="ldx-card ldx-head">
+        <div className="ldx-pills">
+          {businessStatus && BUSINESS_STATUS_LABELS[businessStatus]
+            ? <span className="csx-st" data-bs={businessStatus} data-testid="loan-business-status">{BUSINESS_STATUS_LABELS[businessStatus]}</span>
+            : <span className={`status-pill ${app.status === 'approved' ? 'status-active' : app.status === 'rejected' ? 'status-failed' : 'status-new'}`}>{app.cancellationReason ? 'لغو شده' : STATUS_LABELS[app.status] || app.status}</span>}
+          {turnText ? <span className={`csx-tag ${appAny.actionRequired ? 'bad' : ''}`} data-testid="loan-turn">{turnText}</span> : null}
+        </div>
+        <div className="eyebrow">پرونده تسهیلات #{app.id}</div>
+        <h1 className="ldx-name">{app.customerName || 'مشتری'}</h1>
+        <p className="ldx-meta">ثبت شده در {formatDate(app.createdAt)} · طرح {app.planName || 'ناشناس'}{app.stage && !closed ? <> · مرحله: {STAGE_LABELS[app.stage] || app.stage}</> : null}</p>
+        {app.creditRankIgnored && <p role="status" className="ldx-warn">این پرونده با انتخاب مدیر یا کارشناس فروش، بدون تطابق رتبه اعتباری ثبت شده است.</p>}
+        <dl className="ldx-stats">
+          <div><dt>مبلغ درخواستی</dt><dd>{Number(app.requestedAmount).toLocaleString('fa-IR')} <small>تومان</small></dd></div>
+          <div><dt>مبلغ مصوب</dt><dd className={app.approvedAmount ? '' : 'mute'}>{app.approvedAmount ? <>{Number(app.approvedAmount).toLocaleString('fa-IR')} <small>تومان</small></> : 'در انتظار تأیید'}</dd></div>
+          <div><dt>اقساط {app.approvedAmount ? 'مصوب' : 'درخواستی'}</dt><dd>{app.durationMonths ? fa(Number(app.durationMonths)) : '—'} <small>ماهه</small></dd></div>
+          <div><dt>کارشناس فروش</dt><dd className="sm">{appAny.customerSalespersonName || 'بدون تخصیص'}</dd>
+            <span className="ldx-sub">کارشناس فروش ثبت‌شده: {app.salespersonNameSnapshot || 'ثبت نشده'}</span>
+            <span className="ldx-sub">کارشناس فروش فعلی: {appAny.customerSalespersonName || 'بدون تخصیص'}</span></div>
+        </dl>
+        <div className="ldx-acts">
+          {app.customerId ? <Link className="csx-ghost" href={`/customers/${app.customerId}`} data-testid="link-loan-customer"><UserIcon /> پرونده مشتری</Link> : null}
           <LoanCaseCancellation application={app} />
           <AdminCaseCorrections applicationId={appId} />
-          <p>ثبت شده در {formatDate(app.createdAt)} · طرح {app.planName || 'ناشناس'}</p>
-          {app.creditRankIgnored && <p role="status" style={{ color: '#92400e', fontSize: 12 }}>این پرونده با انتخاب مدیر یا کارشناس فروش، بدون تطابق رتبه اعتباری ثبت شده است.</p>}
-          <p style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
-            کارشناس فروش ثبت‌شده: {app.salespersonNameSnapshot || 'ثبت نشده'}
-          </p>
-          <p style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
-            کارشناس فروش فعلی: {(app as typeof app & { customerSalespersonName?: string | null }).customerSalespersonName || 'بدون تخصیص'}
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <div className={`status-pill ${app.status === 'approved' ? 'status-active' : app.status === 'rejected' ? 'status-failed' : 'status-new'}`} style={{ fontSize: 13, padding: '8px 14px' }}>
-            {app.cancellationReason ? 'لغو شده' : STATUS_LABELS[app.status] || app.status}
-          </div>
-          {app.stage && (
-            <div className="status-pill status-muted" style={{ fontSize: 13, padding: '8px 14px' }}>
-              مرحله: {STAGE_LABELS[app.stage] || app.stage}
-            </div>
-          )}
         </div>
       </div>
 
-      <div className="stepper-container">
+      <div className="ldx-card ldx-path">
+        <div className="ldx-pathh"><h2>مسیر پرونده</h2>{currentStepIndex >= 0 ? <span className="muted">{fa(currentStepIndex + 1)} از {fa(timelineSteps.length)}</span> : null}</div>
+      <div className="stepper-container ldx-steps" role="list">
         {timelineSteps.map((step, idx) => {
            const isPast = currentStepIndex !== -1 && idx < currentStepIndex;
            const isCurrent = idx === currentStepIndex;
@@ -558,7 +582,7 @@ export default function LoanApplicationDetail() {
                   <div className="step-circle">
                     {isPast ? <CheckCircle2 size={16} /> : <span>{idx + 1}</span>}
                   </div>
-                  <div className="step-label">{step.label}</div>
+                  <div className="step-label">{step.label}{isCurrent && turnText ? <small>الان: {turnText}</small> : null}</div>
                </button>
                 {idx < timelineSteps.length - 1 && (
                  <div className={`step-connector ${connectorIsPast ? 'is-past' : ''}`} />
@@ -567,9 +591,9 @@ export default function LoanApplicationDetail() {
            )
         })}
       </div>
+      </div>
 
-      <div className="dashboard-grid">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="ldx-main">
           
           <div className="panel">
             <div className="panel-head">
@@ -828,9 +852,10 @@ export default function LoanApplicationDetail() {
 
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          
-          <div className="panel">
+        </div>
+        <aside className="ldx-side">
+          <div className={`panel ldx-action${appAny.actionRequired ? ' mine' : ''}`} data-testid="loan-action-card">
+            {turnText ? <p className={`ldx-turn${appAny.actionRequired ? ' mine' : ''}`}>{appAny.actionRequired ? 'اقدام با شماست' : turnText}</p> : closed ? <p className="ldx-turn">{businessStatus === 'completed' ? 'این پرونده تکمیل شده است.' : 'این پرونده لغو شده است.'}</p> : null}
             <div className="panel-head">
               <div>
                 <h3>تصمیم‌گیری</h3>
@@ -982,7 +1007,7 @@ export default function LoanApplicationDetail() {
           <CaseNotesRoom key={`${appId}:${user?.id ?? 0}`} applicationId={appId} user={user as any} />
           {historyOpen && <CaseHistoryDialog applicationId={appId} onClose={() => setHistoryOpen(false)} />}
 
-        </div>
+        </aside>
       </div>
 
       {reviewModal && (

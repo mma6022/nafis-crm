@@ -21,6 +21,7 @@ import { normalizeDigits, serverFieldErrors, validateIranianMobile, validateIran
 import { CustomerTagEditor } from '@/components/CustomerTagEditor';
 import { RepeatRequestReview, RepeatRequestTag } from '@/components/RepeatRequestReview';
 import { clearLoanDraft, loanWizardHref, readLoanDraft, type LoanDraft } from '@/lib/loan-draft';
+import { BUSINESS_STATUS_LABELS, WIZARD_DISPLAY_STEPS, WIZARD_TOTAL_STEPS, loanBusinessStatus, loanStageLabel } from '@/lib/loan-labels';
 import { ConfirmDialog, initialsOf, jalaliDate, PriorityLabel, relativeTime, Sheet, STATUS_LABEL, StatusPill } from './customers-ui';
 import './customers.css';
 
@@ -28,7 +29,6 @@ const faNum = (n: number) => n.toLocaleString('fa-IR');
 const faId = (n: number) => n.toLocaleString('fa-IR', { useGrouping: false });
 const faDigits = (value: string) => value.replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
 const toman = (value: string | null | undefined) => { try { return BigInt(value || '0').toLocaleString('fa-IR'); } catch { return value || '—'; } };
-const WIZARD_STEP_TITLES = ['انتخاب مشتری', 'پروفایل و اعتبار', 'طرح و شرایط', 'هزینه تشکیل پرونده', 'مدارک هویتی', 'تایید نهایی'];
 const LOAN_STATUS: Record<string, [string, string]> = {
   requested: ['ثبت شده', 'open'], reviewing: ['در حال بررسی', 'open'], approved: ['تأیید شده', 'approved'], rejected: ['رد شده', 'rejected'],
 };
@@ -495,7 +495,7 @@ export default function CustomerDetail() {
   const draftNote = canNewLoan && draft ? <div className="csx-note warn" data-testid="loan-draft-note">
     <History size={18} />
     <div style={{ display: 'grid', gap: 6, flex: 1 }}>
-      <p><b>پیش‌نویس درخواست تسهیلات</b>، مرحله {faNum(Math.min(draft.step, 6))} از ۶ ({WIZARD_STEP_TITLES[Math.min(draft.step, 6) - 1]}){draft.planName ? `، ${draft.planName}` : ''}، {relativeTime(draft.updatedAt)}</p>
+      <p><b>پیش‌نویس درخواست تسهیلات</b>، مرحله {faNum(draft.step)} از {faNum(WIZARD_TOTAL_STEPS)} ({WIZARD_DISPLAY_STEPS[draft.step - 1]?.label}){draft.planName ? `، ${draft.planName}` : ''}، {relativeTime(draft.updatedAt)}</p>
       <p className="hint">فقط روی همین مرورگر ذخیره شده است.</p>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <Link href={loanWizardHref(customer.id, true)} className="csx-ghost sm" data-testid="link-resume-loan-draft">ادامه پیش‌نویس</Link>
@@ -509,8 +509,9 @@ export default function CustomerDetail() {
     {draftNote}
     {loansQuery.isLoading ? <div className="stack" aria-busy="true"><span className="csx-sk" style={{ height: 72 }} /><span className="csx-sk" style={{ height: 72 }} /></div>
       : loansQuery.isError ? <div className="csx-note bad" role="alert"><AlertCircle size={18} /><p>فهرست تسهیلات دریافت نشد. <button type="button" className="csx-link" onClick={() => loansQuery.refetch()}>تلاش دوباره</button></p></div>
-      : loans.length ? <div className="stack">{loans.map((loan) => { const [label, tone] = LOAN_STATUS[loan.status] ?? [loan.status, 'open']; return <Link key={loan.id} href={`/loan-applications/${loan.id}`} className="csx-loan" data-ls={tone} data-testid={`link-customer-loan-${loan.id}`}>
-        <div className="r1"><b>پرونده #{faId(loan.id)}</b><span className="csx-st">{label}</span></div>
+      : loans.length ? <div className="stack">{loans.map((loan) => { const [label, tone] = LOAN_STATUS[loan.status] ?? [loan.status, 'open']; const bs = loanBusinessStatus(loan); const stage = bs !== 'canceled' && bs !== 'completed' ? loanStageLabel(loan.stage) : ''; return <Link key={loan.id} href={`/loan-applications/${loan.id}`} className="csx-loan" data-ls={tone} data-testid={`link-customer-loan-${loan.id}`}>
+        <div className="r1"><b>پرونده #{faId(loan.id)}</b>{bs && BUSINESS_STATUS_LABELS[bs] ? <span className="csx-st" data-bs={bs}>{BUSINESS_STATUS_LABELS[bs]}</span> : <span className="csx-st">{label}</span>}</div>
+        {stage ? <div className="csx-loan-stage" data-testid={`text-customer-loan-stage-${loan.id}`}>مرحله: {stage}</div> : null}
         <div className="muted">{loan.planName || 'طرح تسهیلات'}، {toman(loan.approvedAmount || loan.requestedAmount)} تومان{(loan.durationMonths ?? loan.requestedDurationMonths) ? `، ${faNum(Number(loan.durationMonths ?? loan.requestedDurationMonths))} ماهه` : ''}</div>
         <div className="muted">ثبت {jalaliDate(loan.createdAt)}</div>
       </Link>; })}</div>
