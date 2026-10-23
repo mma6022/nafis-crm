@@ -177,6 +177,7 @@ import { retainedIdentityChecks } from "../lib/identity-check-retention";
 import { normalizeCustomerMobile, normalizeCustomerNationalCode, isAdminRole } from "../lib/customer-integrity";
 import { mergeCustomerRecords } from "../lib/customer-merge";
 import { insertCustomerRecord } from "../lib/customer-create";
+import { publicPlanGuarantees } from "../lib/public-plan-guarantees";
 import { isPortalRegistration } from "../lib/customer-portal-features";
 import {
   ensureSalespersonIdentity,
@@ -1054,6 +1055,8 @@ function publicPlanSummary(plan: LoanPlan) {
     processMode: plan.processMode,
     grantDays: plan.grantDays,
     notes: plan.notes,
+    // Derived from the plan's eligibility conditions (see public-plan-guarantees).
+    ...publicPlanGuarantees(plan),
   };
 }
 

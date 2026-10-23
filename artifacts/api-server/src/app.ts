@@ -25,6 +25,7 @@ import { createCodexOAuthSetup } from "./routes/diagnostic-codex-setup";
 import { CodexLoginController } from "./lib/diagnostic-codex-login";
 import { VpsRepairConnection } from "./lib/diagnostic-vps-connection";
 import { socialMonitorFeature } from "./lib/social-monitor";
+import { mountPublicLeads } from "./routes/public-leads";
 
 const app: Express = express();
 
@@ -50,6 +51,8 @@ app.use(
     },
   }),
 );
+// Public website lead intake has its own strict CORS and must run first.
+mountPublicLeads(app);
 app.use(cors({ credentials: true, origin: true }));
 // Meta signature verification must operate on the exact unparsed request bytes.
 app.use(

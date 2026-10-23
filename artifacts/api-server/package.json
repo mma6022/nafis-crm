@@ -41,7 +41,8 @@
     "test:instagram-loan-packages": "node scripts/instagram-loan-packages-fixture.mjs",
     "test:instagram-ai-advice": "node scripts/instagram-ai-advice-fixture.mjs",
     "test:instagram-public-plans": "node --experimental-strip-types scripts/instagram-public-plans-fixture.mjs",
-    "test:instagram-auto-registration": "node scripts/instagram-intake-identity-fixture.mjs && node scripts/instagram-crm-automation-fixture.mjs && node scripts/instagram-intake-runtime-fixture.mjs"
+    "test:instagram-auto-registration": "node scripts/instagram-intake-identity-fixture.mjs && node scripts/instagram-crm-automation-fixture.mjs && node scripts/instagram-intake-runtime-fixture.mjs",
+    "test:public-leads": "node scripts/public-leads-fixture.mjs"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.3.0",
