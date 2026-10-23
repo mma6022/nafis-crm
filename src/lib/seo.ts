@@ -1,8 +1,17 @@
 /** JSON-LD builders. Output is injected with <JsonLd> in the <head>. */
-import { SITE, absoluteUrl } from './site';
+import { SITE, WORK_HOURS, absoluteUrl } from './site';
 import { stripMarkers } from './markers';
 
 export type Crumb = { name: string; path: string };
+
+const pad = (h: number) => `${String(h).padStart(2, '0')}:00`;
+/** Sat–Thu 09:00–18:00 (Mohammad 2026-10-23). Landline only: expert mobiles are never in the schema. */
+export const openingHoursLd = () => ({
+  '@type': 'OpeningHoursSpecification',
+  dayOfWeek: [...WORK_HOURS.schemaDays],
+  opens: pad(WORK_HOURS.start),
+  closes: pad(WORK_HOURS.end),
+});
 
 export const organizationLd = () => ({
   '@context': 'https://schema.org',
@@ -10,7 +19,10 @@ export const organizationLd = () => ({
   '@id': `${SITE.url}/#organization`,
   name: SITE.name,
   alternateName: SITE.nameEn,
+  legalName: SITE.legalName,
+  identifier: { '@type': 'PropertyValue', propertyID: 'شناسه ملی', value: SITE.nationalId },
   url: SITE.url,
+  sameAs: [SITE.instagram],
   logo: { '@type': 'ImageObject', url: absoluteUrl(SITE.logoPng), width: 2000, height: 364 },
   image: absoluteUrl(SITE.ogImage),
   email: SITE.email,
@@ -22,6 +34,7 @@ export const organizationLd = () => ({
       contactType: 'customer service',
       areaServed: 'IR',
       availableLanguage: ['fa'],
+      hoursAvailable: openingHoursLd(),
     },
   ],
 });
@@ -38,8 +51,8 @@ export const financialServiceLd = () => ({
   email: SITE.email,
   areaServed: { '@type': 'Country', name: 'Iran' },
   parentOrganization: { '@id': `${SITE.url}/#organization` },
-  // openingHours deliberately omitted: hours are 09:00–18:00 but schema.org openingHours needs days (e.g. "Sa-We 09:00-18:00"),
-  // and the working days are not confirmed yet. Add it once Mohammad confirms the days. TODO(spec): address, priceRange.
+  openingHoursSpecification: [openingHoursLd()],
+  // no address: none has been given (see SITE-LAUNCH-PLAN.md open questions)
 });
 
 export const websiteLd = () => ({

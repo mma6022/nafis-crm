@@ -4,6 +4,7 @@ import {
   CB_DONE,
   CB_SUBMIT,
   CB_TITLE,
+  CONSENT_TEXT,
   buildCallbackPayload,
   faMobile,
   isWorkingHours,
@@ -38,7 +39,8 @@ test('config: 9–18, morning 9–13, evening 13–18, Sat–Wed stand-in, Whats
   assert.equal(WORK_HOURS.end, 18);
   assert.deepEqual([...WORK_HOURS.morning], [9, 13]);
   assert.deepEqual([...WORK_HOURS.evening], [13, 18]);
-  assert.deepEqual([...WORK_HOURS.days].sort(), [0, 1, 2, 3, 6]);
+  assert.deepEqual([...WORK_HOURS.days].sort(), [0, 1, 2, 3, 4, 6]); // Sat–Thu, Friday closed
+  assert.equal(WORK_HOURS.daysConfirmed, true);
   assert.equal(CALLBACK_WHATSAPP, '');
 });
 
@@ -55,7 +57,8 @@ test('working hours: work day and 09:00 ≤ t < 18:00 Tehran', () => {
   assert.equal(isWorkingHours(teh(SAT, 17, 59)), true);
   assert.equal(isWorkingHours(teh(SAT, 18)), false);
   assert.equal(isWorkingHours(teh(WED, 12)), true);
-  assert.equal(isWorkingHours(teh(THU, 12)), false);
+  assert.equal(isWorkingHours(teh(THU, 12)), true);
+  assert.equal(isWorkingHours(teh(THU, 18)), false);
   assert.equal(isWorkingHours(teh(FRI, 12)), false);
 });
 
@@ -67,7 +70,8 @@ test('«همین الان» only inside working hours', () => {
 test('next opening: today / tomorrow / next work day name', () => {
   assert.equal(nextOpening(teh(SAT, 7)), 'امروز');
   assert.equal(nextOpening(teh(TUE, 20)), 'فردا');
-  assert.equal(nextOpening(teh(WED, 19)), 'شنبه');
+  assert.equal(nextOpening(teh(WED, 19)), 'فردا'); // Wed evening → Thursday
+  assert.equal(nextOpening(teh(THU, 19)), 'شنبه'); // Thu evening → Saturday (Friday closed)
   assert.equal(nextOpening(teh(FRI, 10)), 'فردا'); // Friday → Saturday
 });
 
@@ -76,7 +80,8 @@ test('copy: titles fixed, success line never promises minutes', () => {
   assert.equal(CB_SUBMIT, 'ثبت درخواست مشاوره');
   assert.equal(CB_DONE, 'درخواست مشاوره‌ی شما ثبت شد');
   assert.equal(successLine('morning', teh(TUE, 20)), 'فردا از ساعت ۹ صبح با شما تماس می‌گیریم.');
-  assert.equal(successLine('now', teh(WED, 19)), 'شنبه از ساعت ۹ صبح با شما تماس می‌گیریم.');
+  assert.equal(successLine('now', teh(THU, 19)), 'شنبه از ساعت ۹ صبح با شما تماس می‌گیریم.');
+  assert.equal(successLine('now', teh(WED, 19)), 'فردا از ساعت ۹ صبح با شما تماس می‌گیریم.');
   assert.match(successLine('evening', teh(SAT, 10)), /عصر \(۱۳ تا ۱۸\)/);
   for (const t of ['now', 'morning', 'evening'] as const)
     for (const at of [teh(SAT, 10), teh(SAT, 20), teh(FRI, 10)]) assert.doesNotMatch(successLine(t, at), /دقیقه/);
@@ -85,15 +90,15 @@ test('copy: titles fixed, success line never promises minutes', () => {
 test('mobile normalisation: Persian/Arabic digits, spaces, dashes, +98 / 0098 / 98 / 9…', () => {
   for (const v of ['۰۹۱۲ ۳۴۵ ۶۷۸۹', '٠٩١٢٣٤٥٦٧٨٩', '+98 912 345 6789', '0098-912-345-6789', '989123456789', '9123456789'])
     assert.equal(normalizeIranMobile(v), '09123456789', v);
-  for (const v of ['0912345678', '02191090380', '+1 912 345 6789', '']) assert.equal(normalizeIranMobile(v), null, v);
+  for (const v of ['0912345678', '02191303819', '+1 912 345 6789', '']) assert.equal(normalizeIranMobile(v), null, v);
   assert.equal(faMobile('09123456789'), '۰۹۱۲ ۳۴۵ ۶۷۸۹');
 });
 
 test('step validation', () => {
   assert.deepEqual(step1Errors('سارا', '+98۹۱۲۳۴۵۶۷۸۹'), []);
   assert.deepEqual(step1Errors(' س ', '0912'), ['name', 'phone']);
-  assert.deepEqual(step2Errors(null, false), ['time', 'consent']);
-  assert.deepEqual(step2Errors('evening', true), []);
+  assert.deepEqual(step2Errors(null), ['time']);
+  assert.deepEqual(step2Errors('evening'), []);
 });
 
 test('payload = handoff contract: kind, contactTime, optional need/planId, only allowed keys', () => {
@@ -118,4 +123,8 @@ test('submitCallback: 2xx with code, duplicate without code, errors reject', asy
   assert.deepEqual(await submitCallback(base, 'http://x', mk(200, { ok: true, duplicate: true })), {});
   await assert.rejects(submitCallback(base, 'http://x', mk(429, { error: 'rate_limited' })), (e: { code: string; status: number }) => e.code === 'rate_limited' && e.status === 429);
   await assert.rejects(submitCallback(base, undefined, mk(201, {})), (e: { code: string }) => e.code === 'no_endpoint');
+});
+
+test('P3-C consent text is exact', () => {
+  assert.equal(CONSENT_TEXT, 'با ثبت شماره، موافقت می‌کنید کارشناس نفیس وام برای مشاوره با شما تماس بگیرد. شماره‌تان جایی منتشر نمی‌شود.');
 });

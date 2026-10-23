@@ -101,17 +101,21 @@ export function successLine(time: CallbackTime, at: Date = new Date()): string {
 /** 09123456789 → «۰۹۱۲ ۳۴۵ ۶۷۸۹» */
 export const faMobile = (d: string) => toFaDigits(`${d.slice(0, 4)} ${d.slice(4, 7)} ${d.slice(7)}`);
 
-export type FieldError = 'name' | 'phone' | 'time' | 'consent';
+export type FieldError = 'name' | 'phone' | 'time';
+/**
+ * P3-C: consent is given by submitting the number (no checkbox). This exact text is shown under EVERY lead and
+ * callback form (CallbackForm, RequestWizard); the payload carries consent:true.
+ */
+export const CONSENT_TEXT = 'با ثبت شماره، موافقت می‌کنید کارشناس نفیس وام برای مشاوره با شما تماس بگیرد. شماره‌تان جایی منتشر نمی‌شود.';
 export function step1Errors(name: string, phone: string): FieldError[] {
   const out: FieldError[] = [];
   if (name.trim().replace(/\s+/g, ' ').length < 2) out.push('name');
   if (!normalizeIranMobile(phone)) out.push('phone');
   return out;
 }
-export function step2Errors(time: CallbackTime | null, consent: boolean): FieldError[] {
+export function step2Errors(time: CallbackTime | null): FieldError[] {
   const out: FieldError[] = [];
   if (!time) out.push('time');
-  if (!consent) out.push('consent');
   return out;
 }
 

@@ -4,6 +4,7 @@
  * (catch → 'other') so a new CRM value never blanks the site.
  */
 // Hand-written validation (no zod) keeps the client islands small — this module ships to the browser.
+import { PLAN_GUARANTEES, type GuaranteePage, type GuaranteeType } from '../data/plan-guarantees';
 
 export const LOAN_PLANS_URL = '/data/loan-plans.json';
 
@@ -26,10 +27,37 @@ export interface LoanPlan {
   bankName: string;
   platformName: string;
   installmentTerms: InstallmentTerm[];
-  /** Optional (CRM feat/public-leads): accepted guarantee kinds. Absent → guarantee filters stay "unknown". */
-  guaranteeTypes?: ('cheque' | 'digital_cheque' | 'guarantor' | 'promissory' | 'none')[];
+  /** Union of guaranteeOptions (CRM public export order: cheque, promissory, guarantor, none). Absent = unknown. */
+  guaranteeTypes?: GuaranteeType[];
+  /** Alternative ways to qualify (each = what the applicant provides). Absent = unknown → never on a guarantee page. */
+  guaranteeOptions?: GuaranteeType[][];
+  /** Public guarantee summary (data/plan-guarantees.ts). */
+  guaranteeSummary?: string;
+  /** Plan may only be listed on these guarantee pages. */
+  guaranteePages?: GuaranteePage[];
+  /** Offered only to retirees. */
+  retireesOnly?: boolean;
+  /** Document note that differs from the generic list. */
+  documentsNote?: string;
 }
 const GUARANTEES = new Set(['cheque', 'digital_cheque', 'guarantor', 'promissory', 'none']);
+const ORDER: GuaranteeType[] = ['cheque', 'promissory', 'guarantor', 'none'];
+const normG = (g: string): GuaranteeType => (g === 'digital_cheque' ? 'cheque' : (g as GuaranteeType));
+const union = (opts: GuaranteeType[][]) => ORDER.filter((g) => opts.some((o) => o.includes(g)));
+
+/**
+ * Merge the site's confirmed guarantee layer (data/plan-guarantees.ts) into a plan. Overrides win over whatever the
+ * CRM export carries; a plan without an override keeps only CRM-provided guaranteeOptions (if any).
+ */
+export function applyPlanOverrides(p: LoanPlan): LoanPlan {
+  const g = PLAN_GUARANTEES[p.id];
+  if (!g) return p;
+  const out: LoanPlan = { ...p, guaranteeOptions: g.guaranteeOptions, guaranteeTypes: union(g.guaranteeOptions), guaranteeSummary: g.summary };
+  if (g.pages) out.guaranteePages = g.pages;
+  if (g.retireesOnly) out.retireesOnly = true;
+  if (g.documents) out.documentsNote = g.documents;
+  return out;
+}
 
 const isNum = (v: unknown, min = -Infinity): v is number => typeof v === 'number' && Number.isFinite(v) && v >= min;
 const isStr = (v: unknown): v is string => typeof v === 'string';
@@ -70,8 +98,13 @@ export function parseLoanPlan(p: unknown): LoanPlan | null {
     bankName: o.bankName as string,
     platformName: o.platformName as string,
     installmentTerms: terms as InstallmentTerm[],
-    ...(Array.isArray(o.guaranteeTypes) && o.guaranteeTypes.every((g) => GUARANTEES.has(g as string))
-      ? { guaranteeTypes: o.guaranteeTypes as LoanPlan['guaranteeTypes'] }
+    ...(Array.isArray(o.guaranteeOptions) &&
+    o.guaranteeOptions.length &&
+    o.guaranteeOptions.every((x) => Array.isArray(x) && x.length && x.every((g) => GUARANTEES.has(g as string)))
+      ? (() => {
+          const opts = (o.guaranteeOptions as string[][]).map((x) => [...new Set(x.map(normG))]);
+          return { guaranteeOptions: opts, guaranteeTypes: union(opts) };
+        })()
       : {}),
   };
 }
@@ -90,7 +123,7 @@ export function parseLoanPlans(input: unknown): LoanPlan[] {
   if (!Array.isArray(input)) return [];
   return input.flatMap((p) => {
     const plan = parseLoanPlan(p);
-    return plan ? [plan] : [];
+    return plan ? [applyPlanOverrides(plan)] : [];
   });
 }
 

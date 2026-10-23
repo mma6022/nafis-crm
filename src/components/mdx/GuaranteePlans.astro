@@ -1,0 +1,56 @@
+---
+/**
+ * MDX `<GuaranteePlans page="no-guarantor|no-cheque|cheque|promissory|fast-no-guarantor|fast-no-cheque" />`:
+ * the plans that TRULY meet a guarantee page's condition (data/plan-guarantees.ts → qualifiesFor). Strict: a plan
+ * with unknown guarantee data is never listed and nothing is relaxed. Zero plans → an honest empty state (`empty`
+ * slot text or the default), never a fake list. Every row carries data-plan-id; scripts/check-guarantees.mjs
+ * re-checks the built HTML against the same rules.
+ */
+import { LOAN_PLANS_SNAPSHOT } from '../../lib/loan-plans.snapshot';
+import { DAYS_LABEL, MODE_LABEL, cleanPlanName, guaranteePagePlans } from '../../lib/plans';
+import { whyFor, type GuaranteePage } from '../../data/plan-guarantees';
+import I from '../ui/I.astro';
+interface Props {
+  page: GuaranteePage;
+  /** text for the empty state */
+  empty?: string;
+}
+const { page, empty } = Astro.props;
+const list = guaranteePagePlans(LOAN_PLANS_SNAPSHOT, page);
+const src = (Astro.url.pathname.replace(/^\/+|\/+$/g, '').split('/').pop() || 'home').replace(/[^a-z0-9_-]/g, '') || 'home';
+/** «ستاره آبی» exists 3×: tell the rows apart by bank / platform */
+const names = list.map((p) => cleanPlanName(p.name));
+const dup = (n: string) => names.filter((x) => x === n).length > 1;
+const via = (p: (typeof list)[number]) => [p.bankName, p.platformName].map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' / ');
+---
+
+{
+  list.length > 0 ? (
+    <ul class="gplans not-prose" data-guarantee-page={page} data-count={list.length}>
+      {list.map((p) => (
+        <li class="gplan" data-plan-id={p.id}>
+          <div class="gp-head">
+            <b class="gp-name">
+              {cleanPlanName(p.name)}
+              {dup(cleanPlanName(p.name)) && via(p) && <span class="gp-via"> ({via(p)})</span>}
+            </b>
+            <span class="gp-kind">{p.loanType === 'goods' ? 'خرید کالا قسطی' : 'وام نقدی'}</span>
+            {p.retireesOnly && <span class="nf-badge nf-badge--brand">ویژه‌ی بازنشسته‌ها</span>}
+          </div>
+          <p class="gp-why"><I name="check" size={18} /> <span>{whyFor(p.id, page)}</span></p>
+          <p class="gp-meta">
+            <span>زمان بررسی: {DAYS_LABEL[p.grantDays] ?? p.grantDays}</span>
+            <span>روش: {MODE_LABEL[p.processMode] ?? p.processMode}</span>
+            {p.documentsNote && <span>مدارک: {p.documentsNote}</span>}
+          </p>
+          <a class="nf-btn nf-btn--secondary gp-btn" href={`/request?plan=${p.id}&src=${encodeURIComponent(src + '-guarantee')}`}>درخواست همین طرح</a>
+        </li>
+      ))}
+    </ul>
+  ) : (
+    <div class="gplans-empty not-prose" data-guarantee-page={page} data-count="0">
+      <p>{empty ?? 'در حال حاضر طرح فعالی با این شرط نداریم. شماره‌تان را بگذارید تا کارشناس نزدیک‌ترین راه را بگوید.'}</p>
+      <a class="nf-btn nf-btn--secondary" href="#callback">درخواست مشاوره‌ی رایگان</a>
+    </div>
+  )
+}

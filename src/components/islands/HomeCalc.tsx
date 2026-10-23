@@ -10,7 +10,8 @@ import { I } from '../ui/I';
 
 export default function HomeCalc({ snapshot }: { snapshot: LoanPlan[] }) {
   const { plans } = useLoanPlans(snapshot);
-  const all = useMemo(() => combos(plans), [plans]);
+  // retiree-only plans (21) are never the home sample: the finder/calculator offer them behind «بازنشسته هستم»
+  const all = useMemo(() => combos(plans).filter((c) => !c.retirees), [plans]);
   const terms = useMemo(() => [...new Set(all.map((c) => c.term))].sort((a, b) => a - b), [all]);
   const [band, setBand] = useState<FinderBand>(2);
   const [term, setTerm] = useState(24);

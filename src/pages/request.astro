@@ -4,7 +4,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import RequestWizard from '../components/islands/RequestWizard';
 import I from '../components/ui/I.astro';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
-import { MESSENGERS, SITE } from '../lib/site';
+import { SITE } from '../lib/site';
 ---
 
 <BaseLayout title="درخواست وام" description="درخواست وام و مشاوره رایگان نفیس وام در کمتر از یک دقیقه؛ بدون تعهد." noindex minimal hideStickyBar src="request">
@@ -21,10 +21,7 @@ import { MESSENGERS, SITE } from '../lib/site';
       </div>
       <div class="nf-card aside-card">
         <p>ترجیح می‌دهید همین حالا صحبت کنید؟</p>
-        <div class="row">
-          <a class="nf-btn nf-btn--secondary" href={SITE.tel}><I name="phone" size={18} /> تماس</a>
-          <a class="nf-btn nf-btn--secondary" href={MESSENGERS.whatsapp.href} data-todo="whatsapp"><I name="wa" size={20} class="wa" /> واتساپ</a>
-        </div>
+        <a class="nf-btn nf-btn--secondary nf-btn--block" href={SITE.tel}><I name="phone" size={18} /> تماس: <span class="ltr">{SITE.phoneFa}</span></a>
       </div>
     </aside>
   </div>

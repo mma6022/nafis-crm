@@ -18,8 +18,10 @@ export default function LoanCalculator({ snapshot, src = 'calculator' }: { snaps
   const pool = useMemo(() => all.filter((c) => type === 'any' || c.type === (type === 'cash' ? 'score' : 'goods')), [all, type]);
   const terms = useMemo(() => [...new Set((pool.length ? pool : all).map((c) => c.term))].sort((a, b) => a - b), [pool, all]);
   const [term, setTerm] = useState(24);
+  /** «بازنشسته هستم»: retiree-only plans are offered only then */
+  const [retired, setRetired] = useState(false);
   const t = terms.includes(term) ? term : (terms.reduce((b, x) => (Math.abs(x - term) < Math.abs(b - term) ? x : b), terms[0] ?? term));
-  const picks = useMemo(() => calcPicks(all, type, band, t), [all, type, band, t]);
+  const picks = useMemo(() => calcPicks(all, type, band, t, 3, retired), [all, type, band, t, retired]);
 
   if (!all.length) return <p className="note">در حال حاضر طرح فعالی برای محاسبه وجود ندارد. برای مشاوره با ما تماس بگیرید.</p>;
 
@@ -65,6 +67,12 @@ export default function LoanCalculator({ snapshot, src = 'calculator' }: { snaps
               </button>
             ))}
           </div>
+        </div>
+        <div className="grp">
+          <label className="retired-toggle">
+            <input type="checkbox" checked={retired} onChange={(e) => setRetired(e.currentTarget.checked)} />
+            <span>بازنشسته هستم</span>
+          </label>
         </div>
       </div>
       <div className="lc-out" aria-live="polite">

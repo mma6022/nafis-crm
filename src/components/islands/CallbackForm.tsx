@@ -3,7 +3,7 @@
  * `mountCallback`, markup/classes = mockups/src/site.css «Callback» block).
  * Variants: 'section' (home / landings / contact), 'inline' (under the finder result: collapsed first, secondary),
  * 'sheet' (header / mobile-menu <dialog>, see CallbackDialog). Two steps + progress bar: name + mobile → contact
- * time (radio tiles, required) + topic (chips, optional) + consent. «همین الان» only inside working hours
+ * time (radio tiles, required) + topic (chips, optional); consent = CONSENT_TEXT under the form (no checkbox). «همین الان» only inside working hours
  * (Asia/Tehran via Intl, lib/callback). POST kind=callback to PUBLIC_LEAD_ENDPOINT with honeypot + startedAt.
  * Success only on 2xx; the tracking code line only when the CRM returned one (a duplicate shows the same screen).
  * The site never promises a number of minutes.
@@ -13,11 +13,12 @@ import { I } from '../ui/I';
 import { fa } from '../../lib/plans';
 import { normalizeIranMobile } from '../../lib/format';
 import { LeadError, readUtm, type Need } from '../../lib/lead';
-import { CALLBACK_WHATSAPP, MESSENGERS, SITE, WORK_HOURS } from '../../lib/site';
+import { CALLBACK_WHATSAPP, SITE, WORK_HOURS } from '../../lib/site';
 import {
   CB_DONE,
   CB_SUBMIT,
   CB_TITLE,
+  CONSENT_TEXT,
   TOPIC_OPTS,
   faMobile,
   isWorkingHours,
@@ -72,7 +73,6 @@ export default function CallbackForm({
   const [norm, setNorm] = useState('');
   const [time, setTime] = useState<CallbackTime | null>(null);
   const [topic, setTopic] = useState<Need | null>(topic0);
-  const [consent, setConsent] = useState(false);
   const [err, setErr] = useState<Partial<Record<FieldError, boolean>>>({});
   const [busy, setBusy] = useState(false);
   const [fail, setFail] = useState(false);
@@ -120,10 +120,10 @@ export default function CallbackForm({
       go(2);
       return;
     }
-    const bad = step2Errors(time, consent);
-    setErr({ time: bad.includes('time'), consent: bad.includes('consent') });
+    const bad = step2Errors(time);
+    setErr({ time: bad.includes('time') });
     if (bad.length) {
-      q<HTMLElement>(bad[0] === 'time' ? '[data-time]' : `#${id}-ok`)?.focus();
+      q<HTMLElement>('[data-time]')?.focus();
       return;
     }
     setBusy(true);
@@ -136,7 +136,7 @@ export default function CallbackForm({
         need: topic,
         planId,
         src,
-        consent,
+        consent: true,
         website: honeypot.current?.value ?? '',
         startedAt: startedAt.current,
         utm: readUtm(),
@@ -182,10 +182,6 @@ export default function CallbackForm({
             یا{' '}
             <a href={SITE.tel}>
               تماس با&nbsp;<span dir="ltr">{SITE.phoneFa}</span>
-            </a>{' '}
-            ·{' '}
-            <a href={MESSENGERS.whatsapp.href} data-todo="whatsapp">
-              واتساپ
             </a>
           </p>
         </div>
@@ -224,12 +220,7 @@ export default function CallbackForm({
             <div className="alert" role="alert" tabIndex={-1} ref={failRef} hidden={!fail}>
               <I name="alert" />
               <span>
-                ثبت نشد. لطفاً دوباره تلاش کنید یا با <a href={SITE.tel}>{SITE.phoneFa}</a> تماس بگیرید
-                {' · '}
-                <a href={MESSENGERS.whatsapp.href} data-todo="whatsapp">
-                  واتساپ
-                </a>
-                .
+                ثبت نشد. لطفاً دوباره تلاش کنید یا با <a href={SITE.tel}><span dir="ltr">{SITE.phoneFa}</span></a> تماس بگیرید.
               </span>
             </div>
             {step !== 3 && (
@@ -307,7 +298,7 @@ export default function CallbackForm({
                       <I name="alert" />
                       یک زمان را انتخاب کنید.
                     </span>
-                    {!inHours && <p className="cb-closed">الان خارج از ساعت کاری ({WORK_HOURS.fa}) است؛ برای اولین زمان کاری یکی را انتخاب کنید.</p>}
+                    {!inHours && <p className="cb-closed">الان خارج از ساعت کاری ({WORK_HOURS.daysFa}، {WORK_HOURS.fa}) است؛ برای اولین زمان کاری یکی را انتخاب کنید.</p>}
                   </div>
                   <div className="nf-field">
                     <span className="nf-label" id={`${id}-lp`}>
@@ -320,18 +311,6 @@ export default function CallbackForm({
                         </button>
                       ))}
                     </div>
-                  </div>
-                  <div>
-                    <label className="check">
-                      <input type="checkbox" id={`${id}-ok`} checked={consent} aria-invalid={!!err.consent} aria-describedby={`${id}-eo`} onChange={(e) => (setConsent(e.target.checked), setErr((p) => ({ ...p, consent: false })))} />
-                      <span>
-                        با <a href="/privacy">حریم خصوصی</a> موافقم و اجازه می‌دهم کارشناس نفیس وام با من تماس بگیرد.
-                      </span>
-                    </label>
-                    <span className="nf-error" id={`${id}-eo`} hidden={!err.consent}>
-                      <I name="alert" />
-                      برای ثبت درخواست، این گزینه را تأیید کنید.
-                    </span>
                   </div>
                   <button type="submit" className={`nf-btn ${btn} nf-btn--block cb-submit`} disabled={busy} aria-busy={busy}>
                     {busy ? 'در حال ثبت…' : CB_SUBMIT}
@@ -360,9 +339,9 @@ export default function CallbackForm({
               </div>
             )}
             {step !== 3 && (
-              <p className="privacy-note cb-note">
+              <p className="privacy-note cb-note consent-note" data-consent>
                 <I name="lock" />
-                شماره‌تان فقط برای همین تماس است.
+                {CONSENT_TEXT}
               </p>
             )}
           </div>

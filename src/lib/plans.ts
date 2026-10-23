@@ -7,6 +7,7 @@
  *   order (priority dropped first, then band, then type; a page preset last);
  *   de-duplicated by plan name; always 1–3 cards, never "not found".
  */
+import { qualifiesFor, type GuaranteePage, type GuaranteeType } from '../data/plan-guarantees';
 import { monthlyInstallment, type LoanPlan } from './loan-plans';
 
 const FA = '۰۱۲۳۴۵۶۷۸۹';
@@ -73,7 +74,7 @@ export type PlanFacts = ReturnType<typeof planFacts>;
 
 /* ---------------- combos (plan × term) ---------------- */
 
-export type Guarantee = 'cheque' | 'digital_cheque' | 'guarantor' | 'promissory' | 'none';
+export type Guarantee = GuaranteeType;
 
 export interface Combo {
   id: number;
@@ -90,6 +91,10 @@ export interface Combo {
   payout: number;
   inst: number;
   guarantees?: Guarantee[];
+  guaranteeOptions?: Guarantee[][];
+  guaranteePages?: GuaranteePage[];
+  /** offered only to retirees (finder/calculator show it only when «بازنشسته هستم» is on) */
+  retirees?: boolean;
 }
 
 export function combos(plans: LoanPlan[]): Combo[] {
@@ -109,6 +114,9 @@ export function combos(plans: LoanPlan[]): Combo[] {
       payout: (p.principalAmount * t.depositPercent) / 100,
       inst: monthlyInstallment(p.principalAmount, p.annualInterest, t.installments),
       guarantees: p.guaranteeTypes,
+      guaranteeOptions: p.guaranteeOptions,
+      guaranteePages: p.guaranteePages,
+      retirees: !!p.retireesOnly,
     })),
   );
 }
@@ -124,10 +132,11 @@ export const byId = (all: Combo[], id: number): Combo | undefined =>
  * exact/nearest term, then lower installment, then smaller id; one card per plan (its combo closest to the term).
  * Falls back to every type when the chosen type has no plan, so the page never shows «no plan».
  */
-export function calcPicks(all: Combo[], type: FinderType, band: FinderBand, term: number, max = 3): Combo[] {
+export function calcPicks(all: Combo[], type: FinderType, band: FinderBand, term: number, max = 3, retired = false): Combo[] {
   const t = type === 'cash' ? 'score' : type === 'goods' ? 'goods' : null;
-  const pool = all.filter((c) => !t || c.type === t);
-  const list = (pool.length ? pool : all)
+  const eligible = all.filter((c) => retired || !c.retirees);
+  const pool = eligible.filter((c) => !t || c.type === t);
+  const list = (pool.length ? pool : eligible)
     .slice()
     .sort(
       (x, y) =>
@@ -156,13 +165,15 @@ export interface FinderAnswers {
   type: FinderType;
   band: FinderBand;
   prio: FinderPrio;
+  /** «بازنشسته هستم»: retiree-only plans (21) are offered only then */
+  retired?: boolean;
 }
-/** Keyword-page preset. Guarantee presets only bite once the CRM export carries guaranteeTypes. */
+/** Keyword-page preset. A guarantee preset is a HARD filter (unknown guarantee = not qualifying, never relaxed). */
 export interface FinderPreset {
   type?: FinderType;
   prio?: FinderPrio;
-  /** e.g. «بدون ضامن» → exclude 'guarantor'; «با سفته» → require 'promissory' */
-  guarantee?: { require?: Guarantee[]; exclude?: Guarantee[]; label: string };
+  /** e.g. «بدون ضامن» → page 'no-guarantor' (data/plan-guarantees.ts qualifiesFor) */
+  guarantee?: { page: GuaranteePage; label: string };
 }
 
 export const FINDER_TYPES: FinderType[] = ['cash', 'goods', 'any'];
@@ -187,16 +198,11 @@ export interface Recommendation {
 }
 
 export function recommend(all: Combo[], a: FinderAnswers, preset: FinderPreset = {}): Recommendation {
-  if (!all.length) return { exact: false, cards: [], presetUnknown: false };
   const g = preset.guarantee;
-  const hasGuaranteeData = all.some((c) => Array.isArray(c.guarantees));
-  const guaranteeOk = (c: Combo) => {
-    if (!g || !hasGuaranteeData) return true;
-    const list = c.guarantees ?? [];
-    if (g.require?.length && !g.require.some((x) => list.includes(x))) return false;
-    if (g.exclude?.length && g.exclude.some((x) => list.includes(x))) return false;
-    return true;
-  };
+  // retiree-only plans need «بازنشسته هستم»; a guarantee preset is a hard filter (never relaxed, unknown = out)
+  all = all.filter((c) => (a.retired || !c.retirees) && (!g || comboQualifies(c, g.page)));
+  if (!all.length) return { exact: false, cards: [], presetUnknown: false };
+  const guaranteeOk = (_c: Combo) => true;
   const typeOk = (c: Combo) => a.type === 'any' || (a.type === 'cash' ? c.type === 'score' : c.type === 'goods');
   const bandScore = (c: Combo) => {
     const d = Math.abs(bandOf(c.payout) - a.band);
@@ -245,7 +251,7 @@ export function recommend(all: Combo[], a: FinderAnswers, preset: FinderPreset =
     delete rest.s;
     return { ...(rest as Omit<typeof c, 't' | 'b' | 'p' | 'g' | 's'>), score: c.s, presetOk: c.g === 1 };
   };
-  return { exact: top.s === 100 && top.g === 1, cards: keep.map(toPick), presetUnknown: !!g && !hasGuaranteeData };
+  return { exact: top.s === 100 && top.g === 1, cards: keep.map(toPick), presetUnknown: false };
 }
 
 /* ---------------- request wizard amount bands ---------------- */
@@ -339,11 +345,18 @@ export const TYPE_LABEL: Record<string, string> = { goods: 'خرید کالا ق
 
 export type ContentPreset = { guarantee?: string; need?: string; priority?: string };
 export const GUARANTEE_PRESETS: Record<string, NonNullable<FinderPreset['guarantee']>> = {
-  'no-guarantor': { exclude: ['guarantor'], label: 'بدون ضامن' },
-  'no-cheque': { exclude: ['cheque', 'digital_cheque'], label: 'بدون چک' },
-  cheque: { require: ['cheque', 'digital_cheque'], label: 'با چک' },
-  promissory: { require: ['promissory'], label: 'با سفته' },
+  'no-guarantor': { page: 'no-guarantor', label: 'بدون ضامن' },
+  'no-cheque': { page: 'no-cheque', label: 'بدون چک' },
+  cheque: { page: 'cheque', label: 'با چک' },
+  promissory: { page: 'promissory', label: 'با سفته' },
 };
+/** A combo/plan meets a guarantee page's condition (data/plan-guarantees.ts). */
+export const comboQualifies = (c: Combo, page: GuaranteePage) =>
+  qualifiesFor({ id: c.id, grantDays: c.days, guaranteeOptions: c.guaranteeOptions, guaranteePages: c.guaranteePages }, page);
+export const planQualifies = (p: LoanPlan, page: GuaranteePage) => qualifiesFor(p, page);
+/** Plans of a guarantee page, in a stable order (id). */
+export const guaranteePagePlans = (plans: LoanPlan[], page: GuaranteePage) =>
+  plans.filter((p) => qualifiesFor(p, page)).sort((a, b) => a.id - b.id);
 /** Maps the content team's preset vocabulary to the finder's. Unknown keys are ignored (never break a page). */
 export function toFinderPreset(p: ContentPreset = {}): FinderPreset {
   const out: FinderPreset = {};
@@ -352,24 +365,13 @@ export function toFinderPreset(p: ContentPreset = {}): FinderPreset {
   if (p.guarantee && GUARANTEE_PRESETS[p.guarantee]) out.guarantee = GUARANTEE_PRESETS[p.guarantee];
   return out;
 }
-/** Drops a guarantee preset while no plan carries guaranteeTypes (no chip, no note, no ranking effect). */
-export function withoutUnbackedGuarantee(p: FinderPreset | undefined, all: Combo[]): FinderPreset | undefined {
-  if (!p?.guarantee || all.some((c) => Array.isArray(c.guarantees))) return p;
-  const rest = { ...p };
-  delete rest.guarantee;
-  return rest;
-}
-/** `<PlanCards filter>` names → plan predicate; `null` = the data can't answer yet (guarantee fields missing). */
+/** Kept for callers: a guarantee preset is always backed now (data/plan-guarantees.ts), so it is returned as is. */
+export const withoutUnbackedGuarantee = (p: FinderPreset | undefined, _all: Combo[]) => p;
+/** `<PlanCards filter>` names → plan predicate. Guarantee names use the strict page rules. */
 export function planFilter(name: string, plans: LoanPlan[]): ((p: LoanPlan) => boolean) | null {
-  const g = { noGuarantor: 'no-guarantor', noCheque: 'no-cheque', cheque: 'cheque', promissory: 'promissory' }[name];
-  if (g) {
-    if (!plans.some((p) => Array.isArray(p.guaranteeTypes))) return null;
-    const rule = GUARANTEE_PRESETS[g]!;
-    return (p) => {
-      const l = p.guaranteeTypes ?? [];
-      return (!rule.require || rule.require.some((x) => l.includes(x))) && !(rule.exclude ?? []).some((x) => l.includes(x));
-    };
-  }
+  void plans;
+  const g = { noGuarantor: 'no-guarantor', noCheque: 'no-cheque', cheque: 'cheque', promissory: 'promissory' }[name] as GuaranteePage | undefined;
+  if (g) return (p) => qualifiesFor(p, g);
   if (name === 'goods') return (p) => p.loanType === 'goods';
   if (name === 'cash') return (p) => p.loanType === 'score';
   if (name === 'fast') return (p) => p.grantDays === 'under_7';

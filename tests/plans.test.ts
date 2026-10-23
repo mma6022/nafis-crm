@@ -5,8 +5,9 @@ import raw from '../src/data/loan-plans.snapshot.json' with { type: 'json' };
 import { parseLoanPlans } from '../src/lib/loan-plans.ts';
 import {
   combos, recommend, planFacts, bankNames, reqBands, bandOf, millionsFa,
-  FINDER_TYPES, FINDER_BANDS, FINDER_PRIOS, type Combo,
+  FINDER_TYPES, FINDER_BANDS, FINDER_PRIOS, comboQualifies, guaranteePagePlans, type Combo,
 } from '../src/lib/plans.ts';
+import type { GuaranteePage } from '../src/data/plan-guarantees.ts';
 
 const plans = parseLoanPlans(raw);
 const all = combos(plans);
@@ -45,14 +46,29 @@ test('relaxation: priority is dropped before band', () => {
 
 test('empty data never throws', () => assert.deepEqual(recommend([], { type: 'any', band: 0, prio: 'cheap' }).cards, []));
 
-test('guarantee preset: unknown data is flagged, known data filters and relaxes last', () => {
-  const r0 = recommend(all, { type: 'any', band: 1, prio: 'cheap' }, { guarantee: { exclude: ['guarantor'], label: 'بدون ضامن' } });
-  assert.equal(r0.presetUnknown, true);
-  const tagged: Combo[] = all.map((c) => ({ ...c, guarantees: c.id === 15 ? ['promissory'] : ['cheque'] }));
-  const r1 = recommend(tagged, { type: 'goods', band: 0, prio: 'fast' }, { guarantee: { require: ['promissory'], label: 'سفته' } });
-  assert.equal(r1.cards[0]!.id, 15);
-  assert.equal(r1.cards[0]!.presetOk, true);
-  assert.equal(r1.exact, false);
+test('guarantee preset is a hard filter: only truly qualifying plans, empty when none', () => {
+  const r0 = recommend(all, { type: 'any', band: 1, prio: 'cheap' }, { guarantee: { page: 'no-guarantor', label: 'بدون ضامن' } });
+  assert.equal(r0.presetUnknown, false);
+  assert.ok(r0.cards.length > 0);
+  assert.ok(r0.cards.every((c) => comboQualifies(c, 'no-guarantor')));
+  const r1 = recommend(all, { type: 'any', band: 0, prio: 'fast' }, { guarantee: { page: 'promissory', label: 'سفته' } });
+  assert.ok(r1.cards.every((c) => c.id === 20));
+  const r2 = recommend(all, { type: 'any', band: 0, prio: 'fast' }, { guarantee: { page: 'fast-no-cheque', label: 'فوری بدون چک' } });
+  assert.deepEqual(r2.cards, []);
+  // unknown guarantee data is never listed
+  const unknown: Combo[] = all.map((c) => ({ ...c, guaranteeOptions: undefined, guarantees: undefined }));
+  assert.deepEqual(recommend(unknown, { type: 'any', band: 1, prio: 'cheap' }, { guarantee: { page: 'cheque', label: 'چک' } }).cards, []);
+});
+
+test('guarantee pages: plan sets match Mohammad\'s answers (2026-10-23)', () => {
+  const ids = (page: GuaranteePage) => guaranteePagePlans(plans, page).map((p) => p.id).sort((a, b) => a - b);
+  assert.deepEqual(ids('no-guarantor'), [3, 7, 8, 9, 12, 14, 15, 17, 18, 19, 21, 22]);
+  assert.deepEqual(ids('no-cheque'), [15, 20, 21]);
+  assert.deepEqual(ids('cheque'), [1, 3, 4, 5, 7, 8, 9, 10, 11, 12, 14, 18, 19, 22]);
+  assert.deepEqual(ids('promissory'), [20]);
+  assert.deepEqual(ids('fast-no-guarantor'), []);
+  assert.deepEqual(ids('fast-no-cheque'), []);
+  assert.equal(plans.find((p) => p.id === 21)?.retireesOnly, true);
 });
 
 test('facts are computed from data', () => {

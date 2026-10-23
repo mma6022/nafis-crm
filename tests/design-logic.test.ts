@@ -13,10 +13,13 @@ import {
 import { toEnDigits, mobileDigits, isValidMobile } from '../src/lib/format.ts';
 import { readTrackingCode, submitLead, type LeadInput } from '../src/lib/lead.ts';
 import { designer } from './fixtures/designer-site-logic.mjs';
+import { PLAN_GUARANTEES } from '../src/data/plan-guarantees.ts';
 
 const plans = parseLoanPlans(raw);
 const all = combos(plans);
 const D = designer(raw);
+/** P3 (6:09): retiree-only plans (21) are hidden from the finder unless «بازنشسته هستم»; the designer never knew them */
+const DR = designer((raw as { id: number }[]).filter((p) => !PLAN_GUARANTEES[p.id]?.retireesOnly));
 
 /* ---------- installment ---------- */
 test('installment: annuity P·r/(1−(1+r)^−n), r = annual/100/12', () => {
@@ -53,7 +56,7 @@ test('recommend: same ranking and exact flag as site.js for all 27 answers (ties
     for (const band of FINDER_BANDS)
       for (const prio of FINDER_PRIOS) {
         const ours = recommend(all, { type, band, prio });
-        const ref = D.recommend({ type, band, prio });
+        const ref = DR.recommend({ type, band, prio });
         const k = `${type},${band},${prio}`;
         const key = (c: Combo) => `${c.id}/${c.term}`;
         const metric = (c: Combo) => Math.round(prio === 'cheap' ? c.inst : c.payout);

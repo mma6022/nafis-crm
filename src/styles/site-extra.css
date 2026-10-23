@@ -160,3 +160,51 @@
 /* 404: cap the empty space (REVIEW-ADITYA-2 §3) */
 .lp-hero.page-404{padding-bottom:0}
 .cb-closed{margin:8px 0 0;font-size:14px;color:var(--nf-warning,#8A6212);line-height:1.8}
+
+/* P3: retiree-only tag on plan cards, «بازنشسته هستم» toggle (finder result + calculator) */
+.plan .plan-tag{align-self:flex-start;margin-block:-4px 4px;font-size:.8125rem}
+.retired-toggle{display:inline-flex;align-items:center;gap:10px;min-height:48px;padding:4px 14px;margin-block:4px 8px;border:1px solid var(--nf-line,#dfe3ea);border-radius:999px;cursor:pointer;font-weight:600;font-size:.9375rem;background:#fff}
+.retired-toggle input{width:20px;height:20px;accent-color:var(--nf-brand-600,#1f4fd1);margin:0}
+.retired-toggle:has(input:checked){border-color:var(--nf-brand-600,#1f4fd1);background:var(--nf-brand-50,#eef3ff)}
+
+/* P3: <GuaranteePlans> rows (guarantee keyword pages) */
+.gplans{list-style:none;padding:0;margin:16px 0;display:grid;gap:12px}
+@media (min-width:768px){.gplans{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.gplan{background:#fff;border:1px solid var(--nf-line);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:8px}
+.gp-head{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.gp-name{font-size:1.0625rem;color:var(--nf-ink)}
+.gp-via{font-weight:500;color:var(--nf-ink-3,#5b6275);font-size:.875rem}
+.gp-kind{font-size:.8125rem;color:var(--nf-ink-3,#5b6275)}
+.gp-why{display:flex;gap:6px;align-items:flex-start;margin:0;line-height:1.8}
+.gp-why svg{flex:none;margin-top:5px;color:var(--nf-success,#13795b)}
+.gp-meta{display:flex;flex-wrap:wrap;gap:4px 14px;margin:0;font-size:.875rem;color:var(--nf-ink-3,#5b6275)}
+.gp-btn{margin-top:auto;align-self:flex-start;min-height:48px}
+.gplans-empty{border:1px dashed var(--nf-line-strong);border-radius:16px;padding:16px;margin:16px 0;background:var(--nf-brand-50)}
+.gplans-empty p{margin:0 0 10px;line-height:1.9}
+
+/* /contact «کارشناسان فروش» (Mohammad 2026-10-23): ≥48px call button + 48px messenger icon links */
+.experts{margin-top:16px;padding-top:16px;border-top:1px solid var(--nf-line)}
+.experts h2{font-size:1.125rem;font-weight:800;margin:0}
+.experts-hours{display:flex;align-items:center;gap:6px;margin:4px 0 12px;color:var(--nf-ink-3,#5b6275);font-size:.9375rem}
+.experts ul{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+@media (min-width:1024px){.experts ul{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.expert{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--nf-line);border-radius:14px}
+.expert-name{font-weight:800;color:var(--nf-ink)}
+.expert-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.expert-call{min-height:48px;flex:1 1 100%;justify-content:center;font-weight:800}
+.expert-call span{unicode-bidi:isolate;direction:ltr}
+.expert-msg{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:var(--nf-surface);color:var(--nf-ink);border:1px solid var(--nf-line);text-decoration:none}
+.expert-msg:hover{background:var(--nf-surface-2)}
+.expert-msg:focus-visible{outline:3px solid var(--nf-brand-600);outline-offset:2px}
+.site-foot .legal-id{margin-top:10px;color:#C9CEE8;font-size:var(--nf-text-small)}
+
+/* /about facts (legal name, national ID, phone, hours) */
+.about-facts{margin-top:24px;background:#fff;border:1px solid var(--nf-line);border-radius:16px;padding:20px}
+.about-facts h2{font-size:1.25rem;font-weight:800;margin:0 0 12px}
+.about-facts dl{display:grid;gap:10px;margin:0}
+@media (min-width:768px){.about-facts dl{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.about-facts dl div{display:flex;gap:8px;flex-wrap:wrap}
+.about-facts dt{color:var(--nf-ink-3,#5b6275);min-width:88px}
+.about-facts dd{margin:0;font-weight:800;color:var(--nf-ink)}
+.about-facts a{color:var(--nf-brand-700,#2b3a8f)}
+.about-more{margin:14px 0 0;font-size:.9375rem}

@@ -1,5 +1,5 @@
 /**
- * Plan finder island (designer site.js `mountFinder`, UX-SPEC §4). 3 one-tap questions (fewer when a page preset
+ * Plan finder island (designer site.js `mountFinder`, UX-SPEC §4). 3 one-tap questions (+ «بازنشسته هستم» toggle: retiree-only plans need it) (fewer when a page preset
  * answers one) → 1 featured card + up to 2 alternatives. Never "no plan found": recommend() relaxes.
  * Starts on the build-time snapshot, then swaps to the live /data/loan-plans.json.
  * Deep link (first finder on the page only): ?a=type,band,prio → result; add &step=type|band|prio to open a step.
@@ -73,6 +73,7 @@ export default function PlanFinder({
   const [ans, setAns] = useState<Ans>(fixed);
   const [step, setStep] = useState<Step>(ORDER[0]!);
   const [longName, setLongName] = useState(false);
+  const [retired, setRetired] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const focusNext = useRef(false);
   const T = titleTag;
@@ -100,7 +101,7 @@ export default function PlanFinder({
   };
   const i = ORDER.indexOf(step);
   const complete = ans.type !== undefined && ans.band !== undefined && ans.prio !== undefined;
-  const r = useMemo(() => (step === 'result' && complete ? recommend(all, ans as FinderAnswers, preset) : null), [step, complete, all, ans, preset]);
+  const r = useMemo(() => (step === 'result' && complete ? recommend(all, { ...(ans as FinderAnswers), retired }, preset) : null), [step, complete, all, ans, preset, retired]);
   // home: hides the #callback section so only one callback form is open (CALLBACK-HANDOFF.md)
   useEffect(() => {
     if (r) root.current?.dispatchEvent(new CustomEvent('finder:result', { bubbles: true }));
@@ -197,8 +198,12 @@ export default function PlanFinder({
                 تغییر پاسخ‌ها
               </button>
             </div>
-            {r.presetUnknown && preset?.guarantee && (
-              <p className="plan-note">شرط «{preset.guarantee.label}» را کارشناس هنگام تماس برای هر طرح تأیید می‌کند.</p>
+            <label className="retired-toggle">
+              <input type="checkbox" checked={retired} onChange={(e) => setRetired(e.currentTarget.checked)} />
+              <span>بازنشسته هستم</span>
+            </label>
+            {!r.cards.length && (
+              <p className="plan-note">در حال حاضر طرحی با این شرط‌ها نداریم. شماره‌تان را بگذارید تا کارشناس نزدیک‌ترین راه را بگوید.</p>
             )}
             <div className={`cards n${r.cards.length}`}>
               {r.cards.map((c, k) => (
@@ -209,7 +214,6 @@ export default function PlanFinder({
                   variant="result"
                   src={src}
                   name={longName && k === 0 ? LONG_NAME : undefined}
-                  note={preset?.guarantee && !r.presetUnknown && !c.presetOk ? `شرط «${preset.guarantee.label}» را ندارد؛ نزدیک‌ترین گزینه است.` : undefined}
                 />
               ))}
             </div>
@@ -221,7 +225,7 @@ export default function PlanFinder({
             <div className="help cb-mount">
               {/* secondary: the featured plan card owns the page's primary button (CALLBACK-HANDOFF.md) */}
               <CallbackForm
-                key={`${ans.type}-${ans.band}-${ans.prio}`}
+                key={`${ans.type}-${ans.band}-${ans.prio}-${retired}`}
                 variant="inline"
                 src={`${src}-result`}
                 topic={ans.type === 'cash' || ans.type === 'goods' ? ans.type : null}

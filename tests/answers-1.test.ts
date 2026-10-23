@@ -40,14 +40,12 @@ test('amount bands are filtered by need and counted after filtering', () => {
   }
 });
 
-/* §9: guarantee preset is dropped while plans have no guaranteeTypes */
-test('withoutUnbackedGuarantee: no guarantee data → preset loses guarantee, keeps the rest', () => {
-  assert.equal(all.some((c) => Array.isArray(c.guarantees)), false, 'snapshot still has no guaranteeTypes');
-  const g = { exclude: ['guarantor' as const], label: 'بدون ضامن' };
-  assert.deepEqual(withoutUnbackedGuarantee({ guarantee: g, type: 'cash' }, all), { type: 'cash' });
+/* P3: guarantee data now comes from data/plan-guarantees.ts (merged into every plan list); the preset passes through */
+test('withoutUnbackedGuarantee: guarantee data present → preset is kept as is', () => {
+  assert.ok(all.some((c) => Array.isArray(c.guarantees) && c.guarantees.length > 0), 'snapshot plans carry guaranteeTypes');
+  const g = { page: 'no-guarantor' as const, label: 'بدون ضامن' };
+  assert.deepEqual(withoutUnbackedGuarantee({ guarantee: g, type: 'cash' }, all), { guarantee: g, type: 'cash' });
   assert.equal(withoutUnbackedGuarantee(undefined, all), undefined);
-  const backed: Combo[] = all.map((c) => ({ ...c, guarantees: ['cheque'] }));
-  assert.deepEqual(withoutUnbackedGuarantee({ guarantee: g }, backed), { guarantee: g });
 });
 
 /* §9: /calculator → 1–3 cards, one per plan, never empty */

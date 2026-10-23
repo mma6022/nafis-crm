@@ -8,6 +8,7 @@ import FAQ from './FAQ.astro';
 import Steps from './Steps.astro';
 import TOC from './TOC.astro';
 import Calculator from './Calculator.astro';
+import GuaranteePlans from './GuaranteePlans.astro';
 
 /** Components available to every MDX page/post (nafis-site-ux/content/pages/README.md). */
-export const mdxComponents = { PlanFinder, PlanCards, PlanFact, PlanCount, GoodsCount, InlineCTA, FAQ, Steps, TOC, Calculator };
+export const mdxComponents = { PlanFinder, PlanCards, PlanFact, PlanCount, GoodsCount, InlineCTA, FAQ, Steps, TOC, Calculator, GuaranteePlans };

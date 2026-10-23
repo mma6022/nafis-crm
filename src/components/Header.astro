@@ -6,7 +6,7 @@
  */
 import I from './ui/I.astro';
 import Logo from './Logo.astro';
-import { KEYWORD_PAGES, MESSENGERS, SITE } from '../lib/site';
+import { KEYWORD_PAGES, SITE } from '../lib/site';
 import { fa, planFacts } from '../lib/plans';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 interface Props {
@@ -106,12 +106,6 @@ const NAV = [
         <a class="nf-btn nf-btn--secondary nf-btn--block" href="/contact#callback" data-callback={`${src}-menu`}><I name="callback" /> درخواست مشاوره‌ی رایگان</a>
         <a class="nf-btn nf-btn--secondary nf-btn--block" href={SITE.portal}><I name="login" /> ورود مشتریان</a>
         <a class="nf-btn nf-btn--secondary nf-btn--block" href={SITE.tel}><I name="phone" /> تماس: <span>{SITE.phoneFa}</span></a>
-        <div class="msgs" aria-label="پیام‌رسان‌ها">
-          <a href={MESSENGERS.whatsapp.href} data-todo="whatsapp" aria-label="واتساپ"><I name="wa" class="wa" /></a>
-          <a href={MESSENGERS.telegram.href} data-todo="telegram" aria-label="تلگرام">TG</a>
-          <a href={MESSENGERS.bale.href} data-todo="bale" aria-label="بله">بله</a>
-        </div>
-        <p style="text-align:center;margin:4px 0 0"><span class="ph">[جای‌خالی: لینک واتساپ، تلگرام و بله]</span></p>
       </div>
     </div>
   )

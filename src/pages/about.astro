@@ -1,13 +1,12 @@
 ---
-/** /about (UX-SPEC §7, ANSWERS-1 §9): lead, mission, confirmed stats (TRUST_STATS), labelled placeholder boxes (legal name, licence, team, map), FinalCTA. */
+/** /about (UX-SPEC §7, ANSWERS-1 §9): lead, mission, confirmed stats (TRUST_STATS), legal entity + national ID, phone and hours (Mohammad 2026-10-23), FinalCTA. No address/map: none has been given. */
 import BaseLayout from '../layouts/BaseLayout.astro';
 import PageHeader from '../components/PageHeader.astro';
-import Placeholder from '../components/ui/Placeholder.astro';
 import FinalCTA from '../components/FinalCTA.astro';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 import { fa, planFacts } from '../lib/plans';
 import { breadcrumbLd } from '../lib/seo';
-import { TRUST_STATS } from '../lib/site';
+import { SITE, SOCIAL, TRUST_STATS, WORK_HOURS } from '../lib/site';
 const crumbs = [
   { name: 'خانه', path: '/' },
   { name: 'درباره ما', path: '/about' },
@@ -33,12 +32,17 @@ const facts = planFacts(LOAN_PLANS_SNAPSHOT);
     <ul class="about-stats" aria-label="نفیس وام در یک نگاه">
       {TRUST_STATS.map((t) => <li>{t.pre} <b>{t.b}</b> {t.post}</li>)}
     </ul>
-    <div class="about-ph">
-      <Placeholder label="نام حقوقی شرکت و شماره ثبت" />
-      <Placeholder label="مجوزها" />
-      <Placeholder label="تیم و تصویر دفتر" />
-      <Placeholder label="آدرس روی نقشه (نشان یا بلد)" />
-    </div>
+    <section class="about-facts" aria-labelledby="facts-h">
+      <h2 id="facts-h">مشخصات نفیس وام</h2>
+      <dl>
+        <div><dt>نام حقوقی</dt><dd>{SITE.legalName}</dd></div>
+        <div><dt>شناسه ملی</dt><dd><span class="ltr">{SITE.nationalIdFa}</span></dd></div>
+        <div><dt>تلفن</dt><dd><a href={SITE.tel}><span class="ltr">{SITE.phoneFa}</span></a></dd></div>
+        <div><dt>ساعت کاری</dt><dd>{WORK_HOURS.daysFa}، {WORK_HOURS.fa}</dd></div>
+        <div><dt>اینستاگرام</dt><dd><a href={SOCIAL.instagram.href} target="_blank" rel="noopener"><span class="ltr">@{SOCIAL.instagram.handle}</span></a></dd></div>
+      </dl>
+      <p class="about-more">کارشناسان فروش و راه‌های پیام‌رسان در صفحه‌ی <a href="/contact#experts">تماس با ما</a>.</p>
+    </section>
     <p class="mt-6"><a class="nf-btn nf-btn--primary" href="/request?src=about">ثبت درخواست</a></p>
   </div>
   <FinalCTA src="about" />

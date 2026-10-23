@@ -1,5 +1,5 @@
 /**
- * Plan card (designer site.js `card()`): name + kind, received amount, installment, nominal amount, review time,
+ * Plan card (designer site.js `card()`): name + kind, received amount, installment (no nominal amount — PM decision), review time,
  * method, and a <details> with bank/platform, prepayment and rate. Pure: rendered statically by Astro (PlanCards,
  * hero sample, blog mini) and inside islands (finder, calculator).
  */
@@ -44,6 +44,7 @@ export function PlanCard({
           <span className="nm">{name ?? c.name}</span>
           <span className="kind">{c.type === 'goods' ? 'خرید کالا قسطی' : 'وام نقدی'}</span>
         </h3>
+        {c.retirees && <span className="nf-badge nf-badge--brand plan-tag">ویژه‌ی بازنشسته‌ها</span>}
         {note && <p className="plan-note">{note}</p>}
         <dl className="money money--3">
           <div>
@@ -79,10 +80,11 @@ export function PlanCard({
         <span className="nm">{name ?? c.name}</span>
         <span className="kind">{c.type === 'goods' ? 'خرید کالا قسطی' : 'وام نقدی'}</span>
       </h3>
+      {c.retirees && <span className="nf-badge nf-badge--brand plan-tag">ویژه‌ی بازنشسته‌ها</span>}
       {note && <p className="plan-note">{note}</p>}
       <div className="money">
         <div>
-          <span className="lbl">مبلغ قابل دریافت</span>
+          <span className="lbl">مبلغ دریافتی</span>
           <span className="val">حدود {millionsFa(c.payout)}</span>
           <span className="unit">میلیون تومان</span>
         </div>
@@ -91,7 +93,6 @@ export function PlanCard({
           <span className="val sm">حدود {millionsFa(c.inst)}</span>
           <span className="unit">میلیون تومان</span>
         </div>
-        <span className="nominal">مبلغ اسمی وام: {millionsFa(c.principal)} میلیون تومان</span>
       </div>
       <ul className="facts">
         <li>

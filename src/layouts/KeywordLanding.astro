@@ -13,7 +13,7 @@ import { mdxComponents } from '../components/mdx';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 import { fa, fillFacts, leadHtml, planFacts, planFilter } from '../lib/plans';
 import { breadcrumbLd, faqLd } from '../lib/seo';
-import { MESSENGERS, SITE } from '../lib/site';
+import { SITE } from '../lib/site';
 interface Props {
   entry: CollectionEntry<'pages'>;
 }
@@ -44,9 +44,8 @@ const crumbs = [
   { name: d.primaryKeyword, path: d.slug },
 ];
 /**
- * Live badge (designer ANSWERS-1 §7): only when the page's planFilter can be computed from the plan JSON.
- * Guarantee pages (no guarantor / no cheque / cheque / promissory) get NO badge until plans carry guaranteeTypes —
- * not even the total count, which would read as «all N plans are without guarantor».
+ * Live badge (designer ANSWERS-1 §7): count of plans that truly meet the page's condition (guarantee pages use the
+ * strict rules of data/plan-guarantees.ts, the same list <GuaranteePlans> renders). Zero → no badge.
  */
 const BADGE: Record<string, { filter: string; key: 'fastCount' | 'goodsCount' | null; text: string; tone: string }> = {
   'vam-fori': { filter: 'fast', key: 'fastCount', text: 'طرح فعال با بررسی کمتر از ۷ روز', tone: 'success' },
@@ -60,7 +59,7 @@ const badgeDef = BADGE[page];
 const badgeFn = badgeDef ? planFilter(badgeDef.filter, LOAN_PLANS_SNAPSHOT) : null;
 const badgeN = badgeFn ? new Set(LOAN_PLANS_SNAPSHOT.filter(badgeFn).map((p) => p.id)).size : 0;
 const badge = badgeDef && badgeFn && badgeN > 0 ? { ...badgeDef, n: badgeN } : null;
-/** Side panel (ANSWERS-1 §7): never a guarantee claim; primary = frontmatter cta.primary, then تماس / واتساپ. */
+/** Side panel (ANSWERS-1 §7): never a guarantee claim; primary = frontmatter cta.primary, then تماس (no messenger buttons: none is published for the landline). */
 const ASIDE: Record<string, { h?: string; p: string }> = {
   'vam-fori': { p: 'درخواست ثبت کنید؛ کارشناس سریع‌ترین طرح متناسب با شما را پیشنهاد می‌دهد.' },
   'kharid-aghsati': { h: 'قصد خرید اقساطی دارید؟', p: 'درخواست ثبت کنید؛ کارشناس طرح خرید کالای متناسب با مبلغ و قسط شما را پیشنهاد می‌دهد.' },
@@ -103,10 +102,7 @@ const isTel = (h: string) => h.startsWith('tel:');
         <h2>{aside.h}</h2>
         <p>{aside.p}</p>
         <a class="nf-btn nf-btn--primary nf-btn--block" href={d.cta.primary.href}>{d.cta.primary.text}</a>
-        <div class="row">
-          <a class="nf-btn nf-btn--secondary" href={SITE.tel}><I name="phone" size={18} /> تماس</a>
-          <a class="nf-btn nf-btn--secondary" href={MESSENGERS.whatsapp.href} data-todo="whatsapp"><I name="wa" size={20} class="wa" /> واتساپ</a>
-        </div>
+        <a class="nf-btn nf-btn--secondary nf-btn--block" href={SITE.tel}><I name="phone" size={18} /> تماس: <span class="ltr">{SITE.phoneFa}</span></a>
       </div>
       {
         toc.length > 1 && (

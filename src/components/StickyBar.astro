@@ -1,7 +1,7 @@
 ---
 /** Mobile sticky CTA bar (mockup src/bar.html). Hidden ≥1024px and while a text field has focus (body.kbd, scripts/chrome.ts). */
 import I from './ui/I.astro';
-import { MESSENGERS, SITE } from '../lib/site';
+import { SITE } from '../lib/site';
 interface Props {
   src?: string;
 }
@@ -10,6 +10,6 @@ const { src = 'page' } = Astro.props;
 
 <nav class="bar" aria-label="تماس سریع">
   <a href={SITE.tel}><I name="phone" />تماس</a>
-  <a href={MESSENGERS.whatsapp.href} data-todo="whatsapp"><I name="wa" class="wa" />واتساپ</a>
+  <a href="/contact#experts"><I name="chat" />پیام</a>
   <a class="req" href={`/request?src=${src}-sticky`}>درخواست وام <I name="arrow" size={20} /></a>
 </nav>

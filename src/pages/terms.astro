@@ -2,7 +2,7 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import PageHeader from '../components/PageHeader.astro';
 import Section from '../components/ui/Section.astro';
-import Placeholder from '../components/ui/Placeholder.astro';
+import { SITE, WORK_HOURS } from '../lib/site';
 import { breadcrumbLd } from '../lib/seo';
 const crumbs = [
   { name: 'خانه', path: '/' },
@@ -17,10 +17,33 @@ const crumbs = [
 >
   <PageHeader title="شرایط استفاده" crumbs={crumbs} />
   <Section>
-    <Placeholder
-      label="متن شرایط استفاده"
-      note="متن نهایی را محمد یا مشاور حقوقی تأیید می‌کند."
-      minH="min-h-64"
-    />
+    <div class="prose-nf">
+      <p>
+        این سایت متعلق به نفیس وام ({SITE.legalName}، شناسه ملی {SITE.nationalIdFa}) است. با استفاده از سایت، شرایط زیر را
+        می‌پذیرید.
+      </p>
+      <h2>خدمت ما</h2>
+      <p>
+        نفیس وام برای دریافت تسهیلات از بانک‌ها و پلتفرم‌های همکار مشاوره می‌دهد و شما را در مسیر درخواست همراهی می‌کند.
+        تصمیم نهایی درباره‌ی پرداخت تسهیلات با بانک یا پلتفرم ارائه‌دهنده است.
+      </p>
+      <h2>اعداد سایت برآوردی است</h2>
+      <p>
+        مبلغ دریافتی، قسط ماهانه و زمان بررسی که در سایت، ماشین‌حساب و طرح‌یاب می‌بینید برآوردی است. مبلغ قطعی پس از
+        اعتبارسنجی اعلام می‌شود و شرایط هر طرح در قرارداد همان طرح آمده است.
+      </p>
+      <h2>ثبت درخواست</h2>
+      <p>
+        ثبت فرم در سایت هیچ تعهدی برای شما ایجاد نمی‌کند و به معنی تأیید تسهیلات هم نیست. با ثبت شماره، موافقت می‌کنید
+        کارشناس نفیس وام برای مشاوره با شما تماس بگیرد.
+      </p>
+      <h2>اطلاعات درست</h2>
+      <p>لطفاً نام و شماره‌ی خودتان را وارد کنید. درخواست با شماره‌ی شخص دیگر بدون اجازه‌ی او پیگیری نمی‌شود.</p>
+      <h2>تماس</h2>
+      <p>
+        برای هر سؤال درباره‌ی این شرایط با <a href={SITE.tel} dir="ltr">{SITE.phoneFa}</a> تماس بگیرید
+        ({WORK_HOURS.shortFa}).
+      </p>
+    </div>
   </Section>
 </BaseLayout>

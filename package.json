@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "build": "astro check && astro build && node scripts/check-markers.mjs --strict && node scripts/check-jsonld.mjs",
-    "build:preview": "astro check && astro build && node scripts/check-markers.mjs && node scripts/check-jsonld.mjs",
+    "build": "astro check && astro build && node scripts/check-markers.mjs --strict && node scripts/check-jsonld.mjs && node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-guarantees.mjs",
+    "build:preview": "astro check && astro build && node scripts/check-markers.mjs && node scripts/check-jsonld.mjs && node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-guarantees.mjs",
     "build:fast": "astro build",
     "preview": "astro preview",
     "check": "astro check",
@@ -14,7 +14,8 @@
     "format": "prettier --write .",
     "test": "node --test --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs tests/*.test.ts",
     "check:markers": "node scripts/check-markers.mjs",
-    "check:jsonld": "node scripts/check-jsonld.mjs"
+    "check:jsonld": "node scripts/check-jsonld.mjs",
+    "check:guarantees": "node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-guarantees.mjs"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.12",

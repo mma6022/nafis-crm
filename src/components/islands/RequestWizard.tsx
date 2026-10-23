@@ -17,8 +17,9 @@ import type { LoanPlan } from '../../lib/loan-plans';
 import { combos, fa, millionsFa, reqBands, type AmountBand, type Combo } from '../../lib/plans';
 import { isValidMobile } from '../../lib/format';
 import { LeadError, readUtm, submitLead, type ContactTime, type Need } from '../../lib/lead';
-import { MESSENGERS, SITE } from '../../lib/site';
+import { SITE } from '../../lib/site';
 import { combosForNeed, stepOrder } from '../../lib/request-flow';
+import { CONSENT_TEXT } from '../../lib/callback';
 
 type Step = 'need' | 'amount' | 'contact' | 'done';
 const KEY = 'nf-request';
@@ -32,11 +33,10 @@ interface State {
   name: string;
   phone: string;
   time: ContactTime;
-  consent: boolean;
   startedAt: number;
   src: string | null;
 }
-const fresh = (): State => ({ need: null, band: null, planId: null, term: null, name: '', phone: '', time: 'any', consent: false, startedAt: Date.now(), src: null });
+const fresh = (): State => ({ need: null, band: null, planId: null, term: null, name: '', phone: '', time: 'any', startedAt: Date.now(), src: null });
 
 const NEEDS: { v: Need; icon: SpriteIcon; t: string; h: string }[] = [
   { v: 'cash', icon: 'cash', t: 'پول نقد (وام)', h: 'وام نقدی بر پایه اعتبارسنجی' },
@@ -73,7 +73,7 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
   const [fresh_, setFresh] = useState(true);
   const [step, setStep] = useState<Step>('need');
   const [ready, setReady] = useState(false);
-  const [errors, setErrors] = useState<{ name?: boolean; mob?: boolean; ok?: boolean }>({});
+  const [errors, setErrors] = useState<{ name?: boolean; mob?: boolean }>({});
   const [busy, setBusy] = useState(false);
   const [fail, setFail] = useState(false);
   const [code, setCode] = useState<string | undefined>();
@@ -171,9 +171,9 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
 
   async function onSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
-    const bad = { name: !s.name.trim(), mob: !isValidMobile(s.phone), ok: !s.consent };
+    const bad = { name: !s.name.trim(), mob: !isValidMobile(s.phone) };
     setErrors(bad);
-    const first = (['name', 'mob', 'ok'] as const).find((k) => bad[k]);
+    const first = (['name', 'mob'] as const).find((k) => bad[k]);
     if (first) {
       document.getElementById(`f-${first}`)?.focus();
       return;
@@ -190,7 +190,7 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
         term: chosen ? s.term : null,
         contactTime: s.time,
         src: s.src,
-        consent: s.consent,
+        consent: true, // P3-C: consent = submitting under CONSENT_TEXT
         website: honeypot.current?.value ?? '',
         startedAt: s.startedAt,
         utm: readUtm(),
@@ -359,26 +359,15 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
               <label htmlFor="f-website">وب‌سایت</label>
               <input ref={honeypot} id="f-website" name="website" type="text" tabIndex={-1} autoComplete="off" defaultValue="" />
             </div>
-            <div>
-              <label className="check">
-                <input type="checkbox" id="f-ok" checked={s.consent} aria-invalid={errors.ok ?? false} aria-describedby="e-ok" onChange={(e) => setField('consent')(e.target.checked)} />
-                <span>
-                  با <a href="/privacy">قوانین حریم خصوصی</a> موافقم و اجازه می‌دهم کارشناس نفیس وام با من تماس بگیرد.
-                </span>
-              </label>
-              <span className="nf-error" id="e-ok" hidden={!errors.ok}>
-                <I name="alert" />
-                برای ثبت درخواست، این گزینه را تأیید کنید.
-              </span>
-            </div>
             <button className="nf-btn nf-btn--primary nf-btn--block" type="submit" id="rq-submit" disabled={busy} aria-busy={busy}>
               {busy ? 'در حال ثبت…' : 'ثبت درخواست'}
             </button>
           </form>
-          <p className="privacy-note">
+          <p className="privacy-note consent-note" data-consent>
             <I name="lock" />
-            ثبت درخواست هیچ تعهدی برای شما ایجاد نمی‌کند.
+            {CONSENT_TEXT}
           </p>
+          <p className="privacy-note">ثبت درخواست هیچ تعهدی برای شما ایجاد نمی‌کند.</p>
         </section>
 
         <section className="rq-step done" data-step="done" hidden={step !== 'done'}>
@@ -398,8 +387,8 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
             <a className="nf-btn nf-btn--secondary nf-btn--block" href={SITE.portal}>
               <I name="login" /> پیگیری در پنل مشتریان
             </a>
-            <a className="nf-btn nf-btn--secondary nf-btn--block" href={MESSENGERS.whatsapp.href} data-todo="whatsapp">
-              <I name="wa" className="wa" /> پیام در واتساپ
+            <a className="nf-btn nf-btn--secondary nf-btn--block" href={SITE.tel}>
+              <I name="phone" /> تماس: <span dir="ltr">{SITE.phoneFa}</span>
             </a>
           </div>
           <p style={{ marginTop: 16 }}>
