@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useTableState } from '@/hooks/use-table-state';
 import { useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import {
   useListLoanApplications,
   useListLoanPlans,
@@ -117,6 +117,20 @@ export default function LoanApplications() {
   const [dateTo, setDateTo] = useTableState('applications.dateTo', "");
 
   const [wizardOpen, setWizardOpen] = useState(false);
+  // Entry point from the customer page (?new=1&customerId=<id>&from=customer[&draft=1]).
+  const [, setLocation] = useLocation();
+  const entryCustomerId = useMemo(() => {
+    const raw = initialParams.get("customerId");
+    return initialParams.get("new") === "1" && raw && /^[1-9]\d*$/.test(raw) ? Number(raw) : undefined;
+  }, [initialParams]);
+  const [entryOpen, setEntryOpen] = useState(Boolean(entryCustomerId));
+  const closeEntryWizard = () => {
+    setEntryOpen(false);
+    const url = new URL(window.location.href);
+    ["new", "customerId", "from", "draft"].forEach((name) => url.searchParams.delete(name));
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+    if (initialParams.get("from") === "customer" && entryCustomerId) setLocation(`/customers/${entryCustomerId}`);
+  };
   const [deleteConfirm, setDeleteConfirm] = useState<LoanApplication | null>(null);
   const [reviewOpen, setReviewOpen] = useState(initialParams.get("review") === "historical");
 
@@ -515,6 +529,7 @@ export default function LoanApplications() {
       ) : null}
 
       {wizardOpen && <CreateWizard onClose={() => setWizardOpen(false)} />}
+      {!wizardOpen && entryOpen && entryCustomerId && session && canCreate ? <CreateWizard initialCustomerId={entryCustomerId} resumeDraft={initialParams.get("draft") === "1"} onClose={closeEntryWizard} /> : null}
 
       {deleteConfirm && (
         <Modal
