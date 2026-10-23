@@ -8,6 +8,7 @@ import { usePresence } from '@/chat/Presence';
 import { fetchStaffUnread, staffChatPresence } from '@/chat/StaffChatPage';
 import { useTeamInbox } from '@/internal-chat/hooks';
 import { FloatingChat } from '@/chat/FloatingChat';
+import { useFloatingGuard } from './useFloatingGuard';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { NotificationBell, NotificationProvider, NavNotificationBadge } from '@/site-notifications/NotificationBell';
 import { DiagnosticsProvider, DiagnosticsButton } from '@/diagnostics/DiagnosticsProvider';
@@ -98,6 +99,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const [dueReminder, setDueReminder] = useState<Reminder | null>(null);
   const [openGroups, setOpenGroups] = useState<string[]>(() => readOpenGroups() ?? []);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  useFloatingGuard();
   const { data: session } = useGetAuthSession({
     query: { queryKey: getGetAuthSessionQueryKey(), retry: false },
   });
