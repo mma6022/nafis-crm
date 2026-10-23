@@ -13,9 +13,11 @@ export const SITE = {
   /** [تأیید محمد: MX دامنه .com فعال است و به webmail.nafisvam.com اشاره دارد] */
   email: 'info@nafisvam.com',
   portal: 'https://crm.nafisvam.com/portal',
-  logo: '/brand/nafis-logo@2x.webp',
-  logoPng: '/brand/nafis-logo@2x.png',
-  ogImage: '/brand-logo.png', // TODO(spec): replace with a 1200×630 OG image
+  /** final logo files by Omid (/workspace/nafis-design/logo) */
+  logo: '/logo/nafis-logo-full.svg',
+  logoPng: '/logo/nafis-logo-full.png',
+  /** 1200×630 */
+  ogImage: '/og-image.png',
   locale: 'fa_IR',
 } as const;
 
@@ -29,6 +31,31 @@ export const MESSENGERS = {
   bale: { label: 'بله', href: 'https://ble.ir/', todo: true },
   instagram: { label: 'اینستاگرام', href: 'https://www.instagram.com/', todo: true },
 } as const;
+/**
+ * Callback / contact hours (PM-confirmed 2026-10-23): 09:00–18:00 Asia/Tehran; «صبح» = 9–13, «عصر» = 13–18.
+ * Working DAYS are NOT confirmed: Sat–Wed is a stand-in constant (0 = Sunday … 6 = Saturday, JS getDay order).
+ * Change `days` here only. The site never promises a number of minutes; the 15-minute SLA lives in the CRM only.
+ */
+export const WORK_HOURS = {
+  tz: 'Asia/Tehran',
+  start: 9,
+  end: 18,
+  /** «صبح» and «عصر» call windows (end exclusive) */
+  morning: [9, 13] as const,
+  evening: [13, 18] as const,
+  /** Sat, Sun, Mon, Tue, Wed — [تأیید محمد: روزهای کاری] */
+  days: [6, 0, 1, 2, 3] as readonly number[],
+  fa: '۹ صبح تا ۶ عصر',
+  daysConfirmed: false,
+} as const;
+export const PLACEHOLDER_WORK_DAYS = '[جای‌خالی: روزهای کاری]';
+
+/**
+ * «یا در واتساپ بپرسید» link under the home callback lead. Empty = hidden. Set when Mohammad gives the real link
+ * (e.g. 'https://wa.me/98912…'); never ship the bare https://wa.me/ placeholder here.
+ */
+export const CALLBACK_WHATSAPP = '';
+
 export const PLACEHOLDER_MESSENGERS = '[جای‌خالی: لینک‌ها از محمد]';
 
 /** The 6 keyword landing pages (UX-SPEC §3/§8). Order = menu/footer order. */
@@ -65,3 +92,10 @@ export const absoluteUrl = (path: string) => new URL(path, SITE.url).toString().
 /** Current Jalali year in Persian digits, computed at build time (footer «©»). */
 export const jalaliYear = (d = new Date()) =>
   new Intl.DateTimeFormat('fa-IR-u-ca-persian', { year: 'numeric' }).format(d).replace(/[^۰-۹]/g, '');
+
+/** Confirmed by Mohammad (2026-10-23). Order is fixed: years, requests, customers. `b` = the bold part. */
+export const TRUST_STATS = [
+  { pre: '', b: '۷ سال', post: 'سابقه' },
+  { pre: 'بیش از', b: '۳۰ هزار', post: 'درخواست وام' },
+  { pre: 'بیش از', b: '۳٬۰۰۰', post: 'نفر وام‌گرفته' },
+] as const;

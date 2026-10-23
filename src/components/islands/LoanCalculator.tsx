@@ -71,7 +71,7 @@ export default function LoanCalculator({ snapshot, src = 'calculator' }: { snaps
         <h2 className="lc-h">{picks.length === 1 ? 'طرح نزدیک به انتخاب شما' : `${fa(picks.length)} طرح نزدیک به انتخاب شما`}</h2>
         <div className={`cards plancards n${picks.length}`}>
           {picks.map((c, i) => (
-            <PlanCard key={c.id} c={c} featured={i === 0} src={src} />
+            <PlanCard key={c.id} c={c} featured={i === 0} src={src} variant="result" />
           ))}
         </div>
         <p className="note">مبالغ برآوردی است و مبلغ قطعی پس از اعتبارسنجی اعلام می‌شود.</p>

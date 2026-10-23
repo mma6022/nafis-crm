@@ -2,7 +2,7 @@
 export type SpriteIcon =
   | 'menu' | 'arrow' | 'back' | 'chev' | 'down' | 'check' | 'phone' | 'wa' | 'cash' | 'cart' | 'both' | 's' | 'm' | 'l'
   | 'clock' | 'coins' | 'online' | 'cal' | 'pin' | 'bolt' | 'user-x' | 'doc' | 'doc-x' | 'pen' | 'eye' | 'search'
-  | 'chat' | 'shield' | 'layers' | 'alert' | 'lock' | 'x' | 'login' | 'book' | 'help' | 'user' | 'xl';
+  | 'chat' | 'shield' | 'layers' | 'alert' | 'lock' | 'x' | 'login' | 'book' | 'help' | 'user' | 'xl' | 'sun' | 'moon' | 'callback';
 
 export function I({ name, size, className = '' }: { name: SpriteIcon; size?: number; className?: string }) {
   return (

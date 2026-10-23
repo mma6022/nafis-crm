@@ -11,7 +11,8 @@ export const organizationLd = () => ({
   name: SITE.name,
   alternateName: SITE.nameEn,
   url: SITE.url,
-  logo: absoluteUrl(SITE.logoPng),
+  logo: { '@type': 'ImageObject', url: absoluteUrl(SITE.logoPng), width: 2000, height: 364 },
+  image: absoluteUrl(SITE.ogImage),
   email: SITE.email,
   telephone: SITE.phoneE164,
   contactPoint: [
@@ -32,12 +33,13 @@ export const financialServiceLd = () => ({
   name: SITE.name,
   description: SITE.description,
   url: SITE.url,
-  image: absoluteUrl(SITE.logoPng),
+  image: absoluteUrl(SITE.ogImage),
   telephone: SITE.phoneE164,
   email: SITE.email,
   areaServed: { '@type': 'Country', name: 'Iran' },
   parentOrganization: { '@id': `${SITE.url}/#organization` },
-  // TODO(spec): address, openingHours, priceRange once confirmed by Mohammad
+  // openingHours deliberately omitted: hours are 09:00–18:00 but schema.org openingHours needs days (e.g. "Sa-We 09:00-18:00"),
+  // and the working days are not confirmed yet. Add it once Mohammad confirms the days. TODO(spec): address, priceRange.
 });
 
 export const websiteLd = () => ({
@@ -97,7 +99,7 @@ export const articleLd = (a: {
     '@id': `${SITE.url}/#organization`,
     '@type': 'Organization',
     name: SITE.name,
-    logo: { '@type': 'ImageObject', url: absoluteUrl(SITE.logo) },
+    logo: { '@type': 'ImageObject', url: absoluteUrl(SITE.logoPng) },
   },
   image: absoluteUrl(a.image ?? SITE.ogImage),
   articleSection: a.category,

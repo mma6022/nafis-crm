@@ -156,7 +156,7 @@ h1,h2,h3{color:var(--nf-ink)}
 .site-foot a:hover{text-decoration:underline;text-underline-offset:5px}
 .site-foot .fgrid{display:grid;gap:0;padding:32px 0 8px}
 .site-foot .brand{padding-bottom:20px;border-bottom:1px solid rgba(255,255,255,.12)}
-.site-foot .brand .flogo{display:inline-flex;background:#fff;border-radius:12px;padding:8px 12px}
+.site-foot .brand .flogo{display:inline-flex;padding:8px 0}
 .site-foot .brand .flogo img{width:154px;height:auto}
 .site-foot .brand p{margin:12px 0 8px;line-height:1.9}
 .site-foot details{border-bottom:1px solid rgba(255,255,255,.12)}

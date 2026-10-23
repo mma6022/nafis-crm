@@ -2,7 +2,7 @@
 /** Navy site footer (mockup src/footer.html). Columns are <details>: collapsed on mobile, opened on ≥1024px by scripts/chrome.ts. */
 import I from './ui/I.astro';
 import Logo from './Logo.astro';
-import { GUIDE_NAV, KEYWORD_PAGES, MESSENGERS, SITE, jalaliYear } from '../lib/site';
+import { GUIDE_NAV, KEYWORD_PAGES, MESSENGERS, PLACEHOLDER_WORK_DAYS, SITE, WORK_HOURS, jalaliYear } from '../lib/site';
 import { fa, planFacts } from '../lib/plans';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 const facts = planFacts(LOAN_PLANS_SNAPSHOT);
@@ -12,7 +12,7 @@ const facts = planFacts(LOAN_PLANS_SNAPSHOT);
   <div class="container-nf">
     <div class="fgrid">
       <div class="brand">
-        <a class="flogo" href="/" aria-label={SITE.name}><Logo width={154} /></a>
+        <a class="flogo" href="/" aria-label={SITE.name}><Logo width={154} white /></a>
         <p>برای هر مشتری یک طرح مناسب و شفاف؛ <span data-plan-count="planCount">{fa(facts.planCount)}</span> طرح فعال وام نقدی و خرید اقساطی.</p>
         <span class="ph">[جای‌خالی: نام حقوقی شرکت، شماره ثبت]</span>
       </div>
@@ -30,8 +30,14 @@ const facts = planFacts(LOAN_PLANS_SNAPSHOT);
           <li><a href={SITE.tel}><I name="phone" size={18} /><span class="ltr">{SITE.phone}</span></a></li>
           <li><span><a href={MESSENGERS.whatsapp.href} data-todo="whatsapp">واتساپ</a>، تلگرام، بله، اینستاگرام</span></li>
           <li><span class="ph">[جای‌خالی: لینک پیام‌رسان‌ها]</span></li>
-          <li><span class="ph">[جای‌خالی: آدرس و ساعت کاری]</span></li>
-          <li><span class="ph">[جای‌خالی: نماد اعتماد (اینماد)]</span></li>
+          <li><I name="clock" size={18} /><span>ساعت کاری: {WORK_HOURS.fa}، <span class="ph">{PLACEHOLDER_WORK_DAYS}</span></span></li>
+          <li><span class="ph">[جای‌خالی: آدرس]</span></li>
+          <li>
+            {/* Enamad trust seal (official embed; the image may stay blank on local previews). Fixed 125×136 box: no layout shift. */}
+            <span class="enamad">
+              <a referrerpolicy="origin" target="_blank" href="https://trustseal.enamad.ir/?id=734294&code=g7ObVZFnmwMEjgmyz7DCShnQmkxNKWAi"><img referrerpolicy="origin" src="https://trustseal.enamad.ir/logo.aspx?id=734294&code=g7ObVZFnmwMEjgmyz7DCShnQmkxNKWAi" alt="enamad" loading="lazy" style="cursor:pointer" width="125" height="136" /></a>
+            </span>
+          </li>
         </ul>
       </details>
     </div>

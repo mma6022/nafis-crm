@@ -6,7 +6,7 @@
 
 /*
  * Design tokens come from the designer (Armita), /workspace/nafis-design/tokens/, copied verbatim into ./design/:
- *  - design/tailwind-theme.css: the Tailwind v4 @theme (brand-* logo indigo #2937A0 / navy #0B1450, gold-400 #F3BD47, ...)
+ *  - design/tailwind-theme.css: the Tailwind v4 @theme (brand-* logo body #29369B / navy #0B1450, gold-400 #F3BD47, ...)
  *  - design/tokens.css: the same values as --nf-* custom properties (used by design/components.css)
  *  - design/components.css: .nf-btn / .nf-card / .nf-option / .nf-progress / .nf-badge recipes
  * Edit them there, not here. Then copy the files again.

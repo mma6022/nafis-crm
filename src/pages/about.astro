@@ -1,5 +1,5 @@
 ---
-/** /about (UX-SPEC §7, ANSWERS-1 §9): lead, mission, labelled placeholder boxes (legal name, licence, team, map), FinalCTA. */
+/** /about (UX-SPEC §7, ANSWERS-1 §9): lead, mission, confirmed stats (TRUST_STATS), labelled placeholder boxes (legal name, licence, team, map), FinalCTA. */
 import BaseLayout from '../layouts/BaseLayout.astro';
 import PageHeader from '../components/PageHeader.astro';
 import Placeholder from '../components/ui/Placeholder.astro';
@@ -7,6 +7,7 @@ import FinalCTA from '../components/FinalCTA.astro';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 import { fa, planFacts } from '../lib/plans';
 import { breadcrumbLd } from '../lib/seo';
+import { TRUST_STATS } from '../lib/site';
 const crumbs = [
   { name: 'خانه', path: '/' },
   { name: 'درباره ما', path: '/about' },
@@ -29,6 +30,9 @@ const facts = planFacts(LOAN_PLANS_SNAPSHOT);
         نشان می‌دهیم تا بدون غافلگیری تصمیم بگیرید.
       </p>
     </section>
+    <ul class="about-stats" aria-label="نفیس وام در یک نگاه">
+      {TRUST_STATS.map((t) => <li>{t.pre} <b>{t.b}</b> {t.post}</li>)}
+    </ul>
     <div class="about-ph">
       <Placeholder label="نام حقوقی شرکت و شماره ثبت" />
       <Placeholder label="مجوزها" />

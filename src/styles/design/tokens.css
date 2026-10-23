@@ -1,7 +1,7 @@
 /*
  * Nafis Vam — design tokens v1 (nafisvam.com rebuild)
  * Source of truth for colours/type/spacing. Mobile-first, RTL, Vazirmatn.
- * Brand colours sampled from the logo (brand-logo.png): indigo #2937A0, deep navy #000153.
+ * Brand colours sampled from the logo (brand-logo.png): indigo #29369B, deep navy #00006D.
  * Rule of thumb: ONE primary (indigo) button per screen; gold only for the «پیشنهاد ما» badge
  * and secondary highlights; never white text on gold (use --nf-ink on gold).
  * Token names match the existing @theme in nafisvam-web/src/styles/global.css
@@ -15,11 +15,11 @@
   --nf-brand-300: #8F99DA;
   --nf-brand-400: #5E6BC4;
   --nf-brand-500: #3A48B0;
-  --nf-brand-600: #2937A0; /* PRIMARY — logo indigo. white text = 9.8:1 */
+  --nf-brand-600: #29369B; /* PRIMARY — logo indigo. white text = 9.8:1 */
   --nf-brand-700: #212C85; /* hover / pressed */
   --nf-brand-800: #18216A;
   --nf-brand-900: #0B1450; /* headings, header text, footer bg */
-  --nf-brand-950: #000153; /* logo deepest navy; decorative only */
+  --nf-brand-950: #00006D; /* logo deepest navy; decorative only */
 
   /* ---------- Colour: accent (Nafis gold) ---------- */
   --nf-gold-50:  #FEF8EA;

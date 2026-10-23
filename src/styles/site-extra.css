@@ -59,3 +59,104 @@
 .lc-h{font-size:var(--nf-text-h3,18px);margin:0 0 12px}
 @media (min-width:768px){.lc .opts{grid-template-columns:repeat(3,1fr)}}
 .calc-formula{max-width:var(--nf-prose)}
+
+/* /about stats (TRUST_STATS) */
+.about-stats{list-style:none;margin:0 0 24px;padding:0;display:grid;gap:8px}
+.about-stats li{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;padding:14px 16px;background:#fff;border:1px solid var(--nf-line);border-radius:16px;font-weight:600;color:var(--nf-ink)}
+.about-stats b{color:var(--nf-brand-700);font-size:20px}
+@media (min-width:640px){.about-stats{grid-template-columns:repeat(3,1fr)}}
+
+/* Calculator / finder result cards: exactly three figures (received, per-instalment, count). */
+.money.money--3{grid-template-columns:1.25fr 1fr .8fr}
+.money.money--3 dd{margin:0}
+/* narrow cards (phones, finder/calculator columns): payout gets its own row, instalment + term share the second */
+@media (max-width:560px){.money.money--3{grid-template-columns:1fr 1fr;row-gap:10px}.money.money--3>div:first-child{grid-column:1/-1;border-bottom:1px solid var(--nf-brand-100);padding-bottom:10px}.money.money--3>div:nth-child(2){border-inline-start:0;padding-inline-start:0}.plan:not(.nf-card--featured) .money.money--3>div:first-child{border-color:var(--nf-line)}}
+
+/* Footer Enamad seal: fixed box so the lazy image never shifts layout (blank on local previews). */
+.enamad{display:inline-block;width:125px;height:136px;border-radius:12px;background:#fff;overflow:hidden;line-height:0}
+.enamad img{width:125px;height:136px;display:block}
+
+/* Callback form: designer mockups/src/site.css «Callback» block (CALLBACK-HANDOFF.md), verbatim + site additions below */
+/* ---------- Callback «درخواست تماس کارشناس» (CALLBACK-HANDOFF.md) ---------- */
+.hdr--min .cbk{display:none!important}
+.hdr .cbk{min-height:44px;gap:6px;align-items:center;padding:0 12px;color:var(--nf-brand-700);font-weight:600;font-size:15px;text-decoration:none;border-radius:12px;border:1.5px solid var(--nf-line-strong);background:#fff;white-space:nowrap}
+.hdr .cbk:hover{border-color:var(--nf-brand-300);background:var(--nf-brand-50)}
+.hp{position:absolute!important;width:1px;height:1px;opacity:0;pointer-events:none;inset-inline-start:-9999px}
+.cb fieldset{border:0;margin:0;padding:0;min-width:0;display:grid;gap:16px}
+.cb fieldset[hidden],.cb [hidden]{display:none!important}
+.cb-sec{padding:0 0 40px}
+.cb-sec--end{padding:8px 0 48px}
+.cb--section{display:grid;gap:12px}
+.cb-intro .cb-h{font-size:var(--nf-text-h3);line-height:var(--nf-lh-h3);margin:0 0 4px;font-weight:800;color:var(--nf-ink)}
+.cb-intro p{margin:0;color:var(--nf-ink-soft)}
+.cb-card{background:#fff;border:1px solid var(--nf-line);border-radius:var(--nf-radius-card);padding:16px;box-shadow:var(--nf-shadow-xs);display:grid;gap:16px}
+.cb-head{display:grid;gap:8px}
+.cb-head .top{display:flex;align-items:center;justify-content:space-between;min-height:48px;margin-block:-8px -4px}
+.cb-head .back{display:inline-flex;align-items:center;gap:4px;min-height:48px;min-width:48px;padding:0 10px 0 12px;border:0;background:none;color:var(--nf-brand-700);font-weight:600;font-size:16px;border-radius:12px;cursor:pointer}
+.cb-head .back[hidden]{visibility:hidden;display:inline-flex!important}
+.cb-head .count{font-size:15px;font-weight:600;color:var(--nf-ink-muted);margin-inline-start:auto}
+.cb .alert{margin:0}
+.cb-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.nf-option--tile{flex-direction:column;justify-content:center;gap:4px;min-height:104px;padding:12px 6px;text-align:center}
+.nf-option--tile .ic{width:40px;height:40px}
+.nf-option--tile b{font-size:16px;font-weight:800;line-height:1.5}
+.nf-option--tile small{font-size:13px;color:var(--nf-ink-muted);line-height:1.5}
+.nf-option--tile[aria-checked="true"]{border-color:var(--nf-brand-600);background:var(--nf-brand-50);box-shadow:inset 0 0 0 1px var(--nf-brand-600)}
+.nf-option--tile[aria-checked="true"] .ic{background:var(--nf-brand-600);color:#fff}
+.nf-option--tile.is-off small{color:var(--nf-warning)}
+.cb-ph{justify-self:start;font-size:13px}
+.cb .nf-label .opt{font-weight:400;color:var(--nf-ink-muted);font-size:14px}
+.cb-topic button{flex:1 1 0;min-width:0;padding:0 8px}
+.cb .check{font-size:15px}
+.cb-note{margin:-4px 0 0}
+.cb-done{text-align:center;padding:8px 0 4px;outline:none}
+.cb-done .big{width:64px;height:64px;margin:0 auto 12px;border-radius:50%;background:var(--nf-success-50);color:var(--nf-success);display:grid;place-items:center}
+.cb-done .big svg{width:32px;height:32px;stroke-width:2.4}
+.cb-done .t{font-size:var(--nf-text-h3);font-weight:800;margin:0 0 4px;color:var(--nf-ink)}
+.cb-done .when{margin:0 0 8px;color:var(--nf-ink-soft)}
+.cb-done .num{margin:0;color:var(--nf-ink-muted);font-size:15px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;justify-content:center}
+.cb-done .num b{color:var(--nf-ink)}
+.cb-done .nf-btn--text{min-height:48px;padding:0 8px;font-size:15px}
+/* inline (under finder result) */
+.cb--inline{text-align:start}
+.cb--inline .cb-collapsed{text-align:center}
+.cb--inline .cb-h{margin:0 0 12px;font-weight:600;color:var(--nf-ink)}
+.cb-alt{margin:12px 0 0;font-size:15px;color:var(--nf-ink-muted)}
+.cb-alt a{color:var(--nf-brand-700);font-weight:600;display:inline-flex;min-height:44px;align-items:center}
+.cb--inline .cb-body{display:grid;gap:12px}
+.cb--inline .cb-intro .cb-h{font-size:17px;margin:0}
+.cb--inline .cb-intro p{font-size:15px}
+.cb--inline .cb-card{box-shadow:none}
+/* header dialog / bottom sheet */
+.cb-dialog{border:0;padding:8px 16px calc(16px + env(safe-area-inset-bottom));margin:auto 0 0;width:100%;max-width:100%;max-height:92dvh;overflow:auto;border-radius:var(--nf-radius-sheet) var(--nf-radius-sheet) 0 0;background:#fff;color:var(--nf-ink);box-shadow:0 -10px 40px rgba(11,20,80,.18)}
+.cb-dialog::backdrop{background:rgba(11,20,80,.45)}
+.sheet-grab{width:40px;height:5px;border-radius:9px;background:var(--nf-line-strong);margin:0 auto 4px}
+.dlg-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.dlg-head h2{font-size:var(--nf-text-h3);margin:0;font-weight:800}
+.dlg-lead{margin:0 0 12px;color:var(--nf-ink-soft)}
+.cb--sheet .cb-card{border:0;box-shadow:none;padding:0}
+@media (min-width:1024px){
+  .cb-sec{padding:0 0 64px}
+  .cb--section{grid-template-columns:minmax(0,1fr) minmax(0,520px);gap:40px;align-items:center;padding:32px 40px;background:var(--nf-surface);border:1px solid var(--nf-line);border-radius:var(--nf-radius-sheet)}
+  .cb-intro .cb-h{font-size:var(--nf-text-h2-lg);line-height:var(--nf-lh-h2-lg);margin-bottom:8px}
+  .cb-card{padding:20px 24px}
+  .cb-dialog{margin:auto;width:520px;border-radius:var(--nf-radius-sheet);padding:20px 24px 24px}
+  .cb-dialog .sheet-grab{display:none}
+}
+/* header fit 1024–1279: phone number hides (it stays in footer/contact), nav tighter */
+@media (max-width:1279px) and (min-width:1024px){.hdr .tel{display:none!important}.dnav>a,.dd>button{padding:0 9px}}
+/* header labels never wrap (callback button added) */
+.hdr .dnav>a,.hdr .dd>button,.hdr .portal,.hdr .cta,.hdr .tel{white-space:nowrap}
+/* callback title = «درخواست مشاوره‌ی رایگان» (all variants) */
+.cb--inline .cb-collapsed .cb-h{margin:0 0 2px;font-weight:800;font-size:17px}
+.cb--inline .cb-sub{margin:0 0 12px;color:var(--nf-ink-muted);font-size:15px}
+.cb-intro .cb-wa{margin-top:8px;font-size:15px}
+
+/* site additions */
+.cb-intro .cb-h{outline:none}
+.cb-done .t:focus{outline:none}
+.cb--inline{margin-top:16px}
+.cb-sec[hidden]{display:none}
+/* 404: cap the empty space (REVIEW-ADITYA-2 §3) */
+.lp-hero.page-404{padding-bottom:0}
+.cb-closed{margin:8px 0 0;font-size:14px;color:var(--nf-warning,#8A6212);line-height:1.8}

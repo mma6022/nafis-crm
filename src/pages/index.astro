@@ -9,10 +9,11 @@ import Hero from '../components/home/Hero.astro';
 import HeroSample from '../components/islands/HeroSample';
 import PlanFinder from '../components/islands/PlanFinder';
 import HomeCalc from '../components/islands/HomeCalc';
+import CallbackForm from '../components/islands/CallbackForm';
 import I from '../components/ui/I.astro';
 import FaqList from '../components/FaqList.astro';
 import PostCard from '../components/blog/PostCard.astro';
-import { KEYWORD_PAGES, MESSENGERS, SITE } from '../lib/site';
+import { KEYWORD_PAGES, SITE, TRUST_STATS } from '../lib/site';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 import { fa, fillFacts, planFacts } from '../lib/plans';
 import { financialServiceLd, faqLd } from '../lib/seo';
@@ -52,15 +53,17 @@ const SVC_ICON: Record<string, SpriteIcon> = {
     </div>
   </section>
 
+  <section class="cb-sec" id="callback" aria-label="درخواست مشاوره‌ی رایگان">
+    <div class="container-nf"><CallbackForm client:visible variant="section" src="home-callback" wa /></div>
+  </section>
+
   <section class="sec trustwhy" aria-labelledby="why-h" style="padding-top:40px">
     <div class="container-nf">
       <h2 id="why-h" class="vh">چرا نفیس وام؟</h2>
       <div class="trust">
-        <div class="t"><span class="ph">[جای‌خالی: سال‌های فعالیت]</span></div>
-        <div class="t"><span class="ph">[جای‌خالی: تعداد مشتری]</span></div>
+        {/* max 4 stats (crowding at 360/390): 3 confirmed stats + live plan count. Bank count and the اینماد pill dropped from the bar (اینماد stays in the footer). */}
+        {TRUST_STATS.map((t) => <div class="t">{t.pre} <b>{t.b}</b> {t.post}</div>)}
         <div class="t"><b data-plan-count="planCount">{fa(facts.planCount)}</b> طرح فعال</div>
-        <div class="t">همکاری با <b data-plan-count="bankCount">{fa(facts.bankCount)}</b> بانک و موسسه</div>
-        <div class="t"><span class="ph">[جای‌خالی: نماد اینماد]</span></div>
       </div>
       <ul class="why2">
         <li><span class="ic"><I name="layers" /></span><span>یک طرح برای هر شرایط<small>با <span data-plan-count="planCount">{fa(facts.planCount)}</span> طرح فعال، احتمال اینکه طرحی متناسب با شما داشته باشیم زیاد است.</small></span></li>
@@ -144,18 +147,11 @@ const SVC_ICON: Record<string, SpriteIcon> = {
     </div>
   </section>
 
-  <section class="sec">
-    <div class="container-nf">
-      <div class="final">
-        <div>
-          <h2>هنوز مطمئن نیستید کدام طرح مناسب شماست؟</h2>
-          <p>یک کارشناس رایگان راهنمایی‌تان می‌کند.</p>
-        </div>
-        <div class="row">
-          <a class="nf-btn on-dark" href="/request?need=help&src=home-final">درخواست مشاوره رایگان</a>
-          <a class="nf-btn nf-btn--secondary" href={MESSENGERS.whatsapp.href} data-todo="whatsapp"><I name="wa" size={20} /> واتساپ</a>
-        </div>
-      </div>
-    </div>
-  </section>
+  <script>
+    // one open callback form per page: once the finder shows its result (with its own inline form), hide the home section
+    document.getElementById('finder')?.addEventListener('finder:result', () => {
+      const s = document.getElementById('callback');
+      if (s) s.hidden = true;
+    });
+  </script>
 </BaseLayout>

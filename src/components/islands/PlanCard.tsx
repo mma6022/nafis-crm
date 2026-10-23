@@ -18,6 +18,7 @@ export function PlanCard({
   btn = 'درخواست همین طرح',
   name,
   note,
+  variant = 'full',
 }: {
   c: Combo;
   featured?: boolean;
@@ -28,8 +29,49 @@ export function PlanCard({
   name?: string;
   /** short line under the title, e.g. a relaxed page preset */
   note?: string;
+  /**
+   * 'result' = calculator / finder result card: ONLY مبلغ دریافتی, مبلغ هر قسط, تعداد اقساط (no nominal amount,
+   * costs/fees, instalment total, explanatory text or extra facts). 'full' = everywhere else (unchanged).
+   */
+  variant?: 'full' | 'result';
 }) {
   const fast = c.days === 'under_7';
+  if (variant === 'result') {
+    return (
+      <article className={`nf-card plan plan--result${featured ? ' nf-card--featured' : ''}`}>
+        {featured && <span className="nf-badge nf-badge--gold">{badge}</span>}
+        <h3>
+          <span className="nm">{name ?? c.name}</span>
+          <span className="kind">{c.type === 'goods' ? 'خرید کالا قسطی' : 'وام نقدی'}</span>
+        </h3>
+        {note && <p className="plan-note">{note}</p>}
+        <dl className="money money--3">
+          <div>
+            <dt className="lbl">مبلغ دریافتی</dt>
+            <dd className="val">حدود {millionsFa(c.payout)}</dd>
+            <dd className="unit">میلیون تومان</dd>
+          </div>
+          <div>
+            <dt className="lbl">مبلغ هر قسط</dt>
+            <dd className="val sm">حدود {millionsFa(c.inst)}</dd>
+            <dd className="unit">میلیون تومان</dd>
+          </div>
+          <div>
+            <dt className="lbl">تعداد اقساط</dt>
+            <dd className="val sm">{fa(c.term)}</dd>
+            <dd className="unit">قسط ماهانه</dd>
+          </div>
+        </dl>
+        <a
+          className={`nf-btn ${featured ? 'nf-btn--primary' : 'nf-btn--secondary'} nf-btn--block`}
+          href={`/request?plan=${c.id}&term=${c.term}&src=${encodeURIComponent(src)}`}
+        >
+          {btn}
+          {featured && <I name="arrow" />}
+        </a>
+      </article>
+    );
+  }
   return (
     <article className={`nf-card plan${featured ? ' nf-card--featured' : ''}`}>
       {featured && <span className="nf-badge nf-badge--gold">{badge}</span>}

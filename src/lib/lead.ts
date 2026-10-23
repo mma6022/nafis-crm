@@ -83,8 +83,13 @@ export function readTrackingCode(body: unknown): string | undefined {
 
 /** Resolves only on 2xx. Missing endpoint, network failure and non-2xx all reject with LeadError. */
 export async function submitLead(i: LeadInput, endpoint = leadEndpoint(), fetchImpl: typeof fetch = fetch): Promise<LeadResult> {
+  return postPublicLead(buildLeadPayload(i), endpoint, fetchImpl);
+}
+
+/** Shared POST for every public form (request wizard, callback form): same endpoint, same error handling. */
+export async function postPublicLead(payload: Record<string, unknown>, endpoint = leadEndpoint(), fetchImpl: typeof fetch = fetch): Promise<LeadResult> {
   if (!endpoint) throw new LeadError('no_endpoint');
-  const body = JSON.stringify(buildLeadPayload(i));
+  const body = JSON.stringify(payload);
   let res: Response;
   try {
     res = await fetchImpl(endpoint, {

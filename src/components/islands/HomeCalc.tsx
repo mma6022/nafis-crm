@@ -64,19 +64,23 @@ export default function HomeCalc({ snapshot }: { snapshot: LoanPlan[] }) {
                 نزدیک‌ترین طرح فعال: <b>{c.name}</b>
                 {c.term !== term ? ` (این طرح ${fa(c.term)} ماهه است)` : ''}
               </p>
-              <div className="money" style={{ marginBottom: 16 }}>
+              <dl className="money money--3" style={{ marginBottom: 16 }}>
                 <div>
-                  <span className="lbl">قسط ماهانه تقریبی</span>
-                  <span className="val">حدود {millionsFa(c.inst)}</span>
-                  <span className="unit">میلیون تومان، {fa(c.term)} ماه</span>
+                  <dt className="lbl">مبلغ دریافتی</dt>
+                  <dd className="val">حدود {millionsFa(c.payout)}</dd>
+                  <dd className="unit">میلیون تومان</dd>
                 </div>
                 <div>
-                  <span className="lbl">مبلغ قابل دریافت تقریبی</span>
-                  <span className="val sm">حدود {millionsFa(c.payout)}</span>
-                  <span className="unit">میلیون تومان</span>
+                  <dt className="lbl">مبلغ هر قسط</dt>
+                  <dd className="val sm">حدود {millionsFa(c.inst)}</dd>
+                  <dd className="unit">میلیون تومان</dd>
                 </div>
-                <span className="nominal">مبلغ اسمی وام: {millionsFa(c.principal)} میلیون تومان</span>
-              </div>
+                <div>
+                  <dt className="lbl">تعداد اقساط</dt>
+                  <dd className="val sm">{fa(c.term)}</dd>
+                  <dd className="unit">قسط ماهانه</dd>
+                </div>
+              </dl>
               <a className="nf-btn nf-btn--primary nf-btn--block" href={`/request?plan=${c.id}&term=${c.term}&src=home-calc`}>
                 درخواست همین طرح <I name="arrow" />
               </a>

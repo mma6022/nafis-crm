@@ -8,6 +8,7 @@ import { render } from 'astro:content';
 import BaseLayout from './BaseLayout.astro';
 import Breadcrumbs from '../components/Breadcrumbs.astro';
 import I from '../components/ui/I.astro';
+import CallbackForm from '../components/islands/CallbackForm';
 import { mdxComponents } from '../components/mdx';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 import { fa, fillFacts, leadHtml, planFacts, planFilter } from '../lib/plans';
@@ -26,6 +27,16 @@ const { Content, headings } = await render(entry);
 Astro.locals.headings = headings;
 const page = d.slug.replace(/^\//, '');
 const lead = d.lead ? leadHtml(d.lead, facts) : '';
+/** callback section lead per page (title stays «درخواست مشاوره‌ی رایگان»; designer vam-fori mockup) */
+const CB_LEAD: Record<string, string> = {
+  'vam-fori': 'نام و شماره‌تان را بگذارید؛ کارشناس نفیس وام تماس می‌گیرد و سریع‌ترین طرح متناسب با شما را توضیح می‌دهد.',
+  'vam-bedun-zamen': 'نام و شماره‌تان را بگذارید؛ کارشناس نفیس وام طرح‌های بدون ضامن را رایگان برایتان توضیح می‌دهد.',
+  'vam-bedun-chek': 'نام و شماره‌تان را بگذارید؛ کارشناس نفیس وام طرح‌های بدون چک را رایگان برایتان توضیح می‌دهد.',
+  'vam-ba-chek': 'نام و شماره‌تان را بگذارید؛ کارشناس نفیس وام طرح‌های با ضمانت چک را رایگان برایتان توضیح می‌دهد.',
+  'vam-ba-safte': 'نام و شماره‌تان را بگذارید؛ کارشناس نفیس وام طرح‌های با ضمانت سفته را رایگان برایتان توضیح می‌دهد.',
+  'kharid-aghsati': 'نام و شماره‌تان را بگذارید؛ کارشناس نفیس وام طرح‌های خرید کالا را رایگان برایتان توضیح می‌دهد.',
+};
+const cbLead = CB_LEAD[page];
 const toc = headings.filter((h) => h.depth === 2);
 const crumbs = [
   { name: 'خانه', path: '/' },
@@ -113,4 +124,7 @@ const isTel = (h: string) => h.startsWith('tel:');
       }
     </aside>
   </div>
+  <section class="cb-sec cb-sec--end" id="callback" aria-label="درخواست مشاوره‌ی رایگان">
+    <div class="container-nf"><CallbackForm client:visible variant="section" primary={false} src={`${page}-callback`} lead={cbLead} /></div>
+  </section>
 </BaseLayout>

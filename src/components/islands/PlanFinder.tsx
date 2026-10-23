@@ -21,9 +21,10 @@ import {
   type FinderType,
   withoutUnbackedGuarantee,
 } from '../../lib/plans';
-import { MESSENGERS, SITE } from '../../lib/site';
+
 import { useLoanPlans } from './useLoanPlans';
 import { LONG_NAME, PlanCard, QA } from './PlanCard';
+import CallbackForm from './CallbackForm';
 import { I, type SpriteIcon } from '../ui/I';
 
 type Key = 'type' | 'band' | 'prio';
@@ -100,6 +101,10 @@ export default function PlanFinder({
   const i = ORDER.indexOf(step);
   const complete = ans.type !== undefined && ans.band !== undefined && ans.prio !== undefined;
   const r = useMemo(() => (step === 'result' && complete ? recommend(all, ans as FinderAnswers, preset) : null), [step, complete, all, ans, preset]);
+  // home: hides the #callback section so only one callback form is open (CALLBACK-HANDOFF.md)
+  useEffect(() => {
+    if (r) root.current?.dispatchEvent(new CustomEvent('finder:result', { bubbles: true }));
+  }, [r]);
 
   const pick = (k: Key, v: string | number) => {
     setAns((p) => ({ ...p, [k]: v }));
@@ -201,6 +206,7 @@ export default function PlanFinder({
                   key={`${c.id}-${c.term}`}
                   c={c}
                   featured={k === 0}
+                  variant="result"
                   src={src}
                   name={longName && k === 0 ? LONG_NAME : undefined}
                   note={preset?.guarantee && !r.presetUnknown && !c.presetOk ? `شرط «${preset.guarantee.label}» را ندارد؛ نزدیک‌ترین گزینه است.` : undefined}
@@ -211,17 +217,19 @@ export default function PlanFinder({
         )}
         <div className="res-foot">
           <p className="note">مبالغ برآوردی است و مبلغ قطعی پس از اعتبارسنجی اعلام می‌شود.</p>
-          <div className="help">
-            <p>مطمئن نیستید؟ با یک کارشناس صحبت کنید</p>
-            <div className="row">
-              <a className="nf-btn nf-btn--secondary" href={SITE.tel}>
-                <I name="phone" size={18} /> تماس
-              </a>
-              <a className="nf-btn nf-btn--secondary" href={MESSENGERS.whatsapp.href} data-todo="whatsapp">
-                <I name="wa" className="wa" size={20} /> واتساپ
-              </a>
+          {r && (
+            <div className="help cb-mount">
+              {/* secondary: the featured plan card owns the page's primary button (CALLBACK-HANDOFF.md) */}
+              <CallbackForm
+                key={`${ans.type}-${ans.band}-${ans.prio}`}
+                variant="inline"
+                src={`${src}-result`}
+                topic={ans.type === 'cash' || ans.type === 'goods' ? ans.type : null}
+                planId={r.cards[0]?.id ?? null}
+                titleTag="h3"
+              />
             </div>
-          </div>
+          )}
           <div className="all-link">
             <a className="nf-btn nf-btn--text" href="/plans">
               دیدن همه طرح‌ها

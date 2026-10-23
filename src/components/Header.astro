@@ -25,14 +25,14 @@ const NAV = [
   { href: '/calculator', label: 'محاسبه قسط' },
   { href: '/blog', label: 'مجله' },
   { href: '/about', label: 'درباره ما' },
-  { href: '/contact', label: 'تماس' },
+  // «تماس» left the desktop nav (CALLBACK-HANDOFF.md); it stays in the mobile menu and the footer
 ];
 ---
 
 <a class="sr skip" href="#main">رفتن به محتوای اصلی</a>
 <header class:list={['hdr', minimal && 'hdr--min']}>
   <div class="wrap">
-    <a class="logo" href="/" aria-label={`${SITE.name}، صفحه اصلی`}><Logo width={175} /></a>
+    <a class="logo" href="/" aria-label={`${SITE.name}، صفحه اصلی`}><Logo width={175} eager /></a>
     {
       !minimal && (
         <nav class="dnav" aria-label="منوی اصلی">
@@ -60,6 +60,14 @@ const NAV = [
     }
     {!minimal && <a class="portal d-only" href={SITE.portal}>ورود مشتریان</a>}
     <a class:list={['tel', !minimal && 'd-only']} href={SITE.tel} aria-label={`تماس با ${SITE.phoneFa}`}><I name="phone" size={18} /><span>{SITE.phoneFa}</span></a>
+    {
+      !minimal && (
+        <a class="cbk d-only" href="/contact#callback" data-callback={`${src}-header`}>
+          <I name="callback" size={18} />
+          مشاوره‌ی رایگان
+        </a>
+      )
+    }
     {!minimal && <a class="cta" href={`/request?src=${src}-header`}>درخواست وام</a>}
     {
       !minimal && (
@@ -95,6 +103,7 @@ const NAV = [
         <li><a href="/contact">تماس</a></li>
       </ul>
       <div class="mfoot">
+        <a class="nf-btn nf-btn--secondary nf-btn--block" href="/contact#callback" data-callback={`${src}-menu`}><I name="callback" /> درخواست مشاوره‌ی رایگان</a>
         <a class="nf-btn nf-btn--secondary nf-btn--block" href={SITE.portal}><I name="login" /> ورود مشتریان</a>
         <a class="nf-btn nf-btn--secondary nf-btn--block" href={SITE.tel}><I name="phone" /> تماس: <span>{SITE.phoneFa}</span></a>
         <div class="msgs" aria-label="پیام‌رسان‌ها">

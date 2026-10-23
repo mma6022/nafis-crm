@@ -1,28 +1,30 @@
 ---
 /**
- * Logo: flat vector from /workspace/nafis-design/brand/ (auto-traced from the official raster; no original vector
- * exists, see brand/README.md). `navy` = #0B1450 variant for light/gold backgrounds.
- * The SVG viewBox is cropped to the exact path box (12.8 13.25 1375.6 251.1, designer ANSWERS-1 §2); size it by
- * WIDTH in CSS (header 154px mobile / 175px desktop, height:auto). Never stretch (no preserveAspectRatio=none).
+ * Logo: final vector by Omid (/workspace/nafis-design/logo, 2026-10-23): body #29369B, wave #00006D.
+ * `white` = nafis-logo-white.svg for dark backgrounds (footer). viewBox 0 0 3304 600; size it by WIDTH in CSS
+ * (header 154px mobile / 175px desktop, height:auto). Never stretch.
  */
 import { SITE } from '../lib/site';
 interface Props {
   /** intrinsic width attribute (CSS sets the rendered width) */
   width?: number;
   class?: string;
-  navy?: boolean;
+  white?: boolean;
+  /** header logo only: above the fold */
+  eager?: boolean;
 }
-const RATIO = 1375.6 / 251.1;
-const { width = 175, class: cls = '', navy = false } = Astro.props;
+const RATIO = 3304 / 600;
+const { width = 175, class: cls = '', white = false, eager = false } = Astro.props;
 const height = Math.round(width / RATIO);
 ---
 
 <img
-  src={navy ? '/brand/nafis-logo-navy.svg' : '/brand/nafis-logo.svg'}
+  src={white ? '/logo/nafis-logo-white.svg' : '/logo/nafis-logo-full.svg'}
   alt={SITE.name}
   width={width}
   height={height}
   class={cls || undefined}
   decoding="async"
-  fetchpriority="high"
+  fetchpriority={eager ? 'high' : undefined}
+  loading={eager ? undefined : 'lazy'}
 />
