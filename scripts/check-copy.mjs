@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Copy guard (Mohammad 2026-10-23, runs in build + build:preview after astro build):
-//  1. «برآوردی» / «تخمینی» may not appear anywhere in dist or src (calculator, FAQ, blog posts, every page). The only
+//  1. «برآورد» in any form (برآورد، برآوردی، برآوردها، برآورده… also «براورد», «بر‌آورد» with ZWNJ/space, decomposed
+//     alef-madda ا+U+0653, «أ») and «تخمینی» may not appear anywhere in dist or src (calculator, FAQ, blog posts, every
+//     page). Note: «برآورده» (fulfilled) trips it too on purpose — use «تأمین/رفع» instead. The only
 //     exemption is the legal terms page (ALLOW / TERMS_SRC below), pending legal review — see the TODO there. Nothing explanatory next to the calculator / plan
 //     cards: the removed note «مبالغ برآوردی است و مبلغ/رقم قطعی …» fails the build anywhere (dist and src).
 //  2. No national ID / registration number: 14013708689 in Latin, Persian or Arabic digits (any separators) fails the
@@ -19,16 +21,21 @@ if (!existsSync(join(DIST, 'index.html'))) { console.error('copy: dist/ not buil
  *  2026-10-23 (content/remove-baravardi): calculator, FAQ and blog/vam-fori-chist no longer allowed — the word is gone
  *  from every non-legal page. Only the legal terms page is exempt. */
 const ALLOW = {
-  // TODO(legal review): «برآوردی» on /terms (قوانین) is kept ONLY until the legal review. When the reviewed wording lands,
+  // TODO(legal review): «برآورد/برآوردی» on /terms (قوانین) is kept ONLY until the legal review. When the reviewed wording lands,
   // delete this entry and TERMS_SRC below so the terms page is checked like every other page.
   'terms/index.html': ['اعداد سایت برآوردی است', 'ماشین‌حساب و طرح‌یاب می‌بینید برآوردی است.'], // legal terms (exempt pending legal review)
 };
-const WORD = /برآوردی|تخمینی/g;
+// بر + optional space/ZWNJ/ZWJ/RLM/NBSP + آ | ا (+ optional U+0653 madda) | أ + ورد  — covers every inflection (prefix match).
+const WORD = /بر[\s\u200c\u200d\u200f\u00a0]{0,2}(?:\u0622|\u0627\u0653?|\u0623)ورد|تخمینی/g;
+/** Decode \uXXXX escapes (JS/JSON bundles) so an escaped word cannot slip through. */
+const unesc = (t) => t.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+// self-test of the matcher
+for (const v of ['برآورد', 'برآوردی', 'برآوردها', 'براورد', 'بر\u200cآورد', 'بر آوردی', 'بر\u0627\u0653ورد', 'تخمینی']) if (!new RegExp(WORD.source).test(v)) errors.push(`word matcher misses ${JSON.stringify(v)}`);
 const REMOVED = /مبالغ\s*برآوردی\s*است\s*و\s*(مبلغ|رقم)\s*قطعی/;
 const hits = [];
 for (const f of walk(DIST).filter((x) => /\.(html|js|mjs|json|txt|xml)$/.test(x))) {
   const rel = relative(DIST, f);
-  let t = readFileSync(f, 'utf8');
+  let t = unesc(readFileSync(f, 'utf8'));
   if (REMOVED.test(t)) errors.push(`dist/${rel}: removed note «مبالغ برآوردی است …» is back`);
   for (const p of ALLOW[rel] || []) {
     const n = t.split(p).length - 1;
@@ -42,7 +49,7 @@ const TERMS_SRC = 'src/pages/terms.astro';
 let srcScanned = 0;
 for (const f of walk(join(ROOT, 'src')).filter((x) => /\.(astro|tsx?|mdx?|json|css)$/.test(x))) {
   const rel = relative(ROOT, f);
-  const t = readFileSync(f, 'utf8');
+  const t = unesc(readFileSync(f, 'utf8'));
   if (REMOVED.test(t)) errors.push(`${rel}: removed note «مبالغ برآوردی است …» is back`);
   if (rel === TERMS_SRC) continue;
   srcScanned++;
@@ -78,4 +85,4 @@ for (const f of walk(DIST).filter((p) => p.endsWith('.html'))) {
 }
 if (!home.includes(`<a class="t t-enamad" ${ENAMAD_LINK}><img src="/images/enamad.png"`)) errors.push('enamad: home trust-bar chip missing');
 if (errors.length) { console.error(`copy: ${errors.length} problem(s)\n  ` + errors.join('\n  ')); process.exit(1); }
-console.log(`copy: OK — no «برآوردی/تخمینی» in dist or ${srcScanned} src files (terms page exempt pending legal review); allowed hits: ${hits.join(' · ')} · removed note absent (dist+src) · no national ID / registration label in ${idScanned} dist+src+public files · footer legal line = «بهینه فام نفیس»`);
+console.log(`copy: OK — no «برآورد*» (any form) / «تخمینی» in dist or ${srcScanned} src files (terms page exempt pending legal review); allowed hits: ${hits.join(' · ')} · removed note absent (dist+src) · no national ID / registration label in ${idScanned} dist+src+public files · footer legal line = «بهینه فام نفیس»`);
