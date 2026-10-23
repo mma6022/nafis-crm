@@ -369,6 +369,45 @@ export const fastestGuaranteePlans = (plans: LoanPlan[], base: 'no-cheque' | 'no
     .slice()
     .sort((a, b) => (DAYS_RANK[a.grantDays] ?? 9) - (DAYS_RANK[b.grantDays] ?? 9) || a.id - b.id)
     .slice(0, max);
+/** Highest مبلغ دریافتی of a plan over its terms (principal × depositPercent, the same figure the cards show). */
+export const planMaxPayout = (p: LoanPlan) =>
+  p.installmentTerms.reduce((m, t) => Math.max(m, (p.principalAmount * t.depositPercent) / 100), 0);
+/** Name without its parenthetical note: «ترنم ( بازنشسته ها )» and «ترنم» are both «طرح ترنم». */
+export const planBaseName = (n: string) =>
+  cleanPlanName(n).replace(/\s*\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
+/**
+ * Plan-type order of the per-type fast section. The type is the CRM's `loan_plans.loan_type` (export `loanType`):
+ * goods = وام خرید کالا, score = وام امتیازی (اعتبارسنجی). There is no bank-loan value in the CRM today; any other
+ * value the CRM adds later (e.g. a بانکی type) becomes its own group after these, so it is picked up automatically.
+ */
+export const FAST_TYPE_ORDER = ['goods', 'score'];
+/**
+ * PM 2026-10-23 (after launch): «سریع‌ترین بدون ضامن» lists ONE plan per plan type (loanType), the one with the
+ * highest مبلغ دریافتی among the plans meeting the base condition. Plan names never repeat across the section: when a
+ * type's best plan has a name already shown, the next best of that type is taken. Ties: faster grantDays, then id.
+ * Types in FAST_TYPE_ORDER first, then any other type by name; max 3. Page-restricted plans (17) are left out, as before.
+ */
+export function topPlanPerType(plans: LoanPlan[], base: 'no-cheque' | 'no-guarantor', max = 3): LoanPlan[] {
+  // a plan restricted to some pages (17: «بسته به رتبه‌ی اعتباری», pages ['no-guarantor']) stays out of the fast section
+  const pool = guaranteePagePlans(plans, base).filter((p) => !p.guaranteePages || p.guaranteePages.includes(`fast-${base}`));
+  const rank = (t: string) => {
+    const i = FAST_TYPE_ORDER.indexOf(t);
+    return i < 0 ? FAST_TYPE_ORDER.length : i;
+  };
+  const types = [...new Set(pool.map((p) => p.loanType))].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  const used = new Set<string>();
+  const out: LoanPlan[] = [];
+  for (const t of types) {
+    const best = pool
+      .filter((p) => p.loanType === t && !used.has(planBaseName(p.name)))
+      .sort((a, b) => planMaxPayout(b) - planMaxPayout(a) || (DAYS_RANK[a.grantDays] ?? 9) - (DAYS_RANK[b.grantDays] ?? 9) || a.id - b.id)[0];
+    if (!best) continue;
+    used.add(planBaseName(best.name));
+    out.push(best);
+    if (out.length >= max) break;
+  }
+  return out;
+}
 /** Maps the content team's preset vocabulary to the finder's. Unknown keys are ignored (never break a page). */
 export function toFinderPreset(p: ContentPreset = {}): FinderPreset {
   const out: FinderPreset = {};

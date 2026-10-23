@@ -9,10 +9,12 @@
  * Fast pages (PM 2026-10-23): `fast-no-cheque` / `fast-no-guarantor` never ship an empty state. They show the FASTEST
  * plans meeting the base condition (lib/plans `fastestGuaranteePlans`, max 3, by real grantDays), promise no time
  * (no «زمان بررسی» line) and are followed by the «درخواست مشاوره‌ی رایگان» callback form.
+ * PM 2026-10-23 (post-launch): `fast-no-guarantor` instead shows ONE plan per plan type with the highest مبلغ دریافتی
+ * and no repeated plan name (lib/plans `topPlanPerType`).
  * On /vam-bedun-chek and /vam-bedun-zamen no row shows a review time (no time promise on those pages).
  */
 import { LOAN_PLANS_SNAPSHOT } from '../../lib/loan-plans.snapshot';
-import { DAYS_LABEL, MODE_LABEL, cleanPlanName, fastestGuaranteePlans, guaranteePagePlans } from '../../lib/plans';
+import { DAYS_LABEL, MODE_LABEL, cleanPlanName, fastestGuaranteePlans, guaranteePagePlans, topPlanPerType } from '../../lib/plans';
 import CallbackForm from '../islands/CallbackForm';
 import { whyFor, type GuaranteePage } from '../../data/plan-guarantees';
 import I from '../ui/I.astro';
@@ -23,7 +25,13 @@ interface Props {
 }
 const { page, empty } = Astro.props;
 const fastOf = page === 'fast-no-cheque' ? 'no-cheque' : page === 'fast-no-guarantor' ? 'no-guarantor' : null;
-const list = fastOf ? fastestGuaranteePlans(LOAN_PLANS_SNAPSHOT, fastOf, 3) : guaranteePagePlans(LOAN_PLANS_SNAPSHOT, page);
+/** fast-no-guarantor: one plan per type, highest مبلغ دریافتی, no repeated name (lib/plans topPlanPerType);
+ *  fast-no-cheque: unchanged, fastest ≤3 by grantDays */
+const list = fastOf === 'no-guarantor'
+  ? topPlanPerType(LOAN_PLANS_SNAPSHOT, fastOf, 3)
+  : fastOf
+    ? fastestGuaranteePlans(LOAN_PLANS_SNAPSHOT, fastOf, 3)
+    : guaranteePagePlans(LOAN_PLANS_SNAPSHOT, page);
 /** no review time on the no-cheque / no-guarantor pages (incl. their fast sections) */
 const showTime = !['no-cheque', 'no-guarantor', 'fast-no-cheque', 'fast-no-guarantor'].includes(page);
 const src = (Astro.url.pathname.replace(/^\/+|\/+$/g, '').split('/').pop() || 'home').replace(/[^a-z0-9_-]/g, '') || 'home';

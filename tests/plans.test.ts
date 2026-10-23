@@ -5,7 +5,7 @@ import raw from '../src/data/loan-plans.snapshot.json' with { type: 'json' };
 import { parseLoanPlans } from '../src/lib/loan-plans.ts';
 import {
   combos, recommend, planFacts, bankNames, reqBands, bandOf, millionsFa,
-  FINDER_TYPES, FINDER_BANDS, FINDER_PRIOS, comboQualifies, guaranteePagePlans, fastestGuaranteePlans, type Combo,
+  FINDER_TYPES, FINDER_BANDS, FINDER_PRIOS, comboQualifies, guaranteePagePlans, fastestGuaranteePlans, topPlanPerType, planMaxPayout, planBaseName, type Combo,
 } from '../src/lib/plans.ts';
 import type { GuaranteePage } from '../src/data/plan-guarantees.ts';
 
@@ -118,7 +118,31 @@ test('content presets map onto finder presets', () => {
 test('fast sections: fastest ≤3 plans meeting the base condition, by grantDays then id (never empty)', () => {
   const ids = (b: 'no-cheque' | 'no-guarantor') => fastestGuaranteePlans(plans, b).map((p) => p.id);
   assert.deepEqual(ids('no-cheque'), [15, 20, 21]);
-  assert.deepEqual(ids('no-guarantor'), [3, 7, 8]);
+  assert.deepEqual(ids('no-guarantor'), [3, 7, 8]); // helper unchanged; the page now uses topPlanPerType
   for (const b of ['no-cheque', 'no-guarantor'] as const)
     for (const p of fastestGuaranteePlans(plans, b)) assert.ok(guaranteePagePlans(plans, b).some((q) => q.id === p.id));
+});
+
+test('«سریع‌ترین بدون ضامن»: one plan per type, highest مبلغ دریافتی, no repeated name', () => {
+  const list = topPlanPerType(plans, 'no-guarantor');
+  assert.deepEqual(list.map((p) => [p.id, p.loanType, planMaxPayout(p)]), [
+    [9, 'goods', 290e6],
+    [15, 'score', 165e6], // 17 (180M) is restricted to the main no-guarantor list
+  ]);
+  assert.equal(new Set(list.map((p) => planBaseName(p.name))).size, list.length);
+  assert.equal(planBaseName('ترنم ( بازنشسته ها )'), planBaseName('ترنم'));
+  assert.ok(!list.some((p) => p.id === 17));
+  // every pick is the max of its type among the qualifying plans
+  const pool = guaranteePagePlans(plans, 'no-guarantor');
+  for (const p of list) for (const q of pool) if (q.loanType === p.loanType && !q.guaranteePages) assert.ok(planMaxPayout(q) <= planMaxPayout(p));
+});
+
+test('per-type pick skips a repeated name, picks up new types, stays 1–3', () => {
+  const base = plans.find((p) => p.id === 8)!;
+  const mk = (id: number, name: string, loanType: string, principalAmount: number) => ({
+    ...base, id, name, loanType, principalAmount, guaranteeOptions: base.guaranteeOptions, guaranteePages: undefined,
+  });
+  const list = [mk(101, 'ترنم', 'goods', 900e6), mk(102, 'ترنم ( بازنشسته ها )', 'score', 900e6), mk(103, 'نیلوفر', 'score', 100e6), mk(104, 'بانک', 'bank', 50e6), mk(105, 'دیگر', 'zzz', 50e6)];
+  const got = topPlanPerType(list, 'no-guarantor').map((p) => p.id);
+  assert.deepEqual(got, [101, 103, 104]); // score's best repeats «ترنم» → next best; new type 'bank' included; max 3
 });
