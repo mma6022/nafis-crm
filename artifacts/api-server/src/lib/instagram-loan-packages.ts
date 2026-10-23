@@ -267,7 +267,9 @@ function collateralRank(values: string[] | null | undefined): number {
   const normalized = values.map(normalizePersianText);
   const onlyNotes = normalized.every((value) => value.includes("سفته"));
   if (onlyNotes) return 1;
-  if (normalized.some((value) => /چک|ملک|خودرو|سپرده|کسر از حقوق/u.test(value))) return 3;
+  // Deposit collateral is labelled «حساب مسدودی بانکی»; the old wording is still matched only so legacy/cached
+  // plan labels keep their burden rank (input matching only, never shown — see no-sepordeh check exception).
+  if (normalized.some((value) => /چک|ملک|خودرو|مسدودی|سپرده|کسر از حقوق/u.test(value))) return 3;
   return 2;
 }
 

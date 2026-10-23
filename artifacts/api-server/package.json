@@ -43,7 +43,8 @@
     "test:instagram-public-plans": "node --experimental-strip-types scripts/instagram-public-plans-fixture.mjs",
     "test:instagram-auto-registration": "node scripts/instagram-intake-identity-fixture.mjs && node scripts/instagram-crm-automation-fixture.mjs && node scripts/instagram-intake-runtime-fixture.mjs",
     "test:public-leads": "node scripts/public-leads-fixture.mjs && node scripts/new-customer-notifications-fixture.mjs",
-    "test:callback-requests": "node scripts/callback-requests-fixture.mjs"
+    "test:callback-requests": "node scripts/callback-requests-fixture.mjs",
+    "test:deposit-label-migration": "node scripts/deposit-label-migration-fixture.mjs"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.3.0",

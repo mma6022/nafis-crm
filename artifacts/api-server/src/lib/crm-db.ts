@@ -930,7 +930,7 @@ crmDb.exec(`
     ('collateral_type', 'salary_deduction', 'گواهی کسر از حقوق', 5, 1),
     ('collateral_type', 'property', 'سند ملکی', 6, 1),
     ('collateral_type', 'vehicle', 'سند خودرو', 7, 1),
-    ('collateral_type', 'deposit', 'سپرده بانکی', 8, 1);
+    ('collateral_type', 'deposit', 'حساب مسدودی بانکی', 8, 1);
 `);
 function migrateAutomatedRepeatRequestProvenance(): void {
   const columns = crmDb

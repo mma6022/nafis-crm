@@ -95,7 +95,7 @@ for (const [role, permissions] of Object.entries({
 
 // «درخواست‌های تماس»: seeded once (schema_migrations marker), so an admin who later removes these from a
 // role is not overridden on restart. admin has everything implicitly. registrar and salesperson follow up
-// website requests («به من بسپار» included); salesperson's 'assigned' scope limits them to requests that are
+// website requests («به من تخصیص بده» / assign-to-self included); salesperson's 'assigned' scope limits them to requests that are
 // theirs or still unassigned. callbacks.assign (giving a request to someone else) is admin-only by default;
 // grant it to a manager role from Users if one is created. funder and accounting get nothing.
 execute("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)");

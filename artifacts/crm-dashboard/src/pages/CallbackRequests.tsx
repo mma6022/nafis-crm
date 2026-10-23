@@ -200,7 +200,7 @@ function CallbackCard({ item, meta, selected, shownPhone, calledPrompt, busy, on
       <div className="asg">
         {item.assignedUserId
           ? <><UserAvatar userId={item.assignedUserId} name={item.assignedUserName} size={28} />{item.assignedUserName}{mine ? ' (شما)' : ''}</>
-          : <><span className="none">بدون مسئول</span>{meta.canManage && <button type="button" className="cbx-text" disabled={busy} onClick={onTake} data-testid={`button-take-${item.id}`}>به من بسپار</button>}</>}
+          : <><span className="none">بدون مسئول</span>{meta.canManage && <button type="button" className="cbx-text" disabled={busy} onClick={onTake} data-testid={`button-take-${item.id}`}>به من تخصیص بده</button>}</>}
       </div>
       {item.status === 'cancelled' ? <>
         <p className="src">دلیل لغو: {item.cancelReason ? CANCEL_REASON_FA[item.cancelReason] : '—'}</p>
@@ -329,7 +329,7 @@ function CallbackDetail({ item, meta, wide, assignees, busy, run, say, onClose, 
                   {item.assignedUserId
                     ? <><UserAvatar userId={item.assignedUserId} name={item.assignedUserName} size={28} />{item.assignedUserName}{item.assignedUserId === meta.me ? ' (شما)' : ''}</>
                     : <><span className="none">بدون مسئول</span>{meta.canManage && <button type="button" className="cbx-text" disabled={busy}
-                        onClick={() => run(() => callbacksApi.assign(item.id, meta.me), () => say('به شما تخصیص داده شد'))} data-testid="button-take-detail">به من بسپار</button>}</>}
+                        onClick={() => run(() => callbacksApi.assign(item.id, meta.me), () => say('به شما تخصیص داده شد'))} data-testid="button-take-detail">به من تخصیص بده</button>}</>}
                 </div>}
           </div>
           {meta.canConvert && !item.convertedAt && item.status !== 'cancelled' && (

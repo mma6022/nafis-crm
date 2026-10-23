@@ -187,7 +187,7 @@ function toItem(r: Row, actor: CallbackActor, now: Date): CallbackItem {
   };
 }
 
-/** Assigned-scope roles see requests assigned to them plus unassigned ones (so «به من بسپار» works). */
+/** Assigned-scope roles see requests assigned to them plus unassigned ones (so «به من تخصیص بده» / assign-to-self works). */
 function scopeSql(actor: CallbackActor): { sql: string; params: SqlValue[] } {
   return actor.role !== "admin" && actor.customerScope === "assigned"
     ? { sql: " AND (c.assigned_user_id = ? OR c.assigned_user_id IS NULL)", params: [actor.id] }
@@ -316,7 +316,7 @@ export function setCallbackStatus(
 }
 
 /**
- * «به من بسپار» (userId = self) is open to everyone with callbacks.manage while the request is unassigned.
+ * «به من تخصیص بده» (assign to self, userId = self) is open to everyone with callbacks.manage while the request is unassigned.
  * Giving it to someone else, taking it from someone, or clearing the owner needs callbacks.assign (admin/manager).
  */
 export function assignCallback(actor: CallbackActor, id: number, userId: number | null, now = new Date()): CallbackResult {
