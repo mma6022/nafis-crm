@@ -93,9 +93,6 @@ export default function HomeCalc({ snapshot }: { snapshot: LoanPlan[] }) {
             </>
           )}
         </div>
-        <p className="note" style={{ textAlign: 'start' }}>
-          مبالغ برآوردی است و مبلغ قطعی پس از اعتبارسنجی اعلام می‌شود.
-        </p>
       </div>
     </div>
   );

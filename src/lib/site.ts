@@ -13,10 +13,11 @@ export const SITE = {
    */
   /** the .com MX is live (webmail.nafisvam.com) */
   email: 'info@nafisvam.com',
-  /** Mohammad 2026-10-23: legal entity + national ID (شناسه ملی) — footer, /about, Organization schema */
+  /**
+   * Mohammad 2026-10-23 21:14: legal entity name ONLY (footer, /about, /contact, /terms, Organization schema). No national
+   * ID / registration number anywhere: scripts/check-guarantees.mjs fails the build if it appears (Latin or Persian digits).
+   */
   legalName: 'بهینه فام نفیس',
-  nationalId: '14013708689',
-  nationalIdFa: '۱۴۰۱۳۷۰۸۶۸۹',
   /** PM decision: office address (footer, /contact, /about, PostalAddress schema) */
   address: 'تهران، پونک، بلوار عدل جنوبی، پلاک ۲۴، واحد ۲',
   addressParts: { streetAddress: 'پونک، بلوار عدل جنوبی، پلاک ۲۴، واحد ۲', addressLocality: 'تهران', addressRegion: 'تهران', addressCountry: 'IR' },

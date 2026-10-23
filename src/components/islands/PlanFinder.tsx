@@ -220,7 +220,6 @@ export default function PlanFinder({
           </>
         )}
         <div className="res-foot">
-          <p className="note">مبالغ برآوردی است و مبلغ قطعی پس از اعتبارسنجی اعلام می‌شود.</p>
           {r && (
             <div className="help cb-mount">
               {/* secondary: the featured plan card owns the page's primary button (CALLBACK-HANDOFF.md) */}

@@ -253,11 +253,11 @@ a.xp-row:hover{background:var(--nf-surface)}
 .xp-go--bale{color:#0C7A66}
 a.xp-row:hover .xp-go{filter:brightness(.95)}
 .xp-hours{display:flex;align-items:center;justify-content:center;gap:6px;margin:8px 0 0;font-size:var(--nf-text-caption);color:var(--nf-ink-muted)}
-/* ≥768px: 360px popover anchored to the trigger (left/top set by scripts/expert-picker.ts), transparent backdrop */
+/* ≥768px: 400px popover (Armita 2026-10-23: title on one line; never wider than the viewport − 32px) anchored to the trigger (left/top set by scripts/expert-picker.ts), transparent backdrop */
 @media (min-width:768px){
   .xp[open]{display:block}
   .xp::backdrop{background:transparent}
-  .xp-card{position:absolute;left:var(--xp-x,50%);top:var(--xp-y,96px);width:360px;max-height:calc(100vh - 32px);border:1px solid var(--nf-line);border-radius:var(--nf-radius-card);padding:12px 16px 14px;animation-name:xp-in}
+  .xp-card{position:absolute;left:var(--xp-x,50%);top:var(--xp-y,96px);width:400px;max-width:calc(100vw - 32px);max-height:calc(100vh - 32px);border:1px solid var(--nf-line);border-radius:var(--nf-radius-card);padding:12px 16px 14px;animation-name:xp-in}
   .xp-head h2{font-size:16px}
   .xp-grab{display:none}
 }

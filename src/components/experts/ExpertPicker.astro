@@ -4,7 +4,7 @@
  * Rendered once per page by BaseLayout as a closed native <dialog> (no layout, not in the a11y tree until opened).
  * Every `[data-experts="call|whatsapp|telegram|bale"]` trigger opens it (behaviour: src/scripts/expert-picker.ts, loaded
  * on first interaction by scripts/chrome.ts): one row per expert (fixed order) opening that channel. Rows for a channel an
- * expert does not have are not rendered. No raw phone numbers. Bottom sheet < 768px, 360px popover anchored to the
+ * expert does not have are not rendered. No raw phone numbers. Bottom sheet < 768px, 400px popover anchored to the
  * trigger ≥ 768px. Data: src/data/experts.ts.
  */
 import I from '../ui/I.astro';

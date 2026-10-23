@@ -82,7 +82,6 @@ export default function LoanCalculator({ snapshot, src = 'calculator' }: { snaps
             <PlanCard key={c.id} c={c} featured={i === 0} src={src} variant="result" />
           ))}
         </div>
-        <p className="note">مبالغ برآوردی است و مبلغ قطعی پس از اعتبارسنجی اعلام می‌شود.</p>
       </div>
     </div>
   );

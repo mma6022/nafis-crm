@@ -21,7 +21,6 @@ export const organizationLd = () => ({
   name: SITE.name,
   alternateName: SITE.nameEn,
   legalName: SITE.legalName,
-  identifier: { '@type': 'PropertyValue', propertyID: 'شناسه ملی', value: SITE.nationalId },
   url: SITE.url,
   sameAs: [SITE.instagram],
   logo: { '@type': 'ImageObject', url: absoluteUrl(SITE.logoPng), width: 2000, height: 364 },

@@ -3,7 +3,8 @@
  * - Shows on qualifying same-origin link clicks and native form submits (never on first load).
  * - Ignored: tel:/mailto:/sms:, other origins (Emzami, WhatsApp/Telegram/Bale, Instagram…), downloads and file
  *   links, target other than _self, modifier/middle clicks, same-page #hash links, clicks a handler already
- *   preventDefault()ed (React islands, the menu), and anything with [data-no-loader].
+ *   preventDefault()ed (React islands, the menu), anything with [data-no-loader] and links inside a <dialog>
+ *   (the expert picker: tel:/wa.me/t.me/ble.ir rows never show the loader even if one is ever same-origin).
  * - Back/forward cache: hidden on pagehide(persisted) and every pageshow, so a restored page is never stuck.
  * - Native form submits disable their submit button until the page changes (restored on pageshow / «بستن»).
  */
@@ -102,7 +103,7 @@ export function initPageLoader() {
     const a = e.target instanceof Element ? e.target.closest<HTMLAnchorElement | SVGAElement>('a[href]') : null;
     if (!a || !(a instanceof HTMLAnchorElement)) return;
     const u = loaderUrlForLink(
-      { href: a.getAttribute('href') ?? '', target: a.target, download: a.hasAttribute('download'), noLoader: a.closest('[data-no-loader]') != null },
+      { href: a.getAttribute('href') ?? '', target: a.target, download: a.hasAttribute('download'), noLoader: a.closest('[data-no-loader], dialog') != null },
       e,
       location.href,
     );

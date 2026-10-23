@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "build": "astro check && astro build && node scripts/check-markers.mjs --strict && node scripts/check-jsonld.mjs && node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-messengers.mjs && node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-guarantees.mjs",
-    "build:preview": "astro check && astro build && node scripts/check-markers.mjs && node scripts/check-jsonld.mjs && node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-messengers.mjs && node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-guarantees.mjs",
+    "build": "astro check && astro build && node scripts/check-markers.mjs --strict && node scripts/check-jsonld.mjs && node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-messengers.mjs && node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-guarantees.mjs && node scripts/check-copy.mjs",
+    "build:preview": "astro check && astro build && node scripts/check-markers.mjs && node scripts/check-jsonld.mjs && node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-messengers.mjs && node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-guarantees.mjs && node scripts/check-copy.mjs",
     "build:fast": "astro build",
     "preview": "astro preview",
     "check": "astro check",
@@ -15,7 +15,8 @@
     "test": "node --test --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs tests/*.test.ts",
     "check:markers": "node scripts/check-markers.mjs",
     "check:jsonld": "node scripts/check-jsonld.mjs",
-    "check:guarantees": "node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-guarantees.mjs",
+    "check:guarantees": "node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-guarantees.mjs && node scripts/check-copy.mjs",
+    "check:copy": "node scripts/check-copy.mjs",
     "check:messengers": "node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-messengers.mjs"
   },
   "dependencies": {

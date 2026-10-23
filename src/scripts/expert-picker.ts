@@ -3,7 +3,7 @@
  * scripts/chrome.ts imports this module on the first pointer/focus/click on a `[data-experts]` trigger.
  * Native modal <dialog> (top layer, rest of the page inert) + explicit Tab focus trap; initial focus on «بستن»;
  * Esc / backdrop click / × close; focus returns to the trigger; ↑/↓/Home/End move between experts.
- * < 768px bottom sheet (CSS); ≥ 768px a 360px popover anchored under the trigger (above it if there is no room),
+ * < 768px bottom sheet (CSS); ≥ 768px a 400px popover (max 100vw − 32px) anchored under the trigger (above it if there is no room),
  * clamped to the viewport and re-positioned on scroll / resize. prefers-reduced-motion: no animation (CSS).
  */
 import type { PickerMode } from '../data/picker-trigger'; // type only: no data / link templates in the client bundle
@@ -25,7 +25,7 @@ function place(d: HTMLDialogElement) {
     return;
   }
   const r = opener.getBoundingClientRect();
-  const w = card.offsetWidth || 360;
+  const w = card.offsetWidth || 400;
   const h = card.offsetHeight || 300;
   const M = 12;
   const vw = document.documentElement.clientWidth;
