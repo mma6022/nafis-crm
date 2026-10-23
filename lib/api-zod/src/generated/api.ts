@@ -290,7 +290,7 @@ export const createDiagnosticReportResponseProgressMax = 100;
 
 export const CreateDiagnosticReportResponse = zod.object({
   "id": zod.number().int(),
-  "status": zod.enum(['awaiting_connection', 'queued', 'investigating', 'fixing', 'testing', 'deploying', 'verifying', 'resolved', 'failed']),
+  "status": zod.enum(['awaiting_connection', 'queued', 'investigating', 'fixing', 'testing', 'deploying', 'verifying', 'resolved', 'failed', 'received']),
   "progress": zod.number().int().min(createDiagnosticReportResponseProgressMin).max(createDiagnosticReportResponseProgressMax),
   "message": zod.string(),
   "page": zod.string(),
@@ -310,7 +310,7 @@ export const getActiveDiagnosticReportResponseReportOneProgressMax = 100;
 export const GetActiveDiagnosticReportResponse = zod.object({
   "report": zod.union([zod.object({
   "id": zod.number().int(),
-  "status": zod.enum(['awaiting_connection', 'queued', 'investigating', 'fixing', 'testing', 'deploying', 'verifying', 'resolved', 'failed']),
+  "status": zod.enum(['awaiting_connection', 'queued', 'investigating', 'fixing', 'testing', 'deploying', 'verifying', 'resolved', 'failed', 'received']),
   "progress": zod.number().int().min(getActiveDiagnosticReportResponseReportOneProgressMin).max(getActiveDiagnosticReportResponseReportOneProgressMax),
   "message": zod.string(),
   "page": zod.string(),
@@ -337,7 +337,7 @@ export const getDiagnosticReportResponseProgressMax = 100;
 
 export const GetDiagnosticReportResponse = zod.object({
   "id": zod.number().int(),
-  "status": zod.enum(['awaiting_connection', 'queued', 'investigating', 'fixing', 'testing', 'deploying', 'verifying', 'resolved', 'failed']),
+  "status": zod.enum(['awaiting_connection', 'queued', 'investigating', 'fixing', 'testing', 'deploying', 'verifying', 'resolved', 'failed', 'received']),
   "progress": zod.number().int().min(getDiagnosticReportResponseProgressMin).max(getDiagnosticReportResponseProgressMax),
   "message": zod.string(),
   "page": zod.string(),

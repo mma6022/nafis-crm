@@ -4,6 +4,8 @@ import { createHash } from "node:crypto";
 import { crmDb } from "./crm-db";
 import { requireAuth } from "./auth";
 import { createDiagnosticRouter } from "./diagnostic-reports";
+import { createReportForwarder, webhookConfigFromEnv } from "./report-webhook";
+import { logger } from "./logger";
 
 function currentBuild() {
   const root = fs.realpathSync(path.resolve(process.cwd(), "../.."));
@@ -13,8 +15,16 @@ function currentBuild() {
   const bundle = path.join(root, "artifacts/api-server/dist/index.mjs");
   return { release, sha256: createHash("sha256").update(fs.readFileSync(bundle)).digest("hex") };
 }
+const webhookConfig = webhookConfigFromEnv();
+if (process.env.REPORT_WEBHOOK_URL && !webhookConfig)
+  logger.error({}, "report_webhook_config_invalid: forwarding disabled (need https URL, key, valid header name)");
+export const reportForwarder = createReportForwarder({ config: () => webhookConfig, log: logger });
 export const diagnosticRouter = createDiagnosticRouter({
   db: crmDb, requireAuth,
+  forwarder: reportForwarder,
+  publicOrigin: () => process.env.REPORT_PUBLIC_ORIGIN || "https://crm.nafisvam.com",
+  readKey: () => process.env.REPORT_READ_KEY,
+  localPort: () => Number(process.env.PORT) || 5001,
   workerSecret: () => {
     if (process.env.CRM_REPAIR_WORKER_SECRET) return process.env.CRM_REPAIR_WORKER_SECRET;
     try { return fs.readFileSync("/etc/nafisvam-repair-transport/worker-key", "utf8").trim(); }

@@ -4805,6 +4805,7 @@ export const DiagnosticReportStatus = {
   verifying: 'verifying',
   resolved: 'resolved',
   failed: 'failed',
+  received: 'received',
 } as const;
 
 export interface DiagnosticReport {

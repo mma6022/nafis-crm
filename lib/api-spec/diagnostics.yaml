@@ -89,7 +89,7 @@ components:
         id: { type: integer }
         status:
           type: string
-          enum: [awaiting_connection, queued, investigating, fixing, testing, deploying, verifying, resolved, failed]
+          enum: [awaiting_connection, queued, investigating, fixing, testing, deploying, verifying, resolved, failed, received]
         progress: { type: integer, minimum: 0, maximum: 100 }
         message: { type: string }
         page: { type: string }
