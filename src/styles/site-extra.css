@@ -182,7 +182,9 @@
 .gplans-empty{border:1px dashed var(--nf-line-strong);border-radius:16px;padding:16px;margin:16px 0;background:var(--nf-brand-50)}
 .gplans-empty p{margin:0 0 10px;line-height:1.9}
 
-/* /contact «کارشناسان فروش» (Mohammad 2026-10-23): ≥48px call button + 48px messenger icon links */
+/* /contact «کارشناسان فروش» (Mohammad 2026-10-23): ≥48px call button + 48px messenger icon links.
+   /contact#experts (header/mobile bar «پیام»/footer links) lands below the sticky header via html{scroll-padding-top}
+   in site.css; no extra scroll-margin here (it would add to that padding and leave a ~90px gap). */
 .experts{margin-top:16px;padding-top:16px;border-top:1px solid var(--nf-line)}
 .experts h2{font-size:1.125rem;font-weight:800;margin:0}
 .experts-hours{display:flex;align-items:center;gap:6px;margin:4px 0 12px;color:var(--nf-ink-3,#5b6275);font-size:.9375rem}

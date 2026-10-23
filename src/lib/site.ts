@@ -84,8 +84,10 @@ export const WORK_HOURS = {
 } as const;
 
 /**
- * «یا در واتساپ بپرسید» link under the home callback lead. Empty = hidden. Set when Mohammad gives the real link
- * (e.g. 'https://wa.me/98912…'); never ship the bare https://wa.me/ placeholder here.
+ * «یا در واتساپ بپرسید» link under the home callback lead. Empty = hidden. Never a wa.me link: every generic
+ * messenger entry point (header, mobile bar «پیام», footer, /request) goes to /contact#experts, and
+ * scripts/check-messengers.mjs fails the build on any wa.me / api.whatsapp / whatsapp: link outside that block.
+ * If this is ever enabled, use '/contact#experts'.
  */
 export const CALLBACK_WHATSAPP = '';
 
