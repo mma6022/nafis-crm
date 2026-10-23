@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'wouter';
 import { ShoppingBag, Plus, Wallet } from 'lucide-react';
 import { EmptyState, Modal, SearchField } from '@/components/DataTools';
+import { Stepper, type WizardStep } from '@/components/wizard/Wizard';
 import { ErrorState, SkeletonPanel, formatDateTime } from '@/components/CrmShell';
 import { CompanyPlanWallets } from '@/components/PlanWallets';
 import { RegistrationSuggestions, type RegistrationSuggestion } from '@/components/RegistrationSuggestions';
@@ -45,6 +46,11 @@ export default function GoodsPurchases() {
   </section>;
 }
 
+const CREATE_PURCHASE_STEPS: WizardStep<'pick' | 'confirm'>[] = [
+  { key: 'pick', title: 'انتخاب کیف پول' },
+  { key: 'confirm', title: 'تأیید و رزرو اعتبار' },
+];
+
 function CreatePurchase({ onClose, initial }: { onClose: () => void; initial: RegistrationSuggestion | null }) {
   const qc = useQueryClient();
   const [, go] = useLocation();
@@ -59,6 +65,7 @@ function CreatePurchase({ onClose, initial }: { onClose: () => void; initial: Re
   const selected = items.find(w => w.customerId === (picked?.customerId ?? initial?.customerId)
     && w.planId === (picked?.planId ?? initial?.planId)) ?? null;
   return <Modal title="شروع خرید کالا" eyebrow="انتخاب کیف پول طرح" onClose={onClose} testId="create-goods-purchase" wide>
+    <Stepper className="nf-stepper-sm nf-flow-stepper" steps={CREATE_PURCHASE_STEPS} current={selected ? 'confirm' : 'pick'} testPrefix="goods-purchase-step-" />
     <p className="secondary-cell" style={{ marginBottom: 10 }}>کل موجودی مثبت کیف پول آن طرح رزرو می‌شود. هر کیف پول فقط یک رزرو فعال دارد.</p>
     <SearchField value={q} onChange={setQ} placeholder="نام، موبایل یا کد ملی مشتری" testId="search-eligible" />
     {eligible.data?.unassignedNotice ? <div className="gp-alert warn">{eligible.data.unassignedNotice}</div> : null}

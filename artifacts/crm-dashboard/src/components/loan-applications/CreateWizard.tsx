@@ -44,12 +44,12 @@ import {
   UploadCloud,
   FileText,
   User,
-  Check,
   ChevronRight,
   Info,
   Copy
 } from "lucide-react";
 import { Modal, EmptyState } from "@/components/DataTools";
+import { Stepper } from "@/components/wizard/Wizard";
 import { PersianDatePicker } from "@/components/PersianDatePicker";
 import { formatPhoneForDisplay } from "@/lib/phone";
 import { Priority, formatDate, formatDateTime } from "@/components/CrmShell";
@@ -319,34 +319,13 @@ export function CreateWizard({ onClose }: { onClose: () => void }) {
         </div>
       </section>
       {step !== 6 && submitError && <p className="form-error" role="alert" data-testid="wizard-recovery-error">{submitError}</p>}
-      <div className="wizard-stepper" data-testid="wizard-stepper" style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between' }}>
-        {WIZARD_STEPS.map((s, index) => (
-          <React.Fragment key={s.id}>
-            <div
-              className={`wizard-step ${step === s.id ? "active" : step > s.id ? "completed" : ""}`}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                opacity: step >= s.id ? 1 : 0.4,
-                transition: 'opacity 0.2s'
-              }}
-            >
-              <div style={{
-                width: 20, height: 20, borderRadius: '50%', 
-                background: step > s.id ? 'var(--teal)' : step === s.id ? 'var(--nafiss-blue)' : '#e2e8f0',
-                color: step >= s.id ? '#fff' : '#64748b',
-                display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 'bold'
-              }}>
-                {step > s.id ? <Check size={12} /> : s.id}
-              </div>
-              <span style={{ fontSize: 11, fontWeight: step === s.id ? 700 : 500, color: step >= s.id ? 'var(--ink-deep)' : '#64748b' }}>
-                {s.title}
-              </span>
-            </div>
-            {index < WIZARD_STEPS.length - 1 && (
-              <div style={{ height: 1, flex: 1, background: '#e2e8f0', margin: '10px 8px 0' }} />
-            )}
-          </React.Fragment>
-        ))}
+      <div className="wizard-stepper-shared" data-testid="wizard-stepper" style={{ marginBottom: 20 }}>
+        <Stepper
+          className="nf-stepper-sm"
+          steps={WIZARD_STEPS.map(s => ({ key: String(s.id), title: s.title }))}
+          current={String(step)}
+          testPrefix="wizard-stepper-step-"
+        />
       </div>
 
       <AnimatePresence mode="wait">

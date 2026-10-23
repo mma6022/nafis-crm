@@ -354,3 +354,45 @@ button.nf-stepper-btn:focus-visible .nf-stepper-dot { box-shadow: var(--nf-ring)
 .nf-more-chevron { transition: transform .15s; }
 .nf-more[open] .nf-more-chevron { transform: rotate(180deg); }
 .nf-more-body { padding: 4px 14px 16px; display: grid; gap: 14px; }
+
+/* StepForm: existing staff forms shown step by step (components/wizard/StepForm.tsx) */
+.nf-stepform { display: flex; flex-direction: column; gap: 16px; scroll-margin-top: 12px; }
+.nf-stepform > .nf-stepper { padding: 4px 0 14px; border-bottom: 1px solid var(--nf-line, #e5e7eb); }
+.nf-stepper-sm .nf-stepper-dot { width: 32px; height: 32px; font-size: 13.5px; }
+.nf-stepper-sm .nf-stepper-item + .nf-stepper-item::before { top: 15px; inset-inline-end: calc(50% + 20px); inset-inline-start: calc(-50% + 20px); }
+.nf-stepper-sm .nf-stepper-title { font-size: 12.5px; }
+.nf-stepform-hint { margin: -4px 0 0; font-size: 13px; color: var(--nf-ink-muted, #64748b); }
+.nf-stepform-body { min-height: 120px; }
+.nf-form-step[hidden] { display: none !important; }
+.nf-form-step > .loan-form-section:first-child, .nf-form-step > section:first-child { margin-top: 0; }
+.nf-stepform-error { border: 1px solid #fecaca; background: #fef2f2; color: #b91c1c; border-radius: 10px; padding: 10px 12px; font-size: 13.5px; }
+.nf-stepform-actions { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; padding-top: 14px; border-top: 1px solid var(--nf-line, #e5e7eb); }
+.nf-stepform-extra { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+@media (max-width: 640px) { .nf-stepform-extra { flex-direction: column; align-items: stretch; } }
+.nf-stepform-primary, .nf-stepform-secondary { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.nf-stepform-primary .btn { min-width: 150px; justify-content: center; }
+.nf-stepform-primary .form-footer { margin: 0; padding: 0; border: 0; }
+.nf-stepform-submit { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+@media (max-width: 640px) { .nf-stepform-submit { flex-direction: column; align-items: stretch; width: 100%; } .nf-stepform-submit .btn { width: 100%; min-height: 48px; } }
+@media (max-width: 640px) {
+  .nf-stepform-actions { position: sticky; bottom: -1px; z-index: 3; background: #fff; flex-direction: column; align-items: stretch; padding-bottom: 10px; }
+  .nf-stepform-primary, .nf-stepform-secondary { flex-direction: column; align-items: stretch; }
+  .nf-stepform-primary .btn, .nf-stepform-secondary .btn { width: 100%; min-height: 48px; justify-content: center; }
+  .nf-stepform-secondary { flex-direction: row; }
+  .nf-stepform-secondary .btn { flex: 1; width: auto; }
+}
+@media (max-width: 520px) { .nf-stepform > .nf-stepper .nf-stepper-compact { display: block; } }
+
+/* One-question-per-step forms: always the compact progress bar. */
+.nf-stepper-force-compact .nf-stepper-compact { display: block; }
+.nf-stepper-force-compact .nf-stepper-full { display: none; }
+.nf-stepper-force-compact .nf-stepper-names { display: none; }
+.nf-question-step { min-height: 180px; display: flex; flex-direction: column; gap: 14px; }
+.nf-question-step .field label { font-size: 15px; font-weight: 700; }
+.nf-question-step select { min-height: 48px; font-size: 15px; }
+.nf-question-group { margin: 0; font-size: 12.5px; font-weight: 800; color: var(--nf-brand-600, #1e3a8a); }
+
+/* Existing multi-step flows (loan application, contracts, goods purchase) on the shared stepper. */
+.nf-flow-stepper { padding: 2px 0 14px; margin-bottom: 14px; border-bottom: 1px solid var(--nf-line, #e5e7eb); }
+.gp-flow { padding: 18px 16px 12px; margin-bottom: 16px; }
+.gp-flow-hint { margin: 12px 0 0; text-align: center; font-size: 13px; color: var(--nf-ink-muted, #64748b); }

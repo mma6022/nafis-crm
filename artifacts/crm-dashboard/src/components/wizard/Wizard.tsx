@@ -14,11 +14,13 @@ export type WizardStep<K extends string = string> = { key: K; title: string; hin
 const faDigits = (value: number | string) => String(value).replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
 
 /** Progress indicator: compact bar + «مرحله X از N» on phones, numbered circles with names on wider screens. */
-export function Stepper<K extends string>({ steps, current, onGo, className = '', testPrefix = 'wizard-step-' }: {
+export function Stepper<K extends string>({ steps, current, onGo, allowJump = false, className = '', testPrefix = 'wizard-step-' }: {
   steps: readonly WizardStep<K>[];
   current: K;
   /** When given, completed steps become clickable (going back never loses data). */
   onGo?: (key: K) => void;
+  /** Edit forms: every step (not only completed ones) is clickable. */
+  allowJump?: boolean;
   className?: string;
   testPrefix?: string;
 }) {
@@ -34,7 +36,7 @@ export function Stepper<K extends string>({ steps, current, onGo, className = ''
       <ol className="nf-stepper-full">
         {steps.map((step, i) => {
           const state = i < index ? 'done' : i === index ? 'current' : 'todo';
-          const clickable = Boolean(onGo) && state === 'done';
+          const clickable = Boolean(onGo) && (state === 'done' || (allowJump && state === 'todo'));
           const content = <>
             <span className="nf-stepper-dot">{state === 'done' ? <Check size={16} strokeWidth={3} /> : faDigits(i + 1)}</span>
             <span className="nf-stepper-title">{step.title}</span>

@@ -8,6 +8,8 @@ import { getGetAuthSessionQueryKey, getListRolesQueryKey, getListUsersQueryKey, 
 import { ErrorState, formatDate, SkeletonPanel } from '@/components/CrmShell';
 import { EmptyState, Modal, SearchField } from '@/components/DataTools';
 import SalespersonIdentityReview from './SalespersonIdentityReview';
+import { FormStep, StepForm } from '@/components/wizard/StepForm';
+import type { WizardStep } from '@/components/wizard/Wizard';
 import { UserVoipField } from '@/components/UserVoipField';
 
 function saveError(error: unknown) {
@@ -155,6 +157,17 @@ function roleLabel(role: string) {
   return roles[role] ?? role;
 }
 
+const USER_EDIT_STEPS: WizardStep<'account' | 'contact' | 'security'>[] = [
+  { key: 'account', title: 'حساب و نقش' },
+  { key: 'contact', title: 'راه‌های ارتباط' },
+  { key: 'security', title: 'رمز عبور' },
+];
+const USER_CREATE_STEPS: WizardStep<'account' | 'profile' | 'access'>[] = [
+  { key: 'account', title: 'نام کاربری و رمز' },
+  { key: 'profile', title: 'مشخصات' },
+  { key: 'access', title: 'نقش و دسترسی' },
+];
+
 function UserEditForm({ user, roles, pending, error, onClose, onSave }: { user: CrmUser; roles: AppRole[]; pending: boolean; error: string; onClose: () => void; onSave: (data: CrmUserUpdate) => void }) {
   const [form, setForm] = useState({ username: user.username, fullName: user.fullName ?? '', mobile: user.mobile ?? '', telegramId: user.telegramId ?? '', password: '', confirmPassword: '', role: user.role, active: user.active, voipExtension: user.voipExtension ?? '' });
   const [formError, setFormError] = useState('');
@@ -185,23 +198,24 @@ function UserEditForm({ user, roles, pending, error, onClose, onSave }: { user: 
   return (
     <Modal title={`ویرایش ${user.username}`} eyebrow="حساب کاربری" onClose={onClose} testId="user-form">
       <form onSubmit={submit}>
-        {formError && <div className="profile-form-error" data-testid="error-user-validation">{formError}</div>}
-        {error && <div className="profile-form-error" role="alert">{error}</div>}
+        <StepForm
+          steps={USER_EDIT_STEPS}
+          testPrefix="user-edit-wizard"
+          onCancel={onClose}
+          cancelTestId="button-cancel-user"
+          footerExtra={<>
+          {formError && <div className="profile-form-error" data-testid="error-user-validation">{formError}</div>}
+          {error && <div className="profile-form-error" role="alert">{error}</div>}
+          </>}
+          submit={<button className="btn btn-primary" type="submit" disabled={pending} data-testid="button-save-user"> <UserCog size={15} /> {pending ? 'در حال ذخیره...' : 'ذخیره کاربر'} </button>}
+        >
+        <FormStep step="account">
         <div className="form-grid">
           <AvatarPicker userId={user.id} name={user.fullName || user.username} endpoint={`users/${user.id}/avatar`} testId="user-avatar" />
           <div className="field">
             <label htmlFor="user-username-edit">نام کاربری</label>
             <input id="user-username-edit" value={form.username} minLength={3} maxLength={100} pattern="[A-Za-z0-9._\-]+" dir="ltr" autoComplete="off" required onChange={(event) => setForm({ ...form, username: event.target.value })} data-testid="input-user-username" />
           </div>
-          <div className="field">
-            <label htmlFor="user-telegram">آیدی تلگرام</label>
-            <input id="user-telegram" value={form.telegramId} maxLength={100} dir="ltr" onChange={(event) => setForm({ ...form, telegramId: event.target.value })} placeholder="@username" data-testid="input-user-telegram" />
-          </div>
-          <div className="field">
-            <label htmlFor="user-mobile-edit">شماره موبایل</label>
-            <input id="user-mobile-edit" value={form.mobile} maxLength={30} dir="ltr" onChange={(event) => setForm({ ...form, mobile: event.target.value })} placeholder="09xxxxxxxxx" data-testid="input-user-mobile" />
-          </div>
-          <UserVoipField value={form.voipExtension} onChange={voipExtension => setForm({ ...form, voipExtension })} />
           <div className="field full">
             <label htmlFor="user-full-name">نام نمایشی</label>
             <input id="user-full-name" value={form.fullName} onChange={(event) => setForm({ ...form, fullName: event.target.value })} data-testid="input-user-full-name" />
@@ -212,6 +226,29 @@ function UserEditForm({ user, roles, pending, error, onClose, onSave }: { user: 
               {roles.map((role) => <option key={role.slug} value={role.slug}>{role.name}</option>)}
             </select>
           </div>
+          <div className="field full">
+            <label className="boolean-field" style={{ justifyContent: 'flex-start', gap: 10 }}>
+              <input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} data-testid="checkbox-user-active" />
+              دسترسی کاربر فعال باشد
+            </label>
+          </div>
+        </div>
+        </FormStep>
+        <FormStep step="contact">
+        <div className="form-grid">
+          <div className="field">
+            <label htmlFor="user-telegram">آیدی تلگرام</label>
+            <input id="user-telegram" value={form.telegramId} maxLength={100} dir="ltr" onChange={(event) => setForm({ ...form, telegramId: event.target.value })} placeholder="@username" data-testid="input-user-telegram" />
+          </div>
+          <div className="field">
+            <label htmlFor="user-mobile-edit">شماره موبایل</label>
+            <input id="user-mobile-edit" value={form.mobile} maxLength={30} dir="ltr" onChange={(event) => setForm({ ...form, mobile: event.target.value })} placeholder="09xxxxxxxxx" data-testid="input-user-mobile" />
+          </div>
+          <UserVoipField value={form.voipExtension} onChange={voipExtension => setForm({ ...form, voipExtension })} />
+        </div>
+        </FormStep>
+        <FormStep step="security">
+        <div className="form-grid">
           <div className="field">
             <label htmlFor="user-password-edit">رمز عبور جدید</label>
             <input id="user-password-edit" type="password" value={form.password} minLength={form.password ? 8 : undefined} maxLength={200} dir="ltr" autoComplete="new-password" onChange={(event) => setForm({ ...form, password: event.target.value })} placeholder="برای حفظ رمز فعلی خالی بگذارید" data-testid="input-user-password" />
@@ -220,21 +257,9 @@ function UserEditForm({ user, roles, pending, error, onClose, onSave }: { user: 
             <label htmlFor="user-password-confirm">تکرار رمز عبور جدید</label>
             <input id="user-password-confirm" type="password" value={form.confirmPassword} maxLength={200} dir="ltr" autoComplete="new-password" onChange={(event) => setForm({ ...form, confirmPassword: event.target.value })} data-testid="input-user-confirm-password" />
           </div>
-          <div className="field full">
-            <label className="boolean-field" style={{ justifyContent: 'flex-start', gap: 10 }}>
-              <input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} data-testid="checkbox-user-active" />
-              دسترسی کاربر فعال باشد
-            </label>
-          </div>
         </div>
-        
-        <div className="form-footer" style={{ marginTop: 24 }}>
-          <button className="btn btn-primary" type="submit" disabled={pending} data-testid="button-save-user">
-            <UserCog size={15} />
-            {pending ? 'در حال ذخیره...' : 'ذخیره کاربر'}
-          </button>
-          <button className="btn btn-ghost" type="button" onClick={onClose} data-testid="button-cancel-user">انصراف</button>
-        </div>
+        </FormStep>
+        </StepForm>
       </form>
     </Modal>
   );
@@ -272,8 +297,19 @@ function UserCreateForm({ roles, pending, error: serverError, onClose, onSave }:
   return (
     <Modal title="ایجاد کاربر جدید" eyebrow="حساب کاربری" onClose={onClose} testId="user-create-form">
       <form onSubmit={submit}>
-        {serverError && <div className="profile-form-error" role="alert">{serverError}</div>}
-        {error && <div style={{ color: '#a35a51', fontSize: 12, marginBottom: 16, padding: '10px 14px', background: '#fff7f5', border: '1px solid #efd5d1', borderRadius: 8 }}>{error}</div>}
+        <StepForm
+          steps={USER_CREATE_STEPS}
+          testPrefix="user-create-wizard"
+          onCancel={onClose}
+          cancelTestId="button-cancel-create-user"
+          beforeNext={(step) => step === 'account' ? (form.username.length < 3 ? 'نام کاربری باید حداقل ۳ حرف باشد.' : form.password.length < 8 ? 'رمز عبور باید حداقل ۸ نویسه باشد.' : null) : null}
+          footerExtra={<>
+          {serverError && <div className="profile-form-error" role="alert">{serverError}</div>}
+          {error && <div style={{ color: '#a35a51', fontSize: 12, marginBottom: 16, padding: '10px 14px', background: '#fff7f5', border: '1px solid #efd5d1', borderRadius: 8 }}>{error}</div>}
+          </>}
+          submit={<button className="btn btn-primary" type="submit" disabled={pending} data-testid="button-submit-create-user"> <UserCog size={15} /> {pending ? 'در حال ایجاد...' : 'ایجاد کاربر'} </button>}
+        >
+        <FormStep step="account">
         <div className="form-grid">
           <div className="field">
             <label htmlFor="user-username">نام کاربری *</label>
@@ -283,15 +319,23 @@ function UserCreateForm({ roles, pending, error: serverError, onClose, onSave }:
             <label htmlFor="user-password">رمز عبور *</label>
             <input type="password" id="user-password" dir="ltr" autoComplete="new-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required minLength={8} data-testid="input-create-password" />
           </div>
+        </div>
+        </FormStep>
+        <FormStep step="profile">
+        <div className="form-grid">
           <div className="field full">
             <label htmlFor="user-full-name">نام نمایشی</label>
             <input id="user-full-name" value={form.fullName} onChange={(event) => setForm({ ...form, fullName: event.target.value })} placeholder="مثال: علی احمدی" data-testid="input-create-full-name" />
           </div>
-          <UserVoipField creating value={form.voipExtension} onChange={voipExtension => setForm({ ...form, voipExtension })} />
           <div className="field full">
             <label htmlFor="user-mobile-create">شماره موبایل</label>
             <input id="user-mobile-create" value={form.mobile} maxLength={30} dir="ltr" onChange={(event) => setForm({ ...form, mobile: event.target.value })} placeholder="09xxxxxxxxx" data-testid="input-create-mobile" />
           </div>
+          <UserVoipField creating value={form.voipExtension} onChange={voipExtension => setForm({ ...form, voipExtension })} />
+        </div>
+        </FormStep>
+        <FormStep step="access">
+        <div className="form-grid">
           <div className="field">
             <label htmlFor="user-role">نقش</label>
             <select id="user-role" value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })} data-testid="select-create-role">
@@ -305,14 +349,8 @@ function UserCreateForm({ roles, pending, error: serverError, onClose, onSave }:
             </label>
           </div>
         </div>
-        
-        <div className="form-footer" style={{ marginTop: 24 }}>
-          <button className="btn btn-primary" type="submit" disabled={pending} data-testid="button-submit-create-user">
-            <UserCog size={15} />
-            {pending ? 'در حال ایجاد...' : 'ایجاد کاربر'}
-          </button>
-          <button className="btn btn-ghost" type="button" onClick={onClose} data-testid="button-cancel-create-user">انصراف</button>
-        </div>
+        </FormStep>
+        </StepForm>
       </form>
     </Modal>
   );

@@ -6,10 +6,19 @@ import { initials } from './CrmShell';
 import { AllocationProgramManager } from './AllocationProgramManager';
 import { PersianDatePicker } from './PersianDatePicker';
 import { Modal } from './DataTools';
+import { FormStep, StepForm } from './wizard/StepForm';
+import type { WizardStep } from './wizard/Wizard';
 import { normalizeDigits } from '@/lib/customer-field-validation';
 import { formatPhoneForDisplay } from '@/lib/phone';
 import { refreshCustomerViews } from './RepeatRequestReview';
 import { CustomerTagCreate } from './CustomerTagCreate';
+
+const CUSTOMER_STEPS: WizardStep<'contact' | 'identity' | 'followup' | 'details'>[] = [
+  { key: 'contact', title: 'نام و تماس' },
+  { key: 'identity', title: 'اطلاعات هویتی' },
+  { key: 'followup', title: 'پیگیری و کارشناس' },
+  { key: 'details', title: 'برچسب و توضیحات' },
+];
 
 type Props = { open: boolean; customer?: Customer | null; salespersons: Salesperson[]; onClose: () => void; onSaved: () => void };
 
@@ -112,6 +121,15 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved }:
     <div className="modal customer-form-modal" role="dialog" aria-modal="true" aria-labelledby="customer-form-title">
       <div className="modal-head"><div><div className="eyebrow">{isEditing ? 'ویرایش پرونده' : 'پرونده تازه'}</div><h3 id="customer-form-title">{isEditing ? `ویرایش ${initials(customer?.name)}` : 'افزودن مشتری جدید'}</h3></div><button className="modal-close" onClick={onClose} aria-label="بستن" data-testid="button-close-customer-form"><X size={19} /></button></div>
       <form onSubmit={submit}>
+        <StepForm
+          steps={CUSTOMER_STEPS}
+          testPrefix="customer-wizard"
+          onCancel={onClose}
+          cancelTestId="button-cancel-customer"
+          footerExtra={error ? <div className="profile-form-error" role="alert" data-testid="error-save-customer">{error}</div> : null}
+          submit={<button className="btn btn-primary" type="submit" disabled={pending} data-testid="button-save-customer">{pending ? 'در حال بررسی و ذخیره…' : createdForTags ? 'تلاش دوباره برای ذخیره برچسب‌ها' : isEditing ? 'ذخیره تغییرات' : 'ثبت مشتری'}</button>}
+        >
+        <FormStep step="contact">
         <div className="form-grid">
           {!isEditing ? <div className="field full ai-customer-import">
             <div className="ai-customer-import-head">
@@ -142,9 +160,17 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved }:
           </div> : null}
           <div className="field"><label htmlFor="customer-name">نام مشتری</label><input id="customer-name" value={form.name} onChange={(e) => setValue('name', e.target.value)} required data-testid="input-customer-name" /></div>
           <div className="field"><label htmlFor="customer-phone">شماره تماس</label><input id="customer-phone" dir="ltr" value={form.phone} onChange={(e) => setValue('phone', e.target.value)} required minLength={3} data-testid="input-customer-phone" /></div>
+        </div>
+        </FormStep>
+        <FormStep step="identity">
+        <div className="form-grid">
           <div className="field"><label htmlFor="customer-national-code">کد ملی</label><input id="customer-national-code" dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={(e) => setValue('nationalCode', e.target.value)} maxLength={10} data-testid="input-customer-national-code" /></div>
           <div className="field"><label htmlFor="customer-postal-code">کد پستی</label><input id="customer-postal-code" dir="ltr" inputMode="numeric" value={form.postalCode} onChange={(e) => setValue('postalCode', e.target.value)} maxLength={10} data-testid="input-customer-postal-code" /></div>
           <div className="field"><label>تاریخ تولد (شمسی)</label><PersianDatePicker value={form.birthDateJalali} onChange={(v) => setValue('birthDateJalali', v)} placeholder="YYYY/MM/DD" testId="input-customer-birth-date" birthDate /></div>
+        </div>
+        </FormStep>
+        <FormStep step="followup">
+        <div className="form-grid">
           <div className="field"><label htmlFor="customer-priority">اولویت پیگیری</label><select id="customer-priority" value={form.priority} onChange={(e) => setValue('priority', e.target.value)} data-testid="select-customer-priority"><option value="">بدون اولویت</option>{[1, 2, 3].map((value) => <option value={value} key={value}>اولویت {value}</option>)}</select></div>
           {isAdmin ? <div className="field">
             <div className="field-label-actions"><label htmlFor="customer-salesperson">کارشناس فروش</label>{!isEditing ? <button type="button" className="field-link-button" onClick={() => setProgramsOpen(true)} data-testid="button-manage-allocation-programs"><Settings2 size={13} /> تعریف برنامه تخصیص</button> : null}</div>
@@ -156,14 +182,18 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved }:
           </div> : null}
           <div className="field"><label htmlFor="customer-status">وضعیت</label><select id="customer-status" value={form.status} onChange={(e) => setValue('status', e.target.value)} data-testid="select-customer-status"><option value="in_progress">در حال انجام</option><option value="cancelled">لغو شده</option><option value="completed">اتمام</option></select></div>
           <div className="field full"><label className="boolean-field"><input type="checkbox" checked={form.isUrgent} onChange={(e) => setForm(c => ({ ...c, isUrgent: e.target.checked }))} data-testid="checkbox-customer-is-urgent" /> <strong>مشتری فوری</strong> (نیاز به پیگیری سریع)</label></div>
+        </div>
+        </FormStep>
+        <FormStep step="details">
+        <div className="form-grid">
           <div className="field full"><label>برچسب‌های مشتری</label>
             {tagsCatalog.isLoading ? <div className="skeleton loading-line" /> : tagsCatalog.isError ? <div className="profile-form-error" role="alert">فهرست برچسب‌ها دریافت نشد. <button type="button" className="field-link-button" onClick={() => void tagsCatalog.refetch()}>تلاش دوباره</button></div> : <div className="tag-selector">{(tagsCatalog.data ?? []).filter(tag => tag.key !== 'repeat_request').map(tag => <label className="tag-choice" key={tag.key}><input type="checkbox" checked={tags.includes(tag.key)} onChange={e => setTags(current => e.target.checked ? [...current, tag.key] : current.filter(key => key !== tag.key))} data-testid={`checkbox-form-tag-${tag.key}`} />{tag.label}</label>)}</div>}
             <CustomerTagCreate onCreated={tag => setTags(current => current.includes(tag.key) ? current : [...current, tag.key])} />
           </div>
           <div className="field full"><label htmlFor="customer-description">توضیحات</label><textarea id="customer-description" value={form.description} onChange={(e) => setValue('description', e.target.value)} placeholder="زمینه تماس یا نیاز مالی مشتری..." data-testid="textarea-customer-description" /></div>
         </div>
-        {error && <div className="profile-form-error" role="alert" data-testid="error-save-customer">{error}</div>}
-        <div className="form-footer"><button className="btn btn-primary" type="submit" disabled={pending} data-testid="button-save-customer">{pending ? 'در حال بررسی و ذخیره…' : createdForTags ? 'تلاش دوباره برای ذخیره برچسب‌ها' : isEditing ? 'ذخیره تغییرات' : 'ثبت مشتری'}</button><button className="btn btn-ghost" type="button" onClick={onClose} data-testid="button-cancel-customer">انصراف</button></div>
+        </FormStep>
+        </StepForm>
       </form>
       {programsOpen && isAdmin ? <AllocationProgramManager salespersons={salespersons} onClose={() => setProgramsOpen(false)} /> : null}
       {matched && <Modal title="این شماره همراه قبلاً ثبت شده است" eyebrow="درخواست دوباره مشتری" onClose={() => setMatched(null)} testId="duplicate-mobile" wide>

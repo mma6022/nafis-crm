@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useParams } from 'wouter';
-import { ArrowRight, Check, FileText, Printer, RefreshCw, Send, Plus, Trash2, Banknote, ShieldCheck, Truck } from 'lucide-react';
+import { ArrowRight, FileText, Printer, RefreshCw, Send, Plus, Trash2, Banknote, ShieldCheck, Truck } from 'lucide-react';
 import { ErrorState, SkeletonPanel, formatDateTime } from '@/components/CrmShell';
 import GoodsSettlementPreview from '@/components/GoodsSettlementPreview';
+import { Stepper } from '@/components/wizard/Wizard';
 import { getGetCompanyWalletQueryKey } from '@workspace/api-client-react';
 import { useListContractTemplates, getListContractTemplatesQueryKey, type ContractMapping } from '@workspace/api-client-react';
 import { UpdatedContractBanner } from '@/components/UpdatedContractBanner';
@@ -51,12 +52,10 @@ export default function GoodsPurchaseDetail() {
       <div className="gp-hero-amount"><span>اعتبار رزروشده</span><strong>{toman(p.creditAmountToman)}</strong><em className="inline-badge gold">{stageLabel(p.stage)}</em></div>
     </div>
 
-    <ol className="gp-timeline">
-      {STAGES.map((s, i) => <li key={s.key} className={i < idx || p.stage === 'completed' ? 'done' : i === idx ? 'current' : ''}>
-        <span className="gp-dot">{i < idx || p.stage === 'completed' ? <Check size={13} /> : (i + 1).toLocaleString('fa-IR')}</span>
-        <strong>{s.label}</strong><small>{s.hint}</small>
-      </li>)}
-    </ol>
+    <div className="panel gp-flow" data-testid="goods-purchase-stepper">
+      <Stepper className="nf-stepper-sm" steps={STAGES.map(s => ({ key: s.key, title: s.label }))} current={p.stage} testPrefix="goods-stage-" />
+      <p className="gp-flow-hint">{p.stage === 'completed' ? 'همه مراحل انجام شده است.' : STAGES[idx]?.hint}</p>
+    </div>
 
     {flash ? <div className={`gp-alert ${flash.ok ? 'ok' : ''}`} role="status">{flash.text}</div> : null}
 

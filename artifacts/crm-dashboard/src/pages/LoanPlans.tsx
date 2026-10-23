@@ -20,6 +20,8 @@ import {
 import { GoodsPlanSettingsFields, blankGoodsPlanForm, saveGoodsPlanSettings, type GoodsPlanForm } from '@/components/GoodsPlanSettingsFields';
 import { errText, useMe } from '@/lib/goods-api';
 import { ErrorState, formatDate, SkeletonPanel } from '@/components/CrmShell';
+import { FormStep, StepForm } from '@/components/wizard/StepForm';
+import type { WizardStep } from '@/components/wizard/Wizard';
 import { EmptyState, Modal } from '@/components/DataTools';
 
 const INSTALLMENT_OPTIONS = [6, 9, 12, 18, 24, 36, 48] as const;
@@ -291,6 +293,14 @@ function emptyCondition(): ConditionForm {
   };
 }
 
+const PLAN_STEPS: WizardStep<'base' | 'installments' | 'goods' | 'docs' | 'conditions'>[] = [
+  { key: 'base', title: 'اطلاعات پایه' },
+  { key: 'installments', title: 'اقساط' },
+  { key: 'goods', title: 'خرید کالا' },
+  { key: 'docs', title: 'مدارک و قرارداد' },
+  { key: 'conditions', title: 'شرایط و وضعیت' },
+];
+
 function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave }: { plan: LoanPlan | null; pending: boolean; goodsError: string; canGoodsFinance: boolean; onClose: () => void; onSave: (data: LoanPlanInput, goods: GoodsPlanForm) => void }) {
   const [goods, setGoods] = useState<GoodsPlanForm>(blankGoodsPlanForm);
   const dictionaries = useListConsultOptions(undefined, { query: { queryKey: getListConsultOptionsQueryKey(), staleTime: 5 * 60_000 } });
@@ -302,6 +312,8 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
   const [documents, setDocuments] = useState<string[]>([]);
   const [conditions, setConditions] = useState<ConditionForm[]>([]);
   const isGoodsPlan = form.loanType === 'goods';
+  // The goods step is only shown for «وام خرید کالا»; its fields stay mounted (and disabled) otherwise, so the payload is unchanged.
+  const planSteps = PLAN_STEPS.filter((step) => step.key !== 'goods' || isGoodsPlan);
 
   useEffect(() => {
     setForm(plan ? {
@@ -437,6 +449,14 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
 
   return <Modal title={plan ? 'ویرایش طرح تسهیلاتی' : 'ایجاد طرح تسهیلاتی'} eyebrow="کاتالوگ تأمین مالی" onClose={onClose} testId="loan-plan-form">
     <form onSubmit={submit} className="loan-plan-form">
+      <StepForm
+        steps={planSteps}
+        testPrefix="plan-wizard"
+        onCancel={onClose}
+        footerExtra={goodsError ? <div className="gp-alert">{goodsError}</div> : null}
+        submit={<button className="btn btn-primary" type="submit" disabled={pending} data-testid="button-save-plan">{pending ? 'در حال ذخیره…' : 'ذخیره طرح'}</button>}
+      >
+      <FormStep step="base">
       <section className="loan-form-section">
         <div className="loan-form-section-title"><strong>اطلاعات پایه طرح</strong><span>مشخصات اصلی و نحوه اجرای تسهیلات</span></div>
         <div className="form-grid">
@@ -449,11 +469,21 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
           <div className="field"><label>نوع تسهیلات</label><DictionarySelect value={form.loanType} options={optionsFor(options, 'loan_type')} onChange={(loanType) => setForm({ ...form, loanType })} /></div>
           <div className="field"><label>روش اجرا</label><DictionarySelect value={form.processMode} options={optionsFor(options, 'process_mode')} onChange={(processMode) => setForm({ ...form, processMode })} /></div>
           <div className="field"><label>مدت زمان انجام</label><select value={form.grantDays} onChange={(event) => setForm({ ...form, grantDays: event.target.value })} required><option value="">انتخاب کنید</option>{GRANT_TIMES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+        </div>
+      </section>
+      </FormStep>
+
+      <FormStep step="installments">
+      <section className="loan-form-section">
+        <div className="loan-form-section-title"><strong>اقساط</strong><span>تعداد اقساط مجاز و درصدهای هر کدام</span></div>
+        <div className="form-grid">
           <div className="field full"><label>تعداد اقساط</label><ChipChoices values={INSTALLMENT_OPTIONS.map((value) => ({ value, label: `${value} ماهه` }))} selected={selectedInstallments} onChange={updateSelectedInstallments} testId="installment-options" /></div>
           {terms.length ? <div className="field full"><label>درصدهای مربوط به هر تعداد اقساط</label><div className="installment-terms-list">{terms.map((term) => <div className="installment-term-row" key={term.installments}><strong>{term.installments} قسط</strong><div className="term-inputs"><label><span>پیش‌پرداخت</span><input type="number" min="0" max="100" step="0.01" value={term.prepaymentPercent} onChange={(event) => updateTerm(term.installments, 'prepaymentPercent', event.target.value)} required /></label><label><span>کسر از مشتری</span><input type="number" min="0" max="100" step="0.01" value={term.deductionPercent} onChange={(event) => updateTerm(term.installments, 'deductionPercent', event.target.value)} required /></label><label><span>واریزی به مشتری</span><input type="number" min="0" max="100" step="0.01" value={term.depositPercent} onChange={(event) => updateTerm(term.installments, 'depositPercent', event.target.value)} required /></label></div></div>)}</div></div> : null}
         </div>
       </section>
+      </FormStep>
 
+      <FormStep step="goods">
       <section className="loan-form-section">
         <div className="loan-form-section-title">
           <strong>درصدها و اطلاعات خرید کالا</strong>
@@ -472,13 +502,19 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
           </div>
         </fieldset>
       </section>
+      <GoodsPlanSettingsFields planId={plan?.id} value={goods} onChange={setGoods} templates={templates} enabled={isGoodsPlan && canGoodsFinance} />
+      </FormStep>
 
+      <FormStep step="docs">
       <section className="loan-form-section">
         <div className="loan-form-section-title"><strong>مدارک و توضیحات</strong><span>مدارک لازم برای تشکیل پرونده</span></div>
          <div className="field full"><label>قالب قرارداد</label><select value={form.contractTemplateId} onChange={(e) => setForm({ ...form, contractTemplateId: e.target.value })} required><option value="">انتخاب قالب قرارداد</option>{templates.map(tpl => <option key={tpl.id} value={tpl.id}>{tpl.name}</option>)}</select></div>
         <div className="field"><label>لیست مدارک مورد نیاز</label><DictionaryChips selected={documents} options={optionsFor(options, 'required_document')} onChange={setDocuments} testId="required-documents" /></div>
         <div className="field"><label>توضیحات طرح</label><textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} data-testid="textarea-plan-notes" /></div>
       </section>
+      </FormStep>
+
+      <FormStep step="conditions">
 
       <section className="loan-form-section">
         <div className="loan-form-section-heading">
@@ -500,9 +536,8 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
       </section>
 
       <section className="loan-form-section plan-status-row"><label className="boolean-field"><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} />طرح در کاتالوگ فعال باشد</label></section>
-      <GoodsPlanSettingsFields planId={plan?.id} value={goods} onChange={setGoods} templates={templates} enabled={isGoodsPlan && canGoodsFinance} />
-      {goodsError ? <div className="gp-alert">{goodsError}</div> : null}
-      <div className="form-footer"><button className="btn btn-primary" type="submit" disabled={pending}>{pending ? 'در حال ذخیره…' : 'ذخیره طرح'}</button><button className="btn btn-ghost" type="button" onClick={onClose}>انصراف</button></div>
+      </FormStep>
+      </StepForm>
     </form>
   </Modal>;
 }

@@ -48,3 +48,11 @@
   .call-form-row.two, .call-form-row.three { grid-template-columns: 1fr; }
   .call-form-footer { position: sticky; bottom: 0; background: #fff; }
 }
+
+/* Step-by-step call form (shared StepForm). */
+.call-form-shell > .call-stepform { flex: 1 1 auto; min-height: 0; gap: 10px; }
+.call-stepform > .nf-stepper { padding-bottom: 8px; }
+.call-form-body > .call-form-step:not([hidden]) { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; min-height: 0; }
+.call-stepform .nf-stepform-actions { flex: 0 0 auto; padding-top: 10px; }
+.call-stepform .nf-stepform-extra { display: flex; }
+@media (max-width: 640px) { .call-stepform .nf-stepform-extra .call-reminder-actions { width: 100%; } .call-stepform .nf-stepform-extra .btn { flex: 1; min-height: 44px; justify-content: center; } }

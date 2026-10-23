@@ -5,12 +5,19 @@ import { BellPlus, FileText, PhoneCall, Search, X } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { Modal } from '@/components/DataTools';
+import { FormStep, StepForm } from '@/components/wizard/StepForm';
+import type { WizardStep } from '@/components/wizard/Wizard';
 import { defaultReminderJalali, formatJalaliValue, jalaliToIso, parseJalaliValue } from '@/lib/jalali';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { CallHistoryModal, CustomerCallHistory } from '@/components/CallHistory';
 import { getListCustomersQueryKey, getListRemindersQueryKey, useCreateReminder, useListCustomers, useListConsultOptions, getListConsultOptionsQueryKey, type CallInput, type CallRecord, type ConsultationInput } from '@workspace/api-client-react';
 import { CustomerConsultationStatus, isYesValue } from './CustomerConsultationStatus';
 import { CallCustomerSelect, type CallCustomer } from './CallCustomerSelect';
+
+const CALL_STEPS: WizardStep<'customer' | 'details'>[] = [
+  { key: 'customer', title: 'مشتری' },
+  { key: 'details', title: 'شرح تماس' },
+];
 
 type CallFormProps = {
   customers: { id: number; name: string; phone: string; salespersonName?: string | null; priority?: number | null; status?: string; nationalCode?: string | null; postalCode?: string | null; birthDateJalali?: string | null; verificationStatus?: string; isUrgent?: boolean }[];
@@ -154,8 +161,26 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
         </aside>
         <div className="call-dialog-center">
           <form onSubmit={submit} className="call-form-shell">
-            <div className="call-form-body">
+            <StepForm
+              steps={CALL_STEPS}
+              testPrefix="call-wizard"
+              className="call-stepform"
+              bodyClassName="call-form-body"
+              onCancel={onClose}
+              cancelTestId="button-cancel-call"
+              beforeNext={(step) => step === 'customer' && !form.customerId ? 'ابتدا مشتری را انتخاب کنید.' : null}
+              submit={<button className="btn btn-primary" type="submit" disabled={pending} data-testid="button-save-call">
+                  <PhoneCall size={15} />{pending ? 'در حال ثبت...' : 'ثبت تماس'}
+                </button>}
+              actionsExtra={<div className="call-reminder-actions">
+                <button ref={sheetOpener} className={`btn reminder-toggle ${reminderOpen ? 'active' : ''}`} type="button" aria-haspopup="dialog" aria-expanded={sheetOpen} onClick={() => setSheetOpen(true)} data-testid="button-toggle-call-reminder">
+                  <BellPlus size={15} /> {reminderOpen ? 'ویرایش یادآور' : 'افزودن یادآور'}
+                </button>
+                {reminderOpen ? <button className="btn btn-ghost" type="button" onClick={removeReminder} data-testid="button-remove-call-reminder">حذف یادآور</button> : null}
+              </div>}
+            >
               {error ? <div className="profile-form-error" data-testid="error-call-submit">ثبت تماس با خطا مواجه شد. لطفاً دوباره تلاش کنید.</div> : null}
+              <FormStep step="customer" className="call-form-step">
               <div className="call-form-row">
                 <div className="field call-field-customer">
                   <label id="call-customer-label" htmlFor="call-customer">مشتری</label>
@@ -178,6 +203,8 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
                   <div className="field"><label>تاریخ تولد</label><PersianDatePicker value={form.birthDateJalali} onChange={(v) => update('birthDateJalali', v)} testId="input-call-birth-date" birthDate /></div>
                 </div>
               </fieldset>
+              </FormStep>
+              <FormStep step="details" className="call-form-step">
               <div className="call-form-row two">
                 <div className="field">
                   <label htmlFor="call-salesperson">کارشناس فروش</label>
@@ -199,22 +226,8 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
                 <label htmlFor="call-notes">یادداشت کارشناس</label>
                 <textarea id="call-notes" value={form.expertNotes} onChange={(event) => update('expertNotes', event.target.value)} data-testid="textarea-call-notes" />
               </div>
-            </div>
-
-            <div className="form-footer call-form-footer">
-              <div className="form-footer-actions">
-                <button className="btn btn-primary" type="submit" disabled={pending} data-testid="button-save-call">
-                  <PhoneCall size={15} />{pending ? 'در حال ثبت...' : 'ثبت تماس'}
-                </button>
-                <button className="btn btn-ghost" type="button" onClick={onClose} data-testid="button-cancel-call">انصراف</button>
-              </div>
-              <div className="call-reminder-actions">
-                <button ref={sheetOpener} className={`btn reminder-toggle ${reminderOpen ? 'active' : ''}`} type="button" aria-haspopup="dialog" aria-expanded={sheetOpen} onClick={() => setSheetOpen(true)} data-testid="button-toggle-call-reminder">
-                  <BellPlus size={15} /> {reminderOpen ? 'ویرایش یادآور' : 'افزودن یادآور'}
-                </button>
-                {reminderOpen ? <button className="btn btn-ghost" type="button" onClick={removeReminder} data-testid="button-remove-call-reminder">حذف یادآور</button> : null}
-              </div>
-            </div>
+              </FormStep>
+            </StepForm>
           </form>
         </div>
         <aside className="call-dialog-side call-dialog-consult" data-testid="panel-call-consultation" aria-label="آخرین وضعیت مشاوره">
@@ -293,6 +306,10 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
 }
 
 type ConsultForm = { customerId: string; creditRank: string; customerCheckStatus: string; hasCustomerSalaryDeduct: string; jobType: string; hasGuarantor: string; guarantorCreditRank: string; guarantorCheckType: string; hasGuarantorSalaryDeduct: string };
+const CONSULT_STEP_TITLES: Record<keyof ConsultForm, string> = {
+  customerId: 'مشتری', creditRank: 'رتبه اعتباری متقاضی', customerCheckStatus: 'وضعیت چک متقاضی', hasCustomerSalaryDeduct: 'کسر از حقوق متقاضی', jobType: 'شغل متقاضی',
+  hasGuarantor: 'ضامن', guarantorCreditRank: 'رتبه اعتباری ضامن', guarantorCheckType: 'وضعیت چک ضامن', hasGuarantorSalaryDeduct: 'کسر از حقوق ضامن',
+};
 type Opt = { id: number; value: string; labelFa: string };
 
 function QuestionSelect({ id, label, value, onChange, options, error }: { id: string; label: string; value: string; onChange: (v: string) => void; options: Opt[]; error?: boolean }) {
@@ -324,11 +341,16 @@ export function CreateConsultationForm({ customers: sourceCustomers, pending, in
   const guarantorYes = form.hasGuarantor !== '' && isYesValue(form.hasGuarantor);
   const required: (keyof ConsultForm)[] = ['customerId', 'creditRank', 'customerCheckStatus', 'hasCustomerSalaryDeduct', 'jobType', 'hasGuarantor', ...(guarantorYes ? ['guarantorCreditRank', 'guarantorCheckType', 'hasGuarantorSalaryDeduct'] as (keyof ConsultForm)[] : [])];
   const bad = (k: keyof ConsultForm) => attempted && required.includes(k) && !form[k];
+  // One question per step; the guarantor questions only appear when «ضامن دارد».
+  const consultSteps: WizardStep<keyof ConsultForm>[] = required.map((key) => ({ key, title: CONSULT_STEP_TITLES[key] }));
+  const [consultStep, setConsultStep] = useState<keyof ConsultForm>('customerId');
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setAttempted(true);
-    if (!optionsReady || required.some((k) => !form[k])) return;
+    const missing = required.find((k) => !form[k]);
+    if (missing) setConsultStep(missing);
+    if (!optionsReady || missing) return;
     const hasG = isYesValue(form.hasGuarantor);
     const data = {
       customerId: Number(form.customerId),
@@ -357,7 +379,21 @@ export function CreateConsultationForm({ customers: sourceCustomers, pending, in
       {optionsQuery.isLoading ? <div role="status" className="profile-form-note" data-testid="status-consult-options-loading">در حال دریافت گزینه‌های پرسشنامه…</div> : null}
       {optionsQuery.isError ? <div role="alert" className="profile-form-error" data-testid="error-consult-options">دریافت گزینه‌ها انجام نشد. ثبت ممکن نیست. <button type="button" className="btn btn-ghost" onClick={() => void optionsQuery.refetch()}>تلاش دوباره</button></div> : null}
       {optionsQuery.isSuccess && missingKeys.length > 0 ? <div role="alert" className="profile-form-error" data-testid="error-consult-options-empty">برای برخی پرسش‌ها گزینه‌ای تعریف نشده است؛ ثبت تا تکمیل گزینه‌ها ممکن نیست.</div> : null}
-      <div className="form-grid">
+      <StepForm<keyof ConsultForm>
+        steps={consultSteps}
+        step={consultStep}
+        onStepChange={setConsultStep}
+        compact
+        allowJump={false}
+        testPrefix="new-consultation-wizard"
+        onCancel={onClose}
+        cancelTestId="button-cancel-consultation"
+        beforeNext={(key) => key === 'customerId' ? (form.customerId ? null : 'مشتری را انتخاب کنید.') : form[key] ? null : 'این پرسش را پاسخ دهید.'}
+        footerExtra={consultStep === consultSteps[consultSteps.length - 1].key ? <><p className="profile-form-note">ارائهٔ سفته برای همه امکان‌پذیر است. سقف قابل دریافت پس از تطبیق رتبه و شرایط مشتری و ضامن محاسبه می‌شود؛ تأیید نهایی نیازمند بررسی پرونده است.</p></> : null}
+        submit={<button type="submit" className="btn btn-primary" disabled={pending || !optionsReady} data-testid="button-save-consultation"><FileText size={15} />{pending ? 'در حال ثبت...' : 'ثبت درخواست'}</button>}
+      >
+      <FormStep step="customerId" className="nf-question-step">
+        <div className="form-grid">
         <div className="field full"><label htmlFor="consult-customer-select">مشتری <span style={{ color: '#be123c' }}>*</span></label>
           <select id="consult-customer-select" value={form.customerId} onChange={(e) => set('customerId')(e.target.value)} disabled={!!initialCustomerId} aria-invalid={bad('customerId')} data-testid="select-consultation-customer">
             <option value="" disabled>انتخاب مشتری</option>
@@ -366,32 +402,66 @@ export function CreateConsultationForm({ customers: sourceCustomers, pending, in
           {bad('customerId') ? <small role="alert" style={{ color: '#be123c' }}>مشتری را انتخاب کنید.</small> : null}
         </div>
         <div className="field full"><CustomerConsultationStatus customerId={form.customerId ? Number(form.customerId) : undefined} /></div>
-        <div className="field full" style={section} role="group" aria-labelledby="consult-applicant-h">
-          <h4 id="consult-applicant-h" style={sectionHead}>اطلاعات متقاضی</h4>
-          <div className="form-grid">
-            <QuestionSelect id="consult-credit-rank" label="رتبه اعتباری متقاضی" value={form.creditRank} onChange={set('creditRank')} options={by('credit_rank')} error={bad('creditRank')} />
-            <QuestionSelect id="consult-check-status" label="وضعیت چک متقاضی" value={form.customerCheckStatus} onChange={set('customerCheckStatus')} options={by('customer_check_status')} error={bad('customerCheckStatus')} />
-            <QuestionSelect id="consult-salary-deduct" label="وضعیت کسر از حقوق متقاضی" value={form.hasCustomerSalaryDeduct} onChange={set('hasCustomerSalaryDeduct')} options={by('has_customer_salary_deduct')} error={bad('hasCustomerSalaryDeduct')} />
-            <QuestionSelect id="consult-job" label="شغل متقاضی" value={form.jobType} onChange={set('jobType')} options={by('job_type')} error={bad('jobType')} />
-          </div>
         </div>
-        <div className="field full" style={section} role="group" aria-labelledby="consult-guarantor-h">
-          <h4 id="consult-guarantor-h" style={sectionHead}>اطلاعات ضامن</h4>
-          <div className="form-grid">
-            <QuestionSelect id="consult-has-guarantor" label="ضامن دارد یا نه" value={form.hasGuarantor} onChange={set('hasGuarantor')} options={by('has_guarantor')} error={bad('hasGuarantor')} />
-            {guarantorYes ? <>
-              <QuestionSelect id="consult-guarantor-credit-rank" label="رتبه اعتباری ضامن" value={form.guarantorCreditRank} onChange={set('guarantorCreditRank')} options={by('guarantor_credit_rank')} error={bad('guarantorCreditRank')} />
-              <QuestionSelect id="consult-guarantor-check" label="وضعیت چک ضامن" value={form.guarantorCheckType} onChange={set('guarantorCheckType')} options={by('guarantor_check_type')} error={bad('guarantorCheckType')} />
-              <QuestionSelect id="consult-guarantor-salary" label="ضامن کسر از حقوق دارد یا نه" value={form.hasGuarantorSalaryDeduct} onChange={set('hasGuarantorSalaryDeduct')} options={by('has_guarantor_salary_deduct')} error={bad('hasGuarantorSalaryDeduct')} />
-            </> : null}
-          </div>
+      </FormStep>
+      <FormStep step="creditRank" className="nf-question-step">
+        <p className="nf-question-group">اطلاعات متقاضی</p>
+        <div className="form-grid">
+          <QuestionSelect id="consult-credit-rank" label="رتبه اعتباری متقاضی" value={form.creditRank} onChange={set('creditRank')} options={by('credit_rank')} error={bad('creditRank')} />
         </div>
-      </div>
-      <p className="profile-form-note">ارائهٔ سفته برای همه امکان‌پذیر است. سقف قابل دریافت پس از تطبیق رتبه و شرایط مشتری و ضامن محاسبه می‌شود؛ تأیید نهایی نیازمند بررسی پرونده است.</p>
-      <div className="form-footer"><button type="submit" className="btn btn-primary" disabled={pending || !optionsReady} data-testid="button-save-consultation"><FileText size={15} />{pending ? 'در حال ثبت...' : 'ثبت درخواست'}</button><button type="button" className="btn btn-ghost" onClick={onClose} data-testid="button-cancel-consultation">انصراف</button></div>
+      </FormStep>
+      <FormStep step="customerCheckStatus" className="nf-question-step">
+        <p className="nf-question-group">اطلاعات متقاضی</p>
+        <div className="form-grid">
+          <QuestionSelect id="consult-check-status" label="وضعیت چک متقاضی" value={form.customerCheckStatus} onChange={set('customerCheckStatus')} options={by('customer_check_status')} error={bad('customerCheckStatus')} />
+        </div>
+      </FormStep>
+      <FormStep step="hasCustomerSalaryDeduct" className="nf-question-step">
+        <p className="nf-question-group">اطلاعات متقاضی</p>
+        <div className="form-grid">
+          <QuestionSelect id="consult-salary-deduct" label="وضعیت کسر از حقوق متقاضی" value={form.hasCustomerSalaryDeduct} onChange={set('hasCustomerSalaryDeduct')} options={by('has_customer_salary_deduct')} error={bad('hasCustomerSalaryDeduct')} />
+        </div>
+      </FormStep>
+      <FormStep step="jobType" className="nf-question-step">
+        <p className="nf-question-group">اطلاعات متقاضی</p>
+        <div className="form-grid">
+          <QuestionSelect id="consult-job" label="شغل متقاضی" value={form.jobType} onChange={set('jobType')} options={by('job_type')} error={bad('jobType')} />
+        </div>
+      </FormStep>
+      <FormStep step="hasGuarantor" className="nf-question-step">
+        <p className="nf-question-group">اطلاعات ضامن</p>
+        <div className="form-grid">
+          <QuestionSelect id="consult-has-guarantor" label="ضامن دارد یا نه" value={form.hasGuarantor} onChange={set('hasGuarantor')} options={by('has_guarantor')} error={bad('hasGuarantor')} />
+        </div>
+      </FormStep>
+      <FormStep step="guarantorCreditRank" className="nf-question-step">
+        <p className="nf-question-group">اطلاعات ضامن</p>
+        <div className="form-grid">
+          <QuestionSelect id="consult-guarantor-credit-rank" label="رتبه اعتباری ضامن" value={form.guarantorCreditRank} onChange={set('guarantorCreditRank')} options={by('guarantor_credit_rank')} error={bad('guarantorCreditRank')} />
+        </div>
+      </FormStep>
+      <FormStep step="guarantorCheckType" className="nf-question-step">
+        <p className="nf-question-group">اطلاعات ضامن</p>
+        <div className="form-grid">
+          <QuestionSelect id="consult-guarantor-check" label="وضعیت چک ضامن" value={form.guarantorCheckType} onChange={set('guarantorCheckType')} options={by('guarantor_check_type')} error={bad('guarantorCheckType')} />
+        </div>
+      </FormStep>
+      <FormStep step="hasGuarantorSalaryDeduct" className="nf-question-step">
+        <p className="nf-question-group">اطلاعات ضامن</p>
+        <div className="form-grid">
+          <QuestionSelect id="consult-guarantor-salary" label="ضامن کسر از حقوق دارد یا نه" value={form.hasGuarantorSalaryDeduct} onChange={set('hasGuarantorSalaryDeduct')} options={by('has_guarantor_salary_deduct')} error={bad('hasGuarantorSalaryDeduct')} />
+        </div>
+      </FormStep>
+      </StepForm>
     </form>
   </Modal>;
 }
+
+const REMINDER_STEPS: WizardStep<'customer' | 'content' | 'time'>[] = [
+  { key: 'customer', title: 'مشتری' },
+  { key: 'content', title: 'موضوع و متن' },
+  { key: 'time', title: 'زمان یادآوری' },
+];
 
 export function CreateReminderForm({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -457,6 +527,15 @@ export function CreateReminderForm({ onClose }: { onClose: () => void }) {
     <Modal title="ثبت یادآور جدید" eyebrow="پیگیری شخصی" onClose={onClose} testId="header-reminder-form">
       <form onSubmit={submit}>
         {formError || createReminder.isError ? <div className="profile-form-error" data-testid="error-header-reminder">{formError || 'ثبت یادآور انجام نشد. دوباره تلاش کنید.'}</div> : null}
+        <StepForm
+          steps={REMINDER_STEPS}
+          testPrefix="reminder-wizard"
+          onCancel={onClose}
+          submit={<button className="btn btn-primary" type="submit" disabled={createReminder.isPending} data-testid="button-save-header-reminder"><BellPlus size={15} />{createReminder.isPending ? 'در حال ثبت...' : 'ثبت یادآور'}</button>}
+          actionsExtra={<Link href="/reminders" className="btn btn-ghost" onClick={onClose}>مشاهده همه یادآورها</Link>}
+          beforeNext={(step) => step === 'content' && (!form.subject.trim() || !form.message.trim()) ? 'موضوع و متن یادآور را وارد کنید.' : null}
+        >
+        <FormStep step="customer">
         <div className="field full">
           <label htmlFor="header-reminder-search">جست‌وجوی مشتری</label>
           <div className="searchbar compact">
@@ -472,6 +551,10 @@ export function CreateReminderForm({ onClose }: { onClose: () => void }) {
               {(customers.data?.items ?? []).map((customer) => <option key={customer.id} value={customer.id}>{customer.name} · {customer.phone} · کارشناس پرونده: {customer.salespersonName || 'بدون تخصیص'}</option>)}
             </select>
           </div>
+        </div>
+        </FormStep>
+        <FormStep step="content">
+        <div className="form-grid">
           <div className="field full">
             <label htmlFor="header-reminder-subject">موضوع یادآور</label>
             <input id="header-reminder-subject" value={form.subject} maxLength={160} onChange={(event) => setForm({ ...form, subject: event.target.value })} data-testid="input-header-reminder-subject" />
@@ -480,6 +563,10 @@ export function CreateReminderForm({ onClose }: { onClose: () => void }) {
             <label htmlFor="header-reminder-message">متن یادآور</label>
             <textarea id="header-reminder-message" value={form.message} maxLength={2000} onChange={(event) => setForm({ ...form, message: event.target.value })} data-testid="textarea-header-reminder-message" />
           </div>
+        </div>
+        </FormStep>
+        <FormStep step="time">
+        <div className="form-grid">
           <div className="field">
             <label>تاریخ شمسی</label>
             <PersianDatePicker value={form.date} onChange={(value) => setForm({ ...form, date: value })} testId="input-header-reminder-date" />
@@ -493,11 +580,8 @@ export function CreateReminderForm({ onClose }: { onClose: () => void }) {
             </div>
           </div>
         </div>
-        <div className="form-footer">
-          <button className="btn btn-primary" type="submit" disabled={createReminder.isPending} data-testid="button-save-header-reminder"><BellPlus size={15} />{createReminder.isPending ? 'در حال ثبت...' : 'ثبت یادآور'}</button>
-          <button className="btn btn-ghost" type="button" onClick={onClose}>انصراف</button>
-          <Link href="/reminders" className="btn btn-ghost" onClick={onClose}>مشاهده همه یادآورها</Link>
-        </div>
+        </FormStep>
+        </StepForm>
       </form>
     </Modal>
   );

@@ -37,6 +37,7 @@ import {
   getListLoanPlansQueryKey,
 } from '@workspace/api-client-react';
 import { Modal } from '@/components/DataTools';
+import { Stepper, type WizardStep } from '@/components/wizard/Wizard';
 import { FileSignature, Plus, Download, FileText, Send, CheckCircle2, AlertCircle, Pencil, Trash2, RefreshCw } from 'lucide-react';
 import { useGetAuthSession, getGetAuthSessionQueryKey } from '@workspace/api-client-react';
 import { SkeletonPanel } from '@/components/CrmShell';
@@ -743,6 +744,15 @@ export default function Contracts() {
   );
 }
 
+const TEMPLATE_WIZARD_STEPS: WizardStep<'upload' | 'map'>[] = [
+  { key: 'upload', title: 'نام و فایل قالب' },
+  { key: 'map', title: 'نگاشت متغیرها' },
+];
+const GENERATION_WIZARD_STEPS: WizardStep<'customer' | 'fields'>[] = [
+  { key: 'customer', title: 'طرح و مشتری' },
+  { key: 'fields', title: 'تکمیل اطلاعات و صدور' },
+];
+
 function TemplateWizard({ onClose, onError }: { onClose: () => void, onError: (title: string, msg: string) => void }) {
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
@@ -814,6 +824,7 @@ function TemplateWizard({ onClose, onError }: { onClose: () => void, onError: (t
 
   return (
     <Modal title="تعریف قالب قرارداد جدید" eyebrow="آپلود و تحلیل" onClose={onClose} testId="template-wizard">
+      <Stepper className="nf-stepper-sm nf-flow-stepper" steps={TEMPLATE_WIZARD_STEPS} current={analyze.data ? 'map' : 'upload'} testPrefix="template-wizard-step-" />
       {!analyze.data ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="field">
@@ -1029,6 +1040,7 @@ function GenerationWizard({ template, onClose, onError }: { template: ContractTe
 
   return (
     <Modal title="صدور قرارداد جدید" eyebrow={`قالب: ${template.name}`} onClose={onClose} testId="generation-wizard">
+      <Stepper className="nf-stepper-sm nf-flow-stepper" steps={GENERATION_WIZARD_STEPS} current={customerId === '' ? 'customer' : 'fields'} testPrefix="generation-wizard-step-" />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div className="field">
           <label>طرح تسهیلاتی</label>
