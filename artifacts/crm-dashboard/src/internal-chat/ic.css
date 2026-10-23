@@ -1,33 +1,36 @@
-.ic.tg{background:#f1f4f8;border-color:#d6dde8}
-.ic .tg-row{align-items:flex-start}
-.ic-sec{padding:10px 14px 4px;font-size:11px;color:#7b7566;font-weight:700;display:flex;justify-content:space-between;align-items:center}
-.ic-sec button{border:0;background:none;color:#1d3a5f;cursor:pointer;font:inherit;font-size:12px}
-.ic-msg{position:relative;max-width:78%;display:flex;flex-direction:column;gap:2px}
-.ic-msg.mine{align-self:flex-end}.ic-msg:not(.mine){align-self:flex-start}
-.ic-msg .tg-msg{max-width:100%;align-self:stretch}
-.ic-msg .who{font-size:11px;font-weight:700;color:#1d3a5f;padding-inline:6px}
-.ic-reply{border-inline-start:3px solid #bc9252;background:rgba(0,0,0,.05);padding:3px 8px;border-radius:6px;font-size:11px;margin-bottom:4px}
-.ic-reply b{display:block}
-.ic-tools{display:flex;gap:2px;opacity:0;transition:opacity .15s;height:26px}
-.ic-msg:hover .ic-tools,.ic-msg:focus-within .ic-tools{opacity:1}
-@media(hover:none){.ic-tools{opacity:1}}
-.ic-tools button{border:0;background:#fff;border-radius:6px;padding:0 6px;cursor:pointer;color:#1d3a5f;font:inherit;font-size:11px;display:flex;align-items:center;gap:3px}
-.ic-react{display:flex;flex-wrap:wrap;gap:4px}
-.ic-react button{border:1px solid #d6dde8;background:#fff;border-radius:12px;padding:0 7px;cursor:pointer;font:inherit;font-size:12px}
-.ic-react button[aria-pressed=true]{background:#f3ecdb;border-color:#bc9252}
+/* Internal chat (/internal-chat) — redesign on top of chat.css (.nf-chat). */
+.ic-tools{display:flex;gap:2px;margin-top:2px}
+@media(hover:hover){
+  .ic-tools{position:absolute;z-index:3;top:-18px;inset-inline-start:10px;background:#fff;border:1px solid var(--nf-line);border-radius:999px;padding:2px;box-shadow:var(--nf-shadow-card);opacity:0;pointer-events:none;transition:opacity .15s}
+  .nf-chat .m.out .ic-tools{inset-inline-start:auto;inset-inline-end:10px}
+  .nf-chat .m:hover .ic-tools,.nf-chat .m:focus-within .ic-tools{opacity:1;pointer-events:auto}
+}
+.ic-tools button{width:32px;height:32px;border-radius:999px!important;display:grid;place-items:center;color:var(--nf-ink-muted)!important}
+.ic-tools button:hover{background:#fff!important;color:var(--nf-brand-700)!important;box-shadow:var(--nf-shadow-card)}
+.ic-tools svg{width:16px;height:16px}
+.ic-react{display:flex;flex-wrap:wrap;gap:4px;margin:4px 6px 0}
+.ic-react button{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 9px!important;border-radius:999px;background:#fff!important;border:1px solid var(--nf-line)!important;font-size:13px;font-weight:700;color:var(--nf-ink-soft)}
+.ic-react button[aria-pressed=true]{background:var(--nf-brand-50)!important;border-color:var(--nf-brand-300)!important;color:var(--nf-brand-700)}
+.nf-chat .rq-in{display:block;margin:2px 0 6px;padding:5px 10px;border-inline-start:3px solid #5A66C0;background:rgba(41,54,155,.06);border-radius:10px;font-size:13px;line-height:1.6}
+.nf-chat .rq-in b{display:block;font-size:12.5px;color:var(--nf-brand-700)}
+.nf-chat .rq-in span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px;color:var(--nf-ink-soft)}
+.nf-chat .m.out .rq-in{background:rgba(255,255,255,.14);border-color:#fff}
+.nf-chat .m.out .rq-in b,.nf-chat .m.out .rq-in span{color:#fff}
+.nf-chat .m.editing .b{box-shadow:0 0 0 3px var(--nf-brand-300)}
 .ic-pop{position:absolute;z-index:20;top:100%;inset-inline-start:0}
-.ic-bar{display:flex;gap:8px;align-items:center;padding:6px 14px;background:#fff;border-top:1px solid #e3dccb;font-size:12px}
-.ic-bar span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ic-bar audio{height:32px;max-width:220px}
-.ic-bar button{border:0;background:none;cursor:pointer;color:#1d3a5f}
-.ic-bar.danger{color:#a3361f}
-.ic-sheet{position:fixed;inset:0;z-index:200;background:rgba(20,30,45,.4);display:grid;place-items:center;padding:16px}
-.ic-sheet>div{background:#fff;border-radius:16px;width:min(420px,100%);max-height:80dvh;display:flex;flex-direction:column;overflow:hidden;direction:rtl}
-.ic-sheet h3{margin:0;padding:14px 16px;font-size:15px}
 .ic-compose-wrap{position:relative}
 .ic-emoji{position:absolute;bottom:100%;inset-inline-start:8px;z-index:20}
-.ic-typing{font-size:11px;color:#2f7d5b;padding:0 14px 4px;min-height:16px}
-.ic-edit textarea{width:100%;font:inherit;border-radius:8px;border:1px solid #ddd;padding:6px}
+.ic-typing{display:flex;align-items:center;gap:4px;font-size:12.5px;font-weight:700;color:var(--nf-brand-600);min-height:0;margin:0 4px}
+.ic-typing:not(:empty){min-height:22px;margin-bottom:6px}
+.ic-typing .nf-avw+.nf-avw{margin-inline-start:-8px}
+.ic-typing .nf-av{box-shadow:0 0 0 2px #fff}
+.ic-sheet{position:fixed;inset:0;z-index:200;background:rgba(11,20,80,.45);display:grid;place-items:center;padding:16px}
+.ic-sheet>div{background:#fff;border-radius:20px;width:min(440px,100%);max-height:80dvh;display:flex;flex-direction:column;overflow:hidden;direction:rtl;padding:16px 8px 8px}
+.ic-sheet .ihd{padding:0 8px}
+.ic-sheet .ihd .ib{width:44px;height:44px;border-radius:999px;display:grid;place-items:center}
+.ic-sheet .nf-row .r-bot{gap:8px}
+@media (max-width:640px){.ic-sheet{align-items:end;padding:0}.ic-sheet>div{border-radius:28px 28px 0 0;width:100%;padding-bottom:calc(12px + env(safe-area-inset-bottom))}}
+/* FloatingChat launcher (hidden on chat pages; used elsewhere) */
 .ic-launch{position:fixed;z-index:35;top:0;left:0;touch-action:none;direction:rtl}
 .ic-fab{width:54px;height:54px;border-radius:50%;border:0;background:#1d3a5f;color:#fff3d6;display:grid;place-items:center;cursor:grab;box-shadow:0 6px 18px rgba(29,58,95,.35);position:relative;animation:icfab 4s ease-in-out infinite}
 .ic-fab:active{cursor:grabbing;animation:none}
@@ -40,9 +43,3 @@
 .ic-menu i{font-style:normal;background:#bc9252;color:#fff;border-radius:10px;padding:0 7px;font-size:11px}
 @keyframes icfab{50%{transform:translateY(-3px)}}
 @media(prefers-reduced-motion:reduce){.ic-fab{animation:none}}
-@media(max-width:760px){.ic-msg{max-width:90%}}
-.ic-row{display:flex;align-items:flex-end;gap:6px;max-width:82%}
-.ic-row.mine{align-self:flex-end}.ic-row:not(.mine){align-self:flex-start}
-.ic-row .ic-msg{max-width:calc(100% - 38px);align-self:auto}
-.ic-row .user-avatar{margin-bottom:2px}
-@media(max-width:760px){.ic-row{max-width:96%}}
