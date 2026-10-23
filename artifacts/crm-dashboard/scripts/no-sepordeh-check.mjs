@@ -11,8 +11,12 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const api = join(root, '..', 'api-server');
 
-// No exceptions: the root may not appear anywhere scanned.
-const EXCEPTIONS = [];
+// One exception: the contract variable label of loanPlan.depositPercents in contracts.ts. Contracts are admin-only
+// territory (Mohammad's standing order: no code changes to contracts), so the live label stays until an admin/PM
+// changes it. Exact line match, one hit only; anything else with the root still fails.
+const EXCEPTIONS = [
+  { file: 'api-server/src/routes/contracts.ts', line: '  "loanPlan.depositPercents": "\u062f\u0631\u0635\u062f \u0633\u067e\u0631\u062f\u0647",' },
+];
 
 export function normalize(text) {
   return text
