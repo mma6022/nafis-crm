@@ -190,8 +190,8 @@ export default function LoanApplications() {
           <h2>درخواست‌های تسهیلات</h2>
           <p>مدیریت جامع پرونده‌های مالی مشتریان از درخواست تا پرداخت.</p>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-end' }}>
-           <div style={{ display: 'flex', gap: 10 }}>
+        <div className="la-intro-actions" style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-end' }}>
+           <div className="la-row" style={{ display: 'flex', gap: 10 }}>
               {user?.role === "admin" && <button className={`btn ${reviewOpen ? "btn-primary" : "btn-ghost"}`} onClick={() => setReviewOpen(!reviewOpen)}>
                 {reviewOpen ? "بازگشت به پرونده‌ها" : "بازبینی کارشناس پرونده‌های قدیمی"}
               </button>}
@@ -204,7 +204,7 @@ export default function LoanApplications() {
                </button>
              )}
            </div>
-            {!reviewOpen && <div style={{ display: 'flex', gap: 10 }}>
+            {!reviewOpen && <div className="la-row" style={{ display: 'flex', gap: 10 }}>
               <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '12px', gap: '4px' }}>
                  <button className={`view-toggle-btn ${tab === 'mine' ? 'active' : ''}`} onClick={() => { setTab('mine'); setPage(1); }} data-testid="btn-view-actionable">کارتابل من</button>
                  <button className={`view-toggle-btn ${tab === 'progress' ? 'active' : ''}`} onClick={() => { setTab('progress'); setPage(1); }} data-testid="btn-view-in-progress">در جریان</button>
@@ -223,7 +223,7 @@ export default function LoanApplications() {
         className="toolbar"
         style={{ display: "flex", flexDirection: "column", gap: 10 }}
       >
-        <div style={{ display: "flex", gap: 10, width: "100%" }}>
+        <div className="la-row la-filters" style={{ display: "flex", gap: 10, width: "100%" }}>
           <div className="searchbar" style={{ flex: 1 }}>
             <Search size={16} />
             <input
@@ -266,7 +266,7 @@ export default function LoanApplications() {
             ))}
           </select>
         </div>
-        <div style={{ display: "flex", gap: 10, width: "100%", alignItems: "center" }}>
+        <div className="la-row la-dates" style={{ display: "flex", gap: 10, width: "100%", alignItems: "center" }}>
           <span style={{ fontSize: 12, color: "#475569" }}>از تاریخ:</span>
           <PersianDatePicker value={dateFrom} onChange={resetTo(setDateFrom)} />
           <span style={{ fontSize: 12, color: "#475569" }}>تا تاریخ:</span>

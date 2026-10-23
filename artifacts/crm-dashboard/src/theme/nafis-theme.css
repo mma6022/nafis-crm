@@ -190,6 +190,7 @@ body { font-size: var(--nf-font-body); line-height: 1.75; color: var(--nf-ink); 
 /* Phone (≤640px): bottom tab bar + slide-in drawer */
 @media (max-width: 640px) {
   .app-sidebar {
+    width: auto; flex-basis: auto; /* undo the tablet rail width */
     height: calc(var(--nf-bottom-bar-h) + env(safe-area-inset-bottom, 0px));
     padding: 4px 6px env(safe-area-inset-bottom, 0px);
     background: rgba(255, 255, 255, .96); backdrop-filter: blur(10px);
@@ -255,6 +256,22 @@ body { font-size: var(--nf-font-body); line-height: 1.75; color: var(--nf-ink); 
 @keyframes nf-fade { from { opacity: 0; } }
 @keyframes nf-slide-in { from { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) { .mobile-nav-drawer, .mobile-nav-backdrop { animation: none; } }
+
+/* Persian date picker trigger: same control height as inputs, one line */
+.persian-date-trigger { min-height: var(--nf-control-h); border-color: var(--nf-line); border-radius: var(--nf-radius); font-size: 15px; color: var(--nf-ink-faint); min-width: 0; }
+.persian-date-trigger.has-value { color: var(--nf-ink); }
+.persian-date-trigger span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.persian-date-trigger:focus-visible { outline: none; border-color: var(--nf-brand-500); box-shadow: var(--nf-ring); }
+
+/* Loan applications header/filters: wrap instead of overflowing on phones (pre-existing bug) */
+@media (max-width: 640px) {
+  .la-intro-actions { align-items: stretch !important; width: 100%; }
+  .la-row { flex-wrap: wrap; }
+  .la-intro-actions .la-row > .btn { flex: 1 1 auto; }
+  .la-filters > .searchbar { flex: 1 1 100% !important; }
+  .la-filters > .select-control { flex: 1 1 0; min-width: 0; }
+  .la-dates { display: grid !important; grid-template-columns: auto minmax(0, 1fr); }
+}
 
 /* =====================================================================
  * Shared primitives: buttons for new code (.nf-btn), wizard / stepper.
