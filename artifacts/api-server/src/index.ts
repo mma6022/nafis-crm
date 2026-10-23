@@ -1,5 +1,9 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { startAfterCallMonitor } from "./lib/voip-after-call";
+import { startTranscriptWorker } from "./lib/recording-transcript-jobs";
+import { startWalletPaymentRecovery } from "./lib/wallet-payment-recovery";
+import { startExpertReminderSmsWorker } from "./lib/expert-reminder-sms";
 
 const rawPort = process.env["PORT"];
 
@@ -22,4 +26,8 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+  startAfterCallMonitor();
+  startTranscriptWorker();
+  startWalletPaymentRecovery();
+  startExpertReminderSmsWorker();
 });

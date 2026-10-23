@@ -5,6 +5,8 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ListLoanApplicationsCaseScope } from './listLoanApplicationsCaseScope';
+import type { ListLoanApplicationsMode } from './listLoanApplicationsMode';
 
 export type ListLoanApplicationsParams = {
 /**
@@ -16,4 +18,14 @@ page?: number;
  * @maximum 100
  */
 limit?: number;
+actionable?: boolean;
+caseScope?: ListLoanApplicationsCaseScope;
+mode?: ListLoanApplicationsMode;
+search?: string;
+status?: string;
+stage?: string;
+customerId?: number;
+planId?: number;
+dateFrom?: string;
+dateTo?: string;
 };

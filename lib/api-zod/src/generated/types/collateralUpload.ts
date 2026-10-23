@@ -9,4 +9,5 @@
 export interface CollateralUpload {
   file: Blob;
   collateralType: string;
+  requirementKey: string;
 }

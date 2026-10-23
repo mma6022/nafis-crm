@@ -5,10 +5,16 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import type { CreateContractTemplate } from './createContractTemplate';
+import type { ContractMapping } from './contractMapping';
 
-export type ContractTemplate = CreateContractTemplate & {
-  id?: number;
-  variables?: string[];
-  downloadUrl?: string;
-};
+export interface ContractTemplate {
+  id: number;
+  name: string;
+  originalFilename: string;
+  variables: string[];
+  mappings: ContractMapping[];
+  createdBy?: number;
+  createdAt?: Date;
+  updatedAt?: Date;
+  downloadUrl: string;
+}

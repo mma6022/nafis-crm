@@ -57,7 +57,15 @@ export function jalaliValueToDate(value: string) {
 }
 
 export function dateToJalaliValue(date: Date) {
-  const parts = persianParts(date);
+  // DayPicker returns local-midnight dates. Formatting that instant in UTC can
+  // move the selected calendar day backward in positive-offset time zones.
+  const stableCalendarDay = new Date(Date.UTC(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    12,
+  ));
+  const parts = persianParts(stableCalendarDay);
   return formatJalaliValue(parts.year, parts.month, parts.day);
 }
 

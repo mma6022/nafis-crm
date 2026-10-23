@@ -8,7 +8,19 @@
 import type { GenerateContractInputManualValues } from './generateContractInputManualValues';
 
 export interface GenerateContractInput {
-  templateId: number;
-  customerId: number;
+  templateId?: number;
+  customerId?: number;
+  /** @minimum 1 */
+  loanPlanId?: number;
+  /**
+     * @minimum 1
+     * @maximum 600
+     */
+  durationMonths?: number;
+  /**
+     * Application-scoped primary generation; customer, plan, template and approved principal come from the application. Explicit manual values are validated and saved before a new generation; an existing generation cannot be changed.
+     * @minimum 1
+     */
+  loanApplicationId?: number;
   manualValues?: GenerateContractInputManualValues;
 }

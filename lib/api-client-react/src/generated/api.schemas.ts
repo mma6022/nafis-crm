@@ -5,6 +5,743 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface MobileCallDeviceInput {
+  /** @minimum 1 */
+  userId: number;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  deviceName: string;
+}
+
+export type MobileCallStartDirection = typeof MobileCallStartDirection[keyof typeof MobileCallStartDirection];
+
+
+export const MobileCallStartDirection = {
+  incoming: 'incoming',
+  outgoing: 'outgoing',
+} as const;
+
+export interface MobileCallStart {
+  /**
+     * @minLength 1
+     * @maxLength 128
+     * @pattern ^[A-Za-z0-9_.:-]+$
+     */
+  callId: string;
+  direction: MobileCallStartDirection;
+  /**
+     * @minLength 1
+     * @maxLength 32
+     */
+  callerNumber: string;
+  /**
+     * @minLength 1
+     * @maxLength 32
+     */
+  calleeNumber: string;
+  /** @maxLength 200 */
+  contactName: string;
+  startedAt: string;
+  /** @nullable */
+  answeredAt?: string | null;
+}
+
+export type MobileCallEndStatus = typeof MobileCallEndStatus[keyof typeof MobileCallEndStatus];
+
+
+export const MobileCallEndStatus = {
+  completed: 'completed',
+  missed: 'missed',
+  rejected: 'rejected',
+  failed: 'failed',
+} as const;
+
+export type MobileCallEnd = MobileCallStart & {
+  endedAt: string;
+  /**
+     * @minimum 0
+     * @maximum 604800
+     */
+  durationSeconds: number;
+  status: MobileCallEndStatus;
+};
+
+export interface MobileCallDevice {
+  id: number;
+  userId: number;
+  expertName: string;
+  deviceName: string;
+  active: boolean;
+  createdAt: string;
+  /** @nullable */
+  lastSeenAt: string | null;
+}
+
+export type MobileCallDirection = typeof MobileCallDirection[keyof typeof MobileCallDirection];
+
+
+export const MobileCallDirection = {
+  incoming: 'incoming',
+  outgoing: 'outgoing',
+} as const;
+
+export interface MobileCall {
+  /** Shared call event ID used by the report editor */
+  id: number;
+  callId: string;
+  deviceId: number;
+  deviceName: string;
+  expertUserId: number;
+  expertName: string;
+  direction: MobileCallDirection;
+  callerNumber: string;
+  calleeNumber: string;
+  contactName: string;
+  startedAt: string;
+  /** @nullable */
+  answeredAt: string | null;
+  /** @nullable */
+  endedAt: string | null;
+  /** @nullable */
+  durationSeconds: number | null;
+  status: string;
+  isLive: boolean;
+  /** @nullable */
+  subject: string | null;
+  expertNotes: string;
+  /** @nullable */
+  reportSavedAt: string | null;
+  /** @nullable */
+  customerId: number | null;
+}
+
+export interface AccountingFund {
+  id: number;
+  bankName: string;
+  ownerName: string;
+  fundName: string;
+  iban: string;
+  /** Exact nonnegative integer toman */
+  balanceToman: string;
+  initialized: boolean;
+}
+
+export interface AccountingOpeningInput {
+  /** Exact nonnegative integer toman; zero is allowed */
+  amountToman: string;
+}
+
+export type AccountingDocumentInputDocumentType = typeof AccountingDocumentInputDocumentType[keyof typeof AccountingDocumentInputDocumentType];
+
+
+export const AccountingDocumentInputDocumentType = {
+  credit: 'credit',
+  debit: 'debit',
+} as const;
+
+export type AccountingDocumentInputTransactionType = typeof AccountingDocumentInputTransactionType[keyof typeof AccountingDocumentInputTransactionType];
+
+
+export const AccountingDocumentInputTransactionType = {
+  deposit: 'deposit',
+  withdrawal: 'withdrawal',
+} as const;
+
+/**
+ * Optional account details; supply all three fields together. Source for deposits and destination for withdrawals.
+ */
+export type AccountingDocumentInputCounterpartyAccountType = typeof AccountingDocumentInputCounterpartyAccountType[keyof typeof AccountingDocumentInputCounterpartyAccountType];
+
+
+export const AccountingDocumentInputCounterpartyAccountType = {
+  iban: 'iban',
+  card: 'card',
+} as const;
+
+export interface AccountingDocumentInput {
+  /**
+     * @minLength 16
+     * @maxLength 100
+     */
+  requestKey: string;
+  /** @minimum 1 */
+  fundId: number;
+  documentDate: string;
+  /** Actual transaction date */
+  transactionDate: string;
+  /** Exact positive integer toman */
+  amountToman: string;
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+  purpose: string;
+  documentType: AccountingDocumentInputDocumentType;
+  transactionType: AccountingDocumentInputTransactionType;
+  /** Optional account details; supply all three fields together. Source for deposits and destination for withdrawals. */
+  counterpartyAccountType?: AccountingDocumentInputCounterpartyAccountType;
+  /**
+     * Iranian IBAN or 16-digit card; validated and normalized server-side.
+     * @maxLength 50
+     */
+  counterpartyAccountNumber?: string;
+  /**
+     * Manually entered owner name; no provider ownership verification implied.
+     * @minLength 1
+     * @maxLength 200
+     */
+  counterpartyOwnerName?: string;
+  /**
+     * JPEG/PNG/WebP/PDF
+     * @maxItems 10
+     */
+  files?: Blob[];
+}
+
+export interface AccountingFilesInput {
+  /**
+     * JPEG/PNG/WebP/PDF
+     * @minItems 1
+     * @maxItems 10
+     */
+  files: Blob[];
+}
+
+export interface AccountingAttachment {
+  id: number;
+  name: string;
+  mime: string;
+  size: number;
+}
+
+export type AccountingDocumentDocumentType = typeof AccountingDocumentDocumentType[keyof typeof AccountingDocumentDocumentType];
+
+
+export const AccountingDocumentDocumentType = {
+  credit: 'credit',
+  debit: 'debit',
+} as const;
+
+export type AccountingDocumentTransactionType = typeof AccountingDocumentTransactionType[keyof typeof AccountingDocumentTransactionType];
+
+
+export const AccountingDocumentTransactionType = {
+  deposit: 'deposit',
+  withdrawal: 'withdrawal',
+} as const;
+
+export type AccountingDocumentSource = typeof AccountingDocumentSource[keyof typeof AccountingDocumentSource];
+
+
+export const AccountingDocumentSource = {
+  manual: 'manual',
+  payment_order: 'payment_order',
+  opening: 'opening',
+} as const;
+
+/**
+ * @nullable
+ */
+export type AccountingDocumentCounterpartyAccountType = typeof AccountingDocumentCounterpartyAccountType[keyof typeof AccountingDocumentCounterpartyAccountType] | null;
+
+
+export const AccountingDocumentCounterpartyAccountType = {
+  iban: 'iban',
+  card: 'card',
+} as const;
+
+export interface AccountingDocument {
+  id: number;
+  fundId: number;
+  fundName: string;
+  documentDate: string;
+  transactionDate: string;
+  amountToman: string;
+  purpose: string;
+  documentType: AccountingDocumentDocumentType;
+  transactionType: AccountingDocumentTransactionType;
+  source: AccountingDocumentSource;
+  /** @nullable */
+  sourceOrderId: number | null;
+  /** @nullable */
+  counterpartyAccountType: AccountingDocumentCounterpartyAccountType;
+  /** @nullable */
+  counterpartyAccountNumber: string | null;
+  /** @nullable */
+  counterpartyOwnerName: string | null;
+  balanceBeforeToman: string;
+  balanceAfterToman: string;
+  createdAt: string;
+  createdByName: string;
+  attachments: AccountingAttachment[];
+}
+
+export interface VoipAfterCallCompletion {
+  /** @maxLength 10000 */
+  expertNotes: string;
+  /** Close the pending event without customer history; remove only its provisional automatic history and retain the PBX call. */
+  discardHistory?: boolean;
+  /**
+     * @maxLength 160
+     * @nullable
+     */
+  subject?: string | null;
+  /**
+     * @maxLength 1200
+     * @nullable
+     */
+  customerRequest?: string | null;
+  /**
+     * @minimum 0
+     * @maximum 3
+     * @nullable
+     */
+  priority?: number | null;
+}
+
+export interface VoipAfterCallNotice {
+  id: number;
+  externalId: string;
+  phone: string;
+  direction: string;
+  status: string;
+  startedAt: string;
+  endedAt: string;
+  /** @nullable */
+  extension: string | null;
+  /** @nullable */
+  expertUserId: number | null;
+  /** @nullable */
+  expertName: string | null;
+  /** @nullable */
+  customerId: number | null;
+  /** @nullable */
+  customerName: string | null;
+  /** @nullable */
+  priority: number | null;
+  /** @nullable */
+  callLogId: number | null;
+  expertNotes: string;
+  hasRecording: boolean;
+  /** @nullable */
+  subject?: string | null;
+  /** @nullable */
+  customerRequest?: string | null;
+  recordingFrom?: string;
+  recordingTo?: string;
+  isLive?: boolean;
+  /** @nullable */
+  systemSummary?: string | null;
+}
+
+export interface VoipAfterCallPending {
+  items: VoipAfterCallNotice[];
+  total: number;
+  activatedAt: string;
+  /** @nullable */
+  lastCheckedAt: string | null;
+  /** @nullable */
+  syncError: string | null;
+  canComplete: boolean;
+  canEditPriority: boolean;
+  /** @nullable */
+  liveEventSeenAt?: string | null;
+}
+
+export interface VoipTranscriptRequest {
+  from: string;
+  to: string;
+  /** Explicitly replace a completed transcript using the current model; queued requests remain idempotent. */
+  regenerate?: boolean;
+}
+
+export interface VoipTranscriptSegment {
+  speakerId: string;
+  startSeconds: number;
+  endSeconds: number;
+  text: string;
+}
+
+export interface VoipTranscriptSpeaker {
+  id: string;
+  label: string;
+}
+
+export type VoipRecordingTranscriptState = typeof VoipRecordingTranscriptState[keyof typeof VoipRecordingTranscriptState];
+
+
+export const VoipRecordingTranscriptState = {
+  not_started: 'not_started',
+  queued: 'queued',
+  processing: 'processing',
+  completed: 'completed',
+  failed: 'failed',
+} as const;
+
+/**
+ * @nullable
+ */
+export type VoipRecordingTranscriptPhase = typeof VoipRecordingTranscriptPhase[keyof typeof VoipRecordingTranscriptPhase] | null;
+
+
+export const VoipRecordingTranscriptPhase = {
+  downloading: 'downloading',
+  cleaning: 'cleaning',
+  transcribing: 'transcribing',
+} as const;
+
+/**
+ * @nullable
+ */
+export type VoipRecordingTranscriptAudioSeparation = typeof VoipRecordingTranscriptAudioSeparation[keyof typeof VoipRecordingTranscriptAudioSeparation] | null;
+
+
+export const VoipRecordingTranscriptAudioSeparation = {
+  stereo_channels: 'stereo_channels',
+  diarization: 'diarization',
+} as const;
+
+export type VoipRecordingTranscriptSummaryState = typeof VoipRecordingTranscriptSummaryState[keyof typeof VoipRecordingTranscriptSummaryState];
+
+
+export const VoipRecordingTranscriptSummaryState = {
+  not_started: 'not_started',
+  queued: 'queued',
+  processing: 'processing',
+  completed: 'completed',
+  failed: 'failed',
+} as const;
+
+export interface VoipRecordingTranscript {
+  state: VoipRecordingTranscriptState;
+  /** @nullable */
+  phase: VoipRecordingTranscriptPhase;
+  /** @nullable */
+  error: string | null;
+  /** @nullable */
+  model: string | null;
+  /** @nullable */
+  durationSeconds: number | null;
+  /** @nullable */
+  audioSeparation: VoipRecordingTranscriptAudioSeparation;
+  /** @nullable */
+  notice: string | null;
+  speakers: VoipTranscriptSpeaker[];
+  segments: VoipTranscriptSegment[];
+  /** @nullable */
+  text: string | null;
+  /** @nullable */
+  completedAt: string | null;
+  canGenerate: boolean;
+  summaryState: VoipRecordingTranscriptSummaryState;
+  /** @nullable */
+  summaryError: string | null;
+  /**
+     * @maxLength 160
+     * @nullable
+     */
+  callSubject: string | null;
+  /**
+     * @maxLength 1200
+     * @nullable
+     */
+  customerRequestSummary: string | null;
+  summaryRevision?: number;
+  /** @nullable */
+  summarySourceHash?: string | null;
+  summaryEdited?: boolean;
+  summaryEditStale?: boolean;
+}
+
+export interface VoipCallSummaryEdit {
+  from: string;
+  to: string;
+  /** @maxLength 160 */
+  callSubject: string;
+  /** @maxLength 1200 */
+  customerRequestSummary: string;
+  /** @minimum 0 */
+  expectedRevision: number;
+  /** @pattern ^[a-f0-9]{64}$ */
+  sourceHash: string;
+}
+
+export interface VoipCallSummaryRequest {
+  /** @pattern ^\d{4}-\d{2}-\d{2}$ */
+  from: string;
+  /** @pattern ^\d{4}-\d{2}-\d{2}$ */
+  to: string;
+}
+
+export type VoipRecordingSource = typeof VoipRecordingSource[keyof typeof VoipRecordingSource];
+
+
+export const VoipRecordingSource = {
+  simotel: 'simotel',
+} as const;
+
+export type VoipRecordingDirection = typeof VoipRecordingDirection[keyof typeof VoipRecordingDirection];
+
+
+export const VoipRecordingDirection = {
+  incoming: 'incoming',
+  outgoing: 'outgoing',
+  local: 'local',
+  unknown: 'unknown',
+} as const;
+
+export interface VoipRecording {
+  id: string;
+  source: VoipRecordingSource;
+  fromNumber: string;
+  toNumber: string;
+  direction: VoipRecordingDirection;
+  status: string;
+  startedAt: string;
+  durationSeconds: number;
+  talkSeconds: number;
+  extensions: string[];
+  expertNames: string[];
+  hasRecording: boolean;
+  /** @nullable */
+  customerId: number | null;
+  /** @nullable */
+  customerName: string | null;
+}
+
+export interface VoipRecordings {
+  items: VoipRecording[];
+  total: number;
+  recordedTotal: number;
+  page: number;
+  limit: number;
+  from: string;
+  to: string;
+  canManage: boolean;
+  /** @nullable */
+  ownExtension: string | null;
+  fetchedAt: string;
+}
+
+export type DuplicateCustomerCandidateHistoryCounts = {
+  calls: number;
+  reminders: number;
+  consultations: number;
+  loanApplications: number;
+  identityDocuments: number;
+  creditChecks: number;
+};
+
+export interface DuplicateCustomerCandidate {
+  id: number;
+  name: string;
+  phone: string;
+  /** @nullable */
+  nationalCode: string | null;
+  /** @nullable */
+  salespersonName: string | null;
+  historyCounts: DuplicateCustomerCandidateHistoryCounts;
+}
+
+export type DuplicateCustomerGroupMatchType = typeof DuplicateCustomerGroupMatchType[keyof typeof DuplicateCustomerGroupMatchType];
+
+
+export const DuplicateCustomerGroupMatchType = {
+  mobile: 'mobile',
+  nationalCode: 'nationalCode',
+} as const;
+
+export interface DuplicateCustomerGroup {
+  matchType: DuplicateCustomerGroupMatchType;
+  normalizedValue: string;
+  candidates: DuplicateCustomerCandidate[];
+}
+
+export interface CustomerMergeInput {
+  /** @minimum 1 */
+  sourceCustomerId: number;
+  /** @minimum 1 */
+  targetCustomerId: number;
+  /** @minimum 1 */
+  salespersonId: number;
+}
+
+export type CustomerMergeResultReparentedHistoryCounts = {[key: string]: number};
+
+export interface CustomerMergeResult {
+  survivorCustomerId: number;
+  archivedSourceCustomerId: number;
+  salespersonId: number;
+  reparentedHistoryCounts: CustomerMergeResultReparentedHistoryCounts;
+  preservedFinancialArtifacts: string[];
+}
+
+export const VoipOkValue = {
+  ok: true,
+} as const;
+export type VoipOk = typeof VoipOkValue;
+
+export interface VoipConfig {
+  enabled: boolean;
+  wssUrl: string;
+  sipDomain: string;
+  stunUrls: string[];
+  /** @nullable */
+  extension: string | null;
+  /** @nullable */
+  authorizationUsername: string | null;
+  canManage: boolean;
+  historySyncAvailable: false;
+  phonebookSyncAvailable: false;
+}
+
+export interface VoipConfigUpdate {
+  enabled: boolean;
+  /** @maxLength 2048 */
+  wssUrl: string;
+  /**
+     * @minLength 1
+     * @maxLength 253
+     */
+  sipDomain: string;
+  /**
+     * @maxItems 10
+     * @items.minLength 1
+     * @items.maxLength 2048
+     */
+  stunUrls: string[];
+}
+
+export interface VoipExtension {
+  userId: number;
+  displayName: string;
+  /** @nullable */
+  extension: string | null;
+  /** @nullable */
+  authorizationUsername: string | null;
+}
+
+export interface VoipExtensions {
+  items: VoipExtension[];
+}
+
+export interface VoipExtensionUpdate {
+  /**
+     * @maxLength 32
+     * @nullable
+     */
+  extension: string | null;
+  /**
+     * @maxLength 128
+     * @nullable
+     */
+  authorizationUsername: string | null;
+}
+
+export interface VoipContact {
+  id: number;
+  name: string;
+  phone: string;
+}
+
+export interface VoipContacts {
+  /** @maxItems 50 */
+  items: VoipContact[];
+}
+
+export interface VoipCustomerLookup {
+  customer: VoipContact | null;
+}
+
+export type VoipCallDirection = typeof VoipCallDirection[keyof typeof VoipCallDirection];
+
+
+export const VoipCallDirection = {
+  incoming: 'incoming',
+  outgoing: 'outgoing',
+} as const;
+
+export type VoipCallStatus = typeof VoipCallStatus[keyof typeof VoipCallStatus];
+
+
+export const VoipCallStatus = {
+  ringing: 'ringing',
+  answered: 'answered',
+  completed: 'completed',
+  missed: 'missed',
+  rejected: 'rejected',
+  failed: 'failed',
+} as const;
+
+export interface VoipCall {
+  id: number;
+  callId: string;
+  direction: VoipCallDirection;
+  phone: string;
+  status: VoipCallStatus;
+  startedAt: string;
+  /** @nullable */
+  answeredAt: string | null;
+  /** @nullable */
+  endedAt: string | null;
+  /** @nullable */
+  customerId: number | null;
+  /** @nullable */
+  customerName: string | null;
+  extension: string;
+  actorName: string;
+  source: 'browser';
+}
+
+export interface VoipCalls {
+  items: VoipCall[];
+  total: number;
+  page: number;
+  limit: 50;
+}
+
+export type VoipCallInputDirection = typeof VoipCallInputDirection[keyof typeof VoipCallInputDirection];
+
+
+export const VoipCallInputDirection = {
+  incoming: 'incoming',
+  outgoing: 'outgoing',
+} as const;
+
+export type VoipCallInputStatus = typeof VoipCallInputStatus[keyof typeof VoipCallInputStatus];
+
+
+export const VoipCallInputStatus = {
+  ringing: 'ringing',
+  answered: 'answered',
+  completed: 'completed',
+  missed: 'missed',
+  rejected: 'rejected',
+  failed: 'failed',
+} as const;
+
+export interface VoipCallInput {
+  /**
+     * @minLength 1
+     * @maxLength 128
+     */
+  callId: string;
+  direction: VoipCallInputDirection;
+  /**
+     * @minLength 1
+     * @maxLength 32
+     */
+  phone: string;
+  status: VoipCallInputStatus;
+  startedAt: string;
+  /** @nullable */
+  answeredAt?: string | null;
+  /** @nullable */
+  endedAt?: string | null;
+}
+
 export interface AuthLoginInput {
   /**
      * @minLength 1
@@ -37,6 +774,8 @@ export interface CrmUser {
   mobile?: string | null;
   /** @nullable */
   telegramId?: string | null;
+  /** @nullable */
+  voipExtension?: string | null;
   priorityColors?: CrmUserPriorityColors;
   role: string;
   roleName?: string;
@@ -83,9 +822,27 @@ export const CustomerStatus = {
   completed: 'completed',
 } as const;
 
+export interface CustomerVerificationCheck {
+  ok: boolean;
+  /** @nullable */
+  providerStatus?: string | null;
+}
+
+export interface CustomerVerificationChecks {
+  shahkarLite: CustomerVerificationCheck;
+  personInfo: CustomerVerificationCheck;
+  postalCodeInfo: CustomerVerificationCheck;
+  sana: CustomerVerificationCheck;
+}
+
 export interface Customer {
   id: number;
+  portalOrigin?: boolean;
   name: string;
+  /** @nullable */
+  firstName?: string | null;
+  /** @nullable */
+  lastName?: string | null;
   phone: string;
   /** @nullable */
   description?: string | null;
@@ -101,7 +858,26 @@ export interface Customer {
      * @pattern ^[0-9]{10}$
      */
   postalCode?: string | null;
+  /** @nullable */
+  fatherName?: string | null;
+  /** @nullable */
+  address?: string | null;
+  /** @nullable */
+  email?: string | null;
   verificationStatus: CustomerVerificationStatus;
+  /** @nullable */
+  verificationCheckedAt?: string | null;
+  verificationChecks?: CustomerVerificationChecks;
+  /** @nullable */
+  officialFirstName?: string | null;
+  /** @nullable */
+  officialLastName?: string | null;
+  /** @nullable */
+  officialFatherName?: string | null;
+  /** @nullable */
+  officialAddress?: string | null;
+  /** @nullable */
+  officialPostalCode?: string | null;
   isUrgent: boolean;
   /** @nullable */
   creditScore?: number | null;
@@ -124,6 +900,102 @@ export interface Customer {
   activityCount: number;
   /** @nullable */
   lastActivityAt?: string | null;
+  /**
+     * Latest recorded customer call time, independent of customer registration; null when no call is recorded.
+     * @nullable
+     */
+  lastCallAt?: string | null;
+  /** @nullable */
+  mergedIntoCustomerId: number | null;
+  tags: string[];
+  /** @minimum 0 */
+  pendingRepeatRequestCount: number;
+}
+
+export interface CustomerPhoneMatch {
+  customer: Customer | null;
+}
+
+export interface DuplicateMobileConflict {
+  code: 'duplicate_mobile';
+  customer: Customer;
+}
+
+export interface CustomerTag {
+  key: string;
+  label: string;
+}
+
+export interface CustomerTagInput {
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  label: string;
+}
+
+export interface CustomerTags {
+  tags: string[];
+}
+
+export interface CustomerTagsInput {
+  /** @items.minLength 1 */
+  tags: string[];
+}
+
+export interface CustomerRepeatRequestInput {
+  /** @minLength 3 */
+  phone: string;
+  /** @minLength 1 */
+  requestedName: string;
+  /** @nullable */
+  submittedDescription?: string | null;
+  /** @minLength 1 */
+  explanation: string;
+}
+
+export type CustomerRepeatRequestStatus = typeof CustomerRepeatRequestStatus[keyof typeof CustomerRepeatRequestStatus];
+
+
+export const CustomerRepeatRequestStatus = {
+  pending: 'pending',
+  acknowledged: 'acknowledged',
+} as const;
+
+export type CustomerRepeatRequestProvenance = typeof CustomerRepeatRequestProvenance[keyof typeof CustomerRepeatRequestProvenance];
+
+
+export const CustomerRepeatRequestProvenance = {
+  human: 'human',
+  instagram_automation: 'instagram_automation',
+} as const;
+
+export interface CustomerRepeatRequest {
+  id: number;
+  customerId: number;
+  requestedName: string;
+  /** @nullable */
+  submittedDescription: string | null;
+  explanation: string;
+  status: CustomerRepeatRequestStatus;
+  /** @nullable */
+  createdByUserId: number | null;
+  /** @nullable */
+  createdByName: string | null;
+  provenance: CustomerRepeatRequestProvenance;
+  /** @nullable */
+  sourceThreadId: number | null;
+  /** @nullable */
+  sourceMessageId: string | null;
+  createdAt: string;
+  /** @nullable */
+  acknowledgedAt: string | null;
+}
+
+export interface CustomerRepeatRequestAcknowledgement {
+  acknowledgedCount: number;
+  pendingRepeatRequestCount: number;
+  tags: string[];
 }
 
 export interface CallLog {
@@ -146,6 +1018,32 @@ export interface CallLog {
 export type CustomerDetail = Customer & {
   activity: CallLog[];
 };
+
+export interface CustomerVerificationCanonical {
+  officialFirstName?: string;
+  officialLastName?: string;
+  officialFatherName?: string;
+  officialAddress?: string;
+  officialPostalCode?: string;
+}
+
+export type CustomerVerificationResultStatus = typeof CustomerVerificationResultStatus[keyof typeof CustomerVerificationResultStatus];
+
+
+export const CustomerVerificationResultStatus = {
+  verified: 'verified',
+  failed: 'failed',
+} as const;
+
+export interface CustomerVerificationResult {
+  customerId: number;
+  status: CustomerVerificationResultStatus;
+  checks: CustomerVerificationChecks;
+  canonical: CustomerVerificationCanonical;
+  checkedAt: string;
+  /** @nullable */
+  error?: string | null;
+}
 
 export interface CreditCheckInitiateInput {
   /**
@@ -233,6 +1131,12 @@ export interface CustomerInput {
      * @pattern ^[0-9]{10}$
      */
   postalCode?: string | null;
+  /** @nullable */
+  fatherName?: string | null;
+  /** @nullable */
+  address?: string | null;
+  /** @nullable */
+  email?: string | null;
   isUrgent?: boolean;
   /** @nullable */
   salespersonId?: number | null;
@@ -317,20 +1221,14 @@ export interface NotificationDelivery {
   id: number;
   customerId: number;
   customerName: string;
+  /** @nullable */
+  customerSalespersonName?: string | null;
   channel: NotificationDeliveryChannel;
   status: NotificationDeliveryStatus;
   /** @nullable */
   errorMessage?: string | null;
   createdAt: string;
 }
-
-export type CustomerUpdateVerificationStatus = typeof CustomerUpdateVerificationStatus[keyof typeof CustomerUpdateVerificationStatus];
-
-
-export const CustomerUpdateVerificationStatus = {
-  unverified: 'unverified',
-  verified: 'verified',
-} as const;
 
 export type CustomerUpdateStatus = typeof CustomerUpdateStatus[keyof typeof CustomerUpdateStatus];
 
@@ -364,7 +1262,12 @@ export interface CustomerUpdate {
      * @pattern ^[0-9]{10}$
      */
   postalCode?: string | null;
-  verificationStatus?: CustomerUpdateVerificationStatus;
+  /** @nullable */
+  fatherName?: string | null;
+  /** @nullable */
+  address?: string | null;
+  /** @nullable */
+  email?: string | null;
   isUrgent?: boolean;
   /** @nullable */
   salespersonId?: number | null;
@@ -433,10 +1336,54 @@ export interface AllocationProgramInput {
   items: AllocationProgramItemInput[];
 }
 
-export type CallRecord = CallLog & {
+export interface CallReportEdit {
+  /**
+     * @maxLength 160
+     * @nullable
+     */
+  subject: string | null;
+  /** @maxLength 10000 */
+  expertNotes: string;
+  /** @minimum 0 */
+  expectedRevision: number;
+}
+
+export type CallRecord = CallLog & ({
+  /** @nullable */
+  systemSummary?: string | null;
+  /** @nullable */
+  extension?: string | null;
   customerName: string;
   customerPhone: string;
-};
+  /** @nullable */
+  customerSalespersonName?: string | null;
+});
+
+export interface CallReport {
+  mobile?: MobileCall;
+  id: number;
+  /** @nullable */
+  eventId: number | null;
+  call: CallRecord;
+  revision: number;
+  isLive: boolean;
+  status: string;
+  /** @nullable */
+  subject: string | null;
+  expertNotes: string;
+  /** @nullable */
+  systemSummary: string | null;
+  transcript: VoipRecordingTranscript | null;
+  /** @nullable */
+  externalId: string | null;
+  /** @nullable */
+  recordingFrom: string | null;
+  /** @nullable */
+  recordingTo: string | null;
+  canEdit: boolean;
+  /** @nullable */
+  automaticError: string | null;
+}
 
 export interface CallPage {
   items: CallRecord[];
@@ -503,6 +1450,11 @@ export interface Consultation {
   customerName: string;
   customerPhone: string;
   /** @nullable */
+  customerSalespersonName?: string | null;
+  /** @nullable */
+  createdAt?: string | null;
+  questionnaireVersion?: number;
+  /** @nullable */
   hasCheck?: boolean | null;
   /** @nullable */
   hasPromissory?: boolean | null;
@@ -555,6 +1507,303 @@ export interface Consultation {
   updatedAt: string;
 }
 
+export type LoanPlanInstallmentTermInstallments = typeof LoanPlanInstallmentTermInstallments[keyof typeof LoanPlanInstallmentTermInstallments];
+
+
+export const LoanPlanInstallmentTermInstallments = {
+  NUMBER_6: 6,
+  NUMBER_9: 9,
+  NUMBER_12: 12,
+  NUMBER_18: 18,
+  NUMBER_24: 24,
+  NUMBER_36: 36,
+  NUMBER_48: 48,
+} as const;
+
+export interface LoanPlanInstallmentTerm {
+  installments: LoanPlanInstallmentTermInstallments;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  prepaymentPercent: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  deductionPercent: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  depositPercent: number;
+}
+
+/**
+ * @nullable
+ */
+export type LoanPlanPenaltyMode = typeof LoanPlanPenaltyMode[keyof typeof LoanPlanPenaltyMode] | null;
+
+
+export const LoanPlanPenaltyMode = {
+  amount: 'amount',
+  percent: 'percent',
+} as const;
+
+export type LoanPlanConditionInstallmentOptionsItem = typeof LoanPlanConditionInstallmentOptionsItem[keyof typeof LoanPlanConditionInstallmentOptionsItem];
+
+
+export const LoanPlanConditionInstallmentOptionsItem = {
+  NUMBER_6: 6,
+  NUMBER_9: 9,
+  NUMBER_12: 12,
+  NUMBER_18: 18,
+  NUMBER_24: 24,
+  NUMBER_36: 36,
+  NUMBER_48: 48,
+} as const;
+
+/**
+ * @nullable
+ */
+export type LoanPlanConditionPenaltyMode = typeof LoanPlanConditionPenaltyMode[keyof typeof LoanPlanConditionPenaltyMode] | null;
+
+
+export const LoanPlanConditionPenaltyMode = {
+  amount: 'amount',
+  percent: 'percent',
+} as const;
+
+export interface LoanPlanCondition {
+  id: number;
+  planId: number;
+  /** @nullable */
+  maxPrincipal?: string | null;
+  /** @nullable */
+  customerRanks?: string | null;
+  installmentOptions?: LoanPlanConditionInstallmentOptionsItem[];
+  customerJobs?: string[];
+  /** @nullable */
+  collateralType?: string | null;
+  needsGuarantor?: boolean;
+  /** @nullable */
+  guarantorRanks?: string | null;
+  guarantorJobs?: string[];
+  /** @nullable */
+  guarantorCollateralType?: string | null;
+  needsCustomerPromissory?: boolean;
+  needsGuarantorPromissory?: boolean;
+  needsCustomerSalaryDeduct?: boolean;
+  needsGuarantorSalaryDeduct?: boolean;
+  /** @nullable */
+  contractTemplateId?: number | null;
+  /** @nullable */
+  platformCompanyName?: string | null;
+  /** @nullable */
+  goodsStoreName?: string | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  commissionPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  operationCostsPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  grantedDiscountPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  purchaseCommissionPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  salesCommissionPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  loanAcquisitionFeePercent?: number | null;
+  /** @nullable */
+  penaltyMode?: LoanPlanConditionPenaltyMode;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  penaltyValue?: number | null;
+  /**
+     * @minimum 1
+     * @nullable
+     */
+  contractDurationDays?: number | null;
+  needsCustomerCheck?: boolean;
+  needsGuarantorCheck?: boolean;
+  sortOrder: number;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export interface LoanPlan {
+  id: number;
+  name: string;
+  /** @pattern ^[0-9]+$ */
+  filingFeeToman: string;
+  /** @nullable */
+  bankName?: string | null;
+  /** @nullable */
+  platformName?: string | null;
+  /** @nullable */
+  principalAmount?: string | null;
+  /** @nullable */
+  annualInterest?: string | null;
+  /** @nullable */
+  installments?: string | null;
+  installmentTerms?: LoanPlanInstallmentTerm[];
+  requiredDocuments?: string[];
+  /** @nullable */
+  deductPercents?: string | null;
+  /** @nullable */
+  customerRanks?: string | null;
+  /** @nullable */
+  customerCheck?: string | null;
+  needsCustomerPromissory?: boolean;
+  /** @nullable */
+  customerJobs?: string | null;
+  /** @nullable */
+  processMode?: string | null;
+  needsGuarantor?: boolean;
+  /** @nullable */
+  guarantorRanks?: string | null;
+  /** @nullable */
+  guarantorCheck?: string | null;
+  needsGuarantorPromissory?: boolean;
+  /** @nullable */
+  guarantorJobs?: string | null;
+  /** @nullable */
+  loanType?: string | null;
+  /** @nullable */
+  grantDays?: string | null;
+  needsAccountTurnover?: boolean;
+  needsAvgBalance?: boolean;
+  /** @nullable */
+  notes?: string | null;
+  /** @nullable */
+  prepaymentPercents?: string | null;
+  /** @nullable */
+  depositPercents?: string | null;
+  /** @nullable */
+  primaryContractTemplateId?: number | null;
+  /** @nullable */
+  invoiceTemplateId?: number | null;
+  /** @nullable */
+  acknowledgementTemplateId?: number | null;
+  needsCustomerSalaryDeduct?: boolean;
+  needsGuarantorSalaryDeduct?: boolean;
+  /** @nullable */
+  contractTemplateId?: number | null;
+  /** @nullable */
+  platformCompanyName?: string | null;
+  /** @nullable */
+  goodsStoreName?: string | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  commissionPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  operationCostsPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  grantedDiscountPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  purchaseCommissionPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  salesCommissionPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  loanAcquisitionFeePercent?: number | null;
+  /** @nullable */
+  penaltyMode?: LoanPlanPenaltyMode;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  penaltyValue?: number | null;
+  /**
+     * @minimum 1
+     * @nullable
+     */
+  contractDurationDays?: number | null;
+  createdAt: string;
+  conditions: LoanPlanCondition[];
+}
+
+export type LoanPlanMatchStatus = typeof LoanPlanMatchStatus[keyof typeof LoanPlanMatchStatus];
+
+
+export const LoanPlanMatchStatus = {
+  eligible: 'eligible',
+  needs_review: 'needs_review',
+  not_eligible: 'not_eligible',
+} as const;
+
+export interface LoanPlanMatch {
+  plan: LoanPlan;
+  status: LoanPlanMatchStatus;
+  /** @nullable */
+  matchedConditionId?: number | null;
+  /**
+     * Maximum toman principal available through fully matched conditions for this customer; absent in older historical snapshots.
+     * @nullable
+     */
+  customerMaximumAmount?: string | null;
+  failedRequirements: string[];
+  missingInformation: string[];
+}
+
+export type ConsultationPlanSnapshotSnapshot = {
+  capturedAt: string;
+  /** @nullable */
+  requestedAmount: string | null;
+  matches: LoanPlanMatch[];
+} | null;
+
+export interface ConsultationPlanSnapshot {
+  snapshot: ConsultationPlanSnapshotSnapshot;
+}
+
 export interface ConsultationPage {
   items: Consultation[];
   total: number;
@@ -562,8 +1811,17 @@ export interface ConsultationPage {
   offset: number;
 }
 
+export type ConsultationInputQuestionnaireVersion = typeof ConsultationInputQuestionnaireVersion[keyof typeof ConsultationInputQuestionnaireVersion];
+
+
+export const ConsultationInputQuestionnaireVersion = {
+  NUMBER_1: 1,
+  NUMBER_2: 2,
+} as const;
+
 export interface ConsultationInput {
   customerId: number;
+  questionnaireVersion?: ConsultationInputQuestionnaireVersion;
   hasCheck?: boolean;
   hasPromissory?: boolean;
   hasGuarantor?: boolean;
@@ -620,79 +1878,6 @@ export interface ConsultationUpdate {
   hasGuarantorSalaryDeduct?: boolean;
 }
 
-export type LoanPlanInstallmentTermInstallments = typeof LoanPlanInstallmentTermInstallments[keyof typeof LoanPlanInstallmentTermInstallments];
-
-
-export const LoanPlanInstallmentTermInstallments = {
-  NUMBER_6: 6,
-  NUMBER_9: 9,
-  NUMBER_12: 12,
-  NUMBER_18: 18,
-  NUMBER_24: 24,
-  NUMBER_36: 36,
-  NUMBER_48: 48,
-} as const;
-
-export interface LoanPlanInstallmentTerm {
-  installments: LoanPlanInstallmentTermInstallments;
-  /**
-     * @minimum 0
-     * @maximum 100
-     */
-  prepaymentPercent: number;
-  /**
-     * @minimum 0
-     * @maximum 100
-     */
-  deductionPercent: number;
-  /**
-     * @minimum 0
-     * @maximum 100
-     */
-  depositPercent: number;
-}
-
-export type LoanPlanConditionInstallmentOptionsItem = typeof LoanPlanConditionInstallmentOptionsItem[keyof typeof LoanPlanConditionInstallmentOptionsItem];
-
-
-export const LoanPlanConditionInstallmentOptionsItem = {
-  NUMBER_6: 6,
-  NUMBER_9: 9,
-  NUMBER_12: 12,
-  NUMBER_18: 18,
-  NUMBER_24: 24,
-  NUMBER_36: 36,
-  NUMBER_48: 48,
-} as const;
-
-export interface LoanPlanCondition {
-  id: number;
-  planId: number;
-  /** @nullable */
-  maxPrincipal?: string | null;
-  /** @nullable */
-  customerRanks?: string | null;
-  installmentOptions?: LoanPlanConditionInstallmentOptionsItem[];
-  customerJobs?: string[];
-  /** @nullable */
-  collateralType?: string | null;
-  needsGuarantor?: boolean;
-  /** @nullable */
-  guarantorRanks?: string | null;
-  guarantorJobs?: string[];
-  /** @nullable */
-  guarantorCollateralType?: string | null;
-  needsCustomerPromissory?: boolean;
-  needsGuarantorPromissory?: boolean;
-  needsCustomerSalaryDeduct?: boolean;
-  needsGuarantorSalaryDeduct?: boolean;
-  needsCustomerCheck?: boolean;
-  needsGuarantorCheck?: boolean;
-  sortOrder: number;
-  /** @nullable */
-  notes?: string | null;
-}
-
 export type LoanPlanConditionInputInstallmentOptionsItem = typeof LoanPlanConditionInputInstallmentOptionsItem[keyof typeof LoanPlanConditionInputInstallmentOptionsItem];
 
 
@@ -727,7 +1912,7 @@ export interface LoanPlanConditionInput {
   notes?: string;
 }
 
-export interface LoanPlan {
+export interface PublicLoanPlanSummary {
   id: number;
   name: string;
   /** @nullable */
@@ -740,8 +1925,19 @@ export interface LoanPlan {
   annualInterest?: string | null;
   /** @nullable */
   installments?: string | null;
-  installmentTerms?: LoanPlanInstallmentTerm[];
-  requiredDocuments?: string[];
+  installmentTerms: LoanPlanInstallmentTerm[];
+  /** @nullable */
+  loanType?: string | null;
+  /** @nullable */
+  processMode?: string | null;
+  /** @nullable */
+  grantDays?: string | null;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export type PublicLoanPlanDetails = PublicLoanPlanSummary & ({
+  requiredDocuments: string[];
   /** @nullable */
   deductPercents?: string | null;
   /** @nullable */
@@ -751,8 +1947,6 @@ export interface LoanPlan {
   needsCustomerPromissory?: boolean;
   /** @nullable */
   customerJobs?: string | null;
-  /** @nullable */
-  processMode?: string | null;
   needsGuarantor?: boolean;
   /** @nullable */
   guarantorRanks?: string | null;
@@ -761,33 +1955,54 @@ export interface LoanPlan {
   needsGuarantorPromissory?: boolean;
   /** @nullable */
   guarantorJobs?: string | null;
-  /** @nullable */
-  loanType?: string | null;
-  /** @nullable */
-  grantDays?: string | null;
   needsAccountTurnover?: boolean;
   needsAvgBalance?: boolean;
-  /** @nullable */
-  notes?: string | null;
   /** @nullable */
   prepaymentPercents?: string | null;
   /** @nullable */
   depositPercents?: string | null;
-  /** @nullable */
-  primaryContractTemplateId?: number | null;
-  /** @nullable */
-  invoiceTemplateId?: number | null;
-  /** @nullable */
-  acknowledgementTemplateId?: number | null;
   needsCustomerSalaryDeduct?: boolean;
   needsGuarantorSalaryDeduct?: boolean;
-  createdAt: string;
+  /** @nullable */
+  contractTemplateId?: number | null;
+  /** @nullable */
+  platformCompanyName?: string | null;
+  /** @nullable */
+  goodsStoreName?: string | null;
+  /** @nullable */
+  commissionPercent?: number | null;
+  /** @nullable */
+  operationCostsPercent?: number | null;
+  /** @nullable */
+  grantedDiscountPercent?: number | null;
+  /** @nullable */
+  purchaseCommissionPercent?: number | null;
+  /** @nullable */
+  salesCommissionPercent?: number | null;
+  /** @nullable */
+  loanAcquisitionFeePercent?: number | null;
+  /** @nullable */
+  penaltyMode?: string | null;
+  /** @nullable */
+  penaltyValue?: number | null;
+  /** @nullable */
+  contractDurationDays?: number | null;
   conditions: LoanPlanCondition[];
-}
+});
+
+export type LoanPlanInputPenaltyMode = typeof LoanPlanInputPenaltyMode[keyof typeof LoanPlanInputPenaltyMode];
+
+
+export const LoanPlanInputPenaltyMode = {
+  amount: 'amount',
+  percent: 'percent',
+} as const;
 
 export interface LoanPlanInput {
   /** @minLength 1 */
   name: string;
+  /** @pattern ^[0-9]+$ */
+  filingFeeToman?: string;
   bankName?: string;
   platformName?: string;
   principalAmount?: string;
@@ -810,9 +2025,45 @@ export interface LoanPlanInput {
   grantDays?: string;
   needsAccountTurnover?: boolean;
   needsAvgBalance?: boolean;
-  primaryContractTemplateId?: number;
-  invoiceTemplateId?: number;
-  acknowledgementTemplateId?: number;
+  /** @minimum 1 */
+  contractTemplateId: number;
+  platformCompanyName?: string;
+  goodsStoreName?: string;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  commissionPercent?: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  operationCostsPercent?: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  grantedDiscountPercent?: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  purchaseCommissionPercent?: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  salesCommissionPercent?: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  loanAcquisitionFeePercent?: number;
+  penaltyMode?: LoanPlanInputPenaltyMode;
+  /** @minimum 0 */
+  penaltyValue?: number;
+  /** @minimum 1 */
+  contractDurationDays?: number;
   notes?: string;
   prepaymentPercents?: string;
   depositPercents?: string;
@@ -826,36 +2077,432 @@ export type LoanPlanUpdate = LoanPlanInput & {
   name?: string;
 };
 
-export type LoanPlanMatchStatus = typeof LoanPlanMatchStatus[keyof typeof LoanPlanMatchStatus];
+export type CustomerIdentityDocumentDocumentType = typeof CustomerIdentityDocumentDocumentType[keyof typeof CustomerIdentityDocumentDocumentType];
 
 
-export const LoanPlanMatchStatus = {
-  eligible: 'eligible',
-  needs_review: 'needs_review',
-  not_eligible: 'not_eligible',
+export const CustomerIdentityDocumentDocumentType = {
+  national_card_front: 'national_card_front',
+  national_card_back: 'national_card_back',
+  birth_cert_p1: 'birth_cert_p1',
+  birth_cert_p2: 'birth_cert_p2',
+  birth_cert_p3: 'birth_cert_p3',
 } as const;
 
-export interface LoanPlanMatch {
-  plan: LoanPlan;
-  status: LoanPlanMatchStatus;
-  /** @nullable */
-  matchedConditionId?: number | null;
-  failedRequirements: string[];
-  missingInformation: string[];
+export interface CustomerIdentityDocument {
+  id: number;
+  customerId: number;
+  documentType: CustomerIdentityDocumentDocumentType;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  createdAt: string;
 }
 
+export type CustomerIdentityDocumentUploadDocumentType = typeof CustomerIdentityDocumentUploadDocumentType[keyof typeof CustomerIdentityDocumentUploadDocumentType];
+
+
+export const CustomerIdentityDocumentUploadDocumentType = {
+  national_card_front: 'national_card_front',
+  national_card_back: 'national_card_back',
+  birth_cert_p1: 'birth_cert_p1',
+  birth_cert_p2: 'birth_cert_p2',
+  birth_cert_p3: 'birth_cert_p3',
+} as const;
+
+export interface CustomerIdentityDocumentUpload {
+  documentType: CustomerIdentityDocumentUploadDocumentType;
+  file: Blob;
+}
+
+export type CustomerEligiblePlanManualVariablesItem = {
+  variable: string;
+  label: string;
+};
+
+export interface CustomerEligiblePlan {
+  planId: number;
+  name: string;
+  conditionId: number;
+  conditionName: string;
+  /** @nullable */
+  conditionNotes?: string | null;
+  maximumAmount: string;
+  allowedDurations: number[];
+  requiredDocuments: string[];
+  needsGuarantor: boolean;
+  primaryContractPresent: boolean;
+  /** @nullable */
+  contractTemplateId?: number | null;
+  manualVariables?: CustomerEligiblePlanManualVariablesItem[];
+}
+
+export type CustomerEligiblePlansResponseCredit = {
+  fresh: boolean;
+  status: string;
+  /** @nullable */
+  rank: string | null;
+  /** @nullable */
+  checkedAt: string | null;
+};
+
+export interface CustomerEligiblePlansResponse {
+  customerId: number;
+  credit: CustomerEligiblePlansResponseCredit;
+  plans: CustomerEligiblePlan[];
+}
+
+/**
+ * Manual-only values required by the selected plan's primary contract template. Validated and privately snapshotted on the application at creation.
+ */
+export type LoanApplicationInputManualValues = {[key: string]: string};
+
 export interface LoanApplicationInput {
+  /** Admin/salesperson-only rank exemption */
+  ignoreCreditRank?: boolean;
   /** @minItems 1 */
   planIds: number[];
   /** @maxLength 1000 */
   notes?: string;
   customerId: number;
+  /** @minimum 1 */
+  feeChargeId: number;
   planId: number;
+  conditionId: number;
   consultationId?: number;
   /** @pattern ^[1-9][0-9]*$ */
   requestedAmount: string;
   /** @minimum 1 */
   durationMonths: number;
+  preRegistration?: boolean;
+  /** Manual-only values required by the selected plan's primary contract template. Validated and privately snapshotted on the application at creation. */
+  manualValues?: LoanApplicationInputManualValues;
+}
+
+export interface FilingFeeChargeInput {
+  ignoreCreditRank?: boolean;
+  customerId: number;
+  planId: number;
+}
+
+export type CompanyWalletAdjustmentInputWalletType = typeof CompanyWalletAdjustmentInputWalletType[keyof typeof CompanyWalletAdjustmentInputWalletType];
+
+
+export const CompanyWalletAdjustmentInputWalletType = {
+  cash: 'cash',
+  credit: 'credit',
+} as const;
+
+export type CompanyWalletAdjustmentInputDirection = typeof CompanyWalletAdjustmentInputDirection[keyof typeof CompanyWalletAdjustmentInputDirection];
+
+
+export const CompanyWalletAdjustmentInputDirection = {
+  deposit: 'deposit',
+  withdrawal: 'withdrawal',
+} as const;
+
+export interface CompanyWalletAdjustmentInput {
+  walletType: CompanyWalletAdjustmentInputWalletType;
+  direction: CompanyWalletAdjustmentInputDirection;
+  /** @pattern ^[1-9][0-9]*$ */
+  amountToman: string;
+  /** @minLength 3 */
+  reason: string;
+}
+
+export type FunderDefectsInputDefectsItemSource = typeof FunderDefectsInputDefectsItemSource[keyof typeof FunderDefectsInputDefectsItemSource];
+
+
+export const FunderDefectsInputDefectsItemSource = {
+  document: 'document',
+  guarantor: 'guarantor',
+  collateral: 'collateral',
+} as const;
+
+export type FunderDefectsInputDefectsItem = {
+  source: FunderDefectsInputDefectsItemSource;
+  id: number;
+  reason: string;
+};
+
+export interface FunderDefectsInput {
+  reason?: string;
+  /** @minItems 1 */
+  defects: FunderDefectsInputDefectsItem[];
+}
+
+export interface FunderInitialApprovalInput {
+  /**
+     * Approved principal in Toman; may exceed or be below requested amount but cannot exceed the snapshotted plan/condition ceiling.
+     * @pattern ^[1-9][0-9]{0,17}$
+     */
+  approvedAmount: string;
+  /**
+     * Approved installment count from the snapshotted plan/condition options. Omission preserves the requested count for older clients.
+     * @minimum 1
+     * @maximum 600
+     */
+  approvedDurationMonths?: number;
+  /**
+     * Optional initial provider-decision audit reason.
+     * @maxLength 500
+     */
+  reason?: string;
+}
+
+export interface LoanCaseCancellationInput {
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+  reason: string;
+}
+
+export interface ProviderRejectionInput {
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+  reason: string;
+}
+
+export type PhysicalCheckReviewInputDecision = typeof PhysicalCheckReviewInputDecision[keyof typeof PhysicalCheckReviewInputDecision];
+
+
+export const PhysicalCheckReviewInputDecision = {
+  approved: 'approved',
+  incomplete: 'incomplete',
+} as const;
+
+export interface PhysicalCheckReviewInput {
+  decision: PhysicalCheckReviewInputDecision;
+  reason?: string;
+}
+
+export interface PhysicalLoanDocument {
+  id: number;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  fileAvailable: boolean;
+  createdAt?: string;
+}
+
+export interface PhysicalDocumentSubmissionInput {
+  /** Registrar attests that this plan has no physical documents to send. Cannot be true after an upload. */
+  noPhysicalDocuments: boolean;
+}
+
+export interface PhysicalCheckCorrectionInput {
+  note: string;
+}
+
+export interface WalletCashPaymentInput {
+  /** @pattern ^[1-9][0-9]*$ */
+  amountToman: string;
+}
+
+export type WalletShareLinkInput = (unknown & {
+  /** @pattern ^[1-9][0-9]*$ */
+  amountToman?: string;
+  /** @minimum 1 */
+  planId?: number;
+  /** Staff-only loan-plan eligibility exception; does not bypass identity, cash shortfall, scope or verified payment. */
+  ignoreCreditRank?: boolean;
+  /** Must be exactly true to create another link while an active request exists. */
+  confirmActiveRequest?: boolean;
+});
+
+export interface WalletShareLinkCreated {
+  url: string;
+  amountToman: string;
+  customerName: string;
+}
+
+export type WalletShareLinkHistoryItemSmsStatus = typeof WalletShareLinkHistoryItemSmsStatus[keyof typeof WalletShareLinkHistoryItemSmsStatus];
+
+
+export const WalletShareLinkHistoryItemSmsStatus = {
+  not_sent: 'not_sent',
+  sending: 'sending',
+  sent: 'sent',
+  delivery_unknown: 'delivery_unknown',
+} as const;
+
+export type WalletShareLinkHistoryItemPaymentStatus = typeof WalletShareLinkHistoryItemPaymentStatus[keyof typeof WalletShareLinkHistoryItemPaymentStatus];
+
+
+export const WalletShareLinkHistoryItemPaymentStatus = {
+  pending: 'pending',
+  processing: 'processing',
+  credited: 'credited',
+  cancelled: 'cancelled',
+  failed: 'failed',
+  verification_pending: 'verification_pending',
+  requires_reconciliation: 'requires_reconciliation',
+  expired: 'expired',
+} as const;
+
+export interface WalletShareLinkHistoryItem {
+  id: number;
+  amountToman: string;
+  /** @nullable */
+  planId: number | null;
+  /** @nullable */
+  planName: string | null;
+  createdAt: string;
+  expiresAt: string;
+  smsStatus: WalletShareLinkHistoryItemSmsStatus;
+  paymentStatus: WalletShareLinkHistoryItemPaymentStatus;
+  isActive: boolean;
+}
+
+export interface WalletReconciliationItem {
+  id: number;
+  amountToman: string;
+  amountRial: string;
+  authority: string;
+  status: string;
+  /** @nullable */
+  providerRefId: string | null;
+  createdAt: string;
+  /** @nullable */
+  verifiedAt: string | null;
+  /** @nullable */
+  attemptStatus: string | null;
+}
+
+export type WalletReconciliationResultStatus = typeof WalletReconciliationResultStatus[keyof typeof WalletReconciliationResultStatus];
+
+
+export const WalletReconciliationResultStatus = {
+  credited: 'credited',
+  already_credited: 'already_credited',
+} as const;
+
+export interface WalletReconciliationResult {
+  status: WalletReconciliationResultStatus;
+  /** @nullable */
+  providerRefId: string | null;
+}
+
+export type WalletPaymentResultStatus = typeof WalletPaymentResultStatus[keyof typeof WalletPaymentResultStatus];
+
+
+export const WalletPaymentResultStatus = {
+  created: 'created',
+  credited: 'credited',
+  cancelled: 'cancelled',
+  failed: 'failed',
+  provider_already_verified: 'provider_already_verified',
+} as const;
+
+export interface WalletPaymentResult {
+  id: number;
+  amountToman: string;
+  status: WalletPaymentResultStatus;
+  /** @nullable */
+  verifiedAt: string | null;
+}
+
+export interface ManagedWallet {
+  customerId: number;
+  customerName: string;
+  phone: string;
+  cashBalanceToman: string;
+  creditBalanceToman: string;
+}
+
+export interface ManagedWalletPage {
+  items: ManagedWallet[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export type WalletTransactionKind = typeof WalletTransactionKind[keyof typeof WalletTransactionKind];
+
+
+export const WalletTransactionKind = {
+  payment: 'payment',
+  loan_credit: 'loan_credit',
+  transfer: 'transfer',
+  legacy: 'legacy',
+} as const;
+
+export type WalletTransactionWalletType = typeof WalletTransactionWalletType[keyof typeof WalletTransactionWalletType];
+
+
+export const WalletTransactionWalletType = {
+  cash: 'cash',
+  credit: 'credit',
+} as const;
+
+export interface WalletTransaction {
+  kind: WalletTransactionKind;
+  walletType: WalletTransactionWalletType;
+  recordId: number;
+  customerId: number;
+  customerName: string;
+  /** @nullable */
+  otherCustomerId: number | null;
+  /** @nullable */
+  otherCustomerName: string | null;
+  amountToman: string;
+  status: string;
+  /** @nullable */
+  actorId: number | null;
+  /** @nullable */
+  actorName: string | null;
+  /** @nullable */
+  errorCode: string | null;
+  /** @nullable */
+  reason: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WalletTransactionPage {
+  items: WalletTransaction[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export type WalletTransferInputWalletType = typeof WalletTransferInputWalletType[keyof typeof WalletTransferInputWalletType];
+
+
+export const WalletTransferInputWalletType = {
+  cash: 'cash',
+  credit: 'credit',
+} as const;
+
+export interface WalletTransferInput {
+  fromCustomerId: number;
+  toCustomerId: number;
+  walletType: WalletTransferInputWalletType;
+  /** @pattern ^[1-9][0-9]*$ */
+  amountToman: string;
+  /**
+     * @minLength 3
+     * @maxLength 500
+     */
+  reason: string;
+}
+
+export type WalletTransferResultStatus = typeof WalletTransferResultStatus[keyof typeof WalletTransferResultStatus];
+
+
+export const WalletTransferResultStatus = {
+  completed: 'completed',
+  failed: 'failed',
+} as const;
+
+export interface WalletTransferResult {
+  id: number;
+  status: WalletTransferResultStatus;
+  /** @nullable */
+  errorCode: string | null;
 }
 
 export type LoanApplicationStatus = typeof LoanApplicationStatus[keyof typeof LoanApplicationStatus];
@@ -866,6 +2513,47 @@ export const LoanApplicationStatus = {
   reviewing: 'reviewing',
   approved: 'approved',
   rejected: 'rejected',
+} as const;
+
+/**
+ * @nullable
+ */
+export type LoanApplicationApprovedAmountSource = typeof LoanApplicationApprovedAmountSource[keyof typeof LoanApplicationApprovedAmountSource] | null;
+
+
+export const LoanApplicationApprovedAmountSource = {
+  initial_provider_approval: 'initial_provider_approval',
+  signed_primary_reconciliation: 'signed_primary_reconciliation',
+} as const;
+
+/**
+ * @nullable
+ */
+export type LoanApplicationPlanSnapshot = { [key: string]: unknown } | null;
+
+export type LoanApplicationPrimaryManualValues = {[key: string]: string};
+
+export type LoanApplicationPrimaryManualVariablesItem = {
+  variable: string;
+  label: string;
+};
+
+/**
+ * @nullable
+ */
+export type LoanApplicationConditionSnapshot = { [key: string]: unknown } | null;
+
+export type LoanApplicationBusinessStatus = typeof LoanApplicationBusinessStatus[keyof typeof LoanApplicationBusinessStatus];
+
+
+export const LoanApplicationBusinessStatus = {
+  waiting_sales: 'waiting_sales',
+  waiting_registration: 'waiting_registration',
+  waiting_funder_approval: 'waiting_funder_approval',
+  waiting_wallet_charge: 'waiting_wallet_charge',
+  wallet_charged: 'wallet_charged',
+  canceled: 'canceled',
+  completed: 'completed',
 } as const;
 
 export type LoanApplicationDocumentsItem = { [key: string]: unknown };
@@ -879,24 +2567,125 @@ export type LoanApplicationGuarantor = { [key: string]: unknown } | null;
 
 export type LoanApplicationCollateralItem = { [key: string]: unknown };
 
-export type LoanApplicationGeneratedDocumentsItem = { [key: string]: unknown };
+export type LoanApplicationPhysicalChecksItem = { [key: string]: unknown };
+
+export type LoanApplicationFunderDefectsItem = { [key: string]: unknown };
+
+export type LoanApplicationInitialProviderDecisionDecision = typeof LoanApplicationInitialProviderDecisionDecision[keyof typeof LoanApplicationInitialProviderDecisionDecision];
+
+
+export const LoanApplicationInitialProviderDecisionDecision = {
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+
+/**
+ * @nullable
+ */
+export type LoanApplicationInitialProviderDecision = {
+  decision?: LoanApplicationInitialProviderDecisionDecision;
+  decidedAt?: string;
+  /** @nullable */
+  actorUserId?: number | null;
+  /** @nullable */
+  reason?: string | null;
+} | null;
+
+export type LoanApplicationGeneratedDocumentsItemKind = typeof LoanApplicationGeneratedDocumentsItemKind[keyof typeof LoanApplicationGeneratedDocumentsItemKind];
+
+
+export const LoanApplicationGeneratedDocumentsItemKind = {
+  primary: 'primary',
+  invoice: 'invoice',
+  acknowledgement: 'acknowledgement',
+} as const;
+
+export type LoanApplicationGeneratedDocumentsItem = {
+  id?: number;
+  applicationId?: number;
+  kind?: LoanApplicationGeneratedDocumentsItemKind;
+  /** @nullable */
+  contractGenerationId?: number | null;
+  current?: boolean;
+  /** @nullable */
+  status?: string | null;
+  signed?: boolean;
+  superseded?: boolean;
+  /** @nullable */
+  supersededAt?: string | null;
+  /** @nullable */
+  reviewReason?: string | null;
+  fileAvailable?: boolean;
+  /** Current pending primary delivery reused a rejected upload; staff may explicitly prepare a guarded fresh-file retry. */
+  resendRepairRequired?: boolean;
+  /** @nullable */
+  downloadUrl?: string | null;
+  [key: string]: unknown;
+ };
 
 /**
  * @nullable
  */
 export type LoanApplicationCalculation = { [key: string]: unknown } | null;
 
+export interface TomanReplacementEligibility {
+  eligible: boolean;
+  candidate?: boolean;
+  /** @nullable */
+  sourceGenerationId: number | null;
+  approvedAmount: string;
+  /** @minimum 0 */
+  durationMonths: number;
+  /** @nullable */
+  tomanTemplateId: number | null;
+  /** @nullable */
+  tomanTemplateName: string | null;
+  blockedReason?: string;
+}
+
+export interface TomanReplacementState {
+  authorized: true;
+  priorStage: string;
+  resumeStage: string;
+  sourceGenerationId: number;
+  tomanTemplateId: number;
+  approvedAmount: string;
+  durationMonths: number;
+  authorizedAt: string;
+  authorizedByUserId: number;
+  /** @nullable */
+  replacementGenerationId: number | null;
+  /** @nullable */
+  completedAt: string | null;
+}
+
 export interface LoanApplication {
+  /** Rank matching was waived by an authorized staff member at creation. */
+  creditRankIgnored?: boolean;
+  customerSubmitted?: boolean;
   id: number;
   consultationId: number;
   customerId: number;
   planIds: number[];
   requestedAmount: string;
+  /** @minimum 1 */
+  requestedDurationMonths?: number;
   status: LoanApplicationStatus;
   /** @nullable */
   notes?: string | null;
   createdAt: string;
+  /** @nullable */
+  salespersonIdSnapshot: number | null;
+  /** @nullable */
+  salespersonNameSnapshot: string | null;
+  /** @nullable */
+  customerSalespersonId?: number | null;
+  canCancel?: boolean;
+  /** @nullable */
+  cancellationReason?: string | null;
   customerName?: string;
+  /** @nullable */
+  customerSalespersonName?: string | null;
   /** @nullable */
   planName?: string | null;
   planId?: number;
@@ -904,23 +2693,102 @@ export interface LoanApplication {
   approvedAmount?: string | null;
   /** @nullable */
   netAmount?: string | null;
+  /** @nullable */
+  approvedAmountSource?: LoanApplicationApprovedAmountSource;
+  /** @nullable */
+  approvedAmountGenerationId?: number | null;
+  /** @nullable */
+  approvedAmountReconciledAt?: string | null;
+  /** @nullable */
+  approvedAmountReconciledByUserId?: number | null;
   durationMonths?: number;
   stage?: string;
+  /** True for applications created under the draft-first workflow; false for legacy applications. */
+  newCaseWorkflow: boolean;
+  /** True when initial provider approval retained the already-signed primary contract because both principal and installment count were unchanged. */
+  initialContractRetained: boolean;
+  /** @nullable */
+  planSnapshot?: LoanApplicationPlanSnapshot;
+  primaryManualValues?: LoanApplicationPrimaryManualValues;
+  primaryManualVariables?: LoanApplicationPrimaryManualVariablesItem[];
+  /** @nullable */
+  conditionSnapshot?: LoanApplicationConditionSnapshot;
+  /** @nullable */
+  currentPrimaryGenerationId?: number | null;
+  tomanReplacementEligibility?: TomanReplacementEligibility | null;
+  tomanReplacement?: TomanReplacementState | null;
+  /** @nullable */
+  primaryContractStatus?: string | null;
+  actionRequired?: boolean;
+  actionRole?: string;
+  businessStatus?: LoanApplicationBusinessStatus;
   documents?: LoanApplicationDocumentsItem[];
   history?: LoanApplicationHistoryItem[];
   /** @nullable */
   guarantor?: LoanApplicationGuarantor;
   collateral?: LoanApplicationCollateralItem[];
+  physicalChecks?: LoanApplicationPhysicalChecksItem[];
+  physicalDocuments?: PhysicalLoanDocument[];
+  funderDefects?: LoanApplicationFunderDefectsItem[];
+  /** @nullable */
+  funderDecision?: string | null;
+  /** @nullable */
+  funderReason?: string | null;
+  /** @nullable */
+  initialProviderDecision?: LoanApplicationInitialProviderDecision;
   generatedDocuments?: LoanApplicationGeneratedDocumentsItem[];
   /** @nullable */
   calculation?: LoanApplicationCalculation;
   updatedAt?: string;
 }
 
+export interface TomanReplacementConsentInput {
+  consent: true;
+  /**
+     * @minLength 8
+     * @maxLength 1000
+     */
+  reason: string;
+  /** @minimum 1 */
+  expectedGenerationId: number;
+  /** @pattern ^[1-9][0-9]{0,17}$ */
+  expectedApprovedAmount: string;
+  /**
+     * @minimum 1
+     * @maximum 600
+     */
+  expectedDurationMonths: number;
+}
+
 export interface LoanApplicationPage {
   items: LoanApplication[];
   page: number;
   limit: number;
+  /** @minimum 0 */
+  total: number;
+}
+
+export interface LoanApplicationDashboardStats {
+  /** @minimum 0 */
+  awaitingAction: number;
+  /** @minimum 0 */
+  inProgress: number;
+  /** @minimum 0 */
+  completed: number;
+}
+
+export type LoanApplicationBoardBoard = {[key: string]: LoanApplication[]};
+
+export interface LoanApplicationBoard {
+  board?: LoanApplicationBoardBoard;
+  items: LoanApplication[];
+  page: number;
+  limit: number;
+  /**
+     * Total cases matching the authorized filters before pagination
+     * @minimum 0
+     */
+  total: number;
 }
 
 export interface ManualRequirementInput {
@@ -937,6 +2805,7 @@ export interface PrivateFileUpload {
 export interface CollateralUpload {
   file: Blob;
   collateralType: string;
+  requirementKey: string;
 }
 
 export type ReviewDecisionDecision = typeof ReviewDecisionDecision[keyof typeof ReviewDecisionDecision];
@@ -950,6 +2819,7 @@ export const ReviewDecisionDecision = {
 
 export interface ReviewDecision {
   decision: ReviewDecisionDecision;
+  /** Required when rejecting a reviewed item. */
   reason?: string;
 }
 
@@ -982,17 +2852,114 @@ export interface GeneratedDocumentLinkInput {
   contractGenerationId: number;
 }
 
+export type GeneratedDocumentLinkKind = typeof GeneratedDocumentLinkKind[keyof typeof GeneratedDocumentLinkKind];
+
+
+export const GeneratedDocumentLinkKind = {
+  primary: 'primary',
+  invoice: 'invoice',
+  acknowledgement: 'acknowledgement',
+} as const;
+
 export interface GeneratedDocumentLink {
   id: number;
   applicationId: number;
-  kind: string;
+  kind: GeneratedDocumentLinkKind;
   contractGenerationId: number;
 }
 
 export interface SignatureVerification {
   id: number;
+  /** Indicates provider-reported completion only; it is not financial approval. */
   signed: boolean;
   kind: string;
+  /** @nullable */
+  providerStatus: string | null;
+  /** Whether this provider lookup actually advanced the workflow; this reflects the server's completed transition and is not a client-side inference. */
+  workflowAdvanced?: boolean;
+  /**
+     * The authoritative resulting workflow stage after this provider lookup, or null when no stage transition occurred; do not infer or predict it client-side.
+     * @nullable
+     */
+  nextStage?: string | null;
+}
+
+export interface SalespersonIdentityChoice {
+  /** @nullable */
+  expectedSalespersonId: number | null;
+  choice: number | 'new';
+}
+
+export interface SalespersonIdentityResolution {
+  salespersonId: number;
+}
+
+export type SalespersonIdentityIssueReason = typeof SalespersonIdentityIssueReason[keyof typeof SalespersonIdentityIssueReason];
+
+
+export const SalespersonIdentityIssueReason = {
+  shared: 'shared',
+  missing: 'missing',
+  claimed: 'claimed',
+  multiple: 'multiple',
+  conflicting_mobile: 'conflicting_mobile',
+} as const;
+
+export interface SalespersonIdentityIssue {
+  userId: number;
+  username: string;
+  /** @nullable */
+  fullName: string | null;
+  /** @nullable */
+  mobile: string | null;
+  /** @nullable */
+  currentSalespersonId: number | null;
+  reason: SalespersonIdentityIssueReason;
+  candidateIds: number[];
+}
+
+export interface SalespersonIdentityLinkedUser {
+  id: number;
+  username: string;
+}
+
+export interface SalespersonIdentityCustomer {
+  id: number;
+  name: string;
+}
+
+export interface SalespersonIdentityPurchase {
+  id: number;
+  customerId: number;
+  stage: string;
+  /** @nullable */
+  commissionToman: string | null;
+}
+
+export interface SalespersonIdentityFinancialEntry {
+  id: number;
+  /** @nullable */
+  purchaseId: number | null;
+  kind: string;
+  amountToman: string;
+}
+
+export interface SalespersonIdentityDetail {
+  id: number;
+  name: string;
+  /** @nullable */
+  mobile: string | null;
+  linkedUsers: SalespersonIdentityLinkedUser[];
+  customers: SalespersonIdentityCustomer[];
+  purchases: SalespersonIdentityPurchase[];
+  financialEntries: SalespersonIdentityFinancialEntry[];
+  /** @nullable */
+  walletBalanceToman: string | null;
+}
+
+export interface SalespersonIdentityReport {
+  issues: SalespersonIdentityIssue[];
+  identities: SalespersonIdentityDetail[];
 }
 
 export type AuthProfileUpdatePriorityColors = {[key: string]: string};
@@ -1052,12 +3019,16 @@ export interface CrmUserUpdate {
      */
   telegramId?: string | null;
   /**
+     * @maxLength 32
+     * @nullable
+     * @pattern ^[A-Za-z0-9*#_.-]*$
+     */
+  voipExtension?: string | null;
+  /**
      * @minLength 3
      * @maxLength 50
      */
   role?: string;
-  /** @nullable */
-  salespersonId?: number | null;
   active?: boolean;
 }
 
@@ -1076,6 +3047,12 @@ export interface CrmUserInput {
   /** @nullable */
   fullName?: string | null;
   /**
+     * @maxLength 32
+     * @nullable
+     * @pattern ^[A-Za-z0-9*#_.-]*$
+     */
+  voipExtension?: string | null;
+  /**
      * @maxLength 30
      * @nullable
      */
@@ -1085,8 +3062,6 @@ export interface CrmUserInput {
      * @maxLength 50
      */
   role: string;
-  /** @nullable */
-  salespersonId?: number | null;
   active?: boolean;
 }
 
@@ -1163,7 +3138,47 @@ export interface RoleList {
   availablePermissions: string[];
 }
 
+export type ReminderCallHistoryStatus = typeof ReminderCallHistoryStatus[keyof typeof ReminderCallHistoryStatus];
+
+
+export const ReminderCallHistoryStatus = {
+  available: 'available',
+  none: 'none',
+  restricted: 'restricted',
+} as const;
+
+export type ReminderSmsStatus = typeof ReminderSmsStatus[keyof typeof ReminderSmsStatus];
+
+
+export const ReminderSmsStatus = {
+  pending: 'pending',
+  sending: 'sending',
+  sent: 'sent',
+  blocked: 'blocked',
+  rejected: 'rejected',
+  uncertain: 'uncertain',
+  legacy_skipped: 'legacy_skipped',
+} as const;
+
+export interface ReminderCallHistory {
+  id: number;
+  createdAt: string;
+  /** @nullable */
+  subject?: string | null;
+  /** @nullable */
+  customerRequest?: string | null;
+  /** @nullable */
+  expertNotes?: string | null;
+  /** @nullable */
+  salespersonName?: string | null;
+}
+
 export interface Reminder {
+  sourceCall?: ReminderCallHistory | null;
+  callHistoryStatus?: ReminderCallHistoryStatus;
+  smsStatus?: ReminderSmsStatus;
+  /** @nullable */
+  smsError?: string | null;
   id: number;
   userId: number;
   /** @nullable */
@@ -1172,6 +3187,8 @@ export interface Reminder {
   customerId: number | null;
   /** @nullable */
   customerName?: string | null;
+  /** @nullable */
+  customerSalespersonName?: string | null;
   subject: string;
   message: string;
   remindAt: string;
@@ -1305,8 +3322,15 @@ export interface ContractCustomerField {
   label: string;
 }
 
+export type ContractCustomerFieldsLoanPlansItem = {
+  id: number;
+  name: string;
+};
+
 export interface ContractCustomerFields {
   fields: ContractCustomerField[];
+  loanPlanFields: ContractCustomerField[];
+  loanPlans: ContractCustomerFieldsLoanPlansItem[];
 }
 
 export interface ContractTemplateAnalysis {
@@ -1319,11 +3343,72 @@ export interface ContractTemplateUpload {
   file: Blob;
 }
 
+export type ContractMappingSourceType = typeof ContractMappingSourceType[keyof typeof ContractMappingSourceType];
+
+
+export const ContractMappingSourceType = {
+  customer: 'customer',
+  loanPlan: 'loanPlan',
+  manual: 'manual',
+  constant: 'constant',
+  formula: 'formula',
+  date: 'date',
+  contractNumber: 'contractNumber',
+} as const;
+
+export type ContractMappingFormulaTokensItemType = typeof ContractMappingFormulaTokensItemType[keyof typeof ContractMappingFormulaTokensItemType];
+
+
+export const ContractMappingFormulaTokensItemType = {
+  field: 'field',
+  literal: 'literal',
+  operator: 'operator',
+} as const;
+
+export type ContractMappingFormulaTokensItem = {
+  type?: ContractMappingFormulaTokensItemType;
+  field?: string;
+  value?: string | number;
+};
+
+/**
+ * @nullable
+ */
+export type ContractMappingFormula = {
+  /** @minItems 1 */
+  tokens?: ContractMappingFormulaTokensItem[];
+} | null;
+
+export type ContractMappingDateMode = typeof ContractMappingDateMode[keyof typeof ContractMappingDateMode];
+
+
+export const ContractMappingDateMode = {
+  contract_date: 'contract_date',
+  contract_date_plus_days: 'contract_date_plus_days',
+} as const;
+
+/**
+ * @nullable
+ */
+export type ContractMappingDate = {
+  mode?: ContractMappingDateMode;
+  offsetDays?: number;
+} | null;
+
 export interface ContractMapping {
   variable: string;
+  sourceType?: ContractMappingSourceType;
   /** @nullable */
   customerField?: string | null;
+  /** @nullable */
+  loanPlanField?: string | null;
   label?: string;
+  /** @nullable */
+  constantValue?: string | null;
+  /** @nullable */
+  formula?: ContractMappingFormula;
+  /** @nullable */
+  date?: ContractMappingDate;
 }
 
 export interface CreateContractTemplate {
@@ -1339,17 +3424,35 @@ export interface ContractTemplateUpdate {
   mappings: ContractMapping[];
 }
 
-export type ContractTemplate = CreateContractTemplate & {
-  id?: number;
-  variables?: string[];
-  downloadUrl?: string;
-};
+export interface ContractTemplate {
+  id: number;
+  name: string;
+  originalFilename: string;
+  variables: string[];
+  mappings: ContractMapping[];
+  createdBy?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  downloadUrl: string;
+}
 
 export type GenerateContractInputManualValues = {[key: string]: string};
 
 export interface GenerateContractInput {
-  templateId: number;
-  customerId: number;
+  templateId?: number;
+  customerId?: number;
+  /** @minimum 1 */
+  loanPlanId?: number;
+  /**
+     * @minimum 1
+     * @maximum 600
+     */
+  durationMonths?: number;
+  /**
+     * Application-scoped primary generation; customer, plan, template and approved principal come from the application. Explicit manual values are validated and saved before a new generation; an existing generation cannot be changed.
+     * @minimum 1
+     */
+  loanApplicationId?: number;
   manualValues?: GenerateContractInputManualValues;
 }
 
@@ -1358,7 +3461,13 @@ export interface ContractGeneration {
   templateId?: number;
   templateName?: string;
   customerId?: number;
+  /** @nullable */
+  loanPlanId?: number | null;
+  /** @nullable */
+  loanApplicationId?: number | null;
   status?: string;
+  /** @nullable */
+  supersededAt?: string | null;
   docxUrl?: string;
   /** @nullable */
   pdfUrl?: string | null;
@@ -1368,6 +3477,8 @@ export interface ContractGeneration {
   providerContractId?: string | null;
   /** @nullable */
   providerStatus?: string | null;
+  /** @nullable */
+  contractNumber?: string | null;
 }
 
 export interface ContractSendResult {
@@ -1379,12 +3490,175 @@ export interface ContractSendResult {
 
 export interface ContractSignatureStatus {
   id: number;
+  /**
+     * Provider-reported signature status.
+     * @nullable
+     */
+  providerStatus?: string | null;
+  /** @nullable */
+  providerStatusTitle?: string | null;
+  /** Indicates provider-reported completion only; it is not financial approval. */
+  signed: boolean;
+  checkedAt: string;
+  /** Whether this provider lookup actually advanced the workflow; this reflects the server's completed transition and is not a client-side inference. */
+  workflowAdvanced?: boolean;
+  /**
+     * The authoritative resulting workflow stage after this provider lookup, or null when no stage transition occurred; do not infer or predict it client-side.
+     * @nullable
+     */
+  nextStage?: string | null;
+}
+
+export interface ReadOnlySignatureStatus {
+  id: number;
+  /** @nullable */
+  kind?: string | null;
   /** @nullable */
   providerStatus?: string | null;
   /** @nullable */
   providerStatusTitle?: string | null;
+  /** Provider-reported completion only; not financial approval. */
   signed: boolean;
   checkedAt: string;
+  readOnly: true;
+}
+
+export type GoodsDocumentSignatureStatusKind = typeof GoodsDocumentSignatureStatusKind[keyof typeof GoodsDocumentSignatureStatusKind];
+
+
+export const GoodsDocumentSignatureStatusKind = {
+  invoice: 'invoice',
+  acknowledgement: 'acknowledgement',
+} as const;
+
+export type GoodsDocumentSignatureStatusStatus = typeof GoodsDocumentSignatureStatusStatus[keyof typeof GoodsDocumentSignatureStatusStatus];
+
+
+export const GoodsDocumentSignatureStatusStatus = {
+  sent: 'sent',
+  signed: 'signed',
+  rejected: 'rejected',
+} as const;
+
+export interface GoodsDocumentSignatureStatus {
+  id: number;
+  kind: GoodsDocumentSignatureStatusKind;
+  version: number;
+  signed: boolean;
+  status: GoodsDocumentSignatureStatusStatus;
+  /** @nullable */
+  providerStatus?: string | null;
+  checkedAt: string;
+  readOnly: true;
+}
+
+export interface LoanCaseAdminGuarantorInput {
+  /**
+     * @minLength 2
+     * @maxLength 200
+     */
+  fullName: string;
+  /** @nullable */
+  nationalCode?: string | null;
+  /** @nullable */
+  mobile?: string | null;
+}
+
+export interface LoanCaseAdminStageInput {
+  expectedRevision: string;
+  stage: string;
+  /**
+     * @minLength 2
+     * @maxLength 2000
+     */
+  reason: string;
+  confirmed: boolean;
+}
+
+export type LoanCaseAdminEditInputManualValues = {[key: string]: string};
+
+export interface LoanCaseAdminEditInput {
+  expectedRevision: string;
+  /**
+     * @minLength 2
+     * @maxLength 2000
+     */
+  reason: string;
+  confirmed: boolean;
+  acknowledgeContractRevision?: boolean;
+  requestedAmount?: string;
+  /**
+     * @minimum 1
+     * @maximum 600
+     */
+  durationMonths?: number;
+  /** @minimum 1 */
+  planId?: number;
+  /** @minimum 1 */
+  conditionId?: number;
+  needsGuarantor?: boolean;
+  guarantor?: LoanCaseAdminGuarantorInput;
+  manualValues?: LoanCaseAdminEditInputManualValues;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  notes?: string | null;
+}
+
+export interface LoanCaseAdminChangeResult {
+  ok: boolean;
+  applicationId: number;
+  stage: string;
+  requiresNewContract: boolean;
+}
+
+export type LoanCaseAdminDefaultsManualValues = {[key: string]: string};
+
+export interface LoanCaseAdminDefaults {
+  planId: number;
+  /** @nullable */
+  conditionId?: number | null;
+  requestedAmount: string;
+  durationMonths: number;
+  needsGuarantor: boolean;
+  /** @nullable */
+  notes?: string | null;
+  manualValues: LoanCaseAdminDefaultsManualValues;
+  guarantor?: LoanCaseAdminGuarantorInput;
+}
+
+export interface LoanCaseAdminConditionChoice {
+  id: number;
+  label: string;
+  maxPrincipal: string;
+  durations: number[];
+  needsGuarantor: boolean;
+}
+
+export type LoanCaseAdminPlanChoiceManualVariablesItem = {
+  variable: string;
+  label: string;
+};
+
+export interface LoanCaseAdminPlanChoice {
+  id: number;
+  name: string;
+  active: boolean;
+  conditions: LoanCaseAdminConditionChoice[];
+  manualVariables: LoanCaseAdminPlanChoiceManualVariablesItem[];
+}
+
+export interface LoanCaseAdminControls {
+  revision: string;
+  stage: string;
+  status: string;
+  financialPosted: boolean;
+  financialTermsLocked?: boolean;
+  hasContracts: boolean;
+  stages: string[];
+  defaults: LoanCaseAdminDefaults;
+  plans: LoanCaseAdminPlanChoice[];
 }
 
 export interface LoanApplicationUpdate {
@@ -1392,6 +3666,1617 @@ export interface LoanApplicationUpdate {
   /** @minimum 1 */
   durationMonths?: number;
 }
+
+export type IdentityCheckDecisionInputDecision = typeof IdentityCheckDecisionInputDecision[keyof typeof IdentityCheckDecisionInputDecision];
+
+
+export const IdentityCheckDecisionInputDecision = {
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+
+export interface IdentityCheckDecisionInput {
+  decision: IdentityCheckDecisionInputDecision;
+  /**
+     * @minLength 1
+     * @maxLength 1000
+     */
+  reason: string;
+}
+
+export type ManualVerificationCheckDecisionMethod = typeof ManualVerificationCheckDecisionMethod[keyof typeof ManualVerificationCheckDecisionMethod];
+
+
+export const ManualVerificationCheckDecisionMethod = {
+  system: 'system',
+  manual: 'manual',
+} as const;
+
+export interface ManualVerificationCheckDecision {
+  method: ManualVerificationCheckDecisionMethod;
+  /**
+     * @maxLength 1000
+     * @nullable
+     */
+  reason?: string | null;
+}
+
+export interface CustomerVerificationInput {
+  /**
+     * @minLength 10
+     * @maxLength 10
+     */
+  nationalCode?: string;
+  /**
+     * @minLength 10
+     * @maxLength 15
+     */
+  mobile?: string;
+  /**
+     * @nullable
+     * @pattern ^[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}$
+     */
+  birthDateJalali?: string | null;
+  /**
+     * @nullable
+     * @pattern ^[0-9]{10}$
+     */
+  postalCode?: string | null;
+  /**
+     * @maxLength 100
+     * @nullable
+     */
+  fatherName?: string | null;
+}
+
+export interface ManualVerificationCheckStatus {
+  ok: boolean;
+  /** @nullable */
+  status: string | null;
+}
+
+export interface ManualVerificationCheckStatuses {
+  shahkarLite: ManualVerificationCheckStatus;
+  personInfo: ManualVerificationCheckStatus;
+  postalCodeInfo: ManualVerificationCheckStatus;
+  sana: ManualVerificationCheckStatus;
+}
+
+export type ManualVerificationRequestStatus = typeof ManualVerificationRequestStatus[keyof typeof ManualVerificationRequestStatus];
+
+
+export const ManualVerificationRequestStatus = {
+  pending: 'pending',
+  approved: 'approved',
+  system_verified: 'system_verified',
+  superseded: 'superseded',
+} as const;
+
+export type ManualVerificationRequestSourceFailuresItem = typeof ManualVerificationRequestSourceFailuresItem[keyof typeof ManualVerificationRequestSourceFailuresItem];
+
+
+export const ManualVerificationRequestSourceFailuresItem = {
+  shahkarLite: 'shahkarLite',
+  personInfo: 'personInfo',
+  postalCodeInfo: 'postalCodeInfo',
+  sana: 'sana',
+} as const;
+
+export type ManualVerificationRequestOriginalValues = { [key: string]: unknown };
+
+export interface ManualVerificationRequest {
+  id: number;
+  customerId: number;
+  customerName: string;
+  status: ManualVerificationRequestStatus;
+  sourceFailures: ManualVerificationRequestSourceFailuresItem[];
+  createdAt: string;
+  requestedByUserId?: number;
+  /** @nullable */
+  requestedByName?: string | null;
+  originalValues: ManualVerificationRequestOriginalValues;
+}
+
+export type ManualVerificationDetailCurrentProfile = { [key: string]: unknown };
+
+export type ManualVerificationDetail = ManualVerificationRequest & {
+  currentProfile: ManualVerificationDetailCurrentProfile;
+  currentChecks: ManualVerificationCheckStatuses;
+};
+
+export type ManualVerificationApprovalChecks = {
+  shahkarLite: ManualVerificationCheckDecision;
+  personInfo: ManualVerificationCheckDecision;
+  postalCodeInfo: ManualVerificationCheckDecision;
+  sana: ManualVerificationCheckDecision;
+};
+
+export type ManualVerificationApprovalCorrectedValues = {
+  /**
+     * @minLength 10
+     * @maxLength 10
+     */
+  nationalCode?: string;
+  /**
+     * @minLength 10
+     * @maxLength 15
+     */
+  mobile?: string;
+  /**
+     * @nullable
+     * @pattern ^[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}$
+     */
+  birthDateJalali?: string | null;
+  /**
+     * @nullable
+     * @pattern ^[0-9]{10}$
+     */
+  postalCode?: string | null;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  name?: string;
+  /**
+     * @maxLength 100
+     * @nullable
+     */
+  firstName?: string | null;
+  /**
+     * @maxLength 100
+     * @nullable
+     */
+  lastName?: string | null;
+  /**
+     * @maxLength 100
+     * @nullable
+     */
+  fatherName?: string | null;
+  /**
+     * @maxLength 1000
+     * @nullable
+     */
+  address?: string | null;
+};
+
+export interface ManualVerificationApproval {
+  checks: ManualVerificationApprovalChecks;
+  correctedValues?: ManualVerificationApprovalCorrectedValues;
+}
+
+export interface CustomerPortalOk {
+  ok: boolean;
+}
+
+export interface CustomerPortalOtpRequestInput {
+  /** @minLength 1 */
+  mobile: string;
+}
+
+export interface CustomerPortalOtpRequestResult {
+  ok: boolean;
+  message: string;
+}
+
+export interface CustomerPortalOtpVerifyInput {
+  /** @minLength 1 */
+  mobile: string;
+  /** @pattern ^[0-9]{6}$ */
+  code: string;
+}
+
+export interface CustomerPortalSession {
+  authenticated: true;
+  mobile: string;
+  /** @nullable */
+  customerId: number | null;
+  identityReady: boolean;
+  /** Basic identity and mobile ownership are verified; postal and loan prerequisites remain separate. */
+  profileComplete: boolean;
+}
+
+export type CustomerPortalProfileVerificationStatus = typeof CustomerPortalProfileVerificationStatus[keyof typeof CustomerPortalProfileVerificationStatus];
+
+
+export const CustomerPortalProfileVerificationStatus = {
+  verified: 'verified',
+  unverified: 'unverified',
+} as const;
+
+export type CustomerPortalProfileVerificationChecks = {
+  shahkarLite: boolean;
+  personInfo: boolean;
+  postalCodeInfo: boolean;
+  sana: boolean;
+};
+
+export interface CustomerPortalProfileVerification {
+  status: CustomerPortalProfileVerificationStatus;
+  /** @nullable */
+  checkedAt: string | null;
+  checks: CustomerPortalProfileVerificationChecks;
+}
+
+export interface CustomerPortalProfile {
+  id: number;
+  name: string;
+  mobile: string;
+  /** @nullable */
+  nationalCode: string | null;
+  /** @nullable */
+  birthDate: string | null;
+  /** @nullable */
+  postalCode: string | null;
+  /** @nullable */
+  fatherName: string | null;
+  /** @nullable */
+  firstName?: string | null;
+  /** @nullable */
+  lastName?: string | null;
+  verification: CustomerPortalProfileVerification;
+}
+
+export type CustomerPortalMeVerificationStatus = typeof CustomerPortalMeVerificationStatus[keyof typeof CustomerPortalMeVerificationStatus];
+
+
+export const CustomerPortalMeVerificationStatus = {
+  verified: 'verified',
+  unverified: 'unverified',
+} as const;
+
+export interface CustomerPortalMe {
+  authenticated: true;
+  mobile: string;
+  mobileVerified: true;
+  identityReady: boolean;
+  customer: CustomerPortalProfile | null;
+  profileComplete: boolean;
+  verificationStatus: CustomerPortalMeVerificationStatus;
+}
+
+export interface CustomerPortalIdentityRequest {
+  /**
+     * @minLength 10
+     * @maxLength 10
+     */
+  nationalCode: string;
+  /**
+     * @minLength 8
+     * @maxLength 10
+     */
+  birthDate: string;
+}
+
+export type CustomerPortalIdentityResponseChecksShahkarLite = {
+  ok: boolean;
+};
+
+export type CustomerPortalIdentityResponseChecksPersonInfo = {
+  ok: boolean;
+};
+
+export type CustomerPortalIdentityResponseChecks = {
+  shahkarLite: CustomerPortalIdentityResponseChecksShahkarLite;
+  personInfo: CustomerPortalIdentityResponseChecksPersonInfo;
+};
+
+export interface CustomerPortalIdentityResponse {
+  identityReady: boolean;
+  customerId: number;
+  checks: CustomerPortalIdentityResponseChecks;
+  message: string;
+}
+
+export interface CustomerPortalProfileInput {
+  /**
+     * @minLength 2
+     * @maxLength 120
+     */
+  name?: string;
+  /**
+     * @minLength 2
+     * @maxLength 120
+     */
+  fatherName?: string;
+  /**
+     * @minLength 10
+     * @maxLength 10
+     */
+  nationalCode?: string;
+  /** @pattern ^[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}$ */
+  birthDate?: string;
+  /** @pattern ^[0-9]{10}$ */
+  postalCode?: string;
+}
+
+export interface CustomerPortalProfileResult {
+  customer: CustomerPortalProfile;
+  profileComplete: boolean;
+}
+
+export type CustomerPortalVerificationCheckProviderStatus = typeof CustomerPortalVerificationCheckProviderStatus[keyof typeof CustomerPortalVerificationCheckProviderStatus];
+
+
+export const CustomerPortalVerificationCheckProviderStatus = {
+  success: 'success',
+  failed: 'failed',
+  unavailable: 'unavailable',
+} as const;
+
+export interface CustomerPortalVerificationCheck {
+  ok: boolean;
+  providerStatus: CustomerPortalVerificationCheckProviderStatus;
+}
+
+export interface CustomerPortalVerificationChecks {
+  shahkarLite: CustomerPortalVerificationCheck;
+  personInfo: CustomerPortalVerificationCheck;
+  postalCodeInfo: CustomerPortalVerificationCheck;
+  sana: CustomerPortalVerificationCheck;
+}
+
+export type CustomerPortalVerificationResultStatus = typeof CustomerPortalVerificationResultStatus[keyof typeof CustomerPortalVerificationResultStatus];
+
+
+export const CustomerPortalVerificationResultStatus = {
+  verified: 'verified',
+  error: 'error',
+  pending: 'pending',
+} as const;
+
+export interface CustomerPortalVerificationResult {
+  customerId: number;
+  status: CustomerPortalVerificationResultStatus;
+  checks: CustomerPortalVerificationChecks | null;
+  checkedAt?: string;
+  /** @nullable */
+  error: string | null;
+}
+
+export interface CustomerPortalVerificationPending {
+  status: 'pending';
+  error: string;
+}
+
+export interface CustomerPortalConsultation {
+  id: number;
+  /** @nullable */
+  title: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CustomerPortalConsultationInput {
+  /**
+     * @maxLength 80
+     * @nullable
+     */
+  title?: string | null;
+}
+
+export interface CustomerPortalRecommendedPlan {
+  id: number;
+  name: string;
+  applicationUrl: string;
+}
+
+export type CustomerPortalMessageRole = typeof CustomerPortalMessageRole[keyof typeof CustomerPortalMessageRole];
+
+
+export const CustomerPortalMessageRole = {
+  user: 'user',
+  assistant: 'assistant',
+} as const;
+
+export interface CustomerPortalMessage {
+  id: number;
+  conversationId: number;
+  role: CustomerPortalMessageRole;
+  content: string;
+  createdAt: string;
+  recommendedPlans: CustomerPortalRecommendedPlan[];
+}
+
+export interface CustomerPortalConsultationMessages {
+  conversation: CustomerPortalConsultation;
+  messages: CustomerPortalMessage[];
+}
+
+export interface CustomerPortalMessageInput {
+  /**
+     * @minLength 2
+     * @maxLength 1200
+     */
+  content: string;
+}
+
+export interface CustomerPortalMessageExchange {
+  userMessage: CustomerPortalMessage;
+  assistantMessage: CustomerPortalMessage;
+}
+
+export interface CustomerPortalLoanCondition {
+  id: number;
+  name: string;
+  /** @nullable */
+  description: string | null;
+  minimumAmount: string;
+  maximumAmount: string;
+  allowedDurations: number[];
+}
+
+export interface CustomerPortalManualField {
+  variable: string;
+  label: string;
+  required: boolean;
+  maxLength: number;
+}
+
+export interface CustomerPortalLoanOption {
+  /** @nullable */
+  bankName?: string | null;
+  planId: number;
+  name: string;
+  /** @nullable */
+  description: string | null;
+  maximumAmount: string;
+  minimumAmount: string;
+  allowedDurations: number[];
+  /** @nullable */
+  conditionId: number | null;
+  /** @nullable */
+  conditionName: string | null;
+  conditions: CustomerPortalLoanCondition[];
+  /** @nullable */
+  terms: string | null;
+  filingFeeToman: string;
+  /** @nullable */
+  contractTemplateId: number | null;
+  manualFields: CustomerPortalManualField[];
+}
+
+export interface CustomerPortalLoanOptions {
+  plans: CustomerPortalLoanOption[];
+}
+
+export type CustomerPortalIdentityDocumentUploadInputDocumentType = typeof CustomerPortalIdentityDocumentUploadInputDocumentType[keyof typeof CustomerPortalIdentityDocumentUploadInputDocumentType];
+
+
+export const CustomerPortalIdentityDocumentUploadInputDocumentType = {
+  national_card_front: 'national_card_front',
+  national_card_back: 'national_card_back',
+  birth_cert_p1: 'birth_cert_p1',
+  birth_cert_p2: 'birth_cert_p2',
+  birth_cert_p3: 'birth_cert_p3',
+  birth_certificate_first_page: 'birth_certificate_first_page',
+  birth_certificate_second_page: 'birth_certificate_second_page',
+  birth_certificate_last_page: 'birth_certificate_last_page',
+} as const;
+
+export interface CustomerPortalIdentityDocumentUploadInput {
+  documentType: CustomerPortalIdentityDocumentUploadInputDocumentType;
+  file: Blob;
+}
+
+export type CustomerPortalIdentityDocumentStatus = typeof CustomerPortalIdentityDocumentStatus[keyof typeof CustomerPortalIdentityDocumentStatus];
+
+
+export const CustomerPortalIdentityDocumentStatus = {
+  approved: 'approved',
+  rejected: 'rejected',
+  pending: 'pending',
+} as const;
+
+export interface CustomerPortalIdentityDocument {
+  id: number;
+  documentType: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: CustomerPortalIdentityDocumentStatus;
+  /** @nullable */
+  reviewReason: string | null;
+  createdAt: string;
+}
+
+export interface CustomerPortalIdentityDocuments {
+  documents: CustomerPortalIdentityDocument[];
+}
+
+export type CustomerPortalCreditCheckStatus = typeof CustomerPortalCreditCheckStatus[keyof typeof CustomerPortalCreditCheckStatus];
+
+
+export const CustomerPortalCreditCheckStatus = {
+  awaiting_otp: 'awaiting_otp',
+  processing: 'processing',
+  report_generated: 'report_generated',
+  failed: 'failed',
+} as const;
+
+export interface CustomerPortalCreditCheck {
+  id: number;
+  status: CustomerPortalCreditCheckStatus;
+  /** @nullable */
+  score: number | null;
+  /** @nullable */
+  scoreLabel: string | null;
+  /** @nullable */
+  message: string | null;
+  createdAt: string;
+  /**
+     * Null until completion; when completed, the report expiry is 24 hours after completion.
+     * @nullable
+     */
+  expiresAt: string | null;
+}
+
+export interface CustomerPortalCreditChecks {
+  checks: CustomerPortalCreditCheck[];
+}
+
+export type CustomerPortalCreditCheckOtpInput = (unknown & {
+  /** @pattern ^[0-9]{4,8}$ */
+  code?: string;
+  /** @pattern ^[0-9]{4,8}$ */
+  otp?: string;
+});
+
+export interface CustomerPortalWallet {
+  cashBalanceToman: string;
+  creditBalanceToman: string;
+}
+
+export type CustomerWalletTransactionWalletType = typeof CustomerWalletTransactionWalletType[keyof typeof CustomerWalletTransactionWalletType];
+
+
+export const CustomerWalletTransactionWalletType = {
+  cash: 'cash',
+  credit: 'credit',
+} as const;
+
+export type CustomerWalletTransactionDirection = typeof CustomerWalletTransactionDirection[keyof typeof CustomerWalletTransactionDirection];
+
+
+export const CustomerWalletTransactionDirection = {
+  in: 'in',
+  out: 'out',
+} as const;
+
+export interface CustomerWalletTransaction {
+  id: number;
+  walletType: CustomerWalletTransactionWalletType;
+  kind: string;
+  amountToman: string;
+  direction: CustomerWalletTransactionDirection;
+  createdAt: string;
+  description: string;
+}
+
+export interface CustomerWalletTransactionPage {
+  items: CustomerWalletTransaction[];
+  /** @nullable */
+  nextCursor: string | null;
+}
+
+export interface CustomerCashRecipientInput {
+  mobile: string;
+  /** @pattern ^[1-9][0-9]*$ */
+  amountToman: string;
+}
+
+export interface CustomerCashRecipient {
+  recipientToken: string;
+  recipientName: string;
+  amountToman: string;
+  expiresAt: string;
+}
+
+export interface CustomerCashConfirmationInput {
+  recipientToken: string;
+  /** @pattern ^[1-9][0-9]*$ */
+  amountToman: string;
+  confirmed: true;
+}
+
+export type CustomerCashTransferReceiptStatus = typeof CustomerCashTransferReceiptStatus[keyof typeof CustomerCashTransferReceiptStatus];
+
+
+export const CustomerCashTransferReceiptStatus = {
+  completed: 'completed',
+} as const;
+
+export interface CustomerCashTransferReceipt {
+  id: number;
+  status: CustomerCashTransferReceiptStatus;
+  amountToman: string;
+  cashBalanceToman: string;
+  recipientName: string;
+}
+
+export interface CustomerPortalWalletTopUpInput {
+  /** @pattern ^[1-9][0-9]*$ */
+  amountToman: string;
+}
+
+export interface CustomerPortalWalletTopUp {
+  paymentUrl: string;
+  amountToman: string;
+}
+
+export interface CustomerPortalFilingFeeInput {
+  /** @minimum 1 */
+  planId: number;
+  /** @minimum 1 */
+  conditionId: number;
+  /** @pattern ^[1-9][0-9]{0,17}$ */
+  requestedAmount: string;
+  /**
+     * @minimum 1
+     * @maximum 600
+     */
+  durationMonths: number;
+}
+
+export interface CustomerPortalFilingFee {
+  chargeId: number;
+  planId: number;
+  amountToman: string;
+  status: 'charged';
+}
+
+export interface CustomerPortalApplicationDocument {
+  id: number;
+  requirementKey: string;
+  label: string;
+  status: string;
+  /** @nullable */
+  reviewReason: string | null;
+  /** @nullable */
+  originalName: string | null;
+  /** @nullable */
+  mimeType: string | null;
+  /** @nullable */
+  sizeBytes: number | null;
+  createdAt: string;
+}
+
+export interface CustomerPortalApplicationRequirement {
+  key: string;
+  label: string;
+  status: string;
+  /** @nullable */
+  reviewReason: string | null;
+}
+
+export interface CustomerPortalApplicationIdentityDocument {
+  id: number;
+  documentType: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: string;
+  /** @nullable */
+  reviewReason: string | null;
+  createdAt: string;
+}
+
+/**
+ * @nullable
+ */
+export type CustomerPortalApplicationSalesExpert = {
+  name: string;
+  /** @nullable */
+  mobile: string | null;
+} | null;
+
+export interface CustomerPortalApplication {
+  id: number;
+  planId: number;
+  /** @nullable */
+  planName: string | null;
+  status: string;
+  stage: string;
+  createdAt: string;
+  updatedAt: string;
+  requestedAmount: string;
+  /**
+     * Estimated customer cash payout in toman from this case's stored plan and selected duration; never the credit-wallet principal.
+     * @nullable
+     */
+  cashPayoutAmount?: string | null;
+  /** True when the displayed payout is a projection rather than a confirmed payment. */
+  cashPayoutEstimated?: boolean;
+  /**
+     * Provider-approved principal, null until initial provider approval.
+     * @nullable
+     */
+  approvedAmount: string | null;
+  requestedDurationMonths: number;
+  durationMonths: number;
+  /** @nullable */
+  conditionId: number | null;
+  /** @nullable */
+  notes: string | null;
+  /** Always false; customers track submitted cases while staff manage contract information. */
+  editable: boolean;
+  /** @nullable */
+  salesExpert?: CustomerPortalApplicationSalesExpert;
+  /** True only when the current primary generation has a verified provider signature; superseded generations do not count. */
+  currentPrimaryContractSigned: boolean;
+  /** True when initial provider approval retained the already-signed requested-principal primary contract. */
+  initialContractRetained: boolean;
+  documents: CustomerPortalApplicationDocument[];
+  requiredDocuments: CustomerPortalApplicationRequirement[];
+  identityDocuments: CustomerPortalApplicationIdentityDocument[];
+}
+
+export interface CustomerPortalApplications {
+  applications: CustomerPortalApplication[];
+}
+
+export interface CustomerPortalApplicationInput {
+  /** @minimum 1 */
+  planId: number;
+  /** @minimum 1 */
+  conditionId: number;
+  /** @pattern ^[1-9][0-9]{0,17}$ */
+  requestedAmount: string;
+  /**
+     * @minimum 1
+     * @maximum 600
+     */
+  durationMonths: number;
+  /** @minimum 1 */
+  feeChargeId: number;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  notes?: string | null;
+}
+
+export type CustomerPortalApplicationUpdateManualValues = {[key: string]: string};
+
+export interface CustomerPortalApplicationUpdate {
+  /** @pattern ^[1-9][0-9]{0,17}$ */
+  requestedAmount?: string;
+  /**
+     * @minimum 1
+     * @maximum 600
+     */
+  durationMonths?: number;
+  manualValues?: CustomerPortalApplicationUpdateManualValues;
+  /**
+     * @maxLength 2000
+     * @nullable
+     */
+  notes?: string | null;
+}
+
+export interface CustomerPortalApplicationDocumentUploadInput {
+  /** @minLength 1 */
+  requirementKey: string;
+  file: Blob;
+}
+
+export type PortalIntakeStateVerification = {
+  postalOk: boolean;
+  sanaOk: boolean;
+  postalAnswered: boolean;
+  sanaAnswered: boolean;
+  inquiryAttempted?: boolean;
+  /** @nullable */
+  postalCode: string | null;
+};
+
+export interface PortalIntakeState {
+  creditValid: boolean;
+  /** @nullable */
+  creditRank: string | null;
+  planEligible: boolean;
+  /** @nullable */
+  feeChargeId: number | null;
+  /** @nullable */
+  existingApplicationId?: number | null;
+  filingFeeToman: string;
+  documentsComplete: boolean;
+  documentsPreviouslyApproved: boolean;
+  requiredDocumentTypes?: string[];
+  canSubmit: boolean;
+  verification: PortalIntakeStateVerification;
+}
+
+export type PortalQuestionnaireInputQuestionnaireVersion = typeof PortalQuestionnaireInputQuestionnaireVersion[keyof typeof PortalQuestionnaireInputQuestionnaireVersion];
+
+
+export const PortalQuestionnaireInputQuestionnaireVersion = {
+  NUMBER_2: 2,
+} as const;
+
+export interface PortalQuestionnaireInput {
+  questionnaireVersion: PortalQuestionnaireInputQuestionnaireVersion;
+  creditRank: string;
+  customerCheckStatus: string;
+  hasCustomerSalaryDeduct: boolean;
+  jobType: string;
+  hasGuarantor: boolean;
+  /** @nullable */
+  guarantorCreditRank?: string | null;
+  /** @nullable */
+  guarantorCheckType?: string | null;
+  hasGuarantorSalaryDeduct?: boolean;
+  /** @nullable */
+  requestedAmount?: string | null;
+}
+
+export interface PortalIntakeVerifyInput {
+  /** @minimum 1 */
+  planId: number;
+  /** @pattern ^[0-9]{10}$ */
+  postalCode: string;
+}
+
+export interface HumanChatRead {
+  /** @minimum 1 */
+  lastMessageId: number;
+}
+
+export interface HumanChatSend {
+  /**
+     * @minLength 8
+     * @maxLength 100
+     */
+  clientId: string;
+  /**
+     * @minLength 1
+     * @maxLength 6000
+     */
+  text: string;
+}
+
+export interface HumanChatUpload {
+  /**
+     * @minLength 8
+     * @maxLength 100
+     */
+  clientId: string;
+  /** @maxLength 6000 */
+  text?: string;
+  file: Blob;
+}
+
+export type HumanChatMessageSenderType = typeof HumanChatMessageSenderType[keyof typeof HumanChatMessageSenderType];
+
+
+export const HumanChatMessageSenderType = {
+  customer: 'customer',
+  staff: 'staff',
+} as const;
+
+export type HumanChatMessageKind = typeof HumanChatMessageKind[keyof typeof HumanChatMessageKind];
+
+
+export const HumanChatMessageKind = {
+  text: 'text',
+  image: 'image',
+  audio: 'audio',
+  file: 'file',
+} as const;
+
+export interface HumanChatMessage {
+  id: number;
+  customerId: number;
+  senderType: HumanChatMessageSenderType;
+  senderName: string;
+  text: string;
+  kind: HumanChatMessageKind;
+  clientId: string;
+  createdAt: string;
+  /** @nullable */
+  fileUrl?: string | null;
+  /** @nullable */
+  fileName?: string | null;
+  /** @nullable */
+  mimeType?: string | null;
+  /** @nullable */
+  fileSize?: number | null;
+}
+
+export interface HumanChatPage {
+  items: HumanChatMessage[];
+  /** @nullable */
+  nextCursor: string | null;
+  lastReadId: number;
+}
+
+export type HumanChatThreadsItemsItem = {
+  customerId: number;
+  name: string;
+  mobile: string;
+  online: boolean;
+  /** @nullable */
+  lastMessage?: string | null;
+  /** @nullable */
+  lastMessageAt?: string | null;
+  unreadCount: number;
+};
+
+export interface HumanChatThreads {
+  /** @nullable */
+  nextCursor: string | null;
+  items: HumanChatThreadsItemsItem[];
+}
+
+export interface RegistrationSuggestion {
+  applicationId?: number;
+  purchaseId?: number;
+  customerId: number;
+  customerName: string;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  customerSalespersonName?: string | null;
+  planId?: number;
+  planName: string;
+  balanceToman?: string;
+  amountToman?: string;
+  /** @nullable */
+  completedAt?: string | null;
+  canCreate: boolean;
+  /** @nullable */
+  unavailableReason: string | null;
+}
+
+export interface RegistrationSuggestions {
+  items: RegistrationSuggestion[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface SocialCustomerChoice {
+  id: number;
+  name: string;
+}
+
+export interface SocialCustomerLinkInput {
+  /** @minimum 1 */
+  customerId: number;
+}
+
+export interface SocialSummaryInput { [key: string]: unknown }
+
+export type SocialMonitorThreadCustomerMatch = typeof SocialMonitorThreadCustomerMatch[keyof typeof SocialMonitorThreadCustomerMatch];
+
+
+export const SocialMonitorThreadCustomerMatch = {
+  linked: 'linked',
+  exact: 'exact',
+  ambiguous: 'ambiguous',
+  none: 'none',
+} as const;
+
+export type SocialMonitorThreadServicesItem = typeof SocialMonitorThreadServicesItem[keyof typeof SocialMonitorThreadServicesItem];
+
+
+export const SocialMonitorThreadServicesItem = {
+  tg: 'tg',
+  wa: 'wa',
+  bale: 'bale',
+} as const;
+
+export interface SocialMonitorThread {
+  threadId: string;
+  employeeId: number;
+  employeeName: string;
+  contactName: string;
+  /** @nullable */
+  customerId: number | null;
+  /** @nullable */
+  customerName: string | null;
+  customerMatch: SocialMonitorThreadCustomerMatch;
+  customerCandidates: SocialCustomerChoice[];
+  services: SocialMonitorThreadServicesItem[];
+  sourceCount: number;
+  messageCount: number;
+  inboundCount: number;
+  outboundCount: number;
+  firstMessageAt: string;
+  lastMessageAt: string;
+}
+
+export type SocialThreadMessageDirection = typeof SocialThreadMessageDirection[keyof typeof SocialThreadMessageDirection];
+
+
+export const SocialThreadMessageDirection = {
+  inbound: 'inbound',
+  outbound: 'outbound',
+} as const;
+
+export type SocialThreadMessageService = typeof SocialThreadMessageService[keyof typeof SocialThreadMessageService];
+
+
+export const SocialThreadMessageService = {
+  tg: 'tg',
+  wa: 'wa',
+  bale: 'bale',
+} as const;
+
+export interface SocialThreadMessage {
+  id: number;
+  messageKey: string;
+  direction: SocialThreadMessageDirection;
+  text: string;
+  occurredAt: string;
+  day: string;
+  contactName: string;
+  timestampKnown: boolean;
+  service: SocialThreadMessageService;
+}
+
+export interface SocialThreadHistory {
+  messages: SocialThreadMessage[];
+  /** @nullable */
+  olderCursor: string | null;
+  hasMore: boolean;
+  thread: SocialMonitorThread;
+}
+
+export type SocialThreadSummaryStatus = typeof SocialThreadSummaryStatus[keyof typeof SocialThreadSummaryStatus];
+
+
+export const SocialThreadSummaryStatus = {
+  none: 'none',
+  pending: 'pending',
+  ready: 'ready',
+  error: 'error',
+} as const;
+
+export interface SocialThreadSummary {
+  status: SocialThreadSummaryStatus;
+  text?: string;
+  error?: string;
+  stale?: boolean;
+  updatedAt?: string;
+}
+
+export interface DiagnosticAvailability {
+  connected: boolean;
+  automaticPublishing: boolean;
+  message: string;
+}
+
+export type DiagnosticBrowserEventKind = typeof DiagnosticBrowserEventKind[keyof typeof DiagnosticBrowserEventKind];
+
+
+export const DiagnosticBrowserEventKind = {
+  error: 'error',
+  rejection: 'rejection',
+  request: 'request',
+} as const;
+
+export interface DiagnosticBrowserEvent {
+  kind: DiagnosticBrowserEventKind;
+  /** @maxLength 1000 */
+  message: string;
+  /** @maxLength 40 */
+  at: string;
+  /** @maxLength 500 */
+  path?: string;
+  /** @maxLength 80 */
+  requestId?: string;
+  /**
+     * @minimum 0
+     * @maximum 599
+     */
+  status?: number;
+}
+
+export interface DiagnosticReportInput {
+  /**
+     * @minLength 16
+     * @maxLength 80
+     */
+  clientId: string;
+  /**
+     * @minLength 10
+     * @maxLength 4000
+     */
+  description: string;
+  /**
+     * @minLength 1
+     * @maxLength 500
+     */
+  page: string;
+  /** @maxItems 30 */
+  browserEvents?: DiagnosticBrowserEvent[];
+}
+
+export type DiagnosticReportStatus = typeof DiagnosticReportStatus[keyof typeof DiagnosticReportStatus];
+
+
+export const DiagnosticReportStatus = {
+  awaiting_connection: 'awaiting_connection',
+  queued: 'queued',
+  investigating: 'investigating',
+  fixing: 'fixing',
+  testing: 'testing',
+  deploying: 'deploying',
+  verifying: 'verifying',
+  resolved: 'resolved',
+  failed: 'failed',
+} as const;
+
+export interface DiagnosticReport {
+  id: number;
+  status: DiagnosticReportStatus;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  progress: number;
+  message: string;
+  page: string;
+  createdAt: string;
+  updatedAt: string;
+  canLeave: boolean;
+  version: number;
+  /** @nullable */
+  resolvedRelease?: string | null;
+}
+
+export interface DiagnosticCurrentReport {
+  report: DiagnosticReport | null;
+}
+
+export interface InternalChatDirectInput {
+  userId: number;
+}
+
+export interface InternalChatReadInput {
+  lastMessageId: number;
+}
+
+export interface InternalChatTypingInput {
+  typing: boolean;
+}
+
+export interface InternalChatEditInput {
+  /** @maxLength 8000 */
+  text: string;
+}
+
+export interface InternalChatReactionInput {
+  /** @maxLength 32 */
+  emoji: string;
+}
+
+export interface InternalChatSendInput {
+  clientId: string;
+  /** @maxLength 8000 */
+  text?: string;
+  replyToId?: number;
+  file?: Blob;
+}
+
+export interface SalesReportMetric {
+  leads: number;
+  contacted: number;
+  answered: number;
+  unanswered: number;
+  unknownOutcome: number;
+  requesters: number;
+  caseCustomers: number;
+  requests: number;
+  cases: number;
+  requestedAmount: string;
+  contactedRequesters: number;
+  contactedCaseCustomers: number;
+  /** @nullable */
+  contactedRequestRate: number | null;
+  /** @nullable */
+  contactRate: number | null;
+  /** @nullable */
+  noAnswerRate: number | null;
+  /** @nullable */
+  requestRate: number | null;
+  /** @nullable */
+  caseRate: number | null;
+  /** @nullable */
+  requestShare: number | null;
+}
+
+export type SalesReportCohort = SalesReportMetric & {
+  key: string;
+  label: string;
+};
+
+export type SalesReportPoint = SalesReportMetric & {
+  date: string;
+  to: string;
+  newRequesters: number;
+  previousRequesters: number;
+};
+
+export type SalesReportRange = {
+  period: string;
+  from: string;
+  to: string;
+  granularity: string;
+  timezone: string;
+};
+
+export type SalesReportScope = {
+  /** @nullable */
+  salespersonId: number | null;
+  canSelectSalesperson: boolean;
+};
+
+export type SalesReportSalespeopleItem = {
+  id: number;
+  name: string;
+};
+
+export type SalesReportMonthly = {
+  from: string;
+  to: string;
+  current: SalesReportMetric;
+  previous: SalesReportMetric;
+};
+
+export interface SalesReport {
+  range: SalesReportRange;
+  scope: SalesReportScope;
+  salespeople: SalesReportSalespeopleItem[];
+  summary: SalesReportMetric;
+  cohorts: SalesReportCohort[];
+  monthly: SalesReportMonthly;
+  trend: SalesReportPoint[];
+  definitions: string[];
+}
+
+export type Page = typeof Page[keyof typeof Page];
+
+
+export const Page = {
+  customers: 'customers',
+  chat: 'chat',
+  'instagram-inbox': 'instagram-inbox',
+  'loan-applications': 'loan-applications',
+  'goods-purchases': 'goods-purchases',
+  contracts: 'contracts',
+  'payment-orders': 'payment-orders',
+  calls: 'calls',
+  consultations: 'consultations',
+  'wallet-management': 'wallet-management',
+} as const;
+
+export interface SiteNotificationReadAllInput {
+  /** @minimum 0 */
+  throughId: number;
+  page?: Page;
+}
+
+export interface LoanCaseNoteInput {
+  /**
+     * @minLength 8
+     * @maxLength 100
+     */
+  clientId: string;
+  /** @maxLength 6000 */
+  text?: string;
+  /** Single validated image */
+  file?: Blob;
+}
+
+export interface LoanCaseNoteAuthor {
+  id: number;
+  name: string;
+  /** @nullable */
+  avatarUrl: string | null;
+}
+
+export type LoanCaseNoteAttachmentKind = typeof LoanCaseNoteAttachmentKind[keyof typeof LoanCaseNoteAttachmentKind];
+
+
+export const LoanCaseNoteAttachmentKind = {
+  image: 'image',
+  audio: 'audio',
+  file: 'file',
+} as const;
+
+export interface LoanCaseNoteAttachment {
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  kind: LoanCaseNoteAttachmentKind;
+  fileUrl: string;
+}
+
+export interface LoanCaseNote {
+  id: number;
+  applicationId: number;
+  text: string;
+  clientId: string;
+  createdAt: string;
+  author: LoanCaseNoteAuthor;
+  attachment: LoanCaseNoteAttachment | null;
+}
+
+export interface LoanCaseNotesPage {
+  items: LoanCaseNote[];
+  /** @nullable */
+  nextCursor: string | null;
+}
+
+export interface LoanCaseHistoryEntry {
+  id: number;
+  action: string;
+  /** @nullable */
+  reason: string | null;
+  createdAt: string;
+  author: LoanCaseNoteAuthor;
+}
+
+export interface LoanCaseHistoryPage {
+  items: LoanCaseHistoryEntry[];
+  /** @nullable */
+  nextCursor: string | null;
+}
+
+export type GetGoodsRegistrationSuggestionsParams = {
+/**
+ * @minimum 1
+ * @maximum 999999
+ */
+page?: number;
+/**
+ * @maxLength 100
+ */
+q?: string;
+};
+
+export type GetPaymentRegistrationSuggestionsParams = {
+/**
+ * @minimum 1
+ * @maximum 999999
+ */
+page?: number;
+/**
+ * @maxLength 100
+ */
+q?: string;
+};
+
+export type GetSocialMonitorReportParams = {
+from: string;
+to: string;
+employeeId?: number;
+service?: string;
+};
+
+export type GetSocialMonitorReport200DaysItem = { [key: string]: unknown };
+
+export type GetSocialMonitorReport200 = {
+  employees: SocialCustomerChoice[];
+  days: GetSocialMonitorReport200DaysItem[];
+  conversations: SocialMonitorThread[];
+};
+
+export type SearchSocialMonitorCustomersParams = {
+search: string;
+};
+
+export type SearchSocialMonitorCustomers200 = {
+  customers: SocialCustomerChoice[];
+};
+
+export type GetSocialMonitorThreadMessagesParams = {
+before?: string;
+};
+
+export type LinkSocialMonitorCustomer200 = {
+  ok: boolean;
+};
+
+export type GetInternalChatInbox200 = { [key: string]: unknown };
+
+export type ListInternalChatMessagesParams = {
+beforeId?: number;
+q?: string;
+};
+
+export type GetSalesReportParams = {
+period?: GetSalesReportPeriod;
+anchor?: string;
+from?: string;
+to?: string;
+granularity?: GetSalesReportGranularity;
+salespersonId?: number;
+};
+
+export type GetSalesReportPeriod = typeof GetSalesReportPeriod[keyof typeof GetSalesReportPeriod];
+
+
+export const GetSalesReportPeriod = {
+  day: 'day',
+  week: 'week',
+  month: 'month',
+  quarter: 'quarter',
+  custom: 'custom',
+} as const;
+
+export type GetSalesReportGranularity = typeof GetSalesReportGranularity[keyof typeof GetSalesReportGranularity];
+
+
+export const GetSalesReportGranularity = {
+  day: 'day',
+  week: 'week',
+  month: 'month',
+} as const;
+
+export type ListSiteNotificationsParams = {
+page?: Page;
+/**
+ * @minimum 1
+ */
+beforeId?: number;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+unreadOnly?: boolean;
+};
+
+export type ListSiteNotifications200ItemsItem = {
+  id: number;
+  kind: string;
+  title: string;
+  body: string;
+  customerId: number;
+  customerName: string;
+  target: string;
+  page: string;
+  createdAt: string;
+  /** @nullable */
+  readAt: string | null;
+};
+
+export type ListSiteNotifications200PageCounts = {[key: string]: number};
+
+export type ListSiteNotifications200 = {
+  items: ListSiteNotifications200ItemsItem[];
+  pageCounts: ListSiteNotifications200PageCounts;
+  unreadCount: number;
+  latestId: number;
+  scopeVersion: string;
+  /** @nullable */
+  nextCursor: string | null;
+};
+
+export type ReadAllSiteNotifications200 = {
+  ok: boolean;
+};
+
+export type ReadSiteNotification200 = {
+  ok: boolean;
+  target: string;
+};
+
+export type ListLoanCaseNotesParams = {
+/**
+ * @minimum 1
+ */
+beforeId?: number;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+};
+
+export type ListLoanCaseHistoryParams = {
+/**
+ * @minimum 1
+ */
+beforeId?: number;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+};
+
+export type ListMobileCallsParams = {
+/**
+ * @pattern ^\d{4}-\d{2}-\d{2}$
+ */
+fromDate?: string;
+/**
+ * @pattern ^\d{4}-\d{2}-\d{2}$
+ */
+toDate?: string;
+direction?: ListMobileCallsDirection;
+/**
+ * @minimum 1
+ */
+expertUserId?: number;
+/**
+ * @maxLength 200
+ */
+search?: string;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+/**
+ * @minimum 0
+ */
+offset?: number;
+};
+
+export type ListMobileCallsDirection = typeof ListMobileCallsDirection[keyof typeof ListMobileCallsDirection];
+
+
+export const ListMobileCallsDirection = {
+  incoming: 'incoming',
+  outgoing: 'outgoing',
+} as const;
+
+export type ListMobileCalls200 = {
+  items: MobileCall[];
+  total: number;
+  totalDurationSeconds: number;
+  incomingCount: number;
+  outgoingCount: number;
+};
+
+export type ListMobileCallExperts200Item = {
+  id: number;
+  name: string;
+};
+
+export type CreateMobileCallDevice201 = {
+  device: MobileCallDevice;
+  token: string;
+};
+
+export type RevokeMobileCallDevice200 = {
+  ok: boolean;
+};
+
+export type ListAccountingFunds200 = {
+  items: AccountingFund[];
+};
+
+export type ListAccountingDocumentsParams = {
+/**
+ * @minimum 1
+ */
+fundId?: number;
+/**
+ * Inclusive transaction date
+ */
+from?: string;
+/**
+ * Inclusive transaction date
+ */
+to?: string;
+/**
+ * @minimum 1
+ * @maximum 100000
+ */
+page?: number;
+};
+
+export type ListAccountingDocuments200 = {
+  items: AccountingDocument[];
+  total: number;
+  page: number;
+  limit: number;
+};
 
 export type ListNotificationDeliveriesParams = {
 /**
@@ -1440,6 +5325,12 @@ minCallCount?: number;
  * @minimum 0
  */
 maxCallCount?: number;
+sortBy?: ListCustomersSortBy;
+sortDirection?: ListCustomersSortDirection;
+/**
+ * Filter customers by an assigned tag
+ */
+tag?: string;
 /**
  * @minimum 1
  * @maximum 1000
@@ -1460,6 +5351,29 @@ export const ListCustomersStatus = {
   completed: 'completed',
 } as const;
 
+export type ListCustomersSortBy = typeof ListCustomersSortBy[keyof typeof ListCustomersSortBy];
+
+
+export const ListCustomersSortBy = {
+  lastCallAt: 'lastCallAt',
+  boardTags: 'boardTags',
+} as const;
+
+export type ListCustomersSortDirection = typeof ListCustomersSortDirection[keyof typeof ListCustomersSortDirection];
+
+
+export const ListCustomersSortDirection = {
+  asc: 'asc',
+  desc: 'desc',
+} as const;
+
+export type LookupCustomerByPhoneParams = {
+/**
+ * @minLength 3
+ */
+phone: string;
+};
+
 export type ListRemindersParams = {
 done?: boolean;
 due?: boolean;
@@ -1469,6 +5383,16 @@ export type ListCallsParams = {
 search?: string;
 customerId?: number;
 salespersonId?: number;
+/**
+ * Inclusive start date in Iran (Gregorian YYYY-MM-DD).
+ * @pattern ^\d{4}-\d{2}-\d{2}$
+ */
+from?: string;
+/**
+ * Inclusive end date in Iran (Gregorian YYYY-MM-DD).
+ * @pattern ^\d{4}-\d{2}-\d{2}$
+ */
+to?: string;
 /**
  * @minimum 1
  * @maximum 500
@@ -1498,6 +5422,13 @@ export type ListLoanPlansParams = {
 active?: boolean;
 };
 
+export type ListCustomerEligiblePlansParams = {
+/**
+ * Admin/salesperson selection of every active plan at full ceiling without rank matching.
+ */
+ignoreCreditRank?: boolean;
+};
+
 export type ListLoanApplicationsParams = {
 /**
  * @minimum 1
@@ -1508,6 +5439,54 @@ page?: number;
  * @maximum 100
  */
 limit?: number;
+actionable?: boolean;
+caseScope?: ListLoanApplicationsCaseScope;
+mode?: ListLoanApplicationsMode;
+search?: string;
+status?: string;
+stage?: string;
+customerId?: number;
+planId?: number;
+dateFrom?: string;
+dateTo?: string;
+};
+
+export type ListLoanApplicationsCaseScope = typeof ListLoanApplicationsCaseScope[keyof typeof ListLoanApplicationsCaseScope];
+
+
+export const ListLoanApplicationsCaseScope = {
+  'in-progress': 'in-progress',
+} as const;
+
+export type ListLoanApplicationsMode = typeof ListLoanApplicationsMode[keyof typeof ListLoanApplicationsMode];
+
+
+export const ListLoanApplicationsMode = {
+  list: 'list',
+  board: 'board',
+} as const;
+
+export type GetFilingFeePlansParams = {
+ignoreCreditRank?: boolean;
+customerId: number;
+};
+
+export type GetFilingFeePlans200PlansItem = {
+  planId: number;
+  name: string;
+  filingFeeToman: string;
+};
+
+export type GetFilingFeePlans200 = {
+  cashBalanceToman: string;
+  plans: GetFilingFeePlans200PlansItem[];
+};
+
+export type ChargeFilingFee201 = {
+  chargeId: number;
+  amountToman: string;
+  /** @nullable */
+  applicationId?: number | null;
 };
 
 export type AddLoanApplicationManualRequirement201 = { [key: string]: unknown };
@@ -1516,10 +5495,354 @@ export type UploadLoanApplicationDocument201 = { [key: string]: unknown };
 
 export type RegisterLoanApplicationGuarantor201 = { [key: string]: unknown };
 
+export type ListCustomerWalletShareLinks200 = {
+  items: WalletShareLinkHistoryItem[];
+};
+
+export type ListCustomerPaymentReconciliation200 = {
+  items: WalletReconciliationItem[];
+};
+
+export type VerifyCustomerCashPaymentParams = {
+Authority: string;
+Status: string;
+};
+
+export type GetCompanyWallet200EntriesItemWalletType = typeof GetCompanyWallet200EntriesItemWalletType[keyof typeof GetCompanyWallet200EntriesItemWalletType];
+
+
+export const GetCompanyWallet200EntriesItemWalletType = {
+  cash: 'cash',
+  credit: 'credit',
+} as const;
+
+export type GetCompanyWallet200EntriesItemKind = typeof GetCompanyWallet200EntriesItemKind[keyof typeof GetCompanyWallet200EntriesItemKind];
+
+
+export const GetCompanyWallet200EntriesItemKind = {
+  filing_fee: 'filing_fee',
+  goods_purchase: 'goods_purchase',
+  manual_deposit: 'manual_deposit',
+  manual_withdrawal: 'manual_withdrawal',
+} as const;
+
+export type GetCompanyWallet200EntriesItem = {
+  id: number;
+  walletType: GetCompanyWallet200EntriesItemWalletType;
+  amountToman: string;
+  kind: GetCompanyWallet200EntriesItemKind;
+  /** @nullable */
+  purchaseId?: number | null;
+  /** @nullable */
+  reason?: string | null;
+  createdAt: string;
+  /** @nullable */
+  feeChargeId?: number | null;
+  /** @nullable */
+  customerId?: number | null;
+  /** @nullable */
+  customerName?: string | null;
+  /** @nullable */
+  actorName?: string | null;
+};
+
+export type GetCompanyWallet200 = {
+  cashBalanceToman: string;
+  creditBalanceToman: string;
+  entries: GetCompanyWallet200EntriesItem[];
+};
+
+export type CreateCompanyWalletAdjustment201 = {
+  id: number;
+  balanceToman: string;
+};
+
+export type ListManagedWalletsParams = {
+/**
+ * @minimum 1
+ */
+page?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+search?: string;
+name?: string;
+phone?: string;
+/**
+ * @pattern ^\d+$
+ */
+minCash?: string;
+/**
+ * @pattern ^\d+$
+ */
+maxCash?: string;
+/**
+ * @pattern ^\d+$
+ */
+minCredit?: string;
+/**
+ * @pattern ^\d+$
+ */
+maxCredit?: string;
+sortBy?: ListManagedWalletsSortBy;
+sortDir?: ListManagedWalletsSortDir;
+};
+
+export type ListManagedWalletsSortBy = typeof ListManagedWalletsSortBy[keyof typeof ListManagedWalletsSortBy];
+
+
+export const ListManagedWalletsSortBy = {
+  customerName: 'customerName',
+  phone: 'phone',
+  cashBalanceToman: 'cashBalanceToman',
+  creditBalanceToman: 'creditBalanceToman',
+} as const;
+
+export type ListManagedWalletsSortDir = typeof ListManagedWalletsSortDir[keyof typeof ListManagedWalletsSortDir];
+
+
+export const ListManagedWalletsSortDir = {
+  asc: 'asc',
+  desc: 'desc',
+} as const;
+
+export type ListWalletTransactionsParams = {
+/**
+ * @minimum 1
+ */
+page?: number;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+search?: string;
+customerId?: number;
+actorId?: number;
+walletType?: ListWalletTransactionsWalletType;
+kind?: ListWalletTransactionsKind;
+status?: ListWalletTransactionsStatus;
+from?: string;
+to?: string;
+};
+
+export type ListWalletTransactionsWalletType = typeof ListWalletTransactionsWalletType[keyof typeof ListWalletTransactionsWalletType];
+
+
+export const ListWalletTransactionsWalletType = {
+  cash: 'cash',
+  credit: 'credit',
+} as const;
+
+export type ListWalletTransactionsKind = typeof ListWalletTransactionsKind[keyof typeof ListWalletTransactionsKind];
+
+
+export const ListWalletTransactionsKind = {
+  payment: 'payment',
+  loan_credit: 'loan_credit',
+  transfer: 'transfer',
+  legacy: 'legacy',
+} as const;
+
+export type ListWalletTransactionsStatus = typeof ListWalletTransactionsStatus[keyof typeof ListWalletTransactionsStatus];
+
+
+export const ListWalletTransactionsStatus = {
+  requested: 'requested',
+  gateway_ready: 'gateway_ready',
+  failed: 'failed',
+  cancelled: 'cancelled',
+  credited: 'credited',
+  verification_pending: 'verification_pending',
+  requires_reconciliation: 'requires_reconciliation',
+  completed: 'completed',
+} as const;
+
 export type ListConsultationAiConversationsParams = {
 /**
  * @minimum 1
  */
 customerId: number;
+};
+
+export type PrepareRejectedContractResend200Status = typeof PrepareRejectedContractResend200Status[keyof typeof PrepareRejectedContractResend200Status];
+
+
+export const PrepareRejectedContractResend200Status = {
+  generated: 'generated',
+} as const;
+
+export type PrepareRejectedContractResend200 = {
+  id: number;
+  status: PrepareRejectedContractResend200Status;
+};
+
+export type ListVoipContactsParams = {
+/**
+ * @maxLength 100
+ */
+search?: string;
+};
+
+export type LookupVoipCustomerParams = {
+/**
+ * @minLength 1
+ * @maxLength 32
+ */
+phone: string;
+};
+
+export type ListVoipCallsParams = {
+/**
+ * @minimum 1
+ */
+customerId?: number;
+/**
+ * @minimum 1
+ * @maximum 1000000
+ */
+page?: number;
+};
+
+export type CompleteVoipAfterCall200 = {
+  ok: boolean;
+  /** @nullable */
+  callLogId: number | null;
+};
+
+export type GetVoipRecordingTranscriptParams = {
+from: string;
+to: string;
+};
+
+export type ListVoipRecordingsParams = {
+/**
+ * @pattern ^\d{4}-\d{2}-\d{2}$
+ */
+from?: string;
+/**
+ * @pattern ^\d{4}-\d{2}-\d{2}$
+ */
+to?: string;
+/**
+ * @maxLength 32
+ */
+extension?: string;
+/**
+ * @maxLength 32
+ */
+phone?: string;
+status?: ListVoipRecordingsStatus;
+recordedOnly?: boolean;
+/**
+ * @minimum 1
+ * @maximum 100000
+ */
+page?: number;
+};
+
+export type ListVoipRecordingsStatus = typeof ListVoipRecordingsStatus[keyof typeof ListVoipRecordingsStatus];
+
+
+export const ListVoipRecordingsStatus = {
+  ANSWERED: 'ANSWERED',
+  NO_ANSWER: 'NO ANSWER',
+  BUSY: 'BUSY',
+  FAILED: 'FAILED',
+} as const;
+
+export type DownloadVoipRecordingParams = {
+from?: string;
+to?: string;
+};
+
+export type GetCustomerPortalWalletTransactionsParams = {
+/**
+ * @pattern ^[1-9][0-9]*$
+ */
+cursor?: string;
+};
+
+export type ListCustomerPortalApplicationsParams = {
+/**
+ * Exclude completed and rejected or cancelled applications
+ */
+active?: boolean;
+};
+
+export type GetPortalIntakeStatusParams = {
+/**
+ * @minimum 1
+ */
+planId: number;
+};
+
+export type VerifyPortalIntake200Status = typeof VerifyPortalIntake200Status[keyof typeof VerifyPortalIntake200Status];
+
+
+export const VerifyPortalIntake200Status = {
+  verified: 'verified',
+  error: 'error',
+  pending: 'pending',
+} as const;
+
+/**
+ * @nullable
+ */
+export type VerifyPortalIntake200Checks = { [key: string]: unknown } | null;
+
+export type VerifyPortalIntake200 = {
+  status: VerifyPortalIntake200Status;
+  /** @nullable */
+  error?: string | null;
+  /** @nullable */
+  checks?: VerifyPortalIntake200Checks;
+};
+
+export type GetPortalQuestionnaireOptions200OptionsItem = {
+  fieldKey: string;
+  value: string;
+  label: string;
+};
+
+export type GetPortalQuestionnaireOptions200 = {
+  options: GetPortalQuestionnaireOptions200OptionsItem[];
+};
+
+export type FindPortalLoanPlans201 = {
+  consultationId: number;
+  matches: LoanPlanMatch[];
+};
+
+export type GetPortalHumanChat200 = {
+  customerId: number;
+  expertName: string;
+  expertOnline: boolean;
+  unreadCount: number;
+};
+
+export type ListPortalHumanMessagesParams = {
+/**
+ * @minimum 1
+ */
+beforeId?: number;
+};
+
+export type GetStaffChatUnreadCount200 = {
+  count: number;
+};
+
+export type ListStaffChatThreadsParams = {
+q?: string;
+cursor?: string;
+};
+
+export type ListStaffHumanMessagesParams = {
+/**
+ * @minimum 1
+ */
+beforeId?: number;
 };
 

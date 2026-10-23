@@ -8,10 +8,21 @@
 
 export interface ContractSignatureStatus {
   id: number;
-  /** @nullable */
+  /**
+     * Provider-reported signature status.
+     * @nullable
+     */
   providerStatus?: string | null;
   /** @nullable */
   providerStatusTitle?: string | null;
+  /** Indicates provider-reported completion only; it is not financial approval. */
   signed: boolean;
   checkedAt: Date;
+  /** Whether this provider lookup actually advanced the workflow; this reflects the server's completed transition and is not a client-side inference. */
+  workflowAdvanced?: boolean;
+  /**
+     * The authoritative resulting workflow stage after this provider lookup, or null when no stage transition occurred; do not infer or predict it client-side.
+     * @nullable
+     */
+  nextStage?: string | null;
 }

@@ -8,6 +8,16 @@
 
 export interface SignatureVerification {
   id: number;
+  /** Indicates provider-reported completion only; it is not financial approval. */
   signed: boolean;
   kind: string;
+  /** @nullable */
+  providerStatus: string | null;
+  /** Whether this provider lookup actually advanced the workflow; this reflects the server's completed transition and is not a client-side inference. */
+  workflowAdvanced?: boolean;
+  /**
+     * The authoritative resulting workflow stage after this provider lookup, or null when no stage transition occurred; do not infer or predict it client-side.
+     * @nullable
+     */
+  nextStage?: string | null;
 }

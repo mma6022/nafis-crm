@@ -5,10 +5,22 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ContractMappingDate } from './contractMappingDate';
+import type { ContractMappingFormula } from './contractMappingFormula';
+import type { ContractMappingSourceType } from './contractMappingSourceType';
 
 export interface ContractMapping {
   variable: string;
+  sourceType?: ContractMappingSourceType;
   /** @nullable */
   customerField?: string | null;
+  /** @nullable */
+  loanPlanField?: string | null;
   label?: string;
+  /** @nullable */
+  constantValue?: string | null;
+  /** @nullable */
+  formula?: ContractMappingFormula;
+  /** @nullable */
+  date?: ContractMappingDate;
 }

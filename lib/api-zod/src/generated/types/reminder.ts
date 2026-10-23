@@ -5,8 +5,16 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ReminderCallHistory } from './reminderCallHistory';
+import type { ReminderCallHistoryStatus } from './reminderCallHistoryStatus';
+import type { ReminderSmsStatus } from './reminderSmsStatus';
 
 export interface Reminder {
+  sourceCall?: ReminderCallHistory | null;
+  callHistoryStatus?: ReminderCallHistoryStatus;
+  smsStatus?: ReminderSmsStatus;
+  /** @nullable */
+  smsError?: string | null;
   id: number;
   userId: number;
   /** @nullable */
@@ -15,6 +23,8 @@ export interface Reminder {
   customerId: number | null;
   /** @nullable */
   customerName?: string | null;
+  /** @nullable */
+  customerSalespersonName?: string | null;
   subject: string;
   message: string;
   remindAt: string;

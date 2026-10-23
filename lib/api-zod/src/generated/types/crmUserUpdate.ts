@@ -31,11 +31,15 @@ export interface CrmUserUpdate {
      */
   telegramId?: string | null;
   /**
+     * @maxLength 32
+     * @nullable
+     * @pattern ^[A-Za-z0-9*#_.-]*$
+     */
+  voipExtension?: string | null;
+  /**
      * @minLength 3
      * @maxLength 50
      */
   role?: string;
-  /** @nullable */
-  salespersonId?: number | null;
   active?: boolean;
 }

@@ -11,4 +11,6 @@ export interface LoanApplicationPage {
   items: LoanApplication[];
   page: number;
   limit: number;
+  /** @minimum 0 */
+  total: number;
 }

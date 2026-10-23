@@ -29,6 +29,12 @@ export interface CustomerInput {
      * @pattern ^[0-9]{10}$
      */
   postalCode?: string | null;
+  /** @nullable */
+  fatherName?: string | null;
+  /** @nullable */
+  address?: string | null;
+  /** @nullable */
+  email?: string | null;
   isUrgent?: boolean;
   /** @nullable */
   salespersonId?: number | null;

@@ -12,6 +12,11 @@ export interface Consultation {
   customerName: string;
   customerPhone: string;
   /** @nullable */
+  customerSalespersonName?: string | null;
+  /** @nullable */
+  createdAt?: string | null;
+  questionnaireVersion?: number;
+  /** @nullable */
   hasCheck?: boolean | null;
   /** @nullable */
   hasPromissory?: boolean | null;

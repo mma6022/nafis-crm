@@ -1,0 +1,127 @@
+paths:
+  conversations:
+    get:
+      operationId: getInternalChatInbox
+      responses:
+        '200':
+          description: Authorized groups and direct conversations, active coworkers, unread counts
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: true}
+    post:
+      operationId: openInternalChatDirect
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InternalChatDirectInput'}
+      responses:
+        '200': {description: Authorized direct conversation}
+  messages:
+    parameters:
+      - {name: conversationId, in: path, required: true, schema: {type: string}}
+    get:
+      operationId: listInternalChatMessages
+      parameters:
+        - {name: beforeId, in: query, schema: {type: integer}}
+        - {name: q, in: query, schema: {type: string}}
+      responses:
+        '200': {description: 'Chronological message page with receipts, reactions and typing'}
+    post:
+      operationId: sendInternalChatMessage
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: {$ref: '#/components/schemas/InternalChatSendInput'}
+      responses:
+        '200': {description: Idempotently stored message}
+  read:
+    parameters:
+      - {name: conversationId, in: path, required: true, schema: {type: string}}
+    post:
+      operationId: readInternalChatMessages
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InternalChatReadInput'}
+      responses:
+        '200': {description: Monotonic read position}
+  typing:
+    parameters:
+      - {name: conversationId, in: path, required: true, schema: {type: string}}
+    post:
+      operationId: setInternalChatTyping
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InternalChatTypingInput'}
+      responses:
+        '200': {description: Ephemeral typing presence}
+  message:
+    parameters:
+      - {name: messageId, in: path, required: true, schema: {type: integer}}
+    patch:
+      operationId: editInternalChatMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InternalChatEditInput'}
+      responses:
+        '200': {description: Own message updated}
+    delete:
+      operationId: deleteInternalChatMessage
+      responses:
+        '200': {description: Own message tombstoned}
+  reactions:
+    parameters:
+      - {name: messageId, in: path, required: true, schema: {type: integer}}
+    put:
+      operationId: reactToInternalChatMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InternalChatReactionInput'}
+      responses:
+        '200': {description: Own emoji reaction toggled}
+  file:
+    parameters:
+      - {name: messageId, in: path, required: true, schema: {type: integer}}
+    get:
+      operationId: getInternalChatAttachment
+      responses:
+        '200': {description: Authenticated private attachment stream}
+components:
+  schemas:
+    InternalChatDirectInput:
+      type: object
+      required: [userId]
+      properties: {userId: {type: integer}}
+    InternalChatReadInput:
+      type: object
+      required: [lastMessageId]
+      properties: {lastMessageId: {type: integer}}
+    InternalChatTypingInput:
+      type: object
+      required: [typing]
+      properties: {typing: {type: boolean}}
+    InternalChatEditInput:
+      type: object
+      required: [text]
+      properties: {text: {type: string, maxLength: 8000}}
+    InternalChatReactionInput:
+      type: object
+      required: [emoji]
+      properties: {emoji: {type: string, maxLength: 32}}
+    InternalChatSendInput:
+      type: object
+      required: [clientId]
+      properties:
+        clientId: {type: string}
+        text: {type: string, maxLength: 8000}
+        replyToId: {type: integer}
+        file: {type: string, format: binary}

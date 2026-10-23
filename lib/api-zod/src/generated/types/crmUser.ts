@@ -17,6 +17,8 @@ export interface CrmUser {
   mobile?: string | null;
   /** @nullable */
   telegramId?: string | null;
+  /** @nullable */
+  voipExtension?: string | null;
   priorityColors?: CrmUserPriorityColors;
   role: string;
   roleName?: string;

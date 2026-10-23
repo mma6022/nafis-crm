@@ -1,0 +1,108 @@
+paths:
+  availability:
+    get:
+      operationId: getDiagnosticAvailability
+      responses:
+        "200":
+          description: Repair service connection status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiagnosticAvailability'
+  reports:
+    post:
+      operationId: createDiagnosticReport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiagnosticReportInput'
+      responses:
+        "201":
+          description: Report durably recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiagnosticReport'
+  active:
+    get:
+      operationId: getActiveDiagnosticReport
+      responses:
+        "200":
+          description: Most recent report for the signed-in employee
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiagnosticCurrentReport'
+  report:
+    get:
+      operationId: getDiagnosticReport
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Authorized repair status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiagnosticReport'
+components:
+  schemas:
+    DiagnosticAvailability:
+      type: object
+      required: [connected, automaticPublishing, message]
+      properties:
+        connected: { type: boolean }
+        automaticPublishing: { type: boolean }
+        message: { type: string }
+    DiagnosticBrowserEvent:
+      type: object
+      additionalProperties: false
+      required: [kind, message, at]
+      properties:
+        kind: { type: string, enum: [error, rejection, request] }
+        message: { type: string, maxLength: 1000 }
+        at: { type: string, maxLength: 40 }
+        path: { type: string, maxLength: 500 }
+        requestId: { type: string, maxLength: 80 }
+        status: { type: integer, minimum: 0, maximum: 599 }
+    DiagnosticReportInput:
+      type: object
+      additionalProperties: false
+      required: [clientId, description, page]
+      properties:
+        clientId: { type: string, minLength: 16, maxLength: 80 }
+        description: { type: string, minLength: 10, maxLength: 4000 }
+        page: { type: string, minLength: 1, maxLength: 500 }
+        browserEvents:
+          type: array
+          maxItems: 30
+          items: { $ref: '#/components/schemas/DiagnosticBrowserEvent' }
+    DiagnosticReport:
+      type: object
+      required: [id, status, progress, message, page, createdAt, updatedAt, canLeave, version]
+      properties:
+        id: { type: integer }
+        status:
+          type: string
+          enum: [awaiting_connection, queued, investigating, fixing, testing, deploying, verifying, resolved, failed]
+        progress: { type: integer, minimum: 0, maximum: 100 }
+        message: { type: string }
+        page: { type: string }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+        canLeave: { type: boolean }
+        version: { type: integer }
+        resolvedRelease: { type: [string, "null"] }
+    DiagnosticCurrentReport:
+      type: object
+      required: [report]
+      properties:
+        report:
+          anyOf:
+            - $ref: '#/components/schemas/DiagnosticReport'
+            - type: "null"

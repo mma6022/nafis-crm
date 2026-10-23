@@ -6,7 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ContractCustomerField } from './contractCustomerField';
+import type { ContractCustomerFieldsLoanPlansItem } from './contractCustomerFieldsLoanPlansItem';
 
 export interface ContractCustomerFields {
   fields: ContractCustomerField[];
+  loanPlanFields: ContractCustomerField[];
+  loanPlans: ContractCustomerFieldsLoanPlansItem[];
 }

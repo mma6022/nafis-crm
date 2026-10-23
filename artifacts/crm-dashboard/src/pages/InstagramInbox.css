@@ -1,0 +1,203 @@
+.instagram-inbox-page {
+  display: grid;
+  gap: 18px;
+  padding: 22px 26px 30px;
+  color: #172b3c;
+}
+.instagram-page-heading, .instagram-title, .instagram-refresh, .instagram-list-header,
+.instagram-detail-header, .instagram-lead-heading > div, .instagram-messages-heading,
+.instagram-thread-meta, .instagram-privacy-footnote {
+  display: flex;
+  align-items: center;
+}
+.instagram-page-heading { justify-content: space-between; gap: 14px; }
+.instagram-title { gap: 13px; }
+.instagram-brand-icon, .instagram-setup-icon {
+  display: grid; place-items: center; width: 46px; height: 46px; border-radius: 15px;
+  color: #a83a75; background: #fff0f6;
+}
+.instagram-eyebrow { margin: 0 0 3px; color: #8b9bab; font-size: 11px; font-weight: 700; }
+.instagram-title h2 { margin: 0; color: #183246; font-size: 21px; font-weight: 800; }
+.instagram-refresh, .instagram-pause-button {
+  justify-content: center; gap: 8px; min-height: 38px; padding: 0 13px; border: 1px solid #dce5ed;
+  border-radius: 10px; background: #fff; color: #425a6d; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.instagram-refresh:disabled, .instagram-pause-button:disabled { cursor: wait; opacity: .65; }
+.instagram-safety-note, .instagram-setup-banner, .instagram-thread-error {
+  display: flex; align-items: flex-start; gap: 12px; border-radius: 13px; padding: 14px 16px; line-height: 1.8;
+}
+.instagram-safety-note { border: 1px solid #f2d99e; background: #fff9e8; color: #765511; }
+.instagram-safety-note > svg { flex: 0 0 auto; margin-top: 2px; color: #bd8615; }
+.instagram-safety-note strong, .instagram-setup-banner strong { font-size: 13px; }
+.instagram-safety-note p, .instagram-setup-banner p { margin: 3px 0 0; font-size: 12px; }
+.instagram-state-card, .instagram-setup-banner, .instagram-error-banner {
+  background: #fff; border: 1px solid #e4eaf0; border-radius: 14px; padding: 17px; color: #536b7e;
+}
+.instagram-state-card { display: flex; justify-content: center; align-items: center; gap: 10px; }
+.instagram-connect-card { display: grid; gap: 14px; padding: 18px; border: 1px solid #e3dce9; border-radius: 15px; background: linear-gradient(120deg, #fffafd, #fff); }
+.instagram-connect-heading { display: flex; align-items: center; gap: 12px; }
+.instagram-connect-heading > div:nth-child(2) { flex: 1; min-width: 0; }
+.instagram-connect-heading h3 { margin: 0; color: #273e52; font-size: 15px; }
+.instagram-connection-pill { flex: 0 0 auto; padding: 5px 10px; border-radius: 20px; color: #667989; background: #eef2f5; font-size: 10px; font-weight: 700; }
+.instagram-connection-pill.is-connected { color: #26704d; background: #e9f6ee; }
+.instagram-account-details { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.instagram-account-details > div { min-width: 0; padding: 10px 12px; border: 1px solid #edf0f2; border-radius: 10px; background: #fff; }
+.instagram-account-details dt, .instagram-redirect-uri > span { color: #8293a0; font-size: 10px; }
+.instagram-account-details dd { overflow-wrap: anywhere; margin: 5px 0 0; color: #304b5f; font-size: 11px; font-weight: 700; }
+.instagram-live-status { margin: 0; color: #586f80; font-size: 11px; line-height: 1.8; }
+.instagram-reply-mode-status { margin: -7px 0 0; color: #586f80; font-size: 11px; }
+.instagram-reply-mode-status strong { color: #344f62; }
+.instagram-oauth-setup { display: grid; gap: 7px; padding: 13px 15px; border: 1px solid #d9e6ef; border-radius: 11px; background: #f5f9fc; color: #4c6578; font-size: 11px; line-height: 1.8; }
+.instagram-oauth-setup strong { color: #304f65; font-size: 12px; }
+.instagram-oauth-setup p { margin: 0; }
+.instagram-oauth-setup ul, .instagram-oauth-setup ol { display: grid; gap: 3px; margin: 0; padding-right: 19px; }
+.instagram-oauth-setup a { justify-self: start; color: #34718f; font-weight: 700; }
+.instagram-redirect-uri { display: grid; gap: 4px; min-width: 0; }
+.instagram-redirect-uri code { display: block; overflow-wrap: anywhere; padding: 8px 10px; border: 1px solid #e2e9ef; border-radius: 7px; background: #fff; color: #344f62; font-size: 10px; }
+.instagram-connect-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.instagram-connect-actions > span { color: #8595a1; font-size: 10px; }
+.manychat-connection { display: grid; gap: 12px; padding: 15px; border: 1px solid #ebdfe8; border-radius: 12px; background: #fff; }
+.manychat-progress, .manychat-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+.manychat-progress > span { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 20px; background: #f1f3f5; color: #647788; font-size: 11px; }
+.manychat-progress > span.done { background: #e8f7ee; color: #276d4b; }
+.manychat-help { padding: 11px 13px; border: 1px solid #e2eaf0; border-radius: 9px; color: #445c70; font-size: 12px; line-height: 1.9; }
+.manychat-help summary { cursor: pointer; font-weight: 700; }
+.manychat-help ol { padding-right: 19px; margin: 9px 0; }
+.manychat-help p { margin: 6px 0 0; }
+.manychat-help a { color: #a83a75; }
+.manychat-help code { display: inline-block; direction: ltr; unicode-bidi: isolate; padding: 0 4px; border-radius: 4px; background: #f1f5f8; }
+.manychat-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.manychat-fields label { display: grid; gap: 6px; color: #344d60; font-size: 11px; font-weight: 700; }
+.manychat-fields input { min-width: 0; width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #dce5ed; border-radius: 8px; font: inherit; direction: ltr; }
+.manychat-fields .manychat-buttons { grid-column: 1 / -1; }
+.manychat-secret-row { display: flex; gap: 5px; }
+.manychat-secret-row input { min-width: 0; flex: 1; }
+.manychat-secret-row button { flex-shrink: 0; white-space: nowrap; }
+.manychat-secret-row button, .manychat-buttons > button:not(.instagram-connect-button) { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 12px; border: 1px solid #dce5ed; border-radius: 8px; background: #f9fbfd; color: #37526a; font: inherit; font-size: 11px; cursor: pointer; }
+.manychat-buttons button:disabled, .manychat-secret-row button:disabled { opacity: .55; cursor: not-allowed; }
+.manychat-warning { display: flex; align-items: center; gap: 7px; margin: 0; color: #a43d47; font-size: 11px; }
+.manychat-confirmation { display: flex; align-items: flex-start; gap: 8px; color: #37526a; font-size: 11px; line-height: 1.8; }
+.manychat-confirmation input { flex: 0 0 auto; margin-top: 5px; }
+.manychat-mode-choice { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 12px; color: #304962; }
+.manychat-mode-choice label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.manychat-reply-mode { display: grid; gap: 9px; padding: 13px; border: 1px solid #e2eaf0; border-radius: 10px; background: #fbfcfd; }
+.manychat-reply-mode > div:first-child > strong { color: #304b5f; font-size: 12px; }
+.manychat-reply-mode > div:first-child > p, .manychat-ai-disclosure { margin: 3px 0 0; color: #657b8b; font-size: 11px; line-height: 1.8; }
+.manychat-ai-disclosure { margin: 0; padding: 9px 11px; border-radius: 8px; background: #f1f6f9; }
+.manychat-reply-mode > button { justify-self: start; }
+.instagram-connect-button, .instagram-disconnect-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 0 14px; border: 0; border-radius: 9px; color: #fff; background: #a83a75; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; text-decoration: none; }
+.instagram-disconnect-button { color: #a43d47; border: 1px solid #f0cdd0; background: #fff5f5; }
+.instagram-connect-button:disabled, .instagram-disconnect-button:disabled { cursor: wait; opacity: .6; }
+.instagram-connection-notice { padding: 12px 15px; border: 1px solid; border-radius: 11px; font-size: 12px; line-height: 1.8; }
+.instagram-connection-notice.is-success { color: #26704d; border-color: #cce7d5; background: #f1faf4; }
+.instagram-connection-notice.is-error { color: #a43d47; border-color: #f0cdd0; background: #fff5f5; }
+.instagram-setup-banner { align-items: center; border-color: #d6e4f2; background: linear-gradient(105deg, #f3f8fd, #fff); }
+.instagram-setup-icon { flex: 0 0 auto; color: #507d9f; background: #eaf3fa; }
+.instagram-setup-banner strong { color: #25465e; }
+.instagram-error-banner { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: #a33242; background: #fff5f5; border-color: #f3c9ce; font-size: 12px; }
+.instagram-error-banner button, .instagram-list-error button { border: 0; color: #a33242; background: transparent; text-decoration: underline; font: inherit; font-weight: 700; cursor: pointer; }
+.instagram-workspace { display: grid; grid-template-columns: minmax(285px, 350px) minmax(0, 1fr); align-items: stretch; gap: 16px; min-height: 600px; }
+.instagram-thread-panel, .instagram-detail-panel { min-width: 0; border: 1px solid #e5ebf0; border-radius: 15px; background: #fff; overflow: hidden; }
+.instagram-thread-panel { display: flex; flex-direction: column; }
+.instagram-list-header { justify-content: space-between; padding: 17px 17px 12px; }
+.instagram-list-header > div { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+.instagram-list-header strong { font-size: 14px; }
+.instagram-list-header span { color: #8899a8; font-size: 11px; }
+.instagram-search { display: flex; align-items: center; gap: 8px; margin: 0 13px 10px; padding: 0 10px; height: 39px; border: 1px solid #e2e9ef; border-radius: 9px; color: #8c9dab; }
+.instagram-search input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; color: #213b4f; font: inherit; font-size: 11px; }
+.instagram-status-filter { margin: 0 13px 10px; height: 35px; padding: 0 9px; border: 1px solid #e2e9ef; border-radius: 8px; color: #506779; background: white; font: inherit; font-size: 11px; }
+.instagram-thread-list { display: grid; overflow-y: auto; }
+.instagram-thread-card { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 13px 14px; border: 0; border-top: 1px solid #f0f3f6; background: #fff; color: inherit; text-align: right; cursor: pointer; }
+.instagram-thread-card:hover { background: #f8fbfd; }
+.instagram-thread-card.selected { background: #f2f8fb; box-shadow: inset -3px 0 #4883a3; }
+.instagram-avatar, .instagram-lead-avatar { display: grid; flex: 0 0 auto; place-items: center; width: 38px; height: 38px; border-radius: 50%; color: #5e7e93; background: #edf4f8; }
+.instagram-thread-copy { display: grid; flex: 1; gap: 5px; min-width: 0; }
+.instagram-thread-copy > strong { overflow: hidden; color: #273f51; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.instagram-thread-copy > small { overflow: hidden; color: #8293a0; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.instagram-thread-meta { justify-content: space-between; gap: 6px; color: #98a6b1; font-size: 9px; }
+.instagram-thread-meta time { white-space: nowrap; }
+.instagram-status-pill { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 7px; border-radius: 20px; color: #537b67; background: #eaf6ee; font-size: 9px; font-weight: 700; white-space: nowrap; }
+.instagram-status-pill.has-error { color: #a43d47; background: #fff0f0; }
+.instagram-paused-mark { flex: 0 0 auto; color: #ad7b19; }
+.instagram-list-loading, .instagram-empty-list, .instagram-messages-state { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 26px 12px; color: #8797a4; font-size: 11px; text-align: center; }
+.instagram-empty-list { flex-direction: column; }
+.instagram-list-error { padding: 16px; color: #a43d47; font-size: 11px; text-align: center; }
+.instagram-list-error p { margin: 0 0 5px; }
+.instagram-detail-panel { display: flex; flex-direction: column; }
+.instagram-detail-header { gap: 12px; padding: 17px 20px; border-bottom: 1px solid #edf1f4; }
+.instagram-lead-avatar { width: 44px; height: 44px; }
+.instagram-lead-heading { flex: 1; min-width: 0; }
+.instagram-lead-heading h3 { margin: 0 0 5px; color: #20394d; font-size: 15px; }
+.instagram-lead-heading > div { flex-wrap: wrap; gap: 8px; color: #8394a2; font-size: 10px; }
+.instagram-pause-button { flex: 0 0 auto; }
+.instagram-pause-button.is-paused { color: #27714e; border-color: #cbe6d5; background: #f0faf4; }
+.instagram-inline-error { padding: 9px 16px; color: #a43d47; background: #fff4f4; font-size: 11px; }
+.instagram-thread-error { margin: 13px 17px 0; color: #a03d46; background: #fff4f4; border: 1px solid #f2d1d3; font-size: 11px; }
+.instagram-thread-error svg { flex: 0 0 auto; margin-top: 3px; }
+.instagram-thread-error p { margin: 2px 0 0; }
+.instagram-lead-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 17px 20px; border-bottom: 1px solid #edf1f4; background: #fbfcfd; }
+.instagram-lead-summary > div { display: grid; gap: 4px; }
+.instagram-lead-summary > div > span { color: #91a0ac; font-size: 10px; }
+.instagram-lead-summary > div > strong { color: #445d6f; font-size: 11px; font-weight: 600; }
+.instagram-customer-link { align-self: end; justify-self: start; color: #34718f; font-size: 11px; font-weight: 700; text-decoration: none; }
+.instagram-customer-link:hover { text-decoration: underline; }
+.instagram-lead-review { display: grid; gap: 12px; padding: 17px 20px; border-bottom: 1px solid #edf1f4; background: #fff; }
+.instagram-review-heading strong { color: #304b5f; font-size: 12px; }
+.instagram-review-heading p, .instagram-review-notice { margin: 5px 0 0; color: #6c7f8c; font-size: 11px; line-height: 1.8; }
+.instagram-review-notice { padding: 8px 10px; border-radius: 8px; color: #765511; background: #fff9e8; }
+.instagram-lead-review form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.instagram-lead-review form > label:not(.instagram-review-confirmation) { display: grid; gap: 5px; color: #445d6f; font-size: 11px; font-weight: 700; }
+.instagram-lead-review form > label:nth-child(3), .instagram-review-confirmation, .instagram-review-error { grid-column: 1 / -1; }
+.instagram-lead-review input:not([type="checkbox"]), .instagram-lead-review textarea { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid #dce5ed; border-radius: 8px; color: #273f51; background: #fff; font: inherit; font-size: 12px; }
+.instagram-lead-review textarea { resize: vertical; }
+.instagram-review-confirmation { display: flex; align-items: flex-start; gap: 7px; color: #445d6f; font-size: 11px; line-height: 1.7; }
+.instagram-review-confirmation input { margin-top: 4px; }
+.instagram-review-error { margin: 0; color: #a43d47; font-size: 11px; }
+.instagram-lead-review button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; justify-self: start; min-height: 37px; padding: 0 13px; border: 0; border-radius: 8px; color: #fff; background: #a83a75; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.instagram-lead-review button:disabled { cursor: not-allowed; opacity: .5; }
+.instagram-messages { display: flex; flex: 1; flex-direction: column; min-height: 250px; }
+.instagram-messages-heading { justify-content: space-between; gap: 10px; padding: 14px 19px; color: #304b5f; font-size: 11px; }
+.instagram-messages-heading > span { display: inline-flex; align-items: center; gap: 5px; color: #91a0ac; font-size: 9px; }
+.instagram-message-list { display: flex; flex: 1; flex-direction: column; align-items: flex-start; gap: 10px; padding: 15px 20px 20px; background: #f8fafb; }
+.instagram-message { max-width: min(78%, 520px); padding: 11px 13px 7px; border-radius: 13px 13px 3px 13px; background: #fff; box-shadow: 0 2px 9px #19354b0b; }
+.instagram-message.inbound { align-self: flex-start; border: 1px solid #e8edf0; }
+.instagram-message.outbound { align-self: flex-end; border-radius: 13px 13px 13px 3px; background: #eaf5f0; }
+.instagram-message p { margin: 0; color: #344d60; font-size: 12px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.instagram-message time { display: block; margin-top: 4px; color: #94a3ad; font-size: 9px; text-align: left; }
+.instagram-detail-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 35px; color: #91a0ac; text-align: center; }
+.instagram-detail-empty strong { color: #4d6678; font-size: 13px; }
+.instagram-detail-empty span { font-size: 11px; }
+.instagram-privacy-footnote { justify-content: flex-end; gap: 6px; color: #829392; font-size: 10px; }
+.instagram-privacy-footnote svg { color: #4e9774; }
+.instagram-spinning { animation: instagram-spin 1s linear infinite; }
+@keyframes instagram-spin { to { transform: rotate(360deg); } }
+@media (max-width: 850px) {
+  .instagram-inbox-page { padding: 17px 15px 24px; }
+  .instagram-workspace { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+  .instagram-thread-panel { max-height: 390px; }
+  .instagram-detail-panel { min-height: 490px; }
+}
+@media (max-width: 520px) {
+  .manychat-fields { grid-template-columns: 1fr; }
+  .instagram-lead-review form { grid-template-columns: 1fr; }
+  .instagram-inbox-page { gap: 13px; padding: 13px 10px 20px; }
+  .instagram-title h2 { font-size: 17px; }
+  .instagram-brand-icon { width: 40px; height: 40px; border-radius: 12px; }
+  .instagram-refresh { min-height: 35px; padding: 0 9px; font-size: 10px; }
+  .instagram-safety-note, .instagram-setup-banner { padding: 12px; }
+  .instagram-safety-note p, .instagram-setup-banner p { font-size: 10px; }
+  .instagram-connect-card { padding: 13px; }
+  .instagram-connect-heading { flex-wrap: wrap; gap: 9px; }
+  .instagram-connect-heading h3 { font-size: 13px; }
+  .instagram-connection-pill { margin-right: 49px; }
+  .instagram-account-details { grid-template-columns: minmax(0, 1fr); }
+  .instagram-oauth-setup { padding: 11px; }
+  .instagram-connect-actions { align-items: flex-start; flex-direction: column; }
+  .instagram-detail-header { gap: 8px; padding: 13px 12px; }
+  .instagram-lead-heading h3 { font-size: 13px; }
+  .instagram-pause-button { min-height: 34px; padding: 0 8px; font-size: 10px; }
+  .instagram-lead-summary { gap: 12px; padding: 13px 12px; }
+  .instagram-messages-heading { align-items: flex-start; flex-direction: column; padding: 12px; }
+  .instagram-message-list { padding: 12px; }
+  .instagram-message { max-width: 90%; }
+}

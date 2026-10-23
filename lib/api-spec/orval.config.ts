@@ -17,6 +17,7 @@ export default defineConfig({
   "api-client-react": {
     input: {
       target: "./openapi.yaml",
+      parserOptions: { externalRefs: { allow: ["./loan-case-notes.yaml", "./site-notifications.yaml", "./sales-reports.yaml", "./internal-chat.yaml", "./diagnostics.yaml", "./social-monitor.yaml", "./registration-suggestions.yaml"] } },
       override: {
         transformer: titleTransformer,
       },
@@ -43,6 +44,7 @@ export default defineConfig({
   zod: {
     input: {
       target: "./openapi.yaml",
+      parserOptions: { externalRefs: { allow: ["./loan-case-notes.yaml", "./site-notifications.yaml", "./sales-reports.yaml", "./internal-chat.yaml", "./diagnostics.yaml", "./social-monitor.yaml", "./registration-suggestions.yaml"] } },
       override: {
         transformer: titleTransformer,
       },
@@ -67,6 +69,18 @@ export default defineConfig({
             body: ['bigint', 'date'],
             response: ['bigint', 'date'],
           },
+        },
+        operations: {
+          getSocialMonitorThreadMessages: { zod: { generate: { param: false } } },
+          listInternalChatMessages: { zod: { generate: { param: false } } },
+          // Path validation is performed explicitly by the route. Otherwise
+          // Orval gives path Zod and query TS exports the same Params name.
+          downloadVoipRecording: { zod: { generate: { param: false } } },
+          getVoipRecordingTranscript: { zod: { generate: { param: false } } },
+          listStaffHumanMessages: { zod: { generate: { param: false } } },
+          listCustomerEligiblePlans: { zod: { generate: { param: false } } },
+          listLoanCaseNotes: { zod: { generate: { param: false } } },
+          listLoanCaseHistory: { zod: { generate: { param: false } } },
         },
         useDates: true,
         useBigInt: true,

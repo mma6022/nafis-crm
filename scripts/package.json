@@ -8,7 +8,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
+    "@openai/codex": "^0.163.0",
     "@types/node": "catalog:",
+    "acorn": "^8.18.0",
     "tsx": "catalog:"
   }
 }

@@ -1,12 +1,13 @@
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { DiagnosticsInlineButton } from '@/diagnostics/DiagnosticsProvider';
 
 export function SearchField({ value, onChange, placeholder, testId }: { value: string; onChange: (value: string) => void; placeholder: string; testId: string }) {
   return <label className="searchbar" data-testid={`searchbar-${testId}`}><Search size={16} /><input type="search" value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} aria-label={placeholder} data-testid={`input-${testId}`} /></label>;
 }
 
-export function Modal({ title, eyebrow, onClose, children, testId }: { title: string; eyebrow?: string; onClose: () => void; children: ReactNode; testId: string }) {
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className="modal" role="dialog" aria-modal="true" aria-labelledby={`${testId}-title`} data-testid={`modal-${testId}`}><div className="modal-head"><div>{eyebrow ? <div className="eyebrow">{eyebrow}</div> : null}<h3 id={`${testId}-title`}>{title}</h3></div><button className="modal-close" onClick={onClose} aria-label="بستن" data-testid={`button-close-${testId}`}><X size={19} /></button></div>{children}</div></div>;
+export function Modal({ title, eyebrow, onClose, children, testId, wide = false, size }: { title: string; eyebrow?: string; onClose: () => void; children: ReactNode; testId: string; wide?: boolean; size?: 'call' }) {
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className={`modal${wide ? ' modal-wide' : ''}${size === 'call' ? ' modal-call' : ''}`} role="dialog" aria-modal="true" aria-labelledby={`${testId}-title`} data-testid={`modal-${testId}`}><div className="modal-head"><div>{eyebrow ? <div className="eyebrow">{eyebrow}</div> : null}<h3 id={`${testId}-title`}>{title}</h3></div><div style={{ display: 'flex', alignItems: 'center' }}><DiagnosticsInlineButton /><button className="modal-close" onClick={onClose} aria-label="بستن" data-testid={`button-close-${testId}`}><X size={19} /></button></div></div>{children}</div></div>;
 }
 
 export function Pagination({ total, offset, limit, onChange, testId }: { total: number; offset: number; limit: number; onChange: (offset: number) => void; testId: string }) {

@@ -5,10 +5,11 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { GeneratedDocumentLinkKind } from './generatedDocumentLinkKind';
 
 export interface GeneratedDocumentLink {
   id: number;
   applicationId: number;
-  kind: string;
+  kind: GeneratedDocumentLinkKind;
   contractGenerationId: number;
 }

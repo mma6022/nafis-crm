@@ -13,6 +13,11 @@ export interface LoanPlanMatch {
   status: LoanPlanMatchStatus;
   /** @nullable */
   matchedConditionId?: number | null;
+  /**
+     * Maximum toman principal available through fully matched conditions for this customer; absent in older historical snapshots.
+     * @nullable
+     */
+  customerMaximumAmount?: string | null;
   failedRequirements: string[];
   missingInformation: string[];
 }

@@ -138,11 +138,24 @@ export function validNationalCode(value: string): boolean {
   return (sum < 2 ? sum : 11 - sum) === check;
 }
 export async function initiate(nationalCode: string, mobile: string) {
+  if (bridgeUrl()) await assertBridgeHealth();
   const result = bridgeUrl()
     ? await bridgeRequest("/v1/credit-checks/initiate", "POST", { nationalCode, mobileNumber: mobile })
     : await call("/b2b/api/request", "POST", { RealPersonNationalCode: nationalCode, MobileNumber: mobile });
   if (typeof result.data !== "string") throw new Error("کد پیگیری سرویس اعتبارسنجی دریافت نشد.");
   return result.data;
+}
+
+async function assertBridgeHealth(): Promise<void> {
+  try {
+    const response = await fetch(`${bridgeUrl()}/healthz`, {
+      method: "GET", signal: AbortSignal.timeout(3500), redirect: "error",
+    });
+    const body = await response.json() as { status?: unknown; service?: unknown };
+    if (!response.ok || body.status !== "ok" || body.service !== "ics24-bridge") throw new Error("unhealthy_bridge");
+  } catch {
+    throw new Error("واسط اعتبارسنجی در دسترس نیست؛ استعلام جدید به سرویس ارسال نشد. پس از رفع اختلال ارتباط دوباره اقدام کنید. نتیجهٔ موفق قبلی حفظ می‌شود.");
+  }
 }
 export async function validate(hashCode: string, otp: string) {
   return bridgeUrl()

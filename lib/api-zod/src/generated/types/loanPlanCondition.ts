@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { LoanPlanConditionInstallmentOptionsItem } from './loanPlanConditionInstallmentOptionsItem';
+import type { LoanPlanConditionPenaltyMode } from './loanPlanConditionPenaltyMode';
 
 export interface LoanPlanCondition {
   id: number;
@@ -28,6 +29,60 @@ export interface LoanPlanCondition {
   needsGuarantorPromissory?: boolean;
   needsCustomerSalaryDeduct?: boolean;
   needsGuarantorSalaryDeduct?: boolean;
+  /** @nullable */
+  contractTemplateId?: number | null;
+  /** @nullable */
+  platformCompanyName?: string | null;
+  /** @nullable */
+  goodsStoreName?: string | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  commissionPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  operationCostsPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  grantedDiscountPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  purchaseCommissionPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  salesCommissionPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  loanAcquisitionFeePercent?: number | null;
+  /** @nullable */
+  penaltyMode?: LoanPlanConditionPenaltyMode;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  penaltyValue?: number | null;
+  /**
+     * @minimum 1
+     * @nullable
+     */
+  contractDurationDays?: number | null;
   needsCustomerCheck?: boolean;
   needsGuarantorCheck?: boolean;
   sortOrder: number;

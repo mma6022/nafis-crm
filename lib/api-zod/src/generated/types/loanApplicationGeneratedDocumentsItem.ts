@@ -5,5 +5,27 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { LoanApplicationGeneratedDocumentsItemKind } from './loanApplicationGeneratedDocumentsItemKind';
 
-export type LoanApplicationGeneratedDocumentsItem = { [key: string]: unknown };
+export type LoanApplicationGeneratedDocumentsItem = {
+  id?: number;
+  applicationId?: number;
+  kind?: LoanApplicationGeneratedDocumentsItemKind;
+  /** @nullable */
+  contractGenerationId?: number | null;
+  current?: boolean;
+  /** @nullable */
+  status?: string | null;
+  signed?: boolean;
+  superseded?: boolean;
+  /** @nullable */
+  supersededAt?: Date | null;
+  /** @nullable */
+  reviewReason?: string | null;
+  fileAvailable?: boolean;
+  /** Current pending primary delivery reused a rejected upload; staff may explicitly prepare a guarded fresh-file retry. */
+  resendRepairRequired?: boolean;
+  /** @nullable */
+  downloadUrl?: string | null;
+  [key: string]: unknown;
+ };

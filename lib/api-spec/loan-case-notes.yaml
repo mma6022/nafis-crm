@@ -1,0 +1,149 @@
+paths:
+  notes:
+    parameters:
+      - $ref: '#/components/parameters/CaseId'
+    get:
+      operationId: listLoanCaseNotes
+      tags: [crm]
+      parameters:
+        - $ref: '#/components/parameters/BeforeId'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Newest-first notes visible to the authenticated staff member.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoanCaseNotesPage' }
+    post:
+      operationId: createLoanCaseNote
+      tags: [crm]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/LoanCaseNoteInput' }
+      responses:
+        '201':
+          description: Saved note and audit entry; no financial or case stage changes.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoanCaseNote' }
+        '200':
+          description: Identical retry, without another note or audit entry.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoanCaseNote' }
+  history:
+    parameters:
+      - $ref: '#/components/parameters/CaseId'
+    get:
+      operationId: listLoanCaseHistory
+      tags: [crm]
+      parameters:
+        - $ref: '#/components/parameters/BeforeId'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Read-only newest-first workflow history.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoanCaseHistoryPage' }
+  file:
+    parameters:
+      - $ref: '#/components/parameters/CaseId'
+      - name: noteId
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    get:
+      operationId: getLoanCaseNoteFile
+      tags: [crm]
+      responses:
+        '200':
+          description: Authorized private attachment; media supports byte ranges.
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '206':
+          description: Authorized byte range.
+        '404':
+          description: Attachment or case not visible to this staff member.
+components:
+  parameters:
+    CaseId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    BeforeId:
+      name: beforeId
+      in: query
+      schema: { type: integer, minimum: 1 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 50, default: 30 }
+  schemas:
+    LoanCaseNoteInput:
+      type: object
+      required: [clientId]
+      additionalProperties: false
+      properties:
+        clientId: { type: string, minLength: 8, maxLength: 100 }
+        text: { type: string, maxLength: 6000 }
+        file: { type: string, format: binary, description: Single validated image, PDF, DOCX or audio file, max 16 MiB. }
+    LoanCaseNoteAuthor:
+      type: object
+      required: [id, name, avatarUrl]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        avatarUrl: { type: [string, 'null'] }
+    LoanCaseNoteAttachment:
+      type: object
+      required: [fileName, mimeType, fileSize, kind, fileUrl]
+      properties:
+        fileName: { type: string }
+        mimeType: { type: string }
+        fileSize: { type: integer }
+        kind: { type: string, enum: [image, audio, file] }
+        fileUrl: { type: string }
+    LoanCaseNote:
+      type: object
+      required: [id, applicationId, text, clientId, createdAt, author, attachment]
+      properties:
+        id: { type: integer }
+        applicationId: { type: integer }
+        text: { type: string }
+        clientId: { type: string }
+        createdAt: { type: string }
+        author: { $ref: '#/components/schemas/LoanCaseNoteAuthor' }
+        attachment:
+          anyOf:
+            - { $ref: '#/components/schemas/LoanCaseNoteAttachment' }
+            - { type: 'null' }
+    LoanCaseNotesPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/LoanCaseNote' }
+        nextCursor: { type: [string, 'null'] }
+    LoanCaseHistoryEntry:
+      type: object
+      required: [id, action, reason, createdAt, author]
+      properties:
+        id: { type: integer }
+        action: { type: string }
+        reason: { type: [string, 'null'] }
+        createdAt: { type: string }
+        author: { $ref: '#/components/schemas/LoanCaseNoteAuthor' }
+    LoanCaseHistoryPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/LoanCaseHistoryEntry' }
+        nextCursor: { type: [string, 'null'] }

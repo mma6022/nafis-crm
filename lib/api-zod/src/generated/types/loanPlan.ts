@@ -7,10 +7,13 @@
  */
 import type { LoanPlanCondition } from './loanPlanCondition';
 import type { LoanPlanInstallmentTerm } from './loanPlanInstallmentTerm';
+import type { LoanPlanPenaltyMode } from './loanPlanPenaltyMode';
 
 export interface LoanPlan {
   id: number;
   name: string;
+  /** @pattern ^[0-9]+$ */
+  filingFeeToman: string;
   /** @nullable */
   bankName?: string | null;
   /** @nullable */
@@ -62,6 +65,60 @@ export interface LoanPlan {
   acknowledgementTemplateId?: number | null;
   needsCustomerSalaryDeduct?: boolean;
   needsGuarantorSalaryDeduct?: boolean;
+  /** @nullable */
+  contractTemplateId?: number | null;
+  /** @nullable */
+  platformCompanyName?: string | null;
+  /** @nullable */
+  goodsStoreName?: string | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  commissionPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  operationCostsPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  grantedDiscountPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  purchaseCommissionPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  salesCommissionPercent?: number | null;
+  /**
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+  loanAcquisitionFeePercent?: number | null;
+  /** @nullable */
+  penaltyMode?: LoanPlanPenaltyMode;
+  /**
+     * @minimum 0
+     * @nullable
+     */
+  penaltyValue?: number | null;
+  /**
+     * @minimum 1
+     * @nullable
+     */
+  contractDurationDays?: number | null;
   createdAt: string;
   conditions: LoanPlanCondition[];
 }

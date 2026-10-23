@@ -6,11 +6,14 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { LoanPlanConditionInput } from './loanPlanConditionInput';
+import type { LoanPlanInputPenaltyMode } from './loanPlanInputPenaltyMode';
 import type { LoanPlanInstallmentTerm } from './loanPlanInstallmentTerm';
 
 export interface LoanPlanInput {
   /** @minLength 1 */
   name: string;
+  /** @pattern ^[0-9]+$ */
+  filingFeeToman?: string;
   bankName?: string;
   platformName?: string;
   principalAmount?: string;
@@ -33,9 +36,45 @@ export interface LoanPlanInput {
   grantDays?: string;
   needsAccountTurnover?: boolean;
   needsAvgBalance?: boolean;
-  primaryContractTemplateId?: number;
-  invoiceTemplateId?: number;
-  acknowledgementTemplateId?: number;
+  /** @minimum 1 */
+  contractTemplateId: number;
+  platformCompanyName?: string;
+  goodsStoreName?: string;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  commissionPercent?: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  operationCostsPercent?: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  grantedDiscountPercent?: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  purchaseCommissionPercent?: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  salesCommissionPercent?: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  loanAcquisitionFeePercent?: number;
+  penaltyMode?: LoanPlanInputPenaltyMode;
+  /** @minimum 0 */
+  penaltyValue?: number;
+  /** @minimum 1 */
+  contractDurationDays?: number;
   notes?: string;
   prepaymentPercents?: string;
   depositPercents?: string;

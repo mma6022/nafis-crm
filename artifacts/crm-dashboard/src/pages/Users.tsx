@@ -1,29 +1,47 @@
+import { Link } from 'wouter';
+import { UserAvatar, AvatarPicker } from '@/components/UserAvatar';
 import { Edit3, Shield, UserCog, Plus, KeyRound, Trash2 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
+import { useTableState } from '@/hooks/use-table-state';
 import { useQueryClient } from '@tanstack/react-query';
-import { getGetAuthSessionQueryKey, getListRolesQueryKey, getListUsersQueryKey, useCreateRole, useCreateUser, useDeleteRole, useGetAuthSession, useListRoles, useListSalespersons, useListUsers, useUpdateRole, useUpdateUser, type AppRole, type CrmUser, type CrmUserUpdate, type CrmUserInput, type RoleInput } from '@workspace/api-client-react';
-import { ErrorState, formatDate, initials, SkeletonPanel } from '@/components/CrmShell';
+import { getGetAuthSessionQueryKey, getListRolesQueryKey, getListUsersQueryKey, useCreateRole, useCreateUser, useDeleteRole, useGetAuthSession, useListRoles, useListUsers, useUpdateRole, useUpdateUser, type AppRole, type CrmUser, type CrmUserUpdate, type CrmUserInput, type RoleInput } from '@workspace/api-client-react';
+import { ErrorState, formatDate, SkeletonPanel } from '@/components/CrmShell';
 import { EmptyState, Modal, SearchField } from '@/components/DataTools';
+import SalespersonIdentityReview from './SalespersonIdentityReview';
+import { UserVoipField } from '@/components/UserVoipField';
+
+function saveError(error: unknown) {
+  if (!error) return '';
+  const e = error as { status?: number; data?: { error?: string } };
+  if (e.status === 409) return e.data?.error?.includes('داخلی') ? e.data.error : 'نام کاربری یا داخلی تلفن به کاربر دیگری اختصاص داده شده است.';
+  return 'ذخیره کاربر ناموفق بود؛ اطلاعات را بررسی کنید و دوباره تلاش کنید.';
+}
 
 export default function Users() {
   const client = useQueryClient();
   const session = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   const canManageUsers = session.data?.user.role === 'admin' || session.data?.user.permissions?.includes('users.manage');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useTableState('users.search', '');
   const [editing, setEditing] = useState<CrmUser | null>(null);
   const [creating, setCreating] = useState(false);
   const [rolesOpen, setRolesOpen] = useState(false);
   const query = useListUsers({ query: { queryKey: getListUsersQueryKey(), staleTime: 30_000 } });
-  const salespersons = useListSalespersons({ query: { queryKey: ['users-salespersons'], staleTime: 60_000 } });
   const update = useUpdateUser();
   const create = useCreateUser();
   const roles = useListRoles({ query: { queryKey: getListRolesQueryKey(), staleTime: 30_000 } });
   
-  const users = (query.data ?? []).filter((user) => `${user.username} ${user.fullName ?? ''} ${user.mobile ?? ''} ${user.role} ${user.salespersonName ?? ''}`.toLowerCase().includes(search.toLowerCase()));
+  const users = (query.data ?? []).filter((user) => `${user.username} ${user.fullName ?? ''} ${user.mobile ?? ''} ${user.role} ${user.voipExtension ?? ''}`.toLowerCase().includes(search.toLowerCase()));
   
-  const save = (id: number, data: CrmUserUpdate) => update.mutate({ id, data }, { onSuccess: () => { setEditing(null); client.invalidateQueries({ queryKey: getListUsersQueryKey() }); } });
+  const refreshUsers = () => {
+    client.invalidateQueries({ queryKey: getListUsersQueryKey() });
+    client.invalidateQueries({ queryKey: ['voip-extensions'] });
+    client.invalidateQueries({ queryKey: ['voip-config'] });
+    client.invalidateQueries({ queryKey: ['/api/voip/recordings'] });
+    client.invalidateQueries({ queryKey: getGetAuthSessionQueryKey() });
+  };
+  const save = (id: number, data: CrmUserUpdate) => update.mutate({ id, data }, { onSuccess: () => { setEditing(null); refreshUsers(); } });
   const toggle = (user: CrmUser) => save(user.id, { active: !user.active });
-  const handleCreate = (data: CrmUserInput) => create.mutate({ data }, { onSuccess: () => { setCreating(false); client.invalidateQueries({ queryKey: getListUsersQueryKey() }); } });
+  const handleCreate = (data: CrmUserInput) => create.mutate({ data }, { onSuccess: () => { setCreating(false); refreshUsers(); } });
   
   return (
     <section className="data-page">
@@ -31,7 +49,7 @@ export default function Users() {
         <div>
           <div className="eyebrow">کنترل دسترسی</div>
           <h2>کاربران CRM</h2>
-          <p>نقش، تخصیص فروش و وضعیت دسترسی اعضای تیم را در یک نگاه مدیریت کنید.</p>
+           <p>نقش و وضعیت دسترسی اعضای تیم را در یک نگاه مدیریت کنید. کاربران با نقش کارشناس فروش، خودشان در فهرست کارشناسان فروش قرار می‌گیرند.</p>
         </div>
         <div className="data-summary">
           <Shield size={17} />
@@ -44,7 +62,7 @@ export default function Users() {
         <SearchField value={search} onChange={setSearch} placeholder="جست‌وجوی نام کاربری، نقش یا کارشناس..." testId="users" />
         <div style={{ display: 'flex', gap: 8 }}>
         {session.data?.user.role === 'admin' ? <button className="btn btn-ghost" onClick={() => setRolesOpen(true)} data-testid="button-manage-roles"><KeyRound size={15} /> نقش‌ها و دسترسی‌ها</button> : null}
-        {canManageUsers ? <button className="btn btn-primary" onClick={() => setCreating(true)} data-testid="button-create-user">
+        {canManageUsers ? <button className="btn btn-primary" onClick={() => { create.reset(); setCreating(true); }} data-testid="button-create-user">
           <Plus size={15} />
           کاربر جدید
         </button> : null}
@@ -59,7 +77,7 @@ export default function Users() {
                 <th>کاربر</th>
                 <th>نقش</th>
                 <th>موبایل</th>
-                <th>کارشناس فروش</th>
+                <th>داخلی تلفن ویپ</th>
                 <th>وضعیت</th>
                 <th>شروع فعالیت</th>
                 <th>عملیات</th>
@@ -69,9 +87,7 @@ export default function Users() {
               {users.length ? users.map((user) => (
                 <tr key={user.id} data-testid={`row-user-${user.id}`}>
                   <td>
-                    <span className="avatar" style={{ display: 'inline-grid', width: 30, height: 30, marginLeft: 8, verticalAlign: 'middle' }}>
-                      {initials(user.fullName || user.username)}
-                    </span>
+                    <UserAvatar userId={user.id} name={user.fullName || user.username} size={30} className="user-row-avatar" />
                     <span className="primary-cell">{user.fullName || 'بدون نام'}</span>
                     <span className="secondary-cell mono" dir="ltr" style={{ display: 'inline-block', marginRight: 5 }}>{user.username}</span>
                   </td>
@@ -79,7 +95,7 @@ export default function Users() {
                     <span className="inline-badge gold">{user.roleName || roleLabel(user.role)}</span>
                   </td>
                   <td className="mono" dir="ltr">{user.mobile || '—'}</td>
-                  <td>{user.salespersonName || 'بدون تخصیص'}</td>
+                  <td className="mono" dir="ltr" data-testid={`text-user-extension-${user.id}`}>{user.voipExtension || '—'}</td>
                   <td>
                     <button className={`switch ${user.active ? 'on' : ''}`} disabled={!canManageUsers} onClick={() => toggle(user)} aria-label={user.active ? 'غیرفعال کردن کاربر' : 'فعال کردن کاربر'} data-testid={`button-toggle-user-${user.id}`}>
                       <span />
@@ -90,14 +106,15 @@ export default function Users() {
                   </td>
                   <td className="secondary-cell">{formatDate(user.createdAt)}</td>
                   <td>
-                    <button className="table-action" disabled={!canManageUsers} onClick={() => setEditing(user)} data-testid={`button-edit-user-${user.id}`}>
+                    <button className="table-action" disabled={!canManageUsers} onClick={() => { update.reset(); setEditing(user); }} data-testid={`button-edit-user-${user.id}`}>
                       <Edit3 size={13} />ویرایش
                     </button>
+                     {user.role === 'salesperson' && user.salespersonId && (session.data?.user.role === 'admin' || session.data?.user.permissions?.includes('goods_finance.view')) ? <Link className="table-action" href={`/sales-commissions?salespersonId=${user.salespersonId}`} data-testid={`link-commission-${user.id}`}>پورسانت</Link> : null}
                   </td>
                 </tr>
               )) : (
                 <tr>
-                    <td colSpan={7}>
+                     <td colSpan={7}>
                     <EmptyState title="کاربری مطابق جست‌وجو پیدا نشد" description="عبارت جست‌وجو را تغییر دهید." />
                   </td>
                 </tr>
@@ -106,13 +123,14 @@ export default function Users() {
           </table>
         </div>
       )}
+      {session.data?.user.role === 'admin' ? <SalespersonIdentityReview /> : null}
       
       {editing && (
         <UserEditForm 
           user={editing} 
           roles={roles.data?.roles ?? []}
-          salespersons={salespersons.data ?? []} 
           pending={update.isPending} 
+          error={saveError(update.error)}
           onClose={() => setEditing(null)} 
           onSave={(data) => save(editing.id, data)} 
         />
@@ -122,8 +140,8 @@ export default function Users() {
       {creating && (
         <UserCreateForm 
           roles={roles.data?.roles ?? []}
-          salespersons={salespersons.data ?? []} 
           pending={create.isPending} 
+          error={saveError(create.error)}
           onClose={() => setCreating(false)} 
           onSave={handleCreate} 
         />
@@ -137,8 +155,8 @@ function roleLabel(role: string) {
   return roles[role] ?? role;
 }
 
-function UserEditForm({ user, roles, salespersons, pending, onClose, onSave }: { user: CrmUser; roles: AppRole[]; salespersons: { id: number; name: string }[]; pending: boolean; onClose: () => void; onSave: (data: CrmUserUpdate) => void }) {
-  const [form, setForm] = useState({ username: user.username, fullName: user.fullName ?? '', mobile: user.mobile ?? '', telegramId: user.telegramId ?? '', password: '', confirmPassword: '', role: user.role, salespersonId: user.salespersonId ? String(user.salespersonId) : '', active: user.active });
+function UserEditForm({ user, roles, pending, error, onClose, onSave }: { user: CrmUser; roles: AppRole[]; pending: boolean; error: string; onClose: () => void; onSave: (data: CrmUserUpdate) => void }) {
+  const [form, setForm] = useState({ username: user.username, fullName: user.fullName ?? '', mobile: user.mobile ?? '', telegramId: user.telegramId ?? '', password: '', confirmPassword: '', role: user.role, active: user.active, voipExtension: user.voipExtension ?? '' });
   const [formError, setFormError] = useState('');
   
   const submit = (event: FormEvent) => { 
@@ -157,9 +175,9 @@ function UserEditForm({ user, roles, salespersons, pending, onClose, onSave }: {
       fullName: form.fullName.trim() || null,
       mobile: form.mobile.trim() || null,
       telegramId: form.telegramId.trim() || null,
+      voipExtension: form.voipExtension.trim() || null,
       ...(form.password ? { password: form.password } : {}),
       role: form.role,
-      salespersonId: form.salespersonId ? Number(form.salespersonId) : null,
       active: form.active,
     });
   };
@@ -168,7 +186,9 @@ function UserEditForm({ user, roles, salespersons, pending, onClose, onSave }: {
     <Modal title={`ویرایش ${user.username}`} eyebrow="حساب کاربری" onClose={onClose} testId="user-form">
       <form onSubmit={submit}>
         {formError && <div className="profile-form-error" data-testid="error-user-validation">{formError}</div>}
+        {error && <div className="profile-form-error" role="alert">{error}</div>}
         <div className="form-grid">
+          <AvatarPicker userId={user.id} name={user.fullName || user.username} endpoint={`users/${user.id}/avatar`} testId="user-avatar" />
           <div className="field">
             <label htmlFor="user-username-edit">نام کاربری</label>
             <input id="user-username-edit" value={form.username} minLength={3} maxLength={100} pattern="[A-Za-z0-9._\-]+" dir="ltr" autoComplete="off" required onChange={(event) => setForm({ ...form, username: event.target.value })} data-testid="input-user-username" />
@@ -181,6 +201,7 @@ function UserEditForm({ user, roles, salespersons, pending, onClose, onSave }: {
             <label htmlFor="user-mobile-edit">شماره موبایل</label>
             <input id="user-mobile-edit" value={form.mobile} maxLength={30} dir="ltr" onChange={(event) => setForm({ ...form, mobile: event.target.value })} placeholder="09xxxxxxxxx" data-testid="input-user-mobile" />
           </div>
+          <UserVoipField value={form.voipExtension} onChange={voipExtension => setForm({ ...form, voipExtension })} />
           <div className="field full">
             <label htmlFor="user-full-name">نام نمایشی</label>
             <input id="user-full-name" value={form.fullName} onChange={(event) => setForm({ ...form, fullName: event.target.value })} data-testid="input-user-full-name" />
@@ -189,13 +210,6 @@ function UserEditForm({ user, roles, salespersons, pending, onClose, onSave }: {
             <label htmlFor="user-role">نقش</label>
             <select id="user-role" value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })} data-testid="select-user-role">
               {roles.map((role) => <option key={role.slug} value={role.slug}>{role.name}</option>)}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="user-salesperson">تخصیص کارشناس فروش</label>
-            <select id="user-salesperson" value={form.salespersonId} onChange={(event) => setForm({ ...form, salespersonId: event.target.value })} data-testid="select-user-salesperson">
-              <option value="">بدون تخصیص</option>
-              {salespersons.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
             </select>
           </div>
           <div className="field">
@@ -226,8 +240,8 @@ function UserEditForm({ user, roles, salespersons, pending, onClose, onSave }: {
   );
 }
 
-function UserCreateForm({ roles, salespersons, pending, onClose, onSave }: { roles: AppRole[]; salespersons: { id: number; name: string }[]; pending: boolean; onClose: () => void; onSave: (data: CrmUserInput) => void }) {
-  const [form, setForm] = useState({ username: '', password: '', fullName: '', mobile: '', role: roles.find((role) => role.slug === 'salesperson')?.slug ?? roles[0]?.slug ?? '', salespersonId: '', active: true });
+function UserCreateForm({ roles, pending, error: serverError, onClose, onSave }: { roles: AppRole[]; pending: boolean; error: string; onClose: () => void; onSave: (data: CrmUserInput) => void }) {
+  const [form, setForm] = useState({ username: '', password: '', fullName: '', mobile: '', voipExtension: '', role: roles.find((role) => role.slug === 'salesperson')?.slug ?? roles[0]?.slug ?? '', active: true });
   const [error, setError] = useState('');
   
   const submit = (event: FormEvent) => { 
@@ -249,8 +263,8 @@ function UserCreateForm({ roles, salespersons, pending, onClose, onSave }: { rol
       password: form.password,
       fullName: form.fullName.trim() || null, 
       mobile: form.mobile.trim() || null,
+      voipExtension: form.voipExtension.trim() || null,
       role: form.role, 
-      salespersonId: form.salespersonId ? Number(form.salespersonId) : null, 
       active: form.active 
     }); 
   };
@@ -258,6 +272,7 @@ function UserCreateForm({ roles, salespersons, pending, onClose, onSave }: { rol
   return (
     <Modal title="ایجاد کاربر جدید" eyebrow="حساب کاربری" onClose={onClose} testId="user-create-form">
       <form onSubmit={submit}>
+        {serverError && <div className="profile-form-error" role="alert">{serverError}</div>}
         {error && <div style={{ color: '#a35a51', fontSize: 12, marginBottom: 16, padding: '10px 14px', background: '#fff7f5', border: '1px solid #efd5d1', borderRadius: 8 }}>{error}</div>}
         <div className="form-grid">
           <div className="field">
@@ -272,6 +287,7 @@ function UserCreateForm({ roles, salespersons, pending, onClose, onSave }: { rol
             <label htmlFor="user-full-name">نام نمایشی</label>
             <input id="user-full-name" value={form.fullName} onChange={(event) => setForm({ ...form, fullName: event.target.value })} placeholder="مثال: علی احمدی" data-testid="input-create-full-name" />
           </div>
+          <UserVoipField creating value={form.voipExtension} onChange={voipExtension => setForm({ ...form, voipExtension })} />
           <div className="field full">
             <label htmlFor="user-mobile-create">شماره موبایل</label>
             <input id="user-mobile-create" value={form.mobile} maxLength={30} dir="ltr" onChange={(event) => setForm({ ...form, mobile: event.target.value })} placeholder="09xxxxxxxxx" data-testid="input-create-mobile" />
@@ -280,13 +296,6 @@ function UserCreateForm({ roles, salespersons, pending, onClose, onSave }: { rol
             <label htmlFor="user-role">نقش</label>
             <select id="user-role" value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })} data-testid="select-create-role">
               {roles.map((role) => <option key={role.slug} value={role.slug}>{role.name}</option>)}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="user-salesperson">تخصیص کارشناس فروش</label>
-            <select id="user-salesperson" value={form.salespersonId} onChange={(event) => setForm({ ...form, salespersonId: event.target.value })} data-testid="select-create-salesperson">
-              <option value="">بدون تخصیص</option>
-              {salespersons.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
             </select>
           </div>
           <div className="field full">
@@ -310,6 +319,9 @@ function UserCreateForm({ roles, salespersons, pending, onClose, onSave }: { rol
 }
 
 const permissionLabels: Record<string, string> = {
+  'accounting.view': 'مشاهده اسناد حسابداری و موجودی صندوق‌ها',
+  'accounting.manage': 'ثبت سند حسابداری و افزودن پیوست',
+  'accounting.opening': 'ثبت موجودی اولیه صندوق',
   'dashboard.view': 'مشاهده داشبورد',
   'customers.view': 'مشاهده مشتریان',
   'customers.create': 'ثبت مشتری',
@@ -321,6 +333,8 @@ const permissionLabels: Record<string, string> = {
   'consultations.create': 'ثبت مشاوره',
   'consultations.update': 'ویرایش مشاوره',
   'reminders.view': 'مشاهده یادآورها',
+  'reports.view': 'مشاهده گزارش فروش',
+  'internal_chat.use': 'استفاده از گفتگوی داخلی تیم',
   'reminders.manage': 'مدیریت یادآورها',
   'loan_plans.view': 'مشاهده طرح‌های تسهیلاتی',
   'loan_plans.manage': 'مدیریت طرح‌های تسهیلاتی',

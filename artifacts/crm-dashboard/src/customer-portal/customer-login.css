@@ -1,0 +1,52 @@
+.cp.customer-login {
+  display: grid;
+  grid-template-columns: 1fr;
+  min-height: 100dvh;
+  background: #f6f7f9;
+}
+.customer-login .cp-login-main {
+  padding: 32px 20px;
+  align-items: center;
+}
+.customer-login .cp-login-panel {
+  width: min(100%, 380px);
+  padding: 32px;
+  background: #fff;
+  border: 1px solid #e6e9ef;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgb(25 45 85 / 4%);
+}
+.customer-login-logo {
+  display: block;
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
+  margin: 0 auto 16px;
+}
+.customer-login .cp-login-panel h2 {
+  margin: 0;
+  font-size: 22px;
+  text-align: center;
+  letter-spacing: normal;
+}
+.customer-login .cp-login-panel > p {
+  margin: 10px 0 26px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.customer-login .customer-login-staff {
+  display: block;
+  margin-top: 20px;
+  text-align: center;
+  font-size: 12px;
+  color: #64748b;
+}
+.customer-login input:focus-visible {
+  outline: 2px solid #bc9252;
+  outline-offset: 2px;
+}
+.customer-login .cp-actions { gap: 8px; }
+@media (max-width: 420px) {
+  .customer-login .cp-login-main { padding: 24px 16px; }
+  .customer-login .cp-login-panel { padding: 28px 24px; }
+}

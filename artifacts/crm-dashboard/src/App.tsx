@@ -16,8 +16,30 @@ import LoanApplicationDetail from '@/pages/LoanApplicationDetail';
 import Users from '@/pages/Users';
 import Contracts from '@/pages/Contracts';
 import NotificationSettingsPage from '@/pages/NotificationSettings';
+import WalletManagement from '@/pages/WalletManagement';
 import { CrmShell } from '@/components/CrmShell';
 import LoginPage from '@/pages/Login';
+import PhonePage from '@/pages/Phone';
+import Releases from '@/pages/Releases';
+import WalletTopUp from '@/pages/WalletTopUp';
+import GoodsPurchases from '@/pages/GoodsPurchases';
+import GoodsPurchaseDetail from '@/pages/GoodsPurchaseDetail';
+import PaymentOrders from '@/pages/PaymentOrders';
+import BankAccounts from '@/pages/BankAccounts';
+import Accounting from '@/pages/Accounting';
+import SalesCommissions from '@/pages/SalesCommissions';
+import ManualVerifications from '@/pages/ManualVerifications';
+import InstagramInbox from '@/pages/InstagramInbox';
+import { SocialMonitorReports } from '@/features/SocialMonitorReports';
+import '@/features/social-monitor-reports.css';
+import { VoipProvider } from '@/components/voip/VoipProvider';
+import { AfterCallPopup } from '@/components/voip/AfterCallPopup';
+import MobileCalls from '@/pages/MobileCalls';
+import SalesReports from '@/pages/SalesReports';
+import { VoipDock } from '@/components/voip/VoipDock';
+import StaffChatPage from '@/chat/StaffChatPage';
+import InternalChatPage from '@/internal-chat/InternalChatPage';
+import CustomerPortal from '@/customer-portal/Portal';
 import {
   Route,
   Switch,
@@ -28,6 +50,8 @@ import {
 import { useGetAuthSession, getGetAuthSessionQueryKey } from '@workspace/api-client-react';
 
 const queryClient = new QueryClient();
+// Retain list preferences until logout/auth change clears this client.
+queryClient.setQueryDefaults(['table-view-state'], { gcTime: Infinity });
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -76,6 +100,12 @@ function HomeRoute() {
         ['calls.view', '/calls'],
         ['consultations.view', '/consultations'],
         ['loan_plans.view', '/loan-plans'],
+        ['goods_purchases.view', '/goods-purchases'],
+        ['payment_orders.view', '/payment-orders'],
+        ['goods_finance.view', '/sales-commissions'],
+        ['reports.view', '/sales-reports'],
+        ['bank_accounts.view', '/bank-accounts'],
+        ['accounting.view', '/accounting'],
         ['contracts.view', '/contracts'],
         ['users.view', '/users'],
         ['notifications.view', '/settings/notifications'],
@@ -106,13 +136,24 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   return <Redirect to="/login" />;
 }
 
-function PermissionRoute({ permission, children }: { permission: string; children: ReactNode }) {
+function AdminOnlyRoute({ children }: { children: ReactNode }) {
   const { data: session, isLoading } = useGetAuthSession({
     query: { queryKey: getGetAuthSessionQueryKey(), retry: false },
   });
   if (isLoading) return <LoadingSplash />;
   if (!session?.user) return <Redirect to="/login" />;
-  if (session.user.role !== 'admin' && !session.user.permissions?.includes(permission)) return <Redirect to="/" />;
+  if (session.user.role !== 'admin') return <Redirect to="/" />;
+  return <>{children}</>;
+}
+
+function PermissionRoute({ permission, children }: { permission: string | string[]; children: ReactNode }) {
+  const { data: session, isLoading } = useGetAuthSession({
+    query: { queryKey: getGetAuthSessionQueryKey(), retry: false },
+  });
+  if (isLoading) return <LoadingSplash />;
+  if (!session?.user) return <Redirect to="/login" />;
+  const needed = Array.isArray(permission) ? permission : [permission];
+  if (session.user.role !== 'admin' && !needed.some((p) => session.user.permissions?.includes(p))) return <Redirect to="/" />;
   return <>{children}</>;
 }
 
@@ -130,29 +171,55 @@ function AppWithRoutes() {
     <>
       <AuthStateQueryClientCacheInvalidator userId={session?.user?.id} />
       <TooltipProvider>
-        <Switch>
-          <Route path="/" component={HomeRoute} />
-          <Route path="/login" component={LoginPage} />
-          
-          <Route>
-            <ProtectedRoute>
-              <RoutedErrorBoundary>
-                <CrmShell>
-                  <Switch>
-                    <Route path="/customers"><PermissionRoute permission="customers.view"><Customers /></PermissionRoute></Route>
-                    <Route path="/customers/:id"><PermissionRoute permission="customers.view"><CustomerDetail /></PermissionRoute></Route>
-                    <Route path="/reminders"><PermissionRoute permission="reminders.view"><Reminders /></PermissionRoute></Route>
-                    <Route path="/calls"><PermissionRoute permission="calls.view"><Calls /></PermissionRoute></Route>
-                    <Route path="/consultations"><PermissionRoute permission="consultations.view"><Consultations /></PermissionRoute></Route>
+        <VoipProvider>
+          <AfterCallPopup />
+          <Switch>
+            <Route path="/" component={HomeRoute} />
+            <Route path="/login" component={LoginPage} />
+            <Route path="/wallet/top-up/result" component={WalletTopUp} />
+            <Route path="/wallet/top-up" component={WalletTopUp} />
+            <Route path={/^\/~[A-Za-z0-9_-]{14}\/?$/} component={WalletTopUp} />
+            
+            <Route>
+              <ProtectedRoute>
+                <RoutedErrorBoundary>
+                  <CrmShell>
+                    <Switch>
+                      <Route path="/chat"><PermissionRoute permission="customers.view"><StaffChatPage /></PermissionRoute></Route>
+                      <Route path="/internal-chat"><PermissionRoute permission="internal_chat.use"><InternalChatPage /></PermissionRoute></Route>
+                      <Route path="/customers"><PermissionRoute permission="customers.view"><Customers /></PermissionRoute></Route>
+                      <Route path="/mobile-calls"><PermissionRoute permission="calls.view"><MobileCalls /></PermissionRoute></Route>
+                      <Route path="/customers/:id"><PermissionRoute permission="customers.view"><CustomerDetail /></PermissionRoute></Route>
+                      <Route path="/wallet-management"><PermissionRoute permission="wallets.view"><WalletManagement /></PermissionRoute></Route>
+                      <Route path="/reminders"><PermissionRoute permission="reminders.view"><Reminders /></PermissionRoute></Route>
+                      <Route path="/calls"><PermissionRoute permission="calls.view"><Calls /></PermissionRoute></Route>
+                      <Route path="/instagram-inbox"><InstagramInbox /></Route>
+                      <Route path="/phone"><PermissionRoute permission="calls.view"><PhonePage /></PermissionRoute></Route>
+                      <Route path="/consultations"><PermissionRoute permission="consultations.view"><Consultations /></PermissionRoute></Route>
                     <Route path="/loan-plans"><PermissionRoute permission="loan_plans.view"><LoanPlans /></PermissionRoute></Route>
                     <Route path="/loan-applications"><PermissionRoute permission="loan_applications.view"><LoanApplications /></PermissionRoute></Route>
                     <Route path="/loan-applications/:id"><PermissionRoute permission="loan_applications.view"><LoanApplicationDetail /></PermissionRoute></Route>
+                    <Route path="/goods-purchases"><PermissionRoute permission="goods_purchases.view"><GoodsPurchases /></PermissionRoute></Route>
+                    <Route path="/goods-purchases/:id"><PermissionRoute permission="goods_purchases.view"><GoodsPurchaseDetail /></PermissionRoute></Route>
+                    <Route path="/payment-orders"><PermissionRoute permission="payment_orders.view"><PaymentOrders /></PermissionRoute></Route>
+                    <Route path="/payment-orders/:id"><PermissionRoute permission="payment_orders.view"><PaymentOrders /></PermissionRoute></Route>
+                    <Route path="/bank-accounts"><PermissionRoute permission={['bank_accounts.view', 'bank_accounts.manage']}><BankAccounts /></PermissionRoute></Route>
+                    <Route path="/accounting"><PermissionRoute permission="accounting.view"><Accounting /></PermissionRoute></Route>
+                    <Route path="/sales-reports"><PermissionRoute permission="reports.view"><SalesReports /></PermissionRoute></Route>
+                    <Route path="/sales-commissions"><PermissionRoute permission="goods_finance.view"><SalesCommissions /></PermissionRoute></Route>
+                     <Route path="/manual-verifications"><AdminOnlyRoute><ManualVerifications /></AdminOnlyRoute></Route>
                     <Route path="/contracts"><PermissionRoute permission="contracts.view"><Contracts /></PermissionRoute></Route>
                     <Route path="/users">
                       <PermissionRoute permission="users.view"><Users /></PermissionRoute>
                     </Route>
                     <Route path="/settings/notifications">
                       <PermissionRoute permission="notifications.view"><NotificationSettingsPage /></PermissionRoute>
+                    </Route>
+                    <Route path="/social-monitor-reports">
+                      <AdminOnlyRoute><SocialMonitorReports /></AdminOnlyRoute>
+                    </Route>
+                    <Route path="/settings/releases">
+                      <AdminOnlyRoute><Releases /></AdminOnlyRoute>
                     </Route>
                     <Route component={NotFound} />
                   </Switch>
@@ -161,6 +228,8 @@ function AppWithRoutes() {
             </ProtectedRoute>
           </Route>
         </Switch>
+        <VoipDock />
+        </VoipProvider>
         <Toaster />
       </TooltipProvider>
     </>
@@ -171,10 +240,18 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <WouterRouter base={basePath}>
-        <AppWithRoutes />
+        <AppEntry />
       </WouterRouter>
     </QueryClientProvider>
   );
+}
+
+function AppEntry() {
+  const [location] = useLocation();
+  // Customer auth is isolated from staff session, permission checks, shell and VoIP.
+  return location === '/customer' || location.startsWith('/customer/')
+    ? <CustomerPortal />
+    : <AppWithRoutes />;
 }
 
 export default App;

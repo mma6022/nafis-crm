@@ -2,6 +2,8 @@ import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypt
 import type { Request, RequestHandler, Response } from "express";
 import { execute, executeChanges, queryRow, crmDb } from "./crm-db";
 import { permissionsForRole } from "./access-control";
+import { isAdminRole } from "./customer-integrity";
+import { withNotificationActor } from "./notification-actor-context";
 
 const SESSION_COOKIE = "crm_session";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -139,11 +141,11 @@ export function getAuthenticatedUser(req: Request): AuthUser | undefined {
 export const requireAuth: RequestHandler = (req, res, next): void => {
   const user = getAuthenticatedUser(req);
   if (!user) {
-    res.status(401).json({ error: "Unauthorized" });
+    res.status(401).json({ code: "unauthorized", error: "Unauthorized" });
     return;
   }
   res.locals.authUser = user;
-  next();
+  withNotificationActor(`user:${user.id}`, next);
 };
 
 export const requireAdmin: RequestHandler = (req, res, next): void => {
@@ -152,12 +154,12 @@ export const requireAdmin: RequestHandler = (req, res, next): void => {
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
-  if (user.role !== "admin") {
+  if (!isAdminRole(user.role)) {
     res.status(403).json({ error: "Forbidden" });
     return;
   }
   res.locals.authUser = user;
-  next();
+  withNotificationActor(`user:${user.id}`, next);
 };
 
 export function createSession(userId: number, res: Response): void {
@@ -177,7 +179,10 @@ export function createSession(userId: number, res: Response): void {
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    // OAuth providers return via a top-level cross-site GET. Lax sends the
+    // existing authenticated session on that callback while still withholding
+    // it from cross-site subrequests and POSTs.
+    sameSite: "lax",
     path: "/",
     maxAge: SESSION_TTL_MS,
   });
@@ -193,9 +198,27 @@ export function destroySession(req: Request, res: Response): void {
   res.clearCookie(SESSION_COOKIE, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    sameSite: "lax",
     path: "/",
   });
+}
+
+export function prepareSessionForOAuthCallback(req: Request, res: Response): boolean {
+  const token = readCookie(req, SESSION_COOKIE);
+  if (!token) return false;
+  const session = queryRow<{ expires_at: string }>(
+    "SELECT expires_at FROM auth_sessions WHERE token_hash=? AND expires_at>?",
+    [tokenHash(token), new Date().toISOString()],
+  );
+  if (!session) return false;
+  res.cookie(SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: Math.max(0, Date.parse(session.expires_at) - Date.now()),
+  });
+  return true;
 }
 
 export function revokeUserSessions(userId: number): void {

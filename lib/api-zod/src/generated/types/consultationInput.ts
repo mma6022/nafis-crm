@@ -5,9 +5,11 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ConsultationInputQuestionnaireVersion } from './consultationInputQuestionnaireVersion';
 
 export interface ConsultationInput {
   customerId: number;
+  questionnaireVersion?: ConsultationInputQuestionnaireVersion;
   hasCheck?: boolean;
   hasPromissory?: boolean;
   hasGuarantor?: boolean;

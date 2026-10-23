@@ -1,0 +1,183 @@
+paths:
+  reports:
+    get:
+      operationId: getSocialMonitorReport
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string } }
+        - { name: to, in: query, required: true, schema: { type: string } }
+        - { name: employeeId, in: query, schema: { type: integer } }
+        - { name: service, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Admin-only report; threads are grouped across capture batches and dates.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [employees, days, conversations]
+                properties:
+                  employees:
+                    type: array
+                    items: { $ref: '#/components/schemas/SocialCustomerChoice' }
+                  days:
+                    type: array
+                    items: { type: object, additionalProperties: true }
+                  conversations:
+                    type: array
+                    items: { $ref: '#/components/schemas/SocialMonitorThread' }
+  customers:
+    get:
+      operationId: searchSocialMonitorCustomers
+      parameters:
+        - { name: search, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Admin-only customer candidates; no automatic ambiguous match.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [customers]
+                properties:
+                  customers:
+                    type: array
+                    items: { $ref: '#/components/schemas/SocialCustomerChoice' }
+  messages:
+    parameters:
+      - { $ref: '#/components/parameters/ThreadId' }
+    get:
+      operationId: getSocialMonitorThreadMessages
+      parameters:
+        - { name: before, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Latest saved messages, chronologically ordered, independent of report date filters.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocialThreadHistory' }
+  customer:
+    parameters:
+      - { $ref: '#/components/parameters/ThreadId' }
+    post:
+      operationId: linkSocialMonitorCustomer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocialCustomerLinkInput' }
+      responses:
+        '200':
+          description: Source links saved by the administrator.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: { type: boolean }
+  summary:
+    parameters:
+      - { $ref: '#/components/parameters/ThreadId' }
+    get:
+      operationId: getSocialMonitorThreadSummary
+      responses:
+        '200':
+          description: Cached summary state; reading does not submit customer messages to AI.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocialThreadSummary' }
+    post:
+      operationId: createSocialMonitorThreadSummary
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SocialSummaryInput' }
+      responses:
+        '200':
+          description: Current cached full-history summary.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocialThreadSummary' }
+        '202':
+          description: Administrator explicitly requested AI summarization of all saved history.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SocialThreadSummary' }
+components:
+  parameters:
+    ThreadId:
+      name: threadId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[a-f0-9]{64}$' }
+  schemas:
+    SocialCustomerChoice:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+    SocialCustomerLinkInput:
+      type: object
+      required: [customerId]
+      properties:
+        customerId: { type: integer, minimum: 1 }
+    SocialSummaryInput:
+      type: object
+      additionalProperties: false
+    SocialMonitorThread:
+      type: object
+      required: [threadId, employeeId, employeeName, contactName, customerId, customerName, customerMatch, customerCandidates, services, sourceCount, messageCount, inboundCount, outboundCount, firstMessageAt, lastMessageAt]
+      properties:
+        threadId: { type: string }
+        employeeId: { type: integer }
+        employeeName: { type: string }
+        contactName: { type: string }
+        customerId: { type: [integer, 'null'] }
+        customerName: { type: [string, 'null'] }
+        customerMatch: { type: string, enum: [linked, exact, ambiguous, none] }
+        customerCandidates:
+          type: array
+          items: { $ref: '#/components/schemas/SocialCustomerChoice' }
+        services:
+          type: array
+          items: { type: string, enum: [tg, wa, bale] }
+        sourceCount: { type: integer }
+        messageCount: { type: integer }
+        inboundCount: { type: integer }
+        outboundCount: { type: integer }
+        firstMessageAt: { type: string }
+        lastMessageAt: { type: string }
+    SocialThreadMessage:
+      type: object
+      required: [id, messageKey, direction, text, occurredAt, day, contactName, timestampKnown, service]
+      properties:
+        id: { type: integer }
+        messageKey: { type: string }
+        direction: { type: string, enum: [inbound, outbound] }
+        text: { type: string }
+        occurredAt: { type: string }
+        day: { type: string }
+        contactName: { type: string }
+        timestampKnown: { type: boolean }
+        service: { type: string, enum: [tg, wa, bale] }
+    SocialThreadHistory:
+      type: object
+      required: [messages, olderCursor, hasMore, thread]
+      properties:
+        messages:
+          type: array
+          items: { $ref: '#/components/schemas/SocialThreadMessage' }
+        olderCursor: { type: [string, 'null'] }
+        hasMore: { type: boolean }
+        thread: { $ref: '#/components/schemas/SocialMonitorThread' }
+    SocialThreadSummary:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [none, pending, ready, error] }
+        text: { type: string }
+        error: { type: string }
+        stale: { type: boolean }
+        updatedAt: { type: string }

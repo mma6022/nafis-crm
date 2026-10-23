@@ -64,7 +64,7 @@ type NotificationCustomer = {
   salespersonMobile: string | null;
 };
 
-function normalizeIranianMobile(value: string): string | undefined {
+export function normalizeIranianMobile(value: string): string | undefined {
   const digits = value
     .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
     .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
@@ -180,6 +180,56 @@ async function sendIppanel(customer: NotificationCustomer, settings: Notificatio
     throw new Error(`SMS relay rejected the request: ${message.slice(0, 300)}`);
   }
   recordDelivery(customer.id, "ippanel", "sent");
+}
+
+/** Sends the deliberately narrow wallet-link pattern; callers claim delivery
+ * before invoking this function because a relay timeout may be ambiguous. */
+export async function sendWalletShareSms(
+  customer: { id: number; name: string; phone: string },
+  link: string,
+  settings: NotificationSettings = getNotificationSettings(),
+): Promise<string> {
+  if (!settings.ippanelEnabled) throw new Error("sms_disabled");
+  const relaySecret = process.env.IR_RELAY_SHARED_SECRET;
+  if (!relaySecret) throw new Error("sms_relay_not_configured");
+  let relayUrl: URL;
+  try {
+    relayUrl = new URL(settings.ippanelRelayUrl);
+    if (!["http:", "https:"].includes(relayUrl.protocol) || relayUrl.username || relayUrl.password) throw new Error("invalid relay URL");
+  } catch { throw new Error("sms_relay_not_configured"); }
+  const recipient = normalizeIranianMobile(customer.phone);
+  if (!recipient) throw new Error("invalid_phone");
+  const body = JSON.stringify({
+    sending_type: "pattern",
+    from_number: settings.ippanelFromNumber,
+    code: "uvqibx6zabmclkb",
+    recipients: [recipient],
+    params: { name: customer.name.slice(0, 40), link },
+  });
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const signature = createHmac("sha256", relaySecret).update(`${timestamp}.${body}`).digest("hex");
+  let response: Response;
+  try {
+    response = await fetch(relayUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Relay-Timestamp": timestamp, "X-Relay-Signature": signature },
+      signal: AbortSignal.timeout(30_000),
+      body,
+    });
+  } catch { throw new Error("sms_delivery_unknown"); }
+  let result: Record<string, unknown>;
+  try { result = await response.json() as Record<string, unknown>; }
+  catch { throw new Error("sms_delivery_unknown"); }
+  const provider = result.data as { meta?: { status?: boolean }; data?: { message_outbox_ids?: unknown[] } } | undefined;
+  if (provider?.meta?.status === false || ["provider_rejected", "invalid_payload", "invalid_signature", "expired_signature"].includes(String(result.error))) {
+    throw new Error("sms_provider_rejected");
+  }
+  if (!response.ok || result.ok !== true) throw new Error("sms_delivery_unknown");
+  const id = provider?.data?.message_outbox_ids?.[0];
+  if (provider?.meta?.status !== true || (typeof id !== "string" && typeof id !== "number") || !/^[1-9]\d*$/.test(String(id))) {
+    throw new Error("sms_delivery_unknown");
+  }
+  return String(id);
 }
 
 export async function notifyNewCustomer(customerId: number): Promise<void> {

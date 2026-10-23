@@ -5,17 +5,26 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { LoanApplicationInputManualValues } from './loanApplicationInputManualValues';
 
 export interface LoanApplicationInput {
+  /** Admin/salesperson-only rank exemption */
+  ignoreCreditRank?: boolean;
   /** @minItems 1 */
   planIds: number[];
   /** @maxLength 1000 */
   notes?: string;
   customerId: number;
+  /** @minimum 1 */
+  feeChargeId: number;
   planId: number;
+  conditionId: number;
   consultationId?: number;
   /** @pattern ^[1-9][0-9]*$ */
   requestedAmount: string;
   /** @minimum 1 */
   durationMonths: number;
+  preRegistration?: boolean;
+  /** Manual-only values required by the selected plan's primary contract template. Validated and privately snapshotted on the application at creation. */
+  manualValues?: LoanApplicationInputManualValues;
 }

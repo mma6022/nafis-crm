@@ -7,7 +7,13 @@
  */
 import type { CallLog } from './callLog';
 
-export type CallRecord = CallLog & {
+export type CallRecord = CallLog & ({
+  /** @nullable */
+  systemSummary?: string | null;
+  /** @nullable */
+  extension?: string | null;
   customerName: string;
   customerPhone: string;
-};
+  /** @nullable */
+  customerSalespersonName?: string | null;
+});

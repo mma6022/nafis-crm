@@ -12,6 +12,8 @@ export interface NotificationDelivery {
   id: number;
   customerId: number;
   customerName: string;
+  /** @nullable */
+  customerSalespersonName?: string | null;
   channel: NotificationDeliveryChannel;
   status: NotificationDeliveryStatus;
   /** @nullable */

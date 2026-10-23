@@ -1,0 +1,39 @@
+.cn-dock{display:flex;flex-direction:column;background:#fbf9f4;border:1px solid #e3dccb;border-radius:16px;overflow:hidden;direction:rtl;font-family:inherit;height:min(78dvh,640px);min-height:0}
+.cn-head{display:flex;gap:10px;align-items:center;padding:12px 14px;background:#fff;border-bottom:1px solid #e3dccb;color:#1d3a5f;flex:none}
+.cn-head h3{margin:0;font-size:14px}.cn-head p{margin:2px 0 0;font-size:11px;color:#7b7566}
+.cn-list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px;display:flex;flex-direction:column;gap:10px;background:#f6f3ec}
+.cn-note{background:#fff;border-radius:14px 14px 14px 4px;padding:10px 12px;box-shadow:0 1px 1px rgba(0,0,0,.05);flex:none}
+.cn-note header{display:flex;gap:9px;align-items:center;margin-bottom:6px}
+.cn-note header strong{display:block;font-size:12.5px;color:#1d3a5f}.cn-note header time{display:block;font-size:10.5px;color:#7b7566}
+.cn-av{flex:none;width:32px;height:32px;border-radius:50%;background:#1d3a5f;color:#fff3d6;display:grid;place-items:center;font-weight:700;font-size:13px;overflow:hidden}
+.cn-av img{width:100%;height:100%;object-fit:cover;display:block}
+.cn-note blockquote{margin:0;padding:6px 10px;border-inline-start:3px solid #bc9252;background:#f6f3ec;border-radius:6px;font-size:13px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere}
+.cn-att{margin-bottom:6px}.cn-att img{max-width:100%;max-height:220px;border-radius:8px;display:block}.cn-att audio{width:100%}
+.cn-file{display:flex;gap:8px;align-items:center;color:#1d3a5f;text-decoration:none;font-size:12.5px}.cn-file small{display:block;color:#7b7566;font-size:10.5px}
+.cn-more{text-align:center;flex:none;padding:4px}.cn-more button{border:0;background:none;color:#1d3a5f;cursor:pointer;font:inherit;font-size:12px}
+.cn-empty{margin:auto;color:#7b7566;font-size:13px;text-align:center;padding:20px}
+.cn-err{color:#a3361f;font-size:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.cn-err button{border:0;background:none;color:#a3361f;text-decoration:underline;cursor:pointer;font:inherit}
+.cn-skel{display:grid;gap:10px}.cn-skel span{height:70px;border-radius:12px;background:linear-gradient(90deg,#efe9da,#f8f4ea,#efe9da);background-size:200% 100%;animation:cn-sh 1.2s infinite}
+@keyframes cn-sh{to{background-position:-200% 0}}
+.cn-compose{flex:none;background:#fff;border-top:1px solid #e3dccb;padding:10px;display:grid;gap:8px}
+.cn-compose textarea{width:100%;box-sizing:border-box;resize:none;min-height:96px;max-height:30dvh;padding:10px 12px;border-radius:14px;border:1px solid #ddd;font:inherit;background:#f6f3ec}
+.cn-actions{display:flex;gap:6px;align-items:center}.cn-hint{margin-inline-start:auto;font-size:10px;color:#9b937f;direction:ltr}
+.cn-ib{flex:none;width:38px;height:38px;border-radius:50%;border:0;background:transparent;color:#1d3a5f;display:grid;place-items:center;cursor:pointer}
+.cn-ib:hover:not(:disabled){background:#f3ecdb}.cn-ib:disabled{opacity:.4;cursor:not-allowed}.cn-ib.rec{background:#b4412f;color:#fff}
+.cn-send{display:inline-flex;gap:6px;align-items:center;border:0;border-radius:20px;padding:0 14px;height:38px;background:#1d3a5f;color:#fff;font:inherit;font-size:13px;cursor:pointer}.cn-send:disabled{opacity:.45;cursor:not-allowed}
+.cn-rec{display:flex;gap:8px;align-items:center;font-size:12px;color:#b4412f}.cn-rec i{width:9px;height:9px;border-radius:50%;background:#b4412f;animation:cn-pulse 1s infinite}.cn-rec button{margin-inline-start:auto;border:0;background:none;cursor:pointer;color:#7b7566}
+@keyframes cn-pulse{50%{opacity:.25}}
+.cn-chip{display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid #e3dccb;border-radius:10px;font-size:12px;flex-wrap:wrap}.cn-chip img{width:44px;height:44px;object-fit:cover;border-radius:6px}.cn-chip audio{max-width:100%;height:34px}.cn-chip span{flex:1;min-width:0;overflow-wrap:anywhere}.cn-chip small{display:block;color:#7b7566;font-size:10.5px}.cn-chip button{border:0;background:none;color:#a3361f;cursor:pointer}
+.cn-readonly{flex:none;padding:12px;font-size:12px;color:#7b7566;background:#fff;border-top:1px solid #e3dccb;text-align:center}
+.ch-backdrop{position:fixed;inset:0;z-index:1000;background:rgba(20,30,45,.45);display:grid;place-items:center;padding:16px;direction:rtl}
+.ch-dialog{width:min(560px,100%);max-height:min(82dvh,720px);display:flex;flex-direction:column;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 20px 50px rgba(20,30,45,.3)}
+.ch-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #e2e8f0;flex:none}.ch-head h3{margin:2px 0 0}
+.ch-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:16px 18px}
+/* Wide screens: the notes room is docked to the physical LEFT edge of the viewport,
+   full height, with the composer pinned at its bottom. Page content reserves the space. */
+@media(min-width:1100px){
+  .cn-dock{position:fixed;left:0;top:0;bottom:0;width:340px;height:auto;border-radius:0;border-width:0 1px 0 0;z-index:20}
+  body.has-case-notes-dock .app-main{padding-left:calc(34px + 340px)}
+}
+@media(max-width:1099px){.cn-dock{height:min(72dvh,620px)}}
+@media(max-width:640px){.cn-send{padding:0 12px}.cn-hint{display:none}.cn-send{margin-inline-start:auto}.ch-backdrop{padding:8px}}

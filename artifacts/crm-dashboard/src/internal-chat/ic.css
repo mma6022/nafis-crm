@@ -1,0 +1,48 @@
+.ic.tg{background:#f1f4f8;border-color:#d6dde8}
+.ic .tg-row{align-items:flex-start}
+.ic-sec{padding:10px 14px 4px;font-size:11px;color:#7b7566;font-weight:700;display:flex;justify-content:space-between;align-items:center}
+.ic-sec button{border:0;background:none;color:#1d3a5f;cursor:pointer;font:inherit;font-size:12px}
+.ic-msg{position:relative;max-width:78%;display:flex;flex-direction:column;gap:2px}
+.ic-msg.mine{align-self:flex-end}.ic-msg:not(.mine){align-self:flex-start}
+.ic-msg .tg-msg{max-width:100%;align-self:stretch}
+.ic-msg .who{font-size:11px;font-weight:700;color:#1d3a5f;padding-inline:6px}
+.ic-reply{border-inline-start:3px solid #bc9252;background:rgba(0,0,0,.05);padding:3px 8px;border-radius:6px;font-size:11px;margin-bottom:4px}
+.ic-reply b{display:block}
+.ic-tools{display:flex;gap:2px;opacity:0;transition:opacity .15s;height:26px}
+.ic-msg:hover .ic-tools,.ic-msg:focus-within .ic-tools{opacity:1}
+@media(hover:none){.ic-tools{opacity:1}}
+.ic-tools button{border:0;background:#fff;border-radius:6px;padding:0 6px;cursor:pointer;color:#1d3a5f;font:inherit;font-size:11px;display:flex;align-items:center;gap:3px}
+.ic-react{display:flex;flex-wrap:wrap;gap:4px}
+.ic-react button{border:1px solid #d6dde8;background:#fff;border-radius:12px;padding:0 7px;cursor:pointer;font:inherit;font-size:12px}
+.ic-react button[aria-pressed=true]{background:#f3ecdb;border-color:#bc9252}
+.ic-pop{position:absolute;z-index:20;top:100%;inset-inline-start:0}
+.ic-bar{display:flex;gap:8px;align-items:center;padding:6px 14px;background:#fff;border-top:1px solid #e3dccb;font-size:12px}
+.ic-bar span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ic-bar audio{height:32px;max-width:220px}
+.ic-bar button{border:0;background:none;cursor:pointer;color:#1d3a5f}
+.ic-bar.danger{color:#a3361f}
+.ic-sheet{position:fixed;inset:0;z-index:200;background:rgba(20,30,45,.4);display:grid;place-items:center;padding:16px}
+.ic-sheet>div{background:#fff;border-radius:16px;width:min(420px,100%);max-height:80dvh;display:flex;flex-direction:column;overflow:hidden;direction:rtl}
+.ic-sheet h3{margin:0;padding:14px 16px;font-size:15px}
+.ic-compose-wrap{position:relative}
+.ic-emoji{position:absolute;bottom:100%;inset-inline-start:8px;z-index:20}
+.ic-typing{font-size:11px;color:#2f7d5b;padding:0 14px 4px;min-height:16px}
+.ic-edit textarea{width:100%;font:inherit;border-radius:8px;border:1px solid #ddd;padding:6px}
+.ic-launch{position:fixed;z-index:35;top:0;left:0;touch-action:none;direction:rtl}
+.ic-fab{width:54px;height:54px;border-radius:50%;border:0;background:#1d3a5f;color:#fff3d6;display:grid;place-items:center;cursor:grab;box-shadow:0 6px 18px rgba(29,58,95,.35);position:relative;animation:icfab 4s ease-in-out infinite}
+.ic-fab:active{cursor:grabbing;animation:none}
+.ic-fab:focus-visible{outline:3px solid #bc9252;outline-offset:2px}
+.ic-fab b{position:absolute;top:-4px;inset-inline-end:-4px;background:#bc9252;color:#fff;border-radius:10px;min-width:20px;padding:1px 5px;font-size:11px;text-align:center}
+.ic-menu{position:absolute;width:230px;background:#fff;border:1px solid #e3dccb;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.18);padding:6px;display:flex;flex-direction:column}
+.ic-menu a,.ic-menu button{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:8px;color:#1d3a5f;text-decoration:none;border:0;background:none;font:inherit;font-size:13px;cursor:pointer;text-align:right}
+.ic-menu a:hover,.ic-menu button:hover{background:#f3ecdb}
+.ic-menu a span{flex:1}
+.ic-menu i{font-style:normal;background:#bc9252;color:#fff;border-radius:10px;padding:0 7px;font-size:11px}
+@keyframes icfab{50%{transform:translateY(-3px)}}
+@media(prefers-reduced-motion:reduce){.ic-fab{animation:none}}
+@media(max-width:760px){.ic-msg{max-width:90%}}
+.ic-row{display:flex;align-items:flex-end;gap:6px;max-width:82%}
+.ic-row.mine{align-self:flex-end}.ic-row:not(.mine){align-self:flex-start}
+.ic-row .ic-msg{max-width:calc(100% - 38px);align-self:auto}
+.ic-row .user-avatar{margin-bottom:2px}
+@media(max-width:760px){.ic-row{max-width:96%}}

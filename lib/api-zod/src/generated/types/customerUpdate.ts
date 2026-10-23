@@ -6,7 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CustomerUpdateStatus } from './customerUpdateStatus';
-import type { CustomerUpdateVerificationStatus } from './customerUpdateVerificationStatus';
 
 export interface CustomerUpdate {
   /** @minLength 1 */
@@ -31,7 +30,12 @@ export interface CustomerUpdate {
      * @pattern ^[0-9]{10}$
      */
   postalCode?: string | null;
-  verificationStatus?: CustomerUpdateVerificationStatus;
+  /** @nullable */
+  fatherName?: string | null;
+  /** @nullable */
+  address?: string | null;
+  /** @nullable */
+  email?: string | null;
   isUrgent?: boolean;
   /** @nullable */
   salespersonId?: number | null;

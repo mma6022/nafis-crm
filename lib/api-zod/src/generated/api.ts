@@ -8,6 +8,1220 @@
 import * as zod from 'zod';
 
 
+export const getGoodsRegistrationSuggestionsQueryPageMax = 999999;
+
+export const getGoodsRegistrationSuggestionsQueryQMax = 100;
+
+
+
+export const GetGoodsRegistrationSuggestionsQueryParams = zod.object({
+  "page": zod.coerce.number().int().min(1).max(getGoodsRegistrationSuggestionsQueryPageMax).optional(),
+  "q": zod.coerce.string().max(getGoodsRegistrationSuggestionsQueryQMax).optional()
+})
+
+export const GetGoodsRegistrationSuggestionsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "applicationId": zod.number().int().optional(),
+  "purchaseId": zod.number().int().optional(),
+  "customerId": zod.number().int(),
+  "customerName": zod.string(),
+  "phone": zod.string().nullish(),
+  "customerSalespersonName": zod.string().nullish(),
+  "planId": zod.number().int().optional(),
+  "planName": zod.string(),
+  "balanceToman": zod.string().optional(),
+  "amountToman": zod.string().optional(),
+  "completedAt": zod.string().nullish(),
+  "canCreate": zod.boolean(),
+  "unavailableReason": zod.string().nullable()
+})),
+  "total": zod.number().int(),
+  "page": zod.number().int(),
+  "limit": zod.number().int()
+})
+
+
+/**
+ * Fetches a fresh provider-reported status for the latest document version without persisting it or changing purchase workflow state.
+ * @summary Read the current goods-document signature status
+ */
+export const GetGoodsPurchaseDocumentSignatureStatusParams = zod.object({
+  "id": zod.coerce.number().int(),
+  "kind": zod.enum(['invoice', 'acknowledgement'])
+})
+
+export const GetGoodsPurchaseDocumentSignatureStatusResponse = zod.object({
+  "id": zod.number().int(),
+  "kind": zod.enum(['invoice', 'acknowledgement']),
+  "version": zod.number().int(),
+  "signed": zod.boolean(),
+  "status": zod.enum(['sent', 'signed', 'rejected']),
+  "providerStatus": zod.string().nullish(),
+  "checkedAt": zod.coerce.date(),
+  "readOnly": zod.literal(true)
+})
+
+
+export const getPaymentRegistrationSuggestionsQueryPageMax = 999999;
+
+export const getPaymentRegistrationSuggestionsQueryQMax = 100;
+
+
+
+export const GetPaymentRegistrationSuggestionsQueryParams = zod.object({
+  "page": zod.coerce.number().int().min(1).max(getPaymentRegistrationSuggestionsQueryPageMax).optional(),
+  "q": zod.coerce.string().max(getPaymentRegistrationSuggestionsQueryQMax).optional()
+})
+
+export const GetPaymentRegistrationSuggestionsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "applicationId": zod.number().int().optional(),
+  "purchaseId": zod.number().int().optional(),
+  "customerId": zod.number().int(),
+  "customerName": zod.string(),
+  "phone": zod.string().nullish(),
+  "customerSalespersonName": zod.string().nullish(),
+  "planId": zod.number().int().optional(),
+  "planName": zod.string(),
+  "balanceToman": zod.string().optional(),
+  "amountToman": zod.string().optional(),
+  "completedAt": zod.string().nullish(),
+  "canCreate": zod.boolean(),
+  "unavailableReason": zod.string().nullable()
+})),
+  "total": zod.number().int(),
+  "page": zod.number().int(),
+  "limit": zod.number().int()
+})
+
+
+export const GetSocialMonitorReportQueryParams = zod.object({
+  "from": zod.coerce.string(),
+  "to": zod.coerce.string(),
+  "employeeId": zod.coerce.number().int().optional(),
+  "service": zod.coerce.string().optional()
+})
+
+export const GetSocialMonitorReportResponse = zod.object({
+  "employees": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string()
+})),
+  "days": zod.array(zod.record(zod.string(), zod.unknown())),
+  "conversations": zod.array(zod.object({
+  "threadId": zod.string(),
+  "employeeId": zod.number().int(),
+  "employeeName": zod.string(),
+  "contactName": zod.string(),
+  "customerId": zod.number().int().nullable(),
+  "customerName": zod.string().nullable(),
+  "customerMatch": zod.enum(['linked', 'exact', 'ambiguous', 'none']),
+  "customerCandidates": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string()
+})),
+  "services": zod.array(zod.enum(['tg', 'wa', 'bale'])),
+  "sourceCount": zod.number().int(),
+  "messageCount": zod.number().int(),
+  "inboundCount": zod.number().int(),
+  "outboundCount": zod.number().int(),
+  "firstMessageAt": zod.string(),
+  "lastMessageAt": zod.string()
+}))
+})
+
+
+export const SearchSocialMonitorCustomersQueryParams = zod.object({
+  "search": zod.coerce.string()
+})
+
+export const SearchSocialMonitorCustomersResponse = zod.object({
+  "customers": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string()
+}))
+})
+
+
+export const GetSocialMonitorThreadMessagesQueryParams = zod.object({
+  "before": zod.string().optional()
+})
+
+export const GetSocialMonitorThreadMessagesResponse = zod.object({
+  "messages": zod.array(zod.object({
+  "id": zod.number().int(),
+  "messageKey": zod.string(),
+  "direction": zod.enum(['inbound', 'outbound']),
+  "text": zod.string(),
+  "occurredAt": zod.string(),
+  "day": zod.string(),
+  "contactName": zod.string(),
+  "timestampKnown": zod.boolean(),
+  "service": zod.enum(['tg', 'wa', 'bale'])
+})),
+  "olderCursor": zod.string().nullable(),
+  "hasMore": zod.boolean(),
+  "thread": zod.object({
+  "threadId": zod.string(),
+  "employeeId": zod.number().int(),
+  "employeeName": zod.string(),
+  "contactName": zod.string(),
+  "customerId": zod.number().int().nullable(),
+  "customerName": zod.string().nullable(),
+  "customerMatch": zod.enum(['linked', 'exact', 'ambiguous', 'none']),
+  "customerCandidates": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string()
+})),
+  "services": zod.array(zod.enum(['tg', 'wa', 'bale'])),
+  "sourceCount": zod.number().int(),
+  "messageCount": zod.number().int(),
+  "inboundCount": zod.number().int(),
+  "outboundCount": zod.number().int(),
+  "firstMessageAt": zod.string(),
+  "lastMessageAt": zod.string()
+})
+})
+
+
+export const linkSocialMonitorCustomerPathThreadIdRegExp = new RegExp('^[a-f0-9]{64}$');
+
+
+export const LinkSocialMonitorCustomerParams = zod.object({
+  "threadId": zod.coerce.string().regex(linkSocialMonitorCustomerPathThreadIdRegExp)
+})
+
+
+
+
+export const LinkSocialMonitorCustomerBody = zod.object({
+  "customerId": zod.number().int().min(1)
+})
+
+export const LinkSocialMonitorCustomerResponse = zod.object({
+  "ok": zod.boolean()
+})
+
+
+export const getSocialMonitorThreadSummaryPathThreadIdRegExp = new RegExp('^[a-f0-9]{64}$');
+
+
+export const GetSocialMonitorThreadSummaryParams = zod.object({
+  "threadId": zod.coerce.string().regex(getSocialMonitorThreadSummaryPathThreadIdRegExp)
+})
+
+export const GetSocialMonitorThreadSummaryResponse = zod.object({
+  "status": zod.enum(['none', 'pending', 'ready', 'error']),
+  "text": zod.string().optional(),
+  "error": zod.string().optional(),
+  "stale": zod.boolean().optional(),
+  "updatedAt": zod.string().optional()
+})
+
+
+export const createSocialMonitorThreadSummaryPathThreadIdRegExp = new RegExp('^[a-f0-9]{64}$');
+
+
+export const CreateSocialMonitorThreadSummaryParams = zod.object({
+  "threadId": zod.coerce.string().regex(createSocialMonitorThreadSummaryPathThreadIdRegExp)
+})
+
+export const CreateSocialMonitorThreadSummaryBody = zod.object({
+
+})
+
+export const CreateSocialMonitorThreadSummaryResponse = zod.object({
+  "status": zod.enum(['none', 'pending', 'ready', 'error']),
+  "text": zod.string().optional(),
+  "error": zod.string().optional(),
+  "stale": zod.boolean().optional(),
+  "updatedAt": zod.string().optional()
+})
+
+
+export const GetDiagnosticAvailabilityResponse = zod.object({
+  "connected": zod.boolean(),
+  "automaticPublishing": zod.boolean(),
+  "message": zod.string()
+})
+
+
+export const createDiagnosticReportBodyClientIdMin = 16;
+export const createDiagnosticReportBodyClientIdMax = 80;
+
+export const createDiagnosticReportBodyDescriptionMin = 10;
+export const createDiagnosticReportBodyDescriptionMax = 4000;
+
+export const createDiagnosticReportBodyPageMax = 500;
+
+export const createDiagnosticReportBodyBrowserEventsItemMessageMax = 1000;
+
+export const createDiagnosticReportBodyBrowserEventsItemAtMax = 40;
+
+export const createDiagnosticReportBodyBrowserEventsItemPathMax = 500;
+
+export const createDiagnosticReportBodyBrowserEventsItemRequestIdMax = 80;
+
+export const createDiagnosticReportBodyBrowserEventsItemStatusMin = 0;
+export const createDiagnosticReportBodyBrowserEventsItemStatusMax = 599;
+
+export const createDiagnosticReportBodyBrowserEventsMax = 30;
+
+
+
+export const CreateDiagnosticReportBody = zod.object({
+  "clientId": zod.string().min(createDiagnosticReportBodyClientIdMin).max(createDiagnosticReportBodyClientIdMax),
+  "description": zod.string().min(createDiagnosticReportBodyDescriptionMin).max(createDiagnosticReportBodyDescriptionMax),
+  "page": zod.string().min(1).max(createDiagnosticReportBodyPageMax),
+  "browserEvents": zod.array(zod.object({
+  "kind": zod.enum(['error', 'rejection', 'request']),
+  "message": zod.string().max(createDiagnosticReportBodyBrowserEventsItemMessageMax),
+  "at": zod.string().max(createDiagnosticReportBodyBrowserEventsItemAtMax),
+  "path": zod.string().max(createDiagnosticReportBodyBrowserEventsItemPathMax).optional(),
+  "requestId": zod.string().max(createDiagnosticReportBodyBrowserEventsItemRequestIdMax).optional(),
+  "status": zod.number().int().min(createDiagnosticReportBodyBrowserEventsItemStatusMin).max(createDiagnosticReportBodyBrowserEventsItemStatusMax).optional()
+})).max(createDiagnosticReportBodyBrowserEventsMax).optional()
+})
+
+export const createDiagnosticReportResponseProgressMin = 0;
+export const createDiagnosticReportResponseProgressMax = 100;
+
+
+
+export const CreateDiagnosticReportResponse = zod.object({
+  "id": zod.number().int(),
+  "status": zod.enum(['awaiting_connection', 'queued', 'investigating', 'fixing', 'testing', 'deploying', 'verifying', 'resolved', 'failed']),
+  "progress": zod.number().int().min(createDiagnosticReportResponseProgressMin).max(createDiagnosticReportResponseProgressMax),
+  "message": zod.string(),
+  "page": zod.string(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "canLeave": zod.boolean(),
+  "version": zod.number().int(),
+  "resolvedRelease": zod.string().nullish()
+})
+
+
+export const getActiveDiagnosticReportResponseReportOneProgressMin = 0;
+export const getActiveDiagnosticReportResponseReportOneProgressMax = 100;
+
+
+
+export const GetActiveDiagnosticReportResponse = zod.object({
+  "report": zod.union([zod.object({
+  "id": zod.number().int(),
+  "status": zod.enum(['awaiting_connection', 'queued', 'investigating', 'fixing', 'testing', 'deploying', 'verifying', 'resolved', 'failed']),
+  "progress": zod.number().int().min(getActiveDiagnosticReportResponseReportOneProgressMin).max(getActiveDiagnosticReportResponseReportOneProgressMax),
+  "message": zod.string(),
+  "page": zod.string(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "canLeave": zod.boolean(),
+  "version": zod.number().int(),
+  "resolvedRelease": zod.string().nullish()
+}),zod.null()])
+})
+
+
+
+
+
+export const GetDiagnosticReportParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const getDiagnosticReportResponseProgressMin = 0;
+export const getDiagnosticReportResponseProgressMax = 100;
+
+
+
+export const GetDiagnosticReportResponse = zod.object({
+  "id": zod.number().int(),
+  "status": zod.enum(['awaiting_connection', 'queued', 'investigating', 'fixing', 'testing', 'deploying', 'verifying', 'resolved', 'failed']),
+  "progress": zod.number().int().min(getDiagnosticReportResponseProgressMin).max(getDiagnosticReportResponseProgressMax),
+  "message": zod.string(),
+  "page": zod.string(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "canLeave": zod.boolean(),
+  "version": zod.number().int(),
+  "resolvedRelease": zod.string().nullish()
+})
+
+
+export const GetInternalChatInboxResponse = zod.record(zod.string(), zod.unknown())
+
+
+export const OpenInternalChatDirectBody = zod.object({
+  "userId": zod.number().int()
+})
+
+export const OpenInternalChatDirectResponse = zod.unknown()
+
+
+export const ListInternalChatMessagesQueryParams = zod.object({
+  "beforeId": zod.number().int().optional(),
+  "q": zod.string().optional()
+})
+
+export const ListInternalChatMessagesResponse = zod.unknown()
+
+
+export const SendInternalChatMessageParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+export const sendInternalChatMessageBodyTextMax = 8000;
+
+
+
+export const SendInternalChatMessageBody = zod.object({
+  "clientId": zod.string(),
+  "text": zod.string().max(sendInternalChatMessageBodyTextMax).optional(),
+  "replyToId": zod.number().int().optional(),
+  "file": zod.instanceof(Blob).optional()
+})
+
+export const SendInternalChatMessageResponse = zod.unknown()
+
+
+export const ReadInternalChatMessagesParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+export const ReadInternalChatMessagesBody = zod.object({
+  "lastMessageId": zod.number().int()
+})
+
+export const ReadInternalChatMessagesResponse = zod.unknown()
+
+
+export const SetInternalChatTypingParams = zod.object({
+  "conversationId": zod.coerce.string()
+})
+
+export const SetInternalChatTypingBody = zod.object({
+  "typing": zod.boolean()
+})
+
+export const SetInternalChatTypingResponse = zod.unknown()
+
+
+export const EditInternalChatMessageParams = zod.object({
+  "messageId": zod.coerce.number().int()
+})
+
+export const editInternalChatMessageBodyTextMax = 8000;
+
+
+
+export const EditInternalChatMessageBody = zod.object({
+  "text": zod.string().max(editInternalChatMessageBodyTextMax)
+})
+
+export const EditInternalChatMessageResponse = zod.unknown()
+
+
+export const DeleteInternalChatMessageParams = zod.object({
+  "messageId": zod.coerce.number().int()
+})
+
+export const DeleteInternalChatMessageResponse = zod.unknown()
+
+
+export const ReactToInternalChatMessageParams = zod.object({
+  "messageId": zod.coerce.number().int()
+})
+
+export const reactToInternalChatMessageBodyEmojiMax = 32;
+
+
+
+export const ReactToInternalChatMessageBody = zod.object({
+  "emoji": zod.string().max(reactToInternalChatMessageBodyEmojiMax)
+})
+
+export const ReactToInternalChatMessageResponse = zod.unknown()
+
+
+export const GetInternalChatAttachmentParams = zod.object({
+  "messageId": zod.coerce.number().int()
+})
+
+export const GetInternalChatAttachmentResponse = zod.unknown()
+
+
+export const GetSalesReportQueryParams = zod.object({
+  "period": zod.enum(['day', 'week', 'month', 'quarter', 'custom']).optional(),
+  "anchor": zod.coerce.string().optional(),
+  "from": zod.coerce.string().optional(),
+  "to": zod.coerce.string().optional(),
+  "granularity": zod.enum(['day', 'week', 'month']).optional(),
+  "salespersonId": zod.coerce.number().int().optional()
+})
+
+export const GetSalesReportResponse = zod.object({
+  "range": zod.object({
+  "period": zod.string(),
+  "from": zod.string(),
+  "to": zod.string(),
+  "granularity": zod.string(),
+  "timezone": zod.string()
+}),
+  "scope": zod.object({
+  "salespersonId": zod.number().int().nullable(),
+  "canSelectSalesperson": zod.boolean()
+}),
+  "salespeople": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string()
+})),
+  "summary": zod.object({
+  "leads": zod.number().int(),
+  "contacted": zod.number().int(),
+  "answered": zod.number().int(),
+  "unanswered": zod.number().int(),
+  "unknownOutcome": zod.number().int(),
+  "requesters": zod.number().int(),
+  "caseCustomers": zod.number().int(),
+  "requests": zod.number().int(),
+  "cases": zod.number().int(),
+  "requestedAmount": zod.string(),
+  "contactedRequesters": zod.number().int(),
+  "contactedCaseCustomers": zod.number().int(),
+  "contactedRequestRate": zod.number().nullable(),
+  "contactRate": zod.number().nullable(),
+  "noAnswerRate": zod.number().nullable(),
+  "requestRate": zod.number().nullable(),
+  "caseRate": zod.number().nullable(),
+  "requestShare": zod.number().nullable()
+}),
+  "cohorts": zod.array(zod.object({
+  "leads": zod.number().int(),
+  "contacted": zod.number().int(),
+  "answered": zod.number().int(),
+  "unanswered": zod.number().int(),
+  "unknownOutcome": zod.number().int(),
+  "requesters": zod.number().int(),
+  "caseCustomers": zod.number().int(),
+  "requests": zod.number().int(),
+  "cases": zod.number().int(),
+  "requestedAmount": zod.string(),
+  "contactedRequesters": zod.number().int(),
+  "contactedCaseCustomers": zod.number().int(),
+  "contactedRequestRate": zod.number().nullable(),
+  "contactRate": zod.number().nullable(),
+  "noAnswerRate": zod.number().nullable(),
+  "requestRate": zod.number().nullable(),
+  "caseRate": zod.number().nullable(),
+  "requestShare": zod.number().nullable()
+}).and(zod.object({
+  "key": zod.string(),
+  "label": zod.string()
+}))),
+  "monthly": zod.object({
+  "from": zod.string(),
+  "to": zod.string(),
+  "current": zod.object({
+  "leads": zod.number().int(),
+  "contacted": zod.number().int(),
+  "answered": zod.number().int(),
+  "unanswered": zod.number().int(),
+  "unknownOutcome": zod.number().int(),
+  "requesters": zod.number().int(),
+  "caseCustomers": zod.number().int(),
+  "requests": zod.number().int(),
+  "cases": zod.number().int(),
+  "requestedAmount": zod.string(),
+  "contactedRequesters": zod.number().int(),
+  "contactedCaseCustomers": zod.number().int(),
+  "contactedRequestRate": zod.number().nullable(),
+  "contactRate": zod.number().nullable(),
+  "noAnswerRate": zod.number().nullable(),
+  "requestRate": zod.number().nullable(),
+  "caseRate": zod.number().nullable(),
+  "requestShare": zod.number().nullable()
+}),
+  "previous": zod.object({
+  "leads": zod.number().int(),
+  "contacted": zod.number().int(),
+  "answered": zod.number().int(),
+  "unanswered": zod.number().int(),
+  "unknownOutcome": zod.number().int(),
+  "requesters": zod.number().int(),
+  "caseCustomers": zod.number().int(),
+  "requests": zod.number().int(),
+  "cases": zod.number().int(),
+  "requestedAmount": zod.string(),
+  "contactedRequesters": zod.number().int(),
+  "contactedCaseCustomers": zod.number().int(),
+  "contactedRequestRate": zod.number().nullable(),
+  "contactRate": zod.number().nullable(),
+  "noAnswerRate": zod.number().nullable(),
+  "requestRate": zod.number().nullable(),
+  "caseRate": zod.number().nullable(),
+  "requestShare": zod.number().nullable()
+})
+}),
+  "trend": zod.array(zod.object({
+  "leads": zod.number().int(),
+  "contacted": zod.number().int(),
+  "answered": zod.number().int(),
+  "unanswered": zod.number().int(),
+  "unknownOutcome": zod.number().int(),
+  "requesters": zod.number().int(),
+  "caseCustomers": zod.number().int(),
+  "requests": zod.number().int(),
+  "cases": zod.number().int(),
+  "requestedAmount": zod.string(),
+  "contactedRequesters": zod.number().int(),
+  "contactedCaseCustomers": zod.number().int(),
+  "contactedRequestRate": zod.number().nullable(),
+  "contactRate": zod.number().nullable(),
+  "noAnswerRate": zod.number().nullable(),
+  "requestRate": zod.number().nullable(),
+  "caseRate": zod.number().nullable(),
+  "requestShare": zod.number().nullable()
+}).and(zod.object({
+  "date": zod.string(),
+  "to": zod.string(),
+  "newRequesters": zod.number().int(),
+  "previousRequesters": zod.number().int()
+}))),
+  "definitions": zod.array(zod.string())
+})
+
+
+
+export const listSiteNotificationsQueryLimitMax = 50;
+
+
+
+export const ListSiteNotificationsQueryParams = zod.object({
+  "page": zod.enum(['customers', 'chat', 'instagram-inbox', 'loan-applications', 'goods-purchases', 'contracts', 'payment-orders', 'calls', 'consultations', 'wallet-management']).optional(),
+  "beforeId": zod.coerce.number().int().min(1).optional(),
+  "limit": zod.coerce.number().int().min(1).max(listSiteNotificationsQueryLimitMax).optional(),
+  "unreadOnly": zod.coerce.boolean().optional()
+})
+
+export const listSiteNotificationsResponsePageCountsMinOne = 0;
+
+
+
+export const ListSiteNotificationsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number().int(),
+  "kind": zod.string(),
+  "title": zod.string(),
+  "body": zod.string(),
+  "customerId": zod.number().int(),
+  "customerName": zod.string(),
+  "target": zod.string(),
+  "page": zod.string(),
+  "createdAt": zod.string(),
+  "readAt": zod.string().nullable()
+})),
+  "pageCounts": zod.record(zod.string(), zod.number().int().min(listSiteNotificationsResponsePageCountsMinOne)),
+  "unreadCount": zod.number().int(),
+  "latestId": zod.number().int(),
+  "scopeVersion": zod.string(),
+  "nextCursor": zod.string().nullable()
+})
+
+
+export const readAllSiteNotificationsBodyThroughIdMin = 0;
+
+
+
+export const ReadAllSiteNotificationsBody = zod.object({
+  "throughId": zod.number().int().min(readAllSiteNotificationsBodyThroughIdMin),
+  "page": zod.enum(['customers', 'chat', 'instagram-inbox', 'loan-applications', 'goods-purchases', 'contracts', 'payment-orders', 'calls', 'consultations', 'wallet-management']).optional()
+})
+
+export const ReadAllSiteNotificationsResponse = zod.object({
+  "ok": zod.boolean()
+})
+
+
+
+
+
+export const ReadSiteNotificationParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const ReadSiteNotificationResponse = zod.object({
+  "ok": zod.boolean(),
+  "target": zod.string()
+})
+
+
+
+export const listLoanCaseNotesQueryLimitDefault = 30;
+export const listLoanCaseNotesQueryLimitMax = 50;
+
+
+
+export const ListLoanCaseNotesQueryParams = zod.object({
+  "beforeId": zod.number().int().min(1).optional(),
+  "limit": zod.number().int().min(1).max(listLoanCaseNotesQueryLimitMax).default(listLoanCaseNotesQueryLimitDefault)
+})
+
+export const ListLoanCaseNotesResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number().int(),
+  "applicationId": zod.number().int(),
+  "text": zod.string(),
+  "clientId": zod.string(),
+  "createdAt": zod.string(),
+  "author": zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "avatarUrl": zod.string().nullable()
+}),
+  "attachment": zod.union([zod.object({
+  "fileName": zod.string(),
+  "mimeType": zod.string(),
+  "fileSize": zod.number().int(),
+  "kind": zod.enum(['image', 'audio', 'file']),
+  "fileUrl": zod.string()
+}),zod.null()])
+})),
+  "nextCursor": zod.string().nullable()
+})
+
+
+
+
+
+export const CreateLoanCaseNoteParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const createLoanCaseNoteBodyClientIdMin = 8;
+export const createLoanCaseNoteBodyClientIdMax = 100;
+
+export const createLoanCaseNoteBodyTextMax = 6000;
+
+
+
+export const CreateLoanCaseNoteBody = zod.object({
+  "clientId": zod.string().min(createLoanCaseNoteBodyClientIdMin).max(createLoanCaseNoteBodyClientIdMax),
+  "text": zod.string().max(createLoanCaseNoteBodyTextMax).optional(),
+  "file": zod.instanceof(Blob).optional().describe('Single validated image')
+})
+
+export const CreateLoanCaseNoteResponse = zod.object({
+  "id": zod.number().int(),
+  "applicationId": zod.number().int(),
+  "text": zod.string(),
+  "clientId": zod.string(),
+  "createdAt": zod.string(),
+  "author": zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "avatarUrl": zod.string().nullable()
+}),
+  "attachment": zod.union([zod.object({
+  "fileName": zod.string(),
+  "mimeType": zod.string(),
+  "fileSize": zod.number().int(),
+  "kind": zod.enum(['image', 'audio', 'file']),
+  "fileUrl": zod.string()
+}),zod.null()])
+})
+
+
+
+export const listLoanCaseHistoryQueryLimitDefault = 30;
+export const listLoanCaseHistoryQueryLimitMax = 50;
+
+
+
+export const ListLoanCaseHistoryQueryParams = zod.object({
+  "beforeId": zod.number().int().min(1).optional(),
+  "limit": zod.number().int().min(1).max(listLoanCaseHistoryQueryLimitMax).default(listLoanCaseHistoryQueryLimitDefault)
+})
+
+export const ListLoanCaseHistoryResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number().int(),
+  "action": zod.string(),
+  "reason": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "author": zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "avatarUrl": zod.string().nullable()
+})
+})),
+  "nextCursor": zod.string().nullable()
+})
+
+
+
+
+
+
+export const GetLoanCaseNoteFileParams = zod.object({
+  "id": zod.coerce.number().int().min(1),
+  "noteId": zod.coerce.number().int().min(1)
+})
+
+export const GetLoanCaseNoteFileResponse = zod.unknown()
+
+
+export const startMobileCallBodyCallIdMax = 128;
+
+
+export const startMobileCallBodyCallIdRegExp = new RegExp('^[A-Za-z0-9_.:-]+$');
+export const startMobileCallBodyCallerNumberMax = 32;
+
+export const startMobileCallBodyCalleeNumberMax = 32;
+
+export const startMobileCallBodyContactNameMax = 200;
+
+
+
+export const StartMobileCallBody = zod.object({
+  "callId": zod.string().min(1).max(startMobileCallBodyCallIdMax).regex(startMobileCallBodyCallIdRegExp),
+  "direction": zod.enum(['incoming', 'outgoing']),
+  "callerNumber": zod.string().min(1).max(startMobileCallBodyCallerNumberMax),
+  "calleeNumber": zod.string().min(1).max(startMobileCallBodyCalleeNumberMax),
+  "contactName": zod.string().max(startMobileCallBodyContactNameMax),
+  "startedAt": zod.coerce.date(),
+  "answeredAt": zod.coerce.date().nullish()
+})
+
+export const StartMobileCallResponse = zod.object({
+  "id": zod.number().int().describe('Shared call event ID used by the report editor'),
+  "callId": zod.string(),
+  "deviceId": zod.number().int(),
+  "deviceName": zod.string(),
+  "expertUserId": zod.number().int(),
+  "expertName": zod.string(),
+  "direction": zod.enum(['incoming', 'outgoing']),
+  "callerNumber": zod.string(),
+  "calleeNumber": zod.string(),
+  "contactName": zod.string(),
+  "startedAt": zod.string(),
+  "answeredAt": zod.string().nullable(),
+  "endedAt": zod.string().nullable(),
+  "durationSeconds": zod.number().int().nullable(),
+  "status": zod.string(),
+  "isLive": zod.boolean(),
+  "subject": zod.string().nullable(),
+  "expertNotes": zod.string(),
+  "reportSavedAt": zod.string().nullable(),
+  "customerId": zod.number().int().nullable()
+})
+
+
+export const endMobileCallBodyOneCallIdMax = 128;
+
+
+export const endMobileCallBodyOneCallIdRegExp = new RegExp('^[A-Za-z0-9_.:-]+$');
+export const endMobileCallBodyOneCallerNumberMax = 32;
+
+export const endMobileCallBodyOneCalleeNumberMax = 32;
+
+export const endMobileCallBodyOneContactNameMax = 200;
+
+export const endMobileCallBodyTwoDurationSecondsMin = 0;
+export const endMobileCallBodyTwoDurationSecondsMax = 604800;
+
+
+
+export const EndMobileCallBody = zod.object({
+  "callId": zod.string().min(1).max(endMobileCallBodyOneCallIdMax).regex(endMobileCallBodyOneCallIdRegExp),
+  "direction": zod.enum(['incoming', 'outgoing']),
+  "callerNumber": zod.string().min(1).max(endMobileCallBodyOneCallerNumberMax),
+  "calleeNumber": zod.string().min(1).max(endMobileCallBodyOneCalleeNumberMax),
+  "contactName": zod.string().max(endMobileCallBodyOneContactNameMax),
+  "startedAt": zod.coerce.date(),
+  "answeredAt": zod.coerce.date().nullish()
+}).and(zod.object({
+  "endedAt": zod.coerce.date(),
+  "durationSeconds": zod.number().int().min(endMobileCallBodyTwoDurationSecondsMin).max(endMobileCallBodyTwoDurationSecondsMax),
+  "status": zod.enum(['completed', 'missed', 'rejected', 'failed'])
+}))
+
+export const EndMobileCallResponse = zod.object({
+  "id": zod.number().int().describe('Shared call event ID used by the report editor'),
+  "callId": zod.string(),
+  "deviceId": zod.number().int(),
+  "deviceName": zod.string(),
+  "expertUserId": zod.number().int(),
+  "expertName": zod.string(),
+  "direction": zod.enum(['incoming', 'outgoing']),
+  "callerNumber": zod.string(),
+  "calleeNumber": zod.string(),
+  "contactName": zod.string(),
+  "startedAt": zod.string(),
+  "answeredAt": zod.string().nullable(),
+  "endedAt": zod.string().nullable(),
+  "durationSeconds": zod.number().int().nullable(),
+  "status": zod.string(),
+  "isLive": zod.boolean(),
+  "subject": zod.string().nullable(),
+  "expertNotes": zod.string(),
+  "reportSavedAt": zod.string().nullable(),
+  "customerId": zod.number().int().nullable()
+})
+
+
+export const listMobileCallsQueryFromDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+export const listMobileCallsQueryToDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+export const listMobileCallsQuerySearchMax = 200;
+
+export const listMobileCallsQueryLimitDefault = 50;
+export const listMobileCallsQueryLimitMax = 100;
+
+export const listMobileCallsQueryOffsetDefault = 0;
+export const listMobileCallsQueryOffsetMin = 0;
+
+
+
+export const ListMobileCallsQueryParams = zod.object({
+  "fromDate": zod.coerce.string().regex(listMobileCallsQueryFromDateRegExp).optional(),
+  "toDate": zod.coerce.string().regex(listMobileCallsQueryToDateRegExp).optional(),
+  "direction": zod.enum(['incoming', 'outgoing']).optional(),
+  "expertUserId": zod.coerce.number().int().min(1).optional(),
+  "search": zod.coerce.string().max(listMobileCallsQuerySearchMax).optional(),
+  "limit": zod.coerce.number().int().min(1).max(listMobileCallsQueryLimitMax).default(listMobileCallsQueryLimitDefault),
+  "offset": zod.coerce.number().int().min(listMobileCallsQueryOffsetMin).default(listMobileCallsQueryOffsetDefault)
+})
+
+export const ListMobileCallsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number().int().describe('Shared call event ID used by the report editor'),
+  "callId": zod.string(),
+  "deviceId": zod.number().int(),
+  "deviceName": zod.string(),
+  "expertUserId": zod.number().int(),
+  "expertName": zod.string(),
+  "direction": zod.enum(['incoming', 'outgoing']),
+  "callerNumber": zod.string(),
+  "calleeNumber": zod.string(),
+  "contactName": zod.string(),
+  "startedAt": zod.string(),
+  "answeredAt": zod.string().nullable(),
+  "endedAt": zod.string().nullable(),
+  "durationSeconds": zod.number().int().nullable(),
+  "status": zod.string(),
+  "isLive": zod.boolean(),
+  "subject": zod.string().nullable(),
+  "expertNotes": zod.string(),
+  "reportSavedAt": zod.string().nullable(),
+  "customerId": zod.number().int().nullable()
+})),
+  "total": zod.number().int(),
+  "totalDurationSeconds": zod.number().int(),
+  "incomingCount": zod.number().int(),
+  "outgoingCount": zod.number().int()
+})
+
+
+export const ListMobileCallExpertsResponseItem = zod.object({
+  "id": zod.number().int(),
+  "name": zod.string()
+})
+export const ListMobileCallExpertsResponse = zod.array(ListMobileCallExpertsResponseItem)
+
+
+export const ListMobileCallDevicesResponseItem = zod.object({
+  "id": zod.number().int(),
+  "userId": zod.number().int(),
+  "expertName": zod.string(),
+  "deviceName": zod.string(),
+  "active": zod.boolean(),
+  "createdAt": zod.string(),
+  "lastSeenAt": zod.string().nullable()
+})
+export const ListMobileCallDevicesResponse = zod.array(ListMobileCallDevicesResponseItem)
+
+
+
+export const createMobileCallDeviceBodyDeviceNameMax = 120;
+
+
+
+export const CreateMobileCallDeviceBody = zod.object({
+  "userId": zod.number().int().min(1),
+  "deviceName": zod.string().min(1).max(createMobileCallDeviceBodyDeviceNameMax)
+})
+
+export const CreateMobileCallDeviceResponse = zod.object({
+  "device": zod.object({
+  "id": zod.number().int(),
+  "userId": zod.number().int(),
+  "expertName": zod.string(),
+  "deviceName": zod.string(),
+  "active": zod.boolean(),
+  "createdAt": zod.string(),
+  "lastSeenAt": zod.string().nullable()
+}),
+  "token": zod.string()
+})
+
+
+
+
+
+export const RevokeMobileCallDeviceParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const RevokeMobileCallDeviceResponse = zod.object({
+  "ok": zod.boolean()
+})
+
+
+export const ListAccountingFundsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number().int(),
+  "bankName": zod.string(),
+  "ownerName": zod.string(),
+  "fundName": zod.string(),
+  "iban": zod.string(),
+  "balanceToman": zod.string().describe('Exact nonnegative integer toman'),
+  "initialized": zod.boolean()
+}))
+})
+
+
+
+
+
+export const SetAccountingOpeningParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const SetAccountingOpeningBody = zod.object({
+  "amountToman": zod.string().describe('Exact nonnegative integer toman; zero is allowed')
+})
+
+export const SetAccountingOpeningResponse = zod.object({
+  "id": zod.number().int(),
+  "fundId": zod.number().int(),
+  "fundName": zod.string(),
+  "documentDate": zod.coerce.date(),
+  "transactionDate": zod.coerce.date(),
+  "amountToman": zod.string(),
+  "purpose": zod.string(),
+  "documentType": zod.enum(['credit', 'debit']),
+  "transactionType": zod.enum(['deposit', 'withdrawal']),
+  "source": zod.enum(['manual', 'payment_order', 'opening']),
+  "sourceOrderId": zod.number().int().nullable(),
+  "counterpartyAccountType": zod.union([zod.literal('iban'),zod.literal('card'),zod.literal(null)]).nullable(),
+  "counterpartyAccountNumber": zod.string().nullable(),
+  "counterpartyOwnerName": zod.string().nullable(),
+  "balanceBeforeToman": zod.string(),
+  "balanceAfterToman": zod.string(),
+  "createdAt": zod.string(),
+  "createdByName": zod.string(),
+  "attachments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "mime": zod.string(),
+  "size": zod.number().int()
+}))
+})
+
+
+
+export const listAccountingDocumentsQueryPageMax = 100000;
+
+
+
+export const ListAccountingDocumentsQueryParams = zod.object({
+  "fundId": zod.coerce.number().int().min(1).optional(),
+  "from": zod.date().optional().describe('Inclusive transaction date'),
+  "to": zod.date().optional().describe('Inclusive transaction date'),
+  "page": zod.coerce.number().int().min(1).max(listAccountingDocumentsQueryPageMax).optional()
+})
+
+export const ListAccountingDocumentsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number().int(),
+  "fundId": zod.number().int(),
+  "fundName": zod.string(),
+  "documentDate": zod.coerce.date(),
+  "transactionDate": zod.coerce.date(),
+  "amountToman": zod.string(),
+  "purpose": zod.string(),
+  "documentType": zod.enum(['credit', 'debit']),
+  "transactionType": zod.enum(['deposit', 'withdrawal']),
+  "source": zod.enum(['manual', 'payment_order', 'opening']),
+  "sourceOrderId": zod.number().int().nullable(),
+  "counterpartyAccountType": zod.union([zod.literal('iban'),zod.literal('card'),zod.literal(null)]).nullable(),
+  "counterpartyAccountNumber": zod.string().nullable(),
+  "counterpartyOwnerName": zod.string().nullable(),
+  "balanceBeforeToman": zod.string(),
+  "balanceAfterToman": zod.string(),
+  "createdAt": zod.string(),
+  "createdByName": zod.string(),
+  "attachments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "mime": zod.string(),
+  "size": zod.number().int()
+}))
+})),
+  "total": zod.number().int(),
+  "page": zod.number().int(),
+  "limit": zod.number().int()
+})
+
+
+export const createAccountingDocumentBodyRequestKeyMin = 16;
+export const createAccountingDocumentBodyRequestKeyMax = 100;
+
+
+export const createAccountingDocumentBodyPurposeMax = 1000;
+
+export const createAccountingDocumentBodyCounterpartyAccountNumberMax = 50;
+
+export const createAccountingDocumentBodyCounterpartyOwnerNameMax = 200;
+
+export const createAccountingDocumentBodyFilesMax = 10;
+
+
+
+export const CreateAccountingDocumentBody = zod.object({
+  "requestKey": zod.string().min(createAccountingDocumentBodyRequestKeyMin).max(createAccountingDocumentBodyRequestKeyMax),
+  "fundId": zod.number().int().min(1),
+  "documentDate": zod.coerce.date(),
+  "transactionDate": zod.coerce.date().describe('Actual transaction date'),
+  "amountToman": zod.string().describe('Exact positive integer toman'),
+  "purpose": zod.string().min(1).max(createAccountingDocumentBodyPurposeMax),
+  "documentType": zod.enum(['credit', 'debit']),
+  "transactionType": zod.enum(['deposit', 'withdrawal']),
+  "counterpartyAccountType": zod.enum(['iban', 'card']).optional().describe('Optional account details; supply all three fields together. Source for deposits and destination for withdrawals.'),
+  "counterpartyAccountNumber": zod.string().max(createAccountingDocumentBodyCounterpartyAccountNumberMax).optional().describe('Iranian IBAN or 16-digit card; validated and normalized server-side.'),
+  "counterpartyOwnerName": zod.string().min(1).max(createAccountingDocumentBodyCounterpartyOwnerNameMax).optional().describe('Manually entered owner name; no provider ownership verification implied.'),
+  "files": zod.array(zod.instanceof(Blob)).max(createAccountingDocumentBodyFilesMax).optional().describe('JPEG/PNG/WebP/PDF')
+})
+
+export const CreateAccountingDocumentResponse = zod.object({
+  "id": zod.number().int(),
+  "fundId": zod.number().int(),
+  "fundName": zod.string(),
+  "documentDate": zod.coerce.date(),
+  "transactionDate": zod.coerce.date(),
+  "amountToman": zod.string(),
+  "purpose": zod.string(),
+  "documentType": zod.enum(['credit', 'debit']),
+  "transactionType": zod.enum(['deposit', 'withdrawal']),
+  "source": zod.enum(['manual', 'payment_order', 'opening']),
+  "sourceOrderId": zod.number().int().nullable(),
+  "counterpartyAccountType": zod.union([zod.literal('iban'),zod.literal('card'),zod.literal(null)]).nullable(),
+  "counterpartyAccountNumber": zod.string().nullable(),
+  "counterpartyOwnerName": zod.string().nullable(),
+  "balanceBeforeToman": zod.string(),
+  "balanceAfterToman": zod.string(),
+  "createdAt": zod.string(),
+  "createdByName": zod.string(),
+  "attachments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "mime": zod.string(),
+  "size": zod.number().int()
+}))
+})
+
+
+
+
+
+export const GetAccountingDocumentParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const GetAccountingDocumentResponse = zod.object({
+  "id": zod.number().int(),
+  "fundId": zod.number().int(),
+  "fundName": zod.string(),
+  "documentDate": zod.coerce.date(),
+  "transactionDate": zod.coerce.date(),
+  "amountToman": zod.string(),
+  "purpose": zod.string(),
+  "documentType": zod.enum(['credit', 'debit']),
+  "transactionType": zod.enum(['deposit', 'withdrawal']),
+  "source": zod.enum(['manual', 'payment_order', 'opening']),
+  "sourceOrderId": zod.number().int().nullable(),
+  "counterpartyAccountType": zod.union([zod.literal('iban'),zod.literal('card'),zod.literal(null)]).nullable(),
+  "counterpartyAccountNumber": zod.string().nullable(),
+  "counterpartyOwnerName": zod.string().nullable(),
+  "balanceBeforeToman": zod.string(),
+  "balanceAfterToman": zod.string(),
+  "createdAt": zod.string(),
+  "createdByName": zod.string(),
+  "attachments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "mime": zod.string(),
+  "size": zod.number().int()
+}))
+})
+
+
+
+
+
+export const AttachAccountingFilesParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const attachAccountingFilesBodyFilesMax = 10;
+
+
+
+export const AttachAccountingFilesBody = zod.object({
+  "files": zod.array(zod.instanceof(Blob)).min(1).max(attachAccountingFilesBodyFilesMax).describe('JPEG/PNG/WebP/PDF')
+})
+
+export const AttachAccountingFilesResponse = zod.object({
+  "id": zod.number().int(),
+  "fundId": zod.number().int(),
+  "fundName": zod.string(),
+  "documentDate": zod.coerce.date(),
+  "transactionDate": zod.coerce.date(),
+  "amountToman": zod.string(),
+  "purpose": zod.string(),
+  "documentType": zod.enum(['credit', 'debit']),
+  "transactionType": zod.enum(['deposit', 'withdrawal']),
+  "source": zod.enum(['manual', 'payment_order', 'opening']),
+  "sourceOrderId": zod.number().int().nullable(),
+  "counterpartyAccountType": zod.union([zod.literal('iban'),zod.literal('card'),zod.literal(null)]).nullable(),
+  "counterpartyAccountNumber": zod.string().nullable(),
+  "counterpartyOwnerName": zod.string().nullable(),
+  "balanceBeforeToman": zod.string(),
+  "balanceAfterToman": zod.string(),
+  "createdAt": zod.string(),
+  "createdByName": zod.string(),
+  "attachments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "mime": zod.string(),
+  "size": zod.number().int()
+}))
+})
+
+
+
+
+
+
+export const DownloadAccountingAttachmentParams = zod.object({
+  "id": zod.coerce.number().int().min(1),
+  "attachmentId": zod.coerce.number().int().min(1)
+})
+
+export const DownloadAccountingAttachmentResponse = zod.unknown()
+
+
 /**
  * @summary Sign in with a CRM username and password
  */
@@ -32,6 +1246,7 @@ export const LoginResponse = zod.object({
   "fullName": zod.string().nullish(),
   "mobile": zod.string().nullish(),
   "telegramId": zod.string().nullish(),
+  "voipExtension": zod.string().nullish(),
   "priorityColors": zod.record(zod.string(), zod.string().regex(loginResponseUserPriorityColorsRegExpOne)).optional(),
   "role": zod.string(),
   "roleName": zod.string().optional(),
@@ -64,6 +1279,7 @@ export const GetAuthSessionResponse = zod.object({
   "fullName": zod.string().nullish(),
   "mobile": zod.string().nullish(),
   "telegramId": zod.string().nullish(),
+  "voipExtension": zod.string().nullish(),
   "priorityColors": zod.record(zod.string(), zod.string().regex(getAuthSessionResponseUserPriorityColorsRegExpOne)).optional(),
   "role": zod.string(),
   "roleName": zod.string().optional(),
@@ -116,6 +1332,7 @@ export const UpdateAuthProfileResponse = zod.object({
   "fullName": zod.string().nullish(),
   "mobile": zod.string().nullish(),
   "telegramId": zod.string().nullish(),
+  "voipExtension": zod.string().nullish(),
   "priorityColors": zod.record(zod.string(), zod.string().regex(updateAuthProfileResponseUserPriorityColorsRegExpOne)).optional(),
   "role": zod.string(),
   "roleName": zod.string().optional(),
@@ -276,6 +1493,7 @@ export const ListNotificationDeliveriesResponseItem = zod.object({
   "id": zod.number().int(),
   "customerId": zod.number().int(),
   "customerName": zod.string(),
+  "customerSalespersonName": zod.string().nullish(),
   "channel": zod.enum(['ippanel', 'telegram']),
   "status": zod.enum(['sent', 'failed', 'not_configured', 'invalid_recipient']),
   "errorMessage": zod.string().nullish(),
@@ -327,6 +1545,7 @@ export const listCustomersQueryMinCallCountMin = 0;
 
 export const listCustomersQueryMaxCallCountMin = 0;
 
+export const listCustomersQuerySortDirectionDefault = `desc`;
 export const listCustomersQueryLimitDefault = 50;
 export const listCustomersQueryLimitMax = 1000;
 
@@ -346,10 +1565,14 @@ export const ListCustomersQueryParams = zod.object({
   "dateTo": zod.coerce.string().regex(listCustomersQueryDateToRegExp).optional(),
   "minCallCount": zod.coerce.number().int().min(listCustomersQueryMinCallCountMin).optional(),
   "maxCallCount": zod.coerce.number().int().min(listCustomersQueryMaxCallCountMin).optional(),
+  "sortBy": zod.enum(['lastCallAt', 'boardTags']).optional(),
+  "sortDirection": zod.enum(['asc', 'desc']).default(listCustomersQuerySortDirectionDefault),
+  "tag": zod.coerce.string().optional().describe('Filter customers by an assigned tag'),
   "limit": zod.coerce.number().int().min(1).max(listCustomersQueryLimitMax).default(listCustomersQueryLimitDefault),
   "offset": zod.coerce.number().int().min(listCustomersQueryOffsetMin).default(listCustomersQueryOffsetDefault)
 })
 
+export const listCustomersResponseItemsItemPortalOriginDefault = false;
 export const listCustomersResponseItemsItemBirthDateJalaliRegExp = new RegExp('^[0-9]{4}/[0-9]{2}/[0-9]{2}$');
 export const listCustomersResponseItemsItemPostalCodeRegExp = new RegExp('^[0-9]{10}$');
 export const listCustomersResponseItemsItemVerificationStatusDefault = `unverified`;
@@ -357,17 +1580,50 @@ export const listCustomersResponseItemsItemIsUrgentDefault = false;
 export const listCustomersResponseItemsItemPriorityMax = 3;
 
 export const listCustomersResponseItemsItemStatusDefault = `in_progress`;
+export const listCustomersResponseItemsItemPendingRepeatRequestCountMin = 0;
+
+
 
 export const ListCustomersResponse = zod.object({
   "items": zod.array(zod.object({
   "id": zod.number().int(),
+  "portalOrigin": zod.boolean().default(listCustomersResponseItemsItemPortalOriginDefault),
   "name": zod.string(),
+  "firstName": zod.string().nullish(),
+  "lastName": zod.string().nullish(),
   "phone": zod.string(),
   "description": zod.string().nullish(),
   "nationalCode": zod.string().nullish(),
   "birthDateJalali": zod.string().regex(listCustomersResponseItemsItemBirthDateJalaliRegExp).nullish(),
   "postalCode": zod.string().regex(listCustomersResponseItemsItemPostalCodeRegExp).nullish(),
+  "fatherName": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "email": zod.string().email().nullish(),
   "verificationStatus": zod.enum(['unverified', 'verified']).default(listCustomersResponseItemsItemVerificationStatusDefault),
+  "verificationCheckedAt": zod.string().nullish(),
+  "verificationChecks": zod.object({
+  "shahkarLite": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+}),
+  "personInfo": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+}),
+  "postalCodeInfo": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+}),
+  "sana": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+})
+}).optional(),
+  "officialFirstName": zod.string().nullish(),
+  "officialLastName": zod.string().nullish(),
+  "officialFatherName": zod.string().nullish(),
+  "officialAddress": zod.string().nullish(),
+  "officialPostalCode": zod.string().nullish(),
   "isUrgent": zod.boolean().default(listCustomersResponseItemsItemIsUrgentDefault),
   "creditScore": zod.number().nullish(),
   "creditRank": zod.string().nullish(),
@@ -378,7 +1634,11 @@ export const ListCustomersResponse = zod.object({
   "priority": zod.number().int().min(1).max(listCustomersResponseItemsItemPriorityMax).nullish(),
   "status": zod.enum(['in_progress', 'cancelled', 'completed']).default(listCustomersResponseItemsItemStatusDefault),
   "activityCount": zod.number().int(),
-  "lastActivityAt": zod.string().nullish()
+  "lastActivityAt": zod.string().nullish(),
+  "lastCallAt": zod.string().nullish().describe('Latest recorded customer call time, independent of customer registration; null when no call is recorded.'),
+  "mergedIntoCustomerId": zod.number().int().nullable(),
+  "tags": zod.array(zod.string()),
+  "pendingRepeatRequestCount": zod.number().int().min(listCustomersResponseItemsItemPendingRepeatRequestCountMin)
 })),
   "total": zod.number().int(),
   "limit": zod.number().int(),
@@ -408,6 +1668,9 @@ export const CreateCustomerBody = zod.object({
   "nationalCode": zod.string().min(createCustomerBodyNationalCodeMin).max(createCustomerBodyNationalCodeMax).nullish(),
   "birthDateJalali": zod.string().regex(createCustomerBodyBirthDateJalaliRegExp).nullish(),
   "postalCode": zod.string().regex(createCustomerBodyPostalCodeRegExp).nullish(),
+  "fatherName": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "email": zod.string().email().nullish(),
   "isUrgent": zod.boolean().optional(),
   "salespersonId": zod.number().int().nullish(),
   "allocationProgramId": zod.number().int().nullish(),
@@ -415,6 +1678,7 @@ export const CreateCustomerBody = zod.object({
   "status": zod.enum(['in_progress', 'cancelled', 'completed']).optional()
 })
 
+export const createCustomerResponsePortalOriginDefault = false;
 export const createCustomerResponseBirthDateJalaliRegExp = new RegExp('^[0-9]{4}/[0-9]{2}/[0-9]{2}$');
 export const createCustomerResponsePostalCodeRegExp = new RegExp('^[0-9]{10}$');
 export const createCustomerResponseVerificationStatusDefault = `unverified`;
@@ -422,16 +1686,49 @@ export const createCustomerResponseIsUrgentDefault = false;
 export const createCustomerResponsePriorityMax = 3;
 
 export const createCustomerResponseStatusDefault = `in_progress`;
+export const createCustomerResponsePendingRepeatRequestCountMin = 0;
+
+
 
 export const CreateCustomerResponse = zod.object({
   "id": zod.number().int(),
+  "portalOrigin": zod.boolean().default(createCustomerResponsePortalOriginDefault),
   "name": zod.string(),
+  "firstName": zod.string().nullish(),
+  "lastName": zod.string().nullish(),
   "phone": zod.string(),
   "description": zod.string().nullish(),
   "nationalCode": zod.string().nullish(),
   "birthDateJalali": zod.string().regex(createCustomerResponseBirthDateJalaliRegExp).nullish(),
   "postalCode": zod.string().regex(createCustomerResponsePostalCodeRegExp).nullish(),
+  "fatherName": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "email": zod.string().email().nullish(),
   "verificationStatus": zod.enum(['unverified', 'verified']).default(createCustomerResponseVerificationStatusDefault),
+  "verificationCheckedAt": zod.string().nullish(),
+  "verificationChecks": zod.object({
+  "shahkarLite": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+}),
+  "personInfo": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+}),
+  "postalCodeInfo": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+}),
+  "sana": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+})
+}).optional(),
+  "officialFirstName": zod.string().nullish(),
+  "officialLastName": zod.string().nullish(),
+  "officialFatherName": zod.string().nullish(),
+  "officialAddress": zod.string().nullish(),
+  "officialPostalCode": zod.string().nullish(),
   "isUrgent": zod.boolean().default(createCustomerResponseIsUrgentDefault),
   "creditScore": zod.number().nullish(),
   "creditRank": zod.string().nullish(),
@@ -442,7 +1739,11 @@ export const CreateCustomerResponse = zod.object({
   "priority": zod.number().int().min(1).max(createCustomerResponsePriorityMax).nullish(),
   "status": zod.enum(['in_progress', 'cancelled', 'completed']).default(createCustomerResponseStatusDefault),
   "activityCount": zod.number().int(),
-  "lastActivityAt": zod.string().nullish()
+  "lastActivityAt": zod.string().nullish(),
+  "lastCallAt": zod.string().nullish().describe('Latest recorded customer call time, independent of customer registration; null when no call is recorded.'),
+  "mergedIntoCustomerId": zod.number().int().nullable(),
+  "tags": zod.array(zod.string()),
+  "pendingRepeatRequestCount": zod.number().int().min(createCustomerResponsePendingRepeatRequestCountMin)
 })
 
 
@@ -466,12 +1767,261 @@ export const ParseCustomerTextResponse = zod.object({
 
 
 /**
+ * @summary Look up an active customer by exact normalized phone for duplicate prevention
+ */
+export const lookupCustomerByPhoneQueryPhoneMin = 3;
+
+
+
+export const LookupCustomerByPhoneQueryParams = zod.object({
+  "phone": zod.coerce.string().min(lookupCustomerByPhoneQueryPhoneMin)
+})
+
+export const lookupCustomerByPhoneResponseCustomerOnePortalOriginDefault = false;
+export const lookupCustomerByPhoneResponseCustomerOneBirthDateJalaliRegExp = new RegExp('^[0-9]{4}/[0-9]{2}/[0-9]{2}$');
+export const lookupCustomerByPhoneResponseCustomerOnePostalCodeRegExp = new RegExp('^[0-9]{10}$');
+export const lookupCustomerByPhoneResponseCustomerOneVerificationStatusDefault = `unverified`;
+export const lookupCustomerByPhoneResponseCustomerOneIsUrgentDefault = false;
+export const lookupCustomerByPhoneResponseCustomerOnePriorityMax = 3;
+
+export const lookupCustomerByPhoneResponseCustomerOneStatusDefault = `in_progress`;
+export const lookupCustomerByPhoneResponseCustomerOnePendingRepeatRequestCountMin = 0;
+
+
+
+export const LookupCustomerByPhoneResponse = zod.object({
+  "customer": zod.union([zod.object({
+  "id": zod.number().int(),
+  "portalOrigin": zod.boolean().default(lookupCustomerByPhoneResponseCustomerOnePortalOriginDefault),
+  "name": zod.string(),
+  "firstName": zod.string().nullish(),
+  "lastName": zod.string().nullish(),
+  "phone": zod.string(),
+  "description": zod.string().nullish(),
+  "nationalCode": zod.string().nullish(),
+  "birthDateJalali": zod.string().regex(lookupCustomerByPhoneResponseCustomerOneBirthDateJalaliRegExp).nullish(),
+  "postalCode": zod.string().regex(lookupCustomerByPhoneResponseCustomerOnePostalCodeRegExp).nullish(),
+  "fatherName": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "email": zod.string().email().nullish(),
+  "verificationStatus": zod.enum(['unverified', 'verified']).default(lookupCustomerByPhoneResponseCustomerOneVerificationStatusDefault),
+  "verificationCheckedAt": zod.string().nullish(),
+  "verificationChecks": zod.object({
+  "shahkarLite": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+}),
+  "personInfo": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+}),
+  "postalCodeInfo": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+}),
+  "sana": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+})
+}).optional(),
+  "officialFirstName": zod.string().nullish(),
+  "officialLastName": zod.string().nullish(),
+  "officialFatherName": zod.string().nullish(),
+  "officialAddress": zod.string().nullish(),
+  "officialPostalCode": zod.string().nullish(),
+  "isUrgent": zod.boolean().default(lookupCustomerByPhoneResponseCustomerOneIsUrgentDefault),
+  "creditScore": zod.number().nullish(),
+  "creditRank": zod.string().nullish(),
+  "creditCheckedAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "salespersonId": zod.number().int().nullish(),
+  "salespersonName": zod.string().nullish(),
+  "priority": zod.number().int().min(1).max(lookupCustomerByPhoneResponseCustomerOnePriorityMax).nullish(),
+  "status": zod.enum(['in_progress', 'cancelled', 'completed']).default(lookupCustomerByPhoneResponseCustomerOneStatusDefault),
+  "activityCount": zod.number().int(),
+  "lastActivityAt": zod.string().nullish(),
+  "lastCallAt": zod.string().nullish().describe('Latest recorded customer call time, independent of customer registration; null when no call is recorded.'),
+  "mergedIntoCustomerId": zod.number().int().nullable(),
+  "tags": zod.array(zod.string()),
+  "pendingRepeatRequestCount": zod.number().int().min(lookupCustomerByPhoneResponseCustomerOnePendingRepeatRequestCountMin)
+}),zod.null()])
+})
+
+
+/**
+ * @summary Record a repeat request on the canonical customer without changing ownership or profile
+ */
+export const createCustomerRepeatRequestBodyPhoneMin = 3;
+
+
+
+
+
+export const CreateCustomerRepeatRequestBody = zod.object({
+  "phone": zod.string().min(createCustomerRepeatRequestBodyPhoneMin),
+  "requestedName": zod.string().min(1),
+  "submittedDescription": zod.string().nullish(),
+  "explanation": zod.string().min(1)
+})
+
+export const CreateCustomerRepeatRequestResponse = zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int(),
+  "requestedName": zod.string(),
+  "submittedDescription": zod.string().nullable(),
+  "explanation": zod.string(),
+  "status": zod.enum(['pending', 'acknowledged']),
+  "createdByUserId": zod.number().int().nullable(),
+  "createdByName": zod.string().nullable(),
+  "provenance": zod.enum(['human', 'instagram_automation']),
+  "sourceThreadId": zod.number().int().nullable(),
+  "sourceMessageId": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "acknowledgedAt": zod.string().nullable()
+})
+
+
+/**
+ * @summary List known customer tags
+ */
+export const ListCustomerTagsResponseItem = zod.object({
+  "key": zod.string(),
+  "label": zod.string()
+})
+export const ListCustomerTagsResponse = zod.array(ListCustomerTagsResponseItem)
+
+
+/**
+ * @summary Add a custom customer tag
+ */
+export const createCustomerTagBodyLabelMax = 120;
+
+
+
+export const CreateCustomerTagBody = zod.object({
+  "label": zod.string().min(1).max(createCustomerTagBodyLabelMax)
+})
+
+export const CreateCustomerTagResponse = zod.object({
+  "key": zod.string(),
+  "label": zod.string()
+})
+
+
+/**
+ * @summary Replace a customer's tags (repeat_request may only be removed by acknowledgement)
+ */
+export const UpdateCustomerTagsParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+
+
+
+export const UpdateCustomerTagsBody = zod.object({
+  "tags": zod.array(zod.string().min(1))
+})
+
+export const UpdateCustomerTagsResponse = zod.object({
+  "tags": zod.array(zod.string())
+})
+
+
+/**
+ * @summary List pending and acknowledged repeat requests for the customer owner or admin
+ */
+export const ListCustomerRepeatRequestsParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ListCustomerRepeatRequestsResponseItem = zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int(),
+  "requestedName": zod.string(),
+  "submittedDescription": zod.string().nullable(),
+  "explanation": zod.string(),
+  "status": zod.enum(['pending', 'acknowledged']),
+  "createdByUserId": zod.number().int().nullable(),
+  "createdByName": zod.string().nullable(),
+  "provenance": zod.enum(['human', 'instagram_automation']),
+  "sourceThreadId": zod.number().int().nullable(),
+  "sourceMessageId": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "acknowledgedAt": zod.string().nullable()
+})
+export const ListCustomerRepeatRequestsResponse = zod.array(ListCustomerRepeatRequestsResponseItem)
+
+
+/**
+ * @summary Acknowledge all pending repeat requests and clear their managed tag
+ */
+export const AcknowledgeCustomerRepeatRequestsParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const AcknowledgeCustomerRepeatRequestsResponse = zod.object({
+  "acknowledgedCount": zod.number().int(),
+  "pendingRepeatRequestCount": zod.number().int(),
+  "tags": zod.array(zod.string())
+})
+
+
+/**
+ * @summary List active customers sharing a normalized mobile or valid national code (admin only)
+ */
+export const ListDuplicateCustomersResponseItem = zod.object({
+  "matchType": zod.enum(['mobile', 'nationalCode']),
+  "normalizedValue": zod.string(),
+  "candidates": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "phone": zod.string(),
+  "nationalCode": zod.string().nullable(),
+  "salespersonName": zod.string().nullable(),
+  "historyCounts": zod.object({
+  "calls": zod.number().int(),
+  "reminders": zod.number().int(),
+  "consultations": zod.number().int(),
+  "loanApplications": zod.number().int(),
+  "identityDocuments": zod.number().int(),
+  "creditChecks": zod.number().int()
+})
+}))
+})
+export const ListDuplicateCustomersResponse = zod.array(ListDuplicateCustomersResponseItem)
+
+
+/**
+ * @summary Archive a duplicate customer into the selected survivor and assign its salesperson (admin only)
+ */
+
+
+
+
+
+export const MergeCustomersBody = zod.object({
+  "sourceCustomerId": zod.number().int().min(1),
+  "targetCustomerId": zod.number().int().min(1),
+  "salespersonId": zod.number().int().min(1)
+})
+
+export const MergeCustomersResponse = zod.object({
+  "survivorCustomerId": zod.number().int(),
+  "archivedSourceCustomerId": zod.number().int(),
+  "salespersonId": zod.number().int(),
+  "reparentedHistoryCounts": zod.record(zod.string(), zod.number().int()),
+  "preservedFinancialArtifacts": zod.array(zod.string())
+})
+
+
+/**
  * @summary Get customer details
  */
 export const GetCustomerParams = zod.object({
   "id": zod.coerce.number().int()
 })
 
+export const getCustomerResponseOnePortalOriginDefault = false;
 export const getCustomerResponseOneBirthDateJalaliRegExp = new RegExp('^[0-9]{4}/[0-9]{2}/[0-9]{2}$');
 export const getCustomerResponseOnePostalCodeRegExp = new RegExp('^[0-9]{10}$');
 export const getCustomerResponseOneVerificationStatusDefault = `unverified`;
@@ -479,16 +2029,49 @@ export const getCustomerResponseOneIsUrgentDefault = false;
 export const getCustomerResponseOnePriorityMax = 3;
 
 export const getCustomerResponseOneStatusDefault = `in_progress`;
+export const getCustomerResponseOnePendingRepeatRequestCountMin = 0;
+
+
 
 export const GetCustomerResponse = zod.object({
   "id": zod.number().int(),
+  "portalOrigin": zod.boolean().default(getCustomerResponseOnePortalOriginDefault),
   "name": zod.string(),
+  "firstName": zod.string().nullish(),
+  "lastName": zod.string().nullish(),
   "phone": zod.string(),
   "description": zod.string().nullish(),
   "nationalCode": zod.string().nullish(),
   "birthDateJalali": zod.string().regex(getCustomerResponseOneBirthDateJalaliRegExp).nullish(),
   "postalCode": zod.string().regex(getCustomerResponseOnePostalCodeRegExp).nullish(),
+  "fatherName": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "email": zod.string().email().nullish(),
   "verificationStatus": zod.enum(['unverified', 'verified']).default(getCustomerResponseOneVerificationStatusDefault),
+  "verificationCheckedAt": zod.string().nullish(),
+  "verificationChecks": zod.object({
+  "shahkarLite": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+}),
+  "personInfo": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+}),
+  "postalCodeInfo": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+}),
+  "sana": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+})
+}).optional(),
+  "officialFirstName": zod.string().nullish(),
+  "officialLastName": zod.string().nullish(),
+  "officialFatherName": zod.string().nullish(),
+  "officialAddress": zod.string().nullish(),
+  "officialPostalCode": zod.string().nullish(),
   "isUrgent": zod.boolean().default(getCustomerResponseOneIsUrgentDefault),
   "creditScore": zod.number().nullish(),
   "creditRank": zod.string().nullish(),
@@ -499,7 +2082,11 @@ export const GetCustomerResponse = zod.object({
   "priority": zod.number().int().min(1).max(getCustomerResponseOnePriorityMax).nullish(),
   "status": zod.enum(['in_progress', 'cancelled', 'completed']).default(getCustomerResponseOneStatusDefault),
   "activityCount": zod.number().int(),
-  "lastActivityAt": zod.string().nullish()
+  "lastActivityAt": zod.string().nullish(),
+  "lastCallAt": zod.string().nullish().describe('Latest recorded customer call time, independent of customer registration; null when no call is recorded.'),
+  "mergedIntoCustomerId": zod.number().int().nullable(),
+  "tags": zod.array(zod.string()),
+  "pendingRepeatRequestCount": zod.number().int().min(getCustomerResponseOnePendingRepeatRequestCountMin)
 }).and(zod.object({
   "activity": zod.array(zod.object({
   "id": zod.number().int(),
@@ -550,13 +2137,16 @@ export const UpdateCustomerBody = zod.object({
   "nationalCode": zod.string().min(updateCustomerBodyNationalCodeMin).max(updateCustomerBodyNationalCodeMax).nullish(),
   "birthDateJalali": zod.string().regex(updateCustomerBodyBirthDateJalaliRegExp).nullish(),
   "postalCode": zod.string().regex(updateCustomerBodyPostalCodeRegExp).nullish(),
-  "verificationStatus": zod.enum(['unverified', 'verified']).optional(),
+  "fatherName": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "email": zod.string().email().nullish(),
   "isUrgent": zod.boolean().optional(),
   "salespersonId": zod.number().int().nullish(),
   "priority": zod.number().int().min(1).max(updateCustomerBodyPriorityMax).nullish(),
   "status": zod.enum(['in_progress', 'cancelled', 'completed']).optional()
 })
 
+export const updateCustomerResponsePortalOriginDefault = false;
 export const updateCustomerResponseBirthDateJalaliRegExp = new RegExp('^[0-9]{4}/[0-9]{2}/[0-9]{2}$');
 export const updateCustomerResponsePostalCodeRegExp = new RegExp('^[0-9]{10}$');
 export const updateCustomerResponseVerificationStatusDefault = `unverified`;
@@ -564,16 +2154,49 @@ export const updateCustomerResponseIsUrgentDefault = false;
 export const updateCustomerResponsePriorityMax = 3;
 
 export const updateCustomerResponseStatusDefault = `in_progress`;
+export const updateCustomerResponsePendingRepeatRequestCountMin = 0;
+
+
 
 export const UpdateCustomerResponse = zod.object({
   "id": zod.number().int(),
+  "portalOrigin": zod.boolean().default(updateCustomerResponsePortalOriginDefault),
   "name": zod.string(),
+  "firstName": zod.string().nullish(),
+  "lastName": zod.string().nullish(),
   "phone": zod.string(),
   "description": zod.string().nullish(),
   "nationalCode": zod.string().nullish(),
   "birthDateJalali": zod.string().regex(updateCustomerResponseBirthDateJalaliRegExp).nullish(),
   "postalCode": zod.string().regex(updateCustomerResponsePostalCodeRegExp).nullish(),
+  "fatherName": zod.string().nullish(),
+  "address": zod.string().nullish(),
+  "email": zod.string().email().nullish(),
   "verificationStatus": zod.enum(['unverified', 'verified']).default(updateCustomerResponseVerificationStatusDefault),
+  "verificationCheckedAt": zod.string().nullish(),
+  "verificationChecks": zod.object({
+  "shahkarLite": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+}),
+  "personInfo": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+}),
+  "postalCodeInfo": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+}),
+  "sana": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+})
+}).optional(),
+  "officialFirstName": zod.string().nullish(),
+  "officialLastName": zod.string().nullish(),
+  "officialFatherName": zod.string().nullish(),
+  "officialAddress": zod.string().nullish(),
+  "officialPostalCode": zod.string().nullish(),
   "isUrgent": zod.boolean().default(updateCustomerResponseIsUrgentDefault),
   "creditScore": zod.number().nullish(),
   "creditRank": zod.string().nullish(),
@@ -584,7 +2207,358 @@ export const UpdateCustomerResponse = zod.object({
   "priority": zod.number().int().min(1).max(updateCustomerResponsePriorityMax).nullish(),
   "status": zod.enum(['in_progress', 'cancelled', 'completed']).default(updateCustomerResponseStatusDefault),
   "activityCount": zod.number().int(),
-  "lastActivityAt": zod.string().nullish()
+  "lastActivityAt": zod.string().nullish(),
+  "lastCallAt": zod.string().nullish().describe('Latest recorded customer call time, independent of customer registration; null when no call is recorded.'),
+  "mergedIntoCustomerId": zod.number().int().nullable(),
+  "tags": zod.array(zod.string()),
+  "pendingRepeatRequestCount": zod.number().int().min(updateCustomerResponsePendingRepeatRequestCountMin)
+})
+
+
+/**
+ * @summary Verify customer identity through SAPI.ir
+ */
+export const VerifyCustomerIdentityParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const verifyCustomerIdentityBodyNationalCodeMin = 10;
+export const verifyCustomerIdentityBodyNationalCodeMax = 10;
+
+export const verifyCustomerIdentityBodyMobileMin = 10;
+export const verifyCustomerIdentityBodyMobileMax = 15;
+
+export const verifyCustomerIdentityBodyBirthDateJalaliRegExp = new RegExp('^[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}$');
+export const verifyCustomerIdentityBodyPostalCodeRegExp = new RegExp('^[0-9]{10}$');
+export const verifyCustomerIdentityBodyFatherNameMax = 100;
+
+
+
+export const VerifyCustomerIdentityBody = zod.object({
+  "nationalCode": zod.string().min(verifyCustomerIdentityBodyNationalCodeMin).max(verifyCustomerIdentityBodyNationalCodeMax).optional(),
+  "mobile": zod.string().min(verifyCustomerIdentityBodyMobileMin).max(verifyCustomerIdentityBodyMobileMax).optional(),
+  "birthDateJalali": zod.string().regex(verifyCustomerIdentityBodyBirthDateJalaliRegExp).nullish(),
+  "postalCode": zod.string().regex(verifyCustomerIdentityBodyPostalCodeRegExp).nullish(),
+  "fatherName": zod.string().max(verifyCustomerIdentityBodyFatherNameMax).nullish()
+})
+
+export const VerifyCustomerIdentityResponse = zod.object({
+  "customerId": zod.number().int(),
+  "status": zod.enum(['verified', 'failed']),
+  "checks": zod.object({
+  "shahkarLite": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+}),
+  "personInfo": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+}),
+  "postalCodeInfo": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+}),
+  "sana": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.string().nullish()
+})
+}),
+  "canonical": zod.object({
+  "officialFirstName": zod.string().optional(),
+  "officialLastName": zod.string().optional(),
+  "officialFatherName": zod.string().optional(),
+  "officialAddress": zod.string().optional(),
+  "officialPostalCode": zod.string().optional()
+}),
+  "checkedAt": zod.string(),
+  "error": zod.string().nullish()
+})
+
+
+/**
+ * @summary Request manual review after a failed SAPI identity check
+ */
+export const CreateManualVerificationRequestParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const CreateManualVerificationRequestResponse = zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int(),
+  "customerName": zod.string(),
+  "status": zod.enum(['pending', 'approved', 'system_verified', 'superseded']),
+  "sourceFailures": zod.array(zod.enum(['shahkarLite', 'personInfo', 'postalCodeInfo', 'sana'])),
+  "createdAt": zod.coerce.date(),
+  "requestedByUserId": zod.number().int().optional(),
+  "requestedByName": zod.string().nullish(),
+  "originalValues": zod.record(zod.string(), zod.unknown())
+})
+
+
+/**
+ * @summary List manual identity-review requests (admin only)
+ */
+export const ListManualVerificationRequestsResponseItem = zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int(),
+  "customerName": zod.string(),
+  "status": zod.enum(['pending', 'approved', 'system_verified', 'superseded']),
+  "sourceFailures": zod.array(zod.enum(['shahkarLite', 'personInfo', 'postalCodeInfo', 'sana'])),
+  "createdAt": zod.coerce.date(),
+  "requestedByUserId": zod.number().int().optional(),
+  "requestedByName": zod.string().nullish(),
+  "originalValues": zod.record(zod.string(), zod.unknown())
+})
+export const ListManualVerificationRequestsResponse = zod.array(ListManualVerificationRequestsResponseItem)
+
+
+/**
+ * @summary Get a manual identity-review request and current profile (admin only)
+ */
+export const GetManualVerificationRequestParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const GetManualVerificationRequestResponse = zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int(),
+  "customerName": zod.string(),
+  "status": zod.enum(['pending', 'approved', 'system_verified', 'superseded']),
+  "sourceFailures": zod.array(zod.enum(['shahkarLite', 'personInfo', 'postalCodeInfo', 'sana'])),
+  "createdAt": zod.coerce.date(),
+  "requestedByUserId": zod.number().int().optional(),
+  "requestedByName": zod.string().nullish(),
+  "originalValues": zod.record(zod.string(), zod.unknown())
+}).and(zod.object({
+  "currentProfile": zod.record(zod.string(), zod.unknown()),
+  "currentChecks": zod.object({
+  "shahkarLite": zod.object({
+  "ok": zod.boolean(),
+  "status": zod.string().nullable()
+}),
+  "personInfo": zod.object({
+  "ok": zod.boolean(),
+  "status": zod.string().nullable()
+}),
+  "postalCodeInfo": zod.object({
+  "ok": zod.boolean(),
+  "status": zod.string().nullable()
+}),
+  "sana": zod.object({
+  "ok": zod.boolean(),
+  "status": zod.string().nullable()
+})
+})
+}))
+
+
+/**
+ * @summary Approve or reject only one failed identity check (admin only)
+ */
+export const DecideManualIdentityCheckParams = zod.object({
+  "id": zod.coerce.number().int(),
+  "check": zod.enum(['shahkarLite', 'personInfo', 'postalCodeInfo', 'sana'])
+})
+
+export const decideManualIdentityCheckBodyReasonMax = 1000;
+
+
+
+export const DecideManualIdentityCheckBody = zod.object({
+  "decision": zod.enum(['approved', 'rejected']),
+  "reason": zod.string().min(1).max(decideManualIdentityCheckBodyReasonMax)
+})
+
+export const DecideManualIdentityCheckResponse = zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int(),
+  "customerName": zod.string(),
+  "status": zod.enum(['pending', 'approved', 'system_verified', 'superseded']),
+  "sourceFailures": zod.array(zod.enum(['shahkarLite', 'personInfo', 'postalCodeInfo', 'sana'])),
+  "createdAt": zod.coerce.date(),
+  "requestedByUserId": zod.number().int().optional(),
+  "requestedByName": zod.string().nullish(),
+  "originalValues": zod.record(zod.string(), zod.unknown())
+}).and(zod.object({
+  "currentProfile": zod.record(zod.string(), zod.unknown()),
+  "currentChecks": zod.object({
+  "shahkarLite": zod.object({
+  "ok": zod.boolean(),
+  "status": zod.string().nullable()
+}),
+  "personInfo": zod.object({
+  "ok": zod.boolean(),
+  "status": zod.string().nullable()
+}),
+  "postalCodeInfo": zod.object({
+  "ok": zod.boolean(),
+  "status": zod.string().nullable()
+}),
+  "sana": zod.object({
+  "ok": zod.boolean(),
+  "status": zod.string().nullable()
+})
+})
+}))
+
+
+/**
+ * @summary Approve a manual identity review (admin only)
+ */
+export const ApproveManualVerificationRequestParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const approveManualVerificationRequestBodyChecksShahkarLiteReasonMax = 1000;
+
+export const approveManualVerificationRequestBodyChecksPersonInfoReasonMax = 1000;
+
+export const approveManualVerificationRequestBodyChecksPostalCodeInfoReasonMax = 1000;
+
+export const approveManualVerificationRequestBodyChecksSanaReasonMax = 1000;
+
+export const approveManualVerificationRequestBodyCorrectedValuesNationalCodeMin = 10;
+export const approveManualVerificationRequestBodyCorrectedValuesNationalCodeMax = 10;
+
+export const approveManualVerificationRequestBodyCorrectedValuesMobileMin = 10;
+export const approveManualVerificationRequestBodyCorrectedValuesMobileMax = 15;
+
+export const approveManualVerificationRequestBodyCorrectedValuesBirthDateJalaliRegExp = new RegExp('^[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}$');
+export const approveManualVerificationRequestBodyCorrectedValuesPostalCodeRegExp = new RegExp('^[0-9]{10}$');
+export const approveManualVerificationRequestBodyCorrectedValuesNameMax = 200;
+
+export const approveManualVerificationRequestBodyCorrectedValuesFirstNameMax = 100;
+
+export const approveManualVerificationRequestBodyCorrectedValuesLastNameMax = 100;
+
+export const approveManualVerificationRequestBodyCorrectedValuesFatherNameMax = 100;
+
+export const approveManualVerificationRequestBodyCorrectedValuesAddressMax = 1000;
+
+
+
+export const ApproveManualVerificationRequestBody = zod.object({
+  "checks": zod.object({
+  "shahkarLite": zod.object({
+  "method": zod.enum(['system', 'manual']),
+  "reason": zod.string().max(approveManualVerificationRequestBodyChecksShahkarLiteReasonMax).nullish()
+}),
+  "personInfo": zod.object({
+  "method": zod.enum(['system', 'manual']),
+  "reason": zod.string().max(approveManualVerificationRequestBodyChecksPersonInfoReasonMax).nullish()
+}),
+  "postalCodeInfo": zod.object({
+  "method": zod.enum(['system', 'manual']),
+  "reason": zod.string().max(approveManualVerificationRequestBodyChecksPostalCodeInfoReasonMax).nullish()
+}),
+  "sana": zod.object({
+  "method": zod.enum(['system', 'manual']),
+  "reason": zod.string().max(approveManualVerificationRequestBodyChecksSanaReasonMax).nullish()
+})
+}),
+  "correctedValues": zod.object({
+  "nationalCode": zod.string().min(approveManualVerificationRequestBodyCorrectedValuesNationalCodeMin).max(approveManualVerificationRequestBodyCorrectedValuesNationalCodeMax).optional(),
+  "mobile": zod.string().min(approveManualVerificationRequestBodyCorrectedValuesMobileMin).max(approveManualVerificationRequestBodyCorrectedValuesMobileMax).optional(),
+  "birthDateJalali": zod.string().regex(approveManualVerificationRequestBodyCorrectedValuesBirthDateJalaliRegExp).nullish(),
+  "postalCode": zod.string().regex(approveManualVerificationRequestBodyCorrectedValuesPostalCodeRegExp).nullish(),
+  "name": zod.string().min(1).max(approveManualVerificationRequestBodyCorrectedValuesNameMax).optional(),
+  "firstName": zod.string().max(approveManualVerificationRequestBodyCorrectedValuesFirstNameMax).nullish(),
+  "lastName": zod.string().max(approveManualVerificationRequestBodyCorrectedValuesLastNameMax).nullish(),
+  "fatherName": zod.string().max(approveManualVerificationRequestBodyCorrectedValuesFatherNameMax).nullish(),
+  "address": zod.string().max(approveManualVerificationRequestBodyCorrectedValuesAddressMax).nullish()
+}).optional()
+})
+
+export const ApproveManualVerificationRequestResponse = zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int(),
+  "customerName": zod.string(),
+  "status": zod.enum(['pending', 'approved', 'system_verified', 'superseded']),
+  "sourceFailures": zod.array(zod.enum(['shahkarLite', 'personInfo', 'postalCodeInfo', 'sana'])),
+  "createdAt": zod.coerce.date(),
+  "requestedByUserId": zod.number().int().optional(),
+  "requestedByName": zod.string().nullish(),
+  "originalValues": zod.record(zod.string(), zod.unknown())
+})
+
+
+/**
+ * @summary Direct administrator identity approval and profile correction, without a previous provider attempt
+ */
+export const ManuallyVerifyCustomerParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const manuallyVerifyCustomerBodyChecksShahkarLiteReasonMax = 1000;
+
+export const manuallyVerifyCustomerBodyChecksPersonInfoReasonMax = 1000;
+
+export const manuallyVerifyCustomerBodyChecksPostalCodeInfoReasonMax = 1000;
+
+export const manuallyVerifyCustomerBodyChecksSanaReasonMax = 1000;
+
+export const manuallyVerifyCustomerBodyCorrectedValuesNationalCodeMin = 10;
+export const manuallyVerifyCustomerBodyCorrectedValuesNationalCodeMax = 10;
+
+export const manuallyVerifyCustomerBodyCorrectedValuesMobileMin = 10;
+export const manuallyVerifyCustomerBodyCorrectedValuesMobileMax = 15;
+
+export const manuallyVerifyCustomerBodyCorrectedValuesBirthDateJalaliRegExp = new RegExp('^[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}$');
+export const manuallyVerifyCustomerBodyCorrectedValuesPostalCodeRegExp = new RegExp('^[0-9]{10}$');
+export const manuallyVerifyCustomerBodyCorrectedValuesNameMax = 200;
+
+export const manuallyVerifyCustomerBodyCorrectedValuesFirstNameMax = 100;
+
+export const manuallyVerifyCustomerBodyCorrectedValuesLastNameMax = 100;
+
+export const manuallyVerifyCustomerBodyCorrectedValuesFatherNameMax = 100;
+
+export const manuallyVerifyCustomerBodyCorrectedValuesAddressMax = 1000;
+
+
+
+export const ManuallyVerifyCustomerBody = zod.object({
+  "checks": zod.object({
+  "shahkarLite": zod.object({
+  "method": zod.enum(['system', 'manual']),
+  "reason": zod.string().max(manuallyVerifyCustomerBodyChecksShahkarLiteReasonMax).nullish()
+}),
+  "personInfo": zod.object({
+  "method": zod.enum(['system', 'manual']),
+  "reason": zod.string().max(manuallyVerifyCustomerBodyChecksPersonInfoReasonMax).nullish()
+}),
+  "postalCodeInfo": zod.object({
+  "method": zod.enum(['system', 'manual']),
+  "reason": zod.string().max(manuallyVerifyCustomerBodyChecksPostalCodeInfoReasonMax).nullish()
+}),
+  "sana": zod.object({
+  "method": zod.enum(['system', 'manual']),
+  "reason": zod.string().max(manuallyVerifyCustomerBodyChecksSanaReasonMax).nullish()
+})
+}),
+  "correctedValues": zod.object({
+  "nationalCode": zod.string().min(manuallyVerifyCustomerBodyCorrectedValuesNationalCodeMin).max(manuallyVerifyCustomerBodyCorrectedValuesNationalCodeMax).optional(),
+  "mobile": zod.string().min(manuallyVerifyCustomerBodyCorrectedValuesMobileMin).max(manuallyVerifyCustomerBodyCorrectedValuesMobileMax).optional(),
+  "birthDateJalali": zod.string().regex(manuallyVerifyCustomerBodyCorrectedValuesBirthDateJalaliRegExp).nullish(),
+  "postalCode": zod.string().regex(manuallyVerifyCustomerBodyCorrectedValuesPostalCodeRegExp).nullish(),
+  "name": zod.string().min(1).max(manuallyVerifyCustomerBodyCorrectedValuesNameMax).optional(),
+  "firstName": zod.string().max(manuallyVerifyCustomerBodyCorrectedValuesFirstNameMax).nullish(),
+  "lastName": zod.string().max(manuallyVerifyCustomerBodyCorrectedValuesLastNameMax).nullish(),
+  "fatherName": zod.string().max(manuallyVerifyCustomerBodyCorrectedValuesFatherNameMax).nullish(),
+  "address": zod.string().max(manuallyVerifyCustomerBodyCorrectedValuesAddressMax).nullish()
+}).optional()
+})
+
+export const ManuallyVerifyCustomerResponse = zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int(),
+  "customerName": zod.string(),
+  "status": zod.enum(['pending', 'approved', 'system_verified', 'superseded']),
+  "sourceFailures": zod.array(zod.enum(['shahkarLite', 'personInfo', 'postalCodeInfo', 'sana'])),
+  "createdAt": zod.coerce.date(),
+  "requestedByUserId": zod.number().int().optional(),
+  "requestedByName": zod.string().nullish(),
+  "originalValues": zod.record(zod.string(), zod.unknown())
 })
 
 
@@ -902,11 +2876,23 @@ export const ListRemindersQueryParams = zod.object({
 })
 
 export const ListRemindersResponseItem = zod.object({
+  "sourceCall": zod.union([zod.object({
+  "id": zod.number().int(),
+  "createdAt": zod.string(),
+  "subject": zod.string().nullish(),
+  "customerRequest": zod.string().nullish(),
+  "expertNotes": zod.string().nullish(),
+  "salespersonName": zod.string().nullish()
+}),zod.null()]).optional(),
+  "callHistoryStatus": zod.enum(['available', 'none', 'restricted']).optional(),
+  "smsStatus": zod.enum(['pending', 'sending', 'sent', 'blocked', 'rejected', 'uncertain', 'legacy_skipped']).optional(),
+  "smsError": zod.string().nullish(),
   "id": zod.number().int(),
   "userId": zod.number().int(),
   "salespersonId": zod.number().int().nullish(),
   "customerId": zod.number().int().nullable(),
   "customerName": zod.string().nullish(),
+  "customerSalespersonName": zod.string().nullish(),
   "subject": zod.string(),
   "message": zod.string(),
   "remindAt": zod.string(),
@@ -935,11 +2921,23 @@ export const CreateReminderBody = zod.object({
 })
 
 export const CreateReminderResponse = zod.object({
+  "sourceCall": zod.union([zod.object({
+  "id": zod.number().int(),
+  "createdAt": zod.string(),
+  "subject": zod.string().nullish(),
+  "customerRequest": zod.string().nullish(),
+  "expertNotes": zod.string().nullish(),
+  "salespersonName": zod.string().nullish()
+}),zod.null()]).optional(),
+  "callHistoryStatus": zod.enum(['available', 'none', 'restricted']).optional(),
+  "smsStatus": zod.enum(['pending', 'sending', 'sent', 'blocked', 'rejected', 'uncertain', 'legacy_skipped']).optional(),
+  "smsError": zod.string().nullish(),
   "id": zod.number().int(),
   "userId": zod.number().int(),
   "salespersonId": zod.number().int().nullish(),
   "customerId": zod.number().int().nullable(),
   "customerName": zod.string().nullish(),
+  "customerSalespersonName": zod.string().nullish(),
   "subject": zod.string(),
   "message": zod.string(),
   "remindAt": zod.string(),
@@ -959,11 +2957,23 @@ export const UpdateReminderBody = zod.object({
 })
 
 export const UpdateReminderResponse = zod.object({
+  "sourceCall": zod.union([zod.object({
+  "id": zod.number().int(),
+  "createdAt": zod.string(),
+  "subject": zod.string().nullish(),
+  "customerRequest": zod.string().nullish(),
+  "expertNotes": zod.string().nullish(),
+  "salespersonName": zod.string().nullish()
+}),zod.null()]).optional(),
+  "callHistoryStatus": zod.enum(['available', 'none', 'restricted']).optional(),
+  "smsStatus": zod.enum(['pending', 'sending', 'sent', 'blocked', 'rejected', 'uncertain', 'legacy_skipped']).optional(),
+  "smsError": zod.string().nullish(),
   "id": zod.number().int(),
   "userId": zod.number().int(),
   "salespersonId": zod.number().int().nullish(),
   "customerId": zod.number().int().nullable(),
   "customerName": zod.string().nullish(),
+  "customerSalespersonName": zod.string().nullish(),
   "subject": zod.string(),
   "message": zod.string(),
   "remindAt": zod.string(),
@@ -982,11 +2992,23 @@ export const AcknowledgeReminderParams = zod.object({
 })
 
 export const AcknowledgeReminderResponse = zod.object({
+  "sourceCall": zod.union([zod.object({
+  "id": zod.number().int(),
+  "createdAt": zod.string(),
+  "subject": zod.string().nullish(),
+  "customerRequest": zod.string().nullish(),
+  "expertNotes": zod.string().nullish(),
+  "salespersonName": zod.string().nullish()
+}),zod.null()]).optional(),
+  "callHistoryStatus": zod.enum(['available', 'none', 'restricted']).optional(),
+  "smsStatus": zod.enum(['pending', 'sending', 'sent', 'blocked', 'rejected', 'uncertain', 'legacy_skipped']).optional(),
+  "smsError": zod.string().nullish(),
   "id": zod.number().int(),
   "userId": zod.number().int(),
   "salespersonId": zod.number().int().nullish(),
   "customerId": zod.number().int().nullable(),
   "customerName": zod.string().nullish(),
+  "customerSalespersonName": zod.string().nullish(),
   "subject": zod.string(),
   "message": zod.string(),
   "remindAt": zod.string(),
@@ -1000,6 +3022,8 @@ export const AcknowledgeReminderResponse = zod.object({
 /**
  * @summary List call history
  */
+export const listCallsQueryFromRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+export const listCallsQueryToRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
 export const listCallsQueryLimitDefault = 50;
 export const listCallsQueryLimitMax = 500;
 
@@ -1012,6 +3036,8 @@ export const ListCallsQueryParams = zod.object({
   "search": zod.coerce.string().optional(),
   "customerId": zod.coerce.number().int().optional(),
   "salespersonId": zod.coerce.number().int().optional(),
+  "from": zod.coerce.string().regex(listCallsQueryFromRegExp).optional().describe('Inclusive start date in Iran (Gregorian YYYY-MM-DD).'),
+  "to": zod.coerce.string().regex(listCallsQueryToRegExp).optional().describe('Inclusive end date in Iran (Gregorian YYYY-MM-DD).'),
   "limit": zod.coerce.number().int().min(1).max(listCallsQueryLimitMax).default(listCallsQueryLimitDefault),
   "offset": zod.coerce.number().int().min(listCallsQueryOffsetMin).default(listCallsQueryOffsetDefault)
 })
@@ -1027,8 +3053,11 @@ export const ListCallsResponse = zod.object({
   "expertNotes": zod.string().nullish(),
   "createdAt": zod.string()
 }).and(zod.object({
+  "systemSummary": zod.string().nullish(),
+  "extension": zod.string().nullish(),
   "customerName": zod.string(),
-  "customerPhone": zod.string()
+  "customerPhone": zod.string(),
+  "customerSalespersonName": zod.string().nullish()
 }))),
   "total": zod.number().int(),
   "limit": zod.number().int(),
@@ -1078,9 +3107,426 @@ export const CreateCallResponse = zod.object({
   "expertNotes": zod.string().nullish(),
   "createdAt": zod.string()
 }).and(zod.object({
+  "systemSummary": zod.string().nullish(),
+  "extension": zod.string().nullish(),
   "customerName": zod.string(),
-  "customerPhone": zod.string()
+  "customerPhone": zod.string(),
+  "customerSalespersonName": zod.string().nullish()
 }))
+
+
+/**
+ * @summary View an authorized call report without generating paid AI output
+ */
+export const GetCallReportParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const getCallReportResponseTranscriptOneCallSubjectMax = 160;
+
+export const getCallReportResponseTranscriptOneCustomerRequestSummaryMax = 1200;
+
+
+
+export const GetCallReportResponse = zod.object({
+  "mobile": zod.object({
+  "id": zod.number().int().describe('Shared call event ID used by the report editor'),
+  "callId": zod.string(),
+  "deviceId": zod.number().int(),
+  "deviceName": zod.string(),
+  "expertUserId": zod.number().int(),
+  "expertName": zod.string(),
+  "direction": zod.enum(['incoming', 'outgoing']),
+  "callerNumber": zod.string(),
+  "calleeNumber": zod.string(),
+  "contactName": zod.string(),
+  "startedAt": zod.string(),
+  "answeredAt": zod.string().nullable(),
+  "endedAt": zod.string().nullable(),
+  "durationSeconds": zod.number().int().nullable(),
+  "status": zod.string(),
+  "isLive": zod.boolean(),
+  "subject": zod.string().nullable(),
+  "expertNotes": zod.string(),
+  "reportSavedAt": zod.string().nullable(),
+  "customerId": zod.number().int().nullable()
+}).optional(),
+  "id": zod.number().int(),
+  "eventId": zod.number().int().nullable(),
+  "call": zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int().nullable(),
+  "salespersonId": zod.number().int().nullish(),
+  "salespersonName": zod.string().nullish(),
+  "subject": zod.string().nullish(),
+  "customerRequest": zod.string().nullish(),
+  "expertNotes": zod.string().nullish(),
+  "createdAt": zod.string()
+}).and(zod.object({
+  "systemSummary": zod.string().nullish(),
+  "extension": zod.string().nullish(),
+  "customerName": zod.string(),
+  "customerPhone": zod.string(),
+  "customerSalespersonName": zod.string().nullish()
+})),
+  "revision": zod.number().int(),
+  "isLive": zod.boolean(),
+  "status": zod.string(),
+  "subject": zod.string().nullable(),
+  "expertNotes": zod.string(),
+  "systemSummary": zod.string().nullable(),
+  "transcript": zod.union([zod.object({
+  "state": zod.enum(['not_started', 'queued', 'processing', 'completed', 'failed']),
+  "phase": zod.union([zod.literal(null),zod.literal('downloading'),zod.literal('cleaning'),zod.literal('transcribing')]).nullable(),
+  "error": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "durationSeconds": zod.number().nullable(),
+  "audioSeparation": zod.union([zod.literal(null),zod.literal('stereo_channels'),zod.literal('diarization')]).nullable(),
+  "notice": zod.string().nullable(),
+  "speakers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string()
+})),
+  "segments": zod.array(zod.object({
+  "speakerId": zod.string(),
+  "startSeconds": zod.number(),
+  "endSeconds": zod.number(),
+  "text": zod.string()
+})),
+  "text": zod.string().nullable(),
+  "completedAt": zod.string().nullable(),
+  "canGenerate": zod.boolean(),
+  "summaryState": zod.enum(['not_started', 'queued', 'processing', 'completed', 'failed']),
+  "summaryError": zod.string().nullable(),
+  "callSubject": zod.string().max(getCallReportResponseTranscriptOneCallSubjectMax).nullable(),
+  "customerRequestSummary": zod.string().max(getCallReportResponseTranscriptOneCustomerRequestSummaryMax).nullable(),
+  "summaryRevision": zod.number().int().optional(),
+  "summarySourceHash": zod.string().nullish(),
+  "summaryEdited": zod.boolean().optional(),
+  "summaryEditStale": zod.boolean().optional()
+}),zod.null()]),
+  "externalId": zod.string().nullable(),
+  "recordingFrom": zod.string().nullable(),
+  "recordingTo": zod.string().nullable(),
+  "canEdit": zod.boolean(),
+  "automaticError": zod.string().nullable()
+})
+
+
+/**
+ * @summary Edit expert-owned subject and notes with optimistic concurrency
+ */
+export const UpdateCallReportParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const updateCallReportBodySubjectMax = 160;
+
+export const updateCallReportBodyExpertNotesMax = 10000;
+
+export const updateCallReportBodyExpectedRevisionMin = 0;
+
+
+
+export const UpdateCallReportBody = zod.object({
+  "subject": zod.string().max(updateCallReportBodySubjectMax).nullable(),
+  "expertNotes": zod.string().max(updateCallReportBodyExpertNotesMax),
+  "expectedRevision": zod.number().int().min(updateCallReportBodyExpectedRevisionMin)
+})
+
+export const updateCallReportResponseTranscriptOneCallSubjectMax = 160;
+
+export const updateCallReportResponseTranscriptOneCustomerRequestSummaryMax = 1200;
+
+
+
+export const UpdateCallReportResponse = zod.object({
+  "mobile": zod.object({
+  "id": zod.number().int().describe('Shared call event ID used by the report editor'),
+  "callId": zod.string(),
+  "deviceId": zod.number().int(),
+  "deviceName": zod.string(),
+  "expertUserId": zod.number().int(),
+  "expertName": zod.string(),
+  "direction": zod.enum(['incoming', 'outgoing']),
+  "callerNumber": zod.string(),
+  "calleeNumber": zod.string(),
+  "contactName": zod.string(),
+  "startedAt": zod.string(),
+  "answeredAt": zod.string().nullable(),
+  "endedAt": zod.string().nullable(),
+  "durationSeconds": zod.number().int().nullable(),
+  "status": zod.string(),
+  "isLive": zod.boolean(),
+  "subject": zod.string().nullable(),
+  "expertNotes": zod.string(),
+  "reportSavedAt": zod.string().nullable(),
+  "customerId": zod.number().int().nullable()
+}).optional(),
+  "id": zod.number().int(),
+  "eventId": zod.number().int().nullable(),
+  "call": zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int().nullable(),
+  "salespersonId": zod.number().int().nullish(),
+  "salespersonName": zod.string().nullish(),
+  "subject": zod.string().nullish(),
+  "customerRequest": zod.string().nullish(),
+  "expertNotes": zod.string().nullish(),
+  "createdAt": zod.string()
+}).and(zod.object({
+  "systemSummary": zod.string().nullish(),
+  "extension": zod.string().nullish(),
+  "customerName": zod.string(),
+  "customerPhone": zod.string(),
+  "customerSalespersonName": zod.string().nullish()
+})),
+  "revision": zod.number().int(),
+  "isLive": zod.boolean(),
+  "status": zod.string(),
+  "subject": zod.string().nullable(),
+  "expertNotes": zod.string(),
+  "systemSummary": zod.string().nullable(),
+  "transcript": zod.union([zod.object({
+  "state": zod.enum(['not_started', 'queued', 'processing', 'completed', 'failed']),
+  "phase": zod.union([zod.literal(null),zod.literal('downloading'),zod.literal('cleaning'),zod.literal('transcribing')]).nullable(),
+  "error": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "durationSeconds": zod.number().nullable(),
+  "audioSeparation": zod.union([zod.literal(null),zod.literal('stereo_channels'),zod.literal('diarization')]).nullable(),
+  "notice": zod.string().nullable(),
+  "speakers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string()
+})),
+  "segments": zod.array(zod.object({
+  "speakerId": zod.string(),
+  "startSeconds": zod.number(),
+  "endSeconds": zod.number(),
+  "text": zod.string()
+})),
+  "text": zod.string().nullable(),
+  "completedAt": zod.string().nullable(),
+  "canGenerate": zod.boolean(),
+  "summaryState": zod.enum(['not_started', 'queued', 'processing', 'completed', 'failed']),
+  "summaryError": zod.string().nullable(),
+  "callSubject": zod.string().max(updateCallReportResponseTranscriptOneCallSubjectMax).nullable(),
+  "customerRequestSummary": zod.string().max(updateCallReportResponseTranscriptOneCustomerRequestSummaryMax).nullable(),
+  "summaryRevision": zod.number().int().optional(),
+  "summarySourceHash": zod.string().nullish(),
+  "summaryEdited": zod.boolean().optional(),
+  "summaryEditStale": zod.boolean().optional()
+}),zod.null()]),
+  "externalId": zod.string().nullable(),
+  "recordingFrom": zod.string().nullable(),
+  "recordingTo": zod.string().nullable(),
+  "canEdit": zod.boolean(),
+  "automaticError": zod.string().nullable()
+})
+
+
+export const GetVoipAfterCallReportParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const getVoipAfterCallReportResponseTranscriptOneCallSubjectMax = 160;
+
+export const getVoipAfterCallReportResponseTranscriptOneCustomerRequestSummaryMax = 1200;
+
+
+
+export const GetVoipAfterCallReportResponse = zod.object({
+  "mobile": zod.object({
+  "id": zod.number().int().describe('Shared call event ID used by the report editor'),
+  "callId": zod.string(),
+  "deviceId": zod.number().int(),
+  "deviceName": zod.string(),
+  "expertUserId": zod.number().int(),
+  "expertName": zod.string(),
+  "direction": zod.enum(['incoming', 'outgoing']),
+  "callerNumber": zod.string(),
+  "calleeNumber": zod.string(),
+  "contactName": zod.string(),
+  "startedAt": zod.string(),
+  "answeredAt": zod.string().nullable(),
+  "endedAt": zod.string().nullable(),
+  "durationSeconds": zod.number().int().nullable(),
+  "status": zod.string(),
+  "isLive": zod.boolean(),
+  "subject": zod.string().nullable(),
+  "expertNotes": zod.string(),
+  "reportSavedAt": zod.string().nullable(),
+  "customerId": zod.number().int().nullable()
+}).optional(),
+  "id": zod.number().int(),
+  "eventId": zod.number().int().nullable(),
+  "call": zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int().nullable(),
+  "salespersonId": zod.number().int().nullish(),
+  "salespersonName": zod.string().nullish(),
+  "subject": zod.string().nullish(),
+  "customerRequest": zod.string().nullish(),
+  "expertNotes": zod.string().nullish(),
+  "createdAt": zod.string()
+}).and(zod.object({
+  "systemSummary": zod.string().nullish(),
+  "extension": zod.string().nullish(),
+  "customerName": zod.string(),
+  "customerPhone": zod.string(),
+  "customerSalespersonName": zod.string().nullish()
+})),
+  "revision": zod.number().int(),
+  "isLive": zod.boolean(),
+  "status": zod.string(),
+  "subject": zod.string().nullable(),
+  "expertNotes": zod.string(),
+  "systemSummary": zod.string().nullable(),
+  "transcript": zod.union([zod.object({
+  "state": zod.enum(['not_started', 'queued', 'processing', 'completed', 'failed']),
+  "phase": zod.union([zod.literal(null),zod.literal('downloading'),zod.literal('cleaning'),zod.literal('transcribing')]).nullable(),
+  "error": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "durationSeconds": zod.number().nullable(),
+  "audioSeparation": zod.union([zod.literal(null),zod.literal('stereo_channels'),zod.literal('diarization')]).nullable(),
+  "notice": zod.string().nullable(),
+  "speakers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string()
+})),
+  "segments": zod.array(zod.object({
+  "speakerId": zod.string(),
+  "startSeconds": zod.number(),
+  "endSeconds": zod.number(),
+  "text": zod.string()
+})),
+  "text": zod.string().nullable(),
+  "completedAt": zod.string().nullable(),
+  "canGenerate": zod.boolean(),
+  "summaryState": zod.enum(['not_started', 'queued', 'processing', 'completed', 'failed']),
+  "summaryError": zod.string().nullable(),
+  "callSubject": zod.string().max(getVoipAfterCallReportResponseTranscriptOneCallSubjectMax).nullable(),
+  "customerRequestSummary": zod.string().max(getVoipAfterCallReportResponseTranscriptOneCustomerRequestSummaryMax).nullable(),
+  "summaryRevision": zod.number().int().optional(),
+  "summarySourceHash": zod.string().nullish(),
+  "summaryEdited": zod.boolean().optional(),
+  "summaryEditStale": zod.boolean().optional()
+}),zod.null()]),
+  "externalId": zod.string().nullable(),
+  "recordingFrom": zod.string().nullable(),
+  "recordingTo": zod.string().nullable(),
+  "canEdit": zod.boolean(),
+  "automaticError": zod.string().nullable()
+})
+
+
+export const UpdateVoipAfterCallReportParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const updateVoipAfterCallReportBodySubjectMax = 160;
+
+export const updateVoipAfterCallReportBodyExpertNotesMax = 10000;
+
+export const updateVoipAfterCallReportBodyExpectedRevisionMin = 0;
+
+
+
+export const UpdateVoipAfterCallReportBody = zod.object({
+  "subject": zod.string().max(updateVoipAfterCallReportBodySubjectMax).nullable(),
+  "expertNotes": zod.string().max(updateVoipAfterCallReportBodyExpertNotesMax),
+  "expectedRevision": zod.number().int().min(updateVoipAfterCallReportBodyExpectedRevisionMin)
+})
+
+export const updateVoipAfterCallReportResponseTranscriptOneCallSubjectMax = 160;
+
+export const updateVoipAfterCallReportResponseTranscriptOneCustomerRequestSummaryMax = 1200;
+
+
+
+export const UpdateVoipAfterCallReportResponse = zod.object({
+  "mobile": zod.object({
+  "id": zod.number().int().describe('Shared call event ID used by the report editor'),
+  "callId": zod.string(),
+  "deviceId": zod.number().int(),
+  "deviceName": zod.string(),
+  "expertUserId": zod.number().int(),
+  "expertName": zod.string(),
+  "direction": zod.enum(['incoming', 'outgoing']),
+  "callerNumber": zod.string(),
+  "calleeNumber": zod.string(),
+  "contactName": zod.string(),
+  "startedAt": zod.string(),
+  "answeredAt": zod.string().nullable(),
+  "endedAt": zod.string().nullable(),
+  "durationSeconds": zod.number().int().nullable(),
+  "status": zod.string(),
+  "isLive": zod.boolean(),
+  "subject": zod.string().nullable(),
+  "expertNotes": zod.string(),
+  "reportSavedAt": zod.string().nullable(),
+  "customerId": zod.number().int().nullable()
+}).optional(),
+  "id": zod.number().int(),
+  "eventId": zod.number().int().nullable(),
+  "call": zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int().nullable(),
+  "salespersonId": zod.number().int().nullish(),
+  "salespersonName": zod.string().nullish(),
+  "subject": zod.string().nullish(),
+  "customerRequest": zod.string().nullish(),
+  "expertNotes": zod.string().nullish(),
+  "createdAt": zod.string()
+}).and(zod.object({
+  "systemSummary": zod.string().nullish(),
+  "extension": zod.string().nullish(),
+  "customerName": zod.string(),
+  "customerPhone": zod.string(),
+  "customerSalespersonName": zod.string().nullish()
+})),
+  "revision": zod.number().int(),
+  "isLive": zod.boolean(),
+  "status": zod.string(),
+  "subject": zod.string().nullable(),
+  "expertNotes": zod.string(),
+  "systemSummary": zod.string().nullable(),
+  "transcript": zod.union([zod.object({
+  "state": zod.enum(['not_started', 'queued', 'processing', 'completed', 'failed']),
+  "phase": zod.union([zod.literal(null),zod.literal('downloading'),zod.literal('cleaning'),zod.literal('transcribing')]).nullable(),
+  "error": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "durationSeconds": zod.number().nullable(),
+  "audioSeparation": zod.union([zod.literal(null),zod.literal('stereo_channels'),zod.literal('diarization')]).nullable(),
+  "notice": zod.string().nullable(),
+  "speakers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string()
+})),
+  "segments": zod.array(zod.object({
+  "speakerId": zod.string(),
+  "startSeconds": zod.number(),
+  "endSeconds": zod.number(),
+  "text": zod.string()
+})),
+  "text": zod.string().nullable(),
+  "completedAt": zod.string().nullable(),
+  "canGenerate": zod.boolean(),
+  "summaryState": zod.enum(['not_started', 'queued', 'processing', 'completed', 'failed']),
+  "summaryError": zod.string().nullable(),
+  "callSubject": zod.string().max(updateVoipAfterCallReportResponseTranscriptOneCallSubjectMax).nullable(),
+  "customerRequestSummary": zod.string().max(updateVoipAfterCallReportResponseTranscriptOneCustomerRequestSummaryMax).nullable(),
+  "summaryRevision": zod.number().int().optional(),
+  "summarySourceHash": zod.string().nullish(),
+  "summaryEdited": zod.boolean().optional(),
+  "summaryEditStale": zod.boolean().optional()
+}),zod.null()]),
+  "externalId": zod.string().nullable(),
+  "recordingFrom": zod.string().nullable(),
+  "recordingTo": zod.string().nullable(),
+  "canEdit": zod.boolean(),
+  "automaticError": zod.string().nullable()
+})
 
 
 /**
@@ -1107,6 +3553,9 @@ export const ListConsultationsResponse = zod.object({
   "customerId": zod.number().int(),
   "customerName": zod.string(),
   "customerPhone": zod.string(),
+  "customerSalespersonName": zod.string().nullish(),
+  "createdAt": zod.string().nullish(),
+  "questionnaireVersion": zod.number().int().optional(),
   "hasCheck": zod.boolean().nullish(),
   "hasPromissory": zod.boolean().nullish(),
   "hasGuarantor": zod.boolean().nullish(),
@@ -1145,6 +3594,7 @@ export const ListConsultationsResponse = zod.object({
  */
 export const CreateConsultationBody = zod.object({
   "customerId": zod.number().int(),
+  "questionnaireVersion": zod.union([zod.literal(1),zod.literal(2)]).optional(),
   "hasCheck": zod.boolean().optional(),
   "hasPromissory": zod.boolean().optional(),
   "hasGuarantor": zod.boolean().optional(),
@@ -1177,6 +3627,9 @@ export const CreateConsultationResponse = zod.object({
   "customerId": zod.number().int(),
   "customerName": zod.string(),
   "customerPhone": zod.string(),
+  "customerSalespersonName": zod.string().nullish(),
+  "createdAt": zod.string().nullish(),
+  "questionnaireVersion": zod.number().int().optional(),
   "hasCheck": zod.boolean().nullish(),
   "hasPromissory": zod.boolean().nullish(),
   "hasGuarantor": zod.boolean().nullish(),
@@ -1218,6 +3671,9 @@ export const GetConsultationResponse = zod.object({
   "customerId": zod.number().int(),
   "customerName": zod.string(),
   "customerPhone": zod.string(),
+  "customerSalespersonName": zod.string().nullish(),
+  "createdAt": zod.string().nullish(),
+  "questionnaireVersion": zod.number().int().optional(),
   "hasCheck": zod.boolean().nullish(),
   "hasPromissory": zod.boolean().nullish(),
   "hasGuarantor": zod.boolean().nullish(),
@@ -1288,6 +3744,9 @@ export const UpdateConsultationResponse = zod.object({
   "customerId": zod.number().int(),
   "customerName": zod.string(),
   "customerPhone": zod.string(),
+  "customerSalespersonName": zod.string().nullish(),
+  "createdAt": zod.string().nullish(),
+  "questionnaireVersion": zod.number().int().optional(),
   "hasCheck": zod.boolean().nullish(),
   "hasPromissory": zod.boolean().nullish(),
   "hasGuarantor": zod.boolean().nullish(),
@@ -1324,6 +3783,7 @@ export const MatchConsultationLoanPlansParams = zod.object({
   "id": zod.coerce.number().int()
 })
 
+export const matchConsultationLoanPlansResponsePlanFilingFeeTomanRegExp = new RegExp('^[0-9]+$');
 export const matchConsultationLoanPlansResponsePlanInstallmentTermsItemPrepaymentPercentMin = 0;
 export const matchConsultationLoanPlansResponsePlanInstallmentTermsItemPrepaymentPercentMax = 100;
 
@@ -1333,12 +3793,55 @@ export const matchConsultationLoanPlansResponsePlanInstallmentTermsItemDeduction
 export const matchConsultationLoanPlansResponsePlanInstallmentTermsItemDepositPercentMin = 0;
 export const matchConsultationLoanPlansResponsePlanInstallmentTermsItemDepositPercentMax = 100;
 
+export const matchConsultationLoanPlansResponsePlanCommissionPercentMin = 0;
+export const matchConsultationLoanPlansResponsePlanCommissionPercentMax = 100;
+
+export const matchConsultationLoanPlansResponsePlanOperationCostsPercentMin = 0;
+export const matchConsultationLoanPlansResponsePlanOperationCostsPercentMax = 100;
+
+export const matchConsultationLoanPlansResponsePlanGrantedDiscountPercentMin = 0;
+export const matchConsultationLoanPlansResponsePlanGrantedDiscountPercentMax = 100;
+
+export const matchConsultationLoanPlansResponsePlanPurchaseCommissionPercentMin = 0;
+export const matchConsultationLoanPlansResponsePlanPurchaseCommissionPercentMax = 100;
+
+export const matchConsultationLoanPlansResponsePlanSalesCommissionPercentMin = 0;
+export const matchConsultationLoanPlansResponsePlanSalesCommissionPercentMax = 100;
+
+export const matchConsultationLoanPlansResponsePlanLoanAcquisitionFeePercentMin = 0;
+export const matchConsultationLoanPlansResponsePlanLoanAcquisitionFeePercentMax = 100;
+
+export const matchConsultationLoanPlansResponsePlanPenaltyValueMin = 0;
+
+
+export const matchConsultationLoanPlansResponsePlanConditionsItemCommissionPercentMin = 0;
+export const matchConsultationLoanPlansResponsePlanConditionsItemCommissionPercentMax = 100;
+
+export const matchConsultationLoanPlansResponsePlanConditionsItemOperationCostsPercentMin = 0;
+export const matchConsultationLoanPlansResponsePlanConditionsItemOperationCostsPercentMax = 100;
+
+export const matchConsultationLoanPlansResponsePlanConditionsItemGrantedDiscountPercentMin = 0;
+export const matchConsultationLoanPlansResponsePlanConditionsItemGrantedDiscountPercentMax = 100;
+
+export const matchConsultationLoanPlansResponsePlanConditionsItemPurchaseCommissionPercentMin = 0;
+export const matchConsultationLoanPlansResponsePlanConditionsItemPurchaseCommissionPercentMax = 100;
+
+export const matchConsultationLoanPlansResponsePlanConditionsItemSalesCommissionPercentMin = 0;
+export const matchConsultationLoanPlansResponsePlanConditionsItemSalesCommissionPercentMax = 100;
+
+export const matchConsultationLoanPlansResponsePlanConditionsItemLoanAcquisitionFeePercentMin = 0;
+export const matchConsultationLoanPlansResponsePlanConditionsItemLoanAcquisitionFeePercentMax = 100;
+
+export const matchConsultationLoanPlansResponsePlanConditionsItemPenaltyValueMin = 0;
+
+
 
 
 export const MatchConsultationLoanPlansResponseItem = zod.object({
   "plan": zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
+  "filingFeeToman": zod.string().regex(matchConsultationLoanPlansResponsePlanFilingFeeTomanRegExp),
   "bankName": zod.string().nullish(),
   "platformName": zod.string().nullish(),
   "principalAmount": zod.string().nullish(),
@@ -1374,6 +3877,18 @@ export const MatchConsultationLoanPlansResponseItem = zod.object({
   "acknowledgementTemplateId": zod.number().int().nullish(),
   "needsCustomerSalaryDeduct": zod.boolean().optional(),
   "needsGuarantorSalaryDeduct": zod.boolean().optional(),
+  "contractTemplateId": zod.number().int().nullish(),
+  "platformCompanyName": zod.string().nullish(),
+  "goodsStoreName": zod.string().nullish(),
+  "commissionPercent": zod.number().min(matchConsultationLoanPlansResponsePlanCommissionPercentMin).max(matchConsultationLoanPlansResponsePlanCommissionPercentMax).nullish(),
+  "operationCostsPercent": zod.number().min(matchConsultationLoanPlansResponsePlanOperationCostsPercentMin).max(matchConsultationLoanPlansResponsePlanOperationCostsPercentMax).nullish(),
+  "grantedDiscountPercent": zod.number().min(matchConsultationLoanPlansResponsePlanGrantedDiscountPercentMin).max(matchConsultationLoanPlansResponsePlanGrantedDiscountPercentMax).nullish(),
+  "purchaseCommissionPercent": zod.number().min(matchConsultationLoanPlansResponsePlanPurchaseCommissionPercentMin).max(matchConsultationLoanPlansResponsePlanPurchaseCommissionPercentMax).nullish(),
+  "salesCommissionPercent": zod.number().min(matchConsultationLoanPlansResponsePlanSalesCommissionPercentMin).max(matchConsultationLoanPlansResponsePlanSalesCommissionPercentMax).nullish(),
+  "loanAcquisitionFeePercent": zod.number().min(matchConsultationLoanPlansResponsePlanLoanAcquisitionFeePercentMin).max(matchConsultationLoanPlansResponsePlanLoanAcquisitionFeePercentMax).nullish(),
+  "penaltyMode": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "penaltyValue": zod.number().min(matchConsultationLoanPlansResponsePlanPenaltyValueMin).nullish(),
+  "contractDurationDays": zod.number().int().min(1).nullish(),
   "createdAt": zod.string(),
   "conditions": zod.array(zod.object({
   "id": zod.number().int(),
@@ -1391,6 +3906,18 @@ export const MatchConsultationLoanPlansResponseItem = zod.object({
   "needsGuarantorPromissory": zod.boolean().optional(),
   "needsCustomerSalaryDeduct": zod.boolean().optional(),
   "needsGuarantorSalaryDeduct": zod.boolean().optional(),
+  "contractTemplateId": zod.number().int().nullish(),
+  "platformCompanyName": zod.string().nullish(),
+  "goodsStoreName": zod.string().nullish(),
+  "commissionPercent": zod.number().min(matchConsultationLoanPlansResponsePlanConditionsItemCommissionPercentMin).max(matchConsultationLoanPlansResponsePlanConditionsItemCommissionPercentMax).nullish(),
+  "operationCostsPercent": zod.number().min(matchConsultationLoanPlansResponsePlanConditionsItemOperationCostsPercentMin).max(matchConsultationLoanPlansResponsePlanConditionsItemOperationCostsPercentMax).nullish(),
+  "grantedDiscountPercent": zod.number().min(matchConsultationLoanPlansResponsePlanConditionsItemGrantedDiscountPercentMin).max(matchConsultationLoanPlansResponsePlanConditionsItemGrantedDiscountPercentMax).nullish(),
+  "purchaseCommissionPercent": zod.number().min(matchConsultationLoanPlansResponsePlanConditionsItemPurchaseCommissionPercentMin).max(matchConsultationLoanPlansResponsePlanConditionsItemPurchaseCommissionPercentMax).nullish(),
+  "salesCommissionPercent": zod.number().min(matchConsultationLoanPlansResponsePlanConditionsItemSalesCommissionPercentMin).max(matchConsultationLoanPlansResponsePlanConditionsItemSalesCommissionPercentMax).nullish(),
+  "loanAcquisitionFeePercent": zod.number().min(matchConsultationLoanPlansResponsePlanConditionsItemLoanAcquisitionFeePercentMin).max(matchConsultationLoanPlansResponsePlanConditionsItemLoanAcquisitionFeePercentMax).nullish(),
+  "penaltyMode": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "penaltyValue": zod.number().min(matchConsultationLoanPlansResponsePlanConditionsItemPenaltyValueMin).nullish(),
+  "contractDurationDays": zod.number().int().min(1).nullish(),
   "needsCustomerCheck": zod.boolean().optional(),
   "needsGuarantorCheck": zod.boolean().optional(),
   "sortOrder": zod.number().int(),
@@ -1399,6 +3926,7 @@ export const MatchConsultationLoanPlansResponseItem = zod.object({
 }),
   "status": zod.enum(['eligible', 'needs_review', 'not_eligible']),
   "matchedConditionId": zod.number().int().nullish(),
+  "customerMaximumAmount": zod.string().nullish().describe('Maximum toman principal available through fully matched conditions for this customer; absent in older historical snapshots.'),
   "failedRequirements": zod.array(zod.string()),
   "missingInformation": zod.array(zod.string())
 })
@@ -1406,60 +3934,164 @@ export const MatchConsultationLoanPlansResponse = zod.array(MatchConsultationLoa
 
 
 /**
- * @summary Register a loan application from a consultation recommendation
+ * @summary Get immutable eligibility results captured when the consultation was created
  */
-export const CreateConsultationLoanApplicationParams = zod.object({
+export const GetConsultationHistoricalLoanPlanMatchesParams = zod.object({
   "id": zod.coerce.number().int()
 })
 
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanFilingFeeTomanRegExp = new RegExp('^[0-9]+$');
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanInstallmentTermsItemPrepaymentPercentMin = 0;
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanInstallmentTermsItemPrepaymentPercentMax = 100;
 
-export const createConsultationLoanApplicationBodyNotesMax = 1000;
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanInstallmentTermsItemDeductionPercentMin = 0;
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanInstallmentTermsItemDeductionPercentMax = 100;
 
-export const createConsultationLoanApplicationBodyRequestedAmountRegExp = new RegExp('^[1-9][0-9]*$');
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanInstallmentTermsItemDepositPercentMin = 0;
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanInstallmentTermsItemDepositPercentMax = 100;
+
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanCommissionPercentMin = 0;
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanCommissionPercentMax = 100;
+
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanOperationCostsPercentMin = 0;
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanOperationCostsPercentMax = 100;
+
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanGrantedDiscountPercentMin = 0;
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanGrantedDiscountPercentMax = 100;
+
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanPurchaseCommissionPercentMin = 0;
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanPurchaseCommissionPercentMax = 100;
+
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanSalesCommissionPercentMin = 0;
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanSalesCommissionPercentMax = 100;
+
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanLoanAcquisitionFeePercentMin = 0;
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanLoanAcquisitionFeePercentMax = 100;
+
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanPenaltyValueMin = 0;
+
+
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemCommissionPercentMin = 0;
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemCommissionPercentMax = 100;
+
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemOperationCostsPercentMin = 0;
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemOperationCostsPercentMax = 100;
+
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemGrantedDiscountPercentMin = 0;
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemGrantedDiscountPercentMax = 100;
+
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemPurchaseCommissionPercentMin = 0;
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemPurchaseCommissionPercentMax = 100;
+
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemSalesCommissionPercentMin = 0;
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemSalesCommissionPercentMax = 100;
+
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemLoanAcquisitionFeePercentMin = 0;
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemLoanAcquisitionFeePercentMax = 100;
+
+export const getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemPenaltyValueMin = 0;
 
 
 
-export const CreateConsultationLoanApplicationBody = zod.object({
-  "planIds": zod.array(zod.number().int()).min(1),
-  "notes": zod.string().max(createConsultationLoanApplicationBodyNotesMax).optional(),
-  "customerId": zod.number().int(),
-  "planId": zod.number().int(),
-  "consultationId": zod.number().int().optional(),
-  "requestedAmount": zod.string().regex(createConsultationLoanApplicationBodyRequestedAmountRegExp),
-  "durationMonths": zod.number().int().min(1)
-})
 
-export const CreateConsultationLoanApplicationResponse = zod.object({
+export const GetConsultationHistoricalLoanPlanMatchesResponse = zod.object({
+  "snapshot": zod.union([zod.null(),zod.object({
+  "capturedAt": zod.coerce.date(),
+  "requestedAmount": zod.string().nullable(),
+  "matches": zod.array(zod.object({
+  "plan": zod.object({
   "id": zod.number().int(),
-  "consultationId": zod.number().int(),
-  "customerId": zod.number().int(),
-  "planIds": zod.array(zod.number().int()),
-  "requestedAmount": zod.string(),
-  "status": zod.enum(['requested', 'reviewing', 'approved', 'rejected']),
+  "name": zod.string(),
+  "filingFeeToman": zod.string().regex(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanFilingFeeTomanRegExp),
+  "bankName": zod.string().nullish(),
+  "platformName": zod.string().nullish(),
+  "principalAmount": zod.string().nullish(),
+  "annualInterest": zod.string().nullish(),
+  "installments": zod.string().nullish(),
+  "installmentTerms": zod.array(zod.object({
+  "installments": zod.union([zod.literal(6),zod.literal(9),zod.literal(12),zod.literal(18),zod.literal(24),zod.literal(36),zod.literal(48)]),
+  "prepaymentPercent": zod.number().min(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanInstallmentTermsItemPrepaymentPercentMin).max(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanInstallmentTermsItemPrepaymentPercentMax),
+  "deductionPercent": zod.number().min(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanInstallmentTermsItemDeductionPercentMin).max(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanInstallmentTermsItemDeductionPercentMax),
+  "depositPercent": zod.number().min(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanInstallmentTermsItemDepositPercentMin).max(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanInstallmentTermsItemDepositPercentMax)
+})).optional(),
+  "requiredDocuments": zod.array(zod.string()).optional(),
+  "deductPercents": zod.string().nullish(),
+  "customerRanks": zod.string().nullish(),
+  "customerCheck": zod.string().nullish(),
+  "needsCustomerPromissory": zod.boolean().optional(),
+  "customerJobs": zod.string().nullish(),
+  "processMode": zod.string().nullish(),
+  "needsGuarantor": zod.boolean().optional(),
+  "guarantorRanks": zod.string().nullish(),
+  "guarantorCheck": zod.string().nullish(),
+  "needsGuarantorPromissory": zod.boolean().optional(),
+  "guarantorJobs": zod.string().nullish(),
+  "loanType": zod.string().nullish(),
+  "grantDays": zod.string().nullish(),
+  "needsAccountTurnover": zod.boolean().optional(),
+  "needsAvgBalance": zod.boolean().optional(),
   "notes": zod.string().nullish(),
+  "prepaymentPercents": zod.string().nullish(),
+  "depositPercents": zod.string().nullish(),
+  "primaryContractTemplateId": zod.number().int().nullish(),
+  "invoiceTemplateId": zod.number().int().nullish(),
+  "acknowledgementTemplateId": zod.number().int().nullish(),
+  "needsCustomerSalaryDeduct": zod.boolean().optional(),
+  "needsGuarantorSalaryDeduct": zod.boolean().optional(),
+  "contractTemplateId": zod.number().int().nullish(),
+  "platformCompanyName": zod.string().nullish(),
+  "goodsStoreName": zod.string().nullish(),
+  "commissionPercent": zod.number().min(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanCommissionPercentMin).max(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanCommissionPercentMax).nullish(),
+  "operationCostsPercent": zod.number().min(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanOperationCostsPercentMin).max(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanOperationCostsPercentMax).nullish(),
+  "grantedDiscountPercent": zod.number().min(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanGrantedDiscountPercentMin).max(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanGrantedDiscountPercentMax).nullish(),
+  "purchaseCommissionPercent": zod.number().min(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanPurchaseCommissionPercentMin).max(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanPurchaseCommissionPercentMax).nullish(),
+  "salesCommissionPercent": zod.number().min(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanSalesCommissionPercentMin).max(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanSalesCommissionPercentMax).nullish(),
+  "loanAcquisitionFeePercent": zod.number().min(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanLoanAcquisitionFeePercentMin).max(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanLoanAcquisitionFeePercentMax).nullish(),
+  "penaltyMode": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "penaltyValue": zod.number().min(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanPenaltyValueMin).nullish(),
+  "contractDurationDays": zod.number().int().min(1).nullish(),
   "createdAt": zod.string(),
-  "customerName": zod.string().optional(),
-  "planName": zod.string().nullish(),
-  "planId": zod.number().int().optional(),
-  "approvedAmount": zod.string().nullish(),
-  "netAmount": zod.string().nullish(),
-  "durationMonths": zod.number().int().optional(),
-  "stage": zod.string().optional(),
-  "documents": zod.array(zod.object({
-
-}).passthrough()).optional(),
-  "history": zod.array(zod.object({
-
-}).passthrough()).optional(),
-  "guarantor": zod.record(zod.string(), zod.unknown()).nullish(),
-  "collateral": zod.array(zod.object({
-
-}).passthrough()).optional(),
-  "generatedDocuments": zod.array(zod.object({
-
-}).passthrough()).optional(),
-  "calculation": zod.record(zod.string(), zod.unknown()).nullish(),
-  "updatedAt": zod.string().optional()
+  "conditions": zod.array(zod.object({
+  "id": zod.number().int(),
+  "planId": zod.number().int(),
+  "maxPrincipal": zod.string().nullish(),
+  "customerRanks": zod.string().nullish(),
+  "installmentOptions": zod.array(zod.union([zod.literal(6),zod.literal(9),zod.literal(12),zod.literal(18),zod.literal(24),zod.literal(36),zod.literal(48)])).optional(),
+  "customerJobs": zod.array(zod.string()).optional(),
+  "collateralType": zod.string().nullish(),
+  "needsGuarantor": zod.boolean().optional(),
+  "guarantorRanks": zod.string().nullish(),
+  "guarantorJobs": zod.array(zod.string()).optional(),
+  "guarantorCollateralType": zod.string().nullish(),
+  "needsCustomerPromissory": zod.boolean().optional(),
+  "needsGuarantorPromissory": zod.boolean().optional(),
+  "needsCustomerSalaryDeduct": zod.boolean().optional(),
+  "needsGuarantorSalaryDeduct": zod.boolean().optional(),
+  "contractTemplateId": zod.number().int().nullish(),
+  "platformCompanyName": zod.string().nullish(),
+  "goodsStoreName": zod.string().nullish(),
+  "commissionPercent": zod.number().min(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemCommissionPercentMin).max(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemCommissionPercentMax).nullish(),
+  "operationCostsPercent": zod.number().min(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemOperationCostsPercentMin).max(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemOperationCostsPercentMax).nullish(),
+  "grantedDiscountPercent": zod.number().min(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemGrantedDiscountPercentMin).max(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemGrantedDiscountPercentMax).nullish(),
+  "purchaseCommissionPercent": zod.number().min(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemPurchaseCommissionPercentMin).max(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemPurchaseCommissionPercentMax).nullish(),
+  "salesCommissionPercent": zod.number().min(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemSalesCommissionPercentMin).max(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemSalesCommissionPercentMax).nullish(),
+  "loanAcquisitionFeePercent": zod.number().min(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemLoanAcquisitionFeePercentMin).max(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemLoanAcquisitionFeePercentMax).nullish(),
+  "penaltyMode": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "penaltyValue": zod.number().min(getConsultationHistoricalLoanPlanMatchesResponseSnapshotTwoMatchesItemPlanConditionsItemPenaltyValueMin).nullish(),
+  "contractDurationDays": zod.number().int().min(1).nullish(),
+  "needsCustomerCheck": zod.boolean().optional(),
+  "needsGuarantorCheck": zod.boolean().optional(),
+  "sortOrder": zod.number().int(),
+  "notes": zod.string().nullish()
+}))
+}),
+  "status": zod.enum(['eligible', 'needs_review', 'not_eligible']),
+  "matchedConditionId": zod.number().int().nullish(),
+  "customerMaximumAmount": zod.string().nullish().describe('Maximum toman principal available through fully matched conditions for this customer; absent in older historical snapshots.'),
+  "failedRequirements": zod.array(zod.string()),
+  "missingInformation": zod.array(zod.string())
+}))
+})])
 })
 
 
@@ -1470,6 +4102,7 @@ export const ListLoanPlansQueryParams = zod.object({
   "active": zod.coerce.boolean().optional()
 })
 
+export const listLoanPlansResponseFilingFeeTomanRegExp = new RegExp('^[0-9]+$');
 export const listLoanPlansResponseInstallmentTermsItemPrepaymentPercentMin = 0;
 export const listLoanPlansResponseInstallmentTermsItemPrepaymentPercentMax = 100;
 
@@ -1479,11 +4112,54 @@ export const listLoanPlansResponseInstallmentTermsItemDeductionPercentMax = 100;
 export const listLoanPlansResponseInstallmentTermsItemDepositPercentMin = 0;
 export const listLoanPlansResponseInstallmentTermsItemDepositPercentMax = 100;
 
+export const listLoanPlansResponseCommissionPercentMin = 0;
+export const listLoanPlansResponseCommissionPercentMax = 100;
+
+export const listLoanPlansResponseOperationCostsPercentMin = 0;
+export const listLoanPlansResponseOperationCostsPercentMax = 100;
+
+export const listLoanPlansResponseGrantedDiscountPercentMin = 0;
+export const listLoanPlansResponseGrantedDiscountPercentMax = 100;
+
+export const listLoanPlansResponsePurchaseCommissionPercentMin = 0;
+export const listLoanPlansResponsePurchaseCommissionPercentMax = 100;
+
+export const listLoanPlansResponseSalesCommissionPercentMin = 0;
+export const listLoanPlansResponseSalesCommissionPercentMax = 100;
+
+export const listLoanPlansResponseLoanAcquisitionFeePercentMin = 0;
+export const listLoanPlansResponseLoanAcquisitionFeePercentMax = 100;
+
+export const listLoanPlansResponsePenaltyValueMin = 0;
+
+
+export const listLoanPlansResponseConditionsItemCommissionPercentMin = 0;
+export const listLoanPlansResponseConditionsItemCommissionPercentMax = 100;
+
+export const listLoanPlansResponseConditionsItemOperationCostsPercentMin = 0;
+export const listLoanPlansResponseConditionsItemOperationCostsPercentMax = 100;
+
+export const listLoanPlansResponseConditionsItemGrantedDiscountPercentMin = 0;
+export const listLoanPlansResponseConditionsItemGrantedDiscountPercentMax = 100;
+
+export const listLoanPlansResponseConditionsItemPurchaseCommissionPercentMin = 0;
+export const listLoanPlansResponseConditionsItemPurchaseCommissionPercentMax = 100;
+
+export const listLoanPlansResponseConditionsItemSalesCommissionPercentMin = 0;
+export const listLoanPlansResponseConditionsItemSalesCommissionPercentMax = 100;
+
+export const listLoanPlansResponseConditionsItemLoanAcquisitionFeePercentMin = 0;
+export const listLoanPlansResponseConditionsItemLoanAcquisitionFeePercentMax = 100;
+
+export const listLoanPlansResponseConditionsItemPenaltyValueMin = 0;
+
+
 
 
 export const ListLoanPlansResponseItem = zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
+  "filingFeeToman": zod.string().regex(listLoanPlansResponseFilingFeeTomanRegExp),
   "bankName": zod.string().nullish(),
   "platformName": zod.string().nullish(),
   "principalAmount": zod.string().nullish(),
@@ -1519,6 +4195,18 @@ export const ListLoanPlansResponseItem = zod.object({
   "acknowledgementTemplateId": zod.number().int().nullish(),
   "needsCustomerSalaryDeduct": zod.boolean().optional(),
   "needsGuarantorSalaryDeduct": zod.boolean().optional(),
+  "contractTemplateId": zod.number().int().nullish(),
+  "platformCompanyName": zod.string().nullish(),
+  "goodsStoreName": zod.string().nullish(),
+  "commissionPercent": zod.number().min(listLoanPlansResponseCommissionPercentMin).max(listLoanPlansResponseCommissionPercentMax).nullish(),
+  "operationCostsPercent": zod.number().min(listLoanPlansResponseOperationCostsPercentMin).max(listLoanPlansResponseOperationCostsPercentMax).nullish(),
+  "grantedDiscountPercent": zod.number().min(listLoanPlansResponseGrantedDiscountPercentMin).max(listLoanPlansResponseGrantedDiscountPercentMax).nullish(),
+  "purchaseCommissionPercent": zod.number().min(listLoanPlansResponsePurchaseCommissionPercentMin).max(listLoanPlansResponsePurchaseCommissionPercentMax).nullish(),
+  "salesCommissionPercent": zod.number().min(listLoanPlansResponseSalesCommissionPercentMin).max(listLoanPlansResponseSalesCommissionPercentMax).nullish(),
+  "loanAcquisitionFeePercent": zod.number().min(listLoanPlansResponseLoanAcquisitionFeePercentMin).max(listLoanPlansResponseLoanAcquisitionFeePercentMax).nullish(),
+  "penaltyMode": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "penaltyValue": zod.number().min(listLoanPlansResponsePenaltyValueMin).nullish(),
+  "contractDurationDays": zod.number().int().min(1).nullish(),
   "createdAt": zod.string(),
   "conditions": zod.array(zod.object({
   "id": zod.number().int(),
@@ -1536,6 +4224,18 @@ export const ListLoanPlansResponseItem = zod.object({
   "needsGuarantorPromissory": zod.boolean().optional(),
   "needsCustomerSalaryDeduct": zod.boolean().optional(),
   "needsGuarantorSalaryDeduct": zod.boolean().optional(),
+  "contractTemplateId": zod.number().int().nullish(),
+  "platformCompanyName": zod.string().nullish(),
+  "goodsStoreName": zod.string().nullish(),
+  "commissionPercent": zod.number().min(listLoanPlansResponseConditionsItemCommissionPercentMin).max(listLoanPlansResponseConditionsItemCommissionPercentMax).nullish(),
+  "operationCostsPercent": zod.number().min(listLoanPlansResponseConditionsItemOperationCostsPercentMin).max(listLoanPlansResponseConditionsItemOperationCostsPercentMax).nullish(),
+  "grantedDiscountPercent": zod.number().min(listLoanPlansResponseConditionsItemGrantedDiscountPercentMin).max(listLoanPlansResponseConditionsItemGrantedDiscountPercentMax).nullish(),
+  "purchaseCommissionPercent": zod.number().min(listLoanPlansResponseConditionsItemPurchaseCommissionPercentMin).max(listLoanPlansResponseConditionsItemPurchaseCommissionPercentMax).nullish(),
+  "salesCommissionPercent": zod.number().min(listLoanPlansResponseConditionsItemSalesCommissionPercentMin).max(listLoanPlansResponseConditionsItemSalesCommissionPercentMax).nullish(),
+  "loanAcquisitionFeePercent": zod.number().min(listLoanPlansResponseConditionsItemLoanAcquisitionFeePercentMin).max(listLoanPlansResponseConditionsItemLoanAcquisitionFeePercentMax).nullish(),
+  "penaltyMode": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "penaltyValue": zod.number().min(listLoanPlansResponseConditionsItemPenaltyValueMin).nullish(),
+  "contractDurationDays": zod.number().int().min(1).nullish(),
   "needsCustomerCheck": zod.boolean().optional(),
   "needsGuarantorCheck": zod.boolean().optional(),
   "sortOrder": zod.number().int(),
@@ -1549,6 +4249,7 @@ export const ListLoanPlansResponse = zod.array(ListLoanPlansResponseItem)
  * @summary Create a financing plan
  */
 
+export const createLoanPlanBodyFilingFeeTomanRegExp = new RegExp('^[0-9]+$');
 export const createLoanPlanBodyInstallmentTermsItemPrepaymentPercentMin = 0;
 export const createLoanPlanBodyInstallmentTermsItemPrepaymentPercentMax = 100;
 
@@ -1558,12 +4259,35 @@ export const createLoanPlanBodyInstallmentTermsItemDeductionPercentMax = 100;
 export const createLoanPlanBodyInstallmentTermsItemDepositPercentMin = 0;
 export const createLoanPlanBodyInstallmentTermsItemDepositPercentMax = 100;
 
+
+export const createLoanPlanBodyCommissionPercentMin = 0;
+export const createLoanPlanBodyCommissionPercentMax = 100;
+
+export const createLoanPlanBodyOperationCostsPercentMin = 0;
+export const createLoanPlanBodyOperationCostsPercentMax = 100;
+
+export const createLoanPlanBodyGrantedDiscountPercentMin = 0;
+export const createLoanPlanBodyGrantedDiscountPercentMax = 100;
+
+export const createLoanPlanBodyPurchaseCommissionPercentMin = 0;
+export const createLoanPlanBodyPurchaseCommissionPercentMax = 100;
+
+export const createLoanPlanBodySalesCommissionPercentMin = 0;
+export const createLoanPlanBodySalesCommissionPercentMax = 100;
+
+export const createLoanPlanBodyLoanAcquisitionFeePercentMin = 0;
+export const createLoanPlanBodyLoanAcquisitionFeePercentMax = 100;
+
+export const createLoanPlanBodyPenaltyValueMin = 0;
+
+
 export const createLoanPlanBodyConditionsItemSortOrderMin = 0;
 
 
 
 export const CreateLoanPlanBody = zod.object({
   "name": zod.string().min(1),
+  "filingFeeToman": zod.string().regex(createLoanPlanBodyFilingFeeTomanRegExp).optional(),
   "bankName": zod.string().optional(),
   "platformName": zod.string().optional(),
   "principalAmount": zod.string().optional(),
@@ -1591,9 +4315,18 @@ export const CreateLoanPlanBody = zod.object({
   "grantDays": zod.string().optional(),
   "needsAccountTurnover": zod.boolean().optional(),
   "needsAvgBalance": zod.boolean().optional(),
-  "primaryContractTemplateId": zod.number().int().optional(),
-  "invoiceTemplateId": zod.number().int().optional(),
-  "acknowledgementTemplateId": zod.number().int().optional(),
+  "contractTemplateId": zod.number().int().min(1),
+  "platformCompanyName": zod.string().optional(),
+  "goodsStoreName": zod.string().optional(),
+  "commissionPercent": zod.number().min(createLoanPlanBodyCommissionPercentMin).max(createLoanPlanBodyCommissionPercentMax).optional(),
+  "operationCostsPercent": zod.number().min(createLoanPlanBodyOperationCostsPercentMin).max(createLoanPlanBodyOperationCostsPercentMax).optional(),
+  "grantedDiscountPercent": zod.number().min(createLoanPlanBodyGrantedDiscountPercentMin).max(createLoanPlanBodyGrantedDiscountPercentMax).optional(),
+  "purchaseCommissionPercent": zod.number().min(createLoanPlanBodyPurchaseCommissionPercentMin).max(createLoanPlanBodyPurchaseCommissionPercentMax).optional(),
+  "salesCommissionPercent": zod.number().min(createLoanPlanBodySalesCommissionPercentMin).max(createLoanPlanBodySalesCommissionPercentMax).optional(),
+  "loanAcquisitionFeePercent": zod.number().min(createLoanPlanBodyLoanAcquisitionFeePercentMin).max(createLoanPlanBodyLoanAcquisitionFeePercentMax).optional(),
+  "penaltyMode": zod.enum(['amount', 'percent']).optional(),
+  "penaltyValue": zod.number().min(createLoanPlanBodyPenaltyValueMin).optional(),
+  "contractDurationDays": zod.number().int().min(1).optional(),
   "notes": zod.string().optional(),
   "prepaymentPercents": zod.string().optional(),
   "depositPercents": zod.string().optional(),
@@ -1621,6 +4354,7 @@ export const CreateLoanPlanBody = zod.object({
 })).optional()
 })
 
+export const createLoanPlanResponseFilingFeeTomanRegExp = new RegExp('^[0-9]+$');
 export const createLoanPlanResponseInstallmentTermsItemPrepaymentPercentMin = 0;
 export const createLoanPlanResponseInstallmentTermsItemPrepaymentPercentMax = 100;
 
@@ -1630,11 +4364,54 @@ export const createLoanPlanResponseInstallmentTermsItemDeductionPercentMax = 100
 export const createLoanPlanResponseInstallmentTermsItemDepositPercentMin = 0;
 export const createLoanPlanResponseInstallmentTermsItemDepositPercentMax = 100;
 
+export const createLoanPlanResponseCommissionPercentMin = 0;
+export const createLoanPlanResponseCommissionPercentMax = 100;
+
+export const createLoanPlanResponseOperationCostsPercentMin = 0;
+export const createLoanPlanResponseOperationCostsPercentMax = 100;
+
+export const createLoanPlanResponseGrantedDiscountPercentMin = 0;
+export const createLoanPlanResponseGrantedDiscountPercentMax = 100;
+
+export const createLoanPlanResponsePurchaseCommissionPercentMin = 0;
+export const createLoanPlanResponsePurchaseCommissionPercentMax = 100;
+
+export const createLoanPlanResponseSalesCommissionPercentMin = 0;
+export const createLoanPlanResponseSalesCommissionPercentMax = 100;
+
+export const createLoanPlanResponseLoanAcquisitionFeePercentMin = 0;
+export const createLoanPlanResponseLoanAcquisitionFeePercentMax = 100;
+
+export const createLoanPlanResponsePenaltyValueMin = 0;
+
+
+export const createLoanPlanResponseConditionsItemCommissionPercentMin = 0;
+export const createLoanPlanResponseConditionsItemCommissionPercentMax = 100;
+
+export const createLoanPlanResponseConditionsItemOperationCostsPercentMin = 0;
+export const createLoanPlanResponseConditionsItemOperationCostsPercentMax = 100;
+
+export const createLoanPlanResponseConditionsItemGrantedDiscountPercentMin = 0;
+export const createLoanPlanResponseConditionsItemGrantedDiscountPercentMax = 100;
+
+export const createLoanPlanResponseConditionsItemPurchaseCommissionPercentMin = 0;
+export const createLoanPlanResponseConditionsItemPurchaseCommissionPercentMax = 100;
+
+export const createLoanPlanResponseConditionsItemSalesCommissionPercentMin = 0;
+export const createLoanPlanResponseConditionsItemSalesCommissionPercentMax = 100;
+
+export const createLoanPlanResponseConditionsItemLoanAcquisitionFeePercentMin = 0;
+export const createLoanPlanResponseConditionsItemLoanAcquisitionFeePercentMax = 100;
+
+export const createLoanPlanResponseConditionsItemPenaltyValueMin = 0;
+
+
 
 
 export const CreateLoanPlanResponse = zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
+  "filingFeeToman": zod.string().regex(createLoanPlanResponseFilingFeeTomanRegExp),
   "bankName": zod.string().nullish(),
   "platformName": zod.string().nullish(),
   "principalAmount": zod.string().nullish(),
@@ -1670,6 +4447,18 @@ export const CreateLoanPlanResponse = zod.object({
   "acknowledgementTemplateId": zod.number().int().nullish(),
   "needsCustomerSalaryDeduct": zod.boolean().optional(),
   "needsGuarantorSalaryDeduct": zod.boolean().optional(),
+  "contractTemplateId": zod.number().int().nullish(),
+  "platformCompanyName": zod.string().nullish(),
+  "goodsStoreName": zod.string().nullish(),
+  "commissionPercent": zod.number().min(createLoanPlanResponseCommissionPercentMin).max(createLoanPlanResponseCommissionPercentMax).nullish(),
+  "operationCostsPercent": zod.number().min(createLoanPlanResponseOperationCostsPercentMin).max(createLoanPlanResponseOperationCostsPercentMax).nullish(),
+  "grantedDiscountPercent": zod.number().min(createLoanPlanResponseGrantedDiscountPercentMin).max(createLoanPlanResponseGrantedDiscountPercentMax).nullish(),
+  "purchaseCommissionPercent": zod.number().min(createLoanPlanResponsePurchaseCommissionPercentMin).max(createLoanPlanResponsePurchaseCommissionPercentMax).nullish(),
+  "salesCommissionPercent": zod.number().min(createLoanPlanResponseSalesCommissionPercentMin).max(createLoanPlanResponseSalesCommissionPercentMax).nullish(),
+  "loanAcquisitionFeePercent": zod.number().min(createLoanPlanResponseLoanAcquisitionFeePercentMin).max(createLoanPlanResponseLoanAcquisitionFeePercentMax).nullish(),
+  "penaltyMode": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "penaltyValue": zod.number().min(createLoanPlanResponsePenaltyValueMin).nullish(),
+  "contractDurationDays": zod.number().int().min(1).nullish(),
   "createdAt": zod.string(),
   "conditions": zod.array(zod.object({
   "id": zod.number().int(),
@@ -1687,6 +4476,18 @@ export const CreateLoanPlanResponse = zod.object({
   "needsGuarantorPromissory": zod.boolean().optional(),
   "needsCustomerSalaryDeduct": zod.boolean().optional(),
   "needsGuarantorSalaryDeduct": zod.boolean().optional(),
+  "contractTemplateId": zod.number().int().nullish(),
+  "platformCompanyName": zod.string().nullish(),
+  "goodsStoreName": zod.string().nullish(),
+  "commissionPercent": zod.number().min(createLoanPlanResponseConditionsItemCommissionPercentMin).max(createLoanPlanResponseConditionsItemCommissionPercentMax).nullish(),
+  "operationCostsPercent": zod.number().min(createLoanPlanResponseConditionsItemOperationCostsPercentMin).max(createLoanPlanResponseConditionsItemOperationCostsPercentMax).nullish(),
+  "grantedDiscountPercent": zod.number().min(createLoanPlanResponseConditionsItemGrantedDiscountPercentMin).max(createLoanPlanResponseConditionsItemGrantedDiscountPercentMax).nullish(),
+  "purchaseCommissionPercent": zod.number().min(createLoanPlanResponseConditionsItemPurchaseCommissionPercentMin).max(createLoanPlanResponseConditionsItemPurchaseCommissionPercentMax).nullish(),
+  "salesCommissionPercent": zod.number().min(createLoanPlanResponseConditionsItemSalesCommissionPercentMin).max(createLoanPlanResponseConditionsItemSalesCommissionPercentMax).nullish(),
+  "loanAcquisitionFeePercent": zod.number().min(createLoanPlanResponseConditionsItemLoanAcquisitionFeePercentMin).max(createLoanPlanResponseConditionsItemLoanAcquisitionFeePercentMax).nullish(),
+  "penaltyMode": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "penaltyValue": zod.number().min(createLoanPlanResponseConditionsItemPenaltyValueMin).nullish(),
+  "contractDurationDays": zod.number().int().min(1).nullish(),
   "needsCustomerCheck": zod.boolean().optional(),
   "needsGuarantorCheck": zod.boolean().optional(),
   "sortOrder": zod.number().int(),
@@ -1702,6 +4503,7 @@ export const GetLoanPlanParams = zod.object({
   "id": zod.coerce.number().int()
 })
 
+export const getLoanPlanResponseFilingFeeTomanRegExp = new RegExp('^[0-9]+$');
 export const getLoanPlanResponseInstallmentTermsItemPrepaymentPercentMin = 0;
 export const getLoanPlanResponseInstallmentTermsItemPrepaymentPercentMax = 100;
 
@@ -1711,11 +4513,54 @@ export const getLoanPlanResponseInstallmentTermsItemDeductionPercentMax = 100;
 export const getLoanPlanResponseInstallmentTermsItemDepositPercentMin = 0;
 export const getLoanPlanResponseInstallmentTermsItemDepositPercentMax = 100;
 
+export const getLoanPlanResponseCommissionPercentMin = 0;
+export const getLoanPlanResponseCommissionPercentMax = 100;
+
+export const getLoanPlanResponseOperationCostsPercentMin = 0;
+export const getLoanPlanResponseOperationCostsPercentMax = 100;
+
+export const getLoanPlanResponseGrantedDiscountPercentMin = 0;
+export const getLoanPlanResponseGrantedDiscountPercentMax = 100;
+
+export const getLoanPlanResponsePurchaseCommissionPercentMin = 0;
+export const getLoanPlanResponsePurchaseCommissionPercentMax = 100;
+
+export const getLoanPlanResponseSalesCommissionPercentMin = 0;
+export const getLoanPlanResponseSalesCommissionPercentMax = 100;
+
+export const getLoanPlanResponseLoanAcquisitionFeePercentMin = 0;
+export const getLoanPlanResponseLoanAcquisitionFeePercentMax = 100;
+
+export const getLoanPlanResponsePenaltyValueMin = 0;
+
+
+export const getLoanPlanResponseConditionsItemCommissionPercentMin = 0;
+export const getLoanPlanResponseConditionsItemCommissionPercentMax = 100;
+
+export const getLoanPlanResponseConditionsItemOperationCostsPercentMin = 0;
+export const getLoanPlanResponseConditionsItemOperationCostsPercentMax = 100;
+
+export const getLoanPlanResponseConditionsItemGrantedDiscountPercentMin = 0;
+export const getLoanPlanResponseConditionsItemGrantedDiscountPercentMax = 100;
+
+export const getLoanPlanResponseConditionsItemPurchaseCommissionPercentMin = 0;
+export const getLoanPlanResponseConditionsItemPurchaseCommissionPercentMax = 100;
+
+export const getLoanPlanResponseConditionsItemSalesCommissionPercentMin = 0;
+export const getLoanPlanResponseConditionsItemSalesCommissionPercentMax = 100;
+
+export const getLoanPlanResponseConditionsItemLoanAcquisitionFeePercentMin = 0;
+export const getLoanPlanResponseConditionsItemLoanAcquisitionFeePercentMax = 100;
+
+export const getLoanPlanResponseConditionsItemPenaltyValueMin = 0;
+
+
 
 
 export const GetLoanPlanResponse = zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
+  "filingFeeToman": zod.string().regex(getLoanPlanResponseFilingFeeTomanRegExp),
   "bankName": zod.string().nullish(),
   "platformName": zod.string().nullish(),
   "principalAmount": zod.string().nullish(),
@@ -1751,6 +4596,18 @@ export const GetLoanPlanResponse = zod.object({
   "acknowledgementTemplateId": zod.number().int().nullish(),
   "needsCustomerSalaryDeduct": zod.boolean().optional(),
   "needsGuarantorSalaryDeduct": zod.boolean().optional(),
+  "contractTemplateId": zod.number().int().nullish(),
+  "platformCompanyName": zod.string().nullish(),
+  "goodsStoreName": zod.string().nullish(),
+  "commissionPercent": zod.number().min(getLoanPlanResponseCommissionPercentMin).max(getLoanPlanResponseCommissionPercentMax).nullish(),
+  "operationCostsPercent": zod.number().min(getLoanPlanResponseOperationCostsPercentMin).max(getLoanPlanResponseOperationCostsPercentMax).nullish(),
+  "grantedDiscountPercent": zod.number().min(getLoanPlanResponseGrantedDiscountPercentMin).max(getLoanPlanResponseGrantedDiscountPercentMax).nullish(),
+  "purchaseCommissionPercent": zod.number().min(getLoanPlanResponsePurchaseCommissionPercentMin).max(getLoanPlanResponsePurchaseCommissionPercentMax).nullish(),
+  "salesCommissionPercent": zod.number().min(getLoanPlanResponseSalesCommissionPercentMin).max(getLoanPlanResponseSalesCommissionPercentMax).nullish(),
+  "loanAcquisitionFeePercent": zod.number().min(getLoanPlanResponseLoanAcquisitionFeePercentMin).max(getLoanPlanResponseLoanAcquisitionFeePercentMax).nullish(),
+  "penaltyMode": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "penaltyValue": zod.number().min(getLoanPlanResponsePenaltyValueMin).nullish(),
+  "contractDurationDays": zod.number().int().min(1).nullish(),
   "createdAt": zod.string(),
   "conditions": zod.array(zod.object({
   "id": zod.number().int(),
@@ -1768,6 +4625,18 @@ export const GetLoanPlanResponse = zod.object({
   "needsGuarantorPromissory": zod.boolean().optional(),
   "needsCustomerSalaryDeduct": zod.boolean().optional(),
   "needsGuarantorSalaryDeduct": zod.boolean().optional(),
+  "contractTemplateId": zod.number().int().nullish(),
+  "platformCompanyName": zod.string().nullish(),
+  "goodsStoreName": zod.string().nullish(),
+  "commissionPercent": zod.number().min(getLoanPlanResponseConditionsItemCommissionPercentMin).max(getLoanPlanResponseConditionsItemCommissionPercentMax).nullish(),
+  "operationCostsPercent": zod.number().min(getLoanPlanResponseConditionsItemOperationCostsPercentMin).max(getLoanPlanResponseConditionsItemOperationCostsPercentMax).nullish(),
+  "grantedDiscountPercent": zod.number().min(getLoanPlanResponseConditionsItemGrantedDiscountPercentMin).max(getLoanPlanResponseConditionsItemGrantedDiscountPercentMax).nullish(),
+  "purchaseCommissionPercent": zod.number().min(getLoanPlanResponseConditionsItemPurchaseCommissionPercentMin).max(getLoanPlanResponseConditionsItemPurchaseCommissionPercentMax).nullish(),
+  "salesCommissionPercent": zod.number().min(getLoanPlanResponseConditionsItemSalesCommissionPercentMin).max(getLoanPlanResponseConditionsItemSalesCommissionPercentMax).nullish(),
+  "loanAcquisitionFeePercent": zod.number().min(getLoanPlanResponseConditionsItemLoanAcquisitionFeePercentMin).max(getLoanPlanResponseConditionsItemLoanAcquisitionFeePercentMax).nullish(),
+  "penaltyMode": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "penaltyValue": zod.number().min(getLoanPlanResponseConditionsItemPenaltyValueMin).nullish(),
+  "contractDurationDays": zod.number().int().min(1).nullish(),
   "needsCustomerCheck": zod.boolean().optional(),
   "needsGuarantorCheck": zod.boolean().optional(),
   "sortOrder": zod.number().int(),
@@ -1784,6 +4653,7 @@ export const UpdateLoanPlanParams = zod.object({
 })
 
 
+export const updateLoanPlanBodyOneFilingFeeTomanRegExp = new RegExp('^[0-9]+$');
 export const updateLoanPlanBodyOneInstallmentTermsItemPrepaymentPercentMin = 0;
 export const updateLoanPlanBodyOneInstallmentTermsItemPrepaymentPercentMax = 100;
 
@@ -1793,12 +4663,35 @@ export const updateLoanPlanBodyOneInstallmentTermsItemDeductionPercentMax = 100;
 export const updateLoanPlanBodyOneInstallmentTermsItemDepositPercentMin = 0;
 export const updateLoanPlanBodyOneInstallmentTermsItemDepositPercentMax = 100;
 
+
+export const updateLoanPlanBodyOneCommissionPercentMin = 0;
+export const updateLoanPlanBodyOneCommissionPercentMax = 100;
+
+export const updateLoanPlanBodyOneOperationCostsPercentMin = 0;
+export const updateLoanPlanBodyOneOperationCostsPercentMax = 100;
+
+export const updateLoanPlanBodyOneGrantedDiscountPercentMin = 0;
+export const updateLoanPlanBodyOneGrantedDiscountPercentMax = 100;
+
+export const updateLoanPlanBodyOnePurchaseCommissionPercentMin = 0;
+export const updateLoanPlanBodyOnePurchaseCommissionPercentMax = 100;
+
+export const updateLoanPlanBodyOneSalesCommissionPercentMin = 0;
+export const updateLoanPlanBodyOneSalesCommissionPercentMax = 100;
+
+export const updateLoanPlanBodyOneLoanAcquisitionFeePercentMin = 0;
+export const updateLoanPlanBodyOneLoanAcquisitionFeePercentMax = 100;
+
+export const updateLoanPlanBodyOnePenaltyValueMin = 0;
+
+
 export const updateLoanPlanBodyOneConditionsItemSortOrderMin = 0;
 
 
 
 export const UpdateLoanPlanBody = zod.object({
   "name": zod.string().min(1),
+  "filingFeeToman": zod.string().regex(updateLoanPlanBodyOneFilingFeeTomanRegExp).optional(),
   "bankName": zod.string().optional(),
   "platformName": zod.string().optional(),
   "principalAmount": zod.string().optional(),
@@ -1826,9 +4719,18 @@ export const UpdateLoanPlanBody = zod.object({
   "grantDays": zod.string().optional(),
   "needsAccountTurnover": zod.boolean().optional(),
   "needsAvgBalance": zod.boolean().optional(),
-  "primaryContractTemplateId": zod.number().int().optional(),
-  "invoiceTemplateId": zod.number().int().optional(),
-  "acknowledgementTemplateId": zod.number().int().optional(),
+  "contractTemplateId": zod.number().int().min(1),
+  "platformCompanyName": zod.string().optional(),
+  "goodsStoreName": zod.string().optional(),
+  "commissionPercent": zod.number().min(updateLoanPlanBodyOneCommissionPercentMin).max(updateLoanPlanBodyOneCommissionPercentMax).optional(),
+  "operationCostsPercent": zod.number().min(updateLoanPlanBodyOneOperationCostsPercentMin).max(updateLoanPlanBodyOneOperationCostsPercentMax).optional(),
+  "grantedDiscountPercent": zod.number().min(updateLoanPlanBodyOneGrantedDiscountPercentMin).max(updateLoanPlanBodyOneGrantedDiscountPercentMax).optional(),
+  "purchaseCommissionPercent": zod.number().min(updateLoanPlanBodyOnePurchaseCommissionPercentMin).max(updateLoanPlanBodyOnePurchaseCommissionPercentMax).optional(),
+  "salesCommissionPercent": zod.number().min(updateLoanPlanBodyOneSalesCommissionPercentMin).max(updateLoanPlanBodyOneSalesCommissionPercentMax).optional(),
+  "loanAcquisitionFeePercent": zod.number().min(updateLoanPlanBodyOneLoanAcquisitionFeePercentMin).max(updateLoanPlanBodyOneLoanAcquisitionFeePercentMax).optional(),
+  "penaltyMode": zod.enum(['amount', 'percent']).optional(),
+  "penaltyValue": zod.number().min(updateLoanPlanBodyOnePenaltyValueMin).optional(),
+  "contractDurationDays": zod.number().int().min(1).optional(),
   "notes": zod.string().optional(),
   "prepaymentPercents": zod.string().optional(),
   "depositPercents": zod.string().optional(),
@@ -1858,6 +4760,7 @@ export const UpdateLoanPlanBody = zod.object({
   "name": zod.string()
 }))
 
+export const updateLoanPlanResponseFilingFeeTomanRegExp = new RegExp('^[0-9]+$');
 export const updateLoanPlanResponseInstallmentTermsItemPrepaymentPercentMin = 0;
 export const updateLoanPlanResponseInstallmentTermsItemPrepaymentPercentMax = 100;
 
@@ -1867,11 +4770,54 @@ export const updateLoanPlanResponseInstallmentTermsItemDeductionPercentMax = 100
 export const updateLoanPlanResponseInstallmentTermsItemDepositPercentMin = 0;
 export const updateLoanPlanResponseInstallmentTermsItemDepositPercentMax = 100;
 
+export const updateLoanPlanResponseCommissionPercentMin = 0;
+export const updateLoanPlanResponseCommissionPercentMax = 100;
+
+export const updateLoanPlanResponseOperationCostsPercentMin = 0;
+export const updateLoanPlanResponseOperationCostsPercentMax = 100;
+
+export const updateLoanPlanResponseGrantedDiscountPercentMin = 0;
+export const updateLoanPlanResponseGrantedDiscountPercentMax = 100;
+
+export const updateLoanPlanResponsePurchaseCommissionPercentMin = 0;
+export const updateLoanPlanResponsePurchaseCommissionPercentMax = 100;
+
+export const updateLoanPlanResponseSalesCommissionPercentMin = 0;
+export const updateLoanPlanResponseSalesCommissionPercentMax = 100;
+
+export const updateLoanPlanResponseLoanAcquisitionFeePercentMin = 0;
+export const updateLoanPlanResponseLoanAcquisitionFeePercentMax = 100;
+
+export const updateLoanPlanResponsePenaltyValueMin = 0;
+
+
+export const updateLoanPlanResponseConditionsItemCommissionPercentMin = 0;
+export const updateLoanPlanResponseConditionsItemCommissionPercentMax = 100;
+
+export const updateLoanPlanResponseConditionsItemOperationCostsPercentMin = 0;
+export const updateLoanPlanResponseConditionsItemOperationCostsPercentMax = 100;
+
+export const updateLoanPlanResponseConditionsItemGrantedDiscountPercentMin = 0;
+export const updateLoanPlanResponseConditionsItemGrantedDiscountPercentMax = 100;
+
+export const updateLoanPlanResponseConditionsItemPurchaseCommissionPercentMin = 0;
+export const updateLoanPlanResponseConditionsItemPurchaseCommissionPercentMax = 100;
+
+export const updateLoanPlanResponseConditionsItemSalesCommissionPercentMin = 0;
+export const updateLoanPlanResponseConditionsItemSalesCommissionPercentMax = 100;
+
+export const updateLoanPlanResponseConditionsItemLoanAcquisitionFeePercentMin = 0;
+export const updateLoanPlanResponseConditionsItemLoanAcquisitionFeePercentMax = 100;
+
+export const updateLoanPlanResponseConditionsItemPenaltyValueMin = 0;
+
+
 
 
 export const UpdateLoanPlanResponse = zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
+  "filingFeeToman": zod.string().regex(updateLoanPlanResponseFilingFeeTomanRegExp),
   "bankName": zod.string().nullish(),
   "platformName": zod.string().nullish(),
   "principalAmount": zod.string().nullish(),
@@ -1907,6 +4853,18 @@ export const UpdateLoanPlanResponse = zod.object({
   "acknowledgementTemplateId": zod.number().int().nullish(),
   "needsCustomerSalaryDeduct": zod.boolean().optional(),
   "needsGuarantorSalaryDeduct": zod.boolean().optional(),
+  "contractTemplateId": zod.number().int().nullish(),
+  "platformCompanyName": zod.string().nullish(),
+  "goodsStoreName": zod.string().nullish(),
+  "commissionPercent": zod.number().min(updateLoanPlanResponseCommissionPercentMin).max(updateLoanPlanResponseCommissionPercentMax).nullish(),
+  "operationCostsPercent": zod.number().min(updateLoanPlanResponseOperationCostsPercentMin).max(updateLoanPlanResponseOperationCostsPercentMax).nullish(),
+  "grantedDiscountPercent": zod.number().min(updateLoanPlanResponseGrantedDiscountPercentMin).max(updateLoanPlanResponseGrantedDiscountPercentMax).nullish(),
+  "purchaseCommissionPercent": zod.number().min(updateLoanPlanResponsePurchaseCommissionPercentMin).max(updateLoanPlanResponsePurchaseCommissionPercentMax).nullish(),
+  "salesCommissionPercent": zod.number().min(updateLoanPlanResponseSalesCommissionPercentMin).max(updateLoanPlanResponseSalesCommissionPercentMax).nullish(),
+  "loanAcquisitionFeePercent": zod.number().min(updateLoanPlanResponseLoanAcquisitionFeePercentMin).max(updateLoanPlanResponseLoanAcquisitionFeePercentMax).nullish(),
+  "penaltyMode": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "penaltyValue": zod.number().min(updateLoanPlanResponsePenaltyValueMin).nullish(),
+  "contractDurationDays": zod.number().int().min(1).nullish(),
   "createdAt": zod.string(),
   "conditions": zod.array(zod.object({
   "id": zod.number().int(),
@@ -1924,12 +4882,261 @@ export const UpdateLoanPlanResponse = zod.object({
   "needsGuarantorPromissory": zod.boolean().optional(),
   "needsCustomerSalaryDeduct": zod.boolean().optional(),
   "needsGuarantorSalaryDeduct": zod.boolean().optional(),
+  "contractTemplateId": zod.number().int().nullish(),
+  "platformCompanyName": zod.string().nullish(),
+  "goodsStoreName": zod.string().nullish(),
+  "commissionPercent": zod.number().min(updateLoanPlanResponseConditionsItemCommissionPercentMin).max(updateLoanPlanResponseConditionsItemCommissionPercentMax).nullish(),
+  "operationCostsPercent": zod.number().min(updateLoanPlanResponseConditionsItemOperationCostsPercentMin).max(updateLoanPlanResponseConditionsItemOperationCostsPercentMax).nullish(),
+  "grantedDiscountPercent": zod.number().min(updateLoanPlanResponseConditionsItemGrantedDiscountPercentMin).max(updateLoanPlanResponseConditionsItemGrantedDiscountPercentMax).nullish(),
+  "purchaseCommissionPercent": zod.number().min(updateLoanPlanResponseConditionsItemPurchaseCommissionPercentMin).max(updateLoanPlanResponseConditionsItemPurchaseCommissionPercentMax).nullish(),
+  "salesCommissionPercent": zod.number().min(updateLoanPlanResponseConditionsItemSalesCommissionPercentMin).max(updateLoanPlanResponseConditionsItemSalesCommissionPercentMax).nullish(),
+  "loanAcquisitionFeePercent": zod.number().min(updateLoanPlanResponseConditionsItemLoanAcquisitionFeePercentMin).max(updateLoanPlanResponseConditionsItemLoanAcquisitionFeePercentMax).nullish(),
+  "penaltyMode": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "penaltyValue": zod.number().min(updateLoanPlanResponseConditionsItemPenaltyValueMin).nullish(),
+  "contractDurationDays": zod.number().int().min(1).nullish(),
   "needsCustomerCheck": zod.boolean().optional(),
   "needsGuarantorCheck": zod.boolean().optional(),
   "sortOrder": zod.number().int(),
   "notes": zod.string().nullish()
 }))
 })
+
+
+/**
+ * @summary List active financing plans for the public website
+ */
+export const listPublicLoanPlansResponseInstallmentTermsItemPrepaymentPercentMin = 0;
+export const listPublicLoanPlansResponseInstallmentTermsItemPrepaymentPercentMax = 100;
+
+export const listPublicLoanPlansResponseInstallmentTermsItemDeductionPercentMin = 0;
+export const listPublicLoanPlansResponseInstallmentTermsItemDeductionPercentMax = 100;
+
+export const listPublicLoanPlansResponseInstallmentTermsItemDepositPercentMin = 0;
+export const listPublicLoanPlansResponseInstallmentTermsItemDepositPercentMax = 100;
+
+
+
+export const ListPublicLoanPlansResponseItem = zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "bankName": zod.string().nullish(),
+  "platformName": zod.string().nullish(),
+  "principalAmount": zod.string().nullish(),
+  "annualInterest": zod.string().nullish(),
+  "installments": zod.string().nullish(),
+  "installmentTerms": zod.array(zod.object({
+  "installments": zod.union([zod.literal(6),zod.literal(9),zod.literal(12),zod.literal(18),zod.literal(24),zod.literal(36),zod.literal(48)]),
+  "prepaymentPercent": zod.number().min(listPublicLoanPlansResponseInstallmentTermsItemPrepaymentPercentMin).max(listPublicLoanPlansResponseInstallmentTermsItemPrepaymentPercentMax),
+  "deductionPercent": zod.number().min(listPublicLoanPlansResponseInstallmentTermsItemDeductionPercentMin).max(listPublicLoanPlansResponseInstallmentTermsItemDeductionPercentMax),
+  "depositPercent": zod.number().min(listPublicLoanPlansResponseInstallmentTermsItemDepositPercentMin).max(listPublicLoanPlansResponseInstallmentTermsItemDepositPercentMax)
+})),
+  "loanType": zod.string().nullish(),
+  "processMode": zod.string().nullish(),
+  "grantDays": zod.string().nullish(),
+  "notes": zod.string().nullish()
+})
+export const ListPublicLoanPlansResponse = zod.array(ListPublicLoanPlansResponseItem)
+
+
+/**
+ * @summary Get public details for an active financing plan
+ */
+export const GetPublicLoanPlanParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const getPublicLoanPlanResponseOneInstallmentTermsItemPrepaymentPercentMin = 0;
+export const getPublicLoanPlanResponseOneInstallmentTermsItemPrepaymentPercentMax = 100;
+
+export const getPublicLoanPlanResponseOneInstallmentTermsItemDeductionPercentMin = 0;
+export const getPublicLoanPlanResponseOneInstallmentTermsItemDeductionPercentMax = 100;
+
+export const getPublicLoanPlanResponseOneInstallmentTermsItemDepositPercentMin = 0;
+export const getPublicLoanPlanResponseOneInstallmentTermsItemDepositPercentMax = 100;
+
+export const getPublicLoanPlanResponseTwoConditionsItemCommissionPercentMin = 0;
+export const getPublicLoanPlanResponseTwoConditionsItemCommissionPercentMax = 100;
+
+export const getPublicLoanPlanResponseTwoConditionsItemOperationCostsPercentMin = 0;
+export const getPublicLoanPlanResponseTwoConditionsItemOperationCostsPercentMax = 100;
+
+export const getPublicLoanPlanResponseTwoConditionsItemGrantedDiscountPercentMin = 0;
+export const getPublicLoanPlanResponseTwoConditionsItemGrantedDiscountPercentMax = 100;
+
+export const getPublicLoanPlanResponseTwoConditionsItemPurchaseCommissionPercentMin = 0;
+export const getPublicLoanPlanResponseTwoConditionsItemPurchaseCommissionPercentMax = 100;
+
+export const getPublicLoanPlanResponseTwoConditionsItemSalesCommissionPercentMin = 0;
+export const getPublicLoanPlanResponseTwoConditionsItemSalesCommissionPercentMax = 100;
+
+export const getPublicLoanPlanResponseTwoConditionsItemLoanAcquisitionFeePercentMin = 0;
+export const getPublicLoanPlanResponseTwoConditionsItemLoanAcquisitionFeePercentMax = 100;
+
+export const getPublicLoanPlanResponseTwoConditionsItemPenaltyValueMin = 0;
+
+
+
+
+export const GetPublicLoanPlanResponse = zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "bankName": zod.string().nullish(),
+  "platformName": zod.string().nullish(),
+  "principalAmount": zod.string().nullish(),
+  "annualInterest": zod.string().nullish(),
+  "installments": zod.string().nullish(),
+  "installmentTerms": zod.array(zod.object({
+  "installments": zod.union([zod.literal(6),zod.literal(9),zod.literal(12),zod.literal(18),zod.literal(24),zod.literal(36),zod.literal(48)]),
+  "prepaymentPercent": zod.number().min(getPublicLoanPlanResponseOneInstallmentTermsItemPrepaymentPercentMin).max(getPublicLoanPlanResponseOneInstallmentTermsItemPrepaymentPercentMax),
+  "deductionPercent": zod.number().min(getPublicLoanPlanResponseOneInstallmentTermsItemDeductionPercentMin).max(getPublicLoanPlanResponseOneInstallmentTermsItemDeductionPercentMax),
+  "depositPercent": zod.number().min(getPublicLoanPlanResponseOneInstallmentTermsItemDepositPercentMin).max(getPublicLoanPlanResponseOneInstallmentTermsItemDepositPercentMax)
+})),
+  "loanType": zod.string().nullish(),
+  "processMode": zod.string().nullish(),
+  "grantDays": zod.string().nullish(),
+  "notes": zod.string().nullish()
+}).and(zod.object({
+  "requiredDocuments": zod.array(zod.string()),
+  "deductPercents": zod.string().nullish(),
+  "customerRanks": zod.string().nullish(),
+  "customerCheck": zod.string().nullish(),
+  "needsCustomerPromissory": zod.boolean().optional(),
+  "customerJobs": zod.string().nullish(),
+  "needsGuarantor": zod.boolean().optional(),
+  "guarantorRanks": zod.string().nullish(),
+  "guarantorCheck": zod.string().nullish(),
+  "needsGuarantorPromissory": zod.boolean().optional(),
+  "guarantorJobs": zod.string().nullish(),
+  "needsAccountTurnover": zod.boolean().optional(),
+  "needsAvgBalance": zod.boolean().optional(),
+  "prepaymentPercents": zod.string().nullish(),
+  "depositPercents": zod.string().nullish(),
+  "needsCustomerSalaryDeduct": zod.boolean().optional(),
+  "needsGuarantorSalaryDeduct": zod.boolean().optional(),
+  "contractTemplateId": zod.number().int().nullish(),
+  "platformCompanyName": zod.string().nullish(),
+  "goodsStoreName": zod.string().nullish(),
+  "commissionPercent": zod.number().nullish(),
+  "operationCostsPercent": zod.number().nullish(),
+  "grantedDiscountPercent": zod.number().nullish(),
+  "purchaseCommissionPercent": zod.number().nullish(),
+  "salesCommissionPercent": zod.number().nullish(),
+  "loanAcquisitionFeePercent": zod.number().nullish(),
+  "penaltyMode": zod.string().nullish(),
+  "penaltyValue": zod.number().nullish(),
+  "contractDurationDays": zod.number().int().nullish(),
+  "conditions": zod.array(zod.object({
+  "id": zod.number().int(),
+  "planId": zod.number().int(),
+  "maxPrincipal": zod.string().nullish(),
+  "customerRanks": zod.string().nullish(),
+  "installmentOptions": zod.array(zod.union([zod.literal(6),zod.literal(9),zod.literal(12),zod.literal(18),zod.literal(24),zod.literal(36),zod.literal(48)])).optional(),
+  "customerJobs": zod.array(zod.string()).optional(),
+  "collateralType": zod.string().nullish(),
+  "needsGuarantor": zod.boolean().optional(),
+  "guarantorRanks": zod.string().nullish(),
+  "guarantorJobs": zod.array(zod.string()).optional(),
+  "guarantorCollateralType": zod.string().nullish(),
+  "needsCustomerPromissory": zod.boolean().optional(),
+  "needsGuarantorPromissory": zod.boolean().optional(),
+  "needsCustomerSalaryDeduct": zod.boolean().optional(),
+  "needsGuarantorSalaryDeduct": zod.boolean().optional(),
+  "contractTemplateId": zod.number().int().nullish(),
+  "platformCompanyName": zod.string().nullish(),
+  "goodsStoreName": zod.string().nullish(),
+  "commissionPercent": zod.number().min(getPublicLoanPlanResponseTwoConditionsItemCommissionPercentMin).max(getPublicLoanPlanResponseTwoConditionsItemCommissionPercentMax).nullish(),
+  "operationCostsPercent": zod.number().min(getPublicLoanPlanResponseTwoConditionsItemOperationCostsPercentMin).max(getPublicLoanPlanResponseTwoConditionsItemOperationCostsPercentMax).nullish(),
+  "grantedDiscountPercent": zod.number().min(getPublicLoanPlanResponseTwoConditionsItemGrantedDiscountPercentMin).max(getPublicLoanPlanResponseTwoConditionsItemGrantedDiscountPercentMax).nullish(),
+  "purchaseCommissionPercent": zod.number().min(getPublicLoanPlanResponseTwoConditionsItemPurchaseCommissionPercentMin).max(getPublicLoanPlanResponseTwoConditionsItemPurchaseCommissionPercentMax).nullish(),
+  "salesCommissionPercent": zod.number().min(getPublicLoanPlanResponseTwoConditionsItemSalesCommissionPercentMin).max(getPublicLoanPlanResponseTwoConditionsItemSalesCommissionPercentMax).nullish(),
+  "loanAcquisitionFeePercent": zod.number().min(getPublicLoanPlanResponseTwoConditionsItemLoanAcquisitionFeePercentMin).max(getPublicLoanPlanResponseTwoConditionsItemLoanAcquisitionFeePercentMax).nullish(),
+  "penaltyMode": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "penaltyValue": zod.number().min(getPublicLoanPlanResponseTwoConditionsItemPenaltyValueMin).nullish(),
+  "contractDurationDays": zod.number().int().min(1).nullish(),
+  "needsCustomerCheck": zod.boolean().optional(),
+  "needsGuarantorCheck": zod.boolean().optional(),
+  "sortOrder": zod.number().int(),
+  "notes": zod.string().nullish()
+}))
+}))
+
+
+export const ListCustomerEligiblePlansQueryParams = zod.object({
+  "ignoreCreditRank": zod.boolean().optional().describe('Admin/salesperson selection of every active plan at full ceiling without rank matching.')
+})
+
+export const ListCustomerEligiblePlansResponse = zod.object({
+  "customerId": zod.number().int(),
+  "credit": zod.object({
+  "fresh": zod.boolean(),
+  "status": zod.string(),
+  "rank": zod.string().nullable(),
+  "checkedAt": zod.string().nullable()
+}),
+  "plans": zod.array(zod.object({
+  "planId": zod.number().int(),
+  "name": zod.string(),
+  "conditionId": zod.number().int(),
+  "conditionName": zod.string(),
+  "conditionNotes": zod.string().nullish(),
+  "maximumAmount": zod.string(),
+  "allowedDurations": zod.array(zod.number().int()),
+  "requiredDocuments": zod.array(zod.string()),
+  "needsGuarantor": zod.boolean(),
+  "primaryContractPresent": zod.boolean(),
+  "contractTemplateId": zod.number().int().nullish(),
+  "manualVariables": zod.array(zod.object({
+  "variable": zod.string(),
+  "label": zod.string()
+})).optional()
+}))
+})
+
+
+export const ListCustomerIdentityDocumentsParams = zod.object({
+  "customerId": zod.coerce.number().int()
+})
+
+export const ListCustomerIdentityDocumentsResponseItem = zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int(),
+  "documentType": zod.enum(['national_card_front', 'national_card_back', 'birth_cert_p1', 'birth_cert_p2', 'birth_cert_p3']),
+  "originalName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "sha256": zod.string(),
+  "createdAt": zod.string()
+})
+export const ListCustomerIdentityDocumentsResponse = zod.array(ListCustomerIdentityDocumentsResponseItem)
+
+
+export const UploadCustomerIdentityDocumentParams = zod.object({
+  "customerId": zod.coerce.number().int()
+})
+
+export const UploadCustomerIdentityDocumentBody = zod.object({
+  "documentType": zod.enum(['national_card_front', 'national_card_back', 'birth_cert_p1', 'birth_cert_p2', 'birth_cert_p3']),
+  "file": zod.instanceof(Blob)
+})
+
+export const UploadCustomerIdentityDocumentResponse = zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int(),
+  "documentType": zod.enum(['national_card_front', 'national_card_back', 'birth_cert_p1', 'birth_cert_p2', 'birth_cert_p3']),
+  "originalName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "sha256": zod.string(),
+  "createdAt": zod.string()
+})
+
+
+export const DownloadCustomerIdentityDocumentParams = zod.object({
+  "customerId": zod.coerce.number().int(),
+  "documentId": zod.coerce.number().int()
+})
+
+export const DownloadCustomerIdentityDocumentResponse = zod.unknown()
 
 
 /**
@@ -1942,26 +5149,101 @@ export const listLoanApplicationsQueryLimitMax = 100;
 
 export const ListLoanApplicationsQueryParams = zod.object({
   "page": zod.coerce.number().int().min(1).optional(),
-  "limit": zod.coerce.number().int().min(1).max(listLoanApplicationsQueryLimitMax).optional()
+  "limit": zod.coerce.number().int().min(1).max(listLoanApplicationsQueryLimitMax).optional(),
+  "actionable": zod.coerce.boolean().optional(),
+  "caseScope": zod.enum(['in-progress']).optional(),
+  "mode": zod.enum(['list', 'board']).optional(),
+  "search": zod.coerce.string().optional(),
+  "status": zod.coerce.string().optional(),
+  "stage": zod.coerce.string().optional(),
+  "customerId": zod.coerce.number().int().optional(),
+  "planId": zod.coerce.number().int().optional(),
+  "dateFrom": zod.coerce.string().optional(),
+  "dateTo": zod.coerce.string().optional()
 })
 
-export const ListLoanApplicationsResponse = zod.object({
+export const listLoanApplicationsResponseOneItemsItemCustomerSubmittedDefault = false;
+export const listLoanApplicationsResponseOneItemsItemTomanReplacementEligibilityOneDurationMonthsMin = 0;
+
+export const listLoanApplicationsResponseOneTotalMin = 0;
+
+export const listLoanApplicationsResponseTwoBoardItemCustomerSubmittedDefault = false;
+export const listLoanApplicationsResponseTwoBoardItemTomanReplacementEligibilityOneDurationMonthsMin = 0;
+
+export const listLoanApplicationsResponseTwoItemsItemCustomerSubmittedDefault = false;
+export const listLoanApplicationsResponseTwoItemsItemTomanReplacementEligibilityOneDurationMonthsMin = 0;
+
+export const listLoanApplicationsResponseTwoTotalMin = 0;
+
+
+
+export const ListLoanApplicationsResponse = zod.union([zod.object({
   "items": zod.array(zod.object({
+  "creditRankIgnored": zod.boolean().optional().describe('Rank matching was waived by an authorized staff member at creation.'),
+  "customerSubmitted": zod.boolean().default(listLoanApplicationsResponseOneItemsItemCustomerSubmittedDefault),
   "id": zod.number().int(),
   "consultationId": zod.number().int(),
   "customerId": zod.number().int(),
   "planIds": zod.array(zod.number().int()),
   "requestedAmount": zod.string(),
+  "requestedDurationMonths": zod.number().int().min(1).optional(),
   "status": zod.enum(['requested', 'reviewing', 'approved', 'rejected']),
   "notes": zod.string().nullish(),
   "createdAt": zod.string(),
+  "salespersonIdSnapshot": zod.number().int().nullable(),
+  "salespersonNameSnapshot": zod.string().nullable(),
+  "customerSalespersonId": zod.number().int().nullish(),
+  "canCancel": zod.boolean().optional(),
+  "cancellationReason": zod.string().nullish(),
   "customerName": zod.string().optional(),
+  "customerSalespersonName": zod.string().nullish(),
   "planName": zod.string().nullish(),
   "planId": zod.number().int().optional(),
   "approvedAmount": zod.string().nullish(),
   "netAmount": zod.string().nullish(),
+  "approvedAmountSource": zod.union([zod.literal('initial_provider_approval'),zod.literal('signed_primary_reconciliation'),zod.literal(null)]).nullish(),
+  "approvedAmountGenerationId": zod.number().int().nullish(),
+  "approvedAmountReconciledAt": zod.coerce.date().nullish(),
+  "approvedAmountReconciledByUserId": zod.number().int().nullish(),
   "durationMonths": zod.number().int().optional(),
   "stage": zod.string().optional(),
+  "newCaseWorkflow": zod.boolean().describe('True for applications created under the draft-first workflow; false for legacy applications.'),
+  "initialContractRetained": zod.boolean().describe('True when initial provider approval retained the already-signed primary contract because both principal and installment count were unchanged.'),
+  "planSnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
+  "primaryManualValues": zod.record(zod.string(), zod.string()).optional(),
+  "primaryManualVariables": zod.array(zod.object({
+  "variable": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "conditionSnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
+  "currentPrimaryGenerationId": zod.number().int().nullish(),
+  "tomanReplacementEligibility": zod.union([zod.object({
+  "eligible": zod.boolean(),
+  "candidate": zod.boolean().optional(),
+  "sourceGenerationId": zod.number().int().nullable(),
+  "approvedAmount": zod.string(),
+  "durationMonths": zod.number().int().min(listLoanApplicationsResponseOneItemsItemTomanReplacementEligibilityOneDurationMonthsMin),
+  "tomanTemplateId": zod.number().int().nullable(),
+  "tomanTemplateName": zod.string().nullable(),
+  "blockedReason": zod.string().optional()
+}),zod.null()]).optional(),
+  "tomanReplacement": zod.union([zod.object({
+  "authorized": zod.literal(true),
+  "priorStage": zod.string(),
+  "resumeStage": zod.string(),
+  "sourceGenerationId": zod.number().int(),
+  "tomanTemplateId": zod.number().int(),
+  "approvedAmount": zod.string(),
+  "durationMonths": zod.number().int(),
+  "authorizedAt": zod.coerce.date(),
+  "authorizedByUserId": zod.number().int(),
+  "replacementGenerationId": zod.number().int().nullable(),
+  "completedAt": zod.coerce.date().nullable()
+}),zod.null()]).optional(),
+  "primaryContractStatus": zod.string().nullish(),
+  "actionRequired": zod.boolean().optional(),
+  "actionRole": zod.string().optional(),
+  "businessStatus": zod.enum(['waiting_sales', 'waiting_registration', 'waiting_funder_approval', 'waiting_wallet_charge', 'wallet_charged', 'canceled', 'completed']).optional(),
   "documents": zod.array(zod.object({
 
 }).passthrough()).optional(),
@@ -1972,50 +5254,116 @@ export const ListLoanApplicationsResponse = zod.object({
   "collateral": zod.array(zod.object({
 
 }).passthrough()).optional(),
-  "generatedDocuments": zod.array(zod.object({
+  "physicalChecks": zod.array(zod.object({
 
 }).passthrough()).optional(),
+  "physicalDocuments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "originalName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "fileAvailable": zod.boolean(),
+  "createdAt": zod.string().optional()
+})).optional(),
+  "funderDefects": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "funderDecision": zod.string().nullish(),
+  "funderReason": zod.string().nullish(),
+  "initialProviderDecision": zod.object({
+  "decision": zod.enum(['approved', 'rejected']).optional(),
+  "decidedAt": zod.coerce.date().optional(),
+  "actorUserId": zod.number().int().nullish(),
+  "reason": zod.string().nullish()
+}).nullish(),
+  "generatedDocuments": zod.array(zod.object({
+  "id": zod.number().int().optional(),
+  "applicationId": zod.number().int().optional(),
+  "kind": zod.enum(['primary', 'invoice', 'acknowledgement']).optional(),
+  "contractGenerationId": zod.number().int().nullish(),
+  "current": zod.boolean().optional(),
+  "status": zod.string().nullish(),
+  "signed": zod.boolean().optional(),
+  "superseded": zod.boolean().optional(),
+  "supersededAt": zod.coerce.date().nullish(),
+  "reviewReason": zod.string().nullish(),
+  "fileAvailable": zod.boolean().optional(),
+  "resendRepairRequired": zod.boolean().optional().describe('Current pending primary delivery reused a rejected upload; staff may explicitly prepare a guarded fresh-file retry.'),
+  "downloadUrl": zod.string().nullish()
+})).optional(),
   "calculation": zod.record(zod.string(), zod.unknown()).nullish(),
   "updatedAt": zod.string().optional()
 })),
   "page": zod.number().int(),
-  "limit": zod.number().int()
-})
-
-
-
-export const createLoanApplicationBodyNotesMax = 1000;
-
-export const createLoanApplicationBodyRequestedAmountRegExp = new RegExp('^[1-9][0-9]*$');
-
-
-
-export const CreateLoanApplicationBody = zod.object({
-  "planIds": zod.array(zod.number().int()).min(1),
-  "notes": zod.string().max(createLoanApplicationBodyNotesMax).optional(),
-  "customerId": zod.number().int(),
-  "planId": zod.number().int(),
-  "consultationId": zod.number().int().optional(),
-  "requestedAmount": zod.string().regex(createLoanApplicationBodyRequestedAmountRegExp),
-  "durationMonths": zod.number().int().min(1)
-})
-
-export const CreateLoanApplicationResponse = zod.object({
+  "limit": zod.number().int(),
+  "total": zod.number().int().min(listLoanApplicationsResponseOneTotalMin)
+}),zod.object({
+  "board": zod.record(zod.string(), zod.array(zod.object({
+  "creditRankIgnored": zod.boolean().optional().describe('Rank matching was waived by an authorized staff member at creation.'),
+  "customerSubmitted": zod.boolean().default(listLoanApplicationsResponseTwoBoardItemCustomerSubmittedDefault),
   "id": zod.number().int(),
   "consultationId": zod.number().int(),
   "customerId": zod.number().int(),
   "planIds": zod.array(zod.number().int()),
   "requestedAmount": zod.string(),
+  "requestedDurationMonths": zod.number().int().min(1).optional(),
   "status": zod.enum(['requested', 'reviewing', 'approved', 'rejected']),
   "notes": zod.string().nullish(),
   "createdAt": zod.string(),
+  "salespersonIdSnapshot": zod.number().int().nullable(),
+  "salespersonNameSnapshot": zod.string().nullable(),
+  "customerSalespersonId": zod.number().int().nullish(),
+  "canCancel": zod.boolean().optional(),
+  "cancellationReason": zod.string().nullish(),
   "customerName": zod.string().optional(),
+  "customerSalespersonName": zod.string().nullish(),
   "planName": zod.string().nullish(),
   "planId": zod.number().int().optional(),
   "approvedAmount": zod.string().nullish(),
   "netAmount": zod.string().nullish(),
+  "approvedAmountSource": zod.union([zod.literal('initial_provider_approval'),zod.literal('signed_primary_reconciliation'),zod.literal(null)]).nullish(),
+  "approvedAmountGenerationId": zod.number().int().nullish(),
+  "approvedAmountReconciledAt": zod.coerce.date().nullish(),
+  "approvedAmountReconciledByUserId": zod.number().int().nullish(),
   "durationMonths": zod.number().int().optional(),
   "stage": zod.string().optional(),
+  "newCaseWorkflow": zod.boolean().describe('True for applications created under the draft-first workflow; false for legacy applications.'),
+  "initialContractRetained": zod.boolean().describe('True when initial provider approval retained the already-signed primary contract because both principal and installment count were unchanged.'),
+  "planSnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
+  "primaryManualValues": zod.record(zod.string(), zod.string()).optional(),
+  "primaryManualVariables": zod.array(zod.object({
+  "variable": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "conditionSnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
+  "currentPrimaryGenerationId": zod.number().int().nullish(),
+  "tomanReplacementEligibility": zod.union([zod.object({
+  "eligible": zod.boolean(),
+  "candidate": zod.boolean().optional(),
+  "sourceGenerationId": zod.number().int().nullable(),
+  "approvedAmount": zod.string(),
+  "durationMonths": zod.number().int().min(listLoanApplicationsResponseTwoBoardItemTomanReplacementEligibilityOneDurationMonthsMin),
+  "tomanTemplateId": zod.number().int().nullable(),
+  "tomanTemplateName": zod.string().nullable(),
+  "blockedReason": zod.string().optional()
+}),zod.null()]).optional(),
+  "tomanReplacement": zod.union([zod.object({
+  "authorized": zod.literal(true),
+  "priorStage": zod.string(),
+  "resumeStage": zod.string(),
+  "sourceGenerationId": zod.number().int(),
+  "tomanTemplateId": zod.number().int(),
+  "approvedAmount": zod.string(),
+  "durationMonths": zod.number().int(),
+  "authorizedAt": zod.coerce.date(),
+  "authorizedByUserId": zod.number().int(),
+  "replacementGenerationId": zod.number().int().nullable(),
+  "completedAt": zod.coerce.date().nullable()
+}),zod.null()]).optional(),
+  "primaryContractStatus": zod.string().nullish(),
+  "actionRequired": zod.boolean().optional(),
+  "actionRole": zod.string().optional(),
+  "businessStatus": zod.enum(['waiting_sales', 'waiting_registration', 'waiting_funder_approval', 'waiting_wallet_charge', 'wallet_charged', 'canceled', 'completed']).optional(),
   "documents": zod.array(zod.object({
 
 }).passthrough()).optional(),
@@ -2026,11 +5374,366 @@ export const CreateLoanApplicationResponse = zod.object({
   "collateral": zod.array(zod.object({
 
 }).passthrough()).optional(),
-  "generatedDocuments": zod.array(zod.object({
+  "physicalChecks": zod.array(zod.object({
 
 }).passthrough()).optional(),
+  "physicalDocuments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "originalName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "fileAvailable": zod.boolean(),
+  "createdAt": zod.string().optional()
+})).optional(),
+  "funderDefects": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "funderDecision": zod.string().nullish(),
+  "funderReason": zod.string().nullish(),
+  "initialProviderDecision": zod.object({
+  "decision": zod.enum(['approved', 'rejected']).optional(),
+  "decidedAt": zod.coerce.date().optional(),
+  "actorUserId": zod.number().int().nullish(),
+  "reason": zod.string().nullish()
+}).nullish(),
+  "generatedDocuments": zod.array(zod.object({
+  "id": zod.number().int().optional(),
+  "applicationId": zod.number().int().optional(),
+  "kind": zod.enum(['primary', 'invoice', 'acknowledgement']).optional(),
+  "contractGenerationId": zod.number().int().nullish(),
+  "current": zod.boolean().optional(),
+  "status": zod.string().nullish(),
+  "signed": zod.boolean().optional(),
+  "superseded": zod.boolean().optional(),
+  "supersededAt": zod.coerce.date().nullish(),
+  "reviewReason": zod.string().nullish(),
+  "fileAvailable": zod.boolean().optional(),
+  "resendRepairRequired": zod.boolean().optional().describe('Current pending primary delivery reused a rejected upload; staff may explicitly prepare a guarded fresh-file retry.'),
+  "downloadUrl": zod.string().nullish()
+})).optional(),
   "calculation": zod.record(zod.string(), zod.unknown()).nullish(),
   "updatedAt": zod.string().optional()
+}))).optional(),
+  "items": zod.array(zod.object({
+  "creditRankIgnored": zod.boolean().optional().describe('Rank matching was waived by an authorized staff member at creation.'),
+  "customerSubmitted": zod.boolean().default(listLoanApplicationsResponseTwoItemsItemCustomerSubmittedDefault),
+  "id": zod.number().int(),
+  "consultationId": zod.number().int(),
+  "customerId": zod.number().int(),
+  "planIds": zod.array(zod.number().int()),
+  "requestedAmount": zod.string(),
+  "requestedDurationMonths": zod.number().int().min(1).optional(),
+  "status": zod.enum(['requested', 'reviewing', 'approved', 'rejected']),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "salespersonIdSnapshot": zod.number().int().nullable(),
+  "salespersonNameSnapshot": zod.string().nullable(),
+  "customerSalespersonId": zod.number().int().nullish(),
+  "canCancel": zod.boolean().optional(),
+  "cancellationReason": zod.string().nullish(),
+  "customerName": zod.string().optional(),
+  "customerSalespersonName": zod.string().nullish(),
+  "planName": zod.string().nullish(),
+  "planId": zod.number().int().optional(),
+  "approvedAmount": zod.string().nullish(),
+  "netAmount": zod.string().nullish(),
+  "approvedAmountSource": zod.union([zod.literal('initial_provider_approval'),zod.literal('signed_primary_reconciliation'),zod.literal(null)]).nullish(),
+  "approvedAmountGenerationId": zod.number().int().nullish(),
+  "approvedAmountReconciledAt": zod.coerce.date().nullish(),
+  "approvedAmountReconciledByUserId": zod.number().int().nullish(),
+  "durationMonths": zod.number().int().optional(),
+  "stage": zod.string().optional(),
+  "newCaseWorkflow": zod.boolean().describe('True for applications created under the draft-first workflow; false for legacy applications.'),
+  "initialContractRetained": zod.boolean().describe('True when initial provider approval retained the already-signed primary contract because both principal and installment count were unchanged.'),
+  "planSnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
+  "primaryManualValues": zod.record(zod.string(), zod.string()).optional(),
+  "primaryManualVariables": zod.array(zod.object({
+  "variable": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "conditionSnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
+  "currentPrimaryGenerationId": zod.number().int().nullish(),
+  "tomanReplacementEligibility": zod.union([zod.object({
+  "eligible": zod.boolean(),
+  "candidate": zod.boolean().optional(),
+  "sourceGenerationId": zod.number().int().nullable(),
+  "approvedAmount": zod.string(),
+  "durationMonths": zod.number().int().min(listLoanApplicationsResponseTwoItemsItemTomanReplacementEligibilityOneDurationMonthsMin),
+  "tomanTemplateId": zod.number().int().nullable(),
+  "tomanTemplateName": zod.string().nullable(),
+  "blockedReason": zod.string().optional()
+}),zod.null()]).optional(),
+  "tomanReplacement": zod.union([zod.object({
+  "authorized": zod.literal(true),
+  "priorStage": zod.string(),
+  "resumeStage": zod.string(),
+  "sourceGenerationId": zod.number().int(),
+  "tomanTemplateId": zod.number().int(),
+  "approvedAmount": zod.string(),
+  "durationMonths": zod.number().int(),
+  "authorizedAt": zod.coerce.date(),
+  "authorizedByUserId": zod.number().int(),
+  "replacementGenerationId": zod.number().int().nullable(),
+  "completedAt": zod.coerce.date().nullable()
+}),zod.null()]).optional(),
+  "primaryContractStatus": zod.string().nullish(),
+  "actionRequired": zod.boolean().optional(),
+  "actionRole": zod.string().optional(),
+  "businessStatus": zod.enum(['waiting_sales', 'waiting_registration', 'waiting_funder_approval', 'waiting_wallet_charge', 'wallet_charged', 'canceled', 'completed']).optional(),
+  "documents": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "history": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "guarantor": zod.record(zod.string(), zod.unknown()).nullish(),
+  "collateral": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "physicalChecks": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "physicalDocuments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "originalName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "fileAvailable": zod.boolean(),
+  "createdAt": zod.string().optional()
+})).optional(),
+  "funderDefects": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "funderDecision": zod.string().nullish(),
+  "funderReason": zod.string().nullish(),
+  "initialProviderDecision": zod.object({
+  "decision": zod.enum(['approved', 'rejected']).optional(),
+  "decidedAt": zod.coerce.date().optional(),
+  "actorUserId": zod.number().int().nullish(),
+  "reason": zod.string().nullish()
+}).nullish(),
+  "generatedDocuments": zod.array(zod.object({
+  "id": zod.number().int().optional(),
+  "applicationId": zod.number().int().optional(),
+  "kind": zod.enum(['primary', 'invoice', 'acknowledgement']).optional(),
+  "contractGenerationId": zod.number().int().nullish(),
+  "current": zod.boolean().optional(),
+  "status": zod.string().nullish(),
+  "signed": zod.boolean().optional(),
+  "superseded": zod.boolean().optional(),
+  "supersededAt": zod.coerce.date().nullish(),
+  "reviewReason": zod.string().nullish(),
+  "fileAvailable": zod.boolean().optional(),
+  "resendRepairRequired": zod.boolean().optional().describe('Current pending primary delivery reused a rejected upload; staff may explicitly prepare a guarded fresh-file retry.'),
+  "downloadUrl": zod.string().nullish()
+})).optional(),
+  "calculation": zod.record(zod.string(), zod.unknown()).nullish(),
+  "updatedAt": zod.string().optional()
+})),
+  "page": zod.number().int(),
+  "limit": zod.number().int(),
+  "total": zod.number().int().min(listLoanApplicationsResponseTwoTotalMin).describe('Total cases matching the authorized filters before pagination')
+})])
+
+
+export const createLoanApplicationBodyIgnoreCreditRankDefault = false;
+export const createLoanApplicationBodyNotesMax = 1000;
+
+
+export const createLoanApplicationBodyRequestedAmountRegExp = new RegExp('^[1-9][0-9]*$');
+
+export const createLoanApplicationBodyPreRegistrationDefault = false;
+export const createLoanApplicationBodyManualValuesMaxOne = 5000;
+
+
+
+export const CreateLoanApplicationBody = zod.object({
+  "ignoreCreditRank": zod.boolean().default(createLoanApplicationBodyIgnoreCreditRankDefault).describe('Admin/salesperson-only rank exemption'),
+  "planIds": zod.array(zod.number().int()).min(1),
+  "notes": zod.string().max(createLoanApplicationBodyNotesMax).optional(),
+  "customerId": zod.number().int(),
+  "feeChargeId": zod.number().int().min(1),
+  "planId": zod.number().int(),
+  "conditionId": zod.number().int(),
+  "consultationId": zod.number().int().optional(),
+  "requestedAmount": zod.string().regex(createLoanApplicationBodyRequestedAmountRegExp),
+  "durationMonths": zod.number().int().min(1),
+  "preRegistration": zod.boolean().default(createLoanApplicationBodyPreRegistrationDefault),
+  "manualValues": zod.record(zod.string(), zod.string().max(createLoanApplicationBodyManualValuesMaxOne)).optional().describe('Manual-only values required by the selected plan\'s primary contract template. Validated and privately snapshotted on the application at creation.')
+})
+
+export const createLoanApplicationResponseCustomerSubmittedDefault = false;
+export const createLoanApplicationResponseTomanReplacementEligibilityOneDurationMonthsMin = 0;
+
+
+
+export const CreateLoanApplicationResponse = zod.object({
+  "creditRankIgnored": zod.boolean().optional().describe('Rank matching was waived by an authorized staff member at creation.'),
+  "customerSubmitted": zod.boolean().default(createLoanApplicationResponseCustomerSubmittedDefault),
+  "id": zod.number().int(),
+  "consultationId": zod.number().int(),
+  "customerId": zod.number().int(),
+  "planIds": zod.array(zod.number().int()),
+  "requestedAmount": zod.string(),
+  "requestedDurationMonths": zod.number().int().min(1).optional(),
+  "status": zod.enum(['requested', 'reviewing', 'approved', 'rejected']),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "salespersonIdSnapshot": zod.number().int().nullable(),
+  "salespersonNameSnapshot": zod.string().nullable(),
+  "customerSalespersonId": zod.number().int().nullish(),
+  "canCancel": zod.boolean().optional(),
+  "cancellationReason": zod.string().nullish(),
+  "customerName": zod.string().optional(),
+  "customerSalespersonName": zod.string().nullish(),
+  "planName": zod.string().nullish(),
+  "planId": zod.number().int().optional(),
+  "approvedAmount": zod.string().nullish(),
+  "netAmount": zod.string().nullish(),
+  "approvedAmountSource": zod.union([zod.literal('initial_provider_approval'),zod.literal('signed_primary_reconciliation'),zod.literal(null)]).nullish(),
+  "approvedAmountGenerationId": zod.number().int().nullish(),
+  "approvedAmountReconciledAt": zod.coerce.date().nullish(),
+  "approvedAmountReconciledByUserId": zod.number().int().nullish(),
+  "durationMonths": zod.number().int().optional(),
+  "stage": zod.string().optional(),
+  "newCaseWorkflow": zod.boolean().describe('True for applications created under the draft-first workflow; false for legacy applications.'),
+  "initialContractRetained": zod.boolean().describe('True when initial provider approval retained the already-signed primary contract because both principal and installment count were unchanged.'),
+  "planSnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
+  "primaryManualValues": zod.record(zod.string(), zod.string()).optional(),
+  "primaryManualVariables": zod.array(zod.object({
+  "variable": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "conditionSnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
+  "currentPrimaryGenerationId": zod.number().int().nullish(),
+  "tomanReplacementEligibility": zod.union([zod.object({
+  "eligible": zod.boolean(),
+  "candidate": zod.boolean().optional(),
+  "sourceGenerationId": zod.number().int().nullable(),
+  "approvedAmount": zod.string(),
+  "durationMonths": zod.number().int().min(createLoanApplicationResponseTomanReplacementEligibilityOneDurationMonthsMin),
+  "tomanTemplateId": zod.number().int().nullable(),
+  "tomanTemplateName": zod.string().nullable(),
+  "blockedReason": zod.string().optional()
+}),zod.null()]).optional(),
+  "tomanReplacement": zod.union([zod.object({
+  "authorized": zod.literal(true),
+  "priorStage": zod.string(),
+  "resumeStage": zod.string(),
+  "sourceGenerationId": zod.number().int(),
+  "tomanTemplateId": zod.number().int(),
+  "approvedAmount": zod.string(),
+  "durationMonths": zod.number().int(),
+  "authorizedAt": zod.coerce.date(),
+  "authorizedByUserId": zod.number().int(),
+  "replacementGenerationId": zod.number().int().nullable(),
+  "completedAt": zod.coerce.date().nullable()
+}),zod.null()]).optional(),
+  "primaryContractStatus": zod.string().nullish(),
+  "actionRequired": zod.boolean().optional(),
+  "actionRole": zod.string().optional(),
+  "businessStatus": zod.enum(['waiting_sales', 'waiting_registration', 'waiting_funder_approval', 'waiting_wallet_charge', 'wallet_charged', 'canceled', 'completed']).optional(),
+  "documents": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "history": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "guarantor": zod.record(zod.string(), zod.unknown()).nullish(),
+  "collateral": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "physicalChecks": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "physicalDocuments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "originalName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "fileAvailable": zod.boolean(),
+  "createdAt": zod.string().optional()
+})).optional(),
+  "funderDefects": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "funderDecision": zod.string().nullish(),
+  "funderReason": zod.string().nullish(),
+  "initialProviderDecision": zod.object({
+  "decision": zod.enum(['approved', 'rejected']).optional(),
+  "decidedAt": zod.coerce.date().optional(),
+  "actorUserId": zod.number().int().nullish(),
+  "reason": zod.string().nullish()
+}).nullish(),
+  "generatedDocuments": zod.array(zod.object({
+  "id": zod.number().int().optional(),
+  "applicationId": zod.number().int().optional(),
+  "kind": zod.enum(['primary', 'invoice', 'acknowledgement']).optional(),
+  "contractGenerationId": zod.number().int().nullish(),
+  "current": zod.boolean().optional(),
+  "status": zod.string().nullish(),
+  "signed": zod.boolean().optional(),
+  "superseded": zod.boolean().optional(),
+  "supersededAt": zod.coerce.date().nullish(),
+  "reviewReason": zod.string().nullish(),
+  "fileAvailable": zod.boolean().optional(),
+  "resendRepairRequired": zod.boolean().optional().describe('Current pending primary delivery reused a rejected upload; staff may explicitly prepare a guarded fresh-file retry.'),
+  "downloadUrl": zod.string().nullish()
+})).optional(),
+  "calculation": zod.record(zod.string(), zod.unknown()).nullish(),
+  "updatedAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Aggregate loan application counts within the current user's customer scope
+ */
+export const getLoanApplicationDashboardStatsResponseAwaitingActionMin = 0;
+
+export const getLoanApplicationDashboardStatsResponseInProgressMin = 0;
+
+export const getLoanApplicationDashboardStatsResponseCompletedMin = 0;
+
+
+
+export const GetLoanApplicationDashboardStatsResponse = zod.object({
+  "awaitingAction": zod.number().int().min(getLoanApplicationDashboardStatsResponseAwaitingActionMin),
+  "inProgress": zod.number().int().min(getLoanApplicationDashboardStatsResponseInProgressMin),
+  "completed": zod.number().int().min(getLoanApplicationDashboardStatsResponseCompletedMin)
+})
+
+
+export const GetFilingFeePlansQueryParams = zod.object({
+  "ignoreCreditRank": zod.coerce.boolean().optional(),
+  "customerId": zod.coerce.number().int()
+})
+
+export const GetFilingFeePlansResponse = zod.object({
+  "cashBalanceToman": zod.string(),
+  "plans": zod.array(zod.object({
+  "planId": zod.number().int(),
+  "name": zod.string(),
+  "filingFeeToman": zod.string()
+}))
+})
+
+
+export const ChargeFilingFeeHeader = zod.object({
+  "Idempotency-Key": zod.string()
+})
+
+export const chargeFilingFeeBodyIgnoreCreditRankDefault = false;
+
+export const ChargeFilingFeeBody = zod.object({
+  "ignoreCreditRank": zod.boolean().default(chargeFilingFeeBodyIgnoreCreditRankDefault),
+  "customerId": zod.number().int(),
+  "planId": zod.number().int()
+})
+
+export const ChargeFilingFeeResponse = zod.object({
+  "chargeId": zod.number().int(),
+  "amountToman": zod.string(),
+  "applicationId": zod.number().int().nullish()
 })
 
 
@@ -2038,22 +5741,77 @@ export const GetLoanApplicationParams = zod.object({
   "id": zod.coerce.number().int()
 })
 
+export const getLoanApplicationResponseCustomerSubmittedDefault = false;
+export const getLoanApplicationResponseTomanReplacementEligibilityOneDurationMonthsMin = 0;
+
+
+
 export const GetLoanApplicationResponse = zod.object({
+  "creditRankIgnored": zod.boolean().optional().describe('Rank matching was waived by an authorized staff member at creation.'),
+  "customerSubmitted": zod.boolean().default(getLoanApplicationResponseCustomerSubmittedDefault),
   "id": zod.number().int(),
   "consultationId": zod.number().int(),
   "customerId": zod.number().int(),
   "planIds": zod.array(zod.number().int()),
   "requestedAmount": zod.string(),
+  "requestedDurationMonths": zod.number().int().min(1).optional(),
   "status": zod.enum(['requested', 'reviewing', 'approved', 'rejected']),
   "notes": zod.string().nullish(),
   "createdAt": zod.string(),
+  "salespersonIdSnapshot": zod.number().int().nullable(),
+  "salespersonNameSnapshot": zod.string().nullable(),
+  "customerSalespersonId": zod.number().int().nullish(),
+  "canCancel": zod.boolean().optional(),
+  "cancellationReason": zod.string().nullish(),
   "customerName": zod.string().optional(),
+  "customerSalespersonName": zod.string().nullish(),
   "planName": zod.string().nullish(),
   "planId": zod.number().int().optional(),
   "approvedAmount": zod.string().nullish(),
   "netAmount": zod.string().nullish(),
+  "approvedAmountSource": zod.union([zod.literal('initial_provider_approval'),zod.literal('signed_primary_reconciliation'),zod.literal(null)]).nullish(),
+  "approvedAmountGenerationId": zod.number().int().nullish(),
+  "approvedAmountReconciledAt": zod.coerce.date().nullish(),
+  "approvedAmountReconciledByUserId": zod.number().int().nullish(),
   "durationMonths": zod.number().int().optional(),
   "stage": zod.string().optional(),
+  "newCaseWorkflow": zod.boolean().describe('True for applications created under the draft-first workflow; false for legacy applications.'),
+  "initialContractRetained": zod.boolean().describe('True when initial provider approval retained the already-signed primary contract because both principal and installment count were unchanged.'),
+  "planSnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
+  "primaryManualValues": zod.record(zod.string(), zod.string()).optional(),
+  "primaryManualVariables": zod.array(zod.object({
+  "variable": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "conditionSnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
+  "currentPrimaryGenerationId": zod.number().int().nullish(),
+  "tomanReplacementEligibility": zod.union([zod.object({
+  "eligible": zod.boolean(),
+  "candidate": zod.boolean().optional(),
+  "sourceGenerationId": zod.number().int().nullable(),
+  "approvedAmount": zod.string(),
+  "durationMonths": zod.number().int().min(getLoanApplicationResponseTomanReplacementEligibilityOneDurationMonthsMin),
+  "tomanTemplateId": zod.number().int().nullable(),
+  "tomanTemplateName": zod.string().nullable(),
+  "blockedReason": zod.string().optional()
+}),zod.null()]).optional(),
+  "tomanReplacement": zod.union([zod.object({
+  "authorized": zod.literal(true),
+  "priorStage": zod.string(),
+  "resumeStage": zod.string(),
+  "sourceGenerationId": zod.number().int(),
+  "tomanTemplateId": zod.number().int(),
+  "approvedAmount": zod.string(),
+  "durationMonths": zod.number().int(),
+  "authorizedAt": zod.coerce.date(),
+  "authorizedByUserId": zod.number().int(),
+  "replacementGenerationId": zod.number().int().nullable(),
+  "completedAt": zod.coerce.date().nullable()
+}),zod.null()]).optional(),
+  "primaryContractStatus": zod.string().nullish(),
+  "actionRequired": zod.boolean().optional(),
+  "actionRole": zod.string().optional(),
+  "businessStatus": zod.enum(['waiting_sales', 'waiting_registration', 'waiting_funder_approval', 'waiting_wallet_charge', 'wallet_charged', 'canceled', 'completed']).optional(),
   "documents": zod.array(zod.object({
 
 }).passthrough()).optional(),
@@ -2064,9 +5822,43 @@ export const GetLoanApplicationResponse = zod.object({
   "collateral": zod.array(zod.object({
 
 }).passthrough()).optional(),
-  "generatedDocuments": zod.array(zod.object({
+  "physicalChecks": zod.array(zod.object({
 
 }).passthrough()).optional(),
+  "physicalDocuments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "originalName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "fileAvailable": zod.boolean(),
+  "createdAt": zod.string().optional()
+})).optional(),
+  "funderDefects": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "funderDecision": zod.string().nullish(),
+  "funderReason": zod.string().nullish(),
+  "initialProviderDecision": zod.object({
+  "decision": zod.enum(['approved', 'rejected']).optional(),
+  "decidedAt": zod.coerce.date().optional(),
+  "actorUserId": zod.number().int().nullish(),
+  "reason": zod.string().nullish()
+}).nullish(),
+  "generatedDocuments": zod.array(zod.object({
+  "id": zod.number().int().optional(),
+  "applicationId": zod.number().int().optional(),
+  "kind": zod.enum(['primary', 'invoice', 'acknowledgement']).optional(),
+  "contractGenerationId": zod.number().int().nullish(),
+  "current": zod.boolean().optional(),
+  "status": zod.string().nullish(),
+  "signed": zod.boolean().optional(),
+  "superseded": zod.boolean().optional(),
+  "supersededAt": zod.coerce.date().nullish(),
+  "reviewReason": zod.string().nullish(),
+  "fileAvailable": zod.boolean().optional(),
+  "resendRepairRequired": zod.boolean().optional().describe('Current pending primary delivery reused a rejected upload; staff may explicitly prepare a guarded fresh-file retry.'),
+  "downloadUrl": zod.string().nullish()
+})).optional(),
   "calculation": zod.record(zod.string(), zod.unknown()).nullish(),
   "updatedAt": zod.string().optional()
 })
@@ -2092,6 +5884,269 @@ export const DeleteLoanApplicationParams = zod.object({
 })
 
 export const DeleteLoanApplicationResponse = zod.void()
+
+
+export const GetLoanApplicationAdminControlsParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const getLoanApplicationAdminControlsResponseDefaultsGuarantorFullNameMin = 2;
+export const getLoanApplicationAdminControlsResponseDefaultsGuarantorFullNameMax = 200;
+
+
+
+export const GetLoanApplicationAdminControlsResponse = zod.object({
+  "revision": zod.string(),
+  "stage": zod.string(),
+  "status": zod.string(),
+  "financialPosted": zod.boolean(),
+  "financialTermsLocked": zod.boolean().optional(),
+  "hasContracts": zod.boolean(),
+  "stages": zod.array(zod.string()),
+  "defaults": zod.object({
+  "planId": zod.number().int(),
+  "conditionId": zod.number().int().nullish(),
+  "requestedAmount": zod.string(),
+  "durationMonths": zod.number().int(),
+  "needsGuarantor": zod.boolean(),
+  "notes": zod.string().nullish(),
+  "manualValues": zod.record(zod.string(), zod.string()),
+  "guarantor": zod.object({
+  "fullName": zod.string().min(getLoanApplicationAdminControlsResponseDefaultsGuarantorFullNameMin).max(getLoanApplicationAdminControlsResponseDefaultsGuarantorFullNameMax),
+  "nationalCode": zod.string().nullish(),
+  "mobile": zod.string().nullish()
+}).optional()
+}),
+  "plans": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "active": zod.boolean(),
+  "conditions": zod.array(zod.object({
+  "id": zod.number().int(),
+  "label": zod.string(),
+  "maxPrincipal": zod.string(),
+  "durations": zod.array(zod.number().int()),
+  "needsGuarantor": zod.boolean()
+})),
+  "manualVariables": zod.array(zod.object({
+  "variable": zod.string(),
+  "label": zod.string()
+}))
+}))
+})
+
+
+export const SetLoanApplicationAdminStageParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const setLoanApplicationAdminStageBodyReasonMin = 2;
+export const setLoanApplicationAdminStageBodyReasonMax = 2000;
+
+
+
+export const SetLoanApplicationAdminStageBody = zod.object({
+  "expectedRevision": zod.string(),
+  "stage": zod.string(),
+  "reason": zod.string().min(setLoanApplicationAdminStageBodyReasonMin).max(setLoanApplicationAdminStageBodyReasonMax),
+  "confirmed": zod.boolean()
+})
+
+export const SetLoanApplicationAdminStageResponse = zod.object({
+  "ok": zod.boolean(),
+  "applicationId": zod.number().int(),
+  "stage": zod.string(),
+  "requiresNewContract": zod.boolean()
+})
+
+
+export const EditLoanApplicationAsAdminParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const editLoanApplicationAsAdminBodyReasonMin = 2;
+export const editLoanApplicationAsAdminBodyReasonMax = 2000;
+
+export const editLoanApplicationAsAdminBodyDurationMonthsMax = 600;
+
+
+
+export const editLoanApplicationAsAdminBodyGuarantorFullNameMin = 2;
+export const editLoanApplicationAsAdminBodyGuarantorFullNameMax = 200;
+
+export const editLoanApplicationAsAdminBodyNotesMax = 2000;
+
+
+
+export const EditLoanApplicationAsAdminBody = zod.object({
+  "expectedRevision": zod.string(),
+  "reason": zod.string().min(editLoanApplicationAsAdminBodyReasonMin).max(editLoanApplicationAsAdminBodyReasonMax),
+  "confirmed": zod.boolean(),
+  "acknowledgeContractRevision": zod.boolean().optional(),
+  "requestedAmount": zod.string().optional(),
+  "durationMonths": zod.number().int().min(1).max(editLoanApplicationAsAdminBodyDurationMonthsMax).optional(),
+  "planId": zod.number().int().min(1).optional(),
+  "conditionId": zod.number().int().min(1).optional(),
+  "needsGuarantor": zod.boolean().optional(),
+  "guarantor": zod.object({
+  "fullName": zod.string().min(editLoanApplicationAsAdminBodyGuarantorFullNameMin).max(editLoanApplicationAsAdminBodyGuarantorFullNameMax),
+  "nationalCode": zod.string().nullish(),
+  "mobile": zod.string().nullish()
+}).optional(),
+  "manualValues": zod.record(zod.string(), zod.string()).optional(),
+  "notes": zod.string().max(editLoanApplicationAsAdminBodyNotesMax).nullish()
+})
+
+export const EditLoanApplicationAsAdminResponse = zod.object({
+  "ok": zod.boolean(),
+  "applicationId": zod.number().int(),
+  "stage": zod.string(),
+  "requiresNewContract": zod.boolean()
+})
+
+
+export const AuthorizeLoanApplicationTomanReplacementParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const authorizeLoanApplicationTomanReplacementBodyReasonMin = 8;
+export const authorizeLoanApplicationTomanReplacementBodyReasonMax = 1000;
+
+
+export const authorizeLoanApplicationTomanReplacementBodyExpectedApprovedAmountRegExp = new RegExp('^[1-9][0-9]{0,17}$');
+export const authorizeLoanApplicationTomanReplacementBodyExpectedDurationMonthsMax = 600;
+
+
+
+export const AuthorizeLoanApplicationTomanReplacementBody = zod.object({
+  "consent": zod.literal(true),
+  "reason": zod.string().min(authorizeLoanApplicationTomanReplacementBodyReasonMin).max(authorizeLoanApplicationTomanReplacementBodyReasonMax),
+  "expectedGenerationId": zod.number().int().min(1),
+  "expectedApprovedAmount": zod.string().regex(authorizeLoanApplicationTomanReplacementBodyExpectedApprovedAmountRegExp),
+  "expectedDurationMonths": zod.number().int().min(1).max(authorizeLoanApplicationTomanReplacementBodyExpectedDurationMonthsMax)
+})
+
+export const authorizeLoanApplicationTomanReplacementResponseCustomerSubmittedDefault = false;
+export const authorizeLoanApplicationTomanReplacementResponseTomanReplacementEligibilityOneDurationMonthsMin = 0;
+
+
+
+export const AuthorizeLoanApplicationTomanReplacementResponse = zod.object({
+  "creditRankIgnored": zod.boolean().optional().describe('Rank matching was waived by an authorized staff member at creation.'),
+  "customerSubmitted": zod.boolean().default(authorizeLoanApplicationTomanReplacementResponseCustomerSubmittedDefault),
+  "id": zod.number().int(),
+  "consultationId": zod.number().int(),
+  "customerId": zod.number().int(),
+  "planIds": zod.array(zod.number().int()),
+  "requestedAmount": zod.string(),
+  "requestedDurationMonths": zod.number().int().min(1).optional(),
+  "status": zod.enum(['requested', 'reviewing', 'approved', 'rejected']),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "salespersonIdSnapshot": zod.number().int().nullable(),
+  "salespersonNameSnapshot": zod.string().nullable(),
+  "customerSalespersonId": zod.number().int().nullish(),
+  "canCancel": zod.boolean().optional(),
+  "cancellationReason": zod.string().nullish(),
+  "customerName": zod.string().optional(),
+  "customerSalespersonName": zod.string().nullish(),
+  "planName": zod.string().nullish(),
+  "planId": zod.number().int().optional(),
+  "approvedAmount": zod.string().nullish(),
+  "netAmount": zod.string().nullish(),
+  "approvedAmountSource": zod.union([zod.literal('initial_provider_approval'),zod.literal('signed_primary_reconciliation'),zod.literal(null)]).nullish(),
+  "approvedAmountGenerationId": zod.number().int().nullish(),
+  "approvedAmountReconciledAt": zod.coerce.date().nullish(),
+  "approvedAmountReconciledByUserId": zod.number().int().nullish(),
+  "durationMonths": zod.number().int().optional(),
+  "stage": zod.string().optional(),
+  "newCaseWorkflow": zod.boolean().describe('True for applications created under the draft-first workflow; false for legacy applications.'),
+  "initialContractRetained": zod.boolean().describe('True when initial provider approval retained the already-signed primary contract because both principal and installment count were unchanged.'),
+  "planSnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
+  "primaryManualValues": zod.record(zod.string(), zod.string()).optional(),
+  "primaryManualVariables": zod.array(zod.object({
+  "variable": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "conditionSnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
+  "currentPrimaryGenerationId": zod.number().int().nullish(),
+  "tomanReplacementEligibility": zod.union([zod.object({
+  "eligible": zod.boolean(),
+  "candidate": zod.boolean().optional(),
+  "sourceGenerationId": zod.number().int().nullable(),
+  "approvedAmount": zod.string(),
+  "durationMonths": zod.number().int().min(authorizeLoanApplicationTomanReplacementResponseTomanReplacementEligibilityOneDurationMonthsMin),
+  "tomanTemplateId": zod.number().int().nullable(),
+  "tomanTemplateName": zod.string().nullable(),
+  "blockedReason": zod.string().optional()
+}),zod.null()]).optional(),
+  "tomanReplacement": zod.union([zod.object({
+  "authorized": zod.literal(true),
+  "priorStage": zod.string(),
+  "resumeStage": zod.string(),
+  "sourceGenerationId": zod.number().int(),
+  "tomanTemplateId": zod.number().int(),
+  "approvedAmount": zod.string(),
+  "durationMonths": zod.number().int(),
+  "authorizedAt": zod.coerce.date(),
+  "authorizedByUserId": zod.number().int(),
+  "replacementGenerationId": zod.number().int().nullable(),
+  "completedAt": zod.coerce.date().nullable()
+}),zod.null()]).optional(),
+  "primaryContractStatus": zod.string().nullish(),
+  "actionRequired": zod.boolean().optional(),
+  "actionRole": zod.string().optional(),
+  "businessStatus": zod.enum(['waiting_sales', 'waiting_registration', 'waiting_funder_approval', 'waiting_wallet_charge', 'wallet_charged', 'canceled', 'completed']).optional(),
+  "documents": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "history": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "guarantor": zod.record(zod.string(), zod.unknown()).nullish(),
+  "collateral": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "physicalChecks": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "physicalDocuments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "originalName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "fileAvailable": zod.boolean(),
+  "createdAt": zod.string().optional()
+})).optional(),
+  "funderDefects": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "funderDecision": zod.string().nullish(),
+  "funderReason": zod.string().nullish(),
+  "initialProviderDecision": zod.object({
+  "decision": zod.enum(['approved', 'rejected']).optional(),
+  "decidedAt": zod.coerce.date().optional(),
+  "actorUserId": zod.number().int().nullish(),
+  "reason": zod.string().nullish()
+}).nullish(),
+  "generatedDocuments": zod.array(zod.object({
+  "id": zod.number().int().optional(),
+  "applicationId": zod.number().int().optional(),
+  "kind": zod.enum(['primary', 'invoice', 'acknowledgement']).optional(),
+  "contractGenerationId": zod.number().int().nullish(),
+  "current": zod.boolean().optional(),
+  "status": zod.string().nullish(),
+  "signed": zod.boolean().optional(),
+  "superseded": zod.boolean().optional(),
+  "supersededAt": zod.coerce.date().nullish(),
+  "reviewReason": zod.string().nullish(),
+  "fileAvailable": zod.boolean().optional(),
+  "resendRepairRequired": zod.boolean().optional().describe('Current pending primary delivery reused a rejected upload; staff may explicitly prepare a guarded fresh-file retry.'),
+  "downloadUrl": zod.string().nullish()
+})).optional(),
+  "calculation": zod.record(zod.string(), zod.unknown()).nullish(),
+  "updatedAt": zod.string().optional()
+})
 
 
 export const AddLoanApplicationManualRequirementParams = zod.object({
@@ -2156,7 +6211,7 @@ export const ReviewLoanApplicationDocumentParams = zod.object({
 
 export const ReviewLoanApplicationDocumentBody = zod.object({
   "decision": zod.enum(['approved', 'incomplete', 'rejected']),
-  "reason": zod.string().optional()
+  "reason": zod.string().optional().describe('Required when rejecting a reviewed item.')
 })
 
 export const ReviewLoanApplicationDocumentResponse = zod.object({
@@ -2216,7 +6271,7 @@ export const ReviewLoanApplicationGuarantorDocumentParams = zod.object({
 
 export const ReviewLoanApplicationGuarantorDocumentBody = zod.object({
   "decision": zod.enum(['approved', 'incomplete', 'rejected']),
-  "reason": zod.string().optional()
+  "reason": zod.string().optional().describe('Required when rejecting a reviewed item.')
 })
 
 export const ReviewLoanApplicationGuarantorDocumentResponse = zod.object({
@@ -2231,7 +6286,8 @@ export const SubmitLoanApplicationCollateralParams = zod.object({
 
 export const SubmitLoanApplicationCollateralBody = zod.object({
   "file": zod.instanceof(Blob),
-  "collateralType": zod.string()
+  "collateralType": zod.string(),
+  "requirementKey": zod.string()
 })
 
 export const SubmitLoanApplicationCollateralResponse = zod.void()
@@ -2260,7 +6316,7 @@ export const ReviewLoanApplicationCollateralParams = zod.object({
 
 export const ReviewLoanApplicationCollateralBody = zod.object({
   "decision": zod.enum(['approved', 'incomplete', 'rejected']),
-  "reason": zod.string().optional()
+  "reason": zod.string().optional().describe('Required when rejecting a reviewed item.')
 })
 
 export const ReviewLoanApplicationCollateralResponse = zod.unknown()
@@ -2274,22 +6330,77 @@ export const SubmitPrimaryContractLoanApplicationBody = zod.object({
   "reason": zod.string().optional()
 })
 
+export const submitPrimaryContractLoanApplicationResponseCustomerSubmittedDefault = false;
+export const submitPrimaryContractLoanApplicationResponseTomanReplacementEligibilityOneDurationMonthsMin = 0;
+
+
+
 export const SubmitPrimaryContractLoanApplicationResponse = zod.object({
+  "creditRankIgnored": zod.boolean().optional().describe('Rank matching was waived by an authorized staff member at creation.'),
+  "customerSubmitted": zod.boolean().default(submitPrimaryContractLoanApplicationResponseCustomerSubmittedDefault),
   "id": zod.number().int(),
   "consultationId": zod.number().int(),
   "customerId": zod.number().int(),
   "planIds": zod.array(zod.number().int()),
   "requestedAmount": zod.string(),
+  "requestedDurationMonths": zod.number().int().min(1).optional(),
   "status": zod.enum(['requested', 'reviewing', 'approved', 'rejected']),
   "notes": zod.string().nullish(),
   "createdAt": zod.string(),
+  "salespersonIdSnapshot": zod.number().int().nullable(),
+  "salespersonNameSnapshot": zod.string().nullable(),
+  "customerSalespersonId": zod.number().int().nullish(),
+  "canCancel": zod.boolean().optional(),
+  "cancellationReason": zod.string().nullish(),
   "customerName": zod.string().optional(),
+  "customerSalespersonName": zod.string().nullish(),
   "planName": zod.string().nullish(),
   "planId": zod.number().int().optional(),
   "approvedAmount": zod.string().nullish(),
   "netAmount": zod.string().nullish(),
+  "approvedAmountSource": zod.union([zod.literal('initial_provider_approval'),zod.literal('signed_primary_reconciliation'),zod.literal(null)]).nullish(),
+  "approvedAmountGenerationId": zod.number().int().nullish(),
+  "approvedAmountReconciledAt": zod.coerce.date().nullish(),
+  "approvedAmountReconciledByUserId": zod.number().int().nullish(),
   "durationMonths": zod.number().int().optional(),
   "stage": zod.string().optional(),
+  "newCaseWorkflow": zod.boolean().describe('True for applications created under the draft-first workflow; false for legacy applications.'),
+  "initialContractRetained": zod.boolean().describe('True when initial provider approval retained the already-signed primary contract because both principal and installment count were unchanged.'),
+  "planSnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
+  "primaryManualValues": zod.record(zod.string(), zod.string()).optional(),
+  "primaryManualVariables": zod.array(zod.object({
+  "variable": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "conditionSnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
+  "currentPrimaryGenerationId": zod.number().int().nullish(),
+  "tomanReplacementEligibility": zod.union([zod.object({
+  "eligible": zod.boolean(),
+  "candidate": zod.boolean().optional(),
+  "sourceGenerationId": zod.number().int().nullable(),
+  "approvedAmount": zod.string(),
+  "durationMonths": zod.number().int().min(submitPrimaryContractLoanApplicationResponseTomanReplacementEligibilityOneDurationMonthsMin),
+  "tomanTemplateId": zod.number().int().nullable(),
+  "tomanTemplateName": zod.string().nullable(),
+  "blockedReason": zod.string().optional()
+}),zod.null()]).optional(),
+  "tomanReplacement": zod.union([zod.object({
+  "authorized": zod.literal(true),
+  "priorStage": zod.string(),
+  "resumeStage": zod.string(),
+  "sourceGenerationId": zod.number().int(),
+  "tomanTemplateId": zod.number().int(),
+  "approvedAmount": zod.string(),
+  "durationMonths": zod.number().int(),
+  "authorizedAt": zod.coerce.date(),
+  "authorizedByUserId": zod.number().int(),
+  "replacementGenerationId": zod.number().int().nullable(),
+  "completedAt": zod.coerce.date().nullable()
+}),zod.null()]).optional(),
+  "primaryContractStatus": zod.string().nullish(),
+  "actionRequired": zod.boolean().optional(),
+  "actionRole": zod.string().optional(),
+  "businessStatus": zod.enum(['waiting_sales', 'waiting_registration', 'waiting_funder_approval', 'waiting_wallet_charge', 'wallet_charged', 'canceled', 'completed']).optional(),
   "documents": zod.array(zod.object({
 
 }).passthrough()).optional(),
@@ -2300,9 +6411,173 @@ export const SubmitPrimaryContractLoanApplicationResponse = zod.object({
   "collateral": zod.array(zod.object({
 
 }).passthrough()).optional(),
-  "generatedDocuments": zod.array(zod.object({
+  "physicalChecks": zod.array(zod.object({
 
 }).passthrough()).optional(),
+  "physicalDocuments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "originalName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "fileAvailable": zod.boolean(),
+  "createdAt": zod.string().optional()
+})).optional(),
+  "funderDefects": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "funderDecision": zod.string().nullish(),
+  "funderReason": zod.string().nullish(),
+  "initialProviderDecision": zod.object({
+  "decision": zod.enum(['approved', 'rejected']).optional(),
+  "decidedAt": zod.coerce.date().optional(),
+  "actorUserId": zod.number().int().nullish(),
+  "reason": zod.string().nullish()
+}).nullish(),
+  "generatedDocuments": zod.array(zod.object({
+  "id": zod.number().int().optional(),
+  "applicationId": zod.number().int().optional(),
+  "kind": zod.enum(['primary', 'invoice', 'acknowledgement']).optional(),
+  "contractGenerationId": zod.number().int().nullish(),
+  "current": zod.boolean().optional(),
+  "status": zod.string().nullish(),
+  "signed": zod.boolean().optional(),
+  "superseded": zod.boolean().optional(),
+  "supersededAt": zod.coerce.date().nullish(),
+  "reviewReason": zod.string().nullish(),
+  "fileAvailable": zod.boolean().optional(),
+  "resendRepairRequired": zod.boolean().optional().describe('Current pending primary delivery reused a rejected upload; staff may explicitly prepare a guarded fresh-file retry.'),
+  "downloadUrl": zod.string().nullish()
+})).optional(),
+  "calculation": zod.record(zod.string(), zod.unknown()).nullish(),
+  "updatedAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Continue a draft with its verified, current, already signed primary contract
+ */
+export const ConfirmSignedPrimaryLoanApplicationParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const confirmSignedPrimaryLoanApplicationResponseCustomerSubmittedDefault = false;
+export const confirmSignedPrimaryLoanApplicationResponseTomanReplacementEligibilityOneDurationMonthsMin = 0;
+
+
+
+export const ConfirmSignedPrimaryLoanApplicationResponse = zod.object({
+  "creditRankIgnored": zod.boolean().optional().describe('Rank matching was waived by an authorized staff member at creation.'),
+  "customerSubmitted": zod.boolean().default(confirmSignedPrimaryLoanApplicationResponseCustomerSubmittedDefault),
+  "id": zod.number().int(),
+  "consultationId": zod.number().int(),
+  "customerId": zod.number().int(),
+  "planIds": zod.array(zod.number().int()),
+  "requestedAmount": zod.string(),
+  "requestedDurationMonths": zod.number().int().min(1).optional(),
+  "status": zod.enum(['requested', 'reviewing', 'approved', 'rejected']),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "salespersonIdSnapshot": zod.number().int().nullable(),
+  "salespersonNameSnapshot": zod.string().nullable(),
+  "customerSalespersonId": zod.number().int().nullish(),
+  "canCancel": zod.boolean().optional(),
+  "cancellationReason": zod.string().nullish(),
+  "customerName": zod.string().optional(),
+  "customerSalespersonName": zod.string().nullish(),
+  "planName": zod.string().nullish(),
+  "planId": zod.number().int().optional(),
+  "approvedAmount": zod.string().nullish(),
+  "netAmount": zod.string().nullish(),
+  "approvedAmountSource": zod.union([zod.literal('initial_provider_approval'),zod.literal('signed_primary_reconciliation'),zod.literal(null)]).nullish(),
+  "approvedAmountGenerationId": zod.number().int().nullish(),
+  "approvedAmountReconciledAt": zod.coerce.date().nullish(),
+  "approvedAmountReconciledByUserId": zod.number().int().nullish(),
+  "durationMonths": zod.number().int().optional(),
+  "stage": zod.string().optional(),
+  "newCaseWorkflow": zod.boolean().describe('True for applications created under the draft-first workflow; false for legacy applications.'),
+  "initialContractRetained": zod.boolean().describe('True when initial provider approval retained the already-signed primary contract because both principal and installment count were unchanged.'),
+  "planSnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
+  "primaryManualValues": zod.record(zod.string(), zod.string()).optional(),
+  "primaryManualVariables": zod.array(zod.object({
+  "variable": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "conditionSnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
+  "currentPrimaryGenerationId": zod.number().int().nullish(),
+  "tomanReplacementEligibility": zod.union([zod.object({
+  "eligible": zod.boolean(),
+  "candidate": zod.boolean().optional(),
+  "sourceGenerationId": zod.number().int().nullable(),
+  "approvedAmount": zod.string(),
+  "durationMonths": zod.number().int().min(confirmSignedPrimaryLoanApplicationResponseTomanReplacementEligibilityOneDurationMonthsMin),
+  "tomanTemplateId": zod.number().int().nullable(),
+  "tomanTemplateName": zod.string().nullable(),
+  "blockedReason": zod.string().optional()
+}),zod.null()]).optional(),
+  "tomanReplacement": zod.union([zod.object({
+  "authorized": zod.literal(true),
+  "priorStage": zod.string(),
+  "resumeStage": zod.string(),
+  "sourceGenerationId": zod.number().int(),
+  "tomanTemplateId": zod.number().int(),
+  "approvedAmount": zod.string(),
+  "durationMonths": zod.number().int(),
+  "authorizedAt": zod.coerce.date(),
+  "authorizedByUserId": zod.number().int(),
+  "replacementGenerationId": zod.number().int().nullable(),
+  "completedAt": zod.coerce.date().nullable()
+}),zod.null()]).optional(),
+  "primaryContractStatus": zod.string().nullish(),
+  "actionRequired": zod.boolean().optional(),
+  "actionRole": zod.string().optional(),
+  "businessStatus": zod.enum(['waiting_sales', 'waiting_registration', 'waiting_funder_approval', 'waiting_wallet_charge', 'wallet_charged', 'canceled', 'completed']).optional(),
+  "documents": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "history": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "guarantor": zod.record(zod.string(), zod.unknown()).nullish(),
+  "collateral": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "physicalChecks": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "physicalDocuments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "originalName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "fileAvailable": zod.boolean(),
+  "createdAt": zod.string().optional()
+})).optional(),
+  "funderDefects": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "funderDecision": zod.string().nullish(),
+  "funderReason": zod.string().nullish(),
+  "initialProviderDecision": zod.object({
+  "decision": zod.enum(['approved', 'rejected']).optional(),
+  "decidedAt": zod.coerce.date().optional(),
+  "actorUserId": zod.number().int().nullish(),
+  "reason": zod.string().nullish()
+}).nullish(),
+  "generatedDocuments": zod.array(zod.object({
+  "id": zod.number().int().optional(),
+  "applicationId": zod.number().int().optional(),
+  "kind": zod.enum(['primary', 'invoice', 'acknowledgement']).optional(),
+  "contractGenerationId": zod.number().int().nullish(),
+  "current": zod.boolean().optional(),
+  "status": zod.string().nullish(),
+  "signed": zod.boolean().optional(),
+  "superseded": zod.boolean().optional(),
+  "supersededAt": zod.coerce.date().nullish(),
+  "reviewReason": zod.string().nullish(),
+  "fileAvailable": zod.boolean().optional(),
+  "resendRepairRequired": zod.boolean().optional().describe('Current pending primary delivery reused a rejected upload; staff may explicitly prepare a guarded fresh-file retry.'),
+  "downloadUrl": zod.string().nullish()
+})).optional(),
   "calculation": zod.record(zod.string(), zod.unknown()).nullish(),
   "updatedAt": zod.string().optional()
 })
@@ -2373,19 +6648,189 @@ export const ExpertApproveLoanApplicationParams = zod.object({
   "id": zod.coerce.number().int()
 })
 
-export const ExpertApproveLoanApplicationBody = zod.object({
-  "reason": zod.string().optional()
+export const ExpertApproveLoanApplicationResponse = zod.unknown()
+
+
+export const FunderInitialApproveLoanApplicationParams = zod.object({
+  "id": zod.coerce.number().int()
 })
 
-export const ExpertApproveLoanApplicationResponse = zod.unknown()
+export const funderInitialApproveLoanApplicationBodyApprovedAmountRegExp = new RegExp('^[1-9][0-9]{0,17}$');
+export const funderInitialApproveLoanApplicationBodyApprovedDurationMonthsMax = 600;
+
+export const funderInitialApproveLoanApplicationBodyReasonMax = 500;
+
+
+
+export const FunderInitialApproveLoanApplicationBody = zod.object({
+  "approvedAmount": zod.string().regex(funderInitialApproveLoanApplicationBodyApprovedAmountRegExp).describe('Approved principal in Toman; may exceed or be below requested amount but cannot exceed the snapshotted plan/condition ceiling.'),
+  "approvedDurationMonths": zod.number().int().min(1).max(funderInitialApproveLoanApplicationBodyApprovedDurationMonthsMax).optional().describe('Approved installment count from the snapshotted plan/condition options. Omission preserves the requested count for older clients.'),
+  "reason": zod.string().max(funderInitialApproveLoanApplicationBodyReasonMax).optional().describe('Optional initial provider-decision audit reason.')
+})
+
+export const FunderInitialApproveLoanApplicationResponse = zod.unknown()
+
+
+export const FunderInitialRejectLoanApplicationParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const funderInitialRejectLoanApplicationBodyReasonMax = 1000;
+
+
+
+export const FunderInitialRejectLoanApplicationBody = zod.object({
+  "reason": zod.string().min(1).max(funderInitialRejectLoanApplicationBodyReasonMax)
+})
+
+export const FunderInitialRejectLoanApplicationResponse = zod.unknown()
+
+
+export const CancelLoanApplicationParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const cancelLoanApplicationBodyReasonMax = 1000;
+
+
+
+export const CancelLoanApplicationBody = zod.object({
+  "reason": zod.string().min(1).max(cancelLoanApplicationBodyReasonMax)
+})
+
+export const cancelLoanApplicationResponseCustomerSubmittedDefault = false;
+export const cancelLoanApplicationResponseTomanReplacementEligibilityOneDurationMonthsMin = 0;
+
+
+
+export const CancelLoanApplicationResponse = zod.object({
+  "creditRankIgnored": zod.boolean().optional().describe('Rank matching was waived by an authorized staff member at creation.'),
+  "customerSubmitted": zod.boolean().default(cancelLoanApplicationResponseCustomerSubmittedDefault),
+  "id": zod.number().int(),
+  "consultationId": zod.number().int(),
+  "customerId": zod.number().int(),
+  "planIds": zod.array(zod.number().int()),
+  "requestedAmount": zod.string(),
+  "requestedDurationMonths": zod.number().int().min(1).optional(),
+  "status": zod.enum(['requested', 'reviewing', 'approved', 'rejected']),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "salespersonIdSnapshot": zod.number().int().nullable(),
+  "salespersonNameSnapshot": zod.string().nullable(),
+  "customerSalespersonId": zod.number().int().nullish(),
+  "canCancel": zod.boolean().optional(),
+  "cancellationReason": zod.string().nullish(),
+  "customerName": zod.string().optional(),
+  "customerSalespersonName": zod.string().nullish(),
+  "planName": zod.string().nullish(),
+  "planId": zod.number().int().optional(),
+  "approvedAmount": zod.string().nullish(),
+  "netAmount": zod.string().nullish(),
+  "approvedAmountSource": zod.union([zod.literal('initial_provider_approval'),zod.literal('signed_primary_reconciliation'),zod.literal(null)]).nullish(),
+  "approvedAmountGenerationId": zod.number().int().nullish(),
+  "approvedAmountReconciledAt": zod.coerce.date().nullish(),
+  "approvedAmountReconciledByUserId": zod.number().int().nullish(),
+  "durationMonths": zod.number().int().optional(),
+  "stage": zod.string().optional(),
+  "newCaseWorkflow": zod.boolean().describe('True for applications created under the draft-first workflow; false for legacy applications.'),
+  "initialContractRetained": zod.boolean().describe('True when initial provider approval retained the already-signed primary contract because both principal and installment count were unchanged.'),
+  "planSnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
+  "primaryManualValues": zod.record(zod.string(), zod.string()).optional(),
+  "primaryManualVariables": zod.array(zod.object({
+  "variable": zod.string(),
+  "label": zod.string()
+})).optional(),
+  "conditionSnapshot": zod.record(zod.string(), zod.unknown()).nullish(),
+  "currentPrimaryGenerationId": zod.number().int().nullish(),
+  "tomanReplacementEligibility": zod.union([zod.object({
+  "eligible": zod.boolean(),
+  "candidate": zod.boolean().optional(),
+  "sourceGenerationId": zod.number().int().nullable(),
+  "approvedAmount": zod.string(),
+  "durationMonths": zod.number().int().min(cancelLoanApplicationResponseTomanReplacementEligibilityOneDurationMonthsMin),
+  "tomanTemplateId": zod.number().int().nullable(),
+  "tomanTemplateName": zod.string().nullable(),
+  "blockedReason": zod.string().optional()
+}),zod.null()]).optional(),
+  "tomanReplacement": zod.union([zod.object({
+  "authorized": zod.literal(true),
+  "priorStage": zod.string(),
+  "resumeStage": zod.string(),
+  "sourceGenerationId": zod.number().int(),
+  "tomanTemplateId": zod.number().int(),
+  "approvedAmount": zod.string(),
+  "durationMonths": zod.number().int(),
+  "authorizedAt": zod.coerce.date(),
+  "authorizedByUserId": zod.number().int(),
+  "replacementGenerationId": zod.number().int().nullable(),
+  "completedAt": zod.coerce.date().nullable()
+}),zod.null()]).optional(),
+  "primaryContractStatus": zod.string().nullish(),
+  "actionRequired": zod.boolean().optional(),
+  "actionRole": zod.string().optional(),
+  "businessStatus": zod.enum(['waiting_sales', 'waiting_registration', 'waiting_funder_approval', 'waiting_wallet_charge', 'wallet_charged', 'canceled', 'completed']).optional(),
+  "documents": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "history": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "guarantor": zod.record(zod.string(), zod.unknown()).nullish(),
+  "collateral": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "physicalChecks": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "physicalDocuments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "originalName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "fileAvailable": zod.boolean(),
+  "createdAt": zod.string().optional()
+})).optional(),
+  "funderDefects": zod.array(zod.object({
+
+}).passthrough()).optional(),
+  "funderDecision": zod.string().nullish(),
+  "funderReason": zod.string().nullish(),
+  "initialProviderDecision": zod.object({
+  "decision": zod.enum(['approved', 'rejected']).optional(),
+  "decidedAt": zod.coerce.date().optional(),
+  "actorUserId": zod.number().int().nullish(),
+  "reason": zod.string().nullish()
+}).nullish(),
+  "generatedDocuments": zod.array(zod.object({
+  "id": zod.number().int().optional(),
+  "applicationId": zod.number().int().optional(),
+  "kind": zod.enum(['primary', 'invoice', 'acknowledgement']).optional(),
+  "contractGenerationId": zod.number().int().nullish(),
+  "current": zod.boolean().optional(),
+  "status": zod.string().nullish(),
+  "signed": zod.boolean().optional(),
+  "superseded": zod.boolean().optional(),
+  "supersededAt": zod.coerce.date().nullish(),
+  "reviewReason": zod.string().nullish(),
+  "fileAvailable": zod.boolean().optional(),
+  "resendRepairRequired": zod.boolean().optional().describe('Current pending primary delivery reused a rejected upload; staff may explicitly prepare a guarded fresh-file retry.'),
+  "downloadUrl": zod.string().nullish()
+})).optional(),
+  "calculation": zod.record(zod.string(), zod.unknown()).nullish(),
+  "updatedAt": zod.string().optional()
+})
 
 
 export const ExpertRejectLoanApplicationParams = zod.object({
   "id": zod.coerce.number().int()
 })
 
+export const expertRejectLoanApplicationBodyReasonMax = 1000;
+
+
+
 export const ExpertRejectLoanApplicationBody = zod.object({
-  "reason": zod.string().optional()
+  "reason": zod.string().min(1).max(expertRejectLoanApplicationBodyReasonMax)
 })
 
 export const ExpertRejectLoanApplicationResponse = zod.unknown()
@@ -2402,6 +6847,9 @@ export const AdminRejectLoanApplicationBody = zod.object({
 export const AdminRejectLoanApplicationResponse = zod.unknown()
 
 
+/**
+ * Administrator approves the registrar's charge request, credits the credit wallet exactly once and completes the case.
+ */
 export const ApproveLoanApplicationAsAdminParams = zod.object({
   "id": zod.coerce.number().int()
 })
@@ -2411,6 +6859,437 @@ export const ApproveLoanApplicationAsAdminBody = zod.object({
 })
 
 export const ApproveLoanApplicationAsAdminResponse = zod.unknown()
+
+
+export const ConfirmFunderLoanApplicationParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ConfirmFunderLoanApplicationResponse = zod.unknown()
+
+
+export const UploadPhysicalLoanDocumentParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const UploadPhysicalLoanDocumentBody = zod.object({
+  "file": zod.instanceof(Blob),
+  "requirementKey": zod.string().optional(),
+  "label": zod.string().optional()
+})
+
+export const UploadPhysicalLoanDocumentResponse = zod.object({
+  "id": zod.number().int(),
+  "originalName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "fileAvailable": zod.boolean(),
+  "createdAt": zod.string().optional()
+})
+
+
+export const DownloadPhysicalLoanDocumentParams = zod.object({
+  "id": zod.coerce.number().int(),
+  "documentId": zod.coerce.number().int()
+})
+
+export const DownloadPhysicalLoanDocumentResponse = zod.unknown()
+
+
+export const DeletePhysicalLoanDocumentParams = zod.object({
+  "id": zod.coerce.number().int(),
+  "documentId": zod.coerce.number().int()
+})
+
+export const DeletePhysicalLoanDocumentResponse = zod.void()
+
+
+export const SubmitPhysicalLoanDocumentsParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const SubmitPhysicalLoanDocumentsBody = zod.object({
+  "noPhysicalDocuments": zod.boolean().describe('Registrar attests that this plan has no physical documents to send. Cannot be true after an upload.')
+})
+
+export const SubmitPhysicalLoanDocumentsResponse = zod.unknown()
+
+
+export const ReturnFunderDocumentsLoanApplicationParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+
+
+
+export const ReturnFunderDocumentsLoanApplicationBody = zod.object({
+  "reason": zod.string().optional(),
+  "defects": zod.array(zod.object({
+  "source": zod.enum(['document', 'guarantor', 'collateral']),
+  "id": zod.number().int(),
+  "reason": zod.string()
+})).min(1)
+})
+
+export const ReturnFunderDocumentsLoanApplicationResponse = zod.unknown()
+
+
+export const ResubmitFunderDocumentsLoanApplicationParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ResubmitFunderDocumentsLoanApplicationResponse = zod.unknown()
+
+
+export const ReviewPhysicalCheckParams = zod.object({
+  "id": zod.coerce.number().int(),
+  "checkId": zod.coerce.number().int()
+})
+
+export const ReviewPhysicalCheckBody = zod.object({
+  "decision": zod.enum(['approved', 'incomplete']),
+  "reason": zod.string().optional()
+})
+
+export const ReviewPhysicalCheckResponse = zod.unknown()
+
+
+export const CorrectPhysicalCheckParams = zod.object({
+  "id": zod.coerce.number().int(),
+  "checkId": zod.coerce.number().int()
+})
+
+export const CorrectPhysicalCheckBody = zod.object({
+  "note": zod.string()
+})
+
+export const CorrectPhysicalCheckResponse = zod.unknown()
+
+
+/**
+ * Registrar returns physical documents to sales with a required reason, including general deficiencies without a prior per-document review.
+ */
+export const ReturnPhysicalDocumentsLoanApplicationParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ReturnPhysicalDocumentsLoanApplicationBody = zod.object({
+  "reason": zod.string().optional()
+})
+
+export const ReturnPhysicalDocumentsLoanApplicationResponse = zod.unknown()
+
+
+export const ResubmitPhysicalDocumentsLoanApplicationParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ResubmitPhysicalDocumentsLoanApplicationResponse = zod.unknown()
+
+
+/**
+ * Registrar attests receipt and approval of pending physical checks. Known deficiencies must be corrected first. The case remains with the registrar awaiting a wallet-charge request.
+ */
+export const ApprovePhysicalDocumentsLoanApplicationParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ApprovePhysicalDocumentsLoanApplicationResponse = zod.unknown()
+
+
+/**
+ * Registrar sends the charge request to administrator approval without changing any wallet balance.
+ */
+export const ApproveWalletChargeLoanApplicationParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ApproveWalletChargeLoanApplicationResponse = zod.unknown()
+
+
+export const GetCustomerWalletParams = zod.object({
+  "customerId": zod.coerce.number().int()
+})
+
+export const GetCustomerWalletResponse = zod.unknown()
+
+
+/**
+ * Lists redacted wallet share-link history for the scoped customer. Bearer tokens, hashes, URLs, and internal claims are never returned.
+ */
+export const ListCustomerWalletShareLinksParams = zod.object({
+  "customerId": zod.coerce.number().int()
+})
+
+export const ListCustomerWalletShareLinksResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number().int(),
+  "amountToman": zod.string(),
+  "planId": zod.number().int().nullable(),
+  "planName": zod.string().nullable(),
+  "createdAt": zod.coerce.date(),
+  "expiresAt": zod.coerce.date(),
+  "smsStatus": zod.enum(['not_sent', 'sending', 'sent', 'delivery_unknown']),
+  "paymentStatus": zod.enum(['pending', 'processing', 'credited', 'cancelled', 'failed', 'verification_pending', 'requires_reconciliation', 'expired']),
+  "isActive": zod.boolean()
+}))
+})
+
+
+export const CreateCustomerWalletShareLinkParams = zod.object({
+  "customerId": zod.coerce.number().int()
+})
+
+export const createCustomerWalletShareLinkBodyOneAmountTomanRegExp = new RegExp('^[1-9][0-9]*$');
+
+export const createCustomerWalletShareLinkBodyTwoAmountTomanRegExp = new RegExp('^[1-9][0-9]*$');
+
+export const createCustomerWalletShareLinkBodyThreeAmountTomanRegExp = new RegExp('^[1-9][0-9]*$');
+
+
+
+export const CreateCustomerWalletShareLinkBody = zod.union([zod.object({
+  "amountToman": zod.string().regex(createCustomerWalletShareLinkBodyOneAmountTomanRegExp),
+  "planId": zod.number().int().min(1).optional(),
+  "ignoreCreditRank": zod.boolean().optional().describe('Staff-only loan-plan eligibility exception; does not bypass identity, cash shortfall, scope or verified payment.'),
+  "confirmActiveRequest": zod.boolean().optional().describe('Must be exactly true to create another link while an active request exists.')
+}),zod.object({
+  "amountToman": zod.string().regex(createCustomerWalletShareLinkBodyTwoAmountTomanRegExp).optional(),
+  "planId": zod.number().int().min(1),
+  "ignoreCreditRank": zod.boolean().optional().describe('Staff-only loan-plan eligibility exception; does not bypass identity, cash shortfall, scope or verified payment.'),
+  "confirmActiveRequest": zod.boolean().optional().describe('Must be exactly true to create another link while an active request exists.')
+})]).and(zod.object({
+  "amountToman": zod.string().regex(createCustomerWalletShareLinkBodyThreeAmountTomanRegExp).optional(),
+  "planId": zod.number().int().min(1).optional(),
+  "ignoreCreditRank": zod.boolean().optional().describe('Staff-only loan-plan eligibility exception; does not bypass identity, cash shortfall, scope or verified payment.'),
+  "confirmActiveRequest": zod.boolean().optional().describe('Must be exactly true to create another link while an active request exists.')
+}))
+
+export const CreateCustomerWalletShareLinkResponse = zod.object({
+  "url": zod.string().url(),
+  "amountToman": zod.string(),
+  "customerName": zod.string()
+})
+
+
+export const GetCustomerWalletPaymentParams = zod.object({
+  "customerId": zod.coerce.number().int(),
+  "paymentId": zod.coerce.number().int()
+})
+
+export const GetCustomerWalletPaymentResponse = zod.object({
+  "id": zod.number().int(),
+  "amountToman": zod.string(),
+  "status": zod.enum(['created', 'credited', 'cancelled', 'failed', 'provider_already_verified']),
+  "verifiedAt": zod.coerce.date().nullable()
+})
+
+
+export const InitiateCustomerCashPaymentParams = zod.object({
+  "customerId": zod.coerce.number().int()
+})
+
+export const InitiateCustomerCashPaymentHeader = zod.object({
+  "Idempotency-Key": zod.string()
+})
+
+export const initiateCustomerCashPaymentBodyAmountTomanRegExp = new RegExp('^[1-9][0-9]*$');
+
+
+export const InitiateCustomerCashPaymentBody = zod.object({
+  "amountToman": zod.string().regex(initiateCustomerCashPaymentBodyAmountTomanRegExp)
+})
+
+export const InitiateCustomerCashPaymentResponse = zod.unknown()
+
+
+/**
+ * Admin-only payment intent and stored provider receipt history for investigation.
+ */
+export const ListCustomerPaymentReconciliationParams = zod.object({
+  "customerId": zod.coerce.number().int()
+})
+
+export const ListCustomerPaymentReconciliationResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number().int(),
+  "amountToman": zod.string(),
+  "amountRial": zod.string(),
+  "authority": zod.string(),
+  "status": zod.string(),
+  "providerRefId": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "verifiedAt": zod.string().nullable(),
+  "attemptStatus": zod.string().nullable()
+}))
+})
+
+
+/**
+ * Admin-only fresh provider verification and atomic cash-wallet credit, requiring a provider receipt.
+ */
+export const ReconcileCustomerCashPaymentParams = zod.object({
+  "customerId": zod.coerce.number().int(),
+  "paymentId": zod.coerce.number().int()
+})
+
+export const ReconcileCustomerCashPaymentResponse = zod.object({
+  "status": zod.enum(['credited', 'already_credited']),
+  "providerRefId": zod.string().nullable()
+})
+
+
+export const VerifyCustomerCashPaymentQueryParams = zod.object({
+  "Authority": zod.coerce.string(),
+  "Status": zod.coerce.string()
+})
+
+export const VerifyCustomerCashPaymentResponse = zod.void()
+
+
+export const GetCompanyWalletResponse = zod.object({
+  "cashBalanceToman": zod.string(),
+  "creditBalanceToman": zod.string(),
+  "entries": zod.array(zod.object({
+  "id": zod.number().int(),
+  "walletType": zod.enum(['cash', 'credit']),
+  "amountToman": zod.string(),
+  "kind": zod.enum(['filing_fee', 'goods_purchase', 'manual_deposit', 'manual_withdrawal']),
+  "purchaseId": zod.number().int().nullish(),
+  "reason": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "feeChargeId": zod.number().int().nullish(),
+  "customerId": zod.number().int().nullish(),
+  "customerName": zod.string().nullish(),
+  "actorName": zod.string().nullish()
+}))
+})
+
+
+export const CreateCompanyWalletAdjustmentHeader = zod.object({
+  "Idempotency-Key": zod.string()
+})
+
+export const createCompanyWalletAdjustmentBodyAmountTomanRegExp = new RegExp('^[1-9][0-9]*$');
+export const createCompanyWalletAdjustmentBodyReasonMin = 3;
+
+
+
+export const CreateCompanyWalletAdjustmentBody = zod.object({
+  "walletType": zod.enum(['cash', 'credit']),
+  "direction": zod.enum(['deposit', 'withdrawal']),
+  "amountToman": zod.string().regex(createCompanyWalletAdjustmentBodyAmountTomanRegExp),
+  "reason": zod.string().min(createCompanyWalletAdjustmentBodyReasonMin)
+})
+
+export const CreateCompanyWalletAdjustmentResponse = zod.object({
+  "id": zod.number().int(),
+  "balanceToman": zod.string()
+})
+
+
+
+export const listManagedWalletsQueryLimitMax = 100;
+
+export const listManagedWalletsQueryMinCashRegExp = new RegExp('^\\d+$');
+export const listManagedWalletsQueryMaxCashRegExp = new RegExp('^\\d+$');
+export const listManagedWalletsQueryMinCreditRegExp = new RegExp('^\\d+$');
+export const listManagedWalletsQueryMaxCreditRegExp = new RegExp('^\\d+$');
+
+
+export const ListManagedWalletsQueryParams = zod.object({
+  "page": zod.coerce.number().int().min(1).optional(),
+  "limit": zod.coerce.number().int().min(1).max(listManagedWalletsQueryLimitMax).optional(),
+  "search": zod.coerce.string().optional(),
+  "name": zod.coerce.string().optional(),
+  "phone": zod.coerce.string().optional(),
+  "minCash": zod.coerce.string().regex(listManagedWalletsQueryMinCashRegExp).optional(),
+  "maxCash": zod.coerce.string().regex(listManagedWalletsQueryMaxCashRegExp).optional(),
+  "minCredit": zod.coerce.string().regex(listManagedWalletsQueryMinCreditRegExp).optional(),
+  "maxCredit": zod.coerce.string().regex(listManagedWalletsQueryMaxCreditRegExp).optional(),
+  "sortBy": zod.enum(['customerName', 'phone', 'cashBalanceToman', 'creditBalanceToman']).optional(),
+  "sortDir": zod.enum(['asc', 'desc']).optional()
+})
+
+export const ListManagedWalletsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "customerId": zod.number().int(),
+  "customerName": zod.string(),
+  "phone": zod.string(),
+  "cashBalanceToman": zod.string(),
+  "creditBalanceToman": zod.string()
+})),
+  "total": zod.number().int(),
+  "page": zod.number().int(),
+  "limit": zod.number().int()
+})
+
+
+
+export const listWalletTransactionsQueryLimitMax = 100;
+
+
+
+export const ListWalletTransactionsQueryParams = zod.object({
+  "page": zod.coerce.number().int().min(1).optional(),
+  "limit": zod.coerce.number().int().min(1).max(listWalletTransactionsQueryLimitMax).optional(),
+  "search": zod.coerce.string().optional(),
+  "customerId": zod.coerce.number().int().optional(),
+  "actorId": zod.coerce.number().int().optional(),
+  "walletType": zod.enum(['cash', 'credit']).optional(),
+  "kind": zod.enum(['payment', 'loan_credit', 'transfer', 'legacy']).optional(),
+  "status": zod.enum(['requested', 'gateway_ready', 'failed', 'cancelled', 'credited', 'verification_pending', 'requires_reconciliation', 'completed']).optional(),
+  "from": zod.date().optional(),
+  "to": zod.date().optional()
+})
+
+export const ListWalletTransactionsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "kind": zod.enum(['payment', 'loan_credit', 'transfer', 'legacy']),
+  "walletType": zod.enum(['cash', 'credit']),
+  "recordId": zod.number().int(),
+  "customerId": zod.number().int(),
+  "customerName": zod.string(),
+  "otherCustomerId": zod.number().int().nullable(),
+  "otherCustomerName": zod.string().nullable(),
+  "amountToman": zod.string(),
+  "status": zod.string(),
+  "actorId": zod.number().int().nullable(),
+  "actorName": zod.string().nullable(),
+  "errorCode": zod.string().nullable(),
+  "reason": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})),
+  "total": zod.number().int(),
+  "page": zod.number().int(),
+  "limit": zod.number().int()
+})
+
+
+export const CreateWalletTransferHeader = zod.object({
+  "Idempotency-Key": zod.string()
+})
+
+export const createWalletTransferBodyAmountTomanRegExp = new RegExp('^[1-9][0-9]*$');
+export const createWalletTransferBodyReasonMin = 3;
+export const createWalletTransferBodyReasonMax = 500;
+
+
+
+export const CreateWalletTransferBody = zod.object({
+  "fromCustomerId": zod.number().int(),
+  "toCustomerId": zod.number().int(),
+  "walletType": zod.enum(['cash', 'credit']),
+  "amountToman": zod.string().regex(createWalletTransferBodyAmountTomanRegExp),
+  "reason": zod.string().min(createWalletTransferBodyReasonMin).max(createWalletTransferBodyReasonMax)
+})
+
+export const CreateWalletTransferResponse = zod.object({
+  "id": zod.number().int(),
+  "status": zod.enum(['completed', 'failed']),
+  "errorCode": zod.string().nullable()
+})
 
 
 export const CompleteLoanApplicationParams = zod.object({
@@ -2432,11 +7311,35 @@ export const LinkLoanApplicationGeneratedDocumentBody = zod.object({
 export const LinkLoanApplicationGeneratedDocumentResponse = zod.object({
   "id": zod.number().int(),
   "applicationId": zod.number().int(),
-  "kind": zod.string(),
+  "kind": zod.enum(['primary', 'invoice', 'acknowledgement']),
   "contractGenerationId": zod.number().int()
 })
 
 
+/**
+ * Fetches a fresh provider-reported signature status for the current eligible document. This lookup does not persist provider status, change document status, or advance the loan workflow.
+ * @summary Read the current provider signature status without changing the case
+ */
+export const GetLoanApplicationGeneratedDocumentSignatureStatusParams = zod.object({
+  "id": zod.coerce.number().int(),
+  "documentId": zod.coerce.number().int()
+})
+
+export const GetLoanApplicationGeneratedDocumentSignatureStatusResponse = zod.object({
+  "id": zod.number().int(),
+  "kind": zod.string().nullish(),
+  "providerStatus": zod.string().nullish(),
+  "providerStatusTitle": zod.string().nullish(),
+  "signed": zod.boolean().describe('Provider-reported completion only; not financial approval.'),
+  "checkedAt": zod.coerce.date(),
+  "readOnly": zod.literal(true)
+})
+
+
+/**
+ * Fetches a fresh Emzame signature-status observation. If the provider reports a positive signature for the current pending case, the server continues the eligible workflow and reports any actual stage transition in workflowAdvanced and nextStage. Signature verification does not run financial, PDF, or unit checks. The signed value indicates provider-reported completion only, not financial approval.
+ * @summary Refresh signature status and continue eligible workflow
+ */
 export const VerifyLoanApplicationGeneratedDocumentSignatureParams = zod.object({
   "id": zod.coerce.number().int(),
   "documentId": zod.coerce.number().int()
@@ -2444,8 +7347,30 @@ export const VerifyLoanApplicationGeneratedDocumentSignatureParams = zod.object(
 
 export const VerifyLoanApplicationGeneratedDocumentSignatureResponse = zod.object({
   "id": zod.number().int(),
-  "signed": zod.boolean(),
-  "kind": zod.string()
+  "signed": zod.boolean().describe('Indicates provider-reported completion only; it is not financial approval.'),
+  "kind": zod.string(),
+  "providerStatus": zod.string().nullable(),
+  "workflowAdvanced": zod.boolean().optional().describe('Whether this provider lookup actually advanced the workflow; this reflects the server\'s completed transition and is not a client-side inference.'),
+  "nextStage": zod.string().nullish().describe('The authoritative resulting workflow stage after this provider lookup, or null when no stage transition occurred; do not infer or predict it client-side.')
+})
+
+
+/**
+ * Registrar reviews a signed primary contract in the legacy review flow. New applications obtain provider approval before primary contract issuance and do not use amendments.
+ */
+export const ReviewLoanApplicationGeneratedDocumentParams = zod.object({
+  "id": zod.coerce.number().int(),
+  "documentId": zod.coerce.number().int()
+})
+
+export const ReviewLoanApplicationGeneratedDocumentBody = zod.object({
+  "decision": zod.enum(['approved', 'incomplete', 'rejected']),
+  "reason": zod.string().optional().describe('Required when rejecting a reviewed item.')
+})
+
+export const ReviewLoanApplicationGeneratedDocumentResponse = zod.object({
+  "ok": zod.boolean(),
+  "status": zod.string()
 })
 
 
@@ -2543,6 +7468,7 @@ export const ListUsersResponseItem = zod.object({
   "fullName": zod.string().nullish(),
   "mobile": zod.string().nullish(),
   "telegramId": zod.string().nullish(),
+  "voipExtension": zod.string().nullish(),
   "priorityColors": zod.record(zod.string(), zod.string().regex(listUsersResponsePriorityColorsRegExpOne)).optional(),
   "role": zod.string(),
   "roleName": zod.string().optional(),
@@ -2567,6 +7493,10 @@ export const createUserBodyUsernameRegExp = new RegExp('^[A-Za-z0-9._-]+$');
 export const createUserBodyPasswordMin = 8;
 export const createUserBodyPasswordMax = 200;
 
+export const createUserBodyVoipExtensionMax = 32;
+
+
+export const createUserBodyVoipExtensionRegExp = new RegExp('^[A-Za-z0-9*#_.-]*$');
 export const createUserBodyMobileMax = 30;
 
 export const createUserBodyRoleMin = 3;
@@ -2578,9 +7508,9 @@ export const CreateUserBody = zod.object({
   "username": zod.string().min(createUserBodyUsernameMin).max(createUserBodyUsernameMax).regex(createUserBodyUsernameRegExp),
   "password": zod.string().min(createUserBodyPasswordMin).max(createUserBodyPasswordMax),
   "fullName": zod.string().nullish(),
+  "voipExtension": zod.string().max(createUserBodyVoipExtensionMax).regex(createUserBodyVoipExtensionRegExp).nullish(),
   "mobile": zod.string().max(createUserBodyMobileMax).nullish(),
   "role": zod.string().min(createUserBodyRoleMin).max(createUserBodyRoleMax),
-  "salespersonId": zod.number().int().nullish(),
   "active": zod.boolean().optional()
 })
 
@@ -2593,6 +7523,7 @@ export const CreateUserResponse = zod.object({
   "fullName": zod.string().nullish(),
   "mobile": zod.string().nullish(),
   "telegramId": zod.string().nullish(),
+  "voipExtension": zod.string().nullish(),
   "priorityColors": zod.record(zod.string(), zod.string().regex(createUserResponsePriorityColorsRegExpOne)).optional(),
   "role": zod.string(),
   "roleName": zod.string().optional(),
@@ -2602,6 +7533,68 @@ export const CreateUserResponse = zod.object({
   "salespersonName": zod.string().nullish(),
   "active": zod.boolean(),
   "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Admin report of ambiguous salesperson account links and historical records
+ */
+export const ListSalespersonIdentityAmbiguitiesResponse = zod.object({
+  "issues": zod.array(zod.object({
+  "userId": zod.number().int(),
+  "username": zod.string(),
+  "fullName": zod.string().nullable(),
+  "mobile": zod.string().nullable(),
+  "currentSalespersonId": zod.number().int().nullable(),
+  "reason": zod.enum(['shared', 'missing', 'claimed', 'multiple', 'conflicting_mobile']),
+  "candidateIds": zod.array(zod.number().int())
+})),
+  "identities": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "mobile": zod.string().nullable(),
+  "linkedUsers": zod.array(zod.object({
+  "id": zod.number().int(),
+  "username": zod.string()
+})),
+  "customers": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string()
+})),
+  "purchases": zod.array(zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int(),
+  "stage": zod.string(),
+  "commissionToman": zod.string().nullable()
+})),
+  "financialEntries": zod.array(zod.object({
+  "id": zod.number().int(),
+  "purchaseId": zod.number().int().nullable(),
+  "kind": zod.string(),
+  "amountToman": zod.string()
+})),
+  "walletBalanceToman": zod.string().nullable()
+}))
+})
+
+
+/**
+ * @summary Admin manually assigns an ambiguous account to an unclaimed or new identity
+ */
+export const ResolveSalespersonIdentityLinkParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+
+
+
+export const ResolveSalespersonIdentityLinkBody = zod.object({
+  "expectedSalespersonId": zod.number().int().nullable(),
+  "choice": zod.union([zod.number().int().min(1),zod.enum(['new'])])
+})
+
+export const ResolveSalespersonIdentityLinkResponse = zod.object({
+  "salespersonId": zod.number().int()
 })
 
 
@@ -2624,6 +7617,10 @@ export const updateUserBodyMobileMax = 30;
 
 export const updateUserBodyTelegramIdMax = 100;
 
+export const updateUserBodyVoipExtensionMax = 32;
+
+
+export const updateUserBodyVoipExtensionRegExp = new RegExp('^[A-Za-z0-9*#_.-]*$');
 export const updateUserBodyRoleMin = 3;
 export const updateUserBodyRoleMax = 50;
 
@@ -2635,8 +7632,8 @@ export const UpdateUserBody = zod.object({
   "fullName": zod.string().nullish(),
   "mobile": zod.string().max(updateUserBodyMobileMax).nullish(),
   "telegramId": zod.string().max(updateUserBodyTelegramIdMax).nullish(),
+  "voipExtension": zod.string().max(updateUserBodyVoipExtensionMax).regex(updateUserBodyVoipExtensionRegExp).nullish(),
   "role": zod.string().min(updateUserBodyRoleMin).max(updateUserBodyRoleMax).optional(),
-  "salespersonId": zod.number().int().nullish(),
   "active": zod.boolean().optional()
 })
 
@@ -2649,6 +7646,7 @@ export const UpdateUserResponse = zod.object({
   "fullName": zod.string().nullish(),
   "mobile": zod.string().nullish(),
   "telegramId": zod.string().nullish(),
+  "voipExtension": zod.string().nullish(),
   "priorityColors": zod.record(zod.string(), zod.string().regex(updateUserResponsePriorityColorsRegExpOne)).optional(),
   "role": zod.string(),
   "roleName": zod.string().optional(),
@@ -2802,6 +7800,14 @@ export const GetContractCustomerFieldsResponse = zod.object({
   "fields": zod.array(zod.object({
   "value": zod.string(),
   "label": zod.string()
+})),
+  "loanPlanFields": zod.array(zod.object({
+  "value": zod.string(),
+  "label": zod.string()
+})),
+  "loanPlans": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string()
 }))
 })
 
@@ -2821,19 +7827,36 @@ export const AnalyzeContractTemplateResponse = zod.object({
 
 
 export const ListContractTemplatesResponseItem = zod.object({
-  "name": zod.string().min(1),
-  "uploadToken": zod.string(),
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "originalFilename": zod.string(),
+  "variables": zod.array(zod.string()),
   "mappings": zod.array(zod.object({
   "variable": zod.string(),
+  "sourceType": zod.enum(['customer', 'loanPlan', 'manual', 'constant', 'formula', 'date', 'contractNumber']).optional(),
   "customerField": zod.string().nullish(),
-  "label": zod.string().optional()
-}))
-}).and(zod.object({
-  "id": zod.number().int().optional(),
-  "variables": zod.array(zod.string()).optional(),
-  "downloadUrl": zod.string().optional()
-}))
+  "loanPlanField": zod.string().nullish(),
+  "label": zod.string().optional(),
+  "constantValue": zod.string().nullish(),
+  "formula": zod.object({
+  "tokens": zod.array(zod.object({
+  "type": zod.enum(['field', 'literal', 'operator']).optional(),
+  "field": zod.string().optional(),
+  "value": zod.union([zod.string(),zod.number()]).optional()
+})).min(1).optional()
+}).nullish(),
+  "date": zod.object({
+  "mode": zod.enum(['contract_date', 'contract_date_plus_days']).optional(),
+  "offsetDays": zod.number().int().optional()
+}).nullish()
+})),
+  "createdBy": zod.number().int().optional(),
+  "createdAt": zod.coerce.date().optional(),
+  "updatedAt": zod.coerce.date().optional(),
+  "downloadUrl": zod.string()
+})
 export const ListContractTemplatesResponse = zod.array(ListContractTemplatesResponseItem)
+
 
 
 
@@ -2844,8 +7867,22 @@ export const CreateContractTemplateBody = zod.object({
   "uploadToken": zod.string(),
   "mappings": zod.array(zod.object({
   "variable": zod.string(),
+  "sourceType": zod.enum(['customer', 'loanPlan', 'manual', 'constant', 'formula', 'date', 'contractNumber']).optional(),
   "customerField": zod.string().nullish(),
-  "label": zod.string().optional()
+  "loanPlanField": zod.string().nullish(),
+  "label": zod.string().optional(),
+  "constantValue": zod.string().nullish(),
+  "formula": zod.object({
+  "tokens": zod.array(zod.object({
+  "type": zod.enum(['field', 'literal', 'operator']).optional(),
+  "field": zod.string().optional(),
+  "value": zod.union([zod.string(),zod.number()]).optional()
+})).min(1).optional()
+}).nullish(),
+  "date": zod.object({
+  "mode": zod.enum(['contract_date', 'contract_date_plus_days']).optional(),
+  "offsetDays": zod.number().int().optional()
+}).nullish()
 }))
 })
 
@@ -2853,18 +7890,34 @@ export const CreateContractTemplateBody = zod.object({
 
 
 export const CreateContractTemplateResponse = zod.object({
-  "name": zod.string().min(1),
-  "uploadToken": zod.string(),
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "originalFilename": zod.string(),
+  "variables": zod.array(zod.string()),
   "mappings": zod.array(zod.object({
   "variable": zod.string(),
+  "sourceType": zod.enum(['customer', 'loanPlan', 'manual', 'constant', 'formula', 'date', 'contractNumber']).optional(),
   "customerField": zod.string().nullish(),
-  "label": zod.string().optional()
-}))
-}).and(zod.object({
-  "id": zod.number().int().optional(),
-  "variables": zod.array(zod.string()).optional(),
-  "downloadUrl": zod.string().optional()
-}))
+  "loanPlanField": zod.string().nullish(),
+  "label": zod.string().optional(),
+  "constantValue": zod.string().nullish(),
+  "formula": zod.object({
+  "tokens": zod.array(zod.object({
+  "type": zod.enum(['field', 'literal', 'operator']).optional(),
+  "field": zod.string().optional(),
+  "value": zod.union([zod.string(),zod.number()]).optional()
+})).min(1).optional()
+}).nullish(),
+  "date": zod.object({
+  "mode": zod.enum(['contract_date', 'contract_date_plus_days']).optional(),
+  "offsetDays": zod.number().int().optional()
+}).nullish()
+})),
+  "createdBy": zod.number().int().optional(),
+  "createdAt": zod.coerce.date().optional(),
+  "updatedAt": zod.coerce.date().optional(),
+  "downloadUrl": zod.string()
+})
 
 
 export const GetContractTemplateParams = zod.object({
@@ -2875,18 +7928,34 @@ export const GetContractTemplateParams = zod.object({
 
 
 export const GetContractTemplateResponse = zod.object({
-  "name": zod.string().min(1),
-  "uploadToken": zod.string(),
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "originalFilename": zod.string(),
+  "variables": zod.array(zod.string()),
   "mappings": zod.array(zod.object({
   "variable": zod.string(),
+  "sourceType": zod.enum(['customer', 'loanPlan', 'manual', 'constant', 'formula', 'date', 'contractNumber']).optional(),
   "customerField": zod.string().nullish(),
-  "label": zod.string().optional()
-}))
-}).and(zod.object({
-  "id": zod.number().int().optional(),
-  "variables": zod.array(zod.string()).optional(),
-  "downloadUrl": zod.string().optional()
-}))
+  "loanPlanField": zod.string().nullish(),
+  "label": zod.string().optional(),
+  "constantValue": zod.string().nullish(),
+  "formula": zod.object({
+  "tokens": zod.array(zod.object({
+  "type": zod.enum(['field', 'literal', 'operator']).optional(),
+  "field": zod.string().optional(),
+  "value": zod.union([zod.string(),zod.number()]).optional()
+})).min(1).optional()
+}).nullish(),
+  "date": zod.object({
+  "mode": zod.enum(['contract_date', 'contract_date_plus_days']).optional(),
+  "offsetDays": zod.number().int().optional()
+}).nullish()
+})),
+  "createdBy": zod.number().int().optional(),
+  "createdAt": zod.coerce.date().optional(),
+  "updatedAt": zod.coerce.date().optional(),
+  "downloadUrl": zod.string()
+})
 
 
 export const UpdateContractTemplateParams = zod.object({
@@ -2896,12 +7965,27 @@ export const UpdateContractTemplateParams = zod.object({
 
 
 
+
 export const UpdateContractTemplateBody = zod.object({
   "name": zod.string().min(1),
   "mappings": zod.array(zod.object({
   "variable": zod.string(),
+  "sourceType": zod.enum(['customer', 'loanPlan', 'manual', 'constant', 'formula', 'date', 'contractNumber']).optional(),
   "customerField": zod.string().nullish(),
-  "label": zod.string().optional()
+  "loanPlanField": zod.string().nullish(),
+  "label": zod.string().optional(),
+  "constantValue": zod.string().nullish(),
+  "formula": zod.object({
+  "tokens": zod.array(zod.object({
+  "type": zod.enum(['field', 'literal', 'operator']).optional(),
+  "field": zod.string().optional(),
+  "value": zod.union([zod.string(),zod.number()]).optional()
+})).min(1).optional()
+}).nullish(),
+  "date": zod.object({
+  "mode": zod.enum(['contract_date', 'contract_date_plus_days']).optional(),
+  "offsetDays": zod.number().int().optional()
+}).nullish()
 }))
 })
 
@@ -2909,18 +7993,34 @@ export const UpdateContractTemplateBody = zod.object({
 
 
 export const UpdateContractTemplateResponse = zod.object({
-  "name": zod.string().min(1),
-  "uploadToken": zod.string(),
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "originalFilename": zod.string(),
+  "variables": zod.array(zod.string()),
   "mappings": zod.array(zod.object({
   "variable": zod.string(),
+  "sourceType": zod.enum(['customer', 'loanPlan', 'manual', 'constant', 'formula', 'date', 'contractNumber']).optional(),
   "customerField": zod.string().nullish(),
-  "label": zod.string().optional()
-}))
-}).and(zod.object({
-  "id": zod.number().int().optional(),
-  "variables": zod.array(zod.string()).optional(),
-  "downloadUrl": zod.string().optional()
-}))
+  "loanPlanField": zod.string().nullish(),
+  "label": zod.string().optional(),
+  "constantValue": zod.string().nullish(),
+  "formula": zod.object({
+  "tokens": zod.array(zod.object({
+  "type": zod.enum(['field', 'literal', 'operator']).optional(),
+  "field": zod.string().optional(),
+  "value": zod.union([zod.string(),zod.number()]).optional()
+})).min(1).optional()
+}).nullish(),
+  "date": zod.object({
+  "mode": zod.enum(['contract_date', 'contract_date_plus_days']).optional(),
+  "offsetDays": zod.number().int().optional()
+}).nullish()
+})),
+  "createdBy": zod.number().int().optional(),
+  "createdAt": zod.coerce.date().optional(),
+  "updatedAt": zod.coerce.date().optional(),
+  "downloadUrl": zod.string()
+})
 
 
 export const DeleteContractTemplateParams = zod.object({
@@ -2937,9 +8037,21 @@ export const DownloadContractTemplateParams = zod.object({
 export const DownloadContractTemplateResponse = zod.unknown()
 
 
+/**
+ * Generate a primary contract for an initially approved application. Customer, plan, template, approved principal, original requested duration, and validated manual-only values are derived from the application. The template must map loanPlan.principalAmount; any existing duration fields are rendered for the selected duration when present, but a duration mapping is not required.
+ */
+
+export const generateContractBodyDurationMonthsMax = 600;
+
+
+
+
 export const GenerateContractBody = zod.object({
-  "templateId": zod.number().int(),
-  "customerId": zod.number().int(),
+  "templateId": zod.number().int().optional(),
+  "customerId": zod.number().int().optional(),
+  "loanPlanId": zod.number().int().min(1).optional(),
+  "durationMonths": zod.number().int().min(1).max(generateContractBodyDurationMonthsMax).optional(),
+  "loanApplicationId": zod.number().int().min(1).optional().describe('Application-scoped primary generation; customer, plan, template and approved principal come from the application. Explicit manual values are validated and saved before a new generation; an existing generation cannot be changed.'),
   "manualValues": zod.record(zod.string(), zod.string()).optional()
 })
 
@@ -2948,12 +8060,16 @@ export const GenerateContractResponse = zod.object({
   "templateId": zod.number().int().optional(),
   "templateName": zod.string().optional(),
   "customerId": zod.number().int().optional(),
+  "loanPlanId": zod.number().int().nullish(),
+  "loanApplicationId": zod.number().int().nullish(),
   "status": zod.string().optional(),
+  "supersededAt": zod.coerce.date().nullish(),
   "docxUrl": zod.string().optional(),
   "pdfUrl": zod.string().nullish(),
   "providerFileId": zod.string().nullish(),
   "providerContractId": zod.string().nullish(),
-  "providerStatus": zod.string().nullish()
+  "providerStatus": zod.string().nullish(),
+  "contractNumber": zod.string().nullish()
 })
 
 
@@ -2962,12 +8078,16 @@ export const ListContractGenerationsResponseItem = zod.object({
   "templateId": zod.number().int().optional(),
   "templateName": zod.string().optional(),
   "customerId": zod.number().int().optional(),
+  "loanPlanId": zod.number().int().nullish(),
+  "loanApplicationId": zod.number().int().nullish(),
   "status": zod.string().optional(),
+  "supersededAt": zod.coerce.date().nullish(),
   "docxUrl": zod.string().optional(),
   "pdfUrl": zod.string().nullish(),
   "providerFileId": zod.string().nullish(),
   "providerContractId": zod.string().nullish(),
-  "providerStatus": zod.string().nullish()
+  "providerStatus": zod.string().nullish(),
+  "contractNumber": zod.string().nullish()
 })
 export const ListContractGenerationsResponse = zod.array(ListContractGenerationsResponseItem)
 
@@ -2981,12 +8101,16 @@ export const GetContractGenerationResponse = zod.object({
   "templateId": zod.number().int().optional(),
   "templateName": zod.string().optional(),
   "customerId": zod.number().int().optional(),
+  "loanPlanId": zod.number().int().nullish(),
+  "loanApplicationId": zod.number().int().nullish(),
   "status": zod.string().optional(),
+  "supersededAt": zod.coerce.date().nullish(),
   "docxUrl": zod.string().optional(),
   "pdfUrl": zod.string().nullish(),
   "providerFileId": zod.string().nullish(),
   "providerContractId": zod.string().nullish(),
-  "providerStatus": zod.string().nullish()
+  "providerStatus": zod.string().nullish(),
+  "contractNumber": zod.string().nullish()
 })
 
 
@@ -3005,6 +8129,9 @@ export const DownloadContractGenerationParams = zod.object({
 export const DownloadContractGenerationResponse = zod.unknown()
 
 
+/**
+ * Application-bound preapproved primary generations may be sent only from draft after application, plan, template, approved-principal, and saved-manual-value checks; a previously sent matching generation returns idempotently.
+ */
 export const SendContractGenerationParams = zod.object({
   "id": zod.coerce.number().int()
 })
@@ -3017,16 +8144,1872 @@ export const SendContractGenerationResponse = zod.object({
 })
 
 
+/**
+ * Only the current unsigned generation with a freshly confirmed provider rejection can be retried. The previous provider contract identifier remains in the immutable delivery history. Send the same generation through the regular send endpoint afterward.
+ * @summary Prepare a fresh delivery for a customer-rejected contract
+ */
+export const PrepareRejectedContractResendParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const PrepareRejectedContractResendResponse = zod.object({
+  "id": zod.number().int(),
+  "status": zod.enum(['generated'])
+})
+
+
+/**
+ * Fetches a fresh provider-reported signature status. This lookup does not persist provider status or advance any linked loan workflow.
+ * @summary Read current contract signature status without changing the workflow
+ */
+export const GetContractSignatureStatusParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const GetContractSignatureStatusResponse = zod.object({
+  "id": zod.number().int(),
+  "kind": zod.string().nullish(),
+  "providerStatus": zod.string().nullish(),
+  "providerStatusTitle": zod.string().nullish(),
+  "signed": zod.boolean().describe('Provider-reported completion only; not financial approval.'),
+  "checkedAt": zod.coerce.date(),
+  "readOnly": zod.literal(true)
+})
+
+
+/**
+ * Fetches a fresh provider signature-status observation. If the provider reports a positive signature for the current pending case, the server continues the eligible workflow and reports any actual stage transition in workflowAdvanced and nextStage. Signature verification does not run financial, PDF, or unit checks. The signed value indicates provider-reported completion only, not financial approval.
+ * @summary Check signature status and continue eligible workflow
+ */
 export const CheckContractSignatureStatusParams = zod.object({
   "id": zod.coerce.number().int()
 })
 
 export const CheckContractSignatureStatusResponse = zod.object({
   "id": zod.number().int(),
-  "providerStatus": zod.string().nullish(),
+  "providerStatus": zod.string().nullish().describe('Provider-reported signature status.'),
   "providerStatusTitle": zod.string().nullish(),
-  "signed": zod.boolean(),
-  "checkedAt": zod.coerce.date()
+  "signed": zod.boolean().describe('Indicates provider-reported completion only; it is not financial approval.'),
+  "checkedAt": zod.coerce.date(),
+  "workflowAdvanced": zod.boolean().optional().describe('Whether this provider lookup actually advanced the workflow; this reflects the server\'s completed transition and is not a client-side inference.'),
+  "nextStage": zod.string().nullish().describe('The authoritative resulting workflow stage after this provider lookup, or null when no stage transition occurred; do not infer or predict it client-side.')
 })
+
+
+export const GetVoipConfigResponse = zod.object({
+  "enabled": zod.boolean(),
+  "wssUrl": zod.string(),
+  "sipDomain": zod.string(),
+  "stunUrls": zod.array(zod.string()),
+  "extension": zod.string().nullable(),
+  "authorizationUsername": zod.string().nullable(),
+  "canManage": zod.boolean(),
+  "historySyncAvailable": zod.literal(false),
+  "phonebookSyncAvailable": zod.literal(false)
+})
+
+
+export const updateVoipConfigBodyWssUrlMax = 2048;
+
+export const updateVoipConfigBodySipDomainMax = 253;
+
+export const updateVoipConfigBodyStunUrlsItemMax = 2048;
+
+export const updateVoipConfigBodyStunUrlsMax = 10;
+
+
+
+export const UpdateVoipConfigBody = zod.object({
+  "enabled": zod.boolean(),
+  "wssUrl": zod.string().max(updateVoipConfigBodyWssUrlMax),
+  "sipDomain": zod.string().min(1).max(updateVoipConfigBodySipDomainMax),
+  "stunUrls": zod.array(zod.string().min(1).max(updateVoipConfigBodyStunUrlsItemMax)).max(updateVoipConfigBodyStunUrlsMax)
+})
+
+export const UpdateVoipConfigResponse = zod.object({
+  "ok": zod.literal(true)
+})
+
+
+export const ListVoipExtensionsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "userId": zod.number().int(),
+  "displayName": zod.string(),
+  "extension": zod.string().nullable(),
+  "authorizationUsername": zod.string().nullable()
+}))
+})
+
+
+
+
+
+export const UpdateVoipExtensionParams = zod.object({
+  "userId": zod.coerce.number().int().min(1)
+})
+
+export const updateVoipExtensionBodyExtensionMax = 32;
+
+export const updateVoipExtensionBodyAuthorizationUsernameMax = 128;
+
+
+
+export const UpdateVoipExtensionBody = zod.object({
+  "extension": zod.string().max(updateVoipExtensionBodyExtensionMax).nullable(),
+  "authorizationUsername": zod.string().max(updateVoipExtensionBodyAuthorizationUsernameMax).nullable()
+})
+
+export const UpdateVoipExtensionResponse = zod.object({
+  "ok": zod.literal(true)
+})
+
+
+export const listVoipContactsQuerySearchMax = 100;
+
+
+
+export const ListVoipContactsQueryParams = zod.object({
+  "search": zod.coerce.string().max(listVoipContactsQuerySearchMax).optional()
+})
+
+export const listVoipContactsResponseItemsMax = 50;
+
+
+
+export const ListVoipContactsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "phone": zod.string()
+})).max(listVoipContactsResponseItemsMax)
+})
+
+
+export const lookupVoipCustomerQueryPhoneMax = 32;
+
+
+
+export const LookupVoipCustomerQueryParams = zod.object({
+  "phone": zod.coerce.string().min(1).max(lookupVoipCustomerQueryPhoneMax)
+})
+
+export const LookupVoipCustomerResponse = zod.object({
+  "customer": zod.union([zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "phone": zod.string()
+}),zod.null()])
+})
+
+
+
+export const listVoipCallsQueryPageDefault = 1;
+export const listVoipCallsQueryPageMax = 1000000;
+
+
+
+export const ListVoipCallsQueryParams = zod.object({
+  "customerId": zod.coerce.number().int().min(1).optional(),
+  "page": zod.coerce.number().int().min(1).max(listVoipCallsQueryPageMax).default(listVoipCallsQueryPageDefault)
+})
+
+export const ListVoipCallsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number().int(),
+  "callId": zod.string(),
+  "direction": zod.enum(['incoming', 'outgoing']),
+  "phone": zod.string(),
+  "status": zod.enum(['ringing', 'answered', 'completed', 'missed', 'rejected', 'failed']),
+  "startedAt": zod.coerce.date(),
+  "answeredAt": zod.coerce.date().nullable(),
+  "endedAt": zod.coerce.date().nullable(),
+  "customerId": zod.number().int().nullable(),
+  "customerName": zod.string().nullable(),
+  "extension": zod.string(),
+  "actorName": zod.string(),
+  "source": zod.literal("browser")
+})),
+  "total": zod.number().int(),
+  "page": zod.number().int(),
+  "limit": zod.literal(50)
+})
+
+
+export const createVoipCallBodyCallIdMax = 128;
+
+export const createVoipCallBodyPhoneMax = 32;
+
+
+
+export const CreateVoipCallBody = zod.object({
+  "callId": zod.string().uuid().min(1).max(createVoipCallBodyCallIdMax),
+  "direction": zod.enum(['incoming', 'outgoing']),
+  "phone": zod.string().min(1).max(createVoipCallBodyPhoneMax),
+  "status": zod.enum(['ringing', 'answered', 'completed', 'missed', 'rejected', 'failed']),
+  "startedAt": zod.coerce.date(),
+  "answeredAt": zod.coerce.date().nullish(),
+  "endedAt": zod.coerce.date().nullish()
+})
+
+export const CreateVoipCallResponse = zod.object({
+  "ok": zod.literal(true)
+})
+
+
+export const ListPendingVoipAfterCallsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number().int(),
+  "externalId": zod.string(),
+  "phone": zod.string(),
+  "direction": zod.string(),
+  "status": zod.string(),
+  "startedAt": zod.string(),
+  "endedAt": zod.string(),
+  "extension": zod.string().nullable(),
+  "expertUserId": zod.number().int().nullable(),
+  "expertName": zod.string().nullable(),
+  "customerId": zod.number().int().nullable(),
+  "customerName": zod.string().nullable(),
+  "priority": zod.number().int().nullable(),
+  "callLogId": zod.number().int().nullable(),
+  "expertNotes": zod.string(),
+  "hasRecording": zod.boolean(),
+  "subject": zod.string().nullish(),
+  "customerRequest": zod.string().nullish(),
+  "recordingFrom": zod.string().optional(),
+  "recordingTo": zod.string().optional(),
+  "isLive": zod.boolean().optional(),
+  "systemSummary": zod.string().nullish()
+})),
+  "total": zod.number().int(),
+  "activatedAt": zod.string(),
+  "lastCheckedAt": zod.string().nullable(),
+  "syncError": zod.string().nullable(),
+  "canComplete": zod.boolean(),
+  "canEditPriority": zod.boolean(),
+  "liveEventSeenAt": zod.string().nullish()
+})
+
+
+
+
+
+export const CompleteVoipAfterCallParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const completeVoipAfterCallBodyExpertNotesMax = 10000;
+
+export const completeVoipAfterCallBodySubjectMax = 160;
+
+export const completeVoipAfterCallBodyCustomerRequestMax = 1200;
+
+export const completeVoipAfterCallBodyPriorityMin = 0;
+export const completeVoipAfterCallBodyPriorityMax = 3;
+
+
+
+export const CompleteVoipAfterCallBody = zod.object({
+  "expertNotes": zod.string().max(completeVoipAfterCallBodyExpertNotesMax),
+  "discardHistory": zod.boolean().optional().describe('Close the pending event without customer history; remove only its provisional automatic history and retain the PBX call.'),
+  "subject": zod.string().max(completeVoipAfterCallBodySubjectMax).nullish(),
+  "customerRequest": zod.string().max(completeVoipAfterCallBodyCustomerRequestMax).nullish(),
+  "priority": zod.number().int().min(completeVoipAfterCallBodyPriorityMin).max(completeVoipAfterCallBodyPriorityMax).nullish()
+})
+
+export const CompleteVoipAfterCallResponse = zod.object({
+  "ok": zod.boolean(),
+  "callLogId": zod.number().int().nullable()
+})
+
+
+export const GetVoipRecordingTranscriptQueryParams = zod.object({
+  "from": zod.string(),
+  "to": zod.string()
+})
+
+export const getVoipRecordingTranscriptResponseCallSubjectMax = 160;
+
+export const getVoipRecordingTranscriptResponseCustomerRequestSummaryMax = 1200;
+
+
+
+export const GetVoipRecordingTranscriptResponse = zod.object({
+  "state": zod.enum(['not_started', 'queued', 'processing', 'completed', 'failed']),
+  "phase": zod.union([zod.literal(null),zod.literal('downloading'),zod.literal('cleaning'),zod.literal('transcribing')]).nullable(),
+  "error": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "durationSeconds": zod.number().nullable(),
+  "audioSeparation": zod.union([zod.literal(null),zod.literal('stereo_channels'),zod.literal('diarization')]).nullable(),
+  "notice": zod.string().nullable(),
+  "speakers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string()
+})),
+  "segments": zod.array(zod.object({
+  "speakerId": zod.string(),
+  "startSeconds": zod.number(),
+  "endSeconds": zod.number(),
+  "text": zod.string()
+})),
+  "text": zod.string().nullable(),
+  "completedAt": zod.string().nullable(),
+  "canGenerate": zod.boolean(),
+  "summaryState": zod.enum(['not_started', 'queued', 'processing', 'completed', 'failed']),
+  "summaryError": zod.string().nullable(),
+  "callSubject": zod.string().max(getVoipRecordingTranscriptResponseCallSubjectMax).nullable(),
+  "customerRequestSummary": zod.string().max(getVoipRecordingTranscriptResponseCustomerRequestSummaryMax).nullable(),
+  "summaryRevision": zod.number().int().optional(),
+  "summarySourceHash": zod.string().nullish(),
+  "summaryEdited": zod.boolean().optional(),
+  "summaryEditStale": zod.boolean().optional()
+})
+
+
+export const CreateVoipRecordingTranscriptParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const createVoipRecordingTranscriptBodyRegenerateDefault = false;
+
+export const CreateVoipRecordingTranscriptBody = zod.object({
+  "from": zod.string(),
+  "to": zod.string(),
+  "regenerate": zod.boolean().default(createVoipRecordingTranscriptBodyRegenerateDefault).describe('Explicitly replace a completed transcript using the current model; queued requests remain idempotent.')
+})
+
+export const createVoipRecordingTranscriptResponseCallSubjectMax = 160;
+
+export const createVoipRecordingTranscriptResponseCustomerRequestSummaryMax = 1200;
+
+
+
+export const CreateVoipRecordingTranscriptResponse = zod.object({
+  "state": zod.enum(['not_started', 'queued', 'processing', 'completed', 'failed']),
+  "phase": zod.union([zod.literal(null),zod.literal('downloading'),zod.literal('cleaning'),zod.literal('transcribing')]).nullable(),
+  "error": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "durationSeconds": zod.number().nullable(),
+  "audioSeparation": zod.union([zod.literal(null),zod.literal('stereo_channels'),zod.literal('diarization')]).nullable(),
+  "notice": zod.string().nullable(),
+  "speakers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string()
+})),
+  "segments": zod.array(zod.object({
+  "speakerId": zod.string(),
+  "startSeconds": zod.number(),
+  "endSeconds": zod.number(),
+  "text": zod.string()
+})),
+  "text": zod.string().nullable(),
+  "completedAt": zod.string().nullable(),
+  "canGenerate": zod.boolean(),
+  "summaryState": zod.enum(['not_started', 'queued', 'processing', 'completed', 'failed']),
+  "summaryError": zod.string().nullable(),
+  "callSubject": zod.string().max(createVoipRecordingTranscriptResponseCallSubjectMax).nullable(),
+  "customerRequestSummary": zod.string().max(createVoipRecordingTranscriptResponseCustomerRequestSummaryMax).nullable(),
+  "summaryRevision": zod.number().int().optional(),
+  "summarySourceHash": zod.string().nullish(),
+  "summaryEdited": zod.boolean().optional(),
+  "summaryEditStale": zod.boolean().optional()
+})
+
+
+export const UpdateVoipRecordingSummaryParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const updateVoipRecordingSummaryBodyCallSubjectMax = 160;
+
+export const updateVoipRecordingSummaryBodyCustomerRequestSummaryMax = 1200;
+
+export const updateVoipRecordingSummaryBodyExpectedRevisionMin = 0;
+
+export const updateVoipRecordingSummaryBodySourceHashRegExp = new RegExp('^[a-f0-9]{64}$');
+
+
+export const UpdateVoipRecordingSummaryBody = zod.object({
+  "from": zod.string(),
+  "to": zod.string(),
+  "callSubject": zod.string().max(updateVoipRecordingSummaryBodyCallSubjectMax),
+  "customerRequestSummary": zod.string().max(updateVoipRecordingSummaryBodyCustomerRequestSummaryMax),
+  "expectedRevision": zod.number().int().min(updateVoipRecordingSummaryBodyExpectedRevisionMin),
+  "sourceHash": zod.string().regex(updateVoipRecordingSummaryBodySourceHashRegExp)
+})
+
+export const updateVoipRecordingSummaryResponseCallSubjectMax = 160;
+
+export const updateVoipRecordingSummaryResponseCustomerRequestSummaryMax = 1200;
+
+
+
+export const UpdateVoipRecordingSummaryResponse = zod.object({
+  "state": zod.enum(['not_started', 'queued', 'processing', 'completed', 'failed']),
+  "phase": zod.union([zod.literal(null),zod.literal('downloading'),zod.literal('cleaning'),zod.literal('transcribing')]).nullable(),
+  "error": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "durationSeconds": zod.number().nullable(),
+  "audioSeparation": zod.union([zod.literal(null),zod.literal('stereo_channels'),zod.literal('diarization')]).nullable(),
+  "notice": zod.string().nullable(),
+  "speakers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string()
+})),
+  "segments": zod.array(zod.object({
+  "speakerId": zod.string(),
+  "startSeconds": zod.number(),
+  "endSeconds": zod.number(),
+  "text": zod.string()
+})),
+  "text": zod.string().nullable(),
+  "completedAt": zod.string().nullable(),
+  "canGenerate": zod.boolean(),
+  "summaryState": zod.enum(['not_started', 'queued', 'processing', 'completed', 'failed']),
+  "summaryError": zod.string().nullable(),
+  "callSubject": zod.string().max(updateVoipRecordingSummaryResponseCallSubjectMax).nullable(),
+  "customerRequestSummary": zod.string().max(updateVoipRecordingSummaryResponseCustomerRequestSummaryMax).nullable(),
+  "summaryRevision": zod.number().int().optional(),
+  "summarySourceHash": zod.string().nullish(),
+  "summaryEdited": zod.boolean().optional(),
+  "summaryEditStale": zod.boolean().optional()
+})
+
+
+export const CreateVoipRecordingSummaryParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const createVoipRecordingSummaryBodyFromRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+export const createVoipRecordingSummaryBodyToRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
+export const CreateVoipRecordingSummaryBody = zod.object({
+  "from": zod.string().regex(createVoipRecordingSummaryBodyFromRegExp),
+  "to": zod.string().regex(createVoipRecordingSummaryBodyToRegExp)
+})
+
+export const createVoipRecordingSummaryResponseCallSubjectMax = 160;
+
+export const createVoipRecordingSummaryResponseCustomerRequestSummaryMax = 1200;
+
+
+
+export const CreateVoipRecordingSummaryResponse = zod.object({
+  "state": zod.enum(['not_started', 'queued', 'processing', 'completed', 'failed']),
+  "phase": zod.union([zod.literal(null),zod.literal('downloading'),zod.literal('cleaning'),zod.literal('transcribing')]).nullable(),
+  "error": zod.string().nullable(),
+  "model": zod.string().nullable(),
+  "durationSeconds": zod.number().nullable(),
+  "audioSeparation": zod.union([zod.literal(null),zod.literal('stereo_channels'),zod.literal('diarization')]).nullable(),
+  "notice": zod.string().nullable(),
+  "speakers": zod.array(zod.object({
+  "id": zod.string(),
+  "label": zod.string()
+})),
+  "segments": zod.array(zod.object({
+  "speakerId": zod.string(),
+  "startSeconds": zod.number(),
+  "endSeconds": zod.number(),
+  "text": zod.string()
+})),
+  "text": zod.string().nullable(),
+  "completedAt": zod.string().nullable(),
+  "canGenerate": zod.boolean(),
+  "summaryState": zod.enum(['not_started', 'queued', 'processing', 'completed', 'failed']),
+  "summaryError": zod.string().nullable(),
+  "callSubject": zod.string().max(createVoipRecordingSummaryResponseCallSubjectMax).nullable(),
+  "customerRequestSummary": zod.string().max(createVoipRecordingSummaryResponseCustomerRequestSummaryMax).nullable(),
+  "summaryRevision": zod.number().int().optional(),
+  "summarySourceHash": zod.string().nullish(),
+  "summaryEdited": zod.boolean().optional(),
+  "summaryEditStale": zod.boolean().optional()
+})
+
+
+export const listVoipRecordingsQueryFromRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+export const listVoipRecordingsQueryToRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+export const listVoipRecordingsQueryExtensionMax = 32;
+
+export const listVoipRecordingsQueryPhoneMax = 32;
+
+export const listVoipRecordingsQueryRecordedOnlyDefault = false;
+export const listVoipRecordingsQueryPageDefault = 1;
+export const listVoipRecordingsQueryPageMax = 100000;
+
+
+
+export const ListVoipRecordingsQueryParams = zod.object({
+  "from": zod.coerce.string().regex(listVoipRecordingsQueryFromRegExp).optional(),
+  "to": zod.coerce.string().regex(listVoipRecordingsQueryToRegExp).optional(),
+  "extension": zod.coerce.string().max(listVoipRecordingsQueryExtensionMax).optional(),
+  "phone": zod.coerce.string().max(listVoipRecordingsQueryPhoneMax).optional(),
+  "status": zod.enum(['ANSWERED', 'NO ANSWER', 'BUSY', 'FAILED']).optional(),
+  "recordedOnly": zod.coerce.boolean().default(listVoipRecordingsQueryRecordedOnlyDefault),
+  "page": zod.coerce.number().int().min(1).max(listVoipRecordingsQueryPageMax).default(listVoipRecordingsQueryPageDefault)
+})
+
+export const ListVoipRecordingsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "source": zod.enum(['simotel']),
+  "fromNumber": zod.string(),
+  "toNumber": zod.string(),
+  "direction": zod.enum(['incoming', 'outgoing', 'local', 'unknown']),
+  "status": zod.string(),
+  "startedAt": zod.string(),
+  "durationSeconds": zod.number().int(),
+  "talkSeconds": zod.number().int(),
+  "extensions": zod.array(zod.string()),
+  "expertNames": zod.array(zod.string()),
+  "hasRecording": zod.boolean(),
+  "customerId": zod.number().int().nullable(),
+  "customerName": zod.string().nullable()
+})),
+  "total": zod.number().int(),
+  "recordedTotal": zod.number().int(),
+  "page": zod.number().int(),
+  "limit": zod.number().int(),
+  "from": zod.string(),
+  "to": zod.string(),
+  "canManage": zod.boolean(),
+  "ownExtension": zod.string().nullable(),
+  "fetchedAt": zod.string()
+})
+
+
+export const DownloadVoipRecordingQueryParams = zod.object({
+  "from": zod.string().optional(),
+  "to": zod.string().optional()
+})
+
+export const DownloadVoipRecordingResponse = zod.unknown()
+
+
+/**
+ * @summary Request a customer portal one-time verification code
+ */
+
+
+
+export const RequestCustomerPortalOtpBody = zod.object({
+  "mobile": zod.string().min(1)
+})
+
+export const RequestCustomerPortalOtpResponse = zod.object({
+  "ok": zod.boolean(),
+  "message": zod.string()
+})
+
+
+/**
+ * @summary Verify a customer portal one-time code and establish a session
+ */
+
+export const verifyCustomerPortalOtpBodyCodeRegExp = new RegExp('^[0-9]{6}$');
+
+
+export const VerifyCustomerPortalOtpBody = zod.object({
+  "mobile": zod.string().min(1),
+  "code": zod.string().regex(verifyCustomerPortalOtpBodyCodeRegExp)
+})
+
+export const VerifyCustomerPortalOtpResponse = zod.object({
+  "authenticated": zod.literal(true),
+  "mobile": zod.string(),
+  "customerId": zod.number().int().nullable(),
+  "identityReady": zod.boolean(),
+  "profileComplete": zod.boolean().describe('Basic identity and mobile ownership are verified; postal and loan prerequisites remain separate.')
+})
+
+
+/**
+ * @summary End the customer portal session
+ */
+export const LogoutCustomerPortalResponse = zod.object({
+  "ok": zod.boolean()
+})
+
+
+/**
+ * @summary Get the current customer portal session and profile
+ */
+export const GetCustomerPortalMeResponse = zod.object({
+  "authenticated": zod.literal(true),
+  "mobile": zod.string(),
+  "mobileVerified": zod.literal(true),
+  "identityReady": zod.boolean(),
+  "customer": zod.union([zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "mobile": zod.string(),
+  "nationalCode": zod.string().nullable(),
+  "birthDate": zod.string().nullable(),
+  "postalCode": zod.string().nullable(),
+  "fatherName": zod.string().nullable(),
+  "firstName": zod.string().nullish(),
+  "lastName": zod.string().nullish(),
+  "verification": zod.object({
+  "status": zod.enum(['verified', 'unverified']),
+  "checkedAt": zod.string().nullable(),
+  "checks": zod.object({
+  "shahkarLite": zod.boolean(),
+  "personInfo": zod.boolean(),
+  "postalCodeInfo": zod.boolean(),
+  "sana": zod.boolean()
+})
+})
+}),zod.null()]),
+  "profileComplete": zod.boolean(),
+  "verificationStatus": zod.enum(['verified', 'unverified'])
+})
+
+
+/**
+ * @summary Verify mobile ownership and official identity using national code and Jalali birth date
+ */
+export const onboardCustomerPortalIdentityBodyNationalCodeMin = 10;
+export const onboardCustomerPortalIdentityBodyNationalCodeMax = 10;
+
+export const onboardCustomerPortalIdentityBodyBirthDateMin = 8;
+export const onboardCustomerPortalIdentityBodyBirthDateMax = 10;
+
+
+
+export const OnboardCustomerPortalIdentityBody = zod.object({
+  "nationalCode": zod.string().min(onboardCustomerPortalIdentityBodyNationalCodeMin).max(onboardCustomerPortalIdentityBodyNationalCodeMax),
+  "birthDate": zod.string().min(onboardCustomerPortalIdentityBodyBirthDateMin).max(onboardCustomerPortalIdentityBodyBirthDateMax)
+})
+
+export const OnboardCustomerPortalIdentityResponse = zod.object({
+  "identityReady": zod.boolean(),
+  "customerId": zod.number().int(),
+  "checks": zod.object({
+  "shahkarLite": zod.object({
+  "ok": zod.boolean()
+}),
+  "personInfo": zod.object({
+  "ok": zod.boolean()
+})
+}),
+  "message": zod.string()
+})
+
+
+/**
+ * @summary Create or update the current customer's profile
+ */
+export const updateCustomerPortalProfileBodyNameMin = 2;
+export const updateCustomerPortalProfileBodyNameMax = 120;
+
+export const updateCustomerPortalProfileBodyFatherNameMin = 2;
+export const updateCustomerPortalProfileBodyFatherNameMax = 120;
+
+export const updateCustomerPortalProfileBodyNationalCodeMin = 10;
+export const updateCustomerPortalProfileBodyNationalCodeMax = 10;
+
+export const updateCustomerPortalProfileBodyBirthDateRegExp = new RegExp('^[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}$');
+export const updateCustomerPortalProfileBodyPostalCodeRegExp = new RegExp('^[0-9]{10}$');
+
+
+export const UpdateCustomerPortalProfileBody = zod.object({
+  "name": zod.string().min(updateCustomerPortalProfileBodyNameMin).max(updateCustomerPortalProfileBodyNameMax).optional(),
+  "fatherName": zod.string().min(updateCustomerPortalProfileBodyFatherNameMin).max(updateCustomerPortalProfileBodyFatherNameMax).optional(),
+  "nationalCode": zod.string().min(updateCustomerPortalProfileBodyNationalCodeMin).max(updateCustomerPortalProfileBodyNationalCodeMax).optional(),
+  "birthDate": zod.string().regex(updateCustomerPortalProfileBodyBirthDateRegExp).optional(),
+  "postalCode": zod.string().regex(updateCustomerPortalProfileBodyPostalCodeRegExp).optional()
+})
+
+export const UpdateCustomerPortalProfileResponse = zod.object({
+  "customer": zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "mobile": zod.string(),
+  "nationalCode": zod.string().nullable(),
+  "birthDate": zod.string().nullable(),
+  "postalCode": zod.string().nullable(),
+  "fatherName": zod.string().nullable(),
+  "firstName": zod.string().nullish(),
+  "lastName": zod.string().nullish(),
+  "verification": zod.object({
+  "status": zod.enum(['verified', 'unverified']),
+  "checkedAt": zod.string().nullable(),
+  "checks": zod.object({
+  "shahkarLite": zod.boolean(),
+  "personInfo": zod.boolean(),
+  "postalCodeInfo": zod.boolean(),
+  "sana": zod.boolean()
+})
+})
+}),
+  "profileComplete": zod.boolean()
+})
+
+
+/**
+ * @summary Verify the current customer's identity
+ */
+export const VerifyCustomerPortalIdentityResponse = zod.object({
+  "customerId": zod.number().int(),
+  "status": zod.enum(['verified', 'error', 'pending']),
+  "checks": zod.union([zod.object({
+  "shahkarLite": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.enum(['success', 'failed', 'unavailable'])
+}),
+  "personInfo": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.enum(['success', 'failed', 'unavailable'])
+}),
+  "postalCodeInfo": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.enum(['success', 'failed', 'unavailable'])
+}),
+  "sana": zod.object({
+  "ok": zod.boolean(),
+  "providerStatus": zod.enum(['success', 'failed', 'unavailable'])
+})
+}),zod.null()]),
+  "checkedAt": zod.string().optional(),
+  "error": zod.string().nullable()
+})
+
+
+/**
+ * @summary List the current customer's consultation conversations
+ */
+export const ListCustomerPortalConsultationsResponseItem = zod.object({
+  "id": zod.number().int(),
+  "title": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+export const ListCustomerPortalConsultationsResponse = zod.array(ListCustomerPortalConsultationsResponseItem)
+
+
+/**
+ * @summary Create a consultation conversation
+ */
+export const createCustomerPortalConsultationBodyTitleMax = 80;
+
+
+
+export const CreateCustomerPortalConsultationBody = zod.object({
+  "title": zod.string().max(createCustomerPortalConsultationBodyTitleMax).nullish()
+})
+
+export const CreateCustomerPortalConsultationResponse = zod.object({
+  "id": zod.number().int(),
+  "title": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Get a consultation and its messages
+ */
+
+
+
+export const ListCustomerPortalConsultationMessagesParams = zod.object({
+  "conversationId": zod.coerce.number().int().min(1)
+})
+
+export const ListCustomerPortalConsultationMessagesResponse = zod.object({
+  "conversation": zod.object({
+  "id": zod.number().int(),
+  "title": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "messages": zod.array(zod.object({
+  "id": zod.number().int(),
+  "conversationId": zod.number().int(),
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string(),
+  "createdAt": zod.string(),
+  "recommendedPlans": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "applicationUrl": zod.string()
+}))
+}))
+})
+
+
+/**
+ * @summary Send a message and receive the assistant response
+ */
+
+
+
+export const CreateCustomerPortalConsultationMessageParams = zod.object({
+  "conversationId": zod.coerce.number().int().min(1)
+})
+
+export const createCustomerPortalConsultationMessageBodyContentMin = 2;
+export const createCustomerPortalConsultationMessageBodyContentMax = 1200;
+
+
+
+export const CreateCustomerPortalConsultationMessageBody = zod.object({
+  "content": zod.string().min(createCustomerPortalConsultationMessageBodyContentMin).max(createCustomerPortalConsultationMessageBodyContentMax)
+})
+
+export const CreateCustomerPortalConsultationMessageResponse = zod.object({
+  "userMessage": zod.object({
+  "id": zod.number().int(),
+  "conversationId": zod.number().int(),
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string(),
+  "createdAt": zod.string(),
+  "recommendedPlans": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "applicationUrl": zod.string()
+}))
+}),
+  "assistantMessage": zod.object({
+  "id": zod.number().int(),
+  "conversationId": zod.number().int(),
+  "role": zod.enum(['user', 'assistant']),
+  "content": zod.string(),
+  "createdAt": zod.string(),
+  "recommendedPlans": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "applicationUrl": zod.string()
+}))
+})
+})
+
+
+/**
+ * @summary List active payable loan plans and their eligible terms
+ */
+export const ListCustomerPortalLoanOptionsResponse = zod.object({
+  "plans": zod.array(zod.object({
+  "bankName": zod.string().nullish(),
+  "planId": zod.number().int(),
+  "name": zod.string(),
+  "description": zod.string().nullable(),
+  "maximumAmount": zod.string(),
+  "minimumAmount": zod.string(),
+  "allowedDurations": zod.array(zod.number().int()),
+  "conditionId": zod.number().int().nullable(),
+  "conditionName": zod.string().nullable(),
+  "conditions": zod.array(zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "description": zod.string().nullable(),
+  "minimumAmount": zod.string(),
+  "maximumAmount": zod.string(),
+  "allowedDurations": zod.array(zod.number().int())
+})),
+  "terms": zod.string().nullable(),
+  "filingFeeToman": zod.string(),
+  "contractTemplateId": zod.number().int().nullable(),
+  "manualFields": zod.array(zod.object({
+  "variable": zod.string(),
+  "label": zod.string(),
+  "required": zod.boolean(),
+  "maxLength": zod.number().int()
+}))
+}))
+})
+
+
+/**
+ * @summary List the customer's latest identity documents
+ */
+export const ListCustomerPortalIdentityDocumentsResponse = zod.object({
+  "documents": zod.array(zod.object({
+  "id": zod.number().int(),
+  "documentType": zod.string(),
+  "originalName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "status": zod.enum(['approved', 'rejected', 'pending']),
+  "reviewReason": zod.string().nullable(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Upload or replace an identity document
+ */
+export const UploadCustomerPortalIdentityDocumentBody = zod.object({
+  "documentType": zod.enum(['national_card_front', 'national_card_back', 'birth_cert_p1', 'birth_cert_p2', 'birth_cert_p3', 'birth_certificate_first_page', 'birth_certificate_second_page', 'birth_certificate_last_page']),
+  "file": zod.instanceof(Blob)
+})
+
+export const UploadCustomerPortalIdentityDocumentResponse = zod.object({
+  "id": zod.number().int(),
+  "documentType": zod.string(),
+  "originalName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "status": zod.enum(['approved', 'rejected', 'pending']),
+  "reviewReason": zod.string().nullable(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary View the signed-in customer's current identity image or PDF
+ */
+export const PreviewCustomerPortalIdentityDocumentParams = zod.object({
+  "documentId": zod.coerce.number().int()
+})
+
+export const PreviewCustomerPortalIdentityDocumentResponse = zod.unknown()
+
+
+/**
+ * @summary List recent credit checks and refresh the latest in-progress check
+ */
+export const ListCustomerPortalCreditChecksResponse = zod.object({
+  "checks": zod.array(zod.object({
+  "id": zod.number().int(),
+  "status": zod.enum(['awaiting_otp', 'processing', 'report_generated', 'failed']),
+  "score": zod.number().nullable(),
+  "scoreLabel": zod.string().nullable(),
+  "message": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "expiresAt": zod.string().nullable().describe('Null until completion; when completed, the report expiry is 24 hours after completion.')
+}))
+})
+
+
+/**
+ * @summary Start an ICS24 credit check and request an OTP
+ */
+export const CreateCustomerPortalCreditCheckResponse = zod.object({
+  "id": zod.number().int(),
+  "status": zod.enum(['awaiting_otp', 'processing', 'report_generated', 'failed']),
+  "score": zod.number().nullable(),
+  "scoreLabel": zod.string().nullable(),
+  "message": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "expiresAt": zod.string().nullable().describe('Null until completion; when completed, the report expiry is 24 hours after completion.')
+})
+
+
+/**
+ * @summary Validate the OTP for a customer credit check
+ */
+
+
+
+export const ValidateCustomerPortalCreditCheckOtpParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const validateCustomerPortalCreditCheckOtpBodyOneCodeRegExp = new RegExp('^[0-9]{4,8}$');
+export const validateCustomerPortalCreditCheckOtpBodyOneOtpRegExp = new RegExp('^[0-9]{4,8}$');
+export const validateCustomerPortalCreditCheckOtpBodyTwoCodeRegExp = new RegExp('^[0-9]{4,8}$');
+export const validateCustomerPortalCreditCheckOtpBodyTwoOtpRegExp = new RegExp('^[0-9]{4,8}$');
+export const validateCustomerPortalCreditCheckOtpBodyThreeCodeRegExp = new RegExp('^[0-9]{4,8}$');
+export const validateCustomerPortalCreditCheckOtpBodyThreeOtpRegExp = new RegExp('^[0-9]{4,8}$');
+
+
+export const ValidateCustomerPortalCreditCheckOtpBody = zod.union([zod.object({
+  "code": zod.string().regex(validateCustomerPortalCreditCheckOtpBodyOneCodeRegExp),
+  "otp": zod.string().regex(validateCustomerPortalCreditCheckOtpBodyOneOtpRegExp).optional()
+}),zod.object({
+  "code": zod.string().regex(validateCustomerPortalCreditCheckOtpBodyTwoCodeRegExp).optional(),
+  "otp": zod.string().regex(validateCustomerPortalCreditCheckOtpBodyTwoOtpRegExp)
+})]).and(zod.object({
+  "code": zod.string().regex(validateCustomerPortalCreditCheckOtpBodyThreeCodeRegExp).optional(),
+  "otp": zod.string().regex(validateCustomerPortalCreditCheckOtpBodyThreeOtpRegExp).optional()
+}))
+
+export const ValidateCustomerPortalCreditCheckOtpResponse = zod.object({
+  "id": zod.number().int(),
+  "status": zod.enum(['awaiting_otp', 'processing', 'report_generated', 'failed']),
+  "score": zod.number().nullable(),
+  "scoreLabel": zod.string().nullable(),
+  "message": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "expiresAt": zod.string().nullable().describe('Null until completion; when completed, the report expiry is 24 hours after completion.')
+})
+
+
+/**
+ * @summary Renew the OTP for a customer credit check
+ */
+
+
+
+export const RenewCustomerPortalCreditCheckOtpParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const RenewCustomerPortalCreditCheckOtpResponse = zod.object({
+  "id": zod.number().int(),
+  "status": zod.enum(['awaiting_otp', 'processing', 'report_generated', 'failed']),
+  "score": zod.number().nullable(),
+  "scoreLabel": zod.string().nullable(),
+  "message": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "expiresAt": zod.string().nullable().describe('Null until completion; when completed, the report expiry is 24 hours after completion.')
+})
+
+
+/**
+ * @summary Get the customer's cash and credit wallet balances
+ */
+export const GetCustomerPortalWalletResponse = zod.object({
+  "cashBalanceToman": zod.string(),
+  "creditBalanceToman": zod.string()
+})
+
+
+/**
+ * @summary Read only the current customer's posted wallet entries
+ */
+export const getCustomerPortalWalletTransactionsQueryCursorRegExp = new RegExp('^[1-9][0-9]*$');
+
+
+export const GetCustomerPortalWalletTransactionsQueryParams = zod.object({
+  "cursor": zod.coerce.string().regex(getCustomerPortalWalletTransactionsQueryCursorRegExp).optional()
+})
+
+export const GetCustomerPortalWalletTransactionsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number().int(),
+  "walletType": zod.enum(['cash', 'credit']),
+  "kind": zod.string(),
+  "amountToman": zod.string(),
+  "direction": zod.enum(['in', 'out']),
+  "createdAt": zod.coerce.date(),
+  "description": zod.string()
+})),
+  "nextCursor": zod.string().nullable()
+})
+
+
+/**
+ * @summary Prepare an amount-bound cash transfer to one exact mobile number
+ */
+export const prepareCustomerPortalCashTransferBodyAmountTomanRegExp = new RegExp('^[1-9][0-9]*$');
+
+
+export const PrepareCustomerPortalCashTransferBody = zod.object({
+  "mobile": zod.string(),
+  "amountToman": zod.string().regex(prepareCustomerPortalCashTransferBodyAmountTomanRegExp)
+})
+
+export const PrepareCustomerPortalCashTransferResponse = zod.object({
+  "recipientToken": zod.string(),
+  "recipientName": zod.string(),
+  "amountToman": zod.string(),
+  "expiresAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Atomically confirm a current customer's cash-to-cash transfer
+ */
+export const confirmCustomerPortalCashTransferHeaderIdempotencyKeyMin = 8;
+export const confirmCustomerPortalCashTransferHeaderIdempotencyKeyMax = 200;
+
+
+
+export const ConfirmCustomerPortalCashTransferHeader = zod.object({
+  "Idempotency-Key": zod.string().min(confirmCustomerPortalCashTransferHeaderIdempotencyKeyMin).max(confirmCustomerPortalCashTransferHeaderIdempotencyKeyMax)
+})
+
+export const confirmCustomerPortalCashTransferBodyAmountTomanRegExp = new RegExp('^[1-9][0-9]*$');
+
+
+export const ConfirmCustomerPortalCashTransferBody = zod.object({
+  "recipientToken": zod.string(),
+  "amountToman": zod.string().regex(confirmCustomerPortalCashTransferBodyAmountTomanRegExp),
+  "confirmed": zod.literal(true)
+})
+
+export const ConfirmCustomerPortalCashTransferResponse = zod.object({
+  "id": zod.number().int(),
+  "status": zod.enum(['completed']),
+  "amountToman": zod.string(),
+  "cashBalanceToman": zod.string(),
+  "recipientName": zod.string()
+})
+
+
+/**
+ * @summary Create a customer wallet top-up payment URL
+ */
+export const createCustomerPortalWalletTopUpBodyAmountTomanRegExp = new RegExp('^[1-9][0-9]*$');
+
+
+export const CreateCustomerPortalWalletTopUpBody = zod.object({
+  "amountToman": zod.string().regex(createCustomerPortalWalletTopUpBodyAmountTomanRegExp)
+})
+
+export const CreateCustomerPortalWalletTopUpResponse = zod.object({
+  "paymentUrl": zod.string().url(),
+  "amountToman": zod.string()
+})
+
+
+/**
+ * @summary Charge the filing fee for a loan plan
+ */
+export const chargeCustomerPortalFilingFeeHeaderIdempotencyKeyMin = 8;
+export const chargeCustomerPortalFilingFeeHeaderIdempotencyKeyMax = 200;
+
+
+export const chargeCustomerPortalFilingFeeHeaderIdempotencyKeyRegExp = new RegExp('^[\\x20-\\x7e]+$');
+
+
+export const ChargeCustomerPortalFilingFeeHeader = zod.object({
+  "Idempotency-Key": zod.string().min(chargeCustomerPortalFilingFeeHeaderIdempotencyKeyMin).max(chargeCustomerPortalFilingFeeHeaderIdempotencyKeyMax).regex(chargeCustomerPortalFilingFeeHeaderIdempotencyKeyRegExp)
+})
+
+
+
+export const chargeCustomerPortalFilingFeeBodyRequestedAmountRegExp = new RegExp('^[1-9][0-9]{0,17}$');
+export const chargeCustomerPortalFilingFeeBodyDurationMonthsMax = 600;
+
+
+
+export const ChargeCustomerPortalFilingFeeBody = zod.object({
+  "planId": zod.number().int().min(1),
+  "conditionId": zod.number().int().min(1),
+  "requestedAmount": zod.string().regex(chargeCustomerPortalFilingFeeBodyRequestedAmountRegExp),
+  "durationMonths": zod.number().int().min(1).max(chargeCustomerPortalFilingFeeBodyDurationMonthsMax)
+})
+
+export const ChargeCustomerPortalFilingFeeResponse = zod.object({
+  "chargeId": zod.number().int(),
+  "planId": zod.number().int(),
+  "amountToman": zod.string(),
+  "status": zod.literal("charged")
+})
+
+
+/**
+ * @summary List the customer's loan applications
+ */
+export const listCustomerPortalApplicationsQueryActiveDefault = false;
+
+export const ListCustomerPortalApplicationsQueryParams = zod.object({
+  "active": zod.coerce.boolean().default(listCustomerPortalApplicationsQueryActiveDefault).describe('Exclude completed and rejected or cancelled applications')
+})
+
+export const ListCustomerPortalApplicationsResponse = zod.object({
+  "applications": zod.array(zod.object({
+  "id": zod.number().int(),
+  "planId": zod.number().int(),
+  "planName": zod.string().nullable(),
+  "status": zod.string(),
+  "stage": zod.string(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "requestedAmount": zod.string(),
+  "cashPayoutAmount": zod.string().nullish().describe('Estimated customer cash payout in toman from this case\'s stored plan and selected duration; never the credit-wallet principal.'),
+  "cashPayoutEstimated": zod.boolean().optional().describe('True when the displayed payout is a projection rather than a confirmed payment.'),
+  "approvedAmount": zod.string().nullable().describe('Provider-approved principal, null until initial provider approval.'),
+  "requestedDurationMonths": zod.number().int(),
+  "durationMonths": zod.number().int(),
+  "conditionId": zod.number().int().nullable(),
+  "notes": zod.string().nullable(),
+  "editable": zod.boolean().describe('Always false; customers track submitted cases while staff manage contract information.'),
+  "salesExpert": zod.object({
+  "name": zod.string(),
+  "mobile": zod.string().nullable()
+}).nullish(),
+  "currentPrimaryContractSigned": zod.boolean().describe('True only when the current primary generation has a verified provider signature; superseded generations do not count.'),
+  "initialContractRetained": zod.boolean().describe('True when initial provider approval retained the already-signed requested-principal primary contract.'),
+  "documents": zod.array(zod.object({
+  "id": zod.number().int(),
+  "requirementKey": zod.string(),
+  "label": zod.string(),
+  "status": zod.string(),
+  "reviewReason": zod.string().nullable(),
+  "originalName": zod.string().nullable(),
+  "mimeType": zod.string().nullable(),
+  "sizeBytes": zod.number().int().nullable(),
+  "createdAt": zod.string()
+})),
+  "requiredDocuments": zod.array(zod.object({
+  "key": zod.string(),
+  "label": zod.string(),
+  "status": zod.string(),
+  "reviewReason": zod.string().nullable()
+})),
+  "identityDocuments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "documentType": zod.string(),
+  "originalName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "status": zod.string(),
+  "reviewReason": zod.string().nullable(),
+  "createdAt": zod.string()
+}))
+}))
+})
+
+
+/**
+ * @summary Create an application using a previously charged filing fee
+ */
+
+
+export const createCustomerPortalApplicationBodyRequestedAmountRegExp = new RegExp('^[1-9][0-9]{0,17}$');
+export const createCustomerPortalApplicationBodyDurationMonthsMax = 600;
+
+
+export const createCustomerPortalApplicationBodyNotesMax = 2000;
+
+
+
+export const CreateCustomerPortalApplicationBody = zod.object({
+  "planId": zod.number().int().min(1),
+  "conditionId": zod.number().int().min(1),
+  "requestedAmount": zod.string().regex(createCustomerPortalApplicationBodyRequestedAmountRegExp),
+  "durationMonths": zod.number().int().min(1).max(createCustomerPortalApplicationBodyDurationMonthsMax),
+  "feeChargeId": zod.number().int().min(1),
+  "notes": zod.string().max(createCustomerPortalApplicationBodyNotesMax).nullish()
+})
+
+export const CreateCustomerPortalApplicationResponse = zod.object({
+  "id": zod.number().int(),
+  "planId": zod.number().int(),
+  "planName": zod.string().nullable(),
+  "status": zod.string(),
+  "stage": zod.string(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "requestedAmount": zod.string(),
+  "cashPayoutAmount": zod.string().nullish().describe('Estimated customer cash payout in toman from this case\'s stored plan and selected duration; never the credit-wallet principal.'),
+  "cashPayoutEstimated": zod.boolean().optional().describe('True when the displayed payout is a projection rather than a confirmed payment.'),
+  "approvedAmount": zod.string().nullable().describe('Provider-approved principal, null until initial provider approval.'),
+  "requestedDurationMonths": zod.number().int(),
+  "durationMonths": zod.number().int(),
+  "conditionId": zod.number().int().nullable(),
+  "notes": zod.string().nullable(),
+  "editable": zod.boolean().describe('Always false; customers track submitted cases while staff manage contract information.'),
+  "salesExpert": zod.object({
+  "name": zod.string(),
+  "mobile": zod.string().nullable()
+}).nullish(),
+  "currentPrimaryContractSigned": zod.boolean().describe('True only when the current primary generation has a verified provider signature; superseded generations do not count.'),
+  "initialContractRetained": zod.boolean().describe('True when initial provider approval retained the already-signed requested-principal primary contract.'),
+  "documents": zod.array(zod.object({
+  "id": zod.number().int(),
+  "requirementKey": zod.string(),
+  "label": zod.string(),
+  "status": zod.string(),
+  "reviewReason": zod.string().nullable(),
+  "originalName": zod.string().nullable(),
+  "mimeType": zod.string().nullable(),
+  "sizeBytes": zod.number().int().nullable(),
+  "createdAt": zod.string()
+})),
+  "requiredDocuments": zod.array(zod.object({
+  "key": zod.string(),
+  "label": zod.string(),
+  "status": zod.string(),
+  "reviewReason": zod.string().nullable()
+})),
+  "identityDocuments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "documentType": zod.string(),
+  "originalName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "status": zod.string(),
+  "reviewReason": zod.string().nullable(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Get an application owned by the current customer
+ */
+
+
+
+export const GetCustomerPortalApplicationParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const GetCustomerPortalApplicationResponse = zod.object({
+  "id": zod.number().int(),
+  "planId": zod.number().int(),
+  "planName": zod.string().nullable(),
+  "status": zod.string(),
+  "stage": zod.string(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "requestedAmount": zod.string(),
+  "cashPayoutAmount": zod.string().nullish().describe('Estimated customer cash payout in toman from this case\'s stored plan and selected duration; never the credit-wallet principal.'),
+  "cashPayoutEstimated": zod.boolean().optional().describe('True when the displayed payout is a projection rather than a confirmed payment.'),
+  "approvedAmount": zod.string().nullable().describe('Provider-approved principal, null until initial provider approval.'),
+  "requestedDurationMonths": zod.number().int(),
+  "durationMonths": zod.number().int(),
+  "conditionId": zod.number().int().nullable(),
+  "notes": zod.string().nullable(),
+  "editable": zod.boolean().describe('Always false; customers track submitted cases while staff manage contract information.'),
+  "salesExpert": zod.object({
+  "name": zod.string(),
+  "mobile": zod.string().nullable()
+}).nullish(),
+  "currentPrimaryContractSigned": zod.boolean().describe('True only when the current primary generation has a verified provider signature; superseded generations do not count.'),
+  "initialContractRetained": zod.boolean().describe('True when initial provider approval retained the already-signed requested-principal primary contract.'),
+  "documents": zod.array(zod.object({
+  "id": zod.number().int(),
+  "requirementKey": zod.string(),
+  "label": zod.string(),
+  "status": zod.string(),
+  "reviewReason": zod.string().nullable(),
+  "originalName": zod.string().nullable(),
+  "mimeType": zod.string().nullable(),
+  "sizeBytes": zod.number().int().nullable(),
+  "createdAt": zod.string()
+})),
+  "requiredDocuments": zod.array(zod.object({
+  "key": zod.string(),
+  "label": zod.string(),
+  "status": zod.string(),
+  "reviewReason": zod.string().nullable()
+})),
+  "identityDocuments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "documentType": zod.string(),
+  "originalName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "status": zod.string(),
+  "reviewReason": zod.string().nullable(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Edit an application while it remains in the draft stage before primary contract generation or signature
+ */
+
+
+
+export const UpdateCustomerPortalApplicationParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+export const updateCustomerPortalApplicationBodyRequestedAmountRegExp = new RegExp('^[1-9][0-9]{0,17}$');
+export const updateCustomerPortalApplicationBodyDurationMonthsMax = 600;
+
+export const updateCustomerPortalApplicationBodyManualValuesMaxOne = 5000;
+
+export const updateCustomerPortalApplicationBodyNotesMax = 2000;
+
+
+
+export const UpdateCustomerPortalApplicationBody = zod.object({
+  "requestedAmount": zod.string().regex(updateCustomerPortalApplicationBodyRequestedAmountRegExp).optional(),
+  "durationMonths": zod.number().int().min(1).max(updateCustomerPortalApplicationBodyDurationMonthsMax).optional(),
+  "manualValues": zod.record(zod.string(), zod.string().max(updateCustomerPortalApplicationBodyManualValuesMaxOne)).optional(),
+  "notes": zod.string().max(updateCustomerPortalApplicationBodyNotesMax).nullish()
+})
+
+export const UpdateCustomerPortalApplicationResponse = zod.object({
+  "id": zod.number().int(),
+  "planId": zod.number().int(),
+  "planName": zod.string().nullable(),
+  "status": zod.string(),
+  "stage": zod.string(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "requestedAmount": zod.string(),
+  "cashPayoutAmount": zod.string().nullish().describe('Estimated customer cash payout in toman from this case\'s stored plan and selected duration; never the credit-wallet principal.'),
+  "cashPayoutEstimated": zod.boolean().optional().describe('True when the displayed payout is a projection rather than a confirmed payment.'),
+  "approvedAmount": zod.string().nullable().describe('Provider-approved principal, null until initial provider approval.'),
+  "requestedDurationMonths": zod.number().int(),
+  "durationMonths": zod.number().int(),
+  "conditionId": zod.number().int().nullable(),
+  "notes": zod.string().nullable(),
+  "editable": zod.boolean().describe('Always false; customers track submitted cases while staff manage contract information.'),
+  "salesExpert": zod.object({
+  "name": zod.string(),
+  "mobile": zod.string().nullable()
+}).nullish(),
+  "currentPrimaryContractSigned": zod.boolean().describe('True only when the current primary generation has a verified provider signature; superseded generations do not count.'),
+  "initialContractRetained": zod.boolean().describe('True when initial provider approval retained the already-signed requested-principal primary contract.'),
+  "documents": zod.array(zod.object({
+  "id": zod.number().int(),
+  "requirementKey": zod.string(),
+  "label": zod.string(),
+  "status": zod.string(),
+  "reviewReason": zod.string().nullable(),
+  "originalName": zod.string().nullable(),
+  "mimeType": zod.string().nullable(),
+  "sizeBytes": zod.number().int().nullable(),
+  "createdAt": zod.string()
+})),
+  "requiredDocuments": zod.array(zod.object({
+  "key": zod.string(),
+  "label": zod.string(),
+  "status": zod.string(),
+  "reviewReason": zod.string().nullable()
+})),
+  "identityDocuments": zod.array(zod.object({
+  "id": zod.number().int(),
+  "documentType": zod.string(),
+  "originalName": zod.string(),
+  "mimeType": zod.string(),
+  "sizeBytes": zod.number().int(),
+  "status": zod.string(),
+  "reviewReason": zod.string().nullable(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Upload a required application document
+ */
+
+
+
+export const UploadCustomerPortalApplicationDocumentParams = zod.object({
+  "id": zod.coerce.number().int().min(1)
+})
+
+
+
+
+export const UploadCustomerPortalApplicationDocumentBody = zod.object({
+  "requirementKey": zod.string().min(1),
+  "file": zod.instanceof(Blob)
+})
+
+export const UploadCustomerPortalApplicationDocumentResponse = zod.object({
+  "id": zod.number().int(),
+  "requirementKey": zod.string(),
+  "label": zod.string(),
+  "status": zod.string(),
+  "reviewReason": zod.string().nullable(),
+  "originalName": zod.string().nullable(),
+  "mimeType": zod.string().nullable(),
+  "sizeBytes": zod.number().int().nullable(),
+  "createdAt": zod.string()
+})
+
+
+
+
+
+export const GetPortalIntakeStatusQueryParams = zod.object({
+  "planId": zod.coerce.number().int().min(1)
+})
+
+export const GetPortalIntakeStatusResponse = zod.object({
+  "creditValid": zod.boolean(),
+  "creditRank": zod.string().nullable(),
+  "planEligible": zod.boolean(),
+  "feeChargeId": zod.number().int().nullable(),
+  "existingApplicationId": zod.number().int().nullish(),
+  "filingFeeToman": zod.string(),
+  "documentsComplete": zod.boolean(),
+  "documentsPreviouslyApproved": zod.boolean(),
+  "requiredDocumentTypes": zod.array(zod.string()).optional(),
+  "canSubmit": zod.boolean(),
+  "verification": zod.object({
+  "postalOk": zod.boolean(),
+  "sanaOk": zod.boolean(),
+  "postalAnswered": zod.boolean(),
+  "sanaAnswered": zod.boolean(),
+  "inquiryAttempted": zod.boolean().optional(),
+  "postalCode": zod.string().nullable()
+})
+})
+
+
+
+export const verifyPortalIntakeBodyPostalCodeRegExp = new RegExp('^[0-9]{10}$');
+
+
+export const VerifyPortalIntakeBody = zod.object({
+  "planId": zod.number().int().min(1),
+  "postalCode": zod.string().regex(verifyPortalIntakeBodyPostalCodeRegExp)
+})
+
+export const VerifyPortalIntakeResponse = zod.object({
+  "status": zod.enum(['verified', 'error', 'pending']),
+  "error": zod.string().nullish(),
+  "checks": zod.record(zod.string(), zod.unknown()).nullish()
+})
+
+
+export const GetPortalQuestionnaireOptionsResponse = zod.object({
+  "options": zod.array(zod.object({
+  "fieldKey": zod.string(),
+  "value": zod.string(),
+  "label": zod.string()
+}))
+})
+
+
+export const FindPortalLoanPlansBody = zod.object({
+  "questionnaireVersion": zod.literal(2),
+  "creditRank": zod.string(),
+  "customerCheckStatus": zod.string(),
+  "hasCustomerSalaryDeduct": zod.boolean(),
+  "jobType": zod.string(),
+  "hasGuarantor": zod.boolean(),
+  "guarantorCreditRank": zod.string().nullish(),
+  "guarantorCheckType": zod.string().nullish(),
+  "hasGuarantorSalaryDeduct": zod.boolean().optional(),
+  "requestedAmount": zod.string().nullish()
+})
+
+export const findPortalLoanPlansResponseMatchesItemPlanFilingFeeTomanRegExp = new RegExp('^[0-9]+$');
+export const findPortalLoanPlansResponseMatchesItemPlanInstallmentTermsItemPrepaymentPercentMin = 0;
+export const findPortalLoanPlansResponseMatchesItemPlanInstallmentTermsItemPrepaymentPercentMax = 100;
+
+export const findPortalLoanPlansResponseMatchesItemPlanInstallmentTermsItemDeductionPercentMin = 0;
+export const findPortalLoanPlansResponseMatchesItemPlanInstallmentTermsItemDeductionPercentMax = 100;
+
+export const findPortalLoanPlansResponseMatchesItemPlanInstallmentTermsItemDepositPercentMin = 0;
+export const findPortalLoanPlansResponseMatchesItemPlanInstallmentTermsItemDepositPercentMax = 100;
+
+export const findPortalLoanPlansResponseMatchesItemPlanCommissionPercentMin = 0;
+export const findPortalLoanPlansResponseMatchesItemPlanCommissionPercentMax = 100;
+
+export const findPortalLoanPlansResponseMatchesItemPlanOperationCostsPercentMin = 0;
+export const findPortalLoanPlansResponseMatchesItemPlanOperationCostsPercentMax = 100;
+
+export const findPortalLoanPlansResponseMatchesItemPlanGrantedDiscountPercentMin = 0;
+export const findPortalLoanPlansResponseMatchesItemPlanGrantedDiscountPercentMax = 100;
+
+export const findPortalLoanPlansResponseMatchesItemPlanPurchaseCommissionPercentMin = 0;
+export const findPortalLoanPlansResponseMatchesItemPlanPurchaseCommissionPercentMax = 100;
+
+export const findPortalLoanPlansResponseMatchesItemPlanSalesCommissionPercentMin = 0;
+export const findPortalLoanPlansResponseMatchesItemPlanSalesCommissionPercentMax = 100;
+
+export const findPortalLoanPlansResponseMatchesItemPlanLoanAcquisitionFeePercentMin = 0;
+export const findPortalLoanPlansResponseMatchesItemPlanLoanAcquisitionFeePercentMax = 100;
+
+export const findPortalLoanPlansResponseMatchesItemPlanPenaltyValueMin = 0;
+
+
+export const findPortalLoanPlansResponseMatchesItemPlanConditionsItemCommissionPercentMin = 0;
+export const findPortalLoanPlansResponseMatchesItemPlanConditionsItemCommissionPercentMax = 100;
+
+export const findPortalLoanPlansResponseMatchesItemPlanConditionsItemOperationCostsPercentMin = 0;
+export const findPortalLoanPlansResponseMatchesItemPlanConditionsItemOperationCostsPercentMax = 100;
+
+export const findPortalLoanPlansResponseMatchesItemPlanConditionsItemGrantedDiscountPercentMin = 0;
+export const findPortalLoanPlansResponseMatchesItemPlanConditionsItemGrantedDiscountPercentMax = 100;
+
+export const findPortalLoanPlansResponseMatchesItemPlanConditionsItemPurchaseCommissionPercentMin = 0;
+export const findPortalLoanPlansResponseMatchesItemPlanConditionsItemPurchaseCommissionPercentMax = 100;
+
+export const findPortalLoanPlansResponseMatchesItemPlanConditionsItemSalesCommissionPercentMin = 0;
+export const findPortalLoanPlansResponseMatchesItemPlanConditionsItemSalesCommissionPercentMax = 100;
+
+export const findPortalLoanPlansResponseMatchesItemPlanConditionsItemLoanAcquisitionFeePercentMin = 0;
+export const findPortalLoanPlansResponseMatchesItemPlanConditionsItemLoanAcquisitionFeePercentMax = 100;
+
+export const findPortalLoanPlansResponseMatchesItemPlanConditionsItemPenaltyValueMin = 0;
+
+
+
+
+export const FindPortalLoanPlansResponse = zod.object({
+  "consultationId": zod.number().int(),
+  "matches": zod.array(zod.object({
+  "plan": zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "filingFeeToman": zod.string().regex(findPortalLoanPlansResponseMatchesItemPlanFilingFeeTomanRegExp),
+  "bankName": zod.string().nullish(),
+  "platformName": zod.string().nullish(),
+  "principalAmount": zod.string().nullish(),
+  "annualInterest": zod.string().nullish(),
+  "installments": zod.string().nullish(),
+  "installmentTerms": zod.array(zod.object({
+  "installments": zod.union([zod.literal(6),zod.literal(9),zod.literal(12),zod.literal(18),zod.literal(24),zod.literal(36),zod.literal(48)]),
+  "prepaymentPercent": zod.number().min(findPortalLoanPlansResponseMatchesItemPlanInstallmentTermsItemPrepaymentPercentMin).max(findPortalLoanPlansResponseMatchesItemPlanInstallmentTermsItemPrepaymentPercentMax),
+  "deductionPercent": zod.number().min(findPortalLoanPlansResponseMatchesItemPlanInstallmentTermsItemDeductionPercentMin).max(findPortalLoanPlansResponseMatchesItemPlanInstallmentTermsItemDeductionPercentMax),
+  "depositPercent": zod.number().min(findPortalLoanPlansResponseMatchesItemPlanInstallmentTermsItemDepositPercentMin).max(findPortalLoanPlansResponseMatchesItemPlanInstallmentTermsItemDepositPercentMax)
+})).optional(),
+  "requiredDocuments": zod.array(zod.string()).optional(),
+  "deductPercents": zod.string().nullish(),
+  "customerRanks": zod.string().nullish(),
+  "customerCheck": zod.string().nullish(),
+  "needsCustomerPromissory": zod.boolean().optional(),
+  "customerJobs": zod.string().nullish(),
+  "processMode": zod.string().nullish(),
+  "needsGuarantor": zod.boolean().optional(),
+  "guarantorRanks": zod.string().nullish(),
+  "guarantorCheck": zod.string().nullish(),
+  "needsGuarantorPromissory": zod.boolean().optional(),
+  "guarantorJobs": zod.string().nullish(),
+  "loanType": zod.string().nullish(),
+  "grantDays": zod.string().nullish(),
+  "needsAccountTurnover": zod.boolean().optional(),
+  "needsAvgBalance": zod.boolean().optional(),
+  "notes": zod.string().nullish(),
+  "prepaymentPercents": zod.string().nullish(),
+  "depositPercents": zod.string().nullish(),
+  "primaryContractTemplateId": zod.number().int().nullish(),
+  "invoiceTemplateId": zod.number().int().nullish(),
+  "acknowledgementTemplateId": zod.number().int().nullish(),
+  "needsCustomerSalaryDeduct": zod.boolean().optional(),
+  "needsGuarantorSalaryDeduct": zod.boolean().optional(),
+  "contractTemplateId": zod.number().int().nullish(),
+  "platformCompanyName": zod.string().nullish(),
+  "goodsStoreName": zod.string().nullish(),
+  "commissionPercent": zod.number().min(findPortalLoanPlansResponseMatchesItemPlanCommissionPercentMin).max(findPortalLoanPlansResponseMatchesItemPlanCommissionPercentMax).nullish(),
+  "operationCostsPercent": zod.number().min(findPortalLoanPlansResponseMatchesItemPlanOperationCostsPercentMin).max(findPortalLoanPlansResponseMatchesItemPlanOperationCostsPercentMax).nullish(),
+  "grantedDiscountPercent": zod.number().min(findPortalLoanPlansResponseMatchesItemPlanGrantedDiscountPercentMin).max(findPortalLoanPlansResponseMatchesItemPlanGrantedDiscountPercentMax).nullish(),
+  "purchaseCommissionPercent": zod.number().min(findPortalLoanPlansResponseMatchesItemPlanPurchaseCommissionPercentMin).max(findPortalLoanPlansResponseMatchesItemPlanPurchaseCommissionPercentMax).nullish(),
+  "salesCommissionPercent": zod.number().min(findPortalLoanPlansResponseMatchesItemPlanSalesCommissionPercentMin).max(findPortalLoanPlansResponseMatchesItemPlanSalesCommissionPercentMax).nullish(),
+  "loanAcquisitionFeePercent": zod.number().min(findPortalLoanPlansResponseMatchesItemPlanLoanAcquisitionFeePercentMin).max(findPortalLoanPlansResponseMatchesItemPlanLoanAcquisitionFeePercentMax).nullish(),
+  "penaltyMode": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "penaltyValue": zod.number().min(findPortalLoanPlansResponseMatchesItemPlanPenaltyValueMin).nullish(),
+  "contractDurationDays": zod.number().int().min(1).nullish(),
+  "createdAt": zod.string(),
+  "conditions": zod.array(zod.object({
+  "id": zod.number().int(),
+  "planId": zod.number().int(),
+  "maxPrincipal": zod.string().nullish(),
+  "customerRanks": zod.string().nullish(),
+  "installmentOptions": zod.array(zod.union([zod.literal(6),zod.literal(9),zod.literal(12),zod.literal(18),zod.literal(24),zod.literal(36),zod.literal(48)])).optional(),
+  "customerJobs": zod.array(zod.string()).optional(),
+  "collateralType": zod.string().nullish(),
+  "needsGuarantor": zod.boolean().optional(),
+  "guarantorRanks": zod.string().nullish(),
+  "guarantorJobs": zod.array(zod.string()).optional(),
+  "guarantorCollateralType": zod.string().nullish(),
+  "needsCustomerPromissory": zod.boolean().optional(),
+  "needsGuarantorPromissory": zod.boolean().optional(),
+  "needsCustomerSalaryDeduct": zod.boolean().optional(),
+  "needsGuarantorSalaryDeduct": zod.boolean().optional(),
+  "contractTemplateId": zod.number().int().nullish(),
+  "platformCompanyName": zod.string().nullish(),
+  "goodsStoreName": zod.string().nullish(),
+  "commissionPercent": zod.number().min(findPortalLoanPlansResponseMatchesItemPlanConditionsItemCommissionPercentMin).max(findPortalLoanPlansResponseMatchesItemPlanConditionsItemCommissionPercentMax).nullish(),
+  "operationCostsPercent": zod.number().min(findPortalLoanPlansResponseMatchesItemPlanConditionsItemOperationCostsPercentMin).max(findPortalLoanPlansResponseMatchesItemPlanConditionsItemOperationCostsPercentMax).nullish(),
+  "grantedDiscountPercent": zod.number().min(findPortalLoanPlansResponseMatchesItemPlanConditionsItemGrantedDiscountPercentMin).max(findPortalLoanPlansResponseMatchesItemPlanConditionsItemGrantedDiscountPercentMax).nullish(),
+  "purchaseCommissionPercent": zod.number().min(findPortalLoanPlansResponseMatchesItemPlanConditionsItemPurchaseCommissionPercentMin).max(findPortalLoanPlansResponseMatchesItemPlanConditionsItemPurchaseCommissionPercentMax).nullish(),
+  "salesCommissionPercent": zod.number().min(findPortalLoanPlansResponseMatchesItemPlanConditionsItemSalesCommissionPercentMin).max(findPortalLoanPlansResponseMatchesItemPlanConditionsItemSalesCommissionPercentMax).nullish(),
+  "loanAcquisitionFeePercent": zod.number().min(findPortalLoanPlansResponseMatchesItemPlanConditionsItemLoanAcquisitionFeePercentMin).max(findPortalLoanPlansResponseMatchesItemPlanConditionsItemLoanAcquisitionFeePercentMax).nullish(),
+  "penaltyMode": zod.union([zod.literal('amount'),zod.literal('percent'),zod.literal(null)]).nullish(),
+  "penaltyValue": zod.number().min(findPortalLoanPlansResponseMatchesItemPlanConditionsItemPenaltyValueMin).nullish(),
+  "contractDurationDays": zod.number().int().min(1).nullish(),
+  "needsCustomerCheck": zod.boolean().optional(),
+  "needsGuarantorCheck": zod.boolean().optional(),
+  "sortOrder": zod.number().int(),
+  "notes": zod.string().nullish()
+}))
+}),
+  "status": zod.enum(['eligible', 'needs_review', 'not_eligible']),
+  "matchedConditionId": zod.number().int().nullish(),
+  "customerMaximumAmount": zod.string().nullish().describe('Maximum toman principal available through fully matched conditions for this customer; absent in older historical snapshots.'),
+  "failedRequirements": zod.array(zod.string()),
+  "missingInformation": zod.array(zod.string())
+}))
+})
+
+
+export const GetPortalHumanChatResponse = zod.object({
+  "customerId": zod.number().int(),
+  "expertName": zod.string(),
+  "expertOnline": zod.boolean(),
+  "unreadCount": zod.number().int()
+})
+
+
+export const UpdatePortalChatPresenceResponse = zod.unknown()
+
+
+
+
+
+export const MarkPortalChatReadBody = zod.object({
+  "lastMessageId": zod.number().int().min(1)
+})
+
+export const MarkPortalChatReadResponse = zod.unknown()
+
+
+
+
+
+export const ListPortalHumanMessagesQueryParams = zod.object({
+  "beforeId": zod.coerce.number().int().min(1).optional()
+})
+
+export const ListPortalHumanMessagesResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int(),
+  "senderType": zod.enum(['customer', 'staff']),
+  "senderName": zod.string(),
+  "text": zod.string(),
+  "kind": zod.enum(['text', 'image', 'audio', 'file']),
+  "clientId": zod.string(),
+  "createdAt": zod.string(),
+  "fileUrl": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "fileSize": zod.number().int().nullish()
+})),
+  "nextCursor": zod.string().nullable(),
+  "lastReadId": zod.number().int()
+})
+
+
+export const sendPortalHumanMessageBodyClientIdMin = 8;
+export const sendPortalHumanMessageBodyClientIdMax = 100;
+
+export const sendPortalHumanMessageBodyTextMax = 6000;
+
+
+
+export const SendPortalHumanMessageBody = zod.object({
+  "clientId": zod.string().min(sendPortalHumanMessageBodyClientIdMin).max(sendPortalHumanMessageBodyClientIdMax),
+  "text": zod.string().min(1).max(sendPortalHumanMessageBodyTextMax)
+})
+
+export const SendPortalHumanMessageResponse = zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int(),
+  "senderType": zod.enum(['customer', 'staff']),
+  "senderName": zod.string(),
+  "text": zod.string(),
+  "kind": zod.enum(['text', 'image', 'audio', 'file']),
+  "clientId": zod.string(),
+  "createdAt": zod.string(),
+  "fileUrl": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "fileSize": zod.number().int().nullish()
+})
+
+
+export const DownloadPortalHumanAttachmentParams = zod.object({
+  "messageId": zod.coerce.number().int()
+})
+
+export const DownloadPortalHumanAttachmentResponse = zod.unknown()
+
+
+export const UpdateStaffChatPresenceResponse = zod.unknown()
+
+
+export const GetStaffChatUnreadCountResponse = zod.object({
+  "count": zod.number().int()
+})
+
+
+export const ListStaffChatThreadsQueryParams = zod.object({
+  "q": zod.coerce.string().optional(),
+  "cursor": zod.coerce.string().optional()
+})
+
+export const ListStaffChatThreadsResponse = zod.object({
+  "nextCursor": zod.string().nullable(),
+  "items": zod.array(zod.object({
+  "customerId": zod.number().int(),
+  "name": zod.string(),
+  "mobile": zod.string(),
+  "online": zod.boolean(),
+  "lastMessage": zod.string().nullish(),
+  "lastMessageAt": zod.string().nullish(),
+  "unreadCount": zod.number().int()
+}))
+})
+
+
+export const MarkStaffChatReadParams = zod.object({
+  "customerId": zod.coerce.number().int()
+})
+
+
+
+
+export const MarkStaffChatReadBody = zod.object({
+  "lastMessageId": zod.number().int().min(1)
+})
+
+export const MarkStaffChatReadResponse = zod.unknown()
+
+
+
+
+
+export const ListStaffHumanMessagesQueryParams = zod.object({
+  "beforeId": zod.number().int().min(1).optional()
+})
+
+export const ListStaffHumanMessagesResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int(),
+  "senderType": zod.enum(['customer', 'staff']),
+  "senderName": zod.string(),
+  "text": zod.string(),
+  "kind": zod.enum(['text', 'image', 'audio', 'file']),
+  "clientId": zod.string(),
+  "createdAt": zod.string(),
+  "fileUrl": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "fileSize": zod.number().int().nullish()
+})),
+  "nextCursor": zod.string().nullable(),
+  "lastReadId": zod.number().int()
+})
+
+
+export const SendStaffHumanMessageParams = zod.object({
+  "customerId": zod.coerce.number().int()
+})
+
+export const sendStaffHumanMessageBodyClientIdMin = 8;
+export const sendStaffHumanMessageBodyClientIdMax = 100;
+
+export const sendStaffHumanMessageBodyTextMax = 6000;
+
+
+
+export const SendStaffHumanMessageBody = zod.object({
+  "clientId": zod.string().min(sendStaffHumanMessageBodyClientIdMin).max(sendStaffHumanMessageBodyClientIdMax),
+  "text": zod.string().min(1).max(sendStaffHumanMessageBodyTextMax)
+})
+
+export const SendStaffHumanMessageResponse = zod.object({
+  "id": zod.number().int(),
+  "customerId": zod.number().int(),
+  "senderType": zod.enum(['customer', 'staff']),
+  "senderName": zod.string(),
+  "text": zod.string(),
+  "kind": zod.enum(['text', 'image', 'audio', 'file']),
+  "clientId": zod.string(),
+  "createdAt": zod.string(),
+  "fileUrl": zod.string().nullish(),
+  "fileName": zod.string().nullish(),
+  "mimeType": zod.string().nullish(),
+  "fileSize": zod.number().int().nullish()
+})
+
+
+export const DownloadStaffHumanAttachmentParams = zod.object({
+  "messageId": zod.coerce.number().int()
+})
+
+export const DownloadStaffHumanAttachmentResponse = zod.unknown()
 
 

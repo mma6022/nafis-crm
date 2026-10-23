@@ -47,19 +47,27 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+/generated-artifacts/
 
-# Private CRM data and generated customer files
-attached_assets/*.db
-attached_assets/*.sqlite*
-attached_assets/backups/
-attached_assets/loan-application-files/
-attached_assets/*.pdf
-attached_assets/*.txt
-attached_assets/*postman*.json
-.agents/
-screenshots/
+# Live CRM database; retain locally, never merge customer runtime data.
+/attached_assets/customers_1789823100050.db
+/attached_assets/customers_1789823100050.db-wal
+/attached_assets/customers_1789823100050.db-shm
+
+# Public source snapshot: never track runtime or confidential files.
 .env
 .env.*
 !.env.example
-exports/
-deploy/
+/attached_assets/
+/.agents/
+/deploy/
+/uploads/
+/contracts/
+/backups/
+/exports/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.pem
+*.key

@@ -1,11 +1,30 @@
 import express, { type Express, type RequestHandler } from "express";
+import { isPublicWalletRequest } from "./lib/wallet-public-access";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import cookieParser from "cookie-parser";
 import router from "./routes";
 import authRouter from "./routes/auth";
+import customerPortalAdviceRouter from "./routes/customer-portal-advice";
+import customerPortalLoansRouter from "./routes/customer-portal-loans";
+import customerPortalWalletRouter from "./routes/customer-portal-wallet";
 import { logger } from "./lib/logger";
 import { requireAuth } from "./lib/auth";
+import customerPortalAuthRouter from "./routes/customer-portal-auth";
+import customerPortalProfileRouter from "./routes/customer-portal-profile";
+import customerPortalIntakeRouter from "./routes/customer-portal-intake";
+import { customerChatRouter } from "./routes/customer-chat";
+import instagramWebhookRouter from "./routes/instagram-webhook";
+import manychatRouter from "./routes/manychat";
+import simotelCallEventsRouter from "./routes/simotel-call-events";
+import { mobileCallIngress } from "./routes/mobile-calls";
+import { diagnosticRouter } from "./lib/diagnostics-runtime";
+import { captureDiagnosticRequests } from "./lib/diagnostic-safety";
+import { codexOAuthCallback } from "./routes/diagnostic-codex-oauth";
+import { createCodexOAuthSetup } from "./routes/diagnostic-codex-setup";
+import { CodexLoginController } from "./lib/diagnostic-codex-login";
+import { VpsRepairConnection } from "./lib/diagnostic-vps-connection";
+import { socialMonitorFeature } from "./lib/social-monitor";
 
 const app: Express = express();
 
@@ -17,7 +36,10 @@ app.use(
         return {
           id: req.id,
           method: req.method,
-          url: req.url?.split("?")[0],
+          url: req.url?.split("?")[0]?.replace(
+            /(\/(?:api\/)?(?:wallet\/share-links|customers\/\d+\/wallet\/share-links)\/)[A-Za-z0-9_-]+(?=\/|$)/,
+            "$1[redacted]",
+          ),
         };
       },
       res(res) {
@@ -29,9 +51,21 @@ app.use(
   }),
 );
 app.use(cors({ credentials: true, origin: true }));
+// Meta signature verification must operate on the exact unparsed request bytes.
+app.use(
+  "/api/instagram/webhook",
+  express.raw({ type: "application/json", limit: "1mb" }),
+  instagramWebhookRouter,
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+app.use("/api", captureDiagnosticRequests);
+// Provider callbacks use their own constant-time Basic authentication, never
+// a CRM user session. The rest of /api remains protected by requireApiAuth.
+app.use("/api/voip/simotel/events",simotelCallEventsRouter);
+app.use("/api/mobile-calls", mobileCallIngress);
+app.use("/api/manychat", express.json({ limit: "16kb" }), manychatRouter);
 app.use((req, res, next): void => {
   if (["GET", "HEAD", "OPTIONS"].includes(req.method) || !req.headers.origin) {
     next();
@@ -50,9 +84,34 @@ app.use((req, res, next): void => {
   next();
 });
 app.use("/api/auth", authRouter);
+app.use("/api/customer-portal/auth", customerPortalAuthRouter);
+app.use("/api/customer-portal", customerPortalProfileRouter);
+app.use("/api/customer-portal", customerPortalAdviceRouter);
+app.use("/api/customer-portal", customerPortalWalletRouter);
+app.use("/api/customer-portal", customerPortalLoansRouter);
+app.use("/api/customer-portal", customerPortalIntakeRouter);
+app.use("/api/customer-portal", customerChatRouter);
+// Staff routes authenticate internally; worker routes require independent HMAC.
+// Only the temporary, Codex-validated GET OAuth callback precedes worker HMAC.
+app.use("/api", codexOAuthCallback);
+app.use("/api", createCodexOAuthSetup({
+  requireAuth,
+  enabled: () => process.env.NODE_ENV !== "production" && process.env.CRM_REPAIR_CODEX_OAUTH_PORT === "7436",
+  origin: () => `https://${process.env.REPLIT_DEV_DOMAIN ?? ""}`,
+  login: process.env.CRM_REPAIR_CONNECTION_TRANSPORT === "vps" ? new VpsRepairConnection() : new CodexLoginController(),
+  persistentConnection: process.env.CRM_REPAIR_CONNECTION_TRANSPORT === "vps",
+}));
+app.use("/api", diagnosticRouter);
+// Trusted ingest from the loopback-only social proxy; requests carry an HMAC
+// over the body and are separately checked against the active CRM user.
+app.use("/api/social-monitor", socialMonitorFeature.ingestRouter);
 
 const requireApiAuth: RequestHandler = (req, res, next): void => {
-  if (req.path === "/healthz") {
+  const isPublicLoanPlanRequest =
+    req.method === "GET" &&
+    /^\/public\/loan-plans(?:\/[^/]+)?\/?$/.test(req.path);
+  const isPublicWalletShare = isPublicWalletRequest(req.method, req.path);
+  if (req.path === "/healthz" || isPublicLoanPlanRequest || isPublicWalletShare) {
     next();
     return;
   }

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useTableState } from '@/hooks/use-table-state';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   useListContractTemplates,
   useCreateContractTemplate,
@@ -10,26 +11,37 @@ import {
   useListContractGenerations,
   useGenerateContract,
   useSendContractGeneration,
+  prepareRejectedContractResend,
   useCheckContractSignatureStatus,
+  getContractSignatureStatus,
   useDeleteContractGeneration,
   useListCustomers,
+  useListLoanPlans,
   useGetCustomer,
   getListContractTemplatesQueryKey,
   getListContractGenerationsQueryKey,
+  getGetLoanApplicationQueryKey,
+  getListLoanApplicationsQueryKey,
   downloadContractGeneration,
   downloadContractTemplate,
   type ContractTemplate,
   type ContractGeneration,
   type ContractSignatureStatus,
+  type ReadOnlySignatureStatus,
   type Customer,
+  type ContractMapping,
+  type ContractMappingFormulaTokensItem,
+  type ContractMappingSourceType,
   getGetCustomerQueryKey,
   getListCustomersQueryKey,
+  getListLoanPlansQueryKey,
 } from '@workspace/api-client-react';
 import { Modal } from '@/components/DataTools';
 import { FileSignature, Plus, Download, FileText, Send, CheckCircle2, AlertCircle, Pencil, Trash2, RefreshCw } from 'lucide-react';
 import { useGetAuthSession, getGetAuthSessionQueryKey } from '@workspace/api-client-react';
 import { SkeletonPanel } from '@/components/CrmShell';
 import { useToast } from '@/hooks/use-toast';
+import { classifyProviderStatus, providerReportsSigned, providerReportsRejected, type SignatureStatusWorkflowOutcome } from '@/lib/loan-signature-verification-errors.mjs';
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState<T>(value);
@@ -46,10 +58,22 @@ const getErrorMessage = (err: any, defaultMsg: string) => {
   const providerMessages: Record<string, string> = {
     provider_configuration: 'تنظیمات اتصال به امضامی کامل نیست.',
     collaborator_required: 'نام، شماره همراه و کد ملی مشتری باید در پرونده تکمیل شود.',
+    collaborator_invalid: 'فرمت شماره همراه یا کد ملی مشتری معتبر نیست. شماره همراه باید با ۰۹ و کد ملی شامل ۱۰ رقم باشد.',
     artifact_integrity: 'فایل قرارداد معتبر نیست. قرارداد را دوباره صادر کنید.',
     certificate_inactive: 'این مشتری گواهی امضای دیجیتال فعال ندارد. ابتدا گواهی امضا را فعال کنید و سپس دوباره تلاش کنید.',
+    provider_auth_failed: 'ورود CRM به سرویس امضامی ناموفق بود. نام کاربری یا رمز سرویس باید بررسی شود.',
+    provider_certificate_check_failed: 'امضامی نتوانست وضعیت گواهی مشتری را بررسی کند.',
+    provider_file_upload_failed: 'آپلود فایل PDF قرارداد در امضامی ناموفق بود.',
+    provider_contract_send_failed: 'فایل آپلود شد، اما ثبت و ارسال قرارداد در امضامی ناموفق بود.',
+    provider_state_persist_failed: 'قرارداد در امضامی ثبت شد، اما ذخیره نتیجه در CRM انجام نشد. همان قرارداد را دوباره ارسال کنید.',
+    contract_generation_not_linkable: 'قرارداد ارسال‌شده هنوز در CRM نهایی نشده و قابل اتصال به پرونده نیست.',
+    provider_timeout: 'سرویس امضامی در زمان مقرر پاسخ نداد.',
+    provider_unavailable: 'ارتباط شبکه با سرویس امضامی برقرار نشد.',
     provider_delivery_failed: 'ارسال به امضامی انجام نشد. کمی بعد دوباره تلاش کنید.',
     document_generation_failed: 'تولید فایل قرارداد انجام نشد. قالب Word و اطلاعات واردشده را بررسی کنید.',
+    invalid_contract_template: 'قالب Word قابل پردازش نیست. علامت‌های متغیر یا ساختار فایل را بررسی کنید.',
+    pdf_conversion_failed: 'فایل Word ساخته شد، اما تبدیل آن به PDF انجام نشد.',
+    formula_value_invalid: 'مقدار یکی از فیلدهای فرمولی طرح عددی یا قابل محاسبه نیست. مدت اقساط و درصدهای طرح را بررسی کنید.',
     conversion_queue_full: 'سامانه در حال تبدیل چند قرارداد است. کمی بعد دوباره تلاش کنید.',
     'Template not found': 'قالب قرارداد پیدا نشد یا قبلاً حذف شده است.',
     'Generation not found': 'قرارداد صادرشده پیدا نشد.',
@@ -60,27 +84,40 @@ const getErrorMessage = (err: any, defaultMsg: string) => {
   };
   const payload = err?.data ?? err?.response?.data;
   const responseError = payload?.error;
+  if (typeof payload?.message === 'string' && /[\u0600-\u06FF]/.test(payload.message)) return payload.message;
   if (typeof responseError === 'string') {
     if (providerMessages[responseError]) return providerMessages[responseError];
     if (/[\u0600-\u06FF]/.test(responseError)) return responseError;
   }
-  if (typeof payload?.message === 'string' && /[\u0600-\u06FF]/.test(payload.message)) return payload.message;
   if (typeof err?.message === 'string' && /[\u0600-\u06FF]/.test(err.message)) return err.message;
   return defaultMsg;
 };
 
 const formatProviderStatus = (status?: string | null) => {
   if (!status) return 'وضعیت نامشخص';
-  const normalized = status.toLowerCase();
-  if (['signed', 'completed', 'complete', 'finished', 'done'].some(value => normalized.includes(value))) return 'امضا تکمیل شده';
-  if (['pending', 'waiting', 'sent', 'created'].some(value => normalized.includes(value))) return 'در انتظار امضا';
-  if (['rejected', 'declined'].some(value => normalized.includes(value))) return 'رد شده';
-  if (['cancelled', 'canceled'].some(value => normalized.includes(value))) return 'لغو شده';
-  if (['expired'].some(value => normalized.includes(value))) return 'منقضی شده';
+  const normalized = status.toLowerCase().replace(/[\s_\-\u200c]+/g, '');
+  const classification = classifyProviderStatus(status);
+  if (classification === 'signed') return 'امضا تکمیل شده';
+  if (classification === 'pending') return 'در انتظار امضا';
+  if (providerReportsRejected(status)) return 'رد شده';
+  if (classification === 'negative' && ['cancelled', 'canceled'].some(value => normalized.includes(value))) return 'لغو شده';
+  if (classification === 'negative' && normalized.includes('expired')) return 'منقضی شده';
   return status;
 };
 
-const formatStatus = (status?: string) => {
+const providerStatusIsSigned = (status?: string | null) => {
+  return providerReportsSigned(status);
+};
+
+const formatStatus = (status?: string, providerStatus?: string | null) => {
+  if (typeof providerStatus === 'string' && providerStatus.trim()) {
+    const providerClassification = classifyProviderStatus(providerStatus);
+    if (providerClassification === 'signed') return 'امضا شده';
+    if (providerClassification === 'pending') return 'در انتظار امضا';
+    if (providerClassification === 'negative') return formatProviderStatus(providerStatus);
+    return providerStatus;
+  }
+  if (status === 'signed') return 'امضا شده';
   switch (status) {
     case 'generated': return 'صادر شده';
     case 'sending': return 'در حال ارسال';
@@ -90,7 +127,16 @@ const formatStatus = (status?: string) => {
   }
 };
 
-const getStatusStyle = (status?: string) => {
+const getStatusStyle = (status?: string, providerStatus?: string | null) => {
+  if (typeof providerStatus === 'string' && providerStatus.trim()) {
+    switch (classifyProviderStatus(providerStatus)) {
+      case 'signed': return 'status-active';
+      case 'pending': return 'status-new';
+      case 'negative': return 'status-failed';
+      default: return 'status-muted';
+    }
+  }
+  if (status === 'signed') return 'status-active';
   switch (status) {
     case 'sent': return 'status-active';
     case 'sending': return 'status-new';
@@ -98,6 +144,20 @@ const getStatusStyle = (status?: string) => {
     case 'failed': return 'status-failed';
     default: return 'status-muted';
   }
+};
+
+const CONTRACT_STAGE_LABELS: Record<string, string> = {
+  customer_documents_upload: 'بارگذاری مدارک مشتری',
+  guarantor_documents_upload: 'بارگذاری مدارک ضامن',
+  collateral_upload: 'بارگذاری وثیقه',
+  funder_amendment_review: 'بررسی اصلاحیهٔ تأمین‌کننده',
+  final_invoice_pending_signature: 'امضای صورت‌حساب نهایی',
+};
+
+type ContractSignatureStatusResult = ContractSignatureStatus & SignatureStatusWorkflowOutcome & {
+  readOnly?: boolean;
+  providerStatusTitle?: string | null;
+  kind?: string | null;
 };
 
 function ErrorModal({ title, message, onClose }: { title: string; message: string; onClose: () => void }) {
@@ -150,6 +210,116 @@ const checkCustomerField = (fieldKey: string | null | undefined, customer: any) 
   return { present: val !== null && val !== undefined && val !== '' };
 };
 
+const MANUAL_MAPPING = '$$MANUAL$$';
+const PLAN_MAPPING_PREFIX = '$$PLAN$$:';
+const mappingSource = (mapping: { customerField?: string | null; loanPlanField?: string | null }) =>
+  mapping.loanPlanField ? `${PLAN_MAPPING_PREFIX}${mapping.loanPlanField}` : mapping.customerField ?? MANUAL_MAPPING;
+const serializeMapping = (variable: string, source: string, label?: string) => ({
+  variable,
+  customerField: source === MANUAL_MAPPING || source.startsWith(PLAN_MAPPING_PREFIX) ? null : source,
+  loanPlanField: source.startsWith(PLAN_MAPPING_PREFIX) ? source.slice(PLAN_MAPPING_PREFIX.length) : null,
+  label: source === MANUAL_MAPPING ? (label?.trim() || variable) : variable,
+});
+
+function normalizedMapping(mapping: ContractMapping): ContractMapping {
+  const sourceType = mapping.sourceType ?? (mapping.formula ? 'formula' : mapping.date ? 'date' : mapping.constantValue != null ? 'constant' : mapping.customerField ? 'customer' : mapping.loanPlanField ? 'loanPlan' : 'manual');
+  return {
+    ...mapping,
+    sourceType,
+    formula: mapping.formula?.tokens ? {
+      tokens: mapping.formula.tokens.map((token) => token.type === 'operator'
+        ? { ...token, value: token.value === '×' ? '*' : token.value === '÷' ? '/' : token.value }
+        : token),
+    } : mapping.formula,
+  };
+}
+
+function isValidFormula(mapping: ContractMapping | undefined) {
+  if (!mapping || mapping.sourceType !== 'formula' || !mapping.formula?.tokens?.length) return false;
+  const tokens = mapping.formula.tokens;
+  if (tokens.length < 3 || tokens.length % 2 === 0) return false;
+  return tokens.every((token, index) => {
+    const operand = index % 2 === 0;
+    if (operand) return token.type === 'field' || (token.type === 'literal' && Number.isFinite(Number(token.value)));
+    return token.type === 'operator' && ['+', '-', '*', '/', '×', '÷'].includes(String(token.value));
+  });
+}
+
+function hasInvalidFormula(mappings: ContractMapping[]) {
+  return mappings.some((mapping) => mapping.sourceType === 'formula' && !isValidFormula(mapping));
+}
+
+function MappingEditor({ variables, customerFields, loanPlanFields, value, onChange }: {
+  variables: string[];
+  customerFields: Array<{ value: string; label: string }>;
+  loanPlanFields: Array<{ value: string; label: string }>;
+  value: ContractMapping[];
+  onChange: (mappings: ContractMapping[]) => void;
+}) {
+  const update = (variable: string, patch: Partial<ContractMapping>) => onChange(variables.map((name) => {
+    const current = normalizedMapping(value.find((mapping) => mapping.variable === name) ?? { variable: name, sourceType: 'manual' });
+    return name === variable ? { ...current, ...patch } : current;
+  }));
+  const fields = [...customerFields.map((field) => ({ ...field, sourceType: 'customer' as const })), ...loanPlanFields.map((field) => ({ ...field, sourceType: 'loanPlan' as const }))];
+  return <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '50vh', overflowY: 'auto', paddingRight: 4 }}>
+    <div style={{ fontSize: 11, color: '#64748b', background: '#f8fafc', padding: 8, borderRadius: 8 }}>
+      فرمول به‌صورت یکی‌درمیان ساخته می‌شود: عدد یا فیلد، سپس عملگر (+، −، ×، ÷)، و دوباره عدد یا فیلد. برای افزودن جزء بعدی از کنترل «افزودن جزء فرمول» استفاده کنید.
+    </div>
+    {variables.map((variable) => {
+      const mapping = normalizedMapping(value.find((item) => item.variable === variable) ?? { variable, sourceType: 'manual', label: variable });
+      const sourceType = mapping.sourceType as ContractMappingSourceType;
+      const tokens = mapping.formula?.tokens ?? [{ type: 'literal', value: '100' }, { type: 'operator', value: '-' }, { type: 'field', field: loanPlanFields[0]?.value ?? '' }];
+      return <div key={variable} style={{ border: '1px solid #e2e8f0', padding: 12, borderRadius: 10 }}>
+        <strong style={{ display: 'block', fontSize: 12, direction: 'ltr', color: 'var(--nafiss-blue)', marginBottom: 10 }}>%{variable}%</strong>
+        <div className="field"><label>نوع متغیر</label><select value={sourceType} onChange={(event) => {
+          const next = event.target.value as ContractMappingSourceType;
+          const base: ContractMapping = { variable, sourceType: next, label: mapping.label || variable, customerField: null, loanPlanField: null, constantValue: null, formula: null, date: null };
+          if (next === 'customer') base.customerField = customerFields[0]?.value ?? null;
+          if (next === 'loanPlan') base.loanPlanField = loanPlanFields[0]?.value ?? null;
+          if (next === 'constant') base.constantValue = '';
+          if (next === 'formula') base.formula = { tokens };
+          if (next === 'date') base.date = { mode: 'contract_date' };
+          onChange(variables.map((item) => item === variable ? base : normalizedMapping(value.find((candidate) => candidate.variable === item) ?? { variable: item, sourceType: 'manual' })));
+        }}>
+          <option value="customer">اطلاعات مشتری</option><option value="loanPlan">اطلاعات طرح تسهیلات</option><option value="manual">ورودی دستی هنگام صدور</option><option value="constant">متن ثابت</option><option value="formula">فرمول محاسباتی</option><option value="date">تاریخ قرارداد</option><option value="contractNumber">شماره قرارداد خودکار</option>
+        </select></div>
+        {sourceType === 'contractNumber' && <div style={{ fontSize: 11, color: '#475569', background: '#f8fafc', padding: 10, borderRadius: 8 }}>شماره به‌صورت سال شمسی + ماه + شمارنده ماهانه از ۱۰۰۱ ساخته می‌شود؛ مانند 1405071001.</div>}
+        {sourceType === 'customer' && <div className="field"><label>فیلد مشتری</label><select value={mapping.customerField ?? ''} onChange={(event) => update(variable, { customerField: event.target.value, loanPlanField: null })}>{customerFields.map((field) => <option key={field.value} value={field.value}>{field.label}</option>)}</select></div>}
+        {sourceType === 'loanPlan' && <div className="field"><label>فیلد طرح</label><select value={mapping.loanPlanField ?? ''} onChange={(event) => update(variable, { loanPlanField: event.target.value, customerField: null })}>{loanPlanFields.map((field) => <option key={field.value} value={field.value}>{field.label}</option>)}</select></div>}
+        {sourceType === 'manual' && <div className="field"><label>عنوان ورودی</label><input value={mapping.label ?? variable} onChange={(event) => update(variable, { label: event.target.value })} /></div>}
+        {sourceType === 'constant' && <div className="field"><label>متن ثابت</label><textarea value={mapping.constantValue ?? ''} onChange={(event) => update(variable, { constantValue: event.target.value })} required /></div>}
+        {sourceType === 'date' && <div className="form-grid"><div className="field"><label>مبنای تاریخ</label><select value={mapping.date?.mode ?? 'contract_date'} onChange={(event) => update(variable, { date: { mode: event.target.value as 'contract_date' | 'contract_date_plus_days', offsetDays: mapping.date?.offsetDays } })}><option value="contract_date">روز قرارداد</option><option value="contract_date_plus_days">روز قرارداد + تعداد روز</option></select></div>{mapping.date?.mode === 'contract_date_plus_days' && <div className="field"><label>تعداد روز</label><input type="number" min="0" step="1" value={mapping.date.offsetDays ?? 0} onChange={(event) => update(variable, { date: { mode: 'contract_date_plus_days', offsetDays: Number(event.target.value) } })} /></div>}</div>}
+        {sourceType === 'formula' && <div style={{ display: 'grid', gap: 8 }}>{tokens.map((token, index) => {
+          const operand = index % 2 === 0;
+          return <div key={index} style={{ display: 'flex', gap: 6 }}>
+            {operand ? <select value={token.type === 'field' ? 'field' : 'literal'} onChange={(event) => {
+              const next = [...tokens];
+              next[index] = event.target.value === 'field'
+                ? { type: 'field', field: loanPlanFields[0]?.value ?? customerFields[0]?.value ?? '' }
+                : { type: 'literal', value: '0' };
+              update(variable, { formula: { tokens: next } });
+            }}><option value="literal">عدد</option><option value="field">فیلد</option></select> : <strong style={{ minWidth: 54, alignSelf: 'center' }}>عملگر</strong>}
+            {token.type === 'field' ? <select value={token.field ?? ''} onChange={(event) => {
+              const next = [...tokens];
+              next[index] = { type: 'field', field: event.target.value };
+              update(variable, { formula: { tokens: next } });
+            }}>{fields.map((field) => <option key={`${field.sourceType}-${field.value}`} value={field.value}>{field.sourceType === 'customer' ? 'مشتری — ' : 'طرح — '}{field.label}</option>)}</select> : operand ? <input value={String(token.value ?? '')} onChange={(event) => {
+              const next = [...tokens];
+              next[index] = { type: 'literal', value: event.target.value };
+              update(variable, { formula: { tokens: next } });
+            }} placeholder="عدد" /> : <select value={String(token.value ?? '+')} onChange={(event) => {
+              const next = [...tokens];
+              next[index] = { type: 'operator', value: event.target.value };
+              update(variable, { formula: { tokens: next } });
+            }}><option value="+">+</option><option value="-">−</option><option value="*">×</option><option value="/">÷</option></select>}
+            {tokens.length > 3 && index === tokens.length - 1 && <button type="button" className="btn btn-ghost" onClick={() => update(variable, { formula: { tokens: tokens.slice(0, -2) } })}>حذف جفت آخر</button>}
+          </div>;
+        })}<button type="button" className="btn btn-ghost" onClick={() => update(variable, { formula: { tokens: [...tokens, { type: 'operator', value: '+' }, { type: 'field', field: loanPlanFields[0]?.value ?? customerFields[0]?.value ?? '' }] } })}>افزودن عملگر و مقدار</button></div>}
+      </div>;
+    })}
+  </div>;
+}
+
 export default function Contracts() {
   const queryClient = useQueryClient();
   const { data: session } = useGetAuthSession({
@@ -160,7 +330,7 @@ export default function Contracts() {
   const canGenerate = user?.role === 'admin' || user?.permissions?.includes('contracts.generate');
   const canSend = user?.role === 'admin' || user?.permissions?.includes('contracts.send');
 
-  const [activeTab, setActiveTab] = useState<'generations' | 'templates'>('generations');
+  const [activeTab, setActiveTab] = useTableState<'generations' | 'templates'>('contracts.tab', 'generations');
   const [templateWizardOpen, setTemplateWizardOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<ContractTemplate | null>(null);
   const [generationWizardOpen, setGenerationWizardOpen] = useState<ContractTemplate | null>(null);
@@ -168,7 +338,7 @@ export default function Contracts() {
   const [errorDialog, setErrorDialog] = useState<{title: string, message: string} | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<ContractTemplate | null>(null);
   const [generationDeleteConfirm, setGenerationDeleteConfirm] = useState<ContractGeneration | null>(null);
-  const [signatureStatusDialog, setSignatureStatusDialog] = useState<ContractSignatureStatus | null>(null);
+  const [signatureStatusDialog, setSignatureStatusDialog] = useState<ContractSignatureStatusResult | null>(null);
 
   const { data: templates, isLoading: loadingTemplates } = useListContractTemplates({
     query: { queryKey: getListContractTemplatesQueryKey() },
@@ -390,6 +560,7 @@ export default function Contracts() {
               <tbody>
                 {generations.map(gen => {
                   const customer = gen.customerId ? customersMap.get(gen.customerId) : null;
+                  const generationCustomer = gen as ContractGeneration & { customerName?: string | null; customerSalespersonName?: string | null };
                   const tpl = templates?.find(t => t.id === gen.templateId);
                   
                   return (
@@ -398,10 +569,11 @@ export default function Contracts() {
                         <span style={{ fontSize: 11, color: '#94a3b8', fontFamily: 'var(--font-mono)' }}>#{gen.id}</span>
                       </td>
                       <td>
-                        {customer ? (
+                        {customer || generationCustomer.customerName ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                            <strong className="customer-name">{customer.name}</strong>
-                            <span style={{ fontSize: 11, color: '#64748b', fontFamily: 'var(--font-mono)' }} dir="ltr">{customer.phone}</span>
+                            <strong className="customer-name">{generationCustomer.customerName || customer?.name}</strong>
+                            <span style={{ fontSize: 11, color: '#64748b' }}>کارشناس فروش: {generationCustomer.customerSalespersonName || customer?.salespersonName || 'بدون تخصیص'}</span>
+                            {customer?.phone && <span style={{ fontSize: 11, color: '#64748b', fontFamily: 'var(--font-mono)' }} dir="ltr">{customer.phone}</span>}
                           </div>
                         ) : (
                           'مشتری ' + gen.customerId
@@ -413,8 +585,8 @@ export default function Contracts() {
                         </span>
                       </td>
                       <td>
-                        <span className={`status-pill ${getStatusStyle(gen.status)}`}>
-                          {formatStatus(gen.status)}
+                        <span className={`status-pill ${getStatusStyle(gen.status, gen.providerStatus)}`}>
+                          {formatStatus(gen.status, gen.providerStatus)}
                         </span>
                       </td>
                       <td>
@@ -457,6 +629,8 @@ export default function Contracts() {
                           {gen.id && gen.providerContractId && (
                             <CheckSignatureStatusButton
                               generationId={gen.id}
+                              applicationId={gen.loanApplicationId}
+                              readOnly={user?.role === 'salesperson'}
                               onSuccess={setSignatureStatusDialog}
                               onError={(title, msg) => setErrorDialog({ title, message: msg })}
                             />
@@ -543,13 +717,23 @@ export default function Contracts() {
               : <RefreshCw size={24} color="#1d4ed8" style={{ flexShrink: 0 }} />}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
               <strong style={{ color: signatureStatusDialog.signed ? '#047857' : '#1e40af' }}>
-                {signatureStatusDialog.signed ? 'قرارداد امضا شده است' : 'فرآیند امضا هنوز تکمیل نشده است'}
+                {signatureStatusDialog.signed ? 'امضامی امضای قرارداد را تکمیل‌شده گزارش کرده است' : 'امضامی امضای قرارداد را تکمیل‌شده گزارش نکرده است'}
               </strong>
               <span style={{ color: '#475569', fontSize: 13 }}>
-                {signatureStatusDialog.providerStatusTitle || formatProviderStatus(signatureStatusDialog.providerStatus)}
+                وضعیت خام امضامی: <bdi dir="auto">{signatureStatusDialog.providerStatus ?? signatureStatusDialog.providerStatusTitle ?? 'در پاسخ گزارش نشده'}</bdi>
               </span>
             </div>
           </div>
+          {signatureStatusDialog.workflowAdvanced && <p role="status" data-testid="status-contract-workflow-advanced" style={{ margin: '12px 0 0', color: '#047857', fontSize: 13 }}>
+            پرونده به مرحلهٔ «{signatureStatusDialog.nextStage ? CONTRACT_STAGE_LABELS[signatureStatusDialog.nextStage] ?? signatureStatusDialog.nextStage : 'بعدی'}» منتقل شد.
+          </p>}
+          {signatureStatusDialog.readOnly && <p role="status" data-testid="status-contract-readonly-inquiry" style={{ margin: '12px 0 0', color: '#475569', fontSize: 12 }}>
+            این استعلام فقط‌خواندنی بود؛ وضعیت ذخیره‌شده و مرحلهٔ پرونده تغییر نکرد.
+          </p>}
+          {signatureStatusDialog.signed && !signatureStatusDialog.workflowAdvanced && !signatureStatusDialog.readOnly && <p role="status" data-testid="status-contract-workflow-unchanged" style={{ margin: '12px 0 0', color: '#475569', fontSize: 12 }}>
+            امضامی امضا را گزارش کرده است؛ در این استعلام گذار تازه‌ای در مرحلهٔ پرونده ثبت نشد.
+          </p>}
+          <p style={{ margin: '10px 0 0', color: '#64748b', fontSize: 12 }}>گزارش امضا به‌تنهایی به معنای تصویب مبلغ یا تأمین مالی نیست.</p>
           <div className="form-footer" style={{ marginTop: 24, justifyContent: 'flex-end' }}>
             <button className="btn btn-primary" onClick={() => setSignatureStatusDialog(null)}>بستن</button>
           </div>
@@ -588,9 +772,11 @@ function TemplateWizard({ onClose, onError }: { onClose: () => void, onError: (t
 
   const { data: customerFieldsData } = useGetContractCustomerFields();
   const customerFields = customerFieldsData?.fields ?? [];
-
-  const [mappings, setMappings] = useState<Record<string, string>>({});
-  const [labels, setLabels] = useState<Record<string, string>>({});
+  const loanPlanFields = customerFieldsData?.loanPlanFields ?? [];
+  const [mappings, setMappings] = useState<ContractMapping[]>([]);
+  useEffect(() => {
+    if (analyze.data) setMappings(analyze.data.variables.map((variable) => ({ variable, sourceType: 'manual', label: variable })));
+  }, [analyze.data]);
 
   const handleAnalyze = () => {
     if (!file) {
@@ -607,9 +793,13 @@ function TemplateWizard({ onClose, onError }: { onClose: () => void, onError: (t
     }
     if (!analyze.data) return;
 
-    const missing = analyze.data.variables.filter(v => !mappings[v]);
+    const missing = analyze.data.variables.filter(v => !mappings.find((mapping) => mapping.variable === v)?.sourceType);
     if (missing.length > 0) {
       onError('متغیرهای نامشخص', 'لطفاً تمام متغیرها را نگاشت کنید.');
+      return;
+    }
+    if (hasInvalidFormula(mappings)) {
+      onError('فرمول نامعتبر', 'فرمول باید با یک عدد یا فیلد شروع شود و به‌صورت یکی‌درمیان عملگر و عملوند داشته باشد.');
       return;
     }
 
@@ -617,15 +807,7 @@ function TemplateWizard({ onClose, onError }: { onClose: () => void, onError: (t
       data: {
         name,
         uploadToken: analyze.data.uploadToken,
-        mappings: analyze.data.variables.map(v => {
-          const val = mappings[v];
-          const isManual = val === '$$MANUAL$$';
-          return {
-            variable: v,
-            customerField: isManual ? null : val,
-            label: isManual ? (labels[v] || v) : undefined
-          };
-        })
+         mappings: mappings.map(normalizedMapping),
       }
     });
   };
@@ -682,43 +864,13 @@ function TemplateWizard({ onClose, onError }: { onClose: () => void, onError: (t
             تحلیل با موفقیت انجام شد. {analyze.data.variables.length} متغیر در فایل یافت شد.
           </div>
           
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '50vh', overflowY: 'auto', paddingRight: 4 }}>
-            {analyze.data.variables.map(v => (
-              <div key={v} style={{ border: '1px solid #e2e8f0', padding: 12, borderRadius: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                  <strong style={{ fontSize: 12, direction: 'ltr', color: 'var(--nafiss-blue)' }}>%%{v}%%</strong>
-                </div>
-                <div className="field">
-                  <select
-                    value={mappings[v] || ''}
-                    onChange={e => setMappings({ ...mappings, [v]: e.target.value })}
-                  >
-                    <option value="" disabled>--- انتخاب فیلد معادل ---</option>
-                    {customerFields.map(f => (
-                      <option key={f.value} value={f.value}>{f.label}</option>
-                    ))}
-                    <option value="$$MANUAL$$">ورودی دستی هنگام صدور</option>
-                  </select>
-                </div>
-                {mappings[v] === '$$MANUAL$$' && (
-                  <div className="field" style={{ marginTop: 10 }}>
-                    <label>عنوان فیلد برای کاربر (جهت نمایش هنگام صدور)</label>
-                    <input
-                      value={labels[v] || ''}
-                      onChange={e => setLabels({ ...labels, [v]: e.target.value })}
-                      placeholder={`مثال: مقدار برای ${v}`}
-                    />
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+           <MappingEditor variables={analyze.data.variables} customerFields={customerFields} loanPlanFields={loanPlanFields} value={mappings} onChange={setMappings} />
 
           <div className="form-footer">
             <button
               className="btn btn-primary"
               onClick={handleSave}
-              disabled={create.isPending}
+              disabled={create.isPending || hasInvalidFormula(mappings)}
             >
               {create.isPending ? 'در حال ذخیره...' : 'ذخیره قالب'}
             </button>
@@ -736,14 +888,18 @@ function EditTemplateWizard({ template, onClose, onError }: { template: Contract
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [name, setName] = useState(template.name);
-  const [mappings, setMappings] = useState<Record<string, string>>(() => Object.fromEntries(
-    (template.mappings ?? []).map((mapping) => [mapping.variable, mapping.customerField ?? '$$MANUAL$$']),
-  ));
-  const [labels, setLabels] = useState<Record<string, string>>(() => Object.fromEntries(
-    (template.mappings ?? []).map((mapping) => [mapping.variable, mapping.label ?? mapping.variable]),
-  ));
+  const [mappings, setMappings] = useState<ContractMapping[]>(() => (template.mappings ?? []).map(normalizedMapping));
+  useEffect(() => {
+    const variables = template.variables ?? [];
+    setMappings((current) => variables.map((variable) => normalizedMapping(
+      current.find((mapping) => mapping.variable === variable)
+        ?? template.mappings?.find((mapping) => mapping.variable === variable)
+        ?? { variable, sourceType: 'manual', label: variable },
+    )));
+  }, [template]);
   const { data: customerFieldsData } = useGetContractCustomerFields();
   const customerFields = customerFieldsData?.fields ?? [];
+  const loanPlanFields = customerFieldsData?.loanPlanFields ?? [];
   const update = useUpdateContractTemplate({
     mutation: {
       onSuccess: () => {
@@ -764,22 +920,19 @@ function EditTemplateWizard({ template, onClose, onError }: { template: Contract
       return;
     }
     const variables = template.variables ?? [];
-    if (variables.some((variable) => !mappings[variable])) {
+    if (variables.some((variable) => !mappings.find((mapping) => mapping.variable === variable)?.sourceType)) {
       onError('متغیرهای نامشخص', 'لطفاً تمام متغیرها را نگاشت کنید.');
+      return;
+    }
+    if (hasInvalidFormula(mappings)) {
+      onError('فرمول نامعتبر', 'فرمول باید با یک عدد یا فیلد شروع شود و به‌صورت یکی‌درمیان عملگر و عملوند داشته باشد.');
       return;
     }
     update.mutate({
       id: template.id,
       data: {
         name: name.trim(),
-        mappings: variables.map((variable) => {
-          const manual = mappings[variable] === '$$MANUAL$$';
-          return {
-            variable,
-            customerField: manual ? null : mappings[variable],
-            label: manual ? (labels[variable]?.trim() || variable) : variable,
-          };
-        }),
+         mappings: mappings.map(normalizedMapping),
       },
     });
   };
@@ -794,28 +947,9 @@ function EditTemplateWizard({ template, onClose, onError }: { template: Contract
         <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: 12, borderRadius: 10, fontSize: 11, color: '#64748b' }}>
           برای تغییر فایل Word، قالب جدیدی تعریف کنید. این کار نسخه قراردادهای صادرشده را قابل ردیابی نگه می‌دارد.
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '50vh', overflowY: 'auto', paddingRight: 4 }}>
-          {(template.variables ?? []).map((variable) => (
-            <div key={variable} style={{ border: '1px solid #e2e8f0', padding: 12, borderRadius: 10 }}>
-              <strong style={{ display: 'block', fontSize: 12, direction: 'ltr', color: 'var(--nafiss-blue)', marginBottom: 10 }}>%{variable}%</strong>
-              <div className="field">
-                <select value={mappings[variable] || ''} onChange={(event) => setMappings({ ...mappings, [variable]: event.target.value })}>
-                  <option value="" disabled>--- انتخاب فیلد معادل ---</option>
-                  {customerFields.map((field) => <option key={field.value} value={field.value}>{field.label}</option>)}
-                  <option value="$$MANUAL$$">ورودی دستی هنگام صدور</option>
-                </select>
-              </div>
-              {mappings[variable] === '$$MANUAL$$' && (
-                <div className="field" style={{ marginTop: 10 }}>
-                  <label>عنوان فیلد برای کاربر</label>
-                  <input value={labels[variable] || ''} onChange={(event) => setLabels({ ...labels, [variable]: event.target.value })} />
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+        <MappingEditor variables={template.variables ?? []} customerFields={customerFields} loanPlanFields={loanPlanFields} value={mappings} onChange={setMappings} />
         <div className="form-footer">
-          <button className="btn btn-primary" onClick={handleSave} disabled={update.isPending}>
+          <button className="btn btn-primary" onClick={handleSave} disabled={update.isPending || hasInvalidFormula(mappings)}>
             {update.isPending ? 'در حال ذخیره...' : 'ذخیره تغییرات'}
           </button>
           <button className="btn btn-ghost" onClick={onClose} disabled={update.isPending}>انصراف</button>
@@ -832,7 +966,16 @@ function GenerationWizard({ template, onClose, onError }: { template: ContractTe
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
   const [customerId, setCustomerId] = useState<number | ''>('');
+  const [loanPlanId, setLoanPlanId] = useState<number | ''>('');
   const [manualValues, setManualValues] = useState<Record<string, string>>({});
+  const { data: plansData, isLoading: loadingPlans } = useListLoanPlans({ active: true }, {
+    query: { queryKey: getListLoanPlansQueryKey({ active: true }), staleTime: 30_000 },
+  });
+  const matchingPlans = (plansData ?? []).filter((plan) => plan.contractTemplateId === template.id);
+  useEffect(() => {
+    if (matchingPlans.length === 1) setLoanPlanId(matchingPlans[0].id);
+    else if (!matchingPlans.some((plan) => plan.id === loanPlanId)) setLoanPlanId('');
+  }, [template.id, matchingPlans.length, matchingPlans.map((plan) => plan.id).join(',')]);
 
   const { data: searchData, isFetching: searching } = useListCustomers(
     { search: debouncedSearch, limit: 10 },
@@ -864,8 +1007,8 @@ function GenerationWizard({ template, onClose, onError }: { template: ContractTe
       .map(m => m.label || m.customerField!);
   }, [customerData, template.mappings]);
 
-  const manualMappings = template.mappings?.filter(m => !m.customerField) ?? [];
-  const autoMappings = template.mappings?.filter(m => m.customerField) ?? [];
+  const manualMappings = template.mappings?.filter(m => (m.sourceType ?? (!m.customerField && !m.loanPlanField ? 'manual' : 'customer')) === 'manual') ?? [];
+  const autoMappings = template.mappings?.filter(m => (m.sourceType ?? (m.customerField ? 'customer' : m.loanPlanField ? 'loanPlan' : 'manual')) === 'customer') ?? [];
 
   const hasBlankManual = useMemo(() => {
     return manualMappings.some(m => !manualValues[m.variable]?.trim());
@@ -873,10 +1016,12 @@ function GenerationWizard({ template, onClose, onError }: { template: ContractTe
 
   const handleGenerate = () => {
     if (customerId === '') return;
+    if (loanPlanId === '') return;
     generate.mutate({
       data: {
         templateId: template.id!,
         customerId: Number(customerId),
+        loanPlanId: Number(loanPlanId),
         manualValues
       }
     });
@@ -885,6 +1030,10 @@ function GenerationWizard({ template, onClose, onError }: { template: ContractTe
   return (
     <Modal title="صدور قرارداد جدید" eyebrow={`قالب: ${template.name}`} onClose={onClose} testId="generation-wizard">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="field">
+          <label>طرح تسهیلاتی</label>
+          {loadingPlans ? <span style={{ color: '#64748b', fontSize: 12 }}>در حال بارگذاری طرح‌ها...</span> : matchingPlans.length === 0 ? <span style={{ color: '#be123c', fontSize: 12 }}>هیچ طرح فعالی به این قالب قرارداد متصل نیست.</span> : <select value={loanPlanId} onChange={(event) => setLoanPlanId(event.target.value ? Number(event.target.value) : '')}><option value="">انتخاب طرح</option>{matchingPlans.map((plan) => <option key={plan.id} value={plan.id}>{plan.name}</option>)}</select>}
+        </div>
         {customerId === '' ? (
           <div className="field">
             <label>جستجو و انتخاب مشتری</label>
@@ -904,7 +1053,7 @@ function GenerationWizard({ template, onClose, onError }: { template: ContractTe
                     style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9', fontSize: 12, display: 'flex', justifyContent: 'space-between' }}
                     className="hover-elevate"
                   >
-                    <strong>{c.name}</strong>
+                    <span><strong>{c.name}</strong><span style={{ display: 'block', fontSize: 11, color: '#64748b' }}>کارشناس فروش: {c.salespersonName || 'بدون تخصیص'}</span></span>
                     <span dir="ltr" style={{ color: '#64748b' }}>{c.phone}</span>
                   </div>
                 ))}
@@ -921,7 +1070,9 @@ function GenerationWizard({ template, onClose, onError }: { template: ContractTe
                {loadingCustomer ? (
                  <div style={{ fontSize: 12, fontWeight: 700 }}>در حال دریافت اطلاعات...</div>
                ) : (
-                 <div style={{ fontSize: 12, fontWeight: 700 }}>{customerData?.name} - <span dir="ltr">{customerData?.phone}</span></div>
+                 <div style={{ fontSize: 12, fontWeight: 700 }}>{customerData?.name} - <span dir="ltr">{customerData?.phone}</span>
+                   <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: '#64748b' }}>کارشناس فروش: {customerData?.salespersonName || 'بدون تخصیص'}</span>
+                 </div>
                )}
             </div>
             <button className="btn btn-ghost" style={{ minHeight: 30, fontSize: 10 }} onClick={() => { setCustomerId(''); setManualValues({}); }}>تغییر مشتری</button>
@@ -980,7 +1131,7 @@ function GenerationWizard({ template, onClose, onError }: { template: ContractTe
               <button
                 className="btn btn-primary"
                 onClick={handleGenerate}
-                disabled={generate.isPending || missingFields.length > 0 || hasBlankManual}
+                disabled={generate.isPending || loadingPlans || loanPlanId === '' || matchingPlans.length === 0 || missingFields.length > 0 || hasBlankManual}
               >
                 <FileSignature size={16} />
                 {generate.isPending ? 'در حال صدور...' : 'صدور نهایی قرارداد'}
@@ -1000,23 +1151,45 @@ function SendContractButton({ generation, onError }: { generation: ContractGener
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [showConfirm, setShowConfirm] = useState(false);
+  const [preparing, setPreparing] = useState(false);
 
   const send = useSendContractGeneration({
     mutation: {
       onSuccess: () => {
         toast({ title: 'ارسال شد', description: 'قرارداد جهت امضای دیجیتال ارسال شد.' });
         queryClient.invalidateQueries({ queryKey: getListContractGenerationsQueryKey() });
+        if (generation.loanApplicationId) queryClient.invalidateQueries({ queryKey: getGetLoanApplicationQueryKey(generation.loanApplicationId) });
         setShowConfirm(false);
       },
       onError: (err: any) => {
         setShowConfirm(false);
+        queryClient.invalidateQueries({ queryKey: getListContractGenerationsQueryKey() });
         onError('خطا در ارسال', getErrorMessage(err, 'مشکلی در ارتباط با سرویس امضای دیجیتال پیش آمد.'));
       }
     }
   });
 
-  const isSendingOrSent = generation.status === 'sent' || generation.status === 'sending';
+  const isSigned = generation.status === 'signed' || providerStatusIsSigned(generation.providerStatus);
+  const isRejected = generation.status === 'sent' && providerReportsRejected(generation.providerStatus) && !generation.supersededAt;
+  const isSendingOrSent = isSigned || (generation.status === 'sent' && !isRejected) || generation.status === 'sending';
   const isFailed = generation.status === 'failed';
+  const confirmSend = async () => {
+    if (preparing || send.isPending) return;
+    if (isRejected) {
+      setPreparing(true);
+      try {
+        await prepareRejectedContractResend(generation.id!);
+      } catch {
+        setShowConfirm(false);
+        onError('ارسال مجدد انجام نشد', 'وضعیت رد باید در امضامی تأیید شود و قرارداد همچنان قرارداد جاری و بدون امضای پرونده باشد. وضعیت را تازه‌سازی کنید.');
+        await queryClient.invalidateQueries({ queryKey: getListContractGenerationsQueryKey() });
+        return;
+      } finally {
+        setPreparing(false);
+      }
+    }
+    send.mutate({ id: generation.id! });
+  };
 
   return (
     <>
@@ -1024,53 +1197,68 @@ function SendContractButton({ generation, onError }: { generation: ContractGener
         className="btn btn-ghost"
         style={{ minHeight: 30, fontSize: 11, padding: '0 10px', background: isSendingOrSent ? '#f8fafc' : '#fff', color: isSendingOrSent ? '#94a3b8' : 'var(--nafiss-blue)', borderColor: isSendingOrSent ? '#e2e8f0' : 'var(--nafiss-light)' }}
         onClick={() => setShowConfirm(true)}
-        disabled={isSendingOrSent}
+        disabled={isSendingOrSent || preparing || send.isPending || Boolean(generation.supersededAt)}
       >
         <Send size={14} />
-        {isSendingOrSent ? 'ارسال شده' : isFailed ? 'تلاش مجدد ارسال' : 'ارسال برای امضا'}
+        {isSigned ? 'امضا شده' : isRejected ? 'ارسال مجدد قرارداد ردشده' : isSendingOrSent ? 'ارسال شده' : isFailed ? 'تلاش مجدد ارسال' : 'ارسال برای امضا'}
       </button>
 
       {showConfirm && (
         <ConfirmModal
           title="ارسال قرارداد برای امضا"
-          message={`آیا از ارسال این قرارداد برای امضای دیجیتال اطمینان دارید؟`}
-          isPending={send.isPending}
+          message={isRejected ? 'همان فایل قرارداد، بدون تغییر مبلغ یا مفاد، با یک درخواست امضای تازه ارسال می‌شود. شناسه و وضعیت ارسال ردشده در سوابق حفظ می‌شود. ارسال مجدد انجام شود؟' : 'آیا از ارسال این قرارداد برای امضای دیجیتال اطمینان دارید؟'}
+          isPending={send.isPending || preparing}
           confirmText="بله، ارسال شود"
           onClose={() => setShowConfirm(false)}
-          onConfirm={() => send.mutate({ id: generation.id! })}
+          onConfirm={() => void confirmSend()}
         />
       )}
     </>
   );
 }
 
-function CheckSignatureStatusButton({ generationId, onSuccess, onError }: {
+function CheckSignatureStatusButton({ generationId, applicationId, readOnly, onSuccess, onError }: {
   generationId: number;
-  onSuccess: (status: ContractSignatureStatus) => void;
+  applicationId?: number | null;
+  readOnly: boolean;
+  onSuccess: (status: ContractSignatureStatusResult) => void;
   onError: (title: string, msg: string) => void;
 }) {
   const queryClient = useQueryClient();
   const checkStatus = useCheckContractSignatureStatus({
     mutation: {
       onSuccess: (status) => {
-        onSuccess(status);
+        const workflowResult = status as typeof status & SignatureStatusWorkflowOutcome;
+        onSuccess(workflowResult);
         queryClient.invalidateQueries({ queryKey: getListContractGenerationsQueryKey() });
+        if (workflowResult.workflowAdvanced) {
+          queryClient.invalidateQueries({ queryKey: getListLoanApplicationsQueryKey() });
+          if (applicationId != null) {
+            queryClient.invalidateQueries({ queryKey: getGetLoanApplicationQueryKey(applicationId) });
+          }
+        }
       },
       onError: (err: any) => {
         onError('خطا در بررسی وضعیت', getErrorMessage(err, 'دریافت وضعیت امضای قرارداد انجام نشد.'));
       },
     },
   });
+  const readStatus = useMutation<ReadOnlySignatureStatus, unknown>({
+    mutationFn: () => getContractSignatureStatus(generationId),
+    onSuccess: (status) => onSuccess({ ...status, workflowAdvanced: false, nextStage: null, readOnly: true }),
+    onError: (err: any) => onError('خطا در بررسی وضعیت', getErrorMessage(err, 'دریافت وضعیت امضای قرارداد انجام نشد.')),
+  });
+  const pending = readOnly ? readStatus.isPending : checkStatus.isPending;
 
   return (
     <button
       className="btn btn-ghost"
       style={{ minHeight: 30, fontSize: 11, padding: '0 10px', color: '#1d4ed8', borderColor: '#bfdbfe', background: '#eff6ff' }}
-      onClick={() => checkStatus.mutate({ id: generationId })}
-      disabled={checkStatus.isPending}
+      onClick={() => readOnly ? readStatus.mutate() : checkStatus.mutate({ id: generationId })}
+      disabled={pending}
     >
-      <RefreshCw size={14} className={checkStatus.isPending ? 'spin' : undefined} />
-      {checkStatus.isPending ? 'در حال بررسی...' : 'بررسی وضعیت امضا'}
+      <RefreshCw size={14} className={pending ? 'spin' : undefined} />
+      {pending ? 'در حال بررسی...' : 'بررسی وضعیت امضا'}
     </button>
   );
 }

@@ -1,0 +1,56 @@
+paths:
+  goods:
+    get:
+      operationId: getGoodsRegistrationSuggestions
+      tags: [crm]
+      parameters:
+        - { in: query, name: page, schema: { type: integer, minimum: 1, maximum: 999999 } }
+        - { in: query, name: q, schema: { type: string, maxLength: 100 } }
+      responses:
+        "200":
+          description: Completed loan cases without an attributed purchase, oldest first; permission and customer scoped.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegistrationSuggestions' }
+        "403": { description: Registration permission required }
+  payments:
+    get:
+      operationId: getPaymentRegistrationSuggestions
+      tags: [crm]
+      parameters:
+        - { in: query, name: page, schema: { type: integer, minimum: 1, maximum: 999999 } }
+        - { in: query, name: q, schema: { type: string, maxLength: 100 } }
+      responses:
+        "200":
+          description: Completed purchases without any payment order; permission and customer scoped.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegistrationSuggestions' }
+        "403": { description: Payment order creation permission required }
+components:
+  schemas:
+    RegistrationSuggestion:
+      type: object
+      required: [customerId, customerName, canCreate, unavailableReason, planName]
+      properties:
+        applicationId: { type: integer }
+        purchaseId: { type: integer }
+        customerId: { type: integer }
+        customerName: { type: string }
+        phone: { type: ["string", "null"] }
+        customerSalespersonName: { type: ["string", "null"] }
+        planId: { type: integer }
+        planName: { type: string }
+        balanceToman: { type: string }
+        amountToman: { type: string }
+        completedAt: { type: ["string", "null"] }
+        canCreate: { type: boolean }
+        unavailableReason: { type: ["string", "null"] }
+    RegistrationSuggestions:
+      type: object
+      required: [items, total, page, limit]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/RegistrationSuggestion' } }
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }

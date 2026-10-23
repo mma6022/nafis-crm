@@ -21,6 +21,12 @@ export interface CrmUserInput {
   /** @nullable */
   fullName?: string | null;
   /**
+     * @maxLength 32
+     * @nullable
+     * @pattern ^[A-Za-z0-9*#_.-]*$
+     */
+  voipExtension?: string | null;
+  /**
      * @maxLength 30
      * @nullable
      */
@@ -30,7 +36,5 @@ export interface CrmUserInput {
      * @maxLength 50
      */
   role: string;
-  /** @nullable */
-  salespersonId?: number | null;
   active?: boolean;
 }

@@ -6,11 +6,17 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CustomerStatus } from './customerStatus';
+import type { CustomerVerificationChecks } from './customerVerificationChecks';
 import type { CustomerVerificationStatus } from './customerVerificationStatus';
 
 export interface Customer {
   id: number;
+  portalOrigin?: boolean;
   name: string;
+  /** @nullable */
+  firstName?: string | null;
+  /** @nullable */
+  lastName?: string | null;
   phone: string;
   /** @nullable */
   description?: string | null;
@@ -26,7 +32,26 @@ export interface Customer {
      * @pattern ^[0-9]{10}$
      */
   postalCode?: string | null;
+  /** @nullable */
+  fatherName?: string | null;
+  /** @nullable */
+  address?: string | null;
+  /** @nullable */
+  email?: string | null;
   verificationStatus: CustomerVerificationStatus;
+  /** @nullable */
+  verificationCheckedAt?: string | null;
+  verificationChecks?: CustomerVerificationChecks;
+  /** @nullable */
+  officialFirstName?: string | null;
+  /** @nullable */
+  officialLastName?: string | null;
+  /** @nullable */
+  officialFatherName?: string | null;
+  /** @nullable */
+  officialAddress?: string | null;
+  /** @nullable */
+  officialPostalCode?: string | null;
   isUrgent: boolean;
   /** @nullable */
   creditScore?: number | null;
@@ -49,4 +74,14 @@ export interface Customer {
   activityCount: number;
   /** @nullable */
   lastActivityAt?: string | null;
+  /**
+     * Latest recorded customer call time, independent of customer registration; null when no call is recorded.
+     * @nullable
+     */
+  lastCallAt?: string | null;
+  /** @nullable */
+  mergedIntoCustomerId: number | null;
+  tags: string[];
+  /** @minimum 0 */
+  pendingRepeatRequestCount: number;
 }

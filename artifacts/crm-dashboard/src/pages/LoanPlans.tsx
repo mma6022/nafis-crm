@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp, CheckCircle2, Edit3, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
+import { useTableState } from '@/hooks/use-table-state';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   getGetLoanPlanQueryKey,
@@ -16,6 +17,8 @@ import {
   type LoanPlan,
   type LoanPlanInput,
 } from '@workspace/api-client-react';
+import { GoodsPlanSettingsFields, blankGoodsPlanForm, saveGoodsPlanSettings, type GoodsPlanForm } from '@/components/GoodsPlanSettingsFields';
+import { errText, useMe } from '@/lib/goods-api';
 import { ErrorState, formatDate, SkeletonPanel } from '@/components/CrmShell';
 import { EmptyState, Modal } from '@/components/DataTools';
 
@@ -39,6 +42,7 @@ const GRANT_TIMES = [
 
 const blankForm = {
   name: '',
+  filingFeeToman: '0',
   bankName: '',
   platformName: '',
   principalAmount: '',
@@ -47,9 +51,18 @@ const blankForm = {
   processMode: '',
   grantDays: '',
   notes: '',
-  primaryContractTemplateId: '',
-  invoiceTemplateId: '',
-  acknowledgementTemplateId: '',
+  contractTemplateId: '',
+  platformCompanyName: '',
+  goodsStoreName: '',
+  commissionPercent: '',
+  operationCostsPercent: '',
+  grantedDiscountPercent: '',
+  purchaseCommissionPercent: '',
+  salesCommissionPercent: '',
+  loanAcquisitionFeePercent: '',
+  penaltyMode: 'amount',
+  penaltyValue: '',
+  contractDurationDays: '',
   active: true,
 };
 
@@ -162,7 +175,7 @@ function DictionaryChips({
 
 export default function LoanPlans() {
   const client = useQueryClient();
-  const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('active');
+  const [filter, setFilter] = useTableState<'all' | 'active' | 'inactive'>('plans.filter', 'active');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [editing, setEditing] = useState<LoanPlan | null | undefined>(undefined);
   const params = filter === 'all' ? undefined : { active: filter === 'active' };
@@ -172,17 +185,28 @@ export default function LoanPlans() {
   const update = useUpdateLoanPlan();
   const plans = list.data ?? [];
   const selected = detail.data ?? plans.find((plan) => plan.id === selectedId) ?? null;
-  const save = (data: LoanPlanInput) => {
+  const { can } = useMe();
+  const canGoodsFinance = can('goods_finance.manage');
+  const [goodsError, setGoodsError] = useState('');
+  const persistGoods = async (planId: number, data: LoanPlanInput, goods: GoodsPlanForm) => {
+    if (data.loanType !== 'goods' || !canGoodsFinance) return true;
+    try { await saveGoodsPlanSettings(planId, goods); client.invalidateQueries({ queryKey: ['goods-plan-settings', planId] }); setGoodsError(''); return true; }
+    catch (e) { setGoodsError(`طرح ذخیره شد اما تنظیمات مالی خرید کالا ذخیره نشد: ${errText(e)}`); return false; }
+  };
+  const save = (data: LoanPlanInput, goods: GoodsPlanForm) => {
     if (editing?.id) {
-      update.mutate({ id: editing.id, data }, { onSuccess: () => {
+      update.mutate({ id: editing.id, data }, { onSuccess: async () => {
+        if (!(await persistGoods(editing.id, data, goods))) return;
         setEditing(undefined);
         client.invalidateQueries({ queryKey: getListLoanPlansQueryKey() });
         client.invalidateQueries({ queryKey: getGetLoanPlanQueryKey(editing.id) });
       } });
     } else {
-      create.mutate({ data }, { onSuccess: (created) => {
-        setEditing(undefined);
+      create.mutate({ data }, { onSuccess: async (created) => {
         setSelectedId(created.id);
+        client.invalidateQueries({ queryKey: getListLoanPlansQueryKey() });
+        if (!(await persistGoods(created.id, data, goods))) { setEditing(created); return; }
+        setEditing(undefined);
         client.invalidateQueries({ queryKey: getListLoanPlansQueryKey() });
       } });
     }
@@ -202,24 +226,26 @@ export default function LoanPlans() {
       <div className="plan-list">
         {plans.length ? plans.map((plan) => { const active = (plan as PlanWithStatus).active !== false; return <div className={`plan-card ${selectedId === plan.id ? 'selected' : ''}`} key={plan.id} onClick={() => setSelectedId(plan.id)} data-testid={`card-loan-plan-${plan.id}`}>
           <div className="plan-card-head"><div><h3>{plan.name}</h3><p>{plan.bankName || 'بانک مشخص نشده'}{plan.platformName ? ` · ${plan.platformName}` : ''}</p></div><span className={`inline-badge ${active ? 'active' : 'inactive'}`}>{active ? 'فعال' : 'غیرفعال'}</span></div>
-          <div className="plan-facts"><div className="plan-fact">سقف تسهیلات<strong>{plan.principalAmount || '—'}</strong></div><div className="plan-fact">سود سالانه<strong>{plan.annualInterest || '—'}</strong></div><div className="plan-fact">اقساط<strong>{plan.installmentTerms?.map((term) => term.installments).join('، ') || plan.installments || '—'}</strong></div></div>
+          <div className="plan-facts"><div className="plan-fact">سقف تسهیلات<strong>{plan.principalAmount ? `${plan.principalAmount} تومان` : '—'}</strong></div><div className="plan-fact">سود سالانه<strong>{plan.annualInterest || '—'}</strong></div><div className="plan-fact">اقساط<strong>{plan.installmentTerms?.map((term) => term.installments).join('، ') || plan.installments || '—'}</strong></div></div>
         </div>; }) : <div className="panel"><EmptyState title="طرحی در این فیلتر نیست" description="یک طرح تازه ایجاد کنید یا فیلتر را روی همه طرح‌ها بگذارید." /></div>}
       </div>
       <PlanDetail plan={selected} loading={Boolean(selectedId) && detail.isLoading} onEdit={() => selected && setEditing(selected)} />
     </div>}
-    {editing !== undefined ? <PlanForm plan={editing} pending={create.isPending || update.isPending} onClose={() => setEditing(undefined)} onSave={save} /> : null}
+    {editing !== undefined ? <PlanForm plan={editing} pending={create.isPending || update.isPending} goodsError={goodsError || (create.isError || update.isError ? errText(create.error ?? update.error) : '')} canGoodsFinance={canGoodsFinance} onClose={() => { setEditing(undefined); setGoodsError(''); }} onSave={save} /> : null}
   </section>;
 }
 
 function PlanDetail({ plan, loading, onEdit }: { plan: LoanPlan | null; loading: boolean; onEdit: () => void }) {
   const dictionaries = useListConsultOptions(undefined, { query: { queryKey: getListConsultOptionsQueryKey(), staleTime: 5 * 60_000 } });
+  const templatesReq = useListContractTemplates({ query: { queryKey: getListContractTemplatesQueryKey(), staleTime: 60_000 } });
   const options = dictionaries.data ?? [];
   if (loading) return <SkeletonPanel rows={4} />;
   if (!plan) return <div className="panel"><div className="empty-state"><ShieldCheck /><strong>یک طرح را انتخاب کنید</strong><p>جزئیات شروط و مدارک مورد نیاز در این بخش نمایش داده می‌شود.</p></div></div>;
   const documentOptions = optionsFor(options, 'required_document');
   return <div className="panel">
     <div className="panel-head"><div><div className="eyebrow">جزئیات طرح</div><h3>{plan.name}</h3><p>{plan.bankName || 'بانک مشخص نشده'} · آخرین ثبت {formatDate(plan.createdAt)}</p></div><button className="table-action" onClick={onEdit}><Edit3 size={13} />ویرایش</button></div>
-    <div className="plan-facts"><div className="plan-fact">نوع تسهیلات<strong>{plan.loanType || '—'}</strong></div><div className="plan-fact">روش اجرا<strong>{plan.processMode || '—'}</strong></div><div className="plan-fact">زمان انجام<strong>{GRANT_TIMES.find((item) => item.value === plan.grantDays)?.label || plan.grantDays || '—'}</strong></div></div>
+     <div className="plan-facts"><div className="plan-fact">نوع تسهیلات<strong>{plan.loanType || '—'}</strong></div><div className="plan-fact">روش اجرا<strong>{plan.processMode || '—'}</strong></div><div className="plan-fact">هزینه ثابت تشکیل پرونده<strong>{BigInt(plan.filingFeeToman).toLocaleString('fa-IR')} تومان</strong></div><div className="plan-fact">زمان انجام<strong>{GRANT_TIMES.find((item) => item.value === plan.grantDays)?.label || plan.grantDays || '—'}</strong></div><div className="plan-fact">قالب قرارداد<strong>{templatesReq.data?.find((template) => template.id === plan.contractTemplateId)?.name || '—'}</strong></div></div>
+     {plan.loanType === 'goods' ? <section className="plan-detail-section"><h4>اطلاعات خرید کالا</h4><div className="plan-facts"><div className="plan-fact">شرکت پلتفرم<strong>{plan.platformCompanyName || '—'}</strong></div><div className="plan-fact">فروشگاه خریدار<strong>{plan.goodsStoreName || '—'}</strong></div><div className="plan-fact">حق‌العمل<strong>{plan.commissionPercent == null ? '—' : `${plan.commissionPercent}٪`}</strong></div><div className="plan-fact">هزینه عملیات<strong>{plan.operationCostsPercent == null ? '—' : `${plan.operationCostsPercent}٪`}</strong></div><div className="plan-fact">تخفیف اعطایی<strong>{plan.grantedDiscountPercent == null ? '—' : `${plan.grantedDiscountPercent}٪`}</strong></div><div className="plan-fact">حق‌العمل خرید<strong>{plan.purchaseCommissionPercent == null ? '—' : `${plan.purchaseCommissionPercent}٪`}</strong></div><div className="plan-fact">حق‌العمل فروش<strong>{plan.salesCommissionPercent == null ? '—' : `${plan.salesCommissionPercent}٪`}</strong></div><div className="plan-fact">کارمزد اخذ وام<strong>{plan.loanAcquisitionFeePercent == null ? '—' : `${plan.loanAcquisitionFeePercent}٪`}</strong></div><div className="plan-fact">وجه التزام<strong>{plan.penaltyValue == null ? '—' : `${plan.penaltyValue.toLocaleString('fa-IR')}${plan.penaltyMode === 'percent' ? '٪' : ' تومان'}`}</strong></div><div className="plan-fact">مدت قرارداد<strong>{plan.contractDurationDays == null ? '—' : `${plan.contractDurationDays} روز`}</strong></div></div></section> : null}
     {plan.installmentTerms?.length ? <section className="plan-detail-section"><h4>اقساط و درصدها</h4><div className="installment-terms-display">{plan.installmentTerms.map((term) => <div className="term-display-card" key={term.installments}><strong>{term.installments} قسط</strong><span>پیش‌پرداخت: {term.prepaymentPercent}٪</span><span>کسر از مشتری: {term.deductionPercent}٪</span><span>واریزی مشتری: {term.depositPercent}٪</span></div>)}</div></section> : null}
     {plan.requiredDocuments?.length ? <section className="plan-detail-section"><h4>مدارک مورد نیاز</h4><div className="docs-list">{labelsFor(plan.requiredDocuments, documentOptions).map((label) => <span className="doc-badge" key={label}>{label}</span>)}</div></section> : null}
     {plan.notes ? <section className="plan-detail-section"><h4>توضیحات</h4><p className="subtle-note">{plan.notes}</p></section> : null}
@@ -233,7 +259,7 @@ function PlanDetail({ plan, loading, onEdit }: { plan: LoanPlan | null; loading:
         return <div className="condition-item" key={condition.id}>
           <strong>شرط {index + 1}</strong>
           <ul>
-            {condition.maxPrincipal ? <li>سقف مبلغ: {condition.maxPrincipal}</li> : null}
+             {condition.maxPrincipal ? <li>سقف مبلغ: {condition.maxPrincipal} تومان</li> : null}
             {condition.installmentOptions?.length ? <li>اقساط مجاز: {condition.installmentOptions.join('، ')}</li> : null}
             {customerRanks.length ? <li>رتبه مشتری: {customerRanks.join('، ')}</li> : null}
             {customerJobs.length ? <li>مشاغل مشتری: {customerJobs.join('، ')}</li> : null}
@@ -265,7 +291,8 @@ function emptyCondition(): ConditionForm {
   };
 }
 
-function PlanForm({ plan, pending, onClose, onSave }: { plan: LoanPlan | null; pending: boolean; onClose: () => void; onSave: (data: LoanPlanInput) => void }) {
+function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave }: { plan: LoanPlan | null; pending: boolean; goodsError: string; canGoodsFinance: boolean; onClose: () => void; onSave: (data: LoanPlanInput, goods: GoodsPlanForm) => void }) {
+  const [goods, setGoods] = useState<GoodsPlanForm>(blankGoodsPlanForm);
   const dictionaries = useListConsultOptions(undefined, { query: { queryKey: getListConsultOptionsQueryKey(), staleTime: 5 * 60_000 } });
   const templatesReq = useListContractTemplates({ query: { queryKey: getListContractTemplatesQueryKey(), staleTime: 60_000 } });
   const options = dictionaries.data ?? [];
@@ -274,10 +301,12 @@ function PlanForm({ plan, pending, onClose, onSave }: { plan: LoanPlan | null; p
   const [terms, setTerms] = useState<InstallmentTermForm[]>([]);
   const [documents, setDocuments] = useState<string[]>([]);
   const [conditions, setConditions] = useState<ConditionForm[]>([]);
+  const isGoodsPlan = form.loanType === 'goods';
 
   useEffect(() => {
     setForm(plan ? {
       name: plan.name,
+      filingFeeToman: plan.filingFeeToman,
       bankName: plan.bankName ?? '',
       platformName: plan.platformName ?? '',
       principalAmount: plan.principalAmount ?? '',
@@ -286,9 +315,18 @@ function PlanForm({ plan, pending, onClose, onSave }: { plan: LoanPlan | null; p
       processMode: plan.processMode ?? '',
       grantDays: plan.grantDays ?? '',
       notes: plan.notes ?? '',
-      primaryContractTemplateId: plan.primaryContractTemplateId ? String(plan.primaryContractTemplateId) : '',
-      invoiceTemplateId: plan.invoiceTemplateId ? String(plan.invoiceTemplateId) : '',
-      acknowledgementTemplateId: plan.acknowledgementTemplateId ? String(plan.acknowledgementTemplateId) : '',
+       contractTemplateId: plan.contractTemplateId ? String(plan.contractTemplateId) : '',
+       platformCompanyName: plan.platformCompanyName ?? '',
+       goodsStoreName: plan.goodsStoreName ?? '',
+       commissionPercent: plan.commissionPercent == null ? '' : String(plan.commissionPercent),
+       operationCostsPercent: plan.operationCostsPercent == null ? '' : String(plan.operationCostsPercent),
+       grantedDiscountPercent: plan.grantedDiscountPercent == null ? '' : String(plan.grantedDiscountPercent),
+       purchaseCommissionPercent: plan.purchaseCommissionPercent == null ? '' : String(plan.purchaseCommissionPercent),
+       salesCommissionPercent: plan.salesCommissionPercent == null ? '' : String(plan.salesCommissionPercent),
+       loanAcquisitionFeePercent: plan.loanAcquisitionFeePercent == null ? '' : String(plan.loanAcquisitionFeePercent),
+       penaltyMode: plan.penaltyMode ?? 'amount',
+       penaltyValue: plan.penaltyValue == null ? '' : String(plan.penaltyValue),
+       contractDurationDays: plan.contractDurationDays == null ? '' : String(plan.contractDurationDays),
       active: (plan as PlanWithStatus).active !== false,
     } : blankForm);
     const currentTerms = plan?.installmentTerms?.length
@@ -359,9 +397,19 @@ function PlanForm({ plan, pending, onClose, onSave }: { plan: LoanPlan | null; p
     onSave({
       ...legacy,
       ...form,
-      primaryContractTemplateId: form.primaryContractTemplateId ? Number(form.primaryContractTemplateId) : undefined,
-      invoiceTemplateId: form.invoiceTemplateId ? Number(form.invoiceTemplateId) : undefined,
-      acknowledgementTemplateId: form.acknowledgementTemplateId ? Number(form.acknowledgementTemplateId) : undefined,
+       filingFeeToman: form.filingFeeToman,
+       contractTemplateId: Number(form.contractTemplateId),
+       platformCompanyName: form.loanType === 'goods' ? form.platformCompanyName.trim() : undefined,
+       goodsStoreName: form.loanType === 'goods' ? form.goodsStoreName.trim() : undefined,
+       commissionPercent: form.loanType === 'goods' && form.commissionPercent !== '' ? Number(form.commissionPercent) : undefined,
+       operationCostsPercent: form.loanType === 'goods' && form.operationCostsPercent !== '' ? Number(form.operationCostsPercent) : undefined,
+       grantedDiscountPercent: form.loanType === 'goods' && form.grantedDiscountPercent !== '' ? Number(form.grantedDiscountPercent) : undefined,
+       purchaseCommissionPercent: form.loanType === 'goods' && form.purchaseCommissionPercent !== '' ? Number(form.purchaseCommissionPercent) : undefined,
+       salesCommissionPercent: form.loanType === 'goods' && form.salesCommissionPercent !== '' ? Number(form.salesCommissionPercent) : undefined,
+       loanAcquisitionFeePercent: form.loanType === 'goods' && form.loanAcquisitionFeePercent !== '' ? Number(form.loanAcquisitionFeePercent) : undefined,
+       penaltyMode: form.loanType === 'goods' ? form.penaltyMode as 'amount' | 'percent' : undefined,
+       penaltyValue: form.loanType === 'goods' && form.penaltyValue !== '' ? Number(form.penaltyValue) : undefined,
+       contractDurationDays: form.loanType === 'goods' && form.contractDurationDays !== '' ? Number(form.contractDurationDays) : undefined,
       name: form.name.trim(),
       installments: selectedInstallments.join(','),
       installmentTerms: terms.map((term) => ({
@@ -384,7 +432,7 @@ function PlanForm({ plan, pending, onClose, onSave }: { plan: LoanPlan | null; p
         sortOrder: index,
         notes: condition.notes,
       })),
-    });
+    }, goods);
   };
 
   return <Modal title={plan ? 'ویرایش طرح تسهیلاتی' : 'ایجاد طرح تسهیلاتی'} eyebrow="کاتالوگ تأمین مالی" onClose={onClose} testId="loan-plan-form">
@@ -393,9 +441,10 @@ function PlanForm({ plan, pending, onClose, onSave }: { plan: LoanPlan | null; p
         <div className="loan-form-section-title"><strong>اطلاعات پایه طرح</strong><span>مشخصات اصلی و نحوه اجرای تسهیلات</span></div>
         <div className="form-grid">
           <div className="field"><label>نام طرح</label><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required data-testid="input-plan-name" /></div>
+           <div className="field"><label>هزینه ثابت تشکیل پرونده (تومان)</label><input type="text" inputMode="numeric" pattern="[0-9]+" value={form.filingFeeToman} onChange={(event) => setForm({ ...form, filingFeeToman: event.target.value.replace(/\D/g, '').slice(0, 30) })} required data-testid="input-plan-filing-fee" /></div>
           <div className="field"><label>بانک</label><input value={form.bankName} onChange={(event) => setForm({ ...form, bankName: event.target.value })} /></div>
           <div className="field"><label>پلتفرم</label><input value={form.platformName} onChange={(event) => setForm({ ...form, platformName: event.target.value })} /></div>
-          <div className="field"><label>سقف تسهیلات</label><input value={form.principalAmount} onChange={(event) => setForm({ ...form, principalAmount: event.target.value })} /></div>
+           <div className="field"><label>سقف تسهیلات (تومان)</label><input value={form.principalAmount} onChange={(event) => setForm({ ...form, principalAmount: event.target.value })} /></div>
           <div className="field"><label>سود سالانه</label><input value={form.annualInterest} onChange={(event) => setForm({ ...form, annualInterest: event.target.value })} /></div>
           <div className="field"><label>نوع تسهیلات</label><DictionarySelect value={form.loanType} options={optionsFor(options, 'loan_type')} onChange={(loanType) => setForm({ ...form, loanType })} /></div>
           <div className="field"><label>روش اجرا</label><DictionarySelect value={form.processMode} options={optionsFor(options, 'process_mode')} onChange={(processMode) => setForm({ ...form, processMode })} /></div>
@@ -406,10 +455,27 @@ function PlanForm({ plan, pending, onClose, onSave }: { plan: LoanPlan | null; p
       </section>
 
       <section className="loan-form-section">
+        <div className="loan-form-section-title">
+          <strong>درصدها و اطلاعات خرید کالا</strong>
+          <span>{isGoodsPlan ? 'این اطلاعات برای طرح خرید کالا الزامی است.' : 'برای فعال‌شدن این فیلدها، نوع تسهیلات را «وام خرید کالا» انتخاب کنید.'}</span>
+        </div>
+        <fieldset disabled={!isGoodsPlan} style={{ border: 0, padding: 0, margin: 0, opacity: isGoodsPlan ? 1 : 0.55 }}>
+          <div className="form-grid">
+            <div className="field"><label>نام شرکت پلتفرم</label><input value={form.platformCompanyName} onChange={(e) => setForm({ ...form, platformCompanyName: e.target.value })} required={isGoodsPlan} /></div>
+            <div className="field"><label>نام فروشگاه خریدار کالا</label><input value={form.goodsStoreName} onChange={(e) => setForm({ ...form, goodsStoreName: e.target.value })} required={isGoodsPlan} /></div>
+            {([
+              ['commissionPercent', 'درصد حق‌العمل'], ['operationCostsPercent', 'درصد هزینه‌های عملیات'], ['grantedDiscountPercent', 'درصد تخفیف اعطایی'],
+              ['purchaseCommissionPercent', 'درصد حق‌العمل خرید'], ['salesCommissionPercent', 'درصد حق‌العمل فروش'], ['loanAcquisitionFeePercent', 'درصد کارمزد اخذ وام'],
+            ] as const).map(([key, label]) => <div className="field" key={key}><label>{label}</label><input type="number" min="0" max="100" step="0.01" value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} required={isGoodsPlan} /></div>)}
+            <div className="field"><label>وجه التزام</label><div style={{ display: 'flex', gap: 6 }}><select value={form.penaltyMode} onChange={(e) => setForm({ ...form, penaltyMode: e.target.value })}><option value="amount">مبلغی</option><option value="percent">درصدی</option></select><input type="number" min="0" max={form.penaltyMode === 'percent' ? 100 : undefined} step="0.01" value={form.penaltyValue} onChange={(e) => setForm({ ...form, penaltyValue: e.target.value })} placeholder={form.penaltyMode === 'amount' ? 'تومان' : 'درصد'} required={isGoodsPlan} /></div></div>
+            <div className="field"><label>مدت قرارداد (روز)</label><input type="number" min="1" step="1" value={form.contractDurationDays} onChange={(e) => setForm({ ...form, contractDurationDays: e.target.value })} required={isGoodsPlan} /></div>
+          </div>
+        </fieldset>
+      </section>
+
+      <section className="loan-form-section">
         <div className="loan-form-section-title"><strong>مدارک و توضیحات</strong><span>مدارک لازم برای تشکیل پرونده</span></div>
-        <div className="field full"><label>قالب قرارداد پایه</label><select value={form.primaryContractTemplateId} onChange={(e) => setForm({ ...form, primaryContractTemplateId: e.target.value })}><option value="">انتخاب کنید (بدون قرارداد پایه)</option>{templates.map(tpl => <option key={tpl.id} value={tpl.id}>{tpl.name}</option>)}</select></div>
-        <div className="field full"><label>قالب صورت‌حساب (Invoice)</label><select value={form.invoiceTemplateId} onChange={(e) => setForm({ ...form, invoiceTemplateId: e.target.value })}><option value="">انتخاب کنید (بدون صورت‌حساب)</option>{templates.map(tpl => <option key={tpl.id} value={tpl.id}>{tpl.name}</option>)}</select></div>
-        <div className="field full"><label>قالب رسید تسویه (Acknowledgement)</label><select value={form.acknowledgementTemplateId} onChange={(e) => setForm({ ...form, acknowledgementTemplateId: e.target.value })}><option value="">انتخاب کنید (بدون رسید)</option>{templates.map(tpl => <option key={tpl.id} value={tpl.id}>{tpl.name}</option>)}</select></div>
+         <div className="field full"><label>قالب قرارداد</label><select value={form.contractTemplateId} onChange={(e) => setForm({ ...form, contractTemplateId: e.target.value })} required><option value="">انتخاب قالب قرارداد</option>{templates.map(tpl => <option key={tpl.id} value={tpl.id}>{tpl.name}</option>)}</select></div>
         <div className="field"><label>لیست مدارک مورد نیاز</label><DictionaryChips selected={documents} options={optionsFor(options, 'required_document')} onChange={setDocuments} testId="required-documents" /></div>
         <div className="field"><label>توضیحات طرح</label><textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} data-testid="textarea-plan-notes" /></div>
       </section>
@@ -422,7 +488,7 @@ function PlanForm({ plan, pending, onClose, onSave }: { plan: LoanPlan | null; p
         {conditions.length ? <div className="condition-form-list">{conditions.map((condition, index) => <div className="condition-card-form" key={index}>
           <div className="condition-card-header"><span>شرط {index + 1}</span><div className="condition-actions"><button type="button" onClick={() => moveCondition(index, -1)} disabled={index === 0} aria-label="انتقال به بالا"><ArrowUp size={14} /></button><button type="button" onClick={() => moveCondition(index, 1)} disabled={index === conditions.length - 1} aria-label="انتقال به پایین"><ArrowDown size={14} /></button><button type="button" onClick={() => setConditions((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label="حذف شرط"><Trash2 size={14} /></button></div></div>
           <div className="form-grid">
-            <div className="field"><label>سقف مبلغ تسهیلات</label><input value={condition.maxPrincipal} onChange={(event) => updateCondition(index, 'maxPrincipal', event.target.value)} /></div>
+             <div className="field"><label>سقف مبلغ تسهیلات (تومان)</label><input value={condition.maxPrincipal} onChange={(event) => updateCondition(index, 'maxPrincipal', event.target.value)} /></div>
             <div className="field full"><label>تعداد اقساط مجاز</label><ChipChoices values={INSTALLMENT_OPTIONS.map((value) => ({ value, label: `${value} ماهه` }))} selected={condition.installmentOptions} onChange={(value) => updateCondition(index, 'installmentOptions', value)} /></div>
             <div className="field full"><label>رتبه‌های مجاز مشتری</label><DictionaryChips selected={condition.customerRanks} options={optionsFor(options, 'credit_rank')} onChange={(value) => updateCondition(index, 'customerRanks', value)} /></div>
             <div className="field full"><label>مشاغل مجاز مشتری</label><DictionaryChips selected={condition.customerJobs} options={optionsFor(options, 'job_type')} onChange={(value) => updateCondition(index, 'customerJobs', value)} /></div>
@@ -434,6 +500,8 @@ function PlanForm({ plan, pending, onClose, onSave }: { plan: LoanPlan | null; p
       </section>
 
       <section className="loan-form-section plan-status-row"><label className="boolean-field"><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} />طرح در کاتالوگ فعال باشد</label></section>
+      <GoodsPlanSettingsFields planId={plan?.id} value={goods} onChange={setGoods} templates={templates} enabled={isGoodsPlan && canGoodsFinance} />
+      {goodsError ? <div className="gp-alert">{goodsError}</div> : null}
       <div className="form-footer"><button className="btn btn-primary" type="submit" disabled={pending}>{pending ? 'در حال ذخیره…' : 'ذخیره طرح'}</button><button className="btn btn-ghost" type="button" onClick={onClose}>انصراف</button></div>
     </form>
   </Modal>;

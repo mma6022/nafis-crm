@@ -11,7 +11,13 @@ export interface ContractGeneration {
   templateId?: number;
   templateName?: string;
   customerId?: number;
+  /** @nullable */
+  loanPlanId?: number | null;
+  /** @nullable */
+  loanApplicationId?: number | null;
   status?: string;
+  /** @nullable */
+  supersededAt?: Date | null;
   docxUrl?: string;
   /** @nullable */
   pdfUrl?: string | null;
@@ -21,4 +27,6 @@ export interface ContractGeneration {
   providerContractId?: string | null;
   /** @nullable */
   providerStatus?: string | null;
+  /** @nullable */
+  contractNumber?: string | null;
 }

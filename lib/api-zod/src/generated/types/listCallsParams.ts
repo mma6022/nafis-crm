@@ -11,6 +11,16 @@ search?: string;
 customerId?: number;
 salespersonId?: number;
 /**
+ * Inclusive start date in Iran (Gregorian YYYY-MM-DD).
+ * @pattern ^\d{4}-\d{2}-\d{2}$
+ */
+from?: string;
+/**
+ * Inclusive end date in Iran (Gregorian YYYY-MM-DD).
+ * @pattern ^\d{4}-\d{2}-\d{2}$
+ */
+to?: string;
+/**
  * @minimum 1
  * @maximum 500
  */

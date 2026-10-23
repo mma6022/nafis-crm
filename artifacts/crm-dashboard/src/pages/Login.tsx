@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { useLocation } from 'wouter';
+import { useLocation, Link } from 'wouter';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { useLogin, getGetAuthSessionQueryKey } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
+import '@/customer-portal/portal.css';
+import './login.css';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 
 const nafissLogoUrl = `${import.meta.env.BASE_URL}nafiss-financial-logo.png`;
@@ -48,29 +50,13 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-[#f8fafc] flex flex-col items-center justify-center px-4 py-8 font-sans relative overflow-hidden" dir="rtl">
-      <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.4]" style={{ backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)', backgroundSize: '30px 30px' }} />
-      
-      <div className="mb-8 text-center relative z-10 flex flex-col items-center">
-        <div className="h-16 mb-5 flex items-center justify-center">
-          <img src={nafissLogoUrl} alt="گروه مالی نفیس" className="h-full w-auto object-contain drop-shadow-sm" />
-        </div>
-        <h1 className="text-xl font-black text-[#0f172a] tracking-tight flex items-center gap-2">
-          گروه مالی نفیس 
-          <span className="text-[#94a3b8] font-normal text-2xl mx-1">|</span> 
-          پنل مدیریت مشتریان
-        </h1>
-      </div>
-      
-      <div className="relative z-10 w-full max-w-[400px]">
-        <div className="bg-white rounded-2xl overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-[#e2e8f0] p-6 sm:p-8">
-          <div className="mb-6">
-            <h2 className="font-black text-[#0f172a] text-xl mb-1">ورود به سیستم</h2>
-            <p className="text-[#64748b] text-sm">برای دسترسی به فضای کاری وارد شوید</p>
-          </div>
-
+    <div className="cp cp-login staff-login" dir="rtl">
+      <main className="cp-login-main">
+        <div className="cp-login-panel">
+          <img className="staff-login-logo" src={nafissLogoUrl} alt="نشان گروه مالی نفیس" />
+          <h2>ورود به نفیس</h2>
           {errorMsg && (
-            <div className="bg-[#fff1f2] border border-[#fecdd3] rounded-xl p-4 text-right mb-6 text-[#be123c] text-sm font-medium" data-testid="error-login">
+            <div className="cp-alert" style={{ marginBottom: 16 }} role="alert" data-testid="error-login">
               {errorMsg}
             </div>
           )}
@@ -87,7 +73,7 @@ export default function LoginPage() {
                       <input
                         {...field}
                         autoComplete="username"
-                        className="border border-[#e2e8f0] bg-[#f8fafc] text-[#0f172a] focus:border-[#1c3687] focus:ring-2 focus:ring-[#1c3687]/10 rounded-xl h-11 px-4 text-left transition-all outline-none"
+                        className="cp-input-staff" style={{ width: "100%", minHeight: 44, padding: "10px 13px", borderRadius: 9, border: "1px solid #cad1dc", background: "#fffefa", color: "#192d55" }}
                         dir="ltr"
                         disabled={loginMutation.isPending}
                         data-testid="input-username"
@@ -109,7 +95,7 @@ export default function LoginPage() {
                         type="password"
                         {...field}
                         autoComplete="current-password"
-                        className="border border-[#e2e8f0] bg-[#f8fafc] text-[#0f172a] focus:border-[#1c3687] focus:ring-2 focus:ring-[#1c3687]/10 rounded-xl h-11 px-4 text-left transition-all outline-none"
+                        className="cp-input-staff" style={{ width: "100%", minHeight: 44, padding: "10px 13px", borderRadius: 9, border: "1px solid #cad1dc", background: "#fffefa", color: "#192d55" }}
                         dir="ltr"
                         disabled={loginMutation.isPending}
                         data-testid="input-password"
@@ -122,16 +108,15 @@ export default function LoginPage() {
 
               <button
                 type="submit"
-                className="w-full mt-2 bg-[#1c3687] hover:bg-[#152b6e] text-white shadow-[0_4px_12px_rgba(28,54,135,0.15)] hover:shadow-[0_6px_16px_rgba(28,54,135,0.2)] hover:-translate-y-[1px] font-bold rounded-xl h-11 transition-all text-sm disabled:opacity-70 disabled:cursor-not-allowed disabled:transform-none"
+                className="cp-btn cp-btn-primary"
                 disabled={loginMutation.isPending}
                 data-testid="button-submit-login"
               >
                 {loginMutation.isPending ? 'در حال ورود...' : 'ورود'}
               </button>
             </form>
+            <Link href="/customer/login" className="cp-link" style={{ display: "block", textAlign: "center", marginTop: 16 }} data-testid="link-customer-login">ورود مشتریان</Link>
           </Form>
-        </div>
-      </div>
-    </div>
+    </div></main></div>
   );
 }

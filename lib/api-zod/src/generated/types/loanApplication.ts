@@ -5,25 +5,53 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { LoanApplicationApprovedAmountSource } from './loanApplicationApprovedAmountSource';
+import type { LoanApplicationBusinessStatus } from './loanApplicationBusinessStatus';
 import type { LoanApplicationCalculation } from './loanApplicationCalculation';
 import type { LoanApplicationCollateralItem } from './loanApplicationCollateralItem';
+import type { LoanApplicationConditionSnapshot } from './loanApplicationConditionSnapshot';
 import type { LoanApplicationDocumentsItem } from './loanApplicationDocumentsItem';
+import type { LoanApplicationFunderDefectsItem } from './loanApplicationFunderDefectsItem';
 import type { LoanApplicationGeneratedDocumentsItem } from './loanApplicationGeneratedDocumentsItem';
 import type { LoanApplicationGuarantor } from './loanApplicationGuarantor';
 import type { LoanApplicationHistoryItem } from './loanApplicationHistoryItem';
+import type { LoanApplicationInitialProviderDecision } from './loanApplicationInitialProviderDecision';
+import type { LoanApplicationPhysicalChecksItem } from './loanApplicationPhysicalChecksItem';
+import type { LoanApplicationPlanSnapshot } from './loanApplicationPlanSnapshot';
+import type { LoanApplicationPrimaryManualValues } from './loanApplicationPrimaryManualValues';
+import type { LoanApplicationPrimaryManualVariablesItem } from './loanApplicationPrimaryManualVariablesItem';
 import type { LoanApplicationStatus } from './loanApplicationStatus';
+import type { PhysicalLoanDocument } from './physicalLoanDocument';
+import type { TomanReplacementEligibility } from './tomanReplacementEligibility';
+import type { TomanReplacementState } from './tomanReplacementState';
 
 export interface LoanApplication {
+  /** Rank matching was waived by an authorized staff member at creation. */
+  creditRankIgnored?: boolean;
+  customerSubmitted?: boolean;
   id: number;
   consultationId: number;
   customerId: number;
   planIds: number[];
   requestedAmount: string;
+  /** @minimum 1 */
+  requestedDurationMonths?: number;
   status: LoanApplicationStatus;
   /** @nullable */
   notes?: string | null;
   createdAt: string;
+  /** @nullable */
+  salespersonIdSnapshot: number | null;
+  /** @nullable */
+  salespersonNameSnapshot: string | null;
+  /** @nullable */
+  customerSalespersonId?: number | null;
+  canCancel?: boolean;
+  /** @nullable */
+  cancellationReason?: string | null;
   customerName?: string;
+  /** @nullable */
+  customerSalespersonName?: string | null;
   /** @nullable */
   planName?: string | null;
   planId?: number;
@@ -31,13 +59,49 @@ export interface LoanApplication {
   approvedAmount?: string | null;
   /** @nullable */
   netAmount?: string | null;
+  /** @nullable */
+  approvedAmountSource?: LoanApplicationApprovedAmountSource;
+  /** @nullable */
+  approvedAmountGenerationId?: number | null;
+  /** @nullable */
+  approvedAmountReconciledAt?: Date | null;
+  /** @nullable */
+  approvedAmountReconciledByUserId?: number | null;
   durationMonths?: number;
   stage?: string;
+  /** True for applications created under the draft-first workflow; false for legacy applications. */
+  newCaseWorkflow: boolean;
+  /** True when initial provider approval retained the already-signed primary contract because both principal and installment count were unchanged. */
+  initialContractRetained: boolean;
+  /** @nullable */
+  planSnapshot?: LoanApplicationPlanSnapshot;
+  primaryManualValues?: LoanApplicationPrimaryManualValues;
+  primaryManualVariables?: LoanApplicationPrimaryManualVariablesItem[];
+  /** @nullable */
+  conditionSnapshot?: LoanApplicationConditionSnapshot;
+  /** @nullable */
+  currentPrimaryGenerationId?: number | null;
+  tomanReplacementEligibility?: TomanReplacementEligibility | null;
+  tomanReplacement?: TomanReplacementState | null;
+  /** @nullable */
+  primaryContractStatus?: string | null;
+  actionRequired?: boolean;
+  actionRole?: string;
+  businessStatus?: LoanApplicationBusinessStatus;
   documents?: LoanApplicationDocumentsItem[];
   history?: LoanApplicationHistoryItem[];
   /** @nullable */
   guarantor?: LoanApplicationGuarantor;
   collateral?: LoanApplicationCollateralItem[];
+  physicalChecks?: LoanApplicationPhysicalChecksItem[];
+  physicalDocuments?: PhysicalLoanDocument[];
+  funderDefects?: LoanApplicationFunderDefectsItem[];
+  /** @nullable */
+  funderDecision?: string | null;
+  /** @nullable */
+  funderReason?: string | null;
+  /** @nullable */
+  initialProviderDecision?: LoanApplicationInitialProviderDecision;
   generatedDocuments?: LoanApplicationGeneratedDocumentsItem[];
   /** @nullable */
   calculation?: LoanApplicationCalculation;

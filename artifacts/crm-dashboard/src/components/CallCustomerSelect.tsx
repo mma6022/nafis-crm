@@ -1,0 +1,64 @@
+import { useEffect, useState } from 'react';
+import { Check, ChevronsUpDown } from 'lucide-react';
+import { getListCustomersQueryKey, useListCustomers } from '@workspace/api-client-react';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+import { Command, CommandInput, CommandItem, CommandList } from './ui/command';
+import './CallCustomerSelect.css';
+
+export type CallCustomer = {
+  id: number; name: string; phone: string; salespersonName?: string | null;
+  nationalCode?: string | null; postalCode?: string | null; birthDateJalali?: string | null;
+  verificationStatus?: string; isUrgent?: boolean;
+};
+
+export function CallCustomerSelect({ selected, disabled, onSelect }: {
+  selected?: CallCustomer; disabled: boolean; onSelect: (customer: CallCustomer) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+  const params = { search: debouncedSearch || undefined, limit: 50 };
+  const customers = useListCustomers(params, {
+    query: { queryKey: getListCustomersQueryKey(params), enabled: open && !disabled, staleTime: 0 },
+  });
+  const waiting = search.trim() !== debouncedSearch || customers.isFetching;
+  const items = customers.data?.items ?? [];
+  return <Popover open={open} onOpenChange={(next) => {
+    setOpen(next);
+    if (!next) { setSearch(''); setDebouncedSearch(''); }
+  }}>
+    <PopoverTrigger asChild>
+      <button id="call-customer" type="button" role="combobox" aria-expanded={open}
+        aria-labelledby="call-customer-label" disabled={disabled}
+        className="call-customer-trigger" data-testid="select-call-customer">
+        <span>{selected ? `${selected.name} · ${selected.phone}` : 'یک مشتری را انتخاب کنید'}</span>
+        <ChevronsUpDown size={16} aria-hidden="true" />
+      </button>
+    </PopoverTrigger>
+    <PopoverContent align="start" dir="rtl" className="call-customer-popover">
+      <Command shouldFilter={false}>
+        <CommandInput value={search} onValueChange={setSearch}
+          aria-label="جست‌وجوی نام مشتری" placeholder="جست‌وجوی نام مشتری..."
+          data-testid="input-call-customer-search" />
+        <CommandList aria-label="مشتریان">
+          {waiting ? <div className="call-customer-message" role="status">در حال جست‌وجو…</div>
+            : customers.isError ? <div className="call-customer-message" role="alert">
+              دریافت مشتریان انجام نشد.
+              <button type="button" className="btn btn-ghost" onClick={() => void customers.refetch()}>تلاش دوباره</button>
+            </div>
+            : items.length === 0 ? <div className="call-customer-message" role="status">مشتری‌ای پیدا نشد.</div>
+            : items.map(customer => <CommandItem key={customer.id} value={String(customer.id)}
+              data-testid={`option-call-customer-${customer.id}`}
+              onSelect={() => { onSelect(customer); setOpen(false); setSearch(''); setDebouncedSearch(''); }}>
+              <Check size={15} aria-hidden="true" style={{ opacity: selected?.id === customer.id ? 1 : 0 }} />
+              <span><strong>{customer.name}</strong><small>{customer.phone} · کارشناس پرونده: {customer.salespersonName || 'بدون تخصیص'}</small></span>
+            </CommandItem>)}
+        </CommandList>
+      </Command>
+    </PopoverContent>
+  </Popover>;
+}

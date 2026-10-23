@@ -1,0 +1,87 @@
+paths:
+  notifications:
+    get:
+      operationId: listSiteNotifications
+      tags: [crm]
+      parameters:
+        - { name: page, in: query, schema: { $ref: '#/components/schemas/Page' } }
+        - { name: beforeId, in: query, schema: { type: integer, minimum: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50 } }
+        - { name: unreadOnly, in: query, schema: { type: boolean } }
+      responses:
+        '200':
+          description: Authorized notifications and unread counts across all pages
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, pageCounts, unreadCount, latestId, scopeVersion, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, kind, title, body, customerId, customerName, target, page, createdAt, readAt]
+                      properties:
+                        id: { type: integer }
+                        kind: { type: string }
+                        title: { type: string }
+                        body: { type: string }
+                        customerId: { type: integer }
+                        customerName: { type: string }
+                        target: { type: string }
+                        page: { type: string }
+                        createdAt: { type: string }
+                        readAt: { type: [string, 'null'] }
+                  pageCounts: { type: object, additionalProperties: { type: integer, minimum: 0 } }
+                  unreadCount: { type: integer }
+                  latestId: { type: integer }
+                  scopeVersion: { type: string }
+                  nextCursor: { type: [string, 'null'] }
+  readAll:
+    post:
+      operationId: readAllSiteNotifications
+      tags: [crm]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SiteNotificationReadAllInput'
+      responses:
+        '200':
+          description: Only currently authorized events in the selected page acknowledged
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties: { ok: { type: boolean } }
+  read:
+    post:
+      operationId: readSiteNotification
+      tags: [crm]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        '200':
+          description: Event acknowledged and destination reauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, target]
+                properties:
+                  ok: { type: boolean }
+                  target: { type: string }
+components:
+  schemas:
+    SiteNotificationReadAllInput:
+      type: object
+      required: [throughId]
+      properties:
+        throughId: { type: integer, minimum: 0 }
+        page: { $ref: '#/components/schemas/Page' }
+    Page:
+      type: string
+      enum: [customers, chat, instagram-inbox, loan-applications, goods-purchases, contracts, payment-orders, calls, consultations, wallet-management]

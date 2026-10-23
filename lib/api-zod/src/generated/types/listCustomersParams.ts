@@ -5,6 +5,8 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ListCustomersSortBy } from './listCustomersSortBy';
+import type { ListCustomersSortDirection } from './listCustomersSortDirection';
 import type { ListCustomersStatus } from './listCustomersStatus';
 
 export type ListCustomersParams = {
@@ -38,6 +40,12 @@ minCallCount?: number;
  * @minimum 0
  */
 maxCallCount?: number;
+sortBy?: ListCustomersSortBy;
+sortDirection?: ListCustomersSortDirection;
+/**
+ * Filter customers by an assigned tag
+ */
+tag?: string;
 /**
  * @minimum 1
  * @maximum 1000

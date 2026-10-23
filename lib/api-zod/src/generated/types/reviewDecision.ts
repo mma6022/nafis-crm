@@ -9,5 +9,6 @@ import type { ReviewDecisionDecision } from './reviewDecisionDecision';
 
 export interface ReviewDecision {
   decision: ReviewDecisionDecision;
+  /** Required when rejecting a reviewed item. */
   reason?: string;
 }
