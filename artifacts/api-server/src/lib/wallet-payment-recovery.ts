@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { queryRow, queryRows, executeChanges } from "./crm-db";
 import { creditVerifiedCashPayment } from "./wallets";
 import { logger } from "./logger";
+import { walletReceiptView, type ReceiptRow, type ReceiptView } from "./wallet-payment-receipt-view";
 
 export function updatePaymentAttempt(intentId: number, status: string, errorCode: string | null = null) {
   executeChanges(`UPDATE wallet_payment_attempts SET status=?,error_code=?,updated_at=?
@@ -78,18 +79,15 @@ export function readWalletPaymentReceipt(token: string): number | null {
   const actual = Buffer.from(match[3], "hex");
   return timingSafeEqual(actual, Buffer.from(receiptSignature(`${match[1]}.${match[2]}`), "hex")) ? Number(match[1]) : null;
 }
-export function walletPaymentReceiptData(intentId: number) {
-  const row = queryRow<{ amount_toman: string; status: string; provider_ref_id: string | null; verified_at: string | null;
-    wallet_id: number; ledger_wallet_id: number | null; ledger_amount: string | null; ledger_kind: string | null }>(
-    `SELECT i.amount_toman,i.status,i.provider_ref_id,i.verified_at,i.wallet_id,
-      l.wallet_id ledger_wallet_id,l.amount ledger_amount,l.kind ledger_kind
+export function walletPaymentReceiptData(intentId: number): ReceiptView | null {
+  const row = queryRow<ReceiptRow>(
+    `SELECT i.amount_toman,i.status,i.provider_ref_id,i.verified_at,i.created_at,i.wallet_id,
+      l.wallet_id ledger_wallet_id,l.amount ledger_amount,l.kind ledger_kind,
+      a.status attempt_status,a.error_code attempt_error_code,a.updated_at attempt_updated_at
      FROM wallet_payment_intents i LEFT JOIN wallet_ledger_v2 l ON l.idempotency_key=('cash-payment:'||i.id)
+     LEFT JOIN wallet_payment_attempts a ON a.payment_intent_id=i.id
      WHERE i.id=?`, [intentId]);
-  if (!row) return null;
-  const posted = row.status === "credited" && row.verified_at != null && row.provider_ref_id != null &&
-    row.ledger_wallet_id === row.wallet_id && row.ledger_amount === row.amount_toman && row.ledger_kind === "cash_payment";
-  return { amountToman: row.amount_toman, status: posted ? "credited" : row.status === "credited" ? "reconciliation"
-    : row.status === "cancelled" ? "cancelled" : "pending", providerRefId: posted ? row.provider_ref_id : null };
+  return row ? walletReceiptView(row) : null;
 }
 let recovering = false;
 export async function recoverPendingWalletPayments() {
