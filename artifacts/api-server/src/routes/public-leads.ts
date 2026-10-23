@@ -5,7 +5,16 @@ import { notifyNewCustomer } from "../lib/customer-notifications";
 import { hashLeadIp, leadCounts, recordPublicLead, validatePublicLead, ensurePublicLeadSchema } from "../lib/public-leads";
 
 export const PUBLIC_LEADS_PATH = "/api/public/leads";
-export const PUBLIC_LEAD_ORIGINS = new Set(["https://nafisvam.com", "https://www.nafisvam.com"]);
+/**
+ * The production site plus the local Astro preview origins (product decision). CORS only lets a browser read the
+ * response; validation, honeypot/timing and the per-IP limits apply to every caller.
+ */
+export const PUBLIC_LEAD_ORIGINS = new Set([
+  "https://nafisvam.com",
+  "https://www.nafisvam.com",
+  "http://localhost:4321",
+  "http://127.0.0.1:4321",
+]);
 
 const WINDOW_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS_PER_WINDOW = 8;

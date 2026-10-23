@@ -253,15 +253,15 @@ try {
     utm_source: "instagram", utm_campaign: "autumn", ...patch });
   const db = () => new DatabaseSync(databasePath, { readOnly: true });
 
-  // Preflight: only the two site origins, no credentials, nothing reflected for others.
-  for (const origin of [site, "https://www.nafisvam.com"]) {
+  // Preflight: only the site origins and local previews, no credentials, nothing reflected for others.
+  for (const origin of [site, "https://www.nafisvam.com", "http://localhost:4321", "http://127.0.0.1:4321"]) {
     const r = await fetch(base, { method: "OPTIONS", headers: { Origin: origin, "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type" } });
     assert.equal(r.status, 204);
     assert.equal(r.headers.get("access-control-allow-origin"), origin);
     assert.equal(r.headers.get("access-control-allow-credentials"), null);
     assert.match(r.headers.get("access-control-allow-methods"), /POST/);
   }
-  for (const origin of ["https://evil.example", "http://nafisvam.com", "https://nafisvam.com.evil.example", "https://crm.nafisvam.com", "null"]) {
+  for (const origin of ["https://evil.example", "http://nafisvam.com", "https://nafisvam.com.evil.example", "https://crm.nafisvam.com", "null", "http://localhost:3000", "https://localhost:4321", "http://localhost"]) {
     const r = await fetch(base, { method: "OPTIONS", headers: { Origin: origin, "Access-Control-Request-Method": "POST" } });
     assert.equal(r.status, 403, origin);
     assert.equal(r.headers.get("access-control-allow-origin"), null, origin);
