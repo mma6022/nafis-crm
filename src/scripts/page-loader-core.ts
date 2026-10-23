@@ -4,11 +4,50 @@
  * start(): covers the page at once with an INVISIBLE layer that swallows clicks (no double clicks), and only fades
  * the logo in if the wait passes `delay` (~300 ms, per Omid's loader README) → no flicker on fast loads. After `timeout` (~15 s) it turns into
  * a small Persian error card with «تلاش دوباره» / «بستن». stop() removes everything. The DOM and the <style> are
- * created on first use only (nothing on first load). The logo/animation come from ./loader-mark (one swappable file).
+ * created on first use only (nothing on first load). The logo/animation come from ./loader-mark (one swappable file, loaded lazily).
  *
  * A11y: role=status + aria-live=polite («در حال بارگذاری…»), aria-busy on the busy region, role=alert on the error.
  */
-import { LOADER_MARK_CSS, LOADER_MARK_SVG } from './loader-mark';
+type Mark = typeof import('./loader-mark');
+
+// The logo (SVG + its CSS, ~6.5 KB) is a separate lazy chunk: prefetched when the browser is idle after load and
+// again on start(), so it never weighs on first paint; the click lock itself needs none of it.
+let mark: Mark | null = null;
+let markP: Promise<Mark | null> | null = null;
+const onMark = new Set<() => void>();
+export function loadLoaderMark(): Promise<Mark | null> {
+  markP ??= import('./loader-mark').then(
+    (m) => {
+      mark = m;
+      if (!document.getElementById('nfpl-mark-css')) {
+        const s = document.createElement('style');
+        s.id = 'nfpl-mark-css';
+        s.textContent = m.LOADER_MARK_CSS;
+        document.head.appendChild(s);
+      }
+      for (const f of onMark) f();
+      return m;
+    },
+    () => {
+      markP = null; // offline etc.: the loader still works (text only); try again next time
+      return null;
+    },
+  );
+  return markP;
+}
+function prefetchMark() {
+  const go = () => void loadLoaderMark();
+  // first sign of interaction (finger down comes before the click) or browser idle after load, whichever is first
+  for (const t of ['pointerdown', 'keydown', 'scroll']) window.addEventListener(t, go, { once: true, passive: true, capture: true });
+  const idle = () => ('requestIdleCallback' in window ? requestIdleCallback(go, { timeout: 4000 }) : setTimeout(go, 1500));
+  if (document.readyState === 'complete') idle();
+  else window.addEventListener('load', idle, { once: true });
+}
+const markSvg = (still = false) => {
+  // still on its way (very slow network, tapped right after load): three CSS dots until the logo arrives
+  if (!mark) return '<span class="nfpl-ph" aria-hidden="true"><i></i><i></i><i></i></span>';
+  return still ? mark.LOADER_MARK_SVG.replace('class="nfpl-mark"', 'class="nfpl-mark nfpl-still"') : mark.LOADER_MARK_SVG;
+};
 
 export interface PageLoaderOptions {
   delay?: number;
@@ -45,8 +84,13 @@ const CSS =
   '.nfpl-b:focus-visible{outline:2px solid #29369B;outline-offset:2px}' +
   '.nfpl-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}' +
   '.nfpl-still,.nfpl-still *{animation:none!important}' +
-  '@media (prefers-reduced-motion:reduce){.nfpl{transition:opacity .3s linear}}' +
-  LOADER_MARK_CSS;
+  '.nfpl-ph{display:flex;align-items:center;justify-content:center;gap:8px;width:96px;height:96px}' +
+  '.nfpl-ph i{width:12px;height:12px;border-radius:50%;background:#29369B;animation:nfpl-b 1.2s ease-in-out infinite}' +
+  '.nfpl-ph i:nth-child(2){animation-delay:.15s}.nfpl-ph i:nth-child(3){animation-delay:.3s}' +
+  '@keyframes nfpl-b{0%,60%,100%{transform:none;opacity:.5}30%{transform:translateY(-8px);opacity:1}}' +
+  '@media (max-width:640px){.nfpl-ph{width:72px;height:72px}}' +
+  '@media (prefers-reduced-motion:reduce){.nfpl-ph i{animation:none;opacity:1}}' +
+  '@media (prefers-reduced-motion:reduce){.nfpl{transition:opacity .3s linear}}';
 
 export function createPageLoader(o: PageLoaderOptions): PageLoader {
   const delay = o.delay ?? 300;
@@ -58,6 +102,7 @@ export function createPageLoader(o: PageLoaderOptions): PageLoader {
   let tFail = 0;
   let failed = false;
 
+  prefetchMark();
   const busy = () => (o.busyTarget ? o.busyTarget() : document.body);
 
   function ensure(): HTMLDivElement {
@@ -86,10 +131,15 @@ export function createPageLoader(o: PageLoaderOptions): PageLoader {
     e.stopImmediatePropagation();
   };
 
+  onMark.add(() => {
+    const ph = el?.querySelector('.nfpl-ph');
+    if (ph) ph.outerHTML = markSvg(failed);
+  });
+
   function show() {
     if (!active || !el) return;
     visible = true;
-    el.innerHTML = `<div class="nfpl-box">${LOADER_MARK_SVG}<span>${LOADER_TEXT}</span></div>`;
+    el.innerHTML = `<div class="nfpl-box">${markSvg()}<span>${LOADER_TEXT}</span></div>`;
     void el.offsetWidth; // commit opacity:0 before the transition
     el.classList.add('is-on');
   }
@@ -100,7 +150,7 @@ export function createPageLoader(o: PageLoaderOptions): PageLoader {
     visible = true;
     el.classList.add('is-on');
     el.innerHTML =
-      `<div class="nfpl-box nfpl-err" role="alert">${LOADER_MARK_SVG.replace('class="nfpl-mark"', 'class="nfpl-mark nfpl-still"')}` +
+      `<div class="nfpl-box nfpl-err" role="alert">${markSvg(true)}` +
       `<p>${LOADER_TIMEOUT_TEXT}</p><div class="nfpl-acts">` +
       '<button type="button" class="nfpl-b nfpl-b1" data-act="retry">تلاش دوباره</button>' +
       '<button type="button" class="nfpl-b nfpl-b2" data-act="close">بستن</button></div></div>';
@@ -128,6 +178,7 @@ export function createPageLoader(o: PageLoaderOptions): PageLoader {
     window.addEventListener('click', block, true);
     window.addEventListener('submit', block, true);
     window.addEventListener('keydown', blockKeys, true);
+    if (!mark) void loadLoaderMark();
     tShow = window.setTimeout(show, delay);
     tFail = window.setTimeout(fail, timeout);
   }
