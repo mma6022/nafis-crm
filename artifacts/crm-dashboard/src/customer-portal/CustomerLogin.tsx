@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, Redirect, useLocation } from 'wouter';
-import { ArrowLeft, Loader2, MessageSquareText, Pencil, ShieldCheck, Smartphone } from 'lucide-react';
-import { portalApi } from './api';
-import { Stepper, useWizard, type WizardStep } from '@/components/wizard/Wizard';
-import './customer-login.css';
+import { Link, Redirect, useLocation, useSearch } from 'wouter';
+import { AlertCircle, ArrowRight, ChevronLeft, Clock, LockKeyhole, Pencil, RefreshCw } from 'lucide-react';
+import { portalApi, PortalApiError } from './api';
+import { useWizard, type WizardStep } from '@/components/wizard/Wizard';
+import { SUPPORT_PHONE } from './customer-stage-map';
+import logoUrl from './assets/nafis-logo-full.svg';
+import './portal.css';
+import './nfp.css';
 
 /** The customer sign-in / sign-up journey, shared by CustomerLogin (steps 1–2) and IdentityPage (step 3). */
 export const CUSTOMER_AUTH_STEPS: readonly WizardStep<'mobile' | 'code' | 'identity'>[] = [
@@ -34,6 +37,41 @@ const fa = (value: string | number) => String(value).replace(/\d/g, d => '۰۱۲
 const formatMobile = (value: string) => fa(value.replace(/^(\d{4})(\d{3})(\d{0,4})$/, '$1 $2 $3').trim());
 const countdown = (seconds: number) => fa(`${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`);
 const message = (error: unknown) => error instanceof Error ? error.message : 'درخواست انجام نشد. دوباره تلاش کنید.';
+const I = ({ icon: Icon, small, className = '' }: { icon: typeof Clock; small?: boolean; className?: string }) => <Icon className={`nfp-i${small ? ' nfp-s' : ''} ${className}`} aria-hidden="true" />;
+
+/** Server message + support phone for account conflicts (409) and unavailable SMS/registration (503). */
+export function AuthError({ error, testId }: { error: unknown; testId?: string }) {
+  const text = typeof error === 'string' ? error : message(error);
+  const support = error instanceof PortalApiError && (error.status === 409 || error.status === 503);
+  return <div className="nfp-alert" role="alert" data-testid={testId}><I icon={AlertCircle} /><span>{text}{support && <> پشتیبانی: <a href={`tel:${SUPPORT_PHONE.tel}`} className="nfp-ltr" dir="ltr">{SUPPORT_PHONE.display}</a></>}</span></div>;
+}
+
+const STEP_INDEX = { mobile: 1, code: 2, identity: 3 } as const;
+/** Shared frame of the three-step sign-in wizard (handoff §1): logo, step meta, progress bar, trust line and side panel on desktop. */
+export function AuthFrame({ step, titleId, onBack, footer, children }: { step: keyof typeof STEP_INDEX; titleId: string; onBack?: () => void; footer?: ReactNode; children: ReactNode }) {
+  const n = STEP_INDEX[step];
+  return <div className="cp nfp" dir="rtl"><main className="nfp-auth">
+    <div className="nfp-auth-top"><img src={logoUrl} alt="نفیس وام" /></div>
+    <div className="nfp-auth-shell"><section className="nfp-auth-card" aria-labelledby={titleId}>
+      <span className="nfp-logo-in"><img src={logoUrl} alt="نفیس وام" /></span>
+      <div className="nfp-wz-meta">{onBack ? <button type="button" className="nfp-wz-back" onClick={onBack} data-testid="button-wizard-back"><I icon={ArrowRight} small />قبلی</button> : <span />}
+        <span>مرحله <b>{fa(n)}</b> از {fa(CUSTOMER_AUTH_STEPS.length)}<span className="nfp-sep" aria-hidden="true" />{CUSTOMER_AUTH_STEPS[n - 1].title}</span></div>
+      <div className="nf-progress" role="progressbar" aria-valuemin={1} aria-valuemax={3} aria-valuenow={n} aria-label="پیشرفت ورود" style={{ ['--steps' as string]: 3 }}>
+        {CUSTOMER_AUTH_STEPS.map((item, i) => <span key={item.key} className={i + 1 < n ? 'is-done' : i + 1 === n ? 'is-current' : ''} data-testid={`step-customer-${item.key}`} />)}</div>
+      {children}
+      <p className="nfp-trust"><I icon={LockKeyhole} small />ورود امن با کد یک‌بارمصرف پیامکی</p>
+      {footer}
+    </section>
+    <aside className="nfp-auth-side" aria-label="درباره‌ی پیگیری درخواست">
+      <div style={{ display: 'grid', gap: 10 }}><h2>پیگیری درخواست وام، <span className="nfp-gold">بدون تماس و انتظار</span></h2><p>بعد از ورود، همیشه می‌بینید پرونده‌تان کجاست و قدم بعدی چیست.</p></div>
+      <ol><li><span>۱</span><div><b>ورود با شماره همراه</b><small>کد یک‌بارمصرف پیامکی</small></div></li>
+        <li><span>۲</span><div><b>احراز هویت، فقط بار اول</b><small>کد ملی و تاریخ تولد</small></div></li>
+        <li><span>۳</span><div><b>دیدن وضعیت و مرحله‌ی بعدی</b><small>امضا، مدارک و کارشناس پرونده</small></div></li></ol>
+      <p style={{ fontSize: 14 }}>پشتیبانی: <a href={`tel:${SUPPORT_PHONE.tel}`} className="nfp-ltr" dir="ltr">{SUPPORT_PHONE.display}</a></p>
+    </aside></div>
+  </main></div>;
+}
+export const NextHint = ({ text }: { text: string }) => <div className="nfp-next-hint"><I icon={ChevronLeft} /><span>مرحله‌ی بعد: <b>{text}</b></span></div>;
 
 function OtpBoxes({ value, onChange, disabled, invalid }: { value: string; onChange: (value: string) => void; disabled: boolean; invalid: boolean }) {
   const refs = useRef<Array<HTMLInputElement | null>>([]);
@@ -64,11 +102,11 @@ function OtpBoxes({ value, onChange, disabled, invalid }: { value: string; onCha
     event.preventDefault();
     fill(index, event.clipboardData.getData('text'));
   };
-  return <div className="cl-otp" dir="ltr" role="group" aria-label="کد تأیید شش‌رقمی">
+  return <div className={`nfp-otp${invalid ? ' nfp-bad' : ''}`} dir="ltr" role="group" aria-labelledby="otp-label">
     {chars.map((char, index) => <input
       key={index}
       ref={el => { refs.current[index] = el; }}
-      className={`cl-otp-box${char ? ' is-filled' : ''}${invalid ? ' is-invalid' : ''}`}
+      className={char && !invalid ? 'nfp-f' : ''}
       type="text"
       inputMode="numeric"
       pattern="[0-9]*"
@@ -98,7 +136,10 @@ export function CustomerLogin() {
   const setStep = (next: 'mobile' | 'code') => wizard.goTo(next);
   const [code, setCode] = useState('');
   const [resendRemaining, setResendRemaining] = useState(() => Math.max(0, RESEND_SECONDS - Math.floor((Date.now() - wizard.data.sentAt) / 1000)));
-  const [error, setError] = useState('');
+  const [error, setErrorText] = useState('');
+  const lastError = useRef<unknown>(null);
+  const setError = (value: unknown) => { lastError.current = typeof value === 'string' ? null : value; setErrorText(typeof value === 'string' ? value : message(value)); };
+  const expired = new URLSearchParams(useSearch()).get('expired') === '1';
   const [touched, setTouched] = useState(false);
   const lastAutoSubmit = useRef('');
   const mobileInput = useRef<HTMLInputElement>(null);
@@ -126,7 +167,7 @@ export function CustomerLogin() {
       wizard.reset();
       await queryClient.invalidateQueries({ queryKey: ['customer'] });
       navigate('/customer');
-    } catch (e) { setError(message(e)); setCode(''); lastAutoSubmit.current = ''; }
+    } catch (e) { setError(e); setCode(''); lastAutoSubmit.current = ''; }
   };
   // Submit automatically once all six digits are present (typed, pasted or SMS-autofilled).
   useEffect(() => {
@@ -141,64 +182,58 @@ export function CustomerLogin() {
   const requestCode = async (event: FormEvent) => {
     event.preventDefault(); setError(''); setTouched(true);
     if (!isValidMobile(mobile)) { mobileInput.current?.focus(); return; }
-    try { await otp.mutateAsync(); wizard.update({ sentAt: Date.now() }); setResendRemaining(RESEND_SECONDS); setCode(''); lastAutoSubmit.current = ''; setStep('code'); } catch (e) { setError(message(e)); }
+    try { await otp.mutateAsync(); wizard.update({ sentAt: Date.now() }); setResendRemaining(RESEND_SECONDS); setCode(''); lastAutoSubmit.current = ''; setStep('code'); } catch (e) { setError(e); }
   };
   const resend = () => {
     setError('');
-    otp.mutate(undefined, { onSuccess: () => { wizard.update({ sentAt: Date.now() }); setResendRemaining(RESEND_SECONDS); setCode(''); lastAutoSubmit.current = ''; }, onError: e => setError(message(e)) });
+    otp.mutate(undefined, { onSuccess: () => { wizard.update({ sentAt: Date.now() }); setResendRemaining(RESEND_SECONDS); setCode(''); lastAutoSubmit.current = ''; }, onError: e => setError(e) });
   };
   const changeNumber = () => { setStep('mobile'); setError(''); setCode(''); lastAutoSubmit.current = ''; setTimeout(() => mobileInput.current?.focus(), 0); };
 
-  return <div className="cp customer-login" dir="rtl">
-    <main className="cl-main">
-      <section className="cl-card" aria-labelledby="cl-title">
-        <div className="cl-brand">
-          <img src={`${import.meta.env.BASE_URL}brand/nafiss-logo-transparent.png`} alt="نفیس" width={180} height={56} />
-          <span>گروه مالی نفیس</span>
+  const failed = error ? (lastError.current ?? error) : '';
+  return <AuthFrame step={step} titleId="cl-title" onBack={step === 'code' ? changeNumber : undefined}
+    footer={step === 'mobile' ? <Link href="/login" className="nfp-staff" data-testid="link-staff-login">ورود کارکنان</Link> : undefined}>
+    {step === 'mobile' ? <>
+      {expired && <div className="nfp-alert nfp-warn" role="status" data-testid="status-session-expired"><I icon={Clock} /><span>نشست شما پایان یافته است. دوباره وارد شوید.</span></div>}
+      <div><h1 id="cl-title">ورود یا ثبت‌نام</h1></div>
+      <p className="nfp-sub">شماره همراهی را بنویسید که به نام خودتان است. اگر حساب نداشته باشید، خودکار ساخته می‌شود.</p>
+      {error && <AuthError error={failed} />}
+      <form onSubmit={requestCode} noValidate>
+        <div className="nf-field"><label className="nf-label" htmlFor="cl-mobile">شماره همراه</label>
+          <input id="cl-mobile" ref={mobileInput} className="nf-input nf-input--ltr" type="tel" inputMode="numeric" dir="ltr" autoComplete="tel-national"
+            placeholder="۰۹xx xxx xxxx" autoFocus value={mobile} maxLength={20}
+            aria-invalid={Boolean(mobileError) || undefined} aria-describedby="cl-mobile-hint"
+            onChange={e => { setMobile(normalizeMobile(e.target.value)); setError(''); }}
+            data-testid="input-customer-mobile" />
+          {mobileError ? <span id="cl-mobile-hint" className="nf-error" aria-live="polite"><I icon={AlertCircle} small />{mobileError}</span>
+            : <span id="cl-mobile-hint" className="nf-hint" aria-live="polite">کد ورود به همین شماره پیامک می‌شود.</span>}</div>
+        <button className="nf-btn nf-btn--primary nf-btn--block" disabled={busy} aria-busy={busy} data-testid="button-customer-auth">
+          {otp.isPending ? <><I icon={RefreshCw} small className="nfp-spin-i" />در حال ارسال کد…</> : 'دریافت کد ورود'}
+        </button>
+      </form>
+      <NextHint text="وارد کردن کد شش‌رقمی پیامک‌شده" />
+    </> : <>
+      <div><h1 id="cl-title">کد تأیید را وارد کنید</h1></div>
+      <p className="nfp-sub">کد شش‌رقمی به این شماره پیامک شد:</p>
+      <div><span className="nfp-phone-chip"><bdi className="nfp-ltr" dir="ltr">{formatMobile(mobile)}</bdi>
+        <button type="button" onClick={changeNumber} disabled={busy} data-testid="button-change-mobile"><I icon={Pencil} small />تغییر شماره</button></span></div>
+      <form onSubmit={submitCode} noValidate>
+        <div className="nf-field"><span className="nf-label" id="otp-label">کد تأیید</span>
+          <OtpBoxes value={code} onChange={value => { setCode(value); setError(''); }} disabled={verify.isPending} invalid={Boolean(error)} />
+          <div aria-live="polite">{error ? <AuthError error={failed} /> : <span className="nf-hint">با پر شدن شش رقم، خودکار بررسی می‌شود.</span>}</div></div>
+        <button className="nf-btn nf-btn--primary nf-btn--block" disabled={busy || code.length !== OTP_LENGTH} aria-busy={busy} data-testid="button-customer-auth">
+          {verify.isPending ? <><I icon={RefreshCw} small className="nfp-spin-i" />در حال بررسی…</> : 'تأیید و ورود'}
+        </button>
+        <div className="nfp-resend">
+          {resendRemaining > 0
+            ? <span aria-live="off">ارسال دوباره‌ی کد تا <b dir="ltr">{countdown(resendRemaining)}</b> دیگر</span>
+            : <span>کد را دریافت نکردید؟</span>}
+          <button type="button" disabled={busy || resendRemaining > 0} onClick={resend} data-testid="button-resend-otp">
+            {otp.isPending ? 'در حال ارسال…' : 'ارسال دوباره'}
+          </button>
         </div>
-        <Stepper steps={CUSTOMER_AUTH_STEPS} current={step} onGo={key => { if (key === 'mobile') changeNumber(); }} className="cl-stepper" testPrefix="step-customer-" />
-        <div className="cl-step-icon" aria-hidden="true">{step === 'mobile' ? <Smartphone size={24} /> : <MessageSquareText size={24} />}</div>
-        <h1 id="cl-title">{step === 'mobile' ? 'ورود یا ثبت‌نام' : 'کد تأیید را وارد کنید'}</h1>
-        {step === 'mobile'
-          ? <p className="cl-sub">شماره همراه خود را وارد کنید تا کد تأیید برایتان پیامک شود. اگر حساب ندارید، همین‌جا ساخته می‌شود.</p>
-          : <p className="cl-sub">کد {fa(OTP_LENGTH)} رقمی ارسال‌شده به <bdi dir="ltr" className="cl-phone">{formatMobile(mobile)}</bdi> را وارد کنید.
-            <button type="button" className="cl-change" onClick={changeNumber} disabled={busy} data-testid="button-change-mobile"><Pencil size={13} /> تغییر شماره</button></p>}
-
-        {step === 'mobile'
-          ? <form className="cl-form" onSubmit={requestCode} noValidate>
-            <label className="cl-label" htmlFor="cl-mobile">شماره همراه</label>
-            <div className={`cl-input-wrap${mobileError ? ' is-invalid' : ''}`}>
-              <input id="cl-mobile" ref={mobileInput} className="cl-input" type="tel" inputMode="numeric" dir="ltr" autoComplete="tel-national"
-                placeholder="09xx xxx xxxx" autoFocus value={mobile} maxLength={20}
-                aria-invalid={Boolean(mobileError) || undefined} aria-describedby="cl-mobile-hint"
-                onChange={e => { setMobile(normalizeMobile(e.target.value)); setError(''); }}
-                data-testid="input-customer-mobile" />
-            </div>
-            <small id="cl-mobile-hint" aria-live="polite" className={`cl-hint${mobileError ? ' is-error' : ''}`}>{mobileError || 'مثال: ۰۹۱۲ ۳۴۵ ۶۷۸۹'}</small>
-            {error && <div className="cl-alert" role="alert">{error}</div>}
-            <button className="cl-btn" disabled={busy} aria-busy={busy} data-testid="button-customer-auth">
-              {otp.isPending ? <><Loader2 className="cl-spin" size={18} /> در حال ارسال کد…</> : <>دریافت کد ورود <ArrowLeft size={18} /></>}
-            </button>
-          </form>
-          : <form className="cl-form" onSubmit={submitCode} noValidate>
-            <OtpBoxes value={code} onChange={value => { setCode(value); setError(''); }} disabled={verify.isPending} invalid={Boolean(error)} />
-            <div aria-live="polite">{error && <div className="cl-alert" role="alert">{error}</div>}</div>
-            <button className="cl-btn" disabled={busy || code.length !== OTP_LENGTH} aria-busy={busy} data-testid="button-customer-auth">
-              {verify.isPending ? <><Loader2 className="cl-spin" size={18} /> در حال بررسی…</> : <>تأیید و ورود <ArrowLeft size={18} /></>}
-            </button>
-            <div className="cl-resend">
-              {resendRemaining > 0
-                ? <span aria-live="off">ارسال دوباره کد تا <b dir="ltr">{countdown(resendRemaining)}</b> دیگر</span>
-                : <span>کد را دریافت نکردید؟</span>}
-              <button type="button" className="cl-link-btn" disabled={busy || resendRemaining > 0} onClick={resend} data-testid="button-resend-otp">
-                {otp.isPending ? 'در حال ارسال…' : 'ارسال دوباره'}
-              </button>
-            </div>
-          </form>}
-
-        <p className="cl-trust"><ShieldCheck size={14} /> ورود امن با کد یک‌بارمصرف پیامکی</p>
-      </section>
-      <Link href="/login" className="cl-staff" data-testid="link-staff-login">ورود کارکنان</Link>
-    </main>
-  </div>;
+      </form>
+      <NextHint text="احراز هویت با کد ملی (فقط بار اول)" />
+    </>}
+  </AuthFrame>;
 }

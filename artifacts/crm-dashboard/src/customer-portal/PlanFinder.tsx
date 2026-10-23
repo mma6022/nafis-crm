@@ -60,7 +60,7 @@ export function PlanFinder() {
         <p className="cp-hint">هزینه تشکیل پرونده: {money(m.plan.filingFeeToman)} تومان</p>
         {m.failedRequirements.length > 0 && <ul>{m.failedRequirements.map(r => <li key={r}>{r}</li>)}</ul>}
         {m.missingInformation.length > 0 && <ul>{m.missingInformation.map(r => <li key={r}>{r}</li>)}</ul>}
-        {m.status !== 'not_eligible' && <Link href={`/customer?planId=${m.plan.id}`} className="cp-btn cp-btn-gold cp-btn-small" data-testid={`link-finder-plan-${m.plan.id}`}>مشاهده در خانه</Link>}</article>)}</div>}
+        {m.status !== 'not_eligible' && <Link href={`/customer/plans?planId=${m.plan.id}`} className="cp-btn cp-btn-gold cp-btn-small" data-testid={`link-finder-plan-${m.plan.id}`}>دیدن طرح</Link>}</article>)}</div>}
       <p style={{ marginTop: 16 }}><button type="button" className="cp-btn cp-btn-outline cp-btn-small" onClick={restart} data-testid="button-finder-restart">شروع دوباره</button></p></>;
   }
   if (!q) return null;

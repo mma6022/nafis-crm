@@ -26,7 +26,7 @@ export function LoanPlanCards() {
     {active != null && <>
       <PlanRequirements key={`r${active}`} planId={active} />
       <PlanCalculator key={`c${active}`} planId={active} amount={amount} duration={duration} onAmount={setAmount} onDuration={setDuration} />
-      <Link href={`/customer/apply?planId=${active}`} className="cp-btn cp-btn-primary" data-testid="link-request-plan">درخواست این طرح</Link>
+      <div className="nfp-ap-cta"><Link href={`/customer/apply?planId=${active}`} className="nf-btn nf-btn--primary nf-btn--block" data-testid="link-request-plan">درخواست این طرح</Link></div>
     </>}
   </div>;
 }

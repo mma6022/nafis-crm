@@ -6,9 +6,14 @@ import { cashCalculatorBounds, customerPayout, millionCashSliderRange, monthlyPm
 
 const fa = (v: number) => Math.round(v).toLocaleString('fa-IR');
 
-export function PlanCalculator({ planId, amount, duration, onAmount, onDuration, eligiblePlan }: {
+export type CalculatorSummary = { cash: number | null; installment: number | null; months: number };
+
+export function PlanCalculator({ planId, amount, duration, onAmount, onDuration, eligiblePlan, feeToman, onSummary }: {
   planId: number; amount: string; duration: string;
   onAmount: (v: string) => void; onDuration: (v: string) => void; eligiblePlan?: LoanOption;
+  /** When given (apply flow), the summary also shows the file fee — amount only (handoff §6.1). */
+  feeToman?: string | number | null;
+  onSummary?: (summary: CalculatorSummary) => void;
 }) {
   const q = useQuery({ queryKey: ['customer', 'plan-details', planId], queryFn: () => getPublicLoanPlan(planId), staleTime: 60_000 });
   const p = q.data;
@@ -41,42 +46,55 @@ export function PlanCalculator({ planId, amount, duration, onAmount, onDuration,
   useEffect(() => {
     if (rangeOk && cashNow != null && cash !== cashNow) setCash(cashNow);
   }, [rangeOk, cashNow, cash]);
+  const summaryRef = useRef(onSummary); summaryRef.current = onSummary;
+  const livePmt = principal != null && rate != null && months > 0 ? monthlyPmt(principal, rate, months) : null;
+  useEffect(() => { summaryRef.current?.({ cash: cashNow, installment: livePmt, months }); }, [cashNow, livePmt, months]);
   useEffect(() => {
     if (q.isLoading || !p) return;
     const next = principal == null ? '' : String(principal);
     if (next !== amount && (principal != null || parseCalculatorAmount(amount) != null)) amountRef.current(next);
   }, [principal, amount, q.isLoading, p]);
 
-  if (q.isLoading) return <section className="cp-card" role="status" aria-label="در حال دریافت"><div className="cp-skeleton" /></section>;
-  if (q.isError || !p) return <div className="cp-alert" role="alert">ماشین‌حساب در دسترس نیست. <button type="button" className="cp-btn cp-btn-outline cp-btn-small" onClick={() => void q.refetch()}>تلاش دوباره</button></div>;
+  if (q.isLoading) return <section className="nfp-sk-card" role="status" aria-label="در حال دریافت"><div className="nfp-sk" style={{ height: 20, width: '40%' }} /><div className="nfp-sk" style={{ height: 32 }} /><div className="nfp-sk" style={{ height: 52 }} /></section>;
+  if (q.isError || !p) return <div className="nfp-alert" role="alert"><span>ماشین‌حساب در دسترس نیست.</span> <button type="button" className="nf-btn nf-btn--secondary nf-btn--sm" onClick={() => void q.refetch()}>تلاش دوباره</button></div>;
 
+  // Problems are kept for diagnostics only; the customer sees «بعداً اعلام می‌شود» (handoff §6.1).
   let problem = '';
-  if (!durations.length) problem = 'مدت اقساط این طرح اعلام نشده است.';
-  else if (percent == null) problem = 'درصد واریز به مشتری برای این مدت اعلام نشده است.';
-  else if (zero) problem = 'این طرح برای این مدت مبلغ واریزی نقدی ندارد.';
-  else if (maxP == null) problem = 'سقف تسهیلات این طرح اعلام نشده است.';
-  else if (!rangeOk) problem = 'بازه واریزی این مدت برای انتخاب با گام یک‌میلیون تومان کافی نیست.';
-  else if (rate == null) problem = 'درصد سود سالانه برای این مدت اعلام نشده است.';
-  else if (principal == null) problem = 'محاسبه با این مقدار ممکن نیست.';
+  if (!durations.length) problem = 'durations';
+  else if (percent == null) problem = 'payout-percent';
+  else if (zero) problem = 'zero-payout';
+  else if (maxP == null) problem = 'ceiling';
+  else if (!rangeOk) problem = 'range';
+  else if (rate == null) problem = 'rate';
+  else if (principal == null) problem = 'principal';
   const pmt = !problem && principal != null && rate != null ? monthlyPmt(principal, rate, months) : null;
-  if (!problem && pmt == null) problem = 'محاسبه با این مقادیر ممکن نیست.';
+  if (!problem && pmt == null) problem = 'pmt';
+  const fee = feeToman != null && /^\d+$/.test(String(feeToman)) ? Number(feeToman) : null;
+  const unknown = <span className="nfp-none">بعداً اعلام می‌شود</span>;
 
-  return <section className="cp-card cp-calc" data-testid="section-plan-calculator"><h3>ماشین‌حساب قسط</h3>
-    <div className="cp-cash">
-      <label htmlFor={`cash-${planId}`}>مبلغ واریزی به مشتری</label>
-      <div className="cp-cash-value" data-testid="text-calc-cash">{cashNow == null ? '—' : `${fa(cashNow)} تومان`}</div>
-      <input id={`cash-${planId}`} className="cp-range" type="range" dir="ltr" step={1_000_000} aria-label="مبلغ واریزی به مشتری"
+  return <div className="nfp-stack" data-testid="section-plan-calculator">
+    <section className="nfp-card nfp-ap-calc" aria-labelledby={`calc-${planId}`}>
+      <h2 id={`calc-${planId}`}>مبلغ دریافتی</h2>
+      <div className="nfp-ap-val" data-testid="text-calc-cash" aria-live="polite">{cashNow == null ? unknown : <>{fa(cashNow)} <small>تومان</small></>}</div>
+      <input id={`cash-${planId}`} className="nfp-ap-range" type="range" dir="ltr" step={1_000_000} aria-label="مبلغ دریافتی"
+        aria-valuetext={cashNow == null ? undefined : `${fa(cashNow)} تومان`}
         min={rangeOk ? minCash! : 0} max={rangeOk ? maxCash! : 0} value={cashNow ?? 0} disabled={!rangeOk}
         onChange={e => setCash(Number(e.target.value))} data-testid="slider-customer-payout" />
-      {rangeOk && <div className="cp-cash-caps"><span>حداکثر {fa(maxCash!)}</span><span>حداقل {fa(minCash!)}</span></div>}
-    </div>
-    <div className="cp-form-grid cp-calc-grid">
-      <label className="cp-field">تعداد اقساط<select value={durations.includes(typed) ? duration : ''} onChange={e => onDuration(e.target.value)} data-testid="select-calc-duration"><option value="" disabled>انتخاب</option>{durations.map(m => <option key={m} value={m}>{fa(m)} ماه</option>)}</select></label>
-      <label className="cp-field">سود سالانه طرح (٪)<input readOnly value={rate == null ? 'اعلام نشده' : rate.toLocaleString('fa-IR')} data-testid="input-calc-rate" /></label>
-    </div>
-    {problem ? <div className="cp-alert cp-alert-info" role="status" data-testid="status-calc-blocked">{problem}</div> : <div className="cp-calc-out" role="status" data-testid="status-calc-result">
-      <div className="cp-calc-main"><small>قسط ماهانه</small><b data-testid="text-calc-installment">{fa(pmt!)} تومان</b></div>
-      </div>}
-    <p className="cp-hint">برآورد با اقساط ثابت پایان هر ماه محاسبه می‌شود و هزینه‌های جداگانه در آن نیست. مبلغ نهایی را سامانه تعیین می‌کند.</p>
-  </section>;
+      {rangeOk && <div className="nfp-ap-caps"><span>{fa(minCash!)}</span><span>{fa(maxCash!)}</span></div>}
+      <h3 id={`months-${planId}`} style={{ marginTop: 16 }}>تعداد اقساط</h3>
+      {durations.length ? <div className="nfp-ap-chips" role="radiogroup" aria-labelledby={`months-${planId}`} data-testid="select-calc-duration">
+        {durations.map(m => <button type="button" role="radio" aria-checked={m === months} className="nfp-ap-chip" key={m}
+          onClick={() => onDuration(String(m))} data-testid={`chip-calc-duration-${m}`}>{fa(m)} قسط</button>)}
+      </div> : <p className="nfp-muted">{unknown}</p>}
+    </section>
+    <section className="nfp-card" aria-labelledby={`sum-${planId}`} role="status" data-testid={problem ? 'status-calc-blocked' : 'status-calc-result'} data-reason={problem || undefined}>
+      <h2 id={`sum-${planId}`}>خلاصه‌ی درخواست</h2>
+      <div className="nfp-facts" style={{ marginTop: 10 }}>
+        <div className="nfp-fact nfp-big"><span>مبلغ دریافتی</span>{cashNow == null ? unknown : <b>{fa(cashNow)} <small>تومان</small></b>}</div>
+        <div className="nfp-fact"><span>مبلغ قسط</span><b data-testid="text-calc-installment">{pmt == null ? unknown : <>{fa(pmt)} <small>تومان</small></>}</b></div>
+        <div className="nfp-fact"><span>تعداد اقساط</span>{months > 0 ? <b>{fa(months)} <small>قسط ماهانه</small></b> : unknown}</div>
+        {feeToman !== undefined && <div className="nfp-fact" data-testid="text-calc-fee"><span>هزینه تشکیل پرونده</span>{fee == null ? unknown : <b>{fa(fee)} <small>تومان</small></b>}</div>}
+      </div>
+    </section>
+  </div>;
 }
