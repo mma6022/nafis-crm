@@ -209,3 +209,8 @@
 .about-facts a{color:var(--nf-brand-700,#2b3a8f)}
 .about-more{margin:14px 0 0;font-size:.9375rem}
 .gplans-cb{margin:8px 0 16px}
+/* fast sections: the callback sits inside the narrow article column → stack intro above the form (desktop too) */
+@media (min-width:1024px){
+  .gplans-cb .cb--section{grid-template-columns:minmax(0,1fr);gap:16px;padding:24px}
+  .gplans-cb .cb-intro .cb-h{font-size:var(--nf-text-h3);line-height:var(--nf-lh-h3)}
+}
