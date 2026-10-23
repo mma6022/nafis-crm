@@ -357,6 +357,18 @@ export const planQualifies = (p: LoanPlan, page: GuaranteePage) => qualifiesFor(
 /** Plans of a guarantee page, in a stable order (id). */
 export const guaranteePagePlans = (plans: LoanPlan[], page: GuaranteePage) =>
   plans.filter((p) => qualifiesFor(p, page)).sort((a, b) => a.id - b.id);
+/** review-time order of the CRM's grantDays buckets (smaller = faster) */
+export const DAYS_RANK: Record<string, number> = { under_7: 0, '10_to_15': 1 };
+/**
+ * PM 2026-10-23: the «فوری بدون چک / بدون ضامن» sections never ship empty. They list the FASTEST plans that meet the
+ * base guarantee condition (no-cheque / no-guarantor), max 3, sorted by the real review-time data (grantDays), ties
+ * by CRM id. No time is promised on those sections.
+ */
+export const fastestGuaranteePlans = (plans: LoanPlan[], base: 'no-cheque' | 'no-guarantor', max = 3) =>
+  guaranteePagePlans(plans, base)
+    .slice()
+    .sort((a, b) => (DAYS_RANK[a.grantDays] ?? 9) - (DAYS_RANK[b.grantDays] ?? 9) || a.id - b.id)
+    .slice(0, max);
 /** Maps the content team's preset vocabulary to the finder's. Unknown keys are ignored (never break a page). */
 export function toFinderPreset(p: ContentPreset = {}): FinderPreset {
   const out: FinderPreset = {};

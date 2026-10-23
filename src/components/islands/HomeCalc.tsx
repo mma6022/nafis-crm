@@ -83,7 +83,7 @@ export default function HomeCalc({ snapshot }: { snapshot: LoanPlan[] }) {
                 </div>
               </dl>
               <a className="nf-btn nf-btn--primary nf-btn--block" href={`/request?plan=${c.id}&term=${c.term}&src=home-calc`}>
-                درخواست همین طرح <I name="arrow" />
+                درخواست این طرح <I name="arrow" />
               </a>
               <div style={{ textAlign: 'center' }}>
                 <a className="nf-btn nf-btn--text" href="/calculator">

@@ -7,6 +7,9 @@
 //  3. «سپرده» appears nowhere in dist (blog included).
 //  4. /calculator FAQ answer is verbatim in the page AND its FAQPage JSON-LD, and the page never says «مبلغ اسمی».
 //  5. Every lead/callback form in dist shows the exact consent text.
+//  6. Fast sections (PM 2026-10-23): never empty; the fastest ≤3 plans meeting the base condition, ordered by real
+//     grantDays (ties by id), retiree tag kept, no time promise on /vam-bedun-chek and /vam-bedun-zamen, callback form below.
+//  7. Plan cards everywhere: only مبلغ دریافتی / مبلغ هر قسط / تعداد اقساط + one «درخواست این طرح» button.
 // Run: node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-guarantees.mjs
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -37,24 +40,26 @@ const PAGES = {
 /** Mohammad's confirmed answers (2026-10-23). Changing plan data must change this table deliberately. */
 const CONFIRMED = {
   'no-guarantor': [3, 7, 8, 9, 12, 14, 15, 17, 18, 19, 21, 22],
-  'fast-no-guarantor': [],
+  /** fast sections: fastest ≤3 qualifying plans, IN THIS ORDER (all qualifying plans are 10_to_15 → ties by id) */
+  'fast-no-guarantor': [3, 7, 8],
   'no-cheque': [15, 20, 21],
-  'fast-no-cheque': [],
+  'fast-no-cheque': [15, 20, 21],
   cheque: [1, 3, 4, 5, 7, 8, 9, 10, 11, 12, 14, 18, 19, 22],
   promissory: [20],
 };
 const uniq = (a) => [...new Set(a)].sort((x, y) => x - y);
 const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 const expected = {};
+const RANK = { under_7: 0, '10_to_15': 1 };
 for (const [page, def] of Object.entries(PAGES)) {
-  expected[page] = uniq(
-    plans
-      .filter((p) => p.guaranteeOptions?.length)
-      .filter((p) => !p.guaranteePages || p.guaranteePages.includes(page))
-      .filter((p) => !def.fast || p.grantDays === 'under_7')
-      .filter((p) => p.guaranteeOptions.some(RULE[def.rule]))
-      .map((p) => p.id),
-  );
+  const base = def.fast ? def.rule : page;
+  const q = plans
+    .filter((p) => p.guaranteeOptions?.length)
+    .filter((p) => !p.guaranteePages || p.guaranteePages.includes(base))
+    .filter((p) => p.guaranteeOptions.some(RULE[def.rule]));
+  expected[page] = def.fast
+    ? q.sort((a, b) => (RANK[a.grantDays] ?? 9) - (RANK[b.grantDays] ?? 9) || a.id - b.id).slice(0, 3).map((p) => p.id)
+    : uniq(q.map((p) => p.id));
   if (!same(expected[page], CONFIRMED[page]))
     errors.push(`${page}: plan data qualifies [${expected[page]}] but the confirmed list is [${CONFIRMED[page]}]`);
 }
@@ -85,17 +90,29 @@ for (const [page, def] of Object.entries(PAGES)) {
     continue;
   }
   const rows = [...b.matchAll(/data-plan-id="(\d+)"/g)].map((m) => +m[1]);
-  const ids = uniq(rows);
+  const ids = def.fast ? rows : uniq(rows);
   seen[page] = ids;
-  if (rows.length !== ids.length) errors.push(`${def.file} [${page}]: a plan is listed twice`);
-  if (!same(ids, expected[page])) errors.push(`${def.file} [${page}]: lists [${ids}] but qualifying plans are [${expected[page]}]`);
+  if (rows.length !== uniq(rows).length) errors.push(`${def.file} [${page}]: a plan is listed twice`);
+  if (!same(ids, expected[page])) errors.push(`${def.file} [${page}]: lists [${ids}] but expected [${expected[page]}]`);
   if (ids.length === 0 && !/data-count="0"/.test(b)) errors.push(`${def.file} [${page}]: empty list without the empty state`);
+  if (def.fast) {
+    if (ids.length === 0 || ids.length > 3) errors.push(`${def.file} [${page}]: fast section must list 1–3 plans (has ${ids.length})`);
+    if (/gplans-empty/.test(b)) errors.push(`${def.file} [${page}]: fast section ships an empty state`);
+    if (!/class="cb-card"/.test(b) && !/درخواست مشاوره‌ی رایگان/.test(b)) errors.push(`${def.file} [${page}]: no callback form below the fast list`);
+  }
   for (const id of ids) {
     const row = b.split(`data-plan-id="${id}"`)[1]?.split('data-plan-id=')[0] ?? '';
     const p = plans.find((x) => x.id === id);
     if (id === 17 && !/رتبه‌ی اعتباری/.test(row)) errors.push(`${def.file}: plan 17 row lacks the credit-score phrase`);
-    if (p?.retireesOnly && !/ویژه‌ی بازنشسته‌ها/.test(row)) errors.push(`${def.file}: plan ${id} row lacks «ویژه‌ی بازنشسته‌ها»`);
+    if (p?.retireesOnly && !/ویژه‌ی بازنشستگان/.test(row)) errors.push(`${def.file}: plan ${id} row lacks «ویژه‌ی بازنشستگان»`);
   }
+}
+// no time promise anywhere on the no-cheque / no-guarantor pages (they hold the fast sections)
+for (const slug of ['vam-bedun-chek', 'vam-bedun-zamen']) {
+  // page content only: the site header menu describes /vam-fori (its own page), not these pages
+  const body = html(slug).replace(/<script[\s\S]*?<\/script>/g, '').replace(/<header[\s\S]*?<\/header>/g, '');
+  const m = body.match(/کمتر از [۰-۹0-9]+ روز|[۰-۹0-9]+ تا [۰-۹0-9]+ روز|زمان بررسی:/);
+  if (m) errors.push(`${slug}: promises a review time («${m[0]}»)`);
 }
 // plan 17 must not appear on any other guarantee page block
 for (const [page, ids] of Object.entries(seen)) if (page !== 'no-guarantor' && ids.includes(17)) errors.push(`plan 17 listed on ${page}`);
@@ -111,6 +128,24 @@ for (const f of files) {
   const consent = h.split(CONSENT_TEXT).length - 1;
   if (forms > 0 && consent < forms) errors.push(`${rel}: ${forms} lead/callback form(s) but ${consent} consent text(s)`);
 }
+
+ // plan cards (PlanCard, data-plan-card) and blog mini cards: only the 3 figures + one «درخواست این طرح» button
+let cardCount = 0;
+for (const f of files) {
+  const h = readFileSync(f, 'utf8');
+  const rel = relative(DIST, f);
+  for (const m of h.matchAll(/<article class="nf-card plan[^"]*"[^>]*>([\s\S]*?)<\/article>|<div class="nf-card mini">([\s\S]*?)<\/a><\/div>/g)) {
+    const card = m[1] ?? m[2];
+    cardCount++;
+    for (const bad of ['زمان بررسی', 'روش', 'جزئیات بیشتر', 'مبلغ اسمی', 'مبلغ قابل دریافت', 'پیش‌پرداخت', 'سود سالانه'])
+      if (card.includes(bad)) errors.push(`${rel}: a plan card shows «${bad}»`);
+    for (const need of ['مبلغ دریافتی', 'مبلغ هر قسط', 'تعداد اقساط'])
+      if (!card.includes(need)) errors.push(`${rel}: a plan card lacks «${need}»`);
+    const btns = (card.match(/<a [^>]*nf-btn/g) ?? []).length;
+    if (btns !== 1 || !card.includes('درخواست این طرح')) errors.push(`${rel}: a plan card must have exactly one «درخواست این طرح» button (has ${btns})`);
+  }
+}
+if (cardCount === 0) errors.push('no plan cards found in dist (hero sample / plans page)');
 
 const CALC = 'مبلغی که ماشین‌حساب نشون می‌ده، مبلغیه که به دستت می‌رسه، و جزئیات دقیقش رو کارشناس توی مشاوره‌ی رایگان توضیح می‌ده.';
 const calc = html('calculator');
@@ -162,5 +197,5 @@ console.log(
     Object.entries(seen)
       .map(([p, ids]) => `${p} [${ids.join(',') || '—'}]`)
       .join(' · ') +
-    ` · no «سپرده» anywhere (${files.length} pages) · consent text on every form · calculator FAQ exact · landline ۰۲۱-۹۱۳۰۳۸۱۹ only · address + PostalAddress · home canonical = sitemap · no nominal amount on cards`,
+    ` · no «سپرده» anywhere (${files.length} pages) · consent text on every form · calculator FAQ exact · landline ۰۲۱-۹۱۳۰۳۸۱۹ only · address + PostalAddress · home canonical = sitemap · fast sections = fastest ≤3 + callback, no time promise · ${cardCount} plan cards = 3 figures + one button`,
 );

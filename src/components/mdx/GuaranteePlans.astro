@@ -5,9 +5,15 @@
  * with unknown guarantee data is never listed and nothing is relaxed. Zero plans → an honest empty state (`empty`
  * slot text or the default), never a fake list. Every row carries data-plan-id; scripts/check-guarantees.mjs
  * re-checks the built HTML against the same rules.
+ *
+ * Fast pages (PM 2026-10-23): `fast-no-cheque` / `fast-no-guarantor` never ship an empty state. They show the FASTEST
+ * plans meeting the base condition (lib/plans `fastestGuaranteePlans`, max 3, by real grantDays), promise no time
+ * (no «زمان بررسی» line) and are followed by the «درخواست مشاوره‌ی رایگان» callback form.
+ * On /vam-bedun-chek and /vam-bedun-zamen no row shows a review time (no time promise on those pages).
  */
 import { LOAN_PLANS_SNAPSHOT } from '../../lib/loan-plans.snapshot';
-import { DAYS_LABEL, MODE_LABEL, cleanPlanName, guaranteePagePlans } from '../../lib/plans';
+import { DAYS_LABEL, MODE_LABEL, cleanPlanName, fastestGuaranteePlans, guaranteePagePlans } from '../../lib/plans';
+import CallbackForm from '../islands/CallbackForm';
 import { whyFor, type GuaranteePage } from '../../data/plan-guarantees';
 import I from '../ui/I.astro';
 interface Props {
@@ -16,7 +22,10 @@ interface Props {
   empty?: string;
 }
 const { page, empty } = Astro.props;
-const list = guaranteePagePlans(LOAN_PLANS_SNAPSHOT, page);
+const fastOf = page === 'fast-no-cheque' ? 'no-cheque' : page === 'fast-no-guarantor' ? 'no-guarantor' : null;
+const list = fastOf ? fastestGuaranteePlans(LOAN_PLANS_SNAPSHOT, fastOf, 3) : guaranteePagePlans(LOAN_PLANS_SNAPSHOT, page);
+/** no review time on the no-cheque / no-guarantor pages (incl. their fast sections) */
+const showTime = !['no-cheque', 'no-guarantor', 'fast-no-cheque', 'fast-no-guarantor'].includes(page);
 const src = (Astro.url.pathname.replace(/^\/+|\/+$/g, '').split('/').pop() || 'home').replace(/[^a-z0-9_-]/g, '') || 'home';
 /** «ستاره آبی» exists 3×: tell the rows apart by bank / platform */
 const names = list.map((p) => cleanPlanName(p.name));
@@ -26,7 +35,8 @@ const via = (p: (typeof list)[number]) => [p.bankName, p.platformName].map((s) =
 
 {
   list.length > 0 ? (
-    <ul class="gplans not-prose" data-guarantee-page={page} data-count={list.length}>
+    <div class="gplans-wrap not-prose" data-guarantee-page={page} data-count={list.length} data-fastest-of={fastOf ?? undefined}>
+    <ul class="gplans">
       {list.map((p) => (
         <li class="gplan" data-plan-id={p.id}>
           <div class="gp-head">
@@ -35,18 +45,24 @@ const via = (p: (typeof list)[number]) => [p.bankName, p.platformName].map((s) =
               {dup(cleanPlanName(p.name)) && via(p) && <span class="gp-via"> ({via(p)})</span>}
             </b>
             <span class="gp-kind">{p.loanType === 'goods' ? 'خرید کالا قسطی' : 'وام نقدی'}</span>
-            {p.retireesOnly && <span class="nf-badge nf-badge--brand">ویژه‌ی بازنشسته‌ها</span>}
+            {p.retireesOnly && <span class="nf-badge nf-badge--brand">ویژه‌ی بازنشستگان</span>}
           </div>
-          <p class="gp-why"><I name="check" size={18} /> <span>{whyFor(p.id, page)}</span></p>
+          <p class="gp-why"><I name="check" size={18} /> <span>{whyFor(p.id, fastOf ?? page)}</span></p>
           <p class="gp-meta">
-            <span>زمان بررسی: {DAYS_LABEL[p.grantDays] ?? p.grantDays}</span>
+            {showTime && <span>زمان بررسی: {DAYS_LABEL[p.grantDays] ?? p.grantDays}</span>}
             <span>روش: {MODE_LABEL[p.processMode] ?? p.processMode}</span>
             {p.documentsNote && <span>مدارک: {p.documentsNote}</span>}
           </p>
-          <a class="nf-btn nf-btn--secondary gp-btn" href={`/request?plan=${p.id}&src=${encodeURIComponent(src + '-guarantee')}`}>درخواست همین طرح</a>
+          <a class="nf-btn nf-btn--secondary gp-btn" href={`/request?plan=${p.id}&src=${encodeURIComponent(src + '-guarantee')}`}>درخواست این طرح</a>
         </li>
       ))}
     </ul>
+    {fastOf && (
+      <div class="gplans-cb">
+        <CallbackForm client:visible variant="section" titleTag="h3" primary={false} src={`${src}-fastest-callback`} lead="عجله دارید؟ شماره‌تان را بگذارید؛ کارشناس نفیس وام سریع‌ترین راه متناسب با شرایط شما را رایگان با شما مرور می‌کند." />
+      </div>
+    )}
+    </div>
   ) : (
     <div class="gplans-empty not-prose" data-guarantee-page={page} data-count="0">
       <p>{empty ?? 'در حال حاضر طرح فعالی با این شرط نداریم. شماره‌تان را بگذارید تا کارشناس نزدیک‌ترین راه را بگوید.'}</p>

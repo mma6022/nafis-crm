@@ -5,7 +5,7 @@ import raw from '../src/data/loan-plans.snapshot.json' with { type: 'json' };
 import { parseLoanPlans } from '../src/lib/loan-plans.ts';
 import {
   combos, recommend, planFacts, bankNames, reqBands, bandOf, millionsFa,
-  FINDER_TYPES, FINDER_BANDS, FINDER_PRIOS, comboQualifies, guaranteePagePlans, type Combo,
+  FINDER_TYPES, FINDER_BANDS, FINDER_PRIOS, comboQualifies, guaranteePagePlans, fastestGuaranteePlans, type Combo,
 } from '../src/lib/plans.ts';
 import type { GuaranteePage } from '../src/data/plan-guarantees.ts';
 
@@ -113,4 +113,12 @@ test('content presets map onto finder presets', () => {
   assert.equal(toFinderPreset({ guarantee: 'no-guarantor' }).guarantee?.label, 'بدون ضامن');
   assert.deepEqual(toFinderPreset({ guarantee: 'bogus' }), {});
   assert.equal(fillFacts('بین {planCount} طرح', planFacts(plans)), 'بین ۱۸ طرح');
+});
+
+test('fast sections: fastest ≤3 plans meeting the base condition, by grantDays then id (never empty)', () => {
+  const ids = (b: 'no-cheque' | 'no-guarantor') => fastestGuaranteePlans(plans, b).map((p) => p.id);
+  assert.deepEqual(ids('no-cheque'), [15, 20, 21]);
+  assert.deepEqual(ids('no-guarantor'), [3, 7, 8]);
+  for (const b of ['no-cheque', 'no-guarantor'] as const)
+    for (const p of fastestGuaranteePlans(plans, b)) assert.ok(guaranteePagePlans(plans, b).some((q) => q.id === p.id));
 });

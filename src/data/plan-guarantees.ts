@@ -10,7 +10,7 @@
  * - A plan that is missing here has NO guarantee data: it is never listed on a guarantee page and the site states
  *   nothing about its guarantee (fail-closed for plans the CRM adds later).
  * - retireesOnly: the plan is offered ONLY to retirees (plan 21, DB condition #437 job = بازنشسته, note «فقط مخصوص
- *   بازنشسته ها»): the finder shows it only when «بازنشسته» is chosen and its card carries «ویژه‌ی بازنشسته‌ها».
+ *   بازنشسته ها»): the finder shows it only when «بازنشسته» is chosen and its card carries «ویژه‌ی بازنشستگان».
  * Every guarantee page is checked against these rules by scripts/check-guarantees.mjs (runs in the build).
  */
 export type GuaranteeType = 'cheque' | 'promissory' | 'guarantor' | 'none';
@@ -70,7 +70,7 @@ export const PLAN_GUARANTEES: Record<number, PlanGuarantee> = {
   20: { guaranteeOptions: [['promissory', 'guarantor']], summary: 'سفته و یک ضامن؛ چک لازم نیست' },
   21: {
     guaranteeOptions: [['none']],
-    summary: 'ویژه‌ی بازنشسته‌ها؛ نه چک لازم است، نه سفته و نه ضامن',
+    summary: 'ویژه‌ی بازنشستگان؛ نه چک لازم است، نه سفته و نه ضامن',
     retireesOnly: true,
   },
   22: {
