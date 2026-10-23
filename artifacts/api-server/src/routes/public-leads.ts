@@ -103,7 +103,8 @@ export function createPublicLeadsRouter(limiter = new AttemptLimiter()): Router 
       ensurePublicLeadSchema();
       const counts = leadCounts(ipHash, lead.phone);
       if (counts.phoneRecent > 0) {
-        // Same person resubmitting within minutes: already recorded, do not duplicate.
+        // Same person resubmitting within minutes: already recorded, do not duplicate. No tracking code here:
+        // the earlier one is never re-issued to whoever knows the phone number.
         res.status(200).json({ ok: true });
         return;
       }
@@ -114,7 +115,8 @@ export function createPublicLeadsRouter(limiter = new AttemptLimiter()): Router 
       }
       const result = recordPublicLead(lead, ipHash);
       logger.info({ customerId: result.customerId, created: result.created, src: lead.src }, "Website lead recorded");
-      res.status(201).json({ ok: true });
+      // Only the fresh, random reference: nothing from the request is echoed back.
+      res.status(201).json({ ok: true, trackingCode: result.trackingCode });
       if (result.created) void notifyNewCustomer(result.customerId);
     },
   );

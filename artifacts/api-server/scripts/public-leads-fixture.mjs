@@ -65,7 +65,7 @@ const unitSource = `
   import { readFileSync } from "node:fs";
   import { publicPlanGuarantees, conditionGuaranteeTypes } from "./src/lib/public-plan-guarantees";
   import { trustedClientIp } from "./src/lib/client-ip";
-  import { validatePublicLead, normalizeLeadPhone, leadDescription } from "./src/lib/public-leads";
+  import { validatePublicLead, normalizeLeadPhone, leadDescription, newTrackingCode, AMOUNT_BANDS } from "./src/lib/public-leads";
   import { AttemptLimiter } from "./src/routes/public-leads";
 
   const req = (peer, realIp) => ({ socket: { remoteAddress: peer }, get: (h) => (h === "X-Real-IP" ? realIp : undefined) });
@@ -119,6 +119,25 @@ const unitSource = `
   assert.equal(validatePublicLead(null, now).ok, false);
   const minimal = { name: "Sara", phone: "09351234567", need: "help", amountBand: "unsure", contactTime: "any", consent: true, startedAt: now - 9000 };
   assert.equal(validatePublicLead(minimal, now).ok, true);
+  // Site reqBands() keys (received amount, million toman) and the legacy coarse keys are both accepted.
+  for (const amountBand of ["0-100", "100-200", "200-300", "300-500", "500-1000", "1000-up", "upto100", "100-300", "500plus", "unsure"]) {
+    const r = validatePublicLead({ ...minimal, amountBand }, now);
+    assert.equal(r.ok, true, amountBand);
+    assert.doesNotMatch(leadDescription(r.lead), /undefined/, amountBand);
+  }
+  assert.equal(AMOUNT_BANDS.length, 10);
+  bad({ amountBand: "1000-2000" }, "invalid", ["amountBand"]);
+
+  // Tracking code: short, fixed shape, unambiguous alphabet, CSPRNG (no collisions in a large sample).
+  const codes = new Set();
+  for (let k = 0; k < 20000; k++) {
+    const c = newTrackingCode();
+    assert.match(c, /^NV-[2-9A-HJKMNP-TV-Z]{4}-[2-9A-HJKMNP-TV-Z]{4}$/, c);
+    codes.add(c);
+  }
+  assert.equal(codes.size, 20000, "no collisions");
+  const seen = new Set([...codes].join("").replace(/NV|-/g, ""));
+  assert.equal(seen.size, 30, "every symbol of the 30-char alphabet is used");
 
   const limiter = new AttemptLimiter(1000, 2);
   assert.equal(limiter.take("a", 0), 0);
@@ -259,7 +278,10 @@ try {
   const first = await post(lead());
   assert.equal(first.status, 201);
   const firstBody = await first.json();
-  assert.deepEqual(firstBody, { ok: true }, "nothing echoed back");
+  assert.deepEqual(Object.keys(firstBody).sort(), ["ok", "trackingCode"], "only ok + trackingCode, nothing echoed back");
+  assert.equal(firstBody.ok, true);
+  assert.match(firstBody.trackingCode, /^NV-[2-9A-HJKMNP-TV-Z]{4}-[2-9A-HJKMNP-TV-Z]{4}$/);
+  assert.ok(!JSON.stringify(firstBody).includes("0912") && !JSON.stringify(firstBody).includes("مریم"), "no input echoed");
   assert.equal(first.headers.get("access-control-allow-origin"), site);
   assert.equal(first.headers.get("cache-control"), "no-store");
   {
@@ -276,6 +298,7 @@ try {
     assert.equal(row.source, "website");
     assert.equal(row.outcome, "new_customer");
     assert.equal(row.amount_band, "300-500");
+    assert.equal(row.tracking_code, firstBody.trackingCode, "tracking code stored on the lead");
     assert.match(row.ip_hash, /^[0-9a-f]{64}$/);
     assert.ok(!JSON.stringify(row).includes("198.51.100"), "raw IP never stored");
     assert.ok(d.prepare("SELECT 1 FROM customer_tags WHERE customer_id=? AND tag='website_lead'").get(customer.id));
@@ -288,12 +311,18 @@ try {
   // Double submit within minutes: success, but no duplicate row.
   const again = await post(lead({ phone: "۰۹۱۲۱۱۱۲۲۳۳" }));
   assert.equal(again.status, 200);
+  assert.deepEqual(await again.json(), { ok: true }, "duplicate: the earlier code is never re-issued");
   assert.equal(db().prepare("SELECT COUNT(*) n FROM public_leads").get().n, 1);
   assert.equal(db().prepare("SELECT COUNT(*) n FROM customers WHERE phone='09121112233'").get().n, 1);
 
   // Existing customer (and a merged duplicate) is linked, never recreated, no new-customer notification.
-  assert.equal((await post(lead({ phone: "09350000001", name: "Ali" }))).status, 201);
-  assert.equal((await post(lead({ phone: "+98 935 000 0002", name: "Ali" }))).status, 201);
+  const linkedA = await post(lead({ phone: "09350000001", name: "Ali", amountBand: "100-200" }));
+  assert.equal(linkedA.status, 201);
+  const codeA = (await linkedA.json()).trackingCode;
+  const linkedB = await post(lead({ phone: "+98 935 000 0002", name: "Ali", amountBand: "1000-up" }));
+  assert.equal(linkedB.status, 201);
+  const codeB = (await linkedB.json()).trackingCode;
+  assert.ok(codeA && codeB && codeA !== codeB && codeA !== firstBody.trackingCode, "a fresh code per lead");
   {
     const d = db();
     assert.equal(d.prepare("SELECT COUNT(*) n FROM customers").get().n, 4);

@@ -1,4 +1,4 @@
-import { createHash, createHmac } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { execute, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import { insertCustomerRecord } from "./customer-create";
 import { normalizeCustomerMobile, normalizePersianSearchText } from "./customer-integrity";
@@ -8,7 +8,15 @@ export const LEAD_SOURCE = "website";
 export const WEBSITE_LEAD_TAG = "website_lead";
 
 export const NEEDS = ["cash", "goods", "help"] as const;
-export const AMOUNT_BANDS = ["upto100", "100-300", "300-500", "500plus", "unsure"] as const;
+/**
+ * Received-amount bands (million toman). The site's `reqBands()` keys ("lo-hi", top band "lo-up") on a fixed
+ * 100/200/300/500/1000 scale; the original coarse keys stay accepted for older site builds.
+ */
+export const AMOUNT_BANDS = [
+  "0-100", "100-200", "200-300", "300-500", "500-1000", "1000-up",
+  "upto100", "100-300", "500plus",
+  "unsure",
+] as const;
 export const CONTACT_TIMES = ["morning", "evening", "any"] as const;
 const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"] as const;
 const ALLOWED_KEYS = new Set<string>([
@@ -138,9 +146,14 @@ const NEED_FA: Record<PublicLead["need"], string> = {
   help: "نمی‌داند، راهنمایی می‌خواهد",
 };
 const BAND_FA: Record<PublicLead["amountBand"], string> = {
+  "0-100": "تا ۱۰۰ میلیون تومان",
+  "100-200": "۱۰۰ تا ۲۰۰ میلیون تومان",
+  "200-300": "۲۰۰ تا ۳۰۰ میلیون تومان",
+  "300-500": "۳۰۰ تا ۵۰۰ میلیون تومان",
+  "500-1000": "۵۰۰ تا ۱۰۰۰ میلیون تومان",
+  "1000-up": "بیش از ۱۰۰۰ میلیون تومان",
   upto100: "تا ۱۰۰ میلیون تومان",
   "100-300": "۱۰۰ تا ۳۰۰ میلیون تومان",
-  "300-500": "۳۰۰ تا ۵۰۰ میلیون تومان",
   "500plus": "بیش از ۵۰۰ میلیون تومان",
   unsure: "مشخص نکرده",
 };
@@ -165,6 +178,24 @@ export function leadDescription(lead: PublicLead, planName?: string | null): str
   const utm = Object.entries(lead.utm).map(([key, value]) => `${key}=${value}`).join(" ");
   if (utm) lines.push(`UTM: ${utm}`);
   return lines.join("\n");
+}
+
+/** Unambiguous alphabet (no 0/O, 1/I/L, U): codes are read out over the phone. */
+const TRACKING_ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
+/**
+ * Short, non-guessable reference shown to the visitor, e.g. "NV-7KQ4-M9TX".
+ * 8 symbols from 30 = ~39 bits of CSPRNG entropy; rejection sampling keeps it unbiased.
+ */
+export function newTrackingCode(): string {
+  const out: string[] = [];
+  while (out.length < 8) {
+    for (const byte of randomBytes(16)) {
+      if (byte >= 240) continue; // 240 = 8 × 30, so the remainder below is uniform
+      out.push(TRACKING_ALPHABET[byte % 30]);
+      if (out.length === 8) break;
+    }
+  }
+  return `NV-${out.slice(0, 4).join("")}-${out.slice(4).join("")}`;
 }
 
 export function hashLeadIp(ip: string): string {
@@ -194,6 +225,9 @@ export function ensurePublicLeadSchema(): void {
     ip_hash TEXT NOT NULL,
     created_at TEXT NOT NULL
   )`);
+  const leadColumns = queryRows<{ name: string }>("PRAGMA table_info(public_leads)").map((c) => c.name);
+  if (!leadColumns.includes("tracking_code")) execute("ALTER TABLE public_leads ADD COLUMN tracking_code TEXT");
+  execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_public_leads_tracking ON public_leads(tracking_code) WHERE tracking_code IS NOT NULL");
   execute("CREATE INDEX IF NOT EXISTS idx_public_leads_ip ON public_leads(ip_hash, created_at)");
   execute("CREATE INDEX IF NOT EXISTS idx_public_leads_phone ON public_leads(phone, created_at)");
   const catalogColumns = queryRows<{ name: string }>("PRAGMA table_info(customer_tag_catalog)").map((c) => c.name);
@@ -258,7 +292,7 @@ function defaultAllocationProgramId(): number | undefined {
   return programs.length === 1 ? Number(programs[0].id) : undefined;
 }
 
-export type LeadRecordResult = { customerId: number; created: boolean };
+export type LeadRecordResult = { customerId: number; created: boolean; trackingCode: string };
 
 /**
  * Create the CRM customer exactly like the other intakes (unverified, default
@@ -290,18 +324,20 @@ export function recordPublicLead(lead: PublicLead, ipHash: string, now = new Dat
       "INSERT OR IGNORE INTO customer_tags(customer_id,tag,created_at) VALUES (?,?,?)",
       [customerId, WEBSITE_LEAD_TAG, timestamp],
     );
+    let trackingCode = newTrackingCode();
+    while (queryRow("SELECT 1 AS hit FROM public_leads WHERE tracking_code=?", [trackingCode])) trackingCode = newTrackingCode();
     execute(
       `INSERT INTO public_leads
         (source, customer_id, outcome, name, phone, need, amount_band, plan_id, term, contact_time, src,
-         utm_source, utm_medium, utm_campaign, utm_content, utm_term, ip_hash, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         utm_source, utm_medium, utm_campaign, utm_content, utm_term, ip_hash, created_at, tracking_code)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         LEAD_SOURCE, customerId, created ? "new_customer" : "existing_customer", lead.name, lead.phone,
         lead.need, lead.amountBand, lead.planId, lead.term, lead.contactTime, lead.src,
         lead.utm.utm_source ?? null, lead.utm.utm_medium ?? null, lead.utm.utm_campaign ?? null,
-        lead.utm.utm_content ?? null, lead.utm.utm_term ?? null, ipHash, timestamp,
+        lead.utm.utm_content ?? null, lead.utm.utm_term ?? null, ipHash, timestamp, trackingCode,
       ],
     );
-    return { customerId, created };
+    return { customerId, created, trackingCode };
   });
 }
