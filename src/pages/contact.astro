@@ -75,6 +75,10 @@ const experts = SALES_EXPERTS.map((e) => ({ ...e, fa: faMobile(e.mobile), l: exp
       <p class="text-ink mt-1 font-extrabold">{SITE.legalName}</p>
       <p class="text-ink-muted mt-1 text-small">شناسه ملی <span class="ltr">{SITE.nationalIdFa}</span></p>
     </div>
+    <div class={card}>
+      <p class="text-ink-muted text-small">نشانی</p>
+      <address class="text-ink mt-1 font-extrabold not-italic" data-address>{SITE.address}</address>
+    </div>
     <section class="sm:col-span-2 lg:col-span-3 pt-4" id="callback" aria-label="درخواست مشاوره‌ی رایگان">
       <CallbackForm client:visible variant="section" src="contact-callback" />
       <p class="text-small text-ink-muted mt-3">

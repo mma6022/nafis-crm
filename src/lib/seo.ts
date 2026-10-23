@@ -27,6 +27,7 @@ export const organizationLd = () => ({
   image: absoluteUrl(SITE.ogImage),
   email: SITE.email,
   telephone: SITE.phoneE164,
+  address: { '@type': 'PostalAddress', ...SITE.addressParts },
   contactPoint: [
     {
       '@type': 'ContactPoint',
@@ -52,7 +53,7 @@ export const financialServiceLd = () => ({
   areaServed: { '@type': 'Country', name: 'Iran' },
   parentOrganization: { '@id': `${SITE.url}/#organization` },
   openingHoursSpecification: [openingHoursLd()],
-  // no address: none has been given (see SITE-LAUNCH-PLAN.md open questions)
+  address: { '@type': 'PostalAddress', ...SITE.addressParts },
 });
 
 export const websiteLd = () => ({

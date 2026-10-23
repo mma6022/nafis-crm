@@ -16,6 +16,9 @@ export const SITE = {
   legalName: 'بهینه فام نفیس',
   nationalId: '14013708689',
   nationalIdFa: '۱۴۰۱۳۷۰۸۶۸۹',
+  /** PM decision: office address (footer, /contact, /about, PostalAddress schema) */
+  address: 'تهران، پونک، بلوار عدل جنوبی، پلاک ۲۴، واحد ۲',
+  addressParts: { streetAddress: 'پونک، بلوار عدل جنوبی، پلاک ۲۴، واحد ۲', addressLocality: 'تهران', addressRegion: 'تهران', addressCountry: 'IR' },
   instagram: 'https://instagram.com/nafisvamm',
   instagramHandle: 'nafisvamm',
   portal: 'https://crm.nafisvam.com/portal',
@@ -115,7 +118,11 @@ export const GUIDE_NAV: NavItem[] = [
   { href: SITE.portal, label: 'ورود مشتریان' },
 ];
 
-export const absoluteUrl = (path: string) => new URL(path, SITE.url).toString().replace(/\/$/, '') || SITE.url;
+/** No trailing slash (trailingSlash: 'never'), except the home page, which is always `https://nafisvam.com/` (matches the sitemap). */
+export const absoluteUrl = (path: string) => {
+  const u = new URL(path, SITE.url).toString();
+  return u === `${SITE.url}/` ? u : u.replace(/\/$/, '');
+};
 
 /** Current Jalali year in Persian digits, computed at build time (footer «©»). */
 export const jalaliYear = (d = new Date()) =>

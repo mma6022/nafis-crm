@@ -4,7 +4,7 @@
 //     the raw guaranteeOptions (independent of lib/plans.ts) and must also equal the CONFIRMED table below, which is
 //     Mohammad's 2026-10-23 answers. A mismatch anywhere fails the build.
 //  2. Plan 17 only on /vam-bedun-zamen and always with its credit-score phrase; retiree-only plans carry their tag.
-//  3. «سپرده» appears nowhere in dist.
+//  3. «سپرده» appears nowhere in dist (blog included).
 //  4. /calculator FAQ answer is verbatim in the page AND its FAQPage JSON-LD, and the page never says «مبلغ اسمی».
 //  5. Every lead/callback form in dist shows the exact consent text.
 // Run: node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-guarantees.mjs
@@ -100,13 +100,12 @@ for (const [page, def] of Object.entries(PAGES)) {
 // plan 17 must not appear on any other guarantee page block
 for (const [page, ids] of Object.entries(seen)) if (page !== 'no-guarantor' && ids.includes(17)) errors.push(`plan 17 listed on ${page}`);
 
-const blogDeposit = [];
 const files = walk(DIST).filter((f) => f.endsWith('.html'));
 for (const f of files) {
   const h = readFileSync(f, 'utf8');
   const rel = relative(DIST, f);
-  // the blog is out of scope (no-edit rule); its «سپرده» mentions are reported, not failed
-  if (h.includes('سپرده')) (rel.startsWith('blog/') ? blogDeposit : errors).push(`${rel}: contains «سپرده»`);
+  // PM rule: «سپرده» is a forbidden word everywhere, the blog included
+  if (h.includes('سپرده')) errors.push(`${rel}: contains forbidden word «سپرده»`);
   // lead/callback forms: CallbackForm (cb-card form) and RequestWizard (#rq-submit)
   const forms = (h.match(/class="cb-card"/g) ?? []).length + (h.match(/id="rq-submit"/g) ?? []).length;
   const consent = h.split(CONSENT_TEXT).length - 1;
@@ -142,8 +141,18 @@ for (const f of walk(DIST).filter((x) => /\.(html|js|xml|txt|json|webmanifest)$/
 const home = html('');
 if (home && !home.includes('tel:+982191303819')) errors.push('home: landline tel:+982191303819 missing');
 if (home && !home.includes('۰۲۱-۹۱۳۰۳۸۱۹')) errors.push('home: landline ۰۲۱-۹۱۳۰۳۸۱۹ missing');
+// PM decision: the office address is shown in the footer (every page), /contact, /about and the PostalAddress schema
+const ADDRESS = 'تهران، پونک، بلوار عدل جنوبی، پلاک ۲۴، واحد ۲';
+for (const slug of ['', 'contact', 'about']) {
+  const t = html(slug);
+  if (!t) continue;
+  const n = t.split(`data-address>${ADDRESS}</address>`).length - 1;
+  if (n < (slug ? 2 : 1)) errors.push(`${slug || 'home'}: visible address missing (found ${n}${slug ? ', need footer + page' : ''})`);
+  if (!/"@type":"PostalAddress"/.test(t) || !t.includes('"streetAddress":"پونک، بلوار عدل جنوبی، پلاک ۲۴، واحد ۲"')) errors.push(`${slug || 'home'}: PostalAddress schema missing`);
+}
+// home canonical must equal the sitemap loc (https://nafisvam.com/)
+if (home && !home.includes('<link rel="canonical" href="https://nafisvam.com/">')) errors.push('home: canonical is not https://nafisvam.com/ (sitemap loc)');
 
-if (blogDeposit.length) console.warn(`guarantees: note — blog (outside the P3 scope; only marker edits were made there) still mentions «سپرده»:\n  ${blogDeposit.join('\n  ')}`);
 if (errors.length) {
   console.error(`guarantees: ${errors.length} problem(s)\n  ` + errors.join('\n  '));
   process.exit(1);
@@ -153,5 +162,5 @@ console.log(
     Object.entries(seen)
       .map(([p, ids]) => `${p} [${ids.join(',') || '—'}]`)
       .join(' · ') +
-    ` · no «سپرده» outside the blog (${files.length} pages) · consent text on every form · calculator FAQ exact · landline ۰۲۱-۹۱۳۰۳۸۱۹ only · no nominal amount on cards`,
+    ` · no «سپرده» anywhere (${files.length} pages) · consent text on every form · calculator FAQ exact · landline ۰۲۱-۹۱۳۰۳۸۱۹ only · address + PostalAddress · home canonical = sitemap · no nominal amount on cards`,
 );

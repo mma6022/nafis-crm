@@ -29,6 +29,7 @@ const facts = planFacts(LOAN_PLANS_SNAPSHOT);
         <ul>
           <li><a href={SITE.tel}><I name="phone" size={18} /><span class="ltr">{SITE.phoneFa}</span></a></li>
           <li><I name="clock" size={18} /><span>{WORK_HOURS.daysFa}، {WORK_HOURS.fa}</span></li>
+          <li><address class="not-italic" data-address>{SITE.address}</address></li>
           <li><a href={SOCIAL.instagram.href} target="_blank" rel="noopener" aria-label="اینستاگرام نفیس وام"><I name="ig" size={18} /><span>اینستاگرام <span class="ltr">@{SOCIAL.instagram.handle}</span></span></a></li>
           <li>
             {/* Enamad trust seal (official embed; the image may stay blank on local previews). Fixed 125×136 box: no layout shift. */}
