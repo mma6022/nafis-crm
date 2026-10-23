@@ -33,6 +33,7 @@ import { crmDb } from "../lib/crm-db";
 import { saveChatObject, readChatObject, deleteChatObject } from "../lib/chat-storage";
 import { validateInternalChatFile } from "../lib/internal-chat-files";
 import { socialMonitorFeature } from "../lib/social-monitor";
+import teamSalesRouter from "./team-sales";
 
 const router: IRouter = Router();
 startDatabaseBackupScheduler();
@@ -45,6 +46,7 @@ router.use(salesReportsRouter);
 router.use("/internal-chat",createInternalChatRouter({db:crmDb,requireAuth,requirePermission:requirePermission("internal_chat.use"),
   saveFile:saveChatObject,readFile:readChatObject,deleteFile:deleteChatObject,validateFile:validateInternalChatFile}));
 router.use(crmRouter);
+router.use(teamSalesRouter);
 router.use(callReportsRouter);
 router.use(mobileCallsRouter);
 router.use("/chat", staffChatRouter);

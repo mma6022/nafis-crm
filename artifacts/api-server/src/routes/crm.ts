@@ -173,6 +173,7 @@ import * as ics24 from "../lib/ics24";
 import { questionnaireError, consultationRankMatches, type QuestionnaireOption } from "../lib/consultation-questionnaire";
 import { consultationMaximumAmount } from "../lib/consultation-limits";
 import { verifyCustomer } from "../lib/sapi";
+import { logPriorityChange } from "../lib/team-sales";
 import { retainedIdentityChecks } from "../lib/identity-check-retention";
 import { normalizeCustomerMobile, normalizeCustomerNationalCode, isAdminRole } from "../lib/customer-integrity";
 import { mergeCustomerRecords } from "../lib/customer-merge";
@@ -2946,6 +2947,20 @@ router.patch(
     if (!changes) {
       res.status(404).json({ error: "Customer not found" });
       return;
+    }
+    if (body.priority !== undefined || body.salespersonId !== undefined) {
+      try {
+        const after = queryRow<{ priority: number | null; salesperson_id: number | null }>(
+          "SELECT priority, salesperson_id FROM customers WHERE id=?", [params.data.id]);
+        logPriorityChange({
+          customerId: params.data.id,
+          oldPriority: existingCustomer.priority ?? null, newPriority: after?.priority ?? null,
+          oldSalespersonId: existingCustomer.salespersonId ?? null, newSalespersonId: after?.salesperson_id ?? null,
+          actorUserId: user.id, source: "customer_update",
+        });
+      } catch (error) {
+        req.log.warn({ err: error }, "priority history logging failed");
+      }
     }
     const customer = getCustomer(params.data.id, user);
     if (!customer) {
