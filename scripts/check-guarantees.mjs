@@ -10,7 +10,8 @@
 //  6. Fast sections (PM 2026-10-23): never empty; the fastest ≤3 plans meeting the base condition, ordered by real
 //     grantDays (ties by id), retiree tag kept, no time promise on /vam-bedun-chek and /vam-bedun-zamen, callback form below.
 //     Post-launch PM rule for «سریع‌ترین بدون ضامن» (fast-no-guarantor): ONE plan per plan type (loanType), the highest
-//     مبلغ دریافتی (max principal × depositPercent over its terms) of that type, no repeated plan name (parenthetical
+//     مبلغ دریافتی obtainable WITHOUT a guarantor (min(principal, no-guarantor cap) × depositPercent, max over its
+//     terms; PM 2026-10-23: plan 9 is no-guarantor only up to ۳۰۰ میلیون) of that type, no repeated plan name (parenthetical
 //     notes ignored, «ترنم ( بازنشسته ها )» = «ترنم»): a type whose best plan repeats a shown name takes its next best.
 //     Page-restricted plans (17, pages ['no-guarantor']) stay out of the fast section.
 //     Every fast section fails the build if two rows show the same plan name.
@@ -45,8 +46,9 @@ const PAGES = {
 /** Mohammad's confirmed answers (2026-10-23). Changing plan data must change this table deliberately. */
 const CONFIRMED = {
   'no-guarantor': [3, 7, 8, 9, 12, 14, 15, 17, 18, 19, 21, 22],
-  /** one per type, highest مبلغ دریافتی, IN THIS ORDER (goods: 9 مروارید 290M; score: 15 نیلوفر 165M — 17 is restricted to the main list) */
-  'fast-no-guarantor': [9, 15],
+  /** one per type, highest مبلغ دریافتی WITHOUT a guarantor, IN THIS ORDER (goods: 19 چابک 214M — 9 مروارید is
+   *  capped at ۳۰۰ میلیون without a guarantor → 174M; score: 15 نیلوفر 165M — 17 is restricted to the main list) */
+  'fast-no-guarantor': [19, 15],
   'no-cheque': [15, 20, 21],
   /** fastest ≤3 qualifying plans (all 10_to_15 → ties by id) */
   'fast-no-cheque': [15, 20, 21],
@@ -63,7 +65,19 @@ const baseName = (n) => {
   if (!s.startsWith('طرح')) s = `طرح ${s}`;
   return s;
 };
-const payout = (p) => Math.max(0, ...p.installmentTerms.map((t) => (p.principalAmount * t.depositPercent) / 100));
+const payout = (p) => {
+  const principal = Math.min(p.principalAmount, p.noGuarantorMaxPrincipal > 0 ? p.noGuarantorMaxPrincipal : Infinity);
+  return Math.max(0, ...p.installmentTerms.map((t) => (principal * t.depositPercent) / 100));
+};
+/** the cap must be the number the public «بدون ضامن تا سقف (وام) N میلیون» text states, and vice versa */
+const faNum = (s) => Number(String(s).replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d)));
+for (const p of plans) {
+  const text = [p.guaranteeSummary ?? ''].join(' ');
+  const m = text.match(/بدون ضامن تا سقف(?: وام)? ([۰-۹0-9]+) میلیون/);
+  const stated = m ? faNum(m[1]) * 1e6 : undefined;
+  if (stated !== p.noGuarantorMaxPrincipal)
+    errors.push(`plan ${p.id}: no-guarantor cap ${p.noGuarantorMaxPrincipal ?? '—'} does not match its text (${stated ?? '—'})`);
+}
 const TYPE_ORDER = ['goods', 'score'];
 const perType = (q) => {
   const r = (t) => (TYPE_ORDER.includes(t) ? TYPE_ORDER.indexOf(t) : TYPE_ORDER.length);
@@ -237,5 +251,5 @@ console.log(
     Object.entries(seen)
       .map(([p, ids]) => `${p} [${ids.join(',') || '—'}]`)
       .join(' · ') +
-    ` · no «سپرده» anywhere (${files.length} pages) · consent text on every form · calculator FAQ exact · landline ۰۲۱-۹۱۳۰۳۸۱۹ only · address + PostalAddress · home canonical = sitemap · fast sections: no-guarantor = 1 per type by max مبلغ دریافتی, no-cheque = fastest ≤3, no repeated name, + callback, no time promise · ${cardCount} plan cards = 3 figures + one button`,
+    ` · no «سپرده» anywhere (${files.length} pages) · consent text on every form · calculator FAQ exact · landline ۰۲۱-۹۱۳۰۳۸۱۹ only · address + PostalAddress · home canonical = sitemap · fast sections: no-guarantor = 1 per type by max مبلغ دریافتی without a guarantor (caps from data), no-cheque = fastest ≤3, no repeated name, + callback, no time promise · ${cardCount} plan cards = 3 figures + one button`,
 );

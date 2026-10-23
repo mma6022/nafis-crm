@@ -372,6 +372,15 @@ export const fastestGuaranteePlans = (plans: LoanPlan[], base: 'no-cheque' | 'no
 /** Highest مبلغ دریافتی of a plan over its terms (principal × depositPercent, the same figure the cards show). */
 export const planMaxPayout = (p: LoanPlan) =>
   p.installmentTerms.reduce((m, t) => Math.max(m, (p.principalAmount * t.depositPercent) / 100), 0);
+/**
+ * Highest مبلغ دریافتی obtainable WITHOUT a guarantor (PM 2026-10-23): the principal is limited to the plan's
+ * no-guarantor cap when it has one (plan 9: ۳۰۰ of ۵۰۰ میلیون), then × depositPercent over its terms.
+ */
+export const planNoGuarantorPayout = (p: LoanPlan) => {
+  const cap = p.noGuarantorMaxPrincipal && p.noGuarantorMaxPrincipal > 0 ? p.noGuarantorMaxPrincipal : Infinity;
+  const principal = Math.min(p.principalAmount, cap);
+  return p.installmentTerms.reduce((m, t) => Math.max(m, (principal * t.depositPercent) / 100), 0);
+};
 /** Name without its parenthetical note: «ترنم ( بازنشسته ها )» and «ترنم» are both «طرح ترنم». */
 export const planBaseName = (n: string) =>
   cleanPlanName(n).replace(/\s*\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
@@ -383,7 +392,8 @@ export const planBaseName = (n: string) =>
 export const FAST_TYPE_ORDER = ['goods', 'score'];
 /**
  * PM 2026-10-23 (after launch): «سریع‌ترین بدون ضامن» lists ONE plan per plan type (loanType), the one with the
- * highest مبلغ دریافتی among the plans meeting the base condition. Plan names never repeat across the section: when a
+ * highest مبلغ دریافتی obtainable WITHOUT a guarantor (planNoGuarantorPayout: each plan's no-guarantor loan cap is
+ * respected) among the plans meeting the base condition. Plan names never repeat across the section: when a
  * type's best plan has a name already shown, the next best of that type is taken. Ties: faster grantDays, then id.
  * Types in FAST_TYPE_ORDER first, then any other type by name; max 3. Page-restricted plans (17) are left out, as before.
  */
@@ -395,12 +405,13 @@ export function topPlanPerType(plans: LoanPlan[], base: 'no-cheque' | 'no-guaran
     return i < 0 ? FAST_TYPE_ORDER.length : i;
   };
   const types = [...new Set(pool.map((p) => p.loanType))].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  const payout = base === 'no-guarantor' ? planNoGuarantorPayout : planMaxPayout;
   const used = new Set<string>();
   const out: LoanPlan[] = [];
   for (const t of types) {
     const best = pool
       .filter((p) => p.loanType === t && !used.has(planBaseName(p.name)))
-      .sort((a, b) => planMaxPayout(b) - planMaxPayout(a) || (DAYS_RANK[a.grantDays] ?? 9) - (DAYS_RANK[b.grantDays] ?? 9) || a.id - b.id)[0];
+      .sort((a, b) => payout(b) - payout(a) || (DAYS_RANK[a.grantDays] ?? 9) - (DAYS_RANK[b.grantDays] ?? 9) || a.id - b.id)[0];
     if (!best) continue;
     used.add(planBaseName(best.name));
     out.push(best);

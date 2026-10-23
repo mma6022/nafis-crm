@@ -39,6 +39,8 @@ export interface LoanPlan {
   retireesOnly?: boolean;
   /** Document note that differs from the generic list. */
   documentsNote?: string;
+  /** Loan cap (تومان) of the without-guarantor way when lower than principalAmount (data/plan-guarantees.ts). */
+  noGuarantorMaxPrincipal?: number;
 }
 const GUARANTEES = new Set(['cheque', 'digital_cheque', 'guarantor', 'promissory', 'none']);
 const ORDER: GuaranteeType[] = ['cheque', 'promissory', 'guarantor', 'none'];
@@ -56,6 +58,7 @@ export function applyPlanOverrides(p: LoanPlan): LoanPlan {
   if (g.pages) out.guaranteePages = g.pages;
   if (g.retireesOnly) out.retireesOnly = true;
   if (g.documents) out.documentsNote = g.documents;
+  if (typeof g.noGuarantorMaxPrincipal === 'number' && g.noGuarantorMaxPrincipal > 0) out.noGuarantorMaxPrincipal = g.noGuarantorMaxPrincipal;
   return out;
 }
 
