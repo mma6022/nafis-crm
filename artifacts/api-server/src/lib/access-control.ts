@@ -42,6 +42,7 @@ export const PERMISSIONS = [
   "payment_orders.view", "payment_orders.create", "payment_orders.sales_approve", "payment_orders.admin_approve", "payment_orders.pay",
   "bank_accounts.view", "bank_accounts.manage",
   "accounting.view", "accounting.manage", "accounting.opening",
+  "callbacks.view", "callbacks.manage",
 ] as const;
 
 export type Permission = typeof PERMISSIONS[number];
@@ -75,7 +76,7 @@ const defaults = [
 for (const role of defaults) {
   execute("INSERT OR IGNORE INTO app_roles (slug, name, description, customer_scope, is_system, created_at) VALUES (?, ?, ?, ?, ?, ?)", [...role, now]);
 }
-const standard = PERMISSIONS.filter((permission) => !/^(goods_|payment_orders\.|bank_accounts\.|accounting\.)/.test(permission) && !permission.startsWith("users.") && !permission.startsWith("notifications.") && permission !== "database.manage" && permission !== "customers.delete" && permission !== "loan_applications.approve" && permission !== "loan_applications.delete" && permission !== "wallets.transfer");
+const standard = PERMISSIONS.filter((permission) => !/^(goods_|payment_orders\.|bank_accounts\.|accounting\.|callbacks\.)/.test(permission) && !permission.startsWith("users.") && !permission.startsWith("notifications.") && permission !== "database.manage" && permission !== "customers.delete" && permission !== "loan_applications.approve" && permission !== "loan_applications.delete" && permission !== "wallets.transfer");
 for (const permission of PERMISSIONS) execute("INSERT OR IGNORE INTO role_permissions (role_slug, permission) VALUES ('admin', ?)", [permission]);
 for (const role of ["funder","accounting"]) execute("INSERT OR IGNORE INTO role_permissions(role_slug,permission) VALUES(?,'internal_chat.use')",[role]);
 for (const role of ["registrar", "salesperson"]) {
@@ -91,6 +92,20 @@ for (const [role, permissions] of Object.entries({
   salesperson: ["goods_purchases.view", "goods_finance.view", "payment_orders.view", "payment_orders.sales_approve", "bank_accounts.view"],
   accounting: ["dashboard.view", "customers.view", "goods_purchases.view", "goods_finance.view", "payment_orders.view", "payment_orders.pay", "bank_accounts.view", "bank_accounts.manage", "accounting.view", "accounting.manage"],
 })) for (const permission of permissions) execute("INSERT OR IGNORE INTO role_permissions(role_slug,permission) VALUES(?,?)", [role,permission]);
+
+// «درخواست‌های تماس»: seeded once (schema_migrations marker), so an admin who later removes these from a
+// role is not overridden on restart. admin has everything implicitly. registrar and salesperson follow up
+// website requests; salesperson's 'assigned' scope limits them to requests assigned to them.
+// funder and accounting get nothing. No other permission is touched.
+execute("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)");
+if (!queryRows("SELECT 1 AS hit FROM schema_migrations WHERE version='callbacks_permissions_v1'").length) {
+  for (const role of ["registrar", "salesperson"]) {
+    for (const permission of ["callbacks.view", "callbacks.manage"]) {
+      execute("INSERT OR IGNORE INTO role_permissions(role_slug,permission) SELECT slug, ? FROM app_roles WHERE slug=?", [permission, role]);
+    }
+  }
+  execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES ('callbacks_permissions_v1', ?)", [now]);
+}
 
 export function permissionsForRole(role: string): string[] {
   if (role === "admin") return [...PERMISSIONS];

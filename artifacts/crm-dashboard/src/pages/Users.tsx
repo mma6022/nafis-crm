@@ -322,6 +322,8 @@ const permissionLabels: Record<string, string> = {
   'accounting.view': 'مشاهده اسناد حسابداری و موجودی صندوق‌ها',
   'accounting.manage': 'ثبت سند حسابداری و افزودن پیوست',
   'accounting.opening': 'ثبت موجودی اولیه صندوق',
+  'callbacks.view': 'مشاهده درخواست‌های تماس سایت',
+  'callbacks.manage': 'پیگیری درخواست‌های تماس (وضعیت، تخصیص، یادداشت، تبدیل)',
   'dashboard.view': 'مشاهده داشبورد',
   'customers.view': 'مشاهده مشتریان',
   'customers.create': 'ثبت مشتری',

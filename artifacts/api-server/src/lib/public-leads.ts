@@ -20,8 +20,30 @@ export const AMOUNT_BANDS = [
 export const CONTACT_TIMES = ["morning", "evening", "any"] as const;
 const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"] as const;
 const ALLOWED_KEYS = new Set<string>([
-  "name", "phone", "need", "amountBand", "planId", "term", "contactTime", "src", "consent",
+  "type", "name", "phone", "need", "amountBand", "planId", "term", "contactTime", "src", "consent",
   "website", "startedAt", ...UTM_KEYS,
+]);
+/** «درخواست تماس کارشناس»: only who and when (plus an optional topic). */
+export const CALLBACK_TIMES = ["now", "morning", "evening"] as const;
+
+/** Working hours 09:00–18:00 Asia/Tehran (days not confirmed yet, so hours only). Mirrors the site form. */
+export const WORK_START_HOUR = 9;
+export const WORK_END_HOUR = 18;
+export function tehranHour(at: Date): number {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Tehran", hour: "numeric", hourCycle: "h23" }).formatToParts(at);
+  return Number(parts.find((p) => p.type === "hour")?.value ?? 0) % 24;
+}
+export function isWorkingHours(at: Date): boolean {
+  const hour = tehranHour(at);
+  return hour >= WORK_START_HOUR && hour < WORK_END_HOUR;
+}
+/** «همین الان» is only offered during working hours; a late/stale "now" is queued as the next morning. */
+export function effectivePreferredTime(preferred: (typeof CALLBACK_TIMES)[number], at: Date): (typeof CALLBACK_TIMES)[number] {
+  return preferred === "now" && !isWorkingHours(at) ? "morning" : preferred;
+}
+export const CALLBACK_TOPICS = ["cash", "goods", "unsure"] as const;
+const CALLBACK_KEYS = new Set<string>([
+  "type", "name", "phone", "preferredTime", "topic", "src", "consent", "website", "startedAt", ...UTM_KEYS,
 ]);
 
 /** A human needs at least a few seconds for three wizard steps. */
@@ -41,6 +63,19 @@ export type PublicLead = {
   src: string | null;
   utm: Partial<Record<(typeof UTM_KEYS)[number], string>>;
 };
+
+export type PublicCallback = {
+  name: string;
+  phone: string;
+  preferredTime: (typeof CALLBACK_TIMES)[number];
+  topic: (typeof CALLBACK_TOPICS)[number] | null;
+  src: string | null;
+  utm: Partial<Record<(typeof UTM_KEYS)[number], string>>;
+};
+
+export type CallbackValidation =
+  | { ok: true; callback: PublicCallback }
+  | { ok: false; status: 400 | 422; error: "invalid" | "spam" | "too_fast" | "expired"; fields?: string[] };
 
 export type LeadValidation =
   | { ok: true; lead: PublicLead }
@@ -74,13 +109,15 @@ export function normalizeLeadPhone(value: unknown): string | undefined {
   return /^09\d{9}$/.test(phone) ? phone : undefined;
 }
 
-/** Strict validation. Field names may be reported, input values never are. */
-export function validatePublicLead(body: unknown, now = Date.now()): LeadValidation {
+type IntakeFailure = { ok: false; status: 400 | 422; error: "invalid" | "spam" | "too_fast" | "expired"; fields?: string[] };
+
+/** Shape, allowed keys, honeypot and fill timing: identical for every public intake type. */
+function intakeGate(body: unknown, allowed: Set<string>, now: number): { input: Record<string, unknown> } | IntakeFailure {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { ok: false, status: 400, error: "invalid", fields: ["body"] };
   }
   const input = body as Record<string, unknown>;
-  const unknownKeys = Object.keys(input).filter((key) => !ALLOWED_KEYS.has(key));
+  const unknownKeys = Object.keys(input).filter((key) => !allowed.has(key));
   if (unknownKeys.length) return { ok: false, status: 400, error: "invalid", fields: ["unknown_field"] };
 
   // Honeypot: the hidden field is never shown to people. Reject honestly.
@@ -94,20 +131,10 @@ export function validatePublicLead(body: unknown, now = Date.now()): LeadValidat
   const elapsed = now - startedAt;
   if (elapsed < -CLOCK_SKEW_MS || elapsed > MAX_FILL_MS) return { ok: false, status: 422, error: "expired" };
   if (elapsed < MIN_FILL_MS) return { ok: false, status: 422, error: "too_fast" };
+  return { input };
+}
 
-  const fields: string[] = [];
-  const name = normalizeLeadName(input.name);
-  if (!name) fields.push("name");
-  const phone = normalizeLeadPhone(input.phone);
-  if (!phone) fields.push("phone");
-  if (!oneOf(NEEDS, input.need)) fields.push("need");
-  if (!oneOf(AMOUNT_BANDS, input.amountBand)) fields.push("amountBand");
-  if (!oneOf(CONTACT_TIMES, input.contactTime)) fields.push("contactTime");
-  const planId = optionalInt(input.planId, 1, 1_000_000);
-  if (planId === undefined) fields.push("planId");
-  const term = optionalInt(input.term, 1, 120);
-  if (term === undefined) fields.push("term");
-  if (input.consent !== true) fields.push("consent");
+function readSrcAndUtm(input: Record<string, unknown>, fields: string[]): { src: string | null; utm: PublicLead["utm"] } {
   let src: string | null = null;
   if (input.src !== undefined && input.src !== null && input.src !== "") {
     if (typeof input.src === "string" && SLUG_RE.test(input.src)) src = input.src;
@@ -123,6 +150,69 @@ export function validatePublicLead(body: unknown, now = Date.now()): LeadValidat
     }
     utm[key] = value.trim();
   }
+  return { src, utm };
+}
+
+/** Which intake a body is for. Absent or "lead" is the request wizard (older site builds send no type). */
+export function publicIntakeType(body: unknown): "lead" | "callback" | undefined {
+  const type = body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>).type : undefined;
+  if (type === undefined || type === "lead") return "lead";
+  if (type === "callback") return "callback";
+  return undefined;
+}
+
+/** Strict validation of a callback request. Same gate, name/phone rules and consent as a lead. */
+export function validatePublicCallback(body: unknown, now = Date.now()): CallbackValidation {
+  const gate = intakeGate(body, CALLBACK_KEYS, now);
+  if ("ok" in gate) return gate;
+  const { input } = gate;
+  const fields: string[] = [];
+  if (input.type !== "callback") fields.push("type");
+  const name = normalizeLeadName(input.name);
+  if (!name) fields.push("name");
+  const phone = normalizeLeadPhone(input.phone);
+  if (!phone) fields.push("phone");
+  if (!oneOf(CALLBACK_TIMES, input.preferredTime)) fields.push("preferredTime");
+  const topicRaw = input.topic;
+  const topic = topicRaw === undefined || topicRaw === null || topicRaw === "" ? null : topicRaw;
+  if (topic !== null && !oneOf(CALLBACK_TOPICS, topic)) fields.push("topic");
+  if (input.consent !== true) fields.push("consent");
+  const { src, utm } = readSrcAndUtm(input, fields);
+  if (fields.length) return { ok: false, status: 400, error: "invalid", fields };
+  return {
+    ok: true,
+    callback: {
+      name: name!,
+      phone: phone!,
+      preferredTime: input.preferredTime as PublicCallback["preferredTime"],
+      topic: topic as PublicCallback["topic"],
+      src,
+      utm,
+    },
+  };
+}
+
+/** Strict validation. Field names may be reported, input values never are. */
+export function validatePublicLead(body: unknown, now = Date.now()): LeadValidation {
+  const gate = intakeGate(body, ALLOWED_KEYS, now);
+  if ("ok" in gate) return gate;
+  const { input } = gate;
+
+  const fields: string[] = [];
+  if (input.type !== undefined && input.type !== "lead") fields.push("type");
+  const name = normalizeLeadName(input.name);
+  if (!name) fields.push("name");
+  const phone = normalizeLeadPhone(input.phone);
+  if (!phone) fields.push("phone");
+  if (!oneOf(NEEDS, input.need)) fields.push("need");
+  if (!oneOf(AMOUNT_BANDS, input.amountBand)) fields.push("amountBand");
+  if (!oneOf(CONTACT_TIMES, input.contactTime)) fields.push("contactTime");
+  const planId = optionalInt(input.planId, 1, 1_000_000);
+  if (planId === undefined) fields.push("planId");
+  const term = optionalInt(input.term, 1, 120);
+  if (term === undefined) fields.push("term");
+  if (input.consent !== true) fields.push("consent");
+  const { src, utm } = readSrcAndUtm(input, fields);
   if (fields.length) return { ok: false, status: 400, error: "invalid", fields };
   return {
     ok: true,
@@ -230,6 +320,7 @@ export function ensurePublicLeadSchema(): void {
   execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_public_leads_tracking ON public_leads(tracking_code) WHERE tracking_code IS NOT NULL");
   execute("CREATE INDEX IF NOT EXISTS idx_public_leads_ip ON public_leads(ip_hash, created_at)");
   execute("CREATE INDEX IF NOT EXISTS idx_public_leads_phone ON public_leads(phone, created_at)");
+  ensureCallbackSchema();
   const catalogColumns = queryRows<{ name: string }>("PRAGMA table_info(customer_tag_catalog)").map((c) => c.name);
   if (catalogColumns.includes("canonical_label")) {
     execute(
@@ -242,6 +333,90 @@ export function ensurePublicLeadSchema(): void {
   schemaReady = true;
 }
 
+/**
+ * «درخواست تماس کارشناس» (additive only: two new tables, nothing existing is altered).
+ * A callback is not a customer yet; staff convert it (see callback-requests.ts). It shares
+ * the lead intake's caps and 10-minute duplicate window through leadCounts().
+ */
+export const CALLBACK_STATUSES = ["new", "in_progress", "called", "no_answer", "cancelled"] as const;
+export function ensureCallbackSchema(): void {
+  execute(`CREATE TABLE IF NOT EXISTS callback_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL DEFAULT 'website' CHECK(source='website'),
+    tracking_code TEXT,
+    name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    preferred_time TEXT NOT NULL CHECK(preferred_time IN ('now','morning','evening')),
+    topic TEXT CHECK(topic IS NULL OR topic IN ('cash','goods','unsure')),
+    src TEXT,
+    utm_source TEXT, utm_medium TEXT, utm_campaign TEXT, utm_content TEXT, utm_term TEXT,
+    ip_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','in_progress','called','no_answer','cancelled')),
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+    last_attempt_at TEXT,
+    assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    notes TEXT,
+    customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
+    converted_at TEXT,
+    converted_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    updated_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+  )`);
+  execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_callback_requests_tracking ON callback_requests(tracking_code) WHERE tracking_code IS NOT NULL");
+  execute("CREATE INDEX IF NOT EXISTS idx_callback_requests_queue ON callback_requests(status, preferred_time, created_at)");
+  execute("CREATE INDEX IF NOT EXISTS idx_callback_requests_ip ON callback_requests(ip_hash, created_at)");
+  execute("CREATE INDEX IF NOT EXISTS idx_callback_requests_phone ON callback_requests(phone, created_at)");
+  execute("CREATE INDEX IF NOT EXISTS idx_callback_requests_assignee ON callback_requests(assigned_user_id, status)");
+  execute(`CREATE TABLE IF NOT EXISTS callback_request_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    callback_id INTEGER NOT NULL REFERENCES callback_requests(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    action TEXT NOT NULL CHECK(action IN ('status','assign','notes','convert')),
+    from_value TEXT,
+    to_value TEXT,
+    created_at TEXT NOT NULL
+  )`);
+  execute("CREATE INDEX IF NOT EXISTS idx_callback_request_events ON callback_request_events(callback_id, id)");
+}
+
+function trackingCodeTaken(code: string): boolean {
+  return Boolean(
+    queryRow("SELECT 1 AS hit FROM public_leads WHERE tracking_code=?", [code])
+      ?? queryRow("SELECT 1 AS hit FROM callback_requests WHERE tracking_code=?", [code]),
+  );
+}
+
+export function uniqueTrackingCode(): string {
+  let code = newTrackingCode();
+  while (trackingCodeTaken(code)) code = newTrackingCode();
+  return code;
+}
+
+export type CallbackRecordResult = { id: number; trackingCode: string; customerId: number | null };
+
+/** Store a callback request. Links an existing customer by mobile but never creates one. */
+export function recordPublicCallback(callback: PublicCallback, ipHash: string, now = new Date()): CallbackRecordResult {
+  ensurePublicLeadSchema();
+  return runImmediateTransaction(() => {
+    const timestamp = now.toISOString();
+    const customerId = canonicalCustomerByMobile(callback.phone) ?? null;
+    const trackingCode = uniqueTrackingCode();
+    const id = execute(
+      `INSERT INTO callback_requests
+        (tracking_code, name, phone, preferred_time, topic, src, utm_source, utm_medium, utm_campaign, utm_content, utm_term,
+         ip_hash, customer_id, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        trackingCode, callback.name, callback.phone, effectivePreferredTime(callback.preferredTime, now), callback.topic, callback.src,
+        callback.utm.utm_source ?? null, callback.utm.utm_medium ?? null, callback.utm.utm_campaign ?? null,
+        callback.utm.utm_content ?? null, callback.utm.utm_term ?? null, ipHash, customerId, timestamp, timestamp,
+      ],
+    );
+    return { id, trackingCode, customerId };
+  });
+}
+
 export type LeadCounts = { ipDay: number; phoneDay: number; phoneRecent: number };
 
 export function leadCounts(ipHash: string, phone: string, now = new Date()): LeadCounts {
@@ -252,8 +427,12 @@ export function leadCounts(ipHash: string, phone: string, now = new Date()): Lea
        SUM(CASE WHEN ip_hash=? AND created_at>? THEN 1 ELSE 0 END) AS ip_day,
        SUM(CASE WHEN phone=? AND created_at>? THEN 1 ELSE 0 END) AS phone_day,
        SUM(CASE WHEN phone=? AND created_at>? THEN 1 ELSE 0 END) AS phone_recent
-     FROM public_leads WHERE created_at>?`,
-    [ipHash, day, phone, day, phone, recent, day],
+     FROM (
+       SELECT ip_hash, phone, created_at FROM public_leads WHERE created_at>?
+       UNION ALL
+       SELECT ip_hash, phone, created_at FROM callback_requests WHERE created_at>?
+     )`,
+    [ipHash, day, phone, day, phone, recent, day, day],
   );
   return {
     ipDay: Number(row?.ip_day ?? 0),
@@ -262,7 +441,7 @@ export function leadCounts(ipHash: string, phone: string, now = new Date()): Lea
   };
 }
 
-function canonicalCustomerByMobile(phone: string): number | undefined {
+export function canonicalCustomerByMobile(phone: string): number | undefined {
   const rows = queryRows<{ id: number; merged_into_customer_id: number | null }>(
     `SELECT id, merged_into_customer_id FROM customers
      WHERE crm_customer_mobile_key(phone)=crm_customer_mobile_key(?)
@@ -285,7 +464,7 @@ function canonicalCustomerByMobile(phone: string): number | undefined {
   return id;
 }
 
-function defaultAllocationProgramId(): number | undefined {
+export function defaultAllocationProgramId(): number | undefined {
   const programs = queryRows<{ id: number }>(
     "SELECT id FROM allocation_programs WHERE active=1 AND is_default=1 ORDER BY id",
   );
@@ -324,8 +503,7 @@ export function recordPublicLead(lead: PublicLead, ipHash: string, now = new Dat
       "INSERT OR IGNORE INTO customer_tags(customer_id,tag,created_at) VALUES (?,?,?)",
       [customerId, WEBSITE_LEAD_TAG, timestamp],
     );
-    let trackingCode = newTrackingCode();
-    while (queryRow("SELECT 1 AS hit FROM public_leads WHERE tracking_code=?", [trackingCode])) trackingCode = newTrackingCode();
+    const trackingCode = uniqueTrackingCode();
     execute(
       `INSERT INTO public_leads
         (source, customer_id, outcome, name, phone, need, amount_band, plan_id, term, contact_time, src,

@@ -1,4 +1,4 @@
-import { BarChart3, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, LifeBuoy, LogOut, Menu, MessageCircle, MessagesSquare, Pencil, Phone, PhoneCall, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, type LucideIcon } from 'lucide-react';
+import { BarChart3, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, LifeBuoy, LogOut, Menu, MessageCircle, MessagesSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, type LucideIcon } from 'lucide-react';
 import { UserAvatar, AvatarPicker } from '@/components/UserAvatar';
 import { useHealthCheck, getHealthCheckQueryKey, useGetAuthSession, useLogout, useUpdateAuthProfile, useListReminders, useAcknowledgeReminder, getListRemindersQueryKey, getGetAuthSessionQueryKey, type CrmUser, type Reminder } from '@workspace/api-client-react';
 import { Link, useLocation } from 'wouter';
@@ -14,6 +14,7 @@ import { NotificationBell, NotificationProvider, NavNotificationBadge } from '@/
 import { DiagnosticsProvider, DiagnosticsButton } from '@/diagnostics/DiagnosticsProvider';
 import { DiagnosticPageBoundary } from '@/diagnostics/DiagnosticPageBoundary';
 import { Modal } from './DataTools';
+import { callbacksApi } from '@/lib/callbacks-api';
 import { CreateReminderForm } from './Forms';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem } from './ui/dropdown-menu';
 
@@ -27,6 +28,7 @@ const allNavItems: NavItem[] = [
   { href: '/reminders', label: 'یادآورها', icon: Bell, permission: 'reminders.view' },
   { href: '/customers', label: 'مشتریان', icon: UsersRound, permission: 'customers.view' },
   { href: '/consultations', label: 'مشاوره‌ها', icon: ClipboardList, permission: 'consultations.view' },
+  { href: '/callback-requests', label: 'درخواست‌های تماس', icon: PhoneIncoming, permission: 'callbacks.view' },
   { href: '/manual-verifications', label: 'بررسی دستی هویت', icon: ShieldCheck, adminOnly: true },
   { href: '/loan-applications', label: 'درخواست‌های تسهیلات', icon: Landmark, permission: 'loan_applications.view' },
   { href: '/loan-plans', label: 'طرح‌های تسهیلاتی', icon: Layers, permission: 'loan_plans.view' },
@@ -55,7 +57,7 @@ const mobilePrimaryNavHrefs = ['/', '/customers', '/chat', '/internal-chat'];
 type NavGroup = { id: string; label: string; icon: LucideIcon; hrefs: string[]; pinned?: boolean };
 const navGroups: NavGroup[] = [
   { id: 'dashboard', label: 'داشبورد', icon: LayoutDashboard, hrefs: ['/', '/reminders'], pinned: true },
-  { id: 'customers', label: 'مشتریان و مشاوره', icon: Contact, hrefs: ['/customers', '/consultations', '/manual-verifications'] },
+  { id: 'customers', label: 'مشتریان و مشاوره', icon: Contact, hrefs: ['/customers', '/callback-requests', '/consultations', '/manual-verifications'] },
   { id: 'loans', label: 'وام و قرارداد', icon: HandCoins, hrefs: ['/loan-applications', '/loan-plans', '/contracts'] },
   { id: 'goods', label: 'خرید کالا', icon: Store, hrefs: ['/goods-purchases', '/sales-commissions'] },
   { id: 'finance', label: 'مالی و پرداخت', icon: Banknote, hrefs: ['/payment-orders', '/wallet-management', '/bank-accounts', '/accounting'] },
@@ -119,6 +121,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const team = useTeamInbox(canTeam);
   usePresence(staffChatPresence, canChat);
   const unread = useQuery({ queryKey: ['chat', 'unread'], queryFn: fetchStaffUnread, enabled: canChat, refetchInterval: 10_000, retry: false });
+  const canCallbacks = Boolean(user && (user.role === 'admin' || user.permissions?.includes('callbacks.view')));
+  const callbacksBadge = useQuery({ queryKey: ['callbacks', 'badge'], queryFn: callbacksApi.badge, enabled: canCallbacks, refetchInterval: 30_000, retry: false });
 
   useEffect(() => {
     const next = dueReminders.data?.[0];
@@ -220,6 +224,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
         <span>{compact ? (href === '/' ? 'خانه' : href === '/chat' ? 'گفتگو' : href === '/internal-chat' ? 'داخلی' : label) : label}</span>
         {href === '/chat' && (unread.data?.count ?? 0) > 0 ? <b className="side-badge" aria-label={`${unread.data!.count} پیام خوانده‌نشده`} data-testid={`${mobile ? (compact ? 'badge-mobile-shortcut-chat-unread' : 'badge-mobile-chat-unread') : 'badge-chat-unread'}`}>{unread.data!.count.toLocaleString('fa-IR')}</b> : null}
         {href === '/internal-chat' && (team.data?.unreadCount ?? 0) > 0 ? <b className="side-badge" aria-label={`${team.data!.unreadCount} پیام خوانده‌نشده`} data-testid={`${mobile ? (compact ? 'badge-mobile-shortcut-internal-unread' : 'badge-mobile-internal-unread') : 'badge-internal-unread'}`}>{team.data!.unreadCount.toLocaleString('fa-IR')}</b> : null}
+        {href === '/callback-requests' && (callbacksBadge.data?.new ?? 0) > 0 ? <b className="side-badge" aria-label={`${callbacksBadge.data!.new} درخواست تماس جدید`} data-testid={`${mobile ? 'badge-mobile-callbacks-new' : 'badge-callbacks-new'}`}>{callbacksBadge.data!.new.toLocaleString('fa-IR')}</b> : null}
         <NavNotificationBadge href={href} />
       </Link>
     );

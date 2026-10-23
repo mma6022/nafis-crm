@@ -10,6 +10,7 @@ import CustomerDetail from '@/pages/CustomerDetail';
 import Reminders from '@/pages/Reminders';
 import Calls from '@/pages/Calls';
 import Consultations from '@/pages/Consultations';
+import CallbackRequests from '@/pages/CallbackRequests';
 import LoanPlans from '@/pages/LoanPlans';
 import LoanApplications from '@/pages/LoanApplications';
 import LoanApplicationDetail from '@/pages/LoanApplicationDetail';
@@ -197,6 +198,7 @@ function AppWithRoutes() {
                       <Route path="/instagram-inbox"><InstagramInbox /></Route>
                       <Route path="/phone"><PermissionRoute permission="calls.view"><PhonePage /></PermissionRoute></Route>
                       <Route path="/consultations"><PermissionRoute permission="consultations.view"><Consultations /></PermissionRoute></Route>
+                      <Route path="/callback-requests"><PermissionRoute permission="callbacks.view"><CallbackRequests /></PermissionRoute></Route>
                     <Route path="/loan-plans"><PermissionRoute permission="loan_plans.view"><LoanPlans /></PermissionRoute></Route>
                     <Route path="/loan-applications"><PermissionRoute permission="loan_applications.view"><LoanApplications /></PermissionRoute></Route>
                     <Route path="/loan-applications/:id"><PermissionRoute permission="loan_applications.view"><LoanApplicationDetail /></PermissionRoute></Route>

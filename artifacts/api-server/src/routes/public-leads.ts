@@ -2,7 +2,10 @@ import express, { type Express, type NextFunction, type Request, type Response, 
 import { trustedClientIp } from "../lib/client-ip";
 import { logger } from "../lib/logger";
 import { notifyNewCustomer, type NewCustomerNotificationOptions } from "../lib/customer-notifications";
-import { hashLeadIp, leadCounts, recordPublicLead, validatePublicLead, ensurePublicLeadSchema } from "../lib/public-leads";
+import {
+  hashLeadIp, leadCounts, recordPublicLead, validatePublicLead, ensurePublicLeadSchema,
+  publicIntakeType, recordPublicCallback, validatePublicCallback,
+} from "../lib/public-leads";
 
 export const PUBLIC_LEADS_PATH = "/api/public/leads";
 /**
@@ -96,6 +99,31 @@ function publicLeadCors(req: Request, res: Response, next: NextFunction): void {
   next();
 }
 
+/** type=callback: same validation gate, caps and duplicate window as a lead; never creates a customer. */
+function handleCallback(req: Request, res: Response): void {
+  const validation = validatePublicCallback(req.body);
+  if (!validation.ok) {
+    fail(res, validation.status, validation.error, validation.fields ? { fields: validation.fields } : {});
+    return;
+  }
+  const { callback } = validation;
+  const ipHash = hashLeadIp(trustedClientIp(req));
+  ensurePublicLeadSchema();
+  const counts = leadCounts(ipHash, callback.phone);
+  if (counts.phoneRecent > 0) {
+    res.status(200).json({ ok: true });
+    return;
+  }
+  if (counts.ipDay >= MAX_LEADS_PER_IP_DAY || counts.phoneDay >= MAX_LEADS_PER_PHONE_DAY) {
+    res.setHeader("Retry-After", "3600");
+    fail(res, 429, "rate_limited");
+    return;
+  }
+  const result = recordPublicCallback(callback, ipHash);
+  logger.info({ callbackId: result.id, linked: result.customerId != null, src: callback.src }, "Website callback request recorded");
+  res.status(201).json({ ok: true, trackingCode: result.trackingCode });
+}
+
 export function createPublicLeadsRouter(limiter = new AttemptLimiter()): Router {
   const router = Router();
   router.use(publicLeadCors);
@@ -116,6 +144,15 @@ export function createPublicLeadsRouter(limiter = new AttemptLimiter()): Router 
     },
     express.json({ limit: "4kb", strict: true }),
     (req, res): void => {
+      const kind = publicIntakeType(req.body);
+      if (!kind) {
+        fail(res, 400, "invalid", { fields: ["type"] });
+        return;
+      }
+      if (kind === "callback") {
+        handleCallback(req, res);
+        return;
+      }
       const validation = validatePublicLead(req.body);
       if (!validation.ok) {
         fail(res, validation.status, validation.error, validation.fields ? { fields: validation.fields } : {});
