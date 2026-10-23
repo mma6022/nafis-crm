@@ -22,7 +22,7 @@ import { AdviceHub, PlanFinder } from './PlanFinder';
 import { CustomerChat } from '@/chat/CustomerChat';
 import { usePresence } from '@/chat/Presence';
 import './portal.css';
-import './customer-login.css';
+import { CustomerLogin } from './CustomerLogin';
 
 const number = (value: string | number | null | undefined) => value == null ? '—' : Number(value).toLocaleString('fa-IR');
 const date = (value?: string) => value ? new Date(value).toLocaleDateString('fa-IR') : '—';
@@ -66,58 +66,6 @@ function Failure({ error, retry }: { error: unknown; retry: () => void }) {
 }
 function Empty({ title, text, action }: { title: string; text: string; action?: ReactNode }) {
   return <div className="cp-empty"><strong>{title}</strong><p>{text}</p>{action}</div>;
-}
-
-function Login() {
-  const queryClient = useQueryClient();
-  const [, navigate] = useLocation();
-  const [mobile, setMobile] = useState('');
-  const [code, setCode] = useState('');
-  const [step, setStep] = useState<'mobile' | 'code'>('mobile');
-  const [resendRemaining, setResendRemaining] = useState(0);
-  useEffect(() => {
-    document.title = 'ورود مشتریان | نفیس';
-    const timer = setInterval(() => setResendRemaining(value => Math.max(0, value - 1)), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  const [error, setError] = useState('');
-  const session = useQuery({ queryKey: ['customer', 'me'], queryFn: portalApi.me, retry: false });
-  const otp = useMutation({ mutationFn: () => portalApi.requestOtp(digits(mobile).trim()) });
-  const verify = useMutation({ mutationFn: () => portalApi.verifyOtp(digits(mobile).trim(), digits(code).trim()) });
-  if (session.isSuccess) return <Redirect to="/customer" />;
-  const requestCode = async (event: FormEvent) => {
-    event.preventDefault(); setError('');
-    if (!/^09\d{9}$/.test(digits(mobile).trim())) { setError('شماره همراه باید با ۰۹ آغاز شود و ۱۱ رقم داشته باشد.'); return; }
-    try { await otp.mutateAsync(); setResendRemaining(60); setStep('code'); } catch (e) { setError(message(e)); }
-  };
-  const submitCode = async (event: FormEvent) => {
-    event.preventDefault(); setError('');
-    if (!/^\d{6}$/.test(digits(code).trim())) { setError('کد پیامک‌شدهٔ شش‌رقمی را وارد کنید.'); return; }
-    try {
-      const result = await verify.mutateAsync();
-      if (!result.authenticated) throw new Error('تأیید ورود انجام نشد. کد را دوباره بررسی کنید.');
-      await queryClient.invalidateQueries({ queryKey: ['customer'] });
-      navigate('/customer');
-    } catch (e) { setError(message(e)); }
-  };
-  return <div className="cp cp-login customer-login" dir="rtl">
-    <main className="cp-login-main"><div className="cp-login-panel">
-      <img className="customer-login-logo" src={`${import.meta.env.BASE_URL}nafiss-financial-logo.png`} alt="نشان گروه مالی نفیس" />
-      <h2>ورود مشتریان</h2>
-      <p>{step === 'mobile' ? 'ورود یا ثبت‌نام با شماره همراه' : `کد ارسال‌شده به ${mobile} را وارد کنید.`}</p>
-      <form className="cp-form" onSubmit={step === 'mobile' ? requestCode : submitCode}>
-        {step === 'mobile' ? <label className="cp-field">شماره همراه<input required type="tel" inputMode="tel" dir="ltr" autoComplete="tel" placeholder="0912 000 0000" value={mobile} onChange={e => setMobile(e.target.value)} data-testid="input-customer-mobile" /></label>
-          : <label className="cp-field">کد تأیید<input required inputMode="numeric" autoComplete="one-time-code" dir="ltr" placeholder="کد پیامک‌شده" value={code} onChange={e => setCode(e.target.value)} data-testid="input-customer-otp" /></label>}
-        {error && <div className="cp-alert" role="alert">{error}</div>}
-        <button className="cp-btn cp-btn-primary" disabled={otp.isPending || verify.isPending} data-testid="button-customer-auth">{otp.isPending || verify.isPending ? 'لطفاً صبر کنید…' : step === 'mobile' ? 'دریافت کد ورود' : 'تأیید و ورود'} <ArrowLeft size={16} /></button>
-      </form>
-      {step === 'code' && <div className="cp-actions" style={{ marginTop: 16 }}>
-        <button type="button" className="cp-btn cp-btn-outline cp-btn-small" onClick={() => { setStep('mobile'); setError(''); }} data-testid="button-change-mobile">تغییر شماره</button>
-        <button type="button" className="cp-btn cp-btn-outline cp-btn-small" disabled={otp.isPending || resendRemaining > 0} onClick={() => { setError(''); otp.mutate(undefined, { onSuccess: () => setResendRemaining(60), onError: e => setError(message(e)) }); }} data-testid="button-resend-otp">{resendRemaining > 0 ? `ارسال دوباره پس از ${resendRemaining} ثانیه` : 'ارسال دوباره کد'}</button>
-      </div>}
-      <Link href="/login" className="cp-link customer-login-staff" data-testid="link-staff-login">ورود کارکنان</Link>
-    </div></main>
-  </div>;
 }
 
 function IdentityModal({ profile, onComplete }: { profile: Profile; onComplete: () => void }) {
@@ -544,5 +492,5 @@ function Gate() {
 }
 
 export default function CustomerPortal() {
-  return <Switch><Route path="/customer/login" component={Login} /><Route component={Gate} /></Switch>;
+  return <Switch><Route path="/customer/login" component={CustomerLogin} /><Route component={Gate} /></Switch>;
 }
