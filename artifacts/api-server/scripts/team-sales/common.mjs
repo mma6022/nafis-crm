@@ -18,6 +18,7 @@ export function parseArgs(argv) {
     if (a === "--apply") out.apply = true;
     else if (a === "--force") out.force = true;
     else if (a === "--keep-notifications") out.keepNotifications = true;
+    else if (a === "--rollback") out.rollback = true;
     else if (a.startsWith("--")) {
       const [k, v] = a.includes("=") ? a.slice(2).split(/=(.*)/s) : [a.slice(2), argv[++i]];
       out[k.replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = v;
