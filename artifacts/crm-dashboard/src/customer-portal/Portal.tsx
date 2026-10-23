@@ -9,6 +9,7 @@ import { portalApi, PortalApiError, type Application, type ConsultationMessage, 
 import { IdentityPage } from './Identity';
 import { IdentityDocumentUploads } from './IdentityDocumentUploads';
 import { WalletPanel } from './WalletPanel';
+import { WalletFeePage, WalletTopUpWizard } from './WalletFlows';
 import { ProfilePage } from './ProfilePage';
 import { LoanPlanCards } from './LoanPlanCards';
 import { ActiveRequestList } from './ActiveRequests';
@@ -17,7 +18,7 @@ import { PlanCalculator, type CalculatorSummary } from './PlanCalculator';
 import { eligibleConditionId } from './plan-calculator-values';
 import { readPaymentDraft, savePaymentDraft } from './payment-return';
 import { AdviceHub, PlanFinder } from './PlanFinder';
-import { CustomerChat } from '@/chat/CustomerChat';
+import { PortalChat } from './PortalChat';
 import { usePresence } from '@/chat/Presence';
 import { CHAT_HREF, isFinished, stageCopy } from './customer-stage-map';
 import {
@@ -27,6 +28,7 @@ import {
 import logoUrl from './assets/nafis-logo-full.svg';
 import './portal.css';
 import './nfp.css';
+import './nfp2.css';
 import { CustomerLogin } from './CustomerLogin';
 import { ExpertPickerButton } from './ExpertPicker';
 
@@ -39,12 +41,15 @@ const firstName = (profile: Profile) => (profile.name || '').trim().split(/\s+/)
 const APPLY_STEPS = ['اعتبارسنجی', 'سازگاری با طرح', 'مبلغ و هزینه', 'استعلام', 'مدارک هویتی', 'ارجاع به کارشناس'];
 const isDetail = (l: string) => /^\/customer\/applications\/[^/]+$/.test(l);
 const isApply = (l: string) => l === '/customer/apply';
+const isWalletFlow = (l: string) => l === '/customer/wallet/top-up' || l === '/customer/wallet/fee';
+const isChat = (l: string) => l === CHAT_HREF;
+const isFinder = (l: string) => l === '/customer/advice/finder';
 
 const tabs = [
-  { key: 'home', href: '/customer', label: 'خانه', icon: Home, nav: 'link-customer-overview', match: (l: string) => l === '/customer' || l === '/customer/plans' },
+  { key: 'home', href: '/customer', label: 'خانه', icon: Home, nav: 'link-customer-overview', match: (l: string) => l === '/customer' || l === '/customer/plans' || isFinder(l) },
   { key: 'requests', href: '/customer/applications', label: 'درخواست‌ها', icon: List, nav: 'link-customer-requests', match: (l: string) => l.startsWith('/customer/applications') || isApply(l) },
-  { key: 'advice', href: CHAT_HREF, label: 'گفتگو', icon: MessageSquare, nav: 'link-customer-advice', match: (l: string) => l.startsWith('/customer/advice') },
-  { key: 'wallet', href: '/customer/wallet', label: 'کیف پول', icon: Wallet, nav: 'link-customer-wallet', match: (l: string) => l === '/customer/wallet' },
+  { key: 'advice', href: CHAT_HREF, label: 'گفتگو', icon: MessageSquare, nav: 'link-customer-advice', match: (l: string) => l.startsWith('/customer/advice') && !isFinder(l) },
+  { key: 'wallet', href: '/customer/wallet', label: 'کیف پول', icon: Wallet, nav: 'link-customer-wallet', match: (l: string) => l === '/customer/wallet' || l.startsWith('/customer/wallet/') },
   { key: 'profile', href: '/customer/profile', label: 'پروفایل', icon: UserRound, nav: 'link-customer-profile', match: (l: string) => l === '/customer/profile' },
 ];
 const useUnread = () => useQuery({ queryKey: ['customer', 'chat-thread'], queryFn: portalApi.chatThread, refetchInterval: 8000, refetchOnWindowFocus: true, retry: false }).data?.unreadCount ?? 0;
@@ -63,8 +68,11 @@ function ApplyFrame({ children }: { children: ReactNode }) {
 function ApplyGate({ profile }: { profile: Profile }) {
   const raw = new URLSearchParams(window.location.search).get('planId');
   const planId = raw && /^\d+$/.test(raw) && Number.isSafeInteger(Number(raw)) && Number(raw) > 0 ? Number(raw) : null;
+  // «کمک در انتخاب طرح» passes its suggested installment count; a saved draft still wins.
+  const rawMonths = new URLSearchParams(window.location.search).get('months');
+  const months = rawMonths && /^\d{1,3}$/.test(rawMonths) && Number(rawMonths) > 0 ? rawMonths : '';
   if (planId == null) return <Redirect to="/customer/plans" />;
-  return <Apply key={planId} profile={profile} planId={planId} />;
+  return <Apply key={planId} profile={profile} planId={planId} months={months} />;
 }
 
 function SubHeader({ location }: { location: string }) {
@@ -73,6 +81,9 @@ function SubHeader({ location }: { location: string }) {
     const planId = new URLSearchParams(window.location.search).get('planId');
     return <div className="nfp-sub-hd"><Link className="nfp-back" href={planId ? `/customer/plans?planId=${encodeURIComponent(planId)}` : '/customer/plans'} data-testid="link-subhd-back"><Icon icon={ArrowRight} />قبلی</Link><span className="nfp-ttl">ثبت درخواست</span></div>;
   }
+  if (isWalletFlow(location)) return <div className="nfp-sub-hd"><Link className="nfp-back" href="/customer/wallet" aria-label="بازگشت به کیف پول" data-testid="link-subhd-back"><Icon icon={ArrowRight} /></Link><span className="nfp-ttl">{location === '/customer/wallet/fee' ? 'پرداخت' : 'شارژ کیف پول'}</span></div>;
+  // Mobile only (hidden ≥1024px, where the breadcrumb takes over); the tab bar stays, as in the design.
+  if (isFinder(location)) return <div className="nfp-sub-hd"><Link className="nfp-back" href="/customer/advice" aria-label="بازگشت به مشاوره" data-testid="link-subhd-back"><Icon icon={ArrowRight} /></Link><span className="nfp-ttl">کمک در انتخاب طرح</span></div>;
   return null;
 }
 
@@ -81,15 +92,16 @@ function CustomerShell({ profile, children }: { profile: Profile; children: Reac
   const [location, navigate] = useLocation();
   useEffect(() => {
     const titles: Record<string, string> = { '/customer': 'خانه', '/customer/plans': 'طرح‌ها', '/customer/applications': 'درخواست‌ها', '/customer/apply': 'ثبت درخواست',
-      '/customer/wallet': 'کیف پول', '/customer/profile': 'پروفایل', '/customer/advice': 'مشاوره', '/customer/advice/ai': 'مشاوره هوشمند', '/customer/advice/finder': 'پیدا کردن طرح', '/customer/advice/chat': 'گفتگو با کارشناس' };
+      '/customer/wallet': 'کیف پول', '/customer/wallet/top-up': 'شارژ کیف پول', '/customer/wallet/fee': 'هزینه تشکیل پرونده', '/customer/profile': 'پروفایل', '/customer/advice': 'مشاوره', '/customer/advice/ai': 'مشاوره هوشمند', '/customer/advice/finder': 'کمک در انتخاب طرح', '/customer/advice/chat': 'گفتگو با کارشناس' };
     document.title = `${titles[location] || 'پیگیری درخواست'} | پرتال مشتریان نفیس`;
   }, [location]);
   usePresence(portalApi.presence, true);
   const unread = useUnread();
   const [logoutError, setLogoutError] = useState('');
   const logout = useMutation({ mutationFn: portalApi.logout, onSuccess: () => { queryClient.removeQueries({ queryKey: ['customer'] }); navigate('/customer/login'); }, onError: e => setLogoutError(message(e)) });
-  const detail = isDetail(location), apply = isApply(location), sub = detail || apply;
-  return <div className="cp nfp">
+  const detail = isDetail(location), apply = isApply(location), chat = isChat(location), sub = detail || apply || isWalletFlow(location);
+  const subHd = sub || isFinder(location);
+  return <div className={`cp nfp${chat ? ' nfp-v-chat' : ''}`}>
     <header className="nfp-hd"><div className="nfp-hd-in">
       <Link href="/customer" className="nfp-logo" aria-label="نفیس وام — خانه" data-testid="link-customer-home"><img src={logoUrl} alt="نفیس وام" /></Link>
       <nav className="nfp-nav" aria-label="بخش‌ها">{tabs.map(t => <Link key={t.key} href={t.href} aria-current={t.match(location) ? 'page' : undefined} data-testid={t.nav}>
@@ -101,11 +113,11 @@ function CustomerShell({ profile, children }: { profile: Profile; children: Reac
       <button type="button" className="nfp-icon-btn nfp-logout" aria-label="خروج از حساب" title="خروج" onClick={() => logout.mutate()} disabled={logout.isPending} data-testid="button-customer-logout"><Icon icon={LogOut} /></button>
     </div></header>
     <SubHeader location={location} />
-    <main className={`nfp-wrap${sub ? ' nfp-wrap--sub' : ''}${detail ? ' nfp-has-actbar' : ''}`}>
+    <main className={`nfp-wrap${subHd ? ' nfp-wrap--sub' : ''}${detail ? ' nfp-has-actbar' : ''}`}>
       {logoutError && <div className="nfp-alert" role="alert" style={{ marginBottom: 12 }}><Icon icon={AlertCircle} small /><span>{logoutError}</span></div>}
       {children}
     </main>
-    {!sub && <Tabbar />}
+    {!sub && !chat && <Tabbar />}
   </div>;
 }
 
@@ -241,7 +253,7 @@ function AiAdvice() {
     </section><aside className="cp-card"><p className="cp-eyebrow">نکته مهم</p><h3>پیشنهاد، نه تصمیم نهایی</h3><p>مشاور به شما در شناخت طرح‌ها کمک می‌کند. اعتبارسنجی، شرایط طرح و امکان ثبت درخواست فقط توسط سرور تعیین می‌شود.</p><div className="cp-rule" /><Link href="/customer/plans" className="cp-link" data-testid="link-advice-options">دیدن همه طرح‌ها ←</Link></aside></div></>;
 }
 
-function Apply({ profile, planId }: { profile: Profile; planId: number }) {
+function Apply({ profile, planId, months = '' }: { profile: Profile; planId: number; months?: string }) {
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
   const options = useQuery({ queryKey: ['customer', 'options'], queryFn: portalApi.options });
@@ -251,7 +263,7 @@ function Apply({ profile, planId }: { profile: Profile; planId: number }) {
   const docs = useQuery({ queryKey: ['customer', 'identity-docs'], queryFn: portalApi.identityDocuments });
   const wallet = useQuery({ queryKey: ['customer', 'wallet'], queryFn: portalApi.wallet });
   const [amount, setAmount] = useState(() => readPaymentDraft(profile.id ?? 0, planId).amount);
-  const [duration, setDuration] = useState(() => readPaymentDraft(profile.id ?? 0, planId).duration);
+  const [duration, setDuration] = useState(() => readPaymentDraft(profile.id ?? 0, planId).duration || months);
   useEffect(() => {
     savePaymentDraft(profile.id ?? 0, planId, amount, duration);
   }, [profile.id, planId, amount, duration]);
@@ -488,9 +500,11 @@ function Gate() {
     <Route path="/customer/advice" component={AdviceHub} />
     <Route path="/customer/advice/ai" component={AiAdvice} />
     <Route path="/customer/advice/finder" component={PlanFinder} />
-    <Route path="/customer/advice/chat" component={CustomerChat} />
+    <Route path="/customer/advice/chat" component={PortalChat} />
     <Route path="/customer/apply"><ApplyGate profile={profile.data} /></Route>
     <Route path="/customer/wallet"><WalletPanel /></Route>
+    <Route path="/customer/wallet/top-up" component={WalletTopUpWizard} />
+    <Route path="/customer/wallet/fee" component={WalletFeePage} />
     <Route path="/customer/profile"><ProfilePage profile={profile.data} /></Route>
     <Route path="/customer/applications" component={RequestsPage} />
     <Route path="/customer/applications/:id" component={ApplicationDetail} />

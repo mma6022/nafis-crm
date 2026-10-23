@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { UserAvatar } from '@/components/UserAvatar';
 import { FileText, Mic, Paperclip, RefreshCw, Send, Smile, Square } from 'lucide-react';
 import type { ChatMessage, ChatPage } from '@/customer-portal/api';
+import { CHAT_ACCEPT } from './chat-files';
 import './chat.css';
 
 export type ChatAdapter = {
@@ -152,7 +153,7 @@ export function ChatPane({ adapter, visibleSelected = true }: { adapter: ChatAda
     {error && status === 'ok' && <div className="tg-err" role="alert">{error}</div>}
     {emojiOpen && <div className="tg-emoji">{emojis.map(e => <button type="button" key={e} onClick={() => setText(t => t + e)} aria-label={`درج ${e}`}>{e}</button>)}</div>}
     <form className="tg-compose" onSubmit={e => { e.preventDefault(); submit(); }}>
-      <input ref={fileInput} type="file" hidden accept="image/*,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.zip" onChange={e => { pickFile(e.target.files?.[0]); e.target.value = ''; }} data-testid="input-chat-file" />
+      <input ref={fileInput} type="file" hidden accept={CHAT_ACCEPT} onChange={e => { pickFile(e.target.files?.[0]); e.target.value = ''; }} data-testid="input-chat-file" />
       <button type="button" className="tg-ib" aria-label="ایموجی" aria-expanded={emojiOpen} onClick={() => setEmojiOpen(v => !v)}><Smile size={20} /></button>
       <button type="button" className="tg-ib" aria-label="پیوست فایل" onClick={() => fileInput.current?.click()} data-testid="button-chat-attach"><Paperclip size={20} /></button>
       <textarea rows={1} value={text} maxLength={4000} placeholder="پیام…" aria-label="متن پیام" onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }} data-testid="input-chat-text" />
