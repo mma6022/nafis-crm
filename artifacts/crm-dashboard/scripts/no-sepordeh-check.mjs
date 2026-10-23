@@ -1,7 +1,7 @@
 // Fails if the banned root (s-p-r-d: the "deposit/entrust" word family, incl. the infinitive, the noun and
 // the verb stems b-s-p-a-r / mi-s-p-a-r) appears in the dashboard (src, public, index.html, dist) or in the
 // api-server src (user-visible strings, seeds, templates, comments). Product rule: "assigned" → «تخصیص»,
-// financial deposit → «وجه تضمین» / «حساب مسدودی بانکی».
+// financial guarantee → «وجه تضمین» (bank-deposit collateral was removed entirely).
 // Catches ZWNJ/ZWJ/tatweel/bidi marks inside the word, diacritics, Arabic letter variants (ة ۀ ە ي ك)
 // and \uXXXX / HTML-entity escapes. The banned letters are written as escapes so this file never contains them.
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
@@ -11,14 +11,8 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const api = join(root, '..', 'api-server');
 
-// The only exceptions. No allowlist for UI text. Each is an exact source line, counted.
-const EXCEPTIONS = [
-  {
-    file: 'api-server/src/lib/instagram-loan-packages.ts',
-    line: '  if (normalized.some((value) => /چک|ملک|خودرو|مسدودی|\u0633\u067e\u0631\u062f\u0647|کسر از حقوق/u.test(value))) return 3;',
-    reason: 'collateralRank(): matches legacy/cached collateral labels only (input matching, never displayed)',
-  },
-];
+// No exceptions: the root may not appear anywhere scanned.
+const EXCEPTIONS = [];
 
 export function normalize(text) {
   return text
@@ -73,6 +67,6 @@ for (const t of targets) {
     });
   }
 }
-if (hits.length) { console.error(`Banned root (s-p-r-d / s-p-a-r) found — use «تخصیص» (assigned) or «وجه تضمین» / «حساب مسدودی بانکی» (deposit):\n  ${hits.join('\n  ')}`); process.exit(1); }
+if (hits.length) { console.error(`Banned root (s-p-r-d / s-p-a-r) found — use «تخصیص» (assigned) or «وجه تضمین» (guarantee):\n  ${hits.join('\n  ')}`); process.exit(1); }
 const ex = [...used.values()];
 console.log(`no-sepordeh: ok (${targets.map(label).join(', ')}; exceptions: ${ex.length ? ex.join(', ') : 'none'})`);

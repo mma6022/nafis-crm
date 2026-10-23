@@ -57,6 +57,8 @@ const MAX_OPTIONS = 20;
 const MAX_CUSTOMER_DOCUMENTS = 12;
 const MAX_DOCUMENT_LABEL_LENGTH = 120;
 const GUARANTOR_DOCUMENT_KEYS = new Set(["guarantee_check", "guarantee_promissory"]);
+// No "deposit" entry: bank-deposit collateral does not exist. A legacy stored "deposit" value has no label,
+// so derivedCollateral() treats it as unspecified (neutral), never as an error.
 const COLLATERAL_LABELS = new Map([
   ["none", "بدون وثیقه"],
   ["physical_check", "چک فیزیکی"],
@@ -65,7 +67,6 @@ const COLLATERAL_LABELS = new Map([
   ["salary_deduction", "گواهی کسر از حقوق"],
   ["property", "سند ملکی"],
   ["vehicle", "سند خودرو"],
-  ["deposit", "حساب مسدودی بانکی"],
   ["check", "چک"],
 ]);
 
