@@ -30,6 +30,11 @@ const WORD = /بر[\s\u200c\u200d\u200f\u00a0]{0,2}(?:\u0622|\u0627\u0653?|\u062
 /** Decode \uXXXX escapes (JS/JSON bundles) so an escaped word cannot slip through. */
 const unesc = (t) => t.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
 // self-test of the matcher
+// Approved final-amount sentence (Mohammad 2026-10-23 23:26) must pass the word matcher, and so must «تأمین/تأمین‌کننده».
+const FINAL_SENTENCE = 'مبلغ قطعی را بانک یا تأمین\u200cکننده\u200cی مالی پس از اعتبارسنجی تعیین می\u200cکند.';
+for (const ok of [FINAL_SENTENCE, 'تأمین', 'تأمین\u200cکننده', 'تأمین\u200cکننده\u200cی مالی']) if (new RegExp(WORD.source).test(ok)) errors.push(`word matcher wrongly flags ${JSON.stringify(ok)}`);
+// The superseded sentence «مبلغ قطعی پس از اعتبارسنجی اعلام می‌شود» may not come back (terms page exempt, legal review).
+const OLD_FINAL = /مبلغ\s*قطعی\s*پس\s*از\s*اعتبارسنجی\s*اعلام/;
 for (const v of ['برآورد', 'برآوردی', 'برآوردها', 'براورد', 'بر\u200cآورد', 'بر آوردی', 'بر\u0627\u0653ورد', 'تخمینی']) if (!new RegExp(WORD.source).test(v)) errors.push(`word matcher misses ${JSON.stringify(v)}`);
 const REMOVED = /مبالغ\s*برآوردی\s*است\s*و\s*(مبلغ|رقم)\s*قطعی/;
 const hits = [];
@@ -37,6 +42,7 @@ for (const f of walk(DIST).filter((x) => /\.(html|js|mjs|json|txt|xml)$/.test(x)
   const rel = relative(DIST, f);
   let t = unesc(readFileSync(f, 'utf8'));
   if (REMOVED.test(t)) errors.push(`dist/${rel}: removed note «مبالغ برآوردی است …» is back`);
+  if (rel !== 'terms/index.html' && OLD_FINAL.test(t)) errors.push(`dist/${rel}: old sentence «مبلغ قطعی پس از اعتبارسنجی اعلام می‌شود» is back — use FINAL_SENTENCE`);
   for (const p of ALLOW[rel] || []) {
     const n = t.split(p).length - 1;
     if (n) hits.push(`${rel} ×${n}: «${p}»`);
@@ -52,6 +58,7 @@ for (const f of walk(join(ROOT, 'src')).filter((x) => /\.(astro|tsx?|mdx?|json|c
   const t = unesc(readFileSync(f, 'utf8'));
   if (REMOVED.test(t)) errors.push(`${rel}: removed note «مبالغ برآوردی است …» is back`);
   if (rel === TERMS_SRC) continue;
+  if (OLD_FINAL.test(t)) errors.push(`${rel}: old sentence «مبلغ قطعی پس از اعتبارسنجی اعلام می‌شود» is back — use FINAL_SENTENCE`);
   srcScanned++;
   for (const m of t.matchAll(WORD)) errors.push(`${rel}:${t.slice(0, m.index).split('\n').length}: «${m[0]}» (only the terms page is exempt) (…${t.slice(Math.max(0, m.index - 50), m.index + 30).replace(/\s+/g, ' ')}…)`);
 }
