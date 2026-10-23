@@ -1,0 +1,21 @@
+/* Messengers page — layout from prod messengers-d7a13638.css, colours/radii mapped to Nafis theme tokens. */
+.msgr-page { display: flex; flex-direction: column; gap: 10px; height: calc(100vh - 150px); height: calc(100dvh - 150px); min-height: 480px; }
+.msgr-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.msgr-tabs { display: flex; gap: 6px; padding: 4px; background: var(--nf-surface-2, #eef2f8); border-radius: var(--nf-radius, 12px); }
+.msgr-tab { border: 1px solid transparent; background: transparent; color: var(--nf-ink-soft, #44536f); border-radius: var(--nf-radius-sm, 10px); padding: 8px 18px; min-height: 40px; font: inherit; font-weight: 700; cursor: pointer; transition: background .15s, color .15s; }
+.msgr-tab:hover { color: var(--nf-ink, #172950); background: #fff; }
+.msgr-tab:focus-visible { outline: none; box-shadow: var(--nf-ring); }
+.msgr-tab.active { background: var(--nf-brand-600, #1c3687); color: #fff; border-color: var(--nf-brand-600, #1c3687); box-shadow: var(--nf-shadow-card); }
+.msgr-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.msgr-actions .btn { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+.msgr-note { margin: 0; font-size: 12px; color: var(--nf-ink-muted, #67748c); }
+.msgr-frames { flex: 1; min-height: 0; position: relative; border: 1px solid var(--nf-line, #e1e6ef); border-radius: var(--nf-radius-lg, 14px); overflow: hidden; background: #fff; box-shadow: var(--nf-shadow-card); }
+.msgr-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+@media (max-width: 640px) {
+  .msgr-page { height: calc(100dvh - 150px - var(--nf-bottom-bar-h, 64px)); min-height: 420px; }
+  .msgr-bar { flex-direction: column; align-items: stretch; }
+  .msgr-tabs { justify-content: stretch; }
+  .msgr-tab { flex: 1; padding: 8px 10px; }
+  .msgr-actions { flex-wrap: nowrap; }
+  .msgr-actions .btn { flex: 1; justify-content: center; white-space: nowrap; padding-inline: 10px; font-size: 13.5px; }
+}

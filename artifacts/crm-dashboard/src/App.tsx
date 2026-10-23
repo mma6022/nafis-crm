@@ -30,6 +30,7 @@ import Accounting from '@/pages/Accounting';
 import SalesCommissions from '@/pages/SalesCommissions';
 import ManualVerifications from '@/pages/ManualVerifications';
 import InstagramInbox from '@/pages/InstagramInbox';
+import MessengersPage from '@/pages/Messengers';
 import { SocialMonitorReports } from '@/features/SocialMonitorReports';
 import '@/features/social-monitor-reports.css';
 import { VoipProvider } from '@/components/voip/VoipProvider';
@@ -207,6 +208,7 @@ function AppWithRoutes() {
                     <Route path="/accounting"><PermissionRoute permission="accounting.view"><Accounting /></PermissionRoute></Route>
                     <Route path="/sales-reports"><PermissionRoute permission="reports.view"><SalesReports /></PermissionRoute></Route>
                     <Route path="/sales-commissions"><PermissionRoute permission="goods_finance.view"><SalesCommissions /></PermissionRoute></Route>
+                    <Route path="/messengers"><PermissionRoute permission="internal_chat.use"><MessengersPage /></PermissionRoute></Route>
                      <Route path="/manual-verifications"><AdminOnlyRoute><ManualVerifications /></AdminOnlyRoute></Route>
                     <Route path="/contracts"><PermissionRoute permission="contracts.view"><Contracts /></PermissionRoute></Route>
                     <Route path="/users">

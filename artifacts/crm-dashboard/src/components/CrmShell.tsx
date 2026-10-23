@@ -1,4 +1,4 @@
-import { BarChart3, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, LifeBuoy, LogOut, Menu, MessageCircle, MessagesSquare, Pencil, Phone, PhoneCall, PieChart, Radar, Receipt, Rocket, Save, Settings, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, type LucideIcon } from 'lucide-react';
+import { BarChart3, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, LifeBuoy, LogOut, Menu, MessageCircle, MessagesSquare, Pencil, Phone, PhoneCall, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, type LucideIcon } from 'lucide-react';
 import { UserAvatar, AvatarPicker } from '@/components/UserAvatar';
 import { useHealthCheck, getHealthCheckQueryKey, useGetAuthSession, useLogout, useUpdateAuthProfile, useListReminders, useAcknowledgeReminder, getListRemindersQueryKey, getGetAuthSessionQueryKey, type CrmUser, type Reminder } from '@workspace/api-client-react';
 import { Link, useLocation } from 'wouter';
@@ -38,6 +38,7 @@ const allNavItems: NavItem[] = [
   { href: '/accounting', label: 'حسابداری', icon: Calculator, permission: 'accounting.view' },
   { href: '/chat', label: 'گفتگو با مشتریان', icon: MessagesSquare, permission: 'customers.view' },
   { href: '/internal-chat', label: 'گفتگوی داخلی', icon: MessageCircle, permission: 'internal_chat.use' },
+  { href: '/messengers', label: 'پیام‌رسان‌ها', icon: Send, permission: 'internal_chat.use' },
   { href: '/instagram-inbox', label: 'سرنخ‌های دایرکت اینستاگرام', icon: Instagram, staffOnly: true },
   { href: '/calls', label: 'تماس‌ها', icon: PhoneCall, permission: 'calls.view' },
   { href: '/mobile-calls', label: 'تماس‌های موبایل', icon: Smartphone, permission: 'calls.view' },
@@ -57,7 +58,7 @@ const navGroups: NavGroup[] = [
   { id: 'loans', label: 'وام و قرارداد', icon: HandCoins, hrefs: ['/loan-applications', '/loan-plans', '/contracts'] },
   { id: 'goods', label: 'خرید کالا', icon: Store, hrefs: ['/goods-purchases', '/sales-commissions'] },
   { id: 'finance', label: 'مالی و پرداخت', icon: Banknote, hrefs: ['/payment-orders', '/wallet-management', '/bank-accounts', '/accounting'] },
-  { id: 'comms', label: 'تماس و پیام‌ها', icon: Headset, hrefs: ['/chat', '/internal-chat', '/instagram-inbox', '/calls', '/mobile-calls', '/phone'] },
+  { id: 'comms', label: 'تماس و پیام‌ها', icon: Headset, hrefs: ['/chat', '/internal-chat', '/messengers', '/instagram-inbox', '/calls', '/mobile-calls', '/phone'] },
   { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/social-monitor-reports'] },
   { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/settings/notifications', '/settings/releases'] },
 ];
