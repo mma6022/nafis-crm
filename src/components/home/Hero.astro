@@ -1,7 +1,7 @@
 ---
 /** Home hero (mockup home.html `.hero`). h1 from home.mdx; every number from plan data (planFacts). Desktop: live sample card. */
 import I from '../ui/I.astro';
-import { SITE } from '../../lib/site';
+import { pickerTrigger } from '../../data/experts';
 import { fa, type PlanFacts } from '../../lib/plans';
 interface Props {
   facts: PlanFacts;
@@ -37,7 +37,7 @@ const [before, after] = h1.split('{planCount}');
       </p>
       <div class="actions">
         <a class="nf-btn nf-btn--primary nf-btn--block" href="#plan-finder" id="hero-cta">پیدا کردن طرح مناسب من <I name="arrow" /></a>
-        <a class="nf-btn nf-btn--text" href={SITE.tel}><I name="phone" size={18} /> ترجیح می‌دهم تماس بگیرم</a>
+        <a class="nf-btn nf-btn--text" {...pickerTrigger('call')}><I name="phone" size={18} /> ترجیح می‌دهم تماس بگیرم</a>
       </div>
       <ul class="ticks">
         <li><span class="ok"><I name="check" /></span><span data-plan-count="amountRange">{f.amountRange}</span></li>

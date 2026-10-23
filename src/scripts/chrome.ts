@@ -1,7 +1,39 @@
 /** Header / menu / footer / sticky-bar behaviour (designer site.js `initChrome`). Loaded once by BaseLayout. */
 const desk = matchMedia('(min-width:1024px)');
 
+/** Expert picker (data/experts.ts): the module is fetched on the first pointer/focus on a trigger, opened on click. */
+type PickerMod = typeof import('./expert-picker');
+let picker: Promise<PickerMod> | null = null;
+const loadPicker = () => (picker ??= import('./expert-picker'));
+const trigger = (t: EventTarget | null) => (t instanceof Element ? t.closest<HTMLElement>('[data-experts]') : null);
+
+function initExpertTriggers() {
+  for (const ev of ['pointerover', 'touchstart', 'focusin'] as const)
+    document.addEventListener(ev, (e) => void (trigger(e.target) && loadPicker()), { passive: true });
+  // role=button: Space opens it too (Enter already fires click on a link)
+  document.addEventListener('keydown', (e) => {
+    const el = trigger(e.target);
+    if (el && e.key === ' ' && el === e.target) {
+      e.preventDefault();
+      el.click();
+    }
+  });
+  document.addEventListener('click', (e) => {
+    const el = trigger(e.target);
+    if (!el || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (!document.getElementById('xp')) return; // no picker on this page: plain link to /contact#experts
+    e.preventDefault();
+    // close the mobile menu first so the picker is not under it
+    const mm = document.getElementById('mmenu');
+    if (mm && !mm.hidden && mm.contains(el)) document.getElementById('menu-btn')?.click();
+    loadPicker()
+      .then((m) => m.openPicker((el.dataset.experts || 'call') as Parameters<PickerMod['openPicker']>[0], el))
+      .catch(() => (location.href = el.getAttribute('href') || '/contact/#experts'));
+  });
+}
+
 export function initChrome() {
+  initExpertTriggers();
   const mb = document.getElementById('menu-btn');
   const mm = document.getElementById('mmenu');
   if (mb && mm)

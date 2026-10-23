@@ -3,6 +3,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import PageHeader from '../components/PageHeader.astro';
 import Section from '../components/ui/Section.astro';
 import { SITE, WORK_HOURS } from '../lib/site';
+import { pickerTrigger } from '../data/experts';
 import { breadcrumbLd } from '../lib/seo';
 const crumbs = [
   { name: 'خانه', path: '/' },
@@ -45,8 +46,8 @@ const crumbs = [
       </p>
       <h2>حذف یا اصلاح اطلاعات</h2>
       <p>
-        اگر می‌خواهید اطلاعاتتان اصلاح یا حذف شود، با شماره‌ی <a href={SITE.tel} dir="ltr">{SITE.phoneFa}</a> تماس
-        بگیرید ({WORK_HOURS.shortFa}).
+        اگر می‌خواهید اطلاعاتتان اصلاح یا حذف شود، به <a href={`mailto:${SITE.email}`} dir="ltr">{SITE.email}</a> ایمیل بزنید
+        یا با <a {...pickerTrigger('call')}>کارشناسان ما</a> تماس بگیرید ({WORK_HOURS.shortFa}).
       </p>
     </div>
   </Section>

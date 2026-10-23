@@ -6,10 +6,11 @@ export const SITE = {
   tagline: 'مسیر شفاف دریافت تسهیلات و وام',
   description:
     'نفیس وام، همراه شما برای شناخت گزینه‌های تسهیلات، وام فوری، وام بدون ضامن و انتخاب اقساط متناسب با شرایط واقعی زندگی.',
-  phone: '021-91303819',
-  phoneFa: '۰۲۱-۹۱۳۰۳۸۱۹',
-  phoneE164: '+982191303819',
-  tel: 'tel:+982191303819',
+  /**
+   * NO company phone (Mohammad 2026-10-23): the landline is not in service and must not appear anywhere. Every call /
+   * messenger entry point opens the expert picker (src/data/experts.ts). scripts/check-guarantees.mjs fails the build
+   * if the old landline appears in dist/ or src/ in any format.
+   */
   /** the .com MX is live (webmail.nafisvam.com) */
   email: 'info@nafisvam.com',
   /** Mohammad 2026-10-23: legal entity + national ID (شناسه ملی) — footer, /about, Organization schema */
@@ -30,35 +31,12 @@ export const SITE = {
   locale: 'fa_IR',
 } as const;
 
-/**
- * Public social profile (Mohammad 2026-10-23). The landline has NO messenger accounts, so there are no generic
- * WhatsApp/Telegram/Bale buttons anywhere; messengers exist only per sales expert on /contact (SALES_EXPERTS).
- */
+/** Public social profile (Mohammad 2026-10-23). Messengers exist only per sales expert (src/data/experts.ts). */
 export const SOCIAL = {
   instagram: { label: 'اینستاگرام', href: 'https://instagram.com/nafisvamm', handle: 'nafisvamm' },
 } as const;
 
-/**
- * /contact «کارشناسان فروش» (Mohammad 2026-10-23). Mobiles appear ONLY on /contact — never in the header, footer or
- * schema telephone. Messenger links checked 2026-10-23 with a mobile UA: wa.me/98… and t.me/+98… return 200
- * (both services also answer 200 for unknown numbers, so this proves the link format, not the account);
- * ble.ir/98… (no «+») returns the Bale chat page for all three numbers and 404 for an unknown number;
- * ble.ir/+98… is 404 and must not be used.
- */
-export const SALES_EXPERTS = [
-  { name: 'خانم قاسمی', mobile: '09003400452' },
-  { name: 'خانم حسنی', mobile: '09003400462' },
-  { name: 'آقای کاظمی', mobile: '09003400472' },
-] as const;
-export const expertLinks = (mobile: string) => {
-  const intl = '98' + mobile.replace(/^0/, '');
-  return {
-    tel: `tel:+${intl}`,
-    whatsapp: `https://wa.me/${intl}`,
-    telegram: `https://t.me/+${intl}`,
-    bale: `https://ble.ir/${intl}`,
-  };
-};
+/** Sales experts: single source is src/data/experts.ts (import it directly; not re-exported here so client islands that use site.ts do not bundle it). */
 
 /**
  * Callback / contact hours (PM-confirmed 2026-10-23): 09:00–18:00 Asia/Tehran; «صبح» = 9–13, «عصر» = 13–18.
@@ -84,10 +62,9 @@ export const WORK_HOURS = {
 } as const;
 
 /**
- * «یا در واتساپ بپرسید» link under the home callback lead. Empty = hidden. Never a wa.me link: every generic
- * messenger entry point (header, mobile bar «پیام», footer, /request) goes to /contact#experts, and
- * scripts/check-messengers.mjs fails the build on any wa.me / api.whatsapp / whatsapp: link outside that block.
- * If this is ever enabled, use '/contact#experts'.
+ * «یا در واتساپ بپرسید» link under the home callback lead. Empty = hidden. Never a wa.me link: every messenger entry
+ * point opens the expert picker, and scripts/check-messengers.mjs fails the build on any wa.me / api.whatsapp /
+ * whatsapp: link outside the picker and the /contact «کارشناسان فروش» block. If this is ever enabled, use '/contact/#experts'.
  */
 export const CALLBACK_WHATSAPP = '';
 

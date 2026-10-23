@@ -1,7 +1,8 @@
 ---
-/** Mobile sticky CTA bar (mockup src/bar.html). Hidden ≥1024px and while a text field has focus (body.kbd, scripts/chrome.ts). */
+/** «تماس» and «واتساپ» open the expert picker (call / whatsapp; Armita CONTACT-EXPERTS.md); landline removed 2026-10-23.
+ *  Mobile sticky CTA bar (mockup src/bar.html). Hidden ≥1024px and while a text field has focus (body.kbd, scripts/chrome.ts). */
 import I from './ui/I.astro';
-import { SITE } from '../lib/site';
+import { hasChannel, pickerTrigger } from '../data/experts';
 interface Props {
   src?: string;
 }
@@ -9,7 +10,7 @@ const { src = 'page' } = Astro.props;
 ---
 
 <nav class="bar" aria-label="تماس سریع">
-  <a href={SITE.tel}><I name="phone" />تماس</a>
-  <a href="/contact#experts"><I name="chat" />پیام</a>
+  <a {...pickerTrigger('call')} aria-label="تماس با کارشناس"><I name="phone" />تماس</a>
+  {hasChannel('whatsapp') && <a {...pickerTrigger('whatsapp')} aria-label="پیام در واتساپ به کارشناس"><I name="wa" />واتساپ</a>}
   <a class="req" href={`/request?src=${src}-sticky`}>درخواست وام <I name="arrow" size={20} /></a>
 </nav>

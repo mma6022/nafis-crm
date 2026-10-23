@@ -218,18 +218,45 @@ if (calc) {
   if (/مبلغ اسمی/.test(body)) errors.push('calculator: still mentions «مبلغ اسمی»');
 }
 
-// LAUNCH (PM 2026-10-23): one landline everywhere (۰۲۱-۹۱۳۰۳۸۱۹ / tel:+982191303819), no old number;
-// plan and result cards never show the nominal amount (only مبلغ دریافتی / مبلغ هر قسط / تعداد اقساط).
-const WRONG_PHONE = /91090380|۹۱۰۹۰۳۸۰|tel:0(?!9)\d/;
-for (const f of walk(DIST).filter((x) => /\.(html|js|xml|txt|json|webmanifest)$/.test(x))) {
+// LANDLINE REMOVED (Mohammad 2026-10-23): the company landline is not in service. The build FAILS if it appears anywhere
+// in dist/ or src/ — any format: Latin, Persian or Arabic-Indic digits, with or without 021 / +9821 / 009821, with spaces,
+// dashes, dots, ZWNJ or NBSP between digits (021-91303819, ۰۲۱-۹۱۳۰۳۸۱۹, tel:+982191303819, 9130 3819 …). The old number
+// 91090380 and unnormalised tel:0… links stay banned. Every call / messenger entry point opens the expert picker instead.
+// Plan and result cards never show the nominal amount (only مبلغ دریافتی / مبلغ هر قسط / تعداد اقساط).
+const DIGIT = { 0: '0۰٠', 1: '1۱١', 2: '2۲٢', 3: '3۳٣', 4: '4۴٤', 5: '5۵٥', 6: '6۶٦', 7: '7۷٧', 8: '8۸٨', 9: '9۹٩' };
+const SEP = '[\\s\\-.\u200c\u200f\u200e\u00a0()/]{0,3}';
+const phoneRe = (digits) => new RegExp(digits.split('').map((d) => `[${DIGIT[d]}]`).join(SEP));
+const LANDLINE = phoneRe('91303819');
+const OLD_LANDLINE = phoneRe('91090380');
+const UNNORMALISED_TEL = /tel:0(?!9)\d/;
+const phoneProblems = (t) => {
+  const out = [];
+  for (const [re, what] of [[LANDLINE, 'removed landline'], [OLD_LANDLINE, 'old landline'], [UNNORMALISED_TEL, 'unnormalised tel: link']]) {
+    const m = t.match(re);
+    if (m) out.push(`${what} (${JSON.stringify(m[0])})`);
+  }
+  return out;
+};
+let landlineScanned = 0;
+for (const f of walk(DIST).filter((x) => /\.(html|js|mjs|css|xml|txt|json|webmanifest|svg)$/.test(x))) {
   const t = readFileSync(f, 'utf8');
   const rel = relative(DIST, f);
-  if (WRONG_PHONE.test(t)) errors.push(`${rel}: old/unnormalised landline (${t.match(WRONG_PHONE)[0]})`);
+  landlineScanned++;
+  for (const p of phoneProblems(t)) errors.push(`dist/${rel}: ${p}`);
   if (/مبلغ اسمی وام:/.test(t)) errors.push(`${rel}: a card still shows «مبلغ اسمی وام»`);
 }
+for (const f of [...walk(join(ROOT, 'src')), ...walk(join(ROOT, 'public'))].filter((x) => /\.(astro|tsx?|jsx?|mdx?|json|ya?ml|xml|txt|html|css|svg|webmanifest)$/.test(x))) {
+  landlineScanned++;
+  for (const p of phoneProblems(readFileSync(f, 'utf8'))) errors.push(`${relative(ROOT, f)}: ${p}`);
+}
 const home = html('');
-if (home && !home.includes('tel:+982191303819')) errors.push('home: landline tel:+982191303819 missing');
-if (home && !home.includes('۰۲۱-۹۱۳۰۳۸۱۹')) errors.push('home: landline ۰۲۱-۹۱۳۰۳۸۱۹ missing');
+// self-test: the matcher must catch every known format (guards against a silently broken regex)
+for (const sample of ['021-91303819', '۰۲۱-۹۱۳۰۳۸۱۹', 'tel:+982191303819', '+98 21 9130 3819', '٠٢١٩١٣٠٣٨١٩', '9130\u200c3819', '۹۱۳۰ ۳۸۱۹'])
+  if (!LANDLINE.test(sample)) errors.push(`landline matcher misses ${JSON.stringify(sample)}`);
+for (const ok of ['09003400452', '989003400462', '14013708689']) if (LANDLINE.test(ok)) errors.push(`landline matcher false positive on ${ok}`);
+// the picker replaces it: home must have the call trigger and the picker dialog
+if (home && !/data-experts="call"/.test(home)) errors.push('home: no «تماس با کارشناس» expert-picker trigger');
+if (home && !/<dialog id="xp"/.test(home)) errors.push('home: expert picker <dialog id="xp"> missing');
 // PM decision: the office address is shown in the footer (every page), /contact, /about and the PostalAddress schema
 const ADDRESS = 'تهران، پونک، بلوار عدل جنوبی، پلاک ۲۴، واحد ۲';
 for (const slug of ['', 'contact', 'about']) {
@@ -263,5 +290,5 @@ console.log(
     Object.entries(seen)
       .map(([p, ids]) => `${p} [${ids.join(',') || '—'}]`)
       .join(' · ') +
-    ` · no «سپرده» anywhere (${files.length} pages) · consent text on every form · calculator FAQ exact · landline ۰۲۱-۹۱۳۰۳۸۱۹ only · address + PostalAddress · home canonical = sitemap · canonical/og:url/sitemap locs end with / · fast sections: no-guarantor = 1 per type by max مبلغ دریافتی without a guarantor (caps from data), no-cheque = fastest ≤3, no repeated name, + callback, no time promise · ${cardCount} plan cards = 3 figures + one button`,
+    ` · no «سپرده» anywhere (${files.length} pages) · consent text on every form · calculator FAQ exact · no landline in any format (${landlineScanned} dist+src files) · address + PostalAddress · home canonical = sitemap · canonical/og:url/sitemap locs end with / · fast sections: no-guarantor = 1 per type by max مبلغ دریافتی without a guarantor (caps from data), no-cheque = fastest ≤3, no repeated name, + callback, no time promise · ${cardCount} plan cards = 3 figures + one button`,
 );

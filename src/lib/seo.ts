@@ -5,7 +5,8 @@ import { stripMarkers } from './markers';
 export type Crumb = { name: string; path: string };
 
 const pad = (h: number) => `${String(h).padStart(2, '0')}:00`;
-/** Sat–Thu 09:00–18:00 (Mohammad 2026-10-23). Landline only: expert mobiles are never in the schema. */
+/** Sat–Thu 09:00–18:00 (Mohammad 2026-10-23). No telephone in the schema: the landline is not in service (2026-10-23)
+ *  and the expert mobiles are personal lines, so ContactPoint carries email + the /contact URL. */
 export const openingHoursLd = () => ({
   '@type': 'OpeningHoursSpecification',
   dayOfWeek: [...WORK_HOURS.schemaDays],
@@ -26,12 +27,12 @@ export const organizationLd = () => ({
   logo: { '@type': 'ImageObject', url: absoluteUrl(SITE.logoPng), width: 2000, height: 364 },
   image: absoluteUrl(SITE.ogImage),
   email: SITE.email,
-  telephone: SITE.phoneE164,
   address: { '@type': 'PostalAddress', ...SITE.addressParts },
   contactPoint: [
     {
       '@type': 'ContactPoint',
-      telephone: SITE.phoneE164,
+      email: SITE.email,
+      url: absoluteUrl('/contact'),
       contactType: 'customer service',
       areaServed: 'IR',
       availableLanguage: ['fa'],
@@ -48,7 +49,6 @@ export const financialServiceLd = () => ({
   description: SITE.description,
   url: SITE.url,
   image: absoluteUrl(SITE.ogImage),
-  telephone: SITE.phoneE164,
   email: SITE.email,
   areaServed: { '@type': 'Country', name: 'Iran' },
   parentOrganization: { '@id': `${SITE.url}/#organization` },

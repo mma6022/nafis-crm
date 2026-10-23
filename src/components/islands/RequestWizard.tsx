@@ -18,6 +18,7 @@ import { combos, fa, millionsFa, reqBands, type AmountBand, type Combo } from '.
 import { isValidMobile } from '../../lib/format';
 import { LeadError, readUtm, submitLead, type ContactTime, type Need } from '../../lib/lead';
 import { SITE } from '../../lib/site';
+import { pickerTrigger } from '../../data/picker-trigger';
 import { combosForNeed, stepOrder } from '../../lib/request-flow';
 import { CONSENT_TEXT } from '../../lib/callback';
 
@@ -294,7 +295,7 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
           <div className="alert" id="rq-fail" role="alert" tabIndex={-1} ref={failRef} hidden={!fail}>
             <I name="alert" />
             <span>
-              ثبت نشد. لطفاً دوباره تلاش کنید یا با <a href={SITE.tel}>{SITE.phoneFa}</a> تماس بگیرید.
+              ثبت نشد. لطفاً دوباره تلاش کنید یا با <a {...pickerTrigger('call')}>کارشناسان ما</a> تماس بگیرید.
             </span>
           </div>
           <form className="fields" id="rq-form" noValidate onSubmit={onSubmit}>
@@ -387,8 +388,8 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
             <a className="nf-btn nf-btn--secondary nf-btn--block" href={SITE.portal}>
               <I name="login" /> پیگیری در پنل مشتریان
             </a>
-            <a className="nf-btn nf-btn--secondary nf-btn--block" href={SITE.tel}>
-              <I name="phone" /> تماس: <span dir="ltr">{SITE.phoneFa}</span>
+            <a className="nf-btn nf-btn--secondary nf-btn--block" {...pickerTrigger('call')}>
+              <I name="phone" /> تماس با کارشناس
             </a>
           </div>
           <p style={{ marginTop: 16 }}>

@@ -13,7 +13,8 @@ import { I } from '../ui/I';
 import { fa } from '../../lib/plans';
 import { normalizeIranMobile } from '../../lib/format';
 import { LeadError, readUtm, type Need } from '../../lib/lead';
-import { CALLBACK_WHATSAPP, SITE, WORK_HOURS } from '../../lib/site';
+import { CALLBACK_WHATSAPP, WORK_HOURS } from '../../lib/site';
+import { pickerTrigger } from '../../data/picker-trigger';
 import {
   CB_DONE,
   CB_SUBMIT,
@@ -180,9 +181,7 @@ export default function CallbackForm({
           </button>
           <p className="cb-alt">
             یا{' '}
-            <a href={SITE.tel}>
-              تماس با&nbsp;<span dir="ltr">{SITE.phoneFa}</span>
-            </a>
+            <a {...pickerTrigger('call')}>تماس با کارشناس</a>
           </p>
         </div>
       )}
@@ -220,7 +219,7 @@ export default function CallbackForm({
             <div className="alert" role="alert" tabIndex={-1} ref={failRef} hidden={!fail}>
               <I name="alert" />
               <span>
-                ثبت نشد. لطفاً دوباره تلاش کنید یا با <a href={SITE.tel}><span dir="ltr">{SITE.phoneFa}</span></a> تماس بگیرید.
+                ثبت نشد. لطفاً دوباره تلاش کنید یا با <a {...pickerTrigger('call')}>کارشناسان ما</a> تماس بگیرید.
               </span>
             </div>
             {step !== 3 && (

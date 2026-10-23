@@ -13,7 +13,8 @@ import CallbackForm from '../components/islands/CallbackForm';
 import I from '../components/ui/I.astro';
 import FaqList from '../components/FaqList.astro';
 import PostCard from '../components/blog/PostCard.astro';
-import { KEYWORD_PAGES, SITE, TRUST_STATS } from '../lib/site';
+import { KEYWORD_PAGES, TRUST_STATS } from '../lib/site';
+import { pickerTrigger } from '../data/experts';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 import { fa, fillFacts, planFacts } from '../lib/plans';
 import { financialServiceLd, faqLd } from '../lib/seo';
@@ -139,7 +140,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
     <div class="container-nf faq-wrap">
       <div class="sec-head" style="display:block">
         <h2 id="faq-h">سؤالات متداول</h2>
-        <p>جواب سؤالی را پیدا نکردید؟ <a href={SITE.tel}>تماس بگیرید</a>.</p>
+        <p>جواب سؤالی را پیدا نکردید؟ <a {...pickerTrigger('call')}>با کارشناس تماس بگیرید</a>.</p>
       </div>
       <FaqList items={faq} />
       <div class="faq-more"><a class="nf-btn nf-btn--text" href="/faq">همه سؤالات متداول <I name="arrow" size={18} /></a></div>

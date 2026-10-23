@@ -6,6 +6,7 @@
 import type { CollectionEntry } from 'astro:content';
 import { render } from 'astro:content';
 import BaseLayout from './BaseLayout.astro';
+import { pickerTrigger } from '../data/experts';
 import Breadcrumbs from '../components/Breadcrumbs.astro';
 import I from '../components/ui/I.astro';
 import CallbackForm from '../components/islands/CallbackForm';
@@ -13,7 +14,6 @@ import { mdxComponents } from '../components/mdx';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 import { fa, fillFacts, leadHtml, planFacts, planFilter } from '../lib/plans';
 import { breadcrumbLd, faqLd } from '../lib/seo';
-import { SITE } from '../lib/site';
 interface Props {
   entry: CollectionEntry<'pages'>;
 }
@@ -65,7 +65,8 @@ const ASIDE: Record<string, { h?: string; p: string }> = {
   'kharid-aghsati': { h: 'قصد خرید اقساطی دارید؟', p: 'درخواست ثبت کنید؛ کارشناس طرح خرید کالای متناسب با مبلغ و قسط شما را پیشنهاد می‌دهد.' },
 };
 const aside = { h: ASIDE[page]?.h ?? `${d.primaryKeyword} لازم دارید؟`, p: ASIDE[page]?.p ?? 'درخواست ثبت کنید؛ کارشناس مناسب‌ترین طرح را با شما مرور می‌کند.' };
-const isTel = (h: string) => h.startsWith('tel:');
+/** frontmatter cta.secondary «تماس» = /contact/#experts → opens the expert picker (landline removed 2026-10-23) */
+const isTel = (h: string) => h.startsWith('/contact/#experts') || h.startsWith('/contact#experts');
 ---
 
 <BaseLayout rawTitle title={fill(d.title)} description={fill(d.description)} canonicalPath={d.slug} src={page} jsonLd={[faqLd(faq), breadcrumbLd(crumbs)]}>
@@ -85,7 +86,7 @@ const isTel = (h: string) => h.startsWith('tel:');
         <a class="nf-btn nf-btn--primary nf-btn--block" href={d.cta.primary.href}>{d.cta.primary.text} <I name="arrow" /></a>
         {
           d.cta.secondary && (
-            <a class="nf-btn nf-btn--text" href={d.cta.secondary.href}>
+            <a class="nf-btn nf-btn--text" {...(isTel(d.cta.secondary.href) ? pickerTrigger('call') : { href: d.cta.secondary.href })}>
               {isTel(d.cta.secondary.href) && <I name="phone" size={18} />} {d.cta.secondary.text}
             </a>
           )
@@ -102,7 +103,7 @@ const isTel = (h: string) => h.startsWith('tel:');
         <h2>{aside.h}</h2>
         <p>{aside.p}</p>
         <a class="nf-btn nf-btn--primary nf-btn--block" href={d.cta.primary.href}>{d.cta.primary.text}</a>
-        <a class="nf-btn nf-btn--secondary nf-btn--block" href={SITE.tel}><I name="phone" size={18} /> تماس: <span class="ltr">{SITE.phoneFa}</span></a>
+        <a class="nf-btn nf-btn--secondary nf-btn--block" {...pickerTrigger('call')}><I name="phone" size={18} /> تماس با کارشناس</a>
       </div>
       {
         toc.length > 1 && (

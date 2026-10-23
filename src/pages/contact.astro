@@ -1,6 +1,7 @@
 ---
 /**
- * Contact (UX-SPEC §7, REVIEW-ADITYA-2 §1): landline + «کارشناسان فروش» (Mohammad 2026-10-23: three sales experts, each with
+ * Contact (UX-SPEC §7, REVIEW-ADITYA-2 §1). No landline (not in service, Mohammad 2026-10-23): «تماس با کارشناس» + messenger
+ * buttons open the shared expert picker (data/experts.ts); below them «کارشناسان فروش» (Mohammad 2026-10-23: three sales experts, each with
  * a ≥48px call button and WhatsApp / Telegram / Bale icon links — mobiles ONLY here, never in header/footer/schema),
  * email, hours, Instagram, portal + the «درخواست مشاوره‌ی رایگان» callback form (#callback, src=contact-callback).
  */
@@ -10,42 +11,61 @@ import Icon from '../components/ui/Icon.astro';
 import I from '../components/ui/I.astro';
 import { buttonClass } from '../components/ui/styles';
 import CallbackForm from '../components/islands/CallbackForm';
-import { SALES_EXPERTS, SITE, SOCIAL, WORK_HOURS, expertLinks } from '../lib/site';
-import { faMobile } from '../lib/callback';
+import { SITE, SOCIAL, WORK_HOURS } from '../lib/site';
+import { EXPERTS as SALES_EXPERTS, expertLinks, CHANNELS, EXPERT_ROLE, MESSENGERS, PICKER_HOURS, pickerTrigger } from '../data/experts';
 import { breadcrumbLd } from '../lib/seo';
 const crumbs = [
   { name: 'خانه', path: '/' },
   { name: 'تماس با ما', path: '/contact' },
 ];
 const card = 'rounded-card border border-line bg-white p-5';
-const experts = SALES_EXPERTS.map((e) => ({ ...e, fa: faMobile(e.mobile), l: expertLinks(e.mobile) }));
+const experts = SALES_EXPERTS.map((e) => ({ ...e, l: expertLinks(e) }));
 ---
 
 <BaseLayout
   title="تماس با نفیس وام"
-  description="راه‌های تماس با نفیس وام: تلفن ثابت، کارشناسان فروش (تماس، واتساپ، تلگرام و بله) و ایمیل، یا ثبت درخواست مشاوره‌ی رایگان."
+  description="راه‌های تماس با نفیس وام: کارشناسان فروش (تماس، واتساپ، تلگرام و بله) و ایمیل، یا ثبت درخواست مشاوره‌ی رایگان."
   jsonLd={[breadcrumbLd(crumbs)]}
 >
   <PageHeader title="تماس با ما" lead="یک کارشناس رایگان راهنمایی‌تان می‌کند." crumbs={crumbs} />
   <div class="container-nf grid gap-3 pt-8 sm:grid-cols-2 lg:grid-cols-3">
     <div class={`${card} sm:col-span-2 lg:col-span-3`}>
-      <p class="text-ink-muted flex items-center gap-2 text-small"><Icon name="phone" size={18} /> تلفن ثابت</p>
-      <a href={SITE.tel} class="text-ink mt-1 block text-h2 font-extrabold"><span class="ltr">{SITE.phoneFa}</span></a>
+      <p class="text-ink-muted flex items-center gap-2 text-small"><Icon name="phone" size={18} /> تماس با کارشناس</p>
+      <div class="c-xp">
+        <a class="nf-btn nf-btn--primary" {...pickerTrigger('call')}><I name="phone" size={20} /> تماس با کارشناس</a>
+        {
+          MESSENGERS.map((ch) => (
+            <a class="expert-msg" {...pickerTrigger(ch)} aria-label={CHANNELS[ch].trigger} title={CHANNELS[ch].trigger}>
+              <I name={CHANNELS[ch].icon} class={ch === 'whatsapp' ? 'wa' : undefined} />
+            </a>
+          ))
+        }
+      </div>
       <section class="experts" id="experts" aria-labelledby="experts-h">
         <h2 id="experts-h">کارشناسان فروش</h2>
-        <p class="experts-hours"><I name="clock" size={18} /> {WORK_HOURS.shortFa}</p>
+        <p class="experts-hours"><I name="clock" size={18} /> {PICKER_HOURS}</p>
         <ul>
           {
             experts.map((e) => (
               <li class="expert">
-                <span class="expert-name">{e.name}</span>
+                <span class="expert-name">
+                  {e.name}
+                  <small>{EXPERT_ROLE}</small>
+                </span>
                 <div class="expert-actions">
-                  <a class="nf-btn nf-btn--secondary expert-call" href={e.l.tel} aria-label={`تماس با ${e.name}`}>
-                    <I name="phone" size={18} /> <span dir="ltr">{e.fa}</span>
-                  </a>
-                  <a class="expert-msg" href={e.l.whatsapp} target="_blank" rel="noopener" aria-label={`واتساپ ${e.name}`}><I name="wa" class="wa" /></a>
-                  <a class="expert-msg" href={e.l.telegram} target="_blank" rel="noopener" aria-label={`تلگرام ${e.name}`}><I name="tg" /></a>
-                  <a class="expert-msg" href={e.l.bale} target="_blank" rel="noopener" aria-label={`بله ${e.name}`}><I name="bale" /></a>
+                  {e.l.call && (
+                    <a class="nf-btn nf-btn--secondary expert-call" href={e.l.call} aria-label={`تماس با ${e.name}`}>
+                      <I name="phone" size={18} /> تماس
+                    </a>
+                  )}
+                  {MESSENGERS.map(
+                    (ch) =>
+                      e.l[ch] && (
+                        <a class="expert-msg" href={e.l[ch]} target="_blank" rel="noopener" aria-label={`${CHANNELS[ch].label} ${e.name}`}>
+                          <I name={CHANNELS[ch].icon} class={ch === 'whatsapp' ? 'wa' : undefined} />
+                        </a>
+                      ),
+                  )}
                 </div>
               </li>
             ))

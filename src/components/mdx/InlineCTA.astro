@@ -4,7 +4,7 @@
  * end of the 2nd H2 section (enforced by tests/content-rules.test.ts).
  */
 import I from '../ui/I.astro';
-import { SITE } from '../../lib/site';
+import { pickerTrigger } from '../../data/experts';
 interface Props {
   primary: string;
   href?: string;
@@ -26,14 +26,14 @@ const lead =
       ? 'سریع‌ترین طرح متناسب با شما را کارشناس ما پیشنهاد می‌دهد.'
       : 'طرح متناسب با شما را کارشناس ما پیشنهاد می‌دهد.');
 const sec = secondaryHref
-  ? { href: secondaryHref, text: secondary!, icon: null, todo: undefined }
-  : { href: SITE.tel, text: 'تماس با کارشناس', icon: 'phone' as const, todo: undefined };
+  ? { attrs: { href: secondaryHref }, text: secondary!, icon: null }
+  : { attrs: pickerTrigger('call'), text: 'تماس با کارشناس', icon: 'phone' as const };
 ---
 
 <div class="inline-cta not-prose">
   <p>{lead}</p>
   <div class="row">
     <a class="nf-btn nf-btn--primary" href={href}>{primary} <I name="arrow" /></a>
-    <a class="nf-btn nf-btn--text" href={sec.href}>{sec.icon && <I name={sec.icon} size={18} />} {sec.text}</a>
+    <a class="nf-btn nf-btn--text" {...sec.attrs}>{sec.icon && <I name={sec.icon} size={18} />} {sec.text}</a>
   </div>
 </div>

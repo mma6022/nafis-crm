@@ -2,6 +2,7 @@
 /** Navy site footer (mockup src/footer.html). Columns are <details>: collapsed on mobile, opened on ≥1024px by scripts/chrome.ts. */
 import I from './ui/I.astro';
 import Logo from './Logo.astro';
+import { CHANNELS, MESSENGERS, pickerTrigger } from '../data/experts';
 import { GUIDE_NAV, KEYWORD_PAGES, SITE, SOCIAL, WORK_HOURS, jalaliYear } from '../lib/site';
 import { fa, planFacts } from '../lib/plans';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
@@ -27,7 +28,14 @@ const facts = planFacts(LOAN_PLANS_SNAPSHOT);
       <details data-foot>
         <summary>تماس <I name="down" size={20} /></summary>
         <ul>
-          <li><a href={SITE.tel}><I name="phone" size={18} /><span class="ltr">{SITE.phoneFa}</span></a></li>
+          <li class="ftel">
+            <a {...pickerTrigger('call')}><I name="phone" size={18} /><span>تماس با کارشناس</span></a>
+            {MESSENGERS.map((ch) => (
+              <a class="only-ic" {...pickerTrigger(ch)} aria-label={CHANNELS[ch].trigger} title={CHANNELS[ch].trigger}>
+                <I name={CHANNELS[ch].icon} size={20} />
+              </a>
+            ))}
+          </li>
           <li><I name="clock" size={18} /><span>{WORK_HOURS.daysFa}، {WORK_HOURS.fa}</span></li>
           <li><address class="not-italic" data-address>{SITE.address}</address></li>
           <li><a href={SOCIAL.instagram.href} target="_blank" rel="noopener" aria-label="اینستاگرام نفیس وام"><I name="ig" size={18} /><span>اینستاگرام <span class="ltr">@{SOCIAL.instagram.handle}</span></span></a></li>
