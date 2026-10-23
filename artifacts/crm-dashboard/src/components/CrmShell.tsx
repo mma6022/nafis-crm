@@ -1,4 +1,4 @@
-import { BarChart3, Bell, BellRing, ChevronDown, ClipboardList, CreditCard, LayoutDashboard, LifeBuoy, MoreHorizontal, Shield, ShieldCheck, PhoneCall, Phone, UsersRound, LogOut, Pencil, Save, Settings, FileSignature, Landmark, Server, ShoppingBag, Wallet, Building2, Coins, Instagram, Calculator, MessagesSquare, MessageCircle } from 'lucide-react';
+import { BarChart3, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, LifeBuoy, LogOut, Menu, MessageCircle, MessagesSquare, Pencil, Phone, PhoneCall, PieChart, Radar, Receipt, Rocket, Save, Settings, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, type LucideIcon } from 'lucide-react';
 import { UserAvatar, AvatarPicker } from '@/components/UserAvatar';
 import { useHealthCheck, getHealthCheckQueryKey, useGetAuthSession, useLogout, useUpdateAuthProfile, useListReminders, useAcknowledgeReminder, getListRemindersQueryKey, getGetAuthSessionQueryKey, type CrmUser, type Reminder } from '@workspace/api-client-react';
 import { Link, useLocation } from 'wouter';
@@ -8,7 +8,7 @@ import { usePresence } from '@/chat/Presence';
 import { fetchStaffUnread, staffChatPresence } from '@/chat/StaffChatPage';
 import { useTeamInbox } from '@/internal-chat/hooks';
 import { FloatingChat } from '@/chat/FloatingChat';
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { NotificationBell, NotificationProvider, NavNotificationBadge } from '@/site-notifications/NotificationBell';
 import { DiagnosticsProvider, DiagnosticsButton } from '@/diagnostics/DiagnosticsProvider';
 import { DiagnosticPageBoundary } from '@/diagnostics/DiagnosticPageBoundary';
@@ -18,43 +18,76 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLab
 
 const nafissLogoUrl = `${import.meta.env.BASE_URL}nafiss-financial-logo.png`;
 
-const allNavItems = [
+type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean };
+
+// Routes and permission rules are unchanged; only grouping, order, labels of groups and icons are new.
+const allNavItems: NavItem[] = [
   { href: '/', label: 'نمای کلی', icon: LayoutDashboard, permission: 'dashboard.view' },
-  { href: '/customers', label: 'مشتریان', icon: UsersRound, permission: 'customers.view' },
-  { href: '/chat', label: 'گفتگو با مشتریان', icon: MessagesSquare, permission: 'customers.view' },
-  { href: '/internal-chat', label: 'گفتگوی داخلی', icon: MessageCircle, permission: 'internal_chat.use' },
-  { href: '/wallet-management', label: 'مدیریت کیف پول', icon: CreditCard, permission: 'wallets.view' },
   { href: '/reminders', label: 'یادآورها', icon: Bell, permission: 'reminders.view' },
-  { href: '/calls', label: 'تماس‌ها', icon: PhoneCall, permission: 'calls.view' },
-  { href: '/mobile-calls', label: 'تماس‌های موبایل', icon: PhoneCall, permission: 'calls.view' },
-  { href: '/instagram-inbox', label: 'سرنخ‌های دایرکت اینستاگرام', icon: Instagram, staffOnly: true },
-  { href: '/phone', label: 'تلفن شرکت', icon: Phone, permission: 'calls.view' },
+  { href: '/customers', label: 'مشتریان', icon: UsersRound, permission: 'customers.view' },
   { href: '/consultations', label: 'مشاوره‌ها', icon: ClipboardList, permission: 'consultations.view' },
+  { href: '/manual-verifications', label: 'بررسی دستی هویت', icon: ShieldCheck, adminOnly: true },
   { href: '/loan-applications', label: 'درخواست‌های تسهیلات', icon: Landmark, permission: 'loan_applications.view' },
-  { href: '/loan-plans', label: 'طرح‌های تسهیلاتی', icon: CreditCard, permission: 'loan_plans.view' },
+  { href: '/loan-plans', label: 'طرح‌های تسهیلاتی', icon: Layers, permission: 'loan_plans.view' },
+  { href: '/contracts', label: 'قراردادها', icon: FileSignature, permission: 'contracts.view' },
   { href: '/goods-purchases', label: 'خرید کالا', icon: ShoppingBag, permission: 'goods_purchases.view' },
-  { href: '/payment-orders', label: 'دستورهای پرداخت', icon: Wallet, permission: 'payment_orders.view' },
+  { href: '/sales-commissions', label: 'پورسانت فروش', icon: Coins, permission: 'goods_finance.view' },
+  { href: '/payment-orders', label: 'دستورهای پرداخت', icon: Receipt, permission: 'payment_orders.view' },
+  { href: '/wallet-management', label: 'مدیریت کیف پول', icon: Wallet, permission: 'wallets.view' },
   { href: '/bank-accounts', label: 'حساب‌های بانکی', icon: Building2, permission: ['bank_accounts.view', 'bank_accounts.manage'] },
   { href: '/accounting', label: 'حسابداری', icon: Calculator, permission: 'accounting.view' },
+  { href: '/chat', label: 'گفتگو با مشتریان', icon: MessagesSquare, permission: 'customers.view' },
+  { href: '/internal-chat', label: 'گفتگوی داخلی', icon: MessageCircle, permission: 'internal_chat.use' },
+  { href: '/instagram-inbox', label: 'سرنخ‌های دایرکت اینستاگرام', icon: Instagram, staffOnly: true },
+  { href: '/calls', label: 'تماس‌ها', icon: PhoneCall, permission: 'calls.view' },
+  { href: '/mobile-calls', label: 'تماس‌های موبایل', icon: Smartphone, permission: 'calls.view' },
+  { href: '/phone', label: 'تلفن شرکت', icon: Phone, permission: 'calls.view' },
   { href: '/sales-reports', label: 'گزارش فروش', icon: BarChart3, permission: 'reports.view' },
-  { href: '/sales-commissions', label: 'پورسانت فروش', icon: Coins, permission: 'goods_finance.view' },
-  { href: '/contracts', label: 'قراردادها', icon: FileSignature, permission: 'contracts.view' },
-  { href: '/users', label: 'کاربران CRM', icon: Shield, permission: 'users.view' },
-  { href: '/manual-verifications', label: 'بررسی دستی هویت', icon: ShieldCheck, adminOnly: true },
-  { href: '/social-monitor-reports', label: 'گزارش پیام‌رسان‌ها', icon: MessagesSquare, adminOnly: true },
+  { href: '/social-monitor-reports', label: 'گزارش پیام‌رسان‌ها', icon: Radar, adminOnly: true },
+  { href: '/users', label: 'کاربران CRM', icon: UserCog, permission: 'users.view' },
   { href: '/settings/notifications', label: 'تنظیمات', icon: Settings, permission: 'notifications.view' },
-  { href: '/settings/releases', label: 'نسخه‌های سایت', icon: Server, adminOnly: true },
+  { href: '/settings/releases', label: 'نسخه‌های سایت', icon: Rocket, adminOnly: true },
 ];
 
-const primaryNavHrefs = ['/', '/customers'];
 const mobilePrimaryNavHrefs = ['/', '/customers', '/chat', '/internal-chat'];
-const navGroups = [
-  { id: 'conversations', label: 'گفتگوها', icon: MessagesSquare, hrefs: ['/chat', '/internal-chat', '/instagram-inbox'] },
-  { id: 'daily-work', label: 'کارهای روزانه', icon: PhoneCall, hrefs: ['/calls', '/mobile-calls', '/phone', '/reminders'] },
-  { id: 'cases', label: 'پرونده‌ها', icon: Landmark, hrefs: ['/consultations', '/loan-applications', '/loan-plans', '/contracts'] },
-  { id: 'finance', label: 'امور مالی', icon: Wallet, hrefs: ['/wallet-management', '/goods-purchases', '/payment-orders', '/bank-accounts', '/accounting', '/sales-commissions'] },
-  { id: 'reports-admin', label: 'گزارش و مدیریت', icon: Shield, hrefs: ['/sales-reports', '/users', '/manual-verifications', '/social-monitor-reports', '/settings/notifications', '/settings/releases'] },
+type NavGroup = { id: string; label: string; icon: LucideIcon; hrefs: string[]; pinned?: boolean };
+const navGroups: NavGroup[] = [
+  { id: 'dashboard', label: 'داشبورد', icon: LayoutDashboard, hrefs: ['/', '/reminders'], pinned: true },
+  { id: 'customers', label: 'مشتریان و مشاوره', icon: Contact, hrefs: ['/customers', '/consultations', '/manual-verifications'] },
+  { id: 'loans', label: 'وام و قرارداد', icon: HandCoins, hrefs: ['/loan-applications', '/loan-plans', '/contracts'] },
+  { id: 'goods', label: 'خرید کالا', icon: Store, hrefs: ['/goods-purchases', '/sales-commissions'] },
+  { id: 'finance', label: 'مالی و پرداخت', icon: Banknote, hrefs: ['/payment-orders', '/wallet-management', '/bank-accounts', '/accounting'] },
+  { id: 'comms', label: 'تماس و پیام‌ها', icon: Headset, hrefs: ['/chat', '/internal-chat', '/instagram-inbox', '/calls', '/mobile-calls', '/phone'] },
+  { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/social-monitor-reports'] },
+  { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/settings/notifications', '/settings/releases'] },
 ];
+
+const OPEN_GROUPS_KEY = 'nafis.nav.openGroups';
+const readOpenGroups = (): string[] | null => {
+  try { const raw = window.localStorage.getItem(OPEN_GROUPS_KEY); const v = raw ? JSON.parse(raw) : null; return Array.isArray(v) ? v.filter(x => typeof x === 'string') : null; } catch { return null; }
+};
+
+/** Page title = label of the longest nav route matching the current path (fixes e.g. /mobile-calls showing «نمای کلی»). */
+const titleFor = (location: string) => {
+  const match = allNavItems
+    .filter(item => item.href !== '/' && (location === item.href || location.startsWith(`${item.href}/`)))
+    .sort((a, b) => b.href.length - a.href.length)[0];
+  if (match) return match.label;
+  if (location.startsWith('/settings')) return 'تنظیمات';
+  const loose = allNavItems.filter(item => item.href !== '/' && location.startsWith(item.href)).sort((a, b) => b.href.length - a.href.length)[0];
+  return loose?.label ?? 'نمای کلی';
+};
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(() => typeof window !== 'undefined' && window.matchMedia(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const on = () => setMatches(mq.matches);
+    on(); mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, [query]);
+  return matches;
+}
 
 export function CrmShell({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
@@ -62,7 +95,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [reminderFormOpen, setReminderFormOpen] = useState(false);
   const [dueReminder, setDueReminder] = useState<Reminder | null>(null);
-  const [openNavGroup, setOpenNavGroup] = useState('');
+  const [openGroups, setOpenGroups] = useState<string[]>(() => readOpenGroups() ?? []);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { data: session } = useGetAuthSession({
     query: { queryKey: getGetAuthSessionQueryKey(), retry: false },
@@ -107,7 +140,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
     query: { queryKey: getHealthCheckQueryKey(), staleTime: 60_000 },
   });
 
-  const pageTitle = location.startsWith('/internal-chat') ? 'گفتگوی داخلی' : location.startsWith('/chat') ? 'گفتگو با مشتریان' : location.startsWith('/social-monitor-reports') ? 'گزارش پیام‌رسان‌ها' : location.startsWith('/manual-verifications') ? 'بررسی دستی هویت' : location.startsWith('/instagram-inbox') ? 'سرنخ‌های دایرکت اینستاگرام' : location.startsWith('/customers') ? 'مشتریان' : location.startsWith('/reminders') ? 'یادآورها' : location.startsWith('/phone') ? 'تلفن شرکت' : location.startsWith('/calls') ? 'تماس‌ها' : location.startsWith('/consultations') ? 'مشاوره‌ها' : location.startsWith('/loan-applications') ? 'درخواست‌های تسهیلات' : location.startsWith('/loan-plans') ? 'طرح‌های تسهیلاتی' : location.startsWith('/goods-purchases') ? 'خرید کالا' : location.startsWith('/payment-orders') ? 'دستورهای پرداخت' : location.startsWith('/bank-accounts') ? 'حساب‌های بانکی' : location.startsWith('/accounting') ? 'حسابداری' : location.startsWith('/sales-reports') ? 'گزارش فروش' : location.startsWith('/sales-commissions') ? 'پورسانت فروش' : location.startsWith('/contracts') ? 'قراردادها' : location.startsWith('/users') ? 'کاربران CRM' : location.startsWith('/settings/releases') ? 'نسخه‌های سایت' : location.startsWith('/settings') ? 'تنظیمات' : 'نمای کلی';
+  const pageTitle = titleFor(location);
   
   const navItems = allNavItems.filter(item => {
     if ('staffOnly' in item && item.staffOnly) return user?.role === 'admin' || user?.role === 'registrar';
@@ -115,32 +148,59 @@ export function CrmShell({ children }: { children: ReactNode }) {
     const needed = ([] as string[]).concat((item as { permission?: string | string[] }).permission ?? []);
     return user?.role === 'admin' || needed.some((p) => user?.permissions?.includes(p));
   });
-  const quickNavItems = navItems.filter(item => primaryNavHrefs.includes(item.href));
   const mobileQuickNavItems = navItems.filter(item => mobilePrimaryNavHrefs.includes(item.href));
   const visibleNavGroups = navGroups
-    .map(group => ({ ...group, items: navItems.filter(item => group.hrefs.includes(item.href)) }))
+    .map(group => ({ ...group, items: group.hrefs.map(href => navItems.find(item => item.href === href)).filter((item): item is NavItem => Boolean(item)) }))
     .filter(group => group.items.length > 0);
   const isNavItemActive = (href: string) =>
     location === href || (href !== '/' && location.startsWith(href) && !(href === '/chat' && location.startsWith('/internal-chat')));
 
+  const phone = useMediaQuery('(max-width: 640px)');
+  const moreButton = useRef<HTMLButtonElement>(null);
+  const drawer = useRef<HTMLElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const activeGroupId = visibleNavGroups.find(group => group.items.some(item => isNavItemActive(item.href)))?.id;
+
+  const toggleGroup = useCallback((id: string) => setOpenGroups(current => {
+    const next = current.includes(id) ? current.filter(x => x !== id) : [...current, id];
+    try { window.localStorage.setItem(OPEN_GROUPS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    return next;
+  }), []);
+
   useEffect(() => {
-    const activeGroup = visibleNavGroups.find(group => group.items.some(item => isNavItemActive(item.href)));
-    if (activeGroup) setOpenNavGroup(activeGroup.id);
+    // Open the active page's group without closing the others the user opened.
+    if (activeGroupId) setOpenGroups(current => {
+      if (current.includes(activeGroupId)) return current;
+      const next = [...current, activeGroupId];
+      try { window.localStorage.setItem(OPEN_GROUPS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
     setMobileMenuOpen(false);
     const main = document.querySelector<HTMLElement>('.app-main');
     if (main) main.scrollTop = 0;
-  }, [location]);
+  }, [location]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { if (!phone) setMobileMenuOpen(false); }, [phone]);
 
   useEffect(() => {
     if (!mobileMenuOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMobileMenuOpen(false);
+    const opener = moreButton.current;
+    document.body.classList.add('nf-drawer-open');
+    closeButton.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { setMobileMenuOpen(false); return; }
+      if (event.key !== 'Tab' || !drawer.current) return;
+      const focusables = Array.from(drawer.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled])'));
+      if (!focusables.length) return;
+      const first = focusables[0], last = focusables[focusables.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     };
-    window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('keydown', onKey); document.body.classList.remove('nf-drawer-open'); opener?.focus({ preventScroll: true }); };
   }, [mobileMenuOpen]);
 
-  const renderNavLink = (item: (typeof navItems)[number], mobile = false, compact = false) => {
+  const renderNavLink = (item: NavItem, mobile = false, compact = false) => {
     const { href, label, icon: Icon } = item;
     return (
       <Link
@@ -150,17 +210,45 @@ export function CrmShell({ children }: { children: ReactNode }) {
         onClick={mobile ? () => setMobileMenuOpen(false) : undefined}
         data-testid={`${mobile ? (compact ? 'link-mobile-shortcut' : 'link-mobile-nav') : 'link-nav'}-${label}`}
         aria-label={label}
+        aria-current={isNavItemActive(href) ? 'page' : undefined}
         title={label}
       >
-        <Icon />
+        <Icon aria-hidden="true" />
         <span>{compact ? (href === '/' ? 'خانه' : href === '/chat' ? 'گفتگو' : href === '/internal-chat' ? 'داخلی' : label) : label}</span>
-        {href === '/chat' && (unread.data?.count ?? 0) > 0 ? <b className="side-badge" aria-label={`${unread.data!.count} پیام خوانده‌نشده`} data-testid={`${mobile ? (compact ? 'badge-mobile-shortcut-chat-unread' : 'badge-mobile-chat-unread') : 'badge-chat-unread'}`} style={{ marginInlineStart: 'auto', outline: '1px dashed #fff', background: '#bc9252', color: '#fff', borderRadius: 10, padding: '0 7px', fontSize: 11 }}>{unread.data!.count.toLocaleString('fa-IR')}</b> : null}
-        {href === '/internal-chat' && (team.data?.unreadCount ?? 0) > 0 ? <b className="side-badge" aria-label={`${team.data!.unreadCount} پیام خوانده‌نشده`} data-testid={`${mobile ? (compact ? 'badge-mobile-shortcut-internal-unread' : 'badge-mobile-internal-unread') : 'badge-internal-unread'}`} style={{ marginInlineStart: 'auto', background: '#bc9252', color: '#fff', borderRadius: 10, padding: '0 7px', fontSize: 11 }}>{team.data!.unreadCount.toLocaleString('fa-IR')}</b> : null}
+        {href === '/chat' && (unread.data?.count ?? 0) > 0 ? <b className="side-badge" aria-label={`${unread.data!.count} پیام خوانده‌نشده`} data-testid={`${mobile ? (compact ? 'badge-mobile-shortcut-chat-unread' : 'badge-mobile-chat-unread') : 'badge-chat-unread'}`}>{unread.data!.count.toLocaleString('fa-IR')}</b> : null}
+        {href === '/internal-chat' && (team.data?.unreadCount ?? 0) > 0 ? <b className="side-badge" aria-label={`${team.data!.unreadCount} پیام خوانده‌نشده`} data-testid={`${mobile ? (compact ? 'badge-mobile-shortcut-internal-unread' : 'badge-mobile-internal-unread') : 'badge-internal-unread'}`}>{team.data!.unreadCount.toLocaleString('fa-IR')}</b> : null}
         <NavNotificationBadge href={href} />
       </Link>
     );
   };
   
+  const renderGroups = (mobile: boolean) => visibleNavGroups.map(({ id, label, icon: Icon, items, pinned }) => {
+    const expanded = pinned || openGroups.includes(id);
+    const hasActive = id === activeGroupId;
+    const listId = `${mobile ? 'mobile-' : ''}side-group-${id}`;
+    return (
+      <section className={`side-nav-group${pinned ? ' is-pinned' : ''}${hasActive ? ' has-active' : ''}`} key={id}>
+        {pinned
+          ? <div className="side-group-label" id={`${listId}-label`}>{label}</div>
+          : <button
+            className="side-group-toggle"
+            type="button"
+            aria-expanded={expanded}
+            aria-controls={listId}
+            title={label}
+            onClick={() => toggleGroup(id)}
+            data-testid={`button-${mobile ? 'mobile-' : ''}nav-group-${id}`}
+          >
+            <Icon className="side-group-icon" aria-hidden="true" />
+            <span>{label}</span>
+            {hasActive && !expanded ? <i className="side-group-dot" aria-label="صفحهٔ فعلی در این گروه است" /> : null}
+            <ChevronDown className="side-group-chevron" aria-hidden="true" />
+          </button>}
+        {expanded && <div id={listId} className="side-group-items" role="list" aria-labelledby={pinned ? `${listId}-label` : undefined}>{items.map(item => renderNavLink(item, mobile))}</div>}
+      </section>
+    );
+  });
+
   return (
     <DiagnosticsProvider actorId={user?.id ?? 'anon'} isAdmin={user?.role === 'admin'}>
     <NotificationProvider user={user}>
@@ -173,66 +261,33 @@ export function CrmShell({ children }: { children: ReactNode }) {
             <span>پنل مدیریت مشتریان</span>
           </div>
         </div>
-        <div className="side-label">فضای کاری</div>
         <nav className="side-nav" aria-label="ناوبری اصلی">
-          <div className="side-nav-primary">{quickNavItems.map(item => renderNavLink(item))}</div>
-          <div className="side-nav-groups">
-            {visibleNavGroups.map(({ id, label, icon: Icon, items }) => {
-              const expanded = openNavGroup === id;
-              return (
-                <section className="side-nav-group" key={id}>
-                  <button
-                    className="side-group-toggle"
-                    type="button"
-                    aria-expanded={expanded}
-                    aria-controls={`side-group-${id}`}
-                    title={label}
-                    onClick={() => setOpenNavGroup(current => current === id ? '' : id)}
-                    data-testid={`button-nav-group-${id}`}
-                  >
-                    <Icon />
-                    <span>{label}</span>
-                    <ChevronDown className="side-group-chevron" />
-                  </button>
-                  {expanded && <div id={`side-group-${id}`} className="side-group-items">{items.map(item => renderNavLink(item))}</div>}
-                </section>
-              );
-            })}
-          </div>
+          <div className="side-nav-groups">{renderGroups(false)}</div>
           <div className="mobile-nav-items">
             {mobileQuickNavItems.map(item => renderNavLink(item, true, true))}
-            <button type="button" className="side-link mobile-nav-more" onClick={() => setMobileMenuOpen(true)} aria-label="بازکردن همهٔ بخش‌ها" data-testid="button-mobile-more">
-              <MoreHorizontal /><span>بیشتر</span>
+            <button ref={moreButton} type="button" className="side-link mobile-nav-more" onClick={() => setMobileMenuOpen(true)} aria-label="بازکردن منوی همهٔ بخش‌ها" aria-haspopup="dialog" aria-expanded={mobileMenuOpen} data-testid="button-mobile-more">
+              <Menu aria-hidden="true" /><span>منو</span>
             </button>
           </div>
         </nav>
         <div className="side-foot">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', width: '100%' }}>
-            <div>
-              <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}><LifeBuoy size={15} /> پشتیبانی تیم</div>
-              <div style={{ paddingRight: 22, color: health?.status === 'ok' ? '#8bc9b6' : '#9fb0c7' }}>{health?.status === 'ok' ? 'سامانه در دسترس است' : 'در حال بررسی سامانه'}</div>
-            </div>
+          <LifeBuoy size={18} aria-hidden="true" />
+          <div>
+            <b>پشتیبانی تیم</b>
+            <span className={health?.status === 'ok' ? 'is-ok' : ''}>{health?.status === 'ok' ? 'سامانه در دسترس است' : 'در حال بررسی سامانه'}</span>
           </div>
         </div>
       </aside>
       {mobileMenuOpen && (
         <div className="mobile-nav-overlay">
-          <button type="button" className="mobile-nav-backdrop" aria-label="بستن منو" onClick={() => setMobileMenuOpen(false)} />
-          <section className="mobile-nav-drawer" aria-label="همهٔ بخش‌های پنل">
-            <header><strong>همهٔ بخش‌ها</strong><button type="button" className="mobile-nav-close" onClick={() => setMobileMenuOpen(false)} aria-label="بستن منو">×</button></header>
-            <nav className="mobile-nav-groups" aria-label="گروه‌بندی منو">
-              {visibleNavGroups.map(({ id, label, icon: Icon, items }) => {
-                const expanded = openNavGroup === id;
-                return (
-                  <section className="side-nav-group" key={id}>
-                    <button className="side-group-toggle" type="button" aria-expanded={expanded} aria-controls={`mobile-side-group-${id}`} onClick={() => setOpenNavGroup(current => current === id ? '' : id)}>
-                      <Icon /><span>{label}</span><ChevronDown className="side-group-chevron" />
-                    </button>
-                    {expanded && <div id={`mobile-side-group-${id}`} className="side-group-items">{items.map(item => renderNavLink(item, true))}</div>}
-                  </section>
-                );
-              })}
-            </nav>
+          <button type="button" className="mobile-nav-backdrop" tabIndex={-1} aria-hidden="true" onClick={() => setMobileMenuOpen(false)} />
+          <section ref={drawer} className="mobile-nav-drawer" role="dialog" aria-modal="true" aria-labelledby="mobile-nav-title" data-testid="mobile-nav-drawer">
+            <header>
+              <img src={nafissLogoUrl} alt="" aria-hidden="true" />
+              <strong id="mobile-nav-title">همهٔ بخش‌ها</strong>
+              <button ref={closeButton} type="button" className="mobile-nav-close" onClick={() => setMobileMenuOpen(false)} aria-label="بستن منو" data-testid="button-mobile-nav-close"><X size={22} aria-hidden="true" /></button>
+            </header>
+            <nav className="mobile-nav-groups" aria-label="همهٔ بخش‌های پنل">{renderGroups(true)}</nav>
           </section>
         </div>
       )}
@@ -245,7 +300,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
           <div className="top-actions">
             <DiagnosticsButton />
             <NotificationBell user={user} />
-            {user?.role === 'admin' || user?.permissions?.includes('reminders.manage') ? <button type="button" className="icon-button" aria-label="ثبت یادآور" title="ثبت یادآور" onClick={() => setReminderFormOpen(true)} data-testid="button-header-reminder"><Bell size={17} /></button> : null}
+            {user?.role === 'admin' || user?.permissions?.includes('reminders.manage') ? <button type="button" className="icon-button" aria-label="ثبت یادآور" title="ثبت یادآور" onClick={() => setReminderFormOpen(true)} data-testid="button-header-reminder"><Bell size={20} /></button> : null}
             <DropdownMenu dir="rtl">
               <DropdownMenuTrigger asChild>
                 <button type="button" className="avatar account-menu-trigger" aria-label="منوی حساب کاربری" title="حساب کاربری" data-testid="avatar-current-user">
@@ -271,7 +326,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
         </header>
         <DiagnosticPageBoundary key={location}>{children}</DiagnosticPageBoundary>
       </main>
-      {user && (canChat || canTeam) ? <FloatingChat actor={`staff:${user.id}`} items={[...(canChat ? [{ href: '/chat', label: 'گفتگو با مشتریان', count: unread.data?.count ?? 0 }] : []), ...(canTeam ? [{ href: '/internal-chat', label: 'گفتگوی داخلی', count: team.data?.unreadCount ?? 0 }] : [])]} /> : null}
+      {user && (canChat || canTeam) ? <FloatingChat key={phone ? 'phone' : 'wide'} bottomOffset={phone ? 84 : 20} actor={`staff:${user.id}`} items={[...(canChat ? [{ href: '/chat', label: 'گفتگو با مشتریان', count: unread.data?.count ?? 0 }] : []), ...(canTeam ? [{ href: '/internal-chat', label: 'گفتگوی داخلی', count: team.data?.unreadCount ?? 0 }] : [])]} /> : null}
       {profileOpen && user ? <ProfileModal user={user} onClose={() => setProfileOpen(false)} /> : null}
       {reminderFormOpen ? <CreateReminderForm onClose={() => setReminderFormOpen(false)} /> : null}
       {dueReminder ? (
