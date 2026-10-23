@@ -56,5 +56,16 @@ for (const f of [...walk(DIST), ...walk(join(ROOT, 'src')), ...walk(join(ROOT, '
 const home = readFileSync(join(DIST, 'index.html'), 'utf8');
 if (!home.includes('<p class="legal-id">بهینه فام نفیس</p>')) errors.push('footer: legal line is not exactly «بهینه فام نفیس»');
 
+
+// 4) اینماد: self-hosted badge only. Exactly this link (allowed external link), our /images/enamad.png, no external seal script/img.
+const ENAMAD_LINK = 'href="https://trustseal.enamad.ir/?id=734294" target="_blank" rel="noopener" referrerpolicy="origin"';
+if (!existsSync(join(DIST, 'images', 'enamad.png'))) errors.push('enamad: dist/images/enamad.png missing');
+for (const f of walk(DIST).filter((p) => p.endsWith('.html'))) {
+  const h = readFileSync(f, 'utf8'); const rel = f.slice(DIST.length + 1);
+  if (/trustseal\.enamad\.ir\/(logo\.aspx|[^"']*\.js)|<script[^>]+enamad/i.test(h)) errors.push(`enamad: external seal image/script in ${rel}`);
+  for (const m of h.matchAll(/href="https?:\/\/trustseal\.enamad\.ir[^"]*"[^>]*/g)) if (!m[0].startsWith(ENAMAD_LINK)) errors.push(`enamad: unexpected trustseal link in ${rel}: ${m[0].slice(0, 120)}`);
+  if (h.includes('class="legal-id"') && !h.includes(`<a class="enamad" ${ENAMAD_LINK}><img src="/images/enamad.png" alt="نماد اعتماد الکترونیکی"`)) errors.push(`enamad: footer badge missing in ${rel}`);
+}
+if (!home.includes(`<a class="t t-enamad" ${ENAMAD_LINK}><img src="/images/enamad.png"`)) errors.push('enamad: home trust-bar chip missing');
 if (errors.length) { console.error(`copy: ${errors.length} problem(s)\n  ` + errors.join('\n  ')); process.exit(1); }
 console.log(`copy: OK — no «برآوردی/تخمینی» outside the allow list; allowed hits: ${hits.join(' · ')} · removed note absent (dist+src) · no national ID / registration label in ${idScanned} dist+src+public files · footer legal line = «بهینه فام نفیس»`);

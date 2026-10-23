@@ -40,10 +40,8 @@ const facts = planFacts(LOAN_PLANS_SNAPSHOT);
           <li><address class="not-italic" data-address>{SITE.address}</address></li>
           <li><a href={SOCIAL.instagram.href} target="_blank" rel="noopener" aria-label="اینستاگرام نفیس وام"><I name="ig" size={18} /><span>اینستاگرام <span class="ltr">@{SOCIAL.instagram.handle}</span></span></a></li>
           <li>
-            {/* Enamad trust seal (official embed; the image may stay blank on local previews). Fixed 125×136 box: no layout shift. */}
-            <span class="enamad">
-              <a referrerpolicy="origin" target="_blank" href="https://trustseal.enamad.ir/?id=734294&code=g7ObVZFnmwMEjgmyz7DCShnQmkxNKWAi"><img referrerpolicy="origin" src="https://trustseal.enamad.ir/logo.aspx?id=734294&code=g7ObVZFnmwMEjgmyz7DCShnQmkxNKWAi" alt="enamad" loading="lazy" style="cursor:pointer" width="125" height="136" /></a>
-            </span>
+            {/* اینماد: our self-hosted copy of the official badge (public/images/enamad.png, supplied by Mohammad) wrapped in one link to the trust seal page. Fixed size: no layout shift. */}
+            <a class="enamad" href="https://trustseal.enamad.ir/?id=734294" target="_blank" rel="noopener" referrerpolicy="origin"><img src="/images/enamad.png" alt="نماد اعتماد الکترونیکی" width="120" height="120" loading="lazy" decoding="async" /></a>
           </li>
         </ul>
       </details>

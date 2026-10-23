@@ -62,9 +62,10 @@ const SVC_ICON: Record<string, SpriteIcon> = {
     <div class="container-nf">
       <h2 id="why-h" class="vh">چرا نفیس وام؟</h2>
       <div class="trust">
-        {/* max 4 stats (crowding at 360/390): 3 confirmed stats + live plan count. Bank count and the اینماد pill dropped from the bar (اینماد stays in the footer). */}
+        {/* 3 confirmed stats + live plan count + the اینماد chip (same self-hosted badge + link as the footer; the bar scrolls sideways on mobile). */}
         {TRUST_STATS.map((t) => <div class="t">{t.pre} <b>{t.b}</b> {t.post}</div>)}
         <div class="t"><b data-plan-count="planCount">{fa(facts.planCount)}</b> طرح فعال</div>
+        <a class="t t-enamad" href="https://trustseal.enamad.ir/?id=734294" target="_blank" rel="noopener" referrerpolicy="origin"><img src="/images/enamad.png" alt="نماد اعتماد الکترونیکی" width="40" height="40" decoding="async" />دارای نماد اعتماد (اینماد)</a>
       </div>
       <ul class="why2">
         <li><span class="ic"><I name="layers" /></span><span>یک طرح برای هر شرایط<small>با <span data-plan-count="planCount">{fa(facts.planCount)}</span> طرح فعال، احتمال اینکه طرحی متناسب با شما داشته باشیم زیاد است.</small></span></li>
