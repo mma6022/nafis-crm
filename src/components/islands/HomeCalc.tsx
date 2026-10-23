@@ -46,7 +46,7 @@ export default function HomeCalc({ snapshot }: { snapshot: LoanPlan[] }) {
           </div>
           <div className="grp">
             <span id="ct-l">مدت بازپرداخت</span>
-            <div className="seg" role="group" aria-labelledby="ct-l">
+            <div className="seg" id="ct" role="group" aria-labelledby="ct-l" style={{ ['--n' as string]: terms.length }}>
               {terms.map((t) => (
                 <button type="button" key={t} aria-pressed={term === t} onClick={() => setTerm(t)}>
                   {fa(t)} ماه

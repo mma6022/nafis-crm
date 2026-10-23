@@ -46,7 +46,7 @@ h1, h2, h3 { color: var(--nf-ink); font-weight: var(--nf-weight-bold); margin: 0
   font: inherit; font-size: 16px; /* ≥16 stops iOS zoom */
   transition: border-color var(--nf-dur-fast), box-shadow var(--nf-dur-fast); }
 .nf-input::placeholder { color: var(--nf-ink-faint); }
-.nf-input:hover { border-color: var(--nf-brand-300); }
+@media (hover: hover) and (pointer: fine) { .nf-input:hover { border-color: var(--nf-brand-300); } }
 .nf-input:focus { outline: none; border-color: var(--nf-brand-600); box-shadow: var(--nf-ring); }
 .nf-input[aria-invalid="true"] { border-color: var(--nf-danger); }
 .nf-input--ltr { direction: ltr; text-align: right; } /* phone numbers */
@@ -58,7 +58,7 @@ h1, h2, h3 { color: var(--nf-ink); font-weight: var(--nf-weight-bold); margin: 0
   padding: 12px 16px; text-align: start; background: #fff; color: var(--nf-ink);
   border: 1.5px solid var(--nf-line-strong); border-radius: var(--nf-radius-control); font: inherit; cursor: pointer;
   transition: border-color var(--nf-dur-fast), background var(--nf-dur-fast); }
-.nf-option:hover { border-color: var(--nf-brand-300); }
+@media (hover: hover) and (pointer: fine) { .nf-option:hover { border-color: var(--nf-brand-300); } }
 .nf-option[aria-pressed="true"], .nf-option[aria-checked="true"] { border-color: var(--nf-brand-600); background: var(--nf-brand-50); }
 
 /* ---------- Progress / stepper ---------- */

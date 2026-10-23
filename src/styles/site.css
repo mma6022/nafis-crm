@@ -18,7 +18,7 @@ svg.i{width:22px;height:22px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .hdr{position:sticky;top:0;z-index:20;height:var(--nf-header-h);background:rgba(255,255,255,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--nf-line)}
 .hdr .wrap{height:100%;display:flex;align-items:center;gap:8px;padding-inline:12px 8px}
 .hdr .logo{display:flex;align-items:center;margin-inline-end:auto;padding:6px 4px}
-.hdr .logo img{height:30px;width:auto;display:block}
+.hdr .logo img{width:154px;height:auto;display:block}
 .hdr .cta{min-height:44px;padding:0 14px;font-size:15px;border-radius:12px;background:var(--nf-brand-50);color:var(--nf-brand-700);border:1.5px solid var(--nf-brand-100);font-weight:800;text-decoration:none;display:inline-flex;align-items:center}
 .icon-btn{width:48px;height:48px;display:grid;place-items:center;border:0;background:none;border-radius:12px;color:var(--nf-ink);cursor:pointer}
 .icon-btn:hover{background:var(--nf-surface-2)}
@@ -157,7 +157,7 @@ h1,h2,h3{color:var(--nf-ink)}
 .site-foot .fgrid{display:grid;gap:0;padding:32px 0 8px}
 .site-foot .brand{padding-bottom:20px;border-bottom:1px solid rgba(255,255,255,.12)}
 .site-foot .brand .flogo{display:inline-flex;background:#fff;border-radius:12px;padding:8px 12px}
-.site-foot .brand .flogo img{height:28px;width:auto}
+.site-foot .brand .flogo img{width:154px;height:auto}
 .site-foot .brand p{margin:12px 0 8px;line-height:1.9}
 .site-foot details{border-bottom:1px solid rgba(255,255,255,.12)}
 .site-foot summary{min-height:56px;display:flex;align-items:center;justify-content:space-between;color:#fff;font-weight:800;font-size:16px;cursor:pointer;list-style:none}
@@ -359,7 +359,7 @@ details.toc[open] summary svg{transform:rotate(180deg)}
   .hdr{height:72px}
   .hdr .wrap{gap:4px;padding-inline:var(--nf-gutter)}
   .hdr .logo{margin-inline-end:24px}
-  .hdr .logo img{height:34px}
+  .hdr .logo img{width:175px}
   .dnav{display:flex;align-items:center;gap:2px;margin-inline-end:auto}
   .dnav>a,.dd>button{min-height:44px;display:inline-flex;align-items:center;gap:4px;padding:0 12px;border-radius:10px;color:var(--nf-ink);font-weight:600;text-decoration:none;border:0;background:none;cursor:pointer;font-size:16px}
   .dnav>a:hover,.dd>button:hover,.dd>button[aria-expanded="true"]{background:var(--nf-surface-2)}
@@ -499,7 +499,7 @@ details.toc[open] summary svg{transform:rotate(180deg)}
 .prose-nf a.nf-btn--secondary{color:var(--nf-brand-700)}
 .prose-nf a.nf-btn--text{color:var(--nf-brand-600);text-decoration:underline}
 /* Header CTA rule: soft at top; primary once the hero has scrolled away (desktop; on mobile the sticky bar carries the CTA) */
-.hdr .cta{transition:background var(--nf-dur),color var(--nf-dur),border-color var(--nf-dur),box-shadow var(--nf-dur)}
+.hdr .cta{transition:background 150ms,color 150ms,border-color 150ms,box-shadow 150ms}
 @media(min-width:1024px){.hdr.is-stuck .cta{background:var(--nf-brand-600);color:#fff;border-color:var(--nf-brand-600);box-shadow:var(--nf-shadow-button)}.hdr.is-stuck .cta:hover{background:var(--nf-brand-700)}}
 @media(prefers-reduced-motion:reduce){.hdr .cta{transition:none}}
 /* Trust + why (merged) */
@@ -530,5 +530,8 @@ details.toc[open] summary svg{transform:rotate(180deg)}
 .rq .code b{direction:ltr;unicode-bidi:isolate;font-family:inherit;letter-spacing:.04em}
 .vh{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .rq-step .chosen:not([hidden]) ~ .sub{display:none}
-#ct{display:grid;grid-template-columns:repeat(auto-fit,minmax(60px,1fr))}#ct button{padding:0 6px}
+/* ANSWERS-1 mismatch 1: term chips always one row (5 terms in the JSON); the payout label never wraps */
+#ct{display:grid;grid-template-columns:repeat(var(--n,5),1fr)}#ct button{padding:0 4px;white-space:nowrap;min-width:0}
+.calc-out .money .lbl{white-space:nowrap}
+@media (max-width:419px){.calc-out .money{gap:4px 10px}.calc-out .money>div+div{padding-inline-start:10px}.calc-out .money .lbl{font-size:13px}#ct button{font-size:14px}}
 .done .code-wrap{display:grid;justify-items:center;gap:6px;margin-bottom:24px}.done .code-wrap .code{margin-bottom:0;white-space:nowrap}

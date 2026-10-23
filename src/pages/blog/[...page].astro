@@ -17,6 +17,7 @@ const crumbs = [
   { name: 'مجله', path: '/blog' },
 ];
 const suffix = page.currentPage > 1 ? ` — صفحه ${toFaDigits(page.currentPage)}` : '';
+import FinalCTA from '../../components/FinalCTA.astro';
 ---
 
 <BaseLayout
@@ -30,4 +31,5 @@ const suffix = page.currentPage > 1 ? ` — صفحه ${toFaDigits(page.currentPa
     <PostGrid posts={page.data} />
     <Pagination page={page} />
   </div>
+  <FinalCTA src="blog" />
 </BaseLayout>

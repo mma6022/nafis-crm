@@ -1,13 +1,17 @@
 ---
+/** /about (UX-SPEC §7, ANSWERS-1 §9): lead, mission, labelled placeholder boxes (legal name, licence, team, map), FinalCTA. */
 import BaseLayout from '../layouts/BaseLayout.astro';
 import PageHeader from '../components/PageHeader.astro';
-import Section from '../components/ui/Section.astro';
 import Placeholder from '../components/ui/Placeholder.astro';
+import FinalCTA from '../components/FinalCTA.astro';
+import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
+import { fa, planFacts } from '../lib/plans';
 import { breadcrumbLd } from '../lib/seo';
 const crumbs = [
   { name: 'خانه', path: '/' },
-  { name: 'درباره ما', path: Astro.url.pathname },
+  { name: 'درباره ما', path: '/about' },
 ];
+const facts = planFacts(LOAN_PLANS_SNAPSHOT);
 ---
 
 <BaseLayout
@@ -15,8 +19,23 @@ const crumbs = [
   description="نفیس وام کیست و چطور به شما کمک می‌کند تا آگاهانه و شفاف، تسهیلات و وام متناسب با شرایط خود را انتخاب کنید."
   jsonLd={[breadcrumbLd(crumbs)]}
 >
-  <PageHeader title="درباره نفیس وام" crumbs={crumbs} />
-  <Section>
-    <Placeholder label="درباره ما" note="TODO(spec): داستان برند، تیم، مجوزها، ارزش‌ها." minH="min-h-64" />
-  </Section>
+  <PageHeader title="درباره نفیس وام" lead="کمک می‌کنیم از بین طرح‌های فعال، طرحی را انتخاب کنید که واقعاً به کارتان می‌آید." crumbs={crumbs} />
+  <div class="container-nf pt-8 about">
+    <section class="mission" aria-labelledby="mission-h">
+      <p class="eyebrow">مأموریت ما</p>
+      <h2 id="mission-h">برای هر مشتری یک طرح مناسب و شفاف</h2>
+      <p>
+        مبلغ قابل دریافت، قسط ماهانه و زمان بررسی هر کدام از <span data-plan-count="planCount">{fa(facts.planCount)}</span> طرح فعال را قبل از درخواست
+        نشان می‌دهیم تا بدون غافلگیری تصمیم بگیرید.
+      </p>
+    </section>
+    <div class="about-ph">
+      <Placeholder label="نام حقوقی شرکت و شماره ثبت" />
+      <Placeholder label="مجوزها" />
+      <Placeholder label="تیم و تصویر دفتر" />
+      <Placeholder label="آدرس روی نقشه (نشان یا بلد)" />
+    </div>
+    <p class="mt-6"><a class="nf-btn nf-btn--primary" href="/request?src=about">ثبت درخواست</a></p>
+  </div>
+  <FinalCTA src="about" />
 </BaseLayout>

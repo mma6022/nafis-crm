@@ -1,20 +1,17 @@
 ---
-/** Visible dashed box marking where spec content will go. Remove once the section is built. */
+/**
+ * Labelled placeholder box (designer ANSWERS-1 §9): dashed gold box with the standard pill
+ * «جای‌خالی: {label}» (rendered bracketless; marker kept in data-marker for the build check) and an optional note.
+ */
 interface Props {
   label: string;
   note?: string;
   minH?: string;
 }
-const { label, note, minH = 'min-h-40' } = Astro.props;
+const { label, note, minH = 'min-h-24' } = Astro.props;
 ---
 
-<div
-  class:list={[
-    'flex flex-col items-center justify-center gap-1 rounded-card border-2 border-dashed border-brand-200 bg-brand-50/50 p-6 text-center',
-    minH,
-  ]}
-  data-placeholder
->
-  <p class="font-bold text-brand-600">{label}</p>
-  {note && <p class="max-w-md text-sm text-ink-muted">{note}</p>}
+<div class:list={['ph-box', minH]} data-placeholder>
+  <span class="ph">[جای‌خالی: {label}]</span>
+  {note && <p>{note}</p>}
 </div>

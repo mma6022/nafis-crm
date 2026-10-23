@@ -1,5 +1,5 @@
 ---
-/** Contact (UX-SPEC §8): cards only, no form — the request wizard is the single form. */
+/** Contact (UX-SPEC §7, ANSWERS-1 §9): cards only, no form; the one primary button is «درخواست تماس» → /request?need=help. */
 import BaseLayout from '../layouts/BaseLayout.astro';
 import PageHeader from '../components/PageHeader.astro';
 import Icon from '../components/ui/Icon.astro';
@@ -51,9 +51,9 @@ const card = 'rounded-card border border-line bg-white p-5';
       <a href={SITE.portal} class={buttonClass('secondary', 'md', 'mt-2 w-full')}>ورود مشتریان</a>
     </div>
     <div class="bg-brand-50 rounded-card p-5">
-      <p class="text-ink font-extrabold">درخواست وام</p>
-      <p class="text-ink-muted text-small">کمتر از یک دقیقه؛ کارشناس با شما تماس می‌گیرد.</p>
-      <a href="/request?src=contact" class={buttonClass('primary', 'md', 'mt-3 w-full')}>درخواست وام</a>
+      <p class="text-ink font-extrabold">ترجیح می‌دهید ما تماس بگیریم؟</p>
+      <p class="text-ink-muted text-small">شماره‌تان را بگذارید؛ کارشناس رایگان راهنمایی‌تان می‌کند.</p>
+      <a href="/request?need=help&src=contact" class={buttonClass('primary', 'md', 'mt-3 w-full')}>درخواست تماس</a>
     </div>
   </div>
 </BaseLayout>

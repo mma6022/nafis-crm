@@ -117,6 +117,36 @@ export function combos(plans: LoanPlan[]): Combo[] {
 export const byId = (all: Combo[], id: number): Combo | undefined =>
   all.filter((c) => c.id === id).sort((a, b) => b.payout - a.payout)[0];
 
+/* ---------------- /calculator ---------------- */
+
+/**
+ * /calculator results (UX-SPEC §7, ANSWERS-1 §9): 1–3 plans for type → band → term. Rank: band match, then
+ * exact/nearest term, then lower installment, then smaller id; one card per plan (its combo closest to the term).
+ * Falls back to every type when the chosen type has no plan, so the page never shows «no plan».
+ */
+export function calcPicks(all: Combo[], type: FinderType, band: FinderBand, term: number, max = 3): Combo[] {
+  const t = type === 'cash' ? 'score' : type === 'goods' ? 'goods' : null;
+  const pool = all.filter((c) => !t || c.type === t);
+  const list = (pool.length ? pool : all)
+    .slice()
+    .sort(
+      (x, y) =>
+        Number(bandOf(y.payout) === band) - Number(bandOf(x.payout) === band) ||
+        Math.abs(x.term - term) - Math.abs(y.term - term) ||
+        x.inst - y.inst ||
+        x.id - y.id,
+    );
+  const seen = new Set<number>();
+  const out: Combo[] = [];
+  for (const c of list) {
+    if (seen.has(c.id)) continue;
+    seen.add(c.id);
+    out.push(c);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
 /* ---------------- finder ---------------- */
 
 export type FinderType = 'cash' | 'goods' | 'any';
@@ -180,7 +210,8 @@ export function recommend(all: Combo[], a: FinderAnswers, preset: FinderPreset =
   const best = Math.max(...base.map((c) => c.s));
   const minInst = Math.min(...base.filter((c) => c.s === best).map((c) => c.inst));
   const prioOk = (c: Combo) =>
-    a.prio === 'fast' ? c.days === 'under_7' : a.prio === 'online' ? c.mode === 'both' || c.mode === 'online' : c.inst <= minInst * 1.2;
+    // «بدون مراجعه حضوری» = processMode 'both' (ANSWERS-1 §4: the data has no fully-online flag)
+    a.prio === 'fast' ? c.days === 'under_7' : a.prio === 'online' ? c.mode === 'both' : c.inst <= minInst * 1.2;
   const scored = base
     .map((c) => ({ ...c, p: prioOk(c) ? 30 : 0 }))
     .map((c) => ({ ...c, s: c.s + c.p }))
@@ -190,7 +221,8 @@ export function recommend(all: Combo[], a: FinderAnswers, preset: FinderPreset =
         y.t - x.t ||
         y.b - x.b ||
         y.p - x.p ||
-        (a.prio === 'cheap' ? x.inst - y.inst : y.payout - x.payout) ||
+        // ties (ANSWERS-1 §4): higher received amount, then lower installment, then smaller id (cheap: installment first)
+        (a.prio === 'cheap' ? x.inst - y.inst || y.payout - x.payout : y.payout - x.payout || x.inst - y.inst) ||
         x.id - y.id ||
         x.term - y.term,
     );
@@ -299,6 +331,7 @@ export const FINDER_LABEL = {
   prio: { fast: 'زودتر برسد', cheap: 'قسط کمتر', online: 'بدون مراجعه حضوری' } as Record<FinderPrio, string>,
 };
 export const DAYS_LABEL: Record<string, string> = { under_7: 'کمتر از ۷ روز', '10_to_15': '۱۰ تا ۱۵ روز' };
+/** Card «روش» label. Never «کاملاً آنلاین»: there is no data for it (ANSWERS-1 §4). */
 export const MODE_LABEL: Record<string, string> = { both: 'آنلاین یا حضوری', in_person: 'حضوری', online: 'آنلاین' };
 export const TYPE_LABEL: Record<string, string> = { goods: 'خرید کالا قسطی', score: 'وام نقدی' };
 
@@ -318,6 +351,13 @@ export function toFinderPreset(p: ContentPreset = {}): FinderPreset {
   if (p.priority === 'fast' || p.priority === 'cheap' || p.priority === 'online') out.prio = p.priority;
   if (p.guarantee && GUARANTEE_PRESETS[p.guarantee]) out.guarantee = GUARANTEE_PRESETS[p.guarantee];
   return out;
+}
+/** Drops a guarantee preset while no plan carries guaranteeTypes (no chip, no note, no ranking effect). */
+export function withoutUnbackedGuarantee(p: FinderPreset | undefined, all: Combo[]): FinderPreset | undefined {
+  if (!p?.guarantee || all.some((c) => Array.isArray(c.guarantees))) return p;
+  const rest = { ...p };
+  delete rest.guarantee;
+  return rest;
 }
 /** `<PlanCards filter>` names → plan predicate; `null` = the data can't answer yet (guarantee fields missing). */
 export function planFilter(name: string, plans: LoanPlan[]): ((p: LoanPlan) => boolean) | null {

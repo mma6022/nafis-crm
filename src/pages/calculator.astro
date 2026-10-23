@@ -1,27 +1,61 @@
 ---
+/**
+ * /calculator (UX-SPEC §7, designer ANSWERS-1 §9): type → band → term, 1–3 result cards, the formula in plain words, FAQ.
+ * The long 18-plan <select> is gone; money is shown as «حدود ۳۱۵ میلیون تومان», never «۳۱۵,۰۰۰,۰۰۰».
+ */
 import BaseLayout from '../layouts/BaseLayout.astro';
 import PageHeader from '../components/PageHeader.astro';
-import Section from '../components/ui/Section.astro';
+import FaqList from '../components/FaqList.astro';
+import FinalCTA from '../components/FinalCTA.astro';
 import LoanCalculator from '../components/islands/LoanCalculator';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
-import { breadcrumbLd } from '../lib/seo';
+import { byId, combos, fa, millionsFa } from '../lib/plans';
+import { breadcrumbLd, faqLd } from '../lib/seo';
 const crumbs = [
   { name: 'خانه', path: '/' },
   { name: 'محاسبه قسط', path: '/calculator' },
 ];
+// Worked example from the live JSON: the highest-payout combo of the first plan
+const all = combos(LOAN_PLANS_SNAPSHOT);
+const ex = byId(all, 10) ?? all[0];
+const exText = ex
+  ? `مثلاً در «${ex.name}» با مبلغ اسمی ${millionsFa(ex.principal)} میلیون تومان، سود سالانه ${fa(ex.rate)}٪ و ${fa(ex.term)} قسط، مبلغ قابل دریافت حدود ${millionsFa(ex.payout)} میلیون تومان و قسط ماهانه حدود ${millionsFa(ex.inst)} میلیون تومان است.`
+  : '';
+const faq = [
+  {
+    q: 'قسط چطور محاسبه می‌شود؟',
+    a: 'قسط ماهانه با روش اقساط مساوی روی مبلغ اسمی وام و سود سالانه طرح حساب می‌شود (نرخ ماهانه = سود سالانه تقسیم بر ۱۲). مبلغ قابل دریافت درصدی از مبلغ اسمی است که در هر طرح و مدت فرق دارد.',
+  },
+  {
+    q: 'چرا مبلغ قابل دریافت با مبلغ اسمی فرق دارد؟',
+    a: 'در هر طرح و مدت، فقط درصدی از مبلغ اسمی به دست شما می‌رسد و قسط روی کل مبلغ اسمی حساب می‌شود. برای همین هر دو عدد را روی کارت طرح می‌بینید و کارشناس جزئیات هر طرح را توضیح می‌دهد.',
+  },
+  {
+    q: 'عدد محاسبه‌گر قطعی است؟',
+    a: 'نه. اعداد برآوردی است و مبلغ قطعی پس از اعتبارسنجی اعلام می‌شود.',
+  },
+];
 ---
 
 <BaseLayout
-  title="محاسبه‌گر قسط وام"
-  description="با محاسبه‌گر قسط نفیس وام، طرح و مدت بازپرداخت را انتخاب کنید و مبلغ واریزی و قسط ماهانه را فوراً ببینید."
-  jsonLd={[breadcrumbLd(crumbs)]}
+  title="محاسبه قسط وام"
+  description="با محاسبه‌گر قسط نفیس وام نوع، حدود مبلغ و مدت بازپرداخت را انتخاب کنید و مبلغ قابل دریافت و قسط ماهانه طرح‌های نزدیک را ببینید."
+  jsonLd={[breadcrumbLd(crumbs), faqLd(faq)]}
 >
-  <PageHeader
-    title="محاسبه‌گر قسط وام"
-    lead="طرح و مدت بازپرداخت را انتخاب کنید تا مبلغ واریزی و قسط ماهانه را ببینید."
-    crumbs={crumbs}
-  />
-  <Section>
+  <PageHeader title="محاسبه قسط وام" lead="نوع، مبلغ و مدت را انتخاب کنید؛ نزدیک‌ترین طرح‌های فعال را با قسط تقریبی نشان می‌دهیم." crumbs={crumbs} />
+  <div class="container-nf pt-8">
     <LoanCalculator client:load snapshot={LOAN_PLANS_SNAPSHOT} />
-  </Section>
+  </div>
+  <section class="container-nf pt-section calc-formula prose-nf" aria-labelledby="formula-h">
+    <h2 id="formula-h">قسط به زبان ساده</h2>
+    <p>
+      قسط ماهانه از سه عدد ساخته می‌شود: مبلغ اسمی وام، سود سالانه طرح و تعداد قسط‌ها. سود سالانه بر ۱۲ تقسیم می‌شود و قسط‌ها مساوی‌اند؛ پس با
+      بیشتر شدن مدت، قسط ماهانه کمتر و جمع سود بیشتر می‌شود. {exText}
+    </p>
+  </section>
+  <section class="container-nf pt-section" aria-labelledby="calc-faq-h">
+    <h2 id="calc-faq-h" class="text-h2 lg:text-h2-lg mb-4">سؤالات متداول محاسبه قسط</h2>
+    <div style="max-width:var(--nf-prose)"><FaqList items={faq} /></div>
+  </section>
+  <FinalCTA src="calculator" />
 </BaseLayout>

@@ -10,7 +10,7 @@ import Breadcrumbs from '../components/Breadcrumbs.astro';
 import I from '../components/ui/I.astro';
 import { mdxComponents } from '../components/mdx';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
-import { fa, fillFacts, leadHtml, planFacts } from '../lib/plans';
+import { fa, fillFacts, leadHtml, planFacts, planFilter } from '../lib/plans';
 import { breadcrumbLd, faqLd } from '../lib/seo';
 import { MESSENGERS, SITE } from '../lib/site';
 interface Props {
@@ -32,16 +32,29 @@ const crumbs = [
   { name: 'خدمات', path: '/services' },
   { name: d.primaryKeyword, path: d.slug },
 ];
-/** Live badge per page (mockup only specifies /vam-fori). */
-const BADGE: Record<string, { key: 'fastCount' | 'goodsCount'; text: string; tone: string }> = {
-  'vam-fori': { key: 'fastCount', text: 'طرح فعال با بررسی کمتر از ۷ روز', tone: 'success' },
-  'kharid-aghsati': { key: 'goodsCount', text: 'طرح فعال خرید اقساطی', tone: 'brand' },
+/**
+ * Live badge (designer ANSWERS-1 §7): only when the page's planFilter can be computed from the plan JSON.
+ * Guarantee pages (no guarantor / no cheque / cheque / promissory) get NO badge until plans carry guaranteeTypes —
+ * not even the total count, which would read as «all N plans are without guarantor».
+ */
+const BADGE: Record<string, { filter: string; key: 'fastCount' | 'goodsCount' | null; text: string; tone: string }> = {
+  'vam-fori': { filter: 'fast', key: 'fastCount', text: 'طرح فعال با بررسی کمتر از ۷ روز', tone: 'success' },
+  'kharid-aghsati': { filter: 'goods', key: 'goodsCount', text: 'طرح فعال خرید اقساطی', tone: 'brand' },
+  'vam-bedun-zamen': { filter: 'noGuarantor', key: null, text: 'طرح فعال بدون ضامن', tone: 'brand' },
+  'vam-bedun-chek': { filter: 'noCheque', key: null, text: 'طرح فعال بدون چک', tone: 'brand' },
+  'vam-ba-chek': { filter: 'cheque', key: null, text: 'طرح فعال با چک', tone: 'brand' },
+  'vam-ba-safte': { filter: 'promissory', key: null, text: 'طرح فعال با سفته', tone: 'brand' },
 };
-const badge = BADGE[page];
-const ASIDE: Record<string, string> = {
-  'vam-fori': 'درخواست ثبت کنید؛ کارشناس سریع‌ترین طرح متناسب با شما را پیشنهاد می‌دهد.',
+const badgeDef = BADGE[page];
+const badgeFn = badgeDef ? planFilter(badgeDef.filter, LOAN_PLANS_SNAPSHOT) : null;
+const badgeN = badgeFn ? new Set(LOAN_PLANS_SNAPSHOT.filter(badgeFn).map((p) => p.id)).size : 0;
+const badge = badgeDef && badgeFn && badgeN > 0 ? { ...badgeDef, n: badgeN } : null;
+/** Side panel (ANSWERS-1 §7): never a guarantee claim; primary = frontmatter cta.primary, then تماس / واتساپ. */
+const ASIDE: Record<string, { h?: string; p: string }> = {
+  'vam-fori': { p: 'درخواست ثبت کنید؛ کارشناس سریع‌ترین طرح متناسب با شما را پیشنهاد می‌دهد.' },
+  'kharid-aghsati': { h: 'قصد خرید اقساطی دارید؟', p: 'درخواست ثبت کنید؛ کارشناس طرح خرید کالای متناسب با مبلغ و قسط شما را پیشنهاد می‌دهد.' },
 };
-const asideText = ASIDE[page] ?? 'درخواست ثبت کنید؛ کارشناس مناسب‌ترین طرح را با شما مرور می‌کند.';
+const aside = { h: ASIDE[page]?.h ?? `${d.primaryKeyword} لازم دارید؟`, p: ASIDE[page]?.p ?? 'درخواست ثبت کنید؛ کارشناس مناسب‌ترین طرح را با شما مرور می‌کند.' };
 const isTel = (h: string) => h.startsWith('tel:');
 ---
 
@@ -52,7 +65,7 @@ const isTel = (h: string) => h.startsWith('tel:');
       {
         badge && (
           <span class={`nf-badge nf-badge--${badge.tone}`}>
-            <span data-plan-count={badge.key}>{fa(facts[badge.key])}</span> {badge.text}
+            {badge.key ? <span data-plan-count={badge.key}>{fa(badge.n)}</span> : fa(badge.n)} {badge.text}
           </span>
         )
       }
@@ -76,8 +89,8 @@ const isTel = (h: string) => h.startsWith('tel:');
     </article>
     <aside class="aside" aria-label="درخواست سریع">
       <div class="nf-card aside-card">
-        <h2>{d.primaryKeyword} لازم دارید؟</h2>
-        <p>{asideText}</p>
+        <h2>{aside.h}</h2>
+        <p>{aside.p}</p>
         <a class="nf-btn nf-btn--primary nf-btn--block" href={d.cta.primary.href}>{d.cta.primary.text}</a>
         <div class="row">
           <a class="nf-btn nf-btn--secondary" href={SITE.tel}><I name="phone" size={18} /> تماس</a>

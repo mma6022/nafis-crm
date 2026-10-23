@@ -21,3 +21,41 @@
 .cards.plan-list{display:grid;gap:12px}
 @media (min-width:768px){.cards.plan-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (min-width:1024px){.cards.plan-list{grid-template-columns:repeat(3,minmax(0,1fr))}}
+
+/* Wizard: a freshly shown step is neutral even if the pointer already rests on an option (ANSWERS-1 mismatch 4);
+   hover returns on the first pointer move. Touch never gets sticky hover (components.css gates :hover). */
+.rq-wrap[data-fresh] .nf-option:not([aria-pressed="true"]):hover{border-color:var(--nf-line-strong)}
+.rq-wrap[data-fresh] .nf-input:not(:focus):not([aria-invalid="true"]):hover{border-color:var(--nf-line-strong)}
+/* /faq groups (ANSWERS-1 §9) */
+.faq-groups{display:grid;gap:32px;max-width:var(--nf-prose)}
+.faq-groups h2{font-size:var(--nf-text-h2);line-height:var(--nf-lh-h2);margin:0 0 12px}
+/* /how-it-works: 4 vertical numbered steps (ANSWERS-1 §9) */
+.hiw-steps{list-style:none;margin:0;padding:0;display:grid;gap:0;max-width:var(--nf-prose)}
+.hiw-steps li{display:grid;grid-template-columns:40px 1fr;gap:16px;position:relative;padding-bottom:24px}
+.hiw-steps li:not(:last-child)::before{content:"";position:absolute;inset-inline-start:19px;top:44px;bottom:4px;width:2px;background:var(--nf-brand-100)}
+.hiw-steps .n{width:40px;height:40px;border-radius:50%;background:var(--nf-brand-600);color:#fff;display:grid;place-items:center;font-weight:800}
+.hiw-steps h2{font-size:var(--nf-text-h3,18px);margin:6px 0 4px;line-height:1.6}
+.hiw-steps p{margin:0;color:var(--nf-ink-muted);font-size:15px;line-height:1.9}
+.hiw-steps .time{margin-top:6px;color:var(--nf-ink-soft);font-weight:600}
+.hiw-steps .docs{margin-top:6px}
+.ph-box{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:8px;padding:16px;border:1.5px dashed var(--nf-gold-500);border-radius:var(--nf-radius-card);background:color-mix(in srgb,var(--nf-gold-50) 45%,#fff)}
+.ph-box p{margin:0;font-size:14px;color:var(--nf-ink-muted)}
+/* /about (ANSWERS-1 §9) */
+.about .mission{max-width:var(--nf-prose);margin-bottom:24px}
+.about .mission .eyebrow{margin:0;font-size:14px;font-weight:700;color:var(--nf-brand-600)}
+.about .mission h2{font-size:var(--nf-text-h2);line-height:var(--nf-lh-h2);margin:4px 0 8px}
+.about .mission p:not(.eyebrow){margin:0;color:var(--nf-ink-soft);line-height:1.9}
+.about-ph{display:grid;gap:12px}
+@media (min-width:768px){.about-ph{grid-template-columns:1fr 1fr}}
+/* /calculator (ANSWERS-1 §9): compact option rows + chips, then 1–3 plan cards */
+.lc{display:grid;gap:24px}
+.lc-in{display:grid;gap:20px}
+.lc .grp{display:grid;gap:8px}
+.lc .grp>span{font-weight:700;font-size:15px}
+.lc .opts{grid-template-columns:1fr;gap:8px}
+.lc .opts .nf-option{flex-direction:row;align-items:center;gap:12px;min-height:56px;padding:10px 14px}
+.lc .opts .nf-option .ic{width:40px;height:40px;border-radius:12px}
+.lc .opts .nf-option .tx b{font-size:16px}
+.lc-h{font-size:var(--nf-text-h3,18px);margin:0 0 12px}
+@media (min-width:768px){.lc .opts{grid-template-columns:repeat(3,1fr)}}
+.calc-formula{max-width:var(--nf-prose)}

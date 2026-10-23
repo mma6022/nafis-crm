@@ -2,15 +2,19 @@
 /**
  * Logo: flat vector from /workspace/nafis-design/brand/ (auto-traced from the official raster; no original vector
  * exists, see brand/README.md). `navy` = #0B1450 variant for light/gold backgrounds.
+ * The SVG viewBox is cropped to the exact path box (12.8 13.25 1375.6 251.1, designer ANSWERS-1 §2); size it by
+ * WIDTH in CSS (header 154px mobile / 175px desktop, height:auto). Never stretch (no preserveAspectRatio=none).
  */
 import { SITE } from '../lib/site';
 interface Props {
-  height?: number;
+  /** intrinsic width attribute (CSS sets the rendered width) */
+  width?: number;
   class?: string;
   navy?: boolean;
 }
-const { height = 30, class: cls = '', navy = false } = Astro.props;
-const width = Math.round((1400 / 289) * height);
+const RATIO = 1375.6 / 251.1;
+const { width = 175, class: cls = '', navy = false } = Astro.props;
+const height = Math.round(width / RATIO);
 ---
 
 <img

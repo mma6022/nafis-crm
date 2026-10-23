@@ -3,16 +3,30 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import PageHeader from '../components/PageHeader.astro';
 import FinalCTA from '../components/FinalCTA.astro';
 import { fa } from '../lib/plans';
+import { GRANT_DAYS_LABEL } from '../lib/loan-plans';
+import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 import { breadcrumbLd } from '../lib/seo';
 const crumbs = [
   { name: 'خانه', path: '/' },
   { name: 'مراحل دریافت', path: '/how-it-works' },
 ];
+// Review times straight from the plan JSON (ANSWERS-1 §9): «کمتر از ۷ روز (۲ طرح)، ۱۰ تا ۱۵ روز (۱۶ طرح)»
+const times = Object.entries(
+  LOAN_PLANS_SNAPSHOT.reduce<Record<string, number>>((m, p) => ((m[p.grantDays] = (m[p.grantDays] ?? 0) + 1), m), {}),
+)
+  .sort(([a], [b]) => Object.keys(GRANT_DAYS_LABEL).indexOf(a) - Object.keys(GRANT_DAYS_LABEL).indexOf(b))
+  .map(([k, n]) => `${GRANT_DAYS_LABEL[k] ?? k} (${fa(n)} طرح)`)
+  .join('، ');
 const steps = [
   { t: 'طرح مناسب را پیدا کنید', d: 'به ۳ سؤال طرح‌یاب جواب دهید یا مستقیم درخواست بدهید. مبلغ قابل دریافت و قسط هر طرح را از قبل می‌بینید.' },
   { t: 'کارشناس با شما تماس می‌گیرد', d: 'شرایط طرح، ضمانت لازم و مدارک را توضیح می‌دهد. مشاوره رایگان است و تعهدی ایجاد نمی‌کند.' },
-  { t: 'مدارک و اعتبارسنجی', d: 'مدارک را آنلاین یا حضوری تحویل می‌دهید. اعتبارسنجی بانکی انجام می‌شود و مبلغ قطعی اعلام می‌شود.' },
-  { t: 'واریز یا تحویل کالا', d: 'پس از امضای قرارداد، تسهیلات واریز می‌شود یا کالا تحویل داده می‌شود. وضعیت پرونده را در پرتال مشتریان می‌بینید.' },
+  {
+    t: 'مدارک و اعتبارسنجی',
+    d: 'مدارک را آنلاین یا حضوری تحویل می‌دهید. اعتبارسنجی بانکی انجام می‌شود و مبلغ قطعی اعلام می‌شود.',
+    time: `زمان بررسی: ${times}`,
+    docs: true,
+  },
+  { t: 'واریز یا تحویل کالا', d: 'پس از امضای قرارداد، تسهیلات واریز می‌شود یا کالا تحویل داده می‌شود. وضعیت پرونده را در پورتال مشتریان می‌بینید.' },
 ];
 ---
 
@@ -22,19 +36,28 @@ const steps = [
   jsonLd={[breadcrumbLd(crumbs)]}
 >
   <PageHeader title="از درخواست تا دریافت، در ۴ قدم" lead="همه شرایط را قبل از امضا می‌دانید." crumbs={crumbs} />
-  <ol class="container-nf grid gap-3 pt-8 lg:grid-cols-2">
-    {
-      steps.map((s, i) => (
-        <li class="flex gap-4 rounded-card border border-line bg-white p-5">
-          <span class="bg-brand-600 grid size-10 shrink-0 place-items-center rounded-full font-extrabold text-white">{fa(i + 1)}</span>
-          <div>
-            <h2 class="text-h3">{s.t}</h2>
-            <p class="text-ink-muted mt-1 text-small">{s.d}</p>
-          </div>
-        </li>
-      ))
-    }
-  </ol>
-  <p class="container-nf text-ink-muted mt-4 text-caption">زمان بررسی هر طرح روی کارت آن نوشته شده است. [تأیید محمد: متن مراحل]</p>
+  <div class="container-nf pt-8">
+    <ol class="hiw-steps">
+      {
+        steps.map((s, i) => (
+          <li>
+            <span class="n" aria-hidden="true">{fa(i + 1)}</span>
+            <div>
+              <h2>{s.t}</h2>
+              <p>{s.d}</p>
+              {'time' in s && <p class="time">{s.time}</p>}
+              {'docs' in s && (
+                <p class="docs">
+                  مدارک عمومی: کارت ملی، شناسنامه و مدارک شغلی یا درآمدی. <span class="ph">[تأیید محمد: فهرست مدارک عمومی]</span>
+                </p>
+              )}
+            </div>
+          </li>
+        ))
+      }
+    </ol>
+    <p class="text-ink-muted mt-4 text-caption">زمان بررسی هر طرح روی کارت آن نوشته شده است. [تأیید محمد: متن مراحل]</p>
+    <p class="mt-6"><a class="nf-btn nf-btn--primary" href="/request?src=how-it-works">ثبت درخواست</a></p>
+  </div>
   <FinalCTA src="how-it-works" />
 </BaseLayout>

@@ -45,17 +45,43 @@ test('payout (received) = principal × depositPercent / 100, same combos as the 
 });
 
 /* ---------- plan-finder ranking ---------- */
-test('recommend: identical cards and exact flag as site.js for all 27 answers', () => {
+test('recommend: same ranking and exact flag as site.js for all 27 answers (ties: ANSWERS-1 §4)', () => {
+  // site.js leaves full ties to array order; ANSWERS-1 §4 fixes them (payout ↓, installment ↑, id ↑).
+  // So each position must match site.js on score and on the primary metric; only true ties may differ.
+  let identical = 0;
   for (const type of FINDER_TYPES)
     for (const band of FINDER_BANDS)
       for (const prio of FINDER_PRIOS) {
         const ours = recommend(all, { type, band, prio });
         const ref = D.recommend({ type, band, prio });
+        const k = `${type},${band},${prio}`;
         const key = (c: Combo) => `${c.id}/${c.term}`;
-        assert.deepEqual(ours.cards.map(key), ref.cards.map(key), `${type},${band},${prio}`);
-        assert.equal(ours.exact, ref.exact, `${type},${band},${prio}`);
+        const metric = (c: Combo) => Math.round(prio === 'cheap' ? c.inst : c.payout);
+        assert.equal(ours.cards.length, ref.cards.length, k);
+        ours.cards.forEach((c, i) => {
+          const r = ref.cards[i]!;
+          assert.equal(c.score, r.s, `${k}#${i} score`);
+          assert.equal(metric(c), metric(r), `${k}#${i} ${key(c)} vs ${key(r)}`);
+        });
+        if (ours.cards.map(key).join() === ref.cards.map(key).join()) identical++;
+        assert.equal(ours.exact, ref.exact, k);
         assert.ok(ours.cards.length >= 1 && ours.cards.length <= 3);
+        assert.equal(new Set(ours.cards.map((c) => c.name)).size, ours.cards.length, `${k}: names deduped`);
       }
+  assert.ok(identical >= 20, `most answers identical to site.js (${identical}/27)`);
+  // the tie itself: equal installment → higher payout first, then smaller id
+  const [, x, y] = recommend(all, { type: 'goods', band: 1, prio: 'cheap' }).cards;
+  assert.ok(x!.inst < y!.inst || (x!.inst === y!.inst && (x!.payout > y!.payout || (x!.payout === y!.payout && x!.id < y!.id))));
+});
+
+test('recommend online: processMode=both ranks above in-person; deterministic id tie-break', () => {
+  const mk = (id: number, o: Partial<Combo>): Combo => ({
+    id, name: `طرح ${id}`, type: 'score', mode: 'in_person', days: '10_to_15', bank: 'ملی', platform: 'x',
+    principal: 150e6, rate: 23, term: 12, prepay: 0, payout: 150e6, inst: 14e6, ...o,
+  });
+  const list = [mk(9, {}), mk(7, { mode: 'both' }), mk(5, { mode: 'both' })];
+  assert.deepEqual(recommend(list, { type: 'cash', band: 1, prio: 'online' }).cards.map((c) => c.id), [5, 7, 9]);
+  assert.deepEqual(recommend([...list].reverse(), { type: 'cash', band: 1, prio: 'online' }).cards.map((c) => c.id), [5, 7, 9]);
 });
 
 test('recommend on synthetic data: type > band > priority; alternatives within 30 points', () => {

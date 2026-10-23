@@ -19,6 +19,7 @@ import {
   type FinderPreset,
   type FinderPrio,
   type FinderType,
+  withoutUnbackedGuarantee,
 } from '../../lib/plans';
 import { MESSENGERS, SITE } from '../../lib/site';
 import { useLoanPlans } from './useLoanPlans';
@@ -48,7 +49,7 @@ export function parseDeepLink(a: string | null): Ans {
 
 export default function PlanFinder({
   snapshot,
-  preset,
+  preset: rawPreset,
   src = 'finder',
   id,
   titleTag = 'h3',
@@ -61,6 +62,9 @@ export default function PlanFinder({
 }) {
   const { plans } = useLoanPlans(snapshot);
   const all = useMemo(() => combos(plans), [plans]);
+  // A guarantee preset («بدون ضامن» …) is a claim the data can't back until plans carry guaranteeTypes:
+  // drop its chip, note and ranking effect until then (ANSWERS-1 §9).
+  const preset = useMemo(() => withoutUnbackedGuarantee(rawPreset, all), [rawPreset, all]);
   const fixed: Ans = useMemo(() => ({ ...(preset?.type ? { type: preset.type } : {}), ...(preset?.prio ? { prio: preset.prio } : {}) }), [preset]);
   const keys = (['type', 'band', 'prio'] as Key[]).filter((k) => !(k in fixed));
   const N = keys.length;

@@ -4,22 +4,35 @@ import PageHeader from '../components/PageHeader.astro';
 import Section from '../components/ui/Section.astro';
 import FaqList from '../components/FaqList.astro';
 import FinalCTA from '../components/FinalCTA.astro';
-import { FAQ_ITEMS } from '../data/faq';
+import { FAQ_GROUPS } from '../data/faq';
+import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
+import { fillFacts, planFacts } from '../lib/plans';
 import { breadcrumbLd, faqLd } from '../lib/seo';
 const crumbs = [
   { name: 'خانه', path: '/' },
   { name: 'سوالات متداول', path: '/faq' },
 ];
+const facts = planFacts(LOAN_PLANS_SNAPSHOT);
+const groups = FAQ_GROUPS.map((g) => ({ ...g, items: g.items.map((i) => ({ q: fillFacts(i.q, facts), a: fillFacts(i.a, facts) })) }));
 ---
 
 <BaseLayout
   title="سوالات متداول وام و تسهیلات"
   description="پاسخ سوالات رایج درباره مدارک وام، وام بدون ضامن، زمان بررسی درخواست، محاسبه قسط و هزینه مشاوره در نفیس وام."
-  jsonLd={[breadcrumbLd(crumbs), faqLd(FAQ_ITEMS)]}
+  jsonLd={[breadcrumbLd(crumbs), faqLd(groups.flatMap((g) => g.items))]}
 >
-  <PageHeader title="سوالات متداول" crumbs={crumbs} />
+  <PageHeader title="سوالات متداول" lead="پاسخ کوتاه به رایج‌ترین سؤال‌ها، دسته‌بندی‌شده." crumbs={crumbs} />
   <Section>
-    <FaqList items={FAQ_ITEMS} />
+    <div class="faq-groups">
+      {
+        groups.map((g) => (
+          <section aria-labelledby={`faq-${g.id}`}>
+            <h2 id={`faq-${g.id}`}>{g.title}</h2>
+            <FaqList items={g.items} />
+          </section>
+        ))
+      }
+    </div>
   </Section>
   <FinalCTA src="faq" />
 </BaseLayout>

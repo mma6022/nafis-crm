@@ -1,101 +1,80 @@
-/** Installment calculator island. Same math as the live site (amortised, annual rate / 12). */
+/**
+ * /calculator island (UX-SPEC §7, designer ANSWERS-1 §9): type → received-amount band (option cards) → term (chips),
+ * then 1–3 PlanCards (lib/plans `calcPicks`). No 18-plan <select>; amounts read «حدود ۳۱۵ میلیون تومان».
+ * Same amortisation as the CRM (annual rate / 12).
+ */
 import { useMemo, useState } from 'react';
+import type { LoanPlan } from '../../lib/loan-plans';
+import { FINDER_Q, calcPicks, combos, fa, type FinderBand, type FinderType } from '../../lib/plans';
 import { useLoanPlans } from './useLoanPlans';
-import { planQuote, label, LOAN_TYPE_LABEL, type LoanPlan } from '../../lib/loan-plans';
-import { formatToman, formatTomanShort, toFaDigits, formatPercentFa } from '../../lib/format';
-import { labelClass, inputClass, buttonClass, cardClass } from '../ui/styles';
+import { PlanCard } from './PlanCard';
+import { I, type SpriteIcon } from '../ui/I';
 
-export default function LoanCalculator({
-  snapshot,
-  defaultPlanId = 10,
-}: {
-  snapshot: LoanPlan[];
-  defaultPlanId?: number;
-}) {
+export default function LoanCalculator({ snapshot, src = 'calculator' }: { snapshot: LoanPlan[]; src?: string }) {
   const { plans } = useLoanPlans(snapshot);
-  const [planId, setPlanId] = useState<number>(
-    () => (snapshot.find((p) => p.id === defaultPlanId) ?? snapshot[0])?.id ?? 0,
-  );
-  const plan = plans.find((p) => p.id === planId) ?? plans[0];
-  const [months, setMonths] = useState<number>(plan?.installmentTerms[0]?.installments ?? 12);
-  const q = useMemo(() => (plan ? planQuote(plan, months) : null), [plan, months]);
+  const all = useMemo(() => combos(plans), [plans]);
+  const [type, setType] = useState<FinderType>('cash');
+  const [band, setBand] = useState<FinderBand>(2);
+  const pool = useMemo(() => all.filter((c) => type === 'any' || c.type === (type === 'cash' ? 'score' : 'goods')), [all, type]);
+  const terms = useMemo(() => [...new Set((pool.length ? pool : all).map((c) => c.term))].sort((a, b) => a - b), [pool, all]);
+  const [term, setTerm] = useState(24);
+  const t = terms.includes(term) ? term : (terms.reduce((b, x) => (Math.abs(x - term) < Math.abs(b - term) ? x : b), terms[0] ?? term));
+  const picks = useMemo(() => calcPicks(all, type, band, t), [all, type, band, t]);
 
-  if (!plan || !q)
-    return (
-      <p className="text-ink-muted">در حال حاضر طرح فعالی برای محاسبه وجود ندارد. برای مشاوره با ما تماس بگیرید.</p>
-    );
+  if (!all.length) return <p className="note">در حال حاضر طرح فعالی برای محاسبه وجود ندارد. برای مشاوره با ما تماس بگیرید.</p>;
 
   return (
-    <div className={`${cardClass} grid gap-6 p-5 sm:p-8 md:grid-cols-2`}>
-      <div className="space-y-5">
-        <div>
-          <label htmlFor="calc-plan" className={labelClass}>
-            طرح تسهیلاتی
-          </label>
-          <select
-            id="calc-plan"
-            className={`${inputClass} appearance-none`}
-            value={plan.id}
-            onChange={(e) => {
-              const p = plans.find((x) => x.id === +e.target.value);
-              if (p) {
-                setPlanId(p.id);
-                setMonths(p.installmentTerms[0]!.installments);
-              }
-            }}
-          >
-            {plans.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} — {formatTomanShort(p.principalAmount)} — بانک {p.bankName}
-              </option>
-            ))}
-          </select>
-        </div>
-        <fieldset>
-          <legend className={labelClass}>مدت بازپرداخت</legend>
-          <div className="flex flex-wrap gap-2">
-            {plan.installmentTerms.map((t) => (
-              <button
-                key={t.installments}
-                type="button"
-                aria-pressed={t.installments === q.months}
-                onClick={() => setMonths(t.installments)}
-                className={`min-h-12 min-w-20 rounded-control border px-4 font-bold transition-colors ${t.installments === q.months ? 'border-brand-600 bg-brand-600 text-white' : 'border-line text-ink hover:border-brand-200 bg-white'}`}
-              >
-                {toFaDigits(t.installments)} ماه
+    <div className="lc">
+      <div className="lc-in">
+        <div className="grp">
+          <span id="lc-t">نوع</span>
+          <div className="opts" role="group" aria-labelledby="lc-t">
+            {FINDER_Q.type.opts.map((o) => (
+              <button type="button" className="nf-option" key={o.v} aria-pressed={type === o.v} onClick={() => setType(o.v)}>
+                <span className="ic">
+                  <I name={o.icon as SpriteIcon} />
+                </span>
+                <span className="tx">
+                  <b>{o.title}</b>
+                </span>
               </button>
             ))}
           </div>
-        </fieldset>
-        <p className="text-ink-muted text-sm">
-          {label(LOAN_TYPE_LABEL, plan.loanType)} · سود سالانه {formatPercentFa(plan.annualInterest)} · پلتفرم{' '}
-          {plan.platformName}
-        </p>
-      </div>
-
-      <div className="bg-brand-50 flex flex-col justify-between gap-4 rounded-[var(--radius-lg)] p-5">
-        <div aria-live="polite" className="space-y-4">
-          <div>
-            <p className="text-ink-muted text-sm">مبلغ واریزی به مشتری</p>
-            <p className="text-ink text-2xl font-extrabold">{formatToman(q.deposit)}</p>
-          </div>
-          <div>
-            <p className="text-ink-muted text-sm">قسط ماهانه (برآورد)</p>
-            <p className="text-brand-600 text-3xl font-extrabold">{formatToman(q.monthly)}</p>
-          </div>
-          {q.prepayment > 0 && (
-            <div>
-              <p className="text-ink-muted text-sm">پیش‌پرداخت</p>
-              <p className="text-lg font-bold">{formatToman(q.prepayment)}</p>
-            </div>
-          )}
         </div>
-        <a href={`/request?plan=${plan.id}`} className={buttonClass('primary', 'lg', 'w-full')}>
-          درخواست همین طرح
-        </a>
-        <p className="text-ink-muted text-xs leading-6">
-          مبالغ برآوردی هستند؛ مبلغ قطعی پس از اعتبارسنجی و بررسی قرارداد اعلام می‌شود.
-        </p>
+        <div className="grp">
+          <span id="lc-b">مبلغ موردنیاز (قابل دریافت)</span>
+          <div className="opts" role="group" aria-labelledby="lc-b">
+            {FINDER_Q.band.opts.map((o) => (
+              <button type="button" className="nf-option" key={o.v} aria-pressed={band === o.v} onClick={() => setBand(o.v)}>
+                <span className="ic">
+                  <I name={o.icon as SpriteIcon} />
+                </span>
+                <span className="tx">
+                  <b>{o.title}</b>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="grp">
+          <span id="lc-m">مدت بازپرداخت</span>
+          <div className="seg" role="group" aria-labelledby="lc-m">
+            {terms.map((x) => (
+              <button type="button" key={x} aria-pressed={t === x} onClick={() => setTerm(x)}>
+                {fa(x)} ماه
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="lc-out" aria-live="polite">
+        <h2 className="lc-h">{picks.length === 1 ? 'طرح نزدیک به انتخاب شما' : `${fa(picks.length)} طرح نزدیک به انتخاب شما`}</h2>
+        <div className={`cards plancards n${picks.length}`}>
+          {picks.map((c, i) => (
+            <PlanCard key={c.id} c={c} featured={i === 0} src={src} />
+          ))}
+        </div>
+        <p className="note">مبالغ برآوردی است و مبلغ قطعی پس از اعتبارسنجی اعلام می‌شود.</p>
       </div>
     </div>
   );

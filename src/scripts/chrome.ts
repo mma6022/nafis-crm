@@ -57,6 +57,6 @@ export function initChrome() {
   const hero = document.querySelector('.hero, .lp-hero, .post-head');
   if (hdr && hero && 'IntersectionObserver' in window)
     new IntersectionObserver(([e]) => hdr.classList.toggle('is-stuck', !!e && !e.isIntersecting && e.boundingClientRect.top < 0), {
-      rootMargin: `-${hdr.offsetHeight}px 0px 0px 0px`,
+      rootMargin: '-72px 0px 0px 0px', // desktop header height (ANSWERS-1 §8); the CTA swap is CSS-gated to ≥1024px
     }).observe(hero);
 }

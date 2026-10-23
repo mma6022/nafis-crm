@@ -1,4 +1,8 @@
 ---
+/**
+ * Page header for pages without a mockup (designer ANSWERS-1 §9 common pattern): `.lp-hero` with breadcrumb,
+ * H1 and a one-line lead. Being `.lp-hero` it is also the header-button trigger (§8, src/scripts/chrome.ts).
+ */
 import Breadcrumbs from './Breadcrumbs.astro';
 import type { Crumb } from '../lib/seo';
 interface Props {
@@ -9,11 +13,11 @@ interface Props {
 const { title, lead, crumbs } = Astro.props;
 ---
 
-<div class="border-b border-line bg-white">
-  <div class="container-nf py-8 sm:py-12">
+<section class="lp-hero page-hero">
+  <div class="container-nf">
     {crumbs && <Breadcrumbs items={crumbs} />}
-    <h1 class="text-display lg:text-display-lg">{title}</h1>
-    {lead && <p class="text-ink-muted mt-3 max-w-2xl text-body lg:text-[18px]">{lead}</p>}
+    <h1>{title}</h1>
+    {lead && <p class="lead">{lead}</p>}
     <slot />
   </div>
-</div>
+</section>
