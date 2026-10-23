@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef } from 'react';
+import { type ReactNode, Suspense, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -42,6 +42,7 @@ import { VoipDock } from '@/components/voip/VoipDock';
 import StaffChatPage from '@/chat/StaffChatPage';
 import InternalChatPage from '@/internal-chat/InternalChatPage';
 import CustomerPortal from '@/customer-portal/Portal';
+import { PageLoaderBridge, PageLoaderSuspense } from '@/lib/page-loader/PageLoaderBridge';
 import {
   Route,
   Switch,
@@ -244,7 +245,11 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <WouterRouter base={basePath}>
-        <AppEntry />
+        {/* Full-screen loader on route changes that wait on data / lazy chunks (portal + staff); see PageLoaderBridge */}
+        <PageLoaderBridge />
+        <Suspense fallback={<PageLoaderSuspense />}>
+          <AppEntry />
+        </Suspense>
       </WouterRouter>
     </QueryClientProvider>
   );
