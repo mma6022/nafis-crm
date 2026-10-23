@@ -15,13 +15,13 @@ const apiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const databasePath = path.join(temp, "fixture.sqlite");
 const notifyLog = path.join(temp, "notify.log");
 let child;
-// Sat–Wed 09:00–18:00 Asia/Tehran: outside it a «همین الان» request is queued as next morning.
+// Sat–Thu 09:00–18:00 Asia/Tehran: outside it a «همین الان» request is queued as next morning.
 const effectiveNow = () => {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Tehran", hour: "numeric", hourCycle: "h23", weekday: "short" })
     .formatToParts(new Date()).map((p) => [p.type, p.value]));
   const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(parts.weekday);
   const h = Number(parts.hour) % 24;
-  return [6, 0, 1, 2, 3].includes(day) && h >= 9 && h < 18 ? "now" : "morning";
+  return [6, 0, 1, 2, 3, 4].includes(day) && h >= 9 && h < 18 ? "now" : "morning";
 };
 
 const fixtureDbModule = `
@@ -170,13 +170,28 @@ const unitSource = `
   const desc = callbackDescription({ contactTime: "evening", need: "cash", planId: 7, planName: "طرح طلایی", src: "home-callback", trackingCode: "NV-AAAA-BBBB" }, ["اول", "دوم"]);
   assert.match(desc, /عصر[\\s\\S]*وام نقدی[\\s\\S]*طرح طلایی[\\s\\S]*یادداشت کارشناس: اول[\\s\\S]*یادداشت کارشناس: دوم/);
 
-  // Working hours: Sat–Wed 09:00–18:00 Asia/Tehran (UTC+3:30), independent of the server's own zone.
+  // Working hours: Sat–Thu 09:00–18:00 Asia/Tehran (UTC+3:30), independent of the server's own zone.
   // 2026-10-21 is a Wednesday, 2026-10-22 Thursday, 2026-10-24 Saturday.
   assert.equal(isWorkingHours(new Date("2026-10-21T05:29:00Z")), false, "Wed 08:59");
   assert.equal(isWorkingHours(new Date("2026-10-21T05:30:00Z")), true, "Wed 09:00");
   assert.equal(isWorkingHours(new Date("2026-10-21T14:29:00Z")), true, "Wed 17:59");
   assert.equal(isWorkingHours(new Date("2026-10-21T14:30:00Z")), false, "Wed 18:00");
-  assert.equal(isWorkingHours(new Date("2026-10-22T08:00:00Z")), false, "Thursday");
+  // Thursday is a working day (Sat–Thu, confirmed 2026-10-23); Friday is the only day off.
+  assert.deepEqual([...CALLBACK_CONFIG.workDays].sort(), [0, 1, 2, 3, 4, 6]);
+  assert.equal(isWorkingHours(new Date("2026-10-22T05:29:00Z")), false, "Thu 08:59");
+  assert.equal(isWorkingHours(new Date("2026-10-22T05:30:00Z")), true, "Thu 09:00");
+  assert.equal(isWorkingHours(new Date("2026-10-22T08:00:00Z")), true, "Thu 11:30");
+  assert.equal(isWorkingHours(new Date("2026-10-22T14:29:00Z")), true, "Thu 17:59");
+  assert.equal(isWorkingHours(new Date("2026-10-22T14:30:00Z")), false, "Thu 18:00");
+  assert.equal(isWorkingHours(new Date("2026-10-23T05:30:00Z")), false, "Fri 09:00");
+  assert.equal(isWorkingHours(new Date("2026-10-23T08:00:00Z")), false, "Fri 11:30");
+  assert.equal(isWorkingHours(new Date("2026-10-24T05:30:00Z")), true, "Sat 09:00");
+  // Next-slot handling: «همین الان» is kept only inside working hours, otherwise queued for the next working morning.
+  assert.equal(effectiveContactTime("now", new Date("2026-10-22T08:00:00Z")), "now", "Thu 11:30 keeps now");
+  assert.equal(effectiveContactTime("now", new Date("2026-10-21T15:00:00Z")), "morning", "Wed 18:30 -> Thu morning");
+  assert.equal(effectiveContactTime("now", new Date("2026-10-22T15:00:00Z")), "morning", "Thu 18:30 -> Sat morning");
+  assert.equal(effectiveContactTime("now", new Date("2026-10-23T08:00:00Z")), "morning", "Fri -> Sat morning");
+  assert.equal(effectiveContactTime("evening", new Date("2026-10-23T08:00:00Z")), "evening", "explicit slot untouched");
   assert.equal(isWorkingHours(new Date("2026-10-23T08:00:00Z")), false, "Friday");
   assert.equal(isWorkingHours(new Date("2026-10-24T08:00:00Z")), true, "Saturday");
   assert.equal(effectiveContactTime("now", new Date("2026-10-21T20:00:00Z")), "morning");

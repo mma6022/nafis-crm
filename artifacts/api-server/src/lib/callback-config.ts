@@ -2,8 +2,8 @@
  * «درخواست تماس کارشناس»: operational settings in one place. Values are config, not code paths, so the
  * office can change them without touching the rules. Env overrides exist for the numbers only.
  *
- * - Working hours 09:00–18:00 Asia/Tehran, Saturday–Wednesday (days still awaiting confirmation; mirrors
- *   the site's lib/site WORK_HOURS). Morning = 09–13, evening = 13–18.
+ * - Working hours 09:00–18:00 Asia/Tehran, Saturday–Thursday (confirmed by Mohammad 2026-10-23; Friday is the
+ *   only day off). Keep the site's lib/site WORK_HOURS in sync. Morning = 09–13, evening = 13–18.
  * - SLA is internal only: a «همین الان» request still «جدید» after slaMinutes is shown as late in the CRM.
  *   The customer is never promised a number of minutes.
  * - «پاسخ نداد» is capped at maxAttempts with at least minAttemptGapMinutes between attempts. After the cap
@@ -20,8 +20,8 @@ export const CALLBACK_CONFIG = {
   timeZone: "Asia/Tehran",
   workStartHour: 9,
   workEndHour: 18,
-  /** 0 = Sunday … 6 = Saturday. Sat, Sun, Mon, Tue, Wed. */
-  workDays: [6, 0, 1, 2, 3] as readonly number[],
+  /** 0 = Sunday … 6 = Saturday. Sat, Sun, Mon, Tue, Wed, Thu (Friday off). */
+  workDays: [6, 0, 1, 2, 3, 4] as readonly number[],
   morning: { start: 9, end: 13 },
   evening: { start: 13, end: 18 },
   slaMinutes: envInt("CALLBACK_SLA_MINUTES", 15, 1, 1440),
