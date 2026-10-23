@@ -1,55 +1,121 @@
 ---
-/** TODO(spec): final hero copy/visual from the PM. Copy below is from the current live site. */
-import ButtonLink from '../ui/ButtonLink.astro';
+/**
+ * Home hero, built from the designer's mockup (hero-finder-mobile) + content/pages/home.mdx.
+ * Every number comes from the plan data (planFacts) — nothing hand-typed.
+ */
+import Icon from '../ui/Icon.astro';
+import { buttonClass } from '../ui/styles';
+import { SITE } from '../../lib/site';
+import { fa, millionsFa, type PlanFacts } from '../../lib/plans';
+interface Props {
+  facts: PlanFacts;
+  /** h1 from home.mdx with {planCount}; the number is wrapped in <em> like the mockup */
+  h1: string;
+  lead?: string;
+}
+const { facts: f, h1 } = Astro.props;
+const n = fa(f.planCount);
+const [before, after] = h1.split('{planCount}');
+const ticks = [
+  `از ${millionsFa(f.minPrincipal)} تا ${millionsFa(f.maxPrincipal)} میلیون تومان`,
+  `بازپرداخت ${fa(f.minTerm)} تا ${fa(f.maxTerm)} ماهه`,
+  ...(f.hasFast ? ['بررسی برخی طرح‌ها کمتر از ۷ روز'] : []),
+];
 ---
 
-<section class="relative overflow-hidden bg-white">
-  <div
-    class="pointer-events-none absolute -left-24 -top-24 size-80 rounded-full bg-brand-50 blur-2xl"
-    aria-hidden="true"
-  ></div>
-  <div class="container-nf relative grid items-center gap-10 py-12 sm:py-16 lg:grid-cols-[1.1fr_.9fr] lg:py-24">
+<section class="nf-hero relative overflow-hidden">
+  <div class="container-nf grid gap-8 pt-6 pb-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,.85fr)] lg:items-center lg:gap-16 lg:pt-14 lg:pb-16">
     <div>
-      <p class="mb-3 inline-flex rounded-full bg-gold-50 px-3 py-1 text-sm font-bold text-gold-700">
-        مشاوره رایگان و بدون تعهد
+      <p class="text-ink inline-flex min-h-8 items-center gap-2 rounded-full border border-line bg-white px-3 text-caption font-semibold shadow-xs">
+        <span class="nf-live-dot" aria-hidden="true"></span>
+        <span><span data-plan-count="planCount">{n}</span> طرح فعال، همین حالا</span>
       </p>
-      <h1 class="text-[32px] leading-[1.45] font-extrabold text-ink sm:text-5xl sm:leading-[1.35]">
-        برای فردای بهتر، <span class="text-brand-600">وام مناسب</span> را پیدا کنید
+      <h1 class="text-display lg:text-display-lg mt-4 text-balance">
+        {
+          after !== undefined ? (
+            <>
+              {before}
+              <em class="text-brand-600 not-italic">
+                <span data-plan-count="planCount">{n}</span> طرح فعال
+              </em>
+              {after.replace(/^\s*طرح فعال/, '')}
+            </>
+          ) : (
+            h1
+          )
+        }
       </h1>
-      <p class="mt-5 max-w-xl text-lg text-ink-soft">
-        بین طرح‌های مختلف تسهیلات، مبلغ و اقساطی را انتخاب کنید که با واقعیت زندگی‌تان جور باشد؛ شفاف، مرحله‌به‌مرحله و
-        بدون عجله.
+      <p class="text-ink-soft mt-3 text-body lg:text-[18px]">
+        به ۳ سؤال ساده جواب دهید تا مناسب‌ترین طرح را با <b class="text-ink">مبلغ قابل دریافت</b> و <b class="text-ink">قسط ماهانه</b> ببینید. مشاوره
+        رایگان است و تعهدی ایجاد نمی‌کند.
       </p>
-      <div class="mt-8 flex flex-col gap-3 sm:flex-row">
-        <ButtonLink href="/request" size="lg">
-          درخواست وام در ۲ دقیقه
-        </ButtonLink>
-        <ButtonLink href="/calculator" size="lg" variant="secondary">
-          محاسبه قسط
-        </ButtonLink>
+      <div class="mt-6 grid justify-items-center gap-1 sm:flex sm:items-center sm:gap-3">
+        <a href="#plan-finder" class={buttonClass('primary', 'lg', 'w-full sm:w-auto')} data-smooth>
+          پیدا کردن طرح مناسب من <Icon name="arrow" size={20} />
+        </a>
+        <a href={SITE.tel} class={buttonClass('text', 'md', 'w-full sm:w-auto')}>
+          <Icon name="phone" size={18} /> ترجیح می‌دهم تماس بگیرم
+        </a>
       </div>
-      <ul class="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-[15px] text-ink-muted">
-        <li>✓ توضیح ساده شرایط</li>
-        <li>✓ متناسب با توان بازپرداخت</li>
-        <li>✓ بدون تعهد در گفت‌وگوی اول</li>
+      <ul class="text-ink-soft mt-4 grid gap-1.5 text-small">
+        {
+          ticks.map((t) => (
+            <li class="flex items-center gap-2">
+              <span class="bg-success-50 text-success grid size-5 place-items-center rounded-full">
+                <Icon name="check" size={14} />
+              </span>
+              {t}
+            </li>
+          ))
+        }
       </ul>
     </div>
-    <div class="hidden lg:block">
-      <div class="rounded-[var(--radius-xl)] border border-line bg-surface p-6 shadow-card">
-        <p class="text-sm text-ink-muted">نمونه برآورد</p>
-        <p class="mt-1 text-3xl font-extrabold">۳۰۰ میلیون تومان</p>
-        <div class="mt-5 grid grid-cols-2 gap-3">
-          <div class="rounded-[var(--radius)] bg-white p-4">
-            <p class="text-sm text-ink-muted">بازپرداخت</p>
-            <p class="text-xl font-bold">۲۴ ماهه</p>
-          </div>
-          <div class="rounded-[var(--radius)] bg-white p-4">
-            <p class="text-sm text-ink-muted">نرخ سود</p>
-            <p class="text-xl font-bold">۲۳٪</p>
-          </div>
+    {
+      Astro.slots.has('default') && (
+        <div class="hidden lg:block" aria-label="نمونه یک طرح فعال">
+          <p class="text-ink-muted mb-3 flex items-center gap-2 text-small font-semibold">
+            <span class="nf-live-dot" aria-hidden="true" />
+            نمونه یک طرح فعال، با داده زنده سامانه
+          </p>
+          <slot />
         </div>
-        <p class="mt-4 text-xs text-ink-faint">TODO(spec): تصویر/المان اصلی هیرو</p>
-      </div>
-    </div>
+      )
+    }
   </div>
 </section>
+
+<style>
+  .nf-hero {
+    background:
+      radial-gradient(120% 70% at 85% 0%, #e6e9f8 0%, rgb(230 233 248 / 0) 60%),
+      linear-gradient(#fff, var(--color-surface));
+  }
+  .nf-live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--color-success);
+    box-shadow: 0 0 0 4px var(--color-success-50);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .nf-live-dot {
+      animation: nf-pulse 2s var(--ease-nf) infinite;
+    }
+  }
+  @keyframes nf-pulse {
+    50% {
+      box-shadow: 0 0 0 7px transparent;
+    }
+  }
+</style>
+<script>
+  document.querySelectorAll<HTMLAnchorElement>('a[data-smooth]').forEach((a) =>
+    a.addEventListener('click', (e) => {
+      const t = document.querySelector(a.getAttribute('href')!);
+      if (!t) return;
+      e.preventDefault();
+      t.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+      history.replaceState(null, '', a.getAttribute('href'));
+    }),
+  );
+</script>

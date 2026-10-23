@@ -1,7 +1,7 @@
 import { defineCollection } from 'astro:content';
 import { glob } from 'astro/loaders';
 import { z } from 'astro/zod';
-import { CATEGORY_KEYS } from './data/blog-taxonomy';
+import { categoryKey } from './data/blog-taxonomy';
 
 const blog = defineCollection({
   // The glob loader uses frontmatter `slug` as the entry id → /blog/<slug>
@@ -19,13 +19,40 @@ const blog = defineCollection({
       date: z.coerce.date(),
       updated: z.coerce.date().optional(),
       author: z.string().default('تیم نفیس وام'),
-      category: z.enum(CATEGORY_KEYS),
+      category: z.string().transform((v, ctx) => {
+        const k = categoryKey(v);
+        if (!k) ctx.addIssue({ code: 'custom', message: `unknown category «${v}» (add it to src/data/blog-taxonomy.ts)` });
+        return k!;
+      }),
       tags: z.array(z.string()).default([]),
       cover: image().optional(),
       coverAlt: z.string().optional(),
+      keywords: z.array(z.string()).default([]),
+      relatedPlans: z.array(z.number()).default([]),
       draft: z.boolean().default(false),
       sample: z.boolean().default(false), // placeholder posts — shown with a "نمونه" badge, noindex
     }),
 });
 
-export const collections = { blog };
+const faq = z.array(z.object({ q: z.string(), a: z.string() })).default([]);
+const cta = z.object({ text: z.string(), href: z.string() });
+
+/** Keyword landing pages + home copy (from nafis-site-ux/content/pages). Title/h1 may contain {planCount} / {goodsCount}. */
+const pages = defineCollection({
+  loader: glob({ pattern: '*.mdx', base: './src/content/pages' }),
+  schema: z.object({
+    title: z.string(),
+    description: z.string(),
+    slug: z.string(),
+    h1: z.string(),
+    h1Variants: z.array(z.string()).optional(),
+    primaryKeyword: z.string(),
+    secondaryKeywords: z.array(z.string()).default([]),
+    planFilter: z.string().optional(),
+    relatedPlans: z.array(z.number()).nullable().default([]),
+    cta: z.object({ primary: cta, secondary: cta.optional() }),
+    faq,
+  }),
+});
+
+export const collections = { blog, pages };

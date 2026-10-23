@@ -1,0 +1,18 @@
+---
+import { fa } from '../../lib/plans';
+interface Props {
+  items: string[];
+}
+const { items } = Astro.props;
+---
+
+<ol class="not-prose my-6 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+  {
+    items.map((t, i) => (
+      <li class="flex gap-3 rounded-card border border-line bg-white p-4">
+        <span class="bg-brand-600 grid size-9 shrink-0 place-items-center rounded-full font-extrabold text-white">{fa(i + 1)}</span>
+        <span class="text-ink-soft text-small">{t}</span>
+      </li>
+    ))
+  }
+</ol>

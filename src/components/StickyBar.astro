@@ -1,0 +1,36 @@
+---
+/** UX-SPEC §3: mobile-only bottom bar (not on /request). 56px buttons, 1 : 1 : 1.6, gold «درخواست وام» with navy text. */
+import { MESSENGERS, SITE } from '../lib/site';
+import Icon from './ui/Icon.astro';
+const src = (Astro.url.pathname.replace(/^\/|\/$/g, '').split('/')[0] || 'home').replace(/[^a-z0-9_-]/gi, '').slice(0, 30) || 'home';
+---
+
+<nav
+  aria-label="تماس سریع"
+  data-sticky-bar
+  class="shadow-bar fixed inset-x-0 bottom-0 z-30 grid grid-cols-[1fr_1fr_1.6fr] gap-2 bg-white px-3 pt-2 pb-[calc(8px+env(safe-area-inset-bottom))] lg:hidden"
+>
+  <a href={SITE.tel} class="bg-surface text-ink flex min-h-14 flex-col items-center justify-center rounded-control text-caption leading-snug font-semibold">
+    <Icon name="phone" size={20} />تماس
+  </a>
+  <a
+    href={MESSENGERS.whatsapp.href}
+    data-todo="whatsapp"
+    class="bg-surface text-ink flex min-h-14 flex-col items-center justify-center rounded-control text-caption leading-snug font-semibold"
+  >
+    <Icon name="wa" size={20} class="text-success" />واتساپ
+  </a>
+  <a
+    href={`/request?src=sticky-${src}`}
+    class="bg-gold-400 text-brand-900 hover:bg-gold-500 flex min-h-14 items-center justify-center gap-2 rounded-control text-body font-extrabold"
+  >
+    درخواست وام <Icon name="arrow" size={20} />
+  </a>
+</nav>
+<script>
+  // Hide while the on-screen keyboard is open (focus inside a text field).
+  const bar = document.querySelector<HTMLElement>('[data-sticky-bar]');
+  const isField = (el: EventTarget | null) => el instanceof HTMLElement && el.matches('input:not([type=checkbox]):not([type=radio]),textarea,select');
+  document.addEventListener('focusin', (e) => bar && isField(e.target) && (bar.hidden = true));
+  document.addEventListener('focusout', () => bar && (bar.hidden = false));
+</script>

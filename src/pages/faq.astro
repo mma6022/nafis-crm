@@ -3,7 +3,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import PageHeader from '../components/PageHeader.astro';
 import Section from '../components/ui/Section.astro';
 import FaqList from '../components/FaqList.astro';
-import FinalCTA from '../components/home/FinalCTA.astro';
+import FinalCTA from '../components/FinalCTA.astro';
 import { FAQ_ITEMS } from '../data/faq';
 import { breadcrumbLd, faqLd } from '../lib/seo';
 const crumbs = [
@@ -21,5 +21,5 @@ const crumbs = [
   <Section>
     <FaqList items={FAQ_ITEMS} />
   </Section>
-  <FinalCTA />
+  <FinalCTA src="faq" />
 </BaseLayout>

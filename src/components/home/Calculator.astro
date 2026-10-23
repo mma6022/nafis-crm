@@ -1,9 +1,0 @@
----
-import Section from '../ui/Section.astro';
-import LoanCalculator from '../islands/LoanCalculator';
-import { LOAN_PLANS_SNAPSHOT } from '../../lib/loan-plans.snapshot';
----
-
-<Section id="calculator" kicker="محاسبه‌گر قسط" title="مبلغ واریزی و قسط طرح را ببینید" tone="white" defer>
-  <LoanCalculator client:visible snapshot={LOAN_PLANS_SNAPSHOT} />
-</Section>

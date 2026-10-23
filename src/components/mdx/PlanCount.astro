@@ -1,0 +1,10 @@
+---
+import { LOAN_PLANS_SNAPSHOT } from '../../lib/loan-plans.snapshot';
+import { fa, planFacts } from '../../lib/plans';
+interface Props {
+  kind?: 'planCount' | 'goodsCount' | 'cashCount' | 'bankCount';
+}
+const { kind = 'planCount' } = Astro.props;
+---
+
+<span data-plan-count={kind}>{fa(planFacts(LOAN_PLANS_SNAPSHOT)[kind])}</span>

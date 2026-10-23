@@ -15,7 +15,7 @@ const href = (n: number) => (n === 1 ? base : `${base.replace(/\/$/, '')}/${n}`)
       <a
         href={page.url.prev}
         rel="prev"
-        class="inline-flex min-h-12 items-center rounded-[var(--radius)] border border-line bg-white px-4 font-bold"
+        class="inline-flex min-h-12 items-center rounded-control border border-line bg-white px-4 font-bold"
       >
         قبلی
       </a>
@@ -25,7 +25,7 @@ const href = (n: number) => (n === 1 ? base : `${base.replace(/\/$/, '')}/${n}`)
         href={href(n)}
         aria-current={n === page.currentPage ? 'page' : undefined}
         class:list={[
-          'inline-flex size-12 items-center justify-center rounded-[var(--radius)] border font-bold',
+          'inline-flex size-12 items-center justify-center rounded-control border font-bold',
           n === page.currentPage ? 'border-brand-600 bg-brand-600 text-white' : 'border-line bg-white text-ink',
         ]}
       >
@@ -36,7 +36,7 @@ const href = (n: number) => (n === 1 ? base : `${base.replace(/\/$/, '')}/${n}`)
       <a
         href={page.url.next}
         rel="next"
-        class="inline-flex min-h-12 items-center rounded-[var(--radius)] border border-line bg-white px-4 font-bold"
+        class="inline-flex min-h-12 items-center rounded-control border border-line bg-white px-4 font-bold"
       >
         بعدی
       </a>

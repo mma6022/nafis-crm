@@ -1,50 +1,85 @@
 ---
-import { FOOTER_NAV, SITE } from '../lib/site';
-import { toFaDigits } from '../lib/format';
-const year = toFaDigits(
-  new Intl.DateTimeFormat('en-US-u-ca-persian', { year: 'numeric' }).format(new Date()).replace(/\D/g, ''),
-);
+/** UX-SPEC §3 footer: 4 columns (accordions on mobile), bottom row «© {Jalali year} نفیس وام» + legal. */
+import { GUIDE_NAV, KEYWORD_PAGES, MESSENGERS, SITE, jalaliYear } from '../lib/site';
+import Logo from './Logo.astro';
+const year = jalaliYear();
+const link = 'inline-flex min-h-11 items-center text-small text-ink-soft hover:text-brand-600';
+const head = 'text-ink flex min-h-11 items-center justify-between text-small font-extrabold';
 ---
 
-<footer class="mt-16 border-t border-line bg-white">
-  <div class="container-nf grid gap-10 py-12 md:grid-cols-[1.4fr_repeat(3,1fr)]">
-    <div>
-      <a href="/" class="flex items-center gap-2.5">
-        <img src="/brand-logo.png" alt="" width="44" height="44" loading="lazy" class="size-11 object-contain" />
-        <span class="text-lg font-extrabold">{SITE.name}</span>
-      </a>
-      <p class="mt-4 max-w-xs text-[15px] text-ink-muted">
-        نفیس وام، همراه شما برای شناخت بهتر گزینه‌های تسهیلات و رسیدن به یک انتخاب روشن‌تر.
-      </p>
-      <ul class="mt-4 space-y-1 text-[15px]">
-        <li>
-          <a class="font-bold text-ink hover:text-brand-600" href={`tel:${SITE.phone}`}>
-            <span class="ltr">{toFaDigits(SITE.phone)}</span>
-          </a>
-        </li>
-        <li>
-          <a class="text-ink-soft hover:text-brand-600" href={`mailto:${SITE.email}`}>
-            <span class="ltr">{SITE.email}</span>
-          </a>
-        </li>
-      </ul>
+<footer class="mt-section lg:mt-section-lg border-t border-line bg-white">
+  <div class="container-nf grid gap-x-10 gap-y-2 py-10 md:grid-cols-[1.4fr_repeat(3,1fr)] md:gap-y-8 lg:py-14">
+    <div class="pb-4 md:pb-0">
+      <a href="/" class="inline-flex" aria-label={`${SITE.name}، صفحه اصلی`}><Logo height={34} eager={false} /></a>
+      <p class="text-ink-muted mt-4 max-w-xs text-small">برای هر مشتری یک طرح مناسب و شفاف؛ قسط و مبلغ قابل دریافت را از قبل می‌دانید.</p>
+      <p class="text-ink-faint mt-2 text-caption">[جای‌خالی: نام حقوقی شرکت، شماره ثبت]</p>
     </div>
-    {FOOTER_NAV.map((col) => (
-      <nav aria-label={col.title}>
-        <p class="mb-3 text-sm font-bold text-ink-faint">{col.title}</p>
-        <ul class="space-y-1">
-          {col.items.map((i) => (
-            <li>
-              <a href={i.href} class="inline-flex min-h-10 items-center text-[15px] text-ink-soft hover:text-brand-600">
-                {i.label}
-              </a>
-            </li>
+
+    <details class="nf-fcol border-line-soft border-t md:border-0" open>
+      <summary class={head}>خدمات</summary>
+      <ul>{KEYWORD_PAGES.map((p) => <li><a class={link} href={`/${p.slug}`}>{p.label}</a></li>)}</ul>
+    </details>
+
+    <details class="nf-fcol border-line-soft border-t md:border-0" open>
+      <summary class={head}>راهنما</summary>
+      <ul>{GUIDE_NAV.map((i) => <li><a class={link} href={i.href}>{i.label}</a></li>)}</ul>
+    </details>
+
+    <details class="nf-fcol border-line-soft border-t md:border-0" open>
+      <summary class={head}>تماس</summary>
+      <ul>
+        <li><a class={`${link} text-ink font-extrabold`} href={SITE.tel}><span class="ltr">{SITE.phoneFa}</span></a></li>
+        <li><a class={link} href={`mailto:${SITE.email}`}><span class="ltr">{SITE.email}</span></a></li>
+        <li class="flex flex-wrap gap-x-4">
+          {Object.values(MESSENGERS).map((m) => (
+            <a class={link} href={m.href} data-todo="messenger-link">{m.label}</a>
           ))}
-        </ul>
-      </nav>
-    ))}
+        </li>
+        <li class="text-ink-faint text-caption">{SITE.email && '[تأیید محمد]'} {' '}[جای‌خالی همه لینک‌ها]</li>
+        <li class="text-ink-muted mt-2 text-caption">آدرس و ساعت کاری: [جای‌خالی]</li>
+        <li class="text-ink-muted text-caption">نماد اعتماد (اینماد): [جای‌خالی]</li>
+      </ul>
+    </details>
   </div>
-  <div class="border-t border-line-soft py-5 text-center text-sm text-ink-muted">
-    © {year} {SITE.name} — استفاده از مطالب با ذکر منبع مجاز است.
+  <div class="border-line-soft text-ink-muted border-t py-5 text-caption">
+    <div class="container-nf flex flex-wrap items-center justify-between gap-x-6 gap-y-1">
+      <span>© {year} {SITE.name}</span>
+      <span class="flex gap-4">
+        <a class="inline-flex min-h-11 items-center hover:text-brand-600" href="/privacy">حریم خصوصی</a>
+        <a class="inline-flex min-h-11 items-center hover:text-brand-600" href="/terms">قوانین</a>
+      </span>
+    </div>
   </div>
 </footer>
+<script>
+  // Footer columns: accordions on mobile, always open on desktop.
+  const mq = matchMedia('(min-width: 768px)');
+  const sync = () => document.querySelectorAll<HTMLDetailsElement>('.nf-fcol').forEach((d) => (d.open = mq.matches));
+  sync();
+  mq.addEventListener('change', sync);
+</script>
+<style>
+  .nf-fcol > summary {
+    list-style: none;
+    cursor: pointer;
+  }
+  .nf-fcol > summary::-webkit-details-marker {
+    display: none;
+  }
+  .nf-fcol > summary::after {
+    content: '+';
+    font-weight: 400;
+    color: var(--color-ink-muted);
+  }
+  .nf-fcol[open] > summary::after {
+    content: '−';
+  }
+  @media (min-width: 768px) {
+    .nf-fcol > summary {
+      pointer-events: none;
+    }
+    .nf-fcol > summary::after {
+      content: none;
+    }
+  }
+</style>

@@ -1,0 +1,27 @@
+---
+import Icon from './ui/Icon.astro';
+import { buttonClass } from './ui/styles';
+import { MESSENGERS, SITE } from '../lib/site';
+interface Props {
+  src?: string;
+}
+const { src = 'page' } = Astro.props;
+---
+
+<section class="container-nf pt-section lg:pt-section-lg" aria-labelledby="final-h">
+  <div class="bg-brand-900 grid gap-4 rounded-card p-6 text-white lg:flex lg:items-center lg:justify-between lg:p-10">
+    <div>
+      <h2 id="final-h" class="text-h2 lg:text-h2-lg !text-white">هنوز مطمئن نیستید کدام طرح مناسب شماست؟</h2>
+      <p class="text-brand-100 mt-1">یک کارشناس رایگان راهنمایی‌تان می‌کند.</p>
+    </div>
+    <div class="grid gap-2 sm:flex">
+      <a href={`/request?src=${src}`} class={buttonClass('gold', 'lg', 'w-full sm:w-auto')}>درخواست مشاوره رایگان</a>
+      <a href={MESSENGERS.whatsapp.href} data-todo="whatsapp" class={buttonClass('ghost', 'lg', 'w-full !text-white hover:!bg-white/10 sm:w-auto')}>
+        <Icon name="wa" /> واتساپ
+      </a>
+      <a href={SITE.tel} class={buttonClass('ghost', 'lg', 'w-full !text-white hover:!bg-white/10 sm:w-auto')}>
+        <Icon name="phone" /> <span class="ltr">{SITE.phoneFa}</span>
+      </a>
+    </div>
+  </div>
+</section>

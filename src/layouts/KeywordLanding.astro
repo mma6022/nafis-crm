@@ -1,0 +1,94 @@
+---
+/**
+ * Keyword landing (UX-SPEC §8 / mockup vam-fori.html): hero (breadcrumb, H1, primary + secondary CTA),
+ * MDX body with live plan components, desktop sticky aside (CTA card + «در این صفحه»), FAQPage + Breadcrumb JSON-LD.
+ */
+import type { CollectionEntry } from 'astro:content';
+import { render } from 'astro:content';
+import BaseLayout from './BaseLayout.astro';
+import Breadcrumbs from '../components/Breadcrumbs.astro';
+import Icon from '../components/ui/Icon.astro';
+import { buttonClass } from '../components/ui/styles';
+import { mdxComponents } from '../components/mdx';
+import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
+import { fillFacts, planFacts } from '../lib/plans';
+import { breadcrumbLd, faqLd } from '../lib/seo';
+interface Props {
+  entry: CollectionEntry<'pages'>;
+}
+const { entry } = Astro.props;
+const d = entry.data;
+const facts = planFacts(LOAN_PLANS_SNAPSHOT);
+const fill = (s: string) => fillFacts(s, facts);
+const faq = d.faq.map((f) => ({ q: fill(f.q), a: fill(f.a) }));
+Astro.locals.faq = faq;
+const { Content, headings } = await render(entry);
+const toc = headings.filter((h) => h.depth === 2);
+const crumbs = [
+  { name: 'خانه', path: '/' },
+  { name: 'خدمات', path: '/services' },
+  { name: d.primaryKeyword, path: d.slug },
+];
+const isTel = (h: string) => h.startsWith('tel:');
+---
+
+<BaseLayout rawTitle title={fill(d.title)} description={fill(d.description)} canonicalPath={d.slug} jsonLd={[faqLd(faq), breadcrumbLd(crumbs)]}>
+  <section class="nf-lp-hero border-b border-line">
+    <div class="container-nf pt-5 pb-8 lg:pt-8 lg:pb-12">
+      <Breadcrumbs items={crumbs} />
+      <h1 class="text-display lg:text-display-lg max-w-3xl text-balance">{fill(d.h1)}</h1>
+      <div class="mt-5 grid gap-1 sm:flex sm:items-center sm:gap-3">
+        <a href={d.cta.primary.href} class={buttonClass('primary', 'lg', 'w-full sm:w-auto')}>
+          {d.cta.primary.text} <Icon name="arrow" size={20} />
+        </a>
+        {
+          d.cta.secondary && (
+            <a href={d.cta.secondary.href} class={buttonClass('text', 'md', 'w-full sm:w-auto')}>
+              {isTel(d.cta.secondary.href) && <Icon name="phone" size={18} />}
+              {d.cta.secondary.text}
+            </a>
+          )
+        }
+      </div>
+    </div>
+  </section>
+
+  <div class="container-nf grid gap-10 pt-8 lg:grid-cols-[minmax(0,1fr)_300px] lg:pt-12">
+    <article class="prose-nf min-w-0">
+      <Content components={mdxComponents} />
+    </article>
+    <aside class="hidden lg:block">
+      <div class="sticky top-[calc(var(--spacing-header)+24px)] grid gap-4">
+        <div class="bg-brand-900 rounded-card p-5 text-white">
+          <p class="text-h3 font-extrabold">{d.primaryKeyword} لازم دارید؟</p>
+          <p class="text-brand-100 mt-1 text-small">درخواست شما ۱ دقیقه طول می‌کشد؛ مشاوره رایگان است.</p>
+          <a href={d.cta.primary.href} class={buttonClass('gold', 'md', 'mt-4 w-full')}>{d.cta.primary.text}</a>
+        </div>
+        {
+          toc.length > 2 && (
+            <nav class="rounded-card border border-line bg-white p-4" aria-label="در این صفحه">
+              <p class="text-ink mb-1 text-small font-extrabold">در این صفحه</p>
+              <ol class="grid">
+                {toc.map((h) => (
+                  <li>
+                    <a href={`#${h.slug}`} class="text-ink-soft hover:text-brand-600 flex min-h-10 items-center text-caption">
+                      {h.text}
+                    </a>
+                  </li>
+                ))}
+              </ol>
+            </nav>
+          )
+        }
+      </div>
+    </aside>
+  </div>
+</BaseLayout>
+
+<style>
+  .nf-lp-hero {
+    background:
+      radial-gradient(120% 70% at 85% 0%, #e6e9f8 0%, rgb(230 233 248 / 0) 60%),
+      linear-gradient(#fff, var(--color-surface));
+  }
+</style>

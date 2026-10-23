@@ -11,7 +11,7 @@ const { post, headingLevel: H = 'h2' } = Astro.props;
 const d = post.data;
 ---
 
-<article class="group flex flex-col overflow-hidden rounded-[var(--radius-xl)] border border-line bg-white shadow-card">
+<article class="group flex flex-col overflow-hidden rounded-card border border-line bg-white shadow-card">
   {d.cover ? (
     <Image
       src={d.cover}

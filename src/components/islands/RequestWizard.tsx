@@ -1,210 +1,403 @@
-/** /request — loan request wizard (skeleton steps; final questions come with the PM spec). */
-import { useEffect, useState } from 'react';
-import { Wizard, type WizardStep } from './wizard/Wizard';
-import { ChoiceGroup, Input, Button } from '../ui/react';
-import { normalizeIranMobile, toFaDigits, formatTomanShort } from '../../lib/format';
-import { submitLead } from '../../lib/lead';
+/**
+ * /request — 3-step lead wizard (UX-SPEC §5, designer mockup request.html).
+ * need → amount → contact. ?plan=&term= skips step 1. State survives reloads (sessionStorage) and the browser
+ * back button moves between steps (history.pushState). Success is shown ONLY after the CRM answers 2xx.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Stepbar, OptionTile } from '../ui/Stepbar';
+import { Icon } from '../ui/icons';
+import { useLoanPlans } from './useLoanPlans';
 import type { LoanPlan } from '../../lib/loan-plans';
+import { AMOUNT_BANDS, availableAmountBands, combos, fa, millionsFa, type AmountBand } from '../../lib/plans';
+import { normalizeIranMobile } from '../../lib/format';
+import { LeadError, readUtm, submitLead, type ContactTime, type Need } from '../../lib/lead';
+import { MESSENGERS, SITE } from '../../lib/site';
 
-type Data = {
-  loanType: '' | 'goods' | 'score' | 'unsure';
-  amount: string;
-  months: string;
-  planId?: number;
-  fullName: string;
-  mobile: string;
-  city: string;
-};
-const INITIAL: Data = { loanType: '', amount: '', months: '', fullName: '', mobile: '', city: '' };
+type Step = 'need' | 'amount' | 'contact' | 'done';
+const ORDER: Step[] = ['need', 'amount', 'contact'];
+const LABELS = ['نیاز شما', 'حدود مبلغ', 'اطلاعات تماس'];
+const KEY = 'nf-request';
 
-const AMOUNT_PRESETS = [100e6, 200e6, 300e6, 400e6, 500e6, 700e6];
-/** Presets, plus the deep-linked plan's exact amount if it is not one of them (so it shows as selected). */
-const amountOptions = (current: string) =>
-  [...new Set([...AMOUNT_PRESETS, ...(+current > 0 ? [+current] : [])])]
-    .sort((a, b) => a - b)
-    .map((n) => ({ value: String(n), label: formatTomanShort(n) }));
+interface State {
+  need: Need | null;
+  band: AmountBand | 'unsure' | null;
+  planId: number | null;
+  term: number | null;
+  name: string;
+  phone: string;
+  time: ContactTime;
+  consent: boolean;
+  startedAt: number;
+  src: string | null;
+}
+const fresh = (): State => ({
+  need: null,
+  band: null,
+  planId: null,
+  term: null,
+  name: '',
+  phone: '',
+  time: 'any',
+  consent: false,
+  startedAt: Date.now(),
+  src: null,
+});
 
-const steps: WizardStep<Data>[] = [
-  {
-    id: 'type',
-    title: 'چه نوع وامی می‌خواهید؟',
-    description: 'اگر مطمئن نیستید، «نمی‌دانم» را بزنید؛ کارشناس ما راهنمایی‌تان می‌کند.',
-    render: ({ data, set, errors }) => (
-      <>
-        <ChoiceGroup
-          name="loanType"
-          label="نوع وام"
-          value={data.loanType}
-          onChange={(v) => set('loanType', v)}
-          options={[
-            { value: 'goods', label: 'وام کالایی', hint: 'برای خرید کالا' },
-            { value: 'score', label: 'وام امتیازی', hint: 'با امتیاز وام' },
-            { value: 'unsure', label: 'نمی‌دانم', hint: 'مشاوره می‌خواهم' },
-          ]}
-        />
-        {errors.loanType && <p className="text-danger text-sm font-semibold">{errors.loanType}</p>}
-      </>
-    ),
-    validate: (d) => (d.loanType ? {} : { loanType: 'یکی از گزینه‌ها را انتخاب کنید.' }),
-  },
-  {
-    id: 'amount',
-    title: 'به چه مبلغی نیاز دارید؟',
-    render: ({ data, set, errors }) => (
-      <>
-        <ChoiceGroup
-          name="amount"
-          label="مبلغ تقریبی"
-          value={data.amount}
-          onChange={(v) => set('amount', v)}
-          options={amountOptions(data.amount)}
-        />
-        <ChoiceGroup
-          name="months"
-          label="مدت بازپرداخت دلخواه"
-          value={data.months}
-          onChange={(v) => set('months', v)}
-          options={['12', '18', '24', '36'].map((m) => ({ value: m, label: `${toFaDigits(m)} ماهه` }))}
-        />
-        {(errors.amount || errors.months) && (
-          <p className="text-danger text-sm font-semibold">{errors.amount ?? errors.months}</p>
-        )}
-      </>
-    ),
-    validate: (d) =>
-      !d.amount ? { amount: 'مبلغ را انتخاب کنید.' } : !d.months ? { months: 'مدت بازپرداخت را انتخاب کنید.' } : {},
-  },
-  {
-    id: 'contact',
-    title: 'چطور با شما تماس بگیریم؟',
-    description: 'فقط برای هماهنگی همین درخواست استفاده می‌شود.',
-    render: ({ data, set, errors }) => (
-      <>
-        <Input
-          label="نام و نام خانوادگی"
-          autoComplete="name"
-          placeholder="مثلاً سارا احمدی"
-          value={data.fullName}
-          onChange={(e) => set('fullName', e.target.value)}
-          error={errors.fullName}
-        />
-        <Input
-          label="شماره موبایل"
-          type="tel"
-          inputMode="tel"
-          autoComplete="tel"
-          dir="ltr"
-          className="[&_input]:text-right"
-          placeholder="۰۹۱۲ ۱۲۳ ۴۵۶۷"
-          value={data.mobile}
-          onChange={(e) => set('mobile', e.target.value)}
-          error={errors.mobile}
-        />
-        <Input
-          label="شهر (اختیاری)"
-          autoComplete="address-level2"
-          value={data.city}
-          onChange={(e) => set('city', e.target.value)}
-        />
-      </>
-    ),
-    validate: (d) => {
-      const e: Record<string, string | undefined> = {};
-      if (d.fullName.trim().length < 3) e.fullName = 'نام و نام خانوادگی را وارد کنید.';
-      if (!normalizeIranMobile(d.mobile)) e.mobile = 'شماره موبایل معتبر نیست (مثلاً ۰۹۱۲۱۲۳۴۵۶۷).';
-      return e;
-    },
-  },
-  {
-    id: 'review',
-    title: 'بازبینی و ثبت',
-    description: 'اطلاعات را یک بار نگاه کنید. ثبت درخواست به معنی تعهد نیست.',
-    render: ({ data }) => (
-      <dl className="divide-line-soft border-line bg-surface divide-y rounded-[var(--radius-lg)] border">
-        {[
-          ['نوع وام', { goods: 'وام کالایی', score: 'وام امتیازی', unsure: 'نیاز به مشاوره', '': '—' }[data.loanType]],
-          ['مبلغ', data.amount ? formatTomanShort(+data.amount) : '—'],
-          ['مدت', data.months ? `${toFaDigits(data.months)} ماه` : '—'],
-          ['نام', data.fullName],
-          ['موبایل', toFaDigits(normalizeIranMobile(data.mobile) ?? data.mobile)],
-        ].map(([k, v]) => (
-          <div key={k} className="flex justify-between gap-4 px-4 py-3">
-            <dt className="text-ink-muted">{k}</dt>
-            <dd className="text-ink font-semibold">{v}</dd>
-          </div>
-        ))}
-      </dl>
-    ),
-  },
+const NEEDS: { v: Need; icon: 'cash' | 'cart' | 'help'; t: string; h: string }[] = [
+  { v: 'cash', icon: 'cash', t: 'پول نقد (وام)', h: 'وام نقدی بر پایه اعتبارسنجی' },
+  { v: 'goods', icon: 'cart', t: 'خرید کالا به‌صورت قسطی', h: 'کالا را می‌گیرید و قسطی پرداخت می‌کنید' },
+  { v: 'help', icon: 'help', t: 'نمی‌دانم، راهنمایی می‌خواهم', h: 'کارشناس با شما تماس می‌گیرد' },
+];
+const TIMES: { v: ContactTime; t: string }[] = [
+  { v: 'morning', t: 'صبح' },
+  { v: 'evening', t: 'عصر' },
+  { v: 'any', t: 'فرقی نمی‌کند' },
 ];
 
-export default function RequestWizard({ plans = [] }: { plans?: LoanPlan[] }) {
-  const [initial, setInitial] = useState(INITIAL);
-  const [plan, setPlan] = useState<LoanPlan | null>(null);
-  const [preview, setPreview] = useState(false);
-  // Deep link from a plan card: /request?plan=10
+export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
+  const { plans } = useLoanPlans(snapshot);
+  const all = useMemo(() => combos(plans), [plans]);
+  const [s, setS] = useState<State>(fresh);
+  const [step, setStep] = useState<Step>('need');
+  const [ready, setReady] = useState(false);
+  const [errors, setErrors] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState(false);
+  const [fail, setFail] = useState(false);
+  const honeypot = useRef<HTMLInputElement>(null);
+  const root = useRef<HTMLDivElement>(null);
+  const failRef = useRef<HTMLDivElement>(null);
+
+  // init: sessionStorage + query (?plan, ?term, ?need, ?src)
   useEffect(() => {
-    const id = Number(new URLSearchParams(location.search).get('plan'));
-    const plan = plans.find((p) => p.id === id);
-    if (plan) {
-      setPlan(plan);
-      setInitial({
-        ...INITIAL,
-        planId: plan.id,
-        loanType: plan.loanType === 'score' ? 'score' : 'goods',
-        amount: String(plan.principalAmount),
-      });
+    const q = new URLSearchParams(location.search);
+    let st = fresh();
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(KEY) ?? 'null') as (State & { step?: Step }) | null;
+      if (saved && Date.now() - saved.startedAt < 20 * 3600e3) st = { ...st, ...saved };
+    } catch {
+      /* ignore */
     }
-  }, [plans]);
+    const plan = Number(q.get('plan')) || null;
+    if (plan) {
+      const c = all.find((x) => x.id === plan);
+      if (c) st = { ...st, planId: plan, term: Number(q.get('term')) || c.term, need: c.type === 'goods' ? 'goods' : 'cash' };
+    }
+    const need = q.get('need');
+    if (!plan && (need === 'cash' || need === 'goods' || need === 'help')) st.need = need;
+    if (q.get('src')) st.src = q.get('src');
+    setS(st);
+    const first: Step = st.planId || st.need ? 'amount' : 'need';
+    const savedStep = (history.state as { step?: Step } | null)?.step;
+    const start = savedStep && savedStep !== 'done' ? savedStep : first;
+    history.replaceState({ step: start }, '');
+    setStep(start);
+    setReady(true);
+    const onPop = (e: PopStateEvent) => {
+      const to = (e.state as { step?: Step } | null)?.step;
+      if (to && to !== 'done') setStep(to);
+    };
+    addEventListener('popstate', onPop);
+    return () => removeEventListener('popstate', onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    try {
+      if (step === 'done') sessionStorage.removeItem(KEY);
+      else sessionStorage.setItem(KEY, JSON.stringify(s));
+    } catch {
+      /* storage blocked */
+    }
+  }, [s, step, ready]);
+
+  const go = useCallback((to: Step) => {
+    if (to !== 'done') history.pushState({ step: to }, '');
+    else history.replaceState({ step: 'done' }, '');
+    setStep(to);
+  }, []);
+
+  // focus heading on step change (not on first paint)
+  const painted = useRef(false);
+  useEffect(() => {
+    if (!ready) return;
+    if (!painted.current) {
+      painted.current = true;
+      return;
+    }
+    scrollTo(0, 0);
+    root.current?.querySelector<HTMLElement>('[data-focus]')?.focus({ preventScroll: true });
+  }, [step, ready]);
+
+  const chosen = s.planId ? (all.find((c) => c.id === s.planId && c.term === s.term) ?? all.find((c) => c.id === s.planId)) : null;
+  const type = s.need === 'cash' ? 'score' : s.need === 'goods' ? 'goods' : undefined;
+  const bands = useMemo(() => {
+    const b = availableAmountBands(all, type);
+    return b.length ? b : AMOUNT_BANDS;
+  }, [all, type]);
+
+  const pick = <K extends keyof State>(k: K, v: State[K], next?: Step) => {
+    setS((p) => ({ ...p, [k]: v }));
+    if (next) setTimeout(() => go(next), 180);
+  };
+
+  async function onSubmit(e: { preventDefault(): void }) {
+    e.preventDefault();
+    const bad = { name: !s.name.trim(), phone: !normalizeIranMobile(s.phone), consent: !s.consent };
+    setErrors(bad);
+    const first = (['name', 'phone', 'consent'] as const).find((k) => bad[k]);
+    if (first) {
+      document.getElementById(`f-${first}`)?.focus();
+      return;
+    }
+    setBusy(true);
+    setFail(false);
+    try {
+      await submitLead({
+        name: s.name,
+        phone: s.phone,
+        need: s.need ?? 'help',
+        amountBand: s.band ?? 'unsure',
+        planId: s.planId,
+        term: s.term,
+        contactTime: s.time,
+        src: s.src,
+        consent: s.consent,
+        website: honeypot.current?.value ?? '',
+        startedAt: s.startedAt,
+        utm: readUtm(),
+      });
+      go('done');
+    } catch (err) {
+      console.warn('lead submit failed:', err instanceof LeadError ? `${err.code} ${err.status}` : err);
+      setFail(true);
+      requestAnimationFrame(() => failRef.current?.focus());
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const idx = ORDER.indexOf(step);
+  const canBack = idx > 0 && !(idx === 1 && s.planId);
+  const h1 = 'text-h2 lg:text-[28px] font-extrabold text-ink outline-none';
+  const sub = 'text-ink-muted mt-1 mb-5 text-small lg:text-body';
 
   return (
-    <>
-      {plan && (
-        <p className="border-brand-200 bg-brand-50 text-brand-700 mb-4 rounded-[var(--radius)] border px-4 py-3 font-semibold">
-          طرح انتخابی شما: {plan.name} — {formatTomanShort(plan.principalAmount)}
-        </p>
-      )}
-      <Wizard<Data>
-        key={initial.planId ?? 'none'}
-        storageKey="nafis.request.v1"
-        steps={steps}
-        initial={initial}
-        pinned={plan ? { planId: initial.planId, loanType: initial.loanType, amount: initial.amount } : undefined}
-        onSubmit={async (d) => {
-          const r = await submitLead({
-            ...d,
-            mobile: normalizeIranMobile(d.mobile) ?? d.mobile,
-            source: 'nafisvam.com/request',
-          });
-          setPreview(r.preview);
-        }}
-        done={(d, restart) => (
-          <div className="py-6 text-center">
-            <div className="bg-success-50 text-success mx-auto mb-4 flex size-16 items-center justify-center rounded-full">
-              <svg
-                viewBox="0 0 24 24"
-                className="size-8"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                aria-hidden="true"
-              >
-                <path d="M5 12.5l4.5 4.5L19 7.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-            <h2 className="text-2xl font-extrabold">{d.fullName.split(' ')[0]} عزیز، درخواست شما ثبت شد</h2>
-            <p className="text-ink-muted mt-2">کارشناسان نفیس وام به‌زودی با شما تماس می‌گیرند.</p>
-            {preview && (
-              <p className="bg-gold-50 text-gold-700 mx-auto mt-4 max-w-md rounded-[var(--radius)] px-4 py-2 text-sm font-semibold">
-                نسخه پیش‌نمایش: ارسال هنوز به CRM وصل نشده و این درخواست جایی ثبت نشد.
-              </p>
-            )}
-            <Button variant="secondary" className="mt-6" onClick={restart}>
-              ثبت درخواست دیگر
-            </Button>
+    <div ref={root}>
+      {step !== 'done' && <Stepbar index={idx} labels={LABELS} current={LABELS[idx]!} onBack={canBack ? () => history.back() : undefined} />}
+
+      {step === 'need' && (
+        <section>
+          <h1 className={h1} tabIndex={-1} data-focus>
+            چه چیزی لازم دارید؟
+          </h1>
+          <p className={sub}>یکی را انتخاب کنید. اگر مطمئن نیستید، گزینه آخر را بزنید.</p>
+          <div className="grid gap-3" role="group" aria-label="نوع نیاز">
+            {NEEDS.map((n) => (
+              <OptionTile key={n.v} icon={n.icon} title={n.t} hint={n.h} pressed={s.need === n.v} onSelect={() => pick('need', n.v, 'amount')} />
+            ))}
           </div>
-        )}
-      />
-    </>
+        </section>
+      )}
+
+      {step === 'amount' && (
+        <section>
+          {chosen && (
+            <div className="bg-brand-50 mb-5 flex items-center gap-3 rounded-2xl p-3">
+              <span className="text-brand-600 grid size-11 shrink-0 place-items-center rounded-xl bg-white">
+                <Icon name={chosen.type === 'goods' ? 'cart' : 'cash'} />
+              </span>
+              <span className="grid flex-1 leading-relaxed">
+                <small className="text-ink-muted text-caption">طرح انتخابی شما</small>
+                <b className="text-ink">{chosen.name}</b>
+                <small className="text-ink-soft text-caption">
+                  دریافتی حدود {millionsFa(chosen.payout)} م · قسط {fa(chosen.term)} ماهه حدود {millionsFa(chosen.inst)} م
+                </small>
+              </span>
+              <button
+                type="button"
+                className="text-brand-700 min-h-11 rounded-[10px] px-3 text-small font-extrabold hover:bg-white"
+                onClick={() => {
+                  setS((p) => ({ ...p, planId: null, term: null }));
+                  history.replaceState({ step: 'need' }, '', location.pathname + (s.src ? `?src=${encodeURIComponent(s.src)}` : ''));
+                  setStep('need');
+                }}
+              >
+                تغییر
+              </button>
+            </div>
+          )}
+          <h1 className={h1} tabIndex={-1} data-focus>
+            حدوداً چه مبلغی لازم دارید؟
+          </h1>
+          <p className={sub}>مبلغی که به دست شما می‌رسد. دقیقش را کارشناس با شما مرور می‌کند.</p>
+          <div className="grid gap-3" role="group" aria-label="حدود مبلغ">
+            {bands.map((b) => (
+              <OptionTile key={b.value} icon={b.icon} title={b.label} pressed={s.band === b.value} onSelect={() => pick('band', b.value, 'contact')} />
+            ))}
+            <OptionTile icon="help" title="هنوز نمی‌دانم" hint="کارشناس کمکتان می‌کند" pressed={s.band === 'unsure'} onSelect={() => pick('band', 'unsure', 'contact')} />
+          </div>
+        </section>
+      )}
+
+      {step === 'contact' && (
+        <section>
+          <h1 className={h1} tabIndex={-1} data-focus>
+            چطور با شما تماس بگیریم؟
+          </h1>
+          <p className={sub}>فقط برای تماس کارشناس؛ شماره‌تان جای دیگری استفاده نمی‌شود.</p>
+          {fail && (
+            <div
+              ref={failRef}
+              tabIndex={-1}
+              role="alert"
+              className="border-danger/30 bg-danger-50 text-danger mb-4 flex gap-2 rounded-2xl border p-3 text-small font-semibold outline-none"
+            >
+              <Icon name="alert" size={20} className="shrink-0" />
+              <span>
+                ثبت نشد. لطفاً دوباره تلاش کنید یا با{' '}
+                <a href={SITE.tel} className="underline">
+                  <span className="ltr">{SITE.phoneFa}</span>
+                </a>{' '}
+                تماس بگیرید.
+              </span>
+            </div>
+          )}
+          <form className="grid gap-4" noValidate onSubmit={onSubmit}>
+            <div className="nf-field">
+              <label className="nf-label" htmlFor="f-name">
+                نام و نام خانوادگی
+              </label>
+              <input
+                className="nf-input"
+                id="f-name"
+                name="name"
+                autoComplete="name"
+                maxLength={80}
+                value={s.name}
+                aria-invalid={errors.name || undefined}
+                aria-describedby={errors.name ? 'e-name' : undefined}
+                onChange={(e) => setS((p) => ({ ...p, name: e.target.value }))}
+              />
+              {errors.name && (
+                <span className="nf-error" id="e-name">
+                  <Icon name="alert" size={16} />
+                  لطفاً نام خود را بنویسید.
+                </span>
+              )}
+            </div>
+            <div className="nf-field">
+              <label className="nf-label" htmlFor="f-phone">
+                شماره موبایل
+              </label>
+              <input
+                className="nf-input nf-input--ltr"
+                id="f-phone"
+                name="mobile"
+                type="tel"
+                inputMode="numeric"
+                autoComplete="tel"
+                dir="ltr"
+                placeholder="۰۹۱۲ ۳۴۵ ۶۷۸۹"
+                maxLength={16}
+                value={s.phone}
+                aria-invalid={errors.phone || undefined}
+                aria-describedby={errors.phone ? 'e-phone' : undefined}
+                onChange={(e) => setS((p) => ({ ...p, phone: e.target.value }))}
+              />
+              {errors.phone && (
+                <span className="nf-error" id="e-phone">
+                  <Icon name="alert" size={16} />
+                  شماره موبایل باید ۱۱ رقم باشد و با ۰۹ شروع شود.
+                </span>
+              )}
+            </div>
+            <div className="nf-field">
+              <span className="nf-label" id="l-time">
+                چه زمانی تماس بگیریم؟
+              </span>
+              <div className="flex flex-wrap gap-2" role="radiogroup" aria-labelledby="l-time">
+                {TIMES.map((t) => (
+                  <button
+                    key={t.v}
+                    type="button"
+                    role="radio"
+                    aria-checked={s.time === t.v}
+                    onClick={() => setS((p) => ({ ...p, time: t.v }))}
+                    className={`min-h-11 rounded-full border px-4 text-small font-semibold transition-colors ${
+                      s.time === t.v ? 'border-brand-600 bg-brand-600 text-white' : 'text-ink-soft hover:border-brand-300 border-line bg-white'
+                    }`}
+                  >
+                    {t.t}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* honeypot: real people never see or fill this */}
+            <div aria-hidden="true" className="absolute -start-[9999px] h-px w-px overflow-hidden">
+              <label htmlFor="f-website">وب‌سایت</label>
+              <input ref={honeypot} id="f-website" name="website" type="text" tabIndex={-1} autoComplete="off" defaultValue="" />
+            </div>
+            <div>
+              <label className="text-ink-soft flex min-h-11 cursor-pointer items-start gap-3 text-small leading-relaxed">
+                <input
+                  id="f-consent"
+                  type="checkbox"
+                  className="accent-brand-600 mt-1 size-5 shrink-0"
+                  checked={s.consent}
+                  aria-invalid={errors.consent || undefined}
+                  aria-describedby={errors.consent ? 'e-consent' : undefined}
+                  onChange={(e) => setS((p) => ({ ...p, consent: e.target.checked }))}
+                />
+                <span>
+                  با{' '}
+                  <a href="/privacy" className="text-brand-700 underline">
+                    قوانین حریم خصوصی
+                  </a>{' '}
+                  موافقم و اجازه می‌دهم کارشناس نفیس وام با من تماس بگیرد.
+                </span>
+              </label>
+              {errors.consent && (
+                <span className="nf-error" id="e-consent">
+                  <Icon name="alert" size={16} />
+                  برای ثبت درخواست، این گزینه را تأیید کنید.
+                </span>
+              )}
+            </div>
+            <button type="submit" className="nf-btn nf-btn--primary nf-btn--block" disabled={busy} aria-busy={busy}>
+              {busy ? 'در حال ثبت…' : 'ثبت درخواست'}
+            </button>
+          </form>
+          <p className="text-ink-muted mt-3 text-center text-caption">ثبت درخواست هیچ تعهدی برای شما ایجاد نمی‌کند.</p>
+        </section>
+      )}
+
+      {step === 'done' && (
+        <section className="py-4 text-center">
+          <div className="bg-success-50 text-success mx-auto mb-4 grid size-18 place-items-center rounded-full">
+            <Icon name="check" size={36} />
+          </div>
+          <h1 className={h1} tabIndex={-1} data-focus>
+            درخواست شما ثبت شد
+          </h1>
+          <p className="text-ink-soft mt-2 mb-6">
+            کارشناس ما معمولاً در ساعات کاری با شما تماس می‌گیرد. <span className="nf-ph">[تأیید محمد: متن و بازه زمانی تماس]</span>
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <a className="nf-btn nf-btn--secondary nf-btn--block" href={SITE.portal}>
+              <Icon name="user" size={20} /> پیگیری در پنل مشتریان
+            </a>
+            <a className="nf-btn nf-btn--secondary nf-btn--block" href={MESSENGERS.whatsapp.href} data-todo="whatsapp">
+              <Icon name="wa" size={20} /> پیام در واتساپ
+            </a>
+          </div>
+          <p className="mt-4">
+            <a className="nf-btn nf-btn--text" href="/">
+              بازگشت به صفحه اصلی
+            </a>
+          </p>
+        </section>
+      )}
+    </div>
   );
 }

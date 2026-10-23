@@ -1,0 +1,21 @@
+---
+/** Table of contents from the post's h2 headings (Astro.locals.headings, set by the post page). Collapsed on mobile. */
+const hs = (Astro.locals.headings ?? []).filter((h: { depth: number }) => h.depth === 2);
+---
+
+{
+  hs.length > 2 && (
+    <details class="not-prose bg-surface my-6 rounded-card border border-line p-4 lg:open:block" open>
+      <summary class="text-ink min-h-11 cursor-pointer font-extrabold">فهرست مطالب</summary>
+      <ol class="mt-2 grid list-decimal gap-1 ps-6">
+        {hs.map((h: { slug: string; text: string }) => (
+          <li>
+            <a class="text-brand-700 inline-flex min-h-10 items-center text-small hover:underline" href={`#${h.slug}`}>
+              {h.text}
+            </a>
+          </li>
+        ))}
+      </ol>
+    </details>
+  )
+}

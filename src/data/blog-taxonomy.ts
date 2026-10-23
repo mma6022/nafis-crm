@@ -3,14 +3,23 @@
  * Add a category here before using it in a post's frontmatter.
  */
 export const CATEGORIES = {
-  'loan-guide': { label: 'راهنمای وام', description: 'آموزش قدم‌به‌قدم انواع وام و تسهیلات.' },
-  installments: { label: 'اقساط و بازپرداخت', description: 'محاسبه قسط، مدیریت بازپرداخت و برنامه‌ریزی مالی.' },
-  'credit-score': { label: 'اعتبارسنجی', description: 'رتبه اعتباری، اعتبارسنجی بانکی و راه‌های بهبود آن.' },
-  'financial-literacy': { label: 'سواد مالی', description: 'مفاهیم پایه مالی به زبان ساده.' },
+  'vam-fori': { label: 'وام فوری', description: 'وام سریع در عمل چقدر طول می‌کشد و چطور سریع‌ترش کنیم.' },
+  zemanat: { label: 'ضمانت وام', description: 'چک، سفته، ضامن و طرح‌های بدون ضامن یا بدون چک.' },
+  'kharid-aghsati': { label: 'خرید اقساطی', description: 'خرید کالا به‌صورت قسطی، پیش‌پرداخت و انتخاب طرح.' },
+  aghsat: { label: 'اقساط و بازپرداخت', description: 'محاسبه قسط، مدیریت بازپرداخت و برنامه‌ریزی مالی.' },
+  etebarsanji: { label: 'اعتبارسنجی', description: 'رتبه اعتباری، اعتبارسنجی بانکی و راه‌های بهبود آن.' },
+  rahnama: { label: 'راهنمای وام', description: 'آموزش قدم‌به‌قدم انواع وام و تسهیلات.' },
 } as const;
 
 export type CategoryKey = keyof typeof CATEGORIES;
 export const CATEGORY_KEYS = Object.keys(CATEGORIES) as [CategoryKey, ...CategoryKey[]];
+
+/** Posts may use the slug or the Persian label in frontmatter (content team writes «ضمانت وام»). */
+export function categoryKey(v: string): CategoryKey | undefined {
+  const t = v.trim();
+  if (t in CATEGORIES) return t as CategoryKey;
+  return (Object.keys(CATEGORIES) as CategoryKey[]).find((k) => CATEGORIES[k].label === t);
+}
 
 /**
  * Tags are free Persian text in frontmatter. URL slug keeps Persian letters (Google indexes them fine;

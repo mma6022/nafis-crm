@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "build": "astro check && astro build",
+    "build": "astro check && astro build && node scripts/check-markers.mjs",
     "build:fast": "astro build",
     "preview": "astro preview",
     "check": "astro check",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test": "node --test --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs tests/*.test.ts",
+    "check:markers": "node scripts/check-markers.mjs"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.12",

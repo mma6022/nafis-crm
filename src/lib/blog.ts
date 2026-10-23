@@ -3,7 +3,7 @@ import readingTime from 'reading-time';
 import { CATEGORIES, tagSlug, type CategoryKey } from '../data/blog-taxonomy';
 
 export type Post = CollectionEntry<'blog'>;
-export const POSTS_PER_PAGE = 9;
+export const POSTS_PER_PAGE = 12;
 
 /** Published posts, newest first. Drafts are visible only in `astro dev`. */
 export async function getPosts(): Promise<Post[]> {

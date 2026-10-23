@@ -1,0 +1,70 @@
+/*
+ * Nafis Vam — component recipes (plain CSS, uses tokens.css).
+ * Mirrors the Tailwind recipes in DESIGN-SYSTEM.md; use whichever fits (Astro = classes, islands = same classes).
+ */
+html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+body { font-family: var(--nf-font-sans); font-size: var(--nf-text-body); line-height: var(--nf-lh-body);
+  color: var(--nf-ink-soft); background: var(--nf-surface); }
+h1, h2, h3 { color: var(--nf-ink); font-weight: var(--nf-weight-bold); margin: 0; }
+:focus-visible { outline: none; box-shadow: var(--nf-ring); }
+.nf-num { font-feature-settings: "ss01"; } /* Persian digits come from content (toFa), not the font */
+
+/* ---------- Button ---------- */
+.nf-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: var(--nf-control-h); padding: 0 24px; border-radius: var(--nf-radius-control);
+  font: inherit; font-size: 16px; font-weight: var(--nf-weight-bold); line-height: 1.4; text-decoration: none;
+  border: 1.5px solid transparent; cursor: pointer; user-select: none;
+  transition: background var(--nf-dur-fast) var(--nf-ease), border-color var(--nf-dur-fast), transform 100ms; }
+.nf-btn:active { transform: scale(.98); }
+.nf-btn[disabled], .nf-btn[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+.nf-btn--primary { background: var(--nf-brand-600); color: #fff; box-shadow: var(--nf-shadow-button); }
+.nf-btn--primary:hover { background: var(--nf-brand-700); }
+.nf-btn--secondary { background: #fff; color: var(--nf-brand-700); border-color: var(--nf-brand-200); }
+.nf-btn--secondary:hover { background: var(--nf-brand-50); border-color: var(--nf-brand-300); }
+.nf-btn--gold { background: var(--nf-gold-400); color: var(--nf-ink); } /* never white text */
+.nf-btn--gold:hover { background: var(--nf-gold-500); }
+.nf-btn--text { background: none; color: var(--nf-brand-600); min-height: var(--nf-touch-min); padding: 0 8px;
+  text-decoration: underline; text-underline-offset: 6px; text-decoration-color: var(--nf-brand-200); }
+.nf-btn--sm { min-height: var(--nf-control-h-sm); padding: 0 16px; font-size: 15px; }
+.nf-btn--block { width: 100%; } /* default for primary on mobile */
+
+/* ---------- Card ---------- */
+.nf-card { background: #fff; border: 1px solid var(--nf-line); border-radius: var(--nf-radius-card);
+  box-shadow: var(--nf-shadow-card); padding: 20px; }
+.nf-card--featured { border: 2px solid var(--nf-brand-600); box-shadow: var(--nf-shadow-raised); }
+.nf-badge { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 2px 12px;
+  border-radius: var(--nf-radius-pill); font-size: 14px; font-weight: var(--nf-weight-bold); line-height: 1.6; }
+.nf-badge--gold { background: var(--nf-gold-400); color: var(--nf-ink); }
+.nf-badge--brand { background: var(--nf-brand-50); color: var(--nf-brand-700); }
+.nf-badge--success { background: var(--nf-success-50); color: var(--nf-success); }
+
+/* ---------- Field ---------- */
+.nf-field { display: grid; gap: 8px; }
+.nf-label { font-size: 15px; font-weight: var(--nf-weight-semibold); color: var(--nf-ink); }
+.nf-input { width: 100%; min-height: var(--nf-control-h); padding: 0 16px; border-radius: var(--nf-radius-control);
+  border: 1.5px solid var(--nf-line-strong); background: #fff; color: var(--nf-ink);
+  font: inherit; font-size: 16px; /* ≥16 stops iOS zoom */
+  transition: border-color var(--nf-dur-fast), box-shadow var(--nf-dur-fast); }
+.nf-input::placeholder { color: var(--nf-ink-faint); }
+.nf-input:hover { border-color: var(--nf-brand-300); }
+.nf-input:focus { outline: none; border-color: var(--nf-brand-600); box-shadow: var(--nf-ring); }
+.nf-input[aria-invalid="true"] { border-color: var(--nf-danger); }
+.nf-input--ltr { direction: ltr; text-align: right; } /* phone numbers */
+.nf-hint { font-size: 14px; color: var(--nf-ink-muted); }
+.nf-error { display: flex; gap: 6px; align-items: center; font-size: 14px; color: var(--nf-danger); }
+
+/* ---------- Option tile (finder / wizard answers; one tap advances) ---------- */
+.nf-option { display: flex; align-items: center; gap: 14px; width: 100%; min-height: var(--nf-option-h);
+  padding: 12px 16px; text-align: start; background: #fff; color: var(--nf-ink);
+  border: 1.5px solid var(--nf-line-strong); border-radius: var(--nf-radius-control); font: inherit; cursor: pointer;
+  transition: border-color var(--nf-dur-fast), background var(--nf-dur-fast); }
+.nf-option:hover { border-color: var(--nf-brand-300); }
+.nf-option[aria-pressed="true"], .nf-option[aria-checked="true"] { border-color: var(--nf-brand-600); background: var(--nf-brand-50); }
+
+/* ---------- Progress / stepper ---------- */
+.nf-progress { display: grid; grid-template-columns: repeat(var(--steps, 3), 1fr); gap: 6px; }
+.nf-progress > span { height: var(--nf-progress-h); border-radius: var(--nf-radius-pill); background: var(--nf-surface-2);
+  transition: background var(--nf-dur); }
+.nf-progress > span.is-done, .nf-progress > span.is-current { background: var(--nf-brand-600); }
+.nf-step-meta { display: flex; justify-content: space-between; align-items: center; font-size: 14px;
+  color: var(--nf-ink-muted); font-weight: var(--nf-weight-semibold); }

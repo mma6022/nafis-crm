@@ -1,0 +1,26 @@
+---
+/** Official logo is a raster (no vector exists, see /workspace/nafis-design/brand/README.md). 677×140 @2x WebP, 11–20 KB. */
+import { SITE } from '../lib/site';
+interface Props {
+  height?: number;
+  class?: string;
+  eager?: boolean;
+}
+const { height = 30, class: cls = '', eager = true } = Astro.props;
+const width = Math.round((677 / 140) * height);
+---
+
+<picture>
+  <source srcset={SITE.logo} type="image/webp" />
+  <img
+    src={SITE.logoPng}
+    alt={SITE.name}
+    width={width}
+    height={height}
+    class:list={['block w-auto', cls]}
+    style={`height:${height}px`}
+    loading={eager ? 'eager' : 'lazy'}
+    decoding="async"
+    fetchpriority={eager ? 'high' : undefined}
+  />
+</picture>

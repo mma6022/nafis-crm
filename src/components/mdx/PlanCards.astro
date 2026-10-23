@@ -1,0 +1,38 @@
+---
+/**
+ * Up to `max` plan cards, SSR from the snapshot (first = «پیشنهاد ما»). Guarantee filters render nothing
+ * until the CRM export carries guaranteeTypes (the page's PlanFinder covers the gap). Never "no plan".
+ */
+import { PlanCard } from '../islands/PlanFinder';
+import { LOAN_PLANS_SNAPSHOT } from '../../lib/loan-plans.snapshot';
+import { combos, planFilter } from '../../lib/plans';
+interface Props {
+  ids?: number[];
+  filter?: string;
+  max?: number;
+}
+const { ids, filter, max = 3 } = Astro.props;
+const all = LOAN_PLANS_SNAPSHOT;
+const pred = ids ? (p: (typeof all)[number]) => ids.includes(p.id) : filter ? planFilter(filter, all) : () => true;
+const plans = pred ? all.filter(pred) : [];
+// one card per plan (its first term), best payout first, at most `max`
+const cards = combos(plans)
+  .filter((c, i, a) => a.findIndex((x) => x.id === c.id) === i)
+  .sort((a, b) => (ids ? ids.indexOf(a.id) - ids.indexOf(b.id) : b.payout - a.payout))
+  .slice(0, Math.min(max, 3));
+const src = (Astro.url.pathname.replace(/^\/+|\/+$/g, '').split('/').pop() || 'home').replace(/[^a-z0-9_-]/g, '') || 'home';
+---
+
+{
+  cards.length > 0 ? (
+    <ul class="not-prose my-6 grid gap-3 sm:grid-cols-2">
+      {cards.map((c, i) => (
+        <li>
+          <PlanCard c={c} featured={i === 0} src={src} />
+        </li>
+      ))}
+    </ul>
+  ) : (
+    <Fragment set:html={`<!-- PlanCards filter="${filter}": waiting for guaranteeTypes in loan-plans.json -->`} />
+  )
+}

@@ -1,9 +1,12 @@
 ---
+import Logo from '../components/Logo.astro';
+import Icon from '../components/ui/Icon.astro';
 import '../styles/global.css';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
+import StickyBar from '../components/StickyBar.astro';
 import JsonLd from '../components/JsonLd.astro';
-import { SITE, absoluteUrl } from '../lib/site';
+import { SITE, absoluteUrl, jalaliYear } from '../lib/site';
 import { organizationLd, websiteLd } from '../lib/seo';
 
 export interface Props {
@@ -18,6 +21,10 @@ export interface Props {
   publishedTime?: Date;
   modifiedTime?: Date;
   hideHeaderCta?: boolean;
+  /** /request hides the sticky mobile CTA bar (UX-SPEC §3) */
+  hideStickyBar?: boolean;
+  /** /request: logo + phone header, one-line footer (mockup request.html) */
+  minimal?: boolean;
 }
 const {
   title,
@@ -30,6 +37,8 @@ const {
   publishedTime,
   modifiedTime,
   hideHeaderCta = false,
+  hideStickyBar = false,
+  minimal = false,
 } = Astro.props;
 const fullTitle = rawTitle ? title : `${title} | ${SITE.name}`;
 const path = Astro.props.canonicalPath ?? Astro.url.pathname;
@@ -38,7 +47,7 @@ const ogImage = absoluteUrl(image);
 ---
 
 <!doctype html>
-<html lang="fa" dir="rtl">
+<html lang="fa-IR" dir="rtl">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -46,7 +55,7 @@ const ogImage = absoluteUrl(image);
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
     <meta name="robots" content={noindex ? 'noindex, follow' : 'index, follow, max-image-preview:large'} />
-    <meta name="theme-color" content="#1c3687" />
+    <meta name="theme-color" content="#0B1450" />
     <meta name="generator" content={Astro.generator} />
 
     <meta property="og:site_name" content={SITE.name} />
@@ -63,6 +72,7 @@ const ogImage = absoluteUrl(image);
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImage} />
 
+    <link rel="preload" href="/brand/nafis-logo@2x.webp" as="image" type="image/webp" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" sizes="256x256" href="/favicon.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
@@ -72,14 +82,46 @@ const ogImage = absoluteUrl(image);
     <JsonLd data={[organizationLd(), websiteLd(), ...jsonLd]} />
     <slot name="head" />
   </head>
-  <body class="min-h-dvh flex flex-col">
+  <body class:list={["flex min-h-dvh flex-col", !hideStickyBar && "pb-[calc(var(--spacing-bottom-bar)+env(safe-area-inset-bottom))] lg:pb-0"]}>
     <a href="#main" class="skip-link">
       پرش به محتوای اصلی
     </a>
-    <Header hideCta={hideHeaderCta} />
+    {
+      minimal ? (
+        <header class="h-header sticky top-0 z-40 border-b border-line bg-white">
+          <div class="container-nf flex h-full items-center justify-between">
+            <a href="/" aria-label={`${SITE.name}، صفحه اصلی`}>
+              <Logo height={30} />
+            </a>
+            <a href={SITE.tel} class="text-ink-soft inline-flex min-h-11 items-center gap-2 text-small font-semibold">
+              <Icon name="phone" size={18} />
+              <span class="ltr">{SITE.phoneFa}</span>
+            </a>
+          </div>
+        </header>
+      ) : (
+        <Header hideCta={hideHeaderCta} />
+      )
+    }
     <main id="main" class="flex-1">
       <slot />
     </main>
-    <Footer />
+    {
+      minimal ? (
+        <footer class="text-ink-muted container-nf py-6 text-center text-caption">
+          © {jalaliYear()} {SITE.name} · <a href="/privacy" class="underline">حریم خصوصی</a>
+        </footer>
+      ) : (
+        <Footer />
+      )
+    }
+    {!hideStickyBar && <StickyBar />}
+    <script>
+      import { captureUtm, refreshLiveFacts } from '../scripts/live-facts';
+      captureUtm();
+      const run = () => void refreshLiveFacts();
+      if ('requestIdleCallback' in window) requestIdleCallback(run);
+      else setTimeout(run, 1);
+    </script>
   </body>
 </html>

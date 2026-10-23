@@ -1,32 +1,140 @@
 ---
+/**
+ * Home (UX-SPEC §8, designer mockup home.html). Copy + FAQ from src/content/pages/home.mdx; every number from plan data.
+ */
+import { getCollection } from 'astro:content';
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Hero from '../components/home/Hero.astro';
-import TrustBar from '../components/home/TrustBar.astro';
-import Services from '../components/home/Services.astro';
-import HowItWorks from '../components/home/HowItWorks.astro';
-import LoanPlans from '../components/home/LoanPlans.astro';
-import Calculator from '../components/home/Calculator.astro';
-import FAQ from '../components/home/FAQ.astro';
-import Contact from '../components/home/Contact.astro';
-import FinalCTA from '../components/home/FinalCTA.astro';
-import { SITE } from '../lib/site';
+import PlanFinder from '../components/islands/PlanFinder';
+import { PlanCard } from '../components/islands/PlanFinder';
+import LoanCalculator from '../components/islands/LoanCalculator';
+import SectionHead from '../components/ui/SectionHead.astro';
+import Icon from '../components/ui/Icon.astro';
+import FaqList from '../components/FaqList.astro';
+import PostCard from '../components/blog/PostCard.astro';
+import Steps from '../components/mdx/Steps.astro';
+import FinalCTA from '../components/FinalCTA.astro';
+import { KEYWORD_PAGES } from '../lib/site';
+import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
+import { combos, fa, fillFacts, planFacts } from '../lib/plans';
 import { financialServiceLd, faqLd } from '../lib/seo';
-import { FAQ_ITEMS } from '../data/faq';
+import { getPosts } from '../lib/blog';
+
+const page = (await getCollection('pages', (p) => p.data.slug === '/'))[0]!;
+const facts = planFacts(LOAN_PLANS_SNAPSHOT);
+const fill = (s: string) => fillFacts(s, facts);
+const faq = page.data.faq.map((f) => ({ q: fill(f.q), a: fill(f.a) }));
+const sample = combos(LOAN_PLANS_SNAPSHOT).find((c) => c.id === 10) ?? combos(LOAN_PLANS_SNAPSHOT)[0];
+const posts = (await getPosts()).slice(0, 3);
+const why = [
+  { t: 'یک طرح برای هر شرایط', d: `با ${fa(facts.planCount)} طرح فعال، احتمال اینکه طرحی متناسب با شما داشته باشیم زیاد است.`, i: 'both' },
+  { t: 'قسط روشن از روز اول', d: 'مبلغ اسمی، مبلغ قابل دریافت و قسط را قبل از هر تصمیمی می‌بینید.', i: 'coins' },
+  { t: 'کارشناس واقعی', d: 'یک نفر از تیم ما شرایط شما را می‌شنود و راهنمایی می‌کند.', i: 'user' },
+  { t: 'بدون غافلگیری', d: 'همه شرایط را قبل از امضا می‌دانید.', i: 'check' },
+] as const;
+const trust = [
+  { html: '[جای‌خالی: سال‌های فعالیت]', ph: true },
+  { html: '[جای‌خالی: تعداد مشتری]', ph: true },
+  { html: `<b class="text-ink">${fa(facts.planCount)}</b> طرح فعال` },
+  { html: `همکاری با <b class="text-ink">${fa(facts.bankCount)}</b> بانک و موسسه <span class="nf-ph">[تأیید محمد]</span>` },
+  { html: '[جای‌خالی: نماد اینماد]', ph: true },
+];
 ---
 
-<BaseLayout
-  rawTitle
-  title={`${SITE.name} | ${SITE.tagline}`}
-  description={SITE.description}
-  jsonLd={[financialServiceLd(), faqLd(FAQ_ITEMS)]}
->
-  <Hero />
-  <TrustBar />
-  <Services />
-  <HowItWorks />
-  <LoanPlans />
-  <Calculator />
-  <FAQ />
-  <Contact />
-  <FinalCTA />
+<BaseLayout rawTitle title={fill(page.data.title)} description={page.data.description} jsonLd={[financialServiceLd(), faqLd(faq)]}>
+  <Hero facts={facts} h1={page.data.h1}>
+    {sample && <PlanCard c={sample} featured={false} src="home-hero-sample" />}
+  </Hero>
+
+  <div class="container-nf pt-2 pb-section lg:pt-section">
+    <PlanFinder client:load snapshot={LOAN_PLANS_SNAPSHOT} src="home-finder" />
+  </div>
+
+  <section aria-label="نوار اعتماد" class="border-y border-line bg-white py-5">
+    <ul class="container-nf text-ink-soft grid grid-cols-2 gap-3 text-center text-small md:grid-cols-5">
+      {trust.map((t) => <li class:list={['rounded-xl px-2 py-2', t.ph ? 'nf-ph-box' : 'bg-surface']} set:html={t.html} />)}
+    </ul>
+  </section>
+
+  <section class="container-nf pt-section lg:pt-section-lg" aria-labelledby="svc-h">
+    <SectionHead id="svc-h" title="خدمات نفیس وام" />
+    <ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {
+        KEYWORD_PAGES.map((p) => (
+          <li>
+            <a href={`/${p.slug}`} class="shadow-xs hover:border-brand-300 flex min-h-option items-center gap-3 rounded-card border border-line bg-white p-4 transition-colors">
+              <span class="bg-brand-50 text-brand-600 grid size-11 shrink-0 place-items-center rounded-xl">
+                <Icon name={p.icon} />
+              </span>
+              <span class="grid flex-1">
+                <b class="text-ink">{p.label}</b>
+                <span class="text-ink-muted text-caption">
+                  {fill(p.blurb.replace('{goodsCount}', '{goodsCount}'))} {'marker' in p && <span class="nf-ph">{p.marker}</span>}
+                </span>
+              </span>
+              <Icon name="chev" class="text-ink-faint" />
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+  </section>
+
+  <section class="container-nf defer-render pt-section lg:pt-section-lg" aria-labelledby="steps-h">
+    <SectionHead id="steps-h" title="از درخواست تا دریافت، در ۴ قدم" more={{ href: '/how-it-works', label: 'جزئیات مراحل' }} />
+    <Steps
+      items={[
+        'به ۳ سؤال جواب دهید و طرح پیشنهادی را ببینید',
+        'کارشناس نفیس وام با شما تماس می‌گیرد و شرایط را توضیح می‌دهد',
+        'مدارک را آنلاین یا حضوری تحویل می‌دهید',
+        'تسهیلات واریز می‌شود یا کالا تحویل داده می‌شود',
+      ]}
+    />
+  </section>
+
+  <section id="calculator" class="container-nf defer-render pt-section lg:pt-section-lg" aria-labelledby="calc-h">
+    <SectionHead id="calc-h" title="قسط ماهانه‌تان را از همین حالا بدانید" more={{ href: '/calculator', label: 'محاسبه‌گر کامل' }} />
+    <LoanCalculator client:visible snapshot={LOAN_PLANS_SNAPSHOT} />
+    <p class="text-ink-muted mt-3 text-caption">مبالغ برآوردی است و مبلغ قطعی پس از اعتبارسنجی اعلام می‌شود.</p>
+  </section>
+
+  <section class="container-nf defer-render pt-section lg:pt-section-lg" aria-labelledby="why-h">
+    <SectionHead id="why-h" title="چرا نفیس وام؟" />
+    <ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {
+        why.map((w) => (
+          <li class="rounded-card border border-line bg-white p-5">
+            <span class="bg-gold-50 text-gold-700 grid size-11 place-items-center rounded-xl">
+              <Icon name={w.i} />
+            </span>
+            <h3 class="text-h3 mt-3">{w.t}</h3>
+            <p class="text-ink-muted mt-1 text-small">{w.d}</p>
+          </li>
+        ))
+      }
+    </ul>
+    {/* نظر مشتریان: [جای‌خالی] — only real reviews with consent; not rendered while empty (UX-SPEC §8). */}
+  </section>
+
+  {
+    posts.length > 0 && (
+      <section class="container-nf defer-render pt-section lg:pt-section-lg" aria-labelledby="blog-h">
+        <SectionHead id="blog-h" title="مجله نفیس" more={{ href: '/blog', label: 'همه مقاله‌ها' }} />
+        <ul class="grid gap-4 md:grid-cols-3">
+          {posts.map((p) => (
+            <li>
+              <PostCard post={p} headingLevel="h3" />
+            </li>
+          ))}
+        </ul>
+      </section>
+    )
+  }
+
+  <section class="container-nf defer-render pt-section lg:pt-section-lg" aria-labelledby="faq-h">
+    <SectionHead id="faq-h" title="سؤالات متداول" more={{ href: '/faq', label: 'همه سؤال‌ها' }} />
+    <FaqList items={faq} />
+  </section>
+
+  <FinalCTA src="home-final" />
 </BaseLayout>

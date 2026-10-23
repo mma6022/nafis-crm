@@ -1,0 +1,30 @@
+---
+/** In-content CTA box. Default primary → /request with this page as `src`; secondary defaults to WhatsApp. */
+import { buttonClass } from '../ui/styles';
+import Icon from '../ui/Icon.astro';
+import { MESSENGERS, SITE } from '../../lib/site';
+interface Props {
+  primary: string;
+  href?: string;
+  secondary?: string;
+  secondaryHref?: string;
+}
+const { primary, secondary, secondaryHref } = Astro.props;
+const src = (Astro.url.pathname.replace(/^\/+|\/+$/g, '').split('/').pop() || 'home').replace(/[^a-z0-9_-]/g, '') || 'home';
+const href = Astro.props.href ?? `/request?src=${src}`;
+const sec =
+  secondary &&
+  (secondaryHref
+    ? { href: secondaryHref, todo: undefined }
+    : secondary === 'واتساپ'
+      ? { href: MESSENGERS.whatsapp.href, todo: 'whatsapp' }
+      : { href: SITE.tel, todo: undefined });
+---
+
+<aside class="not-prose bg-brand-50 my-8 grid gap-3 rounded-card p-5 sm:flex sm:items-center sm:justify-between">
+  <p class="text-ink font-extrabold">یک کارشناس رایگان راهنمایی‌تان می‌کند.</p>
+  <div class="grid gap-2 sm:flex">
+    <a href={href} class={buttonClass('primary', 'md', 'w-full sm:w-auto')}>{primary} <Icon name="arrow" size={18} /></a>
+    {sec && <a href={sec.href} data-todo={sec.todo} class={buttonClass('secondary', 'md', 'w-full sm:w-auto')}>{secondary}</a>}
+  </div>
+</aside>

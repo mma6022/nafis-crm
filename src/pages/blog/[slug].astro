@@ -18,6 +18,7 @@ import {
 } from '../../lib/blog';
 import { articleLd, breadcrumbLd } from '../../lib/seo';
 import { formatDateFa, toFaDigits } from '../../lib/format';
+import { mdxComponents } from '../../components/mdx';
 
 export const getStaticPaths = (async () => {
   const posts = await getPosts();
@@ -26,7 +27,8 @@ export const getStaticPaths = (async () => {
 
 const { post, related } = Astro.props as { post: Post; related: Post[] };
 const d = post.data;
-const { Content } = await render(post);
+const { Content, headings } = await render(post);
+Astro.locals.headings = headings;
 const path = postPath(post);
 const minutes = readingMinutes(post.body);
 const crumbs = [
@@ -64,7 +66,7 @@ const ogImage = d.cover?.src;
   <article class="container-nf max-w-3xl py-8 sm:py-12">
     <Breadcrumbs items={crumbs} />
     {d.sample && (
-      <p class="mb-5 rounded-[var(--radius)] border border-danger/20 bg-danger-50 px-4 py-3 text-sm font-semibold text-danger">
+      <p class="mb-5 rounded-control border border-danger/20 bg-danger-50 px-4 py-3 text-sm font-semibold text-danger">
         این یک نوشته نمونه برای اسکلت سایت است و محتوای نهایی نیست (noindex).
       </p>
     )}
@@ -72,7 +74,7 @@ const ogImage = d.cover?.src;
       <a href={categoryPath(d.category)} class="text-sm font-bold text-gold-700 hover:underline">
         {categoryLabel(d.category)}
       </a>
-      <h1 class="mt-2 text-[28px] leading-[1.5] font-extrabold sm:text-4xl sm:leading-[1.45]">{d.title}</h1>
+      <h1 class="text-display lg:text-display-lg mt-2">{d.title}</h1>
       <p class="mt-4 text-lg text-ink-muted">{d.description}</p>
       <p class="mt-4 flex flex-wrap gap-x-3 text-sm text-ink-faint">
         <span>{d.author}</span>·<time datetime={d.date.toISOString()}>{formatDateFa(d.date)}</time>
@@ -93,13 +95,13 @@ const ogImage = d.cover?.src;
         alt={d.coverAlt ?? ''}
         widths={[640, 1024, 1280]}
         sizes="(min-width: 768px) 768px, 100vw"
-        class="mt-8 w-full rounded-[var(--radius-xl)]"
+        class="mt-8 w-full rounded-card"
         loading="eager"
       />
     )}
 
     <div class="prose-nf mt-8">
-      <Content />
+      <Content components={mdxComponents} />
     </div>
 
     {d.tags.length > 0 && (
@@ -117,10 +119,10 @@ const ogImage = d.cover?.src;
       </ul>
     )}
 
-    <aside class="mt-10 rounded-[var(--radius-xl)] bg-brand-700 p-6 text-white sm:p-8">
+    <aside class="mt-10 rounded-card bg-brand-900 p-6 text-white sm:p-8">
       <p class="text-xl font-extrabold">برای انتخاب وام مناسب کمک می‌خواهید؟</p>
       <p class="mt-2 text-brand-100">در چند قدم ساده درخواست بدهید؛ مشاوره اول بدون تعهد است.</p>
-      <ButtonLink href="/request" variant="gold" class="mt-5">
+      <ButtonLink href={`/request?src=blog-${post.id}`.slice(0, 48)} variant="gold" class="mt-5">
         درخواست مشاوره رایگان
       </ButtonLink>
     </aside>

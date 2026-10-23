@@ -1,0 +1,129 @@
+/*
+ * Nafis Vam — design tokens v1 (nafisvam.com rebuild)
+ * Source of truth for colours/type/spacing. Mobile-first, RTL, Vazirmatn.
+ * Brand colours sampled from the logo (brand-logo.png): indigo #2937A0, deep navy #000153.
+ * Rule of thumb: ONE primary (indigo) button per screen; gold only for the «پیشنهاد ما» badge
+ * and secondary highlights; never white text on gold (use --nf-ink on gold).
+ * Token names match the existing @theme in nafisvam-web/src/styles/global.css
+ * (brand-*, gold-*, ink*, line*, surface*, success*, danger*), so values can be swapped in place.
+ */
+:root {
+  /* ---------- Colour: brand (logo indigo) ---------- */
+  --nf-brand-50:  #EEF0FA;
+  --nf-brand-100: #DDE1F5;
+  --nf-brand-200: #BCC3EC;
+  --nf-brand-300: #8F99DA;
+  --nf-brand-400: #5E6BC4;
+  --nf-brand-500: #3A48B0;
+  --nf-brand-600: #2937A0; /* PRIMARY — logo indigo. white text = 9.8:1 */
+  --nf-brand-700: #212C85; /* hover / pressed */
+  --nf-brand-800: #18216A;
+  --nf-brand-900: #0B1450; /* headings, header text, footer bg */
+  --nf-brand-950: #000153; /* logo deepest navy; decorative only */
+
+  /* ---------- Colour: accent (Nafis gold) ---------- */
+  --nf-gold-50:  #FEF8EA;
+  --nf-gold-100: #FDEFC9;
+  --nf-gold-300: #F7D27F;
+  --nf-gold-400: #F3BD47; /* ACCENT — badge «پیشنهاد ما», secondary highlight. Text on it = --nf-ink */
+  --nf-gold-500: #E0A42A;
+  --nf-gold-700: #8A6212; /* gold-coloured TEXT on white (5.5:1) */
+
+  /* ---------- Colour: neutrals ---------- */
+  --nf-ink:        #0B1450; /* headings, strong text (17.1:1 on white) */
+  --nf-ink-soft:   #3D4A6B; /* body text (8.8:1) */
+  --nf-ink-muted:  #5F6B85; /* helper text, min 14px (5.4:1 on white, 5.1:1 on surface) */
+  --nf-ink-faint:  #9AA3B8; /* placeholders/disabled/decoration only — not for real text */
+  --nf-line:       #E3E6F0; /* borders, dividers */
+  --nf-line-strong:#C9CEDF; /* field borders (visible on white) */
+  --nf-surface:    #F7F8FC; /* page background */
+  --nf-surface-2:  #EFF1F8; /* subtle fills, stepper track, chips */
+  --nf-white:      #FFFFFF;
+
+  /* ---------- Colour: status ---------- */
+  --nf-success:    #1F7A4D;
+  --nf-success-50: #E8F5EE;
+  --nf-danger:     #B42318;
+  --nf-danger-50:  #FEF0EE;
+  --nf-warning:    #8A6212; /* = gold-700 */
+  --nf-warning-50: #FEF8EA;
+
+  /* ---------- Typography ---------- */
+  --nf-font-sans: 'Vazirmatn', Tahoma, 'Segoe UI', system-ui, sans-serif;
+  --nf-weight-regular: 400;
+  --nf-weight-semibold: 600;
+  --nf-weight-bold: 800; /* only 400/600/800 are shipped */
+  /* size / line-height (mobile → desktop where two values) */
+  --nf-text-display: 28px;   --nf-lh-display: 1.55; /* H1 mobile */
+  --nf-text-display-lg: 40px;--nf-lh-display-lg: 1.45; /* H1 desktop */
+  --nf-text-h2: 22px;        --nf-lh-h2: 1.6;       /* H2 mobile, wizard step titles */
+  --nf-text-h2-lg: 30px;     --nf-lh-h2-lg: 1.5;
+  --nf-text-h3: 18px;        --nf-lh-h3: 1.7;       /* card titles */
+  --nf-text-h3-lg: 20px;
+  --nf-text-body: 16px;      --nf-lh-body: 1.9;     /* base. never below 16 for inputs (iOS zoom) */
+  --nf-text-article: 17px;   --nf-lh-article: 2;    /* blog body */
+  --nf-text-small: 15px;     --nf-lh-small: 1.8;    /* footer links, hero ticks */
+  --nf-text-caption: 14px;   --nf-lh-caption: 1.7;  /* MINIMUM size anywhere */
+  --nf-text-num-lg: 24px;    /* key figures in result cards */
+
+  /* ---------- Spacing (8px grid) ---------- */
+  --nf-space-1: 4px;
+  --nf-space-2: 8px;
+  --nf-space-3: 12px;
+  --nf-space-4: 16px;
+  --nf-space-5: 20px;  /* mobile page gutter, card padding */
+  --nf-space-6: 24px;
+  --nf-space-8: 32px;  /* desktop gutter */
+  --nf-space-10: 40px;
+  --nf-space-12: 48px;
+  --nf-space-14: 56px; /* section gap mobile */
+  --nf-space-16: 64px;
+  --nf-space-20: 80px;
+  --nf-space-24: 96px; /* section gap desktop */
+  --nf-container: 1120px;
+  --nf-prose: 720px;
+  --nf-gutter: 20px;          /* 32px ≥ 1024 */
+  --nf-section-gap: 56px;     /* 96px ≥ 1024 */
+
+  /* ---------- Radius ---------- */
+  --nf-radius-sm: 10px;   /* chips, small tags */
+  --nf-radius-control: 14px; /* buttons, inputs, option tiles */
+  --nf-radius-card: 20px; /* cards, finder panel */
+  --nf-radius-sheet: 28px;/* bottom sheets, hero panel */
+  --nf-radius-pill: 999px;
+
+  /* ---------- Elevation ---------- */
+  --nf-shadow-xs: 0 1px 2px rgba(11, 20, 80, .05);
+  --nf-shadow-card: 0 1px 2px rgba(11, 20, 80, .04), 0 6px 20px -8px rgba(11, 20, 80, .12);
+  --nf-shadow-raised: 0 2px 4px rgba(11, 20, 80, .04), 0 16px 36px -12px rgba(41, 55, 160, .30); /* highlighted card */
+  --nf-shadow-button: 0 1px 2px rgba(11, 20, 80, .10), 0 6px 14px -6px rgba(41, 55, 160, .45);
+  --nf-shadow-pop: 0 16px 44px -10px rgba(11, 20, 80, .28);  /* menus, sheets */
+  --nf-shadow-bar: 0 -4px 20px -6px rgba(11, 20, 80, .14);  /* sticky bottom bar */
+  --nf-ring: 0 0 0 4px rgba(41, 55, 160, .22);              /* focus ring */
+
+  /* ---------- Sizing ---------- */
+  --nf-control-h: 52px;   /* buttons + inputs (spec) */
+  --nf-control-h-min: 48px;
+  --nf-control-h-sm: 44px;/* header CTA, min touch target */
+  --nf-touch-min: 44px;
+  --nf-option-h: 64px;    /* finder/wizard answer tiles */
+  --nf-header-h: 64px;
+  --nf-bottom-bar-h: 72px;/* 56px buttons + 16px padding (+ safe-area) */
+  --nf-progress-h: 6px;
+
+  /* ---------- Motion ---------- */
+  --nf-ease: cubic-bezier(.2, .7, .2, 1);
+  --nf-dur-fast: 150ms;
+  --nf-dur: 200ms;
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --nf-gutter: 32px;
+    --nf-section-gap: 96px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --nf-dur-fast: 0ms; --nf-dur: 0ms; }
+}

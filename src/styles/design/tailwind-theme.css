@@ -1,0 +1,53 @@
+/*
+ * Nafis Vam — Tailwind v4 @theme (drop-in replacement for the @theme block in
+ * nafisvam-web/src/styles/global.css). Same token names as before + new ones; values follow UX-SPEC §2.
+ * Utilities you get: bg-brand-600, text-ink, text-ink-muted, border-line, bg-surface, rounded-control,
+ * rounded-card, shadow-card, shadow-raised, text-display, text-h2, h-control, min-h-option ...
+ */
+@theme {
+  --font-sans: 'Vazirmatn', Tahoma, 'Segoe UI', system-ui, sans-serif;
+
+  --color-brand-50: #EEF0FA;  --color-brand-100: #DDE1F5; --color-brand-200: #BCC3EC;
+  --color-brand-300: #8F99DA; --color-brand-400: #5E6BC4; --color-brand-500: #3A48B0;
+  --color-brand-600: #2937A0; --color-brand-700: #212C85; --color-brand-800: #18216A;
+  --color-brand-900: #0B1450; --color-brand-950: #000153;
+
+  --color-gold-50: #FEF8EA; --color-gold-100: #FDEFC9; --color-gold-300: #F7D27F;
+  --color-gold-400: #F3BD47; --color-gold-500: #E0A42A; --color-gold-700: #8A6212;
+
+  --color-ink: #0B1450; --color-ink-soft: #3D4A6B; --color-ink-muted: #5F6B85; --color-ink-faint: #9AA3B8;
+  --color-line: #E3E6F0; --color-line-strong: #C9CEDF; --color-line-soft: #EEF0F6;
+  --color-surface: #F7F8FC; --color-surface-2: #EFF1F8;
+  --color-success: #1F7A4D; --color-success-50: #E8F5EE;
+  --color-danger: #B42318;  --color-danger-50: #FEF0EE;
+
+  --text-caption: 14px;  --text-caption--line-height: 1.7;
+  --text-small: 15px;    --text-small--line-height: 1.8;
+  --text-body: 16px;     --text-body--line-height: 1.9;
+  --text-article: 17px;  --text-article--line-height: 2;
+  --text-h3: 18px;       --text-h3--line-height: 1.7;
+  --text-h3-lg: 20px;    --text-h3-lg--line-height: 1.7;
+  --text-h2: 22px;       --text-h2--line-height: 1.6;
+  --text-h2-lg: 30px;    --text-h2-lg--line-height: 1.5;
+  --text-display: 28px;  --text-display--line-height: 1.55;
+  --text-display-lg: 40px; --text-display-lg--line-height: 1.45;
+  --text-num: 24px;      --text-num--line-height: 1.4;
+
+  --spacing-control: 52px; --spacing-control-min: 48px; --spacing-control-sm: 44px;
+  --spacing-option: 64px;  --spacing-header: 64px; --spacing-bottom-bar: 72px;
+  --spacing-section: 56px; --spacing-section-lg: 96px;
+  --container-content: 1120px; --container-prose: 720px;
+
+  --radius: 14px; /* legacy name used by ui/styles.ts → now = control radius */
+  --radius-sm: 10px; --radius-control: 14px; --radius-lg: 14px;
+  --radius-card: 20px; --radius-xl: 20px; --radius-sheet: 28px;
+
+  --shadow-xs: 0 1px 2px rgba(11, 20, 80, .05);
+  --shadow-card: 0 1px 2px rgba(11, 20, 80, .04), 0 6px 20px -8px rgba(11, 20, 80, .12);
+  --shadow-raised: 0 2px 4px rgba(11, 20, 80, .04), 0 16px 36px -12px rgba(41, 55, 160, .30);
+  --shadow-button: 0 1px 2px rgba(11, 20, 80, .10), 0 6px 14px -6px rgba(41, 55, 160, .45);
+  --shadow-pop: 0 16px 44px -10px rgba(11, 20, 80, .28);
+  --shadow-bar: 0 -4px 20px -6px rgba(11, 20, 80, .14);
+
+  --ease-nf: cubic-bezier(.2, .7, .2, 1);
+}

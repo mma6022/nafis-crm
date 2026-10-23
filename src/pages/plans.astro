@@ -1,0 +1,54 @@
+---
+/** /plans (UX-SPEC §8): finder first, then every active plan in collapsed groups (cash / goods). */
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageHeader from '../components/PageHeader.astro';
+import PlanFinder, { PlanCard } from '../components/islands/PlanFinder';
+import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
+import { combos, fa, planFacts } from '../lib/plans';
+import { breadcrumbLd } from '../lib/seo';
+const facts = planFacts(LOAN_PLANS_SNAPSHOT);
+const one = combos(LOAN_PLANS_SNAPSHOT).filter((c, i, a) => a.findIndex((x) => x.id === c.id) === i);
+const groups = [
+  { key: 'score', title: 'وام نقدی', items: one.filter((c) => c.type === 'score') },
+  { key: 'goods', title: 'خرید کالا قسطی', items: one.filter((c) => c.type === 'goods') },
+].filter((g) => g.items.length);
+const crumbs = [
+  { name: 'خانه', path: '/' },
+  { name: 'طرح‌ها', path: '/plans' },
+];
+---
+
+<BaseLayout
+  title={`${fa(facts.planCount)} طرح فعال وام و خرید اقساطی`}
+  description="همه طرح‌های فعال نفیس وام: مبلغ اسمی، مبلغ قابل دریافت، قسط ماهانه، مدت بازپرداخت و زمان بررسی هر طرح؛ با طرح‌یاب ۳ سؤالی."
+  jsonLd={[breadcrumbLd(crumbs)]}
+>
+  <PageHeader title="طرح‌های فعال نفیس وام" lead="فهرست زنده از سامانه نفیس وام. مبالغ برآوردی است و مبلغ قطعی پس از اعتبارسنجی اعلام می‌شود." crumbs={crumbs} />
+  <div class="container-nf pt-8">
+    <PlanFinder client:load snapshot={LOAN_PLANS_SNAPSHOT} src="plans" />
+  </div>
+  <section class="container-nf pt-section" aria-labelledby="all-h">
+    <h2 id="all-h" class="text-h2 lg:text-h2-lg mb-4">همه طرح‌ها</h2>
+    <div class="grid gap-3">
+      {
+        groups.map((g) => (
+          <details class="group rounded-card border border-line bg-white">
+            <summary class="text-ink flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-5 font-extrabold [&::-webkit-details-marker]:hidden">
+              <span>
+                {g.title} <span class="nf-badge nf-badge--brand ms-2">{fa(g.items.length)} طرح</span>
+              </span>
+              <span class="text-brand-600 text-xl transition-transform group-open:rotate-45" aria-hidden="true">+</span>
+            </summary>
+            <ul class="grid gap-3 p-3 pt-0 md:grid-cols-2 lg:grid-cols-3">
+              {g.items.map((c) => (
+                <li>
+                  <PlanCard c={c} featured={false} src="plans-list" />
+                </li>
+              ))}
+            </ul>
+          </details>
+        ))
+      }
+    </div>
+  </section>
+</BaseLayout>

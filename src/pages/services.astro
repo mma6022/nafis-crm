@@ -1,12 +1,13 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import PageHeader from '../components/PageHeader.astro';
-import Section from '../components/ui/Section.astro';
-import Card from '../components/ui/Card.astro';
-import Placeholder from '../components/ui/Placeholder.astro';
-import FinalCTA from '../components/home/FinalCTA.astro';
+import Icon from '../components/ui/Icon.astro';
+import FinalCTA from '../components/FinalCTA.astro';
 import { breadcrumbLd, financialServiceLd } from '../lib/seo';
-import { SERVICES } from '../data/services';
+import { KEYWORD_PAGES } from '../lib/site';
+import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
+import { fillFacts, planFacts } from '../lib/plans';
+const facts = planFacts(LOAN_PLANS_SNAPSHOT);
 const crumbs = [
   { name: 'خانه', path: '/' },
   { name: 'خدمات', path: '/services' },
@@ -14,26 +15,32 @@ const crumbs = [
 ---
 
 <BaseLayout
-  title="خدمات مشاوره وام و تسهیلات"
-  description="خدمات نفیس وام: مشاوره وام شخصی، وام کالایی، تسهیلات کسب‌وکار و وام خودرو با توضیح شفاف شرایط و اقساط."
+  title="خدمات نفیس وام؛ وام فوری، بدون ضامن، بدون چک و خرید اقساطی"
+  description="همه خدمات نفیس وام در یک صفحه: وام فوری، وام بدون ضامن، وام بدون چک، وام با چک یا سفته و خرید اقساطی کالا با قسط شفاف."
   jsonLd={[breadcrumbLd(crumbs), financialServiceLd()]}
 >
   <PageHeader title="خدمات نفیس وام" lead="هر هدف مالی، یک مسیر مناسب دارد." crumbs={crumbs} />
-  <Section>
-    <ul class="grid gap-4 sm:grid-cols-2">
-      {SERVICES.map((s) => (
-        <Card as="li">
-          <h2 class="text-xl font-bold">{s.t}</h2>
-          <p class="mt-1 text-ink-muted">{s.d}</p>
-        </Card>
-      ))}
+  <div class="container-nf pt-8">
+    <ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {
+        KEYWORD_PAGES.map((p) => (
+          <li>
+            <a href={`/${p.slug}`} class="hover:border-brand-300 flex min-h-option items-center gap-3 rounded-card border border-line bg-white p-4">
+              <span class="bg-brand-50 text-brand-600 grid size-11 shrink-0 place-items-center rounded-xl">
+                <Icon name={p.icon} />
+              </span>
+              <span class="grid flex-1">
+                <b class="text-ink">{p.label}</b>
+                <span class="text-ink-muted text-caption">
+                  {fillFacts(p.blurb, facts)} {'marker' in p && <span class="nf-ph">{p.marker}</span>}
+                </span>
+              </span>
+              <Icon name="chev" class="text-ink-faint" />
+            </a>
+          </li>
+        ))
+      }
     </ul>
-    <div class="mt-6">
-      <Placeholder
-        label="جزئیات هر خدمت"
-        note="TODO(spec): صفحه/بخش جدا برای هر خدمت (برای سئو) — شرایط، مدارک، مثال."
-      />
-    </div>
-  </Section>
-  <FinalCTA />
+  </div>
+  <FinalCTA src="services" />
 </BaseLayout>

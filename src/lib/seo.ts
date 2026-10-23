@@ -10,7 +10,7 @@ export const organizationLd = () => ({
   name: SITE.name,
   alternateName: SITE.nameEn,
   url: SITE.url,
-  logo: absoluteUrl(SITE.logo),
+  logo: absoluteUrl(SITE.logoPng),
   email: SITE.email,
   telephone: SITE.phoneE164,
   contactPoint: [
@@ -31,7 +31,7 @@ export const financialServiceLd = () => ({
   name: SITE.name,
   description: SITE.description,
   url: SITE.url,
-  image: absoluteUrl(SITE.logo),
+  image: absoluteUrl(SITE.logoPng),
   telephone: SITE.phoneE164,
   email: SITE.email,
   areaServed: { '@type': 'Country', name: 'Iran' },

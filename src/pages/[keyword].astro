@@ -1,0 +1,14 @@
+---
+/** /vam-fori, /vam-bedun-zamen, … — one page per entry in src/content/pages (except home). */
+import type { GetStaticPaths } from 'astro';
+import { getCollection } from 'astro:content';
+import KeywordLanding from '../layouts/KeywordLanding.astro';
+
+export const getStaticPaths = (async () => {
+  const pages = await getCollection('pages', (p) => p.data.slug !== '/');
+  return pages.map((entry) => ({ params: { keyword: entry.data.slug.replace(/^\//, '') }, props: { entry } }));
+}) satisfies GetStaticPaths;
+const { entry } = Astro.props;
+---
+
+<KeywordLanding entry={entry} />

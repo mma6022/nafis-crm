@@ -1,0 +1,16 @@
+---
+/** Renders the page's frontmatter FAQ (set on Astro.locals by the page). FAQPage JSON-LD is emitted by the page. */
+import FaqList from '../FaqList.astro';
+const items = Astro.props.items ?? Astro.locals.faq ?? [];
+---
+
+{
+  items.length > 0 && (
+    <section class="not-prose my-10" aria-labelledby="faq-title">
+      <h2 id="faq-title" class="text-h2 lg:text-h2-lg mb-4">
+        سؤالات متداول
+      </h2>
+      <FaqList items={items} />
+    </section>
+  )
+}

@@ -60,7 +60,7 @@ export default function LoanCalculator({
                 type="button"
                 aria-pressed={t.installments === q.months}
                 onClick={() => setMonths(t.installments)}
-                className={`min-h-12 min-w-20 rounded-[var(--radius)] border px-4 font-bold transition-colors ${t.installments === q.months ? 'border-brand-600 bg-brand-600 text-white' : 'border-line text-ink hover:border-brand-200 bg-white'}`}
+                className={`min-h-12 min-w-20 rounded-control border px-4 font-bold transition-colors ${t.installments === q.months ? 'border-brand-600 bg-brand-600 text-white' : 'border-line text-ink hover:border-brand-200 bg-white'}`}
               >
                 {toFaDigits(t.installments)} ماه
               </button>

@@ -5,7 +5,7 @@ import sitemap from '@astrojs/sitemap';
 import tailwindcss from '@tailwindcss/vite';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { tagSlug } from './src/data/blog-taxonomy.ts';
+import { tagSlug, categoryKey } from './src/data/blog-taxonomy.ts';
 
 const SITE = 'https://nafisvam.com';
 
@@ -27,7 +27,8 @@ if (fs.existsSync(blogDir)) {
       continue;
     }
     const category = fm.match(/^category:\s*["']?([^"'\n]+)["']?/m)?.[1]?.trim();
-    if (category) indexedCategories.add(category);
+    const cat = category && categoryKey(category);
+    if (cat) indexedCategories.add(cat);
     const tags = fm.match(/^tags:\s*\[(.*)\]/m)?.[1] ?? '';
     for (const t of tags.split(',')) {
       const tag = t.trim().replace(/^["']|["']$/g, '');
@@ -36,7 +37,7 @@ if (fs.existsSync(blogDir)) {
   }
 }
 function inSitemap(path) {
-  if (path.endsWith('/404') || /\/\d+$/.test(path) || hiddenPostPaths.has(path)) return false;
+  if (path.endsWith('/404') || path === '/request' || path === '/loan-plans' || /\/\d+$/.test(path) || hiddenPostPaths.has(path)) return false;
   const cat = path.match(/^\/blog\/category\/([^/]+)$/)?.[1];
   if (cat) return indexedCategories.has(cat);
   const tag = path.match(/^\/blog\/tag\/([^/]+)$/)?.[1];
@@ -68,6 +69,7 @@ export default defineConfig({
   site: SITE,
   output: 'static',
   trailingSlash: 'never',
+  redirects: { '/loan-plans': '/plans' },
   build: { format: 'directory', inlineStylesheets: 'auto' },
   integrations: [
     react(),

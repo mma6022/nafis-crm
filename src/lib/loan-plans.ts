@@ -26,7 +26,10 @@ export interface LoanPlan {
   bankName: string;
   platformName: string;
   installmentTerms: InstallmentTerm[];
+  /** Optional (CRM feat/public-leads): accepted guarantee kinds. Absent → guarantee filters stay "unknown". */
+  guaranteeTypes?: ('cheque' | 'digital_cheque' | 'guarantor' | 'promissory' | 'none')[];
 }
+const GUARANTEES = new Set(['cheque', 'digital_cheque', 'guarantor', 'promissory', 'none']);
 
 const isNum = (v: unknown, min = -Infinity): v is number => typeof v === 'number' && Number.isFinite(v) && v >= min;
 const isStr = (v: unknown): v is string => typeof v === 'string';
@@ -67,6 +70,9 @@ export function parseLoanPlan(p: unknown): LoanPlan | null {
     bankName: o.bankName as string,
     platformName: o.platformName as string,
     installmentTerms: terms as InstallmentTerm[],
+    ...(Array.isArray(o.guaranteeTypes) && o.guaranteeTypes.every((g) => GUARANTEES.has(g as string))
+      ? { guaranteeTypes: o.guaranteeTypes as LoanPlan['guaranteeTypes'] }
+      : {}),
   };
 }
 

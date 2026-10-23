@@ -1,0 +1,14 @@
+---
+/** A single live number. SSR = snapshot value (falls back to the author's text); the live-facts script refreshes it. */
+import { LOAN_PLANS_SNAPSHOT } from '../../lib/loan-plans.snapshot';
+import { planFactValue } from '../../lib/plans';
+interface Props {
+  id: number;
+  field: string;
+  term?: number;
+}
+const { id, field, term } = Astro.props;
+const v = planFactValue(LOAN_PLANS_SNAPSHOT, id, field, term);
+---
+
+<span data-plan-fact={`${id}:${field}:${term ?? ''}`} class="nf-fact">{v ?? <slot />}</span>
