@@ -14,6 +14,9 @@
 @import './design/tailwind-theme.css';
 @import './design/tokens.css';
 @import './design/components.css' layer(components);
+/* Phase-2 page/layout classes (.hdr, .hero, .plan, .rq-*, …) ported verbatim from the designer's site.css. */
+@import './site.css' layer(components);
+@import './site-extra.css' layer(components);
 
 @layer base {
   html {
@@ -56,9 +59,6 @@
 }
 
 @layer components {
-  .container-nf {
-    @apply max-w-content mx-auto w-full px-5 lg:px-8;
-  }
   .ltr {
     direction: ltr;
     unicode-bidi: isolate;
@@ -72,31 +72,7 @@
     @apply focus:shadow-pop sr-only focus:not-sr-only focus:fixed focus:top-3 focus:right-3 focus:z-50 focus:rounded-control focus:bg-white focus:px-4 focus:py-2;
   }
 
-  /* Long-form article typography (blog) — no plugin needed */
-  .prose-nf {
-    @apply text-ink-soft text-article;
-  }
-  .prose-nf :where(h2):not(:where(.not-prose, .not-prose *)) {
-    @apply text-ink text-h2 lg:text-h2-lg mt-10 mb-4 font-extrabold scroll-mt-24;
-  }
-  .prose-nf :where(h3):not(:where(.not-prose, .not-prose *)) {
-    @apply text-ink text-h3 lg:text-h3-lg mt-8 mb-3 font-extrabold scroll-mt-24;
-  }
-  .prose-nf :where(p):not(:where(.not-prose, .not-prose *)) {
-    @apply my-4;
-  }
-  .prose-nf :where(ul):not(:where(.not-prose, .not-prose *)) {
-    @apply my-4 list-disc pr-6;
-  }
-  .prose-nf :where(ol):not(:where(.not-prose, .not-prose *)) {
-    @apply my-4 list-decimal pr-6;
-  }
-  .prose-nf :where(li):not(:where(.not-prose, .not-prose *)) {
-    @apply my-1.5;
-  }
-  .prose-nf :where(a):not(:where(.not-prose, .not-prose *)) {
-    @apply text-brand-600 decoration-brand-200 hover:decoration-brand-500 font-semibold underline underline-offset-[6px];
-  }
+  /* Long-form article typography: base rules come from site.css (.prose-nf = designer .prose); extras below. */
   .prose-nf :where(blockquote):not(:where(.not-prose, .not-prose *)) {
     @apply border-gold-400 bg-gold-50 text-ink my-6 rounded-control border-r-4 px-5 py-3;
   }

@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "build": "astro check && astro build && node scripts/check-markers.mjs && node scripts/check-jsonld.mjs",
+    "build": "astro check && astro build && node scripts/check-markers.mjs --strict && node scripts/check-jsonld.mjs",
+    "build:preview": "astro check && astro build && node scripts/check-markers.mjs && node scripts/check-jsonld.mjs",
     "build:fast": "astro build",
     "preview": "astro preview",
     "check": "astro check",

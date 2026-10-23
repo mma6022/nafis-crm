@@ -1,41 +1,28 @@
 ---
-/**
- * Home hero, built from the designer's mockup (hero-finder-mobile) + content/pages/home.mdx.
- * Every number comes from the plan data (planFacts) — nothing hand-typed.
- */
-import Icon from '../ui/Icon.astro';
-import { buttonClass } from '../ui/styles';
+/** Home hero (mockup home.html `.hero`). h1 from home.mdx; every number from plan data (planFacts). Desktop: live sample card. */
+import I from '../ui/I.astro';
 import { SITE } from '../../lib/site';
-import { fa, millionsFa, type PlanFacts } from '../../lib/plans';
+import { fa, type PlanFacts } from '../../lib/plans';
 interface Props {
   facts: PlanFacts;
-  /** h1 from home.mdx with {planCount}; the number is wrapped in <em> like the mockup */
+  /** h1 from home.mdx with {planCount}; «N طرح فعال» is wrapped in <em> like the mockup */
   h1: string;
-  lead?: string;
 }
 const { facts: f, h1 } = Astro.props;
 const n = fa(f.planCount);
 const [before, after] = h1.split('{planCount}');
-const ticks = [
-  `از ${millionsFa(f.minPrincipal)} تا ${millionsFa(f.maxPrincipal)} میلیون تومان`,
-  `بازپرداخت ${fa(f.minTerm)} تا ${fa(f.maxTerm)} ماهه`,
-  ...(f.hasFast ? ['بررسی برخی طرح‌ها کمتر از ۷ روز'] : []),
-];
 ---
 
-<section class="nf-hero relative overflow-hidden">
-  <div class="container-nf grid gap-8 pt-6 pb-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,.85fr)] lg:items-center lg:gap-16 lg:pt-14 lg:pb-16">
+<section class="hero" id="hero">
+  <div class="wrap hero-grid">
     <div>
-      <p class="text-ink inline-flex min-h-8 items-center gap-2 rounded-full border border-line bg-white px-3 text-caption font-semibold shadow-xs">
-        <span class="nf-live-dot" aria-hidden="true"></span>
-        <span><span data-plan-count="planCount">{n}</span> طرح فعال، همین حالا</span>
-      </p>
-      <h1 class="text-display lg:text-display-lg mt-4 text-balance">
+      <span class="live"><span class="dot"></span><span data-plan-count="planCount">{n}</span> طرح فعال، همین حالا</span>
+      <h1>
         {
           after !== undefined ? (
             <>
               {before}
-              <em class="text-brand-600 not-italic">
+              <em>
                 <span data-plan-count="planCount">{n}</span> طرح فعال
               </em>
               {after.replace(/^\s*طرح فعال/, '')}
@@ -45,77 +32,22 @@ const ticks = [
           )
         }
       </h1>
-      <p class="text-ink-soft mt-3 text-body lg:text-[18px]">
-        به ۳ سؤال ساده جواب دهید تا مناسب‌ترین طرح را با <b class="text-ink">مبلغ قابل دریافت</b> و <b class="text-ink">قسط ماهانه</b> ببینید. مشاوره
-        رایگان است و تعهدی ایجاد نمی‌کند.
+      <p class="lead">
+        به ۳ سؤال ساده جواب دهید تا مناسب‌ترین طرح را با <b>مبلغ قابل دریافت</b> و <b>قسط ماهانه</b>‌اش ببینید. مشاوره رایگان است و تعهدی ایجاد نمی‌کند.
       </p>
-      <div class="mt-6 grid justify-items-center gap-1 sm:flex sm:items-center sm:gap-3">
-        <a href="#plan-finder" class={buttonClass('primary', 'lg', 'w-full sm:w-auto')} data-smooth>
-          پیدا کردن طرح مناسب من <Icon name="arrow" size={20} />
-        </a>
-        <a href={SITE.tel} class={buttonClass('text', 'md', 'w-full sm:w-auto')}>
-          <Icon name="phone" size={18} /> ترجیح می‌دهم تماس بگیرم
-        </a>
+      <div class="actions">
+        <a class="nf-btn nf-btn--primary nf-btn--block" href="#plan-finder" id="hero-cta">پیدا کردن طرح مناسب من <I name="arrow" /></a>
+        <a class="nf-btn nf-btn--text" href={SITE.tel}><I name="phone" size={18} /> ترجیح می‌دهم تماس بگیرم</a>
       </div>
-      <ul class="text-ink-soft mt-4 grid gap-1.5 text-small">
-        {
-          ticks.map((t) => (
-            <li class="flex items-center gap-2">
-              <span class="bg-success-50 text-success grid size-5 place-items-center rounded-full">
-                <Icon name="check" size={14} />
-              </span>
-              {t}
-            </li>
-          ))
-        }
+      <ul class="ticks">
+        <li><span class="ok"><I name="check" /></span><span data-plan-count="amountRange">{f.amountRange}</span></li>
+        <li><span class="ok"><I name="check" /></span><span data-plan-count="termRange">{f.termRange}</span></li>
+        {f.hasFast && <li><span class="ok"><I name="check" /></span>بررسی برخی طرح‌ها کمتر از ۷ روز</li>}
       </ul>
     </div>
-    {
-      Astro.slots.has('default') && (
-        <div class="hidden lg:block" aria-label="نمونه یک طرح فعال">
-          <p class="text-ink-muted mb-3 flex items-center gap-2 text-small font-semibold">
-            <span class="nf-live-dot" aria-hidden="true" />
-            نمونه یک طرح فعال، با داده زنده سامانه
-          </p>
-          <slot />
-        </div>
-      )
-    }
+    <div class="sample d-only" aria-label="نمونه یک طرح فعال">
+      <div class="sample-tag"><span class="dot"></span>نمونه یک طرح فعال، با داده زنده سامانه</div>
+      <div id="sample"><slot /></div>
+    </div>
   </div>
 </section>
-
-<style>
-  .nf-hero {
-    background:
-      radial-gradient(120% 70% at 85% 0%, #e6e9f8 0%, rgb(230 233 248 / 0) 60%),
-      linear-gradient(#fff, var(--color-surface));
-  }
-  .nf-live-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
-    background: var(--color-success);
-    box-shadow: 0 0 0 4px var(--color-success-50);
-  }
-  @media (prefers-reduced-motion: no-preference) {
-    .nf-live-dot {
-      animation: nf-pulse 2s var(--ease-nf) infinite;
-    }
-  }
-  @keyframes nf-pulse {
-    50% {
-      box-shadow: 0 0 0 7px transparent;
-    }
-  }
-</style>
-<script>
-  document.querySelectorAll<HTMLAnchorElement>('a[data-smooth]').forEach((a) =>
-    a.addEventListener('click', (e) => {
-      const t = document.querySelector(a.getAttribute('href')!);
-      if (!t) return;
-      e.preventDefault();
-      t.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
-      history.replaceState(null, '', a.getAttribute('href'));
-    }),
-  );
-</script>

@@ -31,16 +31,21 @@ export function cleanPlanName(n: string) {
 
 /* ---------------- facts (no hand-typed numbers anywhere) ---------------- */
 
-/** «بانک ملی» = «ملی»; «گردشگری - اقتصاد نوین - دی» = 3 banks. [تأیید محمد] on the normalisation. */
-export const bankNames = (plans: LoanPlan[]) =>
-  new Set(
-    plans.flatMap((p) =>
-      p.bankName
-        .split(/\s*[-–،,/]\s*/)
-        .map((b) => b.replace(/^بانک\s+/, '').trim())
-        .filter(Boolean),
-    ),
-  );
+/** Annuity installment (designer site.js `installment`): r = annual/100/12; r = 0 → P/n. */
+export const installment = monthlyInstallment;
+
+/**
+ * Bank-count rule (PM-approved, designer site.js `normBank`/`bankSet`): split composite names on - | / ، , +,
+ * ZWNJ → space, collapse spaces, drop a leading «بانک», dedupe. «بانک ملی» = «ملی».
+ */
+export const normBank = (b: string) =>
+  b.replace(/\u200c/g, ' ').replace(/\s+/g, ' ').trim().replace(/^بانک\s+/, '');
+export const splitBanks = (bankName: string) =>
+  String(bankName || '')
+    .split(/\s*[-–|/،,+]\s*/)
+    .map(normBank)
+    .filter(Boolean);
+export const bankNames = (plans: LoanPlan[]) => new Set(plans.flatMap((p) => splitBanks(p.bankName)));
 
 export function planFacts(plans: LoanPlan[]) {
   const principals = plans.map((p) => p.principalAmount);
@@ -58,6 +63,10 @@ export function planFacts(plans: LoanPlan[]) {
     hasFast: plans.some((p) => p.grantDays === 'under_7'),
     fastCount: plans.filter((p) => p.grantDays === 'under_7').length,
     onlineCount: plans.filter((p) => p.processMode === 'both' || p.processMode === 'online').length,
+    /** «از ۱۰۰ تا ۷۰۰ میلیون تومان» (nominal principal) */
+    amountRange: has ? `از ${millionsFa(Math.min(...principals))} تا ${millionsFa(Math.max(...principals))} میلیون تومان` : '',
+    /** «بازپرداخت ۱۲ تا ۴۸ ماهه» */
+    termRange: has ? `بازپرداخت ${fa(Math.min(...terms))} تا ${fa(Math.max(...terms))} ماهه` : '',
   };
 }
 export type PlanFacts = ReturnType<typeof planFacts>;
@@ -91,8 +100,8 @@ export function combos(plans: LoanPlan[]): Combo[] {
       type: p.loanType,
       mode: p.processMode,
       days: p.grantDays,
-      bank: p.bankName.trim(),
-      platform: p.platformName.trim(),
+      bank: p.bankName.replace(/\s+/g, ' ').trim(),
+      platform: p.platformName.replace(/\s+/g, ' ').trim(),
       principal: p.principalAmount,
       rate: p.annualInterest,
       term: t.installments,
@@ -103,6 +112,10 @@ export function combos(plans: LoanPlan[]): Combo[] {
     })),
   );
 }
+
+/** Highest-payout combo of a plan (designer `byId`), e.g. the hero sample card and blog mini cards. */
+export const byId = (all: Combo[], id: number): Combo | undefined =>
+  all.filter((c) => c.id === id).sort((a, b) => b.payout - a.payout)[0];
 
 /* ---------------- finder ---------------- */
 
@@ -205,21 +218,80 @@ export function recommend(all: Combo[], a: FinderAnswers, preset: FinderPreset =
 
 /* ---------------- request wizard amount bands ---------------- */
 /**
- * Bands are by PAYOUT (what reaches the customer), like the finder and the designer's request.html.
- * Values are the CRM contract keys (public-leads.ts). [تأیید محمد: پایه مبلغ — دریافتی یا اسمی]
+ * Bands = received amount (payout), designer site.js `reqBands`. The edges are a fixed scale; which bands show
+ * (and the open top band) follow the plan data: a band is listed only when ≥1 plan pays out inside (lo, hi].
+ * `key` ("0-100", "100-200", …, "1000-up") is sent to the CRM as `amountBand`.
  */
-export type AmountBand = 'upto100' | '100-300' | '300-500' | '500plus';
-export const AMOUNT_BANDS: { value: AmountBand; label: string; lo: number; hi: number; icon: 's' | 'm' | 'l' | 'xl' }[] = [
-  { value: 'upto100', label: 'تا ۱۰۰ میلیون تومان', lo: 0, hi: 100e6, icon: 's' },
-  { value: '100-300', label: '۱۰۰ تا ۳۰۰ میلیون تومان', lo: 100e6, hi: 300e6, icon: 'm' },
-  { value: '300-500', label: '۳۰۰ تا ۵۰۰ میلیون تومان', lo: 300e6, hi: 500e6, icon: 'l' },
-  { value: '500plus', label: 'بیش از ۵۰۰ میلیون تومان', lo: 500e6, hi: Infinity, icon: 'xl' },
-];
-/** Only bands that actually contain a plan (spec §5: «بازه بدون طرح نمایش داده نشود»). */
-export const availableAmountBands = (all: Combo[], type?: 'score' | 'goods') =>
-  AMOUNT_BANDS.filter((b) => all.some((c) => (!type || c.type === type) && c.payout > b.lo && c.payout <= b.hi));
+export const REQ_EDGES = [100e6, 200e6, 300e6, 500e6, 1000e6] as const;
+export interface ReqBand {
+  key: string;
+  lo: number;
+  hi: number;
+  label: string;
+  /** number of distinct plans in the band */
+  n: number;
+}
+export function reqBands(list: Combo[]): ReqBand[] {
+  const lab = (v: number) => fa(v / 1e6);
+  const raw: [number, number][] = [
+    [0, REQ_EDGES[0]],
+    ...REQ_EDGES.slice(1).map((e, i): [number, number] => [REQ_EDGES[i]!, e]),
+    [REQ_EDGES[REQ_EDGES.length - 1]!, Infinity],
+  ];
+  return raw
+    .map(([lo, hi]) => {
+      const ids = new Set(list.filter((c) => c.payout > lo && c.payout <= hi).map((c) => c.id));
+      const label =
+        lo === 0
+          ? `تا ${lab(hi)} میلیون تومان`
+          : hi === Infinity
+            ? `بیش از ${lab(lo)} میلیون تومان`
+            : `${lab(lo)} تا ${lab(hi)} میلیون تومان`;
+      return { key: `${lo / 1e6}-${hi === Infinity ? 'up' : hi / 1e6}`, lo, hi, label, n: ids.size };
+    })
+    .filter((b) => b.n > 0);
+}
+/** Every key the wizard may send (CRM `AMOUNT_BANDS` accepts these + legacy keys + "unsure"). */
+export const REQ_BAND_KEYS = ['0-100', '100-200', '200-300', '300-500', '500-1000', '1000-up'] as const;
 
 /* ---------------- labels ---------------- */
+
+/** Finder questions, copy and icons verbatim from the designer's site.js `Q`. */
+export const FINDER_Q = {
+  type: {
+    title: 'وام را برای چه می‌خواهید؟',
+    step: 'هدف وام',
+    lbl: 'هدف',
+    hint: 'یکی را انتخاب کنید؛ بعداً هم می‌توانید عوضش کنید.',
+    opts: [
+      { v: 'cash', icon: 'cash', title: 'پول نقد', sub: 'وام نقدی بر پایه اعتبارسنجی' },
+      { v: 'goods', icon: 'cart', title: 'خرید کالا قسطی', sub: 'کالا را می‌گیرید و قسطی پرداخت می‌کنید' },
+      { v: 'any', icon: 'both', title: 'فرقی نمی‌کند', sub: 'هر دو را به من نشان بده' },
+    ],
+  },
+  band: {
+    title: 'حدوداً چقدر لازم دارید؟',
+    step: 'حدود مبلغ',
+    lbl: 'مبلغ',
+    hint: 'منظور مبلغی است که به دست شما می‌رسد، نه مبلغ اسمی وام.',
+    opts: [
+      { v: 0, icon: 's', title: 'کمتر از ۱۰۰ میلیون تومان', sub: '' },
+      { v: 1, icon: 'm', title: '۱۰۰ تا ۲۰۰ میلیون تومان', sub: '' },
+      { v: 2, icon: 'l', title: 'بیش از ۲۰۰ میلیون تومان', sub: '' },
+    ],
+  },
+  prio: {
+    title: 'کدام برایتان مهم‌تر است؟',
+    step: 'اولویت شما',
+    lbl: 'اولویت',
+    hint: 'طرحی را بالاتر نشان می‌دهیم که این مورد را بهتر دارد.',
+    opts: [
+      { v: 'fast', icon: 'clock', title: 'زودتر برسد', sub: 'طرح‌هایی با بررسی کمتر از ۷ روز' },
+      { v: 'cheap', icon: 'coins', title: 'قسط ماهانه کمتر', sub: 'فشار کمتر روی خرج ماهانه' },
+      { v: 'online', icon: 'online', title: 'بدون مراجعه حضوری', sub: 'کارها آنلاین انجام شود' },
+    ],
+  },
+} as const;
 
 export const FINDER_LABEL = {
   type: { cash: 'پول نقد', goods: 'خرید کالا قسطی', any: 'نقد یا کالا' } as Record<FinderType, string>,
@@ -290,6 +362,21 @@ export function planFactValue(plans: LoanPlan[], id: number, field: string, term
       return null;
   }
 }
-/** Replaces {planCount} / {goodsCount} / {cashCount} in frontmatter strings. */
+/** Replaces {planCount} {goodsCount} {cashCount} {bankCount} {fastCount} {minTerm} {maxTerm} {amountRange} {termRange} in frontmatter strings. */
 export const fillFacts = (s: string, f: PlanFacts) =>
-  s.replace(/\{(planCount|goodsCount|cashCount|bankCount)\}/g, (_, k: keyof PlanFacts) => fa(f[k] as number));
+  s.replace(/\{(planCount|goodsCount|cashCount|bankCount|fastCount|minTerm|maxTerm|amountRange|termRange)\}/g, (_, k: keyof PlanFacts) =>
+    typeof f[k] === 'number' ? fa(f[k] as number) : String(f[k]),
+  );
+/**
+ * Landing hero lead (frontmatter `lead`): escapes HTML, `**x**` → <strong>, fact tokens → live-refreshable
+ * `data-plan-count` spans, placeholder markers → `.ph` spans (kept verbatim so the strict marker check still sees them).
+ */
+export const leadHtml = (s: string, f: PlanFacts) =>
+  s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\{(planCount|goodsCount|cashCount|bankCount|fastCount|minTerm|maxTerm|amountRange|termRange)\}/g, (t, k: string) => `<span data-plan-count="${k}">${fillFacts(t, f)}</span>`)
+    .replace(/\[((?:تأیید|تایید) محمد|جای‌خالی)([^\]]*)\]/g, '<span class="ph">[$1$2]</span>');
+export type AmountBand = (typeof REQ_BAND_KEYS)[number];

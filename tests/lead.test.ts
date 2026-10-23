@@ -6,7 +6,7 @@ const base: LeadInput = {
   name: ' مریم احمدی ',
   phone: '۰۹۱۲ ۳۴۵ ۶۷۸۹',
   need: 'cash',
-  amountBand: '100-300',
+  amountBand: '100-200',
   contactTime: 'any',
   consent: true,
   website: '',

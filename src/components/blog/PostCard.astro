@@ -1,50 +1,31 @@
 ---
+/** Post card (mockup post_card): the whole card is one link; brand-template thumb until a real cover exists. */
 import { Image } from 'astro:assets';
 import type { Post } from '../../lib/blog';
-import { postPath, categoryLabel, categoryPath, readingMinutes } from '../../lib/blog';
+import { postPath, categoryLabel, readingMinutes, thumbTitle } from '../../lib/blog';
 import { formatDateFa, toFaDigits } from '../../lib/format';
 interface Props {
   post: Post;
-  headingLevel?: 'h2' | 'h3';
 }
-const { post, headingLevel: H = 'h2' } = Astro.props;
+const { post } = Astro.props;
 const d = post.data;
+const cat = categoryLabel(d.category);
 ---
 
-<article class="group flex flex-col overflow-hidden rounded-card border border-line bg-white shadow-card">
-  {d.cover ? (
-    <Image
-      src={d.cover}
-      alt={d.coverAlt ?? ''}
-      widths={[400, 800]}
-      sizes="(min-width: 1024px) 360px, 100vw"
-      class="aspect-[16/9] w-full object-cover"
-      loading="lazy"
-    />
-  ) : (
-    <div
-      class="flex aspect-[16/9] items-center justify-center bg-gradient-to-bl from-brand-50 to-gold-50 text-4xl font-extrabold text-brand-200"
-      aria-hidden="true"
-    >
-      نفیس
-    </div>
-  )}
-  <div class="flex flex-1 flex-col p-5">
-    <div class="mb-2 flex flex-wrap items-center gap-2 text-sm">
-      <a href={categoryPath(d.category)} class="relative z-10 font-bold text-gold-700 hover:underline">
-        {categoryLabel(d.category)}
-      </a>
-      {d.sample && <span class="rounded-full bg-danger-50 px-2 py-0.5 text-xs font-bold text-danger">نمونه</span>}
-    </div>
-    <H class="text-lg leading-snug font-extrabold text-ink">
-      <a href={postPath(post)} class="hover:text-brand-600">
-        {d.title}
-      </a>
-    </H>
-    <p class="mt-2 line-clamp-3 text-[15px] text-ink-muted">{d.description}</p>
-    <p class="mt-auto pt-4 text-sm text-ink-faint">
-      <time datetime={d.date.toISOString()}>{formatDateFa(d.date)}</time> · {toFaDigits(readingMinutes(post.body))}{' '}
-      دقیقه مطالعه
-    </p>
+<a class="post" href={postPath(post)}>
+  {
+    d.cover ? (
+      <Image src={d.cover} alt={d.coverAlt ?? ''} widths={[400, 800]} sizes="(min-width: 1024px) 360px, 100vw" class="thumb-img" loading="lazy" />
+    ) : (
+      <div class="thumb" aria-hidden="true">
+        <small>{cat}</small>
+        <span>{thumbTitle(d.title)}</span>
+      </div>
+    )
+  }
+  <div class="body">
+    <span class="cat">{cat}{d.sample && ' · نمونه'}</span>
+    <b>{d.title}</b>
+    <span class="meta"><time datetime={d.date.toISOString()}>{formatDateFa(d.date)}</time> · {toFaDigits(readingMinutes(post.body))} دقیقه مطالعه</span>
   </div>
-</article>
+</a>

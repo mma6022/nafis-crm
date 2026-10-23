@@ -5,6 +5,8 @@ declare namespace App {
     faq?: { q: string; a: string }[];
     /** headings of the post being rendered (MDX <TOC />) */
     headings?: { depth: number; slug: string; text: string }[];
+    /** lead line for blog inline CTAs */
+    ctaLead?: string;
     /** ids already used by <PlanFinder> on this page */
     finderIds?: Set<string>;
   }

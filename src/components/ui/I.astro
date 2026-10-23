@@ -1,0 +1,12 @@
+---
+/** Sprite icon for Astro markup; same contract as ui/I.tsx. */
+import type { SpriteIcon } from './I';
+interface Props {
+  name: SpriteIcon;
+  size?: number;
+  class?: string;
+}
+const { name, size, class: cls } = Astro.props;
+---
+
+<svg class:list={['i', cls]} aria-hidden="true" focusable="false" style={size ? `width:${size}px;height:${size}px` : undefined}><use href={`#i-${name}`}></use></svg>

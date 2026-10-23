@@ -70,8 +70,19 @@ export class LeadError extends Error {
 export const leadEndpoint = (): string | undefined =>
   (import.meta.env?.PUBLIC_LEAD_ENDPOINT as string | undefined)?.trim() || undefined;
 
+export interface LeadResult {
+  /** Present only when the CRM returned one (201 for a new lead); the UI hides the line otherwise. */
+  trackingCode?: string;
+}
+/** Only a short reference shape is ever shown; anything else from the response is ignored. */
+const TRACKING_RE = /^[A-Z0-9][A-Z0-9-]{3,23}$/;
+export function readTrackingCode(body: unknown): string | undefined {
+  const v = (body as { trackingCode?: unknown } | null)?.trackingCode;
+  return typeof v === 'string' && TRACKING_RE.test(v.trim()) ? v.trim() : undefined;
+}
+
 /** Resolves only on 2xx. Missing endpoint, network failure and non-2xx all reject with LeadError. */
-export async function submitLead(i: LeadInput, endpoint = leadEndpoint(), fetchImpl: typeof fetch = fetch): Promise<void> {
+export async function submitLead(i: LeadInput, endpoint = leadEndpoint(), fetchImpl: typeof fetch = fetch): Promise<LeadResult> {
   if (!endpoint) throw new LeadError('no_endpoint');
   const body = JSON.stringify(buildLeadPayload(i));
   let res: Response;
@@ -94,6 +105,12 @@ export async function submitLead(i: LeadInput, endpoint = leadEndpoint(), fetchI
       /* non-JSON error body */
     }
     throw new LeadError(code, res.status);
+  }
+  try {
+    const code = readTrackingCode(await res.json());
+    return code ? { trackingCode: code } : {};
+  } catch {
+    return {}; // 204 / empty or non-JSON success body
   }
 }
 

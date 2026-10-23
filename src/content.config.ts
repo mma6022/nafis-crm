@@ -33,6 +33,7 @@ const blog = defineCollection({
       relatedPlans: z.array(z.number()).default([]),
       faq, // rendered as a visible FAQ section + FAQPage JSON-LD
       draft: z.boolean().default(false),
+      pillar: z.boolean().default(false), // home «مجله نفیس» lists the pillar post first
       sample: z.boolean().default(false), // placeholder posts — shown with a "نمونه" badge, noindex
     }),
 });
@@ -49,6 +50,8 @@ const pages = defineCollection({
     h1: z.string(),
     h1Variants: z.array(z.string()).optional(),
     primaryKeyword: z.string(),
+    /** Hero lead under the H1 (landings). Supports **bold**, fact tokens and markers. */
+    lead: z.string().optional(),
     secondaryKeywords: z.array(z.string()).default([]),
     planFilter: z.string().optional(),
     relatedPlans: z.array(z.number()).nullable().default([]),

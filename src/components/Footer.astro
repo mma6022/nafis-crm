@@ -1,85 +1,43 @@
 ---
-/** UX-SPEC §3 footer: 4 columns (accordions on mobile), bottom row «© {Jalali year} نفیس وام» + legal. */
-import { GUIDE_NAV, KEYWORD_PAGES, MESSENGERS, SITE, jalaliYear } from '../lib/site';
+/** Navy site footer (mockup src/footer.html). Columns are <details>: collapsed on mobile, opened on ≥1024px by scripts/chrome.ts. */
+import I from './ui/I.astro';
 import Logo from './Logo.astro';
-const year = jalaliYear();
-const link = 'inline-flex min-h-11 items-center text-small text-ink-soft hover:text-brand-600';
-const head = 'text-ink flex min-h-11 items-center justify-between text-small font-extrabold';
+import { GUIDE_NAV, KEYWORD_PAGES, MESSENGERS, SITE, jalaliYear } from '../lib/site';
+import { fa, planFacts } from '../lib/plans';
+import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
+const facts = planFacts(LOAN_PLANS_SNAPSHOT);
 ---
 
-<footer class="mt-section lg:mt-section-lg border-t border-line bg-white">
-  <div class="container-nf grid gap-x-10 gap-y-2 py-10 md:grid-cols-[1.4fr_repeat(3,1fr)] md:gap-y-8 lg:py-14">
-    <div class="pb-4 md:pb-0">
-      <a href="/" class="inline-flex" aria-label={`${SITE.name}، صفحه اصلی`}><Logo height={34} eager={false} /></a>
-      <p class="text-ink-muted mt-4 max-w-xs text-small">برای هر مشتری یک طرح مناسب و شفاف؛ قسط و مبلغ قابل دریافت را از قبل می‌دانید.</p>
-      <p class="text-ink-faint mt-2 text-caption">[جای‌خالی: نام حقوقی شرکت، شماره ثبت]</p>
+<footer class="site-foot">
+  <div class="container-nf">
+    <div class="fgrid">
+      <div class="brand">
+        <a class="flogo" href="/" aria-label={SITE.name}><Logo height={28} /></a>
+        <p>برای هر مشتری یک طرح مناسب و شفاف؛ <span data-plan-count="planCount">{fa(facts.planCount)}</span> طرح فعال وام نقدی و خرید اقساطی.</p>
+        <span class="ph">[جای‌خالی: نام حقوقی شرکت، شماره ثبت]</span>
+      </div>
+      <details data-foot>
+        <summary>خدمات <I name="down" size={20} /></summary>
+        <ul>{KEYWORD_PAGES.map((k) => <li><a href={`/${k.slug}`}>{k.label}</a></li>)}</ul>
+      </details>
+      <details data-foot>
+        <summary>راهنما <I name="down" size={20} /></summary>
+        <ul>{GUIDE_NAV.map((n) => <li><a href={n.href}>{n.label}</a></li>)}</ul>
+      </details>
+      <details data-foot>
+        <summary>تماس <I name="down" size={20} /></summary>
+        <ul>
+          <li><a href={SITE.tel}><I name="phone" size={18} /><span class="ltr">{SITE.phone}</span></a></li>
+          <li><span><a href={MESSENGERS.whatsapp.href} data-todo="whatsapp">واتساپ</a>، تلگرام، بله، اینستاگرام</span></li>
+          <li><span class="ph">[جای‌خالی: لینک پیام‌رسان‌ها]</span></li>
+          <li><span class="ph">[جای‌خالی: آدرس و ساعت کاری]</span></li>
+          <li><span class="ph">[جای‌خالی: نماد اعتماد (اینماد)]</span></li>
+        </ul>
+      </details>
     </div>
-
-    <details class="nf-fcol border-line-soft border-t md:border-0" open>
-      <summary class={head}>خدمات</summary>
-      <ul>{KEYWORD_PAGES.map((p) => <li><a class={link} href={`/${p.slug}`}>{p.label}</a></li>)}</ul>
-    </details>
-
-    <details class="nf-fcol border-line-soft border-t md:border-0" open>
-      <summary class={head}>راهنما</summary>
-      <ul>{GUIDE_NAV.map((i) => <li><a class={link} href={i.href}>{i.label}</a></li>)}</ul>
-    </details>
-
-    <details class="nf-fcol border-line-soft border-t md:border-0" open>
-      <summary class={head}>تماس</summary>
-      <ul>
-        <li><a class={`${link} text-ink font-extrabold`} href={SITE.tel}><span class="ltr">{SITE.phoneFa}</span></a></li>
-        <li><a class={link} href={`mailto:${SITE.email}`}><span class="ltr">{SITE.email}</span></a></li>
-        <li class="flex flex-wrap gap-x-4">
-          {Object.values(MESSENGERS).map((m) => (
-            <a class={link} href={m.href} data-todo="messenger-link">{m.label}</a>
-          ))}
-        </li>
-        <li class="text-ink-faint text-caption">{SITE.email && '[تأیید محمد]'} {' '}[جای‌خالی همه لینک‌ها]</li>
-        <li class="text-ink-muted mt-2 text-caption">آدرس و ساعت کاری: [جای‌خالی]</li>
-        <li class="text-ink-muted text-caption">نماد اعتماد (اینماد): [جای‌خالی]</li>
-      </ul>
-    </details>
-  </div>
-  <div class="border-line-soft text-ink-muted border-t py-5 text-caption">
-    <div class="container-nf flex flex-wrap items-center justify-between gap-x-6 gap-y-1">
-      <span>© {year} {SITE.name}</span>
-      <span class="flex gap-4">
-        <a class="inline-flex min-h-11 items-center hover:text-brand-600" href="/privacy">حریم خصوصی</a>
-        <a class="inline-flex min-h-11 items-center hover:text-brand-600" href="/terms">قوانین</a>
-      </span>
+    <div class="legal">
+      <span>© {jalaliYear()} {SITE.name}</span>
+      <nav aria-label="حقوقی"><a href="/privacy">حریم خصوصی</a><a href="/terms">قوانین</a></nav>
     </div>
   </div>
 </footer>
-<script>
-  // Footer columns: accordions on mobile, always open on desktop.
-  const mq = matchMedia('(min-width: 768px)');
-  const sync = () => document.querySelectorAll<HTMLDetailsElement>('.nf-fcol').forEach((d) => (d.open = mq.matches));
-  sync();
-  mq.addEventListener('change', sync);
-</script>
-<style>
-  .nf-fcol > summary {
-    list-style: none;
-    cursor: pointer;
-  }
-  .nf-fcol > summary::-webkit-details-marker {
-    display: none;
-  }
-  .nf-fcol > summary::after {
-    content: '+';
-    font-weight: 400;
-    color: var(--color-ink-muted);
-  }
-  .nf-fcol[open] > summary::after {
-    content: '−';
-  }
-  @media (min-width: 768px) {
-    .nf-fcol > summary {
-      pointer-events: none;
-    }
-    .nf-fcol > summary::after {
-      content: none;
-    }
-  }
-</style>

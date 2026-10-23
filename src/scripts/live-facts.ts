@@ -7,11 +7,13 @@ export async function refreshLiveFacts() {
   if (!facts.length) return;
   const plans = await fetchLoanPlans([]);
   if (!plans.length) return;
-  const counts = planFacts(plans) as unknown as Record<string, number>;
+  const counts = planFacts(plans) as unknown as Record<string, number | string>;
   facts.forEach((el) => {
     const count = el.dataset.planCount;
     if (count) {
-      if (typeof counts[count] === 'number') el.textContent = fa(counts[count]);
+      const v = counts[count];
+      if (typeof v === 'number') el.textContent = fa(v);
+      else if (typeof v === 'string' && v) el.textContent = v;
       return;
     }
     const [id, field, term] = (el.dataset.planFact ?? '').split(':');

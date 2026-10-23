@@ -2,43 +2,28 @@
 /** /request (mockup request.html): minimal chrome, no sticky bar, noindex, excluded from sitemap + robots. */
 import BaseLayout from '../layouts/BaseLayout.astro';
 import RequestWizard from '../components/islands/RequestWizard';
-import Icon from '../components/ui/Icon.astro';
-import { buttonClass } from '../components/ui/styles';
+import I from '../components/ui/I.astro';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 import { MESSENGERS, SITE } from '../lib/site';
-const after = [
-  'کارشناس نفیس وام با شما تماس می‌گیرد و شرایط را توضیح می‌دهد',
-  'مدارک را آنلاین یا حضوری تحویل می‌دهید',
-  'تسهیلات واریز می‌شود یا کالا تحویل داده می‌شود',
-];
 ---
 
-<BaseLayout title="درخواست وام" description="درخواست وام و مشاوره رایگان نفیس وام در کمتر از یک دقیقه؛ بدون تعهد." noindex minimal hideStickyBar>
-  <div class="container-nf grid gap-6 pt-4 pb-10 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:pt-10">
-    <div class="rounded-card border-line bg-white p-4 lg:border lg:p-8 lg:shadow-card">
-      <RequestWizard client:load snapshot={LOAN_PLANS_SNAPSHOT} />
-    </div>
-    <aside class="grid gap-4" aria-label="بعد از ثبت درخواست">
-      <div class="rounded-card border border-line bg-white p-5">
-        <h2 class="text-h3">بعد از ثبت چه می‌شود؟</h2>
-        <ol class="mt-3 grid gap-3">
-          {
-            after.map((t, i) => (
-              <li class="text-ink-soft flex items-start gap-3 text-small">
-                <span class="bg-brand-50 text-brand-700 grid size-7 shrink-0 place-items-center rounded-full text-caption font-extrabold">
-                  {['۱', '۲', '۳'][i]}
-                </span>
-                <span>{t}</span>
-              </li>
-            ))
-          }
+<BaseLayout title="درخواست وام" description="درخواست وام و مشاوره رایگان نفیس وام در کمتر از یک دقیقه؛ بدون تعهد." noindex minimal hideStickyBar src="request">
+  <div class="container-nf rq-layout">
+    <RequestWizard client:load snapshot={LOAN_PLANS_SNAPSHOT} />
+    <aside class="rq-aside" aria-label="بعد از ثبت درخواست">
+      <div class="nf-card aside-card">
+        <h2>بعد از ثبت چه می‌شود؟</h2>
+        <ol class="steps" style="margin-top:8px">
+          <li><span>کارشناس نفیس وام با شما تماس می‌گیرد و شرایط را توضیح می‌دهد</span></li>
+          <li><span>مدارک را آنلاین یا حضوری تحویل می‌دهید</span></li>
+          <li><span>تسهیلات واریز می‌شود یا کالا تحویل داده می‌شود</span></li>
         </ol>
       </div>
-      <div class="rounded-card border border-line bg-white p-5">
-        <p class="text-ink-soft text-small">ترجیح می‌دهید همین حالا صحبت کنید؟</p>
-        <div class="mt-3 grid grid-cols-2 gap-2">
-          <a href={SITE.tel} class={buttonClass('secondary', 'md')}><Icon name="phone" size={18} /> تماس</a>
-          <a href={MESSENGERS.whatsapp.href} data-todo="whatsapp" class={buttonClass('secondary', 'md')}><Icon name="wa" size={20} /> واتساپ</a>
+      <div class="nf-card aside-card">
+        <p>ترجیح می‌دهید همین حالا صحبت کنید؟</p>
+        <div class="row">
+          <a class="nf-btn nf-btn--secondary" href={SITE.tel}><I name="phone" size={18} /> تماس</a>
+          <a class="nf-btn nf-btn--secondary" href={MESSENGERS.whatsapp.href} data-todo="whatsapp"><I name="wa" size={20} class="wa" /> واتساپ</a>
         </div>
       </div>
     </aside>

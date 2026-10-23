@@ -48,7 +48,7 @@ for (const file of walk(DIST).filter((f) => f.endsWith('.html'))) {
   }
   // Blog posts: visible FAQ section ⇔ FAQPage with the same number of questions.
   if (/^blog\/[^/]+\/index\.html$/.test(page) && !/^blog\/(category|tag|\d+)\//.test(page)) {
-    const sec = html.match(/aria-labelledby="faq-title"[\s\S]*?<\/section>/)?.[0];
+    const sec = html.match(/aria-labelledby="bfaq"[\s\S]*?<\/section>/)?.[0];
     const visible = sec ? (sec.match(/<details/g) ?? []).length : 0;
     const ld = faqs[0]?.mainEntity?.length ?? 0;
     if (visible !== ld) errors.push(`${page}: visible FAQ items (${visible}) ≠ FAQPage questions (${ld})`);

@@ -1,181 +1,109 @@
 ---
 /**
- * UX-SPEC §3 header.
- * Mobile: 64px sticky, logo | soft «درخواست وام» (44px) | 48×48 menu. The menu is full-screen with an accordion and needs zero JS (<details>).
- * Desktop: logo | خدمات▾ | nav … | ورود مشتریان (text) | phone | «درخواست وام» (primary).
+ * Site header + mobile menu (mockup src/header.html). Behaviour lives in scripts/chrome.ts:
+ * services dropdown, menu ⇄ x toggle, `.is-stuck` (desktop CTA turns primary once the hero is gone).
+ * `minimal` = /request: `.hdr--min` (logo + phone only).
  */
-import { GUIDE_NAV, KEYWORD_PAGES, MAIN_NAV, MESSENGERS, SITE } from '../lib/site';
-import { buttonClass } from './ui/styles';
-import Icon from './ui/Icon.astro';
+import I from './ui/I.astro';
 import Logo from './Logo.astro';
+import { KEYWORD_PAGES, MESSENGERS, SITE } from '../lib/site';
+import { fa, planFacts } from '../lib/plans';
+import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 interface Props {
-  hideCta?: boolean;
+  /** lead `src` prefix, e.g. "home" → /request?src=home-header */
+  src?: string;
+  minimal?: boolean;
 }
-const { hideCta = false } = Astro.props;
-const current = Astro.url.pathname.replace(/\/$/, '') || '/';
-const isActive = (href: string) => current === href || (href !== '/' && current.startsWith(href + '/'));
-const serviceActive = KEYWORD_PAGES.some((p) => current === `/${p.slug}`) || current === '/services';
-const mobileItems = [
+const { src = 'page', minimal = false } = Astro.props;
+const facts = planFacts(LOAN_PLANS_SNAPSHOT);
+const path = Astro.url.pathname.replace(/\/$/, '') || '/';
+const cur = (href: string) => (path === href || (href !== '/' && path.startsWith(href + '/')) ? 'page' : undefined);
+const blurb = (b: string) => b.replace('{goodsCount}', fa(facts.goodsCount));
+const DD_BLURB: Record<string, string> = { 'vam-ba-chek': 'با ضمانت چک صیادی' };
+const NAV = [
   { href: '/plans', label: 'طرح‌ها' },
-  ...GUIDE_NAV.filter((i) => !i.href.startsWith('http') && i.href !== '/faq'),
+  { href: '/calculator', label: 'محاسبه قسط' },
+  { href: '/blog', label: 'مجله' },
   { href: '/about', label: 'درباره ما' },
   { href: '/contact', label: 'تماس' },
 ];
-const navLink =
-  'inline-flex min-h-11 items-center rounded-[10px] px-3 text-small font-semibold transition-colors hover:bg-surface-2 hover:text-ink';
 ---
 
-<header class="h-header sticky top-0 z-40 border-b border-line bg-white/95 backdrop-blur-md">
-  <div class="container-nf flex h-full items-center gap-2 !ps-3 !pe-2 lg:!px-8">
-    <a href="/" class="me-auto flex items-center px-1 py-1.5 lg:me-0" aria-label={`${SITE.name}، صفحه اصلی`}>
-      <Logo height={30} class="lg:!h-9" />
-    </a>
-
-    <nav aria-label="منوی اصلی" class="ms-6 hidden flex-1 lg:block">
-      <ul class="text-ink-soft flex items-center gap-0.5">
-        <li class="group relative">
-          <a
-            href="/services"
-            class:list={[navLink, 'gap-1', serviceActive && 'text-brand-700']}
-            aria-current={current === '/services' ? 'page' : undefined}
-          >
-            خدمات <Icon name="down" size={16} />
-          </a>
-          <div class="invisible absolute start-0 top-full z-50 pt-2 opacity-0 transition-opacity duration-150 group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
-            <ul class="shadow-pop w-64 rounded-card border border-line bg-white p-2">
-              {KEYWORD_PAGES.map((p) => (
+<a class="sr skip" href="#main">رفتن به محتوای اصلی</a>
+<header class:list={['hdr', minimal && 'hdr--min']}>
+  <div class="wrap">
+    <a class="logo" href="/" aria-label={`${SITE.name}، صفحه اصلی`}><Logo height={30} /></a>
+    {
+      !minimal && (
+        <nav class="dnav" aria-label="منوی اصلی">
+          <div class="dd">
+            <button type="button" aria-expanded="false" aria-controls="dd-svc" id="dd-btn">
+              خدمات <I name="down" size={18} />
+            </button>
+            <div class="dd-menu" id="dd-svc" hidden>
+              {KEYWORD_PAGES.map((k) => (
+                <a href={`/${k.slug}`} aria-current={cur(`/${k.slug}`)}>
+                  <b>{k.label}</b>
+                  <small>{blurb(DD_BLURB[k.slug] ?? k.blurb)}</small>
+                </a>
+              ))}
+              <a class="all" href="/services">همه خدمات</a>
+            </div>
+          </div>
+          {NAV.map((n) => (
+            <a href={n.href} aria-current={cur(n.href)}>
+              {n.label}
+            </a>
+          ))}
+        </nav>
+      )
+    }
+    {!minimal && <a class="portal d-only" href={SITE.portal}>ورود مشتریان</a>}
+    <a class:list={['tel', !minimal && 'd-only']} href={SITE.tel} aria-label={`تماس با ${SITE.phoneFa}`}><I name="phone" size={18} /><span>{SITE.phoneFa}</span></a>
+    {!minimal && <a class="cta" href={`/request?src=${src}-header`}>درخواست وام</a>}
+    {
+      !minimal && (
+        <button type="button" class="icon-btn m-only" aria-label="منو" aria-expanded="false" aria-controls="mmenu" id="menu-btn">
+          <I name="menu" />
+        </button>
+      )
+    }
+  </div>
+</header>
+{
+  !minimal && (
+    <div class="mmenu" id="mmenu" hidden>
+      <ul>
+        <li>
+          <details open>
+            <summary>
+              طرح‌ها و خدمات <I name="down" size={20} />
+            </summary>
+            <ul>
+              {KEYWORD_PAGES.map((k) => (
                 <li>
-                  <a
-                    href={`/${p.slug}`}
-                    class="text-ink hover:bg-surface flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-small font-semibold"
-                  >
-                    <span class="bg-brand-50 text-brand-600 grid size-8 place-items-center rounded-lg">
-                      <Icon name={p.icon} size={18} />
-                    </span>
-                    {p.label}
-                  </a>
+                  <a href={`/${k.slug}`}>{k.label}</a>
                 </li>
               ))}
             </ul>
-          </div>
+          </details>
         </li>
-        {MAIN_NAV.filter((i) => i.href !== '/how-it-works').map((i) => (
-          <li>
-            <a
-              href={i.href}
-              aria-current={isActive(i.href) ? 'page' : undefined}
-              class:list={[navLink, isActive(i.href) && 'bg-brand-50 text-brand-700']}
-            >
-              {i.label}
-            </a>
-          </li>
-        ))}
+        <li><a href="/calculator">محاسبه قسط</a></li>
+        <li><a href="/how-it-works">مراحل دریافت</a></li>
+        <li><a href="/blog">مجله نفیس</a></li>
+        <li><a href="/about">درباره ما</a></li>
+        <li><a href="/contact">تماس</a></li>
       </ul>
-    </nav>
-
-    <a href={SITE.portal} class="text-brand-600 hidden min-h-11 items-center px-2 text-small font-extrabold underline decoration-brand-200 underline-offset-[6px] lg:inline-flex">
-      ورود مشتریان
-    </a>
-    <a href={SITE.tel} class="text-ink hidden min-h-11 items-center gap-1.5 rounded-[10px] px-2 text-small font-extrabold hover:bg-surface-2 xl:inline-flex">
-      <Icon name="phone" size={18} class="text-brand-600" />
-      <span class="ltr">{SITE.phoneFa}</span>
-    </a>
-    {
-      !hideCta && (
-        <>
-          <a href="/request?src=header" class={buttonClass('soft', 'sm', 'lg:hidden')}>
-            درخواست وام
-          </a>
-          <a href="/request?src=header" class={buttonClass('primary', 'sm', 'max-lg:hidden')}>
-            درخواست وام
-          </a>
-        </>
-      )
-    }
-
-    <details class="nf-menu lg:hidden" data-menu>
-      <summary
-        class="text-ink hover:bg-surface-2 grid size-12 cursor-pointer list-none place-items-center rounded-xl [&::-webkit-details-marker]:hidden"
-        aria-label="منو"
-      >
-        <Icon name="menu" class="nf-menu-open" />
-        <svg class="nf-menu-close hidden size-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"
-          ><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"></path></svg
-        >
-      </summary>
-      <nav aria-label="منوی موبایل" class="top-header fixed inset-x-0 bottom-0 z-50 overflow-y-auto border-t border-line bg-white px-5 pt-3 pb-8">
-        <ul class="divide-line-soft divide-y">
-          <li>
-            <details class="group/acc" open={serviceActive}>
-              <summary class="text-ink flex min-h-[52px] cursor-pointer list-none items-center justify-between text-[17px] font-extrabold [&::-webkit-details-marker]:hidden">
-                طرح‌ها و خدمات
-                <Icon name="down" class="text-ink-muted transition-transform group-open/acc:rotate-180" />
-              </summary>
-              <ul class="pb-2">
-                {KEYWORD_PAGES.map((p) => (
-                  <li>
-                    <a href={`/${p.slug}`} class="text-ink-soft flex min-h-[52px] items-center gap-3 rounded-[10px] ps-2 text-body font-semibold hover:bg-surface">
-                      <span class="bg-brand-50 text-brand-600 grid size-9 place-items-center rounded-lg">
-                        <Icon name={p.icon} size={18} />
-                      </span>
-                      {p.label}
-                    </a>
-                  </li>
-                ))}
-                <li>
-                  <a href="/services" class="text-brand-600 flex min-h-[52px] items-center ps-2 text-small font-extrabold">
-                    همه خدمات
-                  </a>
-                </li>
-              </ul>
-            </details>
-          </li>
-          {mobileItems.map((i) => (
-            <li>
-              <a
-                href={i.href}
-                aria-current={isActive(i.href) ? 'page' : undefined}
-                class:list={['flex min-h-[52px] items-center text-[17px] font-extrabold', isActive(i.href) ? 'text-brand-600' : 'text-ink']}
-              >
-                {i.label}
-              </a>
-            </li>
-          ))}
-        </ul>
-        <div class="mt-6 grid gap-3">
-          <a href={SITE.portal} class={buttonClass('secondary', 'md', 'w-full')}>
-            <Icon name="user" size={20} /> ورود مشتریان
-          </a>
-          <a href={SITE.tel} class={buttonClass('ghost', 'md', 'w-full border border-line')}>
-            <Icon name="phone" size={20} /> تماس: <span class="ltr">{SITE.phoneFa}</span>
-          </a>
-          <ul class="mt-1 flex justify-center gap-2" aria-label="پیام‌رسان‌ها">
-            {(['whatsapp', 'telegram', 'bale'] as const).map((k) => (
-              <li>
-                <a
-                  href={MESSENGERS[k].href}
-                  data-todo={MESSENGERS[k].todo ? 'messenger-link' : undefined}
-                  class="bg-surface text-ink inline-flex min-h-11 items-center rounded-full px-4 text-caption font-semibold"
-                >
-                  {MESSENGERS[k].label}
-                </a>
-              </li>
-            ))}
-          </ul>
+      <div class="mfoot">
+        <a class="nf-btn nf-btn--secondary nf-btn--block" href={SITE.portal}><I name="login" /> ورود مشتریان</a>
+        <a class="nf-btn nf-btn--secondary nf-btn--block" href={SITE.tel}><I name="phone" /> تماس: <span>{SITE.phoneFa}</span></a>
+        <div class="msgs" aria-label="پیام‌رسان‌ها">
+          <a href={MESSENGERS.whatsapp.href} data-todo="whatsapp" aria-label="واتساپ"><I name="wa" class="wa" /></a>
+          <a href={MESSENGERS.telegram.href} data-todo="telegram" aria-label="تلگرام">TG</a>
+          <a href={MESSENGERS.bale.href} data-todo="bale" aria-label="بله">بله</a>
         </div>
-      </nav>
-    </details>
-  </div>
-</header>
-
-<style>
-  .nf-menu[open] .nf-menu-open {
-    display: none;
-  }
-  .nf-menu[open] .nf-menu-close {
-    display: block;
-  }
-  :global(html:has(.nf-menu[open])) {
-    overflow: hidden;
-  }
-</style>
+        <p style="text-align:center;margin:4px 0 0"><span class="ph">[جای‌خالی: لینک واتساپ، تلگرام و بله]</span></p>
+      </div>
+    </div>
+  )
+}

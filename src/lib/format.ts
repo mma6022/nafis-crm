@@ -39,6 +39,12 @@ export const normalizeIranMobile = (v: string): string | null => {
   return m ? `0${m[1]}` : null;
 };
 
+/** Wizard mobile field (designer site.js `toEn`): Persian/Arabic digits → ASCII, every non-digit dropped. */
+export const mobileDigits = (v: string): string => toEnDigits(v).replace(/\D/g, '');
+/** Accepted mobile: exactly 11 digits starting with 09 (after `mobileDigits`). */
+export const MOBILE_RE = /^09\d{9}$/;
+export const isValidMobile = (v: string): boolean => MOBILE_RE.test(mobileDigits(v));
+
 /** Jalali date for display, e.g. "۲ آبان ۱۴۰۵". */
 export const formatDateFa = (d: Date): string =>
   new Intl.DateTimeFormat('fa-IR-u-ca-persian', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);

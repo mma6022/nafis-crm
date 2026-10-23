@@ -1,7 +1,7 @@
 /** Placeholder markers ([تأیید محمد…] / [جای‌خالی…]) that must stay visible until approved. */
 export const MARKER_RE = /\[\s*(?:تأیید|تایید)\s*محمد[^\]]*\]|\[\s*جای[‌\s]?خالی[^\]]*\]/g;
 
-/** Split text into plain/marker parts so markers can be styled (.nf-ph). */
+/** Split text into plain/marker parts so markers can be styled (.ph). */
 export function splitMarkers(s: string): { text: string; marker: boolean }[] {
   const out: { text: string; marker: boolean }[] = [];
   let last = 0;

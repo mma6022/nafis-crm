@@ -1,0 +1,23 @@
+/* Site-only additions on top of the designer's site.css (keep this file small; prefer re-syncing site.css). */
+
+/* Skip link: .sr in the mockup has no focus state. */
+.sr.skip:focus{position:fixed;top:12px;inset-inline-start:12px;z-index:60;width:auto;height:auto;clip:auto;overflow:visible;padding:10px 16px;border-radius:12px;background:#fff;box-shadow:var(--nf-ring);color:var(--nf-brand-700);font-weight:800}
+
+/* /request one-line footer (mockup request.html inline style). */
+.rq-foot{padding:8px var(--nf-gutter) 24px;font-size:14px;color:var(--nf-ink-muted);text-align:center}
+.rq-foot a{color:inherit}
+
+/* Logo is an <img> of the traced SVG (mockup: raster at the same height; heights come from site.css). */
+.site-foot .flogo img{display:block}
+
+
+/* Plan-card / finder note for a relaxed page preset (guarantee) — not in the mockup. */
+.plan-note{margin:-4px 0 8px;font-size:14px;font-weight:600;color:var(--nf-gold-700)}
+
+/* Real post cover (none yet; mockup only has the brand template). */
+.post .thumb-img{display:block;width:100%;aspect-ratio:1200/630;object-fit:cover}
+.cover-img{display:block;width:100%;height:auto;aspect-ratio:1200/630;object-fit:cover;border-radius:var(--nf-radius-card);margin:0 0 24px}
+/* /plans full list: same card, plain responsive grid (no featured column). */
+.cards.plan-list{display:grid;gap:12px}
+@media (min-width:768px){.cards.plan-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (min-width:1024px){.cards.plan-list{grid-template-columns:repeat(3,minmax(0,1fr))}}

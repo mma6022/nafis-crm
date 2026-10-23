@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import raw from '../src/data/loan-plans.snapshot.json' with { type: 'json' };
 import { parseLoanPlans } from '../src/lib/loan-plans.ts';
 import {
-  combos, recommend, planFacts, bankNames, availableAmountBands, bandOf, millionsFa,
+  combos, recommend, planFacts, bankNames, reqBands, bandOf, millionsFa,
   FINDER_TYPES, FINDER_BANDS, FINDER_PRIOS, type Combo,
 } from '../src/lib/plans.ts';
 
@@ -67,12 +67,10 @@ test('facts are computed from data', () => {
   assert.ok(bankNames(plans).has('ملی') && !bankNames(plans).has('بانک ملی'));
 });
 
-const BANDS_ALL = ['upto100', '100-300', '300-500']; // no plan pays out > 500M
-const BANDS_CASH = ['100-300', '300-500'];
 test('wizard bands (by payout) only list bands that contain a plan', () => {
   const all = combos(plans);
-  assert.deepEqual(availableAmountBands(all).map((b) => b.value), BANDS_ALL);
-  assert.deepEqual(availableAmountBands(all, 'score').map((b) => b.value), BANDS_CASH);
+  assert.deepEqual(reqBands(all).map((b) => b.key), ['0-100', '100-200', '200-300', '300-500']); // no plan pays out > 500M
+  assert.ok(reqBands(all.filter((c) => c.type === 'score')).every((b) => b.n > 0));
 });
 
 test('money format', () => {

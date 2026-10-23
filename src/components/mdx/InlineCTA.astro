@@ -1,30 +1,41 @@
 ---
-/** In-content CTA box. Default primary → /request with this page as `src`; secondary defaults to WhatsApp. */
-import { buttonClass } from '../ui/styles';
-import Icon from '../ui/Icon.astro';
+/**
+ * In-content CTA (mockup `.inline-cta`): lead line + primary button + «تماس با کارشناس». In blog posts it sits at the
+ * end of the 2nd H2 section (enforced by tests/content-rules.test.ts).
+ */
+import I from '../ui/I.astro';
 import { MESSENGERS, SITE } from '../../lib/site';
 interface Props {
   primary: string;
   href?: string;
+  /** text link instead of «تماس با کارشناس»: own href, or «واتساپ» */
   secondary?: string;
   secondaryHref?: string;
+  /** lead line; defaults per page type */
+  lead?: string;
 }
 const { primary, secondary, secondaryHref } = Astro.props;
-const src = (Astro.url.pathname.replace(/^\/+|\/+$/g, '').split('/').pop() || 'home').replace(/[^a-z0-9_-]/g, '') || 'home';
-const href = Astro.props.href ?? `/request?src=${src}`;
-const sec =
-  secondary &&
-  (secondaryHref
-    ? { href: secondaryHref, todo: undefined }
-    : secondary === 'واتساپ'
-      ? { href: MESSENGERS.whatsapp.href, todo: 'whatsapp' }
-      : { href: SITE.tel, todo: undefined });
+const page = (Astro.url.pathname.replace(/^\/+|\/+$/g, '').split('/').pop() || 'home').replace(/[^a-z0-9_-]/g, '') || 'home';
+const blog = Astro.url.pathname.startsWith('/blog/');
+const href = Astro.props.href ?? `/request?src=${blog ? 'blog-' : ''}${page}-inline`;
+const lead =
+  Astro.props.lead ??
+  (blog
+    ? Astro.locals.ctaLead ?? 'طرح‌های فعلی را با مبلغ و قسط واقعی ببینید.'
+    : page === 'vam-fori'
+      ? 'سریع‌ترین طرح متناسب با شما را کارشناس ما پیشنهاد می‌دهد.'
+      : 'طرح متناسب با شما را کارشناس ما پیشنهاد می‌دهد.');
+const sec = secondaryHref
+  ? { href: secondaryHref, text: secondary!, icon: null, todo: undefined }
+  : secondary === 'واتساپ'
+    ? { href: MESSENGERS.whatsapp.href, text: 'واتساپ', icon: 'wa' as const, todo: 'whatsapp' }
+    : { href: SITE.tel, text: 'تماس با کارشناس', icon: 'phone' as const, todo: undefined };
 ---
 
-<aside class="not-prose bg-brand-50 my-8 grid gap-3 rounded-card p-5 sm:flex sm:items-center sm:justify-between">
-  <p class="text-ink font-extrabold">یک کارشناس رایگان راهنمایی‌تان می‌کند.</p>
-  <div class="grid gap-2 sm:flex">
-    <a href={href} class={buttonClass('primary', 'md', 'w-full sm:w-auto')}>{primary} <Icon name="arrow" size={18} /></a>
-    {sec && <a href={sec.href} data-todo={sec.todo} class={buttonClass('secondary', 'md', 'w-full sm:w-auto')}>{secondary}</a>}
+<div class="inline-cta not-prose">
+  <p>{lead}</p>
+  <div class="row">
+    <a class="nf-btn nf-btn--primary" href={href}>{primary} <I name="arrow" /></a>
+    <a class="nf-btn nf-btn--text" href={sec.href} data-todo={sec.todo}>{sec.icon && <I name={sec.icon} size={18} />} {sec.text}</a>
   </div>
-</aside>
+</div>

@@ -1,26 +1,30 @@
 ---
-/** Zero-JS accordion using <details>. */
+/**
+ * Zero-JS accordion (mockup faq_html): `.faq` > details > summary(q + chevron) + answer. All closed unless
+ * `openFirst`. FAQPage structured data is emitted once per page as JSON-LD (lib/seo.ts), not as microdata,
+ * to avoid a duplicate FAQPage entity.
+ */
+import { splitMarkers } from '../lib/markers';
+import I from './ui/I.astro';
 interface Props {
   items: { q: string; a: string }[];
+  openFirst?: number;
 }
-import { splitMarkers } from '../lib/markers';
-const { items } = Astro.props;
-const rich = (t: string) => splitMarkers(t).map((x) => (x.marker ? `<span class="nf-ph">${esc(x.text)}</span>` : esc(x.text))).join('');
-function esc(t: string) {
-  return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+const { items, openFirst = 0 } = Astro.props;
+const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const rich = (t: string) => splitMarkers(t).map((x) => (x.marker ? `<span class="ph">${esc(x.text)}</span>` : esc(x.text))).join('');
 ---
 
-<div class="mx-auto max-w-3xl space-y-3">
-  {items.map((i) => (
-    <details class="group rounded-card border border-line bg-white open:shadow-card">
-      <summary class="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 px-5 py-3 font-bold text-ink [&::-webkit-details-marker]:hidden">
-        <span set:html={rich(i.q)} />
-        <span class="shrink-0 text-xl text-brand-500 transition-transform group-open:rotate-45" aria-hidden="true">
-          +
-        </span>
-      </summary>
-      <p class="px-5 pb-5 text-ink-soft" set:html={rich(i.a)} />
-    </details>
-  ))}
+<div class="faq">
+  {
+    items.map((i, k) => (
+      <details open={k < openFirst}>
+        <summary>
+          <span set:html={rich(i.q)} />
+          <I name="down" size={20} />
+        </summary>
+        <div set:html={rich(i.a)} />
+      </details>
+    ))
+  }
 </div>

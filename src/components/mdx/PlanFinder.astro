@@ -1,21 +1,22 @@
 ---
+/** MDX `<PlanFinder preset={{…}} />` → designer `.finder-mount` (mockup md_to_html). */
 import Island from '../islands/PlanFinder';
 import { LOAN_PLANS_SNAPSHOT } from '../../lib/loan-plans.snapshot';
 import { toFinderPreset, type ContentPreset } from '../../lib/plans';
 interface Props {
   preset?: ContentPreset;
   id?: string;
-  title?: string;
 }
-const { preset, id, title } = Astro.props;
+const { preset, id } = Astro.props;
 // Only one element per page may own #plan-finder; extra finders get a unique id.
 const used = (Astro.locals.finderIds ??= new Set<string>());
 let fid = id ?? 'plan-finder';
 if (used.has(fid)) fid = `${fid}-${used.size + 1}`;
 used.add(fid);
-const src = (Astro.url.pathname.replace(/^\/+|\/+$/g, '').split('/').pop() || 'home').replace(/[^a-z0-9_-]/g, '').slice(0, 40) || 'home';
+const page = (Astro.url.pathname.replace(/^\/+|\/+$/g, '').split('/').pop() || 'home').replace(/[^a-z0-9_-]/g, '').slice(0, 40) || 'home';
+const src = Astro.url.pathname.startsWith('/blog/') ? `blog-${page}-finder` : `${page}-finder`;
 ---
 
-<div class="not-prose my-8">
-  <Island client:visible snapshot={LOAN_PLANS_SNAPSHOT} preset={toFinderPreset(preset)} src={src} id={fid} title={title} />
+<div class="finder-mount not-prose" id={fid}>
+  <Island client:visible snapshot={LOAN_PLANS_SNAPSHOT} preset={toFinderPreset(preset)} src={src} />
 </div>

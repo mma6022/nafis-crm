@@ -1,25 +1,23 @@
 ---
+/**
+ * Blog post (designer mockup blog-vam-fori-chist.html): crumbs, post head + meta (Persian dates, words/200 reading
+ * time), brand-template cover, article (17px; mobile collapsed TOC from <TOC />; inline CTA moved after the 2nd H2
+ * by lib/remark-blog-cta.mjs), tags, FAQ from frontmatter (not rendered without one), related plans, desktop sticky
+ * aside (TOC + finder card), related posts.
+ */
 import type { GetStaticPaths } from 'astro';
 import { render } from 'astro:content';
 import { Image } from 'astro:assets';
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import Breadcrumbs from '../../components/Breadcrumbs.astro';
 import PostCard from '../../components/blog/PostCard.astro';
-import ButtonLink from '../../components/ui/ButtonLink.astro';
-import {
-  getPosts,
-  postPath,
-  categoryPath,
-  categoryLabel,
-  tagPath,
-  readingMinutes,
-  relatedPosts,
-  type Post,
-} from '../../lib/blog';
+import FaqList from '../../components/FaqList.astro';
+import MiniPlans from '../../components/islands/MiniPlans';
+import { getPosts, postPath, categoryPath, categoryLabel, tagPath, readingMinutes, relatedPosts, type Post } from '../../lib/blog';
 import { articleLd, breadcrumbLd, faqLd } from '../../lib/seo';
-import FAQ from '../../components/mdx/FAQ.astro';
 import { formatDateFa, toFaDigits } from '../../lib/format';
 import { mdxComponents } from '../../components/mdx';
+import { LOAN_PLANS_SNAPSHOT } from '../../lib/loan-plans.snapshot';
 
 export const getStaticPaths = (async () => {
   const posts = await getPosts();
@@ -31,17 +29,20 @@ const d = post.data;
 const { Content, headings } = await render(post);
 const faqItems = d.faq;
 Astro.locals.faq = faqItems;
-// The FAQ section is rendered by the page (not the MDX), so add it to the TOC.
-Astro.locals.headings = faqItems.length ? [...headings, { depth: 2, slug: 'faq-title', text: 'سؤالات متداول' }] : headings;
+Astro.locals.headings = headings;
+Astro.locals.ctaLead = d.category === 'vam-fori' ? 'طرح‌های سریع فعلی را با مبلغ و قسط واقعی ببینید.' : 'طرح‌های فعلی را با مبلغ و قسط واقعی ببینید.';
+const toc = headings.filter((h) => h.depth === 2);
 const path = postPath(post);
+const src = `blog-${post.id}`.slice(0, 40);
 const minutes = readingMinutes(post.body);
 const crumbs = [
   { name: 'خانه', path: '/' },
-  { name: 'مجله', path: '/blog' },
+  { name: 'مجله نفیس', path: '/blog' },
   { name: categoryLabel(d.category), path: categoryPath(d.category) },
-  { name: d.title, path },
 ];
+const ldCrumbs = [...crumbs, { name: d.title, path }];
 const ogImage = d.cover?.src;
+const updated = d.updated ?? d.date;
 ---
 
 <BaseLayout
@@ -51,7 +52,8 @@ const ogImage = d.cover?.src;
   image={ogImage}
   noindex={d.sample || d.draft}
   publishedTime={d.date}
-  modifiedTime={d.updated ?? d.date}
+  modifiedTime={updated}
+  src={src}
   jsonLd={[
     articleLd({
       title: d.title,
@@ -64,91 +66,102 @@ const ogImage = d.cover?.src;
       category: categoryLabel(d.category),
       tags: d.tags,
     }),
-    breadcrumbLd(crumbs),
+    breadcrumbLd(ldCrumbs),
     ...(faqItems.length ? [faqLd(faqItems, path)] : []),
   ]}
 >
-  <article class="container-nf max-w-3xl py-8 sm:py-12">
+  <div class="container-nf">
     <Breadcrumbs items={crumbs} />
-    {d.sample && (
-      <p class="mb-5 rounded-control border border-danger/20 bg-danger-50 px-4 py-3 text-sm font-semibold text-danger">
-        این یک نوشته نمونه برای اسکلت سایت است و محتوای نهایی نیست (noindex).
-      </p>
-    )}
-    <header>
-      <a href={categoryPath(d.category)} class="text-sm font-bold text-gold-700 hover:underline">
-        {categoryLabel(d.category)}
-      </a>
-      <h1 class="text-display lg:text-display-lg mt-2">{d.title}</h1>
-      <p class="mt-4 text-lg text-ink-muted">{d.description}</p>
-      <p class="mt-4 flex flex-wrap gap-x-3 text-sm text-ink-faint">
-        <span>{d.author}</span>·<time datetime={d.date.toISOString()}>{formatDateFa(d.date)}</time>
-        {d.updated && (
-          <>
-            ·{' '}
-            <span>
-              به‌روزرسانی: <time datetime={d.updated.toISOString()}>{formatDateFa(d.updated)}</time>
-            </span>
-          </>
-        )}
-        · <span>{toFaDigits(minutes)} دقیقه مطالعه</span>
-      </p>
-    </header>
-    {d.cover && (
-      <Image
-        src={d.cover}
-        alt={d.coverAlt ?? ''}
-        widths={[640, 1024, 1280]}
-        sizes="(min-width: 768px) 768px, 100vw"
-        class="mt-8 w-full rounded-card"
-        loading="eager"
-      />
-    )}
-
-    <div class="prose-nf mt-8">
-      <Content components={mdxComponents} />
+    <div class="lp-grid">
+      <article>
+        <header class="post-head">
+          <h1>{d.title}</h1>
+          <div class="post-meta">
+            <span>نویسنده: {d.author} <span class="ph">[جای‌خالی: نویسنده/بازبین مشخص (E-E-A-T)]</span></span><span class="sep"></span>
+            <span>انتشار: <time datetime={d.date.toISOString()}>{formatDateFa(d.date)}</time></span><span class="sep"></span>
+            <span>به‌روزرسانی: <time datetime={updated.toISOString()}>{formatDateFa(updated)}</time></span><span class="sep"></span>
+            <span>{toFaDigits(minutes)} دقیقه مطالعه</span>
+          </div>
+        </header>
+        {d.sample && <p class="alert" style="margin:0 0 16px">این یک نوشته نمونه است و محتوای نهایی نیست (noindex).</p>}
+        {
+          d.cover ? (
+            <Image src={d.cover} alt={d.coverAlt ?? ''} widths={[640, 1024, 1280]} sizes="(min-width: 1024px) 800px, 100vw" class="cover-img" loading="eager" />
+          ) : (
+            <>
+              <figure class="cover" style="margin:0 0 8px" aria-hidden="true">
+                <span class="brandmark"><img src="/brand/nafis-logo-navy.svg" alt="" height="22" width="107" /></span>
+                <span class="ttl">{d.title.split(' (')[0]}</span>
+              </figure>
+              <p class="cover-cap"><span class="ph">[جای‌خالی: تصویر شاخص ۱۲۰۰×۶۳۰ (فعلاً قالب برند خودکار)]</span></p>
+            </>
+          )
+        }
+        <div class="prose-nf article">
+          <Content components={mdxComponents} />
+        </div>
+        {
+          d.tags.length > 0 && (
+            <div class="tags" aria-label="برچسب‌ها">
+              {d.tags.map((t) => (
+                <a href={tagPath(t)}>#{t}</a>
+              ))}
+            </div>
+          )
+        }
+        {
+          faqItems.length > 0 && (
+            <section class="sec pfaq" style="padding-top:40px" aria-labelledby="bfaq">
+              <h2 class="h2" id="bfaq" style="margin-bottom:12px">سؤالات متداول</h2>
+              <FaqList items={faqItems} openFirst={1} />
+            </section>
+          )
+        }
+        {
+          d.relatedPlans.length > 0 && (
+            <section class="sec" style="padding-top:40px" aria-labelledby="bplans">
+              <h2 class="h2" id="bplans" style="margin-bottom:16px">طرح‌های مرتبط</h2>
+              <MiniPlans client:visible snapshot={LOAN_PLANS_SNAPSHOT} ids={d.relatedPlans} src={src} />
+            </section>
+          )
+        }
+      </article>
+      <aside class="aside" aria-label="فهرست و درخواست">
+        {
+          toc.length > 1 && (
+            <nav class="nf-card aside-card toc" aria-label="فهرست مطالب">
+              <h2>فهرست مطالب</h2>
+              <ol>
+                {toc.map((h) => (
+                  <li>
+                    <a href={`#${h.slug}`}>{h.text}</a>
+                  </li>
+                ))}
+              </ol>
+            </nav>
+          )
+        }
+        <div class="nf-card aside-card">
+          <h2>طرح مناسب‌تان را پیدا کنید</h2>
+          <p>به ۳ سؤال جواب دهید و طرح پیشنهادی را با مبلغ و قسط ببینید.</p>
+          <a class="nf-btn nf-btn--secondary nf-btn--block" href="/#plan-finder">شروع طرح‌یاب</a>
+        </div>
+      </aside>
     </div>
-
-    <FAQ items={faqItems} />
-
-    {d.tags.length > 0 && (
-      <ul class="mt-10 flex flex-wrap gap-2" aria-label="برچسب‌ها">
-        {d.tags.map((t) => (
-          <li>
-            <a
-              href={tagPath(t)}
-              class="inline-flex min-h-10 items-center rounded-full bg-surface-2 px-4 text-sm font-semibold text-ink-soft hover:bg-brand-50 hover:text-brand-600"
-            >
-              #{t}
-            </a>
-          </li>
-        ))}
-      </ul>
-    )}
-
-    <aside class="mt-10 rounded-card bg-brand-900 p-6 text-white sm:p-8">
-      <p class="text-xl font-extrabold">برای انتخاب وام مناسب کمک می‌خواهید؟</p>
-      <p class="mt-2 text-brand-100">در چند قدم ساده درخواست بدهید؛ مشاوره اول بدون تعهد است.</p>
-      <ButtonLink href={`/request?src=blog-${post.id}`.slice(0, 48)} variant="gold" class="mt-5">
-        درخواست مشاوره رایگان
-      </ButtonLink>
-    </aside>
-  </article>
-
-  {related.length > 0 && (
-    <section class="defer-render border-t border-line bg-white py-12" aria-labelledby="related-title">
-      <div class="container-nf">
-        <h2 id="related-title" class="mb-6 text-2xl font-extrabold">
-          مطالب مرتبط
-        </h2>
-        <ul class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {related.map((p) => (
-            <li>
-              <PostCard post={p} headingLevel="h3" />
-            </li>
-          ))}
-        </ul>
-      </div>
-    </section>
-  )}
+    {
+      related.length > 0 && (
+        <section class="sec" aria-labelledby="brel">
+          <div class="sec-head">
+            <h2 id="brel">مقاله‌های مرتبط</h2>
+            <a class="nf-btn nf-btn--text" href="/blog">همه مقاله‌ها</a>
+          </div>
+          <div class="posts">
+            {related.map((p) => (
+              <PostCard post={p} />
+            ))}
+          </div>
+        </section>
+      )
+    }
+  </div>
 </BaseLayout>

@@ -1,140 +1,161 @@
 ---
 /**
- * Home (UX-SPEC §8, designer mockup home.html). Copy + FAQ from src/content/pages/home.mdx; every number from plan data.
+ * Home (designer mockup home.html, UX-SPEC §8). Copy + FAQ from src/content/pages/home.mdx; every number from plan
+ * data (snapshot at build, live JSON in the browser). No testimonials section until real, consented reviews exist.
  */
 import { getCollection } from 'astro:content';
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Hero from '../components/home/Hero.astro';
+import HeroSample from '../components/islands/HeroSample';
 import PlanFinder from '../components/islands/PlanFinder';
-import { PlanCard } from '../components/islands/PlanFinder';
-import LoanCalculator from '../components/islands/LoanCalculator';
-import SectionHead from '../components/ui/SectionHead.astro';
-import Icon from '../components/ui/Icon.astro';
+import HomeCalc from '../components/islands/HomeCalc';
+import I from '../components/ui/I.astro';
 import FaqList from '../components/FaqList.astro';
 import PostCard from '../components/blog/PostCard.astro';
-import Steps from '../components/mdx/Steps.astro';
-import FinalCTA from '../components/FinalCTA.astro';
-import { KEYWORD_PAGES } from '../lib/site';
+import { KEYWORD_PAGES, MESSENGERS, SITE } from '../lib/site';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
-import { combos, fa, fillFacts, planFacts } from '../lib/plans';
+import { fa, fillFacts, planFacts } from '../lib/plans';
 import { financialServiceLd, faqLd } from '../lib/seo';
-import { getPosts } from '../lib/blog';
+import { getPosts, homePosts } from '../lib/blog';
+import type { SpriteIcon } from '../components/ui/I';
 
+const HOME_FAQ_MAX = 4; // PM: max 4 questions on home (home.mdx order) + link to /faq
 const page = (await getCollection('pages', (p) => p.data.slug === '/'))[0]!;
 const facts = planFacts(LOAN_PLANS_SNAPSHOT);
 const fill = (s: string) => fillFacts(s, facts);
-const faq = page.data.faq.map((f) => ({ q: fill(f.q), a: fill(f.a) }));
-const sample = combos(LOAN_PLANS_SNAPSHOT).find((c) => c.id === 10) ?? combos(LOAN_PLANS_SNAPSHOT)[0];
-const posts = (await getPosts()).slice(0, 3);
-const why = [
-  { t: 'یک طرح برای هر شرایط', d: `با ${fa(facts.planCount)} طرح فعال، احتمال اینکه طرحی متناسب با شما داشته باشیم زیاد است.`, i: 'both' },
-  { t: 'قسط روشن از روز اول', d: 'مبلغ اسمی، مبلغ قابل دریافت و قسط را قبل از هر تصمیمی می‌بینید.', i: 'coins' },
-  { t: 'کارشناس واقعی', d: 'یک نفر از تیم ما شرایط شما را می‌شنود و راهنمایی می‌کند.', i: 'user' },
-  { t: 'بدون غافلگیری', d: 'همه شرایط را قبل از امضا می‌دانید.', i: 'check' },
-] as const;
-const trust = [
-  { html: '[جای‌خالی: سال‌های فعالیت]', ph: true },
-  { html: '[جای‌خالی: تعداد مشتری]', ph: true },
-  { html: `<b class="text-ink">${fa(facts.planCount)}</b> طرح فعال` },
-  { html: `همکاری با <b class="text-ink">${fa(facts.bankCount)}</b> بانک و موسسه <span class="nf-ph">[تأیید محمد]</span>` },
-  { html: '[جای‌خالی: نماد اینماد]', ph: true },
-];
+const faq = page.data.faq.slice(0, HOME_FAQ_MAX).map((f) => ({ q: fill(f.q), a: fill(f.a) }));
+const posts = homePosts(await getPosts());
+const SVC_ICON: Record<string, SpriteIcon> = {
+  'vam-fori': 'bolt',
+  'vam-bedun-zamen': 'user-x',
+  'vam-bedun-chek': 'doc-x',
+  'vam-ba-chek': 'doc',
+  'vam-ba-safte': 'pen',
+  'kharid-aghsati': 'cart',
+};
 ---
 
-<BaseLayout rawTitle title={fill(page.data.title)} description={page.data.description} jsonLd={[financialServiceLd(), faqLd(faq)]}>
+<BaseLayout rawTitle title={fill(page.data.title)} description={page.data.description} src="home" jsonLd={[financialServiceLd(), faqLd(faq)]}>
   <Hero facts={facts} h1={page.data.h1}>
-    {sample && <PlanCard c={sample} featured={false} src="home-hero-sample" />}
+    <HeroSample client:media="(min-width: 1024px)" snapshot={LOAN_PLANS_SNAPSHOT} />
   </Hero>
 
-  <div class="container-nf pt-2 pb-section lg:pt-section">
-    <PlanFinder client:load snapshot={LOAN_PLANS_SNAPSHOT} src="home-finder" />
-  </div>
-
-  <section aria-label="نوار اعتماد" class="border-y border-line bg-white py-5">
-    <ul class="container-nf text-ink-soft grid grid-cols-2 gap-3 text-center text-small md:grid-cols-5">
-      {trust.map((t) => <li class:list={['rounded-xl px-2 py-2', t.ph ? 'nf-ph-box' : 'bg-surface']} set:html={t.html} />)}
-    </ul>
+  <section class="finder" id="plan-finder" aria-labelledby="finder-h">
+    <div class="wrap">
+      <div class="finder-head">
+        <h2 id="finder-h">طرح مناسب‌تان را در ۳ قدم پیدا کنید</h2>
+        <span class="nf-badge nf-badge--brand" style="white-space:nowrap;margin-top:2px"><span data-plan-count="planCount">{fa(facts.planCount)}</span> طرح فعال</span>
+      </div>
+      <div class="finder-mount" id="finder">
+        <PlanFinder client:load snapshot={LOAN_PLANS_SNAPSHOT} src="home-finder" />
+      </div>
+    </div>
   </section>
 
-  <section class="container-nf pt-section lg:pt-section-lg" aria-labelledby="svc-h">
-    <SectionHead id="svc-h" title="خدمات نفیس وام" />
-    <ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {
-        KEYWORD_PAGES.map((p) => (
-          <li>
-            <a href={`/${p.slug}`} class="shadow-xs hover:border-brand-300 flex min-h-option items-center gap-3 rounded-card border border-line bg-white p-4 transition-colors">
-              <span class="bg-brand-50 text-brand-600 grid size-11 shrink-0 place-items-center rounded-xl">
-                <Icon name={p.icon} />
-              </span>
-              <span class="grid flex-1">
-                <b class="text-ink">{p.label}</b>
-                <span class="text-ink-muted text-caption">
-                  {fill(p.blurb.replace('{goodsCount}', '{goodsCount}'))} {'marker' in p && <span class="nf-ph">{p.marker}</span>}
+  <section class="sec trustwhy" aria-labelledby="why-h" style="padding-top:40px">
+    <div class="container-nf">
+      <h2 id="why-h" class="vh">چرا نفیس وام؟</h2>
+      <div class="trust">
+        <div class="t"><span class="ph">[جای‌خالی: سال‌های فعالیت]</span></div>
+        <div class="t"><span class="ph">[جای‌خالی: تعداد مشتری]</span></div>
+        <div class="t"><b data-plan-count="planCount">{fa(facts.planCount)}</b> طرح فعال</div>
+        <div class="t">همکاری با <b data-plan-count="bankCount">{fa(facts.bankCount)}</b> بانک و موسسه</div>
+        <div class="t"><span class="ph">[جای‌خالی: نماد اینماد]</span></div>
+      </div>
+      <ul class="why2">
+        <li><span class="ic"><I name="layers" /></span><span>یک طرح برای هر شرایط<small>با <span data-plan-count="planCount">{fa(facts.planCount)}</span> طرح فعال، احتمال اینکه طرحی متناسب با شما داشته باشیم زیاد است.</small></span></li>
+        <li><span class="ic"><I name="eye" /></span><span>قسط روشن از روز اول<small>مبلغ اسمی، مبلغ قابل دریافت و قسط را قبل از هر تصمیمی می‌بینید.</small></span></li>
+        <li><span class="ic"><I name="chat" /></span><span>کارشناس واقعی، نه ربات<small>یک نفر از تیم ما شرایط شما را می‌شنود و راهنمایی می‌کند.</small></span></li>
+        <li><span class="ic"><I name="shield" /></span><span>بدون غافلگیری قبل از امضا<small>همه شرایط را قبل از امضای قرارداد می‌دانید.</small></span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="svc-h">
+    <div class="container-nf">
+      <div class="sec-head"><h2 id="svc-h">خدمات نفیس وام</h2></div>
+      <div class="svc">
+        {
+          KEYWORD_PAGES.map((k) => (
+            <a href={`/${k.slug}`}>
+              <span class="ic"><I name={SVC_ICON[k.slug] ?? 'doc'} /></span>
+              <div>
+                <b>{k.label}</b>
+                <span class="d">
+                  {k.slug === 'kharid-aghsati' ? (
+                    <><span data-plan-count="goodsCount">{fa(facts.goodsCount)}</span> طرح خرید کالا به‌صورت قسطی</>
+                  ) : (
+                    k.blurb
+                  )}
+                  {'marker' in k && <> <span class="ph">{k.marker}</span></>}
                 </span>
-              </span>
-              <Icon name="chev" class="text-ink-faint" />
+              </div>
             </a>
-          </li>
-        ))
-      }
-    </ul>
+          ))
+        }
+      </div>
+    </div>
   </section>
 
-  <section class="container-nf defer-render pt-section lg:pt-section-lg" aria-labelledby="steps-h">
-    <SectionHead id="steps-h" title="از درخواست تا دریافت، در ۴ قدم" more={{ href: '/how-it-works', label: 'جزئیات مراحل' }} />
-    <Steps
-      items={[
-        'به ۳ سؤال جواب دهید و طرح پیشنهادی را ببینید',
-        'کارشناس نفیس وام با شما تماس می‌گیرد و شرایط را توضیح می‌دهد',
-        'مدارک را آنلاین یا حضوری تحویل می‌دهید',
-        'تسهیلات واریز می‌شود یا کالا تحویل داده می‌شود',
-      ]}
-    />
+  <section class="sec" aria-labelledby="steps-h">
+    <div class="container-nf">
+      <div class="sec-head"><h2 id="steps-h">از درخواست تا دریافت، در ۳ قدم</h2></div>
+      <ol class="steps3">
+        <li><span class="ic"><I name="search" /></span>طرح مناسب را پیدا کنید</li>
+        <li><span class="ic"><I name="phone" /></span>کارشناس تماس می‌گیرد و مدارک را تحویل می‌دهید</li>
+        <li><span class="ic"><I name="check" /></span>واریز وام یا تحویل کالا</li>
+      </ol>
+      <div class="steps-cta"><a class="nf-btn nf-btn--text" href="/request?src=home-steps">شروع درخواست <I name="arrow" size={18} /></a></div>
+    </div>
   </section>
 
-  <section id="calculator" class="container-nf defer-render pt-section lg:pt-section-lg" aria-labelledby="calc-h">
-    <SectionHead id="calc-h" title="قسط ماهانه‌تان را از همین حالا بدانید" more={{ href: '/calculator', label: 'محاسبه‌گر کامل' }} />
-    <LoanCalculator client:visible snapshot={LOAN_PLANS_SNAPSHOT} />
-    <p class="text-ink-muted mt-3 text-caption">مبالغ برآوردی است و مبلغ قطعی پس از اعتبارسنجی اعلام می‌شود.</p>
-  </section>
-
-  <section class="container-nf defer-render pt-section lg:pt-section-lg" aria-labelledby="why-h">
-    <SectionHead id="why-h" title="چرا نفیس وام؟" />
-    <ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      {
-        why.map((w) => (
-          <li class="rounded-card border border-line bg-white p-5">
-            <span class="bg-gold-50 text-gold-700 grid size-11 place-items-center rounded-xl">
-              <Icon name={w.i} />
-            </span>
-            <h3 class="text-h3 mt-3">{w.t}</h3>
-            <p class="text-ink-muted mt-1 text-small">{w.d}</p>
-          </li>
-        ))
-      }
-    </ul>
-    {/* نظر مشتریان: [جای‌خالی] — only real reviews with consent; not rendered while empty (UX-SPEC §8). */}
+  <section class="sec" aria-labelledby="calc-h" id="calculator">
+    <div class="container-nf">
+      <HomeCalc client:visible snapshot={LOAN_PLANS_SNAPSHOT} />
+    </div>
   </section>
 
   {
     posts.length > 0 && (
-      <section class="container-nf defer-render pt-section lg:pt-section-lg" aria-labelledby="blog-h">
-        <SectionHead id="blog-h" title="مجله نفیس" more={{ href: '/blog', label: 'همه مقاله‌ها' }} />
-        <ul class="grid gap-4 md:grid-cols-3">
-          {posts.map((p) => (
-            <li>
-              <PostCard post={p} headingLevel="h3" />
-            </li>
-          ))}
-        </ul>
+      <section class="sec" aria-labelledby="blog-h">
+        <div class="container-nf">
+          <div class="sec-head">
+            <h2 id="blog-h">مجله نفیس</h2>
+            <a class="nf-btn nf-btn--text" href="/blog">همه مقاله‌ها</a>
+          </div>
+          <div class="posts">
+            {posts.map((p) => (
+              <PostCard post={p} />
+            ))}
+          </div>
+        </div>
       </section>
     )
   }
 
-  <section class="container-nf defer-render pt-section lg:pt-section-lg" aria-labelledby="faq-h">
-    <SectionHead id="faq-h" title="سؤالات متداول" more={{ href: '/faq', label: 'همه سؤال‌ها' }} />
-    <FaqList items={faq} />
+  <section class="sec" aria-labelledby="faq-h">
+    <div class="container-nf faq-wrap">
+      <div class="sec-head" style="display:block">
+        <h2 id="faq-h">سؤالات متداول</h2>
+        <p>جواب سؤالی را پیدا نکردید؟ <a href={SITE.tel}>تماس بگیرید</a>.</p>
+      </div>
+      <FaqList items={faq} />
+      <div class="faq-more"><a class="nf-btn nf-btn--text" href="/faq">همه سؤالات متداول <I name="arrow" size={18} /></a></div>
+    </div>
   </section>
 
-  <FinalCTA src="home-final" />
+  <section class="sec">
+    <div class="container-nf">
+      <div class="final">
+        <div>
+          <h2>هنوز مطمئن نیستید کدام طرح مناسب شماست؟</h2>
+          <p>یک کارشناس رایگان راهنمایی‌تان می‌کند.</p>
+        </div>
+        <div class="row">
+          <a class="nf-btn on-dark" href="/request?need=help&src=home-final">درخواست مشاوره رایگان</a>
+          <a class="nf-btn nf-btn--secondary" href={MESSENGERS.whatsapp.href} data-todo="whatsapp"><I name="wa" size={20} /> واتساپ</a>
+        </div>
+      </div>
+    </div>
+  </section>
 </BaseLayout>
