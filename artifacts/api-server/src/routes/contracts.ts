@@ -279,7 +279,7 @@ const loanPlanFields: Record<string, string> = {
   "loanPlan.loanType": "نوع تسهیلات",
   "loanPlan.grantDays": "مدت زمان پرداخت",
   "loanPlan.prepaymentPercents": "درصد پیش‌پرداخت",
-  "loanPlan.depositPercents": "درصد واریز به مشتری",
+  "loanPlan.depositPercents": "درصد سپرده",
   "loanPlan.platformCompanyName": "نام شرکت پلتفرم",
   "loanPlan.goodsStoreName": "نام فروشگاه خریدار کالا",
   "loanPlan.commissionPercent": "درصد حق‌العمل",
