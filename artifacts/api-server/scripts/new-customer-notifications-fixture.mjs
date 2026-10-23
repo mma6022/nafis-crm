@@ -57,6 +57,7 @@ const unitSource = `
   assert.match(c[0].body.text, /سایت/, "Telegram says the lead came from the website");
   assert.match(c[0].body.text, /مشتری سایت/);
   assert.doesNotMatch(c[0].body.text, /زمان ترجیحی/, "no preferred-time line when absent");
+  assert.doesNotMatch(c[0].body.text, /مشتری قبلی/, "new customer: no existing-customer marker");
   assert.deepEqual(deliveries(1), [{ channel: "telegram", status: "sent" }], "no ippanel delivery row for the website lead");
 
   // Callback with a preferred time: still no SMS, Telegram carries the time.
@@ -84,6 +85,25 @@ const unitSource = `
     calls.push({ kind: u.includes("api.telegram.org") ? "telegram" : u.includes("127.0.0.1:18787") ? "sms" : "other:" + u, body: JSON.parse(init.body) });
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
   };
+
+  // Existing customer, request form: one Telegram marked «مشتری قبلی» + file number, details + time, no SMS.
+  await notifyNewCustomer(1, { ...websiteOptions, existingCustomer: true, preferredTime: "عصر", requestDetails: "درخواست از سایت nafisvam.com\\nنیاز: وام نقدی" });
+  c = take();
+  assert.deepEqual(c.map((x) => x.kind), ["telegram"], "existing customer: Telegram only");
+  assert.ok(c[0].body.text.startsWith("👤 مشتری قبلی — شماره پرونده: 1\\n🌐 منبع: سایت\\n"), c[0].body.text);
+  assert.match(c[0].body.text, /⏰ زمان ترجیحی تماس: عصر/);
+  assert.match(c[0].body.text, /📝 این درخواست:\\nدرخواست از سایت nafisvam\\.com/);
+  assert.match(c[0].body.text, /درخواست جدید از مشتری قبلی/);
+  assert.doesNotMatch(c[0].body.text, /مشتری جدید ثبت شد/);
+  assert.match(c[0].body.text, /پیامک خودکار برای مشتری ارسال نشد/);
+  assert.deepEqual(deliveries(1), [{ channel: "telegram", status: "sent" }, { channel: "telegram", status: "sent" }]);
+  // Callback from an existing customer: marker with the file number; without it, no marker.
+  assert.equal(await notifyWebsiteCallback({ name: "مشتری قدیم", phone: "09000000011", contactTimeFa: "عصر", description: "☎️ درخواست تماس (فرم مشاوره سایت)", existingCustomerId: 1762 }), "sent");
+  c = take();
+  assert.deepEqual(c.map((x) => x.kind), ["telegram"]);
+  assert.ok(c[0].body.text.startsWith("👤 مشتری قبلی — شماره پرونده: 1762\\n🌐 منبع: سایت (درخواست تماس)"), c[0].body.text);
+  assert.equal(await notifyWebsiteCallback({ name: "x", phone: "09000000015", contactTimeFa: "عصر", description: "", existingCustomerId: null }), "sent");
+  assert.doesNotMatch(take()[0].body.text, /مشتری قبلی/);
 
   // Any other path (panel, Instagram, ... call notifyNewCustomer(id) with no options): SMS + Telegram exactly as before.
   await notifyNewCustomer(2);

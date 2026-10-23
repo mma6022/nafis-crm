@@ -253,6 +253,19 @@ const TIME_FA: Record<PublicLead["contactTime"], string> = {
   any: "فرقی نمی‌کند",
 };
 
+/** Persian label of the request form's contact time (for the staff alert). */
+export function leadContactTimeFa(lead: PublicLead): string {
+  return TIME_FA[lead.contactTime];
+}
+
+/** Same summary as a new customer's description, for an existing customer's alert (their stored one is older). */
+export function leadRequestDetails(lead: PublicLead): string {
+  const planName = lead.planId
+    ? queryRow<{ name: string }>("SELECT name FROM loan_plans WHERE id=?", [lead.planId])?.name ?? null
+    : null;
+  return leadDescription(lead, planName);
+}
+
 /** Staff-facing Persian summary stored as the new customer's description. */
 export function leadDescription(lead: PublicLead, planName?: string | null): string {
   const lines = [

@@ -107,7 +107,19 @@ export type NewCustomerNotificationOptions = {
   kind?: "request" | "callback";
   /** Free-text preferred call time from the site; shown to staff whenever present. */
   preferredTime?: string;
+  /**
+   * The website form was sent from a phone that already belongs to a CRM customer. Staff get the same alert,
+   * marked «مشتری قبلی» with the file number (customer id), and the template's «مشتری جدید» line is reworded.
+   */
+  existingCustomer?: boolean;
+  /** What was asked in this submission (an existing customer's stored description is older). */
+  requestDetails?: string;
 };
+
+/** Staff marker for a website form sent by someone who is already a customer. */
+export function existingCustomerMarker(customerId: number): string {
+  return `👤 مشتری قبلی — شماره پرونده: ${customerId}`;
+}
 
 function cleanLine(value: unknown, max: number): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -116,12 +128,19 @@ function cleanLine(value: unknown, max: number): string | undefined {
 }
 
 function telegramText(customer: NotificationCustomer, settings: NotificationSettings, options: NewCustomerNotificationOptions): string {
-  const body = fillTemplate(settings.telegramMessageTemplate, customer);
+  let body = fillTemplate(settings.telegramMessageTemplate, customer);
   if (options.source !== "website") return body;
-  const header = [options.kind === "callback" ? "🌐 منبع: سایت (درخواست تماس)" : "🌐 منبع: سایت"];
+  const existing = options.existingCustomer === true && customer.id > 0;
+  if (existing) body = body.replace("مشتری جدید ثبت شد", "درخواست جدید از مشتری قبلی");
+  const header = [
+    ...(existing ? [existingCustomerMarker(customer.id)] : []),
+    options.kind === "callback" ? "🌐 منبع: سایت (درخواست تماس)" : "🌐 منبع: سایت",
+  ];
   const preferredTime = cleanLine(options.preferredTime, 120);
   if (preferredTime) header.push(`⏰ زمان ترجیحی تماس: ${preferredTime}`);
   if (options.customerSms === false) header.push("ℹ️ پیامک خودکار برای مشتری ارسال نشد؛ لطفاً تماس بگیرید.");
+  const details = typeof options.requestDetails === "string" ? options.requestDetails.trim().slice(0, 1500) : "";
+  if (details) header.push("", "📝 این درخواست:", details);
   return `${header.join("\n")}\n\n${body}`;
 }
 
@@ -156,6 +175,8 @@ export type WebsiteCallbackAlert = {
   /** Already in Persian, e.g. «همین الان (ساعت کاری)» / «صبح (۹ تا ۱۳)». */
   contactTimeFa: string;
   description: string;
+  /** Linked CRM customer (file number) when the phone already belongs to a customer. */
+  existingCustomerId?: number | null;
 };
 export type CallbackAlertOutcome = "sent" | "disabled" | "not_configured" | "failed";
 
@@ -164,8 +185,9 @@ export async function notifyWebsiteCallback(alert: WebsiteCallbackAlert): Promis
   if (!settings.telegramEnabled) return "disabled";
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return "not_configured";
+  const existingId = alert.existingCustomerId && alert.existingCustomerId > 0 ? alert.existingCustomerId : 0;
   const pseudo: NotificationCustomer = {
-    id: 0, name: alert.name, phone: alert.phone, description: alert.description, salespersonName: null, salespersonMobile: null,
+    id: existingId, name: alert.name, phone: alert.phone, description: alert.description, salespersonName: null, salespersonMobile: null,
   };
   try {
     const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -173,7 +195,7 @@ export async function notifyWebsiteCallback(alert: WebsiteCallbackAlert): Promis
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         chat_id: settings.telegramGroupChatId,
-        text: telegramText(pseudo, settings, { customerSms: false, source: "website", kind: "callback", preferredTime: alert.contactTimeFa }),
+        text: telegramText(pseudo, settings, { customerSms: false, source: "website", kind: "callback", preferredTime: alert.contactTimeFa, existingCustomer: existingId > 0 }),
       }),
     });
     return response.ok ? "sent" : "failed";

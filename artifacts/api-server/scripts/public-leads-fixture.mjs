@@ -320,7 +320,7 @@ try {
   assert.equal(db().prepare("SELECT COUNT(*) n FROM public_leads").get().n, 1);
   assert.equal(db().prepare("SELECT COUNT(*) n FROM customers WHERE phone='09121112233'").get().n, 1);
 
-  // Existing customer (and a merged duplicate) is linked, never recreated, no new-customer notification.
+  // Existing customer (and a merged duplicate) is linked, never recreated.
   const linkedA = await post(lead({ phone: "09350000001", name: "Ali", amountBand: "100-200" }));
   assert.equal(linkedA.status, 201);
   const codeA = (await linkedA.json()).trackingCode;
@@ -337,7 +337,30 @@ try {
     assert.ok(d.prepare("SELECT 1 FROM customer_tags WHERE customer_id=50 AND tag='website_lead'").get());
     d.close();
   }
-  assert.equal(readFileSync(notifyLog, "utf8").trim().split("\n").filter(Boolean).length, 1);
+  // Existing customers now get exactly one staff alert each (marked «مشتری قبلی»), still never the customer SMS.
+  await new Promise((r) => setTimeout(r, 100));
+  {
+    const calls = readFileSync(notifyLog, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    assert.equal(calls.length, 3, "one alert per existing-customer lead");
+    assert.deepEqual(calls.slice(1).map((c) => c.id), [50, 60], "alert targets the canonical (survivor) file");
+    for (const call of calls.slice(1)) {
+      assert.equal(call.options.customerSms, false, "existing customer: no SMS");
+      assert.equal(call.options.source, "website");
+      assert.equal(call.options.kind, "request");
+      assert.equal(call.options.existingCustomer, true);
+      assert.equal(call.options.preferredTime, "عصر");
+      assert.match(call.options.requestDetails, /درخواست از سایت nafisvam\.com/);
+      assert.match(call.options.requestDetails, /طرح خورشید \(#10\)/);
+    }
+    assert.match(calls[1].options.requestDetails, /حدود مبلغ/);
+  }
+  // Same existing customer again inside 10 minutes: 200, nothing stored, no second alert.
+  const linkedDup = await post(lead({ phone: "09350000001", name: "Ali" }));
+  assert.equal(linkedDup.status, 200);
+  assert.deepEqual(await linkedDup.json(), { ok: true });
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(readFileSync(notifyLog, "utf8").trim().split("\n").filter(Boolean).length, 3, "dedupe: no second alert");
+  assert.equal(db().prepare("SELECT COUNT(*) n FROM public_leads WHERE customer_id=50").get().n, 1);
 
   // Spam and validation: real errors, nothing stored, nothing echoed.
   const before = db().prepare("SELECT COUNT(*) n FROM public_leads").get().n;

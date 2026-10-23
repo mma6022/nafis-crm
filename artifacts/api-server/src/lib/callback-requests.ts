@@ -447,11 +447,10 @@ export async function alertNewCallback(
     ...(r.plan_id ? [`طرح: ${planName ?? `#${r.plan_id}`}`] : []),
     ...(r.src ? [`صفحه: ${r.src}`] : []),
     ...(r.tracking_code ? [`کد پیگیری: ${r.tracking_code}`] : []),
-    ...(r.customer_id ? ["این شماره قبلاً در CRM مشتری است."] : []),
   ];
   let outcome: CallbackAlertOutcome;
   try {
-    outcome = await notify({ name: r.name, phone: r.phone, contactTimeFa: CONTACT_TIME_FA[r.contact_time], description: lines.join("\n") });
+    outcome = await notify({ name: r.name, phone: r.phone, contactTimeFa: CONTACT_TIME_FA[r.contact_time], description: lines.join("\n"), existingCustomerId: r.customer_id });
   } catch {
     outcome = "failed";
   }

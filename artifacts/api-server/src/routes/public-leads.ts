@@ -5,7 +5,8 @@ import { notifyNewCustomer, type NewCustomerNotificationOptions } from "../lib/c
 import { alertNewCallback } from "../lib/callback-requests";
 import {
   hashLeadIp, leadCounts, recordPublicLead, validatePublicLead, ensurePublicLeadSchema,
-  publicIntakeType, recordPublicCallback, validatePublicCallback,
+  publicIntakeType, recordPublicCallback, validatePublicCallback, leadContactTimeFa, leadRequestDetails,
+  type PublicLead,
 } from "../lib/public-leads";
 
 export const PUBLIC_LEADS_PATH = "/api/public/leads";
@@ -78,6 +79,21 @@ export function websiteLeadNotification(lead: object): NewCustomerNotificationOp
 
 function fail(res: Response, status: number, error: string, extra: Record<string, unknown> = {}): void {
   res.status(status).json({ ok: false, error, ...extra });
+}
+
+/**
+ * Options for a request-form lead whose phone already belongs to a customer: one staff Telegram marked
+ * «مشتری قبلی» + file number, with this submission's details and contact time; still no customer SMS.
+ */
+export function existingCustomerLeadNotification(lead: PublicLead): NewCustomerNotificationOptions {
+  let requestDetails: string | undefined;
+  try { requestDetails = leadRequestDetails(lead); } catch { requestDetails = undefined; }
+  return {
+    ...websiteLeadNotification(lead),
+    preferredTime: leadContactTimeFa(lead),
+    existingCustomer: true,
+    ...(requestDetails ? { requestDetails } : {}),
+  };
 }
 
 /** CORS for the public site only: no credentials, no reflection of other origins. */
@@ -180,8 +196,13 @@ export function createPublicLeadsRouter(limiter = new AttemptLimiter()): Router 
       logger.info({ customerId: result.customerId, created: result.created, src: lead.src }, "Website lead recorded");
       // Only the fresh, random reference: nothing from the request is echoed back.
       res.status(201).json({ ok: true, trackingCode: result.trackingCode });
-      // Product decision (website leads): staff Telegram only, never the automatic customer SMS.
-      if (result.created) void notifyNewCustomer(result.customerId, websiteLeadNotification(lead));
+      // Product decision (website leads): staff Telegram only, never the automatic customer SMS. An existing
+      // customer gets the same single alert, marked «مشتری قبلی» (decision 2026-10-23). The 10-minute duplicate
+      // window above returns before this point, so a resubmission never alerts twice.
+      void notifyNewCustomer(
+        result.customerId,
+        result.created ? websiteLeadNotification(lead) : existingCustomerLeadNotification(lead),
+      );
     },
   );
   router.all("/", (_req, res): void => {

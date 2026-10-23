@@ -348,7 +348,12 @@ try {
   assert.equal(row.plan_id, null);
   assert.equal(row.contact_time, effectiveNow(), "«همین الان» outside working hours is queued as next morning");
   await settle();
-  assert.match(notifyLines()[1], /قبلاً در CRM مشتری است/);
+  {
+    const alert = JSON.parse(notifyLines()[1].replace(/^callback:/, ""));
+    assert.equal(alert.existingCustomerId, 50, "existing customer: file number passed for the «مشتری قبلی» marker");
+    assert.equal(JSON.parse(notifyLines()[0].replace(/^callback:/, "")).existingCustomerId, null, "new phone: no marker");
+    assert.equal(notifyLines().length, 2, "exactly one alert for the existing customer's callback");
+  }
 
   // Anti-spam and validation: real errors, nothing stored.
   const before = one("SELECT COUNT(*) n FROM callback_requests").n;
