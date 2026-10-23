@@ -13,6 +13,7 @@ import {
   CHAT_HREF, DOC_STATUS, EMZAME_URL, PHASES, PHASE_HINTS, UNKNOWN_AMOUNT,
   isCompleted, stageCopy, stageLabel, terminalOf, type DocTone,
 } from './customer-stage-map';
+import { ExpertPickerButton } from './ExpertPicker';
 
 const DIGITS = '۰۱۲۳۴۵۶۷۸۹';
 export const fa = (value: string | number) => String(value).replace(/\d/g, d => DIGITS[Number(d)]);
@@ -112,14 +113,12 @@ export function NextCard({ app, context }: { app: Application; context?: ReactNo
     <p>برای دانستن دلیل یا ثبت درخواست تازه، با کارشناس پرونده صحبت کنید.</p>
     <div className="nfp-acts"><Link className="nf-btn nf-btn--primary" href={CHAT_HREF}><I icon={MessageSquare} small />گفتگو با کارشناس</Link><Link className="nf-btn nf-btn--secondary" href="/customer/plans">درخواست تازه</Link></div>
   </section>;
-  const s = stageCopy(app.stage); const expert = app.salesExpert;
+  const s = stageCopy(app.stage);
   const cls = s.turn === 'you' ? ' nfp-you' : s.turn === 'done' ? ' nfp-done' : '';
   let acts: ReactNode = null;
-  if (s.cta === 'sign') acts = <><EmzameLink label="ورود به امضامی" className="nf-btn nf-btn--primary" testId="link-emzame" /><a className="nf-btn nf-btn--secondary" href="#nfp-expert"><I icon={Phone} small />سؤال دارم؛ تماس با کارشناس</a></>;
+  if (s.cta === 'sign') acts = <><EmzameLink label="ورود به امضامی" className="nf-btn nf-btn--primary" testId="link-emzame" /><ExpertPickerButton label="سؤال دارم؛ تماس با کارشناس" testId="button-next-expert" assigned={app.salesExpert} caseNo={app.id} /></>;
   else if (s.cta === 'docs') acts = <><Link className="nf-btn nf-btn--primary" href={CHAT_HREF}><I icon={Upload} small />ارسال مدارک در گفتگو</Link><a className="nf-btn nf-btn--secondary" href="#nfp-docs">دیدن فهرست مدارک</a></>;
-  else if (s.cta === 'call') acts = expert?.mobile
-    ? <><a className="nf-btn nf-btn--primary nfp-call" href={`tel:${expert.mobile}`}><I icon={Phone} small />تماس با {expert.name}</a><Link className="nf-btn nf-btn--secondary" href={CHAT_HREF}><I icon={MessageSquare} small />پیام در گفتگو</Link></>
-    : <Link className="nf-btn nf-btn--primary" href={CHAT_HREF}><I icon={MessageSquare} small />پیام در گفتگو</Link>;
+  else if (s.cta === 'call') acts = <><ExpertPickerButton className="nf-btn nf-btn--primary nfp-call" label="تماس با کارشناس" testId="button-next-expert" assigned={app.salesExpert} caseNo={app.id} /><Link className="nf-btn nf-btn--secondary" href={CHAT_HREF}><I icon={MessageSquare} small />پیام در گفتگو</Link></>;
   else if (s.turn === 'done') acts = <Link className="nf-btn nf-btn--secondary" href={CHAT_HREF}><I icon={MessageSquare} small />گفتگو با کارشناس</Link>;
   const label = s.turn === 'you' ? 'مرحله‌ی بعدی: نوبت شما' : s.turn === 'done' ? 'پایان پرونده' : 'مرحله‌ی بعدی: نوبت ما';
   const icon = s.turn === 'you' ? (s.cta === 'sign' ? PenLine : s.cta === 'docs' ? Upload : Phone) : s.turn === 'done' ? PartyPopper : Hourglass;
@@ -200,19 +199,20 @@ export function ExpertBlock({ app }: { app: Application }) {
     <div className="nfp-exp" style={{ marginTop: 8 }}><span className="nfp-av"><I icon={UserRound} /></span><div><b data-testid="text-sales-expert-name">هنوز کارشناسی تعیین نشده</b><small>به‌زودی معرفی می‌شود. تا آن زمان در گفتگو پیام بدهید.</small></div></div>
     <Link className="nf-btn nf-btn--secondary nf-btn--block" style={{ marginTop: 12 }} href={CHAT_HREF}><I icon={MessageSquare} small />گفتگو با پشتیبانی</Link></section>;
   return <section className="nfp-card" id="nfp-expert" aria-labelledby="nfp-ex" data-testid="panel-expert-handoff"><h2 id="nfp-ex">کارشناس پرونده</h2>
-    <div className="nfp-exp" style={{ marginTop: 8 }}><span className="nfp-av" aria-hidden="true">{initials(expert.name)}</span><div><b data-testid="text-sales-expert-name">{expert.name}</b>{expert.mobile && <small className="nfp-ltr" dir="ltr">{formatMobile(expert.mobile)}</small>}</div></div>
-    <div className="nfp-two">{expert.mobile && <a className="nf-btn nfp-call" href={`tel:${expert.mobile}`} data-testid="link-sales-expert-mobile"><I icon={Phone} small />تماس</a>}
-      <Link className="nf-btn nf-btn--secondary" href={CHAT_HREF}><I icon={MessageSquare} small />گفتگو</Link></div></section>;
+    <div className="nfp-exp" style={{ marginTop: 8 }}><span className="nfp-av" aria-hidden="true">{initials(expert.name)}</span><div><b data-testid="text-sales-expert-name">{expert.name}</b></div></div>
+    <div className="nfp-two"><ExpertPickerButton className="nf-btn nfp-call" label="تماس" ariaLabel="تماس با کارشناس" testId="button-expert-call" assigned={app.salesExpert} caseNo={app.id} />
+      <ExpertPickerButton channel="whatsapp" className="nf-btn nf-btn--secondary nfp-wa" label="واتساپ" ariaLabel="پیام واتساپ به کارشناس" testId="button-expert-whatsapp" assigned={app.salesExpert} caseNo={app.id} /></div>
+    <Link className="nf-btn nf-btn--secondary nf-btn--block" style={{ marginTop: 8 }} href={CHAT_HREF}><I icon={MessageSquare} small />گفتگو در پنل</Link></section>;
 }
 
 /** Mobile-only sticky bar on the detail page; repeats the primary action of the «مرحله‌ی بعدی» card. */
 export function ActionBar({ app }: { app: Application }) {
-  const term = terminalOf(app.status); const s = stageCopy(app.stage); const expert = app.salesExpert;
+  const term = terminalOf(app.status); const s = stageCopy(app.stage);
   let body: ReactNode;
   if (term) body = <Link className="nf-btn nf-btn--primary nf-btn--block" href={CHAT_HREF}><I icon={MessageSquare} small />گفتگو با کارشناس</Link>;
   else if (s.cta === 'sign') body = <><EmzameLink label="امضا در امضامی" className="nf-btn nf-btn--primary nf-btn--block" /><small>مرحله‌ی بعدی: {s.title}</small></>;
   else if (s.cta === 'docs') body = <><Link className="nf-btn nf-btn--primary nf-btn--block" href={CHAT_HREF}><I icon={Upload} small />ارسال مدارک در گفتگو</Link><small>مرحله‌ی بعدی: {s.title}</small></>;
-  else if (s.cta === 'call' && expert?.mobile) body = <><a className="nf-btn nf-btn--primary nf-btn--block nfp-call" href={`tel:${expert.mobile}`}><I icon={Phone} small />تماس با کارشناس</a><small>مرحله‌ی بعدی: {s.title}</small></>;
+  else if (s.cta === 'call') body = <><ExpertPickerButton className="nf-btn nf-btn--primary nf-btn--block nfp-call" label="تماس با کارشناس" testId="button-actbar-expert" assigned={app.salesExpert} caseNo={app.id} /><small>مرحله‌ی بعدی: {s.title}</small></>;
   else body = <><Link className="nf-btn nf-btn--secondary nf-btn--block" href={CHAT_HREF}><I icon={MessageSquare} small />سؤال دارم</Link><small>{s.turn === 'done' ? 'پرونده تکمیل شد' : s.turn === 'you' ? `مرحله‌ی بعدی: ${s.title}` : 'مرحله‌ی بعدی با نفیس وام است؛ کاری لازم نیست'}</small></>;
   return <div className="nfp-actbar" data-testid="bar-detail-action">{body}</div>;
 }

@@ -61,8 +61,7 @@ export const DOC_STATUS: Record<'approved' | 'pending' | 'rejected' | 'incomplet
 export const UNKNOWN_AMOUNT = 'بعداً اعلام می‌شود';
 export const EMZAME_URL = 'https://web.emzame.ir/';
 export const CHAT_HREF = '/customer/advice/chat';
-// Support line: 021-91303819 (same as nafisvam.com contact page; confirmed by PM).
-export const SUPPORT_PHONE = { display: '۰۲۱-۹۱۳۰۳۸۱۹', tel: '+982191303819' };
+// No office landline in the portal (not operational, Mohammad 2026-10-23): contact goes through ExpertPicker / sales-experts.ts.
 
 export const stageLabel = (stage?: string | null) => (stage && stages[stage]) || 'در جریان';
 export const stageCopy = (stage?: string | null): StageCopy => (stage && STAGE_MAP[stage]) || FALLBACK_STAGE;

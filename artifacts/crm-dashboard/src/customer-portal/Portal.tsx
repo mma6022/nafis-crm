@@ -28,6 +28,7 @@ import logoUrl from './assets/nafis-logo-full.svg';
 import './portal.css';
 import './nfp.css';
 import { CustomerLogin } from './CustomerLogin';
+import { ExpertPickerButton } from './ExpertPicker';
 
 const number = (value: string | number | null | undefined) => value == null || value === '' ? '—' : Number(value).toLocaleString('fa-IR');
 const date = (value?: string) => value ? new Date(value).toLocaleDateString('fa-IR') : '—';
@@ -95,6 +96,7 @@ function CustomerShell({ profile, children }: { profile: Profile; children: Reac
         <t.icon className="nfp-i nfp-s" aria-hidden="true" />{t.label}{t.key === 'advice' && unread > 0 && <span className="nfp-n" aria-label={`${fa(unread)} پیام تازه`}>{fa(unread)}</span>}</Link>)}</nav>
       <span className="nfp-sp" />
       {profile.name && <span className="nfp-who"><span className="nfp-av" aria-hidden="true">{initials(profile.name)}</span>{profile.name}</span>}
+      <ExpertPickerButton className="nfp-icon-btn" ariaLabel="تماس با کارشناس" testId="button-header-call" />
       <Link className="nfp-icon-btn nfp-m-only" href={CHAT_HREF} aria-label={unread ? `گفتگو با کارشناس — ${fa(unread)} پیام تازه` : 'گفتگو با کارشناس'} data-testid="link-header-chat"><Icon icon={MessageSquare} />{unread > 0 && <span className="nfp-dot" />}</Link>
       <button type="button" className="nfp-icon-btn nfp-logout" aria-label="خروج از حساب" title="خروج" onClick={() => logout.mutate()} disabled={logout.isPending} data-testid="button-customer-logout"><Icon icon={LogOut} /></button>
     </div></header>
