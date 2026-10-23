@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Copy guard (Mohammad 2026-10-23, runs in build + build:preview after astro build):
-//  1. «برآوردی» / «تخمینی» may not appear in dist except in the explicit ALLOW list below (FAQ answers and the legal
-//     terms page, i.e. places that answer «is the number final?»). Nothing explanatory next to the calculator / plan
+//  1. «برآوردی» / «تخمینی» may not appear anywhere in dist or src (calculator, FAQ, blog posts, every page). The only
+//     exemption is the legal terms page (ALLOW / TERMS_SRC below), pending legal review — see the TODO there. Nothing explanatory next to the calculator / plan
 //     cards: the removed note «مبالغ برآوردی است و مبلغ/رقم قطعی …» fails the build anywhere (dist and src).
 //  2. No national ID / registration number: 14013708689 in Latin, Persian or Arabic digits (any separators) fails the
 //     build in dist, src and public. The footer shows the legal name «بهینه فام نفیس» only.
@@ -15,12 +15,13 @@ const errors = [];
 const walk = (d) => (existsSync(d) ? readdirSync(d).flatMap((n) => { const p = join(d, n); return statSync(p).isDirectory() ? walk(p) : [p]; }) : []);
 if (!existsSync(join(DIST, 'index.html'))) { console.error('copy: dist/ not built'); process.exit(1); }
 
-/** dist file → exact phrases (each containing the word) that are allowed there. Anything else fails. */
+/** dist file → exact phrases (each containing the word) that are allowed there. Anything else fails.
+ *  2026-10-23 (content/remove-baravardi): calculator, FAQ and blog/vam-fori-chist no longer allowed — the word is gone
+ *  from every non-legal page. Only the legal terms page is exempt. */
 const ALLOW = {
-  'calculator/index.html': ['نه. اعداد برآوردی است و مبلغ قطعی پس از اعتبارسنجی اعلام می‌شود.'], // FAQ (verbatim-guarded by check-guarantees #4), visible + FAQPage JSON-LD
-  'faq/index.html': ['این عدد برآوردی است و مبلغ قطعی پس از اعتبارسنجی اعلام می‌شود'], // FAQ answer «محاسبه‌گر قسط»
-  'blog/vam-fori-chist/index.html': ['این ارقام برآوردی است.'], // blog FAQ answer (plan example)
-  'terms/index.html': ['اعداد سایت برآوردی است', 'ماشین‌حساب و طرح‌یاب می‌بینید برآوردی است.'], // legal terms
+  // TODO(legal review): «برآوردی» on /terms (قوانین) is kept ONLY until the legal review. When the reviewed wording lands,
+  // delete this entry and TERMS_SRC below so the terms page is checked like every other page.
+  'terms/index.html': ['اعداد سایت برآوردی است', 'ماشین‌حساب و طرح‌یاب می‌بینید برآوردی است.'], // legal terms (exempt pending legal review)
 };
 const WORD = /برآوردی|تخمینی/g;
 const REMOVED = /مبالغ\s*برآوردی\s*است\s*و\s*(مبلغ|رقم)\s*قطعی/;
@@ -36,8 +37,17 @@ for (const f of walk(DIST).filter((x) => /\.(html|js|mjs|json|txt|xml)$/.test(x)
   }
   for (const m of t.matchAll(WORD)) errors.push(`dist/${rel}: «${m[0]}» not in allow list (…${t.slice(Math.max(0, m.index - 50), m.index + 30).replace(/\s+/g, ' ')}…)`);
 }
-for (const f of walk(join(ROOT, 'src')).filter((x) => /\.(astro|tsx?|mdx?|json)$/.test(x)))
-  if (REMOVED.test(readFileSync(f, 'utf8'))) errors.push(`${relative(ROOT, f)}: removed note «مبالغ برآوردی است …» is back`);
+// TODO(legal review): the terms page source is the only src file exempt from the word scan; remove after legal review.
+const TERMS_SRC = 'src/pages/terms.astro';
+let srcScanned = 0;
+for (const f of walk(join(ROOT, 'src')).filter((x) => /\.(astro|tsx?|mdx?|json|css)$/.test(x))) {
+  const rel = relative(ROOT, f);
+  const t = readFileSync(f, 'utf8');
+  if (REMOVED.test(t)) errors.push(`${rel}: removed note «مبالغ برآوردی است …» is back`);
+  if (rel === TERMS_SRC) continue;
+  srcScanned++;
+  for (const m of t.matchAll(WORD)) errors.push(`${rel}:${t.slice(0, m.index).split('\n').length}: «${m[0]}» (only the terms page is exempt) (…${t.slice(Math.max(0, m.index - 50), m.index + 30).replace(/\s+/g, ' ')}…)`);
+}
 
 // 2. national ID (digits built at runtime so this file never contains the number itself)
 const DIGIT = { 0: '0۰٠', 1: '1۱١', 2: '2۲٢', 3: '3۳٣', 4: '4۴٤', 5: '5۵٥', 6: '6۶٦', 7: '7۷٧', 8: '8۸٨', 9: '9۹٩' };
@@ -68,4 +78,4 @@ for (const f of walk(DIST).filter((p) => p.endsWith('.html'))) {
 }
 if (!home.includes(`<a class="t t-enamad" ${ENAMAD_LINK}><img src="/images/enamad.png"`)) errors.push('enamad: home trust-bar chip missing');
 if (errors.length) { console.error(`copy: ${errors.length} problem(s)\n  ` + errors.join('\n  ')); process.exit(1); }
-console.log(`copy: OK — no «برآوردی/تخمینی» outside the allow list; allowed hits: ${hits.join(' · ')} · removed note absent (dist+src) · no national ID / registration label in ${idScanned} dist+src+public files · footer legal line = «بهینه فام نفیس»`);
+console.log(`copy: OK — no «برآوردی/تخمینی» in dist or ${srcScanned} src files (terms page exempt pending legal review); allowed hits: ${hits.join(' · ')} · removed note absent (dist+src) · no national ID / registration label in ${idScanned} dist+src+public files · footer legal line = «بهینه فام نفیس»`);
