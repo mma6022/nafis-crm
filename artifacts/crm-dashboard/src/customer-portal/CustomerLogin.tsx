@@ -3,7 +3,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Redirect, useLocation } from 'wouter';
 import { ArrowLeft, Loader2, MessageSquareText, Pencil, ShieldCheck, Smartphone } from 'lucide-react';
 import { portalApi } from './api';
+import { Stepper, useWizard, type WizardStep } from '@/components/wizard/Wizard';
 import './customer-login.css';
+
+/** The customer sign-in / sign-up journey, shared by CustomerLogin (steps 1–2) and IdentityPage (step 3). */
+export const CUSTOMER_AUTH_STEPS: readonly WizardStep<'mobile' | 'code' | 'identity'>[] = [
+  { key: 'mobile', title: 'شماره همراه' },
+  { key: 'code', title: 'کد تأیید' },
+  { key: 'identity', title: 'احراز هویت' },
+];
 
 const OTP_LENGTH = 6;
 const RESEND_SECONDS = 60;
@@ -82,10 +90,14 @@ function OtpBoxes({ value, onChange, disabled, invalid }: { value: string; onCha
 export function CustomerLogin() {
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
-  const [mobile, setMobile] = useState('');
+  // Progress (step + number + when the code was sent) survives a refresh; the OTP itself is never stored.
+  const wizard = useWizard({ id: 'customer-login', steps: CUSTOMER_AUTH_STEPS, initial: { mobile: '', sentAt: 0 }, maxAgeMs: 10 * 60_000 });
+  const mobile = wizard.data.mobile;
+  const setMobile = (value: string) => wizard.update({ mobile: value });
+  const step: 'mobile' | 'code' = wizard.step === 'code' && isValidMobile(mobile) ? 'code' : 'mobile';
+  const setStep = (next: 'mobile' | 'code') => wizard.goTo(next);
   const [code, setCode] = useState('');
-  const [step, setStep] = useState<'mobile' | 'code'>('mobile');
-  const [resendRemaining, setResendRemaining] = useState(0);
+  const [resendRemaining, setResendRemaining] = useState(() => Math.max(0, RESEND_SECONDS - Math.floor((Date.now() - wizard.data.sentAt) / 1000)));
   const [error, setError] = useState('');
   const [touched, setTouched] = useState(false);
   const lastAutoSubmit = useRef('');
@@ -111,6 +123,7 @@ export function CustomerLogin() {
     try {
       const result = await verify.mutateAsync();
       if (!result.authenticated) throw new Error('تأیید ورود انجام نشد. کد را دوباره بررسی کنید.');
+      wizard.reset();
       await queryClient.invalidateQueries({ queryKey: ['customer'] });
       navigate('/customer');
     } catch (e) { setError(message(e)); setCode(''); lastAutoSubmit.current = ''; }
@@ -128,11 +141,11 @@ export function CustomerLogin() {
   const requestCode = async (event: FormEvent) => {
     event.preventDefault(); setError(''); setTouched(true);
     if (!isValidMobile(mobile)) { mobileInput.current?.focus(); return; }
-    try { await otp.mutateAsync(); setResendRemaining(RESEND_SECONDS); setCode(''); lastAutoSubmit.current = ''; setStep('code'); } catch (e) { setError(message(e)); }
+    try { await otp.mutateAsync(); wizard.update({ sentAt: Date.now() }); setResendRemaining(RESEND_SECONDS); setCode(''); lastAutoSubmit.current = ''; setStep('code'); } catch (e) { setError(message(e)); }
   };
   const resend = () => {
     setError('');
-    otp.mutate(undefined, { onSuccess: () => { setResendRemaining(RESEND_SECONDS); setCode(''); lastAutoSubmit.current = ''; }, onError: e => setError(message(e)) });
+    otp.mutate(undefined, { onSuccess: () => { wizard.update({ sentAt: Date.now() }); setResendRemaining(RESEND_SECONDS); setCode(''); lastAutoSubmit.current = ''; }, onError: e => setError(message(e)) });
   };
   const changeNumber = () => { setStep('mobile'); setError(''); setCode(''); lastAutoSubmit.current = ''; setTimeout(() => mobileInput.current?.focus(), 0); };
 
@@ -143,10 +156,11 @@ export function CustomerLogin() {
           <img src={`${import.meta.env.BASE_URL}brand/nafiss-logo-transparent.png`} alt="نفیس" width={180} height={56} />
           <span>گروه مالی نفیس</span>
         </div>
-        <div className="cl-step-icon" aria-hidden="true">{step === 'mobile' ? <Smartphone size={22} /> : <MessageSquareText size={22} />}</div>
+        <Stepper steps={CUSTOMER_AUTH_STEPS} current={step} onGo={key => { if (key === 'mobile') changeNumber(); }} className="cl-stepper" testPrefix="step-customer-" />
+        <div className="cl-step-icon" aria-hidden="true">{step === 'mobile' ? <Smartphone size={24} /> : <MessageSquareText size={24} />}</div>
         <h1 id="cl-title">{step === 'mobile' ? 'ورود یا ثبت‌نام' : 'کد تأیید را وارد کنید'}</h1>
         {step === 'mobile'
-          ? <p className="cl-sub">برای ورود به پنل مشتریان، شماره همراه خود را وارد کنید. کد تأیید پیامک می‌شود.</p>
+          ? <p className="cl-sub">شماره همراه خود را وارد کنید تا کد تأیید برایتان پیامک شود. اگر حساب ندارید، همین‌جا ساخته می‌شود.</p>
           : <p className="cl-sub">کد {fa(OTP_LENGTH)} رقمی ارسال‌شده به <bdi dir="ltr" className="cl-phone">{formatMobile(mobile)}</bdi> را وارد کنید.
             <button type="button" className="cl-change" onClick={changeNumber} disabled={busy} data-testid="button-change-mobile"><Pencil size={13} /> تغییر شماره</button></p>}
 
