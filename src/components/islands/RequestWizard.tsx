@@ -75,6 +75,7 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
   const [ready, setReady] = useState(false);
   const [errors, setErrors] = useState<{ name?: boolean; mob?: boolean }>({});
   const [busy, setBusy] = useState(false);
+  const sending = useRef(false); // synchronous lock: a 2nd tap in the same frame must not post twice
   const [fail, setFail] = useState(false);
   const [code, setCode] = useState<string | undefined>();
   const [longName, setLongName] = useState<string | null>(null);
@@ -171,6 +172,7 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
 
   async function onSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
+    if (busy || sending.current) return; // sending: the button is disabled; Enter in a field must not post twice
     const bad = { name: !s.name.trim(), mob: !isValidMobile(s.phone) };
     setErrors(bad);
     const first = (['name', 'mob'] as const).find((k) => bad[k]);
@@ -178,6 +180,7 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
       document.getElementById(`f-${first}`)?.focus();
       return;
     }
+    sending.current = true;
     setBusy(true);
     setFail(false);
     try {
@@ -202,6 +205,7 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
       setFail(true); // entered values stay in state
       requestAnimationFrame(() => failRef.current?.focus());
     } finally {
+      sending.current = false;
       setBusy(false);
     }
   }

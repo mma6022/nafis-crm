@@ -75,6 +75,7 @@ export default function CallbackForm({
   const [topic, setTopic] = useState<Need | null>(topic0);
   const [err, setErr] = useState<Partial<Record<FieldError, boolean>>>({});
   const [busy, setBusy] = useState(false);
+  const sending = useRef(false); // synchronous lock: a 2nd tap in the same frame must not post twice
   const [fail, setFail] = useState(false);
   const [code, setCode] = useState<string | undefined>();
   const [when, setWhen] = useState('');
@@ -107,6 +108,7 @@ export default function CallbackForm({
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (busy || sending.current) return; // sending: the button is disabled; Enter in a field must not post twice
     if (step === 1) {
       const bad = step1Errors(name, phone);
       setErr({ name: bad.includes('name'), phone: bad.includes('phone') });
@@ -126,6 +128,7 @@ export default function CallbackForm({
       q<HTMLElement>('[data-time]')?.focus();
       return;
     }
+    sending.current = true;
     setBusy(true);
     setFail(false);
     try {
@@ -149,6 +152,7 @@ export default function CallbackForm({
       setFail(true); // entered values stay
       requestAnimationFrame(() => failRef.current?.focus());
     } finally {
+      sending.current = false;
       setBusy(false);
     }
   }

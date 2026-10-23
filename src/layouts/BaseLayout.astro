@@ -105,7 +105,9 @@ const src = Astro.props.src ?? (path.split('/').filter(Boolean)[0] || 'home');
     <script>
       import { captureUtm, refreshLiveFacts } from '../scripts/live-facts';
       import { initChrome } from '../scripts/chrome';
+      import { initPageLoader } from '../scripts/page-loader';
       initChrome();
+      initPageLoader();
       captureUtm();
       const run = () => void refreshLiveFacts();
       if ('requestIdleCallback' in window) requestIdleCallback(run);
