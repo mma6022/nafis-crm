@@ -34,7 +34,7 @@ const dbModule = `
 
 const unitSource = `
   import assert from "node:assert/strict";
-  import { notifyNewCustomer } from "./src/lib/customer-notifications";
+  import { notifyNewCustomer, notifyWebsiteCallback } from "./src/lib/customer-notifications";
   import { websiteLeadNotification } from "./src/routes/public-leads";
   import { queryRows } from "./src/lib/crm-db";
   const calls = [];
@@ -66,6 +66,24 @@ const unitSource = `
   assert.match(c[0].body.text, /سایت \\(درخواست تماس\\)/);
   assert.match(c[0].body.text, /⏰ زمان ترجیحی تماس: امروز بعد از ساعت ۱۶\\n/);
   assert.deepEqual(websiteLeadNotification({ type: "callback", preferredTime: "   " }), { customerSms: false, source: "website", kind: "callback" });
+
+  // Staff-side «درخواست تماس کارشناس» (no customer row yet): one Telegram with the contact time, no SMS, no delivery row.
+  const deliveriesBefore = queryRows("SELECT COUNT(*) n FROM notification_deliveries")[0].n;
+  const outcome = await notifyWebsiteCallback({ name: "درخواست‌کننده", phone: "09000000014", contactTimeFa: "صبح (۹ تا ۱۳)", description: "☎️ درخواست تماس (فرم مشاوره سایت)" });
+  assert.equal(outcome, "sent");
+  c = take();
+  assert.deepEqual(c.map((x) => x.kind), ["telegram"], "callback alert: Telegram only");
+  assert.match(c[0].body.text, /سایت \\(درخواست تماس\\)/);
+  assert.match(c[0].body.text, /⏰ زمان ترجیحی تماس: صبح \\(۹ تا ۱۳\\)/);
+  assert.match(c[0].body.text, /09000000014/);
+  assert.equal(queryRows("SELECT COUNT(*) n FROM notification_deliveries")[0].n, deliveriesBefore);
+  globalThis.fetch = async () => { throw new Error("offline"); };
+  assert.equal(await notifyWebsiteCallback({ name: "x", phone: "09000000014", contactTimeFa: "عصر", description: "" }), "failed", "never throws");
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    calls.push({ kind: u.includes("api.telegram.org") ? "telegram" : u.includes("127.0.0.1:18787") ? "sms" : "other:" + u, body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
 
   // Any other path (panel, Instagram, ... call notifyNewCustomer(id) with no options): SMS + Telegram exactly as before.
   await notifyNewCustomer(2);

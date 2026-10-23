@@ -2,6 +2,7 @@ import express, { type Express, type NextFunction, type Request, type Response, 
 import { trustedClientIp } from "../lib/client-ip";
 import { logger } from "../lib/logger";
 import { notifyNewCustomer, type NewCustomerNotificationOptions } from "../lib/customer-notifications";
+import { alertNewCallback } from "../lib/callback-requests";
 import {
   hashLeadIp, leadCounts, recordPublicLead, validatePublicLead, ensurePublicLeadSchema,
   publicIntakeType, recordPublicCallback, validatePublicCallback,
@@ -122,6 +123,8 @@ function handleCallback(req: Request, res: Response): void {
   const result = recordPublicCallback(callback, ipHash);
   logger.info({ callbackId: result.id, linked: result.customerId != null, src: callback.src }, "Website callback request recorded");
   res.status(201).json({ ok: true, trackingCode: result.trackingCode });
+  // Staff Telegram «درخواست تماس» with the requested contact time; never an SMS. Outcome goes on the request's history.
+  void alertNewCallback(result.id);
 }
 
 export function createPublicLeadsRouter(limiter = new AttemptLimiter()): Router {

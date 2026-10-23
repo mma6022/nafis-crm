@@ -42,7 +42,7 @@ export const PERMISSIONS = [
   "payment_orders.view", "payment_orders.create", "payment_orders.sales_approve", "payment_orders.admin_approve", "payment_orders.pay",
   "bank_accounts.view", "bank_accounts.manage",
   "accounting.view", "accounting.manage", "accounting.opening",
-  "callbacks.view", "callbacks.manage",
+  "callbacks.view", "callbacks.manage", "callbacks.assign",
 ] as const;
 
 export type Permission = typeof PERMISSIONS[number];
@@ -95,8 +95,9 @@ for (const [role, permissions] of Object.entries({
 
 // «درخواست‌های تماس»: seeded once (schema_migrations marker), so an admin who later removes these from a
 // role is not overridden on restart. admin has everything implicitly. registrar and salesperson follow up
-// website requests; salesperson's 'assigned' scope limits them to requests assigned to them.
-// funder and accounting get nothing. No other permission is touched.
+// website requests («به من بسپار» included); salesperson's 'assigned' scope limits them to requests that are
+// theirs or still unassigned. callbacks.assign (giving a request to someone else) is admin-only by default;
+// grant it to a manager role from Users if one is created. funder and accounting get nothing.
 execute("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)");
 if (!queryRows("SELECT 1 AS hit FROM schema_migrations WHERE version='callbacks_permissions_v1'").length) {
   for (const role of ["registrar", "salesperson"]) {

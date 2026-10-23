@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes } from "node:crypto";
 import { execute, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import { insertCustomerRecord } from "./customer-create";
 import { normalizeCustomerMobile, normalizePersianSearchText } from "./customer-integrity";
+import { isWorkingHours } from "./callback-config";
 
 /** Website lead intake (POST /api/public/leads). Every row has source='website'. */
 export const LEAD_SOURCE = "website";
@@ -23,28 +24,19 @@ const ALLOWED_KEYS = new Set<string>([
   "type", "name", "phone", "need", "amountBand", "planId", "term", "contactTime", "src", "consent",
   "website", "startedAt", ...UTM_KEYS,
 ]);
-/** «درخواست تماس کارشناس»: only who and when (plus an optional topic). */
+/**
+ * «درخواست تماس کارشناس» (site contract): { kind:'callback', name, phone, contactTime:'now'|'morning'|'evening',
+ * need?:'cash'|'goods'|'help', planId?, src, consent:true, website, startedAt, utm_* }.
+ */
 export const CALLBACK_TIMES = ["now", "morning", "evening"] as const;
-
-/** Working hours 09:00–18:00 Asia/Tehran (days not confirmed yet, so hours only). Mirrors the site form. */
-export const WORK_START_HOUR = 9;
-export const WORK_END_HOUR = 18;
-export function tehranHour(at: Date): number {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Tehran", hour: "numeric", hourCycle: "h23" }).formatToParts(at);
-  return Number(parts.find((p) => p.type === "hour")?.value ?? 0) % 24;
-}
-export function isWorkingHours(at: Date): boolean {
-  const hour = tehranHour(at);
-  return hour >= WORK_START_HOUR && hour < WORK_END_HOUR;
-}
-/** «همین الان» is only offered during working hours; a late/stale "now" is queued as the next morning. */
-export function effectivePreferredTime(preferred: (typeof CALLBACK_TIMES)[number], at: Date): (typeof CALLBACK_TIMES)[number] {
-  return preferred === "now" && !isWorkingHours(at) ? "morning" : preferred;
-}
-export const CALLBACK_TOPICS = ["cash", "goods", "unsure"] as const;
+export const CALLBACK_NEEDS = ["cash", "goods", "help"] as const;
 const CALLBACK_KEYS = new Set<string>([
-  "type", "name", "phone", "preferredTime", "topic", "src", "consent", "website", "startedAt", ...UTM_KEYS,
+  "kind", "name", "phone", "contactTime", "need", "planId", "src", "consent", "website", "startedAt", ...UTM_KEYS,
 ]);
+/** «همین الان» only exists during working hours; a late/stale "now" is queued as the next morning. */
+export function effectiveContactTime(time: (typeof CALLBACK_TIMES)[number], at: Date): (typeof CALLBACK_TIMES)[number] {
+  return time === "now" && !isWorkingHours(at) ? "morning" : time;
+}
 
 /** A human needs at least a few seconds for three wizard steps. */
 export const MIN_FILL_MS = 3_000;
@@ -67,8 +59,9 @@ export type PublicLead = {
 export type PublicCallback = {
   name: string;
   phone: string;
-  preferredTime: (typeof CALLBACK_TIMES)[number];
-  topic: (typeof CALLBACK_TOPICS)[number] | null;
+  contactTime: (typeof CALLBACK_TIMES)[number];
+  need: (typeof CALLBACK_NEEDS)[number] | null;
+  planId: number | null;
   src: string | null;
   utm: Partial<Record<(typeof UTM_KEYS)[number], string>>;
 };
@@ -153,11 +146,15 @@ function readSrcAndUtm(input: Record<string, unknown>, fields: string[]): { src:
   return { src, utm };
 }
 
-/** Which intake a body is for. Absent or "lead" is the request wizard (older site builds send no type). */
+/**
+ * Which intake a body is for. `kind:'callback'` is the callback form; absent kind (with absent or "lead" type)
+ * is the request wizard (older site builds send neither). Anything else is rejected.
+ */
 export function publicIntakeType(body: unknown): "lead" | "callback" | undefined {
-  const type = body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>).type : undefined;
-  if (type === undefined || type === "lead") return "lead";
-  if (type === "callback") return "callback";
+  if (!body || typeof body !== "object" || Array.isArray(body)) return "lead";
+  const input = body as Record<string, unknown>;
+  if (input.kind !== undefined) return input.kind === "callback" ? "callback" : undefined;
+  if (input.type === undefined || input.type === "lead") return "lead";
   return undefined;
 }
 
@@ -167,15 +164,17 @@ export function validatePublicCallback(body: unknown, now = Date.now()): Callbac
   if ("ok" in gate) return gate;
   const { input } = gate;
   const fields: string[] = [];
-  if (input.type !== "callback") fields.push("type");
+  if (input.kind !== "callback") fields.push("kind");
   const name = normalizeLeadName(input.name);
   if (!name) fields.push("name");
   const phone = normalizeLeadPhone(input.phone);
   if (!phone) fields.push("phone");
-  if (!oneOf(CALLBACK_TIMES, input.preferredTime)) fields.push("preferredTime");
-  const topicRaw = input.topic;
-  const topic = topicRaw === undefined || topicRaw === null || topicRaw === "" ? null : topicRaw;
-  if (topic !== null && !oneOf(CALLBACK_TOPICS, topic)) fields.push("topic");
+  if (!oneOf(CALLBACK_TIMES, input.contactTime)) fields.push("contactTime");
+  const needRaw = input.need;
+  const need = needRaw === undefined || needRaw === null || needRaw === "" ? null : needRaw;
+  if (need !== null && !oneOf(CALLBACK_NEEDS, need)) fields.push("need");
+  const planId = optionalInt(input.planId, 1, 9_999_999);
+  if (planId === undefined) fields.push("planId");
   if (input.consent !== true) fields.push("consent");
   const { src, utm } = readSrcAndUtm(input, fields);
   if (fields.length) return { ok: false, status: 400, error: "invalid", fields };
@@ -184,8 +183,9 @@ export function validatePublicCallback(body: unknown, now = Date.now()): Callbac
     callback: {
       name: name!,
       phone: phone!,
-      preferredTime: input.preferredTime as PublicCallback["preferredTime"],
-      topic: topic as PublicCallback["topic"],
+      contactTime: input.contactTime as PublicCallback["contactTime"],
+      need: need as PublicCallback["need"],
+      planId: planId ?? null,
       src,
       utm,
     },
@@ -339,32 +339,44 @@ export function ensurePublicLeadSchema(): void {
  * the lead intake's caps and 10-minute duplicate window through leadCounts().
  */
 export const CALLBACK_STATUSES = ["new", "in_progress", "called", "no_answer", "cancelled"] as const;
+export const CANCEL_REASONS = ["duplicate", "wrong_number", "changed_mind", "other"] as const;
+export const CALLBACK_EVENT_ACTIONS = ["status", "assign", "note", "reveal", "call", "convert", "notify"] as const;
 export function ensureCallbackSchema(): void {
+  // Pre-release shape (preferred_time/topic) only ever existed on dev databases: replace it while still empty.
+  const existing = queryRows<{ name: string }>("PRAGMA table_info(callback_requests)").map((c) => c.name);
+  if (existing.includes("preferred_time")) {
+    const rows = Number(queryRow<{ n: number }>("SELECT COUNT(*) AS n FROM callback_requests")?.n ?? 0);
+    if (rows > 0) throw new Error("callback_requests has pre-release rows; migrate manually");
+    execute("DROP TABLE IF EXISTS callback_request_events");
+    execute("DROP TABLE callback_requests");
+  }
   execute(`CREATE TABLE IF NOT EXISTS callback_requests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source TEXT NOT NULL DEFAULT 'website' CHECK(source='website'),
     tracking_code TEXT,
     name TEXT NOT NULL,
     phone TEXT NOT NULL,
-    preferred_time TEXT NOT NULL CHECK(preferred_time IN ('now','morning','evening')),
-    topic TEXT CHECK(topic IS NULL OR topic IN ('cash','goods','unsure')),
+    contact_time TEXT NOT NULL CHECK(contact_time IN ('now','morning','evening')),
+    need TEXT CHECK(need IS NULL OR need IN ('cash','goods','help')),
+    plan_id INTEGER,
     src TEXT,
     utm_source TEXT, utm_medium TEXT, utm_campaign TEXT, utm_content TEXT, utm_term TEXT,
     ip_hash TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','in_progress','called','no_answer','cancelled')),
+    cancel_reason TEXT CHECK(cancel_reason IS NULL OR cancel_reason IN ('duplicate','wrong_number','changed_mind','other')),
     attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
     last_attempt_at TEXT,
     assigned_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    notes TEXT,
     customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
     converted_at TEXT,
     converted_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    updated_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+    updated_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    last_activity_at TEXT NOT NULL
   )`);
   execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_callback_requests_tracking ON callback_requests(tracking_code) WHERE tracking_code IS NOT NULL");
-  execute("CREATE INDEX IF NOT EXISTS idx_callback_requests_queue ON callback_requests(status, preferred_time, created_at)");
+  execute("CREATE INDEX IF NOT EXISTS idx_callback_requests_queue ON callback_requests(status, contact_time, created_at)");
   execute("CREATE INDEX IF NOT EXISTS idx_callback_requests_ip ON callback_requests(ip_hash, created_at)");
   execute("CREATE INDEX IF NOT EXISTS idx_callback_requests_phone ON callback_requests(phone, created_at)");
   execute("CREATE INDEX IF NOT EXISTS idx_callback_requests_assignee ON callback_requests(assigned_user_id, status)");
@@ -372,7 +384,7 @@ export function ensureCallbackSchema(): void {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     callback_id INTEGER NOT NULL REFERENCES callback_requests(id) ON DELETE CASCADE,
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    action TEXT NOT NULL CHECK(action IN ('status','assign','notes','convert')),
+    action TEXT NOT NULL CHECK(action IN ('status','assign','note','reveal','call','convert','notify')),
     from_value TEXT,
     to_value TEXT,
     created_at TEXT NOT NULL
@@ -404,13 +416,13 @@ export function recordPublicCallback(callback: PublicCallback, ipHash: string, n
     const trackingCode = uniqueTrackingCode();
     const id = execute(
       `INSERT INTO callback_requests
-        (tracking_code, name, phone, preferred_time, topic, src, utm_source, utm_medium, utm_campaign, utm_content, utm_term,
-         ip_hash, customer_id, created_at, updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        (tracking_code, name, phone, contact_time, need, plan_id, src, utm_source, utm_medium, utm_campaign, utm_content, utm_term,
+         ip_hash, customer_id, created_at, updated_at, last_activity_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
-        trackingCode, callback.name, callback.phone, effectivePreferredTime(callback.preferredTime, now), callback.topic, callback.src,
-        callback.utm.utm_source ?? null, callback.utm.utm_medium ?? null, callback.utm.utm_campaign ?? null,
-        callback.utm.utm_content ?? null, callback.utm.utm_term ?? null, ipHash, customerId, timestamp, timestamp,
+        trackingCode, callback.name, callback.phone, effectiveContactTime(callback.contactTime, now), callback.need, callback.planId,
+        callback.src, callback.utm.utm_source ?? null, callback.utm.utm_medium ?? null, callback.utm.utm_campaign ?? null,
+        callback.utm.utm_content ?? null, callback.utm.utm_term ?? null, ipHash, customerId, timestamp, timestamp, timestamp,
       ],
     );
     return { id, trackingCode, customerId };

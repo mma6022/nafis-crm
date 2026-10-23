@@ -144,6 +144,44 @@ async function sendTelegram(customer: NotificationCustomer, settings: Notificati
   recordDelivery(customer.id, "telegram", "sent");
 }
 
+/**
+ * Staff Telegram for a website «درخواست تماس» (callback). A callback is not a customer, so there is no
+ * customer row, no notification_deliveries record and never a customer SMS: the same staff alert as a
+ * website lead (template + «🌐 منبع: سایت (درخواست تماس)» + «⏰ زمان ترجیحی تماس») is sent and the
+ * outcome is returned for the caller to log on the callback's own history.
+ */
+export type WebsiteCallbackAlert = {
+  name: string;
+  phone: string;
+  /** Already in Persian, e.g. «همین الان (ساعت کاری)» / «صبح (۹ تا ۱۳)». */
+  contactTimeFa: string;
+  description: string;
+};
+export type CallbackAlertOutcome = "sent" | "disabled" | "not_configured" | "failed";
+
+export async function notifyWebsiteCallback(alert: WebsiteCallbackAlert): Promise<CallbackAlertOutcome> {
+  const settings = getNotificationSettings();
+  if (!settings.telegramEnabled) return "disabled";
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return "not_configured";
+  const pseudo: NotificationCustomer = {
+    id: 0, name: alert.name, phone: alert.phone, description: alert.description, salespersonName: null, salespersonMobile: null,
+  };
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: settings.telegramGroupChatId,
+        text: telegramText(pseudo, settings, { customerSms: false, source: "website", kind: "callback", preferredTime: alert.contactTimeFa }),
+      }),
+    });
+    return response.ok ? "sent" : "failed";
+  } catch {
+    return "failed";
+  }
+}
+
 async function sendIppanel(customer: NotificationCustomer, settings: NotificationSettings): Promise<void> {
   if (!settings.ippanelEnabled) return;
   const relaySecret = process.env.IR_RELAY_SHARED_SECRET;
