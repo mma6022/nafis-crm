@@ -1,36 +1,51 @@
-// Fails if the word «سپرده» appears in the dashboard source, public files or build output.
-// Product rule: never use «سپرده» in the CRM UI ("assigned" → «تخصیص»). Catches ZWNJ/ZWJ/tatweel
-// inside the word, diacritics, Arabic letter variants (ة، ۀ، ه + ٔ) and \uXXXX / HTML-entity escapes.
+// Fails if the banned root (s-p-r-d: the "deposit/entrust" word family, incl. the infinitive, the noun and
+// the verb stems b-s-p-a-r / mi-s-p-a-r) appears in the dashboard (src, public, index.html, dist) or in the
+// api-server src (user-visible strings, seeds, templates, comments). Product rule: "assigned" → «تخصیص»,
+// financial deposit → «وجه تضمین» / «حساب مسدودی بانکی».
+// Catches ZWNJ/ZWJ/tatweel/bidi marks inside the word, diacritics, Arabic letter variants (ة ۀ ە ي ك)
+// and \uXXXX / HTML-entity escapes. The banned letters are written as escapes so this file never contains them.
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
+const api = join(root, '..', 'api-server');
 
-// Truly unavoidable occurrences only. Each entry: file (relative to the dashboard) + max count + reason.
-// Financial "deposit" wording awaits a PM decision on the replacement term; do not reword by guess.
-const ALLOW = [
-  { file: 'src/customer-portal/PlanDetails.tsx', max: 2, reason: 'depositPercent column/estimate (financial deposit) — wording pending PM decision' },
+// The only exceptions. No allowlist for UI text. Each is an exact source line, counted.
+const EXCEPTIONS = [
+  {
+    file: 'api-server/src/lib/instagram-loan-packages.ts',
+    line: '  if (normalized.some((value) => /چک|ملک|خودرو|مسدودی|\u0633\u067e\u0631\u062f\u0647|کسر از حقوق/u.test(value))) return 3;',
+    reason: 'collateralRank(): matches legacy/cached collateral labels only (input matching, never displayed)',
+  },
 ];
 
 export function normalize(text) {
   return text
-    .replace(/\\u\{?([0-9a-fA-F]{4,5})\}?/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/\\u\{([0-9a-fA-F]{1,6})\}|\\u([0-9a-fA-F]{4})/g, (_, a, b) => String.fromCodePoint(parseInt(a ?? b, 16)))
     .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
     .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
-    .replace(/[\u200c\u200d\u200e\u200f\u0640\u064b-\u065f\u0670]/g, '')
-    .replace(/[\u0629\u06c0\u06d5]/g, '\u0647');
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff\u0640\u064b-\u065f\u0670]/g, '')
+    .replace(/[\u0629\u06c0\u06d5]/g, '\u0647').replace(/[\u064a\u0649]/g, '\u06cc').replace(/\u0643/g, '\u06a9');
 }
-const WORD = /\u0633\u067e\u0631\u062f\u0647/g; // سپرده
-export const count = (text) => (normalize(text).match(WORD) || []).length;
+// s-p-r-d (any form) | s-p-a-r (b-s-p-a-r, mi-s-p-a-r, ...)
+const ROOT = /\u0633\u067e\u0631\u062f|\u0633\u067e\u0627\u0631/g;
+export const count = (text) => (normalize(text).match(ROOT) || []).length;
 
-const must = ['سپرده', 'سپرده‌ای', 'سپردهٔ', 'سپرده‌ها', 'سپردة', 'سپردۀ', 'سـپـرده', 'س‌پرده', '\\u0633\\u067e\\u0631\\u062f\\u0647', '&#1587;&#1662;&#1585;&#1583;&#1607;'];
-const mustNot = ['تخصیص داده شد', 'سپردن', 'به من بسپار', 'سپر'];
-for (const s of must) if (count(s) !== 1) { console.error(`self-test: should match ${s}`); process.exit(2); }
+// Self-test so the matcher itself can't silently rot.
+const Z = '\u200c', S = '\u0633', P = '\u067e', R = '\u0631', D = '\u062f', A = '\u0627', H = '\u0647';
+const must = [
+  S + P + R + D + H, S + P + R + D + H + Z + '\u0627\u06cc', S + P + R + D + '\u06c0', S + P + R + D + '\u0629', S + P + R + D + H + '\u0654',
+  S + P + R + D + '\u0646', S + P + R + D + '\u0645', '\u0628' + S + P + A + R, '\u0645\u06cc' + Z + S + P + A + R + '\u0645',
+  S + '\u0640' + P + '\u0640' + R + D + H, S + Z + P + R + D + '\u0646', '\u0628' + S + P + A + R + '\u06cc\u062f',
+  '\\u0633\\u067e\\u0631\\u062f\\u0647', '&#1587;&#1662;&#1585;&#1583;&#1607;', '&#x633;&#x67e;&#x627;&#x631;',
+];
+const mustNot = ['تخصیص داده شد', 'به من تخصیص بده', 'وجه تضمین', 'حساب مسدودی بانکی', 'سپر', 'سفارش', 'اسپری', 'سپاس'];
+for (const s of must) if (count(s) !== 1) { console.error(`self-test: should match ${JSON.stringify(s)}`); process.exit(2); }
 for (const s of mustNot) if (count(s)) { console.error(`self-test: should not match ${s}`); process.exit(2); }
 
 const SKIP = new Set(['node_modules', '.git', 'scripts']);
-const EXT = /\.(tsx?|jsx?|mjs|cjs|css|html|json|md|txt|svg|map)$/;
+const EXT = /\.(tsx?|jsx?|mjs|cjs|css|html|json|md|txt|svg|sql|map)$/;
 function* walk(dir) {
   for (const name of readdirSync(dir)) {
     if (SKIP.has(name)) continue;
@@ -40,27 +55,24 @@ function* walk(dir) {
   }
 }
 
-const allowFor = (rel) => ALLOW.find((a) => a.file === rel);
-const allowTotal = ALLOW.reduce((n, a) => n + a.max, 0);
-const problems = [];
-let distCount = 0; const distHits = [];
-for (const d of ['src', 'public', 'index.html', 'dist']) {
-  const abs = join(root, d);
-  if (!existsSync(abs)) continue;
-  const files = statSync(abs).isDirectory() ? [...walk(abs)] : [abs];
+const targets = [...['src', 'public', 'index.html', 'dist'].map((d) => join(root, d)), join(api, 'src')].filter(existsSync);
+const label = (f) => relative(join(root, '..'), f);
+const used = new Map();
+const hits = [];
+for (const t of targets) {
+  const files = statSync(t).isDirectory() ? [...walk(t)] : [t];
   for (const f of files) {
-    if (d === 'dist' && f.endsWith('.map')) continue; // source maps embed sources; sources are checked directly
-    const rel = relative(root, f);
-    const lines = readFileSync(f, 'utf8').split('\n');
-    const hits = []; let n = 0;
-    lines.forEach((line, i) => { const c = count(line); if (c) { n += c; hits.push(`${rel}:${i + 1}`); } });
-    if (!n) continue;
-    if (d === 'dist') { distCount += n; distHits.push(...hits); continue; }
-    const a = allowFor(rel);
-    if (!a || n > a.max) problems.push(...hits);
+    const rel = label(f);
+    if (rel.startsWith('crm-dashboard/dist/') && f.endsWith('.map')) continue; // maps embed sources, checked directly
+    readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
+      const n = count(line);
+      if (!n) return;
+      const ex = EXCEPTIONS.find((e) => e.file === rel && e.line === line);
+      if (ex && n === 1 && !used.has(ex)) { used.set(ex, `${rel}:${i + 1}`); return; }
+      hits.push(`${rel}:${i + 1}`);
+    });
   }
 }
-// Build output is minified, so it is checked by total: it may only carry the allowlisted occurrences.
-if (distCount > allowTotal) problems.push(...distHits.map((h) => `${h} (dist total ${distCount} > allowed ${allowTotal})`));
-if (problems.length) { console.error(`«سپرده» found (use «تخصیص» for "assigned"):\n  ${problems.join('\n  ')}`); process.exit(1); }
-console.log(`no-sepordeh: ok (src, public, index.html, dist; allowlisted: ${ALLOW.map((a) => `${a.file}×${a.max}`).join(', ') || 'none'})`);
+if (hits.length) { console.error(`Banned root (s-p-r-d / s-p-a-r) found — use «تخصیص» (assigned) or «وجه تضمین» / «حساب مسدودی بانکی» (deposit):\n  ${hits.join('\n  ')}`); process.exit(1); }
+const ex = [...used.values()];
+console.log(`no-sepordeh: ok (${targets.map(label).join(', ')}; exceptions: ${ex.length ? ex.join(', ') : 'none'})`);

@@ -50,7 +50,7 @@ export function PlanDetails({ planId, amount, duration }: { planId: number; amou
       <div><h3>مدارک مورد نیاز</h3>
         {p.requiredDocuments?.length ? <ul className="cp-pd-list">{p.requiredDocuments.map((d, i) => <li key={i}><FileText size={14} /> {d}</li>)}</ul> : <p>مدرک خاصی ثبت نشده است.</p>}</div>
       <div><h3>شرایط اقساط بر اساس مدت</h3>
-        {terms.length ? <div className="cp-pd-table"><table><thead><tr><th>مدت</th><th>پیش‌پرداخت</th><th>کسورات</th><th>سپرده</th></tr></thead><tbody>
+        {terms.length ? <div className="cp-pd-table"><table><thead><tr><th>مدت</th><th>پیش‌پرداخت</th><th>کسورات</th><th>وجه تضمین</th></tr></thead><tbody>
           {terms.map(t => <tr key={t.installments} aria-current={term === t ? 'true' : undefined} className={term === t ? 'on' : ''}><td>{n(t.installments)} ماه</td><td>{fmtPct(t.prepaymentPercent)}</td><td>{fmtPct(t.deductionPercent)}</td><td>{fmtPct(t.depositPercent)}</td></tr>)}
         </tbody></table></div> : <p>شرایط اقساط ثبت نشده است.</p>}
       </div>
@@ -58,7 +58,7 @@ export function PlanDetails({ planId, amount, duration }: { planId: number; amou
         {term && base != null ? <><p className="cp-hint">برآورد اولیه نمایشی برای {n(base)} تومان و {n(term.installments)} ماه، فقط بر پایه درصدهای همین مدت. مبلغ نهایی را سامانه تعیین می‌کند و هزینه تشکیل پرونده جدا از این درصدها محاسبه می‌شود.</p>
           <dl className="cp-dl"><div><dt>پیش‌پرداخت ({fmtPct(term.prepaymentPercent)})</dt><dd>{money(est(term.prepaymentPercent))}</dd></div>
             <div><dt>کسورات ({fmtPct(term.deductionPercent)})</dt><dd>{money(est(term.deductionPercent))}</dd></div>
-            <div><dt>سپرده ({fmtPct(term.depositPercent)})</dt><dd>{money(est(term.depositPercent))}</dd></div></dl></>
+            <div><dt>وجه تضمین ({fmtPct(term.depositPercent)})</dt><dd>{money(est(term.depositPercent))}</dd></div></dl></>
           : <p className="cp-hint">برای دیدن برآورد اولیه، مبلغ و مدت را در بخش شرایط درخواست وارد کنید.</p>}
       </div>
     </div>

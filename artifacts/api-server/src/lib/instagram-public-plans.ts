@@ -65,7 +65,7 @@ const COLLATERAL_LABELS = new Map([
   ["salary_deduction", "گواهی کسر از حقوق"],
   ["property", "سند ملکی"],
   ["vehicle", "سند خودرو"],
-  ["deposit", "سپرده بانکی"],
+  ["deposit", "حساب مسدودی بانکی"],
   ["check", "چک"],
 ]);
 

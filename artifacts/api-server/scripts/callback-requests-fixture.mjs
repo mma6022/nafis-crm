@@ -431,7 +431,7 @@ try {
   assert.deepEqual((await json(await api(2, "GET", "/callback-requests?q=قدیمی"))).items.map(i => i.id), [101, 104, 103].sort((a, b) => [104, 101, 103].indexOf(a) - [104, 101, 103].indexOf(b)));
   assert.deepEqual(await json(await api(2, "GET", "/callback-requests/badge")), { new: 4 });
 
-  // Salesperson (assigned scope): sees unassigned + own, may «به من بسپار» but not assign others.
+  // Salesperson (assigned scope): sees unassigned + own, may «به من تخصیص بده» (assign to self) but not assign others.
   let sales = await json(await api(3, "GET", "/callback-requests"));
   assert.deepEqual(sales.items.map(i => i.id), [104, 102, 101, 106, 105, 103]);
   assert.equal(sales.meta.canAssign, false);
