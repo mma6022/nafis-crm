@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useTableState } from '@/hooks/use-table-state';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   useListContractTemplates,
   useCreateContractTemplate,
@@ -977,6 +977,20 @@ function GenerationWizard({ template, onClose, onError }: { template: ContractTe
     else if (!matchingPlans.some((plan) => plan.id === loanPlanId)) setLoanPlanId('');
   }, [template.id, matchingPlans.length, matchingPlans.map((plan) => plan.id).join(',')]);
 
+  // Plan data problems the server would reject (e.g. no payout percent for the installment count) — shown before «صدور».
+  const planWarnings = useQuery({
+    queryKey: ['contract-plan-warnings', template.id, loanPlanId],
+    enabled: loanPlanId !== '' && template.id != null,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const r = await fetch(`${import.meta.env.BASE_URL.replace(/\/$/, '')}/api/contracts/templates/${template.id}/plan-warnings?loanPlanId=${loanPlanId}`, { credentials: 'include' });
+      if (!r.ok) return [] as string[];
+      const body = await r.json().catch(() => null) as { warnings?: unknown } | null;
+      return Array.isArray(body?.warnings) ? body!.warnings.filter((w): w is string => typeof w === 'string') : [];
+    },
+  });
+  const planWarningList = loanPlanId === '' ? [] : planWarnings.data ?? [];
+
   const { data: searchData, isFetching: searching } = useListCustomers(
     { search: debouncedSearch, limit: 10 },
     { query: { queryKey: getListCustomersQueryKey({ search: debouncedSearch, limit: 10 }), enabled: customerId === '' } }
@@ -1034,6 +1048,15 @@ function GenerationWizard({ template, onClose, onError }: { template: ContractTe
           <label>طرح تسهیلاتی</label>
           {loadingPlans ? <span style={{ color: '#64748b', fontSize: 12 }}>در حال بارگذاری طرح‌ها...</span> : matchingPlans.length === 0 ? <span style={{ color: '#be123c', fontSize: 12 }}>هیچ طرح فعالی به این قالب قرارداد متصل نیست.</span> : <select value={loanPlanId} onChange={(event) => setLoanPlanId(event.target.value ? Number(event.target.value) : '')}><option value="">انتخاب طرح</option>{matchingPlans.map((plan) => <option key={plan.id} value={plan.id}>{plan.name}</option>)}</select>}
         </div>
+        {planWarningList.length > 0 && (
+          <div role="alert" data-testid="contract-plan-warning" style={{ color: '#92400e', background: '#fffbeb', border: '1px solid #fcd34d', padding: 12, borderRadius: 10, fontSize: 13, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+            <div>
+              {planWarningList.map(w => <div key={w}><strong>{w}</strong></div>)}
+              <div style={{ marginTop: 4 }}>تا اصلاح طرح، صدور این قرارداد ممکن نیست. درصد واریز را در تنظیمات طرح برای همین تعداد اقساط وارد کنید.</div>
+            </div>
+          </div>
+        )}
         {customerId === '' ? (
           <div className="field">
             <label>جستجو و انتخاب مشتری</label>
@@ -1131,7 +1154,7 @@ function GenerationWizard({ template, onClose, onError }: { template: ContractTe
               <button
                 className="btn btn-primary"
                 onClick={handleGenerate}
-                disabled={generate.isPending || loadingPlans || loanPlanId === '' || matchingPlans.length === 0 || missingFields.length > 0 || hasBlankManual}
+                disabled={generate.isPending || loadingPlans || loanPlanId === '' || matchingPlans.length === 0 || missingFields.length > 0 || hasBlankManual || planWarningList.length > 0}
               >
                 <FileSignature size={16} />
                 {generate.isPending ? 'در حال صدور...' : 'صدور نهایی قرارداد'}

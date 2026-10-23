@@ -1655,10 +1655,13 @@ function ContractSection({ appId, docs = [], currentPrimaryGenerationId, tomanRe
       await queryClient.invalidateQueries({ queryKey: getListLoanApplicationsQueryKey() });
       setIssueOpen(false);
     } catch (failure) {
-      const issue = failure as { data?: { error?: string }; response?: { data?: { error?: string } }; error?: { error?: string } };
+      const issue = failure as { data?: { error?: string; message?: string }; response?: { data?: { error?: string; message?: string } }; error?: { error?: string; message?: string } };
       const code = issue.data?.error ?? issue.response?.data?.error ?? issue.error?.error;
+      const serverMessage = issue.data?.message ?? issue.response?.data?.message ?? issue.error?.message;
       if (code === 'certificate_inactive') setCertificateErrorOpen(true);
-      setPrimaryIssueError(code === 'existing_contract_manual_values_locked'
+      setPrimaryIssueError(code === 'plan_payout_percent_missing'
+        ? `${typeof serverMessage === 'string' && /[\u0600-\u06FF]/.test(serverMessage) ? serverMessage : 'درصد واریز برای این تعداد اقساط در طرح ثبت نشده'}. قرارداد صادر نشد؛ درصد واریز را در تنظیمات طرح برای همین تعداد اقساط وارد کنید.`
+        : code === 'existing_contract_manual_values_locked'
         ? 'این قرارداد قبلاً تولید شده و مقادیر آن قابل تغییر نیست. برای جلوگیری از تغییر مفاد سند ارسال‌شده، همان مقادیر ثبت‌شده را تأیید و دوباره تلاش کنید.'
         : code === 'approved_contract_terms_not_rendered'
         ? 'مبلغ یا تعداد اقساط مصوب در سند تولیدشده قابل تأیید نیست. قرارداد برای امضا ارسال نشده است؛ قالب و خروجی قرارداد باید بررسی شوند.'

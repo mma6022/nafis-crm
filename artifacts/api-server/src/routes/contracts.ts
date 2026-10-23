@@ -36,6 +36,7 @@ import {
 } from "../lib/legacy-toman-replacement";
 import { applyGeneratedDocumentSignatureObservation } from "./loan-applications";
 import { crmDb, databasePath, execute, queryRow, queryRows, runImmediateTransaction } from "../lib/crm-db";
+import { PlanPayoutPercentMissingError, resolvePlanPayoutPercent } from "../lib/plan-payout-percent";
 
 const router = Router();
 const root = path.resolve(process.env.CONTRACTS_STORAGE_DIR || path.join(path.dirname(databasePath), "contracts"));
@@ -299,6 +300,11 @@ function fieldValue(c: Record<string, unknown>, key: string): string {
   const value = c[map[key.replace("customer.", "")] || key];
   return value == null ? "" : String(value);
 }
+export function mappingUsesPayoutPercent(mapping: ContractMappingInput): boolean {
+  const type = mapping.sourceType ?? (mapping.customerField ? "customer" : mapping.loanPlanField ? "loanPlan" : "manual");
+  return (type === "loanPlan" && mapping.loanPlanField === "loanPlan.depositPercents") ||
+    (type === "formula" && !!mapping.formula?.tokens?.some((token) => token.type === "field" && token.field === "loanPlan.depositPercents"));
+}
 export function loanPlanFieldValue(plan: Record<string, unknown>, key: string, durationMonths?: number): string {
   if (key === "loanPlan.customerPayoutPercent") {
     // A goods acknowledgement must use the settled purchase's percentage,
@@ -312,6 +318,10 @@ export function loanPlanFieldValue(plan: Record<string, unknown>, key: string, d
       throw new Error("formula_value_invalid");
     }
     return String(bps / 100);
+  }
+  if (key === "loanPlan.depositPercents") {
+    // Newer per-installment-option percentages first, legacy map second; EMPTY (never raw JSON) when neither has the count.
+    return resolvePlanPayoutPercent(plan, durationMonths).value;
   }
   if (key === "loanPlan.principalAmount" && plan._approved_principal_amount != null) return String(plan._approved_principal_amount);
   if (["loanPlan.durationMonths", "loanPlan.installments"].includes(key) && plan._approved_duration_months != null) return String(plan._approved_duration_months);
@@ -397,6 +407,10 @@ export function evaluateFormulaTokens(
     }
     if (token.type === "field") {
       const raw = fields[token.field] ? fieldValue(customerRow, token.field) : loanPlanFieldValue(plan, token.field, durationMonths);
+      if (token.field === "loanPlan.depositPercents" && !raw.trim()) {
+        // An empty percent must not silently become 0 in the formula.
+        throw new PlanPayoutPercentMissingError(resolvePlanPayoutPercent(plan, durationMonths).warning ?? "");
+      }
       const value = Number(normalizeNumber(raw));
       if (!Number.isFinite(value)) throw new Error(`مقدار متغیر ${token.field} عددی نیست.`);
       return value;
@@ -943,6 +957,13 @@ const generateContractHandler = async (req: Request, res: Response): Promise<voi
     if (value.length > 5000) { res.status(400).json({ error: "Manual values are too long" }); return; } manualTotal += value.length;
   }
   if (manualTotal > 50 * 1024) { res.status(400).json({ error: "Manual values are too long" }); return; }
+  if (plan && typedMappings.some(mappingUsesPayoutPercent)) {
+    const payout = resolvePlanPayoutPercent(plan, durationMonths);
+    if (payout.conflict) req.log.warn({ templateId: Number(templateId), loanPlanId: selectedPlanId, ...payout.conflict }, "plan payout percent: newer editor value differs from legacy map; using newer");
+    if (payout.warning) {
+      res.status(422).json({ error: "plan_payout_percent_missing", message: payout.warning, durationMonths: payout.months }); return;
+    }
+  }
   const values: Record<string, string> = {};
   let contractNumber: string | null = null;
   try {
@@ -966,6 +987,9 @@ const generateContractHandler = async (req: Request, res: Response): Promise<voi
       if (!values[m.variable].trim()) { res.status(400).json({ error: `Missing value for ${m.variable}` }); return; }
     }
   } catch (error) {
+    if (error instanceof PlanPayoutPercentMissingError) {
+      res.status(422).json({ error: "plan_payout_percent_missing", message: error.warning, durationMonths }); return;
+    }
     req.log.warn({ err: error, templateId: Number(templateId), loanPlanId: selectedPlanId, durationMonths }, "contract formula evaluation failed");
     res.status(422).json({ error: "formula_value_invalid" });
     return;
@@ -1065,6 +1089,24 @@ const generateContractHandler = async (req: Request, res: Response): Promise<voi
   }
 };
 router.post("/contracts/generate", requirePermission("contracts.generate"), generateContractHandler);
+// Pre-generation warnings for the generate screen (read-only): e.g. the plan has no payout percent for the count.
+router.get("/contracts/templates/:id/plan-warnings", requirePermission("contracts.generate"), (req, res) => {
+  const templateId = Number(req.params.id), loanPlanId = Number(req.query.loanPlanId);
+  const raw = req.query.durationMonths; const durationMonths = raw == null || raw === "" ? undefined : Number(raw);
+  if (!Number.isSafeInteger(templateId) || !Number.isSafeInteger(loanPlanId) || loanPlanId <= 0 ||
+      (durationMonths !== undefined && (!Number.isSafeInteger(durationMonths) || durationMonths <= 0 || durationMonths > 600))) {
+    res.status(400).json({ error: "invalid_request" }); return;
+  }
+  const t = queryRow<any>("SELECT mappings_json FROM contract_templates WHERE id=? AND deleted_at IS NULL", [templateId]);
+  const plan = t && queryRow<Record<string, unknown>>("SELECT * FROM loan_plans WHERE id=? AND (contract_template_id=? OR primary_contract_template_id=?)", [loanPlanId, templateId, templateId]);
+  if (!t || !plan) { res.status(404).json({ error: "Template or plan not found" }); return; }
+  const warnings: string[] = [];
+  if (json<ContractMappingInput[]>(t.mappings_json, []).some(mappingUsesPayoutPercent)) {
+    const payout = resolvePlanPayoutPercent(plan, durationMonths);
+    if (payout.warning) warnings.push(payout.warning);
+  }
+  res.json({ warnings });
+});
 async function runConversion(input: string): Promise<string> {
   const out = path.join(root, `convert-${crypto.randomUUID()}`), profile = path.join(root, `lo-${crypto.randomUUID()}`);
   await fsp.mkdir(out, { mode: 0o700 }); await fsp.mkdir(profile, { mode: 0o700 });
