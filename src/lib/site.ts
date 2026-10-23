@@ -120,10 +120,16 @@ export const GUIDE_NAV: NavItem[] = [
   { href: SITE.portal, label: 'ورود مشتریان' },
 ];
 
-/** No trailing slash (trailingSlash: 'never'), except the home page, which is always `https://nafisvam.com/` (matches the sitemap). */
+/**
+ * Absolute URL in the form nginx serves without a redirect. Pages are built as `<path>/index.html` and nginx 301s
+ * `/contact` → `/contact/`, so page URLs (canonical, og:url, JSON-LD, sitemap) always end with `/`; files whose last
+ * segment has an extension (`/og-image.png`, `/rss.xml`) are left as they are.
+ */
 export const absoluteUrl = (path: string) => {
-  const u = new URL(path, SITE.url).toString();
-  return u === `${SITE.url}/` ? u : u.replace(/\/$/, '');
+  const u = new URL(path, SITE.url);
+  const last = u.pathname.split('/').pop() ?? '';
+  if (!u.pathname.endsWith('/') && !last.includes('.')) u.pathname += '/';
+  return u.toString();
 };
 
 /** Current Jalali year in Persian digits, computed at build time (footer «©»). */

@@ -69,7 +69,7 @@ export default defineConfig({
   site: SITE,
   output: 'static',
   trailingSlash: 'never',
-  redirects: { '/loan-plans': '/plans' },
+  redirects: { '/loan-plans': '/plans/' },
   build: { format: 'directory', inlineStylesheets: 'auto' },
   integrations: [
     react(),
@@ -77,6 +77,8 @@ export default defineConfig({
     sitemap({
       // no 404, no paginated archives (/blog/2, …), no sample/draft posts or archives made only of them
       filter: (page) => inSitemap(new URL(page).pathname.replace(/\/$/, '')),
+      // <loc> in the trailing-slash form nginx serves (`/contact` would 301 to `/contact/`)
+      serialize: (item) => ({ ...item, url: item.url.endsWith('/') ? item.url : `${item.url}/` }),
     }),
   ],
   vite: {

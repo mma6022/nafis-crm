@@ -241,6 +241,18 @@ for (const slug of ['', 'contact', 'about']) {
 }
 // home canonical must equal the sitemap loc (https://nafisvam.com/)
 if (home && !home.includes('<link rel="canonical" href="https://nafisvam.com/">')) errors.push('home: canonical is not https://nafisvam.com/ (sitemap loc)');
+// Trailing slash (nginx 301s /contact → /contact/): every canonical, og:url and sitemap <loc> is the served form.
+for (const f of walk(DIST).filter((x) => x.endsWith('.html') && !x.endsWith('/404.html'))) {
+  const t = readFileSync(f, 'utf8');
+  const rel = relative(DIST, f);
+  for (const m of t.matchAll(/<link rel="canonical" href="([^"]+)"|<meta property="og:url" content="([^"]+)"/g)) {
+    const u = m[1] ?? m[2];
+    if (!u.endsWith('/')) errors.push(`${rel}: canonical/og:url without trailing slash (${u})`);
+  }
+}
+for (const f of walk(DIST).filter((x) => /sitemap-\d+\.xml$/.test(x))) {
+  for (const m of readFileSync(f, 'utf8').matchAll(/<loc>([^<]+)<\/loc>/g)) if (!m[1].endsWith('/')) errors.push(`${relative(DIST, f)}: <loc> without trailing slash (${m[1]})`);
+}
 
 if (errors.length) {
   console.error(`guarantees: ${errors.length} problem(s)\n  ` + errors.join('\n  '));
@@ -251,5 +263,5 @@ console.log(
     Object.entries(seen)
       .map(([p, ids]) => `${p} [${ids.join(',') || '—'}]`)
       .join(' · ') +
-    ` · no «سپرده» anywhere (${files.length} pages) · consent text on every form · calculator FAQ exact · landline ۰۲۱-۹۱۳۰۳۸۱۹ only · address + PostalAddress · home canonical = sitemap · fast sections: no-guarantor = 1 per type by max مبلغ دریافتی without a guarantor (caps from data), no-cheque = fastest ≤3, no repeated name, + callback, no time promise · ${cardCount} plan cards = 3 figures + one button`,
+    ` · no «سپرده» anywhere (${files.length} pages) · consent text on every form · calculator FAQ exact · landline ۰۲۱-۹۱۳۰۳۸۱۹ only · address + PostalAddress · home canonical = sitemap · canonical/og:url/sitemap locs end with / · fast sections: no-guarantor = 1 per type by max مبلغ دریافتی without a guarantor (caps from data), no-cheque = fastest ≤3, no repeated name, + callback, no time promise · ${cardCount} plan cards = 3 figures + one button`,
 );
