@@ -16,7 +16,8 @@
     "test:dashboard-no-landline": "node scripts/dashboard-no-landline-fixture.mjs",
     "test:plan-finder-default": "node --experimental-strip-types scripts/plan-finder-default-fixture.mjs",
     "test:portal-unread-badge": "node --experimental-strip-types scripts/portal-unread-badge-fixture.mjs",
-    "test:no-landline": "node scripts/no-landline-check.mjs"
+    "test:no-landline": "node scripts/no-landline-check.mjs",
+    "test:no-sepordeh": "node scripts/no-sepordeh-check.mjs"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
