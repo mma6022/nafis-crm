@@ -5,6 +5,7 @@ import {
   AlertCircle, ArrowLeft, ArrowRight, ArrowUp, Ban, ChevronDown, ChevronLeft, Compass, FileText, Hourglass, Home, Info,
   LifeBuoy, List, LogOut, MessageSquare, RefreshCw, Search, UserRound, Wallet,
 } from 'lucide-react';
+import { unreadBadge } from './unread-badge';
 import { portalApi, PortalApiError, type Application, type ConsultationMessage, type Profile } from './api';
 import { IdentityPage } from './Identity';
 import { IdentityDocumentUploads } from './IdentityDocumentUploads';
@@ -56,9 +57,9 @@ const useUnread = () => useQuery({ queryKey: ['customer', 'chat-thread'], queryF
 
 /** Mobile bottom tab bar (handoff §2). Hidden ≥1024px by CSS. */
 export function Tabbar() {
-  const [location] = useLocation(); const unread = useUnread();
+  const [location] = useLocation(); const badge = unreadBadge(useUnread(), isChat(location));
   return <nav className="nfp-tabbar" aria-label="بخش‌ها">{tabs.map(t => <Link key={t.key} href={t.href} aria-current={t.match(location) ? 'page' : undefined} data-testid={`tab-${t.key}`}>
-    <t.icon className="nfp-i" aria-hidden="true" />{t.label}{t.key === 'advice' && unread > 0 && <span className="nfp-n" aria-label={`${fa(unread)} پیام تازه`}>{fa(unread)}</span>}</Link>)}</nav>;
+    <t.icon className="nfp-i" aria-hidden="true" />{t.label}{t.key === 'advice' && badge && <span className="nfp-n" dir="ltr" aria-label={`${badge} پیام تازه`} data-testid="badge-tab-chat-unread">{badge}</span>}</Link>)}</nav>;
 }
 
 function ApplyFrame({ children }: { children: ReactNode }) {
@@ -101,15 +102,16 @@ function CustomerShell({ profile, children }: { profile: Profile; children: Reac
   const logout = useMutation({ mutationFn: portalApi.logout, onSuccess: () => { queryClient.removeQueries({ queryKey: ['customer'] }); navigate('/customer/login'); }, onError: e => setLogoutError(message(e)) });
   const detail = isDetail(location), apply = isApply(location), chat = isChat(location), sub = detail || apply || isWalletFlow(location);
   const subHd = sub || isFinder(location);
+  const badge = unreadBadge(unread, chat);
   return <div className={`cp nfp${chat ? ' nfp-v-chat' : ''}`}>
     <header className="nfp-hd"><div className="nfp-hd-in">
       <Link href="/customer" className="nfp-logo" aria-label="نفیس وام — خانه" data-testid="link-customer-home"><img src={logoUrl} alt="نفیس وام" /></Link>
       <nav className="nfp-nav" aria-label="بخش‌ها">{tabs.map(t => <Link key={t.key} href={t.href} aria-current={t.match(location) ? 'page' : undefined} data-testid={t.nav}>
-        <t.icon className="nfp-i nfp-s" aria-hidden="true" />{t.label}{t.key === 'advice' && unread > 0 && <span className="nfp-n" aria-label={`${fa(unread)} پیام تازه`}>{fa(unread)}</span>}</Link>)}</nav>
+        <t.icon className="nfp-i nfp-s" aria-hidden="true" />{t.label}{t.key === 'advice' && badge && <span className="nfp-n" dir="ltr" aria-label={`${badge} پیام تازه`} data-testid="badge-nav-chat-unread">{badge}</span>}</Link>)}</nav>
       <span className="nfp-sp" />
       {profile.name && <span className="nfp-who"><span className="nfp-av" aria-hidden="true">{initials(profile.name)}</span>{profile.name}</span>}
       <ExpertPickerButton className="nfp-icon-btn" ariaLabel="تماس با کارشناس" testId="button-header-call" />
-      <Link className="nfp-icon-btn nfp-m-only" href={CHAT_HREF} aria-label={unread ? `گفتگو با کارشناس — ${fa(unread)} پیام تازه` : 'گفتگو با کارشناس'} data-testid="link-header-chat"><Icon icon={MessageSquare} />{unread > 0 && <span className="nfp-dot" />}</Link>
+      <Link className="nfp-icon-btn nfp-m-only" href={CHAT_HREF} aria-label={badge ? `گفتگو با کارشناس — ${badge} پیام تازه` : 'گفتگو با کارشناس'} data-testid="link-header-chat"><Icon icon={MessageSquare} />{badge && <span className="nfp-dot" />}</Link>
       <button type="button" className="nfp-icon-btn nfp-logout" aria-label="خروج از حساب" title="خروج" onClick={() => logout.mutate()} disabled={logout.isPending} data-testid="button-customer-logout"><Icon icon={LogOut} /></button>
     </div></header>
     <SubHeader location={location} />

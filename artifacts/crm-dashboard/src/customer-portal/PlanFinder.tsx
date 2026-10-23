@@ -5,7 +5,7 @@ import { getPublicLoanPlan, type PublicLoanPlanDetails } from '@workspace/api-cl
 import { AlertCircle, ArrowRight, Bot, ChevronLeft, Clock, List, Lock, MessageCircle, MessageSquare, RefreshCw, Search, Sparkles } from 'lucide-react';
 import { PortalApiError, portalApi, type PlanFinderMatch } from './api';
 import { buildPlanFinderRequest, planFinderYes as yes } from './plan-finder-answers';
-import { calculatorCeiling, calculatorDurations, customerPayout, monthlyPmt, parseCalculatorAmount, planAnnualInterest } from './plan-calculator-values';
+import { planFinderCalc, type PlanFinderCalc } from './plan-finder-math';
 import { ErrorBox, Icon, fa } from './PortalUi';
 import { Crumb, ExpertButton, ExpertLink, HelpCard, Toman } from './Portal2Ui';
 
@@ -122,18 +122,9 @@ export function PlanFinder() {
 }
 
 /* ---------- results ---------- */
-type Calc = { durations: number[]; payout: (n: number) => number | null; installment: (n: number) => number | null; best: number | null };
+type Calc = PlanFinderCalc;
 function planMath(m: PlanFinderMatch, plan?: PublicLoanPlanDetails): Calc | null {
-  if (!plan) return null;
-  const durations = calculatorDurations(plan);
-  const customerMax = parseCalculatorAmount(m.customerMaximumAmount);
-  // Principal for a duration: the plan's own ceiling (PlanCalculator), capped by the customer's maximum when the server sends one.
-  const principal = (n: number) => { const c = calculatorCeiling(plan, n); return c != null && customerMax != null ? Math.min(c, customerMax) : c ?? customerMax; };
-  const payout = (n: number) => { const p = principal(n); return p == null ? null : customerPayout(plan, p, n); };
-  const installment = (n: number) => { const p = principal(n); const r = planAnnualInterest(plan, n); return p == null || r == null ? null : monthlyPmt(p, r, n); };
-  let best: number | null = null; let top = -1;
-  for (const n of durations) { const v = payout(n) ?? -1; if (v > top) { top = v; best = n; } }
-  return { durations, payout, installment, best: best ?? durations[0] ?? null };
+  return plan ? planFinderCalc(plan, m.customerMaximumAmount) : null;
 }
 
 function Results({ matches, onEdit, titleRef }: { matches: PlanFinderMatch[]; onEdit: () => void; titleRef: RefObject<HTMLHeadingElement | null> }) {
