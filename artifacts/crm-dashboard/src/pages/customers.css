@@ -392,3 +392,14 @@ a.csx-primary, a.csx-ghost, a.csx-call { text-decoration: none; }
 .csx .board-card-name > div { flex-wrap: wrap; }
 .csx .board-card-name .row-action { min-width: 32px; min-height: 32px; white-space: nowrap; font-size: 12px; display: inline-grid; place-items: center; border-radius: 8px; }
 .csx .board-card { border-radius: 14px; }
+
+/* Loan business-status pills (handoff crm-loan-request §3) — shared by «مشتریان» and «درخواست تسهیلات». */
+.csx-st[data-bs="waiting_sales"] { --c: var(--nf-gold-700); --b: var(--nf-gold-50); }
+.csx-st[data-bs="waiting_customer_signature"] { --c: #6941C6; --b: #F4F0FD; }
+.csx-st[data-bs="waiting_registration"] { --c: #0B6E99; --b: #E6F4FA; }
+.csx-st[data-bs="waiting_funder_approval"] { --c: #9A3412; --b: #FFF1E8; }
+.csx-st[data-bs="waiting_wallet_charge"] { --c: var(--nf-brand-700); --b: var(--nf-brand-50); }
+.csx-st[data-bs="wallet_charged"] { --c: #065F46; --b: #E3F6EF; }
+.csx-st[data-bs="completed"] { --c: var(--nf-success); --b: var(--nf-success-50); }
+.csx-st[data-bs="canceled"] { --c: var(--nf-ink-muted); --b: var(--nf-surface-2); }
+.csx-loan-stage { font-size: 14px; color: var(--nf-ink-2, var(--nf-ink)); font-weight: 600; }

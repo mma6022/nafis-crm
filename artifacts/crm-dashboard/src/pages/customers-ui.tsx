@@ -56,7 +56,7 @@ export function initialsOf(name: string) {
 }
 
 /** Keeps focus inside a sheet/dialog, closes on Escape, restores focus to the opener on unmount. */
-function useDialogFocus(onClose: () => void, initialSelector?: string) {
+export function useDialogFocus(onClose: () => void, initialSelector?: string) {
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -96,9 +96,9 @@ export function Sheet({ title, onClose, children, footer, side, testId, initialF
   </>;
 }
 
-export function ConfirmDialog({ title, children, confirmLabel, pendingLabel, pending, error, onConfirm, onClose, testId }: {
+export function ConfirmDialog({ title, children, confirmLabel, pendingLabel, pending, error, onConfirm, onClose, testId, cancelLabel = 'انصراف', tone = 'danger' }: {
   title: string; children: ReactNode; confirmLabel: string; pendingLabel?: string; pending?: boolean; error?: string;
-  onConfirm: () => void; onClose: () => void; testId?: string;
+  onConfirm: () => void; onClose: () => void; testId?: string; cancelLabel?: string; tone?: 'danger' | 'primary';
 }) {
   const ref = useDialogFocus(onClose, '[data-autofocus]');
   return <>
@@ -108,8 +108,8 @@ export function ConfirmDialog({ title, children, confirmLabel, pendingLabel, pen
       <div id="csx-dlg-desc" style={{ display: 'grid', gap: 8 }}>{children}</div>
       {error ? <div className="csx-note bad" role="alert"><p>{error}</p></div> : null}
       <div className="acts">
-        <button type="button" className="csx-danger" onClick={onConfirm} disabled={pending} data-testid={testId ? `${testId}-confirm` : undefined}>{pending ? (pendingLabel ?? 'در حال انجام…') : confirmLabel}</button>
-        <button type="button" className="csx-ghost" onClick={onClose} data-autofocus>انصراف</button>
+        <button type="button" className={tone === 'danger' ? 'csx-danger' : 'csx-primary'} onClick={onConfirm} disabled={pending} data-testid={testId ? `${testId}-confirm` : undefined}>{pending ? (pendingLabel ?? 'در حال انجام…') : confirmLabel}</button>
+        <button type="button" className="csx-ghost" onClick={onClose} data-autofocus data-testid={testId ? `${testId}-cancel` : undefined}>{cancelLabel}</button>
       </div>
     </div>
   </>;

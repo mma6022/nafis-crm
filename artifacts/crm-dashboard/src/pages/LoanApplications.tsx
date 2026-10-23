@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useTableState } from '@/hooks/use-table-state';
-import { useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import {
   useListLoanApplications,
@@ -9,24 +9,20 @@ import {
   getListLoanApplicationsQueryKey,
   useGetAuthSession,
   getGetAuthSessionQueryKey,
+  useGetLoanApplicationDashboardStats,
+  getGetLoanApplicationDashboardStatsQueryKey,
   type LoanApplication,
   type ListLoanApplicationsParams,
 } from "@workspace/api-client-react";
-import {
-  Plus,
-  Search,
-  Trash2,
-  Clock,
-  LayoutList,
-  Kanban,
-  CheckCircle,
-  XCircle,
-} from "lucide-react";
-import { SkeletonPanel, ErrorState, formatDate } from "@/components/CrmShell";
-import { Modal, EmptyState } from "@/components/DataTools";
+import { AlertCircle, ChevronLeft, ChevronRight, Clock, Eye, FileClock, Inbox, Info, Kanban, LayoutList, Lock, Plus, RotateCcw, Search, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { CreateWizard } from "@/components/loan-applications/CreateWizard";
 import { AttributionReview } from "@/components/loan-applications/AttributionReview";
 import { PersianDatePicker } from "@/components/PersianDatePicker";
+import { ConfirmDialog, Sheet, jalaliDate, relativeTime, useMinWidth } from "./customers-ui";
+import { BUSINESS_STATUS_LABELS, ACTION_ROLE_NAMES, WIZARD_DISPLAY_STEPS, WIZARD_TOTAL_STEPS, loanBusinessStatus, loanStageLabel } from "@/lib/loan-labels";
+import { clearLoanDraft, listLoanDrafts, loanWizardHref, type LoanDraft } from "@/lib/loan-draft";
+import "./customers.css";
+import "./loan-requests.css";
 
 const STAGE_LABELS: Record<string, string> = {
   draft: "پیش‌نویس",
@@ -58,45 +54,45 @@ const STATUS_LABELS: Record<string, string> = {
   rejected: "رد شده",
 };
 
-const STATUS_STYLES: Record<string, string> = {
-  requested: "status-new",
-  reviewing: "status-active",
-  approved: "status-active",
-  rejected: "status-failed",
-};
-
-const BUSINESS_STATUS_LABELS: Record<string, string> = {
-  waiting_sales: "در انتظار اقدام کارشناس فروش",
-  waiting_customer_signature: "در انتظار امضای قرارداد توسط مشتری",
-  waiting_registration: "در انتظار اقدام کارشناس ثبت",
-  waiting_funder_approval: "در انتظار تایید تامین‌کننده مالی",
-  waiting_wallet_charge: "در انتظار تأیید شارژ توسط کارشناس ثبت",
-  wallet_charged: "در انتظار تأیید نهایی مدیر",
-  canceled: "لغو شده",
-  completed: "تکمیل شده",
-};
-
 const BOARD_COLUMNS = Object.keys(BUSINESS_STATUS_LABELS);
-const ACTION_ROLE_LABELS: Record<string, string> = {
-  salesperson: "کارشناس فروش",
-  registrar: "کارشناس ثبت",
-  admin: "مدیر",
-};
+const fa = (n: number) => n.toLocaleString("fa-IR");
+const toman = (value?: string | null) => { try { return BigInt(value || "0").toLocaleString("fa-IR"); } catch { return value || "—"; } };
+type LoanRow = LoanApplication & { customerSalespersonName?: string | null; customerSubmitted?: boolean };
+
+function turnLabel(app: LoanRow, bs: string) {
+  if (bs === "completed" || bs === "canceled") return "—";
+  if (app.actionRequired) return "شما";
+  if (bs === "waiting_customer_signature") return "مشتری";
+  return app.actionRole ? ACTION_ROLE_NAMES[app.actionRole] ?? app.actionRole : "—";
+}
+
+function StatusCell({ app }: { app: LoanRow }) {
+  const bs = loanBusinessStatus(app);
+  const stage = bs !== "canceled" && bs !== "completed" ? loanStageLabel(app.stage) : "";
+  return <div className="lrx-st">
+    {bs && BUSINESS_STATUS_LABELS[bs] ? <span className="csx-st" data-bs={bs}>{BUSINESS_STATUS_LABELS[bs]}</span> : <span className="csx-st" data-bs="waiting_registration">{STATUS_LABELS[app.status] || app.status}</span>}
+    {stage ? <small>مرحله: {stage}</small> : null}
+  </div>;
+}
 
 export default function LoanApplications() {
   const queryClient = useQueryClient();
   const initialParams = useMemo(() => new URLSearchParams(window.location.search), []);
+  const isDesktop = useMinWidth(1024);
 
   const { data: session } = useGetAuthSession({
     query: { queryKey: getGetAuthSessionQueryKey(), retry: false },
   });
   const user = session?.user;
+  const canView = user?.role === "admin" || Boolean(user?.permissions?.includes("loan_applications.view"));
   const canCreate =
     user?.role === "admin" ||
     user?.permissions?.includes("loan_applications.create");
   const canDelete =
     user?.role === "admin" ||
     user?.permissions?.includes("loan_applications.delete");
+  const isFunder = user?.role === "funder";
+  const isSalesperson = user?.role === "salesperson";
 
   const [view, setView] = useTableState<'table' | 'board'>('applications.view', 'table');
   const [tab, setTab] = useTableState<"mine" | "progress" | "all">('applications.tab', () => {
@@ -115,6 +111,7 @@ export default function LoanApplications() {
   const [planFilter, setPlanFilter] = useTableState('applications.plan', "");
   const [dateFrom, setDateFrom] = useTableState('applications.dateFrom', "");
   const [dateTo, setDateTo] = useTableState('applications.dateTo', "");
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const [wizardOpen, setWizardOpen] = useState(false);
   // Entry point from the customer page (?new=1&customerId=<id>&from=customer[&draft=1]).
@@ -134,10 +131,23 @@ export default function LoanApplications() {
   const [deleteConfirm, setDeleteConfirm] = useState<LoanApplication | null>(null);
   const [reviewOpen, setReviewOpen] = useState(initialParams.get("review") === "historical");
 
+  // Local wizard drafts (this device only) for the banner above the list.
+  const [drafts, setDrafts] = useState<LoanDraft[]>([]);
+  const [draftsOpen, setDraftsOpen] = useState(false);
+  const [draftToDelete, setDraftToDelete] = useState<LoanDraft | null>(null);
+  useEffect(() => {
+    const refresh = () => setDrafts(canCreate ? listLoanDrafts(user?.id) : []);
+    refresh();
+    window.addEventListener("nafis-loan-draft", refresh);
+    window.addEventListener("storage", refresh);
+    return () => { window.removeEventListener("nafis-loan-draft", refresh); window.removeEventListener("storage", refresh); };
+  }, [user?.id, canCreate, entryOpen, wizardOpen]);
+
   // Parse status and stage from a combined filter
   const isStageFilter = STAGE_LABELS[statusFilter] !== undefined;
   const statusParam = isStageFilter ? undefined : statusFilter || undefined;
   const stageParam = isStageFilter ? statusFilter : undefined;
+  const boardView = view === "board" && isDesktop;
 
   const queryParams: ListLoanApplicationsParams = {
     page,
@@ -150,7 +160,7 @@ export default function LoanApplications() {
     dateTo: dateTo || undefined,
     actionable: actionableOnly || undefined,
     caseScope,
-    mode: view === "board" ? "board" : "list",
+    mode: boardView ? "board" : "list",
   };
 
   const {
@@ -160,7 +170,10 @@ export default function LoanApplications() {
     isFetching,
     refetch,
   } = useListLoanApplications(queryParams, {
-    query: { queryKey: getListLoanApplicationsQueryKey(queryParams), refetchInterval: 15000, placeholderData: (prev) => prev },
+    query: { queryKey: getListLoanApplicationsQueryKey(queryParams), refetchInterval: 15000, placeholderData: (prev) => prev, enabled: canView },
+  });
+  const { data: stats } = useGetLoanApplicationDashboardStats({
+    query: { queryKey: getGetLoanApplicationDashboardStatsQueryKey(), enabled: canView, staleTime: 30_000 },
   });
 
   const { data: plansData } = useListLoanPlans({ active: true });
@@ -177,398 +190,274 @@ export default function LoanApplications() {
     },
   });
 
-  const apps = appsPage?.items || [];
+  const apps = (appsPage?.items || []) as LoanRow[];
   const total = (appsPage as { total?: number } | undefined)?.total;
   const pageCount = total === undefined ? undefined : Math.max(1, Math.ceil(total / pageSize));
   useEffect(() => { if (appsPage?.page === page && pageCount !== undefined && page > pageCount) setPage(pageCount); }, [appsPage, pageCount, page]);
   const resetTo = <T,>(set: (v: T) => void) => (v: T) => { set(v); setPage(1); };
-  const fa = (n: number) => n.toLocaleString("fa-IR");
+  const filterCount = [statusFilter, planFilter, dateFrom || dateTo].filter(Boolean).length;
+  const hasQuery = Boolean(search || filterCount);
+  const clearFilters = () => { setStatusFilter(""); setPlanFilter(""); setDateFrom(""); setDateTo(""); setPage(1); };
 
   const boardGroups = useMemo(() => {
-    if (view !== 'board') return {};
-    const groups: Record<string, LoanApplication[]> = {};
+    if (!boardView) return {};
+    const groups: Record<string, LoanRow[]> = {};
     BOARD_COLUMNS.forEach(col => groups[col] = []);
     apps.forEach(app => {
-       const key = app.businessStatus || "other";
+       const key = loanBusinessStatus(app) || "other";
        if (!groups[key]) groups[key] = [];
        groups[key].push(app);
     });
     return groups;
-  }, [apps, view]);
+  }, [apps, boardView]);
+
+  if (session && !canView) {
+    return <section className="csx lrx" dir="rtl">
+      <div className="csx-empty lock" data-testid="loan-applications-denied">
+        <div className="big"><Lock size={34} aria-hidden="true" /></div>
+        <h2>به درخواست‌های تسهیلات دسترسی ندارید</h2>
+        <p>این بخش برای نقش شما فعال نیست. اگر فکر می‌کنید باید دسترسی داشته باشید، با مدیر سامانه هماهنگ کنید.</p>
+        <div className="acts"><Link href="/" className="csx-primary">بازگشت به داشبورد</Link></div>
+      </div>
+    </section>;
+  }
+
+  const tabs: Array<{ key: "mine" | "progress" | "all"; label: string; count?: number; testId: string }> = [
+    { key: "mine", label: "کارتابل من", count: stats?.awaitingAction, testId: "btn-view-actionable" },
+    { key: "progress", label: "در جریان", count: stats?.inProgress, testId: "btn-view-in-progress" },
+    { key: "all", label: "همه پرونده‌ها", count: tab === "all" && !hasQuery ? total : undefined, testId: "btn-view-all" },
+  ];
+
+  const openDraft = (draft: LoanDraft) => setLocation(loanWizardHref(draft.customerId, true, "list"));
+  const draftStep = (draft: LoanDraft) => `مرحله ${fa(draft.step)} از ${fa(WIZARD_TOTAL_STEPS)}`;
+  const draftBanner = !reviewOpen && drafts.length ? <div className="lrx-draft" role="region" aria-label="پیش‌نویس ناتمام" data-testid="loan-draft-banner">
+    <FileClock size={22} aria-hidden="true" />
+    {drafts.length === 1
+      ? <p><b>پیش‌نویس ناتمام:</b> {drafts[0].customerName} · {draftStep(drafts[0])} ({WIZARD_DISPLAY_STEPS[drafts[0].step - 1]?.label}) · ذخیره‌شده {relativeTime(drafts[0].updatedAt)}</p>
+      : <p><b>{fa(drafts.length)} پیش‌نویس ناتمام</b> روی همین دستگاه · آخرین: {drafts[0].customerName}، {relativeTime(drafts[0].updatedAt)}</p>}
+    <div className="acts">
+      {drafts.length === 1
+        ? <><button type="button" className="csx-ghost sm" onClick={() => openDraft(drafts[0])} data-testid="button-resume-loan-draft">ادامه پیش‌نویس</button>
+          <button type="button" className="csx-link" onClick={() => setDraftToDelete(drafts[0])} data-testid="button-delete-loan-draft">حذف پیش‌نویس</button></>
+        : <button type="button" className="csx-ghost sm" onClick={() => setDraftsOpen(true)} data-testid="button-choose-loan-draft">انتخاب پیش‌نویس</button>}
+    </div>
+  </div> : null;
+
+  const roleNote = !reviewOpen && isFunder ? <div className="csx-note" role="note" data-testid="loan-role-note-funder"><Eye size={18} aria-hidden="true" /><p><b>فقط مشاهده.</b> نمای تأمین‌کننده مالی: پرونده‌ها را می‌بینید؛ ثبت تصمیم شما در سامانه توسط ثبت‌نام‌کننده انجام می‌شود.</p></div>
+    : !reviewOpen && isSalesperson ? <div className="csx-note" role="note" data-testid="loan-role-note-salesperson"><Info size={18} aria-hidden="true" /><p>فقط پرونده‌های مشتریانی که به شما تخصیص داده شده‌اند نمایش داده می‌شوند.</p></div> : null;
+
+  const actionLink = (app: LoanRow, compact = false) => <Link
+    href={`/loan-applications/${app.id}`}
+    className={app.actionRequired && !compact ? "csx-primary" : "csx-ghost sm"}
+    data-testid={`link-loan-action-${app.id}`}
+  >{app.actionRequired ? "اقدام" : compact ? "مشاهده" : "مشاهده پرونده"}</Link>;
+
+  const deleteButton = (app: LoanRow) => canDelete ? <button type="button" className="csx-ib" aria-label={`حذف پرونده ${fa(app.id)}`} onClick={() => setDeleteConfirm(app)} data-testid={`button-delete-loan-${app.id}`}><Trash2 size={18} /></button> : null;
+
+  const body = isLoading ? <div aria-busy="true" aria-label="در حال دریافت پرونده‌ها" data-testid="loan-list-loading">
+      <div className="csx-list csx-skcards">{[0, 1, 2].map((i) => <div key={i} className="csx-skcard"><span className="csx-sk" style={{ height: 22, width: "45%" }} /><span className="csx-sk" style={{ height: 18, width: "70%" }} /><span className="csx-sk" style={{ height: 18, width: "55%" }} /><span className="csx-sk" style={{ height: 48 }} /></div>)}</div>
+      <div className="csx-sktable">{[0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="row">{[0, 1, 2, 3, 4, 5].map((j) => <span key={j} className="csx-sk" style={{ height: 18 }} />)}</div>)}</div>
+    </div>
+    : isError ? <div className="csx-empty err" role="alert" data-testid="loan-list-error">
+      <div className="big"><AlertCircle size={32} aria-hidden="true" /></div>
+      <h2>پرونده‌ها دریافت نشد</h2>
+      <p>ارتباط با سرور برقرار نشد. اتصال را بررسی کنید و دوباره تلاش کنید.</p>
+      <div className="acts"><button type="button" className="csx-primary" onClick={() => refetch()} data-testid="button-retry-loans"><RotateCcw size={18} /> تلاش دوباره</button></div>
+    </div>
+    : !apps.length ? <div className="csx-empty" data-testid="loan-list-empty">
+      <div className="big">{hasQuery ? <Search size={30} aria-hidden="true" /> : <Inbox size={30} aria-hidden="true" />}</div>
+      {hasQuery ? <><h2>درخواستی یافت نشد</h2><p>با جستجو و فیلترهای فعلی هیچ درخواست تسهیلاتی پیدا نشد.</p><div className="acts"><button type="button" className="csx-ghost" onClick={() => { setSearch(""); clearFilters(); }}>پاک کردن جستجو و فیلترها</button></div></>
+        : tab === "mine" ? <><h2>کارتابل شما خالی است</h2><p>الان پرونده‌ای منتظر اقدام شما نیست. پرونده‌های دیگر در «در جریان» و «همه پرونده‌ها» هستند.</p><div className="acts"><button type="button" className="csx-ghost" onClick={() => { setTab("progress"); setPage(1); }}>مشاهده پرونده‌های در جریان</button></div></>
+        : <><h2>درخواستی یافت نشد</h2><p>هنوز پرونده‌ای در این بخش نیست.</p></>}
+    </div>
+    : boardView ? <div className="lrx-board" role="region" aria-label="بُرد پرونده‌ها" tabIndex={0} data-testid="loan-board">
+      {Object.entries(boardGroups).map(([columnName, columnApps]) => (
+        <div key={columnName} className="lrx-col">
+          <div className="lrx-colh"><span className="csx-st" data-bs={columnName}>{BUSINESS_STATUS_LABELS[columnName] || "سایر"}</span><span className="n" aria-label={`${fa(columnApps.length)} پرونده در این صفحه`}>{fa(columnApps.length)}</span></div>
+          <div className="lrx-colb">
+            {columnApps.map(app => (
+              <Link key={app.id} href={`/loan-applications/${app.id}`} className={`lrx-bcard${app.actionRequired ? " hl" : ""}`} data-testid={`board-card-${app.id}`}>
+                <b>{app.customerName || "مشتری ناشناس"}</b>
+                <span className="muted">#{fa(app.id)} · {app.planName || "بدون طرح"}</span>
+                <span className="amt">{toman(app.requestedAmount)} <small>تومان</small></span>
+                {app.stage && columnName !== "completed" && columnName !== "canceled" ? <span className="muted">مرحله: {loanStageLabel(app.stage)}</span> : null}
+                {app.actionRequired ? <span className="csx-tag warn">نیازمند اقدام شما</span> : null}
+              </Link>
+            ))}
+            {columnApps.length === 0 && <div className="lrx-colempty">پرونده‌ای در این مرحله نیست.</div>}
+          </div>
+        </div>
+      ))}
+    </div>
+    : <>
+      <div className="csx-list cards" data-testid="loan-cards">
+        {apps.map((app) => {
+          const bs = loanBusinessStatus(app);
+          const duration = app.durationMonths ?? app.requestedDurationMonths;
+          const stage = bs !== "canceled" && bs !== "completed" ? loanStageLabel(app.stage) : "";
+          return <article key={app.id} className={`csx-card lrx-card${app.actionRequired ? " hl" : ""}`} data-testid={`loan-card-${app.id}`}>
+            <div className="r1">{bs && BUSINESS_STATUS_LABELS[bs] ? <span className="csx-st" data-bs={bs}>{BUSINESS_STATUS_LABELS[bs]}</span> : <span className="csx-st" data-bs="waiting_registration">{STATUS_LABELS[app.status] || app.status}</span>}<span className="age"><Clock size={15} aria-hidden="true" /> {relativeTime(app.createdAt)}</span></div>
+            {app.actionRequired ? <span className="csx-tag bad lrx-need"><AlertCircle size={15} aria-hidden="true" /> نیازمند اقدام شما</span> : null}
+            <h3 className="nm"><Link href={`/loan-applications/${app.id}`}>{app.customerName || "مشتری ناشناس"}</Link></h3>
+            <div className="muted">پرونده <b className="lrx-id">#{fa(app.id)}</b> · {app.planName || "بدون طرح"}{app.customerSubmitted ? <> <span className="csx-tag info" data-testid={`tag-customer-submitted-${app.id}`}>درخواست مشتری ثبت</span></> : null}</div>
+            <div className="lrx-money"><b>{toman(app.requestedAmount)}</b> <span className="muted">تومان{duration ? ` · ${fa(Number(duration))} ماهه` : ""}</span></div>
+            {stage ? <div className="lrx-stage">مرحله: <b>{stage}</b></div> : null}
+            {!app.actionRequired && turnLabel(app, bs) !== "—" ? <div className="muted">نوبت اقدام: {turnLabel(app, bs)}</div> : null}
+            <div className="muted">{app.customerSalespersonName || "بدون کارشناس فروش"} · ثبت {jalaliDate(app.createdAt)}</div>
+            <div className="lrx-cact">{actionLink(app)}{deleteButton(app)}</div>
+          </article>;
+        })}
+      </div>
+      <div className="csx-tablewrap">
+        <table className="csx-table lrx-table" data-testid="loan-table">
+          <thead><tr><th scope="col">مشتری / پرونده · طرح</th><th scope="col">مبلغ (تومان)</th><th scope="col">وضعیت و مرحله</th><th scope="col">نوبت اقدام</th><th scope="col">کارشناس فروش / ثبت</th><th scope="col"><span className="csx-sr">عملیات</span></th></tr></thead>
+          <tbody>
+            {apps.map((app) => {
+              const bs = loanBusinessStatus(app);
+              const duration = app.durationMonths ?? app.requestedDurationMonths;
+              return <tr key={app.id} className={app.actionRequired ? "hl" : undefined} data-testid={`loan-row-${app.id}`}>
+                <td><p className="nm"><Link href={`/loan-applications/${app.id}`}>{app.customerName || "مشتری ناشناس"}</Link></p><span className="muted">#{fa(app.id)} · {app.planName || "بدون طرح"}</span>{app.customerSubmitted ? <div><span className="csx-tag info" data-testid={`tag-customer-submitted-${app.id}`}>درخواست مشتری ثبت</span></div> : null}</td>
+                <td><b className="lrx-amt">{toman(app.requestedAmount)}</b>{duration ? <div className="muted">{fa(Number(duration))} ماهه</div> : null}{app.approvedAmount ? <div className="lrx-ok">مصوب: {toman(app.approvedAmount)}</div> : null}</td>
+                <td><StatusCell app={app} /></td>
+                <td>{app.actionRequired ? <span className="csx-tag bad" title="نیازمند اقدام شما"><AlertCircle size={15} aria-hidden="true" /> شما</span> : <span>{turnLabel(app, bs)}</span>}</td>
+                <td><div>{app.customerSalespersonName || "بدون تخصیص"}</div><div className="muted">ثبت {jalaliDate(app.createdAt)}{app.salespersonNameSnapshot && app.salespersonNameSnapshot !== app.customerSalespersonName ? ` · ثبت‌کننده: ${app.salespersonNameSnapshot}` : ""}</div></td>
+                <td><div className="csx-tact">{actionLink(app, true)}{deleteButton(app)}</div></td>
+              </tr>;
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>;
+
+  const pager = !isLoading && !isError && apps.length ? <nav className="csx-pager loan-pager" aria-label="صفحه‌بندی" data-testid="loan-pager">
+    <label className="muted" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+      تعداد در صفحه
+      <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }} data-testid="select-page-size">
+        {[20, 50, 100].map((n) => <option key={n} value={n}>{fa(n)}</option>)}
+      </select>
+    </label>
+    <span className="muted" data-testid="text-page-info" aria-live="polite">
+      صفحه {fa(page)}{pageCount !== undefined ? ` از ${fa(pageCount)}` : ""}{total !== undefined ? ` · ${fa(total)} پرونده` : ""}{isFetching ? " · در حال به‌روزرسانی…" : ""}
+    </span>
+    <div className="pages">
+      <button type="button" className="csx-pg" aria-label="صفحه قبلی" disabled={page <= 1 || isFetching} onClick={() => setPage((p) => Math.max(1, p - 1))} data-testid="button-page-prev"><ChevronRight size={18} /></button>
+      <span className="csx-pg active" aria-current="page">{fa(page)}</span>
+      <button type="button" className="csx-pg" aria-label="صفحه بعدی" disabled={isFetching || (pageCount !== undefined ? page >= pageCount : apps.length < pageSize)} onClick={() => setPage((p) => p + 1)} data-testid="button-page-next"><ChevronLeft size={18} /></button>
+    </div>
+  </nav> : null;
+
+  const statusChoices = Object.entries(STATUS_LABELS);
+  const filterBody = <>
+    <div className="csx-fgrp" role="radiogroup" aria-label="وضعیت">
+      <span className="lbl">وضعیت</span>
+      <div className="csx-chips">
+        <button type="button" role="radio" className="csx-chip" aria-checked={!statusFilter || isStageFilter} onClick={() => { setStatusFilter(""); setPage(1); }}>همه</button>
+        {statusChoices.map(([k, v]) => <button key={k} type="button" role="radio" className="csx-chip" aria-checked={statusFilter === k} onClick={() => { setStatusFilter(k); setPage(1); }} data-testid={`chip-status-${k}`}>{v}</button>)}
+      </div>
+    </div>
+    <div className="csx-fgrp">
+      <label className="lbl" htmlFor="loan-filter-stage">مرحله</label>
+      <select id="loan-filter-stage" className="csx-inp" value={isStageFilter ? statusFilter : ""} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} data-testid="select-filter-stage">
+        <option value="">همه مراحل</option>
+        {Object.entries(STAGE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+      </select>
+      <p className="hint">وضعیت و مرحله یک فیلتر مشترک‌اند؛ انتخاب یکی، دیگری را برمی‌دارد.</p>
+    </div>
+    <div className="csx-fgrp">
+      <label className="lbl" htmlFor="loan-filter-plan">طرح تسهیلات</label>
+      <select id="loan-filter-plan" className="csx-inp" value={planFilter} onChange={(e) => { setPlanFilter(e.target.value); setPage(1); }} data-testid="select-filter-plan">
+        <option value="">همه طرح‌ها</option>
+        {plans.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+    </div>
+    <div className="csx-fgrp">
+      <span className="lbl">تاریخ ثبت</span>
+      <div className="csx-two">
+        <label className="csx-fld"><span className="muted">از تاریخ</span><PersianDatePicker value={dateFrom} onChange={resetTo(setDateFrom)} /></label>
+        <label className="csx-fld"><span className="muted">تا تاریخ</span><PersianDatePicker value={dateTo} onChange={resetTo(setDateTo)} /></label>
+      </div>
+    </div>
+  </>;
+
+  const searchBox = <label className="csx-search">
+    <Search size={20} aria-hidden="true" />
+    <span className="csx-sr">جستجو</span>
+    <input type="search" placeholder="نام مشتری یا شماره پرونده" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} data-testid="input-loan-search" />
+    {search ? <button type="button" className="csx-ib" style={{ width: 36, height: 36 }} aria-label="پاک کردن جستجو" onClick={() => { setSearch(""); setPage(1); }}><X size={18} /></button> : null}
+  </label>;
+  const adminToggle = user?.role === "admin" ? <button type="button" className="csx-link" aria-pressed={reviewOpen} onClick={() => setReviewOpen(!reviewOpen)} data-testid="button-toggle-attribution-review">
+    {reviewOpen ? "بازگشت به پرونده‌ها" : "بازبینی کارشناس پرونده‌های قدیمی"}
+  </button> : null;
 
   return (
-    <section className="data-page">
-      <div className="page-intro" style={{ alignItems: 'flex-start' }}>
-        <div>
-          <div className="eyebrow">جریان کار</div>
-          <h2>درخواست‌های تسهیلات</h2>
-          <p>مدیریت جامع پرونده‌های مالی مشتریان از درخواست تا پرداخت.</p>
-        </div>
-        <div className="la-intro-actions" style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-end' }}>
-           <div className="la-row" style={{ display: 'flex', gap: 10 }}>
-              {user?.role === "admin" && <button className={`btn ${reviewOpen ? "btn-primary" : "btn-ghost"}`} onClick={() => setReviewOpen(!reviewOpen)}>
-                {reviewOpen ? "بازگشت به پرونده‌ها" : "بازبینی کارشناس پرونده‌های قدیمی"}
-              </button>}
-             {canCreate && (
-               <button
-                 className="btn btn-primary"
-                 onClick={() => setWizardOpen(true)}
-               >
-                 <Plus size={16} /> ثبت درخواست جدید
-               </button>
-             )}
-           </div>
-            {!reviewOpen && <div className="la-row" style={{ display: 'flex', gap: 10 }}>
-              <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '12px', gap: '4px' }}>
-                 <button className={`view-toggle-btn ${tab === 'mine' ? 'active' : ''}`} onClick={() => { setTab('mine'); setPage(1); }} data-testid="btn-view-actionable">کارتابل من</button>
-                 <button className={`view-toggle-btn ${tab === 'progress' ? 'active' : ''}`} onClick={() => { setTab('progress'); setPage(1); }} data-testid="btn-view-in-progress">در جریان</button>
-                 <button className={`view-toggle-btn ${tab === 'all' ? 'active' : ''}`} onClick={() => { setTab('all'); setPage(1); }} data-testid="btn-view-all">همه پرونده‌ها</button>
-             </div>
-              <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '12px', gap: '4px' }}>
-                <button className={`view-toggle-btn ${view === 'table' ? 'active' : ''}`} onClick={() => { setView('table'); setPage(1); }} data-testid="btn-view-table"><LayoutList size={15}/> جدول</button>
-                <button className={`view-toggle-btn ${view === 'board' ? 'active' : ''}`} onClick={() => { setView('board'); setPage(1); }} data-testid="btn-view-board"><Kanban size={15}/> بورد</button>
-              </div>
-            </div>}
-        </div>
+    <section className="csx lrx" dir="rtl" data-testid="loan-applications-page">
+      <header className="lrx-head">
+        <h1>درخواست‌های تسهیلات</h1>
+        {isDesktop && !reviewOpen ? searchBox : null}
+        {canCreate && isDesktop ? <button type="button" className="csx-primary" onClick={() => setWizardOpen(true)} data-testid="button-new-loan-application"><Plus size={20} /> ثبت درخواست جدید</button> : null}
+      </header>
+
+      {reviewOpen && user?.role === "admin" ? <>{adminToggle}<AttributionReview /></> : <>
+      <div className="csx-tabs lrx-tabs" role="tablist" aria-label="کارتابل">
+        {tabs.map((t) => <button key={t.key} type="button" role="tab" className="csx-tab" aria-selected={tab === t.key} onClick={() => { setTab(t.key); setPage(1); }} data-testid={t.testId}>
+          {t.label}{t.count !== undefined ? <span className="n" data-k={t.key}>{fa(t.count)}</span> : null}
+        </button>)}
       </div>
-
-      {reviewOpen && user?.role === "admin" ? <AttributionReview /> : <>
-      <div
-        className="toolbar"
-        style={{ display: "flex", flexDirection: "column", gap: 10 }}
-      >
-        <div className="la-row la-filters" style={{ display: "flex", gap: 10, width: "100%" }}>
-          <div className="searchbar" style={{ flex: 1 }}>
-            <Search size={16} />
-            <input
-              type="search"
-              placeholder="جستجوی نام مشتری یا شماره پرونده..."
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            />
-          </div>
-          <select
-            className="select-control"
-            value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-          >
-            <option value="">همه وضعیت‌ها و مراحل</option>
-            <optgroup label="وضعیت">
-              <option value="requested">درخواست شده</option>
-              <option value="reviewing">در حال بررسی</option>
-              <option value="approved">تأیید شده</option>
-              <option value="rejected">رد شده</option>
-            </optgroup>
-            <optgroup label="مرحله">
-              {Object.entries(STAGE_LABELS).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v}
-                </option>
-              ))}
-            </optgroup>
-          </select>
-          <select
-            className="select-control"
-            value={planFilter}
-            onChange={(e) => { setPlanFilter(e.target.value); setPage(1); }}
-          >
-            <option value="">همه طرح‌ها</option>
-            {plans.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+      {roleNote}
+      {draftBanner}
+      <div className="csx-tools lrx-tools">
+        {!isDesktop ? searchBox : null}
+        <button type="button" className="csx-fbtn" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog" data-testid="button-loan-filters"><SlidersHorizontal size={20} /> فیلتر{filterCount ? <span className="n">{fa(filterCount)}</span> : null}</button>
+        <div className="csx-viewseg" role="group" aria-label="نوع نمایش">
+          <button type="button" className={view !== "board" ? "active" : ""} aria-current={view !== "board" ? "true" : undefined} onClick={() => { setView("table"); setPage(1); }} data-testid="btn-view-table"><LayoutList size={18} /> فهرست</button>
+          <button type="button" className={view === "board" ? "active" : ""} aria-current={view === "board" ? "true" : undefined} onClick={() => { setView("board"); setPage(1); }} data-testid="btn-view-board"><Kanban size={18} /> بُرد</button>
         </div>
-        <div className="la-row la-dates" style={{ display: "flex", gap: 10, width: "100%", alignItems: "center" }}>
-          <span style={{ fontSize: 12, color: "#475569" }}>از تاریخ:</span>
-          <PersianDatePicker value={dateFrom} onChange={resetTo(setDateFrom)} />
-          <span style={{ fontSize: 12, color: "#475569" }}>تا تاریخ:</span>
-          <PersianDatePicker value={dateTo} onChange={resetTo(setDateTo)} />
-        </div>
+        <span className="grow" />
+        {adminToggle}
+        <span className="muted d-only">به‌روزرسانی خودکار هر ۱۵ ثانیه</span>
       </div>
+      {filterCount ? <div className="csx-activef" aria-label="فیلترهای فعال">
+        {statusFilter ? <button type="button" className="csx-chip rm" onClick={() => { setStatusFilter(""); setPage(1); }}>{STATUS_LABELS[statusFilter] || STAGE_LABELS[statusFilter] || statusFilter} <X size={14} aria-label="حذف فیلتر" /></button> : null}
+        {planFilter ? <button type="button" className="csx-chip rm" onClick={() => { setPlanFilter(""); setPage(1); }}>{plans.find((p) => String(p.id) === planFilter)?.name || "طرح"} <X size={14} aria-label="حذف فیلتر" /></button> : null}
+        {dateFrom || dateTo ? <button type="button" className="csx-chip rm" onClick={() => { setDateFrom(""); setDateTo(""); setPage(1); }}>بازه تاریخ <X size={14} aria-label="حذف فیلتر" /></button> : null}
+        <button type="button" className="csx-link" onClick={clearFilters}>پاک کردن همه</button>
+      </div> : null}
 
-      {isLoading ? (
-        <SkeletonPanel rows={6} />
-      ) : isError ? (
-        <ErrorState onRetry={() => refetch()} />
-      ) : view === 'table' ? (
-        <div className="customer-table-wrap">
-          <table className="customer-table">
-            <thead>
-              <tr>
-                <th>پرونده / مشتری</th>
-                <th>طرح تسهیلاتی</th>
-                <th>مبلغ درخواستی (تومان)</th>
-                <th>وضعیت / اقدام</th>
-                <th>تاریخ‌ها</th>
-                <th>عملیات</th>
-              </tr>
-            </thead>
-            <tbody>
-              {apps.length > 0 ? (
-                apps.map((app) => (
-                  <tr key={app.id} style={{ opacity: (!app.actionRequired && actionableOnly) ? 0.5 : 1 }}>
-                    <td>
-                      <Link
-                        href={`/loan-applications/${app.id}`}
-                        style={{ textDecoration: "none" }}
-                      >
-                        <strong
-                          className="customer-name"
-                          style={{
-                            color: "var(--nafiss-blue)",
-                            display: "block",
-                            fontSize: 13,
-                          }}
-                        >
-                          {app.customerName || "مشتری ناشناس"}
-                        </strong>
-                        {(app as { customerSubmitted?: boolean }).customerSubmitted ? <span data-testid={`tag-customer-submitted-${app.id}`} style={{ display: "inline-block", fontSize: 10, padding: "1px 7px", borderRadius: 9, background: "#f3ecdb", color: "#7a5a1f", fontWeight: 700, marginTop: 3 }}>درخواست مشتری ثبت</span> : null}
-                        <span style={{ display: "block", fontSize: 10, color: "#64748b", marginTop: 2 }}>
-                          کارشناس فروش فعلی: {(app as LoanApplication & { customerSalespersonName?: string | null }).customerSalespersonName || "بدون تخصیص"}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: 10,
-                            color: "#64748b",
-                            fontFamily: "var(--font-mono)",
-                          }}
-                        >
-                          پرونده #{app.id}
-                        </span>
-                        <span style={{ display: "block", fontSize: 10, color: "#64748b", marginTop: 2 }}>
-                          کارشناس فروش ثبت‌شده: {app.salespersonNameSnapshot || "ثبت نشده"}
-                        </span>
-                      </Link>
-                    </td>
-                    <td>
-                      <span style={{ fontWeight: 600, color: "#334155" }}>
-                        {app.planName || "بدون طرح"}
-                      </span>
-                      {app.durationMonths && (
-                        <span
-                          style={{
-                            display: "block",
-                            fontSize: 10,
-                            color: "#64748b",
-                          }}
-                        >
-                          {app.durationMonths} ماهه
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      <span
-                        style={{
-                          fontFamily: "var(--font-mono)",
-                          fontWeight: 600,
-                        }}
-                      >
-                        {Number(app.requestedAmount).toLocaleString("fa-IR")}{" "}
-                        تومان
-                      </span>
-                      {app.approvedAmount && (
-                        <span
-                          style={{
-                            display: "block",
-                            fontSize: 10,
-                            color: "#0f766e",
-                          }}
-                        >
-                            مصوب:{" "}
-                          {Number(app.approvedAmount).toLocaleString("fa-IR")}
-                            {" "}تومان
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      <div
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 4,
-                          alignItems: "flex-start",
-                        }}
-                      >
-                        {app.businessStatus ? (
-                          <span className={`status-pill ${app.actionRequired ? 'status-active' : 'status-muted'}`}>
-                             {BUSINESS_STATUS_LABELS[app.businessStatus] || app.businessStatus}
-                          </span>
-                        ) : (
-                          <span
-                            className={`status-pill ${STATUS_STYLES[app.status] || "status-muted"}`}
-                          >
-                            {STATUS_LABELS[app.status] || app.status}
-                          </span>
-                        )}
-                        {app.actionRequired && (
-                           <span style={{ fontSize: 10, color: '#b45309', background: '#fffbeb', padding: '2px 6px', borderRadius: 4, border: '1px solid #fde68a' }}>
-                             نیازمند اقدام
-                           </span>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <div
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 4,
-                        }}
-                      >
-                        <span style={{ fontSize: 11, color: "#64748b" }}>
-                          ثبت: {formatDate(app.createdAt)}
-                        </span>
-                        {app.updatedAt && app.updatedAt !== app.createdAt && (
-                          <span style={{ fontSize: 11, color: "#475569" }}>
-                            به‌روزرسانی: {formatDate(app.updatedAt)}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <Link
-                          href={`/loan-applications/${app.id}`}
-                          className={app.actionRequired ? "btn btn-primary" : "btn btn-ghost"}
-                          style={{ padding: "0 10px", height: 32 }}
-                        >
-                          {app.actionRequired ? "اقدام" : "مشاهده"}
-                        </Link>
-                        {canDelete && (
-                          <button
-                            className="btn btn-ghost"
-                            style={{
-                              padding: "0 8px",
-                              height: 32,
-                              color: "#be123c",
-                            }}
-                            onClick={() => setDeleteConfirm(app)}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={6}>
-                    <EmptyState
-                      title="درخواستی یافت نشد"
-                      description="با فیلترهای فعلی هیچ درخواست تسهیلاتی پیدا نشد."
-                    />
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="board-grid" style={{ paddingBottom: 20 }}>
-           {Object.entries(boardGroups).map(([columnName, columnApps]) => (
-              <div key={columnName} className="board-column">
-                 <div className="board-col-header">
-                    {BUSINESS_STATUS_LABELS[columnName] || "سایر"}
-                   <span className="board-col-count">{(columnApps as LoanApplication[]).length}</span>
-                 </div>
-                 <div className="board-col-cards" style={{ maxHeight: '70vh' }}>
-                   {(columnApps as LoanApplication[]).map(app => (
-                      <div key={app.id} className="board-card" style={{ borderLeft: app.actionRequired ? '3px solid #f59e0b' : '3px solid transparent', opacity: (!app.actionRequired && actionableOnly) ? 0.5 : 1 }}>
-                         <div className="board-card-name">
-                           <Link href={`/loan-applications/${app.id}`} className="board-customer-link">
-                              <span className="board-customer-name">{app.customerName}</span>
-                           </Link>
-                           {app.actionRequired && <span className="customer-tag" style={{ background: '#fef3c7', color: '#b45309' }}>اقدام</span>}
-                         </div>
-                          <div style={{ fontSize: 10, color: '#64748b', marginTop: 3 }}>
-                            کارشناس فروش فعلی: {(app as LoanApplication & { customerSalespersonName?: string | null }).customerSalespersonName || 'بدون تخصیص'}
-                          </div>
-                         <div style={{ fontSize: 11, color: '#475569', marginTop: 4 }}>
-                            پرونده #{app.id} · {app.planName}
-                         </div>
-                          <div style={{ fontSize: 10, color: '#64748b', marginTop: 3 }}>
-                            کارشناس فروش ثبت‌شده: {app.salespersonNameSnapshot || 'ثبت نشده'}
-                          </div>
-                         <div style={{ fontSize: 13, fontWeight: 'bold', color: 'var(--ink-deep)', marginTop: 8 }} dir="ltr">
-                             {Number(app.requestedAmount).toLocaleString('fa-IR')} <span style={{fontSize: 10, color: '#94a3b8'}}>تومان</span>
-                         </div>
-                         <div className="board-card-meta" style={{ marginTop: 12 }}>
-                            <span>{app.actionRole ? `مسئول اقدام: ${ACTION_ROLE_LABELS[app.actionRole] || app.actionRole}` : ''}</span>
-                            <span className="board-col-count">{formatDate(app.updatedAt || app.createdAt)}</span>
-                         </div>
-                      </div>
-                   ))}
-                   {(columnApps as LoanApplication[]).length === 0 && (
-                      <div className="board-empty">پرونده‌ای در این مرحله نیست.</div>
-                   )}
-                 </div>
-              </div>
-           ))}
-        </div>
-      )}
+      {body}
+      {pager}
 
-      {!isLoading && !isError ? (
-        <div className="loan-pager" data-testid="loan-pager" style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", margin: "12px 0" }}>
-          <label style={{ fontSize: 12, color: "#475569", display: "flex", gap: 6, alignItems: "center" }}>
-            تعداد در صفحه
-            <select className="select-control" value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }} data-testid="select-page-size">
-              {[20, 50, 100].map((n) => <option key={n} value={n}>{fa(n)}</option>)}
-            </select>
-          </label>
-          <span style={{ fontSize: 12, color: "#475569" }} data-testid="text-page-info">
-            صفحه {fa(page)}{pageCount !== undefined ? ` از ${fa(pageCount)}` : ""}{total !== undefined ? ` · ${fa(total)} پرونده` : ""}{isFetching ? " · در حال به‌روزرسانی…" : ""}
-          </span>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button className="btn btn-ghost" disabled={page <= 1 || isFetching} onClick={() => setPage((p) => Math.max(1, p - 1))} data-testid="button-page-prev">قبلی</button>
-            <button className="btn btn-ghost" disabled={isFetching || (pageCount !== undefined ? page >= pageCount : apps.length < pageSize)} onClick={() => setPage((p) => p + 1)} data-testid="button-page-next">بعدی</button>
-          </div>
-        </div>
-      ) : null}
+      {canCreate ? <button type="button" className="csx-primary csx-fab" onClick={() => setWizardOpen(true)} data-testid="fab-new-loan-application"><Plus size={22} /> درخواست جدید</button> : null}
+
+      {filtersOpen ? <Sheet title="فیلتر پرونده‌ها" side={isDesktop} onClose={() => setFiltersOpen(false)} testId="loan-filters-sheet"
+        footer={<><button type="button" className="csx-ghost" onClick={clearFilters}>پاک کردن</button><button type="button" className="csx-primary" onClick={() => setFiltersOpen(false)} data-testid="button-apply-loan-filters">{isFetching && !appsPage ? "در حال شمارش…" : total !== undefined ? `نمایش ${fa(total)} پرونده` : "نمایش پرونده‌ها"}</button></>}>
+        {filterBody}
+      </Sheet> : null}
+
+      {draftsOpen ? <Sheet title={`${fa(drafts.length)} پیش‌نویس ناتمام`} onClose={() => setDraftsOpen(false)} testId="loan-drafts-sheet">
+        <p className="hint">پیش‌نویس‌ها فقط روی همین دستگاه ذخیره شده‌اند و پس از ۷ روز پاک می‌شوند.</p>
+        <div className="lrx-drafts">{drafts.map((d) => <div key={d.customerId} className="lrx-draftrow">
+          <div><b>{d.customerName}</b><div className="muted">{draftStep(d)} · {WIZARD_DISPLAY_STEPS[d.step - 1]?.label}{d.planName ? ` · ${d.planName}` : ""} · {relativeTime(d.updatedAt)}</div></div>
+          <div className="acts"><button type="button" className="csx-ghost sm" onClick={() => openDraft(d)}>ادامه</button><button type="button" className="csx-ib" aria-label={`حذف پیش‌نویس ${d.customerName}`} onClick={() => setDraftToDelete(d)}><Trash2 size={18} /></button></div>
+        </div>)}</div>
+      </Sheet> : null}
+      </>}
 
       {wizardOpen && <CreateWizard onClose={() => setWizardOpen(false)} />}
-      {!wizardOpen && entryOpen && entryCustomerId && session && canCreate ? <CreateWizard initialCustomerId={entryCustomerId} resumeDraft={initialParams.get("draft") === "1"} onClose={closeEntryWizard} /> : null}
+      {!wizardOpen && entryOpen && entryCustomerId && session && canCreate ? <CreateWizard initialCustomerId={entryCustomerId} resumeDraft={initialParams.get("draft") === "1"} fromCustomer={initialParams.get("from") === "customer"} onClose={closeEntryWizard} /> : null}
+
+      {draftToDelete ? <ConfirmDialog title="حذف پیش‌نویس؟" confirmLabel="حذف پیش‌نویس" testId="delete-loan-draft-dialog"
+        onClose={() => setDraftToDelete(null)}
+        onConfirm={() => { clearLoanDraft(user?.id, draftToDelete.customerId); setDraftToDelete(null); }}>
+        <p>پیش‌نویس درخواست {draftToDelete.customerName} از این دستگاه پاک می‌شود. هزینه پرداخت‌شده، مدارک و استعلام‌های ثبت‌شده روی سرور باقی می‌مانند.</p>
+      </ConfirmDialog> : null}
 
       {deleteConfirm && (
-        <Modal
-          title="حذف درخواست تسهیلات"
-          onClose={() => setDeleteConfirm(null)}
-          testId="delete-confirm-modal"
-        >
-          <div
-            style={{
-              padding: "10px 0 20px",
-              color: "#475569",
-              fontSize: 13,
-              lineHeight: 1.6,
-            }}
-          >
-            آیا از حذف پرونده شماره {deleteConfirm.id} متعلق به{" "}
-            {deleteConfirm.customerName} اطمینان دارید؟ پرونده پنهان شده اما
-            سوابق حقوقی و مالی آن به صورت امن در سیستم حفظ می‌شود.
-          </div>
-          <div className="form-footer" style={{ justifyContent: "flex-end" }}>
-            <button
-              className="btn btn-ghost"
-              onClick={() => setDeleteConfirm(null)}
-              disabled={deleteMutation.isPending}
-            >
-              انصراف
-            </button>
-            <button
-              className="btn"
-              style={{ background: "#be123c", color: "#fff" }}
-              onClick={() => deleteMutation.mutate({ id: deleteConfirm.id })}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? "در حال حذف..." : "حذف پرونده"}
-            </button>
-          </div>
-        </Modal>
+        <ConfirmDialog title="حذف درخواست تسهیلات" confirmLabel="حذف پرونده" pendingLabel="در حال حذف..." pending={deleteMutation.isPending}
+          error={deleteMutation.isError ? "حذف پرونده انجام نشد. دوباره تلاش کنید." : undefined}
+          onClose={() => setDeleteConfirm(null)} onConfirm={() => deleteMutation.mutate({ id: deleteConfirm.id })} testId="delete-confirm-modal">
+          <p>آیا از حذف پرونده شماره {deleteConfirm.id} متعلق به {deleteConfirm.customerName} اطمینان دارید؟ پرونده پنهان شده اما سوابق حقوقی و مالی آن به صورت امن در سیستم حفظ می‌شود.</p>
+        </ConfirmDialog>
       )}
-      </>}
     </section>
   );
 }
