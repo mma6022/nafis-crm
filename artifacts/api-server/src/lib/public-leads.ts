@@ -224,7 +224,10 @@ export function validatePublicLead(body: unknown, now = Date.now()): LeadValidat
   if (!name) fields.push("name");
   const phone = normalizeLeadPhone(input.phone);
   if (!phone) fields.push("phone");
-  if (!oneOf(NEEDS, input.need)) fields.push("need");
+  // Legal 2026-10-24: the site no longer asks a request type, so `need` is optional and defaults to "help".
+  // Old cached site pages that still send cash/goods keep working (stored for staff only).
+  const need = input.need === undefined || input.need === null || input.need === "" ? "help" : input.need;
+  if (!oneOf(NEEDS, need)) fields.push("need");
   if (!oneOf(AMOUNT_BANDS, input.amountBand)) fields.push("amountBand");
   if (!oneOf(CONTACT_TIMES, input.contactTime)) fields.push("contactTime");
   const planId = optionalInt(input.planId, 1, 1_000_000);
@@ -239,7 +242,7 @@ export function validatePublicLead(body: unknown, now = Date.now()): LeadValidat
     lead: {
       name: name!,
       phone: phone!,
-      need: input.need as PublicLead["need"],
+      need: need as PublicLead["need"],
       amountBand: input.amountBand as PublicLead["amountBand"],
       planId: planId ?? null,
       term: term ?? null,
@@ -290,7 +293,8 @@ export function leadRequestDetails(lead: PublicLead): string {
 export function leadDescription(lead: PublicLead, planName?: string | null): string {
   const lines = [
     "درخواست از سایت nafisvam.com",
-    `نیاز: ${NEED_FA[lead.need]}`,
+    // «نیاز» only for legacy cash/goods leads (staff-only); the site no longer asks it, "help" is the default.
+    ...(lead.need === "help" ? [] : [`نیاز: ${NEED_FA[lead.need]}`]),
     `حدود مبلغ: ${BAND_FA[lead.amountBand]}`,
   ];
   if (lead.planId) {

@@ -134,6 +134,21 @@ const unitSource = `
   assert.equal(validatePublicLead(null, now).ok, false);
   const minimal = { name: "Sara", phone: "09351234567", need: "help", amountBand: "unsure", contactTime: "any", consent: true, startedAt: now - 9000 };
   assert.equal(validatePublicLead(minimal, now).ok, true);
+  // Legal 2026-10-24: need is optional (site no longer asks a request type) → defaults to "help"; legacy values still accepted.
+  {
+    const { need: _drop, ...noNeed } = minimal;
+    for (const v of [undefined, null, ""]) {
+      const r = validatePublicLead(v === undefined ? noNeed : { ...noNeed, need: v }, now);
+      assert.equal(r.ok, true, "need=" + JSON.stringify(v));
+      assert.equal(r.lead.need, "help");
+      assert.doesNotMatch(leadDescription(r.lead), /نیاز:/, "no «نیاز» line for the default");
+    }
+    for (const need of ["cash", "goods"]) {
+      const r = validatePublicLead({ ...noNeed, need }, now);
+      assert.equal(r.ok, true, need);
+      assert.match(leadDescription(r.lead), /نیاز:/, "legacy lead keeps the staff-only label");
+    }
+  }
   // Site reqBands() keys (received amount, million toman) and the legacy coarse keys are both accepted.
   for (const amountBand of ["0-100", "100-200", "200-300", "300-500", "500-1000", "1000-up", "upto100", "100-300", "500plus", "unsure"]) {
     const r = validatePublicLead({ ...minimal, amountBand }, now);
@@ -425,6 +440,19 @@ try {
   // 11 accepted today for capIp → the DB cap (10/day) blocks with a real 429 from another worker window.
   const capped = await post(lead({ phone: "09126000099" }), { ip: capIp });
   assert.equal(capped.status, 429);
+
+  // Lead API without `need` (new site build): accepted, stored as need='help', no «نیاز» line.
+  {
+    const { need: _n, ...noNeedLead } = lead({ phone: "09127770001", name: "Narges" });
+    const r = await post(noNeedLead, { ip: "203.0.113.120" });
+    assert.ok(r.status === 201 || r.status === 200, `no need → 2xx (${r.status})`);
+    const d = db();
+    const row = d.prepare("SELECT need, customer_id FROM public_leads WHERE phone='09127770001'").get();
+    assert.equal(row.need, "help");
+    const desc = d.prepare("SELECT description FROM customers WHERE id=?").get(row.customer_id).description;
+    assert.doesNotMatch(desc, /نیاز:/);
+    d.close();
+  }
 
   console.log("public leads fixture ok");
 } finally {
