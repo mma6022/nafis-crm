@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp, ArrowUpDown, Edit3, Eye, FileText, Hash, Kanban, LayoutList, Lock, MoreHorizontal, Palette, Phone, PhoneCall, Plus, RotateCcw, Save, Search, SlidersHorizontal, Trash2, UserRound, UsersRound, X, AlertTriangle, Clock, Smartphone, ShieldCheck, ShieldAlert, Zap, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode, type UIEvent } from 'react';
 import { Link, useLocation } from 'wouter';
+import { CustomerIdBadge, CustomerName } from '@/components/customer/CustomerName';
 import { keepPreviousData, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { getCustomer, getGetAuthSessionQueryKey, getGetCrmSummaryQueryKey, getGetCustomerQueryKey, getListCustomerTagsQueryKey, getListCustomersQueryKey, getListSalespersonsQueryKey, listCustomers, useGetAuthSession, useGetCrmSummary, useListCustomerTags, useListCustomers, useListSalespersons, useUpdateCustomer, useUpdateAuthProfile, useDeleteCustomer, useCreateCall, useCreateConsultation, getListCallsQueryKey, getListConsultationsQueryKey, getListRemindersQueryKey, type Customer, type CallInput, type ConsultationInput, type ListCustomersParams } from '@workspace/api-client-react';
 import { CustomerForm } from '@/components/CustomerForm';
@@ -389,7 +390,7 @@ export default function Customers() {
         <label className="csx-search">
           <Search size={20} aria-hidden="true" />
           <span className="csx-sr">جستجوی نام یا شماره تماس مشتری</span>
-          <input type="search" value={search} onChange={(e) => { setSearch(e.target.value); resetPaging(); }} placeholder={isDesktop ? 'نام یا شماره تماس مشتری' : 'نام یا شماره تماس'} aria-label="جستجوی نام یا شماره تماس مشتری" data-testid="input-search-customers" />
+          <input type="search" value={search} onChange={(e) => { setSearch(e.target.value); resetPaging(); }} placeholder={isDesktop ? 'نام، شماره تماس یا شناسه‌ی مشتری' : 'نام، شماره یا شناسه'} aria-label="جستجوی نام، شماره تماس یا شناسه‌ی مشتری" data-testid="input-search-customers" />
         </label>
         {!isDesktop ? <button type="button" className="csx-fbtn" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog" data-testid="button-open-filters"><SlidersHorizontal size={20} aria-hidden="true" /> فیلتر{activeFilters.length ? <span className="n">{fa(activeFilters.length)}</span> : null}</button> : null}
         {canCreate ? <button type="button" className={isDesktop ? 'csx-primary' : 'csx-primary csx-fab'} onClick={openCreate} data-testid="button-create-customer"><Plus size={20} aria-hidden="true" /> مشتری جدید</button> : null}
@@ -457,12 +458,12 @@ export default function Customers() {
                 const extra = legacyActions(customer);
                 return <tr key={customer.id} className={customer.isUrgent || customer.pendingRepeatRequestCount > 0 ? 'hl' : ''} data-testid={`row-customer-${customer.id}`}>
                   <td>
-                    <div className="nm"><Link href={`/customers/${customer.id}`} data-testid={`link-customer-${customer.id}`}>{customer.name}</Link></div>
+                    <div className="nm"><CustomerName id={customer.id} name={customer.name} href={`/customers/${customer.id}`} nameTestId={`link-customer-${customer.id}`} badgeTestId={`badge-customer-id-${customer.id}`} /></div>
                     <div className="csx-chips" style={{ marginTop: 6 }}>{tagsFor(customer)}</div>
-                    <div className="phone-inline"><span className="ltr" dir="ltr">{formatPhoneForDisplay(customer.phone)}</span><span className="sep" aria-hidden="true">|</span>کد {faId(customer.id)}</div>
+                    <div className="phone-inline"><span className="ltr" dir="ltr">{formatPhoneForDisplay(customer.phone)}</span></div>
                     <div className="csx-meta reg-inline">ثبت {jalaliDate(customer.createdAt)}</div>
                   </td>
-                  <td className="col-phone"><span className="phone ltr" dir="ltr">{formatPhoneForDisplay(customer.phone)}</span><div className="csx-meta">کد {faId(customer.id)}</div></td>
+                  <td className="col-phone"><span className="phone ltr" dir="ltr">{formatPhoneForDisplay(customer.phone)}</span></td>
                   <td>{canUpdate ? <select className="csx-isel st" data-s={customer.status} value={customer.status} disabled={updateCustomer.isPending} aria-label={`وضعیت ${customer.name}`} onChange={(e) => updateInlineCustomer(customer, { status: e.target.value as 'in_progress' | 'cancelled' | 'completed' })} data-testid={`select-inline-status-${customer.id}`}>
                     <option value="in_progress">در حال انجام</option><option value="completed">اتمام</option><option value="cancelled">لغو شده</option>
                   </select> : <StatusPill status={customer.status} />}</td>
@@ -511,9 +512,9 @@ export default function Customers() {
             const extra = legacyActions(customer);
             return <li key={customer.id} className={`csx-card${customer.isUrgent || customer.pendingRepeatRequestCount > 0 ? ' hl' : ''}`} data-testid={`row-customer-${customer.id}`}>
               <div className="r1"><StatusPill status={customer.status} /><PriorityLabel value={customer.priority} /><span className="age" data-testid={`last-call-${customer.id}`}><Clock size={15} aria-hidden="true" /> {customer.lastCallAt ? `آخرین تماس ${relativeTime(customer.lastCallAt)}` : 'هنوز تماسی ثبت نشده'}</span></div>
-              <h3 className="nm"><Link href={`/customers/${customer.id}`} data-testid={`link-customer-${customer.id}`}>{customer.name}</Link></h3>
+              <h3 className="nm"><CustomerName id={customer.id} name={customer.name} href={`/customers/${customer.id}`} nameTestId={`link-customer-${customer.id}`} badgeTestId={`badge-customer-id-${customer.id}`} /></h3>
               <div className="csx-chips">{tagsFor(customer)}</div>
-              <div className="row"><span className="phone" dir="ltr"><Phone size={16} aria-hidden="true" /> {formatPhoneForDisplay(customer.phone)}</span><span className="csx-meta">کد {faId(customer.id)}</span></div>
+              <div className="row"><span className="phone" dir="ltr"><Phone size={16} aria-hidden="true" /> {formatPhoneForDisplay(customer.phone)}</span></div>
               <div className="row">{salespersonCell(customer)}<span className="csx-meta">{fa(customer.activityCount)} فعالیت</span></div>
               {suggestedPlansOf(customer).length ? <div className="row csx-plans-row" data-testid={`plans-${customer.id}`}><PlanChipsRow plans={suggestedPlansOf(customer)} testId={`plan-chips-${customer.id}`} /></div> : null}
               {upgradeButton(customer, 'card')}
@@ -676,6 +677,7 @@ function BoardColumn({ column, color, filters, tagLabels, onReview, onCall, onCo
                 {customer.tags.filter(key => key !== 'repeat_request').map(key => <span className="customer-tag" key={key}>{tagLabels.find(item => item.key === key)?.label ?? key}</span>)}
               </span>
             </Link>
+            <CustomerIdBadge id={customer.id} testId={`badge-customer-id-${customer.id}`} />
             <RepeatRequestTag customer={customer} onClick={() => onReview(customer)} />
             <div style={{ display: 'flex', gap: 4 }}>
               <button className="row-action" style={{ padding: 2 }} onClick={() => onCall(customer)} title="تماس"><PhoneCall size={12} /></button>

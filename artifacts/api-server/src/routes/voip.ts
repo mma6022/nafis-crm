@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { customerSearchSql } from "../lib/customer-id-search";
 import {
   CreateVoipCallBody,
   GetVoipConfigResponse,
@@ -256,13 +257,16 @@ router.get(
     const user = res.locals.authUser as AuthUser;
     const scope = customerScope(user);
     const search = parsed.data.search?.trim();
-    const searchSql = search ? " AND (crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR c.phone LIKE ?)" : "";
-    const searchParams = search ? [`%${search}%`, `%${search}%`] : [];
+    const idSearch = search ? customerSearchSql(search) : null;
+    const clause = idSearch?.where("(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR c.phone LIKE ?)", [`%${idSearch.text}%`, `%${idSearch.text}%`], "c.id");
+    const searchSql = clause ? ` AND ${clause.sql}` : "";
+    const searchParams = clause?.params ?? [];
+    const order = idSearch?.orderPrefix("c.id") ?? { sql: "", params: [] };
     const rows = queryRows<{ id: number; name: string; phone: string; customerSalespersonName: string | null }>(
       `SELECT c.id,c.name,c.phone,s.name customerSalespersonName FROM customers c
        LEFT JOIN salespersons s ON s.id=c.salesperson_id WHERE 1=1${scope.sql}${searchSql}
-       ORDER BY c.name,c.id LIMIT 50`,
-      [...scope.params, ...searchParams],
+       ORDER BY ${order.sql}c.name,c.id LIMIT 50`,
+      [...scope.params, ...searchParams, ...order.params],
     );
     res.json({ items: rows });
   },

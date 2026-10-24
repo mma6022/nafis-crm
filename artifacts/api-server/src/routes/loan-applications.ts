@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { customerSearchSql } from "../lib/customer-id-search";
 import { conditionAcceptsCreditRank } from "../lib/credit-rank-eligibility";
 import { loanCreditRankOverrideError, loanRankOverrideSnapshot } from "../lib/loan-credit-rank-override";
 export { conditionAcceptsCreditRank } from "../lib/credit-rank-eligibility";
@@ -1253,7 +1254,14 @@ router.get("/loan-applications", requirePermission("loan_applications.view"), (r
     params.push(Number(req.query.customerId), Number(req.query.customerId), Number(req.query.customerId));
   }
   if (req.query.planId) add("COALESCE(a.plan_id,CAST(json_extract(a.plan_ids,'$[0]') AS INTEGER))=?", Number(req.query.planId));
-  if (req.query.search) { filters.push("(CAST(a.id AS TEXT) LIKE ? OR crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR p.name LIKE ?)"); const s = `%${String(req.query.search)}%`; params.push(s,s,s); }
+  const loanIdSearch = req.query.search ? customerSearchSql(String(req.query.search)) : null;
+  if (req.query.search && loanIdSearch) {
+    const s = `%${loanIdSearch.text}%`;
+    // A number also matches the (current) customer id; «#n» means customer n or case n.
+    const clause = loanIdSearch.where("(CAST(a.id AS TEXT) LIKE ? OR crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR p.name LIKE ?)", [s, s, s], "current_customer.id", { sql: "a.id=?", params: [loanIdSearch.idQuery?.id ?? 0] });
+    filters.push(clause.sql); params.push(...clause.params);
+  }
+  const loanRank = loanIdSearch?.orderPrefix("current_customer.id") ?? { sql: "", params: [] };
   if (req.query.dateFrom) add("a.created_at>=?", String(req.query.dateFrom));
   if (req.query.dateTo) add("a.created_at<=?", String(req.query.dateTo));
   const source = `FROM loan_applications a JOIN customers c ON c.id=a.customer_id LEFT JOIN customer_merge_audit merge_audit ON merge_audit.source_customer_id=c.id AND merge_audit.survivor_customer_id=c.merged_into_customer_id JOIN customers current_customer ON current_customer.id=CASE WHEN c.merged_into_customer_id IS NULL THEN c.id ELSE merge_audit.survivor_customer_id END AND current_customer.merged_into_customer_id IS NULL LEFT JOIN salespersons cs ON cs.id=current_customer.salesperson_id LEFT JOIN loan_plans p ON p.id=COALESCE(a.plan_id,CASE WHEN json_valid(a.plan_ids) THEN CAST(json_extract(a.plan_ids,'$[0]') AS INTEGER) ELSE CAST(a.plan_ids AS INTEGER) END) WHERE a.deleted_at IS NULL${where}${filters.length ? ` AND ${filters.join(" AND ")}` : ""}`;
@@ -1262,7 +1270,7 @@ router.get("/loan-applications", requirePermission("loan_applications.view"), (r
     COALESCE((SELECT MAX(julianday(h.created_at)) FROM loan_application_stage_history h WHERE h.application_id=a.id),0),
     COALESCE((SELECT MAX(julianday(n.created_at)) FROM loan_application_notes n WHERE n.application_id=a.id),0),
     COALESCE((SELECT MAX(julianday(e.created_at)) FROM site_notification_events e WHERE e.resource_type='loan' AND e.resource_id=a.id),0))`;
-  const rows = queryRows<any>(`SELECT a.*,c.name customer_name,cs.name customer_salesperson_name,p.name plan_name ${source} ORDER BY ${activity} DESC,a.id DESC LIMIT ? OFFSET ?`, [...params, limit, (page - 1) * limit]);
+  const rows = queryRows<any>(`SELECT a.*,c.name customer_name,cs.name customer_salesperson_name,p.name plan_name ${source} ORDER BY ${loanRank.sql}${activity} DESC,a.id DESC LIMIT ? OFFSET ?`, [...params, ...loanRank.params, limit, (page - 1) * limit]);
   const items = rows.map((row) => shape(row, u));
   if (req.query.mode === "board") {
     const board: Record<string, any[]> = {};

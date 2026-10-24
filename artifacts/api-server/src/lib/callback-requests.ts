@@ -1,4 +1,5 @@
 import { execute, queryRow, queryRows, runImmediateTransaction, type SqlValue } from "./crm-db";
+import { customerSearchSql, toLatinDigits } from "./customer-id-search";
 import { CALLBACK_CONFIG } from "./callback-config";
 import { insertCustomerRecord } from "./customer-create";
 import { notifyWebsiteCallback, type CallbackAlertOutcome } from "./customer-notifications";
@@ -209,14 +210,21 @@ export function listCallbacks(actor: CallbackActor, filter: CallbackFilter, now 
   if (filter.who === "me") { where.push("c.assigned_user_id = ?"); params.push(actor.id); }
   if (filter.who === "none") where.push("c.assigned_user_id IS NULL");
   const q = filter.q?.trim();
-  if (q) {
-    const digits = q.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/\D/g, "");
-    if (digits.length >= 4 && canSeePhone(actor)) { where.push("(c.name LIKE ? OR c.phone LIKE ?)"); params.push(`%${q}%`, `%${digits}%`); }
-    else { where.push("c.name LIKE ?"); params.push(`%${q}%`); }
+  const idSearch = q ? customerSearchSql(q) : null;
+  if (q && idSearch?.idQuery?.explicit) {
+    // «#1234»: requests linked to customer 1234.
+    where.push("c.customer_id = ?"); params.push(idSearch.idQuery.id);
+  } else if (q) {
+    const digits = toLatinDigits(q).replace(/\D/g, "");
+    const idOr = idSearch?.idQuery ? " OR c.customer_id = ?" : "";
+    const idParam = idSearch?.idQuery ? [idSearch.idQuery.id] : [];
+    if (digits.length >= 4 && canSeePhone(actor)) { where.push(`(c.name LIKE ? OR c.phone LIKE ?${idOr})`); params.push(`%${q}%`, `%${digits}%`, ...idParam); }
+    else { where.push(`(c.name LIKE ?${idOr})`); params.push(`%${q}%`, ...idParam); }
   }
+  const rank = idSearch?.idQuery ? { sql: "CASE WHEN c.customer_id = ? THEN 0 ELSE 1 END, ", params: [idSearch.idQuery.id] } : { sql: "", params: [] };
   return queryRows<Row>(
-    `${selectSql()} WHERE 1=1${where.map((w) => ` AND ${w}`).join("")}${scope.sql} ${ORDER} LIMIT 500`,
-    [...params, ...scope.params],
+    `${selectSql()} WHERE 1=1${where.map((w) => ` AND ${w}`).join("")}${scope.sql} ${ORDER.replace("ORDER BY ", `ORDER BY ${rank.sql}`)} LIMIT 500`,
+    [...params, ...scope.params, ...rank.params],
   ).map((r) => toItem(r, actor, now));
 }
 

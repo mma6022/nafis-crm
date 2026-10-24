@@ -1,4 +1,5 @@
 import type { IRouter } from "express";
+import { normalizeCustomerSearchText, parseCustomerIdQuery } from "./customer-id-search";
 import { createHash } from "node:crypto";
 import { crmDb, queryRows } from "./crm-db";
 import { socialSummaryConfigured, summarizeSocialTranscript } from "./social-thread-summary";
@@ -115,10 +116,15 @@ export function attachSocialThreads(router: IRouter) {
     thread_id TEXT PRIMARY KEY,fingerprint TEXT NOT NULL,status TEXT NOT NULL,summary TEXT,error TEXT,
     requested_by INTEGER NOT NULL,updated_at TEXT NOT NULL);`);
   router.get("/social-monitor/customers", (req, res) => {
-    const search = normalize(String(req.query.search || "").slice(0, 180));
+    const rawSearch = String(req.query.search || "").slice(0, 180);
+    const idQuery = parseCustomerIdQuery(rawSearch);
+    const search = normalize(normalizeCustomerSearchText(rawSearch));
     res.setHeader("Cache-Control", "private, no-store");
-    res.json({ customers: !search || (search.length < 2 && !/^\d+$/.test(search)) ? [] : customers().filter(p => String(p.id) === search || normalize(p.name || "").includes(search) ||
-      normalize(`${p.first_name || ""} ${p.last_name || ""}`).includes(search)).slice(0, 30).map(p => ({ id: p.id, name: p.name })) });
+    const matched = !search || (search.length < 2 && !idQuery) ? [] : customers().filter(p => (idQuery && Number(p.id) === idQuery.id) || (!idQuery?.explicit && (normalize(p.name || "").includes(search) ||
+      normalize(`${p.first_name || ""} ${p.last_name || ""}`).includes(search))));
+    // Exact customer id first.
+    const ranked = idQuery ? [...matched.filter(p => Number(p.id) === idQuery.id), ...matched.filter(p => Number(p.id) !== idQuery.id)] : matched;
+    res.json({ customers: ranked.slice(0, 30).map(p => ({ id: p.id, name: p.name })) });
   });
   router.get("/social-monitor/threads/:threadId/messages", (req, res) => {
     const thread = findThread(req.params.threadId);

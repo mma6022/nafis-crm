@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { customerSearchSql } from "../lib/customer-id-search";
 import { execute, queryRow, queryRows, runTransaction, executeChanges } from "../lib/crm-db";
 import { requirePermission } from "../lib/access-control";
 import { wallet, type WalletType } from "../lib/wallets";
@@ -65,7 +66,12 @@ router.get("/wallet-management/accounts", (req, res): void => {
   const conditions = ["1=1"];
   const params: Array<string | number | null> = [];
   if (u.customerScope === "assigned") { conditions.push(`${survivorOwnerId("c.id")}=?`); params.push(u.salespersonId); }
-  if (search) { conditions.push("(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR c.phone LIKE ? OR CAST(c.id AS TEXT)=?)"); params.push(`%${search}%`, `%${search}%`, search); }
+  const walletIdSearch = search ? customerSearchSql(search) : null;
+  if (search && walletIdSearch) {
+    const t = walletIdSearch.text;
+    const clause = walletIdSearch.where("(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR c.phone LIKE ? OR CAST(c.id AS TEXT)=?)", [`%${t}%`, `%${t}%`, t], "c.id");
+    conditions.push(clause.sql); params.push(...clause.params);
+  }
   if (name) { conditions.push("crm_persian_search_key(c.name) LIKE crm_persian_search_key(?)"); params.push(`%${name}%`); }
   if (phone) { conditions.push("c.phone LIKE ?"); params.push(`%${phone}%`); }
   const range = (balance: string, min: string, max: string) => {
@@ -89,7 +95,7 @@ router.get("/wallet-management/accounts", (req, res): void => {
       COALESCE(cash.balance,'0') cashBalanceToman,COALESCE(credit.balance,'0') creditBalanceToman
     ${joins}
     WHERE ${where} ORDER BY ${exactIdFirst}${orderBy[sortBy] ? `${orderBy[sortBy]},` : ""} c.id DESC LIMIT ? OFFSET ?`,
-    [...params, ...(exactIdFirst ? [search] : []), limit, (page - 1) * limit]);
+    [...params, ...(exactIdFirst ? [walletIdSearch?.text ?? search] : []), limit, (page - 1) * limit]);
   res.json({ items: rows, total, page, limit });
 });
 
@@ -154,7 +160,17 @@ router.get("/wallet-management/transactions", (req, res): void => {
   if (status) { filters.push("status=?"); params.push(status); }
   if (from) { filters.push("createdAt>=?"); params.push(`${from}T00:00:00`); }
   if (to) { filters.push("createdAt<?"); params.push(`${to}T23:59:59.999Z`); }
-  if (search) { filters.push("(crm_persian_search_key(customerName) LIKE crm_persian_search_key(?) OR crm_persian_search_key(otherCustomerName) LIKE crm_persian_search_key(?) OR CAST(recordId AS TEXT)=?)"); params.push(`%${search}%`, `%${search}%`, search); }
+  const txIdSearch = search ? customerSearchSql(search) : null;
+  if (search && txIdSearch) {
+    const t = txIdSearch.text;
+    if (txIdSearch.idQuery) {
+      // A number matches the record number (as before) or either customer's id.
+      filters.push("(crm_persian_search_key(customerName) LIKE crm_persian_search_key(?) OR crm_persian_search_key(otherCustomerName) LIKE crm_persian_search_key(?) OR CAST(recordId AS TEXT)=? OR customerId=? OR otherCustomerId=?)");
+      params.push(`%${t}%`, `%${t}%`, t, txIdSearch.idQuery.id, txIdSearch.idQuery.id);
+    } else {
+      filters.push("(crm_persian_search_key(customerName) LIKE crm_persian_search_key(?) OR crm_persian_search_key(otherCustomerName) LIKE crm_persian_search_key(?) OR CAST(recordId AS TEXT)=?)"); params.push(`%${t}%`, `%${t}%`, t);
+    }
+  }
   const where = filters.join(" AND ");
   const total = queryRow<{ count: number }>(`${base} SELECT COUNT(*) count FROM entries WHERE ${where}`, [...scopeParams, ...params])?.count ?? 0;
   const items = queryRows<any>(`${base} SELECT * FROM entries WHERE ${where} ORDER BY createdAt DESC,kind,recordId DESC LIMIT ? OFFSET ?`,

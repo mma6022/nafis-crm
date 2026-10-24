@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import { customerSearchSql } from "../lib/customer-id-search";
 import multer from "multer";
 import { createHash } from "node:crypto";
 import { customerPortalSession, requireCustomerPortal } from "../lib/customer-portal-auth";
@@ -58,13 +59,17 @@ staffChatRouter.get("/threads",(req,res)=>{
   const user=res.locals.authUser as AuthUser,owner=scope(user),q=String(req.query.q??"").trim().slice(0,100);
   const cursor=req.query.cursor?String(req.query.cursor).split(":").map(Number):null;
   if(cursor&&(cursor.length!==2||cursor.some(n=>!Number.isSafeInteger(n)||n<0)||cursor[1]<=0)){res.status(400).json({error:"invalid_cursor"});return;}
-  const escaped=q.replace(/[\\%_]/g,"\\$&");
+  const idSearch=q?customerSearchSql(q):null;
+  const escaped=(idSearch?.text??q).replace(/[\\%_]/g,"\\$&");
+  const textCond="(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) ESCAPE '\\' OR c.phone LIKE ? ESCAPE '\\')";
+  const qClause=idSearch?idSearch.where(textCond,[`%${escaped}%`,`%${escaped}%`],"c.id"):null;
+  const idRank=idSearch?.orderPrefix("id")??{sql:"",params:[]};
   const list=queryRows<{id:number;name:string;phone:string;last_message_id:number}>(`WITH conversations AS (
     SELECT c.id,c.name,c.phone,COALESCE((SELECT MAX(m.id) FROM customer_chat_history m WHERE m.customer_id=c.id),0) last_message_id FROM customers c
     WHERE c.merged_into_customer_id IS NULL ${owner.where}
-    ${q?"AND (crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) ESCAPE '\\' OR c.phone LIKE ? ESCAPE '\\')":""}
-    ) SELECT * FROM conversations ${cursor?"WHERE last_message_id<? OR (last_message_id=? AND id<?)":""}
-    ORDER BY last_message_id DESC,id DESC LIMIT 51`,[...owner.params,...(q?[`%${escaped}%`,`%${escaped}%`]:[]),...(cursor?[cursor[0],cursor[0],cursor[1]]:[])]);
+    ${qClause?`AND ${qClause.sql}`:""}
+    ) SELECT * FROM conversations ${cursor?`WHERE (last_message_id<? OR (last_message_id=? AND id<?))${idSearch?.idQuery?" AND id<>?":""}`:""}
+    ORDER BY ${cursor?"":idRank.sql}last_message_id DESC,id DESC LIMIT 51`,[...owner.params,...(qClause?.params??[]),...(cursor?[cursor[0],cursor[0],cursor[1],...(idSearch?.idQuery?[idSearch.idQuery.id]:[])]:[]),...(cursor?[]:idRank.params)]);
   const items=list.slice(0,50).map(c=>{
     const last=queryRow<Message>("SELECT * FROM customer_chat_history WHERE customer_id=? ORDER BY id DESC LIMIT 1",[c.id]);
     return {customerId:Number(c.id),name:c.name,mobile:c.phone,online:online("customer",c.id),

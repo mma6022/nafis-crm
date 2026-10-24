@@ -1,4 +1,5 @@
 import express, { Router, type IRouter, type RequestHandler } from "express";
+import { customerSearchSql } from "../lib/customer-id-search";
 import { propagateContractTemplateChange } from "../lib/contract-template-updates";
 import { creditProviderFailure } from "../lib/credit-provider-failure";
 import { publicDocumentLabel } from "../lib/public-document-labels";
@@ -1637,9 +1638,15 @@ router.get(
       params.push(user.salespersonId);
     }
 
-    if (search) {
-      filters.push("(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR c.phone LIKE ?)");
-      params.push(`%${search}%`, `%${search}%`);
+    const idSearch = search ? customerSearchSql(search) : null;
+    if (search && idSearch) {
+      const clause = idSearch.where(
+        "(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR c.phone LIKE ?)",
+        [`%${idSearch.text}%`, `%${idSearch.text}%`],
+        "c.id",
+      );
+      filters.push(clause.sql);
+      params.push(...clause.params);
     }
     if (customerId !== undefined) {
       filters.push("c.id = ?");
@@ -1729,8 +1736,8 @@ router.get(
           ELSE 3
         END ASC, c.created_at DESC, c.id DESC`;
     const rows = queryRows<CustomerRow>(
-      `${customerSelect}${where} GROUP BY c.id${having} ORDER BY ${orderBy} LIMIT ? OFFSET ?`,
-      [...params, ...havingParams, limit, offset],
+      `${customerSelect}${where} GROUP BY c.id${having} ORDER BY ${idSearch?.orderPrefix("c.id").sql ?? ""}${orderBy} LIMIT ? OFFSET ?`,
+      [...params, ...havingParams, ...(idSearch?.orderPrefix("c.id").params ?? []), limit, offset],
     );
 
     const listBody = ListCustomersResponse.parse({
@@ -4102,15 +4109,24 @@ router.get("/calls", requirePermission("calls.view"), (req, res): void => {
   const user = res.locals.authUser as AuthUser;
   const callScope = callHistoryScope(user);
   if (callScope.sql) { filters.push(callScope.sql); params.push(...callScope.params); }
-  if (search) {
+  const callIdSearch = search ? customerSearchSql(search) : null;
+  const ownerOnly = user.role === "admin" || user.customerScope === "all" ? "1=1" : "c.salesperson_id=?";
+  const ownerParams = user.role === "admin" || user.customerScope === "all" ? [] : [user.salespersonId];
+  if (search && callIdSearch?.idQuery?.explicit) {
+    // «#1234»: only that customer's calls (same ownership rule as the name match).
+    filters.push(`(cl.customer_id=? AND ${ownerOnly})`);
+    params.push(callIdSearch.idQuery.id, ...ownerParams);
+  } else if (search && callIdSearch) {
+    const text = callIdSearch.text;
     filters.push(
-      `((crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) AND ${user.role === "admin" || user.customerScope === "all" ? "1=1" : "c.salesperson_id=?"})
+      `((crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) AND ${ownerOnly})
         OR COALESCE((SELECT e.phone FROM voip_after_call_events e WHERE e.call_log_id=cl.id),c.phone) LIKE ?
         OR LOWER(COALESCE(cl.subject, '')) LIKE LOWER(?) OR LOWER(COALESCE(cl.customer_request, '')) LIKE LOWER(?)
-        OR LOWER(COALESCE(cl.expert_notes,'')) LIKE LOWER(?))`,
+        OR LOWER(COALESCE(cl.expert_notes,'')) LIKE LOWER(?)${callIdSearch.idQuery ? ` OR (cl.customer_id=? AND ${ownerOnly})` : ""})`,
     );
-    params.push(`%${search}%`, ...(user.role === "admin" || user.customerScope === "all" ? [] : [user.salespersonId]),
-      `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    params.push(`%${text}%`, ...ownerParams,
+      `%${text}%`, `%${text}%`, `%${text}%`, `%${text}%`,
+      ...(callIdSearch.idQuery ? [callIdSearch.idQuery.id, ...ownerParams] : []));
   }
   if (customerId !== undefined) {
     if (!getCustomer(customerId, user)) { res.status(404).json({ error: "Customer not found" }); return; }
@@ -4132,9 +4148,12 @@ router.get("/calls", requirePermission("calls.view"), (req, res): void => {
     unmatchedFilters.push("e.expert_user_id=? AND EXISTS(SELECT 1 FROM voip_extensions own WHERE own.user_id=? AND own.extension=e.extension)");
     unmatchedParams.push(user.id,user.id);
   }
-  if(search){
+  if(search&&callIdSearch?.idQuery?.explicit){
+    unmatchedFilters.push("0=1");
+  }else if(search){
+    const text=callIdSearch?.text??search;
     unmatchedFilters.push("(e.phone LIKE ? OR COALESCE(e.report_subject,'') LIKE ? OR e.expert_notes LIKE ?)");
-    unmatchedParams.push(`%${search}%`,`%${search}%`,`%${search}%`);
+    unmatchedParams.push(`%${text}%`,`%${text}%`,`%${text}%`);
   }
   if(salespersonId!==undefined){unmatchedFilters.push("e.salesperson_id=?");unmatchedParams.push(salespersonId);}
   if(dates.start){unmatchedFilters.push("julianday(e.started_at)>=julianday(?)");unmatchedParams.push(dates.start);}
@@ -4150,8 +4169,8 @@ router.get("/calls", requirePermission("calls.view"), (req, res): void => {
     [...params,...unmatchedParams],
   );
   const rows = queryRows<CallRecordRow>(
-    `SELECT * FROM (${combined}) ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?`,
-    [...params,...unmatchedParams, limit, offset],
+    `SELECT * FROM (${combined}) ORDER BY ${callIdSearch?.orderPrefix("customer_id").sql ?? ""}created_at DESC,id DESC LIMIT ? OFFSET ?`,
+    [...params,...unmatchedParams, ...(callIdSearch?.orderPrefix("customer_id").params ?? []), limit, offset],
   );
   res.json(
     ListCallsResponse.parse({
@@ -4425,11 +4444,16 @@ router.get(
       filters.push("c.salesperson_id = ?");
       params.push(user.salespersonId);
     }
-    if (search) {
-      filters.push(
+    const consultIdSearch = search ? customerSearchSql(search) : null;
+    if (search && consultIdSearch) {
+      const t = consultIdSearch.text;
+      const clause = consultIdSearch.where(
         "(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR c.phone LIKE ? OR LOWER(COALESCE(cf.loan_purpose, '')) LIKE LOWER(?))",
+        [`%${t}%`, `%${t}%`, `%${t}%`],
+        "c.id",
       );
-      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      filters.push(clause.sql);
+      params.push(...clause.params);
     }
     if (customerId !== undefined) {
       filters.push("cf.customer_id = ?");
@@ -4441,8 +4465,8 @@ router.get(
       params,
     );
     const rows = queryRows<ConsultationRow>(
-      `${consultationSelect}${where} ORDER BY cf.created_at DESC,cf.id DESC LIMIT ? OFFSET ?`,
-      [...params, limit, offset],
+      `${consultationSelect}${where} ORDER BY ${consultIdSearch?.orderPrefix("c.id").sql ?? ""}cf.created_at DESC,cf.id DESC LIMIT ? OFFSET ?`,
+      [...params, ...(consultIdSearch?.orderPrefix("c.id").params ?? []), limit, offset],
     );
     res.json(
       ListConsultationsResponse.parse({

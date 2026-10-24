@@ -1,4 +1,5 @@
 import { Router, type RequestHandler } from "express";
+import { customerSearchSql } from "../lib/customer-id-search";
 import { requireAuth, type AuthUser } from "../lib/auth";
 import { requirePermission } from "../lib/access-control";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runTransaction } from "../lib/crm-db";
@@ -56,13 +57,16 @@ router.get("/goods-purchases/suggestions",requirePermission("goods_purchases.vie
 }));
 router.get("/goods-purchases/eligible",requirePermission("goods_purchases.view"),wrap((req,res) => {
   const u = user(res), q = String(req.query.q ?? "").trim().slice(0,100), plan = Number(req.query.planId || 0);
+  const idSearch = q ? customerSearchSql(q) : null, qt = idSearch?.text ?? q;
+  const qClause = idSearch?.where("(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR c.phone LIKE ? OR c.national_code LIKE ?)", [`%${qt}%`,`%${qt}%`,`%${qt}%`], "c.id");
+  const qRank = idSearch?.orderPrefix("c.id") ?? { sql: "", params: [] };
   const rows = queryRows<any>(`SELECT w.customer_id customerId,c.name customerName,s.name customerSalespersonName,c.phone,w.plan_id planId,p.name planName,w.balance_toman balanceToman
     FROM goods_plan_wallets w JOIN customers c ON c.id=w.customer_id JOIN loan_plans p ON p.id=w.plan_id
      LEFT JOIN salespersons s ON s.id=c.salesperson_id
      WHERE c.merged_into_customer_id IS NULL AND w.balance_toman<>'0' AND NOT EXISTS(SELECT 1 FROM goods_purchases g WHERE g.wallet_id=w.id AND g.stage IN ('discharge_pending','invoice_draft','invoice_signature','settlement_pending'))
     ${scope(u) ? "AND c.salesperson_id=?" : ""} ${plan ? "AND w.plan_id=?" : ""}
-    ${q ? "AND (crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR c.phone LIKE ? OR c.national_code LIKE ?)" : ""} ORDER BY c.name,w.plan_id LIMIT 500`,
-    [...(scope(u)?[u.salespersonId]:[]),...(plan?[plan]:[]),...(q?[`%${q}%`,`%${q}%`,`%${q}%`]:[])]);
+    ${qClause ? `AND ${qClause.sql}` : ""} ORDER BY ${qRank.sql}c.name,w.plan_id LIMIT 500`,
+    [...(scope(u)?[u.salespersonId]:[]),...(plan?[plan]:[]),...(qClause?.params??[]),...qRank.params]);
   res.json({items:rows,unassignedNotice:"اعتبار قدیمی بدون منشأ طرح، برای خرید قابل استفاده نیست و نیاز به تطبیق مالی دارد."});
 }));
 router.get("/goods-purchases",requirePermission("goods_purchases.view"),wrap((req,res)=>{

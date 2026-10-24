@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { customerSearchSql } from "./customer-id-search";
 import type { AuthUser } from "./auth";
 import { paymentOrderListScope } from "./payment-order-scope";
 
@@ -58,11 +59,15 @@ export function goodsRegistrationSuggestions(db: DatabaseSync, actor: Actor, que
     where += " AND c.salesperson_id=?";
     args.push(actor.salespersonId ?? -1);
   }
-  if (search) {
-    where += ` AND (crm_persian_search_key(c.name) LIKE crm_persian_search_key(?)
-      OR c.phone LIKE ? OR CAST(a.id AS TEXT)=?)`;
-    args.push(`%${search}%`, `%${search}%`, search);
+  const idSearch = search ? customerSearchSql(search) : null;
+  if (search && idSearch) {
+    const t = idSearch.text;
+    const clause = idSearch.where(`(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?)
+      OR c.phone LIKE ? OR CAST(a.id AS TEXT)=?)`, [`%${t}%`, `%${t}%`, t], "c.id", { sql: "CAST(a.id AS TEXT)=?", params: [t] });
+    where += ` AND ${clause.sql}`;
+    args.push(...clause.params);
   }
+  const rank = idSearch?.orderPrefix("c.id") ?? { sql: "", params: [] };
   const from = `FROM loan_applications a JOIN customers c ON c.id=a.customer_id
     JOIN loan_plans p ON p.id=a.plan_id
     LEFT JOIN salespersons s ON s.id=c.salesperson_id
@@ -82,8 +87,8 @@ export function goodsRegistrationSuggestions(db: DatabaseSync, actor: Actor, que
     c.phone,p.id planId,p.name planName,s.name customerSalespersonName,
     ${readySince} readySince,${waitDaysSql(readySince)} waitingDays,COALESCE(w.balance_toman,'0') balanceToman,
     ${reservedSql} reserved,${attributedSql} attributed
-    ${from} ${where} ORDER BY ${readySince} ASC,a.id ASC LIMIT ? OFFSET ?`
-  ).all(...args, limit, (page - 1) * limit) as any[];
+    ${from} ${where} ORDER BY ${rank.sql}${readySince} ASC,a.id ASC LIMIT ? OFFSET ?`
+  ).all(...args, ...rank.params, limit, (page - 1) * limit) as any[];
   const viewOnly = !!opts.viewOnly;
   // HANDOFF server 14/15: `canCreate` = the viewer's permission (separate from each row's canCreate);
   // `actionable` is what tab/badge count (locked rows excluded); `total` stays the listed-row count for paging.
@@ -109,11 +114,15 @@ export function paymentRegistrationSuggestions(db: DatabaseSync, actor: Actor, q
   let where = `WHERE g.stage='completed'
     AND NOT EXISTS (SELECT 1 FROM customer_payment_orders existing WHERE existing.purchase_id=g.id)
     ${scope.sql}`;
-  if (search) {
-    where += ` AND (crm_persian_search_key(c.name) LIKE crm_persian_search_key(?)
-      OR c.phone LIKE ? OR CAST(g.id AS TEXT)=?)`;
-    args.push(`%${search}%`, `%${search}%`, search);
+  const idSearch = search ? customerSearchSql(search) : null;
+  if (search && idSearch) {
+    const t = idSearch.text;
+    const clause = idSearch.where(`(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?)
+      OR c.phone LIKE ? OR CAST(g.id AS TEXT)=?)`, [`%${t}%`, `%${t}%`, t], "c.id", { sql: "CAST(g.id AS TEXT)=?", params: [t] });
+    where += ` AND ${clause.sql}`;
+    args.push(...clause.params);
   }
+  const rank = idSearch?.orderPrefix("c.id") ?? { sql: "", params: [] };
   const from = `FROM goods_purchases g JOIN customers c ON c.id=g.customer_id
     LEFT JOIN customers current_customer ON current_customer.id=COALESCE(c.merged_into_customer_id,c.id)
       AND current_customer.merged_into_customer_id IS NULL
@@ -125,8 +134,8 @@ export function paymentRegistrationSuggestions(db: DatabaseSync, actor: Actor, q
   const rows = db.prepare(`SELECT g.id purchaseId,c.id customerId,c.name customerName,c.phone,
     s.name customerSalespersonName,p.id planId,p.name planName,g.completed_at completedAt,g.completed_at readySince,
     ${waitDaysSql("g.completed_at")} waitingDays,g.payout_amount_toman amountToman ${from} ${where}
-    ORDER BY g.completed_at ASC,g.id ASC LIMIT ? OFFSET ?`
-  ).all(...args, limit, (page - 1) * limit) as any[];
+    ORDER BY ${rank.sql}g.completed_at ASC,g.id ASC LIMIT ? OFFSET ?`
+  ).all(...args, ...rank.params, limit, (page - 1) * limit) as any[];
   const viewOnly = !!opts.viewOnly;
   // HANDOFF server 14/15: `canCreate` = the viewer's permission (separate from each row's canCreate);
   // `actionable` is what tab/badge count (locked rows excluded); `total` stays the listed-row count for paging.

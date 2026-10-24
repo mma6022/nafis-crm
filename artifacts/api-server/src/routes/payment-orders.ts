@@ -1,4 +1,5 @@
 import { Router, type RequestHandler } from "express";
+import { customerSearchSql } from "../lib/customer-id-search";
 import multer from "multer";
 import fs from "node:fs";
 import path from "node:path";
@@ -127,12 +128,18 @@ router.get("/payment-orders", permission("payment_orders.view"), (req, res) => {
     where += ` AND (${actionable.length ? actionable.join(" OR ") : "0=1"})`;
   }
   if (stage) { where += " AND o.stage=?"; args.push(stage); }
-  if (search) { where += " AND (crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR CAST(o.id AS TEXT)=?)"; args.push(`%${search}%`, search); }
+  const idSearch = search ? customerSearchSql(search) : null;
+  if (search && idSearch) {
+    const t = idSearch.text;
+    const clause = idSearch.where("(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR CAST(o.id AS TEXT)=?)", [`%${t}%`, t], "c.id", { sql: "CAST(o.id AS TEXT)=?", params: [t] });
+    where += ` AND ${clause.sql}`; args.push(...clause.params);
+  }
+  const rank = idSearch?.orderPrefix("c.id") ?? { sql: "", params: [] };
   const rows = queryRows<any>(`SELECT o.*,c.name customer_name,current_salesperson.name customer_salesperson_name
     FROM customer_payment_orders o JOIN customers c ON c.id=o.customer_id
     LEFT JOIN customers current_customer ON current_customer.id=COALESCE(c.merged_into_customer_id,c.id) AND current_customer.merged_into_customer_id IS NULL
     LEFT JOIN salespersons current_salesperson ON current_salesperson.id=current_customer.salesperson_id
-    ${where} ORDER BY o.id DESC LIMIT ? OFFSET ?`, [...args, limit, (page - 1) * limit]);
+    ${where} ORDER BY ${rank.sql}o.id DESC LIMIT ? OFFSET ?`, [...args, ...rank.params, limit, (page - 1) * limit]);
   return res.json({ items: rows.map(r => paymentOrderView(r)), page, limit, total: queryRow<any>(`SELECT COUNT(*) total FROM customer_payment_orders o JOIN customers c ON c.id=o.customer_id${where}`, args)?.total ?? 0 });
 });
 router.post("/payment-orders", permission("payment_orders.create"), (req, res) => {
