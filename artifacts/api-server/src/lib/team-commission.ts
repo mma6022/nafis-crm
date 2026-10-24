@@ -513,7 +513,7 @@ export function dataAccuracyState(customerId: number, actor: Actor) {
     status: review ? (review.correct === 1 ? "correct" : "incorrect") : "pending",
     review: reviewView(review),
     canReview: !review && closerId != null && owner && actor.salespersonId === closerId,
-    canOverride: isAdmin && closerId != null,
+    canOverride: isAdmin && closerId != null && review != null,
     viewer: isAdmin ? "admin" : owner ? "closer" : actor.salespersonId === qualifierId ? "qualifier" : "other",
     reasons: ACCURACY_REASONS.map(k => ({ key: k, label: REASON_LABELS[k] })),
   };
@@ -551,6 +551,7 @@ export function recordDataAccuracy(customerId: number, actor: Actor, body: any) 
     const same = existing && (existing.correct === 1) === correct && (correct || existing.reason === reason);
     if (existing && same) return { idempotent: true, state: dataAccuracyState(customerId, actor) };
     if (existing && !isAdmin) throw new TeamCommissionError(409, "قبلاً ثبت شده؛ فقط مدیر می‌تواند تغییرش دهد.");
+    if (!existing && !isCloser) throw new TeamCommissionError(403, "فقط کارشناس پیگیری همین پرونده می‌تواند این را ثبت کند؛ مدیر بعد از ثبت می‌تواند تغییرش دهد.");
     let reviewId: number, revision = 1, bonus = 0n, bonusDelta = 0n;
     if (!existing) {
       bonus = correct ? big(v.settings.dataAccuracyBonusToman) : 0n;

@@ -28,6 +28,7 @@ import { useCallLauncher, CallLaunchStatus } from '@/features/team-sales/useCall
 import { showsUpgradeButton, usesSimpleForm, type PromoteResult, type QualifyResult } from '@/features/team-sales/api';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 import { TsToast, UpgradeCard, UpgradeDialog, UpgradedCard } from '@/features/team-sales/UpgradeToP1';
+import { DataAccuracyCard } from '@/features/team-commission/DataAccuracyCard';
 
 const faNum = (n: number) => n.toLocaleString('fa-IR');
 const faId = (n: number) => n.toLocaleString('fa-IR', { useGrouping: false });
@@ -342,6 +343,11 @@ export default function CustomerDetail() {
       onError: (error) => setQuickError(inquiryErrorMessage(error, 'تغییر وضعیت ذخیره نشد. دوباره تلاش کنید.')),
     });
   };
+  const refreshAfterAccuracy = () => {
+    void queryClient.invalidateQueries({ queryKey: getListCallsQueryKey() });
+    void queryClient.invalidateQueries({ queryKey: getListCustomerActivityQueryKey(id) });
+    void queryClient.invalidateQueries({ queryKey: ['team-data-accuracy', id] });
+  };
   const handleSaveCall = async (data: CallInput) => {
     try {
       const saved = await createCall.mutateAsync({ data });
@@ -627,11 +633,12 @@ export default function CustomerDetail() {
     <nav className="csx-crumb" aria-label="مسیر"><Link href="/customers" data-testid="link-back-customers"><ArrowRight size={16} /> مشتریان</Link><ChevronLeft size={14} aria-hidden="true" /><span aria-current="page">{customer.name}</span></nav>
     {hero}
     {tsCard ? <div className="m-only">{tsCard}</div> : null}
+    <div className="m-only"><DataAccuracyCard customerId={id} place="m" onSubmitted={refreshAfterAccuracy} /></div>
     {readOnlyRole ? <div className="csx-note warn" data-testid="note-readonly-role"><Lock size={18} /><p>فقط مشاهده — ویرایش، تماس و کیف پول برای نقش شما فعال نیست.</p></div> : null}
     <nav className="csx-secnav m-only" aria-label="بخش‌های پرونده">{secs.map(([key, label, n]) => <a key={key} href={`#sec-${key}`} aria-current={activeSec === key ? 'true' : undefined} onClick={(event) => { event.preventDefault(); setActiveSec(key); document.getElementById(`sec-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>{label}{n != null ? <span className="n">{faNum(n)}</span> : null}</a>)}</nav>
     <div className="csx-dgrid">
       <div className="colA">{infoSec}{loansSec}{callsSec}</div>
-      <div className="colB">{tsCard ? <div className="d-only">{tsCard}</div> : null}{statusSec}{creditSec}{walletSec}{adminSec}</div>
+      <div className="colB">{tsCard ? <div className="d-only">{tsCard}</div> : null}<div className="d-only"><DataAccuracyCard customerId={id} place="d" onSubmitted={refreshAfterAccuracy} /></div>{statusSec}{creditSec}{walletSec}{adminSec}</div>
     </div>
     {editing ? <div className="csx-formhost"><Sheet title={`ویرایش پرونده ${customer.name}`} onClose={() => { setEditing(false); setProfileErrors({}); }} testId="customer-edit-sheet" initialFocus='[data-testid="input-detail-name"]' footer={<>
       <button className="csx-ghost" type="button" onClick={() => { setEditing(false); setProfileErrors({}); }}>انصراف</button>

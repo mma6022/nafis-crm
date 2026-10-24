@@ -150,7 +150,7 @@ try {
     const s = m.dataAccuracyState(cA, hasani); assert.equal(s.visible, true); assert.equal(s.status, "pending"); assert.equal(s.canReview, true); assert.equal(s.bonusToman, "200000");
     const k = m.dataAccuracyState(cA, kazemi); assert.equal(k.canReview, false); assert.equal(k.viewer, "qualifier");
   });
-  ok("only the case's closer may submit", () => { throwsStatus(() => m.recordDataAccuracy(cA, ghasemi, { correct: true }), 403); throwsStatus(() => m.recordDataAccuracy(cA, kazemi, { correct: true }), 403); });
+  ok("only the case's closer may submit first (not the qualifier, another closer or even admin)", () => { throwsStatus(() => m.recordDataAccuracy(cA, ghasemi, { correct: true }), 403); throwsStatus(() => m.recordDataAccuracy(cA, kazemi, { correct: true }), 403); throwsStatus(() => m.recordDataAccuracy(cA, admin, { correct: true }), 403, /فقط کارشناس پیگیری/); });
   ok("«درست بود» → Kazemi +200,000 (independent of payout), idempotent", () => {
     const w = walletSnap(6);
     const r = m.recordDataAccuracy(cA, hasani, { correct: true });

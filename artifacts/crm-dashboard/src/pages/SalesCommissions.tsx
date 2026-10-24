@@ -1,10 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
-import { Coins, Target } from 'lucide-react';
+import { Coins, Settings2, Target, Wallet } from 'lucide-react';
 import { useListSalespersons } from '@workspace/api-client-react';
 import { EmptyState } from '@/components/DataTools';
-import { ErrorState, SkeletonPanel, formatDateTime } from '@/components/CrmShell';
+import { ErrorState, SkeletonPanel } from '@/components/CrmShell';
+import { useTeamSalesConfig } from '@/features/team-sales/api';
+import { CommissionReport } from '@/features/team-commission/CommissionBreakdown';
+import { TeamSettingsTab } from '@/features/team-commission/TeamSettingsTab';
 import { api, digitsOnly, errText, toBig, toman, useMe, type SalespersonSettings, type SalespersonSummary } from '@/lib/goods-api';
 
 export function useSalespersonSummary(id?: number | null) {
@@ -21,17 +24,6 @@ export function SalespersonSummaryCard({ id, compact = false }: { id: number; co
     <div className="gp-fig"><span>فروش ماه {s.month}</span><strong>{toman(s.monthlySalesToman)}</strong></div>
     <div className="gp-fig teal"><span>کل فروش</span><strong>{toman(s.totalSalesToman)}</strong></div>
     {compact ? <Link href="/sales-commissions" className="text-link">دفتر پورسانت</Link> : null}
-  </div>;
-}
-
-function Ledger({ id }: { id: number }) {
-  const q = useSalespersonSummary(id);
-  const tx = q.data?.transactions ?? [];
-  return <div className="panel"><div className="panel-head"><div><h3>دفتر تراکنش‌ها</h3><p>پورسانت هر فروش کامل؛ پله بر اساس جمع ماه پس از فروش روی سرور محاسبه می‌شود.</p></div></div>
-    {q.isLoading ? <SkeletonPanel rows={3} /> : !tx.length ? <EmptyState title="تراکنشی نیست" description="پس از تکمیل نخستین خرید کالا، پورسانت اینجا ثبت می‌شود." /> :
-      <div className="table-wrap"><table className="data-table"><thead><tr><th>تاریخ</th><th>شرح</th><th>خرید</th><th>مبلغ</th></tr></thead><tbody>
-        {tx.map((t, i) => <tr key={i}><td className="secondary-cell">{formatDateTime(t.createdAt)}</td><td>{t.kind === 'salesperson_commission' ? 'پورسانت فروش کامل' : t.kind}</td><td>{t.purchaseId ? <Link className="text-link" href={`/goods-purchases/${t.purchaseId}`}>#{t.purchaseId.toLocaleString('fa-IR')}</Link> : '—'}</td><td className={`mono ${toBig(t.amountToman) < 0n ? 'gp-neg' : ''}`}>{toman(t.amountToman)}</td></tr>)}
-      </tbody></table></div>}
   </div>;
 }
 
@@ -72,18 +64,25 @@ export default function SalesCommissions() {
   const { user, isAdmin, can } = useMe();
   const manage = isAdmin || can('goods_finance.manage');
   const people = useListSalespersons({ query: { queryKey: ['users-salespersons'], staleTime: 60_000, enabled: manage } });
-  const initial = Number(new URLSearchParams(window.location.search).get('salespersonId')) || null;
+  const params = new URLSearchParams(window.location.search);
+  const initial = Number(params.get('salespersonId')) || null;
   const [picked, setPicked] = useState<number | null>(initial);
+  const [tab, setTab] = useState<'ledger' | 'team'>(params.get('tab') === 'team' ? 'team' : 'ledger');
+  const team = useTeamSalesConfig(Boolean(user));
   const target = manage ? picked ?? people.data?.[0]?.id ?? null : user?.salespersonId ?? null;
+  const showTeam = isAdmin && tab === 'team';
+  const pickTab = (t: 'ledger' | 'team') => { setTab(t); const u = new URL(window.location.href); if (t === 'team') u.searchParams.set('tab', 'team'); else u.searchParams.delete('tab'); window.history.replaceState(null, '', u); };
   return <section className="data-page">
-    <div className="page-intro"><div><div className="eyebrow">پاداش فروش</div><h2>پورسانت فروش</h2><p>پله‌های هدف ماهانه، نرخ‌ها و دفتر انباشته هر کارشناس.</p></div>
-      {manage ? <select className="gp-select" value={target ?? ''} onChange={(e) => setPicked(Number(e.target.value))} data-testid="select-salesperson">{(people.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select> : null}</div>
-    {!target ? <div className="panel"><EmptyState title="کارشناس فروشی متصل نیست" description={manage ? 'نخست یک کارشناس فروش تعریف کنید.' : 'حساب شما به کارشناس فروش متصل نشده است.'} /></div> : <>
+    <div className="page-intro"><div><div className="eyebrow">پاداش فروش</div><h2>{showTeam ? 'مدل فروش تیمی' : 'پورسانت فروش'}</h2><p>{showTeam ? 'سهم معرفی، پاداش درستی داده و پاداش تیمی.' : 'پله‌های هدف ماهانه، نرخ‌ها، ریز ماهانه و دفتر انباشته هر کارشناس.'}</p></div>
+      {manage && !showTeam ? <select className="gp-select" value={target ?? ''} onChange={(e) => setPicked(Number(e.target.value))} data-testid="select-salesperson">{(people.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select> : null}
+      {isAdmin ? <div className="tc-ptabs" role="tablist" aria-label="بخش‌های پورسانت" style={{ width: '100%' }}>
+        <button type="button" role="tab" aria-selected={!showTeam} onClick={() => pickTab('ledger')} data-testid="tab-ledger"><Wallet size={16} /> دفتر و گزارش</button>
+        <button type="button" role="tab" aria-selected={showTeam} onClick={() => pickTab('team')} data-testid="tab-team-model"><Settings2 size={16} /> مدل فروش تیمی</button>
+      </div> : null}</div>
+    {showTeam ? <TeamSettingsTab /> : !target ? <div className="panel"><EmptyState title="کارشناس فروشی متصل نیست" description={manage ? 'نخست یک کارشناس فروش تعریف کنید.' : 'حساب شما به کارشناس فروش متصل نشده است.'} /></div> : <>
       <SalespersonSummaryCard id={target} />
-      <div className="gp-detail-grid" style={{ marginTop: 16 }}>
-        <div className="gp-main-col"><Ledger id={target} /></div>
-        <aside className="panel"><h3 style={{ marginBottom: 10 }}>پله‌ها و نرخ‌ها</h3><SalespersonSettingsForm id={target} canEdit={isAdmin} /></aside>
-      </div>
+      <div style={{ marginTop: 16 }}><CommissionReport id={target} isQualifier={team.data?.qualifierSalespersonId === target} /></div>
+      <aside className="panel" style={{ marginTop: 16 }}><h3 style={{ marginBottom: 10 }}>پله‌ها و نرخ‌ها</h3><SalespersonSettingsForm id={target} canEdit={isAdmin} /></aside>
     </>}
   </section>;
 }
