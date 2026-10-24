@@ -7,6 +7,8 @@ import { PortalApiError, portalApi, type PlanFinderMatch } from './api';
 import { buildPlanFinderRequest, planFinderYes as yes } from './plan-finder-answers';
 import { planFinderCalc, type PlanFinderCalc } from './plan-finder-math';
 import { ErrorBox, Icon, fa } from './PortalUi';
+import { GradePicker } from '@/components/grade/GradePicker';
+import { gradeText, isGradeValue, isSubgrade } from '@/lib/credit-grade';
 import { Crumb, ExpertButton, ExpertLink, HelpCard, Toman } from './Portal2Ui';
 
 /* «کمک در انتخاب طرح» (HANDOFF part 2 §1): a short wizard, one topic per step, options always come from
@@ -47,6 +49,7 @@ export function PlanFinder() {
   }, [opts.data]);
   const labelOf = (key: string) => {
     const q = STEPS.flatMap(s => s.qs).find(x => x.key === key);
+    if (q?.cols === 'rank' && isGradeValue(answers[key] || '')) return gradeText(answers[key]);
     return q ? byField.get(q.field)?.find(o => o.value === answers[key])?.label ?? answers[key] : answers[key];
   };
   const head = (title: string) => <div className="nfp-wz-meta">{step > 0 ? <button type="button" className="nfp-wz-back" onClick={() => { setMissing(null); setStep(step - 1); }} data-testid="button-finder-back"><Icon icon={ArrowRight} small />قبلی</button> : <span />}
@@ -101,10 +104,16 @@ export function PlanFinder() {
             <legend className={single ? 'nfp-sr' : undefined}>{q.label}</legend>
             {q.hint === 'rank' && <p className="nf-hint">رتبه‌تان را نمی‌دانید؟ <ExpertLink>از کارشناس بپرسید</ExpertLink></p>}
             {q.hint === 'guarantor' && <p className="nf-hint">ضامن کسی است که اگر قسطی پرداخت نشود، پرداختش را تعهد می‌کند.</p>}
-            <div className={`nfp-opts${q.cols === 'rank' ? ' nfp-c5' : ''}`} role="radiogroup" aria-label={q.label} style={{ ['--c' as string]: cols }}>
+            {/* HANDOFF §6: once the dictionary holds the 15 sub-grades, the same two rows (letter, then sub-grade) as the CRM. */}
+            {q.cols === 'rank' && list.some(o => isSubgrade(o.value)) ? <><GradePicker label={q.label} hideLabel value={isSubgrade(answers[q.key] || '') ? answers[q.key] : ''}
+                onChange={(v) => choose(q, v)} required showError={bad} emptyError="به این پرسش پاسخ دهید." testId={`grade-${q.key}`} />
+              {list.some(o => !isSubgrade(o.value)) && <div className="nfp-opts" role="radiogroup" aria-label={q.label} style={{ ['--c' as string]: 1, marginTop: 12 }}>
+                {list.filter(o => !isSubgrade(o.value)).map(o => <button type="button" key={o.value} className="nfp-opt" role="radio" aria-checked={answers[q.key] === o.value} onClick={() => choose(q, o.value)} data-testid={`choice-${q.key}-${o.value}`}>
+                  <span className="nfp-rd" aria-hidden="true" /><span>{o.label}</span></button>)}</div>}</>
+            : <div className={`nfp-opts${q.cols === 'rank' ? ' nfp-c5' : ''}`} role="radiogroup" aria-label={q.label} style={{ ['--c' as string]: cols }}>
               {list.map(o => <button type="button" key={o.value} className="nfp-opt" role="radio" aria-checked={answers[q.key] === o.value} onClick={() => choose(q, o.value)} data-testid={`choice-${q.key}-${o.value}`}>
-                {q.cols !== 'rank' && <span className="nfp-rd" aria-hidden="true" />}<span className={q.cols === 'rank' ? 'nfp-ltr' : undefined}>{o.label}</span></button>)}</div>
-            {bad && <p className="nf-error" id={`er-${q.key}`} role="alert"><Icon icon={AlertCircle} small />به این پرسش پاسخ دهید.</p>}
+                {q.cols !== 'rank' && <span className="nfp-rd" aria-hidden="true" />}<span className={q.cols === 'rank' ? 'nfp-ltr' : undefined}>{o.label}</span></button>)}</div>}
+            {bad && !(q.cols === 'rank' && list.some(o => isSubgrade(o.value))) && <p className="nf-error" id={`er-${q.key}`} role="alert"><Icon icon={AlertCircle} small />به این پرسش پاسخ دهید.</p>}
           </fieldset>;
         })}
       <div className="nfp-wz-foot">

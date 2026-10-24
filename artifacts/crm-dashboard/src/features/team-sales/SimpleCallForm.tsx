@@ -2,6 +2,8 @@ import { AlertCircle, Check, ChevronLeft, ChevronRight, Phone, Timer, X } from '
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { fa, fmtDateTime, shortName, submitSimpleForm, TeamSalesApiError, type CallResult, type QualifyResult, type SimpleAnswers } from './api';
 import './team-sales.css';
+import { GradePicker } from '@/components/grade/GradePicker';
+import { gradeText, isLegacy } from '@/lib/credit-grade';
 
 type Draft = {
   step: number; callResult: CallResult | null; callbackAt: string; amount: string;
@@ -16,7 +18,8 @@ const CALL_RESULTS: Array<[CallResult, string]> = [
 ];
 const URGENCY: Array<[NonNullable<SimpleAnswers['urgency']>, string]> = [['now', 'همین الان / این هفته'], ['month', 'تا یک ماه'], ['later', 'بعداً'], ['curious', 'فقط کنجکاوه']];
 const DOCS: Array<[NonNullable<SimpleAnswers['docsReady']>, string]> = [['all', 'همه آماده‌ست'], ['partial', 'بخشی'], ['none', 'آماده نیست']];
-const RANKS: Array<[string, string]> = [['A', 'A'], ['B', 'B'], ['C', 'C'], ['D', 'D'], ['E', 'E'], ['unknown', 'نمی‌دونه']];
+// Rank = one of the 15 sub-grades (two-row GradePicker) or «نمی‌دونه». A bare letter can only come from an old draft and must be re-picked.
+const UNKNOWN_RANK: Array<[string, string]> = [['unknown', 'نمی‌دونه']];
 const CHEQUE: Array<[NonNullable<Draft['cheque']>, string]> = [['check', 'چک دارد'], ['promissory', 'فقط سفته'], ['none', 'هیچ‌کدام']];
 const BOUNCED: Array<['no' | 'yes', string]> = [['no', 'خیر'], ['yes', 'بله']];
 const label = <T extends string>(list: Array<[T, string]>, v: T | null | undefined) => list.find(([k]) => k === v)?.[1] ?? '';
@@ -38,6 +41,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
   const [serverError, setServerError] = useState('');
+  const [rankPending, setRankPending] = useState(false);
   const [result, setResult] = useState<QualifyResult | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -75,7 +79,8 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
         const amount = Number(toDigits(d.amount));
         if (!d.amount.trim() || !Number.isFinite(amount) || amount < 10 || amount > 5000) e.amount = 'مبلغ را بین ۱۰ تا ۵۰۰۰ میلیون تومان بنویس.';
         if (!d.docsReady) e.docsReady = 'وضعیت مدارک را انتخاب کن.';
-        if (!d.creditRank) e.creditRank = 'رتبه‌ی اعتباری را انتخاب کن (یا «نمی‌دونه»).';
+        if (!d.creditRank) e.creditRank = rankPending ? 'زیررتبه را انتخاب کن.' : 'رتبه‌ی اعتباری را انتخاب کن (یا «نمی‌دونه»).';
+        else if (isLegacy(d.creditRank)) e.creditRank = `رتبه‌ی ${d.creditRank} قدیمی است؛ زیررتبه را دوباره انتخاب کن.`;
         if (!d.cheque) e.cheque = 'یکی از گزینه‌ها را انتخاب کن.';
         if (!d.bounced) e.bounced = 'چک برگشتی را مشخص کن.';
       }
@@ -130,7 +135,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
   const summary = [label(CALL_RESULTS.map(([k, v]) => [k, k === 'answered' ? 'جواب داد' : v] as [CallResult, string]), d.callResult),
     answered && !curious && d.amount ? `${fa(toDigits(d.amount))} میلیون` : '', answered ? label(URGENCY, d.urgency) : '',
     answered && !curious ? label(DOCS, d.docsReady) === 'همه آماده‌ست' ? 'مدارک کامل' : d.docsReady ? `مدارک: ${label(DOCS, d.docsReady)}` : '' : '',
-    answered && !curious && d.creditRank ? (d.creditRank === 'unknown' ? 'رتبه نامعلوم' : `رتبه ${d.creditRank}`) : '',
+    answered && !curious && d.creditRank ? (d.creditRank === 'unknown' ? 'رتبه نامعلوم' : `رتبه ${gradeText(d.creditRank)}`) : '',
     answered && !curious ? label(CHEQUE, d.cheque) : '', answered && !curious && d.bounced === 'yes' ? 'چک برگشتی' : '',
     d.callResult === 'callback' && d.callbackAt && !Number.isNaN(new Date(d.callbackAt).getTime()) ? `تماس بعدی: ${fmtDateTime(new Date(d.callbackAt).toISOString())}` : ''].filter(Boolean);
 
@@ -178,7 +183,9 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
       <fieldset className="ts-q"><legend>فوریت <span className="req">*</span></legend><Chips name="urgency" list={URGENCY} value={d.urgency} onChange={(v) => set({ urgency: v })} />{err('urgency')}</fieldset>
       {curious ? <p className="ts-muted">برای «فقط کنجکاوه» بقیه‌ی سؤال‌ها لازم نیست.</p> : <>
         <fieldset className="ts-q"><legend>مدارک <span className="req">*</span></legend><Chips name="docs" list={DOCS} value={d.docsReady} onChange={(v) => set({ docsReady: v })} />{err('docsReady')}</fieldset>
-        <fieldset className="ts-q"><legend>رتبه‌ی اعتباری <span className="req">*</span></legend><Chips name="rank" list={RANKS} value={d.creditRank} onChange={(v) => set({ creditRank: v })} />{err('creditRank')}</fieldset>
+        <fieldset className="ts-q"><legend>رتبه‌ی اعتباری <span className="req">*</span></legend><GradePicker label="رتبه‌ی اعتباری" hideLabel value={d.creditRank && d.creditRank !== 'unknown' ? d.creditRank : ''}
+          onChange={(v, pending) => { setRankPending(pending); set({ creditRank: v || null }); }} testId="ts-grade-rank" />
+          <Chips name="rank" list={UNKNOWN_RANK} value={d.creditRank} onChange={(v) => { setRankPending(false); set({ creditRank: v }); }} />{err('creditRank')}</fieldset>
         <fieldset className="ts-q"><legend>چک صیادی یا سفته دارد؟ <span className="req">*</span></legend><Chips name="cheque" list={CHEQUE} value={d.cheque} onChange={(v) => set({ cheque: v })} />{err('cheque')}</fieldset>
         <fieldset className="ts-q"><legend>چک برگشتی رفع‌نشده؟ <span className="req">*</span></legend><Chips name="bounced" list={BOUNCED} value={d.bounced} onChange={(v) => set({ bounced: v })} />{err('bounced')}</fieldset>
       </>}

@@ -1,4 +1,6 @@
 import { ClipboardList } from 'lucide-react';
+import { GradeChip } from '@/components/grade/GradeChip';
+import { isGradeValue } from '@/lib/credit-grade';
 import { getListConsultationsQueryKey, getListConsultOptionsQueryKey, useListConsultations, useListConsultOptions, type ListConsultationsParams } from '@workspace/api-client-react';
 
 export const isYesValue = (value: string) => ['1', 'true', 'yes'].includes(value.trim().toLowerCase());
@@ -6,8 +8,11 @@ const FALLBACK = 'ثبت نشده';
 const card: React.CSSProperties = { border: '1px solid #dbe2ee', borderRadius: 12, background: '#fff', padding: 16, marginBottom: 16 };
 const sectionTitle: React.CSSProperties = { fontSize: 11, fontWeight: 800, color: 'var(--nafiss-blue)', margin: '0 0 8px' };
 
-function Row({ label, value, testId }: { label: string; value: string; testId: string }) {
+function Row({ label, value, testId, chip }: { label: string; value: string; testId: string; chip?: boolean }) {
   const missing = value === FALLBACK;
+  if (chip) return <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '6px 0', borderBottom: '1px dashed #e2e8f0', fontSize: 12 }}>
+    <span style={{ color: '#64748b' }}>{label}</span><GradeChip value={value} testId={testId} />
+  </div>;
   return <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '6px 0', borderBottom: '1px dashed #e2e8f0', fontSize: 12 }}>
     <span style={{ color: '#64748b' }}>{label}</span>
     <strong data-testid={testId} style={{ color: missing ? '#94a3b8' : 'var(--ink-deep)', fontWeight: missing ? 500 : 700 }}>{value}</strong>
@@ -38,14 +43,14 @@ export function CustomerConsultationStatus({ customerId }: { customerId?: number
     </p>
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
       <div><h4 style={sectionTitle}>متقاضی</h4>
-        <Row label="رتبه اعتباری (اظهاری)" value={label('credit_rank', c.creditRank)} testId="text-status-credit-rank" />
+        <Row label="رتبه اعتباری (اظهاری)" value={isGradeValue(c.creditRank) ? c.creditRank! : label('credit_rank', c.creditRank)} chip={isGradeValue(c.creditRank)} testId="text-status-credit-rank" />
         <Row label="وضعیت چک" value={label('customer_check_status', c.customerCheckStatus)} testId="text-status-check" />
         <Row label="کسر از حقوق" value={yesNo('has_customer_salary_deduct', c.hasCustomerSalaryDeduct)} testId="text-status-salary" />
         <Row label="شغل" value={label('job_type', c.jobType)} testId="text-status-job" />
       </div>
       <div><h4 style={sectionTitle}>ضامن</h4>
         <Row label="ضامن دارد" value={yesNo('has_guarantor', c.hasGuarantor)} testId="text-status-has-guarantor" />
-        {gRow('رتبه اعتباری ضامن (اظهاری)', label('guarantor_credit_rank', c.guarantorCreditRank), 'text-status-guarantor-credit-rank')}
+        {hasG !== false && isGradeValue(c.guarantorCreditRank) ? <Row label="رتبه اعتباری ضامن (اظهاری)" value={c.guarantorCreditRank!} chip testId="text-status-guarantor-credit-rank" /> : gRow('رتبه اعتباری ضامن (اظهاری)', label('guarantor_credit_rank', c.guarantorCreditRank), 'text-status-guarantor-credit-rank')}
         {gRow('وضعیت چک ضامن', label('guarantor_check_type', c.guarantorCheckType), 'text-status-guarantor-check')}
         {gRow('کسر از حقوق ضامن', yesNo('has_guarantor_salary_deduct', c.hasGuarantorSalaryDeduct), 'text-status-guarantor-salary')}
       </div>

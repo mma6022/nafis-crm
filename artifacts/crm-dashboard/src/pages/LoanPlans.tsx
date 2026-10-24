@@ -1,7 +1,10 @@
 import { ArrowDown, ArrowUp, CheckCircle2, Edit3, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useTableState } from '@/hooks/use-table-state';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { GradePickerMulti } from '@/components/grade/GradePicker';
+import { GradeChipList } from '@/components/grade/GradeChip';
+import { expandGradeList, legacyLettersIn, sortGrades, type GradeLetter } from '@/lib/credit-grade';
 import {
   getGetLoanPlanQueryKey,
   getListConsultOptionsQueryKey,
@@ -18,7 +21,7 @@ import {
   type LoanPlanInput,
 } from '@workspace/api-client-react';
 import { GoodsPlanSettingsFields, blankGoodsPlanForm, saveGoodsPlanSettings, type GoodsPlanForm } from '@/components/GoodsPlanSettingsFields';
-import { errText, useMe } from '@/lib/goods-api';
+import { api, errText, useMe } from '@/lib/goods-api';
 import { ErrorState, formatDate, SkeletonPanel } from '@/components/CrmShell';
 import { EmptyState, Modal } from '@/components/DataTools';
 
@@ -74,6 +77,7 @@ type InstallmentTermForm = {
   depositPercent: string;
 };
 type ConditionForm = {
+  id?: number;
   maxPrincipal: string;
   installmentOptions: InstallmentOption[];
   customerRanks: string[];
@@ -252,8 +256,8 @@ function PlanDetail({ plan, loading, onEdit }: { plan: LoanPlan | null; loading:
     <section className="plan-detail-section">
       <div className="panel-head"><div><h3>مسیرهای تأیید</h3><p>برآورده شدن حداقل یکی از شرایط برای تأیید کافی است.</p></div><CheckCircle2 size={18} color="#3f918a" /></div>
       <div className="condition-list">{plan.conditions?.length ? [...plan.conditions].sort((a, b) => a.sortOrder - b.sortOrder).map((condition, index) => {
-        const customerRanks = labelsFor(parseStringArray(condition.customerRanks), optionsFor(options, 'credit_rank'));
-        const guarantorRanks = labelsFor(parseStringArray(condition.guarantorRanks), optionsFor(options, 'guarantor_credit_rank'));
+        const customerRanks = sortGrades(parseStringArray(condition.customerRanks));
+        const guarantorRanks = sortGrades(parseStringArray(condition.guarantorRanks));
         const customerJobs = labelsFor(condition.customerJobs ?? [], optionsFor(options, 'job_type'));
         const guarantorJobs = labelsFor(condition.guarantorJobs ?? [], optionsFor(options, 'guarantor_job_type'));
         return <div className="condition-item" key={condition.id}>
@@ -261,11 +265,11 @@ function PlanDetail({ plan, loading, onEdit }: { plan: LoanPlan | null; loading:
           <ul>
              {condition.maxPrincipal ? <li>سقف مبلغ: {condition.maxPrincipal} تومان</li> : null}
             {condition.installmentOptions?.length ? <li>اقساط مجاز: {condition.installmentOptions.join('، ')}</li> : null}
-            {customerRanks.length ? <li>رتبه مشتری: {customerRanks.join('، ')}</li> : null}
+            {customerRanks.length ? <li>رتبه مشتری: <GradeChipList values={customerRanks} testId={`text-condition-customer-ranks-${condition.id}`} /></li> : null}
             {customerJobs.length ? <li>مشاغل مشتری: {customerJobs.join('، ')}</li> : null}
             <li>وثیقه مشتری: {COLLATERALS.find((item) => item.value === condition.collateralType)?.label || 'بدون وثیقه'}</li>
             <li>{condition.needsGuarantor ? 'ضامن لازم است' : 'ضامن لازم نیست'}</li>
-            {condition.needsGuarantor && guarantorRanks.length ? <li>رتبه ضامن: {guarantorRanks.join('، ')}</li> : null}
+            {condition.needsGuarantor && guarantorRanks.length ? <li>رتبه ضامن: <GradeChipList values={guarantorRanks} testId={`text-condition-guarantor-ranks-${condition.id}`} /></li> : null}
             {condition.needsGuarantor && guarantorJobs.length ? <li>مشاغل ضامن: {guarantorJobs.join('، ')}</li> : null}
             {condition.needsGuarantor ? <li>وثیقه ضامن: {COLLATERALS.find((item) => item.value === condition.guarantorCollateralType)?.label || 'بدون وثیقه'}</li> : null}
             {condition.notes ? <li>توضیحات: {condition.notes}</li> : null}
@@ -301,6 +305,27 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
   const [terms, setTerms] = useState<InstallmentTermForm[]>([]);
   const [documents, setDocuments] = useState<string[]>([]);
   const [conditions, setConditions] = useState<ConditionForm[]>([]);
+  // Original letters, for «شرط قبلی این طرح «A و B» بود…»: still-stored letters (before the release) or the migration snapshot.
+  const [sourceLetters, setSourceLetters] = useState<Record<string, GradeLetter[]>>({});
+  const conversion = useQuery({
+    queryKey: ['loan-plan-grade-conversion', plan?.id ?? 0],
+    queryFn: () => api.get<{ items: Array<{ conditionId: number; field: 'customerRanks' | 'guarantorRanks'; original: string[] }> }>(`/loan-plans/${plan?.id}/grade-conversion`),
+    enabled: Boolean(plan?.id), retry: false, staleTime: 60_000,
+  });
+  const conversionNote = (condition: ConditionForm, field: 'customerRanks' | 'guarantorRanks') => {
+    if (condition.id == null) return null;
+    const stored = sourceLetters[`${condition.id}:${field}`];
+    const migrated = conversion.data?.items.find((item) => item.conditionId === condition.id && item.field === field);
+    const letters = stored?.length ? stored : legacyLettersIn(migrated?.original ?? []);
+    if (!letters.length) return null;
+    const unchanged = expandGradeList(letters).every((g) => condition[field].includes(g));
+    if (!unchanged) return null;
+    const join = (list: string[]) => list.length < 2 ? list.join('') : `${list.slice(0, -1).join('، ')} و ${list[list.length - 1]}`;
+    const was = join(letters), now = join(letters.map((l) => `${l}1 تا ${l}3`));
+    return stored?.length
+      ? <>شرط فعلی این طرح «{was}» است؛ با ذخیره به {now} تبدیل می‌شود.</>
+      : <>شرط قبلی این طرح «{was}» بود؛ در انتشار به {now} تبدیل شده است.</>;
+  };
   const isGoodsPlan = form.loanType === 'goods';
 
   useEffect(() => {
@@ -339,14 +364,20 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
       : parseLegacyInstallments(plan?.installments).map((installments) => ({ installments, prepaymentPercent: '', deductionPercent: '', depositPercent: '' }));
     setTerms(currentTerms);
     setDocuments(plan?.requiredDocuments ?? []);
+    setSourceLetters(Object.fromEntries((plan?.conditions ?? []).flatMap((condition) => [
+      [`${condition.id}:customerRanks`, legacyLettersIn(parseStringArray(condition.customerRanks))],
+      [`${condition.id}:guarantorRanks`, legacyLettersIn(parseStringArray(condition.guarantorRanks))],
+    ])));
     setConditions((plan?.conditions ?? []).sort((a, b) => a.sortOrder - b.sortOrder).map((condition) => ({
+      id: condition.id,
       maxPrincipal: condition.maxPrincipal ?? '',
       installmentOptions: condition.installmentOptions ?? [],
-      customerRanks: parseStringArray(condition.customerRanks),
+      // Legacy letters open as their three sub-grades (B → B1, B2, B3); saving stores sub-grades only.
+      customerRanks: expandGradeList(parseStringArray(condition.customerRanks)),
       customerJobs: condition.customerJobs ?? [],
       collateralType: condition.collateralType ?? 'none',
       needsGuarantor: Boolean(condition.needsGuarantor),
-      guarantorRanks: parseStringArray(condition.guarantorRanks),
+      guarantorRanks: expandGradeList(parseStringArray(condition.guarantorRanks)),
       guarantorJobs: condition.guarantorJobs ?? [],
       guarantorCollateralType: condition.guarantorCollateralType ?? 'none',
       notes: condition.notes ?? '',
@@ -490,12 +521,12 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
           <div className="form-grid">
              <div className="field"><label>سقف مبلغ تسهیلات (تومان)</label><input value={condition.maxPrincipal} onChange={(event) => updateCondition(index, 'maxPrincipal', event.target.value)} /></div>
             <div className="field full"><label>تعداد اقساط مجاز</label><ChipChoices values={INSTALLMENT_OPTIONS.map((value) => ({ value, label: `${value} ماهه` }))} selected={condition.installmentOptions} onChange={(value) => updateCondition(index, 'installmentOptions', value)} /></div>
-            <div className="field full"><label>رتبه‌های مجاز مشتری</label><DictionaryChips selected={condition.customerRanks} options={optionsFor(options, 'credit_rank')} onChange={(value) => updateCondition(index, 'customerRanks', value)} /></div>
+            <div className="field full"><GradePickerMulti label="رتبه‌های مجاز مشتری" values={condition.customerRanks} onChange={(value) => updateCondition(index, 'customerRanks', value)} note={conversionNote(condition, 'customerRanks')} testId={`grades-customer-${index}`} /></div>
             <div className="field full"><label>مشاغل مجاز مشتری</label><DictionaryChips selected={condition.customerJobs} options={optionsFor(options, 'job_type')} onChange={(value) => updateCondition(index, 'customerJobs', value)} /></div>
             <div className="field"><label>وثیقه مورد نیاز مشتری</label><select value={condition.collateralType} onChange={(event) => updateCondition(index, 'collateralType', event.target.value)}>{COLLATERALS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
             <div className="field"><label>ضامن لازم دارد؟</label><select value={condition.needsGuarantor ? 'yes' : 'no'} onChange={(event) => updateCondition(index, 'needsGuarantor', event.target.value === 'yes')}><option value="no">خیر</option><option value="yes">بله</option></select></div>
           </div>
-          {condition.needsGuarantor ? <div className="guarantor-section"><strong>شرایط ضامن</strong><div className="field"><label>رتبه‌های مجاز ضامن</label><DictionaryChips selected={condition.guarantorRanks} options={optionsFor(options, 'guarantor_credit_rank')} onChange={(value) => updateCondition(index, 'guarantorRanks', value)} /></div><div className="field"><label>مشاغل مجاز ضامن</label><DictionaryChips selected={condition.guarantorJobs} options={optionsFor(options, 'guarantor_job_type')} onChange={(value) => updateCondition(index, 'guarantorJobs', value)} /></div><div className="field"><label>وثیقه مورد نیاز ضامن</label><select value={condition.guarantorCollateralType} onChange={(event) => updateCondition(index, 'guarantorCollateralType', event.target.value)}>{COLLATERALS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div></div> : null}
+          {condition.needsGuarantor ? <div className="guarantor-section"><strong>شرایط ضامن</strong><div className="field full"><GradePickerMulti label="رتبه‌های مجاز ضامن" values={condition.guarantorRanks} onChange={(value) => updateCondition(index, 'guarantorRanks', value)} note={conversionNote(condition, 'guarantorRanks')} testId={`grades-guarantor-${index}`} /></div><div className="field"><label>مشاغل مجاز ضامن</label><DictionaryChips selected={condition.guarantorJobs} options={optionsFor(options, 'guarantor_job_type')} onChange={(value) => updateCondition(index, 'guarantorJobs', value)} /></div><div className="field"><label>وثیقه مورد نیاز ضامن</label><select value={condition.guarantorCollateralType} onChange={(event) => updateCondition(index, 'guarantorCollateralType', event.target.value)}>{COLLATERALS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div></div> : null}
         </div>)}</div> : <div className="empty-state compact-empty"><p>هنوز شرطی تعریف نشده است. برای شروع «افزودن شرط» را انتخاب کنید.</p></div>}
       </section>
 

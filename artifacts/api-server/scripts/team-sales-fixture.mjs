@@ -33,7 +33,7 @@ ok("config merge ignores junk", () => {
 /* ---------- priority rules ---------- */
 const now = T("2026-10-24T10:00:00+03:30");
 const base = { callResult: "answered", urgency: "now", amountMillion: 100, loanPref: "both", jobType: "employee_with_insurance",
-  creditRank: "A", checkStatus: "physical", canPromissory: "yes", salaryDeduct: "no", bouncedCheque: "no",
+  creditRank: "A1", checkStatus: "physical", canPromissory: "yes", salaryDeduct: "no", bouncedCheque: "no",
   guarantorCount: 0, docsReady: "all" };
 const fakeMatch = [{ planId: 1, planName: "x", conditionId: 1, max: 300e6, assumptions: [], amountFits: true }];
 ok("validate: answered needs urgency", () => assert.ok(validateAnswers({ callResult: "answered" })));
@@ -52,8 +52,12 @@ ok("validate: callback needs a future time", () => {
   assert.equal(validateAnswers({ callResult: "callback", callbackAt: "2026-10-24T15:00:00+03:30" }, now), null);
 });
 const simple = { mode: "simple", callResult: "answered", urgency: "now", amountMillion: 100, docsReady: "all",
-  creditRank: "A", checkStatus: "any", canPromissory: "yes", bouncedCheque: "no" };
+  creditRank: "A1", checkStatus: "any", canPromissory: "yes", bouncedCheque: "no" };
 ok("validate: simple form needs no job/guarantor", () => assert.equal(validateAnswers(simple, now), null));
+ok("validate: bare letter rejected for a new answer", () => assert.ok(validateAnswers({ ...simple, creditRank: "A" }, now)));
+ok("validate: unchanged legacy letter accepted", () => assert.equal(validateAnswers({ ...simple, creditRank: "A" }, now, { creditRank: "A" }), null));
+ok("validate: changed legacy letter must be a sub-grade", () => assert.ok(validateAnswers({ ...simple, creditRank: "B" }, now, { creditRank: "A" })));
+ok("validate: unknown still accepted", () => assert.equal(validateAnswers({ ...simple, creditRank: "unknown" }, now), null));
 ok("validate: full form still needs job", () => assert.ok(validateAnswers({ ...simple, mode: "full" }, now)));
 ok("validate: bounced cheque must be answered", () => assert.ok(validateAnswers({ ...simple, bouncedCheque: null }, now)));
 ok("H4 curious -> P3 nurture", () => assert.equal(computeLeadPriority({ ...base, urgency: "curious" }, fakeMatch, 0, now).outcome, "nurture"));
@@ -87,14 +91,14 @@ try {
     assert.ok(m.length > 0 && m[0].amountFits);
     const r = computeLeadPriority(simple, m, 0, now);
     assert.equal(r.priority, 1); assert.match(r.reasons[0], /از روی رتبه و چک/);
-    assert.equal(matchPlans({ ...simple, creditRank: "E", checkStatus: "none", canPromissory: "no" }, plans).length, 0);
+    assert.equal(matchPlans({ ...simple, creditRank: "E3", checkStatus: "none", canPromissory: "no" }, plans).length, 0);
   });
   ok("plans from live tables match the form", () => {
     const plans = plansFromRows(queryRows("SELECT * FROM loan_plans WHERE active=1"), queryRows("SELECT * FROM loan_plan_conditions"));
     assert.ok(plans.length >= 10);
     const m = matchPlans({ ...base, amountMillion: 100 }, plans);
     assert.ok(m.length > 0 && m[0].amountFits);
-    const none = matchPlans({ ...base, jobType: "unemployed", creditRank: "E", checkStatus: "none", canPromissory: "no" }, plans);
+    const none = matchPlans({ ...base, jobType: "unemployed", creditRank: "E3", checkStatus: "none", canPromissory: "no" }, plans);
     assert.equal(none.length, 0);
   });
 

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { compactRankJson } from "../lib/credit-subgrades";
 import { invokeConsultationModel } from "../lib/consultation-engine";
 import { portalConsultationContext } from "./consultation-ai";
 import { customerPortalIdentityReady } from "../lib/customer-portal-identity";
@@ -99,10 +100,10 @@ function safePlanContext(): PlanContext[] {
       ORDER BY sort_order,id
     `, [Number(plan.id)]).map((condition) => ({
       ...condition,
-      customer_ranks: parseJson(condition.customer_ranks) ?? condition.customer_ranks,
+      customer_ranks: parseJson(compactRankJson(condition.customer_ranks)) ?? condition.customer_ranks,
       installment_options: parseJson(condition.installment_options) ?? condition.installment_options,
       customer_jobs: parseJson(condition.customer_jobs) ?? condition.customer_jobs,
-      guarantor_ranks: parseJson(condition.guarantor_ranks) ?? condition.guarantor_ranks,
+      guarantor_ranks: parseJson(compactRankJson(condition.guarantor_ranks)) ?? condition.guarantor_ranks,
       guarantor_jobs: parseJson(condition.guarantor_jobs) ?? condition.guarantor_jobs,
     })),
   }));

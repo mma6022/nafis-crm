@@ -1,13 +1,10 @@
-function normalizeCreditRank(value: unknown): string {
-  return String(value ?? "")
-    .trim().toUpperCase()
-    .replace(/[۰-۹]/g, digit => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
-    .replace(/[٠-٩]/g, digit => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
-    .replace(/[\s\d]+$/g, "");
-}
+import { gradeMatches } from "./credit-subgrades";
 
+/**
+ * Verified credit grade (e.g. "B2") against a plan condition's permitted grades. Matching is exact by sub-grade;
+ * a bare letter in the rule (old plans, historical condition snapshots) still means all three of its sub-grades.
+ */
 export function conditionAcceptsCreditRank(value: unknown, storedRanks: unknown[]): boolean {
   if (!storedRanks.length) return true;
-  const rank = normalizeCreditRank(value);
-  return Boolean(rank) && storedRanks.some(stored => normalizeCreditRank(stored) === rank);
+  return gradeMatches(value, storedRanks);
 }

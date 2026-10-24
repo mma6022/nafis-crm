@@ -180,6 +180,7 @@ import { mergeCustomerRecords } from "../lib/customer-merge";
 import { insertCustomerRecord } from "../lib/customer-create";
 import { publicPlanGuarantees } from "../lib/public-plan-guarantees";
 import { isPortalRegistration } from "../lib/customer-portal-features";
+import { acceptedGradeEdit, compactRankList, expandRankList, GRADE_EDIT_ERROR, isLegacyGradeLetter, parseStoredRanks } from "../lib/credit-subgrades";
 import {
   ensureSalespersonIdentity,
   reconcileSalespersonUserIdentities,
@@ -516,9 +517,10 @@ export function consultationQuestionnaireOptions(): QuestionnaireOption[] {
   for (const option of [...options].filter(option => option.fieldKey === "credit_rank")) add("guarantor_credit_rank", option.value);
   for (const row of queryRows<any>(`SELECT pc.customer_ranks,pc.guarantor_ranks,pc.customer_jobs,pc.collateral_type,pc.guarantor_collateral_type
     FROM loan_plan_conditions pc JOIN loan_plans lp ON lp.id=pc.plan_id WHERE lp.active=1 ORDER BY pc.id`)) {
-    for (const rank of parseRankList(row.customer_ranks)) add("credit_rank", rank);
-    for (const rank of parseRankList(row.customer_ranks)) add("guarantor_credit_rank", rank);
-    for (const rank of parseRankList(row.guarantor_ranks)) add("guarantor_credit_rank", rank);
+    // Grades: a bare letter left in a plan rule (A–E, retired) must never come back as a choice; sub-grades may.
+    for (const rank of parseRankList(row.customer_ranks)) if (!isLegacyGradeLetter(rank)) add("credit_rank", rank);
+    for (const rank of parseRankList(row.customer_ranks)) if (!isLegacyGradeLetter(rank)) add("guarantor_credit_rank", rank);
+    for (const rank of parseRankList(row.guarantor_ranks)) if (!isLegacyGradeLetter(rank)) add("guarantor_credit_rank", rank);
     for (const job of parseJsonArray<string>(row.customer_jobs)) add("job_type", job);
     for (const [field, collateral] of [["customer_check_status", row.collateral_type], ["guarantor_check_type", row.guarantor_collateral_type]]) {
       if (collateral === "physical_check") add(field, "physical");
@@ -4369,6 +4371,12 @@ export function consultationFields(body: Record<string, unknown>) {
   return values;
 }
 
+function activeGradeOptions(fieldKey: string): string[] {
+  return queryRows<{ option_value: string }>(
+    "SELECT option_value FROM consult_options WHERE active=1 AND field_key=?", [fieldKey],
+  ).map(row => row.option_value);
+}
+
 function authoritativeCreditRank(customerId: number): string | null {
   const row = queryRow<{ credit_rank: string | null }>(
     "SELECT credit_rank FROM customers WHERE id = ?",
@@ -4460,6 +4468,14 @@ router.post(
         body.hasGuarantorSalaryDeduct = false;
       }
     }
+    if (body.guarantorCreditRank !== undefined) {
+      const grade = acceptedGradeEdit(body.guarantorCreditRank, null, activeGradeOptions("guarantor_credit_rank"));
+      if (!grade.ok) {
+        res.status(400).json({ error: GRADE_EDIT_ERROR });
+        return;
+      }
+      body.guarantorCreditRank = grade.value;
+    }
     const values = consultationFields(body);
     const currentCreditRank = body.questionnaireVersion === 1 || body.questionnaireVersion === 2
       ? String(body.creditRank) : authoritativeCreditRank(Number(body.customerId));
@@ -4547,6 +4563,16 @@ router.patch(
     if ((existing?.questionnaireVersion ?? 0) >= 1) {
       res.status(409).json({ error: "این مشاوره سابقهٔ مستقل وضعیت مشتری است؛ برای تغییر وضعیت، مشاورهٔ جدید ثبت کنید." });
       return;
+    }
+    const guarantorGrade = values.find(([column]) => column === "guarantor_credit_rank");
+    if (guarantorGrade) {
+      // An old value left unchanged (even a retired A–E letter) is kept; a changed one must be a sub-grade.
+      const grade = acceptedGradeEdit(guarantorGrade[1], existing?.guarantorCreditRank ?? null, activeGradeOptions("guarantor_credit_rank"));
+      if (!grade.ok) {
+        res.status(400).json({ error: GRADE_EDIT_ERROR });
+        return;
+      }
+      guarantorGrade[1] = grade.value;
     }
     const effectiveCustomerId = parsed.data.customerId ?? existing?.customerId;
     const currentCreditRank = effectiveCustomerId
@@ -4668,7 +4694,10 @@ function planFields(body: Record<string, unknown>) {
             : 0
           : isJsonField
             ? JSON.stringify(body[key])
-            : (body[key] as SqlValue),
+            : (key === "customerRanks" || key === "guarantorRanks") && typeof body[key] === "string" && String(body[key]).trim()
+              // Retired A–E letters in a saved rule become their three sub-grades (A → A1,A2,A3).
+              ? JSON.stringify(expandRankList(parseStoredRanks(body[key])))
+              : (body[key] as SqlValue),
       ]);
     }
   }
@@ -4798,12 +4827,12 @@ function replacePlanConditions(
       [
         planId,
         condition.maxPrincipal?.trim() || null,
-        JSON.stringify(condition.customerRanks ?? []),
+        JSON.stringify(expandRankList(condition.customerRanks ?? [])),
         JSON.stringify(condition.installmentOptions ?? []),
         JSON.stringify(condition.customerJobs ?? []),
         condition.collateralType?.trim() || null,
         condition.needsGuarantor ? 1 : 0,
-        JSON.stringify(condition.guarantorRanks ?? []),
+        JSON.stringify(expandRankList(condition.guarantorRanks ?? [])),
         JSON.stringify(condition.guarantorJobs ?? []),
         condition.guarantorCollateralType?.trim() || null,
         condition.needsCustomerPromissory ? 1 : 0,
@@ -4887,7 +4916,7 @@ function evaluatePlanCondition(
     const rank = consultation.creditRank?.trim().toUpperCase();
     if (!rank) missingInformation.push("رتبه اعتباری مشتری");
     else if (!consultationRankMatches(rank, customerRanks)) {
-      failedRequirements.push(`رتبه اعتباری مجاز: ${customerRanks.join("، ")}`);
+      failedRequirements.push(`رتبه اعتباری مجاز: ${compactRankList(customerRanks).join("، ")}`);
     }
   }
 
@@ -4896,7 +4925,7 @@ function evaluatePlanCondition(
     const rank = consultation.guarantorCreditRank?.trim().toUpperCase();
     if (!rank) missingInformation.push("رتبه اعتباری ضامن");
     else if (!consultationRankMatches(rank, guarantorRanks)) {
-      failedRequirements.push(`رتبه مجاز ضامن: ${guarantorRanks.join("، ")}`);
+      failedRequirements.push(`رتبه مجاز ضامن: ${compactRankList(guarantorRanks).join("، ")}`);
     }
   }
 
@@ -5115,6 +5144,32 @@ router.get(
       return;
     }
     res.json(GetLoanPlanResponse.parse(plan));
+  },
+);
+
+// Read-only: rank lists of this plan's conditions that the credit-subgrades migration converted from A–E letters
+// and that still hold the converted value (an edit after the release clears the note). Empty before the migration.
+router.get(
+  "/loan-plans/:id/grade-conversion",
+  requirePermission("loan_plans.view"),
+  (req, res): void => {
+    const parsed = GetLoanPlanParams.safeParse(req.params);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+    const hasSnapshot = queryRow("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='credit_subgrades_snapshot'");
+    const items = hasSnapshot ? queryRows<{ row_id: number; column_name: string; original_value: string }>(
+      `SELECT s.row_id, s.column_name, s.original_value FROM credit_subgrades_snapshot s
+         JOIN loan_plan_conditions pc ON pc.id = s.row_id
+        WHERE s.kind = 'rank_list' AND s.table_name = 'loan_plan_conditions' AND s.rolled_back_at IS NULL
+          AND pc.plan_id = ? AND s.column_name IN ('customer_ranks','guarantor_ranks')
+          AND ((s.column_name = 'customer_ranks' AND pc.customer_ranks = s.migrated_value)
+            OR (s.column_name = 'guarantor_ranks' AND pc.guarantor_ranks = s.migrated_value))
+        ORDER BY s.id`, [parsed.data.id],
+    ).map(row => ({ conditionId: Number(row.row_id), field: row.column_name === "customer_ranks" ? "customerRanks" : "guarantorRanks",
+      original: parseStoredRanks(row.original_value) })) : [];
+    res.json({ items });
   },
 );
 

@@ -6,7 +6,7 @@
  */
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import {
-  addWorkingHours, computeLeadPriority, matchPlans, mergeTeamSalesConfig, plansFromRows, validateAnswers,
+  addWorkingHours, computeLeadPriority, matchPlans, mergeTeamSalesConfig, plansFromRows, validateAnswers, type LegacyRankRef,
   type LeadOutcome, type PlanMatch, type QualifierAnswers, type TeamSalesConfig,
 } from "./team-sales-rules";
 
@@ -280,11 +280,25 @@ function consecutiveNoAnswers(customerId: number): number {
   return n;
 }
 
+/** The customer's latest recorded grades: a retired A–E letter is accepted only when it repeats one of these unchanged. */
+function legacyRanks(customerId: number): LegacyRankRef {
+  const rows = queryRows<{ answers_json: string }>(
+    "SELECT answers_json FROM team_sales_qualifications WHERE customer_id=? ORDER BY id DESC LIMIT 20", [customerId]);
+  const out: LegacyRankRef = {};
+  for (const row of rows) {
+    let a: Record<string, unknown> = {};
+    try { a = JSON.parse(row.answers_json) ?? {}; } catch { continue; }
+    if (out.creditRank === undefined && typeof a.creditRank === "string" && a.creditRank) out.creditRank = a.creditRank;
+    if (out.gRank === undefined && typeof a.gRank === "string" && a.gRank) out.gRank = a.gRank;
+  }
+  return out;
+}
+
 /** Preview only: no writes. */
 export function previewQualification(customerId: number, answers: QualifierAnswers, now = new Date()) {
   ensureTeamSalesSchema();
   const cfg = getTeamSalesConfig();
-  const err = validateAnswers(answers, now);
+  const err = validateAnswers(answers, now, legacyRanks(customerId));
   if (err) throw new TeamSalesError(400, err);
   const matches = answers.callResult === "answered" ? matchPlans(answers, activePlans()) : [];
   return { result: computeLeadPriority(answers, matches, consecutiveNoAnswers(customerId), now, cfg), matches: matches.slice(0, 5) };
@@ -303,7 +317,7 @@ const CALL_SUBJECT: Record<string, string> = {
 export function submitQualification(customerId: number, actor: Actor, answers: QualifierAnswers, note: string, now = new Date()) {
   ensureTeamSalesSchema();
   const cfg = getTeamSalesConfig();
-  const err = validateAnswers(answers, now);
+  const err = validateAnswers(answers, now, legacyRanks(customerId));
   if (err) throw new TeamSalesError(400, err);
   const cleanNote = String(note ?? "").trim();
   if ([...cleanNote].length < cfg.noteMinLength)

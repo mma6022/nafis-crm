@@ -1,3 +1,4 @@
+import { gradeMatches } from "./credit-subgrades";
 export type QuestionnaireOption = { id: number; fieldKey: string; value: string; labelFa: string; sortOrder: number };
 export function questionnaireError(body: Record<string, unknown>, options: QuestionnaireOption[]): string | null {
   if (body.questionnaireVersion !== 1 && body.questionnaireVersion !== 2) return null;
@@ -18,6 +19,5 @@ export function questionnaireError(body: Record<string, unknown>, options: Quest
 
 /** Only consultation advice accepts a declared rank; verified scoring remains separate. */
 export function consultationRankMatches(rank: string, permitted: string[]): boolean {
-  const normalized = rank.trim().toUpperCase();
-  return permitted.some(value => value === normalized || (/^[A-E]$/.test(value) && normalized.startsWith(value)));
+  return gradeMatches(rank, permitted);
 }

@@ -47,7 +47,8 @@
     "test:deposit-collateral-removal": "node --experimental-strip-types scripts/deposit-collateral-removal-fixture.mjs && node scripts/remove-deposit-collateral-fixture.mjs",
     "test:wallet-receipt-view": "node --experimental-strip-types scripts/wallet-receipt-view-fixture.mjs",
     "test:team-sales": "node scripts/run-bundled-fixture.mjs scripts/team-sales-fixture.mjs",
-    "test:team-commission": "node scripts/run-bundled-fixture.mjs scripts/team-commission-fixture.mjs"
+    "test:team-commission": "node scripts/run-bundled-fixture.mjs scripts/team-commission-fixture.mjs",
+    "test:credit-subgrades": "node scripts/run-bundled-fixture.mjs scripts/credit-subgrades-fixture.mjs"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.3.0",

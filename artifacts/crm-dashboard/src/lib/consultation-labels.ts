@@ -1,3 +1,4 @@
+import { gradeText, isGradeValue } from './credit-grade';
 type DictionaryOption = { fieldKey: string; value: string; labelFa: string };
 const defaults: Record<string, Record<string, string>> = {
   loan_type: { goods: 'خرید کالا', cash: 'نقدی', cash_and_goods: 'نقدی و خرید کالا', credit: 'اعتباری' },
@@ -21,6 +22,8 @@ const defaults: Record<string, Record<string, string>> = {
 export function consultationLabel(field: string, value: string | null | undefined, options: DictionaryOption[] = []): string {
   if (!value?.trim()) return 'ثبت نشده';
   const text = value.trim();
+  // Credit grades: sub-grades read as is (A1 … E3); a bare letter saved before sub-grades reads «B (قدیمی)».
+  if ((field === 'credit_rank' || field === 'guarantor_credit_rank') && isGradeValue(text)) return gradeText(text);
   const dictionary = options.find(option => option.fieldKey === field && option.value === text)?.labelFa;
   if (dictionary && /[\u0600-\u06ff]/.test(dictionary)) return dictionary;
   const fallback = defaults[field]?.[text];

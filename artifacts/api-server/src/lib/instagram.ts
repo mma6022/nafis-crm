@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { compactRankJson } from "./credit-subgrades";
 import { execute, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
 import { logger } from "./logger";
 import { instagramBoundAccountId, instagramStoredCredentials } from "./instagram-oauth";
@@ -566,12 +567,12 @@ function publicLoanPlans() {
       const candidates = conditionsByPlan.get(condition.plan_id) ?? [];
       candidates.push({
         maxPrincipal: condition.max_principal,
-        customerRanks: condition.customer_ranks,
+        customerRanks: compactRankJson(condition.customer_ranks) as string | null,
         installmentOptions: condition.installment_options,
         customerJobs: condition.customer_jobs,
         collateralType: condition.collateral_type,
         needsGuarantor: condition.needs_guarantor,
-        guarantorRanks: condition.guarantor_ranks,
+        guarantorRanks: compactRankJson(condition.guarantor_ranks) as string | null,
         guarantorJobs: condition.guarantor_jobs,
         guarantorCollateralType: condition.guarantor_collateral_type,
         needsCustomerPromissory: condition.needs_customer_promissory,

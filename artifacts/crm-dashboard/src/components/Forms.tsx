@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { GradePicker } from '@/components/grade/GradePicker';
 import { createPortal } from 'react-dom';
 import './CallForm.css';
 import { BellPlus, FileText, PhoneCall, Search, X } from 'lucide-react';
@@ -377,7 +378,7 @@ export function CreateConsultationForm({ customers: sourceCustomers, pending, in
         <div className="field full" style={section} role="group" aria-labelledby="consult-applicant-h">
           <h4 id="consult-applicant-h" style={sectionHead}>اطلاعات متقاضی</h4>
           <div className="form-grid">
-            <QuestionSelect id="consult-credit-rank" label="رتبه اعتباری متقاضی" value={form.creditRank} onChange={set('creditRank')} options={by('credit_rank')} error={bad('creditRank')} />
+            <div className="field full"><GradePicker id="consult-credit-rank" label="رتبه اعتبارسنجی" required value={form.creditRank} onChange={(v) => set('creditRank')(v)} showError={attempted} testId="grade-consult-credit-rank" /></div>
             <QuestionSelect id="consult-check-status" label="وضعیت چک متقاضی" value={form.customerCheckStatus} onChange={set('customerCheckStatus')} options={by('customer_check_status')} error={bad('customerCheckStatus')} />
             <QuestionSelect id="consult-salary-deduct" label="وضعیت کسر از حقوق متقاضی" value={form.hasCustomerSalaryDeduct} onChange={set('hasCustomerSalaryDeduct')} options={by('has_customer_salary_deduct')} error={bad('hasCustomerSalaryDeduct')} />
             <QuestionSelect id="consult-job" label="شغل متقاضی" value={form.jobType} onChange={set('jobType')} options={by('job_type')} error={bad('jobType')} />
@@ -388,7 +389,7 @@ export function CreateConsultationForm({ customers: sourceCustomers, pending, in
           <div className="form-grid">
             <QuestionSelect id="consult-has-guarantor" label="ضامن دارد یا نه" value={form.hasGuarantor} onChange={set('hasGuarantor')} options={by('has_guarantor')} error={bad('hasGuarantor')} />
             {guarantorYes ? <>
-              <QuestionSelect id="consult-guarantor-credit-rank" label="رتبه اعتباری ضامن" value={form.guarantorCreditRank} onChange={set('guarantorCreditRank')} options={by('guarantor_credit_rank')} error={bad('guarantorCreditRank')} />
+              <div className="field full"><GradePicker id="consult-guarantor-credit-rank" label="رتبه اعتبارسنجی ضامن" required value={form.guarantorCreditRank} onChange={(v) => set('guarantorCreditRank')(v)} showError={attempted} emptyError="رتبه اعتبارسنجی ضامن را انتخاب کنید." testId="grade-consult-guarantor-credit-rank" /></div>
               <QuestionSelect id="consult-guarantor-check" label="وضعیت چک ضامن" value={form.guarantorCheckType} onChange={set('guarantorCheckType')} options={by('guarantor_check_type')} error={bad('guarantorCheckType')} />
               <QuestionSelect id="consult-guarantor-salary" label="ضامن کسر از حقوق دارد یا نه" value={form.hasGuarantorSalaryDeduct} onChange={set('hasGuarantorSalaryDeduct')} options={by('has_guarantor_salary_deduct')} error={bad('hasGuarantorSalaryDeduct')} />
             </> : null}

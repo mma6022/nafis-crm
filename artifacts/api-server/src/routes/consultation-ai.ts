@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { compactRankJson } from "../lib/credit-subgrades";
 import {
   CreateConsultationAiConversationBody,
   CreateConsultationAiConversationResponse,
@@ -81,7 +82,11 @@ function contextFor(customerId: number, user: AuthUser, customerFacing = false) 
     conditions: queryRows<Record<string, unknown>>(
       "SELECT max_principal, customer_ranks, installment_options, customer_jobs, collateral_type, needs_guarantor, guarantor_ranks, guarantor_jobs, notes FROM loan_plan_conditions WHERE plan_id = ? ORDER BY sort_order, id",
       [Number(plan.id)],
-    ),
+    ).map((condition) => ({
+      ...condition,
+      customer_ranks: compactRankJson(condition.customer_ranks),
+      guarantor_ranks: compactRankJson(condition.guarantor_ranks),
+    })),
   }));
   const knowledge = queryRows<{ question: string; answer: string; corrected_answer: string | null }>(
     `SELECT (

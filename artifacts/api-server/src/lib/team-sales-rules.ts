@@ -1,3 +1,4 @@
+import { compactRankList, CREDIT_SUBGRADES, gradeMatches, isLegacyGradeLetter } from "./credit-subgrades";
 /**
  * Team-sales model: pure rules (no DB). Ported from /workspace/nafis-sales/lead-form.html
  * (matchPlans / computePriority). The server recomputes priority; client values are previews only.
@@ -115,7 +116,7 @@ export type QualifierAnswers = {
   amountMillion?: number | null;
   loanPref?: "goods" | "score" | "both" | null;
   jobType?: string | null;
-  creditRank?: string | null; // A..E | unknown
+  creditRank?: string | null; // A1..E3 | unknown (a retired A–E letter only when kept unchanged from an earlier answer)
   checkStatus?: "none" | "physical" | "digital" | "both" | "any" | null;
   canPromissory?: "yes" | "no" | null;
   salaryDeduct?: "yes" | "no" | null;
@@ -128,10 +129,14 @@ export type QualifierAnswers = {
 };
 
 const JOBS = ["employee_with_insurance", "employee_no_insurance", "business", "no_doc", "retired", "unemployed"];
-const RANKS = ["A", "B", "C", "D", "E", "unknown"];
+export const RANKS: readonly string[] = [...CREDIT_SUBGRADES, "unknown"];
+/** Previous answers for the same customer: a retired A–E letter is accepted only when it is that unchanged value. */
+export type LegacyRankRef = { creditRank?: string | null; gRank?: string | null };
+const rankAccepted = (value: string, legacy: string | null | undefined) =>
+  RANKS.includes(value) || (isLegacyGradeLetter(value) && value === legacy);
 
 /** Validates the answers for a call result. Returns a Persian error or null. */
-export function validateAnswers(a: QualifierAnswers, now: Date = new Date()): string | null {
+export function validateAnswers(a: QualifierAnswers, now: Date = new Date(), legacy: LegacyRankRef = {}): string | null {
   if (!a || !CALL_RESULTS.includes(a.callResult)) return "نتیجهٔ تماس معتبر نیست.";
   if (a.callResult === "callback") {
     const at = a.callbackAt ? Date.parse(a.callbackAt) : Number.NaN;
@@ -146,13 +151,13 @@ export function validateAnswers(a: QualifierAnswers, now: Date = new Date()): st
   if (a.loanPref && !["goods", "score", "both"].includes(a.loanPref)) return "نوع وام معتبر نیست.";
   const simple = a.mode === "simple";
   if (simple ? a.jobType != null && !JOBS.includes(a.jobType) : !a.jobType || !JOBS.includes(a.jobType)) return "شغل متقاضی را مشخص کنید.";
-  if (!a.creditRank || !RANKS.includes(a.creditRank)) return "رتبهٔ اعتباری را مشخص کنید (یا «نمی‌دانم»).";
+  if (!a.creditRank || !rankAccepted(a.creditRank, legacy.creditRank)) return "رتبهٔ اعتباری را مشخص کنید (یا «نمی‌دانم»).";
   if (!a.checkStatus || !["none", "physical", "digital", "both", ...(simple ? ["any"] : [])].includes(a.checkStatus)) return "وضعیت چک متقاضی را مشخص کنید.";
   if (!a.bouncedCheque || !["yes", "no"].includes(a.bouncedCheque)) return "چک برگشتی را مشخص کنید.";
   if (!a.docsReady || !["all", "partial", "none"].includes(a.docsReady)) return "وضعیت مدارک را مشخص کنید.";
   const g = Number(a.guarantorCount ?? 0);
   if (!Number.isInteger(g) || g < 0 || g > 5) return "تعداد ضامن معتبر نیست.";
-  if (g > 0 && a.gRank && !RANKS.includes(a.gRank)) return "رتبهٔ ضامن معتبر نیست.";
+  if (g > 0 && a.gRank && !rankAccepted(a.gRank, legacy.gRank)) return "رتبهٔ ضامن معتبر نیست.";
   return null;
 }
 
@@ -208,8 +213,8 @@ export function matchPlans(a: QualifierAnswers, plans: PlanForMatch[]): PlanMatc
       if (c.jobs.length && a.jobType != null && !c.jobs.includes(String(a.jobType))) continue;
       if (c.jobs.length && a.jobType == null && a.mode !== "simple") continue;
       if (c.ranks.length) {
-        if (a.creditRank === "unknown") assumptions.push(`رتبهٔ متقاضی باید ${c.ranks.join("/")} باشد`);
-        else if (!c.ranks.includes(String(a.creditRank))) continue;
+        if (a.creditRank === "unknown") assumptions.push(`رتبهٔ متقاضی باید ${compactRankList(c.ranks).join("/")} باشد`);
+        else if (!gradeMatches(a.creditRank, c.ranks)) continue;
       }
       if (!custHas(a, c.coll)) continue;
       if (o.cust && !o.cust.some((k) => custHas(a, k))) continue;
@@ -217,8 +222,8 @@ export function matchPlans(a: QualifierAnswers, plans: PlanForMatch[]): PlanMatc
       if (needG) {
         if (gCount < (o.two ? 2 : 1)) continue;
         if (c.gRanks.length) {
-          if (!a.gRank || a.gRank === "unknown") assumptions.push(`رتبهٔ ضامن باید ${c.gRanks.join("/")} باشد`);
-          else if (!c.gRanks.includes(a.gRank)) continue;
+          if (!a.gRank || a.gRank === "unknown") assumptions.push(`رتبهٔ ضامن باید ${compactRankList(c.gRanks).join("/")} باشد`);
+          else if (!gradeMatches(a.gRank, c.gRanks)) continue;
         }
         if (!guarHas(a, c.gColl)) continue;
         if (o.guar && !o.guar.some((k) => guarHas(a, k))) continue;
