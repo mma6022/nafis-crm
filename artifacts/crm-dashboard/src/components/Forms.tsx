@@ -475,7 +475,7 @@ export function CreateReminderForm({ onClose }: { onClose: () => void }) {
           <label htmlFor="header-reminder-search">جست‌وجوی مشتری</label>
           <div className="searchbar compact">
             <Search size={15} />
-            <input id="header-reminder-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="نام یا شماره تماس" data-testid="input-header-reminder-search" />
+            <input id="header-reminder-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)" data-testid="input-header-reminder-search" />
           </div>
         </div>
         <div className="form-grid">

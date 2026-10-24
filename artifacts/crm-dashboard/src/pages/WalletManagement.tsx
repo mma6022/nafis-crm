@@ -127,7 +127,7 @@ function CustomerSearch({
       <label>{label}</label>
       <input 
         type="text" 
-        placeholder="نام، شناسه یا موبایل..." 
+        placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)" 
         value={search}
         onChange={(e) => {
           setSearch(e.target.value);
@@ -438,7 +438,7 @@ function WalletsTab({ isAdmin, onTransfer }: { isAdmin: boolean, onTransfer: (cu
           <input 
             type="text" 
             aria-label="جستجوی نام، موبایل یا شناسه مشتری"
-            placeholder="جستجوی نام، موبایل یا شناسه..."
+            placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)"
             className="pl-3 pr-9 w-full"
             value={draft.search}
             onChange={(e) => changeDraft('search', e.target.value)}
@@ -636,7 +636,7 @@ function TransactionsTab() {
           <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input 
             type="text" 
-            placeholder="جستجوی تراکنش..." 
+            placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴) یا شماره تراکنش" 
             className="pl-3 pr-9 w-[180px]"
             value={debouncedSearch}
             onChange={(e) => setDebouncedSearch(e.target.value)}

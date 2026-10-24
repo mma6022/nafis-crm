@@ -104,7 +104,7 @@ export default function StaffChatPage() {
     <aside className="tg-list nf-list" aria-label="فهرست گفتگوها">
       <div className="nf-lhead">
         <label className={`nf-search ${searchOn ? 'on' : ''}`}><Search aria-hidden="true" />
-          <input type="search" value={q} onFocus={() => setSearchOn(true)} onBlur={() => setSearchOn(false)} onChange={e => setQ(e.target.value)} placeholder="جست‌وجوی نام، شناسه یا موبایل" aria-label="جست‌وجوی مشتری" data-testid="input-chat-search" />
+          <input type="search" value={q} onFocus={() => setSearchOn(true)} onBlur={() => setSearchOn(false)} onChange={e => setQ(e.target.value)} placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)" aria-label="جست‌وجوی مشتری" data-testid="input-chat-search" />
           {q && <button type="button" className="clr" onClick={() => setQ('')} aria-label="پاک کردن جست‌وجو"><X /></button>}</label>
         {threads.isSuccess && !term && <div className="nf-sum" data-testid="text-chat-unread-summary">{unreadMsgs > 0 ? <><b>{unreadMsgs.toLocaleString('fa-IR')} پیام خوانده‌نشده</b> در {unreadThreads.toLocaleString('fa-IR')} گفتگو</> : 'همهٔ پیام‌ها خوانده شده‌اند.'}</div>}
       </div>
