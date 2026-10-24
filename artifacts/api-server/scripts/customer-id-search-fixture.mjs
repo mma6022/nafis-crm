@@ -143,7 +143,7 @@ check("dashboard placeholders and consultation picker", () => {
   const P = "جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)";
   const N = "جست‌وجو با نام یا شناسه (#۱۲۳۴)";
   const dash = (f) => src(`../../crm-dashboard/src/${f}`);
-  for (const f of ["pages/Phone.tsx", "pages/Customers.tsx", "components/CallCustomerSelect.tsx", "components/CallCustomerPicker.tsx", "chat/StaffChatPage.tsx",
+  for (const f of ["pages/Phone.tsx", "components/loan-applications/RequestDraftsQueue.tsx", "pages/Customers.tsx", "components/CallCustomerSelect.tsx", "components/CallCustomerPicker.tsx", "chat/StaffChatPage.tsx",
     "pages/WalletManagement.tsx", "pages/GoodsPurchases.tsx", "pages/InstagramInbox.tsx", "pages/CallbackRequests.tsx", "pages/PaymentOrders.tsx",
     "components/loan-applications/CreateWizard.tsx", "pages/LoanApplications.tsx", "pages/Consultations.tsx", "pages/Calls.tsx",
     "features/tx-status/TransactionsStatus.tsx", "components/Forms.tsx"]) assert.ok(dash(f).includes(P), f);
