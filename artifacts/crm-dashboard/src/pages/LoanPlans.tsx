@@ -256,7 +256,7 @@ function PlanDetail({ plan, loading, onEdit }: { plan: LoanPlan | null; loading:
     {plan.requiredDocuments?.length ? <section className="plan-detail-section"><h4>مدارک مورد نیاز</h4><div className="docs-list">{labelsFor(plan.requiredDocuments, documentOptions).map((label) => <span className="doc-badge" key={label}>{label}</span>)}</div></section> : null}
     {plan.notes ? <section className="plan-detail-section"><h4>توضیحات</h4><p className="subtle-note">{plan.notes}</p></section> : null}
     <section className="plan-detail-section">
-      <div className="panel-head"><div><h3>مسیرهای تأیید</h3><p>برآورده شدن حداقل یکی از شرایط برای تأیید کافی است.</p></div><CheckCircle2 size={18} color="#3f918a" /></div>
+      <div className="panel-head"><div><h3>مسیرهای تأیید</h3><p>کافی است مشتری با یکی از مسیرها جور باشد.</p></div><CheckCircle2 size={18} color="#3f918a" /></div>
       <div className="condition-list">{plan.conditions?.length ? [...plan.conditions].sort((a, b) => a.sortOrder - b.sortOrder).map((condition, index) => {
         const customerRanks = sortGrades(parseStringArray(condition.customerRanks));
         const guarantorRanks = sortGrades(parseStringArray(condition.guarantorRanks));
