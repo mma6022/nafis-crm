@@ -46,6 +46,7 @@ const stages = ["funder_initial_approval", "draft", "primary_contract_pending_si
   "expert_approval", "funder_amendment_pending_signature", "funder_amendment_review", "funder_result_review", "funder_documents_correction", "physical_documents_submission", "physical_documents_review", "physical_documents_correction",
   "wallet_charge_pending", "admin_approval", "final_invoice_pending_signature", "completed"] as const;
 type Stage = typeof stages[number];
+import { closeDraftsForCase, draftForFeeCharge, draftForSubmit, linkDraftFee } from "../lib/loan-request-drafts";
 const now = () => new Date().toISOString();
 const user = (res: any) => res.locals.authUser as AuthUser;
 const uploadRoot = path.join(path.dirname(databasePath), "loan-application-files");
@@ -1461,19 +1462,29 @@ router.post("/loan-applications/filing-fee-charges", requirePermission("loan_app
   if (!customer) return error(res, 404, "customer_not_found");
   try {
     const result = runImmediateTransaction(() => {
+      // «در انتظار ثبت»: optional draftId only links the resulting charge to the draft; pricing and reuse below are unchanged.
+      const draft = draftForFeeCharge(req.body?.draftId, customerId, planId, actor);
+      const linked = <T extends { chargeId: number | string; applicationId: unknown }>(r: T): T => {
+        if (draft && r.applicationId == null) linkDraftFee(draft, Number(r.chargeId), actor);
+        return r;
+      };
       const previous = queryRow<any>("SELECT * FROM loan_filing_fee_charges WHERE idempotency_key=?", [key]);
       if (previous) {
         if (previous.customer_id !== customerId || previous.plan_id !== planId) throw new Error("filing_fee_idempotency_conflict");
-        return { chargeId: previous.id, amountToman: previous.amount_toman, applicationId: previous.application_id, repeated: true };
+        return linked({ chargeId: previous.id, amountToman: previous.amount_toman, applicationId: previous.application_id, repeated: true });
+      }
+      if (draft?.fee_charge_id != null) {
+        const own = queryRow<any>("SELECT * FROM loan_filing_fee_charges WHERE id=?", [draft.fee_charge_id]);
+        if (own && own.application_id == null) return { chargeId: Number(own.id), amountToman: String(own.amount_toman), applicationId: null, repeated: true };
       }
       const reusable = reusableFilingFeeCharge(customerId, planId);
       if (reusable) {
-        return {
+        return linked({
           chargeId: Number(reusable.id),
           amountToman: String(reusable.amount_toman),
           applicationId: reusable.active_application_id == null ? null : Number(reusable.active_application_id),
           repeated: true,
-        };
+        });
       }
       const profile = queryRow<any>("SELECT * FROM customers WHERE id=?", [customerId]);
       const prerequisiteError = filingFeePrerequisiteError(profile, ignoreCreditRank);
@@ -1499,14 +1510,15 @@ router.post("/loan-applications/filing-fee-charges", requirePermission("loan_app
         execute("INSERT INTO company_wallet_ledger(wallet_type,amount_toman,kind,fee_charge_id,actor_user_id,idempotency_key,created_at) VALUES('cash',?,'filing_fee',?,?,?,?)",
           [amount, chargeId, actor.id, `filing-fee:${chargeId}:in`, ts]);
       }
-      return { chargeId, amountToman: amount, applicationId: null, repeated: false };
+      return linked({ chargeId, amountToman: amount, applicationId: null, repeated: false });
     });
     return res.status(result.repeated ? 200 : 201).json({
       chargeId: result.chargeId, amountToman: result.amountToman, applicationId: result.applicationId,
     });
   } catch (e) {
     const code = e instanceof Error ? e.message : "";
-    if (["filing_fee_idempotency_conflict", "insufficient_cash_balance"].includes(code)) return error(res, 409, code);
+    if (["filing_fee_idempotency_conflict", "insufficient_cash_balance", "draft_fee_plan_locked", "draft_closed"].includes(code)) return error(res, 409, code);
+    if (["invalid_draft", "draft_not_found"].includes(code)) return error(res, code === "invalid_draft" ? 400 : 404, code);
     if (["customer_profile_incomplete", "customer_identity_not_verified", "credit_check_stale", "loan_plan_not_found",
       "loan_plan_condition_not_matched", "invalid_filing_fee", "invalid_wallet_balance"].includes(code)) return error(res, 422, code);
     req.log.error({ err: e }, "filing fee charge failed");
@@ -1652,6 +1664,9 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
   const charge = Number.isSafeInteger(feeChargeId) ? queryRow<any>(
     "SELECT * FROM loan_filing_fee_charges WHERE id=? AND customer_id=? AND plan_id=?", [feeChargeId, customerId, planId]) : null;
   if (!charge) return error(res, 422, "filing_fee_required");
+  let draft: any = null;
+  try { draft = draftForSubmit(b.draftId, customerId, charge.id, u); }
+  catch (e) { const code = e instanceof Error ? e.message : "invalid_draft"; if (!(charge.application_id && code === "draft_closed")) return error(res, code === "draft_not_found" ? 404 : code === "invalid_draft" ? 400 : 409, code); }
   if (charge.application_id) {
     const existing = scoped(charge.application_id, u);
     return existing ? res.status(200).json(existing) : error(res, 409, "filing_fee_already_used");
@@ -1693,6 +1708,8 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
      for (const item of requirements) execute("INSERT INTO loan_application_documents(application_id,requirement_key,label,source,created_at) VALUES(?,?,?,?,?)", [appId, String(item), documentLabel(String(item)), "plan", ts]);
       execute("INSERT INTO loan_application_stage_history(application_id,to_stage,action,actor_id,created_at) VALUES(?,?,?,?,?)", [appId, "draft", "created", u.id, ts]);
      executeChanges("UPDATE loan_filing_fee_charges SET application_id=? WHERE id=? AND application_id IS NULL", [appId, charge.id]);
+     // Same transaction: the «در انتظار ثبت» draft of this fee (or the one named by draftId) is closed as submitted.
+     closeDraftsForCase(customerId, Number(charge.id), appId, u.id, draft ? Number(draft.id) : null);
     return appId;
   });
   res.status(201).json(scoped(id, u));
