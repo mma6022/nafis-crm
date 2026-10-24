@@ -34,11 +34,18 @@ LEFT JOIN salespersons salesperson ON salesperson.id=survivor.salesperson_id
 WHERE customer_chain.merged_into_customer_id IS NULL LIMIT 1)`;
 
 const walletsView = requirePermission("wallets.view");
-/** Accounting (may mark payment orders paid) reads the customer-wallet lists too (decision: «حسابداری کیف پول مشتریان را می‌بیند»).
- * Read-only: GET on the two lists only; transfer and gateway reconciliation stay with wallets.transfer / admin. */
+/** Accounting (may mark payment orders paid) reads customer-wallet transactions ONLY through «وضعیت تراکنش‌ها»:
+ * GET /transactions?view=status. Every other customer-wallet request keeps the e270524 rule (wallets.view), so accounting gets 403. */
 const accountingRead = (req: any, res: any): boolean => {
   const u = res.locals.authUser as AuthUser | undefined;
-  return Boolean(u && req.method === "GET" && /^\/(accounts|transactions)\/?$/.test(req.path) && u.permissions?.includes("payment_orders.pay"));
+  return Boolean(u && req.method === "GET" && /^\/transactions\/?$/.test(req.path) && req.query?.view === "status" && u.permissions?.includes("payment_orders.pay"));
+};
+/** Customer-wallet day filter = Tehran calendar day (Asia/Tehran, UTC+3:30, no DST since 1401), same as «وضعیت تراکنش‌ها» › پورسانت‌ها.
+ * Stored timestamps are ISO-8601 UTC (…Z), so the bounds are compared as ISO strings. */
+const TEHRAN_OFFSET_MS = 210 * 60_000;
+const tehranDayStartIso = (ymd: string, plusDays = 0) => {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + plusDays) - TEHRAN_OFFSET_MS).toISOString();
 };
 router.use("/wallet-management", (req, res, next) => (accountingRead(req, res) ? next() : walletsView(req, res, next)), (_req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
@@ -173,8 +180,8 @@ router.get("/wallet-management/transactions", (req, res): void => {
   if (actorId !== null) { filters.push("actorId=?"); params.push(actorId); }
   if (walletType) { filters.push("walletType=?"); params.push(walletType); }
   if (kind) { filters.push("kind=?"); params.push(kind); }
-  if (from) { filters.push("createdAt>=?"); params.push(`${from}T00:00:00`); }
-  if (to) { filters.push("createdAt<?"); params.push(`${to}T23:59:59.999Z`); }
+  if (from) { filters.push("createdAt>=?"); params.push(tehranDayStartIso(from)); }
+  if (to) { filters.push("createdAt<?"); params.push(tehranDayStartIso(to, 1)); }
   const txIdSearch = search ? customerSearchSql(search) : null;
   if (search && txIdSearch) {
     const t = txIdSearch.text;

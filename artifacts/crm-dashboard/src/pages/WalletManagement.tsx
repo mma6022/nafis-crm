@@ -846,7 +846,10 @@ export default function WalletManagement() {
   const { data: session } = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey() } });
   const isAdmin = session?.user?.role === 'admin';
   // «وضعیت تراکنش‌ها» is for admin and accounting only (PM decision 4). Everyone else keeps the «فهرست تراکنش‌ها» tab they had before.
-  const canTxStatus = isAdmin || Boolean((session?.user as { permissions?: string[] } | undefined)?.permissions?.includes('payment_orders.pay'));
+  const perms = (session?.user as { permissions?: string[] } | undefined)?.permissions ?? [];
+  const canTxStatus = isAdmin || perms.includes('payment_orders.pay');
+  // Accounting without wallets.view sees ONLY «وضعیت تراکنش‌ها» (the server answers 403 to every other customer-wallet request for them).
+  const statusOnly = !isAdmin && canTxStatus && !perms.includes('wallets.view');
 
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferInitialFrom, setTransferInitialFrom] = useState<CustomerPreselect>(null);
@@ -873,14 +876,14 @@ export default function WalletManagement() {
       </div>
 
       <div className="wallet-tabs animate-in fade-in duration-300">
-        <button 
+        {!statusOnly && <button 
           className={`wallet-tab ${activeTab === 'wallets' ? 'active' : ''}`}
           onClick={() => setActiveTab('wallets')}
         >
           کیف پول مشتریان
-        </button>
+        </button>}
         <button 
-          className={`wallet-tab ${activeTab === 'transactions' ? 'active' : ''}`}
+          className={`wallet-tab ${activeTab === 'transactions' || statusOnly ? 'active' : ''}`}
           onClick={() => setActiveTab('transactions')}
         >
           {canTxStatus ? 'وضعیت تراکنش‌ها' : 'فهرست تراکنش‌ها'}
@@ -888,7 +891,9 @@ export default function WalletManagement() {
         {isAdmin && <button className={`wallet-tab ${activeTab === 'company' ? 'active' : ''}`} onClick={() => setActiveTab('company')}>کیف پول شرکت نفیس وام</button>}
       </div>
 
-      {activeTab === 'wallets' ? (
+      {statusOnly ? (
+        <TransactionsStatus />
+      ) : activeTab === 'wallets' ? (
         <WalletsTab 
           isAdmin={isAdmin} 
           onTransfer={(customer) => {
