@@ -1,4 +1,5 @@
 import express, { Router, type IRouter, type RequestHandler } from "express";
+import { identityValuesChanged } from "../lib/identity-change";
 import { propagateContractTemplateChange } from "../lib/contract-template-updates";
 import { creditProviderFailure } from "../lib/credit-provider-failure";
 import { publicDocumentLabel } from "../lib/public-document-labels";
@@ -203,6 +204,21 @@ function customerIdentityChanged(
     normalizeCustomerIdentity(current.phone) !== normalizeCustomerIdentity(next.phone) ||
     current.birth_date_jalali !== next.birthDateJalali ||
     current.postal_code !== next.postalCode;
+}
+
+// identity_changed_at moves only when an existing identity value is replaced (empty→filled is not a change).
+function customerIdentityStampChanged(
+  current: { phone: string; national_code: string | null; birth_date_jalali: string | null; postal_code: string | null },
+  next: { phone: string; nationalCode: string | null; birthDateJalali: string | null; postalCode: string | null },
+): boolean {
+  const code = (value: string | null) => value ? normalizeCustomerNationalCode(value) : "";
+  const phone = (value: string | null) => value ? normalizeCustomerIdentity(value) : "";
+  return identityValuesChanged([
+    [code(current.national_code), code(next.nationalCode)],
+    [phone(current.phone), phone(next.phone)],
+    [current.birth_date_jalali, next.birthDateJalali],
+    [current.postal_code, next.postalCode],
+  ]);
 }
 
 function compareCustomerIdentity(
@@ -2490,7 +2506,7 @@ const approveManualIdentity: RequestHandler = (req, res): void => {
       if (!freshRequest || freshRequest.status !== "pending" || !freshCustomer) throw new Error("MANUAL_VERIFICATION_STALE");
       const currentInputs = checkInputs(freshCustomer);
       if (JSON.stringify(currentInputs) !== JSON.stringify(originalInputs)) throw new Error("MANUAL_VERIFICATION_STALE");
-      const identityChanged = customerIdentityChanged(freshCustomer, {
+      const identityChanged = customerIdentityStampChanged(freshCustomer, {
         phone: target.mobile,
         nationalCode: target.nationalCode,
         birthDateJalali: target.birthDateJalali,
@@ -2643,7 +2659,7 @@ router.post(
         const officialLastName = canonical.officialLastName?.trim() || null;
         const officialFullName = [officialFirstName, officialLastName].filter(Boolean).join(" ") || null;
         const persistedPostalCode = canonical.officialPostalCode ?? postalCode;
-        const identityChanged = customerIdentityChanged(currentCustomer, {
+        const identityChanged = customerIdentityStampChanged(currentCustomer, {
           phone: mobile,
           nationalCode,
           birthDateJalali,
@@ -2762,7 +2778,7 @@ router.post(
             identityConflict = true;
             return;
           }
-          const identityChanged = !staleAttempt && customerIdentityChanged(currentCustomer, {
+          const identityChanged = !staleAttempt && customerIdentityStampChanged(currentCustomer, {
             phone: mobile,
             nationalCode,
             birthDateJalali,
@@ -2903,6 +2919,12 @@ router.patch(
       return;
     }
     const updates = new Map(entries);
+    const identityPrevious = {
+      phone: existingCustomer.phone,
+      national_code: existingCustomer.nationalCode,
+      birth_date_jalali: existingCustomer.birthDateJalali,
+      postal_code: existingCustomer.postalCode,
+    };
     const identityChanged = customerIdentityChanged(
       {
         phone: existingCustomer.phone,
@@ -2923,9 +2945,17 @@ router.patch(
           : existingCustomer.postalCode,
       },
     );
+    const identityStampChanged = identityChanged && customerIdentityStampChanged(identityPrevious, {
+      phone: updates.has("phone") ? String(updates.get("phone") ?? "") : existingCustomer.phone,
+      nationalCode: updates.has("national_code") ? updates.get("national_code") as string | null : existingCustomer.nationalCode,
+      birthDateJalali: updates.has("birth_date_jalali")
+        ? updates.get("birth_date_jalali") as string | null
+        : existingCustomer.birthDateJalali,
+      postalCode: updates.has("postal_code") ? updates.get("postal_code") as string | null : existingCustomer.postalCode,
+    });
+    if (identityStampChanged) entries.push(["identity_changed_at", new Date().toISOString()]);
     if (identityChanged) {
       entries.push(
-        ["identity_changed_at", new Date().toISOString()],
         ["verification_status", "unverified"],
         ["verification_checked_at", null],
         ["verification_provider", null],
@@ -3422,23 +3452,25 @@ router.post(
           identity_changed_at: string | null;
         }>("SELECT phone,national_code,birth_date_jalali,postal_code,identity_changed_at FROM customers WHERE id=?", [params.data.id]);
         if (!current) throw new Error("CUSTOMER_NOT_FOUND");
-        const identityChanged = customerIdentityChanged(current, {
+        const nextIdentity = {
           phone: current.phone,
           nationalCode,
           birthDateJalali: current.birth_date_jalali,
           postalCode: current.postal_code,
-        });
+        };
+        const verificationReset = customerIdentityChanged(current, nextIdentity);
+        const identityChanged = customerIdentityStampChanged(current, nextIdentity);
         const now = new Date().toISOString();
-        if (current.national_code !== nationalCode || identityChanged) {
-          if (identityChanged) {
+        if (current.national_code !== nationalCode || verificationReset) {
+          if (verificationReset) {
             executeChanges(
-              `UPDATE customers SET national_code=?,identity_changed_at=?,
+              `UPDATE customers SET national_code=?,identity_changed_at=CASE WHEN ? THEN ? ELSE identity_changed_at END,
                  verification_status='unverified',verification_checked_at=NULL,
                  verification_version=COALESCE(verification_version,0)+1,
                  verification_provider=NULL,shahkar_ok=NULL,person_info_ok=NULL,postal_code_info_ok=NULL,sana_ok=NULL,
                  shahkar_status=NULL,person_info_status=NULL,postal_code_info_status=NULL,sana_status=NULL
                WHERE id=?`,
-              [nationalCode, now, params.data.id],
+              [nationalCode, identityChanged ? 1 : 0, now, params.data.id],
             );
           } else {
             executeChanges("UPDATE customers SET national_code=? WHERE id=?", [nationalCode, params.data.id]);
@@ -4238,14 +4270,16 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
         "SELECT phone,national_code,postal_code,birth_date_jalali FROM customers WHERE id=?",
         [body.customerId],
       );
-      const changed = !current || customerIdentityChanged(current, {
-        phone: current.phone,
+      const nextIdentity = {
+        phone: current?.phone ?? "",
         nationalCode: profile.nationalCode,
         postalCode: profile.postalCode,
         birthDateJalali: profile.birthDateJalali,
-      });
+      };
+      const changed = !current || customerIdentityChanged(current, nextIdentity);
+      const stampChanged = !!current && customerIdentityStampChanged(current, nextIdentity);
       executeChanges(
-        `UPDATE customers SET national_code=?,postal_code=?,birth_date_jalali=?${changed
+        `UPDATE customers SET national_code=?,postal_code=?,birth_date_jalali=?${stampChanged
           ? ",identity_changed_at=?"
           : ""}${changed
           ? ",verification_version=COALESCE(verification_version,0)+1"
@@ -4254,7 +4288,7 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
           : ""} WHERE id=?`,
         [
           profile.nationalCode, profile.postalCode, profile.birthDateJalali,
-          ...(changed ? [new Date().toISOString()] : []),
+          ...(stampChanged ? [new Date().toISOString()] : []),
           body.customerId,
         ],
       );

@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { guarantorGradeAllows, guarantorGradeVerdict } from "../lib/guarantor-grade-rule";
+import { customerGuarantorGrade } from "../lib/guarantor-grade-source";
 import { creditProviderFailure } from "../lib/credit-provider-failure";
 import { supportedDocumentUpload } from "../lib/document-upload-type";
 import { customerApplicationPayout } from "../lib/customer-application-payout";
@@ -388,12 +390,14 @@ function profilePrerequisite(customer: PortalCustomer): string | null {
 
 function planConditions(planId: number, customerId: number, requireRank = false) {
   const credit = freshSuccessfulCredit(customerId);
+  const guarantorRank = requireRank ? customerGuarantorGrade(customerId).rank : null;
   return queryRows<any>("SELECT * FROM loan_plan_conditions WHERE plan_id=? ORDER BY sort_order,id", [planId])
     .map((condition) => {
       const plan = queryRow<any>("SELECT * FROM loan_plans WHERE id=?", [planId]);
       const terms = effectivePlanTerms(plan, condition);
       const ranks = parseConditionRanks(condition.customer_ranks);
-      return { condition, terms, ranks, eligibleRank: !requireRank || (credit != null && conditionAcceptsCreditRank(credit.score_label, ranks)) };
+      return { condition, terms, ranks, eligibleRank: !requireRank || (credit != null && conditionAcceptsCreditRank(credit.score_label, ranks)
+        && guarantorGradeAllows(guarantorGradeVerdict(condition, guarantorRank, plan))) };
     });
 }
 
@@ -744,7 +748,8 @@ router.post("/filing-fee", (req, res) => {
       if (!planAcceptsCustomerCredit(planId, customer.id)) throw new Error("loan_plan_condition_not_matched");
       const condition=queryRow<any>("SELECT * FROM loan_plan_conditions WHERE id=? AND plan_id=?",[conditionId,planId]);
       const credit=freshSuccessfulCredit(customer.id);
-      if(!condition||!credit||!conditionAcceptsCreditRank(credit.score_label,parseConditionRanks(condition.customer_ranks)))
+      if(!condition||!credit||!conditionAcceptsCreditRank(credit.score_label,parseConditionRanks(condition.customer_ranks))
+        ||!guarantorGradeAllows(guarantorGradeVerdict(condition,customerGuarantorGrade(customer.id).rank,plan)))
         throw new Error("loan_plan_condition_not_matched");
       const terms=effectivePlanTerms(plan,condition);
       if(terms.maximum<=0n||BigInt(amount)>terms.maximum||!terms.durations.includes(duration))throw new Error("loan_plan_condition_not_matched");
@@ -859,6 +864,8 @@ router.post("/applications", (req, res) => {
   if (!condition) return jsonError(res, 422, "loan_plan_condition_not_found");
   const ranks = parseConditionRanks(condition.customer_ranks);
   if (!conditionAcceptsCreditRank(credit.score_label, ranks)) return jsonError(res, 422, "loan_plan_condition_not_matched");
+  if (!guarantorGradeAllows(guarantorGradeVerdict(condition, customerGuarantorGrade(customer.id).rank, plan)))
+    return jsonError(res, 422, "loan_plan_condition_not_matched");
   const terms = effectivePlanTerms(plan, condition);
   if (terms.maximum <= 0n || BigInt(amount) > terms.maximum || !terms.durations.includes(duration)) {
     return jsonError(res, 422, "loan_plan_condition_not_matched");
