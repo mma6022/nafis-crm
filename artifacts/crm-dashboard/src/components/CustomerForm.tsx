@@ -84,15 +84,26 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
     const errors: Record<string, string> = {};
     if (!form.name.trim()) errors.name = 'نام مشتری را وارد کنید.';
     if (form.phone.trim().length < 3) errors.phone = 'شماره موبایل را وارد کنید.';
+    // کد ملی اختیاری است (PM 2026-10-24): خالی = ثبت نشده (NULL)؛ اگر پر شد باید ۱۰ رقم باشد؛ کد ثبت‌شده پاک نمی‌شود.
+    const nationalDigits = normalizeDigits(form.nationalCode).replace(/\D/g, '');
+    const hadNationalCode = Boolean(customer?.nationalCode && customer.nationalCode.trim());
+    if (form.nationalCode.trim() && nationalDigits.length !== 10) errors.nationalCode = 'کد ملی باید ۱۰ رقم باشد؛ اگر ندارید خالی بگذارید.';
+    else if (!form.nationalCode.trim() && hadNationalCode) errors.nationalCode = 'کد ملی ثبت‌شده را نمی‌توان خالی کرد؛ اگر اشتباه است، کد درست را وارد کنید.';
     setFieldErrors(errors);
-    if (Object.keys(errors).length) { window.setTimeout(() => document.getElementById(errors.name ? 'customer-name' : 'customer-phone')?.focus(), 0); return; }
+    if (Object.keys(errors).length) { window.setTimeout(() => document.getElementById(errors.name ? 'customer-name' : errors.phone ? 'customer-phone' : 'customer-national-code')?.focus(), 0); return; }
     setError('');
     if (createdForTags) { await saveTagsAndFinish(createdForTags); return; }
     const allocationProgramId = isAdmin && form.salespersonId.startsWith('allocation:') ? Number(form.salespersonId.split(':')[1]) : null;
-    const data = { name: form.name.trim(), phone: form.phone.trim(), nationalCode: form.nationalCode.trim() || null, postalCode: form.postalCode.trim() || null, birthDateJalali: form.birthDateJalali.trim() || null, description: form.description.trim(), ...(isAdmin ? { salespersonId: allocationProgramId ? null : form.salespersonId ? Number(form.salespersonId) : null, allocationProgramId: customer ? null : allocationProgramId } : {}), priority: form.priority ? Number(form.priority) : null, status: form.status as any, isUrgent: form.isUrgent };
+    const data = { name: form.name.trim(), phone: form.phone.trim(), nationalCode: nationalDigits || null, postalCode: form.postalCode.trim() || null, birthDateJalali: form.birthDateJalali.trim() || null, description: form.description.trim(), ...(isAdmin ? { salespersonId: allocationProgramId ? null : form.salespersonId ? Number(form.salespersonId) : null, allocationProgramId: customer ? null : allocationProgramId } : {}), priority: form.priority ? Number(form.priority) : null, status: form.status as any, isUrgent: form.isUrgent };
     if (customer) {
-      try { const saved = await update.mutateAsync({ id: customer.id, data }); await saveTagsAndFinish(saved); }
-      catch { setError('ذخیره پرونده انجام نشد. اطلاعات را بررسی و دوباره تلاش کنید.'); }
+      // Unchanged national code is not sent, so a quick edit never rewrites (or clears) the code on file.
+      const { nationalCode: nextNationalCode, ...rest } = data;
+      const unchanged = normalizeDigits(customer.nationalCode ?? '').replace(/\D/g, '') === (nextNationalCode ?? '');
+      try { const saved = await update.mutateAsync({ id: customer.id, data: unchanged ? rest : data }); await saveTagsAndFinish(saved); }
+      catch (cause) {
+        const msg = (cause as { data?: { error?: unknown } })?.data?.error;
+        setError(typeof msg === 'string' && /کد ملی/.test(msg) ? msg : 'ذخیره پرونده انجام نشد. اطلاعات را بررسی و دوباره تلاش کنید.');
+      }
       return;
     }
     setChecking(true);
@@ -127,7 +138,7 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
     <p className="hint">فقط مدیر می‌تواند کارشناس تعیین کند.</p>
   </div> : null;
   const moreFields = <>
-    <div className="field"><label htmlFor="customer-national-code">کد ملی</label><input id="customer-national-code" dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={(e) => setValue('nationalCode', e.target.value)} maxLength={10} data-testid="input-customer-national-code" /></div>
+    <div className="field"><label htmlFor="customer-national-code">کد ملی (اختیاری)</label><input id="customer-national-code" dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={(e) => { setValue('nationalCode', e.target.value); setFieldErrors(c => ({ ...c, nationalCode: '' })); }} maxLength={10} aria-invalid={Boolean(fieldErrors.nationalCode) || undefined} aria-describedby={fieldErrors.nationalCode ? 'customer-national-code-error' : undefined} data-testid="input-customer-national-code" />{fieldErrors.nationalCode ? <p className="err" id="customer-national-code-error" role="alert" data-testid="error-customer-national-code"><AlertCircle size={16} aria-hidden="true" /> {fieldErrors.nationalCode}</p> : null}</div>
     <div className="field"><label htmlFor="customer-postal-code">کد پستی</label><input id="customer-postal-code" dir="ltr" inputMode="numeric" value={form.postalCode} onChange={(e) => setValue('postalCode', e.target.value)} maxLength={10} data-testid="input-customer-postal-code" /></div>
     <div className="field"><label>تاریخ تولد (شمسی)</label><PersianDatePicker value={form.birthDateJalali} onChange={(v) => setValue('birthDateJalali', v)} placeholder="YYYY/MM/DD" testId="input-customer-birth-date" birthDate /></div>
     <div className="field"><label htmlFor="customer-priority">اولویت پیگیری</label><select id="customer-priority" value={form.priority} onChange={(e) => setValue('priority', e.target.value)} data-testid="select-customer-priority"><option value="">بدون اولویت</option>{[1, 2, 3].map((value) => <option value={value} key={value} disabled={lockP1 && value === 1 && form.priority !== '1'}>اولویت {value}{lockP1 && value === 1 ? ' (فقط با «ارتقا به اولویت ۱»)' : ''}</option>)}</select>{lockP1 ? <p className="hint" data-testid="hint-p1-upgrade-only">برای اولویت ۱ از دکمهٔ «ارتقا به اولویت ۱» استفاده کنید تا مشتری به کارشناس پیگیری نوبت بعدی برسد.</p> : null}</div>

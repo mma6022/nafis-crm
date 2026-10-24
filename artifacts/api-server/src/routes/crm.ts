@@ -242,6 +242,15 @@ function findActiveCustomerIdentityConflict(
   });
 }
 
+/** «کد ملی» is optional in the customer form (PM, 2026-10-24): '' / whitespace means "not entered" and is stored as NULL. */
+function blankNationalCodeToNull(body: unknown): unknown {
+  if (body && typeof body === "object" && !Array.isArray(body)) {
+    const value = (body as Record<string, unknown>).nationalCode;
+    if (typeof value === "string" && value.trim() === "") return { ...(body as Record<string, unknown>), nationalCode: null };
+  }
+  return body;
+}
+
 function hasActiveCustomerIdentityConflict(
   customerId: number | null,
   identity: { phone?: string; nationalCode?: string | null },
@@ -1858,7 +1867,7 @@ router.post(
   "/customers",
   requirePermission("customers.create"),
   (req, res): void => {
-    const parsed = CreateCustomerBody.safeParse(req.body);
+    const parsed = CreateCustomerBody.safeParse(blankNationalCodeToNull(req.body));
     if (!parsed.success) {
       res.status(400).json({ error: parsed.error.message });
       return;
@@ -2812,7 +2821,7 @@ router.patch(
       res.status(403).json({ error: "Identity verification status can only be changed by verification workflows" });
       return;
     }
-    const parsed = UpdateCustomerBody.safeParse(req.body);
+    const parsed = UpdateCustomerBody.safeParse(blankNationalCodeToNull(req.body));
     if (!parsed.success) {
       res.status(400).json({ error: parsed.error.message });
       return;
@@ -2847,6 +2856,11 @@ router.patch(
         : null;
       if (nationalCode !== null && !ics24.validNationalCode(nationalCode)) {
         res.status(400).json({ error: "کد ملی معتبر نیست." });
+        return;
+      }
+      // Optional, but never wipe a national code that is already on file (PM, 2026-10-24).
+      if (nationalCode === null && existingCustomer.nationalCode && existingCustomer.nationalCode.trim() !== "") {
+        res.status(400).json({ error: "کد ملی ثبت‌شده را نمی‌توان خالی کرد؛ اگر اشتباه است، کد درست را وارد کنید." });
         return;
       }
       entries.push(["national_code", nationalCode]);
