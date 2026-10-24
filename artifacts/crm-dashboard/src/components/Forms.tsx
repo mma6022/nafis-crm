@@ -360,7 +360,7 @@ export function CreateConsultationForm({ customers: sourceCustomers, pending, in
   const section: React.CSSProperties = { border: '1px solid #dbe2ee', borderRadius: 12, padding: 14, background: '#f8fafc' };
   const sectionHead: React.CSSProperties = { margin: '0 0 12px', fontSize: 13, fontWeight: 800, color: 'var(--nafiss-blue)', borderRight: '3px solid var(--nafiss-blue)', paddingRight: 8 };
 
-  return <Modal title="ثبت درخواست مشاوره" eyebrow="پرسشنامه ارزیابی مالی" onClose={onClose} testId="create-consultation-form">
+  return <Modal title="ثبت مشاوره" eyebrow="پرسشنامه ارزیابی مالی" onClose={onClose} testId="create-consultation-form">
     <form onSubmit={submit} noValidate>
       {optionsQuery.isLoading ? <div role="status" className="profile-form-note" data-testid="status-consult-options-loading">در حال دریافت گزینه‌های پرسشنامه…</div> : null}
       {optionsQuery.isError ? <div role="alert" className="profile-form-error" data-testid="error-consult-options">دریافت گزینه‌ها انجام نشد. ثبت ممکن نیست. <button type="button" className="btn btn-ghost" onClick={() => void optionsQuery.refetch()}>تلاش دوباره</button></div> : null}

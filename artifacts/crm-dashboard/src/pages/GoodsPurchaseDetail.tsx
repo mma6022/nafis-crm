@@ -4,6 +4,8 @@ import { Link, useLocation, useParams } from 'wouter';
 import { ArrowRight, Check, FileText, Printer, RefreshCw, Send, Plus, Trash2, Banknote, ShieldCheck, Truck } from 'lucide-react';
 import { ErrorState, SkeletonPanel, formatDateTime } from '@/components/CrmShell';
 import GoodsSettlementPreview from '@/components/GoodsSettlementPreview';
+import { ConfirmDialog, Stepper } from '@/components/goods/GpKit';
+import { NEXT_STEP } from '@/pages/GoodsPurchases';
 import { getGetCompanyWalletQueryKey } from '@workspace/api-client-react';
 import { useListContractTemplates, getListContractTemplatesQueryKey, type ContractMapping } from '@workspace/api-client-react';
 import { UpdatedContractBanner } from '@/components/UpdatedContractBanner';
@@ -28,6 +30,8 @@ export default function GoodsPurchaseDetail() {
     onError: (e) => setFlash({ ok: false, text: errText(e) }),
   });
   const run = (path: string, ok: string, body?: unknown): void => { setFlash(null); act.mutate({ path: `/goods-purchases/${pid}${path}`, body, ok }); };
+  const [ask, setAsk] = useState<Ask | null>(null);
+  const askRun: AskRun = (a) => setAsk(a);
   const createOrder = useMutation({
     mutationFn: () => api.post<PaymentOrder>('/payment-orders', { purchaseId: pid }),
     onSuccess: (o) => { qc.invalidateQueries({ queryKey: ['payment-orders'] }); qc.invalidateQueries({ queryKey: ['registration-suggestions', 'payments'] }); go(`/payment-orders/${o.id}`); },
@@ -41,44 +45,42 @@ export default function GoodsPurchaseDetail() {
 
   return <section className="data-page">
     <Link href="/goods-purchases" className="text-link gp-back"><ArrowRight size={14} />بازگشت به خریدها</Link>
-    <div className="gp-hero">
-      <div>
+    <div className="gp-hero2">
+      <div className="gp-hero2-main">
         <div className="eyebrow">خرید کالا #{p.id.toLocaleString('fa-IR')}</div>
         <h2>{p.customerName}</h2>
-        <p>کارشناس فروش فعلی: {p.customerSalespersonName || 'بدون تخصیص'}</p>
-        <p>{p.planName} · ایجاد {formatDateTime(p.createdAt)}</p>
+        <p>کارشناس فروش فعلی: {p.customerSalespersonName || 'بدون تخصیص'} · {p.planName} · ایجاد {formatDateTime(p.createdAt)}</p>
       </div>
-      <div className="gp-hero-amount"><span>اعتبار رزروشده</span><strong>{toman(p.creditAmountToman)}</strong><em className="inline-badge gold">{stageLabel(p.stage)}</em></div>
+      <div className="gp-hero2-amount"><span>اعتبار رزروشده</span><strong>{toman(p.creditAmountToman)}</strong><em className={`gp-chip ${p.stage === 'completed' ? 'green' : 'light'}`}><i />{stageLabel(p.stage)} · {(idx + 1).toLocaleString('fa-IR')}/{STAGES.length.toLocaleString('fa-IR')}</em></div>
     </div>
 
-    <ol className="gp-timeline">
-      {STAGES.map((s, i) => <li key={s.key} className={i < idx || p.stage === 'completed' ? 'done' : i === idx ? 'current' : ''}>
-        <span className="gp-dot">{i < idx || p.stage === 'completed' ? <Check size={13} /> : (i + 1).toLocaleString('fa-IR')}</span>
-        <strong>{s.label}</strong><small>{s.hint}</small>
-      </li>)}
-    </ol>
+    <Stepper steps={STAGES.map((st) => st.label)} current={idx} done={p.stage === 'completed'} testId="goods-stepper" />
 
     {flash ? <div className={`gp-alert ${flash.ok ? 'ok' : ''}`} role="status">{flash.text}</div> : null}
 
-    <div className="gp-detail-grid">
+    <div className="gp-detail2">
       <div className="gp-main-col">
+        {p.stage !== 'completed' ? <div className={`gp-now ${NEXT_STEP[p.stage]?.act ? 'act' : ''}`} data-testid="card-now">
+          <span>کار الان</span><strong>{NEXT_STEP[p.stage]?.text ?? stageLabel(p.stage)}</strong>
+          <small>{STAGES[idx]?.hint}</small>
+        </div> : null}
         {p.stage === 'discharge_pending' ? <div className="panel gp-stage-panel">
           <div className="panel-head"><div><h3><Truck size={16} /> تأیید تخلیه اعتبار</h3><p>پس از انجام تخلیه در پلتفرم بیرونی، آن را اینجا تأیید کنید. این تأیید فقط ثبت اقدام بیرونی است.</p></div></div>
-          <button className="btn btn-primary" disabled={!manage || busy} onClick={() => confirm('تخلیه اعتبار در پلتفرم بیرونی انجام شده است؟') && run('/discharge', 'تخلیه اعتبار ثبت شد.')} data-testid="button-discharge">تخلیه انجام شد</button>
+          <button className="btn btn-primary" disabled={!manage || busy} onClick={() => askRun({ title: 'تأیید تخلیه اعتبار', body: 'تخلیه اعتبار در پلتفرم بیرونی انجام شده است؟', label: 'بله، تخلیه انجام شد', path: '/discharge', ok: 'تخلیه اعتبار ثبت شد.' })} data-testid="button-discharge">تخلیه انجام شد</button>
         </div> : null}
 
         {idx >= 1 ? <InvoicePanel p={p} editable={manage && p.stage === 'invoice_draft' && !['sending', 'sent', 'signed', 'delivery_unknown'].includes(p.invoiceDocument?.status ?? '')} onSaved={(t) => { setFlash({ ok: true, text: t }); qc.invalidateQueries({ queryKey: key }); }} /> : null}
 
-        {idx >= 1 && (p.items?.length ?? 0) > 0 ? <DocumentPanel title="فاکتور فروش کالا" kind="invoice" doc={p.invoiceDocument} pid={pid} active={['invoice_draft', 'invoice_signature', 'settlement_pending'].includes(p.stage) && Boolean(p.invoice_version)} canAct={manage} readOnlySignatureStatus={user?.role === 'salesperson'} busy={busy} run={run} setFlash={setFlash} /> : null}
+        {idx >= 1 && (p.items?.length ?? 0) > 0 ? <DocumentPanel title="فاکتور فروش کالا" kind="invoice" doc={p.invoiceDocument} pid={pid} active={['invoice_draft', 'invoice_signature', 'settlement_pending'].includes(p.stage) && Boolean(p.invoice_version)} canAct={manage} readOnlySignatureStatus={user?.role === 'salesperson'} busy={busy} run={run} askRun={askRun} setFlash={setFlash} /> : null}
 
         {idx >= 3 ? <GoodsSettlementPreview key={p.id} purchase={p} canSettle={finance && manage} busy={busy}
           onSettle={feeDiscountToman => run('/settle', 'تسویه و مبلغ نهایی واریزی ثبت شد.', { feeDiscountToman })} /> : null}
 
-        {idx >= 4 ? <DocumentPanel title="رسید دریافت کالا و اقرارنامه" kind="acknowledgement" doc={p.acknowledgementDocument} templateId={p.acknowledgement_template_id} pid={pid} active={['acknowledgement_signature', 'registrar_confirmation'].includes(p.stage)} canAct={manage} readOnlySignatureStatus={user?.role === 'salesperson'} busy={busy} run={run} setFlash={setFlash} /> : null}
+        {idx >= 4 ? <DocumentPanel title="رسید دریافت کالا و اقرارنامه" kind="acknowledgement" doc={p.acknowledgementDocument} templateId={p.acknowledgement_template_id} pid={pid} active={['acknowledgement_signature', 'registrar_confirmation'].includes(p.stage)} canAct={manage} readOnlySignatureStatus={user?.role === 'salesperson'} busy={busy} run={run} askRun={askRun} setFlash={setFlash} /> : null}
 
         {idx >= 5 ? <div className="panel gp-stage-panel">
           <div className="panel-head"><div><h3><ShieldCheck size={16} /> تأیید نهایی ثبت‌کننده</h3><p>با تأیید، خرید تکمیل و پورسانت کارشناس فروش یک‌بار ثبت می‌شود.</p></div></div>
-          {p.stage === 'registrar_confirmation' ? <button className="btn btn-primary" disabled={!manage || busy} onClick={() => confirm('خرید تکمیل شود؟') && run('/complete', 'خرید تکمیل شد.')} data-testid="button-complete">تأیید و تکمیل</button> : <p className="secondary-cell">تکمیل‌شده در {formatDateTime(p.completedAt)}</p>}
+          {p.stage === 'registrar_confirmation' ? <button className="btn btn-primary" disabled={!manage || busy} onClick={() => askRun({ title: 'تکمیل خرید', body: 'با تأیید، خرید تکمیل و پورسانت کارشناس فروش یک‌بار ثبت می‌شود. خرید تکمیل شود؟', label: 'تأیید و تکمیل', tone: 'green', path: '/complete', ok: 'خرید تکمیل شد.' })} data-testid="button-complete">تأیید و تکمیل</button> : <p className="secondary-cell">تکمیل‌شده در {formatDateTime(p.completedAt)}</p>}
         </div> : null}
 
         {p.stage === 'completed' ? <div className="panel gp-stage-panel gp-finale">
@@ -87,13 +89,18 @@ export default function GoodsPurchaseDetail() {
         </div> : null}
       </div>
 
-      <aside className="panel gp-events">
+      <aside className="panel gp-events gp-history">
         <h3>رویدادها</h3>
         {(p.events ?? []).length ? <ul>{[...(p.events ?? [])].reverse().map((e, i) => <li key={i}><strong>{eventLabel(e.action)}</strong><span>{formatDateTime(e.createdAt)}</span></li>)}</ul> : <p className="secondary-cell">رویدادی ثبت نشده است.</p>}
       </aside>
     </div>
+    {ask ? <ConfirmDialog title={ask.title} testId="confirm-goods-action" confirmLabel={ask.label} tone={ask.tone ?? 'primary'} busy={busy}
+      onConfirm={() => { run(ask.path, ask.ok); setAsk(null); }} onClose={() => setAsk(null)}><p>{ask.body}</p></ConfirmDialog> : null}
   </section>;
 }
+
+type Ask = { title: string; body: string; label: string; path: string; ok: string; tone?: 'primary' | 'green' | 'danger' };
+type AskRun = (a: Ask) => void;
 
 function Fig({ label, v, tone }: { label: string; v?: string | null; tone?: string }) {
   return <div className={`gp-fig ${tone ?? ''}`}><span>{label}</span><strong>{v === null || v === undefined ? '—' : toman(v)}</strong></div>;
@@ -136,7 +143,7 @@ function InvoicePanel({ p, editable, onSaved }: { p: Purchase; editable: boolean
 
 const isManual = (m: ContractMapping) => (m.sourceType ?? (m.customerField ? 'customer' : m.loanPlanField ? 'loanPlan' : 'manual')) === 'manual';
 
-function DocumentPanel({ title, kind, doc, pid, templateId, active, canAct, readOnlySignatureStatus, busy, run, setFlash }: { title: string; kind: 'invoice' | 'acknowledgement'; doc?: GoodsDocument | null; pid: number; templateId?: number | null; active: boolean; canAct: boolean; readOnlySignatureStatus: boolean; busy: boolean; run: (path: string, ok: string, body?: unknown) => void; setFlash: (f: { ok: boolean; text: string }) => void }) {
+function DocumentPanel({ title, kind, doc, pid, templateId, active, canAct, readOnlySignatureStatus, busy, run, askRun, setFlash }: { title: string; kind: 'invoice' | 'acknowledgement'; doc?: GoodsDocument | null; pid: number; templateId?: number | null; active: boolean; canAct: boolean; readOnlySignatureStatus: boolean; busy: boolean; run: (path: string, ok: string, body?: unknown) => void; askRun: AskRun; setFlash: (f: { ok: boolean; text: string }) => void }) {
   const qc = useQueryClient();
   const status = doc?.status;
   const signed = Boolean(doc?.signed) || status === 'signed';
@@ -183,7 +190,7 @@ function DocumentPanel({ title, kind, doc, pid, templateId, active, canAct, read
     <div className="gp-doc-actions">
       {active && !signed && !inFlight ? <button className="btn btn-ghost" disabled={!canAct || busy || generate.isPending || missing} onClick={() => generate.mutate()} data-testid={`button-generate-${kind}`}><FileText size={14} />{generate.isPending ? 'در حال تولید…' : doc ? 'تولید نسخه تازه' : 'تولید سند'}</button> : null}
       {doc ? <><button className="btn btn-ghost" onClick={() => open(false)} data-testid={`button-preview-${kind}`}>پیش‌نمایش PDF</button><button className="btn btn-ghost" onClick={() => open(true)}><Printer size={14} />چاپ</button></> : null}
-      {active && doc && !signed && ['generated', 'rejected', 'failed', 'delivery_unknown'].includes(status ?? '') ? <button className="btn btn-primary" disabled={!canAct || busy} onClick={() => confirm('سند برای امضا در امضامی ارسال شود؟') && run(`/documents/${kind}/send`, 'سند به امضامی ارسال شد.')} data-testid={`button-send-${kind}`}><Send size={14} />{rejected || status === 'failed' ? 'ارسال دوباره' : 'ارسال به امضامی'}</button> : null}
+      {active && doc && !signed && ['generated', 'rejected', 'failed', 'delivery_unknown'].includes(status ?? '') ? <button className="btn btn-primary" disabled={!canAct || busy} onClick={() => askRun({ title: 'ارسال برای امضا', body: `«${title}» برای امضای الکترونیک در امضامی ارسال شود؟`, label: 'ارسال به امضامی', path: `/documents/${kind}/send`, ok: 'سند به امضامی ارسال شد.' })} data-testid={`button-send-${kind}`}><Send size={14} />{rejected || status === 'failed' ? 'ارسال دوباره' : 'ارسال به امضامی'}</button> : null}
       {doc && !signed && inFlight ? <button className="btn btn-ghost" disabled={busy || inquireSignatureStatus.isPending} onClick={() => readOnlySignatureStatus ? inquireSignatureStatus.mutate() : run(`/documents/${kind}/refresh`, 'وضعیت امضا به‌روزرسانی شد.')} data-testid={`button-refresh-${kind}`}><RefreshCw size={14} />{inquireSignatureStatus.isPending ? 'در حال استعلام…' : 'استعلام وضعیت'}</button> : null}
     </div>
   </div>;

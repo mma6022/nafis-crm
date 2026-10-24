@@ -60,6 +60,18 @@ const ERRORS: Record<string, string> = {
   customer_changed_during_verification: 'اطلاعات مشتری هنگام استعلام تغییر کرد؛ دوباره تلاش کنید.',
   customer_not_found: 'مشتری پیدا نشد.',
   payment_order_not_found: 'دستور پرداخت پیدا نشد.',
+  paid_at_in_future: 'تاریخ و ساعت واریز نمی‌تواند در آینده باشد.',
+  invalid_payment_evidence: 'حساب مبدأ، کد پیگیری، تاریخ واریز یا رسید معتبر نیست.',
+  payment_reference_already_used: 'این کد پیگیری قبلاً برای همین حساب مبدأ در دستور دیگری ثبت شده است.',
+  payment_fund_opening_balance_required: 'برای این حساب مبدأ هنوز «موجودی اولیه» در بخش حسابداری ثبت نشده است. اول مدیر باید در «حسابداری» موجودی اولیهٔ همین صندوق را ثبت کند؛ بعد «پرداخت‌شده» را دوباره بزنید.',
+  payment_recording_conflict: 'ثبت پرداخت با تغییر هم‌زمان برخورد کرد؛ صفحه را تازه کنید و دوباره تلاش کنید.',
+  customer_identity_changed: 'کد ملی مشتری بعد از تأیید فروش تغییر کرده است؛ تأیید فروش باید دوباره انجام شود.',
+  invalid_receipt_upload: 'بارگذاری رسید ناموفق بود (حداکثر ۱۰ مگابایت، تصویر یا PDF).',
+  admin_required: 'این کار فقط با مدیر سیستم ممکن است.',
+  unpay_reason_required: 'دلیل را بنویس (حداقل ۵ حرف).',
+  payment_revert_conflict: 'برگرداندن «پرداخت‌شده» با تغییر هم‌زمان برخورد کرد؛ صفحه را تازه کنید.',
+  payout_exceeds_principal: 'درصد واریزی باید بین ۰ و ۱۰۰ باشد (مبلغ واریزی بیشتر از اصل تسهیلات نمی‌شود).',
+  verified_customer_bank_account_required: 'یک حساب تأییدشدهٔ مشتری انتخاب کنید.',
 };
 export function translateError(code?: string) {
   if (!code) return '';
@@ -118,6 +130,13 @@ export function useMe() {
 export type EligibleWallet = { customerId: number; customerName: string; customerSalespersonName?: string | null; planId: number; planName: string; balanceToman: string };
 export type PurchaseItem = { id?: number; title: string; quantity: number | string; unitPriceToman: string; totalToman?: string };
 export type PurchaseEvent = { action: string; actorUserId?: number | null; detail?: string | null; createdAt: string };
+export type CommissionRow = { id: number; kind: string; amountToman: string; month?: string | null; createdAt: string; neutralized: boolean; salespersonId?: number; salespersonName?: string | null };
+export type OrderCommission = {
+  scope: 'all' | 'own' | 'status'; model: 'team' | 'legacy';
+  status: 'legacy' | 'not_posted' | 'awaiting_payment' | 'posted' | 'failed' | 'before_start' | 'reversed';
+  month?: string | null; revision: number; reversalMonth?: string | null; lastError?: string | null; rows: CommissionRow[];
+  canRetry: boolean; canReturnCase: boolean; returnCaseMonth?: string | null;
+};
 export type GoodsDocument = { id: number; kind: string; version: number; status: string; providerStatus?: string | null; signed: boolean; pdfUrl?: string | null; error?: string | null; createdAt: string };
 export type Purchase = {
   id: number; customerId: number; customerName: string; customerSalespersonName?: string | null; salespersonId?: number | null; planId: number; planName: string; stage: string;
@@ -126,13 +145,15 @@ export type Purchase = {
   invoiceTotalToman?: string | null; createdAt: string; completedAt?: string | null; dischargedAt?: string | null; items?: PurchaseItem[]; events?: PurchaseEvent[];
   acknowledgement_template_id?: number | null; invoice_version?: number | null; invoiceDocument?: GoodsDocument | null; acknowledgementDocument?: GoodsDocument | null;
 };
-export type BankAccount = { id: number; bankName?: string | null; ownerName?: string | null; fundName?: string | null; iban?: string | null; ownerType?: string | null; verifiedAt?: string | null; customerId?: number | null };
-export type PaymentOrderEvent = { action: string; actorId?: number | null; createdAt: string };
+export type BankAccount = { id: number; bankName?: string | null; ownerName?: string | null; fundName?: string | null; iban?: string | null; ownerType?: string | null; verifiedAt?: string | null; customerId?: number | null; accountingReady?: boolean };
+export type PaymentOrderEvent = { action: string; actorId?: number | null; actorName?: string | null; createdAt: string; detail?: Record<string, unknown> | null };
 export type PaymentOrder = {
   id: number; purchaseId: number; customerId: number; customerName?: string | null; customerSalespersonName?: string | null; salespersonId?: number | null; amountToman: string; stage: string;
   customerBankAccountId?: number | null; destinationIban?: string | null; destinationOwnerName?: string | null; sourceBankAccountId?: number | null;
   trackingNumber?: string | null; paidAt?: string | null; createdAt: string; updatedAt?: string | null; receiptUrl?: string | null; events?: PaymentOrderEvent[];
   basePayoutAmountToman?: string | null; feeDiscountToman?: string | null;
+  principalAmountToman?: string | null; planPayoutBps?: number | null; planName?: string | null;
+  commission?: OrderCommission; canUnpay?: boolean; paidReversals?: number;
 };
 export type PlanFinanceSettings = { customerPayoutPercent: number | string | null; developmentDiscountPercent: number | string | null; acknowledgementTemplateId: number | null };
 export type SalespersonSettings = { target1Toman: string; target2Toman: string; target3Toman: string; rate0Percent: number | string; rate1Percent: number | string; rate2Percent: number | string; rate3Percent: number | string };
@@ -155,11 +176,12 @@ export const STAGES: { key: string; label: string; hint: string }[] = [
 export const stageLabel = (s?: string) => STAGES.find((x) => x.key === s)?.label ?? s ?? '—';
 export const stageIndex = (s?: string) => Math.max(0, STAGES.findIndex((x) => x.key === s));
 
+/** `label` = status chip / tab, `step` = stepper caption. */
 export const PO_STAGES = [
-  { key: 'sales_approval', label: 'تأیید فروش' },
-  { key: 'admin_approval', label: 'تأیید مدیریت' },
-  { key: 'awaiting_payment', label: 'در انتظار پرداخت' },
-  { key: 'paid', label: 'پرداخت‌شده' },
+  { key: 'sales_approval', label: 'منتظر تأیید فروش', step: 'تأیید فروش' },
+  { key: 'admin_approval', label: 'منتظر تأیید مدیر', step: 'تأیید مدیریت' },
+  { key: 'awaiting_payment', label: 'در انتظار علامت پرداخت', step: 'واریز' },
+  { key: 'paid', label: 'پرداخت‌شده', step: 'پرداخت‌شده' },
 ];
 export const poStageLabel = (s?: string) => PO_STAGES.find((x) => x.key === s)?.label ?? s ?? '—';
 
@@ -170,7 +192,15 @@ const EVENT_LABELS: Record<string, string> = {
   created: 'رزرو کامل اعتبار کیف پول', external_discharge_confirmed: 'تأیید تخلیه در پلتفرم بیرونی', invoice_saved: 'ذخیره اقلام فاکتور',
   invoice_generated: 'تولید فاکتور', acknowledgement_generated: 'تولید رسید و اقرارنامه', settled: 'تسویه با شرکت', completed: 'تأیید ثبت‌کننده و تکمیل',
   sales_approved: 'تأیید فروش', admin_approved: 'تأیید مدیریت', paid: 'ثبت پرداخت', created_order: 'ایجاد دستور پرداخت',
+  team_commission_posted: 'پورسانت ثبت شد', team_commission_reversed: 'برگشت پرونده · کسر پورسانت در ماه بعد', team_commission_unposted: '«پرداخت‌شده» برگشت · پورسانت خنثی شد',
+  payment_recorded: '«پرداخت‌شده» ثبت شد', payment_reverted: '«پرداخت‌شده» برگشت (ثبت اشتباه)',
 };
+/** Payment-order history has its own vocabulary (its «created» is not the goods «reserve» event). */
+const PO_EVENT_LABELS: Record<string, string> = {
+  created: 'دستور پرداخت ساخته شد', sales_approved: 'تأیید فروش · حساب مقصد انتخاب شد', admin_approved: 'تأیید مدیریت',
+  payment_recorded: '«پرداخت‌شده» ثبت شد', payment_reverted: '«پرداخت‌شده» برگشت (ثبت اشتباه)',
+};
+export const poEventLabel = (a?: string) => (a && PO_EVENT_LABELS[a]) || eventLabel(a);
 export const eventLabel = (a?: string) => {
   if (!a) return '—';
   if (EVENT_LABELS[a]) return EVENT_LABELS[a];
@@ -178,3 +208,35 @@ export const eventLabel = (a?: string) => {
   if (m) return `${m[1] === 'invoice' ? 'فاکتور' : 'اقرارنامه'}: ${({ pending: 'ارسال برای امضا', signed: 'امضا شد', rejected: 'رد شد' } as Record<string, string>)[m[2]]}`;
   return a;
 };
+
+// ---------- shared helpers for the goods / payment-order redesign ----------
+export const TEHRAN_OFFSET_MS = 3.5 * 3600_000;
+/** Jalali 'YYYY/MM/DD' for a Tehran calendar day `daysAgo` days back. */
+export function tehranJalaliValue(daysAgo = 0): string {
+  const d = new Date(Date.now() + TEHRAN_OFFSET_MS - daysAgo * 86_400_000);
+  const f = new Intl.DateTimeFormat('en-US-u-ca-persian-nu-latn', { year: 'numeric', month: 'numeric', day: 'numeric', timeZone: 'UTC' });
+  const v = Object.fromEntries(f.formatToParts(d).filter((x) => x.type !== 'literal').map((x) => [x.type, Number(x.value)]));
+  return `${v.year}/${String(v.month).padStart(2, '0')}/${String(v.day).padStart(2, '0')}`;
+}
+export const tehranTimeNow = () => new Date(Date.now() + TEHRAN_OFFSET_MS).toISOString().slice(11, 16);
+const PERSIAN_MONTHS = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'];
+/** '1405-08' → 'آبان ۱۴۰۵' */
+export const monthLabel = (m?: string | null) => {
+  const x = /^(\d{4})-(\d{2})$/.exec(m ?? '');
+  return x ? `${PERSIAN_MONTHS[Number(x[2]) - 1]} ${Number(x[1]).toLocaleString('fa-IR', { useGrouping: false })}` : '—';
+};
+/** Short Tehran date like '۲ آبان' (+ time). */
+export function shortFaDate(iso?: string | null, withTime = false) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return '—';
+  const o: Intl.DateTimeFormatOptions = { calendar: 'persian', day: 'numeric', month: 'long', timeZone: 'Asia/Tehran', ...(withTime ? { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' } : {}) };
+  return new Intl.DateTimeFormat('fa-IR', o).format(d);
+}
+/** Integer percent string (≤2 decimals) of a/b, e.g. 78 or 78.5. */
+export function percentOf(a?: string | null, b?: string | null): number | null {
+  const x = toBig(a), y = toBig(b);
+  if (y <= 0n) return null;
+  return Number((x * 10000n) / y) / 100;
+}
+export const faPercent = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `${v.toLocaleString('fa-IR', { maximumFractionDigits: 2 })}٪`);

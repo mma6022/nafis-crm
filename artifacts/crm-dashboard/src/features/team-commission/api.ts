@@ -70,10 +70,11 @@ export const KIND_LABELS: Record<string, string> = {
   data_accuracy_bonus: 'پاداش درستی داده',
   returned_case_deduction: 'کسر بابت پرونده‌ی برگشتی',
   team_bonus: 'پاداش تیمی ماهانه',
+  paid_mark_reversal: 'خنثی‌سازی (برگشت «پرداخت‌شده»)',
 };
 export const KIND_CHIPS: Record<string, string> = {
   salesperson_commission: 'پورسانت فروش', p1_referral_share: 'سهم معرفی P1', data_accuracy_bonus: 'پاداش درستی داده',
-  returned_case_deduction: 'کسر برگشتی', team_bonus: 'پاداش تیمی',
+  returned_case_deduction: 'کسر برگشتی', team_bonus: 'پاداش تیمی', paid_mark_reversal: 'خنثی‌سازی',
 };
 export const fa = (v: string | number) => String(v).replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]).replace(/\./g, '٫');
 export const latin = (v: string) => v.replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[٫,]/g, '.');

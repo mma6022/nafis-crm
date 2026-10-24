@@ -1,104 +1,357 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTableState } from '@/hooks/use-table-state';
 import { documentFileAccept, supportedDocumentFile } from '@/lib/document-upload-type';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'wouter';
-import { ArrowRight, Check, CreditCard, Download, ShieldCheck, Upload } from 'lucide-react';
+import { ArrowRight, BadgeCheck, CalendarDays, Check, CircleAlert, Clock3, CreditCard, Database, Download, FileText, Filter, History as HistoryIcon, Landmark, Percent, RefreshCw, RotateCcw, ShieldCheck, Undo2, Upload, X } from 'lucide-react';
 import { EmptyState, Pagination, SearchField } from '@/components/DataTools';
 import { RegistrationSuggestions } from '@/components/RegistrationSuggestions';
+import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { ErrorState, SkeletonPanel, formatDateTime } from '@/components/CrmShell';
-import { api, ApiError, digitsOnly, errText, eventLabel, listOf, openAuthedFile, poStageLabel, PO_STAGES, toman, useMe, type BankAccount, type PaymentOrder } from '@/lib/goods-api';
+import { ConfirmDialog, SectionTabs, Stepper, Toast, Wizard, type ListSection } from '@/components/goods/GpKit';
+import { KIND_LABELS } from '@/features/team-commission/api';
+import { parseJalaliValue, jalaliToIso } from '@/lib/jalali';
+import { usePaymentOrderCount, usePaymentOrderList, type PoListParams } from '@/lib/payment-order-queries';
+import {
+  api, ApiError, digitsOnly, errText, faPercent, listOf, monthLabel, openAuthedFile, percentOf, poEventLabel, poStageLabel, PO_STAGES, shortFaDate,
+  tehranJalaliValue, tehranTimeNow, toBig, toman, useMe, type BankAccount, type OrderCommission, type PaymentOrder,
+} from '@/lib/goods-api';
 
+const absBig = (v?: string | null) => { const b = toBig(v); return b < 0n ? -b : b; };
 const canAdmin = (can: (p: string) => boolean) => can('payment_orders.admin_approve');
+const invalidateOrders = (qc: ReturnType<typeof useQueryClient>, id?: number) => {
+  qc.invalidateQueries({ queryKey: ['payment-orders'] });
+  if (id) qc.invalidateQueries({ queryKey: ['payment-order', id] });
+};
 
 export default function PaymentOrders() {
   const params = useParams<{ id?: string }>();
   return params.id ? <OrderDetail id={Number(params.id)} /> : <OrderList />;
 }
 
+// ---------------------------------------------------------------- list
 function OrderList() {
   const { can } = useMe();
-  const [stage, setStage] = useTableState('payments.stage', '');
+  const canPay = can('payment_orders.pay');
+  const [active, setActive] = useTableState('payments.section', 'all');
   const [search, setSearch] = useTableState('payments.search', '');
   const [page, setPage] = useTableState('payments.page', 1);
-  const serverStage = stage === 'mine' ? '' : stage;
-  const mineParam = stage === 'mine' ? '&mine=1' : '';
-  const q = useQuery({ queryKey: ['payment-orders', search, serverStage, stage === 'mine', page], queryFn: () => api.get<{ items: PaymentOrder[]; page: number; limit: number; total: number }>(`/payment-orders?q=${encodeURIComponent(search.trim())}&stage=${serverStage}${mineParam}&page=${page}`), refetchInterval: 30_000 });
-  const limit = q.data?.limit ?? 25;
-  // highlight only; filtering is done by the server via mine=1
-  const needsMe = (o: PaymentOrder) => (o.stage === 'sales_approval' && can('payment_orders.sales_approve')) || (o.stage === 'admin_approval' && canAdmin(can)) || (o.stage === 'awaiting_payment' && can('payment_orders.pay'));
+  const [paying, setPaying] = useState<PaymentOrder | null>(null);
+  const [toast, setToast] = useState('');
+  const awaiting = usePaymentOrderCount({ stage: 'awaiting_payment' });
+  // Section registry: add the «در انتظار ایجاد» section here as `{ kind: 'custom', render }` (or a 'list' with its own params) when designed.
+  const sections: ListSection<PoListParams>[] = [
+    { key: 'awaiting', label: 'در انتظار علامت پرداخت', testId: 'po-awaiting', tone: 'gold', count: awaiting.data ?? null, kind: 'list', params: { stage: 'awaiting_payment' } },
+    { key: 'all', label: 'همه', testId: 'po-all', kind: 'list', params: {} },
+    { key: 'mine', label: 'کارتابل من', testId: 'po-mine', kind: 'list', params: { mine: true } },
+    { key: 'sales_approval', label: poStageLabel('sales_approval'), testId: 'po-sales', kind: 'list', params: { stage: 'sales_approval' } },
+    { key: 'admin_approval', label: poStageLabel('admin_approval'), testId: 'po-admin', kind: 'list', params: { stage: 'admin_approval' } },
+    { key: 'paid', label: poStageLabel('paid'), testId: 'po-paid', kind: 'list', params: { stage: 'paid' } },
+  ];
+  const section = sections.find((s) => s.key === active) ?? sections[1];
+  const listParams = section.kind === 'list' ? section.params : {};
+  const q = usePaymentOrderList(listParams, search, page, section.kind === 'list');
+  const pick = (k: string) => { setActive(k); setPage(1); };
   const rows = listOf<PaymentOrder>(q.data);
-  const pick = (k: string) => { setStage(k); setPage(1); };
-  return <section className="data-page">
-    <div className="page-intro"><div><div className="eyebrow">کارتابل مالی</div><h2>دستورهای پرداخت</h2><p>هر دستور سه امضا دارد: فروش، مدیریت و حسابداری.</p></div></div>
-    <RegistrationSuggestions kind="payments" />
-    <div className="gp-toolbar"><SearchField value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="جستجوی مشتری یا شماره" testId="search-payment-orders" /></div>
-    <div className="filter-tabs" style={{ width: 'fit-content', marginBottom: 14 }}>
-      <button className={`filter-tab ${stage === '' ? 'active' : ''}`} onClick={() => pick('')}>همه</button>
-      <button className={`filter-tab ${stage === 'mine' ? 'active' : ''}`} onClick={() => pick('mine')}>کارتابل من</button>
-      {PO_STAGES.map((s) => <button key={s.key} className={`filter-tab ${stage === s.key ? 'active' : ''}`} onClick={() => pick(s.key)}>{s.label}</button>)}
+  const limit = q.data?.limit ?? 25;
+  const needsMark = (o: PaymentOrder) => o.stage === 'awaiting_payment';
+  const count = awaiting.data ?? 0;
+  return <section className="data-page gp-page">
+    <div className="page-intro gp-intro">
+      <div><div className="eyebrow">مالی و پرداخت</div><h2>دستورهای پرداخت</h2><p>فروش تأیید می‌کند ← مدیریت تأیید می‌کند ← حسابداری واریز و «پرداخت‌شده» را ثبت می‌کند.</p></div>
+      <SearchField value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="نام مشتری یا شماره دستور" testId="search-payment-orders" />
     </div>
-    {q.isLoading ? <SkeletonPanel rows={5} /> : q.isError ? <div className="panel"><div className="gp-alert">{errText(q.error)}</div><ErrorState onRetry={() => q.refetch()} /></div> : !rows.length ? <div className="panel"><EmptyState title="دستوری در این کارتابل نیست" description="دستور پرداخت پس از تکمیل خرید کالا ایجاد می‌شود." /></div> :
-      <div className="panel table-wrap"><table className="data-table"><thead><tr><th>شماره</th><th>مشتری</th><th>خرید</th><th>مبلغ</th><th>مرحله</th><th>ایجاد</th><th /></tr></thead><tbody>
-        {rows.map((o) => <tr key={o.id} data-testid={`row-payment-order-${o.id}`}><td className="mono">#{o.id.toLocaleString('fa-IR')}</td><td><span className="primary-cell">{o.customerName ?? '—'}</span><span className="secondary-cell" style={{ display: 'block', marginTop: 3 }}>کارشناس فروش فعلی: {o.customerSalespersonName || 'بدون تخصیص'}</span></td><td><Link className="text-link" href={`/goods-purchases/${o.purchaseId}`}>#{o.purchaseId.toLocaleString('fa-IR')}</Link></td><td className="mono">{toman(o.amountToman)}</td><td><span className={`inline-badge ${o.stage === 'paid' ? 'active' : needsMe(o) ? 'gold' : ''}`}>{poStageLabel(o.stage)}</span></td><td className="secondary-cell">{formatDateTime(o.createdAt)}</td><td><Link className="table-action" href={`/payment-orders/${o.id}`}>باز کردن</Link></td></tr>)}
-      </tbody></table>{(q.data?.total ?? 0) > limit ? <Pagination total={q.data?.total ?? 0} offset={(page - 1) * limit} limit={limit} onChange={(o) => setPage(Math.floor(o / limit) + 1)} testId="pagination-payment-orders" /> : null}</div>}
+    {canPay && count > 0 && active !== 'awaiting' ? <div className="gp-banner" data-testid="banner-awaiting-mark">
+      <span className="gp-banner-icon"><BadgeCheck size={20} /></span>
+      <div><strong>{count.toLocaleString('fa-IR')} دستور تأییدشده هنوز «پرداخت‌شده» نخورده</strong><p>پورسانت این پرونده‌ها فقط بعد از علامت «پرداخت‌شده» ثبت می‌شود.</p></div>
+      <button type="button" className="btn gp-btn-gold-ghost" onClick={() => pick('awaiting')} data-testid="button-only-awaiting"><Filter size={15} />فقط همین‌ها را نشان بده</button>
+    </div> : null}
+    <SectionTabs sections={sections} active={section.key} onPick={pick} label="بخش‌های دستور پرداخت" />
+    {section.kind === 'custom' ? section.render() : q.isLoading ? <SkeletonPanel rows={5} /> : q.isError ? <div className="panel"><div className="gp-alert">{errText(q.error)}</div><ErrorState onRetry={() => q.refetch()} /></div> : !rows.length ? <div className="panel"><EmptyState title="دستوری در این بخش نیست" description="دستور پرداخت پس از تکمیل خرید کالا ایجاد می‌شود." /></div> : <>
+      <div className="panel table-wrap gp-desktop-only"><table className="data-table gp-table">
+        <thead><tr><th>دستور</th><th>مشتری</th><th>مبلغ واریزی</th><th>مرحله</th><th>آخرین تغییر</th><th /></tr></thead>
+        <tbody>{rows.map((o) => <tr key={o.id} className={needsMark(o) ? 'gp-row-mark' : ''} data-testid={`row-payment-order-${o.id}`}>
+          <td className="mono">#{o.id.toLocaleString('fa-IR')}</td>
+          <td><span className="primary-cell">{o.customerName ?? '—'}</span><span className="secondary-cell gp-sub">خرید #{o.purchaseId.toLocaleString('fa-IR')} · {o.customerSalespersonName || 'بدون کارشناس'}</span></td>
+          <td className="gp-money">{toman(o.amountToman)}</td>
+          <td><StageChip stage={o.stage} /></td>
+          <td className="secondary-cell">{shortFaDate(o.updatedAt ?? o.createdAt)}</td>
+          <td><div className="gp-row-actions">
+            {needsMark(o) && canPay ? <button type="button" className="btn gp-btn-green sm" onClick={() => setPaying(o)} data-testid={`button-mark-paid-${o.id}`}><Check size={15} />علامت پرداخت‌شده</button> : null}
+            <Link className="btn btn-ghost sm" href={`/payment-orders/${o.id}`} data-testid={`link-payment-order-${o.id}`}>جزئیات</Link>
+          </div></td>
+        </tr>)}</tbody>
+      </table></div>
+      <div className="gp-cards-list gp-mobile-only">{rows.map((o) => <div key={o.id} className={`gp-mcard ${needsMark(o) ? 'mark' : ''}`} data-testid={`card-payment-order-${o.id}`}>
+        <div className="gp-mcard-top"><Link href={`/payment-orders/${o.id}`}><strong>{o.customerName ?? '—'}</strong></Link><span className="mono">#{o.id.toLocaleString('fa-IR')}</span></div>
+        <div className="gp-mcard-mid"><span className="gp-money">{toman(o.amountToman)}</span><StageChip stage={o.stage} /></div>
+        <span className="secondary-cell">خرید #{o.purchaseId.toLocaleString('fa-IR')} · {shortFaDate(o.updatedAt ?? o.createdAt)}</span>
+        <div className="gp-mcard-actions">
+          {needsMark(o) && canPay ? <button type="button" className="btn gp-btn-green" onClick={() => setPaying(o)} data-testid={`button-mark-paid-m-${o.id}`}><Check size={15} />علامت پرداخت‌شده</button> : null}
+          <Link className="btn btn-ghost" href={`/payment-orders/${o.id}`}>جزئیات</Link>
+        </div>
+      </div>)}</div>
+      {(q.data?.total ?? 0) > limit ? <Pagination total={q.data?.total ?? 0} offset={(page - 1) * limit} limit={limit} onChange={(o) => setPage(Math.floor(o / limit) + 1)} testId="pagination-payment-orders" /> : null}
+    </>}
+    <details className="panel gp-fold"><summary>پیشنهادهای ایجاد دستور پرداخت</summary><RegistrationSuggestions kind="payments" /></details>
+    {paying ? <PayLoader id={paying.id} onClose={() => setPaying(null)} onPaid={() => { setPaying(null); setToast(`«پرداخت‌شده» برای دستور #${paying.id.toLocaleString('fa-IR')} ثبت شد`); }} /> : null}
+    {toast ? <Toast text={toast} onDone={() => setToast('')} /> : null}
   </section>;
 }
 
+function StageChip({ stage }: { stage: string }) {
+  const tone = stage === 'paid' ? 'green' : stage === 'awaiting_payment' ? 'gold' : 'blue';
+  return <span className={`gp-chip ${tone}`}><i />{poStageLabel(stage)}</span>;
+}
+
+/** From the list the row has no details (principal, destination), so the wizard loads the order first. */
+function PayLoader({ id, onClose, onPaid }: { id: number; onClose: () => void; onPaid: () => void }) {
+  const q = useQuery({ queryKey: ['payment-order', id], queryFn: () => api.get<PaymentOrder>(`/payment-orders/${id}`) });
+  if (!q.data) return q.isError ? <ConfirmDialog title="علامت پرداخت‌شده" testId="pay-load-error" confirmLabel="بستن" error={errText(q.error)} onConfirm={onClose} onClose={onClose} /> : null;
+  return <PayWizard order={q.data} onClose={onClose} onPaid={onPaid} />;
+}
+
+// ---------------------------------------------------------------- detail
 function OrderDetail({ id }: { id: number }) {
   const qc = useQueryClient();
-  const { can } = useMe();
-  const key = ['payment-order', id];
-  const q = useQuery({ queryKey: key, queryFn: () => api.get<PaymentOrder>(`/payment-orders/${id}`), refetchInterval: 20_000 });
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const done = (text: string) => { setMsg({ ok: true, text }); qc.invalidateQueries({ queryKey: key }); qc.invalidateQueries({ queryKey: ['payment-orders'] }); };
-  const adminApprove = useMutation({ mutationFn: () => api.post(`/payment-orders/${id}/admin-approve`), onSuccess: () => done('تأیید مدیریت ثبت شد.'), onError: (e) => setMsg({ ok: false, text: errText(e) }) });
+  const { can, isAdmin } = useMe();
+  const q = useQuery({ queryKey: ['payment-order', id], queryFn: () => api.get<PaymentOrder>(`/payment-orders/${id}`), refetchInterval: 20_000 });
+  const [toast, setToast] = useState('');
+  const [dialog, setDialog] = useState<'' | 'pay' | 'sales' | 'admin' | 'unpay' | 'return'>('');
+  const done = (text: string) => { setDialog(''); setToast(text); invalidateOrders(qc, id); qc.invalidateQueries({ queryKey: ['goods-purchase'] }); };
   if (q.isLoading) return <SkeletonPanel rows={6} />;
   if (q.isError || !q.data) return <div className="panel"><div className="gp-alert">{errText(q.error)}</div><ErrorState onRetry={() => q.refetch()} /></div>;
   const o = q.data;
   const idx = Math.max(0, PO_STAGES.findIndex((s) => s.key === o.stage));
-  const history = o.events ?? [];
   const dest = o.destinationIban ? `${o.destinationOwnerName ?? ''} ${o.destinationIban}`.trim() : '—';
-  return <section className="data-page">
-    <Link href="/payment-orders" className="text-link gp-back"><ArrowRight size={14} />بازگشت به کارتابل</Link>
-    {o.basePayoutAmountToman != null ? <div className="panel" style={{ padding: 18, marginBottom: 18 }}>
-      <h3>محاسبهٔ مبلغ واریزی مشتری</h3>
-      <div className="gp-figures">
-        <div className="gp-fig"><span>واریزی پیش‌فرض</span><strong>{toman(o.basePayoutAmountToman)}</strong></div>
-        <div className="gp-fig"><span>تخفیف کارمزد ثبت‌شده</span><strong>{toman(o.feeDiscountToman ?? '0')}</strong></div>
-        <div className="gp-fig teal"><span>واریزی نهایی دستور پرداخت</span><strong>{toman(o.amountToman)}</strong></div>
+  return <section className="data-page gp-page">
+    <Link href="/payment-orders" className="text-link gp-back"><ArrowRight size={14} />بازگشت به دستورهای پرداخت</Link>
+    <div className="gp-hero2" data-testid="po-hero">
+      <div className="gp-hero2-main">
+        <div className="eyebrow">دستور پرداخت #{o.id.toLocaleString('fa-IR')} · خرید کالا <Link href={`/goods-purchases/${o.purchaseId}`}>#{o.purchaseId.toLocaleString('fa-IR')}</Link></div>
+        <h2>{o.customerName ?? 'مشتری'}</h2>
+        <p>کارشناس فروش: {o.customerSalespersonName || 'بدون تخصیص'}{o.planName ? ` · ${o.planName}` : ''}</p>
       </div>
-    </div> : null}
-    <div className="gp-hero">
-      <div><div className="eyebrow">دستور پرداخت #{o.id.toLocaleString('fa-IR')}</div><h2>{o.customerName ?? 'مشتری'}</h2><p>کارشناس فروش فعلی: {o.customerSalespersonName || 'بدون تخصیص'}</p><p>خرید <Link className="text-link" href={`/goods-purchases/${o.purchaseId}`}>#{o.purchaseId.toLocaleString('fa-IR')}</Link> · ایجاد {formatDateTime(o.createdAt)}</p></div>
-      <div className="gp-hero-amount"><span>مبلغ پرداخت</span><strong>{toman(o.amountToman)}</strong><em className="inline-badge gold">{poStageLabel(o.stage)}</em></div>
+      <div className="gp-hero2-amount"><span>مبلغ واریزی به مشتری</span><strong>{toBig(o.amountToman).toLocaleString('fa-IR')} <small>تومان</small></strong><em className={`gp-chip ${o.stage === 'paid' ? 'green' : 'light'}`}><i />{poStageLabel(o.stage)}</em></div>
     </div>
-    <ol className="gp-timeline compact">{PO_STAGES.map((s, i) => <li key={s.key} className={i < idx || o.stage === 'paid' ? 'done' : i === idx ? 'current' : ''}><span className="gp-dot">{i < idx || o.stage === 'paid' ? <Check size={13} /> : (i + 1).toLocaleString('fa-IR')}</span><strong>{s.label}</strong></li>)}</ol>
-    {msg ? <div className={`gp-alert ${msg.ok ? 'ok' : ''}`}>{msg.text}</div> : null}
-    <div className="gp-detail-grid">
+    <Stepper steps={PO_STAGES.map((s) => s.step)} current={idx} done={o.stage === 'paid'} testId="po-stepper" />
+    <div className="gp-detail2">
       <div className="gp-main-col">
-        {o.stage === 'sales_approval' ? (can('payment_orders.sales_approve') ? <SalesApprove order={o} onDone={done} /> : <Waiting text="در انتظار تأیید کارشناس فروش" />) : null}
-        {o.stage === 'admin_approval' ? <div className="panel gp-stage-panel"><div className="panel-head"><div><h3><ShieldCheck size={16} /> تأیید مدیریت</h3><p>حساب مقصد: <span dir="ltr" className="mono">{dest}</span></p></div></div>
-          {canAdmin(can) ? <button className="btn btn-primary" disabled={adminApprove.isPending} onClick={() => confirm('پرداخت تأیید شود؟') && adminApprove.mutate()} data-testid="button-admin-approve">تأیید پرداخت</button> : <p className="secondary-cell">در انتظار تأیید مدیر.</p>}</div> : null}
-        {o.stage === 'awaiting_payment' ? (can('payment_orders.pay') ? <PayForm order={o} dest={dest} onDone={done} /> : <Waiting text="در انتظار پرداخت حسابداری" />) : null}
-        {o.stage === 'paid' ? <div className="panel gp-stage-panel gp-finale"><div><h3>پرداخت انجام شد</h3><p>کد پیگیری <b className="mono" dir="ltr">{o.trackingNumber}</b> · {formatDateTime(o.paidAt)}</p><p>از حساب: <SourceName id={o.sourceBankAccountId} /> · به حساب: <span dir="ltr" className="mono">{dest}</span></p></div>
-          <button className="btn btn-gold" onClick={() => openAuthedFile(`/payment-orders/${o.id}/receipt`).catch((e) => setMsg({ ok: false, text: errText(e) }))} data-testid="button-download-receipt"><Download size={15} />رسید پرداخت</button>
-          <ReceiptPreview orderId={o.id} /></div> : null}
+        {o.stage === 'sales_approval' ? (can('payment_orders.sales_approve')
+          ? <ActionCard icon={<CreditCard size={18} />} title="تأیید فروش و حساب مقصد" text="حساب تأییدشدهٔ مشتری را انتخاب کن تا دستور به تأیید مدیر برود." button={<button className="btn btn-primary gp-big" onClick={() => setDialog('sales')} data-testid="button-start-sales-approve">شروع تأیید فروش</button>} />
+          : <Waiting text="منتظر تأیید کارشناس فروش" />) : null}
+        {o.stage === 'admin_approval' ? (canAdmin(can)
+          ? <ActionCard icon={<ShieldCheck size={18} />} title="تأیید مدیریت" text={<>حساب مقصد: <span dir="ltr" className="mono">{dest}</span></>} button={<button className="btn btn-primary gp-big" onClick={() => setDialog('admin')} data-testid="button-admin-approve">تأیید پرداخت</button>} />
+          : <Waiting text="منتظر تأیید مدیر" />) : null}
+        {o.stage === 'awaiting_payment' ? (can('payment_orders.pay')
+          ? <ActionCard tone="green" icon={<BadgeCheck size={18} />} title="پول به حساب مشتری واریز شد؟" text={<>واریز {toman(o.amountToman)} به <span dir="ltr" className="mono">{dest}</span></>}
+            button={<button className="btn gp-btn-green gp-big" onClick={() => setDialog('pay')} data-testid="button-open-pay"><Check size={18} />علامت پرداخت‌شده</button>}
+            foot={<><Database size={14} /> با این علامت، پورسانت این پرونده ثبت می‌شود.</>} />
+          : <Waiting text="منتظر علامت «پرداخت‌شده» از حسابداری" />) : null}
+        {o.stage === 'paid' ? <PaidCard order={o} dest={dest} onUnpay={o.canUnpay ? () => setDialog('unpay') : undefined} /> : null}
+        {o.commission ? <CommissionCard order={o} c={o.commission} isAdmin={isAdmin} onReturn={() => setDialog('return')} onRetried={(t) => done(t)} /> : null}
+        <AmountCard order={o} />
+        <div className="panel gp-card"><h3><Landmark size={16} /> حساب مقصد</h3>{o.destinationIban ? <div className="gp-kv"><span>صاحب حساب</span><b>{o.destinationOwnerName ?? '—'}</b><span>شبا</span><b dir="ltr" className="mono">{o.destinationIban}</b></div> : <p className="secondary-cell">هنوز در تأیید فروش انتخاب نشده.</p>}</div>
       </div>
-      <aside className="panel gp-events"><h3>تاریخچه</h3>{history.length ? <ul>{[...history].reverse().map((e, i) => <li key={i}><strong>{eventLabel(e.action)}</strong><span>{formatDateTime(e.createdAt)}</span></li>)}</ul> : <p className="secondary-cell">سابقه‌ای ثبت نشده.</p>}</aside>
+      <History order={o} />
     </div>
+    {dialog === 'pay' ? <PayWizard order={o} onClose={() => setDialog('')} onPaid={() => done('«پرداخت‌شده» ثبت شد · پورسانت با همین تاریخ ثبت می‌شود')} /> : null}
+    {dialog === 'sales' ? <SalesApproveWizard order={o} onClose={() => setDialog('')} onDone={() => done('تأیید فروش ثبت شد و دستور به تأیید مدیر رفت.')} /> : null}
+    {dialog === 'admin' ? <AdminApproveDialog order={o} dest={dest} onClose={() => setDialog('')} onDone={() => done('تأیید مدیریت ثبت شد.')} /> : null}
+    {dialog === 'unpay' ? <UnpayDialog order={o} onClose={() => setDialog('')} onDone={() => done('«پرداخت‌شده» برگشت؛ دستور دوباره در انتظار علامت پرداخت است.')} /> : null}
+    {dialog === 'return' && o.commission ? <ReturnCaseDialog order={o} c={o.commission} onClose={() => setDialog('')} onDone={() => done('برگشت پرونده ثبت شد؛ کسر در ماه بعد اعمال می‌شود.')} /> : null}
+    {toast ? <Toast text={toast} onDone={() => setToast('')} /> : null}
   </section>;
 }
 
-const useSources = () => useQuery({ queryKey: ['bank-accounts'], queryFn: () => api.get<unknown>('/bank-accounts').then((d) => listOf<BankAccount>(d)) });
-function SourceName({ id }: { id?: number | null }) { const q = useSources(); const a = q.data?.find((x) => x.id === id); return <span>{a ? `${a.bankName} · ${a.fundName || a.ownerName}` : id ? `#${id}` : '—'}</span>; }
-function Waiting({ text }: { text: string }) { return <div className="panel gp-stage-panel"><p className="secondary-cell">{text}</p></div>; }
+function ActionCard({ icon, title, text, button, foot, tone }: { icon: ReactNode; title: string; text: ReactNode; button: ReactNode; foot?: ReactNode; tone?: 'green' }) {
+  return <div className={`panel gp-action ${tone ?? ''}`} data-testid="po-action-card">
+    <h3>{icon}{title}</h3><p>{text}</p>{button}{foot ? <small className="gp-action-foot">{foot}</small> : null}
+  </div>;
+}
+function Waiting({ text }: { text: string }) { return <div className="panel gp-card gp-waiting"><Clock3 size={16} /><span>{text}</span></div>; }
 
-function SalesApprove({ order, onDone }: { order: PaymentOrder; onDone: (t: string) => void }) {
+function AmountCard({ order: o }: { order: PaymentOrder }) {
+  const pct = percentOf(o.amountToman, o.principalAmountToman);
+  const def = o.planPayoutBps != null ? o.planPayoutBps / 100 : null;
+  return <div className="panel gp-card" data-testid="po-amount-card"><h3><Percent size={16} /> مبلغ واریزی</h3>
+    <div className="gp-kv">
+      <span>اصل تسهیلات</span><b>{o.principalAmountToman ? toman(o.principalAmountToman) : '—'}</b>
+      <span>درصد واریزی این پرونده</span><b>{faPercent(pct)}{def !== null ? <small className="secondary-cell"> (پیش‌فرض طرح {faPercent(def)})</small> : null}</b>
+      {o.feeDiscountToman && toBig(o.feeDiscountToman) !== 0n ? <><span>تغییر نسبت به پیش‌فرض</span><b dir="auto">{toBig(o.feeDiscountToman) > 0n ? '+' : '−'}{toman(absBig(o.feeDiscountToman).toString())}</b></> : null}
+    </div>
+    <div className="gp-total"><span>مبلغ واریزی به مشتری</span><strong>{toman(o.amountToman)}</strong></div>
+  </div>;
+}
+
+const useSources = () => useQuery({ queryKey: ['bank-accounts'], queryFn: () => api.get<unknown>('/bank-accounts').then((d) => listOf<BankAccount>(d)) });
+const sourceName = (a?: BankAccount) => (a ? `${a.bankName ?? 'بانک'} · ${a.fundName || a.ownerName || ''}` : '—');
+
+function PaidCard({ order: o, dest, onUnpay }: { order: PaymentOrder; dest: string; onUnpay?: () => void }) {
+  const sources = useSources();
+  const [show, setShow] = useState(false);
+  const [err, setErr] = useState('');
+  return <div className="panel gp-card gp-paid" data-testid="po-paid-card">
+    <h3><BadgeCheck size={16} /> پرداخت‌شده · {shortFaDate(o.paidAt, true)}</h3>
+    <div className="gp-kv">
+      <span>کد پیگیری</span><b dir="ltr" className="mono">{o.trackingNumber}</b>
+      <span>از حساب</span><b>{sourceName(sources.data?.find((a) => a.id === o.sourceBankAccountId))}</b>
+      <span>به حساب</span><b dir="ltr" className="mono">{dest}</b>
+    </div>
+    <div className="gp-btn-row">
+      <button className="btn btn-ghost" onClick={() => openAuthedFile(`/payment-orders/${o.id}/receipt`).catch((e) => setErr(errText(e)))} data-testid="button-download-receipt"><Download size={15} />دریافت رسید</button>
+      <button className="btn btn-ghost" onClick={() => setShow(!show)} data-testid="button-toggle-receipt"><FileText size={15} />{show ? 'بستن پیش‌نمایش' : 'پیش‌نمایش رسید'}</button>
+    </div>
+    {err ? <div className="gp-alert">{err}</div> : null}
+    {show ? <ReceiptPreview orderId={o.id} /> : null}
+    {onUnpay ? <button className="btn gp-btn-danger-ghost gp-wide" onClick={onUnpay} data-testid="button-unpay"><Undo2 size={15} />برگرداندن «پرداخت‌شده» (ثبت اشتباه)</button> : null}
+  </div>;
+}
+
+const COMMISSION_STATUS: Record<OrderCommission['status'], { label: string; tone: string; text: string }> = {
+  legacy: { label: 'مدل قبلی', tone: 'blue', text: 'این پرونده با مدل قبلی پورسانت است؛ پورسانت هنگام «تأیید ثبت‌کننده» ثبت شده.' },
+  not_posted: { label: 'ثبت نشده', tone: 'muted', text: 'با علامت «پرداخت‌شده» خودکار ثبت می‌شود.' },
+  awaiting_payment: { label: 'ثبت نشده', tone: 'muted', text: 'با علامت «پرداخت‌شده» خودکار ثبت می‌شود؛ ماه پورسانت = ماه تاریخ واریز.' },
+  posted: { label: 'ثبت شد', tone: 'green', text: '' },
+  failed: { label: 'ثبت ناموفق', tone: 'red', text: 'ثبت پورسانت این پرونده خطا خورد.' },
+  before_start: { label: 'بدون پورسانت مدل تازه', tone: 'muted', text: 'واریز پیش از شروع مدل تازه (۲ آبان ۱۴۰۵)؛ پورسانت مدل تازه ندارد.' },
+  reversed: { label: 'برگشت پرونده', tone: 'red', text: '' },
+};
+
+function CommissionCard({ order: o, c, isAdmin, onReturn, onRetried }: { order: PaymentOrder; c: OrderCommission; isAdmin: boolean; onReturn: () => void; onRetried: (t: string) => void }) {
+  const st = COMMISSION_STATUS[c.status];
+  const retry = useMutation({ mutationFn: () => api.post(`/goods-finance/team-commission/purchases/${o.purchaseId}/post`), onSuccess: () => onRetried('ثبت دوبارهٔ پورسانت انجام شد.') });
+  const label = c.status === 'posted' && c.month ? `${st.label} · ${monthLabel(c.month)}` : c.status === 'reversed' && c.reversalMonth ? `${st.label} · کسر در ${monthLabel(c.reversalMonth)}` : st.label;
+  return <div className="panel gp-card" data-testid="po-commission-card">
+    <div className="gp-card-head"><h3><Database size={16} /> پورسانت این پرونده</h3><span className={`gp-chip ${st.tone}`} data-testid="commission-status"><i />{label}</span></div>
+    {st.text ? <p className="secondary-cell">{st.text}</p> : null}
+    {c.scope === 'status' ? <p className="secondary-cell">جزئیات مبالغ فقط برای کارشناس همین پرونده و مدیر نمایش داده می‌شود.</p> : null}
+    {c.rows.length ? <ul className="gp-comm-rows">{c.rows.map((r) => <li key={r.id} className={r.neutralized ? 'neutralized' : ''} data-testid={`commission-row-${r.id}`}>
+      <div><strong>{KIND_LABELS[r.kind] ?? r.kind}</strong><span className="secondary-cell">{r.salespersonName ? `${r.salespersonName} · ` : ''}{monthLabel(r.month)}{r.neutralized ? ' · خنثی شد' : ''}</span></div>
+      <b className={toBig(r.amountToman) < 0n ? 'neg' : 'pos'} dir="ltr">{toBig(r.amountToman) < 0n ? '−' : '+'}{absBig(r.amountToman).toLocaleString('fa-IR')} تومان</b>
+    </li>)}</ul> : null}
+    {isAdmin && c.lastError ? <div className="gp-alert"><CircleAlert size={14} /> {c.lastError}</div> : null}
+    {retry.isError ? <div className="gp-alert">{errText(retry.error)}</div> : null}
+    <div className="gp-btn-col">
+      {c.canRetry ? <button className="btn btn-primary" disabled={retry.isPending} onClick={() => retry.mutate()} data-testid="button-retry-commission"><RefreshCw size={15} />{retry.isPending ? 'در حال ثبت…' : 'ثبت دوبارهٔ پورسانت'}</button> : null}
+      {c.canReturnCase ? <button className="btn gp-btn-danger-ghost" onClick={onReturn} data-testid="button-return-case"><RotateCcw size={15} />ثبت برگشت پرونده</button> : null}
+    </div>
+  </div>;
+}
+
+function History({ order: o }: { order: PaymentOrder }) {
+  const events = [...(o.events ?? [])].reverse();
+  const detailText = (d?: Record<string, unknown> | null) => {
+    if (!d) return null;
+    const reason = typeof d.reason === 'string' ? d.reason : null;
+    return reason ? `دلیل: ${reason}` : null;
+  };
+  return <aside className="panel gp-history" data-testid="po-history"><h3><HistoryIcon size={16} /> تاریخچه</h3>
+    {events.length ? <ul>{events.map((e, i) => <li key={i} className={e.action === 'payment_recorded' ? 'ok' : e.action === 'payment_reverted' ? 'bad' : ''}>
+      <span className="secondary-cell">{e.actorName || 'سیستم'} · {shortFaDate(e.createdAt, true)}</span>
+      <strong>{poEventLabel(e.action)}</strong>
+      {e.action === 'payment_recorded' && o.trackingNumber && o.stage === 'paid' && i === events.findIndex((x) => x.action === 'payment_recorded') ? <span className="secondary-cell">کد پیگیری <bdi className="mono">{o.trackingNumber}</bdi></span> : null}
+      {detailText(e.detail) ? <span className="secondary-cell">{detailText(e.detail)}</span> : null}
+    </li>)}</ul> : <p className="secondary-cell">سابقه‌ای ثبت نشده.</p>}
+  </aside>;
+}
+
+// ---------------------------------------------------------------- pay wizard
+type DateChoice = 'today' | 'yesterday' | 'other';
+function PayWizard({ order: o, onClose, onPaid }: { order: PaymentOrder; onClose: () => void; onPaid: () => void }) {
+  const qc = useQueryClient();
+  const sources = useSources();
+  const [step, setStep] = useState(0);
+  const [sourceId, setSourceId] = useState<number | null>(null);
+  const [tracking, setTracking] = useState('');
+  const [choice, setChoice] = useState<DateChoice>('today');
+  const [other, setOther] = useState('');
+  const [time, setTime] = useState(tehranTimeNow());
+  const [file, setFile] = useState<File | null>(null);
+  const [fileErr, setFileErr] = useState('');
+  const input = useRef<HTMLInputElement>(null);
+  const today = tehranJalaliValue(0), yesterday = tehranJalaliValue(1);
+  const dateValue = choice === 'today' ? today : choice === 'yesterday' ? yesterday : other;
+  const paidAt = (() => {
+    const d = parseJalaliValue(dateValue); const t = /^(\d{1,2}):(\d{2})$/.exec(time);
+    return d && t ? jalaliToIso(d.year, d.month, d.day, Number(t[1]), Number(t[2])) : null;
+  })();
+  const future = paidAt ? new Date(paidAt).getTime() > Date.now() + 2 * 60_000 : false;
+  const source = sources.data?.find((a) => a.id === sourceId);
+  const pay = useMutation({
+    mutationFn: () => {
+      const fd = new FormData();
+      fd.append('sourceBankAccountId', String(sourceId));
+      fd.append('trackingNumber', tracking.trim());
+      fd.append('paidAt', paidAt!);
+      if (file) fd.append('receipt', file);
+      return api.upload(`/payment-orders/${o.id}/pay`, fd);
+    },
+    onSuccess: () => { invalidateOrders(qc, o.id); onPaid(); },
+  });
+  const pickFile = (f: File | null) => {
+    setFileErr('');
+    if (!f) return setFile(null);
+    if (f.size > 10 * 1024 * 1024) { setFileErr('حجم رسید حداکثر ۱۰ مگابایت است.'); return; }
+    if (!supportedDocumentFile(f)) { setFileErr('فقط تصویر یا PDF قابل قبول است.'); return; }
+    setFile(f);
+  };
+  const steps = ['حساب مبدأ و کد پیگیری', 'زمان واریز و رسید', 'تأیید نهایی'];
+  const dateLabel = choice === 'today' ? `امروز، ${shortFaDate(new Date().toISOString())}` : choice === 'yesterday' ? 'دیروز' : dateValue;
+  const next = step === 0 ? { label: 'بعدی', disabled: !sourceId || !tracking.trim(), onClick: () => setStep(1) }
+    : step === 1 ? { label: 'بعدی', disabled: !paidAt || future || !file, onClick: () => setStep(2) }
+    : { label: pay.isPending ? 'در حال ثبت…' : 'بله، پرداخت‌شده ثبت شود', tone: 'green' as const, icon: <Check size={16} />, disabled: pay.isPending, onClick: () => pay.mutate(), testId: 'button-pay' };
+  return <Wizard title="علامت پرداخت‌شده" testId="pay-wizard" steps={steps} step={step} onClose={onClose} onBack={step ? () => setStep(step - 1) : undefined} next={next}
+    summary={<><span>{o.customerName ?? 'مشتری'} · دستور #{o.id.toLocaleString('fa-IR')}</span><b>{toman(o.amountToman)}</b></>}>
+    {step === 0 ? <>
+      <label className="gp-label">از کدام حساب واریز شد؟</label>
+      {sources.isLoading ? <SkeletonPanel rows={2} /> : sources.isError ? <div className="gp-alert">{errText(sources.error)}</div> :
+        <div className="gp-pick-list">{(sources.data ?? []).map((a) => <button type="button" key={a.id} className={`gp-pick ${sourceId === a.id ? 'on' : ''}`} onClick={() => setSourceId(a.id)} data-testid={`pick-source-${a.id}`}>
+          <Landmark size={18} /><div><strong>{sourceName(a)}</strong><span dir="ltr" className="mono">{a.iban}</span></div>{a.accountingReady === false ? <b className="gp-chip red sm"><i />بدون موجودی اولیه</b> : null}
+        </button>)}</div>}
+      {source && source.accountingReady === false ? <div className="gp-alert warn" data-testid="alert-opening-balance"><CircleAlert size={14} /> برای این حساب هنوز «موجودی اولیه» در بخش حسابداری ثبت نشده و ثبت «پرداخت‌شده» رد می‌شود. اول مدیر باید در «حسابداری» موجودی اولیهٔ همین صندوق را ثبت کند.</div> : null}
+      <label className="gp-label" htmlFor="pay-tracking">کد پیگیری واریز</label>
+      <input id="pay-tracking" dir="ltr" value={tracking} maxLength={100} onChange={(e) => setTracking(e.target.value)} data-testid="input-tracking" />
+    </> : step === 1 ? <>
+      <label className="gp-label">تاریخ واقعی واریز</label>
+      <div className="gp-chips" role="radiogroup">
+        <button type="button" role="radio" aria-checked={choice === 'today'} className={choice === 'today' ? 'on' : ''} onClick={() => setChoice('today')} data-testid="chip-date-today">امروز، {shortFaDate(new Date().toISOString())}</button>
+        <button type="button" role="radio" aria-checked={choice === 'yesterday'} className={choice === 'yesterday' ? 'on' : ''} onClick={() => setChoice('yesterday')} data-testid="chip-date-yesterday">دیروز</button>
+        <button type="button" role="radio" aria-checked={choice === 'other'} className={choice === 'other' ? 'on' : ''} onClick={() => setChoice('other')} data-testid="chip-date-other"><CalendarDays size={14} />تاریخ دیگر</button>
+      </div>
+      {choice === 'other' ? <div style={{ marginTop: 8 }}><PersianDatePicker value={other} onChange={setOther} noFuture testId="input-paid-date" popoverClassName="gp-date-pop" /></div> : null}
+      <small className="secondary-cell">پیش‌فرض امروز است؛ اگر واریز روز دیگری بوده، عوضش کن. پورسانت با همین تاریخ ثبت می‌شود.</small>
+      <label className="gp-label" htmlFor="pay-time">ساعت واریز</label>
+      <input id="pay-time" type="time" dir="ltr" value={time} onChange={(e) => setTime(e.target.value)} data-testid="input-paid-time" />
+      <small className="secondary-cell">به وقت تهران. زمان آینده قبول نمی‌شود.</small>
+      {future ? <div className="gp-alert" role="alert">تاریخ و ساعت واریز نمی‌تواند در آینده باشد.</div> : null}
+      <label className="gp-label">رسید واریز</label>
+      <input ref={input} type="file" hidden accept={documentFileAccept} onChange={(e) => { pickFile(e.target.files?.[0] ?? null); e.target.value = ''; }} data-testid="input-receipt" />
+      {file ? <div className="gp-file on" data-testid="receipt-picked"><FileText size={20} /><div><strong dir="ltr">{file.name}</strong><span>{Math.max(1, Math.round(file.size / 1024)).toLocaleString('fa-IR')} کیلوبایت · آمادهٔ بارگذاری</span></div><button type="button" onClick={() => setFile(null)} aria-label="حذف رسید"><X size={16} /></button></div>
+        : <button type="button" className="gp-file" onClick={() => input.current?.click()} data-testid="button-pick-receipt"><Upload size={20} /><div><strong>انتخاب رسید</strong><span>تصویر یا PDF، حداکثر ۱۰ مگابایت</span></div></button>}
+      {fileErr ? <div className="gp-alert">{fileErr}</div> : null}
+    </> : <>
+      <div className="gp-kv gp-review" data-testid="pay-review">
+        <span>مبلغ</span><b>{toman(o.amountToman)}</b>
+        <span>به حساب</span><b dir="ltr" className="mono">{o.destinationIban ?? '—'}</b>
+        <span>از حساب</span><b>{sourceName(source)}</b>
+        <span>کد پیگیری</span><b dir="ltr" className="mono">{tracking}</b>
+        <span>تاریخ واریز</span><b>{dateLabel} · {time.replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)])}</b>
+        <span>رسید</span><b dir="ltr">{file?.name}</b>
+      </div>
+      <div className="gp-note"><Database size={14} /> با این علامت، پورسانت این پرونده با تاریخ واریز ثبت می‌شود.</div>
+      {pay.isError ? <div className="gp-alert" role="alert">{errText(pay.error)}</div> : null}
+    </>}
+  </Wizard>;
+}
+
+// ---------------------------------------------------------------- approvals / revert dialogs
+function SalesApproveWizard({ order, onClose, onDone }: { order: PaymentOrder; onClose: () => void; onDone: () => void }) {
   const qc = useQueryClient();
   const cid = order.customerId;
   const accountsKey = ['customer-bank-accounts', cid];
   const accounts = useQuery({ queryKey: accountsKey, queryFn: () => api.get<unknown>(`/customers/${cid}/bank-accounts`).then((d) => listOf<BankAccount>(d)), enabled: Boolean(cid) });
+  const [step, setStep] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
   const [mode, setMode] = useState<'iban' | 'card'>('iban');
   const [value, setValue] = useState('');
@@ -106,61 +359,57 @@ function SalesApprove({ order, onDone }: { order: PaymentOrder; onDone: (t: stri
     mutationFn: () => api.post<BankAccount>(`/customers/${cid}/bank-accounts/verify`, mode === 'iban' ? { iban: `IR${digitsOnly(value)}` } : { cardNumber: digitsOnly(value) }),
     onSuccess: (a) => { setValue(''); qc.invalidateQueries({ queryKey: accountsKey }); if (a?.id) setSelected(a.id); },
   });
-  const approve = useMutation({ mutationFn: () => api.post(`/payment-orders/${order.id}/sales-approve`, { customerBankAccountId: selected }), onSuccess: () => onDone('تأیید فروش ثبت شد.') });
+  const approve = useMutation({ mutationFn: () => api.post(`/payment-orders/${order.id}/sales-approve`, { customerBankAccountId: selected }), onSuccess: onDone });
   const verified = (accounts.data ?? []).filter((a) => Boolean(a.verifiedAt));
   const valid = mode === 'iban' ? digitsOnly(value).length === 24 : digitsOnly(value).length === 16;
-  return <div className="panel gp-stage-panel">
-    <div className="panel-head"><div><h3><CreditCard size={16} /> تأیید فروش و حساب مقصد</h3><p>فقط حساب‌هایی که مالکیت آن‌ها با کد ملی مشتری از طریق استعلام بانکی تأیید شده قابل انتخاب‌اند. کارت به شبا تبدیل و سپس تطبیق مالکیت انجام می‌شود.</p></div></div>
-    {!cid ? <div className="gp-alert">شناسه مشتری در دستور پرداخت موجود نیست.</div> : accounts.isLoading ? <SkeletonPanel rows={2} /> : accounts.isError ? <div className="gp-alert">{errText(accounts.error)}</div> :
-      verified.length ? <div className="gp-pick-list">{verified.map((a) => <button type="button" key={a.id} className={`gp-pick ${selected === a.id ? 'on' : ''}`} onClick={() => setSelected(a.id)}><ShieldCheck size={18} /><div><strong>{a.bankName || 'بانک'} · {a.ownerName}</strong><span dir="ltr" className="mono">{a.iban}</span></div><b>{a.verifiedAt ? formatDateTime(a.verifiedAt) : 'تأییدشده'}</b></button>)}</div> : <p className="secondary-cell">هنوز حساب تأییدشده‌ای برای این مشتری ثبت نشده است.</p>}
-    <div className="gp-verify">
-      <div className="filter-tabs"><button type="button" className={`filter-tab ${mode === 'iban' ? 'active' : ''}`} onClick={() => setMode('iban')}>شبا</button><button type="button" className={`filter-tab ${mode === 'card' ? 'active' : ''}`} onClick={() => setMode('card')}>کارت</button></div>
-      <div className="field" style={{ flex: 1 }}><input dir="ltr" value={value} onChange={(e) => setValue(e.target.value)} placeholder={mode === 'iban' ? '24 رقم بدون IR' : '16 رقم کارت'} data-testid="input-verify-account" /></div>
-      <button className="btn btn-ghost" disabled={!valid || verify.isPending || !cid} onClick={() => verify.mutate()} data-testid="button-verify-account">{verify.isPending ? 'در حال استعلام…' : 'استعلام مالکیت'}</button>
-    </div>
-    {verify.isError ? <div className="gp-alert">{errText(verify.error)}</div> : null}
-    {verify.isSuccess ? <div className="gp-alert ok">حساب {verify.data?.bankName ?? ''} به نام {verify.data?.ownerName ?? ''} تأیید و انتخاب شد.</div> : null}
-    {approve.isError ? <div className="gp-alert">{errText(approve.error)}</div> : null}
-    <div className="form-footer"><button className="btn btn-primary" disabled={!selected || approve.isPending} onClick={() => approve.mutate()} data-testid="button-sales-approve">تأیید و ارسال به مدیریت</button></div>
-  </div>;
+  const acc = verified.find((a) => a.id === selected);
+  return <Wizard title="تأیید فروش" testId="sales-approve" steps={['انتخاب حساب مقصد', 'تأیید و ارسال به مدیر']} step={step} onClose={onClose} onBack={step ? () => setStep(0) : undefined}
+    summary={<><span>{order.customerName} · دستور #{order.id.toLocaleString('fa-IR')}</span><b>{toman(order.amountToman)}</b></>}
+    next={step === 0 ? { label: 'بعدی', disabled: !selected, onClick: () => setStep(1) } : { label: approve.isPending ? 'در حال ثبت…' : 'تأیید و ارسال به مدیر', disabled: approve.isPending, onClick: () => approve.mutate(), icon: <Check size={16} />, testId: 'button-sales-approve' }}>
+    {step === 0 ? <>
+      <p className="secondary-cell">فقط حساب‌هایی که مالکیتشان با کد ملی مشتری استعلام و تأیید شده قابل انتخاب‌اند.</p>
+      {!cid ? <div className="gp-alert">شناسه مشتری در دستور پرداخت موجود نیست.</div> : accounts.isLoading ? <SkeletonPanel rows={2} /> : accounts.isError ? <div className="gp-alert">{errText(accounts.error)}</div> :
+        verified.length ? <div className="gp-pick-list">{verified.map((a) => <button type="button" key={a.id} className={`gp-pick ${selected === a.id ? 'on' : ''}`} onClick={() => setSelected(a.id)} data-testid={`pick-dest-${a.id}`}><ShieldCheck size={18} /><div><strong>{a.bankName || 'بانک'} · {a.ownerName}</strong><span dir="ltr" className="mono">{a.iban}</span></div></button>)}</div> : <p className="secondary-cell">هنوز حساب تأییدشده‌ای برای این مشتری ثبت نشده است.</p>}
+      <div className="gp-verify">
+        <div className="filter-tabs"><button type="button" className={`filter-tab ${mode === 'iban' ? 'active' : ''}`} onClick={() => setMode('iban')}>شبا</button><button type="button" className={`filter-tab ${mode === 'card' ? 'active' : ''}`} onClick={() => setMode('card')}>کارت</button></div>
+        <input dir="ltr" value={value} onChange={(e) => setValue(e.target.value)} placeholder={mode === 'iban' ? '24 رقم بدون IR' : '16 رقم کارت'} data-testid="input-verify-account" />
+        <button type="button" className="btn btn-ghost" disabled={!valid || verify.isPending || !cid} onClick={() => verify.mutate()} data-testid="button-verify-account">{verify.isPending ? 'در حال استعلام…' : 'استعلام مالکیت'}</button>
+      </div>
+      {verify.isError ? <div className="gp-alert">{errText(verify.error)}</div> : null}
+      {verify.isSuccess ? <div className="gp-alert ok">حساب {verify.data?.bankName ?? ''} به نام {verify.data?.ownerName ?? ''} تأیید و انتخاب شد.</div> : null}
+    </> : <>
+      <div className="gp-kv gp-review"><span>حساب مقصد</span><b>{acc?.bankName} · {acc?.ownerName}</b><span>شبا</span><b dir="ltr" className="mono">{acc?.iban}</b><span>مبلغ</span><b>{toman(order.amountToman)}</b></div>
+      {approve.isError ? <div className="gp-alert">{errText(approve.error)}</div> : null}
+    </>}
+  </Wizard>;
 }
 
-function PayForm({ order, dest, onDone }: { order: PaymentOrder; dest: string; onDone: (t: string) => void }) {
-  const sources = useSources();
-  const [f, setF] = useState({ sourceBankAccountId: '', trackingNumber: '', date: new Date().toISOString().slice(0, 10), time: new Date().toTimeString().slice(0, 5) });
-  const [file, setFile] = useState<File | null>(null);
-  const [err, setErr] = useState('');
-  const pay = useMutation({
-    mutationFn: () => {
-      const fd = new FormData();
-      fd.append('sourceBankAccountId', f.sourceBankAccountId);
-      fd.append('trackingNumber', f.trackingNumber.trim());
-      fd.append('paidAt', new Date(`${f.date}T${f.time}:00+03:30`).toISOString());
-      if (file) fd.append('receipt', file);
-      return api.upload(`/payment-orders/${order.id}/pay`, fd);
-    },
-    onSuccess: () => onDone('پرداخت و رسید ثبت شد.'),
-  });
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!file) return setErr('بارگذاری رسید الزامی است.');
-    if (file.size > 10 * 1024 * 1024) return setErr('حجم رسید حداکثر ۱۰ مگابایت است.');
-    if (!supportedDocumentFile(file)) return setErr('فقط تصویر یا PDF قابل قبول است.');
-    setErr(''); pay.mutate();
-  };
-  return <form className="panel gp-stage-panel" onSubmit={submit}>
-    <div className="panel-head"><div><h3><Upload size={16} /> ثبت پرداخت حسابداری</h3><p>واریز {toman(order.amountToman)} به <span dir="ltr" className="mono">{dest}</span></p></div></div>
-    <div className="form-grid">
-      <div className="field full"><label>حساب مبدأ</label><select required value={f.sourceBankAccountId} onChange={(e) => setF({ ...f, sourceBankAccountId: e.target.value })} data-testid="select-source-account"><option value="">{sources.isLoading ? 'در حال بارگذاری…' : 'انتخاب حساب شرکت'}</option>{(sources.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.bankName} · {a.fundName || a.ownerName} · {a.iban}</option>)}</select>{sources.isError ? <small className="gp-err-text">{errText(sources.error)}</small> : null}</div>
-      <div className="field"><label>کد پیگیری</label><input required dir="ltr" value={f.trackingNumber} onChange={(e) => setF({ ...f, trackingNumber: e.target.value })} data-testid="input-tracking" /></div>
-      <div className="field"><label>تاریخ پرداخت</label><input required type="date" dir="ltr" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} /></div>
-      <div className="field"><label>ساعت (تهران)</label><input required type="time" dir="ltr" value={f.time} onChange={(e) => setF({ ...f, time: e.target.value })} /></div>
-      <div className="field"><label>رسید (تصویر یا PDF)</label><input type="file" accept={documentFileAccept} onChange={(e) => setFile(e.target.files?.[0] ?? null)} data-testid="input-receipt" /></div>
-    </div>
-    {err ? <div className="gp-alert">{err}</div> : null}
-    {pay.isError ? <div className="gp-alert">{errText(pay.error)}</div> : null}
-    <div className="form-footer"><button className="btn btn-primary" type="submit" disabled={pay.isPending} data-testid="button-pay">{pay.isPending ? 'در حال ثبت…' : 'ثبت پرداخت'}</button></div>
-  </form>;
+function AdminApproveDialog({ order, dest, onClose, onDone }: { order: PaymentOrder; dest: string; onClose: () => void; onDone: () => void }) {
+  const m = useMutation({ mutationFn: () => api.post(`/payment-orders/${order.id}/admin-approve`), onSuccess: onDone });
+  return <ConfirmDialog title="پرداخت تأیید شود؟" testId="admin-approve" confirmLabel="تأیید پرداخت" icon={<Check size={16} />} busy={m.isPending} error={m.isError ? errText(m.error) : null} onConfirm={() => m.mutate()} onClose={onClose}>
+    <div className="gp-kv gp-review"><span>مشتری</span><b>{order.customerName}</b><span>مبلغ</span><b>{toman(order.amountToman)}</b><span>حساب مقصد</span><b dir="ltr" className="mono">{dest}</b></div>
+    <p className="secondary-cell">پس از تأیید، دستور به حسابداری برای واریز و علامت «پرداخت‌شده» می‌رود.</p>
+  </ConfirmDialog>;
+}
+
+function UnpayDialog({ order: o, onClose, onDone }: { order: PaymentOrder; onClose: () => void; onDone: () => void }) {
+  const m = useMutation({ mutationFn: (reason: string) => api.post(`/payment-orders/${o.id}/unpay`, { reason }), onSuccess: onDone });
+  const rows = (o.commission?.rows ?? []).filter((r) => !r.neutralized && toBig(r.amountToman) > 0n && r.kind !== 'paid_mark_reversal' && r.kind !== 'returned_case_deduction');
+  return <ConfirmDialog title="«پرداخت‌شده» برگردد؟" testId="unpay" tone="danger" icon={<Undo2 size={16} />} confirmLabel="برگرداندن و ثبت ردیف برگشتی" busy={m.isPending} error={m.isError ? errText(m.error) : null}
+    reason={{ label: 'دلیل', min: 5, hint: 'در تاریخچه و ردیف دفتر نوشته می‌شود.' }} onConfirm={(r) => m.mutate(r)} onClose={onClose}>
+    <p>فقط برای وقتی که علامت اشتباهی خورده و پولی واریز نشده. دستور به «در انتظار علامت پرداخت» برمی‌گردد و برای پورسانت ثبت‌شده <b>یک ردیف برگشتی در همان ماه</b> در دفتر ثبت می‌شود. چیزی پاک نمی‌شود.</p>
+    {rows.length ? <ul className="gp-comm-rows compact">{rows.map((r) => <li key={r.id}><span>{r.salespersonName ? `${r.salespersonName} · ` : ''}{KIND_LABELS[r.kind] ?? r.kind}</span><b className="neg" dir="ltr">−{toBig(r.amountToman).toLocaleString('fa-IR')} تومان</b></li>)}</ul> : null}
+  </ConfirmDialog>;
+}
+
+function ReturnCaseDialog({ order: o, c, onClose, onDone }: { order: PaymentOrder; c: OrderCommission; onClose: () => void; onDone: () => void }) {
+  const m = useMutation({ mutationFn: (reason: string) => api.post(`/goods-finance/team-commission/purchases/${o.purchaseId}/reverse`, { reason }), onSuccess: onDone });
+  const rows = c.rows.filter((r) => !r.neutralized && toBig(r.amountToman) > 0n && ['salesperson_commission', 'p1_referral_share'].includes(r.kind));
+  return <ConfirmDialog title="ثبت برگشت پرونده" testId="return-case" tone="danger" icon={<RotateCcw size={16} />} confirmLabel="ثبت برگشت پرونده" busy={m.isPending} error={m.isError ? errText(m.error) : null}
+    reason={{ label: 'دلیل برگشت', min: 5 }} onConfirm={(r) => m.mutate(r)} onClose={onClose}>
+    <p>مشتری پرونده را برگرداند؟ پورسانت این پرونده در <b>{monthLabel(c.returnCaseMonth)}</b> از دفتر کسر می‌شود. ردیف‌های قبلی پاک نمی‌شوند.</p>
+    {rows.length ? <ul className="gp-comm-rows compact" data-testid="return-case-preview">{rows.map((r) => <li key={r.id}><span>{r.salespersonName ? `${r.salespersonName} · ` : ''}{KIND_LABELS[r.kind] ?? r.kind}</span><b className="neg" dir="ltr">−{toBig(r.amountToman).toLocaleString('fa-IR')} تومان</b></li>)}</ul> : null}
+  </ConfirmDialog>;
 }
 
 function ReceiptPreview({ orderId }: { orderId: number }) {

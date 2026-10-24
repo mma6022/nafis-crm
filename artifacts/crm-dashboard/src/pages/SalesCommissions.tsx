@@ -69,12 +69,15 @@ export default function SalesCommissions() {
   const [picked, setPicked] = useState<number | null>(initial);
   const [tab, setTab] = useState<'ledger' | 'team'>(params.get('tab') === 'team' ? 'team' : 'ledger');
   const team = useTeamSalesConfig(Boolean(user));
-  const target = manage ? picked ?? people.data?.[0]?.id ?? null : user?.salespersonId ?? null;
+  // Picker lists only the sales team (qualifier + closers); trainees are hidden. A deep-linked ?salespersonId stays selectable.
+  const teamIds = team.data?.enabled ? [team.data.qualifierSalespersonId, ...team.data.closerSalespersonIds] : null;
+  const pickable = (people.data ?? []).filter((p) => !teamIds || teamIds.includes(p.id) || p.id === initial);
+  const target = manage ? picked ?? pickable[0]?.id ?? null : user?.salespersonId ?? null;
   const showTeam = isAdmin && tab === 'team';
   const pickTab = (t: 'ledger' | 'team') => { setTab(t); const u = new URL(window.location.href); if (t === 'team') u.searchParams.set('tab', 'team'); else u.searchParams.delete('tab'); window.history.replaceState(null, '', u); };
   return <section className="data-page">
     <div className="page-intro"><div><div className="eyebrow">پاداش فروش</div><h2>{showTeam ? 'مدل فروش تیمی' : 'پورسانت فروش'}</h2><p>{showTeam ? 'سهم معرفی، پاداش درستی داده و پاداش تیمی.' : 'پله‌های هدف ماهانه، نرخ‌ها، ریز ماهانه و دفتر انباشته هر کارشناس.'}</p></div>
-      {manage && !showTeam ? <select className="gp-select" value={target ?? ''} onChange={(e) => setPicked(Number(e.target.value))} data-testid="select-salesperson">{(people.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select> : null}
+      {manage && !showTeam ? <select className="gp-select" value={target ?? ''} onChange={(e) => setPicked(Number(e.target.value))} data-testid="select-salesperson">{pickable.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select> : null}
       {isAdmin ? <div className="tc-ptabs" role="tablist" aria-label="بخش‌های پورسانت" style={{ width: '100%' }}>
         <button type="button" role="tab" aria-selected={!showTeam} onClick={() => pickTab('ledger')} data-testid="tab-ledger"><Wallet size={16} /> دفتر و گزارش</button>
         <button type="button" role="tab" aria-selected={showTeam} onClick={() => pickTab('team')} data-testid="tab-team-model"><Settings2 size={16} /> مدل فروش تیمی</button>

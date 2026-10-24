@@ -15,6 +15,7 @@ export function PersianDatePicker({
   birthDate = false,
   minValue,
   popoverClassName,
+  noFuture = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -23,6 +24,8 @@ export function PersianDatePicker({
   birthDate?: boolean;
   minValue?: string;
   popoverClassName?: string;
+  /** Disable days after today (e.g. a real deposit date). */
+  noFuture?: boolean;
 }) {
   const selected = value ? jalaliValueToDate(value) : undefined;
   const today = new Date();
@@ -47,8 +50,8 @@ export function PersianDatePicker({
           defaultMonth={selected}
           captionLayout="dropdown"
           startMonth={minimum ?? calendarStart}
-          endMonth={birthDate ? today : calendarEnd}
-          disabled={[...(birthDate ? [{ after: today }] : []), ...(minimum ? [{ before: minimum }] : [])]}
+          endMonth={birthDate || noFuture ? today : calendarEnd}
+          disabled={[...(birthDate || noFuture ? [{ after: today }] : []), ...(minimum ? [{ before: minimum }] : [])]}
           reverseYears
           showOutsideDays
           dir="rtl"
