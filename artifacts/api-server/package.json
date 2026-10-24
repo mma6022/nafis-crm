@@ -53,7 +53,8 @@
     "test:plan-grade-filter": "node scripts/run-bundled-fixture.mjs scripts/plan-grade-filter-fixture.mjs",
     "test:customer-id-search": "node scripts/run-bundled-fixture.mjs scripts/customer-id-search-fixture.mjs",
     "test:calls-export-scope": "node scripts/run-bundled-fixture.mjs scripts/calls-export-scope-fixture.mjs",
-    "test:request-drafts": "node scripts/run-bundled-fixture.mjs scripts/request-drafts-fixture.mjs"
+    "test:request-drafts": "node scripts/run-bundled-fixture.mjs scripts/request-drafts-fixture.mjs",
+    "test:grade-followups": "node scripts/run-bundled-fixture.mjs scripts/grade-followups-fixture.mjs"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.3.0",

@@ -1,4 +1,5 @@
 import { Router, type Request, type Response } from "express";
+import { identityValueChanged, identityValuesChanged } from "../lib/identity-change";
 import { createHash } from "node:crypto";
 import { allocatePortalSalesperson, markPortalRegistration, claimInquiry } from "../lib/customer-portal-features";
 import { customerPortalSession, requireCustomerPortal, updateCustomerPortalSessionCustomer } from "../lib/customer-portal-auth";
@@ -197,6 +198,11 @@ router.post("/identity", async (req, res): Promise<void> => {
         const changed = before.name !== fullName || before.father_name !== fatherName ||
           before.first_name !== firstName || before.last_name !== lastName ||
           before.national_code !== nationalCode || before.birth_date_jalali !== birthDate;
+        // identity_changed_at only moves when an existing value is replaced, never when an empty field is filled.
+        const identityStamp = changed && identityValuesChanged([
+          [before.name, fullName], [before.father_name, fatherName], [before.first_name, firstName],
+          [before.last_name, lastName], [before.national_code, nationalCode], [before.birth_date_jalali, birthDate],
+        ]);
         executeChanges(`UPDATE customers SET name=?,first_name=?,last_name=?,father_name=?,
           official_first_name=?,official_last_name=?,official_father_name=?,national_code=?,birth_date_jalali=?,
           identity_changed_at=CASE WHEN ? THEN ? ELSE identity_changed_at END,
@@ -206,7 +212,7 @@ router.post("/identity", async (req, res): Promise<void> => {
           postal_code_info_status=CASE WHEN ? THEN NULL ELSE postal_code_info_status END,
           sana_status=CASE WHEN ? THEN NULL ELSE sana_status END
           WHERE id=?`, [fullName, firstName!, lastName!, fatherName!, firstName!, lastName!, fatherName!,
-          nationalCode, birthDate, changed ? 1 : 0, checkedAt, ...Array(5).fill(changed ? 1 : 0), customerId]);
+          nationalCode, birthDate, identityStamp ? 1 : 0, checkedAt, ...Array(5).fill(changed ? 1 : 0), customerId]);
         execute(`INSERT INTO customer_portal_profile_audit
           (customer_id,actor_mobile,old_values_json,new_values_json,created_at) VALUES (?,?,?,?,?)`,
           [customerId, session.mobile, JSON.stringify(before), JSON.stringify(findPortalCustomer(customerId)), checkedAt]);
@@ -312,6 +318,11 @@ router.patch("/profile", (req, res): void => {
           existing.birth_date_jalali !== profile.birthDate ||
           existing.postal_code !== profile.postalCode ||
           existing.father_name !== profile.fatherName;
+        const identityStamp = identityChanged && identityValuesChanged([
+          [existing.name, profile.name], [existing.national_code, profile.nationalCode],
+          [existing.birth_date_jalali, profile.birthDate], [existing.postal_code, profile.postalCode],
+          [existing.father_name, profile.fatherName],
+        ]);
         executeChanges(
           `UPDATE customers SET name=?,national_code=?,birth_date_jalali=?,postal_code=?,father_name=?,
              verification_status=CASE WHEN ? THEN 'unverified' ELSE verification_status END,
@@ -330,8 +341,9 @@ router.patch("/profile", (req, res): void => {
            WHERE id=? AND merged_into_customer_id IS NULL`,
           [
             profile.name, profile.nationalCode, profile.birthDate, profile.postalCode, profile.fatherName,
-             ...Array.from({ length: 5 }, () => identityChanged ? 1 : 0),
-             identityChanged ? now : null,
+             ...Array.from({ length: 4 }, () => identityChanged ? 1 : 0),
+             identityStamp ? 1 : 0,
+             identityStamp ? now : null,
              ...Array.from({ length: 8 }, () => identityChanged ? 1 : 0),
             existing.id,
           ],
@@ -506,7 +518,7 @@ export async function verifyPortalCustomer(req: Request, res: Response): Promise
         ],
       );
       if (result.canonical.officialPostalCode != null &&
-          result.canonical.officialPostalCode !== current.postal_code) {
+          identityValueChanged(current.postal_code, result.canonical.officialPostalCode)) {
         executeChanges("UPDATE customers SET identity_changed_at=? WHERE id=?", [now, customer.id]);
       }
       execute(

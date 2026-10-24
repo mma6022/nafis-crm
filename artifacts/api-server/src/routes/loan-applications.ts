@@ -1,7 +1,10 @@
 import { Router } from "express";
 import { customerSearchSql } from "../lib/customer-id-search";
 import { conditionAcceptsCreditRank } from "../lib/credit-rank-eligibility";
-import { loanCreditRankOverrideError, loanRankOverrideSnapshot } from "../lib/loan-credit-rank-override";
+import { loanCreditRankOverrideError, loanCreditRankOverrideReason, loanRankOverrideSnapshot } from "../lib/loan-credit-rank-override";
+import { guarantorGradeAllows, guarantorGradeVerdict } from "../lib/guarantor-grade-rule";
+import { customerGuarantorGrade } from "../lib/guarantor-grade-source";
+import { creditRankOverridesForApplication, listCreditRankOverrides, logCreditRankOverride } from "../lib/credit-rank-override-log";
 export { conditionAcceptsCreditRank } from "../lib/credit-rank-eligibility";
 import { supportedDocumentUpload } from "../lib/document-upload-type";
 import fs from "node:fs";
@@ -255,11 +258,14 @@ export function filingFeePrerequisiteError(customer: any, ignoreCreditRank = fal
 export function planAcceptsCustomerCredit(planId: number, customerId: number, ignoreCreditRank = false): boolean {
   const credit = freshSuccessfulCredit(customerId);
   if (!ignoreCreditRank && !credit) return false;
+  const guarantor = ignoreCreditRank ? null : customerGuarantorGrade(customerId);
   return queryRows<any>("SELECT * FROM loan_plan_conditions WHERE plan_id=?", [planId]).some((condition) => {
     const ranks = parseJson(condition.customer_ranks)
       ?? String(condition.customer_ranks ?? "").split(/[,،]/).map((value: string) => value.trim()).filter(Boolean);
-    const terms = effectivePlanTerms(queryRow<any>("SELECT * FROM loan_plans WHERE id=?", [planId]), ignoreCreditRank ? { ...condition, max_principal: "0" } : condition);
-    return (ignoreCreditRank || conditionAcceptsCreditRank(credit.score_label, ranks)) && terms.maximum > 0n && terms.durations.length > 0;
+    const plan = queryRow<any>("SELECT * FROM loan_plans WHERE id=?", [planId]);
+    const terms = effectivePlanTerms(plan, ignoreCreditRank ? { ...condition, max_principal: "0" } : condition);
+    return (ignoreCreditRank || (conditionAcceptsCreditRank(credit.score_label, ranks)
+      && guarantorGradeAllows(guarantorGradeVerdict(condition, guarantor?.rank, plan)))) && terms.maximum > 0n && terms.durations.length > 0;
   });
 }
 export function effectivePlanTerms(plan: any, condition: any) {
@@ -1398,19 +1404,23 @@ router.get("/loan-applications/dashboard-stats", requirePermission("loan_applica
 router.get("/customers/:customerId/eligible-plans", requirePermission("loan_applications.view"), (req, res) => {
   if (req.query.ignoreCreditRank !== undefined && (typeof req.query.ignoreCreditRank !== "string" || !["true", "false"].includes(req.query.ignoreCreditRank))) return error(res, 400, "invalid_ignore_credit_rank");
   const ignoreCreditRank = req.query.ignoreCreditRank === "true";
-  if (ignoreCreditRank && !["admin", "salesperson"].includes(user(res).role)) return error(res, 403, "action_forbidden");
+  const overrideError = loanCreditRankOverrideError(req.query.ignoreCreditRank, user(res).role, true, req.query.creditRankOverrideReason);
+  if (overrideError) return error(res, overrideError.status, overrideError.code);
   const customer = getScopedCustomer(Number(req.params.customerId), user(res));
   if (!customer) return error(res, 404, "customer_not_found");
   const profile = queryRow<any>("SELECT * FROM customers WHERE id=?", [customer.id]);
   const credit = freshSuccessfulCredit(customer.id);
   const fresh = Boolean(credit);
+  // Same guarantor-grade rule as the first-call form / consultation: a known non-matching grade drops the
+  // condition, a missing / «نمی‌دونه» grade keeps it with a note. The rank override waives it too.
+  const guarantor = customerGuarantorGrade(customer.id);
   const plans = queryRows<any>("SELECT * FROM loan_plans WHERE active=1 ORDER BY id").flatMap((plan) => {
     const conditions = queryRows<any>("SELECT * FROM loan_plan_conditions WHERE plan_id=? ORDER BY sort_order,id", [plan.id]);
     if (ignoreCreditRank && !conditions.length) conditions.push({ id: 0, name: "بدون شرط پیکربندی‌شده" });
     const matches = conditions.filter((c) => {
       if (ignoreCreditRank) return true;
       const ranks = parseJson(c.customer_ranks) ?? String(c.customer_ranks ?? "").split(/[,،]/).map((x: string) => x.trim()).filter(Boolean);
-      return conditionAcceptsCreditRank(credit?.score_label, ranks);
+      return conditionAcceptsCreditRank(credit?.score_label, ranks) && guarantorGradeAllows(guarantorGradeVerdict(c, guarantor.rank, plan));
     });
     return matches.filter((c) => {
       if (ignoreCreditRank) return true;
@@ -1429,13 +1439,37 @@ router.get("/customers/:customerId/eligible-plans", requirePermission("loan_appl
          conditionNotes: c.notes ? String(c.notes) : null, maximumAmount: terms.maximum.toString(),
         allowedDurations: terms.durations, requiredDocuments: required,
         needsGuarantor: Boolean(c.needs_guarantor ?? plan.needs_guarantor),
+        ...(() => { const v = guarantorGradeVerdict(c, guarantor.rank, plan);
+          return { guarantorRanks: v.ranks, guarantorGradeStatus: v.status, guarantorGradeNote: v.note }; })(),
          primaryContractPresent: Boolean(templateId), contractTemplateId: templateId, manualVariables };
     });
   });
-  res.json({ customerId: customer.id, credit: { fresh, status: credit?.status ?? "missing", rank: credit?.score_label ?? null, checkedAt: credit?.completed_at ?? null }, plans });
+  res.json({ customerId: customer.id, credit: { fresh, status: credit?.status ?? "missing", rank: credit?.score_label ?? null, checkedAt: credit?.completed_at ?? null },
+    guarantor: { rank: guarantor.rank, hasGuarantor: guarantor.hasGuarantor, source: guarantor.source, at: guarantor.at }, plans });
+});
+// «نادیده گرفتن رتبه» switched on in the wizard: the reason is mandatory and the use is logged before any preview.
+router.post("/customers/:customerId/credit-rank-override", requirePermission("loan_applications.create"), (req, res) => {
+  const actor = user(res);
+  const overrideError = loanCreditRankOverrideError(true, actor.role, false, req.body?.reason);
+  if (overrideError) return error(res, overrideError.status, overrideError.code);
+  const customer = getScopedCustomer(Number(req.params.customerId), actor);
+  if (!customer) return error(res, 404, "customer_not_found");
+  const id = logCreditRankOverride({ action: "preview_enabled", actor, customerId: customer.id, reason: loanCreditRankOverrideReason(req.body?.reason) });
+  res.status(201).json({ id });
+});
+router.get("/loan-applications/:id/credit-rank-overrides", requirePermission("loan_applications.view"), (req, res) => {
+  if (user(res).role !== "admin") return error(res, 403, "action_forbidden");
+  const r = scoped(Number(req.params.id), user(res));
+  if (!r) return error(res, 404, "loan_application_not_found");
+  res.json({ items: creditRankOverridesForApplication(Number(r.id), Number(r.customerId)) });
+});
+router.get("/credit-rank-overrides", requirePermission("loan_applications.view"), (req, res) => {
+  if (user(res).role !== "admin") return error(res, 403, "action_forbidden");
+  const limit = Number(req.query.limit ?? 200), offset = Number(req.query.offset ?? 0);
+  res.json({ items: listCreditRankOverrides(Number.isSafeInteger(limit) ? limit : 200, Number.isSafeInteger(offset) ? offset : 0) });
 });
 router.get("/loan-applications/filing-fee-plans", requirePermission("loan_applications.create"), (req, res) => {
-  const overrideError = loanCreditRankOverrideError(req.query.ignoreCreditRank, user(res).role, true);
+  const overrideError = loanCreditRankOverrideError(req.query.ignoreCreditRank, user(res).role, true, req.query.creditRankOverrideReason);
   if (overrideError) return error(res, overrideError.status, overrideError.code);
   const ignoreCreditRank = req.query.ignoreCreditRank === "true";
   const customer = getScopedCustomer(Number(req.query.customerId), user(res));
@@ -1450,9 +1484,10 @@ router.get("/loan-applications/filing-fee-plans", requirePermission("loan_applic
   })) });
 });
 router.post("/loan-applications/filing-fee-charges", requirePermission("loan_applications.create"), (req, res) => {
-  const overrideError = loanCreditRankOverrideError(req.body?.ignoreCreditRank, user(res).role);
+  const overrideError = loanCreditRankOverrideError(req.body?.ignoreCreditRank, user(res).role, false, req.body?.creditRankOverrideReason);
   if (overrideError) return error(res, overrideError.status, overrideError.code);
   const ignoreCreditRank = req.body?.ignoreCreditRank === true;
+  const overrideReason = ignoreCreditRank ? loanCreditRankOverrideReason(req.body?.creditRankOverrideReason) : null;
   const customerId = Number(req.body?.customerId), planId = Number(req.body?.planId);
   const key = String(req.header("Idempotency-Key") ?? "");
   if (!Number.isSafeInteger(customerId) || customerId <= 0 || !Number.isSafeInteger(planId) || planId <= 0
@@ -1502,6 +1537,7 @@ router.post("/loan-applications/filing-fee-charges", requirePermission("loan_app
       const chargeId = execute(
         "INSERT INTO loan_filing_fee_charges(customer_id,plan_id,amount_toman,idempotency_key,actor_user_id,created_at) VALUES(?,?,?,?,?,?)",
         [customerId, planId, amount, key, actor.id, ts]);
+      if (overrideReason) logCreditRankOverride({ action: "filing_fee_charged", actor, customerId, planId, reason: overrideReason, at: ts });
       if (BigInt(amount) > 0n) {
         executeChanges("UPDATE wallet_accounts_v2 SET balance=? WHERE id=?", [(BigInt(cash.balance) - BigInt(amount)).toString(), cash.id]);
         executeChanges("UPDATE company_wallet_accounts SET balance=? WHERE wallet_type='cash'", [(BigInt(company.balance) + BigInt(amount)).toString()]);
@@ -1649,9 +1685,10 @@ router.post("/loan-applications/:id/authorize-toman-replacement", requirePermiss
   return res.json(shape(updated, actor));
 });
 router.post("/loan-applications", requirePermission("loan_applications.create"), (req, res) => {
-  const overrideError = loanCreditRankOverrideError(req.body?.ignoreCreditRank, user(res).role);
+  const overrideError = loanCreditRankOverrideError(req.body?.ignoreCreditRank, user(res).role, false, req.body?.creditRankOverrideReason);
   if (overrideError) return error(res, overrideError.status, overrideError.code);
   const ignoreCreditRank = req.body?.ignoreCreditRank === true;
+  const overrideReason = ignoreCreditRank ? loanCreditRankOverrideReason(req.body?.creditRankOverrideReason) : null;
   const b = req.body ?? {}, customerId = Number(b.customerId), planId = Number(b.planId);
   const plan = queryRow<any>("SELECT * FROM loan_plans WHERE id=? AND active=1", [planId]);
   const amount = String(b.requestedAmount ?? "").trim();
@@ -1679,6 +1716,8 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
   if (!condition) return error(res, 422, "loan_plan_condition_not_found");
   const ranks = parseJson(condition.customer_ranks) ?? String(condition.customer_ranks ?? "").split(/[,،]/).map((x: string) => x.trim()).filter(Boolean);
   if (!ignoreCreditRank && !conditionAcceptsCreditRank(credit.score_label, ranks)) return error(res, 422, "loan_plan_condition_not_matched");
+  if (!ignoreCreditRank && !guarantorGradeAllows(guarantorGradeVerdict(condition, customerGuarantorGrade(customerId).rank, plan)))
+    return error(res, 422, "loan_plan_guarantor_grade_not_matched");
   const terms = effectivePlanTerms(plan, ignoreCreditRank ? { ...condition, max_principal: "0" } : condition);
   const matches = terms.maximum > 0n && BigInt(amount) <= terms.maximum && terms.durations.includes(duration) ? [condition] : [];
   if (!matches.length) return error(res, 422, "loan_plan_condition_not_matched");
@@ -1704,12 +1743,18 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
         ? null
         : queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [customer.salesperson_id]);
       const appId = execute(`INSERT INTO loan_applications(consultation_id,customer_id,requested_by_user_id,plan_ids,plan_id,requested_amount,duration_months,requested_duration_months,stage,status,plan_snapshot_json,condition_snapshot_json,document_requirements_snapshot_json,primary_manual_values_json,is_pre_registration,salesperson_id_snapshot,salesperson_name_snapshot,new_case_workflow,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [consultationId, customerId, u.id, JSON.stringify([planId]), planId, amount, duration, duration, "draft", "requested", JSON.stringify(plan), JSON.stringify(ignoreCreditRank ? loanRankOverrideSnapshot(condition, u.id, ts, terms.maximum.toString()) : condition ?? null), JSON.stringify(requirements.map((key) => ({ key: String(key), label: documentLabel(String(key)) }))), JSON.stringify(manualInput.values), preRegistration, customer.salesperson_id ?? null, salespersonSnapshot?.name ?? null, 1, ts, ts]);
+        [consultationId, customerId, u.id, JSON.stringify([planId]), planId, amount, duration, duration, "draft", "requested", JSON.stringify(plan), JSON.stringify(ignoreCreditRank ? loanRankOverrideSnapshot(condition, u.id, ts, terms.maximum.toString(), overrideReason) : condition ?? null), JSON.stringify(requirements.map((key) => ({ key: String(key), label: documentLabel(String(key)) }))), JSON.stringify(manualInput.values), preRegistration, customer.salesperson_id ?? null, salespersonSnapshot?.name ?? null, 1, ts, ts]);
      for (const item of requirements) execute("INSERT INTO loan_application_documents(application_id,requirement_key,label,source,created_at) VALUES(?,?,?,?,?)", [appId, String(item), documentLabel(String(item)), "plan", ts]);
       execute("INSERT INTO loan_application_stage_history(application_id,to_stage,action,actor_id,created_at) VALUES(?,?,?,?,?)", [appId, "draft", "created", u.id, ts]);
      executeChanges("UPDATE loan_filing_fee_charges SET application_id=? WHERE id=? AND application_id IS NULL", [appId, charge.id]);
      // Same transaction: the «در انتظار ثبت» draft of this fee (or the one named by draftId) is closed as submitted.
      closeDraftsForCase(customerId, Number(charge.id), appId, u.id, draft ? Number(draft.id) : null);
+    if (overrideReason) {
+      logCreditRankOverride({ action: "case_created", actor: u, customerId, applicationId: appId, planId, conditionId, reason: overrideReason, at: ts });
+      // Earlier uses for this customer (preview / filing fee) by the same person now belong to this case.
+      executeChanges(`UPDATE loan_credit_rank_override_log SET application_id=? WHERE customer_id=? AND user_id=? AND application_id IS NULL
+        AND action IN ('preview_enabled','filing_fee_charged')`, [appId, customerId, u.id]);
+    }
     return appId;
   });
   res.status(201).json(scoped(id, u));

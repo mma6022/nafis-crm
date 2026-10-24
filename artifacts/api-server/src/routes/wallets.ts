@@ -1,6 +1,9 @@
 import { Router, type RequestHandler } from "express";
 import { conditionAcceptsCreditRank } from "../lib/credit-rank-eligibility";
-import { loanCreditRankOverrideError } from "../lib/loan-credit-rank-override";
+import { loanCreditRankOverrideError, loanCreditRankOverrideReason } from "../lib/loan-credit-rank-override";
+import { logCreditRankOverride } from "../lib/credit-rank-override-log";
+import { guarantorGradeAllows, guarantorGradeVerdict } from "../lib/guarantor-grade-rule";
+import { customerGuarantorGrade } from "../lib/guarantor-grade-source";
 import { execute, queryRow, queryRows, executeChanges, runTransaction } from "../lib/crm-db";
 import { creditVerifiedCashPayment, ensureWalletSchema, getWalletSummary, getWalletSummaryReadOnly, wallet } from "../lib/wallets";
 import { requireAuth } from "../lib/auth";
@@ -243,9 +246,10 @@ router.get("/customers/:customerId/wallet/share-links", requireAuth, requirePerm
 
 router.post("/customers/:customerId/wallet/share-links", requireAuth, requirePermission("customers.view"), scopedCustomer, (req, res): void => {
   const customerId = Number(req.params.customerId);
-  const overrideError = loanCreditRankOverrideError(req.body?.ignoreCreditRank, user(res).role);
+  const overrideError = loanCreditRankOverrideError(req.body?.ignoreCreditRank, user(res).role, false, req.body?.creditRankOverrideReason);
   if (overrideError) { res.status(overrideError.status).json({ error: overrideError.code }); return; }
   const ignoreCreditRank = req.body?.ignoreCreditRank === true;
+  const overrideReason = ignoreCreditRank ? loanCreditRankOverrideReason(req.body?.creditRankOverrideReason) : null;
   const customer = queryRow<any>("SELECT id,name,national_code,phone,birth_date_jalali,verification_status FROM customers WHERE id=?", [customerId]);
   if (req.body?.confirmActiveRequest !== true && customerShareHistory(customerId).some((share) => sharePaymentState(share).isActive)) {
     res.status(409).json({ error: "active_share_link_exists" }); return;
@@ -260,6 +264,7 @@ router.post("/customers/:customerId/wallet/share-links", requireAuth, requirePer
     const plan = queryRow<any>("SELECT * FROM loan_plans WHERE id=? AND active=1 AND COALESCE(contract_template_id,primary_contract_template_id) IS NOT NULL", [planId]);
     const credit = queryRow<any>("SELECT score_label FROM customer_credit_checks WHERE customer_id=? AND status='report_generated' AND completed_at>=? ORDER BY completed_at DESC,id DESC LIMIT 1", [customerId, new Date(Date.now() - 86400000).toISOString()]);
     const conditions = queryRows<any>("SELECT * FROM loan_plan_conditions WHERE plan_id=?", [planId]);
+    const guarantorRank = ignoreCreditRank ? null : customerGuarantorGrade(customerId).rank;
     const eligible = conditions.some((condition) => {
       let ranks: string[] = [];
       try { const parsed = JSON.parse(String(condition.customer_ranks ?? "[]")); ranks = Array.isArray(parsed) ? parsed.map(String) : []; } catch { ranks = String(condition.customer_ranks ?? "").split(/[,،]/).map((v) => v.trim()).filter(Boolean); }
@@ -272,7 +277,8 @@ router.post("/customers/:customerId/wallet/share-links", requireAuth, requirePer
         durations = Array.isArray(conditionDurations) && conditionDurations.length ? conditionDurations : JSON.parse(String(plan?.installment_terms ?? "[]"));
       } catch { durations = []; }
       const validDurations = durations.map((d: any) => typeof d === "object" && d !== null ? Number(d.installments) : Number(d)).some((d) => Number.isInteger(d) && d > 0);
-      return (ignoreCreditRank || conditionAcceptsCreditRank(credit?.score_label, ranks)) && maximum > 0n && Array.isArray(durations) && validDurations;
+      return (ignoreCreditRank || (conditionAcceptsCreditRank(credit?.score_label, ranks)
+        && guarantorGradeAllows(guarantorGradeVerdict(condition, guarantorRank, plan)))) && maximum > 0n && Array.isArray(durations) && validDurations;
     });
     if (!plan || !customer || !customer.national_code || !customer.phone || !customer.birth_date_jalali || customer.verification_status !== "verified" || (!ignoreCreditRank && !credit) || !eligible) { res.status(422).json({ error: "plan_not_eligible" }); return; }
     const cash = wallet(customerId, "cash").balance;
@@ -289,6 +295,8 @@ router.post("/customers/:customerId/wallet/share-links", requireAuth, requirePer
   const expires = new Date(Date.now() + 7 * 86400000).toISOString();
   execute("INSERT INTO wallet_share_links(token_hash,customer_id,amount_toman,plan_id,status,expires_at,created_at) VALUES(?,?,?,?,?,?,?)",
     [shareHash(token), customerId, amount, planId, "created", expires, updatedAt()]);
+  if (overrideReason && planId !== null)
+    logCreditRankOverride({ action: "wallet_share_link", actor: user(res), customerId, planId, reason: overrideReason });
   const query = new URLSearchParams({ token, customerId: String(customerId), amountToman: amount });
   if (planId !== null) query.set("planId", String(planId));
   res.json({ url: `${callbackBase.origin}/wallet/top-up?${query}`, amountToman: amount, customerName: customer.name });

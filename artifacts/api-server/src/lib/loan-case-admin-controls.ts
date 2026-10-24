@@ -4,6 +4,7 @@ import type { AuthUser } from "./auth";
 import { requirePermission } from "./access-control";
 import { execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import { TOMAN_REPLACEMENT_PURPOSE } from "./legacy-toman-replacement";
+import { logCreditRankOverride } from "./credit-rank-override-log";
 
 type Dependencies = {
   scoped: (id: number, actor: AuthUser) => any;
@@ -13,7 +14,7 @@ type Dependencies = {
   validatedPrimaryManualValues: (templateId: number, values: unknown) => {
     values?: Record<string, string>; error?: string; fieldErrors?: unknown;
   };
-  loanRankOverrideSnapshot: (condition: any, actorId: number, at: string, maximum: string) => any;
+  loanRankOverrideSnapshot: (condition: any, actorId: number, at: string, maximum: string, reason?: string | null) => any;
   documentLabel: (key: string) => string;
 };
 const parse = (value: unknown): any => { try { return typeof value === "string" ? JSON.parse(value) : null; } catch { return null; } };
@@ -176,7 +177,11 @@ export function registerLoanCaseAdminControls(router: Router, deps: Dependencies
         if (!plan || !condition) fail(422, "admin_case_invalid_plan_condition");
         if (oldCondition?.credit_rank_ignored === true) {
           const terms = deps.effectivePlanTerms(plan, { ...condition, max_principal: "0" });
-          condition = deps.loanRankOverrideSnapshot(condition, actor.id, stamp(), terms.maximum.toString());
+          // The case keeps its «نادیده گرفتن رتبه» exception on the new plan: log it with the admin's edit reason.
+          const reason = `ویرایش ادمین (انتقال استثنای رتبه): ${String(b.reason).trim()}`;
+          condition = deps.loanRankOverrideSnapshot(condition, actor.id, stamp(), terms.maximum.toString(), reason);
+          logCreditRankOverride({ action: "admin_plan_change", actor, customerId: Number(a.customer_id), applicationId: Number(a.id),
+            planId: Number(planId), conditionId: Number(conditionId), reason });
         }
       }
       if (b.requestedAmount !== undefined && typeof b.requestedAmount !== "string") fail(400, "invalid_admin_case_terms");
