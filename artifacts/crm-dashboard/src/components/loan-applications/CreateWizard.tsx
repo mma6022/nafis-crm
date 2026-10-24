@@ -401,6 +401,22 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
       if (draftId) setDraftNotice(e instanceof DraftHttpError && e.status === 403 ? 'این درخواست مال کارشناس دیگری است و فقط خودش می‌تواند ادامه دهد.' : 'این درخواست دیگر در انتظار ثبت نیست؛ درخواست تازه شروع شد.');
     }
     const c = entryCustomer.data as unknown as Customer | undefined;
+    // «ادامه» of a device draft (no server copy yet): carry its step and terms over instead of restarting at step 2.
+    const local = resumeDraft && !draftId ? readLoanDraft(userId, customerId) : null;
+    if (c && local && local.step > 2) {
+      setSaveState('saving');
+      try {
+        const payload = { ...(local.planId ? { planId: local.planId } : {}), ...(local.amount ? { amount: local.amount } : {}), ...(local.duration ? { duration: local.duration } : {}) } as DraftPayload;
+        const d = await draftsApi.create(c.id, local.step, payload);
+        void queryClient.invalidateQueries({ queryKey: DRAFTS_KEY });
+        await hydrate(d); return;
+      } catch (e) {
+        if (e instanceof DraftHttpError && e.status === 409 && e.data?.draft) { await hydrate(e.data.draft); return; }
+        setSaveState('offline');
+        draftRestore.current = { planId: local.planId, amount: local.amount, duration: local.duration }; if (local.planId) setSelectedPlanId(local.planId); setRestoredDraft(true);
+        return;
+      }
+    }
     if (c) await createFor(c);
   };
   // Debounced autosave (~1s) of the current step and terms.
