@@ -81,13 +81,13 @@ await ok("noPlanFit: H7 case (now + all docs + plan) → P2, never P1, with the 
   const r = computeLeadPriority({ ...v2, noPlanFit: true }, fakeMatch, 0, now);
   assert.equal(r.priority, 2); assert.ok(r.reasons.some((x) => x.includes("هیچ طرحی")));
 });
-await ok("noPlanFit: high score without H7 → P2; low score keeps P3", () => {
+await ok("noPlanFit: high score without H7 → P2; low score (answered, real intent) → also P2 (crm-no-plan-p2)", () => {
   const hi = { ...v2, urgency: "month", docsReady: "partial" };
   assert.equal(computeLeadPriority(hi, fakeMatch, 0, now).priority, 1);
   assert.equal(computeLeadPriority({ ...hi, noPlanFit: true }, fakeMatch, 0, now).priority, 2);
   const lo = { ...v2, urgency: "later", docsReady: "none" };
-  const base = computeLeadPriority(lo, fakeMatch, 0, now).priority;
-  assert.notEqual(base, 1); assert.equal(computeLeadPriority({ ...lo, noPlanFit: true }, fakeMatch, 0, now).priority, base);
+  assert.notEqual(computeLeadPriority(lo, fakeMatch, 0, now).priority, 1);
+  assert.equal(computeLeadPriority({ ...lo, noPlanFit: true }, fakeMatch, 0, now).priority, 2);
 });
 await ok("noPlanFit is ignored outside the first-call form (old form unchanged)", () => {
   const { formVersion, ...old } = v2;

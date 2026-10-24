@@ -312,6 +312,17 @@ export type LeadOutcome = {
   maxAttempts: number;
 };
 
+/**
+ * crm-no-plan-p2: "the customer responded well" for a no-plan first-call form, from explicit form answers only:
+ * step 1 «نتیجه‌ی تماس» = «جواب داد و صحبت کردیم» (callResult "answered") AND the last question «فوریت» is a real intent
+ * («همین الان / این هفته» now, «تا یک ماه» month, «بعداً» later), i.e. NOT «فقط کنجکاوه» (curious).
+ * The form has no separate cooperation/quality question; «فقط کنجکاوه» is its only explicit "not engaged" answer.
+ */
+export const NO_PLAN_GOOD_URGENCIES: readonly string[] = ["now", "month", "later"];
+export function noPlanRespondedWell(a: QualifierAnswers | null | undefined): boolean {
+  return !!a && isFirstCallForm(a) && a.noPlanFit === true && a.callResult === "answered" && NO_PLAN_GOOD_URGENCIES.includes(String(a.urgency));
+}
+
 /** Server-side priority. `previousNoAnswers` = consecutive no-answer attempts before this one. */
 export function computeLeadPriority(a: QualifierAnswers, matches: PlanMatch[], previousNoAnswers: number,
   now: Date = new Date(), cfg: TeamSalesConfig = DEFAULT_TEAM_SALES_CONFIG): LeadOutcome {
@@ -334,6 +345,15 @@ export function computeLeadPriority(a: QualifierAnswers, matches: PlanMatch[], p
     reasons.push("مشتری خواست بعداً تماس بگیریم (H3)");
     const at = a.callbackAt && !Number.isNaN(Date.parse(a.callbackAt)) ? new Date(a.callbackAt) : days(1);
     return r(2, "recall", at);
+  }
+  // crm-no-plan-p2 (Mohammad 2026-10-24 15:43): «هیچ طرحی به این مشتری نمی‌خوره» + the customer responded well
+  // → EXACTLY P2 (never P1, never P3: score, «چک برگشتی» and «هیچ طرحی تطبیق نکرد» do not lower it).
+  // Otherwise (no-plan but «فقط کنجکاوه») the existing rules below apply unchanged (still never an automatic P1).
+  if (noPlanRespondedWell(a)) {
+    reasons.push("کارشناس «هیچ طرحی به این مشتری نمی‌خوره» را زد و مشتری جواب داد و قصد وام دارد (فوریت ≠ «فقط کنجکاوه») → اولویت ۲");
+    const rec = a.recallAt && !Number.isNaN(Date.parse(a.recallAt)) ? new Date(a.recallAt)
+      : days(cfg.p2DefaultRecallDays[String(a.urgency)] ?? 7);
+    return r(2, "recall", rec, null);
   }
   if (a.urgency === "curious") { reasons.push("فعلاً قصد گرفتن وام ندارد (H4)"); return r(3, "nurture", days(cfg.curiousNurtureDays)); }
   if (cfg.bouncedChequeBlocks && a.bouncedCheque === "yes") { reasons.push("چک برگشتی رفع‌نشده دارد (H5)"); return r(3, "not_eligible", days(30)); }
