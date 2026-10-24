@@ -69,7 +69,7 @@ function CustomerLinker({ thread, onBound }: { thread: Thread; onBound: () => vo
       {ambiguous && <div className="smr-chips">{thread.customerCandidates.map(c =>
         <button key={c.id} type="button" className="btn btn-ghost" disabled={busy} onClick={() => void bind(c.id)} data-testid={`button-candidate-${c.id}`}>{customerNameText(c.name, c.id)}</button>)}</div>}
       <label>{ambiguous ? 'یا جستجوی مشتری دیگر' : 'جستجوی مشتری'}
-        <input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="نام یا شناسهٔ CRM مشتری" data-testid="input-customer-search" /></label>
+        <input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="جست‌وجو با نام یا شناسه (#۱۲۳۴)" data-testid="input-customer-search" /></label>
       {searching && <small>در حال جستجو…</small>}
       {!searching && (search.trim().length >= 2 || /^[0-9۰-۹٠-٩]+$/.test(search.trim())) && results.length === 0 && !err && <small>مشتری‌ای پیدا نشد.</small>}
       <div className="smr-chips">{results.map(c =>

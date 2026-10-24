@@ -409,7 +409,7 @@ export default function LoanApplications() {
   const searchBox = <label className="csx-search">
     <Search size={20} aria-hidden="true" />
     <span className="csx-sr">جستجو</span>
-    <input type="search" placeholder="نام یا شناسه مشتری، یا شماره پرونده" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} data-testid="input-loan-search" />
+    <input type="search" placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴) یا شماره پرونده" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} data-testid="input-loan-search" />
     {search ? <button type="button" className="csx-ib" style={{ width: 36, height: 36 }} aria-label="پاک کردن جستجو" onClick={() => { setSearch(""); setPage(1); }}><X size={18} /></button> : null}
   </label>;
   const adminToggle = user?.role === "admin" ? <button type="button" className="csx-link" aria-pressed={reviewOpen} onClick={() => setReviewOpen(!reviewOpen)} data-testid="button-toggle-attribution-review">

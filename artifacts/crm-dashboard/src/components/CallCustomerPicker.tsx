@@ -133,7 +133,7 @@ export function CallCustomerPicker({ user, config, search, onSearch, checking, o
       <div className="dh"><h2 id="clx-pk-t">ثبت تماس جدید</h2><button type="button" className="clx-xb" onClick={onClose} aria-label="بستن" data-testid="picker-close"><X size={22} /></button></div>
       <ol className="clx-stp" aria-label="مرحله ۱ از ۲"><li className="s on" aria-current="step"><i>۱</i>انتخاب مشتری</li><li className="ln" aria-hidden="true" /><li className="s"><i>۲</i>ثبت تماس</li></ol>
       <div className="dbody">
-        <label className="clx-sb"><Search size={18} aria-hidden="true" /><input value={search} onChange={(e) => onSearch(e.target.value)} placeholder="نام، شناسه یا موبایل مشتری" aria-label="جست‌وجوی مشتری با نام یا موبایل" data-testid="picker-search" />
+        <label className="clx-sb"><Search size={18} aria-hidden="true" /><input value={search} onChange={(e) => onSearch(e.target.value)} placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)" aria-label="جست‌وجوی مشتری با نام یا موبایل" data-testid="picker-search" />
           {search ? <button type="button" className="x" onClick={() => onSearch('')} aria-label="پاک کردن جست‌وجو"><X size={16} /></button> : null}</label>
         {!active ? <p className="hint">حداقل ۲ حرف از نام یا ۴ رقم از موبایل را بنویسید.</p> : null}
         {checking?.state === 'error' ? <div className="clx-inote bad" role="alert" data-testid="picker-error"><AlertCircle size={18} aria-hidden="true" /><div>پرونده‌ی «{checking.name}» باز نشد. اتصال را بررسی کنید و دوباره امتحان کنید.<div style={{ marginTop: 6 }}><button type="button" className="clx-gbtn" onClick={onRetry} data-testid="picker-retry">تلاش دوباره</button></div></div></div> : null}

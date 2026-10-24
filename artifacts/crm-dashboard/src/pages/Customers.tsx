@@ -390,7 +390,7 @@ export default function Customers() {
         <label className="csx-search">
           <Search size={20} aria-hidden="true" />
           <span className="csx-sr">جستجوی نام یا شماره تماس مشتری</span>
-          <input type="search" value={search} onChange={(e) => { setSearch(e.target.value); resetPaging(); }} placeholder={isDesktop ? 'نام، شماره تماس یا شناسه‌ی مشتری' : 'نام، شماره یا شناسه'} aria-label="جستجوی نام، شماره تماس یا شناسه‌ی مشتری" data-testid="input-search-customers" />
+          <input type="search" value={search} onChange={(e) => { setSearch(e.target.value); resetPaging(); }} placeholder='جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)' aria-label="جستجوی نام، شماره تماس یا شناسه‌ی مشتری" data-testid="input-search-customers" />
         </label>
         {!isDesktop ? <button type="button" className="csx-fbtn" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog" data-testid="button-open-filters"><SlidersHorizontal size={20} aria-hidden="true" /> فیلتر{activeFilters.length ? <span className="n">{fa(activeFilters.length)}</span> : null}</button> : null}
         {canCreate ? <button type="button" className={isDesktop ? 'csx-primary' : 'csx-primary csx-fab'} onClick={openCreate} data-testid="button-create-customer"><Plus size={20} aria-hidden="true" /> مشتری جدید</button> : null}

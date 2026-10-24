@@ -57,3 +57,25 @@ export function customerSearchSql(raw: unknown): CustomerSearchSql {
       : { sql: "", params: [] },
   };
 }
+
+/**
+ * «وضعیت تراکنش‌ها» commission side (team_commission_purchases t, customer c, payment order o).
+ * A number matches purchase #, order #, customer id or part of the mobile (unchanged), and the exact
+ * customer id ranks first; text matches the customer name as before.
+ */
+export function commissionStatusSearchSql(raw: unknown): {
+  where: { sql: string; params: Array<string | number> } | null;
+  order: { sql: string; params: Array<string | number> };
+} {
+  const search = String(raw ?? "").trim();
+  if (!search) return { where: null, order: { sql: "", params: [] } };
+  const digits = normalizeCustomerSearchText(search);
+  if (/^\d{1,9}$/.test(digits)) {
+    const n = Number(digits);
+    return {
+      where: { sql: "(t.purchase_id=? OR o.id=? OR c.id=? OR c.phone LIKE ?)", params: [n, n, n, `%${digits}%`] },
+      order: { sql: "CASE WHEN c.id=? THEN 0 ELSE 1 END,", params: [n] },
+    };
+  }
+  return { where: { sql: "crm_persian_search_key(c.name) LIKE crm_persian_search_key(?)", params: [`%${search}%`] }, order: { sql: "", params: [] } };
+}

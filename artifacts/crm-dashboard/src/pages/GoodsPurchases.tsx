@@ -54,7 +54,7 @@ export default function GoodsPurchases() {
     <div className="page-intro gp-intro">
       <div><div className="eyebrow">خرید کالا</div><h2>خریدهای کالا</h2><p>{section.key === 'pending' ? PENDING_INTRO.goods[pending.data && !pending.data.canCreate ? 'view' : 'create'] : 'از رزرو اعتبار تا امضای فاکتور، تسویه و دستور پرداخت.'}</p></div>
       <div className="gp-intro-tools">
-        <SearchField value={search} onChange={(v) => { setSearch(v); setPendingPage(1); }} placeholder={section.key === 'pending' ? 'نام، شناسه، موبایل یا شماره پرونده' : 'مشتری، شناسه، طرح یا شماره'} testId="search-goods-purchases" />
+        <SearchField value={search} onChange={(v) => { setSearch(v); setPendingPage(1); }} placeholder={section.key === 'pending' ? 'جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴) یا شماره پرونده' : 'جست‌وجو با نام یا شناسه (#۱۲۳۴)، طرح یا شماره خرید'} testId="search-goods-purchases" />
         {manage ? <button className="btn btn-primary" onClick={() => { setSuggested(null); setCreating(true); }} data-testid="button-new-goods-purchase"><Plus size={16} />خرید تازه</button> : null}
       </div>
     </div>
@@ -110,7 +110,7 @@ function CreatePurchase({ onClose, initial }: { onClose: () => void; initial: Pe
       <p className="gp-prefill-note"><Lock size={13} />مشتری و طرح از روی پرونده آمده‌اند. اگر اشتباه است، <button type="button" className="text-link gp-linkbtn" onClick={() => { setPrefilled(false); setQ(initial.phone || initial.customerName); }} data-testid="button-pick-other-customer">مشتری دیگری انتخاب کن</button>.</p>
     </> : step === 0 ? <>
       <p className="secondary-cell" style={{ marginBottom: 10 }}>کل موجودی مثبت کیف پول آن طرح رزرو می‌شود. هر کیف پول فقط یک رزرو فعال دارد.</p>
-      <SearchField value={q} onChange={setQ} placeholder="نام، شناسه، موبایل یا کد ملی مشتری" testId="search-eligible" />
+      <SearchField value={q} onChange={setQ} placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴) یا کد ملی" testId="search-eligible" />
       {eligible.data?.unassignedNotice ? <div className="gp-alert warn">{eligible.data.unassignedNotice}</div> : null}
       <div className="gp-pick-list">
         {eligible.isLoading ? <SkeletonPanel rows={3} /> : eligible.isError ? <div className="gp-alert">{errText(eligible.error)}</div> : !items.length ? <EmptyState title="کیف پول واجد شرایطی نیست" description="فقط مشتریان با موجودی مثبت تفکیک‌شده به طرح نمایش داده می‌شوند." /> :

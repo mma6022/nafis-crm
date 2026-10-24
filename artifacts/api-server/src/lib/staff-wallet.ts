@@ -6,7 +6,7 @@
  * Visibility (decision 5): a salesperson sees only their own wallet; admin sees everyone; accounting sees commission STATUS only, no amounts.
  */
 import { queryRow, queryRows } from "./crm-db";
-import { toLatinDigits } from "./customer-id-search";
+import { commissionStatusSearchSql } from "./customer-id-search";
 import type { AuthUser } from "./auth";
 import {
   COMMISSION_KINDS, ensureTeamCommissionSchema, jalaliDateStart, nextPersianMonth, persianMonthOf, qualifierP1Event, salespersonBreakdown, settingsAt, teamMembers,
@@ -185,12 +185,10 @@ export function commissionStatusList(u: AuthUser, q: Record<string, unknown>) {
   const where: string[] = [];
   const params: Array<string | number> = [];
   const search = String(q.search ?? "").trim().slice(0, 100);
-  if (search) {
-    // A number (Latin/Persian/Arabic digits, optional «#») = purchase #, order #, customer id (shared customer-ID search) or mobile part.
-    const digits = toLatinDigits(search).replace(/^[#＃]\s*/, "");
-    if (/^\d{1,9}$/.test(digits)) { where.push("(t.purchase_id=? OR o.id=? OR c.id=? OR c.phone LIKE ?)"); params.push(Number(digits), Number(digits), Number(digits), `%${digits}%`); }
-    else { where.push("crm_persian_search_key(c.name) LIKE crm_persian_search_key(?)"); params.push(`%${search}%`); }
-  }
+  // A number (Latin/Persian/Arabic digits, optional «#») = purchase #, order #, customer id (shared customer-ID search) or mobile part;
+  // the exact customer id ranks first.
+  const commissionSearch = commissionStatusSearchSql(search);
+  if (commissionSearch.where) { where.push(commissionSearch.where.sql); params.push(...commissionSearch.where.params); }
   if (q.salespersonId && Number.isInteger(Number(q.salespersonId))) { where.push("(t.salesperson_id=? OR t.qualifier_salesperson_id=?)"); params.push(Number(q.salespersonId), Number(q.salespersonId)); }
   if (PO_STAGES.includes(String(q.stage))) { where.push("o.stage=?"); params.push(String(q.stage)); }
   const from = dateParam(q.from), to = dateParam(q.to);
@@ -211,7 +209,7 @@ export function commissionStatusList(u: AuthUser, q: Record<string, unknown>) {
   const rows = queryRows<any>(`SELECT t.*,${GROUP_SQL} grp,${CHANGED_SQL} changed_at,c.name customer_name,s.name salesperson_name,q.name qualifier_name,
       o.id order_id,o.stage order_stage,o.paid_at
     ${base} LEFT JOIN salespersons s ON s.id=t.salesperson_id LEFT JOIN salespersons q ON q.id=t.qualifier_salesperson_id
-    ${fullWhere ? `WHERE ${fullWhere}` : ""} ORDER BY changed_at DESC,t.purchase_id DESC LIMIT ? OFFSET ?`, [...listParams, limit, (page - 1) * limit]);
+    ${fullWhere ? `WHERE ${fullWhere}` : ""} ORDER BY ${commissionSearch.order.sql}changed_at DESC,t.purchase_id DESC LIMIT ? OFFSET ?`, [...listParams, ...commissionSearch.order.params, limit, (page - 1) * limit]);
   const items = rows.map((r) => statusItem(r, admin));
   const salespersons = queryRows<any>(`SELECT DISTINCT s.id,s.name FROM team_commission_purchases t JOIN salespersons s ON s.id IN (t.salesperson_id,t.qualifier_salesperson_id) ORDER BY s.name`)
     .map((s) => ({ id: Number(s.id), name: s.name }));

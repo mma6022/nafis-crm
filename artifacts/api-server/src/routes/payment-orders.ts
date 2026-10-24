@@ -131,7 +131,7 @@ router.get("/payment-orders", permission("payment_orders.view"), (req, res) => {
   const idSearch = search ? customerSearchSql(search) : null;
   if (search && idSearch) {
     const t = idSearch.text;
-    const clause = idSearch.where("(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR CAST(o.id AS TEXT)=?)", [`%${t}%`, t], "c.id", { sql: "CAST(o.id AS TEXT)=?", params: [t] });
+    const clause = idSearch.where("(crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR c.phone LIKE ? OR CAST(o.id AS TEXT)=?)", [`%${t}%`, `%${t}%`, t], "c.id", { sql: "CAST(o.id AS TEXT)=?", params: [t] });
     where += ` AND ${clause.sql}`; args.push(...clause.params);
   }
   const rank = idSearch?.orderPrefix("c.id") ?? { sql: "", params: [] };

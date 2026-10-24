@@ -1001,7 +1001,7 @@ function Step1Customer({ search, setSearch, customers, loading, selectedCustomer
         <span className="lwz-sr">جستجوی مشتری</span>
         <input
           type="search"
-          placeholder="نام، شناسه، موبایل یا کد ملی مشتری"
+          placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           autoFocus

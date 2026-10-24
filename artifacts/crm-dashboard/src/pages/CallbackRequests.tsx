@@ -119,7 +119,7 @@ export default function CallbackRequests() {
           <label className="cbx-search">
             <Search size={18} aria-hidden="true" />
             <span className="sr-only">جستجوی نام یا شماره</span>
-            <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="جستجوی نام یا شماره" data-testid="input-callback-search" />
+            <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)" data-testid="input-callback-search" />
           </label>
         </div>
         <div className="cbx-tabs" role="tablist" aria-label="فیلتر وضعیت">

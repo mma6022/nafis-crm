@@ -1264,8 +1264,8 @@ router.get("/loan-applications", requirePermission("loan_applications.view"), (r
   const loanIdSearch = req.query.search ? customerSearchSql(String(req.query.search)) : null;
   if (req.query.search && loanIdSearch) {
     const s = `%${loanIdSearch.text}%`;
-    // A number also matches the (current) customer id; «#n» means customer n or case n.
-    const clause = loanIdSearch.where("(CAST(a.id AS TEXT) LIKE ? OR crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR p.name LIKE ?)", [s, s, s], "current_customer.id", { sql: "a.id=?", params: [loanIdSearch.idQuery?.id ?? 0] });
+    // A number also matches the (current) customer id; «#n» means customer n or case n. Mobile search too.
+    const clause = loanIdSearch.where("(CAST(a.id AS TEXT) LIKE ? OR crm_persian_search_key(c.name) LIKE crm_persian_search_key(?) OR c.phone LIKE ? OR p.name LIKE ?)", [s, s, s, s], "current_customer.id", { sql: "a.id=?", params: [loanIdSearch.idQuery?.id ?? 0] });
     filters.push(clause.sql); params.push(...clause.params);
   }
   const loanRank = loanIdSearch?.orderPrefix("current_customer.id") ?? { sql: "", params: [] };

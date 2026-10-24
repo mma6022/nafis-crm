@@ -203,7 +203,7 @@ function DialerPanel() {
           <input 
             value={search} 
             onChange={e => setSearch(e.target.value)} 
-            placeholder="نام یا شماره..."
+            placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)"
           />
         </div>
       </div>
