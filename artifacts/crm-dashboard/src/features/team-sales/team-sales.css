@@ -62,6 +62,8 @@ textarea.ts-inp { resize: vertical; line-height: 1.8; }
 .ts-result h3 { margin: 0; font-size: 20px; font-weight: 800; }
 .ts-bignum { justify-self: center; width: 72px; height: 72px; border-radius: 20px; display: grid; place-items: center; color: #fff; font-size: 40px; font-weight: 900; }
 .ts-bignum.p1 { background: #B42318; } .ts-bignum.p2 { background: #B54708; } .ts-bignum.p3 { background: #667085; }
+.ts-bignum.p0 { background: #fff; color: #475467; border: 2px dashed #98A2B3; font-size: 30px; grid-auto-flow: row; align-content: center; gap: 0; line-height: 1.1; }
+.ts-bignum.p0 small { font-size: 13px; font-weight: 700; }
 .ts-ok-card { display: flex; gap: 12px; align-items: center; background: #E8F5EE; border: 1px solid #9FD3B6; border-radius: 16px; padding: 14px; }
 .ts-ok-card b { display: block; color: #123E28; font-size: 16px; }
 .ts-ok-card p { margin: 4px 0 0; color: #3B5B4A; font-size: 13px; }

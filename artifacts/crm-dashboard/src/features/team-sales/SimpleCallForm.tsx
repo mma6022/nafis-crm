@@ -141,11 +141,16 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
   let body: ReactNode;
   if (result) {
     const r = result.result; const h = result.handoff;
-    const reasonsTitle = `چرا اولویت ${fa(r.priority)}؟`;
-    body = <div className="ts-result" data-testid="ts-result" data-priority={r.priority}>
-      <p className="ts-muted center">سیستم اولویت را تعیین کرد</p>
-      <div className={`ts-bignum p${r.priority}`} aria-label={`اولویت ${r.priority}`}>{fa(r.priority)}</div>
-      <h3 className="center">{r.priority === 1 ? 'اولویت ۱ — مشتری آماده‌ی پیگیری است' : r.priority === 2 ? 'اولویت ۲ — در صف تماس دوباره‌ی شما' : r.outcome === 'invalid' ? 'اولویت ۳ — شماره نامعتبر' : r.outcome === 'cold_archive' ? 'اولویت ۳ — بایگانی سرد' : 'اولویت ۳'}</h3>
+    const none = r.priority == null; const max = r.maxAttempts ?? 3;
+    const reasonsTitle = none ? 'چرا بدون اولویت؟' : `چرا اولویت ${fa(r.priority ?? 0)}؟`;
+    body = <div className="ts-result" data-testid="ts-result" data-priority={none ? 'none' : r.priority} data-outcome={r.outcome} data-attempts={r.attempts}>
+      <p className="ts-muted center">{none ? 'اولویتی تعیین نشد — فقط تماس بی‌پاسخ شمرده شد' : 'سیستم اولویت را تعیین کرد'}</p>
+      {none
+        ? <div className="ts-bignum p0" aria-label={`بی‌پاسخ ${r.attempts} از ${max}`} data-testid="ts-noanswer-count">{fa(r.attempts)}<small>از {fa(max)}</small></div>
+        : <div className={`ts-bignum p${r.priority}`} aria-label={`اولویت ${r.priority}`}>{fa(r.priority ?? 0)}</div>}
+      <h3 className="center">{none ? `بدون اولویت — جواب نداد (بی‌پاسخ ${fa(r.attempts)} از ${fa(max)})` : r.priority === 1 ? 'اولویت ۱ — مشتری آماده‌ی پیگیری است' : r.priority === 2 ? 'اولویت ۲ — در صف تماس دوباره‌ی شما' : r.outcome === 'invalid' ? 'اولویت ۳ — شماره نامعتبر' : r.outcome === 'cold_archive' ? 'اولویت ۳ — بایگانی سرد' : 'اولویت ۳'}</h3>
+      {none ? <p className="ts-muted center" data-testid="ts-noanswer-hint">اولویت فقط وقتی تعیین می‌شود که با مشتری صحبت کنید. دفعه‌ی بعد هم همین فرم باز می‌شود؛ بعد از {fa(max)} تلاش بی‌پاسخ، بایگانی سرد.</p> : null}
+      {r.outcome === 'cold_archive' ? <p className="ts-muted center" data-testid="ts-archived-hint">مشتری به «بایگانی سرد» رفت. اگه خودش دوباره پیام داد یا زنگ زد، دوباره در صف شما میاد.</p> : null}
       {h ? <>
         <div className="ts-ok-card" data-testid="ts-handoff">
           <span className="ts-av" aria-hidden="true">{shortName(h.closerName).slice(0, 1)}</span>
@@ -154,7 +159,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
         <p className="center"><span className="ts-pill ok"><Timer size={15} /> مهلت تماس {h.closerName}: ۳ ساعت کاری</span></p>
         <p className="ts-muted center">یعنی تا {h.dueLabel}</p>
       </> : null}
-      {!h && r.nextActionAt && r.outcome !== 'cold_archive' ? <p className="center"><span className="ts-pill">{r.outcome === 'no_answer' ? `تلاش ${fa(r.attempts)} — تماس دوباره:` : 'تماس دوباره:'} {fmtDateTime(r.nextActionAt)}</span></p> : null}
+      {!h && r.nextActionAt && r.outcome !== 'cold_archive' ? <p className="center"><span className="ts-pill">{r.outcome === 'no_answer' ? `تلاش ${fa(r.attempts)} از ${fa(r.maxAttempts ?? 3)} — تماس دوباره:` : 'تماس دوباره:'} {fmtDateTime(r.nextActionAt)}</span></p> : null}
       {r.reasons.length ? <div className="ts-why"><b>{reasonsTitle}</b><ul>{r.reasons.map((x, i) => <li key={i}>{x}</li>)}</ul></div> : null}
     </div>;
   } else if (d.step === 1) {
@@ -213,7 +218,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
           <button type="button" className="ts-primary" onClick={onNext} data-testid="ts-next-customer">مشتری بعدی صف</button>
         </div> : <div className="ts-two grow">
           {idx > 1 ? <button type="button" className="ts-ghost narrow" onClick={back}><ChevronRight size={18} /> قبلی</button> : <button type="button" className="ts-ghost narrow" onClick={onClose}>بستن</button>}
-          {lastStep ? <button type="button" className="ts-primary" onClick={submit} disabled={pending} data-testid="ts-submit"><Check size={18} /> {pending ? 'در حال ثبت…' : 'ثبت و تعیین اولویت'}</button>
+          {lastStep ? <button type="button" className="ts-primary" onClick={submit} disabled={pending} data-testid="ts-submit"><Check size={18} /> {pending ? 'در حال ثبت…' : d.callResult === 'no_answer' ? 'ثبت تماس بی‌پاسخ' : 'ثبت و تعیین اولویت'}</button>
             : <button type="button" className="ts-primary" onClick={next} data-testid="ts-next">بعدی <ChevronLeft size={18} /></button>}
         </div>}
         {!result ? <p className="ts-muted center small">پیش‌نویس روی همین دستگاه نگه داشته می‌شود</p> : null}
