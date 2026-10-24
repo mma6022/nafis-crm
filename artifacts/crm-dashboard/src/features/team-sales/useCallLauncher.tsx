@@ -22,8 +22,8 @@ export function chooseCallForm(
   if (cfgState === 'idle') return 'legacy';
   if (cfg && cfgState === 'ready') return usesSimpleForm(cfg, user, customer) ? 'simple' : 'legacy';
   if (customer.salespersonId !== user.salespersonId) return 'legacy';
-  // The rule can never apply to P1 or not-in-progress customers, whatever the settings say.
-  if (customer.priority === 1 || (customer.status != null && customer.status !== 'in_progress')) return 'legacy';
+  // The rule can never apply to prioritised (P1/P2/P3) or not-in-progress customers, whatever the settings say.
+  if (customer.priority != null || (customer.status != null && customer.status !== 'in_progress')) return 'legacy';
   return cfgState === 'error' ? 'error' : 'wait';
 }
 

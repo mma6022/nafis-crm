@@ -13,9 +13,11 @@ import { formatPhoneForDisplay } from '@/lib/phone';
 import { refreshCustomerViews } from './RepeatRequestReview';
 import { CustomerTagCreate } from './CustomerTagCreate';
 
-type Props = { open: boolean; customer?: Customer | null; salespersons: Salesperson[]; onClose: () => void; onSaved: () => void };
+type Props = { open: boolean; customer?: Customer | null; salespersons: Salesperson[]; onClose: () => void; onSaved: () => void;
+  /** Team sales: P1 for this customer only via «ارتقا به اولویت ۱» (handoff dialog), not a plain edit. */
+  lockP1?: boolean };
 
-export function CustomerForm({ open, customer, salespersons, onClose, onSaved }: Props) {
+export function CustomerForm({ open, customer, salespersons, onClose, onSaved, lockP1 = false }: Props) {
   const queryClient = useQueryClient();
   const create = useCreateCustomer();
   const update = useUpdateCustomer();
@@ -128,7 +130,7 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved }:
     <div className="field"><label htmlFor="customer-national-code">کد ملی</label><input id="customer-national-code" dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={(e) => setValue('nationalCode', e.target.value)} maxLength={10} data-testid="input-customer-national-code" /></div>
     <div className="field"><label htmlFor="customer-postal-code">کد پستی</label><input id="customer-postal-code" dir="ltr" inputMode="numeric" value={form.postalCode} onChange={(e) => setValue('postalCode', e.target.value)} maxLength={10} data-testid="input-customer-postal-code" /></div>
     <div className="field"><label>تاریخ تولد (شمسی)</label><PersianDatePicker value={form.birthDateJalali} onChange={(v) => setValue('birthDateJalali', v)} placeholder="YYYY/MM/DD" testId="input-customer-birth-date" birthDate /></div>
-    <div className="field"><label htmlFor="customer-priority">اولویت پیگیری</label><select id="customer-priority" value={form.priority} onChange={(e) => setValue('priority', e.target.value)} data-testid="select-customer-priority"><option value="">بدون اولویت</option>{[1, 2, 3].map((value) => <option value={value} key={value}>اولویت {value}</option>)}</select></div>
+    <div className="field"><label htmlFor="customer-priority">اولویت پیگیری</label><select id="customer-priority" value={form.priority} onChange={(e) => setValue('priority', e.target.value)} data-testid="select-customer-priority"><option value="">بدون اولویت</option>{[1, 2, 3].map((value) => <option value={value} key={value} disabled={lockP1 && value === 1 && form.priority !== '1'}>اولویت {value}{lockP1 && value === 1 ? ' (فقط با «ارتقا به اولویت ۱»)' : ''}</option>)}</select>{lockP1 ? <p className="hint" data-testid="hint-p1-upgrade-only">برای اولویت ۱ از دکمهٔ «ارتقا به اولویت ۱» استفاده کنید تا مشتری به کارشناس پیگیری نوبت بعدی برسد.</p> : null}</div>
     <div className="field"><label htmlFor="customer-status">وضعیت</label><select id="customer-status" value={form.status} onChange={(e) => setValue('status', e.target.value)} data-testid="select-customer-status"><option value="in_progress">در حال انجام</option><option value="cancelled">لغو شده</option><option value="completed">اتمام</option></select></div>
     <div className="field"><label className="boolean-field"><input type="checkbox" checked={form.isUrgent} onChange={(e) => setForm(c => ({ ...c, isUrgent: e.target.checked }))} data-testid="checkbox-customer-is-urgent" /> <strong>مشتری فوری</strong> (نیاز به پیگیری سریع)</label></div>
     <div className="field"><label>برچسب‌های مشتری</label>

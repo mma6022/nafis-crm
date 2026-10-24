@@ -102,6 +102,8 @@ try {
   const pick = (n) => queryRows(`SELECT c.id, c.priority FROM customers c WHERE c.salesperson_id=6 AND c.status='in_progress'
     AND c.merged_into_customer_id IS NULL AND (c.priority IS NULL OR c.priority IN (2,3)) ORDER BY c.id LIMIT ?`, [n]);
   const [a, b, c2, d, e, f] = pick(6).map((r) => Number(r.id));
+  const pickNone = (n) => queryRows(`SELECT c.id FROM customers c WHERE c.salesperson_id=6 AND c.status='in_progress'
+    AND c.merged_into_customer_id IS NULL AND c.priority IS NULL ORDER BY c.id LIMIT ?`, [n]);
 
   ok("disabled by default -> 404, nothing written", () => {
     assert.equal(ts.getTeamSalesConfig().enabled, false);
@@ -179,20 +181,30 @@ try {
   });
 
   const longNote = "مشتری جواب داد و گفت برای خرید کالا نیاز فوری دارد، مدارک آماده است.";
+  // The first-call form is for NO-priority customers only (Mohammad 2026-10-24): d and e start without a priority.
+  execute("UPDATE customers SET priority=NULL WHERE id IN (?,?)", [d, e]);
+  for (const p of [2, 3, 1]) ok(`P${p} customer: form refused (409), nothing written`, () => {
+    const row = queryRow(`SELECT id FROM customers WHERE salesperson_id=6 AND status='in_progress' AND merged_into_customer_id IS NULL AND priority=? ORDER BY id LIMIT 1`, [p])
+      ?? (() => { const [x] = pickNone(1).map((r) => Number(r.id)); execute("UPDATE customers SET priority=? WHERE id=?", [p, x]); return { id: x }; })();
+    const id = Number(row.id);
+    const calls = Number(queryRow("SELECT COUNT(*) n FROM call_logs WHERE customer_id=?", [id]).n);
+    const quals = Number(queryRow("SELECT COUNT(*) n FROM team_sales_qualifications WHERE customer_id=?", [id]).n);
+    assert.throws(() => ts.submitQualification(id, kazemi, base, longNote, now), (x) => x.status === 409);
+    assert.throws(() => ts.submitQualification(id, { ...kazemi, role: "admin", salespersonId: null }, { callResult: "no_answer" }, longNote, now), (x) => x.status === 409);
+    assert.equal(Number(queryRow("SELECT COUNT(*) n FROM call_logs WHERE customer_id=?", [id]).n), calls);
+    assert.equal(Number(queryRow("SELECT COUNT(*) n FROM team_sales_qualifications WHERE customer_id=?", [id]).n), quals);
+    assert.equal(Number(queryRow("SELECT priority p FROM customers WHERE id=?", [id]).p), p);
+  });
   ok("note required (>=30 chars)", () => assert.throws(() => ts.submitQualification(d, kazemi, base, "کوتاه"), (x) => x.status === 400));
   ok("invalid answers rejected", () => assert.throws(() => ts.submitQualification(d, kazemi, { callResult: "answered" }, longNote), (x) => x.status === 400));
-  ok("no answer x3 -> cancelled with reason in history + call notes", () => {
+  ok("no answer -> gets a priority (P3), then the form is refused (old form from now on)", () => {
     const callsBefore = Number(queryRow("SELECT COUNT(*) n FROM call_logs WHERE customer_id=?", [d]).n);
     const n1 = ts.submitQualification(d, kazemi, { callResult: "no_answer" }, longNote, now);
-    const n2 = ts.submitQualification(d, kazemi, { callResult: "no_answer" }, longNote, now);
-    assert.equal(n1.result.attempts, 1); assert.equal(n2.result.attempts, 2);
+    assert.equal(n1.result.attempts, 1); assert.equal(n1.result.priority, 3);
+    assert.equal(Number(queryRow("SELECT priority p FROM customers WHERE id=?", [d]).p), 3);
     assert.equal(queryRow("SELECT status FROM customers WHERE id=?", [d]).status, "in_progress");
-    const n3 = ts.submitQualification(d, kazemi, { callResult: "no_answer" }, longNote, now);
-    assert.equal(n3.result.outcome, "cold_archive");
-    assert.equal(queryRow("SELECT status FROM customers WHERE id=?", [d]).status, "cancelled");
-    assert.equal(Number(queryRow("SELECT COUNT(*) n FROM call_logs WHERE customer_id=?", [d]).n), callsBefore + 3);
-    assert.equal(ts.priorityHistory(d)[0].source, "no_answer_archive");
-    assert.match(queryRow("SELECT expert_notes FROM call_logs WHERE id=?", [n3.callLogId]).expert_notes, /بایگانی سرد/);
+    assert.throws(() => ts.submitQualification(d, kazemi, { callResult: "no_answer" }, longNote, now), (x) => x.status === 409);
+    assert.equal(Number(queryRow("SELECT COUNT(*) n FROM call_logs WHERE customer_id=?", [d]).n), callsBefore + 1);
   });
   ok("answered + good profile -> P1 handoff to next closer (4)", () => {
     const r = ts.submitQualification(e, kazemi, base, longNote, now);
@@ -203,7 +215,7 @@ try {
     assert.equal(queryRow("SELECT call_result FROM team_sales_qualifications WHERE customer_id=? ORDER BY id DESC", [e]).call_result, "answered");
   });
   ok("answered, later -> P2 stays with Kazemi", () => {
-    const [g] = pick(1).map((r) => Number(r.id));
+    const [g] = pickNone(1).map((r) => Number(r.id));
     const r = ts.submitQualification(g, kazemi, { ...base, urgency: "later" }, longNote, now);
     assert.equal(r.result.priority, 2); assert.equal(r.handoff, null);
     const row = queryRow("SELECT priority, salesperson_id FROM customers WHERE id=?", [g]);
@@ -222,7 +234,7 @@ try {
     src0.close(); assert.equal(n, n0);
   });
   ok("simple-form submit (callback) -> P2 with callback time, stays", () => {
-    const [g] = pick(1).map((r) => Number(r.id));
+    const [g] = pickNone(1).map((r) => Number(r.id));
     const r = ts.submitQualification(g, kazemi, { mode: "simple", callResult: "callback", callbackAt: "2026-10-25T10:00:00+03:30" }, longNote, now);
     assert.equal(r.result.priority, 2); assert.equal(r.result.nextActionAt, iso(T("2026-10-25T10:00:00+03:30")));
   });

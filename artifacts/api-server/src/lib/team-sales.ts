@@ -311,6 +311,9 @@ export function submitQualification(customerId: number, actor: Actor, answers: Q
   return runImmediateTransaction(() => {
     const c = loadCustomer(customerId);
     assertQualifierAccess(actor, c, cfg);
+    // The first-call form decides the priority, so it is only for customers that have none yet (P1/P2/P3 use the normal call form).
+    if (c.priority != null)
+      throw new TeamSalesError(409, "فرم تماس اول فقط برای مشتریان بدون اولویت است؛ برای این مشتری از فرم ثبت تماس معمولی استفاده کنید.");
     const matches: PlanMatch[] = answers.callResult === "answered" ? matchPlans(answers, plans) : [];
     const result: LeadOutcome = computeLeadPriority(answers, matches, consecutiveNoAnswers(customerId), now, cfg);
     const spName = queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [c.salesperson_id])?.name ?? null;

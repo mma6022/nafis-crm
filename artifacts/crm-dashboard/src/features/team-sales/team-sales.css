@@ -99,3 +99,12 @@ textarea.ts-inp { resize: vertical; line-height: 1.8; }
 .ts-call-check { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; color: #1E2A78; }
 .ts-call-check.bad { color: #9A1C1C; }
 .ts-call-check button { border: 0; background: none; color: inherit; font: inherit; font-weight: 800; text-decoration: underline; cursor: pointer; min-height: 32px; }
+
+/* «ارتقا به اولویت ۱» entry points in the customer list / board / customer hero (open the approved confirm dialog). */
+.ts-up-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1.5px solid var(--nf-brand-600, #29369B); background: #EEF1FF; color: var(--nf-brand-700, #222D85); font: inherit; font-weight: 800; border-radius: 12px; cursor: pointer; white-space: nowrap; }
+.ts-up-btn:hover { background: var(--nf-brand-600, #29369B); color: #fff; }
+.ts-up-btn:focus-visible { outline: 3px solid rgba(41, 54, 155, .35); outline-offset: 2px; }
+.ts-up-btn.row { display: flex; margin-top: 6px; min-height: 32px; padding: 0 10px; font-size: 12.5px; }
+.ts-up-btn.card { width: 100%; min-height: 48px; margin: 10px 0 2px; font-size: 15px; }
+.ts-up-btn.hero { min-height: 52px; padding: 0 18px; font-size: 16px; }
+.ts-up-board { color: var(--nf-brand-700, #222D85); font-weight: 800; display: inline-flex; align-items: center; gap: 3px; }

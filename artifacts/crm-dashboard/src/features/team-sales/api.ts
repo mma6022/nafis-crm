@@ -61,8 +61,25 @@ export function usesSimpleForm(
 ): boolean {
   if (!cfg?.enabled || !user || user.salespersonId == null || !customer) return false;
   if (user.salespersonId !== cfg.qualifierSalespersonId) return false;
+  // Mohammad 2026-10-24 09:01: the form only exists to decide the priority, so it is for NO-priority customers only.
+  // P1/P2/P3 (already prioritised) use the old call form; the «ارتقا به اولویت ۱» card is separate and unchanged.
+  return customer.salespersonId === cfg.qualifierSalespersonId && customer.status === 'in_progress' && customer.priority == null;
+}
+/**
+ * Qualifier's own in-progress customer that is not P1 yet: P1 is reached ONLY through «ارتقا به اولویت ۱»
+ * (confirm dialog → POST /customers/:id/upgrade-priority, round-robin handoff), never by a plain priority edit.
+ */
+export function canUpgradeToP1(
+  cfg: TeamSalesConfig | undefined,
+  user: { salespersonId?: number | null } | undefined,
+  customer: { salespersonId?: number | null; status?: string | null; priority?: number | null } | null | undefined,
+): boolean {
+  if (!cfg?.enabled || !user || user.salespersonId == null || !customer) return false;
+  if (user.salespersonId !== cfg.qualifierSalespersonId) return false;
   return customer.salespersonId === cfg.qualifierSalespersonId && customer.status === 'in_progress' && customer.priority !== 1;
 }
+/** P2/P3 customers get a visible «ارتقا به اولویت ۱» button in the list and on the customer page. */
+export const showsUpgradeButton = (...a: Parameters<typeof canUpgradeToP1>) => canUpgradeToP1(...a) && (a[2]?.priority === 2 || a[2]?.priority === 3);
 export const fetchNextCloser = () => request<NextCloser>('/sales/next-closer');
 export const upgradePriority = (customerId: number, note: string) =>
   request<PromoteResult>(`/customers/${customerId}/upgrade-priority`, { method: 'POST', body: JSON.stringify({ note: note.trim() || null }) });

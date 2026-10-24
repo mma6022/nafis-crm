@@ -2,7 +2,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Edit3, Eye, FileText, Hash, Kanban, La
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode, type UIEvent } from 'react';
 import { Link, useLocation } from 'wouter';
 import { keepPreviousData, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
-import { getGetAuthSessionQueryKey, getGetCrmSummaryQueryKey, getGetCustomerQueryKey, getListCustomerTagsQueryKey, getListCustomersQueryKey, getListSalespersonsQueryKey, listCustomers, useGetAuthSession, useGetCrmSummary, useListCustomerTags, useListCustomers, useListSalespersons, useUpdateCustomer, useUpdateAuthProfile, useDeleteCustomer, useCreateCall, useCreateConsultation, getListCallsQueryKey, getListConsultationsQueryKey, getListRemindersQueryKey, type Customer, type CallInput, type ConsultationInput, type ListCustomersParams } from '@workspace/api-client-react';
+import { getCustomer, getGetAuthSessionQueryKey, getGetCrmSummaryQueryKey, getGetCustomerQueryKey, getListCustomerTagsQueryKey, getListCustomersQueryKey, getListSalespersonsQueryKey, listCustomers, useGetAuthSession, useGetCrmSummary, useListCustomerTags, useListCustomers, useListSalespersons, useUpdateCustomer, useUpdateAuthProfile, useDeleteCustomer, useCreateCall, useCreateConsultation, getListCallsQueryKey, getListConsultationsQueryKey, getListRemindersQueryKey, type Customer, type CallInput, type ConsultationInput, type ListCustomersParams } from '@workspace/api-client-react';
 import { CustomerForm } from '@/components/CustomerForm';
 import { AdminCustomerPhoneEditor } from '@/components/AdminCustomerPhoneEditor';
 import { ManualCustomerIdentity } from '@/components/ManualCustomerIdentity';
@@ -10,9 +10,9 @@ import { RepeatRequestReview, RepeatRequestTag } from '@/components/RepeatReques
 import { DuplicateCustomerReview } from '@/components/DuplicateCustomerReview';
 import { CallForm, CreateConsultationForm } from '@/components/Forms';
 import { useCallLauncher, CallLaunchStatus } from '@/features/team-sales/useCallLauncher';
-import { type QualifyResult } from '@/features/team-sales/api';
+import { canUpgradeToP1, showsUpgradeButton, type QualifyResult } from '@/features/team-sales/api';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
-import { TsToast } from '@/features/team-sales/UpgradeToP1';
+import { TsToast, UpgradeDialog } from '@/features/team-sales/UpgradeToP1';
 import { formatDateTime } from '@/components/CrmShell';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { Modal } from '@/components/DataTools';
@@ -84,6 +84,8 @@ export default function Customers() {
   // Team sales: for the qualifier (Kazemi) «ثبت تماس» opens the simple 3-step form; priority is decided by the server.
   const [simpleCallFor, setSimpleCallFor] = useState<Customer | null>(null);
   const [tsToast, setTsToast] = useState('');
+  // «ارتقا به اولویت ۱» for the qualifier's own P2/P3 customers: always the approved confirm dialog (never the 3-step form).
+  const [upgradeFor, setUpgradeFor] = useState<{ id: number; name: string } | null>(null);
   const [newConsultFor, setNewConsultFor] = useState<Customer | null>(null);
   const [colorSettingsOpen, setColorSettingsOpen] = useState(false);
   const [duplicateReviewOpen, setDuplicateReviewOpen] = useState(false);
@@ -246,6 +248,24 @@ export default function Customers() {
     ? <span className="asg"><span className="csx-av" aria-hidden="true">{initialsOf(customer.salespersonName)}</span>{customer.salespersonName}{isSalesperson && customer.salespersonId === ownSalespersonId ? ' (شما)' : ''}</span>
     : <span className="asg"><span className="none">بدون کارشناس</span></span>;
 
+  const canUpgrade = (customer: Customer) => canUpdate && canUpgradeToP1(callLauncher.config, session.data?.user, customer);
+  const upgradeButton = (customer: Customer, cls: string) => canUpdate && showsUpgradeButton(callLauncher.config, session.data?.user, customer)
+    ? <button type="button" className={`ts-up-btn ${cls}`} onClick={() => setUpgradeFor(customer)} data-testid={`button-upgrade-p1-${customer.id}`}><ArrowUp size={16} aria-hidden="true" /> ارتقا به اولویت ۱</button>
+    : null;
+  /** Priority edits to 1 on the qualifier's own customers go through the upgrade dialog (handoff), not a plain update. */
+  const setPriority1Guarded = (customer: Customer, value: number | null) => {
+    if (value === 1 && canUpgrade(customer)) { setUpgradeFor(customer); return; }
+    updateInlineCustomer(customer, { priority: value });
+  };
+  const boardMove = async (id: number, priorityValue: number | null) => {
+    if (priorityValue === 1 && callLauncher.config?.enabled && session.data?.user.salespersonId === callLauncher.config.qualifierSalespersonId) {
+      try {
+        const c = await getCustomer(id);
+        if (canUpdate && canUpgradeToP1(callLauncher.config, session.data?.user, c)) { setUpgradeFor(c); return; }
+      } catch { setInlineError('بررسی مشتری انجام نشد. دوباره تلاش کنید.'); return; }
+    }
+    updateCustomer.mutate({ id, data: { priority: priorityValue } }, { onSuccess: invalidateAll });
+  };
   const legacyActions = (customer: Customer) => {
     const list: ReactNode[] = [];
     if (canCall) list.push(<button key="call" type="button" onClick={() => openCall(customer)} data-testid={`button-new-call-${customer.id}`} aria-busy={callLauncher.pending?.id === customer.id ? true : undefined} data-form={callLauncher.choose(customer)}><PhoneCall size={17} aria-hidden="true" /> ثبت تماس</button>);
@@ -401,7 +421,7 @@ export default function Customers() {
     {inlineError ? <div className="csx-note bad" role="alert" data-testid="error-update-customer"><AlertTriangle size={20} aria-hidden="true" /><p>{inlineError}</p></div> : null}
 
     {isBoard ? <div className="board-grid">
-      {priorityColumns.map((column) => <BoardColumn key={String(column.value)} column={column} color={priorityColors[String(column.value ?? 'none') as keyof typeof priorityColors]} filters={sharedParams} tagLabels={tagCatalog.data ?? []} onReview={setReviewing} onCall={openCall} onConsult={setNewConsultFor} onEdit={openEdit} onManualIdentity={isAdmin ? setManualIdentity : undefined} onDelete={isAdmin ? removeCustomer : undefined} onMove={(id, priorityValue) => updateCustomer.mutate({ id, data: { priority: priorityValue } }, { onSuccess: invalidateAll })} />)}
+      {priorityColumns.map((column) => <BoardColumn key={String(column.value)} column={column} color={priorityColors[String(column.value ?? 'none') as keyof typeof priorityColors]} filters={sharedParams} tagLabels={tagCatalog.data ?? []} onReview={setReviewing} onCall={openCall} onConsult={setNewConsultFor} onEdit={openEdit} onManualIdentity={isAdmin ? setManualIdentity : undefined} onDelete={isAdmin ? removeCustomer : undefined} onMove={(id, priorityValue) => { void boardMove(id, priorityValue); }} onUpgrade={(c) => (canUpdate && showsUpgradeButton(callLauncher.config, session.data?.user, c) ? () => setUpgradeFor(c) : undefined)} />)}
     </div> : customers.isLoading ? (
       isDesktop ? <div className="csx-sktable" aria-busy="true" aria-label="در حال دریافت فهرست مشتریان" data-testid="customers-loading">{Array.from({ length: 7 }, (_, i) => <div className="row" key={i}><span className="csx-sk" /><span className="csx-sk" /><span className="csx-sk" /><span className="csx-sk" /><span className="csx-sk" /></div>)}</div>
         : <div className="csx-skcards" aria-busy="true" aria-label="در حال دریافت فهرست مشتریان" data-testid="customers-loading">{Array.from({ length: 3 }, (_, i) => <div className="csx-skcard" key={i}><span className="csx-sk" style={{ width: '45%' }} /><span className="csx-sk" style={{ width: '70%', height: 22 }} /><span className="csx-sk" style={{ width: '55%' }} /><span className="csx-sk" style={{ height: 52 }} /></div>)}</div>
@@ -437,9 +457,9 @@ export default function Customers() {
                   <td>{canUpdate ? <select className="csx-isel st" data-s={customer.status} value={customer.status} disabled={updateCustomer.isPending} aria-label={`وضعیت ${customer.name}`} onChange={(e) => updateInlineCustomer(customer, { status: e.target.value as 'in_progress' | 'cancelled' | 'completed' })} data-testid={`select-inline-status-${customer.id}`}>
                     <option value="in_progress">در حال انجام</option><option value="completed">اتمام</option><option value="cancelled">لغو شده</option>
                   </select> : <StatusPill status={customer.status} />}</td>
-                  <td>{canUpdate ? <select className="csx-isel" data-p={customer.priority ?? undefined} style={{ backgroundColor: priorityColors[String(customer.priority ?? 'none') as keyof typeof priorityColors] }} value={customer.priority ? String(customer.priority) : 'null'} disabled={updateCustomer.isPending} aria-label={`اولویت ${customer.name}`} onChange={(e) => updateInlineCustomer(customer, { priority: e.target.value === 'null' ? null : Number(e.target.value) })} data-testid={`select-inline-priority-${customer.id}`}>
+                  <td>{canUpdate ? <select className="csx-isel" data-p={customer.priority ?? undefined} style={{ backgroundColor: priorityColors[String(customer.priority ?? 'none') as keyof typeof priorityColors] }} value={customer.priority ? String(customer.priority) : 'null'} disabled={updateCustomer.isPending} aria-label={`اولویت ${customer.name}`} onChange={(e) => setPriority1Guarded(customer, e.target.value === 'null' ? null : Number(e.target.value))} data-testid={`select-inline-priority-${customer.id}`}>
                     <option value="null">بدون اولویت</option><option value="1">اولویت ۱</option><option value="2">اولویت ۲</option><option value="3">اولویت ۳</option>
-                  </select> : <PriorityLabel value={customer.priority} />}</td>
+                  </select> : <PriorityLabel value={customer.priority} />}{upgradeButton(customer, 'row')}</td>
                   <td>{isAdmin ? <>
                     <select className="csx-isel" value={customer.salespersonId ?? ''} aria-label={`تغییر کارشناس مشتری ${customer.id}`} title="انتخاب و تغییر کارشناس این مشتری" data-testid={`select-inline-salesperson-${customer.id}`} disabled={updateCustomer.isPending || salespersons.isLoading || salespersons.isError} onChange={e => updateInlineCustomer(customer, { salespersonId: e.target.value ? Number(e.target.value) : null })}>
                       <option value="">بدون کارشناس</option>
@@ -486,6 +506,7 @@ export default function Customers() {
               <div className="csx-chips">{tagsFor(customer)}</div>
               <div className="row"><span className="phone" dir="ltr"><Phone size={16} aria-hidden="true" /> {formatPhoneForDisplay(customer.phone)}</span><span className="csx-meta">کد {faId(customer.id)}</span></div>
               <div className="row">{salespersonCell(customer)}<span className="csx-meta">{fa(customer.activityCount)} فعالیت</span></div>
+              {upgradeButton(customer, 'card')}
               <div className="csx-acts">
                 {canCall ? <a className="csx-call" href={callHref(customer)} aria-label={`تماس با ${customer.name}`}><Phone size={19} aria-hidden="true" /> تماس</a> : null}
                 <Link href={`/customers/${customer.id}`} className="csx-ghost">پرونده مشتری</Link>
@@ -510,13 +531,14 @@ export default function Customers() {
     </ConfirmDialog> : null}
     {toast ? <div className="csx-toast" role="status">{toast}</div> : null}
 
-    <CustomerForm open={formOpen} customer={editing} salespersons={salespersons.data ?? []} onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); invalidateAll(); }} />
+    <CustomerForm open={formOpen} customer={editing} salespersons={salespersons.data ?? []} lockP1={editing ? canUpgrade(editing) : false} onClose={() => setFormOpen(false)} onSaved={() => { setFormOpen(false); invalidateAll(); }} />
     {isAdmin && manualIdentity && <ManualCustomerIdentity key={manualIdentity.id} customer={manualIdentity} onClose={() => setManualIdentity(null)} />}
     {isAdmin && changingPhone && <AdminCustomerPhoneEditor key={changingPhone.id} customer={changingPhone} onClose={() => setChangingPhone(null)} />}
     {reviewing && <RepeatRequestReview customer={reviewing} onClose={() => setReviewing(null)} />}
     {isAdmin && duplicateReviewOpen ? <DuplicateCustomerReview onClose={() => setDuplicateReviewOpen(false)} salespersons={salespersons.data ?? []} salespersonLoading={salespersons.isLoading} salespersonError={salespersons.isError} onRetrySalespersons={() => { void salespersons.refetch(); }} /> : null}
     <CallLaunchStatus status={callLauncher.status} onRetry={callLauncher.retry} onCancel={callLauncher.cancel} />
     {simpleCallFor ? <SimpleCallForm customer={simpleCallFor} userId={session.data?.user.id} noteMin={tsConfig.data?.noteMinLength ?? 30} onClose={() => setSimpleCallFor(null)} onDone={(r: QualifyResult) => { if (r.handoff) setTsToast(r.handoff.message); invalidateAll(); }} onNext={() => setSimpleCallFor(null)} /> : null}
+    {upgradeFor ? <UpgradeDialog customer={upgradeFor} onClose={() => setUpgradeFor(null)} onDone={(r) => { setUpgradeFor(null); setTsToast(r.message); invalidateAll(); }} /> : null}
     {tsToast ? <TsToast text={tsToast} onClose={() => setTsToast('')} /> : null}
     {newCallFor && <CallForm customers={[newCallFor]} salespersons={salespersons.data ?? []} pending={createCall.isPending} error={createCall.isError} initialCustomerId={newCallFor.id} onClose={() => setNewCallFor(null)} onSave={handleSaveCall} />}
     {newConsultFor && <CreateConsultationForm customers={[newConsultFor]} pending={createConsult.isPending} initialCustomerId={newConsultFor.id} onClose={() => setNewConsultFor(null)} onSave={handleSaveConsult} />}
@@ -578,7 +600,7 @@ function PriorityColorsModal({ colors, onClose }: {
   );
 }
 
-function BoardColumn({ column, color, filters, tagLabels, onReview, onCall, onConsult, onEdit, onManualIdentity, onDelete, onMove }: {
+function BoardColumn({ column, color, filters, tagLabels, onReview, onCall, onConsult, onEdit, onManualIdentity, onDelete, onMove, onUpgrade }: {
   column: { value: number | null; label: string };
   color: string;
   filters: Omit<ListCustomersParams, 'priority' | 'hasPriority' | 'limit' | 'offset' | 'status'>;
@@ -590,6 +612,7 @@ function BoardColumn({ column, color, filters, tagLabels, onReview, onCall, onCo
   onManualIdentity?: (customer: Customer) => void;
   onDelete?: (customer: Customer) => void;
   onMove: (id: number, priority: number | null) => void;
+  onUpgrade?: (customer: Customer) => (() => void) | undefined;
 }) {
   const query = useInfiniteQuery({
     queryKey: ['board-customers', column.value, filters],
@@ -649,6 +672,7 @@ function BoardColumn({ column, color, filters, tagLabels, onReview, onCall, onCo
             <RepeatRequestTag customer={customer} onClick={() => onReview(customer)} />
             <div style={{ display: 'flex', gap: 4 }}>
               <button className="row-action" style={{ padding: 2 }} onClick={() => onCall(customer)} title="تماس"><PhoneCall size={12} /></button>
+              {(() => { const up = onUpgrade?.(customer); return up ? <button className="row-action ts-up-board" style={{ padding: '2px 6px' }} onClick={up} title="ارتقا به اولویت ۱" data-testid={`button-board-upgrade-p1-${customer.id}`}><ArrowUp size={12} /> ارتقا به ۱</button> : null; })()}
               <button className="row-action" style={{ padding: 2 }} onClick={() => onConsult(customer)} title="مشاوره"><FileText size={12} /></button>
               <button className="row-action" style={{ padding: 2 }} onClick={() => onEdit(customer)} title="ویرایش مشتری" data-testid={`button-board-edit-customer-${customer.id}`}><Edit3 size={12} /></button>
               {onManualIdentity && <button className="row-action" style={{ padding: 2 }} onClick={() => onManualIdentity(customer)} title="احراز دستی و ویرایش مشخصات" data-testid={`button-board-manual-identity-${customer.id}`}>احراز دستی</button>}

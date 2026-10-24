@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowRight, Check, ChevronLeft, Copy, FileText, Flag, Gauge, History, Layers, Lock, MessageSquarePlus, Pencil, Phone, PhoneCall, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, Wallet, X } from 'lucide-react';
+import { ArrowUp, AlertCircle, ArrowRight, Check, ChevronLeft, Copy, FileText, Flag, Gauge, History, Layers, Lock, MessageSquarePlus, Pencil, Phone, PhoneCall, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, Wallet, X } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useParams, Link, useLocation } from 'wouter';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -25,7 +25,7 @@ import { BUSINESS_STATUS_LABELS, WIZARD_DISPLAY_STEPS, WIZARD_TOTAL_STEPS, loanB
 import { ConfirmDialog, initialsOf, jalaliDate, PriorityLabel, relativeTime, Sheet, STATUS_LABEL, StatusPill } from './customers-ui';
 import './customers.css';
 import { useCallLauncher, CallLaunchStatus } from '@/features/team-sales/useCallLauncher';
-import { usesSimpleForm, type PromoteResult, type QualifyResult } from '@/features/team-sales/api';
+import { showsUpgradeButton, usesSimpleForm, type PromoteResult, type QualifyResult } from '@/features/team-sales/api';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 import { TsToast, UpgradeCard, UpgradeDialog, UpgradedCard } from '@/features/team-sales/UpgradeToP1';
 
@@ -418,6 +418,7 @@ export default function CustomerDetail() {
     <div className="acts">
       {showSimpleForm ? <button type="button" className="csx-call" onClick={() => setSimpleFormOpen(true)} data-testid="button-ts-simple-form"><PhoneCall size={20} /> تماس و فرم</button>
         : canCallsCreate || isAdmin ? <a className="csx-call" href={`tel:${customer.phone}`} data-testid="link-call-customer"><PhoneCall size={20} /> تماس</a> : null}
+      {showUpgrade && showsUpgradeButton(tsConfig.data, session.data?.user, customer) ? <button type="button" className="ts-up-btn hero" onClick={() => setUpgradeOpen(true)} data-testid="button-ts-upgrade-hero"><ArrowUp size={18} aria-hidden="true" /> ارتقا به اولویت ۱</button> : null}
       {canUpdate ? <button type="button" className="csx-ghost" onClick={() => setEditing(true)} data-testid="button-toggle-customer-edit" aria-haspopup="dialog"><Pencil size={18} /> ویرایش</button> : null}
       {canNewLoan ? <Link href={loanWizardHref(customer.id)} className="csx-primary wide" data-testid="button-new-loan-from-customer"><Plus size={20} /> درخواست تسهیلات جدید</Link> : null}
     </div>
@@ -644,7 +645,7 @@ export default function CustomerDetail() {
         <div className="field"><label htmlFor="detail-pc">کد پستی (اختیاری)</label><input id="detail-pc" dir="ltr" inputMode="numeric" value={form.postalCode} onChange={(e) => { setForm({ ...form, postalCode: e.target.value }); setProfileErrors(current => ({ ...current, postalCode: '' })); }} maxLength={10} aria-invalid={Boolean(profileErrors.postalCode)} aria-describedby={profileErrors.postalCode ? 'detail-pc-err' : undefined} data-testid="input-detail-postal-code" />{fieldErr('postalCode', 'detail-pc')}</div>
         <div className="field"><label>تاریخ تولد (شمسی، اختیاری)</label><PersianDatePicker value={form.birthDateJalali} onChange={(v) => { setForm({ ...form, birthDateJalali: v }); setProfileErrors(current => ({ ...current, birthDateJalali: '' })); }} testId="input-detail-birth-date" birthDate />{fieldErr('birthDateJalali', 'detail-bd')}</div>
         <div className="csx-two">
-          <div className="field"><label htmlFor="detail-priority">اولویت</label><select id="detail-priority" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} data-testid="select-detail-priority"><option value="">بدون اولویت</option>{[1, 2, 3].map((value) => <option key={value} value={value}>اولویت {faNum(value)}</option>)}</select></div>
+          <div className="field"><label htmlFor="detail-priority">اولویت</label><select id="detail-priority" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} data-testid="select-detail-priority"><option value="">بدون اولویت</option>{[1, 2, 3].map((value) => <option key={value} value={value} disabled={showUpgrade && value === 1}>اولویت {faNum(value)}{showUpgrade && value === 1 ? ' (فقط با «ارتقا به اولویت ۱»)' : ''}</option>)}</select>{showUpgrade ? <small className="hint" data-testid="hint-detail-p1-upgrade-only">اولویت ۱ فقط با دکمهٔ «ارتقا به اولویت ۱»</small> : null}</div>
           <div className="field"><label htmlFor="detail-status">وضعیت</label><select id="detail-status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as CustomerUpdateStatus })} data-testid="select-detail-status"><option value="in_progress">در حال انجام</option><option value="cancelled">لغو شده</option><option value="completed">اتمام</option></select></div>
         </div>
         <label className="csx-check"><input type="checkbox" checked={form.isUrgent} onChange={(e) => setForm({ ...form, isUrgent: e.target.checked })} data-testid="checkbox-detail-is-urgent" /> مشتری فوری</label>
