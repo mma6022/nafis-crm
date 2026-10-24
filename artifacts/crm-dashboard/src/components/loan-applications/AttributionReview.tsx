@@ -114,14 +114,14 @@ export function AttributionReview() {
         </button>
       </div>
       {item.revisions.length > 0 && <div style={{ marginTop: 12 }}>
-        <p>برآورد آزمایشی فقط پس از تأیید مالکیت: نرخ تاریخی به‌صورت خودکار معلوم نیست؛ نرخ فرضی را خودتان وارد کنید. این مبلغ در کیف پول ثبت نمی‌شود.</p>
+        <p>محاسبه آزمایشی فقط پس از تأیید مالکیت: نرخ تاریخی به‌صورت خودکار معلوم نیست؛ نرخ فرضی را خودتان وارد کنید. این مبلغ در کیف پول ثبت نمی‌شود.</p>
         <label>نرخ فرضی (%){" "}
           <input type="number" min="0" max="100" step="0.01" value={rates[item.id] ?? ""} onChange={(e) => { setRates((v) => ({ ...v, [item.id]: e.target.value })); setEstimates((v) => { const next = { ...v }; delete next[item.id]; return next; }); }} />
         </label>{" "}
         <button className="btn btn-ghost" disabled={estimate.isPending || rates[item.id] === "" || !Number.isFinite(Number(rates[item.id])) || Number(rates[item.id]) < 0 || Number(rates[item.id]) > 100 ||
           Math.abs(Number(rates[item.id]) * 100 - Math.round(Number(rates[item.id]) * 100)) > 1e-8}
-          onClick={() => estimate.mutate({ id: item.id, ratePercent: Number(rates[item.id]) })}>محاسبه برآورد</button>
-        {estimates[item.id] && <p>برآورد غیرقطعی: {Number(estimates[item.id].estimatedAmountToman).toLocaleString("fa-IR")} تومان
+          onClick={() => estimate.mutate({ id: item.id, ratePercent: Number(rates[item.id]) })}>محاسبه آزمایشی</button>
+        {estimates[item.id] && <p>مبلغ آزمایشی و غیرقطعی: {Number(estimates[item.id].estimatedAmountToman).toLocaleString("fa-IR")} تومان
           {" "}بر اساس مبلغ {estimates[item.id].baseType === "approved" ? "مصوب" : "درخواستی"} و نرخ فرضی {estimates[item.id].ratePercent}٪.</p>}
       </div>}
       {save.isError && <p role="alert" className="profile-form-error">{save.error.message}</p>}
