@@ -245,7 +245,7 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
               <fieldset className="call-profile-box">
                 <legend>تکمیل اطلاعات مشتری (اختیاری)</legend>
                 <div className={`call-form-row ${showQuickCredit ? 'two' : 'three'}`}>
-                  {showQuickCredit ? null : <div className="field"><label>کد ملی</label><input dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={(e) => update('nationalCode', e.target.value)} maxLength={10} data-testid="input-call-national-code" /></div>}
+                  {showQuickCredit ? null : <div className="field"><label>کد ملی (اختیاری)</label><input dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={(e) => update('nationalCode', e.target.value)} maxLength={10} data-testid="input-call-national-code" /></div>}
                   <div className="field"><label>کد پستی</label><input dir="ltr" inputMode="numeric" value={form.postalCode} onChange={(e) => update('postalCode', e.target.value)} maxLength={10} data-testid="input-call-postal-code" /></div>
                   <div className="field"><label>تاریخ تولد</label><PersianDatePicker value={form.birthDateJalali} onChange={(v) => update('birthDateJalali', v)} testId="input-call-birth-date" birthDate /></div>
                 </div>

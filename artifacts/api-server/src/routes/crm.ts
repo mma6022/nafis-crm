@@ -270,6 +270,12 @@ function blankNationalCodeToNull(body: unknown): unknown {
   return body;
 }
 
+/** crm-nid-optional: the only way to erase a stored national code is an explicit `clearNationalCode: true`. */
+function explicitNationalCodeClear(body: unknown): boolean {
+  return Boolean(body && typeof body === "object" && !Array.isArray(body) &&
+    (body as Record<string, unknown>).clearNationalCode === true);
+}
+
 function hasActiveCustomerIdentityConflict(
   customerId: number | null,
   identity: { phone?: string; nationalCode?: string | null },
@@ -2887,7 +2893,14 @@ router.patch(
     }
     if (body.description !== undefined)
       entries.push(["description", body.description]);
-    if (body.nationalCode !== undefined) {
+    // crm-nid-optional (PM 16:03): «کد ملی» is optional for every customer edit (name included).
+    //  - a valid 10-digit code with a correct check digit is saved;
+    //  - an omitted / null / blank code keeps the stored value untouched;
+    //  - the stored code is cleared ONLY with the explicit signal `clearNationalCode: true` (field touched and emptied).
+    const clearNationalCode = explicitNationalCodeClear(req.body);
+    const previousNationalCode = existingCustomer.nationalCode ? normalizeCustomerNationalCode(existingCustomer.nationalCode) : "";
+    let nationalCodeLog: { previous: string; next: string } | null = null;
+    {
       const nationalCode = body.nationalCode
         ? ics24.normalizeDigits(body.nationalCode).replace(/\D/g, "") || null
         : null;
@@ -2895,20 +2908,25 @@ router.patch(
         res.status(400).json({ error: "کد ملی معتبر نیست." });
         return;
       }
-      // Optional, but never wipe a national code that is already on file (PM, 2026-10-24).
-      if (nationalCode === null && existingCustomer.nationalCode && existingCustomer.nationalCode.trim() !== "") {
-        res.status(400).json({ error: "کد ملی ثبت‌شده را نمی‌توان خالی کرد؛ اگر اشتباه است، کد درست را وارد کنید." });
+      if (nationalCode !== null && clearNationalCode) {
+        res.status(400).json({ error: "برای پاک کردن کد ملی، فیلد را خالی بگذارید." });
         return;
       }
-      entries.push(["national_code", nationalCode]);
+      if (nationalCode !== null) {
+        entries.push(["national_code", nationalCode]);
+        if (nationalCode !== previousNationalCode) nationalCodeLog = { previous: previousNationalCode, next: nationalCode };
+      } else if (clearNationalCode && previousNationalCode) {
+        entries.push(["national_code", null]);
+        nationalCodeLog = { previous: previousNationalCode, next: "" };
+      }
     }
     const reactivating = existingCustomer.status === "cancelled" &&
       body.status !== undefined && body.status !== "cancelled";
     const identityConflict = findActiveCustomerIdentityConflict(params.data.id, {
       phone: body.phone ?? (reactivating ? existingCustomer.phone : undefined),
-      nationalCode: body.nationalCode === undefined
-        ? reactivating ? existingCustomer.nationalCode : undefined
-        : entries.find(([field]) => field === "national_code")?.[1] as string | null,
+      nationalCode: entries.some(([field]) => field === "national_code")
+        ? entries.find(([field]) => field === "national_code")?.[1] as string | null
+        : reactivating ? existingCustomer.nationalCode : undefined,
     });
     if (identityConflict) {
       const visibleConflict = getCustomer(Number(identityConflict.id), user);
@@ -3006,10 +3024,19 @@ router.patch(
     ].join(", ");
     let changes: number;
     try {
-      changes = executeChanges(
-        `UPDATE customers SET ${setClause} WHERE id = ?`,
-        [...entries.map(([, value]) => value), params.data.id],
-      );
+      if (nationalCodeLog) ensureIdentityLogSchema();
+      changes = runTransaction(() => {
+        const changed = executeChanges(
+          `UPDATE customers SET ${setClause} WHERE id = ?`,
+          [...entries.map(([, value]) => value), params.data.id],
+        );
+        // Same additive log as the quick-credit save; '' as new value = explicitly cleared.
+        if (changed && nationalCodeLog) execute(
+          `INSERT INTO ${IDENTITY_LOG_TABLE} (customer_id,old_national_code,new_national_code,identity_changed,source,actor_user_id,created_at)
+           VALUES (?,?,?,?,'customer_update',?,?)`,
+          [params.data.id, nationalCodeLog.previous || null, nationalCodeLog.next, identityStampChanged ? 1 : 0, user.id, new Date().toISOString()]);
+        return changed;
+      });
     } catch (error) {
       if (error instanceof Error && error.message.includes("ACTIVE_CUSTOMER_")) {
         res.status(409).json({ error: "شماره همراه یا کد ملی با مشتری فعال دیگری مشترک است. پیش از تغییر وضعیت یا اطلاعات، تداخل را با کمک مدیر برطرف کنید." });
@@ -4291,6 +4318,9 @@ router.get("/calls", requirePermission("calls.view"), (req, res): void => {
 });
 
 router.post("/calls", requirePermission("calls.create"), (req, res): void => {
+  // crm-nid-optional: a blank «کد ملی» in the call profile means "not entered" (never a wipe).
+  if (req.body?.profile && typeof req.body.profile === "object" && typeof req.body.profile.nationalCode === "string" && !req.body.profile.nationalCode.trim())
+    req.body.profile.nationalCode = null;
   const parsed = CreateCallBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -4360,6 +4390,8 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
         "SELECT phone,national_code,postal_code,birth_date_jalali FROM customers WHERE id=?",
         [body.customerId],
       );
+      // crm-nid-optional: an empty «کد ملی» in the call form never erases the stored code.
+      if (profile.nationalCode === null && current?.national_code) profile.nationalCode = current.national_code;
       const nextIdentity = {
         phone: current?.phone ?? "",
         nationalCode: profile.nationalCode,
@@ -4368,6 +4400,14 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
       };
       const changed = !current || customerIdentityChanged(current, nextIdentity);
       const stampChanged = !!current && customerIdentityStampChanged(current, nextIdentity);
+      const prevCode = current?.national_code ? normalizeCustomerNationalCode(current.national_code) : "";
+      if (current && profile.nationalCode && profile.nationalCode !== prevCode) {
+        ensureIdentityLogSchema();
+        execute(
+          `INSERT INTO ${IDENTITY_LOG_TABLE} (customer_id,old_national_code,new_national_code,identity_changed,source,actor_user_id,created_at)
+           VALUES (?,?,?,?,'call_profile',?,?)`,
+          [body.customerId, prevCode || null, profile.nationalCode, stampChanged ? 1 : 0, user.id, new Date().toISOString()]);
+      }
       executeChanges(
         `UPDATE customers SET national_code=?,postal_code=?,birth_date_jalali=?${stampChanged
           ? ",identity_changed_at=?"

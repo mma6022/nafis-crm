@@ -15,6 +15,28 @@ export function validateIranianNationalCode(value: string) {
   return remainder < 2 ? checkDigit === remainder : checkDigit === 11 - remainder;
 }
 
+export const NATIONAL_CODE_OPTIONAL_ERROR = 'کد ملی ۱۰ رقمی معتبر وارد کنید؛ اگر ندارید خالی بگذارید.';
+export const NATIONAL_CODE_CLEAR_HINT = 'با ذخیره، کد ملی ثبت‌شده پاک می‌شود.';
+
+/**
+ * crm-nid-optional (PM 16:03): «کد ملی» is optional for every customer edit.
+ * - filled → must be 10 digits with a correct check digit; sent only when it differs from the stored code;
+ * - empty and untouched (or nothing stored) → omitted, so the stored code is never wiped;
+ * - stored code that the user touched and emptied → explicit `clearNationalCode: true`.
+ */
+export function nationalCodePatch(input: string, stored: string | null | undefined, touched: boolean):
+  { error?: string; patch: { nationalCode?: string; clearNationalCode?: true }; clearing: boolean } {
+  const raw = normalizeDigits(input ?? '').trim();
+  const digits = raw.replace(/\D/g, '');
+  const storedDigits = normalizeDigits(stored ?? '').replace(/\D/g, '');
+  if (raw) {
+    if (!validateIranianNationalCode(digits)) return { error: NATIONAL_CODE_OPTIONAL_ERROR, patch: {}, clearing: false };
+    return { patch: digits === storedDigits ? {} : { nationalCode: digits }, clearing: false };
+  }
+  if (touched && storedDigits) return { patch: { clearNationalCode: true }, clearing: true };
+  return { patch: {}, clearing: false };
+}
+
 export function validateIranianMobile(value: string) {
   return /^09\d{9}$/.test(normalizeDigits(value).trim());
 }

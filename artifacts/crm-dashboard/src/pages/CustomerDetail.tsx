@@ -2,7 +2,7 @@ import { ArrowUp, AlertCircle, ArrowRight, Check, ChevronLeft, Copy, FileText, F
 import { useEffect, useState, type FormEvent } from 'react';
 import { useParams, Link, useLocation } from 'wouter';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getGetAuthSessionQueryKey, getGetCustomerQueryKey, getGetCustomerWalletPaymentQueryKey, getListCustomerActivityQueryKey, getListCustomerTagsQueryKey, getListCustomersQueryKey, getListConsultationsQueryKey, getListSalespersonsQueryKey, getListCustomerCreditChecksQueryKey, getListLoanApplicationsQueryKey, getListCallsQueryKey, getListRemindersQueryKey, useDeleteCustomer, useGetAuthSession, useGetCustomer, useGetCustomerWalletPayment, useListCustomerActivity, useListCustomerTags, useListSalespersons, useListCustomerCreditChecks, useInitiateCustomerCreditCheck, useValidateCustomerCreditCheck, useRenewCustomerCreditCheckOtp, useRefreshCustomerCreditCheckStatus, useUpdateCustomer, useCreateConsultation, useCreateCall, useListLoanApplications, type CallInput, type CustomerUpdateStatus, type ConsultationInput, type LoanApplication } from '@workspace/api-client-react';
+import { getGetAuthSessionQueryKey, getGetCustomerQueryKey, getGetCustomerWalletPaymentQueryKey, getListCustomerActivityQueryKey, getListCustomerTagsQueryKey, getListCustomersQueryKey, getListConsultationsQueryKey, getListSalespersonsQueryKey, getListCustomerCreditChecksQueryKey, getListLoanApplicationsQueryKey, getListCallsQueryKey, getListRemindersQueryKey, useDeleteCustomer, useGetAuthSession, useGetCustomer, useGetCustomerWalletPayment, useListCustomerActivity, useListCustomerTags, useListSalespersons, useListCustomerCreditChecks, useInitiateCustomerCreditCheck, useValidateCustomerCreditCheck, useRenewCustomerCreditCheckOtp, useRefreshCustomerCreditCheckStatus, useUpdateCustomer, useCreateConsultation, useCreateCall, useListLoanApplications, type CallInput, type CustomerUpdate, type CustomerUpdateStatus, type ConsultationInput, type LoanApplication } from '@workspace/api-client-react';
 import { ErrorState, formatDateTime } from '@/components/CrmShell';
 import { formatPhoneForDisplay } from '@/lib/phone';
 import { CallForm, CreateConsultationForm } from '@/components/Forms';
@@ -17,7 +17,7 @@ import { WalletShareHistory } from '@/components/WalletShareHistory';
 import { CustomerPlanWallets } from '@/components/PlanWallets';
 import { requestWalletShare } from '@/lib/wallet-share';
 import { getListCustomerWalletShareLinksQueryKey } from '@workspace/api-client-react';
-import { normalizeDigits, serverFieldErrors, validateIranianMobile, validateIranianNationalCode, validateIranianPostalCode, validateJalaliBirthDate, validateOtp } from '@/lib/customer-field-validation';
+import { NATIONAL_CODE_CLEAR_HINT, nationalCodePatch, normalizeDigits, serverFieldErrors, validateIranianMobile, validateIranianNationalCode, validateIranianPostalCode, validateJalaliBirthDate, validateOtp } from '@/lib/customer-field-validation';
 import { CustomerTagEditor } from '@/components/CustomerTagEditor';
 import { RepeatRequestReview, RepeatRequestTag } from '@/components/RepeatRequestReview';
 import { clearLoanDraft, loanWizardHref, readLoanDraft, type LoanDraft } from '@/lib/loan-draft';
@@ -191,10 +191,12 @@ export default function CustomerDetail() {
   const [otpError, setOtpError] = useState('');
   const [nationalCodeError, setNationalCodeError] = useState('');
   const [profileErrors, setProfileErrors] = useState<Record<string, string>>({});
+  const [ncTouched, setNcTouched] = useState(false);
   useEffect(() => {
     if (customer) {
       setForm({ name: customer.name, phone: customer.phone, nationalCode: customer.nationalCode ?? '', postalCode: customer.postalCode ?? '', birthDateJalali: customer.birthDateJalali ?? '', description: customer.description ?? '', priority: customer.priority ? String(customer.priority) : '', status: customer.status, isUrgent: customer.isUrgent ?? false });
       setSalespersonSelection(customer.salespersonId ? String(customer.salespersonId) : '');
+      setNcTouched(false);
       setNationalCode(current => current || customer.nationalCode || '');
     }
   }, [customer]);
@@ -296,7 +298,9 @@ export default function CustomerDetail() {
     const errors: Record<string, string> = {};
     if (!form.name.trim()) errors.name = 'نام مشتری را وارد کنید.';
     if (!validateIranianMobile(form.phone)) errors.phone = 'شماره همراه باید با ۰۹ شروع شود و ۱۱ رقم باشد.';
-    if (!validateIranianNationalCode(form.nationalCode)) errors.nationalCode = 'کد ملی ۱۰ رقمی معتبر وارد کنید.';
+    // crm-nid-optional (PM 16:03): کد ملی اختیاری است؛ خالیِ دست‌نخورده کد ثبت‌شده را پاک نمی‌کند.
+    const nc = nationalCodePatch(form.nationalCode, customer?.nationalCode, ncTouched);
+    if (nc.error) errors.nationalCode = nc.error;
     if (form.postalCode.trim() && !validateIranianPostalCode(form.postalCode)) errors.postalCode = 'کد پستی باید ۱۰ رقم باشد.';
     if (form.birthDateJalali.trim() && !validateJalaliBirthDate(form.birthDateJalali)) errors.birthDateJalali = 'تاریخ تولد شمسی معتبر و در گذشته وارد کنید.';
     setProfileErrors(errors);
@@ -306,8 +310,9 @@ export default function CustomerDetail() {
       if (first) window.requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-testid="${testIds[first]}"]`)?.focus());
       return;
     }
-    update.mutate({ id, data: { name: form.name.trim(), phone: normalizeDigits(form.phone.trim()), nationalCode: normalizeDigits(form.nationalCode.trim()), postalCode: form.postalCode.trim() ? normalizeDigits(form.postalCode.trim()) : null, birthDateJalali: form.birthDateJalali.trim() || null, description: form.description, priority: form.priority ? Number(form.priority) : null, status: form.status, isUrgent: form.isUrgent } }, {
-      onSuccess: () => { setEditing(false); setProfileErrors({}); customerQuery.refetch(); setToast('تغییرات پرونده ذخیره شد.'); },
+    const data: CustomerUpdate & { clearNationalCode?: true } = { name: form.name.trim(), phone: normalizeDigits(form.phone.trim()), ...nc.patch, postalCode: form.postalCode.trim() ? normalizeDigits(form.postalCode.trim()) : null, birthDateJalali: form.birthDateJalali.trim() || null, description: form.description, priority: form.priority ? Number(form.priority) : null, status: form.status, isUrgent: form.isUrgent };
+    update.mutate({ id, data }, {
+      onSuccess: () => { setEditing(false); setNcTouched(false); setProfileErrors({}); customerQuery.refetch(); setToast('تغییرات پرونده ذخیره شد.'); },
       onError: (error) => {
         const mapped = serverFieldErrors(error);
         setProfileErrors(current => ({ ...current, ...(Object.keys(mapped).length ? mapped : { _form: inquiryErrorMessage(error, 'ذخیره اطلاعات انجام نشد. دوباره تلاش کنید.') }) }));
@@ -679,7 +684,7 @@ export default function CustomerDetail() {
       <form id="customer-edit-form" noValidate onSubmit={save} className="csx-sheet-body" style={{ display: 'grid', gap: 14 }}>
         <div className="field"><label htmlFor="detail-name">نام و نام خانوادگی</label><input id="detail-name" value={form.name} onChange={(e) => { setForm({ ...form, name: e.target.value }); setProfileErrors(current => ({ ...current, name: '' })); }} aria-invalid={Boolean(profileErrors.name)} aria-describedby={profileErrors.name ? 'detail-name-err' : undefined} data-testid="input-detail-name" />{fieldErr('name', 'detail-name')}</div>
         <div className="field"><label htmlFor="detail-phone">شماره موبایل</label><input id="detail-phone" dir="ltr" inputMode="tel" value={form.phone} onChange={(e) => { setForm({ ...form, phone: e.target.value }); setProfileErrors(current => ({ ...current, phone: '' })); }} aria-invalid={Boolean(profileErrors.phone)} aria-describedby={profileErrors.phone ? 'detail-phone-err' : undefined} data-testid="input-detail-phone" />{fieldErr('phone', 'detail-phone')}</div>
-        <div className="field"><label htmlFor="detail-nc">کد ملی</label><input id="detail-nc" dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={(e) => { setForm({ ...form, nationalCode: e.target.value }); setProfileErrors(current => ({ ...current, nationalCode: '' })); }} maxLength={10} aria-invalid={Boolean(profileErrors.nationalCode)} aria-describedby={profileErrors.nationalCode ? 'detail-nc-err' : undefined} data-testid="input-detail-national-code" />{fieldErr('nationalCode', 'detail-nc')}</div>
+        <div className="field"><label htmlFor="detail-nc">کد ملی (اختیاری)</label><input id="detail-nc" dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={(e) => { setForm({ ...form, nationalCode: e.target.value }); setNcTouched(true); setProfileErrors(current => ({ ...current, nationalCode: '' })); }} maxLength={10} aria-invalid={Boolean(profileErrors.nationalCode)} aria-describedby={profileErrors.nationalCode ? 'detail-nc-err' : undefined} data-testid="input-detail-national-code" />{!profileErrors.nationalCode && nationalCodePatch(form.nationalCode, customer?.nationalCode, ncTouched).clearing ? <small className="hint" data-testid="hint-detail-national-code-clear">{NATIONAL_CODE_CLEAR_HINT}</small> : null}{fieldErr('nationalCode', 'detail-nc')}</div>
         <div className="field"><label htmlFor="detail-pc">کد پستی (اختیاری)</label><input id="detail-pc" dir="ltr" inputMode="numeric" value={form.postalCode} onChange={(e) => { setForm({ ...form, postalCode: e.target.value }); setProfileErrors(current => ({ ...current, postalCode: '' })); }} maxLength={10} aria-invalid={Boolean(profileErrors.postalCode)} aria-describedby={profileErrors.postalCode ? 'detail-pc-err' : undefined} data-testid="input-detail-postal-code" />{fieldErr('postalCode', 'detail-pc')}</div>
         <div className="field"><label>تاریخ تولد (شمسی، اختیاری)</label><PersianDatePicker value={form.birthDateJalali} onChange={(v) => { setForm({ ...form, birthDateJalali: v }); setProfileErrors(current => ({ ...current, birthDateJalali: '' })); }} testId="input-detail-birth-date" birthDate />{fieldErr('birthDateJalali', 'detail-bd')}</div>
         <div className="csx-two">
