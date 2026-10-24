@@ -135,7 +135,7 @@ export function RequestDraftsQueue({ isDesktop, isAdmin, onOpen }: { isDesktop: 
 
   return <div className="rqd" data-testid="request-drafts-queue">
     <div className="csx-tools rqd-tools">
-      <label className="csx-search"><input type="search" placeholder="نام، موبایل یا شماره مشتری" value={search} onChange={(e) => setSearch(e.target.value)} data-testid="input-draft-search" /></label>
+      <label className="csx-search"><input type="search" placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)" value={search} onChange={(e) => setSearch(e.target.value)} data-testid="input-draft-search" /></label>
       {data?.seesAll ? <div className="csx-viewseg" role="group" aria-label="دامنه">
         <button type="button" className={scope === 'all' ? 'active' : ''} aria-pressed={scope === 'all'} onClick={() => setScope('all')}>همه کارشناس‌ها</button>
         <button type="button" className={scope === 'mine' ? 'active' : ''} aria-pressed={scope === 'mine'} onClick={() => setScope('mine')}>فقط من</button>

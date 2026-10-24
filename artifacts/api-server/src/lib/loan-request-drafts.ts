@@ -5,6 +5,7 @@
 // Notifications are in-CRM rows in site_notification_events only (no SMS / outbound message).
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction, type SqlValue } from "./crm-db";
 import type { AuthUser } from "./auth";
+import { customerSearchSql } from "./customer-id-search";
 
 export const DRAFT_STEP_LABELS = [
   "انتخاب مشتری", "اطلاعات هویتی", "احراز هویت", "رتبه اعتباری", "طرح و شرط",
@@ -169,18 +170,16 @@ export function shapeDraft(r: any, u: AuthUser | null, nowMs = Date.now()) {
 export function listDrafts(u: AuthUser, opts: { scope?: "mine" | "all"; paidOnly?: boolean; search?: string; customerId?: number } = {}, nowMs = Date.now()) {
   syncDraftsWithCases(nowMs);
   const s = scopeSql(u);
-  // Params are bound in SQL order: filters first, then the role scope (its SQL is appended last below).
+  // Params are bound in SQL order: filters first, then the role scope (appended last below).
   const where: string[] = [OPEN]; const params: SqlValue[] = [];
   if (opts.scope === "mine") { where.push("(d.created_by_user_id=? OR c.salesperson_id=?)"); params.push(u.id, u.salespersonId ?? -1); }
   if (opts.paidOnly) where.push(isPaidSql);
   if (opts.customerId) { where.push("d.customer_id=?"); params.push(opts.customerId); }
-  if (opts.search?.trim()) {
-    const q = opts.search.trim();
-    where.push("(c.name LIKE ? OR c.phone LIKE ? OR CAST(c.id AS TEXT)=? OR c.national_code=?)");
-    params.push(`%${q}%`, `%${q}%`, q.replace(/^#/, ""), q);
-  }
+  const search = draftSearch(opts.search);
+  if (search) { where.push(search.where.sql); params.push(...search.where.params); }
   params.push(...s.params);
-  const rows = queryRows<any>(`${SELECT} WHERE ${where.join(" AND ")}${s.sql} ORDER BY ${isPaidSql} DESC, d.updated_at ASC, d.id ASC LIMIT 500`, params);
+  const rank = search?.rank ?? { sql: "", params: [] };
+  const rows = queryRows<any>(`${SELECT} WHERE ${where.join(" AND ")}${s.sql} ORDER BY ${rank.sql}${isPaidSql} DESC, d.updated_at ASC, d.id ASC LIMIT 500`, [...params, ...rank.params]);
   return rows.map(r => shapeDraft(r, u, nowMs));
 }
 
@@ -199,10 +198,23 @@ export function draftCounts(u: AuthUser, nowMs = Date.now()) {
 }
 
 // ---------------------------------------------------------------- read-only rows shown in the same queue (computed at read time, nothing written)
+/**
+ * Shared customer search for the «در انتظار ثبت» queue: name / mobile (part) / national code (exact) as before,
+ * plus the customer id in every form (1234, #1234, #۱۲۳۴, ۱۲۳۴) via the shared helper; «#id» means the id only.
+ */
+function draftSearch(q: string | undefined) {
+  if (!q?.trim()) return null;
+  const s = customerSearchSql(q); const t = s.text;
+  return {
+    where: s.where("(c.name LIKE ? OR c.phone LIKE ? OR c.national_code=?)", [`%${t}%`, `%${t}%`, t], "c.id"),
+    rank: s.orderPrefix("c.id"),
+  };
+}
 const searchSql = (q: string | undefined, params: SqlValue[]) => {
-  if (!q?.trim()) return "";
-  const t = q.trim(); params.push(`%${t}%`, `%${t}%`, t.replace(/^#/, ""), t);
-  return " AND (c.name LIKE ? OR c.phone LIKE ? OR CAST(c.id AS TEXT)=? OR c.national_code=?)";
+  const search = draftSearch(q);
+  if (!search) return "";
+  params.push(...search.where.params);
+  return ` AND ${search.where.sql}`;
 };
 const hoursSince = (iso: string | null | undefined, nowMs: number) => (iso ? Math.max(0, Math.floor((nowMs - Date.parse(iso)) / 3_600_000)) : 0);
 

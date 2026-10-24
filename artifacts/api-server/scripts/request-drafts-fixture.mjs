@@ -123,24 +123,28 @@ try {
     assert.equal(list.status, 200); assert.equal(list.json.seesAll, false); assert.ok(!list.json.items.some((i) => i.id === d1.id));
     assert.ok((await call("salesA", "GET", "/loan-request-drafts")).json.items.some((i) => i.id === d1.id));
   });
-  await ok("queue search keeps the role scope (filters bound before scope)", async () => {
-    // Regression: the scope param was bound first while its SQL came last, so with a search (or customerId) the
+  await ok("queue search keeps the role scope (filters bound before scope) and finds the customer id in every form", async () => {
+    // Regression: the scope param was bound first while its SQL came last, so with a search the
     // salesperson filter compared against the search text — salesperson B searching A's id saw A's drafts.
+    const fa = (v) => String(v).replace(/\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[d]);
     const cAx = execute("INSERT INTO customers(name,phone,salesperson_id,created_at,verification_status) VALUES('fx scope probe',?,?,?,'unverified')",
       [`0912${String(spA).padStart(7, "0")}`, spA, ts]);
     const dx = (await call("salesA", "POST", "/loan-request-drafts", { customerId: cAx })).json.draft;
     assert.ok(dx?.id, "probe draft created");
     const phoneA1 = queryRow("SELECT phone FROM customers WHERE id=?", [cA1]).phone;
-    for (const q of [String(spA), String(cA1), `#${cA1}`, phoneA1, String(cAx), "fx scope probe", "fx customer"]) {
+    for (const q of [String(spA), String(cA1), `#${cA1}`, `#${fa(cA1)}`, fa(cA1), phoneA1, String(cAx), "fx scope probe", "fx customer"]) {
       for (const scope of ["all", "mine"]) {
         const r = await call("salesB", "GET", `/loan-request-drafts?scope=${scope}&search=${encodeURIComponent(q)}`);
         assert.equal(r.status, 200);
         assert.ok(!r.json.items.some((i) => i.salespersonId === spA), `salesB search ${q} (${scope}) leaked salesperson A's draft`);
       }
     }
-    for (const q of [String(cA1), `#${cA1}`, phoneA1]) {
-      assert.ok((await call("salesA", "GET", `/loan-request-drafts?search=${encodeURIComponent(q)}`)).json.items.some((i) => i.id === d1.id), `salesA finds own draft by ${q}`);
+    for (const q of [String(cA1), `#${cA1}`, `#${fa(cA1)}`, fa(cA1)]) {
+      const items = (await call("salesA", "GET", `/loan-request-drafts?search=${encodeURIComponent(q)}`)).json.items;
+      assert.equal(items[0]?.id, d1.id, `salesA ${q}: exact id first`);
+      if (q.startsWith("#")) assert.ok(items.every((i) => i.customerId === cA1), `${q} means the id only`);
     }
+    assert.ok((await call("salesA", "GET", `/loan-request-drafts?search=${encodeURIComponent(phoneA1)}`)).json.items.some((i) => i.id === d1.id), "mobile still matches");
     assert.ok((await call("registrar", "GET", `/loan-request-drafts?search=${encodeURIComponent(String(cAx))}`)).json.items.some((i) => i.id === dx.id), "all-scope roles unchanged");
     execute("DELETE FROM loan_request_drafts WHERE id=?", [dx.id]); // throwaway copy: keep later counts as before
   });
