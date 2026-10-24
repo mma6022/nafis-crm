@@ -424,7 +424,7 @@ export default function CustomerDetail() {
     </div>
     {canCall || canConsult ? <div className="acts2">
       {canCall ? <button type="button" className="csx-ghost sm" title={canDialSystem ? 'تماس با تلفن شرکت' : 'برای تماس سیستمی، ابتدا در بخش تلفن شرکت متصل شوید'} onClick={() => { if (canDialSystem) dial(customer.phone); else setLocation('/phone'); }} data-testid="button-sys-call-customer"><Phone size={18} color={canDialSystem ? undefined : '#94a3b8'} /> تماس سیستمی</button> : null}
-      {canConsult ? <button type="button" className="csx-ghost sm" onClick={() => setConsultationFormOpen(true)} data-testid="button-create-consultation"><FileText size={18} /> ثبت درخواست مشاوره</button> : null}
+      {canConsult ? <button type="button" className="csx-ghost sm" onClick={() => setConsultationFormOpen(true)} data-testid="button-create-consultation"><FileText size={18} /> ثبت مشاوره</button> : null}
     </div> : null}
   </section>;
 

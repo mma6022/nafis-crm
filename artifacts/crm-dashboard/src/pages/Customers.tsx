@@ -236,7 +236,6 @@ export default function Customers() {
   const total = page?.total ?? 0;
   const ownSalespersonId = session.data?.user.salespersonId ?? null;
 
-  const callHref = (customer: Customer) => `tel:${customer.phone.replace(/[^\d+]/g, '')}`;
   const tagsFor = (customer: Customer) => <>
     {customer.isUrgent ? <span className="csx-tag warn"><Zap size={14} aria-hidden="true" /> فوری</span> : null}
     {customer.verificationStatus === 'verified' ? <span className="csx-tag ok"><ShieldCheck size={14} aria-hidden="true" /> احراز شده</span> : customer.verificationStatus === 'unverified' ? <span className="csx-tag bad"><ShieldAlert size={14} aria-hidden="true" /> احراز نشده</span> : null}
@@ -245,7 +244,7 @@ export default function Customers() {
     <RepeatRequestTag customer={customer} onClick={() => setReviewing(customer)} />
   </>;
   const salespersonCell = (customer: Customer) => customer.salespersonName
-    ? <span className="asg"><span className="csx-av" aria-hidden="true">{initialsOf(customer.salespersonName)}</span>{customer.salespersonName}{isSalesperson && customer.salespersonId === ownSalespersonId ? ' (شما)' : ''}</span>
+    ? <span className="asg"><span className="csx-av" aria-hidden="true">{initialsOf(customer.salespersonName)}</span><span className="asg-txt"><span>{customer.salespersonName}</span>{isSalesperson && customer.salespersonId === ownSalespersonId ? <span> (شما)</span> : null}</span></span>
     : <span className="asg"><span className="none">بدون کارشناس</span></span>;
 
   const canUpgrade = (customer: Customer) => canUpdate && canUpgradeToP1(callLauncher.config, session.data?.user, customer);
@@ -266,10 +265,18 @@ export default function Customers() {
     }
     updateCustomer.mutate({ id, data: { priority: priorityValue } }, { onSuccess: invalidateAll });
   };
+  /** «ثبت تماس» (openCall / useCallLauncher rule) and «ثبت مشاوره» (CreateConsultationForm). No tel: on list rows. */
+  const rowActions = (customer: Customer) => {
+    const form = callLauncher.choose(customer);
+    return <>
+      {canCall ? <button type="button" className="csx-ract call" onClick={() => openCall(customer)} aria-label={`ثبت تماس برای ${customer.name}`} title={form === 'simple' ? 'فرم ساده‌ی ۳ مرحله‌ای' : 'فرم ثبت تماس'} data-testid={`button-new-call-${customer.id}`} aria-busy={callLauncher.pending?.id === customer.id ? true : undefined} data-form={form}><PhoneCall size={17} aria-hidden="true" /> ثبت تماس</button> : null}
+      {canConsult ? <button type="button" className="csx-ract consult" onClick={() => setNewConsultFor(customer)} aria-label={`ثبت مشاوره برای ${customer.name}`} data-testid={`button-new-consult-${customer.id}`}><FileText size={17} aria-hidden="true" /> ثبت مشاوره</button> : null}
+    </>;
+  };
   const legacyActions = (customer: Customer) => {
     const list: ReactNode[] = [];
-    if (canCall) list.push(<button key="call" type="button" onClick={() => openCall(customer)} data-testid={`button-new-call-${customer.id}`} aria-busy={callLauncher.pending?.id === customer.id ? true : undefined} data-form={callLauncher.choose(customer)}><PhoneCall size={17} aria-hidden="true" /> ثبت تماس</button>);
-    if (canConsult) list.push(<button key="consult" type="button" onClick={() => setNewConsultFor(customer)} data-testid={`button-new-consult-${customer.id}`}><FileText size={17} aria-hidden="true" /> درخواست مشاوره</button>);
+    // Row design 2026-10-24 (Armita): «ثبت تماس» / «ثبت مشاوره» are row buttons now; «پرونده مشتری» moved into this menu.
+    list.push(<Link key="file" href={`/customers/${customer.id}`} className="csx-mi" data-testid={`link-customer-file-${customer.id}`}><UserRound size={17} aria-hidden="true" /> پرونده مشتری</Link>);
     if (canUpdate) list.push(<button key="edit" type="button" onClick={() => openEdit(customer)} data-testid={`button-edit-customer-${customer.id}`}><Edit3 size={17} aria-hidden="true" /> ویرایش سریع</button>);
     if (isAdmin) {
       list.push(<button key="mi" type="button" aria-label={`احراز دستی ${customer.name}`} onClick={() => setManualIdentity(customer)} data-testid={`button-manual-identity-${customer.id}`}><ShieldCheck size={17} aria-hidden="true" /> احراز دستی</button>);
@@ -438,7 +445,7 @@ export default function Customers() {
           <table className="csx-table">
             <caption className="csx-sr">فهرست مشتریان</caption>
             <thead><tr>
-              <th scope="col">مشتری</th><th scope="col">موبایل</th><th scope="col">وضعیت</th><th scope="col">اولویت</th><th scope="col">کارشناس فروش</th>
+              <th scope="col">مشتری</th><th scope="col" className="col-phone">موبایل</th><th scope="col">وضعیت</th><th scope="col">اولویت</th><th scope="col">کارشناس فروش</th>
               <th scope="col" aria-sort={lastCallSort === 'asc' ? 'ascending' : lastCallSort === 'desc' ? 'descending' : 'none'}>
                 <button type="button" className="sortbtn" data-testid="button-sort-last-call" title={lastCallSort === 'desc' ? 'مرتب‌سازی از قدیمی‌ترین تماس' : 'مرتب‌سازی از جدیدترین تماس'} onClick={() => { setLastCallSort(current => current === 'desc' ? 'asc' : 'desc'); resetPaging(); }}>آخرین تماس {sortIcon}</button>
               </th>
@@ -451,15 +458,16 @@ export default function Customers() {
                   <td>
                     <div className="nm"><Link href={`/customers/${customer.id}`} data-testid={`link-customer-${customer.id}`}>{customer.name}</Link></div>
                     <div className="csx-chips" style={{ marginTop: 6 }}>{tagsFor(customer)}</div>
+                    <div className="phone-inline"><span className="ltr" dir="ltr">{formatPhoneForDisplay(customer.phone)}</span><span className="sep" aria-hidden="true">|</span>کد {faId(customer.id)}</div>
                     <div className="csx-meta reg-inline">ثبت {jalaliDate(customer.createdAt)}</div>
                   </td>
-                  <td><span className="phone ltr" dir="ltr">{formatPhoneForDisplay(customer.phone)}</span><div className="csx-meta">کد {faId(customer.id)}</div></td>
+                  <td className="col-phone"><span className="phone ltr" dir="ltr">{formatPhoneForDisplay(customer.phone)}</span><div className="csx-meta">کد {faId(customer.id)}</div></td>
                   <td>{canUpdate ? <select className="csx-isel st" data-s={customer.status} value={customer.status} disabled={updateCustomer.isPending} aria-label={`وضعیت ${customer.name}`} onChange={(e) => updateInlineCustomer(customer, { status: e.target.value as 'in_progress' | 'cancelled' | 'completed' })} data-testid={`select-inline-status-${customer.id}`}>
                     <option value="in_progress">در حال انجام</option><option value="completed">اتمام</option><option value="cancelled">لغو شده</option>
                   </select> : <StatusPill status={customer.status} />}</td>
                   <td>{canUpdate ? <select className="csx-isel" data-p={customer.priority ?? undefined} style={{ backgroundColor: priorityColors[String(customer.priority ?? 'none') as keyof typeof priorityColors] }} value={customer.priority ? String(customer.priority) : 'null'} disabled={updateCustomer.isPending} aria-label={`اولویت ${customer.name}`} onChange={(e) => setPriority1Guarded(customer, e.target.value === 'null' ? null : Number(e.target.value))} data-testid={`select-inline-priority-${customer.id}`}>
                     <option value="null">بدون اولویت</option><option value="1">اولویت ۱</option><option value="2">اولویت ۲</option><option value="3">اولویت ۳</option>
-                  </select> : <PriorityLabel value={customer.priority} />}{upgradeButton(customer, 'row')}</td>
+                  </select> : <PriorityLabel value={customer.priority} />}{upgradeButton(customer, 'row v2')}</td>
                   <td>{isAdmin ? <>
                     <select className="csx-isel" value={customer.salespersonId ?? ''} aria-label={`تغییر کارشناس مشتری ${customer.id}`} title="انتخاب و تغییر کارشناس این مشتری" data-testid={`select-inline-salesperson-${customer.id}`} disabled={updateCustomer.isPending || salespersons.isLoading || salespersons.isError} onChange={e => updateInlineCustomer(customer, { salespersonId: e.target.value ? Number(e.target.value) : null })}>
                       <option value="">بدون کارشناس</option>
@@ -470,12 +478,11 @@ export default function Customers() {
                   </> : salespersonCell(customer)}</td>
                   <td data-testid={`last-call-${customer.id}`} title={customer.lastCallAt ? formatDateTime(customer.lastCallAt) : undefined}>{customer.lastCallAt ? relativeTime(customer.lastCallAt) : '—'}<div className="csx-meta">{fa(customer.activityCount)} فعالیت</div></td>
                   <td className="csx-meta col-reg">{jalaliDate(customer.createdAt)}</td>
-                  <td><div className="csx-tact">
-                    {canCall ? <a className="csx-ib line call" href={callHref(customer)} aria-label={`تماس با ${customer.name}`} title="تماس"><Phone size={18} aria-hidden="true" /></a> : null}
-                    <Link href={`/customers/${customer.id}`} className="csx-ghost">پرونده</Link>
+                  <td className="act"><div className="csx-tact after">
+                    {rowActions(customer)}
                     {extra.length ? <details className="csx-menu" onKeyDown={(e) => { if (e.key === 'Escape') (e.currentTarget as HTMLDetailsElement).open = false; }}>
                       <summary aria-label={`کارهای بیشتر برای ${customer.name}`}><MoreHorizontal size={20} aria-hidden="true" /></summary>
-                      <div className="pop" onClick={(e) => { const d = (e.currentTarget.parentElement as HTMLDetailsElement); if ((e.target as HTMLElement).closest('button')) d.open = false; }}>{extra}</div>
+                      <div className="pop" onClick={(e) => { const d = (e.currentTarget.parentElement as HTMLDetailsElement); if ((e.target as HTMLElement).closest('button, a')) d.open = false; }}>{extra}</div>
                     </details> : null}
                   </div></td>
                 </tr>;
@@ -507,11 +514,8 @@ export default function Customers() {
               <div className="row"><span className="phone" dir="ltr"><Phone size={16} aria-hidden="true" /> {formatPhoneForDisplay(customer.phone)}</span><span className="csx-meta">کد {faId(customer.id)}</span></div>
               <div className="row">{salespersonCell(customer)}<span className="csx-meta">{fa(customer.activityCount)} فعالیت</span></div>
               {upgradeButton(customer, 'card')}
-              <div className="csx-acts">
-                {canCall ? <a className="csx-call" href={callHref(customer)} aria-label={`تماس با ${customer.name}`}><Phone size={19} aria-hidden="true" /> تماس</a> : null}
-                <Link href={`/customers/${customer.id}`} className="csx-ghost">پرونده مشتری</Link>
-              </div>
-              {extra.length ? <details className="csx-more csx-cardmore"><summary>کارهای بیشتر</summary><div className="more csx-menu-inline">{extra}</div></details> : null}
+              {canCall || canConsult ? <div className="csx-acts after">{rowActions(customer)}</div> : null}
+              {extra.length ? <details className="csx-more csx-cardmore"><summary>پرونده و کارهای بیشتر</summary><div className="more csx-menu-inline">{extra}</div></details> : null}
             </li>;
           })}
         </ul>
@@ -673,7 +677,7 @@ function BoardColumn({ column, color, filters, tagLabels, onReview, onCall, onCo
             <div style={{ display: 'flex', gap: 4 }}>
               <button className="row-action" style={{ padding: 2 }} onClick={() => onCall(customer)} title="تماس"><PhoneCall size={12} /></button>
               {(() => { const up = onUpgrade?.(customer); return up ? <button className="row-action ts-up-board" style={{ padding: '2px 6px' }} onClick={up} title="ارتقا به اولویت ۱" data-testid={`button-board-upgrade-p1-${customer.id}`}><ArrowUp size={12} /> ارتقا به ۱</button> : null; })()}
-              <button className="row-action" style={{ padding: 2 }} onClick={() => onConsult(customer)} title="مشاوره"><FileText size={12} /></button>
+              <button className="row-action" style={{ padding: 2 }} onClick={() => onConsult(customer)} title="ثبت مشاوره" aria-label="ثبت مشاوره"><FileText size={12} /></button>
               <button className="row-action" style={{ padding: 2 }} onClick={() => onEdit(customer)} title="ویرایش مشتری" data-testid={`button-board-edit-customer-${customer.id}`}><Edit3 size={12} /></button>
               {onManualIdentity && <button className="row-action" style={{ padding: 2 }} onClick={() => onManualIdentity(customer)} title="احراز دستی و ویرایش مشخصات" data-testid={`button-board-manual-identity-${customer.id}`}>احراز دستی</button>}
               {onDelete ? <button className="row-action danger" style={{ padding: 2 }} onClick={() => onDelete(customer)} title="حذف مشتری" data-testid={`button-board-delete-customer-${customer.id}`}><Trash2 size={12} /></button> : null}

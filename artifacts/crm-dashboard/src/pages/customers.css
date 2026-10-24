@@ -299,14 +299,14 @@ select.csx-inp { font-weight: 600; }
 .csx-menu > summary:hover, .csx-menu[open] > summary { background: var(--nf-brand-50, #eef0fb); border-color: var(--nf-line); }
 .csx-menu > summary:focus-visible { outline: none; box-shadow: var(--nf-ring); }
 .csx-menu .pop { position: absolute; z-index: 20; inset-inline-end: 0; top: calc(100% + 4px); min-width: 200px; background: #fff; border: 1px solid var(--nf-line); border-radius: 14px; box-shadow: 0 12px 32px rgba(0, 0, 109, .14); padding: 6px; display: grid; }
-.csx-menu .pop button { min-height: 44px; border: 0; background: transparent; border-radius: 10px; padding: 0 12px; display: flex; align-items: center; gap: 8px; font: inherit; font-size: 15px; font-weight: 600; color: var(--nf-ink); cursor: pointer; text-align: start; }
-.csx-menu .pop button:hover { background: var(--nf-brand-50, #eef0fb); }
+.csx-menu .pop button, .csx-menu .pop a.csx-mi { min-height: 44px; border: 0; background: transparent; border-radius: 10px; padding: 0 12px; display: flex; align-items: center; gap: 8px; font: inherit; font-size: 15px; font-weight: 600; color: var(--nf-ink); cursor: pointer; text-align: start; }
+.csx-menu .pop button:hover, .csx-menu .pop a.csx-mi:hover { background: var(--nf-brand-50, #eef0fb); }
 .csx-menu .pop button.danger { color: #b42318; }
 .csx-menu .pop hr { border: 0; border-top: 1px solid var(--nf-line); margin: 4px 0; }
 .csx .board-grid { margin-top: 4px; }
-.csx-card .more.csx-menu-inline button { min-height: 40px; border: 0; background: transparent; color: var(--nf-brand-600); font: inherit; font-size: 14px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 10px; cursor: pointer; }
+.csx-card .more.csx-menu-inline button, .csx-card .more.csx-menu-inline a.csx-mi { min-height: 40px; border: 0; background: transparent; color: var(--nf-brand-600); font: inherit; font-size: 14px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 10px; cursor: pointer; }
 .csx-card .more.csx-menu-inline button.danger { color: #b42318; }
-.csx-card .more.csx-menu-inline button:hover { background: var(--nf-brand-50); }
+.csx-card .more.csx-menu-inline button:hover, .csx-card .more.csx-menu-inline a.csx-mi:hover { background: var(--nf-brand-50); }
 
 .csx { min-width: 0; max-width: 100%; }
 .csx > * { min-width: 0; }
@@ -334,7 +334,8 @@ select.csx-inp { font-weight: 600; }
   .csx-table td:first-child { max-width: 210px; }
 }
 .csx-table .reg-inline { display: none; margin-top: 4px; font-size: 13px; }
-@media (min-width: 1024px) and (max-width: 1359px) {
+/* Upper bound raised from 1359px with the row-action buttons (design crm-customer-row-actions): the wider actions column needs the phone and «ثبت» columns folded inline until ~1536px. */
+@media (min-width: 1024px) and (max-width: 1535px) {
   .csx-table .col-reg { display: none; }
   .csx-table .reg-inline { display: block; }
 }
@@ -403,3 +404,34 @@ a.csx-primary, a.csx-ghost, a.csx-call { text-decoration: none; }
 .csx-st[data-bs="completed"] { --c: var(--nf-success); --b: var(--nf-success-50); }
 .csx-st[data-bs="canceled"] { --c: var(--nf-ink-muted); --b: var(--nf-surface-2); }
 .csx-loan-stage { font-size: 14px; color: var(--nf-ink-2, var(--nf-ink)); font-weight: 600; }
+
+/* Customer row actions (design crm-customer-row-actions, 2026-10-24): «ثبت تماس» + «ثبت مشاوره» replace the tel: dial button; «پرونده مشتری» lives in the ⋯ menu. */
+.csx-ract { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 0 10px; border-radius: 12px; font: inherit; font-weight: 800; font-size: 14px; white-space: nowrap; cursor: pointer; text-decoration: none; border: 1.5px solid var(--csx-line-strong); background: #fff; color: var(--nf-ink); }
+/* `.csx button { font: inherit }` would otherwise win over the size/weight. */
+.csx button.csx-ract { font-size: 14px; font-weight: 800; }
+.csx-ract svg { width: 17px; height: 17px; flex: none; }
+.csx-ract.call { background: var(--nf-brand-600); border-color: var(--nf-brand-600); color: #fff; }
+.csx-ract.call:hover { background: var(--nf-brand-800, #1B2470); border-color: var(--nf-brand-800, #1B2470); }
+.csx-ract.consult:hover { background: var(--nf-brand-50); border-color: var(--nf-brand-600); color: var(--nf-brand-700); }
+.csx-ract:focus-visible { outline: 3px solid rgba(41, 54, 155, .35); outline-offset: 2px; }
+.csx-ract[aria-busy="true"] { opacity: .7; cursor: progress; }
+.csx-tact.after { gap: 6px; }
+.csx-tact.after .csx-menu > summary { border-color: var(--nf-line); }
+.csx-acts.after { grid-template-columns: 1fr 1fr; }
+.csx-acts.after .csx-ract, .csx .csx-acts.after button.csx-ract { min-height: 48px; font-size: 15px; border-radius: 14px; }
+.csx-acts.after .csx-ract svg { width: 19px; height: 19px; }
+.csx-card .ts-up-btn.card { margin: 0; }
+.csx-cardmore summary { min-height: 40px; color: var(--nf-brand-600); font-weight: 700; font-size: 14px; cursor: pointer; }
+.csx-menu .pop a.csx-mi { text-decoration: none; }
+.csx-card .more.csx-menu-inline a.csx-mi { text-decoration: none; }
+.csx-table td.act { width: 1%; white-space: nowrap; }
+/* Design had `.asg` and every `td` nowrap; with the app font (Estedad) and real names that overflows the 1280 table by ~70px, so the phone and action cell stay on one line and the salesperson may break only before «(شما)»; cell padding stays at the existing 7px (design 9px). */
+.csx-table .phone { white-space: nowrap; }
+.csx-table .asg-txt > span { display: inline-block; white-space: nowrap; }
+.csx-table .phone { font-size: 15.5px; }
+.csx-table .phone-inline { display: none; font-size: 14px; font-weight: 700; color: var(--nf-ink-soft); margin-top: 4px; }
+.csx-table .phone-inline .sep { color: var(--nf-line-strong, #c9cedf); margin: 0 6px; }
+@media (min-width: 1024px) and (max-width: 1535px) {
+  .csx-table .col-phone { display: none; }
+  .csx-table .phone-inline { display: block; }
+}
