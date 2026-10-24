@@ -26,6 +26,7 @@ import { removeCompletedAfterCallFromQueue } from '@/components/voip/after-call-
 import { useTableState } from '@/hooks/use-table-state';
 import { ConfirmDialog, PriorityLabel, Sheet, StatusPill, initialsOf, jalaliDate, relativeTime, useMinWidth } from './customers-ui';
 import './customers.css';
+import { KAZEMI_SOURCE_FILTERS, KazemiSourceChip, kazemiSourceOf } from '@/features/kazemi-source/KazemiSourceChip';
 
 const fa = (n: number) => n.toLocaleString('fa-IR');
 const faId = (n: number) => n.toLocaleString('fa-IR', { useGrouping: false });
@@ -71,6 +72,8 @@ export default function Customers() {
   const [status, setStatus] = useTableState('customers.status', 'in_progress');
   const [priority, setPriority] = useTableState('customers.priority', '');
   const [tag, setTag] = useTableState('customers.tag', '');
+  // crm-kazemi-source: «منبع: همه / از کاظمی / مشتری قبلی» (display-only filter).
+  const [source, setSource] = useTableState('customers.source', '');
   const tagCatalog = useListCustomerTags({ query: { queryKey: getListCustomerTagsQueryKey() } });
   const [reviewing, setReviewing] = useState<Customer | null>(null);
   const [salespersonId, setSalespersonId] = useTableState('customers.salespersonId', '');
@@ -117,7 +120,9 @@ export default function Customers() {
     dateTo: jalaliValueToGregorian(dateTo),
     minCallCount: minCallCount ? Number(minCallCount) : undefined,
     maxCallCount: maxCallCount ? Number(maxCallCount) : undefined,
-  }), [search, tag, customerId, salespersonId, dateFrom, dateTo, minCallCount, maxCallCount]);
+    // Not in the generated ListCustomersParams: the generated client forwards extra keys to the query string.
+    source: source === 'from_kazemi' || source === 'previous' ? source : undefined,
+  }), [search, tag, customerId, salespersonId, dateFrom, dateTo, minCallCount, maxCallCount, source]);
 
   const params = useMemo(() => ({
     ...sharedParams,
@@ -232,9 +237,10 @@ export default function Customers() {
   if (priority) activeFilters.push({ key: 'priority', label: priority === 'null' ? 'بدون اولویت' : `اولویت ${fa(Number(priority))}`, clear: () => setPriority('') });
   if (salespersonId && !isSalesperson) activeFilters.push({ key: 'sp', label: salespersonLabel(salespersonId), clear: () => setSalespersonId('') });
   if (tag) activeFilters.push({ key: 'tag', label: tagLabel(tag), clear: () => setTag('') });
+  if (source === 'from_kazemi' || source === 'previous') activeFilters.push({ key: 'source', label: `منبع: ${source === 'from_kazemi' ? 'از کاظمی' : 'مشتری قبلی'}`, clear: () => setSource('') });
   if (dateFrom || dateTo) activeFilters.push({ key: 'date', label: `ثبت ${dateFrom ? `از ${dateFrom}` : ''}${dateFrom && dateTo ? ' ' : ''}${dateTo ? `تا ${dateTo}` : ''}`, clear: () => { setDateFrom(''); setDateTo(''); } });
   if (minCallCount || maxCallCount) activeFilters.push({ key: 'calls', label: `تماس ${minCallCount ? `حداقل ${fa(Number(minCallCount))}` : ''}${minCallCount && maxCallCount ? '، ' : ''}${maxCallCount ? `حداکثر ${fa(Number(maxCallCount))}` : ''}`, clear: () => { setMinCallCount(''); setMaxCallCount(''); } });
-  const clearFilters = () => { setCustomerId(''); setPriority(''); if (!isSalesperson) setSalespersonId(''); setTag(''); setDateFrom(''); setDateTo(''); setMinCallCount(''); setMaxCallCount(''); setLastCallSort(undefined); resetPaging(); };
+  const clearFilters = () => { setCustomerId(''); setPriority(''); if (!isSalesperson) setSalespersonId(''); setTag(''); setSource(''); setDateFrom(''); setDateTo(''); setMinCallCount(''); setMaxCallCount(''); setLastCallSort(undefined); resetPaging(); };
   const hasQuery = Boolean(search) || activeFilters.length > 0;
   const items = page?.items ?? [];
   const total = page?.total ?? 0;
@@ -308,6 +314,14 @@ export default function Customers() {
       <div className="csx-chips">
         {[['', 'همه'], ['1', 'اولویت ۱'], ['2', 'اولویت ۲'], ['3', 'اولویت ۳'], ['null', 'بدون اولویت']].map(([value, label]) => (
           <button key={value || 'all'} type="button" role="radio" className="csx-chip" aria-checked={priority === value} data-p={value && value !== 'null' ? value : undefined} onClick={() => { setPriority(value); resetPaging(); }}>{label}</button>
+        ))}
+      </div>
+    </div>
+    <div className="csx-fgrp" role="radiogroup" aria-label="منبع" data-testid="select-filter-source">
+      <span className="lbl">منبع</span>
+      <div className="csx-chips">
+        {KAZEMI_SOURCE_FILTERS.map(([value, label]) => (
+          <button key={value || 'all'} type="button" role="radio" className="csx-chip" aria-checked={source === value} data-testid={`filter-source-${value || 'all'}`} onClick={() => { setSource(value); resetPaging(); }}>{label}</button>
         ))}
       </div>
     </div>
@@ -461,7 +475,7 @@ export default function Customers() {
                 const extra = legacyActions(customer);
                 return <tr key={customer.id} className={customer.isUrgent || customer.pendingRepeatRequestCount > 0 ? 'hl' : ''} data-testid={`row-customer-${customer.id}`}>
                   <td>
-                    <div className="nm"><CustomerName id={customer.id} name={customer.name} href={`/customers/${customer.id}`} nameTestId={`link-customer-${customer.id}`} badgeTestId={`badge-customer-id-${customer.id}`} /></div>
+                    <div className="nm kzs-wrap"><CustomerName id={customer.id} name={customer.name} href={`/customers/${customer.id}`} nameTestId={`link-customer-${customer.id}`} badgeTestId={`badge-customer-id-${customer.id}`} /><KazemiSourceChip source={kazemiSourceOf(customer)} testId={`chip-kazemi-source-${customer.id}`} /></div>
                     <div className="csx-chips" style={{ marginTop: 6 }}>{tagsFor(customer)}</div>
                     <div className="phone-inline"><span className="ltr" dir="ltr">{formatPhoneForDisplay(customer.phone)}</span></div>
                     <div className="csx-meta reg-inline">ثبت {jalaliDate(customer.createdAt)}</div>
@@ -512,7 +526,7 @@ export default function Customers() {
             const extra = legacyActions(customer);
             return <li key={customer.id} className={`csx-card${customer.isUrgent || customer.pendingRepeatRequestCount > 0 ? ' hl' : ''}`} data-testid={`row-customer-${customer.id}`}>
               <div className="r1"><StatusPill status={customer.status} /><PriorityLabel value={customer.priority} /><span className="age" data-testid={`last-call-${customer.id}`}><Clock size={15} aria-hidden="true" /> {customer.lastCallAt ? `آخرین تماس ${relativeTime(customer.lastCallAt)}` : 'هنوز تماسی ثبت نشده'}</span></div>
-              <h3 className="nm"><CustomerName id={customer.id} name={customer.name} href={`/customers/${customer.id}`} nameTestId={`link-customer-${customer.id}`} badgeTestId={`badge-customer-id-${customer.id}`} /></h3>
+              <h3 className="nm kzs-wrap"><CustomerName id={customer.id} name={customer.name} href={`/customers/${customer.id}`} nameTestId={`link-customer-${customer.id}`} badgeTestId={`badge-customer-id-${customer.id}`} /><KazemiSourceChip source={kazemiSourceOf(customer)} testId={`chip-kazemi-source-${customer.id}`} /></h3>
               <div className="csx-chips">{tagsFor(customer)}</div>
               <div className="row"><span className="phone" dir="ltr"><Phone size={16} aria-hidden="true" /> {formatPhoneForDisplay(customer.phone)}</span></div>
               <div className="row">{salespersonCell(customer)}<span className="csx-meta">{fa(customer.activityCount)} فعالیت</span></div>
@@ -672,7 +686,7 @@ function BoardColumn({ column, color, filters, tagLabels, onReview, onCall, onCo
          <div key={customer.id} className={`board-card ${customer.pendingRepeatRequestCount > 0 ? 'repeat-highlight' : ''}`} style={{ backgroundColor: color }} draggable onDragStart={(event) => event.dataTransfer.setData('customerId', String(customer.id))} data-testid={`board-card-${customer.id}`}>
           <div className="board-card-name">
             <Link href={`/customers/${customer.id}`} className="board-customer-link">
-              <span className="board-customer-name">{customer.name}</span>{(customer as { portalOrigin?: boolean }).portalOrigin ? <span className="tag-portal" data-testid="tag-portal-origin" style={{ marginInlineStart: 6, fontSize: 10, padding: '1px 7px', borderRadius: 9, background: '#f3ecdb', color: '#7a5a1f', fontWeight: 700 }}>پنل مشتریان</span> : null}
+              <span className="board-customer-name">{customer.name}</span><KazemiSourceChip source={kazemiSourceOf(customer)} testId={`board-chip-kazemi-source-${customer.id}`} />{(customer as { portalOrigin?: boolean }).portalOrigin ? <span className="tag-portal" data-testid="tag-portal-origin" style={{ marginInlineStart: 6, fontSize: 10, padding: '1px 7px', borderRadius: 9, background: '#f3ecdb', color: '#7a5a1f', fontWeight: 700 }}>پنل مشتریان</span> : null}
               <span style={{ display: 'block', fontSize: 11, color: '#64748b' }}>کارشناس فروش: {customer.salespersonName || 'بدون تخصیص'}</span>
               <span className="customer-tags">
                 {customer.isUrgent && <span className="customer-tag customer-tag-urgent">فوری</span>}

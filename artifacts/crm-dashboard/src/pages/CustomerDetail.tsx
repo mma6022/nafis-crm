@@ -27,6 +27,7 @@ import { BUSINESS_STATUS_LABELS, WIZARD_DISPLAY_STEPS, WIZARD_TOTAL_STEPS, loanB
 import { ConfirmDialog, initialsOf, jalaliDate, PriorityLabel, relativeTime, Sheet, STATUS_LABEL, StatusPill } from './customers-ui';
 import './customers.css';
 import { useCallLauncher, CallLaunchStatus } from '@/features/team-sales/useCallLauncher';
+import { KazemiSourceChip, kazemiSourceOf } from '@/features/kazemi-source/KazemiSourceChip';
 import { consultProfileKey, firstCallEditInfoKey, firstCallOf, showsUpgradeButton, useFirstCallEditInfo, usesSimpleForm, type FirstCallEditResult, type PromoteResult, type QualifyResult } from '@/features/team-sales/api';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 import { FirstCallSummaryCard, NoPlanBox, SuggestedPlansBox } from '@/features/team-sales/FirstCallCard';
@@ -441,7 +442,7 @@ export default function CustomerDetail() {
       <div className="who">
         <span className="csx-av" aria-hidden="true">{initialsOf(customer.name)}</span>
         <div style={{ minWidth: 0 }}>
-          <h2 id="customer-hero-name"><CustomerName id={customer.id} name={customer.name} nameTestId="text-customer-name" badgeTestId="text-customer-id" /></h2>
+          <h2 id="customer-hero-name" className="kzs-wrap"><CustomerName id={customer.id} name={customer.name} nameTestId="text-customer-name" badgeTestId="text-customer-id" /><KazemiSourceChip source={kazemiSourceOf(customer)} testId="chip-kazemi-source" /></h2>
           <div className="sub">کارشناس: {handoff ? handoff.closerName : customer.salespersonName || 'بدون تخصیص'}</div>
         </div>
       </div>

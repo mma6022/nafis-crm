@@ -62,7 +62,8 @@
     "fixture:first-call-edit": "node scripts/run-bundled-fixture.mjs scripts/first-call-edit-fixture.mjs",
     "check:no-contract-content": "node scripts/no-contract-content-check.mjs",
     "fixture:call-note-min": "node scripts/run-bundled-fixture.mjs scripts/call-note-min-fixture.mjs",
-    "fixture:expert-intro-sms": "node scripts/run-bundled-fixture.mjs scripts/expert-intro-sms-fixture.mjs"
+    "fixture:expert-intro-sms": "node scripts/run-bundled-fixture.mjs scripts/expert-intro-sms-fixture.mjs",
+    "fixture:kazemi-source": "node scripts/run-bundled-fixture.mjs scripts/kazemi-source-fixture.mjs"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.3.0",

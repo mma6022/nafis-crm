@@ -179,6 +179,7 @@ import { questionnaireError, consultationRankMatches, type QuestionnaireOption }
 import { consultationMaximumAmount } from "../lib/consultation-limits";
 import { verifyCustomer } from "../lib/sapi";
 import { latestFirstCall, latestNoPlanFit, latestSelectedPlans, logPriorityChange } from "../lib/team-sales";
+import { kazemiSourceFilterSql, kazemiSourceOf, kazemiSources } from "../lib/kazemi-source";
 import { IDENTITY_LOG_TABLE, canActOnCustomerProfile, ensureIdentityLogSchema } from "../lib/consult-profile";
 import { retainedIdentityChecks } from "../lib/identity-check-retention";
 import { normalizeCustomerMobile, normalizeCustomerNationalCode, isAdminRole } from "../lib/customer-integrity";
@@ -1714,6 +1715,12 @@ router.get(
       filters.push("c.salesperson_id = ?");
       params.push(salespersonId);
     }
+    // crm-kazemi-source: «منبع: همه / از کاظمی / مشتری قبلی» (display-only filter; read from the raw query, zod strips it).
+    const sourceFilter = kazemiSourceFilterSql(req.query.source);
+    if (sourceFilter) {
+      filters.push(sourceFilter.sql);
+      params.push(...sourceFilter.params);
+    }
     if (dateFrom) {
       filters.push("date(c.created_at) >= date(?)");
       params.push(dateFrom);
@@ -1783,9 +1790,12 @@ router.get(
       : null;
     // crm-no-plan-option: grey «بدون طرح مناسب» chip.
     const noPlan = latestNoPlanFit(listBody.items.map((item) => Number(item.id)));
+    // crm-kazemi-source: «از کاظمی» / «مشتری قبلی» chip (null = no chip).
+    const sources = kazemiSources(listBody.items.map((item) => Number(item.id)));
     res.json({
       ...listBody,
-      items: listBody.items.map((item) => ({ ...item, suggestedPlans: suggested.get(Number(item.id)) ?? [], noPlanFit: noPlan.has(Number(item.id)) })),
+      items: listBody.items.map((item) => ({ ...item, suggestedPlans: suggested.get(Number(item.id)) ?? [], noPlanFit: noPlan.has(Number(item.id)),
+        kazemiSource: sources.get(Number(item.id)) ?? null })),
       ...(crossOwner ? { otherOwnerMatches: crossOwner.items, otherOwnerLimited: crossOwner.limited } : {}),
     });
   },
@@ -2044,6 +2054,8 @@ router.get(
       }),
       // crm-call-form-plans: latest answered first-call form (selected plans + answers summary); null for older forms.
       firstCall: latestFirstCall(parsed.data.id),
+      // crm-kazemi-source: «از کاظمی» / «مشتری قبلی» chip next to the id badge (null = no chip).
+      kazemiSource: kazemiSourceOf(parsed.data.id),
       // crm-no-plan-option: city of residence (first-call form prefill); null when empty.
       city: queryRow<{ city: string | null }>("SELECT city FROM customers WHERE id=?", [parsed.data.id])?.city ?? null,
     });
