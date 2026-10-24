@@ -1,12 +1,15 @@
 import { useEffect, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 
+/** Escape already used by an open popover (e.g. the Shamsi date picker) must not also close the sheet. */
+const escapeTaken = (e: KeyboardEvent) => e.defaultPrevented || Boolean(document.querySelector('[data-radix-popper-content-wrapper]'));
+
 /** Bottom sheet on mobile, centred card on desktop (design kit .sheet). Escape and scrim close it. */
 export function Sheet({ title, onClose, children, className = '', labelId }: { title: ReactNode; onClose: () => void; children: ReactNode; className?: string; labelId: string }) {
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !escapeTaken(e)) onClose(); };
     window.addEventListener('keydown', onKey);
     return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', onKey); };
   }, [onClose]);
@@ -24,7 +27,7 @@ export function Dlg({ onClose, children, labelId, busy }: { onClose: () => void;
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy && !escapeTaken(e)) onClose(); };
     window.addEventListener('keydown', onKey);
     return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', onKey); };
   }, [onClose, busy]);
