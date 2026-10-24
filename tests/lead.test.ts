@@ -5,7 +5,6 @@ import { buildLeadPayload, submitLead, LeadError, type LeadInput } from '../src/
 const base: LeadInput = {
   name: ' مریم احمدی ',
   phone: '۰۹۱۲ ۳۴۵ ۶۷۸۹',
-  need: 'cash',
   amountBand: '100-200',
   contactTime: 'any',
   consent: true,
@@ -24,6 +23,11 @@ test('payload has only CRM keys, normalised phone, slug src', () => {
   assert.equal(p.name, 'مریم احمدی');
   assert.equal(p.src, 'home-finder');
   assert.equal(p.website, '');
+});
+
+test('legal 2026-10-24: need is always \'help\' (no request-type question), even if a caller passes one', () => {
+  assert.equal(buildLeadPayload(base).need, 'help');
+  assert.equal(buildLeadPayload({ ...base, need: 'goods' } as LeadInput).need, 'help');
 });
 
 test('bad src dropped, term only with plan', () => {

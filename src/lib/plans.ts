@@ -2,9 +2,9 @@
  * Pure plan logic shared by SSR (hero facts, keyword pages) and islands (PlanFinder, wizard).
  * Algorithm follows UX-SPEC §6 as implemented in the designer's mockup
  * (/workspace/nafis-design/mockups/hero-finder-mobile.src.html):
- *   score = type 30 + payout band 40 (adjacent 20) + priority 30;
- *   ranking is lexicographic [preset guarantee] > type > band > priority, which equals the spec's relaxation
- *   order (priority dropped first, then band, then type; a page preset last);
+ *   score = base 30 + payout band 40 (adjacent 20) + priority 30 (the base replaced the old «type» component:
+ *   legal 2026-10-24, the customer is never asked cash/goods, so every eligible plan of every type competes);
+ *   ranking is lexicographic [preset guarantee] > band > priority (priority relaxed first, then band);
  *   de-duplicated by plan name; always 1–3 cards, never "not found".
  */
 import { qualifiesFor, type GuaranteePage, type GuaranteeType } from '../data/plan-guarantees';
@@ -128,15 +128,13 @@ export const byId = (all: Combo[], id: number): Combo | undefined =>
 /* ---------------- /calculator ---------------- */
 
 /**
- * /calculator results (UX-SPEC §7, ANSWERS-1 §9): 1–3 plans for type → band → term. Rank: band match, then
- * exact/nearest term, then lower installment, then smaller id; one card per plan (its combo closest to the term).
- * Falls back to every type when the chosen type has no plan, so the page never shows «no plan».
+ * /calculator results (UX-SPEC §7, ANSWERS-1 §9): 1–3 plans for band → term over EVERY eligible plan (no plan-type
+ * filter: legal 2026-10-24). Rank: band match, then exact/nearest term, then lower installment, then smaller id; one
+ * card per plan (its combo closest to the term).
  */
-export function calcPicks(all: Combo[], type: FinderType, band: FinderBand, term: number, max = 3, retired = false): Combo[] {
-  const t = type === 'cash' ? 'score' : type === 'goods' ? 'goods' : null;
+export function calcPicks(all: Combo[], band: FinderBand, term: number, max = 3, retired = false): Combo[] {
   const eligible = all.filter((c) => retired || !c.retirees);
-  const pool = eligible.filter((c) => !t || c.type === t);
-  const list = (pool.length ? pool : eligible)
+  const list = eligible
     .slice()
     .sort(
       (x, y) =>
@@ -158,11 +156,9 @@ export function calcPicks(all: Combo[], type: FinderType, band: FinderBand, term
 
 /* ---------------- finder ---------------- */
 
-export type FinderType = 'cash' | 'goods' | 'any';
 export type FinderBand = 0 | 1 | 2;
 export type FinderPrio = 'fast' | 'cheap' | 'online';
 export interface FinderAnswers {
-  type: FinderType;
   band: FinderBand;
   prio: FinderPrio;
   /** «بازنشسته هستم»: retiree-only plans (21) are offered only then */
@@ -170,13 +166,11 @@ export interface FinderAnswers {
 }
 /** Keyword-page preset. A guarantee preset is a HARD filter (unknown guarantee = not qualifying, never relaxed). */
 export interface FinderPreset {
-  type?: FinderType;
   prio?: FinderPrio;
   /** e.g. «بدون ضامن» → page 'no-guarantor' (data/plan-guarantees.ts qualifiesFor) */
   guarantee?: { page: GuaranteePage; label: string };
 }
 
-export const FINDER_TYPES: FinderType[] = ['cash', 'goods', 'any'];
 export const FINDER_BANDS: FinderBand[] = [0, 1, 2];
 export const FINDER_PRIOS: FinderPrio[] = ['fast', 'cheap', 'online'];
 
@@ -203,13 +197,14 @@ export function recommend(all: Combo[], a: FinderAnswers, preset: FinderPreset =
   all = all.filter((c) => (a.retired || !c.retirees) && (!g || comboQualifies(c, g.page)));
   if (!all.length) return { exact: false, cards: [], presetUnknown: false };
   const guaranteeOk = (_c: Combo) => true;
-  const typeOk = (c: Combo) => a.type === 'any' || (a.type === 'cash' ? c.type === 'score' : c.type === 'goods');
+  // legal 2026-10-24: no plan-type question; every plan gets the same base (keeps the 100 = exact scale)
+  const BASE = 30;
   const bandScore = (c: Combo) => {
     const d = Math.abs(bandOf(c.payout) - a.band);
     return d === 0 ? 40 : d === 1 ? 20 : 0;
   };
   const base = all.map((c) => {
-    const t = typeOk(c) ? 30 : 0;
+    const t = BASE;
     const b = bandScore(c);
     return { ...c, t, b, g: guaranteeOk(c) ? 1 : 0, s: t + b };
   });
@@ -296,17 +291,6 @@ export const REQ_BAND_KEYS = ['0-100', '100-200', '200-300', '300-500', '500-100
 
 /** Finder questions, copy and icons verbatim from the designer's site.js `Q`. */
 export const FINDER_Q = {
-  type: {
-    title: 'وام را برای چه می‌خواهید؟',
-    step: 'هدف وام',
-    lbl: 'هدف',
-    hint: 'یکی را انتخاب کنید؛ بعداً هم می‌توانید عوضش کنید.',
-    opts: [
-      { v: 'cash', icon: 'cash', title: 'پول نقد', sub: 'وام نقدی بر پایه اعتبارسنجی' },
-      { v: 'goods', icon: 'cart', title: 'خرید کالا قسطی', sub: 'کالا را می‌گیرید و قسطی پرداخت می‌کنید' },
-      { v: 'any', icon: 'both', title: 'فرقی نمی‌کند', sub: 'هر دو را به من نشان بده' },
-    ],
-  },
   band: {
     title: 'حدوداً چقدر لازم دارید؟',
     step: 'حدود مبلغ',
@@ -332,14 +316,12 @@ export const FINDER_Q = {
 } as const;
 
 export const FINDER_LABEL = {
-  type: { cash: 'پول نقد', goods: 'خرید کالا قسطی', any: 'نقد یا کالا' } as Record<FinderType, string>,
   band: ['کمتر از ۱۰۰ میلیون', '۱۰۰ تا ۲۰۰ میلیون', 'بیش از ۲۰۰ میلیون'],
   prio: { fast: 'زودتر برسد', cheap: 'قسط کمتر', online: 'بدون مراجعه حضوری' } as Record<FinderPrio, string>,
 };
 export const DAYS_LABEL: Record<string, string> = { under_7: 'کمتر از ۷ روز', '10_to_15': '۱۰ تا ۱۵ روز' };
 /** Card «روش» label. Never «کاملاً آنلاین»: there is no data for it (ANSWERS-1 §4). */
 export const MODE_LABEL: Record<string, string> = { both: 'آنلاین یا حضوری', in_person: 'حضوری', online: 'آنلاین' };
-export const TYPE_LABEL: Record<string, string> = { goods: 'خرید کالا قسطی', score: 'وام نقدی' };
 
 /* ---------------- content presets (MDX `<PlanFinder preset={{…}} />`, `<PlanCards filter="…" />`) ---------------- */
 
@@ -419,10 +401,12 @@ export function topPlanPerType(plans: LoanPlan[], base: 'no-cheque' | 'no-guaran
   }
   return out;
 }
-/** Maps the content team's preset vocabulary to the finder's. Unknown keys are ignored (never break a page). */
+/**
+ * Maps the content team's preset vocabulary to the finder's. Unknown keys are ignored (never break a page).
+ * `need` (cash/goods) is ignored since legal 2026-10-24: the finder never filters or pre-answers a plan type.
+ */
 export function toFinderPreset(p: ContentPreset = {}): FinderPreset {
   const out: FinderPreset = {};
-  if (p.need === 'goods' || p.need === 'cash') out.type = p.need;
   if (p.priority === 'fast' || p.priority === 'cheap' || p.priority === 'online') out.prio = p.priority;
   if (p.guarantee && GUARANTEE_PRESETS[p.guarantee]) out.guarantee = GUARANTEE_PRESETS[p.guarantee];
   return out;

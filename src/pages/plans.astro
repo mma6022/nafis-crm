@@ -1,5 +1,5 @@
 ---
-/** /plans (UX-SPEC §8): finder first, then every active plan in collapsed groups (cash / goods). */
+/** /plans (UX-SPEC §8): finder first, then every active plan in one list (no cash / goods grouping: legal 2026-10-24). */
 import BaseLayout from '../layouts/BaseLayout.astro';
 import PageHeader from '../components/PageHeader.astro';
 import PlanFinder from '../components/islands/PlanFinder';
@@ -13,10 +13,6 @@ import { breadcrumbLd, faqLd } from '../lib/seo';
 const facts = planFacts(LOAN_PLANS_SNAPSHOT);
 const all = combos(LOAN_PLANS_SNAPSHOT);
 const one = [...new Set(all.map((c) => c.id))].map((id) => byId(all, id)!);
-const groups = [
-  { key: 'score', title: 'پول نقد', items: one.filter((c) => c.type === 'score') },
-  { key: 'goods', title: 'خرید کالا', items: one.filter((c) => c.type === 'goods') },
-].filter((g) => g.items.length);
 // FAQ: the plan questions from home.mdx (count, which plan suits me, amounts/terms) — ANSWERS-1 §9
 const home = (await getCollection('pages', (p) => p.data.slug === '/'))[0]!;
 const faq = home.data.faq.slice(0, 3).map((f) => ({ q: fillFacts(f.q, facts), a: fillFacts(f.a, facts) }));
@@ -27,11 +23,11 @@ const crumbs = [
 ---
 
 <BaseLayout
-  title={`${fa(facts.planCount)} طرح فعال وام و خرید اقساطی`}
-  description="همه طرح‌های فعال نفیس وام: مبلغ دریافتی، قسط ماهانه، مدت بازپرداخت و زمان بررسی هر طرح؛ با طرح‌یاب ۳ سؤالی."
+  title={`${fa(facts.planCount)} طرح فعال تسهیلات اقساطی`}
+  description="همه طرح‌های فعال نفیس وام: مبلغ دریافتی، قسط ماهانه، مدت بازپرداخت و زمان بررسی هر طرح؛ با طرح‌یاب ۲ سؤالی."
   jsonLd={[breadcrumbLd(crumbs), faqLd(faq)]}
 >
-  <PageHeader title={`${fa(facts.planCount)} طرح فعال وام و خرید اقساطی`} lead="لازم نیست همه را بخوانید؛ به ۳ سؤال جواب دهید." crumbs={crumbs} />
+  <PageHeader title={`${fa(facts.planCount)} طرح فعال تسهیلات اقساطی`} lead="لازم نیست همه را بخوانید؛ به ۲ سؤال جواب دهید." crumbs={crumbs} />
   <div class="container-nf pt-8">
     <div class="finder-mount" id="plan-finder">
       <PlanFinder client:load snapshot={LOAN_PLANS_SNAPSHOT} src="plans-finder" />
@@ -39,24 +35,11 @@ const crumbs = [
   </div>
   <section class="container-nf pt-section" aria-labelledby="all-h">
     <h2 id="all-h" class="text-h2 lg:text-h2-lg mb-4">همه طرح‌ها</h2>
-    <div class="grid gap-3">
-      {
-        groups.map((g) => (
-          <details class="group rounded-card border border-line bg-white">
-            <summary class="text-ink flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-5 font-extrabold [&::-webkit-details-marker]:hidden">
-              <span>
-                {g.title} <span class="nf-badge nf-badge--brand ms-2">{fa(g.items.length)} طرح</span>
-              </span>
-              <span class="text-brand-600 text-xl transition-transform group-open:rotate-45" aria-hidden="true">+</span>
-            </summary>
-            <div class="cards plan-list p-3 pt-0">
-              {g.items.map((c) => (
-                <PlanCard c={c} src="plans-list" />
-              ))}
-            </div>
-          </details>
-        ))
-      }
+    <p class="text-ink-muted mb-4">{fa(one.length)} طرح فعال؛ مبلغ دریافتی، قسط و شرایط هر طرح روی کارت آن آمده است.</p>
+    <div class="cards plan-list">
+      {one.map((c) => (
+        <PlanCard c={c} src="plans-list" />
+      ))}
     </div>
   </section>
   <section class="container-nf pt-section" aria-labelledby="plans-faq-h">

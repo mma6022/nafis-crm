@@ -52,7 +52,6 @@ const via = (p: (typeof list)[number]) => [p.bankName, p.platformName].map((s) =
               {cleanPlanName(p.name)}
               {dup(cleanPlanName(p.name)) && via(p) && <span class="gp-via"> ({via(p)})</span>}
             </b>
-            <span class="gp-kind">{p.loanType === 'goods' ? 'خرید کالا قسطی' : 'وام نقدی'}</span>
             {p.retireesOnly && <span class="nf-badge nf-badge--brand">ویژه‌ی بازنشستگان</span>}
           </div>
           <p class="gp-why"><I name="check" size={18} /> <span>{whyFor(p.id, fastOf ?? page)}</span></p>

@@ -34,7 +34,7 @@ const CB_LEAD: Record<string, string> = {
   'vam-bedun-chek': 'نام و شماره‌تان را بگذارید؛ کارشناس نفیس وام طرح‌های بدون چک را رایگان برایتان توضیح می‌دهد.',
   'vam-ba-chek': 'نام و شماره‌تان را بگذارید؛ کارشناس نفیس وام طرح‌های با ضمانت چک را رایگان برایتان توضیح می‌دهد.',
   'vam-ba-safte': 'نام و شماره‌تان را بگذارید؛ کارشناس نفیس وام طرح‌های با ضمانت سفته را رایگان برایتان توضیح می‌دهد.',
-  'kharid-aghsati': 'نام و شماره‌تان را بگذارید؛ کارشناس نفیس وام طرح‌های خرید کالا را رایگان برایتان توضیح می‌دهد.',
+  'kharid-aghsati': 'نام و شماره‌تان را بگذارید؛ کارشناس نفیس وام طرح‌های متناسب با مبلغ و شرایط شما را رایگان برایتان توضیح می‌دهد.',
 };
 const cbLead = CB_LEAD[page];
 const toc = headings.filter((h) => h.depth === 2);
@@ -47,9 +47,9 @@ const crumbs = [
  * Live badge (designer ANSWERS-1 §7): count of plans that truly meet the page's condition (guarantee pages use the
  * strict rules of data/plan-guarantees.ts, the same list <GuaranteePlans> renders). Zero → no badge.
  */
-const BADGE: Record<string, { filter: string; key: 'fastCount' | 'goodsCount' | null; text: string; tone: string }> = {
+const BADGE: Record<string, { filter: string; key: 'fastCount' | 'planCount' | null; text: string; tone: string }> = {
   'vam-fori': { filter: 'fast', key: 'fastCount', text: 'طرح فعال با بررسی کمتر از ۷ روز', tone: 'success' },
-  'kharid-aghsati': { filter: 'goods', key: 'goodsCount', text: 'طرح فعال خرید اقساطی', tone: 'brand' },
+  'kharid-aghsati': { filter: 'all', key: 'planCount', text: 'طرح فعال تسهیلات اقساطی', tone: 'brand' },
   'vam-bedun-zamen': { filter: 'noGuarantor', key: null, text: 'طرح فعال بدون ضامن', tone: 'brand' },
   'vam-bedun-chek': { filter: 'noCheque', key: null, text: 'طرح فعال بدون چک', tone: 'brand' },
   'vam-ba-chek': { filter: 'cheque', key: null, text: 'طرح فعال با چک', tone: 'brand' },
@@ -62,7 +62,7 @@ const badge = badgeDef && badgeFn && badgeN > 0 ? { ...badgeDef, n: badgeN } : n
 /** Side panel (ANSWERS-1 §7): never a guarantee claim; primary = frontmatter cta.primary, then تماس (no messenger buttons: none is published for the landline). */
 const ASIDE: Record<string, { h?: string; p: string }> = {
   'vam-fori': { p: 'درخواست ثبت کنید؛ کارشناس سریع‌ترین طرح متناسب با شما را پیشنهاد می‌دهد.' },
-  'kharid-aghsati': { h: 'قصد خرید اقساطی دارید؟', p: 'درخواست ثبت کنید؛ کارشناس طرح خرید کالای متناسب با مبلغ و قسط شما را پیشنهاد می‌دهد.' },
+  'kharid-aghsati': { h: 'قصد خرید اقساطی دارید؟', p: 'درخواست ثبت کنید؛ کارشناس طرح متناسب با مبلغ و قسط شما را پیشنهاد می‌دهد.' },
 };
 const aside = { h: ASIDE[page]?.h ?? `${d.primaryKeyword} لازم دارید؟`, p: ASIDE[page]?.p ?? 'درخواست ثبت کنید؛ کارشناس مناسب‌ترین طرح را با شما مرور می‌کند.' };
 /** frontmatter cta.secondary «تماس» = /contact/#experts → opens the expert picker (landline removed 2026-10-23) */

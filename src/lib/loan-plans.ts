@@ -112,7 +112,6 @@ export function parseLoanPlan(p: unknown): LoanPlan | null {
   };
 }
 
-export const LOAN_TYPE_LABEL: Record<string, string> = { goods: 'وام کالایی', score: 'وام امتیازی' };
 export const PROCESS_MODE_LABEL: Record<string, string> = {
   both: 'حضوری و غیرحضوری',
   in_person: 'حضوری',

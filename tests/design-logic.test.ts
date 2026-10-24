@@ -8,7 +8,7 @@ import raw from '../src/data/loan-plans.snapshot.json' with { type: 'json' };
 import { parseLoanPlans, type LoanPlan } from '../src/lib/loan-plans.ts';
 import {
   combos, recommend, planFacts, bankNames, normBank, splitBanks, reqBands, installment, byId, bandOf, millionsFa,
-  FINDER_TYPES, FINDER_BANDS, FINDER_PRIOS, REQ_BAND_KEYS, type Combo,
+  FINDER_BANDS, FINDER_PRIOS, REQ_BAND_KEYS, type Combo,
 } from '../src/lib/plans.ts';
 import { toEnDigits, mobileDigits, isValidMobile } from '../src/lib/format.ts';
 import { readTrackingCode, submitLead, type LeadInput } from '../src/lib/lead.ts';
@@ -48,16 +48,15 @@ test('payout (received) = principal × depositPercent / 100, same combos as the 
 });
 
 /* ---------- plan-finder ranking ---------- */
-test('recommend: same ranking and exact flag as site.js for all 27 answers (ties: ANSWERS-1 §4)', () => {
+test('recommend: same ranking and exact flag as site.js (type «any») for all 9 answers (ties: ANSWERS-1 §4)', () => {
   // site.js leaves full ties to array order; ANSWERS-1 §4 fixes them (payout ↓, installment ↑, id ↑).
   // So each position must match site.js on score and on the primary metric; only true ties may differ.
   let identical = 0;
-  for (const type of FINDER_TYPES)
-    for (const band of FINDER_BANDS)
-      for (const prio of FINDER_PRIOS) {
-        const ours = recommend(all, { type, band, prio });
-        const ref = DR.recommend({ type, band, prio });
-        const k = `${type},${band},${prio}`;
+  for (const band of FINDER_BANDS)
+    for (const prio of FINDER_PRIOS) {
+        const ours = recommend(all, { band, prio });
+        const ref = DR.recommend({ band, prio, type: 'any' }); // 'any' = the designer's no-type scoring
+        const k = `${band},${prio}`;
         const key = (c: Combo) => `${c.id}/${c.term}`;
         const metric = (c: Combo) => Math.round(prio === 'cheap' ? c.inst : c.payout);
         assert.equal(ours.cards.length, ref.cards.length, k);
@@ -71,9 +70,9 @@ test('recommend: same ranking and exact flag as site.js for all 27 answers (ties
         assert.ok(ours.cards.length >= 1 && ours.cards.length <= 3);
         assert.equal(new Set(ours.cards.map((c) => c.name)).size, ours.cards.length, `${k}: names deduped`);
       }
-  assert.ok(identical >= 20, `most answers identical to site.js (${identical}/27)`);
+  assert.ok(identical >= 6, `most answers identical to site.js (${identical}/9)`);
   // the tie itself: equal installment → higher payout first, then smaller id
-  const [, x, y] = recommend(all, { type: 'goods', band: 1, prio: 'cheap' }).cards;
+  const [, x, y] = recommend(all, { band: 1, prio: 'cheap' }).cards;
   assert.ok(x!.inst < y!.inst || (x!.inst === y!.inst && (x!.payout > y!.payout || (x!.payout === y!.payout && x!.id < y!.id))));
 });
 
@@ -83,25 +82,28 @@ test('recommend online: processMode=both ranks above in-person; deterministic id
     principal: 150e6, rate: 23, term: 12, prepay: 0, payout: 150e6, inst: 14e6, ...o,
   });
   const list = [mk(9, {}), mk(7, { mode: 'both' }), mk(5, { mode: 'both' })];
-  assert.deepEqual(recommend(list, { type: 'cash', band: 1, prio: 'online' }).cards.map((c) => c.id), [5, 7, 9]);
-  assert.deepEqual(recommend([...list].reverse(), { type: 'cash', band: 1, prio: 'online' }).cards.map((c) => c.id), [5, 7, 9]);
+  assert.deepEqual(recommend(list, { band: 1, prio: 'online' }).cards.map((c) => c.id), [5, 7, 9]);
+  assert.deepEqual(recommend([...list].reverse(), { band: 1, prio: 'online' }).cards.map((c) => c.id), [5, 7, 9]);
 });
 
-test('recommend on synthetic data: type > band > priority; alternatives within 30 points', () => {
+test('recommend on synthetic data: band > priority, plan type ignored; alternatives within 30 points', () => {
   const mk = (id: number, o: Partial<Combo>): Combo => ({
     id, name: `طرح ${id}`, type: 'score', mode: 'in_person', days: '10_to_15', bank: 'ملی', platform: 'x',
     principal: 150e6, rate: 23, term: 12, prepay: 0, payout: 150e6, inst: 14e6, ...o,
   });
   const list = [
-    mk(1, { type: 'goods', payout: 150e6, days: 'under_7' }), // wrong type, right band + fast
-    mk(2, { payout: 300e6, days: 'under_7' }), // right type, adjacent band, fast
-    mk(3, { payout: 150e6 }), // right type + band, slow
+    mk(1, { type: 'goods', payout: 150e6, days: 'under_7' }), // right band + fast (type does not matter)
+    mk(2, { payout: 300e6, days: 'under_7' }), // adjacent band, fast
+    mk(3, { payout: 150e6 }), // right band, slow
   ];
-  const r = recommend(list, { type: 'cash', band: 1, prio: 'fast' });
-  assert.deepEqual(r.cards.map((c) => c.id), [3, 2], 'band beats priority; wrong type never listed next to right type');
-  assert.equal(r.exact, false);
-  assert.equal(r.cards[0]!.score, 70);
-  assert.equal(recommend(list, { type: 'goods', band: 1, prio: 'fast' }).exact, true);
+  const r = recommend(list, { band: 1, prio: 'fast' });
+  assert.deepEqual(r.cards.map((c) => c.id), [1, 3, 2], 'band + priority first; band beats priority; every type listed');
+  assert.equal(r.exact, true);
+  assert.equal(r.cards[0]!.score, 100);
+  assert.equal(r.cards[1]!.score, 70);
+  const slowOnly = recommend(list.filter((c) => c.id !== 1), { band: 1, prio: 'fast' });
+  assert.equal(slowOnly.exact, false);
+  assert.deepEqual(slowOnly.cards.map((c) => c.id), [3, 2]);
   assert.equal(bandOf(99_999_999), 0);
   assert.equal(bandOf(100e6), 1);
   assert.equal(bandOf(200e6), 1);
@@ -171,7 +173,7 @@ test('tracking code: shown only when the CRM returns a well-formed trackingCode'
   assert.equal(readTrackingCode({ trackingCode: '<img src=x>' }), undefined);
   assert.equal(readTrackingCode(null), undefined);
   const lead: LeadInput = {
-    name: 'مریم', phone: '09123456789', need: 'cash', amountBand: '100-200', contactTime: 'any',
+    name: 'مریم', phone: '09123456789', amountBand: '100-200', contactTime: 'any',
     consent: true, website: '', startedAt: 1,
   };
   const reply = (status: number, body: string | null) => (async () => new Response(body, { status })) as typeof fetch;

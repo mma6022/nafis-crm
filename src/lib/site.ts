@@ -76,7 +76,7 @@ export const KEYWORD_PAGES = [
   { slug: 'vam-bedun-chek', label: 'وام بدون چک', blurb: 'بدون نیاز به چک صیادی', icon: 'check' },
   { slug: 'vam-ba-chek', label: 'وام با چک', blurb: 'با ضمانت چک صیادی خودتان یا دیگری', icon: 'cash' },
   { slug: 'vam-ba-safte', label: 'وام با سفته', blurb: 'ضمانت با سفته به‌جای چک', icon: 'coins' },
-  { slug: 'kharid-aghsati', label: 'خرید اقساطی', blurb: '{goodsCount} طرح خرید کالا به‌صورت قسطی', icon: 'cart' },
+  { slug: 'kharid-aghsati', label: 'خرید اقساطی', blurb: '{planCount} طرح تسهیلات اقساطی', icon: 'cart' },
 ] as const;
 
 export type NavItem = { href: string; label: string };

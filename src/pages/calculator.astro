@@ -25,10 +25,10 @@ const faq = [
 
 <BaseLayout
   title="محاسبه قسط وام"
-  description="با محاسبه‌گر قسط نفیس وام نوع، حدود مبلغ و مدت بازپرداخت را انتخاب کنید و مبلغ قابل دریافت و قسط ماهانه طرح‌های نزدیک را ببینید."
+  description="با محاسبه‌گر قسط نفیس وام حدود مبلغ و مدت بازپرداخت را انتخاب کنید و مبلغ قابل دریافت و قسط ماهانه طرح‌های نزدیک را ببینید."
   jsonLd={[breadcrumbLd(crumbs), faqLd(faq)]}
 >
-  <PageHeader title="محاسبه قسط وام" lead="نوع، مبلغ و مدت را انتخاب کنید؛ نزدیک‌ترین طرح‌های فعال را با قسط تقریبی نشان می‌دهیم." crumbs={crumbs} />
+  <PageHeader title="محاسبه قسط وام" lead="مبلغ و مدت را انتخاب کنید؛ نزدیک‌ترین طرح‌های فعال را با قسط تقریبی نشان می‌دهیم." crumbs={crumbs} />
   <div class="container-nf pt-8">
     <LoanCalculator client:load snapshot={LOAN_PLANS_SNAPSHOT} />
   </div>

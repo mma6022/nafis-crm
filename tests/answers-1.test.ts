@@ -7,62 +7,64 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import raw from '../src/data/loan-plans.snapshot.json' with { type: 'json' };
 import { parseLoanPlans } from '../src/lib/loan-plans.ts';
-import { combos, reqBands, calcPicks, bandOf, withoutUnbackedGuarantee, leadHtml, planFacts, FINDER_TYPES, FINDER_BANDS, type Combo } from '../src/lib/plans.ts';
-import { combosForNeed, stepOrder } from '../src/lib/request-flow.ts';
+import { combos, reqBands, calcPicks, bandOf, withoutUnbackedGuarantee, leadHtml, planFacts, FINDER_BANDS, type Combo } from '../src/lib/plans.ts';
+import { stepOrder, parseDeepLink } from '../src/lib/request-flow.ts';
 import { pillMarkers } from '../src/lib/ph-html.ts';
 
 const plans = parseLoanPlans(raw);
 const all = combos(plans);
 
 /* §3 / §6: request wizard */
-test('stepOrder: need=help → need, contact; plan → plan, contact; otherwise 3 steps', () => {
-  assert.deepEqual(stepOrder(false, 'help', 4), ['need', 'contact']);
-  assert.deepEqual(stepOrder(false, 'cash', 4), ['need', 'amount', 'contact']);
-  assert.deepEqual(stepOrder(false, null, 4), ['need', 'amount', 'contact']);
-  assert.deepEqual(stepOrder(false, 'goods', 0), ['need', 'contact'], 'a need without any band skips the amount step');
-  assert.deepEqual(stepOrder(true, 'cash', 4), ['plan', 'contact']);
+test('stepOrder (legal 2026-10-24): no need step; plan → plan, contact; no band → contact; else amount, contact', () => {
+  assert.deepEqual(stepOrder(false, 4), ['amount', 'contact']);
+  assert.deepEqual(stepOrder(false, 0), ['contact'], 'no amount band in the data skips the amount step');
+  assert.deepEqual(stepOrder(true, 4), ['plan', 'contact']);
+  for (const hasPlan of [true, false]) for (const n of [0, 4]) assert.ok(!stepOrder(hasPlan, n).includes('need'));
 });
 
-test('amount bands are filtered by need and counted after filtering', () => {
-  const cash = combosForNeed(all, 'cash');
-  const goods = combosForNeed(all, 'goods');
-  assert.ok(cash.length && cash.every((c) => c.type === 'score'));
-  assert.ok(goods.length && goods.every((c) => c.type === 'goods'));
-  assert.equal(combosForNeed(all, 'help').length, all.length);
-  for (const list of [cash, goods]) {
-    const bands = reqBands(list);
-    assert.ok(bands.length > 0);
-    assert.ok(bands.reduce((a, b) => a + b.n, 0) <= reqBands(all).reduce((a, b) => a + b.n, 0));
-    for (const b of bands) {
-      assert.equal(b.n, new Set(list.filter((c) => c.payout > b.lo && c.payout <= b.hi).map((c) => c.id)).size, b.key);
-      assert.ok(b.n > 0, `${b.key}: empty bands are hidden`);
-    }
+test('finder deep link: new ?a=band,prio; legacy ?a=type,band,prio still loads, type ignored', () => {
+  assert.deepEqual(parseDeepLink('2,fast'), { band: 2, prio: 'fast' });
+  assert.deepEqual(parseDeepLink('cash,2,fast'), { band: 2, prio: 'fast' });
+  assert.deepEqual(parseDeepLink('goods,1,cheap'), { band: 1, prio: 'cheap' });
+  assert.deepEqual(parseDeepLink('any'), {});
+  assert.deepEqual(parseDeepLink('goods'), {});
+  assert.deepEqual(parseDeepLink('9,bogus'), {});
+  assert.deepEqual(parseDeepLink(null), {});
+});
+
+test('amount bands count every active plan (no plan-type filter)', () => {
+  const bands = reqBands(all);
+  assert.ok(bands.length > 0);
+  for (const b of bands) {
+    assert.equal(b.n, new Set(all.filter((c) => c.payout > b.lo && c.payout <= b.hi).map((c) => c.id)).size, b.key);
+    assert.ok(b.n > 0, `${b.key}: empty bands are hidden`);
   }
+  const types = new Set(all.filter((c) => bands.some((b) => c.payout > b.lo && c.payout <= b.hi)).map((c) => c.type));
+  assert.ok(types.has('score') && types.has('goods'), 'plans of every type are counted');
 });
 
 /* P3: guarantee data now comes from data/plan-guarantees.ts (merged into every plan list); the preset passes through */
 test('withoutUnbackedGuarantee: guarantee data present → preset is kept as is', () => {
   assert.ok(all.some((c) => Array.isArray(c.guarantees) && c.guarantees.length > 0), 'snapshot plans carry guaranteeTypes');
   const g = { page: 'no-guarantor' as const, label: 'بدون ضامن' };
-  assert.deepEqual(withoutUnbackedGuarantee({ guarantee: g, type: 'cash' }, all), { guarantee: g, type: 'cash' });
+  assert.deepEqual(withoutUnbackedGuarantee({ guarantee: g, prio: 'fast' }, all), { guarantee: g, prio: 'fast' });
   assert.equal(withoutUnbackedGuarantee(undefined, all), undefined);
 });
 
-/* §9: /calculator → 1–3 cards, one per plan, never empty */
-test('calcPicks: 1–3 unique plans for every type × band × term, band match first', () => {
+/* §9: /calculator → 1–3 cards, one per plan, never empty; every plan type competes (legal 2026-10-24) */
+test('calcPicks: 1–3 unique plans for every band × term, band match first, no type filter', () => {
   const terms = [...new Set(all.map((c) => c.term))];
-  for (const type of FINDER_TYPES)
-    for (const band of FINDER_BANDS)
-      for (const term of terms) {
-        const r = calcPicks(all, type, band, term);
-        const k = `${type},${band},${term}`;
-        assert.ok(r.length >= 1 && r.length <= 3, k);
-        assert.equal(new Set(r.map((c) => c.id)).size, r.length, `${k}: deduped`);
-        if (type !== 'any') assert.ok(r.every((c) => c.type === (type === 'cash' ? 'score' : 'goods')), `${k}: type`);
-        const anyMatch = all.some((c) => (type === 'any' || c.type === (type === 'cash' ? 'score' : 'goods')) && bandOf(c.payout) === band);
-        if (anyMatch) assert.equal(bandOf(r[0]!.payout), band, `${k}: band match first`);
-      }
-  assert.deepEqual(calcPicks([], 'cash', 0, 12), []);
+  for (const band of FINDER_BANDS)
+    for (const term of terms) {
+      const r = calcPicks(all, band, term);
+      const k = `${band},${term}`;
+      assert.ok(r.length >= 1 && r.length <= 3, k);
+      assert.equal(new Set(r.map((c) => c.id)).size, r.length, `${k}: deduped`);
+      if (all.some((c) => bandOf(c.payout) === band)) assert.equal(bandOf(r[0]!.payout), band, `${k}: band match first`);
+    }
+  const picked = new Set(FINDER_BANDS.flatMap((b) => terms.flatMap((t) => calcPicks(all, b, t).map((c) => c.type))));
+  assert.ok(picked.has('score') && picked.has('goods'), 'plans of every type can be picked');
+  assert.deepEqual(calcPicks([], 0, 12), []);
 });
 
 /* mismatch 3: bracketless pills, marker kept in data-marker */

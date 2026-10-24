@@ -5,7 +5,12 @@
 import { normalizeIranMobile } from './format';
 import type { AmountBand } from './plans';
 
+/**
+ * CRM `need` vocabulary. Legal 2026-10-24: the site never asks the customer a request type (cash / goods), so every
+ * lead is sent as 'help'. The value is still sent because CRM releases before legal/no-request-type require it.
+ */
 export type Need = 'cash' | 'goods' | 'help';
+export const LEAD_NEED: Need = 'help';
 export type ContactTime = 'morning' | 'evening' | 'any';
 export const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'] as const;
 export type Utm = Partial<Record<(typeof UTM_KEYS)[number], string>>;
@@ -13,7 +18,6 @@ export type Utm = Partial<Record<(typeof UTM_KEYS)[number], string>>;
 export interface LeadInput {
   name: string;
   phone: string;
-  need: Need;
   amountBand: AmountBand | 'unsure';
   planId?: number | null;
   term?: number | null;
@@ -39,7 +43,7 @@ export function buildLeadPayload(i: LeadInput): Record<string, unknown> {
   const out: Record<string, unknown> = {
     name: i.name.trim().slice(0, 80),
     phone,
-    need: i.need,
+    need: LEAD_NEED,
     amountBand: i.amountBand,
     contactTime: i.contactTime,
     consent: i.consent === true,

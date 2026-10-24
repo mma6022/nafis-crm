@@ -3,7 +3,7 @@
  * `mountCallback`, markup/classes = mockups/src/site.css «Callback» block).
  * Variants: 'section' (home / landings / contact), 'inline' (under the finder result: collapsed first, secondary),
  * 'sheet' (header / mobile-menu <dialog>, see CallbackDialog). Two steps + progress bar: name + mobile → contact
- * time (radio tiles, required) + topic (chips, optional); consent = CONSENT_TEXT under the form (no checkbox). «همین الان» only inside working hours
+ * time (radio tiles, required); consent = CONSENT_TEXT under the form (no checkbox). «همین الان» only inside working hours
  * (Asia/Tehran via Intl, lib/callback). POST kind=callback to PUBLIC_LEAD_ENDPOINT with honeypot + startedAt.
  * Success only on 2xx; the tracking code line only when the CRM returned one (a duplicate shows the same screen).
  * The site never promises a number of minutes.
@@ -12,7 +12,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { I } from '../ui/I';
 import { fa } from '../../lib/plans';
 import { normalizeIranMobile } from '../../lib/format';
-import { LeadError, readUtm, type Need } from '../../lib/lead';
+import { LeadError, readUtm } from '../../lib/lead';
 import { CALLBACK_WHATSAPP, WORK_HOURS } from '../../lib/site';
 import { pickerTrigger } from '../../data/picker-trigger';
 import {
@@ -20,7 +20,6 @@ import {
   CB_SUBMIT,
   CB_TITLE,
   CONSENT_TEXT,
-  TOPIC_OPTS,
   faMobile,
   isWorkingHours,
   step1Errors,
@@ -41,7 +40,6 @@ const LEAD_INLINE = 'مطمئن نیستید؟ نام و شماره‌تان ر�
 export default function CallbackForm({
   variant = 'section',
   src = 'page',
-  topic: topic0 = null,
   planId = null,
   title = CB_TITLE,
   lead,
@@ -52,8 +50,6 @@ export default function CallbackForm({
 }: {
   variant?: CallbackVariant;
   src?: string;
-  /** preselected topic (finder answer) */
-  topic?: Need | null;
   planId?: number | null;
   title?: string;
   lead?: string;
@@ -73,7 +69,6 @@ export default function CallbackForm({
   const [phone, setPhone] = useState('');
   const [norm, setNorm] = useState('');
   const [time, setTime] = useState<CallbackTime | null>(null);
-  const [topic, setTopic] = useState<Need | null>(topic0);
   const [err, setErr] = useState<Partial<Record<FieldError, boolean>>>({});
   const [busy, setBusy] = useState(false);
   const sending = useRef(false); // synchronous lock: a 2nd tap in the same frame must not post twice
@@ -93,7 +88,6 @@ export default function CallbackForm({
     const t = setInterval(tick, 60_000);
     return () => clearInterval(t);
   }, []);
-  useEffect(() => setTopic(topic0), [topic0]);
   useEffect(() => {
     if (!inHours && time === 'now') setTime(null);
   }, [inHours, time]);
@@ -137,7 +131,6 @@ export default function CallbackForm({
         name,
         phone: norm,
         contactTime: time!,
-        need: topic,
         planId,
         src,
         consent: true,
@@ -302,18 +295,6 @@ export default function CallbackForm({
                       یک زمان را انتخاب کنید.
                     </span>
                     {!inHours && <p className="cb-closed">الان خارج از ساعت کاری ({WORK_HOURS.daysFa}، {WORK_HOURS.fa}) است؛ برای اولین زمان کاری یکی را انتخاب کنید.</p>}
-                  </div>
-                  <div className="nf-field">
-                    <span className="nf-label" id={`${id}-lp`}>
-                      موضوع تماس <small className="opt">(اختیاری)</small>
-                    </span>
-                    <div className="chips cb-topic" role="radiogroup" aria-labelledby={`${id}-lp`}>
-                      {TOPIC_OPTS.map((o) => (
-                        <button key={o.v} type="button" role="radio" aria-checked={topic === o.v} onClick={() => setTopic(topic === o.v ? null : o.v)}>
-                          {o.label}
-                        </button>
-                      ))}
-                    </div>
                   </div>
                   <button type="submit" className={`nf-btn ${btn} nf-btn--block cb-submit`} disabled={busy} aria-busy={busy}>
                     {busy ? 'در حال ثبت…' : CB_SUBMIT}

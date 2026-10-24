@@ -110,7 +110,6 @@ a.enamad:hover,a.enamad:focus-visible{text-decoration:none;box-shadow:0 0 0 3px 
 .nf-option--tile.is-off small{color:var(--nf-warning)}
 .cb-ph{justify-self:start;font-size:13px}
 .cb .nf-label .opt{font-weight:400;color:var(--nf-ink-muted);font-size:14px}
-.cb-topic button{flex:1 1 0;min-width:0;padding:0 8px}
 .cb .check{font-size:15px}
 .cb-note{margin:-4px 0 0}
 .cb-done{text-align:center;padding:8px 0 4px;outline:none}

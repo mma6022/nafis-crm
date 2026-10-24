@@ -1,13 +1,14 @@
 /**
  * /request lead wizard (designer mockup request.html, UX-SPEC §5).
- * need → amount → contact (3 steps). With ?plan=&term= the plan step counts as done: 2 steps, opening on contact
- * with the plan summary on top («تغییر» returns to the 3-step flow). need=help («نمی‌دانم») skips the amount step:
- * need → contact (2 steps), amountBand='unsure' (designer ANSWERS-1 §6). Amount bands = received amount from the
- * plan data filtered by need (cash → loanType score, goods → goods), counted after filtering; empty bands hide
- * (ANSWERS-1 §3). Options enter neutral: no preselection and no hover look until the pointer moves (§4 of the
- * mismatch list); focus rings only via :focus-visible; no autofocus on fields. State survives reloads (sessionStorage) and the
- * browser back button moves between steps (history.pushState). Success is shown ONLY after the CRM answers 2xx;
- * the tracking code line only when the CRM returned one.
+ * amount → contact (2 steps). Legal 2026-10-24: the customer is never asked a request type (cash / goods); the old
+ * «need» step is gone, old `?need=` links load normally and the parameter is ignored, and every lead is sent with
+ * need='help' (lib/lead LEAD_NEED). With ?plan=&term= the plan step counts as done: 2 steps, opening on contact with
+ * the plan summary on top («تغییر» returns to the amount step). «هنوز مطمئن نیستم» on the amount step sends
+ * amountBand='unsure'. Amount bands = received amount over EVERY active plan; empty bands hide (ANSWERS-1 §3).
+ * Options enter neutral: no preselection and no hover look until the pointer moves (§4 of the mismatch list); focus
+ * rings only via :focus-visible; no autofocus on fields. State survives reloads (sessionStorage) and the browser back
+ * button moves between steps (history.pushState). Success is shown ONLY after the CRM answers 2xx; the tracking code
+ * line only when the CRM returned one.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { I, type SpriteIcon } from '../ui/I';
@@ -16,18 +17,17 @@ import { LONG_NAME, QA } from './PlanCard';
 import type { LoanPlan } from '../../lib/loan-plans';
 import { combos, fa, millionsFa, reqBands, type AmountBand, type Combo } from '../../lib/plans';
 import { isValidMobile } from '../../lib/format';
-import { LeadError, readUtm, submitLead, type ContactTime, type Need } from '../../lib/lead';
+import { LeadError, readUtm, submitLead, type ContactTime } from '../../lib/lead';
 import { SITE } from '../../lib/site';
 import { pickerTrigger } from '../../data/picker-trigger';
-import { combosForNeed, stepOrder } from '../../lib/request-flow';
+import { stepOrder } from '../../lib/request-flow';
 import { CONSENT_TEXT } from '../../lib/callback';
 
-type Step = 'need' | 'amount' | 'contact' | 'done';
+type Step = 'amount' | 'contact' | 'done';
 const KEY = 'nf-request';
 const BAND_ICON: SpriteIcon[] = ['s', 'm', 'm', 'l', 'l', 'l'];
 
 interface State {
-  need: Need | null;
   band: AmountBand | 'unsure' | null;
   planId: number | null;
   term: number | null;
@@ -37,13 +37,8 @@ interface State {
   startedAt: number;
   src: string | null;
 }
-const fresh = (): State => ({ need: null, band: null, planId: null, term: null, name: '', phone: '', time: 'any', startedAt: Date.now(), src: null });
+const fresh = (): State => ({ band: null, planId: null, term: null, name: '', phone: '', time: 'any', startedAt: Date.now(), src: null });
 
-const NEEDS: { v: Need; icon: SpriteIcon; t: string; h: string }[] = [
-  { v: 'cash', icon: 'cash', t: 'پول نقد (وام)', h: 'وام نقدی بر پایه اعتبارسنجی' },
-  { v: 'goods', icon: 'cart', t: 'خرید کالا به‌صورت قسطی', h: 'کالا را می‌گیرید و قسطی پرداخت می‌کنید' },
-  { v: 'help', icon: 'chat', t: 'نمی‌دانم، راهنمایی می‌خواهم', h: 'کارشناس با شما تماس می‌گیرد' },
-];
 const TIMES: { v: ContactTime; t: string }[] = [
   { v: 'morning', t: 'صبح' },
   { v: 'evening', t: 'عصر' },
@@ -70,9 +65,9 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
   const { plans } = useLoanPlans(snapshot);
   const all = useMemo(() => combos(plans), [plans]);
   const [s, setS] = useState<State>(fresh);
-  const bands = useMemo(() => reqBands(combosForNeed(all, s.need)), [all, s.need]);
+  const bands = useMemo(() => reqBands(all), [all]);
   const [fresh_, setFresh] = useState(true);
-  const [step, setStep] = useState<Step>('need');
+  const [step, setStep] = useState<Step>('amount');
   const [ready, setReady] = useState(false);
   const [errors, setErrors] = useState<{ name?: boolean; mob?: boolean }>({});
   const [busy, setBusy] = useState(false);
@@ -84,43 +79,42 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
   const root = useRef<HTMLDivElement>(null);
   const failRef = useRef<HTMLDivElement>(null);
 
-  // init: sessionStorage + query (?plan, ?term, ?need, ?src)
+  // init: sessionStorage + query (?plan, ?term, ?src; a legacy ?need is ignored)
   useEffect(() => {
     const q = new URLSearchParams(location.search);
     let st = fresh();
     try {
       const saved = JSON.parse(sessionStorage.getItem(KEY) ?? 'null') as State | null;
-      if (saved && Date.now() - saved.startedAt < 20 * 3600e3) st = { ...st, ...saved };
+      if (saved && Date.now() - saved.startedAt < 20 * 3600e3) {
+        const { need: _legacyNeed, ...rest } = saved as State & { need?: unknown }; // pre-legal saved state
+        st = { ...st, ...rest };
+      }
     } catch {
       /* ignore */
     }
     const plan = Number(q.get('plan')) || null;
     if (plan) {
       const c = all.find((x) => x.id === plan);
-      if (c) st = { ...st, planId: plan, term: Number(q.get('term')) || c.term, need: c.type === 'goods' ? 'goods' : 'cash' };
+      if (c) st = { ...st, planId: plan, term: Number(q.get('term')) || c.term };
     }
-    const need = q.get('need');
-    if (!plan && (need === 'cash' || need === 'goods' || need === 'help')) st.need = need;
     if (q.get('src')) st.src = q.get('src');
     if (QA && q.get('longname')) setLongName(q.get('longname') === '1' ? LONG_NAME : q.get('longname'));
-    const skipAmount = st.need === 'help' || (!!st.need && reqBands(combosForNeed(all, st.need)).length === 0);
+    const skipAmount = reqBands(all).length === 0;
     if (skipAmount) st.band = 'unsure';
     setS(st);
-    const first: Step = st.planId ? 'contact' : st.need ? (skipAmount ? 'contact' : 'amount') : 'need';
-    const savedStep = (history.state as { step?: Step } | null)?.step;
-    let start = savedStep && savedStep !== 'done' ? savedStep : first;
+    const first: Step = st.planId || skipAmount ? 'contact' : 'amount';
+    let savedStep = (history.state as { step?: string } | null)?.step as Step | 'need' | undefined;
+    if (savedStep === 'need') savedStep = 'amount'; // history entry from the pre-legal wizard
+    let start: Step = savedStep && savedStep !== 'done' ? savedStep : first;
     if (st.planId && start !== 'contact') start = 'contact';
     if (skipAmount && start === 'amount') start = 'contact';
-    if (!st.planId && start !== 'need' && !savedStep) {
-      // deep link (?need=…): give «قبلی» / browser back a need step to return to
-      history.replaceState({ step: 'need' }, '');
-      history.pushState({ step: start }, '');
-    } else history.replaceState({ step: start }, '');
+    history.replaceState({ step: start }, '');
     setStep(start);
     setReady(true);
     const onPop = (e: PopStateEvent) => {
-      const to = (e.state as { step?: Step } | null)?.step;
-      if (to && to !== 'done') setStep(to);
+      const to = (e.state as { step?: string } | null)?.step;
+      if (to === 'need') setStep('amount');
+      else if (to === 'amount' || to === 'contact') setStep(to);
     };
     addEventListener('popstate', onPop);
     return () => removeEventListener('popstate', onPop);
@@ -157,20 +151,13 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
   }, [step, ready]);
 
   const chosen = s.planId ? (all.find((c) => c.id === s.planId && c.term === s.term) ?? all.find((c) => c.id === s.planId)) : null;
-  const ORDER = stepOrder(!!chosen, s.need, bands.length);
+  const ORDER = stepOrder(!!chosen, bands.length);
   const idx = ORDER.indexOf(step);
 
   const pick = <K extends keyof State>(k: K, v: State[K], next: Step) => {
     setS((p) => ({ ...p, [k]: v }));
     setTimeout(() => go(next), 180);
   };
-  const pickNeed = (v: Need) => {
-    const skip = v === 'help' || reqBands(combosForNeed(all, v)).length === 0;
-    // a different need invalidates the chosen band (its counts were for the other need)
-    setS((p) => ({ ...p, need: v, band: skip ? 'unsure' : p.need === v && p.band !== 'unsure' ? p.band : null }));
-    setTimeout(() => go(skip ? 'contact' : 'amount'), 180);
-  };
-
   async function onSubmit(e: { preventDefault(): void }) {
     e.preventDefault();
     if (busy || sending.current) return; // sending: the button is disabled; Enter in a field must not post twice
@@ -188,7 +175,6 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
       const res = await submitLead({
         name: s.name,
         phone: s.phone,
-        need: s.need ?? 'help',
         amountBand: chosen ? bandKeyOf(chosen, all) : ORDER.includes('amount') ? (s.band ?? 'unsure') : 'unsure',
         planId: chosen ? s.planId : null,
         term: chosen ? s.term : null,
@@ -241,16 +227,6 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
           </div>
         </div>
 
-        <section className="rq-step" data-step="need" hidden={step !== 'need'}>
-          <h1 tabIndex={-1}>چه چیزی لازم دارید؟</h1>
-          <p className="sub">یکی را انتخاب کنید. اگر مطمئن نیستید، گزینه آخر را بزنید.</p>
-          <div className="opts" role="group" aria-label="نوع نیاز">
-            {NEEDS.map((n) => (
-              <Opt key={n.v} data-need={n.v} icon={n.icon} t={n.t} h={n.h} pressed={s.need === n.v} onClick={() => pickNeed(n.v)} />
-            ))}
-          </div>
-        </section>
-
         <section className="rq-step" data-step="amount" hidden={step !== 'amount'}>
           <h1 tabIndex={-1}>حدوداً چه مبلغی لازم دارید؟</h1>
           <p className="sub">مبلغی که به دست شما می‌رسد. دقیقش را کارشناس با شما مرور می‌کند.</p>
@@ -266,6 +242,14 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
                 onClick={() => pick('band', b.key as AmountBand, 'contact')}
               />
             ))}
+            <Opt
+              data-band="unsure"
+              icon="chat"
+              t="هنوز مطمئن نیستم"
+              h="کارشناس مبلغ و شرایط را با شما مرور می‌کند"
+              pressed={s.band === 'unsure'}
+              onClick={() => pick('band', 'unsure', 'contact')}
+            />
           </div>
         </section>
 
@@ -273,7 +257,7 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
           {chosen && (
             <div className="chosen">
               <span className="ic">
-                <I name={chosen.type === 'goods' ? 'cart' : 'cash'} />
+                <I name="check" />
               </span>
               <span className="tx">
                 <small>طرح انتخابی شما</small>
@@ -285,9 +269,10 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
               <button
                 type="button"
                 onClick={() => {
-                  setS((p) => ({ ...p, planId: null, term: null, need: null, band: null }));
-                  history.replaceState({ step: 'need' }, '', location.pathname + (s.src ? `?src=${encodeURIComponent(s.src)}` : ''));
-                  setStep('need');
+                  setS((p) => ({ ...p, planId: null, term: null, band: null }));
+                  const to: Step = bands.length ? 'amount' : 'contact';
+                  history.replaceState({ step: to }, '', location.pathname + (s.src ? `?src=${encodeURIComponent(s.src)}` : ''));
+                  setStep(to);
                 }}
               >
                 تغییر

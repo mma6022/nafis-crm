@@ -45,7 +45,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
   <section class="finder" id="plan-finder" aria-labelledby="finder-h">
     <div class="wrap">
       <div class="finder-head">
-        <h2 id="finder-h">طرح مناسب‌تان را در ۳ قدم پیدا کنید</h2>
+        <h2 id="finder-h">طرح مناسب‌تان را در ۲ قدم پیدا کنید</h2>
         <span class="nf-badge nf-badge--brand" style="white-space:nowrap;margin-top:2px"><span data-plan-count="planCount">{fa(facts.planCount)}</span> طرح فعال</span>
       </div>
       <div class="finder-mount" id="finder">
@@ -88,7 +88,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
                 <b>{k.label}</b>
                 <span class="d">
                   {k.slug === 'kharid-aghsati' ? (
-                    <><span data-plan-count="goodsCount">{fa(facts.goodsCount)}</span> طرح خرید کالا به‌صورت قسطی</>
+                    <><span data-plan-count="planCount">{fa(facts.planCount)}</span> طرح تسهیلات اقساطی</>
                   ) : (
                     k.blurb
                   )}
@@ -107,7 +107,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
       <ol class="steps3">
         <li><span class="ic"><I name="search" /></span>طرح مناسب را پیدا کنید</li>
         <li><span class="ic"><I name="phone" /></span>کارشناس تماس می‌گیرد و مدارک را تحویل می‌دهید</li>
-        <li><span class="ic"><I name="check" /></span>واریز وام یا تحویل کالا</li>
+        <li><span class="ic"><I name="check" /></span>پرداخت تسهیلات طبق شرایط طرح</li>
       </ol>
       <div class="steps-cta"><a class="nf-btn nf-btn--text" href="/request?src=home-steps">شروع درخواست <I name="arrow" size={18} /></a></div>
     </div>

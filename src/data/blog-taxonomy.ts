@@ -5,7 +5,7 @@
 export const CATEGORIES = {
   'vam-fori': { label: 'وام فوری', description: 'وام سریع در عمل چقدر طول می‌کشد و چطور سریع‌ترش کنیم.' },
   zemanat: { label: 'ضمانت وام', description: 'چک، سفته، ضامن و طرح‌های بدون ضامن یا بدون چک.' },
-  'kharid-aghsati': { label: 'خرید اقساطی', description: 'خرید کالا به‌صورت قسطی، پیش‌پرداخت و انتخاب طرح.' },
+  'kharid-aghsati': { label: 'خرید اقساطی', description: 'پرداخت قسطی، پیش‌پرداخت و انتخاب طرح.' },
   aghsat: { label: 'اقساط و بازپرداخت', description: 'محاسبه قسط، مدیریت بازپرداخت و برنامه‌ریزی مالی.' },
   etebarsanji: { label: 'اعتبارسنجی', description: 'رتبه اعتباری، اعتبارسنجی بانکی و راه‌های بهبود آن.' },
   rahnama: { label: 'راهنمای وام', description: 'آموزش قدم‌به‌قدم انواع وام و تسهیلات.' },

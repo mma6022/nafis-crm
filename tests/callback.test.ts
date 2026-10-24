@@ -101,9 +101,9 @@ test('step validation', () => {
   assert.deepEqual(step2Errors('evening'), []);
 });
 
-test('payload = handoff contract: kind, contactTime, optional need/planId, only allowed keys', () => {
-  const p = buildCallbackPayload({ ...base, need: 'goods', planId: 19, utm: { utm_source: 'google', utm_medium: '' } }, teh(SAT, 10));
-  assert.deepEqual(Object.keys(p).sort(), ['consent', 'contactTime', 'kind', 'name', 'need', 'phone', 'planId', 'src', 'startedAt', 'utm_source', 'website'].sort());
+test('payload = handoff contract: kind, contactTime, optional planId, no need/topic (legal 2026-10-24), only allowed keys', () => {
+  const p = buildCallbackPayload({ ...base, need: 'goods', planId: 19, utm: { utm_source: 'google', utm_medium: '' } } as Parameters<typeof buildCallbackPayload>[0], teh(SAT, 10)); // legacy need is dropped
+  assert.deepEqual(Object.keys(p).sort(), ['consent', 'contactTime', 'kind', 'name', 'phone', 'planId', 'src', 'startedAt', 'utm_source', 'website'].sort());
   assert.equal(p.kind, 'callback');
   assert.equal(p.name, 'سارا رضایی');
   assert.equal(p.phone, '09123456789');

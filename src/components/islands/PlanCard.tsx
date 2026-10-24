@@ -35,7 +35,6 @@ export function PlanCard({
       {featured && <span className="nf-badge nf-badge--gold">{badge}</span>}
       <h3>
         <span className="nm">{name ?? c.name}</span>
-        <span className="kind">{c.type === 'goods' ? 'خرید کالا قسطی' : 'وام نقدی'}</span>
       </h3>
       {c.retirees && <span className="nf-badge nf-badge--brand plan-tag">ویژه‌ی بازنشستگان</span>}
       {note && <p className="plan-note">{note}</p>}

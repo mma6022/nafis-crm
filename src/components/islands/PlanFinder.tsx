@@ -1,8 +1,10 @@
 /**
- * Plan finder island (designer site.js `mountFinder`, UX-SPEC §4). 3 one-tap questions (+ «بازنشسته هستم» toggle: retiree-only plans need it) (fewer when a page preset
+ * Plan finder island (designer site.js `mountFinder`, UX-SPEC §4). 2 one-tap questions (amount, priority; the old
+ * cash/goods question was removed for legal reasons 2026-10-24, every eligible plan is considered) (+ «بازنشسته هستم» toggle: retiree-only plans need it) (fewer when a page preset
  * answers one) → 1 featured card + up to 2 alternatives. Never "no plan found": recommend() relaxes.
  * Starts on the build-time snapshot, then swaps to the live /data/loan-plans.json.
- * Deep link (first finder on the page only): ?a=type,band,prio → result; add &step=type|band|prio to open a step.
+ * Deep link (first finder on the page only): ?a=band,prio → result; add &step=band|prio to open a step. Old 3-part
+ * links (?a=cash,2,fast) still work: the leading type part is ignored.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LoanPlan } from '../../lib/loan-plans';
@@ -10,7 +12,6 @@ import {
   FINDER_LABEL,
   FINDER_PRIOS,
   FINDER_Q,
-  FINDER_TYPES,
   combos,
   fa,
   recommend,
@@ -18,34 +19,23 @@ import {
   type FinderBand,
   type FinderPreset,
   type FinderPrio,
-  type FinderType,
   withoutUnbackedGuarantee,
 } from '../../lib/plans';
 
+import { parseDeepLink, type FinderDeepLink } from '../../lib/request-flow';
 import { useLoanPlans } from './useLoanPlans';
 import { LONG_NAME, PlanCard, QA } from './PlanCard';
 import CallbackForm from './CallbackForm';
 import { I, type SpriteIcon } from '../ui/I';
 
-type Key = 'type' | 'band' | 'prio';
+type Key = 'band' | 'prio';
 type Step = Key | 'result';
-type Ans = { type?: FinderType; band?: FinderBand; prio?: FinderPrio };
+type Ans = FinderDeepLink;
 
 declare global {
   interface Window {
     __finderDeep?: boolean;
   }
-}
-
-/** `?a=cash,2,fast` → answers; invalid parts are dropped. */
-export function parseDeepLink(a: string | null): Ans {
-  const out: Ans = {};
-  if (!a) return out;
-  const [t, b, p] = a.split(',');
-  if (FINDER_TYPES.includes(t as FinderType)) out.type = t as FinderType;
-  if (b === '0' || b === '1' || b === '2') out.band = Number(b) as FinderBand;
-  if (FINDER_PRIOS.includes(p as FinderPrio)) out.prio = p as FinderPrio;
-  return out;
 }
 
 export default function PlanFinder({
@@ -66,8 +56,8 @@ export default function PlanFinder({
   // A guarantee preset («بدون ضامن» …) is a claim the data can't back until plans carry guaranteeTypes:
   // drop its chip, note and ranking effect until then (ANSWERS-1 §9).
   const preset = useMemo(() => withoutUnbackedGuarantee(rawPreset, all), [rawPreset, all]);
-  const fixed: Ans = useMemo(() => ({ ...(preset?.type ? { type: preset.type } : {}), ...(preset?.prio ? { prio: preset.prio } : {}) }), [preset]);
-  const keys = (['type', 'band', 'prio'] as Key[]).filter((k) => !(k in fixed));
+  const fixed: Ans = useMemo(() => (preset?.prio ? { prio: preset.prio } : {}), [preset]);
+  const keys = (['band', 'prio'] as Key[]).filter((k) => !(k in fixed));
   const N = keys.length;
   const ORDER: Step[] = [...keys, 'result'];
   const [ans, setAns] = useState<Ans>(fixed);
@@ -84,8 +74,10 @@ export default function PlanFinder({
     if (window.__finderDeep || !q.get('a')) return;
     window.__finderDeep = true;
     setAns({ ...parseDeepLink(q.get('a')), ...fixed });
-    const s = q.get('step') as Step | null;
-    setStep(s && ORDER.includes(s) ? s : 'result');
+    const s = q.get('step') as Step | null; // a legacy &step=type is not in ORDER → result
+    const got = { ...parseDeepLink(q.get('a')), ...fixed };
+    const missing = keys.find((k) => got[k] === undefined);
+    setStep(s && ORDER.includes(s) ? s : (missing ?? 'result'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -100,7 +92,7 @@ export default function PlanFinder({
     setStep(s);
   };
   const i = ORDER.indexOf(step);
-  const complete = ans.type !== undefined && ans.band !== undefined && ans.prio !== undefined;
+  const complete = ans.band !== undefined && ans.prio !== undefined;
   const r = useMemo(() => (step === 'result' && complete ? recommend(all, { ...(ans as FinderAnswers), retired }, preset) : null), [step, complete, all, ans, preset, retired]);
   // home: hides the #callback section so only one callback form is open (CALLBACK-HANDOFF.md)
   useEffect(() => {
@@ -113,7 +105,6 @@ export default function PlanFinder({
     setTimeout(() => go(next), 180);
   };
   const presetChips = [
-    preset?.type && FINDER_LABEL.type[preset.type],
     preset?.prio && FINDER_LABEL.prio[preset.prio],
     preset?.guarantee?.label,
   ].filter(Boolean) as string[];
@@ -189,7 +180,7 @@ export default function PlanFinder({
         {r && (
           <>
             <div className="answers">
-              {[FINDER_LABEL.type[ans.type!], FINDER_LABEL.band[ans.band!], FINDER_LABEL.prio[ans.prio!]].map((t) => (
+              {[FINDER_LABEL.band[ans.band!], FINDER_LABEL.prio[ans.prio!]].map((t) => (
                 <span className="chip" key={t}>
                   {t}
                 </span>
@@ -224,10 +215,9 @@ export default function PlanFinder({
             <div className="help cb-mount">
               {/* secondary: the featured plan card owns the page's primary button (CALLBACK-HANDOFF.md) */}
               <CallbackForm
-                key={`${ans.type}-${ans.band}-${ans.prio}-${retired}`}
+                key={`${ans.band}-${ans.prio}-${retired}`}
                 variant="inline"
                 src={`${src}-result`}
-                topic={ans.type === 'cash' || ans.type === 'goods' ? ans.type : null}
                 planId={r.cards[0]?.id ?? null}
                 titleTag="h3"
               />

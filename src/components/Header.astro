@@ -20,7 +20,7 @@ const { src = 'page', minimal = false } = Astro.props;
 const facts = planFacts(LOAN_PLANS_SNAPSHOT);
 const path = Astro.url.pathname.replace(/\/$/, '') || '/';
 const cur = (href: string) => (path === href || (href !== '/' && path.startsWith(href + '/')) ? 'page' : undefined);
-const blurb = (b: string) => b.replace('{goodsCount}', fa(facts.goodsCount));
+const blurb = (b: string) => b.replace('{planCount}', fa(facts.planCount));
 const DD_BLURB: Record<string, string> = { 'vam-ba-chek': 'با ضمانت چک صیادی' };
 const NAV = [
   { href: '/plans', label: 'طرح‌ها' },

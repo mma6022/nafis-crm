@@ -1,12 +1,12 @@
 /**
  * «درخواست مشاوره‌ی رایگان» callback form logic (pure; tests/callback.test.ts). Behaviour reference: designer
  * mockups/src/site.js `normMobile` / `mountCallback` (CALLBACK-HANDOFF.md). Payload contract (handoff §1 «Payload»):
- * { kind:'callback', name, phone:'09xxxxxxxxx', contactTime:'now'|'morning'|'evening', need?, planId?, src, consent,
+ * { kind:'callback', name, phone:'09xxxxxxxxx', contactTime:'now'|'morning'|'evening', planId?, src, consent,
  *   website (honeypot), startedAt, utm_* } → POST PUBLIC_LEAD_ENDPOINT. CRM side: nafis-crm feat/callback-requests.
  * Hours/days come from lib/site WORK_HOURS (Asia/Tehran via Intl, never the visitor's own zone).
  */
 import { normalizeIranMobile, toFaDigits } from './format';
-import { LeadError, UTM_KEYS, cleanSrc, postPublicLead, type LeadResult, type Need, type Utm } from './lead';
+import { LeadError, UTM_KEYS, cleanSrc, postPublicLead, type LeadResult, type Utm } from './lead';
 import { WORK_HOURS } from './site';
 
 export type CallbackTime = 'now' | 'morning' | 'evening';
@@ -15,7 +15,6 @@ export interface CallbackInput {
   name: string;
   phone: string;
   contactTime: CallbackTime;
-  need?: Need | null;
   planId?: number | null;
   src?: string | null;
   consent: boolean;
@@ -70,12 +69,6 @@ export const TIME_OPTS: TimeOpt[] = [
 ];
 /** «همین الان» is offered only inside working hours (Mohammad, 4:58 PM). */
 export const timeOptions = (inHours: boolean) => (inHours ? TIME_OPTS : TIME_OPTS.filter((o) => o.v !== 'now'));
-
-export const TOPIC_OPTS: { v: Need; label: string }[] = [
-  { v: 'cash', label: 'وام نقدی' },
-  { v: 'goods', label: 'خرید کالا' },
-  { v: 'help', label: 'نمی‌دانم' },
-];
 
 export const CB_TITLE = 'درخواست مشاوره‌ی رایگان';
 export const CB_SUBMIT = 'ثبت درخواست مشاوره';
@@ -132,7 +125,7 @@ export function buildCallbackPayload(i: CallbackInput, at: Date = new Date()): R
     website: i.website,
     startedAt: i.startedAt,
   };
-  if (i.need) out.need = i.need;
+  // legal 2026-10-24: no «موضوع تماس» (cash / goods) is asked or sent; the CRM column is nullable
   if (i.planId && Number.isInteger(i.planId) && i.planId > 0) out.planId = i.planId;
   const src = cleanSrc(i.src);
   if (src) out.src = src;
