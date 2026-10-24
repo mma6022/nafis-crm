@@ -38,11 +38,17 @@ await ok("good response → EXACTLY P2 (recall) for every urgency × docs × mat
   }
   assert.ok(seen.has(1) && seen.has(3), "the same answers without no-plan span P1 and P3 (score really varies)");
 });
-await ok("good response → P2 even with no matching plan (H6) or a bounced cheque (H5)", () => {
+await ok("good response → P2 even with no matching plan (H6)", () => {
   assert.equal(computeLeadPriority(v2, [], 0, now).priority, 3);
   assert.equal(computeLeadPriority({ ...v2, noPlanFit: true }, [], 0, now).priority, 2);
-  assert.equal(computeLeadPriority({ ...v2, bouncedCheque: "yes" }, fit, 0, now).priority, 3);
-  assert.equal(computeLeadPriority({ ...v2, bouncedCheque: "yes", noPlanFit: true }, fit, 0, now).priority, 2);
+});
+await ok("bounced cheque wins (Mohammad 15:50): no-plan + responded well + bounced cheque → P3 (H5), identical to without no-plan", () => {
+  for (const u of ["now", "month", "later"]) for (const d of DOCS) for (const m of [fit, weak, []]) {
+    const a = { ...v2, urgency: u, docsReady: d, bouncedCheque: "yes" };
+    const r = computeLeadPriority({ ...a, noPlanFit: true }, m, 0, now);
+    assert.equal(r.priority, 3, `${u}/${d}`); assert.equal(r.outcome, "not_eligible");
+    assert.deepEqual(r, computeLeadPriority(a, m, 0, now));
+  }
 });
 await ok("P2 recall date: recallAt when given, else p2DefaultRecallDays[urgency]", () => {
   const at = "2026-10-27T09:00:00.000Z";
@@ -73,7 +79,7 @@ await ok("exhaustive: no-plan never gives P1; without no-plan nothing changed (n
     const a = { ...v2, callResult: c, urgency: u, docsReady: d, bouncedCheque: b, callbackAt: "2026-10-25T08:00:00.000Z" };
     const r = computeLeadPriority({ ...a, noPlanFit: true }, m, 0, now);
     assert.notEqual(r.priority, 1);
-    if (noPlanRespondedWell({ ...a, noPlanFit: true })) assert.equal(r.priority, 2);
+    if (noPlanRespondedWell({ ...a, noPlanFit: true })) assert.equal(r.priority, b === "yes" ? 3 : 2);
     const plain = computeLeadPriority(a, m, 0, now);
     assert.ok(!plain.reasons.some((x) => x.includes("هیچ طرحی")));
     const { formVersion, ...old } = a; // old form ignores noPlanFit entirely
@@ -98,7 +104,7 @@ try {
   const kazemi = { id: 8, role: "salesperson", salespersonId: 6, fullName: "kazemi" };
   const note = "مشتری جواب داد؛ شرایط هیچ طرحی را ندارد ولی قصد وام دارد، توضیح کامل.";
   const pool = queryRows(`SELECT id FROM customers WHERE salesperson_id=6 AND status='in_progress' AND merged_into_customer_id IS NULL ORDER BY id LIMIT 10`).map((r) => Number(r.id));
-  assert.ok(pool.length >= 7, "need 7 customers of salesperson 6");
+  assert.ok(pool.length >= 8, "need 8 customers of salesperson 6");
   for (const id of pool) execute("UPDATE customers SET priority=NULL WHERE id=?", [id]);
   const next = (() => { let i = 0; return () => pool[i++]; })();
   const stored = (id) => queryRow("SELECT q.priority qp, q.no_plan_fit f, c.priority cp, c.salesperson_id s FROM team_sales_qualifications q JOIN customers c ON c.id=q.customer_id WHERE q.customer_id=? ORDER BY q.id DESC LIMIT 1", [id]);
@@ -127,6 +133,11 @@ try {
     const id = next(); const r = ts.submitQualification(id, kazemi, { mode: "simple", formVersion: 2, callResult: "no_answer", noPlanFit: true }, note, now);
     assert.equal(r.result.priority, null); assert.equal(r.noPlanFit, false);
     assert.equal(queryRow("SELECT priority p FROM customers WHERE id=?", [id]).p, null);
+  });
+  await ok("[db] bounced cheque + no-plan + responded well → P3 stored (bounced cheque wins)", () => {
+    const id = next(); const r = ts.submitQualification(id, kazemi, { ...v2, urgency: "month", bouncedCheque: "yes", noPlanFit: true }, note, now, []);
+    assert.equal(r.result.priority, 3); assert.equal(r.result.outcome, "not_eligible"); assert.equal(r.handoff, null);
+    const s = stored(id); assert.equal(Number(s.qp), 3); assert.equal(Number(s.cp), 3); assert.equal(Number(s.f), 1);
   });
   await ok("[db] manual «ارتقا به اولویت ۱» unchanged after the automatic P2", () => {
     ts.promoteToPriorityOne(lowId, { id: 1, role: "admin", salespersonId: null, fullName: "admin" }, "تصمیم مدیر", now);

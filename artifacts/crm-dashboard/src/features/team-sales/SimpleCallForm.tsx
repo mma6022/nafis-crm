@@ -424,7 +424,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
       {plans.error ? <div className="ts-alert" role="alert"><AlertCircle size={18} /> طرح‌ها بارگذاری نشد: {plans.error} <button type="button" className="ts-link" onClick={retryPlans}>دوباره امتحان کن</button></div>
         : !planList ? <p className="ts-loading" role="status">در حال بررسی طرح‌ها…</p> : <>
           {noneFit ? <div className="ts-nofit" role="status" data-testid="ts-nofit"><b>با جواب‌های این تماس هیچ طرحی مناسب نیست</b>
-            <p>گزینه‌ی «هیچ طرحی به این مشتری نمی‌خوره» پایین فهرست خودکار زده شد؛ اولویت طبق قانون H6 تعیین می‌شود (اولویت ۳).</p></div> : null}
+            <p>گزینه‌ی «هیچ طرحی به این مشتری نمی‌خوره» پایین فهرست خودکار زده شد. اگر مشتری جواب داد و قصد وام دارد، اولویت ۲ می‌گیرد. اگر فقط کنجکاو است یا چک برگشتی دارد، اولویت ۳ می‌گیرد.</p></div> : null}
           {fit.length ? <section className="ts-group fit" data-testid="ts-group-fit"><h3 className="ts-group-h">مناسب <small>{fa(fit.length)} طرح</small></h3>{fit.map(card)}</section> : null}
           {dep.length ? <section className="ts-group depends" data-testid="ts-group-depends"><h3 className="ts-group-h">بستگی دارد <small>{fa(dep.length)} طرح</small></h3>
             <p className="ts-group-x">به جوابی بستگی دارد که «نمی‌دونه» بود یا در این تماس پرسیده نمی‌شود. اگر انتخاب کنی، با برچسب «مشروط» به کارشناس بعدی می‌رسد.</p>{dep.map(card)}</section> : null}
@@ -439,7 +439,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
               onClick={toggleNoPlan} onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleNoPlan(); } }}>
               <span className="ts-box" aria-hidden="true">{noPlan ? <Check size={16} /> : null}</span>
               <span className="ts-plan-main"><b>هیچ طرحی به این مشتری نمی‌خوره</b>
-                <span className="ts-plan-meta">با انتخاب طرح جمع نمی‌شود. اولویت ۱ خودکار نمی‌گیرد؛ اولویت ۲ یا ۳ طبق امتیاز. «ارتقا به اولویت ۱» دستی همچنان ممکن است.</span></span>
+                <span className="ts-plan-meta">با انتخاب طرح جمع نمی‌شود. اگر مشتری جواب داد و قصد وام دارد، اولویت ۲ می‌گیرد. اگر فقط کنجکاو است یا چک برگشتی دارد، اولویت ۳ می‌گیرد. «ارتقا به اولویت ۱» دستی همچنان ممکن است.</span></span>
               <Ban size={20} className="ts-noplan-ic" aria-hidden="true" />
             </div>
             {noPlan ? <div className="ts-q ts-noplan-why"><label htmlFor="ts-noplan-note">چرا؟ <span className="ts-muted small">اختیاری، کوتاه</span></label>

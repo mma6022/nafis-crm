@@ -346,17 +346,17 @@ export function computeLeadPriority(a: QualifierAnswers, matches: PlanMatch[], p
     const at = a.callbackAt && !Number.isNaN(Date.parse(a.callbackAt)) ? new Date(a.callbackAt) : days(1);
     return r(2, "recall", at);
   }
+  if (a.urgency === "curious") { reasons.push("فعلاً قصد گرفتن وام ندارد (H4)"); return r(3, "nurture", days(cfg.curiousNurtureDays)); }
+  if (cfg.bouncedChequeBlocks && a.bouncedCheque === "yes") { reasons.push("چک برگشتی رفع‌نشده دارد (H5)"); return r(3, "not_eligible", days(30)); }
   // crm-no-plan-p2 (Mohammad 2026-10-24 15:43): «هیچ طرحی به این مشتری نمی‌خوره» + the customer responded well
-  // → EXACTLY P2 (never P1, never P3: score, «چک برگشتی» and «هیچ طرحی تطبیق نکرد» do not lower it).
-  // Otherwise (no-plan but «فقط کنجکاوه») the existing rules below apply unchanged (still never an automatic P1).
+  // → EXACTLY P2 (never P1, never P3: score and «هیچ طرحی تطبیق نکرد» do not lower it).
+  // Order (Mohammad 15:50): H4 «فقط کنجکاوه» and H5 «چک برگشتی» = P3 win over this; otherwise the existing rules apply (never an automatic P1).
   if (noPlanRespondedWell(a)) {
     reasons.push("کارشناس «هیچ طرحی به این مشتری نمی‌خوره» را زد و مشتری جواب داد و قصد وام دارد (فوریت ≠ «فقط کنجکاوه») → اولویت ۲");
     const rec = a.recallAt && !Number.isNaN(Date.parse(a.recallAt)) ? new Date(a.recallAt)
       : days(cfg.p2DefaultRecallDays[String(a.urgency)] ?? 7);
     return r(2, "recall", rec, null);
   }
-  if (a.urgency === "curious") { reasons.push("فعلاً قصد گرفتن وام ندارد (H4)"); return r(3, "nurture", days(cfg.curiousNurtureDays)); }
-  if (cfg.bouncedChequeBlocks && a.bouncedCheque === "yes") { reasons.push("چک برگشتی رفع‌نشده دارد (H5)"); return r(3, "not_eligible", days(30)); }
   if (!matches.length) { reasons.push("با شرایط فعلی هیچ طرح فعالی تطبیق نکرد (H6)"); return r(3, "not_eligible", days(30)); }
 
   const top = matches[0];
