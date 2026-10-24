@@ -2120,6 +2120,17 @@ export type CustomerEligiblePlanManualVariablesItem = {
   label: string;
 };
 
+export type CustomerEligiblePlanGuarantorGradeStatus = typeof CustomerEligiblePlanGuarantorGradeStatus[keyof typeof CustomerEligiblePlanGuarantorGradeStatus];
+
+
+export const CustomerEligiblePlanGuarantorGradeStatus = {
+  not_required: 'not_required',
+  no_rule: 'no_rule',
+  ok: 'ok',
+  unknown: 'unknown',
+  violated: 'violated',
+} as const;
+
 export interface CustomerEligiblePlan {
   planId: number;
   name: string;
@@ -2135,6 +2146,14 @@ export interface CustomerEligiblePlan {
   /** @nullable */
   contractTemplateId?: number | null;
   manualVariables?: CustomerEligiblePlanManualVariablesItem[];
+  /** Guarantor grades the condition accepts (empty = no rule). */
+  guarantorRanks?: string[];
+  guarantorGradeStatus?: CustomerEligiblePlanGuarantorGradeStatus;
+  /**
+     * Assumption shown when the guarantor grade is unknown (e.g. «رتبهٔ ضامن باید A/B باشد»).
+     * @nullable
+     */
+  guarantorGradeNote?: string | null;
 }
 
 export type CustomerEligiblePlansResponseCredit = {
@@ -2146,10 +2165,79 @@ export type CustomerEligiblePlansResponseCredit = {
   checkedAt: string | null;
 };
 
+/**
+ * @nullable
+ */
+export type CustomerEligiblePlansResponseGuarantorSource = typeof CustomerEligiblePlansResponseGuarantorSource[keyof typeof CustomerEligiblePlansResponseGuarantorSource] | null;
+
+
+export const CustomerEligiblePlansResponseGuarantorSource = {
+  consultation: 'consultation',
+  call_form: 'call_form',
+} as const;
+
+/**
+ * Newest guarantor declaration (consultation or first-call form). rank null = unknown / none declared.
+ */
+export type CustomerEligiblePlansResponseGuarantor = {
+  /** @nullable */
+  rank: string | null;
+  /** @nullable */
+  hasGuarantor: boolean | null;
+  /** @nullable */
+  source: CustomerEligiblePlansResponseGuarantorSource;
+  /** @nullable */
+  at: string | null;
+};
+
 export interface CustomerEligiblePlansResponse {
   customerId: number;
   credit: CustomerEligiblePlansResponseCredit;
+  /** Newest guarantor declaration (consultation or first-call form). rank null = unknown / none declared. */
+  guarantor?: CustomerEligiblePlansResponseGuarantor;
   plans: CustomerEligiblePlan[];
+}
+
+export interface CreditRankOverrideInput {
+  /**
+     * @minLength 10
+     * @maxLength 500
+     */
+  reason: string;
+}
+
+export type CreditRankOverrideEntryAction = typeof CreditRankOverrideEntryAction[keyof typeof CreditRankOverrideEntryAction];
+
+
+export const CreditRankOverrideEntryAction = {
+  preview_enabled: 'preview_enabled',
+  filing_fee_charged: 'filing_fee_charged',
+  wallet_share_link: 'wallet_share_link',
+  case_created: 'case_created',
+  admin_plan_change: 'admin_plan_change',
+} as const;
+
+export interface CreditRankOverrideEntry {
+  id: number;
+  action: CreditRankOverrideEntryAction;
+  userId: number;
+  /** @nullable */
+  userName: string | null;
+  /** @nullable */
+  userRole: string | null;
+  customerId: number;
+  /** @nullable */
+  applicationId: number | null;
+  /** @nullable */
+  planId: number | null;
+  /** @nullable */
+  conditionId: number | null;
+  reason: string;
+  createdAt: string;
+}
+
+export interface CreditRankOverrideList {
+  items: CreditRankOverrideEntry[];
 }
 
 /**
@@ -2160,6 +2248,11 @@ export type LoanApplicationInputManualValues = {[key: string]: string};
 export interface LoanApplicationInput {
   /** Admin/salesperson-only rank exemption */
   ignoreCreditRank?: boolean;
+  /**
+     * Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true; logged in loan_credit_rank_override_log.
+     * @maxLength 500
+     */
+  creditRankOverrideReason?: string;
   /** @minItems 1 */
   planIds: number[];
   /** @maxLength 1000 */
@@ -2181,6 +2274,11 @@ export interface LoanApplicationInput {
 
 export interface FilingFeeChargeInput {
   ignoreCreditRank?: boolean;
+  /**
+     * Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true; logged in loan_credit_rank_override_log.
+     * @maxLength 500
+     */
+  creditRankOverrideReason?: string;
   customerId: number;
   planId: number;
 }
@@ -2309,6 +2407,11 @@ export type WalletShareLinkInput = (unknown & {
   planId?: number;
   /** Staff-only loan-plan eligibility exception; does not bypass identity, cash shortfall, scope or verified payment. */
   ignoreCreditRank?: boolean;
+  /**
+     * Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true; logged in loan_credit_rank_override_log.
+     * @maxLength 500
+     */
+  creditRankOverrideReason?: string;
   /** Must be exactly true to create another link while an active request exists. */
   confirmActiveRequest?: boolean;
 });
@@ -5427,6 +5530,11 @@ export type ListCustomerEligiblePlansParams = {
  * Admin/salesperson selection of every active plan at full ceiling without rank matching.
  */
 ignoreCreditRank?: boolean;
+/**
+ * Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true.
+ * @maxLength 500
+ */
+creditRankOverrideReason?: string;
 };
 
 export type ListLoanApplicationsParams = {
@@ -5466,8 +5574,29 @@ export const ListLoanApplicationsMode = {
   board: 'board',
 } as const;
 
+export type LogCustomerCreditRankOverride201 = {
+  id: number;
+};
+
+export type ListCreditRankOverridesParams = {
+/**
+ * @minimum 1
+ * @maximum 500
+ */
+limit?: number;
+/**
+ * @minimum 0
+ */
+offset?: number;
+};
+
 export type GetFilingFeePlansParams = {
 ignoreCreditRank?: boolean;
+/**
+ * Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true.
+ * @maxLength 500
+ */
+creditRankOverrideReason?: string;
 customerId: number;
 };
 

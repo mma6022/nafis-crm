@@ -1561,6 +1561,7 @@ paths:
       parameters:
         - { name: customerId, in: path, required: true, schema: { type: integer } }
         - { name: ignoreCreditRank, in: query, schema: { type: boolean }, description: Admin/salesperson selection of every active plan at full ceiling without rank matching. }
+        - { name: creditRankOverrideReason, in: query, schema: { type: string, maxLength: 500 }, description: "Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true." }
       responses:
         "200":
           description: Eligible plans
@@ -1665,12 +1666,63 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/LoanApplicationDashboardStats" }
+  /customers/{customerId}/credit-rank-override:
+    post:
+      operationId: logCustomerCreditRankOverride
+      tags: [loan-applications]
+      description: «نادیده گرفتن رتبه» switched on in the wizard; reason mandatory, logged server-side. No notification is sent.
+      parameters:
+        - { name: customerId, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreditRankOverrideInput" }
+      responses:
+        "201":
+          description: Logged
+          content:
+            application/json:
+              schema: { type: object, required: [id], properties: { id: { type: integer } } }
+        "400": { description: "Reason missing, too short or too long" }
+        "403": { description: Role may not override }
+        "404": { description: Customer not found }
+  /loan-applications/{id}/credit-rank-overrides:
+    get:
+      operationId: listLoanApplicationCreditRankOverrides
+      tags: [loan-applications]
+      description: Admin only. Overrides logged for this case (plus the same customer's not-yet-attached previews).
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Override log
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreditRankOverrideList" }
+        "403": { description: Admin only }
+  /credit-rank-overrides:
+    get:
+      operationId: listCreditRankOverrides
+      tags: [loan-applications]
+      description: Admin only. Newest first.
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0 } }
+      responses:
+        "200":
+          description: Override log
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreditRankOverrideList" }
+        "403": { description: Admin only }
   /loan-applications/filing-fee-plans:
     get:
       operationId: getFilingFeePlans
       tags: [loan-applications]
       parameters:
         - { name: ignoreCreditRank, in: query, schema: { type: boolean } }
+        - { name: creditRankOverrideReason, in: query, schema: { type: string, maxLength: 500 }, description: "Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true." }
         - { name: customerId, in: query, required: true, schema: { type: integer } }
       responses:
         "200":
@@ -5703,6 +5755,9 @@ components:
             properties:
               variable: { type: string }
               label: { type: string }
+        guarantorRanks: { type: array, items: { type: string }, description: "Guarantor grades the condition accepts (empty = no rule)." }
+        guarantorGradeStatus: { type: string, enum: [not_required, no_rule, ok, unknown, violated] }
+        guarantorGradeNote: { type: ["string", "null"], description: "Assumption shown when the guarantor grade is unknown (e.g. «رتبهٔ ضامن باید A/B باشد»)." }
     CustomerEligiblePlansResponse:
       type: object
       required: [customerId, credit, plans]
@@ -5716,12 +5771,47 @@ components:
             status: { type: string }
             rank: { type: ["string", "null"] }
             checkedAt: { type: ["string", "null"] }
+        guarantor:
+          type: object
+          description: Newest guarantor declaration (consultation or first-call form). rank null = unknown / none declared.
+          required: [rank, hasGuarantor, source, at]
+          properties:
+            rank: { type: ["string", "null"] }
+            hasGuarantor: { type: ["boolean", "null"] }
+            source: { type: ["string", "null"], enum: [consultation, call_form, null] }
+            at: { type: ["string", "null"] }
         plans: { type: array, items: { $ref: "#/components/schemas/CustomerEligiblePlan" } }
+    CreditRankOverrideInput:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 10, maxLength: 500 }
+    CreditRankOverrideEntry:
+      type: object
+      required: [id, action, userId, userName, userRole, customerId, applicationId, planId, conditionId, reason, createdAt]
+      properties:
+        id: { type: integer }
+        action: { type: string, enum: [preview_enabled, filing_fee_charged, wallet_share_link, case_created, admin_plan_change] }
+        userId: { type: integer }
+        userName: { type: ["string", "null"] }
+        userRole: { type: ["string", "null"] }
+        customerId: { type: integer }
+        applicationId: { type: ["integer", "null"] }
+        planId: { type: ["integer", "null"] }
+        conditionId: { type: ["integer", "null"] }
+        reason: { type: string }
+        createdAt: { type: string }
+    CreditRankOverrideList:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/CreditRankOverrideEntry" } }
     LoanApplicationInput:
       type: object
       required: [planIds, customerId, planId, conditionId, requestedAmount, durationMonths, feeChargeId]
       properties:
         ignoreCreditRank: { type: boolean, default: false, description: Admin/salesperson-only rank exemption, audited on this application. }
+        creditRankOverrideReason: { type: string, maxLength: 500, description: "Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true; logged in loan_credit_rank_override_log." }
         planIds:
           type: array
           minItems: 1
@@ -5745,6 +5835,7 @@ components:
       required: [customerId, planId]
       properties:
         ignoreCreditRank: { type: boolean, default: false }
+        creditRankOverrideReason: { type: string, maxLength: 500, description: "Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true; logged in loan_credit_rank_override_log." }
         customerId: { type: integer }
         planId: { type: integer }
     CompanyWalletAdjustmentInput:
@@ -5827,6 +5918,7 @@ components:
         ignoreCreditRank:
           type: boolean
           description: Staff-only loan-plan eligibility exception; does not bypass identity, cash shortfall, scope or verified payment.
+        creditRankOverrideReason: { type: string, maxLength: 500, description: "Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true; logged in loan_credit_rank_override_log." }
         confirmActiveRequest:
           type: boolean
           description: Must be exactly true to create another link while an active request exists.

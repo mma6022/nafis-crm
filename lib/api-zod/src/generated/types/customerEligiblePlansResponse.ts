@@ -7,9 +7,12 @@
  */
 import type { CustomerEligiblePlan } from './customerEligiblePlan';
 import type { CustomerEligiblePlansResponseCredit } from './customerEligiblePlansResponseCredit';
+import type { CustomerEligiblePlansResponseGuarantor } from './customerEligiblePlansResponseGuarantor';
 
 export interface CustomerEligiblePlansResponse {
   customerId: number;
   credit: CustomerEligiblePlansResponseCredit;
+  /** Newest guarantor declaration (consultation or first-call form). rank null = unknown / none declared. */
+  guarantor?: CustomerEligiblePlansResponseGuarantor;
   plans: CustomerEligiblePlan[];
 }

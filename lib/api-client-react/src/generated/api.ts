@@ -67,6 +67,8 @@ import type {
   CreateMobileCallDevice201,
   CreditCheckInitiateInput,
   CreditCheckOtpInput,
+  CreditRankOverrideInput,
+  CreditRankOverrideList,
   CrmSummary,
   CrmUser,
   CrmUserInput,
@@ -189,6 +191,7 @@ import type {
   ListConsultOptionsParams,
   ListConsultationAiConversationsParams,
   ListConsultationsParams,
+  ListCreditRankOverridesParams,
   ListCustomerEligiblePlansParams,
   ListCustomerPaymentReconciliation200,
   ListCustomerPortalApplicationsParams,
@@ -233,6 +236,7 @@ import type {
   LoanPlanInput,
   LoanPlanMatch,
   LoanPlanUpdate,
+  LogCustomerCreditRankOverride201,
   LookupCustomerByPhoneParams,
   LookupVoipCustomerParams,
   ManagedWalletPage,
@@ -9891,6 +9895,247 @@ export function useGetLoanApplicationDashboardStats<TData = Awaited<ReturnType<t
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetLoanApplicationDashboardStatsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getLogCustomerCreditRankOverrideUrl = (customerId: number,) => {
+
+
+
+
+  return `/api/customers/${customerId}/credit-rank-override`
+}
+
+/**
+ * «نادیده گرفتن رتبه» switched on in the wizard; reason mandatory, logged server-side. No notification is sent.
+ */
+export const logCustomerCreditRankOverride = async (customerId: number,
+    creditRankOverrideInput: CreditRankOverrideInput, options?: Parameters<typeof customFetch>[1]): Promise<LogCustomerCreditRankOverride201> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<LogCustomerCreditRankOverride201>(getLogCustomerCreditRankOverrideUrl(customerId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(creditRankOverrideInput)
+  }
+);}
+
+
+
+
+
+export const getLogCustomerCreditRankOverrideMutationKey = () => ['logCustomerCreditRankOverride'] as const;
+
+export const getLogCustomerCreditRankOverrideMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof logCustomerCreditRankOverride>>, TError,LogCustomerCreditRankOverrideMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof logCustomerCreditRankOverride>>, TError,LogCustomerCreditRankOverrideMutationVariables, TContext> => {
+
+const mutationKey = getLogCustomerCreditRankOverrideMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof logCustomerCreditRankOverride>>, LogCustomerCreditRankOverrideMutationVariables> = (props) => {
+          const {customerId,data} = props ?? {};
+
+          return  logCustomerCreditRankOverride(customerId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LogCustomerCreditRankOverrideMutationResult = NonNullable<Awaited<ReturnType<typeof logCustomerCreditRankOverride>>>
+    export type LogCustomerCreditRankOverrideMutationBody = BodyType<CreditRankOverrideInput>
+    export type LogCustomerCreditRankOverrideMutationError = ErrorType<void>
+    export type LogCustomerCreditRankOverrideMutationVariables = {customerId: number;data: BodyType<CreditRankOverrideInput>}
+
+    export const useLogCustomerCreditRankOverride = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof logCustomerCreditRankOverride>>, TError,LogCustomerCreditRankOverrideMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof logCustomerCreditRankOverride>>,
+        TError,
+        LogCustomerCreditRankOverrideMutationVariables,
+        TContext
+      > => {
+      return useMutation(getLogCustomerCreditRankOverrideMutationOptions(options));
+    }
+
+export const getListLoanApplicationCreditRankOverridesUrl = (id: number,) => {
+
+
+
+
+  return `/api/loan-applications/${id}/credit-rank-overrides`
+}
+
+/**
+ * Admin only. Overrides logged for this case (plus the same customer's not-yet-attached previews).
+ */
+export const listLoanApplicationCreditRankOverrides = async (id: number, options?: Parameters<typeof customFetch>[1]): Promise<CreditRankOverrideList> => {
+
+  return customFetch<CreditRankOverrideList>(getListLoanApplicationCreditRankOverridesUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListLoanApplicationCreditRankOverridesQueryKey = (id: number,) => {
+    return [
+    `/api/loan-applications/${id}/credit-rank-overrides`
+    ] as const;
+    }
+
+
+export const getListLoanApplicationCreditRankOverridesQueryOptions = <TData = Awaited<ReturnType<typeof listLoanApplicationCreditRankOverrides>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLoanApplicationCreditRankOverrides>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListLoanApplicationCreditRankOverridesQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listLoanApplicationCreditRankOverrides>>> = ({ signal }) => listLoanApplicationCreditRankOverrides(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listLoanApplicationCreditRankOverrides>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListLoanApplicationCreditRankOverridesQueryResult = NonNullable<Awaited<ReturnType<typeof listLoanApplicationCreditRankOverrides>>>
+export type ListLoanApplicationCreditRankOverridesQueryError = ErrorType<void>
+
+
+
+export function useListLoanApplicationCreditRankOverrides<TData = Awaited<ReturnType<typeof listLoanApplicationCreditRankOverrides>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLoanApplicationCreditRankOverrides>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListLoanApplicationCreditRankOverridesQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListCreditRankOverridesUrl = (params?: ListCreditRankOverridesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/credit-rank-overrides?${stringifiedParams}` : `/api/credit-rank-overrides`
+}
+
+/**
+ * Admin only. Newest first.
+ */
+export const listCreditRankOverrides = async (params?: ListCreditRankOverridesParams, options?: Parameters<typeof customFetch>[1]): Promise<CreditRankOverrideList> => {
+
+  return customFetch<CreditRankOverrideList>(getListCreditRankOverridesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListCreditRankOverridesQueryKey = (params?: ListCreditRankOverridesParams,) => {
+    return [
+    `/api/credit-rank-overrides`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListCreditRankOverridesQueryOptions = <TData = Awaited<ReturnType<typeof listCreditRankOverrides>>, TError = ErrorType<void>>(params?: ListCreditRankOverridesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCreditRankOverrides>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListCreditRankOverridesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listCreditRankOverrides>>> = ({ signal }) => listCreditRankOverrides(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listCreditRankOverrides>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListCreditRankOverridesQueryResult = NonNullable<Awaited<ReturnType<typeof listCreditRankOverrides>>>
+export type ListCreditRankOverridesQueryError = ErrorType<void>
+
+
+
+export function useListCreditRankOverrides<TData = Awaited<ReturnType<typeof listCreditRankOverrides>>, TError = ErrorType<void>>(
+ params?: ListCreditRankOverridesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listCreditRankOverrides>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListCreditRankOverridesQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

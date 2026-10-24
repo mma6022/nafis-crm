@@ -30,6 +30,7 @@ import BankAccounts from '@/pages/BankAccounts';
 import Accounting from '@/pages/Accounting';
 import SalesCommissions from '@/pages/SalesCommissions';
 import ManualVerifications from '@/pages/ManualVerifications';
+import CreditRankOverrides from '@/pages/CreditRankOverrides';
 import InstagramInbox from '@/pages/InstagramInbox';
 import MessengersPage from '@/pages/Messengers';
 import { SocialMonitorReports } from '@/features/SocialMonitorReports';
@@ -213,6 +214,7 @@ function AppWithRoutes() {
                     <Route path="/sales-commissions"><PermissionRoute permission="goods_finance.view"><SalesCommissions /></PermissionRoute></Route>
                     <Route path="/messengers"><PermissionRoute permission="internal_chat.use"><MessengersPage /></PermissionRoute></Route>
                      <Route path="/manual-verifications"><AdminOnlyRoute><ManualVerifications /></AdminOnlyRoute></Route>
+                    <Route path="/credit-rank-overrides"><AdminOnlyRoute><CreditRankOverrides /></AdminOnlyRoute></Route>
                     <Route path="/contracts"><PermissionRoute permission="contracts.view"><Contracts /></PermissionRoute></Route>
                     <Route path="/users">
                       <PermissionRoute permission="users.view"><Users /></PermissionRoute>
