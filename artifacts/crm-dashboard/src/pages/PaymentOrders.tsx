@@ -67,7 +67,7 @@ function OrderList() {
   return <section className="data-page gp-page">
     <div className="page-intro gp-intro">
       <div><div className="eyebrow">مالی و پرداخت</div><h2>دستورهای پرداخت</h2><p>{section.key === 'pending' ? PENDING_INTRO.payments[pending.data && !pending.data.canCreate ? 'view' : 'create'] : 'فروش تأیید می‌کند ← مدیریت تأیید می‌کند ← حسابداری واریز و «پرداخت‌شده» را ثبت می‌کند.'}</p></div>
-      <SearchField value={search} onChange={(v) => { setSearch(v); setPage(1); setPendingPage(1); }} placeholder={section.key === 'pending' ? 'نام، شناسه، موبایل یا شماره خرید' : 'نام یا شناسه مشتری، یا شماره دستور'} testId="search-payment-orders" />
+      <SearchField value={search} onChange={(v) => { setSearch(v); setPage(1); setPendingPage(1); }} placeholder={section.key === 'pending' ? 'جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴) یا شماره خرید' : 'جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴) یا شماره دستور'} testId="search-payment-orders" />
     </div>
     {canPay && count > 0 && section.key !== 'awaiting' && section.key !== 'pending' ? <div className="gp-banner" data-testid="banner-awaiting-mark">
       <span className="gp-banner-icon"><BadgeCheck size={20} /></span>

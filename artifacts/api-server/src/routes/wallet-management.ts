@@ -195,7 +195,7 @@ router.get("/wallet-management/transactions", (req, res): void => {
   }
   // Search by customer mobile too (digits only, at least 4).
   const phoneDigits = search.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/\D/g, "");
-  if (statusView && search && txIdSearch && phoneDigits.length >= 4 && /^[\d\s۰-۹+-]+$/.test(search)) {
+  if (search && txIdSearch && phoneDigits.length >= 4 && /^[\d\s۰-۹+-]+$/.test(search)) {
     filters[filters.length - 1] = filters[filters.length - 1].replace(/\)$/, " OR customerId IN (SELECT id FROM customers WHERE phone LIKE ?) OR otherCustomerId IN (SELECT id FROM customers WHERE phone LIKE ?))");
     params.push(`%${phoneDigits}%`, `%${phoneDigits}%`);
   }
@@ -205,8 +205,10 @@ router.get("/wallet-management/transactions", (req, res): void => {
   if (statuses.length) { filters.push(`status IN (${statuses.map(() => "?").join(",")})`); params.push(...statuses); }
   const where = filters.join(" AND ");
   const total = queryRow<{ count: number }>(`${base} SELECT COUNT(*) count FROM entries WHERE ${where}`, [...scopeParams, ...params])?.count ?? 0;
-  const items = queryRows<any>(`${base} SELECT * FROM entries WHERE ${where} ORDER BY createdAt DESC,kind,recordId DESC LIMIT ? OFFSET ?`,
-    [...scopeParams, ...params, limit, (page - 1) * limit]);
+  // A searched customer id ranks that customer's rows first (record-number hits follow).
+  const txRank = txIdSearch?.idQuery ? { sql: "CASE WHEN customerId=? OR otherCustomerId=? THEN 0 ELSE 1 END,", params: [txIdSearch.idQuery.id, txIdSearch.idQuery.id] } : { sql: "", params: [] as number[] };
+  const items = queryRows<any>(`${base} SELECT * FROM entries WHERE ${where} ORDER BY ${txRank.sql}createdAt DESC,kind,recordId DESC LIMIT ? OFFSET ?`,
+    [...scopeParams, ...params, ...txRank.params, limit, (page - 1) * limit]);
   // Goods-purchase debits carry their purchase id in the idempotency key (goods:<id>:debit) → link «خرید #».
   for (const item of items) if (item.kind === "goods_purchase") {
     const key = queryRow<{ k: string }>("SELECT idempotency_key k FROM wallet_ledger_v2 WHERE id=?", [item.recordId])?.k ?? "";

@@ -231,7 +231,7 @@ export default function TransactionsStatus() {
       <div><h2>وضعیت تراکنش‌ها</h2><p>{seg === 'comm' ? 'هر خرید کالا: از «در انتظار پرداخت» تا ثبت پورسانت' : 'شارژ، اعتبار، کسر و انتقال در کیف پول مشتری‌ها'}</p></div>
       <div className="txs-tools">
         <label className="txs-search"><Search className="i" aria-hidden="true" />
-          <input className="inp" type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={seg === 'comm' ? 'نام یا شناسه مشتری، شماره خرید یا دستور' : 'نام، شناسه یا موبایل مشتری'} aria-label="جست‌وجو" />
+          <input className="inp" type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={seg === 'comm' ? 'جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)، شماره خرید یا دستور' : 'جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)'} aria-label="جست‌وجو" />
           {search ? <button type="button" className="clr-x" onClick={() => setSearch('')} aria-label="پاک کردن جست‌وجو"><X size={18} /></button> : null}
         </label>
         <button type="button" className="txs-fbtn" onClick={() => setFilterOpen(true)} aria-label="فیلتر"><Filter size={18} /><span className="d-only">فیلتر</span>{active.length ? <span className="n">{fa(active.length)}</span> : null}</button>

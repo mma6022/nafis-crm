@@ -233,7 +233,7 @@ export default function InstagramInbox() {
         <div className="instagram-workspace">
           <aside className="instagram-thread-panel">
             <div className="instagram-list-header"><div><strong>گفت‌وگوها</strong><span>{filteredThreads.length} سرنخ</span></div></div>
-            <label className="instagram-search"><Search size={17} /><input type="search" placeholder="جست‌وجوی نام، شماره یا درخواست…" value={search} onChange={(event) => setSearch(event.target.value)} aria-label="جست‌وجوی سرنخ‌ها" data-testid="input-instagram-search" /></label>
+            <label className="instagram-search"><Search size={17} /><input type="search" placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴) یا درخواست" value={search} onChange={(event) => setSearch(event.target.value)} aria-label="جست‌وجوی سرنخ‌ها" data-testid="input-instagram-search" /></label>
             <select className="instagram-status-filter" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="فیلتر وضعیت" data-testid="select-instagram-status">
               <option value="all">همه وضعیت‌ها</option><option value="error">دارای خطا</option>
               {[...new Set(threads.map((thread) => thread.status).filter((value): value is string => Boolean(value)))].map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}

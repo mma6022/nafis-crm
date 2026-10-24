@@ -12,8 +12,10 @@ export type CallCustomer = {
   verificationStatus?: string; isUrgent?: boolean;
 };
 
-export function CallCustomerSelect({ selected, disabled, onSelect }: {
+export function CallCustomerSelect({ selected, disabled, onSelect, id = 'call-customer', labelId = 'call-customer-label', testId = 'select-call-customer' }: {
   selected?: CallCustomer; disabled: boolean; onSelect: (customer: CallCustomer) => void;
+  /** Reused outside the call form (e.g. consultation edit): trigger id, its label's id and test id. */
+  id?: string; labelId?: string; testId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -33,9 +35,9 @@ export function CallCustomerSelect({ selected, disabled, onSelect }: {
     if (!next) { setSearch(''); setDebouncedSearch(''); }
   }}>
     <PopoverTrigger asChild>
-      <button id="call-customer" type="button" role="combobox" aria-expanded={open}
-        aria-labelledby="call-customer-label" disabled={disabled}
-        className="call-customer-trigger" data-testid="select-call-customer">
+      <button id={id} type="button" role="combobox" aria-expanded={open}
+        aria-labelledby={labelId} disabled={disabled}
+        className="call-customer-trigger" data-testid={testId}>
         <span>{selected ? `${customerNameText(selected.name, selected.id)} · ${selected.phone}` : 'یک مشتری را انتخاب کنید'}</span>
         <ChevronsUpDown size={16} aria-hidden="true" />
       </button>
@@ -43,7 +45,7 @@ export function CallCustomerSelect({ selected, disabled, onSelect }: {
     <PopoverContent align="start" dir="rtl" className="call-customer-popover">
       <Command shouldFilter={false}>
         <CommandInput value={search} onValueChange={setSearch}
-          aria-label="جست‌وجوی نام یا شناسه‌ی مشتری" placeholder="نام، شناسه یا موبایل مشتری..."
+          aria-label="جست‌وجوی نام یا شناسه‌ی مشتری" placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)"
           data-testid="input-call-customer-search" />
         <CommandList aria-label="مشتریان">
           {waiting ? <div className="call-customer-message" role="status">در حال جست‌وجو…</div>

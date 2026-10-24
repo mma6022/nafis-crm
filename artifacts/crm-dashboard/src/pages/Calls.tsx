@@ -257,7 +257,7 @@ function ManualCalls({ desktop = true }: { desktop?: boolean }) {
 
   const desktopFilters = <div className="clx-fb" data-testid="form-call-filters">
     <div className="clx-fr">
-      <label className="clx-sb"><Search size={18} aria-hidden="true" /><input value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0); }} placeholder="نام، شناسه، موبایل، موضوع یا یادداشت" aria-label="جست‌وجو در تماس‌ها" data-testid="input-search-calls" />
+      <label className="clx-sb"><Search size={18} aria-hidden="true" /><input value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0); }} placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)، موضوع یا یادداشت" aria-label="جست‌وجو در تماس‌ها" data-testid="input-search-calls" />
         {search ? <button type="button" className="x" onClick={() => { setSearch(''); setOffset(0); }} aria-label="پاک کردن جست‌وجو"><X size={16} /></button> : null}</label>
       <div className="clx-rel" ref={pop === 'range' ? popRef : undefined}>
         <div className="clx-pseg" role="group" aria-label="بازه‌ی زمانی">
@@ -288,7 +288,7 @@ function ManualCalls({ desktop = true }: { desktop?: boolean }) {
   </div>;
 
   const mobileFilters = <div className="clx-mfil">
-    <label className="clx-sb"><Search size={18} aria-hidden="true" /><input value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0); }} placeholder="نام، شناسه، موبایل یا یادداشت" aria-label="جست‌وجو در تماس‌ها" data-testid="input-search-calls" />
+    <label className="clx-sb"><Search size={18} aria-hidden="true" /><input value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0); }} placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴) یا یادداشت" aria-label="جست‌وجو در تماس‌ها" data-testid="input-search-calls" />
       {search ? <button type="button" className="x" onClick={() => { setSearch(''); setOffset(0); }} aria-label="پاک کردن جست‌وجو"><X size={16} /></button> : null}</label>
     <div className="row">
       <button type="button" className="clx-fc" aria-pressed={f.period !== 'all'} onClick={() => setSheet(true)} data-testid="chip-calls-period">{f.period === 'range' ? 'بازه‌ی دلخواه' : PERIOD_LABEL[f.period]} <ChevronDown size={16} aria-hidden="true" /></button>
