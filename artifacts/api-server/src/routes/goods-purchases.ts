@@ -5,6 +5,7 @@ import { crmDb, execute, executeChanges, queryRow, queryRows, runTransaction } f
 import { goodsRegistrationSuggestions } from "../lib/registration-suggestions";
 import { propagateContractTemplateChange } from "../lib/contract-template-updates";
 import { ensureWalletSchema } from "../lib/wallets";
+import { salespersonBreakdown } from "../lib/team-commission";
 import { ensureGoodsFinanceSchema, getGoodsPurchase, assertGoodsCustomerScope, assertGoodsPurchaseScope, createGoodsPurchase, saveGoodsInvoice, settleGoodsPurchase, completeGoodsPurchase, goodsEvent, money, percentBps, persianMonth, unassignedGoodsCredit } from "../lib/goods-finance";
 
 ensureWalletSchema();
@@ -99,11 +100,15 @@ router.put("/goods-finance/salespersons/:id/settings",requirePermission("goods_f
   res.json({saved:true});
 }));
 router.get("/goods-finance/salespersons/:id/summary",requirePermission("goods_finance.view"),wrap((req,res)=>{
-  const id=Number(req.params.id);salesAccess(id,user(res));const month=persianMonth();
-  const rows=queryRows<any>("SELECT COALESCE(base_payout_amount_toman,payout_amount_toman) payout_amount_toman,commission_month FROM goods_purchases WHERE salesperson_id=? AND stage='completed'",[id]);
+  const id=Number(req.params.id);salesAccess(id,user(res));
+  const month=/^\d{4}-(0[1-9]|1[0-2])$/.test(String(req.query.month??""))?String(req.query.month):persianMonth();
+  const kind=typeof req.query.kind==="string"&&req.query.kind?req.query.kind:null;
+  // Sales volume: team-model purchases count on their stored basis (deposit by default); everything else as before.
+  const rows=queryRows<any>("SELECT COALESCE(t.basis_amount_toman,g.base_payout_amount_toman,g.payout_amount_toman) payout_amount_toman,g.commission_month FROM goods_purchases g LEFT JOIN team_commission_purchases t ON t.purchase_id=g.id AND t.status<>'pending_payout' WHERE g.salesperson_id=? AND g.stage='completed' AND g.commission_month IS NOT NULL",[id]);
+  const report=salespersonBreakdown(id,month,kind);
   res.json({balanceToman:queryRow<any>("SELECT balance_toman FROM goods_salesperson_wallets WHERE salesperson_id=?",[id])?.balance_toman??"0",
     totalSalesToman:rows.reduce((s,r)=>s+money(r.payout_amount_toman),0n).toString(),monthlySalesToman:rows.filter(r=>r.commission_month===month).reduce((s,r)=>s+money(r.payout_amount_toman),0n).toString(),month,
-    transactions:queryRows<any>("SELECT purchase_id purchaseId,amount_toman amountToman,kind,created_at createdAt FROM goods_finance_ledger WHERE salesperson_id=? AND kind='salesperson_commission' ORDER BY id DESC LIMIT 500",[id])});
+    kind:kind??"all",breakdown:report.breakdown,monthTotalToman:report.monthTotalToman,stats:report.stats,transactions:report.transactions});
 }));
 router.get("/goods-finance/company-wallets",requirePermission("goods_finance.view"),wrap((req,res)=>{
   if(user(res).role!=="admin"&&user(res).role!=="accounting")throw new Error("Forbidden");

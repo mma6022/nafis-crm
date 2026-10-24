@@ -4,6 +4,7 @@ import { startAfterCallMonitor } from "./lib/voip-after-call";
 import { startTranscriptWorker } from "./lib/recording-transcript-jobs";
 import { startWalletPaymentRecovery } from "./lib/wallet-payment-recovery";
 import { startExpertReminderSmsWorker } from "./lib/expert-reminder-sms";
+import { startTeamBonusScheduler } from "./lib/team-commission";
 
 const rawPort = process.env["PORT"];
 
@@ -30,4 +31,5 @@ app.listen(port, (err) => {
   startTranscriptWorker();
   startWalletPaymentRecovery();
   startExpertReminderSmsWorker();
+  startTeamBonusScheduler(); // inert unless the team model AND the monthly team bonus are enabled
 });

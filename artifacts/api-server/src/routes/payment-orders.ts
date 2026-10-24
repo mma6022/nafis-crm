@@ -13,6 +13,7 @@ import {
 import { paymentOrderListScope } from "../lib/payment-order-scope";
 import { verifyCustomerBankAccount, normalizeBankBirthDate, lookupBankAccount } from "../lib/bank-verification";
 import { ensureAccountingSchema, postPaymentDocument, AccountingError } from "../lib/accounting";
+import { onPaymentOrderPaid } from "../lib/team-commission";
 
 ensurePaymentOrdersSchema();
 ensureAccountingSchema();
@@ -211,6 +212,8 @@ router.post("/payment-orders/:id/pay", permission("payment_orders.pay"), receive
         receipt_filename=?,receipt_mime=?,receipt_sha256=?,paid_by=?,updated_at=? WHERE id=? AND stage='awaiting_payment'`,
       [sourceId, tracking, date.toISOString(), name, mime, hash, u.id, now(), order.id]) !== 1) throw new Error("payment_stage_changed");
       paymentEvent(order.id, "payment_recorded", u.id);
+      // Team-sales model: commission waiting for payout posts now (savepoint; never blocks the payment record).
+      onPaymentOrderPaid(order.purchase_id, u.id);
     });
   } catch(error) {
     fs.unlinkSync(destination);

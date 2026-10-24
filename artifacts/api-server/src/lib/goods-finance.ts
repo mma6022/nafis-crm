@@ -4,6 +4,7 @@ import { goodsDocumentState, assertInvoiceEditable, invalidateGoodsInvoice } fro
 import { assertArchivedCustomerSurvivorAccess } from "./customer-merge-access";
 import { postCompanyPurchaseReceipt } from "./company-purchase-receipts";
 import { goodsSettlementAmounts } from "./goods-settlement-amounts";
+import { onGoodsPurchaseCompletion } from "./team-commission";
 
 const now = () => new Date().toISOString();
 export function money(value: unknown): bigint {
@@ -251,6 +252,10 @@ export function completeGoodsPurchase(id: number, actorId: number): any {
     if (p.stage !== "registrar_confirmation" || !p.acknowledgement_signed || !acknowledgement?.signed || acknowledgement.invoiceVersion!==p.invoice_version) throw new Error("signed_acknowledgement_required");
     const config = p.commission_settings_json ? JSON.parse(p.commission_settings_json) : null;
     if (!config) throw new Error("salesperson_commission_configuration_required");
+    // Team-sales commission model (OFF by default): for team members from its start date it either defers posting
+    // to the payment order «پرداخت‌شده» moment or posts on its own basis. Everyone else continues below, unchanged.
+    const team = onGoodsPurchaseCompletion(p, actorId);
+    if (team !== "legacy") { goodsEvent(id,"completed",actorId,{model:"team",commission:team}); return getGoodsPurchase(id); }
     const month = persianMonth();
     const prior = queryRows<any>("SELECT COALESCE(base_payout_amount_toman,payout_amount_toman) sales_amount FROM goods_purchases WHERE salesperson_id=? AND stage='completed' AND commission_month=?", [p.salesperson_id,month]).reduce((s,r)=>s+money(r.sales_amount),0n);
     // Fee discounts adjust the customer's bank payout, not the agreed sale
