@@ -18,6 +18,7 @@ db.exec(`
  CREATE TABLE salespersons(id INTEGER PRIMARY KEY,name TEXT);
  INSERT INTO salespersons VALUES(11,'کارشناس یک'),(12,'کارشناس دو');
  CREATE TABLE call_logs(id INTEGER PRIMARY KEY,customer_id INTEGER,salesperson_id INTEGER,salesperson_name_snapshot TEXT,subject TEXT,customer_request TEXT,expert_notes TEXT,created_at TEXT);
+ CREATE TABLE team_sales_qualifications(id INTEGER PRIMARY KEY,customer_id INTEGER,actor_user_id INTEGER,call_log_id INTEGER);
  INSERT INTO users VALUES(1,'admin','مدیر آزمایشی','admin',1,'2026-10-04',NULL),(2,'first','کارشناس یک','salesperson',1,'2026-10-04',11),(3,'second','کارشناس دو','salesperson',1,'2026-10-04',12);
  INSERT INTO customers(id,name,phone,salesperson_id,merged_into_customer_id,priority) VALUES(1,'مشتری یک','09120000001',11,NULL,1),(2,'مشتری دو','09120000002',12,NULL,1),(3,'ادغام‌شده','09120000004',12,1,1);
  INSERT INTO customers VALUES(4,'آرشیو لغوشده','09120000001',12,NULL,1,'cancelled');

@@ -34,10 +34,13 @@ import { saveChatObject, readChatObject, deleteChatObject } from "../lib/chat-st
 import { validateInternalChatFile } from "../lib/internal-chat-files";
 import { socialMonitorFeature } from "../lib/social-monitor";
 import teamSalesRouter from "./team-sales";
+import { ensureTeamSalesSchema } from "../lib/team-sales";
 import teamCommissionRouter from "./team-commission";
 
 const router: IRouter = Router();
 startDatabaseBackupScheduler();
+// The salesperson call-history scope reads team_sales_qualifications (first-call form authors).
+ensureTeamSalesSchema();
 startInstagramWorker();
 
 router.use(healthRouter);

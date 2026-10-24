@@ -6,7 +6,7 @@ import { publicDocumentLabel } from "../lib/public-document-labels";
 import { saveUserVoipExtension } from "../lib/user-voip-extension";
 import { savePendingAfterCallHistory } from "../lib/voip-after-call";
 import { callReportDateBounds } from "../lib/call-report-filters";
-import { callHistoryScope, forcedCallSalespersonId } from "../lib/call-history-scope";
+import { callAuthoredBySql, callHistoryScope, forcedCallScope, forcedCallSalespersonId } from "../lib/call-history-scope";
 import { systemSummaryForCall } from "../lib/call-reports";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -4109,9 +4109,13 @@ router.get("/calls", requirePermission("calls.view"), (req, res): void => {
   const user = res.locals.authUser as AuthUser;
   const callScope = callHistoryScope(user);
   if (callScope.sql) { filters.push(callScope.sql); params.push(...callScope.params); }
+  const forcedScope = forcedCallScope(user);
+  if (forcedScope) { filters.push(forcedScope.sql); params.push(...forcedScope.params); }
   const callIdSearch = search ? customerSearchSql(search) : null;
-  const ownerOnly = user.role === "admin" || user.customerScope === "all" ? "1=1" : "c.salesperson_id=?";
-  const ownerParams = user.role === "admin" || user.customerScope === "all" ? [] : [user.salespersonId];
+  // Name / id search: the customer must be owned now, or the call logged by this salesperson.
+  const authoredBy = callAuthoredBySql(user);
+  const ownerOnly = user.role === "admin" || user.customerScope === "all" ? "1=1" : `(c.salesperson_id=? OR ${authoredBy.sql})`;
+  const ownerParams = user.role === "admin" || user.customerScope === "all" ? [] : [user.salespersonId, ...authoredBy.params];
   if (search && callIdSearch?.idQuery?.explicit) {
     // «#1234»: only that customer's calls (same ownership rule as the name match).
     filters.push(`(cl.customer_id=? AND ${ownerOnly})`);

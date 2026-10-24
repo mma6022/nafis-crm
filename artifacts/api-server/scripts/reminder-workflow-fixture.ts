@@ -15,6 +15,7 @@ db.exec(`CREATE TABLE users(id INTEGER PRIMARY KEY,mobile TEXT,full_name TEXT,us
  CREATE TABLE call_logs(id INTEGER PRIMARY KEY,customer_id INTEGER,salesperson_id INTEGER,salesperson_name_snapshot TEXT,subject TEXT,customer_request TEXT,expert_notes TEXT,created_at TEXT);
  CREATE TABLE voip_after_call_events(id INTEGER PRIMARY KEY,call_log_id INTEGER,mobile_device_id INTEGER,expert_user_id INTEGER,extension TEXT,extensions_json TEXT);
  CREATE TABLE voip_extensions(user_id INTEGER,extension TEXT);
+ CREATE TABLE team_sales_qualifications(id INTEGER PRIMARY KEY,customer_id INTEGER,actor_user_id INTEGER,call_log_id INTEGER);
  INSERT INTO users VALUES(1,'09120000000','Synthetic Expert','synthetic',1),(2,NULL,'Missing Phone','missing',1);
  INSERT INTO customers VALUES(100,11),(200,22);
  INSERT INTO salespersons VALUES(11,'Synthetic Expert'),(22,'Other Synthetic');
