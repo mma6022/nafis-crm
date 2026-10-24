@@ -1,5 +1,6 @@
 import { matchesCustomerSearch, rankExactCustomerId } from '@/lib/customer-id';
 import { CustomerIdBadge, CustomerName } from '@/components/customer/CustomerName';
+import { OtherOwnerResults } from '@/components/customer/OtherOwnerResults';
 import { createPortal } from "react-dom";
 import { requestWalletShare } from '@/lib/wallet-share';
 import { documentFileAccept, supportedDocumentFile } from '@/lib/document-upload-type';
@@ -755,6 +756,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
             <Step1Customer 
                search={search} setSearch={setSearch} 
                customers={customersData?.items || []} 
+               otherOwnerPage={customersData}
                loading={loadingCustomers}
                selectedCustomer={selectedCustomer} 
                 setSelectedCustomer={selectCustomer} 
@@ -988,7 +990,7 @@ function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, on
 }
 
 // --- Step 1 ---
-function Step1Customer({ search, setSearch, customers, loading, selectedCustomer, setSelectedCustomer, onNext }: any) {
+function Step1Customer({ search, setSearch, customers, otherOwnerPage, loading, selectedCustomer, setSelectedCustomer, onNext }: any) {
   const [attempted, setAttempted] = useState(false);
   const filteredCustomers = rankExactCustomerId(customers.filter((c: any) =>
     matchesCustomerSearch(search, { id: c.id, name: c.name, phone: c.phone, extra: [c.nationalCode] })
@@ -1026,6 +1028,7 @@ function Step1Customer({ search, setSearch, customers, loading, selectedCustomer
           <div className="lwz-loading">مشتری یافت نشد. مشتری جدید را از بخش «مشتریان» ثبت کنید.</div>
         )}
       </div>
+      {!loading ? <OtherOwnerResults page={otherOwnerPage} variant="inline" /> : null}
       {attempted && !selectedCustomer && <small role="alert" className="lwz-err" id="err-selected-customer" data-testid="error-selected-customer">برای ادامه یک مشتری را انتخاب کنید.</small>}
       <div className="form-footer">
         <span />

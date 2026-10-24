@@ -1,4 +1,5 @@
 import express, { Router, type IRouter, type RequestHandler } from "express";
+import { crossOwnerEligible, findOtherOwnerMatches } from "../lib/cross-owner-search";
 import { customerSearchSql } from "../lib/customer-id-search";
 import { identityValuesChanged } from "../lib/identity-change";
 import { propagateContractTemplateChange } from "../lib/contract-template-updates";
@@ -1764,9 +1765,15 @@ router.get(
     });
     // crm-call-form-plans: plans picked in the latest first-call form (added after the zod parse, which strips unknown keys).
     const suggested = latestSelectedPlans(listBody.items.map((item) => Number(item.id)));
+    // crm-id-search-everywhere: a salesperson's exact id / mobile / full-name search also returns
+    // other salespersons' matches as minimal faded hints (id, name, owner) — after their own rows.
+    const crossOwner = search && offset === 0 && customerId === undefined && crossOwnerEligible(user)
+      ? findOtherOwnerMatches(user, search)
+      : null;
     res.json({
       ...listBody,
       items: listBody.items.map((item) => ({ ...item, suggestedPlans: suggested.get(Number(item.id)) ?? [] })),
+      ...(crossOwner ? { otherOwnerMatches: crossOwner.items, otherOwnerLimited: crossOwner.limited } : {}),
     });
   },
 );

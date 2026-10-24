@@ -8,6 +8,7 @@ import { getCustomer, getGetCustomerQueryKey, getListCallsQueryKey, useListCalls
 import { usesSimpleForm, type TeamSalesConfig } from '@/features/team-sales/api';
 import { useDialogFocus } from '@/pages/customers-ui';
 import { CustomerName } from '@/components/customer/CustomerName';
+import { OtherOwnerResults } from '@/components/customer/OtherOwnerResults';
 import { parseCustomerIdQuery } from '@/lib/customer-id';
 
 const fa = (n: number) => n.toLocaleString('fa-IR');
@@ -138,6 +139,7 @@ export function CallCustomerPicker({ user, config, search, onSearch, checking, o
         {!active ? <p className="hint">حداقل ۲ حرف از نام یا ۴ رقم از موبایل را بنویسید.</p> : null}
         {checking?.state === 'error' ? <div className="clx-inote bad" role="alert" data-testid="picker-error"><AlertCircle size={18} aria-hidden="true" /><div>پرونده‌ی «{checking.name}» باز نشد. اتصال را بررسی کنید و دوباره امتحان کنید.<div style={{ marginTop: 6 }}><button type="button" className="clx-gbtn" onClick={onRetry} data-testid="picker-retry">تلاش دوباره</button></div></div></div> : null}
         {body}
+        {active && !results.isLoading && !results.isError ? <OtherOwnerResults page={results.data} variant="inline" /> : null}
       </div>
       <div className="df"><span className="hint2">{isQualifier ? 'برچسب کنار هر مشتری نشان می‌دهد کدام فرم باز می‌شود.' : 'بعد از انتخاب، فرم ثبت تماس با همین مشتری باز می‌شود.'}</span><button type="button" className="clx-gbtn" onClick={onClose}>انصراف</button></div>
     </div>

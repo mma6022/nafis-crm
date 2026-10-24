@@ -2,6 +2,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Edit3, Eye, FileText, Hash, Kanban, La
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode, type UIEvent } from 'react';
 import { Link, useLocation } from 'wouter';
 import { CustomerIdBadge, CustomerName } from '@/components/customer/CustomerName';
+import { OtherOwnerResults } from '@/components/customer/OtherOwnerResults';
 import { keepPreviousData, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { getCustomer, getGetAuthSessionQueryKey, getGetCrmSummaryQueryKey, getGetCustomerQueryKey, getListCustomerTagsQueryKey, getListCustomersQueryKey, getListSalespersonsQueryKey, listCustomers, useGetAuthSession, useGetCrmSummary, useListCustomerTags, useListCustomers, useListSalespersons, useUpdateCustomer, useUpdateAuthProfile, useDeleteCustomer, useCreateCall, useCreateConsultation, getListCallsQueryKey, getListConsultationsQueryKey, getListRemindersQueryKey, type Customer, type CallInput, type ConsultationInput, type ListCustomersParams } from '@workspace/api-client-react';
 import { CustomerForm } from '@/components/CustomerForm';
@@ -527,6 +528,8 @@ export default function Customers() {
           : items.length > MOBILE_STEP ? <p className="csx-meta" style={{ textAlign: 'center' }}>همهٔ {fa(total)} مشتری نمایش داده شد.</p> : null}
       </>
     )}
+    {/* Other salespersons' exact matches (server-provided, salesperson only): faded, after own results. */}
+    {!isBoard && !customers.isLoading && !customers.isError ? <OtherOwnerResults page={page} /> : null}
 
     {filtersOpen ? <Sheet title="فیلترها" side={isDesktop} onClose={() => setFiltersOpen(false)} testId="customers-filters" footer={<>
       <button type="button" className="csx-ghost" onClick={clearFilters} disabled={!activeFilters.length && !lastCallSort}>پاک کردن</button>

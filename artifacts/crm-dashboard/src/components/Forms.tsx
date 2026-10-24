@@ -1,4 +1,5 @@
 import { customerNameText } from '@/components/customer/CustomerName';
+import { OtherOwnerResults } from '@/components/customer/OtherOwnerResults';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { GradePicker } from '@/components/grade/GradePicker';
 import { createPortal } from 'react-dom';
@@ -485,6 +486,7 @@ export function CreateReminderForm({ onClose }: { onClose: () => void }) {
               <option value="">بدون اتصال به مشتری</option>
               {(customers.data?.items ?? []).map((customer) => <option key={customer.id} value={customer.id}>{customerNameText(customer.name, customer.id)} · {customer.phone} · کارشناس پرونده: {customer.salespersonName || 'بدون تخصیص'}</option>)}
             </select>
+            <OtherOwnerResults page={customers.data} variant="inline" testId="other-owner-results-reminder" />
           </div>
           <div className="field full">
             <label htmlFor="header-reminder-subject">موضوع یادآور</label>
