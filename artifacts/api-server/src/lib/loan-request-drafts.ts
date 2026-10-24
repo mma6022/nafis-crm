@@ -11,16 +11,17 @@ export const DRAFT_STEP_LABELS = [
   "مبلغ و مدت", "هزینه تشکیل پرونده", "مدارک هویتی", "اطلاعات تکمیلی قرارداد", "بازبینی و ثبت",
 ] as const;
 export const DRAFT_TOTAL_STEPS = DRAFT_STEP_LABELS.length;
-/** Step a migrated / synced orphan fee lands on: the fee step is done, next is «مدارک هویتی». */
-export const ORPHAN_FEE_STEP = 8;
 export const UNPAID_TTL_DAYS = 30;
 export const WARN_BEFORE_DAYS = 5; // HANDOFF §3/1: warning from day 25
 export const PAID_REMINDER_AFTER_HOURS = 24;
 /** Tehran is UTC+03:30 all year (no DST since 2022). */
 export const TEHRAN_OFFSET_MINUTES = 210;
 export const DAILY_JOB_HOUR_TEHRAN = 12;
-/** Orphan fee charges younger than this are left alone: the wizard may still be linking them. */
-export const ORPHAN_SYNC_GRACE_MINUTES = 15;
+/**
+ * Auto-delete of unpaid drafts (30 days, warning first) ships OFF (PM, 24 Oct): no expiry warnings, no deletes.
+ * Server-side guard: only the exact value LOAN_REQUEST_DRAFTS_AUTO_DELETE=on enables it; unset / anything else = off.
+ */
+export function autoDeleteEnabled(env: Record<string, string | undefined> = process.env) { return env.LOAN_REQUEST_DRAFTS_AUTO_DELETE === "on"; }
 const DAY_MS = 86_400_000;
 
 export const DRAFTS_DDL = `
@@ -138,7 +139,7 @@ export function shapeDraft(r: any, u: AuthUser | null, nowMs = Date.now()) {
   const updatedMs = Date.parse(r.updated_at);
   const paidMs = r.fee_paid_at ? Date.parse(r.fee_paid_at) : null;
   const waitFrom = updatedMs; // HANDOFF §6: waiting time (and its colour) counts from the last save
-  const autoDeleteAt = r.fee_charge_id == null ? new Date(updatedMs + UNPAID_TTL_DAYS * DAY_MS).toISOString() : null;
+  const autoDeleteAt = r.fee_charge_id == null && autoDeleteEnabled() ? new Date(updatedMs + UNPAID_TTL_DAYS * DAY_MS).toISOString() : null;
   const creditFresh = !!r.credit_completed_at && Date.parse(r.credit_completed_at) >= nowMs - DAY_MS;
   return {
     id: Number(r.id), customerId: Number(r.customer_id), customerName: r.customer_name, customerPhone: r.customer_phone,
@@ -189,7 +190,70 @@ export function draftCounts(u: AuthUser, nowMs = Date.now()) {
     paidOver24h: items.filter(i => i.paidOver24h).length,
     expiringSoon: items.filter(i => i.expiringSoon).length,
     mine: items.filter(i => i.createdByUserId === u.id || (u.salespersonId != null && i.salespersonId === u.salespersonId)).length,
+    orphanFees: listOrphanPaidFees(u, {}, nowMs).length, // 0 for every non-admin role
+    legacyCases: listLegacyPreRegistrations(u, {}, nowMs).length,
+    autoDelete: autoDeleteEnabled(),
   };
+}
+
+// ---------------------------------------------------------------- read-only rows shown in the same queue (computed at read time, nothing written)
+const searchSql = (q: string | undefined, params: SqlValue[]) => {
+  if (!q?.trim()) return "";
+  const t = q.trim(); params.push(`%${t}%`, `%${t}%`, t.replace(/^#/, ""), t);
+  return " AND (c.name LIKE ? OR c.phone LIKE ? OR CAST(c.id AS TEXT)=? OR c.national_code=?)";
+};
+const hoursSince = (iso: string | null | undefined, nowMs: number) => (iso ? Math.max(0, Math.floor((nowMs - Date.parse(iso)) / 3_600_000)) : 0);
+
+/** «هزینه‌ی واریزشده بدون پرونده»: paid filing-fee charges with no case and no open draft. ADMIN ONLY; never converted. */
+export function listOrphanPaidFees(u: AuthUser, opts: { scope?: "mine" | "all"; search?: string; customerId?: number } = {}, nowMs = Date.now()) {
+  if (u.role !== "admin") return [];
+  ensureLoanRequestDraftSchema();
+  const params: SqlValue[] = [];
+  let where = `f.application_id IS NULL AND CAST(f.amount_toman AS INTEGER)>0
+    AND NOT EXISTS (SELECT 1 FROM loan_request_drafts d WHERE d.fee_charge_id=f.id AND d.deleted_at IS NULL)`;
+  if (opts.scope === "mine") { where += " AND (f.actor_user_id=? OR c.salesperson_id=?)"; params.push(u.id, u.salespersonId ?? -1); }
+  if (opts.customerId) { where += " AND f.customer_id=?"; params.push(opts.customerId); }
+  where += searchSql(opts.search, params);
+  const rows = queryRows<any>(`SELECT f.id,f.customer_id,f.plan_id,f.amount_toman,f.created_at,f.actor_user_id,f.actor_customer_id,
+      c.name customer_name,c.phone customer_phone,c.salesperson_id,sp.name salesperson_name,lp.name plan_name,
+      au.full_name actor_name,au.username actor_username
+    FROM loan_filing_fee_charges f JOIN customers c ON c.id=f.customer_id
+    LEFT JOIN salespersons sp ON sp.id=c.salesperson_id LEFT JOIN loan_plans lp ON lp.id=f.plan_id LEFT JOIN users au ON au.id=f.actor_user_id
+    WHERE ${where} ORDER BY f.created_at ASC, f.id ASC LIMIT 500`, params);
+  return rows.map((r) => ({
+    kind: "orphan_fee" as const, chargeId: Number(r.id), customerId: Number(r.customer_id), customerName: r.customer_name, customerPhone: r.customer_phone,
+    amountToman: String(r.amount_toman), paidAt: r.created_at, planId: r.plan_id == null ? null : Number(r.plan_id), planName: r.plan_name ?? null,
+    byCustomer: r.actor_customer_id != null, chargedByName: r.actor_name || r.actor_username || null,
+    salespersonId: r.salesperson_id ?? null, salespersonName: r.salesperson_name ?? null,
+    waitingHours: hoursSince(r.created_at, nowMs), readOnly: true as const,
+  }));
+}
+
+/**
+ * Old pre-registration cases left at stage 'draft' (hidden from the case list by
+ * `COALESCE(is_pre_registration,0)=0 OR stage<>'draft'`). Display only. Visibility: admin / «all»-scope roles see all,
+ * «assigned» roles (salesperson) only their customers' — same rule as drafts.
+ */
+export function listLegacyPreRegistrations(u: AuthUser, opts: { scope?: "mine" | "all"; search?: string; customerId?: number } = {}, nowMs = Date.now()) {
+  const s = scopeSql(u);
+  const params: SqlValue[] = [...s.params];
+  let where = `a.deleted_at IS NULL AND a.stage='draft' AND COALESCE(a.is_pre_registration,0)=1${s.sql}`;
+  if (opts.scope === "mine") { where += " AND (a.requested_by_user_id=? OR c.salesperson_id=?)"; params.push(u.id, u.salespersonId ?? -1); }
+  if (opts.customerId) { where += " AND a.customer_id=?"; params.push(opts.customerId); }
+  where += searchSql(opts.search, params);
+  const rows = queryRows<any>(`SELECT a.id,a.customer_id,a.plan_id,a.requested_amount,a.duration_months,a.status,a.created_at,a.updated_at,a.requested_by_user_id,
+      c.name customer_name,c.phone customer_phone,c.salesperson_id,sp.name salesperson_name,lp.name plan_name,ru.full_name req_name,ru.username req_username
+    FROM loan_applications a JOIN customers c ON c.id=a.customer_id
+    LEFT JOIN salespersons sp ON sp.id=c.salesperson_id LEFT JOIN loan_plans lp ON lp.id=a.plan_id LEFT JOIN users ru ON ru.id=a.requested_by_user_id
+    WHERE ${where} ORDER BY a.updated_at ASC, a.id ASC LIMIT 200`, params);
+  return rows.map((r) => ({
+    kind: "legacy_case" as const, applicationId: Number(r.id), customerId: Number(r.customer_id), customerName: r.customer_name, customerPhone: r.customer_phone,
+    planId: r.plan_id == null ? null : Number(r.plan_id), planName: r.plan_name ?? null,
+    requestedAmount: r.requested_amount == null ? null : String(r.requested_amount), durationMonths: r.duration_months == null ? null : Number(r.duration_months),
+    status: r.status, createdAt: r.created_at, updatedAt: r.updated_at, requestedByName: r.req_name || r.req_username || null,
+    salespersonId: r.salesperson_id ?? null, salespersonName: r.salesperson_name ?? null,
+    waitingHours: hoursSince(r.updated_at, nowMs), readOnly: true as const,
+  }));
 }
 
 function rowById(id: number) { return queryRow<any>(`${SELECT} WHERE d.id=?`, [id]); }
@@ -349,74 +413,12 @@ export function syncDraftsWithCases(nowMs = Date.now(), customerId?: number) {
   return rows.length;
 }
 
-export type OrphanCandidate = { chargeId: number; customerId: number; planId: number; amountToman: string; createdAt: string;
-  actorUserId: number | null; actorCustomerId: number | null; salespersonId: number | null; action: "create" | "attach" | "skip"; draftId?: number; skipReason?: string };
-
-/**
- * Paid filing-fee charges with no case and no draft (staff wizard that never finished, or a customer-portal payment).
- * Used by the migration script (once, with snapshot) and by the periodic sync (decision 6). Read-only.
- */
-export function orphanFeeCandidates(nowMs = Date.now(), opts: { includeZero?: boolean; graceMinutes?: number; excludeSalespersons?: number[] } = {}): OrphanCandidate[] {
-  ensureLoanRequestDraftSchema();
-  const cutoff = new Date(nowMs - (opts.graceMinutes ?? ORPHAN_SYNC_GRACE_MINUTES) * 60_000).toISOString();
-  const rows = queryRows<any>(`SELECT f.id,f.customer_id,f.plan_id,f.amount_toman,f.created_at,f.actor_user_id,f.actor_customer_id,c.salesperson_id,c.merged_into_customer_id
-    FROM loan_filing_fee_charges f JOIN customers c ON c.id=f.customer_id
-    WHERE f.application_id IS NULL AND f.created_at<=? ${opts.includeZero ? "" : "AND CAST(f.amount_toman AS INTEGER)>0"}
-      AND NOT EXISTS (SELECT 1 FROM loan_request_drafts d WHERE d.fee_charge_id=f.id)
-    ORDER BY f.id`, [cutoff]);
-  const seen = new Set<number>();
-  return rows.map((r): OrphanCandidate => {
-    const base = { chargeId: Number(r.id), customerId: Number(r.customer_id), planId: Number(r.plan_id), amountToman: String(r.amount_toman), createdAt: r.created_at,
-      actorUserId: r.actor_user_id ?? null, actorCustomerId: r.actor_customer_id ?? null, salespersonId: r.salesperson_id ?? null };
-    if (r.merged_into_customer_id != null) return { ...base, action: "skip", skipReason: "customer_merged" };
-    if (opts.excludeSalespersons?.includes(Number(r.salesperson_id))) return { ...base, action: "skip", skipReason: "salesperson_excluded" };
-    if (seen.has(base.customerId)) return { ...base, action: "skip", skipReason: "second_orphan_same_customer" };
-    seen.add(base.customerId);
-    const open = queryRow<any>("SELECT id,fee_charge_id FROM loan_request_drafts WHERE customer_id=? AND deleted_at IS NULL", [base.customerId]);
-    if (open && open.fee_charge_id != null) return { ...base, action: "skip", draftId: Number(open.id), skipReason: "open_draft_has_other_fee" };
-    if (open) return { ...base, action: "attach", draftId: Number(open.id) };
-    return { ...base, action: "create" };
-  });
-}
-
-/** Apply candidates (inside the caller's transaction). Adds draft rows only; never changes charges, ledgers or customers. */
-export function applyOrphanCandidates(cands: OrphanCandidate[], source: "crm" | "portal" | null, ts: string, note: string) {
-  const made: { chargeId: number; draftId: number; action: string }[] = [];
-  for (const c of cands) {
-    if (c.action === "skip") continue;
-    if (queryRow("SELECT 1 FROM loan_request_drafts WHERE fee_charge_id=?", [c.chargeId])) continue; // idempotent
-    const planName = queryRow<any>("SELECT name FROM loan_plans WHERE id=?", [c.planId])?.name ?? null;
-    if (c.action === "attach" && c.draftId) {
-      const d = queryRow<any>("SELECT payload_json,step FROM loan_request_drafts WHERE id=? AND deleted_at IS NULL AND fee_charge_id IS NULL", [c.draftId]);
-      if (!d) continue;
-      const payload = { ...parsePayload(d.payload_json), planId: c.planId, planName };
-      executeChanges(`UPDATE loan_request_drafts SET fee_charge_id=?,payload_json=?,step=MAX(step,?),version=version+1,updated_at=?,expiry_warned_at=NULL WHERE id=? AND fee_charge_id IS NULL`,
-        [c.chargeId, JSON.stringify(payload), ORPHAN_FEE_STEP, ts, c.draftId]);
-      audit(c.draftId, c.customerId, "fee_linked", null, note, { feeChargeId: c.chargeId }, ts);
-      made.push({ chargeId: c.chargeId, draftId: c.draftId, action: "attach" });
-      continue;
-    }
-    const src = source ?? (c.actorCustomerId != null ? "portal" : "crm");
-    const id = execute(`INSERT INTO loan_request_drafts(customer_id,source,created_by_user_id,salesperson_id,step,payload_json,fee_charge_id,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?,?,?)`, [c.customerId, src, c.actorUserId, c.salespersonId, ORPHAN_FEE_STEP,
-      JSON.stringify({ planId: c.planId, planName, origin: c.actorCustomerId != null ? "portal" : "crm" }), c.chargeId, c.createdAt, ts]);
-    audit(id, c.customerId, "created_from_fee", null, note, { feeChargeId: c.chargeId, portal: c.actorCustomerId != null }, ts);
-    made.push({ chargeId: c.chargeId, draftId: id, action: "create" });
-  }
-  return made;
-}
-
-export function syncOrphanFees(nowMs = Date.now()) {
-  const cands = orphanFeeCandidates(nowMs).filter(c => c.action !== "skip");
-  if (!cands.length) return [];
-  return runImmediateTransaction(() => applyOrphanCandidates(cands, null, new Date(nowMs).toISOString(), "periodic_sync"));
-}
-
 export function tehranDay(nowMs: number) { return new Date(nowMs + TEHRAN_OFFSET_MINUTES * 60_000).toISOString().slice(0, 10); }
 export function tehranHour(nowMs: number) { return new Date(nowMs + TEHRAN_OFFSET_MINUTES * 60_000).getUTCHours(); }
 
 /**
- * Daily maintenance. Unpaid = no fee charge row at all. Anything with a charge row (paid or 0-toman) is never auto-deleted.
+ * Daily maintenance. Expiry warnings and auto-delete run only when autoDeleteEnabled() (default OFF).
+ * Unpaid = no fee charge row at all. Anything with a charge row (paid or 0-toman) is never auto-deleted.
  * Warning first (day 23 after the last save), deletion only at ≥30 days AND ≥24h after a warning that is newer than the last save.
  */
 export function runDraftMaintenance(nowMs = Date.now()) {
@@ -425,12 +427,12 @@ export function runDraftMaintenance(nowMs = Date.now()) {
   const warnBefore = new Date(nowMs - (UNPAID_TTL_DAYS - WARN_BEFORE_DAYS) * DAY_MS).toISOString();
   const expireBefore = new Date(nowMs - UNPAID_TTL_DAYS * DAY_MS).toISOString();
   const warnedBefore = new Date(nowMs - DAY_MS).toISOString();
-  const result = { closed: 0, warned: [] as number[], expired: [] as number[], reminded: [] as number[], synced: 0 };
+  const result = { closed: 0, warned: [] as number[], expired: [] as number[], reminded: [] as number[], autoDelete: autoDeleteEnabled() };
   result.closed = syncDraftsWithCases(nowMs);
-  result.synced = syncOrphanFees(nowMs).length;
+  // Orphan fee charges are never converted into drafts (PM, 24 Oct); admins see them read-only via listOrphanPaidFees().
   runImmediateTransaction(() => {
     const noMoney = `d.fee_charge_id IS NULL AND NOT EXISTS (SELECT 1 FROM loan_filing_fee_charges f2 WHERE f2.customer_id=d.customer_id AND f2.application_id IS NULL AND CAST(f2.amount_toman AS INTEGER)>0)`;
-    for (const r of queryRows<any>(`SELECT d.* FROM loan_request_drafts d WHERE d.deleted_at IS NULL AND ${noMoney}
+    if (result.autoDelete) for (const r of queryRows<any>(`SELECT d.* FROM loan_request_drafts d WHERE d.deleted_at IS NULL AND ${noMoney}
         AND d.updated_at<=? AND d.updated_at<=? AND (d.expiry_warned_at IS NULL OR d.expiry_warned_at<d.updated_at)`, [warnBefore, ts])) {
       executeChanges("UPDATE loan_request_drafts SET expiry_warned_at=? WHERE id=? AND deleted_at IS NULL AND fee_charge_id IS NULL", [ts, r.id]);
       const left = Math.max(1, Math.ceil((Date.parse(r.updated_at) + UNPAID_TTL_DAYS * DAY_MS - nowMs) / DAY_MS));
@@ -439,7 +441,7 @@ export function runDraftMaintenance(nowMs = Date.now()) {
       audit(Number(r.id), Number(r.customer_id), "expiry_warned", null, null, { daysLeft: left }, ts);
       result.warned.push(Number(r.id));
     }
-    for (const r of queryRows<any>(`SELECT d.* FROM loan_request_drafts d WHERE d.deleted_at IS NULL AND ${noMoney}
+    if (result.autoDelete) for (const r of queryRows<any>(`SELECT d.* FROM loan_request_drafts d WHERE d.deleted_at IS NULL AND ${noMoney}
         AND d.updated_at<=? AND d.expiry_warned_at IS NOT NULL AND d.expiry_warned_at>=d.updated_at AND d.expiry_warned_at<=?`, [expireBefore, warnedBefore])) {
       const changed = executeChanges(`UPDATE loan_request_drafts SET status='expired',delete_kind='auto_expired',deleted_at=?,delete_reason='auto_expired_unpaid_30d',updated_at=?
         WHERE id=? AND deleted_at IS NULL AND fee_charge_id IS NULL AND updated_at=?`, [ts, ts, r.id, r.updated_at]);
@@ -464,7 +466,7 @@ export function runDraftMaintenance(nowMs = Date.now()) {
 }
 
 let timer: NodeJS.Timeout | null = null;
-/** Every 5 minutes: close/sync; the warning/expiry pass is cheap and idempotent; paid reminders at most once per Tehran day after 12:00. */
+/** Every 5 minutes: close drafts whose fee became a case; (auto-delete only if enabled — default off); the warning/expiry pass is cheap and idempotent; paid reminders at most once per Tehran day after 12:00. */
 export function startLoanRequestDraftScheduler() {
   if (timer || process.env.LOAN_REQUEST_DRAFTS_JOBS === "off") return;
   const tick = () => { try { runDraftMaintenance(); } catch (e) { console.warn("loan request drafts job skipped:", e instanceof Error ? e.message : e); } };

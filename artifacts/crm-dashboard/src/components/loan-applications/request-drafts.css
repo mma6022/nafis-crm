@@ -53,3 +53,15 @@
   .lwz-top .lwz-chip .cust-id-badge { display: none; }
   .lwz-top .lwz-pending-pill { display: none; } /* the header is too narrow; the save tick already says it is on the server */
 }
+
+/* read-only rows in the same queue: orphan paid fees (admin) and old pre-registration cases */
+.rqd-ro { margin-top: 20px; padding-top: 14px; border-top: 1px dashed #d6d9e0; }
+.rqd-ro > header { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 10px; color: #475467; }
+.rqd-ro h3 { margin: 0; font-size: 16px; color: #1d2939; }
+.rqd-ro header p { margin: 2px 0 0; font-size: 13px; }
+.rqd-ro-count { display: inline-block; min-width: 22px; padding: 0 7px; border-radius: 999px; background: #eef0f4; color: #344054; font-size: 12px; text-align: center; }
+.rqd-ro-tag { display: inline-block; margin-top: 4px; padding: 1px 8px; border-radius: 999px; background: #f2f4f7; border: 1px solid #d0d5dd; color: #475467; font-size: 12px; font-weight: 700; }
+.rqd-ro-table tbody tr { background: #fbfbfc; }
+.rqd-ro-card { background: #fbfbfc; }
+.rqd-none { margin: 8px 2px 0; }
+.rqd-ro-card > .rqd-ro-tag { justify-self: start; }

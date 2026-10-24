@@ -54,8 +54,11 @@ const ts = new Date().toISOString();
 const spA = execute("INSERT INTO salespersons(name,active,created_at) VALUES('fixture A',1,?)", [ts]);
 const spB = execute("INSERT INTO salespersons(name,active,created_at) VALUES('fixture B',1,?)", [ts]);
 const sessions = {};
-for (const [key, role, sp] of [["admin", "admin", null], ["registrar", "registrar", null], ["salesA", "salesperson", spA], ["salesB", "salesperson", spB], ["funder", "funder", null]]) {
-  const uid = execute("INSERT INTO users(username,password_hash,full_name,role,salesperson_id,active,created_at) VALUES(?,'unused',?,?,?,1,?)",
+const legacySp = queryRow("SELECT c.salesperson_id sp FROM loan_applications a JOIN customers c ON c.id=a.customer_id WHERE a.deleted_at IS NULL AND a.stage='draft' AND COALESCE(a.is_pre_registration,0)=1 AND c.salesperson_id IS NOT NULL ORDER BY a.id LIMIT 1")?.sp ?? null;
+for (const [key, role, sp] of [["admin", "admin", null], ["registrar", "registrar", null], ["salesA", "salesperson", spA], ["salesB", "salesperson", spB], ["funder", "funder", null], ["salesLegacy", "salesperson", legacySp]]) {
+  // users.salesperson_id is unique: for an existing salesperson, a session is opened for its existing user (throwaway copy only).
+  const existing = sp != null ? queryRow("SELECT id FROM users WHERE salesperson_id=? AND role='salesperson'", [sp])?.id : null;
+  const uid = existing ?? execute("INSERT INTO users(username,password_hash,full_name,role,salesperson_id,active,created_at) VALUES(?,'unused',?,?,?,1,?)",
     [`fx-${key}-${randomBytes(3).toString("hex")}`, `fx ${key}`, role, sp, ts]);
   const token = randomBytes(24).toString("base64url");
   execute("INSERT INTO auth_sessions(token_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)",
@@ -102,7 +105,7 @@ try {
     assert.equal(d1.customerId, cA1); assert.equal(d1.source, "crm"); assert.equal(d1.version, 1); assert.equal(d1.step, 2);
     assert.equal(d1.salespersonId, spA); assert.equal(d1.paid, false); assert.equal(d1.locked, false); assert.equal(d1.canDelete, false);
     assert.deepEqual(Object.keys(d1.payload).sort(), ["amount", "duration"]);
-    assert.ok(d1.autoDeleteAt && Math.abs(Date.parse(d1.autoDeleteAt) - (Date.parse(d1.updatedAt) + 30 * DAY)) < 1000);
+    assert.equal(d1.autoDeleteAt, null, "auto-delete is OFF: no deletion date is shown"); assert.equal(d1.expiringSoon, false);
     assert.equal(r.cache, "no-store");
   });
   await ok("one open draft per customer: 409 draft_exists returns the draft", async () => {
@@ -227,34 +230,51 @@ try {
   await ok("drafts never appear as cases: loan_applications ids unchanged", async () => {
     assert.equal(queryRows("SELECT id FROM loan_applications ORDER BY id").map((r) => r.id).join(","), caseIdsBefore);
   });
-  await ok("lib and migrate script share the DDL and the orphan rules", async () => {
+  await ok("lib and migrate script share the DDL", async () => {
     const norm = (s) => s.replace(/\s+/g, " ").trim();
     assert.equal(norm(mig.DRAFTS_DDL), norm(lib.DRAFTS_DDL));
-    const now = Date.now();
-    const raw = new DatabaseSync(dbPath, { readOnly: true });
-    try {
-      for (const o of [{}, { includeZero: true }, { excludeSalespersons: [5, 19] }, { graceMinutes: 0 }]) {
-        const a = lib.orphanFeeCandidates(now, o).map((c) => [c.chargeId, c.action, c.skipReason ?? null]);
-        const b = mig.planMigration(raw, { nowMs: now, ...o }).map((c) => [c.chargeId, c.action, c.skipReason ?? null]);
-        assert.deepEqual(b, a, JSON.stringify(o));
-      }
-    } finally { raw.close(); }
+    assert.equal(typeof lib.orphanFeeCandidates, "undefined"); assert.equal(typeof lib.syncOrphanFees, "undefined");
   });
-  await ok("portal payment without a case → draft in the queue (source portal, owner's salesperson), after a 15-minute grace", async () => {
+  await ok("orphan paid fees: never converted; ADMIN only, read-only, computed at read time (non-admin → none, server-enforced)", async () => {
     const t0 = Date.now();
-    const old = execute("INSERT INTO loan_filing_fee_charges(customer_id,plan_id,amount_toman,idempotency_key,actor_customer_id,created_at) VALUES(?,?,?,?,?,?)",
+    const draftsBefore = Number(queryRow("SELECT COUNT(*) n FROM loan_request_drafts").n);
+    const portal = execute("INSERT INTO loan_filing_fee_charges(customer_id,plan_id,amount_toman,idempotency_key,actor_customer_id,created_at) VALUES(?,?,?,?,?,?)",
       [cB1, planId, "1200", `fx-portal-${randomUUID()}`, cB1, new Date(t0 - 20 * MIN).toISOString()]);
-    const fresh = customer(spB);
-    const recent = execute("INSERT INTO loan_filing_fee_charges(customer_id,plan_id,amount_toman,idempotency_key,actor_customer_id,created_at) VALUES(?,?,?,?,?,?)",
-      [fresh, planId, "1200", `fx-portal-${randomUUID()}`, fresh, new Date(t0 - 5 * MIN).toISOString()]);
-    lib.syncOrphanFees(t0);
-    const d = queryRow("SELECT * FROM loan_request_drafts WHERE fee_charge_id=?", [old]);
-    assert.ok(d); assert.equal(d.source, "portal"); assert.equal(d.salesperson_id, spB); assert.equal(d.step, 8); assert.equal(d.created_by_user_id, null);
-    assert.ok(!queryRow("SELECT 1 FROM loan_request_drafts WHERE fee_charge_id=?", [recent]), "inside grace window");
-    const b = (await call("salesB", "GET", "/loan-request-drafts")).json.items.find((i) => i.id === d.id);
-    assert.ok(b && b.paid && b.source === "portal" && b.feeByCustomer);
-    assert.ok(!(await call("salesA", "GET", "/loan-request-drafts")).json.items.some((i) => i.id === d.id));
-    assert.equal(lib.syncOrphanFees(t0).length, 0, "idempotent");
+    const zero = execute("INSERT INTO loan_filing_fee_charges(customer_id,plan_id,amount_toman,idempotency_key,actor_user_id,created_at) VALUES(?,?,?,?,?,?)",
+      [cB1, planId, "0", `fx-zero-${randomUUID()}`, sessions.salesB.uid, new Date(t0 - 30 * MIN).toISOString()]);
+    lib.runDraftMaintenance(t0); lib.runDraftMaintenance(t0 + DAY);
+    assert.equal(Number(queryRow("SELECT COUNT(*) n FROM loan_request_drafts").n), draftsBefore, "no draft created from any orphan fee");
+    const adm = (await call("admin", "GET", "/loan-request-drafts")).json;
+    const row = adm.orphanFees.find((o) => o.chargeId === portal);
+    assert.ok(row && row.kind === "orphan_fee" && row.readOnly === true && row.amountToman === "1200" && row.byCustomer === true);
+    assert.ok(!("canContinue" in row) && !("canDelete" in row), "no actions on orphan rows");
+    assert.ok(!adm.orphanFees.some((o) => o.chargeId === zero), "0-toman charges are not listed");
+    assert.ok(!adm.items.some((i) => i.feeChargeId === portal), "not a draft");
+    const live = [105, 127, 157].filter((id) => queryRow("SELECT 1 FROM loan_filing_fee_charges WHERE id=? AND application_id IS NULL AND CAST(amount_toman AS INTEGER)>0", [id]));
+    for (const id of live) assert.ok(adm.orphanFees.some((o) => o.chargeId === id), `paid orphan ${id} shown to admin`);
+    assert.ok((await call("admin", "GET", "/loan-request-drafts/counts")).json.orphanFees >= 1 + live.length);
+    for (const who of ["registrar", "salesB", "salesA", "salesLegacy"]) {
+      const r = (await call(who, "GET", "/loan-request-drafts?scope=all")).json;
+      assert.deepEqual(r.orphanFees, [], `${who} never sees orphan fees`);
+      assert.equal((await call(who, "GET", "/loan-request-drafts/counts")).json.orphanFees, 0);
+    }
+    assert.equal((await call("funder", "GET", "/loan-request-drafts")).status, 403);
+    console.log(`  orphan paid fees visible to admin: ${adm.orphanFees.length} (ids ${adm.orphanFees.map((o) => o.chargeId).join(",")})`);
+    executeChanges("DELETE FROM loan_filing_fee_charges WHERE id IN (?,?)", [portal, zero]);
+  });
+  await ok("hidden pre-registration cases (stage draft): display only; admin/registrar all, salesperson only own customers'", async () => {
+    const hidden = queryRows("SELECT a.id, c.salesperson_id sp FROM loan_applications a JOIN customers c ON c.id=a.customer_id WHERE a.deleted_at IS NULL AND a.stage='draft' AND COALESCE(a.is_pre_registration,0)=1 ORDER BY a.id");
+    const ids = (r) => r.json.legacyCases.map((x) => x.applicationId).sort((a, b) => a - b).join(",");
+    const all = hidden.map((h) => h.id).join(",");
+    assert.equal(ids(await call("admin", "GET", "/loan-request-drafts")), all);
+    assert.equal(ids(await call("registrar", "GET", "/loan-request-drafts")), all);
+    assert.equal(ids(await call("salesLegacy", "GET", "/loan-request-drafts")), hidden.filter((h) => h.sp === legacySp).map((h) => h.id).join(","));
+    assert.equal(ids(await call("salesA", "GET", "/loan-request-drafts")), "", "other salesperson sees none");
+    const one = (await call("admin", "GET", "/loan-request-drafts")).json.legacyCases[0];
+    if (one) { assert.equal(one.kind, "legacy_case"); assert.equal(one.readOnly, true); assert.ok(!("canContinue" in one) && !("canDelete" in one)); }
+    assert.deepEqual((await call("admin", "GET", "/loan-request-drafts?paid=1")).json.legacyCases, [], "not in the paid filter");
+    assert.equal((await call("salesA", "GET", "/loan-request-drafts/counts")).json.legacyCases, 0);
+    console.log(`  hidden pre-registration cases: ${hidden.length} (ids ${all}); salesperson ${legacySp} sees ${hidden.filter((h) => h.sp === legacySp).length}`);
   });
 
   // ---------------------------------------------------------------- clock edges (simulated now = 12:00 Tehran = 08:30Z)
@@ -286,6 +306,26 @@ try {
     paid25h: seed(T - 2 * DAY, null, { fee: "1200", feeAt: T - 25 * H }),
     paid23h: seed(T - 2 * DAY, null, { fee: "1200", feeAt: T - 23 * H }),
   };
+  await ok("auto-delete ships OFF: the job sends no expiry warning and deletes nothing, even 60+ days later", async () => {
+    assert.equal(lib.autoDeleteEnabled(), false, "default off");
+    for (const v of ["", "1", "true", "ON", "yes"]) assert.equal(lib.autoDeleteEnabled({ LOAN_REQUEST_DRAFTS_AUTO_DELETE: v }), false, `"${v}" is not on`);
+    const snap = () => queryRows("SELECT id,status,deleted_at,expiry_warned_at,updated_at,version FROM loan_request_drafts ORDER BY id").map((r) => JSON.stringify(r)).join("\n");
+    const before = snap();
+    const expBefore = Number(queryRow("SELECT COUNT(*) n FROM site_notification_events WHERE resource_type='loan_draft' AND kind='draft_expiring'").n);
+    for (const t of [T - MIN, T, T + DAY, T + 62 * DAY]) {
+      const r = lib.runDraftMaintenance(t);
+      assert.equal(r.autoDelete, false); assert.deepEqual(r.warned, []); assert.deepEqual(r.expired, []);
+    }
+    assert.equal(snap(), before, "no draft row changed (no warning stamp, no delete)");
+    assert.equal(Number(queryRow("SELECT COUNT(*) n FROM site_notification_events WHERE resource_type='loan_draft' AND kind='draft_expiring'").n), expBefore, "no warning notification");
+    assert.equal(Number(queryRow("SELECT COUNT(*) n FROM loan_request_draft_events WHERE action IN ('expiry_warned','auto_expired')").n), 0);
+    const d = (await call("admin", "GET", `/loan-request-drafts/${e.exact30}`)).json.draft;
+    assert.equal(d.autoDeleteAt, null); assert.equal(d.expiringSoon, false);
+    assert.equal((await call("admin", "GET", "/loan-request-drafts/counts")).json.autoDelete, false);
+    executeChanges("UPDATE loan_request_drafts SET last_reminded_on=NULL"); // the paid-reminder pass ran; reset so the guarded-on edge checks start clean
+  });
+  // The edge checks below exercise the guarded code path with the flag explicitly ON inside this throwaway process only.
+  process.env.LOAN_REQUEST_DRAFTS_AUTO_DELETE = "on";
   await ok("11:59 Tehran: boundaries just before; no paid reminders before 12:00", async () => {
     const r = lib.runDraftMaintenance(T - MIN);
     assert.ok(!r.expired.includes(e.exact30), "exact30 is 29d23h59m at 11:59");
@@ -337,29 +377,34 @@ try {
     const r = lib.runDraftMaintenance(Date.now() + 10 * MIN);
     assert.ok(!r.expired.includes(id) && !r.warned.includes(id));
   });
+  delete process.env.LOAN_REQUEST_DRAFTS_AUTO_DELETE;
 
   // ---------------------------------------------------------------- migration / rollback on a separate copy
-  await ok("migration: dry run writes nothing; apply is idempotent; rollback restores; protected tables unchanged", async () => {
+  await ok("migration is schema-only: dry run writes nothing, apply creates 3 empty tables + marker and converts 0; rollback drops them", async () => {
     const m = new DatabaseSync(migPath);
     try {
       const fp0 = mig.fingerprint(m);
-      const plan = mig.summary(mig.planMigration(m, {}));
+      const plan = mig.planMigration(m);
+      assert.equal(plan.schemaOnly, true); assert.equal(plan.convert, 0); assert.deepEqual(plan.tablesToCreate, mig.DRAFT_TABLES); assert.equal(plan.markerPresent, false);
       assert.ok(!m.prepare("SELECT 1 FROM sqlite_master WHERE name='loan_request_drafts'").get(), "dry run created nothing");
-      const a = mig.applyMigration(m, {});
-      assert.equal(a.changed, plan.toCreate + plan.toAttach);
-      const again = mig.applyMigration(m, {});
-      assert.equal(again.changed, 0, "re-apply changes nothing");
-      assert.equal(Number(m.prepare("SELECT COUNT(*) n FROM loan_request_drafts").get().n), plan.toCreate);
+      const a = mig.applyMigration(m);
+      assert.equal(a.converted, 0); assert.deepEqual(a.createdTables, mig.DRAFT_TABLES);
+      for (const t of mig.DRAFT_TABLES) assert.equal(Number(m.prepare(`SELECT COUNT(*) n FROM ${t}`).get().n), 0, `${t} empty`);
       assert.ok(m.prepare("SELECT 1 FROM schema_migrations WHERE version=?").get(mig.MARKER));
+      assert.ok(!m.prepare("SELECT 1 FROM sqlite_master WHERE name='loan_request_drafts_migration_snapshot'").get(), "no snapshot table");
       assert.deepEqual(mig.fingerprint(m), fp0, "protected tables + fee sums unchanged by apply");
-      const rp = rb.planRollback(m); assert.equal(rp.restore.length, plan.toCreate); assert.equal(rp.conflicts.length, 0);
-      const r = rb.applyRollback(m, {}); assert.equal(r.applied, true);
-      assert.equal(Number(m.prepare("SELECT COUNT(*) n FROM loan_request_drafts").get().n), 0);
-      assert.equal(rb.applyRollback(m, {}).changed, 0, "rollback is idempotent");
-      assert.deepEqual(mig.fingerprint(m), fp0, "unchanged by rollback");
+      assert.deepEqual(mig.applyMigration(m).createdTables, [], "re-apply changes nothing");
+      const p2 = mig.planMigration(m); assert.deepEqual(p2.tablesToCreate, []); assert.equal(p2.markerPresent, true);
+      for (const id of plan.readTimeOnly.paidWithoutCaseIds) assert.ok(m.prepare("SELECT 1 FROM loan_filing_fee_charges WHERE id=? AND application_id IS NULL").get(id), `charge ${id} untouched`);
+      // rollback refuses while drafts exist, unless --force
+      const anyCustomer = m.prepare("SELECT id FROM customers LIMIT 1").get().id;
+      m.prepare("INSERT INTO loan_request_drafts(customer_id,created_at,updated_at) VALUES(?,?,?)").run(anyCustomer, ts, ts);
+      assert.equal(rb.applyRollback(m, {}).applied, false);
+      m.prepare("DELETE FROM loan_request_drafts").run();
+      const r = rb.applyRollback(m, {}); assert.equal(r.applied, true); assert.deepEqual([...r.dropped].sort(), [...mig.DRAFT_TABLES].sort());
       assert.ok(!m.prepare("SELECT 1 FROM schema_migrations WHERE version=?").get(mig.MARKER));
-      assert.ok(Number(m.prepare(`SELECT COUNT(*) n FROM ${mig.SNAPSHOT}`).get().n) >= plan.toCreate, "snapshot table kept");
-      console.log(`  migration on copy: ${plan.toCreate} create, ${plan.toAttach} attach, ${plan.skipped} skip, sum ${plan.sumToman} toman`);
+      assert.deepEqual(mig.fingerprint(m), fp0, "unchanged by rollback");
+      console.log(`  migration on copy: schema only, converted 0; read-time only: ${plan.readTimeOnly.paidWithoutCase} paid fees without case (ids ${plan.readTimeOnly.paidWithoutCaseIds.join(",")}, ${plan.readTimeOnly.paidWithoutCaseSumToman} toman), hidden pre-registration cases ${plan.readTimeOnly.hiddenPreRegistrationDraftCaseIds.join(",")}`);
     } finally { m.close(); }
   });
   await ok("protected tables untouched (contracts, commissions, ledgers, SMS), no outbound request", async () => {

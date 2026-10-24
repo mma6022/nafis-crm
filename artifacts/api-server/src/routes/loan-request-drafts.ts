@@ -2,14 +2,14 @@ import { Router, type RequestHandler } from "express";
 import { requireAuth, type AuthUser } from "../lib/auth";
 import {
   DraftError, canViewDrafts, createDraft, deleteDraft, draftCounts, ensureLoanRequestDraftSchema, getDraft, listDrafts,
-  openDraftForCustomer, seesAllDrafts, startLoanRequestDraftScheduler, updateDraft,
+  autoDeleteEnabled, listLegacyPreRegistrations, listOrphanPaidFees, openDraftForCustomer, seesAllDrafts, startLoanRequestDraftScheduler, updateDraft,
 } from "../lib/loan-request-drafts";
 import { queryRow } from "../lib/crm-db";
 
 ensureLoanRequestDraftSchema();
 startLoanRequestDraftScheduler();
 const router = Router();
-// Responses: {draft} for one, {items,total,seesAll} for lists; errors {error, code, ...} (409 draft_exists / draft_version_conflict carry {draft}).
+// Responses: {draft} for one, {items,total,seesAll,orphanFees,legacyCases,autoDelete} for lists; errors {error, code, ...} (409 draft_exists / draft_version_conflict carry {draft}).
 const user = (res: any) => res.locals.authUser as AuthUser;
 const wrap = (fn: (req: any, res: any) => void): RequestHandler => (req, res) => {
   try {
@@ -28,8 +28,13 @@ router.use("/loan-request-drafts", requireAuth);
 router.get("/loan-request-drafts", wrap((req, res) => {
   const u = user(res);
   const scope = req.query.scope === "mine" ? "mine" : "all";
-  const items = listDrafts(u, { scope, paidOnly: req.query.paid === "1" || req.query.paid === "true", search: typeof req.query.search === "string" ? req.query.search.slice(0, 80) : undefined });
-  res.json({ items, total: items.length, seesAll: seesAllDrafts(u) });
+  const search = typeof req.query.search === "string" ? req.query.search.slice(0, 80) : undefined;
+  const paidOnly = req.query.paid === "1" || req.query.paid === "true";
+  const items = listDrafts(u, { scope, paidOnly, search });
+  // Read-only extras, computed at read time: orphan paid fees (admin only, enforced in the lib) and hidden old pre-registration cases.
+  const orphanFees = listOrphanPaidFees(u, { scope, search });
+  const legacyCases = paidOnly ? [] : listLegacyPreRegistrations(u, { scope, search });
+  res.json({ items, total: items.length, seesAll: seesAllDrafts(u), orphanFees, legacyCases, autoDelete: autoDeleteEnabled() });
 }));
 router.get("/loan-request-drafts/counts", wrap((_req, res) => { res.json(draftCounts(user(res))); }));
 router.get("/loan-request-drafts/by-customer/:customerId", wrap((req, res) => {

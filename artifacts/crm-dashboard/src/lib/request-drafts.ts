@@ -21,8 +21,21 @@ export type RequestDraft = {
   applicationId: number | null; deletedAt: string | null; deleteReason: string | null;
   canContinue: boolean; canDelete: boolean;
 };
-export type DraftList = { items: RequestDraft[]; total: number; seesAll: boolean };
-export type DraftCounts = { total: number; paid: number; paidOver24h: number; expiringSoon: number; mine: number };
+/** Admin only (server-enforced): a paid filing fee with no case and no open draft. Read-only, computed at read time; never converted. */
+export type OrphanFeeRow = {
+  kind: 'orphan_fee'; chargeId: number; customerId: number; customerName: string | null; customerPhone: string | null;
+  amountToman: string; paidAt: string; planId: number | null; planName: string | null; byCustomer: boolean; chargedByName: string | null;
+  salespersonId: number | null; salespersonName: string | null; waitingHours: number; readOnly: true;
+};
+/** Old pre-registration case still at stage 'draft' (hidden from the case list). Display only. */
+export type LegacyCaseRow = {
+  kind: 'legacy_case'; applicationId: number; customerId: number; customerName: string | null; customerPhone: string | null;
+  planId: number | null; planName: string | null; requestedAmount: string | null; durationMonths: number | null; status: string;
+  createdAt: string; updatedAt: string; requestedByName: string | null; salespersonId: number | null; salespersonName: string | null;
+  waitingHours: number; readOnly: true;
+};
+export type DraftList = { items: RequestDraft[]; total: number; seesAll: boolean; orphanFees?: OrphanFeeRow[]; legacyCases?: LegacyCaseRow[]; autoDelete?: boolean };
+export type DraftCounts = { total: number; paid: number; paidOver24h: number; expiringSoon: number; mine: number; orphanFees?: number; legacyCases?: number; autoDelete?: boolean };
 
 /** Keeps status and body (409 carries the server copy), unlike lib/goods-api. */
 export class DraftHttpError extends Error {
@@ -69,6 +82,7 @@ export function useDraftList(enabled: boolean, scope: 'mine' | 'all', search: st
 }
 
 export const fa = (n: number) => n.toLocaleString('fa-IR');
+export const faToman = (v?: string | null) => (v && /^\d+$/.test(v) ? `${BigInt(v).toLocaleString('fa-IR')} تومان` : '—');
 /** HANDOFF §6: from the last save; <1 day in hours (grey), 0–2 days grey, 3–6 gold, ≥7 red. */
 export function draftWait(hours: number): { text: string; tone: 'grey' | 'gold' | 'red' } {
   if (hours < 24) return { text: hours < 1 ? 'کمتر از ۱ ساعت' : `${fa(hours)} ساعت`, tone: 'grey' };
