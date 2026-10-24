@@ -366,6 +366,8 @@ export function onGoodsPurchaseCompletion(p: any, actorId: number, at: Date = ne
     VALUES(?,?,?,'pending_payout',?,?,?,?,?)`, [p.id, p.customer_id, p.salesperson_id, v.versionId, JSON.stringify(s), s.basis, s.postingMoment, at.toISOString()]);
   executeChanges("UPDATE goods_purchases SET stage='completed',completed_at=? WHERE id=?", [at.toISOString(), p.id]);
   if (s.postingMoment === "final_approval") { postPurchaseCommission(p.id, actorId, at); return "posted"; }
+  // Payment order already marked «پرداخت‌شده» before final approval: the posting moment has passed, post now.
+  if (queryRow<any>("SELECT 1 x FROM customer_payment_orders WHERE purchase_id=? AND stage='paid'", [p.id])) { postPurchaseCommission(p.id, actorId, at); return "posted"; }
   return "deferred";
 }
 
@@ -403,7 +405,8 @@ export function postPurchaseCommission(purchaseId: number, actorId: number | nul
   const prior = queryRows<any>(
     `SELECT COALESCE(t.basis_amount_toman,g.base_payout_amount_toman,g.payout_amount_toman) amt FROM goods_purchases g
      LEFT JOIN team_commission_purchases t ON t.purchase_id=g.id
-     WHERE g.salesperson_id=? AND g.stage='completed' AND g.commission_month=? AND g.commission_toman IS NOT NULL AND g.id<>?`,
+     WHERE g.salesperson_id=? AND g.stage='completed' AND g.commission_month=? AND g.commission_toman IS NOT NULL AND g.id<>?
+       AND (t.status IS NULL OR t.status<>'reversed')`,
     [p.salesperson_id, month, p.id]).reduce((sum, r) => sum + big(r.amt), 0n);
   const sales = prior + basisAmount;
   const tier = sales >= big(config.target3_toman) ? 3 : sales >= big(config.target2_toman) ? 2 : sales >= big(config.target1_toman) ? 1 : 0;
@@ -589,6 +592,14 @@ export function teamSalesForMonth(month: string): bigint {
   return queryRows<any>(`SELECT basis_amount_toman FROM team_commission_purchases WHERE commission_month=? AND status IN ('posted','reversed') AND salesperson_id IN (${all.map(() => "?").join(",")})`, [month, ...all])
     .reduce((s, r) => s + big(r.basis_amount_toman ?? "0"), 0n);
 }
+/** Pure: monthly team bonus for a team-sales total under one settings version (floor toman at each step). */
+export function teamBonusAmounts(total: bigint, s: TeamCommissionSettings) {
+  const threshold = big(s.teamBonusThresholdToman);
+  const base = total > threshold ? (s.teamBonusBasis === "total" ? total : total - threshold) : 0n;
+  const bonus = pct(base, s.teamBonusBps);
+  const shares = bonus > 0n ? Object.entries(s.teamSplitBps).map(([sp, bps]) => ({ salespersonId: Number(sp), bps, amountToman: pct(bonus, bps).toString() })) : [];
+  return { threshold, base, bonus, shares };
+}
 /** Idempotent per month. Runs only when the model AND the team bonus are enabled in the version effective at month end. */
 export function runTeamBonus(month: string, actorId: number | null, now: Date = new Date()) {
   ensureTeamCommissionSchema();
@@ -602,14 +613,10 @@ export function runTeamBonus(month: string, actorId: number | null, now: Date = 
     if (!s.enabled || !s.teamBonusEnabled) return { ran: false, reason: "disabled" };
     if (monthEnd(month) < jalaliDateStart(s.modelStartDate)) return { ran: false, reason: "before_model_start" };
     const total = teamSalesForMonth(month);
-    const threshold = big(s.teamBonusThresholdToman);
-    const base = total > threshold ? (s.teamBonusBasis === "total" ? total : total - threshold) : 0n;
-    const bonus = pct(base, s.teamBonusBps);
-    const shares: Array<{ salespersonId: number; bps: number; amountToman: string }> = [];
+    const { threshold, bonus, shares } = teamBonusAmounts(total, s);
     if (bonus > 0n) {
-      for (const [sp, bps] of Object.entries(s.teamSplitBps)) {
-        const amount = pct(bonus, bps);
-        shares.push({ salespersonId: Number(sp), bps, amountToman: amount.toString() });
+      for (const { salespersonId: sp, bps, amountToman } of shares) {
+        const amount = BigInt(amountToman);
         if (amount > 0n) postLedger({ purchaseId: null, planId: null, customerId: null, salespersonId: Number(sp), kind: "team_bonus", amount, key: `team_bonus:${month}:${sp}`, actorId, month, versionId: v.versionId,
           meta: { teamSalesToman: total.toString(), thresholdToman: threshold.toString(), basis: s.teamBonusBasis, rateBps: s.teamBonusBps, splitBps: bps } });
       }
