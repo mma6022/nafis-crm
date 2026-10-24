@@ -1,0 +1,14 @@
+/* crm-kazemi-source: small source chip next to the customer id badge (Nafis navy / gold). */
+.kzs { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 700; line-height: 1; white-space: nowrap; vertical-align: middle; box-sizing: border-box; border: 1px solid transparent; }
+.kzs svg { flex: none; }
+.kzs.is-kz { background: #FFF6E0; color: #7A4F00; border-color: #F1D493; }
+.kzs.is-prev { background: #EEF0FA; color: #29369B; border-color: #DDE1F5; }
+.kzs-date { font-weight: 500; color: #8A6A2A; padding-inline-start: 4px; border-inline-start: 1px solid #F1D493; }
+.kzs.is-lg { height: 26px; padding: 0 10px; font-size: 13px; }
+h1 .kzs, h2 .kzs, h3 .kzs { font-size: 12px; }
+h2 .kzs.is-lg { font-size: 13px; }
+.kzs-wrap { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; max-width: 100%; }
+.kzs-wrap > .cust-name { min-width: 0; }
+.dark .kzs.is-kz { background: #3a2f12; color: #f5d68a; border-color: #5c4a1a; }
+.dark .kzs.is-prev { background: #20264a; color: #c7cdf5; border-color: #343c70; }
+@media (max-width: 640px) { .kzs { height: 22px; padding: 0 7px; font-size: 11.5px; } }
