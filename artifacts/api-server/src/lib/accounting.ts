@@ -163,14 +163,14 @@ export function postDocument(input: Posting) {
 export function fingerprint(value: unknown) { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
 export function postPaymentDocument(order: any, actorId: number, fundId: number, paidAt: string, receipt: {
   name: string; mime: string; sha256: string; size: number;
-}) {
+}, revision = 0) {
   const existing = queryRow<{ id: number }>("SELECT id FROM accounting_documents WHERE source_order_id=?", [order.id]);
   if (existing) return existing.id;
   const date = tehranDate(new Date(paidAt));
   const id = postDocument({
     fundId,documentDate:tehranDate(),transactionDate:date,amount:amount(order.amount_toman),
     purpose:`پرداخت دستور پرداخت شماره ${order.id}`,documentType:"debit",transactionType:"withdrawal",
-    source:"payment_order",sourceOrderId:order.id,requestKey:`payment:${order.id}`,
+    source:"payment_order",sourceOrderId:order.id,requestKey:revision > 0 ? `payment:${order.id}:r${revision}` : `payment:${order.id}`,
     requestHash:fingerprint({orderId:order.id,fundId,paidAt,hash:receipt.sha256}),actorId,
     ...(order.destination_iban && order.destination_owner_name ? {counterparty:{
       counterpartyAccountType:"iban" as const,counterpartyAccountNumber:order.destination_iban,counterpartyOwnerName:order.destination_owner_name,
@@ -179,6 +179,22 @@ export function postPaymentDocument(order: any, actorId: number, fundId: number,
   execute(`INSERT INTO accounting_attachments(document_id,name,mime,size,sha256,stored_name,storage_kind,created_by,created_at)
     VALUES(?,?,?,?,?,?,'payment',?,?)`, [id,`رسید دستور پرداخت ${order.id}`,receipt.mime,receipt.size,receipt.sha256,receipt.name,actorId,new Date().toISOString()]);
   return id;
+}
+/**
+ * Admin reverted a mistaken «پرداخت‌شده»: post a compensating deposit to the same fund (nothing is deleted) and detach the
+ * original withdrawal from the order so a later «پرداخت‌شده» can journal again. Must run inside the caller's transaction.
+ */
+export function reversePaymentDocument(order: any, actorId: number, revision: number, reason: string): { originalId: number | null; reversalId: number | null } {
+  const original = queryRow<any>("SELECT * FROM accounting_documents WHERE source_order_id=? AND source='payment_order'", [order.id]);
+  if (!original) return { originalId: null, reversalId: null };
+  const reversalId = postDocument({
+    fundId: original.fund_id, documentDate: tehranDate(), transactionDate: original.transaction_date, amount: amount(original.amount_toman),
+    purpose: `برگشت ثبت اشتباه «پرداخت‌شده» دستور پرداخت شماره ${order.id} (سند ${original.id}) — ${reason}`.slice(0, 500),
+    documentType: "credit", transactionType: "deposit", source: "manual",
+    requestKey: `payment-revert:${order.id}:${revision}`, requestHash: fingerprint({ orderId: order.id, revision, originalId: original.id }), actorId,
+  });
+  executeChanges("UPDATE accounting_documents SET source_order_id=NULL WHERE id=?", [original.id]);
+  return { originalId: original.id, reversalId };
 }
 export function attachmentPath(row: { stored_name: string; storage_kind: string }) {
   if (path.basename(row.stored_name) !== row.stored_name) throw new AccountingError(404,"پیوست یافت نشد.");

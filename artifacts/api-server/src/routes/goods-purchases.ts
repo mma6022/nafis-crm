@@ -22,6 +22,29 @@ const wrap = (fn: (req: any,res: any) => void): RequestHandler => (req,res) => {
 const registrar = (u: AuthUser) => { if (u.role === "salesperson" || u.role === "accounting" || u.role === "funder") throw new Error("Forbidden"); };
 const purchase = (id: unknown, u: AuthUser) => { const p = getGoodsPurchase(Number(id)); assertGoodsPurchaseScope(p.id,u); return p; };
 const scope = (u: AuthUser) => u.role !== "admin" && u.customerScope === "assigned";
+/**
+ * Own-only commission (server-side): admin sees everything; the purchase's own salesperson keeps its commission columns;
+ * everyone else gets them blanked and commission history details stripped to the action only.
+ */
+const COMMISSION_COLUMNS = ["commission_bps", "commission_toman", "commission_month", "commission_settings_json"];
+export function redactPurchaseCommission(p: any, u: AuthUser): any {
+  if (!p || typeof p !== "object" || u.role === "admin" || !("commission_toman" in p)) return p;
+  const own = u.salespersonId != null && Number(p.salesperson_id) === Number(u.salespersonId);
+  const out = { ...p };
+  if (!own) for (const c of COMMISSION_COLUMNS) out[c] = null;
+  if (Array.isArray(p.events)) out.events = p.events.map((e: any) => /commission/.test(String(e.action)) ? { ...e, detail: null } : e);
+  return out;
+}
+router.use("/goods-purchases", (_req, res, next) => {
+  const json = res.json.bind(res);
+  res.json = (body: any) => {
+    const u = res.locals.authUser as AuthUser | undefined;
+    if (!u || !body || typeof body !== "object") return json(body);
+    if (Array.isArray(body.items)) return json({ ...body, items: body.items.map((p: any) => redactPurchaseCommission(p, u)) });
+    return json(redactPurchaseCommission(body, u));
+  };
+  next();
+});
 
 router.get("/goods-purchases/suggestions",requirePermission("goods_purchases.view"),requirePermission("goods_purchases.manage"),wrap((req,res)=>{
   registrar(user(res));

@@ -227,6 +227,8 @@ export function settleGoodsPurchase(id: number, actorId: number, feeDiscountToma
     if (!reserved.length || reserved.some(l=>l.consumed!==0 || l.wallet_id!==p.wallet_id) || reserved.reduce((s,l)=>s+money(l.amount_toman),0n)!==amount || reserved.reduce((s,l)=>s+money(l.principal_toman),0n)!==money(p.principal_amount_toman)) throw new Error("credit_reservation_requires_reconciliation");
     if (money(w.balance_toman) < amount || money(pooled.balance) < amount) throw new Error("insufficient_credit");
     const settlement = goodsSettlementAmounts(p.base_payout_amount_toman, feeDiscountToman === undefined ? "0" : feeDiscountToman);
+    // Payout % of the approved loan principal must stay within 0–100.
+    if (money(settlement.payoutAmountToman) > money(p.principal_amount_toman)) throw new Error("payout_exceeds_principal");
     executeChanges("UPDATE goods_purchases SET payout_amount_toman=?,fee_discount_toman=? WHERE id=?",
       [settlement.payoutAmountToman,settlement.feeDiscountToman,id]);
     executeChanges("UPDATE goods_plan_wallets SET balance_toman=? WHERE id=?", [(money(w.balance_toman)-amount).toString(),w.id]);

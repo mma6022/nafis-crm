@@ -8,12 +8,12 @@ import { crmDb, execute, executeChanges, queryRow, queryRows, runTransaction } f
 import { paymentRegistrationSuggestions } from "../lib/registration-suggestions";
 import {
   ensurePaymentOrdersSchema, ensureReceiptDirectory, paymentReceiptRoot, normalizedDigits, normalizeIban,
-  paymentCustomer, paymentOrder, paymentEvent, paymentOrderView, bankAccountView,
+  paymentCustomer, paymentOrder, paymentEvent, paymentOrderView, bankAccountView, paidReversalCount,
 } from "../lib/payment-orders";
 import { paymentOrderListScope } from "../lib/payment-order-scope";
 import { verifyCustomerBankAccount, normalizeBankBirthDate, lookupBankAccount } from "../lib/bank-verification";
-import { ensureAccountingSchema, postPaymentDocument, AccountingError } from "../lib/accounting";
-import { onPaymentOrderPaid } from "../lib/team-commission";
+import { ensureAccountingSchema, postPaymentDocument, reversePaymentDocument, AccountingError } from "../lib/accounting";
+import { onPaymentOrderPaid, unpayPurchaseCommission, orderCommissionView, TeamCommissionError } from "../lib/team-commission";
 
 ensurePaymentOrdersSchema();
 ensureAccountingSchema();
@@ -32,7 +32,9 @@ const text = (v: unknown, max = 150) => typeof v === "string" ? v.trim().slice(0
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 4 } });
 
 router.get("/bank-accounts", permission("bank_accounts.view"), (_req, res) => {
-  res.json({ items: queryRows<any>("SELECT * FROM finance_bank_accounts ORDER BY id DESC").map(bankAccountView) });
+  // accountingReady: the fund has an opening balance in «حسابداری» (required before «پرداخت‌شده» can journal from it).
+  res.json({ items: queryRows<any>("SELECT b.*,COALESCE(f.initialized,0) accounting_ready FROM finance_bank_accounts b LEFT JOIN accounting_funds f ON f.fund_id=b.id ORDER BY b.id DESC")
+    .map((r) => ({ ...bankAccountView(r), accountingReady: r.accounting_ready === 1 })) });
 });
 router.post("/bank-accounts", permission("bank_accounts.manage"), async (req, res) => {
   const bankName = text(req.body?.bankName);
@@ -141,9 +143,16 @@ router.post("/payment-orders", permission("payment_orders.create"), (req, res) =
   });
   return res.json(paymentOrderView(paymentOrder(orderId, u), true));
 });
+/** Detail view + the commission block filtered for this viewer on the server (admin: all, salesperson: own rows, others: status only). */
+const detailView = (order: any, u: AuthUser) => ({
+  ...paymentOrderView(order, true),
+  commission: orderCommissionView(order.purchase_id, { id: u.id, role: u.role, salespersonId: u.salespersonId }),
+  canUnpay: u.role === "admin" && order.stage === "paid",
+  paidReversals: paidReversalCount(order.id),
+});
 router.get("/payment-orders/:id", permission("payment_orders.view"), (req, res) => {
-  const order = paymentOrder(id(req.params.id), actor(res));
-  return order ? res.json(paymentOrderView(order, true)) : fail(res, 404, "payment_order_not_found");
+  const u = actor(res), order = paymentOrder(id(req.params.id), u);
+  return order ? res.json(detailView(order, u)) : fail(res, 404, "payment_order_not_found");
 });
 router.post("/payment-orders/:id/sales-approve", permission("payment_orders.sales_approve"), (req, res) => {
   const u = actor(res), order = paymentOrder(id(req.params.id), u);
@@ -190,7 +199,8 @@ router.post("/payment-orders/:id/pay", permission("payment_orders.pay"), receive
   const mime = file?.buffer.subarray(0, 5).toString() === "%PDF-" ? "application/pdf"
     : file?.buffer.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10])) ? "image/png"
     : file?.buffer[0] === 255 && file?.buffer[1] === 216 && file?.buffer[2] === 255 ? "image/jpeg" : null;
-  if (!file || !mime || !tracking || !Number.isFinite(date.getTime()) || !/(Z|[+-]\d{2}:\d{2})$/.test(dateInput) || date.getTime() > Date.now() + 300000
+  if (Number.isFinite(date.getTime()) && /(Z|[+-]\d{2}:\d{2})$/.test(dateInput) && date.getTime() > Date.now() + 120000) return fail(res, 400, "paid_at_in_future");
+  if (!file || !mime || !tracking || !Number.isFinite(date.getTime()) || !/(Z|[+-]\d{2}:\d{2})$/.test(dateInput)
     || !queryRow("SELECT id FROM finance_bank_accounts WHERE id=?", [sourceId])) return fail(res, 400, "invalid_payment_evidence");
   const hash = createHash("sha256").update(file.buffer).digest("hex");
   if (order.stage === "paid") {
@@ -207,20 +217,60 @@ router.post("/payment-orders/:id/pay", permission("payment_orders.pay"), receive
   fs.writeFileSync(destination, file.buffer, { mode: 0o600, flag: "wx" });
   try {
     runTransaction(() => {
-      postPaymentDocument(order,u.id,sourceId,date.toISOString(),{name,mime,sha256:hash,size:file.size});
+      postPaymentDocument(order,u.id,sourceId,date.toISOString(),{name,mime,sha256:hash,size:file.size},paidReversalCount(order.id));
       if (executeChanges(`UPDATE customer_payment_orders SET stage='paid',source_bank_account_id=?,tracking_number=?,paid_at=?,
         receipt_filename=?,receipt_mime=?,receipt_sha256=?,paid_by=?,updated_at=? WHERE id=? AND stage='awaiting_payment'`,
       [sourceId, tracking, date.toISOString(), name, mime, hash, u.id, now(), order.id]) !== 1) throw new Error("payment_stage_changed");
       paymentEvent(order.id, "payment_recorded", u.id);
-      // Team-sales model: commission waiting for payout posts now (savepoint; never blocks the payment record).
-      onPaymentOrderPaid(order.purchase_id, u.id);
+      // Team-sales model: commission waiting for payout posts in the month of the real deposit date (savepoint; never blocks the payment record).
+      onPaymentOrderPaid(order.purchase_id, u.id, date);
     });
   } catch(error) {
     fs.unlinkSync(destination);
-    if (error instanceof AccountingError) return fail(res,error.status,error.message);
+    if (error instanceof AccountingError) {
+      // Keep the rule (journal needs the fund's opening balance) but say clearly what to do.
+      if (/موجودی اولیه/.test(error.message)) return fail(res, error.status, "payment_fund_opening_balance_required");
+      return fail(res,error.status,error.message);
+    }
     return fail(res, 409, "payment_recording_conflict");
   }
-  return res.json(paymentOrderView(paymentOrder(order.id, u), true));
+  return res.json(detailView(paymentOrder(order.id, u), u));
+});
+/**
+ * Admin-only revert of a mistaken «پرداخت‌شده». Reason required. Back to awaiting_payment; accounting gets a compensating
+ * deposit, team-model commission rows are neutralized with `paid_mark_reversal` rows; history + snapshot kept; nothing deleted.
+ */
+router.post("/payment-orders/:id/unpay", permission("payment_orders.view"), (req, res) => {
+  const u = actor(res);
+  if (u.role !== "admin") return fail(res, 403, "admin_required");
+  const order = paymentOrder(id(req.params.id), u);
+  if (!order) return fail(res, 404, "payment_order_not_found");
+  const reason = text(req.body?.reason, 500);
+  if (reason.length < 5) return fail(res, 400, "unpay_reason_required");
+  if (order.stage !== "paid") return fail(res, 409, "wrong_payment_stage");
+  try {
+    runTransaction(() => {
+      const revision = paidReversalCount(order.id) + 1;
+      const feed = Boolean(queryRow("SELECT 1 FROM sqlite_master WHERE type='table' AND name='site_notification_events'"));
+      const preMax = feed ? Number(queryRow<any>("SELECT MAX(id) m FROM site_notification_events")?.m ?? 0) : -1;
+      const snapshot = { sourceBankAccountId: order.source_bank_account_id, trackingNumber: order.tracking_number, paidAt: order.paid_at,
+        receiptFilename: order.receipt_filename, receiptMime: order.receipt_mime, receiptSha256: order.receipt_sha256, paidBy: order.paid_by };
+      const commission = unpayPurchaseCommission(order.purchase_id, u.id, reason);
+      const doc = reversePaymentDocument(order, u.id, revision, reason);
+      if (executeChanges(`UPDATE customer_payment_orders SET stage='awaiting_payment',source_bank_account_id=NULL,tracking_number=NULL,paid_at=NULL,
+        receipt_filename=NULL,receipt_mime=NULL,receipt_sha256=NULL,paid_by=NULL,updated_at=? WHERE id=? AND stage='paid'`, [now(), order.id]) !== 1) throw new Error("payment_stage_changed");
+      execute(`INSERT INTO payment_order_paid_reversals(order_id,revision,reason,actor_id,created_at,snapshot_json,accounting_original_document_id,accounting_reversal_document_id)
+        VALUES(?,?,?,?,?,?,?,?)`, [order.id, revision, reason, u.id, now(), JSON.stringify({ ...snapshot, neutralizedCommissionRows: commission.neutralized }), doc.originalId, doc.reversalId]);
+      paymentEvent(order.id, "payment_reverted", u.id, { reason, revision, neutralizedCommissionRows: commission.neutralized });
+      // No staff notification for a revert (change-feed rows fired by the trigger above are removed in the same transaction).
+      if (preMax >= 0) executeChanges("DELETE FROM site_notification_events WHERE id>?", [preMax]);
+    });
+  } catch (error) {
+    if (error instanceof TeamCommissionError) return fail(res, error.status, error.message);
+    if (error instanceof AccountingError) return fail(res, error.status, error.message);
+    return fail(res, 409, "payment_revert_conflict");
+  }
+  return res.json(detailView(paymentOrder(order.id, u), u));
 });
 router.get("/payment-orders/:id/receipt", permission("payment_orders.view"), (req, res) => {
   const order = paymentOrder(id(req.params.id), actor(res));

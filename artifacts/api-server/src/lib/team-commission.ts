@@ -3,7 +3,7 @@
  *
  * Safety:
  *  - Ships OFF: with no settings row (or enabled=false) nothing changes; legacy commission path runs untouched.
- *  - Additive schema only: new tables; existing tables are never altered.
+ *  - Additive schema only: new tables/columns; existing columns are never altered or dropped.
  *  - Settings are versioned (append-only). Every posting stores the version it used; editing settings never recomputes posted rows.
  *  - No SMS, no staff notifications: bell rows fired by our own ledger/purchase writes are removed in the same transaction.
  *  - Trainees and every salesperson outside the team (qualifier + closers from team_sales_config) stay on the legacy path.
@@ -172,6 +172,9 @@ export function ensureTeamCommissionSchema(): void {
       created_at TEXT NOT NULL
     );
   `);
+  // Additive: bumped each time an admin reverts a mistaken «پرداخت‌شده»; re-posting uses revision-suffixed idempotency keys.
+  if (!queryRows<any>("PRAGMA table_info(team_commission_purchases)").some((c) => c.name === "posting_revision"))
+    crmDb.exec("ALTER TABLE team_commission_purchases ADD COLUMN posting_revision INTEGER NOT NULL DEFAULT 0");
   schemaReady = true;
 }
 
@@ -367,7 +370,12 @@ export function onGoodsPurchaseCompletion(p: any, actorId: number, at: Date = ne
   executeChanges("UPDATE goods_purchases SET stage='completed',completed_at=? WHERE id=?", [at.toISOString(), p.id]);
   if (s.postingMoment === "final_approval") { postPurchaseCommission(p.id, actorId, at); return "posted"; }
   // Payment order already marked «پرداخت‌شده» before final approval: the posting moment has passed, post now.
-  if (queryRow<any>("SELECT 1 x FROM customer_payment_orders WHERE purchase_id=? AND stage='paid'", [p.id])) { postPurchaseCommission(p.id, actorId, at); return "posted"; }
+  const paidOrder = queryRow<any>("SELECT paid_at FROM customer_payment_orders WHERE purchase_id=? AND stage='paid'", [p.id]);
+  if (paidOrder) {
+    // Month follows the recorded deposit date; a pre-model deposit leaves the purchase pending (shown as «پیش از شروع مدل»).
+    const r = onPaymentOrderPaid(p.id, actorId, paidOrder.paid_at ? new Date(paidOrder.paid_at) : at);
+    return r.posted ? "posted" : "deferred";
+  }
   return "deferred";
 }
 
@@ -398,7 +406,11 @@ export function postPurchaseCommission(purchaseId: number, actorId: number | nul
   const p = queryRow<any>("SELECT * FROM goods_purchases WHERE id=?", [purchaseId]);
   if (!p) throw new Error("goods_purchase_not_found");
   const s: TeamCommissionSettings = parseSettings(st.settings_json);
+  // A deposit dated before the model start (2 Aban 1405) earns no new-model commission (the purchase stays pending, nothing posts).
+  if (at < jalaliDateStart(s.modelStartDate)) throw new TeamCommissionError(409, BEFORE_START_MSG);
   const config = JSON.parse(p.commission_settings_json);
+  const rev = Number(st.posting_revision ?? 0);
+  const key = (k: string) => rev > 0 ? `goods:${p.id}:${k}:r${rev}` : `goods:${p.id}:${k}`;
   const basisAmount = big(s.basis === "deposit" ? p.payout_amount_toman : (p.base_payout_amount_toman ?? p.payout_amount_toman));
   const month = persianMonthOf(at);
   // Closer tier: month total over this salesperson's posted purchases (model rows use their stored basis; legacy rows their base payout).
@@ -414,7 +426,7 @@ export function postPurchaseCommission(purchaseId: number, actorId: number | nul
   const commission = pct(basisAmount, rate);
   const versionId = st.settings_version_id;
   postLedger({ purchaseId: p.id, planId: p.plan_id, customerId: p.customer_id, salespersonId: p.salesperson_id, kind: "salesperson_commission", amount: commission,
-    key: `goods:${p.id}:salesperson_commission`, actorId, month, versionId, meta: { model: "team", basis: s.basis, basisAmountToman: basisAmount.toString(), tier, rateBps: rate, postSaleTotalToman: sales.toString() } });
+    key: key("salesperson_commission"), actorId, month, versionId, meta: { model: "team", basis: s.basis, basisAmountToman: basisAmount.toString(), tier, rateBps: rate, postSaleTotalToman: sales.toString() } });
   silently(() => executeChanges("UPDATE goods_purchases SET commission_bps=?,commission_toman=?,commission_month=? WHERE id=?", [rate, commission.toString(), month, p.id]));
   // Qualifier P1 share: only on closer sales, exactly one of first-call / upgrade, outside the qualifier's tier total, nothing deducted from the closer.
   const { qualifierId, closerIds } = teamMembers();
@@ -425,7 +437,7 @@ export function postPurchaseCommission(purchaseId: number, actorId: number | nul
       shareBps = p1.kind === "first_call" ? s.p1FirstCallBps : s.p1UpgradeBps;
       share = pct(basisAmount, shareBps);
       postLedger({ purchaseId: p.id, planId: p.plan_id, customerId: p.customer_id, salespersonId: qualifierId, kind: "p1_referral_share", amount: share,
-        key: `goods:${p.id}:p1_referral_share`, actorId, month, versionId, meta: { p1Kind: p1.kind, historyId: p1.historyId, rateBps: shareBps, basisAmountToman: basisAmount.toString(), closerSalespersonId: p.salesperson_id } });
+        key: key("p1_referral_share"), actorId, month, versionId, meta: { p1Kind: p1.kind, historyId: p1.historyId, rateBps: shareBps, basisAmountToman: basisAmount.toString(), closerSalespersonId: p.salesperson_id } });
     }
   }
   executeChanges(`UPDATE team_commission_purchases SET status='posted',basis_amount_toman=?,commission_month=?,closer_rate_bps=?,closer_commission_toman=?,
@@ -444,9 +456,11 @@ export function retryPurchasePosting(purchaseId: number, actorId: number) {
     if (!st) throw new TeamCommissionError(404, "این خرید در مدل فروش تیمی نیست.");
     if (st.status !== "pending_payout") return queryRow<any>("SELECT * FROM team_commission_purchases WHERE purchase_id=?", [purchaseId]);
     const st2 = queryRow<any>("SELECT posting_moment FROM team_commission_purchases WHERE purchase_id=?", [purchaseId]);
-    if (st2.posting_moment === "payment_paid" && !queryRow("SELECT 1 FROM customer_payment_orders WHERE purchase_id=? AND stage='paid'", [purchaseId]))
+    const paid = queryRow<any>("SELECT paid_at FROM customer_payment_orders WHERE purchase_id=? AND stage='paid'", [purchaseId]);
+    if (st2.posting_moment === "payment_paid" && !paid)
       throw new TeamCommissionError(409, "دستور پرداخت این خرید هنوز «پرداخت‌شده» نیست.");
-    return postPurchaseCommission(purchaseId, actorId);
+    // The commission month follows the real deposit date entered with «پرداخت‌شده», not the retry moment.
+    return postPurchaseCommission(purchaseId, actorId, st2.posting_moment === "payment_paid" && paid?.paid_at ? new Date(paid.paid_at) : new Date());
   });
 }
 
@@ -463,8 +477,10 @@ export function reversePurchaseCommission(purchaseId: number, actorId: number, r
     if (!st) throw new TeamCommissionError(404, "این خرید در مدل فروش تیمی نیست.");
     if (st.status === "reversed") return { alreadyReversed: true, state: st };
     if (st.status !== "posted") throw new TeamCommissionError(409, "پورسانت این خرید هنوز ثبت نشده است؛ چیزی برای کسر نیست.");
+    if (!queryRow("SELECT 1 FROM customer_payment_orders WHERE purchase_id=? AND stage='paid'", [purchaseId]))
+      throw new TeamCommissionError(409, "«برگشت پرونده» فقط بعد از «پرداخت‌شده» ممکن است.");
     const month = nextPersianMonth(persianMonthOf(at));
-    const entries = queryRows<any>("SELECT * FROM goods_finance_ledger WHERE purchase_id=? AND kind IN ('salesperson_commission','p1_referral_share') AND CAST(amount_toman AS INTEGER)>0", [purchaseId]);
+    const entries = activeCommissionEntries(purchaseId);
     for (const e of entries) {
       postLedger({ purchaseId, planId: e.plan_id, customerId: e.customer_id, salespersonId: e.salesperson_id, kind: "returned_case_deduction", amount: -big(e.amount_toman),
         key: `goods:${purchaseId}:returned_case_deduction:${e.kind}`, actorId, month, versionId: st.settings_version_id, meta: { reversedLedgerId: e.id, reversedKind: e.kind, reason: why } });
@@ -474,6 +490,85 @@ export function reversePurchaseCommission(purchaseId: number, actorId: number, r
       [purchaseId, "team_commission_reversed", actorId, JSON.stringify({ month, reason: why, entries: entries.length }), at.toISOString()]));
     return { alreadyReversed: false, deductionMonth: month, entries: entries.length };
   });
+}
+
+export const BEFORE_START_MSG = "واریز پیش از شروع مدل تازه (۲ آبان ۱۴۰۵)؛ پورسانت مدل تازه ندارد.";
+/** Positive commission rows of a purchase that are not yet neutralized by a «پرداخت‌شده» revert. */
+function activeCommissionEntries(purchaseId: number): any[] {
+  return queryRows<any>(`SELECT l.* FROM goods_finance_ledger l WHERE l.purchase_id=? AND l.kind IN ('salesperson_commission','p1_referral_share') AND CAST(l.amount_toman AS INTEGER)>0
+    AND NOT EXISTS (SELECT 1 FROM team_commission_ledger_meta r WHERE r.kind='paid_mark_reversal' AND CAST(json_extract(r.meta_json,'$.reversedLedgerId') AS INTEGER)=l.id)
+    ORDER BY l.id`, [purchaseId]);
+}
+
+/**
+ * Admin reverted a mistaken «پرداخت‌شده». Every commission row posted for the purchase is neutralized by a negative
+ * `paid_mark_reversal` row in the SAME month as the original (nothing is deleted); the purchase goes back to pending_payout with a
+ * bumped posting_revision so the next «پرداخت‌شده» posts fresh rows. Must run inside the caller's transaction.
+ */
+export function unpayPurchaseCommission(purchaseId: number, actorId: number, reason: string, at: Date = new Date()): { neutralized: number; applicable: boolean } {
+  ensureTeamCommissionSchema();
+  const st = queryRow<any>("SELECT * FROM team_commission_purchases WHERE purchase_id=?", [purchaseId]);
+  if (!st || st.posting_moment !== "payment_paid") return { neutralized: 0, applicable: false };
+  if (st.status === "reversed") throw new TeamCommissionError(409, "این پرونده «برگشت» خورده است؛ برگرداندن «پرداخت‌شده» ممکن نیست.");
+  let n = 0;
+  if (st.status === "posted") {
+    for (const e of activeCommissionEntries(purchaseId)) {
+      const m = queryRow<any>("SELECT commission_month FROM team_commission_ledger_meta WHERE ledger_id=?", [e.id]);
+      const month = m?.commission_month ?? st.commission_month ?? persianMonthOf(at);
+      if (postLedger({ purchaseId, planId: e.plan_id, customerId: e.customer_id, salespersonId: e.salesperson_id, kind: "paid_mark_reversal", amount: -big(e.amount_toman),
+        key: `goods:${purchaseId}:paid_mark_reversal:${e.id}`, actorId, month, versionId: st.settings_version_id, meta: { reversedLedgerId: e.id, reversedKind: e.kind, reason } })) n++;
+    }
+    silently(() => executeChanges("UPDATE goods_purchases SET commission_bps=NULL,commission_toman=NULL,commission_month=NULL WHERE id=?", [purchaseId]));
+  }
+  executeChanges(`UPDATE team_commission_purchases SET status='pending_payout',posting_revision=posting_revision+1,basis_amount_toman=NULL,commission_month=NULL,
+    closer_rate_bps=NULL,closer_commission_toman=NULL,qualifier_salesperson_id=NULL,p1_history_id=NULL,p1_kind=NULL,p1_share_bps=NULL,p1_share_toman=NULL,
+    posted_at=NULL,last_error=NULL WHERE purchase_id=?`, [purchaseId]);
+  silently(() => execute("INSERT INTO goods_purchase_events(purchase_id,action,actor_user_id,detail,created_at) VALUES(?,?,?,?,?)",
+    [purchaseId, "team_commission_unposted", actorId, JSON.stringify({ reason, entries: n }), at.toISOString()]));
+  return { neutralized: n, applicable: true };
+}
+
+export type CommissionViewer = { id: number; role: string; salespersonId?: number | null };
+/**
+ * Commission block of a payment order, filtered on the server: admin sees everything, a salesperson only their own rows,
+ * everyone else (accounting, registrar…) only the status — no names, no amounts.
+ */
+export function orderCommissionView(purchaseId: number, viewer: CommissionViewer) {
+  ensureTeamCommissionSchema();
+  const st = queryRow<any>("SELECT * FROM team_commission_purchases WHERE purchase_id=?", [purchaseId]);
+  const order = queryRow<any>("SELECT stage,paid_at FROM customer_payment_orders WHERE purchase_id=?", [purchaseId]);
+  const isAdmin = viewer.role === "admin";
+  const sp = viewer.salespersonId ?? null;
+  const allRows = queryRows<any>(`SELECT l.id,l.kind,l.amount_toman,l.salesperson_id,l.created_at,${MONTH_SQL} month,s.name salesperson_name,
+      EXISTS (SELECT 1 FROM team_commission_ledger_meta r WHERE r.kind='paid_mark_reversal' AND CAST(json_extract(r.meta_json,'$.reversedLedgerId') AS INTEGER)=l.id) neutralized
+    FROM goods_finance_ledger l LEFT JOIN team_commission_ledger_meta m ON m.ledger_id=l.id LEFT JOIN goods_purchases g ON g.id=l.purchase_id
+    LEFT JOIN salespersons s ON s.id=l.salesperson_id
+    WHERE l.purchase_id=? AND l.kind IN (${COMMISSION_KINDS.map(() => "?").join(",")}) ORDER BY l.id`, [purchaseId, ...COMMISSION_KINDS]);
+  const involved = new Set<number>([...(st ? [Number(st.salesperson_id)] : []), ...allRows.map((r) => Number(r.salesperson_id))]);
+  const scope: "all" | "own" | "status" = isAdmin ? "all" : sp != null && involved.has(Number(sp)) ? "own" : "status";
+  let status: "legacy" | "not_posted" | "awaiting_payment" | "posted" | "failed" | "before_start" | "reversed";
+  if (!st) status = "legacy";
+  else if (st.status === "reversed") status = "reversed";
+  else if (st.status === "posted") status = "posted";
+  else if (order?.stage === "paid" && order.paid_at && new Date(order.paid_at) < jalaliDateStart(parseSettings(st.settings_json).modelStartDate)) status = "before_start";
+  else if (order?.stage === "paid" && st.last_error) status = "failed";
+  else if (st.posting_moment === "payment_paid" && order?.stage !== "paid") status = "awaiting_payment";
+  else status = "not_posted";
+  const rows = scope === "status" ? [] : allRows.filter((r) => scope === "all" || Number(r.salesperson_id) === Number(sp)).map((r) => ({
+    id: r.id, kind: r.kind, amountToman: r.amount_toman, month: r.month || null, createdAt: r.created_at, neutralized: Boolean(r.neutralized),
+    ...(scope === "all" ? { salespersonId: r.salesperson_id, salespersonName: r.salesperson_name ?? null } : {}),
+  }));
+  return {
+    scope, status, model: st ? "team" : "legacy",
+    month: scope === "status" ? null : (st?.commission_month ?? null),
+    revision: st ? Number(st.posting_revision ?? 0) : 0,
+    reversalMonth: scope === "status" ? null : (st?.reversal_month ?? null),
+    lastError: isAdmin ? (st?.last_error ?? null) : null,
+    rows,
+    canRetry: isAdmin && status === "failed",
+    canReturnCase: isAdmin && status === "posted" && order?.stage === "paid",
+    returnCaseMonth: isAdmin && status === "posted" ? nextPersianMonth(persianMonthOf(new Date())) : null,
+  };
 }
 
 // ---------------------------------------------------------------- data accuracy («درستی اطلاعات تماس اول»)
@@ -646,7 +741,7 @@ export function startTeamBonusScheduler(): void {
 }
 
 // ---------------------------------------------------------------- report
-export const COMMISSION_KINDS = ["salesperson_commission", "p1_referral_share", "data_accuracy_bonus", "returned_case_deduction", "team_bonus"] as const;
+export const COMMISSION_KINDS = ["salesperson_commission", "p1_referral_share", "data_accuracy_bonus", "returned_case_deduction", "paid_mark_reversal", "team_bonus"] as const;
 /** Month of a ledger row: model rows carry it in meta; legacy salesperson_commission rows use the purchase's commission_month. */
 const MONTH_SQL = "COALESCE(m.commission_month,g.commission_month,'')";
 export function salespersonBreakdown(salespersonId: number, month: string, kind: string | null) {
@@ -659,7 +754,8 @@ export function salespersonBreakdown(salespersonId: number, month: string, kind:
   const breakdown = kinds.map(k => ({ kind: k, count: byKind.get(k)?.count ?? 0, totalToman: byKind.get(k)?.totalToman ?? "0" }));
   const monthTotalToman = breakdown.reduce((s, r) => s + big(r.totalToman), 0n).toString();
   const p1Counts = queryRow<any>(`SELECT SUM(CASE WHEN json_extract(m.meta_json,'$.p1Kind')='first_call' THEN 1 ELSE 0 END) fc, SUM(CASE WHEN json_extract(m.meta_json,'$.p1Kind')='upgrade' THEN 1 ELSE 0 END) up
-    FROM team_commission_ledger_meta m WHERE m.salesperson_id=? AND m.kind='p1_referral_share' AND m.commission_month=?`, [salespersonId, month]);
+    FROM team_commission_ledger_meta m WHERE m.salesperson_id=? AND m.kind='p1_referral_share' AND m.commission_month=?
+      AND NOT EXISTS (SELECT 1 FROM team_commission_ledger_meta r WHERE r.kind='paid_mark_reversal' AND CAST(json_extract(r.meta_json,'$.reversedLedgerId') AS INTEGER)=m.ledger_id)`, [salespersonId, month]);
   const start = monthStart(month).toISOString(), end = monthStart(nextPersianMonth(month)).toISOString();
   const accuracy = queryRow<any>(`SELECT COUNT(*) n, SUM(correct) ok FROM team_data_accuracy_reviews WHERE qualifier_salesperson_id=? AND reviewed_at>=? AND reviewed_at<?`, [salespersonId, start, end]);
   const handoffs = queryRow("SELECT 1 FROM sqlite_master WHERE type='table' AND name='customer_priority_history'")

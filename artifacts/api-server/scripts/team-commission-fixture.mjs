@@ -291,6 +291,77 @@ try {
     assert.equal(queryRow("SELECT stage FROM customer_payment_orders WHERE purchase_id=?", [p]).stage, "paid");
     assert.ok(queryRow("SELECT last_error e FROM team_commission_purchases WHERE purchase_id=?", [p]).e);
   });
+
+  /* goods-payout redesign: real deposit date, pre-model deposits, admin revert of «پرداخت‌شده», own-only view, «برگشت پرونده» after payment */
+  const payAt = (pid, at) => runTransaction(() => { executeChanges("UPDATE customer_payment_orders SET stage='paid',paid_at=?,paid_by=1 WHERE purchase_id=?", [at.toISOString(), pid]); return m.onPaymentOrderPaid(pid, 1, at); });
+  ok("commission month follows the real deposit date (not the moment it was marked)", () => {
+    const c = fakeCustomer(4); history(c, "qualifier_form", null, 4, new Date("2026-10-01T10:00:00+03:30"));
+    const p = fakePurchase(c, 4, 40_000_000); order(p, c, 4, 40_000_000); complete(p);
+    // synthetic: this case's snapshot starts the model in Mehr so a Mehr deposit date is eligible (copy only)
+    const snap = JSON.parse(queryRow("SELECT settings_json s FROM team_commission_purchases WHERE purchase_id=?", [p]).s);
+    executeChanges("UPDATE team_commission_purchases SET settings_json=? WHERE purchase_id=?", [JSON.stringify({ ...snap, modelStartDate: "1405-07-01" }), p]);
+    assert.deepEqual(payAt(p, new Date("2026-10-10T11:00:00+03:30")), { posted: true });
+    const st = queryRow("SELECT commission_month mo, posted_at at FROM team_commission_purchases WHERE purchase_id=?", [p]);
+    assert.equal(st.mo, "1405-07"); assert.equal(st.at, new Date("2026-10-10T11:00:00+03:30").toISOString());
+    assert.equal(queryRow("SELECT commission_month mo FROM goods_purchases WHERE id=?", [p]).mo, "1405-07");
+  });
+  ok("deposit dated before 2 Aban 1405: no new-model commission, purchase stays pending, shown as «پیش از شروع مدل»", () => {
+    const c = fakeCustomer(3); const p = fakePurchase(c, 3, 20_000_000); order(p, c, 3, 20_000_000); complete(p);
+    const r = payAt(p, new Date("2026-10-20T10:00:00+03:30"));
+    assert.equal(r.posted, false); assert.equal(r.error, m.BEFORE_START_MSG);
+    assert.equal(ledgerOf(p, "salesperson_commission").length, 0);
+    assert.equal(m.orderCommissionView(p, admin).status, "before_start");
+    throwsStatus(() => m.retryPurchasePosting(p, 1), 409, /پیش از شروع مدل/);
+  });
+  ok("retry posts in the month of the recorded deposit date", () => {
+    const c = fakeCustomer(3); const p = fakePurchase(c, 3, 10_000_000); order(p, c, 3, 10_000_000); complete(p);
+    const cfg = queryRow("SELECT commission_settings_json j FROM goods_purchases WHERE id=?", [p]).j;
+    execute("UPDATE goods_purchases SET commission_settings_json='{}' WHERE id=?", [p]);
+    const at = new Date(Date.now() - 60e3); assert.equal(payAt(p, at).posted, false);
+    execute("UPDATE goods_purchases SET commission_settings_json=? WHERE id=?", [cfg, p]);
+    assert.equal(m.orderCommissionView(p, admin).status, "failed"); assert.equal(m.orderCommissionView(p, admin).canRetry, true);
+    m.retryPurchasePosting(p, 1);
+    assert.equal(queryRow("SELECT posted_at a FROM team_commission_purchases WHERE purchase_id=?", [p]).a, at.toISOString());
+  });
+  ok("admin revert of «پرداخت‌شده»: neutralizing paid_mark_reversal rows in the original month, nothing deleted, pending again", () => {
+    const before = queryRows("SELECT id,amount_toman a,salesperson_id sp,kind FROM goods_finance_ledger WHERE purchase_id=? ORDER BY id", [pB]);
+    const w4 = walletSnap(4), w6 = walletSnap(6), up0 = m.salespersonBreakdown(6, month, null).stats.p1Upgrade;
+    const r = runTransaction(() => m.unpayPurchaseCommission(pB, 1, "رسید اشتباه ثبت شده بود"));
+    assert.deepEqual(r, { neutralized: 2, applicable: true });
+    const rev = queryRows("SELECT l.salesperson_id sp,l.amount_toman a,t.commission_month mo,l.idempotency_key k FROM goods_finance_ledger l JOIN team_commission_ledger_meta t ON t.ledger_id=l.id WHERE l.purchase_id=? AND l.kind='paid_mark_reversal' ORDER BY l.id", [pB]);
+    const posted = before.filter((x) => Number(x.a) > 0 && ["salesperson_commission", "p1_referral_share"].includes(x.kind));
+    assert.deepEqual(rev.map((x) => [x.sp, x.a, x.mo]), posted.map((x) => [x.sp, `-${x.a}`, month]));
+    assert.ok(before.every((b) => queryRow("SELECT 1 x FROM goods_finance_ledger WHERE id=?", [b.id])), "originals kept");
+    assert.equal(walletSnap(4), w4 - BigInt(posted.find((x) => x.sp === 4).a)); assert.equal(walletSnap(6), w6 - 2_250_000n);
+    const st = queryRow("SELECT status,posting_revision r FROM team_commission_purchases WHERE purchase_id=?", [pB]);
+    assert.equal(st.status, "pending_payout"); assert.equal(st.r, 1);
+    assert.equal(queryRow("SELECT commission_toman c FROM goods_purchases WHERE id=?", [pB]).c, null);
+    assert.equal(queryRow("SELECT action FROM goods_purchase_events WHERE purchase_id=? ORDER BY id DESC LIMIT 1", [pB]).action, "team_commission_unposted");
+    assert.equal(m.salespersonBreakdown(6, month, null).breakdown.find((b) => b.kind === "paid_mark_reversal").totalToman, "-2250000");
+    assert.equal(m.salespersonBreakdown(6, month, null).stats.p1Upgrade, up0 - 1, "neutralized share not counted");
+  });
+  ok("marking paid again re-posts with fresh revision keys (r1)", () => {
+    const w6 = walletSnap(6);
+    assert.deepEqual(payAt(pB, new Date()), { posted: true });
+    assert.deepEqual(queryRows("SELECT idempotency_key k FROM goods_finance_ledger WHERE purchase_id=? AND kind IN ('salesperson_commission','p1_referral_share') AND idempotency_key LIKE '%:r1'", [pB]).length, 2);
+    assert.equal(walletSnap(6) - w6, 2_250_000n);
+  });
+  ok("own-only commission view: admin all, closer own rows, qualifier own share, others status only (no names, no amounts)", () => {
+    const a = m.orderCommissionView(pB, admin); assert.equal(a.scope, "all"); assert.ok(a.rows.length >= 4); assert.ok(a.rows.some((r) => r.salespersonName));
+    const g = m.orderCommissionView(pB, ghasemi); assert.equal(g.scope, "own"); assert.ok(g.rows.length >= 1 && g.rows.every((r) => !("salespersonName" in r)));
+    assert.ok(queryRows("SELECT 1 FROM goods_finance_ledger WHERE id IN (" + g.rows.map((r) => r.id).join(",") + ") AND salesperson_id<>4").length === 0);
+    const k = m.orderCommissionView(pB, kazemi); assert.equal(k.scope, "own"); assert.ok(k.rows.every((r) => ["p1_referral_share", "paid_mark_reversal"].includes(r.kind)));
+    const h = m.orderCommissionView(pB, hasani); assert.equal(h.scope, "status"); assert.deepEqual(h.rows, []); assert.equal(h.month, null);
+    const acc = m.orderCommissionView(pB, { id: 99, role: "accounting", salespersonId: null }); assert.equal(acc.scope, "status"); assert.equal(acc.status, "posted"); assert.deepEqual(acc.rows, []); assert.equal(acc.lastError, null);
+  });
+  ok("«برگشت پرونده» only after «پرداخت‌شده»; a reversed case cannot be un-paid", () => {
+    throwsStatus(() => m.reversePurchaseCommission(pE, 1, "مشتری انصراف داد"), 409, /بعد از «پرداخت‌شده»/);
+    throwsStatus(() => runTransaction(() => m.unpayPurchaseCommission(pA, 1, "رسید اشتباه ثبت شده بود")), 409);
+  });
+  ok("revert on a legacy/final-approval purchase is a commission no-op", () => {
+    assert.deepEqual(runTransaction(() => m.unpayPurchaseCommission(pE, 1, "رسید اشتباه ثبت شده بود")), { neutralized: 0, applicable: false });
+    assert.deepEqual(runTransaction(() => m.unpayPurchaseCommission(filler, 1, "رسید اشتباه ثبت شده بود")), { neutralized: 0, applicable: false });
+  });
   console.log(`\n${passed} passed`);
 } finally {
   fs.rmSync(dir, { recursive: true, force: true });

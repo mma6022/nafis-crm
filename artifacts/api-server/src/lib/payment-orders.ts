@@ -42,7 +42,17 @@ export function ensurePaymentOrdersSchema() {
     CREATE INDEX IF NOT EXISTS idx_payment_orders_customer ON customer_payment_orders(customer_id,id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_receipt_reference
       ON customer_payment_orders(source_bank_account_id,tracking_number) WHERE stage='paid';
+    -- Additive: an admin revert of a mistaken «پرداخت‌شده». Snapshot keeps every cleared field; nothing is deleted.
+    CREATE TABLE IF NOT EXISTS payment_order_paid_reversals (
+      id INTEGER PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES customer_payment_orders(id), revision INTEGER NOT NULL,
+      reason TEXT NOT NULL, actor_id INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL, snapshot_json TEXT NOT NULL,
+      accounting_original_document_id INTEGER, accounting_reversal_document_id INTEGER,
+      UNIQUE(order_id,revision)
+    );
   `);
+  // Additive: optional JSON detail on history events (e.g. the revert reason).
+  if (!queryRows<{ name: string }>("PRAGMA table_info(customer_payment_order_events)").some((c) => c.name === "detail"))
+    crmDb.exec("ALTER TABLE customer_payment_order_events ADD COLUMN detail TEXT");
 }
 
 export function paymentCustomer(id: number, actor: AuthUser): any | undefined {
@@ -50,18 +60,22 @@ export function paymentCustomer(id: number, actor: AuthUser): any | undefined {
 }
 export function paymentOrder(id: number, actor: AuthUser): any | undefined {
   const order = queryRow<any>(`SELECT o.*,c.name customer_name,current_salesperson.name customer_salesperson_name,
-      p.base_payout_amount_toman,p.fee_discount_toman
+      p.base_payout_amount_toman,p.fee_discount_toman,p.principal_amount_toman,p.payout_bps purchase_payout_bps,plan.name plan_name
     FROM customer_payment_orders o JOIN customers c ON c.id=o.customer_id
-    LEFT JOIN goods_purchases p ON p.id=o.purchase_id
+    LEFT JOIN goods_purchases p ON p.id=o.purchase_id LEFT JOIN loan_plans plan ON plan.id=p.plan_id
     LEFT JOIN customers current_customer ON current_customer.id=COALESCE(c.merged_into_customer_id,c.id) AND current_customer.merged_into_customer_id IS NULL
     LEFT JOIN salespersons current_salesperson ON current_salesperson.id=current_customer.salesperson_id
     WHERE o.id=?`, [id]);
   if (!order || !paymentCustomer(order.customer_id, actor)) return undefined;
   return order;
 }
-export function paymentEvent(id: number, action: string, actorId: number) {
-  execute("INSERT INTO customer_payment_order_events(order_id,action,actor_id,created_at) VALUES(?,?,?,?)",
-    [id, action, actorId, new Date().toISOString()]);
+export function paymentEvent(id: number, action: string, actorId: number, detail: unknown = null) {
+  execute("INSERT INTO customer_payment_order_events(order_id,action,actor_id,created_at,detail) VALUES(?,?,?,?,?)",
+    [id, action, actorId, new Date().toISOString(), detail === null ? null : JSON.stringify(detail)]);
+}
+/** Number of admin reverts of «پرداخت‌شده» on this order (used to version accounting request keys). */
+export function paidReversalCount(orderId: number): number {
+  return Number(queryRow<{ n: number }>("SELECT COUNT(*) n FROM payment_order_paid_reversals WHERE order_id=?", [orderId])?.n ?? 0);
 }
 export function paymentOrderView(row: any, details = false) {
   return {
@@ -73,7 +87,12 @@ export function paymentOrderView(row: any, details = false) {
     destinationOwnerName: row.destination_owner_name, sourceBankAccountId: row.source_bank_account_id,
     trackingNumber: row.tracking_number, paidAt: row.paid_at, createdAt: row.created_at, updatedAt: row.updated_at,
     receiptUrl: row.receipt_filename ? `/api/payment-orders/${row.id}/receipt` : null,
-    ...(details ? { events: queryRows<any>("SELECT action,actor_id actorId,created_at createdAt FROM customer_payment_order_events WHERE order_id=? ORDER BY id", [row.id]) } : {}),
+    ...(details ? {
+      principalAmountToman: row.principal_amount_toman ?? null, planPayoutBps: row.purchase_payout_bps ?? null, planName: row.plan_name ?? null,
+      events: queryRows<any>(`SELECT e.action,e.actor_id actorId,u.full_name actorName,e.created_at createdAt,e.detail FROM customer_payment_order_events e
+        LEFT JOIN users u ON u.id=e.actor_id WHERE e.order_id=? ORDER BY e.id`, [row.id])
+        .map((e) => ({ ...e, detail: e.detail ? (() => { try { return JSON.parse(e.detail); } catch { return null; } })() : null })),
+    } : {}),
   };
 }
 export function bankAccountView(row: any) {
