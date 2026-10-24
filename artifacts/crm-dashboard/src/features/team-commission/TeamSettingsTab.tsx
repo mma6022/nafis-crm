@@ -155,12 +155,12 @@ export function TeamSettingsTab() {
       : <p className="tc-muted">هنوز ذخیره نشده؛ مقادیر پیش‌فرض نمایش داده می‌شود.</p>}
     <span className="tc-help">هر پورسانت با نسخه‌ی تنظیمات زمان ثبتش ذخیره می‌شود؛ تغییر تنظیمات ردیف‌های ثبت‌شده را دوباره حساب نمی‌کند.</span></section>;
 
-  return <div className="tc" data-testid="tc-settings">
+  return <div className="tc" data-testid="tc-settings" style={{ paddingBottom: changes.length || errCount ? 140 : 0 }}>
     <div className="tc-base" style={{ marginBottom: 16 }}><Coins size={20} /><span>مبنای همه‌ی درصدها {f.basis === 'deposit' ? 'مبلغ واریزی به مشتری (مبلغ دستور پرداخت)' : 'مبنای قبلی پورسانت'} است.</span></div>
     {serverErr?.msg && !confirm ? <div className="tc-errbox" role="alert" style={{ marginBottom: 16 }}><AlertCircle size={18} /> <span>ذخیره نشد. {serverErr.msg}</span></div> : null}
     {tried && Object.keys(local).length ? <div className="tc-errbox" role="alert" style={{ marginBottom: 16 }}><AlertCircle size={18} /> <span>ذخیره نشد. {fa(Object.keys(local).length)} مورد را درست کن.</span></div> : null}
     <div className="tc-sgrid"><div>{secMaster}{secP1}{secB}{secD}</div><div>{secT}{secR}{secV}</div></div>
-    {changes.length || errCount ? <div className="tc-savebar" data-testid="tc-savebar">
+    {changes.length || errCount ? <div className="tc-savebar" data-testid="tc-savebar" data-floating-avoid="" data-sticky-footer="">
       <span className={`chg ${errCount ? 'bad' : ''}`}>{errCount && tried ? `${fa(errCount)} خطا را درست کن` : `${fa(changes.length)} تغییر ذخیره‌نشده`}</span>
       <button type="button" className="tc-ghost" onClick={() => { setF(data.settings); setTried(false); setServerErr(null); }}>لغو</button>
       <button type="button" className="tc-primary" onClick={startSave} data-testid="tc-save"><Check size={18} /> ذخیره‌ی تنظیمات</button>
