@@ -29,6 +29,9 @@ export function nationalCodePatch(input: string, stored: string | null | undefin
   const raw = normalizeDigits(input ?? '').trim();
   const digits = raw.replace(/\D/g, '');
   const storedDigits = normalizeDigits(stored ?? '').replace(/\D/g, '');
+  // crm-nid-quick (PM 16:37): an untouched field is never validated or sent, so a legacy/odd stored code
+  // can't block a name-only edit; only what the user typed is checked.
+  if (!touched) return { patch: {}, clearing: false };
   if (raw) {
     if (!validateIranianNationalCode(digits)) return { error: NATIONAL_CODE_OPTIONAL_ERROR, patch: {}, clearing: false };
     return { patch: digits === storedDigits ? {} : { nationalCode: digits }, clearing: false };

@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 
 import App from './App';
 import { ErrorBoundary } from '@/components/error-boundary';
+import { startAppVersionWatch } from '@/lib/app-version';
 
 import './index.css';
 import './theme/nafis-theme.css';
@@ -16,3 +17,6 @@ createRoot(document.getElementById('root')!, {
     <App />
   </ErrorBoundary>,
 );
+
+// Stale tabs pick up a new release (crm-nid-quick).
+startAppVersionWatch();

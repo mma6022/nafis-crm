@@ -2922,17 +2922,27 @@ router.patch(
     }
     const reactivating = existingCustomer.status === "cancelled" &&
       body.status !== undefined && body.status !== "cancelled";
+    // crm-nid-quick (PM 16:37): only values that actually change (or a reactivation) are checked for conflicts,
+    // so a name-only quick edit (which re-sends the unchanged phone) is never blocked, and the message names
+    // the field that really collides instead of always mentioning «کد ملی».
+    const phoneChanged = body.phone !== undefined &&
+      normalizeCustomerIdentity(body.phone) !== normalizeCustomerIdentity(existingCustomer.phone ?? "");
+    const conflictPhone = phoneChanged ? body.phone : reactivating ? existingCustomer.phone : undefined;
+    const conflictNationalCode = entries.some(([field]) => field === "national_code")
+      ? entries.find(([field]) => field === "national_code")?.[1] as string | null
+      : reactivating ? existingCustomer.nationalCode : undefined;
     const identityConflict = findActiveCustomerIdentityConflict(params.data.id, {
-      phone: body.phone ?? (reactivating ? existingCustomer.phone : undefined),
-      nationalCode: entries.some(([field]) => field === "national_code")
-        ? entries.find(([field]) => field === "national_code")?.[1] as string | null
-        : reactivating ? existingCustomer.nationalCode : undefined,
+      phone: conflictPhone,
+      nationalCode: conflictNationalCode,
     });
     if (identityConflict) {
       const visibleConflict = getCustomer(Number(identityConflict.id), user);
+      const mobileClash = conflictPhone !== undefined &&
+        normalizeCustomerIdentity(identityConflict.phone) === normalizeCustomerIdentity(conflictPhone);
+      const what = mobileClash ? "شماره همراه" : "کد ملی";
       res.status(409).json({ error: visibleConflict
-        ? `شماره همراه یا کد ملی با مشتری شماره ${visibleConflict.id} مشترک است. پیش از تغییر وضعیت یا اطلاعات، شماره و کد ملی را بررسی کنید؛ اگر هر دو پرونده متعلق به یک نفر هستند، مدیر باید ادغام آن‌ها را بررسی کند.`
-        : "شماره همراه یا کد ملی با مشتری فعال دیگری مشترک است. برای بررسی و رفع تداخل با مدیر تماس بگیرید." });
+        ? `${what} این پرونده با مشتری شماره ${visibleConflict.id} مشترک است. ${what} را بررسی کنید؛ اگر هر دو پرونده متعلق به یک نفر هستند، مدیر باید ادغام آن‌ها را بررسی کند.`
+        : `${what} این پرونده با مشتری فعال دیگری مشترک است. برای بررسی و رفع تداخل با مدیر تماس بگیرید.` });
       return;
     }
     try {
@@ -3039,7 +3049,9 @@ router.patch(
       });
     } catch (error) {
       if (error instanceof Error && error.message.includes("ACTIVE_CUSTOMER_")) {
-        res.status(409).json({ error: "شماره همراه یا کد ملی با مشتری فعال دیگری مشترک است. پیش از تغییر وضعیت یا اطلاعات، تداخل را با کمک مدیر برطرف کنید." });
+        const what = error.message.includes("ACTIVE_CUSTOMER_MOBILE_CONFLICT") ? "شماره همراه"
+          : error.message.includes("ACTIVE_CUSTOMER_NATIONAL_CODE_CONFLICT") ? "کد ملی" : "شماره همراه یا کد ملی";
+        res.status(409).json({ error: `${what} این پرونده با مشتری فعال دیگری مشترک است. پیش از تغییر وضعیت یا اطلاعات، تداخل را با کمک مدیر برطرف کنید.` });
         return;
       }
       throw error;

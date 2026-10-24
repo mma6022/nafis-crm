@@ -101,7 +101,7 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
       try { const saved = await update.mutateAsync({ id: customer.id, data: payload }); await saveTagsAndFinish(saved); }
       catch (cause) {
         const msg = (cause as { data?: { error?: unknown } })?.data?.error;
-        setError(typeof msg === 'string' && /کد ملی/.test(msg) ? msg : 'ذخیره پرونده انجام نشد. اطلاعات را بررسی و دوباره تلاش کنید.');
+        setError(typeof msg === 'string' && /[\u0600-\u06FF]/.test(msg) ? msg : 'ذخیره پرونده انجام نشد. اطلاعات را بررسی و دوباره تلاش کنید.');
       }
       return;
     }

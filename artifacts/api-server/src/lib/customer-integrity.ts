@@ -34,6 +34,8 @@ export function registerCustomerIdentityFunctions(db: DatabaseSync): void {
 
 export function installCustomerIdentityGuards(db: DatabaseSync): void {
   registerCustomerIdentityFunctions(db);
+  // crm-nid-quick (PM 16:37): on UPDATE only a phone / «کد ملی» that actually changes (or a row that becomes
+  // active again) is checked, so re-saving unchanged values in «ویرایش سریع» is never blocked by an old duplicate.
   db.exec(`
     DROP TRIGGER IF EXISTS customers_unique_mobile_insert;
     DROP TRIGGER IF EXISTS customers_unique_mobile_update;
@@ -57,13 +59,16 @@ export function installCustomerIdentityGuards(db: DatabaseSync): void {
     BEFORE UPDATE OF phone,national_code,status,merged_into_customer_id ON customers
     WHEN NEW.merged_into_customer_id IS NULL AND COALESCE(NEW.status, 'in_progress') <> 'cancelled'
     BEGIN
-      SELECT CASE WHEN EXISTS (
+      SELECT CASE WHEN (crm_customer_mobile_key(NEW.phone) IS NOT crm_customer_mobile_key(OLD.phone)
+          OR OLD.merged_into_customer_id IS NOT NULL OR COALESCE(OLD.status, 'in_progress') = 'cancelled') AND EXISTS (
         SELECT 1 FROM customers c
         WHERE c.id <> NEW.id AND c.merged_into_customer_id IS NULL
           AND COALESCE(c.status, 'in_progress') <> 'cancelled'
           AND crm_customer_mobile_key(c.phone) = crm_customer_mobile_key(NEW.phone)
       ) THEN RAISE(ABORT, 'ACTIVE_CUSTOMER_MOBILE_CONFLICT') END;
-      SELECT CASE WHEN NEW.national_code IS NOT NULL AND trim(NEW.national_code) <> '' AND EXISTS (
+      SELECT CASE WHEN NEW.national_code IS NOT NULL AND trim(NEW.national_code) <> ''
+          AND (crm_customer_national_code_key(NEW.national_code) IS NOT crm_customer_national_code_key(OLD.national_code)
+            OR OLD.merged_into_customer_id IS NOT NULL OR COALESCE(OLD.status, 'in_progress') = 'cancelled') AND EXISTS (
         SELECT 1 FROM customers c
         WHERE c.id <> NEW.id AND c.merged_into_customer_id IS NULL
           AND COALESCE(c.status, 'in_progress') <> 'cancelled'
