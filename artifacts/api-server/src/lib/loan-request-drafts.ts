@@ -169,7 +169,8 @@ export function shapeDraft(r: any, u: AuthUser | null, nowMs = Date.now()) {
 export function listDrafts(u: AuthUser, opts: { scope?: "mine" | "all"; paidOnly?: boolean; search?: string; customerId?: number } = {}, nowMs = Date.now()) {
   syncDraftsWithCases(nowMs);
   const s = scopeSql(u);
-  const where: string[] = [OPEN]; const params: SqlValue[] = [...s.params];
+  // Params are bound in SQL order: filters first, then the role scope (its SQL is appended last below).
+  const where: string[] = [OPEN]; const params: SqlValue[] = [];
   if (opts.scope === "mine") { where.push("(d.created_by_user_id=? OR c.salesperson_id=?)"); params.push(u.id, u.salespersonId ?? -1); }
   if (opts.paidOnly) where.push(isPaidSql);
   if (opts.customerId) { where.push("d.customer_id=?"); params.push(opts.customerId); }
@@ -178,6 +179,7 @@ export function listDrafts(u: AuthUser, opts: { scope?: "mine" | "all"; paidOnly
     where.push("(c.name LIKE ? OR c.phone LIKE ? OR CAST(c.id AS TEXT)=? OR c.national_code=?)");
     params.push(`%${q}%`, `%${q}%`, q.replace(/^#/, ""), q);
   }
+  params.push(...s.params);
   const rows = queryRows<any>(`${SELECT} WHERE ${where.join(" AND ")}${s.sql} ORDER BY ${isPaidSql} DESC, d.updated_at ASC, d.id ASC LIMIT 500`, params);
   return rows.map(r => shapeDraft(r, u, nowMs));
 }
