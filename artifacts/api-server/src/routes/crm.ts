@@ -5,7 +5,7 @@ import { publicDocumentLabel } from "../lib/public-document-labels";
 import { saveUserVoipExtension } from "../lib/user-voip-extension";
 import { savePendingAfterCallHistory } from "../lib/voip-after-call";
 import { callReportDateBounds } from "../lib/call-report-filters";
-import { callHistoryScope } from "../lib/call-history-scope";
+import { callHistoryScope, forcedCallSalespersonId } from "../lib/call-history-scope";
 import { systemSummaryForCall } from "../lib/call-reports";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -4090,7 +4090,8 @@ router.get("/calls", requirePermission("calls.view"), (req, res): void => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const { search, customerId, salespersonId, from, to } = parsed.data;
+  const { search, customerId, from, to } = parsed.data;
+  const salespersonId = forcedCallSalespersonId(res.locals.authUser as AuthUser) ?? parsed.data.salespersonId;
   let dates: ReturnType<typeof callReportDateBounds>;
   try { dates = callReportDateBounds({ from, to }); }
   catch (error) { res.status(400).json({ error: (error as Error).message }); return; }

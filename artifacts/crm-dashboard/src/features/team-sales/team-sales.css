@@ -210,3 +210,12 @@ textarea.ts-inp { resize: vertical; line-height: 1.8; }
 .csx-hero-plans { grid-column: 1 / -1; min-width: 0; }
 .csx-table td.col-plans { min-width: 150px; max-width: 360px; }
 .csx-plans-row { flex-wrap: nowrap; overflow: visible; }
+/* Calls page phase 1: «کپی» instead of the tel: link; «تغییر مشتری» card when opened from the calls-page picker. */
+.ts-wz-head .sub .ltr { direction: ltr; unicode-bidi: isolate; }
+.ts-toast:not(.ok) { background: #B42318; }
+.ts-picked-customer { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 14px; background: var(--nf-surface, #F5F7FB); border: 1px solid var(--nf-line, #E4E7EC); margin-bottom: 12px; font-size: 14px; }
+.ts-picked-customer > div { flex: 1; min-width: 0; }
+.ts-picked-customer button { display: inline-flex; align-items: center; gap: 2px; border: 0; background: none; color: var(--nf-brand-600, #29369B); font: inherit; font-weight: 800; min-height: 40px; cursor: pointer; white-space: nowrap; }
+@media (max-width: 980px) {
+  .ts-copy { height: 44px; min-width: 44px; padding: 0 12px; font-size: 13px; }
+}

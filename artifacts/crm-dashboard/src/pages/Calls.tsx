@@ -1,105 +1,176 @@
-import { Download, PhoneCall, Plus } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { CalendarDays, Check, ChevronDown, ClipboardList, Download, Edit3, FileText, MoreHorizontal, PhoneCall, Plus, Search, SlidersHorizontal, UserRound, X } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { Link, useLocation } from 'wouter';
 import { useTableState } from '@/hooks/use-table-state';
 import { useQueryClient } from '@tanstack/react-query';
-import { getCustomer, useGetAuthSession, getGetAuthSessionQueryKey, type CustomerDetail, listCalls, useListCalls, useCreateCall, useListCustomers, useListSalespersons, getListCallsQueryKey, getListRemindersQueryKey, getListCustomersQueryKey, type CallInput, type CallRecord } from '@workspace/api-client-react';
+import { getCustomer, useGetAuthSession, getGetAuthSessionQueryKey, type CustomerDetail, listCalls, useListCalls, useCreateCall, useCreateConsultation, useListSalespersons, getListCallsQueryKey, getListRemindersQueryKey, getListCustomersQueryKey, getListConsultationsQueryKey, type CallInput, type CallRecord, type ConsultationInput } from '@workspace/api-client-react';
 import '@/components/voip/CallReportDialog.css';
-import { ErrorState, formatDateTime, initials, SkeletonPanel } from '@/components/CrmShell';
-import { EmptyState, Pagination, SearchField } from '@/components/DataTools';
-import { CallForm } from '@/components/Forms';
-import type { CallCustomer } from '@/components/CallCustomerSelect';
+import { ErrorState, formatDateTime, SkeletonPanel } from '@/components/CrmShell';
+import { Pagination } from '@/components/DataTools';
+import { CallForm, CreateConsultationForm } from '@/components/Forms';
+import { CallCustomerPicker, callTimeLabel, whoLabel } from '@/components/CallCustomerPicker';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
-import { useCallLauncher } from '@/features/team-sales/useCallLauncher';
+import { useCallLauncher, CallLaunchStatus } from '@/features/team-sales/useCallLauncher';
 import { CallReportDialog } from '@/components/voip/CallReportDialog';
 import { removeCompletedAfterCallFromQueue } from '@/components/voip/after-call-cache';
-
 import { RecordedCallsPanel } from '@/components/RecordedCallsPanel';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { jalaliValueToGregorian } from '@/lib/jalali';
+import { useDialogFocus, useMinWidth } from './customers-ui';
+import './calls.css';
 
-const limit = 8;
-export default function Calls() {
-  const [tab, setTab] = useTableState<'manual' | 'recordings'>('calls.tab', 'manual');
-  return <>
-    <div role="tablist" aria-label="نوع گزارش تماس" style={{ display: 'flex', gap: 8, margin: '12px 0', flexWrap: 'wrap' }}>
-      <button role="tab" aria-selected={tab === 'recordings'} className={`btn ${tab === 'recordings' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('recordings')} data-testid="tab-recordings">گزارش مرکز تماس</button>
-      <button role="tab" aria-selected={tab === 'manual'} className={`btn ${tab === 'manual' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('manual')} data-testid="tab-manual">تماس‌های ثبت‌شده دستی</button>
-    </div>
-    {tab === 'recordings' ? <RecordedCallsPanel /> : <ManualCalls />}
-  </>;
+const limit = 20;
+const fa = (n: number) => n.toLocaleString('fa-IR');
+type Period = 'today' | 'week' | 'all' | 'range';
+type Filters = { period: Period; from: string; to: string; mine: boolean | null; expert: string };
+const PERIOD_LABEL: Record<Period, string> = { today: 'امروز', week: 'این هفته', all: 'همه', range: 'بازه‌ی دلخواه' };
+
+/** Gregorian YYYY-MM-DD of a day in Tehran (the server reads from/to as Tehran days). */
+const tehranDay = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tehran' }).format(d);
+function periodBounds(f: Filters): { from?: string; to?: string; bad?: boolean } {
+  const now = new Date();
+  if (f.period === 'today') { const t = tehranDay(now); return { from: t, to: t }; }
+  if (f.period === 'week') {
+    // Persian week starts on Saturday.
+    const wd = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'Asia/Tehran' }).format(now);
+    const back = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri'].indexOf(wd);
+    return { from: tehranDay(new Date(now.getTime() - Math.max(0, back) * 86_400_000)), to: tehranDay(now) };
+  }
+  if (f.period === 'range') {
+    const from = jalaliValueToGregorian(f.from); const to = jalaliValueToGregorian(f.to);
+    if ((f.from && !from) || (f.to && !to) || (from && to && from > to)) return { bad: true };
+    return { from, to };
+  }
+  return {};
 }
 
-export function ManualCalls() {
+export default function Calls() {
+  const [tab, setTab] = useTableState<'manual' | 'recordings'>('calls.tab', 'manual');
+  const desktop = useMinWidth(981);
+  return <section className={`clx${tab === 'manual' && !desktop ? ' has-mbar' : ''}`} data-testid="page-calls">
+    {desktop ? <div className="clx-intro"><div><p>تماس‌های امروز را ببینید و از همین‌جا تماس یا مشاوره‌ی بعدی را ثبت کنید.</p></div><span id="clx-new-slot" /></div> : null}
+    <div className="clx-seg" role="tablist" aria-label="نوع گزارش تماس">
+      <button type="button" role="tab" aria-selected={tab === 'manual'} onClick={() => setTab('manual')} data-testid="tab-manual">تماس‌های ثبت‌شده</button>
+      <button type="button" role="tab" aria-selected={tab === 'recordings'} onClick={() => setTab('recordings')} data-testid="tab-recordings">گزارش مرکز تماس</button>
+    </div>
+    {tab === 'recordings' ? <RecordedCallsPanel /> : <ManualCalls desktop={desktop} />}
+  </section>;
+}
+
+function ManualCalls({ desktop = true }: { desktop?: boolean }) {
   const queryClient = useQueryClient();
-  const [search, setSearch] = useTableState('calls.search', '');
-  const [offset, setOffset] = useTableState('calls.offset', 0);
-  const [open, setOpen] = useState(false);
-  const [selectedCall, setSelectedCall] = useState<CallRecord | null>(null);
-  const emptyFilters = { salespersonId: '', from: '', to: '' };
-  const [draftFilters, setDraftFilters] = useTableState('calls.draft', emptyFilters);
-  const [filters, setFilters] = useTableState('calls.filters', emptyFilters);
-  const [filterError, setFilterError] = useState('');
-  const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState('');
-  const params = {
-    search: search || undefined, limit, offset,
-    salespersonId: filters.salespersonId ? Number(filters.salespersonId) : undefined,
-    from: jalaliValueToGregorian(filters.from), to: jalaliValueToGregorian(filters.to),
-  };
-  const calls = useListCalls(params, { query: { queryKey: getListCallsQueryKey(params) } });
-  const customers = useListCustomers({ limit: 100 }, { query: { queryKey: ['calls-customers', 100], staleTime: 60_000 } });
-  const salespersons = useListSalespersons({ query: { queryKey: ['calls-salespersons'], staleTime: 60_000 } });
-  const create = useCreateCall();
-  const items = calls.data?.items ?? [];
-  // «ثبت تماس جدید» (pick a customer first): once a customer is picked, the same shared rule as everywhere else
-  // decides whether the simple team-sales form applies; saving the legacy form is blocked until that is known.
+  const [, setLocation] = useLocation();
   const session = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   const user = session.data?.user;
-  const canCustomersView = user?.role === 'admin' || (user?.permissions ?? []).includes('customers.view');
-  const [simpleFor, setSimpleFor] = useState<CustomerDetail | null>(null);
-  const [pickFetch, setPickFetch] = useState<{ id: number; state: 'checking' | 'error' } | null>(null);
-  const pickSeq = useRef(0);
+  const isAdmin = user?.role === 'admin';
+  const can = (p: string) => isAdmin || (user?.permissions ?? []).includes(p);
+  const canCustomersView = can('customers.view');
+  const canCall = can('calls.create') && canCustomersView;
+  const canConsult = can('consultations.create');
+  // Decision 7: a user with calls access but no customers.view only ever sees their own calls (enforced by GET /calls).
+  const callsOnly = Boolean(user) && !isAdmin && !canCustomersView;
+  const showMine = Boolean(user) && !isAdmin && (user?.salespersonId != null || callsOnly);
+  const showExpert = Boolean(user) && !callsOnly && (isAdmin || user?.customerScope === 'all');
+
+  const [search, setSearch] = useTableState('calls.search', '');
+  const [q, setQ] = useState(search);
+  useEffect(() => { const t = window.setTimeout(() => setQ(search.trim()), 350); return () => window.clearTimeout(t); }, [search]);
+  const [offset, setOffset] = useTableState('calls.offset', 0);
+  const [f, setF] = useTableState<Filters>('calls.view', { period: 'today', from: '', to: '', mine: null, expert: '' });
+  const mine = callsOnly || (showMine && (f.mine ?? true)); // default for a salesperson: «امروز + تماس‌های من»
+  const bounds = periodBounds(f);
+  const params = {
+    search: q || undefined, limit, offset,
+    salespersonId: mine ? (user?.salespersonId ?? undefined) : showExpert && f.expert ? Number(f.expert) : undefined,
+    from: bounds.bad ? undefined : bounds.from, to: bounds.bad ? undefined : bounds.to,
+  };
+  const update = (patch: Partial<Filters>) => { setF((cur) => ({ ...cur, ...patch })); setOffset(0); };
+  const calls = useListCalls(params, { query: { queryKey: getListCallsQueryKey(params), enabled: Boolean(user), placeholderData: (prev) => prev } });
+  const salespersons = useListSalespersons({ query: { queryKey: ['calls-salespersons'], staleTime: 60_000, enabled: showExpert || canCall } });
+  const items = calls.data?.items ?? [];
+  const total = calls.data?.total ?? 0;
+  const expertName = salespersons.data?.find((p) => String(p.id) === f.expert)?.name;
+  const tags = [f.period === 'range' ? `${f.from || '…'} تا ${f.to || '…'}` : PERIOD_LABEL[f.period], ...(mine ? ['تماس‌های من'] : []), ...(!mine && expertName ? [`کارشناس: ${expertName}`] : []), ...(q ? [`«${q}»`] : [])];
+  const filtered = f.period !== 'all' || (!callsOnly && mine) || Boolean(!mine && f.expert) || Boolean(search);
+  const clearAll = () => { setSearch(''); setQ(''); setF({ period: 'all', from: '', to: '', mine: false, expert: '' }); setOffset(0); setExportError(''); };
+
+  // ---- «ثبت تماس» (row or picker) → useCallLauncher decides SimpleCallForm vs CallForm.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerSearch, setPickerSearch] = useState('');
+  const [pickFetch, setPickFetch] = useState<{ id: number; name: string; state: 'checking' | 'error' } | null>(null);
+  const [rowFetch, setRowFetch] = useState<{ id: number; error?: string } | null>(null);
+  const [legacyFor, setLegacyFor] = useState<{ customer: CustomerDetail; fromPicker: boolean } | null>(null);
+  const [simpleFor, setSimpleFor] = useState<{ customer: CustomerDetail; fromPicker: boolean } | null>(null);
+  const [consultFor, setConsultFor] = useState<{ id: number; name: string; phone: string; salespersonName?: string | null } | null>(null);
+  const [selectedCall, setSelectedCall] = useState<CallRecord | null>(null);
+  const origin = useRef<'picker' | 'row'>('row');
+  const seq = useRef(0);
   const launcher = useCallLauncher<CustomerDetail>(user, Boolean(user) && canCustomersView, (customer, kind) => {
-    if (kind === 'simple') { setOpen(false); setSimpleFor(customer); }
+    const fromPicker = origin.current === 'picker';
+    setPickFetch(null); setRowFetch(null); setPickerOpen(false);
+    if (kind === 'simple') setSimpleFor({ customer, fromPicker }); else setLegacyFor({ customer, fromPicker });
   });
-  const checkPicked = async (picked: { id: number }) => {
-    const seq = ++pickSeq.current;
-    launcher.cancel();
-    setPickFetch({ id: picked.id, state: 'checking' });
+  const lastPick = useRef<{ id: number; name: string } | null>(null);
+  const pick = async (row: { id: number; name: string }) => {
+    const s = ++seq.current; origin.current = 'picker'; lastPick.current = row; launcher.cancel();
+    setPickFetch({ id: row.id, name: row.name, state: 'checking' });
     try {
-      const full = await getCustomer(picked.id);
-      if (seq !== pickSeq.current) return;
-      setPickFetch(null);
+      const full = await getCustomer(row.id);
+      if (s !== seq.current) return;
       launcher.launch(full);
+    } catch { if (s === seq.current) setPickFetch({ id: row.id, name: row.name, state: 'error' }); }
+  };
+  // While the team-sales settings load, the picked row keeps its «در حال بررسی پرونده…»; a settings error shows retry.
+  const pickerChecking = pickFetch && launcher.status === 'error' ? { ...pickFetch, state: 'error' as const } : pickFetch;
+  const callRow = async (call: CallRecord) => {
+    if (call.customerId == null) return;
+    const s = ++seq.current; origin.current = 'row'; launcher.cancel(); setRowFetch({ id: call.id });
+    try {
+      const full = await getCustomer(call.customerId);
+      if (s !== seq.current) return;
+      launcher.launch(full);
+    } catch { if (s === seq.current) setRowFetch({ id: call.id, error: `پرونده‌ی «${call.customerName}» باز نشد. دوباره تلاش کنید.` }); }
+  };
+  const openPicker = () => { seq.current++; launcher.cancel(); setPickFetch(null); setRowFetch(null); setPickerOpen(true); };
+  const closePicker = () => { seq.current++; launcher.cancel(); setPickFetch(null); setPickerOpen(false); setPickerSearch(''); };
+  const backToPicker = () => { setLegacyFor(null); setSimpleFor(null); setPickFetch(null); setPickerOpen(true); };
+  const closeForms = () => { setLegacyFor(null); setSimpleFor(null); setPickerSearch(''); };
+
+  const create = useCreateCall();
+  const createConsult = useCreateConsultation();
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: getListCallsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListRemindersQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() });
+    queryClient.invalidateQueries({ queryKey: ['calls-customers'] });
+    queryClient.invalidateQueries({ queryKey: ['board-customers'] });
+  };
+  const save = async (data: CallInput) => {
+    try {
+      const saved = await create.mutateAsync({ data });
+      closeForms();
+      await removeCompletedAfterCallFromQueue(queryClient, { callLogId: saved.id });
+      invalidate();
     } catch {
-      if (seq === pickSeq.current) setPickFetch({ id: picked.id, state: 'error' });
+      // Keep the form open so the user can retry.
     }
   };
-  const lastPicked = useRef<CallCustomer | null>(null);
-  const onCustomerPicked = (customer: CallCustomer) => {
-    lastPicked.current = customer;
-    if (!user || user.salespersonId == null) return; // only a salesperson can be the qualifier
-    void checkPicked(customer);
+  const saveConsult = (data: ConsultationInput) => {
+    createConsult.mutate({ data }, { onSuccess: (created) => {
+      setConsultFor(null); invalidate(); queryClient.invalidateQueries({ queryKey: getListConsultationsQueryKey() });
+      try { sessionStorage.setItem('nafis-open-matches', String(created.id)); } catch { /* ignore */ }
+      setLocation('/consultations');
+    } });
   };
-  const pickCheck = pickFetch
-    ? { state: pickFetch.state, onRetry: () => { if (lastPicked.current) void checkPicked(lastPicked.current); } }
-    : launcher.status ? { state: launcher.status === 'error' ? 'error' as const : 'checking' as const, onRetry: launcher.retry } : null;
-  const closeCallForm = () => { pickSeq.current++; setPickFetch(null); launcher.cancel(); setOpen(false); };
-  const applyFilters = (event: React.FormEvent) => {
-    event.preventDefault();
-    const from = jalaliValueToGregorian(draftFilters.from);
-    const to = jalaliValueToGregorian(draftFilters.to);
-    if ((draftFilters.from && !from) || (draftFilters.to && !to) || (from && to && from > to)) {
-      setFilterError('تاریخ‌ها را بررسی کنید؛ تاریخ شروع نباید بعد از تاریخ پایان باشد.');
-      return;
-    }
-    setFilterError(''); setExportError(''); setFilters({ ...draftFilters }); setOffset(0);
-  };
+
+  // ---- CSV (all pages, same server filters/authorization as the table)
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
   const exportReport = async () => {
     setExporting(true); setExportError('');
     try {
       const rows: CallRecord[] = [];
-      // Fetch every page using the same server-side filters and authorization as the table.
       const ids = new Set<number>();
       let expectedTotal: number | undefined;
       for (let pageOffset = 0; ; pageOffset += 500) {
@@ -132,51 +203,173 @@ export function ManualCalls() {
       setExportError(error instanceof Error ? error.message : 'دریافت گزارش ناموفق بود.');
     } finally { setExporting(false); }
   };
-  const save = async (data: CallInput) => {
-    try {
-      const saved = await create.mutateAsync({ data });
-      setOpen(false);
-      await removeCompletedAfterCallFromQueue(queryClient, { callLogId: saved.id });
-      queryClient.invalidateQueries({ queryKey: getListCallsQueryKey() });
-      queryClient.invalidateQueries({ queryKey: getListRemindersQueryKey() });
-      queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() });
-      queryClient.invalidateQueries({ queryKey: ['calls-customers'] });
-      queryClient.invalidateQueries({ queryKey: ['board-customers'] });
-    } catch {
-      // Keep the form open so the user can retry.
-    }
-  };
-  return <section className="data-page">
-    <div className="page-intro"><div><div className="eyebrow">ارتباطات مشتری</div><h2>تاریخچه تماس‌ها</h2><p>هر تماس، یک قدم روشن‌تر برای ادامه مسیر مشتری.</p></div><div className="data-summary"><PhoneCall size={17} /><span>کل تماس‌های ثبت‌شده</span><strong data-testid="text-total-calls">{(calls.data?.total ?? 0).toLocaleString('fa-IR')}</strong></div></div>
-    <div className="data-toolbar"><div className="toolbar"><SearchField value={search} onChange={(value) => { setSearch(value); setOffset(0); }} placeholder="جست‌وجو در مشتری، موضوع یا یادداشت..." testId="calls" /><div className="subtle-note">نمایش ۸ مورد در هر صفحه</div></div><button className="btn btn-primary" onClick={() => { setPickFetch(null); launcher.cancel(); setOpen(true); }} data-testid="button-new-call"><Plus size={16} /> ثبت تماس جدید</button></div>
-    <form className="panel" onSubmit={applyFilters} style={{ marginBottom: 16 }} data-testid="form-call-filters">
-      <div className="form-grid">
-        <div className="field"><label htmlFor="calls-expert">کارشناس تماس</label><select id="calls-expert" value={draftFilters.salespersonId} onChange={event => setDraftFilters({ ...draftFilters, salespersonId: event.target.value })} data-testid="select-calls-expert">
-          <option value="">همهٔ کارشناسان مجاز</option>
-          {(salespersons.data ?? []).map(person => <option key={person.id} value={person.id}>{person.name}</option>)}
-        </select>{salespersons.isError ? <small role="alert">دریافت کارشناسان ناموفق بود. <button type="button" onClick={() => salespersons.refetch()}>تلاش دوباره</button></small> : null}</div>
-        <div className="field"><label>تاریخ شروع (شمسی)</label><PersianDatePicker value={draftFilters.from} onChange={from => setDraftFilters({ ...draftFilters, from })} testId="input-calls-from" /></div>
-        <div className="field"><label>تاریخ پایان (شمسی)</label><PersianDatePicker value={draftFilters.to} onChange={to => setDraftFilters({ ...draftFilters, to })} testId="input-calls-to" /></div>
+
+  // ---- desktop popovers
+  const [pop, setPop] = useState<'range' | 'expert' | null>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!pop) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (popRef.current?.contains(t) || t.closest('.rdp, [data-radix-popper-content-wrapper], .persian-date-popover')) return;
+      setPop(null);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPop(null); };
+    document.addEventListener('mousedown', onDown); document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [pop]);
+  const [sheet, setSheet] = useState(false);
+
+  const isUnk = (c: CallRecord) => c.customerId == null || c.id < 0;
+  const timeOf = (c: CallRecord) => callTimeLabel(c.createdAt);
+  const byOf = (c: CallRecord) => whoLabel(c.salespersonName, c.salespersonId, user);
+  const phoneOf = (c: CallRecord) => <><span className="ph ltr" dir="ltr">{c.customerPhone}</span>{!isUnk(c) ? <><span className="sep">|</span>کد {fa(c.customerId as number)}</> : null}</>;
+  const busyRow = (c: CallRecord) => rowFetch?.id === c.id && !rowFetch.error;
+  const callBtn = (c: CallRecord) => canCall ? <button type="button" className="clx-ra call" onClick={(e) => { e.stopPropagation(); void callRow(c); }} aria-label={`ثبت تماس برای ${c.customerName}`} aria-busy={busyRow(c) || undefined} data-testid={`button-row-call-${c.id}`}><PhoneCall aria-hidden="true" /> ثبت تماس</button> : null;
+  const consultBtn = (c: CallRecord) => canConsult ? <button type="button" className="clx-ra consult" onClick={(e) => { e.stopPropagation(); setConsultFor({ id: c.customerId as number, name: c.customerName, phone: c.customerPhone, salespersonName: c.customerSalespersonName }); }} aria-label={`ثبت مشاوره برای ${c.customerName}`} data-testid={`button-row-consult-${c.id}`}><FileText aria-hidden="true" /> ثبت مشاوره</button> : null;
+  const completeBtn = (c: CallRecord) => <button type="button" className="clx-ra consult" onClick={(e) => { e.stopPropagation(); setSelectedCall(c); }} aria-label="تکمیل گزارش این تماس" data-testid={`button-row-complete-${c.id}`}><Edit3 aria-hidden="true" /> تکمیل گزارش</button>;
+
+  const emptyToday = f.period === 'today' && !q;
+  const empty = <div className="clx-emp" data-testid="status-empty"><div className="big"><PhoneCall size={28} aria-hidden="true" /></div>
+    {emptyToday ? <><h3>{mine ? 'امروز هنوز تماسی ثبت نکرده‌اید' : 'امروز هنوز تماسی ثبت نشده است'}</h3><p>با «ثبت تماس جدید» اولین تماس امروز را ثبت کنید، یا بازه‌ی زمانی را به «این هفته» تغییر دهید.</p>
+      <div className="bt">{canCall ? <button type="button" className="clx-pbtn" onClick={openPicker} data-testid="button-empty-new-call"><Plus size={18} aria-hidden="true" /> ثبت تماس جدید</button> : null}<button type="button" className="clx-gbtn" onClick={() => update({ period: 'week' })} data-testid="button-empty-week">این هفته</button></div></>
+      : <><h3>تماسی با این فیلترها پیدا نشد</h3><p>جست‌وجو یا بازه‌ی زمانی را تغییر دهید.</p>{filtered ? <div className="bt"><button type="button" className="clx-gbtn" onClick={clearAll}>پاک کردن فیلترها</button></div> : null}</>}
+  </div>;
+
+  const mineChip = showMine ? <button type="button" className="clx-fc" aria-pressed={mine} disabled={callsOnly} onClick={() => update({ mine: !mine, expert: '' })}
+    title={callsOnly ? 'با دسترسی فعلی فقط تماس‌های خودتان نمایش داده می‌شود.' : undefined} data-testid="chip-calls-mine">{mine ? <Check size={16} aria-hidden="true" /> : <UserRound size={16} aria-hidden="true" />} تماس‌های من</button> : null;
+  const rangeFields = (idp: string) => <>
+    <label>از تاریخ<PersianDatePicker value={f.from} onChange={(from) => update({ period: 'range', from })} testId={`${idp}-from`} /></label>
+    <label>تا تاریخ<PersianDatePicker value={f.to} onChange={(to) => update({ period: 'range', to })} testId={`${idp}-to`} /></label>
+  </>;
+  const badRange = bounds.bad ? <p className="clx-err" role="alert">تاریخ‌ها را بررسی کنید؛ تاریخ شروع نباید بعد از تاریخ پایان باشد.</p> : null;
+  const summary = (mobile: boolean) => <div className="clx-fsum" data-testid="calls-summary">
+    <b data-testid="text-total-calls">{fa(total)} تماس</b><span className="sep">|</span><span>{tags.join('، ')}</span>
+    {filtered ? <button type="button" className="lnk" onClick={clearAll} data-testid="button-calls-clear">{mobile ? 'پاک کردن' : 'پاک کردن فیلترها'}</button> : null}
+    {!mobile ? <button type="button" className="clx-gbtn sp" disabled={exporting || calls.isLoading || calls.isError || !total} onClick={exportReport} data-testid="button-calls-export"><Download size={16} aria-hidden="true" />{exporting ? 'در حال دریافت…' : 'خروجی CSV'}</button> : null}
+  </div>;
+
+  const newBtn = canCall ? <button type="button" className="clx-pbtn" onClick={openPicker} data-testid="button-new-call"><Plus size={18} aria-hidden="true" /> ثبت تماس جدید</button> : null;
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => { setSlot(desktop ? document.getElementById('clx-new-slot') : null); }, [desktop]);
+
+  const desktopFilters = <div className="clx-fb" data-testid="form-call-filters">
+    <div className="clx-fr">
+      <label className="clx-sb"><Search size={18} aria-hidden="true" /><input value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0); }} placeholder="نام، موبایل، موضوع یا یادداشت" aria-label="جست‌وجو در تماس‌ها" data-testid="input-search-calls" />
+        {search ? <button type="button" className="x" onClick={() => { setSearch(''); setOffset(0); }} aria-label="پاک کردن جست‌وجو"><X size={16} /></button> : null}</label>
+      <div className="clx-rel" ref={pop === 'range' ? popRef : undefined}>
+        <div className="clx-pseg" role="group" aria-label="بازه‌ی زمانی">
+          {(['today', 'week', 'all'] as const).map((p) => <button key={p} type="button" aria-pressed={f.period === p} onClick={() => { update({ period: p }); setPop(null); }} data-testid={`period-${p}`}>{PERIOD_LABEL[p]}</button>)}
+          <button type="button" aria-pressed={f.period === 'range'} aria-expanded={pop === 'range'} onClick={() => setPop(pop === 'range' ? null : 'range')} data-testid="period-range"><CalendarDays size={16} aria-hidden="true" /> بازه‌ی دلخواه</button>
+        </div>
+        {pop === 'range' ? <div className="clx-dd range" role="dialog" aria-label="بازه‌ی دلخواه" style={{ insetInlineStart: 'auto', insetInlineEnd: 0 }}>
+          {rangeFields('input-calls')}{badRange}
+          <div className="ft"><button type="button" className="clx-fsum lnk" style={{ border: 0, background: 'none', color: 'var(--nf-brand-600)', fontWeight: 700 }} onClick={() => update({ period: 'all', from: '', to: '' })}>پاک کردن</button><button type="button" className="clx-gbtn" onClick={() => setPop(null)}>بستن</button></div>
+        </div> : null}
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 16 }}>
-        <button type="submit" className="btn btn-primary" disabled={exporting} data-testid="button-calls-apply">نمایش گزارش</button>
-        <button type="button" className="btn btn-ghost" disabled={exporting} onClick={() => { setDraftFilters(emptyFilters); setFilters(emptyFilters); setSearch(''); setFilterError(''); setExportError(''); setOffset(0); }} data-testid="button-calls-clear">پاک کردن فیلترها</button>
-        <button type="button" className="btn btn-ghost" disabled={exporting || calls.isLoading || calls.isError || !calls.data?.total} onClick={exportReport} data-testid="button-calls-export"><Download size={16} />{exporting ? 'در حال دریافت…' : 'دریافت گزارش CSV'}</button>
-      </div>
-      <p className="subtle-note" style={{ marginTop: 12 }}>گزارش نمایش‌داده‌شده: {salespersons.data?.find(person => String(person.id) === filters.salespersonId)?.name || 'همهٔ کارشناسان مجاز'} · شروع: {filters.from || 'بدون محدودیت'} · پایان: {filters.to || 'بدون محدودیت'} — تاریخ پایان شامل تمام تماس‌های همان روز است. خروجی شامل همهٔ صفحات گزارش است.</p>
-      {filterError || exportError ? <p role="alert" className="form-error">{filterError || exportError}</p> : null}
-    </form>
-    {calls.isLoading ? <SkeletonPanel rows={6} /> : calls.isError ? <ErrorState onRetry={() => calls.refetch()} /> : <div className="data-table-wrap"><table className="data-table calls-table"><thead><tr><th>مشتری</th><th>موضوع تماس</th><th>یادداشت کارشناس و خلاصه سیستم</th><th>کارشناس ثبت‌کننده تماس</th><th>زمان ثبت</th></tr></thead><tbody>{items.length ? items.map((call) => <tr key={call.id} tabIndex={0} role="button" onClick={() => setSelectedCall(call)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setSelectedCall(call); }} data-testid={`row-call-${call.id}`}><td><span className="primary-cell"><span className="avatar" style={{ display:'inline-grid', width:28, height:28, marginLeft:8, verticalAlign:'middle' }}>{initials(call.customerName)}</span>{call.customerName}</span><span className="secondary-cell mono">{call.customerPhone}</span><span className="secondary-cell">کارشناس پرونده: {call.customerSalespersonName || 'بدون تخصیص'}</span></td><td><span className="primary-cell cr-subject">{call.subject || 'تماس پیگیری'}</span><span className="secondary-cell">شناسه تماس #{call.id.toLocaleString('fa-IR')}</span></td><td><span className="cr-notes">{call.expertNotes || 'یادداشتی ثبت نشده است.'}</span>{call.systemSummary ? <span className="cr-sys" style={{display:'block'}}>{call.systemSummary}</span> : null}</td><td>{call.salespersonName || 'بدون تخصیص'}</td><td className="secondary-cell" data-testid={`text-call-date-${call.id}`}>{formatDateTime(call.createdAt)}</td></tr>) : <tr><td colSpan={5}><EmptyState title="تماسی ثبت نشده است" description="با ثبت اولین تماس، تاریخچه ارتباطات اینجا دیده می‌شود." /></td></tr>}</tbody></table><Pagination total={calls.data?.total ?? 0} offset={offset} limit={limit} onChange={setOffset} testId="calls" /></div>}
-    {open ? <CallForm customers={customers.data?.items ?? []} salespersons={salespersons.data ?? []} pending={create.isPending} error={create.isError} onClose={closeCallForm} onSave={save} onCustomerPicked={onCustomerPicked} pickCheck={pickCheck} /> : null}
-    {simpleFor ? <SimpleCallForm customer={simpleFor} userId={user?.id} noteMin={launcher.config?.noteMinLength ?? 30}
-      onClose={() => setSimpleFor(null)} onNext={() => setSimpleFor(null)}
-      onDone={() => {
-        queryClient.invalidateQueries({ queryKey: getListCallsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getListRemindersQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() });
-        queryClient.invalidateQueries({ queryKey: ['calls-customers'] });
-        queryClient.invalidateQueries({ queryKey: ['board-customers'] });
-      }} /> : null}
+    </div>
+    {mineChip || showExpert ? <div className="clx-fr">
+      {mineChip}
+      {showExpert ? <div className="clx-rel" ref={pop === 'expert' ? popRef : undefined}>
+        <button type="button" className="clx-fc" aria-pressed={Boolean(!mine && f.expert)} aria-expanded={pop === 'expert'} onClick={() => setPop(pop === 'expert' ? null : 'expert')} data-testid="chip-calls-expert">
+          کارشناس{!mine && expertName ? <span className="v">: {expertName}</span> : null} <ChevronDown size={16} aria-hidden="true" /></button>
+        {pop === 'expert' ? <div className="clx-dd" role="dialog" aria-label="فیلتر کارشناس" style={{ maxHeight: 360, overflow: 'auto' }}>
+          <button type="button" aria-pressed={!f.expert} onClick={() => { update({ expert: '' }); setPop(null); }}>همه‌ی کارشناسان مجاز</button>
+          {(salespersons.data ?? []).map((p) => <button key={p.id} type="button" aria-pressed={f.expert === String(p.id)} onClick={() => { update({ expert: String(p.id), mine: false }); setPop(null); }}>{p.name}</button>)}
+          {salespersons.isError ? <small role="alert">دریافت کارشناسان ناموفق بود. <button type="button" onClick={() => salespersons.refetch()}>تلاش دوباره</button></small> : null}
+        </div> : null}
+      </div> : null}
+    </div> : null}
+    {summary(false)}
+    {badRange}
+    {exportError ? <p role="alert" className="clx-err">{exportError}</p> : null}
+  </div>;
+
+  const mobileFilters = <div className="clx-mfil">
+    <label className="clx-sb"><Search size={18} aria-hidden="true" /><input value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0); }} placeholder="نام، موبایل یا یادداشت" aria-label="جست‌وجو در تماس‌ها" data-testid="input-search-calls" />
+      {search ? <button type="button" className="x" onClick={() => { setSearch(''); setOffset(0); }} aria-label="پاک کردن جست‌وجو"><X size={16} /></button> : null}</label>
+    <div className="row">
+      <button type="button" className="clx-fc" aria-pressed={f.period !== 'all'} onClick={() => setSheet(true)} data-testid="chip-calls-period">{f.period === 'range' ? 'بازه‌ی دلخواه' : PERIOD_LABEL[f.period]} <ChevronDown size={16} aria-hidden="true" /></button>
+      {mineChip}
+      <button type="button" className="clx-fc" aria-pressed={false} onClick={() => setSheet(true)} data-testid="chip-calls-all-filters"><SlidersHorizontal size={16} aria-hidden="true" /> همه‌ی فیلترها</button>
+    </div>
+    {summary(true)}
+    {badRange}
+  </div>;
+
+  const table = <div className="clx-twrap">
+    {items.length ? <><table className="clx-ct"><caption className="clx-sr">تماس‌های ثبت‌شده</caption>
+      <colgroup><col style={{ width: 205 }} /><col /><col style={{ width: 112 }} /><col style={{ width: 296 }} /></colgroup>
+      <thead><tr><th scope="col">مشتری</th><th scope="col">موضوع و یادداشت</th><th scope="col">زمان و کارشناس</th><th scope="col"><span className="clx-sr">کارها</span></th></tr></thead>
+      <tbody>{items.map((c) => <tr key={c.id} className={isUnk(c) ? 'unk' : undefined} tabIndex={0} aria-label={`گزارش تماس ${c.customerName}`} onClick={() => setSelectedCall(c)} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setSelectedCall(c); } }} data-testid={`row-call-${c.id}`}>
+        <td><div className="cn">{c.customerName}</div><div className="cs">{phoneOf(c)}</div>{isUnk(c) ? <div className="l2"><span className="clx-oc">بدون پرونده</span></div> : null}</td>
+        <td><div className="sj">{c.subject || 'تماس پیگیری'}</div>{c.expertNotes || c.systemSummary ? <div className="nt">{c.expertNotes || c.systemSummary}</div> : null}</td>
+        <td><div className="tm" data-testid={`text-call-date-${c.id}`} title={formatDateTime(c.createdAt)}>{timeOf(c)}</div><div className="by">{byOf(c)}</div></td>
+        <td className="ac" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+          <div className="clx-acts">{isUnk(c) ? completeBtn(c) : <>{callBtn(c)}{consultBtn(c)}
+            <details className="clx-mm"><summary aria-label="کارهای بیشتر برای این تماس" data-testid={`button-row-more-${c.id}`}><MoreHorizontal size={18} aria-hidden="true" /></summary>
+              <div className="clx-mpop"><button type="button" onClick={(e) => { (e.currentTarget.closest('details') as HTMLDetailsElement).open = false; setSelectedCall(c); }}><ClipboardList size={17} aria-hidden="true" /> گزارش کامل این تماس</button>
+                {canCustomersView ? <Link href={`/customers/${c.customerId}`}><UserRound size={17} aria-hidden="true" /> پرونده‌ی مشتری</Link> : null}</div></details></>}</div>
+          {rowFetch?.id === c.id && rowFetch.error ? <div className="clx-err" role="alert" style={{ marginTop: 4, textAlign: 'start' }}>{rowFetch.error}</div> : null}
+        </td>
+      </tr>)}</tbody></table>
+      <Pagination total={total} offset={offset} limit={limit} onChange={setOffset} testId="calls" /></> : empty}
+  </div>;
+
+  const cards = items.length ? <><ul className="clx-mcards" data-testid="calls-cards">{items.map((c) => <li key={c.id} className={`clx-mcd${isUnk(c) ? ' unk' : ''}`} data-testid={`card-call-${c.id}`}>
+    <div className="r1">{isUnk(c) ? <span className="clx-oc">بدون پرونده</span> : null}<span className="tm">{timeOf(c)}</span></div>
+    <h3>{c.customerName}</h3>
+    <div className="cs">{phoneOf(c)}<span className="sep">|</span>{byOf(c)}</div>
+    <div><div className="sj">{c.subject || 'تماس پیگیری'}</div>{c.expertNotes || c.systemSummary ? <div className="nt">{c.expertNotes || c.systemSummary}</div> : null}</div>
+    {isUnk(c) ? <div className="ma one">{completeBtn(c)}</div> : canCall || canConsult ? <div className={`ma${canCall && canConsult ? '' : ' one'}`}>{callBtn(c)}{consultBtn(c)}</div> : null}
+    {rowFetch?.id === c.id && rowFetch.error ? <div className="clx-err" role="alert">{rowFetch.error}</div> : null}
+    {!isUnk(c) ? <div className="more"><button type="button" onClick={() => setSelectedCall(c)} data-testid={`button-card-report-${c.id}`}>گزارش کامل و پرونده</button></div> : null}
+  </li>)}</ul><div className="clx-twrap" style={{ marginTop: 12 }}><Pagination total={total} offset={offset} limit={limit} onChange={setOffset} testId="calls" /></div></>
+    : <div className="clx-twrap">{empty}</div>;
+
+  return <>
+    {slot && newBtn ? <PortalButton host={slot}>{newBtn}</PortalButton> : null}
+    {desktop ? desktopFilters : mobileFilters}
+    <CallLaunchStatus status={!pickerOpen ? launcher.status : null} onRetry={launcher.retry} onCancel={() => { launcher.cancel(); setRowFetch(null); }} />
+    {calls.isLoading ? <SkeletonPanel rows={6} /> : calls.isError ? <ErrorState onRetry={() => calls.refetch()} /> : desktop ? table : cards}
+    {!desktop && canCall ? <div className="clx-mbar">{newBtn}</div> : null}
+    {sheet ? <FilterSheet onClose={() => setSheet(false)} total={total} f={f} update={update} mine={mine} showMine={showMine} callsOnly={callsOnly} showExpert={showExpert}
+      salespersons={salespersons.data ?? []} rangeFields={rangeFields('sheet-calls')} badRange={badRange} onClear={clearAll} /> : null}
+    {pickerOpen ? <CallCustomerPicker user={user} config={launcher.config} search={pickerSearch} onSearch={setPickerSearch} checking={pickerChecking}
+      onPick={(row) => void pick(row)} onRetry={() => { if (launcher.status === 'error') launcher.retry(); else if (lastPick.current) void pick(lastPick.current); }} onClose={closePicker} /> : null}
+    {legacyFor ? <CallForm key={legacyFor.customer.id} customers={[legacyFor.customer]} salespersons={salespersons.data ?? []} pending={create.isPending} error={create.isError}
+      initialCustomerId={legacyFor.customer.id} onClose={closeForms} onSave={save} onChangeCustomer={legacyFor.fromPicker ? backToPicker : undefined} /> : null}
+    {simpleFor ? <SimpleCallForm key={simpleFor.customer.id} customer={simpleFor.customer} userId={user?.id} noteMin={launcher.config?.noteMinLength ?? 30}
+      onClose={closeForms} onNext={closeForms} onChangeCustomer={simpleFor.fromPicker ? backToPicker : undefined} onDone={invalidate} /> : null}
+    {consultFor ? <CreateConsultationForm customers={[consultFor]} pending={createConsult.isPending} initialCustomerId={consultFor.id} onClose={() => setConsultFor(null)} onSave={saveConsult} /> : null}
     {selectedCall ? <CallReportDialog callId={selectedCall.id} onClose={() => setSelectedCall(null)} /> : null}
-  </section>;
+  </>;
+}
+
+function PortalButton({ host, children }: { host: HTMLElement; children: ReactNode }) { return createPortal(children, host); }
+
+function FilterSheet({ onClose, total, f, update, mine, showMine, callsOnly, showExpert, salespersons, rangeFields, badRange, onClear }: {
+  onClose: () => void; total: number; f: Filters; update: (p: Partial<Filters>) => void; mine: boolean; showMine: boolean; callsOnly: boolean; showExpert: boolean;
+  salespersons: { id: number; name: string }[]; rangeFields: ReactNode; badRange: ReactNode; onClear: () => void;
+}) {
+  const ref = useDialogFocus(onClose);
+  return <>
+    <div className="clx-scrim" onClick={onClose} aria-hidden="true" />
+    <div ref={ref} className="clx-msh" role="dialog" aria-modal="true" aria-labelledby="clx-msh-t" tabIndex={-1} dir="rtl" data-testid="sheet-call-filters">
+      <div className="grab" aria-hidden="true" />
+      <div className="hd"><h2 id="clx-msh-t">فیلتر تماس‌ها</h2><button type="button" className="clx-xb" onClick={onClose} aria-label="بستن"><X size={22} /></button></div>
+      <div className="fg" role="group" aria-labelledby="clx-g-time"><span id="clx-g-time">زمان</span><div className="chips">
+        {(['today', 'week', 'all', 'range'] as const).map((p) => <button key={p} type="button" className="ch" aria-pressed={f.period === p} onClick={() => update({ period: p })}>{PERIOD_LABEL[p]}</button>)}
+      </div>{f.period === 'range' ? <><div className="rg">{rangeFields}</div>{badRange}</> : null}</div>
+      {showMine ? <div className="fg" role="group" aria-labelledby="clx-g-by"><span id="clx-g-by">ثبت‌کننده</span><div className="chips">
+        <button type="button" className="ch" aria-pressed={mine} disabled={callsOnly} onClick={() => update({ mine: true, expert: '' })}>تماس‌های من</button>
+        {!callsOnly ? <button type="button" className="ch" aria-pressed={!mine} onClick={() => update({ mine: false })}>همه‌ی تماس‌های مجاز</button> : null}
+      </div></div> : null}
+      {showExpert ? <div className="fg"><label htmlFor="clx-sheet-expert" style={{ fontWeight: 800, fontSize: 15 }}>کارشناس</label>
+        <select id="clx-sheet-expert" value={mine ? '' : f.expert} onChange={(e) => update({ expert: e.target.value, mine: false })}>
+          <option value="">همه‌ی کارشناسان مجاز</option>{salespersons.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select></div> : null}
+      <div className="sf"><button type="button" className="clx-gbtn" onClick={onClear}>پاک کردن</button><button type="button" className="clx-pbtn" onClick={onClose} data-testid="sheet-show">نمایش {fa(total)} تماس</button></div>
+    </div>
+  </>;
 }

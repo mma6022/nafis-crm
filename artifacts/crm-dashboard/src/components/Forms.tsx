@@ -25,9 +25,11 @@ type CallFormProps = {
   onCustomerPicked?: (customer: CallCustomer) => void;
   /** While set, saving is blocked: 'checking' = deciding which form applies; 'error' = could not decide (retry offered). */
   pickCheck?: { state: 'checking' | 'error'; onRetry: () => void } | null;
+  /** Calls page picker: with initialCustomerId, show the picked customer as a card with «تغییر مشتری» (back to step 1). */
+  onChangeCustomer?: () => void;
 };
 
-export function CallForm({ customers, salespersons, pending, error, initialCustomerId, onClose, onSave, onCustomerPicked, pickCheck }: CallFormProps) {
+export function CallForm({ customers, salespersons, pending, error, initialCustomerId, onClose, onSave, onCustomerPicked, pickCheck, onChangeCustomer }: CallFormProps) {
   const defaultReminder = defaultReminderJalali();
   const initialCustomer = customers.find((customer) => customer.id === initialCustomerId);
   const [pickedCustomer, setPickedCustomer] = useState<CallCustomer | undefined>(initialCustomer);
@@ -166,7 +168,9 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
               <div className="call-form-row">
                 <div className="field call-field-customer">
                   <label id="call-customer-label" htmlFor="call-customer">مشتری</label>
-                  <CallCustomerSelect selected={selectedCustomer} disabled={!!initialCustomerId} onSelect={selectCustomer} />
+                  {initialCustomerId && onChangeCustomer && selectedCustomer
+                    ? <div className="call-picked" data-testid="call-picked-customer"><div><strong>{selectedCustomer.name}</strong><span dir="ltr">{selectedCustomer.phone}</span></div><button type="button" onClick={onChangeCustomer} data-testid="button-call-change-customer">تغییر مشتری</button></div>
+                    : <CallCustomerSelect selected={selectedCustomer} disabled={!!initialCustomerId} onSelect={selectCustomer} />}
                   {customerSelectionError && <div role="alert" className="profile-form-error">ابتدا مشتری را انتخاب کنید.</div>}
                   {pickCheck?.state === 'checking' ? <div className="ts-call-check" role="status" data-testid="call-pick-check" data-state="checking">در حال بررسی فرم مناسب این مشتری…</div> : null}
                   {pickCheck?.state === 'error' ? <div className="ts-call-check bad" role="alert" data-testid="call-pick-check" data-state="error">نوع فرم تماس مشخص نشد. <button type="button" onClick={pickCheck.onRetry} data-testid="button-call-pick-retry">تلاش دوباره</button></div> : null}

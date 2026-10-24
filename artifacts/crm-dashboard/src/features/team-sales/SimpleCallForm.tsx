@@ -1,4 +1,4 @@
-import { AlertCircle, AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, HelpCircle, Info, Phone, Timer, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, HelpCircle, Info, Timer, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { fa, fetchPlanOptions, fmtDateTime, shortName, submitSimpleForm, TeamSalesApiError, type CallResult, type QualifyResult, type SimpleAnswers, type SuggestedPlan, type Tri } from './api';
 import { PlanChip } from './PlanChip';
@@ -91,10 +91,12 @@ function PlanCard({ p, checked, onToggle }: { p: PlanEvaluation; checked: boolea
   </div>;
 }
 
-export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone, onNext }: {
+export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone, onNext, onChangeCustomer }: {
   customer: { id: number; name: string; phone: string; priority?: number | null };
   userId: number | undefined; noteMin?: number;
   onClose: () => void; onDone: (r: QualifyResult) => void; onNext: () => void;
+  /** Calls page «ثبت تماس جدید»: back to the customer picker (step 1). */
+  onChangeCustomer?: () => void;
 }) {
   const key = draftKey(userId, customer.id);
   const [d, setD] = useState<Draft>(() => { try { const raw = localStorage.getItem(key); return raw ? { ...EMPTY, ...JSON.parse(raw) } : EMPTY; } catch { return EMPTY; } });
@@ -107,6 +109,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
   const [plans, setPlans] = useState<{ key: string; list: PlanEvaluation[] | null; error: string }>({ key: '', list: null, error: '' });
   const [showAll, setShowAll] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copyToast, setCopyToast] = useState('');
   const bodyRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (!result) try { localStorage.setItem(key, JSON.stringify(d)); } catch { /* quota */ } }, [d, key, result]);
@@ -230,8 +233,12 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
       setServerError(`ثبت انجام نشد: ${msg}`);
     } finally { setPending(false); }
   };
+  // Calls page decision 5: no tel: link; the number is shown LTR with «کپی» (clipboard) and a toast.
   const copyPhone = async () => {
-    try { await navigator.clipboard.writeText(customer.phone); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ }
+    let ok = false;
+    try { await navigator.clipboard.writeText(customer.phone); ok = true; } catch { /* clipboard blocked */ }
+    setCopied(ok); setCopyToast(ok ? 'شماره کپی شد' : 'کپی انجام نشد؛ شماره را دستی انتخاب کنید');
+    setTimeout(() => { setCopied(false); setCopyToast(''); }, 2500);
   };
 
   const summary = [label(CALL_RESULTS.map(([k, v]) => [k, k === 'answered' ? 'جواب داد' : v] as [CallResult, string]), d.callResult),
@@ -366,18 +373,18 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
       <div className="ts-wz-head">
         <div className="ts-wz-who">
           <h2 id="ts-wz-title">فرم تماس — {customer.name}</h2>
-          <div className="sub"><span className="ltr" data-testid="ts-phone">{fa(customer.phone)}</span>
-            <button type="button" className="ts-copy" onClick={copyPhone} aria-label="کپی شماره" data-testid="ts-copy-phone"><Copy size={13} /> {copied ? 'کپی شد' : 'کپی'}</button>
+          <div className="sub"><span className="ltr" dir="ltr" data-testid="ts-phone">{fa(customer.phone)}</span>
+            <button type="button" className="ts-copy" onClick={copyPhone} aria-label={`کپی شماره‌ی ${customer.name}`} data-testid="ts-copy-phone"><Copy size={13} /> {copied ? 'کپی شد' : 'کپی'}</button>
             <span className="ts-badge gray">{prio}</span> <span className="ts-badge">نسخه‌ی ساده</span></div>
         </div>
-        <a className="ts-ib call" href={`tel:${customer.phone}`} aria-label="تماس با مشتری"><Phone size={20} /></a>
         <button type="button" className="ts-ib" onClick={onClose} aria-label="بستن" data-testid="ts-close"><X size={22} /></button>
       </div>
       <div className="ts-progress">
         <div className="row"><b>{result ? 'نتیجه' : titles[d.step]}</b><span className="ts-muted" data-testid="ts-step-of">{result ? 'ثبت شد' : `مرحله ${fa(idx)} از ${fa(total)}`}</span></div>
         <div className="bars" aria-hidden="true">{Array.from({ length: total }, (_, i) => <span key={i} className={result || i < idx ? 'on' : ''} />)}</div>
       </div>
-      <div className="ts-wz-body" ref={bodyRef}>{body}</div>
+      <div className="ts-wz-body" ref={bodyRef}>{onChangeCustomer && !result ? <div className="ts-picked-customer" data-testid="ts-picked-customer"><div><b>{customer.name}</b><span className="ts-muted"> | کد {fa(customer.id)} | {prio}</span></div><button type="button" onClick={onChangeCustomer} data-testid="ts-change-customer"><ChevronRight size={16} aria-hidden="true" /> تغییر مشتری</button></div> : null}{body}</div>
+      {copyToast ? <div className={`ts-toast${copied ? ' ok' : ''}`} role="status" data-testid="ts-copy-toast">{copyToast}</div> : null}
       <div className="ts-wz-foot">
         {result ? <div className="ts-two">
           <button type="button" className="ts-ghost" onClick={onClose} data-testid="ts-open-file">پرونده مشتری</button>

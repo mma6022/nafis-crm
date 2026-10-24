@@ -17,3 +17,12 @@ export function callHistoryScope(actor: AuthUser) {
     params: [actor.id, actor.id, actor.salespersonId ?? -1, ...(actor.customerScope === "assigned" ? [actor.salespersonId ?? -1] : [])],
   };
 }
+
+// Calls page (2026-10-24 decision 7): a user whose only customer-facing access is
+// calls.view (no customers.view) sees only the calls they registered. The
+// salesperson filter is forced here so a client-supplied salespersonId can never widen it;
+// with no linked salesperson the filter matches nothing (-1).
+export function forcedCallSalespersonId(actor: AuthUser): number | undefined {
+  if (actor.role === "admin" || actor.permissions.includes("customers.view")) return undefined;
+  return actor.salespersonId ?? -1;
+}
