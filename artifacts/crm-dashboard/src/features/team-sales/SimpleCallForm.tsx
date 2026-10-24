@@ -97,7 +97,11 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
 
   const answers = useMemo<SimpleAnswers>(() => {
     const a: SimpleAnswers = { mode: 'simple', callResult: d.callResult ?? 'no_answer' };
-    if (d.callResult === 'callback') a.callbackAt = new Date(d.callbackAt).toISOString();
+    if (d.callResult === 'callback' && d.callbackAt) {
+      // datetime-local is '' until picked; never call toISOString on an invalid date (it throws and crashes the page)
+      const t = new Date(d.callbackAt);
+      if (!Number.isNaN(t.getTime())) a.callbackAt = t.toISOString();
+    }
     if (d.callResult === 'answered') {
       a.urgency = d.urgency;
       if (!curious) {
@@ -128,7 +132,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
     answered && !curious ? label(DOCS, d.docsReady) === 'همه آماده‌ست' ? 'مدارک کامل' : d.docsReady ? `مدارک: ${label(DOCS, d.docsReady)}` : '' : '',
     answered && !curious && d.creditRank ? (d.creditRank === 'unknown' ? 'رتبه نامعلوم' : `رتبه ${d.creditRank}`) : '',
     answered && !curious ? label(CHEQUE, d.cheque) : '', answered && !curious && d.bounced === 'yes' ? 'چک برگشتی' : '',
-    d.callResult === 'callback' && d.callbackAt ? `تماس بعدی: ${fmtDateTime(new Date(d.callbackAt).toISOString())}` : ''].filter(Boolean);
+    d.callResult === 'callback' && d.callbackAt && !Number.isNaN(new Date(d.callbackAt).getTime()) ? `تماس بعدی: ${fmtDateTime(new Date(d.callbackAt).toISOString())}` : ''].filter(Boolean);
 
   const prio = customer.priority ? `اولویت ${fa(customer.priority)}` : 'بدون اولویت';
   const err = (k: string) => errors[k] && errors[k] !== 'empty' && errors[k] !== 'short' ? <p className="ts-err" role="alert" id={`ts-err-${k}`}><AlertCircle size={16} /> {errors[k]}</p> : null;
