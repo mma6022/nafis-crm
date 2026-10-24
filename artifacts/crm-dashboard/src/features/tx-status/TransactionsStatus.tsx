@@ -13,6 +13,7 @@ import { Stepper } from '@/components/wizard/Wizard';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { jalaliValueToGregorian } from '@/lib/jalali';
 import { CustomerName, Dlg, Sheet, Toast } from '../staff-wallet/kit';
+import { customerNameText } from '@/components/customer/CustomerName';
 import { dayMonth, fa, fullDay, hm, sep } from '../staff-wallet/api';
 import { RAW_STATUS, TX_KIND, WALLET_GROUPS, WALLET_TYPE, txActor, txApi, txSign, txWhy, walletGroupOf, type CommDetail, type CommGroup, type CommItem, type WalletTx } from './api';
 import '../staff-wallet/nfk.css';
@@ -110,7 +111,7 @@ function CommLinks({ r, admin }: { r: CommItem; admin: boolean }) {
 
 // ---- wallet rows ----
 const txKey = (t: WalletTx) => `${t.kind}-${t.recordId}`;
-const txDesc = (t: WalletTx) => (t.kind === 'transfer' ? `انتقال به ${t.otherCustomerName ?? '—'}` : t.purchaseId ? `${TX_KIND[t.kind]}، خرید #${fa(t.purchaseId)}` : TX_KIND[t.kind] ?? t.kind);
+const txDesc = (t: WalletTx) => (t.kind === 'transfer' ? `انتقال به ${customerNameText(t.otherCustomerName ?? '—', t.otherCustomerId)}` : t.purchaseId ? `${TX_KIND[t.kind]}، خرید #${fa(t.purchaseId)}` : TX_KIND[t.kind] ?? t.kind);
 const TxAmt = ({ t }: { t: WalletTx }) => <Sg v={String(t.amountToman)} sign={txSign(t.kind)} />;
 
 export default function TransactionsStatus() {
@@ -230,7 +231,7 @@ export default function TransactionsStatus() {
       <div><h2>وضعیت تراکنش‌ها</h2><p>{seg === 'comm' ? 'هر خرید کالا: از «در انتظار پرداخت» تا ثبت پورسانت' : 'شارژ، اعتبار، کسر و انتقال در کیف پول مشتری‌ها'}</p></div>
       <div className="txs-tools">
         <label className="txs-search"><Search className="i" aria-hidden="true" />
-          <input className="inp" type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={seg === 'comm' ? 'نام مشتری، شماره خرید یا دستور' : 'نام یا موبایل مشتری'} aria-label="جست‌وجو" />
+          <input className="inp" type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={seg === 'comm' ? 'نام یا شناسه مشتری، شماره خرید یا دستور' : 'نام، شناسه یا موبایل مشتری'} aria-label="جست‌وجو" />
           {search ? <button type="button" className="clr-x" onClick={() => setSearch('')} aria-label="پاک کردن جست‌وجو"><X size={18} /></button> : null}
         </label>
         <button type="button" className="txs-fbtn" onClick={() => setFilterOpen(true)} aria-label="فیلتر"><Filter size={18} /><span className="d-only">فیلتر</span>{active.length ? <span className="n">{fa(active.length)}</span> : null}</button>
@@ -296,7 +297,7 @@ function WalletSheet({ t, admin, onClose }: { t: WalletTx; admin: boolean; onClo
     <div className={`stbig ${m[0]}`}><I className="i" /><div><b>{m[1]}</b><span>{RAW_STATUS[t.status] ?? t.status}</span></div></div>
     <div className="sum">
       <div className="r"><span>مشتری</span><b><CustomerName name={t.customerName} id={t.customerId} /></b></div>
-      <div className="r"><span>نوع</span><b>{TX_KIND[t.kind] ?? t.kind}{t.kind === 'transfer' && t.otherCustomerName ? ` به ${t.otherCustomerName}` : ''}</b></div>
+      <div className="r"><span>نوع</span><b>{TX_KIND[t.kind] ?? t.kind}{t.kind === 'transfer' && (t.otherCustomerName || t.otherCustomerId) ? <> به <CustomerName name={t.otherCustomerName} id={t.otherCustomerId} /></> : null}</b></div>
       <div className="r"><span>کیف پول</span><b>{WALLET_TYPE[t.walletType] ?? t.walletType}</b></div>
       <div className="r"><span>انجام‌دهنده</span><b>{txActor(t)}</b></div>
       <div className="r"><span>زمان</span><b>{fullDay(t.createdAt)}، {hm(t.createdAt)}</b></div>

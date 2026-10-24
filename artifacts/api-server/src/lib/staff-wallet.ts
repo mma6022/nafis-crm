@@ -6,6 +6,7 @@
  * Visibility (decision 5): a salesperson sees only their own wallet; admin sees everyone; accounting sees commission STATUS only, no amounts.
  */
 import { queryRow, queryRows } from "./crm-db";
+import { toLatinDigits } from "./customer-id-search";
 import type { AuthUser } from "./auth";
 import {
   COMMISSION_KINDS, ensureTeamCommissionSchema, jalaliDateStart, nextPersianMonth, persianMonthOf, qualifierP1Event, salespersonBreakdown, settingsAt, teamMembers,
@@ -185,8 +186,9 @@ export function commissionStatusList(u: AuthUser, q: Record<string, unknown>) {
   const params: Array<string | number> = [];
   const search = String(q.search ?? "").trim().slice(0, 100);
   if (search) {
-    const digits = search.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/^#/, "");
-    if (/^\d{1,9}$/.test(digits)) { where.push("(t.purchase_id=? OR o.id=? OR c.phone LIKE ?)"); params.push(Number(digits), Number(digits), `%${digits}%`); }
+    // A number (Latin/Persian/Arabic digits, optional «#») = purchase #, order #, customer id (shared customer-ID search) or mobile part.
+    const digits = toLatinDigits(search).replace(/^[#＃]\s*/, "");
+    if (/^\d{1,9}$/.test(digits)) { where.push("(t.purchase_id=? OR o.id=? OR c.id=? OR c.phone LIKE ?)"); params.push(Number(digits), Number(digits), Number(digits), `%${digits}%`); }
     else { where.push("crm_persian_search_key(c.name) LIKE crm_persian_search_key(?)"); params.push(`%${search}%`); }
   }
   if (q.salespersonId && Number.isInteger(Number(q.salespersonId))) { where.push("(t.salesperson_id=? OR t.qualifier_salesperson_id=?)"); params.push(Number(q.salespersonId), Number(q.salespersonId)); }

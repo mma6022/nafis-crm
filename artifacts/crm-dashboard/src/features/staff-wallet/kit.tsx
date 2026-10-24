@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react';
 import { X } from 'lucide-react';
+import { CustomerName as SharedCustomerName } from '@/components/customer/CustomerName';
 
 /** Escape already used by an open popover (e.g. the Shamsi date picker) must not also close the sheet. */
 const escapeTaken = (e: KeyboardEvent) => e.defaultPrevented || Boolean(document.querySelector('[data-radix-popper-content-wrapper]'));
@@ -43,10 +44,10 @@ export function Toast({ text, onDone }: { text: string; onDone: () => void }) {
 }
 
 /**
- * Single render point for a customer's name in the wallet and transaction-status pages.
- * Swap this body for the shared customer-ID badge (feat/customer-id-badge) on rebase; `id` is already passed everywhere.
+ * Single render point for a customer's name in the wallet and transaction-status pages:
+ * the shared customer-ID badge (name + «#۱۲۳۴», click copies the id). No id (e.g. team bonus) → plain fallback text.
  */
 export function CustomerName({ name, id, fallback = '—' }: { name: string | null | undefined; id?: number | null; fallback?: ReactNode }) {
-  void id;
-  return <>{name ?? fallback}</>;
+  if (!id) return <>{name || fallback}</>;
+  return <SharedCustomerName id={id} name={name || fallback} />;
 }

@@ -113,7 +113,7 @@ function Pending({ d }: { d: StaffWalletPayload }) {
     {d.pending.length ? d.pending.map((p) => {
       const [c, t] = pendingState(p);
       return <div className="pc" key={`${p.purchaseId}-${p.kind}`}>
-        <b><CustomerName name={p.customerName} id={p.customerId} fallback={`مشتری #${fa(p.customerId)}`} /></b><span className={`st ${c}`}>{t}</span>
+        <b><CustomerName name={p.customerName} id={p.customerId} fallback="مشتری" /></b><span className={`st ${c}`}>{t}</span>
         <span className="idl"><bdi>{kindChip(p.kind)}</bdi>{p.closerName ? ` (پیگیری: ${p.closerName})` : ''}، منتظر: {since(p.since)}</span>
         <span className="pnote"><Clock3 className="i" />مبلغ بعد از «پرداخت‌شده» حساب و ثبت می‌شود</span>
         <div className="lks"><RowLinks r={p} /></div>
