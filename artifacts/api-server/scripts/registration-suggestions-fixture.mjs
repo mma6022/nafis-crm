@@ -28,6 +28,7 @@ try {
     CREATE TABLE goods_purchases(id INTEGER PRIMARY KEY,customer_id INTEGER,plan_id INTEGER,wallet_id INTEGER,stage TEXT,payout_amount_toman TEXT,completed_at TEXT);
     CREATE TABLE customer_payment_orders(id INTEGER PRIMARY KEY,purchase_id INTEGER);
     CREATE TABLE customer_merge_audit(source_customer_id INTEGER,survivor_customer_id INTEGER);
+    CREATE TABLE loan_application_stage_history(id INTEGER PRIMARY KEY,application_id INTEGER,from_stage TEXT,to_stage TEXT,created_at TEXT);
     INSERT INTO salespersons VALUES(10,'Synthetic A'),(20,'Synthetic B');
     INSERT INTO customers VALUES
       (1,'مشتري يك','09120000001',10,NULL),(2,'Synthetic two','09120000002',20,NULL),
@@ -101,6 +102,61 @@ try {
     assert.throws(() => f.goodsRegistrationSuggestions(db, admin, { page }), /invalid_suggestion_page/);
     assert.throws(() => f.paymentRegistrationSuggestions(db, admin, { page }), /invalid_suggestion_page/);
   }
+  // «در انتظار ایجاد»: wait time from stage history (not updated_at), Tehran calendar days, counts, access.
+  {
+    const iso = (daysAgo, hourUtc = 8) => { const d = new Date(); d.setUTCDate(d.getUTCDate() - daysAgo); d.setUTCHours(hourUtc, 0, 0, 0); return d.toISOString(); };
+    db.exec("DELETE FROM goods_credit_lots; DELETE FROM loan_applications; DELETE FROM goods_purchases; DELETE FROM customer_payment_orders; DELETE FROM loan_application_stage_history;");
+    const app = db.prepare("INSERT INTO loan_applications VALUES(?,?,?,'completed','approved',NULL,?)");
+    app.run(100, 2, 2, iso(0)); app.run(101, 2, 4, iso(0)); app.run(102, 2, 1, iso(0));
+    const hist = db.prepare("INSERT INTO loan_application_stage_history(application_id,from_stage,to_stage,created_at) VALUES(?,?,?,?)");
+    hist.run(100, "contract", "completed", iso(12)); hist.run(100, "completed", "contract", iso(11)); hist.run(100, "contract", "completed", iso(9));
+    hist.run(101, "contract", "completed", iso(3));
+    // 102: no history row (pre-history case) -> falls back to updated_at
+    db.exec("INSERT INTO goods_credit_lots VALUES(100,NULL,0),(102,NULL,0)");
+    const g = f.goodsRegistrationSuggestions(db, other, {});
+    assert.deepEqual(g.items.map(r => r.applicationId), [100, 101, 102], "ordered by readySince, not updated_at");
+    assert.equal(g.items[0].readySince, iso(9), "latest arrival at completed wins (re-completed case)");
+    assert.equal(g.items[0].completedAt, g.items[0].readySince);
+    assert.deepEqual(g.items.map(r => r.waitingDays), [9, 3, 0]);
+    assert.equal(g.total, 3); assert.equal(g.old, 1);
+    // 100 funded wallet(5000) -> actionable; 101 unattributed -> blocked; 102 has no wallet for plan 1 -> blocked
+    assert.equal(g.actionable, 1); assert.equal(g.blocked, 2);
+    assert.deepEqual(g.items.map(r => r.blocked), [false, true, true]);
+    const gv = f.goodsRegistrationSuggestions(db, other, {}, { viewOnly: true });
+    assert.equal(gv.viewOnly, true); assert.equal(gv.actionable, 0); assert.equal(gv.canCreate, false); assert.equal(g.canCreate, true);
+    assert.equal(g.actionableCount, 1); assert.equal(g.blockedCount, 2); assert.equal(g.oldCount, 1);
+    assert.ok(gv.items.every(r => r.canCreate === false), "view-only rows never carry a create action");
+    // Tehran calendar: 21:00 UTC yesterday = 00:30 Tehran today -> 0 days; 20:00 UTC yesterday = 23:30 Tehran yesterday -> 1 day.
+    db.exec("DELETE FROM loan_application_stage_history");
+    hist.run(100, "contract", "completed", iso(1, 21)); hist.run(101, "contract", "completed", iso(1, 20));
+    const nowTehranHour = (new Date().getUTCHours() * 60 + new Date().getUTCMinutes() + 210) / 60;
+    if (nowTehranHour < 24) {
+      const byId = Object.fromEntries(f.goodsRegistrationSuggestions(db, other, {}).items.map(r => [r.applicationId, r.waitingDays]));
+      assert.equal(byId[100], 0); assert.equal(byId[101], 1);
+    }
+    db.prepare("INSERT INTO goods_purchases VALUES(?,?,?,?,'completed',?,?)").run(50, 2, 2, 5, "5000", iso(8));
+    db.prepare("INSERT INTO goods_purchases VALUES(?,?,?,?,'completed',?,?)").run(51, 2, 4, 5, "0", iso(2));
+    const p = f.paymentRegistrationSuggestions(db, other, {});
+    assert.deepEqual(p.items.map(r => [r.purchaseId, r.waitingDays, r.blocked]), [[50, 8, false], [51, 2, true]]);
+    assert.equal(p.actionable, 1); assert.equal(p.blocked, 1); assert.equal(p.old, 1);
+    // Access: creators full; salesperson own-only read-only (scope forced even if role scope is 'all'); finance none.
+    const perms = (...x) => x;
+    const reg = { role: "registrar", customerScope: "all", salespersonId: null, permissions: perms("goods_purchases.view", "goods_purchases.manage", "payment_orders.view", "payment_orders.create") };
+    const sp = { role: "salesperson", customerScope: "all", salespersonId: 20, permissions: perms("goods_purchases.view", "payment_orders.view") };
+    const acc = { role: "accounting", customerScope: "all", salespersonId: null, permissions: perms("goods_purchases.view", "payment_orders.view", "payment_orders.pay") };
+    assert.equal(f.goodsQueueAccess(reg).mode, "create"); assert.equal(f.paymentQueueAccess(reg).mode, "create");
+    assert.equal(f.goodsQueueAccess(sp).mode, "view"); assert.equal(f.goodsQueueAccess(sp).actor.customerScope, "assigned");
+    assert.equal(f.paymentQueueAccess(sp).actor.salespersonId, 20);
+    assert.equal(f.goodsQueueAccess({ ...sp, permissions: [...sp.permissions, "goods_purchases.manage"] }).mode, "view", "salesperson never creates goods purchases");
+    assert.equal(f.goodsQueueAccess(acc), null); assert.equal(f.paymentQueueAccess(acc), null);
+    assert.equal(f.goodsQueueAccess({ ...sp, salespersonId: null }), null);
+    assert.equal(f.goodsQueueAccess({ ...sp, permissions: [] }), null);
+    assert.equal(f.goodsQueueAccess(admin).mode, "create");
+    assert.deepEqual(f.pendingCreateCounts(db, { ...admin, permissions: [] }), { goods: 1, payments: 1 });
+    assert.deepEqual(f.pendingCreateCounts(db, sp), { goods: null, payments: null });
+    assert.deepEqual(f.pendingCreateCounts(db, acc), { goods: null, payments: null });
+  }
+  console.log("Pending-create passed: readySince from stage history, Tehran-day waits, actionable/blocked/old counts, view-only salesperson scope, finance excluded.");
   console.log("Registration suggestions passed: completed-only, per-case attribution, new loans after old purchases, no duplicates, read-only, scope/merges, missing credit, reservations, search and pagination.");
 } finally {
   db.close();

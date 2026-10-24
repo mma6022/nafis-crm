@@ -16,6 +16,7 @@ import { DiagnosticPageBoundary } from '@/diagnostics/DiagnosticPageBoundary';
 import { Modal } from './DataTools';
 import { callbacksApi } from '@/lib/callbacks-api';
 import { usePaymentOrderCount } from '@/lib/payment-order-queries';
+import { usePendingCounts } from '@/lib/pending-create';
 import { CreateReminderForm } from './Forms';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem } from './ui/dropdown-menu';
 
@@ -128,6 +129,10 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const callbacksBadge = useQuery({ queryKey: ['callbacks', 'badge'], queryFn: callbacksApi.badge, enabled: canCallbacks, refetchInterval: 30_000, retry: false });
   const canMarkPaid = Boolean(user && (user.role === 'admin' || (user.permissions?.includes('payment_orders.pay') && user.permissions?.includes('payment_orders.view'))));
   const awaitingMark = usePaymentOrderCount({ stage: 'awaiting_payment' }, canMarkPaid);
+  // «در انتظار ایجاد» badge: only for users who can create (server returns null otherwise); locked rows are not counted.
+  const canCreateQueue = Boolean(user && (user.role === 'admin' || user.permissions?.includes('goods_purchases.manage') || user.permissions?.includes('payment_orders.create')));
+  const pendingCounts = usePendingCounts(canCreateQueue);
+  const pendingGoods = pendingCounts.data?.goods ?? 0, pendingPayments = pendingCounts.data?.payments ?? 0;
 
   useEffect(() => {
     const next = dueReminders.data?.[0];
@@ -230,7 +235,9 @@ export function CrmShell({ children }: { children: ReactNode }) {
         {href === '/chat' && (unread.data?.count ?? 0) > 0 ? <b className="side-badge" aria-label={`${unread.data!.count} پیام خوانده‌نشده`} data-testid={`${mobile ? (compact ? 'badge-mobile-shortcut-chat-unread' : 'badge-mobile-chat-unread') : 'badge-chat-unread'}`}>{unread.data!.count.toLocaleString('fa-IR')}</b> : null}
         {href === '/internal-chat' && (team.data?.unreadCount ?? 0) > 0 ? <b className="side-badge" aria-label={`${team.data!.unreadCount} پیام خوانده‌نشده`} data-testid={`${mobile ? (compact ? 'badge-mobile-shortcut-internal-unread' : 'badge-mobile-internal-unread') : 'badge-internal-unread'}`}>{team.data!.unreadCount.toLocaleString('fa-IR')}</b> : null}
         {href === '/callback-requests' && (callbacksBadge.data?.new ?? 0) > 0 ? <b className="side-badge" aria-label={`${callbacksBadge.data!.new} درخواست تماس جدید`} data-testid={`${mobile ? 'badge-mobile-callbacks-new' : 'badge-callbacks-new'}`}>{callbacksBadge.data!.new.toLocaleString('fa-IR')}</b> : null}
-        {href === '/payment-orders' && (awaitingMark.data ?? 0) > 0 ? <b className="side-badge gold" aria-label={`${awaitingMark.data} دستور در انتظار علامت پرداخت`} data-testid={`${mobile ? 'badge-mobile-awaiting-mark' : 'badge-awaiting-mark'}`}>{awaitingMark.data!.toLocaleString('fa-IR')}</b> : null}
+        {href === '/goods-purchases' && pendingGoods > 0 ? <b className="side-badge pending" aria-label={`${pendingGoods} مشتری در انتظار ایجاد خرید کالا`} data-testid={`${mobile ? 'badge-mobile-pending-goods' : 'badge-pending-goods'}`}>{pendingGoods.toLocaleString('fa-IR')}</b> : null}
+        {href === '/payment-orders' && pendingPayments > 0 ? <b className="side-badge pending" aria-label={`${pendingPayments} خرید در انتظار ایجاد دستور پرداخت`} data-testid={`${mobile ? 'badge-mobile-pending-payments' : 'badge-pending-payments'}`}>{pendingPayments.toLocaleString('fa-IR')}</b> : null}
+        {href === '/payment-orders' && pendingPayments === 0 && (awaitingMark.data ?? 0) > 0 ? <b className="side-badge gold" aria-label={`${awaitingMark.data} دستور در انتظار علامت پرداخت`} data-testid={`${mobile ? 'badge-mobile-awaiting-mark' : 'badge-awaiting-mark'}`}>{awaitingMark.data!.toLocaleString('fa-IR')}</b> : null}
         <NavNotificationBadge href={href} />
       </Link>
     );

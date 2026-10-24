@@ -2,7 +2,7 @@ import { Router, type RequestHandler } from "express";
 import { requireAuth, type AuthUser } from "../lib/auth";
 import { requirePermission } from "../lib/access-control";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runTransaction } from "../lib/crm-db";
-import { goodsRegistrationSuggestions } from "../lib/registration-suggestions";
+import { goodsQueueAccess, goodsRegistrationSuggestions } from "../lib/registration-suggestions";
 import { propagateContractTemplateChange } from "../lib/contract-template-updates";
 import { ensureWalletSchema } from "../lib/wallets";
 import { salespersonBreakdown } from "../lib/team-commission";
@@ -46,10 +46,13 @@ router.use("/goods-purchases", (_req, res, next) => {
   next();
 });
 
-router.get("/goods-purchases/suggestions",requirePermission("goods_purchases.view"),requirePermission("goods_purchases.manage"),wrap((req,res)=>{
-  registrar(user(res));
+router.get("/goods-purchases/suggestions",requirePermission("goods_purchases.view"),wrap((req,res)=>{
+  // creators: full queue; salesperson: own customers only, read-only (approved 2 Aban); others: 403
+  const access = goodsQueueAccess(user(res));
+  if (!access) throw new Error("Forbidden");
   res.setHeader("Cache-Control","no-store");
-  res.json(goodsRegistrationSuggestions(crmDb,user(res),req.query));
+  try { res.json(goodsRegistrationSuggestions(crmDb,access.actor,req.query,{ viewOnly: access.mode === "view" })); }
+  catch (e) { if (e instanceof Error && e.message === "invalid_suggestion_page") { res.status(400).json({ error: e.message }); return; } throw e; }
 }));
 router.get("/goods-purchases/eligible",requirePermission("goods_purchases.view"),wrap((req,res) => {
   const u = user(res), q = String(req.query.q ?? "").trim().slice(0,100), plan = Number(req.query.planId || 0);

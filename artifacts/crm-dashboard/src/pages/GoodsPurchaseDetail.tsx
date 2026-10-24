@@ -26,7 +26,7 @@ export default function GoodsPurchaseDetail() {
 
   const act = useMutation({
     mutationFn: ({ path, body }: { path: string; body?: unknown; ok: string }) => api.post<unknown>(path, body),
-    onSuccess: (_d, v) => { setFlash({ ok: true, text: v.ok }); qc.invalidateQueries({ queryKey: key }); qc.invalidateQueries({ queryKey: ['goods-purchases'] }); qc.invalidateQueries({ queryKey: ['payment-orders'] }); qc.invalidateQueries({ queryKey: ['registration-suggestions'] }); qc.invalidateQueries({ queryKey: getGetCompanyWalletQueryKey() }); },
+    onSuccess: (_d, v) => { setFlash({ ok: true, text: v.ok }); qc.invalidateQueries({ queryKey: key }); qc.invalidateQueries({ queryKey: ['goods-purchases'] }); qc.invalidateQueries({ queryKey: ['payment-orders'] }); qc.invalidateQueries({ queryKey: ['registration-suggestions'] }); qc.invalidateQueries({ queryKey: ['pending-create-counts'] }); qc.invalidateQueries({ queryKey: getGetCompanyWalletQueryKey() }); },
     onError: (e) => setFlash({ ok: false, text: errText(e) }),
   });
   const run = (path: string, ok: string, body?: unknown): void => { setFlash(null); act.mutate({ path: `/goods-purchases/${pid}${path}`, body, ok }); };
@@ -34,7 +34,7 @@ export default function GoodsPurchaseDetail() {
   const askRun: AskRun = (a) => setAsk(a);
   const createOrder = useMutation({
     mutationFn: () => api.post<PaymentOrder>('/payment-orders', { purchaseId: pid }),
-    onSuccess: (o) => { qc.invalidateQueries({ queryKey: ['payment-orders'] }); qc.invalidateQueries({ queryKey: ['registration-suggestions', 'payments'] }); go(`/payment-orders/${o.id}`); },
+    onSuccess: (o) => { qc.invalidateQueries({ queryKey: ['payment-orders'] }); qc.invalidateQueries({ queryKey: ['registration-suggestions', 'payments'] }); qc.invalidateQueries({ queryKey: ['pending-create-counts'] }); go(`/payment-orders/${o.id}`); },
     onError: (e) => setFlash({ ok: false, text: errText(e) }),
   });
 

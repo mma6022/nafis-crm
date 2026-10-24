@@ -2,10 +2,11 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTableState } from '@/hooks/use-table-state';
 import { documentFileAccept, supportedDocumentFile } from '@/lib/document-upload-type';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useParams } from 'wouter';
-import { ArrowRight, BadgeCheck, CalendarDays, Check, CircleAlert, Clock3, CreditCard, Database, Download, FileText, Filter, History as HistoryIcon, Landmark, Percent, RefreshCw, RotateCcw, ShieldCheck, Undo2, Upload, X } from 'lucide-react';
+import { Link, useLocation, useParams } from 'wouter';
+import { ArrowRight, BadgeCheck, Lock, Plus, CalendarDays, Check, CircleAlert, Clock3, CreditCard, Database, Download, FileText, Filter, History as HistoryIcon, Landmark, Percent, RefreshCw, RotateCcw, ShieldCheck, Undo2, Upload, X } from 'lucide-react';
 import { EmptyState, Pagination, SearchField } from '@/components/DataTools';
-import { RegistrationSuggestions } from '@/components/RegistrationSuggestions';
+import { PendingCreate, WaitChip } from '@/components/goods/PendingCreate';
+import { forbidden, PENDING_INTRO, pendingAccess, pendingTabCount, usePendingQueue, type PendingRow } from '@/lib/pending-create';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { ErrorState, SkeletonPanel, formatDateTime } from '@/components/CrmShell';
 import { ConfirmDialog, SectionTabs, Stepper, Toast, Wizard, type ListSection } from '@/components/goods/GpKit';
@@ -31,24 +32,30 @@ export default function PaymentOrders() {
 
 // ---------------------------------------------------------------- list
 function OrderList() {
-  const { can } = useMe();
+  const { can, user } = useMe();
   const canPay = can('payment_orders.pay');
-  const [active, setActive] = useTableState('payments.section', 'all');
+  const pendingMode = pendingAccess('payments', user, can);
+  const [active, setActive] = useTableState('payments.section', 'pending');
+  const [pendingPage, setPendingPage] = useTableState('payments.pendingPage', 1);
+  const [creating, setCreating] = useState<PendingRow | null>(null);
+  const pending = usePendingQueue('payments', '', 1, Boolean(pendingMode));
+  const pendingHidden = !pendingMode || forbidden(pending.error);
   const [search, setSearch] = useTableState('payments.search', '');
   const [page, setPage] = useTableState('payments.page', 1);
   const [paying, setPaying] = useState<PaymentOrder | null>(null);
   const [toast, setToast] = useState('');
   const awaiting = usePaymentOrderCount({ stage: 'awaiting_payment' });
-  // Section registry: add the «در انتظار ایجاد» section here as `{ kind: 'custom', render }` (or a 'list' with its own params) when designed.
   const sections: ListSection<PoListParams>[] = [
+    { key: 'pending', label: '＋ در انتظار ایجاد', testId: 'po-pending', count: pendingTabCount(pending.data), hidden: pendingHidden, kind: 'custom',
+      render: () => <PendingCreate kind="payments" search={search} page={pendingPage} onPage={setPendingPage} onCreate={setCreating} onShowAll={() => pick('all')} /> },
     { key: 'awaiting', label: 'در انتظار علامت پرداخت', testId: 'po-awaiting', tone: 'gold', count: awaiting.data ?? null, kind: 'list', params: { stage: 'awaiting_payment' } },
-    { key: 'all', label: 'همه', testId: 'po-all', kind: 'list', params: {} },
+    { key: 'all', label: 'همه‌ی دستورها', testId: 'po-all', kind: 'list', params: {} },
     { key: 'mine', label: 'کارتابل من', testId: 'po-mine', kind: 'list', params: { mine: true } },
     { key: 'sales_approval', label: poStageLabel('sales_approval'), testId: 'po-sales', kind: 'list', params: { stage: 'sales_approval' } },
     { key: 'admin_approval', label: poStageLabel('admin_approval'), testId: 'po-admin', kind: 'list', params: { stage: 'admin_approval' } },
     { key: 'paid', label: poStageLabel('paid'), testId: 'po-paid', kind: 'list', params: { stage: 'paid' } },
   ];
-  const section = sections.find((s) => s.key === active) ?? sections[1];
+  const section = sections.find((s) => s.key === active && !s.hidden) ?? sections.find((s) => s.key === 'all')!;
   const listParams = section.kind === 'list' ? section.params : {};
   const q = usePaymentOrderList(listParams, search, page, section.kind === 'list');
   const pick = (k: string) => { setActive(k); setPage(1); };
@@ -58,10 +65,10 @@ function OrderList() {
   const count = awaiting.data ?? 0;
   return <section className="data-page gp-page">
     <div className="page-intro gp-intro">
-      <div><div className="eyebrow">مالی و پرداخت</div><h2>دستورهای پرداخت</h2><p>فروش تأیید می‌کند ← مدیریت تأیید می‌کند ← حسابداری واریز و «پرداخت‌شده» را ثبت می‌کند.</p></div>
-      <SearchField value={search} onChange={(v) => { setSearch(v); setPage(1); }} placeholder="نام مشتری یا شماره دستور" testId="search-payment-orders" />
+      <div><div className="eyebrow">مالی و پرداخت</div><h2>دستورهای پرداخت</h2><p>{section.key === 'pending' ? PENDING_INTRO.payments[pending.data && !pending.data.canCreate ? 'view' : 'create'] : 'فروش تأیید می‌کند ← مدیریت تأیید می‌کند ← حسابداری واریز و «پرداخت‌شده» را ثبت می‌کند.'}</p></div>
+      <SearchField value={search} onChange={(v) => { setSearch(v); setPage(1); setPendingPage(1); }} placeholder={section.key === 'pending' ? 'نام، موبایل یا شماره خرید' : 'نام مشتری یا شماره دستور'} testId="search-payment-orders" />
     </div>
-    {canPay && count > 0 && active !== 'awaiting' ? <div className="gp-banner" data-testid="banner-awaiting-mark">
+    {canPay && count > 0 && section.key !== 'awaiting' && section.key !== 'pending' ? <div className="gp-banner" data-testid="banner-awaiting-mark">
       <span className="gp-banner-icon"><BadgeCheck size={20} /></span>
       <div><strong>{count.toLocaleString('fa-IR')} دستور تأییدشده هنوز «پرداخت‌شده» نخورده</strong><p>پورسانت این پرونده‌ها فقط بعد از علامت «پرداخت‌شده» ثبت می‌شود.</p></div>
       <button type="button" className="btn gp-btn-gold-ghost" onClick={() => pick('awaiting')} data-testid="button-only-awaiting"><Filter size={15} />فقط همین‌ها را نشان بده</button>
@@ -93,10 +100,39 @@ function OrderList() {
       </div>)}</div>
       {(q.data?.total ?? 0) > limit ? <Pagination total={q.data?.total ?? 0} offset={(page - 1) * limit} limit={limit} onChange={(o) => setPage(Math.floor(o / limit) + 1)} testId="pagination-payment-orders" /> : null}
     </>}
-    <details className="panel gp-fold"><summary>پیشنهادهای ایجاد دستور پرداخت</summary><RegistrationSuggestions kind="payments" /></details>
+    {creating ? <CreateOrderWizard row={creating} onClose={() => setCreating(null)} /> : null}
     {paying ? <PayLoader id={paying.id} onClose={() => setPaying(null)} onPaid={() => { setPaying(null); setToast(`«پرداخت‌شده» برای دستور #${paying.id.toLocaleString('fa-IR')} ثبت شد`); }} /> : null}
     {toast ? <Toast text={toast} onDone={() => setToast('')} /> : null}
   </section>;
+}
+
+/** «ایجاد دستور پرداخت» from «در انتظار ایجاد»: step 1 reviews the purchase (amount locked by settlement), step 2 creates. */
+function CreateOrderWizard({ row, onClose }: { row: PendingRow; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [, go] = useLocation();
+  const [step, setStep] = useState(0);
+  const create = useMutation({
+    mutationFn: () => api.post<PaymentOrder>('/payment-orders', { purchaseId: row.purchaseId }),
+    onSuccess: (o) => { invalidateOrders(qc, o.id); qc.invalidateQueries({ queryKey: ['registration-suggestions', 'payments'] }); qc.invalidateQueries({ queryKey: ['pending-create-counts'] }); onClose(); go(`/payment-orders/${o.id}`); },
+  });
+  const summary = <div className="gp-prefill-card" data-testid="card-prefilled-payment">
+    <div className="gp-prefill-head"><strong>{row.customerName}</strong><WaitChip days={row.waitingDays} /></div>
+    <div className="gp-kv"><span>خرید کالا</span><b className="mono">#{(row.purchaseId ?? 0).toLocaleString('fa-IR')}</b><span>کارشناس</span><b>{row.customerSalespersonName || 'بدون کارشناس'}</b><span>طرح</span><b>{row.planName}</b><span>تکمیل خرید</span><b>{shortFaDate(row.completedAt)}</b></div>
+    <div className="gp-prefill-total"><span>مبلغ واریزی (از تسویه)</span><b>{toman(row.amountToman)}</b></div>
+  </div>;
+  return <Wizard title="ایجاد دستور پرداخت" testId="create-payment-order" steps={['بازبینی خرید و مبلغ', 'ایجاد دستور']} step={step} onClose={onClose} onBack={step ? () => setStep(0) : undefined}
+    next={step === 0 ? { label: 'بعدی', onClick: () => setStep(1), testId: 'button-next-payment-order' }
+      : { label: create.isPending ? 'در حال ایجاد…' : 'ایجاد دستور پرداخت', icon: <Plus size={15} />, disabled: create.isPending, onClick: () => create.mutate(), testId: 'button-confirm-payment-order' }}>
+    {step === 0 ? <>
+      <span className="gp-prefill-tag" data-testid="tag-prefilled"><Check size={13} />از «در انتظار ایجاد» پر شد</span>
+      {summary}
+      <p className="gp-prefill-note"><Lock size={13} />مبلغ در تسویه قفل شده و اینجا عوض نمی‌شود.</p>
+    </> : <>
+      <div className="gp-kv gp-review"><span>مشتری</span><b>{row.customerName}</b><span>خرید کالا</span><b>#{(row.purchaseId ?? 0).toLocaleString('fa-IR')}</b><span>مبلغ واریزی</span><b>{toman(row.amountToman)}</b></div>
+      <p className="secondary-cell">دستور در مرحله‌ی «{poStageLabel('sales_approval')}» ساخته می‌شود و بعد از تأیید فروش و مدیریت، به حسابداری می‌رسد.</p>
+      {create.isError ? <div className="gp-alert">{errText(create.error)}</div> : null}
+    </>}
+  </Wizard>;
 }
 
 function StageChip({ stage }: { stage: string }) {

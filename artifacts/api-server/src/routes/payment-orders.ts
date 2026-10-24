@@ -3,9 +3,9 @@ import multer from "multer";
 import fs from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import type { AuthUser } from "../lib/auth";
+import { requireAuth, type AuthUser } from "../lib/auth";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runTransaction } from "../lib/crm-db";
-import { paymentRegistrationSuggestions } from "../lib/registration-suggestions";
+import { paymentQueueAccess, paymentRegistrationSuggestions, pendingCreateCounts } from "../lib/registration-suggestions";
 import {
   ensurePaymentOrdersSchema, ensureReceiptDirectory, paymentReceiptRoot, normalizedDigits, normalizeIban,
   paymentCustomer, paymentOrder, paymentEvent, paymentOrderView, bankAccountView, paidReversalCount,
@@ -94,8 +94,16 @@ router.post("/customers/:id/bank-accounts/verify", permission("payment_orders.sa
     return fail(res, 503, "bank_verification_unavailable");
   }
 });
-router.get("/payment-orders/suggestions",permission("payment_orders.view"),permission("payment_orders.create"),(req,res)=>{
-  try { return res.json(paymentRegistrationSuggestions(crmDb,actor(res),req.query)); }
+router.get("/pending-create/counts",requireAuth,(_req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  return res.json(pendingCreateCounts(crmDb,actor(res)));
+});
+router.get("/payment-orders/suggestions",permission("payment_orders.view"),(req,res)=>{
+  // creators: full queue; salesperson: own customers only, read-only (approved 2 Aban); others: 403
+  const access = paymentQueueAccess(actor(res));
+  if (!access) return fail(res,403,"forbidden");
+  res.setHeader("Cache-Control","no-store");
+  try { return res.json(paymentRegistrationSuggestions(crmDb,access.actor,req.query,{ viewOnly: access.mode === "view" })); }
   catch(error) {
     if(error instanceof Error && error.message==="invalid_suggestion_page") return fail(res,400,error.message);
     throw error;
