@@ -1,5 +1,5 @@
 /** Confirmation is prompted only after the server checks current requests. */
-export async function requestWalletShare(customerId: number, input: { amountToman?: string; planId?: number; ignoreCreditRank?: boolean }) {
+export async function requestWalletShare(customerId: number, input: { amountToman?: string; planId?: number; ignoreCreditRank?: boolean; creditRankOverrideReason?: string }) {
   const send = (confirmActiveRequest = false) => fetch(`/api/customers/${customerId}/wallet/share-links`, {
     method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...input, confirmActiveRequest }),

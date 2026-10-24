@@ -8,5 +8,10 @@
 
 export type GetFilingFeePlansParams = {
 ignoreCreditRank?: boolean;
+/**
+ * Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true.
+ * @maxLength 500
+ */
+creditRankOverrideReason?: string;
 customerId: number;
 };

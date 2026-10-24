@@ -5061,8 +5061,13 @@ export const GetPublicLoanPlanResponse = zod.object({
 }))
 
 
+export const listCustomerEligiblePlansQueryCreditRankOverrideReasonMax = 500;
+
+
+
 export const ListCustomerEligiblePlansQueryParams = zod.object({
-  "ignoreCreditRank": zod.boolean().optional().describe('Admin/salesperson selection of every active plan at full ceiling without rank matching.')
+  "ignoreCreditRank": zod.boolean().optional().describe('Admin/salesperson selection of every active plan at full ceiling without rank matching.'),
+  "creditRankOverrideReason": zod.string().max(listCustomerEligiblePlansQueryCreditRankOverrideReasonMax).optional().describe('Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true.')
 })
 
 export const ListCustomerEligiblePlansResponse = zod.object({
@@ -5073,6 +5078,12 @@ export const ListCustomerEligiblePlansResponse = zod.object({
   "rank": zod.string().nullable(),
   "checkedAt": zod.string().nullable()
 }),
+  "guarantor": zod.object({
+  "rank": zod.string().nullable(),
+  "hasGuarantor": zod.boolean().nullable(),
+  "source": zod.union([zod.literal('consultation'),zod.literal('call_form'),zod.literal(null)]).nullable(),
+  "at": zod.string().nullable()
+}).optional().describe('Newest guarantor declaration (consultation or first-call form). rank null = unknown / none declared.'),
   "plans": zod.array(zod.object({
   "planId": zod.number().int(),
   "name": zod.string(),
@@ -5088,7 +5099,10 @@ export const ListCustomerEligiblePlansResponse = zod.object({
   "manualVariables": zod.array(zod.object({
   "variable": zod.string(),
   "label": zod.string()
-})).optional()
+})).optional(),
+  "guarantorRanks": zod.array(zod.string()).optional().describe('Guarantor grades the condition accepts (empty = no rule).'),
+  "guarantorGradeStatus": zod.enum(['not_required', 'no_rule', 'ok', 'unknown', 'violated']).optional(),
+  "guarantorGradeNote": zod.string().nullish().describe('Assumption shown when the guarantor grade is unknown (e.g. «رتبهٔ ضامن باید A/B باشد»).')
 }))
 })
 
@@ -5537,6 +5551,9 @@ export const ListLoanApplicationsResponse = zod.union([zod.object({
 
 
 export const createLoanApplicationBodyIgnoreCreditRankDefault = false;
+export const createLoanApplicationBodyCreditRankOverrideReasonMax = 500;
+
+
 export const createLoanApplicationBodyNotesMax = 1000;
 
 
@@ -5549,6 +5566,7 @@ export const createLoanApplicationBodyManualValuesMaxOne = 5000;
 
 export const CreateLoanApplicationBody = zod.object({
   "ignoreCreditRank": zod.boolean().default(createLoanApplicationBodyIgnoreCreditRankDefault).describe('Admin/salesperson-only rank exemption'),
+  "creditRankOverrideReason": zod.string().max(createLoanApplicationBodyCreditRankOverrideReasonMax).optional().describe('Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true; logged in loan_credit_rank_override_log.'),
   "planIds": zod.array(zod.number().int()).min(1),
   "notes": zod.string().max(createLoanApplicationBodyNotesMax).optional(),
   "customerId": zod.number().int(),
@@ -5703,8 +5721,89 @@ export const GetLoanApplicationDashboardStatsResponse = zod.object({
 })
 
 
+/**
+ * «نادیده گرفتن رتبه» switched on in the wizard; reason mandatory, logged server-side. No notification is sent.
+ */
+export const LogCustomerCreditRankOverrideParams = zod.object({
+  "customerId": zod.coerce.number().int()
+})
+
+export const logCustomerCreditRankOverrideBodyReasonMin = 10;
+export const logCustomerCreditRankOverrideBodyReasonMax = 500;
+
+
+
+export const LogCustomerCreditRankOverrideBody = zod.object({
+  "reason": zod.string().min(logCustomerCreditRankOverrideBodyReasonMin).max(logCustomerCreditRankOverrideBodyReasonMax)
+})
+
+export const LogCustomerCreditRankOverrideResponse = zod.object({
+  "id": zod.number().int()
+})
+
+
+/**
+ * Admin only. Overrides logged for this case (plus the same customer's not-yet-attached previews).
+ */
+export const ListLoanApplicationCreditRankOverridesParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const ListLoanApplicationCreditRankOverridesResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number().int(),
+  "action": zod.enum(['preview_enabled', 'filing_fee_charged', 'wallet_share_link', 'case_created', 'admin_plan_change']),
+  "userId": zod.number().int(),
+  "userName": zod.string().nullable(),
+  "userRole": zod.string().nullable(),
+  "customerId": zod.number().int(),
+  "applicationId": zod.number().int().nullable(),
+  "planId": zod.number().int().nullable(),
+  "conditionId": zod.number().int().nullable(),
+  "reason": zod.string(),
+  "createdAt": zod.string()
+}))
+})
+
+
+/**
+ * Admin only. Newest first.
+ */
+export const listCreditRankOverridesQueryLimitMax = 500;
+
+export const listCreditRankOverridesQueryOffsetMin = 0;
+
+
+
+export const ListCreditRankOverridesQueryParams = zod.object({
+  "limit": zod.coerce.number().int().min(1).max(listCreditRankOverridesQueryLimitMax).optional(),
+  "offset": zod.coerce.number().int().min(listCreditRankOverridesQueryOffsetMin).optional()
+})
+
+export const ListCreditRankOverridesResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.number().int(),
+  "action": zod.enum(['preview_enabled', 'filing_fee_charged', 'wallet_share_link', 'case_created', 'admin_plan_change']),
+  "userId": zod.number().int(),
+  "userName": zod.string().nullable(),
+  "userRole": zod.string().nullable(),
+  "customerId": zod.number().int(),
+  "applicationId": zod.number().int().nullable(),
+  "planId": zod.number().int().nullable(),
+  "conditionId": zod.number().int().nullable(),
+  "reason": zod.string(),
+  "createdAt": zod.string()
+}))
+})
+
+
+export const getFilingFeePlansQueryCreditRankOverrideReasonMax = 500;
+
+
+
 export const GetFilingFeePlansQueryParams = zod.object({
   "ignoreCreditRank": zod.coerce.boolean().optional(),
+  "creditRankOverrideReason": zod.coerce.string().max(getFilingFeePlansQueryCreditRankOverrideReasonMax).optional().describe('Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true.'),
   "customerId": zod.coerce.number().int()
 })
 
@@ -5723,9 +5822,13 @@ export const ChargeFilingFeeHeader = zod.object({
 })
 
 export const chargeFilingFeeBodyIgnoreCreditRankDefault = false;
+export const chargeFilingFeeBodyCreditRankOverrideReasonMax = 500;
+
+
 
 export const ChargeFilingFeeBody = zod.object({
   "ignoreCreditRank": zod.boolean().default(chargeFilingFeeBodyIgnoreCreditRankDefault),
+  "creditRankOverrideReason": zod.string().max(chargeFilingFeeBodyCreditRankOverrideReasonMax).optional().describe('Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true; logged in loan_credit_rank_override_log.'),
   "customerId": zod.number().int(),
   "planId": zod.number().int()
 })
@@ -7042,9 +7145,15 @@ export const CreateCustomerWalletShareLinkParams = zod.object({
 
 export const createCustomerWalletShareLinkBodyOneAmountTomanRegExp = new RegExp('^[1-9][0-9]*$');
 
+export const createCustomerWalletShareLinkBodyOneCreditRankOverrideReasonMax = 500;
+
 export const createCustomerWalletShareLinkBodyTwoAmountTomanRegExp = new RegExp('^[1-9][0-9]*$');
 
+export const createCustomerWalletShareLinkBodyTwoCreditRankOverrideReasonMax = 500;
+
 export const createCustomerWalletShareLinkBodyThreeAmountTomanRegExp = new RegExp('^[1-9][0-9]*$');
+
+export const createCustomerWalletShareLinkBodyThreeCreditRankOverrideReasonMax = 500;
 
 
 
@@ -7052,16 +7161,19 @@ export const CreateCustomerWalletShareLinkBody = zod.union([zod.object({
   "amountToman": zod.string().regex(createCustomerWalletShareLinkBodyOneAmountTomanRegExp),
   "planId": zod.number().int().min(1).optional(),
   "ignoreCreditRank": zod.boolean().optional().describe('Staff-only loan-plan eligibility exception; does not bypass identity, cash shortfall, scope or verified payment.'),
+  "creditRankOverrideReason": zod.string().max(createCustomerWalletShareLinkBodyOneCreditRankOverrideReasonMax).optional().describe('Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true; logged in loan_credit_rank_override_log.'),
   "confirmActiveRequest": zod.boolean().optional().describe('Must be exactly true to create another link while an active request exists.')
 }),zod.object({
   "amountToman": zod.string().regex(createCustomerWalletShareLinkBodyTwoAmountTomanRegExp).optional(),
   "planId": zod.number().int().min(1),
   "ignoreCreditRank": zod.boolean().optional().describe('Staff-only loan-plan eligibility exception; does not bypass identity, cash shortfall, scope or verified payment.'),
+  "creditRankOverrideReason": zod.string().max(createCustomerWalletShareLinkBodyTwoCreditRankOverrideReasonMax).optional().describe('Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true; logged in loan_credit_rank_override_log.'),
   "confirmActiveRequest": zod.boolean().optional().describe('Must be exactly true to create another link while an active request exists.')
 })]).and(zod.object({
   "amountToman": zod.string().regex(createCustomerWalletShareLinkBodyThreeAmountTomanRegExp).optional(),
   "planId": zod.number().int().min(1).optional(),
   "ignoreCreditRank": zod.boolean().optional().describe('Staff-only loan-plan eligibility exception; does not bypass identity, cash shortfall, scope or verified payment.'),
+  "creditRankOverrideReason": zod.string().max(createCustomerWalletShareLinkBodyThreeCreditRankOverrideReasonMax).optional().describe('Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true; logged in loan_credit_rank_override_log.'),
   "confirmActiveRequest": zod.boolean().optional().describe('Must be exactly true to create another link while an active request exists.')
 }))
 

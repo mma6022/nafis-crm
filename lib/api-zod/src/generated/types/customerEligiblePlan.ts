@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { CustomerEligiblePlanGuarantorGradeStatus } from './customerEligiblePlanGuarantorGradeStatus';
 import type { CustomerEligiblePlanManualVariablesItem } from './customerEligiblePlanManualVariablesItem';
 
 export interface CustomerEligiblePlan {
@@ -22,4 +23,12 @@ export interface CustomerEligiblePlan {
   /** @nullable */
   contractTemplateId?: number | null;
   manualVariables?: CustomerEligiblePlanManualVariablesItem[];
+  /** Guarantor grades the condition accepts (empty = no rule). */
+  guarantorRanks?: string[];
+  guarantorGradeStatus?: CustomerEligiblePlanGuarantorGradeStatus;
+  /**
+     * Assumption shown when the guarantor grade is unknown (e.g. «رتبهٔ ضامن باید A/B باشد»).
+     * @nullable
+     */
+  guarantorGradeNote?: string | null;
 }

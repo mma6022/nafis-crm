@@ -11,4 +11,9 @@ export type ListCustomerEligiblePlansParams = {
  * Admin/salesperson selection of every active plan at full ceiling without rank matching.
  */
 ignoreCreditRank?: boolean;
+/**
+ * Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true.
+ * @maxLength 500
+ */
+creditRankOverrideReason?: string;
 };

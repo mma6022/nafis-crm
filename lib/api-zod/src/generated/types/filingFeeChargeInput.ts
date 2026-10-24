@@ -8,6 +8,11 @@
 
 export interface FilingFeeChargeInput {
   ignoreCreditRank?: boolean;
+  /**
+     * Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true; logged in loan_credit_rank_override_log.
+     * @maxLength 500
+     */
+  creditRankOverrideReason?: string;
   customerId: number;
   planId: number;
 }

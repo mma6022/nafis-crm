@@ -35,6 +35,7 @@ import {
   useGetFilingFeePlans,
   getGetFilingFeePlansQueryKey,
   chargeFilingFee,
+  logCustomerCreditRankOverride,
   useListCustomerIdentityDocuments,
   getListCustomerIdentityDocumentsQueryKey,
   getDownloadCustomerIdentityDocumentUrl,
@@ -70,6 +71,10 @@ import { formatPhoneForDisplay } from "@/lib/phone";
 import { Priority, formatDate, formatDateTime } from "@/components/CrmShell";
 import { normalizeDigits, serverFieldErrors, validateIranianMobile, validateIranianNationalCode, validateIranianPostalCode, validateJalaliBirthDate, validateOtp } from "@/lib/customer-field-validation";
 
+/** Same limits as the server (api-server/src/lib/credit-rank-override-reason.ts). */
+export const CREDIT_RANK_OVERRIDE_REASON_MIN = 10;
+export const CREDIT_RANK_OVERRIDE_REASON_MAX = 500;
+
 function apiErrorMessage(error: unknown, fallback: string) {
   const typed = error as {
     data?: { error?: unknown; message?: unknown };
@@ -90,6 +95,10 @@ function apiErrorMessage(error: unknown, fallback: string) {
     identity_documents_missing: "مدارک هویتی کامل یا متعلق به اطلاعات هویتی فعلی مشتری نیستند. مرحله مدارک هویتی را بررسی کنید.",
     loan_plan_condition_not_found: "شرایط طرح تغییر کرده است. شرط جدید همین طرح را انتخاب کنید؛ هزینه پرداخت‌شده حفظ می‌شود.",
     loan_plan_condition_not_matched: "مبلغ، مدت بازپرداخت یا رتبه اعتباری با شرایط فعلی طرح سازگار نیست.",
+    loan_plan_guarantor_grade_not_matched: "رتبهٔ اعتباری ضامن اعلام‌شده با این شرط طرح نمی‌خواند. شرط دیگری انتخاب کنید یا رتبهٔ ضامن را در فرم تماس/مشاوره اصلاح کنید.",
+    credit_rank_override_reason_required: "برای «نادیده گرفتن رتبه» نوشتن دلیل الزامی است.",
+    credit_rank_override_reason_too_short: `دلیل «نادیده گرفتن رتبه» باید دست‌کم ${CREDIT_RANK_OVERRIDE_REASON_MIN.toLocaleString('fa-IR')} نویسه باشد.`,
+    credit_rank_override_reason_too_long: "دلیل «نادیده گرفتن رتبه» بیش از حد طولانی است (حداکثر ۵۰۰ نویسه).",
     application_contract_template_missing: "قالب قرارداد این طرح حذف شده یا قابل استفاده نیست. مدیر باید قالب طرح را بررسی کند.",
     application_contract_template_invalid: "تنظیمات فیلدهای قالب قرارداد معتبر نیست. مدیر باید قالب طرح را بررسی کند.",
     invalid_manual_values: "فیلدهای دستی قرارداد با تنظیمات فعلی قالب سازگار نیستند. اطلاعات قرارداد را دوباره بررسی کنید.",
@@ -176,7 +185,14 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   const session = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   const canIgnoreCreditRank = ["admin", "salesperson"].includes(session.data?.user?.role ?? "");
   const [ignoreCreditRank, setIgnoreCreditRank] = useState(false);
-  const previewAllPlans = canIgnoreCreditRank && ignoreCreditRank;
+  // «نادیده گرفتن رتبه» needs a written reason; the server logs every use and rejects an override without one.
+  const [overrideReason, setOverrideReason] = useState<string | null>(null);
+  const [reasonDialogOpen, setReasonDialogOpen] = useState(false);
+  const [reasonDraft, setReasonDraft] = useState('');
+  const [reasonPending, setReasonPending] = useState(false);
+  const [reasonError, setReasonError] = useState('');
+  const previewAllPlans = canIgnoreCreditRank && ignoreCreditRank && Boolean(overrideReason);
+  const overrideReasonParam = previewAllPlans ? overrideReason ?? undefined : undefined;
 
   // Global wizard state
   const [search, setSearch] = useState("");
@@ -188,10 +204,34 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   const [feeChargeId, setFeeChargeId] = useState<number | null>(null);
   const selectCustomer = (customer: Customer | null) => {
     if (customer?.id !== selectedCustomer?.id) {
-      setIgnoreCreditRank(false);
+      setIgnoreCreditRank(false); setOverrideReason(null); setReasonDialogOpen(false);
       setFeeChargeId(null); setSelectedPlanId(null); setSelectedPlan(null); setAmount(''); setDuration(''); setTermsAttempted(false);
     }
     setSelectedCustomer(customer);
+  };
+  const applyIgnoreCreditRank = (checked: boolean) => {
+    setIgnoreCreditRank(checked);
+    setSelectedPlan(null); setAmount(''); setDuration(''); setTermsAttempted(false);
+    if (!feeChargeId && !hasPendingFeeAttempt) {
+      setSelectedPlanId(null);
+    }
+  };
+  const confirmOverrideReason = async () => {
+    if (!selectedCustomer || reasonPending) return;
+    const reason = reasonDraft.trim();
+    if (reason.length < CREDIT_RANK_OVERRIDE_REASON_MIN) {
+      setReasonError(`دلیل باید دست‌کم ${CREDIT_RANK_OVERRIDE_REASON_MIN.toLocaleString('fa-IR')} نویسه باشد.`);
+      return;
+    }
+    setReasonPending(true); setReasonError('');
+    try {
+      await logCustomerCreditRankOverride(selectedCustomer.id, { reason });
+      setOverrideReason(reason);
+      setReasonDialogOpen(false);
+      applyIgnoreCreditRank(true);
+    } catch (e) {
+      setReasonError(apiErrorMessage(e, 'ثبت دلیل انجام نشد. دوباره تلاش کنید.'));
+    } finally { setReasonPending(false); }
   };
 
   // Financing terms
@@ -312,8 +352,10 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   const hydrate = async (d: RequestDraft) => {
     setSrv(d); setResumeInfo(d); setSaveState('saved'); setDupDraft(null);
     const p = d.payload ?? {};
-    const ignore = Boolean(p.ignoreCreditRank) && canIgnoreCreditRank;
-    setIgnoreCreditRank(ignore);
+    // «نادیده گرفتن رتبه» is never restored silently: every use needs a fresh written reason (logged server-side).
+    const ignore = false;
+    setIgnoreCreditRank(false); setOverrideReason(null);
+    if (Boolean(p.ignoreCreditRank) && canIgnoreCreditRank) setDraftNotice('این درخواست با «نادیده گرفتن رتبه» ذخیره شده بود؛ برای ادامه با همان حالت، آن را دوباره با ذکر دلیل فعال کنید.');
     if (d.feeChargeId) setFeeChargeId(d.feeChargeId);
     if (p.planId) setSelectedPlanId(p.planId);
     let n = Math.max(2, d.step);
@@ -468,8 +510,8 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
     try {
       // A paid fee binds the plan, not an obsolete condition ID. Plan edits can
       // replace conditions while this multi-step form is still open.
-      const latest = await listCustomerEligiblePlans(selectedCustomer.id, { ignoreCreditRank: previewAllPlans });
-      queryClient.setQueryData(getListCustomerEligiblePlansQueryKey(selectedCustomer.id, { ignoreCreditRank: previewAllPlans }), latest);
+      const latest = await listCustomerEligiblePlans(selectedCustomer.id, { ignoreCreditRank: previewAllPlans, creditRankOverrideReason: overrideReasonParam });
+      queryClient.setQueryData(getListCustomerEligiblePlansQueryKey(selectedCustomer.id, { ignoreCreditRank: previewAllPlans, creditRankOverrideReason: overrideReasonParam }), latest);
       const current = latest.plans.find(plan =>
         plan.planId === selectedPlan.planId && plan.conditionId === selectedPlan.conditionId);
       const selectionTerms = (plan: CustomerEligiblePlan) => JSON.stringify([
@@ -488,6 +530,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
       }
       const applicationInput = {
         ignoreCreditRank: previewAllPlans,
+        creditRankOverrideReason: overrideReasonParam,
         customerId: selectedCustomer.id,
         feeChargeId,
         planIds: [selectedPlan.planId],
@@ -682,11 +725,9 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
                ignoreCreditRank={previewAllPlans}
                previewLocked={Boolean(feeChargeId) || hasPendingFeeAttempt}
                onIgnoreCreditRankChange={(checked: boolean) => {
-                 setIgnoreCreditRank(checked);
-                 setSelectedPlan(null); setAmount(''); setDuration(''); setTermsAttempted(false);
-                 if (!feeChargeId && !hasPendingFeeAttempt) {
-                   setSelectedPlanId(null);
-                 }
+                 if (checked) { setReasonDraft(''); setReasonError(''); setReasonDialogOpen(true); return; }
+                 setOverrideReason(null);
+                 applyIgnoreCreditRank(false);
                }}
                customer={selectedCustomer}
                onNext={handleNext}
@@ -699,6 +740,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
            {step === 3 && selectedCustomer && (
             <Step3PlanAndTerms
                ignoreCreditRank={previewAllPlans}
+               overrideReason={overrideReasonParam}
                customer={selectedCustomer}
                 selectedPlanId={selectedPlanId}
                selectedPlan={selectedPlan}
@@ -718,7 +760,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
             />
           )}
             {step === 4 && selectedCustomer && selectedPlan && (
-              <StepFilingFee customer={selectedCustomer} selectedPlan={selectedPlan} ignoreCreditRank={previewAllPlans} draftId={srv?.id}
+              <StepFilingFee customer={selectedCustomer} selectedPlan={selectedPlan} ignoreCreditRank={previewAllPlans} draftId={srv?.id} overrideReason={overrideReasonParam}
                 feeChargeId={feeChargeId} setFeeChargeId={setFeeChargeId} onNext={handleNext} onPrev={handlePrev} />
           )}
            {step === 5 && selectedCustomer && (
@@ -750,6 +792,27 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
           </div>
         </main>
       </div>
+      {reasonDialogOpen && selectedCustomer ? <ConfirmDialog
+        title="دلیل نادیده گرفتن رتبه"
+        confirmLabel="ثبت دلیل و ادامه"
+        pendingLabel="در حال ثبت…"
+        pending={reasonPending}
+        tone="primary"
+        error={reasonError}
+        onConfirm={() => void confirmOverrideReason()}
+        onClose={() => { if (!reasonPending) setReasonDialogOpen(false); }}
+        testId="override-reason-dialog"
+      >
+        <p>رتبهٔ اعتباری مشتری و ضامن در ادامهٔ این پرونده بررسی نمی‌شود. دلیل این تصمیم با نام شما و زمان ثبت در گزارش ادمین ذخیره می‌شود.</p>
+        <label className="lwz-field" htmlFor="override-reason-input">
+          <span>دلیل (دست‌کم {CREDIT_RANK_OVERRIDE_REASON_MIN.toLocaleString('fa-IR')} نویسه)</span>
+          <textarea id="override-reason-input" data-testid="override-reason-input" rows={3} maxLength={CREDIT_RANK_OVERRIDE_REASON_MAX}
+            value={reasonDraft} onChange={(event) => { setReasonDraft(event.target.value); setReasonError(''); }}
+            placeholder="مثلاً: تأیید مدیر فروش به‌دلیل سابقهٔ بازپرداخت کامل وام قبلی"
+            style={{ width: '100%', resize: 'vertical', font: 'inherit', padding: 8, borderRadius: 8, border: '1px solid var(--line, #d0d5dd)' }} />
+          <small className="lwz-muted" data-testid="override-reason-count">{reasonDraft.trim().length.toLocaleString('fa-IR')} / {CREDIT_RANK_OVERRIDE_REASON_MIN.toLocaleString('fa-IR')}</small>
+        </label>
+      </ConfirmDialog> : null}
       {exitOpen ? <ConfirmDialog
         title="خروج از ثبت درخواست؟"
         confirmLabel="خروج"
@@ -776,13 +839,13 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   );
 }
 
-function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, onNext, onPrev, ignoreCreditRank, draftId }: {
-  ignoreCreditRank: boolean; draftId?: number;
+function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, onNext, onPrev, ignoreCreditRank, draftId, overrideReason }: {
+  ignoreCreditRank: boolean; draftId?: number; overrideReason?: string;
   customer: Customer; selectedPlan: CustomerEligiblePlan;
   feeChargeId: number | null; setFeeChargeId: (id: number | null) => void; onNext: () => void; onPrev: () => void;
 }) {
   const queryClient = useQueryClient();
-  const { data, isLoading, error, refetch } = useGetFilingFeePlans({ customerId: customer.id, ignoreCreditRank });
+  const { data, isLoading, error, refetch } = useGetFilingFeePlans({ customerId: customer.id, ignoreCreditRank, creditRankOverrideReason: overrideReason });
   const [pending, setPending] = useState(false);
   const [feeError, setFeeError] = useState('');
   const [shareUrl, setShareUrl] = useState('');
@@ -802,11 +865,11 @@ function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, on
     keyRef.current ??= window.sessionStorage.getItem(storageKey) ?? crypto.randomUUID();
     window.sessionStorage.setItem(storageKey, keyRef.current);
     try {
-      const feeInput = { customerId: customer.id, planId: plan.planId, ignoreCreditRank, ...(draftId ? { draftId } : {}) };
+      const feeInput = { customerId: customer.id, planId: plan.planId, ignoreCreditRank, creditRankOverrideReason: overrideReason, ...(draftId ? { draftId } : {}) };
       const charge = await chargeFilingFee(feeInput as Parameters<typeof chargeFilingFee>[0],
         { headers: { 'Idempotency-Key': keyRef.current } });
       setFeeChargeId(charge.chargeId);
-      await queryClient.invalidateQueries({ queryKey: getGetFilingFeePlansQueryKey({ customerId: customer.id, ignoreCreditRank }) });
+      await queryClient.invalidateQueries({ queryKey: getGetFilingFeePlansQueryKey({ customerId: customer.id, ignoreCreditRank, creditRankOverrideReason: overrideReason }) });
     } catch (e) {
       setFeeError(apiErrorMessage(e, 'کسر هزینه انجام نشد. موجودی کیف پول نقدی را بررسی کنید.'));
       refetch();
@@ -818,7 +881,7 @@ function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, on
     }
     setSharePending(true); setFeeError('');
     try {
-      const body = await requestWalletShare(customer.id, { planId: selectedPlan.planId, ignoreCreditRank });
+      const body = await requestWalletShare(customer.id, { planId: selectedPlan.planId, ignoreCreditRank, creditRankOverrideReason: overrideReason });
       if (!body) return;
       setShareUrl(body.url);
       setShareAmount(String(body.amountToman || ''));
@@ -1382,8 +1445,22 @@ function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, can
 }
 
 // --- Step 3 ---
+const GUARANTOR_SOURCE_LABEL: Record<string, string> = { consultation: 'فرم مشاوره', call_form: 'فرم تماس اول' };
+function GuarantorGradeLine({ guarantor, waived }: { guarantor?: { rank: string | null; hasGuarantor: boolean | null; source: string | null } | null; waived: boolean }) {
+  if (waived) return null;
+  const source = guarantor?.source ? ` (${GUARANTOR_SOURCE_LABEL[guarantor.source] ?? guarantor.source})` : '';
+  const text = !guarantor?.source
+    ? 'رتبهٔ ضامن هنوز اعلام نشده؛ شرط‌هایی که رتبهٔ ضامن می‌خواهند با یادداشت نمایش داده می‌شوند.'
+    : guarantor.rank
+      ? `رتبهٔ ضامن: ${guarantor.rank}${source}؛ شرط‌هایی که این رتبه را نمی‌پذیرند حذف شده‌اند.`
+      : guarantor.hasGuarantor === false
+        ? `ضامن ندارد${source}؛ شرط‌های نیازمند ضامن با یادداشت نمایش داده می‌شوند.`
+        : `رتبهٔ ضامن مشخص نیست${source}؛ شرط‌هایی که رتبهٔ ضامن می‌خواهند با یادداشت نمایش داده می‌شوند.`;
+  return <p className="lwz-muted" role="note" data-testid="guarantor-grade-line">{text}</p>;
+}
 type Step3PlanAndTermsProps = {
   ignoreCreditRank: boolean;
+  overrideReason?: string;
   customer: Customer;
   selectedPlanId: number | null;
   selectedPlan: CustomerEligiblePlan | null;
@@ -1402,11 +1479,11 @@ type Step3PlanAndTermsProps = {
   part?: number;
 };
 
-function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPlanGroup, onSelectPlan, planLocked, feeRecoveryPending, amount, setAmount, duration, setDuration, onNext, onPrev, attempted, onAttempt, ignoreCreditRank, part = 0 }: Step3PlanAndTermsProps) {
+function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPlanGroup, onSelectPlan, planLocked, feeRecoveryPending, amount, setAmount, duration, setDuration, onNext, onPrev, attempted, onAttempt, ignoreCreditRank, overrideReason, part = 0 }: Step3PlanAndTermsProps) {
   const [planAttempted, setPlanAttempted] = useState(false);
   const planTried = attempted || planAttempted;
-  const { data: eligibleResponse, isLoading, isError, refetch } = useListCustomerEligiblePlans(customer.id, { ignoreCreditRank }, {
-    query: { queryKey: ["eligible-plans", customer.id, ignoreCreditRank], staleTime: 0 }
+  const { data: eligibleResponse, isLoading, isError, refetch } = useListCustomerEligiblePlans(customer.id, { ignoreCreditRank, creditRankOverrideReason: overrideReason }, {
+    query: { queryKey: ["eligible-plans", customer.id, ignoreCreditRank, overrideReason ?? null], staleTime: 0 }
   });
   
   const eligibleMatches = eligibleResponse?.plans || [];
@@ -1465,6 +1542,8 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
       {part === 0 && <>
       {ignoreCreditRank && <div role="status" className="lwz-note warn">انتخاب طرح، شرط و ثبت پرونده بدون تطابق رتبه اعتباری؛ این انتخاب در پرونده ثبت می‌شود و سایر کنترل‌های هویتی و مالی برقرارند.</div>}
       {ignoreCreditRank && <p role="status" className="lwz-muted">در این حالت رتبه، نبود نتیجه یا قدیمی بودن استعلام اعتباری مانع ادامه پرونده نمی‌شود؛ کنترل‌های هویتی، مبلغ، اقساط و مدارک برقرارند.</p>}
+      {ignoreCreditRank && overrideReason && <p className="lwz-muted" data-testid="override-reason-summary">دلیل ثبت‌شده: «{overrideReason}»</p>}
+      {eligibleResponse && <GuarantorGradeLine guarantor={eligibleResponse.guarantor} waived={ignoreCreditRank} />}
       <div className="lwz-plans">
          {isLoading ? (
             <div className="lwz-loading" role="status">در حال بارگذاری طرح‌ها...</div>
@@ -1531,6 +1610,7 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
                  <strong>{condition.conditionName} · {condition.needsGuarantor ? 'با ضامن' : 'بدون ضامن'}</strong>
                  <small>سقف {Number(condition.maximumAmount).toLocaleString('fa-IR')} تومان · {condition.allowedDurations.map((months) => `${months.toLocaleString('fa-IR')} ماهه`).join('، ')}</small>
                  {condition.conditionNotes && <small>{condition.conditionNotes}</small>}
+                 {!ignoreCreditRank && condition.guarantorGradeNote && <small className="lwz-guarantor-note" style={{ color: "var(--warn-ink, #b54708)" }} data-testid={`guarantor-note-${condition.conditionId}`}>{condition.guarantorGradeNote}</small>}
                  </span>
                </button>
              ))}

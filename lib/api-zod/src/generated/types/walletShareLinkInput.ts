@@ -13,6 +13,11 @@ export type WalletShareLinkInput = (unknown & {
   planId?: number;
   /** Staff-only loan-plan eligibility exception; does not bypass identity, cash shortfall, scope or verified payment. */
   ignoreCreditRank?: boolean;
+  /**
+     * Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true; logged in loan_credit_rank_override_log.
+     * @maxLength 500
+     */
+  creditRankOverrideReason?: string;
   /** Must be exactly true to create another link while an active request exists. */
   confirmActiveRequest?: boolean;
 });

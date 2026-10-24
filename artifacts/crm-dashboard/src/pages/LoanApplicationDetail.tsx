@@ -43,6 +43,8 @@ import {
   getGetLoanApplicationQueryKey,
   getListLoanApplicationsQueryKey,
   useGetAuthSession,
+  useListLoanApplicationCreditRankOverrides,
+  getListLoanApplicationCreditRankOverridesQueryKey,
   getGetAuthSessionQueryKey,
   useAuthorizeLoanApplicationTomanReplacement,
   type TomanReplacementEligibility,
@@ -54,6 +56,7 @@ import {
   Trash2, Search, Plus, Download
 } from 'lucide-react';
 import { SkeletonPanel, ErrorState, formatDate } from '@/components/CrmShell';
+import { CreditRankOverrideRows } from '@/components/loan-applications/CreditRankOverrideLog';
 import { Modal } from '@/components/DataTools';
 import { AdminCaseCorrections } from '@/components/loan-applications/AdminCaseCorrections';
 import { LoanCaseCancellation } from '@/components/loan-applications/LoanCaseCancellation';
@@ -553,6 +556,7 @@ export default function LoanApplicationDetail() {
         <h1 className="ldx-name"><CustomerName id={app.customerId} name={app.customerName || 'مشتری'} /></h1>
         <p className="ldx-meta">ثبت شده در {formatDate(app.createdAt)} · طرح {app.planName || 'ناشناس'}{app.stage && !closed ? <> · مرحله: {STAGE_LABELS[app.stage] || app.stage}</> : null}</p>
         {app.creditRankIgnored && <p role="status" className="ldx-warn">این پرونده با انتخاب مدیر یا کارشناس فروش، بدون تطابق رتبه اعتباری ثبت شده است.</p>}
+        {user?.role === 'admin' ? <CaseCreditRankOverrides applicationId={app.id} /> : null}
         <dl className="ldx-stats">
           <div><dt>مبلغ درخواستی</dt><dd>{Number(app.requestedAmount).toLocaleString('fa-IR')} <small>تومان</small></dd></div>
           <div><dt>مبلغ مصوب</dt><dd className={app.approvedAmount ? '' : 'mute'}>{app.approvedAmount ? <>{Number(app.approvedAmount).toLocaleString('fa-IR')} <small>تومان</small></> : 'در انتظار تأیید'}</dd></div>
@@ -2112,5 +2116,19 @@ function LegacyTomanReplacementPanel({ appId, eligibility, authorization, isAdmi
         </Modal>
       )}
     </div>
+  );
+}
+
+function CaseCreditRankOverrides({ applicationId }: { applicationId: number }) {
+  const { data } = useListLoanApplicationCreditRankOverrides(applicationId, {
+    query: { queryKey: getListLoanApplicationCreditRankOverridesQueryKey(applicationId), staleTime: 30_000 },
+  });
+  const items = data?.items ?? [];
+  if (!items.length) return null;
+  return (
+    <details className="ldx-override-log" data-testid="case-credit-rank-overrides" open style={{ margin: '8px 0' }}>
+      <summary style={{ cursor: 'pointer', fontWeight: 600 }}>سابقهٔ نادیده گرفتن رتبه ({items.length.toLocaleString('fa-IR')}) · فقط مدیر</summary>
+      <div style={{ marginTop: 8 }}><CreditRankOverrideRows items={items} showCase={false} /></div>
+    </details>
   );
 }

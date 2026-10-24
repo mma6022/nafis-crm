@@ -10,6 +10,11 @@ import type { LoanApplicationInputManualValues } from './loanApplicationInputMan
 export interface LoanApplicationInput {
   /** Admin/salesperson-only rank exemption */
   ignoreCreditRank?: boolean;
+  /**
+     * Mandatory (min 10 chars, trimmed) when ignoreCreditRank is true; logged in loan_credit_rank_override_log.
+     * @maxLength 500
+     */
+  creditRankOverrideReason?: string;
   /** @minItems 1 */
   planIds: number[];
   /** @maxLength 1000 */
