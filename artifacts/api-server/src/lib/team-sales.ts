@@ -297,7 +297,8 @@ const CALL_SUBJECT: Record<string, string> = {
 /**
  * Kazemi's form submit. Server recomputes priority; note is required (>= noteMinLength chars).
  * Writes: call_logs (a real call), team_sales_qualifications, priority (+history).
- * P1 -> handoff to next closer (round-robin) with reminder. 3x no-answer -> status cancelled.
+ * P1 -> handoff to next closer (round-robin) with reminder. No-answer 1..2 -> no priority, counter only
+ * (team_sales_qualifications.priority stores 0 = "none" because the column is NOT NULL). 3x no-answer -> status cancelled.
  */
 export function submitQualification(customerId: number, actor: Actor, answers: QualifierAnswers, note: string, now = new Date()) {
   ensureTeamSalesSchema();
@@ -321,12 +322,12 @@ export function submitQualification(customerId: number, actor: Actor, answers: Q
       `INSERT INTO call_logs (customer_id, salesperson_id, subject, customer_request, expert_notes, created_at, salesperson_name_snapshot)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [c.id, c.salesperson_id, CALL_SUBJECT[answers.callResult], null,
-        `${cleanNote}\n\n— نتیجهٔ فرم: اولویت ${result.priority} (${result.reasons.join("؛ ")})`, now.toISOString(), spName]);
+        `${cleanNote}\n\n— نتیجهٔ فرم: ${result.priority == null ? `بدون اولویت، بی‌پاسخ ${result.attempts} از ${cfg.maxNoAnswerAttempts}` : `اولویت ${result.priority}`} (${result.reasons.join("؛ ")})`, now.toISOString(), spName]);
     execute(
       `INSERT INTO team_sales_qualifications (customer_id, actor_user_id, call_log_id, call_result, answers_json, matches_json,
         priority, outcome, score, reasons_json, next_action_at, note, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [c.id, actor.id, callLogId, answers.callResult, JSON.stringify(answers), JSON.stringify(matches.slice(0, 5)),
-        result.priority, result.outcome, result.score, JSON.stringify(result.reasons), result.nextActionAt, cleanNote, now.toISOString()]);
+        result.priority ?? 0, result.outcome, result.score, JSON.stringify(result.reasons), result.nextActionAt, cleanNote, now.toISOString()]);
     const reasonText = result.reasons.join("؛ ");
     let handoff: ReturnType<typeof promoteInTx> | null = null;
     if (result.priority === 1) {
@@ -336,6 +337,9 @@ export function submitQualification(customerId: number, actor: Actor, answers: Q
       logPriorityChange({ customerId: c.id, oldPriority: c.priority, newPriority: result.priority,
         oldSalespersonId: c.salesperson_id, newSalespersonId: c.salesperson_id, actorUserId: actor.id,
         source: "no_answer_archive", reason: `لغو: ${reasonText}`, at: now.toISOString(), always: true });
+    } else if (result.priority == null) {
+      // No-answer 1..(max-1): the customer keeps NO priority (so the first-call form opens again);
+      // the qualification row above is the no-answer counter. Nothing else changes.
     } else {
       executeChanges("UPDATE customers SET priority=? WHERE id=?", [result.priority, c.id]);
       logPriorityChange({ customerId: c.id, oldPriority: c.priority, newPriority: result.priority,

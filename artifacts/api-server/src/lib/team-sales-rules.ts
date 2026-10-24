@@ -236,12 +236,15 @@ export function matchPlans(a: QualifierAnswers, plans: PlanForMatch[]): PlanMatc
 }
 
 export type LeadOutcome = {
-  priority: 1 | 2 | 3;
+  /** null = no priority decided (a no-answer before the last attempt: nobody talked to the customer). */
+  priority: 1 | 2 | 3 | null;
   outcome: "handoff" | "recall" | "no_answer" | "cold_archive" | "nurture" | "not_eligible" | "invalid";
   nextActionAt: string | null;
   score: number | null;
   reasons: string[];
   attempts: number;
+  /** cfg.maxNoAnswerAttempts, so the client can show «بی‌پاسخ ۱ از ۳». */
+  maxAttempts: number;
 };
 
 /** Server-side priority. `previousNoAnswers` = consecutive no-answer attempts before this one. */
@@ -249,16 +252,18 @@ export function computeLeadPriority(a: QualifierAnswers, matches: PlanMatch[], p
   now: Date = new Date(), cfg: TeamSalesConfig = DEFAULT_TEAM_SALES_CONFIG): LeadOutcome {
   const reasons: string[] = [];
   const attempts = a.callResult === "no_answer" ? previousNoAnswers + 1 : 0;
-  const r = (priority: 1 | 2 | 3, outcome: LeadOutcome["outcome"], next: Date | null, score: number | null = null): LeadOutcome =>
-    ({ priority, outcome, nextActionAt: next ? next.toISOString() : null, score, reasons, attempts });
+  const r = (priority: LeadOutcome["priority"], outcome: LeadOutcome["outcome"], next: Date | null, score: number | null = null): LeadOutcome =>
+    ({ priority, outcome, nextActionAt: next ? next.toISOString() : null, score, reasons, attempts, maxAttempts: cfg.maxNoAnswerAttempts });
   const days = (d: number) => addCalendarHoursInWork(now, d * 24, cfg);
 
   if (a.callResult === "wrong_number") { reasons.push("شماره اشتباه است (H1)"); return r(3, "invalid", null); }
   if (a.callResult === "no_answer") {
     if (attempts >= cfg.maxNoAnswerAttempts) { reasons.push(`${attempts} بار بی‌پاسخ (H2) → بایگانی سرد`); return r(3, "cold_archive", null); }
     const h = cfg.noAnswerRetryHours[Math.min(attempts - 1, cfg.noAnswerRetryHours.length - 1)];
-    reasons.push(`تلاش ${attempts} از ${cfg.maxNoAnswerAttempts} بی‌پاسخ (H2) → تماس دوباره ${h} ساعت بعد`);
-    return r(3, "no_answer", addCalendarHoursInWork(now, h, cfg));
+    reasons.push(`تلاش ${attempts} از ${cfg.maxNoAnswerAttempts} بی‌پاسخ (H2) → بدون اولویت می‌ماند؛ تماس دوباره ${h} ساعت بعد`);
+    // Mohammad 2026-10-24 09:26: «جواب نداد» never sets a priority (only a real conversation does);
+    // it only bumps the no-answer counter. The last attempt archives (below).
+    return r(null, "no_answer", addCalendarHoursInWork(now, h, cfg));
   }
   if (a.callResult === "callback") {
     reasons.push("مشتری خواست بعداً تماس بگیریم (H3)");

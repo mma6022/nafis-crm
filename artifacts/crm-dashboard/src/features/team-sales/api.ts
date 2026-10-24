@@ -19,7 +19,8 @@ export type SimpleAnswers = {
 };
 export type QualifyResult = {
   callLogId: number;
-  result: { priority: 1 | 2 | 3; outcome: string; nextActionAt: string | null; score: number | null; reasons: string[]; attempts: number };
+  // priority null = «جواب نداد» before the last attempt: no priority, only the no-answer counter moved (form opens again).
+  result: { priority: 1 | 2 | 3 | null; outcome: string; nextActionAt: string | null; score: number | null; reasons: string[]; attempts: number; maxAttempts?: number };
   matches: Array<{ planId: number; planName: string; assumptions: string[]; amountFits: boolean }>;
   handoff: PromoteResult | null;
 };

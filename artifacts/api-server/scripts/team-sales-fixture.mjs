@@ -41,8 +41,9 @@ ok("validate: bad call result", () => assert.ok(validateAnswers({ callResult: "n
 ok("validate: no_answer needs nothing else", () => assert.equal(validateAnswers({ callResult: "no_answer" }), null));
 ok("H1 wrong number", () => assert.equal(computeLeadPriority({ callResult: "wrong_number" }, [], 0, now).outcome, "invalid"));
 ok("H2 no answer 1 -> +4h", () => { const r = computeLeadPriority({ callResult: "no_answer" }, [], 0, now);
-  assert.equal(r.priority, 3); assert.equal(r.outcome, "no_answer"); assert.equal(r.nextActionAt, iso(T("2026-10-24T14:00:00+03:30"))); });
+  assert.equal(r.priority, null); assert.equal(r.outcome, "no_answer"); assert.equal(r.attempts, 1); assert.equal(r.maxAttempts, 3); assert.equal(r.nextActionAt, iso(T("2026-10-24T14:00:00+03:30"))); });
 ok("H2 no answer 2 -> +24h", () => assert.equal(computeLeadPriority({ callResult: "no_answer" }, [], 1, now).nextActionAt, iso(T("2026-10-25T10:00:00+03:30"))));
+ok("H2 no answer 2 -> still no priority", () => assert.equal(computeLeadPriority({ callResult: "no_answer" }, [], 1, now).priority, null));
 ok("H2 no answer 3 -> cold archive", () => assert.equal(computeLeadPriority({ callResult: "no_answer" }, [], 2, now).outcome, "cold_archive"));
 ok("H3 callback -> P2", () => assert.equal(computeLeadPriority({ callResult: "callback" }, [], 0, now).priority, 2));
 ok("validate: callback needs a future time", () => {
@@ -197,14 +198,35 @@ try {
   });
   ok("note required (>=30 chars)", () => assert.throws(() => ts.submitQualification(d, kazemi, base, "کوتاه"), (x) => x.status === 400));
   ok("invalid answers rejected", () => assert.throws(() => ts.submitQualification(d, kazemi, { callResult: "answered" }, longNote), (x) => x.status === 400));
-  ok("no answer -> gets a priority (P3), then the form is refused (old form from now on)", () => {
+  // Mohammad 2026-10-24 09:26: «جواب نداد» sets NO priority; it only counts. The 3rd archives (cold archive, as designed).
+  const prioOf = (id) => queryRow("SELECT priority p FROM customers WHERE id=?", [id]).p;
+  const histOf = (id) => queryRows("SELECT source, old_priority o, new_priority n FROM customer_priority_history WHERE customer_id=? ORDER BY id", [id]);
+  ok("no answer 1 -> no priority, counter 1, form opens again", () => {
     const callsBefore = Number(queryRow("SELECT COUNT(*) n FROM call_logs WHERE customer_id=?", [d]).n);
     const n1 = ts.submitQualification(d, kazemi, { callResult: "no_answer" }, longNote, now);
-    assert.equal(n1.result.attempts, 1); assert.equal(n1.result.priority, 3);
-    assert.equal(Number(queryRow("SELECT priority p FROM customers WHERE id=?", [d]).p), 3);
+    assert.equal(n1.result.attempts, 1); assert.equal(n1.result.priority, null); assert.equal(n1.result.outcome, "no_answer");
+    assert.equal(prioOf(d), null);
     assert.equal(queryRow("SELECT status FROM customers WHERE id=?", [d]).status, "in_progress");
-    assert.throws(() => ts.submitQualification(d, kazemi, { callResult: "no_answer" }, longNote, now), (x) => x.status === 409);
+    assert.deepEqual(histOf(d), []);
     assert.equal(Number(queryRow("SELECT COUNT(*) n FROM call_logs WHERE customer_id=?", [d]).n), callsBefore + 1);
+    const log = queryRow("SELECT subject, expert_notes FROM call_logs WHERE customer_id=? ORDER BY id DESC", [d]);
+    assert.equal(log.subject, "تماس اولیه — بی‌پاسخ"); assert.match(log.expert_notes, /نتیجهٔ فرم: بدون اولویت، بی‌پاسخ 1 از 3/);
+    assert.doesNotMatch(log.expert_notes, /اولویت 3/);
+    assert.equal(Number(queryRow("SELECT priority p FROM team_sales_qualifications WHERE customer_id=? ORDER BY id DESC", [d]).p), 0);
+    assert.equal(ts.previewQualification(d, { callResult: "no_answer" }, now).result.attempts, 2);
+  });
+  ok("no answer 2 -> still no priority, counter 2, form opens again", () => {
+    const n2 = ts.submitQualification(d, kazemi, { callResult: "no_answer" }, longNote, now);
+    assert.equal(n2.result.attempts, 2); assert.equal(n2.result.priority, null);
+    assert.equal(prioOf(d), null); assert.equal(queryRow("SELECT status FROM customers WHERE id=?", [d]).status, "in_progress");
+    assert.deepEqual(histOf(d), []);
+  });
+  ok("no answer 3 -> cold archive (cancelled), then the form is refused", () => {
+    const n3 = ts.submitQualification(d, kazemi, { callResult: "no_answer" }, longNote, now);
+    assert.equal(n3.result.attempts, 3); assert.equal(n3.result.outcome, "cold_archive");
+    assert.equal(queryRow("SELECT status FROM customers WHERE id=?", [d]).status, "cancelled");
+    assert.deepEqual(histOf(d).map((h) => h.source), ["no_answer_archive"]);
+    assert.throws(() => ts.submitQualification(d, kazemi, { callResult: "no_answer" }, longNote, now), (x) => x.status === 409 || x.status === 403);
   });
   ok("answered + good profile -> P1 handoff to next closer (4)", () => {
     const r = ts.submitQualification(e, kazemi, base, longNote, now);
@@ -220,6 +242,14 @@ try {
     assert.equal(r.result.priority, 2); assert.equal(r.handoff, null);
     const row = queryRow("SELECT priority, salesperson_id FROM customers WHERE id=?", [g]);
     assert.equal(Number(row.priority), 2); assert.equal(Number(row.salesperson_id), 6);
+  });
+  ok("no answer then a real conversation -> priority set as before (P2), counter reset", () => {
+    const [g] = pickNone(1).map((r) => Number(r.id));
+    assert.equal(ts.submitQualification(g, kazemi, { callResult: "no_answer" }, longNote, now).result.priority, null);
+    assert.equal(prioOf(g), null);
+    const r = ts.submitQualification(g, kazemi, { ...base, urgency: "later" }, longNote, now);
+    assert.equal(r.result.priority, 2); assert.equal(Number(prioOf(g)), 2);
+    assert.deepEqual(histOf(g).map((h) => [h.source, h.o, Number(h.n)]), [["qualifier_form", null, 2]]);
   });
   ok("logPriorityChange skips no-op, logs change", () => {
     const before = queryRows("SELECT id FROM customer_priority_history").length;
