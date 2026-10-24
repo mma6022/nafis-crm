@@ -60,3 +60,55 @@ export function forcedCallScope(actor: AuthUser): { sql: string; params: (number
   const authored = callAuthoredBySql(actor);
   return { sql: `(${authored.sql} OR c.salesperson_id=?)`, params: [...authored.params, actor.salespersonId ?? -1] };
 }
+
+// CSV export keeps the pre-2026-10-24 salesperson scope (PM decision: «registrar and CSV export stay as they are»).
+// Exact copy of the rule at 8d97c9e: manual calls they logged on customers they currently own, plus their
+// own PBX/mobile calls. "all"-scope roles and admin are identical to callHistoryScope.
+export function legacyExportCallHistoryScope(actor: AuthUser) {
+  if (actor.role === "admin") return { sql: "", params: [] as (number | string | null)[] };
+  const customer = actor.customerScope === "assigned" ? " AND c.salesperson_id=?" : "";
+  return {
+    sql: `((EXISTS (SELECT 1 FROM voip_after_call_events mobile WHERE mobile.call_log_id=cl.id AND mobile.mobile_device_id IS NOT NULL AND mobile.expert_user_id=?))
+      OR (EXISTS (SELECT 1 FROM voip_after_call_events e
+      JOIN voip_extensions own ON own.user_id=? AND (own.extension=e.extension
+        OR EXISTS (SELECT 1 FROM json_each(e.extensions_json) participant WHERE participant.value=own.extension))
+      WHERE e.call_log_id=cl.id))
+      OR (NOT EXISTS (SELECT 1 FROM voip_after_call_events e WHERE e.call_log_id=cl.id)
+        AND cl.salesperson_id=?${customer}))`,
+    params: [actor.id, actor.id, actor.salespersonId ?? -1, ...(actor.customerScope === "assigned" ? [actor.salespersonId ?? -1] : [])] as (number | string | null)[],
+  };
+}
+
+/** Export: the calls-only forced salesperson filter exactly as at 8d97c9e. */
+export function legacyExportForcedCallSalespersonId(actor: AuthUser): number | undefined {
+  if (actor.role === "admin" || actor.permissions.includes("customers.view")) return undefined;
+  return actor.salespersonId ?? -1;
+}
+
+/** GET /calls?purpose=export (the CSV button) uses the legacy scope; the on-screen list uses the new one. */
+export function isCallExportRequest(query: Record<string, unknown>): boolean {
+  return query.purpose === "export";
+}
+
+/**
+ * Everything GET /calls derives from the actor, for the on-screen list or the CSV export.
+ * `filters` are ANDed into the WHERE; `ownerOnly` guards name / id search matches;
+ * `forcedSalespersonId` overrides any client-supplied salespersonId.
+ */
+export function callListActorScope(actor: AuthUser, purpose: "list" | "export") {
+  const filters: string[] = [];
+  const params: (number | string | null)[] = [];
+  const scope = purpose === "export" ? legacyExportCallHistoryScope(actor) : callHistoryScope(actor);
+  if (scope.sql) { filters.push(scope.sql); params.push(...scope.params); }
+  const forced = purpose === "export" ? undefined : forcedCallScope(actor);
+  if (forced) { filters.push(forced.sql); params.push(...forced.params); }
+  const unrestricted = actor.role === "admin" || actor.customerScope === "all";
+  const authoredBy = callAuthoredBySql(actor);
+  const ownerOnly = unrestricted
+    ? { sql: "1=1", params: [] as (number | string | null)[] }
+    : purpose === "export"
+      ? { sql: "c.salesperson_id=?", params: [actor.salespersonId] as (number | string | null)[] }
+      : { sql: `(c.salesperson_id=? OR ${authoredBy.sql})`, params: [actor.salespersonId, ...authoredBy.params] as (number | string | null)[] };
+  const forcedSalespersonId = purpose === "export" ? legacyExportForcedCallSalespersonId(actor) : forcedCallSalespersonId(actor);
+  return { filters, params, ownerOnly, forcedSalespersonId };
+}

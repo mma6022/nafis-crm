@@ -6,7 +6,7 @@ import { publicDocumentLabel } from "../lib/public-document-labels";
 import { saveUserVoipExtension } from "../lib/user-voip-extension";
 import { savePendingAfterCallHistory } from "../lib/voip-after-call";
 import { callReportDateBounds } from "../lib/call-report-filters";
-import { callAuthoredBySql, callHistoryScope, forcedCallScope, forcedCallSalespersonId } from "../lib/call-history-scope";
+import { callHistoryScope, callListActorScope, isCallExportRequest } from "../lib/call-history-scope";
 import { systemSummaryForCall } from "../lib/call-reports";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -4098,7 +4098,9 @@ router.get("/calls", requirePermission("calls.view"), (req, res): void => {
     return;
   }
   const { search, customerId, from, to } = parsed.data;
-  const salespersonId = forcedCallSalespersonId(res.locals.authUser as AuthUser) ?? parsed.data.salespersonId;
+  // CSV export (?purpose=export) keeps the old salesperson scope; the list uses the new one.
+  const actorScope = callListActorScope(res.locals.authUser as AuthUser, isCallExportRequest(req.query as Record<string, unknown>) ? "export" : "list");
+  const salespersonId = actorScope.forcedSalespersonId ?? parsed.data.salespersonId;
   let dates: ReturnType<typeof callReportDateBounds>;
   try { dates = callReportDateBounds({ from, to }); }
   catch (error) { res.status(400).json({ error: (error as Error).message }); return; }
@@ -4107,15 +4109,12 @@ router.get("/calls", requirePermission("calls.view"), (req, res): void => {
   const filters: string[] = [];
   const params: SqlValue[] = [];
   const user = res.locals.authUser as AuthUser;
-  const callScope = callHistoryScope(user);
-  if (callScope.sql) { filters.push(callScope.sql); params.push(...callScope.params); }
-  const forcedScope = forcedCallScope(user);
-  if (forcedScope) { filters.push(forcedScope.sql); params.push(...forcedScope.params); }
+  filters.push(...actorScope.filters); params.push(...actorScope.params);
   const callIdSearch = search ? customerSearchSql(search) : null;
   // Name / id search: the customer must be owned now, or the call logged by this salesperson.
-  const authoredBy = callAuthoredBySql(user);
-  const ownerOnly = user.role === "admin" || user.customerScope === "all" ? "1=1" : `(c.salesperson_id=? OR ${authoredBy.sql})`;
-  const ownerParams = user.role === "admin" || user.customerScope === "all" ? [] : [user.salespersonId, ...authoredBy.params];
+  // (CSV export: owned now only, as before.)
+  const ownerOnly = actorScope.ownerOnly.sql;
+  const ownerParams = actorScope.ownerOnly.params;
   if (search && callIdSearch?.idQuery?.explicit) {
     // «#1234»: only that customer's calls (same ownership rule as the name match).
     filters.push(`(cl.customer_id=? AND ${ownerOnly})`);

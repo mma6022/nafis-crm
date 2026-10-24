@@ -175,7 +175,8 @@ function ManualCalls({ desktop = true }: { desktop?: boolean }) {
       const ids = new Set<number>();
       let expectedTotal: number | undefined;
       for (let pageOffset = 0; ; pageOffset += 500) {
-        const result = await listCalls({ ...params, offset: pageOffset, limit: 500 });
+        // purpose=export: the server applies the CSV export's (unchanged) scope.
+        const result = await listCalls({ ...params, offset: pageOffset, limit: 500, purpose: 'export' } as typeof params & { purpose: 'export' });
         if (expectedTotal !== undefined && result.total !== expectedTotal)
           throw new Error('تعداد تماس‌ها هنگام دریافت گزارش تغییر کرد. دوباره تلاش کنید.');
         expectedTotal = result.total;
