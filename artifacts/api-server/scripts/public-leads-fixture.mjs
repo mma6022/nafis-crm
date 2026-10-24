@@ -101,7 +101,21 @@ const unitSource = `
   bad({ website: "http://spam" }, "spam");
   bad({ startedAt: now - 500 }, "too_fast");
   bad({ startedAt: now - 2 * 24 * 3600_000 }, "expired");
-  bad({ startedAt: now + 3600_000 }, "expired");
+  bad({ startedAt: now + 15 * 3600_000 }, "expired");
+  // Device clock running ahead (2026-10-24 bug): accepted, never «too_fast».
+  for (const ahead of [1_000, 30_000, 90_000, 5 * 60_000, 3600_000, 13 * 3600_000]) {
+    assert.equal(validatePublicLead({ ...good, startedAt: now + ahead }, now).ok, true, "clock ahead " + ahead);
+  }
+  assert.equal(validatePublicLead({ ...good, startedAt: now - 30 * 3600_000 }, now).ok, true, "clock behind within skew");
+  bad({ startedAt: now - 39 * 3600_000 }, "expired");
+  // fillMs (site monotonic timer) decides the minimum fill time when present, whatever the device clock says.
+  assert.equal(validatePublicLead({ ...good, startedAt: now + 60_000, fillMs: 12_000 }, now).ok, true);
+  assert.equal(validatePublicLead({ ...good, startedAt: now - 500, fillMs: 4_000 }, now).ok, true);
+  bad({ startedAt: now + 60_000, fillMs: 800 }, "too_fast");
+  bad({ fillMs: 2_999 }, "too_fast");
+  bad({ fillMs: 25 * 3600_000 }, "expired");
+  bad({ fillMs: "5000" }, "invalid", ["fillMs"]);
+  bad({ fillMs: -1 }, "invalid", ["fillMs"]);
   bad({ startedAt: "x" }, "invalid", ["startedAt"]);
   bad({ name: "a" }, "invalid", ["name"]);
   bad({ name: "http://x.y" }, "invalid", ["name"]);

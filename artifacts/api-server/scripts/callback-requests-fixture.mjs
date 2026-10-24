@@ -100,6 +100,14 @@ const unitSource = `
   bad({ website: "x" }, "spam");
   bad({ startedAt: now - 1000 }, "too_fast");
   bad({ startedAt: now - 3 * 86400_000 }, "expired");
+  // Device clock running ahead (2026-10-24 bug: every submit was «too_fast»): accepted.
+  for (const ahead of [1_000, 30_000, 90_000, 3600_000]) {
+    assert.equal(validatePublicCallback({ ...good, startedAt: now + ahead }, now).ok, true, "clock ahead " + ahead);
+  }
+  bad({ startedAt: now + 15 * 3600_000 }, "expired");
+  assert.equal(validatePublicCallback({ ...good, startedAt: now + 60_000, fillMs: 9_000 }, now).ok, true);
+  bad({ fillMs: 1_200 }, "too_fast");
+  bad({ fillMs: 1.5 }, "invalid", ["fillMs"]);
   bad({ startedAt: "1" }, "invalid", ["startedAt"]);
   bad({ name: "x" }, "invalid", ["name"]);
   bad({ phone: "02112345678" }, "invalid", ["phone"]);

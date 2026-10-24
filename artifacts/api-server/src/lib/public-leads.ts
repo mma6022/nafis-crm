@@ -22,7 +22,7 @@ export const CONTACT_TIMES = ["morning", "evening", "any"] as const;
 const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"] as const;
 const ALLOWED_KEYS = new Set<string>([
   "type", "name", "phone", "need", "amountBand", "planId", "term", "contactTime", "src", "consent",
-  "website", "startedAt", ...UTM_KEYS,
+  "website", "startedAt", "fillMs", ...UTM_KEYS,
 ]);
 /**
  * «درخواست تماس کارشناس» (site contract): { kind:'callback', name, phone, contactTime:'now'|'morning'|'evening',
@@ -31,7 +31,7 @@ const ALLOWED_KEYS = new Set<string>([
 export const CALLBACK_TIMES = ["now", "morning", "evening"] as const;
 export const CALLBACK_NEEDS = ["cash", "goods", "help"] as const;
 const CALLBACK_KEYS = new Set<string>([
-  "kind", "name", "phone", "contactTime", "need", "planId", "src", "consent", "website", "startedAt", ...UTM_KEYS,
+  "kind", "name", "phone", "contactTime", "need", "planId", "src", "consent", "website", "startedAt", "fillMs", ...UTM_KEYS,
 ]);
 /** «همین الان» only exists during working hours; a late/stale "now" is queued as the next morning. */
 export function effectiveContactTime(time: (typeof CALLBACK_TIMES)[number], at: Date): (typeof CALLBACK_TIMES)[number] {
@@ -42,7 +42,14 @@ export function effectiveContactTime(time: (typeof CALLBACK_TIMES)[number], at: 
 export const MIN_FILL_MS = 3_000;
 /** sessionStorage keeps the wizard for one tab; a day-old start time is not a live form. */
 export const MAX_FILL_MS = 24 * 60 * 60 * 1000;
-const CLOCK_SKEW_MS = 2 * 60 * 1000;
+/**
+ * `startedAt` is the visitor's own device clock, which in the wild runs seconds to hours off the server (a manually
+ * set clock, a wrong zone/DST setting). A device running ahead used to make every honest submission fail as
+ * «too_fast»/«expired» (2026-10-24 16:29 Tehran). So the server only trusts its sign loosely: a future start time
+ * within this window is accepted, and the minimum-fill check uses `fillMs` (measured on the page with a monotonic
+ * timer, clock-independent) when the site sends it, otherwise only a non-negative `now - startedAt`.
+ */
+export const CLOCK_SKEW_MS = 14 * 60 * 60 * 1000;
 
 export type PublicLead = {
   name: string;
@@ -121,9 +128,22 @@ function intakeGate(body: unknown, allowed: Set<string>, now: number): { input: 
   if (typeof startedAt !== "number" || !Number.isSafeInteger(startedAt)) {
     return { ok: false, status: 400, error: "invalid", fields: ["startedAt"] };
   }
+  let fillMs: number | null = null;
+  if (input.fillMs !== undefined && input.fillMs !== null) {
+    if (typeof input.fillMs !== "number" || !Number.isSafeInteger(input.fillMs) || input.fillMs < 0) {
+      return { ok: false, status: 400, error: "invalid", fields: ["fillMs"] };
+    }
+    fillMs = input.fillMs;
+  }
   const elapsed = now - startedAt;
-  if (elapsed < -CLOCK_SKEW_MS || elapsed > MAX_FILL_MS) return { ok: false, status: 422, error: "expired" };
-  if (elapsed < MIN_FILL_MS) return { ok: false, status: 422, error: "too_fast" };
+  if (elapsed < -CLOCK_SKEW_MS || elapsed > MAX_FILL_MS + CLOCK_SKEW_MS) return { ok: false, status: 422, error: "expired" };
+  if (fillMs !== null) {
+    if (fillMs > MAX_FILL_MS) return { ok: false, status: 422, error: "expired" };
+    if (fillMs < MIN_FILL_MS) return { ok: false, status: 422, error: "too_fast" };
+  } else if (elapsed >= 0 && elapsed < MIN_FILL_MS) {
+    // Negative elapsed = the device clock runs ahead; its fill time is unknown, so it is not called "too fast".
+    return { ok: false, status: 422, error: "too_fast" };
+  }
   return { input };
 }
 
