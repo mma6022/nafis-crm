@@ -24,7 +24,8 @@ import { clearLoanDraft, loanWizardHref, readLoanDraft, type LoanDraft } from '@
 import { BUSINESS_STATUS_LABELS, WIZARD_DISPLAY_STEPS, WIZARD_TOTAL_STEPS, loanBusinessStatus, loanStageLabel } from '@/lib/loan-labels';
 import { ConfirmDialog, initialsOf, jalaliDate, PriorityLabel, relativeTime, Sheet, STATUS_LABEL, StatusPill } from './customers-ui';
 import './customers.css';
-import { usesSimpleForm, useTeamSalesConfig, type PromoteResult, type QualifyResult } from '@/features/team-sales/api';
+import { useCallLauncher, CallLaunchStatus } from '@/features/team-sales/useCallLauncher';
+import { usesSimpleForm, type PromoteResult, type QualifyResult } from '@/features/team-sales/api';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 import { TsToast, UpgradeCard, UpgradeDialog, UpgradedCard } from '@/features/team-sales/UpgradeToP1';
 
@@ -246,10 +247,13 @@ export default function CustomerDetail() {
   const createCall = useCreateCall();
   const [activeSec, setActiveSec] = useState('info');
   // ---- team sales (qualifier Kazemi): simple call form + upgrade to P1. Priority is decided by the server. ----
-  const tsConfig = useTeamSalesConfig(Boolean(session.data?.user));
   const [simpleFormOpen, setSimpleFormOpen] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [handoff, setHandoff] = useState<PromoteResult | null>(null);
+  // «ثبت تماس» waits for the team-sales settings instead of falling back to the legacy form (see useCallLauncher).
+  const callLauncher = useCallLauncher(session.data?.user, Boolean(session.data?.user),
+    (_c, kind) => (kind === 'simple' && !handoff ? setSimpleFormOpen(true) : setCallFormOpen(true)));
+  const tsConfig = { data: callLauncher.config };
   const [tsToast, setTsToast] = useState('');
   useEffect(() => { setHandoff(null); setSimpleFormOpen(false); setUpgradeOpen(false); }, [id]);
   useEffect(() => {
@@ -355,6 +359,7 @@ export default function CustomerDetail() {
   const isQualifier = tsConfig.data?.enabled === true && session.data?.user.salespersonId != null && session.data.user.salespersonId === tsConfig.data.qualifierSalespersonId;
   const ownsCustomer = isQualifier && customer.salespersonId === tsConfig.data?.qualifierSalespersonId;
   const showSimpleForm = !handoff && canCallsCreate && usesSimpleForm(tsConfig.data, session.data?.user, customer);
+  const callChoice = handoff ? 'legacy' : callLauncher.choose(customer);
   const showUpgrade = ownsCustomer && !handoff && canUpdate && customer.status === 'in_progress' && customer.priority !== 1;
   const tsCard = handoff ? <UpgradedCard result={handoff} /> : showUpgrade ? <UpgradeCard onOpen={() => setUpgradeOpen(true)} /> : null;
   const afterHandoff = (result: PromoteResult, toast = true) => {
@@ -563,7 +568,7 @@ export default function CustomerDetail() {
         </div>
       </li>)}</ol>
       : <p className="muted" style={{ margin: 0 }}>هنوز تماس یا یادداشتی ثبت نشده است.</p>}
-    {canCallsCreate ? <button type="button" className="csx-ghost sm" onClick={() => (showSimpleForm ? setSimpleFormOpen(true) : setCallFormOpen(true))} data-testid="button-add-call-detail" data-form={showSimpleForm ? 'simple' : 'legacy'}><MessageSquarePlus size={18} /> ثبت تماس / یادداشت</button> : null}
+    {canCallsCreate ? <button type="button" className="csx-ghost sm" onClick={() => callLauncher.launch(customer)} data-testid="button-add-call-detail" data-form={callChoice} aria-busy={callLauncher.pending ? true : undefined}><MessageSquarePlus size={18} /> ثبت تماس / یادداشت</button> : null}
     {hasCallsView ? <details className="csx-sub" data-testid="section-voip-history"><summary>تماس‌های تلفن شرکت{historyQuery.data ? ` (${faNum(historyQuery.data.total)})` : ''} <ChevronLeft size={16} /></summary>
       {historyQuery.isLoading ? <span className="csx-sk" style={{ height: 48 }} /> : historyQuery.isError ? <ErrorState onRetry={() => historyQuery.refetch()} /> : historyQuery.data?.items && historyQuery.data.items.length > 0 ? <>
         <ol className="csx-tl">{historyQuery.data.items.map(record => <li key={record.id}>
@@ -672,6 +677,7 @@ export default function CustomerDetail() {
     )}
     {toast ? <div className="csx-toast" role="status">{toast}</div> : null}
     {simpleFormOpen ? <SimpleCallForm customer={customer} userId={userId} noteMin={tsConfig.data?.noteMinLength ?? 30} onClose={() => setSimpleFormOpen(false)} onDone={afterSimpleForm} onNext={() => { setSimpleFormOpen(false); setLocation('/customers'); }} /> : null}
+    <CallLaunchStatus status={callLauncher.status} onRetry={callLauncher.retry} onCancel={callLauncher.cancel} />
     {upgradeOpen ? <UpgradeDialog customer={customer} onClose={() => setUpgradeOpen(false)} onDone={(r) => { setUpgradeOpen(false); afterHandoff(r); }} /> : null}
     {tsToast ? <TsToast text={tsToast} onClose={() => setTsToast('')} onLink={() => document.getElementById('sec-calls')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} /> : null}
   </div>;

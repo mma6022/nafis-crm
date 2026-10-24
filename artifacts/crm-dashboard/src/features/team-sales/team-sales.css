@@ -88,3 +88,14 @@ textarea.ts-inp { resize: vertical; line-height: 1.8; }
   .ts-dlg { width: 100vw; border-radius: 24px 24px 0 0; align-self: end; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
   .ts-toast { inset-inline: 12px; bottom: auto; top: 64px; z-index: 600; }
 }
+/* «ثبت تماس» waiting for team-sales settings (never silently opens the legacy form) */
+.ts-launch { position: fixed; z-index: 95; bottom: 20px; inset-inline-start: 50%; transform: translateX(50%); display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 14px; border-radius: 14px; background: #1E2A78; color: #fff; font-weight: 700; font-size: 14px; box-shadow: 0 12px 30px -10px rgba(16, 24, 40, .45); max-width: calc(100vw - 24px); }
+.ts-launch.bad { background: #fff; color: #9A1C1C; border: 1px solid #F3C2C2; }
+.ts-launch-btn { display: inline-flex; align-items: center; gap: 4px; border: 0; border-radius: 10px; padding: 6px 10px; background: #9A1C1C; color: #fff; font: inherit; font-weight: 800; cursor: pointer; min-height: 36px; }
+.ts-launch-x { border: 0; background: none; color: inherit; opacity: .75; cursor: pointer; display: inline-flex; padding: 6px; min-height: 36px; }
+.ts-spin { animation: ts-spin 0.9s linear infinite; }
+@keyframes ts-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ts-spin { animation: none; } }
+.ts-call-check { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; color: #1E2A78; }
+.ts-call-check.bad { color: #9A1C1C; }
+.ts-call-check button { border: 0; background: none; color: inherit; font: inherit; font-weight: 800; text-decoration: underline; cursor: pointer; min-height: 32px; }

@@ -9,7 +9,8 @@ import { ManualCustomerIdentity } from '@/components/ManualCustomerIdentity';
 import { RepeatRequestReview, RepeatRequestTag } from '@/components/RepeatRequestReview';
 import { DuplicateCustomerReview } from '@/components/DuplicateCustomerReview';
 import { CallForm, CreateConsultationForm } from '@/components/Forms';
-import { usesSimpleForm, useTeamSalesConfig, type QualifyResult } from '@/features/team-sales/api';
+import { useCallLauncher, CallLaunchStatus } from '@/features/team-sales/useCallLauncher';
+import { type QualifyResult } from '@/features/team-sales/api';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 import { TsToast } from '@/features/team-sales/UpgradeToP1';
 import { formatDateTime } from '@/components/CrmShell';
@@ -46,11 +47,11 @@ export default function Customers() {
   const canCreate = can('customers.create');
   const canUpdate = can('customers.update');
   const canCall = can('calls.create');
-  const tsConfig = useTeamSalesConfig(sessionReady);
-  const openCall = (customer: Customer) => {
-    if (usesSimpleForm(tsConfig.data, session.data?.user, customer)) setSimpleCallFor(customer);
-    else setNewCallFor(customer);
-  };
+  // «ثبت تماس» waits for the team-sales settings instead of falling back to the legacy form (see useCallLauncher).
+  const callLauncher = useCallLauncher<Customer>(session.data?.user, sessionReady,
+    (customer, kind) => (kind === 'simple' ? setSimpleCallFor(customer) : setNewCallFor(customer)));
+  const tsConfig = { data: callLauncher.config };
+  const openCall = (customer: Customer) => callLauncher.launch(customer);
   const canConsult = can('consultations.create');
   const canSummary = can('dashboard.view');
   const readOnly = sessionReady && !canCreate && !canUpdate;
@@ -247,7 +248,7 @@ export default function Customers() {
 
   const legacyActions = (customer: Customer) => {
     const list: ReactNode[] = [];
-    if (canCall) list.push(<button key="call" type="button" onClick={() => openCall(customer)} data-testid={`button-new-call-${customer.id}`}><PhoneCall size={17} aria-hidden="true" /> ثبت تماس</button>);
+    if (canCall) list.push(<button key="call" type="button" onClick={() => openCall(customer)} data-testid={`button-new-call-${customer.id}`} aria-busy={callLauncher.pending?.id === customer.id ? true : undefined} data-form={callLauncher.choose(customer)}><PhoneCall size={17} aria-hidden="true" /> ثبت تماس</button>);
     if (canConsult) list.push(<button key="consult" type="button" onClick={() => setNewConsultFor(customer)} data-testid={`button-new-consult-${customer.id}`}><FileText size={17} aria-hidden="true" /> درخواست مشاوره</button>);
     if (canUpdate) list.push(<button key="edit" type="button" onClick={() => openEdit(customer)} data-testid={`button-edit-customer-${customer.id}`}><Edit3 size={17} aria-hidden="true" /> ویرایش سریع</button>);
     if (isAdmin) {
@@ -514,6 +515,7 @@ export default function Customers() {
     {isAdmin && changingPhone && <AdminCustomerPhoneEditor key={changingPhone.id} customer={changingPhone} onClose={() => setChangingPhone(null)} />}
     {reviewing && <RepeatRequestReview customer={reviewing} onClose={() => setReviewing(null)} />}
     {isAdmin && duplicateReviewOpen ? <DuplicateCustomerReview onClose={() => setDuplicateReviewOpen(false)} salespersons={salespersons.data ?? []} salespersonLoading={salespersons.isLoading} salespersonError={salespersons.isError} onRetrySalespersons={() => { void salespersons.refetch(); }} /> : null}
+    <CallLaunchStatus status={callLauncher.status} onRetry={callLauncher.retry} onCancel={callLauncher.cancel} />
     {simpleCallFor ? <SimpleCallForm customer={simpleCallFor} userId={session.data?.user.id} noteMin={tsConfig.data?.noteMinLength ?? 30} onClose={() => setSimpleCallFor(null)} onDone={(r: QualifyResult) => { if (r.handoff) setTsToast(r.handoff.message); invalidateAll(); }} onNext={() => setSimpleCallFor(null)} /> : null}
     {tsToast ? <TsToast text={tsToast} onClose={() => setTsToast('')} /> : null}
     {newCallFor && <CallForm customers={[newCallFor]} salespersons={salespersons.data ?? []} pending={createCall.isPending} error={createCall.isError} initialCustomerId={newCallFor.id} onClose={() => setNewCallFor(null)} onSave={handleSaveCall} />}

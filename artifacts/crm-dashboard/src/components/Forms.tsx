@@ -20,9 +20,13 @@ type CallFormProps = {
   initialCustomerId?: number;
   onClose: () => void;
   onSave: (data: CallInput) => Promise<void>;
+  /** Called when the user picks a customer in the picker (Calls page: decide whether the simple team-sales form applies). */
+  onCustomerPicked?: (customer: CallCustomer) => void;
+  /** While set, saving is blocked: 'checking' = deciding which form applies; 'error' = could not decide (retry offered). */
+  pickCheck?: { state: 'checking' | 'error'; onRetry: () => void } | null;
 };
 
-export function CallForm({ customers, salespersons, pending, error, initialCustomerId, onClose, onSave }: CallFormProps) {
+export function CallForm({ customers, salespersons, pending, error, initialCustomerId, onClose, onSave, onCustomerPicked, pickCheck }: CallFormProps) {
   const defaultReminder = defaultReminderJalali();
   const initialCustomer = customers.find((customer) => customer.id === initialCustomerId);
   const [pickedCustomer, setPickedCustomer] = useState<CallCustomer | undefined>(initialCustomer);
@@ -59,6 +63,7 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
       postalCode: customer?.postalCode ?? '',
       birthDateJalali: customer?.birthDateJalali ?? '',
     }));
+    onCustomerPicked?.(customer);
   };
 
   const sheetOpener = useRef<HTMLButtonElement | null>(null);
@@ -109,6 +114,7 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (pickCheck) return;
     if (!form.customerId) { setCustomerSelectionError(true); return; }
     let reminderInput: { subject: string; message: string; remindAt: string } | undefined;
     if (reminderOpen) {
@@ -161,6 +167,8 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
                   <label id="call-customer-label" htmlFor="call-customer">مشتری</label>
                   <CallCustomerSelect selected={selectedCustomer} disabled={!!initialCustomerId} onSelect={selectCustomer} />
                   {customerSelectionError && <div role="alert" className="profile-form-error">ابتدا مشتری را انتخاب کنید.</div>}
+                  {pickCheck?.state === 'checking' ? <div className="ts-call-check" role="status" data-testid="call-pick-check" data-state="checking">در حال بررسی فرم مناسب این مشتری…</div> : null}
+                  {pickCheck?.state === 'error' ? <div className="ts-call-check bad" role="alert" data-testid="call-pick-check" data-state="error">نوع فرم تماس مشخص نشد. <button type="button" onClick={pickCheck.onRetry} data-testid="button-call-pick-retry">تلاش دوباره</button></div> : null}
                   {selectedCustomer && (
                     <div className="call-customer-chips">
                       {selectedCustomer.isUrgent && <span className="chip-urgent">فوری</span>}
@@ -203,7 +211,7 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
 
             <div className="form-footer call-form-footer">
               <div className="form-footer-actions">
-                <button className="btn btn-primary" type="submit" disabled={pending} data-testid="button-save-call">
+                <button className="btn btn-primary" type="submit" disabled={pending || !!pickCheck} data-testid="button-save-call">
                   <PhoneCall size={15} />{pending ? 'در حال ثبت...' : 'ثبت تماس'}
                 </button>
                 <button className="btn btn-ghost" type="button" onClick={onClose} data-testid="button-cancel-call">انصراف</button>
