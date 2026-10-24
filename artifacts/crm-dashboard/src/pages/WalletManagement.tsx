@@ -15,6 +15,7 @@ import { Search, ArrowLeftRight, ArrowUp, ArrowDown, ArrowUpDown, Check, X, Aler
 import { SkeletonPanel, ErrorState, formatDateTime } from '@/components/CrmShell';
 import './WalletManagement.css';
 import CompanyWalletPanel from './CompanyWalletPanel';
+import { CustomerIdBadge, CustomerName, customerNameText } from '@/components/customer/CustomerName';
 
 const formatMoney = (val?: string | number | null) => {
   if (val == null || val === '') return '۰';
@@ -156,7 +157,7 @@ function CustomerSearch({
                 setOpen(false);
               }}
             >
-              <div className="font-bold text-[13px] text-slate-800">{c.customerName || 'بدون نام'}</div>
+              <div className="font-bold text-[13px] text-slate-800"><CustomerName id={c.customerId} name={c.customerName || 'بدون نام'} /></div>
               <div className="text-[11px] text-slate-500">کارشناس فروش: {(c as typeof c & { customerSalespersonName?: string | null }).customerSalespersonName || 'بدون تخصیص'}</div>
               <div className="text-[11px] text-slate-500 mt-0.5" dir="ltr" style={{textAlign: 'right'}}>{c.phone} | شناسه: {c.customerId}</div>
             </div>
@@ -495,7 +496,7 @@ function WalletsTab({ isAdmin, onTransfer }: { isAdmin: boolean, onTransfer: (cu
                       <td>
                         <Link href={`/customers/${wallet.customerId}`} className="wallet-customer-link">
                           {wallet.customerName || 'بدون نام'}
-                        </Link>
+                        </Link>{' '}<CustomerIdBadge id={wallet.customerId} testId={`badge-wallet-customer-id-${wallet.customerId}`} />
                         <span className="block text-[11px] text-slate-500">کارشناس فروش: {salespersonName || 'بدون تخصیص'}</span>
                       </td>
                       <td className="wallet-num-input text-[12px] font-medium" style={{textAlign: 'right'}}>{wallet.phone}</td>
@@ -743,7 +744,7 @@ function TransactionsTab() {
                           <div className="flex flex-col gap-1.5">
                             <Link href={`/customers/${tx.customerId}`} className="wallet-customer-link text-[12px]">
                               {tx.customerName || `مشتری ${tx.customerId}`}
-                            </Link>
+                            </Link>{' '}<CustomerIdBadge id={tx.customerId} />
                             <span className="text-[10px] text-slate-500">کارشناس فروش: {txOwnerNames.customerSalespersonName || 'بدون تخصیص'}</span>
                             
                             {tx.kind === 'transfer' && tx.otherCustomerName ? (

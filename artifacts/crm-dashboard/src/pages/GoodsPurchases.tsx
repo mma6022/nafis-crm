@@ -10,7 +10,8 @@ import { CompanyPlanWallets } from '@/components/PlanWallets';
 import { PendingCreate, WaitChip } from '@/components/goods/PendingCreate';
 import { forbidden, PENDING_INTRO, pendingAccess, pendingTabCount, usePendingQueue, type PendingRow } from '@/lib/pending-create';
 import { api, errText, listOf, toman, stageLabel, stageIndex, STAGES, useMe, type EligibleWallet, type Purchase } from '@/lib/goods-api';
-import { normalizePersianSearchText } from '@/lib/search';
+import { CustomerIdBadge, CustomerName } from '@/components/customer/CustomerName';
+import { matchesCustomerSearch, parseCustomerIdQuery, rankExactCustomerId } from '@/lib/customer-id';
 
 /** What happens next per stage; `act` = the team (not the customer) has to do something. */
 export const NEXT_STEP: Record<string, { text: string; act: boolean; finance?: boolean }> = {
@@ -37,7 +38,6 @@ export default function GoodsPurchases() {
   const pending = usePendingQueue('goods', '', 1, Boolean(pendingMode));
   const pendingHidden = !pendingMode || forbidden(pending.error);
   const list = useQuery({ queryKey: ['goods-purchases'], queryFn: () => api.get<unknown>('/goods-purchases').then((d) => listOf<Purchase>(d)), refetchInterval: 30_000 });
-  const normalizedSearch = normalizePersianSearchText(search.trim());
   const all = list.data ?? [];
   const isMine = (p: Purchase) => { const n = NEXT_STEP[p.stage]; return Boolean(n?.act && manage && (!n.finance || finance)); };
   const matches = (p: Purchase, f: GoodsFilter) => (!f.stage || p.stage === f.stage) && (!f.mine || isMine(p));
@@ -49,12 +49,12 @@ export default function GoodsPurchases() {
     ...STAGES.map((s) => ({ key: s.key, label: s.label, testId: `goods-${s.key}`, count: all.filter((p) => p.stage === s.key).length, kind: 'list' as const, params: { stage: s.key } })),
   ];
   const section = sections.find((s) => s.key === active && !s.hidden) ?? sections.find((s) => s.key === 'all')!;
-  const rows = section.kind === 'list' ? all.filter((p) => matches(p, section.params) && normalizePersianSearchText(`${p.customerName} ${p.planName} ${p.id}`).includes(normalizedSearch)) : [];
+  const rows = section.kind === 'list' ? rankExactCustomerId(all.filter((p) => matches(p, section.params) && (matchesCustomerSearch(search, { id: p.customerId, name: p.customerName, extra: [p.planName, p.id] }) || parseCustomerIdQuery(search)?.id === p.id)), search, (p) => p.customerId) : [];
   return <section className="data-page gp-page">
     <div className="page-intro gp-intro">
       <div><div className="eyebrow">خرید کالا</div><h2>خریدهای کالا</h2><p>{section.key === 'pending' ? PENDING_INTRO.goods[pending.data && !pending.data.canCreate ? 'view' : 'create'] : 'از رزرو اعتبار تا امضای فاکتور، تسویه و دستور پرداخت.'}</p></div>
       <div className="gp-intro-tools">
-        <SearchField value={search} onChange={(v) => { setSearch(v); setPendingPage(1); }} placeholder={section.key === 'pending' ? 'نام، موبایل یا شماره پرونده' : 'مشتری، طرح یا شماره'} testId="search-goods-purchases" />
+        <SearchField value={search} onChange={(v) => { setSearch(v); setPendingPage(1); }} placeholder={section.key === 'pending' ? 'نام، شناسه، موبایل یا شماره پرونده' : 'مشتری، شناسه، طرح یا شماره'} testId="search-goods-purchases" />
         {manage ? <button className="btn btn-primary" onClick={() => { setSuggested(null); setCreating(true); }} data-testid="button-new-goods-purchase"><Plus size={16} />خرید تازه</button> : null}
       </div>
     </div>
@@ -64,14 +64,14 @@ export default function GoodsPurchases() {
         <thead><tr><th>خرید</th><th>مشتری</th><th>اعتبار</th><th>مرحله</th><th>قدم بعد</th></tr></thead>
         <tbody>{rows.map((p) => { const n = NEXT_STEP[p.stage]; return <tr key={p.id} className={isMine(p) ? 'gp-row-mark' : ''} data-testid={`row-goods-purchase-${p.id}`}>
           <td className="mono"><Link href={`/goods-purchases/${p.id}`}>#{p.id.toLocaleString('fa-IR')}</Link></td>
-          <td><Link href={`/goods-purchases/${p.id}`} className="primary-cell">{p.customerName}</Link><span className="secondary-cell gp-sub">{p.customerSalespersonName || 'بدون کارشناس'} · {p.planName}</span></td>
+          <td><Link href={`/goods-purchases/${p.id}`} className="primary-cell">{p.customerName}</Link> <CustomerIdBadge id={p.customerId} testId={`badge-goods-customer-id-${p.id}`} /><span className="secondary-cell gp-sub">{p.customerSalespersonName || 'بدون کارشناس'} · {p.planName}</span></td>
           <td className="gp-money">{toman(p.creditAmountToman)}</td>
           <td><span className="gp-stage-cell"><span className={`gp-chip ${p.stage === 'completed' ? 'green' : n?.act ? 'gold' : 'blue'}`}><i />{stageLabel(p.stage)}</span><small>{(stageIndex(p.stage) + 1).toLocaleString('fa-IR')}/{STAGES.length.toLocaleString('fa-IR')}</small></span></td>
           <td>{p.stage === 'completed' ? <Link className="text-link" href={`/goods-purchases/${p.id}`}>{n.text}</Link> : <span className={n?.act ? 'gp-next act' : 'gp-next'}>{n?.text ?? '—'}</span>}</td>
         </tr>; })}</tbody>
       </table></div>
       <div className="gp-cards-list gp-mobile-only">{rows.map((p) => { const n = NEXT_STEP[p.stage]; return <Link key={p.id} href={`/goods-purchases/${p.id}`} className={`gp-mcard ${isMine(p) ? 'mark' : ''}`} data-testid={`card-goods-purchase-${p.id}`}>
-        <div className="gp-mcard-top"><strong>{p.customerName}</strong><span className="mono">#{p.id.toLocaleString('fa-IR')}</span></div>
+        <div className="gp-mcard-top"><strong><CustomerName id={p.customerId} name={p.customerName} /></strong><span className="mono">#{p.id.toLocaleString('fa-IR')}</span></div>
         <div className="gp-mcard-mid"><span className="gp-money">{toman(p.creditAmountToman)}</span><span className={`gp-chip ${p.stage === 'completed' ? 'green' : n?.act ? 'gold' : 'blue'}`}><i />{stageLabel(p.stage)} · {(stageIndex(p.stage) + 1).toLocaleString('fa-IR')}/{STAGES.length.toLocaleString('fa-IR')}</span></div>
         <span className={n?.act ? 'gp-next act' : 'gp-next'}>قدم بعد: {n?.text ?? '—'}</span>
       </Link>; })}</div>
@@ -103,23 +103,23 @@ function CreatePurchase({ onClose, initial }: { onClose: () => void; initial: Pe
     {step === 0 && fromQueue && initial ? <>
       <span className="gp-prefill-tag" data-testid="tag-prefilled"><Check size={13} />از «در انتظار ایجاد» پر شد</span>
       <div className="gp-prefill-card" data-testid="card-prefilled-goods">
-        <div className="gp-prefill-head"><strong>{initial.customerName}</strong><WaitChip days={initial.waitingDays} /></div>
+        <div className="gp-prefill-head"><strong><CustomerName id={initial.customerId} name={initial.customerName} /></strong><WaitChip days={initial.waitingDays} /></div>
         <div className="gp-kv"><span>پرونده</span><b className="mono">#{(initial.applicationId ?? 0).toLocaleString('fa-IR')}</b><span>کارشناس</span><b>{initial.customerSalespersonName || 'بدون کارشناس'}</b><span>طرح</span><b>{initial.planName}</b></div>
         <div className="gp-prefill-total"><span>موجودی کیف پول طرح</span><b>{toman(fromQueue.balanceToman)}</b></div>
       </div>
       <p className="gp-prefill-note"><Lock size={13} />مشتری و طرح از روی پرونده آمده‌اند. اگر اشتباه است، <button type="button" className="text-link gp-linkbtn" onClick={() => { setPrefilled(false); setQ(initial.phone || initial.customerName); }} data-testid="button-pick-other-customer">مشتری دیگری انتخاب کن</button>.</p>
     </> : step === 0 ? <>
       <p className="secondary-cell" style={{ marginBottom: 10 }}>کل موجودی مثبت کیف پول آن طرح رزرو می‌شود. هر کیف پول فقط یک رزرو فعال دارد.</p>
-      <SearchField value={q} onChange={setQ} placeholder="نام، موبایل یا کد ملی مشتری" testId="search-eligible" />
+      <SearchField value={q} onChange={setQ} placeholder="نام، شناسه، موبایل یا کد ملی مشتری" testId="search-eligible" />
       {eligible.data?.unassignedNotice ? <div className="gp-alert warn">{eligible.data.unassignedNotice}</div> : null}
       <div className="gp-pick-list">
         {eligible.isLoading ? <SkeletonPanel rows={3} /> : eligible.isError ? <div className="gp-alert">{errText(eligible.error)}</div> : !items.length ? <EmptyState title="کیف پول واجد شرایطی نیست" description="فقط مشتریان با موجودی مثبت تفکیک‌شده به طرح نمایش داده می‌شوند." /> :
           items.map((w) => <button type="button" key={`${w.customerId}-${w.planId}`} className={`gp-pick ${selected === w ? 'on' : ''}`} onClick={() => setPicked(w)} data-testid={`pick-wallet-${w.customerId}-${w.planId}`}>
-            <Wallet size={18} /><div><strong>{w.customerName}</strong><span>کارشناس فروش فعلی: {w.customerSalespersonName || 'بدون تخصیص'}</span><span>{w.planName}</span></div><b>{toman(w.balanceToman)}</b>
+            <Wallet size={18} /><div><strong><CustomerName id={w.customerId} name={w.customerName} /></strong><span>کارشناس فروش فعلی: {w.customerSalespersonName || 'بدون تخصیص'}</span><span>{w.planName}</span></div><b>{toman(w.balanceToman)}</b>
           </button>)}
       </div>
     </> : <>
-      <div className="gp-kv gp-review"><span>مشتری</span><b>{selected?.customerName}</b><span>طرح</span><b>{selected?.planName}</b><span>کارشناس فروش</span><b>{selected?.customerSalespersonName || 'بدون تخصیص'}</b><span>مبلغ رزرو</span><b>{toman(selected?.balanceToman)}</b></div>
+      <div className="gp-kv gp-review"><span>مشتری</span><b><CustomerName id={selected?.customerId} name={selected?.customerName} /></b><span>طرح</span><b>{selected?.planName}</b><span>کارشناس فروش</span><b>{selected?.customerSalespersonName || 'بدون تخصیص'}</b><span>مبلغ رزرو</span><b>{toman(selected?.balanceToman)}</b></div>
       <p className="secondary-cell">با رزرو، کل موجودی این کیف پول برای این خرید کنار گذاشته می‌شود.</p>
       {create.isError ? <div className="gp-alert">{errText(create.error)}</div> : null}
     </>}

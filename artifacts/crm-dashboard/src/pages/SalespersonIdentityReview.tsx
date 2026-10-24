@@ -1,3 +1,4 @@
+import { customerNameText } from '@/components/customer/CustomerName';
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -89,7 +90,7 @@ function IdentityRecords({ identity }: { identity: SalespersonIdentityDetail }) 
     <details style={{ margin: '8px 0', border: '1px solid #e5e7eb', borderRadius: 8, padding: 10 }}>
       <summary>#{identity.id} — {identity.name} · {identity.mobile || 'بدون موبایل'} · {identity.customers.length} مشتری · {identity.purchases.length} خرید · {identity.financialEntries.length} سند مالی</summary>
       <p>حساب‌های متصل: {identity.linkedUsers.map((user) => user.username).join('، ') || 'هیچ‌کدام'}</p>
-       <p>مشتریان و کارشناس فعلی پرونده: {identity.customers.map((customer) => `${customer.name} (#${customer.id}) · ${identity.name}`).join('، ') || 'هیچ‌کدام'}</p>
+       <p>مشتریان و کارشناس فعلی پرونده: {identity.customers.map((customer) => `${customerNameText(customer.name, customer.id)} · ${identity.name}`).join('، ') || 'هیچ‌کدام'}</p>
       <p>خریدها و پورسانت (تومان): {identity.purchases.map((purchase) => `#${purchase.id} / مشتری #${purchase.customerId} / ${purchase.stage} / ${purchase.commissionToman ?? 'ثبت نشده'}`).join('، ') || 'هیچ‌کدام'}</p>
       <p>سوابق مالی (تومان): {identity.financialEntries.map((entry) => `#${entry.id} / ${entry.kind} / ${entry.amountToman}`).join('، ') || 'هیچ‌کدام'}</p>
       <p>ماندهٔ کیف پول پورسانت (تومان): {identity.walletBalanceToman ?? 'ثبت نشده'}</p>

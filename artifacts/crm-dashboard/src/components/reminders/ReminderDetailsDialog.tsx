@@ -1,3 +1,4 @@
+import { CustomerName } from '@/components/customer/CustomerName';
 import { useEffect, useRef } from 'react';
 import type { Reminder } from '@workspace/api-client-react';
 import { Modal } from '@/components/DataTools';
@@ -45,7 +46,7 @@ export function ReminderDetailsDialog({ reminder, onClose }: { reminder: Reminde
       <h4 data-testid="reminder-details-subject">{reminder.subject}</h4>
       <dl className="reminder-details-fields">
         <dt>وضعیت</dt><dd>{reminder.done ? 'انجام‌شده' : 'باز'}</dd>
-        <dt>مشتری</dt><dd>{reminder.customerName || (reminder.customerId ? `مشتری #${reminder.customerId}` : 'یادآور عمومی')}</dd>
+        <dt>مشتری</dt><dd>{reminder.customerId ? <CustomerName id={reminder.customerId} name={reminder.customerName || 'مشتری'} /> : (reminder.customerName || 'یادآور عمومی')}</dd>
         {reminder.customerId != null && <><dt>کارشناس پرونده</dt><dd>{reminder.customerSalespersonName || 'بدون تخصیص'}</dd></>}
         <dt>موعد یادآوری</dt><dd>{formatDateTime(reminder.remindAt)}</dd>
         <dt>زمان ثبت</dt><dd>{formatDateTime(reminder.createdAt)}</dd>

@@ -1,3 +1,4 @@
+import { CustomerIdBadge } from '@/components/customer/CustomerName';
 import { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Settings, Phone, PhoneCall, PhoneIncoming, PhoneOutgoing, Wifi, WifiOff, AlertTriangle, Play, Square, Save, RefreshCw, Users } from 'lucide-react';
@@ -277,7 +278,7 @@ function HistoryPanel() {
                        <td dir="ltr" style={{ textAlign: 'right' }}>
                          {record.customerName ? (
                             <>
-                           <a href={`/customers/${record.customerId}`} className="text-link" style={{ fontWeight: 600 }}>{record.customerName}</a>
+                           <a href={`/customers/${record.customerId}`} className="text-link" style={{ fontWeight: 600 }}>{record.customerName}</a> <CustomerIdBadge id={record.customerId} />
                            <span style={{ display: 'block', fontSize: 11, color: '#64748b' }}>کارشناس فروش: {(record as typeof record & { customerSalespersonName?: string | null }).customerSalespersonName || 'بدون تخصیص'}</span>
                             </>
                          ) : record.phone}

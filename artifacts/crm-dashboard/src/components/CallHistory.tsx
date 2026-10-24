@@ -1,3 +1,4 @@
+import { CustomerName, customerNameText } from '@/components/customer/CustomerName';
 import { Clock3, MessageSquareText, PhoneCall, UserRound } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { CallReportDialog } from '@/components/voip/CallReportDialog';
@@ -100,11 +101,11 @@ export function CallHistoryModal({
   onClose,
 }: Required<Pick<HistoryProps, 'customerId'>> & Omit<HistoryProps, 'compact' | 'onSelectCall'> & { onClose: () => void }) {
   return (
-    <Modal title={`تاریخچه تماس‌های ${customerName || 'مشتری'}`} eyebrow="قبل و بعد هر مکالمه" onClose={onClose} testId="customer-call-history-modal">
+    <Modal title={`تاریخچه تماس‌های ${customerNameText(customerName || 'مشتری', customerId)}`} eyebrow="قبل و بعد هر مکالمه" onClose={onClose} testId="customer-call-history-modal">
       <div className="call-history-modal-intro">
         <MessageSquareText size={18} />
         <div>
-          <strong>{customerName || 'مشتری'}</strong>
+          <strong><CustomerName id={customerId} name={customerName || 'مشتری'} /></strong>
           {customerPhone ? <span dir="ltr">{customerPhone}</span> : null}
           <span>کارشناس فعلی پرونده: {customerSalespersonName || 'بدون تخصیص'}</span>
           <p>تماس انتخاب‌شده با رنگ آبی مشخص شده است.</p>

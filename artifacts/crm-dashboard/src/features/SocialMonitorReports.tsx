@@ -1,3 +1,4 @@
+import { CustomerIdBadge, CustomerName, customerNameText } from '@/components/customer/CustomerName';
 import { useEffect, useRef, useMemo, useState } from 'react';
 import type { SocialMonitorThread as Thread, SocialThreadMessage as Message, SocialThreadHistory as MessagesBody, SocialThreadSummary as Summary } from '@workspace/api-client-react';
 
@@ -66,13 +67,13 @@ function CustomerLinker({ thread, onBound }: { thread: Thread; onBound: () => vo
     <div className="smr-linker">
       <strong>{ambiguous ? 'تطبیق قطعی نیست؛ نام و شناسهٔ مشتری را بررسی و انتخاب کنید.' : 'این گفتگو هنوز به مشتری CRM وصل نیست.'}</strong>
       {ambiguous && <div className="smr-chips">{thread.customerCandidates.map(c =>
-        <button key={c.id} type="button" className="btn btn-ghost" disabled={busy} onClick={() => void bind(c.id)} data-testid={`button-candidate-${c.id}`}>{c.name} · شناسه {c.id}</button>)}</div>}
+        <button key={c.id} type="button" className="btn btn-ghost" disabled={busy} onClick={() => void bind(c.id)} data-testid={`button-candidate-${c.id}`}>{customerNameText(c.name, c.id)}</button>)}</div>}
       <label>{ambiguous ? 'یا جستجوی مشتری دیگر' : 'جستجوی مشتری'}
         <input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="نام یا شناسهٔ CRM مشتری" data-testid="input-customer-search" /></label>
       {searching && <small>در حال جستجو…</small>}
       {!searching && (search.trim().length >= 2 || /^[0-9۰-۹٠-٩]+$/.test(search.trim())) && results.length === 0 && !err && <small>مشتری‌ای پیدا نشد.</small>}
       <div className="smr-chips">{results.map(c =>
-        <button key={c.id} type="button" className="btn btn-ghost" disabled={busy} onClick={() => void bind(c.id)} data-testid={`button-link-customer-${c.id}`}>اتصال به {c.name} · شناسه {c.id}</button>)}</div>
+        <button key={c.id} type="button" className="btn btn-ghost" disabled={busy} onClick={() => void bind(c.id)} data-testid={`button-link-customer-${c.id}`}>اتصال به {customerNameText(c.name, c.id)}</button>)}</div>
       {err && <div className="smr-error" role="alert">{err}</div>}
     </div>
   );
@@ -202,7 +203,7 @@ function ThreadDetail({ threadId, listThread, onClose, onBound }: { threadId: st
       <div className="smr-customer">
         {linked ? <>
           <span>مشتری CRM:</span>
-          <a href={`/customers/${thread.customerId}`} className="smr-link" data-testid="link-thread-customer">{thread.customerName || `مشتری ${thread.customerId}`}</a>
+          <a href={`/customers/${thread.customerId}`} className="smr-link" data-testid="link-thread-customer">{thread.customerName || 'مشتری'}</a> <CustomerIdBadge id={thread.customerId} />
           {thread.customerMatch === 'exact' && <small>(تطبیق خودکار نام یا شناسهٔ CRM)</small>}
         </> : <CustomerLinker thread={thread} onBound={onBound} />}
       </div>
@@ -289,7 +290,7 @@ export function SocialMonitorReports() {
                   <td><button type="button" className="smr-link" onClick={() => setSelectedId(row.threadId)}>{row.contactName}</button></td>
                   <td>{row.employeeName}</td>
                   <td>{row.services.map(s => serviceNames[s]).join('، ')}</td>
-                  <td>{row.customerMatch === 'linked' || row.customerMatch === 'exact' ? (row.customerName || 'متصل')
+                  <td>{row.customerMatch === 'linked' || row.customerMatch === 'exact' ? (row.customerName ? <CustomerName id={row.customerId} name={row.customerName} /> : 'متصل')
                     : row.customerMatch === 'ambiguous' ? <span className="smr-badge warn">نیازمند انتخاب</span> : <span className="smr-badge">بدون اتصال</span>}</td>
                   <td>{row.inboundCount}</td><td>{row.outboundCount}</td>
                   <td>{faDateTime(row.lastMessageAt)}</td>

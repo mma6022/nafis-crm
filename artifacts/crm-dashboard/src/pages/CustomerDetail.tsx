@@ -30,6 +30,7 @@ import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 import { FirstCallSummaryCard, SuggestedPlansBox } from '@/features/team-sales/FirstCallCard';
 import { TsToast, UpgradeCard, UpgradeDialog, UpgradedCard } from '@/features/team-sales/UpgradeToP1';
 import { DataAccuracyCard } from '@/features/team-commission/DataAccuracyCard';
+import { CustomerName, customerNameText } from '@/components/customer/CustomerName';
 
 const faNum = (n: number) => n.toLocaleString('fa-IR');
 const faId = (n: number) => n.toLocaleString('fa-IR', { useGrouping: false });
@@ -405,8 +406,8 @@ export default function CustomerDetail() {
       <div className="who">
         <span className="csx-av" aria-hidden="true">{initialsOf(customer.name)}</span>
         <div style={{ minWidth: 0 }}>
-          <h2 id="customer-hero-name" data-testid="text-customer-name">{customer.name}</h2>
-          <div className="sub"><span data-testid="text-customer-id">کد مشتری {faId(customer.id)}</span>، کارشناس: {handoff ? handoff.closerName : customer.salespersonName || 'بدون تخصیص'}</div>
+          <h2 id="customer-hero-name"><CustomerName id={customer.id} name={customer.name} nameTestId="text-customer-name" badgeTestId="text-customer-id" /></h2>
+          <div className="sub">کارشناس: {handoff ? handoff.closerName : customer.salespersonName || 'بدون تخصیص'}</div>
         </div>
       </div>
       <div className="csx-chips" style={{ gap: 6 }}>
@@ -633,7 +634,7 @@ export default function CustomerDetail() {
       onRetry={() => returnedPayment.refetch()}
       onClose={closePaymentResult}
     />}
-    <nav className="csx-crumb" aria-label="مسیر"><Link href="/customers" data-testid="link-back-customers"><ArrowRight size={16} /> مشتریان</Link><ChevronLeft size={14} aria-hidden="true" /><span aria-current="page">{customer.name}</span></nav>
+    <nav className="csx-crumb" aria-label="مسیر"><Link href="/customers" data-testid="link-back-customers"><ArrowRight size={16} /> مشتریان</Link><ChevronLeft size={14} aria-hidden="true" /><span aria-current="page">{customerNameText(customer.name, customer.id)}</span></nav>
     {hero}
     {tsCard ? <div className="m-only">{tsCard}</div> : null}
     <div className="m-only"><DataAccuracyCard customerId={id} place="m" onSubmitted={refreshAfterAccuracy} /></div>

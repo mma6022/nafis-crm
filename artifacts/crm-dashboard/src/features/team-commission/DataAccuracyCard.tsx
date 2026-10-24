@@ -1,3 +1,4 @@
+import { CustomerName, customerNameText } from '@/components/customer/CustomerName';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, Check, ChevronLeft, ChevronRight, Gift, Lock, ShieldCheck, X, XCircle, CheckCircle2 } from 'lucide-react';
@@ -106,7 +107,7 @@ function OkDialog({ s, onClose, onDone }: { s: Visible; onClose: () => void; onD
     <div ref={ref} className="tc-sheet" role="alertdialog" aria-modal="true" aria-labelledby="tc-ok-h" tabIndex={-1} data-testid="tc-ok-dialog">
       <div className="tc-grab" aria-hidden="true" />
       <h2 id="tc-ok-h">اطلاعات درست بود؟</h2>
-      <p>تأیید می‌کنی که اطلاعات فرم تماس اول {qual} برای «{s.customerName}» با واقعیت پرونده یکی بود.</p>
+      <p>تأیید می‌کنی که اطلاعات فرم تماس اول {qual} برای «{customerNameText(s.customerName, s.customerId)}» با واقعیت پرونده یکی بود.</p>
       <div className="tc-bonus" style={{ fontSize: 15 }}><Gift size={18} /><span>{qual} <b>{tm(s.bonusToman)}</b> پاداش درستی داده می‌گیرد.</span></div>
       <p className="tc-lock"><Lock size={14} /> {s.viewer === 'admin' ? 'این تغییر با نام شما در تاریخچه ثبت می‌شود.' : 'بعد از ثبت، فقط مدیر می‌تواند تغییرش دهد.'}</p>
       {error ? <div className="tc-errbox" role="alert"><AlertCircle size={18} /> {error}</div> : null}
@@ -162,7 +163,7 @@ function RejectWizard({ s, onClose, onDone }: { s: Visible; onClose: () => void;
         <div className="tc-foot"><button type="button" className="tc-ghost" onClick={onClose}>انصراف</button><button type="button" className="tc-primary" onClick={next} data-testid="tc-reject-next">بعدی <ChevronLeft size={18} /></button></div>
       </> : <>
         <div className="tc-sum">
-          <div className="r"><span>مشتری</span><b>{s.customerName}</b></div>
+          <div className="r"><span>مشتری</span><b><CustomerName id={s.customerId} name={s.customerName} /></b></div>
           <div className="r"><span>دلیل</span><b>{label}</b></div>
           {note.trim() ? <div className="r"><span>توضیح</span><span style={{ textAlign: 'start' }}>{note.trim()}</span></div> : null}
         </div>

@@ -1,3 +1,4 @@
+import { CustomerIdBadge } from '@/components/customer/CustomerName';
 import { useVoip } from './VoipProvider';
 import { Phone, PhoneIncoming, PhoneOutgoing, Mic, MicOff, PhoneOff, Hash } from 'lucide-react';
 import { useState, useEffect } from 'react';
@@ -75,7 +76,7 @@ export function VoipDock() {
               </div>
               <div>
                 <strong style={{ display: 'block', fontSize: 16 }} dir="ltr">
-                  {call.customer ? call.customer.name : call.phone}
+                  {call.customer ? <>{call.customer.name} <CustomerIdBadge id={call.customer.id} /></> : call.phone}
                 </strong>
                 {call.customer && <span style={{ display: 'block', fontSize: 11, color: '#cbd5e1' }}>کارشناس فروش: {call.customer.customerSalespersonName || 'بدون تخصیص'}</span>}
                 <span style={{ fontSize: 13, color: '#94a3b8' }}>

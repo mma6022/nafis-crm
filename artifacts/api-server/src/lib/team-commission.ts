@@ -763,7 +763,7 @@ export function salespersonBreakdown(salespersonId: number, month: string, kind:
   const reversedCases = Number(queryRow<any>("SELECT COUNT(DISTINCT l.purchase_id) n FROM goods_finance_ledger l JOIN team_commission_ledger_meta m ON m.ledger_id=l.id WHERE l.salesperson_id=? AND l.kind='returned_case_deduction' AND m.commission_month=?", [salespersonId, month])?.n ?? 0);
   const where = kind && kinds.includes(kind) ? "AND l.kind=?" : "";
   const transactions = queryRows<any>(`SELECT l.id,l.purchase_id purchaseId,l.amount_toman amountToman,l.kind,l.created_at createdAt,${MONTH_SQL} month,
-      c.name customerName,m.meta_json metaJson,m.settings_version_id settingsVersionId
+      c.name customerName,l.customer_id customerId,m.meta_json metaJson,m.settings_version_id settingsVersionId
     FROM goods_finance_ledger l LEFT JOIN team_commission_ledger_meta m ON m.ledger_id=l.id LEFT JOIN goods_purchases g ON g.id=l.purchase_id
     LEFT JOIN customers c ON c.id=l.customer_id
     WHERE l.salesperson_id=? AND l.kind IN (${kinds.map(() => "?").join(",")}) ${where} ORDER BY l.id DESC LIMIT 500`, [salespersonId, ...kinds, ...(where ? [kind] : [])])

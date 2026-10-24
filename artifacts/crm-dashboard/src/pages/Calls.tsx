@@ -19,6 +19,7 @@ import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { jalaliValueToGregorian } from '@/lib/jalali';
 import { useDialogFocus, useMinWidth } from './customers-ui';
 import './calls.css';
+import { CustomerName } from '@/components/customer/CustomerName';
 
 const limit = 20;
 const fa = (n: number) => n.toLocaleString('fa-IR');
@@ -223,7 +224,7 @@ function ManualCalls({ desktop = true }: { desktop?: boolean }) {
   const isUnk = (c: CallRecord) => c.customerId == null || c.id < 0;
   const timeOf = (c: CallRecord) => callTimeLabel(c.createdAt);
   const byOf = (c: CallRecord) => whoLabel(c.salespersonName, c.salespersonId, user);
-  const phoneOf = (c: CallRecord) => <><span className="ph ltr" dir="ltr">{c.customerPhone}</span>{!isUnk(c) ? <><span className="sep">|</span>کد {fa(c.customerId as number)}</> : null}</>;
+  const phoneOf = (c: CallRecord) => <span className="ph ltr" dir="ltr">{c.customerPhone}</span>;
   const busyRow = (c: CallRecord) => rowFetch?.id === c.id && !rowFetch.error;
   const callBtn = (c: CallRecord) => canCall ? <button type="button" className="clx-ra call" onClick={(e) => { e.stopPropagation(); void callRow(c); }} aria-label={`ثبت تماس برای ${c.customerName}`} aria-busy={busyRow(c) || undefined} data-testid={`button-row-call-${c.id}`}><PhoneCall aria-hidden="true" /> ثبت تماس</button> : null;
   const consultBtn = (c: CallRecord) => canConsult ? <button type="button" className="clx-ra consult" onClick={(e) => { e.stopPropagation(); setConsultFor({ id: c.customerId as number, name: c.customerName, phone: c.customerPhone, salespersonName: c.customerSalespersonName }); }} aria-label={`ثبت مشاوره برای ${c.customerName}`} data-testid={`button-row-consult-${c.id}`}><FileText aria-hidden="true" /> ثبت مشاوره</button> : null;
@@ -255,7 +256,7 @@ function ManualCalls({ desktop = true }: { desktop?: boolean }) {
 
   const desktopFilters = <div className="clx-fb" data-testid="form-call-filters">
     <div className="clx-fr">
-      <label className="clx-sb"><Search size={18} aria-hidden="true" /><input value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0); }} placeholder="نام، موبایل، موضوع یا یادداشت" aria-label="جست‌وجو در تماس‌ها" data-testid="input-search-calls" />
+      <label className="clx-sb"><Search size={18} aria-hidden="true" /><input value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0); }} placeholder="نام، شناسه، موبایل، موضوع یا یادداشت" aria-label="جست‌وجو در تماس‌ها" data-testid="input-search-calls" />
         {search ? <button type="button" className="x" onClick={() => { setSearch(''); setOffset(0); }} aria-label="پاک کردن جست‌وجو"><X size={16} /></button> : null}</label>
       <div className="clx-rel" ref={pop === 'range' ? popRef : undefined}>
         <div className="clx-pseg" role="group" aria-label="بازه‌ی زمانی">
@@ -286,7 +287,7 @@ function ManualCalls({ desktop = true }: { desktop?: boolean }) {
   </div>;
 
   const mobileFilters = <div className="clx-mfil">
-    <label className="clx-sb"><Search size={18} aria-hidden="true" /><input value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0); }} placeholder="نام، موبایل یا یادداشت" aria-label="جست‌وجو در تماس‌ها" data-testid="input-search-calls" />
+    <label className="clx-sb"><Search size={18} aria-hidden="true" /><input value={search} onChange={(e) => { setSearch(e.target.value); setOffset(0); }} placeholder="نام، شناسه، موبایل یا یادداشت" aria-label="جست‌وجو در تماس‌ها" data-testid="input-search-calls" />
       {search ? <button type="button" className="x" onClick={() => { setSearch(''); setOffset(0); }} aria-label="پاک کردن جست‌وجو"><X size={16} /></button> : null}</label>
     <div className="row">
       <button type="button" className="clx-fc" aria-pressed={f.period !== 'all'} onClick={() => setSheet(true)} data-testid="chip-calls-period">{f.period === 'range' ? 'بازه‌ی دلخواه' : PERIOD_LABEL[f.period]} <ChevronDown size={16} aria-hidden="true" /></button>
@@ -302,7 +303,7 @@ function ManualCalls({ desktop = true }: { desktop?: boolean }) {
       <colgroup><col style={{ width: 205 }} /><col /><col style={{ width: 112 }} /><col style={{ width: 296 }} /></colgroup>
       <thead><tr><th scope="col">مشتری</th><th scope="col">موضوع و یادداشت</th><th scope="col">زمان و کارشناس</th><th scope="col"><span className="clx-sr">کارها</span></th></tr></thead>
       <tbody>{items.map((c) => <tr key={c.id} className={isUnk(c) ? 'unk' : undefined} tabIndex={0} aria-label={`گزارش تماس ${c.customerName}`} onClick={() => setSelectedCall(c)} onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setSelectedCall(c); } }} data-testid={`row-call-${c.id}`}>
-        <td><div className="cn">{c.customerName}</div><div className="cs">{phoneOf(c)}</div>{isUnk(c) ? <div className="l2"><span className="clx-oc">بدون پرونده</span></div> : null}</td>
+        <td><div className="cn"><CustomerName id={c.customerId} name={c.customerName} badgeTestId={`badge-call-customer-id-${c.id}`} /></div><div className="cs">{phoneOf(c)}</div>{isUnk(c) ? <div className="l2"><span className="clx-oc">بدون پرونده</span></div> : null}</td>
         <td><div className="sj">{c.subject || 'تماس پیگیری'}</div>{c.expertNotes || c.systemSummary ? <div className="nt">{c.expertNotes || c.systemSummary}</div> : null}</td>
         <td><div className="tm" data-testid={`text-call-date-${c.id}`} title={formatDateTime(c.createdAt)}>{timeOf(c)}</div><div className="by">{byOf(c)}</div></td>
         <td className="ac" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
@@ -318,7 +319,7 @@ function ManualCalls({ desktop = true }: { desktop?: boolean }) {
 
   const cards = items.length ? <><ul className="clx-mcards" data-testid="calls-cards">{items.map((c) => <li key={c.id} className={`clx-mcd${isUnk(c) ? ' unk' : ''}`} data-testid={`card-call-${c.id}`}>
     <div className="r1">{isUnk(c) ? <span className="clx-oc">بدون پرونده</span> : null}<span className="tm">{timeOf(c)}</span></div>
-    <h3>{c.customerName}</h3>
+    <h3><CustomerName id={c.customerId} name={c.customerName} badgeTestId={`badge-call-customer-id-${c.id}`} /></h3>
     <div className="cs">{phoneOf(c)}<span className="sep">|</span>{byOf(c)}</div>
     <div><div className="sj">{c.subject || 'تماس پیگیری'}</div>{c.expertNotes || c.systemSummary ? <div className="nt">{c.expertNotes || c.systemSummary}</div> : null}</div>
     {isUnk(c) ? <div className="ma one">{completeBtn(c)}</div> : canCall || canConsult ? <div className={`ma${canCall && canConsult ? '' : ' one'}`}>{callBtn(c)}{consultBtn(c)}</div> : null}

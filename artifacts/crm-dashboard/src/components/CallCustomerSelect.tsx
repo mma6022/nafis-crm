@@ -1,3 +1,4 @@
+import { CustomerName, customerNameText } from '@/components/customer/CustomerName';
 import { useEffect, useState } from 'react';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { getListCustomersQueryKey, useListCustomers } from '@workspace/api-client-react';
@@ -35,14 +36,14 @@ export function CallCustomerSelect({ selected, disabled, onSelect }: {
       <button id="call-customer" type="button" role="combobox" aria-expanded={open}
         aria-labelledby="call-customer-label" disabled={disabled}
         className="call-customer-trigger" data-testid="select-call-customer">
-        <span>{selected ? `${selected.name} · ${selected.phone}` : 'یک مشتری را انتخاب کنید'}</span>
+        <span>{selected ? `${customerNameText(selected.name, selected.id)} · ${selected.phone}` : 'یک مشتری را انتخاب کنید'}</span>
         <ChevronsUpDown size={16} aria-hidden="true" />
       </button>
     </PopoverTrigger>
     <PopoverContent align="start" dir="rtl" className="call-customer-popover">
       <Command shouldFilter={false}>
         <CommandInput value={search} onValueChange={setSearch}
-          aria-label="جست‌وجوی نام مشتری" placeholder="جست‌وجوی نام مشتری..."
+          aria-label="جست‌وجوی نام یا شناسه‌ی مشتری" placeholder="نام، شناسه یا موبایل مشتری..."
           data-testid="input-call-customer-search" />
         <CommandList aria-label="مشتریان">
           {waiting ? <div className="call-customer-message" role="status">در حال جست‌وجو…</div>
@@ -55,7 +56,7 @@ export function CallCustomerSelect({ selected, disabled, onSelect }: {
               data-testid={`option-call-customer-${customer.id}`}
               onSelect={() => { onSelect(customer); setOpen(false); setSearch(''); setDebouncedSearch(''); }}>
               <Check size={15} aria-hidden="true" style={{ opacity: selected?.id === customer.id ? 1 : 0 }} />
-              <span><strong>{customer.name}</strong><small>{customer.phone} · کارشناس پرونده: {customer.salespersonName || 'بدون تخصیص'}</small></span>
+              <span><strong><CustomerName id={customer.id} name={customer.name} /></strong><small>{customer.phone} · کارشناس پرونده: {customer.salespersonName || 'بدون تخصیص'}</small></span>
             </CommandItem>)}
         </CommandList>
       </Command>

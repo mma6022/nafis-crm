@@ -1,3 +1,4 @@
+import { CustomerIdBadge } from '@/components/customer/CustomerName';
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
@@ -79,7 +80,7 @@ export function AttributionReview() {
     {reviews.data && <p className="secondary-cell">{reviews.data.total.toLocaleString("fa-IR")} پرونده · صفحه {page.toLocaleString("fa-IR")}</p>}
     {reviews.data?.items.length === 0 && <p>پرونده‌ای در این بخش نیست.</p>}
     {reviews.data?.items.map((item) => <article key={item.id} style={{ borderTop: "1px solid #e2e8f0", padding: "18px 0" }}>
-      <h4><Link href={`/loan-applications/${item.id}`}>پرونده #{item.id} · {item.customerName}</Link></h4>
+      <h4><Link href={`/loan-applications/${item.id}`}>پرونده #{item.id.toLocaleString('fa-IR')} · {item.customerName}</Link> <CustomerIdBadge id={item.customerId} /></h4>
       <p>مشتری #{item.customerId} · مشاوره #{item.consultationId} · {item.planName || "طرح نامشخص"} · ثبت: {formatDate(item.createdAt)} · مرحله: {item.stage} / {item.status}</p>
       <p>مبلغ درخواستی: {Number(item.requestedAmount).toLocaleString("fa-IR")} تومان
         {item.approvedAmount ? ` · مبلغ مصوب: ${Number(item.approvedAmount).toLocaleString("fa-IR")} تومان` : ""}</p>

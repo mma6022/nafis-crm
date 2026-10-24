@@ -1,3 +1,4 @@
+import { CustomerIdBadge } from '@/components/customer/CustomerName';
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
@@ -64,7 +65,7 @@ export function CommissionReport({ id, isQualifier }: { id: number; isQualifier:
       <header><h2><History size={20} /> دفتر تراکنش‌ها</h2></header>
       <div className="tc-fl" role="toolbar" aria-label="نوع تراکنش">{chips.map((k) => <button key={k || 'all'} type="button" aria-pressed={kind === k} onClick={() => setKind(k)} data-testid={`tc-chip-${k || 'all'}`}>{k ? KIND_CHIPS[k] : 'همه'}</button>)}</div>
       {!tx.length ? <p className="tc-muted">تراکنشی نیست.</p> : <div className="table-wrap"><table className="data-table"><thead><tr><th>تاریخ</th><th>نوع</th><th>شرح</th><th>خرید</th><th>مبلغ</th></tr></thead><tbody>
-        {tx.map((t, i) => <tr key={t.id ?? i}><td className="secondary-cell">{faDateTime(t.createdAt)}</td><td><span className={`tc-kd ${KD[t.kind ?? ''] ?? 't'}`}>{KIND_CHIPS[t.kind ?? ''] ?? t.kind}</span></td><td>{describe(t)}</td>
+        {tx.map((t, i) => <tr key={t.id ?? i}><td className="secondary-cell">{faDateTime(t.createdAt)}</td><td><span className={`tc-kd ${KD[t.kind ?? ''] ?? 't'}`}>{KIND_CHIPS[t.kind ?? ''] ?? t.kind}</span></td><td>{describe(t)}{t.customerId ? <> <CustomerIdBadge id={t.customerId} /></> : null}</td>
           <td>{t.purchaseId ? <Link className="text-link" href={`/goods-purchases/${t.purchaseId}`}>#{fa(t.purchaseId)}</Link> : '—'}</td>
           <td className={big(t.amountToman) < 0n ? 'amt-neg' : 'amt-pos'}>{sign(t.amountToman)}{tm(t.amountToman)}</td></tr>)}
       </tbody></table></div>}

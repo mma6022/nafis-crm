@@ -23,6 +23,7 @@ import { BUSINESS_STATUS_LABELS, ACTION_ROLE_NAMES, WIZARD_DISPLAY_STEPS, WIZARD
 import { clearLoanDraft, listLoanDrafts, loanWizardHref, type LoanDraft } from "@/lib/loan-draft";
 import "./customers.css";
 import "./loan-requests.css";
+import { CustomerIdBadge, CustomerName, customerNameText } from '@/components/customer/CustomerName';
 
 const STAGE_LABELS: Record<string, string> = {
   draft: "پیش‌نویس",
@@ -233,7 +234,7 @@ export default function LoanApplications() {
   const draftBanner = !reviewOpen && drafts.length ? <div className="lrx-draft" role="region" aria-label="پیش‌نویس ناتمام" data-testid="loan-draft-banner">
     <FileClock size={22} aria-hidden="true" />
     {drafts.length === 1
-      ? <p><b>پیش‌نویس ناتمام:</b> {drafts[0].customerName} · {draftStep(drafts[0])} ({WIZARD_DISPLAY_STEPS[drafts[0].step - 1]?.label}) · ذخیره‌شده {relativeTime(drafts[0].updatedAt)}</p>
+      ? <p><b>پیش‌نویس ناتمام:</b> {customerNameText(drafts[0].customerName, drafts[0].customerId)} · {draftStep(drafts[0])} ({WIZARD_DISPLAY_STEPS[drafts[0].step - 1]?.label}) · ذخیره‌شده {relativeTime(drafts[0].updatedAt)}</p>
       : <p><b>{fa(drafts.length)} پیش‌نویس ناتمام</b> روی همین دستگاه · آخرین: {drafts[0].customerName}، {relativeTime(drafts[0].updatedAt)}</p>}
     <div className="acts">
       {drafts.length === 1
@@ -277,7 +278,7 @@ export default function LoanApplications() {
           <div className="lrx-colb">
             {columnApps.map(app => (
               <Link key={app.id} href={`/loan-applications/${app.id}`} className={`lrx-bcard${app.actionRequired ? " hl" : ""}`} data-testid={`board-card-${app.id}`}>
-                <b>{app.customerName || "مشتری ناشناس"}</b>
+                <b><CustomerName id={app.customerId} name={app.customerName || "مشتری ناشناس"} /></b>
                 <span className="muted">#{fa(app.id)} · {app.planName || "بدون طرح"}</span>
                 <span className="amt">{toman(app.requestedAmount)} <small>تومان</small></span>
                 {app.stage && columnName !== "completed" && columnName !== "canceled" ? <span className="muted">مرحله: {loanStageLabel(app.stage)}</span> : null}
@@ -298,7 +299,7 @@ export default function LoanApplications() {
           return <article key={app.id} className={`csx-card lrx-card${app.actionRequired ? " hl" : ""}`} data-testid={`loan-card-${app.id}`}>
             <div className="r1">{bs && BUSINESS_STATUS_LABELS[bs] ? <span className="csx-st" data-bs={bs}>{BUSINESS_STATUS_LABELS[bs]}</span> : <span className="csx-st" data-bs="waiting_registration">{STATUS_LABELS[app.status] || app.status}</span>}<span className="age"><Clock size={15} aria-hidden="true" /> {relativeTime(app.createdAt)}</span></div>
             {app.actionRequired ? <span className="csx-tag bad lrx-need"><AlertCircle size={15} aria-hidden="true" /> نیازمند اقدام شما</span> : null}
-            <h3 className="nm"><Link href={`/loan-applications/${app.id}`}>{app.customerName || "مشتری ناشناس"}</Link></h3>
+            <h3 className="nm"><CustomerName id={app.customerId} name={app.customerName || "مشتری ناشناس"} href={`/loan-applications/${app.id}`} /></h3>
             <div className="muted">پرونده <b className="lrx-id">#{fa(app.id)}</b> · {app.planName || "بدون طرح"}{app.customerSubmitted ? <> <span className="csx-tag info" data-testid={`tag-customer-submitted-${app.id}`}>درخواست مشتری ثبت</span></> : null}</div>
             <div className="lrx-money"><b>{toman(app.requestedAmount)}</b> <span className="muted">تومان{duration ? ` · ${fa(Number(duration))} ماهه` : ""}</span></div>
             {stage ? <div className="lrx-stage">مرحله: <b>{stage}</b></div> : null}
@@ -316,7 +317,7 @@ export default function LoanApplications() {
               const bs = loanBusinessStatus(app);
               const duration = app.durationMonths ?? app.requestedDurationMonths;
               return <tr key={app.id} className={app.actionRequired ? "hl" : undefined} data-testid={`loan-row-${app.id}`}>
-                <td><p className="nm"><Link href={`/loan-applications/${app.id}`}>{app.customerName || "مشتری ناشناس"}</Link></p><span className="muted">#{fa(app.id)} · {app.planName || "بدون طرح"}</span>{app.customerSubmitted ? <div><span className="csx-tag info" data-testid={`tag-customer-submitted-${app.id}`}>درخواست مشتری ثبت</span></div> : null}</td>
+                <td><p className="nm"><CustomerName id={app.customerId} name={app.customerName || "مشتری ناشناس"} href={`/loan-applications/${app.id}`} badgeTestId={`badge-loan-customer-id-${app.id}`} /></p><span className="muted">#{fa(app.id)} · {app.planName || "بدون طرح"}</span>{app.customerSubmitted ? <div><span className="csx-tag info" data-testid={`tag-customer-submitted-${app.id}`}>درخواست مشتری ثبت</span></div> : null}</td>
                 <td><b className="lrx-amt">{toman(app.requestedAmount)}</b>{duration ? <div className="muted">{fa(Number(duration))} ماهه</div> : null}{app.approvedAmount ? <div className="lrx-ok">مصوب: {toman(app.approvedAmount)}</div> : null}</td>
                 <td><StatusCell app={app} /></td>
                 <td>{app.actionRequired ? <span className="csx-tag bad" title="نیازمند اقدام شما"><AlertCircle size={15} aria-hidden="true" /> شما</span> : <span>{turnLabel(app, bs)}</span>}</td>
@@ -382,7 +383,7 @@ export default function LoanApplications() {
   const searchBox = <label className="csx-search">
     <Search size={20} aria-hidden="true" />
     <span className="csx-sr">جستجو</span>
-    <input type="search" placeholder="نام مشتری یا شماره پرونده" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} data-testid="input-loan-search" />
+    <input type="search" placeholder="نام یا شناسه مشتری، یا شماره پرونده" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} data-testid="input-loan-search" />
     {search ? <button type="button" className="csx-ib" style={{ width: 36, height: 36 }} aria-label="پاک کردن جستجو" onClick={() => { setSearch(""); setPage(1); }}><X size={18} /></button> : null}
   </label>;
   const adminToggle = user?.role === "admin" ? <button type="button" className="csx-link" aria-pressed={reviewOpen} onClick={() => setReviewOpen(!reviewOpen)} data-testid="button-toggle-attribution-review">
@@ -436,7 +437,7 @@ export default function LoanApplications() {
       {draftsOpen ? <Sheet title={`${fa(drafts.length)} پیش‌نویس ناتمام`} onClose={() => setDraftsOpen(false)} testId="loan-drafts-sheet">
         <p className="hint">پیش‌نویس‌ها فقط روی همین دستگاه ذخیره شده‌اند و پس از ۷ روز پاک می‌شوند.</p>
         <div className="lrx-drafts">{drafts.map((d) => <div key={d.customerId} className="lrx-draftrow">
-          <div><b>{d.customerName}</b><div className="muted">{draftStep(d)} · {WIZARD_DISPLAY_STEPS[d.step - 1]?.label}{d.planName ? ` · ${d.planName}` : ""} · {relativeTime(d.updatedAt)}</div></div>
+          <div><b><CustomerName id={d.customerId} name={d.customerName} /></b><div className="muted">{draftStep(d)} · {WIZARD_DISPLAY_STEPS[d.step - 1]?.label}{d.planName ? ` · ${d.planName}` : ""} · {relativeTime(d.updatedAt)}</div></div>
           <div className="acts"><button type="button" className="csx-ghost sm" onClick={() => openDraft(d)}>ادامه</button><button type="button" className="csx-ib" aria-label={`حذف پیش‌نویس ${d.customerName}`} onClick={() => setDraftToDelete(d)}><Trash2 size={18} /></button></div>
         </div>)}</div>
       </Sheet> : null}

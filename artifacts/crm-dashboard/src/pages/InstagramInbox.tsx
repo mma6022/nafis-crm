@@ -1,3 +1,5 @@
+import { customerIdOf, parseCustomerIdQuery, rankExactCustomerId } from '@/lib/customer-id';
+import { CustomerIdBadge } from '@/components/customer/CustomerName';
 import { useMemo, useState } from 'react';
 import { useTableState } from '@/hooks/use-table-state';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -141,11 +143,12 @@ export default function InstagramInbox() {
   const threads = threadsQuery.data ?? [];
   const filteredThreads = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase();
-    return threads.filter((thread) => {
-      const matchesSearch = !needle || [thread.name, thread.phone, thread.request, thread.senderId, thread.lastMessage]
-        .some((value) => value?.toLocaleLowerCase().includes(needle));
+    const idQuery = parseCustomerIdQuery(search);
+    return rankExactCustomerId(threads.filter((thread) => {
+      const matchesSearch = !needle || (idQuery !== null && customerIdOf(thread.customerId) === idQuery.id) || (!idQuery?.explicit && [thread.name, thread.phone, thread.request, thread.senderId, thread.lastMessage]
+        .some((value) => value?.toLocaleLowerCase().includes(needle)));
       return matchesSearch && (statusFilter === 'all' || (statusFilter === 'error' ? Boolean(thread.error) : thread.status === statusFilter));
-    });
+    }), search, (thread) => thread.customerId);
   }, [threads, search, statusFilter]);
   const selectedThread = threads.find((thread) => String(thread.id) === String(selectedId)) ?? filteredThreads[0] ?? null;
   const selectedThreadId = selectedThread?.id;
@@ -242,7 +245,7 @@ export default function InstagramInbox() {
               {filteredThreads.map((thread) => (
                 <button type="button" key={thread.id} className={`instagram-thread-card ${String(thread.id) === String(selectedThread?.id) ? 'selected' : ''}`} onClick={() => setSelectedId(thread.id)} data-testid={`button-instagram-thread-${thread.id}`}>
                   <span className="instagram-avatar"><UserRound size={19} /></span>
-                   <span className="instagram-thread-copy"><strong>{thread.name || (thread.senderId?.startsWith('mc:') ? `مخاطب Manychat ${thread.senderId.split(':').at(-1)}` : thread.senderId) || `سرنخ ${thread.id}`}</strong><small>{thread.lastMessage || thread.request || 'بدون پیام'}</small><span className="instagram-thread-meta"><span className={`instagram-status-pill ${thread.error ? 'has-error' : ''}`}>{thread.error ? 'خطا' : statusLabel(thread.status)}</span><time>{formatDateTime(thread.lastMessageAt)}</time></span></span>
+                   <span className="instagram-thread-copy"><strong>{thread.name || (thread.senderId?.startsWith('mc:') ? `مخاطب Manychat ${thread.senderId.split(':').at(-1)}` : thread.senderId) || `سرنخ ${thread.id}`}{thread.customerId != null ? <> <CustomerIdBadge id={thread.customerId} /></> : null}</strong><small>{thread.lastMessage || thread.request || 'بدون پیام'}</small><span className="instagram-thread-meta"><span className={`instagram-status-pill ${thread.error ? 'has-error' : ''}`}>{thread.error ? 'خطا' : statusLabel(thread.status)}</span><time>{formatDateTime(thread.lastMessageAt)}</time></span></span>
                   {thread.paused ? <Pause size={14} className="instagram-paused-mark" aria-label="متوقف" /> : null}
                 </button>
               ))}
@@ -264,7 +267,7 @@ export default function InstagramInbox() {
                 <div><span>درخواست</span><strong>{selectedThread.request || 'ثبت نشده'}</strong></div>
                 <div><span>شماره تماس</span><strong dir="ltr">{selectedThread.phone || 'ثبت نشده'}</strong></div>
                 <div><span>آخرین پاسخ</span><strong>{formatDateTime(selectedThread.lastReplyAt)}</strong></div>
-                {selectedThread.customerId != null ? <Link href={`/customers/${selectedThread.customerId}`} className="instagram-customer-link" data-testid={`link-instagram-customer-${selectedThread.customerId}`}>مشاهده پرونده مشتری <span dir="ltr">#{selectedThread.customerId}</span></Link> : <div><span>پرونده CRM</span><strong>هنوز متصل نشده</strong></div>}
+                {selectedThread.customerId != null ? <><Link href={`/customers/${selectedThread.customerId}`} className="instagram-customer-link" data-testid={`link-instagram-customer-${selectedThread.customerId}`}>مشاهده پرونده مشتری</Link> <CustomerIdBadge id={selectedThread.customerId} /></> : <div><span>پرونده CRM</span><strong>هنوز متصل نشده</strong></div>}
               </section>
               {selectedThread.customerId == null ?
                 <InstagramLeadReview key={String(selectedThread.id)} lead={selectedThread}

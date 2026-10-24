@@ -1,3 +1,4 @@
+import { customerNameText } from '@/components/customer/CustomerName';
 import { useQueryClient } from '@tanstack/react-query';
 import { getGetCustomerQueryKey, getListCustomerRepeatRequestsQueryKey, getListCustomersQueryKey, useAcknowledgeCustomerRepeatRequests, useListCustomerRepeatRequests, type Customer } from '@workspace/api-client-react';
 import { formatDateTime } from './CrmShell';
@@ -24,7 +25,7 @@ export function RepeatRequestReview({ customer, onClose }: { customer: Customer;
   const requests = useListCustomerRepeatRequests(customer.id, { query: { queryKey: getListCustomerRepeatRequestsQueryKey(customer.id), enabled: true } });
   const acknowledge = useAcknowledgeCustomerRepeatRequests();
   const pending = requests.data?.filter(item => item.status === 'pending') ?? [];
-  return <Modal title="درخواست‌های جدید این مشتری را مشاهده کردید؟" eyebrow={customer.name} onClose={onClose} testId="repeat-request-review">
+  return <Modal title="درخواست‌های جدید این مشتری را مشاهده کردید؟" eyebrow={customerNameText(customer.name, customer.id)} onClose={onClose} testId="repeat-request-review">
     <p className="profile-form-note">قبل از تأیید، توضیحات هر درخواست تازه را بررسی کنید. با انتخاب «بله» نشان درخواست چند باره برداشته می‌شود.</p>
     {requests.isLoading ? <div className="loading-stack"><div className="skeleton loading-line" /><div className="skeleton loading-line" /></div>
       : requests.isError ? <div className="profile-form-error" role="alert">دریافت درخواست‌ها انجام نشد. <button type="button" className="field-link-button" onClick={() => void requests.refetch()}>تلاش دوباره</button></div>

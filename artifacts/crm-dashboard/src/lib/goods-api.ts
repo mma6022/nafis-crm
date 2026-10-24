@@ -157,7 +157,7 @@ export type PaymentOrder = {
 };
 export type PlanFinanceSettings = { customerPayoutPercent: number | string | null; developmentDiscountPercent: number | string | null; acknowledgementTemplateId: number | null };
 export type SalespersonSettings = { target1Toman: string; target2Toman: string; target3Toman: string; rate0Percent: number | string; rate1Percent: number | string; rate2Percent: number | string; rate3Percent: number | string };
-export type CommissionTx = { id?: number; purchaseId?: number | null; amountToman: string; kind?: string; createdAt: string; month?: string | null; customerName?: string | null; meta?: Record<string, unknown> | null; settingsVersionId?: number | null };
+export type CommissionTx = { id?: number; purchaseId?: number | null; amountToman: string; kind?: string; createdAt: string; month?: string | null; customerName?: string | null; customerId?: number | null; meta?: Record<string, unknown> | null; settingsVersionId?: number | null };
 export type SalespersonSummary = {
   balanceToman: string; totalSalesToman: string; monthlySalesToman: string; month: string; transactions: CommissionTx[];
   kind?: string | null; breakdown?: Array<{ kind: string; count: number; totalToman: string }>; monthTotalToman?: string;

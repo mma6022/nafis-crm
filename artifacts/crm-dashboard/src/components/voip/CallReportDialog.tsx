@@ -1,3 +1,4 @@
+import { CustomerName } from '@/components/customer/CustomerName';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Save } from 'lucide-react';
@@ -132,7 +133,7 @@ export function CallReportEditor({ source, onDirtyChange, onSaved, footer }: {
 
   return <div className="cr-wrap" data-testid="call-report-editor">
     <div className="cr-meta">
-      <div>مشتری: <strong>{c.customerId == null ? 'داخلی شما (بدون پروفایل مشتری)' : c.customerName}</strong> <span dir="ltr" className="mono">{c.customerPhone}</span></div>
+      <div>مشتری: <strong>{c.customerId == null ? 'داخلی شما (بدون پروفایل مشتری)' : <CustomerName id={c.customerId} name={c.customerName} />}</strong> <span dir="ltr" className="mono">{c.customerPhone}</span></div>
       <div>کارشناس: <strong>{c.salespersonName || 'شناسایی نشد'}</strong>{c.extension ? ` · داخلی ${c.extension}` : ''}</div>
       <div>زمان: {formatDateTime(c.createdAt)}</div>
     </div>

@@ -1,3 +1,4 @@
+import { CustomerName } from '@/components/customer/CustomerName';
 import { CheckCircle2, DatabaseBackup, Download, History, KeyRound, MessageCircle, Save, Send, ShieldAlert, Upload } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -177,7 +178,7 @@ export default function NotificationSettingsPage() {
             {deliveries.data.map((delivery) => (
               <div className="notification-delivery-row" key={delivery.id}>
                 <span className={`delivery-status ${delivery.status}`}>{deliveryStatusLabel(delivery.status)}</span>
-                <div><strong>{delivery.customerName}</strong><span>کارشناس پرونده: {delivery.customerSalespersonName || 'بدون تخصیص'}</span><span>{delivery.channel === 'telegram' ? 'تلگرام' : 'پیامک IPPanel'} · {formatNotificationDate(delivery.createdAt)}</span></div>
+                <div><strong><CustomerName id={delivery.customerId} name={delivery.customerName} /></strong><span>کارشناس پرونده: {delivery.customerSalespersonName || 'بدون تخصیص'}</span><span>{delivery.channel === 'telegram' ? 'تلگرام' : 'پیامک IPPanel'} · {formatNotificationDate(delivery.createdAt)}</span></div>
                 <span className="delivery-error">{delivery.errorMessage || 'ارسال با موفقیت انجام شد'}</span>
               </div>
             ))}

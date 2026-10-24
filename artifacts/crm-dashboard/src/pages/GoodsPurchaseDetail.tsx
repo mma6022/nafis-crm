@@ -10,6 +10,7 @@ import { getGetCompanyWalletQueryKey } from '@workspace/api-client-react';
 import { useListContractTemplates, getListContractTemplatesQueryKey, type ContractMapping } from '@workspace/api-client-react';
 import { UpdatedContractBanner } from '@/components/UpdatedContractBanner';
 import { api, digitsOnly, errText, eventLabel, openAuthedFile, rawCode, stageIndex, stageLabel, STAGES, toBig, toman, docStatusLabel, useMe, type GoodsDocument, type Purchase, type PurchaseItem, type PaymentOrder } from '@/lib/goods-api';
+import { CustomerName } from '@/components/customer/CustomerName';
 
 export default function GoodsPurchaseDetail() {
   const { id } = useParams<{ id: string }>();
@@ -48,7 +49,7 @@ export default function GoodsPurchaseDetail() {
     <div className="gp-hero2">
       <div className="gp-hero2-main">
         <div className="eyebrow">خرید کالا #{p.id.toLocaleString('fa-IR')}</div>
-        <h2>{p.customerName}</h2>
+        <h2><CustomerName id={p.customerId} name={p.customerName} /></h2>
         <p>کارشناس فروش فعلی: {p.customerSalespersonName || 'بدون تخصیص'} · {p.planName} · ایجاد {formatDateTime(p.createdAt)}</p>
       </div>
       <div className="gp-hero2-amount"><span>اعتبار رزروشده</span><strong>{toman(p.creditAmountToman)}</strong><em className={`gp-chip ${p.stage === 'completed' ? 'green' : 'light'}`}><i />{stageLabel(p.stage)} · {(idx + 1).toLocaleString('fa-IR')}/{STAGES.length.toLocaleString('fa-IR')}</em></div>

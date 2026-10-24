@@ -13,6 +13,7 @@ import { ConfirmDialog, SectionTabs, Stepper, Toast, Wizard, type ListSection } 
 import { KIND_LABELS } from '@/features/team-commission/api';
 import { parseJalaliValue, jalaliToIso } from '@/lib/jalali';
 import { usePaymentOrderCount, usePaymentOrderList, type PoListParams } from '@/lib/payment-order-queries';
+import { CustomerIdBadge, CustomerName, customerNameText } from '@/components/customer/CustomerName';
 import {
   api, ApiError, digitsOnly, errText, faPercent, listOf, monthLabel, openAuthedFile, percentOf, poEventLabel, poStageLabel, PO_STAGES, shortFaDate,
   tehranJalaliValue, tehranTimeNow, toBig, toman, useMe, type BankAccount, type OrderCommission, type PaymentOrder,
@@ -66,7 +67,7 @@ function OrderList() {
   return <section className="data-page gp-page">
     <div className="page-intro gp-intro">
       <div><div className="eyebrow">مالی و پرداخت</div><h2>دستورهای پرداخت</h2><p>{section.key === 'pending' ? PENDING_INTRO.payments[pending.data && !pending.data.canCreate ? 'view' : 'create'] : 'فروش تأیید می‌کند ← مدیریت تأیید می‌کند ← حسابداری واریز و «پرداخت‌شده» را ثبت می‌کند.'}</p></div>
-      <SearchField value={search} onChange={(v) => { setSearch(v); setPage(1); setPendingPage(1); }} placeholder={section.key === 'pending' ? 'نام، موبایل یا شماره خرید' : 'نام مشتری یا شماره دستور'} testId="search-payment-orders" />
+      <SearchField value={search} onChange={(v) => { setSearch(v); setPage(1); setPendingPage(1); }} placeholder={section.key === 'pending' ? 'نام، شناسه، موبایل یا شماره خرید' : 'نام یا شناسه مشتری، یا شماره دستور'} testId="search-payment-orders" />
     </div>
     {canPay && count > 0 && section.key !== 'awaiting' && section.key !== 'pending' ? <div className="gp-banner" data-testid="banner-awaiting-mark">
       <span className="gp-banner-icon"><BadgeCheck size={20} /></span>
@@ -79,7 +80,7 @@ function OrderList() {
         <thead><tr><th>دستور</th><th>مشتری</th><th>مبلغ واریزی</th><th>مرحله</th><th>آخرین تغییر</th><th /></tr></thead>
         <tbody>{rows.map((o) => <tr key={o.id} className={needsMark(o) ? 'gp-row-mark' : ''} data-testid={`row-payment-order-${o.id}`}>
           <td className="mono">#{o.id.toLocaleString('fa-IR')}</td>
-          <td><span className="primary-cell">{o.customerName ?? '—'}</span><span className="secondary-cell gp-sub">خرید #{o.purchaseId.toLocaleString('fa-IR')} · {o.customerSalespersonName || 'بدون کارشناس'}</span></td>
+          <td><span className="primary-cell"><CustomerName id={o.customerId} name={o.customerName ?? '—'} badgeTestId={`badge-order-customer-id-${o.id}`} /></span><span className="secondary-cell gp-sub">خرید #{o.purchaseId.toLocaleString('fa-IR')} · {o.customerSalespersonName || 'بدون کارشناس'}</span></td>
           <td className="gp-money">{toman(o.amountToman)}</td>
           <td><StageChip stage={o.stage} /></td>
           <td className="secondary-cell">{shortFaDate(o.updatedAt ?? o.createdAt)}</td>
@@ -90,7 +91,7 @@ function OrderList() {
         </tr>)}</tbody>
       </table></div>
       <div className="gp-cards-list gp-mobile-only">{rows.map((o) => <div key={o.id} className={`gp-mcard ${needsMark(o) ? 'mark' : ''}`} data-testid={`card-payment-order-${o.id}`}>
-        <div className="gp-mcard-top"><Link href={`/payment-orders/${o.id}`}><strong>{o.customerName ?? '—'}</strong></Link><span className="mono">#{o.id.toLocaleString('fa-IR')}</span></div>
+        <div className="gp-mcard-top"><Link href={`/payment-orders/${o.id}`}><strong>{o.customerName ?? '—'}</strong></Link> <CustomerIdBadge id={o.customerId} /><span className="mono">#{o.id.toLocaleString('fa-IR')}</span></div>
         <div className="gp-mcard-mid"><span className="gp-money">{toman(o.amountToman)}</span><StageChip stage={o.stage} /></div>
         <span className="secondary-cell">خرید #{o.purchaseId.toLocaleString('fa-IR')} · {shortFaDate(o.updatedAt ?? o.createdAt)}</span>
         <div className="gp-mcard-actions">
@@ -116,7 +117,7 @@ function CreateOrderWizard({ row, onClose }: { row: PendingRow; onClose: () => v
     onSuccess: (o) => { invalidateOrders(qc, o.id); qc.invalidateQueries({ queryKey: ['registration-suggestions', 'payments'] }); qc.invalidateQueries({ queryKey: ['pending-create-counts'] }); onClose(); go(`/payment-orders/${o.id}`); },
   });
   const summary = <div className="gp-prefill-card" data-testid="card-prefilled-payment">
-    <div className="gp-prefill-head"><strong>{row.customerName}</strong><WaitChip days={row.waitingDays} /></div>
+    <div className="gp-prefill-head"><strong><CustomerName id={row.customerId} name={row.customerName} /></strong><WaitChip days={row.waitingDays} /></div>
     <div className="gp-kv"><span>خرید کالا</span><b className="mono">#{(row.purchaseId ?? 0).toLocaleString('fa-IR')}</b><span>کارشناس</span><b>{row.customerSalespersonName || 'بدون کارشناس'}</b><span>طرح</span><b>{row.planName}</b><span>تکمیل خرید</span><b>{shortFaDate(row.completedAt)}</b></div>
     <div className="gp-prefill-total"><span>مبلغ واریزی (از تسویه)</span><b>{toman(row.amountToman)}</b></div>
   </div>;
@@ -128,7 +129,7 @@ function CreateOrderWizard({ row, onClose }: { row: PendingRow; onClose: () => v
       {summary}
       <p className="gp-prefill-note"><Lock size={13} />مبلغ در تسویه قفل شده و اینجا عوض نمی‌شود.</p>
     </> : <>
-      <div className="gp-kv gp-review"><span>مشتری</span><b>{row.customerName}</b><span>خرید کالا</span><b>#{(row.purchaseId ?? 0).toLocaleString('fa-IR')}</b><span>مبلغ واریزی</span><b>{toman(row.amountToman)}</b></div>
+      <div className="gp-kv gp-review"><span>مشتری</span><b><CustomerName id={row.customerId} name={row.customerName} /></b><span>خرید کالا</span><b>#{(row.purchaseId ?? 0).toLocaleString('fa-IR')}</b><span>مبلغ واریزی</span><b>{toman(row.amountToman)}</b></div>
       <p className="secondary-cell">دستور در مرحله‌ی «{poStageLabel('sales_approval')}» ساخته می‌شود و بعد از تأیید فروش و مدیریت، به حسابداری می‌رسد.</p>
       {create.isError ? <div className="gp-alert">{errText(create.error)}</div> : null}
     </>}
@@ -165,7 +166,7 @@ function OrderDetail({ id }: { id: number }) {
     <div className="gp-hero2" data-testid="po-hero">
       <div className="gp-hero2-main">
         <div className="eyebrow">دستور پرداخت #{o.id.toLocaleString('fa-IR')} · خرید کالا <Link href={`/goods-purchases/${o.purchaseId}`}>#{o.purchaseId.toLocaleString('fa-IR')}</Link></div>
-        <h2>{o.customerName ?? 'مشتری'}</h2>
+        <h2><CustomerName id={o.customerId} name={o.customerName ?? 'مشتری'} /></h2>
         <p>کارشناس فروش: {o.customerSalespersonName || 'بدون تخصیص'}{o.planName ? ` · ${o.planName}` : ''}</p>
       </div>
       <div className="gp-hero2-amount"><span>مبلغ واریزی به مشتری</span><strong>{toBig(o.amountToman).toLocaleString('fa-IR')} <small>تومان</small></strong><em className={`gp-chip ${o.stage === 'paid' ? 'green' : 'light'}`}><i />{poStageLabel(o.stage)}</em></div>
@@ -338,7 +339,7 @@ function PayWizard({ order: o, onClose, onPaid }: { order: PaymentOrder; onClose
     : step === 1 ? { label: 'بعدی', disabled: !paidAt || future || !file, onClick: () => setStep(2) }
     : { label: pay.isPending ? 'در حال ثبت…' : 'بله، پرداخت‌شده ثبت شود', tone: 'green' as const, icon: <Check size={16} />, disabled: pay.isPending, onClick: () => pay.mutate(), testId: 'button-pay' };
   return <Wizard title="علامت پرداخت‌شده" testId="pay-wizard" steps={steps} step={step} onClose={onClose} onBack={step ? () => setStep(step - 1) : undefined} next={next}
-    summary={<><span>{o.customerName ?? 'مشتری'} · دستور #{o.id.toLocaleString('fa-IR')}</span><b>{toman(o.amountToman)}</b></>}>
+    summary={<><span>{customerNameText(o.customerName ?? 'مشتری', o.customerId)} · دستور #{o.id.toLocaleString('fa-IR')}</span><b>{toman(o.amountToman)}</b></>}>
     {step === 0 ? <>
       <label className="gp-label">از کدام حساب واریز شد؟</label>
       {sources.isLoading ? <SkeletonPanel rows={2} /> : sources.isError ? <div className="gp-alert">{errText(sources.error)}</div> :
@@ -400,7 +401,7 @@ function SalesApproveWizard({ order, onClose, onDone }: { order: PaymentOrder; o
   const valid = mode === 'iban' ? digitsOnly(value).length === 24 : digitsOnly(value).length === 16;
   const acc = verified.find((a) => a.id === selected);
   return <Wizard title="تأیید فروش" testId="sales-approve" steps={['انتخاب حساب مقصد', 'تأیید و ارسال به مدیر']} step={step} onClose={onClose} onBack={step ? () => setStep(0) : undefined}
-    summary={<><span>{order.customerName} · دستور #{order.id.toLocaleString('fa-IR')}</span><b>{toman(order.amountToman)}</b></>}
+    summary={<><span>{customerNameText(order.customerName, order.customerId)} · دستور #{order.id.toLocaleString('fa-IR')}</span><b>{toman(order.amountToman)}</b></>}
     next={step === 0 ? { label: 'بعدی', disabled: !selected, onClick: () => setStep(1) } : { label: approve.isPending ? 'در حال ثبت…' : 'تأیید و ارسال به مدیر', disabled: approve.isPending, onClick: () => approve.mutate(), icon: <Check size={16} />, testId: 'button-sales-approve' }}>
     {step === 0 ? <>
       <p className="secondary-cell">فقط حساب‌هایی که مالکیتشان با کد ملی مشتری استعلام و تأیید شده قابل انتخاب‌اند.</p>
@@ -423,7 +424,7 @@ function SalesApproveWizard({ order, onClose, onDone }: { order: PaymentOrder; o
 function AdminApproveDialog({ order, dest, onClose, onDone }: { order: PaymentOrder; dest: string; onClose: () => void; onDone: () => void }) {
   const m = useMutation({ mutationFn: () => api.post(`/payment-orders/${order.id}/admin-approve`), onSuccess: onDone });
   return <ConfirmDialog title="پرداخت تأیید شود؟" testId="admin-approve" confirmLabel="تأیید پرداخت" icon={<Check size={16} />} busy={m.isPending} error={m.isError ? errText(m.error) : null} onConfirm={() => m.mutate()} onClose={onClose}>
-    <div className="gp-kv gp-review"><span>مشتری</span><b>{order.customerName}</b><span>مبلغ</span><b>{toman(order.amountToman)}</b><span>حساب مقصد</span><b dir="ltr" className="mono">{dest}</b></div>
+    <div className="gp-kv gp-review"><span>مشتری</span><b><CustomerName id={order.customerId} name={order.customerName} /></b><span>مبلغ</span><b>{toman(order.amountToman)}</b><span>حساب مقصد</span><b dir="ltr" className="mono">{dest}</b></div>
     <p className="secondary-cell">پس از تأیید، دستور به حسابداری برای واریز و علامت «پرداخت‌شده» می‌رود.</p>
   </ConfirmDialog>;
 }

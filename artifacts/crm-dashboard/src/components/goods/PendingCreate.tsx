@@ -1,3 +1,4 @@
+import { CustomerName } from '@/components/customer/CustomerName';
 import type { ReactNode } from 'react';
 import { CircleAlert, Check, Clock3, Hourglass, Lock, Plus, User, Users } from 'lucide-react';
 import { EmptyState, Pagination } from '@/components/DataTools';
@@ -63,7 +64,7 @@ export function PendingCreate({ kind, search, page, onPage, onCreate, onShowAll 
       <div className="panel table-wrap gp-desktop-only"><table className="data-table gp-table gp-pend-table">
         <thead><tr><th>مشتری</th>{viewOnly ? null : <th>کارشناس</th>}<th>مرحله‌ی تمام‌شده</th><th>منتظر</th><th aria-label="عملیات" /></tr></thead>
         <tbody>{rows.map((r) => <tr key={rowKey(kind, r)} className={`gp-wait-${waitTone(r.waitingDays)}`} data-testid={`row-${tid}-${refId(kind, r)}`}>
-          <td><span className="primary-cell">{r.customerName}</span><span className="secondary-cell gp-sub">{sub(r)}</span></td>
+          <td><span className="primary-cell"><CustomerName id={r.customerId} name={r.customerName} badgeTestId={`badge-pending-customer-id-${r.customerId}`} /></span><span className="secondary-cell gp-sub">{sub(r)}</span></td>
           {viewOnly ? null : <td className={r.customerSalespersonName ? '' : 'secondary-cell'}>{r.customerSalespersonName || 'بدون کارشناس'}</td>}
           <td>{stageCell(r)}</td>
           <td><WaitChip days={r.waitingDays} testId={`wait-${tid}-${refId(kind, r)}`} /></td>
@@ -72,7 +73,7 @@ export function PendingCreate({ kind, search, page, onPage, onCreate, onShowAll 
       </table></div>
       <div className="gp-cards-list gp-mobile-only">{rows.map((r) => <div key={rowKey(kind, r)} className={`gp-mcard gp-wait-${waitTone(r.waitingDays)}`} data-testid={`card-${tid}-${refId(kind, r)}`}>
         <div className="gp-mcard-top"><span className="mono">{c.ref} #{refId(kind, r).toLocaleString('fa-IR')}</span><WaitChip days={r.waitingDays} /></div>
-        <strong className="gp-pend-name">{r.customerName}</strong>
+        <strong className="gp-pend-name"><CustomerName id={r.customerId} name={r.customerName} /></strong>
         <span className="secondary-cell">{r.planName}{viewOnly ? '' : ` · ${r.customerSalespersonName || 'بدون کارشناس'}`}</span>
         <div className="gp-mcard-mid">{stageCell(r)}{kind === 'payments' && r.amountToman ? <span className="gp-money">{toman(r.amountToman)}</span> : null}</div>
         {action(r, true)}

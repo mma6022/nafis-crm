@@ -1,3 +1,5 @@
+import { matchesCustomerSearch, rankExactCustomerId } from '@/lib/customer-id';
+import { CustomerName } from '@/components/customer/CustomerName';
 import { createPortal } from "react-dom";
 import { requestWalletShare } from '@/lib/wallet-share';
 import { documentFileAccept, supportedDocumentFile } from '@/lib/document-upload-type';
@@ -683,12 +685,9 @@ function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, on
 // --- Step 1 ---
 function Step1Customer({ search, setSearch, customers, loading, selectedCustomer, setSelectedCustomer, onNext }: any) {
   const [attempted, setAttempted] = useState(false);
-  const normalizedSearch = search.trim().toLocaleLowerCase("fa-IR");
-  const filteredCustomers = customers.filter((c: any) =>
-    !normalizedSearch ||
-    c.name.toLocaleLowerCase("fa-IR").includes(normalizedSearch) ||
-    c.phone.includes(normalizedSearch)
-  );
+  const filteredCustomers = rankExactCustomerId(customers.filter((c: any) =>
+    matchesCustomerSearch(search, { id: c.id, name: c.name, phone: c.phone, extra: [c.nationalCode] })
+  ), search, (c: any) => c.id);
 
   return (
     <div className="lwz-step" data-testid="wizard-step-1">
@@ -697,7 +696,7 @@ function Step1Customer({ search, setSearch, customers, loading, selectedCustomer
         <span className="lwz-sr">جستجوی مشتری</span>
         <input
           type="search"
-          placeholder="نام، موبایل یا کد ملی مشتری"
+          placeholder="نام، شناسه، موبایل یا کد ملی مشتری"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           autoFocus
@@ -711,7 +710,7 @@ function Step1Customer({ search, setSearch, customers, loading, selectedCustomer
           <label key={c.id} className={`lwz-opt${selectedCustomer?.id === c.id ? ' on' : ''}`} data-testid={`wizard-customer-option-${c.id}`}>
             <input type="radio" name="customer" checked={selectedCustomer?.id === c.id} onChange={() => setSelectedCustomer(c)} />
             <span className="txt">
-              <strong>{c.name}</strong>
+              <strong><CustomerName id={c.id} name={c.name} /></strong>
               <small><bdi dir="ltr">{c.phone}</bdi> · {c.nationalCode || "بدون کدملی"}</small>
               <small>کارشناس فروش: {c.salespersonName || "بدون تخصیص"}</small>
             </span>
@@ -1576,7 +1575,7 @@ function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPendi
         <section className="lwz-card lwz-review" aria-label="مشتری">
           <div className="lwz-cardh"><strong>مشتری</strong>{editLink(2, 'اطلاعات هویتی')}</div>
           <dl className="lwz-kv">
-            <div className="full"><dt>نام و کد ملی</dt><dd data-testid="review-customer-name">{customer.name} ({customer.nationalCode})</dd></div>
+            <div className="full"><dt>نام و کد ملی</dt><dd data-testid="review-customer-name"><CustomerName id={customer.id} name={customer.name} /> ({customer.nationalCode})</dd></div>
             <div className="full"><dt>کارشناس فروش</dt><dd>{customer.salespersonName || 'بدون تخصیص'}</dd></div>
           </dl>
         </section>

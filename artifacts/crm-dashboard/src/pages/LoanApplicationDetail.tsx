@@ -68,6 +68,7 @@ import { ACTION_ROLE_NAMES, BUSINESS_STATUS_LABELS, loanBusinessStatus } from '@
 import '@/pages/customers.css';
 import '@/pages/loan-requests.css';
 import { ChevronLeft as ChevronLeftIcon, User as UserIcon } from 'lucide-react';
+import { CustomerName } from '@/components/customer/CustomerName';
 
 const STAGE_LABELS: Record<string, string> = {
   funder_initial_approval: 'تصویب مبلغ وام',
@@ -549,7 +550,7 @@ export default function LoanApplicationDetail() {
           {turnText ? <span className={`csx-tag ${appAny.actionRequired ? 'bad' : ''}`} data-testid="loan-turn">{turnText}</span> : null}
         </div>
         <div className="eyebrow">پرونده تسهیلات #{app.id}</div>
-        <h1 className="ldx-name">{app.customerName || 'مشتری'}</h1>
+        <h1 className="ldx-name"><CustomerName id={app.customerId} name={app.customerName || 'مشتری'} /></h1>
         <p className="ldx-meta">ثبت شده در {formatDate(app.createdAt)} · طرح {app.planName || 'ناشناس'}{app.stage && !closed ? <> · مرحله: {STAGE_LABELS[app.stage] || app.stage}</> : null}</p>
         {app.creditRankIgnored && <p role="status" className="ldx-warn">این پرونده با انتخاب مدیر یا کارشناس فروش، بدون تطابق رتبه اعتباری ثبت شده است.</p>}
         <dl className="ldx-stats">

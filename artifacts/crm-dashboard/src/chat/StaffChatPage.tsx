@@ -1,3 +1,4 @@
+import { CustomerName } from '@/components/customer/CustomerName';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, ArrowRight, Bug, ExternalLink, FileText, Info, MessageSquare, MoreVertical, RefreshCw, Search, UserRound, X } from 'lucide-react';
@@ -92,7 +93,7 @@ export default function StaffChatPage() {
     return <button type="button" key={t.customerId} className={`nf-row ${t.customerId === sel ? 'sel' : ''} ${t.unreadCount > 0 ? 'unread' : ''}`} aria-current={t.customerId === sel} onClick={() => setSel(t.customerId)} data-testid={`row-chat-${t.customerId}`}>
       <CustomerAvatar customerId={t.customerId} name={t.name} online={t.online} />
       <span className="r-body">
-        <span className="r-top"><span className="r-name">{t.name}</span>{t.lastMessageAt && <span className="r-time">{listTime(t.lastMessageAt)}</span>}</span>
+        <span className="r-top"><span className="r-name"><CustomerName id={t.customerId} name={t.name} badgeTestId={`badge-chat-customer-id-${t.customerId}`} /></span>{t.lastMessageAt && <span className="r-time">{listTime(t.lastMessageAt)}</span>}</span>
         <span className="r-bot"><span className="r-prev">{kind && kindIcon(kind)}<span>{t.lastMessage || <span className="ltr">{t.mobile}</span>}</span></span>
           {t.unreadCount > 0 && <span className="r-badge" aria-label={`${t.unreadCount} پیام خوانده‌نشده`}>{t.unreadCount.toLocaleString('fa-IR')}</span>}</span>
       </span>
@@ -103,7 +104,7 @@ export default function StaffChatPage() {
     <aside className="tg-list nf-list" aria-label="فهرست گفتگوها">
       <div className="nf-lhead">
         <label className={`nf-search ${searchOn ? 'on' : ''}`}><Search aria-hidden="true" />
-          <input type="search" value={q} onFocus={() => setSearchOn(true)} onBlur={() => setSearchOn(false)} onChange={e => setQ(e.target.value)} placeholder="جست‌وجوی نام یا موبایل" aria-label="جست‌وجوی مشتری" data-testid="input-chat-search" />
+          <input type="search" value={q} onFocus={() => setSearchOn(true)} onBlur={() => setSearchOn(false)} onChange={e => setQ(e.target.value)} placeholder="جست‌وجوی نام، شناسه یا موبایل" aria-label="جست‌وجوی مشتری" data-testid="input-chat-search" />
           {q && <button type="button" className="clr" onClick={() => setQ('')} aria-label="پاک کردن جست‌وجو"><X /></button>}</label>
         {threads.isSuccess && !term && <div className="nf-sum" data-testid="text-chat-unread-summary">{unreadMsgs > 0 ? <><b>{unreadMsgs.toLocaleString('fa-IR')} پیام خوانده‌نشده</b> در {unreadThreads.toLocaleString('fa-IR')} گفتگو</> : 'همهٔ پیام‌ها خوانده شده‌اند.'}</div>}
       </div>
@@ -123,7 +124,7 @@ export default function StaffChatPage() {
           <button type="button" className="ib tg-back" onClick={back} aria-label="بازگشت به فهرست" data-testid="button-chat-back"><ArrowRight /></button>
           <button type="button" className="tt" onClick={() => setInfo(true)} aria-label="اطلاعات مشتری">
             <CustomerAvatar customerId={sel!} name={current?.name} size={44} online={current?.online} />
-            <span><span className="nm">{current?.name || 'مشتری'}</span>
+            <span><span className="nm"><CustomerName id={sel} name={current?.name || 'مشتری'} /></span>
               <span className="sub">{latestLoan && <><span className="file"><FileText />پرونده #{faId(latestLoan.id)}</span><span className="sep">·</span></>}
                 {current?.online ? <span className="ok">آنلاین</span> : <span className="ltr">{current?.mobile}</span>}</span></span>
           </button>
@@ -146,7 +147,7 @@ export default function StaffChatPage() {
         <div className="ihd"><b>اطلاعات مشتری</b><button type="button" className="ib" onClick={() => setInfo(false)} aria-label="بستن"><X /></button></div>
         <div className="ci-head">
           <CustomerAvatar customerId={sel} name={current?.name ?? customerQ.data?.name} size={64} online={current?.online} />
-          <span className="nm">{current?.name ?? customerQ.data?.name ?? 'مشتری'}</span>
+          <span className="nm"><CustomerName id={sel} name={current?.name ?? customerQ.data?.name ?? 'مشتری'} /></span>
           {current?.mobile && <span className="mo ltr">{current.mobile}</span>}
           {current?.online && <span className="stt">آنلاین</span>}
         </div>

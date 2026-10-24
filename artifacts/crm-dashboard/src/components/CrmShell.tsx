@@ -1,3 +1,4 @@
+import { CustomerName } from '@/components/customer/CustomerName';
 import { BarChart3, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, LifeBuoy, LogOut, Menu, MessageCircle, MessagesSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, type LucideIcon } from 'lucide-react';
 import { UserAvatar, AvatarPicker } from '@/components/UserAvatar';
 import { useHealthCheck, getHealthCheckQueryKey, useGetAuthSession, useLogout, useUpdateAuthProfile, useListReminders, useAcknowledgeReminder, getListRemindersQueryKey, getGetAuthSessionQueryKey, type CrmUser, type Reminder } from '@workspace/api-client-react';
@@ -354,7 +355,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
         <Modal title={dueReminder.subject} eyebrow="زمان یادآور رسیده است" onClose={() => setDueReminder(null)} testId="due-reminder">
           <div className="due-reminder">
             <div className="due-reminder-icon"><BellRing size={22} /></div>
-            {dueReminder.customerName ? <><div className="due-reminder-customer">مشتری: {dueReminder.customerName}</div><div className="due-reminder-customer">کارشناس پرونده: {dueReminder.customerSalespersonName || 'بدون تخصیص'}</div></> : null}
+            {dueReminder.customerName ? <><div className="due-reminder-customer">مشتری: <CustomerName id={dueReminder.customerId} name={dueReminder.customerName} /></div><div className="due-reminder-customer">کارشناس پرونده: {dueReminder.customerSalespersonName || 'بدون تخصیص'}</div></> : null}
             <p>{dueReminder.message}</p>
             <div className="form-footer">
               <button className="btn btn-primary" type="button" onClick={() => setDueReminder(null)} data-testid="button-close-due-reminder">متوجه شدم</button>

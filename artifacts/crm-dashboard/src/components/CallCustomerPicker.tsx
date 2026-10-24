@@ -7,6 +7,8 @@ import { useQueries } from '@tanstack/react-query';
 import { getCustomer, getGetCustomerQueryKey, getListCallsQueryKey, useListCalls, useListCustomers, type CallRecord, type Customer } from '@workspace/api-client-react';
 import { usesSimpleForm, type TeamSalesConfig } from '@/features/team-sales/api';
 import { useDialogFocus } from '@/pages/customers-ui';
+import { CustomerName } from '@/components/customer/CustomerName';
+import { parseCustomerIdQuery } from '@/lib/customer-id';
 
 const fa = (n: number) => n.toLocaleString('fa-IR');
 const norm = (s: string) => s.replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
@@ -59,7 +61,7 @@ export function CallCustomerPicker({ user, config, search, onSearch, checking, o
   const ref = useDialogFocus(onClose, 'input');
   const [q, setQ] = useState(search.trim());
   useEffect(() => { const t = window.setTimeout(() => setQ(search.trim()), 300); return () => window.clearTimeout(t); }, [search]);
-  const active = q.length >= 2;
+  const active = q.length >= 2 || parseCustomerIdQuery(q) !== null;
   const results = useListCustomers({ search: q, limit: 20 }, { query: { queryKey: ['calls-picker-customers', q], enabled: active, staleTime: 30_000 } });
   const me = user?.salespersonId ?? undefined;
   const recentParams = me != null ? { salespersonId: me, limit: 20 } : { limit: 20 };
@@ -95,7 +97,7 @@ export function CallCustomerPicker({ user, config, search, onSearch, checking, o
         aria-busy={isChecking || undefined} data-testid={`picker-customer-${r.id}`} data-form={isQualifier ? (simple ? 'simple' : 'legacy') : undefined}>
         <span className="av2" aria-hidden="true">{r.name.trim()[0] ?? '؟'}</span>
         <span>
-          <span className="n" style={{ display: 'block' }}><Highlight text={r.name} q={active ? q : ''} /></span>
+          <span className="n" style={{ display: 'block' }}><CustomerName id={r.id} name={<Highlight text={r.name} q={active ? q : ''} />} badgeTestId={`badge-picker-customer-id-${r.id}`} /></span>
           <span className="m">
             <span className="ph ltr" dir="ltr"><Highlight text={r.phone} q={active && /\d/.test(norm(q)) ? q : ''} /></span>
             <span className="sep">|</span><span className="clx-pr" data-p={r.priority ?? undefined}>{r.priority ? `اولویت ${fa(r.priority)}` : 'بدون اولویت'}</span>
@@ -131,7 +133,7 @@ export function CallCustomerPicker({ user, config, search, onSearch, checking, o
       <div className="dh"><h2 id="clx-pk-t">ثبت تماس جدید</h2><button type="button" className="clx-xb" onClick={onClose} aria-label="بستن" data-testid="picker-close"><X size={22} /></button></div>
       <ol className="clx-stp" aria-label="مرحله ۱ از ۲"><li className="s on" aria-current="step"><i>۱</i>انتخاب مشتری</li><li className="ln" aria-hidden="true" /><li className="s"><i>۲</i>ثبت تماس</li></ol>
       <div className="dbody">
-        <label className="clx-sb"><Search size={18} aria-hidden="true" /><input value={search} onChange={(e) => onSearch(e.target.value)} placeholder="نام یا شماره موبایل مشتری" aria-label="جست‌وجوی مشتری با نام یا موبایل" data-testid="picker-search" />
+        <label className="clx-sb"><Search size={18} aria-hidden="true" /><input value={search} onChange={(e) => onSearch(e.target.value)} placeholder="نام، شناسه یا موبایل مشتری" aria-label="جست‌وجوی مشتری با نام یا موبایل" data-testid="picker-search" />
           {search ? <button type="button" className="x" onClick={() => onSearch('')} aria-label="پاک کردن جست‌وجو"><X size={16} /></button> : null}</label>
         {!active ? <p className="hint">حداقل ۲ حرف از نام یا ۴ رقم از موبایل را بنویسید.</p> : null}
         {checking?.state === 'error' ? <div className="clx-inote bad" role="alert" data-testid="picker-error"><AlertCircle size={18} aria-hidden="true" /><div>پرونده‌ی «{checking.name}» باز نشد. اتصال را بررسی کنید و دوباره امتحان کنید.<div style={{ marginTop: 6 }}><button type="button" className="clx-gbtn" onClick={onRetry} data-testid="picker-retry">تلاش دوباره</button></div></div></div> : null}

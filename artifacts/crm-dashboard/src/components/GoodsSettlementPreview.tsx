@@ -1,3 +1,4 @@
+import { CustomerName, customerNameText } from '@/components/customer/CustomerName';
 import { useState } from 'react';
 import { Banknote, AlertTriangle } from 'lucide-react';
 import { toBig, toman, type Purchase } from '@/lib/goods-api';
@@ -62,7 +63,7 @@ function SettleWizard({ p, principal, base, defaultBps, busy, onClose, onSettle 
   const gap = inRange && defaultBps !== null ? (bps! - defaultBps) / 100 : 0;
   const noPrincipal = principal <= 0n;
   return <Wizard title="تسویه با شرکت" testId="settle-wizard" steps={['درصد واریزی', 'بازبینی و ثبت']} step={step} onClose={onClose} onBack={step ? () => setStep(0) : undefined}
-    summary={<><span>{p.customerName}</span><b>{toman(final?.toString() ?? '0')}</b></>}
+    summary={<><span>{customerNameText(p.customerName, p.customerId)}</span><b>{toman(final?.toString() ?? '0')}</b></>}
     next={step === 0 ? { label: 'بعدی', disabled: noPrincipal || final === null || final <= 0n, onClick: () => setStep(1), testId: 'button-settle-next' }
       : { label: busy ? 'در حال ثبت تسویه…' : 'ثبت تسویه', tone: 'green', disabled: busy || discount === null, onClick: () => discount !== null && onSettle(discount.toString()), testId: 'button-settle-confirm' }}>
     {step === 0 ? <>
@@ -82,7 +83,7 @@ function SettleWizard({ p, principal, base, defaultBps, busy, onClose, onSettle 
       </div>
     </> : <>
       <div className="gp-kv gp-review">
-        <span>مشتری</span><b>{p.customerName}</b>
+        <span>مشتری</span><b><CustomerName id={p.customerId} name={p.customerName} /></b>
         <span>طرح</span><b>{p.planName}</b>
         <span>اصل تسهیلات</span><b>{toman(principal.toString())}</b>
         <span>درصد واریزی</span><b>{untouched && defaultBps !== null ? bpsText(defaultBps) : bpsText(bps ?? 0)}٪</b>

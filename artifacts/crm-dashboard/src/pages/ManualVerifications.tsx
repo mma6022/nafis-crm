@@ -18,8 +18,9 @@ import {
 } from '@workspace/api-client-react';
 import { Modal } from '@/components/DataTools';
 import { formatDateTime } from '@/components/CrmShell';
-import { normalizePersianSearchText } from '@/lib/search';
 import './ManualVerifications.css';
+import { CustomerName, customerNameText } from '@/components/customer/CustomerName';
+import { matchesCustomerSearch, rankExactCustomerId } from '@/lib/customer-id';
 
 const checkKeys = ['shahkarLite', 'personInfo', 'postalCodeInfo', 'sana'] as const;
 type CheckKey = typeof checkKeys[number];
@@ -381,7 +382,7 @@ function RequestDialog({ selection, latestPendingId, onReplace, onClose, onFinis
 
   const request = detail.data;
   return (
-    <Modal title={request?.customerName ?? 'بررسی درخواست هویت'} eyebrow={`پرونده بررسی شماره ${id.toLocaleString('fa-IR')}`} onClose={() => { if (!busy) onClose(); }} testId="manual-verification" wide>
+    <Modal title={request?.customerName ? customerNameText(request.customerName, request.customerId) : 'بررسی درخواست هویت'} eyebrow={`پرونده بررسی شماره ${id.toLocaleString('fa-IR')}`} onClose={() => { if (!busy) onClose(); }} testId="manual-verification" wide>
       {detail.isLoading ? <div className="mv-loading" aria-label="در حال دریافت جزئیات"><i /><i /><i /><i /></div> : null}
       {detail.isError ? <div className="mv-feedback" role="alert">{readableError(detail.error, 'دریافت جزئیات درخواست انجام نشد.')} <button type="button" className="btn btn-ghost" onClick={() => detail.refetch()} data-testid="button-retry-manual-detail">تلاش دوباره</button></div> : null}
       {request && form && decisions ? (
@@ -451,20 +452,19 @@ export default function ManualVerifications() {
   const [feedback, setFeedback] = useState('');
   const [search, setSearch] = useTableState('manualVerifications.search', '');
   const pending = (list.data ?? []).filter(item => item.status === 'pending');
-  const normalizedSearch = normalizePersianSearchText(search.trim());
-  const shown = pending.filter(item => normalizePersianSearchText(`${item.customerName} ${item.requestedByName || ''} ${item.customerId}`).includes(normalizedSearch));
+  const shown = rankExactCustomerId(pending.filter(item => matchesCustomerSearch(search, { id: item.customerId, name: item.customerName, extra: [item.requestedByName] })), search, (item) => item.customerId);
   return (
     <div className="mv-page" dir="rtl">
       <header className="mv-hero"><div><div className="mv-kicker">میز بررسی مدیر · احراز هویت SAPI</div><h2>درخواست‌های بررسی دستی</h2><p>موارد ارجاع‌شده از فروش را بررسی کنید؛ هر چهار استعلام باید پیش از تأیید نهایی تعیین تکلیف شوند.</p></div><div className="mv-hero-count" data-testid="count-pending-verifications"><strong>{pending.length.toLocaleString('fa-IR')}</strong><span>در انتظار بررسی</span></div></header>
       {feedback ? <div className="mv-feedback success" role="status" data-testid="status-manual-verification-success"><Check size={15} style={{ display:'inline', verticalAlign:'middle', marginLeft:6 }} />{feedback}</div> : null}
-      <div className="mv-toolbar"><strong>صف بررسی</strong><div className="searchbar"><Search size={15} /><input aria-label="جست‌وجوی درخواست" placeholder="جست‌وجوی مشتری یا کارشناس" value={search} onChange={e => setSearch(e.target.value)} data-testid="input-search-manual-verifications" /></div></div>
+      <div className="mv-toolbar"><strong>صف بررسی</strong><div className="searchbar"><Search size={15} /><input aria-label="جست‌وجوی درخواست" placeholder="نام یا شناسه مشتری، یا کارشناس" value={search} onChange={e => setSearch(e.target.value)} data-testid="input-search-manual-verifications" /></div></div>
       {list.isLoading ? <div className="mv-loading" aria-label="در حال دریافت درخواست‌ها"><i /><i /><i /><i /></div> : null}
       {list.isError ? <div className="mv-feedback" role="alert" data-testid="error-manual-verifications">{readableError(list.error, 'دریافت فهرست درخواست‌های بررسی دستی انجام نشد.')} <button type="button" className="btn btn-ghost" onClick={() => list.refetch()} data-testid="button-retry-manual-verifications">تلاش دوباره</button></div> : null}
       {!list.isLoading && !list.isError && !shown.length ? <div className="mv-empty" data-testid="empty-manual-verifications"><div className="mv-empty-icon">{search ? <Search size={25} /> : <ShieldCheck size={27} />}</div><strong>{search ? 'درخواستی پیدا نشد' : 'صف بررسی خالی است'}</strong><p>{search ? 'نام یا شناسه دیگری را جست‌وجو کنید.' : 'درخواست جدید فروش پس از ارجاع برای بررسی هویت، اینجا نمایش داده می‌شود.'}</p></div> : null}
       <div className="mv-list">{shown.map((item, index) => (
         <button type="button" className="mv-row" key={item.id} onClick={() => { setFeedback(''); setSelected({ id: item.id }); }} data-testid={`button-open-manual-verification-${item.id}`}>
           <span className="mv-number">{String(index + 1).padStart(2, '0')}</span>
-          <span className="mv-row-name"><strong data-testid={`text-manual-customer-${item.id}`}>{item.customerName}</strong><small>شناسه مشتری {item.customerId.toLocaleString('fa-IR')}</small></span>
+          <span className="mv-row-name"><strong><CustomerName id={item.customerId} name={item.customerName} nameTestId={`text-manual-customer-${item.id}`} /></strong></span>
           <span className="mv-cell"><small>ارجاع از فروش</small><span>{item.requestedByName || 'کارشناس فروش'}</span></span>
           <span className="mv-cell"><small>زمان درخواست</small><span><Clock3 size={12} style={{ display:'inline', verticalAlign:'middle', marginLeft:4 }} />{formatDateTime(item.createdAt)}</span></span>
           <span className="mv-cell"><small>نیازمند بررسی</small><span className="mv-chip">{item.sourceFailures.length.toLocaleString('fa-IR')} مورد ناموفق</span></span>

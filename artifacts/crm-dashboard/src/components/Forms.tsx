@@ -1,3 +1,4 @@
+import { customerNameText } from '@/components/customer/CustomerName';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { GradePicker } from '@/components/grade/GradePicker';
 import { createPortal } from 'react-dom';
@@ -374,7 +375,7 @@ export function CreateConsultationForm({ customers: sourceCustomers, pending, in
         <div className="field full"><label htmlFor="consult-customer-select">مشتری <span style={{ color: '#be123c' }}>*</span></label>
           <select id="consult-customer-select" value={form.customerId} onChange={(e) => set('customerId')(e.target.value)} disabled={!!initialCustomerId} aria-invalid={bad('customerId')} data-testid="select-consultation-customer">
             <option value="" disabled>انتخاب مشتری</option>
-            {customers.map((c) => <option key={c.id} value={c.id}>{c.name} · {c.phone}</option>)}
+            {customers.map((c) => <option key={c.id} value={c.id}>{customerNameText(c.name, c.id)} · {c.phone}</option>)}
           </select>
           {bad('customerId') ? <small role="alert" style={{ color: '#be123c' }}>مشتری را انتخاب کنید.</small> : null}
         </div>
@@ -482,7 +483,7 @@ export function CreateReminderForm({ onClose }: { onClose: () => void }) {
             <label htmlFor="header-reminder-customer">مشتری <span className="field-optional">(اختیاری)</span></label>
             <select id="header-reminder-customer" value={form.customerId} onChange={(event) => setForm({ ...form, customerId: event.target.value })} data-testid="select-header-reminder-customer">
               <option value="">بدون اتصال به مشتری</option>
-              {(customers.data?.items ?? []).map((customer) => <option key={customer.id} value={customer.id}>{customer.name} · {customer.phone} · کارشناس پرونده: {customer.salespersonName || 'بدون تخصیص'}</option>)}
+              {(customers.data?.items ?? []).map((customer) => <option key={customer.id} value={customer.id}>{customerNameText(customer.name, customer.id)} · {customer.phone} · کارشناس پرونده: {customer.salespersonName || 'بدون تخصیص'}</option>)}
             </select>
           </div>
           <div className="field full">

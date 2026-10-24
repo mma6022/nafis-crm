@@ -1,3 +1,4 @@
+import { CustomerName } from '@/components/customer/CustomerName';
 import { useMemo, useState } from 'react';
 import { useTableState } from '@/hooks/use-table-state';
 import { useQueryClient } from '@tanstack/react-query';
@@ -128,7 +129,7 @@ export function RecordedCallsPanel() {
         <td className="secondary-cell">{formatDateTime(r.startedAt)}</td>
         <td>{directionLabels[r.direction] ?? r.direction}</td>
         <td dir="ltr" style={{ textAlign: 'right' }}>{r.fromNumber}</td>
-        <td dir="ltr" style={{ textAlign: 'right' }}>{r.toNumber}{r.customerName ? <span className="secondary-cell" dir="rtl">{r.customerName}</span> : null}</td>
+        <td dir="ltr" style={{ textAlign: 'right' }}>{r.toNumber}{r.customerName ? <span className="secondary-cell" dir="rtl"><CustomerName id={r.customerId} name={r.customerName} /></span> : null}</td>
         <td>{r.expertNames.length ? r.expertNames.join('، ') : 'نامشخص'}{r.extensions.length ? <span className="secondary-cell" dir="ltr">{r.extensions.join(', ')}</span> : null}</td>
         <td>{statusLabels[r.status] ?? r.status}</td>
         <td>{duration(r.durationSeconds)} / {duration(r.talkSeconds)}</td>

@@ -1,3 +1,4 @@
+import { CustomerName } from '@/components/customer/CustomerName';
 import { AlertCircle, ArrowUp, Check, Star } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { fetchNextCloser, shortName, TeamSalesApiError, upgradePriority, type NextCloser, type PromoteResult } from './api';
@@ -53,7 +54,7 @@ export function UpgradeDialog({ customer, onClose, onDone }: {
     <div className="ts-scrim" onClick={() => !pending && onClose()} aria-hidden="true" />
     <div ref={ref} className="ts-dlg" role="alertdialog" aria-modal="true" aria-labelledby="ts-up-title" aria-describedby="ts-up-desc" tabIndex={-1} data-testid="ts-upgrade-dialog">
       <h2 id="ts-up-title">ارتقا به اولویت ۱؟</h2>
-      <p id="ts-up-desc">«{customer.name}» از صف شما خارج می‌شود و به {next ? next.name : 'کارشناس پیگیری نوبت بعدی'} می‌رسد.</p>
+      <p id="ts-up-desc">«<CustomerName id={customer.id} name={customer.name} />» از صف شما خارج می‌شود و به {next ? next.name : 'کارشناس پیگیری نوبت بعدی'} می‌رسد.</p>
       <div className="ts-next">
         <span className="ts-av" aria-hidden="true">{next ? shortName(next.name).slice(0, 1) : '؟'}</span>
         <div><b data-testid="ts-next-closer">{who}</b><p>نوبت بعدی چرخش — مهلت تماس ۳ ساعت کاری</p></div>

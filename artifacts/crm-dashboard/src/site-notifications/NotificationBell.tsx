@@ -1,3 +1,4 @@
+import { CustomerName, customerNameText } from '@/components/customer/CustomerName';
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Inbox, Phone, Star, X } from 'lucide-react';
@@ -194,7 +195,7 @@ function ProviderInner({ children }: { children: ReactNode }) {
             <div className="sn-toast" key={n.id} data-testid={`toast-notification-${n.id}`}>
               <button type="button" className="sn-toast-main" onClick={() => { setToastError(''); openItem(n).catch((e) => setToastError(e instanceof Error ? e.message : 'باز کردن اعلان انجام نشد.')); }} data-testid={`button-toast-open-${n.id}`}>
                 <strong>{n.title}</strong>
-                <span>{n.customerName ? `${n.customerName}: ` : ''}{n.body}</span>
+                <span>{n.customerName ? `${customerNameText(n.customerName, n.customerId)}: ` : ''}{n.body}</span>
               </button>
               <button type="button" className="sn-toast-x" aria-label="بستن اعلان" onClick={() => setToasts((t) => t.filter((x) => x.id !== n.id))} data-testid={`button-toast-dismiss-${n.id}`}><X size={15} /></button>
             </div>
@@ -378,7 +379,7 @@ function BellInner() {
                       <button type="button" className={`sn-item ${n.readAt ? '' : 'unread'}${isP1(n) ? ' p1' : ''}`} onClick={() => void activate(n)} data-testid={`item-notification-${n.id}`}>
                         <span className="sn-title">{isP1(n) ? <Star size={14} className="sn-star" aria-label="اولویت ۱" /> : null}{n.title}</span>
                         <span className="sn-body">{n.body}</span>
-                        <span className="sn-meta"><span>{n.customerName}{allScope && n.page && PAGE_LABELS[n.page] ? ` · ${PAGE_LABELS[n.page]}` : ''}</span><time dateTime={n.createdAt}>{fmtTime(n.createdAt)}</time></span>
+                        <span className="sn-meta"><span>{n.customerName ? <CustomerName id={n.customerId} name={n.customerName} /> : null}{allScope && n.page && PAGE_LABELS[n.page] ? ` · ${PAGE_LABELS[n.page]}` : ''}</span><time dateTime={n.createdAt}>{fmtTime(n.createdAt)}</time></span>
                       </button>
                       {n.readAt ? null : <button type="button" className="sn-read" onClick={() => void markOne(n)} data-testid={`button-notification-read-${n.id}`}>خوانده شد</button>}
                     </li>

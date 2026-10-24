@@ -1,3 +1,4 @@
+import { CustomerName } from '@/components/customer/CustomerName';
 import { useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getGetCustomerQueryKey, useGetAuthSession, useUpdateCustomer, type Customer } from '@workspace/api-client-react';
@@ -40,7 +41,7 @@ export function AdminCustomerPhoneEditor({ customer, onClose }: { customer: Cust
   };
   return <Modal title="تغییر شماره موبایل مشتری" onClose={close} testId="admin-customer-phone">
     <form onSubmit={submit}>
-      <p><strong data-testid="text-phone-edit-customer">{customer.name}</strong></p>
+      <p><strong><CustomerName id={customer.id} name={customer.name} nameTestId="text-phone-edit-customer" /></strong></p>
       <p>موبایل فعلی: <bdi dir="ltr" data-testid="text-current-customer-phone">{formatPhoneForDisplay(customer.phone)}</bdi></p>
       <p id="customer-phone-change-warning" style={{ color: '#92400e', fontSize: 13, lineHeight: 1.9 }}>
         با تغییر موبایل، تأیید هویت قبلی معتبر نخواهد بود و اطلاعات وابسته به هویت برای درخواست جدید باید دوباره بررسی شوند.

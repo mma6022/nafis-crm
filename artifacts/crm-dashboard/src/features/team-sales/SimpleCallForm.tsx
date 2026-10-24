@@ -7,6 +7,7 @@ import './team-sales.css';
 import { GradeChip } from '@/components/grade/GradeChip';
 import { GradePicker } from '@/components/grade/GradePicker';
 import { gradeText, isLegacy } from '@/lib/credit-grade';
+import { CustomerName } from '@/components/customer/CustomerName';
 
 /**
  * First-call form (design crm-call-form-plans): 6 steps when the customer answered —
@@ -372,7 +373,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
     <div ref={dialogRef} className="ts-wz" role="dialog" aria-modal="true" aria-labelledby="ts-wz-title" tabIndex={-1} data-testid="ts-simple-form">
       <div className="ts-wz-head">
         <div className="ts-wz-who">
-          <h2 id="ts-wz-title">فرم تماس — {customer.name}</h2>
+          <h2 id="ts-wz-title">فرم تماس — <CustomerName id={customer.id} name={customer.name} badgeTestId="ts-wz-customer-id" /></h2>
           <div className="sub"><span className="ltr" dir="ltr" data-testid="ts-phone">{fa(customer.phone)}</span>
             <button type="button" className="ts-copy" onClick={copyPhone} aria-label={`کپی شماره‌ی ${customer.name}`} data-testid="ts-copy-phone"><Copy size={13} /> {copied ? 'کپی شد' : 'کپی'}</button>
             <span className="ts-badge gray">{prio}</span> <span className="ts-badge">نسخه‌ی ساده</span></div>
@@ -383,7 +384,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
         <div className="row"><b>{result ? 'نتیجه' : titles[d.step]}</b><span className="ts-muted" data-testid="ts-step-of">{result ? 'ثبت شد' : `مرحله ${fa(idx)} از ${fa(total)}`}</span></div>
         <div className="bars" aria-hidden="true">{Array.from({ length: total }, (_, i) => <span key={i} className={result || i < idx ? 'on' : ''} />)}</div>
       </div>
-      <div className="ts-wz-body" ref={bodyRef}>{onChangeCustomer && !result ? <div className="ts-picked-customer" data-testid="ts-picked-customer"><div><b>{customer.name}</b><span className="ts-muted"> | کد {fa(customer.id)} | {prio}</span></div><button type="button" onClick={onChangeCustomer} data-testid="ts-change-customer"><ChevronRight size={16} aria-hidden="true" /> تغییر مشتری</button></div> : null}{body}</div>
+      <div className="ts-wz-body" ref={bodyRef}>{onChangeCustomer && !result ? <div className="ts-picked-customer" data-testid="ts-picked-customer"><div><b><CustomerName id={customer.id} name={customer.name} badgeTestId="ts-picked-customer-id" /></b><span className="ts-muted"> | {prio}</span></div><button type="button" onClick={onChangeCustomer} data-testid="ts-change-customer"><ChevronRight size={16} aria-hidden="true" /> تغییر مشتری</button></div> : null}{body}</div>
       {copyToast ? <div className={`ts-toast${copied ? ' ok' : ''}`} role="status" data-testid="ts-copy-toast">{copyToast}</div> : null}
       <div className="ts-wz-foot">
         {result ? <div className="ts-two">

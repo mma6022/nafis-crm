@@ -1,3 +1,4 @@
+import { CustomerIdBadge } from '@/components/customer/CustomerName';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
@@ -285,7 +286,7 @@ function CallbackDetail({ item, meta, wide, assignees, busy, run, say, onClose, 
               {item.planId && <><dt>طرح</dt><dd>{item.planName ?? `#${fa(item.planId)}`}</dd></>}
               <dt>منبع</dt><dd>{srcLabel(item.src)}</dd>
               <dt>ثبت</dt><dd>{ago(item.createdAt)}{item.trackingCode ? <> · کد <span dir="ltr">{item.trackingCode}</span></> : null}</dd>
-              {item.customerId && <><dt>مشتری</dt><dd><Link href={`/customers/${item.customerId}`}>{item.customerName ?? `#${fa(item.customerId)}`}</Link></dd></>}
+              {item.customerId && <><dt>مشتری</dt><dd><Link href={`/customers/${item.customerId}`}>{item.customerName ?? 'مشتری'}</Link> <CustomerIdBadge id={item.customerId} /></dd></>}
             </dl>
           </div>
           <div className="dsec">

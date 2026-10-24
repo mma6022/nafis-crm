@@ -2,6 +2,7 @@ import { useRef, useState, type FormEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { createCompanyWalletAdjustment, getGetCompanyWalletQueryKey, useGetCompanyWallet } from '@workspace/api-client-react';
 import { Link } from 'wouter';
+import { CustomerIdBadge } from '@/components/customer/CustomerName';
 
 const money = (value: string) => BigInt(value).toLocaleString('fa-IR');
 
@@ -79,7 +80,7 @@ export default function CompanyWalletPanel() {
           <td>{entry.walletType === 'cash' ? 'نقدی' : 'اعتباری'}</td>
           <td>{entry.kind === 'goods_purchase' ? 'دریافت خالص خرید' : entry.kind === 'filing_fee' ? 'هزینه تشکیل پرونده' : entry.kind === 'manual_deposit' ? 'دریافت دستی' : 'برداشت دستی'}</td>
           <td>{entry.kind === 'manual_withdrawal' ? '−' : '+'}{money(entry.amountToman)}</td>
-          <td>{entry.customerId ? <><Link href={`/customers/${entry.customerId}`}>{entry.customerName || `مشتری ${entry.customerId}`}</Link>
+          <td>{entry.customerId ? <><Link href={`/customers/${entry.customerId}`}>{entry.customerName || `مشتری ${entry.customerId}`}</Link> <CustomerIdBadge id={entry.customerId} />
             <span style={{ display: 'block', fontSize: 11, color: '#64748b' }}>کارشناس فروش: {customerSalespersonName || 'بدون تخصیص'}</span>
             {entry.reason && <span style={{ display: 'block', fontSize: 11 }}>{entry.reason}</span>}
           </> : entry.reason || '—'}</td>
