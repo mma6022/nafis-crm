@@ -36,6 +36,7 @@ import { socialMonitorFeature } from "../lib/social-monitor";
 import teamSalesRouter from "./team-sales";
 import { ensureTeamSalesSchema } from "../lib/team-sales";
 import teamCommissionRouter from "./team-commission";
+import loanRequestDraftsRouter from "./loan-request-drafts";
 
 const router: IRouter = Router();
 startDatabaseBackupScheduler();
@@ -56,6 +57,7 @@ router.use(callReportsRouter);
 router.use(mobileCallsRouter);
 router.use("/chat", staffChatRouter);
 router.use(contractsRouter);
+router.use(loanRequestDraftsRouter);
 router.use(loanApplicationsRouter);
 router.use(walletsRouter);
 router.use(walletManagementRouter);

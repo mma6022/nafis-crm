@@ -171,7 +171,7 @@ function from(user: AuthUser) {
 const selection=`e.*,COALESCE(c.name,e.customer_name) customer_name,c.id current_customer_id,
   CASE WHEN e.id<=COALESCE(w.last_read_id,0) THEN w.read_at ELSE r.read_at END read_at`;
 const notificationPages = {
-  customer: "customers", chat: "chat", instagram: "instagram-inbox", loan: "loan-applications",
+  customer: "customers", chat: "chat", instagram: "instagram-inbox", loan: "loan-applications", loan_draft: "loan-applications",
   goods: "goods-purchases", contract: "contracts", payment: "payment-orders",
   calls: "calls", consultations: "consultations", wallet: "wallet-management",
 } as const;
@@ -191,6 +191,10 @@ function target(e: Event) {
   if(e.resource_type==="loan") {
     const row=queryRow<{deleted_at:string|null}>("SELECT deleted_at FROM loan_applications WHERE id=? AND customer_id=?",[e.resource_id,id]);
     return row&&!row.deleted_at?`/loan-applications/${e.resource_id}${e.kind==="case-note"?"?focus=notes":""}`:"/loan-applications";
+  }
+  if(e.resource_type==="loan_draft") {
+    const row=queryRow<{deleted_at:string|null}>("SELECT deleted_at FROM loan_request_drafts WHERE id=? AND customer_id=?",[e.resource_id,id]);
+    return row&&!row.deleted_at?`/loan-applications?tab=pending&draftId=${e.resource_id}`:"/loan-applications?tab=pending";
   }
   if(e.resource_type==="goods")return queryRow("SELECT 1 FROM goods_purchases WHERE id=? AND customer_id=?",[e.resource_id,id])?`/goods-purchases/${e.resource_id}`:"/goods-purchases";
   if(e.resource_type==="contract")return `/contracts?customerId=${id}`;
