@@ -1,5 +1,5 @@
 import { matchesCustomerSearch, rankExactCustomerId } from '@/lib/customer-id';
-import { CustomerName } from '@/components/customer/CustomerName';
+import { CustomerIdBadge, CustomerName } from '@/components/customer/CustomerName';
 import { createPortal } from "react-dom";
 import { requestWalletShare } from '@/lib/wallet-share';
 import { documentFileAccept, supportedDocumentFile } from '@/lib/document-upload-type';
@@ -8,6 +8,9 @@ import React, { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { clearLoanDraft, readLoanDraft, writeLoanDraft } from "@/lib/loan-draft";
+import { DRAFTS_KEY, DraftHttpError, canUseDrafts, draftsApi, tehranTime, type DraftPayload, type RequestDraft } from "@/lib/request-drafts";
+import { toast } from "@/hooks/use-toast";
+import "./request-drafts.css";
 import { WIZARD_DISPLAY_STEPS, WIZARD_PHASES, WIZARD_TOTAL_STEPS } from "@/lib/loan-labels";
 import { ConfirmDialog, useMinWidth } from "@/pages/customers-ui";
 import "@/pages/customers.css";
@@ -59,7 +62,8 @@ import {
   X,
   Info,
   Copy,
-  FileClock
+  FileClock,
+  RotateCcw
 } from "lucide-react";
 import { PersianDatePicker } from "@/components/PersianDatePicker";
 import { formatPhoneForDisplay } from "@/lib/phone";
@@ -143,7 +147,7 @@ const STEP_LEADS: Record<number, string> = {
   10: "اطلاعات را بازبینی و پرونده را ثبت کنید.",
 };
 
-export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCustomer }: { onClose: () => void; initialCustomerId?: number; resumeDraft?: boolean; fromCustomer?: boolean }) {
+export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCustomer, serverDraftId }: { onClose: () => void; initialCustomerId?: number; resumeDraft?: boolean; fromCustomer?: boolean; serverDraftId?: number }) {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const reduceMotion = useReducedMotion();
@@ -221,6 +225,158 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
     setAmount(String(Math.min(planStep, planMaximum || planStep)));
   };
 
+  // ---- Server draft («در انتظار ثبت»): create on customer pick, debounced autosave, resume. ----
+  const [srv, setSrvState] = useState<RequestDraft | null>(null);
+  const srvRef = useRef<RequestDraft | null>(null);
+  const setSrv = (d: RequestDraft | null) => { srvRef.current = d; setSrvState(d); };
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'offline' | 'closed'>('idle');
+  const [hydrated, setHydrated] = useState(false);
+  const [dupDraft, setDupDraft] = useState<RequestDraft | null>(null);
+  const [resumeInfo, setResumeInfo] = useState<RequestDraft | null>(null);
+  const [resumeAt, setResumeAt] = useState<number | null>(null);
+  const stepNow = useRef(step); stepNow.current = step;
+  const [creditNudge, setCreditNudge] = useState(false);
+  const [draftNotice, setDraftNotice] = useState('');
+  const latest = useRef<{ step: number; payload: DraftPayload }>({ step: 2, payload: {} });
+  const inflight = useRef(false);
+  const again = useRef(false);
+  const timer = useRef<number | undefined>(undefined);
+  // A saved plan that could not be re-offered yet (e.g. credit must be refreshed) keeps its saved terms instead of being blanked.
+  const payloadNow = (): DraftPayload => {
+    const kept = !selectedPlan && selectedPlanId && srvRef.current?.planId === selectedPlanId ? (srvRef.current.payload ?? {}) : null;
+    return {
+      planId: selectedPlanId, planName: selectedPlan?.name ?? (kept ? srvRef.current!.planName : null),
+      conditionId: selectedPlan?.conditionId ?? kept?.conditionId ?? null,
+      amount: selectedPlan ? amount : kept?.amount ?? '', duration: selectedPlan ? duration : kept?.duration ?? '',
+      ignoreCreditRank: previewAllPlans,
+    };
+  };
+  // The server keeps the furthest step reached, so stepping back (or a forced credit refresh) never loses the resume point.
+  const furthestSaved = srvRef.current && srvRef.current.customerId === selectedCustomer?.id ? srvRef.current.step : 0;
+  latest.current = { step: Math.max(2, displayStep, furthestSaved), payload: payloadNow() };
+  const draftsAllowedNow = canUseDrafts(session.data?.user as { role?: string; permissions?: string[] } | undefined);
+
+  const flush = async (): Promise<boolean> => {
+    const d = srvRef.current;
+    if (!d) return false;
+    if (inflight.current) { again.current = true; return false; }
+    inflight.current = true; setSaveState('saving');
+    let ok = false;
+    try {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const saved = await draftsApi.save(srvRef.current!.id, srvRef.current!.version, latest.current.step, latest.current.payload);
+          setSrv(saved); setSaveState('saved'); ok = true;
+          if (userId) clearLoanDraft(userId, saved.customerId);
+          break;
+        } catch (e) {
+          // Version conflict: adopt the server version and write this (active) session's state once more.
+          if (e instanceof DraftHttpError && e.status === 409 && e.data?.draft && attempt === 0) { setSrv(e.data.draft); continue; }
+          throw e;
+        }
+      }
+    } catch (e) {
+      if (e instanceof DraftHttpError && (e.status === 410 || e.status === 404)) { setSaveState('closed'); setSrv(null); }
+      else setSaveState('offline');
+    } finally {
+      inflight.current = false;
+      if (again.current) { again.current = false; void flush(); }
+    }
+    return ok;
+  };
+  const createFor = async (customer: Customer): Promise<boolean> => {
+    setSaveState('saving');
+    try {
+      const d = await draftsApi.create(customer.id, latest.current.step, latest.current.payload);
+      setSrv(d); setSaveState('saved'); setHydrated(true);
+      void queryClient.invalidateQueries({ queryKey: DRAFTS_KEY });
+      return true;
+    } catch (e) {
+      if (e instanceof DraftHttpError && e.status === 409 && e.data?.draft) { setSaveState('idle'); setDupDraft(e.data.draft); return false; }
+      setSaveState('offline'); return false;
+    }
+  };
+  /** Called before leaving step 1 (and on entry): makes sure this customer has a server draft. */
+  const ensureDraft = async (): Promise<boolean> => {
+    if (!draftsAllowedNow || !selectedCustomer) return true;
+    if (srvRef.current && srvRef.current.customerId === selectedCustomer.id) return saveState === 'offline' ? flush() : true;
+    if (srvRef.current) setSrv(null); // customer changed: the previous draft stays in the queue
+    return createFor(selectedCustomer);
+  };
+  const goDisplay = (n: number) => {
+    const t = WIZARD_DISPLAY_STEPS[Math.min(Math.max(n, 2), WIZARD_TOTAL_STEPS) - 1];
+    pendingSub.current = t.p;
+    // stepNow, not the closure's step: hydrate runs after the entry effect already moved to step 2.
+    if (t.s === stepNow.current) setSub(t.p); else setStep(t.s as 1 | 2 | 3 | 4 | 5 | 6);
+  };
+  const hydrate = async (d: RequestDraft) => {
+    setSrv(d); setResumeInfo(d); setSaveState('saved'); setDupDraft(null);
+    const p = d.payload ?? {};
+    const ignore = Boolean(p.ignoreCreditRank) && canIgnoreCreditRank;
+    setIgnoreCreditRank(ignore);
+    if (d.feeChargeId) setFeeChargeId(d.feeChargeId);
+    if (p.planId) setSelectedPlanId(p.planId);
+    let n = Math.max(2, d.step);
+    if (p.planId && n >= 5) {
+      try {
+        const plans = await listCustomerEligiblePlans(d.customerId, { ignoreCreditRank: ignore });
+        queryClient.setQueryData(getListCustomerEligiblePlansQueryKey(d.customerId, { ignoreCreditRank: ignore }), plans);
+        const plan = plans.plans.find((x) => x.planId === p.planId && (p.conditionId == null || x.conditionId === p.conditionId))
+          ?? (d.feeChargeId ? plans.plans.find((x) => x.planId === p.planId) : undefined);
+        if (plan) {
+          setSelectedPlan(plan);
+          if (p.amount) setAmount(p.amount); else setAmount(String(Math.min(1_000_000, Number(plan.maximumAmount || 0) || 1_000_000)));
+          if (p.duration) setDuration(p.duration);
+        } else n = Math.min(n, plans.credit?.fresh || ignore ? 5 : 4);
+      } catch { n = Math.min(n, 5); }
+    } else if (n >= 6) n = 5;
+    if (!d.creditFresh && !ignore && (n >= 5 || n < Math.max(2, d.step))) setCreditNudge(true);
+    setResumeAt(n);
+    goDisplay(n);
+    setHydrated(true);
+  };
+  const openServerDraft = async (customerId: number, draftId?: number) => {
+    try {
+      const d = draftId ? await draftsApi.get(draftId) : await draftsApi.byCustomer(customerId);
+      if (d && d.customerId === customerId && d.status === 'pending_registration') { await hydrate(d); return; }
+      if (draftId) setDraftNotice('این درخواست دیگر در انتظار ثبت نیست؛ درخواست تازه شروع شد.');
+    } catch (e) {
+      if (e instanceof DraftHttpError && e.offline) {
+        setSaveState('offline');
+        const local = readLoanDraft(userId, customerId);
+        if (local) { draftRestore.current = { planId: local.planId, amount: local.amount, duration: local.duration }; if (local.planId) setSelectedPlanId(local.planId); setRestoredDraft(true); }
+        return;
+      }
+      if (draftId) setDraftNotice(e instanceof DraftHttpError && e.status === 403 ? 'این درخواست مال کارشناس دیگری است و فقط خودش می‌تواند ادامه دهد.' : 'این درخواست دیگر در انتظار ثبت نیست؛ درخواست تازه شروع شد.');
+    }
+    const c = entryCustomer.data as unknown as Customer | undefined;
+    if (c) await createFor(c);
+  };
+  // Debounced autosave (~1s) of the current step and terms.
+  const fingerprint = JSON.stringify(latest.current);
+  useEffect(() => {
+    if (!draftsAllowedNow || !hydrated || !srvRef.current || step < 2) return;
+    // Opening or viewing a draft is not a change: no PUT, so «منتظر» and the 30-day clock are not reset.
+    const d = srvRef.current, sp = d.payload ?? {}, np = latest.current.payload;
+    const same = d.step === latest.current.step && (sp.planId ?? null) === (np.planId ?? null) && (sp.conditionId ?? null) === (np.conditionId ?? null)
+      && (sp.amount ?? '') === (np.amount ?? '') && (sp.duration ?? '') === (np.duration ?? '') && Boolean(sp.ignoreCreditRank) === Boolean(np.ignoreCreditRank);
+    if (same && saveState !== 'offline') return;
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => { void flush(); }, 1000);
+    return () => window.clearTimeout(timer.current);
+  }, [fingerprint, hydrated, draftsAllowedNow]);
+  // Offline: retry when the browser reconnects and every 15s.
+  useEffect(() => {
+    if (saveState !== 'offline') return;
+    const retry = () => { if (srvRef.current) void flush(); else if (selectedCustomer && step > 1) void ensureDraft(); };
+    window.addEventListener('online', retry);
+    const id = window.setInterval(retry, 15_000);
+    return () => { window.removeEventListener('online', retry); window.clearInterval(id); };
+  }, [saveState, selectedCustomer?.id, step]);
+  useEffect(() => { if (displayStep === 4) setCreditNudge(false); }, [displayStep]);
+  const saveBlocked = draftsAllowedNow && step > 1 && saveState === 'offline';
+  const draftsAllowed = draftsAllowedNow;
+
   // Entry from the customer page: customer pre-selected, wizard starts at step 2.
   const userId = session.data?.user?.id;
   const entryCustomer = useGetCustomer(initialCustomerId ?? 0, { query: { queryKey: getGetCustomerQueryKey(initialCustomerId ?? 0), enabled: Boolean(initialCustomerId) } });
@@ -232,13 +388,14 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
     entryApplied.current = true;
     selectCustomer(entryCustomer.data as unknown as Customer);
     setStep(2);
+    if (draftsAllowed) { void openServerDraft(initialCustomerId, serverDraftId); return; }
     const draft = resumeDraft ? readLoanDraft(userId, initialCustomerId) : null;
     if (draft) {
       draftRestore.current = { planId: draft.planId, amount: draft.amount, duration: draft.duration };
       if (draft.planId) setSelectedPlanId(draft.planId);
       setRestoredDraft(true);
     }
-  }, [entryCustomer.data, initialCustomerId, resumeDraft, session.data, userId]);
+  }, [entryCustomer.data, initialCustomerId, resumeDraft, session.data, userId, serverDraftId]);
   useEffect(() => {
     const restore = draftRestore.current;
     if (!restore || !selectedPlan || selectedPlan.planId !== restore.planId) return;
@@ -249,6 +406,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   // Draft saving (client-side only): remember the customer, furthest step and chosen terms.
   useEffect(() => {
     if (!selectedCustomer || !userId || step < 2) return;
+    if (draftsAllowed && hydrated && saveState !== 'offline') return;
     const previous = readLoanDraft(userId, selectedCustomer.id);
     writeLoanDraft(userId, {
       customerId: selectedCustomer.id, customerName: selectedCustomer.name,
@@ -258,9 +416,11 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
       amount: selectedPlan ? amount : previous?.amount ?? '',
       duration: selectedPlan ? duration : previous?.duration ?? '',
     });
-  }, [selectedCustomer?.id, step, displayStep, selectedPlanId, selectedPlan?.planId, amount, duration, userId]);
+  }, [selectedCustomer?.id, step, displayStep, selectedPlanId, selectedPlan?.planId, amount, duration, userId, saveState, hydrated]);
+
 
   const handleNext = () => {
+    if (saveBlocked) { if (srvRef.current) void flush(); else void ensureDraft(); return; }
     if (sub + 1 < (STEP_PARTS[step] ?? 1)) { setSub(sub + 1); return; }
     pendingSub.current = 0;
     setStep((s) => Math.min(s + 1, 6) as any);
@@ -284,6 +444,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
 
   const handleSubmit = async (manualValues: Record<string, string>) => {
     if (checkingSubmission || createMutation.isPending) return;
+    if (saveBlocked) { void flush(); return; }
     if (!selectedCustomer || !selectedPlan || !feeChargeId || !selectedPlan.contractTemplateId) {
       setSubmitError('اطلاعات مشتری، طرح، هزینه تشکیل پرونده یا قالب قرارداد کامل نیست.');
       return;
@@ -337,11 +498,18 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
         preRegistration: true,
         // Retain the original manual-only contract fields for the application-bound primary generation.
         manualValues,
+        ...(srvRef.current ? { draftId: srvRef.current.id } : {}),
       };
-      const application = await createMutation.mutateAsync({ data: applicationInput });
+      window.clearTimeout(timer.current);
+      const application = await createMutation.mutateAsync({ data: applicationInput as typeof applicationInput });
       await queryClient.invalidateQueries({ queryKey: ["/api/loan-applications"] });
       window.sessionStorage.removeItem(`loan-fee:${selectedCustomer.id}:${selectedPlan.planId}`);
       clearLoanDraft(userId, selectedCustomer.id);
+      if (srvRef.current) {
+        void queryClient.invalidateQueries({ queryKey: DRAFTS_KEY });
+        toast({ title: 'درخواست ثبت شد', description: `پرونده‌ی ${fa(application.id)} برای ${selectedCustomer.name} ساخته شد و از «در انتظار ثبت» خارج شد.`, duration: 5000 });
+        srvRef.current = null;
+      }
       setLocation(`/loan-applications/${application.id}`);
       onClose();
     } catch (error) {
@@ -443,16 +611,23 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   );
 
   return createPortal(
-    <div className="csx lwz" role="dialog" aria-modal="true" aria-labelledby="lwz-title" dir="rtl" data-testid="create-loan-application-wizard"
+    <div className="csx lwz" data-save-blocked={saveBlocked ? 'true' : undefined} role="dialog" aria-modal="true" aria-labelledby="lwz-title" dir="rtl" data-testid="create-loan-application-wizard"
       onKeyDown={(event) => { if (event.key === 'Escape' && !exitOpen) { event.stopPropagation(); requestExit(); } }}>
       <header className="lwz-top">
         <button type="button" className="lwz-x" onClick={requestExit} aria-label="بستن ثبت درخواست" data-testid="wizard-close"><X size={24} /></button>
         <h2 id="lwz-title" tabIndex={-1} ref={titleRef}>ثبت درخواست تسهیلات</h2>
-        {selectedCustomer && step > 1 ? <span className="lwz-saved" role="status" data-testid="wizard-draft-saved"><Check size={16} aria-hidden="true" /> <span className="t">ذخیره شد</span></span> : null}
+        {selectedCustomer && step > 1 && !draftsAllowed ? <span className="lwz-saved" role="status" data-testid="wizard-draft-saved"><Check size={16} aria-hidden="true" /> <span className="t">ذخیره شد</span></span> : null}
+        {selectedCustomer && (step > 1 || saveState === 'offline') && draftsAllowed ? <span className={`lwz-save${saveState === 'saved' ? ' ok' : saveState === 'offline' || saveState === 'closed' ? ' bad' : ''}`} role="status" aria-live="polite" data-testid="wizard-draft-saved" data-state={saveState}>
+          {saveState === 'saving' ? <><RefreshCw size={15} aria-hidden="true" /> <span className="t">در حال ذخیره…</span></>
+            : saveState === 'offline' ? <><AlertCircle size={15} aria-hidden="true" /> <span className="t">ذخیره نشد، اتصال قطع است</span> <button type="button" onClick={() => { if (srvRef.current) void flush(); else void ensureDraft().then((ok) => { if (ok && step === 1) handleNext(); }); }} data-testid="wizard-save-retry">تلاش دوباره</button></>
+            : saveState === 'closed' ? <><AlertCircle size={15} aria-hidden="true" /> <span className="t">این درخواست دیگر در انتظار ثبت نیست</span></>
+            : srv ? <><Check size={15} aria-hidden="true" /> <span className="t">ذخیره شد، </span><span className="tm">{tehranTime(srv.updatedAt)}</span></> : null}
+        </span> : null}
+        {srv && step > 1 ? <span className="lwz-pending-pill" data-testid="wizard-pending-pill"><FileClock size={13} aria-hidden="true" /> <span className="t">در انتظار ثبت</span></span> : null}
         <section className="lwz-chip" aria-label="مشخصات مشتری درخواست" data-testid="wizard-customer-summary">
           <span className="av" aria-hidden="true">{selectedCustomer?.name ? selectedCustomer.name.trim().charAt(0) : <User size={16} />}</span>
           <span className="tx">
-            <strong data-testid="wizard-customer-name">{selectedCustomer?.name || 'هنوز انتخاب نشده'}</strong>
+            <strong data-testid="wizard-customer-name">{selectedCustomer?.name || 'هنوز انتخاب نشده'}{selectedCustomer ? <> <CustomerIdBadge id={selectedCustomer.id} testId="wizard-customer-id" /></> : null}</strong>
             <small><bdi dir="ltr" data-testid="wizard-customer-phone">{selectedCustomer?.phone ? formatPhoneForDisplay(selectedCustomer.phone) : '—'}</bdi> · کد ملی <bdi dir="ltr" data-testid="wizard-customer-national-code">{selectedCustomer ? selectedCustomer.nationalCode || 'ثبت نشده' : '—'}</bdi></small>
           </span>
         </section>
@@ -464,6 +639,17 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
           <div className="lwz-inner">
             {fromCustomer && selectedCustomer && entryApplied.current && displayStep > 1 ? <p className="lwz-note ok" data-testid="wizard-from-customer-note"><User size={18} aria-hidden="true" /> <span>مشتری از پرونده مشتری انتخاب شد: <b>{selectedCustomer.name}</b>. <button type="button" className="text-link" onClick={() => jumpTo(1)} disabled={isSubmitting} data-testid="btn-change-customer">تغییر مشتری</button></span></p> : null}
             {restoredDraft && step <= 3 ? <p className="lwz-note" role="status" data-testid="wizard-draft-restored"><FileClock size={18} aria-hidden="true" /> <span><b>پیش‌نویس بازیابی شد.</b> اعتبار مشتری دوباره بررسی می‌شود و طرح و مبلغ انتخابی قبلی در مرحله «طرح و شرط» پیشنهاد می‌شود.</span></p> : null}
+            {initialCustomerId && entryCustomer.isError && !selectedCustomer ? <p className="lwz-note bad" role="alert" data-testid="wizard-entry-customer-error"><AlertCircle size={18} aria-hidden="true" /> اطلاعات مشتری #{fa(initialCustomerId)} دریافت نشد؛ درخواست ذخیره‌شده دست نخورده است. صفحه را دوباره باز کن.</p> : null}
+            {draftNotice ? <p className="lwz-note" role="status" data-testid="wizard-draft-notice">{draftNotice}</p> : null}
+            {resumeInfo && selectedCustomer && resumeInfo.customerId === selectedCustomer.id && displayStep === resumeAt ? <div className="lwz-resume" data-testid="wizard-resume-box">
+              <div className="h"><span><RotateCcw size={16} aria-hidden="true" /> ادامه‌ی درخواست نیمه‌کاره</span><span className="muted">{resumeInfo.paid ? 'هزینه‌ی پرونده واریز شده' : 'هزینه واریز نشده'}</span></div>
+              <div>مشتری: <b>{resumeInfo.customerName ?? selectedCustomer.name}</b> <CustomerIdBadge id={resumeInfo.customerId} /></div>
+              <b>همه‌ی اطلاعات قبلی سر جایش است؛ از مرحله {fa(displayStep)} ادامه بده.{resumeInfo.step > displayStep ? ` (آخرین مرحله‌ی ذخیره‌شده ${fa(resumeInfo.step)} بود؛ ${displayStep <= 4 || creditNudge ? 'اول استعلام اعتبار باید تازه شود' : 'طرح دوباره بررسی شود'}.)` : ''}</b>
+              <span className="muted">آخرین ذخیره: {new Date(resumeInfo.updatedAt).toLocaleDateString('fa-IR', { timeZone: 'Asia/Tehran', day: 'numeric', month: 'long' })}، {tehranTime(resumeInfo.updatedAt)}{resumeInfo.updatedByName ? `، توسط ${resumeInfo.updatedByName}` : ''}</span>
+              {session.data?.user?.role !== 'salesperson' && resumeInfo.salespersonName && resumeInfo.salespersonId !== (session.data?.user as { salespersonId?: number | null } | undefined)?.salespersonId
+                ? <span className="muted" data-testid="wizard-resume-other"><User size={14} aria-hidden="true" /> درخواست {resumeInfo.salespersonName} را ادامه می‌دهی؛ کارشناس پرونده همان می‌ماند.</span> : null}
+            </div> : null}
+            {creditNudge && displayStep >= 5 ? <p className="lwz-note warn" role="alert" data-testid="wizard-credit-stale"><AlertCircle size={18} aria-hidden="true" /> <span><b>استعلام اعتبار باید تازه شود.</b> استعلام قبلی بیش از ۲۴ ساعت پیش گرفته شده است. <button type="button" className="text-link" onClick={() => jumpTo(4)} data-testid="btn-refresh-credit">تازه‌کردن استعلام</button></span></p> : null}
             {step !== 6 && submitError && <p className="form-error" role="alert" data-testid="wizard-recovery-error">{submitError}</p>}
             <div className="lwz-head">
               <span className="k">مرحله {fa(displayStep)} از {fa(WIZARD_TOTAL_STEPS)}</span>
@@ -487,7 +673,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
                loading={loadingCustomers}
                selectedCustomer={selectedCustomer} 
                 setSelectedCustomer={selectCustomer} 
-               onNext={handleNext} 
+               onNext={() => { void ensureDraft().then((ok) => { if (ok) handleNext(); }); }} 
             />
           )}
           {step === 2 && selectedCustomer && (
@@ -532,7 +718,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
             />
           )}
             {step === 4 && selectedCustomer && selectedPlan && (
-              <StepFilingFee customer={selectedCustomer} selectedPlan={selectedPlan} ignoreCreditRank={previewAllPlans}
+              <StepFilingFee customer={selectedCustomer} selectedPlan={selectedPlan} ignoreCreditRank={previewAllPlans} draftId={srv?.id}
                 feeChargeId={feeChargeId} setFeeChargeId={setFeeChargeId} onNext={handleNext} onPrev={handlePrev} />
           )}
            {step === 5 && selectedCustomer && (
@@ -573,16 +759,25 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
         onClose={() => setExitOpen(false)}
         testId="wizard-exit-dialog"
       >
-        <p>پیش‌نویس روی همین دستگاه ذخیره شد و بعداً از فهرست درخواست‌ها یا پرونده مشتری قابل ادامه است.</p>
+        {draftsAllowed && srv && saveState !== 'offline'
+          ? <p data-testid="wizard-exit-server">درخواست روی سرور ذخیره شد و از تب «در انتظار ثبت» در درخواست‌های تسهیلات (یا پرونده‌ی مشتری) از همین مرحله قابل ادامه است؛ چیزی پاک نمی‌شود.</p>
+          : <p>پیش‌نویس روی همین دستگاه ذخیره شد و بعداً از فهرست درخواست‌ها یا پرونده مشتری قابل ادامه است.</p>}
         <p>هزینه پرداخت‌شده، مدارک و استعلام‌ها روی سرور ثبت شده‌اند.</p>
+      </ConfirmDialog> : null}
+      {dupDraft ? <ConfirmDialog title="یک درخواست نیمه‌کاره برای این مشتری هست" confirmLabel="ادامه‌ی همان درخواست" cancelLabel="انتخاب مشتری دیگر" tone="primary" testId="wizard-duplicate-dialog"
+        onConfirm={() => { if (dupDraft.canContinue) void hydrate(dupDraft); }}
+        onClose={() => { setDupDraft(null); setSrv(null); selectCustomer(null); setResumeInfo(null); setSaveState('idle'); if (step !== 1) { pendingSub.current = 0; setStep(1); } }}>
+        <p><b>{dupDraft.customerName}</b> <CustomerIdBadge id={dupDraft.customerId} /> · مرحله {fa(dupDraft.step)} از {fa(dupDraft.totalSteps)} ({dupDraft.stepLabel}){dupDraft.paid ? ' · هزینه‌ی پرونده واریز شده' : ''}</p>
+        <p className="lwz-muted">آخرین ذخیره {new Date(dupDraft.updatedAt).toLocaleDateString('fa-IR', { timeZone: 'Asia/Tehran' })}، {tehranTime(dupDraft.updatedAt)}{dupDraft.updatedByName ? `، توسط ${dupDraft.updatedByName}` : ''}. برای هر مشتری فقط یک درخواست باز ممکن است.</p>
+        {!dupDraft.canContinue ? <p className="lwz-note bad">این درخواست مال کارشناس دیگری است.</p> : null}
       </ConfirmDialog> : null}
     </div>,
     document.body,
   );
 }
 
-function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, onNext, onPrev, ignoreCreditRank }: {
-  ignoreCreditRank: boolean;
+function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, onNext, onPrev, ignoreCreditRank, draftId }: {
+  ignoreCreditRank: boolean; draftId?: number;
   customer: Customer; selectedPlan: CustomerEligiblePlan;
   feeChargeId: number | null; setFeeChargeId: (id: number | null) => void; onNext: () => void; onPrev: () => void;
 }) {
@@ -607,7 +802,8 @@ function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, on
     keyRef.current ??= window.sessionStorage.getItem(storageKey) ?? crypto.randomUUID();
     window.sessionStorage.setItem(storageKey, keyRef.current);
     try {
-      const charge = await chargeFilingFee({ customerId: customer.id, planId: plan.planId, ignoreCreditRank },
+      const feeInput = { customerId: customer.id, planId: plan.planId, ignoreCreditRank, ...(draftId ? { draftId } : {}) };
+      const charge = await chargeFilingFee(feeInput as Parameters<typeof chargeFilingFee>[0],
         { headers: { 'Idempotency-Key': keyRef.current } });
       setFeeChargeId(charge.chargeId);
       await queryClient.invalidateQueries({ queryKey: getGetFilingFeePlansQueryKey({ customerId: customer.id, ignoreCreditRank }) });
@@ -671,7 +867,7 @@ function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, on
            {shareSmsSent && <span role="status" className="lwz-ok">لینک شارژ با پیامک برای مشتری ارسال شد.</span>}
            {shareUrl && <><span>مبلغ لینک: <strong>{BigInt(shareAmount || '0').toLocaleString('fa-IR')} تومان</strong></span><div className="wallet-share-link"><div><input readOnly dir="ltr" value={shareUrl} aria-label="لینک شارژ" /><button type="button" className="btn btn-ghost" onClick={async () => { try { await navigator.clipboard.writeText(shareUrl); } catch { setFeeError('کپی لینک انجام نشد؛ لینک را به‌صورت دستی از کادر انتخاب و کپی کنید.'); } }}><Copy size={16} /> کپی</button></div></div><button type="button" className="btn btn-ghost" onClick={() => refetch()}><RefreshCw size={16} /> به‌روزرسانی موجودی پس از پرداخت</button></>}
          </div>}
-        {feeChargeId && <p role="status" className="lwz-note ok"><CheckCircle2 size={18} aria-hidden="true" /> هزینه همین طرح ثبت شد؛ طرح، شرط و مبلغ قفل شدند و می‌توانید مدارک پرونده را تکمیل کنید.</p>}
+        {feeChargeId && <p role="status" className="lwz-note ok" data-testid="filing-fee-locked"><CheckCircle2 size={18} aria-hidden="true" /> <b>انجام‌شده.</b> هزینه همین طرح ثبت شد؛ طرح، شرط و مبلغ قفل شدند و می‌توانید مدارک پرونده را تکمیل کنید.</p>}
       </>
     )}
     <div className="form-footer">

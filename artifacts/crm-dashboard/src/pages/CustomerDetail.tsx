@@ -21,6 +21,7 @@ import { normalizeDigits, serverFieldErrors, validateIranianMobile, validateIran
 import { CustomerTagEditor } from '@/components/CustomerTagEditor';
 import { RepeatRequestReview, RepeatRequestTag } from '@/components/RepeatRequestReview';
 import { clearLoanDraft, loanWizardHref, readLoanDraft, type LoanDraft } from '@/lib/loan-draft';
+import { DRAFTS_KEY, canUseDrafts, draftHref, draftWait, draftsApi, fa as faDraft, tehranTime } from '@/lib/request-drafts';
 import { BUSINESS_STATUS_LABELS, WIZARD_DISPLAY_STEPS, WIZARD_TOTAL_STEPS, loanBusinessStatus, loanStageLabel } from '@/lib/loan-labels';
 import { ConfirmDialog, initialsOf, jalaliDate, PriorityLabel, relativeTime, Sheet, STATUS_LABEL, StatusPill } from './customers-ui';
 import './customers.css';
@@ -234,6 +235,9 @@ export default function CustomerDetail() {
   const loansQuery = useListLoanApplications({ customerId: id, limit: 20 }, { query: { queryKey: getListLoanApplicationsQueryKey({ customerId: id, limit: 20 }), enabled: Number.isSafeInteger(id) && canLoansView } });
   const loans: LoanApplication[] = loansQuery.data && 'items' in loansQuery.data ? loansQuery.data.items : [];
   const loansTotal = loansQuery.data && 'total' in loansQuery.data ? loansQuery.data.total : loans.length;
+  // Server-side «در انتظار ثبت» draft for this customer (falls back to the local browser draft below).
+  const draftsOn = canUseDrafts(session.data?.user) && Number.isSafeInteger(id);
+  const srvDraftQuery = useQuery({ queryKey: [...DRAFTS_KEY, 'by-customer', id], queryFn: () => draftsApi.byCustomer(id), enabled: draftsOn, staleTime: 15_000, retry: false });
   const [draft, setDraft] = useState<LoanDraft | null>(null);
   useEffect(() => {
     const sync = () => setDraft(readLoanDraft(userId, id));
@@ -540,7 +544,17 @@ export default function CustomerDetail() {
     </details> : null}
   </section> : null;
 
-  const draftNote = canNewLoan && draft ? <div className="csx-note warn" data-testid="loan-draft-note">
+  const serverDraft = srvDraftQuery.data ?? null;
+  const serverDraftNote = serverDraft ? (() => { const w = draftWait(serverDraft.waitingHours); return <div className={`csx-note ${serverDraft.paidOver24h ? 'bad' : 'warn'}`} data-testid="server-draft-note">
+    <History size={18} />
+    <div style={{ display: 'grid', gap: 6, flex: 1 }}>
+      <p><b>درخواست در انتظار ثبت</b>، مرحله {faDraft(serverDraft.step)} از {faDraft(serverDraft.totalSteps)} ({serverDraft.stepLabel}){serverDraft.planName ? `، ${serverDraft.planName}` : ''}</p>
+      <p className="hint">{serverDraft.paid ? `هزینه‌ی پرونده واریز شده (${faDraft(Number(serverDraft.feeAmountToman ?? 0))} تومان)؛ پرونده هنوز ساخته نشده.` : 'هزینه‌ی پرونده هنوز واریز نشده.'} منتظر {w.text} · آخرین ذخیره {tehranTime(serverDraft.updatedAt)}{serverDraft.salespersonName ? ` · کارشناس: ${serverDraft.salespersonName}` : ''}</p>
+      {!serverDraft.paid && serverDraft.expiringSoon && serverDraft.daysUntilAutoDelete != null ? <p className="hint">اگر ادامه داده نشود، {faDraft(serverDraft.daysUntilAutoDelete)} روز دیگر خودکار پاک می‌شود.</p> : null}
+      {serverDraft.canContinue ? <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><Link href={draftHref(serverDraft)} className="csx-ghost sm" data-testid="link-resume-server-draft">ادامه‌ی درخواست</Link></div> : <p className="hint">این درخواست مال کارشناس دیگری است.</p>}
+    </div>
+  </div>; })() : null;
+  const draftNote = canNewLoan && draft && !serverDraft ? <div className="csx-note warn" data-testid="loan-draft-note">
     <History size={18} />
     <div style={{ display: 'grid', gap: 6, flex: 1 }}>
       <p><b>پیش‌نویس درخواست تسهیلات</b>، مرحله {faNum(draft.step)} از {faNum(WIZARD_TOTAL_STEPS)} ({WIZARD_DISPLAY_STEPS[draft.step - 1]?.label}){draft.planName ? `، ${draft.planName}` : ''}، {relativeTime(draft.updatedAt)}</p>
@@ -554,6 +568,7 @@ export default function CustomerDetail() {
 
   const loansSec = canLoansView ? <section className="csx-sec" id="sec-loans" aria-labelledby="h-loans" data-testid="section-customer-loans">
     <header><h2 id="h-loans"><Layers size={20} /> درخواست‌های تسهیلات</h2>{loansQuery.data ? <span className="muted">{faNum(loansTotal)} پرونده</span> : null}</header>
+    {serverDraftNote}
     {draftNote}
     {loansQuery.isLoading ? <div className="stack" aria-busy="true"><span className="csx-sk" style={{ height: 72 }} /><span className="csx-sk" style={{ height: 72 }} /></div>
       : loansQuery.isError ? <div className="csx-note bad" role="alert"><AlertCircle size={18} /><p>فهرست تسهیلات دریافت نشد. <button type="button" className="csx-link" onClick={() => loansQuery.refetch()}>تلاش دوباره</button></p></div>
