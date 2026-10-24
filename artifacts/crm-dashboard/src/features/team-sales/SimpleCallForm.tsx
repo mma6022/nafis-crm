@@ -8,6 +8,7 @@ import { GradeChip } from '@/components/grade/GradeChip';
 import { GradePicker } from '@/components/grade/GradePicker';
 import { gradeText, isLegacy } from '@/lib/credit-grade';
 import { CustomerName } from '@/components/customer/CustomerName';
+import { VoiceNoteButton } from '@/features/voice-notes/VoiceNoteButton';
 
 /**
  * First-call form (design crm-call-form-plans): 6 steps when the customer answered —
@@ -456,6 +457,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
       {errors.note === 'empty' ? <div className="ts-alert" role="alert"><AlertCircle size={18} /> بدون یادداشت نمی‌شه ثبت کرد. چند خط از صحبت با مشتری بنویس.</div> : null}
       <div className="ts-q"><label htmlFor="ts-note">یادداشت تماس <span className="req">*</span></label>
         <textarea id="ts-note" className={`ts-inp ts-note${errors.note ? ' bad' : ''}`} rows={4} value={d.note} onChange={(e) => set({ note: e.target.value.slice(0, 4000) })} placeholder="مثلاً: شغل، مبلغ، ضامن، بهترین ساعت تماس…" aria-invalid={Boolean(errors.note)} aria-describedby="ts-note-meta" data-testid="ts-note" />
+        <VoiceNoteButton value={d.note} onChange={(note) => set({ note: note.slice(0, 4000) })} field="first_call_note" maxLength={4000} testId="ts-note-voice" />
         <div className="ts-note-meta" id="ts-note-meta"><span className={errors.note ? 'bad' : ''}>{errors.note === 'empty' ? 'یادداشت الزامی است' : errors.note === 'short' ? `یادداشت باید حداقل ${fa(noteMin)} حرف باشد` : `حداقل ${fa(noteMin)} نویسه`}</span><span className={noteLen < noteMin ? (errors.note ? 'bad' : '') : 'okc'} data-testid="ts-note-count">{fa(noteLen)} نویسه</span></div></div>
       {answered ? <div className="ts-answers" data-testid="ts-picked"><span className="ts-muted small">طرح‌های انتخاب‌شده:</span>
         {noPlan ? <NoPlanChip testId="ts-picked-noplan" /> : selectedPlans.length ? selectedPlans.map((p) => <PlanChip key={p.planId} plan={{ name: p.planName, status: p.status === 'depends' ? 'depends' : 'fit', reasons: p.reasons.filter((r) => r.kind === 'unknown').map(planReasonText) }} />)

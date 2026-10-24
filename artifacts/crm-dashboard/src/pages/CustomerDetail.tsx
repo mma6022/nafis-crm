@@ -33,6 +33,7 @@ import { ConsultProfileCard } from "@/features/team-sales/ConsultProfileCard";
 import { TsToast, UpgradeCard, UpgradeDialog, UpgradedCard } from '@/features/team-sales/UpgradeToP1';
 import { DataAccuracyCard } from '@/features/team-commission/DataAccuracyCard';
 import { CustomerName, customerNameText } from '@/components/customer/CustomerName';
+import { VoiceNoteButton } from '@/features/voice-notes/VoiceNoteButton';
 
 const faNum = (n: number) => n.toLocaleString('fa-IR');
 const faId = (n: number) => n.toLocaleString('fa-IR', { useGrouping: false });
@@ -692,7 +693,8 @@ export default function CustomerDetail() {
           <div className="field"><label htmlFor="detail-status">وضعیت</label><select id="detail-status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as CustomerUpdateStatus })} data-testid="select-detail-status"><option value="in_progress">در حال انجام</option><option value="cancelled">لغو شده</option><option value="completed">اتمام</option></select></div>
         </div>
         <label className="csx-check"><input type="checkbox" checked={form.isUrgent} onChange={(e) => setForm({ ...form, isUrgent: e.target.checked })} data-testid="checkbox-detail-is-urgent" /> مشتری فوری</label>
-        <div className="field"><label htmlFor="detail-desc">توضیح</label><textarea id="detail-desc" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} data-testid="textarea-detail-description" /></div>
+        <div className="field"><label htmlFor="detail-desc">توضیح</label><textarea id="detail-desc" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} data-testid="textarea-detail-description" />
+          <VoiceNoteButton value={form.description} onChange={(v) => setForm((f) => ({ ...f, description: v }))} field="customer_description" testId="detail-desc-voice" /></div>
         <p className="hint">ویرایش کد ملی، تاریخ تولد، کد پستی یا موبایل، وضعیت احراز را به «احراز نشده» برمی‌گرداند.</p>
       </form>
     </Sheet></div> : null}

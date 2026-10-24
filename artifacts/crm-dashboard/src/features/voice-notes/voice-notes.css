@@ -1,0 +1,49 @@
+/* crm-voice-notes: mic bar under a note field (RTL, Nafis blue). */
+.vn-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-top: 6px; font-size: 12.5px; direction: rtl; }
+.vn-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid #c7d2fe;
+  background: var(--nafiss-light, #e0e7ff); color: var(--nafiss-blue, #1c3687); font: inherit; font-weight: 700; cursor: pointer; transition: background .15s, color .15s; }
+.vn-btn:hover:not(:disabled) { background: #d3dcfd; }
+.vn-btn:focus-visible { outline: 2px solid var(--nafiss-blue, #1c3687); outline-offset: 2px; }
+.vn-btn:disabled { opacity: .7; cursor: progress; }
+.vn-btn.rec { background: #b42318; border-color: #b42318; color: #fff; }
+.vn-btn.rec:hover { background: #912018; }
+.vn-timer { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; font-weight: 700; color: #b42318; }
+.vn-dot { width: 8px; height: 8px; border-radius: 50%; background: #d92d20; animation: vn-pulse 1s ease-in-out infinite; }
+.vn-max { color: #667085; font-weight: 500; }
+.vn-warn { color: #b54708; font-weight: 600; }
+.vn-hint { color: #667085; }
+.vn-error { display: inline-flex; align-items: flex-start; gap: 5px; color: #b42318; background: #fef3f2; border: 1px solid #fecdca; border-radius: 10px; padding: 5px 9px; line-height: 1.6; flex-basis: 100%; }
+.vn-error svg { flex: none; margin-top: 3px; }
+.vn-spin { animation: vn-rot 1s linear infinite; }
+@keyframes vn-pulse { 50% { opacity: .25; } }
+@keyframes vn-rot { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .vn-dot, .vn-spin { animation: none; } }
+
+/* admin usage page */
+.vnu-head { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.vnu-month { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; }
+.vnu-month select { min-height: 36px; border-radius: 10px; border: 1px solid #d0d5dd; padding: 0 10px; font: inherit; background: #fff; }
+.vnu-status { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: #475467; background: #f2f4f7; border-radius: 999px; padding: 4px 12px; }
+.vnu-status.on { color: var(--nafiss-blue, #1c3687); background: var(--nafiss-light, #e0e7ff); }
+.vnu-nokey { color: #b42318; }
+.vnu-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.vnu-card { border: 1px solid #e4e7ec; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; background: #fff; }
+.vnu-card span { color: #667085; font-size: 12.5px; }
+.vnu-card b { font-size: 22px; color: var(--nafiss-blue, #1c3687); }
+.vnu-card small { color: #98a2b3; font-size: 11.5px; }
+.vnu-scroll { overflow-x: auto; }
+.vnu-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.vnu-table th, .vnu-table td { text-align: right; padding: 9px 10px; border-bottom: 1px solid #eaecf0; white-space: nowrap; }
+.vnu-table td[dir="ltr"] { text-align: left; }
+.vnu-table th { color: #475467; font-weight: 700; background: #f9fafb; }
+.vnu-table tfoot td { font-weight: 800; border-bottom: 0; background: #f8f9fc; }
+@media (max-width: 640px) { .vnu-cards { grid-template-columns: 1fr 1fr; } .vnu-cards .vnu-card:last-child { grid-column: 1 / -1; } }
+.vnu-providers { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; color: #475467; margin: 0 0 12px; }
+.vnu-chip { background: #f2f4f7; border-radius: 999px; padding: 3px 10px; }
+.vnu-chip em { font-style: normal; color: #b54708; }
+/* Mobile call form: .call-grow is a fixed flex box (min-height 120px); let a field that carries the voice bar size to
+   its content so the hint/error under the mic is never hidden behind the sticky footer. */
+@media (max-width: 900px) {
+  .call-form-body .call-grow:has(> .vn-bar) { flex: 0 0 auto; }
+  .call-form-body .call-grow:has(> .vn-bar) textarea { flex: none; min-height: 96px; }
+}
