@@ -25,8 +25,9 @@ import { BUSINESS_STATUS_LABELS, WIZARD_DISPLAY_STEPS, WIZARD_TOTAL_STEPS, loanB
 import { ConfirmDialog, initialsOf, jalaliDate, PriorityLabel, relativeTime, Sheet, STATUS_LABEL, StatusPill } from './customers-ui';
 import './customers.css';
 import { useCallLauncher, CallLaunchStatus } from '@/features/team-sales/useCallLauncher';
-import { showsUpgradeButton, usesSimpleForm, type PromoteResult, type QualifyResult } from '@/features/team-sales/api';
+import { firstCallOf, showsUpgradeButton, usesSimpleForm, type PromoteResult, type QualifyResult } from '@/features/team-sales/api';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
+import { FirstCallSummaryCard, SuggestedPlansBox } from '@/features/team-sales/FirstCallCard';
 import { TsToast, UpgradeCard, UpgradeDialog, UpgradedCard } from '@/features/team-sales/UpgradeToP1';
 import { DataAccuracyCard } from '@/features/team-commission/DataAccuracyCard';
 
@@ -374,6 +375,7 @@ export default function CustomerDetail() {
     if (toast) setTsToast(result.message);
     void queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() });
   };
+  const firstCall = firstCallOf(customer);
   const afterSimpleForm = (r: QualifyResult) => {
     if (r.handoff) { afterHandoff(r.handoff, false); return; }
     void queryClient.invalidateQueries({ queryKey: getListCustomerActivityQueryKey(id) });
@@ -432,6 +434,7 @@ export default function CustomerDetail() {
       {canCall ? <button type="button" className="csx-ghost sm" title={canDialSystem ? 'تماس با تلفن شرکت' : 'برای تماس سیستمی، ابتدا در بخش تلفن شرکت متصل شوید'} onClick={() => { if (canDialSystem) dial(customer.phone); else setLocation('/phone'); }} data-testid="button-sys-call-customer"><Phone size={18} color={canDialSystem ? undefined : '#94a3b8'} /> تماس سیستمی</button> : null}
       {canConsult ? <button type="button" className="csx-ghost sm" onClick={() => setConsultationFormOpen(true)} data-testid="button-create-consultation"><FileText size={18} /> ثبت مشاوره</button> : null}
     </div> : null}
+    {firstCall?.selectedPlans.length ? <div className="csx-hero-plans"><SuggestedPlansBox plans={firstCall.selectedPlans} actorName={firstCall.actorName} /></div> : null}
   </section>;
 
   const infoSec = <section className="csx-sec" id="sec-info" aria-labelledby="h-info">
@@ -637,7 +640,7 @@ export default function CustomerDetail() {
     {readOnlyRole ? <div className="csx-note warn" data-testid="note-readonly-role"><Lock size={18} /><p>فقط مشاهده — ویرایش، تماس و کیف پول برای نقش شما فعال نیست.</p></div> : null}
     <nav className="csx-secnav m-only" aria-label="بخش‌های پرونده">{secs.map(([key, label, n]) => <a key={key} href={`#sec-${key}`} aria-current={activeSec === key ? 'true' : undefined} onClick={(event) => { event.preventDefault(); setActiveSec(key); document.getElementById(`sec-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>{label}{n != null ? <span className="n">{faNum(n)}</span> : null}</a>)}</nav>
     <div className="csx-dgrid">
-      <div className="colA">{infoSec}{loansSec}{callsSec}</div>
+      <div className="colA">{firstCall ? <FirstCallSummaryCard fc={firstCall} /> : null}{infoSec}{loansSec}{callsSec}</div>
       <div className="colB">{tsCard ? <div className="d-only">{tsCard}</div> : null}<div className="d-only"><DataAccuracyCard customerId={id} place="d" onSubmitted={refreshAfterAccuracy} /></div>{statusSec}{creditSec}{walletSec}{adminSec}</div>
     </div>
     {editing ? <div className="csx-formhost"><Sheet title={`ویرایش پرونده ${customer.name}`} onClose={() => { setEditing(false); setProfileErrors({}); }} testId="customer-edit-sheet" initialFocus='[data-testid="input-detail-name"]' footer={<>

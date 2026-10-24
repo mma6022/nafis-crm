@@ -173,7 +173,7 @@ import * as ics24 from "../lib/ics24";
 import { questionnaireError, consultationRankMatches, type QuestionnaireOption } from "../lib/consultation-questionnaire";
 import { consultationMaximumAmount } from "../lib/consultation-limits";
 import { verifyCustomer } from "../lib/sapi";
-import { logPriorityChange } from "../lib/team-sales";
+import { latestFirstCall, latestSelectedPlans, logPriorityChange } from "../lib/team-sales";
 import { retainedIdentityChecks } from "../lib/identity-check-retention";
 import { normalizeCustomerMobile, normalizeCustomerNationalCode, isAdminRole } from "../lib/customer-integrity";
 import { mergeCustomerRecords } from "../lib/customer-merge";
@@ -1724,14 +1724,18 @@ router.get(
       [...params, ...havingParams, limit, offset],
     );
 
-    res.json(
-      ListCustomersResponse.parse({
-        items: rows.map(customerFromRow),
-        total: Number(totalRow?.total ?? 0),
-        limit,
-        offset,
-      }),
-    );
+    const listBody = ListCustomersResponse.parse({
+      items: rows.map(customerFromRow),
+      total: Number(totalRow?.total ?? 0),
+      limit,
+      offset,
+    });
+    // crm-call-form-plans: plans picked in the latest first-call form (added after the zod parse, which strips unknown keys).
+    const suggested = latestSelectedPlans(listBody.items.map((item) => Number(item.id)));
+    res.json({
+      ...listBody,
+      items: listBody.items.map((item) => ({ ...item, suggestedPlans: suggested.get(Number(item.id)) ?? [] })),
+    });
   },
 );
 
@@ -1981,12 +1985,14 @@ router.get(
       res.status(404).json({ error: "Customer not found" });
       return;
     }
-    res.json(
-      GetCustomerResponse.parse({
+    res.json({
+      ...GetCustomerResponse.parse({
         ...customer,
         activity: getActivity(parsed.data.id),
       }),
-    );
+      // crm-call-form-plans: latest answered first-call form (selected plans + answers summary); null for older forms.
+      firstCall: latestFirstCall(parsed.data.id),
+    });
   },
 );
 

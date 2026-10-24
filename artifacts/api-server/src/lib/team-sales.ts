@@ -6,8 +6,9 @@
  */
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import {
-  addWorkingHours, computeLeadPriority, matchPlans, mergeTeamSalesConfig, plansFromRows, validateAnswers, type LegacyRankRef,
-  type LeadOutcome, type PlanMatch, type QualifierAnswers, type TeamSalesConfig,
+  addWorkingHours, computeLeadPriority, evaluatePlans, isFirstCallForm, matchesFromEvaluation, matchPlans, mergeTeamSalesConfig,
+  normalizeFirstCallAnswers, planReasonText, plansFromRows, validateAnswers, type LegacyRankRef,
+  type LeadOutcome, type PlanEvaluation, type PlanMatch, type QualifierAnswers, type TeamSalesConfig,
 } from "./team-sales-rules";
 
 export const TEAM_SALES_CONFIG_KEY = "team_sales_config";
@@ -50,7 +51,18 @@ export function ensureTeamSalesSchema(): void {
     CREATE INDEX IF NOT EXISTS idx_team_sales_qualifications_customer
       ON team_sales_qualifications(customer_id, id DESC);
   `);
+  ensureSelectedPlansColumn();
   schemaReady = true;
+}
+
+/**
+ * crm-call-form-plans (additive): plans Kazemi picked in the first-call form, snapshotted at submit time
+ * ([{id,name,bank,max,status,conditionId,reasons}]). NULL for older rows / forms. Rollback: scripts/call-form-plans-rollback.mjs.
+ */
+export function ensureSelectedPlansColumn(): void {
+  const cols = queryRows<{ name: string }>("SELECT name FROM pragma_table_info('team_sales_qualifications')");
+  if (cols.length && !cols.some((c) => c.name === "selected_plans_json"))
+    crmDb.exec("ALTER TABLE team_sales_qualifications ADD COLUMN selected_plans_json TEXT");
 }
 
 export function getTeamSalesConfig(): TeamSalesConfig {
@@ -294,13 +306,97 @@ function legacyRanks(customerId: number): LegacyRankRef {
   return out;
 }
 
+/** Automatic matching that drives the priority: the first-call form uses the evaluator (fit + depends), older forms matchPlans. */
+function autoMatches(answers: QualifierAnswers, plans: ReturnType<typeof plansFromRows>): { matches: PlanMatch[]; evals: PlanEvaluation[] } {
+  if (answers.callResult !== "answered") return { matches: [], evals: [] };
+  if (!isFirstCallForm(answers)) return { matches: matchPlans(answers, plans), evals: [] };
+  const evals = evaluatePlans(answers, plans);
+  return { matches: matchesFromEvaluation(evals), evals };
+}
+
+/** Step 5 of the first-call form: every active plan with status fit|depends|no and structured reasons. No writes. */
+export function planOptions(customerId: number, answers: QualifierAnswers, now = new Date()) {
+  ensureTeamSalesSchema();
+  const err = validateAnswers(answers, now, legacyRanks(customerId), { forPlans: true });
+  if (err) throw new TeamSalesError(400, err);
+  return { plans: evaluatePlans(answers, activePlans()) };
+}
+
+export type SelectedPlanSnapshot = {
+  id: number; name: string; bank: string; max: number; status: "fit" | "depends";
+  conditionId: number | string; reasons: string[];
+};
+function selectedSnapshot(selected: unknown, evals: PlanEvaluation[]): SelectedPlanSnapshot[] {
+  if (selected == null) return [];
+  if (!Array.isArray(selected)) throw new TeamSalesError(400, "فهرست طرح‌های انتخاب‌شده نامعتبر است.");
+  const ids = [...new Set(selected.map((v) => Number(v)))];
+  if (ids.some((id) => !Number.isInteger(id) || id <= 0)) throw new TeamSalesError(400, "فهرست طرح‌های انتخاب‌شده نامعتبر است.");
+  if (ids.length > 50) throw new TeamSalesError(400, "تعداد طرح‌های انتخاب‌شده زیاد است.");
+  return ids.map((id) => {
+    const e = evals.find((x) => x.planId === id);
+    if (!e) throw new TeamSalesError(400, "طرح انتخاب‌شده فعال نیست یا وجود ندارد.");
+    if (e.status === "no") throw new TeamSalesError(400, `طرح «${e.planName}» با جواب‌های این تماس مناسب نیست و قابل انتخاب نیست.`);
+    return { id: e.planId, name: e.planName, bank: e.bankName, max: e.max, status: e.status, conditionId: e.conditionId,
+      reasons: e.reasons.filter((r) => r.kind === "unknown").map(planReasonText) };
+  });
+}
+
+/** Latest first-call selection per customer (for the list column / case box). */
+export function latestSelectedPlans(customerIds: number[]): Map<number, SelectedPlanSnapshot[]> {
+  const out = new Map<number, SelectedPlanSnapshot[]>();
+  const ids = [...new Set(customerIds.filter((id) => Number.isInteger(id) && id > 0))];
+  if (!ids.length) return out;
+  ensureTeamSalesSchema();
+  for (let i = 0; i < ids.length; i += 500) {
+    const chunk = ids.slice(i, i + 500);
+    const rows = queryRows<{ customer_id: number; selected_plans_json: string | null }>(
+      `SELECT q.customer_id, q.selected_plans_json FROM team_sales_qualifications q
+       WHERE q.id IN (SELECT MAX(id) FROM team_sales_qualifications
+                      WHERE call_result='answered' AND customer_id IN (${chunk.map(() => "?").join(",")}) GROUP BY customer_id)`, chunk);
+    for (const r of rows) {
+      const list = parseSelected(r.selected_plans_json);
+      if (list.length) out.set(Number(r.customer_id), list);
+    }
+  }
+  return out;
+}
+function parseSelected(raw: string | null): SelectedPlanSnapshot[] {
+  if (!raw) return [];
+  try { const v = JSON.parse(raw); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+
+/** The latest answered first-call form of a customer (case page: selected plans + «خلاصه‌ی تماس اول»). */
+export function latestFirstCall(customerId: number) {
+  ensureTeamSalesSchema();
+  const row = queryRow<{ id: number; answers_json: string; selected_plans_json: string | null; note: string; created_at: string;
+    priority: number; actor_name: string | null; sp_name: string | null }>(
+    `SELECT q.id, q.answers_json, q.selected_plans_json, q.note, q.created_at, q.priority,
+            u.full_name AS actor_name, s.name AS sp_name
+     FROM team_sales_qualifications q LEFT JOIN users u ON u.id=q.actor_user_id LEFT JOIN salespersons s ON s.id=u.salesperson_id
+     WHERE q.customer_id=? AND q.call_result='answered' ORDER BY q.id DESC LIMIT 1`, [customerId]);
+  if (!row) return null;
+  let a: Record<string, unknown> = {};
+  try { a = JSON.parse(row.answers_json) ?? {}; } catch { /* keep empty */ }
+  if (a.formVersion !== 2) return null;
+  const pick = (k: string) => (a[k] == null ? null : a[k]);
+  return {
+    id: Number(row.id), createdAt: row.created_at, priority: Number(row.priority) || null, note: row.note,
+    actorName: row.sp_name ?? row.actor_name ?? null, selectedPlans: parseSelected(row.selected_plans_json),
+    answers: {
+      amountMillion: pick("amountMillion"), docsReady: pick("docsReady"), urgency: pick("urgency"), creditRank: pick("creditRank"),
+      checkStatus: pick("checkStatus"), canPromissory: pick("canPromissory"), bouncedCheque: pick("bouncedCheque"),
+      guarantorAvailable: pick("guarantorAvailable"), guarantorCheque: pick("guarantorCheque"), gRank: pick("gRank"),
+    },
+  };
+}
+
 /** Preview only: no writes. */
 export function previewQualification(customerId: number, answers: QualifierAnswers, now = new Date()) {
   ensureTeamSalesSchema();
   const cfg = getTeamSalesConfig();
   const err = validateAnswers(answers, now, legacyRanks(customerId));
   if (err) throw new TeamSalesError(400, err);
-  const matches = answers.callResult === "answered" ? matchPlans(answers, activePlans()) : [];
+  const { matches } = autoMatches(isFirstCallForm(answers) ? normalizeFirstCallAnswers(answers) : answers, activePlans());
   return { result: computeLeadPriority(answers, matches, consecutiveNoAnswers(customerId), now, cfg), matches: matches.slice(0, 5) };
 }
 
@@ -314,11 +410,16 @@ const CALL_SUBJECT: Record<string, string> = {
  * P1 -> handoff to next closer (round-robin) with reminder. No-answer 1..2 -> no priority, counter only
  * (team_sales_qualifications.priority stores 0 = "none" because the column is NOT NULL). 3x no-answer -> status cancelled.
  */
-export function submitQualification(customerId: number, actor: Actor, answers: QualifierAnswers, note: string, now = new Date()) {
+export function submitQualification(customerId: number, actor: Actor, rawAnswers: QualifierAnswers, note: string, now = new Date(),
+  selectedPlans: unknown = null) {
   ensureTeamSalesSchema();
   const cfg = getTeamSalesConfig();
-  const err = validateAnswers(answers, now, legacyRanks(customerId));
+  const err = validateAnswers(rawAnswers, now, legacyRanks(customerId));
   if (err) throw new TeamSalesError(400, err);
+  const firstCall = isFirstCallForm(rawAnswers);
+  const answers = firstCall ? normalizeFirstCallAnswers(rawAnswers) : rawAnswers;
+  if (selectedPlans != null && (!firstCall || answers.callResult !== "answered") && !(Array.isArray(selectedPlans) && !selectedPlans.length))
+    throw new TeamSalesError(400, "انتخاب طرح فقط در فرم تماس اول و برای تماس پاسخ‌داده‌شده ممکن است.");
   const cleanNote = String(note ?? "").trim();
   if ([...cleanNote].length < cfg.noteMinLength)
     throw new TeamSalesError(400, `یادداشت تماس الزامی است (حداقل ${cfg.noteMinLength} نویسه).`);
@@ -329,19 +430,23 @@ export function submitQualification(customerId: number, actor: Actor, answers: Q
     // The first-call form decides the priority, so it is only for customers that have none yet (P1/P2/P3 use the normal call form).
     if (c.priority != null)
       throw new TeamSalesError(409, "فرم تماس اول فقط برای مشتریان بدون اولویت است؛ برای این مشتری از فرم ثبت تماس معمولی استفاده کنید.");
-    const matches: PlanMatch[] = answers.callResult === "answered" ? matchPlans(answers, plans) : [];
+    const { matches, evals } = autoMatches(answers, plans);
+    const selected = firstCall && answers.callResult === "answered" ? selectedSnapshot(selectedPlans, evals) : [];
     const result: LeadOutcome = computeLeadPriority(answers, matches, consecutiveNoAnswers(customerId), now, cfg);
     const spName = queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [c.salesperson_id])?.name ?? null;
     const callLogId = execute(
       `INSERT INTO call_logs (customer_id, salesperson_id, subject, customer_request, expert_notes, created_at, salesperson_name_snapshot)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [c.id, c.salesperson_id, CALL_SUBJECT[answers.callResult], null,
-        `${cleanNote}\n\n— نتیجهٔ فرم: ${result.priority == null ? `بدون اولویت، بی‌پاسخ ${result.attempts} از ${cfg.maxNoAnswerAttempts}` : `اولویت ${result.priority}`} (${result.reasons.join("؛ ")})`, now.toISOString(), spName]);
+        `${cleanNote}\n\n— نتیجهٔ فرم: ${result.priority == null ? `بدون اولویت، بی‌پاسخ ${result.attempts} از ${cfg.maxNoAnswerAttempts}` : `اولویت ${result.priority}`} (${result.reasons.join("؛ ")})${
+          selected.length ? `\n— طرح‌های انتخاب‌شده: ${selected.map((p) => `${p.name}${p.status === "depends" ? " (مشروط)" : ""}`).join("، ")}` : ""}`,
+        now.toISOString(), spName]);
     execute(
       `INSERT INTO team_sales_qualifications (customer_id, actor_user_id, call_log_id, call_result, answers_json, matches_json,
-        priority, outcome, score, reasons_json, next_action_at, note, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        priority, outcome, score, reasons_json, next_action_at, note, created_at, selected_plans_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [c.id, actor.id, callLogId, answers.callResult, JSON.stringify(answers), JSON.stringify(matches.slice(0, 5)),
-        result.priority ?? 0, result.outcome, result.score, JSON.stringify(result.reasons), result.nextActionAt, cleanNote, now.toISOString()]);
+        result.priority ?? 0, result.outcome, result.score, JSON.stringify(result.reasons), result.nextActionAt, cleanNote, now.toISOString(),
+        firstCall && answers.callResult === "answered" ? JSON.stringify(selected) : null]);
     const reasonText = result.reasons.join("؛ ");
     let handoff: ReturnType<typeof promoteInTx> | null = null;
     if (result.priority === 1) {
@@ -360,6 +465,6 @@ export function submitQualification(customerId: number, actor: Actor, answers: Q
         oldSalespersonId: c.salesperson_id, newSalespersonId: c.salesperson_id, actorUserId: actor.id,
         source: "qualifier_form", reason: reasonText, at: now.toISOString() });
     }
-    return { callLogId, result, matches: matches.slice(0, 5), handoff };
+    return { callLogId, result, matches: matches.slice(0, 5), handoff, selectedPlans: selected };
   });
 }

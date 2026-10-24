@@ -24,7 +24,9 @@ function rowKey(e: KeyboardEvent<HTMLElement>, refs: Array<HTMLButtonElement | n
 }
 
 export type GradePickerProps = {
-  label: string; value: string; onChange: (value: string, pending: boolean) => void;
+  label: string; value: string;
+  /** `letter`: the picked letter (also while the sub-grade is still pending), so callers can word their own error. */
+  onChange: (value: string, pending: boolean, letter?: string | null) => void;
   /** Value stored before this edit; a legacy letter there is kept when untouched (PM decision 4). */
   original?: string | null;
   required?: boolean; disabled?: boolean; readOnly?: boolean;
@@ -51,7 +53,7 @@ export function GradePicker({ label, value, onChange, original, required, disabl
     if (v === emitted.current) return;
     emitted.current = v; setLetter(gradeLetter(v)); setTyped('');
   }, [v]);
-  const emit = (next: string, pending: boolean) => { emitted.current = next; onChange(next, pending); };
+  const emit = (next: string, pending: boolean, l: GradeLetter | null = gradeLetter(next)) => { emitted.current = next; onChange(next, pending, l); };
   const legacyMode = isLegacy(v) && letter === v;
   const pending = !!letter && !v;
   const focusSub = (lv?: number) => requestAnimationFrame(() => subRefs.current[(lv ?? (isSubgrade(v) && v[0] === letter ? Number(v[1]) : 1)) - 1]?.focus());
@@ -59,7 +61,7 @@ export function GradePicker({ label, value, onChange, original, required, disabl
   const pickLetter = (l: GradeLetter, focus = true) => {
     if (l !== letter) {
       setLetter(l);
-      if (origLegacy === l) emit(origLegacy, false); else emit('', true);
+      if (origLegacy === l) emit(origLegacy, false); else emit('', true, l);
     }
     if (focus) focusSub(l === letter && isSubgrade(v) ? Number(v[1]) : 1);
   };

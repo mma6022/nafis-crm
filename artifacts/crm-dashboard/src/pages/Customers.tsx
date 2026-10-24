@@ -10,8 +10,9 @@ import { RepeatRequestReview, RepeatRequestTag } from '@/components/RepeatReques
 import { DuplicateCustomerReview } from '@/components/DuplicateCustomerReview';
 import { CallForm, CreateConsultationForm } from '@/components/Forms';
 import { useCallLauncher, CallLaunchStatus } from '@/features/team-sales/useCallLauncher';
-import { canUpgradeToP1, showsUpgradeButton, type QualifyResult } from '@/features/team-sales/api';
+import { canUpgradeToP1, showsUpgradeButton, suggestedPlansOf, type QualifyResult } from '@/features/team-sales/api';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
+import { PlanChipsRow } from '@/features/team-sales/PlanChip';
 import { TsToast, UpgradeDialog } from '@/features/team-sales/UpgradeToP1';
 import { formatDateTime } from '@/components/CrmShell';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
@@ -445,7 +446,7 @@ export default function Customers() {
           <table className="csx-table">
             <caption className="csx-sr">فهرست مشتریان</caption>
             <thead><tr>
-              <th scope="col">مشتری</th><th scope="col" className="col-phone">موبایل</th><th scope="col">وضعیت</th><th scope="col">اولویت</th><th scope="col">کارشناس فروش</th>
+              <th scope="col">مشتری</th><th scope="col" className="col-phone">موبایل</th><th scope="col">وضعیت</th><th scope="col">اولویت</th><th scope="col" className="col-plans">طرح‌های پیشنهادی</th><th scope="col">کارشناس فروش</th>
               <th scope="col" aria-sort={lastCallSort === 'asc' ? 'ascending' : lastCallSort === 'desc' ? 'descending' : 'none'}>
                 <button type="button" className="sortbtn" data-testid="button-sort-last-call" title={lastCallSort === 'desc' ? 'مرتب‌سازی از قدیمی‌ترین تماس' : 'مرتب‌سازی از جدیدترین تماس'} onClick={() => { setLastCallSort(current => current === 'desc' ? 'asc' : 'desc'); resetPaging(); }}>آخرین تماس {sortIcon}</button>
               </th>
@@ -468,6 +469,7 @@ export default function Customers() {
                   <td>{canUpdate ? <select className="csx-isel" data-p={customer.priority ?? undefined} style={{ backgroundColor: priorityColors[String(customer.priority ?? 'none') as keyof typeof priorityColors] }} value={customer.priority ? String(customer.priority) : 'null'} disabled={updateCustomer.isPending} aria-label={`اولویت ${customer.name}`} onChange={(e) => setPriority1Guarded(customer, e.target.value === 'null' ? null : Number(e.target.value))} data-testid={`select-inline-priority-${customer.id}`}>
                     <option value="null">بدون اولویت</option><option value="1">اولویت ۱</option><option value="2">اولویت ۲</option><option value="3">اولویت ۳</option>
                   </select> : <PriorityLabel value={customer.priority} />}{upgradeButton(customer, 'row v2')}</td>
+                  <td className="col-plans" data-testid={`plans-${customer.id}`}><PlanChipsRow plans={suggestedPlansOf(customer)} testId={`plan-chips-${customer.id}`} /></td>
                   <td>{isAdmin ? <>
                     <select className="csx-isel" value={customer.salespersonId ?? ''} aria-label={`تغییر کارشناس مشتری ${customer.id}`} title="انتخاب و تغییر کارشناس این مشتری" data-testid={`select-inline-salesperson-${customer.id}`} disabled={updateCustomer.isPending || salespersons.isLoading || salespersons.isError} onChange={e => updateInlineCustomer(customer, { salespersonId: e.target.value ? Number(e.target.value) : null })}>
                       <option value="">بدون کارشناس</option>
@@ -513,6 +515,7 @@ export default function Customers() {
               <div className="csx-chips">{tagsFor(customer)}</div>
               <div className="row"><span className="phone" dir="ltr"><Phone size={16} aria-hidden="true" /> {formatPhoneForDisplay(customer.phone)}</span><span className="csx-meta">کد {faId(customer.id)}</span></div>
               <div className="row">{salespersonCell(customer)}<span className="csx-meta">{fa(customer.activityCount)} فعالیت</span></div>
+              {suggestedPlansOf(customer).length ? <div className="row csx-plans-row" data-testid={`plans-${customer.id}`}><PlanChipsRow plans={suggestedPlansOf(customer)} testId={`plan-chips-${customer.id}`} /></div> : null}
               {upgradeButton(customer, 'card')}
               {canCall || canConsult ? <div className="csx-acts after">{rowActions(customer)}</div> : null}
               {extra.length ? <details className="csx-more csx-cardmore"><summary>پرونده و کارهای بیشتر</summary><div className="more csx-menu-inline">{extra}</div></details> : null}

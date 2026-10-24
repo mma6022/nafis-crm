@@ -7,7 +7,7 @@ import { requirePermission } from "../lib/access-control";
 import type { AuthUser } from "../lib/auth";
 import { getCustomer } from "./crm";
 import {
-  TeamSalesError, formatDue, getTeamSalesConfig, peekNextCloser, previewQualification, priorityHistory, promoteToPriorityOne, submitQualification,
+  TeamSalesError, formatDue, getTeamSalesConfig, peekNextCloser, planOptions, previewQualification, priorityHistory, promoteToPriorityOne, submitQualification,
 } from "../lib/team-sales";
 import { addWorkingHours, type QualifierAnswers } from "../lib/team-sales-rules";
 
@@ -77,12 +77,23 @@ router.post("/customers/:id/team-sales/qualify/preview", requirePermission("cust
   try { res.json(previewQualification(id, answers)); } catch (e) { fail(res, e); }
 });
 
+/** First-call form step 5: all active plans with status fit|depends|no and structured reasons (no writes). */
+router.post("/customers/:id/team-sales/qualify/plans", requirePermission("customers.update"), (req, res): void => {
+  const id = customerId(req.params.id);
+  const answers = answersOf(req.body);
+  if (!id || !answers) { res.status(400).json({ error: "Invalid request" }); return; }
+  if (!getTeamSalesConfig().enabled) { res.status(404).json({ error: "Team sales is not enabled" }); return; }
+  if (!getCustomer(id, res.locals.authUser as AuthUser)) { res.status(404).json({ error: "Customer not found" }); return; }
+  try { res.json(planOptions(id, answers)); } catch (e) { fail(res, e); }
+});
+
 router.post("/customers/:id/team-sales/qualify", requirePermission("calls.create"), (req, res): void => {
   const id = customerId(req.params.id);
   const answers = answersOf(req.body);
   if (!id || !answers) { res.status(400).json({ error: "Invalid request" }); return; }
   const note = typeof req.body?.note === "string" ? req.body.note : "";
-  try { res.json(submitQualification(id, actorOf(res), answers, note)); } catch (e) { fail(res, e); }
+  const selectedPlans = req.body?.selectedPlans ?? null;
+  try { res.json(submitQualification(id, actorOf(res), answers, note, new Date(), selectedPlans)); } catch (e) { fail(res, e); }
 });
 
 export default router;

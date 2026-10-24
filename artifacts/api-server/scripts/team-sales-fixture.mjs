@@ -9,6 +9,7 @@ globalThis.__DatabaseSync = DatabaseSync;
 import {
   addWorkingHours, shiftIntoWorkingHours, computeLeadPriority, matchPlans, plansFromRows, validateAnswers,
   DEFAULT_TEAM_SALES_CONFIG as CFG, mergeTeamSalesConfig,
+  evaluatePlans, matchesFromEvaluation, normalizeFirstCallAnswers, planReasonText,
 } from "../src/lib/team-sales-rules.ts";
 
 const T = (s) => new Date(s); // ISO with +03:30
@@ -70,6 +71,87 @@ ok("score: later never P1", () => { const r = computeLeadPriority({ ...base, urg
   assert.equal(r.score, 65); assert.equal(r.priority, 2); });
 ok("score <40 -> P3", () => assert.equal(computeLeadPriority({ ...base, urgency: "later", docsReady: "none" },
   [{ ...fakeMatch[0], assumptions: ["a"], amountFits: false }], 0, now).priority, 3));
+
+
+/* ---------- first-call form (crm-call-form-plans): guarantor questions + plan evaluation ---------- */
+const v2 = { ...simple, formVersion: 2, creditRank: "B2", guarantorAvailable: "no" };
+ok("v2: guarantor answer required", () => assert.ok(validateAnswers(normalizeFirstCallAnswers({ ...v2, guarantorAvailable: null }), now)));
+ok("v2: guarantor «بله» needs BOTH cheque and grade", () => {
+  const y = { ...v2, guarantorAvailable: "yes" };
+  assert.ok(validateAnswers(normalizeFirstCallAnswers({ ...y, gRank: "C1" }), now));
+  assert.ok(validateAnswers(normalizeFirstCallAnswers({ ...y, guarantorCheque: "no" }), now));
+  assert.equal(validateAnswers(normalizeFirstCallAnswers({ ...y, guarantorCheque: "no", gRank: "C1" }), now), null);
+  assert.equal(validateAnswers(normalizeFirstCallAnswers({ ...y, guarantorCheque: "unknown", gRank: "unknown" }), now), null);
+});
+ok("v2: «نمی‌دونه» guarantor needs no follow-ups", () => assert.equal(validateAnswers(normalizeFirstCallAnswers({ ...v2, guarantorAvailable: "unknown" }), now), null));
+ok("v2: curious is no early exit (all questions still required)", () => {
+  assert.ok(validateAnswers(normalizeFirstCallAnswers({ ...v2, urgency: "curious", creditRank: null }), now));
+  assert.ok(validateAnswers({ ...simple, urgency: "curious", creditRank: null }, now) === null, "old simple form keeps its curious exit");
+});
+ok("v2: plans step validates without urgency; old forms refused", () => {
+  assert.equal(validateAnswers(normalizeFirstCallAnswers({ ...v2, urgency: null }), now, {}, { forPlans: true }), null);
+  assert.ok(validateAnswers({ ...simple, urgency: null }, now, {}, { forPlans: true }));
+  assert.ok(validateAnswers({ mode: "simple", formVersion: 2, callResult: "no_answer" }, now, {}, { forPlans: true }));
+});
+ok("v2 normalize: guarantor yes -> 1 guarantor, cheque yes -> both cheque kinds; follow-ups dropped otherwise", () => {
+  const n = normalizeFirstCallAnswers({ ...v2, guarantorAvailable: "yes", guarantorCheque: "yes", gRank: "C1" });
+  assert.equal(n.guarantorCount, 1); assert.equal(n.gPhysical, true); assert.equal(n.gDigital, true); assert.equal(n.gRank, "C1");
+  const m = normalizeFirstCallAnswers({ ...v2, guarantorAvailable: "no", guarantorCheque: "yes", gRank: "C1" });
+  assert.equal(m.guarantorCount, 0); assert.equal(m.gRank, null); assert.equal(m.guarantorCheque, null);
+});
+const AB = ["A1", "A2", "A3", "B1", "B2", "B3"];
+const fxPlans = [
+  { planId: 1, name: "fit", loanType: "x", bankName: "ملت", installments: [24], conds: [{ id: 11, max: 400e6, ranks: AB, jobs: [], coll: "check", guar: false, gRanks: [], gColl: "none" }] },
+  { planId: 2, name: "guar", loanType: "x", conds: [{ id: 21, max: 300e6, ranks: AB, jobs: [], coll: "none", guar: true, gRanks: ["A1", "A2", "A3", "B1", "B2", "B3", "C1", "C2", "C3"], gColl: "check" }] },
+  { planId: 3, name: "a3only", loanType: "x", conds: [{ id: 31, max: 300e6, ranks: ["A1", "A2", "A3"], jobs: [], coll: "none", guar: false, gRanks: [], gColl: "none" }] },
+  { planId: 4, name: "salary", loanType: "x", conds: [{ id: 41, max: 500e6, ranks: [], jobs: [], coll: "none", guar: false, gRanks: [], gColl: "none", flags: { cSalary: true } }] },
+  { planId: 5, name: "small", loanType: "x", conds: [{ id: 51, max: 80e6, ranks: AB, jobs: [], coll: "none", guar: false, gRanks: [], gColl: "none" }] },
+  { planId: 6, name: "jobs", loanType: "x", conds: [{ id: 61, max: 300e6, ranks: [], jobs: ["employee_with_insurance", "retired"], coll: "none", guar: false, gRanks: [], gColl: "none" }] },
+  { planId: 7, name: "holes", loanType: "x", conds: [{ id: 71, max: 300e6, ranks: ["A1", "B1"], jobs: [], coll: "none", guar: false, gRanks: [], gColl: "none" }] },
+];
+const byId = (list) => Object.fromEntries(list.map((p) => [p.planId, p]));
+ok("evaluate: returns ALL plans, each with status + reasons", () => {
+  const ev = evaluatePlans({ ...v2, guarantorAvailable: "unknown" }, fxPlans);
+  assert.equal(ev.length, fxPlans.length);
+  for (const p of ev) { assert.ok(["fit", "depends", "no"].includes(p.status)); assert.ok(Array.isArray(p.reasons)); }
+  const e = byId(ev);
+  assert.equal(e[1].status, "fit"); assert.equal(e[3].status, "no"); assert.equal(e[4].status, "depends"); assert.equal(e[6].status, "depends");
+  assert.equal(e[2].status, "depends"); assert.equal(e[7].status, "no");
+  assert.deepEqual(ev.map((p) => p.status), [...ev.map((p) => p.status)].sort((x, y) => ["fit", "depends", "no"].indexOf(x) - ["fit", "depends", "no"].indexOf(y)));
+});
+ok("evaluate: reason texts (HANDOFF §4)", () => {
+  const e = byId(evaluatePlans({ ...v2, creditRank: "C2", guarantorAvailable: "unknown", amountMillion: 150 }, fxPlans));
+  const txt = (p) => p.reasons.map(planReasonText);
+  assert.ok(txt(e[1]).includes("رتبه C2 کمتر از B3 است"));
+  assert.ok(txt(e[7]).includes("رتبه C2 جزو رتبه‌های مجاز این طرح نیست"));
+  assert.ok(txt(e[2]).includes("اگر ضامن معرفی کند، ضامن چک بدهد و رتبه‌ی ضامن C3 یا بهتر باشد"), txt(e[2]).join("|"));
+  assert.ok(txt(e[4]).includes("اگر کسر از حقوق داشته باشد (در تماس اول پرسیده نمی‌شود)"));
+  const r = byId(evaluatePlans({ ...v2, creditRank: "unknown", guarantorAvailable: "no", amountMillion: 150 }, fxPlans));
+  assert.ok(txt(r[1]).includes("اگر رتبه‌ی متقاضی B3 یا بهتر باشد")); assert.equal(r[1].status, "depends");
+  assert.ok(txt(r[2]).includes("ضامن لازم است")); assert.equal(r[2].status, "no");
+  assert.ok(txt(r[5]).includes("سقف ۸۰ میلیون؛ کمتر از ۱۵۰ میلیون درخواستی"));
+  assert.equal(r[5].amountFits, false);
+});
+ok("evaluate: guarantor yes — cheque no / grade below are violations, unknown is «بستگی دارد»", () => {
+  const y = { ...v2, guarantorAvailable: "yes" };
+  const no = byId(evaluatePlans({ ...y, guarantorCheque: "no", gRank: "D1" }, fxPlans))[2];
+  assert.equal(no.status, "no"); assert.ok(no.reasons.map(planReasonText).includes("چک ضامن لازم است"));
+  assert.ok(no.reasons.map(planReasonText).includes("رتبه‌ی ضامن D1 کمتر از C3 است"));
+  const dep = byId(evaluatePlans({ ...y, guarantorCheque: "unknown", gRank: "unknown" }, fxPlans))[2];
+  assert.equal(dep.status, "depends");
+  assert.deepEqual(dep.reasons.filter((r) => r.kind === "unknown").map(planReasonText), ["اگر ضامن چک بدهد", "اگر رتبه‌ی ضامن C3 یا بهتر باشد"]);
+  assert.equal(byId(evaluatePlans({ ...y, guarantorCheque: "yes", gRank: "C1" }, fxPlans))[2].status, "fit");
+});
+ok("evaluate: applicant without cheque -> «چک متقاضی لازم است»", () => {
+  const e = byId(evaluatePlans({ ...v2, checkStatus: "none", canPromissory: "no" }, fxPlans))[1];
+  assert.equal(e.status, "no"); assert.ok(e.reasons.map(planReasonText).includes("چک متقاضی لازم است"));
+});
+ok("evaluate -> matches: fit + depends only, depends carries its assumptions", () => {
+  const ev = evaluatePlans({ ...v2, guarantorAvailable: "unknown" }, fxPlans);
+  const m = matchesFromEvaluation(ev);
+  assert.deepEqual(m.map((x) => x.planId).sort(), ev.filter((p) => p.status !== "no").map((p) => p.planId).sort());
+  assert.ok(m.find((x) => x.planId === 4).assumptions.length > 0); assert.equal(m.find((x) => x.planId === 1).assumptions.length, 0);
+});
 
 /* ---------- DB flows on a copy ---------- */
 const src = process.env.TEAM_SALES_FIXTURE_DB;
@@ -271,6 +353,71 @@ try {
     const [g] = pickNone(1).map((r) => Number(r.id));
     const r = ts.submitQualification(g, kazemi, { mode: "simple", callResult: "callback", callbackAt: "2026-10-25T10:00:00+03:30" }, longNote, now);
     assert.equal(r.result.priority, 2); assert.equal(r.result.nextActionAt, iso(T("2026-10-25T10:00:00+03:30")));
+  });
+  /* ---- first-call form: plans endpoint, selection, storage, list/detail fields ---- */
+  const firstCall = { ...v2, guarantorAvailable: "unknown", amountMillion: 100 };
+  ok("plans endpoint: every active plan with status; nothing written", () => {
+    const [g] = pickNone(1).map((r) => Number(r.id));
+    const quals = Number(queryRow("SELECT COUNT(*) n FROM team_sales_qualifications").n);
+    const { plans } = ts.planOptions(g, { ...firstCall, urgency: null });
+    assert.equal(plans.length, Number(queryRow("SELECT COUNT(*) n FROM loan_plans WHERE active=1").n));
+    assert.ok(plans.some((p) => p.status === "fit") && plans.some((p) => p.status === "depends"));
+    assert.equal(Number(queryRow("SELECT COUNT(*) n FROM team_sales_qualifications").n), quals);
+    assert.throws(() => ts.planOptions(g, { ...simple }), (x) => x.status === 400);
+  });
+  ok("selected_plans_json column added (additive)", () => {
+    assert.ok(queryRows("PRAGMA table_info(team_sales_qualifications)").some((c) => c.name === "selected_plans_json"));
+  });
+  ok("selecting a «مناسب نیست» plan -> 400, nothing written", () => {
+    const [g] = pickNone(1).map((r) => Number(r.id));
+    const { plans } = ts.planOptions(g, { ...firstCall, creditRank: "C2", urgency: null });
+    const bad = plans.find((p) => p.status === "no");
+    assert.ok(bad);
+    const calls = Number(queryRow("SELECT COUNT(*) n FROM call_logs WHERE customer_id=?", [g]).n);
+    assert.throws(() => ts.submitQualification(g, kazemi, { ...firstCall, creditRank: "C2" }, longNote, now, [bad.planId]),
+      (x) => x.status === 400 && /قابل انتخاب نیست/.test(x.message));
+    assert.equal(Number(queryRow("SELECT COUNT(*) n FROM call_logs WHERE customer_id=?", [g]).n), calls);
+    assert.equal(prioOf(g), null);
+  });
+  ok("selection refused for the old form / not answered", () => {
+    const [g] = pickNone(1).map((r) => Number(r.id));
+    assert.throws(() => ts.submitQualification(g, kazemi, simple, longNote, now, [1]), (x) => x.status === 400);
+    assert.throws(() => ts.submitQualification(g, kazemi, { mode: "simple", formVersion: 2, callResult: "no_answer" }, longNote, now, [1]), (x) => x.status === 400);
+  });
+  let selCustomer = 0, selIds = [];
+  ok("fit + «بستگی دارد» plans stored as snapshot, in the call note, returned", () => {
+    const [g] = pickNone(1).map((r) => Number(r.id)); selCustomer = g;
+    const { plans } = ts.planOptions(g, { ...firstCall, urgency: null });
+    const fit = plans.find((p) => p.status === "fit"), dep = plans.find((p) => p.status === "depends");
+    selIds = [fit.planId, dep.planId];
+    const r = ts.submitQualification(g, kazemi, firstCall, longNote, now, [...selIds, fit.planId]);
+    assert.deepEqual(r.selectedPlans.map((p) => [p.id, p.status]), [[fit.planId, "fit"], [dep.planId, "depends"]]);
+    assert.ok(r.selectedPlans[1].reasons.length > 0 && r.selectedPlans[1].reasons.every((t) => /^اگر /.test(t)));
+    const row = queryRow("SELECT selected_plans_json j, answers_json a FROM team_sales_qualifications WHERE customer_id=? ORDER BY id DESC", [g]);
+    assert.deepEqual(JSON.parse(row.j).map((p) => p.id), selIds);
+    assert.equal(JSON.parse(row.a).formVersion, 2);
+    const log = queryRow("SELECT expert_notes FROM call_logs WHERE customer_id=? AND expert_notes LIKE '%طرح‌های انتخاب‌شده%' ORDER BY id DESC", [g]);
+    assert.match(log.expert_notes, new RegExp(`طرح‌های انتخاب‌شده: .*${dep.planName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\(مشروط\\)`));
+  });
+  ok("priority comes only from matching (selection does not change it)", () => {
+    const [g, h] = pickNone(2).map((r) => Number(r.id));
+    const a1 = ts.submitQualification(g, kazemi, { ...firstCall, urgency: "later" }, longNote, now, []);
+    const a2 = ts.submitQualification(h, kazemi, { ...firstCall, urgency: "later" }, longNote, now, selIds);
+    assert.equal(a1.result.priority, a2.result.priority); assert.equal(a1.result.score, a2.result.score);
+    assert.equal(queryRow("SELECT selected_plans_json j FROM team_sales_qualifications WHERE customer_id=? ORDER BY id DESC", [g]).j, "[]");
+  });
+  ok("list + case helpers expose the latest first-call selection", () => {
+    const m = ts.latestSelectedPlans([selCustomer, a]);
+    assert.deepEqual(m.get(selCustomer).map((p) => p.id), selIds); assert.equal(m.get(a), undefined);
+    const fc = ts.latestFirstCall(selCustomer);
+    assert.deepEqual(fc.selectedPlans.map((p) => p.id), selIds);
+    assert.equal(fc.answers.guarantorAvailable, "unknown"); assert.equal(fc.answers.creditRank, "B2"); assert.equal(fc.note, longNote);
+    assert.equal(ts.latestFirstCall(a), null);
+  });
+  ok("no plans -> P3 via H6, form still accepted without selection", () => {
+    const [g] = pickNone(1).map((r) => Number(r.id));
+    const r = ts.submitQualification(g, kazemi, { ...firstCall, creditRank: "E3", checkStatus: "none", canPromissory: "no", guarantorAvailable: "no" }, longNote, now, []);
+    assert.equal(r.result.priority, 3); assert.equal(r.result.outcome, "not_eligible");
   });
   ok("integrity ok", () => assert.equal(queryRow("PRAGMA integrity_check").integrity_check, "ok"));
 } finally {

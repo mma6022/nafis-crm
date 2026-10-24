@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import type { PlanEvaluation } from './plan-reasons';
 
 /** Team-sales (qualifier -> closer) client. Server computes priority; the client never decides it. */
 export type TeamSalesConfig = {
@@ -16,6 +17,22 @@ export type SimpleAnswers = {
   amountMillion?: number | null; urgency?: 'now' | 'month' | 'later' | 'curious' | null;
   docsReady?: 'all' | 'partial' | 'none' | null; creditRank?: string | null;
   checkStatus?: 'any' | 'none' | null; canPromissory?: 'yes' | 'no' | null; bouncedCheque?: 'yes' | 'no' | null;
+  /** 2 = first-call form with the guarantor step and plan selection (crm-call-form-plans). */
+  formVersion?: 2;
+  guarantorAvailable?: Tri | null; guarantorCheque?: Tri | null; gRank?: string | null;
+};
+export type Tri = 'yes' | 'no' | 'unknown';
+/** Plan picked in the first-call form, snapshotted at submit time (list column, case box, result page). */
+export type SuggestedPlan = {
+  id: number; name: string; bank: string; max: number; status: 'fit' | 'depends'; conditionId?: number | string; reasons: string[];
+};
+export type FirstCallSummary = {
+  id: number; createdAt: string; priority: number | null; note: string; actorName: string | null; selectedPlans: SuggestedPlan[];
+  answers: {
+    amountMillion: number | null; docsReady: string | null; urgency: string | null; creditRank: string | null;
+    checkStatus: string | null; canPromissory: string | null; bouncedCheque: string | null;
+    guarantorAvailable: Tri | null; guarantorCheque: Tri | null; gRank: string | null;
+  };
 };
 export type QualifyResult = {
   callLogId: number;
@@ -23,6 +40,7 @@ export type QualifyResult = {
   result: { priority: 1 | 2 | 3 | null; outcome: string; nextActionAt: string | null; score: number | null; reasons: string[]; attempts: number; maxAttempts?: number };
   matches: Array<{ planId: number; planName: string; assumptions: string[]; amountFits: boolean }>;
   handoff: PromoteResult | null;
+  selectedPlans?: SuggestedPlan[];
 };
 
 export class TeamSalesApiError extends Error {
@@ -84,8 +102,18 @@ export const showsUpgradeButton = (...a: Parameters<typeof canUpgradeToP1>) => c
 export const fetchNextCloser = () => request<NextCloser>('/sales/next-closer');
 export const upgradePriority = (customerId: number, note: string) =>
   request<PromoteResult>(`/customers/${customerId}/upgrade-priority`, { method: 'POST', body: JSON.stringify({ note: note.trim() || null }) });
-export const submitSimpleForm = (customerId: number, answers: SimpleAnswers, note: string) =>
-  request<QualifyResult>(`/customers/${customerId}/team-sales/qualify`, { method: 'POST', body: JSON.stringify({ answers, note }) });
+export const submitSimpleForm = (customerId: number, answers: SimpleAnswers, note: string, selectedPlans?: number[]) =>
+  request<QualifyResult>(`/customers/${customerId}/team-sales/qualify`, { method: 'POST',
+    body: JSON.stringify(selectedPlans ? { answers, note, selectedPlans } : { answers, note }) });
+/** Step 5: every active plan with fit / depends / no and the reasons (no writes). */
+export const fetchPlanOptions = (customerId: number, answers: SimpleAnswers) =>
+  request<{ plans: PlanEvaluation[] }>(`/customers/${customerId}/team-sales/qualify/plans`, { method: 'POST', body: JSON.stringify({ answers }) });
+/** The list / detail APIs add these after their zod parse; read them through these helpers. */
+export const suggestedPlansOf = (c: unknown): SuggestedPlan[] => {
+  const v = (c as { suggestedPlans?: unknown } | null)?.suggestedPlans;
+  return Array.isArray(v) ? (v as SuggestedPlan[]) : [];
+};
+export const firstCallOf = (c: unknown): FirstCallSummary | null => ((c as { firstCall?: FirstCallSummary | null } | null)?.firstCall ?? null);
 
 const FA = '۰۱۲۳۴۵۶۷۸۹';
 export const fa = (v: string | number) => String(v).replace(/[0-9]/g, (d) => FA[Number(d)]);

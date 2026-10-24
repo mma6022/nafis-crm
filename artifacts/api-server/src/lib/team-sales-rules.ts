@@ -126,7 +126,14 @@ export type QualifierAnswers = {
   gPhysical?: boolean; gDigital?: boolean; gPromissory?: boolean; gSalary?: boolean;
   docsReady?: "all" | "partial" | "none" | null;
   recallAt?: string | null;
+  /** 2 = Kazemi's 6-step first-call form (crm-call-form-plans): guarantor yes/no/unknown + cheque + grade, plan cards. */
+  formVersion?: 2 | null;
+  guarantorAvailable?: Tri | null;
+  guarantorCheque?: Tri | null;
 };
+export type Tri = "yes" | "no" | "unknown";
+const TRI: readonly string[] = ["yes", "no", "unknown"];
+export const isFirstCallForm = (a: QualifierAnswers | null | undefined) => !!a && a.mode === "simple" && a.formVersion === 2;
 
 const JOBS = ["employee_with_insurance", "employee_no_insurance", "business", "no_doc", "retired", "unemployed"];
 export const RANKS: readonly string[] = [...CREDIT_SUBGRADES, "unknown"];
@@ -136,8 +143,10 @@ const rankAccepted = (value: string, legacy: string | null | undefined) =>
   RANKS.includes(value) || (isLegacyGradeLetter(value) && value === legacy);
 
 /** Validates the answers for a call result. Returns a Persian error or null. */
-export function validateAnswers(a: QualifierAnswers, now: Date = new Date(), legacy: LegacyRankRef = {}): string | null {
+export function validateAnswers(a: QualifierAnswers, now: Date = new Date(), legacy: LegacyRankRef = {},
+  opts: { forPlans?: boolean } = {}): string | null {
   if (!a || !CALL_RESULTS.includes(a.callResult)) return "نتیجهٔ تماس معتبر نیست.";
+  if (opts.forPlans && (a.callResult !== "answered" || !isFirstCallForm(a))) return "طرح‌ها فقط برای تماس پاسخ‌داده در فرم تماس اول محاسبه می‌شوند.";
   if (a.callResult === "callback") {
     const at = a.callbackAt ? Date.parse(a.callbackAt) : Number.NaN;
     if (Number.isNaN(at)) return "زمان تماس بعدی را مشخص کنید.";
@@ -145,8 +154,12 @@ export function validateAnswers(a: QualifierAnswers, now: Date = new Date(), leg
     return null;
   }
   if (a.callResult !== "answered") return null;
-  if (!a.urgency || !["now", "month", "later", "curious"].includes(a.urgency)) return "فوریت را مشخص کنید.";
-  if (a.urgency === "curious") return null;
+  // First-call form: urgency is the LAST question (asked after the plans), so the plans step validates without it.
+  // There is no early «فقط کنجکاوه» exit there: every question is answered even for «curious».
+  if (!opts.forPlans) {
+    if (!a.urgency || !["now", "month", "later", "curious"].includes(a.urgency)) return "فوریت را مشخص کنید.";
+    if (a.urgency === "curious" && !isFirstCallForm(a)) return null;
+  }
   if (!(Number(a.amountMillion) > 0)) return "مبلغ درخواستی را وارد کنید.";
   if (a.loanPref && !["goods", "score", "both"].includes(a.loanPref)) return "نوع وام معتبر نیست.";
   const simple = a.mode === "simple";
@@ -158,14 +171,40 @@ export function validateAnswers(a: QualifierAnswers, now: Date = new Date(), leg
   const g = Number(a.guarantorCount ?? 0);
   if (!Number.isInteger(g) || g < 0 || g > 5) return "تعداد ضامن معتبر نیست.";
   if (g > 0 && a.gRank && !rankAccepted(a.gRank, legacy.gRank)) return "رتبهٔ ضامن معتبر نیست.";
+  if (isFirstCallForm(a)) {
+    if (!a.guarantorAvailable || !TRI.includes(a.guarantorAvailable)) return "معرفی ضامن را مشخص کنید (یا «نمی‌دونه»).";
+    if (a.guarantorAvailable === "yes") {
+      // PM: after «بله» BOTH follow-ups are always asked (cheque and grade), «نمی‌دونه» counts as an answer.
+      if (!a.guarantorCheque || !TRI.includes(a.guarantorCheque)) return "چک ضامن را مشخص کنید (یا «نمی‌دونه»).";
+      if (!a.gRank || !rankAccepted(a.gRank, legacy.gRank)) return "رتبهٔ اعتباری ضامن را مشخص کنید (یا «نمی‌دونه»).";
+    }
+  }
   return null;
+}
+
+/**
+ * First-call form → the legacy answer fields (stored answers stay readable by the old code and the priority rules):
+ * guarantor «بله» = one guarantor (no «چند ضامن؟» question), guarantor cheque «بله» = either cheque type.
+ * Follow-up answers are dropped when the guarantor is not «بله».
+ */
+export function normalizeFirstCallAnswers(a: QualifierAnswers): QualifierAnswers {
+  if (!isFirstCallForm(a)) return a;
+  const yes = a.guarantorAvailable === "yes";
+  const cheque = yes ? a.guarantorCheque ?? null : null;
+  return {
+    ...a, guarantorCheque: cheque, gRank: yes ? a.gRank ?? null : null, guarantorCount: yes ? 1 : 0,
+    gPhysical: cheque === "yes", gDigital: cheque === "yes", gPromissory: false, gSalary: false,
+  };
 }
 
 export type PlanCondition = {
   id: number | string; max: number; ranks: string[]; jobs: string[]; coll: string;
   guar: boolean; gRanks: string[]; gColl: string;
+  /** needs_* flags of the condition row (first-call evaluator only; the legacy matcher ignores them). */
+  flags?: { cCheck?: boolean; cPromissory?: boolean; cSalary?: boolean; gCheck?: boolean; gPromissory?: boolean; gSalary?: boolean };
 };
-export type PlanForMatch = { planId: number; name: string; loanType: string; conds: PlanCondition[] };
+export type PlanForMatch = { planId: number; name: string; loanType: string; conds: PlanCondition[];
+  bankName?: string; installments?: number[] };
 export type PlanMatch = { planId: number; planName: string; conditionId: number | string; max: number;
   assumptions: string[]; amountFits: boolean };
 
@@ -318,11 +357,245 @@ export function plansFromRows(
       id: Number(c.id), max: Number(c.max_principal ?? p.principal_amount ?? 0) || 0,
       ranks: arr(c.customer_ranks), jobs: arr(c.customer_jobs), coll: String(c.collateral_type || "none"),
       guar: Boolean(Number(c.needs_guarantor)), gRanks: arr(c.guarantor_ranks), gColl: String(c.guarantor_collateral_type || "none"),
+      flags: {
+        cCheck: Boolean(Number(c.needs_customer_check)), cPromissory: Boolean(Number(c.needs_customer_promissory)),
+        cSalary: Boolean(Number(c.needs_customer_salary_deduct)), gCheck: Boolean(Number(c.needs_guarantor_check)),
+        gPromissory: Boolean(Number(c.needs_guarantor_promissory)), gSalary: Boolean(Number(c.needs_guarantor_salary_deduct)),
+      },
     })) : [{
       id: "plan", max: Number(p.principal_amount ?? 0) || 0, ranks: arr(p.customer_ranks), jobs: arr(p.customer_jobs),
       coll: planColl(p), guar: Boolean(Number(p.needs_guarantor)), gRanks: arr(p.guarantor_ranks),
       gColl: String(p.guarantor_collateral_type || "none"),
     }];
-    return { planId: Number(p.id), name: String(p.name), loanType: String(p.loan_type ?? ""), conds: mapped };
+    const installments = String(p.installments ?? "").split(/[,،\s]+/).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    return { planId: Number(p.id), name: String(p.name), loanType: String(p.loan_type ?? ""), conds: mapped,
+      bankName: String(p.bank_name ?? "").trim(), installments: [...new Set(installments)].sort((x, y) => x - y) };
   });
+}
+
+/* ---------------- First-call plan evaluation (crm-call-form-plans) ---------------- */
+/**
+ * Every active plan gets a status for the answers so far:
+ *  - fit: every condition is met by the answers;
+ *  - depends: nothing is violated, but at least one condition rests on a «نمی‌دونه» answer or on something the first
+ *    call does not ask (salary deduction, guarantor promissory, a second guarantor, the job);
+ *  - no: at least one condition is violated (cannot be selected).
+ * Reasons are structured (code + values); the client builds the Persian text (planReasonText mirrors it here for logs).
+ */
+export type PlanReasonCode =
+  | "rank_ok" | "rank_below" | "rank_not_allowed" | "rank_unknown"
+  | "applicant_cheque_ok" | "applicant_cheque" | "applicant_promissory_ok" | "applicant_promissory" | "applicant_salary"
+  | "guarantor_ok" | "guarantor_required" | "guarantor_unknown" | "two_guarantors"
+  | "guarantor_cheque_ok" | "guarantor_cheque" | "guarantor_cheque_unknown" | "guarantor_salary" | "guarantor_promissory"
+  | "guarantor_rank_ok" | "guarantor_rank_below" | "guarantor_rank_not_allowed" | "guarantor_rank_unknown"
+  | "job_unknown" | "amount_over_cap";
+export type PlanReason = {
+  code: PlanReasonCode; kind: "met" | "unknown" | "violated" | "warning";
+  /** the answer that was compared (grade) */
+  have?: string;
+  /** contiguous grade range from A1: the worst permitted grade (e.g. B3) */
+  min?: string;
+  /** non-contiguous permitted grades, compacted (e.g. ["B"], ["A1","B2"]) */
+  allowed?: string[];
+  two?: boolean;
+  /** guarantor_unknown: what an introduced guarantor would also need */
+  cheque?: boolean; salary?: boolean; promissory?: boolean; gMin?: string; gAllowed?: string[];
+  jobs?: string[]; excludedJobs?: string[];
+  max?: number; want?: number;
+};
+export type PlanStatus = "fit" | "depends" | "no";
+export type PlanEvaluation = {
+  planId: number; planName: string; bankName: string; loanType: string; installments: number[];
+  conditionId: number | string; max: number; status: PlanStatus; amountFits: boolean; reasons: PlanReason[];
+};
+
+const CHECK_KINDS = ["physical_check", "digital_check", "check"];
+const SUB_INDEX = (g: string) => CREDIT_SUBGRADES.indexOf(g as (typeof CREDIT_SUBGRADES)[number]);
+/** Permitted list (letters and/or sub-grades) → {min} when it is A1..X, else {allowed}; null = no restriction. */
+function rankRule(list: string[]): { min?: string; allowed?: string[] } | null {
+  if (!list.length) return null;
+  const subs = [...new Set(list.flatMap((v) => (isLegacyGradeLetter(v) ? CREDIT_SUBGRADES.filter((g) => g[0] === v) : SUB_INDEX(v) >= 0 ? [v] : [])))]
+    .sort((x, y) => SUB_INDEX(x) - SUB_INDEX(y));
+  if (!subs.length) return null;
+  if (subs.length === CREDIT_SUBGRADES.length) return null;
+  if (subs.every((g, i) => SUB_INDEX(g) === i)) return { min: subs[subs.length - 1] };
+  return { allowed: compactRankList(subs) };
+}
+type Tri3 = "ok" | "unknown" | "no";
+const best3 = (xs: Tri3[]): Tri3 => (xs.includes("ok") ? "ok" : xs.includes("unknown") ? "unknown" : "no");
+function custState(a: QualifierAnswers, kind: string): Tri3 {
+  if (!kind || kind === "none") return "ok";
+  if (CHECK_KINDS.includes(kind)) return a.checkStatus && a.checkStatus !== "none" ? "ok" : "no";
+  if (kind === "promissory") return a.canPromissory === "yes" ? "ok" : "no";
+  if (kind === "salary") return a.salaryDeduct === "yes" ? "ok" : a.salaryDeduct === "no" ? "no" : "unknown";
+  return "ok";
+}
+function guarState(a: QualifierAnswers, kind: string): Tri3 {
+  if (!kind || kind === "none") return "ok";
+  if (CHECK_KINDS.includes(kind)) return a.guarantorCheque === "yes" ? "ok" : a.guarantorCheque === "no" ? "no" : "unknown";
+  return "unknown"; // promissory / salary deduction of the guarantor: not asked in the first call
+}
+const ALL_JOBS = JOBS;
+
+function evaluateCondition(a: QualifierAnswers, c: PlanCondition): { reasons: PlanReason[]; amountFits: boolean } {
+  const o = COND_OVERRIDES[String(c.id)] ?? {};
+  const f = c.flags ?? {};
+  const reasons: PlanReason[] = [];
+  const add = (r: PlanReason) => reasons.push(r);
+  // Applicant grade
+  const rr = rankRule(c.ranks);
+  if (rr) {
+    if (!a.creditRank || a.creditRank === "unknown") add({ code: "rank_unknown", kind: "unknown", ...rr });
+    else if (gradeMatches(a.creditRank, c.ranks)) add({ code: "rank_ok", kind: "met", have: a.creditRank, ...rr });
+    else add({ code: rr.min ? "rank_below" : "rank_not_allowed", kind: "violated", have: a.creditRank, ...rr });
+  }
+  // Job is not asked in the first call: a plan limited to some jobs depends on it.
+  const jobs = [...new Set(c.jobs)].filter((j) => ALL_JOBS.includes(j));
+  if (jobs.length && jobs.length < ALL_JOBS.length) {
+    if (a.jobType) { if (!jobs.includes(a.jobType)) add({ code: "job_unknown", kind: "violated", jobs }); }
+    else add({ code: "job_unknown", kind: "unknown", jobs, excludedJobs: ALL_JOBS.filter((j) => !jobs.includes(j)) });
+  }
+  // Applicant collateral: the condition's own type, the needs_* flags, and the note-only any-of overrides.
+  const custReqs: string[][] = [];
+  if (c.coll && c.coll !== "none") custReqs.push([c.coll]);
+  if (f.cCheck) custReqs.push(["check"]);
+  if (f.cPromissory) custReqs.push(["promissory"]);
+  if (f.cSalary) custReqs.push(["salary"]);
+  if (o.cust) custReqs.push(o.cust);
+  for (const anyOf of custReqs) {
+    const st = best3(anyOf.map((k) => custState(a, k)));
+    const okKind = anyOf.find((k) => custState(a, k) === "ok");
+    if (st === "ok") add({ code: okKind === "promissory" ? "applicant_promissory_ok" : okKind === "salary" ? "applicant_salary" : "applicant_cheque_ok", kind: "met" });
+    else if (st === "unknown") add({ code: "applicant_salary", kind: "unknown" });
+    else add({ code: anyOf.some((k) => CHECK_KINDS.includes(k)) ? "applicant_cheque" : anyOf.includes("promissory") ? "applicant_promissory" : "applicant_salary", kind: "violated" });
+  }
+  // Guarantor
+  const guarReqs: string[][] = [];
+  if (c.gColl && c.gColl !== "none") guarReqs.push([c.gColl]);
+  if (f.gCheck) guarReqs.push(["check"]);
+  if (f.gPromissory) guarReqs.push(["promissory"]);
+  if (f.gSalary) guarReqs.push(["salary"]);
+  if (o.guar) guarReqs.push(o.guar);
+  const needG = c.guar || !!o.guar || !!(f.gCheck || f.gPromissory || f.gSalary);
+  if (needG) {
+    const two = !!o.two;
+    const avail = a.guarantorAvailable ?? (Number(a.guarantorCount) > 0 ? "yes" : "no");
+    const gr = rankRule(c.gRanks);
+    if (avail === "no") add({ code: "guarantor_required", kind: "violated", two });
+    else if (avail === "unknown") {
+      const flat = guarReqs.map((anyOf) => anyOf.some((k) => CHECK_KINDS.includes(k)) ? "check" : anyOf.includes("salary") ? "salary" : "promissory");
+      add({ code: "guarantor_unknown", kind: "unknown", two, cheque: flat.includes("check"), salary: flat.includes("salary"),
+        promissory: flat.includes("promissory"), gMin: gr?.min, gAllowed: gr?.allowed });
+    } else {
+      add(two ? { code: "two_guarantors", kind: "unknown", two } : { code: "guarantor_ok", kind: "met" });
+      for (const anyOf of guarReqs) {
+        // Only a cheque can be «ok» or «no» here (salary / promissory of the guarantor are never asked → unknown).
+        const st = best3(anyOf.map((k) => guarState(a, k)));
+        const hasCheck = anyOf.some((k) => CHECK_KINDS.includes(k));
+        if (st === "ok") add({ code: "guarantor_cheque_ok", kind: "met" });
+        else if (st === "no") add({ code: "guarantor_cheque", kind: "violated" });
+        else if (hasCheck && a.guarantorCheque !== "no") add({ code: "guarantor_cheque_unknown", kind: "unknown" });
+        else add({ code: anyOf.includes("salary") ? "guarantor_salary" : "guarantor_promissory", kind: "unknown" });
+      }
+      if (gr) {
+        if (!a.gRank || a.gRank === "unknown") add({ code: "guarantor_rank_unknown", kind: "unknown", ...gr });
+        else if (gradeMatches(a.gRank, c.gRanks)) add({ code: "guarantor_rank_ok", kind: "met", have: a.gRank, ...gr });
+        else add({ code: gr.min ? "guarantor_rank_below" : "guarantor_rank_not_allowed", kind: "violated", have: a.gRank, ...gr });
+      }
+    }
+  }
+  const want = (Number(a.amountMillion) || 0) * 1e6;
+  const amountFits = !want || want <= c.max;
+  if (!amountFits) add({ code: "amount_over_cap", kind: "warning", max: c.max, want });
+  return { reasons, amountFits };
+}
+
+const statusOf = (rs: PlanReason[]): PlanStatus =>
+  rs.some((r) => r.kind === "violated") ? "no" : rs.some((r) => r.kind === "unknown") ? "depends" : "fit";
+const countKind = (rs: PlanReason[], k: PlanReason["kind"]) => rs.filter((r) => r.kind === k).length;
+const STATUS_ORDER: Record<PlanStatus, number> = { fit: 0, depends: 1, no: 2 };
+/** Lower = better. fit/depends: amount fits, fewer unknowns, higher cap. no: fewer violations, then the same. */
+function compareEval(x: PlanEvaluation, y: PlanEvaluation) {
+  return (STATUS_ORDER[x.status] - STATUS_ORDER[y.status]) ||
+    (x.status === "no" ? countKind(x.reasons, "violated") - countKind(y.reasons, "violated") : 0) ||
+    (Number(y.amountFits) - Number(x.amountFits)) ||
+    (countKind(x.reasons, "unknown") - countKind(y.reasons, "unknown")) ||
+    (y.max - x.max) || (x.planId - y.planId);
+}
+
+/** All plans, each with its best condition's status and reasons. Not filtered by loan type or job (first call asks neither). */
+export function evaluatePlans(a: QualifierAnswers, plans: PlanForMatch[]): PlanEvaluation[] {
+  const answers = normalizeFirstCallAnswers(a);
+  const out: PlanEvaluation[] = [];
+  for (const p of plans) {
+    let best: PlanEvaluation | null = null;
+    for (const c of p.conds) {
+      const { reasons, amountFits } = evaluateCondition(answers, c);
+      const ev: PlanEvaluation = { planId: p.planId, planName: p.name, bankName: p.bankName ?? "", loanType: p.loanType,
+        installments: p.installments ?? [], conditionId: c.id, max: c.max, status: statusOf(reasons), amountFits, reasons };
+      if (!best || compareEval(ev, best) < 0) best = ev;
+    }
+    if (best) out.push(best);
+  }
+  return out.sort(compareEval);
+}
+
+/** fit + depends plans in the legacy PlanMatch shape, so computeLeadPriority stays unchanged (unknowns = assumptions). */
+export function matchesFromEvaluation(evals: PlanEvaluation[]): PlanMatch[] {
+  return evals.filter((e) => e.status !== "no").map((e) => ({
+    planId: e.planId, planName: e.planName, conditionId: e.conditionId, max: e.max, amountFits: e.amountFits,
+    assumptions: e.reasons.filter((r) => r.kind === "unknown").map(planReasonText),
+  }));
+}
+
+const JOB_FA: Record<string, string> = {
+  employee_with_insurance: "کارمند بیمه‌دار", employee_no_insurance: "کارمند بدون بیمه", business: "آزاد",
+  no_doc: "بدون مدرک شغلی", retired: "بازنشسته", unemployed: "بیکار",
+};
+const NOT_ASKED = "(در تماس اول پرسیده نمی‌شود)";
+const joinFa = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join("، ")} و ${xs[xs.length - 1]}`);
+const rankWord = (r: { min?: string; allowed?: string[] }) => (r.min ? `${r.min} یا بهتر` : (r.allowed ?? []).join(" یا "));
+const millionFa = (n?: number) => `${Math.round((Number(n) || 0) / 1e6).toLocaleString("en-US").replace(/,/g, "٬").replace(/[0-9]/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)])} میلیون`;
+/** Persian text of one reason (the dashboard has the same wording in features/team-sales/plan-reasons.ts). */
+export function planReasonText(r: PlanReason): string {
+  switch (r.code) {
+    case "rank_ok": return r.min ? `رتبه ${r.have} (حداقل ${r.min})` : `رتبه ${r.have}`;
+    case "rank_below": return `رتبه ${r.have} کمتر از ${r.min} است`;
+    case "rank_not_allowed": return `رتبه ${r.have} جزو رتبه‌های مجاز این طرح نیست`;
+    case "rank_unknown": return `اگر رتبه‌ی متقاضی ${rankWord(r)} باشد`;
+    case "applicant_cheque_ok": return "چک متقاضی";
+    case "applicant_cheque": return "چک متقاضی لازم است";
+    case "applicant_promissory_ok": return "سفته‌ی متقاضی";
+    case "applicant_promissory": return "سفته‌ی متقاضی لازم است";
+    case "applicant_salary": return r.kind === "met" ? "کسر از حقوق" : r.kind === "violated" ? "کسر از حقوق لازم است" : `اگر کسر از حقوق داشته باشد ${NOT_ASKED}`;
+    case "guarantor_ok": return "ضامن";
+    case "guarantor_required": return r.two ? "دو ضامن لازم است" : "ضامن لازم است";
+    case "guarantor_unknown": {
+      const parts = [r.two ? "دو ضامن معرفی کند" : "ضامن معرفی کند"];
+      if (r.cheque) parts.push("ضامن چک بدهد");
+      if (r.gMin || r.gAllowed?.length) parts.push(`رتبه‌ی ضامن ${rankWord({ min: r.gMin, allowed: r.gAllowed })} باشد`);
+      if (r.salary) parts.push("ضامن کسر از حقوق داشته باشد");
+      if (r.promissory) parts.push("ضامن سفته بدهد");
+      return `اگر ${joinFa(parts)}`;
+    }
+    case "two_guarantors": return "اگر دو ضامن معرفی کند";
+    case "guarantor_cheque_ok": return "ضامن با چک";
+    case "guarantor_cheque": return "چک ضامن لازم است";
+    case "guarantor_cheque_unknown": return "اگر ضامن چک بدهد";
+    case "guarantor_salary": return `اگر ضامن کسر از حقوق داشته باشد ${NOT_ASKED}`;
+    case "guarantor_promissory": return `اگر ضامن سفته بدهد ${NOT_ASKED}`;
+    case "guarantor_rank_ok": return `رتبه‌ی ضامن ${r.have}`;
+    case "guarantor_rank_below": return `رتبه‌ی ضامن ${r.have} کمتر از ${r.min} است`;
+    case "guarantor_rank_not_allowed": return `رتبه‌ی ضامن ${r.have} جزو رتبه‌های مجاز این طرح نیست`;
+    case "guarantor_rank_unknown": return `اگر رتبه‌ی ضامن ${rankWord(r)} باشد`;
+    case "job_unknown": {
+      if (r.kind === "violated") return `فقط برای ${(r.jobs ?? []).map((j) => JOB_FA[j] ?? j).join(" یا ")}`;
+      const ex = r.excludedJobs ?? [];
+      return ex.length && ex.length <= 2 && (r.jobs ?? []).length > 2
+        ? `اگر ${ex.map((j) => JOB_FA[j] ?? j).join(" یا ")} نباشد (شغل ${NOT_ASKED.slice(1)}`
+        : `اگر ${(r.jobs ?? []).map((j) => JOB_FA[j] ?? j).join(" یا ")} باشد (شغل ${NOT_ASKED.slice(1)}`;
+    }
+    case "amount_over_cap": return `سقف ${millionFa(r.max)}؛ کمتر از ${millionFa(r.want)} درخواستی`;
+    default: return "";
+  }
 }

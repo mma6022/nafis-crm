@@ -48,6 +48,7 @@
     "test:wallet-receipt-view": "node --experimental-strip-types scripts/wallet-receipt-view-fixture.mjs",
     "test:team-sales": "node scripts/run-bundled-fixture.mjs scripts/team-sales-fixture.mjs",
     "test:team-commission": "node scripts/run-bundled-fixture.mjs scripts/team-commission-fixture.mjs",
+    "test:call-form-plans-migrate": "node scripts/call-form-plans-migrate-fixture.mjs",
     "test:credit-subgrades": "node scripts/run-bundled-fixture.mjs scripts/credit-subgrades-fixture.mjs"
   },
   "dependencies": {
