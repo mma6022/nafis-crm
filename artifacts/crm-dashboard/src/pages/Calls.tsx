@@ -1,7 +1,7 @@
-import { CalendarDays, Check, ChevronDown, ClipboardList, Download, Edit3, FileText, MoreHorizontal, PhoneCall, Plus, Search, SlidersHorizontal, UserRound, X } from 'lucide-react';
+import { CalendarDays, Check, ChevronDown, ClipboardList, Download, Edit3, FileText, PhoneCall, Plus, Search, SlidersHorizontal, UserRound, X } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, useLocation } from 'wouter';
+import { useLocation } from 'wouter';
 import { useTableState } from '@/hooks/use-table-state';
 import { useQueryClient } from '@tanstack/react-query';
 import { getCustomer, useGetAuthSession, getGetAuthSessionQueryKey, type CustomerDetail, listCalls, useListCalls, useCreateCall, useCreateConsultation, useListSalespersons, getListCallsQueryKey, getListRemindersQueryKey, getListCustomersQueryKey, getListConsultationsQueryKey, type CallInput, type CallRecord, type ConsultationInput } from '@workspace/api-client-react';
@@ -20,6 +20,7 @@ import { jalaliValueToGregorian } from '@/lib/jalali';
 import { useDialogFocus, useMinWidth } from './customers-ui';
 import './calls.css';
 import { CustomerName } from '@/components/customer/CustomerName';
+import { RowActionsMenu } from '@/components/row-menu/RowActionsMenu';
 
 const limit = 20;
 const fa = (n: number) => n.toLocaleString('fa-IR');
@@ -309,9 +310,10 @@ function ManualCalls({ desktop = true }: { desktop?: boolean }) {
         <td><div className="tm" data-testid={`text-call-date-${c.id}`} title={formatDateTime(c.createdAt)}>{timeOf(c)}</div><div className="by">{byOf(c)}</div></td>
         <td className="ac" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
           <div className="clx-acts">{isUnk(c) ? completeBtn(c) : <>{callBtn(c)}{consultBtn(c)}
-            <details className="clx-mm"><summary aria-label="کارهای بیشتر برای این تماس" data-testid={`button-row-more-${c.id}`}><MoreHorizontal size={18} aria-hidden="true" /></summary>
-              <div className="clx-mpop"><button type="button" onClick={(e) => { (e.currentTarget.closest('details') as HTMLDetailsElement).open = false; setSelectedCall(c); }}><ClipboardList size={17} aria-hidden="true" /> گزارش کامل این تماس</button>
-                {canCustomersView ? <Link href={`/customers/${c.customerId}`}><UserRound size={17} aria-hidden="true" /> پرونده‌ی مشتری</Link> : null}</div></details></>}</div>
+            <RowActionsMenu label={`کارهای بیشتر برای تماس ${c.customerName}`} triggerClassName="clx-rowmenu" iconSize={18} triggerTestId={`button-row-more-${c.id}`} contentTestId={`menu-call-row-${c.id}`} items={[
+              { key: 'report', onSelect: () => setSelectedCall(c), icon: <ClipboardList size={17} aria-hidden="true" />, label: 'گزارش کامل این تماس', testId: `menuitem-call-report-${c.id}` },
+              ...(canCustomersView ? [{ key: 'file', href: `/customers/${c.customerId}`, icon: <UserRound size={17} aria-hidden="true" />, label: 'پرونده‌ی مشتری', testId: `menuitem-call-customer-${c.id}` }] : []),
+            ]} /></>}</div>
           {rowFetch?.id === c.id && rowFetch.error ? <div className="clx-err" role="alert" style={{ marginTop: 4, textAlign: 'start' }}>{rowFetch.error}</div> : null}
         </td>
       </tr>)}</tbody></table>

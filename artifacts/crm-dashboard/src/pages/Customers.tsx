@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ArrowUpDown, Edit3, Eye, FileText, Hash, Kanban, LayoutList, Lock, MoreHorizontal, Palette, Phone, PhoneCall, Plus, RotateCcw, Save, Search, SlidersHorizontal, Trash2, UserRound, UsersRound, X, AlertTriangle, Clock, Smartphone, ShieldCheck, ShieldAlert, Zap, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, Edit3, Eye, FileText, Hash, Kanban, LayoutList, Lock, Palette, Phone, PhoneCall, Plus, RotateCcw, Save, Search, SlidersHorizontal, Trash2, UserRound, UsersRound, X, AlertTriangle, Clock, Smartphone, ShieldCheck, ShieldAlert, Zap, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode, type UIEvent } from 'react';
 import { Link, useLocation } from 'wouter';
 import { CustomerIdBadge, CustomerName } from '@/components/customer/CustomerName';
@@ -15,6 +15,7 @@ import { useCallLauncher, CallLaunchStatus } from '@/features/team-sales/useCall
 import { canUpgradeToP1, noPlanFitOf, showsUpgradeButton, suggestedPlansOf, type QualifyResult } from '@/features/team-sales/api';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 import { NoPlanChip, PlanChipsRow } from '@/features/team-sales/PlanChip';
+import { RowActionsMenu, RowMenuInline, type RowMenuItem } from '@/components/row-menu/RowActionsMenu';
 import { TsToast, UpgradeDialog } from '@/features/team-sales/UpgradeToP1';
 import { formatDateTime } from '@/components/CrmShell';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
@@ -276,15 +277,16 @@ export default function Customers() {
       {canConsult ? <button type="button" className="csx-ract consult" onClick={() => setNewConsultFor(customer)} aria-label={`ثبت مشاوره برای ${customer.name}`} data-testid={`button-new-consult-${customer.id}`}><FileText size={17} aria-hidden="true" /> ثبت مشاوره</button> : null}
     </>;
   };
-  const legacyActions = (customer: Customer) => {
-    const list: ReactNode[] = [];
+  /** Row ⋯ menu items (crm-row-menu-fix: rendered by the shared portalled RowActionsMenu on desktop, inline on cards). */
+  const legacyActions = (customer: Customer): RowMenuItem[] => {
+    const list: RowMenuItem[] = [];
     // Row design 2026-10-24 (Armita): «ثبت تماس» / «ثبت مشاوره» are row buttons now; «پرونده مشتری» moved into this menu.
-    list.push(<Link key="file" href={`/customers/${customer.id}`} className="csx-mi" data-testid={`link-customer-file-${customer.id}`}><UserRound size={17} aria-hidden="true" /> پرونده مشتری</Link>);
-    if (canUpdate) list.push(<button key="edit" type="button" onClick={() => openEdit(customer)} data-testid={`button-edit-customer-${customer.id}`}><Edit3 size={17} aria-hidden="true" /> ویرایش سریع</button>);
+    list.push({ key: 'file', href: `/customers/${customer.id}`, icon: <UserRound size={17} aria-hidden="true" />, label: 'پرونده مشتری', testId: `link-customer-file-${customer.id}` });
+    if (canUpdate) list.push({ key: 'edit', onSelect: () => openEdit(customer), icon: <Edit3 size={17} aria-hidden="true" />, label: 'ویرایش سریع', testId: `button-edit-customer-${customer.id}` });
     if (isAdmin) {
-      list.push(<button key="mi" type="button" aria-label={`احراز دستی ${customer.name}`} onClick={() => setManualIdentity(customer)} data-testid={`button-manual-identity-${customer.id}`}><ShieldCheck size={17} aria-hidden="true" /> احراز دستی</button>);
-      list.push(<button key="ph" type="button" onClick={() => setChangingPhone(customer)} data-testid={`button-change-phone-${customer.id}`}><Smartphone size={17} aria-hidden="true" /> تغییر موبایل</button>);
-      list.push(<button key="del" type="button" className="danger" disabled={deleteCustomer.isPending} onClick={() => removeCustomer(customer)} data-testid={`button-delete-customer-${customer.id}`}><Trash2 size={17} aria-hidden="true" /> حذف مشتری</button>);
+      list.push({ key: 'mi', onSelect: () => setManualIdentity(customer), icon: <ShieldCheck size={17} aria-hidden="true" />, label: 'احراز دستی', ariaLabel: `احراز دستی ${customer.name}`, testId: `button-manual-identity-${customer.id}` });
+      list.push({ key: 'ph', onSelect: () => setChangingPhone(customer), icon: <Smartphone size={17} aria-hidden="true" />, label: 'تغییر موبایل', testId: `button-change-phone-${customer.id}` });
+      list.push({ key: 'del', onSelect: () => removeCustomer(customer), danger: true, disabled: deleteCustomer.isPending, icon: <Trash2 size={17} aria-hidden="true" />, label: 'حذف مشتری', testId: `button-delete-customer-${customer.id}` });
     }
     return list;
   };
@@ -484,10 +486,7 @@ export default function Customers() {
                   <td className="csx-meta col-reg">{jalaliDate(customer.createdAt)}</td>
                   <td className="act"><div className="csx-tact after">
                     {rowActions(customer)}
-                    {extra.length ? <details className="csx-menu" onKeyDown={(e) => { if (e.key === 'Escape') (e.currentTarget as HTMLDetailsElement).open = false; }}>
-                      <summary aria-label={`کارهای بیشتر برای ${customer.name}`}><MoreHorizontal size={20} aria-hidden="true" /></summary>
-                      <div className="pop" onClick={(e) => { const d = (e.currentTarget.parentElement as HTMLDetailsElement); if ((e.target as HTMLElement).closest('button, a')) d.open = false; }}>{extra}</div>
-                    </details> : null}
+                    <RowActionsMenu items={extra} label={`کارهای بیشتر برای ${customer.name}`} triggerClassName="csx-rowmenu" triggerTestId={`button-row-menu-${customer.id}`} contentTestId={`menu-row-${customer.id}`} />
                   </div></td>
                 </tr>;
               })}
@@ -521,7 +520,7 @@ export default function Customers() {
               {!noPlanFitOf(customer) && suggestedPlansOf(customer).length ? <div className="row csx-plans-row" data-testid={`plans-${customer.id}`}><PlanChipsRow plans={suggestedPlansOf(customer)} testId={`plan-chips-${customer.id}`} /></div> : null}
               {upgradeButton(customer, 'card')}
               {canCall || canConsult ? <div className="csx-acts after">{rowActions(customer)}</div> : null}
-              {extra.length ? <details className="csx-more csx-cardmore"><summary>پرونده و کارهای بیشتر</summary><div className="more csx-menu-inline">{extra}</div></details> : null}
+              {extra.length ? <details className="csx-more csx-cardmore"><summary>پرونده و کارهای بیشتر</summary><div className="more csx-menu-inline"><RowMenuInline items={extra} className="csx-mi" /></div></details> : null}
             </li>;
           })}
         </ul>

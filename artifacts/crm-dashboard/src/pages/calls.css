@@ -194,3 +194,5 @@
 .call-picked strong { font-weight: 800; }
 .call-picked span { font-size: 13.5px; color: var(--nf-ink-muted); justify-self: start; }
 .call-picked button { border: 0; background: none; color: var(--nf-brand-600, #29369B); font: inherit; font-weight: 800; font-size: 14px; min-height: 40px; cursor: pointer; white-space: nowrap; }
+/* crm-row-menu-fix: row ⋯ is the shared portalled RowActionsMenu now (the old .clx-mm/.clx-mpop pop-over was clipped by .clx-twrap overflow:hidden). */
+.clx-rowmenu { width: 40px; height: 40px; border-width: 1.5px; color: var(--nf-ink-soft); }

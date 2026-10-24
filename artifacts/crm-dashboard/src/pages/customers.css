@@ -435,3 +435,5 @@ a.csx-primary, a.csx-ghost, a.csx-call { text-decoration: none; }
   .csx-table .col-phone { display: none; }
   .csx-table .phone-inline { display: block; }
 }
+/* crm-row-menu-fix: row ⋯ is the shared portalled RowActionsMenu (the old .csx-menu .pop was clipped by .csx-tablewrap overflow-x:auto on one-row results). */
+.csx-tact .csx-rowmenu { border-color: var(--nf-line); }

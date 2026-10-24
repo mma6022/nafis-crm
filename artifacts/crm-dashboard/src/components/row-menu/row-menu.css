@@ -1,0 +1,13 @@
+/* crm-row-menu-fix: portalled row ⋯ menu (rendered on <body>, position:fixed via the floating layer). */
+.nf-rowmenu-trigger { flex: none; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; cursor: pointer; color: var(--nf-ink, #101828); background: #fff; border: 1px solid var(--nf-line, #e4e7ec); font: inherit; padding: 0; }
+.nf-rowmenu-trigger:hover, .nf-rowmenu-trigger[data-state="open"] { background: var(--nf-brand-50, #eef0fb); border-color: var(--nf-brand-600, #29369b); }
+.nf-rowmenu-trigger:focus-visible { outline: none; box-shadow: var(--nf-ring, 0 0 0 3px rgba(41, 54, 155, .25)); }
+.nf-rowmenu { z-index: 700; direction: rtl; min-width: 210px; max-width: min(320px, calc(100vw - 16px)); max-height: var(--radix-dropdown-menu-content-available-height, 70vh); overflow-y: auto; background: #fff; border: 1px solid var(--nf-line, #e4e7ec); border-radius: 14px; box-shadow: 0 12px 32px rgba(0, 0, 109, .16); padding: 6px; display: grid; font-family: inherit; outline: none; transform-origin: var(--radix-dropdown-menu-content-transform-origin); animation: nf-rowmenu-in .12s ease-out; }
+@keyframes nf-rowmenu-in { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .nf-rowmenu { animation: none; } }
+.nf-rowmenu-item { min-height: 44px; border: 0; background: transparent; border-radius: 10px; padding: 0 12px; display: flex; align-items: center; gap: 8px; font: inherit; font-size: 15px; font-weight: 600; color: var(--nf-ink, #101828); cursor: pointer; text-align: start; text-decoration: none; outline: none; user-select: none; }
+.nf-rowmenu-item[data-highlighted] { background: var(--nf-brand-50, #eef0fb); }
+.nf-rowmenu-item:focus-visible { box-shadow: inset 0 0 0 2px var(--nf-brand-600, #29369b); }
+.nf-rowmenu-item.danger { color: #b42318; }
+.nf-rowmenu-item[data-disabled] { opacity: .5; cursor: not-allowed; }
+.nf-rowmenu-item svg { flex: none; }
