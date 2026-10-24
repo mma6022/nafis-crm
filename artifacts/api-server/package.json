@@ -52,6 +52,7 @@
     "test:credit-subgrades": "node scripts/run-bundled-fixture.mjs scripts/credit-subgrades-fixture.mjs",
     "test:plan-grade-filter": "node scripts/run-bundled-fixture.mjs scripts/plan-grade-filter-fixture.mjs",
     "test:customer-id-search": "node scripts/run-bundled-fixture.mjs scripts/customer-id-search-fixture.mjs",
+    "test:cross-owner-search": "node scripts/cross-owner-search-fixture.mjs",
     "test:calls-export-scope": "node scripts/run-bundled-fixture.mjs scripts/calls-export-scope-fixture.mjs"
   },
   "dependencies": {
