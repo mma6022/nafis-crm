@@ -50,6 +50,19 @@ export function useTeamSalesConfig(enabled: boolean) {
     queryFn: () => request<TeamSalesConfig>('/team-sales/config'),
   });
 }
+/**
+ * Should «ثبت تماس» open the simple 3-step form instead of the legacy CallForm?
+ * True for the qualifier (Kazemi) on his own in-progress customers with no priority, P2 or P3.
+ */
+export function usesSimpleForm(
+  cfg: TeamSalesConfig | undefined,
+  user: { salespersonId?: number | null } | undefined,
+  customer: { salespersonId?: number | null; status?: string | null; priority?: number | null } | null | undefined,
+): boolean {
+  if (!cfg?.enabled || !user || user.salespersonId == null || !customer) return false;
+  if (user.salespersonId !== cfg.qualifierSalespersonId) return false;
+  return customer.salespersonId === cfg.qualifierSalespersonId && customer.status === 'in_progress' && customer.priority !== 1;
+}
 export const fetchNextCloser = () => request<NextCloser>('/sales/next-closer');
 export const upgradePriority = (customerId: number, note: string) =>
   request<PromoteResult>(`/customers/${customerId}/upgrade-priority`, { method: 'POST', body: JSON.stringify({ note: note.trim() || null }) });

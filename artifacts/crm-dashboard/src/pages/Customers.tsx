@@ -9,6 +9,9 @@ import { ManualCustomerIdentity } from '@/components/ManualCustomerIdentity';
 import { RepeatRequestReview, RepeatRequestTag } from '@/components/RepeatRequestReview';
 import { DuplicateCustomerReview } from '@/components/DuplicateCustomerReview';
 import { CallForm, CreateConsultationForm } from '@/components/Forms';
+import { usesSimpleForm, useTeamSalesConfig, type QualifyResult } from '@/features/team-sales/api';
+import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
+import { TsToast } from '@/features/team-sales/UpgradeToP1';
 import { formatDateTime } from '@/components/CrmShell';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { Modal } from '@/components/DataTools';
@@ -43,6 +46,11 @@ export default function Customers() {
   const canCreate = can('customers.create');
   const canUpdate = can('customers.update');
   const canCall = can('calls.create');
+  const tsConfig = useTeamSalesConfig(sessionReady);
+  const openCall = (customer: Customer) => {
+    if (usesSimpleForm(tsConfig.data, session.data?.user, customer)) setSimpleCallFor(customer);
+    else setNewCallFor(customer);
+  };
   const canConsult = can('consultations.create');
   const canSummary = can('dashboard.view');
   const readOnly = sessionReady && !canCreate && !canUpdate;
@@ -72,6 +80,9 @@ export default function Customers() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [newCallFor, setNewCallFor] = useState<Customer | null>(null);
+  // Team sales: for the qualifier (Kazemi) «ثبت تماس» opens the simple 3-step form; priority is decided by the server.
+  const [simpleCallFor, setSimpleCallFor] = useState<Customer | null>(null);
+  const [tsToast, setTsToast] = useState('');
   const [newConsultFor, setNewConsultFor] = useState<Customer | null>(null);
   const [colorSettingsOpen, setColorSettingsOpen] = useState(false);
   const [duplicateReviewOpen, setDuplicateReviewOpen] = useState(false);
@@ -236,7 +247,7 @@ export default function Customers() {
 
   const legacyActions = (customer: Customer) => {
     const list: ReactNode[] = [];
-    if (canCall) list.push(<button key="call" type="button" onClick={() => setNewCallFor(customer)} data-testid={`button-new-call-${customer.id}`}><PhoneCall size={17} aria-hidden="true" /> ثبت تماس</button>);
+    if (canCall) list.push(<button key="call" type="button" onClick={() => openCall(customer)} data-testid={`button-new-call-${customer.id}`}><PhoneCall size={17} aria-hidden="true" /> ثبت تماس</button>);
     if (canConsult) list.push(<button key="consult" type="button" onClick={() => setNewConsultFor(customer)} data-testid={`button-new-consult-${customer.id}`}><FileText size={17} aria-hidden="true" /> درخواست مشاوره</button>);
     if (canUpdate) list.push(<button key="edit" type="button" onClick={() => openEdit(customer)} data-testid={`button-edit-customer-${customer.id}`}><Edit3 size={17} aria-hidden="true" /> ویرایش سریع</button>);
     if (isAdmin) {
@@ -389,7 +400,7 @@ export default function Customers() {
     {inlineError ? <div className="csx-note bad" role="alert" data-testid="error-update-customer"><AlertTriangle size={20} aria-hidden="true" /><p>{inlineError}</p></div> : null}
 
     {isBoard ? <div className="board-grid">
-      {priorityColumns.map((column) => <BoardColumn key={String(column.value)} column={column} color={priorityColors[String(column.value ?? 'none') as keyof typeof priorityColors]} filters={sharedParams} tagLabels={tagCatalog.data ?? []} onReview={setReviewing} onCall={setNewCallFor} onConsult={setNewConsultFor} onEdit={openEdit} onManualIdentity={isAdmin ? setManualIdentity : undefined} onDelete={isAdmin ? removeCustomer : undefined} onMove={(id, priorityValue) => updateCustomer.mutate({ id, data: { priority: priorityValue } }, { onSuccess: invalidateAll })} />)}
+      {priorityColumns.map((column) => <BoardColumn key={String(column.value)} column={column} color={priorityColors[String(column.value ?? 'none') as keyof typeof priorityColors]} filters={sharedParams} tagLabels={tagCatalog.data ?? []} onReview={setReviewing} onCall={openCall} onConsult={setNewConsultFor} onEdit={openEdit} onManualIdentity={isAdmin ? setManualIdentity : undefined} onDelete={isAdmin ? removeCustomer : undefined} onMove={(id, priorityValue) => updateCustomer.mutate({ id, data: { priority: priorityValue } }, { onSuccess: invalidateAll })} />)}
     </div> : customers.isLoading ? (
       isDesktop ? <div className="csx-sktable" aria-busy="true" aria-label="در حال دریافت فهرست مشتریان" data-testid="customers-loading">{Array.from({ length: 7 }, (_, i) => <div className="row" key={i}><span className="csx-sk" /><span className="csx-sk" /><span className="csx-sk" /><span className="csx-sk" /><span className="csx-sk" /></div>)}</div>
         : <div className="csx-skcards" aria-busy="true" aria-label="در حال دریافت فهرست مشتریان" data-testid="customers-loading">{Array.from({ length: 3 }, (_, i) => <div className="csx-skcard" key={i}><span className="csx-sk" style={{ width: '45%' }} /><span className="csx-sk" style={{ width: '70%', height: 22 }} /><span className="csx-sk" style={{ width: '55%' }} /><span className="csx-sk" style={{ height: 52 }} /></div>)}</div>
@@ -503,6 +514,8 @@ export default function Customers() {
     {isAdmin && changingPhone && <AdminCustomerPhoneEditor key={changingPhone.id} customer={changingPhone} onClose={() => setChangingPhone(null)} />}
     {reviewing && <RepeatRequestReview customer={reviewing} onClose={() => setReviewing(null)} />}
     {isAdmin && duplicateReviewOpen ? <DuplicateCustomerReview onClose={() => setDuplicateReviewOpen(false)} salespersons={salespersons.data ?? []} salespersonLoading={salespersons.isLoading} salespersonError={salespersons.isError} onRetrySalespersons={() => { void salespersons.refetch(); }} /> : null}
+    {simpleCallFor ? <SimpleCallForm customer={simpleCallFor} userId={session.data?.user.id} noteMin={tsConfig.data?.noteMinLength ?? 30} onClose={() => setSimpleCallFor(null)} onDone={(r: QualifyResult) => { if (r.handoff) setTsToast(r.handoff.message); invalidateAll(); }} onNext={() => setSimpleCallFor(null)} /> : null}
+    {tsToast ? <TsToast text={tsToast} onClose={() => setTsToast('')} /> : null}
     {newCallFor && <CallForm customers={[newCallFor]} salespersons={salespersons.data ?? []} pending={createCall.isPending} error={createCall.isError} initialCustomerId={newCallFor.id} onClose={() => setNewCallFor(null)} onSave={handleSaveCall} />}
     {newConsultFor && <CreateConsultationForm customers={[newConsultFor]} pending={createConsult.isPending} initialCustomerId={newConsultFor.id} onClose={() => setNewConsultFor(null)} onSave={handleSaveConsult} />}
     {colorSettingsOpen && session.data?.user ? (

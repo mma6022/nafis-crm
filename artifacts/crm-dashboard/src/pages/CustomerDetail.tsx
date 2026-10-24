@@ -24,7 +24,7 @@ import { clearLoanDraft, loanWizardHref, readLoanDraft, type LoanDraft } from '@
 import { BUSINESS_STATUS_LABELS, WIZARD_DISPLAY_STEPS, WIZARD_TOTAL_STEPS, loanBusinessStatus, loanStageLabel } from '@/lib/loan-labels';
 import { ConfirmDialog, initialsOf, jalaliDate, PriorityLabel, relativeTime, Sheet, STATUS_LABEL, StatusPill } from './customers-ui';
 import './customers.css';
-import { useTeamSalesConfig, type PromoteResult, type QualifyResult } from '@/features/team-sales/api';
+import { usesSimpleForm, useTeamSalesConfig, type PromoteResult, type QualifyResult } from '@/features/team-sales/api';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 import { TsToast, UpgradeCard, UpgradeDialog, UpgradedCard } from '@/features/team-sales/UpgradeToP1';
 
@@ -354,7 +354,7 @@ export default function CustomerDetail() {
   };
   const isQualifier = tsConfig.data?.enabled === true && session.data?.user.salespersonId != null && session.data.user.salespersonId === tsConfig.data.qualifierSalespersonId;
   const ownsCustomer = isQualifier && customer.salespersonId === tsConfig.data?.qualifierSalespersonId;
-  const showSimpleForm = ownsCustomer && !handoff && canCallsCreate && customer.status === 'in_progress';
+  const showSimpleForm = !handoff && canCallsCreate && usesSimpleForm(tsConfig.data, session.data?.user, customer);
   const showUpgrade = ownsCustomer && !handoff && canUpdate && customer.status === 'in_progress' && customer.priority !== 1;
   const tsCard = handoff ? <UpgradedCard result={handoff} /> : showUpgrade ? <UpgradeCard onOpen={() => setUpgradeOpen(true)} /> : null;
   const afterHandoff = (result: PromoteResult, toast = true) => {
@@ -563,7 +563,7 @@ export default function CustomerDetail() {
         </div>
       </li>)}</ol>
       : <p className="muted" style={{ margin: 0 }}>هنوز تماس یا یادداشتی ثبت نشده است.</p>}
-    {canCallsCreate ? <button type="button" className="csx-ghost sm" onClick={() => setCallFormOpen(true)} data-testid="button-add-call-detail"><MessageSquarePlus size={18} /> ثبت تماس / یادداشت</button> : null}
+    {canCallsCreate ? <button type="button" className="csx-ghost sm" onClick={() => (showSimpleForm ? setSimpleFormOpen(true) : setCallFormOpen(true))} data-testid="button-add-call-detail" data-form={showSimpleForm ? 'simple' : 'legacy'}><MessageSquarePlus size={18} /> ثبت تماس / یادداشت</button> : null}
     {hasCallsView ? <details className="csx-sub" data-testid="section-voip-history"><summary>تماس‌های تلفن شرکت{historyQuery.data ? ` (${faNum(historyQuery.data.total)})` : ''} <ChevronLeft size={16} /></summary>
       {historyQuery.isLoading ? <span className="csx-sk" style={{ height: 48 }} /> : historyQuery.isError ? <ErrorState onRetry={() => historyQuery.refetch()} /> : historyQuery.data?.items && historyQuery.data.items.length > 0 ? <>
         <ol className="csx-tl">{historyQuery.data.items.map(record => <li key={record.id}>
