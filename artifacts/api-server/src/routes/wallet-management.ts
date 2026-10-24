@@ -33,7 +33,14 @@ JOIN customers survivor ON survivor.id=customer_chain.id
 LEFT JOIN salespersons salesperson ON salesperson.id=survivor.salesperson_id
 WHERE customer_chain.merged_into_customer_id IS NULL LIMIT 1)`;
 
-router.use("/wallet-management", requirePermission("wallets.view"), (_req, res, next) => {
+const walletsView = requirePermission("wallets.view");
+/** Accounting (may mark payment orders paid) reads the customer-wallet lists too (decision: «حسابداری کیف پول مشتریان را می‌بیند»).
+ * Read-only: GET on the two lists only; transfer and gateway reconciliation stay with wallets.transfer / admin. */
+const accountingRead = (req: any, res: any): boolean => {
+  const u = res.locals.authUser as AuthUser | undefined;
+  return Boolean(u && req.method === "GET" && /^\/(accounts|transactions)\/?$/.test(req.path) && u.permissions?.includes("payment_orders.pay"));
+};
+router.use("/wallet-management", (req, res, next) => (accountingRead(req, res) ? next() : walletsView(req, res, next)), (_req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
   next();
 });
@@ -108,13 +115,15 @@ router.get("/wallet-management/transactions", (req, res): void => {
   const walletType = String(req.query.walletType ?? "");
   const kind = String(req.query.kind ?? "");
   const status = String(req.query.status ?? "");
+  const statuses = status ? status.split(",").filter(Boolean) : [];
+  const withCounts = req.query.withCounts === "1";
   const from = String(req.query.from ?? "");
   const to = String(req.query.to ?? "");
   const search = String(req.query.search ?? "").trim().slice(0, 100);
   if ((customerId !== null && !validId(customerId)) || (actorId !== null && !validId(actorId))
     || (walletType && !["cash", "credit"].includes(walletType))
-    || (kind && !["payment", "loan_credit", "transfer", "legacy", "filing_fee"].includes(kind))
-    || (status && !["requested", "gateway_ready", "failed", "cancelled", "credited", "verification_pending", "requires_reconciliation", "completed"].includes(status))
+    || (kind && !["payment", "loan_credit", "transfer", "legacy", "filing_fee", "goods_purchase"].includes(kind))
+    || (status && (!statuses.length || statuses.some((x) => !["requested", "gateway_ready", "failed", "cancelled", "credited", "verification_pending", "requires_reconciliation", "completed"].includes(x))))
     || (from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) || (to && !/^\d{4}-\d{2}-\d{2}$/.test(to))
     || (from && to && from > to)) { res.status(400).json({ error: "invalid_filters" }); return; }
 
@@ -157,7 +166,6 @@ router.get("/wallet-management/transactions", (req, res): void => {
   if (actorId !== null) { filters.push("actorId=?"); params.push(actorId); }
   if (walletType) { filters.push("walletType=?"); params.push(walletType); }
   if (kind) { filters.push("kind=?"); params.push(kind); }
-  if (status) { filters.push("status=?"); params.push(status); }
   if (from) { filters.push("createdAt>=?"); params.push(`${from}T00:00:00`); }
   if (to) { filters.push("createdAt<?"); params.push(`${to}T23:59:59.999Z`); }
   const txIdSearch = search ? customerSearchSql(search) : null;
@@ -171,11 +179,26 @@ router.get("/wallet-management/transactions", (req, res): void => {
       filters.push("(crm_persian_search_key(customerName) LIKE crm_persian_search_key(?) OR crm_persian_search_key(otherCustomerName) LIKE crm_persian_search_key(?) OR CAST(recordId AS TEXT)=?)"); params.push(`%${t}%`, `%${t}%`, t);
     }
   }
+  // Search by customer mobile too (digits only, at least 4).
+  const phoneDigits = search.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/\D/g, "");
+  if (search && txIdSearch && phoneDigits.length >= 4 && /^[\d\s۰-۹+-]+$/.test(search)) {
+    filters[filters.length - 1] = filters[filters.length - 1].replace(/\)$/, " OR customerId IN (SELECT id FROM customers WHERE phone LIKE ?) OR otherCustomerId IN (SELECT id FROM customers WHERE phone LIKE ?))");
+    params.push(`%${phoneDigits}%`, `%${phoneDigits}%`);
+  }
+  const statusCounts = withCounts
+    ? Object.fromEntries(queryRows<{ status: string; count: number }>(`${base} SELECT status,COUNT(*) count FROM entries WHERE ${filters.join(" AND ")} GROUP BY status`, [...scopeParams, ...params]).map((r) => [r.status, Number(r.count)]))
+    : undefined;
+  if (statuses.length) { filters.push(`status IN (${statuses.map(() => "?").join(",")})`); params.push(...statuses); }
   const where = filters.join(" AND ");
   const total = queryRow<{ count: number }>(`${base} SELECT COUNT(*) count FROM entries WHERE ${where}`, [...scopeParams, ...params])?.count ?? 0;
   const items = queryRows<any>(`${base} SELECT * FROM entries WHERE ${where} ORDER BY createdAt DESC,kind,recordId DESC LIMIT ? OFFSET ?`,
     [...scopeParams, ...params, limit, (page - 1) * limit]);
-  res.json({ items, total, page, limit });
+  // Goods-purchase debits carry their purchase id in the idempotency key (goods:<id>:debit) → link «خرید #».
+  for (const item of items) if (item.kind === "goods_purchase") {
+    const key = queryRow<{ k: string }>("SELECT idempotency_key k FROM wallet_ledger_v2 WHERE id=?", [item.recordId])?.k ?? "";
+    item.purchaseId = /^goods:(\d+):debit$/.test(key) ? Number(key.split(":")[1]) : null;
+  }
+  res.json({ items, total, page, limit, ...(statusCounts ? { statusCounts } : {}) });
 });
 
 router.post("/wallet-management/transfers", requirePermission("wallets.transfer"), (req, res): void => {

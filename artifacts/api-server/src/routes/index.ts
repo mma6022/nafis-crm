@@ -36,6 +36,7 @@ import { socialMonitorFeature } from "../lib/social-monitor";
 import teamSalesRouter from "./team-sales";
 import { ensureTeamSalesSchema } from "../lib/team-sales";
 import teamCommissionRouter from "./team-commission";
+import staffWalletRouter from "./staff-wallet";
 
 const router: IRouter = Router();
 startDatabaseBackupScheduler();
@@ -52,6 +53,7 @@ router.use("/internal-chat",createInternalChatRouter({db:crmDb,requireAuth,requi
 router.use(crmRouter);
 router.use(teamSalesRouter);
 router.use(teamCommissionRouter);
+router.use(staffWalletRouter);
 router.use(callReportsRouter);
 router.use(mobileCallsRouter);
 router.use("/chat", staffChatRouter);
