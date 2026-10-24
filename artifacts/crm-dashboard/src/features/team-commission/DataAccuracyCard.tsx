@@ -144,7 +144,7 @@ function RejectWizard({ s, onClose, onDone }: { s: Visible; onClose: () => void;
       <div className="tc-sh"><h2 id="tc-rj-h">اطلاعات درست نبود</h2><button type="button" className="tc-ib" aria-label="بستن" onClick={onClose} disabled={busy}><X size={20} /></button></div>
       <div className="tc-prog" aria-live="polite">
         <div className="row"><b>{step === 2 ? 'بازبینی و ثبت' : 'چه چیزی درست نبود؟'}</b><span>مرحله {step === 2 ? '۲' : '۱'} از ۲</span></div>
-        <div className="bar" aria-hidden="true"><i className="on" /><i className={step === 2 ? 'on' : ''} /></div>
+        <div className="tc-steps" aria-hidden="true"><i className="on" /><i className={step === 2 ? 'on' : ''} /></div>
       </div>
       {step === 1 ? <>
         <div className="tc-fld">
