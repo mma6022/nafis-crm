@@ -1,4 +1,5 @@
 import { CustomerName, customerNameText } from '@/components/customer/CustomerName';
+import { OtherOwnerResults } from '@/components/customer/OtherOwnerResults';
 import { useEffect, useState } from 'react';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { getListCustomersQueryKey, useListCustomers } from '@workspace/api-client-react';
@@ -60,6 +61,7 @@ export function CallCustomerSelect({ selected, disabled, onSelect, id = 'call-cu
               <Check size={15} aria-hidden="true" style={{ opacity: selected?.id === customer.id ? 1 : 0 }} />
               <span><strong><CustomerName id={customer.id} name={customer.name} /></strong><small>{customer.phone} · کارشناس پرونده: {customer.salespersonName || 'بدون تخصیص'}</small></span>
             </CommandItem>)}
+          {!waiting && !customers.isError ? <OtherOwnerResults page={customers.data} variant="inline" /> : null}
         </CommandList>
       </Command>
     </PopoverContent>
