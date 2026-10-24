@@ -3,7 +3,7 @@ import { Link } from 'wouter';
 import type { ReactNode } from 'react';
 import { getGetAuthSessionQueryKey, getGetCrmSummaryQueryKey, getGetLoanApplicationDashboardStatsQueryKey, useGetAuthSession, useGetCrmSummary, useGetLoanApplicationDashboardStats } from '@workspace/api-client-react';
 import { ErrorState, formatDateTime } from '@/components/CrmShell';
-import { SalespersonSummaryCard } from '@/pages/SalesCommissions';
+import { WalletDashboardCard } from '@/features/staff-wallet/WalletDashboardCard';
 
 export default function Dashboard() {
   const sessionQuery = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
@@ -35,7 +35,7 @@ export default function Dashboard() {
         <MetricLink href="/loan-applications?caseScope=in-progress" icon={<CircleDotDashed />} label="پرونده‌های در جریان" value={loanStats?.inProgress ?? 0} note="بدون پرونده‌های تکمیل یا ردشده" tone="teal" />
         <MetricLink href="/loan-applications?stage=completed" icon={<CheckCircle2 />} label="پرونده‌های تکمیل‌شده" value={loanStats?.completed ?? 0} note="در محدوده مشتریان قابل دسترس" />
       </div>}
-      {ownSalesperson ? <div className="panel" style={{ marginBottom: 16 }}><div className="panel-head"><div><h3>پورسانت فروش من</h3><p>کیف پول انباشته و فروش ماه جاری شمسی</p></div><Link href="/sales-commissions" className="text-link">دفتر کامل</Link></div><SalespersonSummaryCard id={ownSalesperson} /></div> : null}
+      {ownSalesperson ? <WalletDashboardCard salespersonId={ownSalesperson} /> : null}
       <div className="dashboard-grid">
         <div className="panel">
           <div className="panel-head"><div><h3>توزیع اولویت پیگیری</h3><p>تعداد مشتریان در حال انجام در هر سطح اولویت</p></div><Link href="/customers" className="text-link" data-testid="link-priority-customers">مشاهده فهرست</Link></div>

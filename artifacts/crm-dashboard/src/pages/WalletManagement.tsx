@@ -16,6 +16,7 @@ import { SkeletonPanel, ErrorState, formatDateTime } from '@/components/CrmShell
 import './WalletManagement.css';
 import CompanyWalletPanel from './CompanyWalletPanel';
 import { CustomerIdBadge, CustomerName, customerNameText } from '@/components/customer/CustomerName';
+import TransactionsStatus from '@/features/tx-status/TransactionsStatus';
 
 const formatMoney = (val?: string | number | null) => {
   if (val == null || val === '') return '۰';
@@ -880,7 +881,7 @@ export default function WalletManagement() {
           className={`wallet-tab ${activeTab === 'transactions' ? 'active' : ''}`}
           onClick={() => setActiveTab('transactions')}
         >
-          فهرست تراکنش‌ها
+          وضعیت تراکنش‌ها
         </button>
         {isAdmin && <button className={`wallet-tab ${activeTab === 'company' ? 'active' : ''}`} onClick={() => setActiveTab('company')}>کیف پول شرکت نفیس وام</button>}
       </div>
@@ -896,7 +897,7 @@ export default function WalletManagement() {
       ) : activeTab === 'company' && isAdmin ? (
         <CompanyWalletPanel />
       ) : (
-        <TransactionsTab />
+        <TransactionsStatus />
       )}
 
       {transferOpen && (

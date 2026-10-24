@@ -23,7 +23,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLab
 
 const nafissLogoUrl = `${import.meta.env.BASE_URL}nafiss-financial-logo.png`;
 
-type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean };
+type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; walletOwner?: boolean; adminLabel?: string };
 
 // Routes and permission rules are unchanged; only grouping, order, labels of groups and icons are new.
 const allNavItems: NavItem[] = [
@@ -38,8 +38,10 @@ const allNavItems: NavItem[] = [
   { href: '/contracts', label: 'قراردادها', icon: FileSignature, permission: 'contracts.view' },
   { href: '/goods-purchases', label: 'خرید کالا', icon: ShoppingBag, permission: 'goods_purchases.view' },
   { href: '/sales-commissions', label: 'پورسانت فروش', icon: Coins, permission: 'goods_finance.view' },
+  // «کیف پول من»: own wallet for salespeople with goods_finance.view; admin sees every salesperson («کیف پول کارشناس‌ها»).
+  { href: '/my-wallet', label: 'کیف پول من', adminLabel: 'کیف پول کارشناس‌ها', icon: Wallet, permission: 'goods_finance.view', walletOwner: true },
   { href: '/payment-orders', label: 'دستورهای پرداخت', icon: Receipt, permission: 'payment_orders.view' },
-  { href: '/wallet-management', label: 'مدیریت کیف پول', icon: Wallet, permission: 'wallets.view' },
+  { href: '/wallet-management', label: 'مدیریت کیف پول', icon: Wallet, permission: ['wallets.view', 'payment_orders.pay'] },
   { href: '/bank-accounts', label: 'حساب‌های بانکی', icon: Building2, permission: ['bank_accounts.view', 'bank_accounts.manage'] },
   { href: '/accounting', label: 'حسابداری', icon: Calculator, permission: 'accounting.view' },
   { href: '/chat', label: 'گفتگو با مشتریان', icon: MessagesSquare, permission: 'customers.view' },
@@ -62,7 +64,7 @@ const navGroups: NavGroup[] = [
   { id: 'dashboard', label: 'داشبورد', icon: LayoutDashboard, hrefs: ['/', '/reminders'], pinned: true },
   { id: 'customers', label: 'مشتریان و مشاوره', icon: Contact, hrefs: ['/customers', '/calls', '/consultations', '/callback-requests', '/manual-verifications'] },
   { id: 'loans', label: 'وام و قرارداد', icon: HandCoins, hrefs: ['/loan-applications', '/loan-plans', '/contracts'] },
-  { id: 'goods', label: 'خرید کالا', icon: Store, hrefs: ['/goods-purchases', '/sales-commissions'] },
+  { id: 'goods', label: 'خرید کالا', icon: Store, hrefs: ['/goods-purchases', '/sales-commissions', '/my-wallet'] },
   { id: 'finance', label: 'مالی و پرداخت', icon: Banknote, hrefs: ['/payment-orders', '/wallet-management', '/bank-accounts', '/accounting'] },
   { id: 'comms', label: 'پیام‌ها و تلفن', icon: Headset, hrefs: ['/chat', '/internal-chat', '/messengers', '/instagram-inbox', '/mobile-calls', '/phone'] },
   { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/social-monitor-reports'] },
@@ -158,14 +160,16 @@ export function CrmShell({ children }: { children: ReactNode }) {
     query: { queryKey: getHealthCheckQueryKey(), staleTime: 60_000 },
   });
 
-  const pageTitle = titleFor(location);
+  const isAdminUser = user?.role === 'admin';
+  const pageTitle = isAdminUser && (location === '/my-wallet' || location.startsWith('/my-wallet/')) ? 'کیف پول کارشناس‌ها' : titleFor(location);
   
   const navItems = allNavItems.filter(item => {
+    if (item.walletOwner && !isAdminUser && !(user as { salespersonId?: number | null } | undefined)?.salespersonId) return false;
     if ('staffOnly' in item && item.staffOnly) return user?.role === 'admin' || user?.role === 'registrar';
     if ('adminOnly' in item && item.adminOnly) return user?.role === 'admin';
     const needed = ([] as string[]).concat((item as { permission?: string | string[] }).permission ?? []);
     return user?.role === 'admin' || needed.some((p) => user?.permissions?.includes(p));
-  });
+  }).map(item => (isAdminUser && item.adminLabel ? { ...item, label: item.adminLabel } : item));
   const mobileQuickNavItems = navItems.filter(item => mobilePrimaryNavHrefs.includes(item.href));
   const visibleNavGroups = navGroups
     .map(group => ({ ...group, items: group.hrefs.map(href => navItems.find(item => item.href === href)).filter((item): item is NavItem => Boolean(item)) }))
