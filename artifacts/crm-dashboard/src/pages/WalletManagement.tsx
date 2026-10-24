@@ -845,6 +845,8 @@ export default function WalletManagement() {
   
   const { data: session } = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey() } });
   const isAdmin = session?.user?.role === 'admin';
+  // «وضعیت تراکنش‌ها» is for admin and accounting only (PM decision 4). Everyone else keeps the «فهرست تراکنش‌ها» tab they had before.
+  const canTxStatus = isAdmin || Boolean((session?.user as { permissions?: string[] } | undefined)?.permissions?.includes('payment_orders.pay'));
 
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferInitialFrom, setTransferInitialFrom] = useState<CustomerPreselect>(null);
@@ -881,7 +883,7 @@ export default function WalletManagement() {
           className={`wallet-tab ${activeTab === 'transactions' ? 'active' : ''}`}
           onClick={() => setActiveTab('transactions')}
         >
-          وضعیت تراکنش‌ها
+          {canTxStatus ? 'وضعیت تراکنش‌ها' : 'فهرست تراکنش‌ها'}
         </button>
         {isAdmin && <button className={`wallet-tab ${activeTab === 'company' ? 'active' : ''}`} onClick={() => setActiveTab('company')}>کیف پول شرکت نفیس وام</button>}
       </div>
@@ -897,7 +899,7 @@ export default function WalletManagement() {
       ) : activeTab === 'company' && isAdmin ? (
         <CompanyWalletPanel />
       ) : (
-        <TransactionsStatus />
+        canTxStatus ? <TransactionsStatus /> : <TransactionsTab />
       )}
 
       {transferOpen && (

@@ -115,8 +115,15 @@ router.get("/wallet-management/transactions", (req, res): void => {
   const walletType = String(req.query.walletType ?? "");
   const kind = String(req.query.kind ?? "");
   const status = String(req.query.status ?? "");
-  const statuses = status ? status.split(",").filter(Boolean) : [];
-  const withCounts = req.query.withCounts === "1";
+  // «وضعیت تراکنش‌ها» (view=status) is for admin and accounting only (PM decision 4). Without it the endpoint behaves exactly as before
+  // (single status, no counts, no phone search), so the customer-wallet access salespersons/registrars already had is unchanged.
+  const statusView = req.query.view === "status";
+  if (statusView) {
+    const viewer = res.locals.authUser as AuthUser | undefined;
+    if (!viewer || (viewer.role !== "admin" && !viewer.permissions?.includes("payment_orders.pay"))) { res.status(403).json({ error: "forbidden" }); return; }
+  }
+  const statuses = status ? (statusView ? status.split(",").filter(Boolean) : [status]) : [];
+  const withCounts = statusView && req.query.withCounts === "1";
   const from = String(req.query.from ?? "");
   const to = String(req.query.to ?? "");
   const search = String(req.query.search ?? "").trim().slice(0, 100);
@@ -181,7 +188,7 @@ router.get("/wallet-management/transactions", (req, res): void => {
   }
   // Search by customer mobile too (digits only, at least 4).
   const phoneDigits = search.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/\D/g, "");
-  if (search && txIdSearch && phoneDigits.length >= 4 && /^[\d\s۰-۹+-]+$/.test(search)) {
+  if (statusView && search && txIdSearch && phoneDigits.length >= 4 && /^[\d\s۰-۹+-]+$/.test(search)) {
     filters[filters.length - 1] = filters[filters.length - 1].replace(/\)$/, " OR customerId IN (SELECT id FROM customers WHERE phone LIKE ?) OR otherCustomerId IN (SELECT id FROM customers WHERE phone LIKE ?))");
     params.push(`%${phoneDigits}%`, `%${phoneDigits}%`);
   }

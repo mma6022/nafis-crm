@@ -259,6 +259,12 @@ function RowSheet({ r, onClose }: { r: WalletLedgerRow; onClose: () => void }) {
   </Sheet>;
 }
 
+export function NoOwnWallet() {
+  return <div className="empty" data-testid="no-own-wallet"><span className="big"><Wallet className="i" /></span><h2>کیف پول کارشناسی برای حساب شما تعریف نشده</h2>
+    <p>این صفحه فقط کیف پول خودِ کارشناس فروش را نشان می‌دهد. وضعیت پورسانت خریدها را در «مدیریت کیف پول ← وضعیت تراکنش‌ها» ببینید.</p>
+    <Link href="/wallet-management" className="nf-btn nf-btn-primary nf-btn-lg retry">رفتن به مدیریت کیف پول</Link></div>;
+}
+
 export function WalletError({ onRetry }: { onRetry: () => void }) {
   return <div className="empty err"><span className="big"><AlertCircle className="i" /></span><h2>کیف پول باز نشد</h2>
     <p>اتصال برقرار نشد. موجودی تغییری نکرده است.</p>
@@ -283,7 +289,8 @@ export default function StaffWallet() {
   const [pick, setPick] = useState<number | null>(Number(initial.get('p')) || null);
   const [month, setMonth] = useState<string | null>(null);
   const [row, setRow] = useState<WalletLedgerRow | null>(null);
-  const q = useQuery({ queryKey: ['staff-wallet', pick, month], queryFn: () => staffWalletApi.wallet({ salespersonId: pick, month }), placeholderData: (p) => p, retry: 1 });
+  const q = useQuery({ queryKey: ['staff-wallet', pick, month], queryFn: () => staffWalletApi.wallet({ salespersonId: pick, month }), placeholderData: (p) => p,
+    retry: (n, e) => (e as { status?: number })?.status !== 403 && n < 1 });
   const d = q.data;
   const desktop = useIsDesktop();
   const admin = d?.viewer === 'admin';
@@ -295,6 +302,8 @@ export default function StaffWallet() {
   const jump = useCallback((id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), []);
   const close = useCallback(() => setRow(null), []);
 
+  // 403 = this login has no salesperson wallet (e.g. accounting). The server never returns anyone else's wallet; say so calmly instead of "connection failed".
+  if (q.isError && (q.error as { status?: number })?.status === 403) return <div className="nfk sw"><NoOwnWallet /></div>;
   if (q.isError && !d) return <div className="nfk sw"><WalletError onRetry={() => q.refetch()} /></div>;
   if (!d) return <div className="nfk sw" aria-busy="true"><div className="sk" style={{ height: 150 }} /><div className="sk" /><div className="sk" style={{ height: 240 }} /></div>;
 

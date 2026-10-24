@@ -10,6 +10,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ArrowRight, CheckCircle2, ChevronLeft, Clock, Coins, Filter, History, Lock, Receipt, RefreshCw, Scale, Search, ShoppingCart, Undo2, User, Wallet, X, type LucideIcon } from 'lucide-react';
 import { errText, monthLabel, poStageLabel, useMe } from '@/lib/goods-api';
 import { Stepper } from '@/components/wizard/Wizard';
+import { PersianDatePicker } from '@/components/PersianDatePicker';
+import { jalaliValueToGregorian } from '@/lib/jalali';
 import { CustomerName, Dlg, Sheet, Toast } from '../staff-wallet/kit';
 import { dayMonth, fa, fullDay, hm, sep } from '../staff-wallet/api';
 import { RAW_STATUS, TX_KIND, WALLET_GROUPS, WALLET_TYPE, txActor, txApi, txSign, txWhy, walletGroupOf, type CommDetail, type CommGroup, type CommItem, type WalletTx } from './api';
@@ -18,21 +20,23 @@ import './tx-status.css';
 
 type Seg = 'comm' | 'wallet';
 type WGroup = keyof typeof WALLET_GROUPS;
-type Range = 'all' | 'today' | 'week' | 'month';
+type Range = 'all' | 'today' | 'week' | 'month' | 'custom';
 const CS: Record<CommGroup, [string, string, LucideIcon]> = {
   wait: ['s-wait', 'در انتظار پرداخت', Clock], paid: ['s-paid', 'پرداخت‌شده', CheckCircle2], back: ['s-back', 'برگشتی', Undo2], err: ['s-err', 'خطای ثبت', AlertTriangle],
 };
 const WS: Record<WGroup, [string, string, LucideIcon]> = {
   wait: ['s-wait', 'در انتظار', Clock], chk: ['s-chk', 'نیاز به بررسی', Scale], done: ['s-paid', 'انجام‌شده', CheckCircle2], fail: ['s-mute', 'ناموفق یا لغو', X],
 };
-const RANGES: [Range, string][] = [['all', 'همه'], ['today', 'امروز'], ['week', '۷ روز اخیر'], ['month', 'این ماه']];
+/** PM decision 1: exact copy for the empty commission list. */
+const COMM_EMPTY = 'هنوز پورسانتی با مدل جدید ثبت نشده. پورسانت بعد از «پرداخت‌شده» شدن دستور پرداخت اینجا میاد.';
+const RANGES: [Range, string][] = [['all', 'همه'], ['today', 'امروز'], ['week', '۷ روز اخیر'], ['month', 'این ماه'], ['custom', 'از تا…']];
 const STAGES: [string, string][] = [['', 'همه'], ['sales_approval', 'منتظر تأیید فروش'], ['admin_approval', 'منتظر تأیید مدیر'], ['awaiting_payment', 'در انتظار علامت پرداخت']];
 const KINDS: [string, string][] = [['', 'همه'], ['payment', 'شارژ'], ['loan_credit', 'اعتبار تسهیلات'], ['goods_purchase', 'کسر خرید کالا'], ['filing_fee', 'کسر هزینه پرونده'], ['transfer', 'انتقال']];
 const WTYPES: [string, string][] = [['', 'هر دو'], ['cash', 'نقدی'], ['credit', 'اعتباری']];
 const PAGE = 25;
 
-type Filters = { salespersonId: string; stage: string; kind: string; walletType: string; range: Range };
-const EMPTY: Filters = { salespersonId: '', stage: '', kind: '', walletType: '', range: 'all' };
+type Filters = { salespersonId: string; stage: string; kind: string; walletType: string; range: Range; fromDay: string; toDay: string };
+const EMPTY: Filters = { salespersonId: '', stage: '', kind: '', walletType: '', range: 'all', fromDay: '', toDay: '' };
 
 // ---- Tehran-calendar date ranges (Iran has no DST since 1401) ----
 const TEHRAN_OFFSET_MS = 3.5 * 3600_000;
@@ -47,6 +51,22 @@ function rangeStart(r: Range): Date | null {
 }
 const commFrom = (r: Range) => rangeStart(r)?.toISOString() ?? null;
 const walletFrom = (r: Range) => { const s = rangeStart(r); return s ? tehranYmd(new Date(s.getTime() + 60_000)) : null; };
+/** «از تا…»: Shamsi days → Tehran-midnight instants (commissions) or Gregorian days (customer wallet). Either side may be empty. */
+const tehranDayStart = (jalali: string, plusDays = 0) => {
+  const g = jalali ? jalaliValueToGregorian(jalali) : null; if (!g) return null;
+  const [y, m, d] = g.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + plusDays) - TEHRAN_OFFSET_MS);
+};
+const customBad = (f: Filters) => f.range === 'custom' && Boolean(f.fromDay && f.toDay && (jalaliValueToGregorian(f.fromDay) ?? '') > (jalaliValueToGregorian(f.toDay) ?? ''));
+function commRange(f: Filters) {
+  if (f.range !== 'custom') return { from: commFrom(f.range), to: null };
+  const end = tehranDayStart(f.toDay, 1);
+  return { from: tehranDayStart(f.fromDay)?.toISOString() ?? null, to: end ? new Date(end.getTime() - 1).toISOString() : null };
+}
+function walletRange(f: Filters) {
+  if (f.range !== 'custom') return { from: walletFrom(f.range), to: null };
+  return { from: (f.fromDay && jalaliValueToGregorian(f.fromDay)) || null, to: (f.toDay && jalaliValueToGregorian(f.toDay)) || null };
+}
+const customLabel = (f: Filters) => [f.fromDay ? `از ${fa(f.fromDay)}` : '', f.toDay ? `تا ${fa(f.toDay)}` : ''].filter(Boolean).join(' ');
 
 function useDebounced<T>(v: T, ms = 350) {
   const [x, setX] = useState(v);
@@ -111,8 +131,8 @@ export default function TransactionsStatus() {
   useEffect(() => { setPage(1); }, [seg, group, q, f]);
   const switchSeg = (s: Seg) => { setSeg(s); setGroup('all'); setF(EMPTY); setSel(null); };
 
-  const commParams = (ff: Filters, g: string, p: number, limit = PAGE) => ({ search: q, group: g === 'all' ? null : g, salespersonId: ff.salespersonId, stage: ff.stage, from: commFrom(ff.range), page: p, limit });
-  const walletParams = (ff: Filters, g: string, p: number, limit = PAGE) => ({ search: q, status: g === 'all' ? null : WALLET_GROUPS[g as WGroup]?.join(','), kind: ff.kind, walletType: ff.walletType, from: walletFrom(ff.range), page: p, limit });
+  const commParams = (ff: Filters, g: string, p: number, limit = PAGE) => ({ search: q, group: g === 'all' ? null : g, salespersonId: ff.salespersonId, stage: ff.stage, ...commRange(ff), page: p, limit });
+  const walletParams = (ff: Filters, g: string, p: number, limit = PAGE) => ({ search: q, status: g === 'all' ? null : WALLET_GROUPS[g as WGroup]?.join(','), kind: ff.kind, walletType: ff.walletType, ...walletRange(ff), page: p, limit });
   const comm = useQuery({ queryKey: ['tx-comm', commParams(f, group, page)], queryFn: () => txApi.comm(commParams(f, group, page)), enabled: seg === 'comm', placeholderData: (p) => p });
   const wallet = useQuery({ queryKey: ['tx-wallet', walletParams(f, group, page)], queryFn: () => txApi.wallet(walletParams(f, group, page)), enabled: seg === 'wallet', placeholderData: (p) => p });
   const cur = seg === 'comm' ? comm : wallet;
@@ -132,7 +152,8 @@ export default function TransactionsStatus() {
   if (seg === 'comm' && f.stage) active.push({ label: STAGES.find((s) => s[0] === f.stage)![1], clear: { stage: '' } });
   if (seg === 'wallet' && f.kind) active.push({ label: KINDS.find((s) => s[0] === f.kind)![1], clear: { kind: '' } });
   if (seg === 'wallet' && f.walletType) active.push({ label: `کیف ${WALLET_TYPE[f.walletType]}`, clear: { walletType: '' } });
-  if (f.range !== 'all') active.push({ label: RANGES.find((r) => r[0] === f.range)![1], clear: { range: 'all' } });
+  if (f.range === 'custom') { if (f.fromDay || f.toDay) active.push({ label: customLabel(f), clear: { range: 'all', fromDay: '', toDay: '' } }); }
+  else if (f.range !== 'all') active.push({ label: RANGES.find((r) => r[0] === f.range)![1], clear: { range: 'all' } });
 
   const refreshAll = useCallback(() => { void qc.invalidateQueries({ queryKey: ['tx-comm'] }); void qc.invalidateQueries({ queryKey: ['tx-comm-detail'] }); void qc.invalidateQueries({ queryKey: ['staff-wallet'] }); }, [qc]);
 
@@ -151,7 +172,9 @@ export default function TransactionsStatus() {
     body = <div style={{ display: 'grid', gap: 8 }}>{[0, 1, 2, 3].map((i) => <div key={i} className="sk" style={{ height: 80 }} />)}</div>;
   } else if (!(seg === 'comm' ? commItems.length : walletItems.length)) {
     const filtered = q || active.length || group !== 'all';
-    body = <div className="empty"><span className="big"><Search className="i" /></span><h2>{filtered ? 'نتیجه‌ای پیدا نشد' : seg === 'comm' ? 'هنوز خریدی در مدل فروش تیمی نیست' : 'تراکنشی نیست'}</h2>
+    if (seg === 'comm' && !filtered) body = <div className="empty" data-testid="comm-empty"><span className="big"><Coins className="i" /></span>
+      <h2 style={{ maxWidth: 460, lineHeight: 1.9 }}>{COMM_EMPTY}</h2></div>;
+    else body = <div className="empty"><span className="big"><Search className="i" /></span><h2>{filtered ? 'نتیجه‌ای پیدا نشد' : seg === 'comm' ? 'هنوز خریدی در مدل فروش تیمی نیست' : 'تراکنشی نیست'}</h2>
       <p>{filtered ? (q ? `برای «${q}» در این وضعیت تراکنشی نیست. وضعیت «همه» را ببین یا جست‌وجو را پاک کن.` : 'با این فیلترها تراکنشی نیست.') : seg === 'comm' ? 'وقتی خرید کالایی در مدل جدید ثبت شود، وضعیت پورسانتش این‌جا دیده می‌شود.' : ''}</p>
       {filtered ? <button type="button" className="ghost" onClick={() => { setSearch(''); setGroup('all'); setF(EMPTY); }}>پاک کردن جست‌وجو و فیلتر</button> : null}</div>;
   } else if (seg === 'comm') {
@@ -243,7 +266,8 @@ export default function TransactionsStatus() {
 // ---------------------------------------------------------------- filter sheet
 function FilterSheet({ seg, value, salespersons, onClose, onApply, countFor }: { seg: Seg; value: Filters; salespersons: { id: number; name: string }[]; onClose: () => void; onApply: (v: Filters) => void; countFor: (v: Filters) => Promise<number> }) {
   const [d, setD] = useState<Filters>(value);
-  const n = useQuery({ queryKey: ['tx-filter-count', seg, d], queryFn: () => countFor(d), staleTime: 10_000 });
+  const bad = customBad(d);
+  const n = useQuery({ queryKey: ['tx-filter-count', seg, d], queryFn: () => countFor(d), staleTime: 10_000, enabled: !bad });
   const Ch = ({ k, opts }: { k: keyof Filters; opts: [string, string][] }) => <div className="chips">{opts.map(([v, l]) =>
     <button key={v || 'all'} type="button" className="chip" aria-pressed={d[k] === v} onClick={() => setD((p) => ({ ...p, [k]: v }))}>{l}</button>)}</div>;
   return <Sheet title="فیلتر" labelId="txs-filter-t" onClose={onClose} className="txs-sheet">
@@ -254,9 +278,14 @@ function FilterSheet({ seg, value, salespersons, onClose, onApply, countFor }: {
       <div className="fgrp"><span className="lbl">نوع عملیات</span><Ch k="kind" opts={KINDS} /></div>
       <div className="fgrp"><span className="lbl">کیف پول</span><Ch k="walletType" opts={WTYPES} /></div>
     </>}
-    <div className="fgrp"><span className="lbl">زمان</span><Ch k="range" opts={RANGES} /><span className="help">«این ماه» یعنی ماه شمسی جاری.</span></div>
+    <div className="fgrp"><span className="lbl">زمان</span><Ch k="range" opts={RANGES} />
+      {d.range === 'custom' ? <div className="txs-range">
+        <label><span>از</span><PersianDatePicker value={d.fromDay} onChange={(v) => setD((p) => ({ ...p, fromDay: v }))} noFuture placeholder="روز شروع" testId="txs-from" popoverClassName="txs-date-pop" /></label>
+        <label><span>تا</span><PersianDatePicker value={d.toDay} onChange={(v) => setD((p) => ({ ...p, toDay: v }))} noFuture minValue={d.fromDay || undefined} placeholder="روز پایان" testId="txs-to" popoverClassName="txs-date-pop" /></label>
+      </div> : null}
+      {bad ? <span className="ferr" role="alert">«از» نباید بعد از «تا» باشد.</span> : <span className="help">«این ماه» یعنی ماه شمسی جاری. در «از تا…» هر دو روز هم حساب می‌شوند.</span>}</div>
     <div className="foot2"><button type="button" className="ghost" onClick={() => setD(EMPTY)}>پاک کردن</button>
-      <button type="button" className="nf-btn nf-btn-primary nf-btn-lg" onClick={() => onApply(d)}>{n.data === undefined ? 'نمایش نتیجه‌ها' : n.data === 0 ? 'نتیجه‌ای نیست' : `نمایش ${fa(n.data)} نتیجه`}</button></div>
+      <button type="button" className="nf-btn nf-btn-primary nf-btn-lg" disabled={bad} onClick={() => onApply(d.range === 'custom' && !d.fromDay && !d.toDay ? { ...d, range: 'all' } : d)}>{bad ? 'بازه را درست کنید' : n.data === undefined ? 'نمایش نتیجه‌ها' : n.data === 0 ? 'نتیجه‌ای نیست' : `نمایش ${fa(n.data)} نتیجه`}</button></div>
   </Sheet>;
 }
 

@@ -86,3 +86,8 @@
   .txs-tt .nm{font-weight:800;font-size:15px}
   .nfk .sheet.txs-sheet{width:500px}
 }
+/* «از تا…» custom range */
+.nfk .txs-range{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.nfk .txs-range label{display:grid;gap:4px;font-size:13px;color:var(--nf-muted,#64748B)}
+.nfk .txs-range .persian-date-trigger{width:100%;min-height:44px}
+.txs-date-pop{z-index:80 !important}

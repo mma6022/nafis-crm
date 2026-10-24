@@ -32,7 +32,7 @@ const qs = (o: Record<string, string | number | null | undefined>) => {
 export const txApi = {
   comm: (o: Record<string, string | number | null | undefined>) => api.get<CommList>(`/goods-finance/commission-status?${qs(o)}`),
   commDetail: (id: number) => api.get<CommDetail>(`/goods-finance/commission-status/${id}`),
-  wallet: (o: Record<string, string | number | null | undefined>) => api.get<WalletTxList>(`/wallet-management/transactions?${qs({ ...o, withCounts: 1 })}`),
+  wallet: (o: Record<string, string | number | null | undefined>) => api.get<WalletTxList>(`/wallet-management/transactions?${qs({ ...o, view: 'status', withCounts: 1 })}`),
   unpay: (orderId: number, reason: string) => api.post(`/payment-orders/${orderId}/unpay`, { reason }),
   retry: (purchaseId: number) => api.post(`/goods-finance/team-commission/purchases/${purchaseId}/post`, {}),
   reverse: (purchaseId: number, reason: string) => api.post(`/goods-finance/team-commission/purchases/${purchaseId}/reverse`, { reason }),
