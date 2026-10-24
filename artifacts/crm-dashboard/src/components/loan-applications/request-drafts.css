@@ -1,0 +1,55 @@
+/* «در انتظار ثبت» queue, wizard save state and resume box. */
+.csx-tab.rqd-tab { border-color: var(--csx-gold-400, #d4a017); color: #7a5800; }
+.csx-tab.rqd-tab[aria-selected="true"] { background: #a87900; border-color: #a87900; color: #fff; }
+.rqd .muted { color: var(--nf-ink-muted, #6b7280); font-size: 13px; }
+.rqd-tools { gap: 10px; flex-wrap: wrap; }
+.rqd-banner { display: flex; gap: 12px; align-items: flex-start; margin: 0 0 12px; padding: 14px 16px; border-radius: 14px; background: #fdecec; border: 1px solid #f3b4b4; color: #8f1d1d; }
+.rqd-banner b { display: block; font-size: 16px; } .rqd-banner p { margin: 4px 0 0; font-size: 14px; }
+.rqd-name b { font-weight: 800; } .rqd-name { line-height: 1.8; }
+.rqd-portal { display: inline-block; margin-inline-start: 6px; padding: 0 8px; border-radius: 999px; background: #efe7fb; color: #5b2a9b; font-size: 12px; font-weight: 700; }
+.rqd-step { display: grid; gap: 3px; } .rqd-step b { font-size: 14px; }
+.rqd-step .bar { display: flex; gap: 3px; direction: rtl; } .rqd-step .bar i { width: 13px; height: 5px; border-radius: 3px; background: #e3e6ea; }
+.rqd-step .bar i.done { background: var(--nf-brand-600, #2b3a9b); } .rqd-step .bar i.cur { background: #1f8a4c; }
+.rqd-flag { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 12.5px; font-weight: 700; }
+.rqd-flag.gold { color: #8a6200; } .rqd-flag.red { color: #b42318; margin-inline-start: 8px; }
+.rqd-fee { display: grid; gap: 3px; justify-items: start; }
+.rqd-paid { display: inline-flex; gap: 4px; align-items: center; padding: 2px 8px; border-radius: 999px; background: #e6f4ea; color: #1e6b3a; font-size: 12.5px; font-weight: 700; }
+.rqd-wait { display: grid; gap: 3px; justify-items: start; }
+.rqd-pill { display: inline-flex; gap: 4px; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: 13px; font-weight: 800; }
+.rqd-pill.grey { background: #f1f3f5; color: #4b5563; } .rqd-pill.gold { background: #fff4d6; color: #8a6200; } .rqd-pill.red { background: #fdecec; color: #b42318; }
+.rqd-table tr.late td:first-child { box-shadow: inset -4px 0 0 #d92d20; }
+.rqd-acts { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
+.rqd-tip { position: relative; display: inline-flex; }
+.rqd-tip:hover::after, .rqd-tip:focus-within::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); inset-inline-end: 0; white-space: nowrap; background: #1f2937; color: #fff; font-size: 12.5px; padding: 6px 10px; border-radius: 8px; z-index: 5; }
+.rqd-tip button[disabled] { opacity: .45; cursor: not-allowed; }
+.rqd-cards .rqd-card { display: grid; gap: 8px; padding: 14px; }
+.rqd-card .top { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+.rqd-card.late { box-shadow: inset -4px 0 0 #d92d20; }
+.rqd-card .rqd-acts .csx-primary { flex: 1; justify-content: center; }
+.rqd-nodel { margin: 0; font-size: 12.5px; color: var(--nf-ink-muted, #6b7280); }
+.rqd-empty { text-align: center; padding: 40px 16px; }
+.rqd-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.rqd-chips .csx-chip[aria-pressed="true"] { background: var(--nf-brand-600, #2b3a9b); color: #fff; border-color: transparent; }
+.rqd-reason { display: grid; gap: 4px; font-size: 13px; } .rqd-reason textarea { width: 100%; border: 1px solid var(--nf-line, #e3e6ea); border-radius: 10px; padding: 8px; font: inherit; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* wizard */
+.lwz-save { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--nf-ink-muted, #6b7280); }
+.lwz-save.ok { color: #1e6b3a; } .lwz-save.bad { color: #b42318; font-weight: 700; }
+.lwz-save button { border: 0; background: none; color: var(--nf-brand-600, #2b3a9b); font-weight: 700; cursor: pointer; text-decoration: underline; }
+.lwz-pending-pill { display: inline-flex; gap: 4px; align-items: center; padding: 2px 8px; border-radius: 999px; background: #fff4d6; color: #7a5800; font-size: 12px; font-weight: 700; }
+.lwz-resume { border: 1.5px dashed #9aa4d6; background: #f5f6fd; border-radius: 14px; padding: 12px 14px; display: grid; gap: 6px; font-size: 14px; margin-bottom: 14px; }
+.lwz-resume .h { display: flex; gap: 8px; align-items: center; justify-content: space-between; font-weight: 800; }
+.lwz-resume .muted { color: var(--nf-ink-muted, #6b7280); font-size: 13px; }
+.lwz[data-save-blocked="true"] .form-footer .btn-primary { opacity: .5; pointer-events: none; }
+.rqd .csx-primary.sm { min-height: 42px; padding: 0 16px; font-size: 15px; }
+.lwz-save, .lwz-pending-pill { white-space: nowrap; flex: none; }
+/* Phones: icon + time / retry only; the words stay for screen readers. */
+@media (max-width: 479px) {
+  .lwz-save { gap: 4px; font-size: 12px; }
+  .lwz-save .t, .lwz-pending-pill .t { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .lwz-top h2 { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+  .lwz-top .lwz-chip { min-width: 120px; }
+  .lwz-save.ok .tm { display: none; } /* phones: tick only, like the old indicator */
+  .lwz-top .lwz-chip .cust-id-badge { display: none; }
+  .lwz-top .lwz-pending-pill { display: none; } /* the header is too narrow; the save tick already says it is on the server */
+}

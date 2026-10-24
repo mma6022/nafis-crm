@@ -17,6 +17,8 @@ import {
 import { AlertCircle, ChevronLeft, ChevronRight, Clock, Eye, FileClock, Inbox, Info, Kanban, LayoutList, Lock, Plus, RotateCcw, Search, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { CreateWizard } from "@/components/loan-applications/CreateWizard";
 import { AttributionReview } from "@/components/loan-applications/AttributionReview";
+import { RequestDraftsQueue } from "@/components/loan-applications/RequestDraftsQueue";
+import { canUseDrafts, useDraftCounts } from "@/lib/request-drafts";
 import { PersianDatePicker } from "@/components/PersianDatePicker";
 import { ConfirmDialog, Sheet, jalaliDate, relativeTime, useMinWidth } from "./customers-ui";
 import { BUSINESS_STATUS_LABELS, ACTION_ROLE_NAMES, WIZARD_DISPLAY_STEPS, WIZARD_TOTAL_STEPS, loanBusinessStatus, loanStageLabel } from "@/lib/loan-labels";
@@ -96,7 +98,8 @@ export default function LoanApplications() {
   const isSalesperson = user?.role === "salesperson";
 
   const [view, setView] = useTableState<'table' | 'board'>('applications.view', 'table');
-  const [tab, setTab] = useTableState<"mine" | "progress" | "all">('applications.tab', () => {
+  const [tab, setTab] = useTableState<"mine" | "pending" | "progress" | "all">('applications.tab', () => {
+    if (initialParams.get("tab") === "pending") return "pending";
     if (initialParams.get("caseScope") === "in-progress") return "progress";
     if (initialParams.get("actionable") === "true") return "mine";
     if (initialParams.has("actionable") || initialParams.has("stage") || initialParams.has("status") || initialParams.has("caseScope")) return "all";
@@ -121,11 +124,19 @@ export default function LoanApplications() {
     const raw = initialParams.get("customerId");
     return initialParams.get("new") === "1" && raw && /^[1-9]\d*$/.test(raw) ? Number(raw) : undefined;
   }, [initialParams]);
+  const entryDraftId = useMemo(() => {
+    const raw = initialParams.get("draftId");
+    return raw && /^[1-9]\d*$/.test(raw) ? Number(raw) : undefined;
+  }, [initialParams]);
   const [entryOpen, setEntryOpen] = useState(Boolean(entryCustomerId));
+  const [queueOpen, setQueueOpen] = useState<{ customerId: number; draftId: number } | null>(null);
+  const draftsAllowed = canUseDrafts(user);
+  const { data: draftCounts } = useDraftCounts(draftsAllowed);
+  useEffect(() => { if (tab === "pending" && user && !draftsAllowed) setTab("mine"); }, [tab, user, draftsAllowed, setTab]);
   const closeEntryWizard = () => {
     setEntryOpen(false);
     const url = new URL(window.location.href);
-    ["new", "customerId", "from", "draft"].forEach((name) => url.searchParams.delete(name));
+    ["new", "customerId", "from", "draft", "draftId"].forEach((name) => url.searchParams.delete(name));
     window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
     if (initialParams.get("from") === "customer" && entryCustomerId) setLocation(`/customers/${entryCustomerId}`);
   };
@@ -223,8 +234,9 @@ export default function LoanApplications() {
     </section>;
   }
 
-  const tabs: Array<{ key: "mine" | "progress" | "all"; label: string; count?: number; testId: string }> = [
+  const tabs: Array<{ key: "mine" | "pending" | "progress" | "all"; label: string; count?: number; testId: string; gold?: boolean }> = [
     { key: "mine", label: "کارتابل من", count: stats?.awaitingAction, testId: "btn-view-actionable" },
+    ...(draftsAllowed ? [{ key: "pending" as const, label: "در انتظار ثبت", count: draftCounts?.total, testId: "btn-view-pending", gold: true }] : []),
     { key: "progress", label: "در جریان", count: stats?.inProgress, testId: "btn-view-in-progress" },
     { key: "all", label: "همه پرونده‌ها", count: tab === "all" && !hasQuery ? total : undefined, testId: "btn-view-all" },
   ];
@@ -234,7 +246,7 @@ export default function LoanApplications() {
   const draftBanner = !reviewOpen && drafts.length ? <div className="lrx-draft" role="region" aria-label="پیش‌نویس ناتمام" data-testid="loan-draft-banner">
     <FileClock size={22} aria-hidden="true" />
     {drafts.length === 1
-      ? <p><b>پیش‌نویس ناتمام:</b> {customerNameText(drafts[0].customerName, drafts[0].customerId)} · {draftStep(drafts[0])} ({WIZARD_DISPLAY_STEPS[drafts[0].step - 1]?.label}) · ذخیره‌شده {relativeTime(drafts[0].updatedAt)}</p>
+      ? <p><b>پیش‌نویس روی همین دستگاه (هنوز به سرور نرسیده):</b> {customerNameText(drafts[0].customerName, drafts[0].customerId)} · {draftStep(drafts[0])} ({WIZARD_DISPLAY_STEPS[drafts[0].step - 1]?.label}) · ذخیره‌شده {relativeTime(drafts[0].updatedAt)}</p>
       : <p><b>{fa(drafts.length)} پیش‌نویس ناتمام</b> روی همین دستگاه · آخرین: {drafts[0].customerName}، {relativeTime(drafts[0].updatedAt)}</p>}
     <div className="acts">
       {drafts.length === 1
@@ -400,12 +412,13 @@ export default function LoanApplications() {
 
       {reviewOpen && user?.role === "admin" ? <>{adminToggle}<AttributionReview /></> : <>
       <div className="csx-tabs lrx-tabs" role="tablist" aria-label="کارتابل">
-        {tabs.map((t) => <button key={t.key} type="button" role="tab" className="csx-tab" aria-selected={tab === t.key} onClick={() => { setTab(t.key); setPage(1); }} data-testid={t.testId}>
-          {t.label}{t.count !== undefined ? <span className="n" data-k={t.key}>{fa(t.count)}</span> : null}
+        {tabs.map((t) => <button key={t.key} type="button" role="tab" className={`csx-tab${t.gold ? " rqd-tab" : ""}`} aria-selected={tab === t.key} onClick={() => { setTab(t.key); setPage(1); }} data-testid={t.testId}>
+          {t.gold ? <FileClock size={16} aria-hidden="true" /> : null}{t.label}{t.count !== undefined ? <span className="n" data-k={t.key}>{fa(t.count)}</span> : null}
         </button>)}
       </div>
       {roleNote}
       {draftBanner}
+      {tab === "pending" && draftsAllowed ? <RequestDraftsQueue isDesktop={isDesktop} isAdmin={user?.role === "admin"} onOpen={(d) => setQueueOpen({ customerId: d.customerId, draftId: d.id })} /> : <>
       <div className="csx-tools lrx-tools">
         {!isDesktop ? searchBox : null}
         <button type="button" className="csx-fbtn" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog" data-testid="button-loan-filters"><SlidersHorizontal size={20} /> فیلتر{filterCount ? <span className="n">{fa(filterCount)}</span> : null}</button>
@@ -426,6 +439,7 @@ export default function LoanApplications() {
 
       {body}
       {pager}
+      </>}
 
       {canCreate ? <button type="button" className="csx-primary csx-fab" onClick={() => setWizardOpen(true)} data-testid="fab-new-loan-application"><Plus size={22} /> درخواست جدید</button> : null}
 
@@ -444,7 +458,8 @@ export default function LoanApplications() {
       </>}
 
       {wizardOpen && <CreateWizard onClose={() => setWizardOpen(false)} />}
-      {!wizardOpen && entryOpen && entryCustomerId && session && canCreate ? <CreateWizard initialCustomerId={entryCustomerId} resumeDraft={initialParams.get("draft") === "1"} fromCustomer={initialParams.get("from") === "customer"} onClose={closeEntryWizard} /> : null}
+      {queueOpen && !wizardOpen && canCreate ? <CreateWizard key={`q:${queueOpen.draftId}`} initialCustomerId={queueOpen.customerId} serverDraftId={queueOpen.draftId} onClose={() => setQueueOpen(null)} /> : null}
+      {!wizardOpen && entryOpen && entryCustomerId && session && canCreate ? <CreateWizard key={`${entryCustomerId}:${entryDraftId ?? ""}`} initialCustomerId={entryCustomerId} serverDraftId={entryDraftId} resumeDraft={initialParams.get("draft") === "1"} fromCustomer={initialParams.get("from") === "customer"} onClose={closeEntryWizard} /> : null}
 
       {draftToDelete ? <ConfirmDialog title="حذف پیش‌نویس؟" confirmLabel="حذف پیش‌نویس" testId="delete-loan-draft-dialog"
         onClose={() => setDraftToDelete(null)}
