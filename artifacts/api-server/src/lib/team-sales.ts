@@ -10,6 +10,8 @@ import {
   normalizeFirstCallAnswers, planReasonText, plansFromRows, validateAnswers, type LegacyRankRef,
   type LeadOutcome, type PlanEvaluation, type PlanMatch, type QualifierAnswers, type TeamSalesConfig,
 } from "./team-sales-rules";
+import { cleanProfile, type ApplicantProfile } from "./plan-profile-match";
+import { dataFromAnswers, latestConsultApplicantProfile, officialGrade, recordFirstCallVersion } from "./consult-profile";
 
 export const TEAM_SALES_CONFIG_KEY = "team_sales_config";
 export const TEAM_SALES_CURSOR_KEY = "team_sales_closer_cursor";
@@ -52,6 +54,7 @@ export function ensureTeamSalesSchema(): void {
       ON team_sales_qualifications(customer_id, id DESC);
   `);
   ensureSelectedPlansColumn();
+  ensureNoPlanColumns();
   schemaReady = true;
 }
 
@@ -64,6 +67,18 @@ export function ensureSelectedPlansColumn(): void {
   if (cols.length && !cols.some((c) => c.name === "selected_plans_json"))
     crmDb.exec("ALTER TABLE team_sales_qualifications ADD COLUMN selected_plans_json TEXT");
 }
+
+/**
+ * crm-no-plan-option (additive): «هیچ طرحی به این مشتری نمی‌خوره» on the first-call form (1 = chosen, NULL otherwise)
+ * and its optional short «چرا؟» note. Rollback: scripts/no-plan-option-rollback.mjs.
+ */
+export function ensureNoPlanColumns(): void {
+  const cols = queryRows<{ name: string }>("SELECT name FROM pragma_table_info('team_sales_qualifications')");
+  if (!cols.length) return;
+  if (!cols.some((c) => c.name === "no_plan_fit")) crmDb.exec("ALTER TABLE team_sales_qualifications ADD COLUMN no_plan_fit INTEGER");
+  if (!cols.some((c) => c.name === "no_plan_note")) crmDb.exec("ALTER TABLE team_sales_qualifications ADD COLUMN no_plan_note TEXT");
+}
+export const NO_PLAN_NOTE_MAX = 200;
 
 export function getTeamSalesConfig(): TeamSalesConfig {
   const row = queryRow<{ value: string }>("SELECT value FROM notification_settings WHERE key=?", [TEAM_SALES_CONFIG_KEY]);
@@ -314,12 +329,24 @@ function autoMatches(answers: QualifierAnswers, plans: ReturnType<typeof plansFr
   return { matches: matchesFromEvaluation(evals), evals };
 }
 
+/**
+ * crm-no-plan-option (14:51): plan matching uses the OFFICIAL grade when an inquiry report exists (not invalidated by an
+ * identity change); the customer's declared grade stays in the stored answers («اظهار مشتری»).
+ */
+function withOfficialGrade(customerId: number, answers: QualifierAnswers): QualifierAnswers {
+  if (!isFirstCallForm(answers) || answers.callResult !== "answered") return answers;
+  const official = officialGrade(customerId);
+  return official ? { ...answers, creditRank: official.rank } : answers;
+}
+
 /** Step 5 of the first-call form: every active plan with status fit|depends|no and structured reasons. No writes. */
 export function planOptions(customerId: number, answers: QualifierAnswers, now = new Date()) {
   ensureTeamSalesSchema();
   const err = validateAnswers(answers, now, legacyRanks(customerId), { forPlans: true });
   if (err) throw new TeamSalesError(400, err);
-  return { plans: evaluatePlans(answers, activePlans()) };
+  const plans = evaluatePlans(withOfficialGrade(customerId, answers), activePlans());
+  // crm-no-plan-option: the form pre-checks «هیچ طرحی نمی‌خوره» when no plan is fit or depends.
+  return { plans, noPlanDefault: !plans.some((p) => p.status !== "no") };
 }
 
 export type SelectedPlanSnapshot = {
@@ -339,6 +366,58 @@ function selectedSnapshot(selected: unknown, evals: PlanEvaluation[]): SelectedP
     return { id: e.planId, name: e.planName, bank: e.bankName, max: e.max, status: e.status, conditionId: e.conditionId,
       reasons: e.reasons.filter((r) => r.kind === "unknown").map(planReasonText) };
   });
+}
+
+/** crm-no-plan-option: customers whose latest answered first-call form chose «هیچ طرحی نمی‌خوره» (grey list chip). */
+export function latestNoPlanFit(customerIds: number[]): Set<number> {
+  const out = new Set<number>();
+  const ids = [...new Set(customerIds.filter((id) => Number.isInteger(id) && id > 0))];
+  if (!ids.length) return out;
+  ensureTeamSalesSchema();
+  for (let i = 0; i < ids.length; i += 500) {
+    const chunk = ids.slice(i, i + 500);
+    const rows = queryRows<{ customer_id: number }>(
+      `SELECT q.customer_id FROM team_sales_qualifications q
+       WHERE q.no_plan_fit=1 AND q.id IN (SELECT MAX(id) FROM team_sales_qualifications
+                      WHERE call_result='answered' AND customer_id IN (${chunk.map(() => "?").join(",")}) GROUP BY customer_id)`, chunk);
+    for (const r of rows) out.add(Number(r.customer_id));
+  }
+  return out;
+}
+
+/**
+ * crm-no-plan-option: applicant job / guarantor job / military answers of the latest answered first-call form, used by the
+ * request wizard and the portal so they rule plans out exactly like the form. null = nothing known (no change at all).
+ * Read-only: does not create the table when it does not exist.
+ */
+export function latestApplicantProfile(customerId: number): ApplicantProfile | null {
+  try {
+    // 14:51: the «اطلاعات مشاوره» history (incl. later edits) wins when it exists.
+    const stored = latestConsultApplicantProfile(customerId);
+    if (stored !== undefined) {
+      const known = (v: unknown) => v != null && v !== "unknown";
+      return stored && (known(stored.jobType) || known(stored.gJobType) || known(stored.military)) ? stored : null;
+    }
+    const row = queryRow<{ answers_json: string }>(
+      `SELECT answers_json FROM team_sales_qualifications WHERE customer_id=? AND call_result='answered' ORDER BY id DESC LIMIT 1`, [customerId]);
+    if (!row) return null;
+    const a = JSON.parse(row.answers_json) ?? {};
+    if (a.formVersion !== 2) return null;
+    const p = cleanProfile(a);
+    const known = (v: unknown) => v != null && v !== "unknown";
+    return known(p.jobType) || known(p.gJobType) || known(p.military) ? p : null;
+  } catch { return null; }
+}
+
+/** City autocomplete for the first-call form: existing customer city values (no province/city list exists in the CRM). */
+export function citySuggestions(query: string, limit = 12): string[] {
+  const q = String(query ?? "").trim().slice(0, 40);
+  try {
+    return queryRows<{ city: string }>(
+      `SELECT city, COUNT(*) AS n FROM customers WHERE city IS NOT NULL AND trim(city)<>'' ${q ? "AND city LIKE ? ESCAPE '\\'" : ""}
+       GROUP BY city ORDER BY n DESC, city LIMIT ?`,
+      q ? [`%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`, limit] : [limit]).map((r) => r.city);
+  } catch { return []; }
 }
 
 /** Latest first-call selection per customer (for the list column / case box). */
@@ -369,8 +448,8 @@ function parseSelected(raw: string | null): SelectedPlanSnapshot[] {
 export function latestFirstCall(customerId: number) {
   ensureTeamSalesSchema();
   const row = queryRow<{ id: number; answers_json: string; selected_plans_json: string | null; note: string; created_at: string;
-    priority: number; actor_name: string | null; sp_name: string | null }>(
-    `SELECT q.id, q.answers_json, q.selected_plans_json, q.note, q.created_at, q.priority,
+    priority: number; actor_name: string | null; sp_name: string | null; no_plan_fit: number | null; no_plan_note: string | null }>(
+    `SELECT q.id, q.answers_json, q.selected_plans_json, q.note, q.created_at, q.priority, q.no_plan_fit, q.no_plan_note,
             u.full_name AS actor_name, s.name AS sp_name
      FROM team_sales_qualifications q LEFT JOIN users u ON u.id=q.actor_user_id LEFT JOIN salespersons s ON s.id=u.salesperson_id
      WHERE q.customer_id=? AND q.call_result='answered' ORDER BY q.id DESC LIMIT 1`, [customerId]);
@@ -382,10 +461,12 @@ export function latestFirstCall(customerId: number) {
   return {
     id: Number(row.id), createdAt: row.created_at, priority: Number(row.priority) || null, note: row.note,
     actorName: row.sp_name ?? row.actor_name ?? null, selectedPlans: parseSelected(row.selected_plans_json),
+    noPlanFit: Number(row.no_plan_fit) === 1, noPlanNote: row.no_plan_note ?? null,
     answers: {
       amountMillion: pick("amountMillion"), docsReady: pick("docsReady"), urgency: pick("urgency"), creditRank: pick("creditRank"),
       checkStatus: pick("checkStatus"), canPromissory: pick("canPromissory"), bouncedCheque: pick("bouncedCheque"),
       guarantorAvailable: pick("guarantorAvailable"), guarantorCheque: pick("guarantorCheque"), gRank: pick("gRank"),
+      military: pick("military"), jobType: pick("jobType"), gJobType: pick("gJobType"), city: pick("city"),
     },
   };
 }
@@ -396,7 +477,7 @@ export function previewQualification(customerId: number, answers: QualifierAnswe
   const cfg = getTeamSalesConfig();
   const err = validateAnswers(answers, now, legacyRanks(customerId));
   if (err) throw new TeamSalesError(400, err);
-  const { matches } = autoMatches(isFirstCallForm(answers) ? normalizeFirstCallAnswers(answers) : answers, activePlans());
+  const { matches } = autoMatches(withOfficialGrade(customerId, isFirstCallForm(answers) ? normalizeFirstCallAnswers(answers) : answers), activePlans());
   return { result: computeLeadPriority(answers, matches, consecutiveNoAnswers(customerId), now, cfg), matches: matches.slice(0, 5) };
 }
 
@@ -411,7 +492,7 @@ const CALL_SUBJECT: Record<string, string> = {
  * (team_sales_qualifications.priority stores 0 = "none" because the column is NOT NULL). 3x no-answer -> status cancelled.
  */
 export function submitQualification(customerId: number, actor: Actor, rawAnswers: QualifierAnswers, note: string, now = new Date(),
-  selectedPlans: unknown = null) {
+  selectedPlans: unknown = null, noPlanNote: unknown = null) {
   ensureTeamSalesSchema();
   const cfg = getTeamSalesConfig();
   const err = validateAnswers(rawAnswers, now, legacyRanks(customerId));
@@ -420,6 +501,15 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
   const answers = firstCall ? normalizeFirstCallAnswers(rawAnswers) : rawAnswers;
   if (selectedPlans != null && (!firstCall || answers.callResult !== "answered") && !(Array.isArray(selectedPlans) && !selectedPlans.length))
     throw new TeamSalesError(400, "انتخاب طرح فقط در فرم تماس اول و برای تماس پاسخ‌داده‌شده ممکن است.");
+  // crm-no-plan-option: only on an answered first-call form; exclusive with selected plans; optional short note.
+  const noPlanFit = firstCall && answers.callResult === "answered" && answers.noPlanFit === true;
+  if (noPlanNote != null && typeof noPlanNote !== "string") throw new TeamSalesError(400, "توضیح «چرا؟» معتبر نیست.");
+  const cleanNoPlanNote = noPlanFit ? String(noPlanNote ?? "").trim().replace(/\s+/g, " ") || null : null;
+  if (!noPlanFit && String(noPlanNote ?? "").trim()) throw new TeamSalesError(400, "توضیح «چرا؟» فقط با گزینه‌ی «هیچ طرحی نمی‌خوره» ثبت می‌شود.");
+  if (cleanNoPlanNote && [...cleanNoPlanNote].length > NO_PLAN_NOTE_MAX)
+    throw new TeamSalesError(400, `توضیح «چرا؟» حداکثر ${NO_PLAN_NOTE_MAX} نویسه است.`);
+  if (noPlanFit && Array.isArray(selectedPlans) && selectedPlans.length)
+    throw new TeamSalesError(400, "«هیچ طرحی به این مشتری نمی‌خوره» با انتخاب طرح هم‌زمان ممکن نیست؛ یکی را بردارید.");
   const cleanNote = String(note ?? "").trim();
   if ([...cleanNote].length < cfg.noteMinLength)
     throw new TeamSalesError(400, `یادداشت تماس الزامی است (حداقل ${cfg.noteMinLength} نویسه).`);
@@ -430,23 +520,37 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
     // The first-call form decides the priority, so it is only for customers that have none yet (P1/P2/P3 use the normal call form).
     if (c.priority != null)
       throw new TeamSalesError(409, "فرم تماس اول فقط برای مشتریان بدون اولویت است؛ برای این مشتری از فرم ثبت تماس معمولی استفاده کنید.");
-    const { matches, evals } = autoMatches(answers, plans);
+    const { matches, evals } = autoMatches(withOfficialGrade(c.id, answers), plans);
     const selected = firstCall && answers.callResult === "answered" ? selectedSnapshot(selectedPlans, evals) : [];
     const result: LeadOutcome = computeLeadPriority(answers, matches, consecutiveNoAnswers(customerId), now, cfg);
+    // Defence in depth: the rules never return P1 for «هیچ طرحی نمی‌خوره»; never hand off automatically if they ever did.
+    if (noPlanFit && result.priority === 1) throw new TeamSalesError(500, "no_plan_fit_auto_p1_blocked");
     const spName = queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [c.salesperson_id])?.name ?? null;
     const callLogId = execute(
       `INSERT INTO call_logs (customer_id, salesperson_id, subject, customer_request, expert_notes, created_at, salesperson_name_snapshot)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [c.id, c.salesperson_id, CALL_SUBJECT[answers.callResult], null,
         `${cleanNote}\n\n— نتیجهٔ فرم: ${result.priority == null ? `بدون اولویت، بی‌پاسخ ${result.attempts} از ${cfg.maxNoAnswerAttempts}` : `اولویت ${result.priority}`} (${result.reasons.join("؛ ")})${
-          selected.length ? `\n— طرح‌های انتخاب‌شده: ${selected.map((p) => `${p.name}${p.status === "depends" ? " (مشروط)" : ""}`).join("، ")}` : ""}`,
+          selected.length ? `\n— طرح‌های انتخاب‌شده: ${selected.map((p) => `${p.name}${p.status === "depends" ? " (مشروط)" : ""}`).join("، ")}` : ""}${
+          noPlanFit ? `\n— هیچ طرحی به این مشتری نمی‌خوره${cleanNoPlanNote ? `: ${cleanNoPlanNote}` : ""}` : ""}`,
         now.toISOString(), spName]);
-    execute(
+    const qualificationId = execute(
       `INSERT INTO team_sales_qualifications (customer_id, actor_user_id, call_log_id, call_result, answers_json, matches_json,
-        priority, outcome, score, reasons_json, next_action_at, note, created_at, selected_plans_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        priority, outcome, score, reasons_json, next_action_at, note, created_at, selected_plans_json, no_plan_fit, no_plan_note)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [c.id, actor.id, callLogId, answers.callResult, JSON.stringify(answers), JSON.stringify(matches.slice(0, 5)),
         result.priority ?? 0, result.outcome, result.score, JSON.stringify(result.reasons), result.nextActionAt, cleanNote, now.toISOString(),
-        firstCall && answers.callResult === "answered" ? JSON.stringify(selected) : null]);
+        firstCall && answers.callResult === "answered" ? JSON.stringify(selected) : null, noPlanFit ? 1 : null, cleanNoPlanNote]);
+    // crm-no-plan-option (14:51): the answers also go to the customer's «اطلاعات مشاوره» history (append-only).
+    if (firstCall && answers.callResult === "answered") {
+      const submitter = queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [actor.salespersonId ?? -1])?.name
+        ?? actor.fullName ?? null;
+      recordFirstCallVersion(c.id, qualificationId, actor, dataFromAnswers(answers as Record<string, unknown>, {
+        selectedPlans: selected, noPlanFit, noPlanNote: cleanNoPlanNote, createdAt: now.toISOString(), submitterName: submitter }), now.toISOString());
+    }
+    // crm-no-plan-option: city of residence goes to the customer's city only when that is still empty (never overwritten).
+    const cityWritten = firstCall && answers.callResult === "answered" && answers.city
+      ? executeChanges("UPDATE customers SET city=? WHERE id=? AND (city IS NULL OR trim(city)='')", [answers.city, c.id]) > 0 : false;
     const reasonText = result.reasons.join("؛ ");
     let handoff: ReturnType<typeof promoteInTx> | null = null;
     if (result.priority === 1) {
@@ -465,6 +569,6 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
         oldSalespersonId: c.salesperson_id, newSalespersonId: c.salesperson_id, actorUserId: actor.id,
         source: "qualifier_form", reason: reasonText, at: now.toISOString() });
     }
-    return { callLogId, result, matches: matches.slice(0, 5), handoff, selectedPlans: selected };
+    return { callLogId, result, matches: matches.slice(0, 5), handoff, selectedPlans: selected, noPlanFit, noPlanNote: cleanNoPlanNote, cityWritten };
   });
 }

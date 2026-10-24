@@ -10,6 +10,7 @@ import { CREDIT_SUBGRADES, expandRankList, gradeMatches } from "../src/lib/credi
 import { conditionAcceptsCreditRank } from "../src/lib/credit-rank-eligibility.ts";
 import { consultationRankMatches } from "../src/lib/consultation-questionnaire.ts";
 import { matchPlans, plansFromRows } from "../src/lib/team-sales-rules.ts";
+import { rowAllowsProfile } from "../src/lib/plan-profile-match.ts";
 
 const root = process.cwd(); // run from artifacts/api-server (the bundle lives in a temp dir)
 // esbuild is loaded at runtime (the bundler cannot bundle itself).
@@ -83,10 +84,10 @@ let handler;
 const queryRow = (sql, args = []) => db.prepare(sql).get(...args);
 const queryRows = (sql, args = []) => db.prepare(sql).all(...args);
 const parseJson = (v) => { try { return v ? JSON.parse(v) : null; } catch { return null; } };
-new Function("router", "requirePermission", "user", "queryRow", "queryRows", "parseJson", "conditionAcceptsCreditRank", "separateRequirementKeys", "documentLabel", "error",
+new Function("router", "requirePermission", "user", "queryRow", "queryRows", "parseJson", "conditionAcceptsCreditRank", "separateRequirementKeys", "documentLabel", "error", "rowAllowsProfile", "latestApplicantProfile",
   transformSync(fresh + "\n" + scoped + "\n" + terms + "\n" + route, { loader: "ts" }).code)(
   { get: (_p, _perm, fn) => { handler = fn; } }, () => {}, (res) => res.actor, queryRow, queryRows, parseJson, conditionAcceptsCreditRank, new Set(), (k) => k,
-  (res, status, code) => res.status(status).json({ error: code }));
+  (res, status, code) => res.status(status).json({ error: code }), rowAllowsProfile, () => null); // no first-call answers: profile filter is a no-op
 const invoke = (customerId, ignore) => {
   const res = { actor: { role: "admin", customerScope: "all" }, statusCode: 200, status(n) { this.statusCode = n; return this; }, json(b) { this.body = b; return this; } };
   handler({ params: { customerId: String(customerId) }, query: ignore === undefined ? {} : { ignoreCreditRank: ignore } }, res); return res.body;

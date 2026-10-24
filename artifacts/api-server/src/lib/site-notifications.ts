@@ -119,6 +119,8 @@ export function installSiteNotifications() {
       "id","updated_at","created_at","notified_at","last_seen_at","completed_at","input_json","canonical_json","checks_json",
       "send_claim_id","send_claim_expires_at","job_token","job_lease_expires_at","provider_idempotency_key","content_hash",
       "verification_version","portal_auth_version","phone_normalized","national_code_normalized",
+      // crm-no-plan-option: customers.city is filled by the first-call form in the same save; no separate bell event.
+      "city",
     ].includes(n))).filter(n=>names.has(n));
     for (const operation of source.insertOnly ? ["INSERT"] : ["INSERT","UPDATE","DELETE"]) {
       if (operation==="UPDATE" && !watched.length) continue;

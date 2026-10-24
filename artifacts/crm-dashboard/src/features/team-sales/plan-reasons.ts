@@ -17,14 +17,18 @@ export type PlanEvaluation = {
 const FA = '۰۱۲۳۴۵۶۷۸۹';
 const faNum = (n: number) => n.toLocaleString('en-US').replace(/,/g, '٬').replace(/[0-9]/g, (d) => FA[Number(d)]);
 export const millionText = (rial: number | null | undefined) => `${faNum(Math.round((Number(rial) || 0) / 1e6))} میلیون`;
-const JOB_FA: Record<string, string> = {
-  employee_with_insurance: 'کارمند بیمه‌دار', employee_no_insurance: 'کارمند بدون بیمه', business: 'آزاد',
-  no_doc: 'بدون مدرک شغلی', retired: 'بازنشسته', unemployed: 'بیکار',
+/** consult_options job_type / guarantor_job_type labels (same list as the plan editor and api plan-profile-match.ts). */
+export const JOB_LABELS: Record<string, string> = {
+  business: 'آزاد با جواز کسب', employee_with_insurance: 'کارمند با لیست بیمه', employee_no_insurance: 'کارمند بدون لیست بیمه',
+  retired: 'بازنشسته', no_doc: 'آزاد بدون مدرک شغلی', unemployed: 'بدون شغل',
 };
+export const JOB_ORDER = ['employee_with_insurance', 'employee_no_insurance', 'business', 'no_doc', 'retired', 'unemployed'] as const;
+export const MILITARY_LABELS: Record<string, string> = { has_card: 'دارای پایان خدمت', no_card: 'بدون پایان خدمت', female: 'مشتری خانم است', unknown: 'نمی‌دونه' };
 const NOT_ASKED = '(در تماس اول پرسیده نمی‌شود)';
 const joinFa = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join('، ')} و ${xs[xs.length - 1]}`);
 const rankWord = (r: { min?: string; allowed?: string[] }) => (r.min ? `${r.min} یا بهتر` : (r.allowed ?? []).join(' یا '));
-const jobs = (xs?: string[]) => (xs ?? []).map((j) => JOB_FA[j] ?? j).join(' یا ');
+const jobs = (xs?: string[]) => (xs ?? []).map((j) => JOB_LABELS[j] ?? j).join(' یا ');
+const jobOf = (j?: string) => JOB_LABELS[j ?? ''] ?? j ?? '';
 
 export function planReasonText(r: PlanReason): string {
   switch (r.code) {
@@ -57,13 +61,22 @@ export function planReasonText(r: PlanReason): string {
     case 'guarantor_rank_below': return `رتبه‌ی ضامن ${r.have} کمتر از ${r.min} است`;
     case 'guarantor_rank_not_allowed': return `رتبه‌ی ضامن ${r.have} جزو رتبه‌های مجاز این طرح نیست`;
     case 'guarantor_rank_unknown': return `اگر رتبه‌ی ضامن ${rankWord(r)} باشد`;
+    // crm-no-plan-option: same wording as profileReasonText in api-server/src/lib/plan-profile-match.ts
+    case 'job_ok': return `شغل متقاضی: ${jobOf(r.have)}`;
+    case 'job_not_allowed': return `شغل متقاضی (${jobOf(r.have)}) مجاز نیست؛ فقط ${jobs(r.jobs)}`;
     case 'job_unknown': {
-      if (r.kind === 'violated') return `فقط برای ${jobs(r.jobs)}`;
       const ex = r.excludedJobs ?? [];
-      return ex.length && ex.length <= 2 && (r.jobs ?? []).length > 2
-        ? `اگر ${jobs(ex)} نباشد (شغل ${NOT_ASKED.slice(1)}`
-        : `اگر ${jobs(r.jobs)} باشد (شغل ${NOT_ASKED.slice(1)}`;
+      return ex.length && ex.length <= 2 ? `اگر شغل متقاضی ${jobs(ex)} نباشد` : `اگر شغل متقاضی ${jobs(r.jobs)} باشد`;
     }
+    case 'guarantor_job_ok': return `شغل ضامن: ${jobOf(r.have)}`;
+    case 'guarantor_job_not_allowed': return `شغل ضامن (${jobOf(r.have)}) مجاز نیست؛ فقط ${jobs(r.jobs)}`;
+    case 'guarantor_job_unknown': {
+      const ex = r.excludedJobs ?? [];
+      return ex.length && ex.length <= 2 ? `اگر شغل ضامن ${jobs(ex)} نباشد` : `اگر شغل ضامن ${jobs(r.jobs)} باشد`;
+    }
+    case 'military_ok': return r.have === 'female' ? 'پایان خدمت لازم نیست (خانم)' : 'پایان خدمت دارد';
+    case 'military_required': return 'نیاز به پایان خدمت';
+    case 'military_unknown': return 'اگر پایان خدمت داشته باشد';
     case 'amount_over_cap': return `سقف ${millionText(r.max)}؛ کمتر از ${millionText(r.want)} درخواستی`;
     default: return '';
   }

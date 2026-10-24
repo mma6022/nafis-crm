@@ -20,7 +20,12 @@ export type SimpleAnswers = {
   /** 2 = first-call form with the guarantor step and plan selection (crm-call-form-plans). */
   formVersion?: 2;
   guarantorAvailable?: Tri | null; guarantorCheque?: Tri | null; gRank?: string | null;
+  /** crm-no-plan-option: applicant military service, applicant / guarantor job (job_type codes or «نمی‌دونه»), city. */
+  military?: Military | null; jobType?: string | null; gJobType?: string | null; city?: string | null;
+  /** «هیچ طرحی به این مشتری نمی‌خوره» — never an automatic P1 (enforced on the server). */
+  noPlanFit?: boolean;
 };
+export type Military = 'has_card' | 'no_card' | 'female' | 'unknown';
 export type Tri = 'yes' | 'no' | 'unknown';
 /** Plan picked in the first-call form, snapshotted at submit time (list column, case box, result page). */
 export type SuggestedPlan = {
@@ -28,10 +33,12 @@ export type SuggestedPlan = {
 };
 export type FirstCallSummary = {
   id: number; createdAt: string; priority: number | null; note: string; actorName: string | null; selectedPlans: SuggestedPlan[];
+  noPlanFit?: boolean; noPlanNote?: string | null;
   answers: {
     amountMillion: number | null; docsReady: string | null; urgency: string | null; creditRank: string | null;
     checkStatus: string | null; canPromissory: string | null; bouncedCheque: string | null;
     guarantorAvailable: Tri | null; guarantorCheque: Tri | null; gRank: string | null;
+    military?: string | null; jobType?: string | null; gJobType?: string | null; city?: string | null;
   };
 };
 export type QualifyResult = {
@@ -41,6 +48,7 @@ export type QualifyResult = {
   matches: Array<{ planId: number; planName: string; assumptions: string[]; amountFits: boolean }>;
   handoff: PromoteResult | null;
   selectedPlans?: SuggestedPlan[];
+  noPlanFit?: boolean; noPlanNote?: string | null; cityWritten?: boolean;
 };
 
 export class TeamSalesApiError extends Error {
@@ -102,17 +110,61 @@ export const showsUpgradeButton = (...a: Parameters<typeof canUpgradeToP1>) => c
 export const fetchNextCloser = () => request<NextCloser>('/sales/next-closer');
 export const upgradePriority = (customerId: number, note: string) =>
   request<PromoteResult>(`/customers/${customerId}/upgrade-priority`, { method: 'POST', body: JSON.stringify({ note: note.trim() || null }) });
-export const submitSimpleForm = (customerId: number, answers: SimpleAnswers, note: string, selectedPlans?: number[]) =>
+export const submitSimpleForm = (customerId: number, answers: SimpleAnswers, note: string, selectedPlans?: number[], noPlanNote?: string) =>
   request<QualifyResult>(`/customers/${customerId}/team-sales/qualify`, { method: 'POST',
-    body: JSON.stringify(selectedPlans ? { answers, note, selectedPlans } : { answers, note }) });
-/** Step 5: every active plan with fit / depends / no and the reasons (no writes). */
+    body: JSON.stringify({ answers, note, ...(selectedPlans ? { selectedPlans } : {}), ...(noPlanNote ? { noPlanNote } : {}) }) });
+/** Step 5: every active plan with fit / depends / no and the reasons (no writes). noPlanDefault = nothing fits or depends. */
 export const fetchPlanOptions = (customerId: number, answers: SimpleAnswers) =>
-  request<{ plans: PlanEvaluation[] }>(`/customers/${customerId}/team-sales/qualify/plans`, { method: 'POST', body: JSON.stringify({ answers }) });
+  request<{ plans: PlanEvaluation[]; noPlanDefault?: boolean }>(`/customers/${customerId}/team-sales/qualify/plans`, { method: 'POST', body: JSON.stringify({ answers }) });
+/** City autocomplete (existing customer city values) + the customer's current city for the prefill. */
+export const fetchCities = (customerId: number, q: string) =>
+  request<{ items: string[]; customerCity: string | null }>(`/team-sales/cities?customerId=${customerId}&q=${encodeURIComponent(q)}`);
+/** crm-no-plan-option (14:51): «اطلاعات مشاوره» — Kazemi's answers stored on the customer, with history. */
+export type ConsultProfileData = {
+  jobType: string | null; guarantorAvailable: Tri | null; guarantorCheque: Tri | null; creditRank: string | null; gRank: string | null;
+  gJobType: string | null; military: Military | null; city: string | null;
+  selectedPlans: { id: number; name: string; status?: string | null }[]; noPlanFit: boolean; noPlanNote: string | null;
+  urgency: string | null; formDate: string | null; submitterName: string | null;
+};
+export type ConsultProfileVersion = {
+  id: number; source: 'first_call' | 'edit' | 'backfill'; data: ConsultProfileData | null; changedFields: string[];
+  actorName: string | null; createdAt: string;
+};
+export type ConsultProfile = {
+  latest: ConsultProfileVersion | null; versions: ConsultProfileVersion[];
+  official: { rank: string; checkedAt: string } | null; canEdit: boolean;
+};
+export type ConsultEditable = 'jobType' | 'guarantorAvailable' | 'guarantorCheque' | 'creditRank' | 'gRank' | 'gJobType' | 'military' | 'city' | 'urgency';
+export const consultProfileKey = (id: number) => ['consult-profile', id] as const;
+export function useConsultProfile(customerId: number, enabled = true) {
+  return useQuery<ConsultProfile>({
+    queryKey: consultProfileKey(customerId), enabled: enabled && Number.isFinite(customerId) && customerId > 0, retry: false,
+    queryFn: () => request<ConsultProfile>(`/customers/${customerId}/consult-profile`),
+  });
+}
+export const editConsultProfile = (customerId: number, changes: Partial<Record<ConsultEditable, string | null>>) =>
+  request<ConsultProfile & { changed: string[] }>(`/customers/${customerId}/consult-profile`, { method: 'PATCH', body: JSON.stringify({ changes }) });
+/** «اعتبارسنجی سریع»: saves the national code only (no inquiry). 409 + code "confirm_replace" when a different code exists. */
+export async function saveQuickCreditNationalCode(customerId: number, nationalCode: string, confirmReplace: boolean) {
+  let response: Response;
+  try {
+    response = await fetch(`${base()}/api/customers/${customerId}/quick-credit/national-code`, {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nationalCode, confirmReplace }),
+    });
+  } catch { throw new TeamSalesApiError('', 0); }
+  const body = await response.json().catch(() => null);
+  if (response.status === 409 && body?.code === 'confirm_replace') return { needsConfirm: true as const };
+  if (!response.ok) throw new TeamSalesApiError(hasPersian(body?.error) ? body.error : response.status === 409 ? 'این کد ملی برای مشتری فعال دیگری ثبت شده است.' : '', response.status);
+  return { needsConfirm: false as const, changed: Boolean(body?.changed), identityChanged: Boolean(body?.identityChanged) };
+}
+
 /** The list / detail APIs add these after their zod parse; read them through these helpers. */
 export const suggestedPlansOf = (c: unknown): SuggestedPlan[] => {
   const v = (c as { suggestedPlans?: unknown } | null)?.suggestedPlans;
   return Array.isArray(v) ? (v as SuggestedPlan[]) : [];
 };
+export const noPlanFitOf = (c: unknown): boolean => (c as { noPlanFit?: unknown } | null)?.noPlanFit === true;
 export const firstCallOf = (c: unknown): FirstCallSummary | null => ((c as { firstCall?: FirstCallSummary | null } | null)?.firstCall ?? null);
 
 const FA = '۰۱۲۳۴۵۶۷۸۹';

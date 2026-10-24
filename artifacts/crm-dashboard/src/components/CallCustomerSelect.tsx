@@ -10,6 +10,8 @@ export type CallCustomer = {
   id: number; name: string; phone: string; salespersonName?: string | null;
   nationalCode?: string | null; postalCode?: string | null; birthDateJalali?: string | null;
   verificationStatus?: string; isUrgent?: boolean;
+  /** crm-no-plan-option: the old form shows «اعتبارسنجی سریع» for P1/P2/P3 only. */
+  priority?: number | null;
 };
 
 export function CallCustomerSelect({ selected, disabled, onSelect }: {

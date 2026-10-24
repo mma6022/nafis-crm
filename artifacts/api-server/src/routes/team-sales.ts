@@ -6,10 +6,13 @@ import { Router, type IRouter, type Response } from "express";
 import { requirePermission } from "../lib/access-control";
 import type { AuthUser } from "../lib/auth";
 import { getCustomer } from "./crm";
+import { queryRow } from "../lib/crm-db";
 import {
-  TeamSalesError, formatDue, getTeamSalesConfig, peekNextCloser, planOptions, previewQualification, priorityHistory, promoteToPriorityOne, submitQualification,
+  TeamSalesError, citySuggestions, formatDue, getTeamSalesConfig, peekNextCloser, planOptions, previewQualification, priorityHistory, promoteToPriorityOne, submitQualification,
 } from "../lib/team-sales";
 import { addWorkingHours, type QualifierAnswers } from "../lib/team-sales-rules";
+import { ConsultProfileError, canActOnCustomerProfile, consultProfile, editConsultProfile } from "../lib/consult-profile";
+import { isAdminRole } from "../lib/customer-integrity";
 
 const router: IRouter = Router();
 
@@ -93,7 +96,48 @@ router.post("/customers/:id/team-sales/qualify", requirePermission("calls.create
   if (!id || !answers) { res.status(400).json({ error: "Invalid request" }); return; }
   const note = typeof req.body?.note === "string" ? req.body.note : "";
   const selectedPlans = req.body?.selectedPlans ?? null;
-  try { res.json(submitQualification(id, actorOf(res), answers, note, new Date(), selectedPlans)); } catch (e) { fail(res, e); }
+  const noPlanNote = req.body?.noPlanNote ?? null;
+  try { res.json(submitQualification(id, actorOf(res), answers, note, new Date(), selectedPlans, noPlanNote)); } catch (e) { fail(res, e); }
+});
+
+/** crm-no-plan-option: city autocomplete for the first-call form (existing customer city values; read-only). */
+router.get("/team-sales/cities", requirePermission("customers.view"), (req, res): void => {
+  const q = typeof req.query.q === "string" ? req.query.q : "";
+  // Prefill: the customer's current city (only for a customer this user may see).
+  const id = customerId(req.query.customerId);
+  const visible = id ? Boolean(getCustomer(id, res.locals.authUser as AuthUser)) : false;
+  const customerCity = visible ? queryRow<{ city: string | null }>("SELECT city FROM customers WHERE id=?", [id])?.city ?? null : null;
+  res.json({ items: citySuggestions(q), customerCity });
+});
+
+/**
+ * crm-no-plan-option (14:51) «اطلاعات مشاوره»: latest stored first-call answers + full history + official grade.
+ * View: anyone who can see the customer (existing scoping). Edit: admin / registrar / the customer's own salesperson;
+ * an edit is a new version (the old one stays) with the editor and the changed fields.
+ */
+function consultAccess(res: Response, raw: unknown) {
+  const id = customerId(raw);
+  const user = res.locals.authUser as AuthUser;
+  if (!id || !getCustomer(id, user)) { res.status(404).json({ error: "Customer not found" }); return null; }
+  const sp = queryRow<{ salesperson_id: number | null }>("SELECT salesperson_id FROM customers WHERE id=?", [id])?.salesperson_id ?? null;
+  return { id, user, canEdit: canActOnCustomerProfile(user, sp, isAdminRole) };
+}
+router.get("/customers/:id/consult-profile", requirePermission("customers.view"), (req, res): void => {
+  const a = consultAccess(res, req.params.id); if (!a) return;
+  res.json({ ...consultProfile(a.id), canEdit: a.canEdit });
+});
+router.patch("/customers/:id/consult-profile", requirePermission("customers.view"), (req, res): void => {
+  const a = consultAccess(res, req.params.id); if (!a) return;
+  if (!a.canEdit) { res.status(403).json({ error: "ویرایش اطلاعات مشاوره فقط برای کارشناس همین مشتری، ثبت‌نام‌کننده و مدیر است." }); return; }
+  const patch = (req.body as { changes?: unknown } | null)?.changes;
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) { res.status(400).json({ error: "تغییرات معتبر نیست." }); return; }
+  try {
+    const out = editConsultProfile(a.id, a.user, patch as Record<string, unknown>);
+    res.json({ ...out.profile, canEdit: true, changed: out.changed });
+  } catch (e) {
+    if (e instanceof ConsultProfileError) { res.status(e.status).json({ error: e.message }); return; }
+    throw e;
+  }
 });
 
 export default router;

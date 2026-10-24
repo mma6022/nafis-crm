@@ -5436,6 +5436,7 @@ components:
         contractDurationDays: { type: ["integer", "null"], minimum: 1 }
         needsCustomerCheck: { type: boolean }
         needsGuarantorCheck: { type: boolean }
+        needsMilitaryService: { type: boolean }
         sortOrder: { type: integer }
         notes: { type: ["string", "null"] }
     LoanPlanConditionInput:
@@ -5468,6 +5469,7 @@ components:
         needsGuarantorSalaryDeduct: { type: boolean }
         needsCustomerCheck: { type: boolean }
         needsGuarantorCheck: { type: boolean }
+        needsMilitaryService: { type: boolean }
         sortOrder: { type: integer, minimum: 0 }
         notes: { type: string }
     LoanPlan:

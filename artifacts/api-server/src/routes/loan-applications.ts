@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { customerSearchSql } from "../lib/customer-id-search";
 import { conditionAcceptsCreditRank } from "../lib/credit-rank-eligibility";
+import { rowAllowsProfile } from "../lib/plan-profile-match";
+import { latestApplicantProfile } from "../lib/team-sales";
 import { loanCreditRankOverrideError, loanRankOverrideSnapshot } from "../lib/loan-credit-rank-override";
 export { conditionAcceptsCreditRank } from "../lib/credit-rank-eligibility";
 import { supportedDocumentUpload } from "../lib/document-upload-type";
@@ -1403,13 +1405,15 @@ router.get("/customers/:customerId/eligible-plans", requirePermission("loan_appl
   const profile = queryRow<any>("SELECT * FROM customers WHERE id=?", [customer.id]);
   const credit = freshSuccessfulCredit(customer.id);
   const fresh = Boolean(credit);
+  // crm-no-plan-option: job / guarantor job / military from the first-call form; only a KNOWN ruled-out answer removes a condition.
+  const applicantProfile = latestApplicantProfile(customer.id);
   const plans = queryRows<any>("SELECT * FROM loan_plans WHERE active=1 ORDER BY id").flatMap((plan) => {
     const conditions = queryRows<any>("SELECT * FROM loan_plan_conditions WHERE plan_id=? ORDER BY sort_order,id", [plan.id]);
     if (ignoreCreditRank && !conditions.length) conditions.push({ id: 0, name: "بدون شرط پیکربندی‌شده" });
     const matches = conditions.filter((c) => {
       if (ignoreCreditRank) return true;
       const ranks = parseJson(c.customer_ranks) ?? String(c.customer_ranks ?? "").split(/[,،]/).map((x: string) => x.trim()).filter(Boolean);
-      return conditionAcceptsCreditRank(credit?.score_label, ranks);
+      return conditionAcceptsCreditRank(credit?.score_label, ranks) && rowAllowsProfile(c, applicantProfile);
     });
     return matches.filter((c) => {
       if (ignoreCreditRank) return true;
@@ -1664,6 +1668,7 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
   if (!condition) return error(res, 422, "loan_plan_condition_not_found");
   const ranks = parseJson(condition.customer_ranks) ?? String(condition.customer_ranks ?? "").split(/[,،]/).map((x: string) => x.trim()).filter(Boolean);
   if (!ignoreCreditRank && !conditionAcceptsCreditRank(credit.score_label, ranks)) return error(res, 422, "loan_plan_condition_not_matched");
+  if (!ignoreCreditRank && !rowAllowsProfile(condition, latestApplicantProfile(customerId))) return error(res, 422, "loan_plan_condition_not_matched");
   const terms = effectivePlanTerms(plan, ignoreCreditRank ? { ...condition, max_principal: "0" } : condition);
   const matches = terms.maximum > 0n && BigInt(amount) <= terms.maximum && terms.durations.includes(duration) ? [condition] : [];
   if (!matches.length) return error(res, 422, "loan_plan_condition_not_matched");
