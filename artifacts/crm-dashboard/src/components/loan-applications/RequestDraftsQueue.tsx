@@ -1,10 +1,10 @@
 // «در انتظار ثبت» queue (HANDOFF §6/§7). Server decides scope (salesperson → own) and canDelete (admin, unpaid only).
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, BadgeCheck, CalendarClock, ChevronLeft, Clock, Hourglass, Trash2 } from 'lucide-react';
+import { AlertTriangle, Archive, BadgeCheck, CalendarClock, ChevronLeft, Clock, Hourglass, Trash2, Wallet } from 'lucide-react';
 import { ConfirmDialog, jalaliDate } from '@/pages/customers-ui';
 import { CustomerIdBadge } from '@/components/customer/CustomerName';
-import { DELETE_REASONS, DRAFTS_KEY, DraftHttpError, draftsApi, draftWait, fa, tehranTime, useDraftList, type RequestDraft } from '@/lib/request-drafts';
+import { DELETE_REASONS, DRAFTS_KEY, DraftHttpError, draftsApi, draftWait, fa, faToman, tehranTime, useDraftList, type LegacyCaseRow, type OrphanFeeRow, type RequestDraft } from '@/lib/request-drafts';
 import './request-drafts.css';
 
 const NOT_DELETABLE = 'پیش‌نویس پرداخت‌دار حذف‌شدنی نیست';
@@ -31,6 +31,62 @@ function Wait({ d }: { d: RequestDraft }) {
   return <div className="rqd-wait"><span className={`rqd-pill ${w.tone}`}><Clock size={14} aria-hidden="true" /> {w.text}</span><span className="muted">ذخیره {jalaliDate(d.updatedAt)}، {tehranTime(d.updatedAt)}</span></div>;
 }
 
+const ORPHAN_LABEL = 'هزینه‌ی واریزشده بدون پرونده';
+const LEGACY_LABEL = 'پیش‌ثبت‌نام قدیمی';
+const LEGACY_STATUS: Record<string, string> = { requested: 'درخواست‌شده', rejected: 'ردشده', approved: 'تأییدشده', cancelled: 'لغوشده' };
+function WaitPill({ hours, at, verb }: { hours: number; at: string; verb: string }) {
+  const w = draftWait(hours);
+  return <div className="rqd-wait"><span className={`rqd-pill ${w.tone}`}><Clock size={14} aria-hidden="true" /> {w.text}</span><span className="muted">{verb} {jalaliDate(at)}، {tehranTime(at)}</span></div>;
+}
+function RoName({ name, id, phone, testId }: { name: string | null; id: number; phone: string | null; testId: string }) {
+  return <div className="rqd-name"><b>{name ?? '—'}</b> <CustomerIdBadge id={id} testId={testId} />{phone ? <div className="muted" dir="ltr">{phone}</div> : null}</div>;
+}
+/** Admin only (server sends [] to everyone else). Read-only: no continue / delete. */
+function OrphanFees({ rows, isDesktop }: { rows: OrphanFeeRow[]; isDesktop: boolean }) {
+  if (!rows.length) return null;
+  return <section className="rqd-ro" aria-labelledby="rqd-orphan-h" data-testid="orphan-fees-section">
+    <header><Wallet size={18} aria-hidden="true" /><div><h3 id="rqd-orphan-h">{ORPHAN_LABEL} <span className="rqd-ro-count">{fa(rows.length)}</span></h3>
+      <p className="muted">فقط برای مدیر. این‌ها درخواست نیستند و از این فهرست تغییری داده نمی‌شود؛ فقط نمایش است.</p></div></header>
+    {isDesktop ? <table className="csx-table rqd-table rqd-ro-table" data-testid="orphan-fees-table">
+      <thead><tr><th>مشتری</th><th>مبلغ واریزی</th><th>طرح</th><th>واریز از</th><th>کارشناس</th><th>منتظر</th></tr></thead>
+      <tbody>{rows.map((o) => <tr key={o.chargeId} data-testid={`orphan-fee-row-${o.chargeId}`}>
+        <td><RoName name={o.customerName} id={o.customerId} phone={o.customerPhone} testId={`orphan-fee-customer-id-${o.chargeId}`} /><span className="rqd-ro-tag">{ORPHAN_LABEL}</span></td>
+        <td><b>{faToman(o.amountToman)}</b><div className="muted">شماره‌ی واریز {fa(o.chargeId)}</div></td>
+        <td>{o.planName ?? '—'}</td><td>{o.byCustomer ? 'پرتال مشتری' : 'کارشناس'}</td>
+        <td>{o.salespersonName ?? '—'}</td><td><WaitPill hours={o.waitingHours} at={o.paidAt} verb="واریز" /></td>
+      </tr>)}</tbody></table>
+      : <div className="csx-list rqd-cards">{rows.map((o) => <article key={o.chargeId} className="csx-card rqd-card rqd-ro-card" data-testid={`orphan-fee-card-${o.chargeId}`}>
+        <div className="top"><RoName name={o.customerName} id={o.customerId} phone={o.customerPhone} testId={`orphan-fee-customer-id-${o.chargeId}`} /><WaitPill hours={o.waitingHours} at={o.paidAt} verb="واریز" /></div>
+        <span className="rqd-ro-tag">{ORPHAN_LABEL}</span>
+        <div><b>{faToman(o.amountToman)}</b> <span className="muted">· {o.planName ?? '—'} · {o.byCustomer ? 'پرتال مشتری' : 'کارشناس'}</span></div>
+        {o.salespersonName ? <div className="muted">کارشناس: {o.salespersonName}</div> : null}
+      </article>)}</div>}
+  </section>;
+}
+/** Display only: old pre-registration cases left at stage «پیش‌نویس» (not in the case list). */
+function LegacyCases({ rows, isDesktop, showSp }: { rows: LegacyCaseRow[]; isDesktop: boolean; showSp: boolean }) {
+  if (!rows.length) return null;
+  const st = (s: string) => LEGACY_STATUS[s] ?? s;
+  return <section className="rqd-ro" aria-labelledby="rqd-legacy-h" data-testid="legacy-cases-section">
+    <header><Archive size={18} aria-hidden="true" /><div><h3 id="rqd-legacy-h">{LEGACY_LABEL}‌ها با وضعیت پیش‌نویس <span className="rqd-ro-count">{fa(rows.length)}</span></h3>
+      <p className="muted">فقط نمایش. این پرونده‌ها از قبل در مرحله‌ی پیش‌نویس مانده‌اند و در فهرست پرونده‌ها دیده نمی‌شوند؛ این‌جا چیزی در آن‌ها تغییر نمی‌کند.</p></div></header>
+    {isDesktop ? <table className="csx-table rqd-table rqd-ro-table" data-testid="legacy-cases-table">
+      <thead><tr><th>مشتری</th><th>پرونده</th><th>طرح و مبلغ</th>{showSp ? <th>کارشناس</th> : null}<th>منتظر</th></tr></thead>
+      <tbody>{rows.map((a) => <tr key={a.applicationId} data-testid={`legacy-case-row-${a.applicationId}`}>
+        <td><RoName name={a.customerName} id={a.customerId} phone={a.customerPhone} testId={`legacy-case-customer-id-${a.applicationId}`} /></td>
+        <td><span className="rqd-ro-tag">{LEGACY_LABEL}</span><div>پرونده‌ی {fa(a.applicationId)} · {st(a.status)}</div><div className="muted">ایجاد {jalaliDate(a.createdAt)}</div></td>
+        <td>{a.planName ?? '—'}<div className="muted">{faToman(a.requestedAmount)}{a.durationMonths ? ` · ${fa(a.durationMonths)} ماه` : ''}</div></td>
+        {showSp ? <td>{a.salespersonName ?? '—'}</td> : null}<td><WaitPill hours={a.waitingHours} at={a.updatedAt} verb="آخرین تغییر" /></td>
+      </tr>)}</tbody></table>
+      : <div className="csx-list rqd-cards">{rows.map((a) => <article key={a.applicationId} className="csx-card rqd-card rqd-ro-card" data-testid={`legacy-case-card-${a.applicationId}`}>
+        <div className="top"><RoName name={a.customerName} id={a.customerId} phone={a.customerPhone} testId={`legacy-case-customer-id-${a.applicationId}`} /><WaitPill hours={a.waitingHours} at={a.updatedAt} verb="آخرین تغییر" /></div>
+        <div><span className="rqd-ro-tag">{LEGACY_LABEL}</span> پرونده‌ی {fa(a.applicationId)} · {st(a.status)}</div>
+        <div className="muted">{a.planName ?? '—'} · {faToman(a.requestedAmount)}</div>
+        {showSp && a.salespersonName ? <div className="muted">کارشناس: {a.salespersonName}</div> : null}
+      </article>)}</div>}
+  </section>;
+}
+
 export function RequestDraftsQueue({ isDesktop, isAdmin, onOpen }: { isDesktop: boolean; isAdmin: boolean; onOpen: (d: RequestDraft) => void }) {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
@@ -42,6 +98,9 @@ export function RequestDraftsQueue({ isDesktop, isAdmin, onOpen }: { isDesktop: 
   const [delErr, setDelErr] = useState('');
   const [deleting, setDeleting] = useState(false);
   const items = data?.items ?? [];
+  const orphans = data?.orphanFees ?? [];
+  const legacy = data?.legacyCases ?? [];
+  const extras = orphans.length + legacy.length;
   const showSp = Boolean(data?.seesAll) && scope === 'all';
   const late = items.filter((d) => d.paidOver24h);
   const fullReason = [chip, reason.trim()].filter(Boolean).join(' — ');
@@ -87,6 +146,7 @@ export function RequestDraftsQueue({ isDesktop, isAdmin, onOpen }: { isDesktop: 
     </div> : null}
     {isLoading ? <div className="csx-list csx-skcards" aria-busy="true">{[0, 1, 2].map((i) => <div key={i} className="csx-skcard"><span className="csx-sk" style={{ height: 22, width: '45%' }} /><span className="csx-sk" style={{ height: 48 }} /></div>)}</div>
       : error ? <div className="csx-note bad" role="alert"><p>دریافت فهرست انجام نشد. <button type="button" className="csx-link" onClick={() => refetch()}>تلاش دوباره</button></p></div>
+      : !items.length && extras ? <p className="muted rqd-none" data-testid="drafts-empty">{search.trim() ? 'درخواست نیمه‌کاره‌ای با این جست‌وجو پیدا نشد.' : 'درخواست نیمه‌کاره‌ای نیست.'}</p>
       : !items.length ? <div className="csx-empty rqd-empty" data-testid="drafts-empty"><Hourglass size={40} aria-hidden="true" />
         <h2>{search.trim() ? 'موردی پیدا نشد' : 'درخواست نیمه‌کاره‌ای نیست'}</h2>
         <p>{search.trim() ? 'جست‌وجو را تغییر بده.' : 'هر درخواستی که شروع شود و هنوز ثبت نشده باشد، این‌جا می‌ماند تا از همان مرحله ادامه داده شود.'}</p></div>
@@ -104,6 +164,7 @@ export function RequestDraftsQueue({ isDesktop, isAdmin, onOpen }: { isDesktop: 
           <div className="rqd-acts">{cont(d)}{isAdmin && d.canDelete ? delBtn(d) : null}</div>
           {isAdmin && !d.canDelete ? <p className="rqd-nodel">{NOT_DELETABLE}</p> : null}
         </article>)}</div>}
+    {!isLoading && !error ? <><OrphanFees rows={orphans} isDesktop={isDesktop} /><LegacyCases rows={legacy} isDesktop={isDesktop} showSp={showSp} /></> : null}
 
     {toDelete ? <ConfirmDialog title="حذف درخواست نیمه‌کاره؟" confirmLabel="حذف درخواست" pendingLabel="در حال حذف…" pending={deleting} error={delErr || undefined}
       onClose={() => setToDelete(null)} onConfirm={doDelete} testId="delete-request-draft-dialog">
