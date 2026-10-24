@@ -16,6 +16,7 @@ import { CustomerConsultationStatus, isYesValue } from './CustomerConsultationSt
 import { CallCustomerSelect, type CallCustomer } from './CallCustomerSelect';
 import { normalizeDigits, validateIranianNationalCode } from '@/lib/customer-field-validation';
 import { saveQuickCreditNationalCode } from '@/features/team-sales/api';
+import { VoiceNoteButton } from '@/features/voice-notes/VoiceNoteButton';
 
 type CallFormProps = {
   customers: { id: number; name: string; phone: string; salespersonName?: string | null; priority?: number | null; status?: string; nationalCode?: string | null; postalCode?: string | null; birthDateJalali?: string | null; verificationStatus?: string; isUrgent?: boolean }[];
@@ -270,6 +271,7 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
               <div className="field call-grow call-grow-lg">
                 <label htmlFor="call-notes">یادداشت کارشناس</label>
                 <textarea id="call-notes" value={form.expertNotes} onChange={(event) => update('expertNotes', event.target.value)} data-testid="textarea-call-notes" />
+                <VoiceNoteButton value={form.expertNotes} onChange={(v) => update('expertNotes', v)} field="call_note" testId="call-notes-voice" />
               </div>
             </div>
 

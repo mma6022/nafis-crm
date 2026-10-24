@@ -32,6 +32,7 @@ import SalesCommissions from '@/pages/SalesCommissions';
 import StaffWallet from '@/features/staff-wallet/StaffWallet';
 import ManualVerifications from '@/pages/ManualVerifications';
 import CreditRankOverrides from '@/pages/CreditRankOverrides';
+import VoiceNotesUsage from '@/features/voice-notes/VoiceNotesUsage';
 import InstagramInbox from '@/pages/InstagramInbox';
 import MessengersPage from '@/pages/Messengers';
 import { SocialMonitorReports } from '@/features/SocialMonitorReports';
@@ -223,6 +224,9 @@ function AppWithRoutes() {
                     </Route>
                     <Route path="/settings/notifications">
                       <PermissionRoute permission="notifications.view"><NotificationSettingsPage /></PermissionRoute>
+                    </Route>
+                    <Route path="/voice-notes-usage">
+                      <AdminOnlyRoute><VoiceNotesUsage /></AdminOnlyRoute>
                     </Route>
                     <Route path="/social-monitor-reports">
                       <AdminOnlyRoute><SocialMonitorReports /></AdminOnlyRoute>

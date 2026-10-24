@@ -57,7 +57,8 @@
     "test:grade-followups": "node scripts/run-bundled-fixture.mjs scripts/grade-followups-fixture.mjs",
     "test:cross-owner-search": "node scripts/cross-owner-search-fixture.mjs",
     "test:no-plan-option-migrate": "node scripts/no-plan-option-migrate-fixture.mjs",
-    "test:no-plan-option": "node scripts/run-bundled-fixture.mjs scripts/no-plan-option-fixture.mjs"
+    "test:no-plan-option": "node scripts/run-bundled-fixture.mjs scripts/no-plan-option-fixture.mjs",
+    "test:voice-notes": "node scripts/run-bundled-fixture.mjs scripts/voice-notes-fixture.mjs"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.3.0",
