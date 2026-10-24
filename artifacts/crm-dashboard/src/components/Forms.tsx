@@ -14,6 +14,8 @@ import { CallHistoryModal, CustomerCallHistory } from '@/components/CallHistory'
 import { getListCustomersQueryKey, getListRemindersQueryKey, useCreateReminder, useListCustomers, useListConsultOptions, getListConsultOptionsQueryKey, type CallInput, type CallRecord, type ConsultationInput } from '@workspace/api-client-react';
 import { CustomerConsultationStatus, isYesValue } from './CustomerConsultationStatus';
 import { CallCustomerSelect, type CallCustomer } from './CallCustomerSelect';
+import { normalizeDigits, validateIranianNationalCode } from '@/lib/customer-field-validation';
+import { saveQuickCreditNationalCode } from '@/features/team-sales/api';
 
 type CallFormProps = {
   customers: { id: number; name: string; phone: string; salespersonName?: string | null; priority?: number | null; status?: string; nationalCode?: string | null; postalCode?: string | null; birthDateJalali?: string | null; verificationStatus?: string; isUrgent?: boolean }[];
@@ -29,9 +31,15 @@ type CallFormProps = {
   pickCheck?: { state: 'checking' | 'error'; onRetry: () => void } | null;
   /** Calls page picker: with initialCustomerId, show the picked customer as a card with «تغییر مشتری» (back to step 1). */
   onChangeCustomer?: () => void;
+  /**
+   * crm-no-plan-option (14:51) «اعتبارسنجی سریع» for P1/P2/P3 follow-up calls (customer page only).
+   * canAct = admin / registrar / the customer's own salesperson. onSaveAndCredit saves THIS call and then opens the
+   * existing inquiry step (request wizard); the inquiry itself only starts on the user's click there.
+   */
+  quickCredit?: { canAct: boolean; onSaveAndCredit: (data: CallInput) => Promise<void> };
 };
 
-export function CallForm({ customers, salespersons, pending, error, initialCustomerId, onClose, onSave, onCustomerPicked, pickCheck, onChangeCustomer }: CallFormProps) {
+export function CallForm({ customers, salespersons, pending, error, initialCustomerId, onClose, onSave, onCustomerPicked, pickCheck, onChangeCustomer, quickCredit }: CallFormProps) {
   const defaultReminder = defaultReminderJalali();
   const initialCustomer = customers.find((customer) => customer.id === initialCustomerId);
   const [pickedCustomer, setPickedCustomer] = useState<CallCustomer | undefined>(initialCustomer);
@@ -117,22 +125,21 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
     closeSheet();
   };
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (pickCheck) return;
-    if (!form.customerId) { setCustomerSelectionError(true); return; }
+  const buildInput = (): CallInput | null => {
+    if (pickCheck) return null;
+    if (!form.customerId) { setCustomerSelectionError(true); return null; }
     let reminderInput: { subject: string; message: string; remindAt: string } | undefined;
     if (reminderOpen) {
       const result = validateReminder();
       if (result.error) {
         setReminderError(result.error);
         setSheetOpen(true);
-        return;
+        return null;
       }
       reminderInput = result.input;
     }
     setReminderError('');
-    onSave({
+    return {
       customerId: Number(form.customerId),
       salespersonId: form.salespersonId ? Number(form.salespersonId) : null,
       subject: form.subject.trim(),
@@ -144,7 +151,37 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
         postalCode: form.postalCode.trim() || null,
         birthDateJalali: form.birthDateJalali.trim() || null,
       }
-    }).catch(() => {});
+    };
+  };
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const input = buildInput();
+    if (input) onSave(input).catch(() => {});
+  };
+
+  // «اعتبارسنجی سریع»: only for already-prioritised (P1/P2/P3) customers in the old form.
+  const showQuickCredit = Boolean(quickCredit) && selectedCustomer?.priority != null && [1, 2, 3].includes(Number(selectedCustomer.priority));
+  const [qcError, setQcError] = useState('');
+  const [qcConfirm, setQcConfirm] = useState(false);
+  const [qcBusy, setQcBusy] = useState(false);
+  const currentCode = normalizeDigits(selectedCustomer?.nationalCode ?? '').trim();
+  const quickCreditGo = async (confirmReplace: boolean) => {
+    if (!quickCredit || !selectedCustomer || qcBusy) return;
+    const code = normalizeDigits(form.nationalCode).trim();
+    if (!validateIranianNationalCode(code)) { setQcError('کد ملی ۱۰ رقمی معتبر وارد کنید.'); return; }
+    if (currentCode && currentCode !== code && !confirmReplace) { setQcError(''); setQcConfirm(true); return; }
+    const input = buildInput();
+    if (!input) return;
+    setQcBusy(true); setQcError('');
+    try {
+      const saved = await saveQuickCreditNationalCode(selectedCustomer.id, code, confirmReplace);
+      if (saved.needsConfirm) { setQcConfirm(true); return; }
+      setQcConfirm(false);
+      // The call is saved first (the national code on it is now the same, so nothing else changes), then the wizard opens.
+      await quickCredit.onSaveAndCredit({ ...input, profile: { ...input.profile, nationalCode: code } });
+    } catch (e) {
+      setQcError(e instanceof Error && e.message ? e.message : 'ثبت کد ملی انجام نشد. دوباره تلاش کنید.');
+    } finally { setQcBusy(false); }
   };
 
   return (
@@ -185,10 +222,30 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
                   )}
                 </div>
               </div>
+              {showQuickCredit ? <fieldset className="call-profile-box call-quick-credit" data-testid="call-quick-credit">
+                <legend>اعتبارسنجی سریع</legend>
+                <div className="qc-row">
+                  <div className="field"><label htmlFor="qc-national-code">کد ملی مشتری</label>
+                    <input id="qc-national-code" dir="ltr" inputMode="numeric" value={form.nationalCode} placeholder="۱۰ رقم" maxLength={10} disabled={!quickCredit?.canAct || qcBusy}
+                      onChange={(e) => { update('nationalCode', e.target.value); setQcError(''); setQcConfirm(false); }}
+                      aria-invalid={Boolean(qcError)} aria-describedby={qcError ? 'qc-err' : 'qc-hint'} data-testid="input-quick-credit-national-code" /></div>
+                  <button type="button" className="btn btn-primary qc-go" disabled={!quickCredit?.canAct || qcBusy || pending || !!pickCheck} onClick={() => void quickCreditGo(false)} data-testid="button-quick-credit">
+                    <FileText size={15} />{qcBusy ? 'در حال ثبت…' : 'ثبت و اعتبارسنجی'}</button>
+                </div>
+                {qcConfirm ? <div className="qc-confirm" role="alertdialog" aria-labelledby="qc-confirm-t" data-testid="quick-credit-confirm">
+                  <p id="qc-confirm-t">این مشتری کد ملی دیگری دارد (<span dir="ltr">{currentCode}</span>). جایگزین شود؟ استعلام‌های قبلی با کد قبلی دیگر معتبر نیستند و تغییر ثبت می‌شود.</p>
+                  <div><button type="button" className="btn btn-primary" disabled={qcBusy} onClick={() => void quickCreditGo(true)} data-testid="button-quick-credit-confirm">بله، جایگزین کن</button>
+                    <button type="button" className="btn btn-ghost" onClick={() => { setQcConfirm(false); update('nationalCode', currentCode); }} data-testid="button-quick-credit-cancel">انصراف</button></div>
+                </div> : null}
+                {qcError ? <p className="qc-err" id="qc-err" role="alert" data-testid="error-quick-credit">{qcError}</p> : null}
+                <p className="qc-hint" id="qc-hint">{quickCredit?.canAct
+                  ? 'اول همین تماس و کد ملی ثبت می‌شود، بعد مرحله‌ی «استعلام اعتبار» ثبت درخواست تسهیلات باز می‌شود. استعلام فقط با کلیک شما در همان مرحله شروع می‌شود (همان هزینه و دسترسی).'
+                  : 'فقط کارشناس همین مشتری، ثبت‌نام‌کننده و مدیر می‌توانند اعتبارسنجی سریع را انجام دهند.'}</p>
+              </fieldset> : null}
               <fieldset className="call-profile-box">
                 <legend>تکمیل اطلاعات مشتری (اختیاری)</legend>
-                <div className="call-form-row three">
-                  <div className="field"><label>کد ملی</label><input dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={(e) => update('nationalCode', e.target.value)} maxLength={10} data-testid="input-call-national-code" /></div>
+                <div className={`call-form-row ${showQuickCredit ? 'two' : 'three'}`}>
+                  {showQuickCredit ? null : <div className="field"><label>کد ملی</label><input dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={(e) => update('nationalCode', e.target.value)} maxLength={10} data-testid="input-call-national-code" /></div>}
                   <div className="field"><label>کد پستی</label><input dir="ltr" inputMode="numeric" value={form.postalCode} onChange={(e) => update('postalCode', e.target.value)} maxLength={10} data-testid="input-call-postal-code" /></div>
                   <div className="field"><label>تاریخ تولد</label><PersianDatePicker value={form.birthDateJalali} onChange={(v) => update('birthDateJalali', v)} testId="input-call-birth-date" birthDate /></div>
                 </div>

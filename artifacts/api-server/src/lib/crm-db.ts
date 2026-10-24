@@ -436,6 +436,11 @@ ensureColumn("loan_plan_conditions", "customer_jobs", "TEXT");
 ensureColumn("loan_plan_conditions", "collateral_type", "TEXT");
 ensureColumn("loan_plan_conditions", "guarantor_jobs", "TEXT");
 ensureColumn("loan_plan_conditions", "guarantor_collateral_type", "TEXT");
+// crm-no-plan-option (additive, NULL = no requirement; no plan has it set): applicant must have military service done
+// (women exempt). Rollback: scripts/no-plan-option-rollback.mjs.
+ensureColumn("loan_plan_conditions", "needs_military_service", "INTEGER");
+// crm-no-plan-option: city of residence (first-call form writes it only while empty). There was no city field before.
+ensureColumn("customers", "city", "TEXT");
 for (const [column, definition] of [
   ["max_principal", "TEXT"],
   ["customer_ranks", "TEXT"],

@@ -16,6 +16,8 @@ import * as ics24 from "../lib/ics24";
 import { deriveCreditRank, invalidCreditScoreMessage } from "../lib/credit-rank";
 import { isStrictSignedProviderState } from "../lib/emzame-signature";
 import { portalDocumentsState } from "../lib/portal-intake-documents";
+import { rowAllowsProfile } from "../lib/plan-profile-match";
+import { latestApplicantProfile } from "../lib/team-sales";
 import {
   conditionAcceptsCreditRank,
   documentLabel,
@@ -391,13 +393,16 @@ function profilePrerequisite(customer: PortalCustomer): string | null {
 function planConditions(planId: number, customerId: number, requireRank = false) {
   const credit = freshSuccessfulCredit(customerId);
   const guarantorRank = requireRank ? customerGuarantorGrade(customerId).rank : null;
+  // crm-no-plan-option: same job / guarantor job / military rule as the first-call form and the staff wizard.
+  const profile = latestApplicantProfile(customerId);
   return queryRows<any>("SELECT * FROM loan_plan_conditions WHERE plan_id=? ORDER BY sort_order,id", [planId])
     .map((condition) => {
       const plan = queryRow<any>("SELECT * FROM loan_plans WHERE id=?", [planId]);
       const terms = effectivePlanTerms(plan, condition);
       const ranks = parseConditionRanks(condition.customer_ranks);
-      return { condition, terms, ranks, eligibleRank: !requireRank || (credit != null && conditionAcceptsCreditRank(credit.score_label, ranks)
-        && guarantorGradeAllows(guarantorGradeVerdict(condition, guarantorRank, plan))) };
+      return { condition, terms, ranks, eligibleRank: (!requireRank || (credit != null && conditionAcceptsCreditRank(credit.score_label, ranks)
+        && guarantorGradeAllows(guarantorGradeVerdict(condition, guarantorRank, plan))))
+        && rowAllowsProfile(condition, profile) };
     });
 }
 
@@ -866,6 +871,7 @@ router.post("/applications", (req, res) => {
   if (!conditionAcceptsCreditRank(credit.score_label, ranks)) return jsonError(res, 422, "loan_plan_condition_not_matched");
   if (!guarantorGradeAllows(guarantorGradeVerdict(condition, customerGuarantorGrade(customer.id).rank, plan)))
     return jsonError(res, 422, "loan_plan_condition_not_matched");
+  if (!rowAllowsProfile(condition, latestApplicantProfile(customer.id))) return jsonError(res, 422, "loan_plan_condition_not_matched");
   const terms = effectivePlanTerms(plan, condition);
   if (terms.maximum <= 0n || BigInt(amount) > terms.maximum || !terms.durations.includes(duration)) {
     return jsonError(res, 422, "loan_plan_condition_not_matched");

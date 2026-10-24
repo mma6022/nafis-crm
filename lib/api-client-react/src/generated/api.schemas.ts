@@ -1651,6 +1651,7 @@ export interface LoanPlanCondition {
   contractDurationDays?: number | null;
   needsCustomerCheck?: boolean;
   needsGuarantorCheck?: boolean;
+  needsMilitaryService?: boolean;
   sortOrder: number;
   /** @nullable */
   notes?: string | null;
@@ -1907,6 +1908,7 @@ export interface LoanPlanConditionInput {
   needsGuarantorSalaryDeduct?: boolean;
   needsCustomerCheck?: boolean;
   needsGuarantorCheck?: boolean;
+  needsMilitaryService?: boolean;
   /** @minimum 0 */
   sortOrder?: number;
   notes?: string;

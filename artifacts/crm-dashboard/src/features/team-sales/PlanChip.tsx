@@ -1,4 +1,4 @@
-import { FileText, X } from 'lucide-react';
+import { Ban, FileText, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { fa, type SuggestedPlan } from './api';
 import { planMeta } from './plan-reasons';
@@ -12,6 +12,13 @@ export function PlanChip({ plan, size = 'sm', testId }: { plan: Pick<SuggestedPl
     {depends ? null : <FileText size={14} aria-hidden="true" />}
     <span className="pc-name">{plan.name}</span>
     {depends ? <span className="pc-tag">مشروط</span> : null}
+  </span>;
+}
+
+/** crm-no-plan-option: grey «بدون طرح مناسب» chip (first-call form chose «هیچ طرحی به این مشتری نمی‌خوره»). */
+export function NoPlanChip({ size = 'sm', testId, note }: { size?: 'sm' | 'lg'; testId?: string; note?: string | null }) {
+  return <span className={`pc is-noplan${size === 'lg' ? ' is-lg' : ''}`} title={note ? `بدون طرح مناسب — ${note}` : 'بدون طرح مناسب'} data-testid={testId} data-status="noplan">
+    <Ban size={14} aria-hidden="true" /><span className="pc-name">بدون طرح مناسب</span>
   </span>;
 }
 

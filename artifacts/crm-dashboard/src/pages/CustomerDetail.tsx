@@ -28,7 +28,8 @@ import './customers.css';
 import { useCallLauncher, CallLaunchStatus } from '@/features/team-sales/useCallLauncher';
 import { firstCallOf, showsUpgradeButton, usesSimpleForm, type PromoteResult, type QualifyResult } from '@/features/team-sales/api';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
-import { FirstCallSummaryCard, SuggestedPlansBox } from '@/features/team-sales/FirstCallCard';
+import { FirstCallSummaryCard, NoPlanBox, SuggestedPlansBox } from '@/features/team-sales/FirstCallCard';
+import { ConsultProfileCard } from "@/features/team-sales/ConsultProfileCard";
 import { TsToast, UpgradeCard, UpgradeDialog, UpgradedCard } from '@/features/team-sales/UpgradeToP1';
 import { DataAccuracyCard } from '@/features/team-commission/DataAccuracyCard';
 import { CustomerName, customerNameText } from '@/components/customer/CustomerName';
@@ -368,6 +369,16 @@ export default function CustomerDetail() {
       // Mutation error state is rendered inside the call form.
     }
   };
+  /** «اعتبارسنجی سریع»: the call is saved first (nothing lost), then the existing inquiry step of the request wizard opens. */
+  const handleSaveCallAndCredit = async (data: CallInput) => {
+    const saved = await createCall.mutateAsync({ data });
+    setCallFormOpen(false);
+    await removeCompletedAfterCallFromQueue(queryClient, { callLogId: saved.id });
+    void queryClient.invalidateQueries({ queryKey: getListCallsQueryKey() });
+    void queryClient.invalidateQueries({ queryKey: getListCustomerActivityQueryKey(id) });
+    void queryClient.invalidateQueries({ queryKey: getGetCustomerQueryKey(id) });
+    setLocation(loanWizardHref(id));
+  };
   const isQualifier = tsConfig.data?.enabled === true && session.data?.user.salespersonId != null && session.data.user.salespersonId === tsConfig.data.qualifierSalespersonId;
   const ownsCustomer = isQualifier && customer.salespersonId === tsConfig.data?.qualifierSalespersonId;
   const showSimpleForm = !handoff && canCallsCreate && usesSimpleForm(tsConfig.data, session.data?.user, customer);
@@ -439,6 +450,7 @@ export default function CustomerDetail() {
       {canCall ? <button type="button" className="csx-ghost sm" title={canDialSystem ? 'تماس با تلفن شرکت' : 'برای تماس سیستمی، ابتدا در بخش تلفن شرکت متصل شوید'} onClick={() => { if (canDialSystem) dial(customer.phone); else setLocation('/phone'); }} data-testid="button-sys-call-customer"><Phone size={18} color={canDialSystem ? undefined : '#94a3b8'} /> تماس سیستمی</button> : null}
       {canConsult ? <button type="button" className="csx-ghost sm" onClick={() => setConsultationFormOpen(true)} data-testid="button-create-consultation"><FileText size={18} /> ثبت مشاوره</button> : null}
     </div> : null}
+    {firstCall?.noPlanFit ? <div className="csx-hero-plans"><NoPlanBox note={firstCall.noPlanNote} actorName={firstCall.actorName} /></div> : null}
     {firstCall?.selectedPlans.length ? <div className="csx-hero-plans"><SuggestedPlansBox plans={firstCall.selectedPlans} actorName={firstCall.actorName} /></div> : null}
   </section>;
 
@@ -656,7 +668,7 @@ export default function CustomerDetail() {
     {readOnlyRole ? <div className="csx-note warn" data-testid="note-readonly-role"><Lock size={18} /><p>فقط مشاهده — ویرایش، تماس و کیف پول برای نقش شما فعال نیست.</p></div> : null}
     <nav className="csx-secnav m-only" aria-label="بخش‌های پرونده">{secs.map(([key, label, n]) => <a key={key} href={`#sec-${key}`} aria-current={activeSec === key ? 'true' : undefined} onClick={(event) => { event.preventDefault(); setActiveSec(key); document.getElementById(`sec-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>{label}{n != null ? <span className="n">{faNum(n)}</span> : null}</a>)}</nav>
     <div className="csx-dgrid">
-      <div className="colA">{firstCall ? <FirstCallSummaryCard fc={firstCall} /> : null}{infoSec}{loansSec}{callsSec}</div>
+      <div className="colA"><ConsultProfileCard customerId={customer.id} />{firstCall ? <FirstCallSummaryCard fc={firstCall} /> : null}{infoSec}{loansSec}{callsSec}</div>
       <div className="colB">{tsCard ? <div className="d-only">{tsCard}</div> : null}<div className="d-only"><DataAccuracyCard customerId={id} place="d" onSubmitted={refreshAfterAccuracy} /></div>{statusSec}{creditSec}{walletSec}{adminSec}</div>
     </div>
     {editing ? <div className="csx-formhost"><Sheet title={`ویرایش پرونده ${customer.name}`} onClose={() => { setEditing(false); setProfileErrors({}); }} testId="customer-edit-sheet" initialFocus='[data-testid="input-detail-name"]' footer={<>
@@ -683,7 +695,8 @@ export default function CustomerDetail() {
       <p>این کار برگشت‌پذیر نیست.</p>
       <p className="hint">پرونده و تمام تماس‌ها و مشاوره‌های مرتبط برای همیشه حذف می‌شوند.</p>
     </ConfirmDialog> : null}
-    {callFormOpen ? <CallForm customers={[customer]} salespersons={salespersons.data ?? []} pending={createCall.isPending} error={createCall.isError} initialCustomerId={customer.id} onClose={() => setCallFormOpen(false)} onSave={handleSaveCall} /> : null}
+    {callFormOpen ? <CallForm customers={[customer]} salespersons={salespersons.data ?? []} pending={createCall.isPending} error={createCall.isError} initialCustomerId={customer.id} onClose={() => setCallFormOpen(false)} onSave={handleSaveCall}
+      quickCredit={{ canAct: canNewLoan && (isAdmin || role === 'registrar' || (session.data?.user.salespersonId != null && session.data.user.salespersonId === customer.salespersonId)), onSaveAndCredit: handleSaveCallAndCredit }} /> : null}
     {consultationFormOpen && (
       <CreateConsultationForm
         customers={[customer]}

@@ -1,8 +1,8 @@
-import { AlertCircle, AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, HelpCircle, Info, Timer, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Ban, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, HelpCircle, Info, Search, Timer, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { fa, fetchPlanOptions, fmtDateTime, shortName, submitSimpleForm, TeamSalesApiError, type CallResult, type QualifyResult, type SimpleAnswers, type SuggestedPlan, type Tri } from './api';
-import { PlanChip } from './PlanChip';
-import { planMeta, planReasonText, type PlanEvaluation, type PlanReason } from './plan-reasons';
+import { fa, fetchCities, fetchPlanOptions, fmtDateTime, shortName, submitSimpleForm, TeamSalesApiError, type CallResult, type Military, type QualifyResult, type SimpleAnswers, type SuggestedPlan, type Tri } from './api';
+import { NoPlanChip, PlanChip } from './PlanChip';
+import { JOB_LABELS, JOB_ORDER, MILITARY_LABELS, planMeta, planReasonText, type PlanEvaluation, type PlanReason } from './plan-reasons';
 import './team-sales.css';
 import { GradeChip } from '@/components/grade/GradeChip';
 import { GradePicker } from '@/components/grade/GradePicker';
@@ -12,6 +12,8 @@ import { CustomerName } from '@/components/customer/CustomerName';
 /**
  * First-call form (design crm-call-form-plans): 6 steps when the customer answered —
  * 1 result, 2 need + docs, 3 applicant, 4 guarantor, 5 matching plans, 6 note + urgency (urgency is the last question).
+ * crm-no-plan-option: the applicant step got a sub-step (7: military service, job, city) shown right after 3, so the
+ * progress bar counts 7 steps; step 4 asks the guarantor's job after «بله»; step 5 has «هیچ طرحی به این مشتری نمی‌خوره».
  * Other call results keep only step 1 and the note.
  */
 type Draft = {
@@ -19,12 +21,19 @@ type Draft = {
   urgency: SimpleAnswers['urgency']; docsReady: SimpleAnswers['docsReady']; creditRank: string | null;
   cheque: 'check' | 'promissory' | 'none' | null; bounced: 'yes' | 'no' | null;
   gAvail: Tri | null; gCheque: Tri | null; gRank: string | null; selected: number[]; note: string;
+  military: Military | null; jobType: string | null; gJobType: string | null; city: string; cityTouched: boolean;
+  /** null = not touched: follows the server default (checked when no plan fits or depends). */
+  noPlan: boolean | null; noPlanNote: string;
 };
 const EMPTY: Draft = { step: 1, callResult: null, callbackAt: '', amount: '', urgency: null, docsReady: null, creditRank: null, cheque: null, bounced: null,
-  gAvail: null, gCheque: null, gRank: null, selected: [], note: '' };
+  gAvail: null, gCheque: null, gRank: null, selected: [], note: '',
+  military: null, jobType: null, gJobType: null, city: '', cityTouched: false, noPlan: null, noPlanNote: '' };
 // New key: a 3-step draft from the old form has a different step numbering and must not be restored into this one.
 const draftKey = (userId: number | undefined, customerId: number) => `nafis-ts-firstcall-draft:${userId ?? 0}:${customerId}`;
 const STEP_NOTE = 6;
+const STEP_PROFILE = 7; // applicant sub-step (between 3 and 4)
+const NO_PLAN_NOTE_MAX = 200;
+const MILITARY: Array<[Military, string]> = (['has_card', 'no_card', 'female', 'unknown'] as Military[]).map((k) => [k, MILITARY_LABELS[k]]);
 
 const CALL_RESULTS: Array<[CallResult, string]> = [
   ['answered', 'جواب داد و صحبت کردیم'], ['no_answer', 'جواب نداد / خاموش'], ['callback', 'گفت بعداً زنگ بزنید'], ['wrong_number', 'شماره اشتباه'],
@@ -59,6 +68,50 @@ function RankQuestion({ name, legend, value, onChange, error, isNew, hint }: {
     </div>
     {error}
   </fieldset>;
+}
+
+/** Searchable job picker (same six options as the plan editor's job list) + a separate dashed «نمی‌دونه». */
+function JobQuestion({ name, legend, value, onChange, error, hint }: {
+  name: string; legend: string; value: string | null; onChange: (v: string | null) => void; error: ReactNode; hint?: string;
+}) {
+  const [q, setQ] = useState('');
+  const unknown = value === 'unknown';
+  const norm = (x: string) => x.replace(/[\u200c\s]+/g, ' ').replace(/ي/g, 'ی').replace(/ك/g, 'ک').trim();
+  const list = JOB_ORDER.filter((k) => !q.trim() || norm(JOB_LABELS[k]).includes(norm(q)));
+  return <fieldset className="ts-q"><legend>{legend} <span className="req">*</span><span className="ts-new">جدید</span>{hint ? <span className="ts-muted small"> {hint}</span> : null}</legend>
+    <div className="ts-search"><Search size={18} aria-hidden="true" />
+      <input className="ts-inp" type="search" value={q} onChange={(e) => setQ(e.target.value.slice(0, 40))} placeholder="جست‌وجو با نام شغل (مثلاً کارمند)" aria-label={`جست‌وجو در ${legend}`} disabled={unknown} data-testid={`ts-job-search-${name}`} /></div>
+    <div className="ts-chips col ts-joblist" role="radiogroup" aria-label={legend}>
+      {list.map((k) => <button key={k} type="button" role="radio" aria-checked={value === k} disabled={unknown} className="ts-opt" onClick={() => onChange(k)} data-testid={`ts-opt-${name}-${k}`}>{JOB_LABELS[k]}</button>)}
+      {!list.length ? <p className="ts-muted small" role="status">شغلی با «{q}» پیدا نشد.</p> : null}
+    </div>
+    <div className="ts-unknown-row">
+      <button type="button" role="checkbox" aria-checked={unknown} className="ts-opt dash" data-testid={`ts-opt-${name}-unknown`}
+        onClick={() => { setQ(''); onChange(unknown ? null : 'unknown'); }}>نمی‌دونه</button>
+      <span className="ts-muted small">طرح‌هایی که شغل خاصی می‌خواهند «بستگی دارد» می‌شوند، حذف نمی‌شوند.</span>
+    </div>
+    {error}
+  </fieldset>;
+}
+
+/** City of residence: free text with autocomplete from cities already saved on customers (the CRM has no city list). */
+function CityQuestion({ customerId, value, onChange }: { customerId: number; value: string; onChange: (v: string) => void }) {
+  const [items, setItems] = useState<string[]>([]);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const t = setTimeout(() => { fetchCities(customerId, value).then((r) => { if (live) setItems(r.items.filter((c) => c !== value)); }).catch(() => { if (live) setItems([]); }); }, 200);
+    return () => { live = false; clearTimeout(t); };
+  }, [customerId, value]);
+  return <div className="ts-q ts-city"><label htmlFor="ts-city">شهر محل سکونت <span className="ts-muted small">اختیاری</span><span className="ts-new">جدید</span></label>
+    <input id="ts-city" className="ts-inp" value={value} autoComplete="off" role="combobox" aria-expanded={open && items.length > 0} aria-controls="ts-city-list" aria-autocomplete="list"
+      onChange={(e) => { onChange(e.target.value.slice(0, 60)); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
+      placeholder="جست‌وجو با نام شهر (مثلاً تهران)" data-testid="ts-city" />
+    {open && items.length ? <ul className="ts-city-list" id="ts-city-list" role="listbox" data-testid="ts-city-list">
+      {items.slice(0, 8).map((c) => <li key={c} role="option" aria-selected={false}><button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { onChange(c); setOpen(false); }}>{c}</button></li>)}
+    </ul> : null}
+    <p className="ts-muted small">اگر شهر مشتری در پرونده خالی باشد، همین در پرونده ثبت می‌شود؛ شهر ثبت‌شده عوض نمی‌شود.</p>
+  </div>;
 }
 
 const reasonIcon = (k: PlanReason['kind']) => (k === 'met' ? <Check size={14} aria-hidden="true" /> : k === 'violated' ? <X size={14} aria-hidden="true" /> : k === 'warning' ? <AlertTriangle size={14} aria-hidden="true" /> : <HelpCircle size={14} aria-hidden="true" />);
@@ -107,7 +160,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
   const [rankLetter, setRankLetter] = useState<string | null>(null);
   const [gRankLetter, setGRankLetter] = useState<string | null>(null);
   const [result, setResult] = useState<QualifyResult | null>(null);
-  const [plans, setPlans] = useState<{ key: string; list: PlanEvaluation[] | null; error: string }>({ key: '', list: null, error: '' });
+  const [plans, setPlans] = useState<{ key: string; list: PlanEvaluation[] | null; error: string; noPlanDefault?: boolean }>({ key: '', list: null, error: '' });
   const [showAll, setShowAll] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copyToast, setCopyToast] = useState('');
@@ -125,10 +178,10 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
   const set = (patch: Partial<Draft>) => { setD((c) => ({ ...c, ...patch })); setErrors({}); setServerError(''); };
 
   const answered = d.callResult === 'answered';
-  const steps = answered ? [1, 2, 3, 4, 5, STEP_NOTE] : [1, STEP_NOTE];
+  const steps = answered ? [1, 2, 3, STEP_PROFILE, 4, 5, STEP_NOTE] : [1, STEP_NOTE];
   const total = steps.length;
   const idx = Math.max(0, steps.indexOf(d.step)) + 1;
-  const titles: Record<number, string> = { 1: 'نتیجه‌ی تماس', 2: 'نیاز و مدارک', 3: 'متقاضی', 4: 'ضامن', 5: 'طرح‌های مناسب', 6: answered ? 'یادداشت و فوریت' : 'یادداشت' };
+  const titles: Record<number, string> = { 1: 'نتیجه‌ی تماس', 2: 'نیاز و مدارک', 3: 'متقاضی — رتبه و چک', [STEP_PROFILE]: 'متقاضی — خدمت، شغل و شهر', 4: 'ضامن', 5: 'طرح‌های مناسب', 6: answered ? 'یادداشت و فوریت' : 'یادداشت' };
 
   const validate = (step: number): Record<string, string> => {
     const e: Record<string, string> = {};
@@ -152,9 +205,14 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
       if (!d.cheque) e.cheque = 'یکی از گزینه‌ها را انتخاب کن.';
       if (!d.bounced) e.bounced = 'چک برگشتی را مشخص کن.';
     }
+    if (step === STEP_PROFILE) {
+      if (!d.military) e.military = 'وضعیت نظام وظیفه را انتخاب کن (یا «نمی‌دونه»).';
+      if (!d.jobType) e.jobType = 'شغل متقاضی را انتخاب کن (یا «نمی‌دونه»).';
+    }
     if (step === 4) {
       if (!d.gAvail) e.gAvail = 'یکی از گزینه‌ها را انتخاب کن.';
       if (d.gAvail === 'yes') {
+        if (!d.gJobType) e.gJobType = 'شغل ضامن را انتخاب کن (یا «نمی‌دونه»).';
         if (!d.gCheque) e.gCheque = 'چک ضامن را مشخص کن (یا «نمی‌دونه»).';
         if (!d.gRank) e.gRank = gRankLetter ? `زیررتبه‌ی ${gRankLetter} را انتخاب کن (${gRankLetter}1، ${gRankLetter}2 یا ${gRankLetter}3) یا «نمی‌دونه» را بزن.` : 'رتبه‌ی ضامن را انتخاب کن (یا «نمی‌دونه»).';
       }
@@ -192,20 +250,23 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
       a.guarantorAvailable = d.gAvail;
       a.guarantorCheque = d.gAvail === 'yes' ? d.gCheque : null;
       a.gRank = d.gAvail === 'yes' ? d.gRank : null;
+      a.military = d.military; a.jobType = d.jobType;
+      a.gJobType = d.gAvail === 'yes' ? d.gJobType : null;
+      a.city = d.city.trim() || null;
     }
     return a;
   }, [d]);
-  // Matching only depends on the answers of steps 2-4 (urgency has no effect on plans).
-  const planKey = answered ? JSON.stringify({ ...answers, urgency: null }) : '';
+  // Matching only depends on the answers of steps 2-4 (urgency and city have no effect on plans).
+  const planKey = answered ? JSON.stringify({ ...answers, urgency: null, city: null }) : '';
   const planReq = useRef('');
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     if (d.step !== 5 || !answered || planReq.current === planKey) return;
     planReq.current = planKey; // the latest request wins; a reply for older answers is ignored
     setPlans({ key: planKey, list: null, error: '' });
-    fetchPlanOptions(customer.id, { ...answers, urgency: null }).then((r) => {
+    fetchPlanOptions(customer.id, { ...answers, urgency: null, city: null }).then((r) => {
       if (planReq.current !== planKey) return;
-      setPlans({ key: planKey, list: r.plans, error: '' });
+      setPlans({ key: planKey, list: r.plans, error: '', noPlanDefault: r.noPlanDefault === true });
       // a plan that is no longer selectable with the changed answers drops out of the selection
       const ok = new Set(r.plans.filter((p) => p.status !== 'no').map((p) => p.planId));
       setD((c) => (c.selected.every((id) => ok.has(id)) ? c : { ...c, selected: c.selected.filter((id) => ok.has(id)) }));
@@ -220,13 +281,24 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
     const byId = new Map((planList ?? []).map((p) => [p.planId, p]));
     return d.selected.map((id) => byId.get(id)).filter((p): p is PlanEvaluation => !!p && p.status !== 'no');
   }, [planList, d.selected]);
-  const toggle = (id: number) => set({ selected: d.selected.includes(id) ? d.selected.filter((x) => x !== id) : [...d.selected, id] });
+  // «هیچ طرحی نمی‌خوره» and plan selection are mutually exclusive: picking a plan unticks it, ticking it clears the plans.
+  const toggle = (id: number) => set({ selected: d.selected.includes(id) ? d.selected.filter((x) => x !== id) : [...d.selected, id], noPlan: false });
+  const noPlan = answered && (d.noPlan ?? (planList ? plans.noPlanDefault === true && !d.selected.length : false));
+  const toggleNoPlan = () => set(noPlan ? { noPlan: false } : { noPlan: true, selected: [] });
+  // Prefill the city from the customer's file once (never overwrites what the expert typed).
+  useEffect(() => {
+    if (d.step !== STEP_PROFILE || d.cityTouched || d.city) return;
+    let live = true;
+    fetchCities(customer.id, '').then((r) => { if (live && r.customerCity) setD((c) => (c.cityTouched || c.city ? c : { ...c, city: r.customerCity ?? '' })); }).catch(() => {});
+    return () => { live = false; };
+  }, [d.step, d.cityTouched, d.city, customer.id]);
 
   const submit = async () => {
     for (const s of steps) { const e = validate(s); if (Object.keys(e).length) { set({ step: s }); setErrors(e); return; } }
     setPending(true); setServerError('');
     try {
-      const r = await submitSimpleForm(customer.id, answers, d.note.trim(), answered ? selectedPlans.map((p) => p.planId) : undefined);
+      const r = await submitSimpleForm(customer.id, answered ? { ...answers, noPlanFit: noPlan } : answers, d.note.trim(),
+        answered ? (noPlan ? [] : selectedPlans.map((p) => p.planId)) : undefined, noPlan ? d.noPlanNote.trim() || undefined : undefined);
       try { localStorage.removeItem(key); } catch { /* ignore */ }
       setResult(r); onDone(r);
     } catch (err) {
@@ -279,6 +351,11 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
         <p>{h ? `طرح‌هایی که انتخاب کردی روی پرونده و ردیف فهرست برای ${h.closerName} دیده می‌شود:` : 'طرح‌هایی که انتخاب کردی روی پرونده و ردیف فهرست مشتری دیده می‌شود:'}</p>
         <div className="ts-picked">{result.selectedPlans.map((p: SuggestedPlan) => <PlanChip key={p.id} plan={p} />)}</div>
       </div> : null}
+      {result.noPlanFit ? <div className="ts-plans-box" data-testid="ts-result-noplan">
+        <p>روی پرونده و ردیف فهرست مشتری این برچسب دیده می‌شود:</p>
+        <div className="ts-picked"><NoPlanChip /></div>
+        {result.noPlanNote ? <p>چرا: «{result.noPlanNote}»</p> : null}
+      </div> : null}
       {r.reasons.length ? <div className="ts-why"><b>{reasonsTitle}</b><ul>{r.reasons.map((x, i) => <li key={i}>{x}</li>)}</ul></div> : null}
     </div>;
   } else if (d.step === 1) {
@@ -305,6 +382,15 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
       <fieldset className="ts-q"><legend>چک صیادی یا سفته دارد؟ <span className="req">*</span></legend><Chips name="cheque" list={CHEQUE} value={d.cheque} onChange={(v) => set({ cheque: v })} />{err('cheque')}</fieldset>
       <fieldset className="ts-q"><legend>چک برگشتی رفع‌نشده؟ <span className="req">*</span></legend><Chips name="bounced" list={BOUNCED} value={d.bounced} onChange={(v) => set({ bounced: v })} />{err('bounced')}</fieldset>
     </>;
+  } else if (d.step === STEP_PROFILE) {
+    body = <>
+      <div className="ts-script"><b>بپرس:</b><p>«کارت پایان خدمت دارید؟ شغلتون چیه؟ ساکن کدوم شهر هستید؟»</p></div>
+      <fieldset className="ts-q"><legend>وضعیت نظام وظیفه <span className="req">*</span><span className="ts-new">جدید</span></legend>
+        <Chips name="military" list={MILITARY} value={d.military} dashed="unknown" onChange={(v) => set({ military: v })} />{err('military')}</fieldset>
+      {d.military === 'no_card' ? <p className="ts-hint" data-testid="ts-mil-hint">طرح‌هایی که پایان خدمت لازم دارند «مناسب نیست» می‌شوند.</p> : null}
+      <JobQuestion name="jobType" legend="شغل متقاضی" value={d.jobType} error={err('jobType')} onChange={(v) => set({ jobType: v })} />
+      <CityQuestion customerId={customer.id} value={d.city} onChange={(v) => set({ city: v, cityTouched: true })} />
+    </>;
   } else if (d.step === 4) {
     body = <>
       <div className="ts-script"><b>بپرس:</b><p>«می‌تونید یک ضامن معرفی کنید؟»</p></div>
@@ -317,6 +403,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
           <Chips name="gCheque" list={TRI} value={d.gCheque} dashed="unknown" onChange={(v) => set({ gCheque: v })} />{err('gCheque')}</fieldset>
         <RankQuestion name="gRank" legend="رتبه‌ی اعتباری ضامن" isNew hint="همیشه بعد از «بله» پرسیده می‌شود" value={d.gRank} error={err('gRank')}
           onChange={(v, l) => { setGRankLetter(l); set({ gRank: v }); }} />
+        <JobQuestion name="gJobType" legend="شغل ضامن" value={d.gJobType} error={err('gJobType')} onChange={(v) => set({ gJobType: v })} />
       </div> : null}
     </>;
   } else if (d.step === 5) {
@@ -331,11 +418,13 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
         {d.creditRank === 'unknown' ? <span className="ts-pill">رتبه نامعلوم</span> : <GradeChip value={d.creditRank} />}
         <span className="ts-pill">{label(CHEQUE, d.cheque)}</span><span className="ts-pill">{guarantorSummary}</span>
         <span className="ts-pill">{fa(toDigits(d.amount))} میلیون</span>
+        {d.military ? <span className="ts-pill">{d.military === 'unknown' ? 'خدمت نامعلوم' : MILITARY_LABELS[d.military]}</span> : null}
+        {d.jobType ? <span className="ts-pill">{d.jobType === 'unknown' ? 'شغل نامعلوم' : JOB_LABELS[d.jobType]}</span> : null}
         <button type="button" className="ts-link" onClick={() => go(3)} data-testid="ts-edit-answers">ویرایش</button></div>
       {plans.error ? <div className="ts-alert" role="alert"><AlertCircle size={18} /> طرح‌ها بارگذاری نشد: {plans.error} <button type="button" className="ts-link" onClick={retryPlans}>دوباره امتحان کن</button></div>
         : !planList ? <p className="ts-loading" role="status">در حال بررسی طرح‌ها…</p> : <>
           {noneFit ? <div className="ts-nofit" role="status" data-testid="ts-nofit"><b>با جواب‌های این تماس هیچ طرحی مناسب نیست</b>
-            <p>می‌توانی بدون انتخاب ادامه بدهی؛ اولویت طبق قانون H6 تعیین می‌شود (اولویت ۳).</p></div> : null}
+            <p>گزینه‌ی «هیچ طرحی به این مشتری نمی‌خوره» پایین فهرست خودکار زده شد؛ اولویت طبق قانون H6 تعیین می‌شود (اولویت ۳).</p></div> : null}
           {fit.length ? <section className="ts-group fit" data-testid="ts-group-fit"><h3 className="ts-group-h">مناسب <small>{fa(fit.length)} طرح</small></h3>{fit.map(card)}</section> : null}
           {dep.length ? <section className="ts-group depends" data-testid="ts-group-depends"><h3 className="ts-group-h">بستگی دارد <small>{fa(dep.length)} طرح</small></h3>
             <p className="ts-group-x">به جوابی بستگی دارد که «نمی‌دونه» بود یا در این تماس پرسیده نمی‌شود. اگر انتخاب کنی، با برچسب «مشروط» به کارشناس بعدی می‌رسد.</p>{dep.map(card)}</section> : null}
@@ -345,6 +434,19 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
             {showAll ? <section className="ts-group no" data-testid="ts-group-no"><h3 className="ts-group-h">مناسب نیست <small>{fa(no.length)} طرح</small></h3>{no.map(card)}</section> : null}
           </> : null}
           {!planList.length ? <p className="ts-muted">هیچ طرح فعالی تعریف نشده است.</p> : null}
+          <div className="ts-noplan-wrap">
+            <div role="checkbox" tabIndex={0} aria-checked={noPlan} className="ts-plan ts-noplan" data-testid="ts-noplan"
+              onClick={toggleNoPlan} onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleNoPlan(); } }}>
+              <span className="ts-box" aria-hidden="true">{noPlan ? <Check size={16} /> : null}</span>
+              <span className="ts-plan-main"><b>هیچ طرحی به این مشتری نمی‌خوره</b>
+                <span className="ts-plan-meta">با انتخاب طرح جمع نمی‌شود. اولویت ۱ خودکار نمی‌گیرد؛ اولویت ۲ یا ۳ طبق امتیاز. «ارتقا به اولویت ۱» دستی همچنان ممکن است.</span></span>
+              <Ban size={20} className="ts-noplan-ic" aria-hidden="true" />
+            </div>
+            {noPlan ? <div className="ts-q ts-noplan-why"><label htmlFor="ts-noplan-note">چرا؟ <span className="ts-muted small">اختیاری، کوتاه</span></label>
+              <input id="ts-noplan-note" className="ts-inp" value={d.noPlanNote} maxLength={NO_PLAN_NOTE_MAX} onChange={(e) => set({ noPlanNote: e.target.value.slice(0, NO_PLAN_NOTE_MAX) })}
+                placeholder="مثلاً: سقف طرح‌ها کمتر از مبلغ درخواستی است" data-testid="ts-noplan-note" />
+              <span className="ts-muted small" data-testid="ts-noplan-count">{fa(d.noPlanNote.trim().length)} از {fa(NO_PLAN_NOTE_MAX)} نویسه</span></div> : null}
+          </div>
         </>}
     </>;
   } else {
@@ -356,7 +458,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
         <textarea id="ts-note" className={`ts-inp ts-note${errors.note ? ' bad' : ''}`} rows={4} value={d.note} onChange={(e) => set({ note: e.target.value.slice(0, 4000) })} placeholder="مثلاً: شغل، مبلغ، ضامن، بهترین ساعت تماس…" aria-invalid={Boolean(errors.note)} aria-describedby="ts-note-meta" data-testid="ts-note" />
         <div className="ts-note-meta" id="ts-note-meta"><span className={errors.note ? 'bad' : ''}>{errors.note === 'empty' ? 'یادداشت الزامی است' : errors.note === 'short' ? `یادداشت باید حداقل ${fa(noteMin)} حرف باشد` : `حداقل ${fa(noteMin)} نویسه`}</span><span className={noteLen < noteMin ? (errors.note ? 'bad' : '') : 'okc'} data-testid="ts-note-count">{fa(noteLen)} نویسه</span></div></div>
       {answered ? <div className="ts-answers" data-testid="ts-picked"><span className="ts-muted small">طرح‌های انتخاب‌شده:</span>
-        {selectedPlans.length ? selectedPlans.map((p) => <PlanChip key={p.planId} plan={{ name: p.planName, status: p.status === 'depends' ? 'depends' : 'fit', reasons: p.reasons.filter((r) => r.kind === 'unknown').map(planReasonText) }} />)
+        {noPlan ? <NoPlanChip testId="ts-picked-noplan" /> : selectedPlans.length ? selectedPlans.map((p) => <PlanChip key={p.planId} plan={{ name: p.planName, status: p.status === 'depends' ? 'depends' : 'fit', reasons: p.reasons.filter((r) => r.kind === 'unknown').map(planReasonText) }} />)
           : <span className="ts-muted small">هیچ طرحی انتخاب نشد</span>}
         <button type="button" className="ts-link" onClick={() => go(5)} data-testid="ts-change-plans">تغییر</button></div> : null}
       {answered ? <fieldset className="ts-q"><legend>فوریت <span className="req">*</span> <span className="ts-muted small">آخرین سؤال فرم</span></legend>
@@ -367,7 +469,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
   }
 
   const lastStep = d.step === steps[steps.length - 1];
-  const nextLabel = d.step === 5 && planList && !planList.some((p) => p.status !== 'no') ? 'بدون انتخاب، بعدی' : 'بعدی';
+  const nextLabel = 'بعدی';
   return <div className="ts-layer" dir="rtl">
     <div className="ts-scrim" onClick={onClose} aria-hidden="true" />
     <div ref={dialogRef} className="ts-wz" role="dialog" aria-modal="true" aria-labelledby="ts-wz-title" tabIndex={-1} data-testid="ts-simple-form">
@@ -392,7 +494,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
           <button type="button" className="ts-primary" onClick={onNext} data-testid="ts-next-customer">مشتری بعدی صف</button>
         </div> : <div className="ts-two grow">
           {idx > 1 ? <button type="button" className="ts-ghost narrow" onClick={back}><ChevronRight size={18} /> قبلی</button> : <button type="button" className="ts-ghost narrow" onClick={onClose}>بستن</button>}
-          {d.step === 5 ? <span className="ts-foot-note" data-testid="ts-selected-count">{d.selected.length ? `${fa(selectedPlans.length || d.selected.length)} طرح انتخاب شد` : 'انتخاب اختیاری است'}</span> : null}
+          {d.step === 5 ? <span className="ts-foot-note" data-testid="ts-selected-count">{noPlan ? 'هیچ طرحی نمی‌خوره' : d.selected.length ? `${fa(selectedPlans.length || d.selected.length)} طرح انتخاب شد` : 'انتخاب اختیاری است'}</span> : null}
           {lastStep ? <button type="button" className="ts-primary" onClick={submit} disabled={pending} data-testid="ts-submit"><Check size={18} /> {pending ? 'در حال ثبت…' : d.callResult === 'no_answer' ? 'ثبت تماس بی‌پاسخ' : 'ثبت و تعیین اولویت'}</button>
             : <button type="button" className="ts-primary" onClick={next} disabled={d.step === 5 && !planList} data-testid="ts-next">{nextLabel} <ChevronLeft size={18} /></button>}
         </div>}

@@ -85,6 +85,7 @@ export interface LoanPlanCondition {
   contractDurationDays?: number | null;
   needsCustomerCheck?: boolean;
   needsGuarantorCheck?: boolean;
+  needsMilitaryService?: boolean;
   sortOrder: number;
   /** @nullable */
   notes?: string | null;

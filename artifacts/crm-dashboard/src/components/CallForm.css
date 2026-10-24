@@ -48,3 +48,13 @@
   .call-form-row.two, .call-form-row.three { grid-template-columns: 1fr; }
   .call-form-footer { position: sticky; bottom: 0; background: #fff; }
 }
+/* crm-no-plan-option (14:51): «اعتبارسنجی سریع» in the old call form (P1/P2/P3 only). */
+.call-quick-credit { background: #f0f9ff; border-color: #bae6fd; }
+.call-quick-credit .qc-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+.call-quick-credit .qc-go { min-height: 34px; white-space: nowrap; }
+.call-quick-credit .qc-hint { margin: 5px 0 0; font-size: 11px; color: #475569; line-height: 1.7; }
+.call-quick-credit .qc-err { margin: 5px 0 0; font-size: 11px; color: #b91c1c; font-weight: 600; }
+.call-quick-credit .qc-confirm { margin-top: 6px; padding: 8px 10px; border: 1px solid #fcd34d; background: #fffbeb; border-radius: 10px; font-size: 12px; }
+.call-quick-credit .qc-confirm p { margin: 0 0 6px; line-height: 1.7; }
+.call-quick-credit .qc-confirm div { display: flex; gap: 6px; flex-wrap: wrap; }
+@media (max-width: 640px) { .call-quick-credit .qc-row { grid-template-columns: 1fr; } }

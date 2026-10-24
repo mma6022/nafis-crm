@@ -23,6 +23,7 @@ export interface LoanPlanConditionInput {
   needsGuarantorSalaryDeduct?: boolean;
   needsCustomerCheck?: boolean;
   needsGuarantorCheck?: boolean;
+  needsMilitaryService?: boolean;
   /** @minimum 0 */
   sortOrder?: number;
   notes?: string;

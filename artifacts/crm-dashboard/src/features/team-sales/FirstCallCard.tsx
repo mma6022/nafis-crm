@@ -1,6 +1,7 @@
 import { HelpCircle } from 'lucide-react';
 import { fa, fmtDateTime, type FirstCallSummary, type SuggestedPlan } from './api';
-import { PlanChip } from './PlanChip';
+import { NoPlanChip, PlanChip } from './PlanChip';
+import { JOB_LABELS, MILITARY_LABELS } from './plan-reasons';
 import './team-sales.css';
 import { GradeChip } from '@/components/grade/GradeChip';
 
@@ -12,6 +13,15 @@ export function SuggestedPlansBox({ plans, actorName }: { plans: SuggestedPlan[]
     <h3>طرح‌های پیشنهادی ({fa(plans.length)}) <small>{actorName ? `انتخاب ${actorName} در تماس اول` : 'انتخاب‌شده در تماس اول'}</small></h3>
     <div className="pc-wrap">{plans.map((p) => <PlanChip key={p.id} plan={p} size="lg" testId={`case-plan-${p.id}`} />)}</div>
     {cond.map((p) => <p key={p.id} className="fc-cond"><HelpCircle size={14} aria-hidden="true" /><span>«{p.name}» مشروط است: {p.reasons.join('؛ ')}.</span></p>)}
+  </div>;
+}
+
+/** crm-no-plan-option: case page — grey «بدون طرح مناسب» chip + the optional «چرا؟» note. */
+export function NoPlanBox({ note, actorName }: { note?: string | null; actorName?: string | null }) {
+  return <div className="fc-box" data-testid="case-no-plan">
+    <h3>طرح پیشنهادی <small>{actorName ? `نظر ${actorName} در تماس اول` : 'نظر کارشناس در تماس اول'}</small></h3>
+    <div className="pc-wrap"><NoPlanChip size="lg" testId="case-noplan-chip" note={note} /></div>
+    {note ? <p className="fc-why" data-testid="case-noplan-note">چرا: «{note}»</p> : null}
   </div>;
 }
 
@@ -38,6 +48,10 @@ export function FirstCallSummaryCard({ fc }: { fc: FirstCallSummary }) {
       <div><dt>ضامن</dt><dd>{GA[a.guarantorAvailable ?? ''] ?? '—'}</dd></div>
       {g ? <div><dt>چک ضامن</dt><dd>{TRI[a.guarantorCheque ?? ''] ?? '—'}</dd></div> : null}
       {g ? <div><dt>رتبه‌ی ضامن</dt><dd>{rank(a.gRank)}</dd></div> : null}
+      {a.military ? <div><dt>نظام وظیفه</dt><dd>{MILITARY_LABELS[a.military] ?? '—'}</dd></div> : null}
+      {a.jobType ? <div><dt>شغل متقاضی</dt><dd>{a.jobType === 'unknown' ? 'نمی‌دونه' : JOB_LABELS[a.jobType] ?? '—'}</dd></div> : null}
+      {g && a.gJobType ? <div><dt>شغل ضامن</dt><dd>{a.gJobType === 'unknown' ? 'نمی‌دونه' : JOB_LABELS[a.gJobType] ?? '—'}</dd></div> : null}
+      {a.city ? <div><dt>شهر</dt><dd>{a.city}</dd></div> : null}
     </dl>
     {fc.note ? <p className="fc-note">«{fc.note}»</p> : null}
   </section>;

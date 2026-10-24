@@ -3920,6 +3920,7 @@ export const MatchConsultationLoanPlansResponseItem = zod.object({
   "contractDurationDays": zod.number().int().min(1).nullish(),
   "needsCustomerCheck": zod.boolean().optional(),
   "needsGuarantorCheck": zod.boolean().optional(),
+  "needsMilitaryService": zod.boolean().optional(),
   "sortOrder": zod.number().int(),
   "notes": zod.string().nullish()
 }))
@@ -4081,6 +4082,7 @@ export const GetConsultationHistoricalLoanPlanMatchesResponse = zod.object({
   "contractDurationDays": zod.number().int().min(1).nullish(),
   "needsCustomerCheck": zod.boolean().optional(),
   "needsGuarantorCheck": zod.boolean().optional(),
+  "needsMilitaryService": zod.boolean().optional(),
   "sortOrder": zod.number().int(),
   "notes": zod.string().nullish()
 }))
@@ -4238,6 +4240,7 @@ export const ListLoanPlansResponseItem = zod.object({
   "contractDurationDays": zod.number().int().min(1).nullish(),
   "needsCustomerCheck": zod.boolean().optional(),
   "needsGuarantorCheck": zod.boolean().optional(),
+  "needsMilitaryService": zod.boolean().optional(),
   "sortOrder": zod.number().int(),
   "notes": zod.string().nullish()
 }))
@@ -4349,6 +4352,7 @@ export const CreateLoanPlanBody = zod.object({
   "needsGuarantorSalaryDeduct": zod.boolean().optional(),
   "needsCustomerCheck": zod.boolean().optional(),
   "needsGuarantorCheck": zod.boolean().optional(),
+  "needsMilitaryService": zod.boolean().optional(),
   "sortOrder": zod.number().int().min(createLoanPlanBodyConditionsItemSortOrderMin).optional(),
   "notes": zod.string().optional()
 })).optional()
@@ -4490,6 +4494,7 @@ export const CreateLoanPlanResponse = zod.object({
   "contractDurationDays": zod.number().int().min(1).nullish(),
   "needsCustomerCheck": zod.boolean().optional(),
   "needsGuarantorCheck": zod.boolean().optional(),
+  "needsMilitaryService": zod.boolean().optional(),
   "sortOrder": zod.number().int(),
   "notes": zod.string().nullish()
 }))
@@ -4639,6 +4644,7 @@ export const GetLoanPlanResponse = zod.object({
   "contractDurationDays": zod.number().int().min(1).nullish(),
   "needsCustomerCheck": zod.boolean().optional(),
   "needsGuarantorCheck": zod.boolean().optional(),
+  "needsMilitaryService": zod.boolean().optional(),
   "sortOrder": zod.number().int(),
   "notes": zod.string().nullish()
 }))
@@ -4753,6 +4759,7 @@ export const UpdateLoanPlanBody = zod.object({
   "needsGuarantorSalaryDeduct": zod.boolean().optional(),
   "needsCustomerCheck": zod.boolean().optional(),
   "needsGuarantorCheck": zod.boolean().optional(),
+  "needsMilitaryService": zod.boolean().optional(),
   "sortOrder": zod.number().int().min(updateLoanPlanBodyOneConditionsItemSortOrderMin).optional(),
   "notes": zod.string().optional()
 })).optional()
@@ -4896,6 +4903,7 @@ export const UpdateLoanPlanResponse = zod.object({
   "contractDurationDays": zod.number().int().min(1).nullish(),
   "needsCustomerCheck": zod.boolean().optional(),
   "needsGuarantorCheck": zod.boolean().optional(),
+  "needsMilitaryService": zod.boolean().optional(),
   "sortOrder": zod.number().int(),
   "notes": zod.string().nullish()
 }))
@@ -5055,6 +5063,7 @@ export const GetPublicLoanPlanResponse = zod.object({
   "contractDurationDays": zod.number().int().min(1).nullish(),
   "needsCustomerCheck": zod.boolean().optional(),
   "needsGuarantorCheck": zod.boolean().optional(),
+  "needsMilitaryService": zod.boolean().optional(),
   "sortOrder": zod.number().int(),
   "notes": zod.string().nullish()
 }))
@@ -9922,6 +9931,7 @@ export const FindPortalLoanPlansResponse = zod.object({
   "contractDurationDays": zod.number().int().min(1).nullish(),
   "needsCustomerCheck": zod.boolean().optional(),
   "needsGuarantorCheck": zod.boolean().optional(),
+  "needsMilitaryService": zod.boolean().optional(),
   "sortOrder": zod.number().int(),
   "notes": zod.string().nullish()
 }))

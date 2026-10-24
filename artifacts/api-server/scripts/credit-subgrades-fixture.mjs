@@ -109,13 +109,16 @@ async function dbChecks(label, file, withCrm) {
   const c1 = insertRow("loan_plan_conditions", { plan_id: p1, customer_ranks: '["A","B2"]', guarantor_ranks: '["D","E"]', sort_order: 1 });
   const c2 = insertRow("loan_plan_conditions", { plan_id: p1, customer_ranks: '["C1"]', guarantor_ranks: null, sort_order: 2 });
   const state = () => ["consult_options", "loan_plan_conditions", "loan_plans"].map((t) => JSON.stringify(raw.prepare(`SELECT * FROM "${t}" ORDER BY id`).all())).join("");
-  const snapshotBefore = state();
+  let snapshotBefore = state();
   const pending = planMigration(raw);
   let activeRanks = (field) => raw.prepare("SELECT option_value v FROM consult_options WHERE field_key=? AND active=1 ORDER BY sort_order,id").all(field).map((r) => r.v);
   if (withCrm) {
     process.env.CRM_DATABASE_PATH = file;
     const { consultationQuestionnaireOptions } = await import("../src/routes/crm.ts");
     activeRanks = (field) => consultationQuestionnaireOptions().filter((o) => o.fieldKey === field).map((o) => o.value);
+    // Loading the CRM runs its additive startup columns (e.g. loan_plan_conditions.needs_military_service, NULL);
+    // re-take the snapshot so "byte-identical" compares only what this migration/rollback touches.
+    snapshotBefore = state();
     ok(`${label} (b) before migration: plan letters are not added as extra options`, () => {
       const vals = activeRanks("credit_rank");
       assert.ok(vals.includes("B2") && vals.includes("C1"));

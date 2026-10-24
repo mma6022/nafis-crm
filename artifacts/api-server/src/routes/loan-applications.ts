@@ -5,6 +5,8 @@ import { loanCreditRankOverrideError, loanCreditRankOverrideReason, loanRankOver
 import { guarantorGradeAllows, guarantorGradeVerdict } from "../lib/guarantor-grade-rule";
 import { customerGuarantorGrade } from "../lib/guarantor-grade-source";
 import { creditRankOverridesForApplication, listCreditRankOverrides, logCreditRankOverride } from "../lib/credit-rank-override-log";
+import { rowAllowsProfile } from "../lib/plan-profile-match";
+import { latestApplicantProfile } from "../lib/team-sales";
 export { conditionAcceptsCreditRank } from "../lib/credit-rank-eligibility";
 import { supportedDocumentUpload } from "../lib/document-upload-type";
 import fs from "node:fs";
@@ -1414,13 +1416,15 @@ router.get("/customers/:customerId/eligible-plans", requirePermission("loan_appl
   // Same guarantor-grade rule as the first-call form / consultation: a known non-matching grade drops the
   // condition, a missing / «نمی‌دونه» grade keeps it with a note. The rank override waives it too.
   const guarantor = customerGuarantorGrade(customer.id);
+  // crm-no-plan-option: job / guarantor job / military from the first-call form; only a KNOWN ruled-out answer removes a condition.
+  const applicantProfile = latestApplicantProfile(customer.id);
   const plans = queryRows<any>("SELECT * FROM loan_plans WHERE active=1 ORDER BY id").flatMap((plan) => {
     const conditions = queryRows<any>("SELECT * FROM loan_plan_conditions WHERE plan_id=? ORDER BY sort_order,id", [plan.id]);
     if (ignoreCreditRank && !conditions.length) conditions.push({ id: 0, name: "بدون شرط پیکربندی‌شده" });
     const matches = conditions.filter((c) => {
       if (ignoreCreditRank) return true;
       const ranks = parseJson(c.customer_ranks) ?? String(c.customer_ranks ?? "").split(/[,،]/).map((x: string) => x.trim()).filter(Boolean);
-      return conditionAcceptsCreditRank(credit?.score_label, ranks) && guarantorGradeAllows(guarantorGradeVerdict(c, guarantor.rank, plan));
+      return conditionAcceptsCreditRank(credit?.score_label, ranks) && guarantorGradeAllows(guarantorGradeVerdict(c, guarantor.rank, plan)) && rowAllowsProfile(c, applicantProfile);
     });
     return matches.filter((c) => {
       if (ignoreCreditRank) return true;
@@ -1740,6 +1744,7 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
   if (!ignoreCreditRank && !conditionAcceptsCreditRank(credit.score_label, ranks)) return error(res, 422, "loan_plan_condition_not_matched");
   if (!ignoreCreditRank && !guarantorGradeAllows(guarantorGradeVerdict(condition, customerGuarantorGrade(customerId).rank, plan)))
     return error(res, 422, "loan_plan_guarantor_grade_not_matched");
+  if (!ignoreCreditRank && !rowAllowsProfile(condition, latestApplicantProfile(customerId))) return error(res, 422, "loan_plan_condition_not_matched");
   const terms = effectivePlanTerms(plan, ignoreCreditRank ? { ...condition, max_principal: "0" } : condition);
   const matches = terms.maximum > 0n && BigInt(amount) <= terms.maximum && terms.durations.includes(duration) ? [condition] : [];
   if (!matches.length) return error(res, 422, "loan_plan_condition_not_matched");

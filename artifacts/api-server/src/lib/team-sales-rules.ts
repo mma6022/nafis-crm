@@ -1,4 +1,5 @@
 import { compactRankList, CREDIT_SUBGRADES, gradeMatches, isLegacyGradeLetter } from "./credit-subgrades";
+import { MILITARY_STATUSES, profileReasons, profileReasonText, type ProfileReason, type ProfileReasonCode } from "./plan-profile-match";
 /**
  * Team-sales model: pure rules (no DB). Ported from /workspace/nafis-sales/lead-form.html
  * (matchPlans / computePriority). The server recomputes priority; client values are previews only.
@@ -130,6 +131,16 @@ export type QualifierAnswers = {
   formVersion?: 2 | null;
   guarantorAvailable?: Tri | null;
   guarantorCheque?: Tri | null;
+  /**
+   * crm-no-plan-option (first-call form, all optional so older clients keep working):
+   * military service status, guarantor job (only with guarantor «بله»), city of residence,
+   * and «هیچ طرحی به این مشتری نمی‌خوره» (never an automatic P1; exclusive with selected plans).
+   * jobType may also be "unknown" («نمی‌دونه») in the first-call form.
+   */
+  military?: (typeof MILITARY_STATUSES)[number] | null;
+  gJobType?: string | null;
+  city?: string | null;
+  noPlanFit?: boolean | null;
 };
 export type Tri = "yes" | "no" | "unknown";
 const TRI: readonly string[] = ["yes", "no", "unknown"];
@@ -163,7 +174,8 @@ export function validateAnswers(a: QualifierAnswers, now: Date = new Date(), leg
   if (!(Number(a.amountMillion) > 0)) return "مبلغ درخواستی را وارد کنید.";
   if (a.loanPref && !["goods", "score", "both"].includes(a.loanPref)) return "نوع وام معتبر نیست.";
   const simple = a.mode === "simple";
-  if (simple ? a.jobType != null && !JOBS.includes(a.jobType) : !a.jobType || !JOBS.includes(a.jobType)) return "شغل متقاضی را مشخص کنید.";
+  if (simple ? a.jobType != null && !JOBS.includes(a.jobType) && !(isFirstCallForm(a) && a.jobType === "unknown")
+    : !a.jobType || !JOBS.includes(a.jobType)) return "شغل متقاضی را مشخص کنید.";
   if (!a.creditRank || !rankAccepted(a.creditRank, legacy.creditRank)) return "رتبهٔ اعتباری را مشخص کنید (یا «نمی‌دانم»).";
   if (!a.checkStatus || !["none", "physical", "digital", "both", ...(simple ? ["any"] : [])].includes(a.checkStatus)) return "وضعیت چک متقاضی را مشخص کنید.";
   if (!a.bouncedCheque || !["yes", "no"].includes(a.bouncedCheque)) return "چک برگشتی را مشخص کنید.";
@@ -178,7 +190,11 @@ export function validateAnswers(a: QualifierAnswers, now: Date = new Date(), leg
       if (!a.guarantorCheque || !TRI.includes(a.guarantorCheque)) return "چک ضامن را مشخص کنید (یا «نمی‌دونه»).";
       if (!a.gRank || !rankAccepted(a.gRank, legacy.gRank)) return "رتبهٔ اعتباری ضامن را مشخص کنید (یا «نمی‌دونه»).";
     }
-  }
+    if (a.military != null && !(MILITARY_STATUSES as readonly string[]).includes(a.military)) return "وضعیت نظام وظیفه معتبر نیست.";
+    if (a.gJobType != null && !JOBS.includes(a.gJobType) && a.gJobType !== "unknown") return "شغل ضامن معتبر نیست.";
+    if (a.city != null && (typeof a.city !== "string" || [...a.city.trim()].length > 60)) return "شهر محل سکونت معتبر نیست (حداکثر ۶۰ نویسه).";
+    if (a.noPlanFit != null && typeof a.noPlanFit !== "boolean") return "گزینه‌ی «هیچ طرحی نمی‌خوره» معتبر نیست.";
+  } else if (a.noPlanFit) return "گزینه‌ی «هیچ طرحی نمی‌خوره» فقط در فرم تماس اول است.";
   return null;
 }
 
@@ -193,6 +209,8 @@ export function normalizeFirstCallAnswers(a: QualifierAnswers): QualifierAnswers
   const cheque = yes ? a.guarantorCheque ?? null : null;
   return {
     ...a, guarantorCheque: cheque, gRank: yes ? a.gRank ?? null : null, guarantorCount: yes ? 1 : 0,
+    gJobType: yes ? a.gJobType ?? null : null, city: typeof a.city === "string" ? a.city.trim().replace(/\s+/g, " ") || null : null,
+    noPlanFit: a.noPlanFit === true,
     gPhysical: cheque === "yes", gDigital: cheque === "yes", gPromissory: false, gSalary: false,
   };
 }
@@ -200,6 +218,8 @@ export function normalizeFirstCallAnswers(a: QualifierAnswers): QualifierAnswers
 export type PlanCondition = {
   id: number | string; max: number; ranks: string[]; jobs: string[]; coll: string;
   guar: boolean; gRanks: string[]; gColl: string;
+  /** crm-no-plan-option: guarantor job rule and military-service requirement (first-call evaluator only). */
+  gJobs?: string[]; needsMilitary?: boolean;
   /** needs_* flags of the condition row (first-call evaluator only; the legacy matcher ignores them). */
   flags?: { cCheck?: boolean; cPromissory?: boolean; cSalary?: boolean; gCheck?: boolean; gPromissory?: boolean; gSalary?: boolean };
 };
@@ -249,8 +269,9 @@ export function matchPlans(a: QualifierAnswers, plans: PlanForMatch[]): PlanMatc
       const o = COND_OVERRIDES[String(c.id)] ?? {};
       const assumptions: string[] = [];
       // Simple form does not ask the job: plans are matched on rank and check/promissory only.
-      if (c.jobs.length && a.jobType != null && !c.jobs.includes(String(a.jobType))) continue;
-      if (c.jobs.length && a.jobType == null && a.mode !== "simple") continue;
+      const jobType = a.jobType === "unknown" ? null : a.jobType;
+      if (c.jobs.length && jobType != null && !c.jobs.includes(String(jobType))) continue;
+      if (c.jobs.length && jobType == null && a.mode !== "simple") continue;
       if (c.ranks.length) {
         if (a.creditRank === "unknown") assumptions.push(`رتبهٔ متقاضی باید ${compactRankList(c.ranks).join("/")} باشد`);
         else if (!gradeMatches(a.creditRank, c.ranks)) continue;
@@ -320,7 +341,10 @@ export function computeLeadPriority(a: QualifierAnswers, matches: PlanMatch[], p
 
   const top = matches[0];
   const handoffAt = addWorkingHours(now, cfg.closerFirstCallWorkingHours, cfg);
-  if (a.urgency === "now" && a.docsReady === "all") {
+  // crm-no-plan-option: «هیچ طرحی به این مشتری نمی‌خوره» never gets an automatic P1 (no H7 shortcut, score ≥ P1 → P2).
+  const noPlanFit = isFirstCallForm(a) && a.noPlanFit === true;
+  if (noPlanFit) reasons.push("کارشناس «هیچ طرحی به این مشتری نمی‌خوره» را زد → اولویت ۱ خودکار نمی‌گیرد");
+  if (!noPlanFit && a.urgency === "now" && a.docsReady === "all") {
     reasons.push(a.mode === "simple"
       ? `فوری + مدارک کامل + حداقل یک طرح مناسب از روی رتبه و چک، مثل «${top.planName}» (H7)`
       : `فوری + مدارک کامل + طرح «${top.planName}» (H7)`);
@@ -333,7 +357,7 @@ export function computeLeadPriority(a: QualifierAnswers, matches: PlanMatch[], p
   score += top.assumptions.length ? 10 : 20;
   score += top.amountFits ? 15 : 5;
   reasons.push(`امتیاز ${score} (فوریت، مدارک، تطبیق با «${top.planName}»، سقف مبلغ)`);
-  if (score >= cfg.p1MinScore && a.urgency !== "later") return r(1, "handoff", handoffAt, score);
+  if (!noPlanFit && score >= cfg.p1MinScore && a.urgency !== "later") return r(1, "handoff", handoffAt, score);
   if (score >= cfg.p2MinScore) {
     const rec = a.recallAt && !Number.isNaN(Date.parse(a.recallAt)) ? new Date(a.recallAt)
       : days(cfg.p2DefaultRecallDays[String(a.urgency)] ?? 7);
@@ -357,6 +381,7 @@ export function plansFromRows(
       id: Number(c.id), max: Number(c.max_principal ?? p.principal_amount ?? 0) || 0,
       ranks: arr(c.customer_ranks), jobs: arr(c.customer_jobs), coll: String(c.collateral_type || "none"),
       guar: Boolean(Number(c.needs_guarantor)), gRanks: arr(c.guarantor_ranks), gColl: String(c.guarantor_collateral_type || "none"),
+      gJobs: arr(c.guarantor_jobs), needsMilitary: Number(c.needs_military_service ?? 0) === 1,
       flags: {
         cCheck: Boolean(Number(c.needs_customer_check)), cPromissory: Boolean(Number(c.needs_customer_promissory)),
         cSalary: Boolean(Number(c.needs_customer_salary_deduct)), gCheck: Boolean(Number(c.needs_guarantor_check)),
@@ -388,7 +413,7 @@ export type PlanReasonCode =
   | "guarantor_ok" | "guarantor_required" | "guarantor_unknown" | "two_guarantors"
   | "guarantor_cheque_ok" | "guarantor_cheque" | "guarantor_cheque_unknown" | "guarantor_salary" | "guarantor_promissory"
   | "guarantor_rank_ok" | "guarantor_rank_below" | "guarantor_rank_not_allowed" | "guarantor_rank_unknown"
-  | "job_unknown" | "amount_over_cap";
+  | ProfileReasonCode | "amount_over_cap";
 export type PlanReason = {
   code: PlanReasonCode; kind: "met" | "unknown" | "violated" | "warning";
   /** the answer that was compared (grade) */
@@ -435,7 +460,6 @@ function guarState(a: QualifierAnswers, kind: string): Tri3 {
   if (CHECK_KINDS.includes(kind)) return a.guarantorCheque === "yes" ? "ok" : a.guarantorCheque === "no" ? "no" : "unknown";
   return "unknown"; // promissory / salary deduction of the guarantor: not asked in the first call
 }
-const ALL_JOBS = JOBS;
 
 function evaluateCondition(a: QualifierAnswers, c: PlanCondition): { reasons: PlanReason[]; amountFits: boolean } {
   const o = COND_OVERRIDES[String(c.id)] ?? {};
@@ -449,12 +473,9 @@ function evaluateCondition(a: QualifierAnswers, c: PlanCondition): { reasons: Pl
     else if (gradeMatches(a.creditRank, c.ranks)) add({ code: "rank_ok", kind: "met", have: a.creditRank, ...rr });
     else add({ code: rr.min ? "rank_below" : "rank_not_allowed", kind: "violated", have: a.creditRank, ...rr });
   }
-  // Job is not asked in the first call: a plan limited to some jobs depends on it.
-  const jobs = [...new Set(c.jobs)].filter((j) => ALL_JOBS.includes(j));
-  if (jobs.length && jobs.length < ALL_JOBS.length) {
-    if (a.jobType) { if (!jobs.includes(a.jobType)) add({ code: "job_unknown", kind: "violated", jobs }); }
-    else add({ code: "job_unknown", kind: "unknown", jobs, excludedJobs: ALL_JOBS.filter((j) => !jobs.includes(j)) });
-  }
+  // Applicant job + military service (shared with the request wizard and the portal: plan-profile-match.ts).
+  // Guarantor job is added below, once it is known whether the condition needs a guarantor.
+  for (const pr of profileReasons({ jobs: c.jobs, gJobs: [], needsMilitary: !!c.needsMilitary }, a, null)) add(pr as PlanReason);
   // Applicant collateral: the condition's own type, the needs_* flags, and the note-only any-of overrides.
   const custReqs: string[][] = [];
   if (c.coll && c.coll !== "none") custReqs.push([c.coll]);
@@ -477,6 +498,11 @@ function evaluateCondition(a: QualifierAnswers, c: PlanCondition): { reasons: Pl
   if (f.gSalary) guarReqs.push(["salary"]);
   if (o.guar) guarReqs.push(o.guar);
   const needG = c.guar || !!o.guar || !!(f.gCheck || f.gPromissory || f.gSalary);
+  if (needG && c.gJobs?.length) {
+    const avail = a.guarantorAvailable ?? (Number(a.guarantorCount) > 0 ? "yes" : "no");
+    for (const pr of profileReasons({ jobs: [], gJobs: c.gJobs, needsMilitary: false }, a, avail === "yes" ? "yes" : avail === "unknown" ? "unknown" : null))
+      add(pr as PlanReason);
+  }
   if (needG) {
     const two = !!o.two;
     const avail = a.guarantorAvailable ?? (Number(a.guarantorCount) > 0 ? "yes" : "no");
@@ -548,10 +574,6 @@ export function matchesFromEvaluation(evals: PlanEvaluation[]): PlanMatch[] {
   }));
 }
 
-const JOB_FA: Record<string, string> = {
-  employee_with_insurance: "کارمند بیمه‌دار", employee_no_insurance: "کارمند بدون بیمه", business: "آزاد",
-  no_doc: "بدون مدرک شغلی", retired: "بازنشسته", unemployed: "بیکار",
-};
 const NOT_ASKED = "(در تماس اول پرسیده نمی‌شود)";
 const joinFa = (xs: string[]) => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join("، ")} و ${xs[xs.length - 1]}`);
 const rankWord = (r: { min?: string; allowed?: string[] }) => (r.min ? `${r.min} یا بهتر` : (r.allowed ?? []).join(" یا "));
@@ -588,13 +610,10 @@ export function planReasonText(r: PlanReason): string {
     case "guarantor_rank_below": return `رتبه‌ی ضامن ${r.have} کمتر از ${r.min} است`;
     case "guarantor_rank_not_allowed": return `رتبه‌ی ضامن ${r.have} جزو رتبه‌های مجاز این طرح نیست`;
     case "guarantor_rank_unknown": return `اگر رتبه‌ی ضامن ${rankWord(r)} باشد`;
-    case "job_unknown": {
-      if (r.kind === "violated") return `فقط برای ${(r.jobs ?? []).map((j) => JOB_FA[j] ?? j).join(" یا ")}`;
-      const ex = r.excludedJobs ?? [];
-      return ex.length && ex.length <= 2 && (r.jobs ?? []).length > 2
-        ? `اگر ${ex.map((j) => JOB_FA[j] ?? j).join(" یا ")} نباشد (شغل ${NOT_ASKED.slice(1)}`
-        : `اگر ${(r.jobs ?? []).map((j) => JOB_FA[j] ?? j).join(" یا ")} باشد (شغل ${NOT_ASKED.slice(1)}`;
-    }
+    case "job_ok": case "job_not_allowed": case "job_unknown":
+    case "guarantor_job_ok": case "guarantor_job_not_allowed": case "guarantor_job_unknown":
+    case "military_ok": case "military_required": case "military_unknown":
+      return profileReasonText(r as ProfileReason);
     case "amount_over_cap": return `سقف ${millionFa(r.max)}؛ کمتر از ${millionFa(r.want)} درخواستی`;
     default: return "";
   }

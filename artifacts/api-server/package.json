@@ -55,7 +55,9 @@
     "test:calls-export-scope": "node scripts/run-bundled-fixture.mjs scripts/calls-export-scope-fixture.mjs",
     "test:request-drafts": "node scripts/run-bundled-fixture.mjs scripts/request-drafts-fixture.mjs",
     "test:grade-followups": "node scripts/run-bundled-fixture.mjs scripts/grade-followups-fixture.mjs",
-    "test:cross-owner-search": "node scripts/cross-owner-search-fixture.mjs"
+    "test:cross-owner-search": "node scripts/cross-owner-search-fixture.mjs",
+    "test:no-plan-option-migrate": "node scripts/no-plan-option-migrate-fixture.mjs",
+    "test:no-plan-option": "node scripts/run-bundled-fixture.mjs scripts/no-plan-option-fixture.mjs"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.3.0",

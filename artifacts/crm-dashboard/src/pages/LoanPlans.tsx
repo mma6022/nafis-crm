@@ -87,6 +87,8 @@ type ConditionForm = {
   guarantorRanks: string[];
   guarantorJobs: string[];
   guarantorCollateralType: string;
+  /** crm-no-plan-option: applicant must have military service done (women exempt). Off by default. */
+  needsMilitaryService: boolean;
   notes: string;
 };
 
@@ -267,6 +269,7 @@ function PlanDetail({ plan, loading, onEdit }: { plan: LoanPlan | null; loading:
             {condition.installmentOptions?.length ? <li>اقساط مجاز: {condition.installmentOptions.join('، ')}</li> : null}
             {customerRanks.length ? <li>رتبه مشتری: <GradeChipList values={customerRanks} testId={`text-condition-customer-ranks-${condition.id}`} /></li> : null}
             {customerJobs.length ? <li>مشاغل مشتری: {customerJobs.join('، ')}</li> : null}
+            {condition.needsMilitaryService ? <li data-testid={`text-condition-military-${condition.id}`}>پایان خدمت متقاضی لازم است (خانم‌ها معاف)</li> : null}
             <li>وثیقه مشتری: {COLLATERALS.find((item) => item.value === condition.collateralType)?.label || 'بدون وثیقه'}</li>
             <li>{condition.needsGuarantor ? 'ضامن لازم است' : 'ضامن لازم نیست'}</li>
             {condition.needsGuarantor && guarantorRanks.length ? <li>رتبه ضامن: <GradeChipList values={guarantorRanks} testId={`text-condition-guarantor-ranks-${condition.id}`} /></li> : null}
@@ -291,6 +294,7 @@ function emptyCondition(): ConditionForm {
     guarantorRanks: [],
     guarantorJobs: [],
     guarantorCollateralType: 'none',
+    needsMilitaryService: false,
     notes: '',
   };
 }
@@ -380,6 +384,7 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
       guarantorRanks: expandGradeList(parseStringArray(condition.guarantorRanks)),
       guarantorJobs: condition.guarantorJobs ?? [],
       guarantorCollateralType: condition.guarantorCollateralType ?? 'none',
+      needsMilitaryService: Boolean(condition.needsMilitaryService),
       notes: condition.notes ?? '',
     })));
   }, [plan]);
@@ -460,6 +465,7 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
         guarantorRanks: condition.needsGuarantor ? condition.guarantorRanks : [],
         guarantorJobs: condition.needsGuarantor ? condition.guarantorJobs : [],
         guarantorCollateralType: condition.needsGuarantor ? condition.guarantorCollateralType : 'none',
+        needsMilitaryService: condition.needsMilitaryService,
         sortOrder: index,
         notes: condition.notes,
       })),
@@ -524,6 +530,7 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
             <div className="field full"><GradePickerMulti label="رتبه‌های مجاز مشتری" values={condition.customerRanks} onChange={(value) => updateCondition(index, 'customerRanks', value)} note={conversionNote(condition, 'customerRanks')} testId={`grades-customer-${index}`} /></div>
             <div className="field full"><label>مشاغل مجاز مشتری</label><DictionaryChips selected={condition.customerJobs} options={optionsFor(options, 'job_type')} onChange={(value) => updateCondition(index, 'customerJobs', value)} /></div>
             <div className="field"><label>وثیقه مورد نیاز مشتری</label><select value={condition.collateralType} onChange={(event) => updateCondition(index, 'collateralType', event.target.value)}>{COLLATERALS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
+            <div className="field"><label>پایان خدمت متقاضی لازم است؟</label><select value={condition.needsMilitaryService ? 'yes' : 'no'} onChange={(event) => updateCondition(index, 'needsMilitaryService', event.target.value === 'yes')} data-testid={`select-condition-military-${index}`}><option value="no">خیر</option><option value="yes">بله (خانم‌ها معاف)</option></select></div>
             <div className="field"><label>ضامن لازم دارد؟</label><select value={condition.needsGuarantor ? 'yes' : 'no'} onChange={(event) => updateCondition(index, 'needsGuarantor', event.target.value === 'yes')}><option value="no">خیر</option><option value="yes">بله</option></select></div>
           </div>
           {condition.needsGuarantor ? <div className="guarantor-section"><strong>شرایط ضامن</strong><div className="field full"><GradePickerMulti label="رتبه‌های مجاز ضامن" values={condition.guarantorRanks} onChange={(value) => updateCondition(index, 'guarantorRanks', value)} note={conversionNote(condition, 'guarantorRanks')} testId={`grades-guarantor-${index}`} /></div><div className="field"><label>مشاغل مجاز ضامن</label><DictionaryChips selected={condition.guarantorJobs} options={optionsFor(options, 'guarantor_job_type')} onChange={(value) => updateCondition(index, 'guarantorJobs', value)} /></div><div className="field"><label>وثیقه مورد نیاز ضامن</label><select value={condition.guarantorCollateralType} onChange={(event) => updateCondition(index, 'guarantorCollateralType', event.target.value)}>{COLLATERALS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div></div> : null}

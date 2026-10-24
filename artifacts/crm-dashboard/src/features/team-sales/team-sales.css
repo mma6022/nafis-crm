@@ -219,3 +219,38 @@ textarea.ts-inp { resize: vertical; line-height: 1.8; }
 @media (max-width: 980px) {
   .ts-copy { height: 44px; min-width: 44px; padding: 0 12px; font-size: 13px; }
 }
+
+/* crm-no-plan-option: «هیچ طرحی به این مشتری نمی‌خوره», job picker, city autocomplete, grey list chip */
+.ts-noplan-wrap { display: grid; gap: 10px; margin-top: 4px; padding-top: 14px; border-top: 1px dashed #D0D5DD; }
+.ts-noplan { background: #F9FAFB; border-color: #D0D5DD; }
+.ts-noplan[aria-checked="true"] { background: #F2F4F7; border-color: #667085; }
+.ts-noplan[aria-checked="true"] .ts-box { background: #475467; border-color: #475467; }
+.ts-noplan-ic { color: #667085; margin-top: 2px; }
+.ts-noplan-why { margin-inline-start: 36px; display: grid; gap: 6px; }
+.ts-search { position: relative; }
+.ts-search svg { position: absolute; inset-inline-start: 14px; top: 50%; transform: translateY(-50%); color: #98A2B3; pointer-events: none; }
+.ts-search .ts-inp { padding-inline-start: 42px; min-height: 48px; }
+.ts-joblist { margin-top: 8px; }
+.ts-joblist .ts-opt:disabled { opacity: .45; cursor: not-allowed; }
+.ts-city { position: relative; }
+.ts-city-list { list-style: none; margin: 4px 0 0; padding: 6px; border: 1px solid #E4E7EC; border-radius: 14px; background: #fff; box-shadow: 0 12px 30px -14px rgba(16, 24, 40, .35); display: grid; gap: 2px; }
+.ts-city-list button { width: 100%; min-height: 44px; text-align: start; border: 0; background: none; font: inherit; font-weight: 700; border-radius: 10px; padding: 0 12px; cursor: pointer; color: inherit; }
+.ts-city-list button:hover, .ts-city-list button:focus-visible { background: var(--nf-brand-50, #EEF0FB); }
+.pc.is-noplan { background: #F2F4F7; color: #475467; border-color: #D0D5DD; max-width: none; }
+@media (max-width: 640px) { .ts-noplan-why { margin-inline-start: 0; } }
+.fc-box .fc-why { margin: 0; color: #475467; font-size: 13px; line-height: 1.8; }
+/* crm-no-plan-option (14:51): «اطلاعات مشاوره» card */
+.cp-card dt em { font-style: normal; font-size: 11px; color: #92400e; background: #fef3c7; border-radius: 6px; padding: 0 5px; margin-inline-start: 4px; white-space: nowrap; display: inline-block; }
+.cp-card .cp-rank dd { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.cp-card .cp-official { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; font-weight: 600; color: #344054; flex-wrap: wrap; }
+.cp-card .cp-official small { color: #667085; font-weight: 500; }
+.cp-card .cp-plans { grid-column: 1 / -1; }
+.cp-card .cp-note { margin: 0; font-size: 12px; color: #475569; }
+.cp-card .cp-foot { display: flex; gap: 14px; flex-wrap: wrap; }
+.cp-card .cp-link { display: inline-flex; gap: 4px; align-items: center; background: none; border: 0; padding: 4px 0; color: #29369B; font-weight: 700; font-size: 13px; cursor: pointer; min-height: 32px; }
+.cp-card .cp-history { margin: 0; padding-inline-start: 18px; font-size: 12.5px; color: #344054; display: grid; gap: 4px; }
+.cp-card .cp-edit { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px 14px; }
+.cp-card .cp-f { display: grid; gap: 4px; font-size: 12.5px; color: #667085; }
+.cp-card .cp-f select, .cp-card .cp-f input { min-height: 36px; border: 1px solid #D0D5DD; border-radius: 10px; padding: 0 8px; font: inherit; color: #101828; background: #fff; }
+.cp-card .cp-actions { grid-column: 1 / -1; display: flex; gap: 8px; }
+.cp-card .cp-err { grid-column: 1 / -1; margin: 0; color: #b91c1c; font-size: 12px; }

@@ -12,6 +12,7 @@ import { consultationRankMatches } from "../src/lib/consultation-questionnaire.t
 import { matchPlans, plansFromRows } from "../src/lib/team-sales-rules.ts";
 import { guarantorGradeAllows, guarantorGradeVerdict } from "../src/lib/guarantor-grade-rule.ts";
 import { loanCreditRankOverrideError } from "../src/lib/loan-credit-rank-override.ts";
+import { rowAllowsProfile } from "../src/lib/plan-profile-match.ts";
 
 const root = process.cwd(); // run from artifacts/api-server (the bundle lives in a temp dir)
 // esbuild is loaded at runtime (the bundler cannot bundle itself).
@@ -87,12 +88,12 @@ const queryRow = (sql, args = []) => db.prepare(sql).get(...args);
 const queryRows = (sql, args = []) => db.prepare(sql).all(...args);
 const parseJson = (v) => { try { return v ? JSON.parse(v) : null; } catch { return null; } };
 new Function("router", "requirePermission", "user", "queryRow", "queryRows", "parseJson", "conditionAcceptsCreditRank", "separateRequirementKeys", "documentLabel", "error",
-  "loanCreditRankOverrideError", "customerGuarantorGrade", "guarantorGradeAllows", "guarantorGradeVerdict",
+  "loanCreditRankOverrideError", "customerGuarantorGrade", "guarantorGradeAllows", "guarantorGradeVerdict", "rowAllowsProfile", "latestApplicantProfile",
   transformSync(fresh + "\n" + scoped + "\n" + terms + "\n" + route, { loader: "ts" }).code)(
   { get: (p, _perm, fn) => { if (p === "/customers/:customerId/eligible-plans") handler = fn; }, post: () => {} }, () => {}, (res) => res.actor, queryRow, queryRows, parseJson, conditionAcceptsCreditRank, new Set(), (k) => k,
   (res, status, code) => res.status(status).json({ error: code }),
   loanCreditRankOverrideError, (id) => ({ rank: guarantorOf.get(id) ?? null, hasGuarantor: guarantorOf.has(id) ? true : null, source: guarantorOf.has(id) ? "consultation" : null, at: null }),
-  guarantorGradeAllows, guarantorGradeVerdict);
+  guarantorGradeAllows, guarantorGradeVerdict, rowAllowsProfile, () => null); // no first-call answers: profile filter is a no-op
 const invokeRes = (customerId, ignore, reason) => {
   const res = { actor: { role: "admin", customerScope: "all" }, statusCode: 200, status(n) { this.statusCode = n; return this; }, json(b) { this.body = b; return this; } };
   const query = ignore === undefined ? {} : { ignoreCreditRank: ignore, ...(reason === undefined ? {} : { creditRankOverrideReason: reason }) };

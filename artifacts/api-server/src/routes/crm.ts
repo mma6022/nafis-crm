@@ -176,7 +176,8 @@ import * as ics24 from "../lib/ics24";
 import { questionnaireError, consultationRankMatches, type QuestionnaireOption } from "../lib/consultation-questionnaire";
 import { consultationMaximumAmount } from "../lib/consultation-limits";
 import { verifyCustomer } from "../lib/sapi";
-import { latestFirstCall, latestSelectedPlans, logPriorityChange } from "../lib/team-sales";
+import { latestFirstCall, latestNoPlanFit, latestSelectedPlans, logPriorityChange } from "../lib/team-sales";
+import { IDENTITY_LOG_TABLE, canActOnCustomerProfile, ensureIdentityLogSchema } from "../lib/consult-profile";
 import { retainedIdentityChecks } from "../lib/identity-check-retention";
 import { normalizeCustomerMobile, normalizeCustomerNationalCode, isAdminRole } from "../lib/customer-integrity";
 import { mergeCustomerRecords } from "../lib/customer-merge";
@@ -814,6 +815,7 @@ type ConditionRow = {
   needs_guarantor_salary_deduct: number | null;
   needs_customer_check: number | null;
   needs_guarantor_check: number | null;
+  needs_military_service: number | null;
   sort_order: number;
   notes: string | null;
 };
@@ -982,7 +984,7 @@ function planConditions(planId: number) {
         guarantor_jobs, guarantor_collateral_type,
         needs_customer_promissory, needs_guarantor_promissory,
         needs_customer_salary_deduct, needs_guarantor_salary_deduct,
-        needs_customer_check, needs_guarantor_check, sort_order, notes
+        needs_customer_check, needs_guarantor_check, needs_military_service, sort_order, notes
       FROM loan_plan_conditions
       WHERE plan_id = ?
       ORDER BY sort_order, id
@@ -1006,6 +1008,7 @@ function planConditions(planId: number) {
     needsGuarantorSalaryDeduct: Boolean(row.needs_guarantor_salary_deduct),
     needsCustomerCheck: Boolean(row.needs_customer_check),
     needsGuarantorCheck: Boolean(row.needs_guarantor_check),
+    needsMilitaryService: Number(row.needs_military_service ?? 0) === 1,
     sortOrder: Number(row.sort_order),
     notes: row.notes ?? null,
   }));
@@ -1770,9 +1773,11 @@ router.get(
     const crossOwner = search && offset === 0 && customerId === undefined && crossOwnerEligible(user)
       ? findOtherOwnerMatches(user, search)
       : null;
+    // crm-no-plan-option: grey «بدون طرح مناسب» chip.
+    const noPlan = latestNoPlanFit(listBody.items.map((item) => Number(item.id)));
     res.json({
       ...listBody,
-      items: listBody.items.map((item) => ({ ...item, suggestedPlans: suggested.get(Number(item.id)) ?? [] })),
+      items: listBody.items.map((item) => ({ ...item, suggestedPlans: suggested.get(Number(item.id)) ?? [], noPlanFit: noPlan.has(Number(item.id)) })),
       ...(crossOwner ? { otherOwnerMatches: crossOwner.items, otherOwnerLimited: crossOwner.limited } : {}),
     });
   },
@@ -2031,6 +2036,8 @@ router.get(
       }),
       // crm-call-form-plans: latest answered first-call form (selected plans + answers summary); null for older forms.
       firstCall: latestFirstCall(parsed.data.id),
+      // crm-no-plan-option: city of residence (first-call form prefill); null when empty.
+      city: queryRow<{ city: string | null }>("SELECT city FROM customers WHERE id=?", [parsed.data.id])?.city ?? null,
     });
   },
 );
@@ -3370,6 +3377,60 @@ async function refreshCreditCheck(
   }
   return getCreditCheck(row.customer_id, row.id) ?? row;
 }
+
+/**
+ * crm-no-plan-option (14:51) «اعتبارسنجی سریع» in the old call form: saves the customer's national code ONLY.
+ * No inquiry is started here (the user then opens the existing inquiry step of the request wizard and clicks there).
+ * - admin / registrar / the customer's own salesperson only; customer visibility via the existing scoping;
+ * - 10 digits + check digit; active-customer identity conflict -> 409;
+ * - replacing a DIFFERENT existing code needs confirmReplace=true (409 code "confirm_replace" otherwise) and is logged;
+ * - a changed code applies the existing identity_changed_at rule (earlier inquiries no longer count).
+ */
+router.post(
+  "/customers/:id/quick-credit/national-code",
+  requirePermission("calls.create"),
+  (req, res): void => {
+    const id = Number(req.params.id);
+    const user = res.locals.authUser as AuthUser;
+    if (!Number.isInteger(id) || id <= 0 || !getCustomer(id, user)) { res.status(404).json({ error: "Customer not found" }); return; }
+    const current = queryRow<{ phone: string; national_code: string | null; postal_code: string | null; birth_date_jalali: string | null; salesperson_id: number | null }>(
+      "SELECT phone,national_code,postal_code,birth_date_jalali,salesperson_id FROM customers WHERE id=?", [id]);
+    if (!current) { res.status(404).json({ error: "Customer not found" }); return; }
+    if (!canActOnCustomerProfile(user, current.salesperson_id, isAdminRole)) {
+      res.status(403).json({ error: "اعتبارسنجی سریع فقط برای کارشناس همین مشتری، ثبت‌نام‌کننده و مدیر فعال است." }); return;
+    }
+    const body = (req.body ?? {}) as { nationalCode?: unknown; confirmReplace?: unknown };
+    const nationalCode = typeof body.nationalCode === "string" ? ics24.normalizeDigits(body.nationalCode).replace(/\D/g, "") : "";
+    if (!ics24.validNationalCode(nationalCode)) { res.status(400).json({ error: "کد ملی ۱۰ رقمی معتبر وارد کنید." }); return; }
+    const previous = current.national_code ? normalizeCustomerNationalCode(current.national_code) : "";
+    const replacing = Boolean(previous) && previous !== nationalCode;
+    if (replacing && body.confirmReplace !== true) {
+      res.status(409).json({ error: "این مشتری کد ملی دیگری دارد؛ برای جایگزینی تأیید کنید.", code: "confirm_replace" }); return;
+    }
+    if (hasActiveCustomerIdentityConflict(id, { nationalCode })) {
+      res.status(409).json({ error: "An active customer already has this national code" }); return;
+    }
+    if (previous === nationalCode) { res.json({ customerId: id, nationalCode, changed: false, identityChanged: false }); return; }
+    const nextIdentity = { phone: current.phone, nationalCode, postalCode: current.postal_code, birthDateJalali: current.birth_date_jalali };
+    // Verification resets on any difference; identity_changed_at only when an existing code is replaced (live rule).
+    const verificationReset = customerIdentityChanged(current, nextIdentity);
+    const identityChanged = customerIdentityStampChanged(current, nextIdentity);
+    const now = new Date().toISOString();
+    ensureIdentityLogSchema();
+    runImmediateTransaction(() => {
+      executeChanges(
+        `UPDATE customers SET national_code=?${identityChanged ? ",identity_changed_at=?" : ""}${verificationReset
+          ? ",verification_version=COALESCE(verification_version,0)+1,verification_status='unverified',verification_checked_at=NULL,verification_provider=NULL,shahkar_ok=NULL,person_info_ok=NULL,postal_code_info_ok=NULL,sana_ok=NULL,shahkar_status=NULL,person_info_status=NULL,postal_code_info_status=NULL,sana_status=NULL"
+          : ""} WHERE id=?`,
+        [nationalCode, ...(identityChanged ? [now] : []), id]);
+      execute(
+        `INSERT INTO ${IDENTITY_LOG_TABLE} (customer_id,old_national_code,new_national_code,identity_changed,source,actor_user_id,created_at)
+         VALUES (?,?,?,?,'quick_credit',?,?)`,
+        [id, previous || null, nationalCode, identityChanged ? 1 : 0, user.id, now]);
+    });
+    res.json({ customerId: id, nationalCode, changed: true, replaced: replacing, identityChanged });
+  },
+);
 
 router.get(
   "/customers/:id/credit-checks",
@@ -4890,6 +4951,7 @@ type PlanConditionInput = {
   needsGuarantorSalaryDeduct?: boolean;
   needsCustomerCheck?: boolean;
   needsGuarantorCheck?: boolean;
+  needsMilitaryService?: boolean;
   sortOrder?: number;
   notes?: string;
 };
@@ -4910,8 +4972,8 @@ function replacePlanConditions(
           guarantor_jobs, guarantor_collateral_type, needs_customer_promissory,
           needs_guarantor_promissory, needs_customer_salary_deduct,
           needs_guarantor_salary_deduct, needs_customer_check,
-          needs_guarantor_check, sort_order, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          needs_guarantor_check, sort_order, notes, needs_military_service
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         planId,
@@ -4932,6 +4994,8 @@ function replacePlanConditions(
         condition.needsGuarantorCheck ? 1 : 0,
         condition.sortOrder ?? index,
         condition.notes?.trim() || null,
+        // crm-no-plan-option: NULL = no requirement (default); only an admin ticking it in the plan editor sets 1.
+        condition.needsMilitaryService ? 1 : null,
       ],
     );
   });
@@ -5125,6 +5189,8 @@ function evaluatePlanCondition(
     consultation.hasGuarantorSalaryDeduct,
     "گواهی کسر از حقوق ضامن",
   );
+  // crm-no-plan-option: consultations do not ask military service → a requirement is information to check, never a rejection.
+  requireBoolean(condition.needsMilitaryService, null, "پایان خدمت متقاضی");
 
   return {
     status:
