@@ -69,6 +69,15 @@ export const draftsApi = {
   remove: (id: number, reason: string) => call<{ ok: boolean }>('DELETE', `/loan-request-drafts/${id}`, { reason }),
 };
 
+/** A paid fee that already created a pre-registration case (stage «پیش‌نویس», hidden from the case list). */
+export type OpenPreRegistration = { id: number; stage: string; status: string; planId: number | null; createdAt: string; feeChargeId: number | null; feePaid: boolean };
+/** Resume guard: «ادامه» for such a customer opens that case (next step = primary contract), never the fee step again. */
+export const openPreRegistrationFor = (customerId: number) =>
+  call<{ application: OpenPreRegistration | null }>('GET', `/loan-applications/open-pre-registration?customerId=${customerId}`).then((r) => r.application);
+/** Idempotency key of the filing-fee charge: one per server draft and plan (same on every tab/device), else one per tab. */
+export const filingFeeIdempotencyKey = (draftId: number | null | undefined, customerId: number, planId: number) =>
+  draftId ? `draft-${draftId}-plan-${planId}` : null;
+
 export const DRAFTS_KEY = ['loan-request-drafts'] as const;
 /** Mirrors the server: drafts belong to roles that can create requests (funder/accounting get 403). */
 export const canUseDrafts = (user?: { role?: string; permissions?: string[] } | null) =>

@@ -1483,6 +1483,26 @@ router.get("/loan-applications/filing-fee-plans", requirePermission("loan_applic
     planId: p.id, name: p.name, filingFeeToman: p.filing_fee_toman,
   })) });
 });
+// Resume guard («ادامه» of a draft / wizard entry): a customer whose paid filing fee already created a
+// pre-registration case (stage 'draft', hidden from the case list) must continue on that case, never be charged again.
+// Only cases holding a paid (>0) fee count: old fee-less leftovers (e.g. 11, 37) never block a new request.
+export function openPreRegistrationCase(customerId: number) {
+  return queryRow<any>(
+    `SELECT a.id,a.stage,a.status,a.plan_id,a.created_at,f.id AS fee_charge_id,f.amount_toman
+     FROM loan_applications a JOIN loan_filing_fee_charges f ON f.application_id=a.id AND CAST(f.amount_toman AS INTEGER)>0
+     WHERE a.customer_id=? AND a.deleted_at IS NULL AND a.stage='draft' AND COALESCE(a.is_pre_registration,0)=1
+       AND COALESCE(a.status,'')<>'rejected'
+     ORDER BY a.id DESC LIMIT 1`, [customerId]);
+}
+router.get("/loan-applications/open-pre-registration", requirePermission("loan_applications.create"), (req, res) => {
+  const customer = getScopedCustomer(Number(req.query.customerId), user(res));
+  if (!customer) return error(res, 404, "customer_not_found");
+  const r = openPreRegistrationCase(Number(customer.id));
+  return res.json({ application: r ? {
+    id: Number(r.id), stage: r.stage, status: r.status, planId: r.plan_id == null ? null : Number(r.plan_id), createdAt: r.created_at,
+    feeChargeId: r.fee_charge_id == null ? null : Number(r.fee_charge_id), feePaid: true,
+  } : null });
+});
 router.post("/loan-applications/filing-fee-charges", requirePermission("loan_applications.create"), (req, res) => {
   const overrideError = loanCreditRankOverrideError(req.body?.ignoreCreditRank, user(res).role, false, req.body?.creditRankOverrideReason);
   if (overrideError) return error(res, overrideError.status, overrideError.code);
@@ -1521,6 +1541,8 @@ router.post("/loan-applications/filing-fee-charges", requirePermission("loan_app
           repeated: true,
         });
       }
+      // A paid fee that already created a (hidden) pre-registration case is continued on that case, never charged again.
+      if (openPreRegistrationCase(customerId)) throw new Error("open_pre_registration_case");
       const profile = queryRow<any>("SELECT * FROM customers WHERE id=?", [customerId]);
       const prerequisiteError = filingFeePrerequisiteError(profile, ignoreCreditRank);
       if (prerequisiteError) throw new Error(prerequisiteError);
@@ -1553,7 +1575,7 @@ router.post("/loan-applications/filing-fee-charges", requirePermission("loan_app
     });
   } catch (e) {
     const code = e instanceof Error ? e.message : "";
-    if (["filing_fee_idempotency_conflict", "insufficient_cash_balance", "draft_fee_plan_locked", "draft_closed"].includes(code)) return error(res, 409, code);
+    if (["filing_fee_idempotency_conflict", "insufficient_cash_balance", "draft_fee_plan_locked", "draft_closed", "open_pre_registration_case"].includes(code)) return error(res, 409, code);
     if (["invalid_draft", "draft_not_found"].includes(code)) return error(res, code === "invalid_draft" ? 400 : 404, code);
     if (["customer_profile_incomplete", "customer_identity_not_verified", "credit_check_stale", "loan_plan_not_found",
       "loan_plan_condition_not_matched", "invalid_filing_fee", "invalid_wallet_balance"].includes(code)) return error(res, 422, code);

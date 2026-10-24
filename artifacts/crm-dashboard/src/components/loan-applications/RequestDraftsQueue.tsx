@@ -1,5 +1,6 @@
 // «در انتظار ثبت» queue (HANDOFF §6/§7). Server decides scope (salesperson → own) and canDelete (admin, unpaid only).
 import { useState } from 'react';
+import { Link } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Archive, BadgeCheck, CalendarClock, ChevronLeft, Clock, Hourglass, Trash2, Wallet } from 'lucide-react';
 import { ConfirmDialog, jalaliDate } from '@/pages/customers-ui';
@@ -63,26 +64,29 @@ function OrphanFees({ rows, isDesktop }: { rows: OrphanFeeRow[]; isDesktop: bool
       </article>)}</div>}
   </section>;
 }
-/** Display only: old pre-registration cases left at stage «پیش‌نویس» (not in the case list). */
+/** Pre-registration cases left at stage «پیش‌نویس» (not in the case list). Nothing is edited here; «ادامه» opens the case
+ *  itself (next step: primary contract) — its paid fee is already linked, so continuing never charges again. */
 function LegacyCases({ rows, isDesktop, showSp }: { rows: LegacyCaseRow[]; isDesktop: boolean; showSp: boolean }) {
   if (!rows.length) return null;
   const st = (s: string) => LEGACY_STATUS[s] ?? s;
   return <section className="rqd-ro" aria-labelledby="rqd-legacy-h" data-testid="legacy-cases-section">
     <header><Archive size={18} aria-hidden="true" /><div><h3 id="rqd-legacy-h">{LEGACY_LABEL}‌ها با وضعیت پیش‌نویس <span className="rqd-ro-count">{fa(rows.length)}</span></h3>
-      <p className="muted">فقط نمایش. این پرونده‌ها از قبل در مرحله‌ی پیش‌نویس مانده‌اند و در فهرست پرونده‌ها دیده نمی‌شوند؛ این‌جا چیزی در آن‌ها تغییر نمی‌کند.</p></div></header>
+      <p className="muted">این پرونده‌ها ثبت شده‌اند اما در مرحله‌ی پیش‌نویس مانده‌اند و در فهرست پرونده‌ها دیده نمی‌شوند. «ادامه» خود پرونده را باز می‌کند (مرحله‌ی بعد: قرارداد اولیه)؛ هزینه‌ی واریزشده دوباره کسر نمی‌شود.</p></div></header>
     {isDesktop ? <table className="csx-table rqd-table rqd-ro-table" data-testid="legacy-cases-table">
-      <thead><tr><th>مشتری</th><th>پرونده</th><th>طرح و مبلغ</th>{showSp ? <th>کارشناس</th> : null}<th>منتظر</th></tr></thead>
+      <thead><tr><th>مشتری</th><th>پرونده</th><th>طرح و مبلغ</th>{showSp ? <th>کارشناس</th> : null}<th>منتظر</th><th><span className="sr-only">عملیات</span></th></tr></thead>
       <tbody>{rows.map((a) => <tr key={a.applicationId} data-testid={`legacy-case-row-${a.applicationId}`}>
         <td><RoName name={a.customerName} id={a.customerId} phone={a.customerPhone} testId={`legacy-case-customer-id-${a.applicationId}`} /></td>
         <td><span className="rqd-ro-tag">{LEGACY_LABEL}</span><div>پرونده‌ی {fa(a.applicationId)} · {st(a.status)}</div><div className="muted">ایجاد {jalaliDate(a.createdAt)}</div></td>
         <td>{a.planName ?? '—'}<div className="muted">{faToman(a.requestedAmount)}{a.durationMonths ? ` · ${fa(a.durationMonths)} ماه` : ''}</div></td>
         {showSp ? <td>{a.salespersonName ?? '—'}</td> : null}<td><WaitPill hours={a.waitingHours} at={a.updatedAt} verb="آخرین تغییر" /></td>
+        <td><Link href={`/loan-applications/${a.applicationId}`} className="csx-ghost sm" data-testid={`legacy-case-continue-${a.applicationId}`}>ادامه</Link></td>
       </tr>)}</tbody></table>
       : <div className="csx-list rqd-cards">{rows.map((a) => <article key={a.applicationId} className="csx-card rqd-card rqd-ro-card" data-testid={`legacy-case-card-${a.applicationId}`}>
         <div className="top"><RoName name={a.customerName} id={a.customerId} phone={a.customerPhone} testId={`legacy-case-customer-id-${a.applicationId}`} /><WaitPill hours={a.waitingHours} at={a.updatedAt} verb="آخرین تغییر" /></div>
         <div><span className="rqd-ro-tag">{LEGACY_LABEL}</span> پرونده‌ی {fa(a.applicationId)} · {st(a.status)}</div>
         <div className="muted">{a.planName ?? '—'} · {faToman(a.requestedAmount)}</div>
         {showSp && a.salespersonName ? <div className="muted">کارشناس: {a.salespersonName}</div> : null}
+        <div className="acts"><Link href={`/loan-applications/${a.applicationId}`} className="csx-ghost sm" data-testid={`legacy-case-continue-${a.applicationId}`}>ادامه از پرونده</Link></div>
       </article>)}</div>}
   </section>;
 }

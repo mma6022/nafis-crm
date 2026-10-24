@@ -1,7 +1,7 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useTableState } from '@/hooks/use-table-state';
 import { useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import {
   useListLoanApplications,
   useListLoanPlans,
@@ -22,7 +22,7 @@ import { canUseDrafts, useDraftCounts } from "@/lib/request-drafts";
 import { PersianDatePicker } from "@/components/PersianDatePicker";
 import { ConfirmDialog, Sheet, jalaliDate, relativeTime, useMinWidth } from "./customers-ui";
 import { BUSINESS_STATUS_LABELS, ACTION_ROLE_NAMES, WIZARD_DISPLAY_STEPS, WIZARD_TOTAL_STEPS, loanBusinessStatus, loanStageLabel } from "@/lib/loan-labels";
-import { clearLoanDraft, listLoanDrafts, loanWizardHref, type LoanDraft } from "@/lib/loan-draft";
+import { clearLoanDraft, listLoanDrafts, type LoanDraft } from "@/lib/loan-draft";
 import "./customers.css";
 import "./loan-requests.css";
 import { CustomerIdBadge, CustomerName, customerNameText } from '@/components/customer/CustomerName';
@@ -120,25 +120,38 @@ export default function LoanApplications() {
   const [wizardOpen, setWizardOpen] = useState(false);
   // Entry point from the customer page (?new=1&customerId=<id>&from=customer[&draft=1]).
   const [, setLocation] = useLocation();
-  const entryCustomerId = useMemo(() => {
-    const raw = initialParams.get("customerId");
-    return initialParams.get("new") === "1" && raw && /^[1-9]\d*$/.test(raw) ? Number(raw) : undefined;
-  }, [initialParams]);
-  const entryDraftId = useMemo(() => {
-    const raw = initialParams.get("draftId");
-    return raw && /^[1-9]\d*$/.test(raw) ? Number(raw) : undefined;
-  }, [initialParams]);
-  const [entryOpen, setEntryOpen] = useState(Boolean(entryCustomerId));
+  // Wizard entry: from the URL (customer page, links) AND from in-page «ادامه» (banner / drafts popup).
+  // The URL used to be read once on mount, so «ادامه» only changed the address bar and nothing opened.
+  type WizardEntry = { customerId: number; draftId?: number; resume: boolean; fromCustomer: boolean; n: number };
+  const entryFromSearch = (search: string, n: number): WizardEntry | null => {
+    const p = new URLSearchParams(search);
+    const raw = p.get("customerId");
+    if (p.get("new") !== "1" || !raw || !/^[1-9]\d*$/.test(raw)) return null;
+    const d = p.get("draftId");
+    return { customerId: Number(raw), draftId: d && /^[1-9]\d*$/.test(d) ? Number(d) : undefined, resume: p.get("draft") === "1", fromCustomer: p.get("from") === "customer", n };
+  };
+  const [entry, setEntry] = useState<WizardEntry | null>(() => entryFromSearch(window.location.search, 0));
+  const urlSearch = useSearch();
+  const lastSearch = useRef(urlSearch);
+  useEffect(() => {
+    if (lastSearch.current === urlSearch) return;
+    lastSearch.current = urlSearch;
+    const next = entryFromSearch(urlSearch, Date.now());
+    if (next) setEntry(next);
+  }, [urlSearch]);
+  const entryOpen = Boolean(entry);
   const [queueOpen, setQueueOpen] = useState<{ customerId: number; draftId: number } | null>(null);
   const draftsAllowed = canUseDrafts(user);
   const { data: draftCounts } = useDraftCounts(draftsAllowed);
   useEffect(() => { if (tab === "pending" && user && !draftsAllowed) setTab("mine"); }, [tab, user, draftsAllowed, setTab]);
   const closeEntryWizard = () => {
-    setEntryOpen(false);
+    const closing = entry;
+    setEntry(null);
     const url = new URL(window.location.href);
     ["new", "customerId", "from", "draft", "draftId"].forEach((name) => url.searchParams.delete(name));
     window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
-    if (initialParams.get("from") === "customer" && entryCustomerId) setLocation(`/customers/${entryCustomerId}`);
+    lastSearch.current = url.search.replace(/^\?/, "");
+    if (closing?.fromCustomer) setLocation(`/customers/${closing.customerId}`);
   };
   const [deleteConfirm, setDeleteConfirm] = useState<LoanApplication | null>(null);
   const [reviewOpen, setReviewOpen] = useState(initialParams.get("review") === "historical");
@@ -241,7 +254,8 @@ export default function LoanApplications() {
     { key: "all", label: "همه پرونده‌ها", count: tab === "all" && !hasQuery ? total : undefined, testId: "btn-view-all" },
   ];
 
-  const openDraft = (draft: LoanDraft) => setLocation(loanWizardHref(draft.customerId, true, "list"));
+  // Opens the wizard right here at the saved step (it re-checks the server: a paid fee that already made a case goes to that case).
+  const openDraft = (draft: LoanDraft) => { setDraftsOpen(false); setEntry({ customerId: draft.customerId, resume: true, fromCustomer: false, n: Date.now() }); };
   const draftStep = (draft: LoanDraft) => `مرحله ${fa(draft.step)} از ${fa(WIZARD_TOTAL_STEPS)}`;
   const draftBanner = !reviewOpen && drafts.length ? <div className="lrx-draft" role="region" aria-label="پیش‌نویس ناتمام" data-testid="loan-draft-banner">
     <FileClock size={22} aria-hidden="true" />
@@ -459,7 +473,7 @@ export default function LoanApplications() {
 
       {wizardOpen && <CreateWizard onClose={() => setWizardOpen(false)} />}
       {queueOpen && !wizardOpen && canCreate ? <CreateWizard key={`q:${queueOpen.draftId}`} initialCustomerId={queueOpen.customerId} serverDraftId={queueOpen.draftId} onClose={() => setQueueOpen(null)} /> : null}
-      {!wizardOpen && entryOpen && entryCustomerId && session && canCreate ? <CreateWizard key={`${entryCustomerId}:${entryDraftId ?? ""}`} initialCustomerId={entryCustomerId} serverDraftId={entryDraftId} resumeDraft={initialParams.get("draft") === "1"} fromCustomer={initialParams.get("from") === "customer"} onClose={closeEntryWizard} /> : null}
+      {!wizardOpen && entry && session && canCreate ? <CreateWizard key={`${entry.customerId}:${entry.draftId ?? ""}:${entry.n}`} initialCustomerId={entry.customerId} serverDraftId={entry.draftId} resumeDraft={entry.resume} fromCustomer={entry.fromCustomer} onClose={closeEntryWizard} /> : null}
 
       {draftToDelete ? <ConfirmDialog title="حذف پیش‌نویس؟" confirmLabel="حذف پیش‌نویس" testId="delete-loan-draft-dialog"
         onClose={() => setDraftToDelete(null)}

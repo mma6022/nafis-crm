@@ -8,7 +8,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { clearLoanDraft, readLoanDraft, writeLoanDraft } from "@/lib/loan-draft";
-import { DRAFTS_KEY, DraftHttpError, canUseDrafts, draftsApi, tehranTime, type DraftPayload, type RequestDraft } from "@/lib/request-drafts";
+import { DRAFTS_KEY, DraftHttpError, filingFeeIdempotencyKey, openPreRegistrationFor, type OpenPreRegistration, canUseDrafts, draftsApi, tehranTime, type DraftPayload, type RequestDraft } from "@/lib/request-drafts";
 import { toast } from "@/hooks/use-toast";
 import "./request-drafts.css";
 import { WIZARD_DISPLAY_STEPS, WIZARD_PHASES, WIZARD_TOTAL_STEPS } from "@/lib/loan-labels";
@@ -202,6 +202,15 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   );
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [feeChargeId, setFeeChargeId] = useState<number | null>(null);
+  // Resume guard: this customer's paid fee already made a case → continue there (no second charge).
+  const [existingCase, setExistingCase] = useState<OpenPreRegistration | null>(null);
+  const checkExistingCase = async (customerId: number): Promise<boolean> => {
+    try {
+      const app = await openPreRegistrationFor(customerId);
+      if (app) { setExistingCase(app); return true; }
+    } catch { /* offline / no permission: the server still refuses a second charge */ }
+    return false;
+  };
   const selectCustomer = (customer: Customer | null) => {
     if (customer?.id !== selectedCustomer?.id) {
       setIgnoreCreditRank(false); setOverrideReason(null); setReasonDialogOpen(false);
@@ -430,13 +439,16 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
     entryApplied.current = true;
     selectCustomer(entryCustomer.data as unknown as Customer);
     setStep(2);
-    if (draftsAllowed) { void openServerDraft(initialCustomerId, serverDraftId); return; }
-    const draft = resumeDraft ? readLoanDraft(userId, initialCustomerId) : null;
-    if (draft) {
-      draftRestore.current = { planId: draft.planId, amount: draft.amount, duration: draft.duration };
-      if (draft.planId) setSelectedPlanId(draft.planId);
-      setRestoredDraft(true);
-    }
+    void checkExistingCase(initialCustomerId).then((found) => {
+      if (found) { setHydrated(true); return; }
+      if (draftsAllowed) { void openServerDraft(initialCustomerId, serverDraftId); return; }
+      const draft = resumeDraft ? readLoanDraft(userId, initialCustomerId) : null;
+      if (draft) {
+        draftRestore.current = { planId: draft.planId, amount: draft.amount, duration: draft.duration };
+        if (draft.planId) setSelectedPlanId(draft.planId);
+        setRestoredDraft(true);
+      }
+    });
   }, [entryCustomer.data, initialCustomerId, resumeDraft, session.data, userId, serverDraftId]);
   useEffect(() => {
     const restore = draftRestore.current;
@@ -447,7 +459,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   }, [selectedPlan]);
   // Draft saving (client-side only): remember the customer, furthest step and chosen terms.
   useEffect(() => {
-    if (!selectedCustomer || !userId || step < 2) return;
+    if (!selectedCustomer || !userId || step < 2 || existingCase) return;
     if (draftsAllowed && hydrated && saveState !== 'offline') return;
     const previous = readLoanDraft(userId, selectedCustomer.id);
     writeLoanDraft(userId, {
@@ -458,7 +470,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
       amount: selectedPlan ? amount : previous?.amount ?? '',
       duration: selectedPlan ? duration : previous?.duration ?? '',
     });
-  }, [selectedCustomer?.id, step, displayStep, selectedPlanId, selectedPlan?.planId, amount, duration, userId, saveState, hydrated]);
+  }, [selectedCustomer?.id, step, displayStep, selectedPlanId, selectedPlan?.planId, amount, duration, userId, saveState, hydrated, existingCase]);
 
 
   const handleNext = () => {
@@ -553,8 +565,9 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
         toast({ title: 'درخواست ثبت شد', description: `پرونده‌ی ${fa(application.id)} برای ${selectedCustomer.name} ساخته شد و از «در انتظار ثبت» خارج شد.`, duration: 5000 });
         srvRef.current = null;
       }
-      setLocation(`/loan-applications/${application.id}`);
+      // Close first: the customer-page entry's close navigates back to the customer; the case page must win.
       onClose();
+      setLocation(`/loan-applications/${application.id}`);
     } catch (error) {
       const fieldErrors = serverFieldErrors(error);
       const payload = (error as any)?.data ?? (error as any)?.response?.data;
@@ -700,7 +713,20 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
               {STEP_LEADS[displayStep] ? <p>{STEP_LEADS[displayStep]}</p> : null}
             </div>
 
-      <AnimatePresence mode="wait">
+      {existingCase && selectedCustomer ? <div className="lwz-resume" role="status" data-testid="wizard-existing-case">
+        <div className="h"><span><RotateCcw size={16} aria-hidden="true" /> این درخواست قبلاً ثبت شده است</span><span className="muted">{existingCase.feePaid ? 'هزینه‌ی پرونده واریز شده' : 'بدون هزینه'}</span></div>
+        <div>مشتری: <b>{selectedCustomer.name}</b> <CustomerIdBadge id={selectedCustomer.id} /> · پرونده‌ی {fa(existingCase.id)}</div>
+        <b>هزینه‌ی تشکیل پرونده قبلاً کسر شده و پرونده ساخته شده است؛ ادامه از خود پرونده انجام می‌شود (صدور قرارداد اولیه). مبلغی دوباره کسر نمی‌شود.</b>
+        <div className="form-footer">
+          <button type="button" className="btn btn-primary" data-testid="btn-open-existing-case" onClick={() => {
+            window.sessionStorage.removeItem(`loan-fee:${selectedCustomer.id}:${existingCase.planId ?? ''}`);
+            clearLoanDraft(userId, selectedCustomer.id);
+            void queryClient.invalidateQueries({ queryKey: DRAFTS_KEY });
+            onClose();
+            setLocation(`/loan-applications/${existingCase.id}`);
+          }}>ادامه از پرونده‌ی {fa(existingCase.id)} <ChevronLeft size={18} /></button>
+        </div>
+      </div> : <AnimatePresence mode="wait">
         <motion.div
           key={step}
           initial={{ opacity: 0, x: -10 }}
@@ -716,7 +742,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
                loading={loadingCustomers}
                selectedCustomer={selectedCustomer} 
                 setSelectedCustomer={selectCustomer} 
-               onNext={() => { void ensureDraft().then((ok) => { if (ok) handleNext(); }); }} 
+               onNext={() => { void (async () => { if (selectedCustomer && await checkExistingCase(selectedCustomer.id)) return; if (await ensureDraft()) handleNext(); })(); }} 
             />
           )}
           {step === 2 && selectedCustomer && (
@@ -761,7 +787,8 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
           )}
             {step === 4 && selectedCustomer && selectedPlan && (
               <StepFilingFee customer={selectedCustomer} selectedPlan={selectedPlan} ignoreCreditRank={previewAllPlans} draftId={srv?.id} overrideReason={overrideReasonParam}
-                feeChargeId={feeChargeId} setFeeChargeId={setFeeChargeId} onNext={handleNext} onPrev={handlePrev} />
+                feeChargeId={feeChargeId} setFeeChargeId={setFeeChargeId} onNext={handleNext} onPrev={handlePrev}
+                onExistingCase={() => { if (selectedCustomer) void checkExistingCase(selectedCustomer.id); }} />
           )}
            {step === 5 && selectedCustomer && (
             <Step4IdentityDocs
@@ -788,7 +815,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
             />
           )}
         </motion.div>
-      </AnimatePresence>
+      </AnimatePresence>}
           </div>
         </main>
       </div>
@@ -839,8 +866,8 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   );
 }
 
-function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, onNext, onPrev, ignoreCreditRank, draftId, overrideReason }: {
-  ignoreCreditRank: boolean; draftId?: number; overrideReason?: string;
+function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, onNext, onPrev, ignoreCreditRank, draftId, overrideReason, onExistingCase }: {
+  ignoreCreditRank: boolean; draftId?: number; overrideReason?: string; onExistingCase?: () => void;
   customer: Customer; selectedPlan: CustomerEligiblePlan;
   feeChargeId: number | null; setFeeChargeId: (id: number | null) => void; onNext: () => void; onPrev: () => void;
 }) {
@@ -862,15 +889,18 @@ function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, on
     setPending(true);
     setFeeError('');
     const storageKey = `loan-fee:${customer.id}:${plan.planId}`;
-    keyRef.current ??= window.sessionStorage.getItem(storageKey) ?? crypto.randomUUID();
+    // One key per server draft + plan: a double click, a second tab or a resumed draft replays the same charge.
+    keyRef.current ??= filingFeeIdempotencyKey(draftId, customer.id, plan.planId) ?? window.sessionStorage.getItem(storageKey) ?? crypto.randomUUID();
     window.sessionStorage.setItem(storageKey, keyRef.current);
     try {
       const feeInput = { customerId: customer.id, planId: plan.planId, ignoreCreditRank, creditRankOverrideReason: overrideReason, ...(draftId ? { draftId } : {}) };
       const charge = await chargeFilingFee(feeInput as Parameters<typeof chargeFilingFee>[0],
         { headers: { 'Idempotency-Key': keyRef.current } });
+      if ((charge as { applicationId?: number | null }).applicationId) { onExistingCase?.(); return; }
       setFeeChargeId(charge.chargeId);
       await queryClient.invalidateQueries({ queryKey: getGetFilingFeePlansQueryKey({ customerId: customer.id, ignoreCreditRank, creditRankOverrideReason: overrideReason }) });
     } catch (e) {
+      if ((e as { data?: { error?: string } })?.data?.error === 'open_pre_registration_case' || /open_pre_registration_case/.test(String((e as Error)?.message ?? ''))) { onExistingCase?.(); return; }
       setFeeError(apiErrorMessage(e, 'کسر هزینه انجام نشد. موجودی کیف پول نقدی را بررسی کنید.'));
       refetch();
     } finally { setPending(false); }
