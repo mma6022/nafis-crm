@@ -49,7 +49,8 @@
     "test:team-sales": "node scripts/run-bundled-fixture.mjs scripts/team-sales-fixture.mjs",
     "test:team-commission": "node scripts/run-bundled-fixture.mjs scripts/team-commission-fixture.mjs",
     "test:call-form-plans-migrate": "node scripts/call-form-plans-migrate-fixture.mjs",
-    "test:credit-subgrades": "node scripts/run-bundled-fixture.mjs scripts/credit-subgrades-fixture.mjs"
+    "test:credit-subgrades": "node scripts/run-bundled-fixture.mjs scripts/credit-subgrades-fixture.mjs",
+    "test:plan-grade-filter": "node scripts/run-bundled-fixture.mjs scripts/plan-grade-filter-fixture.mjs"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.3.0",

@@ -924,11 +924,24 @@ function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, can
   const [creditOtpError, setCreditOtpError] = useState('');
   
   const latestCredit = creditChecks?.[0];
-  const freshCredit = creditChecks?.find((check) =>
+  const listedFreshCredit = creditChecks?.find((check) =>
     check.status === "report_generated" &&
     Date.now() - new Date(check.completedAt || check.updatedAt).getTime() < 24 * 60 * 60 * 1000
   );
-  const hasFreshCredit = Boolean(freshCredit);
+  // The plan step trusts the server's credit rule, which also discards an
+  // inquiry taken before the customer's identity changed (for example when
+  // the customer completes their profile in the portal). Mirror that verdict
+  // here so this step never shows a rank the plan step will refuse to use.
+  const { data: serverCredit, refetch: refetchServerCredit } = useListCustomerEligiblePlans(customer.id, { ignoreCreditRank: false }, {
+    query: { queryKey: ["eligible-plans", customer.id, false], enabled: isVerified, staleTime: 0 }
+  });
+  useEffect(() => {
+    if (isVerified) void refetchServerCredit();
+  }, [isVerified, listedFreshCredit?.id, listedFreshCredit?.status]);
+  const hasFreshCredit = serverCredit ? serverCredit.credit.fresh : Boolean(listedFreshCredit);
+  const creditStaleAfterIdentityChange = Boolean(listedFreshCredit) && Boolean(serverCredit) && !serverCredit?.credit.fresh;
+  const freshCreditRank = serverCredit?.credit.fresh ? serverCredit.credit.rank : listedFreshCredit?.scoreLabel;
+  const freshCreditAt = serverCredit?.credit.fresh ? serverCredit.credit.checkedAt : (listedFreshCredit?.completedAt || listedFreshCredit?.updatedAt);
 
   useEffect(() => {
     if (!latestCredit || (latestCredit.status !== 'processing' && latestCredit.status !== 'awaiting_otp')) return undefined;
@@ -1118,8 +1131,8 @@ function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, can
           <div className="lwz-result ok" data-testid="credit-status-fresh">
             <ShieldCheck size={28} aria-hidden="true" />
             <div>
-              <strong>رتبه اعتباری: {freshCredit?.scoreLabel || 'نامشخص'}</strong>
-              <span>بروزرسانی: {formatDateTime(freshCredit?.completedAt || freshCredit?.updatedAt)} · اعتبار ۲۴ ساعت</span>
+              <strong>رتبه اعتباری: {freshCreditRank || 'نامشخص'}</strong>
+              <span>بروزرسانی: {formatDateTime(freshCreditAt)} · اعتبار ۲۴ ساعت</span>
             </div>
           </div>
         ) : latestCredit?.status === 'awaiting_otp' ? (
@@ -1149,6 +1162,11 @@ function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, can
           </div>
         ) : (
           <div className="lwz-start">
+            {creditStaleAfterIdentityChange && (
+              <p className="lwz-note warn" role="note" data-testid="credit-stale-identity">
+                اطلاعات هویتی مشتری بعد از آخرین استعلام (رتبه {listedFreshCredit?.scoreLabel || 'نامشخص'}) تغییر کرده است؛ آن نتیجه دیگر برای انتخاب طرح معتبر نیست و استعلام تازه لازم است.
+              </p>
+            )}
             <p className="lwz-muted">برای انتخاب طرح تسهیلاتی، رتبه اعتباری ۲۴ ساعت اخیر الزامی است. کد یک‌بارمصرف به موبایل مشتری ارسال می‌شود.</p>
             <button type="button" className="btn btn-gold lwz-wide" onClick={startCreditCheck} disabled={initiateCredit.isPending} data-testid="btn-start-credit-check">
               {initiateCredit.isPending ? 'در حال ارسال...' : 'استعلام رتبه اعتباری'}
@@ -1281,9 +1299,15 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
                 ); })}
             </div>
          ) : (
+             !ignoreCreditRank && eligibleResponse && !eligibleResponse.credit.fresh ? (
+               <div className="lwz-note bad" data-testid="empty-plans-stale-credit">
+                 <b>رتبه اعتباری معتبر نیست.</b> استعلام ۲۴ ساعت اخیر بعد از آخرین تغییر اطلاعات هویتی مشتری وجود ندارد؛ به مرحله رتبه اعتباری برگردید و استعلام تازه بگیرید.
+               </div>
+             ) : (
              <div className="lwz-note bad" data-testid="empty-plans">
-               <b>طرح واجد شرایطی نیست.</b> با نتیجه اعتبارسنجی فعلی، طرح واجد شرایطی برای ثبت درخواست وجود ندارد.
+               <b>طرح واجد شرایطی نیست.</b> با رتبه اعتباری {eligibleResponse?.credit.rank || 'فعلی'}، طرح واجد شرایطی برای ثبت درخواست وجود ندارد.
              </div>
+             )
          )}
       </div>
        {planTried && !selectedPlanId && <small role="alert" className="lwz-err" data-testid="error-plan-selection">برای ادامه یک طرح تسهیلاتی انتخاب کنید.</small>}
