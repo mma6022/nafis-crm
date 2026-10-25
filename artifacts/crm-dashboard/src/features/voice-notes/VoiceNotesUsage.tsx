@@ -49,7 +49,7 @@ export default function VoiceNotesUsage() {
               {d.providers.map((p) => (
                 <span key={`${p.provider}|${p.model}`} className="vnu-chip">
                   {p.provider === 'xai' ? 'xAI' : 'OpenAI'} <bdi dir="ltr">{p.model}</bdi> · {faDigits(p.served)} تبدیل · {n1(p.minutes)} دقیقه
-                  {p.fallbacks ? <em> · {faDigits(p.fallbacks)} جایگزین خطای xAI</em> : null}
+                  {p.fallbacks ? <em> · {faDigits(p.fallbacks)} جایگزین خطای {p.provider === 'xai' ? 'OpenAI' : 'xAI'}</em> : null}
                 </span>))}
             </div>) : null}
           {d.users.length === 0 ? <div className="empty-state compact">در این ماه هنوز تبدیلی ثبت نشده است.</div> : (

@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Loader2, Mic, Square, AlertCircle } from 'lucide-react';
+import { Loader2, Mic, MicOff, Square, AlertCircle, Check, X } from 'lucide-react';
 import { transcribeVoiceNote, useVoiceNotesConfig, VOICE_CONFIG_KEY, type VoiceField } from './api';
 import { MAX_RECORD_SECONDS, appendTranscript, formatTimer, micErrorMessage, pickRecorderType } from './voice-note-text';
 import './voice-notes.css';
@@ -12,24 +12,36 @@ type Props = {
   field: VoiceField;
   maxLength?: number;
   testId?: string;
+  /** The note <textarea>. It is wrapped in a positioned box so the mic sits INSIDE its bottom corner. */
+  children?: ReactNode;
+  /** Keep the wrapper but show no mic (e.g. a read-only report). */
+  off?: boolean;
 };
-type Phase = 'idle' | 'starting' | 'recording' | 'uploading';
+type Phase = 'idle' | 'starting' | 'recording' | 'stopping' | 'uploading';
+/** Keep recording this long after «پایان ضبط» so the last syllable is not cut off. */
+const STOP_TAIL_MS = 350;
+const DENIED = 'اجازهٔ میکروفون داده نشد. از نماد قفل کنار نشانی مرورگر، «میکروفون» را روی «اجازه» بگذارید و دوباره دکمهٔ میکروفون را بزنید. متن یادداشت سر جایش است و می‌توانید تایپ کنید.';
 
 /**
- * Mic button for a note field: click to start, click to stop (auto-stop at 2:00). Hidden unless the server says the
- * feature is on for this user. The transcript is APPENDED and stays editable; on any error the text is untouched.
- * Audio is only held in memory until the upload finishes.
+ * Note field + mic. The textarea (children) is wrapped in `.vn-field`; when the server says the feature is on for this
+ * user a small round mic button sits inside the box's bottom inline-end corner (bottom-left in RTL) and the textarea
+ * gets an inline-end gutter, so text, caret and the counter below never run under it. Status (recording timer + stop,
+ * transcribing, inserted + undo, error, permission denied) is a single line UNDER the box, never over it.
+ * Click to start, click again (or «پایان ضبط») to stop; auto-stop at 2:00. The transcript is APPENDED and stays
+ * editable; on any error the text is untouched. Audio is only held in memory until the upload finishes.
  */
-export function VoiceNoteButton({ value, onChange, field, maxLength, testId = 'voice-note' }: Props) {
+export function VoiceNoteButton({ value, onChange, field, maxLength, testId = 'voice-note', children, off = false }: Props) {
   const config = useVoiceNotesConfig();
   const qc = useQueryClient();
   const [phase, setPhase] = useState<Phase>('idle');
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
+  const [denied, setDenied] = useState(false);
+  const [done, setDone] = useState<{ before: string; after: string } | null>(null);
   const valueRef = useRef(value); valueRef.current = value;
   const onChangeRef = useRef(onChange); onChangeRef.current = onChange;
-  const barRef = useRef<HTMLDivElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const doneTimer = useRef(0);
   const rec = useRef<{ recorder: MediaRecorder; stream: MediaStream; chunks: Blob[]; startedAt: number; timer: number; cancelled: boolean } | null>(null);
   const max = Math.min(MAX_RECORD_SECONDS, config.data?.maxSeconds ?? MAX_RECORD_SECONDS);
 
@@ -38,21 +50,33 @@ export function VoiceNoteButton({ value, onChange, field, maxLength, testId = 'v
     window.clearInterval(r.timer);
     r.stream.getTracks().forEach((t) => t.stop());
   };
-  useEffect(() => () => { if (rec.current) { rec.current.cancelled = true; try { rec.current.recorder.stop(); } catch { /* */ } release(); rec.current = null; } }, []);
+  useEffect(() => () => { window.clearTimeout(doneTimer.current); if (rec.current) { rec.current.cancelled = true; try { rec.current.recorder.stop(); } catch { /* */ } release(); rec.current = null; } }, []);
 
-  if (!config.data?.enabled) return null;
-  const remaining = config.data.remainingSeconds;
+  const enabled = Boolean(config.data?.enabled) && !off;
+  // The wrapper is always rendered (even while the config loads or when the feature is off) so the textarea is never
+  // re-mounted and never loses focus/caret when the mic appears.
+  if (!enabled) return <div className="vn-field" ref={boxRef}>{children}</div>;
+  const remaining = config.data?.remainingSeconds;
 
-  const stop = () => { const r = rec.current; if (r && r.recorder.state !== 'inactive') r.recorder.stop(); };
+  const stop = () => {
+    const r = rec.current; if (!r || r.recorder.state === 'inactive') return;
+    setPhase('stopping');
+    window.setTimeout(() => { try { if (r.recorder.state !== 'inactive') { r.recorder.requestData(); r.recorder.stop(); } } catch { /* */ } }, STOP_TAIL_MS);
+  };
 
   const start = async () => {
-    setError(null); setDone(false);
+    setError(null); setDone(null); setDenied(false); window.clearTimeout(doneTimer.current);
     if (remaining !== undefined && remaining <= 0) { setError('سقف روزانهٔ تبدیل صدا پر شده است؛ متن را تایپ کنید.'); return; }
     if (typeof window.MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) { setError(micErrorMessage({ name: 'Unsupported' })); return; }
     setPhase('starting');
     let stream: MediaStream;
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
-    catch (e) { setPhase('idle'); setError(micErrorMessage(e)); return; }
+    catch (e) {
+      setPhase('idle');
+      const name = (e as { name?: string } | null)?.name;
+      if (name === 'NotAllowedError' || name === 'SecurityError') { setDenied(true); setError(DENIED); } else setError(micErrorMessage(e));
+      return;
+    }
     const type = pickRecorderType((t) => MediaRecorder.isTypeSupported(t));
     let recorder: MediaRecorder;
     try { recorder = new MediaRecorder(stream, type ? { mimeType: type, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 }); }
@@ -62,13 +86,13 @@ export function VoiceNoteButton({ value, onChange, field, maxLength, testId = 'v
     const timer = window.setInterval(() => {
       const s = (performance.now() - startedAt) / 1000;
       setElapsed(s);
-      if (s >= max) stop();
+      if (s >= max && rec.current?.recorder.state === 'recording') { try { rec.current.recorder.stop(); } catch { /* */ } }
     }, 250);
     rec.current = { recorder, stream, chunks, startedAt, timer, cancelled: false };
     recorder.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
     recorder.onstop = async () => {
       const r = rec.current; release(); rec.current = null;
-      if (!r || r.cancelled) return;
+      if (!r || r.cancelled) { setPhase('idle'); return; }
       const seconds = Math.min(max, (performance.now() - r.startedAt) / 1000);
       const blob = new Blob(chunks, { type: recorder.mimeType || type || 'audio/webm' });
       chunks.length = 0;
@@ -76,13 +100,16 @@ export function VoiceNoteButton({ value, onChange, field, maxLength, testId = 'v
       setPhase('uploading');
       try {
         const out = await transcribeVoiceNote(blob, seconds, field);
-        onChangeRef.current(appendTranscript(valueRef.current, out.text, maxLength));
-        // Show the newly appended text: scroll the field's textarea (same wrapper) to its end.
+        const before = valueRef.current;
+        const after = appendTranscript(before, out.text, maxLength);
+        onChangeRef.current(after);
+        // Show the newly appended text: scroll the wrapped textarea to its end.
         window.setTimeout(() => {
-          const ta = barRef.current?.parentElement?.querySelector('textarea');
+          const ta = boxRef.current?.querySelector('textarea');
           if (ta) ta.scrollTop = ta.scrollHeight;
         }, 0);
-        setDone(true);
+        setDone({ before, after });
+        doneTimer.current = window.setTimeout(() => setDone(null), 12000);
       } catch (e) {
         setError(e instanceof Error && e.message ? e.message : 'تبدیل صدا به متن انجام نشد؛ متن قبلی سر جایش است.');
       } finally {
@@ -96,19 +123,43 @@ export function VoiceNoteButton({ value, onChange, field, maxLength, testId = 'v
     setPhase('recording');
   };
 
-  const recording = phase === 'recording';
-  const busy = phase === 'starting' || phase === 'uploading';
+  const recording = phase === 'recording' || phase === 'stopping';
+  const busy = phase === 'starting' || phase === 'uploading' || phase === 'stopping';
   const left = Math.max(0, max - elapsed);
+  const undo = () => { if (done && valueRef.current === done.after) onChangeRef.current(done.before); setDone(null); window.clearTimeout(doneTimer.current); };
+  const micLabel = recording ? 'پایان ضبط و تبدیل به متن' : phase === 'uploading' ? 'در حال تبدیل صدا به متن' : denied ? 'میکروفون مسدود است؛ دوباره امتحان کنید' : 'ضبط صدا و تبدیل به متن';
   return (
-    <div ref={barRef} className={`vn-bar${recording ? ' rec' : ''}`} data-testid={testId} data-phase={phase}>
-      <button type="button" className={`vn-btn${recording ? ' rec' : ''}`} onClick={recording ? stop : () => void start()} disabled={busy}
-        aria-pressed={recording} aria-label={recording ? 'پایان ضبط و تبدیل به متن' : 'ضبط صدا و تبدیل به متن'} data-testid={`${testId}-btn`}>
-        {phase === 'uploading' ? <Loader2 size={16} className="vn-spin" /> : recording ? <Square size={14} fill="currentColor" /> : <Mic size={16} />}
-        <span>{phase === 'uploading' ? 'در حال تبدیل…' : recording ? 'پایان ضبط' : phase === 'starting' ? 'اجازهٔ میکروفون…' : 'ضبط صدا'}</span>
-      </button>
-      {recording ? <span className="vn-timer" aria-live="off" data-testid={`${testId}-timer`}><span className="vn-dot" aria-hidden="true" />{formatTimer(elapsed)}<span className="vn-max"> / {formatTimer(max)}</span>{left <= 15 ? <span className="vn-warn"> · {formatTimer(left)} مانده</span> : null}</span>
-        : phase === 'idle' && !error ? <span className="vn-hint">{done ? 'متن به انتهای یادداشت اضافه شد؛ قبل از ثبت بازبینی کنید.' : `حداکثر ${formatTimer(max)} دقیقه؛ متن به انتهای یادداشت اضافه می‌شود.`}</span> : null}
-      {error ? <span className="vn-error" role="alert" data-testid={`${testId}-error`}><AlertCircle size={14} /> {error}</span> : null}
-    </div>
+    <>
+      <div ref={boxRef} className={`vn-field vn-on${recording ? ' rec' : ''}`} data-testid={testId} data-phase={phase}>
+        {children}
+        <button type="button" className={`vn-mic${recording ? ' rec' : ''}${denied && phase === 'idle' ? ' off' : ''}`}
+          onClick={phase === 'recording' ? stop : () => void start()} disabled={busy} title={micLabel}
+          aria-pressed={recording} aria-label={micLabel} data-testid={`${testId}-btn`}>
+          {phase === 'uploading' || phase === 'starting' || phase === 'stopping' ? <Loader2 size={16} className="vn-spin" />
+            : recording ? <Square size={12} fill="currentColor" /> : denied ? <MicOff size={16} /> : <Mic size={16} />}
+        </button>
+      </div>
+      {recording ? (
+        <div className="vn-bar rec" data-testid={`${testId}-bar`}>
+          <span className="vn-timer" aria-live="off" data-testid={`${testId}-timer`}><span className="vn-dot" aria-hidden="true" />{formatTimer(elapsed)}<span className="vn-max"> / {formatTimer(max)}</span></span>
+          <span className="vn-msg">{left <= 15 ? <span className="vn-warn">{formatTimer(left)} مانده</span> : 'در حال ضبط… حرف بزنید'}</span>
+          <button type="button" className="vn-stop" onClick={stop} disabled={phase === 'stopping'} data-testid={`${testId}-stop`}><Square size={11} fill="currentColor" /> پایان ضبط</button>
+        </div>
+      ) : phase === 'starting' ? (
+        <div className="vn-bar" data-testid={`${testId}-bar`}><span className="vn-msg">در انتظار اجازهٔ میکروفون…</span></div>
+      ) : phase === 'uploading' ? (
+        <div className="vn-bar busy" data-testid={`${testId}-bar`} aria-live="polite"><Loader2 size={14} className="vn-spin" /><span className="vn-msg">در حال تبدیل صدا به متن… <span className="vn-sub">می‌توانید تایپ را ادامه دهید.</span></span></div>
+      ) : error ? (
+        <div className={`vn-bar err${denied ? ' denied' : ''}`} data-testid={`${testId}-bar`}>
+          <span className="vn-error" role="alert" data-testid={`${testId}-error`}>{denied ? <MicOff size={14} /> : <AlertCircle size={14} />}<span>{error}</span></span>
+          <button type="button" className="vn-x" onClick={() => setError(null)} aria-label="بستن" data-testid={`${testId}-dismiss`}><X size={14} /></button>
+        </div>
+      ) : done ? (
+        <div className="vn-bar ok" data-testid={`${testId}-bar`} aria-live="polite">
+          <Check size={14} /><span className="vn-msg">متن به انتهای یادداشت اضافه شد؛ قبل از ثبت بازبینی کنید.</span>
+          <button type="button" className="vn-undo" onClick={undo} data-testid={`${testId}-undo`}>برگرداندن</button>
+        </div>
+      ) : null}
+    </>
   );
 }

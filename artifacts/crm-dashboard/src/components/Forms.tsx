@@ -272,13 +272,11 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
               </div>
               <div className="field call-grow call-grow-sm">
                 <label htmlFor="call-request">درخواست مشتری</label>
-                <textarea id="call-request" value={form.customerRequest} onChange={(event) => update('customerRequest', event.target.value)} data-testid="textarea-call-request" />
-                <VoiceNoteButton value={form.customerRequest} onChange={(v) => update('customerRequest', v)} field="call_note" testId="call-request-voice" />
+                <VoiceNoteButton value={form.customerRequest} onChange={(v) => update('customerRequest', v)} field="call_note" testId="call-request-voice"><textarea id="call-request" value={form.customerRequest} onChange={(event) => update('customerRequest', event.target.value)} data-testid="textarea-call-request" /></VoiceNoteButton>
               </div>
               <div className="field call-grow call-grow-lg">
                 <label htmlFor="call-notes">یادداشت کارشناس <span className="req" aria-hidden="true">*</span></label>
-                <textarea id="call-notes" value={form.expertNotes} onChange={(event) => update('expertNotes', event.target.value)} aria-invalid={noteError && !callNoteOk(form.expertNotes)} aria-describedby="call-notes-meta" aria-required="true" data-testid="textarea-call-notes" />
-                <VoiceNoteButton value={form.expertNotes} onChange={(v) => update('expertNotes', v)} field="call_note" testId="call-notes-voice" />
+                <VoiceNoteButton value={form.expertNotes} onChange={(v) => update('expertNotes', v)} field="call_note" testId="call-notes-voice"><textarea id="call-notes" value={form.expertNotes} onChange={(event) => update('expertNotes', event.target.value)} aria-invalid={noteError && !callNoteOk(form.expertNotes)} aria-describedby="call-notes-meta" aria-required="true" data-testid="textarea-call-notes" /></VoiceNoteButton>
                 <CallNoteCounter value={form.expertNotes} showError={noteError} id="call-notes-meta" testId="call-notes-counter" />
               </div>
             </div>

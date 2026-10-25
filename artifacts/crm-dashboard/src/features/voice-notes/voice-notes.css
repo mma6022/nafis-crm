@@ -1,23 +1,56 @@
-/* crm-voice-notes: mic bar under a note field (RTL, Nafis blue). */
-.vn-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-top: 6px; font-size: 12.5px; direction: rtl; }
-.vn-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid #c7d2fe;
-  background: var(--nafiss-light, #e0e7ff); color: var(--nafiss-blue, #1c3687); font: inherit; font-weight: 700; cursor: pointer; transition: background .15s, color .15s; }
-.vn-btn:hover:not(:disabled) { background: #d3dcfd; }
-.vn-btn:focus-visible { outline: 2px solid var(--nafiss-blue, #1c3687); outline-offset: 2px; }
-.vn-btn:disabled { opacity: .7; cursor: progress; }
-.vn-btn.rec { background: #b42318; border-color: #b42318; color: #fff; }
-.vn-btn.rec:hover { background: #912018; }
-.vn-timer { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; font-weight: 700; color: #b42318; }
+/* crm-voice-notes: note box + mic (RTL, Nafis blue).
+   The textarea is wrapped in .vn-field; the round mic sits INSIDE the box's bottom inline-end corner (bottom-left in RTL)
+   and the textarea gets an inline-end gutter the full height of the box, so no line, caret or scrolled text can ever run
+   under the button. Status lives in one line UNDER the box (.vn-bar), never over the text or the character counter. */
+.vn-field { position: relative; display: flex; flex-direction: column; width: 100%; min-width: 0; }
+.vn-field > textarea { width: 100%; box-sizing: border-box; }
+.vn-field.vn-on > textarea { padding-inline-end: 52px !important; resize: none !important; scrollbar-width: thin; }
+.vn-mic { position: absolute; inset-inline-end: 12px; bottom: 10px; z-index: 1; width: 34px; height: 34px; padding: 0; display: inline-grid; place-items: center;
+  border-radius: 50%; border: 1px solid #c7cdf0; background: #eef0fb; color: var(--nf-brand-600, #29369B); cursor: pointer;
+  box-shadow: 0 1px 2px rgba(11, 20, 80, .08); transition: background .15s, color .15s, border-color .15s; }
+.vn-mic:hover:not(:disabled) { background: #dfe3f8; border-color: #9aa3e0; }
+.vn-mic:focus-visible { outline: 3px solid var(--nf-ring, rgba(41, 54, 155, .3)); outline-offset: 2px; }
+.vn-mic:disabled { cursor: progress; opacity: .85; }
+.vn-mic.rec { background: #b42318; border-color: #b42318; color: #fff; box-shadow: 0 0 0 4px rgba(217, 45, 32, .16); }
+.vn-mic.rec:hover:not(:disabled) { background: #912018; }
+.vn-mic.off { background: #fff; border-color: #fecdca; color: #b42318; }
+.vn-field.vn-on.rec > textarea { border-color: #f04438 !important; }
+
+.vn-bar { display: flex; align-items: center; gap: 8px; margin-top: 6px; min-height: 36px; padding: 4px 10px 4px 6px; border-radius: 12px;
+  font-size: 12.5px; line-height: 1.6; direction: rtl; background: #f5f6fb; color: #475467; border: 1px solid #e4e7f2; box-sizing: border-box; }
+.vn-bar > svg { flex: none; }
+.vn-msg { flex: 1 1 auto; min-width: 0; }
+.vn-sub { color: #667085; font-weight: 400; }
+.vn-bar.rec { background: #fef3f2; border-color: #fecdca; color: #912018; }
+.vn-bar.busy { color: var(--nf-brand-600, #29369B); font-weight: 600; }
+.vn-bar.ok { background: #ecfdf3; border-color: #abefc6; color: #067647; }
+.vn-bar.err { background: #fef3f2; border-color: #fecdca; color: #b42318; align-items: flex-start; }
+.vn-timer { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; font-weight: 800; color: #b42318; flex: none; }
 .vn-dot { width: 8px; height: 8px; border-radius: 50%; background: #d92d20; animation: vn-pulse 1s ease-in-out infinite; }
-.vn-max { color: #667085; font-weight: 500; }
-.vn-warn { color: #b54708; font-weight: 600; }
-.vn-hint { color: #667085; }
-.vn-error { display: inline-flex; align-items: flex-start; gap: 5px; color: #b42318; background: #fef3f2; border: 1px solid #fecdca; border-radius: 10px; padding: 5px 9px; line-height: 1.6; flex-basis: 100%; }
+.vn-max { color: #98a2b3; font-weight: 500; }
+.vn-warn { color: #b54708; font-weight: 700; }
+.vn-stop, .vn-undo { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 12px; border-radius: 999px; font: inherit; font-weight: 700; cursor: pointer; }
+.vn-stop { border: 0; background: #b42318; color: #fff; }
+.vn-stop:hover:not(:disabled) { background: #912018; }
+.vn-stop:disabled { opacity: .7; cursor: progress; }
+.vn-undo { border: 1px solid #abefc6; background: #fff; color: #067647; }
+.vn-undo:hover { background: #dcfae6; }
+.vn-error { flex: 1 1 auto; display: inline-flex; align-items: flex-start; gap: 6px; min-width: 0; padding: 3px 0; }
 .vn-error svg { flex: none; margin-top: 3px; }
+.vn-x { flex: none; width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; }
+.vn-x:hover { background: rgba(180, 35, 24, .08); }
+.vn-stop:focus-visible, .vn-undo:focus-visible, .vn-x:focus-visible { outline: 2px solid var(--nf-brand-600, #29369B); outline-offset: 2px; }
 .vn-spin { animation: vn-rot 1s linear infinite; }
 @keyframes vn-pulse { 50% { opacity: .25; } }
 @keyframes vn-rot { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .vn-dot, .vn-spin { animation: none; } }
+/* Call form (desktop): the grow area is a flex column with a fixed 84px floor that its content used to overflow (the old
+   mic bar then sat on top of the next label/box). With the mic it may never shrink below its content (label + box +
+   status line); the form body scrolls instead. The wrapper takes the textarea's place in the column. */
+.call-form-body .call-grow:has(> .vn-field.vn-on) { min-height: auto; }
+.call-form-body .call-grow > .vn-field { flex: 1 1 auto; }
+.call-form-body .call-grow > .vn-field > textarea { flex: 1 1 auto; }
+.call-form-body .call-grow > .vn-field.vn-on > textarea { min-height: 64px; }
 
 /* admin usage page */
 .vnu-head { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; margin-bottom: 14px; }
@@ -41,9 +74,13 @@
 .vnu-providers { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; color: #475467; margin: 0 0 12px; }
 .vnu-chip { background: #f2f4f7; border-radius: 999px; padding: 3px 10px; }
 .vnu-chip em { font-style: normal; color: #b54708; }
-/* Mobile call form: .call-grow is a fixed flex box (min-height 120px); let a field that carries the voice bar size to
-   its content so the hint/error under the mic is never hidden behind the sticky footer. */
+/* Mobile call form: .call-grow is a fixed flex box (min-height 120px); let a field that carries the mic size to its
+   content so the status line under the box is never hidden behind the sticky footer. */
 @media (max-width: 900px) {
-  .call-form-body .call-grow:has(> .vn-bar) { flex: 0 0 auto; }
-  .call-form-body .call-grow:has(> .vn-bar) textarea { flex: none; min-height: 96px; }
+  .call-form-body .call-grow:has(> .vn-field.vn-on) { flex: 0 0 auto; }
+  .call-form-body .call-grow:has(> .vn-field.vn-on) > .vn-field { flex: none; }
+  .call-form-body .call-grow:has(> .vn-field.vn-on) textarea { flex: none; min-height: 96px; }
 }
+/* Recording status stays ONE line even in a narrow dialog at 390px. */
+.vn-bar.rec .vn-msg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 480px) { .vn-bar.rec .vn-max { display: none; } }

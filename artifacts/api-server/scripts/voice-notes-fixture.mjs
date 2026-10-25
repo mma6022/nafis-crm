@@ -261,8 +261,36 @@ await ok("fallback: xAI success → no OpenAI call, row provider xai; both fail 
   t = await start({ env: { STT_ENABLED: "1", OPENAI_API_KEY: FAKE_KEY }, provider: () => ({ body: { text: "سلام" } }) });
   try { const r = await post(t, "sales", "duration=3"); assert.equal(r.status, 200); assert.equal(t.calls.length, 1); assert.equal(rows(t.db)[0].error_code, "fallback_from_xai:no_key"); }
   finally { await t.close(); }
-  assert.equal(readSttConfig({}).fallback, true); assert.equal(readSttConfig({ STT_PROVIDER: "openai" }).fallback, false);
+  assert.equal(readSttConfig({}).fallback, true); assert.equal(readSttConfig({ STT_PROVIDER: "openai" }).fallback, true); assert.equal(readSttConfig({ STT_PROVIDER: "openai", STT_FALLBACK: "off" }).fallback, false);
   assert.ok(PRIMARY_TIMEOUT_WITH_FALLBACK_MS + 30_000 < 60_000, "primary + fallback under nginx 60 s");
+});
+const OXON = { STT_ENABLED: "1", STT_PROVIDER: "openai", XAI_API_KEY: FAKE_KEY + "-x", OPENAI_API_KEY: FAKE_KEY }; // OpenAI primary, xAI fallback
+await ok("fallback (OpenAI primary): OpenAI error/timeout/network → ONE retry with xAI + keyterms; success → no xAI call; both fail → logged as xai; off/no key → no retry", async () => {
+  for (const [oresp, code] of [[{ status: 500, body: {} }, "provider_500"], [{ throw: "TimeoutError" }, "timeout"], [{ throw: "TypeError" }, "network"]]) {
+    const t = await start({ env: OXON, provider: (url) => (isX(url) ? { body: { text: "طرح مریخ", duration: 4 } } : oresp) });
+    try {
+      const r = await post(t, "sales", "field=call_note&duration=5");
+      assert.equal(r.status, 200, code); assert.equal(r.json.text, "طرح مریخ"); assert.equal(t.calls.length, 2);
+      assert.equal(t.calls[0].url, "https://api.openai.com/v1/audio/transcriptions"); assert.ok(isX(t.calls[1].url)); assert.equal(t.calls[1].auth, `Bearer ${FAKE_KEY}-x`);
+      const f = Object.fromEntries(t.calls[1].fields); assert.equal(f.model, "grok-voice-transcribe-2.0"); assert.equal(f.language, "fa");
+      const row = rows(t.db); assert.equal(row.length, 1); assert.equal(row[0].provider, "xai"); assert.equal(row[0].model, "grok-voice-transcribe-2.0");
+      assert.equal(row[0].ok, 1); assert.equal(row[0].error_code, `fallback_from_openai:${code}`);
+      assert.deepEqual(monthlyUsage(t.db, row[0].month_jalali).providers.map((p) => [p.provider, p.served, p.fallbacks]), [["xai", 1, 1]]);
+    } finally { await t.close(); }
+  }
+  let t = await start({ env: OXON, provider: () => ({ body: { text: "ضامن داره." } }) });
+  try { const r = await post(t, "sales", "duration=3"); assert.equal(r.status, 200); assert.equal(t.calls.length, 1); assert.ok(!isX(t.calls[0].url)); const row = rows(t.db)[0]; assert.equal(row.provider, "openai"); assert.equal(row.error_code, null); }
+  finally { await t.close(); }
+  t = await start({ env: OXON, provider: (url) => (isX(url) ? { status: 500, body: {} } : { throw: "TimeoutError" }) });
+  try {
+    const r = await post(t, "sales", "duration=3"); assert.equal(r.status, 502); assert.equal(t.calls.length, 2);
+    const row = rows(t.db)[0]; assert.equal(row.ok, 0); assert.equal(row.provider, "xai"); assert.equal(row.error_code, "fallback_failed:timeout>provider_500");
+  } finally { await t.close(); }
+  for (const env of [{ ...OXON, STT_FALLBACK: "off" }, ON]) {
+    t = await start({ env, provider: () => ({ status: 500, body: {} }) });
+    try { const r = await post(t, "sales", "duration=3"); assert.equal(r.status, 502); assert.equal(t.calls.length, 1); assert.equal(rows(t.db)[0].provider, "openai"); assert.equal(rows(t.db)[0].error_code, "provider_500"); }
+    finally { await t.close(); }
+  }
 });
 await ok("provider errors → Persian message + code, logged ok=0; key never in response; no key → 503", async () => {
   const cases = [

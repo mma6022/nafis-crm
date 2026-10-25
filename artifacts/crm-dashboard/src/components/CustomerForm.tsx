@@ -211,8 +211,7 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
               <button className="csx-primary" type="button" disabled={!explanation.trim() || repeat.isPending} onClick={createRepeat} data-testid="button-create-repeat-request">{repeat.isPending ? 'در حال ثبت…' : 'ثبت درخواست برای پرونده موجود'}</button>
             </div>
           </div> : null}
-          <div className="field"><label htmlFor="customer-description">توضیح (اختیاری)</label><textarea id="customer-description" value={form.description} onChange={(e) => setValue('description', e.target.value)} placeholder="زمینه تماس یا نیاز مالی مشتری..." data-testid="textarea-customer-description" />
-            <VoiceNoteButton value={form.description} onChange={(v) => setValue('description', v)} field="customer_description" testId="customer-description-voice" /></div>
+          <div className="field"><label htmlFor="customer-description">توضیح (اختیاری)</label><VoiceNoteButton value={form.description} onChange={(v) => setValue('description', v)} field="customer_description" testId="customer-description-voice"><textarea id="customer-description" value={form.description} onChange={(e) => setValue('description', e.target.value)} placeholder="زمینه تماس یا نیاز مالی مشتری..." data-testid="textarea-customer-description" /></VoiceNoteButton></div>
           {salespersonField}
           {isEditing ? moreFields : <details className="csx-more" data-testid="customer-form-more">
             <summary>اطلاعات بیشتر (اختیاری)</summary>

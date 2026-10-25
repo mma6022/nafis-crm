@@ -32,7 +32,7 @@ if (audioPath) {
   const audio = new Uint8Array(readFileSync(audioPath));
   const mime = audioPath.endsWith(".mp3") ? "audio/mpeg" : audioPath.endsWith(".m4a") ? "audio/mp4" : "audio/webm";
   const runs = [["primary", cfg]];
-  if (env.VN_CHECK_FALLBACK === "1" && cfg.fallback) runs.push(["fallback", fallbackSttConfig(env)]);
+  if (env.VN_CHECK_FALLBACK === "1" && cfg.fallback) runs.push(["fallback", fallbackSttConfig(env, cfg.provider)]);
   for (const [label, c] of runs) {
     const t0 = Date.now();
     try {

@@ -21,7 +21,7 @@ export type Provider = "openai" | "xai";
 export type SttConfig = {
   enabled: boolean; provider: Provider; model: string; baseUrl: string; hasKey: boolean;
   dailyLimitSeconds: number; maxSeconds: number; maxBytes: number; timeoutMs: number;
-  /** xAI only: retry once with OpenAI (gpt-4o-transcribe + prompt) on any xAI error/timeout. STT_FALLBACK=off disables. */
+  /** Retry once with the OTHER provider on any primary error/timeout (OpenAI primary → xAI keyterms; xAI primary → OpenAI prompt). STT_FALLBACK=off disables; needs the other key. */
   fallback: boolean;
 };
 
@@ -56,7 +56,8 @@ const cleanBase = (v: string | undefined, d: string) => {
 };
 
 export function readSttConfig(env: Env): SttConfig {
-  // Default provider: xAI (grok-voice-transcribe-2.0 + keyterms). STT_PROVIDER=openai switches to the OpenAI fallback.
+  // Default provider: xAI (grok-voice-transcribe-2.0 + keyterms). STT_PROVIDER=openai makes OpenAI (gpt-4o-transcribe) primary.
+  // Either way the OTHER provider is the one-shot fallback (STT_FALLBACK=off disables it).
   const provider: Provider = (env.STT_PROVIDER ?? "").trim().toLowerCase() === "openai" ? "openai" : "xai";
   const xai = provider === "xai";
   return {
@@ -69,14 +70,15 @@ export function readSttConfig(env: Env): SttConfig {
     maxSeconds: num(env.STT_MAX_SECONDS, HARD_MAX_SECONDS, 5, HARD_MAX_SECONDS),
     maxBytes: Math.round(num(env.STT_MAX_BYTES, 5 * 1024 * 1024, 64 * 1024, 10 * 1024 * 1024)),
     timeoutMs: Math.round(num(env.STT_TIMEOUT_SECONDS, 50, 5, 180) * 1000), // nginx proxy_read_timeout is the 60 s default
-    fallback: xai && !/^(0|false|off|no)$/i.test((env.STT_FALLBACK ?? "").trim()),
+    fallback: !/^(0|false|off|no)$/i.test((env.STT_FALLBACK ?? "").trim()),
   };
 }
-/** OpenAI fallback config used when the xAI primary fails (STT_MODEL / STT_API_BASE_URL still apply). */
-export function fallbackSttConfig(env: Env): SttConfig {
-  return { ...readSttConfig({ ...env, STT_PROVIDER: "openai" }), fallback: false };
+/** Fallback config = the provider that is NOT primary: xAI primary → OpenAI; OpenAI primary (STT_PROVIDER=openai) → xAI.
+ *  Provider-specific model / base-URL env vars still apply. */
+export function fallbackSttConfig(env: Env, primary: Provider = "xai"): SttConfig {
+  return { ...readSttConfig({ ...env, STT_PROVIDER: primary === "xai" ? "openai" : "xai" }), fallback: false };
 }
-/** With a fallback, xAI gets ≤20 s and OpenAI ≤30 s so primary + retry stay under nginx's 60 s proxy_read_timeout. */
+/** With a fallback, the primary gets ≤20 s and the fallback ≤30 s so primary + retry stay under nginx's 60 s proxy_read_timeout. */
 export const PRIMARY_TIMEOUT_WITH_FALLBACK_MS = 20_000;
 export const FALLBACK_TIMEOUT_MS = 30_000;
 function apiKey(env: Env, provider: Provider): string {
@@ -210,7 +212,7 @@ export function monthlyUsage(db: Db, month: string) {
   const totals = users.reduce((t, u) => ({ count: t.count + u.count, errorCount: t.errorCount + u.errorCount, seconds: t.seconds + u.seconds, estCostUsd: t.estCostUsd + u.estCostUsd }),
     { count: 0, errorCount: 0, seconds: 0, estCostUsd: 0 });
   const months = (db.prepare(`SELECT DISTINCT month_jalali AS m FROM ${VOICE_NOTES_TABLE} ORDER BY m DESC LIMIT 24`).all() as { m: string }[]).map((r) => r.m);
-  // Which provider served each successful request (fallbacks = OpenAI after an xAI failure).
+  // Which provider served each successful request (fallbacks = served by the non-primary provider after the primary failed).
   const providers = (db.prepare(`SELECT provider, model, SUM(ok) AS served,
       SUM(CASE WHEN ok=1 AND error_code LIKE 'fallback_from_%' THEN 1 ELSE 0 END) AS fallbacks,
       SUM(CASE WHEN ok=1 THEN audio_seconds ELSE 0 END) AS seconds
@@ -359,16 +361,16 @@ export function createVoiceNotesRouter(deps: VoiceNotesDeps): IRouter {
       const env = deps.env();
       const vocab = cachedPlanVocab(deps.db, now().getTime());
       const input = { audio, mime, plans: vocab.active, inactivePlans: vocab.inactive };
-      const fb = cfg.fallback ? fallbackSttConfig(env) : null;
+      const fb = cfg.fallback ? fallbackSttConfig(env, cfg.provider) : null;
       const useFallback = Boolean(fb?.hasKey);
       let served = cfg; let note: string | null = null; let result: { text: string; durationSec: number | null };
       try {
         result = await transcribe(useFallback ? { ...cfg, timeoutMs: Math.min(cfg.timeoutMs, PRIMARY_TIMEOUT_WITH_FALLBACK_MS) } : cfg, env, input, deps.fetch);
       } catch (primaryErr) {
         if (!useFallback || !fb) throw primaryErr;
-        // xAI failed or timed out → one retry with OpenAI (gpt-4o-transcribe + helper prompt). Logged as served by OpenAI.
+        // Primary failed or timed out → one retry with the other provider (xAI→OpenAI or OpenAI→xAI). Logged as served by it.
         const code = primaryErr instanceof VoiceNoteError ? primaryErr.code : "internal";
-        served = fb; note = `fallback_from_xai:${code}`.slice(0, 60);
+        served = fb; note = `fallback_from_${cfg.provider}:${code}`.slice(0, 60);
         try { result = await transcribe({ ...fb, timeoutMs: Math.min(fb.timeoutMs, FALLBACK_TIMEOUT_MS) }, env, input, deps.fetch); }
         catch (e2) { if (e2 instanceof VoiceNoteError) e2.code = `fallback_failed:${code}>${e2.code}`.slice(0, 60); throw e2; }
       }
@@ -387,7 +389,8 @@ export function createVoiceNotesRouter(deps: VoiceNotesDeps): IRouter {
     } catch (e) {
       const err = e instanceof VoiceNoteError ? e : new VoiceNoteError(500, "internal", "تبدیل صدا انجام نشد؛ دوباره تلاش کنید.");
       const viaFallback = err.code.startsWith("fallback_failed:");
-      logTranscription(deps.db, { userId: actor.id, userName: actor.fullName, role: actor.role, field, provider: viaFallback ? "openai" : cfg.provider, model: viaFallback ? fallbackSttConfig(deps.env()).model : cfg.model, seconds: 0, bytes: audio?.length ?? 0, mime, ok: false, errorCode: err.code, at });
+      const fbCfg = viaFallback ? fallbackSttConfig(deps.env(), cfg.provider) : null;
+      logTranscription(deps.db, { userId: actor.id, userName: actor.fullName, role: actor.role, field, provider: fbCfg ? fbCfg.provider : cfg.provider, model: fbCfg ? fbCfg.model : cfg.model, seconds: 0, bytes: audio?.length ?? 0, mime, ok: false, errorCode: err.code, at });
       res.status(err.status).json({ error: err.message, code: err.code });
     } finally {
       if (audio) audio.fill(0);

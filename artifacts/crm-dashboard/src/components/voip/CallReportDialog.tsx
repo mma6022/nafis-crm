@@ -152,8 +152,7 @@ export function CallReportEditor({ source, onDirtyChange, onSaved, footer }: {
       <div className="field full"><label htmlFor="cr-subject">موضوع تماس (کارشناس)</label>
         <input id="cr-subject" value={subject} maxLength={160} disabled={!canEdit} readOnly={conflict} onChange={(e) => edit(e.target.value, draft.current.notes)} data-testid="input-report-subject" /></div>
       <div className="field full"><label htmlFor="cr-notes">یادداشت کارشناس</label>
-        <textarea id="cr-notes" rows={5} value={notes} maxLength={10000} disabled={!canEdit} readOnly={conflict} onChange={(e) => edit(draft.current.subject, e.target.value)} placeholder="نتیجه مکالمه را بنویسید" aria-invalid={noteErr && !callNoteOk(notes)} aria-describedby="cr-notes-meta" data-testid="input-report-notes" />
-        {canEdit && !conflict ? <VoiceNoteButton value={notes} onChange={(v) => edit(draft.current.subject, v)} field="call_note" maxLength={10000} testId="report-notes-voice" /> : null}
+        <VoiceNoteButton value={notes} onChange={(v) => edit(draft.current.subject, v)} field="call_note" maxLength={10000} testId="report-notes-voice" off={!canEdit || conflict}><textarea id="cr-notes" rows={5} value={notes} maxLength={10000} disabled={!canEdit} readOnly={conflict} onChange={(e) => edit(draft.current.subject, e.target.value)} placeholder="نتیجه مکالمه را بنویسید" aria-invalid={noteErr && !callNoteOk(notes)} aria-describedby="cr-notes-meta" data-testid="input-report-notes" /></VoiceNoteButton>
         {canEdit ? <CallNoteCounter value={notes} showError={noteErr} id="cr-notes-meta" testId="report-notes-counter" /> : null}</div>
     </div>
     {!canEdit ? <p className="subtle-note">امکان ویرایش این گزارش برای شما فعال نیست.</p> : null}
