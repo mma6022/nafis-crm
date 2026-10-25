@@ -33,6 +33,8 @@ const actors={
  empty:{id:5,role:'viewer',permissions:[],customerScope:'all'},
  unlinked:{id:6,role:'salesperson',permissions:['customers.view','loan_applications.view'],customerScope:'assigned',salespersonId:null},
  registrar:{id:7,role:'registrar',permissions:[],customerScope:'all',salespersonId:22},
+ trainee:{id:9,role:'salesperson',permissions:['customers.view','loan_applications.view'],customerScope:'assigned',salespersonId:5},
+ u29:{id:29,role:'admin',permissions:[],customerScope:'all'},
 };
 function put(t,v){for(const c of queryRows('PRAGMA table_info('+t+')'))if(c.notnull&&!c.dflt_value&&!c.pk&&!(c.name in v))
  v[c.name]=/INT|REAL/.test(c.type)?1:c.name.endsWith('_at')?new Date().toISOString():'synthetic';
@@ -113,6 +115,34 @@ try{
  put('instagram_messages',{thread_id:thread,mid:'synthetic-inbound',direction:'inbound',content:'synthetic',sent_at:new Date().toISOString()});
  assert((await request('registrar')).body.items.some(x=>x.target==='/instagram-inbox?threadId='+thread));
  assert.equal((await request('other')).body.items.some(x=>x.target.startsWith('/instagram-inbox')),false,'Instagram access follows existing admin/registrar policy');
+ // «دستیار هوشمند» v3: assistant bell rows reach only their addressee, with the current role scoping.
+ assert(queryRows('PRAGMA table_info(site_notification_events)').some(c=>c.name==='recipient_user_id'),'additive recipient column');
+ put('customers',{id:40,name:'مشتری دستیار',phone:'09100000040',salesperson_id:11});
+ const asIns=(rcpt,rid)=>Number(crmDb.prepare("INSERT INTO site_notification_events(customer_id,customer_name,owner_id,resource_type,resource_id,kind,title,body,permission,created_at,actor_key,recipient_user_id) VALUES(40,'مشتری دستیار',11,'assistant',?,'assistant-message','دستیار سمیه · هشدار','متن آزمون','assistant.recipient',strftime('%Y-%m-%dT%H:%M:%fZ','now'),'assistant:somayeh',?)").run(rid,rcpt).lastInsertRowid);
+ const A={staff:asIns(2,9001),registrar:asIns(7,9002),admin:asIns(1,9003),other:asIns(3,9004),trainee:asIns(9,9005),u29:asIns(29,9006),broad:asIns(8,9007)};
+ const asSeen=async actor=>(await request(actor,'?limit=50')).body.items.filter(x=>x.kind==='assistant-message').map(x=>x.id).sort();
+ assert.deepEqual(await asSeen('staff'),[A.staff],'expert sees only her own assistant row');
+ assert.deepEqual(await asSeen('registrar'),[A.registrar],'registrar sees only rows addressed to her (Sarina)');
+ assert.deepEqual(await asSeen('admin'),[A.admin],'admin no longer sees other users assistant rows');
+ assert.deepEqual(await asSeen('other'),[],'another expert never sees an assistant row about a customer that is not hers');
+ assert.deepEqual(await asSeen('broad'),[A.broad],'browse-all expert sees only her addressed row for her own customer');
+ assert.deepEqual(await asSeen('trainee'),[],'trainees see nothing');
+ assert.deepEqual(await asSeen('u29'),[],'user 29 sees nothing');
+ assert.deepEqual(await asSeen('empty'),[]);
+ const asItem=(await request('staff','?limit=50')).body.items.find(x=>x.id===A.staff);
+ assert.equal(asItem.target,'/customers/40');assert.equal(asItem.page,'customers');
+ assert.equal((await request('other','/'+A.staff+'/read',{})).status,404,'cannot read another users assistant row');
+ assert.equal((await request('staff','/'+A.staff+'/read',{})).status,200);
+ assert.equal((await request('admin','/'+A.staff+'/read',{})).status,404);
+ crmDb.prepare('UPDATE customers SET salesperson_id=22 WHERE id=40').run();
+ assert.deepEqual(await asSeen('staff'),[],'transfer revokes the old expert');
+ assert.deepEqual(await asSeen('other'),[A.other],'addressed row of the new owner becomes visible');
+ assert.deepEqual(await asSeen('registrar'),[A.registrar],'registrar/admin rows do not depend on ownership');
+ const beforeAll=(await request('other','?limit=50')).body;
+ await request('other','/read-all',{throughId:beforeAll.latestId});
+ assert(queryRow('SELECT 1 FROM site_notification_reads WHERE user_id=3 AND event_id=?',[A.other]));
+ assert.equal(queryRow('SELECT 1 FROM site_notification_reads WHERE user_id=3 AND event_id=?',[A.registrar]),undefined,'read-all never touches rows of others');
+ crmDb.exec("DELETE FROM site_notification_reads WHERE event_id IN (SELECT id FROM site_notification_events WHERE resource_type='assistant');DELETE FROM site_notification_events WHERE resource_type='assistant';DELETE FROM customers WHERE id=40");
  crmDb.prepare('DELETE FROM customers WHERE id=2').run();
  assert((await request('other')).body.items.every(x=>x.kind==='customer-deleted'),'deleted customers do not restore historical access through old owners');
  // Independent synthetic case for durable per-actor rolling-minute grouping.
@@ -164,7 +194,7 @@ try{
  assert.equal(secondary.prepare('SELECT COUNT(*) n FROM site_notification_events').get().n,1,'bare secondary connections need no custom function and still group system changes');
  secondary.close();
  assert(queryRows("SELECT sql FROM sqlite_master WHERE type='trigger'").every(row=>!row.sql.includes('site_notification_actor()')),'no persistent business trigger depends on the request-local function');
- console.log('PASS site notifications: real-schema triggers, future-only capture, rollback, role/ownership/merge isolation, read state, targets and durable per-actor/case 60-second grouping including async isolation');
+ console.log('PASS site notifications: real-schema triggers, future-only capture, rollback, role/ownership/merge isolation, read state, targets, assistant recipient scoping and durable per-actor/case 60-second grouping including async isolation');
 }finally{await new Promise(r=>server.close(r));crmDb.close()}
 `;
 const output=path.join(directory,"fixture.mjs");

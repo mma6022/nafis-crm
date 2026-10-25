@@ -79,15 +79,18 @@ function QuickReminder({ m, onClose, onFull }: { m: AsMessage; onClose: () => vo
 const OVERLAY_SEL = '[aria-modal="true"],[role="dialog"],[role="alertdialog"],.modal-backdrop,.call-sheet-backdrop,.ch-backdrop,.ic-sheet,.mobile-nav-overlay,[vaul-drawer]';
 function useForeignOverlay() {
   const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(false); // v3: a form/modal (not the phone nav menu) — drives the phone «مزاحم نشو» bar
   useEffect(() => {
     let f = 0;
     const check = () => {
       f = 0;
-      setOpen(Array.from(document.querySelectorAll(OVERLAY_SEL)).some(el => {
+      const shown = Array.from(document.querySelectorAll(OVERLAY_SEL)).filter(el => {
         if (el.closest('.nas-chw,.nas-qr,.diag-layer-content,.diag-backdrop')) return false;
         const r = el.getBoundingClientRect(); if (!r.width && !r.height) return false;
         const cs = getComputedStyle(el); return cs.visibility !== 'hidden' && cs.display !== 'none';
-      }));
+      });
+      setOpen(shown.length > 0);
+      setForm(shown.some(el => !el.closest('.mobile-nav-overlay,.mobile-nav-drawer,.sn-panel')));
     };
     const sch = () => { if (!f) f = requestAnimationFrame(check); };
     const mo = new MutationObserver(sch);
@@ -95,7 +98,7 @@ function useForeignOverlay() {
     sch();
     return () => { mo.disconnect(); if (f) cancelAnimationFrame(f); };
   }, []);
-  return open;
+  return { open, form };
 }
 const typingInField = () => { const el = document.activeElement as HTMLElement | null; return Boolean(el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit'].includes((el as HTMLInputElement).type)) || el.isContentEditable) && !el.closest('.nas-chw')); };
 type Anchor = { top: number; bottom: number; left: number; right: number; cx: number };
@@ -164,6 +167,7 @@ export function AssistantDock({ user, bottomOffset, phone, slot }: { user: { id:
   const [, setLocation] = useLocation();
   const mine = useQuery({ queryKey: ['assistant-mine', user?.id], enabled: allowed, refetchInterval: 30_000, retry: false, queryFn: () => asFetch<Mine>('/assistant/mine') });
   const list = mine.data?.assistants ?? [];
+  const listRef = useRef(list); listRef.current = list;
   const [threads, setThreads] = useState<Record<number, ThreadState>>({});
   const [openId, setOpenId] = useState<number | null>(null);
   const [bubble, setBubble] = useState<AsMessage | null>(null);
@@ -174,7 +178,7 @@ export function AssistantDock({ user, bottomOffset, phone, slot }: { user: { id:
   const openRef = useRef(openId); openRef.current = openId;
   const prefsNow = prefs ?? mine.data?.prefs ?? EMPTY.prefs;
   const prefsRef = useRef(prefsNow); prefsRef.current = prefsNow;
-  const overlay = useForeignOverlay();
+  const { open: overlay, form: formOpen } = useForeignOverlay();
   const overlayRef = useRef(overlay); overlayRef.current = overlay;
   // Messages that arrived while a form was open / the user was typing (by id, so re-delivered messages count once).
   const queueRef = useRef(new Map<number, AsMessage>());
@@ -186,6 +190,20 @@ export function AssistantDock({ user, bottomOffset, phone, slot }: { user: { id:
     const top = list.find(m => m.priority === 'high') ?? list[list.length - 1];
     if (top && !prefsRef.current.dnd && openRef.current !== top.threadId) setBubble(top);
   }, [overlay]);
+  // v3 phone «مزاحم نشو» bar (HANDOFF §1 / shot 12): shown while a form is open; «خاموش کن» hides it for this form only (messages keep queueing).
+  const [barOff, setBarOff] = useState(false);
+  useEffect(() => { if (!overlay) setBarOff(false); }, [overlay]);
+  const dndBar = phone && formOpen && !barOff;
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle('nas-dnd-on', dndBar);
+    return () => root.classList.remove('nas-dnd-on');
+  }, [dndBar]);
+  // v3 bell: «باز کردن گفتگو» on an assistant row opens that chat (only if it is one of this user's threads).
+  useEffect(() => {
+    const f = (e: Event) => { const id = Number((e as CustomEvent<{ threadId?: number }>).detail?.threadId); if (id && listRef.current.some(a => a.threadId === id)) { setOpenId(id); setBubble(null); } };
+    window.addEventListener('nafis:assistant-open', f); return () => window.removeEventListener('nafis:assistant-open', f);
+  }, []);
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const anchor = useAnchor(anchorEl, Boolean(slot) && (bubble != null || Object.values(threads).some(t => t.typing)), bubble?.threadId);
 
@@ -286,6 +304,10 @@ export function AssistantDock({ user, bottomOffset, phone, slot }: { user: { id:
         {!phone && overlay ? <div className="nas-dndc" data-testid="assistant-dnd-card"><Moon size={14} /> <span><b>مزاحم نشو</b> تا این پنجره باز است{queued ? ` · ${faNum(queued)} پیام در صف` : ''}</span></div> : null}
         <span ref={setAnchorEl} className="nas-anchor">{avatars}</span>
       </div>, slot)}
+      {dndBar ? createPortal(<div className="nas-dndbar" role="status" aria-live="polite" dir="rtl" data-testid="assistant-dnd-bar">
+        <Moon size={18} aria-hidden="true" /><span className="t"><b>مزاحم نشو</b> — تا این فرم باز است؛ {queued ? `${faNum(queued)} پیام در صف` : 'پیام‌ها در صف می‌مانند'}</span>
+        <button type="button" onClick={() => setBarOff(true)} data-testid="button-assistant-dnd-bar-off">خاموش کن</button>
+      </div>, document.body) : null}
       {pop ? <div className={`nas-pop ${phone ? 'top' : 'side'}`} style={phone ? { top: Math.max(8, (anchor?.bottom ?? 68) + 10), ['--tail' as string]: `${Math.round(anchor?.cx ?? 40)}px` } : { bottom: Math.max(12, window.innerHeight - (anchor?.bottom ?? window.innerHeight - 24)) }} data-testid="assistant-pop">{pop}</div> : null}
     {openA ? <ChatPanel a={openA} t={openThread ?? EMPTY} prefs={prefsNow} onClose={() => setOpenId(null)} onAct={act} onPrefs={savePrefs} onDecided={decided}
       onSent={m => setThreads(prev => { const t = prev[m.threadId] ?? EMPTY; if (t.messages.some(x => x.id === m.id)) return prev; return { ...prev, [m.threadId]: { ...t, messages: [...t.messages, m], lastId: Math.max(t.lastId, m.id) } }; })} /> : null}

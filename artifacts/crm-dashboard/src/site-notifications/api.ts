@@ -1,6 +1,8 @@
 export type SiteNotification = { id: number; kind: string; title: string; body: string; customerId: number; customerName: string; target: string; page?: string; createdAt: string; readAt: string | null;
   /** Manager «اجازه‌ی استعلام» row (kind credit-permission): inline decide while the request is still open. */
-  action?: { type: 'credit-permission'; jobId: number; status: string | null; open: boolean } };
+  action?: { type: 'credit-permission'; jobId: number; status: string | null; open: boolean };
+  /** «دستیار هوشمند» row (kind assistant-message): addressed to this user only; opens the assistant's chat. */
+  assistant?: { slug: string; threadId: number; name: string } | null };
 export type SiteNotificationPage = { items: SiteNotification[]; unreadCount: number; latestId: number; scopeVersion: string; nextCursor: string | null; pageCounts?: Record<string, number> };
 export type NotificationUser = { id: number; role: string; permissions?: string[] } | null | undefined;
 

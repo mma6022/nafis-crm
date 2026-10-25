@@ -5,6 +5,10 @@ import { AlarmClock, Inbox, Phone, Star, X } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { decideCreditPermission, fetchNotifications, markAllNotificationsRead, markNotificationRead, safeTarget, NotificationApiError, type NotificationUser, type SiteNotification } from './api';
 import './notifications.css';
+import { AssistantAvatar } from '@/features/assistant/AssistantAvatar';
+import '@/features/assistant/assistant.css';
+/** Asks the assistant dock to open one chat (AssistantDock listens; ignored when that assistant is not this user's). */
+export const openAssistantThread = (threadId: number) => window.dispatchEvent(new CustomEvent('nafis:assistant-open', { detail: { threadId } }));
 
 const POLL_MS = 5000;
 const MAX_TOASTS = 3;
@@ -396,12 +400,14 @@ function BellInner() {
                 <ul className="sn-list" aria-label="فهرست اعلان‌ها" data-testid="list-notifications">
                   {visible.map((n) => (
                     <li key={n.id} className="sn-row">
-                      <button type="button" className={`sn-item ${n.readAt ? '' : 'unread'}${isP1(n) ? ' p1' : ''}`} onClick={() => void activate(n)} data-testid={`item-notification-${n.id}`}>
+                      <button type="button" className={`sn-item ${n.readAt ? '' : 'unread'}${isP1(n) ? ' p1' : ''}${n.assistant ? ' as' : ''}`} onClick={() => void activate(n)} data-testid={`item-notification-${n.id}`} data-kind={n.kind}>
+                        {n.assistant ? <span className="sn-asav"><AssistantAvatar slug={n.assistant.slug} size={32} /></span> : null}
                         <span className="sn-title">{isP1(n) ? <Star size={14} className="sn-star" aria-label="اولویت ۱" /> : null}{n.title}</span>
                         <span className="sn-body">{n.body}</span>
                         <span className="sn-meta"><span>{n.customerName ? <CustomerName id={n.customerId} name={n.customerName} /> : null}{allScope && n.page && PAGE_LABELS[n.page] ? ` · ${PAGE_LABELS[n.page]}` : ''}</span><time dateTime={n.createdAt}>{fmtTime(n.createdAt)}</time></span>
                       </button>
                       {n.action?.type === 'credit-permission' ? <CreditActions n={n} onDone={(status) => { setItems((prev) => { const cur = prev.get(n.id); if (!cur || !cur.action) return prev; return new Map(prev).set(n.id, { ...cur, readAt: cur.readAt ?? new Date().toISOString(), action: { ...cur.action, open: false, status } }); }); if (!n.readAt) void markNotificationRead(n.id).catch(() => {}); }} onOpen={() => void activate(n)} /> : null}
+                      {n.assistant ? <button type="button" className="sn-read sn-asopen" onClick={() => { const t = n.assistant!.threadId; if (!n.readAt) void markOne(n); setOpen(false); openAssistantThread(t); }} data-testid={`button-notification-assistant-open-${n.id}`}>باز کردن گفتگو</button> : null}
                       {n.readAt ? null : <button type="button" className="sn-read" onClick={() => void markOne(n)} data-testid={`button-notification-read-${n.id}`}>خوانده شد</button>}
                     </li>
                   ))}

@@ -75,3 +75,12 @@
 .sn-credit-done { font-size: 12px; font-weight: 700; color: #4a5470; }
 .sn-credit-err { font-size: 12px; color: #9b2c2c; }
 .sn-credit .sn-link { justify-self: start; }
+
+/* «دستیار هوشمند» v3: assistant rows in the bell (HANDOFF §6 / shot 14) — avatar + «دستیار [اسم]» label. */
+.sn-item.as { padding-inline-start: 56px; min-height: 58px; }
+.sn-item.as.unread { padding-inline-start: 56px; }
+.sn-item.as.unread::before { inset-inline-start: 6px; }
+.sn-asav { position: absolute; inset-inline-start: 16px; top: 12px; }
+.sn-asav .nas-av { pointer-events: none; }
+.sn-row .sn-asopen { display: inline-block; margin-inline-start: 56px; margin-inline-end: 6px; }
+.sn-row .sn-asopen + .sn-read { display: inline-block; margin-inline-start: 0; }

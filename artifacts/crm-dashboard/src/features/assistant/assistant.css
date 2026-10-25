@@ -142,3 +142,26 @@
  .nas-chw{right:0}
  .nas-qr{left:8px;right:8px;width:auto;top:84px;bottom:auto}
 }
+
+/* ===== v3 (phone): «مزاحم نشو» bar while a form is open (HANDOFF §1, shot 12) =====
+   A fixed 44px strip at the very top, above every modal. Nothing is pushed: the page does not move; instead, while the bar
+   shows (html.nas-dnd-on) each modal's own box starts 44px lower and is 44px shorter, so the bar covers neither the form's
+   header nor its bottom buttons, and card buttons on the page behind are untouched. Messages keep queueing. */
+.nas-dndbar{display:none}
+@media (max-width:640px){
+ .nas-dndbar{position:fixed;z-index:2147483000;top:0;left:0;right:0;height:44px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 12px;padding-top:env(safe-area-inset-top,0px);background:#0B1450;color:#E3E6F7;font-size:13px;line-height:1.4;box-shadow:0 2px 10px rgba(11,20,80,.25)}
+ .nas-dndbar .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .nas-dndbar b{color:#fff}
+ .nas-dndbar button{flex:none;min-height:32px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.35);background:transparent;color:#fff;font:inherit;font-size:12.5px;cursor:pointer}
+ html.nas-dnd-on .modal-backdrop,html.nas-dnd-on .call-sheet-backdrop,html.nas-dnd-on .ch-backdrop,html.nas-dnd-on .ic-sheet{top:44px!important}
+ html.nas-dnd-on .modal{max-height:calc(90dvh - 44px)}
+ html.nas-dnd-on .csx-sheet,html.nas-dnd-on .clx-msh,html.nas-dnd-on .cbx-detail,html.nas-dnd-on .nfk .sheet,html.nas-dnd-on .nfk .dlg,html.nas-dnd-on .tc-sheet{max-height:calc(100dvh - 52px)}
+ html.nas-dnd-on .ts-wz{height:calc(100dvh - 44px);margin-top:44px}
+ html.nas-dnd-on .fixed[role="dialog"][data-state="open"]:not(.nas-chw){max-height:calc(100dvh - 52px);margin-top:22px}
+}
+/* ===== v3 (phone): the top bar stays put on customer and job pages so the avatars (and bell) stay visible ===== */
+@media (max-width:640px){
+ .app-main.sticky-top>.topbar{position:sticky;top:0;z-index:12;background:var(--nf-surface,#fff);margin-inline:-14px;padding-inline:14px;box-shadow:0 1px 0 var(--nf-line,#E3E6F0)}
+ .app-main.sticky-top .csx-secnav{top:var(--nf-topbar-h,68px)}
+ .app-main.sticky-top .csx-sec{scroll-margin-top:calc(var(--nf-topbar-h,68px) + 56px)}
+}

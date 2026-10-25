@@ -39,6 +39,10 @@ INSERT INTO call_logs VALUES(1,100,3,'تماس اول','درخواست','یاد�
 INSERT INTO reminders(id,user_id,salesperson_id,message,remind_at,created_at,subject,customer_id) VALUES(1,2,3,'پیگیری','2026-10-30','2026-10-02','پیگیری',100);`);
 ensureSmartFilingSchema(db);
 db.exec("INSERT INTO smart_filing_jobs(application_id,customer_id,panel_id,plan_id,status,created_at,updated_at) VALUES(500,150,1,7,'waiting_human','x','x')");
+db.exec(`CREATE TABLE site_notification_events(id INTEGER PRIMARY KEY AUTOINCREMENT,customer_id INTEGER NOT NULL,customer_name TEXT NOT NULL,owner_id INTEGER,resource_type TEXT NOT NULL,
+  resource_id INTEGER NOT NULL,kind TEXT NOT NULL,title TEXT NOT NULL,body TEXT NOT NULL DEFAULT '',permission TEXT NOT NULL,created_at TEXT NOT NULL,actor_key TEXT,recipient_user_id INTEGER);
+CREATE TABLE site_notification_reads(user_id INTEGER NOT NULL,event_id INTEGER NOT NULL,read_at TEXT NOT NULL,PRIMARY KEY(user_id,event_id));`);
+const bellRows = () => db.prepare("SELECT * FROM site_notification_events WHERE resource_type='assistant' ORDER BY id").all();
 ensureAssistantSchema(db); ensureAssistantSchema(db); // idempotent
 const cookie = db.prepare("PRAGMA schema_version").get().schema_version;
 ensureAssistantSchema(db);
@@ -94,6 +98,7 @@ try {
   assert.equal((await R(null, "GET", "/me")).s, 401);
   assert.equal((await R("x".repeat(30), "GET", "/me")).s, 401);
   assert.equal((await R(iss.masoud, "GET", "/me")).s, 423); // all off
+  assert.equal((await R(iss.masoud, "POST", "/messages", { kind: "alert", body: "x", customerId: 120 })).s, 423); assert.equal(bellRows().length, 0); // no bell while off
   await S(1, "POST", `/admin/assistants/${As.masoud.id}/enable`);
   assert.equal((await R(iss.masoud, "GET", "/me")).s, 423); // global still off
   assert.equal((await S(8, "GET", "/assistant/mine")).j.assistants.length, 0); // no avatar while global off
@@ -151,6 +156,14 @@ try {
   assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 30, customerId: 150 })).s, 404); // other role
   assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 4, customerId: 120 })).s, 404); // not a filing case
   ok("messages + Sarina binding");
+  // v3 bell: one addressed row per case-bound line (masked), only for the thread's own user
+  { const b = bellRows(); assert.deepEqual(b.map(r => [r.recipient_user_id, r.customer_id]), [[8, 120], [4, 150], [1, 150], [8, 150]]);
+    assert.ok(b.every(r => r.kind === "assistant-message" && r.permission === "assistant.recipient" && r.actor_key.startsWith("assistant:")));
+    assert.ok(!JSON.stringify(b).includes("09120000004")); assert.equal(b[0].title, "دستیار مسعود · پیشنهاد"); assert.equal(b[0].resource_id, m1.j.message.id);
+    assert.ok(!b.some(r => [2, 6, 27, 29, 30].includes(r.recipient_user_id))); }
+  assert.equal((await R(iss.masoud, "POST", "/messages", { body: "جواب چت", customerId: 120 })).s, 201); assert.equal(bellRows().length, 4); // sales chat reply stays in chat
+  db.prepare("DELETE FROM assistant_messages WHERE body='جواب چت'").run();
+  ok("bell rows: addressed, masked, role-scoped");
   // staff side: who sees what
   const mineK = await S(8, "GET", "/assistant/mine"); assert.deepEqual(mineK.j.assistants.map(a => a.slug).sort(), ["masoud", "sarina"]);
   assert.equal(mineK.j.assistants.find(a => a.slug === "masoud").online, true);
@@ -184,6 +197,10 @@ try {
   // call_logged on in-scope customer only
   db.exec("INSERT INTO call_logs(id,customer_id,salesperson_id,subject,created_at) VALUES(2,120,6,'تماس','x'),(3,100,3,'تماس','x')");
   const ev3 = await R(iss.masoud, "GET", `/events?after=${ev2.j.cursor}`); assert.deepEqual(ev3.j.events.map(e => [e.type, e.customerId]), [["call_logged", 120]]);
+  { const ev8 = bellRows().find(r => r.resource_id === m1.j.message.id);
+    assert.equal((await S(8, "POST", `/assistant/threads/${tK}/read`, { upTo: m1.j.message.id })).s, 200);
+    assert.ok(db.prepare("SELECT 1 FROM site_notification_reads WHERE user_id=8 AND event_id=?").get(ev8.id), "reading the chat marks its bell row read");
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM site_notification_reads WHERE user_id<>8").get().n, 0); }
   ok("events long-poll + ack + seen");
   // typing
   assert.equal((await R(iss.masoud, "POST", "/typing", { threadId: tK, seconds: 10 })).s, 200);
@@ -203,6 +220,7 @@ try {
   await S(3, "PUT", "/assistant/prefs", { dndMinutes: 0 });
   assert.equal((await G({ kind: "alert" })).j.delivered, "digest"); // cap 2 reached (now + held)
   const nf = await R(iss.mohaddeseh, "POST", "/notifications", { body: "یادآوری", priority: "high", customerId: 110 }); assert.equal(nf.s, 201); assert.equal(nf.j.message.kind, "alert");
+  { const b = bellRows().filter(r => r.recipient_user_id === 3); assert.deepEqual(b.map(r => [r.customer_id, r.title]), [[110, "دستیار محدثه · هشدار · فوری"]]); } // case-less + digested → no bell
   ok("rate limit/digest/DND");
   // notes are the only customer-bound write, audited as «دستیار …»
   assert.equal((await R(iss.masoud, "POST", "/customers/120/assistant-notes", { body: "پیگیری فردا" })).s, 201);

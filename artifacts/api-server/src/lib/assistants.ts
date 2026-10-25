@@ -194,6 +194,33 @@ export function createAssistants(deps: Deps) {
     run("INSERT INTO assistant_events(assistant_id,type,thread_id,user_id,customer_id,message_id,data_json,created_at) VALUES(?,?,?,?,?,?,?,?)",
       a.id, type, f.threadId ?? null, f.userId ?? null, f.customerId ?? null, f.messageId ?? null, f.data === undefined ? null : JSON.stringify(f.data), iso());
   }
+  /** v3 bell: one row in the CRM's existing notification bell (site_notification_events), addressed to the thread's user only.
+   *  Case-bound lines only: every Sarina case line; for sales assistants alerts, suggestions, reminder proposals, reports and any
+   *  high-priority line (plain chat replies stay in the chat). Never digested lines; DND-held lines do land (the bell is silent).
+   *  The actor_key is set so the request-local actor trigger leaves the row (and its recipient) untouched. */
+  let bellReady = false;
+  const BELL_KINDS: Record<string, string> = { alert: "هشدار", suggestion: "پیشنهاد", reminder_proposal: "پیشنهاد یادآور", brief: "گزارش", report: "گزارش" };
+  function bell(a: any, m: any, u: any) {
+    if (m.suppressed_reason === "digested" || m.customer_id == null) return;
+    if (a.kind !== "filing" && !BELL_KINDS[m.kind] && m.priority !== "high") return; // sales chat replies stay in the chat
+    if (!userEligible(a, u) || !userSeesCase(a, u, m.customer_id)) return;
+    if (!bellReady) bellReady = hasTable("site_notification_events") && rows<{ name: string }>("PRAGMA table_info(site_notification_events)").some(c => c.name === "recipient_user_id");
+    if (!bellReady) return;
+    const c = row<any>("SELECT name,salesperson_id FROM customers WHERE id=?", m.customer_id); if (!c) return;
+    const kindFa = BELL_KINDS[m.kind] ?? "پیام";
+    run(`INSERT INTO site_notification_events(customer_id,customer_name,owner_id,resource_type,resource_id,kind,title,body,permission,created_at,actor_key,recipient_user_id)
+      VALUES(?,?,?,'assistant',?,'assistant-message',?,?,'assistant.recipient',?,?,?)`,
+      m.customer_id, c.name || "مشتری", c.salesperson_id ?? null, m.id, `${label(a)} · ${kindFa}${m.priority === "high" ? " · فوری" : ""}`,
+      String(m.body).slice(0, 160), iso(), `assistant:${a.slug}`, u.id);
+  }
+  /** Reading the chat marks the matching bell rows read for that user (and only those). */
+  function bellRead(threadId: number, userId: number, upTo: number) {
+    if (!bellReady) bellReady = hasTable("site_notification_events") && rows<{ name: string }>("PRAGMA table_info(site_notification_events)").some(c => c.name === "recipient_user_id");
+    if (!bellReady || !hasTable("site_notification_reads")) return;
+    run(`INSERT INTO site_notification_reads(user_id,event_id,read_at) SELECT ?,e.id,? FROM site_notification_events e
+      WHERE e.recipient_user_id=? AND e.resource_type='assistant' AND e.resource_id IN (SELECT id FROM assistant_messages WHERE thread_id=? AND author<>'user' AND id<=?)
+      ON CONFLICT(user_id,event_id) DO NOTHING`, userId, iso(), userId, threadId, upTo);
+  }
   /** call_logged events for in-scope customers since the watermark (watermark starts at "now" — no backfill flood). */
   function syncCallEvents(a: any) {
     if (a.kind !== "sales") return;
@@ -440,6 +467,7 @@ export function createAssistants(deps: Deps) {
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, tt.t.id, "assistant", label(a), kind, priority, maskText(body), tt.customerId, actions.length ? JSON.stringify(actions) : null, clientId, "runner", iso(), suppressed ?? held);
     let m = row<any>("SELECT * FROM assistant_messages WHERE id=?", Number(r.lastInsertRowid));
     if (afterInsert) { afterInsert(m, tt); m = row<any>("SELECT * FROM assistant_messages WHERE id=?", m.id); }
+    try { bell(a, m, tt.u); } catch { /* the bell is best-effort; the chat message stands */ }
     run("DELETE FROM assistant_typing WHERE thread_id=?", tt.t.id);
     audit({ req, a, tokenId: TK(res), userId: tt.u.id, action: forcedKind === "alert" ? "POST /notifications" : forcedKind === "reminder_proposal" ? "POST /reminder-proposals" : "POST /messages", customerId: tt.customerId, outcome: "ok", detail: { len: body.length, kind, priority, delivered: suppressed ? "digest" : held ? "held_dnd" : "now" } });
     res.status(201).json({ message: messageView(m, true), delivered: suppressed ? "digest" : held ? "held_dnd" : "now" });
@@ -557,6 +585,7 @@ export function createAssistants(deps: Deps) {
     const upTo = Number(req.body?.upTo);
     if (!Number.isSafeInteger(upTo) || upTo < 0) return fail(res, 422, "bad_cursor");
     run("UPDATE assistant_messages SET read_at=?, delivered_at=COALESCE(delivered_at,?) WHERE thread_id=? AND author<>'user' AND id<=? AND read_at IS NULL", iso(), iso(), x.t.id, upTo);
+    try { bellRead(x.t.id, x.t.user_id, upTo); } catch { /* best-effort */ }
     res.json({ ok: true });
   });
   staff.post("/assistant/messages/:id/action", (req, res) => {

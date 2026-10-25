@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { crmDb, queryRow, queryRows } from "./crm-db";
 import { requireAuth, type AuthUser } from "./auth";
 import { registerNotificationActorFunction } from "./notification-actor-context";
+import { EXCLUDED_USER_IDS, TRAINEE_SALESPERSON_IDS } from "./assistants";
 
 type Event = {
   id: number; customer_id: number; customer_name: string; owner_id: number | null;
@@ -40,6 +41,10 @@ export function installSiteNotifications() {
   // Old events retain NULL so this rollout neither rewrites nor groups history.
   if (!eventColumns.some(column => column.name === "actor_key"))
     crmDb.exec("ALTER TABLE site_notification_events ADD COLUMN actor_key TEXT");
+  // «دستیار هوشمند» v3: assistant bell rows are addressed to one user (additive; old rows stay NULL = role/owner scoped).
+  if (!eventColumns.some(column => column.name === "recipient_user_id"))
+    crmDb.exec("ALTER TABLE site_notification_events ADD COLUMN recipient_user_id INTEGER");
+  crmDb.exec("CREATE INDEX IF NOT EXISTS idx_site_notification_recipient ON site_notification_events(recipient_user_id,id DESC) WHERE recipient_user_id IS NOT NULL");
   crmDb.exec(`CREATE INDEX IF NOT EXISTS idx_site_notification_actor_window
     ON site_notification_events(resource_type,resource_id,customer_id,actor_key,created_at DESC)`);
   // Only this connection's TEMP trigger calls the request-local SQL function.
@@ -153,9 +158,14 @@ function permitted(user: AuthUser) {
   // Notification delivery is narrower than permission to browse CRM records.
   const assigned = user.role!=="admin";
   const owner = assigned ? "(CASE WHEN c.id IS NOT NULL THEN c.salesperson_id ELSE e.owner_id END=?)" : "1";
+  // Assistant rows (recipient_user_id set) reach only their addressee, re-checked at read time with the current role scoping:
+  // registrar/admin (Sarina) as addressed; a sales expert only while the customer is still theirs; trainees / excluded never.
+  const blocked = EXCLUDED_USER_IDS.includes(user.id) || (user.role==="salesperson" && (!user.salespersonId || TRAINEE_SALESPERSON_IDS.includes(user.salespersonId)));
+  const wide = user.role==="admin" || user.role==="registrar";
+  const mine = blocked ? "0" : `e.recipient_user_id=? AND c.id IS NOT NULL${wide ? "" : " AND c.salesperson_id=?"}`;
   return {
-    sql:`${owner} ${permissions ? `AND e.permission IN (${permissions.length?permissions.map(()=>"?").join(","):"NULL"})` : ""}`,
-    params:[...(assigned?[user.salespersonId??-1]:[]),...(permissions??[])],
+    sql:`((e.recipient_user_id IS NULL AND ${owner} ${permissions ? `AND e.permission IN (${permissions.length?permissions.map(()=>"?").join(","):"NULL"})` : ""}) OR (${mine}))`,
+    params:[...(assigned?[user.salespersonId??-1]:[]),...(permissions??[]),...(blocked?[]:[user.id,...(wide?[]:[user.salespersonId??-1])])],
   };
 }
 function from(user: AuthUser) {
@@ -206,7 +216,19 @@ function target(e: Event) {
   if(e.resource_type==="consultations")return `/consultations?customerId=${id}`;
   if(e.resource_type==="wallet")return `/wallet-management?customerId=${id}`;
   if(e.resource_type==="smart_filing")return `/smart-filing/jobs/${e.resource_id}`;
+  if(e.resource_type==="assistant") {
+    const a=assistantOf(e);
+    if(a?.kind==="filing") { try { const j=queryRow<{id:number}>("SELECT id FROM smart_filing_jobs WHERE customer_id=? AND job_type='real' ORDER BY id DESC LIMIT 1",[id]); if(j) return `/smart-filing/jobs/${j.id}`; } catch { /* no smart filing */ } }
+    return `/customers/${id}`;
+  }
   return `/customers/${id}`;
+}
+/** Assistant bell row → which assistant / thread (for the avatar and «باز کردن گفتگو»). */
+function assistantOf(e: Event) {
+  try {
+    return queryRow<{slug:string;kind:string;threadId:number;name:string}>(`SELECT a.slug,a.kind,t.id threadId,a.display_name name FROM assistant_messages m
+      JOIN assistant_threads t ON t.id=m.thread_id JOIN assistants a ON a.id=t.assistant_id WHERE m.id=?`,[e.resource_id]) ?? null;
+  } catch { return null; }
 }
 /** Manager bell row for «اجازه‌ی استعلام»: inline «اجازه می‌دهم / رد» only while that job's request is still open. */
 function creditAction(e: Event) {
@@ -242,7 +264,8 @@ export function createSiteNotificationRouter() {
     res.json({items:items.slice(0,limit).map(e=>({id:Number(e.id),kind:e.kind,title:e.title,body:e.body,
       page:notificationPages[e.resource_type as keyof typeof notificationPages]??"customers",
       customerId:Number(e.current_customer_id??e.customer_id),customerName:e.customer_name,target:target(e),createdAt:e.created_at,readAt:e.read_at,
-      ...(e.kind==="credit-permission"?{action:creditAction(e)}:{})})),
+      ...(e.kind==="credit-permission"?{action:creditAction(e)}:{}),
+      ...(e.resource_type==="assistant"?{assistant:(a=>a?{slug:a.slug,threadId:Number(a.threadId),name:a.name}:null)(assistantOf(e))}:{})})),
       pageCounts,unreadCount:Number(count),latestId:Number(latest),scopeVersion,nextCursor:items.length>limit?String(items[limit-1].id):null});
   });
   router.post("/site-notifications/read-all",(req,res)=>{

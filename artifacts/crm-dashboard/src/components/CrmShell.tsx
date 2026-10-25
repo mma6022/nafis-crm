@@ -216,6 +216,16 @@ export function CrmShell({ children }: { children: ReactNode }) {
   }, [location]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (!phone) setMobileMenuOpen(false); }, [phone]);
+  // v3: on phone customer / job pages the top bar (avatars + bell) is sticky; its height feeds the page's own sticky section nav.
+  const stickyTop = phone && /^\/(customers|smart-filing\/jobs)\/\d+/.test(location);
+  const [mainEl, setMainEl] = useState<HTMLElement | null>(null);
+  const [topEl, setTopEl] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!stickyTop || !mainEl || !topEl) return;
+    const m = () => mainEl.style.setProperty('--nf-topbar-h', `${Math.round(topEl.getBoundingClientRect().height)}px`);
+    m(); const ro = new ResizeObserver(m); ro.observe(topEl);
+    return () => { ro.disconnect(); mainEl.style.removeProperty('--nf-topbar-h'); };
+  }, [stickyTop, mainEl, topEl]);
 
   useEffect(() => {
     if (!mobileMenuOpen) return;
@@ -332,8 +342,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
           </section>
         </div>
       )}
-      <main className="app-main">
-        <header className="topbar">
+      <main className={`app-main${stickyTop ? ' sticky-top' : ''}`} ref={setMainEl}>
+        <header className="topbar" ref={setTopEl}>
           <div>
             <h1>{pageTitle}</h1>
             <p>امروز، تمرکز روی قدم بعدی مشتری است.</p>
