@@ -24,7 +24,7 @@ const STOP_TAIL_MS = 350;
 const VOICED_RMS = 0.012;
 /** Fewer voiced frames than this (≈ 0.3 s) = nothing was said → do not upload (gpt-4o-transcribe invents a greeting on silence). */
 const MIN_VOICED_FRAMES = 3;
-const NO_SPEECH = 'صدایی ضبط نشد؛ میکروفون را نزدیک‌تر بگیرید، واضح صحبت کنید و دوباره امتحان کنید. متن قبلی سر جایش است.';
+const NO_SPEECH = 'صدایی ضبط نشد. نزدیک‌تر به گوشی و در جای آرام‌تر صحبت کنید. دوباره امتحان کنید؛ متن قبلی سر جایش است.';
 /** Recorder settings: mono, browser echo cancel + noise suppression + auto gain; Opus 64 kb/s (32 kb/s lost words in noise). */
 const AUDIO: MediaTrackConstraints = { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true };
 const BITRATE = 64000;
