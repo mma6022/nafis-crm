@@ -179,6 +179,7 @@ import { questionnaireError, consultationRankMatches, type QuestionnaireOption }
 import { consultationMaximumAmount } from "../lib/consultation-limits";
 import { verifyCustomer } from "../lib/sapi";
 import { latestFirstCall, latestNoPlanFit, latestSelectedPlans, logPriorityChange } from "../lib/team-sales";
+import { applyNonP1TransferInTx, NONP1_TRANSFER_HEADER, type NonP1Result } from "../lib/nonp1-transfer";
 import { kazemiSourceFilterSql, kazemiSourceOf, kazemiSources } from "../lib/kazemi-source";
 import { IDENTITY_LOG_TABLE, canActOnCustomerProfile, ensureIdentityLogSchema } from "../lib/consult-profile";
 import { retainedIdentityChecks } from "../lib/identity-check-retention";
@@ -1971,9 +1972,10 @@ router.post(
       return;
     }
     let id: number;
+    let createdNonP1: NonP1Result | null = null;
     try {
       id = runTransaction(() => {
-        return insertCustomerRecord({
+        const newId = insertCustomerRecord({
           name: body.name,
           phone: body.phone,
           description: body.description,
@@ -1990,6 +1992,17 @@ router.post(
           status: body.status,
           assignedSalespersonId: user.customerScope === "assigned" ? user.salespersonId : undefined,
         });
+        // crm-nonp1-to-kazemi: an expert creating a P2 / P3 customer hands it to Kazemi in the same transaction
+        // (an admin's explicit salesperson choice is respected; «بدون اولویت» on create is not a priority change).
+        if (body.priority != null && body.priority !== 1) {
+          createdNonP1 = applyNonP1TransferInTx({
+            customerId: newId, oldPriority: null, oldSalespersonId: null,
+            actor: { id: user.id, role: user.role, salespersonId: user.salespersonId ?? null },
+            explicitSalespersonChange: user.role === "admin" && body.salespersonId != null,
+            via: "ثبت مشتری",
+          });
+        }
+        return newId;
       });
     } catch (error) {
       if (
@@ -2019,11 +2032,13 @@ router.post(
       }
       throw error;
     }
-    const customer = getCustomer(id, user);
+    const transferredOnCreate = (createdNonP1 as NonP1Result | null)?.transferred === true;
+    const customer = transferredOnCreate ? getCustomer(id) : getCustomer(id, user);
     if (!customer) {
       res.status(500).json({ error: "Customer was not created" });
       return;
     }
+    if (transferredOnCreate) res.setHeader(NONP1_TRANSFER_HEADER, String(id));
     res.status(201).json(CreateCustomerResponse.parse(customer));
     void notifyNewCustomer(id);
   },
@@ -3047,6 +3062,7 @@ router.patch(
       ...(identityChanged ? ["verification_version=COALESCE(verification_version,0)+1"] : []),
     ].join(", ");
     let changes: number;
+    let nonP1: NonP1Result | null = null;
     try {
       if (nationalCodeLog) ensureIdentityLogSchema();
       changes = runTransaction(() => {
@@ -3059,6 +3075,16 @@ router.patch(
           `INSERT INTO ${IDENTITY_LOG_TABLE} (customer_id,old_national_code,new_national_code,identity_changed,source,actor_user_id,created_at)
            VALUES (?,?,?,?,'customer_update',?,?)`,
           [params.data.id, nationalCodeLog.previous || null, nationalCodeLog.next, identityStampChanged ? 1 : 0, user.id, new Date().toISOString()]);
+        // crm-nonp1-to-kazemi: a non-1 priority on a closer's customer moves it to Kazemi in this same transaction.
+        if (changed && body.priority !== undefined) {
+          nonP1 = applyNonP1TransferInTx({
+            customerId: params.data.id, oldPriority: existingCustomer.priority ?? null,
+            oldSalespersonId: existingCustomer.salespersonId ?? null,
+            actor: { id: user.id, role: user.role, salespersonId: user.salespersonId ?? null },
+            explicitSalespersonChange: body.salespersonId !== undefined && (body.salespersonId ?? null) !== (existingCustomer.salespersonId ?? null),
+            via: "ویرایش مشتری",
+          });
+        }
         return changed;
       });
     } catch (error) {
@@ -3074,7 +3100,8 @@ router.patch(
       res.status(404).json({ error: "Customer not found" });
       return;
     }
-    if (body.priority !== undefined || body.salespersonId !== undefined) {
+    const nonP1Moved = (nonP1 as NonP1Result | null)?.transferred === true;
+    if ((body.priority !== undefined || body.salespersonId !== undefined) && !nonP1Moved) {
       try {
         const after = queryRow<{ priority: number | null; salesperson_id: number | null }>(
           "SELECT priority, salesperson_id FROM customers WHERE id=?", [params.data.id]);
@@ -3088,11 +3115,13 @@ router.patch(
         req.log.warn({ err: error }, "priority history logging failed");
       }
     }
-    const customer = getCustomer(params.data.id, user);
+    // After an auto-transfer an assigned-scope expert no longer sees the customer; answer with the saved record once.
+    const customer = nonP1Moved ? getCustomer(params.data.id) : getCustomer(params.data.id, user);
     if (!customer) {
       res.status(404).json({ error: "Customer not found" });
       return;
     }
+    if (nonP1Moved) res.setHeader(NONP1_TRANSFER_HEADER, String(params.data.id));
     res.json(UpdateCustomerResponse.parse(customer));
   },
 );

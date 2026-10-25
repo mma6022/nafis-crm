@@ -7,6 +7,7 @@ import { executeChanges, runTransaction, queryRow } from "../lib/crm-db";
 import { subscribeCallReports, notifyCallReport } from "../lib/voip-call-notifications";
 import { afterCallState, canSeeAfterCall, canAccessAfterCallCustomer, ensureAfterCallSchema, eventFor, pendingAfterCalls } from "../lib/voip-after-call";
 import { storedCallSummary } from "../lib/recording-summary-jobs";
+import { applyNonP1TransferInTx, NONP1_TRANSFER_HEADER } from "../lib/nonp1-transfer";
 
 const router: IRouter = Router();
 const reportDay = (value: string) => {
@@ -70,6 +71,7 @@ router.patch("/voip/after-call/:id", requirePermission("calls.view"), requirePer
   const payload = body.discardHistory ? JSON.stringify({ discardHistory: true }) : JSON.stringify({ expertNotes: body.expertNotes, ...(body.priority !== undefined ? { priority: body.priority } : {}),
     ...(body.subject !== undefined ? {subject:body.subject} : {}), ...(body.customerRequest !== undefined ? {customerRequest:body.customerRequest} : {}) });
   let response: { ok: boolean; callLogId: number | null } | null = null;
+  let transferred: number | null = null;
   runTransaction(() => {
     const event = eventFor(params.data.id);
     if (!event || !canSeeAfterCall(event, actor)) { res.status(404).json({ error: "تماس در دسترس شما نیست." }); return; }
@@ -93,14 +95,25 @@ router.patch("/voip/after-call/:id", requirePermission("calls.view"), requirePer
     }
     if (event.call_log_id != null) executeChanges("UPDATE call_logs SET expert_notes=?,subject=CASE WHEN ? THEN ? ELSE subject END,customer_request=CASE WHEN ? THEN ? ELSE customer_request END WHERE id=?",
       [body.expertNotes,body.subject!==undefined?1:0,body.subject??null,body.customerRequest!==undefined?1:0,body.customerRequest??null,event.call_log_id]);
-    if (body.priority !== undefined) executeChanges("UPDATE customers SET priority=? WHERE id=?", [body.priority, event.actual_customer_id]);
+    let before: { priority: number | null; salesperson_id: number | null } | undefined;
+    if (body.priority !== undefined) {
+      before = queryRow<{ priority: number | null; salesperson_id: number | null }>("SELECT priority, salesperson_id FROM customers WHERE id=?", [Number(event.actual_customer_id)]);
+      executeChanges("UPDATE customers SET priority=? WHERE id=?", [body.priority, event.actual_customer_id]);
+    }
     executeChanges(
       `UPDATE voip_after_call_events SET expert_notes=?,report_subject=CASE WHEN ? THEN ? ELSE report_subject END,
        report_saved_at=?,report_edited_by=?,report_revision=report_revision+1,completed_at=?,completed_by_user_id=?,completed_payload=? WHERE id=?`,
       [body.expertNotes,body.subject!==undefined?1:0,body.subject??null,new Date().toISOString(),actor.id,new Date().toISOString(),actor.id,payload,event.id],
     );
+    // crm-nonp1-to-kazemi: a non-1 priority from «نتیجه تماس» on a closer's customer moves it to Kazemi (same transaction;
+    // run after the report write so its bell row is marked read for Kazemi instead of reaching him).
+    if (body.priority !== undefined && before) {
+      const customerId = Number(event.actual_customer_id);
+      transferred = applyNonP1TransferInTx({ customerId, oldPriority: before.priority ?? null, oldSalespersonId: before.salesperson_id ?? null,
+        actor: { id: actor.id, role: actor.role, salespersonId: actor.salespersonId ?? null }, via: "نتیجه تماس" }).transferred ? customerId : null;
+    }
     response = { ok: true, callLogId: event.call_log_id };
   });
-  if (response) {notifyCallReport(actor.id);res.json(response);}
+  if (response) {notifyCallReport(actor.id);if (transferred != null) res.setHeader(NONP1_TRANSFER_HEADER, String(transferred));res.json(response);}
 });
 export default router;

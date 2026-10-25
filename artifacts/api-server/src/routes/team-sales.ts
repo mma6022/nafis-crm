@@ -10,6 +10,7 @@ import { queryRow } from "../lib/crm-db";
 import {
   TeamSalesError, citySuggestions, editFirstCall, firstCallEditInfo, formatDue, getTeamSalesConfig, peekNextCloser, planOptions, previewQualification, priorityHistory, promoteToPriorityOne, submitQualification,
 } from "../lib/team-sales";
+import { NONP1_TRANSFER_HEADER } from "../lib/nonp1-transfer";
 import { addWorkingHours, type QualifierAnswers } from "../lib/team-sales-rules";
 import { ConsultProfileError, canActOnCustomerProfile, consultProfile, editConsultProfile } from "../lib/consult-profile";
 import { isAdminRole } from "../lib/customer-integrity";
@@ -97,7 +98,11 @@ router.post("/customers/:id/team-sales/qualify", requirePermission("calls.create
   const note = typeof req.body?.note === "string" ? req.body.note : "";
   const selectedPlans = req.body?.selectedPlans ?? null;
   const noPlanNote = req.body?.noPlanNote ?? null;
-  try { res.json(submitQualification(id, actorOf(res), answers, note, new Date(), selectedPlans, noPlanNote)); } catch (e) { fail(res, e); }
+  try {
+    const out = submitQualification(id, actorOf(res), answers, note, new Date(), selectedPlans, noPlanNote);
+    if (out.transferredToQualifier) res.setHeader(NONP1_TRANSFER_HEADER, String(id));
+    res.json(out);
+  } catch (e) { fail(res, e); }
 });
 
 /**
@@ -116,8 +121,10 @@ router.post("/customers/:id/team-sales/first-call/edit", requirePermission("cust
   if (!getCustomer(id, res.locals.authUser as AuthUser)) { res.status(404).json({ error: "Customer not found" }); return; }
   const note = typeof req.body?.note === "string" ? req.body.note : "";
   try {
-    res.json(editFirstCall(id, actorOf(res), answers, note, { selectedPlans: req.body?.selectedPlans ?? null,
-      noPlanNote: req.body?.noPlanNote ?? null, send: req.body?.send === true, baseId: req.body?.baseId ?? null }));
+    const out = editFirstCall(id, actorOf(res), answers, note, { selectedPlans: req.body?.selectedPlans ?? null,
+      noPlanNote: req.body?.noPlanNote ?? null, send: req.body?.send === true, baseId: req.body?.baseId ?? null });
+    if (out.transferredToQualifier) res.setHeader(NONP1_TRANSFER_HEADER, String(id));
+    res.json(out);
   } catch (e) { fail(res, e); }
 });
 

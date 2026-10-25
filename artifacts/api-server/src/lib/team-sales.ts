@@ -13,6 +13,7 @@ import {
 } from "./team-sales-rules";
 import { cleanProfile, type ApplicantProfile } from "./plan-profile-match";
 import { noteSalespersonChange } from "./expert-intro-sms";
+import { applyNonP1TransferInTx } from "./nonp1-transfer";
 import { consultProfile, dataFromAnswers, latestConsultApplicantProfile, officialGrade, recordFirstCallVersion, recordFirstCallEditVersion } from "./consult-profile";
 
 export const TEAM_SALES_CONFIG_KEY = "team_sales_config";
@@ -91,7 +92,7 @@ export function getTeamSalesConfig(): TeamSalesConfig {
 export type PriorityChange = {
   customerId: number; oldPriority: number | null; newPriority: number | null;
   oldSalespersonId: number | null; newSalespersonId: number | null;
-  actorUserId: number | null; source: "customer_update" | "promote" | "qualifier_form" | "no_answer_archive" | "first_call_edit";
+  actorUserId: number | null; source: "customer_update" | "promote" | "qualifier_form" | "no_answer_archive" | "first_call_edit" | "nonp1_auto_transfer";
   reason?: string | null; at?: string; always?: boolean;
 };
 export function logPriorityChange(c: PriorityChange): void {
@@ -558,6 +559,7 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
       ? executeChanges("UPDATE customers SET city=? WHERE id=? AND (city IS NULL OR trim(city)='')", [answers.city, c.id]) > 0 : false;
     const reasonText = result.reasons.join("؛ ");
     let handoff: ReturnType<typeof promoteInTx> | null = null;
+    let transferredToQualifier = false;
     if (result.priority === 1) {
       handoff = promoteInTx(c, actor, cfg, "qualifier_form", reasonText, now);
     } else if (result.outcome === "cold_archive" || result.outcome === "invalid") {
@@ -570,11 +572,14 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
       // the qualification row above is the no-answer counter. Nothing else changes.
     } else {
       executeChanges("UPDATE customers SET priority=? WHERE id=?", [result.priority, c.id]);
-      logPriorityChange({ customerId: c.id, oldPriority: c.priority, newPriority: result.priority,
+      // crm-nonp1-to-kazemi: only reachable for an admin on a closer's customer (Kazemi's own form never transfers).
+      transferredToQualifier = applyNonP1TransferInTx({ customerId: c.id, oldPriority: c.priority, oldSalespersonId: c.salesperson_id,
+        actor, via: "فرم تماس اول", now }).transferred;
+      if (!transferredToQualifier) logPriorityChange({ customerId: c.id, oldPriority: c.priority, newPriority: result.priority,
         oldSalespersonId: c.salesperson_id, newSalespersonId: c.salesperson_id, actorUserId: actor.id,
         source: "qualifier_form", reason: reasonText, at: now.toISOString() });
     }
-    return { callLogId, result, matches: matches.slice(0, 5), handoff, selectedPlans: selected, noPlanFit, noPlanNote: cleanNoPlanNote, cityWritten };
+    return { callLogId, result, matches: matches.slice(0, 5), handoff, selectedPlans: selected, noPlanFit, noPlanNote: cleanNoPlanNote, cityWritten, transferredToQualifier };
   });
 }
 
@@ -759,10 +764,14 @@ export function editFirstCall(customerId: number, actor: Actor, rawAnswers: Qual
     }
     // Priority: recomputed with the existing rules; only raised (P3 → P2), never lowered, never P1 / transfer automatically.
     let priorityAfter = c.priority;
+    let transferredToQualifier = false;
     const suggested = result.priority;
     if (!opts.send && suggested === 2 && c.priority === 3 && c.status === "in_progress") {
       executeChanges("UPDATE customers SET priority=2 WHERE id=? AND priority=3", [c.id]);
-      logPriorityChange({ customerId: c.id, oldPriority: 3, newPriority: 2, oldSalespersonId: c.salesperson_id, newSalespersonId: c.salesperson_id,
+      // crm-nonp1-to-kazemi: an admin raising a closer's customer to P2 here also hands it to Kazemi.
+      transferredToQualifier = applyNonP1TransferInTx({ customerId: c.id, oldPriority: 3, oldSalespersonId: c.salesperson_id,
+        actor, via: "ویرایش خلاصه‌ی تماس اول", now }).transferred;
+      if (!transferredToQualifier) logPriorityChange({ customerId: c.id, oldPriority: 3, newPriority: 2, oldSalespersonId: c.salesperson_id, newSalespersonId: c.salesperson_id,
         actorUserId: actor.id, source: "first_call_edit", reason: `ویرایش خلاصه‌ی تماس اول: ${result.reasons.join("؛ ")}`, at: nowIso });
       priorityAfter = 2;
     }
@@ -778,6 +787,6 @@ export function editFirstCall(customerId: number, actor: Actor, rawAnswers: Qual
         c.priority, suggested, priorityAfter, handoff ? 1 : 0, handoff?.callLogId ?? null, nowIso]) : null;
     return { editId, changed, suggestedPriority: suggested, reasons: result.reasons, priorityBefore: c.priority, priorityAfter,
       priorityRaised: priorityAfter !== c.priority && !handoff, handoff, selectedPlans: selected, noPlanFit, noPlanNote: cleanNoPlanNote,
-      noSuitablePlan: !evals.some((e) => e.status !== "no"), cityWritten };
+      noSuitablePlan: !evals.some((e) => e.status !== "no"), cityWritten, transferredToQualifier };
   });
 }

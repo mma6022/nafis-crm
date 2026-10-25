@@ -64,7 +64,8 @@
     "fixture:call-note-min": "node scripts/run-bundled-fixture.mjs scripts/call-note-min-fixture.mjs",
     "fixture:expert-intro-sms": "node scripts/run-bundled-fixture.mjs scripts/expert-intro-sms-fixture.mjs",
     "fixture:kazemi-source": "node scripts/run-bundled-fixture.mjs scripts/kazemi-source-fixture.mjs",
-    "fixture:consult-filters": "node scripts/consult-filters-fixture.mjs"
+    "fixture:consult-filters": "node scripts/consult-filters-fixture.mjs",
+    "fixture:nonp1-kazemi": "node scripts/run-bundled-fixture.mjs scripts/nonp1-kazemi-fixture.mjs"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.3.0",

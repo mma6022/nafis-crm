@@ -19,6 +19,7 @@ import Contracts from '@/pages/Contracts';
 import NotificationSettingsPage from '@/pages/NotificationSettings';
 import WalletManagement from '@/pages/WalletManagement';
 import { CrmShell } from '@/components/CrmShell';
+import { TransferNotice } from '@/features/nonp1/TransferNotice';
 import LoginPage from '@/pages/Login';
 import PhonePage from '@/pages/Phone';
 import Releases from '@/pages/Releases';
@@ -244,6 +245,7 @@ function AppWithRoutes() {
         <VoipDock />
         </VoipProvider>
         <Toaster />
+        {session?.user ? <TransferNotice isAdmin={session.user.role === 'admin'} /> : null}
       </TooltipProvider>
     </>
   );
