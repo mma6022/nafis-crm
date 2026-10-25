@@ -34,6 +34,8 @@ import StaffWallet from '@/features/staff-wallet/StaffWallet';
 import ManualVerifications from '@/pages/ManualVerifications';
 import CreditRankOverrides from '@/pages/CreditRankOverrides';
 import VoiceNotesUsage from '@/features/voice-notes/VoiceNotesUsage';
+import SmartFilingJobs from '@/features/smart-filing/SmartFilingJobs';
+import SmartFilingJob from '@/features/smart-filing/SmartFilingJob';
 import InstagramInbox from '@/pages/InstagramInbox';
 import MessengersPage from '@/pages/Messengers';
 import { SocialMonitorReports } from '@/features/SocialMonitorReports';
@@ -225,6 +227,12 @@ function AppWithRoutes() {
                     </Route>
                     <Route path="/settings/notifications">
                       <PermissionRoute permission="notifications.view"><NotificationSettingsPage /></PermissionRoute>
+                    </Route>
+                    <Route path="/smart-filing">
+                      <AdminOnlyRoute><SmartFilingJobs /></AdminOnlyRoute>
+                    </Route>
+                    <Route path="/smart-filing/jobs/:id">
+                      <SmartFilingJob />
                     </Route>
                     <Route path="/voice-notes-usage">
                       <AdminOnlyRoute><VoiceNotesUsage /></AdminOnlyRoute>

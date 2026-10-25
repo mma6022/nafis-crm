@@ -1,5 +1,5 @@
 import { CustomerName } from '@/components/customer/CustomerName';
-import { AudioLines, BarChart3, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, LifeBuoy, LogOut, Menu, MessageCircle, MessagesSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, type LucideIcon } from 'lucide-react';
+import { AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, LifeBuoy, LogOut, Menu, MessageCircle, MessagesSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, type LucideIcon } from 'lucide-react';
 import { UserAvatar, AvatarPicker } from '@/components/UserAvatar';
 import { useHealthCheck, getHealthCheckQueryKey, useGetAuthSession, useLogout, useUpdateAuthProfile, useListReminders, useAcknowledgeReminder, getListRemindersQueryKey, getGetAuthSessionQueryKey, type CrmUser, type Reminder } from '@workspace/api-client-react';
 import { Link, useLocation } from 'wouter';
@@ -56,6 +56,7 @@ const allNavItems: NavItem[] = [
   { href: '/sales-reports', label: 'گزارش فروش', icon: BarChart3, permission: 'reports.view' },
   { href: '/social-monitor-reports', label: 'گزارش پیام‌رسان‌ها', icon: Radar, adminOnly: true },
   { href: '/voice-notes-usage', label: 'مصرف تبدیل صدا به متن', icon: AudioLines, adminOnly: true },
+  { href: '/smart-filing', label: 'ثبت هوشمند', icon: Bot, adminOnly: true },
   { href: '/users', label: 'کاربران CRM', icon: UserCog, permission: 'users.view' },
   { href: '/settings/notifications', label: 'تنظیمات', icon: Settings, permission: 'notifications.view' },
   { href: '/settings/releases', label: 'نسخه‌های سایت', icon: Rocket, adminOnly: true },
@@ -66,7 +67,7 @@ type NavGroup = { id: string; label: string; icon: LucideIcon; hrefs: string[]; 
 const navGroups: NavGroup[] = [
   { id: 'dashboard', label: 'داشبورد', icon: LayoutDashboard, hrefs: ['/', '/reminders'], pinned: true },
   { id: 'customers', label: 'مشتریان و مشاوره', icon: Contact, hrefs: ['/customers', '/calls', '/consultations', '/callback-requests', '/manual-verifications'] },
-  { id: 'loans', label: 'وام و قرارداد', icon: HandCoins, hrefs: ['/loan-applications', '/loan-plans', '/contracts', '/credit-rank-overrides'] },
+  { id: 'loans', label: 'وام و قرارداد', icon: HandCoins, hrefs: ['/loan-applications', '/smart-filing', '/loan-plans', '/contracts', '/credit-rank-overrides'] },
   { id: 'goods', label: 'خرید کالا', icon: Store, hrefs: ['/goods-purchases', '/sales-commissions', '/my-wallet'] },
   { id: 'finance', label: 'مالی و پرداخت', icon: Banknote, hrefs: ['/payment-orders', '/wallet-management', '/bank-accounts', '/accounting'] },
   { id: 'comms', label: 'پیام‌ها و تلفن', icon: Headset, hrefs: ['/chat', '/internal-chat', '/messengers', '/instagram-inbox', '/mobile-calls', '/phone'] },

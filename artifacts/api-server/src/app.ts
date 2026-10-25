@@ -26,6 +26,7 @@ import { CodexLoginController } from "./lib/diagnostic-codex-login";
 import { VpsRepairConnection } from "./lib/diagnostic-vps-connection";
 import { socialMonitorFeature } from "./lib/social-monitor";
 import { mountPublicLeads } from "./routes/public-leads";
+import { smartFilingRunnerRouter } from "./routes/smart-filing";
 
 const app: Express = express();
 
@@ -60,6 +61,8 @@ app.use(
   express.raw({ type: "application/json", limit: "1mb" }),
   instagramWebhookRouter,
 );
+// Smart-filing runner: Bearer token, own 2 MB JSON limit and own 404, so it must run before the global 100 KB parser.
+app.use("/api/smart-filing-runner", smartFilingRunnerRouter);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());

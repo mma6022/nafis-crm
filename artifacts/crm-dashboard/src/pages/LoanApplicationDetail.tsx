@@ -73,6 +73,7 @@ import '@/pages/customers.css';
 import '@/pages/loan-requests.css';
 import { ChevronLeft as ChevronLeftIcon, User as UserIcon } from 'lucide-react';
 import { CustomerName } from '@/components/customer/CustomerName';
+import { SmartFilingButton } from '@/features/smart-filing/SmartFilingButton';
 
 const STAGE_LABELS: Record<string, string> = {
   funder_initial_approval: 'تصویب مبلغ وام',
@@ -566,6 +567,7 @@ export default function LoanApplicationDetail() {
           {app.customerId ? <Link className="csx-ghost" href={`/customers/${app.customerId}`} data-testid="link-loan-customer"><UserIcon /> پرونده مشتری</Link> : null}
           <LoanCaseCancellation application={app} />
           <AdminCaseCorrections applicationId={appId} />
+          <SmartFilingButton applicationId={appId} />
         </div>
       </div>
 
