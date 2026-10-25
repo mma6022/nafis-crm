@@ -140,8 +140,8 @@ export function createSmartFiling(deps: Deps) {
       iso(), actorType, actorId, ip(req), action, jobId, panelId, detail ? JSON.stringify(detail) : null);
   const fail = (res: Response, status: number, error: string, message?: string) => { res.status(status).json({ error, ...(message ? { message } : {}) }); };
 
-  fs.mkdirSync(deps.filesRoot, { recursive: true, mode: 0o700 });
-  try { fs.chmodSync(deps.filesRoot, 0o700); } catch { /* best effort */ }
+  // Never crash the API at startup over the screenshot dir; uploads fail with 500 instead.
+  try { fs.mkdirSync(deps.filesRoot, { recursive: true, mode: 0o700 }); fs.chmodSync(deps.filesRoot, 0o700); } catch (e) { console.error("smart-filing: files dir unavailable", (e as Error).message); }
 
   function expireCodes() {
     const t = iso();

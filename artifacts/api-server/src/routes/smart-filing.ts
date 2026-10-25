@@ -1,5 +1,6 @@
 /** «ثبت هوشمند» routes (see lib/smart-filing.ts). Admin/expert router sits behind the CRM session; the runner router is
  * mounted in app.ts before the global 100 KB JSON parser with its own 2 MB limit and Bearer token. */
+import fs from "node:fs";
 import path from "node:path";
 import type { Response } from "express";
 import type { AuthUser } from "../lib/auth";
@@ -7,11 +8,13 @@ import { crmDb, databasePath } from "../lib/crm-db";
 import { createSmartFiling, ensureSmartFilingSchema } from "../lib/smart-filing";
 
 ensureSmartFilingSchema(crmDb as any);
-const dataDir = path.dirname(databasePath);
+// databasePath lives under the read-only release dir as a symlink; resolve it so files land in the writable data dir.
+const realDbPath = (() => { try { return fs.realpathSync(databasePath); } catch { return databasePath; } })();
+const dataDir = path.dirname(realDbPath);
 const sf = createSmartFiling({
   db: crmDb as any,
   env: () => process.env,
-  filesRoot: path.join(dataDir, "smart-filing-files"),
+  filesRoot: process.env.SMART_FILING_FILES_DIR || path.join(dataDir, "smart-filing-files"),
   docRoots: [path.join(dataDir, "loan-application-files"), path.join(dataDir, "customer-identity-documents")],
   actor: (res: Response) => {
     const u = res.locals.authUser as AuthUser | undefined;
