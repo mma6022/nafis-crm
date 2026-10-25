@@ -7,6 +7,8 @@
  * DB, env and roots are injected so the fixture runs this on a DB copy.
  */
 import express, { Router, type Request, type Response, type NextFunction } from "express";
+import { EXPERT_INTRO_TRAINEE_SALESPERSON_IDS } from "./expert-intro-sms-core";
+const TRAINEE_SALESPERSON_IDS: readonly number[] = EXPERT_INTRO_TRAINEE_SALESPERSON_IDS; // کارآموزها 5/19/20
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -188,11 +190,35 @@ export function createSmartFiling(deps: Deps) {
     ];
     return { items, blocked: items.some(i => i.blocking && !i.ok), documents: docs.length };
   }
+  /**
+   * Who may use ثبت هوشمند (enforced on every admin/expert endpoint):
+   *  - admin: everything (panel settings/password, «تأیید ارسال», «ثبت نتیجه», cancel/retry, training jobs);
+   *  - registrar («ثبت»): all jobs on plans linked to a panel (ترنم 7/8/21) — create, chat, codes, screenshots;
+   *  - salesperson («فروش»): only jobs whose customer is theirs — create, chat, codes, screenshots;
+   *  - trainees (salesperson 5/19/20) and any other role: no access.
+   */
+  function scopeOf(actor: Actor): "admin" | "registrar" | "sales" | null {
+    if (actor.role === "admin") return "admin";
+    if (actor.role === "registrar") return "registrar";
+    if (actor.role === "salesperson" && actor.salespersonId && !TRAINEE_SALESPERSON_IDS.includes(actor.salespersonId)) return "sales";
+    return null;
+  }
+  function planLinked(planId: number | null, panelId?: number | null): boolean {
+    if (!planId) return false;
+    return Boolean(panelId
+      ? row("SELECT 1 FROM smart_filing_panel_plans WHERE plan_id=? AND panel_id=?", planId, panelId)
+      : row("SELECT 1 FROM smart_filing_panel_plans WHERE plan_id=?", planId));
+  }
+  function ownsCustomer(actor: Actor, customerId: number): boolean {
+    const c = row<{ salesperson_id: number | null }>("SELECT salesperson_id FROM customers WHERE id=?", customerId);
+    return Boolean(c && actor.salespersonId && c.salesperson_id === actor.salespersonId);
+  }
   function canChat(actor: Actor, job: any): boolean {
-    if (actor.role === "admin") return true;
-    if (actor.role !== "salesperson" || !actor.salespersonId) return false;
-    const c = row<{ salesperson_id: number | null }>("SELECT salesperson_id FROM customers WHERE id=?", job.customer_id);
-    return Boolean(c && c.salesperson_id === actor.salespersonId);
+    const sc = scopeOf(actor);
+    if (sc === "admin") return true;
+    if (sc === "registrar") return planLinked(job.plan_id, job.panel_id);
+    if (sc === "sales") return ownsCustomer(actor, job.customer_id);
+    return false;
   }
   function addMessage(jobId: number, m: { author: "runner" | "user" | "system"; userId?: number | null; userName?: string | null; kind?: string; body?: string | null; data?: unknown; step?: string | null; shot?: { path: string; mime: string; bytes: number } | null }) {
     const t = iso();
@@ -232,7 +258,9 @@ export function createSmartFiling(deps: Deps) {
   function openCode(jobId: number) {
     expireCodes();
     const c = row<any>("SELECT id,target,prompt,requested_at,expires_at,status,code_masked FROM smart_filing_code_requests WHERE job_id=? AND status='pending' ORDER BY id DESC LIMIT 1", jobId);
-    return c ? { id: c.id, target: c.target, prompt: c.prompt, requestedAt: c.requested_at, expiresAt: c.expires_at } : null;
+    // secondsLeft is computed on the server so the browser countdown does not depend on the device clock.
+    return c ? { id: c.id, target: c.target, prompt: c.prompt, requestedAt: c.requested_at, expiresAt: c.expires_at,
+      secondsLeft: Math.max(0, Math.floor((new Date(c.expires_at).getTime() - now().getTime()) / 1000)) } : null;
   }
 
   /* ================= admin / expert router (behind CRM session) ================= */
@@ -241,7 +269,7 @@ export function createSmartFiling(deps: Deps) {
     const a = deps.actor(res);
     if (!a) { fail(res, 401, "unauthorized"); return null; }
     if (adminOnly && a.role !== "admin") { fail(res, 403, "forbidden"); return null; }
-    if (!adminOnly && a.role !== "admin" && a.role !== "salesperson") { fail(res, 403, "forbidden"); return null; }
+    if (!adminOnly && !scopeOf(a)) { fail(res, 403, "forbidden"); return null; }
     return a;
   };
   const loadJob = (req: Request, res: Response, a: Actor) => {
@@ -287,20 +315,26 @@ export function createSmartFiling(deps: Deps) {
     const a = need(req, res, false); if (!a) return;
     const app = appRow(Number(req.params.applicationId));
     if (!app) return fail(res, 404, "application_not_found");
+    const sc = scopeOf(a);
+    if (sc === "sales" && !ownsCustomer(a, app.customer_id)) return fail(res, 404, "application_not_found");
+    // Temporary (Mohammad, 2026-10-25): available in EVERY case stage/status — no stage gate here or on create.
     const panel = panelFor(app.plan_id);
     const existing = row<any>(`SELECT id,status FROM smart_filing_jobs WHERE application_id=? ORDER BY id DESC LIMIT 1`, app.id);
     const cl = checklist(app);
-    res.json({ eligible: Boolean(panel), canCreate: a.role === "admin", panel: panel ? { id: panel.id, name: panel.name } : null,
+    res.json({ eligible: Boolean(panel), canCreate: Boolean(sc), canTrain: sc === "admin", panel: panel ? { id: panel.id, name: panel.name } : null,
       reason: panel ? null : "طرح این پرونده به پنل ازکی‌وام وصل نیست.", checklist: cl,
       latestJob: existing ? { id: existing.id, status: existing.status, statusLabel: STATUS_FA[existing.status as Status] } : null });
   });
 
   admin.post("/smart-filing/jobs", (req, res) => {
-    const a = need(req, res, true); if (!a) return;
+    const a = need(req, res, false); if (!a) return;
+    const sc = scopeOf(a);
     const appId = Number(req.body?.applicationId);
     const jobType = req.body?.jobType === "training" ? "training" : "real";
+    if (jobType === "training" && sc !== "admin") return fail(res, 403, "forbidden", "کار آموزشی فقط برای مدیر است.");
     const app = Number.isSafeInteger(appId) ? appRow(appId) : undefined;
     if (!app) return fail(res, 404, "application_not_found");
+    if (sc === "sales" && !ownsCustomer(a, app.customer_id)) return fail(res, 404, "application_not_found");
     const panel = panelFor(app.plan_id);
     if (!panel) return fail(res, 409, "plan_not_linked", "طرح این پرونده به پنل ازکی‌وام وصل نیست.");
     const open = row<any>(`SELECT id FROM smart_filing_jobs WHERE application_id=? AND panel_id=? AND status IN (${OPEN.map(() => "?").join(",")})`, app.id, panel.id, ...OPEN);
@@ -323,7 +357,9 @@ export function createSmartFiling(deps: Deps) {
     const status = String(req.query.status ?? "");
     const where: string[] = []; const p: unknown[] = [];
     if ((STATUSES as readonly string[]).includes(status)) { where.push("j.status=?"); p.push(status); }
-    if (a.role !== "admin") { where.push("c.salesperson_id=?"); p.push(a.salespersonId ?? -1); }
+    const sc = scopeOf(a);
+    if (sc === "registrar") where.push("EXISTS (SELECT 1 FROM smart_filing_panel_plans pp WHERE pp.plan_id=j.plan_id AND pp.panel_id=j.panel_id)");
+    else if (sc !== "admin") { where.push("c.salesperson_id=?"); p.push(a.salespersonId ?? -1); }
     const list = rows<any>(`SELECT j.* FROM smart_filing_jobs j JOIN customers c ON c.id=j.customer_id ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY COALESCE(j.last_message_at,j.created_at) DESC, j.id DESC LIMIT 300`, ...p);
     res.json({ jobs: list.map(jobView) });
   });

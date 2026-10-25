@@ -36,6 +36,7 @@ import CreditRankOverrides from '@/pages/CreditRankOverrides';
 import VoiceNotesUsage from '@/features/voice-notes/VoiceNotesUsage';
 import SmartFilingJobs from '@/features/smart-filing/SmartFilingJobs';
 import SmartFilingJob from '@/features/smart-filing/SmartFilingJob';
+import { sfScope } from '@/features/smart-filing/access';
 import InstagramInbox from '@/pages/InstagramInbox';
 import MessengersPage from '@/pages/Messengers';
 import { SocialMonitorReports } from '@/features/SocialMonitorReports';
@@ -155,6 +156,16 @@ function AdminOnlyRoute({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+function SmartFilingRoute({ children }: { children: ReactNode }) {
+  const { data: session, isLoading } = useGetAuthSession({
+    query: { queryKey: getGetAuthSessionQueryKey(), retry: false },
+  });
+  if (isLoading) return <LoadingSplash />;
+  if (!session?.user) return <Redirect to="/login" />;
+  if (!sfScope(session.user as { role?: string; salespersonId?: number | null })) return <Redirect to="/" />;
+  return <>{children}</>;
+}
+
 function PermissionRoute({ permission, children }: { permission: string | string[]; children: ReactNode }) {
   const { data: session, isLoading } = useGetAuthSession({
     query: { queryKey: getGetAuthSessionQueryKey(), retry: false },
@@ -229,10 +240,10 @@ function AppWithRoutes() {
                       <PermissionRoute permission="notifications.view"><NotificationSettingsPage /></PermissionRoute>
                     </Route>
                     <Route path="/smart-filing">
-                      <AdminOnlyRoute><SmartFilingJobs /></AdminOnlyRoute>
+                      <SmartFilingRoute><SmartFilingJobs /></SmartFilingRoute>
                     </Route>
                     <Route path="/smart-filing/jobs/:id">
-                      <SmartFilingJob />
+                      <SmartFilingRoute><SmartFilingJob /></SmartFilingRoute>
                     </Route>
                     <Route path="/voice-notes-usage">
                       <AdminOnlyRoute><VoiceNotesUsage /></AdminOnlyRoute>

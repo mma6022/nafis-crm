@@ -20,11 +20,12 @@ import { usePaymentOrderCount } from '@/lib/payment-order-queries';
 import { usePendingCounts } from '@/lib/pending-create';
 import { canUseDrafts, useDraftCounts } from '@/lib/request-drafts';
 import { CreateReminderForm } from './Forms';
+import { sfScope } from '@/features/smart-filing/access';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem } from './ui/dropdown-menu';
 
 const nafissLogoUrl = `${import.meta.env.BASE_URL}nafiss-financial-logo.png`;
 
-type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; walletOwner?: boolean; adminLabel?: string };
+type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; walletOwner?: boolean; adminLabel?: string };
 
 // Routes and permission rules are unchanged; only grouping, order, labels of groups and icons are new.
 const allNavItems: NavItem[] = [
@@ -56,7 +57,7 @@ const allNavItems: NavItem[] = [
   { href: '/sales-reports', label: 'گزارش فروش', icon: BarChart3, permission: 'reports.view' },
   { href: '/social-monitor-reports', label: 'گزارش پیام‌رسان‌ها', icon: Radar, adminOnly: true },
   { href: '/voice-notes-usage', label: 'مصرف تبدیل صدا به متن', icon: AudioLines, adminOnly: true },
-  { href: '/smart-filing', label: 'ثبت هوشمند', icon: Bot, adminOnly: true },
+  { href: '/smart-filing', label: 'ثبت هوشمند', icon: Bot, smartFiling: true },
   { href: '/users', label: 'کاربران CRM', icon: UserCog, permission: 'users.view' },
   { href: '/settings/notifications', label: 'تنظیمات', icon: Settings, permission: 'notifications.view' },
   { href: '/settings/releases', label: 'نسخه‌های سایت', icon: Rocket, adminOnly: true },
@@ -174,6 +175,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
     if (item.walletOwner && !isAdminUser && !(user as { salespersonId?: number | null } | undefined)?.salespersonId) return false;
     if ('staffOnly' in item && item.staffOnly) return user?.role === 'admin' || user?.role === 'registrar';
     if ('adminOnly' in item && item.adminOnly) return user?.role === 'admin';
+    if ('smartFiling' in item && item.smartFiling) return sfScope(user as { role?: string; salespersonId?: number | null } | undefined) !== null;
     const needed = ([] as string[]).concat((item as { permission?: string | string[] }).permission ?? []);
     return user?.role === 'admin' || needed.some((p) => user?.permissions?.includes(p));
   }).map(item => (isAdminUser && item.adminLabel ? { ...item, label: item.adminLabel } : item));

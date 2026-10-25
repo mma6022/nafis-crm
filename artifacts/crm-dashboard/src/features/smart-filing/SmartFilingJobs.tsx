@@ -3,12 +3,16 @@ import { Link } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
 import { Bot, KeyRound } from 'lucide-react';
 import { SkeletonPanel, ErrorState } from '@/components/CrmShell';
+import { useGetAuthSession, getGetAuthSessionQueryKey } from '@workspace/api-client-react';
+import { sfScope } from './access';
 import { useSfJobs, useSfPanels, sfFetch, money, when, fa, TONE, type SfPanel } from './api';
 import './smart-filing.css';
 
-/** Admin: list of smart-filing jobs + ازکی‌وام panel settings (password is write-only). */
+/** Jobs list (admin: all; registrar: linked plans; sales: own customers — filtered on the server) + admin-only panel settings. */
 export default function SmartFilingJobs() {
   const q = useSfJobs();
+  const { data: session } = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
+  const isAdmin = sfScope(session?.user as { role?: string; salespersonId?: number | null } | undefined) === 'admin';
   return (
     <section className="data-page" data-testid="smart-filing-page">
       <div className="page-intro">
@@ -32,7 +36,7 @@ export default function SmartFilingJobs() {
           ))}
         </div>
       )}
-      <PanelSettings />
+      {isAdmin ? <PanelSettings /> : null}
     </section>
   );
 }

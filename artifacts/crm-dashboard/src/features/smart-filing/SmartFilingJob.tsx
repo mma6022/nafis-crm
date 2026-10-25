@@ -55,12 +55,13 @@ export default function SmartFilingJob() {
         {err ? <p className="sf-note sf-warn" role="alert">{err}</p> : null}
       </div>
 
+      <CodeBox code={codeRequest} busy={busy} onSubmit={code => act('/code', { code })} />
+
       <div className="panel" style={{ padding: 0 }}>
         <div className="sf-chat" data-testid="sf-chat">
           {messages.map(m => <Message key={m.id} m={m} />)}
           <div ref={endRef} />
         </div>
-        <CodeBox code={codeRequest} busy={busy} onSubmit={code => act('/code', { code })} />
         <Composer disabled={busy} onSend={text => act('/messages', { text })} />
       </div>
     </section>
@@ -82,14 +83,23 @@ function Message({ m }: { m: SfMessage }) {
 function CodeBox({ code, busy, onSubmit }: { code: SfCodeRequest; busy: boolean; onSubmit: (c: string) => Promise<boolean> }) {
   const [value, setValue] = useState('');
   const [left, setLeft] = useState(0);
+  const boxRef = useRef<HTMLDivElement>(null);
+  // Count down from the server's secondsLeft (re-anchored on every poll) so a wrong phone clock can't disable the box.
   useEffect(() => {
     if (!code) { setLeft(0); return; }
-    const tick = () => setLeft(Math.max(0, Math.round((new Date(code.expiresAt).getTime() - Date.now()) / 1000)));
+    const deadline = Date.now() + (typeof code.secondsLeft === 'number' ? code.secondsLeft * 1000 : new Date(code.expiresAt).getTime() - Date.now());
+    const tick = () => setLeft(Math.max(0, Math.round((deadline - Date.now()) / 1000)));
     tick(); const t = window.setInterval(tick, 1000); return () => window.clearInterval(t);
-  }, [code?.id, code?.expiresAt]);
+  }, [code?.id, code?.expiresAt, code?.secondsLeft]);
   const active = Boolean(code) && left > 0;
+  // A new code request brings the box into view and focuses the input.
+  useEffect(() => {
+    if (!code?.id) return;
+    boxRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    boxRef.current?.querySelector('input')?.focus({ preventScroll: true });
+  }, [code?.id]);
   return (
-    <div className={`sf-code${active ? '' : ' off'}`} style={{ margin: 10 }} data-testid="sf-code-box">
+    <div ref={boxRef} className={`panel sf-code${active ? '' : ' off'}`} data-testid="sf-code-box" data-active={active ? '1' : '0'}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
         <b><KeyRound size={15} /> {active ? (code!.target === 'customer' ? 'کد به موبایل مشتری رفته — از مشتری بپرسید' : 'کد به شماره‌ی ما رفته') : 'الان درخواست کدی باز نیست'}</b>
         {active ? <span className="sf-pill warn" data-testid="sf-code-countdown">{fa(Math.floor(left / 60))}:{fa(String(left % 60).padStart(2, '0'))}</span> : null}

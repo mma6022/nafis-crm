@@ -10,7 +10,7 @@ export type SfJob = {
   checklist: { items: { key: string; label: string; ok: boolean; blocking: boolean }[]; blocked: boolean; documents: number } | null;
 };
 export type SfMessage = { id: number; author: 'runner' | 'user' | 'system'; userName: string | null; kind: string; body: string | null; data: unknown; stepLabel: string | null; createdAt: string; screenshotUrl: string | null };
-export type SfCodeRequest = { id: number; target: 'ours' | 'customer'; prompt: string | null; requestedAt: string; expiresAt: string } | null;
+export type SfCodeRequest = { id: number; target: 'ours' | 'customer'; prompt: string | null; requestedAt: string; expiresAt: string; secondsLeft?: number } | null;
 export type SfPanel = { id: number; slug: string; name: string; baseUrl: string | null; username: string | null; hasPassword: boolean; passwordUpdatedAt: string | null; autoSubmit: boolean; active: boolean; plans: { id: number; name: string | null }[] };
 
 export const base = () => (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
