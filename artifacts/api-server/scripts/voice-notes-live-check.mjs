@@ -5,7 +5,7 @@
 //      VN_CHECK_BASE=https://crm.nafisvam.com VN_CHECK_FALLBACK=1 node voice-notes-live-check.bundle.mjs)
 //
 // VN_CHECK_DB is opened READ-ONLY (plan names only). VN_CHECK_BASE adds two logged-out HTTP probes:
-// GET /api/voice-notes/config → {enabled:false}; POST /api/voice-notes/transcribe → 401 when STT_ENABLED is on (404 when off).
+// GET /api/voice-notes/config → 401 (global auth gate) or {enabled:false}; POST /api/voice-notes/transcribe → 401 when STT_ENABLED is on (404 when off).
 // Exit code 0 only if every requested check passes.
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
@@ -49,7 +49,9 @@ if (env.VN_CHECK_BASE) {
   const base = env.VN_CHECK_BASE.replace(/\/+$/, "");
   const g = await fetch(`${base}/api/voice-notes/config`).then(async (r) => [r.status, await r.json().catch(() => null)]).catch((e) => [0, String(e)]);
   say(`http: GET /api/voice-notes/config (logged out) → ${g[0]} ${JSON.stringify(g[1])}`);
-  if (g[0] !== 200 || g[1]?.enabled !== false) fail.push("config probe");
+  // Production has a global auth gate in front of /api/* (unknown paths are 401 logged out too), so 401 is the
+  // expected live answer; 200 {enabled:false} is what the router itself returns when reached without a session.
+  if (!(g[0] === 401 || (g[0] === 200 && g[1]?.enabled === false))) fail.push("config probe");
   const p = await fetch(`${base}/api/voice-notes/transcribe?duration=1`, { method: "POST", headers: { "content-type": "audio/webm" }, body: new Uint8Array(10) }).then((r) => r.status).catch(() => 0);
   const want = cfg.enabled ? 401 : 404;
   say(`http: POST /api/voice-notes/transcribe (logged out) → ${p} (expect ${want}: ${cfg.enabled ? "route live, auth enforced" : "flag off"})`);
