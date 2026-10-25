@@ -1,7 +1,8 @@
 /**
  * crm-expert-intro-sms core: one SMS to the customer introducing their sales expert after Kazemi (the qualifier)
  * hands the customer off to a non-Kazemi expert. Text (an IPPanel pattern that must be approved in the panel):
- *   «نفیس وام | سلام، کارشناس فروش شما %sale_name% است. برای پیگیری می‌توانید با شماره %sale_mobile% تماس بگیرید.»
+ *   approved IPPanel pattern wuk6lgtho227bxc with params name (customer, empty → «مشتری»), sale_name, sale_mobile:
+ *   «سلام %name%  عزیز از تماس شما با مجموعه نفیس سپاسگزاریم. به دلیل حجم بالای پیام‌های دریافتی، ممکن است پاسخگویی کمی زمان‌بر باشد. ممنون از صبوریتون. کارشناس شما: %sale_name% شماره تماس: %sale_mobile% با احترام، مجموعه نفیس»
  * - Admin switch notification_settings.expert_intro_sms_enabled (absent = OFF). OFF → nothing is queued or sent and
  *   nothing is written; items already queued are dropped with a «غیرفعال» skip log on the next worker tick.
  * - Expert phone = users.customer_contact_phone («شماره تماس برای مشتری»); empty → skip «شماره‌ی کارشناس تعریف نشده».
@@ -17,9 +18,12 @@ export const EXPERT_INTRO_ENABLED_KEY = "expert_intro_sms_enabled";
 export const EXPERT_INTRO_PATTERN_KEY = "expert_intro_sms_pattern_code";
 export const EXPERT_INTRO_BLOCKED_KEY = "expert_intro_sms_blocked_phones";
 export const EXPERT_INTRO_TRAINEE_SALESPERSON_IDS = [5, 19, 20] as const;
+export const EXPERT_INTRO_PARAM_CUSTOMER = "name";
 export const EXPERT_INTRO_PARAM_NAME = "sale_name";
 export const EXPERT_INTRO_PARAM_PHONE = "sale_mobile";
-export const EXPERT_INTRO_TEMPLATE = "نفیس وام | سلام، کارشناس فروش شما [نام کارشناس] است. برای پیگیری می‌توانید با شماره [شماره] تماس بگیرید.";
+export const EXPERT_INTRO_TEMPLATE = "سلام %name%  عزیز از تماس شما با مجموعه نفیس سپاسگزاریم. به دلیل حجم بالای پیام‌های دریافتی، ممکن است پاسخگویی کمی زمان‌بر باشد. ممنون از صبوریتون. کارشناس شما: %sale_name% شماره تماس: %sale_mobile% با احترام، مجموعه نفیس";
+export const EXPERT_INTRO_CUSTOMER_FALLBACK = "مشتری";
+export const customerParam = (name: unknown): string => (typeof name === "string" ? name.trim().slice(0, 40) : "") || EXPERT_INTRO_CUSTOMER_FALLBACK;
 export const EXPERT_INTRO_MAX_AGE_MS = 3 * 24 * 3600_000;
 const TEHRAN_OFFSET_MIN = 210;
 const WINDOW_START_MIN = 8 * 60;
@@ -152,8 +156,8 @@ export function normalizeContactPhone(value: unknown): string | null | undefined
   const d = latinDigits(t).replace(/[\s\-()]/g, "");
   return /^0[1-8]\d{9}$/.test(d) ? d : undefined;
 }
-export function renderIntroText(name: string, phone: string): string {
-  return EXPERT_INTRO_TEMPLATE.replace("[نام کارشناس]", name).replace("[شماره]", phone);
+export function renderIntroText(customer: string, name: string, phone: string): string {
+  return EXPERT_INTRO_TEMPLATE.replace("%name%", customerParam(customer)).replace("%sale_name%", name).replace("%sale_mobile%", phone);
 }
 
 // ------------------------------------------------------------------ Tehran window
@@ -217,7 +221,7 @@ export function logIntro(db: Db, e: { customerId: number | null; salespersonId: 
     e.customerId, e.salespersonId, e.expertName, e.status, e.reason ?? null, e.actorUserId ?? null, now.toISOString());
 }
 
-type CustomerRow = { id: number; phone: string | null; salesperson_id: number | null; merged_into_customer_id: number | null };
+type CustomerRow = { id: number; name?: string | null; phone: string | null; salesperson_id: number | null; merged_into_customer_id: number | null };
 function checkEligibility(db: Db, c: CustomerRow, expert: ExpertInfo, s: IntroSettings, qualifierId: number, ippanelEnabled: boolean): string | null {
   if (c.merged_into_customer_id != null) return REASONS.merged;
   if (expert.salespersonId === qualifierId) return REASONS.qualifier;
@@ -301,7 +305,7 @@ export async function expertIntroTick(db: Db, deps: { send: Sender; now?: () => 
     if (budget-- <= 0) { out.waiting++; continue; }
     const expert = expertInfo(db, r.salesperson_id) ?? { salespersonId: r.salesperson_id, name: "", userId: null, phone: null };
     if (now.getTime() - Date.parse(r.created_at) > EXPERT_INTRO_MAX_AGE_MS) { drop(r, REASONS.expired, expert.name || null); continue; }
-    const c = row<CustomerRow>(db, "SELECT id, phone, salesperson_id, merged_into_customer_id FROM customers WHERE id=?", r.customer_id);
+    const c = row<CustomerRow>(db, "SELECT id, name, phone, salesperson_id, merged_into_customer_id FROM customers WHERE id=?", r.customer_id);
     if (!c) { drop(r, REASONS.noCustomer, expert.name || null); continue; }
     if (c.salesperson_id == null || Number(c.salesperson_id) !== r.salesperson_id) { drop(r, REASONS.reassigned, expert.name || null); continue; }
     const why = deps.qualifierId == null ? REASONS.qualifier : checkEligibility(db, c, expert, s, deps.qualifierId, deps.ippanelEnabled());
@@ -312,7 +316,7 @@ export async function expertIntroTick(db: Db, deps: { send: Sender; now?: () => 
     if (!claimed) continue;
     const recipient = mobileKey(c.phone!)!;
     try {
-      const id = await deps.send({ recipient, patternCode: s.patternCode, params: { [EXPERT_INTRO_PARAM_NAME]: expert.name.slice(0, 60), [EXPERT_INTRO_PARAM_PHONE]: expert.phone! } });
+      const id = await deps.send({ recipient, patternCode: s.patternCode, params: { [EXPERT_INTRO_PARAM_CUSTOMER]: customerParam(c.name), [EXPERT_INTRO_PARAM_NAME]: expert.name.slice(0, 40), [EXPERT_INTRO_PARAM_PHONE]: expert.phone! } });
       const t = nowFn().toISOString();
       run(db, "UPDATE expert_intro_sms SET status='sent', provider_id=?, error_code=NULL, updated_at=? WHERE customer_id=? AND salesperson_id=? AND claim_token=?", id, t, r.customer_id, r.salesperson_id, token);
       logIntro(db, { customerId: r.customer_id, salespersonId: r.salesperson_id, expertName: expert.name || null, status: "sent", reason: null }, nowFn());

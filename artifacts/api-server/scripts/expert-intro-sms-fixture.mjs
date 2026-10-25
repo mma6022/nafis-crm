@@ -30,7 +30,7 @@ function synth() {
   db.exec(`CREATE TABLE notification_settings(key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
     CREATE TABLE salespersons(id INTEGER PRIMARY KEY, name TEXT, mobile TEXT, active INTEGER DEFAULT 1);
     CREATE TABLE users(id INTEGER PRIMARY KEY, username TEXT, role TEXT, salesperson_id INTEGER, mobile TEXT, active INTEGER DEFAULT 1);
-    CREATE TABLE customers(id INTEGER PRIMARY KEY, phone TEXT, salesperson_id INTEGER, merged_into_customer_id INTEGER);
+    CREATE TABLE customers(id INTEGER PRIMARY KEY, name TEXT, phone TEXT, salesperson_id INTEGER, merged_into_customer_id INTEGER);
     CREATE TABLE customer_priority_history(id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, old_salesperson_id INTEGER, new_salesperson_id INTEGER);
     CREATE TABLE team_sales_transfer_snapshot(customer_id INTEGER, previous_salesperson_id INTEGER);`);
   for (const [id, n, m] of [[6, "کاظمی نمونه", "09120000006"], [3, "کارشناس الف", "09120000003"], [4, "کارشناس ب", null], [5, "کارآموز", null], [19, "کارآموز۲", null], [20, "کارآموز۳", null]])
@@ -48,8 +48,10 @@ const on = (db, c, o, nw, now = IN, ipp = true) => core.onSalespersonChange(db, 
 const enable = (db, code = "fxpattern1") => core.saveExpertIntroSettings(db, { enabled: true, patternCode: code });
 
 await ok("template, params, phone normalisation, render", async () => {
-  assert.equal(core.EXPERT_INTRO_TEMPLATE, "نفیس وام | سلام، کارشناس فروش شما [نام کارشناس] است. برای پیگیری می‌توانید با شماره [شماره] تماس بگیرید.");
-  assert.equal(core.renderIntroText("الف", "02112345678"), "نفیس وام | سلام، کارشناس فروش شما الف است. برای پیگیری می‌توانید با شماره 02112345678 تماس بگیرید.");
+  assert.equal(core.EXPERT_INTRO_TEMPLATE, "سلام %name%  عزیز از تماس شما با مجموعه نفیس سپاسگزاریم. به دلیل حجم بالای پیام‌های دریافتی، ممکن است پاسخگویی کمی زمان‌بر باشد. ممنون از صبوریتون. کارشناس شما: %sale_name% شماره تماس: %sale_mobile% با احترام، مجموعه نفیس");
+  assert.deepEqual([core.EXPERT_INTRO_PARAM_CUSTOMER, core.EXPERT_INTRO_PARAM_NAME, core.EXPERT_INTRO_PARAM_PHONE], ["name", "sale_name", "sale_mobile"]);
+  assert.equal(core.renderIntroText("", "الف", "02112345678"), "سلام مشتری  عزیز از تماس شما با مجموعه نفیس سپاسگزاریم. به دلیل حجم بالای پیام‌های دریافتی، ممکن است پاسخگویی کمی زمان‌بر باشد. ممنون از صبوریتون. کارشناس شما: الف شماره تماس: 02112345678 با احترام، مجموعه نفیس");
+  assert.equal(core.customerParam("  "), "مشتری"); assert.equal(core.customerParam(null), "مشتری"); assert.equal(core.customerParam(" علی "), "علی");
   assert.equal(core.mobileKey("+98 912 000 0001"), "09120000001"); assert.equal(core.mobileKey("۰۹۱۲۰۰۰۰۰۰۱"), "09120000001");
   assert.equal(core.mobileKey("02112345678"), null);
   assert.equal(core.normalizeContactPhone("021 1234 5678"), "02112345678"); assert.equal(core.normalizeContactPhone(""), null);
@@ -96,6 +98,7 @@ await ok("trigger only qualifier → non-qualifier; skips logged with reasons", 
 await ok("queue → send once per (customer, expert); duplicate skipped; reassigned dropped", async () => {
   const db = synth(); enable(db);
   db.prepare("UPDATE customers SET salesperson_id=3 WHERE id IN (1,2)").run();
+  db.prepare("UPDATE customers SET name='علی نمونه' WHERE id=1").run();
   assert.equal(on(db, 1, 6, 3).action, "queued");
   assert.deepEqual(on(db, 1, 6, 3), { action: "skipped", reason: R.duplicate });
   assert.equal(on(db, 2, 6, 3).action, "queued");
@@ -103,7 +106,7 @@ await ok("queue → send once per (customer, expert); duplicate skipped; reassig
   const got = [];
   const r = await core.expertIntroTick(db, { send: async (a) => { got.push(a); return "555"; }, now: () => IN, qualifierId: 6, ippanelEnabled: () => true });
   assert.equal(r.sent, 1); assert.equal(r.skipped, 1);
-  assert.deepEqual(got, [{ recipient: "09350000001", patternCode: "fxpattern1", params: { sale_name: "کارشناس الف", sale_mobile: "02112345678" } }]);
+  assert.deepEqual(got, [{ recipient: "09350000001", patternCode: "fxpattern1", params: { name: "علی نمونه", sale_name: "کارشناس الف", sale_mobile: "02112345678" } }]);
   assert.equal(q(db, "SELECT status,provider_id FROM expert_intro_sms WHERE customer_id=1")[0].provider_id, "555");
   const r2 = await core.expertIntroTick(db, { send: async () => { throw new Error("must not"); }, now: () => IN, qualifierId: 6, ippanelEnabled: () => true });
   assert.equal(r2.sent, 0);
@@ -219,7 +222,8 @@ try {
     const r = await call("POST", "/expert-intro-sms/test-send", "admin", { phone: fx, expertName: "کارشناس تست", expertPhone: "02112345678" });
     assert.equal(r.status, 200, JSON.stringify(r.body)); assert.match(r.body.providerId, /^\d+$/);
     assert.equal(sent.length, 1); assert.deepEqual(sent[0].body.recipients, ["+989350009999"]);
-    assert.deepEqual(sent[0].body.params, { sale_name: "کارشناس تست", sale_mobile: "02112345678" });
+    assert.deepEqual(sent[0].body.params, { name: "مشتری", sale_name: "کارشناس تست", sale_mobile: "02112345678" });
+    assert.equal(sent[0].body.code, "fxpattern1"); assert.ok(r.body.text.includes("سلام مشتری  عزیز") && r.body.text.includes("کارشناس شما: کارشناس تست شماره تماس: 02112345678"));
     assert.equal((await call("POST", "/expert-intro-sms/test-send", "admin", { phone: fx, expertName: "کارشناس تست", expertPhone: "02112345678" })).status, 429);
     assert.equal(sent.length, 1);
     const dump = JSON.stringify(queryRows("SELECT * FROM expert_intro_sms_log")) + JSON.stringify(queryRows("SELECT * FROM notification_settings"));

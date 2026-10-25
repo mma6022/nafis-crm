@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 export type ExpertKind = 'closer' | 'qualifier' | 'trainee' | 'other';
 export type ExpertRow = { salespersonId: number; name: string; active: boolean; userId: number | null; username: string | null; phone: string | null; kind: ExpertKind };
 export type ExpertIntroView = {
-  enabled: boolean; patternCode: string; blockedPhones: string[]; template: string; paramNames: { name: string; phone: string };
+  enabled: boolean; patternCode: string; blockedPhones: string[]; template: string; paramNames: { customer: string; name: string; phone: string };
   provider: string; fromNumber: string; ippanelEnabled: boolean; relayConfigured: boolean; sendWindow: string;
   traineeSalespersonIds: number[]; qualifierSalespersonId: number | null; experts: ExpertRow[]; stats: Record<string, number>;
 };

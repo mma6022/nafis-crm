@@ -6,7 +6,7 @@ import { crmDb } from "../lib/crm-db";
 import { getNotificationSettings } from "../lib/customer-notifications";
 import { getCustomer } from "./crm";
 import {
-  EXPERT_INTRO_PARAM_NAME, EXPERT_INTRO_PARAM_PHONE, EXPERT_INTRO_TEMPLATE, EXPERT_INTRO_TRAINEE_SALESPERSON_IDS, ExpertIntroError,
+  EXPERT_INTRO_PARAM_CUSTOMER, EXPERT_INTRO_PARAM_NAME, EXPERT_INTRO_PARAM_PHONE, customerParam, EXPERT_INTRO_TEMPLATE, EXPERT_INTRO_TRAINEE_SALESPERSON_IDS, ExpertIntroError,
   customerIntroLog, ensureExpertIntroSchema, expertInfo, expertOverview, failureText, getExpertIntroSettings, introStats, logIntro,
   mobileKey, normalizeContactPhone, renderIntroText, saveExpertIntroSettings, setUserContactPhone, userContactPhones,
 } from "../lib/expert-intro-sms-core";
@@ -25,7 +25,7 @@ function view() {
   const ids = teamSalesIds();
   return {
     enabled: s.enabled, patternCode: s.patternCode, blockedPhones: s.blockedPhones,
-    template: EXPERT_INTRO_TEMPLATE, paramNames: { name: EXPERT_INTRO_PARAM_NAME, phone: EXPERT_INTRO_PARAM_PHONE },
+    template: EXPERT_INTRO_TEMPLATE, paramNames: { customer: EXPERT_INTRO_PARAM_CUSTOMER, name: EXPERT_INTRO_PARAM_NAME, phone: EXPERT_INTRO_PARAM_PHONE },
     provider: "IPPanel", fromNumber: ns.ippanelFromNumber, ippanelEnabled: ns.ippanelEnabled,
     relayConfigured: Boolean(process.env.IR_RELAY_SHARED_SECRET),
     sendWindow: "08:00–21:00 Asia/Tehran", traineeSalespersonIds: [...EXPERT_INTRO_TRAINEE_SALESPERSON_IDS],
@@ -51,7 +51,8 @@ let lastTestAt = 0;
  */
 router.post("/expert-intro-sms/test-send", requireAdmin, async (req, res): Promise<void> => {
   const user = res.locals.authUser as AuthUser;
-  const b = (req.body ?? {}) as { phone?: unknown; salespersonId?: unknown; expertName?: unknown; expertPhone?: unknown; patternCode?: unknown };
+  const b = (req.body ?? {}) as { phone?: unknown; salespersonId?: unknown; expertName?: unknown; expertPhone?: unknown; patternCode?: unknown; customerName?: unknown };
+  const customer = customerParam(b.customerName);
   const phone = mobileKey(b.phone);
   if (!phone) { res.status(400).json({ error: "شماره‌ی موبایل آزمایشی معتبر نیست." }); return; }
   let name: string; let expertPhone: string; let spId: number | null = null;
@@ -61,7 +62,7 @@ router.post("/expert-intro-sms/test-send", requireAdmin, async (req, res): Promi
     if (!expert.phone) { res.status(400).json({ error: "برای این کارشناس «شماره تماس برای مشتری» تعریف نشده است." }); return; }
     name = expert.name; expertPhone = expert.phone; spId = expert.salespersonId;
   } else {
-    name = typeof b.expertName === "string" ? b.expertName.trim().slice(0, 60) : "";
+    name = typeof b.expertName === "string" ? b.expertName.trim().slice(0, 40) : "";
     const p = typeof b.expertPhone === "string" ? b.expertPhone.trim().slice(0, 20) : "";
     expertPhone = normalizeContactPhone(p) ?? p;
     if (!name || !expertPhone) { res.status(400).json({ error: "کارشناس یا نام و شماره‌ی نمونه را وارد کنید." }); return; }
@@ -72,9 +73,9 @@ router.post("/expert-intro-sms/test-send", requireAdmin, async (req, res): Promi
   if (Date.now() - lastTestAt < 20_000) { res.status(429).json({ error: "چند ثانیه بعد دوباره امتحان کنید." }); return; }
   lastTestAt = Date.now();
   try {
-    const providerId = await sendExpertIntroPattern({ recipient: phone, patternCode: code, params: { [EXPERT_INTRO_PARAM_NAME]: name, [EXPERT_INTRO_PARAM_PHONE]: expertPhone } });
+    const providerId = await sendExpertIntroPattern({ recipient: phone, patternCode: code, params: { [EXPERT_INTRO_PARAM_CUSTOMER]: customer, [EXPERT_INTRO_PARAM_NAME]: name, [EXPERT_INTRO_PARAM_PHONE]: expertPhone } });
     logIntro(crmDb, { customerId: null, salespersonId: spId, expertName: name, status: "test_sent", reason: "ارسال آزمایشی", actorUserId: user.id }, new Date());
-    res.json({ ok: true, providerId, text: renderIntroText(name, expertPhone) });
+    res.json({ ok: true, providerId, text: renderIntroText(customer, name, expertPhone) });
   } catch (error) {
     const err = error instanceof Error ? error.message : "sms_failed";
     logIntro(crmDb, { customerId: null, salespersonId: spId, expertName: name, status: "test_failed", reason: failureText(err), actorUserId: user.id }, new Date());

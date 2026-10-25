@@ -27,8 +27,7 @@ export function ExpertIntroSmsCard() {
   const sellable = d.experts.filter((e) => e.active && e.kind !== 'qualifier' && e.kind !== 'trainee');
   const missing = sellable.filter((e) => !e.phone);
   const withPhone = sellable.filter((e) => e.phone);
-  const nameParam = `%${d.paramNames.name}%`, phoneParam = `%${d.paramNames.phone}%`;
-  const preview = d.template.replace('[نام کارشناس]', nameParam).replace('[شماره]', phoneParam);
+  const preview = d.template;
 
   const save = async (patch: Parameters<typeof saveExpertIntroSettings>[0], done: string) => {
     setBusy(true); setMsg(null);
@@ -67,7 +66,7 @@ export function ExpertIntroSmsCard() {
         <div className="field full">
           <label htmlFor="expert-intro-pattern">کد پترن تأییدشده در IPPanel</label>
           <input id="expert-intro-pattern" dir="ltr" value={code} onChange={(e) => setCode(e.target.value)} placeholder="pattern code" data-testid="input-expert-intro-pattern" />
-          <small>متن بالا باید عیناً به‌صورت پترن با متغیرهای <code>{d.paramNames.name}</code> و <code>{d.paramNames.phone}</code> در پنل تأیید شود.</small>
+          <small>متن بالا پترن تأییدشده در پنل است با متغیرهای <code>{d.paramNames.customer}</code> (نام مشتری؛ اگر خالی باشد «مشتری»)، <code>{d.paramNames.name}</code> و <code>{d.paramNames.phone}</code>.</small>
         </div>
         <div className="field full">
           <label htmlFor="expert-intro-blocked">شماره‌های آزمایشی (هرگز پیامک نگیرند)</label>
