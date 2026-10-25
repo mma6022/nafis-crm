@@ -1,4 +1,6 @@
 import { CustomerName } from '@/components/customer/CustomerName';
+import { CallNoteCounter } from '@/components/CallNoteCounter';
+import { callNoteOk } from '@/lib/call-note';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Save } from 'lucide-react';
@@ -55,6 +57,7 @@ export function CallReportEditor({ source, onDirtyChange, onSaved, footer }: {
   const [conflict, setConflict] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [noteErr, setNoteErr] = useState(false);
   const init = useRef(false);
   const rev = useRef(0);
   const draft = useRef({ subject: '', notes: '' });
@@ -149,8 +152,9 @@ export function CallReportEditor({ source, onDirtyChange, onSaved, footer }: {
       <div className="field full"><label htmlFor="cr-subject">موضوع تماس (کارشناس)</label>
         <input id="cr-subject" value={subject} maxLength={160} disabled={!canEdit} readOnly={conflict} onChange={(e) => edit(e.target.value, draft.current.notes)} data-testid="input-report-subject" /></div>
       <div className="field full"><label htmlFor="cr-notes">یادداشت کارشناس</label>
-        <textarea id="cr-notes" rows={5} value={notes} maxLength={10000} disabled={!canEdit} readOnly={conflict} onChange={(e) => edit(draft.current.subject, e.target.value)} placeholder="نتیجه مکالمه را بنویسید" data-testid="input-report-notes" />
-        {canEdit && !conflict ? <VoiceNoteButton value={notes} onChange={(v) => edit(draft.current.subject, v)} field="call_note" maxLength={10000} testId="report-notes-voice" /> : null}</div>
+        <textarea id="cr-notes" rows={5} value={notes} maxLength={10000} disabled={!canEdit} readOnly={conflict} onChange={(e) => edit(draft.current.subject, e.target.value)} placeholder="نتیجه مکالمه را بنویسید" aria-invalid={noteErr && !callNoteOk(notes)} aria-describedby="cr-notes-meta" data-testid="input-report-notes" />
+        {canEdit && !conflict ? <VoiceNoteButton value={notes} onChange={(v) => edit(draft.current.subject, v)} field="call_note" maxLength={10000} testId="report-notes-voice" /> : null}
+        {canEdit ? <CallNoteCounter value={notes} showError={noteErr} id="cr-notes-meta" testId="report-notes-counter" /> : null}</div>
     </div>
     {!canEdit ? <p className="subtle-note">امکان ویرایش این گزارش برای شما فعال نیست.</p> : null}
     {error ? <p role="alert" className="form-error" data-testid="error-report">{error}</p> : null}
@@ -163,7 +167,7 @@ export function CallReportEditor({ source, onDirtyChange, onSaved, footer }: {
       : aiBusy ? <p className="subtle-note">در حال تبدیل صدا به متن...</p> : t?.state === 'failed' ? <p className="form-error">{t.error || 'تبدیل صدا به متن ناموفق بود.'}</p> : null}
     {c.customerRequest ? <details className="cr-transcript"><summary>خلاصهٔ قبلیِ ثبت‌شده</summary><p style={{whiteSpace:'pre-wrap'}}>{c.customerRequest}</p></details> : null}
     <div className="form-footer">
-      {canEdit && !live ? <button className="btn btn-primary" type="button" onClick={() => void save()} disabled={saving || !dirty || conflict} data-testid="button-report-save"><Save size={15} /> {saving ? 'در حال ذخیره...' : 'ذخیره'}</button> : null}
+      {canEdit && !live ? <button className="btn btn-primary" type="button" onClick={() => { if (!callNoteOk(notes)) { setNoteErr(true); return; } setNoteErr(false); void save(); }} disabled={saving || !dirty || conflict} data-testid="button-report-save"><Save size={15} /> {saving ? 'در حال ذخیره...' : 'ذخیره'}</button> : null}
       {footer?.({ dirty, saving, report })}
     </div>
   </div>;

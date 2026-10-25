@@ -60,7 +60,8 @@
     "test:no-plan-option": "node scripts/run-bundled-fixture.mjs scripts/no-plan-option-fixture.mjs",
     "test:voice-notes": "node scripts/run-bundled-fixture.mjs scripts/voice-notes-fixture.mjs",
     "fixture:first-call-edit": "node scripts/run-bundled-fixture.mjs scripts/first-call-edit-fixture.mjs",
-    "check:rial-unit-message": "node scripts/rial-unit-message-check.mjs"
+    "check:rial-unit-message": "node scripts/rial-unit-message-check.mjs",
+    "fixture:call-note-min": "node scripts/run-bundled-fixture.mjs scripts/call-note-min-fixture.mjs"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.3.0",

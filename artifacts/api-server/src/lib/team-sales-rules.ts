@@ -28,7 +28,7 @@ export const DEFAULT_TEAM_SALES_CONFIG: TeamSalesConfig = {
   qualifierSalespersonId: 6,
   closerSalespersonIds: [3, 4],
   closerFirstCallWorkingHours: 3,
-  noteMinLength: 30,
+  noteMinLength: 10, // crm-call-note-min (was 30)
   workHours: { start: 9, end: 18 },
   workDays: [6, 0, 1, 2, 3, 4],
   noAnswerRetryHours: [4, 24],

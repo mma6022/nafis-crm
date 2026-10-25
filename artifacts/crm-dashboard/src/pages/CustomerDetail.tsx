@@ -736,8 +736,8 @@ export default function CustomerDetail() {
       />
     )}
     {toast ? <div className="csx-toast" role="status">{toast}</div> : null}
-    {simpleFormOpen ? <SimpleCallForm customer={customer} userId={userId} noteMin={tsConfig.data?.noteMinLength ?? 30} onClose={() => setSimpleFormOpen(false)} onDone={afterSimpleForm} onNext={() => { setSimpleFormOpen(false); setLocation('/customers'); }} /> : null}
-    {fcEditOpen && firstCall && fcEditInfo.data ? <SimpleCallForm customer={customer} userId={userId} noteMin={tsConfig.data?.noteMinLength ?? 30}
+    {simpleFormOpen ? <SimpleCallForm customer={customer} userId={userId} noteMin={tsConfig.data?.noteMinLength ?? 10} onClose={() => setSimpleFormOpen(false)} onDone={afterSimpleForm} onNext={() => { setSimpleFormOpen(false); setLocation('/customers'); }} /> : null}
+    {fcEditOpen && firstCall && fcEditInfo.data ? <SimpleCallForm customer={customer} userId={userId} noteMin={tsConfig.data?.noteMinLength ?? 10}
       edit={{ fc: firstCall, canSend: fcEditInfo.data.canSend, sendBlockedReason: fcEditInfo.data.sendBlockedReason, onSaved: afterFirstCallEdit }}
       onClose={() => setFcEditOpen(false)} onDone={() => {}} onNext={() => setFcEditOpen(false)} /> : null}
     <CallLaunchStatus status={callLauncher.status} onRetry={callLauncher.retry} onCancel={callLauncher.cancel} />

@@ -1,4 +1,5 @@
 import express, { Router, type IRouter, type RequestHandler } from "express";
+import { callNoteError } from "../lib/call-note-rule";
 import { crossOwnerEligible, findOtherOwnerMatches } from "../lib/cross-owner-search";
 import { customerSearchSql } from "../lib/customer-id-search";
 import { identityValuesChanged } from "../lib/identity-change";
@@ -4339,6 +4340,13 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
     return;
   }
   const body = parsed.data;
+  // crm-call-note-min: «یادداشت کارشناس» is required (trimmed, >= 10 characters).
+  const callNoteErr = callNoteError(body.expertNotes);
+  if (callNoteErr) {
+    res.status(400).json({ error: callNoteErr });
+    return;
+  }
+  body.expertNotes = String(body.expertNotes).trim();
   const user = res.locals.authUser as AuthUser;
   if (!getCustomer(body.customerId, user)) {
     res.status(404).json({ error: "Customer not found" });

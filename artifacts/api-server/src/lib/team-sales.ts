@@ -4,6 +4,7 @@
  * Priority-history logging (customer_priority_history) is always on: it is additive and invisible.
  * Never sends SMS (customers or staff): closer reminders are in-app only (reminder_sms_deliveries pre-marked).
  */
+import { callNoteError } from "./call-note-rule";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import {
   addWorkingHours, computeLeadPriority, evaluatePlans, isFirstCallForm, matchesFromEvaluation, matchPlans, mergeTeamSalesConfig,
@@ -511,8 +512,8 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
   if (noPlanFit && Array.isArray(selectedPlans) && selectedPlans.length)
     throw new TeamSalesError(400, "«هیچ طرحی به این مشتری نمی‌خوره» با انتخاب طرح هم‌زمان ممکن نیست؛ یکی را بردارید.");
   const cleanNote = String(note ?? "").trim();
-  if ([...cleanNote].length < cfg.noteMinLength)
-    throw new TeamSalesError(400, `یادداشت تماس الزامی است (حداقل ${cfg.noteMinLength} نویسه).`);
+  const noteErr = callNoteError(cleanNote, cfg.noteMinLength);
+  if (noteErr) throw new TeamSalesError(400, noteErr);
   const plans = answers.callResult === "answered" ? activePlans() : [];
   return runImmediateTransaction(() => {
     const c = loadCustomer(customerId);
@@ -707,7 +708,8 @@ export function editFirstCall(customerId: number, actor: Actor, rawAnswers: Qual
     throw new TeamSalesError(400, "«هیچ طرحی به این مشتری نمی‌خوره» با انتخاب طرح هم‌زمان ممکن نیست؛ یکی را بردارید.");
   const noteMin = opts.noteMin ?? cfg.noteMinLength;
   const cleanNote = String(note ?? "").trim();
-  if ([...cleanNote].length < noteMin) throw new TeamSalesError(400, `یادداشت تماس الزامی است (حداقل ${noteMin} نویسه).`);
+  const noteErr = callNoteError(cleanNote, noteMin);
+  if (noteErr) throw new TeamSalesError(400, noteErr);
   if (cleanNote.length > 4000) throw new TeamSalesError(400, "یادداشت تماس حداکثر ۴۰۰۰ نویسه است.");
   const plans = activePlans();
   return runImmediateTransaction(() => {

@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { callNoteError } from "../lib/call-note-rule";
 import { CompleteVoipAfterCallBody, CompleteVoipAfterCallParams, ListPendingVoipAfterCallsResponse } from "@workspace/api-zod";
 import { requirePermission } from "../lib/access-control";
 import type { AuthUser } from "../lib/auth";
@@ -60,6 +61,9 @@ router.patch("/voip/after-call/:id", requirePermission("calls.view"), requirePer
   if (body.discardHistory && (body.priority !== undefined || body.subject !== undefined || body.customerRequest !== undefined || body.expertNotes !== "")) {
     res.status(400).json({ error: "عدم ثبت در تاریخچه را نمی‌توان همراه با ویرایش نتیجه یا اولویت فرستاد." }); return;
   }
+  // crm-call-note-min: completing «نتیجه تماس» needs a note (trimmed, >= 10); «عدم ثبت» stays note-less.
+  const callNoteErr = body.discardHistory ? null : callNoteError(body.expertNotes);
+  if (callNoteErr) { res.status(400).json({ error: callNoteErr }); return; }
   if (body.priority !== undefined && actor.role !== "admin" && !actor.permissions.includes("customers.update")) {
     res.status(403).json({ error: "اجازهٔ تغییر اولویت مشتری را ندارید." }); return;
   }

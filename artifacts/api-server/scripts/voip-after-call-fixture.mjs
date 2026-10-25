@@ -169,9 +169,9 @@ try {
   assert.equal(db.prepare("SELECT subject FROM call_logs WHERE id=?").get(a.call_log_id).subject,payload.subject);
   assert.equal(db.prepare("SELECT customer_request FROM call_logs WHERE id=?").get(a.call_log_id).customer_request,payload.customerRequest);
   assert.equal(db.prepare("SELECT COUNT(*) n FROM call_logs").get().n, 6);
-  assert.equal((await save(a.id, { expertNotes: "overwrite" })).status, 409);
+  assert.equal((await save(a.id, { expertNotes: "overwrite note" })).status, 409);
   const unknown = db.prepare("SELECT id FROM voip_after_call_events WHERE external_id='unmatched-customer'").get().id;
-  assert.equal((await save(unknown, { expertNotes: "unmatched", priority: 1 })).status, 422);
+  assert.equal((await save(unknown, { expertNotes: "unmatched call", priority: 1 })).status, 422);
   assert.equal((await save(unknown, { expertNotes: "unmatched note" })).status, 200);
   assert.equal(db.prepare("SELECT COUNT(*) n FROM call_logs").get().n, 6, "No invented customer/history for unknown phone");
   const merged = db.prepare("SELECT id FROM voip_after_call_events WHERE external_id='merged-phone'").get().id;
@@ -254,7 +254,7 @@ try {
   assert.equal(db.prepare("SELECT id FROM call_logs WHERE id=?").get(discardEvent.call_log_id),undefined);
   assert.equal(db.prepare("SELECT COUNT(*) n FROM call_logs").get().n,beforeDiscard-1,"Only the selected provisional history is removed");
   assert.equal((await save(discardEvent.id,{expertNotes:"",discardHistory:true})).status,200,"Discard retry is idempotent");
-  assert.equal((await save(discardEvent.id,{expertNotes:"reopen"})).status,409);
+  assert.equal((await save(discardEvent.id,{expertNotes:"reopen attempt"})).status,409);
   const tombstone = db.prepare("SELECT * FROM voip_after_call_events WHERE id=?").get(discardEvent.id);
   assert.equal(tombstone.completed_by_user_id,2);
   assert.equal(tombstone.completed_payload,JSON.stringify({discardHistory:true}));

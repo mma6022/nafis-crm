@@ -1,3 +1,4 @@
+import { callNoteError } from "./call-note-rule";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
 import { callExtensions, callStartedAt, getSimotelCalls, SimotelError, type SimotelCall } from "./simotel";
 import type { AuthUser } from "./auth";
@@ -225,6 +226,8 @@ export function ingestAfterCalls(rows: SimotelCall[], now = new Date()) {
 export function finishSavedLiveReport(id:number) {
   const e=eventFor(id);
   if(!e || !e.report_saved_at || e.is_live || e.completed_at)return;
+  // crm-call-note-min: a live draft shorter than the minimum stays in the queue for the expert to finish.
+  if(callNoteError(e.expert_notes))return;
   executeChanges("UPDATE voip_after_call_events SET completed_at=?,completed_by_user_id=?,completed_payload=? WHERE id=? AND completed_at IS NULL",
     [new Date().toISOString(),e.report_edited_by,JSON.stringify({expertNotes:e.expert_notes,subject:e.report_subject}),id]);
 }

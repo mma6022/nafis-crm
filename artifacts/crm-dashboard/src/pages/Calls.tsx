@@ -343,7 +343,7 @@ function ManualCalls({ desktop = true }: { desktop?: boolean }) {
       onPick={(row) => void pick(row)} onRetry={() => { if (launcher.status === 'error') launcher.retry(); else if (lastPick.current) void pick(lastPick.current); }} onClose={closePicker} /> : null}
     {legacyFor ? <CallForm key={legacyFor.customer.id} customers={[legacyFor.customer]} salespersons={salespersons.data ?? []} pending={create.isPending} error={create.isError}
       initialCustomerId={legacyFor.customer.id} onClose={closeForms} onSave={save} onChangeCustomer={legacyFor.fromPicker ? backToPicker : undefined} /> : null}
-    {simpleFor ? <SimpleCallForm key={simpleFor.customer.id} customer={simpleFor.customer} userId={user?.id} noteMin={launcher.config?.noteMinLength ?? 30}
+    {simpleFor ? <SimpleCallForm key={simpleFor.customer.id} customer={simpleFor.customer} userId={user?.id} noteMin={launcher.config?.noteMinLength ?? 10}
       onClose={closeForms} onNext={closeForms} onChangeCustomer={simpleFor.fromPicker ? backToPicker : undefined} onDone={invalidate} /> : null}
     {consultFor ? <CreateConsultationForm customers={[consultFor]} pending={createConsult.isPending} initialCustomerId={consultFor.id} onClose={() => setConsultFor(null)} onSave={saveConsult} /> : null}
     {selectedCall ? <CallReportDialog callId={selectedCall.id} onClose={() => setSelectedCall(null)} /> : null}

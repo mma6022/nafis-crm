@@ -1,4 +1,6 @@
 import { customerNameText } from '@/components/customer/CustomerName';
+import { CallNoteCounter } from '@/components/CallNoteCounter';
+import { callNoteOk } from '@/lib/call-note';
 import { OtherOwnerResults } from '@/components/customer/OtherOwnerResults';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { GradePicker } from '@/components/grade/GradePicker';
@@ -55,6 +57,7 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
     postalCode: initialCustomer?.postalCode ?? '',
     birthDateJalali: initialCustomer?.birthDateJalali ?? '',
   });
+  const [noteError, setNoteError] = useState(false);
   const [reminderOpen, setReminderOpen] = useState(false);
   const [reminder, setReminder] = useState({
     subject: '',
@@ -129,6 +132,9 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
   const buildInput = (): CallInput | null => {
     if (pickCheck) return null;
     if (!form.customerId) { setCustomerSelectionError(true); return null; }
+    // crm-call-note-min: «یادداشت کارشناس» trimmed must be >= 10 characters.
+    if (!callNoteOk(form.expertNotes)) { setNoteError(true); document.getElementById('call-notes')?.focus(); return null; }
+    setNoteError(false);
     let reminderInput: { subject: string; message: string; remindAt: string } | undefined;
     if (reminderOpen) {
       const result = validateReminder();
@@ -270,9 +276,10 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
                 <VoiceNoteButton value={form.customerRequest} onChange={(v) => update('customerRequest', v)} field="call_note" testId="call-request-voice" />
               </div>
               <div className="field call-grow call-grow-lg">
-                <label htmlFor="call-notes">یادداشت کارشناس</label>
-                <textarea id="call-notes" value={form.expertNotes} onChange={(event) => update('expertNotes', event.target.value)} data-testid="textarea-call-notes" />
+                <label htmlFor="call-notes">یادداشت کارشناس <span className="req" aria-hidden="true">*</span></label>
+                <textarea id="call-notes" value={form.expertNotes} onChange={(event) => update('expertNotes', event.target.value)} aria-invalid={noteError && !callNoteOk(form.expertNotes)} aria-describedby="call-notes-meta" aria-required="true" data-testid="textarea-call-notes" />
                 <VoiceNoteButton value={form.expertNotes} onChange={(v) => update('expertNotes', v)} field="call_note" testId="call-notes-voice" />
+                <CallNoteCounter value={form.expertNotes} showError={noteError} id="call-notes-meta" testId="call-notes-counter" />
               </div>
             </div>
 

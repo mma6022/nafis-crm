@@ -1,3 +1,4 @@
+import {callNoteError}from"./call-note-rule";
 import type { AuthUser } from "./auth";
 import { queryRow, execute, executeChanges, runTransaction } from "./crm-db";
 import { callHistoryScope } from "./call-history-scope";
@@ -89,6 +90,9 @@ export function saveCallReport(id:number,byEvent:boolean,actor:AuthUser,body:{su
   runTransaction(()=>{
     const report=byEvent?eventCallReport(id,actor):callReport(id,actor);
     if(!report.canEdit)throw new CallReportError(403,"اجازهٔ ویرایش گزارش تماس را ندارید.");
+    // crm-call-note-min: a finished call's report needs a note (trimmed, >= 10). Live autosave drafts are exempt.
+    const noteErr=report.isLive?null:callNoteError(body.expertNotes);
+    if(noteErr)throw new CallReportError(400,noteErr);
     if(report.revision!==body.expectedRevision)throw new CallReportError(409,"گزارش توسط شخص یا پنجرهٔ دیگری تغییر کرده است؛ نوشتهٔ شما حفظ شد. ابتدا نسخهٔ تازه را بررسی کنید.");
     const revision=report.revision+1,now=new Date().toISOString(),subject=body.subject?.trim()||null;
     // Preserve the original call time and expert attribution, including admin edits.

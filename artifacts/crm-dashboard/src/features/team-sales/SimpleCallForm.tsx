@@ -1,4 +1,5 @@
 import { AlertCircle, AlertTriangle, Ban, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, HelpCircle, Info, Search, Timer, X } from 'lucide-react';
+import { CALL_NOTE_MIN, callNoteLength, callNoteMinMessage } from '@/lib/call-note';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { fa, fetchCities, fetchPlanOptions, fmtDateTime, shortName, submitFirstCallEdit, submitSimpleForm, TeamSalesApiError, type CallResult, type FirstCallEditResult, type FirstCallSummary, type Military, type QualifyResult, type SimpleAnswers, type SuggestedPlan, type Tri } from './api';
 import { FIRST_CALL_FIELD_LABELS, firstCallValueText } from './first-call-edit-labels';
@@ -164,7 +165,7 @@ function PlanCard({ p, checked, onToggle }: { p: PlanEvaluation; checked: boolea
   </div>;
 }
 
-export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone, onNext, onChangeCustomer, edit }: {
+export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onClose, onDone, onNext, onChangeCustomer, edit }: {
   customer: { id: number; name: string; phone: string; priority?: number | null };
   userId: number | undefined; noteMin?: number;
   onClose: () => void; onDone: (r: QualifyResult) => void; onNext: () => void;
@@ -241,9 +242,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
       }
     }
     if (step === STEP_NOTE) {
-      const n = d.note.trim().length;
-      if (n === 0) e.note = 'empty';
-      else if (n < noteMin) e.note = 'short';
+      if (callNoteLength(d.note) < noteMin) e.note = 'short';
       if (answered && !d.urgency) e.urgency = 'فوریت را انتخاب کن.';
     }
     return e;
@@ -356,7 +355,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
 
   const prio = customer.priority ? `اولویت ${fa(customer.priority)}` : 'بدون اولویت';
   const err = (k: string) => errors[k] && errors[k] !== 'empty' && errors[k] !== 'short' ? <p className="ts-err" role="alert" id={`ts-err-${k}`} data-testid={`ts-err-${k}`}><AlertCircle size={16} /> {errors[k]}</p> : null;
-  const noteLen = d.note.trim().length;
+  const noteLen = callNoteLength(d.note);
   const rankChip = (v: string | null) => (v === 'unknown' ? 'نمی‌دونه' : v ? gradeText(v) : '');
   const guarantorSummary = d.gAvail === 'yes'
     ? `ضامن ${d.gCheque === 'yes' ? 'با چک' : d.gCheque === 'no' ? 'بدون چک' : '(چک نامعلوم)'} · ${d.gRank === 'unknown' ? 'رتبه نامعلوم' : rankChip(d.gRank)}`
@@ -515,11 +514,10 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
       {edit && !edit.canSend && edit.sendBlockedReason ? <div className="ts-alert info" role="note" data-testid="ts-edit-send-blocked"><Info size={18} /> {edit.sendBlockedReason}</div> : null}
       <div className="ts-script">{answered ? <><b>قبل از قطع تماس بپرس:</b><p>«برای شما چقدر فوریه؟»</p></>
         : <><b>قبل از قطع تماس:</b><p>یادداشت کامل بنویس تا مشتری مجبور نشه همه‌چیز رو دوباره تعریف کنه.</p></>}</div>
-      {errors.note === 'empty' ? <div className="ts-alert" role="alert"><AlertCircle size={18} /> بدون یادداشت نمی‌شه ثبت کرد. چند خط از صحبت با مشتری بنویس.</div> : null}
       <div className="ts-q"><label htmlFor="ts-note">یادداشت تماس <span className="req">*</span></label>
         <textarea id="ts-note" className={`ts-inp ts-note${errors.note ? ' bad' : ''}`} rows={4} value={d.note} onChange={(e) => set({ note: e.target.value.slice(0, 4000) })} placeholder="مثلاً: شغل، مبلغ، ضامن، بهترین ساعت تماس…" aria-invalid={Boolean(errors.note)} aria-describedby="ts-note-meta" data-testid="ts-note" />
         <VoiceNoteButton value={d.note} onChange={(note) => set({ note: note.slice(0, 4000) })} field="first_call_note" maxLength={4000} testId="ts-note-voice" />
-        <div className="ts-note-meta" id="ts-note-meta"><span className={errors.note ? 'bad' : ''}>{errors.note === 'empty' ? 'یادداشت الزامی است' : errors.note === 'short' ? `یادداشت باید حداقل ${fa(noteMin)} حرف باشد` : `حداقل ${fa(noteMin)} نویسه`}</span><span className={noteLen < noteMin ? (errors.note ? 'bad' : '') : 'okc'} data-testid="ts-note-count">{fa(noteLen)} نویسه</span></div></div>
+        <div className="ts-note-meta" id="ts-note-meta"><span className={errors.note ? 'bad' : ''} role={errors.note ? 'alert' : undefined} data-testid="ts-note-msg">{errors.note ? callNoteMinMessage(noteMin) : `حداقل ${fa(noteMin)} نویسه`}</span><span className={noteLen < noteMin ? (errors.note ? 'bad' : '') : 'okc'} aria-live="polite" data-testid="ts-note-count">{fa(noteLen)} / {fa(noteMin)}</span></div></div>
       {answered ? <div className="ts-answers" data-testid="ts-picked"><span className="ts-muted small">طرح‌های انتخاب‌شده:</span>
         {noPlan ? <NoPlanChip testId="ts-picked-noplan" /> : selectedPlans.length ? selectedPlans.map((p) => <PlanChip key={p.planId} plan={{ name: p.planName, status: p.status === 'depends' ? 'depends' : 'fit', reasons: p.reasons.filter((r) => r.kind === 'unknown').map(planReasonText) }} />)
           : <span className="ts-muted small">هیچ طرحی انتخاب نشد</span>}
