@@ -29,6 +29,7 @@ import { classifyProviderState, isStrictSignedProviderState, providerContractSta
 import { emzameRequest } from "../lib/emzame-client";
 import { creditLoanWallet, wallet } from "../lib/wallets";
 import {
+  diagnoseRenderedPdfContainsPrincipal,
   isAttestedTomanTemplate,
   renderedPdfContainsInstallmentCount,
   renderedPdfContainsLegacyRialPrincipal,
@@ -111,6 +112,7 @@ const LOAN_REFUSAL_MESSAGES: Record<string, string> = {
   primary_contract_amount_mismatch: "مبلغ ثبت‌شده در قرارداد اصلی با مبلغ مصوب پرونده برابر نیست.",
   primary_contract_duration_mismatch: "تعداد اقساط قرارداد اصلی با تعداد اقساط مصوب پرونده برابر نیست.",
   primary_contract_principal_not_legible: "مبلغ اصل تسهیلات در متن PDF قرارداد اصلی قابل خواندن و تطبیق نیست.",
+  primary_contract_legacy_rial_unit: "قرارداد قدیمی به ریال است؛ قرارداد تومانی جایگزین لازم است.",
   primary_contract_installments_not_legible: "تعداد اقساط مصوب در متن PDF قرارداد اصلی قابل خواندن و تطبیق نیست.",
   primary_toman_replacement_unverified: "قرارداد جایگزین تومانی این پرونده هنوز امضا یا تأیید نشده است.",
   approved_amount_missing: "مبلغ مصوب این پرونده ثبت نشده است؛ ابتدا مرحلهٔ تصویب مبلغ وام باید انجام شود.",
@@ -732,6 +734,23 @@ function tomanReplacementGenerationMatches(
     (!tomanReplacementNeedsInstallmentProof(application, parseJson(generation.mappings_snapshot_json)) ||
       renderedPdfContainsInstallmentCount(generation.pdf_path, consent.durationMonths, principalTemplateEvidence(generation)));
 }
+// Message only: after a principal check has ALREADY refused, tell whether the
+// refusal is the template 4/5 rial-unit policy, so the dialog can say so.
+// Never used to accept anything; outcomes are unchanged.
+const LEGACY_RIAL_UNIT_REASON = "primary_contract_legacy_rial_unit";
+function legacyRialUnitRefused(generation: any, amount: string): boolean {
+  try {
+    return diagnoseRenderedPdfContainsPrincipal(generation?.pdf_path, String(amount),
+      principalTemplateEvidence(generation)).reason === "template_unit_policy_unapproved";
+  } catch { return false; }
+}
+function withLegacyRialUnitReason(err: Error): Error {
+  return lastPrimaryTermsRefusal === LEGACY_RIAL_UNIT_REASON
+    ? Object.assign(err, { reason: LEGACY_RIAL_UNIT_REASON }) : err;
+}
+function legacyRialUnitReason(e: unknown): string | undefined {
+  return (e as { reason?: unknown } | null)?.reason === LEGACY_RIAL_UNIT_REASON ? LEGACY_RIAL_UNIT_REASON : undefined;
+}
 // The signed primary must legibly state the principal. Older (non new-case)
 // files were only checked for a labeled "مبلغ تسهیلات"-style clause, so contracts
 // generated from attested templates (e.g. template 6: "مبلغ … %credit% تومان")
@@ -810,7 +829,11 @@ function legacySignedPrimaryTerms(application: any): { amount: string; netAmount
     .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
     .replace(/[,\u060c\u066c\s]/g, "");
   if (!/^[1-9]\d{0,17}$/.test(amount)) return fail();
-  if (!primaryPdfShowsPrincipal(application, link, amount)) return fail();
+  if (!primaryPdfShowsPrincipal(application, link, amount)) {
+    if (legacyRialUnitRefused(link, amount))
+      throw Object.assign(new Error("legacy_signed_primary_terms_unverifiable"), { reason: LEGACY_RIAL_UNIT_REASON });
+    return fail();
+  }
   const condition = parseJson(application.condition_snapshot_json);
   let ceiling: bigint;
   try { ceiling = effectivePlanTerms(planSnapshot, condition).maximum; } catch { return fail(); }
@@ -1002,7 +1025,8 @@ function verifiedPrimaryPrincipal(application: any, primary: any, approvedAmount
   if (!(primaryPdfShowsPrincipal(application, primary, approvedAmount) ||
       acceptedLegacyRialPrimary(application, primary, approvedAmount, durationMonths, queryRow,
         () => renderedPdfContainsLegacyRialPrincipal(primary.pdf_path, approvedAmount, principalTemplateEvidence(primary)))))
-    return refusePrimaryTerms("primary_contract_principal_not_legible");
+    return refusePrimaryTerms(legacyRialUnitRefused(primary, approvedAmount)
+      ? LEGACY_RIAL_UNIT_REASON : "primary_contract_principal_not_legible");
   if (!(Number(application.duration_months) === Number(application.requested_duration_months ?? application.duration_months) ||
       renderedPdfContainsInstallmentCount(primary.pdf_path, durationMonths, principalTemplateEvidence(primary))))
     return refusePrimaryTerms("primary_contract_installments_not_legible");
@@ -1116,14 +1140,17 @@ function verifyPhysicalApprovalTerms(application: any) {
   if ((replacementAuthorized || String(primary?.generation_purpose ?? "") === TOMAN_REPLACEMENT_PURPOSE) &&
       !verifiedTomanReplacementPrimary(application)) throw new Error("toman_replacement_terms_unverifiable");
   if (!application?.initial_approval_at) {
-    if (application?.new_case_workflow && (!application.approved_amount ||
-        !signedPrimaryMatchesApprovedTerms(application, String(application.approved_amount), Number(application.duration_months))))
+    if (application?.new_case_workflow && !application.approved_amount)
       throw new Error("approved_primary_generation_evidence_missing");
+    if (application?.new_case_workflow &&
+        !signedPrimaryMatchesApprovedTerms(application, String(application.approved_amount), Number(application.duration_months)))
+      throw withLegacyRialUnitReason(new Error("approved_primary_generation_evidence_missing"));
     return;
   }
-  if (!application.approved_amount ||
-      !signedPrimaryMatchesApprovedTerms(application, String(application.approved_amount), Number(application.duration_months)) ||
-      application.funder_decision !== "approved" ||
+  if (!application.approved_amount) throw new Error("approved_primary_generation_evidence_missing");
+  if (!signedPrimaryMatchesApprovedTerms(application, String(application.approved_amount), Number(application.duration_months)))
+    throw withLegacyRialUnitReason(new Error("approved_primary_generation_evidence_missing"));
+  if (application.funder_decision !== "approved" ||
       (Number(application.new_case_workflow) === 1 &&
         Number(application.approved_amount_generation_id) !== Number(application.current_primary_generation_id)))
     throw new Error("approved_primary_generation_evidence_missing");
@@ -1166,7 +1193,9 @@ function transition(id: number, to: Stage, action: string, actor: AuthUser, reas
         if (!primary || !renderedPdfContainsPrincipal(
           primary.pdf_path, String(application.requested_amount ?? ""), principalTemplateEvidence(primary),
         ))
-          throw new Error("rendered_primary_principal_unverifiable");
+          throw primary && legacyRialUnitRefused(primary, String(application.requested_amount ?? ""))
+            ? Object.assign(new Error("rendered_primary_principal_unverifiable"), { reason: LEGACY_RIAL_UNIT_REASON })
+            : new Error("rendered_primary_principal_unverifiable");
         if (!boundPrimaryMatchesApplication(primary, application, String(application.requested_amount ?? "")))
           throw new Error("requested_primary_generation_required");
       }
@@ -2134,7 +2163,7 @@ function action(pathSuffix: string, permission: any, to: Stage) {
       const code = e instanceof Error ? e.message : "";
       // Pass the real code through (sanitized in error()) so the dialog can
       // explain why the step was refused instead of a generic retry message.
-      return error(res, 409, code === "invalid_transition" ? "invalid_stage_transition" : code || "workflow_error");
+      return error(res, 409, code === "invalid_transition" ? "invalid_stage_transition" : code || "workflow_error", legacyRialUnitReason(e));
     }
   });
 }
@@ -2399,7 +2428,7 @@ function workflowEndpoint(name: string, permission: "loan_applications.review" |
     if (!r) return error(res, 404, "loan_application_not_found");
     if (r.stage !== from) return error(res, 409, "invalid_stage_transition");
     try { transition(r.id, to, name, user(res), String(req.body?.reason ?? "").trim()); res.json(shape(scoped(r.id, user(res)), user(res))); }
-    catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error"); }
+    catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error", legacyRialUnitReason(e)); }
   });
 }
 workflowEndpoint("confirm-funder", "loan_applications.review", "funder_result_review", "physical_documents_submission");
@@ -2485,7 +2514,7 @@ router.post("/loan-applications/:id/submit-physical-documents", requirePermissio
       transition(r.id, "physical_documents_review", "submit-physical-documents", user(res));
     }
     res.json(shape(scoped(r.id, user(res)), user(res)));
-  } catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error"); }
+  } catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error", legacyRialUnitReason(e)); }
 });
 router.post("/loan-applications/:id/prepare-physical-checks", requirePermission("loan_applications.review"), (req, res) => {
   const r = scoped(Number(req.params.id), user(res));
@@ -2496,7 +2525,7 @@ router.post("/loan-applications/:id/prepare-physical-checks", requirePermission(
     runTransaction(() => preparePhysicalChecks(r.id,
       Boolean(queryRow("SELECT 1 FROM loan_application_stage_history WHERE application_id=? AND action='submit-physical-documents'", [r.id]))));
     return res.json({ ok: true, physicalChecks: queryRows<any>("SELECT * FROM loan_physical_checks WHERE application_id=? ORDER BY id", [r.id]) });
-  } catch (e) { return error(res, 409, e instanceof Error ? e.message : "physical_documents_missing"); }
+  } catch (e) { return error(res, 409, e instanceof Error ? e.message : "physical_documents_missing", legacyRialUnitReason(e)); }
 });
 router.post("/loan-applications/:id/admin-approve", requirePermission("loan_applications.approve"), (req, res) => {
   const r = scoped(Number(req.params.id), user(res));
@@ -2512,7 +2541,7 @@ router.post("/loan-applications/:id/admin-approve", requirePermission("loan_appl
     transition(r.id, "completed", "admin-approve", user(res), String(req.body?.reason ?? "").trim(),
       () => executeChanges("UPDATE loan_applications SET admin_approved_at=? WHERE id=?", [now(), r.id]));
     res.json(shape(scoped(r.id, user(res)), user(res)));
-  } catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error"); }
+  } catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error", legacyRialUnitReason(e)); }
 });
 router.post("/loan-applications/:id/return-funder-documents", requirePermission("loan_applications.review"), (req, res) => {
   const r = scoped(Number(req.params.id), user(res)), defects = req.body?.defects;
@@ -2590,7 +2619,7 @@ router.post("/loan-applications/:id/review-customer-documents", requirePermissio
   const to: Stage = condition?.needs_guarantor || condition?.needsGuarantor
     ? "guarantor_registration" : r.new_case_workflow || r.legacy_reopen_prior_stage ? "funder_initial_approval" : "collateral_upload";
   try { transition(r.id, to, "review-customer-documents", user(res), req.body?.reason); res.json(shape(scoped(r.id, user(res)), user(res))); }
-  catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error"); }
+  catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error", legacyRialUnitReason(e)); }
 });
 function returnForCorrection(pathSuffix: string, from: Stage, to: Stage) {
   router.post(`/loan-applications/:id/${pathSuffix}`, requirePermission("loan_applications.review"), (req, res) => {
@@ -2620,7 +2649,7 @@ for (const [name, permission, requiredStage] of [
     try {
       returnRejectedLoanCase(r, user(res), reason, name,
         { queryRow, executeChanges, execute, transaction: runTransaction, now });
-    } catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error"); }
+    } catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error", legacyRialUnitReason(e)); }
     return res.json(shape(scoped(r.id, user(res)), user(res)));
   });
 }
