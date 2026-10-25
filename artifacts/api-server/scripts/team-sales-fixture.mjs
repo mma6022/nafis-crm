@@ -188,7 +188,10 @@ try {
   const hasani = { id: 2, role: "salesperson", salespersonId: 3, fullName: "hasani" };
   const pick = (n) => queryRows(`SELECT c.id, c.priority FROM customers c WHERE c.salesperson_id=6 AND c.status='in_progress'
     AND c.merged_into_customer_id IS NULL AND (c.priority IS NULL OR c.priority IN (2,3)) ORDER BY c.id LIMIT ?`, [n]);
-  const [a, b, c2, d, e, f] = pick(6).map((r) => Number(r.id));
+  // crm-kz-return: round-robin cases must be Kazemi-only customers (a customer with a previous expert goes back to them).
+  const { chooseCloserFor } = await import("../src/lib/closer-return.ts");
+  const fairOnly = (rows) => rows.filter((r) => chooseCloserFor(Number(r.id), 6, { qualifierSalespersonId: 6, closerSalespersonIds: [3, 4] }).kind === "fair_split");
+  const [a, b, c2, d, e, f] = fairOnly(pick(4000)).slice(0, 6).map((r) => Number(r.id));
   const pickNone = (n) => queryRows(`SELECT c.id FROM customers c WHERE c.salesperson_id=6 AND c.status='in_progress'
     AND c.merged_into_customer_id IS NULL AND c.priority IS NULL ORDER BY c.id LIMIT ?`, [n]);
 
@@ -219,7 +222,7 @@ try {
   ok("timeline call_log «ارتقا به اولویت ۱ توسط کاظمی»", () => {
     const cl = queryRow("SELECT subject, expert_notes, salesperson_id FROM call_logs WHERE id=?", [r1.callLogId]);
     assert.equal(cl.subject, "ارتقا به اولویت ۱ توسط کاظمی"); assert.equal(Number(cl.salesperson_id), 6);
-    assert.match(cl.expert_notes, /^واگذاری به خانم حسنی \(نوبت چرخشی\) — قبلاً /);
+    assert.match(cl.expert_notes, /^واگذاری به خانم حسنی \(تقسیم عادلانه\) — قبلاً /);
     assert.match(cl.expert_notes, /یادداشت: مشتری آماده است/);
   });
   ok("exactly one p1_assigned bell event per promote, for the closer", () => {

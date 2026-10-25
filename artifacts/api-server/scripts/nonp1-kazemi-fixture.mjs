@@ -82,7 +82,8 @@ try {
 
   // Subjects: in_progress, unmerged, no open case, not #181/#649, no team-sales history yet (copy only).
   const pool = queryRows(`SELECT id FROM customers WHERE status='in_progress' AND merged_into_customer_id IS NULL AND id NOT IN (181,649)
-    AND salesperson_id IN (3,4,6) ORDER BY id DESC LIMIT 400`).map((r) => Number(r.id)).filter((id) => np.openCaseReason(id) == null);
+    AND salesperson_id IN (3,4,6) AND id NOT IN (SELECT customer_id FROM customer_priority_history WHERE source='nonp1_auto_transfer')
+    ORDER BY id DESC LIMIT 400`).map((r) => Number(r.id)).filter((id) => np.openCaseReason(id) == null);
   assert.ok(pool.length >= 45, `need 45 clean customers, got ${pool.length}`);
   let pi = 0;
   const subject = (sp, priority, status = "in_progress") => { const id = pool[pi++]; execute("UPDATE customers SET salesperson_id=?, priority=?, status=? WHERE id=?", [sp, priority, status, id]); return id; };

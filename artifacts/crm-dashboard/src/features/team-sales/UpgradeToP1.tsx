@@ -33,7 +33,7 @@ export function UpgradeDialog({ customer, onClose, onDone }: {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => { let live = true; fetchNextCloser().then((n) => { if (live) setNext(n); }, () => { /* generic text fallback */ }); return () => { live = false; }; }, []);
+  useEffect(() => { let live = true; fetchNextCloser(customer.id).then((n) => { if (live) setNext(n); }, () => { /* generic text fallback */ }); return () => { live = false; }; }, [customer.id]);
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
     ref.current?.focus();
@@ -57,7 +57,7 @@ export function UpgradeDialog({ customer, onClose, onDone }: {
       <p id="ts-up-desc">«<CustomerName id={customer.id} name={customer.name} />» از صف شما خارج می‌شود و به {next ? next.name : 'کارشناس پیگیری نوبت بعدی'} می‌رسد.</p>
       <div className="ts-next">
         <span className="ts-av" aria-hidden="true">{next ? shortName(next.name).slice(0, 1) : '؟'}</span>
-        <div><b data-testid="ts-next-closer">{who}</b><p>نوبت بعدی چرخش — مهلت تماس ۳ ساعت کاری</p></div>
+        <div><b data-testid="ts-next-closer">{who}</b><p data-testid="ts-next-why">{next?.assignment === 'previous_expert' ? 'کارشناس قبلی مشتری' : 'تقسیم عادلانه (نوبت بعدی چرخش)'} — مهلت تماس ۳ ساعت کاری</p></div>
       </div>
       <label htmlFor="ts-up-note" className="ts-lbl">یادداشت برای {next ? next.name : 'کارشناس پیگیری'} <span className="ts-muted">(اختیاری)</span></label>
       <textarea id="ts-up-note" className="ts-inp" rows={3} value={note} onChange={(e) => setNote(e.target.value.slice(0, 2000))} data-testid="ts-upgrade-note" />

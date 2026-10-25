@@ -423,7 +423,7 @@ export default function CustomerDetail() {
   const copyPhone = () => { void navigator.clipboard?.writeText(customer.phone).then(() => setToast('شماره کپی شد.'), () => setToast('کپی انجام نشد.')); };
   const baseActivity = activityQuery.data ?? customer.activity ?? [];
   const activity = handoff && !baseActivity.some((item) => item.id === handoff.callLogId)
-    ? [{ ...(baseActivity[0] ?? {}), id: handoff.callLogId, salespersonName: session.data?.user.salespersonName ?? session.data?.user.fullName ?? null, createdAt: new Date().toISOString(), subject: `ارتقا به اولویت ۱ توسط ${(session.data?.user.salespersonName ?? '').replace(/^(آقای|خانم)\s+/, '') || 'کارشناس'}`, customerRequest: `واگذاری به ${handoff.closerName} (نوبت چرخشی)`, expertNotes: `مهلت تماس تا ${handoff.dueLabel}` } as (typeof baseActivity)[number], ...baseActivity]
+    ? [{ ...(baseActivity[0] ?? {}), id: handoff.callLogId, salespersonName: session.data?.user.salespersonName ?? session.data?.user.fullName ?? null, createdAt: new Date().toISOString(), subject: `ارتقا به اولویت ۱ توسط ${(session.data?.user.salespersonName ?? '').replace(/^(آقای|خانم)\s+/, '') || 'کارشناس'}`, customerRequest: `واگذاری به ${handoff.closerName} (${handoff.assignmentLabel ?? (handoff.assignment === 'previous_expert' ? 'کارشناس قبلی مشتری' : 'تقسیم عادلانه')})`, expertNotes: `مهلت تماس تا ${handoff.dueLabel}` } as (typeof baseActivity)[number], ...baseActivity]
     : baseActivity;
   const tagLabel = (key: string) => tagCatalog.data?.find(item => item.key === key)?.label ?? key;
   const visibleTags = customer.tags.filter(key => key !== 'repeat_request');

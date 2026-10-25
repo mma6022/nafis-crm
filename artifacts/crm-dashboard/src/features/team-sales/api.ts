@@ -6,10 +6,13 @@ export type TeamSalesConfig = {
   enabled: boolean; qualifierSalespersonId: number; closerSalespersonIds: number[]; noteMinLength: number;
   closerFirstCallWorkingHours: number;
 };
-export type NextCloser = { salespersonId: number; name: string; dueAt: string; dueLabel: string; workingHours: number };
+export type NextCloser = { salespersonId: number; name: string; dueAt: string; dueLabel: string; workingHours: number;
+  /** crm-kz-return: present when asked for a specific customer. */
+  assignment?: 'previous_expert' | 'fair_split'; assignmentLabel?: string };
 export type PromoteResult = {
   customerId: number; closerSalespersonId: number; closerName: string; dueAt: string; dueLabel: string;
   callLogId: number; message: string;
+  assignment?: 'previous_expert' | 'fair_split'; assignmentLabel?: string;
 };
 export type CallResult = 'answered' | 'no_answer' | 'callback' | 'wrong_number';
 export type SimpleAnswers = {
@@ -107,7 +110,8 @@ export function canUpgradeToP1(
 }
 /** P2/P3 customers get a visible «ارتقا به اولویت ۱» button in the list and on the customer page. */
 export const showsUpgradeButton = (...a: Parameters<typeof canUpgradeToP1>) => canUpgradeToP1(...a) && (a[2]?.priority === 2 || a[2]?.priority === 3);
-export const fetchNextCloser = () => request<NextCloser>('/sales/next-closer');
+export const fetchNextCloser = (customerId?: number) =>
+  request<NextCloser>(customerId ? `/sales/next-closer?customerId=${encodeURIComponent(customerId)}` : '/sales/next-closer');
 export const upgradePriority = (customerId: number, note: string) =>
   request<PromoteResult>(`/customers/${customerId}/upgrade-priority`, { method: 'POST', body: JSON.stringify({ note: note.trim() || null }) });
 export const submitSimpleForm = (customerId: number, answers: SimpleAnswers, note: string, selectedPlans?: number[], noPlanNote?: string) =>

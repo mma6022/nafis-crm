@@ -14,6 +14,7 @@ import {
 import { cleanProfile, type ApplicantProfile } from "./plan-profile-match";
 import { noteSalespersonChange } from "./expert-intro-sms";
 import { applyNonP1TransferInTx } from "./nonp1-transfer";
+import { chooseCloserFor, type CloserChoice } from "./closer-return";
 import { consultProfile, dataFromAnswers, latestConsultApplicantProfile, officialGrade, recordFirstCallVersion, recordFirstCallEditVersion } from "./consult-profile";
 
 export const TEAM_SALES_CONFIG_KEY = "team_sales_config";
@@ -190,15 +191,19 @@ function ensureReminderSmsTable() {
 export type PromoteResult = {
   customerId: number; closerSalespersonId: number; closerName: string; dueAt: string; dueLabel: string;
   reminderId: number | null; callLogId: number; notificationId: number | null; message: string;
+  /** crm-kz-return: how the closer was chosen — back to the previous expert, or the fair split (round-robin). */
+  assignment: CloserChoice["kind"]; assignmentLabel: string;
 };
 
 /**
- * Inside ONE write transaction: priority=1 + next closer (round-robin) + history call_log
+ * Inside ONE write transaction: priority=1 + closer (crm-kz-return: the customer's previous main expert when there is one,
+ * otherwise the next closer by round-robin — a return never advances the cursor) + history call_log
  * «ارتقا به اولویت ۱ توسط …» + one p1_assigned bell event for the closer + in-app reminder (no SMS) + history row.
  */
 function promoteInTx(c: CustomerState, actor: Actor, cfg: TeamSalesConfig, source: PriorityChange["source"],
   reason: string | null, now: Date, note: string | null = null): PromoteResult {
-  const closer = nextCloserSalespersonId(cfg);
+  const choice = chooseCloserFor(c.id, c.salesperson_id, cfg);
+  const closer = choice.kind === "previous_expert" ? choice.salespersonId : nextCloserSalespersonId(cfg);
   const nowIso = now.toISOString();
   const preMax = Number(queryRow<{ m: number | null }>("SELECT MAX(id) AS m FROM site_notification_events")?.m ?? 0);
   const changed = executeChanges(
@@ -220,7 +225,7 @@ function promoteInTx(c: CustomerState, actor: Actor, cfg: TeamSalesConfig, sourc
     `INSERT INTO call_logs (customer_id, salesperson_id, subject, customer_request, expert_notes, created_at, salesperson_name_snapshot)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [c.id, actor.salespersonId ?? null, `ارتقا به اولویت ۱ توسط ${shortName(actorName)}`, null,
-      [`واگذاری به ${closerName} (نوبت چرخشی) — قبلاً ${prev}${fromForm ? " — از فرم تماس اول" : ""}`,
+      [`واگذاری به ${closerName} (${choice.label}) — قبلاً ${prev}${fromForm ? " — از فرم تماس اول" : ""}`,
         `مهلت تماس ${closerName}: ${fa(cfg.closerFirstCallWorkingHours)} ساعت کاری (تا ${dueLabel})`,
         note ? `یادداشت: ${note}` : null].filter(Boolean).join("\n"),
       nowIso, actorName]);
@@ -270,9 +275,23 @@ function promoteInTx(c: CustomerState, actor: Actor, cfg: TeamSalesConfig, sourc
        ON CONFLICT(reminder_id) DO UPDATE SET status='rejected', error_code='in_app_only'`, [reminderId]);
   }
   logPriorityChange({ customerId: c.id, oldPriority: c.priority, newPriority: 1, oldSalespersonId: c.salesperson_id,
-    newSalespersonId: closer, actorUserId: actor.id, source, reason: [reason, note].filter(Boolean).join(" — ") || null, at: nowIso });
+    newSalespersonId: closer, actorUserId: actor.id, source, reason: [choice.label, reason, note].filter(Boolean).join(" — "), at: nowIso });
   return { customerId: c.id, closerSalespersonId: closer, closerName, dueAt, dueLabel, reminderId, callLogId, notificationId,
-    message: `به ${closerName} واگذار شد` };
+    message: `به ${closerName} واگذار شد`, assignment: choice.kind, assignmentLabel: choice.label };
+}
+
+/** crm-kz-return: who a hand-off of THIS customer would go to (previous expert or fair-split turn), without reserving it. */
+export function peekCloserFor(customerId: number): { salespersonId: number; name: string; assignment: CloserChoice["kind"]; assignmentLabel: string } | null {
+  const cfg = getTeamSalesConfig();
+  const c = queryRow<{ salesperson_id: number | null }>("SELECT salesperson_id FROM customers WHERE id=?", [customerId]);
+  if (!c) return null;
+  const choice = chooseCloserFor(customerId, c.salesperson_id == null ? null : Number(c.salesperson_id), cfg);
+  if (choice.kind === "previous_expert") {
+    const name = queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [choice.salespersonId])?.name ?? "";
+    return { salespersonId: choice.salespersonId, name, assignment: choice.kind, assignmentLabel: choice.label };
+  }
+  const next = peekNextCloser();
+  return next ? { ...next, assignment: choice.kind, assignmentLabel: choice.label } : null;
 }
 
 /** Name of the closer whose turn is next, without reserving it. */

@@ -374,7 +374,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
       {h ? <>
         <div className="ts-ok-card" data-testid="ts-handoff">
           <span className="ts-av" aria-hidden="true">{shortName(h.closerName).slice(0, 1)}</span>
-          <div><b>{h.message}</b><p>نوبت چرخشی — به {h.closerName} اعلان و یادآور رسید</p></div>
+          <div><b>{h.message}</b><p>{h.assignment === 'previous_expert' ? 'کارشناس قبلی مشتری' : 'تقسیم عادلانه'} — به {h.closerName} اعلان و یادآور رسید</p></div>
         </div>
         <p className="ts-muted center">مهلت تماس تا {h.dueLabel}</p>
       </> : null}
@@ -399,7 +399,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
       {h ? <>
         <div className="ts-ok-card" data-testid="ts-handoff">
           <span className="ts-av" aria-hidden="true">{shortName(h.closerName).slice(0, 1)}</span>
-          <div><b>{h.message}</b><p>نوبت چرخشی — به {h.closerName} اعلان و یادآور رسید</p></div>
+          <div><b>{h.message}</b><p>{h.assignment === 'previous_expert' ? 'کارشناس قبلی مشتری' : 'تقسیم عادلانه'} — به {h.closerName} اعلان و یادآور رسید</p></div>
         </div>
         <p className="center"><span className="ts-pill ok"><Timer size={15} /> مهلت تماس {h.closerName}: ۳ ساعت کاری</span></p>
         <p className="ts-muted center">یعنی تا {h.dueLabel}</p>

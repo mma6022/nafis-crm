@@ -8,7 +8,7 @@ import type { AuthUser } from "../lib/auth";
 import { getCustomer } from "./crm";
 import { queryRow } from "../lib/crm-db";
 import {
-  TeamSalesError, citySuggestions, editFirstCall, firstCallEditInfo, formatDue, getTeamSalesConfig, peekNextCloser, planOptions, previewQualification, priorityHistory, promoteToPriorityOne, submitQualification,
+  TeamSalesError, citySuggestions, editFirstCall, firstCallEditInfo, formatDue, getTeamSalesConfig, peekCloserFor, peekNextCloser, planOptions, previewQualification, priorityHistory, promoteToPriorityOne, submitQualification,
 } from "../lib/team-sales";
 import { NONP1_TRANSFER_HEADER } from "../lib/nonp1-transfer";
 import { addWorkingHours, type QualifierAnswers } from "../lib/team-sales-rules";
@@ -55,7 +55,12 @@ router.get("/sales/next-closer", requirePermission("customers.view"), (_req, res
   if (!cfg.enabled || (actor.role !== "admin" && actor.salespersonId !== cfg.qualifierSalespersonId)) {
     res.status(404).json({ error: "Not found" }); return;
   }
-  const next = peekNextCloser();
+  // crm-kz-return: with ?customerId the answer is per customer (previous expert or fair-split turn). Same scope as promote:
+  // the qualifier only for own customers, admin for any; otherwise the plain fair-split turn.
+  const cid = customerId(typeof _req.query.customerId === "string" ? _req.query.customerId : undefined);
+  const own = cid ? queryRow<{ s: number | null }>("SELECT salesperson_id AS s FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [cid]) : null;
+  const scoped = Boolean(own && (actor.role === "admin" || Number(own.s) === cfg.qualifierSalespersonId));
+  const next = scoped && cid ? peekCloserFor(cid) : peekNextCloser();
   if (!next) { res.status(409).json({ error: "هیچ کارشناس پیگیری فعالی تعریف نشده است." }); return; }
   const now = new Date();
   const due = addWorkingHours(now, cfg.closerFirstCallWorkingHours, cfg);
