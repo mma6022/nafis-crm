@@ -204,6 +204,34 @@ export async function notifyWebsiteCallback(alert: WebsiteCallbackAlert): Promis
   }
 }
 
+/**
+ * crm-site-leads: one grouped staff message in the EXISTING staff Telegram group when the preferred call window of
+ * still-unanswered website requests starts. Uses the current notification_settings as they are (no new channel, no
+ * settings change, no customer SMS, no notification_deliveries row). Returns the same outcomes as the callback alert.
+ */
+export async function notifySiteLeadWindow(alerts: { customerId: number; customerName: string; contactTime: "morning" | "evening" }[], ownerName: string | null): Promise<CallbackAlertOutcome> {
+  if (!alerts.length) return "disabled";
+  const settings = getNotificationSettings();
+  if (!settings.telegramEnabled) return "disabled";
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !settings.telegramGroupChatId) return "not_configured";
+  const window = alerts[0].contactTime === "morning" ? "صبح (۹ تا ۱۳)" : "عصر (۱۳ تا ۱۸)";
+  const lines = alerts.slice(0, 30).map((a) => `• ${a.customerName || "مشتری"} — پرونده ${a.customerId}`);
+  if (alerts.length > 30) lines.push(`… و ${alerts.length - 30} مشتری دیگر`);
+  const text = [`⏰ زمان تماس درخواستی رسید: ${window}`, `🌐 سرنخ سایت — هنوز تماسی ثبت نشده است${ownerName ? ` (${ownerName})` : ""}`, "", ...lines].join("\n");
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(20_000),
+      body: JSON.stringify({ chat_id: settings.telegramGroupChatId, text }),
+    });
+    return response.ok ? "sent" : "failed";
+  } catch {
+    return "failed";
+  }
+}
+
 async function sendIppanel(customer: NotificationCustomer, settings: NotificationSettings): Promise<void> {
   if (!settings.ippanelEnabled) return;
   const relaySecret = process.env.IR_RELAY_SHARED_SECRET;

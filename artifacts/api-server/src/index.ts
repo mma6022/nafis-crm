@@ -6,6 +6,8 @@ import { startWalletPaymentRecovery } from "./lib/wallet-payment-recovery";
 import { startExpertReminderSmsWorker } from "./lib/expert-reminder-sms";
 import { startExpertIntroSmsWorker } from "./lib/expert-intro-sms";
 import { startTeamBonusScheduler } from "./lib/team-commission";
+import { startSiteLeadWorker } from "./lib/site-leads";
+import { notifySiteLeadWindow } from "./lib/customer-notifications";
 
 const rawPort = process.env["PORT"];
 
@@ -33,5 +35,6 @@ app.listen(port, (err) => {
   startWalletPaymentRecovery();
   startExpertReminderSmsWorker();
   startExpertIntroSmsWorker();
+  startSiteLeadWorker({ info: (m) => logger.info(m), error: (m) => logger.error(m) }, notifySiteLeadWindow);
   startTeamBonusScheduler(); // inert unless the team model AND the monthly team bonus are enabled
 });

@@ -1,4 +1,5 @@
 import { execute, queryRow, queryRows, runImmediateTransaction, type SqlValue } from "./crm-db";
+import { answerCallbackSiteLead, ensureSiteLeadSchema, recordSiteLeadRequest } from "./site-leads";
 import { customerSearchSql, toLatinDigits } from "./customer-id-search";
 import { CALLBACK_CONFIG } from "./callback-config";
 import { insertCustomerRecord } from "./customer-create";
@@ -297,6 +298,7 @@ function touch(id: number, actor: CallbackActor, at: string): void {
 export function setCallbackStatus(
   actor: CallbackActor, id: number, to: CallbackStatus, opts: { cancelReason?: CancelReason | null } = {}, now = new Date(),
 ): CallbackResult {
+  ensureSiteLeadSchema();
   return runImmediateTransaction(() => {
     const current = getCallback(actor, id, now);
     if (!current) return { ok: false, error: "not_found" };
@@ -315,6 +317,8 @@ export function setCallbackStatus(
     );
     touch(id, actor, at);
     logEvent(id, actor.id, "status", current.status, to === "cancelled" ? `cancelled:${opts.cancelReason}` : to, at);
+    if (to === "called") answerCallbackSiteLead(id, at);
+    else if (to === "cancelled") answerCallbackSiteLead(id, at, "callback_cancelled");
     if (current.assignedUserId == null) {
       execute("UPDATE callback_requests SET assigned_user_id=? WHERE id=?", [actor.id, id]);
       logEvent(id, actor.id, "assign", null, String(actor.id), at);
@@ -402,6 +406,7 @@ export function callbackDescription(
  * The new customer goes to the assignee's salesperson when they have one, else the default allocation program.
  */
 export function convertCallback(actor: CallbackActor, id: number, now = new Date()): CallbackResult {
+  ensureSiteLeadSchema();
   return runImmediateTransaction(() => {
     const current = getCallback(actor, id, now);
     if (!current) return { ok: false, error: "not_found" };
@@ -430,6 +435,9 @@ export function convertCallback(actor: CallbackActor, id: number, now = new Date
     }
     execute("INSERT OR IGNORE INTO customer_tags(customer_id,tag,created_at) VALUES (?,?,?)", [customerId, WEBSITE_LEAD_TAG, at]);
     execute("UPDATE callback_requests SET customer_id=?, converted_at=?, converted_by_user_id=? WHERE id=?", [customerId, at, actor.id, id]);
+    // crm-site-leads: the callback becomes a site request on the customer (already linked ones were recorded at intake).
+    recordSiteLeadRequest({ customerId: customerId!, source: "callback", sourceId: id, requestedAt: current.createdAt, contactTime: current.contactTime, isRepeat: !created });
+    if (current.status === "called") answerCallbackSiteLead(id, at);
     touch(id, actor, at);
     logEvent(id, actor.id, "convert", null, String(customerId), at);
     return { ok: true, item: getCallback(actor, id, now)!, created };

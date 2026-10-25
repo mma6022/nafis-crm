@@ -181,6 +181,7 @@ import { verifyCustomer } from "../lib/sapi";
 import { latestFirstCall, latestNoPlanFit, latestSelectedPlans, logPriorityChange } from "../lib/team-sales";
 import { applyNonP1TransferInTx, NONP1_TRANSFER_HEADER, type NonP1Result } from "../lib/nonp1-transfer";
 import { kazemiSourceFilterSql, kazemiSourceOf, kazemiSources } from "../lib/kazemi-source";
+import { ACTIVE_SITE_LEAD_EXISTS_SQL, activeSiteLeads, siteLeadHistory, siteLeadQueue, siteLeadsTableReady, topOfList, topOrderSql } from "../lib/site-leads";
 import { IDENTITY_LOG_TABLE, canActOnCustomerProfile, ensureIdentityLogSchema } from "../lib/consult-profile";
 import { normalizeSideFlags } from "../lib/plan-requirements";
 import { retainedIdentityChecks } from "../lib/identity-check-retention";
@@ -1711,6 +1712,7 @@ router.get(
             AND EXISTS (SELECT 1 FROM customer_repeat_requests pending_request
               WHERE pending_request.customer_id=c.id AND pending_request.status='pending')
           )
+          ${siteLeadsTableReady() ? `OR ${ACTIVE_SITE_LEAD_EXISTS_SQL}` : ""}
         )`);
         params.push(status);
       } else {
@@ -1785,9 +1787,13 @@ router.get(
           WHEN c.is_urgent=1 THEN 2
           ELSE 3
         END ASC, c.created_at DESC, c.id DESC`;
+    // crm-site-leads: «اول لیست» — active site leads (incl. repeat requests), then «از کاظمی» inside the 3-working-hour
+    // deadline, then the existing order. Not applied when the user explicitly sorts by last call.
+    const top = parsed.data.sortBy === "lastCallAt" ? [] : topOfList();
+    const topOrder = topOrderSql(top);
     const rows = queryRows<CustomerRow>(
-      `${customerSelect}${where} GROUP BY c.id${having} ORDER BY ${idSearch?.orderPrefix("c.id").sql ?? ""}${orderBy} LIMIT ? OFFSET ?`,
-      [...params, ...havingParams, ...(idSearch?.orderPrefix("c.id").params ?? []), limit, offset],
+      `${customerSelect}${where} GROUP BY c.id${having} ORDER BY ${idSearch?.orderPrefix("c.id").sql ?? ""}${topOrder.sql}${orderBy} LIMIT ? OFFSET ?`,
+      [...params, ...havingParams, ...(idSearch?.orderPrefix("c.id").params ?? []), ...topOrder.params, limit, offset],
     );
 
     const listBody = ListCustomersResponse.parse({
@@ -1807,10 +1813,13 @@ router.get(
     const noPlan = latestNoPlanFit(listBody.items.map((item) => Number(item.id)));
     // crm-kazemi-source: «از کاظمی» / «مشتری قبلی» chip (null = no chip).
     const sources = kazemiSources(listBody.items.map((item) => Number(item.id)));
+    const siteLeads = activeSiteLeads(listBody.items.map((item) => Number(item.id)));
+    const topById = new Map(top.map((t) => [t.customerId, { kind: t.kind, startedAt: t.startedAt, dueAt: t.dueAt, windowNow: t.windowNow }]));
     res.json({
       ...listBody,
       items: listBody.items.map((item) => ({ ...item, suggestedPlans: suggested.get(Number(item.id)) ?? [], noPlanFit: noPlan.has(Number(item.id)),
-        kazemiSource: sources.get(Number(item.id)) ?? null })),
+        kazemiSource: sources.get(Number(item.id)) ?? null, siteLead: siteLeads.get(Number(item.id)) ?? null,
+        topOfList: topById.get(Number(item.id)) ?? null })),
       ...(crossOwner ? { otherOwnerMatches: crossOwner.items, otherOwnerLimited: crossOwner.limited } : {}),
     });
   },
@@ -2087,7 +2096,22 @@ router.get(
       kazemiSource: kazemiSourceOf(parsed.data.id),
       // crm-no-plan-option: city of residence (first-call form prefill); null when empty.
       city: queryRow<{ city: string | null }>("SELECT city FROM customers WHERE id=?", [parsed.data.id])?.city ?? null,
+      // crm-site-leads: active «سرنخ سایت» (deadline + preferred time), the «اول لیست» countdown and the request history.
+      siteLead: activeSiteLeads([parsed.data.id]).get(parsed.data.id) ?? null,
+      topOfList: (() => { const t = topOfList().find((x) => x.customerId === parsed.data.id); return t ? { kind: t.kind, startedAt: t.startedAt, dueAt: t.dueAt, windowNow: t.windowNow } : null; })(),
+      siteLeadRequests: siteLeadHistory(parsed.data.id),
     });
+  },
+);
+
+// crm-site-leads: «اول لیست» queue for the call pages (same scope as the customer list; display only).
+router.get(
+  "/site-leads/queue",
+  requirePermission("customers.view"),
+  (_req, res): void => {
+    const user = res.locals.authUser as AuthUser;
+    const scope = user.customerScope === "assigned" ? (user.salespersonId == null ? -1 : Number(user.salespersonId)) : null;
+    res.json({ now: new Date().toISOString(), ...siteLeadQueue(scope) });
   },
 );
 

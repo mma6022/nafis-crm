@@ -23,6 +23,7 @@ const customerHistoryTables = [
   "notification_deliveries",
   "contract_generations",
   "voip_browser_calls",
+  "site_lead_requests",
 ] as const;
 
 const requiredHistoryTables = new Set([

@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { execute, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
+import { ensureSiteLeadSchema, recordSiteLeadRequest } from "./site-leads";
 import { insertCustomerRecord } from "./customer-create";
 import { normalizeCustomerMobile, normalizePersianSearchText } from "./customer-integrity";
 import { isWorkingHours } from "./callback-config";
@@ -447,6 +448,7 @@ export type CallbackRecordResult = { id: number; trackingCode: string; customerI
 /** Store a callback request. Links an existing customer by mobile but never creates one. */
 export function recordPublicCallback(callback: PublicCallback, ipHash: string, now = new Date()): CallbackRecordResult {
   ensurePublicLeadSchema();
+  ensureSiteLeadSchema();
   return runImmediateTransaction(() => {
     const timestamp = now.toISOString();
     const customerId = canonicalCustomerByMobile(callback.phone) ?? null;
@@ -462,6 +464,9 @@ export function recordPublicCallback(callback: PublicCallback, ipHash: string, n
         callback.utm.utm_content ?? null, callback.utm.utm_term ?? null, ipHash, customerId, timestamp, timestamp, timestamp,
       ],
     );
+    // crm-site-leads: a callback from an existing customer is a repeat website request on that customer.
+    if (customerId != null) recordSiteLeadRequest({ customerId, source: "callback", sourceId: id, requestedAt: timestamp,
+      contactTime: effectiveContactTime(callback.contactTime, now), isRepeat: true });
     return { id, trackingCode, customerId };
   });
 }
@@ -529,6 +534,7 @@ export type LeadRecordResult = { customerId: number; created: boolean; trackingC
  */
 export function recordPublicLead(lead: PublicLead, ipHash: string, now = new Date()): LeadRecordResult {
   ensurePublicLeadSchema();
+  ensureSiteLeadSchema();
   return runImmediateTransaction(() => {
     const timestamp = now.toISOString();
     let customerId = canonicalCustomerByMobile(lead.phone);
@@ -553,7 +559,7 @@ export function recordPublicLead(lead: PublicLead, ipHash: string, now = new Dat
       [customerId, WEBSITE_LEAD_TAG, timestamp],
     );
     const trackingCode = uniqueTrackingCode();
-    execute(
+    const leadId = execute(
       `INSERT INTO public_leads
         (source, customer_id, outcome, name, phone, need, amount_band, plan_id, term, contact_time, src,
          utm_source, utm_medium, utm_campaign, utm_content, utm_term, ip_hash, created_at, tracking_code)
@@ -565,6 +571,8 @@ export function recordPublicLead(lead: PublicLead, ipHash: string, now = new Dat
         lead.utm.utm_content ?? null, lead.utm.utm_term ?? null, ipHash, timestamp, trackingCode,
       ],
     );
+    // crm-site-leads: «سرنخ سایت» stays active until a call is logged; an existing customer = «درخواست چندباره».
+    recordSiteLeadRequest({ customerId, source: "lead", sourceId: leadId, requestedAt: timestamp, contactTime: lead.contactTime, isRepeat: !created });
     return { customerId, created, trackingCode };
   });
 }
