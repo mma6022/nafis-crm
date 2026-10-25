@@ -1,3 +1,4 @@
+import { ensureSchemaObject } from "./schema-objects";
 import type { DatabaseSync } from "node:sqlite";
 
 function digits(value: unknown): string {
@@ -36,10 +37,9 @@ export function installCustomerIdentityGuards(db: DatabaseSync): void {
   registerCustomerIdentityFunctions(db);
   // crm-nid-quick (PM 16:37): on UPDATE only a phone / «کد ملی» that actually changes (or a row that becomes
   // active again) is checked, so re-saving unchanged values in «ویرایش سریع» is never blocked by an old duplicate.
-  db.exec(`
-    DROP TRIGGER IF EXISTS customers_unique_mobile_insert;
-    DROP TRIGGER IF EXISTS customers_unique_mobile_update;
-    DROP TRIGGER IF EXISTS customers_unique_national_code_insert;
+  // Recreate only when missing or changed: a DROP/CREATE of an identical trigger still bumps schema_version.
+  db.exec("DROP TRIGGER IF EXISTS customers_unique_national_code_insert"); // legacy; no-op (no bump) when absent
+  ensureSchemaObject(db, "trigger", "customers_unique_mobile_insert", `
     CREATE TRIGGER customers_unique_mobile_insert
     BEFORE INSERT ON customers
     WHEN NEW.merged_into_customer_id IS NULL AND COALESCE(NEW.status, 'in_progress') <> 'cancelled'
@@ -55,6 +55,8 @@ export function installCustomerIdentityGuards(db: DatabaseSync): void {
           AND crm_customer_national_code_key(c.national_code) = crm_customer_national_code_key(NEW.national_code)
       ) THEN RAISE(ABORT, 'ACTIVE_CUSTOMER_NATIONAL_CODE_CONFLICT') END;
     END;
+  `);
+  ensureSchemaObject(db, "trigger", "customers_unique_mobile_update", `
     CREATE TRIGGER customers_unique_mobile_update
     BEFORE UPDATE OF phone,national_code,status,merged_into_customer_id ON customers
     WHEN NEW.merged_into_customer_id IS NULL AND COALESCE(NEW.status, 'in_progress') <> 'cancelled'

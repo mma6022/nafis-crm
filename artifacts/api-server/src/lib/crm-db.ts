@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { deriveCreditRank, invalidCreditScoreMessage } from "./credit-rank";
 import { reconcileSalespersonUserIdentities } from "./salesperson-identity";
 import { logger } from "./logger";
+import { ensureSchemaObject, schemaObjectMatches } from "./schema-objects";
 import { installCustomerIdentityGuards, registerCustomerIdentityFunctions } from "./customer-integrity";
 
 export const databasePath = process.env.CRM_DATABASE_PATH
@@ -383,6 +384,11 @@ crmDb.exec(`
   CREATE INDEX IF NOT EXISTS idx_customer_portal_messages_conversation
     ON customer_portal_messages(conversation_id, created_at, id);
 `);
+
+const CONTRACT_BINDING_INDEX_SQL = `
+  CREATE UNIQUE INDEX idx_contract_generations_application_binding
+    ON contract_generations(loan_application_id,generation_purpose)
+    WHERE loan_application_id IS NOT NULL AND superseded_at IS NULL`;
 
 function ensureColumn(table: string, column: string, definition: string): void {
   const columns = crmDb
@@ -983,13 +989,13 @@ function migrateAutomatedRepeatRequestProvenance(): void {
   ensureColumn("customer_repeat_requests", "provenance", "TEXT NOT NULL DEFAULT 'human'");
   ensureColumn("customer_repeat_requests", "source_thread_id", "INTEGER");
   ensureColumn("customer_repeat_requests", "source_message_id", "TEXT");
-  crmDb.exec(`
-    DROP TRIGGER IF EXISTS customer_repeat_requests_immutable_update;
+  ensureSchemaObject(crmDb, "trigger", "customer_repeat_requests_immutable_update", `
     CREATE TRIGGER customer_repeat_requests_immutable_update
       BEFORE UPDATE OF requested_name,submitted_description,explanation,created_by_user_id,provenance,
         source_thread_id,source_message_id,created_at
       ON customer_repeat_requests
-      BEGIN SELECT RAISE(ABORT,'customer repeat request is append-only'); END;
+      BEGIN SELECT RAISE(ABORT,'customer repeat request is append-only'); END`);
+  crmDb.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_repeat_requests_source_message
       ON customer_repeat_requests(source_message_id) WHERE source_message_id IS NOT NULL;
   `);
@@ -1034,11 +1040,14 @@ crmDb.exec(`
   SET superseded_at=COALESCE(superseded_at,updated_at,created_at)
   WHERE loan_application_id IS NOT NULL AND status='failed' AND pdf_path IS NULL
     AND provider_contract_id IS NULL;
-  DROP INDEX IF EXISTS idx_contract_generations_application_binding;
+`);
+// Legacy one-column binding index; skipped once the final (application, purpose) index below is in place,
+// so a normal restart does not DROP/CREATE it twice (each DDL bumps schema_version).
+if (!schemaObjectMatches(crmDb, "index", "idx_contract_generations_application_binding", CONTRACT_BINDING_INDEX_SQL))
+  ensureSchemaObject(crmDb, "index", "idx_contract_generations_application_binding", `
   CREATE UNIQUE INDEX idx_contract_generations_application_binding
     ON contract_generations(loan_application_id)
-    WHERE loan_application_id IS NOT NULL AND superseded_at IS NULL;
-`);
+    WHERE loan_application_id IS NOT NULL AND superseded_at IS NULL`);
 crmDb.exec(`CREATE TRIGGER IF NOT EXISTS trg_contract_generation_application_binding_immutable
   BEFORE UPDATE OF loan_application_id ON contract_generations
   WHEN OLD.loan_application_id IS NOT NEW.loan_application_id
@@ -1070,12 +1079,7 @@ crmDb.exec(`
   );
 `);
 ensureColumn("contract_generation_rejected_deliveries", "sent_at", "TEXT");
-crmDb.exec(`
-  DROP INDEX IF EXISTS idx_contract_generations_application_binding;
-  CREATE UNIQUE INDEX idx_contract_generations_application_binding
-    ON contract_generations(loan_application_id,generation_purpose)
-    WHERE loan_application_id IS NOT NULL AND superseded_at IS NULL;
-`);
+ensureSchemaObject(crmDb, "index", "idx_contract_generations_application_binding", CONTRACT_BINDING_INDEX_SQL);
 crmDb.exec(`
   CREATE TABLE IF NOT EXISTS contract_number_sequences (
     period TEXT PRIMARY KEY,

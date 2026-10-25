@@ -1,3 +1,4 @@
+import { ensureSchemaObject } from "./schema-objects";
 import { Router } from "express";
 import { createHash } from "node:crypto";
 import { crmDb, queryRow, queryRows } from "./crm-db";
@@ -55,8 +56,9 @@ export function installSiteNotifications() {
       INSERT INTO site_notification_events(${capturedColumns.join(",")},actor_key)
         VALUES(${capturedColumns.map(column=>`NEW.${column}`).join(",")},site_notification_actor());
       SELECT RAISE(IGNORE);
-    END;
-    DROP TRIGGER IF EXISTS site_notification_group_loan_minute;
+    END;`;
+  // Persistent triggers are (re)created only when missing or changed (identical DROP/CREATE bumps schema_version).
+  const persistentTriggers: [string,string][] = [["site_notification_group_loan_minute", `
     CREATE TRIGGER site_notification_group_loan_minute AFTER INSERT ON site_notification_events
     WHEN NEW.resource_type='loan' AND EXISTS (
       SELECT 1 FROM site_notification_events e
@@ -67,7 +69,7 @@ export function installSiteNotifications() {
         AND e.created_at>strftime('%Y-%m-%dT%H:%M:%fZ',NEW.created_at,'-60 seconds')
         AND e.created_at<=NEW.created_at
     )
-    BEGIN DELETE FROM site_notification_events WHERE id=NEW.id; END;`;
+    BEGIN DELETE FROM site_notification_events WHERE id=NEW.id; END`]];
   const sources: Source[] = [
     { table:"customers",customer:r=>`${r}.id`,type:"customer",permission:"customers.view",title:"پروندهٔ مشتری تغییر کرد" },
     { table:"customer_chat_messages",customer:direct,type:"chat",permission:"customers.view",title:"پیام جدید مشتری",kind:"customer-message",insertOnly:true,
@@ -103,7 +105,6 @@ export function installSiteNotifications() {
     ...["wallet_accounts_v2","wallet_payment_intents","wallet_share_links"].map(table=>({
       table,customer:direct,type:"wallet",permission:"wallets.view",title:"وضعیت کیف پول مشتری تغییر کرد" })),
   ];
-  const triggerCommands:string[]=[];
   for (const source of sources) {
     const columns = crmDb.prepare(`PRAGMA table_info(${q(source.table)})`).all() as {name:string;pk:number}[];
     if (!columns.length) continue;
@@ -133,17 +134,17 @@ export function installSiteNotifications() {
       const name = ownCustomer ? `${row}.name` : `(SELECT name FROM customers WHERE id=${customer})`;
       const title = operation==="DELETE" ? source.title+" (حذف)" : source.title;
       const trigger = `site_notify_${source.table}_${operation.toLowerCase()}`;
-      triggerCommands.push(`DROP TRIGGER IF EXISTS ${q(trigger)};
+      persistentTriggers.push([trigger, `
         CREATE TRIGGER ${q(trigger)} AFTER ${operation} ON ${q(source.table)}
         WHEN ${changed} AND (${source.when?.(row) ?? "1"}) AND ${customer} IS NOT NULL
         BEGIN INSERT INTO site_notification_events(customer_id,customer_name,owner_id,resource_type,resource_id,kind,title,body,permission,created_at)
         VALUES(${customer},COALESCE(${name},'مشتری'),${owner},${lit(source.type)},COALESCE(${resource},${row}.${q(identity)}),
           ${lit(ownCustomer&&operation==="DELETE"?"customer-deleted":source.kind??"case-change")},${lit(title)},${source.body?.(row)??lit("برای بررسی، پروندهٔ مرتبط را باز کنید.")},
-          ${lit(source.permission)},strftime('%Y-%m-%dT%H:%M:%fZ','now')); END;`);
+          ${lit(source.permission)},strftime('%Y-%m-%dT%H:%M:%fZ','now')); END`]);
     }
   }
   crmDb.exec("BEGIN IMMEDIATE");
-  try{crmDb.exec(actorCapture + triggerCommands.join("\n"));crmDb.exec("COMMIT");}
+  try{crmDb.exec(actorCapture);for(const [name,sql] of persistentTriggers)ensureSchemaObject(crmDb,"trigger",name,sql);crmDb.exec("COMMIT");}
   catch(error){crmDb.exec("ROLLBACK");throw error;}
 }
 
