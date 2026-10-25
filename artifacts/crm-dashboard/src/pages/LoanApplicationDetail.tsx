@@ -67,6 +67,7 @@ import { PhysicalSubmission } from '@/components/loan-applications/PhysicalSubmi
 import { classifySignatureVerificationError, providerReportsSigned, providerReportsRejected, type SignatureStatusWorkflowOutcome } from '@/lib/loan-signature-verification-errors.mjs';
 import { CaseNotesRoom } from '@/loan-case-history/CaseNotesRoom';
 import { CaseHistoryDialog } from '@/loan-case-history/CaseHistoryDialog';
+import { loanDecisionErrorMessage } from '@/lib/loan-decision-errors';
 import { ACTION_ROLE_NAMES, BUSINESS_STATUS_LABELS, loanBusinessStatus } from '@/lib/loan-labels';
 import '@/pages/customers.css';
 import '@/pages/loan-requests.css';
@@ -277,6 +278,8 @@ export default function LoanApplicationDetail() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const [lastStage, setLastStage] = useState(app?.stage);
+  // A refusal shown in one decision dialog must not leak into the next one.
+  useEffect(() => { setApprovalError(''); }, [reviewModal]);
   if (app && app.stage !== lastStage) {
     setLastStage(app.stage);
     setSelectedStepId(null);
@@ -307,7 +310,7 @@ export default function LoanApplicationDetail() {
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
-        throw new Error(data.error === 'review_not_complete_or_no_defect' ? 'ابتدا نقص این مرحله را ثبت کنید.' : 'بازگشت پرونده ممکن نشد؛ دوباره تلاش کنید.');
+        throw new Error(loanDecisionErrorMessage({ status: response.status, data }, 'بازگشت پرونده ممکن نشد؛ دوباره تلاش کنید.'));
       }
       return response.json();
     },
@@ -336,7 +339,7 @@ export default function LoanApplicationDetail() {
           admin_case_financial_terms_locked: 'شرایط مالی پروندهٔ دارای سابقهٔ پرداخت یا تکمیل قابل تغییر نیست؛ فقط یادداشت و اصلاح مدیریتی مرحله مجاز است.',
           action_forbidden: 'شما مجاز به انجام این اقدام در مرحله فعلی نیستید.',
         };
-        throw new Error(errorMessages[data.error] || data.error || 'ثبت تغییر ممکن نشد');
+        throw new Error(errorMessages[data.error] || loanDecisionErrorMessage({ status: response.status, data }, 'ثبت تغییر ممکن نشد'));
       }
       return response.json();
     },
@@ -390,29 +393,23 @@ export default function LoanApplicationDetail() {
               : code === 'requested_primary_or_documents_not_verified' ? 'قرارداد اولیه یا مدارک هنوز تأیید نشده‌اند.'
               : code === 'invalid_deduction_percent' ? 'درصد کسر طرح برای تعداد اقساط انتخاب‌شده نامعتبر است. تنظیمات طرح باید اصلاح شود.'
               : code === 'guarantor_required_before_approval' ? 'ابتدا ضامن را ثبت کنید، سپس مبلغ وام را تصویب کنید.'
-              : 'تصویب مبلغ وام انجام نشد. شرایط را بررسی و دوباره تلاش کنید.');
+              : loanDecisionErrorMessage(error, 'تصویب مبلغ وام انجام نشد. شرایط را بررسی و دوباره تلاش کنید.'));
           },
         });
         break;
       }
       case 'initial_reject':
         if (!reviewReason.trim()) { setApprovalError('دلیل رد اولیه الزامی است.'); return; }
-        initialReject.mutate({ id: appId, data: { reason: reviewReason.trim() } }, { onError: () => setApprovalError('ثبت رد اولیه انجام نشد. دوباره تلاش کنید.') });
+        initialReject.mutate({ id: appId, data: { reason: reviewReason.trim() } }, { onError: (error) => setApprovalError(loanDecisionErrorMessage(error, 'ثبت رد اولیه انجام نشد. دوباره تلاش کنید.')) });
         break;
-      case 'expert_approve': expertApprove.mutate({ id: appId }, { onError: (error) => {
-        const failure = error as { data?: { error?: string; code?: string }; response?: { data?: { error?: string; code?: string } } };
-        const code = failure.data?.error ?? failure.data?.code ?? failure.response?.data?.error ?? failure.response?.data?.code;
-        setApprovalError(code === 'legacy_signed_primary_terms_unverifiable'
-          ? 'شرایط قرارداد اصلی امضاشده این پرونده قدیمی قابل تأیید نیست. پیش از تصمیم نهایی، قرارداد قبلی باید بررسی و اصلاح شود.'
-          : 'ثبت تصمیم نهایی انجام نشد. دوباره تلاش کنید.');
-      } }); break;
-      case 'expert_reject': expertReject.mutate({ id: appId, data }); break;
-      case 'admin_approve': adminApprove.mutate({ id: appId, data }); break;
-      case 'admin_reject': adminReject.mutate({ id: appId, data }); break;
-      case 'complete': completeLoan.mutate({ id: appId }); break;
-      case 'review_cust_docs': reviewCustDocs.mutate({ id: appId, data }); break;
-      case 'review_guar_docs': reviewGuarDocs.mutate({ id: appId, data }); break;
-      case 'review_collateral': reviewCollateral.mutate({ id: appId, data }); break;
+      case 'expert_approve': expertApprove.mutate({ id: appId }, { onError: (error) => setApprovalError(loanDecisionErrorMessage(error, 'ثبت تصمیم نهایی انجام نشد. دوباره تلاش کنید.')) }); break;
+      case 'expert_reject': expertReject.mutate({ id: appId, data }, { onError: (error) => setApprovalError(loanDecisionErrorMessage(error, 'ثبت رد تأمین‌کننده انجام نشد. دوباره تلاش کنید.')) }); break;
+      case 'admin_approve': adminApprove.mutate({ id: appId, data }, { onError: (error) => setApprovalError(loanDecisionErrorMessage(error, 'ثبت تأیید نهایی مدیر انجام نشد. دوباره تلاش کنید.')) }); break;
+      case 'admin_reject': adminReject.mutate({ id: appId, data }, { onError: (error) => setApprovalError(loanDecisionErrorMessage(error, 'ثبت رد مدیر انجام نشد. دوباره تلاش کنید.')) }); break;
+      case 'complete': completeLoan.mutate({ id: appId }, { onError: (error) => setApprovalError(loanDecisionErrorMessage(error, 'خاتمهٔ پرونده انجام نشد. دوباره تلاش کنید.')) }); break;
+      case 'review_cust_docs': reviewCustDocs.mutate({ id: appId, data }, { onError: (error) => setApprovalError(loanDecisionErrorMessage(error, 'ثبت بررسی مدارک مشتری انجام نشد. دوباره تلاش کنید.')) }); break;
+      case 'review_guar_docs': reviewGuarDocs.mutate({ id: appId, data }, { onError: (error) => setApprovalError(loanDecisionErrorMessage(error, 'ثبت بررسی مدارک ضامن انجام نشد. دوباره تلاش کنید.')) }); break;
+      case 'review_collateral': reviewCollateral.mutate({ id: appId, data }, { onError: (error) => setApprovalError(loanDecisionErrorMessage(error, 'ثبت بررسی وثایق انجام نشد. دوباره تلاش کنید.')) }); break;
       case 'return_cust_docs': returnForCorrection.mutate({ path: 'return-customer-documents', reason: reviewReason }); break;
       case 'return_guar_docs': returnForCorrection.mutate({ path: 'return-guarantor-documents', reason: reviewReason }); break;
       case 'return_collateral': returnForCorrection.mutate({ path: 'return-collateral', reason: reviewReason }); break;
@@ -1056,12 +1053,12 @@ export default function LoanApplicationDetail() {
               <label htmlFor="review-decision-reason">توضیحات / دلیل {reviewModal === 'initial_reject' || reviewModal?.startsWith('return_') || reviewModal === 'expert_reject' || reviewModal === 'admin_reject' ? '(الزامی)' : '(اختیاری)'}</label>
               {reviewModal === 'expert_approve' ? <p className="funding-guidance">تأیید نهایی بدون تغییر شرایط مصوب اولیه ثبت می‌شود.</p> : <textarea id="review-decision-reason" data-testid="input-review-decision-reason" value={reviewReason} maxLength={reviewModal === 'initial_approve' ? 500 : reviewModal === 'initial_reject' ? 1000 : undefined} onChange={e => { setReviewReason(e.target.value); setApprovalError(''); }} placeholder={reviewModal === 'return_physical' ? 'دلیل کلی نقص یا بازگشت مدارک فیزیکی...' : 'دلیل این تصمیم...'} rows={4} />}
             </div>
-            {approvalError && ['initial_approve', 'initial_reject', 'expert_approve'].includes(reviewModal) && <p className="form-error" role="alert" data-testid="error-funder-decision">{approvalError}</p>}
-            {reviewModal === 'return_physical' && actionError && <p role="alert" style={{ margin: 0, color: '#be123c', fontSize: 12 }}>{actionError}</p>}
+            {approvalError && <p className="form-error" role="alert" data-testid="error-funder-decision">{approvalError}</p>}
+            {(reviewModal?.startsWith('return_') || reviewModal === 'physical_general_defect') && actionError && <p role="alert" style={{ margin: 0, color: '#be123c', fontSize: 12 }}>{actionError}</p>}
             <div className="form-footer" style={{ justifyContent: 'flex-end' }}>
               <button className="btn btn-ghost" onClick={() => setReviewModal(null)}>انصراف</button>
               <button type="button" data-testid="button-submit-review-decision" className="btn btn-primary" onClick={handleReviewAction} disabled={((reviewModal?.startsWith('return_') || reviewModal === 'initial_reject' || reviewModal === 'expert_reject' || reviewModal === 'admin_reject' || reviewModal === 'physical_general_defect') && !reviewReason.trim()) || (reviewModal === 'initial_approve' && (!approvedPrincipal.trim() || !approvedDuration)) || initialApprove.isPending || initialReject.isPending || expertApprove.isPending || expertReject.isPending || adminApprove.isPending || adminReject.isPending || completeLoan.isPending || reviewCustDocs.isPending || reviewGuarDocs.isPending || reviewCollateral.isPending || returnForCorrection.isPending || stageAction.isPending}>
-                {initialApprove.isPending || initialReject.isPending || expertApprove.isPending || reviewCustDocs.isPending || reviewGuarDocs.isPending || reviewCollateral.isPending || returnForCorrection.isPending || stageAction.isPending ? 'در حال ثبت...' : 'ثبت تصمیم'}
+                {initialApprove.isPending || initialReject.isPending || expertApprove.isPending || expertReject.isPending || adminApprove.isPending || adminReject.isPending || completeLoan.isPending || reviewCustDocs.isPending || reviewGuarDocs.isPending || reviewCollateral.isPending || returnForCorrection.isPending || stageAction.isPending ? 'در حال ثبت...' : 'ثبت تصمیم'}
               </button>
             </div>
           </div>

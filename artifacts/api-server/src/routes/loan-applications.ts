@@ -98,10 +98,53 @@ function scoped(id: number, u: AuthUser): any {
     LEFT JOIN loan_plans p ON p.id=COALESCE(a.plan_id, CASE WHEN json_valid(a.plan_ids) THEN CAST(json_extract(a.plan_ids,'$[0]') AS INTEGER) ELSE CAST(a.plan_ids AS INTEGER) END)
     WHERE a.id=? AND a.deleted_at IS NULL${condition}`, params);
 }
-function error(res: any, status: number, code: string) {
+// Persian explanation sent with every loan-case refusal so the dialog can show
+// the real reason. Sub-reasons explain current_primary_terms_not_verified.
+const LOAN_REFUSAL_MESSAGES: Record<string, string> = {
+  current_primary_terms_not_verified: "قرارداد اصلی امضاشده با شرایط مصوب این پرونده قابل تطبیق نیست.",
+  primary_contract_missing: "قرارداد اصلی فعلی برای این پرونده ثبت نشده است.",
+  primary_contract_not_for_case: "قرارداد اصلی فعلی متعلق به همین مشتری، طرح یا پرونده نیست.",
+  primary_contract_not_signed: "قرارداد اصلی هنوز به‌طور کامل امضا و تأیید نشده است.",
+  primary_contract_template_mismatch: "قالب قرارداد اصلی با قالب طرح این پرونده یکی نیست.",
+  primary_contract_file_unverifiable: "فایل PDF قرارداد اصلی پیدا نشد یا با نسخهٔ ثبت‌شده یکسان نیست.",
+  primary_contract_values_unverifiable: "مقادیر ثبت‌شده در قرارداد اصلی قابل بررسی نیست.",
+  primary_contract_amount_mismatch: "مبلغ ثبت‌شده در قرارداد اصلی با مبلغ مصوب پرونده برابر نیست.",
+  primary_contract_duration_mismatch: "تعداد اقساط قرارداد اصلی با تعداد اقساط مصوب پرونده برابر نیست.",
+  primary_contract_principal_not_legible: "مبلغ اصل تسهیلات در متن PDF قرارداد اصلی قابل خواندن و تطبیق نیست.",
+  primary_contract_installments_not_legible: "تعداد اقساط مصوب در متن PDF قرارداد اصلی قابل خواندن و تطبیق نیست.",
+  primary_toman_replacement_unverified: "قرارداد جایگزین تومانی این پرونده هنوز امضا یا تأیید نشده است.",
+  approved_amount_missing: "مبلغ مصوب این پرونده ثبت نشده است؛ ابتدا مرحلهٔ تصویب مبلغ وام باید انجام شود.",
+  toman_replacement_terms_unverifiable: "قرارداد جایگزین تومانی این پرونده هنوز امضا یا تأیید نشده است.",
+  legacy_signed_primary_terms_unverifiable: "شرایط قرارداد اصلی امضاشده این پرونده قدیمی قابل تأیید نیست. پیش از تصمیم نهایی، قرارداد قبلی باید بررسی و اصلاح شود.",
+  approved_financial_terms_reconciliation_conflict: "اطلاعات پرونده هم‌زمان تغییر کرده است. صفحه را تازه کنید و دوباره تلاش کنید.",
+  final_funder_approval_has_no_term_inputs: "در این مرحله امکان تغییر شرایط تسهیلات وجود ندارد.",
+  invalid_stage_transition: "این اقدام در مرحلهٔ فعلی پرونده مجاز نیست؛ ممکن است پرونده جابه‌جا شده باشد. صفحه را تازه کنید.",
+  action_forbidden: "شما مجاز به انجام این اقدام در مرحلهٔ فعلی نیستید.",
+  loan_application_not_found: "پرونده پیدا نشد یا به شما تخصیص داده نشده است.",
+  approved_primary_generation_evidence_missing: "سند قرارداد با مبلغ مصوب برای این پرونده پیدا نشد.",
+  requested_primary_or_documents_not_verified: "قرارداد اولیه یا مدارک هنوز تأیید نشده‌اند.",
+  loan_amount_approval_required: "ابتدا مبلغ وام باید تصویب شود.",
+  invalid_status: "وضعیت فعلی پرونده اجازهٔ این اقدام را نمی‌دهد. صفحه را تازه کنید.",
+  invalid_initial_funder_approval: "اطلاعات تصمیم تأمین‌کننده کامل نیست؛ مبلغ و تعداد اقساط مصوب را وارد کنید.",
+  initial_funder_decision_already_recorded: "تصمیم اولیهٔ تأمین‌کننده قبلاً برای این پرونده ثبت شده است.",
+  loan_plan_condition_not_found: "شرط طرح متناسب با مبلغ و تعداد اقساط انتخاب‌شده پیدا نشد.",
+  loan_plan_condition_not_matched: "مبلغ یا تعداد اقساط با شرایط طرح این پرونده سازگار نیست.",
+  workflow_error: "ثبت این اقدام به دلیل خطای داخلی انجام نشد.",
+};
+function error(res: any, status: number, rawCode: string, rawReason?: string) {
+  // Only stable snake_case codes reach the client; anything else (e.g. a
+  // database exception message) is reported as workflow_error.
+  const code = /^[a-z][a-z0-9_]{1,80}$/.test(String(rawCode)) ? rawCode : "workflow_error";
   if (res.req?.method === "POST" && res.req?.route?.path === "/loan-applications")
     res.req.log?.warn({ code, status }, "initial loan application rejected");
-  return res.status(status).json({ error: code, code });
+  else if (res.req?.method === "POST" && status >= 400 && status < 500 &&
+      /^\/loan-applications\/:id\/[a-z-]+$/.test(String(res.req?.route?.path ?? "")))
+    // Workflow decisions used to fail with only a status code in the journal.
+    res.req.log?.warn({ code, status, applicationId: Number(res.req.params?.id) || null,
+      action: String(res.req.route.path).split("/").pop(), reason: rawReason }, "loan application action rejected");
+  const reason = rawReason && /^[a-z][a-z0-9_]{1,80}$/.test(rawReason) ? rawReason : undefined;
+  const message = (reason && LOAN_REFUSAL_MESSAGES[reason]) || LOAN_REFUSAL_MESSAGES[code];
+  return res.status(status).json({ error: code, code, ...(reason ? { reason } : {}), ...(message ? { message } : {}) });
 }
 function fileExists(rawPath: unknown): boolean {
   if (typeof rawPath !== "string" || !rawPath.trim()) return false;
@@ -689,6 +732,19 @@ function tomanReplacementGenerationMatches(
     (!tomanReplacementNeedsInstallmentProof(application, parseJson(generation.mappings_snapshot_json)) ||
       renderedPdfContainsInstallmentCount(generation.pdf_path, consent.durationMonths, principalTemplateEvidence(generation)));
 }
+// The signed primary must legibly state the principal. Older (non new-case)
+// files were only checked for a labeled "مبلغ تسهیلات"-style clause, so contracts
+// generated from attested templates (e.g. template 6: "مبلغ … %credit% تومان")
+// were rejected at the final funder decision even though contract generation
+// had already verified them through the attested-template evidence. Keep the
+// plain-text check first (unchanged for templates 4/5) and fall back to the same
+// hash-pinned template/docx/pdf evidence used at generation time.
+function primaryPdfShowsPrincipal(application: any, generation: any, amount: string): boolean {
+  if (application?.new_case_workflow)
+    return renderedPdfContainsPrincipal(generation.pdf_path, amount, principalTemplateEvidence(generation));
+  return renderedPdfContainsPrincipal(generation.pdf_path, amount) ||
+    renderedPdfContainsPrincipal(generation.pdf_path, amount, principalTemplateEvidence(generation));
+}
 function legacySignedPrimaryTerms(application: any): { amount: string; netAmount: string; generationId: number } {
   const fail = () => { throw new Error("legacy_signed_primary_terms_unverifiable"); };
   const replacementPrimary = applicationPrimaryDocument(application);
@@ -754,8 +810,7 @@ function legacySignedPrimaryTerms(application: any): { amount: string; netAmount
     .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
     .replace(/[,\u060c\u066c\s]/g, "");
   if (!/^[1-9]\d{0,17}$/.test(amount)) return fail();
-  if (!renderedPdfContainsPrincipal(link.pdf_path, amount,
-      application.new_case_workflow ? principalTemplateEvidence(link) : undefined)) return fail();
+  if (!primaryPdfShowsPrincipal(application, link, amount)) return fail();
   const condition = parseJson(application.condition_snapshot_json);
   let ceiling: bigint;
   try { ceiling = effectivePlanTerms(planSnapshot, condition).maximum; } catch { return fail(); }
@@ -767,6 +822,7 @@ function legacySignedPrimaryTerms(application: any): { amount: string; netAmount
   return { amount, netAmount, generationId: Number(link.id) };
 }
 function signedPrimaryMatchesApprovedTerms(application: any, approvedAmount: string, durationMonths: number): boolean {
+  lastPrimaryTermsRefusal = "";
   const primary = currentPrimaryDocument(application);
   const consent = application && latestTomanReplacementConsent(Number(application.id))?.consent;
   if (consent || String(primary?.generation_purpose ?? "") === TOMAN_REPLACEMENT_PURPOSE) {
@@ -777,11 +833,12 @@ function signedPrimaryMatchesApprovedTerms(application: any, approvedAmount: str
       primary.status === "signed" && isStrictSignedProviderState(primary.provider_status) &&
       String(approvedAmount) === consent.approvedAmount &&
       Number(durationMonths) === consent.durationMonths &&
-      verifiedTomanReplacementPrimary(application));
+      verifiedTomanReplacementPrimary(application)) || refusePrimaryTerms("primary_toman_replacement_unverified");
   }
-  return Boolean(primary && signatureGenerationIdentityEligible(application, primary, "primary") &&
-    String(primary.link ?? "").startsWith("signed:") && primary.status === "signed" &&
-    verifiedPrimaryPrincipal(application, primary, approvedAmount, durationMonths));
+  if (!primary) return refusePrimaryTerms("primary_contract_missing");
+  if (!signatureGenerationIdentityEligible(application, primary, "primary")) return refusePrimaryTerms("primary_contract_not_for_case");
+  if (!String(primary.link ?? "").startsWith("signed:") || primary.status !== "signed") return refusePrimaryTerms("primary_contract_not_signed");
+  return verifiedPrimaryPrincipal(application, primary, approvedAmount, durationMonths);
 }
 function latestPrimaryDocument(applicationId: number): any {
   return queryRow<any>(`SELECT d.id AS document_id,d.kind,d.contract_generation_id,d.link,d.status AS document_status,
@@ -877,44 +934,56 @@ function primarySignatureDocumentSignedEligible(application: any, primary: any):
     String(primary.link ?? "").startsWith("signed:") &&
     generationStatus === "signed" && isStrictSignedProviderState(primary.provider_status));
 }
+// Why the last signed-primary terms check refused (read right after a
+// current_primary_terms_not_verified refusal, in the same synchronous request).
+let lastPrimaryTermsRefusal = "";
+function primaryTermsRefusal(reason: string): Error {
+  return Object.assign(new Error("current_primary_terms_not_verified"), { reason: reason || undefined });
+}
+function refusePrimaryTerms(reason: string): false {
+  lastPrimaryTermsRefusal = reason;
+  return false;
+}
 function verifiedPrimaryPrincipal(application: any, primary: any, approvedAmount: string, durationMonths: number): boolean {
   const consent = application && latestTomanReplacementConsent(Number(application.id))?.consent;
   if (consent || String(primary?.generation_purpose ?? "") === TOMAN_REPLACEMENT_PURPOSE) {
     return Boolean(consent &&
       String(approvedAmount) === consent.approvedAmount &&
       Number(durationMonths) === consent.durationMonths &&
-      verifiedTomanReplacementPrimary(application));
+      verifiedTomanReplacementPrimary(application)) || refusePrimaryTerms("primary_toman_replacement_unverified");
   }
   if (!application || !primary || Number(primary.customer_id) !== Number(application.customer_id) ||
       Number(primary.loan_plan_id) !== Number(application.plan_id) || Number(primary.template_id) <= 0 ||
       !primary.provider_contract_id || primary.deleted_at || primary.superseded_at ||
       !["sent", "signed"].includes(String(primary.status)) || !primary.pdf_path || !primary.pdf_sha256 ||
-      (primary.loan_application_id != null && Number(primary.loan_application_id) !== Number(application.id))) return false;
+      (primary.loan_application_id != null && Number(primary.loan_application_id) !== Number(application.id)))
+    return refusePrimaryTerms(!primary ? "primary_contract_missing" : "primary_contract_not_for_case");
   const providerClassification = classifyProviderState(primary.provider_status);
   if (!String(primary.provider_status ?? "").trim() || providerClassification === "negative" ||
-      (primary.status === "signed" && providerClassification !== "signed")) return false;
+      (primary.status === "signed" && providerClassification !== "signed")) return refusePrimaryTerms("primary_contract_not_signed");
   const snapshot = parseJson(application.plan_snapshot_json);
   const templateId = Number(snapshot?.contract_template_id ?? snapshot?.primary_contract_template_id);
   if (!snapshot || (snapshot.id != null && Number(snapshot.id) !== Number(application.plan_id)) ||
-      !templateId || Number(primary.template_id) !== templateId) return false;
+      !templateId || Number(primary.template_id) !== templateId) return refusePrimaryTerms("primary_contract_template_mismatch");
   try {
     const pdfPath = fs.realpathSync(String(primary.pdf_path));
     const stat = fs.lstatSync(String(primary.pdf_path));
     if (path.dirname(pdfPath) !== fs.realpathSync(contractGenerationRoot) ||
         !/^[a-f0-9-]{20,}\.pdf$/i.test(path.basename(pdfPath)) || !stat.isFile() || stat.isSymbolicLink() ||
-        crypto.createHash("sha256").update(fs.readFileSync(pdfPath)).digest("hex") !== String(primary.pdf_sha256)) return false;
-  } catch { return false; }
+        crypto.createHash("sha256").update(fs.readFileSync(pdfPath)).digest("hex") !== String(primary.pdf_sha256))
+      return refusePrimaryTerms("primary_contract_file_unverifiable");
+  } catch { return refusePrimaryTerms("primary_contract_file_unverifiable"); }
   const template = queryRow<any>("SELECT mappings_json,updated_at FROM contract_templates WHERE id=? AND deleted_at IS NULL", [templateId]);
-  if (!template) return false;
+  if (!template) return refusePrimaryTerms("primary_contract_template_mismatch");
   let mappings = parseJson(primary.mappings_snapshot_json);
   if (!Array.isArray(mappings) || !mappings.length) {
     const created = Date.parse(String(primary.created_at ?? ""));
     const updated = Date.parse(String(template.updated_at ?? ""));
-    if (!Number.isFinite(created) || !Number.isFinite(updated) || updated > created) return false;
+    if (!Number.isFinite(created) || !Number.isFinite(updated) || updated > created) return refusePrimaryTerms("primary_contract_values_unverifiable");
     mappings = parseJson(template.mappings_json);
   }
   const values = parseJson(primary.manual_values_json);
-  if (!Array.isArray(mappings) || !values || typeof values !== "object") return false;
+  if (!Array.isArray(mappings) || !values || typeof values !== "object") return refusePrimaryTerms("primary_contract_values_unverifiable");
   const sourceType = (mapping: any) => mapping.sourceType ?? (mapping.customerField ? "customer" : mapping.loanPlanField ? "loanPlan" : "manual");
   const principalMappings = mappings.filter((mapping: any) =>
     sourceType(mapping) === "loanPlan" && mapping.loanPlanField === "loanPlan.principalAmount");
@@ -924,16 +993,20 @@ function verifiedPrimaryPrincipal(application: any, primary: any, approvedAmount
     .replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
     .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
     .replace(/[,\u060c\u066c\s]/g, "");
-  if (principalMappings.length !== 1 || normalize(values[principalMappings[0].variable]) !== approvedAmount ||
-      (application.initial_approval_at && Number(application.duration_months) !== Number(application.requested_duration_months ?? application.duration_months) &&
-        durationMappings.length === 0)) return false;
-  return durationMappings.every((mapping: any) => normalize(values[mapping.variable]) === String(durationMonths)) &&
-    (renderedPdfContainsPrincipal(primary.pdf_path, approvedAmount,
-      application.new_case_workflow ? principalTemplateEvidence(primary) : undefined) ||
+  if (principalMappings.length !== 1 || normalize(values[principalMappings[0].variable]) !== approvedAmount)
+    return refusePrimaryTerms("primary_contract_amount_mismatch");
+  if (application.initial_approval_at && Number(application.duration_months) !== Number(application.requested_duration_months ?? application.duration_months) &&
+      durationMappings.length === 0) return refusePrimaryTerms("primary_contract_installments_not_legible");
+  if (!durationMappings.every((mapping: any) => normalize(values[mapping.variable]) === String(durationMonths)))
+    return refusePrimaryTerms("primary_contract_duration_mismatch");
+  if (!(primaryPdfShowsPrincipal(application, primary, approvedAmount) ||
       acceptedLegacyRialPrimary(application, primary, approvedAmount, durationMonths, queryRow,
-        () => renderedPdfContainsLegacyRialPrincipal(primary.pdf_path, approvedAmount, principalTemplateEvidence(primary)))) &&
-    (Number(application.duration_months) === Number(application.requested_duration_months ?? application.duration_months) ||
-      renderedPdfContainsInstallmentCount(primary.pdf_path, durationMonths, principalTemplateEvidence(primary)));
+        () => renderedPdfContainsLegacyRialPrincipal(primary.pdf_path, approvedAmount, principalTemplateEvidence(primary)))))
+    return refusePrimaryTerms("primary_contract_principal_not_legible");
+  if (!(Number(application.duration_months) === Number(application.requested_duration_months ?? application.duration_months) ||
+      renderedPdfContainsInstallmentCount(primary.pdf_path, durationMonths, principalTemplateEvidence(primary))))
+    return refusePrimaryTerms("primary_contract_installments_not_legible");
+  return true;
 }
 function signedPrimaryMatchesRequestedTerms(application: any): boolean {
   return Boolean(application && /^[1-9]\d{0,17}$/.test(String(application.requested_amount ?? "")) &&
@@ -2059,11 +2132,9 @@ function action(pathSuffix: string, permission: any, to: Stage) {
     const r = scoped(Number(req.params.id), user(res)); if (!r) return error(res, 404, "loan_application_not_found");
     try { transition(r.id, to, pathSuffix, user(res), req.body?.reason); res.json(scoped(r.id, user(res))); } catch (e) {
       const code = e instanceof Error ? e.message : "";
-      return error(res, 409, code === "invalid_transition" ? "invalid_stage_transition" :
-        ["rendered_primary_principal_unverifiable", "requested_primary_generation_required",
-          "requested_primary_terms_not_verified", "current_primary_terms_not_verified",
-          "approved_primary_generation_evidence_missing", "loan_amount_approval_required",
-          "toman_replacement_terms_unverifiable"].includes(code) ? code : "workflow_error");
+      // Pass the real code through (sanitized in error()) so the dialog can
+      // explain why the step was refused instead of a generic retry message.
+      return error(res, 409, code === "invalid_transition" ? "invalid_stage_transition" : code || "workflow_error");
     }
   });
 }
@@ -2260,8 +2331,9 @@ router.post("/loan-applications/:id/expert-approve", requirePermission("loan_app
     if (replacementRequired) {
       if (!verifiedTomanReplacementPrimary(r)) throw new Error("toman_replacement_terms_unverifiable");
     } else if (r.initial_approval_at) {
-      if (!r.approved_amount || !signedPrimaryMatchesApprovedTerms(r, String(r.approved_amount),
-          Number(r.duration_months))) throw new Error("current_primary_terms_not_verified");
+      if (!r.approved_amount) throw primaryTermsRefusal("approved_amount_missing");
+      if (!signedPrimaryMatchesApprovedTerms(r, String(r.approved_amount),
+          Number(r.duration_months))) throw primaryTermsRefusal(lastPrimaryTermsRefusal);
     }
     const ts = now(), to: Stage = "funder_result_review";
     runTransaction(() => {
@@ -2280,14 +2352,14 @@ router.post("/loan-applications/:id/expert-approve", requirePermission("loan_app
         [currentPrimary.id, reconciledAt, actor.id, reconciledAt, current.id, currentPrimary.id]);
         if (changed !== 1) throw new Error("approved_financial_terms_reconciliation_conflict");
       } else if (current.initial_approval_at) {
-        if (!current.approved_amount ||
-            !signedPrimaryMatchesApprovedTerms(current, String(current.approved_amount),
-              Number(current.duration_months))) throw new Error("current_primary_terms_not_verified");
+        if (!current.approved_amount) throw primaryTermsRefusal("approved_amount_missing");
+        if (!signedPrimaryMatchesApprovedTerms(current, String(current.approved_amount),
+              Number(current.duration_months))) throw primaryTermsRefusal(lastPrimaryTermsRefusal);
         const primary = currentPrimaryDocument(current);
         const generationId = Number(primary?.contract_generation_id);
         if (!generationId || !isApplicationPrimaryGeneration(current, generationId) ||
             !signatureGenerationIdentityEligible(current, primary, "primary"))
-          throw new Error("current_primary_terms_not_verified");
+          throw primaryTermsRefusal("primary_contract_not_for_case");
         const reconciledAt = now();
         const changed = executeChanges(`UPDATE loan_applications SET approved_amount_generation_id=?,
           approved_amount_reconciled_at=?,approved_amount_reconciled_by_user_id=?,updated_at=?
@@ -2316,7 +2388,9 @@ router.post("/loan-applications/:id/expert-approve", requirePermission("loan_app
         [r.id, "expert_approval", to, "expert-approve", null, actor.id, ts]);
     });
     res.json(shape(scoped(r.id, actor), actor));
-  } catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error"); }
+  } catch (e) {
+    return error(res, 409, e instanceof Error ? e.message : "workflow_error", (e as { reason?: string })?.reason);
+  }
 });
 action("complete", "loan_applications.update", "completed");
 function workflowEndpoint(name: string, permission: "loan_applications.review" | "loan_applications.update" | "loan_applications.approve", from: Stage, to: Stage) {
