@@ -3063,6 +3063,8 @@ router.patch(
     ].join(", ");
     let changes: number;
     let nonP1: NonP1Result | null = null;
+    const nonP1Reactivation = body.status === "in_progress" &&
+      (existingCustomer.status === "cancelled" || existingCustomer.status === "completed");
     try {
       if (nationalCodeLog) ensureIdentityLogSchema();
       changes = runTransaction(() => {
@@ -3076,8 +3078,10 @@ router.patch(
            VALUES (?,?,?,?,'customer_update',?,?)`,
           [params.data.id, nationalCodeLog.previous || null, nationalCodeLog.next, identityStampChanged ? 1 : 0, user.id, new Date().toISOString()]);
         // crm-nonp1-to-kazemi: a non-1 priority on a closer's customer moves it to Kazemi in this same transaction.
-        if (changed && body.priority !== undefined) {
+        // Reactivation (cancelled / completed → in_progress) with a non-1 priority does the same (PM 16:48).
+        if (changed && (body.priority !== undefined || nonP1Reactivation)) {
           nonP1 = applyNonP1TransferInTx({
+            reactivation: nonP1Reactivation,
             customerId: params.data.id, oldPriority: existingCustomer.priority ?? null,
             oldSalespersonId: existingCustomer.salespersonId ?? null,
             actor: { id: user.id, role: user.role, salespersonId: user.salespersonId ?? null },

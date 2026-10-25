@@ -83,9 +83,16 @@ try {
   // Subjects: in_progress, unmerged, no open case, not #181/#649, no team-sales history yet (copy only).
   const pool = queryRows(`SELECT id FROM customers WHERE status='in_progress' AND merged_into_customer_id IS NULL AND id NOT IN (181,649)
     AND salesperson_id IN (3,4,6) ORDER BY id DESC LIMIT 400`).map((r) => Number(r.id)).filter((id) => np.openCaseReason(id) == null);
-  assert.ok(pool.length >= 30, `need 30 clean customers, got ${pool.length}`);
+  assert.ok(pool.length >= 45, `need 45 clean customers, got ${pool.length}`);
   let pi = 0;
   const subject = (sp, priority, status = "in_progress") => { const id = pool[pi++]; execute("UPDATE customers SET salesperson_id=?, priority=?, status=? WHERE id=?", [sp, priority, status, id]); return id; };
+  let uniq = 0;
+  const closedSubject = (sp, priority, status = "cancelled", forcedId = null) => {
+    const id = forcedId ?? pool[pi++];
+    execute("UPDATE customers SET salesperson_id=?, priority=?, status=?, phone=?, national_code=NULL WHERE id=?",
+      [sp, priority, status, `0912777${String(++uniq).padStart(4, "0")}`, id]);
+    return id;
+  };
   const owner = (id) => { const r = queryRow("SELECT salesperson_id s, priority p FROM customers WHERE id=?", [id]); return { sp: r.s == null ? null : Number(r.s), p: r.p == null ? null : Number(r.p) }; };
   const hist = (id) => queryRows("SELECT * FROM customer_priority_history WHERE customer_id=? AND source='nonp1_auto_transfer' ORDER BY id", [id]);
   const unreadForKazemi = (id) => kazemiUsers.length ? Number(queryRow(`SELECT count(*) n FROM site_notification_events e WHERE e.customer_id=?
@@ -96,13 +103,13 @@ try {
     "loan_applications", "contract_generations", "customer_payment_orders"];
   const moneyHash = () => crypto.createHash("sha256").update(JSON.stringify(moneyTables.map((t) =>
     queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name=?", [t]) ? queryRows(`SELECT * FROM ${t} ORDER BY rowid`) : null))).digest("hex");
-  const assertMoved = async (id, from, oldP, newP, actorId, r) => {
+  const assertMoved = async (id, from, oldP, newP, actorId, r, reasonOk = (x) => /انتقال خودکار/.test(x)) => {
     const o = owner(id);
     assert.equal(o.sp, 6, `#${id} owner`); assert.equal(o.p, newP, `#${id} priority`);
     const h = hist(id); assert.equal(h.length, 1, `#${id} one history row`);
     assert.deepEqual([h[0].old_priority, h[0].new_priority, Number(h[0].old_salesperson_id), Number(h[0].new_salesperson_id), h[0].actor_user_id == null ? null : Number(h[0].actor_user_id)],
       [oldP, newP, from, 6, actorId]);
-    assert.ok(h[0].created_at && /انتقال خودکار/.test(h[0].reason));
+    assert.ok(h[0].created_at && reasonOk(h[0].reason), `#${id} reason ${h[0].reason}`);
     assert.equal(Number(queryRow("SELECT count(*) n FROM customer_priority_history WHERE customer_id=? AND source='customer_update' AND id>?", [id, h[0].id]).n), 0, "no duplicate customer_update row");
     assert.equal(unreadForKazemi(id), 0, "no unread bell for Kazemi");
     if (r) assert.equal(r.moved, String(id), "transfer header");
@@ -140,6 +147,9 @@ try {
   }
   let staleWallet = null;
   if (openSubjects.wallet_payment) { staleWallet = subject(4, 1); fill("wallet_payment_intents", { customer_id: staleWallet, status: "created", created_at: new Date(Date.now() - 25 * 3600e3).toISOString() }); }
+  // Reactivation: a closed customer with an open case (copy only).
+  const reactOpen = closedSubject(3, 2, "cancelled");
+  if (queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='loan_applications'")) fill("loan_applications", { customer_id: reactOpen, status: "reviewing", deleted_at: null });
   execute("PRAGMA foreign_keys=ON");
 
   const money0 = moneyHash(), intro0 = introCount();
@@ -198,6 +208,66 @@ try {
     assert.equal(r.status, 200, JSON.stringify(r.body)); assert.equal(r.body.transferredToQualifier, true);
     await assertMoved(id, 4, null, 2, 1, r);
     assert.equal(qf(), qf0, "no second (qualifier_form) row for the same change");
+  });
+
+  /* ---------- A2. reactivation (PM 16:48): cancelled / completed → in_progress with a non-1 priority ---------- */
+  const isReact = (x) => x === "reactivation";
+  await ok("reactivation: Hasani reopens her cancelled P2 customer → Kazemi, history reason 'reactivation', header", async () => {
+    const id = closedSubject(3, 2, "cancelled");
+    const r = await call("PATCH", `/customers/${id}`, "hasani", { status: "in_progress" });
+    assert.equal(r.status, 200, JSON.stringify(r.body)); assert.equal(Number(r.body.salespersonId), 6); assert.equal(r.body.status, "in_progress");
+    await assertMoved(id, 3, 2, 2, actors.hasani.id, r, isReact);
+  });
+  await ok("reactivation: admin reopens Ghasemi's COMPLETED P3 customer → Kazemi (actor admin)", async () => {
+    const id = closedSubject(4, 3, "completed");
+    const r = await call("PATCH", `/customers/${id}`, "admin", { status: "in_progress" });
+    assert.equal(r.status, 200, JSON.stringify(r.body)); await assertMoved(id, 4, 3, 3, 1, r, isReact);
+  });
+  await ok("reactivation: «بدون اولویت» (null) counts as non-1 → Kazemi", async () => {
+    const id = closedSubject(4, null, "cancelled");
+    const r = await call("PATCH", `/customers/${id}`, "ghasemi", { status: "in_progress" });
+    assert.equal(r.status, 200, JSON.stringify(r.body)); await assertMoved(id, 4, null, null, actors.ghasemi.id, r, isReact);
+  });
+  await ok("reactivation + priority change in the same save (P1→P3) → one row, reason 'reactivation'", async () => {
+    const id = closedSubject(3, 1, "cancelled");
+    const r = await call("PATCH", `/customers/${id}`, "admin", { status: "in_progress", priority: 3 });
+    assert.equal(r.status, 200, JSON.stringify(r.body)); await assertMoved(id, 3, 1, 3, 1, r, isReact);
+  });
+  await ok("reactivation with priority 1 (kept, or set to 1 in the same save) → stays", async () => {
+    const a = closedSubject(3, 1, "cancelled");
+    const r = await call("PATCH", `/customers/${a}`, "hasani", { status: "in_progress" });
+    assert.equal(r.status, 200, JSON.stringify(r.body)); assertStayed(a, 3, r);
+    const b = closedSubject(4, 2, "completed");
+    const r2 = await call("PATCH", `/customers/${b}`, "admin", { status: "in_progress", priority: 1 });
+    assert.equal(r2.status, 200, JSON.stringify(r2.body)); assertStayed(b, 4, r2);
+  });
+  await ok("reactivation exceptions: trainee, open case, owner already Kazemi, explicit other expert → stay", async () => {
+    const t = closedSubject(5, 2, "cancelled");
+    const r1 = await call("PATCH", `/customers/${t}`, "admin", { status: "in_progress" }); assert.equal(r1.status, 200, JSON.stringify(r1.body)); assertStayed(t, 5, r1);
+    for (const sp of [19, 20]) { const c = closedSubject(sp, 3, "cancelled"); execute("UPDATE customers SET status='in_progress' WHERE id=?", [c]);
+      assert.equal(np.nonP1Decision({ customerId: c, oldPriority: 3, oldSalespersonId: sp, actor: { id: 1, role: "admin" }, via: "x", reactivation: true }).skip, "trainee"); }
+    if (queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='loan_applications'")) {
+      const r2 = await call("PATCH", `/customers/${reactOpen}`, "hasani", { status: "in_progress" }); assert.equal(r2.status, 200, JSON.stringify(r2.body)); assertStayed(reactOpen, 3, r2);
+    }
+    const k = closedSubject(6, 3, "cancelled");
+    const r3 = await call("PATCH", `/customers/${k}`, "admin", { status: "in_progress" }); assert.equal(r3.status, 200, JSON.stringify(r3.body)); assertStayed(k, 6, r3);
+    const e = closedSubject(3, 2, "cancelled");
+    const r4 = await call("PATCH", `/customers/${e}`, "admin", { status: "in_progress", salespersonId: 4 }); assert.equal(r4.status, 200, JSON.stringify(r4.body)); assertStayed(e, 4, r4);
+  });
+  await ok("reactivation: Kazemi as actor never transfers (helper); customers #181 / #649 reopened stay", async () => {
+    const c = closedSubject(3, 2, "cancelled"); execute("UPDATE customers SET status='in_progress' WHERE id=?", [c]);
+    assert.equal(np.nonP1Decision({ customerId: c, oldPriority: 2, oldSalespersonId: 3, actor: { id: 8, salespersonId: 6 }, via: "x", reactivation: true }).skip, "actor_is_qualifier");
+    for (const [id, sp] of [[181, 3], [649, 4]]) {
+      closedSubject(sp, 2, "cancelled", id);
+      const r = await call("PATCH", `/customers/${id}`, "admin", { status: "in_progress" });
+      assert.equal(r.status, 200, JSON.stringify(r.body)); assertStayed(id, sp, r);
+    }
+  });
+  await ok("cancelling (in_progress → cancelled) or a non-status edit on a closed customer is not a reactivation", async () => {
+    const a = subject(3, 2);
+    const r = await call("PATCH", `/customers/${a}`, "admin", { status: "cancelled" }); assert.equal(r.status, 200, JSON.stringify(r.body)); assertStayed(a, 3, r);
+    const b = closedSubject(4, 3, "completed");
+    const r2 = await call("PATCH", `/customers/${b}`, "admin", { description: "ویرایش توضیح پرونده بسته" }); assert.equal(r2.status, 200, JSON.stringify(r2.body)); assertStayed(b, 4, r2);
   });
 
   /* ---------- B. exceptions: customer stays ---------- */

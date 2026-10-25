@@ -6,6 +6,9 @@
  * When a sales expert (closer) or an admin changes a closer's customer to any priority other than 1
  * (2, 3 or «بدون اولویت»), the customer moves to the qualifier (Kazemi) IN THE SAME TRANSACTION.
  *
+ * Also fires on REACTIVATION (status cancelled / completed → in_progress) when the priority after the write is not 1,
+ * even if the priority did not change (history reason 'reactivation'); all exceptions below still apply.
+ *
  * Fires only when ALL hold (anything else keeps the customer where it is):
  *  - team sales is enabled and the priority really changed (old ≠ new) to a value other than 1;
  *  - the customer's salesperson after the write is a closer (team_sales_config closerSalespersonIds, today 3 / 4);
@@ -27,6 +30,8 @@ import { getTeamSalesConfig, logPriorityChange } from "./team-sales";
 export const NONP1_TRANSFER_SOURCE = "nonp1_auto_transfer" as const;
 /** Response header set by every endpoint whose write moved the customer; the dashboard shows the toast from it. */
 export const NONP1_TRANSFER_HEADER = "X-Nafis-Customer-Transferred";
+/** customer_priority_history.reason of a transfer caused by reactivating a cancelled / completed customer. */
+export const NONP1_REACTIVATION_REASON = "reactivation" as const;
 export const NONP1_TOAST = "مشتری به آقای کاظمی منتقل شد";
 /** Trainees (کارآموز): never touched. */
 export const NONP1_TRAINEE_SALESPERSON_IDS: readonly number[] = [5, 19, 20];
@@ -69,6 +74,11 @@ export type NonP1Input = {
   explicitSalespersonChange?: boolean;
   /** What wrote the priority (kept in the history reason). */
   via: string;
+  /**
+   * PM 2026-10-25 16:48: a cancelled / completed customer set back to in_progress whose priority is not 1 gets the
+   * same auto-transfer (same exceptions) even when the priority itself did not change. History reason = 'reactivation'.
+   */
+  reactivation?: boolean;
   now?: Date;
 };
 export type NonP1Result = { transferred: boolean; skip: string | null; fromSalespersonId: number | null; toSalespersonId: number | null };
@@ -85,7 +95,7 @@ export function nonP1Decision(input: NonP1Input): NonP1Result & { newPriority: n
   const sp = c.salesperson_id == null ? null : Number(c.salesperson_id);
   const qualifier = Number(cfg.qualifierSalespersonId);
   if (!cfg.enabled || !Number.isFinite(qualifier)) return no("team_sales_disabled", newPriority, sp);
-  if ((input.oldPriority ?? null) === newPriority) return no("priority_unchanged", newPriority, sp);
+  if (!input.reactivation && (input.oldPriority ?? null) === newPriority) return no("priority_unchanged", newPriority, sp);
   if (newPriority === 1) return no("priority_1", newPriority, sp);
   if (input.actor.salespersonId != null && Number(input.actor.salespersonId) === qualifier) return no("actor_is_qualifier", newPriority, sp);
   if (input.explicitSalespersonChange) return no("explicit_salesperson", newPriority, sp);
@@ -132,7 +142,8 @@ export function applyNonP1TransferInTx(input: NonP1Input): NonP1Result {
   logPriorityChange({
     customerId: input.customerId, oldPriority: input.oldPriority ?? null, newPriority: d.newPriority,
     oldSalespersonId: d.fromSalespersonId, newSalespersonId: d.toSalespersonId, actorUserId: input.actor.id ?? null,
-    source: NONP1_TRANSFER_SOURCE, reason: `انتقال خودکار به کارشناس تماس اول (اولویت غیر ۱) — ${input.via}`, at: nowIso, always: true,
+    source: NONP1_TRANSFER_SOURCE,
+    reason: input.reactivation ? NONP1_REACTIVATION_REASON : `انتقال خودکار به کارشناس تماس اول (اولویت غیر ۱) — ${input.via}`, at: nowIso, always: true,
   });
   return { transferred: true, skip: null, fromSalespersonId: d.fromSalespersonId, toSalespersonId: d.toSalespersonId };
 }
