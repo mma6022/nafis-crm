@@ -6,6 +6,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import Dashboard from '@/pages/Dashboard';
 import Customers from '@/pages/Customers';
+import SalesAssistSettings from '@/pages/SalesAssistSettings';
 import CustomerDetail from '@/pages/CustomerDetail';
 import Reminders from '@/pages/Reminders';
 import Calls from '@/pages/Calls';
@@ -251,6 +252,7 @@ function AppWithRoutes() {
                     <Route path="/social-monitor-reports">
                       <AdminOnlyRoute><SocialMonitorReports /></AdminOnlyRoute>
                     </Route>
+                    <Route path="/sales-assist-settings"><AdminOnlyRoute><SalesAssistSettings /></AdminOnlyRoute></Route>
                     <Route path="/settings/releases">
                       <AdminOnlyRoute><Releases /></AdminOnlyRoute>
                     </Route>

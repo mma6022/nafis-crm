@@ -27,6 +27,8 @@ import { useTableState } from '@/hooks/use-table-state';
 import { ConfirmDialog, PriorityLabel, Sheet, StatusPill, initialsOf, jalaliDate, relativeTime, useMinWidth } from './customers-ui';
 import './customers.css';
 import { KAZEMI_SOURCE_FILTERS, KazemiSourceChip, kazemiSourceOf } from '@/features/kazemi-source/KazemiSourceChip';
+import { SalesAssistBox } from '@/features/sales-assist/SalesAssistBox';
+import { notifySalesAssistCallSaved } from '@/features/sales-assist/api';
 import { DeadlineCountdown, PreferredTimeNote, SiteLeadChips, hideTagForSiteLead, topOfListOf } from '@/features/site-leads/SiteLead';
 
 const fa = (n: number) => n.toLocaleString('fa-IR');
@@ -168,6 +170,7 @@ export default function Customers() {
     try {
       const saved = await createCall.mutateAsync({ data });
       setNewCallFor(null);
+      notifySalesAssistCallSaved(data.customerId);
       await removeCompletedAfterCallFromQueue(queryClient, { callLogId: saved.id });
       invalidateAll();
     } catch {
@@ -407,6 +410,7 @@ export default function Customers() {
 
   return <section className="csx" dir="rtl" data-testid="page-customers">
     <h1 className="csx-sr">مشتریان</h1>
+    {sessionReady ? <SalesAssistBox user={session.data?.user} onCall={(id) => { void getCustomer(id).then((c) => openCall(c)).catch(() => setTsToast('پرونده‌ی مشتری باز نشد؛ دوباره تلاش کنید.')); }} /> : null}
     <div className="csx-top">
       <div className="csx-bar">
         <label className="csx-search">
@@ -568,7 +572,7 @@ export default function Customers() {
     {reviewing && <RepeatRequestReview customer={reviewing} onClose={() => setReviewing(null)} />}
     {isAdmin && duplicateReviewOpen ? <DuplicateCustomerReview onClose={() => setDuplicateReviewOpen(false)} salespersons={salespersons.data ?? []} salespersonLoading={salespersons.isLoading} salespersonError={salespersons.isError} onRetrySalespersons={() => { void salespersons.refetch(); }} /> : null}
     <CallLaunchStatus status={callLauncher.status} onRetry={callLauncher.retry} onCancel={callLauncher.cancel} />
-    {simpleCallFor ? <SimpleCallForm customer={simpleCallFor} userId={session.data?.user.id} noteMin={tsConfig.data?.noteMinLength ?? 10} onClose={() => setSimpleCallFor(null)} onDone={(r: QualifyResult) => { if (r.handoff) setTsToast(r.handoff.message); invalidateAll(); }} onNext={() => setSimpleCallFor(null)} /> : null}
+    {simpleCallFor ? <SimpleCallForm customer={simpleCallFor} userId={session.data?.user.id} noteMin={tsConfig.data?.noteMinLength ?? 10} onClose={() => setSimpleCallFor(null)} onDone={(r: QualifyResult) => { notifySalesAssistCallSaved(simpleCallFor.id); if (r.handoff) setTsToast(r.handoff.message); invalidateAll(); }} onNext={() => setSimpleCallFor(null)} /> : null}
     {upgradeFor ? <UpgradeDialog customer={upgradeFor} onClose={() => setUpgradeFor(null)} onDone={(r) => { setUpgradeFor(null); setTsToast(r.message); invalidateAll(); }} /> : null}
     {tsToast ? <TsToast text={tsToast} onClose={() => setTsToast('')} /> : null}
     {newCallFor && <CallForm customers={[newCallFor]} salespersons={salespersons.data ?? []} pending={createCall.isPending} error={createCall.isError} initialCustomerId={newCallFor.id} onClose={() => setNewCallFor(null)} onSave={handleSaveCall} />}

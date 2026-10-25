@@ -38,6 +38,7 @@ import { saveChatObject, readChatObject, deleteChatObject } from "../lib/chat-st
 import { validateInternalChatFile } from "../lib/internal-chat-files";
 import { socialMonitorFeature } from "../lib/social-monitor";
 import teamSalesRouter from "./team-sales";
+import salesAssistRouter from "./sales-assist";
 import { ensureTeamSalesSchema } from "../lib/team-sales";
 import teamCommissionRouter from "./team-commission";
 import staffWalletRouter from "./staff-wallet";
@@ -59,6 +60,7 @@ router.use("/internal-chat",createInternalChatRouter({db:crmDb,requireAuth,requi
 router.use(consultationReportRouter);
 router.use(crmRouter);
 router.use(teamSalesRouter);
+router.use(salesAssistRouter);
 router.use(teamCommissionRouter);
 router.use(staffWalletRouter);
 router.use(callReportsRouter);
