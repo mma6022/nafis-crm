@@ -11,6 +11,7 @@ import {
 import { Modal } from '@/components/DataTools';
 import { formatDateTime } from '@/components/CrmShell';
 import './CallReportDialog.css';
+import { VoiceNoteButton } from '@/features/voice-notes/VoiceNoteButton';
 
 export type ReportSource = { kind: 'call'; id: number } | { kind: 'event'; id: number };
 const busy = ['queued', 'processing'];
@@ -148,7 +149,8 @@ export function CallReportEditor({ source, onDirtyChange, onSaved, footer }: {
       <div className="field full"><label htmlFor="cr-subject">موضوع تماس (کارشناس)</label>
         <input id="cr-subject" value={subject} maxLength={160} disabled={!canEdit} readOnly={conflict} onChange={(e) => edit(e.target.value, draft.current.notes)} data-testid="input-report-subject" /></div>
       <div className="field full"><label htmlFor="cr-notes">یادداشت کارشناس</label>
-        <textarea id="cr-notes" rows={5} value={notes} maxLength={10000} disabled={!canEdit} readOnly={conflict} onChange={(e) => edit(draft.current.subject, e.target.value)} placeholder="نتیجه مکالمه را بنویسید" data-testid="input-report-notes" /></div>
+        <textarea id="cr-notes" rows={5} value={notes} maxLength={10000} disabled={!canEdit} readOnly={conflict} onChange={(e) => edit(draft.current.subject, e.target.value)} placeholder="نتیجه مکالمه را بنویسید" data-testid="input-report-notes" />
+        {canEdit && !conflict ? <VoiceNoteButton value={notes} onChange={(v) => edit(draft.current.subject, v)} field="call_note" maxLength={10000} testId="report-notes-voice" /> : null}</div>
     </div>
     {!canEdit ? <p className="subtle-note">امکان ویرایش این گزارش برای شما فعال نیست.</p> : null}
     {error ? <p role="alert" className="form-error" data-testid="error-report">{error}</p> : null}

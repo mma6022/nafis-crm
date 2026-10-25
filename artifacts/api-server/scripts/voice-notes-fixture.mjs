@@ -167,7 +167,17 @@ await ok("seconds = max(provider duration, client duration), clamped to 120", as
   const t = await start({ env: ON, provider: () => ({ body: { text: "سلام", duration: dur } }) });
   try {
     assert.equal((await post(t, "sales", "duration=10")).json.seconds, 50);
-    dur = 500; assert.equal((await post(t, "sales", "duration=10")).json.seconds, 120);
+    dur = 124; assert.equal((await post(t, "sales", "duration=10")).json.seconds, 120, "within tolerance → clamped");
+  } finally { await t.close(); }
+});
+await ok("server 2-min rule: provider says 500 s while client said 10 → 413, no text, real length counts toward the daily cap", async () => {
+  const t = await start({ env: ON, provider: () => ({ body: { text: "متن طولانی", duration: 500 } }) });
+  try {
+    const r = await post(t, "sales", "field=call_note&duration=10");
+    assert.equal(r.status, 413); assert.equal(r.json.code, "too_long"); assert.equal(r.json.text, undefined);
+    const row = rows(t.db).at(-1); assert.equal(row.ok, 0); assert.equal(row.error_code, "too_long"); assert.equal(row.audio_seconds, 500);
+    const cfg = (await t.req("GET", "/voice-notes/config", { user: "sales" })).json;
+    assert.equal(cfg.enabled, true); assert.equal(cfg.remainingSeconds, 3600 - 500);
   } finally { await t.close(); }
 });
 await ok("daily cap: 429 once today's seconds would exceed limit (logged as daily_limit); next Tehran day resets", async () => {

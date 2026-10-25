@@ -28,6 +28,9 @@ export type SttConfig = {
 export const VOICE_NOTES_TABLE = "voice_note_transcriptions";
 export const ALLOWED_ROLES = ["salesperson", "admin"] as const;
 export const HARD_MAX_SECONDS = 120;
+/** Provider-reported length may exceed the recorder timer slightly (container padding). */
+export const OVER_LIMIT_TOLERANCE_SECONDS = 5;
+const MAX_BILLED_SECONDS = 600;
 export const VOICE_FIELDS = ["call_note", "first_call_note", "customer_description"] as const;
 export type VoiceField = (typeof VOICE_FIELDS)[number];
 /** Rough list prices (USD per audio minute) for the admin cost estimate only. */
@@ -182,7 +185,7 @@ export function logTranscription(db: Db, e: LogEntry): void {
 }
 /** Seconds counted against the daily cap: successful transcriptions of the user's Tehran day. */
 export function usedSecondsToday(db: Db, userId: number, now: Date): number {
-  const r = db.prepare(`SELECT COALESCE(SUM(audio_seconds),0) AS s FROM ${VOICE_NOTES_TABLE} WHERE user_id=? AND day_tehran=? AND ok=1`)
+  const r = db.prepare(`SELECT COALESCE(SUM(audio_seconds),0) AS s FROM ${VOICE_NOTES_TABLE} WHERE user_id=? AND day_tehran=? AND (ok=1 OR error_code='too_long')`)
     .get(userId, tehranDay(now)) as { s: number };
   return Number(r?.s ?? 0);
 }
@@ -369,7 +372,15 @@ export function createVoiceNotesRouter(deps: VoiceNotesDeps): IRouter {
         try { result = await transcribe({ ...fb, timeoutMs: Math.min(fb.timeoutMs, FALLBACK_TIMEOUT_MS) }, env, input, deps.fetch); }
         catch (e2) { if (e2 instanceof VoiceNoteError) e2.code = `fallback_failed:${code}>${e2.code}`.slice(0, 60); throw e2; }
       }
-      const seconds = Math.min(cfg.maxSeconds, Math.max(result.durationSec ?? 0, Math.min(clientSeconds, cfg.maxSeconds)));
+      // Server-side 2-minute rule: when the provider reports the real audio length and it is clearly over the limit
+      // (client under-declared it), the text is withheld and the REAL length counts toward the daily cap.
+      const providerSec = result.durationSec ?? 0;
+      if (providerSec > cfg.maxSeconds + OVER_LIMIT_TOLERANCE_SECONDS) {
+        logTranscription(deps.db, { userId: actor.id, userName: actor.fullName, role: actor.role, field, provider: served.provider, model: served.model, seconds: Math.min(providerSec, MAX_BILLED_SECONDS), bytes, mime, ok: false, errorCode: "too_long", at });
+        res.status(413).json({ error: "ضبط بیش از ۲ دقیقه است؛ کوتاه‌تر ضبط کنید.", code: "too_long" });
+        return;
+      }
+      const seconds = Math.min(cfg.maxSeconds, Math.max(providerSec, Math.min(clientSeconds, cfg.maxSeconds)));
       logTranscription(deps.db, { userId: actor.id, userName: actor.fullName, role: actor.role, field, provider: served.provider, model: served.model, seconds, bytes, mime, ok: true, errorCode: note, at });
       if (!result.text) { res.status(422).json({ error: "صدای واضحی شنیده نشد؛ دوباره و نزدیک‌تر به گوشی صحبت کنید." }); return; }
       res.json({ text: result.text, seconds: Math.round(seconds) });

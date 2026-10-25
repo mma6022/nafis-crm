@@ -267,6 +267,7 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
               <div className="field call-grow call-grow-sm">
                 <label htmlFor="call-request">درخواست مشتری</label>
                 <textarea id="call-request" value={form.customerRequest} onChange={(event) => update('customerRequest', event.target.value)} data-testid="textarea-call-request" />
+                <VoiceNoteButton value={form.customerRequest} onChange={(v) => update('customerRequest', v)} field="call_note" testId="call-request-voice" />
               </div>
               <div className="field call-grow call-grow-lg">
                 <label htmlFor="call-notes">یادداشت کارشناس</label>
