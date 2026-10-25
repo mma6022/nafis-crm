@@ -15,6 +15,7 @@ import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { CallReportDialog } from '@/components/voip/CallReportDialog';
 import { useMe, errText } from '@/lib/goods-api';
 import { jalaliValueToGregorian } from '@/lib/jalali';
+import { SiteLeadQueuePanel } from '@/features/site-leads/SiteLead';
 
 const limit = 10;
 const fa = (n: number) => n.toLocaleString('fa-IR');
@@ -82,6 +83,7 @@ export default function MobileCalls() {
   return <section className="data-page">
     <div className="page-intro"><div><div className="eyebrow">ارتباطات مشتری</div><h2>تماس‌های موبایل</h2><p>همهٔ تماس‌های ورودی و خروجی، حتی بدون یادداشت.</p></div>
       <div className="data-summary"><Smartphone size={17} /><span>کل تماس‌ها</span><strong data-testid="text-mobile-total">{fa(calls.data?.total ?? 0)}</strong></div></div>
+    {can('customers.view') ? <SiteLeadQueuePanel showOwner={isAdmin} /> : null}
     <div className="data-toolbar" style={{ flexWrap: 'wrap', gap: 8 }}>
       <SearchField value={search} onChange={reset(setSearch)} placeholder="جست‌وجوی شماره یا نام مخاطب..." testId="mobile-calls" />
       <select className="input" value={direction} onChange={(e) => reset(setDirection)(e.target.value)} aria-label="جهت تماس" data-testid="select-direction"><option value="">همهٔ جهت‌ها</option><option value="incoming">ورودی</option><option value="outgoing">خروجی</option></select>

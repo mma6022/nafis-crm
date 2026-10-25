@@ -1,7 +1,7 @@
 import { CustomerName, customerNameText } from '@/components/customer/CustomerName';
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Inbox, Phone, Star, X } from 'lucide-react';
+import { AlarmClock, Inbox, Phone, Star, X } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { fetchNotifications, markAllNotificationsRead, markNotificationRead, safeTarget, NotificationApiError, type NotificationUser, type SiteNotification } from './api';
 import './notifications.css';
@@ -19,6 +19,25 @@ export function pageForPath(path: string): string | null {
 const isLoan = (n: SiteNotification) => n.page === 'loan-applications' || n.target?.startsWith('/loan-applications');
 /** New priority-1 customer for a closer (team sales). Sticky toast until acted on. */
 export const isP1 = (n: SiteNotification) => n.kind === 'p1_assigned';
+/** crm-site-leads: «مشتری خواسته صبح/عصر تماس بگیرید» at the start of the asked window (Kazemi). Sticky + chime. */
+export const isSiteLeadWindow = (n: SiteNotification) => n.kind === 'site-lead-window';
+const isSticky = (n: SiteNotification) => isP1(n) || isSiteLeadWindow(n);
+/** Short two-tone chime (WebAudio, no asset). Silently skipped when the browser blocks audio. */
+export function playSiteLeadChime() {
+  try {
+    const AC = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AC) return;
+    const ctx = new AC();
+    const t0 = ctx.currentTime;
+    [[880, 0], [660, 0.22], [880, 0.44]].forEach(([f, d]) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0 + d); g.gain.exponentialRampToValueAtTime(0.25, t0 + d + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.2);
+      o.connect(g).connect(ctx.destination); o.start(t0 + d); o.stop(t0 + d + 0.21);
+    });
+    window.setTimeout(() => { void ctx.close().catch(() => {}); }, 1200);
+  } catch { /* audio unavailable */ }
+}
 async function customerPhone(customerId: number): Promise<string | null> {
   try {
     const r = await fetch(`${(import.meta.env.BASE_URL || '/').replace(/\/$/, '')}/api/customers/${customerId}`, { credentials: 'include' });
@@ -89,8 +108,9 @@ function ProviderInner({ children }: { children: ReactNode }) {
       setPageCounts(page.pageCounts ?? {});
       if (lastSeen.current === null) lastSeen.current = page.latestId;
       else {
-        const fresh = page.items.filter((n) => n.id > lastSeen.current! && !n.readAt && !localRead.current.has(n.id) && (isLoan(n) || isP1(n))).sort((a, b) => a.id - b.id);
+        const fresh = page.items.filter((n) => n.id > lastSeen.current! && !n.readAt && !localRead.current.has(n.id) && (isLoan(n) || isSticky(n))).sort((a, b) => a.id - b.id);
         lastSeen.current = Math.max(lastSeen.current, page.latestId);
+        if (fresh.some(isSiteLeadWindow)) playSiteLeadChime();
         if (fresh.length) setToasts((t) => [...t, ...fresh.filter((n) => !t.some((x) => x.id === n.id))].slice(-MAX_TOASTS));
       }
       setTick((x) => x + 1);
@@ -117,7 +137,7 @@ function ProviderInner({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Priority-1 toasts stay until the closer acts on or dismisses them; others auto-dismiss.
-    const first = toasts.find((n) => !isP1(n));
+    const first = toasts.find((n) => !isSticky(n));
     if (!first) return;
     const timer = setTimeout(() => setToasts((t) => t.filter((x) => x.id !== first.id)), TOAST_MS);
     return () => clearTimeout(timer);
@@ -167,13 +187,13 @@ function ProviderInner({ children }: { children: ReactNode }) {
   return (
     <NotifCtx.Provider value={value}>
       {children}
-      {toasts.some(isP1) ? (
+      {toasts.some(isSticky) ? (
         <div className="sn-toasts sn-top" role="status" aria-live="assertive" data-testid="notification-toasts-p1">
-          {toasts.filter(isP1).map((n) => (
-            <div className="sn-toast p1" key={n.id} data-testid={`toast-notification-${n.id}`} data-kind="p1_assigned">
+          {toasts.filter(isSticky).map((n) => (
+            <div className={`sn-toast p1${isSiteLeadWindow(n) ? ' slw' : ''}`} key={n.id} data-testid={`toast-notification-${n.id}`} data-kind={n.kind ?? 'p1_assigned'}>
               <div className="sn-p1-row">
-                <span className="sn-p1-ic" aria-hidden="true"><Star size={20} /></span>
-                <div className="sn-p1-text"><strong>{n.title}</strong><span>{n.body}</span></div>
+                <span className="sn-p1-ic" aria-hidden="true">{isSiteLeadWindow(n) ? <AlarmClock size={20} /> : <Star size={20} />}</span>
+                <div className="sn-p1-text"><strong>{n.title}</strong><span>{isSiteLeadWindow(n) && n.customerName ? `${customerNameText(n.customerName, n.customerId)}: ` : ''}{n.body}</span></div>
                 <button type="button" className="sn-toast-x" aria-label="بستن اعلان" onClick={() => setToasts((t) => t.filter((x) => x.id !== n.id))} data-testid={`button-toast-dismiss-${n.id}`}><X size={15} /></button>
               </div>
               <div className="sn-p1-acts">
@@ -189,9 +209,9 @@ function ProviderInner({ children }: { children: ReactNode }) {
           ))}
         </div>
       ) : null}
-      {toasts.some((n) => !isP1(n)) ? (
+      {toasts.some((n) => !isSticky(n)) ? (
         <div className="sn-toasts" role="status" aria-live="polite" data-testid="notification-toasts">
-          {toasts.filter((n) => !isP1(n)).map((n) => (
+          {toasts.filter((n) => !isSticky(n)).map((n) => (
             <div className="sn-toast" key={n.id} data-testid={`toast-notification-${n.id}`}>
               <button type="button" className="sn-toast-main" onClick={() => { setToastError(''); openItem(n).catch((e) => setToastError(e instanceof Error ? e.message : 'باز کردن اعلان انجام نشد.')); }} data-testid={`button-toast-open-${n.id}`}>
                 <strong>{n.title}</strong>
@@ -202,7 +222,7 @@ function ProviderInner({ children }: { children: ReactNode }) {
           ))}
         </div>
       ) : null}
-      {toastError ? <div className="sn-toasts" style={{ bottom: toasts.some((n) => !isP1(n)) ? 16 + toasts.filter((n) => !isP1(n)).length * 70 : 16 }} role="alert" data-testid="toast-notification-error"><div className="sn-toast"><span style={{ flex: 1, fontSize: 12 }}>{toastError}</span><button type="button" className="sn-toast-x" aria-label="بستن" onClick={() => setToastError('')}><X size={15} /></button></div></div> : null}
+      {toastError ? <div className="sn-toasts" style={{ bottom: toasts.some((n) => !isSticky(n)) ? 16 + toasts.filter((n) => !isSticky(n)).length * 70 : 16 }} role="alert" data-testid="toast-notification-error"><div className="sn-toast"><span style={{ flex: 1, fontSize: 12 }}>{toastError}</span><button type="button" className="sn-toast-x" aria-label="بستن" onClick={() => setToastError('')}><X size={15} /></button></div></div> : null}
     </NotifCtx.Provider>
   );
 }

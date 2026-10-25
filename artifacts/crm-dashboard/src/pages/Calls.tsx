@@ -21,6 +21,7 @@ import { useDialogFocus, useMinWidth } from './customers-ui';
 import './calls.css';
 import { CustomerName } from '@/components/customer/CustomerName';
 import { RowActionsMenu } from '@/components/row-menu/RowActionsMenu';
+import { SiteLeadQueuePanel } from '@/features/site-leads/SiteLead';
 
 const limit = 20;
 const fa = (n: number) => n.toLocaleString('fa-IR');
@@ -335,6 +336,7 @@ function ManualCalls({ desktop = true }: { desktop?: boolean }) {
     {slot && newBtn ? <PortalButton host={slot}>{newBtn}</PortalButton> : null}
     {desktop ? desktopFilters : mobileFilters}
     <CallLaunchStatus status={!pickerOpen ? launcher.status : null} onRetry={launcher.retry} onCancel={() => { launcher.cancel(); setRowFetch(null); }} />
+    {canCustomersView ? <SiteLeadQueuePanel onCall={canCall ? (row) => void pick(row) : undefined} showOwner={showExpert} /> : null}
     {calls.isLoading ? <SkeletonPanel rows={6} /> : calls.isError ? <ErrorState onRetry={() => calls.refetch()} /> : desktop ? table : cards}
     {!desktop && canCall ? <div className="clx-mbar">{newBtn}</div> : null}
     {sheet ? <FilterSheet onClose={() => setSheet(false)} total={total} f={f} update={update} mine={mine} showMine={showMine} callsOnly={callsOnly} showExpert={showExpert}

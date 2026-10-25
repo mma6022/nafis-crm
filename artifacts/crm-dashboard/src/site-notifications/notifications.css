@@ -60,3 +60,7 @@
 /* Priority-1 toasts sit at the top, next to the bell, clear of the bottom bar and floating buttons. */
 .sn-toasts.sn-top { bottom: auto; top: 72px; z-index: 600; width: min(380px, calc(100vw - 32px)); }
 @media (max-width: 640px) { .sn-toasts.sn-top { top: 64px; inset-inline: 12px; width: auto; } }
+
+/* crm-site-leads: preferred-time window toast (sticky, gold). */
+.sn-toast.p1.slw { border-color: #F1D493; border-inline-start-color: #C99A2E; }
+.sn-toast.p1.slw .sn-p1-ic { background: #FFF6E0; color: #7A4F00; }

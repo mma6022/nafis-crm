@@ -28,6 +28,7 @@ import { ConfirmDialog, initialsOf, jalaliDate, PriorityLabel, relativeTime, She
 import './customers.css';
 import { useCallLauncher, CallLaunchStatus } from '@/features/team-sales/useCallLauncher';
 import { KazemiSourceChip, kazemiSourceOf } from '@/features/kazemi-source/KazemiSourceChip';
+import { DeadlineCountdown, PreferredTimeNote, SiteLeadChips, SiteLeadHistory, hideTagForSiteLead } from '@/features/site-leads/SiteLead';
 import { consultProfileKey, firstCallEditInfoKey, firstCallOf, showsUpgradeButton, useFirstCallEditInfo, usesSimpleForm, type FirstCallEditResult, type PromoteResult, type QualifyResult } from '@/features/team-sales/api';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 import { FirstCallSummaryCard, NoPlanBox, SuggestedPlansBox } from '@/features/team-sales/FirstCallCard';
@@ -426,7 +427,7 @@ export default function CustomerDetail() {
     ? [{ ...(baseActivity[0] ?? {}), id: handoff.callLogId, salespersonName: session.data?.user.salespersonName ?? session.data?.user.fullName ?? null, createdAt: new Date().toISOString(), subject: `ارتقا به اولویت ۱ توسط ${(session.data?.user.salespersonName ?? '').replace(/^(آقای|خانم)\s+/, '') || 'کارشناس'}`, customerRequest: `واگذاری به ${handoff.closerName} (${handoff.assignmentLabel ?? (handoff.assignment === 'previous_expert' ? 'کارشناس قبلی مشتری' : 'تقسیم عادلانه')})`, expertNotes: `مهلت تماس تا ${handoff.dueLabel}` } as (typeof baseActivity)[number], ...baseActivity]
     : baseActivity;
   const tagLabel = (key: string) => tagCatalog.data?.find(item => item.key === key)?.label ?? key;
-  const visibleTags = customer.tags.filter(key => key !== 'repeat_request');
+  const visibleTags = customer.tags.filter(key => key !== 'repeat_request').filter(hideTagForSiteLead(customer));
   const verified = customer.verificationStatus === 'verified';
   const readOnlyRole = !canUpdate && !canCallsCreate && !walletRole;
   const secs: Array<[string, string, number | null]> = [
@@ -449,11 +450,14 @@ export default function CustomerDetail() {
       <div className="csx-chips" style={{ gap: 6 }}>
         <StatusPill status={customer.status} />
         <PriorityLabel value={handoff ? 1 : customer.priority} />
+        <SiteLeadChips customer={customer} testId="chip-site-lead" />
+        <DeadlineCountdown customer={customer} testId="countdown-top-of-list" size="lg" />
         {customer.isUrgent ? <span className="csx-tag warn">فوری</span> : null}
         {verified ? <span className="csx-tag ok"><ShieldCheck size={14} /> احراز شده</span> : <span className="csx-tag bad">احراز نشده</span>}
         {visibleTags.map(key => <span className="csx-tag" key={key}>{tagLabel(key)}</span>)}
         <RepeatRequestTag customer={customer} onClick={() => setReviewingRepeat(true)} />
       </div>
+      <PreferredTimeNote customer={customer} testId="preferred-time" />
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <Phone size={18} aria-hidden="true" style={{ color: 'var(--nf-ink-muted)' }} />
         <b className="ltr" style={{ fontSize: 19 }} data-testid="text-customer-phone">{faDigits(formatPhoneForDisplay(customer.phone))}</b>
@@ -628,6 +632,7 @@ export default function CustomerDetail() {
       </li>)}</ol>
       : <p className="muted" style={{ margin: 0 }}>هنوز تماس یا یادداشتی ثبت نشده است.</p>}
     {canCallsCreate ? <button type="button" className="csx-ghost sm" onClick={() => callLauncher.launch(customer)} data-testid="button-add-call-detail" data-form={callChoice} aria-busy={callLauncher.pending ? true : undefined}><MessageSquarePlus size={18} /> ثبت تماس / یادداشت</button> : null}
+    <SiteLeadHistory customer={customer} />
     <CustomerIntroLog key={`eis-${id}`} customerId={id} />
     {hasCallsView ? <details className="csx-sub" data-testid="section-voip-history"><summary>تماس‌های تلفن شرکت{historyQuery.data ? ` (${faNum(historyQuery.data.total)})` : ''} <ChevronLeft size={16} /></summary>
       {historyQuery.isLoading ? <span className="csx-sk" style={{ height: 48 }} /> : historyQuery.isError ? <ErrorState onRetry={() => historyQuery.refetch()} /> : historyQuery.data?.items && historyQuery.data.items.length > 0 ? <>

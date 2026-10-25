@@ -27,6 +27,7 @@ import { useTableState } from '@/hooks/use-table-state';
 import { ConfirmDialog, PriorityLabel, Sheet, StatusPill, initialsOf, jalaliDate, relativeTime, useMinWidth } from './customers-ui';
 import './customers.css';
 import { KAZEMI_SOURCE_FILTERS, KazemiSourceChip, kazemiSourceOf } from '@/features/kazemi-source/KazemiSourceChip';
+import { DeadlineCountdown, PreferredTimeNote, SiteLeadChips, hideTagForSiteLead, topOfListOf } from '@/features/site-leads/SiteLead';
 
 const fa = (n: number) => n.toLocaleString('fa-IR');
 const faId = (n: number) => n.toLocaleString('fa-IR', { useGrouping: false });
@@ -37,6 +38,8 @@ const STATUS_TABS = [
   { value: '', label: 'همه' },
 ] as const;
 const MOBILE_STEP = 10;
+
+const topRowClass = (c: unknown) => { const t = topOfListOf(c); return t ? (t.kind === 'from_kazemi' ? 'sl-top-row is-kz' : 'sl-top-row') : ''; };
 
 export default function Customers() {
   const queryClient = useQueryClient();
@@ -247,10 +250,12 @@ export default function Customers() {
   const ownSalespersonId = session.data?.user.salespersonId ?? null;
 
   const tagsFor = (customer: Customer) => <>
+    <SiteLeadChips customer={customer} testId={`chip-site-lead-${customer.id}`} />
+    <DeadlineCountdown customer={customer} testId={`countdown-${customer.id}`} />
     {customer.isUrgent ? <span className="csx-tag warn"><Zap size={14} aria-hidden="true" /> فوری</span> : null}
     {customer.verificationStatus === 'verified' ? <span className="csx-tag ok"><ShieldCheck size={14} aria-hidden="true" /> احراز شده</span> : customer.verificationStatus === 'unverified' ? <span className="csx-tag bad"><ShieldAlert size={14} aria-hidden="true" /> احراز نشده</span> : null}
     {customer.portalOrigin ? <span className="csx-tag info" data-testid="tag-portal-origin"><Smartphone size={14} aria-hidden="true" /> ثبت از پنل مشتریان</span> : null}
-    {customer.tags.filter(key => key !== 'repeat_request').map(key => <span className="csx-tag" key={key}>{tagLabel(key)}</span>)}
+    {customer.tags.filter(key => key !== 'repeat_request').filter(hideTagForSiteLead(customer)).map(key => <span className="csx-tag" key={key}>{tagLabel(key)}</span>)}
     <RepeatRequestTag customer={customer} onClick={() => setReviewing(customer)} />
   </>;
   const salespersonCell = (customer: Customer) => customer.salespersonName
@@ -473,7 +478,7 @@ export default function Customers() {
             <tbody>
               {items.map((customer) => {
                 const extra = legacyActions(customer);
-                return <tr key={customer.id} className={customer.isUrgent || customer.pendingRepeatRequestCount > 0 ? 'hl' : ''} data-testid={`row-customer-${customer.id}`}>
+                return <tr key={customer.id} className={[customer.isUrgent || customer.pendingRepeatRequestCount > 0 ? 'hl' : '', topRowClass(customer)].filter(Boolean).join(' ')} data-testid={`row-customer-${customer.id}`}>
                   <td>
                     <div className="nm kzs-wrap"><CustomerName id={customer.id} name={customer.name} href={`/customers/${customer.id}`} nameTestId={`link-customer-${customer.id}`} badgeTestId={`badge-customer-id-${customer.id}`} /><KazemiSourceChip source={kazemiSourceOf(customer)} testId={`chip-kazemi-source-${customer.id}`} /></div>
                     <div className="csx-chips" style={{ marginTop: 6 }}>{tagsFor(customer)}</div>
@@ -524,10 +529,11 @@ export default function Customers() {
         <ul className="csx-list cards" aria-label="فهرست مشتریان">
           {items.map(customer => {
             const extra = legacyActions(customer);
-            return <li key={customer.id} className={`csx-card${customer.isUrgent || customer.pendingRepeatRequestCount > 0 ? ' hl' : ''}`} data-testid={`row-customer-${customer.id}`}>
+            return <li key={customer.id} className={`csx-card${customer.isUrgent || customer.pendingRepeatRequestCount > 0 ? ' hl' : ''}${topRowClass(customer) ? ` ${topRowClass(customer)}` : ''}`} data-testid={`row-customer-${customer.id}`}>
               <div className="r1"><StatusPill status={customer.status} /><PriorityLabel value={customer.priority} /><span className="age" data-testid={`last-call-${customer.id}`}><Clock size={15} aria-hidden="true" /> {customer.lastCallAt ? `آخرین تماس ${relativeTime(customer.lastCallAt)}` : 'هنوز تماسی ثبت نشده'}</span></div>
               <h3 className="nm kzs-wrap"><CustomerName id={customer.id} name={customer.name} href={`/customers/${customer.id}`} nameTestId={`link-customer-${customer.id}`} badgeTestId={`badge-customer-id-${customer.id}`} /><KazemiSourceChip source={kazemiSourceOf(customer)} testId={`chip-kazemi-source-${customer.id}`} /></h3>
               <div className="csx-chips">{tagsFor(customer)}</div>
+              <PreferredTimeNote customer={customer} testId={`preferred-time-${customer.id}`} />
               <div className="row"><span className="phone" dir="ltr"><Phone size={16} aria-hidden="true" /> {formatPhoneForDisplay(customer.phone)}</span></div>
               <div className="row">{salespersonCell(customer)}<span className="csx-meta">{fa(customer.activityCount)} فعالیت</span></div>
               {noPlanFitOf(customer) ? <div className="row csx-plans-row" data-testid={`plans-${customer.id}`}><NoPlanChip testId={`noplan-chip-${customer.id}`} /></div> : null}
@@ -691,7 +697,9 @@ function BoardColumn({ column, color, filters, tagLabels, onReview, onCall, onCo
               <span className="customer-tags">
                 {customer.isUrgent && <span className="customer-tag customer-tag-urgent">فوری</span>}
                 {customer.verificationStatus === 'unverified' && <span className="customer-tag customer-tag-unverified">احراز نشده</span>}
-                {customer.tags.filter(key => key !== 'repeat_request').map(key => <span className="customer-tag" key={key}>{tagLabels.find(item => item.key === key)?.label ?? key}</span>)}
+                <SiteLeadChips customer={customer} testId={`board-chip-site-lead-${customer.id}`} />
+                <DeadlineCountdown customer={customer} testId={`board-countdown-${customer.id}`} />
+                {customer.tags.filter(key => key !== 'repeat_request').filter(hideTagForSiteLead(customer)).map(key => <span className="customer-tag" key={key}>{tagLabels.find(item => item.key === key)?.label ?? key}</span>)}
               </span>
             </Link>
             <CustomerIdBadge id={customer.id} testId={`badge-customer-id-${customer.id}`} />
