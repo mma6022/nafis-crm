@@ -182,6 +182,7 @@ import { latestFirstCall, latestNoPlanFit, latestSelectedPlans, logPriorityChang
 import { applyNonP1TransferInTx, NONP1_TRANSFER_HEADER, type NonP1Result } from "../lib/nonp1-transfer";
 import { kazemiSourceFilterSql, kazemiSourceOf, kazemiSources } from "../lib/kazemi-source";
 import { IDENTITY_LOG_TABLE, canActOnCustomerProfile, ensureIdentityLogSchema } from "../lib/consult-profile";
+import { normalizeSideFlags } from "../lib/plan-requirements";
 import { retainedIdentityChecks } from "../lib/identity-check-retention";
 import { normalizeCustomerMobile, normalizeCustomerNationalCode, isAdminRole } from "../lib/customer-integrity";
 import { mergeCustomerRecords } from "../lib/customer-merge";
@@ -754,6 +755,11 @@ type ConsultationRow = {
   need_days: string | null;
   has_customer_salary_deduct: number | null;
   has_guarantor_salary_deduct: number | null;
+  /** crm-plans-consult (nullable; absent on old copies / synthetic fixtures). */
+  author_user_id?: number | null;
+  author_name?: string | null;
+  requested_amount_toman?: number | null;
+  military_status?: string | null;
   updated_at: string;
 };
 
@@ -972,9 +978,17 @@ export function consultationFromRow(row: ConsultationRow) {
     needDays: row.need_days ?? null,
     hasCustomerSalaryDeduct: bool(row.has_customer_salary_deduct),
     hasGuarantorSalaryDeduct: bool(row.has_guarantor_salary_deduct),
+    authorUserId: row.author_user_id == null ? null : Number(row.author_user_id),
+    authorName: row.author_name ?? null,
+    requestedAmountToman: row.requested_amount_toman == null ? null : Number(row.requested_amount_toman),
+    militaryStatus: CONSULT_MILITARY.includes(String(row.military_status)) ? (row.military_status as ConsultMilitary) : null,
     updatedAt: row.updated_at,
   };
 }
+
+/** crm-plans-consult: «پایان خدمت» values of a consult (NULL = not recorded → «باید بررسی شود»). */
+export const CONSULT_MILITARY = ["has_card", "no_card", "female", "unknown"];
+export type ConsultMilitary = "has_card" | "no_card" | "female" | "unknown";
 
 function parseJsonArray<T>(value: string | null | undefined): T[] {
   if (!value) return [];
@@ -4607,6 +4621,8 @@ export function consultationFields(body: Record<string, unknown>) {
     needDays: "need_days",
     hasCustomerSalaryDeduct: "has_customer_salary_deduct",
     hasGuarantorSalaryDeduct: "has_guarantor_salary_deduct",
+    requestedAmountToman: "requested_amount_toman",
+    militaryStatus: "military_status",
   };
   for (const [key, column] of Object.entries(columns)) {
     // Applicant rank is handled separately below: v1 keeps a declared advice
@@ -4627,6 +4643,33 @@ function activeGradeOptions(fieldKey: string): string[] {
   return queryRows<{ option_value: string }>(
     "SELECT option_value FROM consult_options WHERE active=1 AND field_key=?", [fieldKey],
   ).map(row => row.option_value);
+}
+
+/**
+ * crm-plans-consult: «پایان خدمت» from Kazemi's form data — the latest «اطلاعات مشاوره» version
+ * (customer_consult_profile_versions.military), else the latest answered first-call form (v2). Same source order as
+ * the consultation report. Returns null when neither has a value (shown as «باید بررسی شود»).
+ */
+export function kazemiMilitaryStatus(customerId: number): ConsultMilitary | null {
+  const has = (t: string) => Boolean(queryRow<{ x: number }>("SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name=?", [t]));
+  const pick = (json: string | null | undefined, needV2: boolean) => {
+    try {
+      const v = JSON.parse(String(json ?? "")) as Record<string, unknown> | null;
+      if (!v || typeof v !== "object" || (needV2 && v.formVersion !== 2)) return null;
+      return typeof v.military === "string" && CONSULT_MILITARY.includes(v.military) ? (v.military as ConsultMilitary) : null;
+    } catch { return null; }
+  };
+  if (has("customer_consult_profile_versions")) {
+    const r = queryRow<{ data_json: string }>("SELECT data_json FROM customer_consult_profile_versions WHERE customer_id=? ORDER BY id DESC LIMIT 1", [customerId]);
+    const m = pick(r?.data_json, false);
+    if (m) return m;
+  }
+  if (has("team_sales_qualifications")) {
+    const r = queryRow<{ answers_json: string }>("SELECT answers_json FROM team_sales_qualifications WHERE customer_id=? AND call_result='answered' ORDER BY id DESC LIMIT 1", [customerId]);
+    const m = pick(r?.answers_json, true);
+    if (m) return m;
+  }
+  return null;
 }
 
 function authoritativeCreditRank(customerId: number): string | null {
@@ -4733,7 +4776,10 @@ router.post(
       }
       body.guarantorCreditRank = grade.value;
     }
+    // crm-plans-consult: the author is recorded on every new consult; «پایان خدمت» defaults to Kazemi's form data.
+    if (body.militaryStatus === undefined || body.militaryStatus === null) body.militaryStatus = kazemiMilitaryStatus(Number(body.customerId));
     const values = consultationFields(body);
+    values.push(["author_user_id", (res.locals.authUser as AuthUser).id]);
     const currentCreditRank = body.questionnaireVersion === 1 || body.questionnaireVersion === 2
       ? String(body.creditRank) : authoritativeCreditRank(Number(body.customerId));
     const rank = values.find(([column]) => column === "credit_rank");
@@ -4754,7 +4800,7 @@ router.post(
       const matches = MatchConsultationLoanPlansResponse.parse(computeConsultationPlanMatches(saved));
       executeChanges(
         "UPDATE consultation_forms SET plan_matches_snapshot = ? WHERE id = ?",
-        [JSON.stringify({ capturedAt: savedAt, requestedAmount: saved.requestedAmount, matches }), id],
+        [JSON.stringify({ capturedAt: savedAt, requestedAmount: saved.requestedAmount ?? (saved.requestedAmountToman == null ? null : String(saved.requestedAmountToman)), matches }), id],
       );
       return id;
     });
@@ -5071,6 +5117,13 @@ function replacePlanConditions(
     planId,
   ]);
   conditions.forEach((condition, index) => {
+    // crm-plans-consult: a flag that repeats collateral_type is cleared (one requirement is never counted twice).
+    const cf = normalizeSideFlags(condition.collateralType?.trim() || null, {
+      check: Boolean(condition.needsCustomerCheck), promissory: Boolean(condition.needsCustomerPromissory),
+      salary: Boolean(condition.needsCustomerSalaryDeduct) });
+    const gf = normalizeSideFlags(condition.guarantorCollateralType?.trim() || null, {
+      check: Boolean(condition.needsGuarantorCheck), promissory: Boolean(condition.needsGuarantorPromissory),
+      salary: Boolean(condition.needsGuarantorSalaryDeduct) });
     execute(
       `
         INSERT INTO loan_plan_conditions (
@@ -5093,12 +5146,12 @@ function replacePlanConditions(
         JSON.stringify(expandRankList(condition.guarantorRanks ?? [])),
         JSON.stringify(condition.guarantorJobs ?? []),
         condition.guarantorCollateralType?.trim() || null,
-        condition.needsCustomerPromissory ? 1 : 0,
-        condition.needsGuarantorPromissory ? 1 : 0,
-        condition.needsCustomerSalaryDeduct ? 1 : 0,
-        condition.needsGuarantorSalaryDeduct ? 1 : 0,
-        condition.needsCustomerCheck ? 1 : 0,
-        condition.needsGuarantorCheck ? 1 : 0,
+        cf.promissory ? 1 : 0,
+        gf.promissory ? 1 : 0,
+        cf.salary ? 1 : 0,
+        gf.salary ? 1 : 0,
+        cf.check ? 1 : 0,
+        gf.check ? 1 : 0,
         condition.sortOrder ?? index,
         condition.notes?.trim() || null,
         // crm-no-plan-option: NULL = no requirement (default); only an admin ticking it in the plan editor sets 1.
@@ -5163,7 +5216,8 @@ function evaluatePlanCondition(
 
   const maximum = parseAmount(condition.maxPrincipal);
   if (maximum != null) {
-    const requested = parseAmount(consultation.requestedAmount);
+    // crm-plans-consult: the numeric toman amount wins; consults without one keep the old free-text parse.
+    const requested = consultation.requestedAmountToman ?? parseAmount(consultation.requestedAmount);
     if (requested != null && requested > maximum) {
       failedRequirements.push(
         `مبلغ درخواستی بیشتر از سقف ${condition.maxPrincipal} است`,
@@ -5296,8 +5350,11 @@ function evaluatePlanCondition(
     consultation.hasGuarantorSalaryDeduct,
     "گواهی کسر از حقوق ضامن",
   );
-  // crm-no-plan-option: consultations do not ask military service → a requirement is information to check, never a rejection.
-  requireBoolean(condition.needsMilitaryService, null, "پایان خدمت متقاضی");
+  // crm-no-plan-option / crm-plans-consult: «پایان خدمت». Not recorded / «نمی‌دونه» is information to check
+  // («باید بررسی شود»), never a rejection; women are exempt; «ندارد» fails like in the first-call form.
+  const military = consultation.militaryStatus;
+  requireBoolean(condition.needsMilitaryService,
+    military === "has_card" || military === "female" ? true : military === "no_card" ? false : null, "پایان خدمت متقاضی");
 
   return {
     status:

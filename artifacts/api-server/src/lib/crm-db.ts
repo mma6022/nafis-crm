@@ -467,6 +467,12 @@ ensureColumn("consultation_forms", "created_at", "TEXT");
 ensureColumn("consultation_forms", "questionnaire_version", "INTEGER NOT NULL DEFAULT 0");
 // Deliberately nullable: old consultations have no known original match result.
 ensureColumn("consultation_forms", "plan_matches_snapshot", "TEXT");
+// crm-plans-consult (PM 2026-10-25): who recorded the consult (users.id; old rows stay NULL), the amount as a number
+// in toman (old free text in requested_amount is never overwritten), and «پایان خدمت» (has_card / no_card / female /
+// unknown, prefilled from Kazemi's «اطلاعات مشاوره»; NULL = «باید بررسی شود»).
+ensureColumn("consultation_forms", "author_user_id", "INTEGER");
+ensureColumn("consultation_forms", "requested_amount_toman", "INTEGER");
+ensureColumn("consultation_forms", "military_status", "TEXT");
 crmDb.exec("UPDATE consultation_forms SET created_at=updated_at WHERE created_at IS NULL");
 // Boolean answer dictionaries reuse the administrator-maintained yes/no dictionary.
 for (const field of ["has_customer_salary_deduct", "has_guarantor_salary_deduct"]) {

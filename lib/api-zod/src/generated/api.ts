@@ -3581,6 +3581,10 @@ export const ListConsultationsResponse = zod.object({
   "needDays": zod.string().nullish(),
   "hasCustomerSalaryDeduct": zod.boolean().nullish(),
   "hasGuarantorSalaryDeduct": zod.boolean().nullish(),
+  "authorUserId": zod.number().int().nullish().describe('crm-plans-consult — users.id of whoever recorded the consult (NULL for consults saved before this field).'),
+  "authorName": zod.string().nullish(),
+  "requestedAmountToman": zod.number().int().nullish().describe('Requested amount in toman (number). The old free text stays in requestedAmount, untouched.'),
+  "militaryStatus": zod.union([zod.literal('has_card'),zod.literal('no_card'),zod.literal('female'),zod.literal('unknown'),zod.literal(null)]).nullish().describe('«پایان خدمت» of the applicant; NULL = not recorded («باید بررسی شود»).'),
   "updatedAt": zod.string()
 })),
   "total": zod.number().int(),
@@ -3592,6 +3596,11 @@ export const ListConsultationsResponse = zod.object({
 /**
  * @summary Create a consultation request
  */
+export const createConsultationBodyRequestedAmountTomanMin = 0;
+export const createConsultationBodyRequestedAmountTomanMax = 1000000000000;
+
+
+
 export const CreateConsultationBody = zod.object({
   "customerId": zod.number().int(),
   "questionnaireVersion": zod.union([zod.literal(1),zod.literal(2)]).optional(),
@@ -3619,7 +3628,9 @@ export const CreateConsultationBody = zod.object({
   "loanPref": zod.string().optional(),
   "needDays": zod.string().optional(),
   "hasCustomerSalaryDeduct": zod.boolean().optional(),
-  "hasGuarantorSalaryDeduct": zod.boolean().optional()
+  "hasGuarantorSalaryDeduct": zod.boolean().optional(),
+  "requestedAmountToman": zod.number().int().min(createConsultationBodyRequestedAmountTomanMin).max(createConsultationBodyRequestedAmountTomanMax).nullish(),
+  "militaryStatus": zod.union([zod.literal('has_card'),zod.literal('no_card'),zod.literal('female'),zod.literal('unknown'),zod.literal(null)]).nullish()
 })
 
 export const CreateConsultationResponse = zod.object({
@@ -3655,6 +3666,10 @@ export const CreateConsultationResponse = zod.object({
   "needDays": zod.string().nullish(),
   "hasCustomerSalaryDeduct": zod.boolean().nullish(),
   "hasGuarantorSalaryDeduct": zod.boolean().nullish(),
+  "authorUserId": zod.number().int().nullish().describe('crm-plans-consult — users.id of whoever recorded the consult (NULL for consults saved before this field).'),
+  "authorName": zod.string().nullish(),
+  "requestedAmountToman": zod.number().int().nullish().describe('Requested amount in toman (number). The old free text stays in requestedAmount, untouched.'),
+  "militaryStatus": zod.union([zod.literal('has_card'),zod.literal('no_card'),zod.literal('female'),zod.literal('unknown'),zod.literal(null)]).nullish().describe('«پایان خدمت» of the applicant; NULL = not recorded («باید بررسی شود»).'),
   "updatedAt": zod.string()
 })
 
@@ -3699,6 +3714,10 @@ export const GetConsultationResponse = zod.object({
   "needDays": zod.string().nullish(),
   "hasCustomerSalaryDeduct": zod.boolean().nullish(),
   "hasGuarantorSalaryDeduct": zod.boolean().nullish(),
+  "authorUserId": zod.number().int().nullish().describe('crm-plans-consult — users.id of whoever recorded the consult (NULL for consults saved before this field).'),
+  "authorName": zod.string().nullish(),
+  "requestedAmountToman": zod.number().int().nullish().describe('Requested amount in toman (number). The old free text stays in requestedAmount, untouched.'),
+  "militaryStatus": zod.union([zod.literal('has_card'),zod.literal('no_card'),zod.literal('female'),zod.literal('unknown'),zod.literal(null)]).nullish().describe('«پایان خدمت» of the applicant; NULL = not recorded («باید بررسی شود»).'),
   "updatedAt": zod.string()
 })
 
@@ -3709,6 +3728,11 @@ export const GetConsultationResponse = zod.object({
 export const UpdateConsultationParams = zod.object({
   "id": zod.coerce.number().int()
 })
+
+export const updateConsultationBodyRequestedAmountTomanMin = 0;
+export const updateConsultationBodyRequestedAmountTomanMax = 1000000000000;
+
+
 
 export const UpdateConsultationBody = zod.object({
   "customerId": zod.number().int().optional(),
@@ -3736,7 +3760,9 @@ export const UpdateConsultationBody = zod.object({
   "loanPref": zod.string().optional(),
   "needDays": zod.string().optional(),
   "hasCustomerSalaryDeduct": zod.boolean().optional(),
-  "hasGuarantorSalaryDeduct": zod.boolean().optional()
+  "hasGuarantorSalaryDeduct": zod.boolean().optional(),
+  "requestedAmountToman": zod.number().int().min(updateConsultationBodyRequestedAmountTomanMin).max(updateConsultationBodyRequestedAmountTomanMax).nullish(),
+  "militaryStatus": zod.union([zod.literal('has_card'),zod.literal('no_card'),zod.literal('female'),zod.literal('unknown'),zod.literal(null)]).nullish()
 })
 
 export const UpdateConsultationResponse = zod.object({
@@ -3772,6 +3798,10 @@ export const UpdateConsultationResponse = zod.object({
   "needDays": zod.string().nullish(),
   "hasCustomerSalaryDeduct": zod.boolean().nullish(),
   "hasGuarantorSalaryDeduct": zod.boolean().nullish(),
+  "authorUserId": zod.number().int().nullish().describe('crm-plans-consult — users.id of whoever recorded the consult (NULL for consults saved before this field).'),
+  "authorName": zod.string().nullish(),
+  "requestedAmountToman": zod.number().int().nullish().describe('Requested amount in toman (number). The old free text stays in requestedAmount, untouched.'),
+  "militaryStatus": zod.union([zod.literal('has_card'),zod.literal('no_card'),zod.literal('female'),zod.literal('unknown'),zod.literal(null)]).nullish().describe('«پایان خدمت» of the applicant; NULL = not recorded («باید بررسی شود»).'),
   "updatedAt": zod.string()
 })
 

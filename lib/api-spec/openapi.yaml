@@ -5350,6 +5350,17 @@ components:
         needDays: { type: ["string", "null"] }
         hasCustomerSalaryDeduct: { type: ["boolean", "null"] }
         hasGuarantorSalaryDeduct: { type: ["boolean", "null"] }
+        authorUserId:
+          type: ["integer", "null"]
+          description: crm-plans-consult — users.id of whoever recorded the consult (NULL for consults saved before this field).
+        authorName: { type: ["string", "null"] }
+        requestedAmountToman:
+          type: ["integer", "null"]
+          description: Requested amount in toman (number). The old free text stays in requestedAmount, untouched.
+        militaryStatus:
+          type: ["string", "null"]
+          enum: [has_card, no_card, female, unknown, null]
+          description: «پایان خدمت» of the applicant; NULL = not recorded («باید بررسی شود»).
         updatedAt: { type: string }
     ConsultationPlanSnapshot:
       type: object
@@ -5407,6 +5418,8 @@ components:
         needDays: { type: string }
         hasCustomerSalaryDeduct: { type: boolean }
         hasGuarantorSalaryDeduct: { type: boolean }
+        requestedAmountToman: { type: ["integer", "null"], minimum: 0, maximum: 1000000000000 }
+        militaryStatus: { type: ["string", "null"], enum: [has_card, no_card, female, unknown, null] }
     ConsultationUpdate:
       type: object
       properties:
@@ -5436,6 +5449,8 @@ components:
         needDays: { type: string }
         hasCustomerSalaryDeduct: { type: boolean }
         hasGuarantorSalaryDeduct: { type: boolean }
+        requestedAmountToman: { type: ["integer", "null"], minimum: 0, maximum: 1000000000000 }
+        militaryStatus: { type: ["string", "null"], enum: [has_card, no_card, female, unknown, null] }
     LoanPlanInstallmentTerm:
       type: object
       required:

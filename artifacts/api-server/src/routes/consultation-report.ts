@@ -21,6 +21,8 @@ type Consultation = ReturnType<typeof consultationFromRow>;
 export type ReportEntry = { consultation: Consultation; facts: DerivedFacts };
 
 const isAdmin = (u: AuthUser) => u.role === "admin";
+/** The consult's salesperson for the filter: the author's salesperson, else the customer's current one. */
+const OWNER_SQL = "COALESCE((SELECT u.salesperson_id FROM users u WHERE u.id = cf.author_user_id), c.salesperson_id)";
 const tableExists = (name: string) => queryRows<{ x: number }>("SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name=?", [name]).length > 0;
 const parseJson = (s: string | null | undefined): Record<string, unknown> | null => {
   if (!s) return null;
@@ -61,13 +63,17 @@ export function consultationReport(user: AuthUser, q: ConsultFilters): ReportEnt
       [`%${t}%`, `%${t}%`, `%${t}%`], "c.id");
     where.push(clause.sql); params.push(...clause.params);
   }
-  if (q.salespersonIds.length) { where.push(`c.salesperson_id IN (${q.salespersonIds.map(() => "?").join(",")})`); params.push(...q.salespersonIds); }
+  // crm-plans-consult (PM 2026-10-25): «کارشناس» = the consult's author (their salesperson) when recorded, else the
+  // customer's current salesperson (every consult saved before author_user_id existed).
+  if (q.salespersonIds.length) { where.push(`${OWNER_SQL} IN (${q.salespersonIds.map(() => "?").join(",")})`); params.push(...q.salespersonIds); }
   const order = idSearch?.orderPrefix("c.id") ?? { sql: "", params: [] };
   const rows = queryRows<Row>(`
     SELECT cf.*, c.name AS customer_name, c.phone AS customer_phone, c.credit_rank AS customer_credit_rank,
-      s.name AS customer_salesperson_name, c.salesperson_id AS customer_salesperson_id, c.city AS customer_city,
+      s.name AS customer_salesperson_name, ${OWNER_SQL} AS customer_salesperson_id, c.city AS customer_city,
+      au.full_name AS author_name,
       (SELECT MIN(la.id) FROM loan_applications la WHERE la.consultation_id = cf.id AND la.deleted_at IS NULL) AS case_id
     FROM consultation_forms cf JOIN customers c ON c.id = cf.customer_id LEFT JOIN salespersons s ON s.id = c.salesperson_id
+    LEFT JOIN users au ON au.id = cf.author_user_id
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
     ORDER BY ${order.sql}cf.created_at DESC, cf.id DESC`, [...params, ...order.params]);
   const extras = customerExtras(rows.map((r) => Number(r.customer_id)));
@@ -83,7 +89,8 @@ export function consultationReport(user: AuthUser, q: ConsultFilters): ReportEnt
       createdAt: consultation.createdAt ?? null, salespersonId: row.customer_salesperson_id == null ? null : Number(row.customer_salesperson_id),
       creditRank: consultation.creditRank, hasGuarantor: consultation.hasGuarantor, guarantorCreditRank: consultation.guarantorCreditRank,
       jobType: consultation.jobType, guarantorJobType: consultation.guarantorJobType, customerCheckStatus: consultation.customerCheckStatus,
-      hasCheck: consultation.hasCheck, requestedAmount: consultation.requestedAmount, caseId: row.case_id == null ? null : Number(row.case_id),
+      hasCheck: consultation.hasCheck, requestedAmount: consultation.requestedAmount,
+      requestedAmountToman: consultation.requestedAmountToman, militaryStatus: consultation.militaryStatus, caseId: row.case_id == null ? null : Number(row.case_id),
       planSource: snapMatches ? "snapshot" : "live", matches, planTypes,
     }, { ...extras.get(Number(row.customer_id)), customerCity: row.customer_city ?? null });
     if (matchesFilters(facts, q)) out.push({ consultation, facts });

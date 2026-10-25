@@ -1444,6 +1444,20 @@ export interface CallInput {
   reminder?: CallInputReminder;
 }
 
+/**
+ * «پایان خدمت» of the applicant; NULL = not recorded («باید بررسی شود»).
+ * @nullable
+ */
+export type ConsultationMilitaryStatus = typeof ConsultationMilitaryStatus[keyof typeof ConsultationMilitaryStatus] | null;
+
+
+export const ConsultationMilitaryStatus = {
+  has_card: 'has_card',
+  no_card: 'no_card',
+  female: 'female',
+  unknown: 'unknown',
+} as const;
+
 export interface Consultation {
   id: number;
   customerId: number;
@@ -1504,6 +1518,23 @@ export interface Consultation {
   hasCustomerSalaryDeduct?: boolean | null;
   /** @nullable */
   hasGuarantorSalaryDeduct?: boolean | null;
+  /**
+     * crm-plans-consult — users.id of whoever recorded the consult (NULL for consults saved before this field).
+     * @nullable
+     */
+  authorUserId?: number | null;
+  /** @nullable */
+  authorName?: string | null;
+  /**
+     * Requested amount in toman (number). The old free text stays in requestedAmount, untouched.
+     * @nullable
+     */
+  requestedAmountToman?: number | null;
+  /**
+     * «پایان خدمت» of the applicant; NULL = not recorded («باید بررسی شود»).
+     * @nullable
+     */
+  militaryStatus?: ConsultationMilitaryStatus;
   updatedAt: string;
 }
 
@@ -1820,6 +1851,19 @@ export const ConsultationInputQuestionnaireVersion = {
   NUMBER_2: 2,
 } as const;
 
+/**
+ * @nullable
+ */
+export type ConsultationInputMilitaryStatus = typeof ConsultationInputMilitaryStatus[keyof typeof ConsultationInputMilitaryStatus] | null;
+
+
+export const ConsultationInputMilitaryStatus = {
+  has_card: 'has_card',
+  no_card: 'no_card',
+  female: 'female',
+  unknown: 'unknown',
+} as const;
+
 export interface ConsultationInput {
   customerId: number;
   questionnaireVersion?: ConsultationInputQuestionnaireVersion;
@@ -1848,7 +1892,28 @@ export interface ConsultationInput {
   needDays?: string;
   hasCustomerSalaryDeduct?: boolean;
   hasGuarantorSalaryDeduct?: boolean;
+  /**
+     * @minimum 0
+     * @maximum 1000000000000
+     * @nullable
+     */
+  requestedAmountToman?: number | null;
+  /** @nullable */
+  militaryStatus?: ConsultationInputMilitaryStatus;
 }
+
+/**
+ * @nullable
+ */
+export type ConsultationUpdateMilitaryStatus = typeof ConsultationUpdateMilitaryStatus[keyof typeof ConsultationUpdateMilitaryStatus] | null;
+
+
+export const ConsultationUpdateMilitaryStatus = {
+  has_card: 'has_card',
+  no_card: 'no_card',
+  female: 'female',
+  unknown: 'unknown',
+} as const;
 
 export interface ConsultationUpdate {
   customerId?: number;
@@ -1877,6 +1942,14 @@ export interface ConsultationUpdate {
   needDays?: string;
   hasCustomerSalaryDeduct?: boolean;
   hasGuarantorSalaryDeduct?: boolean;
+  /**
+     * @minimum 0
+     * @maximum 1000000000000
+     * @nullable
+     */
+  requestedAmountToman?: number | null;
+  /** @nullable */
+  militaryStatus?: ConsultationUpdateMilitaryStatus;
 }
 
 export type LoanPlanConditionInputInstallmentOptionsItem = typeof LoanPlanConditionInputInstallmentOptionsItem[keyof typeof LoanPlanConditionInputInstallmentOptionsItem];

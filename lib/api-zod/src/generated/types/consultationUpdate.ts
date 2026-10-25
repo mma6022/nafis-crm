@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ConsultationUpdateMilitaryStatus } from './consultationUpdateMilitaryStatus';
 
 export interface ConsultationUpdate {
   customerId?: number;
@@ -33,4 +34,12 @@ export interface ConsultationUpdate {
   needDays?: string;
   hasCustomerSalaryDeduct?: boolean;
   hasGuarantorSalaryDeduct?: boolean;
+  /**
+     * @minimum 0
+     * @maximum 1000000000000
+     * @nullable
+     */
+  requestedAmountToman?: number | null;
+  /** @nullable */
+  militaryStatus?: ConsultationUpdateMilitaryStatus;
 }

@@ -7,7 +7,8 @@
  *
  * Data source of each filter (also in CONSULTFILTERS-RELEASE.md):
  *  - date            consultation_forms.created_at (fallback updated_at), compared as a Tehran calendar day
- *  - salesperson     customers.salesperson_id (the customer's CURRENT owner; consultations have no author column)
+ *  - salesperson     the author's salesperson (consultation_forms.author_user_id → users.salesperson_id), else
+ *                    customers.salesperson_id (the customer's CURRENT owner) — old consults have no author
  *  - plan result / specific plan / plan type
  *                    plan_matches_snapshot (what was shown when the consult was saved, v2) else the live matcher
  *                    (computeConsultationPlanMatches, same as the «طرح‌ها» modal); plan type = loan_plans.loan_type (admin only)
@@ -16,10 +17,10 @@
  *  - jobs            consultation_forms.job_type / guarantor_job_type (the 6 consult_options codes)
  *  - cheque          consultation_forms.customer_check_status, else has_check, else the latest first-call checkStatus;
  *                    «چک برگشتی» = latest answered first-call form bouncedCheque = yes
- *  - military        latest «اطلاعات مشاوره» version (customer_consult_profile_versions.military), else latest
+ *  - military        consultation_forms.military_status (has_card/no_card/female), else latest «اطلاعات مشاوره» version (customer_consult_profile_versions.military), else latest
  *                    answered first-call form; null / «نمی‌دونه» = «ثبت نشده»
  *  - city            latest profile version city, else latest first-call city, else customers.city
- *  - amount          consultation_forms.requested_amount, parsed (see parseConsultAmountToman)
+ *  - amount          consultation_forms.requested_amount_toman, else requested_amount parsed (see parseConsultAmountToman)
  *  - next status     a non-deleted loan_applications row with consultation_id = the consult («پرونده تشکیل شد»)
  */
 
@@ -176,6 +177,8 @@ export function deriveFacts(input: {
   createdAt: string | null; salespersonId: number | null; creditRank: string | null;
   hasGuarantor: boolean | null; guarantorCreditRank: string | null; jobType: string | null; guarantorJobType: string | null;
   customerCheckStatus: string | null; hasCheck: boolean | null; requestedAmount: string | null; caseId: number | null;
+  /** crm-plans-consult: numeric toman amount (preferred) and the consult's own «پایان خدمت» (preferred over Kazemi's data). */
+  requestedAmountToman?: number | null; militaryStatus?: string | null;
   planSource: "snapshot" | "live"; matches: MatchLike[]; planTypes: Map<number, string | null>;
 }, extras: CustomerExtras): DerivedFacts {
   const ref = (m: MatchLike): PlanRef => ({ id: Number(m.plan.id), name: m.plan.name, loanType: input.planTypes.get(Number(m.plan.id)) ?? m.plan.loanType ?? null });
@@ -187,7 +190,8 @@ export function deriveFacts(input: {
     : input.hasCheck != null ? (input.hasCheck ? "has" : "no")
       : fcCheck ? (fcCheck === "none" ? "no" : "has") : null;
   const bounced = str(extras.firstCall?.bouncedCheque);
-  const milRaw = str(extras.profile?.military) ?? str(extras.firstCall?.military);
+  const own = input.militaryStatus && MIL.includes(input.militaryStatus) ? input.militaryStatus : null;
+  const milRaw = own ?? str(extras.profile?.military) ?? str(extras.firstCall?.military);
   const military = milRaw && MIL.includes(milRaw) ? (milRaw as DerivedFacts["military"]) : null;
   const city = str(extras.profile?.city) ?? str(extras.firstCall?.city) ?? str(extras.customerCity);
   return {
@@ -199,7 +203,7 @@ export function deriveFacts(input: {
     jobType: input.jobType, guarantorJobType: input.guarantorJobType,
     cheque, bouncedCheque: bounced === "yes" ? true : bounced === "no" ? false : null,
     military, city,
-    amountToman: parseConsultAmountToman(input.requestedAmount),
+    amountToman: input.requestedAmountToman ?? parseConsultAmountToman(input.requestedAmount),
     planSource: input.planSource, eligiblePlans, reviewPlans,
     planResult: eligiblePlans.length ? "eligible" : reviewPlans.length ? "review" : "none",
     caseId: input.caseId,

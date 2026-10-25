@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ConsultationMilitaryStatus } from './consultationMilitaryStatus';
 
 export interface Consultation {
   id: number;
@@ -66,5 +67,22 @@ export interface Consultation {
   hasCustomerSalaryDeduct?: boolean | null;
   /** @nullable */
   hasGuarantorSalaryDeduct?: boolean | null;
+  /**
+     * crm-plans-consult — users.id of whoever recorded the consult (NULL for consults saved before this field).
+     * @nullable
+     */
+  authorUserId?: number | null;
+  /** @nullable */
+  authorName?: string | null;
+  /**
+     * Requested amount in toman (number). The old free text stays in requestedAmount, untouched.
+     * @nullable
+     */
+  requestedAmountToman?: number | null;
+  /**
+     * «پایان خدمت» of the applicant; NULL = not recorded («باید بررسی شود»).
+     * @nullable
+     */
+  militaryStatus?: ConsultationMilitaryStatus;
   updatedAt: string;
 }

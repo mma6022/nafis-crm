@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ConsultationInputMilitaryStatus } from './consultationInputMilitaryStatus';
 import type { ConsultationInputQuestionnaireVersion } from './consultationInputQuestionnaireVersion';
 
 export interface ConsultationInput {
@@ -35,4 +36,12 @@ export interface ConsultationInput {
   needDays?: string;
   hasCustomerSalaryDeduct?: boolean;
   hasGuarantorSalaryDeduct?: boolean;
+  /**
+     * @minimum 0
+     * @maximum 1000000000000
+     * @nullable
+     */
+  requestedAmountToman?: number | null;
+  /** @nullable */
+  militaryStatus?: ConsultationInputMilitaryStatus;
 }
