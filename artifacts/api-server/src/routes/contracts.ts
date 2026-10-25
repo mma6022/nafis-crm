@@ -21,7 +21,6 @@ import { propagateContractTemplateChange, registerContractHandlers } from "../li
 import { appendApprovedInstallments, canRebuildUnsentInstallments } from "../lib/approved-contract-installments";
 import {
   isAttestedTomanTemplate,
-  renderedPdfContainsInstallmentCount,
   renderedPdfContainsPrincipal,
   type RenderedPrincipalTemplateEvidence,
 } from "../lib/contract-evidence";
@@ -31,7 +30,6 @@ import {
   parseTomanReplacementConsent,
   tomanReplacementGenerationTermsMatch,
   tomanReplacementDurationChanged,
-  tomanReplacementNeedsInstallmentProof,
   type TomanReplacementConsent,
 } from "../lib/legacy-toman-replacement";
 import { applyGeneratedDocumentSignatureObservation } from "./loan-applications";
@@ -532,7 +530,8 @@ function latestTomanReplacementConsent(applicationId: number): TomanReplacementC
   return parseTomanReplacementConsent(row?.reason);
 }
 function downloadUrl(id: number, kind: string) { return `/api/contracts/generations/${id}/download/${kind}`; }
-function preapprovedGenerationMatches(application: any, generation: any, expectedAmount = String(application.approved_amount ?? ""), allowCertificateRetry = false): boolean {
+// readContent=true only for the unsent-installment rebuild decision (not a gate).
+function preapprovedGenerationMatches(application: any, generation: any, expectedAmount = String(application.approved_amount ?? ""), allowCertificateRetry = false, readContent = false): boolean {
   const planId = Number(application.plan_id);
   const snapshot = json<Record<string, any> | null>(application.plan_snapshot_json, null);
   const templateId = Number(snapshot?.contract_template_id ?? snapshot?.primary_contract_template_id);
@@ -554,6 +553,8 @@ function preapprovedGenerationMatches(application: any, generation: any, expecte
     const stat = fs.lstatSync(String(generation.pdf_path));
     if (!stat.isFile() || stat.isSymbolicLink() || sha(fs.readFileSync(pdf)) !== String(generation.pdf_sha256)) return false;
   } catch { return false; }
+  // NO-CONTRACT-CHECK (Mohammad, 25 Oct): contract values/amount are not compared on any gate.
+  if (!readContent) return true;
   const mappings = json<ContractMappingInput[]>(generation.mappings_snapshot_json, []);
   const values = json<Record<string, unknown> | null>(generation.manual_values_json, null);
   if (!Array.isArray(mappings) || !values) return false;
@@ -820,7 +821,7 @@ const generateContractHandler = async (req: Request, res: Response): Promise<voi
       if (!legacyTomanReplacement && primaryApplicationGeneration &&
           canRebuildUnsentInstallments(application, previous, () =>
             preapprovedGenerationMatches({ ...application, requested_duration_months: application.duration_months },
-              previous, applicationPrincipalAmount, true) &&
+              previous, applicationPrincipalAmount, true, true) &&
             renderedPdfContainsPrincipal(previous.pdf_path, applicationPrincipalAmount, principalTemplateEvidence(previous)))) {
         try {
           runImmediateTransaction(() => {
@@ -1017,14 +1018,7 @@ const generateContractHandler = async (req: Request, res: Response): Promise<voi
     partialPdf = pdfPath;
     crmDb.prepare("UPDATE contract_generations SET pdf_path=?,pdf_sha256=?,status='generated',updated_at=? WHERE id=?")
       .run(pdfPath, sha(await fsp.readFile(pdfPath)), now(), id);
-    if (primaryApplicationGeneration && !legacyTomanReplacement && application?.initial_approval_at) {
-      stage = "validate_approved_terms";
-      const generated = queryRow<any>("SELECT * FROM contract_generations WHERE id=?", [id]);
-      if (!renderedPdfContainsPrincipal(generated.pdf_path, applicationPrincipalAmount, principalTemplateEvidence(generated)) ||
-          (Number(application.duration_months) !== Number(application.requested_duration_months ?? application.duration_months) &&
-            !renderedPdfContainsInstallmentCount(generated.pdf_path, Number(application.duration_months), principalTemplateEvidence(generated))))
-        throw Error("approved_contract_terms_not_rendered");
-    }
+    // NO-CONTRACT-CHECK: the rendered PDF is not re-read for the approved amount/installments.
     if (legacyTomanReplacement) {
       stage = "validate_toman_replacement";
       const generated = queryRow<any>("SELECT * FROM contract_generations WHERE id=?", [id]);
@@ -1437,14 +1431,7 @@ const sendGenerationHandler = async (req: Request, res: Response): Promise<void>
       }
       if (Number(app.new_case_workflow) === 1 && generationPurpose === "amendment") {
         const expectedAmount = String(app.approved_amount ?? "");
-        const principalEvidence = renderedPdfContainsPrincipal(row.pdf_path, expectedAmount, principalTemplateEvidence(row));
-        if (app.initial_approval_at && Number(app.duration_months) !== Number(app.requested_duration_months ?? app.duration_months) &&
-            !renderedPdfContainsInstallmentCount(row.pdf_path, Number(app.duration_months), principalTemplateEvidence(row))) {
-          res.status(409).json({ error: "rendered_installment_count_unverifiable" }); return;
-        }
-        if (!principalEvidence) {
-          res.status(409).json({ error: "rendered_amendment_principal_unverifiable" }); return;
-        }
+        // NO-CONTRACT-CHECK: amendment PDF principal/installment text is not read.
         if (!preapprovedGenerationMatches(app, row, expectedAmount, true)) {
           res.status(409).json({ error: "amendment_generation_scope_mismatch" }); return;
         }
@@ -1477,14 +1464,9 @@ const sendGenerationHandler = async (req: Request, res: Response): Promise<void>
         const stageAllowed = alreadySent || (app.initial_approval_at
           ? app.stage === "approved_contract_pending_signature"
           : ["draft", "primary_contract_pending_signature"].includes(String(app.stage)));
-        const principalEvidence = renderedPdfContainsPrincipal(row.pdf_path, expectedAmount, principalTemplateEvidence(row));
-        if (app.initial_approval_at && Number(app.duration_months) !== Number(app.requested_duration_months ?? app.duration_months) &&
-            !renderedPdfContainsInstallmentCount(row.pdf_path, Number(app.duration_months), principalTemplateEvidence(row))) {
-          res.status(409).json({ error: "rendered_installment_count_unverifiable" }); return;
-        }
-        if (!stageAllowed || !principalEvidence) {
-          res.status(409).json({ error: !principalEvidence
-            ? "rendered_primary_principal_unverifiable" : "primary_generation_not_current" }); return;
+        // NO-CONTRACT-CHECK: primary PDF principal/installment text is not read.
+        if (!stageAllowed) {
+          res.status(409).json({ error: "primary_generation_not_current" }); return;
         }
         if (!preapprovedGenerationMatches(app, row, expectedAmount, true)) {
           res.status(409).json({ error: "primary_generation_not_current" }); return;
@@ -1634,10 +1616,8 @@ function tomanReplacementDocumentTermsMatch(
           sha(fs.readFileSync(pdf)) !== String(generation.pdf_sha256)) return false;
     } catch { return false; }
   }
-  return tomanReplacementGenerationTermsMatch(generation, application, consent, allowCertificateRetry) &&
-    renderedPdfContainsPrincipal(generation.pdf_path, consent.approvedAmount, principalTemplateEvidence(generation)) &&
-    (!tomanReplacementNeedsInstallmentProof(application, json(generation.mappings_snapshot_json, null)) ||
-      renderedPdfContainsInstallmentCount(generation.pdf_path, consent.durationMonths, principalTemplateEvidence(generation)));
+  // NO-CONTRACT-CHECK: the replacement PDF text is not read.
+  return tomanReplacementGenerationTermsMatch(generation, application, consent, allowCertificateRetry);
 }
 
 function activeTomanReplacementConsent(application: any): TomanReplacementConsent | null {

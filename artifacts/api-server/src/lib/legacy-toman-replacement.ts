@@ -80,47 +80,7 @@ export function tomanReplacementGenerationTermsMatch(
         !(allowCertificateRetry && isCertificatePreflightRetry(generation))) ||
       String(application.approved_amount ?? "") !== consent.approvedAmount ||
       Number(application.duration_months) !== consent.durationMonths) return false;
-  const mappings = typeof generation.mappings_snapshot_json === "string"
-    ? safeJson(generation.mappings_snapshot_json) : generation.mappings_snapshot_json;
-  const values = typeof generation.manual_values_json === "string"
-    ? safeJson(generation.manual_values_json) : generation.manual_values_json;
-  if (!Array.isArray(mappings) || !values || typeof values !== "object" || Array.isArray(values)) return false;
-  const sourceType = (mapping: any) =>
-    mapping?.sourceType ?? (mapping?.customerField ? "customer" : mapping?.loanPlanField ? "loanPlan" : "manual");
-  const principal = mappings.filter((mapping: any) =>
-    sourceType(mapping) === "loanPlan" && mapping?.loanPlanField === "loanPlan.principalAmount");
-  const durations = mappings.filter((mapping: any) =>
-    sourceType(mapping) === "loanPlan" &&
-    ["loanPlan.installments", "loanPlan.durationMonths"].includes(String(mapping?.loanPlanField)));
-  if (principal.length !== 1 || durations.length > 1 ||
-      (tomanReplacementDurationChanged(application) && durations.length !== 1) ||
-      normalizedContractInteger(values[principal[0].variable]) !== consent.approvedAmount ||
-      durations.some((mapping: any) =>
-        normalizedContractInteger(values[mapping.variable]) !== String(consent.durationMonths))) return false;
-  const manual = mappings.filter((mapping: any) => sourceType(mapping) === "manual");
-  const savedManual = typeof application.primary_manual_values_json === "string"
-    ? safeJson(application.primary_manual_values_json) : application.primary_manual_values_json;
-  if (!savedManual || typeof savedManual !== "object" || Array.isArray(savedManual)) return false;
-  const savedKeys = Object.keys(savedManual).sort();
-  const generationKeys = manual.map((mapping: any) => String(mapping.variable)).sort();
-  if (savedKeys.length !== generationKeys.length ||
-      savedKeys.some((key, index) => key !== generationKeys[index])) return false;
-  return manual.every((mapping: any) =>
-    typeof savedManual[mapping.variable] === "string" &&
-    typeof values[mapping.variable] === "string" &&
-    sameManualValue(savedManual[mapping.variable], values[mapping.variable]));
-}
-
-function safeJson(value: string): any {
-  try { return JSON.parse(value); } catch { return null; }
-}
-
-function sameManualValue(expected: string, actual: string): boolean {
-  if (expected.trim() === actual.trim()) return true;
-  const numeric = (value: string) => value.trim()
-    .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
-    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
-    .replace(/[٬،,\s]/g, "").replace(/٫/g, ".");
-  const left = numeric(expected), right = numeric(actual);
-  return /^[-+]?\d+(?:\.\d+)?$/.test(left) && left === right;
+  // NO-CONTRACT-CHECK (Mohammad, 25 Oct): the replacement contract's values
+  // (amount, installments, manual fields) are not compared; the admin checks the contract.
+  return true;
 }

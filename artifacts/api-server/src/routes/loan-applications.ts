@@ -29,7 +29,6 @@ import { classifyProviderState, isStrictSignedProviderState, providerContractSta
 import { emzameRequest } from "../lib/emzame-client";
 import { creditLoanWallet, wallet } from "../lib/wallets";
 import {
-  diagnoseRenderedPdfContainsPrincipal,
   isAttestedTomanTemplate,
   renderedPdfContainsInstallmentCount,
   renderedPdfContainsLegacyRialPrincipal,
@@ -42,7 +41,6 @@ import {
   parseTomanReplacementConsent,
   tomanReplacementGenerationTermsMatch,
   tomanReplacementDurationChanged,
-  tomanReplacementNeedsInstallmentProof,
   type TomanReplacementConsent,
 } from "../lib/legacy-toman-replacement";
 
@@ -112,7 +110,6 @@ const LOAN_REFUSAL_MESSAGES: Record<string, string> = {
   primary_contract_amount_mismatch: "مبلغ ثبت‌شده در قرارداد اصلی با مبلغ مصوب پرونده برابر نیست.",
   primary_contract_duration_mismatch: "تعداد اقساط قرارداد اصلی با تعداد اقساط مصوب پرونده برابر نیست.",
   primary_contract_principal_not_legible: "مبلغ اصل تسهیلات در متن PDF قرارداد اصلی قابل خواندن و تطبیق نیست.",
-  primary_contract_legacy_rial_unit: "قرارداد قدیمی به ریال است؛ قرارداد تومانی جایگزین لازم است.",
   primary_contract_installments_not_legible: "تعداد اقساط مصوب در متن PDF قرارداد اصلی قابل خواندن و تطبیق نیست.",
   primary_toman_replacement_unverified: "قرارداد جایگزین تومانی این پرونده هنوز امضا یا تأیید نشده است.",
   approved_amount_missing: "مبلغ مصوب این پرونده ثبت نشده است؛ ابتدا مرحلهٔ تصویب مبلغ وام باید انجام شود.",
@@ -681,7 +678,7 @@ function tomanReplacementEligibility(application: any): {
       primary.deleted_at || primary.superseded_at) return block("accepted_current_primary_required");
   // A matching, independently verified current contract needs no denomination
   // repair. Do not misclassify every accepted signature as a legacy Rial case.
-  if (signedPrimaryMatchesApprovedTerms(application, amount, duration))
+  if (signedPrimaryMatchesApprovedTerms(application, amount, duration, true))
     return block("current_primary_terms_verified");
   base.candidate = true;
   base.sourceGenerationId = Number(primary.id);
@@ -730,40 +727,13 @@ function tomanReplacementGenerationMatches(
       (requireProviderSend && (!generation.provider_contract_id ||
         !["sent", "signed"].includes(String(generation.status)) ||
         (generation.status === "signed" && !isStrictSignedProviderState(generation.provider_status))))) return false;
-  return renderedPdfContainsPrincipal(generation.pdf_path, consent.approvedAmount, principalTemplateEvidence(generation)) &&
-    (!tomanReplacementNeedsInstallmentProof(application, parseJson(generation.mappings_snapshot_json)) ||
-      renderedPdfContainsInstallmentCount(generation.pdf_path, consent.durationMonths, principalTemplateEvidence(generation)));
+  // NO-CONTRACT-CHECK (Mohammad, 25 Oct): the contract text/amount is not read; the admin checks the contract.
+  return true;
 }
-// Message only: after a principal check has ALREADY refused, tell whether the
-// refusal is the template 4/5 rial-unit policy, so the dialog can say so.
-// Never used to accept anything; outcomes are unchanged.
-const LEGACY_RIAL_UNIT_REASON = "primary_contract_legacy_rial_unit";
-function legacyRialUnitRefused(generation: any, amount: string): boolean {
-  try {
-    return diagnoseRenderedPdfContainsPrincipal(generation?.pdf_path, String(amount),
-      principalTemplateEvidence(generation)).reason === "template_unit_policy_unapproved";
-  } catch { return false; }
-}
-function withLegacyRialUnitReason(err: Error): Error {
-  return lastPrimaryTermsRefusal === LEGACY_RIAL_UNIT_REASON
-    ? Object.assign(err, { reason: LEGACY_RIAL_UNIT_REASON }) : err;
-}
-function legacyRialUnitReason(e: unknown): string | undefined {
-  return (e as { reason?: unknown } | null)?.reason === LEGACY_RIAL_UNIT_REASON ? LEGACY_RIAL_UNIT_REASON : undefined;
-}
-// The signed primary must legibly state the principal. Older (non new-case)
-// files were only checked for a labeled "مبلغ تسهیلات"-style clause, so contracts
-// generated from attested templates (e.g. template 6: "مبلغ … %credit% تومان")
-// were rejected at the final funder decision even though contract generation
-// had already verified them through the attested-template evidence. Keep the
-// plain-text check first (unchanged for templates 4/5) and fall back to the same
-// hash-pinned template/docx/pdf evidence used at generation time.
-function primaryPdfShowsPrincipal(application: any, generation: any, amount: string): boolean {
-  if (application?.new_case_workflow)
-    return renderedPdfContainsPrincipal(generation.pdf_path, amount, principalTemplateEvidence(generation));
-  return renderedPdfContainsPrincipal(generation.pdf_path, amount) ||
-    renderedPdfContainsPrincipal(generation.pdf_path, amount, principalTemplateEvidence(generation));
-}
+// NO-CONTRACT-CHECK (Mohammad, 25 Oct 14:42): the loan flow never reads the
+// contract text or amount (rial/toman unit, «مبلغ تسهیلات», template wording).
+// Checking the contract is the admin's job. Signature, identity, template id
+// and stored-file integrity checks are kept.
 function legacySignedPrimaryTerms(application: any): { amount: string; netAmount: string; generationId: number } {
   const fail = () => { throw new Error("legacy_signed_primary_terms_unverifiable"); };
   const replacementPrimary = applicationPrimaryDocument(application);
@@ -806,34 +776,9 @@ function legacySignedPrimaryTerms(application: any): { amount: string; netAmount
   if (!planSnapshot || (planSnapshot.id != null && Number(planSnapshot.id) !== Number(application.plan_id))) return fail();
   const expectedTemplateId = Number(planSnapshot.contract_template_id ?? planSnapshot.primary_contract_template_id);
   if (!expectedTemplateId || Number(link.template_id) !== expectedTemplateId) return fail();
-  const template = queryRow<any>("SELECT id,mappings_json,updated_at FROM contract_templates WHERE id=?", [expectedTemplateId]);
-  if (!template) return fail();
-  let mappings: any;
-  if (typeof link.mappings_snapshot_json === "string" && link.mappings_snapshot_json.trim()) {
-    mappings = parseJson(link.mappings_snapshot_json);
-  } else {
-    const created = Date.parse(String(link.created_at));
-    const updated = Date.parse(String(template.updated_at ?? ""));
-    if (!Number.isFinite(created) || !Number.isFinite(updated) || updated > created) return fail();
-    mappings = parseJson(template.mappings_json);
-  }
-  const values = parseJson(link.manual_values_json);
-  if (!Array.isArray(mappings) || !values || typeof values !== "object") return fail();
-  const principalMappings = mappings.filter((mapping: any) =>
-    (mapping.sourceType ?? (mapping.customerField ? "customer" : mapping.loanPlanField ? "loanPlan" : "manual")) === "loanPlan" &&
-    mapping.loanPlanField === "loanPlan.principalAmount");
-  if (principalMappings.length !== 1) return fail();
-  const rawAmount = values[principalMappings[0].variable];
-  if (typeof rawAmount !== "string") return fail();
-  const amount = rawAmount.replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)))
-    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
-    .replace(/[,\u060c\u066c\s]/g, "");
+  // NO-CONTRACT-CHECK: the amount comes from the CRM case, never from the contract.
+  const amount = String(application.approved_amount ?? application.requested_amount ?? "");
   if (!/^[1-9]\d{0,17}$/.test(amount)) return fail();
-  if (!primaryPdfShowsPrincipal(application, link, amount)) {
-    if (legacyRialUnitRefused(link, amount))
-      throw Object.assign(new Error("legacy_signed_primary_terms_unverifiable"), { reason: LEGACY_RIAL_UNIT_REASON });
-    return fail();
-  }
   const condition = parseJson(application.condition_snapshot_json);
   let ceiling: bigint;
   try { ceiling = effectivePlanTerms(planSnapshot, condition).maximum; } catch { return fail(); }
@@ -844,7 +789,7 @@ function legacySignedPrimaryTerms(application: any): { amount: string; netAmount
   try { netAmount = netLoanAmount({ ...application, approved_amount: amount, duration_months: duration }); } catch { return fail(); }
   return { amount, netAmount, generationId: Number(link.id) };
 }
-function signedPrimaryMatchesApprovedTerms(application: any, approvedAmount: string, durationMonths: number): boolean {
+function signedPrimaryMatchesApprovedTerms(application: any, approvedAmount: string, durationMonths: number, readContent = false): boolean {
   lastPrimaryTermsRefusal = "";
   const primary = currentPrimaryDocument(application);
   const consent = application && latestTomanReplacementConsent(Number(application.id))?.consent;
@@ -861,7 +806,7 @@ function signedPrimaryMatchesApprovedTerms(application: any, approvedAmount: str
   if (!primary) return refusePrimaryTerms("primary_contract_missing");
   if (!signatureGenerationIdentityEligible(application, primary, "primary")) return refusePrimaryTerms("primary_contract_not_for_case");
   if (!String(primary.link ?? "").startsWith("signed:") || primary.status !== "signed") return refusePrimaryTerms("primary_contract_not_signed");
-  return verifiedPrimaryPrincipal(application, primary, approvedAmount, durationMonths);
+  return verifiedPrimaryPrincipal(application, primary, approvedAmount, durationMonths, readContent);
 }
 function latestPrimaryDocument(applicationId: number): any {
   return queryRow<any>(`SELECT d.id AS document_id,d.kind,d.contract_generation_id,d.link,d.status AS document_status,
@@ -967,7 +912,9 @@ function refusePrimaryTerms(reason: string): false {
   lastPrimaryTermsRefusal = reason;
   return false;
 }
-function verifiedPrimaryPrincipal(application: any, primary: any, approvedAmount: string, durationMonths: number): boolean {
+// readContent=true is used ONLY by the advisory toman-replacement eligibility
+// (an optional admin tool). Every gate calls it with readContent=false.
+function verifiedPrimaryPrincipal(application: any, primary: any, approvedAmount: string, durationMonths: number, readContent = false): boolean {
   const consent = application && latestTomanReplacementConsent(Number(application.id))?.consent;
   if (consent || String(primary?.generation_purpose ?? "") === TOMAN_REPLACEMENT_PURPOSE) {
     return Boolean(consent &&
@@ -996,6 +943,8 @@ function verifiedPrimaryPrincipal(application: any, primary: any, approvedAmount
         crypto.createHash("sha256").update(fs.readFileSync(pdfPath)).digest("hex") !== String(primary.pdf_sha256))
       return refusePrimaryTerms("primary_contract_file_unverifiable");
   } catch { return refusePrimaryTerms("primary_contract_file_unverifiable"); }
+  // NO-CONTRACT-CHECK: no amount / installments / PDF-text comparison on any gate.
+  if (!readContent) return true;
   const template = queryRow<any>("SELECT mappings_json,updated_at FROM contract_templates WHERE id=? AND deleted_at IS NULL", [templateId]);
   if (!template) return refusePrimaryTerms("primary_contract_template_mismatch");
   let mappings = parseJson(primary.mappings_snapshot_json);
@@ -1022,11 +971,14 @@ function verifiedPrimaryPrincipal(application: any, primary: any, approvedAmount
       durationMappings.length === 0) return refusePrimaryTerms("primary_contract_installments_not_legible");
   if (!durationMappings.every((mapping: any) => normalize(values[mapping.variable]) === String(durationMonths)))
     return refusePrimaryTerms("primary_contract_duration_mismatch");
-  if (!(primaryPdfShowsPrincipal(application, primary, approvedAmount) ||
+  const principalShown = application?.new_case_workflow
+    ? renderedPdfContainsPrincipal(primary.pdf_path, approvedAmount, principalTemplateEvidence(primary))
+    : renderedPdfContainsPrincipal(primary.pdf_path, approvedAmount) ||
+      renderedPdfContainsPrincipal(primary.pdf_path, approvedAmount, principalTemplateEvidence(primary));
+  if (!(principalShown ||
       acceptedLegacyRialPrimary(application, primary, approvedAmount, durationMonths, queryRow,
         () => renderedPdfContainsLegacyRialPrincipal(primary.pdf_path, approvedAmount, principalTemplateEvidence(primary)))))
-    return refusePrimaryTerms(legacyRialUnitRefused(primary, approvedAmount)
-      ? LEGACY_RIAL_UNIT_REASON : "primary_contract_principal_not_legible");
+    return refusePrimaryTerms("primary_contract_principal_not_legible");
   if (!(Number(application.duration_months) === Number(application.requested_duration_months ?? application.duration_months) ||
       renderedPdfContainsInstallmentCount(primary.pdf_path, durationMonths, principalTemplateEvidence(primary))))
     return refusePrimaryTerms("primary_contract_installments_not_legible");
@@ -1049,41 +1001,8 @@ function boundPrimaryMatchesApplication(generation: any, application: any, expec
   const snapshot = parseJson(application.plan_snapshot_json);
   const templateId = Number(snapshot?.contract_template_id ?? snapshot?.primary_contract_template_id);
   if (!templateId || Number(generation.template_id) !== templateId) return false;
-  const mappings = parseJson(generation.mappings_snapshot_json);
-  const values = parseJson(generation.manual_values_json);
-  if (!Array.isArray(mappings) || !values || typeof values !== "object") return false;
-  const sourceType = (mapping: any) => mapping.sourceType ?? (mapping.customerField ? "customer" : mapping.loanPlanField ? "loanPlan" : "manual");
-  const principal = mappings.filter((mapping: any) => sourceType(mapping) === "loanPlan" && mapping.loanPlanField === "loanPlan.principalAmount");
-  const duration = mappings.filter((mapping: any) => sourceType(mapping) === "loanPlan" && ["loanPlan.installments", "loanPlan.durationMonths"].includes(mapping.loanPlanField));
-  const normalized = (value: unknown) => String(value ?? "").replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
-    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(/[,\u060c\u066c\s]/g, "");
-  const manualMappings = mappings.filter((mapping: any) => sourceType(mapping) === "manual");
-  const persistedManual = parseJson(application.primary_manual_values_json) ?? {};
-  const manualKeys = manualMappings.map((mapping: any) => mapping.variable);
-  const manualMatches = (expected: string, actual: string) => {
-    if (expected.trim() === actual.trim()) return true;
-    const numeric = (value: string) => value.trim().replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
-      .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(/[٬،,\s]/g, "").replace(/٫/g, ".");
-    const left = numeric(expected), right = numeric(actual);
-    return /^[-+]?\d+(?:\.\d+)?$/.test(left) && left === right;
-  };
-  const manualValuesMatch = Object.keys(persistedManual).length === manualKeys.length && manualMappings.every((mapping: any) =>
-    typeof persistedManual[mapping.variable] === "string" && typeof values[mapping.variable] === "string" &&
-      manualMatches(persistedManual[mapping.variable], values[mapping.variable]));
-  return principal.length === 1 &&
-    normalized(values[principal[0].variable]) === expectedAmount &&
-    manualValuesMatch &&
-    (!application.initial_approval_at ||
-      Number(application.duration_months) === Number(application.requested_duration_months ?? application.duration_months) ||
-      duration.length > 0) &&
-    duration.every((mapping: any) => normalized(values[mapping.variable]) === String(
-      application.initial_approval_at ? application.duration_months : application.requested_duration_months ?? application.duration_months)) &&
-    (!application.initial_approval_at ||
-      Number(application.duration_months) === Number(application.requested_duration_months ?? application.duration_months) ||
-      renderedPdfContainsInstallmentCount(generation.pdf_path, Number(application.duration_months), principalTemplateEvidence(generation))) &&
-    (!application.new_case_workflow || renderedPdfContainsPrincipal(
-      generation.pdf_path, expectedAmount, principalTemplateEvidence(generation),
-    ));
+  // NO-CONTRACT-CHECK: contract values (amount, installments, manual fields) and PDF text are not compared.
+  return true;
 }
 function preparePhysicalChecks(id: number, submittedPhysicalDocuments = false) {
   if (submittedPhysicalDocuments) {
@@ -1144,12 +1063,12 @@ function verifyPhysicalApprovalTerms(application: any) {
       throw new Error("approved_primary_generation_evidence_missing");
     if (application?.new_case_workflow &&
         !signedPrimaryMatchesApprovedTerms(application, String(application.approved_amount), Number(application.duration_months)))
-      throw withLegacyRialUnitReason(new Error("approved_primary_generation_evidence_missing"));
+      throw new Error("approved_primary_generation_evidence_missing");
     return;
   }
   if (!application.approved_amount) throw new Error("approved_primary_generation_evidence_missing");
   if (!signedPrimaryMatchesApprovedTerms(application, String(application.approved_amount), Number(application.duration_months)))
-    throw withLegacyRialUnitReason(new Error("approved_primary_generation_evidence_missing"));
+    throw new Error("approved_primary_generation_evidence_missing");
   if (application.funder_decision !== "approved" ||
       (Number(application.new_case_workflow) === 1 &&
         Number(application.approved_amount_generation_id) !== Number(application.current_primary_generation_id)))
@@ -1190,12 +1109,7 @@ function transition(id: number, to: Stage, action: string, actor: AuthUser, reas
         if (!boundPrimaryMatchesApplication(primary, application)) throw new Error("approved_primary_generation_required");
        } else if (application?.new_case_workflow || application?.legacy_reopen_prior_stage != null) {
         const primary = currentPrimaryDocument(application);
-        if (!primary || !renderedPdfContainsPrincipal(
-          primary.pdf_path, String(application.requested_amount ?? ""), principalTemplateEvidence(primary),
-        ))
-          throw primary && legacyRialUnitRefused(primary, String(application.requested_amount ?? ""))
-            ? Object.assign(new Error("rendered_primary_principal_unverifiable"), { reason: LEGACY_RIAL_UNIT_REASON })
-            : new Error("rendered_primary_principal_unverifiable");
+        // NO-CONTRACT-CHECK: the PDF principal text is not read.
         if (!boundPrimaryMatchesApplication(primary, application, String(application.requested_amount ?? "")))
           throw new Error("requested_primary_generation_required");
       }
@@ -2163,7 +2077,7 @@ function action(pathSuffix: string, permission: any, to: Stage) {
       const code = e instanceof Error ? e.message : "";
       // Pass the real code through (sanitized in error()) so the dialog can
       // explain why the step was refused instead of a generic retry message.
-      return error(res, 409, code === "invalid_transition" ? "invalid_stage_transition" : code || "workflow_error", legacyRialUnitReason(e));
+      return error(res, 409, code === "invalid_transition" ? "invalid_stage_transition" : code || "workflow_error");
     }
   });
 }
@@ -2293,7 +2207,8 @@ router.post("/loan-applications/:id/funder-initial-approve", requirePermission("
     }
     const priorStage = String(r.legacy_reopen_prior_stage ?? "");
     const formerPrimary = priorStage ? latestPrimaryDocument(r.id) : null;
-    const matchesFormer = Boolean(duration === requestedDuration &&
+    // NO-CONTRACT-CHECK: reuse depends on the CRM amounts (approved == requested), not the contract text.
+    const matchesFormer = Boolean(duration === requestedDuration && amount === String(r.requested_amount ?? "") &&
       formerPrimary && verifiedPrimaryPrincipal(r, formerPrimary, amount, duration));
     const formerPrimarySigned = formerPrimary?.status === "signed" && String(formerPrimary.link ?? "").startsWith("signed:");
     const signedReuse = matchesFormer && formerPrimarySigned;
@@ -2428,7 +2343,7 @@ function workflowEndpoint(name: string, permission: "loan_applications.review" |
     if (!r) return error(res, 404, "loan_application_not_found");
     if (r.stage !== from) return error(res, 409, "invalid_stage_transition");
     try { transition(r.id, to, name, user(res), String(req.body?.reason ?? "").trim()); res.json(shape(scoped(r.id, user(res)), user(res))); }
-    catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error", legacyRialUnitReason(e)); }
+    catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error"); }
   });
 }
 workflowEndpoint("confirm-funder", "loan_applications.review", "funder_result_review", "physical_documents_submission");
@@ -2514,7 +2429,7 @@ router.post("/loan-applications/:id/submit-physical-documents", requirePermissio
       transition(r.id, "physical_documents_review", "submit-physical-documents", user(res));
     }
     res.json(shape(scoped(r.id, user(res)), user(res)));
-  } catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error", legacyRialUnitReason(e)); }
+  } catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error"); }
 });
 router.post("/loan-applications/:id/prepare-physical-checks", requirePermission("loan_applications.review"), (req, res) => {
   const r = scoped(Number(req.params.id), user(res));
@@ -2525,7 +2440,7 @@ router.post("/loan-applications/:id/prepare-physical-checks", requirePermission(
     runTransaction(() => preparePhysicalChecks(r.id,
       Boolean(queryRow("SELECT 1 FROM loan_application_stage_history WHERE application_id=? AND action='submit-physical-documents'", [r.id]))));
     return res.json({ ok: true, physicalChecks: queryRows<any>("SELECT * FROM loan_physical_checks WHERE application_id=? ORDER BY id", [r.id]) });
-  } catch (e) { return error(res, 409, e instanceof Error ? e.message : "physical_documents_missing", legacyRialUnitReason(e)); }
+  } catch (e) { return error(res, 409, e instanceof Error ? e.message : "physical_documents_missing"); }
 });
 router.post("/loan-applications/:id/admin-approve", requirePermission("loan_applications.approve"), (req, res) => {
   const r = scoped(Number(req.params.id), user(res));
@@ -2541,7 +2456,7 @@ router.post("/loan-applications/:id/admin-approve", requirePermission("loan_appl
     transition(r.id, "completed", "admin-approve", user(res), String(req.body?.reason ?? "").trim(),
       () => executeChanges("UPDATE loan_applications SET admin_approved_at=? WHERE id=?", [now(), r.id]));
     res.json(shape(scoped(r.id, user(res)), user(res)));
-  } catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error", legacyRialUnitReason(e)); }
+  } catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error"); }
 });
 router.post("/loan-applications/:id/return-funder-documents", requirePermission("loan_applications.review"), (req, res) => {
   const r = scoped(Number(req.params.id), user(res)), defects = req.body?.defects;
@@ -2619,7 +2534,7 @@ router.post("/loan-applications/:id/review-customer-documents", requirePermissio
   const to: Stage = condition?.needs_guarantor || condition?.needsGuarantor
     ? "guarantor_registration" : r.new_case_workflow || r.legacy_reopen_prior_stage ? "funder_initial_approval" : "collateral_upload";
   try { transition(r.id, to, "review-customer-documents", user(res), req.body?.reason); res.json(shape(scoped(r.id, user(res)), user(res))); }
-  catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error", legacyRialUnitReason(e)); }
+  catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error"); }
 });
 function returnForCorrection(pathSuffix: string, from: Stage, to: Stage) {
   router.post(`/loan-applications/:id/${pathSuffix}`, requirePermission("loan_applications.review"), (req, res) => {
@@ -2649,7 +2564,7 @@ for (const [name, permission, requiredStage] of [
     try {
       returnRejectedLoanCase(r, user(res), reason, name,
         { queryRow, executeChanges, execute, transaction: runTransaction, now });
-    } catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error", legacyRialUnitReason(e)); }
+    } catch (e) { return error(res, 409, e instanceof Error ? e.message : "workflow_error"); }
     return res.json(shape(scoped(r.id, user(res)), user(res)));
   });
 }
