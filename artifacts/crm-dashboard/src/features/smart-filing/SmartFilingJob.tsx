@@ -52,6 +52,11 @@ export default function SmartFilingJob() {
             {open || job.status === 'error' ? <button className="nf-btn nf-btn-ghost" disabled={busy} onClick={() => void act('/cancel', {}, 'این کار لغو شود؟')} data-testid="sf-cancel"><XCircle size={16} /> لغو</button> : null}
           </div>
         ) : null}
+        {open && job.runner && !job.runner.online ? (
+          <p className="sf-note sf-warn" data-testid="sf-runner-offline">
+            سارینا الان به CRM وصل نیست{job.runner.lastSeenAt ? ` (آخرین اتصال ${new Date(job.runner.lastSeenAt).toLocaleString('fa-IR', { timeZone: 'Asia/Tehran', hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })})` : ''}؛ کار در صف می‌ماند و پیام‌ها ذخیره می‌شوند تا سارینا وصل شود.
+          </p>
+        ) : null}
         {err ? <p className="sf-note sf-warn" role="alert">{err}</p> : null}
       </div>
 

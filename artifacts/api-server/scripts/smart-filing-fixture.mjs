@@ -58,12 +58,18 @@ try {
   assert.equal((await U(2, "POST", "/jobs", { applicationId: 10, jobType: "training" })).s, 403); // training is admin-only
   assert.equal((await U(2, "GET", "/eligibility/10")).j.canCreate, true);
   assert.equal((await U(4, "GET", "/eligibility/10")).j.canCreate, true);
+  // long-poll claim: nothing queued → empty answer after the wait; then a job created mid-wait is handed out at once
+  let t0 = Date.now(); assert.equal((await R("POST", "/claim?wait=1", {})).j.job, null); assert.ok(Date.now() - t0 >= 900, "claim waited");
+  assert.equal((await A("GET", "/jobs")).j.jobs.length, 0);
+  const lpClaim = R("POST", "/claim?wait=8", {}); await new Promise(r => setTimeout(r, 300));
   const created = await U(2, "POST", "/jobs", { applicationId: 10 }); assert.equal(created.s, 201); const id = created.j.id; // case's sales expert creates
   assert.equal((await U(4, "POST", "/jobs", { applicationId: 10 })).j.existing, true); // registrar: one active job per case
   assert.equal((await A("POST", "/jobs", { applicationId: 10 })).j.existing, true);
   assert.equal((await R("POST", "/claim", {}, "x".repeat(40))).s, 401);
   assert.equal((await R("GET", "/nope")).s, 404);
-  const claim = await R("POST", "/claim", {}); assert.equal(claim.j.job.id, id); assert.equal(claim.j.case.nationalCode, "0010000000");
+  t0 = Date.now(); const claim = await lpClaim; assert.ok(Date.now() - t0 < 3000, "long-poll claim answered promptly"); assert.equal(claim.j.job.id, id);
+  assert.deepEqual((await R("GET", "/my-jobs")).j.jobs.map(j => j.id), [id]);
+  assert.equal((await A("GET", `/jobs/${id}`)).j.job.runner.online, true); assert.equal(claim.j.case.nationalCode, "0010000000");
   assert.ok(!JSON.stringify(claim.j).includes("Sup3rSecretPw")); assert.ok(!JSON.stringify(claim.j).includes(docDir));
   assert.equal((await R("GET", `/jobs/${id}/documents/id-1`)).s, 200);
   assert.equal((await R("GET", `/jobs/${id}/documents/id-2`)).s, 404); // outside roots
@@ -79,14 +85,19 @@ try {
   // code flow
   assert.equal((await A("POST", `/jobs/${id}/code`, { code: "12345" })).s, 409);
   const cr = await R("POST", `/jobs/${id}/code-requests`, { target: "customer", expiresInSeconds: 120 }); assert.equal(cr.s, 201);
+  const cvP = R("GET", `/jobs/${id}/code-requests/${cr.j.id}?wait=8`); await new Promise(r => setTimeout(r, 300));
   assert.equal((await call("POST", `/api/smart-filing/jobs/${id}/code`, { code: "12345" }, 3)).s, 404); // other expert
   assert.equal((await call("POST", `/api/smart-filing/jobs/${id}/code`, { code: "۱۲۳۴۵" }, 2)).s, 200); // case expert, Persian digits
-  const cv = await R("GET", `/jobs/${id}/code-requests/${cr.j.id}`); assert.equal(cv.j.code, "12345");
+  const cv = await cvP; assert.equal(cv.j.code, "12345"); // long-poll returned the code once entered
   const crow = db.prepare("SELECT status,code_enc,code_masked FROM smart_filing_code_requests WHERE id=?").get(cr.j.id);
   assert.deepEqual([crow.status, crow.code_enc, crow.code_masked], ["consumed", null, "1•••5"]);
   assert.equal((await R("GET", `/jobs/${id}/code-requests/${cr.j.id}`)).j.status, "consumed");
   // human message + approval gate
+  const cur = (await R("GET", `/jobs/${id}/messages?after=0`)).j.cursor;
+  t0 = Date.now(); const idle = await R("GET", `/jobs/${id}/messages?after=${cur}&wait=1`); assert.equal(idle.j.messages.length, 0); assert.ok(Date.now() - t0 >= 900);
+  const lpMsg = R("GET", `/jobs/${id}/messages?after=${cur}&wait=8`); await new Promise(r => setTimeout(r, 300));
   assert.equal((await call("POST", `/api/smart-filing/jobs/${id}/messages`, { text: "بانک را اقتصاد نوین بزن" }, 2)).s, 201);
+  t0 = Date.now(); const woke = await lpMsg; assert.ok(Date.now() - t0 < 3000); assert.ok(woke.j.messages.some(m => m.body.includes("اقتصاد نوین")));
   const hm = await R("GET", `/jobs/${id}/messages?after=0`); assert.ok(hm.j.messages.some(m => m.body.includes("اقتصاد نوین")));
   assert.equal((await A("POST", `/jobs/${id}/approve-submit`)).s, 409);
   assert.equal((await R("POST", `/jobs/${id}/status`, { status: "ready_for_approval" })).s, 200);

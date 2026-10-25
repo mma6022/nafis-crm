@@ -23,6 +23,10 @@ export type Deps = {
 
 export const STATUSES = ["queued", "running", "waiting_human", "ready_for_approval", "submitted", "approved", "rejected", "error", "cancelled"] as const;
 export type Status = typeof STATUSES[number];
+const MAX_WAIT_S = 25;
+const LONG_POLL_TICK_MS = 1000;
+const MAX_WAITERS_PER_TOKEN = 6;
+const RUNNER_ONLINE_MS = 90_000;
 const OPEN: Status[] = ["queued", "running", "waiting_human", "ready_for_approval"];
 const RUNNER_SET: Status[] = ["running", "waiting_human", "ready_for_approval", "submitted", "approved", "rejected", "error"];
 export const MAX_SCREENSHOT_BYTES = 1_400_000; // decoded; base64 JSON stays under the 2 MB runner body limit
@@ -248,7 +252,14 @@ export function createSmartFiling(deps: Deps) {
       finalSubmitAllowed: Boolean(j.submit_approved_at || panel?.auto_submit), panelReference: j.panel_reference,
       createdAt: j.created_at, updatedAt: j.updated_at, lastMessageAt: j.last_message_at, finishedAt: j.finished_at,
       checklist: j.checklist_json ? JSON.parse(j.checklist_json) : null,
+      runner: runnerPresence(),
     };
+  }
+  /** Whether Sarina's runner has called the server API recently (any non-revoked token). */
+  function runnerPresence() {
+    const r = row<any>("SELECT MAX(last_used_at) t FROM smart_filing_runner_tokens WHERE revoked_at IS NULL");
+    const t = r?.t ? Date.parse(r.t) : NaN;
+    return { lastSeenAt: r?.t ?? null, online: Number.isFinite(t) && Date.now() - t < RUNNER_ONLINE_MS };
   }
   const msgView = (m: any, jobId: number) => ({
     id: m.id, author: m.author, userName: m.user_name, kind: m.kind, body: m.body, data: m.data_json ? JSON.parse(m.data_json) : null,
@@ -447,6 +458,28 @@ export function createSmartFiling(deps: Deps) {
   /* ================= runner router (own Bearer token; mounted before the global JSON parser) ================= */
   const runner = Router();
   runner.use(express.json({ limit: "2mb" }));
+  /* Long-poll: `?wait=<0..25>` seconds. The server re-checks every second and answers as soon as there is
+     something new (or at the deadline with the normal empty answer). Sarina never needs any inbound port. */
+  const waiting = new Map<number, number>();
+  const waitSecs = (req: Request) => { const w = Number(req.query.wait ?? 0); return Number.isFinite(w) ? Math.max(0, Math.min(MAX_WAIT_S, Math.floor(w))) : 0; };
+  async function longPoll<T>(req: Request, res: Response, check: () => T | null | undefined): Promise<T | null | undefined> {
+    const first = check(); const secs = waitSecs(req);
+    if (first || !secs) return first ?? null;
+    const tok = tokenId(res); const n = waiting.get(tok) ?? 0;
+    if (n >= MAX_WAITERS_PER_TOKEN) return null; // too many parallel waits: answer immediately
+    waiting.set(tok, n + 1);
+    let gone = false; const onClose = () => { if (!res.writableEnded) gone = true; };
+    res.on("close", onClose);
+    try {
+      const end = Date.now() + secs * 1000;
+      while (!gone && Date.now() < end) {
+        await new Promise(r => setTimeout(r, LONG_POLL_TICK_MS));
+        if (gone) break;
+        const v = check(); if (v) return v;
+      }
+      return gone ? undefined : null;
+    } finally { res.off("close", onClose); waiting.set(tok, Math.max(0, (waiting.get(tok) ?? 1) - 1)); }
+  }
   const failures = new Map<string, { n: number; at: number }>();
   runner.use((req, res, next) => {
     const key = ip(req); const f = failures.get(key);
@@ -477,11 +510,16 @@ export function createSmartFiling(deps: Deps) {
     } : null;
   }
 
-  runner.post("/claim", (req, res) => {
-    const j = row<any>("SELECT * FROM smart_filing_jobs WHERE status='queued' ORDER BY id LIMIT 1");
+  runner.post("/claim", async (req, res) => {
+    const tryClaim = () => {
+      const q = row<any>("SELECT * FROM smart_filing_jobs WHERE status='queued' ORDER BY id LIMIT 1");
+      if (!q) return null;
+      const r = run("UPDATE smart_filing_jobs SET status='running',claimed_by_token_id=?,claimed_at=?,updated_at=? WHERE id=? AND status='queued'", tokenId(res), iso(), iso(), q.id);
+      return r.changes ? q : null;
+    };
+    const j = await longPoll(req, res, tryClaim);
+    if (j === undefined) return; // client went away (nothing was claimed)
     if (!j) return void res.json({ job: null });
-    const r = run("UPDATE smart_filing_jobs SET status='running',claimed_by_token_id=?,claimed_at=?,updated_at=? WHERE id=? AND status='queued'", tokenId(res), iso(), iso(), j.id);
-    if (!r.changes) return void res.json({ job: null });
     const fresh = row<any>("SELECT * FROM smart_filing_jobs WHERE id=?", j.id);
     const panel = row<any>("SELECT id,name,base_url,username FROM smart_filing_panels WHERE id=?", j.panel_id);
     const docs = documentsFor(j.application_id, j.customer_id).map(({ storage_path: _s, ...d }) => d);
@@ -489,6 +527,11 @@ export function createSmartFiling(deps: Deps) {
     audit(req, "runner", tokenId(res), "runner.claim", j.id, j.panel_id, { documents: docs.length });
     audit(req, "runner", tokenId(res), "runner.case_read", j.id, j.panel_id);
     res.json({ job: jobView(fresh), panel: { id: panel.id, name: panel.name, baseUrl: panel.base_url, username: panel.username }, case: caseData(j), documents: docs });
+  });
+  // Jobs this token already claimed and that are still open (resume after a restart or a dropped /claim answer).
+  runner.get("/my-jobs", (_req, res) => {
+    const list = rows<any>(`SELECT * FROM smart_filing_jobs WHERE claimed_by_token_id=? AND status IN (${OPEN.map(() => "?").join(",")}) ORDER BY id`, tokenId(res), ...OPEN);
+    res.json({ jobs: list.map(j => ({ ...jobView(j), codeRequest: openCode(j.id) })) });
   });
   runner.get("/jobs/:id", (req, res) => {
     const j = rjob(req, res); if (!j) return;
@@ -560,13 +603,27 @@ export function createSmartFiling(deps: Deps) {
     audit(req, "runner", tokenId(res), "runner.message", j.id, j.panel_id, { messageId: id, kind, screenshot: Boolean(shot) });
     res.status(201).json({ ok: true, id });
   });
-  runner.get("/jobs/:id/messages", (req, res) => {
-    const j = rjob(req, res); if (!j) return;
+  runner.get("/jobs/:id/messages", async (req, res) => {
+    const j0 = rjob(req, res); if (!j0) return;
     const after = Math.max(0, Number(req.query.after) || 0);
-    const msgs = rows<any>("SELECT * FROM smart_filing_messages WHERE job_id=? AND id>? AND author IN ('user','system') ORDER BY id LIMIT 200", j.id, after)
-      .map(m => ({ id: m.id, author: m.author, userName: m.user_name, kind: m.kind, body: m.body, createdAt: m.created_at }));
-    audit(req, "runner", tokenId(res), "runner.messages_read", j.id, j.panel_id, { after, n: msgs.length });
-    res.json({ job: { id: j.id, status: j.status, finalSubmitAllowed: jobView(j).finalSubmitAllowed }, messages: msgs, cursor: msgs.length ? msgs[msgs.length - 1].id : after });
+    const read = () => rows<any>("SELECT * FROM smart_filing_messages WHERE job_id=? AND id>? AND author IN ('user','system') ORDER BY id LIMIT 200", j0.id, after);
+    const codeState = () => row<any>("SELECT COUNT(*) n FROM smart_filing_code_requests WHERE job_id=? AND status='answered'", j0.id)?.n ?? 0;
+    const startCodes = codeState();
+    // Wake on: a new human/system message, a job status or approval change, or a code being entered.
+    const got = await longPoll(req, res, () => {
+      const m = read(); if (m.length) return m;
+      const j = row<any>("SELECT status,submit_approved_at FROM smart_filing_jobs WHERE id=?", j0.id);
+      if (j && (j.status !== j0.status || j.submit_approved_at !== j0.submit_approved_at)) return [] as any[];
+      if (codeState() !== startCodes) return [] as any[];
+      return null;
+    });
+    if (got === undefined) return;
+    const j = row<any>("SELECT * FROM smart_filing_jobs WHERE id=?", j0.id);
+    const msgs = (got ?? []).map(m => ({ id: m.id, author: m.author, userName: m.user_name, kind: m.kind, body: m.body, createdAt: m.created_at }));
+    if (msgs.length) audit(req, "runner", tokenId(res), "runner.messages_read", j.id, j.panel_id, { after, n: msgs.length });
+    const answered = row<any>("SELECT id FROM smart_filing_code_requests WHERE job_id=? AND status='answered' ORDER BY id DESC LIMIT 1", j.id);
+    res.json({ job: { id: j.id, status: j.status, finalSubmitAllowed: jobView(j).finalSubmitAllowed }, messages: msgs,
+      cursor: msgs.length ? msgs[msgs.length - 1].id : after, answeredCodeRequestId: answered?.id ?? null });
   });
   runner.post("/jobs/:id/code-requests", (req, res) => {
     const j = rjob(req, res); if (!j) return;
@@ -584,10 +641,14 @@ export function createSmartFiling(deps: Deps) {
     audit(req, "runner", tokenId(res), "runner.code_request", j.id, j.panel_id, { codeRequestId: id, target, secs });
     res.status(201).json({ ok: true, id, expiresAt: exp });
   });
-  runner.get("/jobs/:id/code-requests/:cid", (req, res) => {
+  runner.get("/jobs/:id/code-requests/:cid", async (req, res) => {
     const j = rjob(req, res); if (!j) return;
-    expireCodes();
-    const c = row<any>("SELECT * FROM smart_filing_code_requests WHERE id=? AND job_id=?", Number(req.params.cid), j.id);
+    const cid = Number(req.params.cid);
+    const get = () => { expireCodes(); return row<any>("SELECT * FROM smart_filing_code_requests WHERE id=? AND job_id=?", cid, j.id); };
+    if (!get()) return fail(res, 404, "code_request_not_found");
+    const done = await longPoll(req, res, () => { const x = get(); return x && x.status !== "pending" ? x : null; });
+    if (done === undefined) return;
+    const c = done ?? get();
     if (!c) return fail(res, 404, "code_request_not_found");
     if (c.status !== "answered" || !c.code_enc) return void res.json({ status: c.status, expiresAt: c.expires_at });
     let code: string;

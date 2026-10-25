@@ -8,6 +8,8 @@ export type SfJob = {
   status: SfStatus; statusLabel: string; stepLabel: string | null; progress: number; attempt: number; submitApprovedAt: string | null;
   finalSubmitAllowed: boolean; panelReference: string | null; createdAt: string; updatedAt: string; lastMessageAt: string | null;
   checklist: { items: { key: string; label: string; ok: boolean; blocking: boolean }[]; blocked: boolean; documents: number } | null;
+  /** Whether Sarina's runner called the CRM API in the last 90 s (all traffic goes through the CRM server). */
+  runner?: { online: boolean; lastSeenAt: string | null };
 };
 export type SfMessage = { id: number; author: 'runner' | 'user' | 'system'; userName: string | null; kind: string; body: string | null; data: unknown; stepLabel: string | null; createdAt: string; screenshotUrl: string | null };
 export type SfCodeRequest = { id: number; target: 'ours' | 'customer'; prompt: string | null; requestedAt: string; expiresAt: string; secondsLeft?: number } | null;
