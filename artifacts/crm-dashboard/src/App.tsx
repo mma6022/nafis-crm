@@ -24,6 +24,7 @@ import { TransferNotice } from '@/features/nonp1/TransferNotice';
 import LoginPage from '@/pages/Login';
 import PhonePage from '@/pages/Phone';
 import Releases from '@/pages/Releases';
+import AssistantsSettings from '@/pages/AssistantsSettings';
 import WalletTopUp from '@/pages/WalletTopUp';
 import GoodsPurchases from '@/pages/GoodsPurchases';
 import GoodsPurchaseDetail from '@/pages/GoodsPurchaseDetail';
@@ -253,6 +254,9 @@ function AppWithRoutes() {
                       <AdminOnlyRoute><SocialMonitorReports /></AdminOnlyRoute>
                     </Route>
                     <Route path="/sales-assist-settings"><AdminOnlyRoute><SalesAssistSettings /></AdminOnlyRoute></Route>
+                    <Route path="/settings/assistants">
+                      <AdminOnlyRoute><AssistantsSettings /></AdminOnlyRoute>
+                    </Route>
                     <Route path="/settings/releases">
                       <AdminOnlyRoute><Releases /></AdminOnlyRoute>
                     </Route>

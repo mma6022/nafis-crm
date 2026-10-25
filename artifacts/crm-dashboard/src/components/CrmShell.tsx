@@ -9,6 +9,7 @@ import { usePresence } from '@/chat/Presence';
 import { fetchStaffUnread, staffChatPresence } from '@/chat/StaffChatPage';
 import { useTeamInbox } from '@/internal-chat/hooks';
 import { FloatingChat } from '@/chat/FloatingChat';
+import { AssistantDock } from '@/features/assistant/AssistantDock';
 import { useFloatingGuard } from './useFloatingGuard';
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { NotificationBell, NotificationProvider, NavNotificationBadge } from '@/site-notifications/NotificationBell';
@@ -58,6 +59,7 @@ const allNavItems: NavItem[] = [
   { href: '/social-monitor-reports', label: 'گزارش پیام‌رسان‌ها', icon: Radar, adminOnly: true },
   { href: '/voice-notes-usage', label: 'مصرف تبدیل صدا به متن', icon: AudioLines, adminOnly: true },
   { href: '/smart-filing', label: 'ثبت هوشمند', icon: Bot, smartFiling: true },
+  { href: '/settings/assistants', label: 'دستیارهای هوشمند', icon: Bot, adminOnly: true },
   { href: '/users', label: 'کاربران CRM', icon: UserCog, permission: 'users.view' },
   { href: '/settings/notifications', label: 'تنظیمات', icon: Settings, permission: 'notifications.view' },
   { href: '/settings/releases', label: 'نسخه‌های سایت', icon: Rocket, adminOnly: true },
@@ -73,7 +75,7 @@ const navGroups: NavGroup[] = [
   { id: 'finance', label: 'مالی و پرداخت', icon: Banknote, hrefs: ['/payment-orders', '/wallet-management', '/bank-accounts', '/accounting'] },
   { id: 'comms', label: 'پیام‌ها و تلفن', icon: Headset, hrefs: ['/chat', '/internal-chat', '/messengers', '/instagram-inbox', '/mobile-calls', '/phone'] },
   { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/social-monitor-reports', '/voice-notes-usage'] },
-  { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/settings/notifications', '/settings/releases'] },
+  { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/settings/notifications', '/settings/assistants', '/settings/releases'] },
 ];
 
 const OPEN_GROUPS_KEY = 'nafis.nav.openGroups';
@@ -363,6 +365,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
         <DiagnosticPageBoundary key={location}>{children}</DiagnosticPageBoundary>
       </main>
       {user && (canChat || canTeam) && !onChatPage ? <FloatingChat key={phone ? 'phone' : 'wide'} bottomOffset={phone ? 84 : 20} actor={`staff:${user.id}`} items={[...(canChat ? [{ href: '/chat', label: 'گفتگو با مشتریان', count: unread.data?.count ?? 0 }] : []), ...(canTeam ? [{ href: '/internal-chat', label: 'گفتگوی داخلی', count: team.data?.unreadCount ?? 0 }] : [])]} /> : null}
+      {/* «دستیار هوشمند»: stacked above the staff-chat FAB (54px + 12px gap); renders nothing unless the server lists an assistant for this user. */}
+      {user ? <AssistantDock user={user as { id: number; role?: string | null; salespersonId?: number | null }} phone={phone} bottomOffset={(phone ? 84 : 20) + 66} /> : null}
       {profileOpen && user ? <ProfileModal user={user} onClose={() => setProfileOpen(false)} /> : null}
       {reminderFormOpen ? <CreateReminderForm onClose={() => setReminderFormOpen(false)} /> : null}
       {dueReminder ? (
