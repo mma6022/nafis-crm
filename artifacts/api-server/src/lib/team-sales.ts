@@ -12,6 +12,7 @@ import {
   type LeadOutcome, type PlanEvaluation, type PlanMatch, type QualifierAnswers, type TeamSalesConfig,
 } from "./team-sales-rules";
 import { cleanProfile, type ApplicantProfile } from "./plan-profile-match";
+import { noteSalespersonChange } from "./expert-intro-sms";
 import { consultProfile, dataFromAnswers, latestConsultApplicantProfile, officialGrade, recordFirstCallVersion, recordFirstCallEditVersion } from "./consult-profile";
 
 export const TEAM_SALES_CONFIG_KEY = "team_sales_config";
@@ -103,6 +104,9 @@ export function logPriorityChange(c: PriorityChange): void {
     [c.customerId, c.oldPriority, c.newPriority, c.oldSalespersonId, c.newSalespersonId, c.actorUserId,
       c.source, c.reason ?? null, c.at ?? new Date().toISOString()],
   );
+  // crm-expert-intro-sms: queue the customer SMS on a qualifier → expert hand-off (inert while its switch is OFF; never throws).
+  if (c.oldSalespersonId !== c.newSalespersonId) noteSalespersonChange({ customerId: c.customerId, oldSalespersonId: c.oldSalespersonId,
+    newSalespersonId: c.newSalespersonId, source: c.source, qualifierId: getTeamSalesConfig().qualifierSalespersonId ?? null });
 }
 
 export function priorityHistory(customerId: number) {

@@ -61,7 +61,8 @@
     "test:voice-notes": "node scripts/run-bundled-fixture.mjs scripts/voice-notes-fixture.mjs",
     "fixture:first-call-edit": "node scripts/run-bundled-fixture.mjs scripts/first-call-edit-fixture.mjs",
     "check:rial-unit-message": "node scripts/rial-unit-message-check.mjs",
-    "fixture:call-note-min": "node scripts/run-bundled-fixture.mjs scripts/call-note-min-fixture.mjs"
+    "fixture:call-note-min": "node scripts/run-bundled-fixture.mjs scripts/call-note-min-fixture.mjs",
+    "fixture:expert-intro-sms": "node scripts/run-bundled-fixture.mjs scripts/expert-intro-sms-fixture.mjs"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.3.0",

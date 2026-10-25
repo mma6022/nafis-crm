@@ -11,6 +11,7 @@ import {
   type NotificationSettingsInput,
 } from '@workspace/api-client-react';
 import { ErrorState, SkeletonPanel } from '@/components/CrmShell';
+import { ExpertIntroSmsCard } from '@/features/expert-intro-sms/ExpertIntroSmsCard';
 
 export default function NotificationSettingsPage() {
   const queryClient = useQueryClient();
@@ -147,6 +148,8 @@ export default function NotificationSettingsPage() {
           <button type="submit" className="btn btn-primary" disabled={update.isPending} data-testid="button-save-notification-settings"><Save size={16} />{update.isPending ? 'در حال ذخیره…' : 'ذخیره تنظیمات'}</button>
         </div>
       </form>
+
+      <div className="notification-settings-grid expert-intro-grid"><ExpertIntroSmsCard /></div>
 
       <section className="panel notification-delivery-panel" data-testid="panel-database-backup">
         <div className="panel-head">

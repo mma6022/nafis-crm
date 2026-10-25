@@ -9,6 +9,7 @@ import { ErrorState, formatDate, SkeletonPanel } from '@/components/CrmShell';
 import { EmptyState, Modal, SearchField } from '@/components/DataTools';
 import SalespersonIdentityReview from './SalespersonIdentityReview';
 import { UserVoipField } from '@/components/UserVoipField';
+import { saveUserContactPhone, useUserContactPhones } from '@/features/expert-intro-sms/api';
 
 function saveError(error: unknown) {
   if (!error) return '';
@@ -128,6 +129,7 @@ export default function Users() {
       {editing && (
         <UserEditForm 
           user={editing} 
+          isAdmin={session.data?.user.role === 'admin'}
           roles={roles.data?.roles ?? []}
           pending={update.isPending} 
           error={saveError(update.error)}
@@ -155,11 +157,17 @@ function roleLabel(role: string) {
   return roles[role] ?? role;
 }
 
-function UserEditForm({ user, roles, pending, error, onClose, onSave }: { user: CrmUser; roles: AppRole[]; pending: boolean; error: string; onClose: () => void; onSave: (data: CrmUserUpdate) => void }) {
+function UserEditForm({ user, isAdmin, roles, pending, error, onClose, onSave }: { user: CrmUser; isAdmin: boolean; roles: AppRole[]; pending: boolean; error: string; onClose: () => void; onSave: (data: CrmUserUpdate) => void }) {
   const [form, setForm] = useState({ username: user.username, fullName: user.fullName ?? '', mobile: user.mobile ?? '', telegramId: user.telegramId ?? '', password: '', confirmPassword: '', role: user.role, active: user.active, voipExtension: user.voipExtension ?? '' });
   const [formError, setFormError] = useState('');
+  // crm-expert-intro-sms: «شماره تماس برای مشتری» (admin only; separate from the login mobile).
+  const contactPhones = useUserContactPhones(isAdmin);
+  const savedContact = contactPhones.data?.find((p) => p.userId === user.id)?.phone ?? '';
+  const [contactPhone, setContactPhone] = useState<string | null>(null);
+  const contactValue = contactPhone ?? savedContact;
+  const client = useQueryClient();
   
-  const submit = (event: FormEvent) => { 
+  const submit = async (event: FormEvent) => { 
     event.preventDefault();
     if (form.password && form.password.length < 8) {
       setFormError('رمز عبور باید حداقل ۸ نویسه باشد.');
@@ -170,6 +178,10 @@ function UserEditForm({ user, roles, pending, error, onClose, onSave }: { user: 
       return;
     }
     setFormError('');
+    if (isAdmin && contactPhone !== null && contactPhone.trim() !== savedContact) {
+      try { await saveUserContactPhone(user.id, contactPhone.trim()); await client.invalidateQueries({ queryKey: ['expert-intro-user-phones'] }); }
+      catch (e) { setFormError(e instanceof Error ? e.message : 'ذخیره‌ی شماره تماس برای مشتری انجام نشد.'); return; }
+    }
     onSave({
       username: form.username.trim(),
       fullName: form.fullName.trim() || null,
@@ -202,6 +214,11 @@ function UserEditForm({ user, roles, pending, error, onClose, onSave }: { user: 
             <input id="user-mobile-edit" value={form.mobile} maxLength={30} dir="ltr" onChange={(event) => setForm({ ...form, mobile: event.target.value })} placeholder="09xxxxxxxxx" data-testid="input-user-mobile" />
           </div>
           <UserVoipField value={form.voipExtension} onChange={voipExtension => setForm({ ...form, voipExtension })} />
+          {isAdmin ? <div className="field">
+            <label htmlFor="user-customer-contact-phone">شماره تماس برای مشتری</label>
+            <input id="user-customer-contact-phone" value={contactValue} maxLength={20} dir="ltr" disabled={contactPhones.isLoading} onChange={(event) => setContactPhone(event.target.value)} placeholder="09xxxxxxxxx یا 021xxxxxxxx" data-testid="input-user-customer-contact-phone" />
+            <small className="field-hint">در پیامک معرفی کارشناس برای مشتری فرستاده می‌شود.</small>
+          </div> : null}
           <div className="field full">
             <label htmlFor="user-full-name">نام نمایشی</label>
             <input id="user-full-name" value={form.fullName} onChange={(event) => setForm({ ...form, fullName: event.target.value })} data-testid="input-user-full-name" />

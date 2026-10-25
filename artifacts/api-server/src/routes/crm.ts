@@ -1,4 +1,5 @@
 import express, { Router, type IRouter, type RequestHandler } from "express";
+import { deleteCustomerIntro } from "../lib/expert-intro-sms-core";
 import { callNoteError } from "../lib/call-note-rule";
 import { crossOwnerEligible, findOtherOwnerMatches } from "../lib/cross-owner-search";
 import { customerSearchSql } from "../lib/customer-id-search";
@@ -3252,6 +3253,7 @@ router.delete(
       executeChanges("DELETE FROM consultation_forms WHERE customer_id = ?", [
         parsed.data.id,
       ]);
+      deleteCustomerIntro(crmDb, parsed.data.id);
       executeChanges("DELETE FROM customers WHERE id = ?", [parsed.data.id]);
     });
     res.status(204).send();
