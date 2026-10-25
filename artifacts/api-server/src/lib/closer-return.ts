@@ -9,11 +9,12 @@
  *    no_answer_archive, nonp1_auto_transfer): new_salesperson_id at created_at, old_salesperson_id just before it;
  *  - team_sales_transfer_snapshot rows not rolled back (batch teamsales-20261024-0126, 848 customers):
  *    new_salesperson_id at created_at, previous_salesperson_id just before it.
- * Walk it newest → oldest, skip the qualifier (Kazemi) and NULL; the FIRST other owner met is "the previous owner".
- *  - previous owner is a configured closer (3 / 4) and active        → that closer, reason «کارشناس قبلی مشتری»;
- *  - previous owner is a trainee (5 / 19 / 20)                        → fair split, reason «تقسیم عادلانه»;
- *  - previous owner is a closer that is inactive / no longer a closer → fair split;
- *  - never had anyone but Kazemi                                       → fair split.
+ * Walk it newest → oldest and return the customer to the MOST RECENT ACTIVE MAIN EXPERT (PM answer 2026-10-25 17:57):
+ * skip NULL, the qualifier (Kazemi), trainees (5 / 19 / 20), anyone who is not a configured closer, and closers that are
+ * inactive now. The first configured, active closer met wins → reason «کارشناس قبلی مشتری».
+ * Only if none exists → fair split, reason «تقسیم عادلانه» (never_had_expert: no other owner recorded at all;
+ * no_active_expert: only trainees / non-closers / inactive closers recorded).
+ * e.g. Ghasemi → trainee 20 → Kazemi goes back to Ghasemi.
  * A return does NOT advance the round-robin cursor, so it never counts toward that closer's fair-split quota.
  */
 import { queryRow, queryRows } from "./crm-db";
@@ -25,7 +26,7 @@ export const CLOSER_RETURN_FAIR_LABEL = "تقسیم عادلانه" as const;
 export type CloserChoice =
   | { kind: "previous_expert"; salespersonId: number; label: typeof CLOSER_RETURN_PREVIOUS_LABEL; evidence: string }
   | { kind: "fair_split"; label: typeof CLOSER_RETURN_FAIR_LABEL;
-      why: "never_had_expert" | "previous_trainee" | "previous_inactive" | "previous_not_closer"; previousSalespersonId: number | null };
+      why: "never_had_expert" | "no_active_expert"; previousSalespersonId: number | null };
 
 type Obs = { at: string; ord: number; sp: number | null; evidence: string };
 
@@ -59,14 +60,15 @@ export function ownershipTimeline(customerId: number, currentSalespersonId: numb
 export function chooseCloserFor(customerId: number, currentSalespersonId: number | null,
   cfg: { qualifierSalespersonId: number | null; closerSalespersonIds: number[] }): CloserChoice {
   const q = cfg.qualifierSalespersonId == null ? null : Number(cfg.qualifierSalespersonId);
-  const prev = ownershipTimeline(customerId, currentSalespersonId).find((o) => o.sp != null && o.sp !== q);
-  const fair = (why: Extract<CloserChoice, { kind: "fair_split" }>["why"], sp: number | null): CloserChoice =>
-    ({ kind: "fair_split", label: CLOSER_RETURN_FAIR_LABEL, why, previousSalespersonId: sp });
-  if (!prev || prev.sp == null) return fair("never_had_expert", null);
-  const sp = prev.sp;
-  if (NONP1_TRAINEE_SALESPERSON_IDS.includes(sp)) return fair("previous_trainee", sp);
-  if (!cfg.closerSalespersonIds.map(Number).includes(sp)) return fair("previous_not_closer", sp);
-  const active = queryRow<{ a: number }>("SELECT active AS a FROM salespersons WHERE id=?", [sp]);
-  if (!active || Number(active.a) !== 1) return fair("previous_inactive", sp);
-  return { kind: "previous_expert", salespersonId: sp, label: CLOSER_RETURN_PREVIOUS_LABEL, evidence: prev.evidence };
+  const closers = cfg.closerSalespersonIds.map(Number);
+  const activeCache = new Map<number, boolean>();
+  const isActive = (sp: number) => {
+    if (!activeCache.has(sp)) { const r = queryRow<{ a: number }>("SELECT active AS a FROM salespersons WHERE id=?", [sp]); activeCache.set(sp, Boolean(r) && Number(r!.a) === 1); }
+    return activeCache.get(sp)!;
+  };
+  const others = ownershipTimeline(customerId, currentSalespersonId).filter((o) => o.sp != null && o.sp !== q);
+  const hit = others.find((o) => !NONP1_TRAINEE_SALESPERSON_IDS.includes(o.sp!) && closers.includes(o.sp!) && isActive(o.sp!));
+  if (hit) return { kind: "previous_expert", salespersonId: hit.sp!, label: CLOSER_RETURN_PREVIOUS_LABEL, evidence: hit.evidence };
+  return { kind: "fair_split", label: CLOSER_RETURN_FAIR_LABEL, why: others.length ? "no_active_expert" : "never_had_expert",
+    previousSalespersonId: others.length ? others[0].sp : null };
 }

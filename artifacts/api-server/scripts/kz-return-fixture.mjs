@@ -54,6 +54,12 @@ try {
     tally[k] = (tally[k] ?? 0) + 1; (byCat[k] ??= []).push(c);
   }
   console.log("SURVEY (Kazemi in-progress non-P1)", JSON.stringify(tally), "total", kz.length);
+  const byTarget = {}; for (const [k, v] of Object.entries(tally)) { const t = k.startsWith("previous:") ? `expert:${k.split(":")[1]}` : "fair_split"; byTarget[t] = (byTarget[t] ?? 0) + v; }
+  console.log("SURVEY BY TARGET", JSON.stringify(byTarget));
+  // customers whose most recent non-Kazemi owner was a trainee (PM 17:57: skip the trainee, walk back further)
+  const firstOther = (id) => cr.ownershipTimeline(id, Number(row(id).s)).find((o) => o.sp != null && o.sp !== 6);
+  const viaTrainee = kz.filter((c) => { const f = firstOther(c.id); return f && [5, 19, 20].includes(f.sp); }).map((c) => c.id);
+  console.log("VIA TRAINEE", JSON.stringify(viaTrainee.map((id) => [id, choose(id).kind, choose(id).salespersonId ?? null])));
 
   await ok("config: team sales enabled, qualifier 6, closers [3,4]", () => {
     assert.equal(cfg.enabled, true); assert.equal(cfg.qualifierSalespersonId, 6); assert.deepEqual(cfg.closerSalespersonIds.map(Number), [3, 4]);
@@ -66,10 +72,10 @@ try {
   const pickFrom = (k, n, pref) => (byCat[k] ?? []).filter((c) => pref === undefined || c.p === pref).slice(0, n).map((c) => c.id);
   const hasaniBatch = pickFrom("previous:3:batch", 3, 3), ghasemiBatch = pickFrom("previous:4:batch", 3, 3);
   const nonp1 = pickFrom("previous:3:nonp1_auto_transfer", 3).concat(pickFrom("previous:4:nonp1_auto_transfer", 3));
-  const kzOnly = pickFrom("fair:never_had_expert", 4, 3), trainee = pickFrom("fair:previous_trainee", 3);
+  const kzOnly = pickFrom("fair:never_had_expert", 5, 3), trainee = viaTrainee.slice(0, 3);
   const hasaniNone = pickFrom("previous:3:batch", 1, null), ghasemiNone = pickFrom("previous:4:batch", 1, null);
   console.log("CASES", JSON.stringify({ hasaniBatch, ghasemiBatch, nonp1, kzOnly, trainee, hasaniNone, ghasemiNone }));
-  assert.equal(hasaniBatch.length, 3); assert.equal(ghasemiBatch.length, 3); assert.equal(kzOnly.length, 4);
+  assert.equal(hasaniBatch.length, 3); assert.equal(ghasemiBatch.length, 3); assert.equal(kzOnly.length, 5);
 
   const promote = (id, actor = kazemi) => {
     const before = { cur: cursor(), peek: ts.peekCloserFor(id), s: Number(row(id).s), p: row(id).p };
@@ -114,15 +120,28 @@ try {
     assert.equal(b.cursorDelta, 1); assert.notEqual(b.r.closerSalespersonId, a.r.closerSalespersonId, "next fair turn goes to the other closer");
     const c = promote(kzOnly[2]); assert.equal(c.r.closerSalespersonId, a.r.closerSalespersonId);
   });
-  for (const id of trainee) await ok(`previous owner a trainee #${id} -> fair split`, () => {
-    const ch = choose(id); assert.equal(ch.kind, "fair_split"); assert.equal(ch.why, "previous_trainee");
-    const { r, h, cursorDelta } = promote(id); assert.equal(r.assignment, "fair_split"); assert.equal(cursorDelta, 1); assert.equal(h.reason, "تقسیم عادلانه");
+  await ok("#1623 (Ghasemi -> trainee 20 -> Kazemi) -> back to Ghasemi (4), trainee skipped, cursor unchanged", () => {
+    // live already handed #1623 off (history #76, 2026-10-25 14:08Z). Restore its pre-hand-off state ON THE COPY ONLY.
+    if (Number(row(1623).s) !== 6) {
+      execute("DELETE FROM customer_priority_history WHERE customer_id=1623 AND source='promote' AND old_salesperson_id=6 AND created_at>'2026-10-25'");
+      execute("UPDATE customers SET salesperson_id=6, priority=3 WHERE id=1623");
+    }
+    const f = firstOther(1623); assert.equal(f.sp, 20, "most recent non-Kazemi owner of #1623 is trainee 20");
+    const ch = choose(1623); assert.equal(ch.kind, "previous_expert"); assert.equal(ch.salespersonId, 4);
+    const { r, h, cursorDelta } = promote(1623); assert.equal(r.closerSalespersonId, 4); assert.equal(r.assignment, "previous_expert");
+    assert.equal(cursorDelta, 0); assert.equal(h.reason, "کارشناس قبلی مشتری");
+  });
+  for (const id of trainee.filter((x) => x !== 1623)) await ok(`previous owner a trainee #${id} -> the active main expert before the trainee, else fair split`, () => {
+    const older = cr.ownershipTimeline(id, Number(row(id).s)).find((o) => o.sp === 3 || o.sp === 4);
+    const ch = choose(id);
+    if (older) { assert.equal(ch.kind, "previous_expert"); assert.equal(ch.salespersonId, older.sp); }
+    else { assert.equal(ch.kind, "fair_split"); assert.equal(ch.why, "no_active_expert"); }
   });
   await ok("previous expert inactive -> fair split over the active closers", () => {
     const id = pickFrom("previous:4:batch", 5, 3)[4];
     execute("UPDATE salespersons SET active=0 WHERE id=4");
     try {
-      const ch = choose(id); assert.equal(ch.kind, "fair_split"); assert.equal(ch.why, "previous_inactive");
+      const ch = choose(id); assert.equal(ch.kind, "fair_split"); assert.equal(ch.why, "no_active_expert");
       const { r, cursorDelta } = promote(id); assert.equal(r.closerSalespersonId, 3); assert.equal(cursorDelta, 1);
     } finally { execute("UPDATE salespersons SET active=1 WHERE id=4"); }
   });
@@ -133,6 +152,16 @@ try {
     execute("INSERT INTO customer_priority_history(customer_id,old_priority,new_priority,old_salesperson_id,new_salesperson_id,actor_user_id,source,reason,created_at) VALUES (?,1,1,3,4,1,'customer_update',NULL,?)", [id, at(2)]);
     execute("INSERT INTO customer_priority_history(customer_id,old_priority,new_priority,old_salesperson_id,new_salesperson_id,actor_user_id,source,reason,created_at) VALUES (?,1,3,4,6,1,'nonp1_auto_transfer','x',?)", [id, at(3)]);
     const ch = choose(id); assert.equal(ch.kind, "previous_expert"); assert.equal(ch.salespersonId, 4);
+  });
+  await ok("most recent ACTIVE expert: Hasani -> Ghasemi (inactive now) -> trainee 19 -> Kazemi => Hasani; Ghasemi active again => Ghasemi", () => {
+    const id = kzOnly[4];
+    const at = (m) => `2026-10-25T0${m}:00:00.000Z`;
+    const ins = (o, n, src, m) => execute("INSERT INTO customer_priority_history(customer_id,old_priority,new_priority,old_salesperson_id,new_salesperson_id,actor_user_id,source,reason,created_at) VALUES (?,3,3,?,?,1,?,NULL,?)", [id, o, n, src, at(m)]);
+    ins(6, 3, "customer_update", 1); ins(3, 4, "customer_update", 2); ins(4, 19, "customer_update", 3); ins(19, 6, "customer_update", 4);
+    execute("UPDATE salespersons SET active=0 WHERE id=4");
+    try { const ch = choose(id); assert.equal(ch.kind, "previous_expert"); assert.equal(ch.salespersonId, 3); }
+    finally { execute("UPDATE salespersons SET active=1 WHERE id=4"); }
+    const ch2 = choose(id); assert.equal(ch2.kind, "previous_expert"); assert.equal(ch2.salespersonId, 4);
   });
   await ok("first-call form P1 hand-off of a batch-from-Hasani customer (no priority) -> Hasani, source qualifier_form", () => {
     const id = hasaniNone[0]; const c0 = cursor();
