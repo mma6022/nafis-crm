@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
 import crmRouter from "./crm";
+import consultationReportRouter from "./consultation-report";
 import { staffChatRouter } from "./customer-chat";
 import { startDatabaseBackupScheduler } from "../lib/database-backup";
 import contractsRouter from "./contracts";
@@ -53,6 +54,8 @@ router.use(socialMonitorFeature.reportRouter);
 router.use(salesReportsRouter);
 router.use("/internal-chat",createInternalChatRouter({db:crmDb,requireAuth,requirePermission:requirePermission("internal_chat.use"),
   saveFile:saveChatObject,readFile:readChatObject,deleteFile:deleteChatObject,validateFile:validateInternalChatFile}));
+// Before crmRouter: «/consultations/report» must not reach «/consultations/:id».
+router.use(consultationReportRouter);
 router.use(crmRouter);
 router.use(teamSalesRouter);
 router.use(teamCommissionRouter);

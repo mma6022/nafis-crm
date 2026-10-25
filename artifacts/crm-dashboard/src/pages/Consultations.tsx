@@ -14,17 +14,37 @@ import { EmptyState, Modal, Pagination, SearchField } from '@/components/DataToo
 import { useGetConsultationHistoricalLoanPlanMatches, getGetConsultationHistoricalLoanPlanMatchesQueryKey } from '@workspace/api-client-react';
 import { CustomerName, customerNameText } from '@/components/customer/CustomerName';
 import { CallCustomerSelect, type CallCustomer } from '@/components/CallCustomerSelect';
+import { useQuery } from '@tanstack/react-query';
+import { useGetAuthSession, getGetAuthSessionQueryKey, useListSalespersons } from '@workspace/api-client-react';
+import { useMinWidth } from './customers-ui';
+import { ConsultFilterBar } from '@/components/consultations/ConsultFilters';
+import { downloadConsultCsv, EMPTY_FILTERS, fetchConsultReport, readFiltersFromUrl, readOffsetFromUrl, toApiQuery, writeFiltersToUrl, fa, JOB_SHORT, type ConsultFilterState, type ReportItem } from '@/lib/consult-report';
 
-const limit = 8;
+const limit = 20;
+// crm-consult-filters: the list reads GET /consultations/report (filters + summary, same role scope as GET /consultations).
 export default function Consultations() {
   const queryClient = useQueryClient();
-  const [search, setSearch] = useTableState('consultations.search', '');
-  const [offset, setOffset] = useTableState('consultations.offset', 0);
+  const desktop = useMinWidth(981);
+  const session = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
+  const user = session.data?.user;
+  const [f, setF] = useState<ConsultFilterState>(() => readFiltersFromUrl());
+  const [offset, setOffset] = useState(() => readOffsetFromUrl());
+  const [searchText, setSearchText] = useState(f.search);
+  useEffect(() => { const t = window.setTimeout(() => { if (searchText.trim() !== f.search.trim()) { setF((cur) => ({ ...cur, search: searchText })); setOffset(0); } }, 350); return () => window.clearTimeout(t); }, [searchText]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { writeFiltersToUrl(f, offset); }, [f, offset]);
+  const update = (patch: Partial<ConsultFilterState>) => { setF((cur) => ({ ...cur, ...patch })); setOffset(0); if ('search' in patch) setSearchText(patch.search ?? ''); };
+  const clear = () => { setF(EMPTY_FILTERS); setSearchText(''); setOffset(0); setExportError(''); };
+  const qs = toApiQuery(f);
+  const query = useQuery({ queryKey: ['consultation-report', qs, offset], queryFn: ({ signal }) => fetchConsultReport(`${qs}${qs ? '&' : ''}limit=${limit}&offset=${offset}`, signal), placeholderData: (prev) => prev, retry: false });
+  const report = query.data;
+  const scoped = report?.salespersonScoped ?? user?.customerScope === 'assigned';
+  const salespersons = useListSalespersons({ query: { queryKey: ['consult-filter-salespersons'], staleTime: 60_000, enabled: Boolean(user) && !scoped } });
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
+  const onExport = async () => { setExporting(true); setExportError(''); try { await downloadConsultCsv(qs); } catch (e) { setExportError(e instanceof Error ? e.message : 'دریافت خروجی انجام نشد.'); } finally { setExporting(false); } };
   const [editing, setEditing] = useState<Consultation | null>(null);
   const [matching, setMatching] = useState<Consultation | null>(null);
-  const params = { search: search || undefined, limit, offset };
-  const query = useListConsultations(params, { query: { queryKey: getListConsultationsQueryKey(params) } });
-  const update = useUpdateConsultation();
+  const update2 = useUpdateConsultation();
   const dict = useListConsultOptions(undefined, { query: { queryKey: getListConsultOptionsQueryKey(), staleTime: 0 } });
   const opts = dict.data ?? [];
   const NA = 'ثبت نشده';
@@ -43,23 +63,40 @@ export default function Consultations() {
   });
   const handoff = useGetConsultation(handoffId ?? 0, { query: { queryKey: getGetConsultationQueryKey(handoffId ?? 0), enabled: handoffId !== null, retry: false } });
   useEffect(() => { if (handoff.data) setMatching(handoff.data); }, [handoff.data]);
-  const save = (data: ConsultationUpdate) => { if (!editing) return; const consultationId = editing.id; update.mutate({ id: consultationId, data }, { onSuccess: () => { setEditing(null); queryClient.invalidateQueries({ queryKey: getListConsultationsQueryKey() }); queryClient.invalidateQueries({ queryKey: getMatchConsultationLoanPlansQueryKey(consultationId) }); } }); };
+  const save = (data: ConsultationUpdate) => { if (!editing) return; const consultationId = editing.id; update2.mutate({ id: consultationId, data }, { onSuccess: () => { setEditing(null); queryClient.invalidateQueries({ queryKey: getListConsultationsQueryKey() }); queryClient.invalidateQueries({ queryKey: ['consultation-report'] }); queryClient.invalidateQueries({ queryKey: getMatchConsultationLoanPlansQueryKey(consultationId) }); } }); };
+  const items = report?.items ?? [];
+  const date = (item: ReportItem) => (item.createdAt ?? item.updatedAt) ? formatDateTime((item.createdAt ?? item.updatedAt) as string) : NA;
+  const plansCell = (item: ReportItem) => { const ok = item.facts.eligiblePlans.length; const rv = item.facts.reviewPlans.length; return <span className="csf-pc" data-testid={`text-consultation-plans-${item.id}`}>
+    {ok ? <><b className="ok">{fa(ok)}</b>مناسب</> : null}{rv ? <><b className="rv">{fa(rv)}</b>باید بررسی شود</> : null}{!ok && !rv ? <><b className="no">۰</b>طرح مناسبی نبود</> : null}
+    {item.facts.caseId ? <Link href={`/loan-applications/${item.facts.caseId}`} className="csf-case" data-testid={`link-consultation-case-${item.id}`}>پرونده #{fa(item.facts.caseId)}</Link> : null}</span>; };
+  const actions = (item: ReportItem) => <div style={{ display: 'flex', gap: 8 }}><button className="table-action" onClick={() => setMatching(item)} data-testid={`button-match-consultation-${item.id}`}><ShieldCheck size={14} /> طرح‌ها</button>{(item.questionnaireVersion ?? 0) >= 1 ? <span className="secondary-cell" data-testid={`text-consultation-immutable-${item.id}`} style={{ maxWidth: 170 }}>سابقهٔ مستقل · برای تغییر، مشاوره جدید ثبت کنید</span> : <button className="table-action" onClick={() => setEditing(item)} data-testid={`button-edit-consultation-${item.id}`}><Edit3 size={14} /> ویرایش</button>}</div>;
+  const empty = <EmptyState title="مشاوره‌ای با این فیلترها پیدا نشد" description="فیلترها را کمتر کنید یا «پاک کردن فیلترها» را بزنید." />;
   return <section className="data-page">
-    <div className="page-intro"><div><div className="eyebrow">ارزیابی مالی</div><h2>درخواست‌های مشاوره</h2><p>درخواست‌ها را با زمینه مشتری و شاخص‌های مالی کنار هم ببینید.</p></div><div className="data-summary"><ClipboardList size={17} /><span>در صف بررسی</span><strong data-testid="text-total-consultations">{(query.data?.total ?? 0).toLocaleString('fa-IR')}</strong></div></div>
-    <div className="data-toolbar"><div className="toolbar"><SearchField value={search} onChange={(value) => { setSearch(value); setOffset(0); }} placeholder="جست‌وجو با نام، موبایل یا شناسه (#۱۲۳۴)" testId="consultations" /></div></div>
-      {query.isLoading ? <SkeletonPanel rows={6} /> : query.isError ? <ErrorState onRetry={() => query.refetch()} /> : <div className="data-table-wrap" style={{ overflowX: 'auto' }}>
+    <div className="page-intro"><div><div className="eyebrow">ارزیابی مالی</div><h2>مشاوره‌ها</h2><p>هر مشاوره سابقه‌ای ثابت است؛ برای تغییر، مشاوره‌ی تازه ثبت کنید.</p></div><div className="data-summary"><ClipboardList size={17} /><span>نتیجه‌ی فیلتر</span><strong data-testid="text-total-consultations">{(report?.total ?? 0).toLocaleString('fa-IR')}</strong></div></div>
+    <ConsultFilterBar ctx={{ f, update, report, salespersons: (salespersons.data ?? []).map((s) => ({ id: s.id, name: s.name })), scoped, canPlanType: Boolean(report?.canFilterPlanType) }}
+      desktop={desktop} searchText={searchText} setSearchText={(v) => setSearchText(v)} onClear={clear} loading={query.isFetching} exporting={exporting} exportError={exportError} onExport={() => void onExport()} />
+      {query.isLoading ? <SkeletonPanel rows={6} /> : query.isError ? (query.error instanceof Error && 'status' in query.error && (query.error as { status: number }).status === 400
+        ? <div role="alert" className="clx-err" style={{ padding: 12 }}>{query.error.message}</div> : <ErrorState onRetry={() => query.refetch()} />) : <div className="data-table-wrap" style={{ overflowX: 'auto', ...(desktop ? {} : { background: 'none', border: 0, boxShadow: 'none' }) }}>
         {dict.isError ? <div role="alert" style={{ padding: 8, fontSize: 12, color: '#be123c' }}>برچسب‌های پرسشنامه بارگذاری نشد. <button className="table-action" onClick={() => void dict.refetch()}>تلاش دوباره</button></div> : null}
-        <table className="data-table"><thead><tr><th>مشتری</th><th>متقاضی</th><th>ضامن</th><th>تاریخ ثبت</th><th>عملیات</th></tr></thead><tbody>
-          {(query.data?.items ?? []).length ? query.data?.items.map((item) => <tr key={item.id} data-testid={`row-consultation-${item.id}`}>
+        {desktop ? <table className="data-table"><thead><tr><th>مشتری</th><th>متقاضی</th><th>ضامن</th><th>طرح‌ها</th><th>تاریخ ثبت</th><th>عملیات</th></tr></thead><tbody>
+          {items.length ? items.map((item) => <tr key={item.id} data-testid={`row-consultation-${item.id}`}>
             <td><span className="primary-cell"><CustomerName id={item.customerId} name={item.customerName} badgeTestId={`badge-consult-customer-id-${item.id}`} /></span><span className="secondary-cell mono">{item.customerPhone}</span><span className="secondary-cell">کارشناس پرونده: {item.customerSalespersonName || 'بدون تخصیص'}</span></td>
             <td style={{ minWidth: 190 }}>{rankAns('رتبه', item.creditRank, `text-consultation-rank-${item.id}`)}{ans('چک', lab('customer_check_status', item.customerCheckStatus))}{ans('کسر حقوق', yn('has_customer_salary_deduct', item.hasCustomerSalaryDeduct))}{ans('شغل', lab('job_type', item.jobType))}</td>
             <td style={{ minWidth: 190 }}>{ans('ضامن', yn('has_guarantor', item.hasGuarantor))}{item.hasGuarantor === false ? ans('رتبه ضامن', 'بدون ضامن') : rankAns('رتبه ضامن', item.guarantorCreditRank, `text-consultation-guarantor-rank-${item.id}`)}{ans('چک ضامن', item.hasGuarantor === false ? 'بدون ضامن' : lab('guarantor_check_type', item.guarantorCheckType))}{ans('کسر حقوق ضامن', item.hasGuarantor === false ? 'بدون ضامن' : yn('has_guarantor_salary_deduct', item.hasGuarantorSalaryDeduct))}</td>
-            <td className="secondary-cell" data-testid={`text-consultation-date-${item.id}`}>{(item.createdAt ?? item.updatedAt) ? formatDateTime((item.createdAt ?? item.updatedAt) as string) : NA}</td>
-            <td><div style={{display: 'flex', gap: 8}}><button className="table-action" onClick={() => setMatching(item)} data-testid={`button-match-consultation-${item.id}`}><ShieldCheck size={14} /> تطابق</button>{(item.questionnaireVersion ?? 0) >= 1 ? <span className="secondary-cell" data-testid={`text-consultation-immutable-${item.id}`} style={{ maxWidth: 170 }}>سابقهٔ مستقل · برای تغییر، مشاوره جدید ثبت کنید</span> : <button className="table-action" onClick={() => setEditing(item)} data-testid={`button-edit-consultation-${item.id}`}><Edit3 size={14} /> ویرایش</button>}</div></td>
-          </tr>) : <tr><td colSpan={5}><EmptyState title="درخواست مشاوره‌ای پیدا نشد" description="با تغییر جست‌وجو یا ثبت درخواست جدید از سمت تیم، این فهرست تکمیل می‌شود." /></td></tr>}
-        </tbody></table><Pagination total={query.data?.total ?? 0} offset={offset} limit={limit} onChange={setOffset} testId="consultations" />
+            <td style={{ minWidth: 170 }}>{plansCell(item)}</td>
+            <td className="secondary-cell" data-testid={`text-consultation-date-${item.id}`}>{date(item)}</td>
+            <td>{actions(item)}</td>
+          </tr>) : <tr><td colSpan={6}>{empty}</td></tr>}
+        </tbody></table> : <div className="csf-cards">{items.length ? items.map((item) => <article key={item.id} className="csf-card" data-testid={`card-consultation-${item.id}`}>
+            <div className="top"><span className="primary-cell"><CustomerName id={item.customerId} name={item.customerName} badgeTestId={`badge-consult-customer-id-${item.id}`} /></span><span className="secondary-cell">{date(item)}</span></div>
+            <span className="secondary-cell"><span className="mono">{item.customerPhone}</span> · {item.customerSalespersonName || 'بدون تخصیص'}</span>
+            <div className="ln"><em>متقاضی</em><GradeChip value={item.creditRank} testId={`text-consultation-rank-${item.id}`} />{item.facts.jobType ? <span className="csf-tag">{JOB_SHORT[item.facts.jobType] ?? lab('job_type', item.jobType)}</span> : null}<span className="csf-tag">چک: {item.facts.cheque === 'has' ? 'دارد' : item.facts.cheque === 'no' ? 'ندارد' : NA}</span></div>
+            <div className="ln"><em>ضامن</em>{item.hasGuarantor ? <><GradeChip value={item.guarantorCreditRank} testId={`text-consultation-guarantor-rank-${item.id}`} />{item.facts.guarantorJobType ? <span className="csf-tag">{JOB_SHORT[item.facts.guarantorJobType] ?? item.facts.guarantorJobType}</span> : null}</> : <span className="csf-tag">{item.hasGuarantor === false ? 'ندارد' : NA}</span>}</div>
+            <div className="acts">{plansCell(item)}{actions(item)}</div>
+          </article>) : empty}</div>}
+        <Pagination total={report?.total ?? 0} offset={offset} limit={limit} onChange={setOffset} testId="consultations" />
       </div>}
-    {editing ? <ConsultationForm consultation={editing} pending={update.isPending} onClose={() => setEditing(null)} onSave={save} /> : null}
+    {editing ? <ConsultationForm consultation={editing} pending={update2.isPending} onClose={() => setEditing(null)} onSave={save} /> : null}
     {matching ? <MatchesModal consultation={matching} onClose={() => setMatching(null)} /> : null}
   </section>;
 }

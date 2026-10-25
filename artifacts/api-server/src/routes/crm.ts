@@ -932,7 +932,7 @@ function callFromRow(row: CallRecordRow) {
   };
 }
 
-function consultationFromRow(row: ConsultationRow) {
+export function consultationFromRow(row: ConsultationRow) {
   const snapshot = row as ConsultationRow & { created_at?: string | null; questionnaire_version?: number };
   const preliminary = (snapshot.questionnaire_version ?? 0) >= 1;
   const bool = (value: number | null) =>
@@ -5506,10 +5506,13 @@ router.get(
   },
 );
 
-export function computeConsultationPlanMatches(consultation: ReturnType<typeof consultationFromRow>) {
-    const plans = queryRows<LoanPlanRow>(
-      `${planSelect} WHERE active = 1 ORDER BY id DESC`,
-    ).map(planFromRow);
+/** Active plans as the live matcher reads them (consult report: loaded once for a whole list). */
+export function activeMatchPlans() {
+  return queryRows<LoanPlanRow>(`${planSelect} WHERE active = 1 ORDER BY id DESC`).map(planFromRow);
+}
+
+export function computeConsultationPlanMatches(consultation: ReturnType<typeof consultationFromRow>, preloadedPlans?: ReturnType<typeof activeMatchPlans>) {
+    const plans = preloadedPlans ?? activeMatchPlans();
     const matches = plans.map((plan) => {
       if (!plan.conditions.length) {
         return {
