@@ -21,6 +21,7 @@
 .slh-list li.is-open { border-color: #BFE3CF; background: #F5FBF8; }
 .slh-when { font-weight: 700; }
 .slh-src, .slh-state { color: #4B5563; }
+.slh > summary svg { margin-inline-end: 6px; vertical-align: -3px; flex: none; }
 .slq { margin-bottom: 12px; border: 1px solid #BFE3CF; }
 .slq-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .slq-sum { font-size: 12px; color: #4B5563; }
