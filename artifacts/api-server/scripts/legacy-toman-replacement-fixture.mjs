@@ -939,13 +939,13 @@ try {
       const sourceValues = JSON.parse(generation.manual_values_json);
       const savedPdf = await readFile(generation.pdf_path);
       const corruptPdf = Buffer.concat([savedPdf, Buffer.from("\n% fixture tamper\n")]);
+      // NO-CONTRACT-CHECK: contract text/values (principal, installments) are checked by the admin,
+      // not by the loan workflow, so only CRM-side and file-integrity tampering must block here.
+      void sourceValues;
       const invalidCases = [
-        ["principal", () => db.prepare("UPDATE contract_generations SET manual_values_json=? WHERE id=?")
-          .run(JSON.stringify({ ...sourceValues, principal: "99999999" }), currentGenerationId)],
-        ["duration", () => unchangedDurationWithoutMapping
-          ? db.prepare("UPDATE loan_applications SET requested_duration_months=12 WHERE id=?").run(id)
-          : db.prepare("UPDATE contract_generations SET manual_values_json=? WHERE id=?")
-            .run(JSON.stringify({ ...sourceValues, installments: "36" }), currentGenerationId)],
+        ...(unchangedDurationWithoutMapping
+          ? [["duration", () => db.prepare("UPDATE loan_applications SET requested_duration_months=12 WHERE id=?").run(id)]]
+          : []),
         ["hash", () => writeFile(generation.pdf_path, corruptPdf, { mode: 0o600 })],
         ["current generation", () => db.prepare("UPDATE loan_applications SET current_primary_generation_id=? WHERE id=?")
           .run(sourceGenerationId, id)],
@@ -1120,7 +1120,7 @@ try {
     ["active send claim", "send_claim_id='synthetic-active-claim'"],
     ["provider contract already exists", "provider_contract_id='synthetic-existing-contract'"],
     ["provider rejection", "provider_status='reject'"],
-    ["changed principal", `manual_values_json='${JSON.stringify({ principal: "999", installments: "24" })}'`],
+    // NO-CONTRACT-CHECK: a changed principal in the stored contract values no longer blocks reuse (admin checks the contract).
   ]) {
     markInterrupted();
     db.prepare("UPDATE contract_generations SET manual_values_json=? WHERE id=?").run(recoveryRow.manual_values_json, recovery.id);

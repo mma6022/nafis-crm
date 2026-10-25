@@ -728,7 +728,8 @@ function tomanReplacementGenerationMatches(
         !["sent", "signed"].includes(String(generation.status)) ||
         (generation.status === "signed" && !isStrictSignedProviderState(generation.provider_status))))) return false;
   // NO-CONTRACT-CHECK (Mohammad, 25 Oct): the contract text/amount is not read; the admin checks the contract.
-  return true;
+  // Stored-file integrity (sha256) is still required.
+  return storedContractPdfIntact(generation);
 }
 // NO-CONTRACT-CHECK (Mohammad, 25 Oct 14:42): the loan flow never reads the
 // contract text or amount (rial/toman unit, «مبلغ تسهیلات», template wording).
@@ -914,6 +915,17 @@ function refusePrimaryTerms(reason: string): false {
 }
 // readContent=true is used ONLY by the advisory toman-replacement eligibility
 // (an optional admin tool). Every gate calls it with readContent=false.
+// File integrity only (stored path + sha256); never reads the contract text.
+function storedContractPdfIntact(generation: any): boolean {
+  try {
+    if (!generation?.pdf_path || !generation?.pdf_sha256) return false;
+    const pdfPath = fs.realpathSync(String(generation.pdf_path));
+    const stat = fs.lstatSync(String(generation.pdf_path));
+    return path.dirname(pdfPath) === fs.realpathSync(contractGenerationRoot) &&
+      /^[a-f0-9-]{20,}\.pdf$/i.test(path.basename(pdfPath)) && stat.isFile() && !stat.isSymbolicLink() &&
+      crypto.createHash("sha256").update(fs.readFileSync(pdfPath)).digest("hex") === String(generation.pdf_sha256);
+  } catch { return false; }
+}
 function verifiedPrimaryPrincipal(application: any, primary: any, approvedAmount: string, durationMonths: number, readContent = false): boolean {
   const consent = application && latestTomanReplacementConsent(Number(application.id))?.consent;
   if (consent || String(primary?.generation_purpose ?? "") === TOMAN_REPLACEMENT_PURPOSE) {
@@ -935,14 +947,7 @@ function verifiedPrimaryPrincipal(application: any, primary: any, approvedAmount
   const templateId = Number(snapshot?.contract_template_id ?? snapshot?.primary_contract_template_id);
   if (!snapshot || (snapshot.id != null && Number(snapshot.id) !== Number(application.plan_id)) ||
       !templateId || Number(primary.template_id) !== templateId) return refusePrimaryTerms("primary_contract_template_mismatch");
-  try {
-    const pdfPath = fs.realpathSync(String(primary.pdf_path));
-    const stat = fs.lstatSync(String(primary.pdf_path));
-    if (path.dirname(pdfPath) !== fs.realpathSync(contractGenerationRoot) ||
-        !/^[a-f0-9-]{20,}\.pdf$/i.test(path.basename(pdfPath)) || !stat.isFile() || stat.isSymbolicLink() ||
-        crypto.createHash("sha256").update(fs.readFileSync(pdfPath)).digest("hex") !== String(primary.pdf_sha256))
-      return refusePrimaryTerms("primary_contract_file_unverifiable");
-  } catch { return refusePrimaryTerms("primary_contract_file_unverifiable"); }
+  if (!storedContractPdfIntact(primary)) return refusePrimaryTerms("primary_contract_file_unverifiable");
   // NO-CONTRACT-CHECK: no amount / installments / PDF-text comparison on any gate.
   if (!readContent) return true;
   const template = queryRow<any>("SELECT mappings_json,updated_at FROM contract_templates WHERE id=? AND deleted_at IS NULL", [templateId]);
@@ -2208,8 +2213,11 @@ router.post("/loan-applications/:id/funder-initial-approve", requirePermission("
     const priorStage = String(r.legacy_reopen_prior_stage ?? "");
     const formerPrimary = priorStage ? latestPrimaryDocument(r.id) : null;
     // NO-CONTRACT-CHECK: reuse depends on the CRM amounts (approved == requested), not the contract text.
+    // Only a contract bound to this case can be reused: after the initial approval an unbound
+    // legacy primary fails the identity rule, so it is regenerated (as before) instead of trapping the case.
     const matchesFormer = Boolean(duration === requestedDuration && amount === String(r.requested_amount ?? "") &&
-      formerPrimary && verifiedPrimaryPrincipal(r, formerPrimary, amount, duration));
+      formerPrimary && formerPrimary.loan_application_id != null && Number(formerPrimary.loan_application_id) === Number(r.id) &&
+      verifiedPrimaryPrincipal(r, formerPrimary, amount, duration));
     const formerPrimarySigned = formerPrimary?.status === "signed" && String(formerPrimary.link ?? "").startsWith("signed:");
     const signedReuse = matchesFormer && formerPrimarySigned;
     const pendingReuse = matchesFormer && !formerPrimarySigned && !String(formerPrimary.link ?? "").startsWith("signed:");
