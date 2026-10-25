@@ -11,7 +11,7 @@ import {
   type LeadOutcome, type PlanEvaluation, type PlanMatch, type QualifierAnswers, type TeamSalesConfig,
 } from "./team-sales-rules";
 import { cleanProfile, type ApplicantProfile } from "./plan-profile-match";
-import { dataFromAnswers, latestConsultApplicantProfile, officialGrade, recordFirstCallVersion } from "./consult-profile";
+import { consultProfile, dataFromAnswers, latestConsultApplicantProfile, officialGrade, recordFirstCallVersion, recordFirstCallEditVersion } from "./consult-profile";
 
 export const TEAM_SALES_CONFIG_KEY = "team_sales_config";
 export const TEAM_SALES_CURSOR_KEY = "team_sales_closer_cursor";
@@ -89,7 +89,7 @@ export function getTeamSalesConfig(): TeamSalesConfig {
 export type PriorityChange = {
   customerId: number; oldPriority: number | null; newPriority: number | null;
   oldSalespersonId: number | null; newSalespersonId: number | null;
-  actorUserId: number | null; source: "customer_update" | "promote" | "qualifier_form" | "no_answer_archive";
+  actorUserId: number | null; source: "customer_update" | "promote" | "qualifier_form" | "no_answer_archive" | "first_call_edit";
   reason?: string | null; at?: string; always?: boolean;
 };
 export function logPriorityChange(c: PriorityChange): void {
@@ -570,5 +570,208 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
         source: "qualifier_form", reason: reasonText, at: now.toISOString() });
     }
     return { callLogId, result, matches: matches.slice(0, 5), handoff, selectedPlans: selected, noPlanFit, noPlanNote: cleanNoPlanNote, cityWritten };
+  });
+}
+
+/* ------------------------------------------------------------------ first-call edit (crm-first-call-edit) */
+/**
+ * «ویرایش» on «خلاصه‌ی تماس اول»: the same wizard, prefilled. Saving is NOT a call:
+ * - no call_logs row, no new team_sales_qualifications row (Kazemi's first-call P1 share is untouched: it only reads
+ *   customer_priority_history rows with source qualifier_form / promote);
+ * - the latest answered first-call row is updated in place and the full previous version (answers, plans, note) is kept
+ *   in team_sales_first_call_edits with who / when / changed fields (old → new); «اطلاعات مشاوره» gets one 'edit' version;
+ * - plans and the suggested priority are recomputed with the existing rules; the priority is only ever RAISED
+ *   (P3 → P2), never lowered, never P1 automatically, never a transfer;
+ * - «ذخیره و ارسال به کارشناس فروش» = the existing «ارتقا به اولویت ۱» path (promoteInTx, source 'promote').
+ * Access: admin, the qualifier (team_sales_config, read only) or the customer's current owner.
+ */
+export const FIRST_CALL_EDIT_TABLE = "team_sales_first_call_edits";
+let editSchemaReady = false;
+export function ensureFirstCallEditSchema(): void {
+  if (editSchemaReady) return;
+  crmDb.exec(`
+    CREATE TABLE IF NOT EXISTS ${FIRST_CALL_EDIT_TABLE} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL,
+      qualification_id INTEGER NOT NULL,
+      actor_user_id INTEGER NOT NULL,
+      actor_name TEXT,
+      before_json TEXT NOT NULL,
+      after_json TEXT NOT NULL,
+      changed_json TEXT NOT NULL,
+      priority_before INTEGER,
+      priority_suggested INTEGER,
+      priority_after INTEGER,
+      sent_to_closer INTEGER NOT NULL DEFAULT 0,
+      promote_call_log_id INTEGER,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_first_call_edits_customer ON ${FIRST_CALL_EDIT_TABLE}(customer_id, id DESC);
+  `);
+  editSchemaReady = true;
+}
+
+type FirstCallVersion = { answers: Record<string, unknown>; note: string; selectedPlanIds: number[]; selectedPlanNames: string[];
+  noPlanFit: boolean; noPlanNote: string | null };
+const EDIT_FIELDS = ["amountMillion", "docsReady", "creditRank", "cheque", "bouncedCheque", "military", "jobType", "city",
+  "guarantorAvailable", "guarantorCheque", "gRank", "gJobType", "selectedPlans", "noPlanFit", "noPlanNote", "urgency", "note"] as const;
+export type FirstCallEditField = (typeof EDIT_FIELDS)[number];
+const chequeOf = (a: Record<string, unknown>) =>
+  a.checkStatus && a.checkStatus !== "none" ? "check" : a.canPromissory === "yes" ? "promissory" : a.checkStatus ? "none" : null;
+function fieldValue(v: FirstCallVersion, f: FirstCallEditField): unknown {
+  switch (f) {
+    case "cheque": return chequeOf(v.answers);
+    case "selectedPlans": return v.selectedPlanNames.length ? v.selectedPlanNames : null;
+    case "noPlanFit": return v.noPlanFit;
+    case "noPlanNote": return v.noPlanNote;
+    case "note": return v.note;
+    case "amountMillion": return v.answers.amountMillion == null ? null : Number(v.answers.amountMillion);
+    default: return v.answers[f] ?? null;
+  }
+}
+function diffVersions(before: FirstCallVersion, after: FirstCallVersion) {
+  const out: Array<{ field: FirstCallEditField; old: unknown; new: unknown }> = [];
+  for (const f of EDIT_FIELDS) {
+    const o = fieldValue(before, f), n = fieldValue(after, f);
+    if (f === "selectedPlans") {
+      const same = JSON.stringify([...before.selectedPlanIds].sort()) === JSON.stringify([...after.selectedPlanIds].sort());
+      if (!same) out.push({ field: f, old: o, new: n });
+      continue;
+    }
+    if (JSON.stringify(o ?? null) !== JSON.stringify(n ?? null)) out.push({ field: f, old: o ?? null, new: n ?? null });
+  }
+  return out;
+}
+
+export type FirstCallEditAccess = { canEdit: boolean; canSend: boolean; sendBlockedReason: string | null; ownerIsCloser: boolean };
+/** Who may edit / send (the route also applies the existing getCustomer visibility scoping). */
+export function firstCallEditAccess(actor: Actor, c: { salesperson_id: number | null; status: string; priority: number | null },
+  cfg: TeamSalesConfig = getTeamSalesConfig()): FirstCallEditAccess {
+  const isAdmin = actor.role === "admin";
+  const isQualifier = actor.salespersonId != null && actor.salespersonId === cfg.qualifierSalespersonId;
+  const isOwner = actor.salespersonId != null && c.salesperson_id != null && Number(actor.salespersonId) === Number(c.salesperson_id);
+  const canEdit = cfg.enabled && (isAdmin || isQualifier || isOwner);
+  const ownerIsCloser = c.salesperson_id != null && cfg.closerSalespersonIds.includes(Number(c.salesperson_id));
+  const ownerName = c.salesperson_id == null ? null
+    : queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [c.salesperson_id])?.name ?? null;
+  let reason: string | null = null;
+  if (!canEdit) reason = "اجازه‌ی ویرایش ندارید.";
+  else if (ownerIsCloser) reason = `این مشتری از قبل دست کارشناس فروش${ownerName ? ` (${ownerName})` : ""} است؛ ارسال دوباره لازم نیست.`;
+  else if (!isAdmin && !isQualifier) reason = "ارسال به کارشناس فروش فقط برای کارشناس تماس اول یا مدیر است.";
+  else if (Number(c.salesperson_id) !== cfg.qualifierSalespersonId)
+    reason = `این مشتری دست ${ownerName ?? "کارشناس دیگری"} است، نه کارشناس تماس اول؛ ارسال از این‌جا ممکن نیست.`;
+  else if (c.status !== "in_progress") reason = "فقط پرونده‌های در جریان را می‌شود به کارشناس فروش فرستاد.";
+  else if (c.priority === 1) reason = "این مشتری از قبل اولویت ۱ است.";
+  return { canEdit, canSend: canEdit && reason == null, sendBlockedReason: reason, ownerIsCloser };
+}
+
+export function firstCallEditHistory(customerId: number) {
+  ensureFirstCallEditSchema();
+  return queryRows<{ id: number; actor_name: string | null; changed_json: string; priority_before: number | null; priority_suggested: number | null;
+    priority_after: number | null; sent_to_closer: number; created_at: string }>(
+    `SELECT id, actor_name, changed_json, priority_before, priority_suggested, priority_after, sent_to_closer, created_at
+     FROM ${FIRST_CALL_EDIT_TABLE} WHERE customer_id=? ORDER BY id DESC LIMIT 100`, [customerId]).map((r) => {
+    let changed: unknown[] = [];
+    try { changed = JSON.parse(r.changed_json) ?? []; } catch { changed = []; }
+    return { id: Number(r.id), actorName: r.actor_name, changed, priorityBefore: r.priority_before, suggestedPriority: r.priority_suggested,
+      priorityAfter: r.priority_after, sentToCloser: Number(r.sent_to_closer) === 1, createdAt: r.created_at };
+  });
+}
+
+export function firstCallEditInfo(customerId: number, actor: Actor) {
+  ensureTeamSalesSchema();
+  const c = loadCustomer(customerId);
+  return { ...firstCallEditAccess(actor, c), edits: firstCallEditHistory(customerId) };
+}
+
+export function editFirstCall(customerId: number, actor: Actor, rawAnswers: QualifierAnswers, note: string, opts: {
+  selectedPlans?: unknown; noPlanNote?: unknown; send?: boolean; baseId?: unknown; noteMin?: number; now?: Date;
+} = {}) {
+  ensureTeamSalesSchema();
+  ensureFirstCallEditSchema();
+  const now = opts.now ?? new Date();
+  const cfg = getTeamSalesConfig();
+  if (!cfg.enabled) throw new TeamSalesError(404, "Team sales is not enabled");
+  if (!rawAnswers || !isFirstCallForm(rawAnswers) || rawAnswers.callResult !== "answered")
+    throw new TeamSalesError(400, "ویرایش فقط برای فرم تماس اولِ پاسخ‌داده‌شده است.");
+  const err = validateAnswers(rawAnswers, now, legacyRanks(customerId));
+  if (err) throw new TeamSalesError(400, err);
+  const answers = normalizeFirstCallAnswers(rawAnswers);
+  const noPlanFit = answers.noPlanFit === true;
+  const { selectedPlans, noPlanNote } = opts;
+  if (noPlanNote != null && typeof noPlanNote !== "string") throw new TeamSalesError(400, "توضیح «چرا؟» معتبر نیست.");
+  const cleanNoPlanNote = noPlanFit ? String(noPlanNote ?? "").trim().replace(/\s+/g, " ") || null : null;
+  if (!noPlanFit && String(noPlanNote ?? "").trim()) throw new TeamSalesError(400, "توضیح «چرا؟» فقط با گزینه‌ی «هیچ طرحی نمی‌خوره» ثبت می‌شود.");
+  if (cleanNoPlanNote && [...cleanNoPlanNote].length > NO_PLAN_NOTE_MAX) throw new TeamSalesError(400, `توضیح «چرا؟» حداکثر ${NO_PLAN_NOTE_MAX} نویسه است.`);
+  if (noPlanFit && Array.isArray(selectedPlans) && selectedPlans.length)
+    throw new TeamSalesError(400, "«هیچ طرحی به این مشتری نمی‌خوره» با انتخاب طرح هم‌زمان ممکن نیست؛ یکی را بردارید.");
+  const noteMin = opts.noteMin ?? cfg.noteMinLength;
+  const cleanNote = String(note ?? "").trim();
+  if ([...cleanNote].length < noteMin) throw new TeamSalesError(400, `یادداشت تماس الزامی است (حداقل ${noteMin} نویسه).`);
+  if (cleanNote.length > 4000) throw new TeamSalesError(400, "یادداشت تماس حداکثر ۴۰۰۰ نویسه است.");
+  const plans = activePlans();
+  return runImmediateTransaction(() => {
+    const c = loadCustomer(customerId);
+    const access = firstCallEditAccess(actor, c, cfg);
+    if (!access.canEdit) throw new TeamSalesError(403, "ویرایش خلاصه‌ی تماس اول فقط برای مدیر، کارشناس تماس اول و کارشناس همین مشتری است.");
+    if (opts.send && !access.canSend) throw new TeamSalesError(409, access.sendBlockedReason ?? "ارسال به کارشناس فروش ممکن نیست.");
+    const base = queryRow<{ id: number; answers_json: string; selected_plans_json: string | null; note: string; no_plan_fit: number | null;
+      no_plan_note: string | null; created_at: string }>(
+      `SELECT id, answers_json, selected_plans_json, note, no_plan_fit, no_plan_note, created_at FROM team_sales_qualifications
+       WHERE customer_id=? AND call_result='answered' ORDER BY id DESC LIMIT 1`, [c.id]);
+    let baseAnswers: Record<string, unknown> = {};
+    try { baseAnswers = base ? JSON.parse(base.answers_json) ?? {} : {}; } catch { baseAnswers = {}; }
+    if (!base || baseAnswers.formVersion !== 2) throw new TeamSalesError(404, "فرم تماس اولی برای ویرایش پیدا نشد.");
+    if (opts.baseId != null && Number(opts.baseId) !== Number(base.id))
+      throw new TeamSalesError(409, "خلاصه‌ی تماس اول در این فاصله عوض شد؛ صفحه را تازه کنید و دوباره ویرایش کنید.");
+    const { matches, evals } = autoMatches(withOfficialGrade(c.id, answers), plans);
+    const selected = selectedSnapshot(selectedPlans ?? null, evals);
+    const result = computeLeadPriority(answers, matches, 0, now, cfg);
+    if (noPlanFit && result.priority === 1) throw new TeamSalesError(500, "no_plan_fit_auto_p1_blocked");
+    const baseSelected = parseSelected(base.selected_plans_json);
+    const before: FirstCallVersion = { answers: baseAnswers, note: base.note, selectedPlanIds: baseSelected.map((p) => Number(p.id)),
+      selectedPlanNames: baseSelected.map((p) => p.name), noPlanFit: Number(base.no_plan_fit) === 1, noPlanNote: base.no_plan_note ?? null };
+    const storedAnswers = { ...answers } as Record<string, unknown>;
+    const after: FirstCallVersion = { answers: storedAnswers, note: cleanNote, selectedPlanIds: selected.map((p) => p.id),
+      selectedPlanNames: selected.map((p) => p.name), noPlanFit, noPlanNote: cleanNoPlanNote };
+    const changed = diffVersions(before, after);
+    if (!changed.length && !opts.send) throw new TeamSalesError(400, "تغییری ثبت نشد.");
+    const nowIso = now.toISOString();
+    const actorName = queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [actor.salespersonId ?? -1])?.name ?? actor.fullName ?? null;
+    let cityWritten = false;
+    if (changed.length) {
+      executeChanges(
+        `UPDATE team_sales_qualifications SET answers_json=?, matches_json=?, selected_plans_json=?, no_plan_fit=?, no_plan_note=?, note=? WHERE id=?`,
+        [JSON.stringify(storedAnswers), JSON.stringify(matches.slice(0, 5)), JSON.stringify(selected), noPlanFit ? 1 : null, cleanNoPlanNote, cleanNote, base.id]);
+      // «اطلاعات مشاوره»: one more 'edit' version (append-only), keeping the original form date / submitter.
+      const latest = consultProfile(c.id).latest?.data ?? null;
+      const data = dataFromAnswers(storedAnswers, { selectedPlans: selected, noPlanFit, noPlanNote: cleanNoPlanNote,
+        createdAt: latest?.formDate ?? base.created_at, submitterName: latest?.submitterName ?? null });
+      recordFirstCallEditVersion(c.id, { id: actor.id, fullName: actorName }, data, latest, nowIso);
+      cityWritten = answers.city
+        ? executeChanges("UPDATE customers SET city=? WHERE id=? AND (city IS NULL OR trim(city)='')", [answers.city, c.id]) > 0 : false;
+    }
+    // Priority: recomputed with the existing rules; only raised (P3 → P2), never lowered, never P1 / transfer automatically.
+    let priorityAfter = c.priority;
+    const suggested = result.priority;
+    if (!opts.send && suggested === 2 && c.priority === 3 && c.status === "in_progress") {
+      executeChanges("UPDATE customers SET priority=2 WHERE id=? AND priority=3", [c.id]);
+      logPriorityChange({ customerId: c.id, oldPriority: 3, newPriority: 2, oldSalespersonId: c.salesperson_id, newSalespersonId: c.salesperson_id,
+        actorUserId: actor.id, source: "first_call_edit", reason: `ویرایش خلاصه‌ی تماس اول: ${result.reasons.join("؛ ")}`, at: nowIso });
+      priorityAfter = 2;
+    }
+    let handoff: PromoteResult | null = null;
+    if (opts.send) {
+      handoff = promoteInTx(c, actor, cfg, "promote", "ارسال پس از ویرایش خلاصه‌ی تماس اول", now, null);
+      priorityAfter = 1;
+    }
+    const editId = changed.length || handoff ? execute(
+      `INSERT INTO ${FIRST_CALL_EDIT_TABLE} (customer_id, qualification_id, actor_user_id, actor_name, before_json, after_json, changed_json,
+        priority_before, priority_suggested, priority_after, sent_to_closer, promote_call_log_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [c.id, base.id, actor.id, actorName, JSON.stringify(before), JSON.stringify(after), JSON.stringify(changed),
+        c.priority, suggested, priorityAfter, handoff ? 1 : 0, handoff?.callLogId ?? null, nowIso]) : null;
+    return { editId, changed, suggestedPriority: suggested, reasons: result.reasons, priorityBefore: c.priority, priorityAfter,
+      priorityRaised: priorityAfter !== c.priority && !handoff, handoff, selectedPlans: selected, noPlanFit, noPlanNote: cleanNoPlanNote,
+      noSuitablePlan: !evals.some((e) => e.status !== "no"), cityWritten };
   });
 }

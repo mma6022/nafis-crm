@@ -8,7 +8,7 @@ import type { AuthUser } from "../lib/auth";
 import { getCustomer } from "./crm";
 import { queryRow } from "../lib/crm-db";
 import {
-  TeamSalesError, citySuggestions, formatDue, getTeamSalesConfig, peekNextCloser, planOptions, previewQualification, priorityHistory, promoteToPriorityOne, submitQualification,
+  TeamSalesError, citySuggestions, editFirstCall, firstCallEditInfo, formatDue, getTeamSalesConfig, peekNextCloser, planOptions, previewQualification, priorityHistory, promoteToPriorityOne, submitQualification,
 } from "../lib/team-sales";
 import { addWorkingHours, type QualifierAnswers } from "../lib/team-sales-rules";
 import { ConsultProfileError, canActOnCustomerProfile, consultProfile, editConsultProfile } from "../lib/consult-profile";
@@ -98,6 +98,27 @@ router.post("/customers/:id/team-sales/qualify", requirePermission("calls.create
   const selectedPlans = req.body?.selectedPlans ?? null;
   const noPlanNote = req.body?.noPlanNote ?? null;
   try { res.json(submitQualification(id, actorOf(res), answers, note, new Date(), selectedPlans, noPlanNote)); } catch (e) { fail(res, e); }
+});
+
+/**
+ * crm-first-call-edit: «ویرایش» on «خلاصه‌ی تماس اول». Info = who may edit / send + the edit history.
+ * Edit = no call record; optional «ذخیره و ارسال به کارشناس فروش» = the existing «ارتقا به اولویت ۱» path.
+ */
+router.get("/customers/:id/team-sales/first-call/edit-info", requirePermission("customers.view"), (req, res): void => {
+  const id = customerId(req.params.id);
+  if (!id || !getCustomer(id, res.locals.authUser as AuthUser)) { res.status(404).json({ error: "Customer not found" }); return; }
+  try { res.json(firstCallEditInfo(id, actorOf(res))); } catch (e) { fail(res, e); }
+});
+router.post("/customers/:id/team-sales/first-call/edit", requirePermission("customers.update"), (req, res): void => {
+  const id = customerId(req.params.id);
+  const answers = answersOf(req.body);
+  if (!id || !answers) { res.status(400).json({ error: "Invalid request" }); return; }
+  if (!getCustomer(id, res.locals.authUser as AuthUser)) { res.status(404).json({ error: "Customer not found" }); return; }
+  const note = typeof req.body?.note === "string" ? req.body.note : "";
+  try {
+    res.json(editFirstCall(id, actorOf(res), answers, note, { selectedPlans: req.body?.selectedPlans ?? null,
+      noPlanNote: req.body?.noPlanNote ?? null, send: req.body?.send === true, baseId: req.body?.baseId ?? null }));
+  } catch (e) { fail(res, e); }
 });
 
 /** crm-no-plan-option: city autocomplete for the first-call form (existing customer city values; read-only). */

@@ -254,3 +254,16 @@ textarea.ts-inp { resize: vertical; line-height: 1.8; }
 .cp-card .cp-f select, .cp-card .cp-f input { min-height: 36px; border: 1px solid #D0D5DD; border-radius: 10px; padding: 0 8px; font: inherit; color: #101828; background: #fff; }
 .cp-card .cp-actions { grid-column: 1 / -1; display: flex; gap: 8px; }
 .cp-card .cp-err { grid-column: 1 / -1; margin: 0; color: #b91c1c; font-size: 12px; }
+
+/* crm-first-call-edit */
+.ts-alert.warn { background: #FFF4ED; color: #9C2A10; border: 1px solid #FBC5A8; }
+.ts-wz-foot [data-testid="ts-edit-send"] { white-space: nowrap; }
+.ts-primary:disabled[data-testid="ts-edit-send"] { cursor: not-allowed; background: #98A2B3; }
+.ts-wz-foot .ts-two.grow:has([data-testid="ts-edit-send"]) { flex-wrap: wrap; }
+@media (max-width: 520px) {
+  .ts-wz-foot .ts-two.grow:has([data-testid="ts-edit-send"]) > [data-testid="ts-edit-send"] { flex: 1 1 100%; order: -1; }
+}
+.fc-sum .cp-foot { display: flex; gap: 14px; flex-wrap: wrap; justify-content: space-between; margin-top: 10px; }
+.fc-edit-btn { font-weight: 800; color: var(--nf-brand-600, #29369B); }
+.fc-edits ul { margin: 4px 0 0; padding-inline-start: 18px; }
+.fc-edits .ts-pill { margin-inline-start: 6px; }

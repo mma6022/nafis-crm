@@ -1,6 +1,7 @@
 import { AlertCircle, AlertTriangle, Ban, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, HelpCircle, Info, Search, Timer, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { fa, fetchCities, fetchPlanOptions, fmtDateTime, shortName, submitSimpleForm, TeamSalesApiError, type CallResult, type Military, type QualifyResult, type SimpleAnswers, type SuggestedPlan, type Tri } from './api';
+import { fa, fetchCities, fetchPlanOptions, fmtDateTime, shortName, submitFirstCallEdit, submitSimpleForm, TeamSalesApiError, type CallResult, type FirstCallEditResult, type FirstCallSummary, type Military, type QualifyResult, type SimpleAnswers, type SuggestedPlan, type Tri } from './api';
+import { FIRST_CALL_FIELD_LABELS, firstCallValueText } from './first-call-edit-labels';
 import { NoPlanChip, PlanChip } from './PlanChip';
 import { JOB_LABELS, JOB_ORDER, MILITARY_LABELS, planMeta, planReasonText, type PlanEvaluation, type PlanReason } from './plan-reasons';
 import './team-sales.css';
@@ -34,6 +35,23 @@ const draftKey = (userId: number | undefined, customerId: number) => `nafis-ts-f
 const STEP_NOTE = 6;
 const STEP_PROFILE = 7; // applicant sub-step (between 3 and 4)
 const NO_PLAN_NOTE_MAX = 200;
+/** crm-first-call-edit: the wizard prefilled from «خلاصه‌ی تماس اول» (no call result step, no local draft). */
+export type FirstCallEditMode = {
+  fc: FirstCallSummary; canSend: boolean; sendBlockedReason: string | null;
+  onSaved: (r: FirstCallEditResult) => void;
+};
+function draftFromFirstCall(fc: FirstCallSummary): Draft {
+  const a = fc.answers;
+  const cheque: Draft['cheque'] = a.checkStatus && a.checkStatus !== 'none' ? 'check' : a.canPromissory === 'yes' ? 'promissory' : a.checkStatus ? 'none' : null;
+  const tri = (v: unknown): Tri | null => (v === 'yes' || v === 'no' || v === 'unknown' ? v : null);
+  const ids = (fc.selectedPlans ?? []).map((p) => Number(p.id));
+  return { ...EMPTY, step: 2, callResult: 'answered', amount: a.amountMillion != null ? String(a.amountMillion) : '',
+    urgency: (a.urgency as Draft['urgency']) ?? null, docsReady: (a.docsReady as Draft['docsReady']) ?? null, creditRank: a.creditRank ?? null,
+    cheque, bounced: a.bouncedCheque === 'yes' || a.bouncedCheque === 'no' ? a.bouncedCheque : null,
+    gAvail: tri(a.guarantorAvailable), gCheque: tri(a.guarantorCheque), gRank: a.gRank ?? null, selected: ids, note: fc.note ?? '',
+    military: (a.military as Military) ?? null, jobType: a.jobType ?? null, gJobType: a.gJobType ?? null,
+    city: a.city ?? '', cityTouched: Boolean(a.city), noPlan: fc.noPlanFit ? true : ids.length ? false : null, noPlanNote: fc.noPlanNote ?? '' };
+}
 const MILITARY: Array<[Military, string]> = (['has_card', 'no_card', 'female', 'unknown'] as Military[]).map((k) => [k, MILITARY_LABELS[k]]);
 
 const CALL_RESULTS: Array<[CallResult, string]> = [
@@ -146,29 +164,33 @@ function PlanCard({ p, checked, onToggle }: { p: PlanEvaluation; checked: boolea
   </div>;
 }
 
-export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone, onNext, onChangeCustomer }: {
+export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone, onNext, onChangeCustomer, edit }: {
   customer: { id: number; name: string; phone: string; priority?: number | null };
   userId: number | undefined; noteMin?: number;
   onClose: () => void; onDone: (r: QualifyResult) => void; onNext: () => void;
   /** Calls page «ثبت تماس جدید»: back to the customer picker (step 1). */
   onChangeCustomer?: () => void;
+  /** crm-first-call-edit: edit the latest first call instead of recording a new call. */
+  edit?: FirstCallEditMode;
 }) {
   const key = draftKey(userId, customer.id);
-  const [d, setD] = useState<Draft>(() => { try { const raw = localStorage.getItem(key); return raw ? { ...EMPTY, ...JSON.parse(raw) } : EMPTY; } catch { return EMPTY; } });
+  const [d, setD] = useState<Draft>(() => { if (edit) return draftFromFirstCall(edit.fc); try { const raw = localStorage.getItem(key); return raw ? { ...EMPTY, ...JSON.parse(raw) } : EMPTY; } catch { return EMPTY; } });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
   const [serverError, setServerError] = useState('');
   const [rankLetter, setRankLetter] = useState<string | null>(null);
   const [gRankLetter, setGRankLetter] = useState<string | null>(null);
   const [result, setResult] = useState<QualifyResult | null>(null);
+  const [editResult, setEditResult] = useState<FirstCallEditResult | null>(null);
+  const done = Boolean(result || editResult);
   const [plans, setPlans] = useState<{ key: string; list: PlanEvaluation[] | null; error: string; noPlanDefault?: boolean }>({ key: '', list: null, error: '' });
   const [showAll, setShowAll] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copyToast, setCopyToast] = useState('');
   const bodyRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (!result) try { localStorage.setItem(key, JSON.stringify(d)); } catch { /* quota */ } }, [d, key, result]);
-  useEffect(() => { bodyRef.current?.scrollTo({ top: 0 }); }, [d.step, result]);
+  useEffect(() => { if (!result && !edit) try { localStorage.setItem(key, JSON.stringify(d)); } catch { /* quota */ } }, [d, key, result, edit]);
+  useEffect(() => { bodyRef.current?.scrollTo({ top: 0 }); }, [d.step, result, editResult]);
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
     dialogRef.current?.focus();
@@ -179,7 +201,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
   const set = (patch: Partial<Draft>) => { setD((c) => ({ ...c, ...patch })); setErrors({}); setServerError(''); };
 
   const answered = d.callResult === 'answered';
-  const steps = answered ? [1, 2, 3, STEP_PROFILE, 4, 5, STEP_NOTE] : [1, STEP_NOTE];
+  const steps = edit ? [2, 3, STEP_PROFILE, 4, 5, STEP_NOTE] : answered ? [1, 2, 3, STEP_PROFILE, 4, 5, STEP_NOTE] : [1, STEP_NOTE];
   const total = steps.length;
   const idx = Math.max(0, steps.indexOf(d.step)) + 1;
   const titles: Record<number, string> = { 1: 'نتیجه‌ی تماس', 2: 'نیاز و مدارک', 3: 'متقاضی — رتبه و چک', [STEP_PROFILE]: 'متقاضی — خدمت، شغل و شهر', 4: 'ضامن', 5: 'طرح‌های مناسب', 6: answered ? 'یادداشت و فوریت' : 'یادداشت' };
@@ -294,6 +316,20 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
     return () => { live = false; };
   }, [d.step, d.cityTouched, d.city, customer.id]);
 
+  const submitEdit = async (send: boolean) => {
+    if (!edit) return;
+    for (const s of steps) { const e = validate(s); if (Object.keys(e).length) { set({ step: s }); setErrors(e); return; } }
+    setPending(true); setServerError('');
+    try {
+      const r = await submitFirstCallEdit(customer.id, { answers: { ...answers, noPlanFit: noPlan }, note: d.note.trim(),
+        selectedPlans: noPlan ? [] : selectedPlans.map((p) => p.planId), noPlanNote: noPlan ? d.noPlanNote.trim() || undefined : undefined,
+        send, baseId: edit.fc.id });
+      setEditResult(r); edit.onSaved(r);
+    } catch (err) {
+      const msg = err instanceof TeamSalesApiError && err.message ? err.message : 'اتصال به سرور برقرار نشد. چیزی ذخیره نشد؛ دوباره امتحان کن.';
+      setServerError(`ذخیره انجام نشد: ${msg}`);
+    } finally { setPending(false); }
+  };
   const submit = async () => {
     for (const s of steps) { const e = validate(s); if (Object.keys(e).length) { set({ step: s }); setErrors(e); return; } }
     setPending(true); setServerError('');
@@ -327,7 +363,29 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
     : d.gAvail === 'no' ? 'بدون ضامن' : 'ضامن نامعلوم';
 
   let body: ReactNode;
-  if (result) {
+  if (editResult) {
+    const r = editResult; const h = r.handoff;
+    body = <div className="ts-result" data-testid="ts-edit-result" data-suggested={r.suggestedPriority} data-priority={r.priorityAfter ?? 'none'}>
+      <p className="ts-muted center">{h ? 'ذخیره شد و به کارشناس فروش رفت' : 'ذخیره شد — تماس جدیدی ثبت نشد'}</p>
+      <div className={`ts-bignum p${r.priorityAfter ?? 3}`} aria-label={`اولویت ${r.priorityAfter ?? ''}`}>{fa(r.priorityAfter ?? 0)}</div>
+      <h3 className="center">{h ? 'اولویت ۱ — ارسال به کارشناس فروش' : r.priorityRaised ? `اولویت از ${fa(r.priorityBefore ?? 0)} به ${fa(r.priorityAfter ?? 0)} رفت` : `اولویت ${fa(r.priorityAfter ?? 0)} — بدون تغییر`}</h3>
+      {!h && r.suggestedPriority !== r.priorityAfter ? <p className="ts-muted center" data-testid="ts-edit-suggested">
+        {r.suggestedPriority === 1 ? 'با جواب‌های تازه، پیشنهاد سیستم اولویت ۱ است؛ برای ارسال از «ذخیره و ارسال به کارشناس فروش» یا «ارتقا به اولویت ۱» استفاده کن.'
+          : `پیشنهاد سیستم: اولویت ${fa(r.suggestedPriority)}. اولویت خودکار پایین آورده نمی‌شود.`}</p> : null}
+      {h ? <>
+        <div className="ts-ok-card" data-testid="ts-handoff">
+          <span className="ts-av" aria-hidden="true">{shortName(h.closerName).slice(0, 1)}</span>
+          <div><b>{h.message}</b><p>نوبت چرخشی — به {h.closerName} اعلان و یادآور رسید</p></div>
+        </div>
+        <p className="ts-muted center">مهلت تماس تا {h.dueLabel}</p>
+      </> : null}
+      {r.noSuitablePlan ? <div className="ts-alert warn" role="note" data-testid="ts-edit-noplan-warn"><AlertTriangle size={18} /> با جواب‌های تازه هیچ طرحی مناسب نیست.</div> : null}
+      {r.changed.length ? <div className="ts-why" data-testid="ts-edit-changed"><b>تغییرها</b><ul>{r.changed.map((c) => <li key={c.field}>
+        {FIRST_CALL_FIELD_LABELS[c.field] ?? c.field}: {firstCallValueText(c.field, c.old)} ← {firstCallValueText(c.field, c.new)}</li>)}</ul></div>
+        : <p className="ts-muted center">جواب‌ها تغییری نکرد.</p>}
+      {r.reasons.length ? <div className="ts-why"><b>{`چرا پیشنهاد اولویت ${fa(r.suggestedPriority)}؟`}</b><ul>{r.reasons.map((x, i) => <li key={i}>{x}</li>)}</ul></div> : null}
+    </div>;
+  } else if (result) {
     const r = result.result; const h = result.handoff;
     const none = r.priority == null; const max = r.maxAttempts ?? 3;
     const reasonsTitle = none ? 'چرا بدون اولویت؟' : `چرا اولویت ${fa(r.priority ?? 0)}؟`;
@@ -452,6 +510,9 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
     </>;
   } else {
     body = <>
+      {edit && (noPlan || (planList && !planList.some((p) => p.status !== 'no'))) ? <div className="ts-alert warn" role="note" data-testid="ts-edit-noplan-warn">
+        <AlertTriangle size={18} /> با این جواب‌ها طرح مناسبی انتخاب نشده. ذخیره ممکن است؛ فقط حواست باشد.</div> : null}
+      {edit && !edit.canSend && edit.sendBlockedReason ? <div className="ts-alert info" role="note" data-testid="ts-edit-send-blocked"><Info size={18} /> {edit.sendBlockedReason}</div> : null}
       <div className="ts-script">{answered ? <><b>قبل از قطع تماس بپرس:</b><p>«برای شما چقدر فوریه؟»</p></>
         : <><b>قبل از قطع تماس:</b><p>یادداشت کامل بنویس تا مشتری مجبور نشه همه‌چیز رو دوباره تعریف کنه.</p></>}</div>
       {errors.note === 'empty' ? <div className="ts-alert" role="alert"><AlertCircle size={18} /> بدون یادداشت نمی‌شه ثبت کرد. چند خط از صحبت با مشتری بنویس.</div> : null}
@@ -466,6 +527,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
       {answered ? <fieldset className="ts-q"><legend>فوریت <span className="req">*</span> <span className="ts-muted small">آخرین سؤال فرم</span></legend>
         <Chips name="urgency" list={URGENCY} value={d.urgency} onChange={(v) => set({ urgency: v })} />{err('urgency')}</fieldset> : null}
       {!answered && summary.length ? <div className="ts-summary"><span className="ts-muted">خلاصه:</span>{summary.map((s, i) => <span key={i} className="ts-pill">{s}</span>)}</div> : null}
+      {edit ? <p className="ts-muted small" data-testid="ts-edit-hint">«فقط ذخیره» تماس جدیدی ثبت نمی‌کند. «ذخیره و ارسال به کارشناس فروش» همان «ارتقا به اولویت ۱» است.</p> : null}
       {serverError ? <div className="ts-alert" role="alert"><AlertCircle size={18} /> {serverError}</div> : null}
     </>;
   }
@@ -477,7 +539,7 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
     <div ref={dialogRef} className="ts-wz" role="dialog" aria-modal="true" aria-labelledby="ts-wz-title" tabIndex={-1} data-testid="ts-simple-form">
       <div className="ts-wz-head">
         <div className="ts-wz-who">
-          <h2 id="ts-wz-title">فرم تماس — <CustomerName id={customer.id} name={customer.name} badgeTestId="ts-wz-customer-id" /></h2>
+          <h2 id="ts-wz-title">{edit ? 'ویرایش خلاصه‌ی تماس اول' : 'فرم تماس'} — <CustomerName id={customer.id} name={customer.name} badgeTestId="ts-wz-customer-id" /></h2>
           <div className="sub"><span className="ltr" dir="ltr" data-testid="ts-phone">{fa(customer.phone)}</span>
             <button type="button" className="ts-copy" onClick={copyPhone} aria-label={`کپی شماره‌ی ${customer.name}`} data-testid="ts-copy-phone"><Copy size={13} /> {copied ? 'کپی شد' : 'کپی'}</button>
             <span className="ts-badge gray">{prio}</span> <span className="ts-badge">نسخه‌ی ساده</span></div>
@@ -485,22 +547,30 @@ export function SimpleCallForm({ customer, userId, noteMin = 30, onClose, onDone
         <button type="button" className="ts-ib" onClick={onClose} aria-label="بستن" data-testid="ts-close"><X size={22} /></button>
       </div>
       <div className="ts-progress">
-        <div className="row"><b>{result ? 'نتیجه' : titles[d.step]}</b><span className="ts-muted" data-testid="ts-step-of">{result ? 'ثبت شد' : `مرحله ${fa(idx)} از ${fa(total)}`}</span></div>
-        <div className="bars" aria-hidden="true">{Array.from({ length: total }, (_, i) => <span key={i} className={result || i < idx ? 'on' : ''} />)}</div>
+        <div className="row"><b>{done ? 'نتیجه' : titles[d.step]}</b><span className="ts-muted" data-testid="ts-step-of">{editResult ? 'ذخیره شد' : result ? 'ثبت شد' : `مرحله ${fa(idx)} از ${fa(total)}`}</span></div>
+        <div className="bars" aria-hidden="true">{Array.from({ length: total }, (_, i) => <span key={i} className={done || i < idx ? 'on' : ''} />)}</div>
       </div>
-      <div className="ts-wz-body" ref={bodyRef}>{onChangeCustomer && !result ? <div className="ts-picked-customer" data-testid="ts-picked-customer"><div><b><CustomerName id={customer.id} name={customer.name} badgeTestId="ts-picked-customer-id" /></b><span className="ts-muted"> | {prio}</span></div><button type="button" onClick={onChangeCustomer} data-testid="ts-change-customer"><ChevronRight size={16} aria-hidden="true" /> تغییر مشتری</button></div> : null}{body}</div>
+      <div className="ts-wz-body" ref={bodyRef}>{onChangeCustomer && !done ? <div className="ts-picked-customer" data-testid="ts-picked-customer"><div><b><CustomerName id={customer.id} name={customer.name} badgeTestId="ts-picked-customer-id" /></b><span className="ts-muted"> | {prio}</span></div><button type="button" onClick={onChangeCustomer} data-testid="ts-change-customer"><ChevronRight size={16} aria-hidden="true" /> تغییر مشتری</button></div> : null}{body}</div>
       {copyToast ? <div className={`ts-toast${copied ? ' ok' : ''}`} role="status" data-testid="ts-copy-toast">{copyToast}</div> : null}
       <div className="ts-wz-foot">
-        {result ? <div className="ts-two">
+        {editResult ? <div className="ts-two">
+          <button type="button" className="ts-primary" onClick={onClose} data-testid="ts-edit-close">بازگشت به پرونده</button>
+        </div> : result ? <div className="ts-two">
           <button type="button" className="ts-ghost" onClick={onClose} data-testid="ts-open-file">پرونده مشتری</button>
           <button type="button" className="ts-primary" onClick={onNext} data-testid="ts-next-customer">مشتری بعدی صف</button>
         </div> : <div className="ts-two grow">
           {idx > 1 ? <button type="button" className="ts-ghost narrow" onClick={back}><ChevronRight size={18} /> قبلی</button> : <button type="button" className="ts-ghost narrow" onClick={onClose}>بستن</button>}
           {d.step === 5 ? <span className="ts-foot-note" data-testid="ts-selected-count">{noPlan ? 'هیچ طرحی نمی‌خوره' : d.selected.length ? `${fa(selectedPlans.length || d.selected.length)} طرح انتخاب شد` : 'انتخاب اختیاری است'}</span> : null}
-          {lastStep ? <button type="button" className="ts-primary" onClick={submit} disabled={pending} data-testid="ts-submit"><Check size={18} /> {pending ? 'در حال ثبت…' : d.callResult === 'no_answer' ? 'ثبت تماس بی‌پاسخ' : 'ثبت و تعیین اولویت'}</button>
+          {lastStep && edit ? <>
+            <button type="button" className="ts-ghost" onClick={() => void submitEdit(false)} disabled={pending} data-testid="ts-edit-save">{pending ? 'در حال ذخیره…' : 'فقط ذخیره'}</button>
+            <button type="button" className="ts-primary" onClick={() => void submitEdit(true)} disabled={pending || !edit.canSend}
+              title={!edit.canSend ? edit.sendBlockedReason ?? undefined : undefined} aria-describedby={!edit.canSend ? 'ts-edit-send-why' : undefined} data-testid="ts-edit-send">
+              <Check size={18} /> ذخیره و ارسال به کارشناس فروش</button>
+            {!edit.canSend ? <span id="ts-edit-send-why" className="sr-only">{edit.sendBlockedReason}</span> : null}
+          </> : lastStep ? <button type="button" className="ts-primary" onClick={submit} disabled={pending} data-testid="ts-submit"><Check size={18} /> {pending ? 'در حال ثبت…' : d.callResult === 'no_answer' ? 'ثبت تماس بی‌پاسخ' : 'ثبت و تعیین اولویت'}</button>
             : <button type="button" className="ts-primary" onClick={next} disabled={d.step === 5 && !planList} data-testid="ts-next">{nextLabel} <ChevronLeft size={18} /></button>}
         </div>}
-        {!result ? <p className="ts-muted center small">پیش‌نویس روی همین دستگاه نگه داشته می‌شود</p> : null}
+        {!done && !edit ? <p className="ts-muted center small">پیش‌نویس روی همین دستگاه نگه داشته می‌شود</p> : null}
       </div>
     </div>
   </div>;

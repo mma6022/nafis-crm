@@ -1,5 +1,7 @@
-import { HelpCircle } from 'lucide-react';
-import { fa, fmtDateTime, type FirstCallSummary, type SuggestedPlan } from './api';
+import { useState } from 'react';
+import { History, HelpCircle, Pencil } from 'lucide-react';
+import { fa, fmtDateTime, type FirstCallEditInfo, type FirstCallSummary, type SuggestedPlan } from './api';
+import { FIRST_CALL_FIELD_LABELS, firstCallValueText } from './first-call-edit-labels';
 import { NoPlanChip, PlanChip } from './PlanChip';
 import { JOB_LABELS, MILITARY_LABELS } from './plan-reasons';
 import './team-sales.css';
@@ -32,8 +34,10 @@ const TRI: Record<string, string> = { yes: 'بله', no: 'خیر', unknown: 'ن�
 const rank = (v: string | null) => (v === 'unknown' ? 'نمی‌دونه' : v ? <GradeChip value={v} /> : '—');
 
 /** Case page: «خلاصه‌ی تماس اول» with every answer of the latest first-call form. */
-export function FirstCallSummaryCard({ fc }: { fc: FirstCallSummary }) {
+export function FirstCallSummaryCard({ fc, editInfo, onEdit }: { fc: FirstCallSummary; editInfo?: FirstCallEditInfo; onEdit?: () => void }) {
   const a = fc.answers;
+  const [showEdits, setShowEdits] = useState(false);
+  const edits = editInfo?.edits ?? [];
   const cheque = a.checkStatus && a.checkStatus !== 'none' ? 'چک دارد' : a.canPromissory === 'yes' ? 'فقط سفته' : a.checkStatus ? 'هیچ‌کدام' : '—';
   const g = a.guarantorAvailable === 'yes';
   return <section className="fc-sum" aria-labelledby="h-first-call" data-testid="case-first-call">
@@ -54,5 +58,16 @@ export function FirstCallSummaryCard({ fc }: { fc: FirstCallSummary }) {
       {a.city ? <div><dt>شهر</dt><dd>{a.city}</dd></div> : null}
     </dl>
     {fc.note ? <p className="fc-note">«{fc.note}»</p> : null}
+    {edits.length || (editInfo?.canEdit && onEdit) ? <div className="cp-foot">
+      {edits.length ? <button type="button" className="cp-link" aria-expanded={showEdits} onClick={() => setShowEdits((v) => !v)} data-testid="fc-edit-history-toggle">
+        <History size={14} aria-hidden="true" />ویرایش‌ها ({fa(edits.length)})</button> : <span />}
+      {editInfo?.canEdit && onEdit ? <button type="button" className="cp-link fc-edit-btn" onClick={onEdit} data-testid="fc-edit"><Pencil size={14} aria-hidden="true" />ویرایش</button> : null}
+    </div> : null}
+    {showEdits ? <ol className="cp-history fc-edits" data-testid="fc-edit-history">{edits.map((e) => <li key={e.id} data-testid={`fc-edit-${e.id}`}>
+      <b>{e.actorName ?? '—'}</b> · {fmtDateTime(e.createdAt)}{e.sentToCloser ? <span className="ts-pill ok">ارسال به کارشناس فروش</span> : null}
+      {e.priorityAfter !== e.priorityBefore && e.priorityAfter ? <span className="ts-pill">اولویت {fa(e.priorityBefore ?? 0)} ← {fa(e.priorityAfter)}</span> : null}
+      {e.changed.length ? <ul>{e.changed.map((c) => <li key={c.field}><span className="ts-muted">{FIRST_CALL_FIELD_LABELS[c.field] ?? c.field}:</span> {firstCallValueText(c.field, c.old)} ← {firstCallValueText(c.field, c.new)}</li>)}</ul>
+        : <p className="ts-muted small">بدون تغییر در جواب‌ها</p>}
+    </li>)}</ol> : null}
   </section>;
 }

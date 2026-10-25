@@ -98,6 +98,23 @@ export function recordFirstCallVersion(customerId: number, qualificationId: numb
     [customerId, qualificationId, JSON.stringify(data), actor.id, data.submitterName ?? actor.fullName ?? null, at]);
 }
 
+/** crm-first-call-edit: the whole first-call form was edited → one 'edit' version with the changed consult fields. */
+export function recordFirstCallEditVersion(customerId: number, actor: { id: number; fullName?: string | null }, data: ConsultProfileData,
+  previous: ConsultProfileData | null, at: string): number | null {
+  ensureConsultProfileSchema();
+  const keys = ["jobType", "guarantorAvailable", "guarantorCheque", "creditRank", "gRank", "gJobType", "military", "city", "selectedPlans",
+    "noPlanFit", "noPlanNote", "urgency"] as const;
+  const changed = previous
+    ? keys.filter((k) => JSON.stringify(k === "selectedPlans" ? (previous.selectedPlans ?? []).map((p) => p.id) : previous[k] ?? null)
+      !== JSON.stringify(k === "selectedPlans" ? data.selectedPlans.map((p) => p.id) : data[k] ?? null))
+    : [...keys];
+  if (previous && !changed.length) return null;
+  return execute(
+    `INSERT INTO ${CONSULT_PROFILE_TABLE} (customer_id, source, qualification_id, data_json, changed_fields_json, actor_user_id, actor_name, created_at)
+     VALUES (?, 'edit', NULL, ?, ?, ?, ?, ?)`,
+    [customerId, JSON.stringify(data), JSON.stringify(changed), actor.id, actor.fullName ?? null, at]);
+}
+
 type VersionRow = { id: number; source: string; qualification_id: number | null; data_json: string; changed_fields_json: string | null;
   actor_user_id: number | null; actor_name: string | null; created_at: string };
 function parseVersion(r: VersionRow) {

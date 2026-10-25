@@ -176,3 +176,26 @@ export const fmtDateTime = (iso: string | null | undefined) => {
   if (Number.isNaN(d.getTime())) return '';
   return new Intl.DateTimeFormat('fa-IR-u-ca-persian', { weekday: 'long', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tehran' }).format(d);
 };
+
+/* crm-first-call-edit: «ویرایش» on «خلاصه‌ی تماس اول» / «اطلاعات مشاوره». The server decides access and priority. */
+export type FirstCallEditChange = { field: string; old: unknown; new: unknown };
+export type FirstCallEditEntry = {
+  id: number; actorName: string | null; changed: FirstCallEditChange[]; priorityBefore: number | null; suggestedPriority: number | null;
+  priorityAfter: number | null; sentToCloser: boolean; createdAt: string;
+};
+export type FirstCallEditInfo = { canEdit: boolean; canSend: boolean; sendBlockedReason: string | null; ownerIsCloser: boolean; edits: FirstCallEditEntry[] };
+export type FirstCallEditResult = {
+  editId: number | null; changed: FirstCallEditChange[]; suggestedPriority: 1 | 2 | 3; reasons: string[];
+  priorityBefore: number | null; priorityAfter: number | null; priorityRaised: boolean; handoff: PromoteResult | null;
+  selectedPlans: SuggestedPlan[]; noPlanFit: boolean; noPlanNote: string | null; noSuitablePlan: boolean; cityWritten: boolean;
+};
+export const firstCallEditInfoKey = (customerId: number) => ['first-call-edit-info', customerId] as const;
+export function useFirstCallEditInfo(customerId: number, enabled = true) {
+  return useQuery<FirstCallEditInfo>({
+    queryKey: firstCallEditInfoKey(customerId), enabled: enabled && Number.isFinite(customerId) && customerId > 0, retry: false,
+    queryFn: () => request<FirstCallEditInfo>(`/customers/${customerId}/team-sales/first-call/edit-info`),
+  });
+}
+export const submitFirstCallEdit = (customerId: number, body: {
+  answers: SimpleAnswers; note: string; selectedPlans?: number[]; noPlanNote?: string; send: boolean; baseId: number;
+}) => request<FirstCallEditResult>(`/customers/${customerId}/team-sales/first-call/edit`, { method: 'POST', body: JSON.stringify(body) });

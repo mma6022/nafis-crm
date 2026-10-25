@@ -20,6 +20,7 @@ const SOURCE: Record<string, string> = { first_call: 'فرم تماس اول', e
 export const CONSULT_FIELD_LABELS: Record<string, string> = {
   jobType: 'شغل متقاضی', guarantorAvailable: 'ضامن', guarantorCheque: 'چک ضامن', creditRank: 'رتبه‌ی متقاضی',
   gRank: 'رتبه‌ی ضامن', gJobType: 'شغل ضامن', military: 'نظام وظیفه', city: 'شهر', urgency: 'فوریت',
+  selectedPlans: 'طرح‌ها', noPlanFit: 'هیچ طرحی نمی‌خوره', noPlanNote: 'چرا (بدون طرح)',
 };
 const job = (v: string | null) => (v === 'unknown' ? 'نمی‌دونه' : v ? JOB_LABELS[v] ?? v : '—');
 const rank = (v: string | null) => (v === 'unknown' ? 'نمی‌دونه' : v ? <GradeChip value={v} /> : '—');
@@ -31,7 +32,8 @@ const draftOf = (d: ConsultProfileData): Draft => ({
   city: d.city ?? '', urgency: d.urgency ?? '',
 });
 
-export function ConsultProfileCard({ customerId }: { customerId: number }) {
+/** onEditFirstCall: crm-first-call-edit — «ویرایش» opens the first-call wizard (admin, the qualifier or the owner). */
+export function ConsultProfileCard({ customerId, onEditFirstCall }: { customerId: number; onEditFirstCall?: () => void }) {
   const q = useConsultProfile(customerId);
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -97,7 +99,8 @@ export function ConsultProfileCard({ customerId }: { customerId: number }) {
     {official ? <p className="cp-note">تطبیق طرح‌ها با رتبه‌ی استعلام رسمی انجام می‌شود، نه اظهار مشتری.</p> : null}
     <div className="cp-foot">
       <button type="button" className="cp-link" aria-expanded={showHistory} onClick={() => setShowHistory((v) => !v)} data-testid="consult-history-toggle"><History size={14} aria-hidden="true" />تاریخچه ({versions.length.toLocaleString('fa-IR')})</button>
-      {canEdit && !editing ? <button type="button" className="cp-link" onClick={startEdit} data-testid="consult-edit"><Pencil size={14} aria-hidden="true" />ویرایش</button> : null}
+      {onEditFirstCall && !editing ? <button type="button" className="cp-link fc-edit-btn" onClick={onEditFirstCall} data-testid="consult-edit-wizard"><Pencil size={14} aria-hidden="true" />ویرایش</button> : null}
+      {canEdit && !editing ? <button type="button" className="cp-link" onClick={startEdit} data-testid="consult-edit"><Pencil size={14} aria-hidden="true" />{onEditFirstCall ? 'ویرایش سریع یک مورد' : 'ویرایش'}</button> : null}
     </div>
     {showHistory ? <ol className="cp-history" data-testid="consult-history">{versions.map((v) => <li key={v.id}>
       <b>{SOURCE[v.source] ?? v.source}</b> · {v.actorName ?? '—'} · {fmtDateTime(v.createdAt)}

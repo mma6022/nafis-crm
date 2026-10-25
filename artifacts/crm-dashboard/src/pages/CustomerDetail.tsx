@@ -26,7 +26,7 @@ import { BUSINESS_STATUS_LABELS, WIZARD_DISPLAY_STEPS, WIZARD_TOTAL_STEPS, loanB
 import { ConfirmDialog, initialsOf, jalaliDate, PriorityLabel, relativeTime, Sheet, STATUS_LABEL, StatusPill } from './customers-ui';
 import './customers.css';
 import { useCallLauncher, CallLaunchStatus } from '@/features/team-sales/useCallLauncher';
-import { firstCallOf, showsUpgradeButton, usesSimpleForm, type PromoteResult, type QualifyResult } from '@/features/team-sales/api';
+import { consultProfileKey, firstCallEditInfoKey, firstCallOf, showsUpgradeButton, useFirstCallEditInfo, usesSimpleForm, type FirstCallEditResult, type PromoteResult, type QualifyResult } from '@/features/team-sales/api';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 import { FirstCallSummaryCard, NoPlanBox, SuggestedPlansBox } from '@/features/team-sales/FirstCallCard';
 import { ConsultProfileCard } from "@/features/team-sales/ConsultProfileCard";
@@ -265,6 +265,9 @@ export default function CustomerDetail() {
   const callLauncher = useCallLauncher(session.data?.user, Boolean(session.data?.user),
     (_c, kind) => (kind === 'simple' && !handoff ? setSimpleFormOpen(true) : setCallFormOpen(true)));
   const tsConfig = { data: callLauncher.config };
+  // crm-first-call-edit: «ویرایش» on «خلاصه‌ی تماس اول» / «اطلاعات مشاوره» (the server decides who may edit / send).
+  const [fcEditOpen, setFcEditOpen] = useState(false);
+  const fcEditInfo = useFirstCallEditInfo(id, tsConfig.data?.enabled === true);
   const [tsToast, setTsToast] = useState('');
   useEffect(() => { setHandoff(null); setSimpleFormOpen(false); setUpgradeOpen(false); }, [id]);
   useEffect(() => {
@@ -398,6 +401,16 @@ export default function CustomerDetail() {
     void queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() });
   };
   const firstCall = firstCallOf(customer);
+  const canEditFirstCall = Boolean(firstCall && fcEditInfo.data?.canEdit && !handoff);
+  const openFcEdit = () => { void fcEditInfo.refetch(); setFcEditOpen(true); };
+  const afterFirstCallEdit = (r: FirstCallEditResult) => {
+    void queryClient.invalidateQueries({ queryKey: consultProfileKey(id) });
+    void queryClient.invalidateQueries({ queryKey: firstCallEditInfoKey(id) });
+    void queryClient.invalidateQueries({ queryKey: getListCustomerActivityQueryKey(id) });
+    if (r.handoff) { afterHandoff(r.handoff, false); return; }
+    void queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() });
+    void customerQuery.refetch();
+  };
   const afterSimpleForm = (r: QualifyResult) => {
     if (r.handoff) { afterHandoff(r.handoff, false); return; }
     void queryClient.invalidateQueries({ queryKey: getListCustomerActivityQueryKey(id) });
@@ -674,7 +687,7 @@ export default function CustomerDetail() {
     {readOnlyRole ? <div className="csx-note warn" data-testid="note-readonly-role"><Lock size={18} /><p>فقط مشاهده — ویرایش، تماس و کیف پول برای نقش شما فعال نیست.</p></div> : null}
     <nav className="csx-secnav m-only" aria-label="بخش‌های پرونده">{secs.map(([key, label, n]) => <a key={key} href={`#sec-${key}`} aria-current={activeSec === key ? 'true' : undefined} onClick={(event) => { event.preventDefault(); setActiveSec(key); document.getElementById(`sec-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>{label}{n != null ? <span className="n">{faNum(n)}</span> : null}</a>)}</nav>
     <div className="csx-dgrid">
-      <div className="colA"><ConsultProfileCard customerId={customer.id} />{firstCall ? <FirstCallSummaryCard fc={firstCall} /> : null}{infoSec}{loansSec}{callsSec}</div>
+      <div className="colA"><ConsultProfileCard customerId={customer.id} onEditFirstCall={canEditFirstCall ? openFcEdit : undefined} />{firstCall ? <FirstCallSummaryCard fc={firstCall} editInfo={fcEditInfo.data} onEdit={canEditFirstCall ? openFcEdit : undefined} /> : null}{infoSec}{loansSec}{callsSec}</div>
       <div className="colB">{tsCard ? <div className="d-only">{tsCard}</div> : null}<div className="d-only"><DataAccuracyCard customerId={id} place="d" onSubmitted={refreshAfterAccuracy} /></div>{statusSec}{creditSec}{walletSec}{adminSec}</div>
     </div>
     {editing ? <div className="csx-formhost"><Sheet title={`ویرایش پرونده ${customer.name}`} onClose={() => { setEditing(false); setProfileErrors({}); }} testId="customer-edit-sheet" initialFocus='[data-testid="input-detail-name"]' footer={<>
@@ -724,6 +737,9 @@ export default function CustomerDetail() {
     )}
     {toast ? <div className="csx-toast" role="status">{toast}</div> : null}
     {simpleFormOpen ? <SimpleCallForm customer={customer} userId={userId} noteMin={tsConfig.data?.noteMinLength ?? 30} onClose={() => setSimpleFormOpen(false)} onDone={afterSimpleForm} onNext={() => { setSimpleFormOpen(false); setLocation('/customers'); }} /> : null}
+    {fcEditOpen && firstCall && fcEditInfo.data ? <SimpleCallForm customer={customer} userId={userId} noteMin={tsConfig.data?.noteMinLength ?? 30}
+      edit={{ fc: firstCall, canSend: fcEditInfo.data.canSend, sendBlockedReason: fcEditInfo.data.sendBlockedReason, onSaved: afterFirstCallEdit }}
+      onClose={() => setFcEditOpen(false)} onDone={() => {}} onNext={() => setFcEditOpen(false)} /> : null}
     <CallLaunchStatus status={callLauncher.status} onRetry={callLauncher.retry} onCancel={callLauncher.cancel} />
     {upgradeOpen ? <UpgradeDialog customer={customer} onClose={() => setUpgradeOpen(false)} onDone={(r) => { setUpgradeOpen(false); afterHandoff(r); }} /> : null}
     {tsToast ? <TsToast text={tsToast} onClose={() => setTsToast('')} onLink={() => document.getElementById('sec-calls')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} /> : null}
