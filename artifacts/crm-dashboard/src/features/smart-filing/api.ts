@@ -10,7 +10,16 @@ export type SfJob = {
   checklist: { items: { key: string; label: string; ok: boolean; blocking: boolean }[]; blocked: boolean; documents: number } | null;
   /** Whether Sarina's runner called the CRM API in the last 90 s (all traffic goes through the CRM server). */
   runner?: { online: boolean; lastSeenAt: string | null };
+  permission?: { approver: 'manager' | 'expert'; status: string } | null;
 };
+export type SfPermStatus = 'needs_request' | 'needs_expert' | 'later' | 'pending' | 'approved' | 'rejected' | 'cancelled';
+/** «اجازه‌ی استعلام» request (shots 33/33b/33c/40). can* flags are computed on the server for the signed-in user. */
+export type SfPermission = {
+  id: number; kind: 'credit_inquiry'; approver: 'manager' | 'expert'; status: SfPermStatus; stepLabel: string | null; costText: string | null;
+  requestedAt: string; sentAt: string | null; remindedAt: string | null; decidedAt: string | null; decidedByName: string | null;
+  remindAt: string | null; secondsToRemind: number | null;
+  canSend: boolean; canRemind: boolean; canCancel: boolean; canLater: boolean; canDecide: boolean; canReturn: boolean;
+} | null;
 export type SfMessage = { id: number; author: 'runner' | 'user' | 'system'; userName: string | null; kind: string; body: string | null; data: unknown; stepLabel: string | null; createdAt: string; screenshotUrl: string | null };
 export type SfCodeRequest = { id: number; target: 'ours' | 'customer'; prompt: string | null; requestedAt: string; expiresAt: string; secondsLeft?: number } | null;
 export type SfPanel = { id: number; slug: string; name: string; baseUrl: string | null; username: string | null; hasPassword: boolean; passwordUpdatedAt: string | null; autoSubmit: boolean; active: boolean; plans: { id: number; name: string | null }[] };
@@ -29,7 +38,7 @@ export async function sfFetch<T>(path: string, init?: { method?: string; body?: 
 }
 const ERR: Record<string, string> = {
   forbidden: 'دسترسی ندارید.', job_not_found: 'کار پیدا نشد.', plan_not_linked: 'طرح این پرونده به پنل ازکی‌وام وصل نیست.',
-  checklist_blocked: 'نام، کد ملی یا موبایل مشتری کامل نیست.', no_open_code_request: 'درخواست کد فعالی نیست.',
+  checklist_blocked: 'نام، کد ملی یا موبایل مشتری کامل نیست.', no_open_code_request: 'درخواست کد فعالی نیست.', permission_state: 'این درخواست دیگر باز نیست.', line_not_confirmed: 'اول تأیید کنید خط موبایل به نام خود مشتری است.',
 };
 export const fa = (n: number | string) => String(n).replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
 export const money = (v: string | null) => { const n = Number(String(v ?? '').replace(/[^\d]/g, '')); return n ? `${n.toLocaleString('fa-IR')} تومان` : '—'; };
@@ -40,7 +49,7 @@ export function useSfJobs() {
   return useQuery({ queryKey: ['smart-filing-jobs'], refetchInterval: 15_000, queryFn: () => sfFetch<{ jobs: SfJob[] }>('/jobs') });
 }
 export function useSfJob(id: number) {
-  return useQuery({ queryKey: ['smart-filing-job', id], refetchInterval: 4_000, queryFn: () => sfFetch<{ job: SfJob; messages: SfMessage[]; codeRequest: SfCodeRequest; isAdmin: boolean }>(`/jobs/${id}`) });
+  return useQuery({ queryKey: ['smart-filing-job', id], refetchInterval: 4_000, queryFn: () => sfFetch<{ job: SfJob; messages: SfMessage[]; codeRequest: SfCodeRequest; isAdmin: boolean; permission?: SfPermission }>(`/jobs/${id}`) });
 }
 export function useSfPanels(enabled: boolean) {
   return useQuery({ queryKey: ['smart-filing-panels'], enabled, queryFn: () => sfFetch<{ panels: SfPanel[]; keyConfigured: boolean }>('/panels') });

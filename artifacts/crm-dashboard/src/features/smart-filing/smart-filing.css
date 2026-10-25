@@ -48,3 +48,26 @@
   .sf-code input { max-width: none; }
   .sf-actions .nf-btn { flex: 1 1 auto; min-height: 44px; }
 }
+/* «اجازه‌ی استعلام» card (shots 33 / 33b / 33c) */
+.sf-perm { display: grid; gap: 10px; padding: 14px; border: 1.5px solid #f59e0b; }
+.sf-perm.ok { border-color: color-mix(in srgb, var(--nf-success) 50%, transparent); }
+.sf-perm.bad { border-color: color-mix(in srgb, var(--nf-danger) 45%, transparent); }
+.sf-perm h3 { margin: 0; font-size: 16px; }
+.sf-perm-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sf-perm-lead { margin: 0; font-weight: 600; line-height: 1.8; }
+.sf-perm-box { display: grid; gap: 4px; padding: 10px 12px; border-radius: var(--nf-radius-sm, 10px); font-size: 13px; line-height: 1.8; }
+.sf-perm-box b { display: flex; align-items: center; gap: 6px; }
+.sf-perm-box svg { vertical-align: -3px; margin-inline-end: 4px; }
+.sf-perm-box.warn { background: color-mix(in srgb, #f59e0b 10%, var(--nf-surface)); border: 1px solid color-mix(in srgb, #f59e0b 35%, transparent); color: #7c4a03; }
+.sf-perm-box.info { background: color-mix(in srgb, var(--nf-brand-500, #3b4cca) 7%, var(--nf-surface)); color: var(--nf-ink-2); }
+.sf-perm-box.ok { background: color-mix(in srgb, var(--nf-success) 10%, var(--nf-surface)); color: var(--nf-success); }
+.sf-perm-box.bad { background: color-mix(in srgb, var(--nf-danger) 8%, var(--nf-surface)); color: var(--nf-danger); }
+.sf-perm-line { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 12px; border-radius: var(--nf-radius-sm, 10px); background: color-mix(in srgb, var(--nf-ink) 4%, var(--nf-surface)); font-weight: 600; cursor: pointer; }
+.sf-perm-line input { width: 20px; height: 20px; }
+.sf-perm-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 10px; border-top: 1px solid var(--nf-line); }
+.sf-perm-actions .nf-btn, .sf-perm-mgr .nf-btn { min-height: 44px; }
+.sf-perm-mgr { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .sf-perm-actions.col { flex-direction: column; }
+  .sf-perm-actions .nf-btn, .sf-perm-mgr, .sf-perm-mgr .nf-btn { width: 100%; flex: 1 1 auto; justify-content: center; }
+}

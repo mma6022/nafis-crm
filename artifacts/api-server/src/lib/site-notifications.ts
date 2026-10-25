@@ -176,7 +176,7 @@ const selection=`e.*,COALESCE(c.name,e.customer_name) customer_name,c.id current
 const notificationPages = {
   customer: "customers", chat: "chat", instagram: "instagram-inbox", loan: "loan-applications", loan_draft: "loan-applications",
   goods: "goods-purchases", contract: "contracts", payment: "payment-orders",
-  calls: "calls", consultations: "consultations", wallet: "wallet-management",
+  calls: "calls", consultations: "consultations", wallet: "wallet-management", smart_filing: "smart-filing",
 } as const;
 const pageExpression = `CASE e.resource_type ${Object.entries(notificationPages).map(([type,page])=>`WHEN ${lit(type)} THEN ${lit("/"+page)}`).join(" ")} ELSE '/customers' END`;
 function pageFilter(value: unknown): {sql:string;params:string[]} | null {
@@ -205,7 +205,16 @@ function target(e: Event) {
   if(e.resource_type==="calls")return `/calls?customerId=${id}`;
   if(e.resource_type==="consultations")return `/consultations?customerId=${id}`;
   if(e.resource_type==="wallet")return `/wallet-management?customerId=${id}`;
+  if(e.resource_type==="smart_filing")return `/smart-filing/jobs/${e.resource_id}`;
   return `/customers/${id}`;
+}
+/** Manager bell row for «اجازه‌ی استعلام»: inline «اجازه می‌دهم / رد» only while that job's request is still open. */
+function creditAction(e: Event) {
+  try {
+    const p=queryRow<{status:string;approver:string}>("SELECT status,approver FROM smart_filing_permission_requests WHERE job_id=? ORDER BY id DESC LIMIT 1",[e.resource_id]);
+    return {type:"credit-permission",jobId:Number(e.resource_id),status:p?.status??null,
+      open:Boolean(p&&p.approver==="manager"&&["needs_request","later","pending"].includes(p.status))};
+  } catch { return {type:"credit-permission",jobId:Number(e.resource_id),status:null,open:false}; }
 }
 export function createSiteNotificationRouter() {
   installSiteNotifications();
@@ -232,7 +241,8 @@ export function createSiteNotificationRouter() {
       ORDER BY e.id DESC LIMIT ?`,[...scope.params,...filter.params,...(before?[before]:[]),limit+1]);
     res.json({items:items.slice(0,limit).map(e=>({id:Number(e.id),kind:e.kind,title:e.title,body:e.body,
       page:notificationPages[e.resource_type as keyof typeof notificationPages]??"customers",
-      customerId:Number(e.current_customer_id??e.customer_id),customerName:e.customer_name,target:target(e),createdAt:e.created_at,readAt:e.read_at})),
+      customerId:Number(e.current_customer_id??e.customer_id),customerName:e.customer_name,target:target(e),createdAt:e.created_at,readAt:e.read_at,
+      ...(e.kind==="credit-permission"?{action:creditAction(e)}:{})})),
       pageCounts,unreadCount:Number(count),latestId:Number(latest),scopeVersion,nextCursor:items.length>limit?String(items[limit-1].id):null});
   });
   router.post("/site-notifications/read-all",(req,res)=>{

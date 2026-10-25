@@ -189,6 +189,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
     location === href || (href !== '/' && location.startsWith(href) && !(href === '/chat' && location.startsWith('/internal-chat')));
 
   const phone = useMediaQuery('(max-width: 640px)');
+  const [asSideSlot, setAsSideSlot] = useState<HTMLDivElement | null>(null);
+  const [asTopSlot, setAsTopSlot] = useState<HTMLDivElement | null>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
   const drawer = useRef<HTMLElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
@@ -308,6 +310,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
             </button>
           </div>
         </nav>
+        <div className="nas-slot nas-slot-side" ref={setAsSideSlot} />
         <div className="side-foot">
           <LifeBuoy size={18} aria-hidden="true" />
           <div>
@@ -337,6 +340,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
           </div>
           <div className="top-actions">
             <DiagnosticsButton />
+            <div className="nas-slot nas-slot-top" ref={setAsTopSlot} />
             <NotificationBell user={user} />
             {user?.role === 'admin' || user?.permissions?.includes('reminders.manage') ? <button type="button" className="icon-button" aria-label="ثبت یادآور" title="ثبت یادآور" onClick={() => setReminderFormOpen(true)} data-testid="button-header-reminder"><Bell size={20} /></button> : null}
             <DropdownMenu dir="rtl">
@@ -365,8 +369,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
         <DiagnosticPageBoundary key={location}>{children}</DiagnosticPageBoundary>
       </main>
       {user && (canChat || canTeam) && !onChatPage ? <FloatingChat key={phone ? 'phone' : 'wide'} bottomOffset={phone ? 84 : 20} actor={`staff:${user.id}`} items={[...(canChat ? [{ href: '/chat', label: 'گفتگو با مشتریان', count: unread.data?.count ?? 0 }] : []), ...(canTeam ? [{ href: '/internal-chat', label: 'گفتگوی داخلی', count: team.data?.unreadCount ?? 0 }] : [])]} /> : null}
-      {/* «دستیار هوشمند»: stacked above the staff-chat FAB (54px + 12px gap); renders nothing unless the server lists an assistant for this user. */}
-      {user ? <AssistantDock user={user as { id: number; role?: string | null; salespersonId?: number | null }} phone={phone} bottomOffset={(phone ? 84 : 20) + 66} /> : null}
+      {/* «دستیار هوشمند» (HANDOFF §1): avatars portal into the sidebar-bottom slot (desktop) or the top-bar slot next to the bell (phone); renders nothing unless the server lists an assistant for this user. */}
+      {user ? <AssistantDock user={user as { id: number; role?: string | null; salespersonId?: number | null }} phone={phone} slot={phone ? asTopSlot : asSideSlot} bottomOffset={(phone ? 84 : 20) + 66} /> : null}
       {profileOpen && user ? <ProfileModal user={user} onClose={() => setProfileOpen(false)} /> : null}
       {reminderFormOpen ? <CreateReminderForm onClose={() => setReminderFormOpen(false)} /> : null}
       {dueReminder ? (

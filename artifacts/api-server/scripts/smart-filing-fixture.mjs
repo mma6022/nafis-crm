@@ -15,6 +15,9 @@ CREATE TABLE loan_plans(id INTEGER PRIMARY KEY,name TEXT);
 CREATE TABLE loan_applications(id INTEGER PRIMARY KEY,customer_id INTEGER,plan_id INTEGER,plan_ids TEXT,requested_amount TEXT,approved_amount TEXT,duration_months INTEGER,requested_duration_months INTEGER,status TEXT,stage TEXT,deleted_at TEXT);
 CREATE TABLE loan_application_documents(id INTEGER PRIMARY KEY,application_id INTEGER,requirement_key TEXT,label TEXT,mime_type TEXT,size_bytes INTEGER,storage_path TEXT,status TEXT);
 CREATE TABLE customer_identity_documents(id INTEGER PRIMARY KEY,customer_id INTEGER,document_type TEXT,mime_type TEXT,size_bytes INTEGER,storage_path TEXT,is_latest INTEGER);
+CREATE TABLE users(id INTEGER PRIMARY KEY,full_name TEXT,username TEXT);
+INSERT INTO users VALUES(2,'کارشناس','u2');
+CREATE TABLE site_notification_events(id INTEGER PRIMARY KEY AUTOINCREMENT,customer_id INTEGER NOT NULL,customer_name TEXT NOT NULL,owner_id INTEGER,resource_type TEXT NOT NULL,resource_id INTEGER NOT NULL,kind TEXT NOT NULL,title TEXT NOT NULL,body TEXT NOT NULL DEFAULT '',permission TEXT NOT NULL,created_at TEXT NOT NULL,actor_key TEXT);
 INSERT INTO salespersons VALUES(7,'کارشناس نمونه');
 INSERT INTO loan_plans VALUES(7,'ترنم'),(8,'ترنم'),(21,'ترنم ( بازنشسته ها )'),(3,'طرح دیگر');
 INSERT INTO customers VALUES(1,'مشتری نمونه','09120000000','مشتری','نمونه','پدر','0010000000','1370/01/01','1111111111','تهران','تهران',NULL,7);
@@ -92,6 +95,62 @@ try {
   const crow = db.prepare("SELECT status,code_enc,code_masked FROM smart_filing_code_requests WHERE id=?").get(cr.j.id);
   assert.deepEqual([crow.status, crow.code_enc, crow.code_masked], ["consumed", null, "1•••5"]);
   assert.equal((await R("GET", `/jobs/${id}/code-requests/${cr.j.id}`)).j.status, "consumed");
+  // «اجازه‌ی استعلام» — manager mode (no assistant_settings row → manager)
+  const P = (u, act, b) => call("POST", `/api/smart-filing/jobs/${id}/permission/${act}`, b ?? {}, u);
+  const job = () => db.prepare("SELECT status FROM smart_filing_jobs WHERE id=?").get(id).status;
+  const bell = () => db.prepare("SELECT * FROM site_notification_events WHERE resource_type='smart_filing' ORDER BY id").all();
+  assert.equal((await P(2, "send", { lineConfirmed: true })).j.error, "no_permission_request");
+  const pr = await R("POST", `/jobs/${id}/permission-requests`, { kind: "credit_inquiry", costText: "حدود ۱۵ هزار تومان" });
+  assert.equal(pr.s, 201); assert.equal(pr.j.approver, "manager"); assert.equal(pr.j.status, "needs_request"); assert.equal(job(), "waiting_human");
+  assert.equal((await R("POST", `/jobs/${id}/permission-requests`, { kind: "credit_inquiry" })).j.existing, true);
+  assert.equal((await R("POST", `/jobs/${id}/permission-requests`, { kind: "x" })).s, 422);
+  let pv = (await U(2, "GET", `/jobs/${id}`)).j; assert.equal(pv.permission.status, "needs_request"); assert.equal(pv.permission.canSend, true); assert.equal(pv.permission.canDecide, false);
+  assert.ok(JSON.stringify(pv.job).includes("در انتظار اجازه‌ی مدیر"));
+  assert.equal((await A("GET", `/jobs/${id}`)).j.permission.canDecide, true);
+  assert.equal((await P(3, "send", { lineConfirmed: true })).s, 404); // other expert
+  assert.equal((await P(5, "send", { lineConfirmed: true })).s, 403); // trainee
+  assert.equal((await P(2, "send", {})).s, 422); // line not confirmed
+  assert.equal(bell().length, 0);
+  assert.equal((await P(2, "later")).s, 200); assert.equal(job(), "waiting_human");
+  assert.equal((await P(2, "send", { lineConfirmed: true })).s, 200);
+  let b = bell(); assert.equal(b.length, 1); assert.equal(b[0].permission, "smart_filing.credit_permission"); assert.equal(b[0].kind, "credit-permission"); assert.equal(b[0].resource_id, id);
+  assert.ok(b[0].title.startsWith("اجازه‌ی استعلام اعتباری برای مشتری نمونه")); assert.ok(b[0].body.includes("کارشناس: کارشناس") && b[0].body.includes("ترنم") && /(۱۵|15) هزار/.test(b[0].body), b[0].body);
+  assert.ok(!/0010000000|09120000000/.test(JSON.stringify(b)));
+  const rem = await P(2, "remind"); assert.equal(rem.s, 409); assert.equal(rem.j.error, "remind_too_soon");
+  pv = (await U(2, "GET", `/jobs/${id}`)).j.permission; assert.ok(pv.secondsToRemind > 590 && pv.secondsToRemind <= 600); assert.equal(pv.canRemind, false);
+  db.prepare("UPDATE smart_filing_permission_requests SET sent_at=? WHERE id=?").run(new Date(Date.now() - 11 * 60_000).toISOString(), pr.j.id);
+  assert.equal((await U(2, "GET", `/jobs/${id}`)).j.permission.canRemind, true);
+  assert.equal((await P(2, "remind")).s, 200); b = bell(); assert.equal(b.length, 2); assert.ok(b[1].title.startsWith("یادآوری: "));
+  assert.equal((await P(2, "remind")).j.error, "remind_too_soon"); // 10 min from the last reminder
+  assert.equal((await P(2, "decide", { approve: true, lineConfirmed: true })).s, 403); // expert cannot approve in manager mode
+  assert.equal((await P(4, "decide", { approve: true, lineConfirmed: true })).s, 403); // registrar neither
+  assert.equal((await P(2, "cancel")).s, 200); assert.equal((await U(2, "GET", `/jobs/${id}`)).j.permission.status, "needs_request");
+  assert.equal((await P(2, "send", { lineConfirmed: true })).s, 200); assert.equal(bell().length, 3);
+  const lpPerm = R("GET", `/jobs/${id}/permission-requests/${pr.j.id}?wait=8`); await new Promise(r => setTimeout(r, 300));
+  assert.equal((await P(1, "decide", { approve: true })).s, 200);
+  t0 = Date.now(); const pdone = await lpPerm; assert.ok(Date.now() - t0 < 3000); assert.equal(pdone.j.status, "approved"); assert.equal(pdone.j.decidedRole, "admin");
+  assert.equal(job(), "running"); assert.equal((await P(1, "decide", { approve: false })).j.error, "permission_state");
+  assert.equal((await R("GET", `/jobs/${id}/permission-requests/999`)).s, 404);
+  // reject path: «مدیر اجازه نداد» + «برگرداندن به کارشناس»
+  const pr2 = await R("POST", `/jobs/${id}/permission-requests`, { kind: "credit_inquiry" }); assert.equal(pr2.s, 201); assert.notEqual(pr2.j.id, pr.j.id);
+  assert.equal((await P(2, "send", { lineConfirmed: true })).s, 200);
+  assert.equal((await P(1, "decide", { approve: false })).s, 200); assert.equal(job(), "waiting_human");
+  assert.equal((await R("GET", `/jobs/${id}/permission-requests/${pr2.j.id}`)).j.status, "rejected");
+  pv = (await A("GET", `/jobs/${id}`)).j; assert.equal(pv.permission.status, "rejected"); assert.equal(pv.permission.canReturn, true); assert.ok(pv.messages.some(m => m.body.includes("مدیر اجازه نداد")));
+  assert.equal((await P(2, "return")).s, 403); assert.equal((await P(1, "return", { note: "مدارک را کامل کنید" })).s, 200);
+  assert.equal((await R("POST", `/jobs/${id}/status`, { status: "running" })).s, 200);
+  // expert mode (assistant_settings.credit_inquiry_permission = expert), 33c
+  db.exec("CREATE TABLE IF NOT EXISTS assistant_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT NOT NULL,updated_by_user_id INTEGER); INSERT INTO assistant_settings VALUES('credit_inquiry_permission','expert','now',NULL)");
+  const pr3 = await R("POST", `/jobs/${id}/permission-requests`, { kind: "credit_inquiry" }); assert.equal(pr3.j.approver, "expert"); assert.equal(pr3.j.status, "needs_expert");
+  assert.ok(JSON.stringify((await U(2, "GET", `/jobs/${id}`)).j.job).includes("منتظر اجازه‌ی شما برای استعلام"));
+  assert.equal((await P(2, "send", { lineConfirmed: true })).j.error, "permission_state"); // nothing goes to the manager
+  assert.equal((await P(3, "decide", { approve: true, lineConfirmed: true })).s, 404);
+  assert.equal((await P(2, "decide", { approve: true })).s, 422);
+  assert.equal((await P(2, "later")).s, 200);
+  assert.equal((await P(2, "decide", { approve: true, lineConfirmed: true })).s, 200); assert.equal(job(), "running");
+  assert.equal((await R("GET", `/jobs/${id}/permission-requests/${pr3.j.id}`)).j.status, "approved");
+  assert.equal(bell().length, 4); // only the 3 manager-mode sends + 1 reminder ever reached the bell
+  db.exec("DELETE FROM assistant_settings");
   // human message + approval gate
   const cur = (await R("GET", `/jobs/${id}/messages?after=0`)).j.cursor;
   t0 = Date.now(); const idle = await R("GET", `/jobs/${id}/messages?after=${cur}&wait=1`); assert.equal(idle.j.messages.length, 0); assert.ok(Date.now() - t0 >= 900);

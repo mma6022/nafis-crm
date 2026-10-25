@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, Send, ShieldCheck, KeyRound, RotateCcw, XCircle } from 'lucide-react';
 import { SkeletonPanel, ErrorState } from '@/components/CrmShell';
 import { useSfJob, sfFetch, money, when, fa, TONE, base, type SfMessage, type SfCodeRequest } from './api';
+import { PermissionCard } from './PermissionCard';
 import './smart-filing.css';
 
 /** One smart-filing job: summary + progress, chat with screenshots, code box, approval and manual outcome. */
@@ -25,7 +26,7 @@ export default function SmartFilingJob() {
   };
   if (q.isLoading) return <section className="data-page"><SkeletonPanel rows={6} /></section>;
   if (q.isError || !q.data) return <section className="data-page"><ErrorState onRetry={() => void q.refetch()} /></section>;
-  const { job, messages, codeRequest, isAdmin } = q.data;
+  const { job, messages, codeRequest, isAdmin, permission } = q.data;
   const open = ['queued', 'running', 'waiting_human', 'ready_for_approval'].includes(job.status);
   return (
     <section className="data-page sf-job" data-testid="smart-filing-job">
@@ -60,6 +61,8 @@ export default function SmartFilingJob() {
         {err ? <p className="sf-note sf-warn" role="alert">{err}</p> : null}
       </div>
 
+      {permission ? <PermissionCard p={permission} job={job} busy={busy} act={(path, body) => act(`/permission/${path}`, body)} /> : null}
+
       <CodeBox code={codeRequest} busy={busy} onSubmit={code => act('/code', { code })} />
 
       <div className="panel" style={{ padding: 0 }}>
@@ -79,7 +82,7 @@ function Message({ m }: { m: SfMessage }) {
     <div className={`sf-msg ${m.author}`} data-testid={`sf-msg-${m.id}`}>
       {m.author !== 'system' ? <span className="sf-meta">{who} · {when(m.createdAt)}{m.stepLabel ? ` · ${m.stepLabel}` : ''}</span> : null}
       {m.body}{m.author === 'system' ? <span className="sf-sub"> · {when(m.createdAt)}</span> : null}
-      {m.data && m.kind !== 'code_request' ? <pre>{JSON.stringify(m.data, null, 2)}</pre> : null}
+      {m.data && m.kind !== 'code_request' && m.kind !== 'permission_request' ? <pre>{JSON.stringify(m.data, null, 2)}</pre> : null}
       {m.screenshotUrl ? <a href={`${base()}${m.screenshotUrl}`} target="_blank" rel="noreferrer"><img src={`${base()}${m.screenshotUrl}`} alt="اسکرین‌شات پنل" loading="lazy" /></a> : null}
     </div>
   );

@@ -1,4 +1,6 @@
-export type SiteNotification = { id: number; kind: string; title: string; body: string; customerId: number; customerName: string; target: string; page?: string; createdAt: string; readAt: string | null };
+export type SiteNotification = { id: number; kind: string; title: string; body: string; customerId: number; customerName: string; target: string; page?: string; createdAt: string; readAt: string | null;
+  /** Manager «اجازه‌ی استعلام» row (kind credit-permission): inline decide while the request is still open. */
+  action?: { type: 'credit-permission'; jobId: number; status: string | null; open: boolean } };
 export type SiteNotificationPage = { items: SiteNotification[]; unreadCount: number; latestId: number; scopeVersion: string; nextCursor: string | null; pageCounts?: Record<string, number> };
 export type NotificationUser = { id: number; role: string; permissions?: string[] } | null | undefined;
 
@@ -42,4 +44,18 @@ export function safeTarget(target: string | null | undefined): string | null {
   if (!target.startsWith('/') || target.startsWith('//') || /[\\\u0000-\u001f]/.test(target)) return null;
   if (/^\/[a-z][a-z0-9+.-]*:/i.test(target)) return null;
   return target;
+}
+
+/** «اجازه می‌دهم» / «رد» from the bell — the same server endpoint as the job page (admin only for manager-mode requests). */
+export async function decideCreditPermission(jobId: number, approve: boolean): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(`${base()}/api/smart-filing/jobs/${jobId}/permission/decide`, {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ approve }),
+    });
+  } catch { throw new NotificationApiError('ارتباط با سامانه برقرار نشد.', 0); }
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new NotificationApiError(typeof body?.message === 'string' ? body.message : 'ثبت تصمیم انجام نشد.', response.status);
+  }
 }

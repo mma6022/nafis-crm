@@ -64,3 +64,14 @@
 /* crm-site-leads: preferred-time window toast (sticky, gold). */
 .sn-toast.p1.slw { border-color: #F1D493; border-inline-start-color: #C99A2E; }
 .sn-toast.p1.slw .sn-p1-ic { background: #FFF6E0; color: #7A4F00; }
+
+/* Manager «اجازه‌ی استعلام» row (shot 40) */
+.sn-credit { display: grid; gap: 6px; margin: 0 14px 10px; }
+.sn-credit-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sn-credit-btns button { min-height: 40px; border-radius: 10px; font: inherit; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.sn-credit-yes { background: #2b3a9e; color: #fff; border: 0; }
+.sn-credit-no { background: #fff; color: #1f2a44; border: 1px solid #d7dbe6; }
+.sn-credit-btns button:disabled { opacity: .6; cursor: default; }
+.sn-credit-done { font-size: 12px; font-weight: 700; color: #4a5470; }
+.sn-credit-err { font-size: 12px; color: #9b2c2c; }
+.sn-credit .sn-link { justify-self: start; }

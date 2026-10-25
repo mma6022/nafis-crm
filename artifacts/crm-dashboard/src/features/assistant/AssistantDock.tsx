@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getListRemindersQueryKey, useCreateReminder } from '@workspace/api-client-react';
 import { useLocation } from 'wouter';
@@ -74,6 +75,41 @@ function QuickReminder({ m, onClose, onFull }: { m: AsMessage; onClose: () => vo
     <button type="button" className="open" onClick={onFull}>زمان دیگر / جزئیات</button>
   </div>;
 }
+/** HANDOFF §1: a call form / full-screen modal is open (same selectors as useFloatingGuard, minus the assistant's own windows). */
+const OVERLAY_SEL = '[aria-modal="true"],[role="dialog"],[role="alertdialog"],.modal-backdrop,.call-sheet-backdrop,.ch-backdrop,.ic-sheet,.mobile-nav-overlay,[vaul-drawer]';
+function useForeignOverlay() {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    let f = 0;
+    const check = () => {
+      f = 0;
+      setOpen(Array.from(document.querySelectorAll(OVERLAY_SEL)).some(el => {
+        if (el.closest('.nas-chw,.nas-qr,.diag-layer-content,.diag-backdrop')) return false;
+        const r = el.getBoundingClientRect(); if (!r.width && !r.height) return false;
+        const cs = getComputedStyle(el); return cs.visibility !== 'hidden' && cs.display !== 'none';
+      }));
+    };
+    const sch = () => { if (!f) f = requestAnimationFrame(check); };
+    const mo = new MutationObserver(sch);
+    mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-state', 'aria-modal', 'open', 'hidden'] });
+    sch();
+    return () => { mo.disconnect(); if (f) cancelAnimationFrame(f); };
+  }, []);
+  return open;
+}
+const typingInField = () => { const el = document.activeElement as HTMLElement | null; return Boolean(el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit'].includes((el as HTMLInputElement).type)) || el.isContentEditable) && !el.closest('.nas-chw')); };
+type Anchor = { top: number; bottom: number; left: number; right: number; cx: number };
+function useAnchor(el: HTMLElement | null, active: boolean, key?: string | number) {
+  const [a, setA] = useState<Anchor | null>(null);
+  useLayoutEffect(() => {
+    if (!el || !active) { setA(null); return; }
+    const m = () => { const t = key != null ? el.querySelector<HTMLElement>(`[data-thread="${key}"]`) : null; const r = (t ?? el).getBoundingClientRect(); setA({ top: r.top, bottom: r.bottom, left: r.left, right: r.right, cx: r.left + r.width / 2 }); };
+    m(); window.addEventListener('resize', m); window.addEventListener('scroll', m, { passive: true, capture: true });
+    return () => { window.removeEventListener('resize', m); window.removeEventListener('scroll', m, { capture: true }); };
+  }, [el, active, key]);
+  return a;
+}
+
 const sleep = (ms: number, signal: AbortSignal) => new Promise<void>(r => { const t = setTimeout(r, ms); signal.addEventListener('abort', () => { clearTimeout(t); r(); }, { once: true }); });
 
 /** Long-polls one thread (wait=20) and reports merged state up. Backs off when the server answers instantly with nothing new. */
@@ -118,7 +154,11 @@ function MsgActions({ m, onAct, compact }: { m: AsMessage; onAct: (m: AsMessage,
   </div>;
 }
 
-export function AssistantDock({ user, bottomOffset, phone }: { user: { id: number; role?: string | null; salespersonId?: number | null } | null | undefined; bottomOffset: number; phone: boolean }) {
+/** HANDOFF §1 placement: desktop/tablet — avatars live in a slot at the bottom of the dark sidebar (56px + name), the bubble opens to
+ *  the left over the content; phone — 44px avatar in the sticky top bar next to the bell, bubble full-width under the bar with its tail
+ *  on the avatar. Nothing floats over page content, so card buttons at 390px are never covered. Without a slot it falls back to the
+ *  old fixed bottom-left dock. */
+export function AssistantDock({ user, bottomOffset, phone, slot }: { user: { id: number; role?: string | null; salespersonId?: number | null } | null | undefined; bottomOffset: number; phone: boolean; slot?: HTMLElement | null }) {
   const allowed = asVisibleTo(user);
   const qc = useQueryClient();
   const [, setLocation] = useLocation();
@@ -134,6 +174,20 @@ export function AssistantDock({ user, bottomOffset, phone }: { user: { id: numbe
   const openRef = useRef(openId); openRef.current = openId;
   const prefsNow = prefs ?? mine.data?.prefs ?? EMPTY.prefs;
   const prefsRef = useRef(prefsNow); prefsRef.current = prefsNow;
+  const overlay = useForeignOverlay();
+  const overlayRef = useRef(overlay); overlayRef.current = overlay;
+  // Messages that arrived while a form was open / the user was typing (by id, so re-delivered messages count once).
+  const queueRef = useRef(new Map<number, AsMessage>());
+  const [queued, setQueued] = useState(0);
+  // When the form closes, show the most important queued message once (unless DND or its chat is already open).
+  useEffect(() => {
+    if (overlay || !queueRef.current.size) return;
+    const list = [...queueRef.current.values()]; queueRef.current.clear(); setQueued(0);
+    const top = list.find(m => m.priority === 'high') ?? list[list.length - 1];
+    if (top && !prefsRef.current.dnd && openRef.current !== top.threadId) setBubble(top);
+  }, [overlay]);
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  const anchor = useAnchor(anchorEl, Boolean(slot) && (bubble != null || Object.values(threads).some(t => t.typing)), bubble?.threadId);
 
   useEffect(() => { const f = () => unlockAudio(); window.addEventListener('pointerdown', f, { once: true }); return () => window.removeEventListener('pointerdown', f); }, []);
 
@@ -153,6 +207,8 @@ export function AssistantDock({ user, bottomOffset, phone }: { user: { id: numbe
     if (!loud.length || p.dnd) return;
     const top = loud.find(m => m.priority === 'high') ?? loud[loud.length - 1];
     if (p.sound && (!p.quiet || top.priority === 'high')) chime(top.priority === 'high');
+    // A form / full-screen window is open or the user is typing: queue (the avatar's unread count shows it) instead of popping up.
+    if (overlayRef.current || typingInField()) { for (const m of loud) queueRef.current.set(m.id, m); setQueued(queueRef.current.size); return; }
     if (openRef.current !== id) setBubble(top);
   }, [qc]);
 
@@ -199,30 +255,49 @@ export function AssistantDock({ user, bottomOffset, phone }: { user: { id: numbe
   const openA = openId != null ? list.find(a => a.threadId === openId) : undefined;
   const typingA = !openA && !bubble ? list.find(a => threads[a.threadId]?.typing) : undefined;
 
-  return <>
-    {pollers}
-    <div className="nas-dock" style={{ bottom: bottomOffset }} data-testid="assistant-dock">
-      {bubble && bubbleA ? <div className="nas-bub" role="status" aria-live="polite" data-testid="assistant-bubble" onPointerEnter={() => { hoverRef.current = true; }} onPointerLeave={() => { hoverRef.current = false; }}>
-        <div className="bh"><b>{bubbleA.label}</b>{bubble.customerName ? <span>· {bubble.customerName}</span> : null}<span className="sp" />
+  const showBubble = Boolean(bubble && bubbleA) && !overlay;
+  const pop = showBubble ? <div className="nas-bub" role="status" aria-live="polite" data-testid="assistant-bubble" onPointerEnter={() => { hoverRef.current = true; }} onPointerLeave={() => { hoverRef.current = false; }}>
+        <div className="bh"><b>{bubbleA!.label}</b>{bubble!.customerName ? <span>· {bubble!.customerName}</span> : null}<span className="sp" />
           <button type="button" className="bx" aria-label="بستن" onClick={() => setBubble(null)}><X size={18} /></button></div>
-        {KIND_FA[bubble.kind] ? <div className={`nas-kl k-${bubble.kind}`}>{KIND_FA[bubble.kind]}{bubble.priority === 'high' ? ' · فوری' : ''}</div> : null}
-        <div className="tx2">{bubble.body}</div>
-        {bubble.kind === 'reminder_proposal' ? <ProposalCard m={bubble} onDecided={decided} /> : (bubble.kind === 'suggestion' || bubble.kind === 'alert') ? <MsgActions m={bubble} onAct={act} /> : null}
-        <button type="button" className="open" onClick={() => { setOpenId(bubble.threadId); setBubble(null); }}>باز کردن گفتگو</button>
-      </div> : typingA ? <div className="nas-bub ty" data-testid="assistant-typing-bubble"><span className="dots"><i /><i /><i /></span>{typingA.label} در حال نوشتن…</div> : null}
-      <div className="nas-avs">
+        {KIND_FA[bubble!.kind] ? <div className={`nas-kl k-${bubble!.kind}`}>{KIND_FA[bubble!.kind]}{bubble!.priority === 'high' ? ' · فوری' : ''}</div> : null}
+        <div className="tx2">{bubble!.body}</div>
+        {bubble!.kind === 'reminder_proposal' ? <ProposalCard m={bubble!} onDecided={decided} /> : (bubble!.kind === 'suggestion' || bubble!.kind === 'alert') ? <MsgActions m={bubble!} onAct={act} /> : null}
+        <button type="button" className="open" onClick={() => { setOpenId(bubble!.threadId); setBubble(null); }}>باز کردن گفتگو</button>
+      </div> : typingA && !overlay ? <div className="nas-bub ty" data-testid="assistant-typing-bubble"><span className="dots"><i /><i /><i /></span>{typingA.label} در حال نوشتن…</div> : null;
+  const avatars = <div className="nas-avs">
         {list.map(a => {
-          const t = threads[a.threadId]; const st: AvState = prefsNow.dnd ? 'dnd' : t?.typing ? 'think' : bubble?.threadId === a.threadId ? 'attn' : 'idle';
-          return <button key={a.id} type="button" className="nas-fav" onClick={() => { setOpenId(o => o === a.threadId ? null : a.threadId); setBubble(null); }}
+          const t = threads[a.threadId]; const st: AvState = prefsNow.dnd || overlay ? 'dnd' : t?.typing ? 'think' : bubble?.threadId === a.threadId ? 'attn' : 'idle';
+          const online = t?.online ?? a.online;
+          return <button key={a.id} type="button" className="nas-fav" data-thread={a.threadId} onClick={() => { setOpenId(o => o === a.threadId ? null : a.threadId); setBubble(null); }}
             aria-label={`${a.label}${a.unread ? ` — ${a.unread} پیام تازه` : ''}`} aria-expanded={openId === a.threadId} data-testid={`button-assistant-${a.slug}`}>
-            <AssistantAvatar slug={a.slug} state={st} size={phone ? 46 : 54} />
-            <i className={`dt${(t?.online ?? a.online) ? '' : ' nc'}`} title={(t?.online ?? a.online) ? 'وصل' : 'وصل نیست'} />
+            <AssistantAvatar slug={a.slug} state={st} size={slot ? (phone ? 44 : 56) : (phone ? 46 : 54)} />
+            <i className={`dt${online ? '' : ' nc'}`} title={online ? 'وصل' : 'وصل نیست'} data-testid={`assistant-dot-${a.slug}`} />
             {a.unread > 0 ? <b className="bd2">{faNum(a.unread)}</b> : null}
-            {prefsNow.dnd ? <span className="moon"><Moon size={12} /></span> : null}
+            {prefsNow.dnd || overlay ? <span className="moon"><Moon size={12} /></span> : null}
             {!phone ? <span className="nmt">{a.name}</span> : null}
           </button>;
         })}
-      </div>
+      </div>;
+
+  if (slot) {
+    return <>
+      {pollers}
+      {createPortal(<div className={`nas-slotted${phone ? ' top' : ' side'}`} data-testid="assistant-dock" data-placement={phone ? 'topbar' : 'sidebar'}>
+        {!phone && overlay ? <div className="nas-dndc" data-testid="assistant-dnd-card"><Moon size={14} /> <span><b>مزاحم نشو</b> تا این پنجره باز است{queued ? ` · ${faNum(queued)} پیام در صف` : ''}</span></div> : null}
+        <span ref={setAnchorEl} className="nas-anchor">{avatars}</span>
+      </div>, slot)}
+      {pop ? <div className={`nas-pop ${phone ? 'top' : 'side'}`} style={phone ? { top: Math.max(8, (anchor?.bottom ?? 68) + 10), ['--tail' as string]: `${Math.round(anchor?.cx ?? 40)}px` } : { bottom: Math.max(12, window.innerHeight - (anchor?.bottom ?? window.innerHeight - 24)) }} data-testid="assistant-pop">{pop}</div> : null}
+    {openA ? <ChatPanel a={openA} t={openThread ?? EMPTY} prefs={prefsNow} onClose={() => setOpenId(null)} onAct={act} onPrefs={savePrefs} onDecided={decided}
+      onSent={m => setThreads(prev => { const t = prev[m.threadId] ?? EMPTY; if (t.messages.some(x => x.id === m.id)) return prev; return { ...prev, [m.threadId]: { ...t, messages: [...t.messages, m], lastId: Math.max(t.lastId, m.id) } }; })} /> : null}
+    {quickFor ? <QuickReminder m={quickFor} onClose={() => setQuickFor(null)} onFull={() => { setRemindFor(quickFor); setQuickFor(null); }} /> : null}
+    {remindFor ? <CreateReminderForm onClose={() => setRemindFor(null)} /> : null}
+    </>;
+  }
+  return <>
+    {pollers}
+    <div className="nas-dock" style={{ bottom: bottomOffset }} data-testid="assistant-dock" data-placement="fixed">
+      {pop}
+      {avatars}
     </div>
     {openA ? <ChatPanel a={openA} t={openThread ?? EMPTY} prefs={prefsNow} onClose={() => setOpenId(null)} onAct={act} onPrefs={savePrefs} onDecided={decided}
       onSent={m => setThreads(prev => { const t = prev[m.threadId] ?? EMPTY; if (t.messages.some(x => x.id === m.id)) return prev; return { ...prev, [m.threadId]: { ...t, messages: [...t.messages, m], lastId: Math.max(t.lastId, m.id) } }; })} /> : null}

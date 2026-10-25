@@ -73,6 +73,15 @@ export function ensureSmartFilingSchema(db: Db, nowIso = new Date().toISOString(
     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, actor_type TEXT NOT NULL, actor_id INTEGER, ip TEXT,
     action TEXT NOT NULL, job_id INTEGER, panel_id INTEGER, detail_json TEXT);
   CREATE INDEX IF NOT EXISTS idx_sf_audit_job ON smart_filing_audit(job_id, id);
+  CREATE TABLE IF NOT EXISTS smart_filing_permission_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, job_id INTEGER NOT NULL REFERENCES smart_filing_jobs(id),
+    kind TEXT NOT NULL DEFAULT 'credit_inquiry' CHECK(kind IN ('credit_inquiry')),
+    approver TEXT NOT NULL CHECK(approver IN ('manager','expert')),
+    status TEXT NOT NULL CHECK(status IN ('needs_request','needs_expert','later','pending','approved','rejected','cancelled')),
+    step_label TEXT, cost_text TEXT, note TEXT, line_confirmed INTEGER NOT NULL DEFAULT 0,
+    requested_at TEXT NOT NULL, sent_at TEXT, sent_by_user_id INTEGER, reminded_at TEXT, remind_count INTEGER NOT NULL DEFAULT 0,
+    decided_at TEXT, decided_by_user_id INTEGER, decided_by_name TEXT, decided_role TEXT, updated_at TEXT NOT NULL);
+  CREATE INDEX IF NOT EXISTS idx_sf_perm_job ON smart_filing_permission_requests(job_id, id);
   `);
   db.prepare("INSERT OR IGNORE INTO smart_filing_panels(slug,name,base_url,auto_submit,active,created_at,updated_at) VALUES(?,?,?,0,1,?,?)")
     .run(AZKI_SLUG, "ازکی‌وام", null, nowIso, nowIso);
@@ -247,19 +256,76 @@ export function createSmartFiling(deps: Deps) {
       id: j.id, jobType: j.job_type, applicationId: j.application_id, customerId: j.customer_id,
       customerName: cust ? (cust.first_name && cust.last_name ? `${cust.first_name} ${cust.last_name}` : cust.name) : null,
       salespersonName: sp?.name ?? null, panelId: j.panel_id, panelName: panel?.name ?? null, planId: j.plan_id, planName: j.plan_name,
-      amountToman: j.amount_toman, durationMonths: j.duration_months, status: j.status as Status, statusLabel: STATUS_FA[j.status as Status],
+      amountToman: j.amount_toman, durationMonths: j.duration_months, status: j.status as Status, statusLabel: labelFor(j),
       stepLabel: j.step_label, progress: j.progress, attempt: j.attempt, submitApprovedAt: j.submit_approved_at,
       finalSubmitAllowed: Boolean(j.submit_approved_at || panel?.auto_submit), panelReference: j.panel_reference,
       createdAt: j.created_at, updatedAt: j.updated_at, lastMessageAt: j.last_message_at, finishedAt: j.finished_at,
       checklist: j.checklist_json ? JSON.parse(j.checklist_json) : null,
       runner: runnerPresence(),
+      permission: permSummary(j.id),
     };
+  }
+  function labelFor(j: any): string {
+    if (j.status === "waiting_human") {
+      const p = openPerm(j.id);
+      if (p) return p.approver === "manager" ? "در انتظار اجازه‌ی مدیر" : "منتظر اجازه‌ی شما برای استعلام";
+    }
+    return STATUS_FA[j.status as Status];
   }
   /** Whether Sarina's runner has called the server API recently (any non-revoked token). */
   function runnerPresence() {
     const r = row<any>("SELECT MAX(last_used_at) t FROM smart_filing_runner_tokens WHERE revoked_at IS NULL");
     const t = r?.t ? Date.parse(r.t) : NaN;
     return { lastSeenAt: r?.t ?? null, online: Number.isFinite(t) && Date.now() - t < RUNNER_ONLINE_MS };
+  }
+  /* ---------- «اجازه‌ی استعلام» (credit-inquiry permission; HANDOFF shots 33/33b/33c/40) ----------
+   * Additive: a runner that never calls POST /permission-requests behaves exactly as before. The approver is read from the
+   * live assistant setting credit_inquiry_permission ('manager' default | 'expert') when the runner asks. */
+  const PERM_OPEN = ["needs_request", "needs_expert", "later", "pending"];
+  const REMIND_MS = 10 * 60 * 1000;
+  const approverSetting = (): "manager" | "expert" => {
+    try { return row<any>("SELECT value FROM assistant_settings WHERE key='credit_inquiry_permission'")?.value === "expert" ? "expert" : "manager"; }
+    catch { return "manager"; }
+  };
+  const latestPerm = (jobId: number) => row<any>("SELECT * FROM smart_filing_permission_requests WHERE job_id=? ORDER BY id DESC LIMIT 1", jobId);
+  const openPerm = (jobId: number) => { const p = latestPerm(jobId); return p && PERM_OPEN.includes(p.status) ? p : null; };
+  function permSummary(jobId: number) {
+    const p = latestPerm(jobId); if (!p) return null;
+    return { id: p.id, kind: p.kind, approver: p.approver as "manager" | "expert", status: p.status as string, stepLabel: p.step_label, costText: p.cost_text,
+      requestedAt: p.requested_at, sentAt: p.sent_at, remindedAt: p.reminded_at, decidedAt: p.decided_at, decidedByName: p.decided_by_name };
+  }
+  function permView(j: any, a: Actor) {
+    const p = permSummary(j.id); if (!p) return null;
+    const open = PERM_OPEN.includes(p.status);
+    const last = p.remindedAt || p.sentAt;
+    const remindAt = p.status === "pending" && last ? new Date(Date.parse(last) + REMIND_MS).toISOString() : null;
+    const mine = canChat(a, j);
+    return { ...p, remindAt, secondsToRemind: remindAt ? Math.max(0, Math.ceil((Date.parse(remindAt) - now().getTime()) / 1000)) : null,
+      canSend: open && p.approver === "manager" && ["needs_request", "later"].includes(p.status) && mine,
+      canRemind: p.status === "pending" && mine && Boolean(remindAt) && now().getTime() >= Date.parse(remindAt!),
+      canCancel: p.status === "pending" && mine,
+      canLater: ["needs_request", "needs_expert"].includes(p.status) && mine,
+      canDecide: open && (p.approver === "manager" ? a.role === "admin" : mine),
+      canReturn: p.status === "rejected" && a.role === "admin" && OPEN.includes(j.status) };
+  }
+  /** In-CRM bell row for managers only: the permission key is never granted to a non-admin role, admins see every key.
+   *  site_notification_events is the existing in-app feed (no SMS / Telegram / push hangs off it). */
+  function notifyManagers(j: any, p: any, reminder: boolean) {
+    try {
+      if (!row("SELECT 1 FROM sqlite_master WHERE type='table' AND name='site_notification_events'")) return;
+      const v = jobView(j);
+      const sender = p.sent_by_user_id ? row<any>("SELECT full_name,username FROM users WHERE id=?", p.sent_by_user_id) : null;
+      const who = sender?.full_name || sender?.username || v.salespersonName || "کارشناس";
+      const body = [`کارشناس: ${who}`, v.planName ? `طرح ${v.planName}` : null, p.cost_text ? `هزینه ${p.cost_text}` : null,
+        new Date(p.sent_at || iso()).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tehran" })].filter(Boolean).join(" — ");
+      run(`INSERT INTO site_notification_events(customer_id,customer_name,owner_id,resource_type,resource_id,kind,title,body,permission,created_at)
+        VALUES(?,?,NULL,'smart_filing',?,'credit-permission',?,?,'smart_filing.credit_permission',?)`,
+        j.customer_id, v.customerName || "مشتری", j.id, `${reminder ? "یادآوری: " : ""}اجازه‌ی استعلام اعتباری برای ${v.customerName || "مشتری"}`, body.slice(0, 300), iso());
+    } catch (e) { console.error("smart-filing: manager bell insert failed", (e as Error).message); }
+  }
+  function updPerm(id: number, sets: Record<string, unknown>) {
+    const k = Object.keys(sets);
+    run(`UPDATE smart_filing_permission_requests SET ${k.map(x => `${x}=?`).join(",")},updated_at=? WHERE id=?`, ...Object.values(sets), iso(), id);
   }
   const msgView = (m: any, jobId: number) => ({
     id: m.id, author: m.author, userName: m.user_name, kind: m.kind, body: m.body, data: m.data_json ? JSON.parse(m.data_json) : null,
@@ -334,7 +400,7 @@ export function createSmartFiling(deps: Deps) {
     const cl = checklist(app);
     res.json({ eligible: Boolean(panel), canCreate: Boolean(sc), canTrain: sc === "admin", panel: panel ? { id: panel.id, name: panel.name } : null,
       reason: panel ? null : "طرح این پرونده به پنل ازکی‌وام وصل نیست.", checklist: cl,
-      latestJob: existing ? { id: existing.id, status: existing.status, statusLabel: STATUS_FA[existing.status as Status] } : null });
+      latestJob: existing ? { id: existing.id, status: existing.status, statusLabel: labelFor(existing) } : null });
   });
 
   admin.post("/smart-filing/jobs", (req, res) => {
@@ -380,7 +446,7 @@ export function createSmartFiling(deps: Deps) {
     const j = loadJob(req, res, a); if (!j) return;
     const after = Math.max(0, Number(req.query.after) || 0);
     const msgs = rows<any>("SELECT * FROM smart_filing_messages WHERE job_id=? AND id>? ORDER BY id LIMIT 500", j.id, after).map(m => msgView(m, j.id));
-    res.json({ job: jobView(j), messages: msgs, codeRequest: openCode(j.id), isAdmin: a.role === "admin" });
+    res.json({ job: jobView(j), messages: msgs, codeRequest: openCode(j.id), isAdmin: a.role === "admin", permission: permView(j, a) });
   });
 
   admin.post("/smart-filing/jobs/:id/messages", (req, res) => {
@@ -410,6 +476,76 @@ export function createSmartFiling(deps: Deps) {
     res.json({ ok: true, masked });
   });
 
+  const permAction = (pathName: string, fn: (req: Request, res: Response, a: Actor, j: any, p: any) => void) =>
+    admin.post(`/smart-filing/jobs/:id/permission/${pathName}`, (req, res) => {
+      const a = need(req, res, false); if (!a) return;
+      const j = row<any>("SELECT * FROM smart_filing_jobs WHERE id=?", Number(req.params.id));
+      // Managers (admin) reach every job anyway; others only their own (same 404 as loadJob).
+      if (!j || !canChat(a, j)) return fail(res, 404, "job_not_found");
+      const p = latestPerm(j.id);
+      if (!p) return fail(res, 409, "no_permission_request", "درخواست اجازه‌ای برای این کار نیست.");
+      fn(req, res, a, j, p);
+    });
+  const permClosed = (res: Response, p: any) => fail(res, 409, "permission_state", p.status === "approved" ? "اجازه قبلاً داده شده." : p.status === "rejected" ? "این درخواست قبلاً رد شده." : "این درخواست دیگر باز نیست.");
+  permAction("send", (req, res, a, j, p) => {
+    if (p.approver !== "manager" || !["needs_request", "later"].includes(p.status)) return permClosed(res, p);
+    if (req.body?.lineConfirmed !== true) return fail(res, 422, "line_not_confirmed", "اول تأیید کنید خط موبایل به نام خود مشتری است.");
+    const t = iso();
+    updPerm(p.id, { status: "pending", sent_at: t, sent_by_user_id: a.id, line_confirmed: 1 });
+    addMessage(j.id, { author: "system", kind: "permission", userName: a.name, body: `درخواست اجازه‌ی استعلام اعتباری را ${a.name} برای مدیر فرستاد.` });
+    notifyManagers(j, { ...p, sent_at: t, sent_by_user_id: a.id }, false);
+    audit(req, "user", a.id, "permission.send", j.id, j.panel_id, { permissionId: p.id });
+    res.json({ ok: true });
+  });
+  permAction("remind", (req, res, a, j, p) => {
+    if (p.status !== "pending") return permClosed(res, p);
+    const due = Date.parse(p.reminded_at || p.sent_at) + REMIND_MS;
+    if (now().getTime() < due) return fail(res, 409, "remind_too_soon", `یادآوری از ساعت ${new Date(due).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tehran" })} فعال می‌شود.`);
+    updPerm(p.id, { reminded_at: iso(), remind_count: Number(p.remind_count || 0) + 1 });
+    notifyManagers(j, p, true);
+    addMessage(j.id, { author: "system", kind: "permission", userName: a.name, body: `${a.name} به مدیر یادآوری کرد.` });
+    audit(req, "user", a.id, "permission.remind", j.id, j.panel_id, { permissionId: p.id });
+    res.json({ ok: true });
+  });
+  permAction("cancel", (req, res, a, j, p) => {
+    if (p.status !== "pending") return permClosed(res, p);
+    updPerm(p.id, { status: "needs_request", sent_at: null, reminded_at: null });
+    addMessage(j.id, { author: "system", kind: "permission", userName: a.name, body: `${a.name} درخواست اجازه را لغو کرد.` });
+    audit(req, "user", a.id, "permission.cancel", j.id, j.panel_id, { permissionId: p.id });
+    res.json({ ok: true });
+  });
+  permAction("later", (req, res, a, j, p) => {
+    if (!["needs_request", "needs_expert"].includes(p.status)) return permClosed(res, p);
+    updPerm(p.id, { status: "later" });
+    addMessage(j.id, { author: "system", kind: "permission", userName: a.name, body: `${a.name}: «فعلاً نه» — سارینا منتظر می‌ماند.` });
+    audit(req, "user", a.id, "permission.later", j.id, j.panel_id, { permissionId: p.id });
+    res.json({ ok: true });
+  });
+  permAction("decide", (req, res, a, j, p) => {
+    if (!PERM_OPEN.includes(p.status)) return permClosed(res, p);
+    const approve = req.body?.approve === true; const reject = req.body?.approve === false;
+    if (!approve && !reject) return fail(res, 422, "bad_decision");
+    if (p.approver === "manager" && a.role !== "admin") return fail(res, 403, "forbidden", "این اجازه را فقط مدیر می‌دهد.");
+    if (p.approver === "expert" && approve && req.body?.lineConfirmed !== true && a.role !== "admin") return fail(res, 422, "line_not_confirmed", "اول تأیید کنید خط موبایل به نام خود مشتری است.");
+    if (!OPEN.includes(j.status)) return fail(res, 409, "job_closed");
+    updPerm(p.id, { status: approve ? "approved" : "rejected", decided_at: iso(), decided_by_user_id: a.id, decided_by_name: a.name, decided_role: a.role,
+      ...(approve && req.body?.lineConfirmed === true ? { line_confirmed: 1 } : {}) });
+    if (approve && j.status === "waiting_human") setStatus(j.id, "running");
+    addMessage(j.id, { author: "system", kind: "permission", userName: a.name,
+      body: approve ? `اجازه‌ی استعلام اعتباری را ${a.name} داد. سارینا ادامه می‌دهد.` : (p.approver === "manager" ? `مدیر اجازه نداد (${a.name}). سارینا استعلام نمی‌گیرد.` : `${a.name} اجازه‌ی استعلام نداد.`) });
+    audit(req, "user", a.id, approve ? "permission.approve" : "permission.reject", j.id, j.panel_id, { permissionId: p.id, approver: p.approver });
+    res.json({ ok: true, status: approve ? "approved" : "rejected" });
+  });
+  // «برگرداندن به کارشناس» after a rejection: admin hands the case back (the job stays where it is; nothing is advanced).
+  permAction("return", (req, res, a, j, p) => {
+    if (a.role !== "admin") return fail(res, 403, "forbidden");
+    if (p.status !== "rejected") return permClosed(res, p);
+    const note = String(req.body?.note ?? "").trim().slice(0, 500);
+    addMessage(j.id, { author: "system", kind: "permission", userName: a.name, body: `مدیر پرونده را به کارشناس برگرداند${note ? ` — ${maskText(note)}` : "."}` });
+    audit(req, "user", a.id, "permission.return", j.id, j.panel_id, { permissionId: p.id });
+    res.json({ ok: true });
+  });
+
   const adminAction = (pathName: string, fn: (req: Request, res: Response, a: Actor, j: any) => void) =>
     admin.post(`/smart-filing/jobs/:id/${pathName}`, (req, res) => { const a = need(req, res, true); if (!a) return; const j = loadJob(req, res, a); if (!j) return; fn(req, res, a, j); });
   adminAction("approve-submit", (req, res, a, j) => {
@@ -432,6 +568,7 @@ export function createSmartFiling(deps: Deps) {
   adminAction("cancel", (req, res, a, j) => {
     if (!OPEN.includes(j.status) && j.status !== "error") return fail(res, 409, "not_cancellable");
     run("UPDATE smart_filing_code_requests SET status='cancelled',code_enc=NULL WHERE job_id=? AND status IN ('pending','answered')", j.id);
+    run(`UPDATE smart_filing_permission_requests SET status='cancelled',updated_at=? WHERE job_id=? AND status IN (${PERM_OPEN.map(() => "?").join(",")})`, iso(), j.id, ...PERM_OPEN);
     setStatus(j.id, "cancelled");
     addMessage(j.id, { author: "system", kind: "status", userName: a.name, body: `کار را ${a.name} لغو کرد.` });
     audit(req, "user", a.id, "job.cancel", j.id, j.panel_id, { from: j.status });
@@ -439,6 +576,7 @@ export function createSmartFiling(deps: Deps) {
   });
   adminAction("retry", (req, res, a, j) => {
     if (!["error", "rejected", "cancelled"].includes(j.status)) return fail(res, 409, "not_retryable");
+    run(`UPDATE smart_filing_permission_requests SET status='cancelled',updated_at=? WHERE job_id=? AND status IN (${PERM_OPEN.map(() => "?").join(",")})`, iso(), j.id, ...PERM_OPEN);
     setStatus(j.id, "queued", { attempt: j.attempt + 1, claimed_by_token_id: null, submit_approved_at: null, submit_approved_by_user_id: null, finished_at: null, progress: 0 });
     addMessage(j.id, { author: "system", kind: "status", userName: a.name, body: `تلاش دوباره (دفعه‌ی ${j.attempt + 1}) — کار دوباره در صف است.` });
     audit(req, "user", a.id, "job.retry", j.id, j.panel_id, { from: j.status });
@@ -658,6 +796,40 @@ export function createSmartFiling(deps: Deps) {
     audit(req, "runner", tokenId(res), "runner.code_consumed", j.id, j.panel_id, { codeRequestId: c.id, masked: c.code_masked });
     res.setHeader("Cache-Control", "no-store");
     res.json({ status: "answered", code });
+  });
+  // Sarina asks for «اجازه‌ی استعلام» before the credit-inquiry step; the job waits (waiting_human) until a human decides.
+  runner.post("/jobs/:id/permission-requests", (req, res) => {
+    const j = rjob(req, res); if (!j) return;
+    if (!["running", "waiting_human"].includes(j.status)) return fail(res, 409, "job_not_running");
+    const kind = String(req.body?.kind ?? "credit_inquiry");
+    if (kind !== "credit_inquiry") return fail(res, 422, "bad_kind");
+    const existing = openPerm(j.id);
+    if (existing) return void res.json({ ok: true, id: existing.id, approver: existing.approver, status: existing.status, existing: true });
+    const approver = approverSetting();
+    const t = iso();
+    const r = run(`INSERT INTO smart_filing_permission_requests(job_id,kind,approver,status,step_label,cost_text,note,requested_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`,
+      j.id, kind, approver, approver === "manager" ? "needs_request" : "needs_expert",
+      maskText(String(req.body?.stepLabel ?? "استعلام اعتباری (بانک مرکزی)")).slice(0, 120),
+      req.body?.costText ? maskText(String(req.body.costText)).slice(0, 80) : "حدود ۱۵ هزار تومان",
+      req.body?.note ? maskText(String(req.body.note)).slice(0, 500) : null, t, t);
+    const id = Number(r.lastInsertRowid);
+    setStatus(j.id, "waiting_human");
+    addMessage(j.id, { author: "runner", kind: "permission_request", data: { permissionId: id, approver },
+      body: approver === "manager" ? "برای استعلام اعتباری اجازه‌ی مدیر لازم است. درخواست را برای مدیر بفرستید؛ تا جواب مدیر صبر می‌کنم."
+        : "برای استعلام اعتباری اجازه‌ی شما لازم است. اگر موافقید «اجازه می‌دهم، ادامه بده» را بزنید." });
+    audit(req, "runner", tokenId(res), "runner.permission_request", j.id, j.panel_id, { permissionId: id, approver });
+    res.status(201).json({ ok: true, id, approver, status: approver === "manager" ? "needs_request" : "needs_expert" });
+  });
+  // Long-poll until approved / rejected / cancelled (the job messages long-poll also wakes via the system message).
+  runner.get("/jobs/:id/permission-requests/:pid", async (req, res) => {
+    const j = rjob(req, res); if (!j) return;
+    const pid = Number(req.params.pid);
+    const get = () => row<any>("SELECT * FROM smart_filing_permission_requests WHERE id=? AND job_id=?", pid, j.id);
+    if (!get()) return fail(res, 404, "permission_request_not_found");
+    const done = await longPoll(req, res, () => { const x = get(); return x && !PERM_OPEN.includes(x.status) ? x : null; });
+    if (done === undefined) return;
+    const p = done ?? get();
+    res.json({ id: p.id, approver: p.approver, status: p.status, decidedAt: p.decided_at, decidedRole: p.decided_role });
   });
   const statusHandler = (req: Request, res: Response) => {
     const j = rjob(req, res); if (!j) return;

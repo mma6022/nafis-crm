@@ -3,14 +3,14 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import { createPortal } from 'react-dom';
 import { AlarmClock, Inbox, Phone, Star, X } from 'lucide-react';
 import { useLocation } from 'wouter';
-import { fetchNotifications, markAllNotificationsRead, markNotificationRead, safeTarget, NotificationApiError, type NotificationUser, type SiteNotification } from './api';
+import { decideCreditPermission, fetchNotifications, markAllNotificationsRead, markNotificationRead, safeTarget, NotificationApiError, type NotificationUser, type SiteNotification } from './api';
 import './notifications.css';
 
 const POLL_MS = 5000;
 const MAX_TOASTS = 3;
 const TOAST_MS = 10000;
-const PAGE_ENUMS = ['customers','chat','instagram-inbox','loan-applications','goods-purchases','contracts','payment-orders','calls','consultations','wallet-management'];
-const PAGE_LABELS: Record<string, string> = { customers: 'مشتریان', chat: 'گفتگو', 'instagram-inbox': 'دایرکت اینستاگرام', 'loan-applications': 'تسهیلات', 'goods-purchases': 'خرید کالا', contracts: 'قراردادها', 'payment-orders': 'دستورهای پرداخت', calls: 'تماس‌ها', consultations: 'مشاوره‌ها', 'wallet-management': 'کیف پول' };
+const PAGE_ENUMS = ['customers','chat','instagram-inbox','loan-applications','goods-purchases','contracts','payment-orders','calls','consultations','wallet-management','smart-filing'];
+const PAGE_LABELS: Record<string, string> = { 'smart-filing': 'ثبت هوشمند', customers: 'مشتریان', chat: 'گفتگو', 'instagram-inbox': 'دایرکت اینستاگرام', 'loan-applications': 'تسهیلات', 'goods-purchases': 'خرید کالا', contracts: 'قراردادها', 'payment-orders': 'دستورهای پرداخت', calls: 'تماس‌ها', consultations: 'مشاوره‌ها', 'wallet-management': 'کیف پول' };
 
 export function pageForPath(path: string): string | null {
   const seg = path.split('?')[0].split('/')[1] ?? '';
@@ -401,6 +401,7 @@ function BellInner() {
                         <span className="sn-body">{n.body}</span>
                         <span className="sn-meta"><span>{n.customerName ? <CustomerName id={n.customerId} name={n.customerName} /> : null}{allScope && n.page && PAGE_LABELS[n.page] ? ` · ${PAGE_LABELS[n.page]}` : ''}</span><time dateTime={n.createdAt}>{fmtTime(n.createdAt)}</time></span>
                       </button>
+                      {n.action?.type === 'credit-permission' ? <CreditActions n={n} onDone={(status) => { setItems((prev) => { const cur = prev.get(n.id); if (!cur || !cur.action) return prev; return new Map(prev).set(n.id, { ...cur, readAt: cur.readAt ?? new Date().toISOString(), action: { ...cur.action, open: false, status } }); }); if (!n.readAt) void markNotificationRead(n.id).catch(() => {}); }} onOpen={() => void activate(n)} /> : null}
                       {n.readAt ? null : <button type="button" className="sn-read" onClick={() => void markOne(n)} data-testid={`button-notification-read-${n.id}`}>خوانده شد</button>}
                     </li>
                   ))}
@@ -416,3 +417,29 @@ function BellInner() {
 }
 
 export default NotificationBell;
+
+/** Shot 40: «اجازه می‌دهم» / «رد» + «دیدن پرونده‌ی ثبت» on a manager's credit-inquiry permission row. */
+function CreditActions({ n, onDone, onOpen }: { n: SiteNotification; onDone: (status: string) => void; onOpen: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const a = n.action!;
+  const decide = async (approve: boolean) => {
+    if (!approve && !window.confirm('اجازه‌ی استعلام رد شود؟')) return;
+    setBusy(true); setErr('');
+    try { await decideCreditPermission(a.jobId, approve); onDone(approve ? 'approved' : 'rejected'); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'ثبت تصمیم انجام نشد.'); } finally { setBusy(false); }
+  };
+  const done = a.status === 'approved' ? 'اجازه داده شد' : a.status === 'rejected' ? 'رد شد' : a.status === 'cancelled' ? 'درخواست لغو شد' : null;
+  return (
+    <div className="sn-credit" data-testid={`notification-credit-${n.id}`}>
+      {a.open ? (
+        <div className="sn-credit-btns">
+          <button type="button" className="sn-credit-yes" disabled={busy} onClick={() => void decide(true)} data-testid={`button-credit-approve-${n.id}`}>اجازه می‌دهم</button>
+          <button type="button" className="sn-credit-no" disabled={busy} onClick={() => void decide(false)} data-testid={`button-credit-reject-${n.id}`}><X size={14} /> رد</button>
+        </div>
+      ) : done ? <span className="sn-credit-done">{done}</span> : null}
+      <button type="button" className="sn-link" onClick={onOpen} data-testid={`button-credit-open-${n.id}`}>دیدن پرونده‌ی ثبت</button>
+      {err ? <span className="sn-credit-err" role="alert">{err}</span> : null}
+    </div>
+  );
+}
