@@ -47,10 +47,10 @@ const bundle = path.join(temp, "http.mjs");
 await build({ stdin: { contents: `
  import express from "express"; import cookieParser from "cookie-parser";
  import { requireAuth } from "./src/lib/auth";
- import crm from "./src/routes/crm";
+ import crm from "./src/routes/crm"; import { createSiteNotificationRouter } from "./src/lib/site-notifications";
  export * from "./src/lib/crm-db"; export * as sl from "./src/lib/site-leads"; export * as pl from "./src/lib/public-leads";
  export * as cb from "./src/lib/callback-requests"; export * as rules from "./src/lib/team-sales-rules"; export * as ts from "./src/lib/team-sales";
- export const app = express(); app.use(express.json(), cookieParser()); app.use("/api", requireAuth, crm);
+ export const app = express(); app.use(express.json(), cookieParser()); app.use("/api", requireAuth, crm); app.use("/api", createSiteNotificationRouter());
  `, resolveDir: process.cwd(), sourcefile: "site-leads-fixture.ts" }, bundle: true, platform: "node", format: "esm", outfile: bundle, logLevel: "silent",
 banner: { js: `import {createRequire} from 'node:module';const require=createRequire(${JSON.stringify(pathToFileURL(path.join(process.cwd(), "package.json")).href)});` } });
 
@@ -197,6 +197,7 @@ try {
     const sites = mineTop.filter((t) => t.kind === "site_lead"), kzs = mineTop.filter((t) => t.kind === "from_kazemi");
     assert.equal(mineTop.findIndex((t) => t.kind === "from_kazemi") === -1 || mineTop.findIndex((t) => t.kind === "from_kazemi") >= sites.length, true, "site leads before «از کاظمی»");
     if (role === "kazemi") assert.equal(kzs.length, 0, "Kazemi's own list has no «از کاظمی» group");
+    for (let i = 1; i < kzs.length; i++) assert.ok(kzs[i - 1].dueAt <= kzs[i].dueAt, `${role}: «از کاظمی» most overdue / closest first`);
     const rest = items.slice(mineTop.length).map((i) => Number(i.id));
     assert.ok(rest.every((id) => !top.some((t) => t.customerId === id)));
     for (let i = 1; i < rest.length; i++) assert.ok(cmpOld(rest[i - 1], rest[i]) <= 0, `${role}: rest keeps the previous order at ${i}`);
@@ -207,7 +208,7 @@ try {
     assert.deepEqual(q.items.map((x) => x.customerId), mineTop.map((t) => t.customerId), `${role}: queue = top rows`);
     const now = Date.now();
     summary[role] = { listed: items.length, siteLeads: sites.length, repeats: sites.filter((t) => sl.activeSiteLeads([t.customerId]).get(t.customerId)?.isRepeat).length,
-      fromKazemi: kzs.length, overdueSiteLeads: sites.filter((t) => Date.parse(t.dueAt) <= now).length };
+      fromKazemi: kzs.length, overdueFromKazemi: kzs.filter((t) => Date.parse(t.dueAt) <= now).length, overdueSiteLeads: sites.filter((t) => Date.parse(t.dueAt) <= now).length };
   }
   if (cancelled) {
     const kItems = await all("kazemi", "status=in_progress");
@@ -218,7 +219,29 @@ try {
   console.log("TOP (fixture copy, incl. synthetic rows)", JSON.stringify(summary));
   const detail = await get("hasani", `/customers/${p1.id}`);
   assert.ok(detail.siteLead?.isRepeat && Array.isArray(detail.siteLeadRequests) && detail.siteLeadRequests.length >= 1 && detail.topOfList?.kind === "site_lead");
-  ok("HTTP: per expert, active site leads (repeats incl., above P1s) → «از کاظمی» in deadline → the previous order; queue + detail agree");
+  ok("HTTP: per expert, active site leads (repeats incl., above P1s) → «از کاظمی» (overdue + in deadline, by deadline) → the previous order; queue + detail agree");
+
+  // overdue «از کاظمی» stays on top (red) until the first call after the hand-off (synthetic customer only)
+  {
+    const r = pl.recordPublicLead(lead(phone(), "any"), "fx-ip-kz");
+    const id = r.customerId;
+    f.execute("INSERT INTO call_logs(customer_id,salesperson_id,subject,created_at) VALUES (?,?,?,?)", [id, 6, "تماس اول", new Date(Date.now() - 3 * 86400e3).toISOString()]);
+    f.execute("UPDATE site_lead_requests SET answered_at=COALESCE(answered_at,?), answer_source=COALESCE(answer_source,'call_log') WHERE customer_id=?", [new Date().toISOString(), id]);
+    const handoff = new Date(Date.now() - 2 * 86400e3).toISOString();
+    f.execute("UPDATE customers SET salesperson_id=3, priority=1 WHERE id=?", [id]);
+    f.execute("INSERT INTO customer_priority_history(customer_id,old_priority,new_priority,old_salesperson_id,new_salesperson_id,source,created_at) VALUES (?,?,?,?,?,?,?)", [id, 2, 1, 6, 3, "qualifier_form", handoff]);
+    const t1 = sl.topOfList().find((t) => t.customerId === id);
+    assert.ok(t1 && t1.kind === "from_kazemi" && Date.parse(t1.dueAt) < Date.now(), "overdue «از کاظمی» stays on top");
+    const hq = await get("hasani", "/site-leads/queue");
+    const pos = hq.items.findIndex((x) => x.customerId === id);
+    assert.ok(pos >= 0 && hq.items.slice(0, pos).every((x) => x.kind === "site_lead" || x.dueAt <= t1.dueAt), "ordered by deadline after site leads");
+    f.execute("INSERT INTO call_logs(customer_id,salesperson_id,subject,created_at) VALUES (?,?,?,?)", [id, 6, "یادداشت کاظمی", new Date().toISOString()]);
+    assert.ok(sl.topOfList().some((t) => t.customerId === id), "a Kazemi note after the hand-off does not clear it");
+    f.execute("INSERT INTO call_logs(customer_id,salesperson_id,subject,created_at) VALUES (?,?,?,?)", [id, 3, "تماس اول", new Date().toISOString()]);
+    assert.ok(!sl.topOfList().some((t) => t.customerId === id), "first closer call after the hand-off → normal order");
+    f.execute("UPDATE customers SET salesperson_id=NULL WHERE id=?", [id]);
+    ok("overdue «از کاظمی» stays on top (red) until the first call after the hand-off, then normal order");
+  }
 
   // explicit «آخرین تماس» sort is the user's choice: no top prefix
   const lc = await get("kazemi", "/customers?status=in_progress&sortBy=lastCallAt&sortDirection=desc&limit=50");
@@ -226,26 +249,56 @@ try {
   ok("explicit last-call sort untouched");
 
   // ---------- preferred-window alerts ----------
-  // synthetic Kazemi morning request received before 09:00 on a working day → one in-CRM notification at 09:00+, once.
-  const ph2 = phone();
-  const r2 = pl.recordPublicLead(lead(ph2, "morning"), "fx-ip-6");
-  const owner2 = Number(f.queryRow("SELECT salesperson_id s FROM customers WHERE id=?", [r2.customerId]).s);
-  f.execute("UPDATE customers SET salesperson_id=6 WHERE id=?", [r2.customerId]); // synthetic customer only
-  const tomorrow9 = (() => { const d = new Date(Date.now() + 3.5 * 3600e3); for (let i = 1; i < 8; i++) { const x = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + i, 0, 9 * 60 - 210 + 5)); if (cfg.workDays.includes(new Date(x.getTime() + 3.5 * 3600e3).getUTCDay())) return x; } })();
+  // Nothing real may fire for a window that already passed: every open request of an eligible owner whose first asked
+  // window is before now is excluded by the tick (and back-filled rows are already marked).
+  const eligible = sl.siteLeadAlertOwners(cfg);
+  assert.deepEqual(eligible, [6, 3, 4]);
+  const realOpen = f.queryRows("SELECT r.id, r.requested_at, r.contact_time, r.window_alerted_at w, c.salesperson_id s FROM site_lead_requests r JOIN customers c ON c.id=r.customer_id WHERE r.answered_at IS NULL AND r.contact_time IN ('morning','evening')");
+  const realIds = new Set(realOpen.map((r) => Number(r.id)));
+  const pastUnalerted = realOpen.filter((r) => r.w == null && eligible.includes(Number(r.s)) && sl.firstWindowStart(new Date(r.requested_at), r.contact_time, cfg) <= new Date()).length;
+  // synthetic morning requests, received now (before the next 09:00): one each for Kazemi, Hasani, Ghasemi and trainee 5,
+  // plus a Hasani one whose first morning window already passed (must never fire).
+  const tomorrow9 = new Date(sl.firstWindowStart(new Date(), "morning", cfg).getTime() + 5 * 60e3); // first «صبح» window after now, 09:05
+  const syn = {};
+  for (const [key, sp] of [["kazemi", 6], ["hasani", 3], ["ghasemi", 4], ["trainee", 5], ["past", 3]]) {
+    const r = pl.recordPublicLead(lead(phone(), "morning"), `fx-ip-w-${key}`);
+    f.execute("UPDATE customers SET salesperson_id=? WHERE id=?", [sp, r.customerId]); // synthetic customers only
+    if (key === "past") f.execute("UPDATE site_lead_requests SET requested_at=? WHERE customer_id=?", [new Date(tomorrow9.getTime() - 4 * 86400e3).toISOString(), r.customerId]);
+    syn[key] = r.customerId;
+  }
   const tg = [];
-  const fired = await sl.siteLeadWindowTick(tomorrow9, { telegram: async (alerts) => { tg.push(alerts.length); return "disabled"; } });
-  assert.ok(fired.some((a) => a.customerId === r2.customerId));
-  assert.ok(fired.every((a) => a.contactTime === "morning" && a.ownerId === 6));
-  const ev = f.queryRow("SELECT kind, resource_type rt, resource_id rid, permission, owner_id o, title FROM site_notification_events WHERE kind='site-lead-window' AND customer_id=?", [r2.customerId]);
-  assert.equal(ev.rt, "customer"); assert.equal(Number(ev.rid), r2.customerId); assert.equal(ev.permission, "customers.view"); assert.equal(Number(ev.o), 6);
-  assert.equal(ev.title, "مشتری خواسته صبح تماس بگیرید");
-  assert.deepEqual(tg, [fired.length]);
+  const fired = await sl.siteLeadWindowTick(tomorrow9, { telegram: async (alerts) => { tg.push(...alerts.map((a) => a.ownerId)); return "disabled"; } });
+  const firedIds = fired.map((a) => a.customerId);
+  for (const k of ["kazemi", "hasani", "ghasemi"]) assert.ok(firedIds.includes(syn[k]), `${k} gets the window alert`);
+  assert.ok(!firedIds.includes(syn.trainee), "trainee gets nothing");
+  assert.ok(!firedIds.includes(syn.past), "an already-passed window never fires");
+  assert.ok(fired.every((a) => a.contactTime === "morning" && eligible.includes(a.ownerId)));
+  assert.ok(fired.every((a) => a.requestIds.every((rid) => !realIds.has(rid) || realOpen.find((r) => Number(r.id) === rid).w == null)));
+  for (const [k, sp] of [["kazemi", 6], ["hasani", 3], ["ghasemi", 4]]) {
+    const ev = f.queryRow("SELECT resource_type rt, resource_id rid, permission, owner_id o, title FROM site_notification_events WHERE kind='site-lead-window' AND customer_id=?", [syn[k]]);
+    assert.equal(ev.rt, "customer"); assert.equal(Number(ev.rid), syn[k]); assert.equal(ev.permission, "customers.view"); assert.equal(Number(ev.o), sp, `${k}: bell goes to the current owner`);
+    assert.equal(ev.title, "مشتری خواسته صبح تماس بگیرید");
+  }
+  assert.equal(f.queryRow("SELECT COUNT(*) n FROM site_notification_events WHERE kind='site-lead-window' AND customer_id IN (?,?)", [syn.trainee, syn.past]).n, 0);
+  assert.ok(tg.length >= 1 && tg.every((o) => o === 6), "Telegram group: Kazemi-owned alerts only (unchanged)");
+  assert.equal(f.queryRow("SELECT window_alert_telegram t FROM site_lead_requests WHERE customer_id=?", [syn.hasani]).t, null);
+  // Hasani's bell sees the event
+  for (const [role, k] of [["hasani", "hasani"], ["ghasemi", "ghasemi"], ["kazemi", "kazemi"]]) {
+    const bell = await get(role, "/site-notifications?limit=50");
+    const mine = bell.items.filter((x) => x.kind === "site-lead-window");
+    assert.ok(mine.some((x) => x.customerId === syn[k]), `${role}'s bell lists their own window alert`);
+    assert.ok(!mine.some((x) => x.customerId === syn.trainee || x.customerId === syn.past));
+    for (const other of ["hasani", "ghasemi", "kazemi"].filter((o) => o !== k)) assert.ok(!mine.some((x) => x.customerId === syn[other]), `${role} does not see ${other}'s`);
+  }
   assert.equal((await sl.siteLeadWindowTick(new Date(tomorrow9.getTime() + 60e3), {})).length, 0, "each request alerts once");
   assert.equal((await sl.siteLeadWindowTick(new Date(tomorrow9.getTime() - 3 * 3600e3), {})).length, 0, "no alert outside working hours");
-  // Hasani's evening P1 repeat is not Kazemi's → no alert
+  // Hasani's evening P1 repeat fires at 13:00 for Hasani, not before
   assert.ok(!fired.some((a) => a.customerId === rp.customerId));
-  f.execute("UPDATE customers SET salesperson_id=? WHERE id=?", [owner2 || null, r2.customerId]);
-  ok(`window alerts: ${fired.length} in-CRM notification(s) at the start of «صبح», once each, Kazemi's only; Telegram via injected stub only`);
+  const eve = await sl.siteLeadWindowTick(new Date(tomorrow9.getTime() + 4 * 3600e3), {});
+  assert.ok(eve.some((a) => a.customerId === rp.customerId && a.ownerId === 3), "evening request → Hasani at 13:00");
+  for (const id of Object.values(syn)) f.execute("UPDATE customers SET salesperson_id=NULL WHERE id=?", [id]);
+  console.log("ALERTS", JSON.stringify({ fired: fired.length, evening: eve.length, telegramOwners: [...new Set(tg)], realPastUnalertedEligible: pastUnalerted }));
+  ok(`window alerts: current owner (Kazemi / Hasani / Ghasemi) gets bell + toast, trainee nothing, passed windows never, once each; Telegram unchanged (Kazemi only, stub)`);
 
   // ---------- invariants ----------
   const ownersAfter = db.prepare(ownerSql).all().filter((r) => ownersBefore.some((b) => b.id === r.id));

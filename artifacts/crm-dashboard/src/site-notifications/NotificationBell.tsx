@@ -19,7 +19,7 @@ export function pageForPath(path: string): string | null {
 const isLoan = (n: SiteNotification) => n.page === 'loan-applications' || n.target?.startsWith('/loan-applications');
 /** New priority-1 customer for a closer (team sales). Sticky toast until acted on. */
 export const isP1 = (n: SiteNotification) => n.kind === 'p1_assigned';
-/** crm-site-leads: «مشتری خواسته صبح/عصر تماس بگیرید» at the start of the asked window (Kazemi). Sticky + chime. */
+/** crm-site-leads: «مشتری خواسته صبح/عصر تماس بگیرید» at the start of the asked window (the lead's current owner: Kazemi / Hasani / Ghasemi). Sticky + chime. */
 export const isSiteLeadWindow = (n: SiteNotification) => n.kind === 'site-lead-window';
 const isSticky = (n: SiteNotification) => isP1(n) || isSiteLeadWindow(n);
 /** Short two-tone chime (WebAudio, no asset). Silently skipped when the browser blocks audio. */

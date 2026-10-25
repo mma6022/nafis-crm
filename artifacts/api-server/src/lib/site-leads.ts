@@ -156,8 +156,9 @@ export type TopEntry = { customerId: number; kind: TopKind; startedAt: string; d
 
 /**
  * The «اول لیست» rows, in order: (1) active site leads (repeat requests included) — those whose asked window is now
- * first, then the oldest unanswered request; (2) «از کاظمی» customers not called by anyone but Kazemi since the hand-off and
- * still inside the 3-working-hour deadline. Everything else keeps the existing order.
+ * first, then the oldest unanswered request; (2) «از کاظمی» customers not called by anyone but Kazemi since the hand-off —
+ * inside the 3-working-hour deadline OR already past it (overdue, red) — most overdue / closest deadline first. A «از کاظمی»
+ * customer leaves the top only with the first real call after the hand-off. Everything else keeps the existing order.
  */
 export function topOfList(now = new Date(), cfg: TeamSalesConfig = getTeamSalesConfig()): TopEntry[] {
   const leads = activeSiteLeads(undefined, now, cfg);
@@ -166,11 +167,11 @@ export function topOfList(now = new Date(), cfg: TeamSalesConfig = getTeamSalesC
   const k = Number(cfg.qualifierSalespersonId);
   const kz: TopEntry[] = [];
   if (Number.isInteger(k) && k > 0 && queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='customer_priority_history'")) {
-    const since = new Date(now.getTime() - 8 * 86_400_000).toISOString();
+    // No age cut-off: an overdue hand-off stays on top until the first call after it.
     const cand = queryRows<{ customer_id: number }>(
       `SELECT DISTINCT h.customer_id FROM customer_priority_history h JOIN customers c ON c.id=h.customer_id
-       WHERE h.old_salesperson_id=? AND h.new_salesperson_id IS NOT NULL AND h.new_salesperson_id<>? AND h.created_at>?
-         AND c.merged_into_customer_id IS NULL AND c.salesperson_id IS NOT NULL AND c.salesperson_id<>?`, [k, k, since, k]).map((r) => Number(r.customer_id))
+       WHERE h.old_salesperson_id=? AND h.new_salesperson_id IS NOT NULL AND h.new_salesperson_id<>?
+         AND c.merged_into_customer_id IS NULL AND c.salesperson_id IS NOT NULL AND c.salesperson_id<>?`, [k, k, k]).map((r) => Number(r.customer_id))
       .filter((id) => !leads.has(id));
     const sources = kazemiSources(cand);
     const called = `SELECT 1 x FROM call_logs WHERE customer_id=? AND created_at>? AND COALESCE(salesperson_id,-1)<>? AND ${realCallSql("subject")} LIMIT 1`;
@@ -178,7 +179,7 @@ export function topOfList(now = new Date(), cfg: TeamSalesConfig = getTeamSalesC
       const s = sources.get(id);
       if (!s || s.kind !== "from_kazemi" || !s.handoffAt) continue;
       const due = addWorkingHours(new Date(s.handoffAt), cfg.closerFirstCallWorkingHours, cfg);
-      if (now.getTime() >= due.getTime()) continue;
+      // Overdue hand-offs stay on top (red) until the first call after the hand-off.
       if (queryRow(called, [id, s.handoffAt, k])) continue;
       kz.push({ customerId: id, kind: "from_kazemi", startedAt: s.handoffAt, dueAt: due.toISOString(), windowNow: true });
     }
@@ -203,10 +204,29 @@ export type WindowDeps = { telegram?: (alerts: WindowAlert[], ownerName: string 
 
 /**
  * At the start of the asked window («صبح» 9:00 / «عصر» 13:00 on working days) — or the first tick inside it — every
- * still-unanswered request with that preference, received before the window began and owned by the qualifier (Kazemi),
- * gets one in-CRM notification (bell + sticky toast with sound, kind site-lead-window) and, if the existing staff
- * Telegram channel is on, one grouped message. Each request alerts at most once.
+ * still-unanswered request with that preference whose FIRST asked window after the request is this one, owned right now
+ * by Kazemi or a closer (Hasani / Ghasemi; team_sales_config qualifier + closerSalespersonIds), gets one in-CRM
+ * notification for that owner (bell + sticky toast with sound, kind site-lead-window). Trainees / unassigned: nothing.
+ * The existing staff Telegram group message is unchanged: one grouped message for Kazemi-owned requests only, when the
+ * channel is on. Each request alerts at most once; a window that already passed (e.g. while the request had no eligible
+ * owner, or before this release) never alerts later.
  */
+/** Owners whose site leads get the window alert: the qualifier (Kazemi) and the closers. Never trainees. */
+export function siteLeadAlertOwners(cfg: TeamSalesConfig = getTeamSalesConfig()): number[] {
+  const ids = [Number(cfg.qualifierSalespersonId), ...(cfg.closerSalespersonIds ?? []).map(Number)];
+  return [...new Set(ids.filter((x) => Number.isInteger(x) && x > 0))];
+}
+/** Start of the first asked window strictly after the request, on a working day (null for any / now). */
+export function firstWindowStart(requestedAt: Date, ct: string | null | undefined, cfg: TeamSalesConfig = getTeamSalesConfig()): Date | null {
+  const win = contactWindow(ct);
+  if (!win) return null;
+  for (let d = 0; d < 15; d++) {
+    const c = atWallHour(requestedAt, win.start, d);
+    if (c.getTime() > requestedAt.getTime() && inWorkingHours(c, cfg)) return c;
+  }
+  return null;
+}
+
 export async function siteLeadWindowTick(now = new Date(), deps: WindowDeps = {}, cfg: TeamSalesConfig = getTeamSalesConfig()): Promise<WindowAlert[]> {
   if (!siteLeadsReady() || !inWorkingHours(now, cfg)) return [];
   const h = wallHour(now);
@@ -214,11 +234,16 @@ export async function siteLeadWindowTick(now = new Date(), deps: WindowDeps = {}
     : h >= CALLBACK_CONFIG.evening.start && h < CALLBACK_CONFIG.evening.end ? "evening" : null;
   if (!window) return [];
   const k = Number(cfg.qualifierSalespersonId);
-  const start = atWallHour(now, contactWindow(window)!.start).toISOString();
-  const rows = queryRows<{ id: number; customer_id: number; name: string; salesperson_id: number }>(
-    `SELECT r.id, r.customer_id, c.name, c.salesperson_id FROM site_lead_requests r JOIN customers c ON c.id=r.customer_id AND c.merged_into_customer_id IS NULL
-     WHERE r.answered_at IS NULL AND r.window_alerted_at IS NULL AND r.contact_time=? AND r.requested_at<? AND c.salesperson_id=?
-     ORDER BY r.requested_at, r.id`, [window, start, k]);
+  const owners = siteLeadAlertOwners(cfg);
+  if (!owners.length) return [];
+  const startAt = atWallHour(now, contactWindow(window)!.start);
+  const start = startAt.toISOString();
+  const rows = queryRows<{ id: number; customer_id: number; name: string; salesperson_id: number; requested_at: string }>(
+    `SELECT r.id, r.customer_id, c.name, c.salesperson_id, r.requested_at FROM site_lead_requests r JOIN customers c ON c.id=r.customer_id AND c.merged_into_customer_id IS NULL
+     WHERE r.answered_at IS NULL AND r.window_alerted_at IS NULL AND r.contact_time=? AND r.requested_at<?
+       AND c.salesperson_id IN (${owners.map(() => "?").join(",")})
+     ORDER BY r.requested_at, r.id`, [window, start, ...owners])
+    .filter((r) => firstWindowStart(new Date(r.requested_at), window, cfg)?.getTime() === startAt.getTime());
   if (!rows.length) return [];
   const by = new Map<number, WindowAlert>();
   for (const r of rows) {
@@ -239,10 +264,11 @@ export async function siteLeadWindowTick(now = new Date(), deps: WindowDeps = {}
     }
     crmDb.exec("COMMIT");
   } catch (error) { crmDb.exec("ROLLBACK"); throw error; }
-  if (deps.telegram) {
+  const kzAlerts = alerts.filter((a) => a.ownerId === k);
+  if (deps.telegram && kzAlerts.length) {
     let outcome = "failed";
-    try { outcome = await deps.telegram(alerts, queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [k])?.name ?? null); } catch { outcome = "failed"; }
-    const ids = alerts.flatMap((a) => a.requestIds);
+    try { outcome = await deps.telegram(kzAlerts, queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [k])?.name ?? null); } catch { outcome = "failed"; }
+    const ids = kzAlerts.flatMap((a) => a.requestIds);
     execute(`UPDATE site_lead_requests SET window_alert_telegram=? WHERE id IN (${ids.map(() => "?").join(",")})`, [outcome, ...ids]);
   }
   return alerts;
