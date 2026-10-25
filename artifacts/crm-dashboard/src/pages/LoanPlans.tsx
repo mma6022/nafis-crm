@@ -1,5 +1,5 @@
-import { ArrowDown, ArrowUp, CheckCircle2, Edit3, Plus, ShieldCheck, Trash2 } from 'lucide-react';
-import { useEffect, useState, type FormEvent } from 'react';
+import { ArrowLeft, ArrowRight, CheckCircle2, Copy, Edit3, Plus, ShieldCheck, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTableState } from '@/hooks/use-table-state';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { GradePickerMulti } from '@/components/grade/GradePicker';
@@ -24,18 +24,13 @@ import { GoodsPlanSettingsFields, blankGoodsPlanForm, saveGoodsPlanSettings, typ
 import { api, errText, useMe } from '@/lib/goods-api';
 import { ErrorState, formatDate, SkeletonPanel } from '@/components/CrmShell';
 import { EmptyState, Modal } from '@/components/DataTools';
+import { CHECK_KIND_LABEL, encodeSide, NO_REQUIREMENTS, requirementsText, sideRequirements, type SideRequirements } from '@/lib/plan-requirements';
+import { Choice, faDigits, formatToman, LockBadge, TomanInput, WizardProgress, YES_NO, yn } from '@/components/plans-consult/parts';
 
 const INSTALLMENT_OPTIONS = [6, 9, 12, 18, 24, 36, 48] as const;
 type InstallmentOption = (typeof INSTALLMENT_OPTIONS)[number];
 type PlanWithStatus = LoanPlan & { active?: boolean };
 
-const COLLATERALS = [
-  { value: 'none', label: 'بدون وثیقه' },
-  { value: 'promissory', label: 'سفته' },
-  { value: 'digital_check', label: 'چک دیجیتال' },
-  { value: 'physical_check', label: 'چک فیزیکی' },
-  { value: 'salary_deduction', label: 'کسر از حقوق' },
-];
 
 const GRANT_TIMES = [
   { value: 'under_7', label: 'زیر ۷ روز' },
@@ -82,11 +77,12 @@ type ConditionForm = {
   installmentOptions: InstallmentOption[];
   customerRanks: string[];
   customerJobs: string[];
-  collateralType: string;
+  /** crm-plans-consult: cheque / promissory / salary deduction, combinable (encoded to collateral_type + needs_* on save). */
+  customer: SideRequirements;
   needsGuarantor: boolean;
   guarantorRanks: string[];
   guarantorJobs: string[];
-  guarantorCollateralType: string;
+  guarantor: SideRequirements;
   /** crm-no-plan-option: applicant must have military service done (women exempt). Off by default. */
   needsMilitaryService: boolean;
   notes: string;
@@ -250,7 +246,7 @@ function PlanDetail({ plan, loading, onEdit }: { plan: LoanPlan | null; loading:
   const documentOptions = optionsFor(options, 'required_document');
   return <div className="panel">
     <div className="panel-head"><div><div className="eyebrow">جزئیات طرح</div><h3>{plan.name}</h3><p>{plan.bankName || 'بانک مشخص نشده'} · آخرین ثبت {formatDate(plan.createdAt)}</p></div><button className="table-action" onClick={onEdit}><Edit3 size={13} />ویرایش</button></div>
-     <div className="plan-facts"><div className="plan-fact">نوع تسهیلات<strong>{plan.loanType || '—'}</strong></div><div className="plan-fact">روش اجرا<strong>{plan.processMode || '—'}</strong></div><div className="plan-fact">هزینه ثابت تشکیل پرونده<strong>{BigInt(plan.filingFeeToman).toLocaleString('fa-IR')} تومان</strong></div><div className="plan-fact">زمان انجام<strong>{GRANT_TIMES.find((item) => item.value === plan.grantDays)?.label || plan.grantDays || '—'}</strong></div><div className="plan-fact">قالب قرارداد<strong>{templatesReq.data?.find((template) => template.id === plan.contractTemplateId)?.name || '—'}</strong></div></div>
+     <div className="plan-facts"><div className="plan-fact">نوع طرح <LockBadge>فقط کارکنان</LockBadge><strong>{optionsFor(options, 'loan_type').find((item) => item.value === plan.loanType)?.labelFa || plan.loanType || '—'}</strong></div><div className="plan-fact">روش اجرا<strong>{plan.processMode || '—'}</strong></div><div className="plan-fact">هزینه ثابت تشکیل پرونده<strong>{BigInt(plan.filingFeeToman).toLocaleString('fa-IR')} تومان</strong></div><div className="plan-fact">زمان انجام<strong>{GRANT_TIMES.find((item) => item.value === plan.grantDays)?.label || plan.grantDays || '—'}</strong></div><div className="plan-fact">قالب قرارداد<strong>{templatesReq.data?.find((template) => template.id === plan.contractTemplateId)?.name || '—'}</strong></div></div>
      {plan.loanType === 'goods' ? <section className="plan-detail-section"><h4>اطلاعات خرید کالا</h4><div className="plan-facts"><div className="plan-fact">شرکت پلتفرم<strong>{plan.platformCompanyName || '—'}</strong></div><div className="plan-fact">فروشگاه خریدار<strong>{plan.goodsStoreName || '—'}</strong></div><div className="plan-fact">حق‌العمل<strong>{plan.commissionPercent == null ? '—' : `${plan.commissionPercent}٪`}</strong></div><div className="plan-fact">هزینه عملیات<strong>{plan.operationCostsPercent == null ? '—' : `${plan.operationCostsPercent}٪`}</strong></div><div className="plan-fact">تخفیف اعطایی<strong>{plan.grantedDiscountPercent == null ? '—' : `${plan.grantedDiscountPercent}٪`}</strong></div><div className="plan-fact">حق‌العمل خرید<strong>{plan.purchaseCommissionPercent == null ? '—' : `${plan.purchaseCommissionPercent}٪`}</strong></div><div className="plan-fact">حق‌العمل فروش<strong>{plan.salesCommissionPercent == null ? '—' : `${plan.salesCommissionPercent}٪`}</strong></div><div className="plan-fact">کارمزد اخذ وام<strong>{plan.loanAcquisitionFeePercent == null ? '—' : `${plan.loanAcquisitionFeePercent}٪`}</strong></div><div className="plan-fact">وجه التزام<strong>{plan.penaltyValue == null ? '—' : `${plan.penaltyValue.toLocaleString('fa-IR')}${plan.penaltyMode === 'percent' ? '٪' : ' تومان'}`}</strong></div><div className="plan-fact">مدت قرارداد<strong>{plan.contractDurationDays == null ? '—' : `${plan.contractDurationDays} روز`}</strong></div></div></section> : null}
     {plan.installmentTerms?.length ? <section className="plan-detail-section"><h4>اقساط و درصدها</h4><div className="installment-terms-display">{plan.installmentTerms.map((term) => <div className="term-display-card" key={term.installments}><strong>{term.installments} قسط</strong><span>پیش‌پرداخت: {term.prepaymentPercent}٪</span><span>کسر از مشتری: {term.deductionPercent}٪</span><span>واریزی مشتری: {term.depositPercent}٪</span></div>)}</div></section> : null}
     {plan.requiredDocuments?.length ? <section className="plan-detail-section"><h4>مدارک مورد نیاز</h4><div className="docs-list">{labelsFor(plan.requiredDocuments, documentOptions).map((label) => <span className="doc-badge" key={label}>{label}</span>)}</div></section> : null}
@@ -262,19 +258,20 @@ function PlanDetail({ plan, loading, onEdit }: { plan: LoanPlan | null; loading:
         const guarantorRanks = sortGrades(parseStringArray(condition.guarantorRanks));
         const customerJobs = labelsFor(condition.customerJobs ?? [], optionsFor(options, 'job_type'));
         const guarantorJobs = labelsFor(condition.guarantorJobs ?? [], optionsFor(options, 'guarantor_job_type'));
+        const sides = conditionSides(condition);
         return <div className="condition-item" key={condition.id}>
-          <strong>شرط {index + 1}</strong>
+          <strong>مسیر {faDigits(index + 1)}</strong>
           <ul>
              {condition.maxPrincipal ? <li>سقف مبلغ: {condition.maxPrincipal} تومان</li> : null}
             {condition.installmentOptions?.length ? <li>اقساط مجاز: {condition.installmentOptions.join('، ')}</li> : null}
             {customerRanks.length ? <li>رتبه مشتری: <GradeChipList values={customerRanks} testId={`text-condition-customer-ranks-${condition.id}`} /></li> : null}
             {customerJobs.length ? <li>مشاغل مشتری: {customerJobs.join('، ')}</li> : null}
             {condition.needsMilitaryService ? <li data-testid={`text-condition-military-${condition.id}`}>پایان خدمت متقاضی لازم است (خانم‌ها معاف)</li> : null}
-            <li>وثیقه مشتری: {COLLATERALS.find((item) => item.value === condition.collateralType)?.label || 'بدون وثیقه'}</li>
+            <li data-testid={`text-condition-customer-req-${condition.id}`}>تضمین متقاضی: {requirementsText(sides.customer)}</li>
             <li>{condition.needsGuarantor ? 'ضامن لازم است' : 'ضامن لازم نیست'}</li>
             {condition.needsGuarantor && guarantorRanks.length ? <li>رتبه ضامن: <GradeChipList values={guarantorRanks} testId={`text-condition-guarantor-ranks-${condition.id}`} /></li> : null}
             {condition.needsGuarantor && guarantorJobs.length ? <li>مشاغل ضامن: {guarantorJobs.join('، ')}</li> : null}
-            {condition.needsGuarantor ? <li>وثیقه ضامن: {COLLATERALS.find((item) => item.value === condition.guarantorCollateralType)?.label || 'بدون وثیقه'}</li> : null}
+            {condition.needsGuarantor ? <li data-testid={`text-condition-guarantor-req-${condition.id}`}>تضمین ضامن: {requirementsText(sides.guarantor)}</li> : null}
             {condition.notes ? <li>توضیحات: {condition.notes}</li> : null}
           </ul>
         </div>;
@@ -289,14 +286,53 @@ function emptyCondition(): ConditionForm {
     installmentOptions: [],
     customerRanks: [],
     customerJobs: [],
-    collateralType: 'none',
+    customer: { ...NO_REQUIREMENTS },
     needsGuarantor: false,
     guarantorRanks: [],
     guarantorJobs: [],
-    guarantorCollateralType: 'none',
+    guarantor: { ...NO_REQUIREMENTS },
     needsMilitaryService: false,
     notes: '',
   };
+}
+
+/** crm-plans-consult: route side requirements of a stored condition (collateral_type + needs_* flags). */
+export function conditionSides(condition: LoanPlan['conditions'][number]) {
+  return {
+    customer: sideRequirements(condition.collateralType, { check: condition.needsCustomerCheck, promissory: condition.needsCustomerPromissory, salary: condition.needsCustomerSalaryDeduct }),
+    guarantor: sideRequirements(condition.guarantorCollateralType, { check: condition.needsGuarantorCheck, promissory: condition.needsGuarantorPromissory, salary: condition.needsGuarantorSalaryDeduct }),
+  };
+}
+
+type PlanStepKey = 'basics' | 'terms' | 'goods' | 'applicant' | 'cheque' | 'guarantor' | 'docs' | 'review';
+const PLAN_STEPS: Array<{ key: PlanStepKey; title: string }> = [
+  { key: 'basics', title: 'اطلاعات پایه' },
+  { key: 'terms', title: 'مبلغ و اقساط' },
+  { key: 'goods', title: 'اطلاعات خرید کالا' },
+  { key: 'applicant', title: 'رتبه و شغل متقاضی' },
+  { key: 'cheque', title: 'چک و تضمین متقاضی' },
+  { key: 'guarantor', title: 'ضامن' },
+  { key: 'docs', title: 'مدارک و قرارداد' },
+  { key: 'review', title: 'بازبینی و ذخیره' },
+];
+const ROUTE_STEPS: PlanStepKey[] = ['applicant', 'cheque', 'guarantor'];
+const CHECK_KINDS = (['any', 'physical', 'digital'] as const).map((value) => ({ value, label: CHECK_KIND_LABEL[value] }));
+
+/** Toman field for the stored digit strings (principal / route max); a non-numeric legacy value stays a plain text box. */
+function TomanText({ value, onChange, testId }: { value: string; onChange: (value: string) => void; testId?: string }) {
+  if (!/^\d*$/.test(value.trim())) return <input value={value} onChange={(e) => onChange(e.target.value)} data-testid={testId} />;
+  return <TomanInput value={value.trim() ? Number(value) : null} onChange={(n) => onChange(n == null ? '' : String(n))} testId={testId} />;
+}
+
+function SideRequirementFields({ who, value, onChange, testId }: { who: 'متقاضی' | 'ضامن'; value: SideRequirements; onChange: (value: SideRequirements) => void; testId: string }) {
+  return <>
+    <Choice label={`چک ${who} لازم است؟`} required value={yn(value.check)} options={YES_NO} onChange={(v) => onChange({ ...value, check: v === 'yes' })} testId={`${testId}-check`} />
+    {value.check ? <div className="pc-nested"><Choice label="چه نوع چکی؟" required value={value.checkKind} options={CHECK_KINDS} onChange={(checkKind) => onChange({ ...value, checkKind })} testId={`${testId}-check-kind`} /></div> : null}
+    <div className="pc-two">
+      <Choice label="سفته لازم است؟" required value={yn(value.promissory)} options={YES_NO} onChange={(v) => onChange({ ...value, promissory: v === 'yes' })} testId={`${testId}-promissory`} />
+      <Choice label="گواهی کسر از حقوق لازم است؟" required value={yn(value.salary)} options={YES_NO} onChange={(v) => onChange({ ...value, salary: v === 'yes' })} testId={`${testId}-salary`} />
+    </div>
+  </>;
 }
 
 function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave }: { plan: LoanPlan | null; pending: boolean; goodsError: string; canGoodsFinance: boolean; onClose: () => void; onSave: (data: LoanPlanInput, goods: GoodsPlanForm) => void }) {
@@ -309,6 +345,10 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
   const [terms, setTerms] = useState<InstallmentTermForm[]>([]);
   const [documents, setDocuments] = useState<string[]>([]);
   const [conditions, setConditions] = useState<ConditionForm[]>([]);
+  const [step, setStep] = useState<PlanStepKey>('basics');
+  const [route, setRoute] = useState(0);
+  const [stepError, setStepError] = useState('');
+  const goodsRef = useRef<HTMLDivElement>(null);
   // Original letters, for «شرط قبلی این طرح «A و B» بود…»: still-stored letters (before the release) or the migration snapshot.
   const [sourceLetters, setSourceLetters] = useState<Record<string, GradeLetter[]>>({});
   const conversion = useQuery({
@@ -331,6 +371,9 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
       : <>شرط قبلی این طرح «{was}» بود؛ در انتشار به {now} تبدیل شده است.</>;
   };
   const isGoodsPlan = form.loanType === 'goods';
+  const steps = PLAN_STEPS.filter((item) => item.key !== 'goods' || isGoodsPlan);
+  const stepIndex = Math.max(0, steps.findIndex((item) => item.key === step));
+  const current = steps[stepIndex] ?? steps[0];
 
   useEffect(() => {
     setForm(plan ? {
@@ -344,18 +387,18 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
       processMode: plan.processMode ?? '',
       grantDays: plan.grantDays ?? '',
       notes: plan.notes ?? '',
-       contractTemplateId: plan.contractTemplateId ? String(plan.contractTemplateId) : '',
-       platformCompanyName: plan.platformCompanyName ?? '',
-       goodsStoreName: plan.goodsStoreName ?? '',
-       commissionPercent: plan.commissionPercent == null ? '' : String(plan.commissionPercent),
-       operationCostsPercent: plan.operationCostsPercent == null ? '' : String(plan.operationCostsPercent),
-       grantedDiscountPercent: plan.grantedDiscountPercent == null ? '' : String(plan.grantedDiscountPercent),
-       purchaseCommissionPercent: plan.purchaseCommissionPercent == null ? '' : String(plan.purchaseCommissionPercent),
-       salesCommissionPercent: plan.salesCommissionPercent == null ? '' : String(plan.salesCommissionPercent),
-       loanAcquisitionFeePercent: plan.loanAcquisitionFeePercent == null ? '' : String(plan.loanAcquisitionFeePercent),
-       penaltyMode: plan.penaltyMode ?? 'amount',
-       penaltyValue: plan.penaltyValue == null ? '' : String(plan.penaltyValue),
-       contractDurationDays: plan.contractDurationDays == null ? '' : String(plan.contractDurationDays),
+      contractTemplateId: plan.contractTemplateId ? String(plan.contractTemplateId) : '',
+      platformCompanyName: plan.platformCompanyName ?? '',
+      goodsStoreName: plan.goodsStoreName ?? '',
+      commissionPercent: plan.commissionPercent == null ? '' : String(plan.commissionPercent),
+      operationCostsPercent: plan.operationCostsPercent == null ? '' : String(plan.operationCostsPercent),
+      grantedDiscountPercent: plan.grantedDiscountPercent == null ? '' : String(plan.grantedDiscountPercent),
+      purchaseCommissionPercent: plan.purchaseCommissionPercent == null ? '' : String(plan.purchaseCommissionPercent),
+      salesCommissionPercent: plan.salesCommissionPercent == null ? '' : String(plan.salesCommissionPercent),
+      loanAcquisitionFeePercent: plan.loanAcquisitionFeePercent == null ? '' : String(plan.loanAcquisitionFeePercent),
+      penaltyMode: plan.penaltyMode ?? 'amount',
+      penaltyValue: plan.penaltyValue == null ? '' : String(plan.penaltyValue),
+      contractDurationDays: plan.contractDurationDays == null ? '' : String(plan.contractDurationDays),
       active: (plan as PlanWithStatus).active !== false,
     } : blankForm);
     const currentTerms = plan?.installmentTerms?.length
@@ -372,21 +415,23 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
       [`${condition.id}:customerRanks`, legacyLettersIn(parseStringArray(condition.customerRanks))],
       [`${condition.id}:guarantorRanks`, legacyLettersIn(parseStringArray(condition.guarantorRanks))],
     ])));
-    setConditions((plan?.conditions ?? []).sort((a, b) => a.sortOrder - b.sortOrder).map((condition) => ({
+    // A new plan starts with one empty route; an existing plan keeps exactly its routes (none stays none).
+    setConditions(plan ? [...(plan.conditions ?? [])].sort((a, b) => a.sortOrder - b.sortOrder).map((condition) => ({
       id: condition.id,
       maxPrincipal: condition.maxPrincipal ?? '',
       installmentOptions: condition.installmentOptions ?? [],
       // Legacy letters open as their three sub-grades (B → B1, B2, B3); saving stores sub-grades only.
       customerRanks: expandGradeList(parseStringArray(condition.customerRanks)),
       customerJobs: condition.customerJobs ?? [],
-      collateralType: condition.collateralType ?? 'none',
       needsGuarantor: Boolean(condition.needsGuarantor),
       guarantorRanks: expandGradeList(parseStringArray(condition.guarantorRanks)),
       guarantorJobs: condition.guarantorJobs ?? [],
-      guarantorCollateralType: condition.guarantorCollateralType ?? 'none',
+      ...conditionSides(condition),
       needsMilitaryService: Boolean(condition.needsMilitaryService),
       notes: condition.notes ?? '',
-    })));
+    })) : [emptyCondition()]);
+    setStep('basics');
+    setRoute(0);
   }, [plan]);
 
   const selectedInstallments = terms.map((term) => term.installments);
@@ -407,11 +452,22 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
       [next[index], next[target]] = [next[target], next[index]];
       return next;
     });
+    setRoute(target);
   };
+  const addRoute = (copyFrom?: ConditionForm) => {
+    const copy: ConditionForm = copyFrom
+      ? { ...copyFrom, id: undefined, installmentOptions: [...copyFrom.installmentOptions], customerRanks: [...copyFrom.customerRanks], customerJobs: [...copyFrom.customerJobs], guarantorRanks: [...copyFrom.guarantorRanks], guarantorJobs: [...copyFrom.guarantorJobs], customer: { ...copyFrom.customer }, guarantor: { ...copyFrom.guarantor } }
+      : emptyCondition();
+    setConditions((current) => [...current, copy]);
+    setRoute(conditions.length);
+  };
+  const removeRoute = (index: number) => {
+    setConditions((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setRoute(Math.max(0, Math.min(index, conditions.length - 2)));
+  };
+  const goStep = (key: PlanStepKey, routeIndex?: number) => { setStepError(''); setStep(key); if (routeIndex != null) setRoute(routeIndex); };
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (!form.name.trim()) return;
+  const buildInput = (): LoanPlanInput => {
     const legacy = plan ? {
       deductPercents: plan.deductPercents ?? undefined,
       customerRanks: plan.customerRanks ?? undefined,
@@ -430,22 +486,22 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
       needsCustomerSalaryDeduct: plan.needsCustomerSalaryDeduct,
       needsGuarantorSalaryDeduct: plan.needsGuarantorSalaryDeduct,
     } : {};
-    onSave({
+    return {
       ...legacy,
       ...form,
-       filingFeeToman: form.filingFeeToman,
-       contractTemplateId: Number(form.contractTemplateId),
-       platformCompanyName: form.loanType === 'goods' ? form.platformCompanyName.trim() : undefined,
-       goodsStoreName: form.loanType === 'goods' ? form.goodsStoreName.trim() : undefined,
-       commissionPercent: form.loanType === 'goods' && form.commissionPercent !== '' ? Number(form.commissionPercent) : undefined,
-       operationCostsPercent: form.loanType === 'goods' && form.operationCostsPercent !== '' ? Number(form.operationCostsPercent) : undefined,
-       grantedDiscountPercent: form.loanType === 'goods' && form.grantedDiscountPercent !== '' ? Number(form.grantedDiscountPercent) : undefined,
-       purchaseCommissionPercent: form.loanType === 'goods' && form.purchaseCommissionPercent !== '' ? Number(form.purchaseCommissionPercent) : undefined,
-       salesCommissionPercent: form.loanType === 'goods' && form.salesCommissionPercent !== '' ? Number(form.salesCommissionPercent) : undefined,
-       loanAcquisitionFeePercent: form.loanType === 'goods' && form.loanAcquisitionFeePercent !== '' ? Number(form.loanAcquisitionFeePercent) : undefined,
-       penaltyMode: form.loanType === 'goods' ? form.penaltyMode as 'amount' | 'percent' : undefined,
-       penaltyValue: form.loanType === 'goods' && form.penaltyValue !== '' ? Number(form.penaltyValue) : undefined,
-       contractDurationDays: form.loanType === 'goods' && form.contractDurationDays !== '' ? Number(form.contractDurationDays) : undefined,
+      filingFeeToman: form.filingFeeToman,
+      contractTemplateId: Number(form.contractTemplateId),
+      platformCompanyName: form.loanType === 'goods' ? form.platformCompanyName.trim() : undefined,
+      goodsStoreName: form.loanType === 'goods' ? form.goodsStoreName.trim() : undefined,
+      commissionPercent: form.loanType === 'goods' && form.commissionPercent !== '' ? Number(form.commissionPercent) : undefined,
+      operationCostsPercent: form.loanType === 'goods' && form.operationCostsPercent !== '' ? Number(form.operationCostsPercent) : undefined,
+      grantedDiscountPercent: form.loanType === 'goods' && form.grantedDiscountPercent !== '' ? Number(form.grantedDiscountPercent) : undefined,
+      purchaseCommissionPercent: form.loanType === 'goods' && form.purchaseCommissionPercent !== '' ? Number(form.purchaseCommissionPercent) : undefined,
+      salesCommissionPercent: form.loanType === 'goods' && form.salesCommissionPercent !== '' ? Number(form.salesCommissionPercent) : undefined,
+      loanAcquisitionFeePercent: form.loanType === 'goods' && form.loanAcquisitionFeePercent !== '' ? Number(form.loanAcquisitionFeePercent) : undefined,
+      penaltyMode: form.loanType === 'goods' ? form.penaltyMode as 'amount' | 'percent' : undefined,
+      penaltyValue: form.loanType === 'goods' && form.penaltyValue !== '' ? Number(form.penaltyValue) : undefined,
+      contractDurationDays: form.loanType === 'goods' && form.contractDurationDays !== '' ? Number(form.contractDurationDays) : undefined,
       name: form.name.trim(),
       installments: selectedInstallments.join(','),
       installmentTerms: terms.map((term) => ({
@@ -455,92 +511,174 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
         depositPercent: Number(term.depositPercent || 0),
       })),
       requiredDocuments: documents,
-      conditions: conditions.map((condition, index) => ({
-        maxPrincipal: condition.maxPrincipal,
-        installmentOptions: condition.installmentOptions,
-        customerRanks: condition.customerRanks,
-        customerJobs: condition.customerJobs,
-        collateralType: condition.collateralType,
-        needsGuarantor: condition.needsGuarantor,
-        guarantorRanks: condition.needsGuarantor ? condition.guarantorRanks : [],
-        guarantorJobs: condition.needsGuarantor ? condition.guarantorJobs : [],
-        guarantorCollateralType: condition.needsGuarantor ? condition.guarantorCollateralType : 'none',
-        needsMilitaryService: condition.needsMilitaryService,
-        sortOrder: index,
-        notes: condition.notes,
-      })),
-    }, goods);
+      conditions: conditions.map((condition, index) => {
+        const customer = encodeSide(condition.customer);
+        const guarantor = encodeSide(condition.needsGuarantor ? condition.guarantor : NO_REQUIREMENTS);
+        return {
+          maxPrincipal: condition.maxPrincipal,
+          installmentOptions: condition.installmentOptions,
+          customerRanks: condition.customerRanks,
+          customerJobs: condition.customerJobs,
+          collateralType: customer.collateralType,
+          needsCustomerCheck: customer.check,
+          needsCustomerPromissory: customer.promissory,
+          needsCustomerSalaryDeduct: customer.salary,
+          needsGuarantor: condition.needsGuarantor,
+          guarantorRanks: condition.needsGuarantor ? condition.guarantorRanks : [],
+          guarantorJobs: condition.needsGuarantor ? condition.guarantorJobs : [],
+          guarantorCollateralType: guarantor.collateralType,
+          needsGuarantorCheck: guarantor.check,
+          needsGuarantorPromissory: guarantor.promissory,
+          needsGuarantorSalaryDeduct: guarantor.salary,
+          needsMilitaryService: condition.needsMilitaryService,
+          sortOrder: index,
+          notes: condition.notes,
+        };
+      }),
+    };
   };
 
-  return <Modal title={plan ? 'ویرایش طرح تسهیلاتی' : 'ایجاد طرح تسهیلاتی'} eyebrow="کاتالوگ تأمین مالی" onClose={onClose} testId="loan-plan-form">
-    <form onSubmit={submit} className="loan-plan-form">
-      <section className="loan-form-section">
-        <div className="loan-form-section-title"><strong>اطلاعات پایه طرح</strong><span>مشخصات اصلی و نحوه اجرای تسهیلات</span></div>
-        <div className="form-grid">
-          <div className="field"><label>نام طرح</label><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required data-testid="input-plan-name" /></div>
-           <div className="field"><label>هزینه ثابت تشکیل پرونده (تومان)</label><input type="text" inputMode="numeric" pattern="[0-9]+" value={form.filingFeeToman} onChange={(event) => setForm({ ...form, filingFeeToman: event.target.value.replace(/\D/g, '').slice(0, 30) })} required data-testid="input-plan-filing-fee" /></div>
+  /** First step whose required data is missing (steps are also natively validated when leaving them). */
+  const firstInvalidStep = (): PlanStepKey | null => {
+    if (!form.name.trim() || !form.grantDays || !/^\d+$/.test(form.filingFeeToman)) return 'basics';
+    if (terms.some((term) => term.prepaymentPercent === '' || term.deductionPercent === '' || term.depositPercent === '')) return 'terms';
+    if (isGoodsPlan && (!form.platformCompanyName.trim() || !form.goodsStoreName.trim())) return 'goods';
+    if (!form.contractTemplateId) return 'docs';
+    return null;
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    setStepError('');
+    if (current.key === 'goods' && goodsRef.current) {
+      const fields = Array.from(goodsRef.current.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select'));
+      if (!fields.every((field) => field.reportValidity())) return;
+    }
+    if (current.key !== 'review') { goStep(steps[Math.min(steps.length - 1, stepIndex + 1)].key); return; }
+    const invalid = firstInvalidStep();
+    if (invalid) { setStepError('چند مورد الزامی هنوز خالی است.'); setStep(invalid); return; }
+    onSave(buildInput(), goods);
+  };
+
+  const condition = conditions[route];
+  const isRouteStep = ROUTE_STEPS.includes(current.key);
+  const loanTypeLabel = optionsFor(options, 'loan_type').find((item) => item.value === form.loanType)?.labelFa;
+  const jobLabels = (values: string[], field: string) => values.length ? labelsFor(values, optionsFor(options, field)).join('، ') : 'همه‌ی مشاغل';
+  const gradesText = (values: string[]) => values.length ? sortGrades(values).join('، ') : 'همه‌ی رتبه‌ها';
+
+  const routeBar = isRouteStep ? <>
+    <div className="pc-routes" data-testid="plan-route-tabs">
+      <span>این مرحله برای هر مسیر جداست:</span>
+      {conditions.map((_, index) => <button type="button" key={index} className={`pc-route-tab${index === route ? ' is-on' : ''}`} onClick={() => setRoute(index)} data-testid={`button-route-${index}`}>مسیر {faDigits(index + 1)}</button>)}
+      <button type="button" className="pc-route-tab is-add" onClick={() => addRoute()} data-testid="button-add-condition"><Plus size={14} />مسیر تازه</button>
+      {condition ? <div className="pc-route-tools">
+        <button type="button" onClick={() => moveCondition(route, -1)} disabled={route === 0} aria-label="انتقال مسیر به قبل" title="انتقال به قبل"><ArrowRight size={15} /></button>
+        <button type="button" onClick={() => moveCondition(route, 1)} disabled={route >= conditions.length - 1} aria-label="انتقال مسیر به بعد" title="انتقال به بعد"><ArrowLeft size={15} /></button>
+        <button type="button" onClick={() => addRoute(condition)} aria-label="کپی این مسیر" title="کپی این مسیر" data-testid="button-copy-condition"><Copy size={15} /></button>
+        <button type="button" onClick={() => removeRoute(route)} aria-label="حذف این مسیر" title="حذف این مسیر" data-testid="button-remove-condition"><Trash2 size={15} /></button>
+      </div> : null}
+    </div>
+    <p className="pc-route-note">کافی است مشتری با یکی از مسیرها جور باشد.</p>
+  </> : null;
+
+  const noRoute = <div className="empty-state compact-empty" data-testid="status-no-routes"><p>این طرح مسیری ندارد. بدون مسیر، شرایط کلی طرح بررسی می‌شود. برای افزودن شرط، «مسیر تازه» را بزنید.</p></div>;
+
+  return <Modal title={plan ? `ویرایش طرح — ${plan.name}` : 'طرح تسهیلاتی تازه'} eyebrow="کاتالوگ تأمین مالی" onClose={onClose} testId="loan-plan-form">
+    <div className="pc-wizard">
+      <div className="pc-sub">{loanTypeLabel ? <LockBadge>{loanTypeLabel}</LockBadge> : null}<span>{conditions.length ? `${faDigits(conditions.length)} مسیر` : 'بدون مسیر'}</span></div>
+      <WizardProgress title={current.title} index={stepIndex} total={steps.length} testId="plan-wizard-progress" />
+      {routeBar}
+      <form id="plan-wizard-form" onSubmit={submit} className="loan-plan-form pc-body" data-testid={`plan-step-${current.key}`}>
+        {current.key === 'basics' ? <div className="form-grid">
+          <div className="field full"><label>نام طرح</label><input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required data-testid="input-plan-name" /></div>
           <div className="field"><label>بانک</label><input value={form.bankName} onChange={(event) => setForm({ ...form, bankName: event.target.value })} /></div>
           <div className="field"><label>پلتفرم</label><input value={form.platformName} onChange={(event) => setForm({ ...form, platformName: event.target.value })} /></div>
-           <div className="field"><label>سقف تسهیلات (تومان)</label><input value={form.principalAmount} onChange={(event) => setForm({ ...form, principalAmount: event.target.value })} /></div>
-          <div className="field"><label>سود سالانه</label><input value={form.annualInterest} onChange={(event) => setForm({ ...form, annualInterest: event.target.value })} /></div>
-          <div className="field"><label>نوع تسهیلات</label><DictionarySelect value={form.loanType} options={optionsFor(options, 'loan_type')} onChange={(loanType) => setForm({ ...form, loanType })} /></div>
+          <div className="field"><label>نوع طرح <LockBadge>فقط کارکنان</LockBadge></label><DictionarySelect value={form.loanType} options={optionsFor(options, 'loan_type')} onChange={(loanType) => setForm({ ...form, loanType })} testId="select-plan-loan-type" /></div>
           <div className="field"><label>روش اجرا</label><DictionarySelect value={form.processMode} options={optionsFor(options, 'process_mode')} onChange={(processMode) => setForm({ ...form, processMode })} /></div>
           <div className="field"><label>مدت زمان انجام</label><select value={form.grantDays} onChange={(event) => setForm({ ...form, grantDays: event.target.value })} required><option value="">انتخاب کنید</option>{GRANT_TIMES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-          <div className="field full"><label>تعداد اقساط</label><ChipChoices values={INSTALLMENT_OPTIONS.map((value) => ({ value, label: `${value} ماهه` }))} selected={selectedInstallments} onChange={updateSelectedInstallments} testId="installment-options" /></div>
-          {terms.length ? <div className="field full"><label>درصدهای مربوط به هر تعداد اقساط</label><div className="installment-terms-list">{terms.map((term) => <div className="installment-term-row" key={term.installments}><strong>{term.installments} قسط</strong><div className="term-inputs"><label><span>پیش‌پرداخت</span><input type="number" min="0" max="100" step="0.01" value={term.prepaymentPercent} onChange={(event) => updateTerm(term.installments, 'prepaymentPercent', event.target.value)} required /></label><label><span>کسر از مشتری</span><input type="number" min="0" max="100" step="0.01" value={term.deductionPercent} onChange={(event) => updateTerm(term.installments, 'deductionPercent', event.target.value)} required /></label><label><span>واریزی به مشتری</span><input type="number" min="0" max="100" step="0.01" value={term.depositPercent} onChange={(event) => updateTerm(term.installments, 'depositPercent', event.target.value)} required /></label></div></div>)}</div></div> : null}
-        </div>
-      </section>
+          <div className="field"><label>هزینه ثابت تشکیل پرونده (تومان)</label><input type="text" inputMode="numeric" pattern="[0-9]+" value={form.filingFeeToman} onChange={(event) => setForm({ ...form, filingFeeToman: event.target.value.replace(/\D/g, '').slice(0, 30) })} required data-testid="input-plan-filing-fee" /></div>
+          <div className="field full"><Choice label="وضعیت طرح در کاتالوگ" value={form.active ? 'on' : 'off'} options={[{ value: 'on', label: 'فعال' }, { value: 'off', label: 'غیرفعال' }]} onChange={(v) => setForm({ ...form, active: v === 'on' })} testId="choice-plan-active" /></div>
+        </div> : null}
 
-      <section className="loan-form-section">
-        <div className="loan-form-section-title">
-          <strong>درصدها و اطلاعات خرید کالا</strong>
-          <span>{isGoodsPlan ? 'این اطلاعات برای طرح خرید کالا الزامی است.' : 'برای فعال‌شدن این فیلدها، نوع تسهیلات را «وام خرید کالا» انتخاب کنید.'}</span>
-        </div>
-        <fieldset disabled={!isGoodsPlan} style={{ border: 0, padding: 0, margin: 0, opacity: isGoodsPlan ? 1 : 0.55 }}>
-          <div className="form-grid">
-            <div className="field"><label>نام شرکت پلتفرم</label><input value={form.platformCompanyName} onChange={(e) => setForm({ ...form, platformCompanyName: e.target.value })} required={isGoodsPlan} /></div>
-            <div className="field"><label>نام فروشگاه خریدار کالا</label><input value={form.goodsStoreName} onChange={(e) => setForm({ ...form, goodsStoreName: e.target.value })} required={isGoodsPlan} /></div>
-            {([
-              ['commissionPercent', 'درصد حق‌العمل'], ['operationCostsPercent', 'درصد هزینه‌های عملیات'], ['grantedDiscountPercent', 'درصد تخفیف اعطایی'],
-              ['purchaseCommissionPercent', 'درصد حق‌العمل خرید'], ['salesCommissionPercent', 'درصد حق‌العمل فروش'], ['loanAcquisitionFeePercent', 'درصد کارمزد اخذ وام'],
-            ] as const).map(([key, label]) => <div className="field" key={key}><label>{label}</label><input type="number" min="0" max="100" step="0.01" value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} required={isGoodsPlan} /></div>)}
-            <div className="field"><label>وجه التزام</label><div style={{ display: 'flex', gap: 6 }}><select value={form.penaltyMode} onChange={(e) => setForm({ ...form, penaltyMode: e.target.value })}><option value="amount">مبلغی</option><option value="percent">درصدی</option></select><input type="number" min="0" max={form.penaltyMode === 'percent' ? 100 : undefined} step="0.01" value={form.penaltyValue} onChange={(e) => setForm({ ...form, penaltyValue: e.target.value })} placeholder={form.penaltyMode === 'amount' ? 'تومان' : 'درصد'} required={isGoodsPlan} /></div></div>
-            <div className="field"><label>مدت قرارداد (روز)</label><input type="number" min="1" step="1" value={form.contractDurationDays} onChange={(e) => setForm({ ...form, contractDurationDays: e.target.value })} required={isGoodsPlan} /></div>
-          </div>
-        </fieldset>
-      </section>
+        {current.key === 'terms' ? <div className="form-grid">
+          <div className="field"><label>سقف تسهیلات</label><TomanText value={form.principalAmount} onChange={(principalAmount) => setForm({ ...form, principalAmount })} testId="input-plan-principal" /></div>
+          <div className="field"><label>سود سالانه</label><input value={form.annualInterest} onChange={(event) => setForm({ ...form, annualInterest: event.target.value })} /></div>
+          <div className="field full"><label>تعداد اقساط</label><ChipChoices values={INSTALLMENT_OPTIONS.map((value) => ({ value, label: `${faDigits(value)} ماهه` }))} selected={selectedInstallments} onChange={updateSelectedInstallments} testId="installment-options" /></div>
+          {terms.length ? <div className="field full"><label>درصدهای مربوط به هر تعداد اقساط</label><div className="installment-terms-list">{terms.map((term) => <div className="installment-term-row" key={term.installments}><strong>{faDigits(term.installments)} قسط</strong><div className="term-inputs"><label><span>پیش‌پرداخت</span><input type="number" min="0" max="100" step="0.01" value={term.prepaymentPercent} onChange={(event) => updateTerm(term.installments, 'prepaymentPercent', event.target.value)} required /></label><label><span>کسر از مشتری</span><input type="number" min="0" max="100" step="0.01" value={term.deductionPercent} onChange={(event) => updateTerm(term.installments, 'deductionPercent', event.target.value)} required /></label><label><span>واریزی به مشتری</span><input type="number" min="0" max="100" step="0.01" value={term.depositPercent} onChange={(event) => updateTerm(term.installments, 'depositPercent', event.target.value)} required /></label></div></div>)}</div></div> : null}
+        </div> : null}
 
-      <section className="loan-form-section">
-        <div className="loan-form-section-title"><strong>مدارک و توضیحات</strong><span>مدارک لازم برای تشکیل پرونده</span></div>
-         <div className="field full"><label>قالب قرارداد</label><select value={form.contractTemplateId} onChange={(e) => setForm({ ...form, contractTemplateId: e.target.value })} required><option value="">انتخاب قالب قرارداد</option>{templates.map(tpl => <option key={tpl.id} value={tpl.id}>{tpl.name}</option>)}</select></div>
-        <div className="field"><label>لیست مدارک مورد نیاز</label><DictionaryChips selected={documents} options={optionsFor(options, 'required_document')} onChange={setDocuments} testId="required-documents" /></div>
-        <div className="field"><label>توضیحات طرح</label><textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} data-testid="textarea-plan-notes" /></div>
-      </section>
+        {current.key === 'goods' ? <div className="form-grid">
+          <div className="field"><label>نام شرکت پلتفرم</label><input value={form.platformCompanyName} onChange={(e) => setForm({ ...form, platformCompanyName: e.target.value })} required /></div>
+          <div className="field"><label>نام فروشگاه خریدار کالا</label><input value={form.goodsStoreName} onChange={(e) => setForm({ ...form, goodsStoreName: e.target.value })} required /></div>
+          {([
+            ['commissionPercent', 'درصد حق‌العمل'], ['operationCostsPercent', 'درصد هزینه‌های عملیات'], ['grantedDiscountPercent', 'درصد تخفیف اعطایی'],
+            ['purchaseCommissionPercent', 'درصد حق‌العمل خرید'], ['salesCommissionPercent', 'درصد حق‌العمل فروش'], ['loanAcquisitionFeePercent', 'درصد کارمزد اخذ وام'],
+          ] as const).map(([key, label]) => <div className="field" key={key}><label>{label}</label><input type="number" min="0" max="100" step="0.01" value={form[key]} onChange={(e) => setForm({ ...form, [key]: e.target.value })} required /></div>)}
+          <div className="field"><label>وجه التزام</label><div style={{ display: 'flex', gap: 6 }}><select value={form.penaltyMode} onChange={(e) => setForm({ ...form, penaltyMode: e.target.value })}><option value="amount">مبلغی</option><option value="percent">درصدی</option></select><input type="number" min="0" max={form.penaltyMode === 'percent' ? 100 : undefined} step="0.01" value={form.penaltyValue} onChange={(e) => setForm({ ...form, penaltyValue: e.target.value })} placeholder={form.penaltyMode === 'amount' ? 'تومان' : 'درصد'} required /></div></div>
+          <div className="field"><label>مدت قرارداد (روز)</label><input type="number" min="1" step="1" value={form.contractDurationDays} onChange={(e) => setForm({ ...form, contractDurationDays: e.target.value })} required /></div>
+        </div> : null}
 
-      <section className="loan-form-section">
-        <div className="loan-form-section-heading">
-          <div className="loan-form-section-title"><strong>مسیرهای تأیید و شرایط دریافت</strong><span>هر شرط یک مسیر جایگزین برای دریافت تسهیلات است.</span></div>
-          <button type="button" className="btn btn-ghost" onClick={() => setConditions((current) => [...current, emptyCondition()])} data-testid="button-add-condition"><Plus size={14} />افزودن شرط</button>
-        </div>
-        {conditions.length ? <div className="condition-form-list">{conditions.map((condition, index) => <div className="condition-card-form" key={index}>
-          <div className="condition-card-header"><span>شرط {index + 1}</span><div className="condition-actions"><button type="button" onClick={() => moveCondition(index, -1)} disabled={index === 0} aria-label="انتقال به بالا"><ArrowUp size={14} /></button><button type="button" onClick={() => moveCondition(index, 1)} disabled={index === conditions.length - 1} aria-label="انتقال به پایین"><ArrowDown size={14} /></button><button type="button" onClick={() => setConditions((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label="حذف شرط"><Trash2 size={14} /></button></div></div>
-          <div className="form-grid">
-             <div className="field"><label>سقف مبلغ تسهیلات (تومان)</label><input value={condition.maxPrincipal} onChange={(event) => updateCondition(index, 'maxPrincipal', event.target.value)} /></div>
-            <div className="field full"><label>تعداد اقساط مجاز</label><ChipChoices values={INSTALLMENT_OPTIONS.map((value) => ({ value, label: `${value} ماهه` }))} selected={condition.installmentOptions} onChange={(value) => updateCondition(index, 'installmentOptions', value)} /></div>
-            <div className="field full"><GradePickerMulti label="رتبه‌های مجاز مشتری" values={condition.customerRanks} onChange={(value) => updateCondition(index, 'customerRanks', value)} note={conversionNote(condition, 'customerRanks')} testId={`grades-customer-${index}`} /></div>
-            <div className="field full"><label>مشاغل مجاز مشتری</label><DictionaryChips selected={condition.customerJobs} options={optionsFor(options, 'job_type')} onChange={(value) => updateCondition(index, 'customerJobs', value)} /></div>
-            <div className="field"><label>وثیقه مورد نیاز مشتری</label><select value={condition.collateralType} onChange={(event) => updateCondition(index, 'collateralType', event.target.value)}>{COLLATERALS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-            <div className="field"><label>پایان خدمت متقاضی لازم است؟</label><select value={condition.needsMilitaryService ? 'yes' : 'no'} onChange={(event) => updateCondition(index, 'needsMilitaryService', event.target.value === 'yes')} data-testid={`select-condition-military-${index}`}><option value="no">خیر</option><option value="yes">بله (خانم‌ها معاف)</option></select></div>
-            <div className="field"><label>ضامن لازم دارد؟</label><select value={condition.needsGuarantor ? 'yes' : 'no'} onChange={(event) => updateCondition(index, 'needsGuarantor', event.target.value === 'yes')}><option value="no">خیر</option><option value="yes">بله</option></select></div>
-          </div>
-          {condition.needsGuarantor ? <div className="guarantor-section"><strong>شرایط ضامن</strong><div className="field full"><GradePickerMulti label="رتبه‌های مجاز ضامن" values={condition.guarantorRanks} onChange={(value) => updateCondition(index, 'guarantorRanks', value)} note={conversionNote(condition, 'guarantorRanks')} testId={`grades-guarantor-${index}`} /></div><div className="field"><label>مشاغل مجاز ضامن</label><DictionaryChips selected={condition.guarantorJobs} options={optionsFor(options, 'guarantor_job_type')} onChange={(value) => updateCondition(index, 'guarantorJobs', value)} /></div><div className="field"><label>وثیقه مورد نیاز ضامن</label><select value={condition.guarantorCollateralType} onChange={(event) => updateCondition(index, 'guarantorCollateralType', event.target.value)}>{COLLATERALS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div></div> : null}
-        </div>)}</div> : <div className="empty-state compact-empty"><p>هنوز شرطی تعریف نشده است. برای شروع «افزودن شرط» را انتخاب کنید.</p></div>}
-      </section>
+        {current.key === 'applicant' ? (condition ? <div className="form-grid" key={`applicant-${route}`}>
+          <div className="field"><label>سقف مبلغ این مسیر <span className="pc-hint">خالی = سقف طرح</span></label><TomanText value={condition.maxPrincipal} onChange={(value) => updateCondition(route, 'maxPrincipal', value)} testId={`input-condition-max-${route}`} /></div>
+          <div className="field"><label>اقساط مجاز این مسیر <span className="pc-hint">خالی = همه‌ی اقساط طرح</span></label><ChipChoices values={INSTALLMENT_OPTIONS.map((value) => ({ value, label: `${faDigits(value)} ماهه` }))} selected={condition.installmentOptions} onChange={(value) => updateCondition(route, 'installmentOptions', value)} /></div>
+          <div className="field full"><GradePickerMulti label="رتبه‌های مجاز متقاضی" values={condition.customerRanks} onChange={(value) => updateCondition(route, 'customerRanks', value)} note={conversionNote(condition, 'customerRanks')} testId={`grades-customer-${route}`} /></div>
+          <div className="field full"><label>شغل متقاضی <span className="pc-hint">هیچ‌کدام = همه‌ی مشاغل</span></label><DictionaryChips selected={condition.customerJobs} options={optionsFor(options, 'job_type')} onChange={(value) => updateCondition(route, 'customerJobs', value)} testId={`jobs-customer-${route}`} /></div>
+          <div className="field full"><Choice label="پایان خدمت متقاضی لازم است؟" hint="خانم‌ها معاف‌اند" value={yn(condition.needsMilitaryService)} options={YES_NO} onChange={(v) => updateCondition(route, 'needsMilitaryService', v === 'yes')} testId={`select-condition-military-${route}`} /></div>
+          <div className="field full"><label>توضیحات این مسیر</label><input value={condition.notes} onChange={(e) => updateCondition(route, 'notes', e.target.value)} /></div>
+        </div> : noRoute) : null}
 
-      <section className="loan-form-section plan-status-row"><label className="boolean-field"><input type="checkbox" checked={form.active} onChange={(event) => setForm({ ...form, active: event.target.checked })} />طرح در کاتالوگ فعال باشد</label></section>
-      <GoodsPlanSettingsFields planId={plan?.id} value={goods} onChange={setGoods} templates={templates} enabled={isGoodsPlan && canGoodsFinance} />
+        {current.key === 'cheque' ? (condition ? <div className="pc-body" key={`cheque-${route}`}>
+          <SideRequirementFields who="متقاضی" value={condition.customer} onChange={(value) => updateCondition(route, 'customer', value)} testId={`req-customer-${route}`} />
+        </div> : noRoute) : null}
+
+        {current.key === 'guarantor' ? (condition ? <div className="pc-body" key={`guarantor-${route}`}>
+          <Choice label="ضامن لازم است؟" required value={yn(condition.needsGuarantor)} options={YES_NO} onChange={(v) => updateCondition(route, 'needsGuarantor', v === 'yes')} testId={`choice-condition-guarantor-${route}`} />
+          {condition.needsGuarantor ? <div className="pc-nested pc-body">
+            <GradePickerMulti label="رتبه‌های مجاز ضامن" values={condition.guarantorRanks} onChange={(value) => updateCondition(route, 'guarantorRanks', value)} note={conversionNote(condition, 'guarantorRanks')} testId={`grades-guarantor-${route}`} />
+            <div className="field"><label>شغل ضامن <span className="pc-hint">هیچ‌کدام = همه‌ی مشاغل</span></label><DictionaryChips selected={condition.guarantorJobs} options={optionsFor(options, 'guarantor_job_type')} onChange={(value) => updateCondition(route, 'guarantorJobs', value)} /></div>
+            <SideRequirementFields who="ضامن" value={condition.guarantor} onChange={(value) => updateCondition(route, 'guarantor', value)} testId={`req-guarantor-${route}`} />
+          </div> : <p className="subtle-note">برای این مسیر ضامن لازم نیست.</p>}
+        </div> : noRoute) : null}
+
+        {current.key === 'docs' ? <div className="pc-body">
+          <div className="field full"><label>قالب قرارداد</label><select value={form.contractTemplateId} onChange={(e) => setForm({ ...form, contractTemplateId: e.target.value })} required><option value="">انتخاب قالب قرارداد</option>{templates.map(tpl => <option key={tpl.id} value={tpl.id}>{tpl.name}</option>)}</select></div>
+          <div className="field"><label>لیست مدارک مورد نیاز</label><DictionaryChips selected={documents} options={optionsFor(options, 'required_document')} onChange={setDocuments} testId="required-documents" /></div>
+          <div className="field"><label>توضیحات طرح</label><textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} data-testid="textarea-plan-notes" /></div>
+        </div> : null}
+
+        {current.key === 'review' ? <div className="pc-review" data-testid="plan-review">
+          <div className="pc-review-card"><header><strong>اطلاعات پایه</strong><button type="button" onClick={() => goStep('basics')}>ویرایش</button></header><dl>
+            <dt>نام</dt><dd>{form.name || '—'}</dd><dt>بانک / پلتفرم</dt><dd>{[form.bankName, form.platformName].filter(Boolean).join(' · ') || '—'}</dd>
+            <dt>نوع طرح</dt><dd>{loanTypeLabel ?? '—'}</dd><dt>وضعیت</dt><dd>{form.active ? 'فعال' : 'غیرفعال'}</dd>
+          </dl></div>
+          <div className="pc-review-card"><header><strong>مبلغ و اقساط</strong><button type="button" onClick={() => goStep('terms')}>ویرایش</button></header><dl>
+            <dt>سقف</dt><dd>{/^\d+$/.test(form.principalAmount) ? `${formatToman(Number(form.principalAmount))} تومان` : form.principalAmount || '—'}</dd>
+            <dt>اقساط</dt><dd>{terms.length ? terms.map((term) => faDigits(term.installments)).join('، ') : '—'}</dd>
+          </dl></div>
+          {isGoodsPlan ? <div className="pc-review-card"><header><strong>اطلاعات خرید کالا</strong><button type="button" onClick={() => goStep('goods')}>ویرایش</button></header><dl><dt>فروشگاه</dt><dd>{form.goodsStoreName || '—'}</dd><dt>شرکت پلتفرم</dt><dd>{form.platformCompanyName || '—'}</dd></dl></div> : null}
+          {conditions.length ? conditions.map((item, index) => <div className="pc-review-card" key={index} data-testid={`review-route-${index}`}><header><strong>مسیر {faDigits(index + 1)}</strong><span style={{ display: 'flex', gap: 12 }}><button type="button" onClick={() => goStep('applicant', index)}>ویرایش متقاضی</button><button type="button" onClick={() => goStep('cheque', index)}>ویرایش تضمین</button><button type="button" onClick={() => goStep('guarantor', index)}>ویرایش ضامن</button></span></header><dl>
+            <dt>سقف مسیر</dt><dd>{/^\d+$/.test(item.maxPrincipal) ? `${formatToman(Number(item.maxPrincipal))} تومان` : item.maxPrincipal || 'سقف طرح'}</dd>
+            <dt>رتبه متقاضی</dt><dd>{gradesText(item.customerRanks)}</dd>
+            <dt>شغل متقاضی</dt><dd>{jobLabels(item.customerJobs, 'job_type')}</dd>
+            {item.needsMilitaryService ? <><dt>پایان خدمت</dt><dd>لازم است (خانم‌ها معاف)</dd></> : null}
+            <dt>تضمین متقاضی</dt><dd>{requirementsText(item.customer)}</dd>
+            <dt>ضامن</dt><dd>{item.needsGuarantor ? `لازم · ${gradesText(item.guarantorRanks)} · ${jobLabels(item.guarantorJobs, 'guarantor_job_type')} · ${requirementsText(item.guarantor)}` : 'لازم نیست'}</dd>
+          </dl></div>) : <div className="pc-review-card"><header><strong>مسیرها</strong><button type="button" onClick={() => goStep('applicant')}>ویرایش</button></header><p className="subtle-note">بدون مسیر؛ شرایط کلی طرح بررسی می‌شود.</p></div>}
+          <div className="pc-review-card"><header><strong>مدارک و قرارداد</strong><button type="button" onClick={() => goStep('docs')}>ویرایش</button></header><dl>
+            <dt>قالب قرارداد</dt><dd>{templates.find((tpl) => String(tpl.id) === form.contractTemplateId)?.name || '—'}</dd>
+            <dt>مدارک</dt><dd>{documents.length ? labelsFor(documents, optionsFor(options, 'required_document')).join('، ') : '—'}</dd>
+          </dl></div>
+        </div> : null}
+      </form>
+      <div ref={goodsRef} hidden={current.key !== 'goods'}>
+        <GoodsPlanSettingsFields planId={plan?.id} value={goods} onChange={setGoods} templates={templates} enabled={isGoodsPlan && canGoodsFinance} />
+      </div>
+      {stepError ? <div className="gp-alert">{stepError}</div> : null}
       {goodsError ? <div className="gp-alert">{goodsError}</div> : null}
-      <div className="form-footer"><button className="btn btn-primary" type="submit" disabled={pending}>{pending ? 'در حال ذخیره…' : 'ذخیره طرح'}</button><button className="btn btn-ghost" type="button" onClick={onClose}>انصراف</button></div>
-    </form>
+      <div className="pc-footer">
+        <button className="btn btn-primary" type="submit" form="plan-wizard-form" disabled={pending} data-testid="button-plan-wizard-next">{current.key === 'review' ? (pending ? 'در حال ذخیره…' : 'ذخیره طرح') : <>بعدی <ArrowLeft size={16} /></>}</button>
+        {stepIndex > 0 ? <button className="btn btn-ghost" type="button" onClick={() => goStep(steps[stepIndex - 1].key)} data-testid="button-plan-wizard-back"><ArrowRight size={16} /> قبلی</button> : <button className="btn btn-ghost" type="button" onClick={onClose}>انصراف</button>}
+      </div>
+    </div>
   </Modal>;
 }

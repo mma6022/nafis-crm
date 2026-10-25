@@ -1,4 +1,4 @@
-import { customerNameText } from '@/components/customer/CustomerName';
+import { CustomerName, customerNameText } from '@/components/customer/CustomerName';
 import { CallNoteCounter } from '@/components/CallNoteCounter';
 import { callNoteOk } from '@/lib/call-note';
 import { OtherOwnerResults } from '@/components/customer/OtherOwnerResults';
@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { GradePicker } from '@/components/grade/GradePicker';
 import { createPortal } from 'react-dom';
 import './CallForm.css';
-import { BellPlus, FileText, PhoneCall, Search, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BellPlus, FileText, PhoneCall, Search, X } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { Modal } from '@/components/DataTools';
@@ -17,8 +17,9 @@ import { getListCustomersQueryKey, getListRemindersQueryKey, useCreateReminder, 
 import { CustomerConsultationStatus, isYesValue } from './CustomerConsultationStatus';
 import { CallCustomerSelect, type CallCustomer } from './CallCustomerSelect';
 import { normalizeDigits, validateIranianNationalCode } from '@/lib/customer-field-validation';
-import { saveQuickCreditNationalCode } from '@/features/team-sales/api';
 import { VoiceNoteButton } from '@/features/voice-notes/VoiceNoteButton';
+import { saveQuickCreditNationalCode, useConsultProfile, type Military } from '@/features/team-sales/api';
+import { Choice, faDigits, formatToman, TomanInput, WizardProgress } from '@/components/plans-consult/parts';
 
 type CallFormProps = {
   customers: { id: number; name: string; phone: string; salespersonName?: string | null; priority?: number | null; status?: string; nationalCode?: string | null; postalCode?: string | null; birthDateJalali?: string | null; verificationStatus?: string; isUrgent?: boolean }[];
@@ -372,43 +373,69 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
   );
 }
 
-type ConsultForm = { customerId: string; creditRank: string; customerCheckStatus: string; hasCustomerSalaryDeduct: string; jobType: string; hasGuarantor: string; guarantorCreditRank: string; guarantorCheckType: string; hasGuarantorSalaryDeduct: string };
+type ConsultForm = { customerId: string; creditRank: string; customerCheckStatus: string; hasCustomerSalaryDeduct: string; jobType: string; hasGuarantor: string; guarantorCreditRank: string; guarantorCheckType: string; hasGuarantorSalaryDeduct: string; guarantorJobType: string; militaryStatus: '' | Military; extraNotes: string; requestedAmountToman: number | null };
 type Opt = { id: number; value: string; labelFa: string };
+type ConsultStep = 'customer' | 'applicant' | 'guarantor' | 'note' | 'review';
+const CONSULT_STEPS: Array<{ key: ConsultStep; title: string }> = [
+  { key: 'customer', title: 'مشتری' }, { key: 'applicant', title: 'متقاضی' }, { key: 'guarantor', title: 'ضامن' },
+  { key: 'note', title: 'یادداشت و مبلغ' }, { key: 'review', title: 'بازبینی و ثبت' },
+];
+const MILITARY_CHOICES: Array<{ value: Military; label: string }> = [
+  { value: 'has_card', label: 'دارد' }, { value: 'no_card', label: 'ندارد' }, { value: 'female', label: 'مشتری خانم است' }, { value: 'unknown', label: 'نامشخص' },
+];
 
-function QuestionSelect({ id, label, value, onChange, options, error }: { id: string; label: string; value: string; onChange: (v: string) => void; options: Opt[]; error?: boolean }) {
-  return <div className="field">
-    <label htmlFor={id}>{label} <span style={{ color: '#be123c' }}>*</span></label>
-    <select id={id} value={value} onChange={(e) => onChange(e.target.value)} aria-invalid={error} aria-required="true" data-testid={`select-${id}`}>
-      <option value="" disabled>انتخاب کنید</option>
-      {options.map((o) => <option key={o.id} value={o.value}>{o.labelFa}</option>)}
-    </select>
+/** Dictionary question as pill buttons (same values as the old select). */
+function QuestionChoice({ id, label, value, onChange, options, error, optional }: { id: string; label: string; value: string; onChange: (v: string) => void; options: Opt[]; error?: boolean; optional?: boolean }) {
+  return <div className="field full">
+    <Choice label={label} required={!optional} hint={optional ? 'اختیاری' : undefined} value={value} options={options.map((o) => ({ value: o.value, label: o.labelFa }))} onChange={onChange} testId={`select-${id}`} />
     {error ? <small role="alert" style={{ color: '#be123c' }}>این پرسش را پاسخ دهید.</small> : null}
   </div>;
 }
 
 export function CreateConsultationForm({ customers: sourceCustomers, pending, initialCustomerId, onClose, onSave }: { customers: { id: number; name: string; phone: string; salespersonName?: string | null }[]; pending: boolean; initialCustomerId?: number; onClose: () => void; onSave: (data: ConsultationInput) => void }) {
-  const customers = sourceCustomers.map((customer) => ({ ...customer, name: `${customer.name} · کارشناس پرونده: ${customer.salespersonName || 'بدون تخصیص'}` }));
-  const [form, setForm] = useState<ConsultForm>({ customerId: initialCustomerId ? String(initialCustomerId) : '', creditRank: '', customerCheckStatus: '', hasCustomerSalaryDeduct: '', jobType: '', hasGuarantor: '', guarantorCreditRank: '', guarantorCheckType: '', hasGuarantorSalaryDeduct: '' });
-  const [attempted, setAttempted] = useState(false);
+  const [form, setForm] = useState<ConsultForm>({ customerId: initialCustomerId ? String(initialCustomerId) : '', creditRank: '', customerCheckStatus: '', hasCustomerSalaryDeduct: '', jobType: '', hasGuarantor: '', guarantorCreditRank: '', guarantorCheckType: '', hasGuarantorSalaryDeduct: '', guarantorJobType: '', militaryStatus: '', extraNotes: '', requestedAmountToman: null });
+  const [step, setStep] = useState<ConsultStep>('customer');
+  const [attempted, setAttempted] = useState<Partial<Record<ConsultStep, boolean>>>({});
+  const militaryTouched = useRef(false);
   const optionsQuery = useListConsultOptions(undefined, { query: { queryKey: getListConsultOptionsQueryKey(), staleTime: 0 } });
   const options = optionsQuery.data ?? [];
   const by = (key: string) => options.filter((o) => o.fieldKey === key);
+  const customerId = form.customerId ? Number(form.customerId) : 0;
+  const customer = sourceCustomers.find((c) => c.id === customerId) ?? null;
+  // «پایان خدمت» comes prefilled from Kazemi's «اطلاعات مشاوره» (the server fills it too when left empty).
+  const profile = useConsultProfile(customerId, customerId > 0);
+  const profileMilitary = profile.data?.latest?.data?.military ?? null;
+  useEffect(() => {
+    if (!militaryTouched.current && profileMilitary) setForm((f) => ({ ...f, militaryStatus: profileMilitary }));
+  }, [profileMilitary]);
   const set = (key: keyof ConsultForm) => (value: string) => setForm((f) => {
     const next = { ...f, [key]: value };
-    if (key === 'hasGuarantor' && !isYesValue(value)) { next.guarantorCreditRank = ''; next.guarantorCheckType = ''; next.hasGuarantorSalaryDeduct = ''; }
+    if (key === 'hasGuarantor' && !isYesValue(value)) { next.guarantorCreditRank = ''; next.guarantorCheckType = ''; next.hasGuarantorSalaryDeduct = ''; next.guarantorJobType = ''; }
     return next;
   });
   const keys = ['credit_rank', 'customer_check_status', 'has_customer_salary_deduct', 'job_type', 'has_guarantor', 'guarantor_credit_rank', 'guarantor_check_type', 'has_guarantor_salary_deduct'];
   const missingKeys = keys.filter((k) => by(k).length === 0);
   const optionsReady = optionsQuery.isSuccess && missingKeys.length === 0;
   const guarantorYes = form.hasGuarantor !== '' && isYesValue(form.hasGuarantor);
-  const required: (keyof ConsultForm)[] = ['customerId', 'creditRank', 'customerCheckStatus', 'hasCustomerSalaryDeduct', 'jobType', 'hasGuarantor', ...(guarantorYes ? ['guarantorCreditRank', 'guarantorCheckType', 'hasGuarantorSalaryDeduct'] as (keyof ConsultForm)[] : [])];
-  const bad = (k: keyof ConsultForm) => attempted && required.includes(k) && !form[k];
+  const requiredBy: Record<ConsultStep, (keyof ConsultForm)[]> = {
+    customer: ['customerId'],
+    applicant: ['creditRank', 'jobType', 'customerCheckStatus', 'hasCustomerSalaryDeduct'],
+    guarantor: ['hasGuarantor', ...(guarantorYes ? ['guarantorCreditRank', 'guarantorCheckType', 'hasGuarantorSalaryDeduct'] as (keyof ConsultForm)[] : [])],
+    note: [], review: [],
+  };
+  const stepIndex = CONSULT_STEPS.findIndex((s) => s.key === step);
+  const current = CONSULT_STEPS[stepIndex];
+  const bad = (k: keyof ConsultForm) => Boolean(attempted[step]) && requiredBy[step].includes(k) && !form[k];
+  const stepOk = (s: ConsultStep) => requiredBy[s].every((k) => Boolean(form[k]));
+  const label = (key: string, v: string) => by(key).find((o) => o.value === v)?.labelFa ?? (v || '—');
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    setAttempted(true);
-    if (!optionsReady || required.some((k) => !form[k])) return;
+    setAttempted((a) => ({ ...a, [step]: true }));
+    if (step !== 'review') { if (stepOk(step)) setStep(CONSULT_STEPS[stepIndex + 1].key); return; }
+    const firstBad = CONSULT_STEPS.find((s) => !stepOk(s.key));
+    if (firstBad) { setAttempted((a) => ({ ...a, [firstBad.key]: true })); setStep(firstBad.key); return; }
+    if (!optionsReady) return;
     const hasG = isYesValue(form.hasGuarantor);
     const data = {
       customerId: Number(form.customerId),
@@ -424,51 +451,92 @@ export function CreateConsultationForm({ customers: sourceCustomers, pending, in
         guarantorCheckType: form.guarantorCheckType,
         hasGuarantorCheck: form.guarantorCheckType !== 'none',
         hasGuarantorSalaryDeduct: isYesValue(form.hasGuarantorSalaryDeduct),
+        ...(form.guarantorJobType ? { guarantorJobType: form.guarantorJobType } : {}),
       } : { hasGuarantorCheck: false, hasGuarantorSalaryDeduct: false }),
+      ...(form.militaryStatus ? { militaryStatus: form.militaryStatus } : {}),
+      ...(form.requestedAmountToman != null ? { requestedAmountToman: form.requestedAmountToman } : {}),
+      ...(form.extraNotes.trim() ? { extraNotes: form.extraNotes.trim() } : {}),
     };
     onSave(data satisfies ConsultationInput);
   };
 
-  const section: React.CSSProperties = { border: '1px solid #dbe2ee', borderRadius: 12, padding: 14, background: '#f8fafc' };
-  const sectionHead: React.CSSProperties = { margin: '0 0 12px', fontSize: 13, fontWeight: 800, color: 'var(--nafiss-blue)', borderRight: '3px solid var(--nafiss-blue)', paddingRight: 8 };
+  const sub = customer ? <div className="pc-sub" data-testid="consult-wizard-customer"><CustomerName id={customer.id} name={customer.name} badgeTestId="badge-consult-wizard-customer" /><span dir="ltr">{faDigits(customer.phone)}</span></div> : null;
+  const reviewRow = (k: string, v: string) => <><dt>{k}</dt><dd>{v}</dd></>;
+  const militaryText = form.militaryStatus ? MILITARY_CHOICES.find((m) => m.value === form.militaryStatus)?.label ?? '—' : 'باید بررسی شود';
 
-  return <Modal title="ثبت مشاوره" eyebrow="پرسشنامه ارزیابی مالی" onClose={onClose} testId="create-consultation-form">
-    <form onSubmit={submit} noValidate>
+  return <Modal title="مشاوره‌ی تازه" eyebrow="پرسشنامه ارزیابی مالی" onClose={onClose} testId="create-consultation-form">
+    <form onSubmit={submit} noValidate className="pc-wizard">
+      {sub}
+      <WizardProgress title={current.title} index={stepIndex} total={CONSULT_STEPS.length} testId="consult-wizard-progress" />
       {optionsQuery.isLoading ? <div role="status" className="profile-form-note" data-testid="status-consult-options-loading">در حال دریافت گزینه‌های پرسشنامه…</div> : null}
       {optionsQuery.isError ? <div role="alert" className="profile-form-error" data-testid="error-consult-options">دریافت گزینه‌ها انجام نشد. ثبت ممکن نیست. <button type="button" className="btn btn-ghost" onClick={() => void optionsQuery.refetch()}>تلاش دوباره</button></div> : null}
       {optionsQuery.isSuccess && missingKeys.length > 0 ? <div role="alert" className="profile-form-error" data-testid="error-consult-options-empty">برای برخی پرسش‌ها گزینه‌ای تعریف نشده است؛ ثبت تا تکمیل گزینه‌ها ممکن نیست.</div> : null}
-      <div className="form-grid">
-        <div className="field full"><label htmlFor="consult-customer-select">مشتری <span style={{ color: '#be123c' }}>*</span></label>
-          <select id="consult-customer-select" value={form.customerId} onChange={(e) => set('customerId')(e.target.value)} disabled={!!initialCustomerId} aria-invalid={bad('customerId')} data-testid="select-consultation-customer">
-            <option value="" disabled>انتخاب مشتری</option>
-            {customers.map((c) => <option key={c.id} value={c.id}>{customerNameText(c.name, c.id)} · {c.phone}</option>)}
-          </select>
-          {bad('customerId') ? <small role="alert" style={{ color: '#be123c' }}>مشتری را انتخاب کنید.</small> : null}
-        </div>
-        <div className="field full"><CustomerConsultationStatus customerId={form.customerId ? Number(form.customerId) : undefined} /></div>
-        <div className="field full" style={section} role="group" aria-labelledby="consult-applicant-h">
-          <h4 id="consult-applicant-h" style={sectionHead}>اطلاعات متقاضی</h4>
-          <div className="form-grid">
-            <div className="field full"><GradePicker id="consult-credit-rank" label="رتبه اعتبارسنجی" required value={form.creditRank} onChange={(v) => set('creditRank')(v)} showError={attempted} testId="grade-consult-credit-rank" /></div>
-            <QuestionSelect id="consult-check-status" label="وضعیت چک متقاضی" value={form.customerCheckStatus} onChange={set('customerCheckStatus')} options={by('customer_check_status')} error={bad('customerCheckStatus')} />
-            <QuestionSelect id="consult-salary-deduct" label="وضعیت کسر از حقوق متقاضی" value={form.hasCustomerSalaryDeduct} onChange={set('hasCustomerSalaryDeduct')} options={by('has_customer_salary_deduct')} error={bad('hasCustomerSalaryDeduct')} />
-            <QuestionSelect id="consult-job" label="شغل متقاضی" value={form.jobType} onChange={set('jobType')} options={by('job_type')} error={bad('jobType')} />
+      <div className="pc-body" data-testid={`consult-step-${step}`}>
+        {step === 'customer' ? <>
+          <div className="field full"><label htmlFor="consult-customer-select">مشتری <span style={{ color: '#be123c' }}>*</span></label>
+            <select id="consult-customer-select" value={form.customerId} onChange={(e) => set('customerId')(e.target.value)} disabled={!!initialCustomerId} aria-invalid={bad('customerId')} data-testid="select-consultation-customer">
+              <option value="" disabled>انتخاب مشتری</option>
+              {sourceCustomers.map((c) => <option key={c.id} value={c.id}>{customerNameText(c.name, c.id)} · {c.phone} · کارشناس پرونده: {c.salespersonName || 'بدون تخصیص'}</option>)}
+            </select>
+            {bad('customerId') ? <small role="alert" style={{ color: '#be123c' }}>مشتری را انتخاب کنید.</small> : null}
           </div>
-        </div>
-        <div className="field full" style={section} role="group" aria-labelledby="consult-guarantor-h">
-          <h4 id="consult-guarantor-h" style={sectionHead}>اطلاعات ضامن</h4>
-          <div className="form-grid">
-            <QuestionSelect id="consult-has-guarantor" label="ضامن دارد یا نه" value={form.hasGuarantor} onChange={set('hasGuarantor')} options={by('has_guarantor')} error={bad('hasGuarantor')} />
-            {guarantorYes ? <>
-              <div className="field full"><GradePicker id="consult-guarantor-credit-rank" label="رتبه اعتبارسنجی ضامن" required value={form.guarantorCreditRank} onChange={(v) => set('guarantorCreditRank')(v)} showError={attempted} emptyError="رتبه اعتبارسنجی ضامن را انتخاب کنید." testId="grade-consult-guarantor-credit-rank" /></div>
-              <QuestionSelect id="consult-guarantor-check" label="وضعیت چک ضامن" value={form.guarantorCheckType} onChange={set('guarantorCheckType')} options={by('guarantor_check_type')} error={bad('guarantorCheckType')} />
-              <QuestionSelect id="consult-guarantor-salary" label="ضامن کسر از حقوق دارد یا نه" value={form.hasGuarantorSalaryDeduct} onChange={set('hasGuarantorSalaryDeduct')} options={by('has_guarantor_salary_deduct')} error={bad('hasGuarantorSalaryDeduct')} />
-            </> : null}
+          <div className="field full"><CustomerConsultationStatus customerId={customerId || undefined} /></div>
+        </> : null}
+
+        {step === 'applicant' ? <>
+          <div className="field full"><GradePicker id="consult-credit-rank" label="رتبه‌ی اعتبارسنجی متقاضی" required value={form.creditRank} onChange={(v) => set('creditRank')(v)} showError={Boolean(attempted.applicant)} testId="grade-consult-credit-rank" /></div>
+          <QuestionChoice id="consult-job" label="شغل متقاضی" value={form.jobType} onChange={set('jobType')} options={by('job_type')} error={bad('jobType')} />
+          <div className="pc-two">
+            <QuestionChoice id="consult-check-status" label="چک متقاضی" value={form.customerCheckStatus} onChange={set('customerCheckStatus')} options={by('customer_check_status')} error={bad('customerCheckStatus')} />
+            <QuestionChoice id="consult-salary-deduct" label="کسر از حقوق" value={form.hasCustomerSalaryDeduct} onChange={set('hasCustomerSalaryDeduct')} options={by('has_customer_salary_deduct')} error={bad('hasCustomerSalaryDeduct')} />
           </div>
-        </div>
+          <div className="field full">
+            <Choice label="وضعیت پایان خدمت" hint={profileMilitary && !militaryTouched.current ? 'از اطلاعات مشاوره‌ی قبلی پر شد' : 'اختیاری؛ خالی = باید بررسی شود'} value={form.militaryStatus || null} options={MILITARY_CHOICES} dashed="unknown"
+              onChange={(v) => { militaryTouched.current = true; setForm((f) => ({ ...f, militaryStatus: v })); }} testId="choice-consult-military" />
+          </div>
+        </> : null}
+
+        {step === 'guarantor' ? <>
+          <QuestionChoice id="consult-has-guarantor" label="ضامن دارد؟" value={form.hasGuarantor} onChange={set('hasGuarantor')} options={by('has_guarantor')} error={bad('hasGuarantor')} />
+          {guarantorYes ? <div className="pc-nested pc-body">
+            <div className="field full"><GradePicker id="consult-guarantor-credit-rank" label="رتبه‌ی اعتبارسنجی ضامن" required value={form.guarantorCreditRank} onChange={(v) => set('guarantorCreditRank')(v)} showError={Boolean(attempted.guarantor)} emptyError="رتبه اعتبارسنجی ضامن را انتخاب کنید." testId="grade-consult-guarantor-credit-rank" /></div>
+            <QuestionChoice id="consult-guarantor-job" label="شغل ضامن" optional value={form.guarantorJobType} onChange={set('guarantorJobType')} options={by('guarantor_job_type')} />
+            <div className="pc-two">
+              <QuestionChoice id="consult-guarantor-check" label="چک ضامن" value={form.guarantorCheckType} onChange={set('guarantorCheckType')} options={by('guarantor_check_type')} error={bad('guarantorCheckType')} />
+              <QuestionChoice id="consult-guarantor-salary" label="کسر از حقوق ضامن" value={form.hasGuarantorSalaryDeduct} onChange={set('hasGuarantorSalaryDeduct')} options={by('has_guarantor_salary_deduct')} error={bad('hasGuarantorSalaryDeduct')} />
+            </div>
+          </div> : null}
+        </> : null}
+
+        {step === 'note' ? <>
+          <div className="field full"><label htmlFor="consult-amount-toman">مبلغ مورد نیاز مشتری <span className="pc-hint">اختیاری</span></label><TomanInput id="consult-amount-toman" value={form.requestedAmountToman} onChange={(n) => setForm((f) => ({ ...f, requestedAmountToman: n }))} testId="input-consultation-amount-toman" /></div>
+          <div className="field full"><label htmlFor="consult-extra-notes">یادداشت <span className="pc-hint">اختیاری</span></label><textarea id="consult-extra-notes" rows={4} value={form.extraNotes} onChange={(e) => setForm((f) => ({ ...f, extraNotes: e.target.value }))} data-testid="textarea-consultation-extra-notes" /></div>
+        </> : null}
+
+        {step === 'review' ? <div className="pc-review" data-testid="consult-review">
+          <div className="pc-review-card"><header><strong>مشتری</strong>{initialCustomerId ? null : <button type="button" onClick={() => setStep('customer')}>ویرایش</button>}</header><dl>{reviewRow('نام', customer ? customerNameText(customer.name, customer.id) : '—')}</dl></div>
+          <div className="pc-review-card"><header><strong>متقاضی</strong><button type="button" onClick={() => setStep('applicant')}>ویرایش</button></header><dl>
+            {reviewRow('رتبه', form.creditRank || '—')}{reviewRow('شغل', label('job_type', form.jobType))}{reviewRow('چک', label('customer_check_status', form.customerCheckStatus))}
+            {reviewRow('کسر از حقوق', label('has_customer_salary_deduct', form.hasCustomerSalaryDeduct))}{reviewRow('پایان خدمت', militaryText)}
+          </dl></div>
+          <div className="pc-review-card"><header><strong>ضامن</strong><button type="button" onClick={() => setStep('guarantor')}>ویرایش</button></header><dl>
+            {reviewRow('ضامن', label('has_guarantor', form.hasGuarantor))}
+            {guarantorYes ? <>{reviewRow('رتبه ضامن', form.guarantorCreditRank || '—')}{reviewRow('شغل ضامن', form.guarantorJobType ? label('guarantor_job_type', form.guarantorJobType) : '—')}{reviewRow('چک ضامن', label('guarantor_check_type', form.guarantorCheckType))}{reviewRow('کسر از حقوق ضامن', label('has_guarantor_salary_deduct', form.hasGuarantorSalaryDeduct))}</> : null}
+          </dl></div>
+          <div className="pc-review-card"><header><strong>یادداشت و مبلغ</strong><button type="button" onClick={() => setStep('note')}>ویرایش</button></header><dl>
+            {reviewRow('مبلغ', form.requestedAmountToman != null ? `${formatToman(form.requestedAmountToman)} تومان` : '—')}{reviewRow('یادداشت', form.extraNotes.trim() || '—')}
+          </dl></div>
+          <p className="profile-form-note">ارائهٔ سفته برای همه امکان‌پذیر است. سقف قابل دریافت پس از تطبیق رتبه و شرایط مشتری و ضامن محاسبه می‌شود؛ تأیید نهایی نیازمند بررسی پرونده است.</p>
+        </div> : null}
       </div>
-      <p className="profile-form-note">ارائهٔ سفته برای همه امکان‌پذیر است. سقف قابل دریافت پس از تطبیق رتبه و شرایط مشتری و ضامن محاسبه می‌شود؛ تأیید نهایی نیازمند بررسی پرونده است.</p>
-      <div className="form-footer"><button type="submit" className="btn btn-primary" disabled={pending || !optionsReady} data-testid="button-save-consultation"><FileText size={15} />{pending ? 'در حال ثبت...' : 'ثبت درخواست'}</button><button type="button" className="btn btn-ghost" onClick={onClose} data-testid="button-cancel-consultation">انصراف</button></div>
+      <div className="pc-footer">
+        {step === 'review'
+          ? <button type="submit" className="btn btn-primary" disabled={pending || !optionsReady} data-testid="button-save-consultation"><FileText size={15} />{pending ? 'در حال ثبت...' : 'ثبت و دیدن طرح‌های مناسب'}</button>
+          : <button type="submit" className="btn btn-primary" data-testid="button-consult-wizard-next">بعدی <ArrowLeft size={16} /></button>}
+        {stepIndex > 0
+          ? <button type="button" className="btn btn-ghost" onClick={() => setStep(CONSULT_STEPS[stepIndex - 1].key)} data-testid="button-consult-wizard-back"><ArrowRight size={16} /> قبلی</button>
+          : <button type="button" className="btn btn-ghost" onClick={onClose} data-testid="button-cancel-consultation">انصراف</button>}
+      </div>
     </form>
   </Modal>;
 }
