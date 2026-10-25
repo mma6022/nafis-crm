@@ -33,6 +33,7 @@ try {
         import * as schemas from "@workspace/api-zod";
         import { questionnaireError, consultationRankMatches } from "./src/lib/consultation-questionnaire";
         import { consultationMaximumAmount } from "./src/lib/consultation-limits";
+        import { acceptedGradeEdit, compactRankList, expandRankList, GRADE_EDIT_ERROR, isLegacyGradeLetter, parseStoredRanks } from "./src/lib/credit-subgrades";
         const {CreateConsultationBody, CreateConsultationResponse, MatchConsultationLoanPlansParams,
           MatchConsultationLoanPlansResponse, GetConsultationHistoricalLoanPlanMatchesResponse} = schemas;
         export const db = new DatabaseSync(":memory:");
@@ -45,7 +46,8 @@ try {
             needs_fast_receive INTEGER,has_avg_balance INTEGER,loan_purpose TEXT,requested_amount TEXT,extra_notes TEXT,
             guarantor_credit_rank TEXT,guarantor_check_type TEXT,guarantor_job_type TEXT,collateral_type TEXT,
             guarantor_collateral_type TEXT,customer_check_status TEXT,receive_mode TEXT,loan_pref TEXT,need_days TEXT,
-            has_customer_salary_deduct INTEGER,has_guarantor_salary_deduct INTEGER);
+            has_customer_salary_deduct INTEGER,has_guarantor_salary_deduct INTEGER,
+            author_user_id INTEGER,requested_amount_toman INTEGER,military_status TEXT);
           INSERT INTO customers VALUES(1,'Synthetic customer','00000000001','A1',10),
             (2,'Other synthetic customer','00000000002','B1',20);
           INSERT INTO salespersons VALUES(10,'One'),(20,'Two');\`);
@@ -54,7 +56,10 @@ try {
         const planSelect = "SELECT * FROM fixture_plans";
         const planFromRow = row => structuredClone(row);
         const queryRow = (sql, params=[]) => db.prepare(sql).get(...params);
-        const queryRows = () => plans.filter(p => p.active);
+        // Grade options come from consult_options (credit sub-grades); everything else reads the fixture plans.
+        const queryRows = (sql, params=[]) => /consult_options/.test(sql)
+          ? consultationQuestionnaireOptions().filter(o => o.fieldKey === params[0]).map(o => ({option_value:o.value}))
+          : plans.filter(p => p.active);
         const execute = (sql, params=[]) => Number(db.prepare(sql).run(...params).lastInsertRowid);
         const executeChanges = (sql, params=[]) => db.prepare(sql).run(...params).changes;
         const runTransaction = fn => {
@@ -78,7 +83,7 @@ try {
         };
         app.use(express.json(),(req,res,next)=>{
           res.locals.authUser = req.header("X-Actor")==="expert"
-            ? {customerScope:"assigned",salespersonId:10} : {customerScope:"all"};
+            ? {id:7,customerScope:"assigned",salespersonId:10} : {id:1,customerScope:"all"};
           next();
         });
         ${definitions}
@@ -236,6 +241,28 @@ try {
   assert.equal((await request("/consultations/99/historical-loan-plan-matches")).data.snapshot, null);
   await request("/consultations/99/loan-plan-matches");
   assert.equal((await request("/consultations/99/historical-loan-plan-matches")).data.snapshot, null);
+  // crm-plans-consult phase 1: the author is recorded; «پایان خدمت» comes from Kazemi data (none here -> null,
+  // shown as «باید بررسی شود»); «ندارد» blocks a route only when that route requires end of military service.
+  assert.equal(fixture.db.prepare("SELECT author_user_id FROM consultation_forms WHERE id=?").get(first.data.id).author_user_id, 7);
+  assert.equal(fixture.db.prepare("SELECT author_user_id FROM consultation_forms WHERE id=?").get(second.data.id).author_user_id, 1);
+  assert.equal(first.data.militaryStatus, null);
+  const noCard = await request("/consultations", { ...input, questionnaireVersion: 2, militaryStatus: "no_card" });
+  assert.equal(noCard.status, 201);
+  assert.equal(noCard.data.militaryStatus, "no_card");
+  const militaryMatch = async (needsMilitaryService, id) => {
+    fixture.setPlans([{ ...plan, conditions: [{ ...condition, needsMilitaryService }] }]);
+    return (await request(`/consultations/${id}/loan-plan-matches`)).data[0];
+  };
+  assert.equal((await militaryMatch(false, noCard.data.id)).status, "eligible");
+  const blocked = await militaryMatch(true, noCard.data.id);
+  assert.equal(blocked.status, "not_eligible");
+  assert.ok(blocked.failedRequirements.some(reason => reason.includes("پایان خدمت")));
+  const hasCard = await request("/consultations", { ...input, questionnaireVersion: 2, militaryStatus: "has_card" });
+  assert.equal((await militaryMatch(true, hasCard.data.id)).status, "eligible");
+  const unknownMilitary = await request("/consultations", { ...input, questionnaireVersion: 2 });
+  assert.equal(unknownMilitary.data.militaryStatus, null);
+  assert.equal((await militaryMatch(false, unknownMilitary.data.id)).status, "eligible");
+  assert.equal((await militaryMatch(true, unknownMilitary.data.id)).status, "needs_review");
   // An evaluation failure must roll back the consultation, not leave a partial save.
   fixture.setPlans([{ ...plan, conditions: null }]);
   const count = fixture.db.prepare("SELECT COUNT(*) AS n FROM consultation_forms").get().n;
@@ -245,7 +272,7 @@ try {
   assert.equal(failed.status, 500);
   assert.equal(fixture.db.prepare("SELECT COUNT(*) AS n FROM consultation_forms").get().n, count);
   fixture.db.close();
-  console.log("Consultation snapshot checks passed: immutable plans/conditions/reasons, fresh evaluation, empty snapshot, no backfill, rank preservation, customer scope, permissions and atomic rollback.");
+  console.log("Consultation snapshot checks passed: immutable plans/conditions/reasons, fresh evaluation, empty snapshot, no backfill, rank preservation, customer scope, permissions, author, «پایان خدمت» and atomic rollback.");
 } finally {
   if (server) await new Promise(resolve => server.close(resolve));
   await rm(temp, { recursive: true, force: true });

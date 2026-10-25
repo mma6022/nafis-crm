@@ -22,7 +22,7 @@ export default function VoiceNotesUsage() {
         <div>
           <div className="eyebrow">گزارش‌ها</div>
           <h2>مصرف تبدیل صدا به متن</h2>
-          <p>دقیقه‌های صوتی که کارشناسان برای یادداشت تماس و توضیح مشتری به متن تبدیل کرده‌اند، با برآورد تقریبی هزینه. صدا و متن هیچ‌جا ذخیره نمی‌شود؛ اینجا فقط مدت و تعداد ثبت است.</p>
+          <p>دقیقه‌های صوتی که کارشناسان برای یادداشت تماس و توضیح مشتری به متن تبدیل کرده‌اند، با هزینه‌ی تقریبی. صدا و متن هیچ‌جا ذخیره نمی‌شود؛ اینجا فقط مدت و تعداد ثبت است.</p>
         </div>
       </div>
       {q.isLoading ? <SkeletonPanel rows={5} /> : q.isError || !d ? <ErrorState onRetry={() => void q.refetch()} /> : (
@@ -41,7 +41,7 @@ export default function VoiceNotesUsage() {
           <div className="vnu-cards">
             <div className="vnu-card"><span>کل دقیقه‌ها</span><b data-testid="voice-usage-total-minutes">{n1(d.totals.minutes)}</b></div>
             <div className="vnu-card"><span>تعداد تبدیل</span><b>{n1(d.totals.count)}</b>{d.totals.errorCount ? <small>{faDigits(d.totals.errorCount)} ناموفق</small> : null}</div>
-            <div className="vnu-card"><span>برآورد هزینه</span><b dir="ltr" data-testid="voice-usage-total-cost">{usd(d.totals.estCostUsd)}</b><small>تقریبی، بر اساس قیمت فهرست</small></div>
+            <div className="vnu-card"><span>هزینه</span><b dir="ltr" data-testid="voice-usage-total-cost">{usd(d.totals.estCostUsd)}</b><small>تقریبی، بر اساس قیمت فهرست</small></div>
           </div>
           {d.providers && d.providers.length ? (
             <div className="vnu-providers" data-testid="voice-usage-providers">
@@ -54,7 +54,7 @@ export default function VoiceNotesUsage() {
             </div>) : null}
           {d.users.length === 0 ? <div className="empty-state compact">در این ماه هنوز تبدیلی ثبت نشده است.</div> : (
             <div className="vnu-scroll"><table className="vnu-table">
-              <thead><tr><th>کاربر</th><th>نقش</th><th>دقیقه</th><th>تعداد</th><th>ناموفق</th><th>برآورد هزینه</th></tr></thead>
+              <thead><tr><th>کاربر</th><th>نقش</th><th>دقیقه</th><th>تعداد</th><th>ناموفق</th><th>هزینه‌ی تقریبی</th></tr></thead>
               <tbody>{d.users.map((u) => (
                 <tr key={u.userId} data-testid={`voice-usage-row-${u.userId}`}>
                   <td>{u.name || `کاربر ${faDigits(u.userId)}`}</td><td>{ROLE[u.role] ?? u.role}</td><td>{n1(u.minutes)}</td>
