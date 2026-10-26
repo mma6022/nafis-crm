@@ -5,7 +5,6 @@
 .bl-steps li::before { content: ''; height: 4px; border-radius: 4px; background: var(--nf-line); }
 .bl-steps li[data-on='true'] { color: var(--nf-ink); font-weight: 700; }
 .bl-steps li[data-on='true']::before, .bl-steps li[data-done='true']::before { background: var(--nf-primary, #29369B); }
-.bl-steps li[data-optional='true'] span::after { content: ' (اختیاری)'; font-weight: 400; }
 .bl-field { display: grid; gap: 6px; }
 .bl-field label { font-weight: 700; font-size: 14px; }
 .bl-field input { font: inherit; font-size: 18px; padding: 12px 14px; border: 1px solid var(--nf-line); border-radius: 12px; background: #fff; min-height: 48px; width: 100%; box-sizing: border-box; }

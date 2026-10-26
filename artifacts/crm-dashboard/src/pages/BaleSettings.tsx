@@ -16,7 +16,7 @@ const errMsg = (e: unknown) => (e instanceof Error && e.message) || 'خطای ن
 const SIGNOUT_WARN = 'اتصال در CRM قطع شد، ولی بله تأیید نکرد. برای اطمینان در اپ بله › تنظیمات › «دستگاه‌های فعال»، دستگاه «Nafis CRM» را هم حذف کنید.';
 
 function Steps({ at }: { at: 1 | 2 | 3 | 4 }) {
-  const items: [number, string, boolean][] = [[1, 'شماره', false], [2, 'کد', false], [3, 'رمز دومرحله‌ای', true], [4, 'وصل شد', false]];
+  const items: [number, string, boolean][] = [[1, 'شماره', false], [2, 'کد', false], [3, 'رمز دوم', true], [4, 'وصل شد', false]];
   return <ol className="bl-steps" aria-label="مراحل اتصال">{items.map(([n, label, opt]) =>
     <li key={n} data-on={n === at} data-done={n < at} data-optional={opt} aria-current={n === at ? 'step' : undefined}><span>{faNum(n)}. {label}</span></li>)}</ol>;
 }
