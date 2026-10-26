@@ -10,7 +10,7 @@ import { asFetch, asWhen, faNum } from './api';
  *  active hours, yesterday/month) is not here yet. */
 type Th = { callsRatio: number; callsCompare: 'same_time' | 'full_day'; overdueRemindersMax: number; siteLeadsMax: number; p1NoCallDays: number };
 type Alert = { rule: string; points: number; reason: string };
-type Exp = { salespersonId: number; name: string; calls: { count: number; answered: number; answeredShare: number | null };
+type Exp = { salespersonId: number; name: string; trainee?: boolean; calls: { count: number; answered: number; answeredShare: number | null };
   overdueReminders: { count: number; maxDaysLate: number }; siteLeadsOverdue: { count: number }; p1NoCall: { count: number; days: number };
   baseline: { todayCalls: number; average: number | null; workday: boolean }; score: { points: number; level: 'ok' | 'watch' | 'alert'; alerts: Alert[] } };
 type Rep = { range: 'today' | 'week'; label: string; generatedAt: string; experts: Exp[]; siteLeadsUnavailable?: boolean;
@@ -41,7 +41,7 @@ export function ManagerPanel() {
 
   return <div className="panel mgr-panel" data-testid="panel-manager-assistant">
     <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 8 }}><BarChart3 size={18} color="#5E2B97" /> احمد | مدیر فروش — آستانه‌های کم‌کاری</h3>
-    <p style={{ color: 'var(--nf-ink-muted)', fontSize: 13, marginTop: 0 }}>امتیاز فقط بر پایه‌ی امروز است. هر هشدار دلیل و عدد دارد. کارآموزها و کاربر ۲۹ در گزارش نیستند. احمد فقط می‌خواند و جز چت و اعلان برای مدیر و یادداشت دستیار چیزی نمی‌نویسد.</p>
+    <p style={{ color: 'var(--nf-ink-muted)', fontSize: 13, marginTop: 0 }}>امتیاز فقط بر پایه‌ی امروز است. هر هشدار دلیل و عدد دارد. کارآموزها (۵، ۱۹، ۲۰) فقط برای خواندن در گزارش هستند؛ کاربر ۲۹ نیست. احمد فقط می‌خواند و جز چت و اعلان برای مدیر و یادداشت دستیار چیزی نمی‌نویسد.</p>
     {st.isLoading || !f ? <SkeletonPanel rows={2} /> : st.isError ? <ErrorState onRetry={() => st.refetch()} /> : <form className="mgr-form" onSubmit={e => { e.preventDefault(); void save({ ...f, callsRatio: Number(f.callsRatio) }); }}>
       <label className="mgr-f"><span><b>تماس امروز کمتر از ٪ میانگین ۷روزه</b><small>پیش‌فرض ۷۰٪ (۱۰ تا ۱۰۰)</small></span>
         <input type="number" dir="ltr" min={10} max={100} step={5} value={f.callsRatio === ('' as any) ? '' : Math.round(Number(f.callsRatio) * 100)} disabled={busy}
@@ -68,7 +68,7 @@ export function ManagerPanel() {
         <small>{rep.data.label} · به‌روز {asWhen(rep.data.generatedAt)}{rep.data.siteLeadsUnavailable ? ' · سرنخ سایت در دسترس نیست' : ''}</small>
       </div>
       <div className="mgr-list">{rep.data.experts.map(e => { const lv = LV[e.score.level]; return <div key={e.salespersonId} className="mgr-row" data-testid={`mgr-expert-${e.salespersonId}`}>
-        <div className="mgr-rh"><b>{e.name}</b><span className="mgr-lv" style={{ color: lv.c, background: lv.bg }}>{lv.t}{e.score.points ? ` · ${faNum(e.score.points)}` : ''}</span></div>
+        <div className="mgr-rh"><b>{e.name}</b>{e.trainee ? <span className="mgr-tr" data-testid={`mgr-trainee-${e.salespersonId}`}>کارآموز · فقط خواندن</span> : null}<span className="mgr-lv" style={{ color: lv.c, background: lv.bg }}>{lv.t}{e.score.points ? ` · ${faNum(e.score.points)}` : ''}</span></div>
         <div className="mgr-nums">
           <span>تماس <b>{faNum(e.calls.count)}</b>{range === 'today' && e.baseline.average != null ? <small> (میانگین {faNum(e.baseline.average)})</small> : null}</span>
           <span>جواب‌داده <b>{pct(e.calls.answeredShare)}</b></span>

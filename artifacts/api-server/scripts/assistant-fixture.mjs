@@ -293,22 +293,23 @@ try {
     for (const u of [29, 4, 2, 3, 8, 6, 27, 30]) assert.ok(!(await S(u, "GET", "/assistant/mine")).j.assistants?.some(a => a.slug === "ahmad"), `user ${u} must not see ahmad`);
     for (const u of [2, 4, 6, 8, 29]) assert.equal((await S(u, "GET", "/admin/assistants/manager-report")).s, u === 29 ? 200 : 403); // 29 is an admin: admin routes are role-based
     const me8 = await R(tk, "GET", "/me"); assert.equal(me8.s, 200); assert.equal(me8.j.assistant.kind, "manager"); assert.equal(me8.j.assistant.label, "احمد | مدیر فروش");
-    const ctx = (await R(tk, "GET", "/my-context")).j; assert.deepEqual(ctx.people.map(p => p.userId), [1]); assert.equal(ctx.scope, "manager_all_non_trainee_experts");
-    assert.deepEqual(ctx.experts.map(e => e.salespersonId), [3, 4, 6]);
+    const ctx = (await R(tk, "GET", "/my-context")).j; assert.deepEqual(ctx.people.map(p => p.userId), [1]); assert.equal(ctx.scope, "manager_all_experts_incl_trainees_readonly");
+    assert.deepEqual(ctx.experts.map(e => e.salespersonId), [3, 4, 5, 6, 19]); // trainees read-only; user 29 never
+    assert.deepEqual(ctx.experts.filter(e => e.trainee).map(e => e.salespersonId), [5, 19]);
     ok("manager: seeded off, admin-only dock, own token + switch");
-    // scope: every non-trainee expert's live customers; masking holds
+    // scope: every expert's live customers (trainees included, read-only); masking holds
     const cl = (await R(tk, "GET", "/customers?limit=200")).j.items;
-    assert.deepEqual(cl.map(c => c.id).sort((a, b) => a - b), [100, 101, 110, 120, 150, 151]);
+    assert.deepEqual(cl.map(c => c.id).sort((a, b) => a - b), [100, 101, 110, 120, 130, 150, 151]);
     assert.ok(cl.every(c => !/09\d{9}/.test(JSON.stringify(c)))); assert.ok(!cl.find(c => c.id === 100).mobile.includes("1234567"));
     assert.equal(cl.find(c => c.id === 110).expert.name, "قاسمی"); assert.equal(cl.find(c => c.id === 100).priority, 1);
     assert.deepEqual((await R(tk, "GET", "/customers?salespersonId=4")).j.items.map(c => c.id), [110]);
-    for (const id of [130, 140, 102, 121]) assert.equal((await R(tk, "GET", `/customers/${id}`)).s, 404);
+    for (const id of [140, 102, 121]) assert.equal((await R(tk, "GET", `/customers/${id}`)).s, 404);
     const c100 = await R(tk, "GET", "/customers/100"); assert.equal(c100.s, 200);
     assert.ok(!JSON.stringify(c100.j).includes("0012345678") && !JSON.stringify(c100.j).includes("09121234567"));
     assert.equal((await R(tk, "GET", "/customers/100/history")).s, 200); assert.equal((await R(tk, "GET", "/customers/100/consultation")).s, 200);
     const calls100 = await R(tk, "GET", "/customers/100/calls"); assert.equal(calls100.s, 200); assert.ok(!JSON.stringify(calls100.j).includes("09121234567"));
-    assert.equal((await R(tk, "GET", "/customers/130/calls")).s, 404);
-    ok("manager: read scope (no trainees / merged / cancelled) + masking");
+    assert.equal((await R(tk, "GET", "/customers/130/calls")).s, 200); // trainee customer: readable
+    ok("manager: read scope (trainees read-only; no merged / cancelled / unassigned) + masking");
     // writes: only chat/notifications to an admin and assistant notes
     assert.equal((await R(tk, "POST", "/messages", { body: "سلام" })).j.error, "recipient_required");
     for (const u of [2, 4, 6, 8, 29, 30]) assert.equal((await R(tk, "POST", "/messages", { userId: u, body: "سلام" })).s, 404, `no message to user ${u}`);
@@ -316,14 +317,15 @@ try {
     const nb = bellRows().length;
     assert.equal((await R(tk, "POST", "/notifications", { userId: 1, customerId: 110, body: "سرنخ سایت بی‌تماس" })).s, 201);
     assert.equal(bellRows().length, nb + 1); assert.equal(bellRows().at(-1).recipient_user_id, 1); assert.equal(bellRows().at(-1).actor_key, "assistant:ahmad");
-    assert.equal((await R(tk, "POST", "/notifications", { userId: 1, customerId: 130, body: "x" })).s, 404);
+    assert.equal((await R(tk, "POST", "/notifications", { userId: 1, customerId: 140, body: "x" })).s, 404);
     const rp = await R(tk, "POST", "/reminder-proposals", { userId: 1, customerId: 100, remindAt: new Date(clock.getTime() + 86400_000).toISOString() });
     assert.equal(rp.s, 403); assert.equal(rp.j.error, "manager_read_only");
     for (const [m, p2] of [["POST", "/customers/100/priority"], ["PUT", "/customers/100/assign"], ["POST", "/reminders"], ["DELETE", "/customers/100"], ["POST", "/payments"], ["POST", "/sms"],
       ["POST", "/customer-messages"], ["POST", "/manager/report"], ["DELETE", "/messages/1"], ["PUT", "/manager/settings"], ["POST", "/commission"]])
       assert.equal((await R(tk, m, p2, { priority: 3 })).s, 403, `${m} ${p2}`);
     assert.equal((await R(tk, "POST", "/customers/100/assistant-notes", { body: "یادداشت مدیر" })).s, 201);
-    assert.equal((await R(tk, "POST", "/customers/130/assistant-notes", { body: "x" })).s, 404);
+    assert.equal((await R(tk, "POST", "/customers/130/assistant-notes", { body: "x" })).j.error, "trainee_read_only"); // no write on trainees
+    assert.equal((await R(tk, "POST", "/customers/140/assistant-notes", { body: "x" })).s, 404);
     for (const t2 of [iss.mohaddeseh, iss.sarina]) for (const p2 of ["/manager/report", "/manager/alerts", "/manager/summary?slot=morning", "/manager/experts", "/manager/settings"])
       assert.equal((await R(t2, "GET", p2)).j.error, "manager_only");
     ok("manager: writes limited to admin chat + notes; other assistants get manager_only");
@@ -345,7 +347,9 @@ try {
       [130, { requestedAt: "2026-10-26T04:00:00Z", dueAt: "2026-10-26T05:00:00Z", openRequests: 1, isRepeat: false }],
       [101, { requestedAt: "2026-10-26T06:50:00Z", dueAt: "2026-10-26T09:00:00Z", openRequests: 1, isRepeat: true }]]);
     const rep = (await R(tk, "GET", "/manager/report?range=today")).j;
-    assert.deepEqual(rep.experts.map(e => e.salespersonId), [3, 4, 6]);
+    assert.deepEqual(rep.experts.map(e => e.salespersonId), [3, 4, 5, 6, 19]);
+    const t5 = rep.experts.find(e => e.salespersonId === 5); assert.equal(t5.trainee, true); assert.equal(t5.calls.count, 1); assert.equal(t5.overdueReminders.count, 1);
+    assert.deepEqual(t5.siteLeadsOverdue.items.map(x => x.customerId), [130]); assert.equal(rep.experts.find(e => e.salespersonId === 19).calls.count, 0);
     const h = rep.experts.find(e => e.salespersonId === 3), g = rep.experts.find(e => e.salespersonId === 4), k = rep.experts.find(e => e.salespersonId === 6);
     assert.deepEqual(h.calls, { count: 2, answered: 1, notAnswered: 1, unknown: 0, answeredShare: 0.5 });
     assert.equal(h.baseline.average, 5); assert.equal(h.baseline.activeDays, 2);
@@ -356,12 +360,12 @@ try {
     assert.deepEqual(g.score.alerts.map(a => a.rule), ["overdue_reminders", "site_leads_unanswered"]); assert.equal(g.score.level, "alert"); assert.equal(g.score.points, 60);
     assert.ok(g.score.alerts.every(a => a.reason && a.numbers)); assert.deepEqual(g.p1NoCall.items.map(x => x.customerId), [110]);
     assert.equal(k.calls.count, 0); assert.equal(k.score.level, "ok");
-    assert.equal(rep.team.calls, 2); assert.ok(!JSON.stringify(rep).includes("کارآموز"));
+    assert.equal(rep.team.calls, 3); assert.ok(!JSON.stringify(rep).includes("ادمین۲۹"));
     const wk = (await R(tk, "GET", "/manager/report?range=week&salespersonId=3")).j;
     assert.equal(wk.from, "2026-10-23T20:30:00.000Z"); assert.equal(wk.experts.length, 1); assert.equal(wk.experts[0].calls.count, 12);
     assert.equal((await R(tk, "GET", "/manager/report?range=month")).j.error, "range_not_supported");
-    assert.equal((await R(tk, "GET", "/manager/report?salespersonId=5")).s, 404);
-    const al = (await R(tk, "GET", "/manager/alerts")).j.items; assert.deepEqual(al.map(a => `${a.salespersonId}:${a.rule}`), ["3:calls_below_average", "4:overdue_reminders", "4:site_leads_unanswered"]);
+    assert.equal((await R(tk, "GET", "/manager/report?salespersonId=5")).s, 200); assert.equal((await R(tk, "GET", "/manager/report?salespersonId=20")).s, 404); // sp 20: no active user
+    const al = (await R(tk, "GET", "/manager/alerts")).j.items; assert.deepEqual(al.map(a => `${a.salespersonId}:${a.rule}`), ["3:calls_below_average", "4:overdue_reminders", "4:site_leads_unanswered", "5:site_leads_unanswered"]);
     ok("manager: today/week report, alerts with reasons + numbers");
     // thresholds (assistant_settings manager_* only)
     assert.equal((await S(2, "PUT", "/admin/assistants/manager-settings", { overdueRemindersMax: 10 })).s, 403);
@@ -369,15 +373,15 @@ try {
     assert.equal((await S(1, "PUT", "/admin/assistants/manager-settings", { callsRatio: 2 })).s, 422);
     assert.equal((await S(1, "PUT", "/admin/assistants/manager-settings", { foo: 1 })).s, 422);
     const put = await S(1, "PUT", "/admin/assistants/manager-settings", { overdueRemindersMax: 10, callsRatio: 0.3 }); assert.equal(put.s, 200); assert.equal(put.j.thresholds.overdueRemindersMax, 10);
-    const al2 = (await R(tk, "GET", "/manager/alerts")).j.items; assert.deepEqual(al2.map(a => `${a.salespersonId}:${a.rule}`), ["4:site_leads_unanswered"]);
+    const al2 = (await R(tk, "GET", "/manager/alerts")).j.items; assert.deepEqual(al2.map(a => `${a.salespersonId}:${a.rule}`), ["4:site_leads_unanswered", "5:site_leads_unanswered"]);
     assert.equal((await S(1, "PUT", "/admin/assistants/manager-settings", { p1NoCallDays: 30, callsCompare: "full_day" })).s, 200);
     const r30 = (await R(tk, "GET", "/manager/report")).j; assert.deepEqual(r30.experts.find(e => e.salespersonId === 4).p1NoCall.items, []); assert.equal(r30.thresholds.callsCompare, "full_day");
     await S(1, "PUT", "/admin/assistants/manager-settings", { overdueRemindersMax: 5, callsRatio: 0.7, p1NoCallDays: 3, callsCompare: "same_time" });
-    assert.equal((await S(1, "GET", "/admin/assistants/manager-report?range=today")).j.experts.length, 3);
+    assert.equal((await S(1, "GET", "/admin/assistants/manager-report?range=today")).j.experts.length, 5);
     ok("manager: editable thresholds");
     for (const slot of ["morning", "evening", "thursday"]) {
       const sm = (await R(tk, "GET", `/manager/summary?slot=${slot}`)); assert.equal(sm.s, 200);
-      assert.ok(sm.j.text.includes("حسنی") && sm.j.text.includes("قاسمی") && /[۰-۹]/.test(sm.j.text) && !/09\d{9}/.test(sm.j.text), slot);
+      assert.ok(sm.j.text.includes("حسنی") && sm.j.text.includes("قاسمی") && sm.j.text.includes("(کارآموز)") && !sm.j.text.includes("ادمین۲۹") && /[۰-۹]/.test(sm.j.text) && !/09\d{9}/.test(sm.j.text), slot);
       assert.equal(sm.j.range, slot === "thursday" ? "week" : "today");
     }
     assert.equal((await R(tk, "GET", "/manager/summary?slot=x")).s, 422);
