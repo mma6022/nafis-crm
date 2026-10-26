@@ -114,7 +114,7 @@ export default function MyPerformance() {
       <div className="mp-card wide"><h3>وام‌های واریزشده</h3><div className="mp-val">{fa(n.deposited.count)} <small>مورد</small></div>
         <Cmp cur={n.deposited.count} prev={p.deposited.count} prevLabel={tab.prev} />
         <div className="mp-sub">مبلغ واریزی: <b>{fa(n.deposited.payoutToman)}</b> تومان</div><MoneyCmp cur={n.deposited.payoutToman} prev={p.deposited.payoutToman} prevLabel={tab.prev} />
-        <div className="mp-sub">پورسانت: <b>{fa(n.deposited.commissionToman)}</b> تومان</div><MoneyCmp cur={n.deposited.commissionToman} prev={p.deposited.commissionToman} prevLabel={tab.prev} />
+        <div className="mp-sub" data-testid="num-commission">پورسانت ثبت‌شده در این دوره: <b>{fa(n.deposited.commissionToman)}</b> تومان</div><MoneyCmp cur={n.deposited.commissionToman} prev={p.deposited.commissionToman} prevLabel={tab.prev} />
       </div>
     </div> : null}
     {r && !r.complete ? <p className="mp-def">بازه‌ی جاری تا همین الان حساب شده و با همان مدت از بازه‌ی قبل مقایسه شده است.</p> : null}
