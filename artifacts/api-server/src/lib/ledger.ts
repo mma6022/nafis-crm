@@ -47,7 +47,7 @@ const MOEIN: Acc[] = [
   ["2101", "پرداختنی به مشتریان بابت خرید کالا", "liability", "credit", "CU", 1],
   ["2102", "پورسانت پرداختنی فروشندگان و بازاریابان", "liability", "credit", "SP", 1],
   ["2103", "پرداختنی به تأمین‌کنندگان خدمت", "liability", "credit", "VN", 1],
-  ["2104", "پیش‌دریافت اعتبار از تأمین‌کنندگان (prepaid_full_credit)", "liability", "credit", "FD,PL", 0, "قاعده‌ی سلامتیان؛ کد منتظر تأیید، فعال‌سازی در G3"],
+  ["2104", "پیش‌دریافت اعتبار از تأمین‌کنندگان (prefunded_full_credit)", "liability", "credit", "FD,PL", 0, "قاعده‌ی سلامتیان؛ کد منتظر تأیید، فعال‌سازی در G3"],
   ["2109", "سایر پرداختنی‌ها", "liability", "credit", "", 1],
   ["2201", "موجودی کیف نقدی مشتریان", "liability", "credit", "CU", 1],
   ["2301", "مالیات و عوارض ارزش افزوده", "liability", "credit", "", 0, "Q9؛ غیرفعال تا تصمیم"],
@@ -307,6 +307,9 @@ export const LEDGER_TABLES = [
  * mapping) resolve a key AS OF THE EVENT DATE with financeSettingAsOf().
  * ------------------------------------------------------------------------------------------- */
 export const FINANCE_MIGRATION = "general-ledger-v1b";
+export const FINANCE_V1C_MIGRATION = "general-ledger-v1c";
+/** N8: the exact acknowledgment text for a treasury account owned by a person but used for company work. */
+export const OWNER_PERSON_ACK_TEXT = "این حساب برای کار شرکت استفاده می‌شود و همهٔ گردشش در دفتر شرکت ثبت می‌شود";
 
 type KeyDef = [key: string, type: string, scope: "global" | "loan_plan", title: string, allowed: string[] | null, min: number | null, max: number | null, usedBy: string, managedElsewhere?: string | null, listStatus?: "final", preselect?: string];
 /**
@@ -319,7 +322,7 @@ export const FINANCE_SETTING_KEYS: KeyDef[] = [
   ["gl.opening_base_date", "date", "global", "تاریخ مبنای سند افتتاحیه", null, null, null, "G2"],
   ["fee.inquiry.payer", "enum", "global", "پرداخت‌کننده‌ی هزینه‌ی استعلام", ["customer", "company"], null, null, "P7"],
   ["fee.inquiry.amount_rial", "int_rial", "global", "مبلغ هزینه‌ی استعلام (ریال)", null, 0, null, "P7"],
-  ["plan.supplier_deposit_method", "enum", "loan_plan", "روش واریز تأمین‌کننده برای این طرح", ["gross", "net_of_fees", "to_customer_direct", "prepaid_full_credit"], null, null, "P7", null, "final"],
+  ["plan.supplier_deposit_method", "enum", "loan_plan", "روش واریز تأمین‌کننده برای این طرح", ["gross", "net_of_fees", "to_customer_direct", "prefunded_full_credit"], null, null, "P7", null, "final"],
   ["discount.development.nature", "enum", "global", "ماهیت تخفیف توسعه", ["revenue_reduction", "marketing_expense"], null, null, "P7", null, "final", "revenue_reduction"],
   ["discount.development.rate_bp", "bp", "global", "درصد تخفیف توسعه (صدم درصد)", null, 0, 10000, "P7"],
   ["tax.vat.applies", "bool", "global", "مشمول مالیات بر ارزش افزوده", null, null, null, "P7"],
@@ -446,16 +449,6 @@ CREATE TABLE IF NOT EXISTS gl_opening_balance_lines (
   note TEXT, created_at TEXT NOT NULL,
   CHECK((debit_rial > 0) + (credit_rial > 0) = 1));
 CREATE UNIQUE INDEX IF NOT EXISTS idx_gl_opening_line_unique ON gl_opening_balance_lines(set_id, account_id, IFNULL(tafsili_id, 0), IFNULL(treasury_account_id, 0));
-CREATE TRIGGER IF NOT EXISTS gl_opening_set_guard BEFORE UPDATE ON gl_opening_balance_sets
-BEGIN
-  SELECT RAISE(ABORT, 'gl_append_only') WHERE NEW.id IS NOT OLD.id OR NEW.as_of_date IS NOT OLD.as_of_date OR NEW.supersedes_set_id IS NOT OLD.supersedes_set_id
-    OR NEW.entered_by_user_id IS NOT OLD.entered_by_user_id OR NEW.reason IS NOT OLD.reason OR NEW.created_at IS NOT OLD.created_at
-    OR (OLD.approved_by_user_id IS NOT NULL AND (NEW.approved_by_user_id IS NOT OLD.approved_by_user_id OR NEW.approved_at IS NOT OLD.approved_at))
-    OR (OLD.voucher_id IS NOT NULL AND NEW.voucher_id IS NOT OLD.voucher_id);
-  SELECT RAISE(ABORT, 'gl_opening_unbalanced') WHERE OLD.approved_by_user_id IS NULL AND NEW.approved_by_user_id IS NOT NULL AND NOT (
-    (SELECT count(*) FROM gl_opening_balance_lines l WHERE l.set_id = OLD.id) >= 2
-    AND (SELECT COALESCE(SUM(debit_rial), 0) FROM gl_opening_balance_lines l WHERE l.set_id = OLD.id) = (SELECT COALESCE(SUM(credit_rial), 0) FROM gl_opening_balance_lines l WHERE l.set_id = OLD.id));
-END;
 CREATE TRIGGER IF NOT EXISTS gl_opening_set_no_delete BEFORE DELETE ON gl_opening_balance_sets BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
 CREATE TRIGGER IF NOT EXISTS gl_opening_lines_after_approval BEFORE INSERT ON gl_opening_balance_lines
 WHEN EXISTS (SELECT 1 FROM gl_opening_balance_sets s WHERE s.id = NEW.set_id AND s.approved_by_user_id IS NOT NULL)
@@ -488,12 +481,6 @@ CREATE TRIGGER IF NOT EXISTS prior_pay_single BEFORE INSERT ON payment_order_pri
 WHEN EXISTS (SELECT 1 FROM payment_order_prior_payments p WHERE p.payment_order_id = NEW.payment_order_id
   AND NOT EXISTS (SELECT 1 FROM payment_order_prior_payment_voids v WHERE v.prior_payment_id = p.id))
 BEGIN SELECT RAISE(ABORT, 'prior_payment_exists'); END;
-CREATE TRIGGER IF NOT EXISTS prior_pay_guard BEFORE UPDATE ON payment_order_prior_payments
-WHEN NEW.id IS NOT OLD.id OR NEW.payment_order_id IS NOT OLD.payment_order_id OR NEW.paid_date IS NOT OLD.paid_date OR NEW.tracking_no IS NOT OLD.tracking_no
-  OR NEW.amount_rial IS NOT OLD.amount_rial OR NEW.treasury_account_id IS NOT OLD.treasury_account_id OR NEW.receipt_filename IS NOT OLD.receipt_filename
-  OR NEW.receipt_mime IS NOT OLD.receipt_mime OR NEW.receipt_sha256 IS NOT OLD.receipt_sha256 OR NEW.entered_by_user_id IS NOT OLD.entered_by_user_id
-  OR NEW.reason IS NOT OLD.reason OR NEW.created_at IS NOT OLD.created_at OR (OLD.gl_voucher_id IS NOT NULL AND NEW.gl_voucher_id IS NOT OLD.gl_voucher_id)
-BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
 CREATE TRIGGER IF NOT EXISTS prior_pay_no_delete BEFORE DELETE ON payment_order_prior_payments BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
 CREATE TRIGGER IF NOT EXISTS prior_pay_void_no_update BEFORE UPDATE ON payment_order_prior_payment_voids BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
 CREATE TRIGGER IF NOT EXISTS prior_pay_void_no_delete BEFORE DELETE ON payment_order_prior_payment_voids BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
@@ -521,10 +508,115 @@ END;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_treasury_sheba ON treasury_accounts(sheba) WHERE sheba IS NOT NULL;
 `;
 
+/** v1c (N7 / N8, Salamatian via Armita 2026-10-26). Old trigger names are dropped once; the new ones carry _v1c. */
+const V1C_COLUMNS: Array<[table: string, column: string, ddl: string]> = [
+  ["treasury_accounts", "owner_type", "TEXT"],
+  ["treasury_accounts", "owner_ack", "INTEGER"],
+  ["treasury_accounts", "owner_ack_by_user_id", "INTEGER"],
+  ["treasury_accounts", "owner_ack_at", "TEXT"],
+  ["treasury_accounts", "owner_ack_text", "TEXT"],
+  ["payment_order_prior_payments", "ledger_start_date", "TEXT"],
+  ["payment_order_prior_payments", "pre_start", "INTEGER"],
+  ["payment_order_prior_payments", "opening_mismatch", "INTEGER"],
+  ["gl_opening_balance_sets", "prior_payments_confirmed_by_user_id", "INTEGER"],
+  ["gl_opening_balance_sets", "prior_payments_confirmed_at", "TEXT"],
+];
+const LEDGER_START_ASOF = (d: string) => `(SELECT s.value FROM finance_settings s WHERE s.key = 'gl.ledger_start_date' AND s.scope_type = 'global' AND s.effective_from <= ${d} ORDER BY s.effective_from DESC, s.id DESC LIMIT 1)`;
+const OWNER_RULES = (t: string) => `
+  SELECT RAISE(ABORT, 'treasury_owner_type_invalid') WHERE ${t}.owner_type IS NULL OR ${t}.owner_type NOT IN ('company','owner_person')
+    OR ${t}.ownership IS NOT (CASE ${t}.owner_type WHEN 'company' THEN 'company' ELSE 'owner' END);
+  SELECT RAISE(ABORT, 'treasury_owner_ack_required') WHERE ${t}.owner_type = 'owner_person' AND NOT (
+    ${t}.owner_ack IS 1 AND ${t}.owner_ack_by_user_id IS NOT NULL AND ${t}.owner_ack_at IS NOT NULL AND ${t}.owner_ack_text IS '${OWNER_PERSON_ACK_TEXT}');
+  SELECT RAISE(ABORT, 'treasury_owner_ack_unexpected') WHERE ${t}.owner_type = 'company'
+    AND (${t}.owner_ack IS NOT NULL OR ${t}.owner_ack_by_user_id IS NOT NULL OR ${t}.owner_ack_at IS NOT NULL OR ${t}.owner_ack_text IS NOT NULL);`;
+const V1C_DDL = `
+DROP TRIGGER IF EXISTS prior_pay_guard;
+DROP TRIGGER IF EXISTS gl_opening_set_guard;
+CREATE TRIGGER IF NOT EXISTS treasury_owner_insert_v1c BEFORE INSERT ON treasury_accounts
+BEGIN ${OWNER_RULES("NEW")}
+END;
+CREATE TRIGGER IF NOT EXISTS treasury_owner_update_v1c BEFORE UPDATE OF owner_type, ownership, owner_ack, owner_ack_by_user_id, owner_ack_at, owner_ack_text ON treasury_accounts
+BEGIN ${OWNER_RULES("NEW")}
+END;
+
+CREATE TABLE IF NOT EXISTS payment_order_prior_payment_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  prior_payment_id INTEGER NOT NULL UNIQUE REFERENCES payment_order_prior_payments(id),
+  marker TEXT NOT NULL CHECK(marker IN ('pre_opening','in_ledger')),
+  ledger_start_date TEXT NOT NULL, opening_mismatch INTEGER NOT NULL CHECK(opening_mismatch IN (0,1)),
+  entered_by_user_id INTEGER NOT NULL, created_at TEXT NOT NULL);
+CREATE TRIGGER IF NOT EXISTS prior_pay_log_no_update_v1c BEFORE UPDATE ON payment_order_prior_payment_log BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
+CREATE TRIGGER IF NOT EXISTS prior_pay_log_no_delete_v1c BEFORE DELETE ON payment_order_prior_payment_log BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
+
+-- N7: cutoff = the gl.ledger_start_date setting in effect when the record is entered (never hardcoded).
+-- The app supplies ledger_start_date / pre_start / opening_mismatch; the DB checks them against the setting and the opening sets.
+CREATE TRIGGER IF NOT EXISTS prior_pay_cutoff_v1c BEFORE INSERT ON payment_order_prior_payments
+BEGIN
+  SELECT RAISE(ABORT, 'finance_setting_missing:gl.ledger_start_date') WHERE ${LEDGER_START_ASOF("substr(NEW.created_at,1,10)")} IS NULL;
+  SELECT RAISE(ABORT, 'prior_payment_cutoff_mismatch') WHERE NEW.ledger_start_date IS NOT ${LEDGER_START_ASOF("substr(NEW.created_at,1,10)")}
+    OR NEW.pre_start IS NOT (NEW.paid_date < NEW.ledger_start_date);
+  SELECT RAISE(ABORT, 'prior_payment_pre_start_no_voucher') WHERE NEW.pre_start = 1 AND NEW.gl_voucher_id IS NOT NULL;
+  SELECT RAISE(ABORT, 'prior_payment_mismatch_flag') WHERE NEW.opening_mismatch IS NOT (NEW.pre_start = 1 AND EXISTS (
+    SELECT 1 FROM gl_opening_balance_sets o WHERE EXISTS (SELECT 1 FROM gl_opening_balance_lines l WHERE l.set_id = o.id)));
+END;
+CREATE TRIGGER IF NOT EXISTS prior_pay_log_insert_v1c AFTER INSERT ON payment_order_prior_payments
+BEGIN
+  INSERT INTO payment_order_prior_payment_log(prior_payment_id,marker,ledger_start_date,opening_mismatch,entered_by_user_id,created_at)
+  VALUES(NEW.id, CASE WHEN NEW.pre_start = 1 THEN 'pre_opening' ELSE 'in_ledger' END, NEW.ledger_start_date, NEW.opening_mismatch, NEW.entered_by_user_id, NEW.created_at);
+END;
+CREATE TRIGGER IF NOT EXISTS prior_pay_guard_v1c BEFORE UPDATE ON payment_order_prior_payments
+BEGIN
+  SELECT RAISE(ABORT, 'gl_append_only') WHERE NEW.id IS NOT OLD.id OR NEW.payment_order_id IS NOT OLD.payment_order_id OR NEW.paid_date IS NOT OLD.paid_date OR NEW.tracking_no IS NOT OLD.tracking_no
+    OR NEW.amount_rial IS NOT OLD.amount_rial OR NEW.treasury_account_id IS NOT OLD.treasury_account_id OR NEW.receipt_filename IS NOT OLD.receipt_filename
+    OR NEW.receipt_mime IS NOT OLD.receipt_mime OR NEW.receipt_sha256 IS NOT OLD.receipt_sha256 OR NEW.entered_by_user_id IS NOT OLD.entered_by_user_id
+    OR NEW.reason IS NOT OLD.reason OR NEW.created_at IS NOT OLD.created_at OR (OLD.gl_voucher_id IS NOT NULL AND NEW.gl_voucher_id IS NOT OLD.gl_voucher_id)
+    OR NEW.ledger_start_date IS NOT OLD.ledger_start_date OR NEW.pre_start IS NOT OLD.pre_start OR NEW.opening_mismatch IS NOT OLD.opening_mismatch;
+  SELECT RAISE(ABORT, 'prior_payment_pre_start_no_voucher') WHERE NEW.pre_start = 1 AND NEW.gl_voucher_id IS NOT NULL;
+END;
+
+-- N7: the opening set is approved only after someone confirmed that all step-4 «قبلاً پرداخت شده» records are entered.
+CREATE TRIGGER IF NOT EXISTS gl_opening_set_guard_v1c BEFORE UPDATE ON gl_opening_balance_sets
+BEGIN
+  SELECT RAISE(ABORT, 'gl_append_only') WHERE NEW.id IS NOT OLD.id OR NEW.as_of_date IS NOT OLD.as_of_date OR NEW.supersedes_set_id IS NOT OLD.supersedes_set_id
+    OR NEW.entered_by_user_id IS NOT OLD.entered_by_user_id OR NEW.reason IS NOT OLD.reason OR NEW.created_at IS NOT OLD.created_at
+    OR (OLD.approved_by_user_id IS NOT NULL AND (NEW.approved_by_user_id IS NOT OLD.approved_by_user_id OR NEW.approved_at IS NOT OLD.approved_at))
+    OR (OLD.voucher_id IS NOT NULL AND NEW.voucher_id IS NOT OLD.voucher_id)
+    OR (OLD.prior_payments_confirmed_at IS NOT NULL AND (NEW.prior_payments_confirmed_at IS NOT OLD.prior_payments_confirmed_at OR NEW.prior_payments_confirmed_by_user_id IS NOT OLD.prior_payments_confirmed_by_user_id));
+  SELECT RAISE(ABORT, 'gl_opening_confirm_incomplete') WHERE (NEW.prior_payments_confirmed_at IS NULL) <> (NEW.prior_payments_confirmed_by_user_id IS NULL);
+  SELECT RAISE(ABORT, 'gl_opening_unbalanced') WHERE OLD.approved_by_user_id IS NULL AND NEW.approved_by_user_id IS NOT NULL AND NOT (
+    (SELECT count(*) FROM gl_opening_balance_lines l WHERE l.set_id = OLD.id) >= 2
+    AND (SELECT COALESCE(SUM(debit_rial), 0) FROM gl_opening_balance_lines l WHERE l.set_id = OLD.id) = (SELECT COALESCE(SUM(credit_rial), 0) FROM gl_opening_balance_lines l WHERE l.set_id = OLD.id));
+  SELECT RAISE(ABORT, 'gl_opening_prior_payments_unconfirmed') WHERE OLD.approved_by_user_id IS NULL AND NEW.approved_by_user_id IS NOT NULL AND NEW.prior_payments_confirmed_at IS NULL;
+END;
+`;
+
+function ensureFinanceV1c(db: DatabaseSync, nowIso: string): void {
+  for (const [table, column, ddl] of V1C_COLUMNS) {
+    const cols = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name));
+    if (!cols.has(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  }
+  // Existing treasury rows (none live at v1b) map from the v1 ownership column; owner rows still need the ack via the UI.
+  db.exec("UPDATE treasury_accounts SET owner_type='company' WHERE owner_type IS NULL AND ownership='company'");
+  db.exec(V1C_DDL);
+  // Catalog sync: enum lists / list status / preselect / title follow the code, unless a stored value would fall outside the new list.
+  const upd = db.prepare(`UPDATE finance_setting_keys SET allowed_values=?, list_status=?, ui_preselect=?, title=?
+    WHERE key=? AND (allowed_values IS NOT ? OR list_status IS NOT ? OR ui_preselect IS NOT ? OR title IS NOT ?)
+      AND NOT EXISTS (SELECT 1 FROM finance_settings s WHERE s.key = finance_setting_keys.key AND s.value IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM json_each(?) j WHERE j.value = s.value))`);
+  for (const [k, , , title, allowed, , , , , listStatus, preselect] of FINANCE_SETTING_KEYS) {
+    if (!allowed) continue;
+    const a = JSON.stringify(allowed), st = listStatus ?? "proposed", pre = preselect ?? null;
+    upd.run(a, st, pre, title, k, a, st, pre, title, a);
+  }
+  db.prepare("UPDATE gl_accounts SET title=? WHERE code='2104' AND title=?").run(
+    "پیش‌دریافت اعتبار از تأمین‌کنندگان (prefunded_full_credit)", "پیش‌دریافت اعتبار از تأمین‌کنندگان (prepaid_full_credit)");
+  db.prepare("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(?,?)").run(FINANCE_V1C_MIGRATION, nowIso);
+}
+
 export const FINANCE_TABLES = [
   "finance_setting_keys", "finance_settings", "finance_settings_log",
   "gl_opening_balance_sets", "gl_opening_balance_lines",
-  "payment_order_prior_payments", "payment_order_prior_payment_voids",
+  "payment_order_prior_payments", "payment_order_prior_payment_voids", "payment_order_prior_payment_log",
 ] as const;
 
 function ensureFinanceInputs(db: DatabaseSync, nowIso: string): void {
@@ -580,6 +672,7 @@ export function ensureLedgerSchema(db: DatabaseSync, nowIso: string = new Date()
     for (const [code, title, cat, nature, tf, active, note] of MOEIN) moein.run(code, title, code.slice(0, 2), cat, nature, tf, active, note ?? null, nowIso);
     db.prepare("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(?,?)").run(LEDGER_MIGRATION, nowIso);
     ensureFinanceInputs(db, nowIso);
+    ensureFinanceV1c(db, nowIso);
     db.exec("RELEASE gl_ensure");
   } catch (error) {
     db.exec("ROLLBACK TO gl_ensure");
