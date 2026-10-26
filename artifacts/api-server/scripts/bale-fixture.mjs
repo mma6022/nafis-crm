@@ -413,6 +413,35 @@ try {
   assert.equal(mock.log.filter(l => l.path === "/v1/send").length - mock.sent.length >= 1, true);
   ok("sessions: new sidecar bootId → every connected session re-attached (lazy key re-seal); not_attached during a send → re-attach + retry");
 
+  // ---- decision (b): "one customer blocked me" (UNVERIFIED) — safe default stops the whole account; conversation_pause is opt-in ----
+  clock = new Date(clock.getTime() + 200_000); db.prepare("UPDATE bale_accounts SET next_send_at=NULL WHERE id=?").run(hid);
+  assert.equal(db.prepare("SELECT value FROM bale_settings WHERE key='peer_block_mode'").get().value, "account_stop", "default = whole-account stop");
+  mock.state.blockedPhones.add("09120000011"); // customer 102
+  r = await send(102, "پیام ششم"); const oB1 = r.j.outboxId; r = await send(100, "پیام هفتم"); const oB2 = r.j.outboxId;
+  t = await tick(); assert.equal(t.results[hid], "error:peer_blocked"); await new Promise(z => setTimeout(z, 50));
+  let aB = acc(2); assert.equal(aB.mode, "off"); assert.equal(aB.status, "banned"); assert.equal(aB.session_ct, null); assert.equal(aB.stopped_reason, "account_banned");
+  assert.equal(OB(oB1).error, "peer_blocked"); assert.equal(OB(oB2).block_reason, "auto_stopped"); assert.equal(mock.attached.has(REF), false, "banned → live client detached");
+  assert.deepEqual(JSON.parse(db.prepare("SELECT detail_json d FROM bale_audit WHERE action='account.auto_stop' ORDER BY id DESC").get().d), { blockedRows: 1, from: "peer_blocked", unverified: true });
+  r = await S(1, "GET", "/admin/bale"); assert.deepEqual(r.j.peerBlock, { mode: "account_stop", verified: false });
+  for (const [u, body, s] of [[29, { mode: "conversation_pause" }, 403], [2, { mode: "conversation_pause" }, 403], [1, { mode: "pause" }, 422]]) { r = await S(u, "PUT", "/admin/bale/peer-block-mode", body); assert.equal(r.s, s); }
+  r = await S(2, "POST", "/bale/connect/start", { phone: "09120000000" }); assert.equal(r.s, 200); r = await S(2, "POST", "/bale/connect/code", { code: "11111" }); assert.equal(r.j.account.status, "connected");
+  await S(2, "PUT", "/bale/me/mode", { mode: "auto" }); await tick();
+  r = await S(1, "PUT", "/admin/bale/peer-block-mode", { mode: "conversation_pause" }); assert.equal(r.s, 200); assert.equal(r.j.peerBlock.mode, "conversation_pause");
+  clock = new Date(clock.getTime() + 200_000);
+  r = await send(102, "پیام هشتم"); const oB3 = r.j.outboxId;
+  t = await tick(); assert.equal(t.results[hid], "error:peer_blocked");
+  aB = acc(2); assert.equal(aB.mode, "auto", "only the conversation pauses"); assert.equal(aB.status, "connected"); assert.ok(aB.session_ct);
+  assert.equal(OB(oB3).error, "peer_blocked"); assert.equal(bells(2, "bale-paused"), 1);
+  r = await send(102, "دوباره"); assert.equal(r.s, 422); assert.equal(r.j.error, "conversation_paused");
+  r = await S(2, "GET", "/bale/customers/102/messages"); assert.equal(r.j.paused.reason, "peer_blocked"); assert.equal(r.j.paused.unverified, true);
+  r = await send(100, "پیام نهم"); assert.equal(r.s, 200); clock = new Date(clock.getTime() + 200_000); t = await tick(); assert.equal(t.results[hid], "sent", "other chats keep going");
+  r = await S(2, "POST", "/bale/customers/110/resume"); assert.equal(r.s, 404);
+  r = await S(2, "POST", "/bale/customers/102/resume"); assert.equal(r.s, 200); r = await S(2, "POST", "/bale/customers/102/resume"); assert.equal(r.s, 409);
+  r = await S(2, "GET", "/bale/customers/102/messages"); assert.equal(r.j.paused, null);
+  assert.ok(db.prepare("SELECT count(*) n FROM bale_audit WHERE action IN ('conversation.pause','conversation.resume','admin.peer_block_mode')").get().n >= 3);
+  mock.state.blockedPhones.clear(); await S(1, "PUT", "/admin/bale/peer-block-mode", { mode: "account_stop" });
+  ok("(b) peer_blocked UNVERIFIED: default account_stop = old ban behaviour (+ detach); admin-only conversation_pause pauses just that chat (bell, 422, resume, audit)");
+
   // ---- inbound ----
   const API = `http://127.0.0.1:${port}`;
   const peer100 = db.prepare("SELECT peer_id FROM bale_contacts WHERE account_id=? AND customer_id=100").get(hid).peer_id;
@@ -449,8 +478,42 @@ try {
   r = await S(3, "GET", "/bale/customers/100/messages"); assert.equal(r.s, 404);
   ok("inbound: loopback + token + not proxied; own customers only (by peer or unique phone), others counted not stored; bell + masked assistant event; dedupe; fromSelf; file marker");
 
+  // ---- decision (c): «پیام از شماره‌ی ناشناس» — no text, one bell per chat, link to an OWN customer only, audited ----
+  const UK = () => db.prepare("SELECT * FROM bale_unknown_chats WHERE account_id=? ORDER BY id").all(hid);
+  assert.deepEqual(UK().map(x => [x.peer_id, x.status, x.messages]), [["p-x", "open", 1], ["p-y", "open", 1]]);
+  assert.ok(!Object.keys(UK()[0]).some(k => /text|phone/.test(k)), "no text / phone column");
+  assert.equal(bells(2, "bale-unknown"), 2);
+  const ub = db.prepare("SELECT * FROM site_notification_events WHERE kind='bale-unknown' ORDER BY id").get();
+  assert.equal(ub.customer_id, 0); assert.equal(ub.resource_type, "bale-unknown"); assert.equal(ub.title, "پیام از شماره‌ی ناشناس"); assert.equal(ub.recipient_user_id, 2);
+  r = await mock.inbound(API, REF, [{ messageId: "u-1", peerId: "p-y", text: "باز هم من" }, { messageId: "u-2", peerId: "p-z", text: "من", fromSelf: true }]);
+  assert.deepEqual(r.j, { stored: 0, ignored: 2 }); assert.equal(UK().length, 2); assert.equal(UK()[1].messages, 2); assert.equal(bells(2, "bale-unknown"), 2, "one bell per chat, not per message");
+  r = await S(2, "GET", "/bale/unknown"); assert.equal(r.j.items.length, 2); assert.ok(!JSON.stringify(r.j).includes("p-y"), "peer id never leaves the API");
+  r = await S(2, "GET", "/bale/me"); assert.equal(r.j.account.unknownOpen, 2);
+  r = await S(3, "GET", "/bale/unknown"); assert.equal(r.j.items.length, 0); r = await S(1, "GET", "/bale/unknown"); assert.equal(r.s, 403);
+  r = await S(2, "GET", "/bale/my-customers?q=" + encodeURIComponent("مشتری")); assert.deepEqual(r.j.items.map(x => x.id).sort(), [100, 102]);
+  r = await S(2, "GET", "/bale/my-customers?q=۰۰۱۵"); assert.deepEqual(r.j.items, [{ id: 105, name: "تازه دوم", phoneMasked: "0912•••15" }]);
+  r = await S(2, "GET", "/bale/my-customers?q=0003"); assert.deepEqual(r.j.items, [], "another expert's customer never shows");
+  const [ux, uy] = UK();
+  for (const [cid, s, e] of [[110, 404, "out_of_scope"], [101, 404, "out_of_scope"], [999, 404, "out_of_scope"], [100, 409, "customer_has_chat"]]) {
+    r = await S(2, "POST", `/bale/unknown/${uy.id}/link`, { customerId: cid }); assert.equal(r.s, s, `link → ${cid}`); assert.equal(r.j.error, e);
+  }
+  r = await S(3, "POST", `/bale/unknown/${uy.id}/link`, { customerId: 110 }); assert.equal(r.s, 404, "another expert cannot touch my unknown chats");
+  await S(1, "PUT", "/admin/bale/master", { enabled: false }); r = await S(2, "POST", `/bale/unknown/${uy.id}/link`, { customerId: 103 }); assert.equal(r.s, 423); await S(1, "PUT", "/admin/bale/master", { enabled: true });
+  r = await S(2, "POST", `/bale/unknown/${uy.id}/link`, { customerId: 103 }); assert.equal(r.s, 200); assert.equal(r.j.items.length, 1);
+  assert.deepEqual({ ...db.prepare("SELECT peer_id p, has_prior_chat h FROM bale_contacts WHERE account_id=? AND customer_id=103").get(hid) }, { p: "p-y", h: 1 });
+  assert.equal(db.prepare("SELECT count(*) n FROM bale_messages WHERE customer_id=103").get().n, 0, "nothing from before the link is stored");
+  assert.deepEqual(JSON.parse(db.prepare("SELECT detail_json d FROM bale_audit WHERE action='unknown.link' AND outcome='ok'").get().d), { unknownId: uy.id });
+  r = await S(2, "POST", `/bale/unknown/${uy.id}/link`, { customerId: 103 }); assert.equal(r.s, 404, "already linked");
+  r = await S(2, "POST", `/bale/unknown/${ux.id}/link`, { customerId: 103 }); assert.equal(r.s, 409); assert.equal(r.j.error, "customer_has_chat");
+  r = await mock.inbound(API, REF, [{ messageId: "u-3", peerId: "p-y", text: "سلام، من مشتری شما هستم" }]); assert.equal(r.j.stored, 1);
+  assert.equal(db.prepare("SELECT customer_id c FROM bale_messages WHERE bale_msg_id='u-3'").get().c, 103, "after the link the chat lands in the customer's tab");
+  r = await S(2, "POST", `/bale/unknown/${ux.id}/dismiss`); assert.equal(r.s, 200); r = await S(2, "POST", `/bale/unknown/${ux.id}/dismiss`); assert.equal(r.s, 404);
+  r = await mock.inbound(API, REF, [{ messageId: "u-4", peerId: "p-x", text: "x" }]); assert.equal(r.j.stored, 0); assert.equal(bells(2, "bale-unknown"), 2, "dismissed: silent");
+  assert.equal(db.prepare("SELECT count(*) n FROM bale_messages WHERE text IN ('ناشناس','باز هم من','مشتری دیگری','x')").get().n, 0);
+  ok("(c) unknown sender: opaque peer only (no text/phone), one bell per chat, list/search own customers (masked phone), link → bale_contacts + audit, conflicts, dismiss");
+
   // ---- secrets / phones ----
-  const dump1b = JSON.stringify(["bale_accounts", "bale_audit", "bale_outbox", "bale_contacts", "bale_reminder_messages", "site_notification_events", "assistant_events"].map(x => db.prepare(`SELECT * FROM ${x}`).all()));
+  const dump1b = JSON.stringify(["bale_accounts", "bale_audit", "bale_outbox", "bale_contacts", "bale_reminder_messages", "site_notification_events", "assistant_events", "bale_unknown_chats"].map(x => db.prepare(`SELECT * FROM ${x}`).all()));
   for (const s of SECRETS) assert.ok(!dump1b.includes(s), "secret leaked");
   for (const p of ["09120000001", "09120000011", "09120000015", "9120000015", "09990000008"]) assert.ok(!dump1b.includes(p), `phone ${p} stored`);
   ok("1b: no session token, no customer phone in outbox / contacts / audit / bells / assistant events");

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getListRemindersQueryKey, useCreateReminder } from '@workspace/api-client-react';
-import { AlertCircle, BellPlus, Bot, Check, Clock, Eye, Info, MessageCircle, Moon, Paperclip, Pencil, Send, X, Zap } from 'lucide-react';
+import { AlertCircle, BellPlus, Bot, Check, Clock, Eye, Info, MessageCircle, Moon, PauseCircle, Paperclip, Pencil, Play, Send, X, Zap } from 'lucide-react';
 import { ErrorState } from '@/components/CrmShell';
 import { toast } from '@/hooks/use-toast';
 import { BALE_MAX_TEXT, baleFetch, baleWhen, faNum, MODE_LABEL, OUTBOX_STATUS_LABEL, type BaleChat, type BaleOutboxItem, type BaleSendResult } from './api';
@@ -97,6 +97,11 @@ export function BaleChatSection({ customerId }: { customerId: number }) {
       setRemText(''); setRemOpen(false); toast({ title: 'یادآور «پیام به مشتری» ثبت شد', description: `در ${baleWhen(at)} پیام از بله‌ی شما فرستاده می‌شود.` });
     } catch (x) { setErr(errMsg(x)); } finally { setBusy(false); void refresh(); }
   };
+  const resume = async () => {
+    setBusy(true); setErr(null);
+    try { await baleFetch(`/bale/customers/${customerId}/resume`, { method: 'POST', body: {} }); toast({ title: 'گفتگوی بله دوباره فعال شد' }); }
+    catch (x) { setErr(errMsg(x)); } finally { setBusy(false); void refresh(); }
+  };
   const cancelReminder = async (id: number) => {
     setBusy(true); try { await baleFetch(`/bale/reminder-messages/${id}/cancel`, { method: 'POST', body: {} }); } catch (x) { setErr(errMsg(x)); } finally { setBusy(false); void refresh(); }
   };
@@ -118,7 +123,10 @@ export function BaleChatSection({ customerId }: { customerId: number }) {
           {d.outbox.map(o => <OutboxCard key={`${o.id}-${o.status}-${o.text}`} o={o} busy={busy} act={act} />)}
         </div> : <p className="muted" style={{ margin: 0 }}>هنوز گفتگویی در بله با این مشتری ثبت نشده است.</p>}
         {owner ? <>
-          {d.sendBlockedMessage ? <div className="bl-note off" data-testid="bale-send-off"><Info size={18} /><span>{d.sendBlockedMessage}</span></div> : null}
+          {d.paused ? <div className="bl-note warn" data-testid="bale-paused"><PauseCircle size={18} /><span style={{ flex: 1 }}>
+            <b>این گفتگو متوقف است</b> — {d.paused.message}<small style={{ display: 'block', marginTop: 4 }}>توقف در {baleWhen(d.paused.at)}{d.paused.unverified ? '؛ تشخیص «مسدود شدن» هنوز با سیم‌کارت آزمایشی تأیید نشده است.' : ''}</small></span>
+            <button type="button" className="btn" disabled={busy} onClick={() => void resume()} data-testid="button-bale-resume"><Play size={15} /> دوباره فعال کن</button></div> : null}
+          {d.sendBlockedMessage && !d.paused ? <div className="bl-note off" data-testid="bale-send-off"><Info size={18} /><span>{d.sendBlockedMessage}</span></div> : null}
           {s?.quietNow && d.canSend ? <div className="bl-note warn" data-testid="bale-quiet"><Moon size={18} /><span>ساعت آرام است؛ پیام‌ها {s.quietEnd ? `از ${baleWhen(s.quietEnd)}` : 'بعد از پایان ساعت آرام'} فرستاده می‌شوند.</span></div> : null}
           {d.canSend ? <form className="bl-compose" onSubmit={send} data-testid="form-bale-send">
             <label htmlFor={`bale-text-${customerId}`} className="sr-only">متن پیام بله</label>

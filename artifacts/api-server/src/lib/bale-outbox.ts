@@ -32,8 +32,9 @@ export const BALE_AMOUNT_DISCLAIMER = "مبلغ قطعی را بانک یا تأ
 
 export type BaleBlockReason =
   | "bale_disabled" | "not_connected" | "mode_off" | "out_of_scope" | "empty" | "too_long" | "banned_word" | "loan_type_question"
-  | "no_phone" | "no_prior_chat" | "already_pending" | "cap_hour" | "cap_day" | "cap_new_chats" | "auto_stopped" | "not_eligible";
-export const BLOCK_FA: Record<BaleBlockReason | "quiet_hours" | "no_bale_account" | "uncertain" | "send_failed", string> = {
+  | "no_phone" | "no_prior_chat" | "already_pending" | "cap_hour" | "cap_day" | "cap_new_chats" | "auto_stopped" | "not_eligible"
+  | "conversation_paused";
+export const BLOCK_FA: Record<BaleBlockReason | "quiet_hours" | "no_bale_account" | "uncertain" | "send_failed" | "peer_blocked", string> = {
   bale_disabled: "بله فعلاً از طرف مدیر خاموش است؛ پیامی فرستاده نشد.",
   not_connected: "حساب بله‌ی کارشناس وصل نیست؛ پیامی فرستاده نشد.",
   mode_off: "حالت ارسال بله «خاموش» است. از صفحه‌ی «اتصال بله» حالت را عوض کنید.",
@@ -54,6 +55,8 @@ export const BLOCK_FA: Record<BaleBlockReason | "quiet_hours" | "no_bale_account
   no_bale_account: "این مشتری در بله حساب ندارد یا پیدا نشد.",
   uncertain: "معلوم نشد پیام رسید یا نه؛ در بله نگاه کنید و اگر لازم بود دوباره بفرستید.",
   send_failed: "ارسال ناموفق بود.",
+  conversation_paused: "گفتگوی بله با این مشتری متوقف است (احتمالاً مشتری شما را در بله مسدود کرده). از برگه‌ی «گفتگوی بله» می‌توانید دوباره فعالش کنید.",
+  peer_blocked: "به نظر می‌رسد این مشتری شما را در بله مسدود کرده است؛ پیام نرسید.",
 };
 
 /* ------------------------------ pure helpers (unit-tested in scripts/bale-fixture.mjs) ------------------------------ */
@@ -115,7 +118,18 @@ export function ensureBaleOutboxSchema(db: DatabaseSync): void {
     reminder_id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES bale_accounts(id), customer_id INTEGER NOT NULL, text TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'scheduled' CHECK(status IN ('scheduled','enqueued','cancelled')), outbox_id INTEGER,
     created_by INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+  // Decision (b): a paused conversation (UNVERIFIED peer_blocked path, only when peer_block_mode = conversation_pause).
+  add("bale_conversation_state", "paused_reason", "TEXT");
+  add("bale_conversation_state", "paused_at", "TEXT");
+  // Decision (c): a Bale chat from someone who is not one of the expert's customers. Only the opaque peer id + counters are
+  // kept — never the text, never the phone. «وصل به مشتری» turns it into a bale_contacts row; nothing from before is stored.
+  db.exec(`CREATE TABLE IF NOT EXISTS bale_unknown_chats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL REFERENCES bale_accounts(id), peer_id TEXT NOT NULL,
+    first_at TEXT NOT NULL, last_at TEXT NOT NULL, messages INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','linked','dismissed')), customer_id INTEGER, decided_by INTEGER, decided_at TEXT,
+    UNIQUE(account_id, peer_id))`);
 }
+export const BALE_UNKNOWN_OPEN_MAX = 200;
 
 /* ------------------------------------------------------ core ------------------------------------------------------ */
 export type OutboxCtx = {
@@ -154,13 +168,23 @@ export function createBaleOutbox(ctx: OutboxCtx) {
   const hasTable = (n: string) => Boolean(row("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", n));
 
   /** Bell row (site_notification_events) addressed to one user; actor_key set so the request-local trigger leaves it alone. */
-  function bell(userId: number, customerId: number, kind: string, title: string, body: string) {
+  const bellReady = () => {
     if (bellCols === null) bellCols = hasTable("site_notification_events") && rows<{ name: string }>("PRAGMA table_info(site_notification_events)").some(c => c.name === "recipient_user_id");
-    if (!bellCols) return;
+    return bellCols;
+  };
+  function bell(userId: number, customerId: number, kind: string, title: string, body: string) {
+    if (!bellReady()) return;
     const c = row<any>("SELECT * FROM customers WHERE id=?", customerId); if (!c) return;
     const name = c.name;
     run(`INSERT INTO site_notification_events(customer_id,customer_name,owner_id,resource_type,resource_id,kind,title,body,permission,created_at,actor_key,recipient_user_id)
       VALUES(?,?,?,'bale',?,?,?,?,'bale.recipient',?,'bale:system',?)`, customerId, name ?? null, c.salesperson_id ?? null, customerId, kind, title, body.slice(0, 300), iso(), userId);
+  }
+  /** Decision (c): bell with no customer (customer_id 0). site-notifications shows resource_type 'bale-unknown' to its addressee only. */
+  function bellUnknown(userId: number, unknownId: number) {
+    if (!bellReady()) return;
+    run(`INSERT INTO site_notification_events(customer_id,customer_name,owner_id,resource_type,resource_id,kind,title,body,permission,created_at,actor_key,recipient_user_id)
+      VALUES(0,'',NULL,'bale-unknown',?,'bale-unknown',?,?,'bale.recipient',?,'bale:system',?)`, unknownId, "پیام از شماره‌ی ناشناس",
+      "کسی که در فهرست مشتری‌های شما نیست در بله پیام داد. متنش ذخیره نشد؛ اگر مشتری خودتان است، گفتگو را به پرونده‌اش وصل کنید.", iso(), userId);
   }
   function ownCustomer(a: any, customerId: number) {
     const u = ctx.userRow(a.user_id);
@@ -172,6 +196,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
   const hasPriorChat = (accountId: number, customerId: number) => Boolean(
     row("SELECT 1 FROM bale_contacts WHERE account_id=? AND customer_id=? AND has_prior_chat=1", accountId, customerId)
     || row("SELECT 1 FROM bale_messages WHERE account_id=? AND customer_id=? AND direction='in' LIMIT 1", accountId, customerId));
+  const pausedOf = (accountId: number, customerId: number) => row<any>("SELECT paused_reason, paused_at FROM bale_conversation_state WHERE account_id=? AND customer_id=? AND paused_reason IS NOT NULL", accountId, customerId);
   const sentSince = (accountId: number, ms: number) => Number(row<any>("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status IN ('sent','sending') AND COALESCE(sent_at,updated_at)>?", accountId, since(ms))?.n ?? 0);
   const queuedCount = (accountId: number, excludeId = 0) => Number(row<any>("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status='queued' AND id<>?", accountId, excludeId)?.n ?? 0);
   const newChatsToday = (accountId: number, excludeId = 0) => Number(row<any>(`SELECT count(*) n FROM bale_outbox WHERE account_id=? AND is_new_chat=1 AND id<>?
@@ -185,6 +210,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     if (a.mode === "off") return { ok: false, reason: "mode_off" };
     const own = ownCustomer(a, customerId);
     if (!own || o.assistantInScope === false) return { ok: false, reason: "out_of_scope" };
+    if (pausedOf(a.id, customerId)) return { ok: false, reason: "conversation_paused" };
     const tp = baleTextProblem(text, banned()); if (tp) return { ok: false, reason: tp };
     const phone = normalizeMobile(own.c.phone); if (!phone) return { ok: false, reason: "no_phone" };
     const prior = hasPriorChat(a.id, customerId);
@@ -271,18 +297,35 @@ export function createBaleOutbox(ctx: OutboxCtx) {
   }
 
   /* ---------------- auto-stop ---------------- */
-  function autoStop(a: any, code: string, customerId: number) {
+  function autoStop(a: any, code: string, customerId: number, from?: string) {
     const t = iso();
+    // The session is gone (banned / dead): close the live client too, so nothing keeps listening on it.
+    if (code === "account_banned" || code === "session_invalid") void ctx.sidecar.detach({ accountRef: ref(a) }).catch(() => undefined);
     const status = code === "account_banned" ? "banned" : code === "session_invalid" ? "error" : a.status;
     run(`UPDATE bale_accounts SET mode='off', status=?, last_error=?, stopped_reason=?, updated_at=?${code === "session_invalid" || code === "account_banned" ? ", session_ct=NULL, session_key_id=NULL" : ""} WHERE id=?`,
       status, code, code, t, a.id);
     const n = run(`UPDATE bale_outbox SET status='blocked', block_reason='auto_stopped', updated_at=? WHERE account_id=? AND status IN ('pending_approval','queued')`, t, a.id).changes;
-    ctx.audit({ accountId: a.id, customerId, action: "account.auto_stop", outcome: code, detail: { blockedRows: Number(n) } });
+    ctx.audit({ accountId: a.id, customerId, action: "account.auto_stop", outcome: code, detail: { blockedRows: Number(n), ...(from ? { from, unverified: true } : {}) } });
     const why = code === "rate_limited" ? "بله محدودیت ارسال گذاشت" : code === "account_banned" ? "بله حساب را مسدود کرد" : "نشست بله از کار افتاد";
     const owner = ctx.userRow(a.user_id);
     bell(a.user_id, customerId, "bale-stopped", "ارسال بله متوقف شد", `${why}؛ حالت ارسال خاموش شد. از صفحه‌ی «اتصال بله» وضعیت را ببینید.`);
     for (const ad of rows<any>("SELECT id FROM users WHERE role='admin' AND COALESCE(active,1)=1 AND id<>29"))
       bell(ad.id, customerId, "bale-stopped", `ارسال بله‌ی ${ctx.nameOf(owner) ?? "کارشناس"} متوقف شد`, `${why}؛ حالت ارسال خودکار خاموش شد.`);
+  }
+
+  /* ---------------- decision (b): pause ONE conversation (UNVERIFIED peer_blocked; only when peer_block_mode = conversation_pause) ---------------- */
+  function pauseConversation(a: any, customerId: number, reason: string) {
+    const t = iso();
+    run(`INSERT INTO bale_conversation_state(customer_id,account_id,mode,updated_at,paused_reason,paused_at) VALUES(?,?,'assistant',?,?,?)
+      ON CONFLICT(customer_id,account_id) DO UPDATE SET paused_reason=excluded.paused_reason, paused_at=excluded.paused_at, updated_at=excluded.updated_at`, customerId, a.id, t, reason, t);
+    const n = run(`UPDATE bale_outbox SET status='blocked', block_reason='conversation_paused', updated_at=? WHERE account_id=? AND customer_id=? AND status IN ('pending_approval','queued')`, t, a.id, customerId).changes;
+    ctx.audit({ accountId: a.id, customerId, action: "conversation.pause", outcome: reason, detail: { blockedRows: Number(n), unverified: true } });
+    bell(a.user_id, customerId, "bale-paused", "گفتگوی بله با این مشتری متوقف شد", "به نظر می‌رسد مشتری شما را در بله مسدود کرده؛ فقط همین گفتگو متوقف شد و بقیه‌ی پیام‌ها عادی می‌روند.");
+  }
+  function resumeConversation(u: any, a: any, customerId: number): boolean {
+    const n = run("UPDATE bale_conversation_state SET paused_reason=NULL, paused_at=NULL, updated_at=? WHERE account_id=? AND customer_id=? AND paused_reason IS NOT NULL", iso(), a.id, customerId).changes;
+    if (n) ctx.audit({ u, accountId: a.id, customerId, action: "conversation.resume", outcome: "ok" });
+    return n === 1;
   }
 
   /* ---------------- sessions (re-attach after a sidecar restart) ---------------- */
@@ -386,7 +429,12 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     } catch (e) {
       const code = e instanceof BaleSidecarError ? e.code : "error";
       const t = iso();
-      if (AUTO_STOP.has(code)) {
+      if (code === "peer_blocked") {
+        run("UPDATE bale_outbox SET status='failed', error='peer_blocked', updated_at=? WHERE id=?", t, o.id);
+        // UNVERIFIED path. Safe default (account_stop): exactly like a ban — the whole account stops.
+        if (ctx.setting("peer_block_mode") === "conversation_pause") pauseConversation(a, o.customer_id, "peer_blocked");
+        else autoStop(a, "account_banned", o.customer_id, "peer_blocked");
+      } else if (AUTO_STOP.has(code)) {
         run("UPDATE bale_outbox SET status='failed', error=?, updated_at=? WHERE id=?", code, t, o.id);
         autoStop(a, code, o.customer_id);
       } else if (code === "peer_not_found") {
@@ -452,6 +500,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
       const cid = matchCustomer(a, u.salesperson_id, ev);
       const own = cid ? ownCustomer(a, cid) : null;
       const mid = ev.messageId == null ? "" : String(ev.messageId).slice(0, 64);
+      if (!cid && mid && ev.fromSelf !== true && ev.peerId != null && String(ev.peerId).trim()) unknownSeen(a, String(ev.peerId).slice(0, 40));
       if (!cid || !own || !mid) { ignored++; continue; }
       const text = typeof ev.text === "string" ? ev.text.slice(0, 4000) : null;
       const dir = ev.fromSelf === true ? "out" : "in";
@@ -475,6 +524,53 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     }
     if (ignored) run("UPDATE bale_accounts SET inbound_ignored=inbound_ignored+? WHERE id=?", ignored, a.id);
     return { stored, ignored };
+  }
+
+  /* ---------------- decision (c): chats from people who are not the expert's customers ---------------- */
+  function unknownSeen(a: any, peer: string) {
+    const t = iso();
+    const ex = row<any>("SELECT id,status FROM bale_unknown_chats WHERE account_id=? AND peer_id=?", a.id, peer);
+    if (ex) { run("UPDATE bale_unknown_chats SET last_at=?, messages=messages+1 WHERE id=?", t, ex.id); return; }
+    if (Number(row<any>("SELECT count(*) n FROM bale_unknown_chats WHERE account_id=? AND status='open'", a.id)?.n ?? 0) >= BALE_UNKNOWN_OPEN_MAX) return;
+    const id = Number(run("INSERT INTO bale_unknown_chats(account_id,peer_id,first_at,last_at) VALUES(?,?,?,?)", a.id, peer, t, t).lastInsertRowid);
+    bellUnknown(a.user_id, id); // one bell per unknown chat, never per message
+    ctx.audit({ accountId: a.id, action: "unknown.seen", outcome: "new", detail: { unknownId: id } });
+  }
+  const unknownView = (x: any) => ({ id: x.id, firstAt: x.first_at, lastAt: x.last_at, messages: Number(x.messages), status: x.status });
+  const unknownList = (a: any) => rows<any>("SELECT * FROM bale_unknown_chats WHERE account_id=? AND status='open' ORDER BY last_at DESC LIMIT 50", a.id).map(unknownView);
+  type LinkOut = { ok: true } | { ok: false; status: number; error: string; message: string };
+  function linkUnknown(u: any, a: any, unknownId: number, customerId: number): LinkOut {
+    const x = row<any>("SELECT * FROM bale_unknown_chats WHERE id=? AND account_id=?", unknownId, a.id);
+    if (!x || x.status === "linked") return { ok: false, status: 404, error: "not_found", message: "این گفتگو پیدا نشد یا قبلاً وصل شده است." };
+    if (!ownCustomer(a, customerId)) { ctx.audit({ u, accountId: a.id, customerId: Number.isSafeInteger(customerId) ? customerId : null, action: "unknown.link", outcome: "out_of_scope", detail: { unknownId } });
+      return { ok: false, status: 404, error: "out_of_scope", message: BLOCK_FA.out_of_scope }; }
+    const taken = row<any>("SELECT customer_id FROM bale_contacts WHERE account_id=? AND peer_id=? AND customer_id<>?", a.id, x.peer_id, customerId);
+    if (taken) return { ok: false, status: 409, error: "peer_linked", message: "این گفتگوی بله قبلاً به مشتری دیگری وصل شده است." };
+    const c = row<any>("SELECT peer_id FROM bale_contacts WHERE account_id=? AND customer_id=?", a.id, customerId);
+    if (c?.peer_id && c.peer_id !== x.peer_id) return { ok: false, status: 409, error: "customer_has_chat", message: "این مشتری قبلاً به یک گفتگوی دیگر در بله وصل است." };
+    const t = iso();
+    run(`INSERT INTO bale_contacts(account_id,customer_id,peer_id,first_contact_at,has_prior_chat,created_at) VALUES(?,?,?,?,1,?)
+      ON CONFLICT(account_id,customer_id) DO UPDATE SET peer_id=excluded.peer_id, has_prior_chat=1, first_contact_at=COALESCE(bale_contacts.first_contact_at,excluded.first_contact_at)`,
+      a.id, customerId, x.peer_id, x.first_at, t);
+    run("UPDATE bale_unknown_chats SET status='linked', customer_id=?, decided_by=?, decided_at=? WHERE id=?", customerId, u.id, t, x.id);
+    ctx.audit({ u, accountId: a.id, customerId, action: "unknown.link", outcome: "ok", detail: { unknownId: x.id } });
+    return { ok: true };
+  }
+  function dismissUnknown(u: any, a: any, unknownId: number): boolean {
+    const n = run("UPDATE bale_unknown_chats SET status='dismissed', decided_by=?, decided_at=? WHERE id=? AND account_id=? AND status='open'", u.id, iso(), unknownId, a.id).changes;
+    if (n) ctx.audit({ u, accountId: a.id, action: "unknown.dismiss", outcome: "ok", detail: { unknownId } });
+    return n === 1;
+  }
+  /** Picker for «وصل به مشتری»: the expert's OWN active customers only; phone shown masked. */
+  function ownCustomerSearch(u: any, q: string) {
+    if (!u?.salesperson_id) return [];
+    const s = String(q ?? "").trim().slice(0, 40);
+    const digits = s.replace(/[۰-۹]/g, d => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/\D/g, "");
+    const list = digits.length >= 4
+      ? rows<any>("SELECT id,name,phone FROM customers WHERE salesperson_id=? AND merged_into_customer_id IS NULL AND phone IS NOT NULL AND phone<>'' ORDER BY id DESC LIMIT 5000", u.salesperson_id)
+          .filter(c => (normalizeMobile(c.phone) ?? "").includes(digits)).slice(0, 15)
+      : s.length >= 2 ? rows<any>("SELECT id,name,phone FROM customers WHERE salesperson_id=? AND merged_into_customer_id IS NULL AND name LIKE ? ORDER BY id DESC LIMIT 15", u.salesperson_id, `%${s}%`) : [];
+    return list.map(c => { const p = normalizeMobile(c.phone); return { id: c.id, name: c.name, phoneMasked: p ? `${p.slice(0, 4)}•••${p.slice(-2)}` : null }; });
   }
 
   /* ---------------- views ---------------- */
@@ -515,7 +611,8 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     return n === 1;
   }
 
-  return { enqueue, approve, editDraft, cancel, sendNow, tick, syncSessions, inbound, itemView, tabItems, sendState, linkReminder, cancelReminder, autoStop, check, bell };
+  return { enqueue, approve, editDraft, cancel, sendNow, tick, syncSessions, inbound, itemView, tabItems, sendState, linkReminder, cancelReminder, autoStop, check, bell,
+    pausedOf, pauseConversation, resumeConversation, unknownList, linkUnknown, dismissUnknown, ownCustomerSearch };
 }
 
 function normalizeMobile(raw: unknown): string | null {

@@ -5,8 +5,9 @@ import { useGetAuthSession, getGetAuthSessionQueryKey } from '@workspace/api-cli
 import { ErrorState, SkeletonPanel } from '@/components/CrmShell';
 import { Modal } from '@/components/DataTools';
 import { toast } from '@/hooks/use-toast';
-import { baleCanConnect, baleFetch, baleWhen, faNum, MODE_HINT, MODE_LABEL, STATUS_LABEL, toEnDigits, type BaleAdmin, type BaleAuditItem, type BaleMe, type BaleMode } from '@/features/bale/api';
+import { baleCanConnect, baleFetch, baleWhen, faNum, MODE_HINT, MODE_LABEL, STATUS_LABEL, toEnDigits, type BaleAdmin, type BaleAuditItem, type BaleMe, type BaleMode, type BalePeerBlockMode } from '@/features/bale/api';
 import { BaleOutboxPanel } from '@/features/bale/BaleOutboxPanel';
+import { BaleUnknownPanel } from '@/features/bale/BaleUnknownPanel';
 import '@/features/bale/bale.css';
 
 const ME_KEY = ['bale', 'me'] as const;
@@ -137,7 +138,7 @@ function AdminPanel() {
   const q = useQuery({ queryKey: ADMIN_KEY, queryFn: () => baleFetch<BaleAdmin>('/admin/bale') });
   const audit = useQuery({ queryKey: AUDIT_KEY, queryFn: () => baleFetch<{ items: BaleAuditItem[] }>('/admin/bale/audit?limit=50') });
   const [busy, setBusy] = useState(false);
-  const [confirm, setConfirm] = useState<null | { kind: 'master' } | { kind: 'disconnect'; id: number; name: string }>(null);
+  const [confirm, setConfirm] = useState<null | { kind: 'master' } | { kind: 'disconnect'; id: number; name: string } | { kind: 'peer'; mode: BalePeerBlockMode }>(null);
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     setBusy(true);
     try { const r = await fn() as { remoteSignOut?: string } | undefined; toast({ title: ok, description: r?.remoteSignOut === 'failed' ? 'بله خروج را تأیید نکرد؛ از کارشناس بخواهید در بله › «دستگاه‌های فعال» دستگاه Nafis CRM را حذف کند.' : undefined }); }
@@ -186,17 +187,32 @@ function AdminPanel() {
       </dl>
     </div>
 
+    {d.peerBlock ? <div className="panel bl-policy" data-testid="panel-bale-peer-block">
+      <h3 style={{ margin: 0, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>وقتی یک مشتری کارشناس را در بله مسدود کند
+        {!d.peerBlock.verified ? <span className="bl-pill" data-s="error" data-testid="pill-bale-unverified"><i />تأییدنشده</span> : null}</h3>
+      <p className="muted" style={{ margin: 0, fontSize: 13 }}>تشخیص این خطا هنوز با سیم‌کارت آزمایشی بررسی نشده است. تا آن موقع حالت امن پیش‌فرض بماند: در صورت شک، کل ارسالِ آن کارشناس متوقف می‌شود.</p>
+      <div className="bl-modes" role="radiogroup" aria-label="رفتار در برابر مسدود شدن">
+        {(['account_stop', 'conversation_pause'] as const).map(m => <button key={m} type="button" role="radio" aria-checked={d.peerBlock!.mode === m} className="bl-mode" disabled={busy}
+          onClick={() => { if (d.peerBlock!.mode !== m) setConfirm({ kind: 'peer', mode: m }); }} data-testid={`radio-bale-peer-${m}`}>
+          <span className="dot" aria-hidden="true" /><span><b>{m === 'account_stop' ? 'کل حساب متوقف شود (امن، پیش‌فرض)' : 'فقط همان گفتگو متوقف شود'}</b>
+            <small>{m === 'account_stop' ? 'مثل مسدود شدن حساب: ارسال خاموش، نشست پاک و به کارشناس و مدیر خبر داده می‌شود.' : 'بقیه‌ی گفتگوها ادامه پیدا می‌کنند؛ کارشناس می‌تواند همان گفتگو را دوباره فعال کند. فقط بعد از آزمایش با سیم‌کارت.'}</small></span>
+        </button>)}
+      </div>
+    </div> : null}
+
     <div className="panel" data-testid="panel-bale-audit" style={{ display: 'grid', gap: 8 }}>
       <h3 style={{ margin: 0 }}>گزارش رویدادها</h3>
       {audit.isLoading ? <SkeletonPanel rows={3} /> : audit.isError ? <ErrorState onRetry={() => audit.refetch()} /> : !audit.data?.items.length ? <div style={{ color: 'var(--nf-ink-muted)' }}>هنوز چیزی ثبت نشده.</div>
         : <ul className="bl-audit">{audit.data.items.map(x => <li key={x.id}><span className="at">{baleWhen(x.at)}</span><b>{x.actor ?? '—'}</b><span>{AUDIT_FA[x.action] ?? x.action}</span><span className="bl-pill" data-s={x.outcome === 'ok' ? 'connected' : 'error'}><i />{OUT_FA[x.outcome] ?? x.outcome}</span>{x.customerId ? <span>مشتری {faNum(x.customerId)}</span> : null}</li>)}</ul>}
     </div>
 
-    {confirm ? <Modal title={confirm.kind === 'master' ? 'خاموش کردن بله' : `قطع اتصال ${confirm.name}`} onClose={() => setConfirm(null)} testId="bale-admin-confirm">
-      <p>{confirm.kind === 'master' ? 'اتصال تازه ممکن نمی‌شود و هیچ کاری از طرف بله انجام نمی‌شود. اتصال‌های فعلی پاک نمی‌شوند.' : 'نشست بله‌ی این کارشناس از سرور پاک می‌شود و حالت ارسال خاموش می‌شود.'}</p>
+    {confirm ? <Modal title={confirm.kind === 'master' ? 'خاموش کردن بله' : confirm.kind === 'peer' ? 'تغییر رفتار در برابر مسدود شدن' : `قطع اتصال ${confirm.name}`} onClose={() => setConfirm(null)} testId="bale-admin-confirm">
+      <p>{confirm.kind === 'master' ? 'اتصال تازه ممکن نمی‌شود و هیچ کاری از طرف بله انجام نمی‌شود. اتصال‌های فعلی پاک نمی‌شوند.'
+        : confirm.kind === 'peer' ? (confirm.mode === 'conversation_pause' ? 'این مسیر هنوز «تأییدنشده» است. اگر تشخیص اشتباه باشد، حسابی که واقعاً مسدود شده ممکن است به ارسال ادامه دهد. فقط بعد از آزمایش با سیم‌کارت روشنش کنید.' : 'به حالت امن برمی‌گردد: در صورت شک کل ارسال کارشناس متوقف می‌شود.')
+        : 'نشست بله‌ی این کارشناس از سرور پاک می‌شود و حالت ارسال خاموش می‌شود.'}</p>
       <div className="bl-acts">
         <button type="button" className="btn btn-primary" style={{ background: '#B42318', borderColor: '#B42318' }} disabled={busy} data-testid="button-confirm-bale-admin"
-          onClick={() => void (confirm.kind === 'master' ? run(() => baleFetch('/admin/bale/master', { method: 'PUT', body: { enabled: false } }), 'بله خاموش شد') : run(() => baleFetch(`/admin/bale/accounts/${confirm.id}/disconnect`, { method: 'POST' }), 'اتصال قطع شد')).then(() => setConfirm(null))}>تأیید</button>
+          onClick={() => void (confirm.kind === 'peer' ? run(() => baleFetch('/admin/bale/peer-block-mode', { method: 'PUT', body: { mode: confirm.mode } }), 'تنظیم ذخیره شد') : confirm.kind === 'master' ? run(() => baleFetch('/admin/bale/master', { method: 'PUT', body: { enabled: false } }), 'بله خاموش شد') : run(() => baleFetch(`/admin/bale/accounts/${confirm.id}/disconnect`, { method: 'POST' }), 'اتصال قطع شد')).then(() => setConfirm(null))}>تأیید</button>
         <button type="button" className="btn" onClick={() => setConfirm(null)}>انصراف</button>
       </div>
     </Modal> : null}
@@ -207,6 +223,8 @@ const AUDIT_FA: Record<string, string> = {
   'connect.start': 'درخواست کد', 'connect.start_limited': 'درخواست کد (بیش از سقف)', 'connect.code': 'ورود کد', 'connect.password': 'ورود رمز دومرحله‌ای',
   'connect.connected': 'اتصال برقرار شد', 'connect.cancel': 'انصراف از اتصال', 'disconnect.expert': 'قطع اتصال توسط کارشناس', 'disconnect.admin': 'قطع اتصال توسط مدیر',
   'mode.expert': 'تغییر حالت توسط کارشناس', 'mode.admin': 'تغییر حالت توسط مدیر', 'admin.master_on': 'روشن کردن بله', 'admin.master_off': 'خاموش کردن بله', 'chat.view': 'دیدن گفتگوی بله',
+  'admin.peer_block_mode': 'تغییر رفتار در برابر مسدود شدن (تأییدنشده)', 'conversation.pause': 'توقف یک گفتگو (تأییدنشده)', 'conversation.resume': 'فعال کردن دوباره‌ی گفتگو',
+  'unknown.seen': 'پیام از شماره‌ی ناشناس', 'unknown.link': 'وصل کردن گفتگوی ناشناس به مشتری', 'unknown.dismiss': 'کنار گذاشتن گفتگوی ناشناس', 'account.auto_stop': 'توقف خودکار حساب',
 };
 const OUT_FA: Record<string, string> = { ok: 'موفق', forbidden: 'بدون دسترسی', not_in_scope: 'خارج از محدوده', disabled: 'خاموش', rate_limited: 'سقف', wrong_code: 'کد نادرست', wrong_password: 'رمز نادرست', password_needed: 'نیاز به رمز', code_expired: 'منقضی', error: 'خطا' };
 
@@ -220,6 +238,7 @@ export default function BaleSettings() {
       <p>{isAdmin ? 'روشن و خاموش کردن بله، وضعیت اتصال کارشناس‌ها و گزارش رویدادها.' : 'حساب بله‌ی شخصی‌تان را امن به CRM وصل کنید تا گفتگوی هر مشتری در پرونده‌اش دیده شود.'}</p></div></div>
     {session.isLoading ? <SkeletonPanel rows={3} /> : <div style={{ display: 'grid', gap: 16 }}>
       {expert ? <ExpertWizard /> : null}
+      {expert ? <BaleUnknownPanel /> : null}
       {expert ? <BaleOutboxPanel /> : null}
       {isAdmin ? <AdminPanel /> : null}
       {!expert && !isAdmin ? <div className="bl-note off" data-testid="bale-not-eligible"><Info size={18} /><span>اتصال حساب بله فقط برای کارشناس‌های فروش فعال است.</span></div> : null}

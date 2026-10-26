@@ -97,3 +97,12 @@
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 @media (max-width: 640px) { .bl-draft .bl-acts .btn, .bl-compose .bl-acts .btn { flex: 1 1 100%; } }
 .bl-wrap { flex-wrap: wrap; column-gap: 12px; row-gap: 2px; }
+
+/* «پیام از شماره‌ی ناشناس» → link wizard */
+.bl-link { border-top: 1px solid var(--nf-line, #E5E7EB); padding-top: 10px; margin-top: 6px; }
+.bl-pick { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.bl-pick button { width: 100%; min-height: 44px; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px;
+  border: 1px solid var(--nf-line, #E5E7EB); border-radius: 10px; background: #fff; font: inherit; text-align: start; cursor: pointer; }
+.bl-pick button:hover, .bl-pick button:focus-visible { border-color: var(--nf-brand, #1F5FAD); outline: none; box-shadow: 0 0 0 2px rgba(31,95,173,.15); }
+.bl-queue li[data-focus] { outline: 2px solid var(--nf-brand, #1F5FAD); outline-offset: 2px; border-radius: 10px; }
+.bl-policy { display: grid; gap: 8px; }
