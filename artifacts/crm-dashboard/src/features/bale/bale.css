@@ -111,3 +111,25 @@
 .bl-paused > span { flex: 1 1 220px; }
 .bl-paused small { display: block; margin-top: 4px; opacity: .85; }
 .bl-paused > .btn { margin-inline-start: auto; }
+
+/* «حساب تستی» (admin only) */
+.bl-test { display: grid; gap: 14px; }
+.bl-test-hd { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bl-chips-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.bl-test-sec { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--nf-line); }
+.bl-test-sec h4 { margin: 0; display: flex; gap: 6px; align-items: center; font-size: 15px; }
+.bl-test-sec h4 small { font-weight: 400; color: var(--nf-ink-muted); }
+.bl-secret { position: relative; }
+.bl-secret input { padding-inline-end: 14px; padding-inline-start: 48px; }
+.bl-secret .eye { position: absolute; inset-inline-start: 4px; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; border: 0; background: transparent; color: var(--nf-ink-muted); cursor: pointer; border-radius: 10px; display: grid; place-items: center; }
+.bl-secret .eye:focus-visible { outline: 2px solid var(--nf-primary, #29369B); }
+.bl-allow { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.bl-allow li { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border: 1px solid var(--nf-line); border-radius: 12px; min-height: 48px; }
+.bl-allow .num { font-weight: 700; letter-spacing: .05em; margin-inline-end: auto; }
+.bl-allow .btn-icon { min-width: 44px; min-height: 44px; display: grid; place-items: center; padding: 0; }
+.bl-allow-add { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.bl-allow-add .bl-field { flex: 1 1 220px; }
+.bl-allow-add .btn { min-height: 48px; }
+.bl-done.compact { padding: 0; } .bl-done.compact .big { width: 48px; height: 48px; }
+@media (max-width: 640px) { .bl-allow-add .btn { flex: 1 1 100%; } .bl-test-hd .btn { flex: 1 1 100%; min-height: 44px; } }
+.bl-test .bl-field label { display: flex; gap: 6px; align-items: center; }

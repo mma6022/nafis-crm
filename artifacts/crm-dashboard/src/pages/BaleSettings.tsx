@@ -8,6 +8,7 @@ import { toast } from '@/hooks/use-toast';
 import { baleCanConnect, baleFetch, baleWhen, faNum, MODE_HINT, MODE_LABEL, STATUS_LABEL, toEnDigits, type BaleAdmin, type BaleAuditItem, type BaleMe, type BaleMode, type BalePeerBlockMode } from '@/features/bale/api';
 import { BaleOutboxPanel } from '@/features/bale/BaleOutboxPanel';
 import { BaleUnknownPanel } from '@/features/bale/BaleUnknownPanel';
+import { BaleTestPanel } from '@/features/bale/BaleTestPanel';
 import '@/features/bale/bale.css';
 
 const ME_KEY = ['bale', 'me'] as const;
@@ -225,8 +226,13 @@ const AUDIT_FA: Record<string, string> = {
   'mode.expert': 'تغییر حالت توسط کارشناس', 'mode.admin': 'تغییر حالت توسط مدیر', 'admin.master_on': 'روشن کردن بله', 'admin.master_off': 'خاموش کردن بله', 'chat.view': 'دیدن گفتگوی بله',
   'admin.peer_block_mode': 'تغییر رفتار در برابر مسدود شدن (تأییدنشده)', 'conversation.pause': 'توقف یک گفتگو (تأییدنشده)', 'conversation.resume': 'فعال کردن دوباره‌ی گفتگو',
   'unknown.seen': 'پیام از شماره‌ی ناشناس', 'unknown.link': 'وصل کردن گفتگوی ناشناس به مشتری', 'unknown.dismiss': 'کنار گذاشتن گفتگوی ناشناس', 'account.auto_stop': 'توقف خودکار حساب',
+  'test.enabled_on': 'حساب تستی: روشن', 'test.enabled_off': 'حساب تستی: خاموش', 'test.allow.add': 'حساب تستی: افزودن شماره‌ی تستی', 'test.allow.remove': 'حساب تستی: حذف شماره‌ی تستی',
+  'test.connect.start': 'حساب تستی: درخواست کد', 'test.connect.start_limited': 'حساب تستی: درخواست کد (بیش از سقف)', 'test.connect.start_refused': 'حساب تستی: درخواست کد (کلید خاموش)',
+  'test.connect.code': 'حساب تستی: ورود کد', 'test.connect.password': 'حساب تستی: ورود رمز دومرحله‌ای', 'test.connect.connected': 'حساب تستی: وصل شد', 'test.connect.cancel': 'حساب تستی: انصراف',
+  'test.disconnect': 'حساب تستی: قطع اتصال', 'test.send_request': 'حساب تستی: درخواست ارسال', 'test.send': 'حساب تستی: ارسال', 'test.inbound': 'حساب تستی: پیام دریافتی',
+  'test.auto_stop': 'حساب تستی: توقف خودکار', 'test.session.attach': 'حساب تستی: باز کردن نشست',
 };
-const OUT_FA: Record<string, string> = { ok: 'موفق', forbidden: 'بدون دسترسی', not_in_scope: 'خارج از محدوده', disabled: 'خاموش', rate_limited: 'سقف', wrong_code: 'کد نادرست', wrong_password: 'رمز نادرست', password_needed: 'نیاز به رمز', code_expired: 'منقضی', error: 'خطا' };
+const OUT_FA: Record<string, string> = { ok: 'موفق', forbidden: 'بدون دسترسی', not_in_scope: 'خارج از محدوده', disabled: 'خاموش', rate_limited: 'سقف', wrong_code: 'کد نادرست', wrong_password: 'رمز نادرست', password_needed: 'نیاز به رمز', code_expired: 'منقضی', error: 'خطا', not_allowlisted: 'خارج از فهرست تستی', customer_number: 'شماره‌ی مشتری', queued: 'در صف', sent: 'فرستاده شد', stored: 'ذخیره شد', test_disabled: 'کلید تستی خاموش' };
 
 export default function BaleSettings() {
   const session = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
@@ -241,6 +247,7 @@ export default function BaleSettings() {
       {expert ? <BaleUnknownPanel /> : null}
       {expert ? <BaleOutboxPanel /> : null}
       {isAdmin ? <AdminPanel /> : null}
+      {isAdmin ? <BaleTestPanel /> : null}
       {!expert && !isAdmin ? <div className="bl-note off" data-testid="bale-not-eligible"><Info size={18} /><span>اتصال حساب بله فقط برای کارشناس‌های فروش فعال است.</span></div> : null}
     </div>}
   </section>;

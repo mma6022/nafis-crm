@@ -22,6 +22,7 @@ import express, { Router, type Request, type Response, type NextFunction } from 
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { ensureSchemaObject } from "./schema-objects";
+import { createBaleTest, ensureBaleTestSchema } from "./bale-test";
 import { TRAINEE_SALESPERSON_IDS, EXCLUDED_USER_IDS, BANNED_WORDS } from "./assistants";
 import { baleHasKey, baleSessionAad, baleSidecarToken, openBaleSession, sealBaleSession, BaleKeyMissing, type KeyEnv } from "./bale-crypto";
 import { BaleSidecarError, type BaleSidecar } from "./bale-sidecar-client";
@@ -43,6 +44,8 @@ export const BALE_DEFAULT_SETTINGS: Record<string, string> = {
   // PM decision (b): "one customer blocked the expert" is UNVERIFIED on real Bale → default stays the safe whole-account stop.
   // conversation_pause (only that chat pauses) may be switched on by an admin only after the test-SIM check.
   peer_block_mode: "account_stop",
+  // «حساب تستی» (system-owned spare SIM): its own switch, default OFF, independent of master_enabled.
+  test_enabled: "0",
 };
 export const BALE_PEER_BLOCK_MODES = ["account_stop", "conversation_pause"] as const;
 
@@ -82,6 +85,7 @@ export function ensureBaleSchema(db: Db, nowIso = new Date().toISOString()): voi
   ensureSchemaObject(db, "index", "idx_bale_audit_user", "CREATE INDEX idx_bale_audit_user ON bale_audit(user_id, action, id)");
   ensureSchemaObject(db, "index", "idx_bale_contacts_customer", "CREATE INDEX idx_bale_contacts_customer ON bale_contacts(customer_id)");
   ensureBaleOutboxSchema(db);
+  ensureBaleTestSchema(db);
   const ins = db.prepare("INSERT OR IGNORE INTO bale_settings(key,value,updated_at) VALUES(?,?,?)");
   for (const [k, v] of Object.entries(BALE_DEFAULT_SETTINGS)) ins.run(k, v, nowIso);
 }
@@ -154,9 +158,13 @@ export function createBale(deps: BaleDeps) {
       iso(), o.u?.id ?? null, nameOf(o.u), o.accountId ?? null, o.customerId ?? null, o.action, o.outcome, o.req ? ip(o.req) : null,
       o.detail ? JSON.stringify(o.detail) : null);
   }
-  const accountOf = (userId: number) => row<any>("SELECT * FROM bale_accounts WHERE user_id=?", userId);
+  const accountOf = (userId: number) => row<any>("SELECT * FROM bale_accounts WHERE user_id=? AND kind<>'system_test'", userId);
+  const testOn = () => setting("test_enabled") === "1";
+  let test: ReturnType<typeof createBaleTest>;
   const outbox = createBaleOutbox({ db, now, env: deps.env, sidecar: deps.sidecar, random: deps.random, setting, masterOn, userRow, nameOf, eligible: baleEligible,
-    audit: o => audit(o) });
+    audit: o => audit(o), testOn, testInbound: (a, evs) => test.inbound(a, evs) });
+  test = createBaleTest({ db, now, env: deps.env, sidecar: deps.sidecar, random: deps.random, setting, nameOf, userRow, audit: o => audit(o),
+    normalize: normalizeIranMobile, mask: maskMobile, asciiDigits, syncSessions: () => outbox.syncSessions(true) });
 
   /* ------------- login flows: memory only (flowId is opaque; the Bale transaction_hash never leaves the sidecar) ------------- */
   type Flow = { flowId: string; step: "code" | "password"; expiresAt: number; phoneMasked: string; deviceHash: string; deviceTitle: string; tries: number; codeType: string };
@@ -448,13 +456,14 @@ export function createBale(deps: BaleDeps) {
   /* ---------------- admin ---------------- */
   const admin = (req: Request, res: Response, next: NextFunction) => {
     const u = me(res);
-    if (!u || u.role !== "admin" || EXCLUDED_USER_IDS.includes(u.id)) { if (u) audit({ req, u, action: `${req.method} ${req.path}`, outcome: "forbidden" }); return fail(res, 403, "forbidden"); }
+    if (!u || u.role !== "admin" || EXCLUDED_USER_IDS.includes(u.id) || u.active === 0) { if (u) audit({ req, u, action: `${req.method} ${req.path}`, outcome: "forbidden" }); return fail(res, 403, "forbidden"); }
     res.locals.baleAdmin = u; next();
   };
+  test.mount(staff, admin); // «حساب تستی»: /admin/bale/test/* — every route behind the same admin gate (never 29)
   const adminAccount = (a: any) => ({ ...accountView(a), user: { id: a.user_id, name: nameOf(userRow(a.user_id)) }, salespersonId: a.salesperson_id });
   staff.get("/admin/bale", admin, async (_req, res) => {
     const eligible = rows<any>("SELECT id,role,salesperson_id,active,full_name,username FROM users WHERE role='salesperson' ORDER BY id").filter(baleEligible);
-    const accounts = rows<any>("SELECT * FROM bale_accounts ORDER BY id");
+    const accounts = rows<any>("SELECT * FROM bale_accounts WHERE kind<>'system_test' ORDER BY id");
     const health = deps.sidecar.configured() ? await deps.sidecar.health() : { ok: false };
     res.json({
       masterEnabled: masterOn(), keyReady: baleHasKey(deps.env()), sidecar: { configured: deps.sidecar.configured(), reachable: health.ok },
@@ -479,7 +488,7 @@ export function createBale(deps: BaleDeps) {
     audit({ req, u, action: "admin.peer_block_mode", outcome: "ok", detail: { mode, unverified: true } });
     res.json({ peerBlock: { mode: setting("peer_block_mode"), verified: false } });
   });
-  const byId = (req: Request, res: Response) => { const a = row<any>("SELECT * FROM bale_accounts WHERE id=?", Number(req.params.id)); if (!a) fail(res, 404, "not_found"); return a; };
+  const byId = (req: Request, res: Response) => { const a = row<any>("SELECT * FROM bale_accounts WHERE id=? AND kind<>'system_test'", Number(req.params.id)); if (!a) fail(res, 404, "not_found"); return a; };
   staff.put("/admin/bale/accounts/:id/mode", admin, (req, res) => {
     const a = byId(req, res); if (!a) return; const u = res.locals.baleAdmin; const mode = String(req.body?.mode ?? "") as BaleMode;
     if (!BALE_MODES.includes(mode)) return fail(res, 422, "bad_mode");
@@ -539,10 +548,12 @@ export function createBale(deps: BaleDeps) {
   /** Worker: every ~5 s (one tick at a time). */
   let timer: ReturnType<typeof setInterval> | null = null;
   const worker = {
-    tick: () => outbox.tick(),
-    start(ms = 5000) { if (!timer) { timer = setInterval(() => { void outbox.tick().catch(e => console.error("bale worker", (e as Error)?.name)); }, ms); timer.unref?.(); } },
+    tick: async () => { const r = await outbox.tick(); const t = await test.tick(); return { ...r, test: t }; },
+    start(ms = 5000) { if (!timer) { timer = setInterval(() => {
+      void outbox.tick().catch(e => console.error("bale worker", (e as Error)?.name)).then(() => test.tick()).catch(e => console.error("bale test worker", (e as Error)?.name));
+    }, ms); timer.unref?.(); } },
     stop() { if (timer) clearInterval(timer); timer = null; },
   };
 
-  return { staff, internal, runnerSend, worker, _internal: { flows, masterOn, outbox } };
+  return { staff, internal, runnerSend, worker, _internal: { flows, masterOn, outbox, test } };
 }

@@ -137,6 +137,9 @@ export type OutboxCtx = {
   setting: (k: string) => string; masterOn: () => boolean;
   audit: (o: { u?: any; accountId?: number | null; customerId?: number | null; action: string; outcome: string; detail?: Record<string, string | number | boolean | null> }) => void;
   userRow: (id: number) => any; nameOf: (u: any) => string | null; eligible: (u: any) => boolean;
+  /** «حساب تستی» (lib/bale-test.ts): its own switch, independent of the experts' master switch. */
+  testOn?: () => boolean;
+  testInbound?: (a: any, evs: any[]) => { stored: number; ignored: number };
 };
 export type EnqueueIn = {
   accountId: number; customerId: number; text: string; source: "expert_command" | "reminder" | "assistant";
@@ -351,15 +354,20 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     if (!force && now().getTime() - lastSync < 60_000) return { attached: 0 };
     lastSync = now().getTime();
     const h = await ctx.sidecar.health(); if (!h.ok) return { attached: 0 };
-    if (!ctx.masterOn()) { // master switch off: close every live client so nothing keeps listening
-      for (const r of h.attached ?? []) await ctx.sidecar.detach({ accountRef: r });
-      return { attached: 0 };
+    const masterOn = ctx.masterOn(), testOn = ctx.testOn?.() ?? false;
+    const testRefs = new Set(rows<any>("SELECT id FROM bale_accounts WHERE kind='system_test'").map(x => `acc-${x.id}`));
+    // Experts' master switch off: close every expert client. The system test account follows ONLY its own test switch.
+    for (const r of h.attached ?? []) {
+      const isTest = testRefs.has(r);
+      if (isTest ? !testOn : !masterOn) await ctx.sidecar.detach({ accountRef: r });
     }
+    if (!masterOn && !testOn) return { attached: 0 };
     const live = new Set(h.attached ?? []);
     const restarted = h.bootId != null && lastBoot != null && h.bootId !== lastBoot;
     lastBoot = h.bootId ?? lastBoot;
     let n = 0;
     for (const a of rows<any>("SELECT * FROM bale_accounts WHERE status='connected' AND session_ct IS NOT NULL ORDER BY id")) {
+      if (a.kind === "system_test" ? !testOn : !masterOn) continue;
       if (!restarted && live.has(ref(a))) continue;
       if (await attachOne(a)) n++;
     }
@@ -459,7 +467,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
       const reminders = dueReminders();
       await syncSessions();
       const results: Record<number, string> = {};
-      for (const a of rows<any>(`SELECT * FROM bale_accounts WHERE id IN (SELECT DISTINCT account_id FROM bale_outbox WHERE status='queued')`)) {
+      for (const a of rows<any>(`SELECT * FROM bale_accounts WHERE kind<>'system_test' AND id IN (SELECT DISTINCT account_id FROM bale_outbox WHERE status='queued')`)) {
         if (!ctx.masterOn() || a.status !== "connected" || a.mode === "off") {
           // Switched off / disconnected while rows were queued: nothing is sent; rows become blocked with the reason.
           const reason: BaleBlockReason = !ctx.masterOn() ? "bale_disabled" : a.status !== "connected" ? "not_connected" : "mode_off";
@@ -491,6 +499,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     const m = /^acc-(\d+)$/.exec(String(body?.accountRef ?? ""));
     const a = m ? acc(Number(m[1])) : undefined;
     const evs: InEv[] = Array.isArray(body?.events) ? body.events.slice(0, 50) : [];
+    if (a?.kind === "system_test") return ctx.testInbound ? ctx.testInbound(a, evs) : { stored: 0, ignored: evs.length };
     if (!a || a.status !== "connected" || !ctx.masterOn()) return { stored: 0, ignored: evs.length };
     const u = ctx.userRow(a.user_id);
     if (!u || !ctx.eligible(u)) return { stored: 0, ignored: evs.length };

@@ -61,3 +61,24 @@ export const BALE_MAX_TEXT = 1000;
 export const OUTBOX_STATUS_LABEL: Record<BaleOutboxStatus, string> = {
   pending_approval: 'منتظر تأیید شما', queued: 'در صف ارسال', sending: 'در حال ارسال', sent: 'فرستاده شد', blocked: 'فرستاده نشد', failed: 'ناموفق', cancelled: 'لغو شد',
 };
+
+/* «حساب تستی» (admin only, never 29) — api-server lib/bale-test.ts. Numbers come back masked only. */
+export type BaleTestMessage = {
+  id: number; allowId: number; phoneMasked: string | null; direction: 'in' | 'out'; text: string | null; hasFile: boolean;
+  status: 'queued' | 'sending' | 'sent' | 'failed' | 'blocked' | 'received' | 'external'; error: string | null; errorMessage: string | null;
+  scheduledAt: string | null; sentAt: string | null; createdAt: string;
+};
+export type BaleTest = {
+  enabled: boolean; masterEnabled: boolean; ready: boolean;
+  account: { id: number; status: BaleAccount['status']; phoneMasked: string | null; connectedAt: string | null; lastError: string | null; stoppedReason: string | null; hasSession: boolean; inboundIgnored: number; nextSendAt: string | null } | null;
+  flow: { step: 'code' | 'password'; expiresAt: string; phoneMasked: string; codeType: string } | null;
+  startsLeft: number; allowMax: number;
+  allowlist: { id: number; phoneMasked: string; peerKnown: boolean; createdAt: string }[];
+  messages: BaleTestMessage[];
+  sendState: { quietNow: boolean; quietEnd: string | null; sentLastHour: number; perHour: number; sentToday: number; perDay: number };
+  remoteSignOut?: 'ok' | 'failed' | 'no_session';
+  queued?: { id: number; heldUntil: string | null; message: string | null; text: string };
+};
+export const TEST_MSG_STATUS_LABEL: Record<BaleTestMessage['status'], string> = {
+  queued: 'در صف', sending: 'در حال ارسال', sent: 'فرستاده شد', failed: 'ناموفق', blocked: 'فرستاده نشد', received: 'دریافت شد', external: 'از گوشی تستی',
+};
