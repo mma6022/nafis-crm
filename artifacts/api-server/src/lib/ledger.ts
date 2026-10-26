@@ -64,7 +64,7 @@ const MOEIN: Acc[] = [
   ["6102", "پاداش دقت داده و پاداش تیمی", "expense", "debit", "SP", 1],
   ["6201", "هزینه‌ی استعلام اعتبار (ICS24)", "expense", "debit", "VN", 1, "ICS24 فعلاً بیرون از دفتر"],
   ["6202", "کارمزد درگاه و بانک", "expense", "debit", "GW,BK", 1],
-  ["6203", "اختلاف گرد کردن (ریال)", "expense", "both", "", 1, "تنها یک ردیف در همان سند"],
+  ["6203", "اختلاف گرد کردن", "expense", "both", "", 1, "تنها یک ردیف در همان سند"],
   ["6209", "سایر هزینه‌ها", "expense", "debit", "", 1],
   ["8101", "اعتبار تخصیص‌یافته‌ی مشتریان (انتظامی)", "memo", "debit", "CU,PL", 1, "Q7 منتظر محمد"],
   ["8102", "طرف حساب انتظامی اعتبار تأمین‌کنندگان", "memo", "credit", "FD,PL", 1, "Q7 منتظر محمد"],
@@ -295,6 +295,242 @@ export const LEDGER_TABLES = [
   "treasury_accounts", "bank_statement_lines", "bank_reconciliation_matches", "bank_reconciliation_unmatches",
 ] as const;
 
+/* ---------------------------------------------------------------------------------------------
+ * general-ledger-v1b: admin-entered finance inputs (Mohammad's decision: no business input is
+ * hard-coded). Effective-dated, append-only. The catalog below holds KEYS ONLY (type, allowed
+ * values, scope); every VALUE is entered by an admin in the setup wizard (later package) with
+ * effective_from, changed_by and a reason. Rows are never updated or deleted; a change is a new
+ * row, and finance_settings_log records old -> new automatically. Readers (P7 event->account
+ * mapping) resolve a key AS OF THE EVENT DATE with financeSettingAsOf().
+ * ------------------------------------------------------------------------------------------- */
+export const FINANCE_MIGRATION = "general-ledger-v1b";
+
+type KeyDef = [key: string, type: string, scope: "global" | "loan_plan", title: string, allowed: string[] | null, min: number | null, max: number | null, usedBy: string, managedElsewhere?: string];
+/** Allowed enum values are design-level and provisional until Armita's wizard design / Salamatian sign-off. */
+export const FINANCE_SETTING_KEYS: KeyDef[] = [
+  ["gl.fiscal_year_start_jalali", "jalali_mmdd", "global", "شروع سال مالی (ماه-روز شمسی)", null, null, null, "G2"],
+  ["gl.ledger_start_date", "date", "global", "تاریخ شروع دفتر کل", null, null, null, "G2"],
+  ["gl.opening_base_date", "date", "global", "تاریخ مبنای سند افتتاحیه", null, null, null, "G2"],
+  ["fee.inquiry.payer", "enum", "global", "پرداخت‌کننده‌ی هزینه‌ی استعلام", ["customer", "company"], null, null, "P7"],
+  ["fee.inquiry.amount_rial", "int_rial", "global", "مبلغ هزینه‌ی استعلام (ریال)", null, 0, null, "P7"],
+  ["plan.supplier_deposit_method", "enum", "loan_plan", "روش واریز تأمین‌کننده برای این طرح", ["gross", "net_of_fees", "to_customer_direct"], null, null, "P7"],
+  ["discount.development.nature", "enum", "global", "ماهیت تخفیف توسعه", ["revenue_reduction", "marketing_expense"], null, null, "P7"],
+  ["discount.development.rate_bp", "bp", "global", "درصد تخفیف توسعه (صدم درصد)", null, 0, 10000, "P7"],
+  ["tax.vat.applies", "bool", "global", "مشمول مالیات بر ارزش افزوده", null, null, null, "P7"],
+  ["tax.vat.rate_bp", "bp", "global", "نرخ ارزش افزوده (صدم درصد)", null, 0, 10000, "P7"],
+  ["commission.recognition_timing", "enum", "global", "زمان شناسایی پورسانت", ["on_disbursement", "on_supplier_settlement", "on_approval"], null, null, "P7"],
+  ["commission.on_account_timing", "enum", "global", "زمان پرداخت علی‌الحساب", ["none", "on_disbursement", "monthly"], null, null, "P7"],
+  ["gateway.zarinpal.fee_bp", "bp", "global", "کارمزد زرین‌پال (صدم درصد)", null, 0, 10000, "P7"],
+  ["gateway.zarinpal.fee_cap_rial", "int_rial", "global", "سقف کارمزد زرین‌پال (ریال)", null, 0, null, "P7"],
+  ["gateway.zarinpal.settlement_days", "int", "global", "دوره‌ی تسویه‌ی زرین‌پال (روز کاری)", null, 0, 30, "G4"],
+  ["sms.payment_link_enabled", "bool", "global", "پیامک لینک پرداخت (فقط نمایش؛ خاموش و دست‌نخورده)", null, null, null, "-", "notification_settings"],
+  ["finance.accountant_role", "role", "global", "نقش حسابدار", null, null, null, "G5"],
+  ["finance.approver_role", "role", "global", "نقش تأییدکننده‌ی سند", null, null, null, "G5"],
+];
+
+/** Purposes a bank / cash / gateway account can serve (JSON array in treasury_accounts.purpose). */
+export const TREASURY_PURPOSES = ["customer_payouts", "supplier_receipts", "fee_receipts", "commission_payouts", "gateway_settlement", "petty_cash", "owner_transfers", "general"] as const;
+
+const NV = "NEW.value";
+export const FINANCE_DDL = `
+CREATE TABLE IF NOT EXISTS finance_setting_keys (
+  key TEXT PRIMARY KEY CHECK(key GLOB '[a-z]*' AND length(key) <= 64),
+  value_type TEXT NOT NULL CHECK(value_type IN ('int_rial','int','bp','date','jalali_mmdd','enum','bool','role','text')),
+  allowed_values TEXT CHECK(allowed_values IS NULL OR (json_valid(allowed_values) AND json_type(allowed_values) = 'array')),
+  scope_type TEXT NOT NULL DEFAULT 'global' CHECK(scope_type IN ('global','loan_plan')),
+  min_value INTEGER, max_value INTEGER, title TEXT NOT NULL, used_by TEXT,
+  managed_elsewhere TEXT, created_at TEXT NOT NULL,
+  CHECK((value_type = 'enum') = (allowed_values IS NOT NULL)));
+
+CREATE TABLE IF NOT EXISTS finance_settings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  key TEXT NOT NULL REFERENCES finance_setting_keys(key),
+  scope_type TEXT NOT NULL DEFAULT 'global' CHECK(scope_type IN ('global','loan_plan')),
+  scope_id INTEGER,
+  value TEXT,
+  effective_from TEXT NOT NULL CHECK${DATE_OK("effective_from")},
+  changed_by_user_id INTEGER NOT NULL,
+  reason TEXT NOT NULL CHECK(length(trim(reason)) >= 3),
+  created_at TEXT NOT NULL,
+  CHECK((scope_type = 'global') = (scope_id IS NULL)));
+CREATE INDEX IF NOT EXISTS idx_fin_settings_asof ON finance_settings(key, scope_type, scope_id, effective_from, id);
+
+CREATE TABLE IF NOT EXISTS finance_settings_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  setting_id INTEGER NOT NULL UNIQUE REFERENCES finance_settings(id),
+  key TEXT NOT NULL, scope_type TEXT NOT NULL, scope_id INTEGER,
+  old_value TEXT, new_value TEXT, effective_from TEXT NOT NULL,
+  changed_by_user_id INTEGER NOT NULL, reason TEXT NOT NULL, created_at TEXT NOT NULL);
+
+CREATE TRIGGER IF NOT EXISTS finance_keys_guard BEFORE UPDATE ON finance_setting_keys
+WHEN EXISTS (SELECT 1 FROM finance_settings s WHERE s.key = OLD.key)
+  AND (NEW.key IS NOT OLD.key OR NEW.value_type IS NOT OLD.value_type OR NEW.scope_type IS NOT OLD.scope_type)
+BEGIN SELECT RAISE(ABORT, 'finance_setting_key_in_use'); END;
+CREATE TRIGGER IF NOT EXISTS finance_keys_no_delete BEFORE DELETE ON finance_setting_keys BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
+
+CREATE TRIGGER IF NOT EXISTS finance_settings_validate BEFORE INSERT ON finance_settings
+BEGIN
+  SELECT RAISE(ABORT, 'finance_setting_unknown_key') WHERE NOT EXISTS (SELECT 1 FROM finance_setting_keys k WHERE k.key = NEW.key);
+  SELECT RAISE(ABORT, 'finance_setting_managed_elsewhere') FROM finance_setting_keys k WHERE k.key = NEW.key AND k.managed_elsewhere IS NOT NULL;
+  SELECT RAISE(ABORT, 'finance_setting_scope') FROM finance_setting_keys k WHERE k.key = NEW.key AND k.scope_type <> NEW.scope_type;
+  SELECT RAISE(ABORT, 'finance_setting_invalid_value') FROM finance_setting_keys k WHERE k.key = NEW.key AND ${NV} IS NOT NULL AND NOT (
+    CASE k.value_type
+      WHEN 'int_rial' THEN ${NV} GLOB '[0-9]*' AND ${NV} NOT GLOB '*[^0-9]*' AND length(${NV}) <= 15
+      WHEN 'int' THEN ${NV} GLOB '[0-9]*' AND ${NV} NOT GLOB '*[^0-9]*' AND length(${NV}) <= 9
+      WHEN 'bp' THEN ${NV} GLOB '[0-9]*' AND ${NV} NOT GLOB '*[^0-9]*' AND length(${NV}) <= 5
+      WHEN 'date' THEN ${DATE_OK(NV)} AND length(${NV}) = 10
+      WHEN 'jalali_mmdd' THEN ${NV} GLOB '[0-1][0-9]-[0-3][0-9]' AND CAST(substr(${NV},1,2) AS INTEGER) BETWEEN 1 AND 12 AND CAST(substr(${NV},4,2) AS INTEGER) BETWEEN 1 AND 31
+      WHEN 'enum' THEN EXISTS (SELECT 1 FROM json_each(k.allowed_values) j WHERE j.value = ${NV})
+      WHEN 'bool' THEN ${NV} IN ('0','1')
+      WHEN 'role' THEN ${NV} GLOB '[a-z]*' AND ${NV} NOT GLOB '*[^a-z0-9_-]*' AND length(${NV}) <= 40
+      ELSE length(trim(${NV})) > 0 END
+    AND (k.value_type NOT IN ('int_rial','int','bp') OR ((k.min_value IS NULL OR CAST(${NV} AS INTEGER) >= k.min_value) AND (k.max_value IS NULL OR CAST(${NV} AS INTEGER) <= k.max_value))));
+  SELECT RAISE(ABORT, 'gl_period_locked') FROM gl_fiscal_years f
+    WHERE NEW.effective_from BETWEEN f.start_date AND f.end_date AND (f.status = 'closed' OR (f.locked_until IS NOT NULL AND NEW.effective_from <= f.locked_until));
+END;
+CREATE TRIGGER IF NOT EXISTS finance_settings_log_insert AFTER INSERT ON finance_settings
+BEGIN
+  INSERT INTO finance_settings_log(setting_id,key,scope_type,scope_id,old_value,new_value,effective_from,changed_by_user_id,reason,created_at)
+  VALUES(NEW.id, NEW.key, NEW.scope_type, NEW.scope_id,
+    (SELECT p.value FROM finance_settings p WHERE p.key = NEW.key AND p.scope_type = NEW.scope_type AND p.scope_id IS NEW.scope_id
+       AND p.id <> NEW.id AND p.effective_from <= NEW.effective_from ORDER BY p.effective_from DESC, p.id DESC LIMIT 1),
+    NEW.value, NEW.effective_from, NEW.changed_by_user_id, NEW.reason, NEW.created_at);
+END;
+CREATE TRIGGER IF NOT EXISTS finance_settings_no_update BEFORE UPDATE ON finance_settings BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
+CREATE TRIGGER IF NOT EXISTS finance_settings_no_delete BEFORE DELETE ON finance_settings BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
+CREATE TRIGGER IF NOT EXISTS finance_log_no_update BEFORE UPDATE ON finance_settings_log BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
+CREATE TRIGGER IF NOT EXISTS finance_log_no_delete BEFORE DELETE ON finance_settings_log BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
+
+CREATE TABLE IF NOT EXISTS gl_opening_balance_sets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  as_of_date TEXT NOT NULL CHECK${DATE_OK("as_of_date")},
+  supersedes_set_id INTEGER UNIQUE REFERENCES gl_opening_balance_sets(id),
+  entered_by_user_id INTEGER NOT NULL, reason TEXT NOT NULL CHECK(length(trim(reason)) >= 3),
+  approved_by_user_id INTEGER, approved_at TEXT,
+  voucher_id INTEGER UNIQUE REFERENCES gl_vouchers(id),
+  created_at TEXT NOT NULL,
+  CHECK(approved_by_user_id IS NULL OR approved_by_user_id <> entered_by_user_id),
+  CHECK((approved_by_user_id IS NULL) = (approved_at IS NULL)),
+  CHECK(voucher_id IS NULL OR approved_by_user_id IS NOT NULL));
+CREATE TABLE IF NOT EXISTS gl_opening_balance_lines (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  set_id INTEGER NOT NULL REFERENCES gl_opening_balance_sets(id),
+  account_id INTEGER NOT NULL REFERENCES gl_accounts(id),
+  tafsili_id INTEGER REFERENCES gl_tafsili(id),
+  treasury_account_id INTEGER REFERENCES treasury_accounts(id),
+  ${INT_RIAL("debit_rial", ">= 0")} DEFAULT 0,
+  ${INT_RIAL("credit_rial", ">= 0")} DEFAULT 0,
+  note TEXT, created_at TEXT NOT NULL,
+  CHECK((debit_rial > 0) + (credit_rial > 0) = 1));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_gl_opening_line_unique ON gl_opening_balance_lines(set_id, account_id, IFNULL(tafsili_id, 0), IFNULL(treasury_account_id, 0));
+CREATE TRIGGER IF NOT EXISTS gl_opening_set_guard BEFORE UPDATE ON gl_opening_balance_sets
+BEGIN
+  SELECT RAISE(ABORT, 'gl_append_only') WHERE NEW.id IS NOT OLD.id OR NEW.as_of_date IS NOT OLD.as_of_date OR NEW.supersedes_set_id IS NOT OLD.supersedes_set_id
+    OR NEW.entered_by_user_id IS NOT OLD.entered_by_user_id OR NEW.reason IS NOT OLD.reason OR NEW.created_at IS NOT OLD.created_at
+    OR (OLD.approved_by_user_id IS NOT NULL AND (NEW.approved_by_user_id IS NOT OLD.approved_by_user_id OR NEW.approved_at IS NOT OLD.approved_at))
+    OR (OLD.voucher_id IS NOT NULL AND NEW.voucher_id IS NOT OLD.voucher_id);
+  SELECT RAISE(ABORT, 'gl_opening_unbalanced') WHERE OLD.approved_by_user_id IS NULL AND NEW.approved_by_user_id IS NOT NULL AND NOT (
+    (SELECT count(*) FROM gl_opening_balance_lines l WHERE l.set_id = OLD.id) >= 2
+    AND (SELECT COALESCE(SUM(debit_rial), 0) FROM gl_opening_balance_lines l WHERE l.set_id = OLD.id) = (SELECT COALESCE(SUM(credit_rial), 0) FROM gl_opening_balance_lines l WHERE l.set_id = OLD.id));
+END;
+CREATE TRIGGER IF NOT EXISTS gl_opening_set_no_delete BEFORE DELETE ON gl_opening_balance_sets BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
+CREATE TRIGGER IF NOT EXISTS gl_opening_lines_after_approval BEFORE INSERT ON gl_opening_balance_lines
+WHEN EXISTS (SELECT 1 FROM gl_opening_balance_sets s WHERE s.id = NEW.set_id AND s.approved_by_user_id IS NOT NULL)
+BEGIN SELECT RAISE(ABORT, 'gl_opening_set_approved'); END;
+CREATE TRIGGER IF NOT EXISTS gl_opening_lines_postable BEFORE INSERT ON gl_opening_balance_lines
+WHEN NOT EXISTS (SELECT 1 FROM gl_accounts a WHERE a.id = NEW.account_id AND a.postable = 1 AND a.active = 1)
+BEGIN SELECT RAISE(ABORT, 'gl_account_not_postable'); END;
+CREATE TRIGGER IF NOT EXISTS gl_opening_lines_no_update BEFORE UPDATE ON gl_opening_balance_lines BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
+CREATE TRIGGER IF NOT EXISTS gl_opening_lines_no_delete BEFORE DELETE ON gl_opening_balance_lines BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
+
+CREATE TABLE IF NOT EXISTS payment_order_prior_payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  payment_order_id INTEGER NOT NULL,
+  paid_date TEXT NOT NULL CHECK${DATE_OK("paid_date")},
+  tracking_no TEXT NOT NULL CHECK(length(trim(tracking_no)) BETWEEN 4 AND 64),
+  ${INT_RIAL("amount_rial", "> 0")},
+  treasury_account_id INTEGER REFERENCES treasury_accounts(id),
+  receipt_filename TEXT NOT NULL CHECK(length(trim(receipt_filename)) > 0),
+  receipt_mime TEXT NOT NULL CHECK(receipt_mime IN ('image/jpeg','image/png','image/webp','application/pdf')),
+  receipt_sha256 TEXT NOT NULL CHECK(length(receipt_sha256) = 64 AND receipt_sha256 NOT GLOB '*[^0-9a-f]*'),
+  entered_by_user_id INTEGER NOT NULL, reason TEXT NOT NULL CHECK(length(trim(reason)) >= 3),
+  gl_voucher_id INTEGER UNIQUE REFERENCES gl_vouchers(id),
+  created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_prior_pay_order ON payment_order_prior_payments(payment_order_id);
+CREATE TABLE IF NOT EXISTS payment_order_prior_payment_voids (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  prior_payment_id INTEGER NOT NULL UNIQUE REFERENCES payment_order_prior_payments(id),
+  voided_by_user_id INTEGER NOT NULL, reason TEXT NOT NULL CHECK(length(trim(reason)) >= 3), created_at TEXT NOT NULL);
+CREATE TRIGGER IF NOT EXISTS prior_pay_single BEFORE INSERT ON payment_order_prior_payments
+WHEN EXISTS (SELECT 1 FROM payment_order_prior_payments p WHERE p.payment_order_id = NEW.payment_order_id
+  AND NOT EXISTS (SELECT 1 FROM payment_order_prior_payment_voids v WHERE v.prior_payment_id = p.id))
+BEGIN SELECT RAISE(ABORT, 'prior_payment_exists'); END;
+CREATE TRIGGER IF NOT EXISTS prior_pay_guard BEFORE UPDATE ON payment_order_prior_payments
+WHEN NEW.id IS NOT OLD.id OR NEW.payment_order_id IS NOT OLD.payment_order_id OR NEW.paid_date IS NOT OLD.paid_date OR NEW.tracking_no IS NOT OLD.tracking_no
+  OR NEW.amount_rial IS NOT OLD.amount_rial OR NEW.treasury_account_id IS NOT OLD.treasury_account_id OR NEW.receipt_filename IS NOT OLD.receipt_filename
+  OR NEW.receipt_mime IS NOT OLD.receipt_mime OR NEW.receipt_sha256 IS NOT OLD.receipt_sha256 OR NEW.entered_by_user_id IS NOT OLD.entered_by_user_id
+  OR NEW.reason IS NOT OLD.reason OR NEW.created_at IS NOT OLD.created_at OR (OLD.gl_voucher_id IS NOT NULL AND NEW.gl_voucher_id IS NOT OLD.gl_voucher_id)
+BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
+CREATE TRIGGER IF NOT EXISTS prior_pay_no_delete BEFORE DELETE ON payment_order_prior_payments BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
+CREATE TRIGGER IF NOT EXISTS prior_pay_void_no_update BEFORE UPDATE ON payment_order_prior_payment_voids BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
+CREATE TRIGGER IF NOT EXISTS prior_pay_void_no_delete BEFORE DELETE ON payment_order_prior_payment_voids BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
+`;
+
+const PURPOSE_OK = (c: string) => `(${c} IS NOT NULL AND json_valid(${c}) AND json_type(${c}) = 'array' AND json_array_length(${c}) >= 1
+  AND NOT EXISTS (SELECT 1 FROM json_each(${c}) j WHERE j.value NOT IN (${TREASURY_PURPOSES.map((p) => `'${p}'`).join(",")})))`;
+const SHEBA_OK = (c: string) => `(${c} GLOB 'IR[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]')`;
+/** Runs after treasury_accounts has its sheba/purpose columns (added by ALTER on databases created by v1). */
+const TREASURY_RULES_DDL = `
+CREATE TRIGGER IF NOT EXISTS treasury_rules_insert BEFORE INSERT ON treasury_accounts
+BEGIN
+  SELECT RAISE(ABORT, 'treasury_cash_box_no_sheba') WHERE NEW.kind = 'cash_box' AND NEW.sheba IS NOT NULL;
+  SELECT RAISE(ABORT, 'treasury_bank_sheba_required') WHERE NEW.kind = 'bank' AND (NEW.sheba IS NULL OR NOT ${SHEBA_OK("NEW.sheba")});
+  SELECT RAISE(ABORT, 'treasury_sheba_invalid') WHERE NEW.kind = 'gateway' AND NEW.sheba IS NOT NULL AND NOT ${SHEBA_OK("NEW.sheba")};
+  SELECT RAISE(ABORT, 'treasury_purpose_invalid') WHERE NOT ${PURPOSE_OK("NEW.purpose")};
+END;
+CREATE TRIGGER IF NOT EXISTS treasury_rules_update BEFORE UPDATE OF kind, sheba, purpose ON treasury_accounts
+BEGIN
+  SELECT RAISE(ABORT, 'treasury_cash_box_no_sheba') WHERE NEW.kind = 'cash_box' AND NEW.sheba IS NOT NULL;
+  SELECT RAISE(ABORT, 'treasury_bank_sheba_required') WHERE NEW.kind = 'bank' AND (NEW.sheba IS NULL OR NOT ${SHEBA_OK("NEW.sheba")});
+  SELECT RAISE(ABORT, 'treasury_sheba_invalid') WHERE NEW.kind = 'gateway' AND NEW.sheba IS NOT NULL AND NOT ${SHEBA_OK("NEW.sheba")};
+  SELECT RAISE(ABORT, 'treasury_purpose_invalid') WHERE NOT ${PURPOSE_OK("NEW.purpose")};
+END;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_treasury_sheba ON treasury_accounts(sheba) WHERE sheba IS NOT NULL;
+`;
+
+export const FINANCE_TABLES = [
+  "finance_setting_keys", "finance_settings", "finance_settings_log",
+  "gl_opening_balance_sets", "gl_opening_balance_lines",
+  "payment_order_prior_payments", "payment_order_prior_payment_voids",
+] as const;
+
+function ensureFinanceInputs(db: DatabaseSync, nowIso: string): void {
+  const cols = new Set((db.prepare("PRAGMA table_info(treasury_accounts)").all() as Array<{ name: string }>).map((c) => c.name));
+  if (!cols.has("sheba")) db.exec("ALTER TABLE treasury_accounts ADD COLUMN sheba TEXT");
+  if (!cols.has("purpose")) db.exec("ALTER TABLE treasury_accounts ADD COLUMN purpose TEXT");
+  if (!cols.has("purpose_note")) db.exec("ALTER TABLE treasury_accounts ADD COLUMN purpose_note TEXT");
+  db.exec(FINANCE_DDL);
+  db.exec(TREASURY_RULES_DDL);
+  const key = db.prepare(`INSERT OR IGNORE INTO finance_setting_keys(key,value_type,allowed_values,scope_type,min_value,max_value,title,used_by,managed_elsewhere,created_at)
+    VALUES(?,?,?,?,?,?,?,?,?,?)`);
+  for (const [k, type, scope, title, allowed, min, max, usedBy, elsewhere] of FINANCE_SETTING_KEYS)
+    key.run(k, type, allowed ? JSON.stringify(allowed) : null, scope, min, max, title, usedBy, elsewhere ?? null, nowIso);
+  // Approved title for 6203 (title edits are allowed; identity is not). Only if still the v1 seed text.
+  db.prepare("UPDATE gl_accounts SET title='اختلاف گرد کردن' WHERE code='6203' AND title='اختلاف گرد کردن (ریال)'").run();
+  db.prepare("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(?,?)").run(FINANCE_MIGRATION, nowIso);
+}
+
+/**
+ * The value in effect for `key` on `eventDate` (YYYY-MM-DD): the latest effective_from <= eventDate,
+ * ties broken by the later row. null = never set (or explicitly unset) -> callers must not post and
+ * should raise a gl_exceptions row instead of guessing a default.
+ */
+export function financeSettingAsOf(db: DatabaseSync, key: string, eventDate: string, scope: { type: "global" } | { type: "loan_plan"; id: number } = { type: "global" }): string | null {
+  const row = db.prepare(`SELECT value FROM finance_settings WHERE key=? AND scope_type=? AND scope_id IS ? AND effective_from <= ?
+    ORDER BY effective_from DESC, id DESC LIMIT 1`).get(key, scope.type, scope.type === "global" ? null : scope.id, eventDate) as { value: string | null } | undefined;
+  return row?.value ?? null;
+}
+
 /** Idempotent. Safe to call on every start. All-or-nothing via a SAVEPOINT (works inside or outside a transaction). */
 export function ensureLedgerSchema(db: DatabaseSync, nowIso: string = new Date().toISOString()): void {
   db.exec("SAVEPOINT gl_ensure");
@@ -309,6 +545,7 @@ export function ensureLedgerSchema(db: DatabaseSync, nowIso: string = new Date()
       VALUES(?,?,'moein',(SELECT id FROM gl_accounts WHERE code=?),?,?,?,1,?,?,?)`);
     for (const [code, title, cat, nature, tf, active, note] of MOEIN) moein.run(code, title, code.slice(0, 2), cat, nature, tf, active, note ?? null, nowIso);
     db.prepare("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(?,?)").run(LEDGER_MIGRATION, nowIso);
+    ensureFinanceInputs(db, nowIso);
     db.exec("RELEASE gl_ensure");
   } catch (error) {
     db.exec("ROLLBACK TO gl_ensure");

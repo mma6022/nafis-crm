@@ -99,8 +99,8 @@ const all = (db, sql, ...p) => db.prepare(sql).all(...p);
   db.prepare("update gl_accounts set title=title where code='1103'").run(); ok(true, "title edit allowed");
   throwsCode(() => db.prepare("delete from gl_accounts where code='6209'").run(), "gl_account_immutable");
   // treasury + statements + reconciliation
-  db.prepare("insert into treasury_accounts(kind,code,title,created_at) values('bank','BK01','بانک نمونه',?)").run(NOW);
-  throwsCode(() => db.prepare("insert into treasury_accounts(kind,code,title,finance_bank_account_id,created_at) values('cash_box','CB01','صندوق',3,?)").run(NOW), "CHECK");
+  db.prepare("insert into treasury_accounts(kind,code,title,sheba,purpose,created_at) values('bank','BK01','بانک نمونه','IR000000000000000000000001','[\"general\"]',?)").run(NOW);
+  throwsCode(() => db.prepare("insert into treasury_accounts(kind,code,title,finance_bank_account_id,purpose,created_at) values('cash_box','CB01','صندوق',3,'[\"petty_cash\"]',?)").run(NOW), "CHECK");
   const t = one(db, "select id from treasury_accounts").id;
   const S = (h, a) => db.prepare("insert into bank_statement_lines(treasury_account_id,import_batch,txn_date,amount_rial,row_hash,created_at) values(?,?,?,?,?,?)").run(t, "b1", "2026-10-23", a, h, NOW).lastInsertRowid;
   const s1 = S("h1", 90000000);
@@ -116,17 +116,149 @@ const all = (db, sql, ...p) => db.prepare(sql).all(...p);
   ok(one(db, "pragma integrity_check").integrity_check === "ok" && all(db, "pragma foreign_key_check").length === 0, "integrity after tests");
 }
 
+// 4. v1b: admin-entered finance inputs (effective-dated, append-only), treasury SHEBA/purpose, opening balances, prior payments
+{
+  const db = fresh();
+  for (const t of L.FINANCE_TABLES) ok(one(db, "select 1 x from sqlite_master where type='table' and name=?", t), `table ${t}`);
+  ok(one(db, "select count(*) n from schema_migrations where version=?", L.FINANCE_MIGRATION).n === 1, "v1b marker");
+  ok(one(db, "select count(*) n from finance_setting_keys").n === L.FINANCE_SETTING_KEYS.length, "key catalog seeded");
+  ok(one(db, "select count(*) n from finance_settings").n === 0, "no business value hard-coded (admin enters them)");
+  ok(one(db, "select title from gl_accounts where code='6203'").title === "اختلاف گرد کردن", "6203 approved title");
+  ok(L.readGlFlags(db) && Object.values(L.readGlFlags(db)).every(v => v === false), "flags still OFF");
+  const SET = (key, value, from, o = {}) => db.prepare("insert into finance_settings(key,scope_type,scope_id,value,effective_from,changed_by_user_id,reason,created_at) values(?,?,?,?,?,?,?,?)")
+    .run(key, o.scope ?? "global", o.id ?? null, value, from, ("by" in o ? o.by : 7), o.reason ?? "ورود مدیر", NOW).lastInsertRowid;
+  // as-of resolution
+  ok(L.financeSettingAsOf(db, "gl.opening_base_date", "2026-10-26") === null, "unset -> null (no default)");
+  SET("gl.opening_base_date", "2026-10-22", "2026-10-22");
+  ok(L.financeSettingAsOf(db, "gl.opening_base_date", "2026-10-26") === "2026-10-22", "opening base date from a setting");
+  SET("tax.vat.rate_bp", "900", "2026-01-01"); SET("tax.vat.rate_bp", "1000", "2026-11-01");
+  ok(L.financeSettingAsOf(db, "tax.vat.rate_bp", "2026-10-31") === "900", "as of event date: old rate");
+  ok(L.financeSettingAsOf(db, "tax.vat.rate_bp", "2026-11-01") === "1000", "as of event date: new rate");
+  ok(L.financeSettingAsOf(db, "tax.vat.rate_bp", "2025-12-31") === null, "before first effective_from: null");
+  SET("tax.vat.rate_bp", "1000", "2026-01-01", { reason: "اصلاح ورود اشتباه" });
+  ok(L.financeSettingAsOf(db, "tax.vat.rate_bp", "2026-06-01") === "1000", "same-date correction: later row wins");
+  ok(one(db, "select count(*) n from finance_settings where key='tax.vat.rate_bp'").n === 3, "corrections are new rows");
+  const lg = all(db, "select old_value,new_value from finance_settings_log where key='tax.vat.rate_bp' order by id");
+  ok(lg.length === 3 && lg[0].old_value === null && lg[1].old_value === "900" && lg[2].old_value === "900" && lg[2].new_value === "1000", "change log old -> new");
+  throwsCode(() => db.prepare("update finance_settings set value='0'").run(), "gl_append_only");
+  throwsCode(() => db.prepare("delete from finance_settings").run(), "gl_append_only");
+  throwsCode(() => db.prepare("update finance_settings_log set reason='x'").run(), "gl_append_only");
+  throwsCode(() => db.prepare("delete from finance_settings_log").run(), "gl_append_only");
+  // per-type validation
+  throwsCode(() => SET("tax.vat.rate_bp", "10001", "2026-01-01"), "finance_setting_invalid_value");
+  throwsCode(() => SET("tax.vat.rate_bp", "9.5", "2026-01-01"), "finance_setting_invalid_value");
+  throwsCode(() => SET("fee.inquiry.amount_rial", "-5", "2026-01-01"), "finance_setting_invalid_value");
+  ok(SET("fee.inquiry.amount_rial", "1500000", "2026-01-01") > 0, "rial amount accepted");
+  throwsCode(() => SET("fee.inquiry.payer", "bank", "2026-01-01"), "finance_setting_invalid_value");
+  ok(SET("fee.inquiry.payer", "customer", "2026-01-01") > 0, "enum accepted");
+  throwsCode(() => SET("gl.ledger_start_date", "1405-08-01x", "2026-01-01"), "finance_setting_invalid_value");
+  throwsCode(() => SET("gl.fiscal_year_start_jalali", "13-01", "2026-01-01"), "finance_setting_invalid_value");
+  ok(SET("gl.fiscal_year_start_jalali", "01-01", "2026-01-01") > 0, "jalali mm-dd accepted");
+  throwsCode(() => SET("tax.vat.applies", "yes", "2026-01-01"), "finance_setting_invalid_value");
+  throwsCode(() => SET("finance.approver_role", "Admin Role", "2026-01-01"), "finance_setting_invalid_value");
+  throwsCode(() => SET("no.such.key", "1", "2026-01-01"), "finance_setting_unknown_key");
+  throwsCode(() => SET("sms.payment_link_enabled", "1", "2026-01-01"), "finance_setting_managed_elsewhere");
+  throwsCode(() => SET("tax.vat.rate_bp", "900", "2026-01-01", { reason: "  " }), "CHECK");
+  throwsCode(() => SET("tax.vat.rate_bp", "900", "2026-01-01", { by: null }), "NOT NULL");
+  throwsCode(() => SET("tax.vat.rate_bp", "900", "2026/01/01"), "CHECK");
+  // per-plan scope
+  throwsCode(() => SET("plan.supplier_deposit_method", "gross", "2026-01-01"), "finance_setting_scope");
+  throwsCode(() => SET("tax.vat.rate_bp", "900", "2026-01-01", { scope: "loan_plan", id: 3 }), "finance_setting_scope");
+  SET("plan.supplier_deposit_method", "gross", "2026-01-01", { scope: "loan_plan", id: 3 });
+  SET("plan.supplier_deposit_method", "net_of_fees", "2026-01-01", { scope: "loan_plan", id: 4 });
+  ok(L.financeSettingAsOf(db, "plan.supplier_deposit_method", "2026-10-26", { type: "loan_plan", id: 3 }) === "gross"
+    && L.financeSettingAsOf(db, "plan.supplier_deposit_method", "2026-10-26", { type: "loan_plan", id: 4 }) === "net_of_fees", "per-plan values");
+  ok(L.financeSettingAsOf(db, "plan.supplier_deposit_method", "2026-10-26") === null, "no global fallback for per-plan key");
+  // key catalog guarded once in use; no retro-change into a locked period
+  throwsCode(() => db.prepare("update finance_setting_keys set value_type='int' where key='tax.vat.rate_bp'").run(), "finance_setting_key_in_use");
+  throwsCode(() => db.prepare("delete from finance_setting_keys where key='gl.ledger_start_date'").run(), "gl_append_only");
+  db.prepare("insert into gl_fiscal_years(title,start_date,end_date,locked_until,created_at) values('1405','2026-03-21','2027-03-20','2026-09-30',?)").run(NOW);
+  throwsCode(() => SET("tax.vat.rate_bp", "800", "2026-09-01"), "gl_period_locked");
+  ok(SET("tax.vat.rate_bp", "800", "2026-10-01") > 0, "change after lock accepted");
+  // treasury: SHEBA + purpose
+  const T = (kind, code, sheba, purpose = '["general"]') => db.prepare("insert into treasury_accounts(kind,code,title,sheba,purpose,created_at) values(?,?,?,?,?,?)").run(kind, code, "نمونه", sheba, purpose, NOW).lastInsertRowid;
+  throwsCode(() => T("bank", "BK01", null), "treasury_bank_sheba_required");
+  throwsCode(() => T("bank", "BK01", "IR12"), "treasury_bank_sheba_required");
+  throwsCode(() => T("bank", "BK01", "ir000000000000000000000001"), "treasury_bank_sheba_required");
+  const bk = T("bank", "BK01", "IR000000000000000000000001", '["customer_payouts","supplier_receipts"]');
+  throwsCode(() => T("bank", "BK02", "IR000000000000000000000001"), "UNIQUE");
+  throwsCode(() => T("cash_box", "CB01", "IR000000000000000000000002", '["petty_cash"]'), "treasury_cash_box_no_sheba");
+  const cb = T("cash_box", "CB01", null, '["petty_cash"]');
+  throwsCode(() => T("bank", "BK03", "IR000000000000000000000003", '[]'), "treasury_purpose_invalid");
+  throwsCode(() => T("bank", "BK03", "IR000000000000000000000003", '["loans"]'), "treasury_purpose_invalid");
+  throwsCode(() => T("bank", "BK03", "IR000000000000000000000003", null), "treasury_purpose_invalid");
+  throwsCode(() => db.prepare("update treasury_accounts set sheba=NULL where id=?").run(bk), "treasury_bank_sheba_required");
+  throwsCode(() => db.prepare("update treasury_accounts set sheba='IR000000000000000000000009' where id=?").run(cb), "treasury_cash_box_no_sheba");
+  throwsCode(() => db.prepare("update treasury_accounts set kind='bank' where id=?").run(cb), "treasury_bank_sheba_required");
+  db.prepare("update treasury_accounts set title='نمونه ۲' where id=?").run(bk); ok(true, "plain title edit allowed");
+  // opening balances: control-account totals, integer rial, maker/checker, balanced, append-only
+  const os = db.prepare("insert into gl_opening_balance_sets(as_of_date,entered_by_user_id,reason,created_at) values('2026-10-22',7,'افتتاحیه',?)").run(NOW).lastInsertRowid;
+  const acc = (c) => one(db, "select id from gl_accounts where code=?", c).id;
+  const OL = (code, d, c, tr = null) => db.prepare("insert into gl_opening_balance_lines(set_id,account_id,treasury_account_id,debit_rial,credit_rial,created_at) values(?,?,?,?,?,?)").run(os, acc(code), tr, d, c, NOW).lastInsertRowid;
+  OL("1102", 50000000, 0, bk);
+  throwsCode(() => OL("1102", 1, 0, bk), "UNIQUE");
+  throwsCode(() => OL("3104", 10.5, 0), "CHECK");
+  throwsCode(() => OL("3104", 5, 5), "CHECK");
+  throwsCode(() => OL("2301", 5, 0), "gl_account_not_postable");
+  throwsCode(() => db.prepare("update gl_opening_balance_sets set approved_by_user_id=8, approved_at=? where id=?").run(NOW, os), "gl_opening_unbalanced");
+  OL("3104", 0, 50000000);
+  throwsCode(() => db.prepare("update gl_opening_balance_sets set approved_by_user_id=7, approved_at=? where id=?").run(NOW, os), "CHECK");
+  db.prepare("update gl_opening_balance_sets set approved_by_user_id=8, approved_at=? where id=?").run(NOW, os); ok(true, "balanced set approved by a second user");
+  throwsCode(() => OL("1101", 1, 0), "gl_opening_set_approved");
+  throwsCode(() => db.prepare("update gl_opening_balance_sets set as_of_date='2026-10-21' where id=?").run(os), "gl_append_only");
+  throwsCode(() => db.prepare("update gl_opening_balance_sets set approved_by_user_id=9 where id=?").run(os), "gl_append_only");
+  throwsCode(() => db.prepare("update gl_opening_balance_lines set debit_rial=1").run(), "gl_append_only");
+  throwsCode(() => db.prepare("delete from gl_opening_balance_sets").run(), "gl_append_only");
+  // prior payments («قبلاً پرداخت شده»)
+  const SHA = "a".repeat(64);
+  const PP = (order, o = {}) => db.prepare("insert into payment_order_prior_payments(payment_order_id,paid_date,tracking_no,amount_rial,treasury_account_id,receipt_filename,receipt_mime,receipt_sha256,entered_by_user_id,reason,created_at) values(?,?,?,?,?,?,?,?,?,?,?)")
+    .run(order, o.date ?? "2026-10-20", o.tr ?? "TRK-0001", o.amt ?? 120000000, bk, "r.jpg", o.mime ?? "image/jpeg", o.sha ?? SHA, 7, "پرداخت قبل از دفتر", NOW).lastInsertRowid;
+  const p1 = PP(9001);
+  throwsCode(() => PP(9001), "prior_payment_exists");
+  throwsCode(() => PP(9002, { tr: "12" }), "CHECK");
+  throwsCode(() => PP(9002, { amt: 0 }), "CHECK");
+  throwsCode(() => PP(9002, { amt: 12.5 }), "CHECK");
+  throwsCode(() => PP(9002, { sha: "xyz" }), "CHECK");
+  throwsCode(() => PP(9002, { mime: "text/html" }), "CHECK");
+  throwsCode(() => db.prepare("update payment_order_prior_payments set amount_rial=1 where id=?").run(p1), "gl_append_only");
+  throwsCode(() => db.prepare("delete from payment_order_prior_payments where id=?").run(p1), "gl_append_only");
+  db.prepare("insert into payment_order_prior_payment_voids(prior_payment_id,voided_by_user_id,reason,created_at) values(?,8,'ورود اشتباه',?)").run(p1, NOW);
+  ok(PP(9001, { tr: "TRK-0002" }) > 0, "re-entry after void");
+  throwsCode(() => db.prepare("delete from payment_order_prior_payment_voids").run(), "gl_append_only");
+  ok(one(db, "pragma integrity_check").integrity_check === "ok" && all(db, "pragma foreign_key_check").length === 0, "integrity after v1b tests");
+}
+
+// 5. upgrade path: a v1 database (as deployed in 20261026185844) gains v1b additively
+{
+  const db = new DatabaseSync(":memory:"); db.exec("PRAGMA foreign_keys=ON");
+  db.exec("CREATE TABLE schema_migrations (version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)");
+  db.exec(L.LEDGER_DDL);
+  db.prepare("insert into schema_migrations values(?,?)").run(L.LEDGER_MIGRATION, NOW);
+  db.prepare("insert into gl_accounts(code,title,level,category,nature,created_at) values('62','هزینه‌ها','kol','expense','debit',?)").run(NOW);
+  db.prepare("insert into gl_accounts(code,title,level,parent_id,category,nature,postable,created_at) values('6203','اختلاف گرد کردن (ریال)','moein',1,'expense','both',1,?)").run(NOW);
+  db.prepare("insert into treasury_accounts(kind,code,title,created_at) values('bank','BK09','قدیمی',?)").run(NOW);
+  L.ensureLedgerSchema(db, NOW); L.ensureLedgerSchema(db);
+  const cols = all(db, "pragma table_info(treasury_accounts)").map(c => c.name);
+  ok(["sheba", "purpose", "purpose_note"].every(c => cols.includes(c)), "v1 -> v1b: columns added");
+  ok(one(db, "select count(*) n from treasury_accounts where code='BK09'").n === 1, "v1 -> v1b: existing treasury row kept");
+  ok(one(db, "select title from gl_accounts where code='6203'").title === "اختلاف گرد کردن", "v1 -> v1b: 6203 title aligned");
+  ok(one(db, "select count(*) n from schema_migrations").n === 2, "v1 -> v1b: both markers");
+  ok(one(db, "select count(*) n from finance_settings").n === 0, "v1 -> v1b: no values");
+}
+
 // 3. optional: masked copy (opened from a scratch copy, never the source) — ensure twice + old tables untouched
 if (process.env.LEDGER_DB_COPY) {
   const db = new DatabaseSync(process.env.LEDGER_DB_COPY); db.exec("PRAGMA foreign_keys=ON");
-  const before = JSON.stringify(all(db, "select type,name,sql from sqlite_master where tbl_name not in (" + L.LEDGER_TABLES.map(t => `'${t}'`).join(",") + ") order by type,name"));
-  const counts = () => JSON.stringify(all(db, "select name from sqlite_master where type='table' and name not like 'gl_%' and name not like 'sqlite_%' and name not in ('treasury_accounts','bank_statement_lines','bank_reconciliation_matches','bank_reconciliation_unmatches','schema_migrations') order by name").map(r => [r.name, one(db, `select count(*) n from "${r.name}"`).n]));
+  const before = JSON.stringify(all(db, "select type,name,sql from sqlite_master where tbl_name not in (" + [...L.LEDGER_TABLES, ...L.FINANCE_TABLES].map(t => `'${t}'`).join(",") + ") order by type,name"));
+  const counts = () => JSON.stringify(all(db, "select name from sqlite_master where type='table' and name not like 'gl_%' and name not like 'finance_setting%' and name not like 'payment_order_prior%' and name not like 'sqlite_%' and name not in ('treasury_accounts','bank_statement_lines','bank_reconciliation_matches','bank_reconciliation_unmatches','schema_migrations') order by name").map(r => [r.name, one(db, `select count(*) n from "${r.name}"`).n]));
   const c0 = counts();
   L.ensureLedgerSchema(db); L.ensureLedgerSchema(db);
-  const after = JSON.stringify(all(db, "select type,name,sql from sqlite_master where tbl_name not in (" + L.LEDGER_TABLES.map(t => `'${t}'`).join(",") + ") order by type,name"));
+  const after = JSON.stringify(all(db, "select type,name,sql from sqlite_master where tbl_name not in (" + [...L.LEDGER_TABLES, ...L.FINANCE_TABLES].map(t => `'${t}'`).join(",") + ") order by type,name"));
   ok(before === after, "existing schema objects unchanged on the copy");
   ok(c0 === counts(), "existing row counts unchanged on the copy");
   ok(one(db, "pragma integrity_check").integrity_check === "ok", "copy integrity ok");
   ok(one(db, "select count(*) n from gl_accounts").n === 43, "copy seeded");
+  ok(one(db, "select count(*) n from schema_migrations where version=?", L.FINANCE_MIGRATION).n === 1, "copy v1b marker");
+  ok(one(db, "select count(*) n from finance_settings").n === 0 && one(db, "select count(*) n from finance_setting_keys").n === L.FINANCE_SETTING_KEYS.length, "copy: keys only, no values");
 }
 console.log(`ledger-schema fixture: ${pass} checks passed`);
