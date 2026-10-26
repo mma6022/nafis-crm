@@ -389,7 +389,7 @@ try {
       const myc = (await R(iss.somayeh, "GET", "/my-context")).j.today; assert.equal(myc.calls, 3); assert.equal(myc.answered, h2.answered); assert.equal(myc.fromSuggestionBox, null);
       assert.ok(/logged/.test(myc.definition));
       const cv = (await R(iss.somayeh, "GET", "/customers/100/calls")).j.items.find(x => x.id === 1);
-      assert.deepEqual(cv.loggedBy, { name: "حسنی", salespersonId: 3 }); assert.ok(!JSON.stringify(cv).includes("09121234567")); // staff name + id clear, phone masked
+      assert.deepEqual(cv.loggedBy, { name: "حسنی", currentName: "حسنی", salespersonId: 3 }); assert.ok(!JSON.stringify(cv).includes("09121234567")); // staff name + id clear, phone masked
       const mv = (await R(tk, "GET", "/customers/100/calls")).j.items.find(x => x.id === 1); assert.deepEqual(mv.loggedBy, cv.loggedBy); assert.ok(!JSON.stringify(mv).includes("09121234567"));
       db.exec("DELETE FROM call_logs WHERE id IN (940,941,942)");
       ok("calls: one shared definition (logger, not owner; hand-off rows excluded) in /my-context + manager; loggedBy = staff name");

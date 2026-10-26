@@ -437,7 +437,7 @@ export function createAssistants(deps: Deps) {
     if (dur == null && v?.started_at && v?.ended_at) { const d = Math.round((Date.parse(v.ended_at) - Date.parse(v.started_at)) / 1000); dur = Number.isFinite(d) && d >= 0 ? d : null; }
     const code = q?.call_result ?? v?.status ?? null;
     return { id: l.id, subject: l.subject, customerRequest: l.customer_request, expertNotes: l.expert_notes, createdAt: l.created_at,
-      loggedBy: { name: (q ? userName(q.actor_user_id) : null) ?? l.salesperson_name_snapshot ?? spName(l.salesperson_id), salespersonId: l.salesperson_id ?? null },
+      loggedBy: { name: (q ? userName(q.actor_user_id) : null) ?? l.salesperson_name_snapshot ?? spName(l.salesperson_id), currentName: spName(l.salesperson_id), salespersonId: l.salesperson_id ?? null },
       result: code == null ? null : { key: String(code), label: CALL_RESULT_FA[String(code)] ?? String(code) },
       durationSeconds: dur, direction: v?.direction ?? null, source: v ? "phone_system" : q ? "first_call_form" : "manual" };
   }
