@@ -127,7 +127,7 @@ export default function SalesReports() {
 
   return (
     <div className="tsr" dir="rtl" data-testid="page-sales-reports">
-      <div className="tsr-top"><BarChart3 size={22} aria-hidden /><h1>گزارش فروش<small>کل تیم</small></h1>
+      <div className="tsr-top"><span className="ttl"><BarChart3 size={18} aria-hidden />گزارش فروشِ کل تیم</span>
         <button type="button" className="tsr-btn ghost" style={{ marginInlineStart: 'auto' }} onClick={() => void q.refetch()} disabled={q.isFetching} data-testid="button-refresh"><RefreshCw size={16} aria-hidden />تازه‌سازی</button></div>
       <div className="tsr-fbar">
         <div className="tsr-seg" role="group" aria-label="بازه">{RANGES.map(([key, l]) => <button key={key} type="button" aria-pressed={range === key} onClick={() => setRange(key)} data-testid={`button-range-${key}`}>{l}</button>)}</div>
@@ -150,10 +150,10 @@ export default function SalesReports() {
         : r && k && flags ? <>
           <div className={`tsr-kpis${flags.overdueCard ? '' : ' five'}`} data-testid="kpis">
             <Kpi wide testId="kpi-deposited" title="واریز به مشتری" value={toman(k.deposited.current.payoutToman)} unit="تومان" sub={<div className="tsr-sub"><b>{fa(k.deposited.current.count)}</b> واریز</div>}
-              cmp={<><Delta cur={big(k.deposited.current.payoutToman)} prev={big(k.deposited.previous.payoutToman)} /><span>قبل: <b>{short(k.deposited.previous.payoutToman)}</b> · {fa(k.deposited.previous.count)} واریز</span></>} />
+              cmp={<><Delta cur={big(k.deposited.current.payoutToman)} prev={big(k.deposited.previous.payoutToman)} /><span>قبل: <b>{short(k.deposited.previous.payoutToman)}</b> تومان در {fa(k.deposited.previous.count)} واریز</span></>} />
             <Kpi wide testId="kpi-commission" title="پورسانت ثبت‌شده" value={toman(k.commission.current)} unit="تومان"
               sub={<div className={`tsr-sub${k.commission.noCommissionDeposits ? ' bad' : ''}`}>دستور پرداخت باز: <b>{fa(k.commission.openPaymentOrders)}</b> · واریز بدون پورسانت: <b>{fa(k.commission.noCommissionDeposits)}</b></div>}
-              cmp={<><Delta cur={big(k.commission.current)} prev={big(k.commission.previous)} /><span>قبل: <b>{short(k.commission.previous)}</b></span></>} />
+              cmp={<><Delta cur={big(k.commission.current)} prev={big(k.commission.previous)} /><span>قبل: <b>{short(k.commission.previous)}</b> تومان</span></>} />
             <Kpi testId="kpi-calls" title="تماس‌ها" value={fa(k.calls.current)} cmp={<><Delta cur={k.calls.current} prev={k.calls.previous} /><span>قبل: <b>{fa(k.calls.previous)}</b></span></>} />
             <Kpi testId="kpi-sent" title="ارسال به ثبت" value={fa(k.sentToRegistration.current)} cmp={<><Delta cur={k.sentToRegistration.current} prev={k.sentToRegistration.previous} /><span>قبل: <b>{fa(k.sentToRegistration.previous)}</b></span></>} />
             <Kpi testId="kpi-leads" title="سرنخ تازه" value={fa(k.leads.current)} sub={<div className={`tsr-sub${k.leads.siteLeadsNoCall ? ' bad' : ''}`}>سرنخ سایت بی‌تماس: <b>{fa(k.leads.siteLeadsNoCall)}</b></div>}
