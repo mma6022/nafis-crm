@@ -12,11 +12,11 @@ import './sales-assist.css';
 
 type User = { id: number; role: string; salespersonId?: number | null } | undefined;
 const PRI: Record<number, string> = { 1: 'p1', 2: 'p2', 3: 'p3' };
-const chipIcon: Record<SaChip['key'], ReactNode> = { site_lead: <Globe className="i" />, urgent: <Zap className="i" />, from_kazemi: <UserRoundCheck className="i" />, repeat: <Repeat className="i" /> };
-const chipCls: Record<SaChip['key'], string> = { site_lead: 'site', urgent: 'urg', from_kazemi: 'kz', repeat: 'rep' };
+const chipIcon: Record<SaChip['key'], ReactNode> = { site_lead: <Globe className="i" />, urgent: <Zap className="i" />, from_kazemi: <UserRoundCheck className="i" />, repeat: <Repeat className="i" />, p1_stale: <PhoneOff className="i" /> };
+const chipCls: Record<SaChip['key'], string> = { site_lead: 'site', urgent: 'urg', from_kazemi: 'kz', repeat: 'rep', p1_stale: 'p1s' };
 const reasonIcon = (k: string) => ({ site_lead: <Globe className="i" />, from_kazemi: <UserRoundCheck className="i" />, reminder: <Bell className="i" />, note: <CalendarClock className="i" />,
   urgent: <Zap className="i" />, repeat: <Repeat className="i" />, upgrade: <TrendingUp className="i" />, docs: <FileCheck2 className="i" />, grade: <Star className="i" />,
-  new_lead: <Sparkles className="i" />, no_call: <PhoneOff className="i" /> } as Record<string, ReactNode>)[k] ?? <Clock className="i" />;
+  new_lead: <Sparkles className="i" />, no_call: <PhoneOff className="i" />, p1_stale: <PhoneOff className="i" /> } as Record<string, ReactNode>)[k] ?? <Clock className="i" />;
 
 /** Keep cards under the finger: surviving ids keep their slot, vacated slots take the next ids in server order. */
 function reconcile(prev: number[], ids: number[]): number[] {
@@ -100,6 +100,7 @@ export function SalesAssistBox({ user, onCall }: { user: User; onCall: (customer
       <div className="tt">
         <h2>پیشنهاد دستیار فروش{!loading && items.length ? <span className="n">{faNum(items.length)} نفر</span> : null}</h2>
         <div className="meta">{meta}</div>
+        {!loading && data?.p1Quota && data.p1Quota.quota > 0 ? <div className="sa-q" data-testid="sales-assist-p1-quota">سهمیه‌ی امروز اولویت ۱ بی‌تماس: {data.p1Quota.remaining ? <><b>{faNum(data.p1Quota.remaining)}</b> از {faNum(data.p1Quota.quota)} مانده</> : 'تمام شد'}{data.p1Quota.red ? <span className="rd"> · {faNum(data.p1Quota.red)} نفر بیش از {faNum(data.p1Quota.redDays)} روز</span> : null}</div> : null}
       </div>
       {isAdmin && data?.previewable.length ? <select className="sa-sel" aria-label="پیش‌نمایش کارشناس" value={previewSp ?? ''} onChange={(e) => { setSlots([]); setPreviewSp(Number(e.target.value)); }} data-testid="sales-assist-preview">
         {data.previewable.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -116,7 +117,7 @@ export function SalesAssistBox({ user, onCall }: { user: User; onCall: (customer
           <div className="r1">{/* v7: the name opens the profile (same route as the customer list). A plain router link: no dismiss / impression / call handler — only a logged call removes the card. Ctrl/Cmd/Shift/middle-click are left to the browser (new tab). */}
             <Link href={`/customers/${it.customerId}`} className="nm nm-link" title={`باز کردن پرونده‌ی ${it.displayName}`} data-testid={`sales-assist-name-${it.customerId}`}>{it.displayName}</Link><CustomerIdBadge id={it.customerId} className="cid" testId={`sales-assist-id-${it.customerId}`} />
             {it.priority ? <span className={`sa-pri ${PRI[it.priority]}`}>اولویت {faNum(it.priority)}</span> : null}</div>
-          {it.chips.length ? <div className="tgs">{it.chips.slice(0, 3).map((c) => <span key={c.key} className={`tgx ${chipCls[c.key]}`}>{chipIcon[c.key]}{c.label}</span>)}</div> : null}
+          {it.chips.length ? <div className="tgs">{it.chips.slice(0, 3).map((c) => <span key={c.key} className={`tgx ${chipCls[c.key]}${c.tone === 'red' ? ' red' : ''}`} data-testid={c.key === 'p1_stale' ? `sales-assist-p1-${it.customerId}` : undefined}>{chipIcon[c.key]}{c.label}</span>)}</div> : null}
           <div className="why">{reasonIcon(it.reason.kind)}<span>{it.reason.text}</span></div>
           <div className="ac">
             <button type="button" className="sa-btn pri" disabled={preview} onClick={() => { launched.current = it; onCall(it.customerId); }} data-testid={`sales-assist-call-${it.customerId}`}><PhoneCall className="i" /> تماس و ثبت</button>

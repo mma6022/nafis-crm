@@ -139,6 +139,9 @@ export function ensureAssistantSchema(db: Db, nowIso = new Date().toISOString())
   // v8 manager thresholds (new keys only — notification_settings / team_sales_config are not touched).
   for (const [k, key] of Object.entries(MANAGER_SETTING_KEYS))
     db.prepare("INSERT OR IGNORE INTO assistant_settings(key,value,updated_at) VALUES(?,?,?)").run(key, String((MANAGER_DEFAULTS as any)[k]), nowIso);
+  // Task B: «پیشنهاد دستیار فروش» P1 daily quota + red threshold (new keys only, INSERT OR IGNORE).
+  db.prepare("INSERT OR IGNORE INTO assistant_settings(key,value,updated_at) VALUES('sales_assist_p1_quota','10',?)").run(nowIso);
+  db.prepare("INSERT OR IGNORE INTO assistant_settings(key,value,updated_at) VALUES('sales_assist_p1_red_days','7',?)").run(nowIso);
   for (const s of SEED) {
     if (db.prepare("SELECT 1 FROM assistants WHERE slug=?").get(s.slug)) continue;
     const u = s.salespersonId

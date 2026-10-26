@@ -6,7 +6,11 @@
  * Order (consistent with the customers list «اول لیست», lib/site-leads.ts topOfList):
  *   tier 3 = active site lead (unanswered website request, repeats included) in the list order,
  *   tier 2 = «از کاظمی» hand-off not called yet (overdue included) in the list order,
- *   tier 1 = everyone else by points (admin levels 0–10 scale the default points).
+ *   tier 1 = everyone else; inside tier 1 (Task B, 2026-10-26) the bands are:
+ *     overdue reminder  >  today's P1 quota, red (> sales_assist_p1_red_days without a call)  >  today's P1 quota  >  the rest by points.
+ *   «P1 بی‌تماس» reuses the manager definition (lib/assistant-manager.ts): priority 1 and the last real call (realCallSql), else
+ *   created_at, older than manager_p1_no_call_days (3). Today's quota = the sales_assist_p1_quota (10) oldest such customers as of
+ *   the start of the Tehran day (stable all day); a customer leaves it once called today. Trainees 5/19/20 have no list at all.
  * So a site lead inside its deadline ALWAYS ranks above any reminder, whatever the levels.
  * scoreForSalesperson() is the reusable base the per-expert assistant agents read; they may add explanation only.
  */
@@ -144,6 +148,41 @@ export function salesAssistSettingsMeta(): { updatedAt: string | null } {
   return { updatedAt: queryRow<{ updated_at: string }>("SELECT updated_at FROM sales_assist_settings WHERE id=1")?.updated_at ?? null };
 }
 
+/* ---------------- Task B: P1 quota settings (assistant_settings, INSERT OR IGNORE seed in lib/assistants.ts) ---------------- */
+export const P1_SETTING_KEYS = { quota: "sales_assist_p1_quota", redDays: "sales_assist_p1_red_days" } as const;
+export const P1_DEFAULTS = { quota: 10, redDays: 7 } as const;
+export const P1_LIMITS = { quota: [0, 50], redDays: [1, 60] } as const;
+export type P1Settings = { quota: number; redDays: number; noCallDays: number };
+const settingValue = (key: string): string | undefined =>
+  has("assistant_settings") ? queryRow<{ value: string }>("SELECT value FROM assistant_settings WHERE key=?", [key])?.value : undefined;
+/** noCallDays = manager_p1_no_call_days (same limits/default as readManagerSettings) — the one «P1 بی‌تماس» definition. */
+export function getP1Settings(): P1Settings {
+  const n = (key: string, [lo, hi]: readonly [number, number], d: number) => { const v = Number(settingValue(key)); return Number.isInteger(v) && v >= lo && v <= hi ? v : d; };
+  return { quota: n(P1_SETTING_KEYS.quota, P1_LIMITS.quota, P1_DEFAULTS.quota), redDays: n(P1_SETTING_KEYS.redDays, P1_LIMITS.redDays, P1_DEFAULTS.redDays),
+    noCallDays: n("manager_p1_no_call_days", [1, 60], 3) };
+}
+export function validateP1Settings(b: unknown): { ok: true; values: [string, string][] } | { ok: false; error: string } {
+  if (!b || typeof b !== "object" || Array.isArray(b)) return { ok: false, error: "تنظیمات اولویت ۱ نامعتبر است." };
+  const out: [string, string][] = [];
+  for (const [k, v] of Object.entries(b as Record<string, unknown>)) {
+    if (!(k in P1_SETTING_KEYS)) return { ok: false, error: `فیلد ناشناخته: ${k}` };
+    const [lo, hi] = P1_LIMITS[k as keyof typeof P1_LIMITS];
+    if (!Number.isInteger(v) || (v as number) < lo || (v as number) > hi) return { ok: false, error: k === "quota" ? "سهمیه‌ی روزانه باید عدد صحیح ۰ تا ۵۰ باشد." : "آستانه‌ی قرمز باید عدد صحیح ۱ تا ۶۰ روز باشد." };
+    out.push([P1_SETTING_KEYS[k as keyof typeof P1_SETTING_KEYS], String(v)]);
+  }
+  return { ok: true, values: out };
+}
+/** Admin save: only the two new keys (upsert on assistant_settings; nothing else is written). */
+export function saveP1Settings(values: [string, string][], userId: number): void {
+  const at = new Date().toISOString();
+  for (const [k, v] of values) execute("INSERT INTO assistant_settings(key,value,updated_at,updated_by_user_id) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at, updated_by_user_id=excluded.updated_by_user_id", [k, v, at, userId]);
+}
+/** Start of the Tehran day (UTC ms). */
+export function tehranDayStart(now: Date): number {
+  const w = new Date(now.getTime() + TEHRAN_OFFSET_MIN * 60_000); w.setUTCHours(0, 0, 0, 0);
+  return w.getTime() - TEHRAN_OFFSET_MIN * 60_000;
+}
+
 /* ---------------- scope ---------------- */
 export type ScopeMode = "own_all" | "own_p1";
 /** Kazemi (qualifier): all own customers; closers (Hasani/Ghasemi): own P1 only; trainees / anyone else: nothing. */
@@ -170,13 +209,15 @@ export const faNum = (n: number) => String(n).replace(/\d/g, (d) => FA_DIG[Numbe
 const ago = (h: number) => (h >= 24 ? `${faNum(Math.floor(h / 24))} روز` : h >= 1 ? `${faNum(Math.floor(h))} ساعت` : `${faNum(Math.max(1, Math.floor(h * 60)))} دقیقه`);
 const tms = (s: string | null | undefined) => (s ? Date.parse(/[zZ]$|[+-]\d\d:?\d\d$/.test(s) ? s : `${s}Z`) : NaN);
 
-export type ReasonKind = "site_lead" | "from_kazemi" | "reminder" | "note" | "urgent" | "repeat" | "upgrade" | "docs" | "grade" | "new_lead" | "no_call" | "next";
-export type Chip = { key: "site_lead" | "urgent" | "from_kazemi" | "repeat"; label: string };
+export type ReasonKind = "site_lead" | "from_kazemi" | "p1_stale" | "reminder" | "note" | "urgent" | "repeat" | "upgrade" | "docs" | "grade" | "new_lead" | "no_call" | "next";
+export type Chip = { key: "site_lead" | "urgent" | "from_kazemi" | "repeat" | "p1_stale"; label: string; tone?: "red" };
 export type ScoredCustomer = {
   customerId: number; displayName: string; priority: number | null; chips: Chip[];
   tier: 1 | 2 | 3; points: number; reason: { kind: ReasonKind; text: string }; signals: string[];
   topOfList: { kind: TopEntry["kind"]; dueAt: string; overdue: boolean; windowNow: boolean } | null;
   callForm: "simple" | "legacy"; lastCallAt: string | null;
+  /** Task B: today's P1 quota membership (null = not in the quota). */
+  p1Stale: { daysSince: number; red: boolean; quotaRank: number } | null;
 };
 export type Suggestion = ScoredCustomer & { rank: number };
 type CRow = { id: number; first_name: string | null; official_first_name: string | null; priority: number | null; is_urgent: number | null;
@@ -216,6 +257,19 @@ export function scoreForSalesperson(salespersonId: number, now = new Date(), w: 
         ORDER BY l2.created_at DESC, l2.id DESC LIMIT 1) txt
       FROM call_logs l WHERE customer_id IN (${p}) AND ${realCallSql("subject")} GROUP BY customer_id`, ids))
     calls.set(Number(r.customer_id), { n: Number(r.n), last: r.last, txt: r.txt ?? "" });
+  // Task B: last real call BEFORE today's Tehran start → today's P1 quota (stable all day).
+  const p1s = getP1Settings(); const dayStart = tehranDayStart(now); const DAY = 86400_000;
+  const p1Ids = rows.filter((r) => r.priority === 1).map((r) => Number(r.id));
+  const before = new Map<number, string>();
+  if (p1Ids.length) for (const r of byIds<{ customer_id: number; last: string | null }>((p) => `SELECT customer_id, MAX(created_at) last FROM call_logs
+      WHERE customer_id IN (${p}) AND ${realCallSql("subject")} AND julianday(created_at) < julianday(?) GROUP BY customer_id`.replace("julianday(?)", `julianday('${new Date(dayStart).toISOString()}')`), p1Ids))
+    if (r.last) before.set(Number(r.customer_id), r.last);
+  const pms = (v: string | null | undefined) => (v ? tms(String(v).replace(" ", "T")) : NaN);
+  const quota = new Map<number, number>();
+  if (p1s.quota > 0) rows.filter((r) => r.priority === 1)
+    .map((r) => { const ref = before.has(Number(r.id)) ? pms(before.get(Number(r.id))) : pms(r.created_at); return { id: Number(r.id), ms: dayStart - ref }; })
+    .filter((x) => Number.isFinite(x.ms) && x.ms > p1s.noCallDays * DAY).sort((a, b) => b.ms - a.ms || a.id - b.id).slice(0, p1s.quota)
+    .forEach((x, i) => quota.set(x.id, i + 1));
   const rems = new Map<number, string[]>();
   for (const r of byIds<{ customer_id: number; remind_at: string }>((p) => `SELECT customer_id, remind_at FROM reminders WHERE done=0 AND customer_id IN (${p})`, ids)) push(rems, Number(r.customer_id), r.remind_at);
   const reqCount = new Map<number, number>();
@@ -317,6 +371,17 @@ export function scoreForSalesperson(salespersonId: number, now = new Date(), w: 
       else { const v = Math.min(w.days_since_call_max, Math.floor(hours / 24) * w.days_since_call_each); pts += v; if (v >= 10) why.push([v, "no_call", `${faNum(Math.floor(hours / 24))} روز است تماسی نگرفته`]); }
       if (cl.n > w.attempts_free) { pts += Math.max(w.attempts_penalty_min, w.attempts_penalty_each * (cl.n - w.attempts_free)); sig.push(`${faNum(cl.n)} تماس`); }
     }
+    // Task B: today's P1 quota (left once called today). Days use the same reference as the manager report: now − last call (else created).
+    let p1Stale: ScoredCustomer["p1Stale"] = null; let band = od.length ? 3 : 0; let staleMs = 0;
+    const qr = quota.get(cid);
+    if (qr && !(Number.isFinite(lastMs) && lastMs >= dayStart)) {
+      const ref = Number.isFinite(lastMs) ? lastMs : pms(r.created_at); staleMs = nowMs - ref;
+      const daysSince = Math.floor(staleMs / DAY); const red = staleMs > p1s.redDays * DAY;
+      p1Stale = { daysSince, red, quotaRank: qr };
+      if (!band) band = red ? 2 : 1;
+      chips.unshift({ key: "p1_stale", label: `${faNum(daysSince)} روز بی‌تماس`, ...(red ? { tone: "red" as const } : {}) }); sig.push(red ? "P1 قرمز" : "سهمیه‌ی P1");
+      if (!t && !od.length) why.unshift([1e5, "p1_stale", `اولویت ۱؛ ${faNum(daysSince)} روز است تماسی نگرفته${red ? " — بیش از " + faNum(p1s.redDays) + " روز" : ""} (سهمیه‌ی امروز)`]);
+    }
     why.sort((a, b) => b[0] - a[0]);
     const fn = (r.first_name || r.official_first_name || "").replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/\s+/g, " ").trim();
     return {
@@ -326,13 +391,15 @@ export function scoreForSalesperson(salespersonId: number, now = new Date(), w: 
       topOfList: t ? { kind: t.e.kind, dueAt: t.e.dueAt, overdue: Date.parse(t.e.dueAt) <= nowMs, windowNow: t.e.windowNow } : null,
       // Same rule as the customers page (usesSimpleForm): the qualifier's own in-progress customers with NO priority -> simple 3-step form; P1/P2/P3 -> legacy.
       callForm: (cfg.enabled && salespersonId === qualifier && r.priority == null && (r.status ?? "in_progress") === "in_progress" ? "simple" : "legacy") as "simple" | "legacy",
-      lastCallAt: cl?.last ?? null,
-      pos: t ? t.i : Number.MAX_SAFE_INTEGER, lastMs: Number.isFinite(lastMs) ? lastMs : 0,
+      lastCallAt: cl?.last ?? null, p1Stale,
+      pos: t ? t.i : Number.MAX_SAFE_INTEGER, lastMs: Number.isFinite(lastMs) ? lastMs : 0, band, staleMs,
     };
   });
   // Ties: the older last call first (design), then id.
-  out.sort((a, b) => b.tier - a.tier || (a.tier > 1 ? a.pos - b.pos : 0) || b.points - a.points || a.lastMs - b.lastMs || a.customerId - b.customerId);
-  return out.map(({ pos: _p, lastMs: _l, ...x }) => x);
+  // Tier 1 bands (Task B): overdue reminder > quota red > quota (oldest first) > rest by points.
+  out.sort((a, b) => b.tier - a.tier || (a.tier > 1 ? a.pos - b.pos : 0) || (a.tier === 1 ? b.band - a.band : 0)
+    || (a.tier === 1 && (a.band === 1 || a.band === 2) ? b.staleMs - a.staleMs : 0) || b.points - a.points || a.lastMs - b.lastMs || a.customerId - b.customerId);
+  return out.map(({ pos: _p, lastMs: _l, band: _b, staleMs: _s, ...x }) => x);
 }
 
 /* ---------------- box of 3 + events ---------------- */
@@ -355,7 +422,7 @@ export function todayCounts(salespersonId: number, now = new Date()): { calls: n
   return { calls: Number(r?.calls ?? 0), notNow: Number(r?.nn ?? 0) };
 }
 /** Up to 3 (exactly 3 whenever 3 un-snoozed customers exist). Snoozed customers are never shown inside their 3 hours. */
-export function suggestionsFor(salespersonId: number, now = new Date(), size = 3): { items: Suggestion[]; pool: number; snoozed: { customerId: number; displayName: string; until: string; reason: string }[] } {
+export function suggestionsFor(salespersonId: number, now = new Date(), size = 3): { items: Suggestion[]; pool: number; snoozed: { customerId: number; displayName: string; until: string; reason: string }[]; p1Quota: ReturnType<typeof p1QuotaSummary> } {
   const all = scoreForSalesperson(salespersonId, now);
   const sn = activeSnoozes(salespersonId, now);
   // A logged call (any outcome) takes the customer out of the box for called_recently_hours (2 h); the list keeps its own rules.
@@ -363,7 +430,12 @@ export function suggestionsFor(salespersonId: number, now = new Date(), size = 3
   const items = all.filter((x) => !sn.has(x.customerId) && !(x.lastCallAt && now.getTime() - tms(x.lastCallAt) < recentMs)).slice(0, size).map((x, i) => ({ ...x, rank: i + 1 }));
   const names = new Map(all.map((x) => [x.customerId, x.displayName]));
   const snoozed = [...sn].filter(([id]) => names.has(id)).map(([customerId, s]) => ({ customerId, displayName: names.get(customerId)!, until: s.until, reason: s.reason }));
-  return { items, pool: all.length, snoozed };
+  return { items, pool: all.length, snoozed, p1Quota: p1QuotaSummary(all) };
+}
+/** Task B summary for the box header: today's P1 quota of one expert. */
+export function p1QuotaSummary(all: ScoredCustomer[]): { quota: number; redDays: number; noCallDays: number; remaining: number; red: number } {
+  const p = getP1Settings(); const q = all.filter((x) => x.p1Stale);
+  return { quota: p.quota, redDays: p.redDays, noCallDays: p.noCallDays, remaining: q.length, red: q.filter((x) => x.p1Stale!.red).length };
 }
 export function customerInScope(salespersonId: number, customerId: number): boolean {
   const mode = salesAssistScope(salespersonId);

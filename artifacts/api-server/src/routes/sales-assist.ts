@@ -9,7 +9,7 @@ import type { AuthUser } from "../lib/auth";
 import { queryRows } from "../lib/crm-db";
 import {
   NOT_NOW_REASONS, SALES_ASSIST_DEFAULTS, SALES_ASSIST_EXCLUDED_USERS, SALES_ASSIST_SIGNALS, SNOOZE_OPTIONS, snoozeUntil, snoozeLabel, customerInScope, eligibleUser, getSalesAssistSettings, recordEvent,
-  recordImpressions, saveSalesAssistSettings, salesAssistScope, salesAssistSettingsMeta, scoreForSalesperson, suggestionsFor, todayCounts, validateSettings, weightsFrom,
+  recordImpressions, saveSalesAssistSettings, getP1Settings, validateP1Settings, saveP1Settings, P1_DEFAULTS, P1_LIMITS, salesAssistScope, salesAssistSettingsMeta, scoreForSalesperson, suggestionsFor, todayCounts, validateSettings, weightsFrom,
   type NotNowReason,
 } from "../lib/sales-assist";
 
@@ -42,7 +42,7 @@ router.get("/sales-assist/suggestions", requirePermission("customers.view"), (re
   const r = suggestionsFor(t.sp, now, 3);
   if (!t.preview) recordImpressions(u.id, t.sp, r.items, now);
   res.json({ eligible: true, preview: t.preview, salespersonId: t.sp, scope: salesAssistScope(t.sp), now: now.toISOString(), snoozeHours: s.snoozeHours, snoozeLabel: snoozeLabel(s.snoozeHours),
-    items: r.items, pool: r.pool, snoozed: r.snoozed, today: todayCounts(t.sp, now), ...base });
+    items: r.items, pool: r.pool, snoozed: r.snoozed, p1Quota: r.p1Quota, today: todayCounts(t.sp, now), ...base });
 });
 
 function guard(req: Request, res: Response): { u: AuthUser; sp: number; id: number } | null {
@@ -89,14 +89,19 @@ function adminOnly(res: Response): boolean {
 const signals = () => Object.entries(SALES_ASSIST_SIGNALS).map(([key, s]) => ({ key, label: s.label, help: s.help, default: SALES_ASSIST_DEFAULTS.levels[key as keyof typeof SALES_ASSIST_DEFAULTS.levels] }));
 router.get("/sales-assist/weights", requirePermission("customers.view"), (_req, res) => {
   if (!adminOnly(res)) return;
-  res.json({ settings: getSalesAssistSettings(), defaults: SALES_ASSIST_DEFAULTS, signals: signals(), snoozeOptions: SNOOZE_OPTIONS, meta: salesAssistSettingsMeta(), previewable: previewable() });
+  res.json({ settings: getSalesAssistSettings(), defaults: SALES_ASSIST_DEFAULTS, signals: signals(), snoozeOptions: SNOOZE_OPTIONS, meta: salesAssistSettingsMeta(), previewable: previewable(),
+    p1: getP1Settings(), p1Defaults: P1_DEFAULTS, p1Limits: P1_LIMITS });
 });
 router.put("/sales-assist/weights", requirePermission("customers.view"), (req, res) => {
   if (!adminOnly(res)) return;
-  const v = validateSettings(req.body ?? {});
+  const { p1, ...rest } = (req.body ?? {}) as { p1?: unknown } & Record<string, unknown>;
+  const p = p1 == null ? null : validateP1Settings(p1);
+  if (p && !p.ok) { res.status(400).json({ error: p.error }); return; }
+  const v = validateSettings(rest);
   if (!v.ok) { res.status(400).json({ error: v.error }); return; }
   saveSalesAssistSettings(v.settings, (res.locals.authUser as AuthUser).id);
-  res.json({ settings: getSalesAssistSettings(), meta: salesAssistSettingsMeta() });
+  if (p && p.ok && p.values.length) saveP1Settings(p.values, (res.locals.authUser as AuthUser).id);
+  res.json({ settings: getSalesAssistSettings(), meta: salesAssistSettingsMeta(), p1: getP1Settings() });
 });
 /** Live order preview for unsaved levels: top 6 of one expert under the proposed levels, with the rank under the saved ones. */
 router.post("/sales-assist/weights/preview", requirePermission("customers.view"), (req, res) => {
