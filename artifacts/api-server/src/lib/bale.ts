@@ -18,7 +18,7 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { ensureSchemaObject } from "./schema-objects";
-import { TRAINEE_SALESPERSON_IDS, EXCLUDED_USER_IDS } from "./assistants";
+import { TRAINEE_SALESPERSON_IDS, EXCLUDED_USER_IDS, BANNED_WORDS } from "./assistants";
 import { baleHasKey, baleSessionAad, openBaleSession, sealBaleSession, BaleKeyMissing, type KeyEnv } from "./bale-crypto";
 import { BaleSidecarError, type BaleSidecar } from "./bale-sidecar-client";
 
@@ -34,7 +34,7 @@ export const BALE_MAX_TRIES_PER_FLOW = 5;
 /** Defaults for piece 1b (stored now so the admin can see them; nothing reads them in 1a). */
 export const BALE_DEFAULT_SETTINGS: Record<string, string> = {
   master_enabled: "0", gap_min_s: "45", gap_max_s: "120", per_hour: "20", per_day: "80", new_chats_per_day: "15",
-  quiet_start: "21:30", quiet_end: "08:30", banned_words: JSON.stringify(["سپرده", "برآورد", "تخمینی"]),
+  quiet_start: "21:30", quiet_end: "08:30", banned_words: JSON.stringify(BANNED_WORDS),
 };
 
 export function ensureBaleSchema(db: Db, nowIso = new Date().toISOString()): void {
