@@ -4,12 +4,13 @@
  * priority, stage, money, team_sales_config or notification_settings; no SMS, no customer message, no notification.
  *
  * Order (consistent with the customers list «اول لیست», lib/site-leads.ts topOfList):
+ *   first (Task B3, 2026-10-26, Mohammad's item (c)): every customer with an OVERDUE reminder (no call since it fell due), by points —
+ *     ahead of new suggestions, site leads included (a site lead with an overdue reminder sits here too),
  *   tier 3 = active site lead (unanswered website request, repeats included) in the list order,
  *   then (Task B2, 2026-10-26, Mohammad: «اولویت۱‌های قرمز جلوتر بیان») today's RED P1 quota customers (> sales_assist_p1_red_days
  *     without a call), oldest first — ahead of the «از کاظمی» tier (a red P1 that is also «از کاظمی» counts here),
  *   tier 2 = «از کاظمی» hand-off not called yet (overdue included) in the list order,
- *   tier 1 = everyone else; inside tier 1 the bands are:
- *     overdue reminder  >  today's P1 quota (not red, oldest first)  >  the rest by points.
+ *   tier 1 = everyone else: today's P1 quota (not red, oldest first)  >  the rest by points.
  *   The `tier` field itself is unchanged (1/2/3); only the order moved.
  *   «P1 بی‌تماس» reuses the manager definition (lib/assistant-manager.ts): priority 1 and the last real call (realCallSql), else
  *   created_at, older than manager_p1_no_call_days (3). Today's quota = the sales_assist_p1_quota (10) oldest such customers as of
@@ -399,9 +400,9 @@ export function scoreForSalesperson(salespersonId: number, now = new Date(), w: 
     };
   });
   // Ties: the older last call first (design), then id.
-  // Groups (Task B2): site lead (4) > red P1 quota, oldest first (3) > «از کاظمی» (2) > tier 1 (1).
-  // Tier 1 bands (Task B): overdue reminder > quota (oldest first) > rest by points.
-  const grp = (x: { tier: number; p1Stale: ScoredCustomer["p1Stale"] }) => x.tier === 3 ? 4 : x.p1Stale?.red ? 3 : x.tier === 2 ? 2 : 1;
+  // Groups (Task B3): overdue reminder (5) > site lead (4) > red P1 quota, oldest first (3) > «از کاظمی» (2) > tier 1 (1).
+  // Tier 1 bands (Task B): quota (oldest first) > rest by points.
+  const grp = (x: { tier: number; band: number; p1Stale: ScoredCustomer["p1Stale"] }) => x.band === 3 ? 5 : x.tier === 3 ? 4 : x.p1Stale?.red ? 3 : x.tier === 2 ? 2 : 1;
   out.sort((a, b) => { const ga = grp(a), gb = grp(b);
     return gb - ga || (ga === 4 || ga === 2 ? a.pos - b.pos : 0) || (ga === 3 ? b.staleMs - a.staleMs : 0) || (ga === 1 ? b.band - a.band : 0)
       || (ga === 1 && (a.band === 1 || a.band === 2) ? b.staleMs - a.staleMs : 0) || b.points - a.points || a.lastMs - b.lastMs || a.customerId - b.customerId; });
