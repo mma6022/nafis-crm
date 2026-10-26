@@ -1,4 +1,4 @@
-# nafisvam-bale sidecar (piece 1a — NOT installed anywhere yet)
+# nafisvam-bale sidecar (pieces 1a + 1b — NOT installed anywhere yet)
 
 Loopback-only Python service that talks to Bale for each expert's personal account, using the vendored
 `aiobale` 0.3.10 (unmodified, see `vendor/README.md`). The CRM API is the only client; contract in `CONTRACT.md`.
@@ -7,10 +7,14 @@ Loopback-only Python service that talks to Bale for each expert's personal accou
 * Holds login flows in memory (5 min). Never writes a session to disk; the API stores sessions sealed with AES-256-GCM
   (`BALE_SESSION_KEY_FILE`). Logs are `path status` only — never phones, codes, passwords or tokens.
 * Per-expert random device id; the library default device hash is rejected.
+* 1b: one live client per connected expert (memory only; `bootId` in `/v1/health` changes on restart so the API re-attaches),
+  `/v1/send` (typing indicator, phone lookup, error mapping) and a forwarder that POSTs private inbound messages to
+  `BALE_INBOUND_URL` (loopback, direct API port). The sidecar makes no decisions: caps, quiet hours, filters, scope and
+  auto-stop are all in the API (`artifacts/api-server/src/lib/bale-outbox.ts`).
 
 Local tests: `python -m unittest discover -s tests -v` (FakeClient, no network).
 
-## Draft for piece 1b install (do not apply without a release plan)
+## Draft install (do not apply without a release plan)
 
 ```
 useradd --system --home /opt/nafisvam/bale-sidecar --shell /usr/sbin/nologin nafisbale
@@ -28,6 +32,8 @@ After=network-online.target
 User=nafisbale
 WorkingDirectory=/opt/nafisvam/bale-sidecar
 Environment=BALE_SIDECAR_HOST=127.0.0.1 BALE_SIDECAR_PORT=18470 BALE_SIDECAR_TOKEN_FILE=/etc/nafisvam/bale-sidecar.token
+# direct to the API's own loopback port (NOT nginx: the API refuses proxied inbound calls)
+Environment=BALE_INBOUND_URL=http://127.0.0.1:<API_PORT>/internal/bale/inbound
 ExecStart=/opt/nafisvam/bale-sidecar/venv/bin/python sidecar.py
 Restart=on-failure
 NoNewPrivileges=yes

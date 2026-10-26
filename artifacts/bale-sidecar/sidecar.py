@@ -1,4 +1,4 @@
-"""Nafis CRM — Bale personal-account sidecar (piece 1a: login + sign-out only).
+"""Nafis CRM — Bale personal-account sidecar (1a: login + sign-out; 1b: live sessions, send, inbound forwarder).
 
 A "pipe" between the CRM API and Bale. It listens on 127.0.0.1 ONLY, requires the internal token
 (`x-bale-internal-token`, read from BALE_SIDECAR_TOKEN_FILE) on every request, has no DB access and makes no decisions:
@@ -10,6 +10,10 @@ Security rules:
   * Each login uses the per-expert device id sent by the API — never aiobale's shared default device hash.
   * Phone numbers, codes, 2FA passwords and session tokens are never logged; access logging is off and the only
     log lines are "<route> <outcome>".
+  * Live sessions (1b) exist in memory only. After a restart the sidecar has none; the API notices the new bootId in
+    /v1/health and re-attaches each connected account with its decrypted token.
+  * Inbound private messages are forwarded to BALE_INBOUND_URL (loopback HTTP only, straight to the API port, never
+    through nginx) with the same internal token. Message text is never logged.
 Contract: see CONTRACT.md. Run: BALE_SIDECAR_TOKEN_FILE=/etc/nafisvam/bale-sidecar.token python sidecar.py
 """
 from __future__ import annotations
@@ -22,6 +26,7 @@ import re
 import secrets
 import sys
 import time
+from urllib.parse import urlparse
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -29,7 +34,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "ven
 
 from aiohttp import web  # noqa: E402
 
-VERSION = "1a-0.1"
+VERSION = "1b-0.1"
+ATTACH_TIMEOUT_S = 25
+MAX_TYPING_MS = 8000
+MAX_TEXT = 4000
+INBOUND_RETRIES = (1.0, 3.0, 10.0)
 FLOW_TTL_S = 300
 MAX_BODY = 16 * 1024
 LIB_DEFAULT_DEVICE_HASH = "ce5ced83-a9ab-47fa-80c8-ed425eeb2ace"
@@ -41,6 +50,44 @@ log = logging.getLogger("bale-sidecar")
 def default_client_factory(token: Optional[str] = None):
     from aiobale import Client  # vendored
     return Client(session_file=None, token=token)
+
+
+def default_session_factory(token: str, on_message: Callable[[Any], Any]):
+    """A long-lived client with a message handler. Still session_file=None: nothing touches the disk."""
+    from aiobale import Client, Dispatcher  # vendored
+    dp = Dispatcher()
+    dp.message()(on_message)
+    return Client(dispatcher=dp, session_file=None, token=token)
+
+
+def private_chat_type():
+    try:
+        from aiobale.enums import ChatType  # vendored
+        return ChatType.PRIVATE
+    except Exception:  # pragma: no cover
+        return 1
+
+
+def is_loopback_http(u: Optional[str]) -> bool:
+    try:
+        x = urlparse(u or "")
+        return x.scheme == "http" and x.hostname in ("127.0.0.1", "::1", "localhost")
+    except Exception:
+        return False
+
+
+async def default_poster(url: str, token: str, payload: dict) -> int:
+    import aiohttp
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as s:
+        async with s.post(url, json=payload, headers={"x-bale-internal-token": token}, allow_redirects=False) as r:
+            return r.status
+
+
+@dataclass
+class Session:
+    client: Any
+    me_id: Optional[int]
+    peer_phone: dict = field(default_factory=dict)  # peerId -> 09.. (memory only; lets the API match a reply)
 
 
 @dataclass
@@ -58,6 +105,13 @@ class State:
     client_factory: Callable[..., Any] = default_client_factory
     flows: dict = field(default_factory=dict)
     clock: Callable[[], float] = time.monotonic
+    session_factory: Callable[..., Any] = default_session_factory
+    sessions: dict = field(default_factory=dict)
+    boot_id: str = field(default_factory=lambda: secrets.token_hex(8))
+    inbound_url: Optional[str] = None
+    poster: Callable[..., Any] = default_poster
+    sleep: Callable[[float], Any] = asyncio.sleep
+    pending: set = field(default_factory=set)
 
 
 def read_token(path: Optional[str]) -> str:
@@ -83,8 +137,26 @@ def auth_error_code(e: Any) -> str:
     }.get(name, "unknown")
 
 
+def bale_error_code(e: Any) -> str:
+    """Map a runtime BaleError to a contract code by its message text (aiobale has no typed runtime errors).
+    The substrings are a best guess and must be confirmed with the test SIM before go-live."""
+    if getattr(e, "topic", None) is None and not hasattr(e, "message"):
+        return "unknown"
+    m = str(getattr(e, "message", "") or "").upper()
+    if any(k in m for k in ("FLOOD", "RATE", "LIMIT", "TOO_MANY")):
+        return "rate_limited"
+    if any(k in m for k in ("BAN", "BLOCK", "DEACTIVATED")):
+        return "account_banned"
+    if any(k in m for k in ("AUTH", "TOKEN", "SESSION", "UNAUTHORIZED")):
+        return "session_invalid"
+    if any(k in m for k in ("PEER", "USER_NOT_FOUND", "NOT_FOUND")):
+        return "peer_not_found"
+    return "unknown"
+
+
 STATUS = {"phone_invalid": 422, "wrong_code": 422, "wrong_password": 422, "sign_up_needed": 422, "rate_limited": 429,
-          "number_banned": 403, "flow_expired": 410, "code_expired": 410, "unknown": 502}
+          "number_banned": 403, "flow_expired": 410, "code_expired": 410, "unknown": 502,
+          "not_attached": 409, "peer_not_found": 404, "session_invalid": 401, "account_banned": 403, "bad_request": 400}
 
 
 async def _stop(client: Any) -> None:
@@ -131,7 +203,8 @@ def make_app(state: State) -> web.Application:
 
     async def health(_r: web.Request):
         gc()
-        return web.json_response({"ok": True, "version": VERSION, "sessions": 0, "flows": len(state.flows)})
+        return web.json_response({"ok": True, "version": VERSION, "sessions": len(state.sessions), "flows": len(state.flows),
+                                  "bootId": state.boot_id, "attached": sorted(state.sessions.keys())})
 
     async def start(request: web.Request):
         j = await body(request)
@@ -208,6 +281,9 @@ def make_app(state: State) -> web.Application:
         tok = j.get("token")
         if not isinstance(tok, str) or not tok:
             return err(400, "unknown")
+        old = state.sessions.pop(str(j.get("accountRef", "")), None)
+        if old:
+            await _stop(old.client)
         client = state.client_factory(token=tok)
         try:
             await client.sign_out(delete_session=False)
@@ -215,7 +291,143 @@ def make_app(state: State) -> web.Application:
             await _stop(client)
         return web.json_response({"ok": True})
 
+    # ---------------- 1b: live sessions, send, inbound ----------------
+    def ref_of(j: dict) -> str:
+        r = str(j.get("accountRef", ""))
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", r):
+            raise web.HTTPBadRequest(text='{"error":"bad_request"}', content_type="application/json")
+        return r
+
+    async def forward(ref: str, ev: dict) -> None:
+        if not is_loopback_http(state.inbound_url):
+            log.warning("inbound dropped (no BALE_INBOUND_URL)")
+            return
+        for i, delay in enumerate((0.0,) + INBOUND_RETRIES):
+            if delay:
+                await state.sleep(delay)
+            try:
+                st = await state.poster(state.inbound_url, state.token, {"accountRef": ref, "events": [ev]})
+                if 200 <= st < 300:
+                    log.info("inbound forwarded")
+                    return
+                if st in (400, 403):  # refused by the API: retrying will not help
+                    log.warning("inbound refused %s", st)
+                    return
+            except Exception as e:
+                log.warning("inbound post failed %s", type(e).__name__)
+        log.error("inbound gave up")
+
+    def make_handler(ref: str):
+        async def on_message(message: Any) -> None:
+            sess = state.sessions.get(ref)
+            chat = getattr(message, "chat", None)
+            ctype = getattr(getattr(chat, "type", None), "value", getattr(chat, "type", None))
+            if sess is None or chat is None or ctype != 1:  # private chats only
+                return
+            content = getattr(message, "content", None)
+            text_obj = getattr(content, "text", None)
+            text = getattr(text_obj, "value", None) if text_obj is not None else None
+            if text is not None and not isinstance(text, str):
+                text = str(text)
+            has_file = text is None and content is not None and any(
+                getattr(content, k, None) is not None for k in ("document", "photo", "video", "voice", "audio"))
+            peer = str(getattr(chat, "id", ""))
+            ev = {"peerId": peer, "peerPhone": sess.peer_phone.get(peer), "messageId": str(getattr(message, "message_id", "")),
+                  "text": text, "hasFile": bool(has_file), "fromSelf": sess.me_id is not None and getattr(message, "sender_id", None) == sess.me_id,
+                  "date": getattr(message, "date", None)}
+            t = asyncio.ensure_future(forward(ref, ev))
+            state.pending.add(t); t.add_done_callback(state.pending.discard)
+        return on_message
+
+    async def attach(request: web.Request):
+        j = await body(request)
+        ref = ref_of(j)
+        tok = j.get("token")
+        if not isinstance(tok, str) or not tok:
+            return err(400, "bad_request")
+        old = state.sessions.pop(ref, None)
+        if old:
+            await _stop(old.client)
+        client = state.session_factory(tok, make_handler(ref))
+        try:
+            await asyncio.wait_for(client.start(run_in_background=True, signal_handling=False), ATTACH_TIMEOUT_S)
+            me = await client.get_me()
+        except asyncio.TimeoutError:
+            await _stop(client)
+            return err(502, "unknown")
+        except Exception as e:
+            await _stop(client)
+            code_ = bale_error_code(e)
+            return err(STATUS[code_], code_)
+        uid = getattr(getattr(me, "user", me), "id", None)
+        state.sessions[ref] = Session(client=client, me_id=uid)
+        return web.json_response({"ok": True, "baleUserId": str(uid) if uid is not None else None})
+
+    async def detach(request: web.Request):
+        j = await body(request)
+        s = state.sessions.pop(ref_of(j), None)
+        if s:
+            await _stop(s.client)
+        return web.json_response({"ok": True})
+
+    async def send(request: web.Request):
+        j = await body(request)
+        ref = ref_of(j)
+        phone, text, peer = str(j.get("phone", "")), j.get("text"), j.get("peerId")
+        if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT or not PHONE_RE.match(phone):
+            return err(400, "bad_request")
+        try:
+            typing_ms = max(0, min(MAX_TYPING_MS, int(j.get("typingMs", 0))))
+        except (TypeError, ValueError):
+            typing_ms = 0
+        sess = state.sessions.get(ref)
+        if sess is None:
+            return err(409, "not_attached")
+        c = sess.client
+        pt = private_chat_type()
+        try:
+            chat_id = int(peer) if isinstance(peer, (str, int)) and str(peer).isdigit() else None
+            if chat_id is None:
+                found = await c.search_contact("98" + phone[1:])  # lookup only: never import into the expert's contacts
+                if not found or getattr(found, "id", None) is None:
+                    return err(404, "peer_not_found")
+                chat_id = int(found.id)
+            sess.peer_phone[str(chat_id)] = phone
+            if typing_ms:
+                try:
+                    await c.start_typing(chat_id, pt)
+                    await state.sleep(typing_ms / 1000)
+                finally:
+                    try:
+                        await c.stop_typing(chat_id, pt)
+                    except Exception:
+                        pass
+            msg = await c.send_message(text, chat_id, pt)
+        except Exception as e:
+            code_ = bale_error_code(e)
+            if code_ in ("session_invalid", "account_banned"):
+                state.sessions.pop(ref, None)
+                await _stop(c)
+            log.warning("/v1/send failed %s", code_)
+            return err(STATUS[code_], code_)
+        if isinstance(msg, list):
+            msg = msg[0] if msg else None
+        mid = getattr(msg, "message_id", None)
+        if mid is None:
+            return err(502, "unknown")
+        return web.json_response({"messageId": str(mid), "peerId": str(chat_id)})
+
+    async def on_cleanup(_app: web.Application) -> None:
+        for ref in list(state.sessions):
+            await _stop(state.sessions.pop(ref).client)
+        for t in list(state.pending):
+            t.cancel()
+
     app = web.Application(middlewares=[guard], client_max_size=MAX_BODY)
+    app.on_cleanup.append(on_cleanup)
+    app.router.add_post("/v1/session/attach", attach)
+    app.router.add_post("/v1/session/detach", detach)
+    app.router.add_post("/v1/send", send)
     app.router.add_get("/v1/health", health)
     app.router.add_post("/v1/auth/start", start)
     app.router.add_post("/v1/auth/code", code)
@@ -232,7 +444,10 @@ def main() -> None:
     if host not in ("127.0.0.1", "::1"):
         raise SystemExit("sidecar must listen on loopback only")
     port = int(os.environ.get("BALE_SIDECAR_PORT", "18470"))
-    state = State(token=read_token(os.environ.get("BALE_SIDECAR_TOKEN_FILE")))
+    inbound = os.environ.get("BALE_INBOUND_URL") or None
+    if inbound and not is_loopback_http(inbound):
+        raise SystemExit("BALE_INBOUND_URL must be loopback http (direct to the API port, not nginx)")
+    state = State(token=read_token(os.environ.get("BALE_SIDECAR_TOKEN_FILE")), inbound_url=inbound)
     web.run_app(make_app(state), host=host, port=port, access_log=None, print=None)
 
 
