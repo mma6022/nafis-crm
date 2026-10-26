@@ -121,7 +121,7 @@ export function ensureAssistantSchema(db: Db, nowIso = new Date().toISOString())
   }
 }
 
-/** ي/ك → ی/ک, drop ZWNJ/zero-width + tatweel, آ → ا, so «برآورد»/«براورد»/«سپ‌رده» all match. */
+/** ي/ك → ی/ک, drop ZWNJ/zero-width + tatweel, آ → ا, so «برآورد»/«براورد»/«برآ‌ورد» (ZWNJ inside) all match. */
 export function normalizeFa(s: string): string {
   return String(s).replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/[\u200b-\u200f\u0640]/g, "").replace(/آ/g, "ا");
 }

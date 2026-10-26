@@ -11,11 +11,14 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const api = join(root, '..', 'api-server');
 
-// One exception: the contract variable label of loanPlan.depositPercents in contracts.ts. Contracts are admin-only
+// Exception 1: the contract variable label of loanPlan.depositPercents in contracts.ts. Contracts are admin-only
 // territory (Mohammad's standing order: no code changes to contracts), so the live label stays until an admin/PM
 // changes it. Exact line match, one hit only; anything else with the root still fails.
+// Second exception: the server-side banned-word list itself (BANNED_WORDS in assistants.ts, reused by Bale). It is the
+// filter that keeps the word out of every outgoing text, so it has to name it. Same rule: exact line, one hit only.
 const EXCEPTIONS = [
   { file: 'api-server/src/routes/contracts.ts', line: '  "loanPlan.depositPercents": "\u062f\u0631\u0635\u062f \u0633\u067e\u0631\u062f\u0647",' },
+  { file: 'api-server/src/lib/assistants.ts', line: 'export const BANNED_WORDS = ["\u0633\u067e\u0631\u062f\u0647", "\u0628\u0631\u0622\u0648\u0631\u062f", "\u062a\u062e\u0645\u06cc\u0646\u06cc"];' },
 ];
 
 export function normalize(text) {
