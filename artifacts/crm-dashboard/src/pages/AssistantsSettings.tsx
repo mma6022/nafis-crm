@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, Copy, KeyRound, Power, ShieldAlert, Trash2 } from 'lucide-react';
+import { Bot, Copy, FlaskConical, KeyRound, MousePointerClick, Power, ShieldAlert, Trash2 } from 'lucide-react';
 import { SkeletonPanel, ErrorState } from '@/components/CrmShell';
 import { Modal } from '@/components/DataTools';
 import { toast } from '@/hooks/use-toast';
@@ -15,6 +15,37 @@ type AdminData = { globalEnabled: boolean; creditInquiryPermission: 'manager' | 
 type AuditItem = { id: number; at: string; assistantId: number | null; actor: string | null; action: string; customerId: number | null; outcome: string };
 
 const KEY = ['admin-assistants'];
+type Reporting = { excludeTestCustomers: boolean; pageUsageEnabled: boolean };
+
+/** v10: reporting switches — test customers out of the manager reports (default ON) + the page-usage tracker (default ON). Admin only; user 29 gets 403 and sees nothing. */
+function ReportingPanel() {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['admin-assistant-reporting'], queryFn: () => asFetch<Reporting>('/admin/assistants/reporting-settings'), retry: false });
+  const [busy, setBusy] = useState(false);
+  if (q.isError) return null;
+  const d = q.data;
+  const set = async (body: Partial<Reporting>, msg: string) => {
+    if (busy) return; setBusy(true);
+    try { const r = await asFetch<Reporting>('/admin/assistants/reporting-settings', { method: 'PUT', body }); qc.setQueryData(['admin-assistant-reporting'], r); toast({ title: msg }); }
+    catch (e) { toast({ title: (e as Error).message }); } finally { setBusy(false); }
+  };
+  const row = (icon: ReactNode, title: string, help: string, on: boolean | undefined, testid: string, flip: () => void) =>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '8px 0' }}>
+      {icon}
+      <div style={{ flex: 1, minWidth: 200 }}><b>{title}</b><div style={{ color: 'var(--nf-ink-muted)', fontSize: 13 }}>{help}</div></div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', minHeight: 44 }}>
+        <input type="checkbox" checked={Boolean(on)} disabled={busy || on === undefined} onChange={flip} data-testid={testid} style={{ width: 20, height: 20 }} />
+        {on === undefined ? '…' : on ? 'روشن' : 'خاموش'}
+      </label>
+    </div>;
+  return <div className="panel" data-testid="panel-assistant-reporting">
+    <h3 style={{ marginTop: 0 }}>گزارش‌ها</h3>
+    {row(<FlaskConical size={20} />, 'حذف مشتری‌های تستی از گزارش‌ها', 'مشتری‌هایی که نامشان با TEST یا «تست» شروع می‌شود (یا [TEST] در توضیحاتشان است) در گزارش مدیر فروش، هشدارها و آمار دستیارها شمرده نمی‌شوند. فقط در گزارش؛ خود مشتری تغییری نمی‌کند.',
+      d?.excludeTestCustomers, 'toggle-exclude-test-customers', () => void set({ excludeTestCustomers: !d?.excludeTestCustomers }, d?.excludeTestCustomers ? 'مشتری‌های تستی دوباره شمرده می‌شوند' : 'مشتری‌های تستی از گزارش‌ها حذف شدند'))}
+    {row(<MousePointerClick size={20} />, 'ثبت استفاده از صفحه‌ها', 'فقط نوع صفحه (بدون شماره‌ی مشتری)، زمان ورود، مدت فعال بودن تب، کلیک منو و راه ورود ثبت می‌شود؛ هیچ اطلاعات مشتری یا شماره‌ای ثبت نمی‌شود. نگهداری ۹۰ روز.',
+      d?.pageUsageEnabled, 'toggle-page-usage', () => void set({ pageUsageEnabled: !d?.pageUsageEnabled }, d?.pageUsageEnabled ? 'ثبت استفاده خاموش شد' : 'ثبت استفاده روشن شد'))}
+  </div>;
+}
 const OUTCOME: Record<string, string> = { ok: 'انجام شد', forbidden: 'رد شد (مجاز نیست)', not_in_scope: 'رد شد (خارج از دسترسی)', banned_word: 'رد شد (واژه‌ی ممنوع)', rate_limited: 'سقف پیام', disabled: 'خاموش بود', bad_token: 'توکن نامعتبر' };
 async function copy(s: string) { try { await navigator.clipboard.writeText(s); return true; } catch { return false; } }
 
@@ -55,6 +86,8 @@ export default function AssistantsSettings() {
           </div>
         </div>
       </div>
+
+      {d.managerAccess !== false ? <ReportingPanel /> : null}
 
       <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
         {d.assistants.map(a => {

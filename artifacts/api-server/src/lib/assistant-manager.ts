@@ -12,6 +12,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { expertCalls, expertCallStats } from "./expert-calls";
 import { realCallSql } from "./real-call";
+import { testCustomerSql } from "./test-customers";
 
 export const MANAGER_TRAINEE_SALESPERSON_IDS = [5, 19, 20];
 export const MANAGER_EXCLUDED_USER_IDS = [29];
@@ -75,7 +76,8 @@ const pct = (n: number | null) => (n == null ? "—" : `${faDigits(Math.round(n 
 
 /* ---------------- data ---------------- */
 export type SiteLeadLite = { dueAt: string; requestedAt: string; openRequests: number; isRepeat: boolean };
-export type ManagerDeps = { db: DatabaseSync; now: Date; settings: ManagerSettings; siteLeads?: () => Map<number, SiteLeadLite> };
+/** excludeTest (v10, admin switch, default ON): test customers (lib/test-customers.ts) are left out of every count — reporting only. */
+export type ManagerDeps = { db: DatabaseSync; now: Date; settings: ManagerSettings; siteLeads?: () => Map<number, SiteLeadLite>; excludeTest?: boolean };
 export type Expert = { salespersonId: number; name: string; trainee: boolean; userIds: number[]; userName: string | null };
 
 export function managerExperts(db: DatabaseSync): Expert[] {
@@ -114,10 +116,11 @@ const RULE_POINTS = { calls_below_average: 40, overdue_reminders: 30, site_leads
 function expertReport(d: ManagerDeps, e: Expert, range: ManagerRange, leads: Map<number, SiteLeadLite>, leadOwners: Map<number, any>): ExpertReport {
   const { db, now, settings } = d; const t = now.getTime(); const nowIso = now.toISOString();
   const b = rangeBounds(range, now);
-  const calls = callStats(callsOf(db, e.salespersonId, b.from, new Date(t + 1).toISOString()));
+  const xo = { excludeTest: Boolean(d.excludeTest) }; const notTest = d.excludeTest ? `AND NOT ${testCustomerSql("c")}` : "";
+  const calls = callStats(callsOf(db, e.salespersonId, b.from, new Date(t + 1).toISOString(), xo));
   // baseline: the 7 days before today (days with at least one call), up to the same Tehran clock time or the full day.
-  const today = tehranDayStart(t); const hist = callsOf(db, e.salespersonId, new Date(today - 7 * DAY).toISOString(), new Date(today).toISOString());
-  const todayCalls = range === "today" ? calls.count : callsOf(db, e.salespersonId, new Date(today).toISOString(), new Date(t + 1).toISOString()).length;
+  const today = tehranDayStart(t); const hist = callsOf(db, e.salespersonId, new Date(today - 7 * DAY).toISOString(), new Date(today).toISOString(), xo);
+  const todayCalls = range === "today" ? calls.count : callsOf(db, e.salespersonId, new Date(today).toISOString(), new Date(t + 1).toISOString(), xo).length;
   const elapsed = t - today; let active = 0, sum = 0;
   for (let i = 1; i <= 7; i++) {
     const ds = today - i * DAY; const day = hist.filter(c => c.at >= ds && c.at < ds + DAY);
@@ -131,7 +134,7 @@ function expertReport(d: ManagerDeps, e: Expert, range: ManagerRange, leads: Map
   const rem = has(db, "reminders") ? (db.prepare(`SELECT r.id, r.customer_id, r.subject, r.message, r.remind_at, c.name, c.first_name, c.last_name FROM reminders r
       LEFT JOIN customers c ON c.id=r.customer_id
       WHERE r.done=0 AND julianday(r.remind_at)<julianday(?) AND (r.salesperson_id=? OR r.user_id IN (${ph}))
-        AND (r.customer_id IS NULL OR c.merged_into_customer_id IS NULL) ORDER BY julianday(r.remind_at)`).all(nowIso, e.salespersonId, ...e.userIds) as any[]) : [];
+        AND (r.customer_id IS NULL OR (c.merged_into_customer_id IS NULL ${notTest})) ORDER BY julianday(r.remind_at)`).all(nowIso, e.salespersonId, ...e.userIds) as any[]) : [];
   const remItems = rem.map(r => ({ reminderId: Number(r.id), customerId: r.customer_id == null ? null : Number(r.customer_id), customerName: r.customer_id == null ? null : custName(r),
     subject: String(r.subject || r.message || "").slice(0, 120), remindAt: r.remind_at, daysLate: Math.max(0, Math.floor((t - Date.parse(r.remind_at)) / DAY)) }));
   // site leads still unanswered after their call deadline (lib/site-leads.ts activeSiteLeads → dueAt)
@@ -146,7 +149,7 @@ function expertReport(d: ManagerDeps, e: Expert, range: ManagerRange, leads: Map
   const X = settings.p1NoCallDays;
   const p1 = (db.prepare(`SELECT c.id, c.name, c.first_name, c.last_name, c.created_at, (SELECT MAX(julianday(l.created_at)) FROM call_logs l WHERE l.customer_id=c.id AND ${realCallSql("l.subject")}) lj,
       (SELECT l.created_at FROM call_logs l WHERE l.customer_id=c.id AND ${realCallSql("l.subject")} ORDER BY julianday(l.created_at) DESC LIMIT 1) last_at
-    FROM customers c WHERE c.salesperson_id=? AND c.priority=1 AND c.merged_into_customer_id IS NULL AND COALESCE(c.status,'') NOT IN ('cancelled','completed')`).all(e.salespersonId) as any[])
+    FROM customers c WHERE c.salesperson_id=? AND c.priority=1 AND c.merged_into_customer_id IS NULL AND COALESCE(c.status,'') NOT IN ('cancelled','completed') ${notTest}`).all(e.salespersonId) as any[])
     .map(c => { const ref = c.lj != null ? (Number(c.lj) - 2440587.5) * DAY : Date.parse(String(c.created_at).replace(" ", "T") + (/[zZ]|[+-]\d\d:?\d\d$/.test(String(c.created_at)) ? "" : "Z"));
       return { customerId: Number(c.id), customerName: custName(c), lastCallAt: c.last_at ?? null, ms: t - ref }; })
     .filter(c => Number.isFinite(c.ms) && c.ms > X * DAY).sort((x, y) => y.ms - x.ms)
@@ -182,7 +185,7 @@ export function managerReport(d: ManagerDeps, range: ManagerRange, salespersonId
   const ids = [...leads.keys()];
   for (let i = 0; i < ids.length; i += 500) {
     const chunk = ids.slice(i, i + 500);
-    for (const c of d.db.prepare(`SELECT id,name,first_name,last_name,salesperson_id FROM customers WHERE merged_into_customer_id IS NULL AND COALESCE(status,'') NOT IN ('cancelled','completed') AND id IN (${chunk.map(() => "?").join(",")})`).all(...chunk) as any[]) owners.set(Number(c.id), c);
+    for (const c of d.db.prepare(`SELECT id,name,first_name,last_name,salesperson_id FROM customers c WHERE merged_into_customer_id IS NULL AND COALESCE(status,'') NOT IN ('cancelled','completed') ${d.excludeTest ? `AND NOT ${testCustomerSql("c")}` : ""} AND id IN (${chunk.map(() => "?").join(",")})`).all(...chunk) as any[]) owners.set(Number(c.id), c);
   }
   const list = experts.map(e => expertReport(d, e, range, leads, owners));
   const sum = (f: (x: ExpertReport) => number) => list.reduce((s, x) => s + f(x), 0);
@@ -191,6 +194,7 @@ export function managerReport(d: ManagerDeps, range: ManagerRange, salespersonId
     team: { calls: sum(x => x.calls.count), answered: ans, notAnswered: no, unknown: sum(x => x.calls.unknown), answeredShare: ans + no ? Math.round((ans / (ans + no)) * 1000) / 1000 : null,
       overdueReminders: sum(x => x.overdueReminders.count), siteLeadsOverdue: sum(x => x.siteLeadsOverdue.count), p1NoCall: sum(x => x.p1NoCall.count),
       alerts: sum(x => x.score.alerts.length) },
+    testCustomersExcluded: Boolean(d.excludeTest),
     experts: list, ...(siteLeadsUnavailable ? { siteLeadsUnavailable: true } : {}),
     pieceB: { notYet: ["conversions", "paid_amount", "commission", "active_hours", "ranges:yesterday,month", "not_now_reasons", "assistant_threads"] } };
 }

@@ -8,8 +8,10 @@ import { suggestionsFor, todayCounts } from "../lib/sales-assist";
 import { consultProfile } from "../lib/consult-profile";
 import { activeSiteLeads, siteLeadHistory } from "../lib/site-leads";
 import { baleRunnerSend } from "./bale";
+import { startPageUsagePrune } from "../lib/page-usage";
 
 ensureAssistantSchema(crmDb);
+startPageUsagePrune(crmDb); // v10: daily prune of page_usage_events older than 90 days (that table only)
 const assistants = createAssistants({
   db: crmDb,
   // v7: the runner reuses the exact CRM read logic (box of 3, «امروز» counters, «اطلاعات مشاوره», site-lead contact time).

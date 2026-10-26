@@ -30,6 +30,8 @@ import { maskData, maskText, maskPhone } from "./smart-filing";
 import { expertCallsToday, EXPERT_CALLS_DEFINITION, tehranDayStartMs } from "./expert-calls";
 import { customerApplicationPayout } from "./customer-application-payout";
 import { parseConsultAmountToman } from "./consultation-report";
+import { EXCLUDE_TEST_CUSTOMERS_KEY, excludeTestOn, testCustomerSql, testCustomerIds } from "./test-customers";
+import { PAGE_USAGE_ENABLED_KEY, PAGE_USAGE_RANGES, ensurePageUsageSchema, pageUsageOn, pageUsageReport, recordPageUsage, type PageUsageRange } from "./page-usage";
 import { MANAGER_RANGES, MANAGER_SLOTS, MANAGER_SETTING_KEYS, MANAGER_DEFAULTS, managerAlerts, managerExperts, managerReport, managerSummary,
   readManagerSettings, validateManagerSettings, type ManagerRange, type ManagerSlot, type SiteLeadLite } from "./assistant-manager";
 
@@ -145,6 +147,7 @@ export function ensureAssistantSchema(db: Db, nowIso = new Date().toISOString())
       VALUES(?,?,?,?,?,?,?,0,6,?,?)`).run(s.slug, s.name, s.kind === "manager" ? "sales" : s.kind, u?.id ?? null, s.salespersonId,
         s.kind === "filing" ? "registrar" : s.kind === "manager" ? "admin" : null, s.scopeRule, nowIso, nowIso);
   }
+  ensurePageUsageSchema(db); // v10: additive table page_usage_events + 2 indexes
 }
 
 /** ي/ك → ی/ک, drop ZWNJ/zero-width + tatweel, آ → ا, so «برآورد»/«براورد»/«برآ‌ورد» (ZWNJ inside) all match. */
@@ -471,12 +474,12 @@ export function createAssistants(deps: Deps) {
   const maskName = (n: unknown) => { const w = String(n ?? "").trim().split(/\s+/).filter(Boolean); if (!w.length) return null;
     return maskText([w[0], ...w.slice(1).map(x => `${Array.from(x)[0]}…`)].join(" ")); };
   const SOURCE_FA: Record<string, string> = { qualifier_form: "فرم سنجش کاظمی — واگذاری (تقسیم عادلانه)", customer_update: "ویرایش دستی مشتری", nonp1_auto_transfer: "انتقال خودکار غیر اولویت ۱", promote: "ارتقای اولویت" };
-  function leftScopeToday(sp: number, t: Date) {
+  function leftScopeToday(sp: number, t: Date, excludeTest = false) {
     if (!hasTable("customer_priority_history")) return [];
     const from = new Date(tehranDayStartMs(t.getTime())).toISOString();
     const hist = rows<any>(`SELECT h.* FROM customer_priority_history h JOIN customers c ON c.id=h.customer_id
       WHERE h.old_salesperson_id=? AND h.new_salesperson_id IS NOT NULL AND h.new_salesperson_id<>? AND h.created_at>=? AND h.created_at<=?
-        AND c.merged_into_customer_id IS NULL AND COALESCE(c.salesperson_id,-1)<>? ORDER BY h.created_at, h.id`, sp, sp, from, t.toISOString(), sp);
+        AND c.merged_into_customer_id IS NULL AND COALESCE(c.salesperson_id,-1)<>? ${excludeTest ? `AND NOT ${testCustomerSql("c")}` : ""} ORDER BY h.created_at, h.id`, sp, sp, from, t.toISOString(), sp);
     const last = new Map<number, any>(); for (const h of hist) last.set(Number(h.customer_id), h);
     return [...last.values()].slice(0, 50).map(h => {
       const c = row<any>("SELECT * FROM customers WHERE id=?", h.customer_id) ?? {};
@@ -492,7 +495,9 @@ export function createAssistants(deps: Deps) {
   }
   runner.get("/my-context", (_req, res) => {
     const a = A(res); const s = scopeSql(a);
-    const n = row<{ n: number }>(`SELECT COUNT(*) n FROM customers c WHERE ${s.sql}`, ...s.params)?.n ?? 0;
+    // v10: test customers (lib/test-customers.ts) are left out of every count / list here while the admin switch is ON (reporting only).
+    const xt = excludeTestOn(db); const tIds = xt ? testCustomerIds(db) : new Set<number>();
+    const n = row<{ n: number }>(`SELECT COUNT(*) n FROM customers c WHERE ${s.sql}${xt ? ` AND NOT ${testCustomerSql("c")}` : ""}`, ...s.params)?.n ?? 0;
     const users = a.kind === "sales" ? [a.bound_user_id].filter(Boolean).map(id => userRow(id)).filter(Boolean)
       : rows<any>("SELECT id,role,salesperson_id,active,full_name,username FROM users WHERE active=1 ORDER BY id").filter(u => userEligible(a, u));
     const threads = users.map((u: any) => ({ userId: u.id, name: u.full_name || u.username, role: u.role, threadId: threadFor(a, u.id, false)?.id ?? null, ...prefsOf(u.id) }));
@@ -504,22 +509,22 @@ export function createAssistants(deps: Deps) {
       try { today = deps.sales?.today ? deps.sales.today(sp, t) : null; } catch { unavailable = true; }
       try {
         const r = deps.sales?.suggestions ? deps.sales.suggestions(sp, t) : null;
-        if (r) { pool = r.pool; box = r.items.filter((x: any) => inScope(a, Number(x.customerId))).map((x: any) => ({
+        if (r) { pool = r.pool; box = r.items.filter((x: any) => !tIds.has(Number(x.customerId)) && inScope(a, Number(x.customerId))).map((x: any) => ({
           customerId: x.customerId, name: x.displayName, priority: x.priority ?? null, rank: x.rank, tier: x.tier,
           reason: x.reason ? { kind: x.reason.kind, text: x.reason.text } : null, chips: (x.chips ?? []).map((c: any) => c.label),
           topOfList: x.topOfList ? { kind: x.topOfList.kind, dueAt: x.topOfList.dueAt, overdue: Boolean(x.topOfList.overdue), windowNow: Boolean(x.topOfList.windowNow) } : null,
           callForm: x.callForm, lastCallAt: x.lastCallAt ?? null })); }
       } catch { unavailable = true; }
       // v8 fix: «تماس‌های امروز» = the shared lib/expert-calls.ts definition (by the logging expert), not only calls started from the box.
-      let calls: ReturnType<typeof expertCallsToday> | null = null; try { calls = expertCallsToday(db, sp, t); } catch { unavailable = true; }
-      let left: any[] | null = null; try { left = leftScopeToday(sp, t); } catch { unavailable = true; }
+      let calls: ReturnType<typeof expertCallsToday> | null = null; try { calls = expertCallsToday(db, sp, t, { excludeTest: xt }); } catch { unavailable = true; }
+      let left: any[] | null = null; try { left = leftScopeToday(sp, t, xt); } catch { unavailable = true; }
       sales = { leftScopeToday: left, today: { calls: calls?.count ?? null, answered: calls?.answered ?? null, notAnswered: calls?.notAnswered ?? null, unknownResult: calls?.unknown ?? null,
           fromSuggestionBox: today ? Number(today.calls) : null, notNow: today ? Number(today.notNow) : null, definition: EXPERT_CALLS_DEFINITION }, nextCustomer: box[0] ?? null, suggestions: box,
         suggestionPool: pool, ...(unavailable ? { salesBoxUnavailable: true } : {}) };
     }
     if (a.kind === "manager") {
       const experts = managerExperts(db).map(e => ({ salespersonId: e.salespersonId, name: e.name, trainee: e.trainee }));
-      return void res.json(maskAll({ customersInScope: Number(n), people: threads, scope: "manager_all_experts_incl_trainees_readonly", experts,
+      return void res.json(maskAll({ customersInScope: Number(n), testCustomersExcluded: xt, people: threads, scope: "manager_all_experts_incl_trainees_readonly", experts,
         thresholds: readManagerSettings(k => row<{ value: string }>("SELECT value FROM assistant_settings WHERE key=?", k)?.value),
         ranges: MANAGER_RANGES, summarySlots: MANAGER_SLOTS,
         allowed: ["read every expert's customers, calls, notes, reminders and cases, trainees included (read only; user 29 never)", "manager report today/week (read)", "alerts + score (read)",
@@ -527,7 +532,7 @@ export function createAssistants(deps: Deps) {
         blocked: ["changing priority", "assignment", "money/fees/wallets/commission", "contracts", "case stage", "SMS", "customer messages", "reminders or reminder proposals", "deleting anything",
           "messages to anyone but an admin", "any change to trainees"] }));
     }
-    res.json(maskOut({ customersInScope: Number(n), people: threads, scope: a.kind === "sales" ? (a.scope_rule === "p1" ? "own_p1_customers" : "own_customers") : "registrar_smart_filing_cases",
+    res.json(maskOut({ customersInScope: Number(n), testCustomersExcluded: xt, people: threads, scope: a.kind === "sales" ? (a.scope_rule === "p1" ? "own_p1_customers" : "own_customers") : "registrar_smart_filing_cases",
       ...sales,
       allowed: a.kind === "sales"
         ? ["read customers in scope", "priority (read)", "loan cases: received/installment amount/count (read)", "assignment history (read)", "notes/history (read)", "calls with who/result/duration (read)", "consultation + preferred call time (read)", "today + next customer (read)", "chat messages", "notifications", "assistant notes", "typing"]
@@ -802,7 +807,7 @@ export function createAssistants(deps: Deps) {
     : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, maskAll(x)]))
     : typeof v === "string" ? (() => { const m = maskText(v); return m === lat(v) ? v : m; })() : v;
   const mgrSettings = () => readManagerSettings(k => row<{ value: string }>("SELECT value FROM assistant_settings WHERE key=?", k)?.value);
-  const mgrDeps = () => { const t = now(); return { db, now: t, settings: mgrSettings(), siteLeads: deps.sales?.activeSiteLeads ? () => deps.sales!.activeSiteLeads!(t) : undefined }; };
+  const mgrDeps = () => { const t = now(); return { db, now: t, settings: mgrSettings(), excludeTest: excludeTestOn(db), siteLeads: deps.sales?.activeSiteLeads ? () => deps.sales!.activeSiteLeads!(t) : undefined }; };
   const mgrRange = (req: Request, res: Response): ManagerRange | null => {
     const r = String(req.query.range ?? "today");
     if ((MANAGER_RANGES as readonly string[]).includes(r)) return r as ManagerRange;
@@ -834,6 +839,14 @@ export function createAssistants(deps: Deps) {
     audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/summary", outcome: "ok", detail: { slot } });
     res.json(maskAll(managerSummary(mgrDeps(), slot as ManagerSlot)));
   });
+  // v10: page-usage report (read only; user 29 is never stored). range = day | week (from Saturday) | month (last 30 Tehran days).
+  const puRange = (req: Request, res: Response): PageUsageRange | null => { const r = String(req.query.range ?? "day");
+    if (!(PAGE_USAGE_RANGES as readonly string[]).includes(r)) { fail(res, 422, "bad_range", `range یکی از: ${PAGE_USAGE_RANGES.join(", ")}`); return null; } return r as PageUsageRange; };
+  runner.get("/manager/page-usage", managerOnly, (req, res) => {
+    const range = puRange(req, res); if (!range) return;
+    audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/page-usage", outcome: "ok", detail: { range } });
+    res.json(maskAll(pageUsageReport(db, range, now())));
+  });
   // Bale 1b runner routes (/bale/send: sales assistants only — the manager is refused there by kind)
   deps.extendRunner?.(runner, { inScope });
   runner.use((req, res) => { if (req.method !== "GET") return deny(req, res); fail(res, 404, "not_found"); });
@@ -846,6 +859,16 @@ export function createAssistants(deps: Deps) {
   /* ================= staff router (session; mounted under /api) ================= */
   const staff = Router();
   staff.use(["/assistant", "/admin/assistants", "/admin/assistant-tokens", "/admin/assistant-audit"], (_req, res, next) => { res.setHeader("Cache-Control", "no-store"); next(); });
+  /* v10: page-usage beacon (session). Only the route pattern, enter time, visible dwell, menu clicks and entry source are
+   * stored (lib/page-usage.ts); user 29 and a switched-off tracker store nothing. Always answers 200 so a beacon never errors. */
+  staff.get("/page-usage/config", (_req, res) => { const x = deps.actor(res); res.setHeader("Cache-Control", "no-store");
+    res.json({ enabled: Boolean(x && !EXCLUDED_USER_IDS.includes(Number(x.id)) && pageUsageOn(db)) }); });
+  staff.post("/page-usage", (req, res) => {
+    let stored = 0; let enabled = false;
+    try { const x = deps.actor(res); enabled = Boolean(x && !EXCLUDED_USER_IDS.includes(Number(x.id)) && pageUsageOn(db));
+      if (enabled && x) stored = recordPageUsage(db, { id: Number(x.id), role: x.role ?? null, salespersonId: x.salespersonId ?? null }, req.body, now()); } catch { /* silent */ }
+    res.setHeader("Cache-Control", "no-store"); res.json({ enabled, stored });
+  });
   const me = (res: Response) => { const x = deps.actor(res); return x ? userRow(x.id) : undefined; };
   /** v8: user 29 never reaches the manager assistant (dock, chat, report preview, thresholds, its admin card) — other admin access unchanged. */
   const noMgr = (u: any) => EXCLUDED_USER_IDS.includes(Number(u?.id));
@@ -1018,6 +1041,24 @@ export function createAssistants(deps: Deps) {
     for (const [k, val] of v.values) run("INSERT INTO assistant_settings(key,value,updated_at,updated_by_user_id) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,updated_by_user_id=excluded.updated_by_user_id", k, val, iso(), u.id);
     audit({ req, userId: u.id, actorLabel: u.full_name || u.username, action: "admin.manager_settings", outcome: "ok", detail: Object.fromEntries(v.values) });
     res.json({ thresholds: mgrSettings(), defaults: MANAGER_DEFAULTS });
+  });
+  // v10: reporting switches (admin only, user 29 refused): exclude test customers from reports (default ON), page-usage tracker (default ON).
+  const reportingSettings = () => ({ excludeTestCustomers: excludeTestOn(db), pageUsageEnabled: pageUsageOn(db) });
+  staff.get("/admin/assistants/reporting-settings", admin, mgrAdmin, (_req, res) => { res.json({ ...reportingSettings(), defaults: { excludeTestCustomers: true, pageUsageEnabled: true } }); });
+  staff.put("/admin/assistants/reporting-settings", admin, mgrAdmin, (req, res) => {
+    const b = req.body ?? {}; const u = res.locals.assistantAdmin; const changed: Record<string, boolean> = {};
+    for (const [field, key] of [["excludeTestCustomers", EXCLUDE_TEST_CUSTOMERS_KEY], ["pageUsageEnabled", PAGE_USAGE_ENABLED_KEY]] as const) {
+      if (b[field] === undefined) continue;
+      if (typeof b[field] !== "boolean") return fail(res, 422, "bad_value", `${field} باید true یا false باشد`);
+      run("INSERT INTO assistant_settings(key,value,updated_at,updated_by_user_id) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,updated_by_user_id=excluded.updated_by_user_id", key, b[field] ? "1" : "0", iso(), u.id); changed[field] = b[field];
+    }
+    if (!Object.keys(changed).length) return fail(res, 422, "nothing_to_change");
+    audit({ req, userId: u.id, actorLabel: u.full_name || u.username, action: "admin.reporting_settings", outcome: "ok", detail: changed });
+    res.json(reportingSettings());
+  });
+  staff.get("/admin/assistants/page-usage", admin, mgrAdmin, (req, res) => {
+    const range = puRange(req, res); if (!range) return;
+    res.json(pageUsageReport(db, range, now()));
   });
   staff.get("/admin/assistants/manager-report", admin, mgrAdmin, (req, res) => {
     const r = String(req.query.range ?? "today");

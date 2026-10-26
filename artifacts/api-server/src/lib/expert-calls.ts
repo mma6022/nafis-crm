@@ -13,6 +13,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { callOutcome } from "./sales-report";
 import { realCallSql } from "./real-call";
+import { notTestCustomerIdSql } from "./test-customers";
 
 export const TEHRAN_OFFSET_MS = 3.5 * 3600_000;
 export function tehranDayStartMs(t: number): number { const w = new Date(t + TEHRAN_OFFSET_MS); w.setUTCHours(0, 0, 0, 0); return w.getTime() - TEHRAN_OFFSET_MS; }
@@ -21,16 +22,20 @@ export type ExpertCall = { at: number; outcome: "yes" | "no" | "unknown"; callLo
 const has = (db: DatabaseSync, t: string) => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(t));
 const parseAt = (v: unknown) => { const s = String(v ?? ""); return Date.parse(/^\d{4}-\d\d-\d\d[ T]\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(s) ? s.replace(" ", "T") + "Z" : s); };
 
-export function expertCalls(db: DatabaseSync, sp: number, fromIso: string, toIso: string): ExpertCall[] {
+/** opts.excludeTest (v10): leave out calls on test customers (lib/test-customers.ts) — reporting only. */
+export function expertCalls(db: DatabaseSync, sp: number, fromIso: string, toIso: string, opts: { excludeTest?: boolean } = {}): ExpertCall[] {
   const voip = has(db, "voip_after_call_events"); const q = has(db, "team_sales_qualifications");
+  const vcid = voip && (db.prepare("SELECT 1 FROM pragma_table_info('voip_after_call_events') WHERE name='customer_id'").get() != null);
+  const tl = opts.excludeTest ? `AND ${notTestCustomerIdSql("l.customer_id")}` : "";
+  const tv = opts.excludeTest && vcid ? `AND ${notTestCustomerIdSql("e.customer_id")}` : "";
   const at = voip ? "COALESCE(e.started_at,l.created_at)" : "l.created_at";
   const sql = `SELECT l.id lid, ${at} at, ${voip ? "e.status, e.mobile_answered_at" : "NULL status, NULL mobile_answered_at"},
       ${q ? "(SELECT call_result FROM team_sales_qualifications tq WHERE tq.call_log_id=l.id ORDER BY tq.id DESC LIMIT 1)" : "NULL"} qres
     FROM call_logs l ${voip ? "LEFT JOIN voip_after_call_events e ON e.call_log_id=l.id" : ""}
-    WHERE l.salesperson_id=? AND ${realCallSql("l.subject")} ${voip ? "AND COALESCE(e.is_live,0)=0" : ""}
+    WHERE l.salesperson_id=? AND ${realCallSql("l.subject")} ${voip ? "AND COALESCE(e.is_live,0)=0" : ""} ${tl}
       AND julianday(${at})>=julianday(?) AND julianday(${at})<julianday(?)
     ${voip ? `UNION ALL SELECT NULL lid, e.started_at at, e.status, e.mobile_answered_at, NULL qres FROM voip_after_call_events e
-      WHERE e.call_log_id IS NULL AND e.is_live=0 AND e.salesperson_id=? AND julianday(e.started_at)>=julianday(?) AND julianday(e.started_at)<julianday(?)` : ""}`;
+      WHERE e.call_log_id IS NULL AND e.is_live=0 AND e.salesperson_id=? ${tv} AND julianday(e.started_at)>=julianday(?) AND julianday(e.started_at)<julianday(?)` : ""}`;
   const p: any[] = [sp, fromIso, toIso]; if (voip) p.push(sp, fromIso, toIso);
   return (db.prepare(sql).all(...p) as any[]).map(r => {
     let o = callOutcome(r.status, r.mobile_answered_at);
@@ -44,7 +49,7 @@ export function expertCallStats(list: ExpertCall[]) {
   return { count: list.length, answered, notAnswered, unknown: list.length - known, answeredShare: known ? Math.round((answered / known) * 1000) / 1000 : null };
 }
 /** Today (Tehran) so far for one expert. */
-export function expertCallsToday(db: DatabaseSync, sp: number, now: Date) {
-  return expertCallStats(expertCalls(db, sp, new Date(tehranDayStartMs(now.getTime())).toISOString(), new Date(now.getTime() + 1).toISOString()));
+export function expertCallsToday(db: DatabaseSync, sp: number, now: Date, opts: { excludeTest?: boolean } = {}) {
+  return expertCallStats(expertCalls(db, sp, new Date(tehranDayStartMs(now.getTime())).toISOString(), new Date(now.getTime() + 1).toISOString(), opts));
 }
 export const EXPERT_CALLS_DEFINITION = "call_logs by the expert who logged it (not the customer owner) + unlinked phone-system calls; P1 hand-off and accuracy-review rows and live calls excluded; Tehran day";
