@@ -7,6 +7,7 @@ import NotFound from '@/pages/not-found';
 import Dashboard from '@/pages/Dashboard';
 import Customers from '@/pages/Customers';
 import MyTransfers from '@/pages/MyTransfers';
+import MyPerformance from '@/pages/MyPerformance';
 import SalesAssistSettings from '@/pages/SalesAssistSettings';
 import CustomerDetail from '@/pages/CustomerDetail';
 import Reminders from '@/pages/Reminders';
@@ -224,6 +225,7 @@ function AppWithRoutes() {
                       <Route path="/internal-chat"><PermissionRoute permission="internal_chat.use"><InternalChatPage /></PermissionRoute></Route>
                       <Route path="/customers"><PermissionRoute permission="customers.view"><Customers /></PermissionRoute></Route>
                       <Route path="/my-transfers"><PermissionRoute permission="customers.view"><MyTransfers /></PermissionRoute></Route>
+                      <Route path="/my-performance"><PermissionRoute permission="customers.view"><MyPerformance /></PermissionRoute></Route>
                       <Route path="/mobile-calls"><PermissionRoute permission="calls.view"><MobileCalls /></PermissionRoute></Route>
                       <Route path="/customers/:id"><PermissionRoute permission="customers.view"><CustomerDetail /></PermissionRoute></Route>
                       <Route path="/wallet-management"><PermissionRoute permission={['wallets.view', 'payment_orders.pay']}><WalletManagement /></PermissionRoute></Route>

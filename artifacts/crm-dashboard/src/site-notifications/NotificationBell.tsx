@@ -17,8 +17,8 @@ const VISIBLE_EVERY_MS = 10_000;
 const HIDDEN_LEADER_EVERY_MS = 30_000;
 const MAX_TOASTS = 3;
 const TOAST_MS = 10000;
-const PAGE_ENUMS = ['customers','chat','instagram-inbox','loan-applications','goods-purchases','contracts','payment-orders','calls','consultations','wallet-management','smart-filing'];
-const PAGE_LABELS: Record<string, string> = { 'smart-filing': 'ثبت هوشمند', customers: 'مشتریان', chat: 'گفتگو', 'instagram-inbox': 'دایرکت اینستاگرام', 'loan-applications': 'تسهیلات', 'goods-purchases': 'خرید کالا', contracts: 'قراردادها', 'payment-orders': 'دستورهای پرداخت', calls: 'تماس‌ها', consultations: 'مشاوره‌ها', 'wallet-management': 'کیف پول' };
+const PAGE_ENUMS = ['customers','chat','instagram-inbox','loan-applications','goods-purchases','contracts','payment-orders','calls','consultations','wallet-management','smart-filing','my-performance'];
+const PAGE_LABELS: Record<string, string> = { 'smart-filing': 'ثبت هوشمند', customers: 'مشتریان', chat: 'گفتگو', 'instagram-inbox': 'دایرکت اینستاگرام', 'loan-applications': 'تسهیلات', 'goods-purchases': 'خرید کالا', contracts: 'قراردادها', 'payment-orders': 'دستورهای پرداخت', calls: 'تماس‌ها', consultations: 'مشاوره‌ها', 'wallet-management': 'کیف پول', 'my-performance': 'تحلیل عملکرد من' };
 
 export function pageForPath(path: string): string | null {
   const seg = path.split('?')[0].split('/')[1] ?? '';

@@ -33,6 +33,7 @@ import { parseConsultAmountToman } from "./consultation-report";
 import { EXCLUDE_TEST_CUSTOMERS_KEY, excludeTestOn, testCustomerSql, testCustomerIds } from "./test-customers";
 import { openInvoices, registrationReport, REGISTRATION_RANGES, type RegistrationRange } from "./manager-work";
 import { PAGE_USAGE_ENABLED_KEY, PAGE_USAGE_RANGES, ensurePageUsageSchema, pageUsageOn, pageUsageReport, recordPageUsage, type PageUsageRange } from "./page-usage";
+import { PERFORMANCE_PERIODS, ANALYSIS_MAX_CHARS, ensureExpertAnalysisSchema, listAnalyses, performanceReport, sanitizeAnalysisBody, validPeriodStart, defaultPeriodStart, type PerformancePeriod } from "./expert-performance";
 import { MANAGER_RANGES, MANAGER_SLOTS, MANAGER_SETTING_KEYS, MANAGER_DEFAULTS, managerAlerts, managerExperts, managerReport, managerSummary,
   readManagerSettings, validateManagerSettings, type ManagerRange, type ManagerSlot, type SiteLeadLite } from "./assistant-manager";
 
@@ -815,7 +816,7 @@ export function createAssistants(deps: Deps) {
   const mgrRange = (req: Request, res: Response): ManagerRange | null => {
     const r = String(req.query.range ?? "today");
     if ((MANAGER_RANGES as readonly string[]).includes(r)) return r as ManagerRange;
-    fail(res, 422, "range_not_supported", `بازه‌های فعلی: ${MANAGER_RANGES.join(", ")} (دیروز و ماه در فاز بعد).`); return null;
+    fail(res, 422, "range_not_supported", `بازه‌های فعلی: ${MANAGER_RANGES.join(", ")} (ماه = ماه شمسی).`); return null;
   };
   const mgrSp = (req: Request, res: Response): number | null | false => {
     if (req.query.salespersonId == null || req.query.salespersonId === "") return null;
@@ -872,6 +873,57 @@ export function createAssistants(deps: Deps) {
     audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/registration", outcome: "ok", detail: { range: p.range, stuckHours: p.stuckHours } });
     res.json(maskAll(registrationReport(workDeps(), p.range, p.stuckHours, p.src)));
   });
+  /* ---------- Task D (2026-10-26) «تحلیل عملکرد من»: per-period numbers + Ahmad's written analysis per expert ---------- */
+  ensureExpertAnalysisSchema(db);
+  const perfPeriod = (v: unknown): PerformancePeriod | null => (PERFORMANCE_PERIODS as readonly string[]).includes(String(v)) ? String(v) as PerformancePeriod : null;
+  runner.get("/manager/expert-performance", managerOnly, (req, res) => {
+    const sp = mgrSp(req, res); if (sp === false) return; if (sp == null) return fail(res, 422, "salesperson_required", "salespersonId لازم است.");
+    const period = perfPeriod(req.query.period ?? "day"); if (!period) return fail(res, 422, "bad_period", "period یکی از day | week | month است.");
+    const ps = req.query.periodStart == null || req.query.periodStart === "" ? null : validPeriodStart(period, req.query.periodStart, now());
+    if (req.query.periodStart && !ps) return fail(res, 422, "bad_period_start", "periodStart باید تاریخ شروع همان بازه (YYYY-MM-DD تهران) باشد.");
+    audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/expert-performance", outcome: "ok", detail: { salespersonId: sp, period, periodStart: ps } });
+    res.json(performanceReport(db, sp, period, now(), excludeTestOn(db), ps));
+  });
+  runner.get("/manager/expert-analysis", managerOnly, (req, res) => {
+    const sp = mgrSp(req, res); if (sp === false) return;
+    const period = req.query.period == null || req.query.period === "" ? null : perfPeriod(req.query.period);
+    if (req.query.period && !period) return fail(res, 422, "bad_period");
+    const ids = sp == null ? managerExperts(db).map(e => e.salespersonId) : [sp];
+    audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/expert-analysis", outcome: "ok", detail: { salespersonId: sp, period } });
+    res.json({ analyses: listAnalyses(db, { salespersonIds: ids, period, limit: Number(req.query.limit ?? 20) || 20 }) });
+  });
+  runner.post("/manager/expert-analysis", managerOnly, (req, res) => {
+    const a = A(res); const b = req.body ?? {};
+    const sp = Number(b.salespersonId);
+    const ex = managerExperts(db).find(e => e.salespersonId === sp);
+    const bad = (code: string, msg: string, st = 422) => { audit({ req, a, tokenId: TK(res), action: "POST /manager/expert-analysis", outcome: code, detail: { salespersonId: b.salespersonId ?? null, period: b.period ?? null } }); fail(res, st, code, msg); };
+    if (!ex) return bad("not_found", "کارشناس در محدوده‌ی دستیار مدیر نیست.", 404);
+    if (ex.trainee || TRAINEE_SALESPERSON_IDS.includes(sp)) return bad("trainee_read_only", "برای کارآموزها تحلیل ثبت نمی‌شود (فقط خواندنی).", 403);
+    const period = perfPeriod(b.period); if (!period) return bad("bad_period", "period یکی از day | week | month است.");
+    const ps = b.periodStart == null || b.periodStart === "" ? defaultPeriodStart(period, now()) : validPeriodStart(period, b.periodStart, now());
+    if (!ps) return bad("bad_period_start", "periodStart باید تاریخ شروع همان بازه (YYYY-MM-DD تهران) باشد؛ روز = دیروز یا قبل‌تر، هفته = شنبه، ماه = اول ماه شمسی.");
+    const body = sanitizeAnalysisBody(b.body);
+    if (!body) return bad("bad_body", `body متن markdown غیرخالی و حداکثر ${ANALYSIS_MAX_CHARS} نویسه است.`);
+    const at = iso();
+    const r = db.prepare("INSERT INTO expert_analyses(salesperson_id,period,period_start,body,assistant_id,token_id,author_label,created_at) VALUES(?,?,?,?,?,?,?,?)")
+      .run(sp, period, ps, body, a.id ?? null, TK(res) ?? null, label(a), at);
+    const id = Number(r.lastInsertRowid);
+    // Bell (no SMS / Bale / Telegram): the expert's own active user(s) only; never trainees or excluded users. Off with CRM_EXPERT_ANALYSIS_NOTIFY=0.
+    const notified: number[] = [];
+    if (process.env.CRM_EXPERT_ANALYSIS_NOTIFY !== "0" && hasTable("site_notification_events")) {
+      const PF: Record<string, string> = { day: "روز گذشته", week: "هفته", month: "ماه" };
+      const first = body.split("\n").map(x => x.replace(/^[#>*\-\s]+/, "").trim()).find(Boolean) ?? "";
+      for (const u of rows<any>("SELECT id FROM users WHERE salesperson_id=? AND role='salesperson' AND active=1", sp)) {
+        if (EXCLUDED_USER_IDS.includes(Number(u.id))) continue;
+        run(`INSERT INTO site_notification_events(customer_id,customer_name,owner_id,resource_type,resource_id,kind,title,body,permission,created_at,actor_key,recipient_user_id)
+          VALUES(0,'',?,'expert-analysis',?,'expert-analysis',?,?,'assistant.recipient',?,?,?)`, sp, id, `${label(a)} · تحلیل عملکرد ${PF[period]}`, first.slice(0, 160), at, `assistant:${a.slug}`, u.id);
+        notified.push(Number(u.id));
+      }
+      if (notified.length) run("UPDATE expert_analyses SET notified_user_ids=? WHERE id=?", JSON.stringify(notified), id);
+    }
+    audit({ req, a, tokenId: TK(res), action: "POST /manager/expert-analysis", outcome: "ok", detail: { id, salespersonId: sp, period, periodStart: ps, chars: body.length, notified: notified.length } });
+    res.status(201).json({ id, salespersonId: sp, period, periodStart: ps, createdAt: at, notifiedUsers: notified.length, link: `/my-performance?analysis=${id}` });
+  });
   // Bale 1b runner routes (/bale/send: sales assistants only — the manager is refused there by kind)
   deps.extendRunner?.(runner, { inScope });
   runner.use((req, res) => { if (req.method !== "GET") return deny(req, res); fail(res, 404, "not_found"); });
@@ -897,6 +949,47 @@ export function createAssistants(deps: Deps) {
   const me = (res: Response) => { const x = deps.actor(res); return x ? userRow(x.id) : undefined; };
   /** v8: user 29 never reaches the manager assistant (dock, chat, report preview, thresholds, its admin card) — other admin access unchanged. */
   const noMgr = (u: any) => EXCLUDED_USER_IDS.includes(Number(u?.id));
+  /* Task D «تحلیل عملکرد من» (session): a sales expert sees only their own numbers and analyses; admin any expert (filter);
+   * trainees, registrars and user 29 get 403. Counts and money only — no answered / result / duration, no customer rows. */
+  const perfWho = (req: Request, res: Response): number | null => {
+    const u = me(res);
+    if (!u || !u.active || noMgr(u)) { fail(res, 403, "forbidden"); return null; }
+    if (u.role === "salesperson") {
+      const sp = Number(u.salesperson_id);
+      if (!sp || TRAINEE_SALESPERSON_IDS.includes(sp)) { fail(res, 403, "forbidden"); return null; }
+      if (req.query.salespersonId != null && req.query.salespersonId !== "" && Number(req.query.salespersonId) !== sp) { fail(res, 403, "forbidden"); return null; }
+      return sp;
+    }
+    if (u.role === "admin") {
+      const experts = managerExperts(db).filter(e => !e.trainee);
+      const sp = req.query.salespersonId == null || req.query.salespersonId === "" ? (experts[0]?.salespersonId ?? 0) : Number(req.query.salespersonId);
+      if (!experts.some(e => e.salespersonId === sp)) { fail(res, 404, "not_found"); return null; }
+      return sp;
+    }
+    fail(res, 403, "forbidden"); return null;
+  };
+  staff.get("/my-performance", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const sp = perfWho(req, res); if (sp == null) return;
+    const period = perfPeriod(req.query.period ?? "day"); if (!period) return fail(res, 422, "bad_period");
+    const ps = req.query.periodStart ? validPeriodStart(period, req.query.periodStart, now()) : null;
+    if (req.query.periodStart && !ps) return fail(res, 422, "bad_period_start");
+    const u = me(res)!;
+    const rep = performanceReport(db, sp, period, now(), excludeTestOn(db), ps);
+    const analysis = listAnalyses(db, { salespersonIds: [sp], period, periodStart: rep.periodStart, limit: 1 })[0] ?? null;
+    res.json({ ...rep, analysis, experts: u.role === "admin" ? managerExperts(db).filter(e => !e.trainee).map(e => ({ salespersonId: e.salespersonId, name: e.name })) : undefined });
+  });
+  staff.get("/my-performance/analyses", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const u = me(res); if (!u) return fail(res, 403, "forbidden");
+    const id = req.query.id ? Number(req.query.id) : null;
+    const allAdmin = u.role === "admin" && !noMgr(u) && (req.query.salespersonId == null || req.query.salespersonId === "");
+    let ids: number[] | null;
+    if (allAdmin) ids = managerExperts(db).filter(e => !e.trainee).map(e => e.salespersonId);
+    else { const sp = perfWho(req, res); if (sp == null) return; ids = [sp]; }
+    const period = req.query.period ? perfPeriod(req.query.period) : null;
+    res.json({ analyses: listAnalyses(db, { salespersonIds: ids, period, id, limit: Number(req.query.limit ?? 30) || 30 }) });
+  });
   /** Assistants this user can open (enabled + global on). */
   function mine(u: any) {
     if (!u || !globalOn()) return [];

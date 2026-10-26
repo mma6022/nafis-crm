@@ -16,8 +16,8 @@ import { testCustomerSql } from "./test-customers";
 
 export const MANAGER_TRAINEE_SALESPERSON_IDS = [5, 19, 20];
 export const MANAGER_EXCLUDED_USER_IDS = [29];
-/** Piece A ranges only. Piece B adds "yesterday" and "month" here. */
-export const MANAGER_RANGES = ["today", "week"] as const;
+/** Task D (2026-10-26): + "yesterday" (the whole previous Tehran day) and "month" (the current Jalali month so far). */
+export const MANAGER_RANGES = ["today", "yesterday", "week", "month"] as const;
 export type ManagerRange = (typeof MANAGER_RANGES)[number];
 export const MANAGER_SLOTS = ["morning", "evening", "thursday"] as const;
 export type ManagerSlot = (typeof MANAGER_SLOTS)[number];
@@ -66,10 +66,16 @@ const OFFSET = 210 * 60_000; const DAY = 86_400_000;
 const tehranDayStart = (t: number) => Math.floor((t + OFFSET) / DAY) * DAY - OFFSET;
 /** JS getDay() of the Tehran calendar day containing t (6 = Saturday, 5 = Friday). */
 const tehranWeekday = (t: number) => new Date(t + OFFSET).getUTCDay();
+const JDAY = new Intl.DateTimeFormat("en-u-ca-persian-nu-latn", { timeZone: "Asia/Tehran", day: "numeric" });
+/** Start (UTC ms) of the Jalali month containing t (Tehran days; Iran has no DST since 2022, fixed UTC+03:30). */
+export function jalaliMonthStart(t: number): number { const d = tehranDayStart(t); return d - (Number(JDAY.format(new Date(d + DAY / 2))) - 1) * DAY; }
+export const tehranWeekStart = (t: number) => tehranDayStart(t) - ((tehranWeekday(t) + 1) % 7) * DAY;
+const RANGE_FA: Record<ManagerRange, string> = { today: "امروز", yesterday: "دیروز (کل روز)", week: "این هفته (از شنبه)", month: "این ماه (ماه شمسی تا الان)" };
 export function rangeBounds(range: ManagerRange, now: Date): { range: ManagerRange; from: string; to: string; label: string } {
   const t = now.getTime(); const today = tehranDayStart(t);
-  const start = range === "today" ? today : today - ((tehranWeekday(t) + 1) % 7) * DAY;
-  return { range, from: new Date(start).toISOString(), to: now.toISOString(), label: range === "today" ? "امروز" : "این هفته (از شنبه)" };
+  const start = range === "today" ? today : range === "yesterday" ? today - DAY : range === "week" ? tehranWeekStart(t) : jalaliMonthStart(t);
+  const end = range === "yesterday" ? new Date(today) : now;
+  return { range, from: new Date(start).toISOString(), to: end.toISOString(), label: RANGE_FA[range] };
 }
 const faDigits = (s: string | number) => String(s).replace(/\d/g, d => "۰۱۲۳۴۵۶۷۸۹"[Number(d)]);
 const faDate = (d: Date) => new Intl.DateTimeFormat("fa-IR-u-ca-persian", { timeZone: "Asia/Tehran", weekday: "long", day: "numeric", month: "long" }).format(d);
@@ -117,8 +123,8 @@ const RULE_POINTS = { calls_below_average: 40, overdue_reminders: 30, site_leads
 function expertReport(d: ManagerDeps, e: Expert, range: ManagerRange, leads: Map<number, SiteLeadLite>, leadOwners: Map<number, any>): ExpertReport {
   const { db, now, settings } = d; const t = now.getTime(); const nowIso = now.toISOString();
   const b = rangeBounds(range, now);
-  const xo = { excludeTest: Boolean(d.excludeTest) }; const notTest = d.excludeTest ? `AND NOT ${testCustomerSql("c")}` : "";
-  const calls = callStats(callsOf(db, e.salespersonId, b.from, new Date(t + 1).toISOString(), xo));
+  const xo = { excludeTest: Boolean(d.excludeTest), reportAliases: true }; const notTest = d.excludeTest ? `AND NOT ${testCustomerSql("c")}` : "";
+  const calls = callStats(callsOf(db, e.salespersonId, b.from, range === "yesterday" ? b.to : new Date(t + 1).toISOString(), xo));
   // baseline: the 7 days before today (days with at least one call), up to the same Tehran clock time or the full day.
   const today = tehranDayStart(t); const hist = callsOf(db, e.salespersonId, new Date(today - 7 * DAY).toISOString(), new Date(today).toISOString(), xo);
   const todayCalls = range === "today" ? calls.count : callsOf(db, e.salespersonId, new Date(today).toISOString(), new Date(t + 1).toISOString(), xo).length;
@@ -197,7 +203,8 @@ export function managerReport(d: ManagerDeps, range: ManagerRange, salespersonId
       alerts: sum(x => x.score.alerts.length) },
     testCustomersExcluded: Boolean(d.excludeTest),
     experts: list, ...(siteLeadsUnavailable ? { siteLeadsUnavailable: true } : {}),
-    pieceB: { notYet: ["conversions", "paid_amount", "commission", "active_hours", "ranges:yesterday,month", "not_now_reasons", "assistant_threads"] } };
+    snapshotNote: "overdueReminders, siteLeadsOverdue and p1NoCall are always as of now; only calls follow the range",
+    pieceB: { notYet: ["conversions", "paid_amount", "commission", "active_hours", "not_now_reasons", "assistant_threads"], seeAlso: "GET /manager/expert-performance (per-period numbers vs the previous period)" } };
 }
 
 export function managerAlerts(d: ManagerDeps) {

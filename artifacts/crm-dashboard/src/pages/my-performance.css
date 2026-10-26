@@ -1,0 +1,27 @@
+.mp-page{max-width:1080px;margin:0 auto;padding:12px}
+.mp-title{display:flex;align-items:center;gap:8px;font-size:1.25rem;margin:4px 0 6px}
+.mp-tabs{display:flex;gap:6px;margin:10px 0;flex-wrap:wrap}
+.mp-tabs button{flex:1 1 0;min-width:84px;min-height:44px;border:1px solid hsl(var(--border));background:hsl(var(--card));border-radius:12px;font:inherit;cursor:pointer}
+.mp-tabs button[aria-selected=true]{background:hsl(var(--primary));color:#fff;border-color:transparent;font-weight:700}
+.mp-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin:6px 0}
+.mp-head select{min-height:40px;border-radius:10px;border:1px solid hsl(var(--border));padding:0 8px;font:inherit;background:hsl(var(--card))}
+.mp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.mp-card{background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:14px;padding:12px}
+.mp-card h3{font-size:.92rem;margin:0 0 6px;font-weight:600}
+.mp-val{font-size:1.6rem;font-weight:800;line-height:1.2}
+.mp-sub{font-size:.85rem;opacity:.85;margin-top:2px}
+.mp-cmp{font-size:.8rem;margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.mp-chip{border-radius:999px;padding:1px 8px;font-weight:700;font-size:.78rem;background:#eef1f5}
+.mp-chip.good{background:#e3f6ea;color:#17703a}.mp-chip.bad{background:#fde8e8;color:#a32020}
+.mp-def{font-size:.75rem;opacity:.7;margin-top:6px}
+.mp-an{margin-top:14px;background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:14px;padding:14px;line-height:1.9}
+.mp-an h2{font-size:1.05rem;margin:0 0 6px}.mp-an h3,.mp-an h4{font-size:.98rem;margin:10px 0 4px}
+.mp-an ul,.mp-an ol{margin:4px 0;padding-inline-start:22px}
+.mp-an .mp-meta{font-size:.8rem;opacity:.75}
+.mp-hist{margin-top:10px}.mp-hist summary{cursor:pointer;min-height:40px;display:flex;align-items:center}
+.mp-hist li button{background:none;border:0;color:hsl(var(--primary));font:inherit;cursor:pointer;padding:6px 0;text-align:start}
+.mp-hl{outline:2px solid hsl(var(--primary))}
+@media (max-width:480px){.mp-page{padding:8px}.mp-grid{grid-template-columns:1fr 1fr;gap:8px}.mp-val{font-size:1.3rem}.mp-card{padding:10px}.mp-card.wide{grid-column:1/-1}}
+.mp-an ul{list-style:disc;padding-inline-start:1.3em;margin:6px 0}
+.mp-an ol{list-style:decimal;padding-inline-start:1.3em;margin:6px 0}
+.mp-an li{margin:3px 0}

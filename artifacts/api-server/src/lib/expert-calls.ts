@@ -22,21 +22,29 @@ export type ExpertCall = { at: number; outcome: "yes" | "no" | "unknown"; callLo
 const has = (db: DatabaseSync, t: string) => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(t));
 const parseAt = (v: unknown) => { const s = String(v ?? ""); return Date.parse(/^\d{4}-\d\d-\d\d[ T]\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(s) ? s.replace(" ", "T") + "Z" : s); };
 
-/** opts.excludeTest (v10): leave out calls on test customers (lib/test-customers.ts) — reporting only. */
-export function expertCalls(db: DatabaseSync, sp: number, fromIso: string, toIso: string, opts: { excludeTest?: boolean } = {}): ExpertCall[] {
+/** Task D (2026-10-26), REPORTS ONLY: call_logs rows whose «ثبت‌کننده» name snapshot is one of these names count for this
+ *  salesperson even when salesperson_id differs. «محدثه ابوالقاسمی» was Ms. Ghasemi's (salesperson 4) old display name.
+ *  The /my-context «امروز» counter does not pass reportAliases, so it is unchanged. */
+export const REPORT_CALL_ALIASES: Record<number, string[]> = { 4: ["محدثه ابوالقاسمی"] };
+/** opts.excludeTest (v10): leave out calls on test customers (lib/test-customers.ts) — reporting only.
+ *  opts.reportAliases (Task D): also count call_logs whose salesperson_name_snapshot is in REPORT_CALL_ALIASES[sp]. */
+export function expertCalls(db: DatabaseSync, sp: number, fromIso: string, toIso: string, opts: { excludeTest?: boolean; reportAliases?: boolean } = {}): ExpertCall[] {
   const voip = has(db, "voip_after_call_events"); const q = has(db, "team_sales_qualifications");
   const vcid = voip && (db.prepare("SELECT 1 FROM pragma_table_info('voip_after_call_events') WHERE name='customer_id'").get() != null);
   const tl = opts.excludeTest ? `AND ${notTestCustomerIdSql("l.customer_id")}` : "";
   const tv = opts.excludeTest && vcid ? `AND ${notTestCustomerIdSql("e.customer_id")}` : "";
   const at = voip ? "COALESCE(e.started_at,l.created_at)" : "l.created_at";
+  const aliases = opts.reportAliases ? (REPORT_CALL_ALIASES[sp] ?? []) : [];
+  const snap = aliases.length && db.prepare("SELECT 1 FROM pragma_table_info('call_logs') WHERE name='salesperson_name_snapshot'").get() != null;
+  const who = snap ? `(l.salesperson_id=? OR trim(COALESCE(l.salesperson_name_snapshot,'')) IN (${aliases.map(() => "?").join(",")}))` : "l.salesperson_id=?";
   const sql = `SELECT l.id lid, ${at} at, ${voip ? "e.status, e.mobile_answered_at" : "NULL status, NULL mobile_answered_at"},
       ${q ? "(SELECT call_result FROM team_sales_qualifications tq WHERE tq.call_log_id=l.id ORDER BY tq.id DESC LIMIT 1)" : "NULL"} qres
     FROM call_logs l ${voip ? "LEFT JOIN voip_after_call_events e ON e.call_log_id=l.id" : ""}
-    WHERE l.salesperson_id=? AND ${realCallSql("l.subject")} ${voip ? "AND COALESCE(e.is_live,0)=0" : ""} ${tl}
+    WHERE ${who} AND ${realCallSql("l.subject")} ${voip ? "AND COALESCE(e.is_live,0)=0" : ""} ${tl}
       AND julianday(${at})>=julianday(?) AND julianday(${at})<julianday(?)
     ${voip ? `UNION ALL SELECT NULL lid, e.started_at at, e.status, e.mobile_answered_at, NULL qres FROM voip_after_call_events e
       WHERE e.call_log_id IS NULL AND e.is_live=0 AND e.salesperson_id=? ${tv} AND julianday(e.started_at)>=julianday(?) AND julianday(e.started_at)<julianday(?)` : ""}`;
-  const p: any[] = [sp, fromIso, toIso]; if (voip) p.push(sp, fromIso, toIso);
+  const p: any[] = [sp, ...(snap ? aliases : []), fromIso, toIso]; if (voip) p.push(sp, fromIso, toIso);
   return (db.prepare(sql).all(...p) as any[]).map(r => {
     let o = callOutcome(r.status, r.mobile_answered_at);
     if (o === "unknown" && r.qres) o = r.qres === "answered" ? "yes" : r.qres === "no_answer" ? "no" : "unknown";
