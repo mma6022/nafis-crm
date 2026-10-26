@@ -7,10 +7,14 @@ import { decideCreditPermission, fetchNotifications, markAllNotificationsRead, m
 import './notifications.css';
 import { AssistantAvatar } from '@/features/assistant/AssistantAvatar';
 import '@/features/assistant/assistant.css';
+import { claimOnce, tabLeader, tabVisible } from '@/lib/tab-coordinator';
 /** Asks the assistant dock to open one chat (AssistantDock listens; ignored when that assistant is not this user's). */
 export const openAssistantThread = (threadId: number) => window.dispatchEvent(new CustomEvent('nafis:assistant-open', { detail: { threadId } }));
 
+// perf 2026-10-26: one tick, gated per tab — visible tabs every 10 s, the hidden leader tab every 30 s, other hidden tabs never.
 const POLL_MS = 5000;
+const VISIBLE_EVERY_MS = 10_000;
+const HIDDEN_LEADER_EVERY_MS = 30_000;
 const MAX_TOASTS = 3;
 const TOAST_MS = 10000;
 const PAGE_ENUMS = ['customers','chat','instagram-inbox','loan-applications','goods-purchases','contracts','payment-orders','calls','consultations','wallet-management','smart-filing'];
@@ -91,9 +95,10 @@ function ProviderInner({ children }: { children: ReactNode }) {
   const gen = useRef(0);
   const localRead = useRef(new Set<number>());
 
+  const lastAt = useRef(0);
   const refresh = useCallback(async () => {
     if (inflight.current) { again.current = true; return; }
-    inflight.current = true;
+    inflight.current = true; lastAt.current = Date.now();
     const myGen = gen.current;
     try {
       const page = await fetchNotifications({ limit: 30 });
@@ -114,7 +119,7 @@ function ProviderInner({ children }: { children: ReactNode }) {
       else {
         const fresh = page.items.filter((n) => n.id > lastSeen.current! && !n.readAt && !localRead.current.has(n.id) && (isLoan(n) || isSticky(n))).sort((a, b) => a.id - b.id);
         lastSeen.current = Math.max(lastSeen.current, page.latestId);
-        if (fresh.some(isSiteLeadWindow)) playSiteLeadChime();
+        if (fresh.some(isSiteLeadWindow) && claimOnce('site-chime:' + Math.max(...fresh.map((n) => n.id)))) playSiteLeadChime();
         if (fresh.length) setToasts((t) => [...t, ...fresh.filter((n) => !t.some((x) => x.id === n.id))].slice(-MAX_TOASTS));
       }
       setTick((x) => x + 1);
@@ -133,7 +138,10 @@ function ProviderInner({ children }: { children: ReactNode }) {
   useEffect(() => {
     alive.current = true;
     void refresh();
-    const timer = setInterval(() => void refresh(), POLL_MS);
+    const timer = setInterval(() => {
+      const every = tabVisible() ? VISIBLE_EVERY_MS : tabLeader() ? HIDDEN_LEADER_EVERY_MS : 0;
+      if (every && Date.now() - lastAt.current >= every - 500) void refresh();
+    }, POLL_MS);
     const wake = () => { if (document.visibilityState !== 'hidden') void refresh(); };
     window.addEventListener('focus', wake); window.addEventListener('online', wake); document.addEventListener('visibilitychange', wake);
     return () => { alive.current = false; clearInterval(timer); window.removeEventListener('focus', wake); window.removeEventListener('online', wake); document.removeEventListener('visibilitychange', wake); };

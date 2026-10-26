@@ -12,6 +12,7 @@ import { formatDateTime } from '@/components/CrmShell';
 import { removeCompletedAfterCallFromQueue } from '@/components/voip/after-call-cache';
 import { CallReportEditor } from './CallReportDialog';
 import { useLocation } from 'wouter';
+import { useTabState } from '@/lib/tab-coordinator';
 
 export function AfterCallPopup() {
   const [location]=useLocation();
@@ -21,7 +22,11 @@ export function AfterCallPopup() {
   const allowed = Boolean(user && (user.role === 'admin' || user.permissions?.includes('calls.view')));
   const isAdmin = user?.role === 'admin';
   const key = getListPendingVoipAfterCallsQueryKey();
-  const pendingQ = useListPendingVoipAfterCalls({ query: { queryKey: key, enabled: allowed, refetchInterval: 2000, refetchIntervalInBackground: false } });
+  // perf 2026-10-26: the change stream pushes every call event, so with it open a 15 s safety poll is enough (was 2 s per tab).
+  // The stream and the poll run only while this tab is visible; showing the tab refetches at once.
+  const { visible } = useTabState();
+  const [streamOpen, setStreamOpen] = useState(false);
+  const pendingQ = useListPendingVoipAfterCalls({ query: { queryKey: key, enabled: allowed, refetchInterval: streamOpen ? 15000 : 4000, refetchIntervalInBackground: false } });
   const data = pendingQ.data;
   const complete = useCompleteVoipAfterCall();
   const [deferred, setDeferred] = useState<number[]>([]);
@@ -42,11 +47,13 @@ export function AfterCallPopup() {
   const invalidateRef = useRef(invalidate); invalidateRef.current = invalidate;
 
   useEffect(() => {
-    if (!allowed || typeof EventSource === 'undefined') return;
+    if (!allowed || !visible || typeof EventSource === 'undefined') return;
     const es = new EventSource(`${import.meta.env.BASE_URL}api/voip/after-call/stream`, { withCredentials: true });
-    es.onmessage = () => invalidateRef.current();
-    return () => es.close();
-  }, [allowed,user?.id]);
+    es.onopen = () => setStreamOpen(true);
+    es.onerror = () => setStreamOpen(false);
+    es.onmessage = () => { setStreamOpen(true); invalidateRef.current(); };
+    return () => { es.close(); setStreamOpen(false); };
+  }, [allowed,user?.id,visible]);
 
   useEffect(()=>{setDeferred([]);setShown(null);setDirty(false);setErr('');},[user?.id]);
 

@@ -9,6 +9,7 @@ import { toast } from '@/hooks/use-toast';
 import { AssistantAvatar, type AvState } from './AssistantAvatar';
 import { AsError, asFetch, asTime, asWhen, asVisibleTo, chime, faNum, unlockAudio, type AsAction, type AsMessage, type AsMine, type AsPrefs, type AsThread, type AsProposal, type AsKind } from './api';
 import './assistant.css';
+import { claimOnce, tabMayPoll, tabSleep, tabVisible } from '@/lib/tab-coordinator';
 
 type ThreadState = AsThread & { lastId: number; loaded: boolean };
 type Mine = { assistants: AsMine[]; prefs: AsPrefs };
@@ -199,15 +200,19 @@ function ThreadPoller({ threadId, onData }: { threadId: number; onData: (id: num
     const ac = new AbortController(); let last = 0; let first = true; let fails = 0;
     (async () => {
       while (!ac.signal.aborted) {
+        // perf 2026-10-26: hidden tabs hold no long-poll. Only the hidden leader tab checks once a minute (wait=0) so a new
+        // message still chimes once; the others sleep until shown. A shown tab wakes at once and long-polls (wait=20).
+        if (!tabMayPoll()) { await tabSleep(3_600_000, ac.signal, tabMayPoll); continue; }
+        const hidden = !tabVisible();
         const t0 = Date.now();
         try {
-          const d = await asFetch<AsThread>(`/assistant/threads/${threadId}/messages?after=${last}&wait=${first ? 0 : 20}`, { signal: ac.signal });
+          const d = await asFetch<AsThread>(`/assistant/threads/${threadId}/messages?after=${last}&wait=${first || hidden ? 0 : 20}`, { signal: ac.signal });
           fails = 0;
           const fresh = d.messages.filter(m => m.id > last);
           if (fresh.length) last = Math.max(last, ...fresh.map(m => m.id));
           cb.current(threadId, d, fresh, first); first = false;
-          if (!fresh.length && Date.now() - t0 < 1500) await sleep(document.hidden ? 15000 : 4000, ac.signal);
-          else if (document.hidden) await sleep(3000, ac.signal);
+          if (!tabVisible()) await tabSleep(60_000, ac.signal);
+          else if (!fresh.length && Date.now() - t0 < 1500) await sleep(4000, ac.signal);
         } catch (e) {
           if (ac.signal.aborted) return;
           fails++; await sleep(Math.min(60000, 3000 * 2 ** Math.min(fails, 4)), ac.signal);
@@ -340,7 +345,7 @@ export function AssistantDock({ user, bottomOffset, phone }: { user: { id: numbe
     const p = d.prefs ?? prefsRef.current;
     if (!loud.length || p.dnd) return;
     const top = loud.find(m => m.priority === 'high') ?? loud[loud.length - 1];
-    if (p.sound && (!p.quiet || top.priority === 'high')) chime(top.priority === 'high');
+    if (p.sound && (!p.quiet || top.priority === 'high') && claimOnce('as-chime:' + top.id)) chime(top.priority === 'high');
     // A form / full-screen window is open or the user is typing: queue (the avatar's unread count shows it) instead of popping up.
     if (overlayRef.current || typingInField()) { for (const m of loud) queueRef.current.set(m.id, m); setQueued(queueRef.current.size); return; }
     if (openRef.current !== id) setBubble(top);

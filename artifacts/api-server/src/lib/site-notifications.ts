@@ -255,8 +255,10 @@ export function createSiteNotificationRouter() {
       res.status(400).json({error:"invalid_notification_cursor"});return;
     }
     const unread="AND e.id>COALESCE(w.last_read_id,0) AND r.event_id IS NULL";
-    const count=queryRow<{n:number}>(`SELECT COUNT(DISTINCT e.id) n ${scope.sql} ${unread}`,scope.params)?.n??0;
-    const pageCounts=Object.fromEntries(queryRows<{page:string;n:number}>(`SELECT ${pageExpression} page,COUNT(DISTINCT e.id) n ${scope.sql} ${unread} GROUP BY ${pageExpression}`,scope.params).map(row=>[row.page,Number(row.n)]));
+    // perf 2026-10-26: one scan instead of two — every event maps to exactly one page, so the unread total is the sum of the page counts.
+    const pageRows=queryRows<{page:string;n:number}>(`SELECT ${pageExpression} page,COUNT(DISTINCT e.id) n ${scope.sql} ${unread} GROUP BY ${pageExpression}`,scope.params);
+    const pageCounts=Object.fromEntries(pageRows.map(row=>[row.page,Number(row.n)]));
+    const count=pageRows.reduce((sum,row)=>sum+Number(row.n),0);
     const latest=queryRow<{n:number}>(`SELECT COALESCE(MAX(e.id),0) n ${scope.sql}`,scope.params)?.n??0;
     const assigned=user.role!=="admin";
     const customerIds=queryRows<{id:number}>(`SELECT id FROM customers WHERE merged_into_customer_id IS NULL ${assigned?"AND salesperson_id=?":""} ORDER BY id`,
