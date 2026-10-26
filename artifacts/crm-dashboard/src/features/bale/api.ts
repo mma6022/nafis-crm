@@ -2,7 +2,7 @@
 export { asFetch as baleFetch, asWhen as baleWhen, faNum } from '@/features/assistant/api';
 
 export type BaleMode = 'off' | 'approve_first' | 'auto';
-export type BaleAccount = { id: number; status: 'connected' | 'disconnected' | 'banned' | 'error'; mode: BaleMode; phoneMasked: string | null; connectedAt: string | null; lastSeenAt: string | null; lastError: string | null; disconnectedAt: string | null; hasSession: boolean };
+export type BaleAccount = { id: number; status: 'connected' | 'disconnected' | 'banned' | 'error'; mode: BaleMode; phoneMasked: string | null; connectedAt: string | null; lastSeenAt: string | null; lastError: string | null; disconnectedAt: string | null; hasSession: boolean; unknownOpen?: number };
 export type BaleMe = {
   eligible: boolean; masterEnabled: boolean; ready: boolean; account: BaleAccount | null;
   flow: { step: 'code' | 'password'; expiresAt: string; phoneMasked: string; codeType: string } | null;
@@ -10,9 +10,14 @@ export type BaleMe = {
 };
 export type BaleAdmin = {
   masterEnabled: boolean; keyReady: boolean; sidecar: { configured: boolean; reachable: boolean };
+  /** Decision (b): UNVERIFIED until the test-SIM check; account_stop is the safe default. */
+  peerBlock?: { mode: BalePeerBlockMode; verified: boolean };
   limits: { gapMinS: number; gapMaxS: number; perHour: number; perDay: number; newChatsPerDay: number; quietStart: string; quietEnd: string };
   experts: { userId: number; name: string; account: (BaleAccount & { user: { id: number; name: string } }) | null }[];
 };
+export type BalePeerBlockMode = 'account_stop' | 'conversation_pause';
+export type BaleUnknownChat = { id: number; firstAt: string; lastAt: string; messages: number; status: 'open' | 'linked' | 'dismissed' };
+export type BaleOwnCustomer = { id: number; name: string; phoneMasked: string | null };
 export type BaleAuditItem = { id: number; at: string; actor: string | null; accountId: number | null; customerId: number | null; action: string; outcome: string; detail: Record<string, unknown> | null };
 export type BaleOutboxStatus = 'pending_approval' | 'queued' | 'sending' | 'sent' | 'blocked' | 'failed' | 'cancelled';
 export type BaleOutboxItem = {
@@ -28,6 +33,7 @@ export type BaleSendResult = { status: 'queued' | 'pending_approval'; outboxId: 
 export type BaleChat = {
   customerId: number; masterEnabled: boolean; readOnly: boolean; canSend: boolean; sendBlockedMessage: string | null;
   outbox: BaleOutboxItem[]; sendState: BaleSendState | null; conversationMode: 'assistant' | 'human' | null;
+  paused: { reason: string; at: string; message: string; unverified: boolean } | null;
   expert: { name: string; connected: boolean; mode: BaleMode } | null;
   messages: { id: number; direction: 'in' | 'out'; text: string | null; hasFile: boolean; status: string | null; createdAt: string; expertName: string | null }[];
 };

@@ -40,7 +40,11 @@ export const BALE_MAX_TRIES_PER_FLOW = 5;
 export const BALE_DEFAULT_SETTINGS: Record<string, string> = {
   master_enabled: "0", gap_min_s: "45", gap_max_s: "120", per_hour: "20", per_day: "80", new_chats_per_day: "15",
   quiet_start: "21:30", quiet_end: "08:30", banned_words: JSON.stringify(BANNED_WORDS),
+  // PM decision (b): "one customer blocked the expert" is UNVERIFIED on real Bale → default stays the safe whole-account stop.
+  // conversation_pause (only that chat pauses) may be switched on by an admin only after the test-SIM check.
+  peer_block_mode: "account_stop",
 };
+export const BALE_PEER_BLOCK_MODES = ["account_stop", "conversation_pause"] as const;
 
 export function ensureBaleSchema(db: Db, nowIso = new Date().toISOString()): void {
   db.exec(`
@@ -169,7 +173,7 @@ export function createBale(deps: BaleDeps) {
       pendingApproval: c("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status='pending_approval'"),
       queued: c("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status IN ('queued','sending')"),
       sentToday: Number(row<any>("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status='sent' AND sent_at>?", a.id, new Date(now().getTime() - 86_400_000).toISOString())?.n ?? 0),
-      inboundIgnored: Number(a.inbound_ignored ?? 0) };
+      inboundIgnored: Number(a.inbound_ignored ?? 0), unknownOpen: c("SELECT count(*) n FROM bale_unknown_chats WHERE account_id=? AND status='open'") };
   }
   function meView(u: any) {
     const f = liveFlow(u.id);
@@ -323,7 +327,7 @@ export function createBale(deps: BaleDeps) {
     const msgs = rows<any>(`SELECT m.id,m.direction,m.text,m.file_ref,m.status,m.created_at,m.account_id,u.full_name,u.username FROM bale_messages m
       JOIN bale_accounts a ON a.id=m.account_id LEFT JOIN users u ON u.id=a.user_id WHERE m.customer_id=? ORDER BY m.id DESC LIMIT 200`, cid).reverse();
     const owner = c.salesperson_id ? row<any>("SELECT u.id,u.full_name,u.username,a.status,a.mode FROM users u LEFT JOIN bale_accounts a ON a.user_id=u.id WHERE u.salesperson_id=? AND u.role='salesperson' ORDER BY u.id LIMIT 1", c.salesperson_id) : undefined;
-    const st = owner ? row<any>("SELECT s.mode FROM bale_conversation_state s JOIN bale_accounts a ON a.id=s.account_id WHERE s.customer_id=? AND a.user_id=?", cid, owner.id) : undefined;
+    const st = owner ? row<any>("SELECT s.mode, s.paused_reason, s.paused_at FROM bale_conversation_state s JOIN bale_accounts a ON a.id=s.account_id WHERE s.customer_id=? AND a.user_id=?", cid, owner.id) : undefined;
     const ownerAcc = owner ? accountOf(owner.id) : undefined;
     const isOwner = Boolean(owner && owner.id === u.id);
     const canSend = isOwner && masterOn() && ownerAcc?.status === "connected" && Boolean(ownerAcc?.session_ct) && ownerAcc?.mode !== "off";
@@ -334,6 +338,7 @@ export function createBale(deps: BaleDeps) {
       sendState: ownerAcc && isOwner ? outbox.sendState(ownerAcc, cid) : null,
       expert: owner ? { name: nameOf(owner), connected: owner.status === "connected", mode: owner.mode ?? "off" } : null,
       conversationMode: st?.mode ?? null,
+      paused: st?.paused_reason ? { reason: st.paused_reason, at: st.paused_at, message: BLOCK_FA.conversation_paused, unverified: true } : null,
       messages: msgs.map(m => ({ id: m.id, direction: m.direction, text: m.text, hasFile: Boolean(m.file_ref), status: m.status, createdAt: m.created_at,
         expertName: m.full_name || m.username || null })),
     });
@@ -386,6 +391,36 @@ export function createBale(deps: BaleDeps) {
     if (!outbox.sendNow(x.o.id, res.locals.baleUser)) return void res.status(409).json({ error: "not_queued", message: "این پیام در صف نیست." });
     res.json({ ok: true });
   });
+  /** Decision (b): the expert re-opens a paused conversation (own customer only). */
+  staff.post("/bale/customers/:id/resume", expert, (req, res) => {
+    const u = res.locals.baleUser; const a = ownAccount(req, res); if (!a) return;
+    const cid = Number(req.params.id);
+    if (!row<any>("SELECT 1 FROM customers WHERE id=? AND salesperson_id=? AND merged_into_customer_id IS NULL", cid, u.salesperson_id))
+      return void res.status(404).json({ error: "out_of_scope", message: BLOCK_FA.out_of_scope });
+    if (!outbox.resumeConversation(u, a, cid)) return void res.status(409).json({ error: "not_paused", message: "این گفتگو متوقف نیست." });
+    res.json({ ok: true });
+  });
+
+  /* ---------------- decision (c): «پیام از شماره‌ی ناشناس» → link to one of MY customers ---------------- */
+  staff.get("/bale/unknown", expert, (req, res) => {
+    const a = accountOf(res.locals.baleUser.id); res.json({ items: a ? outbox.unknownList(a) : [] });
+  });
+  staff.get("/bale/my-customers", expert, (req, res) => {
+    res.json({ items: outbox.ownCustomerSearch(res.locals.baleUser, typeof req.query.q === "string" ? req.query.q : "") });
+  });
+  staff.post("/bale/unknown/:id/link", expert, (req, res) => {
+    const u = res.locals.baleUser; const a = ownAccount(req, res); if (!a) return;
+    if (!masterOn()) return fail(res, 423, "bale_disabled");
+    const r = outbox.linkUnknown(u, a, Number(req.params.id), Number(req.body?.customerId));
+    if (!r.ok) return void res.status(r.status).json({ error: r.error, message: r.message });
+    res.json({ ok: true, items: outbox.unknownList(a) });
+  });
+  staff.post("/bale/unknown/:id/dismiss", expert, (req, res) => {
+    const u = res.locals.baleUser; const a = ownAccount(req, res); if (!a) return;
+    if (!outbox.dismissUnknown(u, a, Number(req.params.id))) return fail(res, 404, "not_found");
+    res.json({ ok: true, items: outbox.unknownList(a) });
+  });
+
   staff.get("/bale/outbox", expert, (req, res) => {
     const u = res.locals.baleUser; const a = accountOf(u.id); if (!a) return void res.json({ items: [] });
     const list = rows<any>(`SELECT o.*, c.name cname, c.salesperson_id csp, c.merged_into_customer_id cm FROM bale_outbox o LEFT JOIN customers c ON c.id=o.customer_id
@@ -425,6 +460,8 @@ export function createBale(deps: BaleDeps) {
       masterEnabled: masterOn(), keyReady: baleHasKey(deps.env()), sidecar: { configured: deps.sidecar.configured(), reachable: health.ok },
       limits: { gapMinS: Number(setting("gap_min_s")), gapMaxS: Number(setting("gap_max_s")), perHour: Number(setting("per_hour")), perDay: Number(setting("per_day")),
         newChatsPerDay: Number(setting("new_chats_per_day")), quietStart: setting("quiet_start"), quietEnd: setting("quiet_end") },
+      // Decision (b): UNVERIFIED until checked with the test SIM; the default is the safe whole-account stop.
+      peerBlock: { mode: setting("peer_block_mode"), verified: false },
       experts: eligible.map(u => { const a = accounts.find(x => x.user_id === u.id); return { userId: u.id, name: nameOf(u), account: a ? adminAccount(a) : null }; }),
     });
   });
@@ -434,6 +471,13 @@ export function createBale(deps: BaleDeps) {
     if (!on) flows.clear();
     audit({ req, u, action: on ? "admin.master_on" : "admin.master_off", outcome: "ok" });
     res.json({ masterEnabled: masterOn() });
+  });
+  staff.put("/admin/bale/peer-block-mode", admin, (req, res) => {
+    const mode = String(req.body?.mode ?? ""); const u = res.locals.baleAdmin;
+    if (!(BALE_PEER_BLOCK_MODES as readonly string[]).includes(mode)) return fail(res, 422, "bad_mode");
+    run("INSERT INTO bale_settings(key,value,updated_at,updated_by_user_id) VALUES('peer_block_mode',?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,updated_by_user_id=excluded.updated_by_user_id", mode, iso(), u.id);
+    audit({ req, u, action: "admin.peer_block_mode", outcome: "ok", detail: { mode, unverified: true } });
+    res.json({ peerBlock: { mode: setting("peer_block_mode"), verified: false } });
   });
   const byId = (req: Request, res: Response) => { const a = row<any>("SELECT * FROM bale_accounts WHERE id=?", Number(req.params.id)); if (!a) fail(res, 404, "not_found"); return a; };
   staff.put("/admin/bale/accounts/:id/mode", admin, (req, res) => {
