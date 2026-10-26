@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "ven
 
 from aiohttp import web  # noqa: E402
 
-VERSION = "1b-0.4"
+VERSION = "1b-0.5"
 ATTACH_TIMEOUT_S = 25
 MAX_TYPING_MS = 8000
 MAX_TEXT = 4000
@@ -275,29 +275,107 @@ def contact_phone(full: Any) -> Optional[str]:
     return "0" + d if re.fullmatch(r"9\d{9}", d) else None
 
 
+_LOOSE: Any = None
+
+
+def loose_methods() -> Any:
+    """Read-only Bale methods whose responses are kept RAW (field-number dicts) instead of aiobale's strict models:
+    on the live server GetContacts' model reads the wrong field and LoadDialogs fails on bot/template messages."""
+    global _LOOSE
+    if _LOOSE is None:
+        from types import SimpleNamespace
+        from aiobale.types.base import BaleObject
+        from aiobale.methods import GetContacts, LoadDialogs, LoadUsers
+
+        class LooseResponse(BaleObject):
+            pass
+
+        class GetContactsRaw(GetContacts):
+            __returning__ = LooseResponse
+
+        class LoadDialogsRaw(LoadDialogs):
+            __returning__ = LooseResponse
+
+        class LoadUsersRaw(LoadUsers):
+            __returning__ = LooseResponse
+
+        _LOOSE = SimpleNamespace(contacts=GetContactsRaw, dialogs=LoadDialogsRaw, users=LoadUsersRaw)
+    return _LOOSE
+
+
+def _raw(res: Any) -> dict:
+    d = getattr(res, "model_extra", None)
+    return d if isinstance(d, dict) else (res if isinstance(res, dict) else {})
+
+
+def _f(d: Any, k: str) -> Any:
+    """Field k of a decoded message (the decoder may suffix alternative interpretations as 'k-…')."""
+    if not isinstance(d, dict):
+        return None
+    if k in d:
+        return d[k]
+    for kk, v in d.items():
+        if isinstance(kk, str) and kk.split("-")[0] == k:
+            return v
+    return None
+
+
+def _list(v: Any) -> list:
+    return v if isinstance(v, list) else ([] if v is None else [v])
+
+
+def _int(v: Any) -> Optional[int]:
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, str) and v.isdigit():
+        return int(v)
+    return None
+
+
+def _text(v: Any) -> str:
+    if isinstance(v, bytes):
+        try:
+            return v.decode("utf-8")
+        except UnicodeDecodeError:
+            return ""
+    if isinstance(v, dict):  # aiobale's StringValue wrapper
+        return _text(_f(v, "1")) if set(v) <= {"1"} else ""
+    return v if isinstance(v, str) else ""
+
+
 async def read_contacts(c: Any, sleep: Callable[..., Any]) -> dict:
     """READ-ONLY. GetContacts (user ids) → LoadUsers (name / saved contact name) → LoadFullUsers (phone, best effort).
-    Falls back to the dialog list (private chats only) when the contact list is unavailable or empty."""
-    from aiobale.methods import GetContacts
+    Falls back to the dialog list (private chats only) when the contact list is unavailable or empty.
+    Responses are read raw (see loose_methods); only counts / field numbers are ever logged."""
     from aiobale.types import InfoPeer
     from aiobale.enums import ChatType
+    M = loose_methods()
     source, ids = "contacts", []
     try:
-        res = await c(GetContacts())
-        ids = [int(u.id) for u in (getattr(res, "users", None) or []) if getattr(u, "id", None) is not None]
+        raw = _raw(await c(M.contacts()))
+        log.info("/v1/contacts get_contacts shape %s", {k: len(_list(v)) for k, v in raw.items() if k != "method_data"})
+        for k in ("3", "1"):  # user peers (uid=1) — then full users (id=1)
+            for it in _list(_f(raw, k)):
+                uid = _int(_f(it, "1"))
+                if uid and uid > 0:
+                    ids.append(uid)
+            if ids:
+                break
     except Exception as e:
         log.warning("/v1/contacts get_contacts unavailable %s", describe(e))
         ids = []
     if not ids:
         source, seen, offset = "dialogs", set(), -1
         for _ in range(DIALOG_PAGES_MAX):
-            page = await c.load_dialogs(limit=100, offset_date=offset, exclude_pinned=False) or []
+            page = _list(_f(_raw(await c(M.dialogs(offset_date=offset, limit=100, exclude_pinned=False))), "3"))
             last = None
             for d in page:
-                peer = getattr(d, "peer", None); t = getattr(getattr(peer, "type", None), "value", getattr(peer, "type", None))
-                if peer is not None and t == 1 and peer.id not in seen:
-                    seen.add(peer.id); ids.append(int(peer.id))
-                last = getattr(d, "sort_date", None) or getattr(d, "date", None) or last
+                peer = _f(d, "1"); t = _int(_f(peer, "1")); pid = _int(_f(peer, "2"))
+                if t == 1 and pid and pid not in seen:
+                    seen.add(pid); ids.append(pid)
+                last = _int(_f(d, "3")) or _int(_f(d, "6")) or last
             if len(page) < 100 or last is None or last == offset or len(ids) >= CONTACTS_MAX:
                 break
             offset = last
@@ -309,11 +387,12 @@ async def read_contacts(c: Any, sleep: Callable[..., Any]) -> dict:
         chunk = [InfoPeer(id=x, type=ChatType.PRIVATE) for x in ids[i:i + CONTACTS_CHUNK]]
         if i:
             await sleep(CONTACTS_PAUSE_S)
-        for u in await c.load_users(chunk) or []:
-            if getattr(u, "is_deleted", False) or getattr(u, "is_bot", False):
+        for u in _list(_f(_raw(await c(M.users(peers=chunk))), "1")):
+            uid = _int(_f(u, "1"))
+            if not uid or _int(_f(u, "16")) or _int(_f(u, "7")):  # deleted / bot
                 continue
-            out[int(u.id)] = {"baleUserId": str(u.id), "name": str(getattr(u, "name", "") or "")[:120],
-                              "localName": str(getattr(u, "local_name", "") or "")[:120] or None, "phone": None}
+            out[uid] = {"baleUserId": str(uid), "name": _text(_f(u, "3"))[:120],
+                        "localName": _text(_f(u, "4"))[:120] or None, "phone": None}
         if source == "contacts":
             try:
                 await sleep(CONTACTS_PAUSE_S)

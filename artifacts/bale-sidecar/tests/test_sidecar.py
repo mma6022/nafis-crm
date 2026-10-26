@@ -353,20 +353,24 @@ class FakeContacts(FakeLive):
     mode = "contacts"
 
     async def __call__(self, method):
-        self.calls.append(("call", type(method).__name__))
-        if FakeContacts.mode == "no_contacts":
-            raise BaleErr("METHOD_NOT_AVAILABLE")
-        return SimpleNamespace(users=[SimpleNamespace(id=i, type=1) for i in (11, 12, 13)])
-
-    async def load_dialogs(self, limit=40, offset_date=-1, exclude_pinned=False):
-        self.calls.append(("dialogs", offset_date))
-        return [SimpleNamespace(peer=SimpleNamespace(id=21, type=SimpleNamespace(value=1)), sort_date=5),
-                SimpleNamespace(peer=SimpleNamespace(id=900, type=SimpleNamespace(value=2)), sort_date=4)]
-
-    async def load_users(self, peers):
-        self.calls.append(("users", [p.id for p in peers]))
+        n = type(method).__name__; self.calls.append(("call", n))
         names = {11: ("Ali", "مشتری ۱۲۳"), 12: ("Sara", None), 13: ("bot", None), 21: ("Reza", "رضا")}
-        return [SimpleNamespace(id=p.id, name=names[p.id][0], local_name=names[p.id][1], is_bot=p.id == 13, is_deleted=False) for p in peers]
+        if n == "GetContactsRaw":
+            if FakeContacts.mode == "no_contacts":
+                raise BaleErr("METHOD_NOT_AVAILABLE")
+            if FakeContacts.mode == "empty_contacts":
+                return SimpleNamespace(model_extra={"method_data": method})
+            return SimpleNamespace(model_extra={"3": [{"1": i, "2": 77} for i in (11, 12, 13)], "method_data": method})
+        if n == "LoadDialogsRaw":
+            self.calls.append(("dialogs", method.offset_date))
+            junk = {"13": {"2": {"1": 5}}}  # a bot/template message the strict model rejects (string_type)
+            return SimpleNamespace(model_extra={"3": [{"1": {"1": 1, "2": 21}, "3": 5, "7": junk},
+                                                      {"1": {"1": 2, "2": 900}, "3": 4, "7": junk}]})
+        if n == "LoadUsersRaw":
+            ps = [p.id for p in method.peers]; self.calls.append(("users", ps))
+            us = [{"1": p, "3": names[p][0], **({"4": names[p][1]} if names[p][1] else {}), **({"7": 1} if p == 13 else {})} for p in ps]
+            return SimpleNamespace(model_extra={"1": us[0] if len(us) == 1 else us})
+        raise AssertionError("unexpected method " + n)
 
     async def load_full_users(self, peers):
         self.calls.append(("full", [p.id for p in peers]))
@@ -388,12 +392,13 @@ class ContactsTest(LiveSessionTest):
             {"baleUserId": "12", "name": "Sara", "localName": None, "phone": None}])
         kinds = {c[0] for c in live.calls}; self.assertTrue(kinds <= {"call", "users", "full"})  # reads only: no send / typing / search / import
         s, j = await self.post("/v1/contacts", {"accountRef": "acc-1"}); self.assertEqual((s, j["error"]), (429, "rate_limited")); self.assertGreater(j["retryAfterS"], 0)
-        self.now[0] += sidecar.CONTACTS_COOLDOWN_S + 1
-        FakeContacts.mode = "no_contacts"; live.calls.clear()
-        s, j = await self.post("/v1/contacts", {"accountRef": "acc-1"})
-        self.assertEqual(s, 200); self.assertEqual(j["source"], "dialogs")
-        self.assertEqual(j["contacts"], [{"baleUserId": "21", "name": "Reza", "localName": "رضا", "phone": None}])  # groups/channels skipped
-        self.assertNotIn("full", {c[0] for c in live.calls})
+        for mode in ("no_contacts", "empty_contacts"):
+            self.now[0] += sidecar.CONTACTS_COOLDOWN_S + 1
+            FakeContacts.mode = mode; live.calls.clear()
+            s, j = await self.post("/v1/contacts", {"accountRef": "acc-1"})
+            self.assertEqual(s, 200); self.assertEqual(j["source"], "dialogs")
+            self.assertEqual(j["contacts"], [{"baleUserId": "21", "name": "Reza", "localName": "رضا", "phone": None}])  # groups/channels skipped
+            self.assertNotIn("full", {c[0] for c in live.calls})
         logs = self.logbuf.getvalue()
         for secret in ["09120000011", "989120000011", "Ali", "Sara", "Reza", "مشتری", "JWT-LIVE", TOKEN]:
             self.assertNotIn(secret, logs)
