@@ -61,8 +61,8 @@ assert.equal(db.prepare("SELECT value FROM assistant_settings WHERE key='global_
 
 let clock = new Date("2026-10-26T07:00:00Z"); // 10:30 Tehran
 const users = { 1: "admin", 2: "salesperson", 3: "salesperson", 4: "registrar", 6: "salesperson", 8: "salesperson", 27: "salesperson", 29: "admin", 30: "accountant" };
-let siteLeadsStub = new Map();
-const as = createAssistants({ db, now: () => clock, sales: { activeSiteLeads: () => siteLeadsStub }, actor: res => { const id = Number(res.locals.uid); return users[id] ? { id, role: users[id], salespersonId: null, name: "x" } : null; } });
+let siteLeadsStub = new Map(); const siteLeadHist = new Map();
+const as = createAssistants({ db, now: () => clock, sales: { activeSiteLeads: () => siteLeadsStub, siteLeadHistory: (id) => siteLeadHist.get(id) ?? [] }, actor: res => { const id = Number(res.locals.uid); return users[id] ? { id, role: users[id], salespersonId: null, name: "x" } : null; } });
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "asst-fx-"));
 const sf = createSmartFiling({ db, env: () => ({}), filesRoot: path.join(tmp, "f"), docRoots: [], actor: () => null });
 const app = express();
@@ -395,6 +395,39 @@ try {
       const mv = (await R(tk, "GET", "/customers/100/calls")).j.items.find(x => x.id === 1); assert.deepEqual(mv.loggedBy, cv.loggedBy); assert.ok(!JSON.stringify(mv).includes("09121234567"));
       db.exec("DELETE FROM call_logs WHERE id IN (940,941,942)");
       ok("calls: one shared definition (logger, not owner; hand-off rows excluded) in /my-context + manager; loggedBy = staff name");
+    }
+    { // v9: amountUnit next to every amount (all toman; site «حدود مبلغ» band → toman range) + leftScopeToday for the expert
+      db.exec(`CREATE TABLE IF NOT EXISTS consultation_forms(id INTEGER PRIMARY KEY,customer_id INTEGER,requested_amount TEXT,requested_amount_toman INTEGER,job_type TEXT,author_user_id INTEGER,created_at TEXT,updated_at TEXT);
+        CREATE TABLE IF NOT EXISTS public_leads(id INTEGER PRIMARY KEY,customer_id INTEGER,amount_band TEXT,phone TEXT);
+        CREATE TABLE IF NOT EXISTS site_lead_requests(id INTEGER PRIMARY KEY,customer_id INTEGER,source TEXT,source_id INTEGER,requested_at TEXT,contact_time TEXT,answered_at TEXT);
+        CREATE TABLE IF NOT EXISTS customer_priority_history(id INTEGER PRIMARY KEY,customer_id INTEGER,old_priority INTEGER,new_priority INTEGER,old_salesperson_id INTEGER,new_salesperson_id INTEGER,actor_user_id INTEGER,source TEXT,reason TEXT,created_at TEXT);
+        INSERT INTO consultation_forms VALUES(1,120,'150 تا 200 میلیون',NULL,'karmand',8,'2026-10-20','2026-10-20');
+        INSERT INTO public_leads VALUES(71,120,'100-200','09129999999');
+        INSERT INTO site_lead_requests VALUES(81,120,'lead',71,'2026-10-25T10:00:00Z','any',NULL),(82,160,'lead',71,'2026-10-25T10:00:00Z','any','2026-10-26T06:17:56.736Z');
+        INSERT INTO customers(id,name,phone,description,created_at,salesperson_id,priority,status) VALUES(160,'زهرا رضایی','09125550160','','2026-10-25',3,1,'in_progress'),
+          (161,'برگشتی کاظمی','09125550161','','2026-10-25',6,1,'in_progress'),(162,'دیروزی','09125550162','','2026-10-24',4,1,'in_progress');
+        INSERT INTO customer_priority_history VALUES(1,160,NULL,1,6,3,8,'qualifier_form','تقسیم عادلانه — فوری + مدارک کامل، مثل «ترنم» (H7)','2026-10-26T06:17:56.714Z'),
+          (2,161,NULL,1,6,4,8,'qualifier_form','x (H7)','2026-10-26T06:20:00.000Z'),(3,161,1,1,4,6,1,'customer_update','','2026-10-26T06:30:00.000Z'),
+          (4,162,NULL,1,6,4,8,'qualifier_form','x (H7)','2026-10-25T19:00:00.000Z'),(5,120,3,3,6,6,8,'qualifier_form','x','2026-10-26T06:00:00.000Z');`);
+      siteLeadHist.set(120, [{ id: 81, source: "lead", requestedAt: "2026-10-25T10:00:00Z", contactTime: "any", contactTimeFa: "هر زمان", isRepeat: false, answeredAt: null }]);
+      const cs = (await R(iss.masoud, "GET", "/customers/120/consultation")).j;
+      assert.equal(cs.consultationForm.requestedAmount, 150_000_000); assert.equal(cs.consultationForm.amountUnit, "toman");
+      assert.equal(cs.consultationForm.requestedAmountSource, "requested_amount_text_parsed"); assert.equal(cs.consultationForm.requestedAmountText, "150 تا 200 میلیون");
+      assert.deepEqual(cs.siteRequests[0].amountRange, { band: "100-200", minAmount: 100_000_000, maxAmount: 200_000_000, amountUnit: "toman", label: "100 تا 200 میلیون تومان" }); // runner text goes through maskText (Latin digits)
+      assert.ok(!JSON.stringify(cs).includes("09129999999"));
+      db.exec("UPDATE consultation_forms SET requested_amount='300000000' WHERE id=1");
+      const cs2 = (await R(iss.masoud, "GET", "/customers/120/consultation")).j.consultationForm;
+      assert.equal(cs2.requestedAmount, 300_000_000); assert.equal(cs2.requestedAmountSource, "requested_amount"); assert.ok(!("requestedAmountText" in cs2));
+      const apps = (await R(iss.masoud, "GET", "/customers/120")).j.applications; assert.ok(apps.length && apps.every(x => x.amountUnit === "toman"));
+      const ctx = (await R(iss.masoud, "GET", "/my-context")).j;
+      assert.equal(ctx.leftScopeToday.length, 1); const l = ctx.leftScopeToday[0];
+      assert.equal(l.customerId, 160); assert.equal(l.maskedName, "زهرا ر…"); assert.ok(l.mobile && !l.mobile.includes("09125550160"));
+      assert.deepEqual(l.toWhom, { salespersonId: 3, name: "حسنی" }); assert.equal(l.reason.source, "qualifier_form"); assert.equal(l.reason.rule, "H7");
+      assert.equal(l.at, "2026-10-26T06:17:56.714Z"); assert.equal(l.atTehran, "2026-10-26 09:47:56"); assert.equal(l.requestAnsweredAtTehran, "2026-10-26 09:47:56");
+      assert.ok(!JSON.stringify(ctx).includes("0912555"));
+      assert.deepEqual((await R(iss.somayeh, "GET", "/my-context")).j.leftScopeToday, []);
+      db.exec(`DELETE FROM customers WHERE id IN (160,161,162); DROP TABLE customer_priority_history; DROP TABLE site_lead_requests; DROP TABLE public_leads; DROP TABLE consultation_forms;`); siteLeadHist.clear();
+      ok("v9: amountUnit toman everywhere (free text + site band normalized) + leftScopeToday (masked, Tehran time, rule, to whom)");
     }
     // thresholds (assistant_settings manager_* only)
     assert.equal((await S(2, "PUT", "/admin/assistants/manager-settings", { overdueRemindersMax: 10 })).s, 403);

@@ -27,8 +27,9 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { ensureSchemaObject } from "./schema-objects";
 import { maskData, maskText, maskPhone } from "./smart-filing";
-import { expertCallsToday, EXPERT_CALLS_DEFINITION } from "./expert-calls";
+import { expertCallsToday, EXPERT_CALLS_DEFINITION, tehranDayStartMs } from "./expert-calls";
 import { customerApplicationPayout } from "./customer-application-payout";
+import { parseConsultAmountToman } from "./consultation-report";
 import { MANAGER_RANGES, MANAGER_SLOTS, MANAGER_SETTING_KEYS, MANAGER_DEFAULTS, managerAlerts, managerExperts, managerReport, managerSummary,
   readManagerSettings, validateManagerSettings, type ManagerRange, type ManagerSlot, type SiteLeadLite } from "./assistant-manager";
 
@@ -408,6 +409,15 @@ export function createAssistants(deps: Deps) {
     const p = r === 0 ? principal / months : principal * r / -Math.expm1(-months * Math.log1p(r));
     return Number.isFinite(p) && p > 0 ? Math.round(p) : null;
   }
+  /** v9: every runner amount is TOMAN (loan_applications.*_amount, loan_plans.principal_amount, consultation_forms, site
+   *  «حدود مبلغ» bands are million-toman and are converted). No runner field is rial; amountUnit sits next to every amount. */
+  const AMOUNT_UNIT = "toman" as const;
+  const BAND_RANGE: Record<string, [number | null, number | null, string]> = {
+    "0-100": [0, 100, "تا ۱۰۰ میلیون تومان"], "100-200": [100, 200, "۱۰۰ تا ۲۰۰ میلیون تومان"], "200-300": [200, 300, "۲۰۰ تا ۳۰۰ میلیون تومان"],
+    "300-500": [300, 500, "۳۰۰ تا ۵۰۰ میلیون تومان"], "500-1000": [500, 1000, "۵۰۰ میلیون تا ۱ میلیارد تومان"], "1000-up": [1000, null, "بیش از ۱ میلیارد تومان"],
+    "upto100": [0, 100, "تا ۱۰۰ میلیون تومان"], "100-300": [100, 300, "۱۰۰ تا ۳۰۰ میلیون تومان"], "500plus": [500, null, "بیش از ۵۰۰ میلیون تومان"], "unsure": [null, null, "مطمئن نیست"] };
+  const bandView = (band: unknown) => { const b = typeof band === "string" ? BAND_RANGE[band] : undefined; if (!b) return null;
+    return { band, minAmount: b[0] == null ? null : b[0] * 1e6, maxAmount: b[1] == null ? null : b[1] * 1e6, amountUnit: AMOUNT_UNIT, label: b[2] }; };
   /** Loan case view for a sales assistant: amounts received, installment amount and count only. */
   function loanView(x: any) {
     const plan = json(x.plan_snapshot_json);
@@ -419,7 +429,7 @@ export function createAssistants(deps: Deps) {
     let received: number | null = net, receivedSource: string | null = net != null ? "net_after_deductions" : null;
     if (received == null) { try { const p = customerApplicationPayout(x); const v = amount(p.cashPayoutAmount); if (v != null) { received = v; receivedSource = "plan_terms"; } } catch { /* unknown */ } }
     const planName = (plan && typeof plan.name === "string" ? plan.name : null) ?? (x.plan_id ? row<any>("SELECT name FROM loan_plans WHERE id=?", x.plan_id)?.name ?? null : null);
-    return { id: x.id, stage: x.stage, status: x.status, createdAt: x.created_at, planName,
+    return { id: x.id, stage: x.stage, status: x.status, createdAt: x.created_at, planName, amountUnit: AMOUNT_UNIT,
       requestedAmount: amount(x.requested_amount), approvedAmount: amount(x.approved_amount),
       receivedAmount: received, receivedAmountSource: receivedSource,
       installmentAmount: principal != null && rate != null && count ? monthlyPmt(principal, rate, count) : null,
@@ -453,6 +463,33 @@ export function createAssistants(deps: Deps) {
       expert: u ? { userId: u.id, name: u.full_name || u.username } : null, maxMessagesPerHour: a.max_msgs_per_hour },
       tokenId: TK(res), serverTime: iso(), quietHours: inQuietHours(now()) });
   });
+  /** v9: customers that left this expert's list today (Tehran day): ownership moved to another expert in
+   *  customer_priority_history (e.g. Kazemi's qualifier-form hand-off, rule H7) and is still elsewhere. Read only. */
+  const tehranClock = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+  const tehranText = (isoAt: string) => { const d = new Date(isoAt); if (Number.isNaN(d.getTime())) return null;
+    const p = Object.fromEntries(tehranClock.formatToParts(d).map(x => [x.type, x.value])); return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`; };
+  const maskName = (n: unknown) => { const w = String(n ?? "").trim().split(/\s+/).filter(Boolean); if (!w.length) return null;
+    return maskText([w[0], ...w.slice(1).map(x => `${Array.from(x)[0]}…`)].join(" ")); };
+  const SOURCE_FA: Record<string, string> = { qualifier_form: "فرم سنجش کاظمی — واگذاری (تقسیم عادلانه)", customer_update: "ویرایش دستی مشتری", nonp1_auto_transfer: "انتقال خودکار غیر اولویت ۱", promote: "ارتقای اولویت" };
+  function leftScopeToday(sp: number, t: Date) {
+    if (!hasTable("customer_priority_history")) return [];
+    const from = new Date(tehranDayStartMs(t.getTime())).toISOString();
+    const hist = rows<any>(`SELECT h.* FROM customer_priority_history h JOIN customers c ON c.id=h.customer_id
+      WHERE h.old_salesperson_id=? AND h.new_salesperson_id IS NOT NULL AND h.new_salesperson_id<>? AND h.created_at>=? AND h.created_at<=?
+        AND c.merged_into_customer_id IS NULL AND COALESCE(c.salesperson_id,-1)<>? ORDER BY h.created_at, h.id`, sp, sp, from, t.toISOString(), sp);
+    const last = new Map<number, any>(); for (const h of hist) last.set(Number(h.customer_id), h);
+    return [...last.values()].slice(0, 50).map(h => {
+      const c = row<any>("SELECT * FROM customers WHERE id=?", h.customer_id) ?? {};
+      const rule = /\((H\d+)\)\s*$/.exec(String(h.reason ?? ""))?.[1] ?? null;
+      const lead = hasTable("site_lead_requests") ? row<any>("SELECT answered_at FROM site_lead_requests WHERE customer_id=? AND answered_at>=? ORDER BY answered_at DESC LIMIT 1", h.customer_id, from) : null;
+      return { customerId: Number(h.customer_id), maskedName: maskName(custName(c)), mobile: c.phone ? String(c.phone) : null,
+        reason: { source: h.source ?? null, label: SOURCE_FA[String(h.source)] ?? h.source ?? null, rule, text: h.reason ? maskText(h.reason).slice(0, 200) : null,
+          byUser: userName(h.actor_user_id) ?? null, newPriority: h.new_priority == null ? null : Number(h.new_priority) },
+        toWhom: { salespersonId: Number(h.new_salesperson_id), name: spName(h.new_salesperson_id) },
+        at: h.created_at, atTehran: tehranText(h.created_at),
+        requestAnsweredAt: lead?.answered_at ?? null, requestAnsweredAtTehran: lead?.answered_at ? tehranText(lead.answered_at) : null };
+    });
+  }
   runner.get("/my-context", (_req, res) => {
     const a = A(res); const s = scopeSql(a);
     const n = row<{ n: number }>(`SELECT COUNT(*) n FROM customers c WHERE ${s.sql}`, ...s.params)?.n ?? 0;
@@ -475,7 +512,8 @@ export function createAssistants(deps: Deps) {
       } catch { unavailable = true; }
       // v8 fix: «تماس‌های امروز» = the shared lib/expert-calls.ts definition (by the logging expert), not only calls started from the box.
       let calls: ReturnType<typeof expertCallsToday> | null = null; try { calls = expertCallsToday(db, sp, t); } catch { unavailable = true; }
-      sales = { today: { calls: calls?.count ?? null, answered: calls?.answered ?? null, notAnswered: calls?.notAnswered ?? null, unknownResult: calls?.unknown ?? null,
+      let left: any[] | null = null; try { left = leftScopeToday(sp, t); } catch { unavailable = true; }
+      sales = { leftScopeToday: left, today: { calls: calls?.count ?? null, answered: calls?.answered ?? null, notAnswered: calls?.notAnswered ?? null, unknownResult: calls?.unknown ?? null,
           fromSuggestionBox: today ? Number(today.calls) : null, notNow: today ? Number(today.notNow) : null, definition: EXPERT_CALLS_DEFINITION }, nextCustomer: box[0] ?? null, suggestions: box,
         suggestionPool: pool, ...(unavailable ? { salesBoxUnavailable: true } : {}) };
     }
@@ -583,12 +621,24 @@ export function createAssistants(deps: Deps) {
   const pick = (d: any) => { const o: any = {}; if (!d || typeof d !== "object") return null;
     for (const k of PROFILE_FIELDS) if (k in d) o[k] = k === "selectedPlans" ? (Array.isArray(d[k]) ? d[k].map((p: any) => ({ id: p?.id ?? null, name: p?.name ?? null, status: p?.status ?? null })) : []) : d[k];
     return o; };
+  /** v9: the site form's «حدود مبلغ» (public_leads.amount_band, million toman) as a toman range. Read only. */
+  const siteLeadBand = (siteLeadRequestId: number) => { try {
+    if (!hasTable("public_leads") || !hasTable("site_lead_requests")) return null;
+    const r = row<any>("SELECT p.amount_band b FROM site_lead_requests s JOIN public_leads p ON p.id=s.source_id WHERE s.id=? AND s.source='lead'", siteLeadRequestId);
+    return r ? bandView(r.b) : null; } catch { return null; } };
   runner.get(["/customers/:id/consultation", "/customers/:id/consultation-form"], salesOnly, (req, res) => {
     const c = scopedCustomer(req, res); if (!c) return; const a = A(res);
     let form: any = null;
     if (hasTable("consultation_forms")) {
       const f = row<any>("SELECT * FROM consultation_forms WHERE customer_id=? ORDER BY COALESCE(updated_at,created_at) DESC, id DESC LIMIT 1", c.id);
-      if (f) { form = { id: f.id, author: userName(f.author_user_id) }; for (const k of FORM_FIELDS) if (k in f) form[camel(k)] = k.startsWith("requested_amount") ? amount(f[k]) : f[k] ?? null; }
+      if (f) { form = { id: f.id, author: userName(f.author_user_id) }; for (const k of FORM_FIELDS) if (k in f && !k.startsWith("requested_amount")) form[camel(k)] = f[k] ?? null;
+        // v9: one normalized toman amount (numeric column first, else the same free-text rule as the consultation report:
+        // «300» / «150 تا 200 میلیون» are million toman). The raw text is kept only when it was not a plain number.
+        const col = amount(f.requested_amount_toman), raw = f.requested_amount == null ? "" : String(f.requested_amount).trim();
+        const parsed = col ?? parseConsultAmountToman(raw || null);
+        form.requestedAmount = parsed; form.amountUnit = AMOUNT_UNIT;
+        form.requestedAmountSource = col != null ? "requested_amount_toman" : parsed == null ? null : amount(raw) === parsed ? "requested_amount" : "requested_amount_text_parsed";
+        if (raw && amount(raw) !== parsed) form.requestedAmountText = maskText(raw).slice(0, 80); }
     }
     let profile: any = null, unavailable = false;
     try { const p = deps.sales?.consultProfile ? deps.sales.consultProfile(c.id) : null;
@@ -597,7 +647,8 @@ export function createAssistants(deps: Deps) {
     } catch { unavailable = true; }
     let requests: any[] = [];
     try { requests = (deps.sales?.siteLeadHistory ? deps.sales.siteLeadHistory(c.id) : []).slice(0, 10).map((r: any) => ({
-      source: r.source, requestedAt: r.requestedAt, contactTime: r.contactTime, contactTimeLabel: r.contactTimeFa, isRepeat: Boolean(r.isRepeat), answeredAt: r.answeredAt ?? null })); }
+      source: r.source, requestedAt: r.requestedAt, contactTime: r.contactTime, contactTimeLabel: r.contactTimeFa, isRepeat: Boolean(r.isRepeat), answeredAt: r.answeredAt ?? null,
+      amountRange: r.source === "lead" ? siteLeadBand(Number(r.id)) : null })); }
     catch { unavailable = true; }
     const pref = requests[0] ? { contactTime: requests[0].contactTime, contactTimeLabel: requests[0].contactTimeLabel, requestedAt: requests[0].requestedAt, source: requests[0].source } : null;
     audit({ req, a, tokenId: TK(res), action: `GET /customers/:id/${req.path.split("/").pop()}`.slice(0, 80), customerId: c.id, outcome: "ok" });
