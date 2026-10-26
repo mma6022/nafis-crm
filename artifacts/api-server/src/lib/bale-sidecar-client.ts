@@ -9,7 +9,9 @@ import { baleSidecarToken, type KeyEnv } from "./bale-crypto";
 
 export type BaleSidecarErrorCode =
   | "sidecar_not_configured" | "sidecar_unavailable" | "sidecar_bad_response" | "phone_invalid" | "rate_limited" | "number_banned"
-  | "wrong_code" | "code_expired" | "sign_up_needed" | "wrong_password" | "flow_expired" | "unauthorized" | "unknown";
+  | "wrong_code" | "code_expired" | "sign_up_needed" | "wrong_password" | "flow_expired" | "unauthorized" | "unknown"
+  // 1b (send / session):
+  | "not_attached" | "peer_not_found" | "session_invalid" | "account_banned" | "bad_request";
 export class BaleSidecarError extends Error { constructor(public code: BaleSidecarErrorCode) { super(code); } }
 
 export type StartAuthIn = { accountRef: string; phone: string; deviceHash: string; deviceTitle: string };
@@ -18,15 +20,22 @@ export type Connected = { status: "connected"; token: string; baleUserId: string
 export type CodeOut = Connected | { status: "password_needed" };
 export interface BaleSidecar {
   configured(): boolean;
-  health(): Promise<{ ok: boolean; version?: string; sessions?: number }>;
+  /** bootId changes on every sidecar start; attached = accountRefs with a live client (1b). */
+  health(): Promise<{ ok: boolean; version?: string; sessions?: number; bootId?: string; attached?: string[] }>;
   startAuth(p: StartAuthIn): Promise<StartAuthOut>;
   submitCode(p: { flowId: string; code: string }): Promise<CodeOut>;
   submitPassword(p: { flowId: string; password: string }): Promise<Connected>;
   cancel(p: { flowId: string }): Promise<void>;
   signOut(p: { accountRef: string; token: string; deviceHash: string }): Promise<void>;
+  /** 1b: open a long-lived client for a connected account (send + inbound listener). Idempotent per accountRef. */
+  attach(p: { accountRef: string; token: string; deviceHash: string }): Promise<{ baleUserId: string | null }>;
+  detach(p: { accountRef: string }): Promise<void>;
+  /** 1b: one private text message. typingMs = how long "typing…" is shown first (sidecar caps it). */
+  send(p: { accountRef: string; phone: string; peerId: string | null; text: string; typingMs: number }): Promise<{ messageId: string; peerId: string }>;
 }
 
-const KNOWN = new Set<string>(["phone_invalid", "rate_limited", "number_banned", "wrong_code", "code_expired", "sign_up_needed", "wrong_password", "flow_expired", "unauthorized", "unknown"]);
+const KNOWN = new Set<string>(["phone_invalid", "rate_limited", "number_banned", "wrong_code", "code_expired", "sign_up_needed", "wrong_password", "flow_expired", "unauthorized", "unknown",
+  "not_attached", "peer_not_found", "session_invalid", "account_banned", "bad_request"]);
 /** Only loopback HTTP is accepted: the sidecar must never be reachable from outside the server. */
 export function isLoopbackUrl(u: string): boolean {
   try { const x = new URL(u); return x.protocol === "http:" && ["127.0.0.1", "[::1]", "localhost"].includes(x.hostname); } catch { return false; }
@@ -52,7 +61,13 @@ export function createHttpBaleSidecar(env: () => KeyEnv, opts: { timeoutMs?: num
   }
   return {
     configured,
-    async health() { try { const j = await call<any>("/v1/health", undefined, 3000); return { ok: j?.ok === true, version: String(j?.version ?? ""), sessions: Number(j?.sessions ?? 0) }; } catch { return { ok: false }; } },
+    async health() {
+      try {
+        const j = await call<any>("/v1/health", undefined, 3000);
+        return { ok: j?.ok === true, version: String(j?.version ?? ""), sessions: Number(j?.sessions ?? 0),
+          bootId: typeof j?.bootId === "string" ? j.bootId : undefined, attached: Array.isArray(j?.attached) ? j.attached.map(String) : undefined };
+      } catch { return { ok: false }; }
+    },
     async startAuth(p) {
       const j = await call<any>("/v1/auth/start", p);
       if (typeof j?.flowId !== "string" || j.flowId.length < 16) throw new BaleSidecarError("sidecar_bad_response");
@@ -71,5 +86,12 @@ export function createHttpBaleSidecar(env: () => KeyEnv, opts: { timeoutMs?: num
     },
     async cancel(p) { try { await call("/v1/auth/cancel", p, 5000); } catch { /* best effort */ } },
     async signOut(p) { await call("/v1/session/signout", p); },
+    async attach(p) { const j = await call<any>("/v1/session/attach", p); return { baleUserId: j?.baleUserId == null ? null : String(j.baleUserId) }; },
+    async detach(p) { try { await call("/v1/session/detach", p, 5000); } catch { /* best effort */ } },
+    async send(p) {
+      const j = await call<any>("/v1/send", p, 30_000);
+      if (j?.messageId == null || j?.peerId == null) throw new BaleSidecarError("sidecar_bad_response");
+      return { messageId: String(j.messageId), peerId: String(j.peerId) };
+    },
   };
 }

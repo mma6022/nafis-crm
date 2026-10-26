@@ -23,7 +23,9 @@ import { maskData, maskText, maskPhone } from "./smart-filing";
 
 export type Db = DatabaseSync;
 export type Actor = { id: number; role: string; salespersonId: number | null; name: string };
-export type Deps = { db: Db; now?: () => Date; actor: (res: Response) => Actor | null };
+export type Deps = { db: Db; now?: () => Date; actor: (res: Response) => Actor | null;
+  /** Extra runner routes owned by another module (e.g. Bale POST /bale/send); mounted after auth, before the deny-by-default catch-all. */
+  extendRunner?: (runner: Router, h: { inScope: (a: any, customerId: number) => boolean }) => void };
 
 export const TRAINEE_SALESPERSON_IDS = [5, 19, 20];
 export const EXCLUDED_USER_IDS = [29];
@@ -513,6 +515,7 @@ export function createAssistants(deps: Deps) {
       .filter(m => m.customer_id == null || inScope(a, m.customer_id));
     res.json(maskData({ threadId: t.id, userId: t.user_id, messages: list.map(m => messageView(m, true)) }));
   });
+  deps.extendRunner?.(runner, { inScope });
   runner.use((req, res) => { if (req.method !== "GET") return deny(req, res); fail(res, 404, "not_found"); });
   runner.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     if (err?.type === "entity.too.large") fail(res, 413, "body_too_large");

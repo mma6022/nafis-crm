@@ -4,6 +4,7 @@ import type { Response } from "express";
 import type { AuthUser } from "../lib/auth";
 import { crmDb } from "../lib/crm-db";
 import { createAssistants, ensureAssistantSchema } from "../lib/assistants";
+import { baleRunnerSend } from "./bale";
 
 ensureAssistantSchema(crmDb);
 const assistants = createAssistants({
@@ -12,6 +13,8 @@ const assistants = createAssistants({
     const u = res.locals.authUser as AuthUser | undefined;
     return u ? { id: u.id, role: u.role, salespersonId: u.salespersonId ?? null, name: (u as any).fullName ?? u.username } : null;
   },
+  // «حساب شخصی بله» 1b: the expert's own sales assistant may queue / draft a Bale message (all checks in lib/bale-outbox.ts).
+  extendRunner: (runner, h) => { runner.post("/bale/send", (req, res) => baleRunnerSend(req, res, h)); },
 });
 export const assistantRunnerRouter = assistants.runner;
 export default assistants.staff;

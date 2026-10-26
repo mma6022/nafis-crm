@@ -1,7 +1,7 @@
 /**
- * «حساب شخصی بله» — piece 1a: connect an expert's own Bale account (secure wizard) + read-only «گفتگوی بله» on the
- * customer page + switches + audit. NOTHING is sent to customers in 1a (no outbox runner, no SMS).
+ * «حساب شخصی بله» — an expert's own Bale account inside the CRM.
  *
+ * Piece 1a: connect (secure wizard), read-only «گفتگوی بله», switches, audit.
  *  - Admin master switch (bale_settings.master_enabled, default OFF) and a per-expert mode off | approve_first | auto
  *    (default off). Connecting needs the master switch ON; switching it OFF never deletes sessions.
  *  - Who may connect: active sales experts only; trainees (salesperson 5/19/20), user 29 and every other role never.
@@ -13,25 +13,30 @@
  *    the expert is told to end the session in Bale › دستگاه‌های فعال).
  *  - «گفتگوی بله» tab: admin (not 29) every customer; sales expert only customers whose salesperson_id is theirs;
  *    trainees, user 29 and every other role → 403. Out-of-scope customer → 404 (+ audit).
+ * Piece 1b (lib/bale-outbox.ts): messages to customers ONLY on the expert's own command, the expert's reminder «پیام به مشتری»
+ *  or the expert's own sales assistant (runner POST /bale/send); «اول تأیید من» drafts; caps / random gaps / quiet hours;
+ *  banned-word + «نقد/کالا/امتیاز» filter; auto-stop on Bale errors; inbound listener (own customers only) → tab, bell,
+ *  assistant event; sessions re-attached after a sidecar restart. Still no SMS; document intake / auto-reply = piece 2.
  */
-import { Router, type Request, type Response, type NextFunction } from "express";
-import { randomUUID } from "node:crypto";
+import express, { Router, type Request, type Response, type NextFunction } from "express";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { ensureSchemaObject } from "./schema-objects";
 import { TRAINEE_SALESPERSON_IDS, EXCLUDED_USER_IDS, BANNED_WORDS } from "./assistants";
-import { baleHasKey, baleSessionAad, openBaleSession, sealBaleSession, BaleKeyMissing, type KeyEnv } from "./bale-crypto";
+import { baleHasKey, baleSessionAad, baleSidecarToken, openBaleSession, sealBaleSession, BaleKeyMissing, type KeyEnv } from "./bale-crypto";
 import { BaleSidecarError, type BaleSidecar } from "./bale-sidecar-client";
+import { createBaleOutbox, ensureBaleOutboxSchema, BLOCK_FA } from "./bale-outbox";
 
 type Db = DatabaseSync;
 export type BaleActor = { id: number } | null;
-export type BaleDeps = { db: Db; env: () => KeyEnv; sidecar: BaleSidecar; now?: () => Date; actor: (res: Response) => BaleActor };
+export type BaleDeps = { db: Db; env: () => KeyEnv; sidecar: BaleSidecar; now?: () => Date; actor: (res: Response) => BaleActor; random?: () => number };
 
 export const BALE_MODES = ["off", "approve_first", "auto"] as const;
 export type BaleMode = typeof BALE_MODES[number];
 export const BALE_LOGIN_STARTS_PER_HOUR = 3;
 export const BALE_FLOW_TTL_MS = 5 * 60_000;
 export const BALE_MAX_TRIES_PER_FLOW = 5;
-/** Defaults for piece 1b (stored now so the admin can see them; nothing reads them in 1a). */
+/** Send limits (read by lib/bale-outbox.ts on every enqueue and send). */
 export const BALE_DEFAULT_SETTINGS: Record<string, string> = {
   master_enabled: "0", gap_min_s: "45", gap_max_s: "120", per_hour: "20", per_day: "80", new_chats_per_day: "15",
   quiet_start: "21:30", quiet_end: "08:30", banned_words: JSON.stringify(BANNED_WORDS),
@@ -72,6 +77,7 @@ export function ensureBaleSchema(db: Db, nowIso = new Date().toISOString()): voi
   ensureSchemaObject(db, "index", "idx_bale_outbox_account", "CREATE INDEX idx_bale_outbox_account ON bale_outbox(account_id, status, id)");
   ensureSchemaObject(db, "index", "idx_bale_audit_user", "CREATE INDEX idx_bale_audit_user ON bale_audit(user_id, action, id)");
   ensureSchemaObject(db, "index", "idx_bale_contacts_customer", "CREATE INDEX idx_bale_contacts_customer ON bale_contacts(customer_id)");
+  ensureBaleOutboxSchema(db);
   const ins = db.prepare("INSERT OR IGNORE INTO bale_settings(key,value,updated_at) VALUES(?,?,?)");
   for (const [k, v] of Object.entries(BALE_DEFAULT_SETTINGS)) ins.run(k, v, nowIso);
 }
@@ -145,6 +151,8 @@ export function createBale(deps: BaleDeps) {
       o.detail ? JSON.stringify(o.detail) : null);
   }
   const accountOf = (userId: number) => row<any>("SELECT * FROM bale_accounts WHERE user_id=?", userId);
+  const outbox = createBaleOutbox({ db, now, env: deps.env, sidecar: deps.sidecar, random: deps.random, setting, masterOn, userRow, nameOf, eligible: baleEligible,
+    audit: o => audit(o) });
 
   /* ------------- login flows: memory only (flowId is opaque; the Bale transaction_hash never leaves the sidecar) ------------- */
   type Flow = { flowId: string; step: "code" | "password"; expiresAt: number; phoneMasked: string; deviceHash: string; deviceTitle: string; tries: number; codeType: string };
@@ -155,8 +163,13 @@ export function createBale(deps: BaleDeps) {
 
   function accountView(a: any) {
     if (!a) return null;
+    const c = (sql: string) => Number(row<any>(sql, a.id)?.n ?? 0);
     return { id: a.id, status: a.status, mode: a.mode, phoneMasked: a.phone_masked, connectedAt: a.connected_at, lastSeenAt: a.last_seen_at,
-      lastError: a.last_error, disconnectedAt: a.disconnected_at, hasSession: Boolean(a.session_ct) };
+      lastError: a.last_error, disconnectedAt: a.disconnected_at, hasSession: Boolean(a.session_ct), stoppedReason: a.stopped_reason ?? null,
+      pendingApproval: c("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status='pending_approval'"),
+      queued: c("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status IN ('queued','sending')"),
+      sentToday: Number(row<any>("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status='sent' AND sent_at>?", a.id, new Date(now().getTime() - 86_400_000).toISOString())?.n ?? 0),
+      inboundIgnored: Number(a.inbound_ignored ?? 0) };
   }
   function meView(u: any) {
     const f = liveFlow(u.id);
@@ -185,6 +198,7 @@ export function createBale(deps: BaleDeps) {
       u.salesperson_id, f.phoneMasked, c.baleUserId, sealed.value, sealed.keyId, f.deviceHash, f.deviceTitle, t, t, t, a.id);
     flows.delete(u.id);
     audit({ req, u, accountId: a.id, action: "connect.connected", outcome: "ok", detail: { keyId: sealed.keyId } });
+    void outbox.syncSessions(true).catch(() => undefined); // start the listener / sender client now
   }
 
   /** SignOut on Bale first, then delete the sealed session (also when SignOut fails). */
@@ -200,6 +214,8 @@ export function createBale(deps: BaleDeps) {
     const t = iso();
     run(`UPDATE bale_accounts SET session_ct=NULL, session_key_id=NULL, status='disconnected', mode='off', disconnected_at=?, disconnected_by=?,
       last_error=?, updated_at=? WHERE id=?`, t, actorU.id, remote === "failed" ? "signout_failed" : null, t, a.id);
+    run("UPDATE bale_outbox SET status='blocked', block_reason='not_connected', updated_at=? WHERE account_id=? AND status IN ('pending_approval','queued')", t, a.id);
+    void deps.sidecar.detach({ accountRef: `acc-${a.id}` });
     flows.delete(a.user_id);
     audit({ req, u: actorU, accountId: a.id, action: `disconnect.${by}`, outcome: "ok", detail: { remoteSignOut: remote } });
     return remote;
@@ -283,7 +299,7 @@ export function createBale(deps: BaleDeps) {
     const u = res.locals.baleUser; const mode = String(req.body?.mode ?? "") as BaleMode;
     if (!BALE_MODES.includes(mode)) return fail(res, 422, "bad_mode");
     const a = accountOf(u.id); if (!a || a.status !== "connected") return fail(res, 409, "not_connected");
-    run("UPDATE bale_accounts SET mode=?, updated_at=? WHERE id=?", mode, iso(), a.id);
+    run("UPDATE bale_accounts SET mode=?, stopped_reason=NULL, updated_at=? WHERE id=?", mode, iso(), a.id);
     audit({ req, u, accountId: a.id, action: "mode.expert", outcome: "ok", detail: { from: a.mode, to: mode } });
     res.json(meView(u));
   });
@@ -308,13 +324,90 @@ export function createBale(deps: BaleDeps) {
       JOIN bale_accounts a ON a.id=m.account_id LEFT JOIN users u ON u.id=a.user_id WHERE m.customer_id=? ORDER BY m.id DESC LIMIT 200`, cid).reverse();
     const owner = c.salesperson_id ? row<any>("SELECT u.id,u.full_name,u.username,a.status,a.mode FROM users u LEFT JOIN bale_accounts a ON a.user_id=u.id WHERE u.salesperson_id=? AND u.role='salesperson' ORDER BY u.id LIMIT 1", c.salesperson_id) : undefined;
     const st = owner ? row<any>("SELECT s.mode FROM bale_conversation_state s JOIN bale_accounts a ON a.id=s.account_id WHERE s.customer_id=? AND a.user_id=?", cid, owner.id) : undefined;
+    const ownerAcc = owner ? accountOf(owner.id) : undefined;
+    const isOwner = Boolean(owner && owner.id === u.id);
+    const canSend = isOwner && masterOn() && ownerAcc?.status === "connected" && Boolean(ownerAcc?.session_ct) && ownerAcc?.mode !== "off";
     res.json({
-      customerId: cid, masterEnabled: masterOn(), readOnly: true,
+      customerId: cid, masterEnabled: masterOn(), readOnly: !isOwner,
+      canSend, sendBlockedMessage: isOwner && !canSend ? BLOCK_FA[!masterOn() ? "bale_disabled" : ownerAcc?.status !== "connected" || !ownerAcc?.session_ct ? "not_connected" : "mode_off"] : null,
+      outbox: ownerAcc ? outbox.tabItems(ownerAcc.id, cid).map(o => outbox.itemView(o, isOwner)) : [],
+      sendState: ownerAcc && isOwner ? outbox.sendState(ownerAcc, cid) : null,
       expert: owner ? { name: nameOf(owner), connected: owner.status === "connected", mode: owner.mode ?? "off" } : null,
       conversationMode: st?.mode ?? null,
       messages: msgs.map(m => ({ id: m.id, direction: m.direction, text: m.text, hasFile: Boolean(m.file_ref), status: m.status, createdAt: m.created_at,
         expertName: m.full_name || m.username || null })),
     });
+  });
+
+  /* ---------------- 1b: sending (the expert, own customers, own account only) ---------------- */
+  const ownAccount = (req: Request, res: Response) => {
+    const u = res.locals.baleUser; const a = accountOf(u.id);
+    if (!a) { fail(res, 409, "not_connected"); return undefined; }
+    return a;
+  };
+  const ownRow = (req: Request, res: Response) => {
+    const a = ownAccount(req, res); if (!a) return undefined;
+    const o = row<any>("SELECT * FROM bale_outbox WHERE id=? AND account_id=?", Number(req.params.id), a.id);
+    if (!o) { audit({ req, u: res.locals.baleUser, accountId: a.id, action: `${req.method} ${req.path}`, outcome: "not_found" }); fail(res, 404, "not_found"); return undefined; }
+    // The customer must still be the expert's own (reassigned → no actions on old rows).
+    const c = row<any>("SELECT salesperson_id,merged_into_customer_id FROM customers WHERE id=?", o.customer_id);
+    if (!c || c.salesperson_id !== res.locals.baleUser.salesperson_id || c.merged_into_customer_id != null) {
+      res.status(404).json({ error: "out_of_scope", message: BLOCK_FA.out_of_scope }); return undefined;
+    }
+    return { a, o };
+  };
+  const blockedStatus = (reason: string) => ["bale_disabled", "not_connected", "mode_off"].includes(reason) ? 423 : reason === "out_of_scope" ? 404
+    : ["already_pending"].includes(reason) ? 409 : ["cap_hour", "cap_day", "cap_new_chats"].includes(reason) ? 429 : 422;
+  const sendOut = (res: Response, r: ReturnType<typeof outbox.enqueue>) => r.status === "blocked"
+    ? res.status(blockedStatus(r.reason)).json({ error: r.reason, message: r.message, outboxId: r.outboxId })
+    : res.json({ status: r.status, outboxId: r.outboxId, heldUntil: r.heldUntil, message: r.message, text: r.text });
+  staff.post("/bale/customers/:id/send", expert, (req, res) => {
+    const u = res.locals.baleUser; const a = ownAccount(req, res); if (!a) return;
+    const text = typeof req.body?.text === "string" ? req.body.text : "";
+    sendOut(res, outbox.enqueue({ accountId: a.id, customerId: Number(req.params.id), text, source: "expert_command", explicit: true, createdBy: u.id, sendNow: req.body?.sendNow === true }));
+  });
+  staff.post("/bale/outbox/:id/approve", expert, (req, res) => {
+    const x = ownRow(req, res); if (!x) return;
+    sendOut(res, outbox.approve(x.o.id, res.locals.baleUser, typeof req.body?.text === "string" ? req.body.text : undefined));
+  });
+  staff.put("/bale/outbox/:id", expert, (req, res) => {
+    const x = ownRow(req, res); if (!x) return;
+    const r = outbox.editDraft(x.o.id, res.locals.baleUser, typeof req.body?.text === "string" ? req.body.text : "");
+    if (!r.ok) { res.status(r.reason === "not_editable" ? 409 : 422).json({ error: r.reason, message: r.message }); return; }
+    res.json({ ok: true, text: r.text });
+  });
+  staff.post("/bale/outbox/:id/cancel", expert, (req, res) => {
+    const x = ownRow(req, res); if (!x) return;
+    if (!outbox.cancel(x.o.id, res.locals.baleUser)) return void res.status(409).json({ error: "not_cancellable", message: "این پیام دیگر قابل لغو نیست." });
+    res.json({ ok: true });
+  });
+  staff.post("/bale/outbox/:id/send-now", expert, (req, res) => {
+    const x = ownRow(req, res); if (!x) return;
+    if (!outbox.sendNow(x.o.id, res.locals.baleUser)) return void res.status(409).json({ error: "not_queued", message: "این پیام در صف نیست." });
+    res.json({ ok: true });
+  });
+  staff.get("/bale/outbox", expert, (req, res) => {
+    const u = res.locals.baleUser; const a = accountOf(u.id); if (!a) return void res.json({ items: [] });
+    const list = rows<any>(`SELECT o.*, c.name cname, c.salesperson_id csp, c.merged_into_customer_id cm FROM bale_outbox o LEFT JOIN customers c ON c.id=o.customer_id
+      WHERE o.account_id=? AND (o.status IN ('pending_approval','queued','sending') OR o.updated_at>?) ORDER BY o.id DESC LIMIT 100`, a.id, new Date(now().getTime() - 3 * 86_400_000).toISOString());
+    res.json({ items: list.map(o => {
+      const own = o.csp === u.salesperson_id && o.cm == null;
+      // Out-of-scope rows (e.g. the assistant tried a foreign customer, or the customer was reassigned): no name, no text.
+      return own ? { ...outbox.itemView(o, true), customerName: o.cname }
+        : { ...outbox.itemView({ ...o, text: "" }, false), customerId: null, customerName: null, text: null };
+    }) });
+  });
+  staff.post("/bale/reminder-messages", expert, (req, res) => {
+    const u = res.locals.baleUser; const a = ownAccount(req, res); if (!a) return;
+    if (!masterOn()) return fail(res, 423, "bale_disabled");
+    const r = outbox.linkReminder(u, a, Number(req.body?.reminderId), typeof req.body?.text === "string" ? req.body.text : "");
+    if (!r.ok) return void res.status(r.status).json({ error: r.error, message: r.message });
+    res.json({ ok: true });
+  });
+  staff.post("/bale/reminder-messages/:id/cancel", expert, (req, res) => {
+    const u = res.locals.baleUser; const a = ownAccount(req, res); if (!a) return;
+    if (!outbox.cancelReminder(u, a, Number(req.params.id))) return fail(res, 404, "not_found");
+    res.json({ ok: true });
   });
 
   /* ---------------- admin ---------------- */
@@ -362,5 +455,50 @@ export function createBale(deps: BaleDeps) {
       customerId: x.customer_id, action: x.action, outcome: x.outcome, detail: x.detail_json ? JSON.parse(x.detail_json) : null })) });
   });
 
-  return { staff, _internal: { flows, masterOn } };
+  /* ============ runner hook: the expert's own sales assistant (mounted inside /api/assistant-runner, Bearer already checked) ============ */
+  /** POST /bale/send {customerId, text, reason?, explicitExpertCommand?}. Only a sales assistant bound to an expert; only the
+   *  assistant's in-scope customers that are also the expert's own. explicitExpertCommand (first message to a customer with no
+   *  prior chat) is honoured only when the expert wrote to the assistant in the last 15 minutes. Never bypasses quiet hours. */
+  function runnerSend(req: Request, res: Response, ctx: { inScope: (a: any, cid: number) => boolean }) {
+    const asst = res.locals.assistant;
+    const cid = Number(req.body?.customerId);
+    if (!asst || asst.kind !== "sales" || !asst.bound_user_id) return void res.status(403).json({ error: "forbidden", message: "این کار برای دستیار مجاز نیست." });
+    const u = userRow(asst.bound_user_id);
+    const a = u ? accountOf(u.id) : undefined;
+    if (!u || !baleEligible(u) || !a) return void res.status(423).json({ error: "not_connected", message: BLOCK_FA.not_connected });
+    let explicit = false;
+    if (req.body?.explicitExpertCommand === true) {
+      const since = new Date(now().getTime() - 15 * 60_000).toISOString();
+      explicit = Boolean(row(`SELECT 1 FROM assistant_messages m JOIN assistant_threads t ON t.id=m.thread_id WHERE t.assistant_id=? AND t.user_id=? AND m.author='user' AND m.created_at>? LIMIT 1`,
+        asst.id, u.id, since));
+    }
+    const r = outbox.enqueue({ accountId: a.id, customerId: cid, text: typeof req.body?.text === "string" ? req.body.text : "", source: "assistant", explicit,
+      createdBy: null, assistant: { id: asst.id, inScope: Number.isSafeInteger(cid) && ctx.inScope(asst, cid) }, reason: typeof req.body?.reason === "string" ? req.body.reason.slice(0, 300) : null });
+    if (r.status === "blocked") return void res.status(blockedStatus(r.reason)).json({ status: "blocked", error: r.reason, message: r.message });
+    res.json({ status: r.status, outboxId: r.outboxId, heldUntil: r.heldUntil });
+  }
+
+  /* ============ internal router: sidecar → API inbound (mounted OUTSIDE /api, before session auth) ============ */
+  const internal = Router();
+  internal.post("/internal/bale/inbound", express.json({ limit: "128kb" }), (req, res) => {
+    const remote = String(req.socket.remoteAddress ?? "");
+    const loopback = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+    // Direct sidecar calls only: anything that came through a proxy (nginx sets these) is refused.
+    const proxied = req.headers["x-forwarded-for"] !== undefined || req.headers["x-real-ip"] !== undefined || req.headers.forwarded !== undefined;
+    const want = baleSidecarToken(deps.env()); const got = String(req.headers["x-bale-internal-token"] ?? "");
+    const gb = Buffer.from(got), wb = Buffer.from(want ?? "");
+    const tokenOk = wb.length > 0 && gb.length === wb.length && timingSafeEqual(gb, wb);
+    if (!loopback || proxied || !tokenOk) { audit({ action: "inbound.auth", outcome: "forbidden", detail: { loopback, proxied } }); return void res.status(403).json({ error: "forbidden" }); }
+    res.json(outbox.inbound(req.body));
+  });
+
+  /** Worker: every ~5 s (one tick at a time). */
+  let timer: ReturnType<typeof setInterval> | null = null;
+  const worker = {
+    tick: () => outbox.tick(),
+    start(ms = 5000) { if (!timer) { timer = setInterval(() => { void outbox.tick().catch(e => console.error("bale worker", (e as Error)?.name)); }, ms); timer.unref?.(); } },
+    stop() { if (timer) clearInterval(timer); timer = null; },
+  };
+
+  return { staff, internal, runnerSend, worker, _internal: { flows, masterOn, outbox } };
 }
