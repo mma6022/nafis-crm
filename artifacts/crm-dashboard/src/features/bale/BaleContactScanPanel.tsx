@@ -96,7 +96,7 @@ export function BaleContactScanPanel() {
               {c.phoneMasked ? <span className="bl-ltr muted">{c.phoneMasked}</span> : null}{c.linkedToOther ? <span className="note">به مخاطب دیگری وصل است</span> : null}</label>)}
             <label data-on={sel == null}><input type="radio" name={`pick-${r.baleUserId}`} checked={sel == null} onChange={() => setPicked(p => ({ ...p, [r.baleUserId]: null }))} /> هیچ‌کدام</label>
           </fieldset>
-        : <div className="muted" style={{ fontSize: 13 }}>در مشتری‌های {scan?.all ? 'CRM' : 'شما'} پیدا نشد.</div>}
+        : <div className="muted" style={{ fontSize: 13 }}>در مشتری‌های {scan?.byAdmin ? `کارشناس ${scan.expert}` : 'شما'} پیدا نشد.</div>}
       {g !== 'notFound' || l ? <div className="acts">
         {l ? <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void unlink(r)} data-testid={`button-scan-unlink-${r.baleUserId}`}><Unlink size={15} /> قطع اتصال</button>
           : <button type="button" className="btn" disabled={busy || sel == null} onClick={() => sel != null && void linkOne(r, sel)} data-testid={`button-scan-link-${r.baleUserId}`}><Link2 size={15} /> اتصال</button>}
@@ -123,7 +123,7 @@ export function BaleContactScanPanel() {
       <div className="bl-acts"><button type="button" className="btn btn-primary" disabled={busy || !acc || !d?.masterEnabled || (acc?.nextScanInS ?? 0) > 0} onClick={() => void start()} data-testid="button-bale-contact-scan">
         <ScanSearch size={15} /> {busy ? 'در حال خواندن مخاطب‌ها…' : 'اسکن بله و اتصال مشتری'}</button></div>
     </> : scan ? <>
-      <p className="muted" style={{ margin: 0, fontSize: 13 }} data-testid="scan-source">{faNum(scan.counts.contacts)} مخاطب از {scan.source === 'contacts' ? 'فهرست مخاطب‌های بله' : 'گفتگوهای بله (فهرست مخاطب در دسترس نبود)'}{scan.all ? ` — حساب ${scan.expert}` : ''}{scan.truncated ? '؛ فقط بخشی از فهرست خوانده شد' : ''}.</p>
+      <p className="muted" style={{ margin: 0, fontSize: 13 }} data-testid="scan-source">{faNum(scan.counts.contacts)} مخاطب از {scan.source === 'contacts' ? 'فهرست مخاطب‌های بله' : 'گفتگوهای بله (فهرست مخاطب در دسترس نبود)'}{scan.byAdmin ? ` — حساب ${scan.expert} (فقط مشتری‌های همین کارشناس)` : ''}{scan.truncated ? '؛ فقط بخشی از فهرست خوانده شد' : ''}.</p>
       <div className="bl-scan-sum" role="group" aria-label="گروه‌ها">{(['confident', 'review', 'notFound'] as Group[]).map(g =>
         <button key={g} type="button" data-g={g} aria-pressed={group === g && step === 2} onClick={() => { setGroup(g); setStep(2); }} data-testid={`button-scan-group-${g}`}><b>{faNum(scan[g].length)}</b><span>{GROUP_LABEL[g]}</span></button>)}</div>
       {err ? <p className="bl-err" role="alert"><AlertCircle size={16} /> {err}</p> : null}

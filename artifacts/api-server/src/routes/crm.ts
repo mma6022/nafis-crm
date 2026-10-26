@@ -1,7 +1,8 @@
 import express, { Router, type IRouter, type RequestHandler } from "express";
 import { deleteCustomerIntro } from "../lib/expert-intro-sms-core";
 import { callNoteError } from "../lib/call-note-rule";
-import { crossOwnerEligible, findOtherOwnerMatches } from "../lib/cross-owner-search";
+import { CROSS_OWNER_EXCLUDED_USER_IDS, crossOwnerEligible, redactForeignCustomer, findOtherOwnerMatches, transferCallHint } from "../lib/cross-owner-search";
+import { myTransfers } from "../lib/my-transfers";
 import { customerSearchSql } from "../lib/customer-id-search";
 import { identityValuesChanged } from "../lib/identity-change";
 import { propagateContractTemplateChange } from "../lib/contract-template-updates";
@@ -1281,9 +1282,10 @@ router.get(
       return;
     }
     const row = findCustomerByPhone(parsed.data.phone);
-    res.json(LookupCustomerByPhoneResponse.parse({
+    const body = LookupCustomerByPhoneResponse.parse({
       customer: row ? customerFromRow(row) : null,
-    }));
+    });
+    res.json({ ...body, customer: redactForeignCustomer(res.locals.authUser as AuthUser, body.customer as Record<string, unknown> | null) });
   },
 );
 
@@ -1644,6 +1646,37 @@ router.get(
   },
 );
 
+// Task C: «انتقال تماس به کارشناسش» — the owner's internal extension + (at most once per 5 min) a bell to the owner.
+// Only for a customer the caller's own cross-owner search returned in the last 30 min; returns no customer data.
+router.post(
+  "/cross-owner/transfer-call/:customerId",
+  requirePermission("customers.view"),
+  (req, res): void => {
+    const user = res.locals.authUser as AuthUser;
+    const customerId = Number(req.params.customerId);
+    if (!Number.isInteger(customerId) || customerId <= 0) { res.status(400).json({ error: "شناسهٔ مشتری نامعتبر است" }); return; }
+    const result = transferCallHint(user, customerId, Date.now(), { notify: process.env.CRM_TRANSFER_CALL_NOTIFY !== "0" });
+    if (!result.ok) { res.status(result.status).json({ error: result.error }); return; }
+    res.json({ ownerName: result.ownerName, extension: result.extension, notified: result.notified });
+  },
+);
+
+// Task C: «تاریخچه‌ی انتقال‌های من» (read-only). Salespersons see their own; admin may pass ?salespersonId=.
+router.get(
+  "/my-transfers",
+  requirePermission("customers.view"),
+  (req, res): void => {
+    const user = res.locals.authUser as AuthUser;
+    if (CROSS_OWNER_EXCLUDED_USER_IDS.includes(Number(user.id))) { res.status(403).json({ error: "دسترسی ندارید" }); return; }
+    let spId: number | null = null;
+    if (user.role === "salesperson" && user.salespersonId != null) spId = Number(user.salespersonId);
+    else if (user.role === "admin") { const q = Number(req.query.salespersonId); spId = Number.isInteger(q) && q > 0 ? q : null; }
+    else { res.status(403).json({ error: "دسترسی ندارید" }); return; }
+    if (spId == null) { res.json({ items: [], salespersonId: null }); return; }
+    res.json({ items: myTransfers(spId, user.role === "salesperson" ? Number(user.id) : null), salespersonId: spId });
+  },
+);
+
 router.get(
   "/customers",
   requirePermission("customers.view"),
@@ -1970,7 +2003,7 @@ router.post(
     if (phoneMatch) {
       res.status(409).json({
         code: "duplicate_mobile",
-        customer: CreateCustomerResponse.parse(customerFromRow(phoneMatch)),
+        customer: redactForeignCustomer(res.locals.authUser as AuthUser, CreateCustomerResponse.parse(customerFromRow(phoneMatch)) as Record<string, unknown>),
       });
       return;
     }
@@ -2042,7 +2075,7 @@ router.post(
         if (duplicate) {
           res.status(409).json({
             code: "duplicate_mobile",
-            customer: CreateCustomerResponse.parse(customerFromRow(duplicate)),
+            customer: redactForeignCustomer(res.locals.authUser as AuthUser, CreateCustomerResponse.parse(customerFromRow(duplicate)) as Record<string, unknown>),
           });
           return;
         }

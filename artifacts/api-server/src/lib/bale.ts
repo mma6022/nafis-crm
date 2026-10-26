@@ -514,7 +514,8 @@ export function createBale(deps: BaleDeps) {
         links: Number(row<any>("SELECT count(*) n FROM customer_bale_links WHERE expert_user_id=? AND unlinked_at IS NULL", a.user_id)?.n ?? 0) })) });
   });
   staff.post("/bale/contact-scan", scanner, async (req, res) => {
-    const u = res.locals.scanUser; const all = Boolean(res.locals.scanAdmin);
+    // 2026-10-26: an admin scanning an expert's account matches ONLY that expert's own customers (same as the expert's own scan).
+    const u = res.locals.scanUser; const all = false; const byAdmin = Boolean(res.locals.scanAdmin);
     if (!masterOn()) return fail(res, 423, "bale_disabled");
     const a = scanAccount(res, req.body?.accountId);
     if (!a || a.status !== "connected" || !a.session_ct) return fail(res, 409, "not_connected");
@@ -544,11 +545,11 @@ export function createBale(deps: BaleDeps) {
           return { customerId: c.customerId, name: cu?.name ?? "", method: c.method, phoneMasked: maskPhone(normMobile(cu?.phone)),
             linkedToOther: Boolean(other && other.bale_user_id !== r.contact.baleUserId) }; }) };
     };
-    const out = { scanId: scan.id, source: got.source, truncated: got.truncated, accountId: a.id, expert: nameOf(expert), all,
+    const out = { scanId: scan.id, source: got.source, truncated: got.truncated, accountId: a.id, expert: nameOf(expert), all, byAdmin,
       counts: { contacts: got.contacts.length, confident: m.confident.length, review: m.review.length, notFound: m.notFound.length },
       confident: m.confident.map(view), review: m.review.map(view), notFound: m.notFound.map(view) };
     scans.set(scan.id, scan);
-    audit({ req, u, accountId: a.id, action: "contacts.scan", outcome: "ok", detail: { source: got.source, ...out.counts, admin: all } });
+    audit({ req, u, accountId: a.id, action: "contacts.scan", outcome: "ok", detail: { source: got.source, ...out.counts, admin: byAdmin } });
     res.json(out);
   });
   staff.post("/bale/contact-links", scanner, (req, res) => {

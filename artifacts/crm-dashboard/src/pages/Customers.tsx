@@ -433,7 +433,7 @@ export default function Customers() {
     </div>
 
     {readOnly ? <div className="csx-note warn" role="note"><Eye size={20} aria-hidden="true" /><p>دسترسی شما «فقط مشاهده» است؛ ثبت، ویرایش و تماس غیرفعال است.</p></div>
-      : isSalesperson ? <div className="csx-note" role="note"><UserRound size={20} aria-hidden="true" /><p>فقط مشتریانی که به شما تخصیص داده شده‌اند نمایش داده می‌شوند.</p></div> : null}
+      : isSalesperson ? <div className="csx-note" role="note"><UserRound size={20} aria-hidden="true" /><p>فقط مشتریانی که به شما تخصیص داده شده‌اند نمایش داده می‌شوند. <Link href="/my-transfers" data-testid="link-my-transfers">تاریخچه‌ی انتقال‌های من</Link></p></div> : null}
 
     <div className="csx-tools">
       {isDesktop ? <button type="button" className="csx-fbtn" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog" data-testid="button-open-filters"><SlidersHorizontal size={20} aria-hidden="true" /> فیلتر{activeFilters.length ? <span className="n">{fa(activeFilters.length)}</span> : null}</button> : null}

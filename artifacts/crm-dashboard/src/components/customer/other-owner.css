@@ -1,4 +1,4 @@
-/* Faded other-owner hints: visibly secondary, not interactive. */
+/* Faded other-owner hints: visibly secondary; the only action is «انتقال تماس به کارشناسش». */
 .oo-results { margin-top: 12px; }
 .oo-results.oo-inline { margin: 6px 0 0; padding: 6px 8px 4px; border-top: 1px dashed #e3e6ea; }
 .oo-title { margin: 0 0 6px; font-size: 12px; color: #8a919c; font-weight: 500; }
@@ -6,8 +6,9 @@
 .oo-row {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
   padding: 10px 12px; border-radius: 10px; border: 1px dashed #dfe3e8; background: #fafbfc;
-  opacity: .55; cursor: default; user-select: text;
+  cursor: default; user-select: text;
 }
+.oo-row > .oo-name, .oo-row > .oo-badge, .oo-row > .oo-phone { opacity: .6; }
 .oo-inline .oo-row { padding: 7px 8px; border-radius: 8px; }
 .oo-name { font-weight: 600; color: #374151; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }
 .oo-badge { cursor: default; }
@@ -15,3 +16,26 @@
 .oo-limit { margin: 6px 0 0; font-size: 12px; color: #8a6d1f; }
 /* Phones: the floating «مشتری جدید» / chat / bug-report buttons sit over the page end. */
 @media (max-width: 760px) { .oo-results.oo-block { margin-bottom: 128px; } }
+.oo-phone { font-size: 12.5px; color: #4b5563; font-variant-numeric: tabular-nums; }
+.oo-actions { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.oo-transfer { font: inherit; font-size: 12.5px; padding: 4px 12px; border-radius: 999px; border: 1px solid #c9a227; background: #fff8e1; color: #6b5200; cursor: pointer; }
+.oo-transfer:disabled { opacity: .6; cursor: wait; }
+.oo-transfer-info { font-size: 12.5px; color: #1f5132; }
+.oo-transfer-error { font-size: 12px; color: #a33; }
+/* Task C «تاریخچه‌ی انتقال‌های من» */
+.mt-page { padding-bottom: 96px; }
+.mt-title { display: flex; align-items: center; gap: 8px; font-size: 18px; margin: 4px 16px 6px; }
+.mt-sub { padding: 0 16px 10px; margin: 0; }
+.mt-table-wrap { padding: 0 16px; overflow-x: auto; }
+.mt-table { width: 100%; border-collapse: collapse; font-size: 13.5px; background: #fff; border-radius: 12px; overflow: hidden; }
+.mt-table th, .mt-table td { text-align: start; padding: 10px 12px; border-bottom: 1px solid #eef0f3; vertical-align: top; }
+.mt-table th { background: #f6f7f9; color: #4b5563; font-weight: 600; font-size: 12.5px; }
+.mt-src { display: block; font-size: 12px; color: #8a919c; margin-top: 2px; }
+.mt-phone { display: block; margin-top: 2px; }
+@media (max-width: 760px) {
+  .mt-table thead { display: none; }
+  .mt-table, .mt-table tbody, .mt-table tr, .mt-table td { display: block; width: 100%; }
+  .mt-table tr { border: 1px solid #e5e7eb; border-radius: 12px; margin-bottom: 10px; padding: 6px 0; background: #fff; }
+  .mt-table td { border: 0; padding: 4px 12px; }
+  .mt-table td::before { content: attr(data-label) ": "; color: #8a919c; font-size: 12px; }
+}

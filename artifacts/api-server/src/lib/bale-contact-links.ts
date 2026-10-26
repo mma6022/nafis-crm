@@ -2,7 +2,7 @@
  * «اسکن بله و اتصال مشتری»: READ the expert's Bale contact list (sidecar /v1/contacts, read-only), match each contact to a CRM
  * customer and — only after the expert confirms — store a link in customer_bale_links. Customer rows are never modified.
  * Matching order: (a) a number in the contact name = customer id (name re-checked), (b) contact phone = customer mobile,
- * (c) normalized name. Experts match only their own customers (customers.salesperson_id = theirs, not merged); admin matches all.
+ * (c) normalized name. Every scan — the expert's own or an admin's scan of that expert's account — matches only that expert's own customers (customers.salesperson_id = theirs, not merged).
  * Contact names / phones live only in memory (scan cache, 30 min) and in the HTTP response; audit rows carry counts and ids only.
  */
 import crypto from "node:crypto";

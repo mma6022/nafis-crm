@@ -108,7 +108,7 @@ export type BaleMatchMethod = 'id' | 'phone' | 'name' | 'manual';
 export type BaleScanLink = { id: number; customerId: number; baleUserId: string; method: BaleMatchMethod; linkedAt: string };
 export type BaleScanCandidate = { customerId: number; name: string; method: BaleMatchMethod; phoneMasked: string | null; linkedToOther: boolean };
 export type BaleScanRow = { baleUserId: string; contactName: string; phoneMasked: string | null; note: null | 'name_mismatch' | 'conflict' | 'duplicate' | 'many'; link: BaleScanLink | null; candidates: BaleScanCandidate[] };
-export type BaleScanResult = { scanId: string; source: 'contacts' | 'dialogs'; truncated: boolean; accountId: number; expert: string; all: boolean;
+export type BaleScanResult = { scanId: string; source: 'contacts' | 'dialogs'; truncated: boolean; accountId: number; expert: string; all: boolean; byAdmin?: boolean;
   counts: { contacts: number; confident: number; review: number; notFound: number }; confident: BaleScanRow[]; review: BaleScanRow[]; notFound: BaleScanRow[] };
 export type BaleScanStatus = { admin: boolean; masterEnabled: boolean; cooldownS: number;
   accounts: { id: number; userId: number; name: string; session: BaleSession; nextScanInS: number; links: number }[] };

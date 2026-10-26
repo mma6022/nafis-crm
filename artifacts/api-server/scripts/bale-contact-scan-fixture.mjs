@@ -179,14 +179,19 @@ try {
   // ---- admin: picks an expert account, matches ALL customers, link belongs to that expert ----
   r = await S(1, "POST", "/bale/contact-scan", { accountId: 999 }); assert.equal(r.s, 409);
   r = await S(1, "POST", "/bale/contact-scan", { accountId: K.id }); assert.equal(r.s, 200, JSON.stringify(r.j));
-  assert.equal(r.j.all, true); assert.deepEqual(r.j.counts, { contacts: 3, confident: 2, review: 0, notFound: 1 });
-  assert.ok(r.j.confident.some(x => x.candidates[0].customerId === 100), "admin matches all customers (100 belongs to hasani)");
+  assert.equal(r.j.all, false); assert.equal(r.j.byAdmin, true); assert.deepEqual(r.j.counts, { contacts: 3, confident: 1, review: 0, notFound: 2 });
+  const adAll = [...r.j.confident, ...r.j.review, ...r.j.notFound];
+  assert.ok(adAll.every(x => x.candidates.every(c => c.customerId === 140)), "admin scan of Kazemi's account never matches another expert's customer (100 belongs to hasani)");
+  assert.ok(adAll.every(x => x.candidates.every(c => c.name !== "علی رضایی")), "no candidate carries hasani's customer");
+  assert.ok(r.j.notFound.some(x => x.baleUserId === "900000041"), "the contact naming hasani's customer #100 lands in notFound");
   const ad = r.j;
   r = await S(1, "POST", "/bale/contact-links", { scanId: ad.scanId, items: [{ baleUserId: "900000040", customerId: 140 }] }); assert.equal(r.j.linked.length, 1);
   const l140 = db.prepare("SELECT * FROM customer_bale_links WHERE customer_id=140").get(); assert.equal(l140.expert_user_id, 8); assert.equal(l140.linked_by, 1);
   r = await S(8, "POST", "/bale/contact-scan", {}); assert.equal(r.s, 429, "admin scan counts for that account's cooldown");
   r = await S(8, "GET", "/bale/customers/140/link"); assert.equal(r.j.linked, true);
-  ok("admin: chooses a connected expert's account, matches all customers, link stored under that expert (linked_by = admin); cooldown shared per account");
+  r = await S(1, "POST", "/bale/contact-links", { scanId: ad.scanId, items: [{ baleUserId: "900000041", customerId: 100 }] });
+  assert.equal(r.j.linked?.length ?? 0, 0, "admin cannot link Kazemi's contact to hasani's customer"); assert.equal(db.prepare("SELECT count(*) n FROM customer_bale_links WHERE customer_id=100 AND expert_user_id=8").get().n, 0);
+  ok("admin: chooses a connected expert's account, matches ONLY that expert's customers (never expert Y's), link stored under that expert (linked_by = admin); cooldown shared per account");
 
   // ---- sidecar errors / dialogs fallback / master off ----
   clock = new Date(clock.getTime() + 6 * 60_000);
