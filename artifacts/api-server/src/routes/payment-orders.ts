@@ -14,6 +14,7 @@ import {
 import { paymentOrderListScope } from "../lib/payment-order-scope";
 import { verifyCustomerBankAccount, normalizeBankBirthDate, lookupBankAccount } from "../lib/bank-verification";
 import { ensureAccountingSchema, postPaymentDocument, reversePaymentDocument, AccountingError } from "../lib/accounting";
+import { GlPostingError } from "../lib/gl-posting";
 import { onPaymentOrderPaid, unpayPurchaseCommission, orderCommissionView, TeamCommissionError } from "../lib/team-commission";
 
 ensurePaymentOrdersSchema();
@@ -29,6 +30,16 @@ const permission = (p: string): RequestHandler => (_req, res, next) => {
   res.setHeader("Cache-Control", "no-store"); next();
 };
 const fail = (res: any, status: number, error: string) => res.status(status).json({ error });
+/** G4: a general-ledger failure gets its own code + clear Persian message (it used to hide behind payment_recording_conflict). */
+const GL_FAILED_FA = "ثبت سند دفتر کل ناموفق بود و پرداخت ثبت نشد. چیزی تغییر نکرد؛ به مدیر سیستم اطلاع دهید.";
+export function isGlFailure(error: unknown): boolean {
+  if (error instanceof GlPostingError) return true;
+  return /(^|[\s:'"(])gl_[a-z0-9_]+/i.test(String((error as Error)?.message ?? ""));
+}
+const failGl = (req: any, res: any, where: string, error: unknown) => {
+  req.log?.error?.({ code: String((error as Error)?.message ?? "").slice(0, 120) }, `gl posting failed in ${where}`);
+  return res.status(409).json({ error: "gl_posting_failed", message: GL_FAILED_FA });
+};
 const text = (v: unknown, max = 150) => typeof v === "string" ? v.trim().slice(0, max) : "";
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 4 } });
 
@@ -247,6 +258,7 @@ router.post("/payment-orders/:id/pay", permission("payment_orders.pay"), receive
       if (/موجودی اولیه/.test(error.message)) return fail(res, error.status, "payment_fund_opening_balance_required");
       return fail(res,error.status,error.message);
     }
+    if (isGlFailure(error)) return failGl(req, res, "/pay", error);
     return fail(res, 409, "payment_recording_conflict");
   }
   return res.json(detailView(paymentOrder(order.id, u), u));
@@ -283,6 +295,7 @@ router.post("/payment-orders/:id/unpay", permission("payment_orders.view"), (req
   } catch (error) {
     if (error instanceof TeamCommissionError) return fail(res, error.status, error.message);
     if (error instanceof AccountingError) return fail(res, error.status, error.message);
+    if (isGlFailure(error)) return failGl(req, res, "/unpay", error);
     return fail(res, 409, "payment_revert_conflict");
   }
   return res.json(detailView(paymentOrder(order.id, u), u));

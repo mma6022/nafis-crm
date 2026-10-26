@@ -57,9 +57,9 @@ const bal = (db, code) => one(db, "select coalesce(sum(l.debit_rial),0)-coalesce
 // 1. schema: mapping table versioned + append-only; triggers exist; idempotent ensure
 {
   const db = fresh();
-  ok(n(db, "gl_event_mappings") === 9 && n(db, "gl_event_mappings", "version=1") === 9, "9 mappings seeded at v1");
+  ok(n(db, "gl_event_mappings") === 12 && n(db, "gl_event_mappings", "version=1") === 12, "12 mappings seeded at v1 (9 non-bank + G4 P8/P9/P18)");
   S.ensureGlShadowSchema(db, NOW);
-  ok(n(db, "gl_event_mappings") === 9, "ensure is idempotent");
+  ok(n(db, "gl_event_mappings") === 12, "ensure is idempotent");
   ok(n(db, "sqlite_master", "type='trigger' and name like 'gl_capture_%'") === 4, "4 capture triggers");
   throwsCode(() => db.prepare("update gl_event_mappings set note='x'").run(), "gl_append_only");
   throwsCode(() => db.prepare("delete from gl_event_mappings").run(), "gl_append_only");
@@ -179,8 +179,8 @@ if (process.env.LEDGER_DB_COPY) {
   const counts = () => old.map((t) => `${t}:${one(db, `select count(*) n from "${t}"`).n}`).join("|");
   const c0 = counts();
   L.ensureLedgerSchema(db, NOW); S.ensureGlShadowSchema(db, NOW); S.ensureGlShadowSchema(db, NOW);
-  ok(n(db, "sqlite_master", "type='trigger' and name like 'gl_capture_%'") === 4, "copy: 4 capture triggers on the real tables");
-  ok(n(db, "gl_event_mappings") === 9, "copy: 9 mappings");
+  ok(n(db, "sqlite_master", "type='trigger' and name like 'gl_capture_%'") === 5, "copy: 5 capture triggers on the real tables (4 non-bank + G4 accounting_documents)");
+  ok(n(db, "gl_event_mappings") === 12, "copy: 12 mappings");
   ok(n(db, "gl_vouchers") === 0 && n(db, "gl_posting_queue") === 0 && n(db, "gl_exceptions") === 0, "copy: ledger, queue, exceptions empty");
   ok(one(db, "select value from gl_settings where key='gl.shadow_nonbank'").value === "0" && S.processGlShadowQueue(db) === null, "copy: flag OFF, worker inert");
   ok(c0 === counts(), "copy: old tables' row counts unchanged");
