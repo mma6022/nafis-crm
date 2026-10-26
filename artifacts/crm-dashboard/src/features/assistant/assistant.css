@@ -218,3 +218,52 @@
  .nas-chw.ph{position:fixed;inset:auto 0 auto 0;top:0;height:100dvh;width:auto;right:0;left:0}
  .nas-chw.ph .chf{padding-bottom:max(10px,env(safe-area-inset-bottom))}
 }
+
+/* v8 «احمد | مدیر فروش» (design آرمیتا, manager-assistant/manager-avatar.css adapted to .nas-av): plum disc, gold chart antenna + tie,
+   calmer + slower than the sales robots (4s). transform/opacity only; static under prefers-reduced-motion. */
+.nas-av.mgr{--nma-c:#5E2B97;--nma-c-700:#47207A;--nma-c-50:#F3EDFA}
+.nas-av.mgr svg{box-shadow:0 6px 18px rgba(71,32,122,.34)}
+.nas-av.mgr .an,.nas-av.mgr .an rect,.nas-av.mgr .tie,.nas-av.mgr .ey{transform-box:fill-box}
+.nas-av.mgr.rb .bot{animation:nmaBob 4s ease-in-out infinite}
+.nas-av.mgr.rb .an{animation:none}
+.nas-av.mgr.rb .an rect.b{transform-origin:50% 100%;animation:nmaBar 3.2s ease-in-out infinite}
+.nas-av.mgr .an rect.b2{animation-delay:.25s}.nas-av.mgr .an rect.b3{animation-delay:.5s}
+.nas-av.mgr.rb .hd{animation:nmaWave 4.4s ease-in-out infinite}
+.nas-av.mgr.rb-active .bot{animation:nmaNod 1.5s ease-in-out infinite}
+.nas-av.mgr.rb-active .an rect.b{animation-duration:1.2s}
+.nas-av.mgr.rb-active .hd{animation:nasWaveHi 1.2s ease-in-out infinite}
+.nas-av.mgr.mgr-ty .mo{animation:nmaTalkA .5s steps(1) infinite}
+.nas-av.mgr.mgr-ty .mo2{display:block;animation:nmaTalkB .5s steps(1) infinite}
+.nas-av.mgr.mgr-ty .ey{animation:none;transform:translateY(1.2px)}
+.nas-fav.mgr .tyb i{background:#5E2B97}
+.nas-chw .chh .adm{font-size:11px;font-weight:700;line-height:20px;padding:0 8px;border-radius:999px;background:#F3EDFA;color:#47207A;white-space:nowrap}
+/* dock order: «احمد» sits ABOVE «سارینا» in every layout (default column-reverse → later = higher; slotted/head columns → first = higher) */
+.nas-avs .nas-fav.mgr{order:1}
+.nas-slotted .nas-avs .nas-fav.mgr,.nas-head .nas-avs .nas-fav.mgr{order:-1}
+@keyframes nmaBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.2px)}}
+@keyframes nmaNod{0%,100%{transform:translateY(0) rotate(0)}35%{transform:translateY(-2px) rotate(-2deg)}65%{transform:translateY(.5px) rotate(1.5deg)}}
+@keyframes nmaBar{0%,100%{transform:scaleY(1)}50%{transform:scaleY(.6)}}
+@keyframes nmaWave{0%,60%,100%{transform:rotate(0)}75%{transform:rotate(-12deg)}88%{transform:rotate(4deg)}}
+@keyframes nmaTalkA{0%{opacity:1}50%{opacity:0}}
+@keyframes nmaTalkB{0%{opacity:0}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){
+  .nas-av.mgr *,.nas-av.mgr svg{animation:none!important}
+  .nas-av.mgr.mgr-ty .mo{opacity:0}.nas-av.mgr.mgr-ty .mo2{opacity:1}
+}
+/* v8 manager admin panel (settings page) — RTL, works at 390px */
+.mgr-panel{border-color:#E4D8F3}
+.mgr-form{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));align-items:end;margin-bottom:14px}
+.mgr-f{display:flex;flex-direction:column;gap:4px;font-size:13px}
+.mgr-f span{display:flex;flex-direction:column}.mgr-f small{color:var(--nf-ink-muted);font-size:12px}
+.mgr-f input,.mgr-f select{min-height:40px;padding:6px 10px;border:1px solid #D6DAE6;border-radius:8px;font:inherit;width:100%;box-sizing:border-box}
+.mgr-act{display:flex;gap:8px;flex-wrap:wrap}
+.mgr-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;margin:6px 0 10px}
+.mgr-team{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;padding:10px;border-radius:10px;background:#F3EDFA;margin-bottom:10px}
+.mgr-team small{flex-basis:100%;color:#5F6B85}
+.mgr-list{display:grid;gap:8px}
+.mgr-row{border:1px solid #E3E6F0;border-radius:10px;padding:10px}
+.mgr-rh{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.mgr-lv{font-size:12px;font-weight:700;padding:2px 10px;border-radius:999px;white-space:nowrap}
+.mgr-nums{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;margin-top:6px}
+.mgr-nums small{color:var(--nf-ink-muted)}
+.mgr-al{margin:8px 0 0;padding-inline-start:18px;font-size:13px;color:#7A1F1F;display:grid;gap:2px}

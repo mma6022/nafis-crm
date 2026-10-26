@@ -5,11 +5,12 @@ import { SkeletonPanel, ErrorState } from '@/components/CrmShell';
 import { Modal } from '@/components/DataTools';
 import { toast } from '@/hooks/use-toast';
 import { AssistantAvatar } from '@/features/assistant/AssistantAvatar';
-import { asFetch, asWhen, faNum } from '@/features/assistant/api';
+import { asFetch, asWhen, faNum, type AsKind } from '@/features/assistant/api';
+import { ManagerPanel } from '@/features/assistant/ManagerPanel';
 import '@/features/assistant/assistant.css';
 
 type Tok = { id: number; name: string; createdAt: string; lastUsedAt: string | null; revokedAt: string | null };
-type Adm = { id: number; slug: string; name: string; label: string; kind: 'sales' | 'filing'; boundRole: string | null; boundUser: { id: number; name: string } | null; enabled: boolean; maxMessagesPerHour: number; online: boolean; lastSeenAt: string | null; tokens: Tok[] };
+type Adm = { id: number; slug: string; name: string; label: string; kind: AsKind; boundRole: string | null; boundUser: { id: number; name: string } | null; enabled: boolean; maxMessagesPerHour: number; online: boolean; lastSeenAt: string | null; tokens: Tok[] };
 type AdminData = { globalEnabled: boolean; creditInquiryPermission: 'manager' | 'expert'; assistants: Adm[] };
 type AuditItem = { id: number; at: string; assistantId: number | null; actor: string | null; action: string; customerId: number | null; outcome: string };
 
@@ -61,9 +62,9 @@ export default function AssistantsSettings() {
           const status = !d.globalEnabled || !a.enabled ? { c: '#9CA3AF', t: 'خاموش' } : a.online ? { c: '#16A34A', t: 'وصل' } : { c: '#F59E0B', t: 'وصل نیست' };
           return <div key={a.id} className="panel" data-testid={`panel-assistant-${a.slug}`}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <AssistantAvatar slug={a.slug} state={a.enabled && d.globalEnabled ? 'idle' : 'off'} size={44} />
+              <AssistantAvatar slug={a.slug} kind={a.kind} state={a.enabled && d.globalEnabled ? 'idle' : 'off'} size={44} />
               <div style={{ flex: 1 }}><b>{a.label}</b>
-                <div style={{ fontSize: 13, color: 'var(--nf-ink-muted)' }}>{a.kind === 'filing' ? 'نقش ثبت (کارشناس ثبت، مدیر و کارشناس فروش همان پرونده)' : `کارشناس: ${a.boundUser?.name ?? '—'}`}</div>
+                <div style={{ fontSize: 13, color: 'var(--nf-ink-muted)' }}>{a.kind === 'manager' ? 'مدیر فروش — فقط مدیر (admin) · فقط خواندن گزارش کارشناس‌ها (بدون کارآموزها)' : a.kind === 'filing' ? 'نقش ثبت (کارشناس ثبت، مدیر و کارشناس فروش همان پرونده)' : `کارشناس: ${a.boundUser?.name ?? '—'}`}</div>
                 <div style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}><i style={{ width: 8, height: 8, borderRadius: '50%', background: status.c, display: 'inline-block' }} />{status.t}{a.lastSeenAt ? ` · آخرین اتصال ${asWhen(a.lastSeenAt)}` : ''}</div>
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
@@ -90,6 +91,8 @@ export default function AssistantsSettings() {
           </div>;
         })}
       </div>
+
+      {d.assistants.some(a => a.kind === 'manager') ? <ManagerPanel /> : null}
 
       <div className="panel" data-testid="panel-assistant-audit">
         <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 8 }}><Bot size={18} /> گزارش کارهای دستیارها</h3>

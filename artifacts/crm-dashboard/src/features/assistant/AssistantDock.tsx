@@ -7,7 +7,7 @@ import { Bell, BellOff, Moon, Phone, Send, Clock, Copy, X, Volume2, VolumeX, Che
 import { CreateReminderForm } from '@/components/Forms';
 import { toast } from '@/hooks/use-toast';
 import { AssistantAvatar, type AvState } from './AssistantAvatar';
-import { AsError, asFetch, asTime, asWhen, asVisibleTo, chime, faNum, unlockAudio, type AsAction, type AsMessage, type AsMine, type AsPrefs, type AsThread, type AsProposal } from './api';
+import { AsError, asFetch, asTime, asWhen, asVisibleTo, chime, faNum, unlockAudio, type AsAction, type AsMessage, type AsMine, type AsPrefs, type AsThread, type AsProposal, type AsKind } from './api';
 import './assistant.css';
 
 type ThreadState = AsThread & { lastId: number; loaded: boolean };
@@ -455,9 +455,9 @@ export function AssistantDock({ user, bottomOffset, phone }: { user: { id: numbe
         {list.map(a => {
           const t = threads[a.threadId]; const st: AvState = prefsNow.dnd || overlay ? 'dnd' : t?.typing ? 'think' : bubble?.threadId === a.threadId ? 'attn' : 'idle';
           const online = t?.online ?? a.online; const hot = a.unread > 0 || Boolean(t?.typing);
-          return <button key={a.id} type="button" className="nas-fav" data-thread={a.threadId} onClick={e => { if (e.detail === 0) tap(a.threadId); }}
-            aria-label={`${a.label}${a.unread ? ` — ${a.unread} پیام تازه` : ''} — برای گفتگو بزنید، برای جابه‌جایی بکشید`} aria-expanded={openId === a.threadId} data-testid={`button-assistant-${a.slug}`} data-active={hot ? '1' : undefined}>
-            <AssistantAvatar slug={a.slug} state={st} size={phone ? 52 : 56} robot={hot ? 'active' : 'idle'} />
+          return <button key={a.id} type="button" className={`nas-fav${a.kind === 'manager' ? ' mgr' : ''}`} data-thread={a.threadId} onClick={e => { if (e.detail === 0) tap(a.threadId); }}
+            aria-label={`${a.label}${a.unread ? ` — ${faNum(a.unread)} پیام تازه` : ''}${t?.typing ? ' — در حال نوشتن' : ''} — برای گفتگو بزنید، برای جابه‌جایی بکشید`} aria-expanded={openId === a.threadId} data-testid={`button-assistant-${a.slug}`} data-active={hot ? '1' : undefined}>
+            <AssistantAvatar slug={a.slug} kind={a.kind} typing={Boolean(t?.typing)} state={st} size={phone ? 52 : 56} robot={hot ? 'active' : 'idle'} />
             <i className={`dt${online ? '' : ' nc'}`} title={online ? 'وصل' : 'وصل نیست'} data-testid={`assistant-dot-${a.slug}`} />
             {a.unread > 0 ? <b className="bd2" data-testid={`assistant-unread-${a.slug}`}>{faNum(a.unread)}</b> : null}
             {t?.typing ? <span className="tyb" data-testid={`assistant-typing-dot-${a.slug}`}><i /><i /><i /></span> : null}
@@ -487,8 +487,9 @@ export function AssistantDock({ user, bottomOffset, phone }: { user: { id: numbe
 }
 
 /** v5 quick buttons. «ctx» chips are about the customer page that is open (sent with its customerId; the server checks scope). */
-type Chip = { label: string; body: string; ctx?: boolean };
-const CHIPS: Record<'sales' | 'filing', Chip[]> = {
+type Chip = { label: string; body: string; ctx?: boolean; id?: string };
+const CHIPS: Record<AsKind, Chip[]> = {
+  manager: [{ label: 'گزارش امروز', body: 'گزارش امروز', id: 'today' }, { label: 'هشدارها', body: 'هشدارهای کم‌کاری امروز', id: 'alerts' }, { label: 'این هفته', body: 'گزارش این هفته', id: 'week' }],
   sales: [{ label: 'بعدی کیه؟', body: 'بعدی کیه؟' }, { label: 'خلاصه‌ی این مشتری', body: 'خلاصه‌ی این مشتری', ctx: true }, { label: 'لیست مدارک', body: 'لیست مدارک این مشتری', ctx: true }],
   filing: [{ label: 'پرونده‌های منتظر ثبت', body: 'پرونده‌های منتظر ثبت' }, { label: 'خلاصه‌ی این مشتری', body: 'خلاصه‌ی این مشتری', ctx: true }, { label: 'لیست مدارک', body: 'لیست مدارک این مشتری', ctx: true }],
 };
@@ -528,8 +529,8 @@ function ChatPanel({ a, t, prefs, phone, customerId, onClose, onAct, onPrefs, on
   const online = t.loaded ? t.online : a.online;
   return <div className={`nas-chw${phone ? ' ph' : ''}`} role="dialog" aria-label={a.label} data-testid="assistant-chat" style={phone && vv ? { top: vv.t, height: vv.h, bottom: 'auto' } : undefined}>
     <div className="chh">
-      <AssistantAvatar slug={a.slug} state={prefs.dnd ? 'dnd' : t.typing ? 'think' : 'idle'} size={40} />
-      <div className="tt"><b>{a.label}</b><span className="s"><i className={online ? '' : 'off'} />{t.typing ? 'در حال نوشتن…' : online ? 'آنلاین' : 'آفلاین'}</span></div>
+      <AssistantAvatar slug={a.slug} kind={a.kind} typing={t.typing} state={prefs.dnd ? 'dnd' : t.typing ? 'think' : 'idle'} size={40} />
+      <div className="tt"><b>{a.label}{a.kind === 'manager' ? <> <span className="adm" data-testid="assistant-admin-only">فقط ادمین</span></> : null}</b><span className="s"><i className={online ? '' : 'off'} />{t.typing ? 'در حال نوشتن…' : online ? 'آنلاین' : 'آفلاین'}</span></div>
       <button type="button" className="ib" onClick={() => onPrefs({ sound: !prefs.sound })} aria-label={prefs.sound ? 'بی‌صدا کردن' : 'صدادار کردن'} title={prefs.sound ? 'صدا روشن' : 'صدا خاموش'} data-testid="button-as-sound">{prefs.sound ? <Volume2 size={18} /> : <VolumeX size={18} />}</button>
       <button type="button" className={`ib${prefs.dnd ? ' on' : ''}`} onClick={() => onPrefs({ dndMinutes: prefs.dnd ? 0 : 60 })} aria-pressed={prefs.dnd} title={prefs.dnd ? 'مزاحم نشو روشن است — برای خاموش کردن بزنید' : 'مزاحم نشو (۱ ساعت)'} data-testid="button-as-dnd">{prefs.dnd ? <BellOff size={18} /> : <Bell size={18} />}</button>
       <button type="button" className="ib" onClick={onClose} aria-label="بستن" data-testid="button-as-close"><X size={20} /></button>
@@ -537,7 +538,7 @@ function ChatPanel({ a, t, prefs, phone, customerId, onClose, onAct, onPrefs, on
     {prefs.dnd ? <div className="cban dnd"><Moon size={16} /> <span><b>مزاحم نشو</b>{prefs.dndUntil ? `تا ${asTime(prefs.dndUntil)}` : ''} — پیام‌ها نگه داشته می‌شوند و صدایی پخش نمی‌شود.</span></div>
       : !online ? <div className="cban off"><span>{a.name} الان وصل نیست؛ پیامت می‌ماند و وقتی وصل شد جواب می‌دهد.</span></div> : null}
     <div className="chb" ref={body}>
-      {!t.loaded ? <div className="dsep">در حال بارگذاری…</div> : !t.messages.length ? <div className="dsep">هنوز پیامی نیست. هر سؤالی دربارهٔ مشتری‌هایتان دارید بپرسید.</div> : null}
+      {!t.loaded ? <div className="dsep">در حال بارگذاری…</div> : !t.messages.length ? <div className="dsep">{a.kind === 'manager' ? 'هنوز پیامی نیست. گزارش امروز، هشدارهای کم‌کاری یا وضعیت هر کارشناس را بپرسید.' : 'هنوز پیامی نیست. هر سؤالی دربارهٔ مشتری‌هایتان دارید بپرسید.'}</div> : null}
       {t.messages.map(m => m.author === 'user'
         ? <div key={m.id} className="msg mine"><div className="bdy">{m.body}</div><span className="tm">{asTime(m.createdAt)}{m.customerName ? ` · ${m.customerName}` : ''} · {(seen.get(m.id) ?? Boolean(m.pickedAt)) ? <><CheckCheck size={13} /> دیده شد</> : <><Check size={13} /> در صف</>}</span></div>
         : m.author === 'system' ? <div key={m.id} className="sys">{m.body}</div>
@@ -550,8 +551,8 @@ function ChatPanel({ a, t, prefs, phone, customerId, onClose, onAct, onPrefs, on
       {t.typing ? <div className="typ"><span className="dots"><i /><i /><i /></span>در حال نوشتن…</div> : null}
     </div>
     <div className="nas-chips" data-testid="assistant-chips">{CHIPS[a.kind].map(c => <button key={c.label} type="button" disabled={busy || (c.ctx && !customerId)} title={c.ctx && !customerId ? 'اول صفحه‌ی یک مشتری را باز کنید' : undefined}
-      onClick={() => void send(undefined, c.body, c.ctx)} data-testid={`chip-${c.ctx ? (c.body.includes('مدارک') ? 'docs' : 'summary') : 'next'}`}>{c.label}</button>)}
-      {!customerId ? <span className="hint">برای «خلاصه» و «مدارک»، صفحه‌ی مشتری را باز کنید.</span> : null}</div>
+      onClick={() => void send(undefined, c.body, c.ctx)} data-testid={`chip-${c.id ?? (c.ctx ? (c.body.includes('مدارک') ? 'docs' : 'summary') : 'next')}`}>{c.label}</button>)}
+      {!customerId && a.kind !== 'manager' ? <span className="hint">برای «خلاصه» و «مدارک»، صفحه‌ی مشتری را باز کنید.</span> : null}</div>
     <form className="chf" onSubmit={send}>
       <textarea className="inp" rows={1} value={text} maxLength={2000} onChange={e => setText(e.target.value)} onKeyDown={keys} onFocus={onFocus} ref={inp} placeholder={`پیام به ${a.label}…`} aria-label="متن پیام" data-testid="input-as-message" />
       <button type="submit" className={`snd${text.trim() ? '' : ' off'}`} disabled={!text.trim() || busy} aria-label="ارسال" data-testid="button-as-send"><Send size={20} /></button>
