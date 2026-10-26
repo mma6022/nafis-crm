@@ -1,4 +1,4 @@
-/** «حساب شخصی بله» staff client (api-server lib/bale.ts, piece 1a). The server is the real gate for every rule. */
+/** «حساب شخصی بله» staff client (api-server lib/bale.ts + lib/bale-outbox.ts). The server is the real gate for every rule. */
 export { asFetch as baleFetch, asWhen as baleWhen, faNum } from '@/features/assistant/api';
 
 export type BaleMode = 'off' | 'approve_first' | 'auto';
@@ -14,8 +14,20 @@ export type BaleAdmin = {
   experts: { userId: number; name: string; account: (BaleAccount & { user: { id: number; name: string } }) | null }[];
 };
 export type BaleAuditItem = { id: number; at: string; actor: string | null; accountId: number | null; customerId: number | null; action: string; outcome: string; detail: Record<string, unknown> | null };
+export type BaleOutboxStatus = 'pending_approval' | 'queued' | 'sending' | 'sent' | 'blocked' | 'failed' | 'cancelled';
+export type BaleOutboxItem = {
+  id: number; customerId: number | null; status: BaleOutboxStatus; source: 'expert_command' | 'reminder' | 'assistant' | 'auto_reply'; sourceLabel: string;
+  text: string | null; reason: string | null; blockReason: string | null; blockMessage: string | null; error: string | null; errorMessage: string | null;
+  scheduledAt: string | null; sendNow: boolean; sentAt: string | null; createdAt: string; newChat: boolean; canAct: boolean; customerName?: string | null;
+};
+export type BaleSendState = {
+  quietNow: boolean; quietEnd: string | null; hasPriorChat: boolean; sentLastHour: number; perHour: number; sentToday: number; perDay: number;
+  reminders: { reminderId: number; text: string; remindAt: string }[];
+};
+export type BaleSendResult = { status: 'queued' | 'pending_approval'; outboxId: number; heldUntil: string | null; message: string | null; text: string };
 export type BaleChat = {
-  customerId: number; masterEnabled: boolean; readOnly: true; conversationMode: 'assistant' | 'human' | null;
+  customerId: number; masterEnabled: boolean; readOnly: boolean; canSend: boolean; sendBlockedMessage: string | null;
+  outbox: BaleOutboxItem[]; sendState: BaleSendState | null; conversationMode: 'assistant' | 'human' | null;
   expert: { name: string; connected: boolean; mode: BaleMode } | null;
   messages: { id: number; direction: 'in' | 'out'; text: string | null; hasFile: boolean; status: string | null; createdAt: string; expertName: string | null }[];
 };
@@ -32,9 +44,14 @@ export const baleChatVisible = baleNavVisible;
 export const MODE_LABEL: Record<BaleMode, string> = { off: 'خاموش', approve_first: 'اول تأیید من', auto: 'خودکار' };
 export const MODE_HINT: Record<BaleMode, string> = {
   off: 'هیچ پیامی از حساب شما فرستاده نمی‌شود.',
-  approve_first: 'هر پیام اول برای شما می‌آید و فقط بعد از تأیید شما فرستاده می‌شود.',
+  approve_first: 'پیام‌های دستیار و یادآورها اول برای تأیید شما می‌آیند؛ پیامی که خودتان در پرونده می‌نویسید مستقیم در صف ارسال می‌رود.',
   auto: 'پیام‌هایی که خودتان دستور داده‌اید یا یادآورشان رسیده، با رعایت سقف‌ها و ساعت آرام خودکار فرستاده می‌شود.',
 };
 export const STATUS_LABEL: Record<BaleAccount['status'], string> = { connected: 'وصل', disconnected: 'قطع', banned: 'مسدود', error: 'خطا' };
 export const toFaDigits = (s: string) => s.replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
 export const toEnDigits = (s: string) => s.replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+/** Mirrors server BALE_MAX_TEXT (1000). */
+export const BALE_MAX_TEXT = 1000;
+export const OUTBOX_STATUS_LABEL: Record<BaleOutboxStatus, string> = {
+  pending_approval: 'منتظر تأیید شما', queued: 'در صف ارسال', sending: 'در حال ارسال', sent: 'فرستاده شد', blocked: 'فرستاده نشد', failed: 'ناموفق', cancelled: 'لغو شد',
+};

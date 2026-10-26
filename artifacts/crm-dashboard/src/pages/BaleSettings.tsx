@@ -6,6 +6,7 @@ import { ErrorState, SkeletonPanel } from '@/components/CrmShell';
 import { Modal } from '@/components/DataTools';
 import { toast } from '@/hooks/use-toast';
 import { baleCanConnect, baleFetch, baleWhen, faNum, MODE_HINT, MODE_LABEL, STATUS_LABEL, toEnDigits, type BaleAdmin, type BaleAuditItem, type BaleMe, type BaleMode } from '@/features/bale/api';
+import { BaleOutboxPanel } from '@/features/bale/BaleOutboxPanel';
 import '@/features/bale/bale.css';
 
 const ME_KEY = ['bale', 'me'] as const;
@@ -84,7 +85,7 @@ function ExpertWizard() {
           </button>)}
         </div>
       </fieldset>
-      <div className="bl-note warn"><Info size={18} /><span>در این نسخه هنوز هیچ پیامی از حساب شما فرستاده نمی‌شود؛ فقط گفتگوها خوانده و در پرونده‌ی مشتری نمایش داده می‌شوند. ارسال در مرحله‌ی بعد روشن می‌شود.</span></div>
+      <div className="bl-note warn"><Info size={18} /><span>پیام فقط به مشتری‌های خودتان، با فاصله‌ی تصادفی، سقف ساعتی و روزانه و بیرون از ساعت آرام فرستاده می‌شود. اولین پیام به مشتری‌ای که در بله با او گفتگو نداشته‌اید فقط با دستور خودتان می‌رود.</span></div>
       {a.lastError === 'signout_failed' ? <div className="bl-note warn"><AlertCircle size={18} /><span>{SIGNOUT_WARN}</span></div> : null}
       {err ? <p className="err" role="alert" style={{ color: '#B42318', margin: 0 }}>{err}</p> : null}
       <div className="bl-acts"><button type="button" className="btn" disabled={busy} onClick={() => setConfirmOff(true)} data-testid="button-bale-disconnect"><Unplug size={16} /> قطع اتصال</button></div>
@@ -219,6 +220,7 @@ export default function BaleSettings() {
       <p>{isAdmin ? 'روشن و خاموش کردن بله، وضعیت اتصال کارشناس‌ها و گزارش رویدادها.' : 'حساب بله‌ی شخصی‌تان را امن به CRM وصل کنید تا گفتگوی هر مشتری در پرونده‌اش دیده شود.'}</p></div></div>
     {session.isLoading ? <SkeletonPanel rows={3} /> : <div style={{ display: 'grid', gap: 16 }}>
       {expert ? <ExpertWizard /> : null}
+      {expert ? <BaleOutboxPanel /> : null}
       {isAdmin ? <AdminPanel /> : null}
       {!expert && !isAdmin ? <div className="bl-note off" data-testid="bale-not-eligible"><Info size={18} /><span>اتصال حساب بله فقط برای کارشناس‌های فروش فعال است.</span></div> : null}
     </div>}
