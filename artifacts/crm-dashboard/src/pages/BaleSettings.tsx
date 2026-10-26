@@ -5,7 +5,7 @@ import { useGetAuthSession, getGetAuthSessionQueryKey } from '@workspace/api-cli
 import { ErrorState, SkeletonPanel } from '@/components/CrmShell';
 import { Modal } from '@/components/DataTools';
 import { toast } from '@/hooks/use-toast';
-import { baleCanConnect, baleFetch, baleWhen, faNum, MODE_HINT, MODE_LABEL, STATUS_LABEL, toEnDigits, type BaleAdmin, type BaleAuditItem, type BaleMe, type BaleMode, type BalePeerBlockMode } from '@/features/bale/api';
+import { baleCanConnect, baleFetch, baleWhen, balePill, faNum, MODE_HINT, MODE_LABEL, PARTIAL_LABEL, toEnDigits, type BaleAdmin, type BaleAuditItem, type BaleMe, type BaleMode, type BalePeerBlockMode } from '@/features/bale/api';
 import { BaleOutboxPanel } from '@/features/bale/BaleOutboxPanel';
 import { BaleUnknownPanel } from '@/features/bale/BaleUnknownPanel';
 import { BaleTestPanel } from '@/features/bale/BaleTestPanel';
@@ -72,11 +72,15 @@ function ExpertWizard() {
     <Steps at={connected ? 4 : step === 'password' ? 3 : step === 'code' ? 2 : 1} />
 
     {connected ? <>
-      <div className="bl-done" data-testid="bale-connected">
+      {a.session === 'down' ? <div className="bl-done partial" data-testid="bale-partial">
+        <span className="big"><AlertCircle size={34} /></span>
+        <b>{PARTIAL_LABEL}</b>
+        <span className="muted">ورود شما ثبت شده، ولی اتصال به بله هنوز کامل نشده است. تا کامل شدن، هیچ پیامی از حساب شما فرستاده نمی‌شود. لازم نیست کاری بکنید.</span>
+      </div> : <div className="bl-done" data-testid="bale-connected">
         <span className="big"><CheckCircle2 size={34} /></span>
         <b>حساب بله‌ی شما وصل است</b>
         <span className="muted">شماره‌ی <span className="bl-ltr">{a.phoneMasked}</span>{a.connectedAt ? ` · از ${baleWhen(a.connectedAt)}` : ''}</span>
-      </div>
+      </div>}
       {!d.masterEnabled ? <div className="bl-note off"><Power size={18} /><span>بله فعلاً از طرف مدیر خاموش است. اتصال شما می‌ماند، ولی تا روشن شدن هیچ کاری انجام نمی‌شود.</span></div> : null}
       <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
         <legend style={{ fontWeight: 700, marginBottom: 8 }}>ارسال پیام از حساب من</legend>
@@ -169,7 +173,7 @@ function AdminPanel() {
       <h3 style={{ margin: 0 }}>کارشناس‌ها</h3>
       <ul className="bl-experts">{d.experts.map(x => { const a = x.account; return <li key={x.userId} data-testid={`row-bale-expert-${x.userId}`}>
         <div className="who"><b>{x.name}</b><small>{a ? <><span className="bl-ltr">{a.phoneMasked ?? '—'}</span>{a.connectedAt && a.status === 'connected' ? ` · از ${baleWhen(a.connectedAt)}` : ''}</> : 'هنوز وصل نکرده'}</small></div>
-        <span className="bl-pill" data-s={a?.status ?? 'none'}><i />{a ? STATUS_LABEL[a.status] : 'وصل نشده'}</span>
+        <span className="bl-pill" data-s={a ? balePill(a).key : 'none'} data-testid={`pill-bale-admin-${x.userId}`}><i />{a ? balePill(a).label : 'وصل نشده'}</span>
         {a ? <span className="bl-pill">حالت: {MODE_LABEL[a.mode]}</span> : null}
         {a && a.mode !== 'off' ? <button type="button" className="btn" disabled={busy} onClick={() => void run(() => baleFetch(`/admin/bale/accounts/${a.id}/mode`, { method: 'PUT', body: { mode: 'off' } }), `ارسال ${x.name} خاموش شد`)} data-testid={`button-bale-force-off-${x.userId}`}>خاموش کردن ارسال</button> : null}
         {a && (a.status === 'connected' || a.hasSession) ? <button type="button" className="btn" disabled={busy} onClick={() => setConfirm({ kind: 'disconnect', id: a.id, name: x.name })} data-testid={`button-bale-admin-disconnect-${x.userId}`}><Unplug size={15} /> قطع اتصال</button> : null}

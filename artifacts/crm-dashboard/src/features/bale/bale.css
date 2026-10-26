@@ -133,3 +133,6 @@
 .bl-done.compact { padding: 0; } .bl-done.compact .big { width: 48px; height: 48px; }
 @media (max-width: 640px) { .bl-allow-add .btn { flex: 1 1 100%; } .bl-test-hd .btn { flex: 1 1 100%; min-height: 44px; } }
 .bl-test .bl-field label { display: flex; gap: 6px; align-items: center; }
+/* connected in the DB but the sidecar holds no working session: honest amber «اتصال ناقص، در حال رفع» */
+.bl-pill[data-s='partial'] { background: #FEF3C7; color: #78350F; } .bl-pill[data-s='partial'] i { background: #D97706; }
+.bl-done.partial .big { color: #B45309; background: #FEF3C7; }

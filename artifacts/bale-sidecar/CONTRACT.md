@@ -6,6 +6,12 @@
 * Errors: `{"error": <code>}` with codes `phone_invalid | rate_limited | number_banned | wrong_code | code_expired |
   sign_up_needed | wrong_password | flow_expired | unauthorized | unknown` and (1b) `not_attached | peer_not_found |
   session_invalid | account_banned | peer_blocked (UNVERIFIED) | bad_request`.
+* (1b-0.2) `client_error` (502): a local failure inside the sidecar or the library (not a Bale answer); never treated as an
+  invalid or banned session. `timeout` (504): connect / get_me took longer than 25 s. `/v1/session/attach` errors also carry
+  `step: load | connect | get_me`. The sidecar journal logs `attach failed step=… code=… <ExceptionClass> <redacted message>`
+  (JWTs, long blobs and digit runs ≥ 5 redacted; pydantic errors reduced to field + type).
+* (1b-0.2) aiobale 0.3.10 leaves `client.id` empty for a token-only client; the factories rebuild it from the JWT `user_id`
+  claim (`prime_identity`) before `start`, otherwise `get_me()` fails on every attach.
 
 | Route | Body | 200 response |
 |---|---|---|

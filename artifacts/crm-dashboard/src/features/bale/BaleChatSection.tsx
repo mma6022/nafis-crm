@@ -109,7 +109,7 @@ export function BaleChatSection({ customerId }: { customerId: number }) {
   const owner = d && !d.readOnly;
   return <section className="csx-sec" id="sec-bale" aria-labelledby="h-bale" data-testid="section-customer-bale">
     <header><h2 id="h-bale"><MessageCircle size={20} /> گفتگوی بله</h2>{d ? <span className="muted">{faNum(d.messages.length)} پیام</span> : null}</header>
-    {d?.readOnly ? <span className="bl-ro"><Eye size={14} /> فقط خواندنی{d.expert ? ` · کارشناس: ${d.expert.name} — ${d.expert.connected ? `بله وصل، حالت ${MODE_LABEL[d.expert.mode]}` : 'بله وصل نیست'}` : ''}{!d.masterEnabled ? ' · بله خاموش است' : ''}</span>
+    {d?.readOnly ? <span className="bl-ro"><Eye size={14} /> فقط خواندنی{d.expert ? ` · کارشناس: ${d.expert.name} — ${d.expert.connected ? d.expert.session === 'down' ? 'بله: اتصال ناقص، در حال رفع' : `بله وصل، حالت ${MODE_LABEL[d.expert.mode]}` : 'بله وصل نیست'}` : ''}{!d.masterEnabled ? ' · بله خاموش است' : ''}</span>
       : d?.expert ? <span className="bl-ro bl-wrap"><span>از حساب بله‌ی خودتان، حالت «{MODE_LABEL[d.expert.mode]}»</span>{s ? <span data-testid="text-bale-caps">ارسال این ساعت: {faNum(s.sentLastHour)} از {faNum(s.perHour)}؛ امروز: {faNum(s.sentToday)} از {faNum(s.perDay)}</span> : null}</span> : null}
     {q.isLoading ? <div className="stack" aria-busy="true"><span className="csx-sk" style={{ height: 44 }} /><span className="csx-sk" style={{ height: 44 }} /></div>
       : q.isError ? <ErrorState onRetry={() => q.refetch()} />

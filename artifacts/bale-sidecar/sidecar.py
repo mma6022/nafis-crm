@@ -34,7 +34,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "ven
 
 from aiohttp import web  # noqa: E402
 
-VERSION = "1b-0.1"
+VERSION = "1b-0.2"
 ATTACH_TIMEOUT_S = 25
 MAX_TYPING_MS = 8000
 MAX_TEXT = 4000
@@ -47,9 +47,35 @@ PHONE_RE = re.compile(r"^09\d{9}$")
 log = logging.getLogger("bale-sidecar")
 
 
+class SessionLoadError(Exception):
+    """The sealed token could not be turned into a usable client identity (local problem, not a Bale answer)."""
+
+
+def prime_identity(client: Any) -> None:
+    """aiobale 0.3.10 bug: Client(token=..., session_file=None) builds UserAuth(id=...) without the required `name`;
+    the pydantic ValidationError is swallowed in __init__, so client.id stays None and get_me()/load_users fails with
+    InfoPeer(id=None). The JWT itself is fine: rebuild the identity from its user_id claim (no network, nothing logged)."""
+    if getattr(client, "id", None) is not None or not hasattr(client, "_check_token"):
+        return
+    from aiobale.types import UserAuth  # vendored
+    from aiobale.utils import parse_jwt  # vendored
+    parsed = parse_jwt(getattr(client, "token", None) or "")
+    payload = (parsed[0] if parsed else {}).get("payload") or {}
+    uid = payload.get("user_id", payload.get("userId", payload.get("id")))
+    if not isinstance(uid, int) and not (isinstance(uid, str) and uid.isdigit()):
+        raise SessionLoadError("token has no user id")
+    client._me = client._check_token(UserAuth(id=int(uid), name=""))
+
+
 def default_client_factory(token: Optional[str] = None):
     from aiobale import Client  # vendored
-    return Client(session_file=None, token=token)
+    c = Client(session_file=None, token=token)
+    if token:
+        try:  # sign-out does not need the identity: never let a priming problem block it
+            prime_identity(c)
+        except Exception as e:
+            log.warning("client identity not primed %s", describe(e))
+    return c
 
 
 def default_session_factory(token: str, on_message: Callable[[Any], Any]):
@@ -57,7 +83,9 @@ def default_session_factory(token: str, on_message: Callable[[Any], Any]):
     from aiobale import Client, Dispatcher  # vendored
     dp = Dispatcher()
     dp.message()(on_message)
-    return Client(dispatcher=dp, session_file=None, token=token)
+    c = Client(dispatcher=dp, session_file=None, token=token)
+    prime_identity(c)
+    return c
 
 
 def private_chat_type():
@@ -124,8 +152,8 @@ def read_token(path: Optional[str]) -> str:
     return t
 
 
-def err(status: int, code: str) -> web.Response:
-    return web.json_response({"error": code}, status=status)
+def err(status: int, code: str, step: Optional[str] = None) -> web.Response:
+    return web.json_response({"error": code, **({"step": step} if step else {})}, status=status)
 
 
 def auth_error_code(e: Any) -> str:
@@ -162,7 +190,36 @@ def bale_error_code(e: Any) -> str:
     return "unknown"
 
 
-STATUS = {"phone_invalid": 422, "wrong_code": 422, "wrong_password": 422, "sign_up_needed": 422, "rate_limited": 429,
+_REDACT = ((re.compile(r"eyJ[\w.-]+"), "<jwt>"), (re.compile(r"[A-Za-z0-9+/=_-]{24,}"), "<blob>"), (re.compile(r"\d{5,}"), "<n>"))
+
+
+def describe(e: BaseException) -> str:
+    """Exception class + a redacted, short message for the journal. Never the token, phone numbers or request data:
+    pydantic errors are reduced to field location + error type (their text can echo input values)."""
+    name = type(e).__name__
+    errs = getattr(e, "errors", None)
+    if callable(errs) and name == "ValidationError":
+        try:
+            return name + " " + "; ".join(".".join(map(str, x.get("loc", ()))) + ":" + str(x.get("type")) for x in errs()[:3])
+        except Exception:
+            return name
+    m = str(getattr(e, "message", "") or e or "")
+    for rx, rep in _REDACT:
+        m = rx.sub(rep, m)
+    return (name + " " + " ".join(m.split()))[:200]
+
+
+def error_code(e: BaseException) -> str:
+    """Contract code for a runtime exception: Bale answers via bale_error_code; local client failures (bad identity,
+    validation, library bugs) are `client_error` so they are never mistaken for an invalid or banned session."""
+    if isinstance(e, asyncio.TimeoutError):
+        return "timeout"
+    if getattr(e, "topic", None) is None and not hasattr(e, "message"):
+        return "client_error"
+    return bale_error_code(e)
+
+
+STATUS = {"client_error": 502, "timeout": 504, "phone_invalid": 422, "wrong_code": 422, "wrong_password": 422, "sign_up_needed": 422, "rate_limited": 429,
           "number_banned": 403, "flow_expired": 410, "code_expired": 410, "unknown": 502,
           "not_attached": 409, "peer_not_found": 404, "session_invalid": 401, "account_banned": 403, "peer_blocked": 403, "bad_request": 400}
 
@@ -185,9 +242,9 @@ def make_app(state: State) -> web.Application:
             resp = await handler(request)
         except web.HTTPException:
             raise
-        except Exception as e:  # never echo exception text: it may contain request data
-            log.error("%s exception %s", request.path, type(e).__name__)
-            return err(502, "unknown")
+        except Exception as e:  # never echo exception text to the caller: it may contain request data
+            log.error("%s exception %s", request.path, describe(e))
+            return err(502, "client_error")
         log.info("%s %s", request.path, resp.status)
         return resp
 
@@ -356,17 +413,20 @@ def make_app(state: State) -> web.Application:
         old = state.sessions.pop(ref, None)
         if old:
             await _stop(old.client)
-        client = state.session_factory(tok, make_handler(ref))
+        client = None
+        step = "load"
         try:
+            client = state.session_factory(tok, make_handler(ref))
+            step = "connect"
             await asyncio.wait_for(client.start(run_in_background=True, signal_handling=False), ATTACH_TIMEOUT_S)
-            me = await client.get_me()
-        except asyncio.TimeoutError:
-            await _stop(client)
-            return err(502, "unknown")
+            step = "get_me"
+            me = await asyncio.wait_for(client.get_me(), ATTACH_TIMEOUT_S)
         except Exception as e:
-            await _stop(client)
-            code_ = bale_error_code(e)
-            return err(STATUS[code_], code_)
+            if client is not None:
+                await _stop(client)
+            code_ = error_code(e)
+            log.warning("/v1/session/attach failed step=%s code=%s %s", step, code_, describe(e))
+            return err(STATUS[code_], code_, step)
         uid = getattr(getattr(me, "user", me), "id", None)
         state.sessions[ref] = Session(client=client, me_id=uid)
         return web.json_response({"ok": True, "baleUserId": str(uid) if uid is not None else None})
@@ -412,7 +472,8 @@ def make_app(state: State) -> web.Application:
                         pass
             msg = await c.send_message(text, chat_id, pt)
         except Exception as e:
-            code_ = bale_error_code(e)
+            code_ = error_code(e)
+            log.warning("/v1/send error %s", describe(e))
             if code_ in ("session_invalid", "account_banned"):
                 state.sessions.pop(ref, None)
                 await _stop(c)

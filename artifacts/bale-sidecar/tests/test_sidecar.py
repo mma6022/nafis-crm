@@ -239,6 +239,34 @@ class LiveSessionTest(unittest.IsolatedAsyncioTestCase):
         for secret in ["09120000001", "989120000001", "سلام", "دوباره", "JWT-LIVE", TOKEN]:
             self.assertNotIn(secret, logs)
 
+    async def test_attach_local_failure_is_client_error_and_logged_redacted(self):
+        secret_tok = "eyJhbGciOi.SECRETPAYLOAD.sig"
+
+        class Broken(FakeLive):
+            async def get_me(self):
+                raise ValueError("load_users failed for 989121234567 token " + secret_tok)
+
+        self.state.session_factory = Broken
+        s, j = await self.post("/v1/session/attach", {"accountRef": "acc-9", "token": secret_tok, "deviceHash": DH})
+        self.assertEqual((s, j), (502, {"error": "client_error", "step": "get_me"}))
+        self.assertEqual(self.state.sessions, {}); self.assertTrue(Broken.instances[-1].stopped)
+        out = self.logbuf.getvalue()
+        self.assertIn("attach failed step=get_me code=client_error ValueError", out)
+        for leak in ("SECRETPAYLOAD", "989121234567", secret_tok):
+            self.assertNotIn(leak, out)
+
+        def boom(tok, h):
+            raise sidecar.SessionLoadError("token has no user id")
+        self.state.session_factory = boom
+        s, j = await self.post("/v1/session/attach", {"accountRef": "acc-9", "token": secret_tok, "deviceHash": DH})
+        self.assertEqual((s, j), (502, {"error": "client_error", "step": "load"}))
+        self.assertIn("SessionLoadError token has no user id", self.logbuf.getvalue())
+
+    async def test_error_code_split(self):
+        e = sidecar.error_code
+        self.assertEqual([e(BaleErr("AUTH_KEY_INVALID")), e(BaleErr("WHATEVER")), e(ValueError("x")), e(asyncio.TimeoutError())],
+                         ["session_invalid", "unknown", "client_error", "timeout"])
+
     async def test_error_mapping(self):
         m = sidecar.bale_error_code
         self.assertEqual([m(BaleErr(x)) for x in ["FLOOD_WAIT_30", "TOO_MANY_REQUESTS", "USER_BANNED", "AUTH_KEY_INVALID", "PEER_ID_INVALID", "WHATEVER"]],
@@ -305,11 +333,40 @@ class VendoredLibTest(unittest.TestCase):
             async def go():
                 async def h(m):
                     pass
-                c = sidecar.default_session_factory("x.y.z", h)
-                self.assertIsNotNone(c.dispatcher)
+                import base64, json
+                b = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).decode().rstrip("=")
+                c = sidecar.default_session_factory(b({}) + "." + b({"payload": {"user_id": 7, "app_id": 4, "auth_id": "a", "auth_sid": 1, "service": "s"}}) + ".sig", h)
+                self.assertIsNotNone(c.dispatcher); self.assertEqual(c.id, 7)
                 await c.stop()
             asyncio.run(go())
             self.assertEqual(os.listdir(d), [])
+        finally:
+            os.chdir(cwd)
+
+    def test_token_only_client_gets_its_identity(self):
+        """Regression (live 2026-10-26): aiobale 0.3.10 leaves client.id None for a token-only client, so get_me() failed
+        with a pydantic error on every attach. The factory must rebuild the id from the JWT's user_id claim."""
+        import base64, json
+        from aiobale import Client
+        b = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).decode().rstrip("=")
+        tok = b({"alg": "HS256"}) + "." + b({"payload": {"user_id": 111, "app_id": 4, "auth_id": "a", "auth_sid": 1, "service": "s"}}) + ".sig"
+
+        async def go():
+            async def h(m):
+                pass
+            raw = Client(session_file=None, token=tok)
+            self.assertIsNone(raw.id)  # the library bug itself
+            c = sidecar.default_session_factory(tok, h)
+            self.assertEqual(c.id, 111)
+            self.assertEqual(sidecar.default_client_factory(token=tok).id, 111)
+            with self.assertRaises(sidecar.SessionLoadError):
+                sidecar.default_session_factory(b({}) + "." + b({"payload": {"app_id": 4}}) + ".sig", h)
+            self.assertIsNone(sidecar.default_client_factory(token="not-a-jwt").id)  # sign-out path never blocked
+            for x in (raw, c):
+                await x.stop()
+        d = tempfile.mkdtemp(); cwd = os.getcwd(); os.chdir(d)
+        try:
+            asyncio.run(go()); self.assertEqual(os.listdir(d), [])
         finally:
             os.chdir(cwd)
 

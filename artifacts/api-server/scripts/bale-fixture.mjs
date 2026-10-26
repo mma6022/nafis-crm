@@ -413,6 +413,38 @@ try {
   assert.equal(mock.log.filter(l => l.path === "/v1/send").length - mock.sent.length >= 1, true);
   ok("sessions: new sidecar bootId → every connected session re-attached (lazy key re-seal); not_attached during a send → re-attach + retry");
 
+  // ---- general rule (2026-10-26): status + sending follow the REAL sidecar session; a local attach failure never stops the account ----
+  {
+    clock = new Date(clock.getTime() + 200_000); db.prepare("UPDATE bale_accounts SET next_send_at=NULL WHERE id=?").run(hid);
+    const before = acc(2); r = await S(2, "GET", "/bale/me"); assert.equal(r.j.account.session, "live");
+    mock.restart(); mock.state.attachError = "client_error"; // the live 2026-10-26 failure: sidecar up, attach fails locally
+    clock = new Date(clock.getTime() + 61_000); await tick();
+    let a2 = acc(2); assert.equal(a2.status, "connected"); assert.equal(a2.mode, before.mode, "mode untouched"); assert.ok(a2.session_ct, "session kept");
+    assert.equal(db.prepare("SELECT outcome o FROM bale_audit WHERE action='session.attach' ORDER BY id DESC").get().o, "client_error", "real code, not unknown");
+    r = await S(2, "GET", "/bale/me"); assert.equal(r.j.account.status, "connected"); assert.equal(r.j.account.session, "down");
+    r = await S(1, "GET", "/admin/bale"); assert.ok(JSON.stringify(r.j).includes('"session":"down"'), "admin list shows the real state");
+    r = await send(100, "قفل"); assert.equal(r.s, 423); assert.equal(r.j.error, "session_not_live");
+    r = await R(1, { customerId: 100, text: "پیشنهاد دستیار" }); assert.equal(r.s, 423); assert.equal(r.j.status, "blocked"); assert.equal(r.j.error, "session_not_live");
+    r = await S(2, "GET", "/bale/customers/100/messages"); assert.equal(r.j.canSend, false); assert.match(r.j.sendBlockedMessage, /ناقص/);
+    // a row approved just before the drop: held (never sent), then released once the session is live again
+    const sentBefore = mock.sent.length;
+    const qid = Number(db.prepare(`INSERT INTO bale_outbox(account_id,customer_id,text,source,explicit_expert_command,status,created_by,created_at,updated_at,approved_by,approved_at)
+      VALUES(?,100,'در صف','expert_command',1,'queued',2,?,?,2,?)`).run(hid, clock.toISOString(), clock.toISOString(), clock.toISOString()).lastInsertRowid);
+    let t = await tick(); assert.equal(t.results[hid], "held:session_not_live"); assert.equal(mock.sent.length, sentBefore, "locked: sidecar send never called");
+    mock.state.attachError = null; clock = new Date(clock.getTime() + 61_000); t = await tick();
+    assert.equal(t.results[hid], "sent"); assert.equal(OB(qid).status, "sent");
+    r = await S(2, "GET", "/bale/me"); assert.equal(r.j.account.session, "live");
+    // still down after 15 min → blocked with a bell, never sent
+    mock.restart(); mock.state.attachError = "timeout"; clock = new Date(clock.getTime() + 200_000); await tick();
+    const old = new Date(clock.getTime() - 16 * 60_000).toISOString();
+    const q2 = Number(db.prepare(`INSERT INTO bale_outbox(account_id,customer_id,text,source,explicit_expert_command,status,created_by,created_at,updated_at,approved_by,approved_at)
+      VALUES(?,100,'کهنه','expert_command',1,'queued',2,?,?,2,?)`).run(hid, old, old, old).lastInsertRowid);
+    t = await tick(); assert.equal(t.results[hid], "blocked:session_not_live"); assert.equal(OB(q2).block_reason, "session_not_live");
+    mock.state.attachError = null; clock = new Date(clock.getTime() + 61_000); await tick(); assert.equal((await S(2, "GET", "/bale/me")).j.account.session, "live");
+    assert.equal(acc(2).mode, before.mode);
+    ok("live rule: attach fails locally → «down» (status stays connected, mode/session kept, real code in audit); sends 423 session_not_live; queued rows held, never sent; live again → sent");
+  }
+
   // ---- decision (b): "one customer blocked me" (UNVERIFIED) — safe default stops the whole account; conversation_pause is opt-in ----
   clock = new Date(clock.getTime() + 200_000); db.prepare("UPDATE bale_accounts SET next_send_at=NULL WHERE id=?").run(hid);
   assert.equal(db.prepare("SELECT value FROM bale_settings WHERE key='peer_block_mode'").get().value, "account_stop", "default = whole-account stop");

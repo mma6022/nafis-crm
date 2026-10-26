@@ -177,7 +177,9 @@ export function createBale(deps: BaleDeps) {
     if (!a) return null;
     const c = (sql: string) => Number(row<any>(sql, a.id)?.n ?? 0);
     return { id: a.id, status: a.status, mode: a.mode, phoneMasked: a.phone_masked, connectedAt: a.connected_at, lastSeenAt: a.last_seen_at,
-      lastError: a.last_error, disconnectedAt: a.disconnected_at, hasSession: Boolean(a.session_ct), stoppedReason: a.stopped_reason ?? null,
+      lastError: a.last_error, disconnectedAt: a.disconnected_at, hasSession: Boolean(a.session_ct),
+      stoppedReason: a.stopped_reason ?? null,
+      session: a.status === "connected" ? outbox.liveState(a) : null, // live | down («اتصال ناقص، در حال رفع») | unknown
       pendingApproval: c("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status='pending_approval'"),
       queued: c("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status IN ('queued','sending')"),
       sentToday: Number(row<any>("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status='sent' AND sent_at>?", a.id, new Date(now().getTime() - 86_400_000).toISOString())?.n ?? 0),
@@ -338,13 +340,14 @@ export function createBale(deps: BaleDeps) {
     const st = owner ? row<any>("SELECT s.mode, s.paused_reason, s.paused_at FROM bale_conversation_state s JOIN bale_accounts a ON a.id=s.account_id WHERE s.customer_id=? AND a.user_id=?", cid, owner.id) : undefined;
     const ownerAcc = owner ? accountOf(owner.id) : undefined;
     const isOwner = Boolean(owner && owner.id === u.id);
-    const canSend = isOwner && masterOn() && ownerAcc?.status === "connected" && Boolean(ownerAcc?.session_ct) && ownerAcc?.mode !== "off";
+    const notLive = Boolean(ownerAcc && outbox.liveState(ownerAcc) === "down");
+    const canSend = isOwner && masterOn() && ownerAcc?.status === "connected" && Boolean(ownerAcc?.session_ct) && ownerAcc?.mode !== "off" && !notLive;
     res.json({
       customerId: cid, masterEnabled: masterOn(), readOnly: !isOwner,
-      canSend, sendBlockedMessage: isOwner && !canSend ? BLOCK_FA[!masterOn() ? "bale_disabled" : ownerAcc?.status !== "connected" || !ownerAcc?.session_ct ? "not_connected" : "mode_off"] : null,
+      canSend, sendBlockedMessage: isOwner && !canSend ? BLOCK_FA[!masterOn() ? "bale_disabled" : ownerAcc?.status !== "connected" || !ownerAcc?.session_ct ? "not_connected" : ownerAcc?.mode === "off" ? "mode_off" : "session_not_live"] : null,
       outbox: ownerAcc ? outbox.tabItems(ownerAcc.id, cid).map(o => outbox.itemView(o, isOwner)) : [],
       sendState: ownerAcc && isOwner ? outbox.sendState(ownerAcc, cid) : null,
-      expert: owner ? { name: nameOf(owner), connected: owner.status === "connected", mode: owner.mode ?? "off" } : null,
+      expert: owner ? { name: nameOf(owner), connected: owner.status === "connected", session: ownerAcc && ownerAcc.status === "connected" ? outbox.liveState(ownerAcc) : null, mode: owner.mode ?? "off" } : null,
       conversationMode: st?.mode ?? null,
       paused: st?.paused_reason ? { reason: st.paused_reason, at: st.paused_at, message: BLOCK_FA.conversation_paused, unverified: true } : null,
       messages: msgs.map(m => ({ id: m.id, direction: m.direction, text: m.text, hasFile: Boolean(m.file_ref), status: m.status, createdAt: m.created_at,
@@ -369,7 +372,7 @@ export function createBale(deps: BaleDeps) {
     }
     return { a, o };
   };
-  const blockedStatus = (reason: string) => ["bale_disabled", "not_connected", "mode_off"].includes(reason) ? 423 : reason === "out_of_scope" ? 404
+  const blockedStatus = (reason: string) => ["bale_disabled", "not_connected", "mode_off", "session_not_live"].includes(reason) ? 423 : reason === "out_of_scope" ? 404
     : ["already_pending"].includes(reason) ? 409 : ["cap_hour", "cap_day", "cap_new_chats"].includes(reason) ? 429 : 422;
   const sendOut = (res: Response, r: ReturnType<typeof outbox.enqueue>) => r.status === "blocked"
     ? res.status(blockedStatus(r.reason)).json({ error: r.reason, message: r.message, outboxId: r.outboxId })

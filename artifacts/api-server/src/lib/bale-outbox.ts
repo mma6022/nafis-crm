@@ -33,7 +33,7 @@ export const BALE_AMOUNT_DISCLAIMER = "مبلغ قطعی را بانک یا تأ
 export type BaleBlockReason =
   | "bale_disabled" | "not_connected" | "mode_off" | "out_of_scope" | "empty" | "too_long" | "banned_word" | "loan_type_question"
   | "no_phone" | "no_prior_chat" | "already_pending" | "cap_hour" | "cap_day" | "cap_new_chats" | "auto_stopped" | "not_eligible"
-  | "conversation_paused";
+  | "conversation_paused" | "session_not_live";
 export const BLOCK_FA: Record<BaleBlockReason | "quiet_hours" | "no_bale_account" | "uncertain" | "send_failed" | "peer_blocked", string> = {
   bale_disabled: "بله فعلاً از طرف مدیر خاموش است؛ پیامی فرستاده نشد.",
   not_connected: "حساب بله‌ی کارشناس وصل نیست؛ پیامی فرستاده نشد.",
@@ -57,6 +57,7 @@ export const BLOCK_FA: Record<BaleBlockReason | "quiet_hours" | "no_bale_account
   send_failed: "ارسال ناموفق بود.",
   conversation_paused: "گفتگوی بله با این مشتری متوقف است (احتمالاً مشتری شما را در بله مسدود کرده). از برگه‌ی «گفتگوی بله» می‌توانید دوباره فعالش کنید.",
   peer_blocked: "به نظر می‌رسد این مشتری شما را در بله مسدود کرده است؛ پیام نرسید.",
+  session_not_live: "اتصال بله‌ی کارشناس ناقص است و در حال رفع است؛ تا وقتی اتصال کامل نشود هیچ پیامی فرستاده نمی‌شود.",
 };
 
 /* ------------------------------ pure helpers (unit-tested in scripts/bale-fixture.mjs) ------------------------------ */
@@ -211,6 +212,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     if (!ctx.masterOn()) return { ok: false, reason: "bale_disabled" };
     if (!a || a.status !== "connected" || !a.session_ct) return { ok: false, reason: "not_connected" };
     if (a.mode === "off") return { ok: false, reason: "mode_off" };
+    if (liveState(a) === "down") return { ok: false, reason: "session_not_live" };
     const own = ownCustomer(a, customerId);
     if (!own || o.assistantInScope === false) return { ok: false, reason: "out_of_scope" };
     if (pausedOf(a.id, customerId)) return { ok: false, reason: "conversation_paused" };
@@ -333,6 +335,12 @@ export function createBaleOutbox(ctx: OutboxCtx) {
 
   /* ---------------- sessions (re-attach after a sidecar restart) ---------------- */
   let lastBoot: string | null = null; let lastSync = 0;
+  /** General rule (2026-10-26): "connected" in the DB only means a sealed session exists. Whether the sidecar really holds a
+   *  working client comes from the sidecar itself (health.attached + attach results): true = live, false = down (attach failed,
+   *  not attached, or sidecar unreachable). While down, nothing is sent and the UI says «اتصال ناقص، در حال رفع». Never changes
+   *  mode or status; the worker keeps re-attaching once a minute. Unknown (no sync yet since the API started) is not "down". */
+  const liveRefs = new Map<string, boolean>();
+  const liveState = (a: any): "live" | "down" | "unknown" => { const v = liveRefs.get(ref(a)); return v === undefined ? "unknown" : v ? "live" : "down"; };
   async function attachOne(a: any): Promise<boolean> {
     try {
       const aad = baleSessionAad(a.id, a.user_id);
@@ -340,10 +348,12 @@ export function createBaleOutbox(ctx: OutboxCtx) {
       if (rotated) run("UPDATE bale_accounts SET session_ct=?, session_key_id=? WHERE id=?", rotated.value, rotated.keyId, a.id); // lazy re-seal under the current key
       await ctx.sidecar.attach({ accountRef: ref(a), token: plaintext, deviceHash: a.device_hash });
       run("UPDATE bale_accounts SET last_seen_at=?, last_error=NULL WHERE id=?", iso(), a.id);
+      liveRefs.set(ref(a), true);
       ctx.audit({ accountId: a.id, action: "session.attach", outcome: "ok", detail: { rotated: Boolean(rotated) } });
       return true;
     } catch (e) {
       const code = e instanceof BaleSidecarError ? e.code : e instanceof BaleKeyMissing ? "key_missing" : "error";
+      liveRefs.set(ref(a), false);
       ctx.audit({ accountId: a.id, action: "session.attach", outcome: code });
       if (code === "session_invalid" || code === "account_banned") autoStop(a, code, Number(row<any>("SELECT customer_id FROM bale_outbox WHERE account_id=? ORDER BY id DESC LIMIT 1", a.id)?.customer_id ?? 0));
       return false;
@@ -353,20 +363,24 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     if (!ctx.sidecar.configured()) return { attached: 0 };
     if (!force && now().getTime() - lastSync < 60_000) return { attached: 0 };
     lastSync = now().getTime();
-    const h = await ctx.sidecar.health(); if (!h.ok) return { attached: 0 };
+    const h = await ctx.sidecar.health();
+    const connected = rows<any>("SELECT * FROM bale_accounts WHERE status='connected' AND session_ct IS NOT NULL ORDER BY id");
+    const seen = new Set(h.ok ? h.attached ?? [] : []);
+    liveRefs.clear(); for (const a of connected) liveRefs.set(ref(a), seen.has(ref(a))); // sidecar down → every session is down
+    if (!h.ok) return { attached: 0 };
     const masterOn = ctx.masterOn(), testOn = ctx.testOn?.() ?? false;
     const testRefs = new Set(rows<any>("SELECT id FROM bale_accounts WHERE kind='system_test'").map(x => `acc-${x.id}`));
     // Experts' master switch off: close every expert client. The system test account follows ONLY its own test switch.
     for (const r of h.attached ?? []) {
       const isTest = testRefs.has(r);
-      if (isTest ? !testOn : !masterOn) await ctx.sidecar.detach({ accountRef: r });
+      if (isTest ? !testOn : !masterOn) { await ctx.sidecar.detach({ accountRef: r }); liveRefs.set(r, false); }
     }
     if (!masterOn && !testOn) return { attached: 0 };
     const live = new Set(h.attached ?? []);
     const restarted = h.bootId != null && lastBoot != null && h.bootId !== lastBoot;
     lastBoot = h.bootId ?? lastBoot;
     let n = 0;
-    for (const a of rows<any>("SELECT * FROM bale_accounts WHERE status='connected' AND session_ct IS NOT NULL ORDER BY id")) {
+    for (const a of connected) {
       if (a.kind === "system_test" ? !testOn : !masterOn) continue;
       if (!restarted && live.has(ref(a))) continue;
       if (await attachOne(a)) n++;
@@ -405,6 +419,11 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     if (!r.ok) {
       if (r.reason === "cap_day") { const first = row<any>("SELECT min(COALESCE(sent_at,updated_at)) t FROM bale_outbox WHERE account_id=? AND status IN ('sent','sending') AND COALESCE(sent_at,updated_at)>?", a.id, since(86_400_000))?.t; return hold(new Date(Date.parse(first ?? nowIso) + 86_400_000 + 1000), "cap_day"); }
       if (r.reason === "cap_new_chats") return hold(new Date(now().getTime() + 3_600_000), "cap_new_chats");
+      if (r.reason === "session_not_live") {
+        // Locked: never call the sidecar. Approved rows wait up to 15 min for the re-attach (once a minute), then stop with a bell.
+        if (Date.parse(o.approved_at ?? o.created_at) > now().getTime() - 15 * 60_000) return hold(new Date(now().getTime() + 60_000), "session_not_live");
+        bell(a.user_id, o.customer_id, "bale-failed", "پیام بله فرستاده نشد", BLOCK_FA.session_not_live);
+      }
       return block(r.reason);
     }
     if (sentSince(a.id, 3_600_000) >= num("per_hour", 20)) {
@@ -620,7 +639,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     return n === 1;
   }
 
-  return { enqueue, approve, editDraft, cancel, sendNow, tick, syncSessions, inbound, itemView, tabItems, sendState, linkReminder, cancelReminder, autoStop, check, bell,
+  return { liveState, enqueue, approve, editDraft, cancel, sendNow, tick, syncSessions, inbound, itemView, tabItems, sendState, linkReminder, cancelReminder, autoStop, check, bell,
     pausedOf, pauseConversation, resumeConversation, unknownList, linkUnknown, dismissUnknown, ownCustomerSearch };
 }
 
