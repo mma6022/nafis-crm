@@ -34,13 +34,13 @@ export const ROLE_MENUS: Record<MenuKind, RoleMenu> = {
       { href: '/my-performance', label: 'عملکرد و پورسانت من', fallback: '/sales-commissions' },
       { action: 'assistant', label: 'چت دستیار' },
     ],
-    more: [{ id: 'more', hrefs: ['/reminders', '/calls', '/callback-requests', '/consultations', '/loan-plans', '/smart-filing', '/goods-purchases', '/chat', '/phone', '/settings/bale', '/mobile-calls', '/my-wallet', '/sales-commissions', '/sales-reports', '/contracts', '/wallet-management', '/bank-accounts'] }],
+    more: [{ id: 'more', hrefs: ['/reminders', '/calls', '/callback-requests', '/consultations', '/loan-plans', '/smart-filing', '/goods-purchases', '/chat', '/phone', '/settings/bale', '/mobile-calls', '/my-wallet', '/sales-commissions', '/contracts', '/wallet-management', '/bank-accounts'] }],
     shortcuts: ['/', '/customers', '/messengers', '/internal-chat'],
   },
   // «کارهای امروز من» for trainees is UNDECIDED → «/» keeps its old label.
   trainee: {
     main: [{ href: '/' }, { href: '/customers', label: 'مشتری‌های من' }, { href: '/loan-applications', label: 'پرونده‌های وام من' }, { href: '/reminders' }, { href: '/loan-plans' }, { href: '/internal-chat' }],
-    more: [{ id: 'more', hrefs: ['/calls', '/consultations', '/callback-requests', '/my-wallet', '/sales-reports', '/chat', '/phone'] }],
+    more: [{ id: 'more', hrefs: ['/calls', '/consultations', '/callback-requests', '/my-wallet', '/chat', '/phone'] }],
     hide: ['/mobile-calls', '/contracts', '/goods-purchases', '/sales-commissions', '/my-performance', '/payment-orders', '/wallet-management', '/bank-accounts', '/messengers'],
     shortcuts: ['/', '/customers', '/reminders', '/internal-chat'],
   },

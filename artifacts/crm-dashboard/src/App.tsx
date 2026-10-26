@@ -119,7 +119,6 @@ function HomeRoute() {
         ['goods_purchases.view', '/goods-purchases'],
         ['payment_orders.view', '/payment-orders'],
         ['goods_finance.view', '/sales-commissions'],
-        ['reports.view', '/sales-reports'],
         ['bank_accounts.view', '/bank-accounts'],
         ['accounting.view', '/accounting'],
         ['contracts.view', '/contracts'],
@@ -244,7 +243,7 @@ function AppWithRoutes() {
                     <Route path="/payment-orders/:id"><PermissionRoute permission="payment_orders.view"><PaymentOrders /></PermissionRoute></Route>
                     <Route path="/bank-accounts"><PermissionRoute permission={['bank_accounts.view', 'bank_accounts.manage']}><BankAccounts /></PermissionRoute></Route>
                     <Route path="/accounting"><PermissionRoute permission="accounting.view"><Accounting /></PermissionRoute></Route>
-                    <Route path="/sales-reports"><PermissionRoute permission="reports.view"><SalesReports /></PermissionRoute></Route>
+                    <Route path="/sales-reports"><SalesReports /></Route>
                     <Route path="/sales-commissions"><PermissionRoute permission="goods_finance.view"><SalesCommissions /></PermissionRoute></Route>
                     <Route path="/my-wallet"><PermissionRoute permission="goods_finance.view"><StaffWallet /></PermissionRoute></Route>
                     <Route path="/messengers"><PermissionRoute permission="internal_chat.use"><MessengersPage /></PermissionRoute></Route>

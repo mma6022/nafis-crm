@@ -62,7 +62,7 @@ const allNavItems: NavItem[] = [
   { href: '/calls', label: 'تماس‌ها', icon: PhoneCall, permission: 'calls.view' },
   { href: '/mobile-calls', label: 'تماس‌های موبایل', icon: Smartphone, permission: 'calls.view' },
   { href: '/phone', label: 'تلفن شرکت', icon: Phone, permission: 'calls.view' },
-  { href: '/sales-reports', label: 'گزارش فروش', icon: BarChart3, permission: 'reports.view' },
+  { href: '/sales-reports', label: 'گزارش فروش', icon: BarChart3, adminOnly: true },
   { href: '/social-monitor-reports', label: 'گزارش پیام‌رسان‌ها', icon: Radar, adminOnly: true },
   { href: '/voice-notes-usage', label: 'مصرف تبدیل صدا به متن', icon: AudioLines, adminOnly: true },
   { href: '/smart-filing', label: 'ثبت هوشمند', icon: Bot, smartFiling: true },

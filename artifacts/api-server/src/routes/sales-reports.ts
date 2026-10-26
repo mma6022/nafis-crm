@@ -7,6 +7,9 @@ import { buildSalesReport, reportQueryWindow, type CustomerRow, type CallRow, ty
 const router: IRouter = Router();
 router.get("/sales-reports", requireAuth, requirePermission("reports.view"), (req, res): void => {
   const user = res.locals.authUser as AuthUser;
+  // 2026-10-26: the team sales report is for the admin / sales manager only (the new page reads /api/manager/sales-report).
+  // Experts see their own numbers on /my-performance.
+  if (user.role !== "admin") { res.status(403).json({ error: "گزارش فروشِ تیم فقط برای مدیر است.", link: "/my-performance" }); return; }
   const canSelectSalesperson = user.role === "admin" && user.customerScope === "all";
   const selected = req.query.salespersonId;
   if (selected !== undefined && (typeof selected !== "string" || !/^[1-9]\d*$/.test(selected) || !Number.isSafeInteger(Number(selected)))) {

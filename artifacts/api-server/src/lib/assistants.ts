@@ -33,6 +33,7 @@ import { parseConsultAmountToman } from "./consultation-report";
 import { EXCLUDE_TEST_CUSTOMERS_KEY, excludeTestOn, testCustomerSql, testCustomerIds } from "./test-customers";
 import { openInvoices, registrationReport, REGISTRATION_RANGES, type RegistrationRange } from "./manager-work";
 import { PAGE_USAGE_ENABLED_KEY, PAGE_USAGE_RANGES, ensurePageUsageSchema, pageUsageOn, pageUsageReport, recordPageUsage, type PageUsageRange } from "./page-usage";
+import { SR_RANGES, ensureSalesReportSchema, noCommissionAlerts, readSrFlags, takeOverdueSnapshot, teamSalesReport, validateSrFlags, type SrRange } from "./team-sales-report";
 import { PERFORMANCE_PERIODS, ANALYSIS_MAX_CHARS, ensureExpertAnalysisSchema, listAnalyses, performanceReport, sanitizeAnalysisBody, validPeriodStart, defaultPeriodStart, type PerformancePeriod } from "./expert-performance";
 import { MANAGER_RANGES, MANAGER_SLOTS, MANAGER_SETTING_KEYS, MANAGER_DEFAULTS, managerAlerts, managerExperts, managerReport, managerSummary,
   readManagerSettings, validateManagerSettings, type ManagerRange, type ManagerSlot, type SiteLeadLite } from "./assistant-manager";
@@ -924,6 +925,34 @@ export function createAssistants(deps: Deps) {
     audit({ req, a, tokenId: TK(res), action: "POST /manager/expert-analysis", outcome: "ok", detail: { id, salespersonId: sp, period, periodStart: ps, chars: body.length, notified: notified.length } });
     res.status(201).json({ id, salespersonId: sp, period, periodStart: ps, createdAt: at, notifiedUsers: notified.length, link: `/my-performance?analysis=${id}` });
   });
+  /* ---------- «گزارش فروش تیم» (2026-10-26): the same aggregate as the /sales-reports page, read-only ---------- */
+  ensureSalesReportSchema(db, iso());
+  const srQuery = (req: Request, res: Response): { range: SrRange; from: string | null; to: string | null; expert: number | null; plan: number | null } | null => {
+    const range = String(req.query.range ?? "month");
+    if (!(SR_RANGES as readonly string[]).includes(range)) { fail(res, 422, "bad_range", "range یکی از today | yesterday | week | month | prev_month | custom است."); return null; }
+    const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
+    const expert = num(req.query.expert), plan = num(req.query.plan);
+    if ((expert != null && !Number.isInteger(expert)) || (plan != null && !Number.isInteger(plan))) { fail(res, 422, "bad_filter"); return null; }
+    return { range: range as SrRange, from: req.query.from ? String(req.query.from) : null, to: req.query.to ? String(req.query.to) : null, expert, plan };
+  };
+  const srErr: Record<string, [number, string]> = { bad_dates: [422, "from و to باید تاریخ تهران YYYY-MM-DD باشند."], bad_order: [422, "from باید قبل از to باشد."],
+    future: [422, "بازه در آینده است."], too_long: [422, "بازه حداکثر ۴۰۰ روز است."], bad_range: [422, "بازه نامعتبر است."],
+    unknown_expert: [404, "کارشناس در تیم نیست."], unknown_plan: [404, "طرح پیدا نشد."] };
+  const srRun = (q: NonNullable<ReturnType<typeof srQuery>>) => {
+    try { takeOverdueSnapshot(db, now(), excludeTestOn(db)); } catch (e: any) { console.error("sales-report snapshot", e?.message); }
+    return teamSalesReport(db, q, now(), excludeTestOn(db));
+  };
+  /** Phones / national ids masked in every text field; money strings (…Toman, amount…) are left as they are (a 10-digit toman sum is not a national id). */
+  const srMask = (v: any, k = ""): any => Array.isArray(v) ? v.map(x => srMask(x, k))
+    : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([kk, x]) => [kk, srMask(x, kk)]))
+    : typeof v === "string" && !/toman$|amount/i.test(k) ? maskAll(v) : v;
+  runner.get("/manager/sales-report", managerOnly, (req, res) => {
+    const q = srQuery(req, res); if (!q) return;
+    const r = srRun(q);
+    if ("error" in r && r.error) { const [st, m] = srErr[r.error as string] ?? [422, "نامعتبر"]; return fail(res, st, r.error as string, m); }
+    audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/sales-report", outcome: "ok", detail: { range: q.range, expert: q.expert, plan: q.plan } });
+    res.json(srMask(r));
+  });
   // Bale 1b runner routes (/bale/send: sales assistants only — the manager is refused there by kind)
   deps.extendRunner?.(runner, { inScope });
   runner.use((req, res) => { if (req.method !== "GET") return deny(req, res); fail(res, 404, "not_found"); });
@@ -990,6 +1019,31 @@ export function createAssistants(deps: Deps) {
     const period = req.query.period ? perfPeriod(req.query.period) : null;
     res.json({ analyses: listAnalyses(db, { salespersonIds: ids, period, id, limit: Number(req.query.limit ?? 30) || 30 }) });
   });
+  /* «گزارش فروش تیم» (/sales-reports): admin / sales manager only. Experts, trainees and registrars get 403 + «رفتن به عملکرد من».
+   * The daily overdue snapshot is taken on the first request / hourly tick of each Tehran day; flag ۳ alerts run only while it is ON. */
+  const srAdmin = (res: Response) => { const u = me(res);
+    if (!u || !u.active || u.role !== "admin") { fail(res, 403, "forbidden", "گزارش فروشِ تیم فقط برای مدیر است."); return null; } return u; };
+  staff.get("/manager/sales-report", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (!srAdmin(res)) return;
+    const q = srQuery(req, res); if (!q) return;
+    const r = srRun(q);
+    if ("error" in r && r.error) { const [st, m] = srErr[r.error as string] ?? [422, "نامعتبر"]; return fail(res, st, r.error as string, m); }
+    res.json(srMask(r));
+  });
+  staff.get("/manager/sales-report/settings", (_req, res) => { res.setHeader("Cache-Control", "no-store"); if (!srAdmin(res)) return; res.json({ flags: readSrFlags(db) }); });
+  staff.put("/manager/sales-report/settings", (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const u = srAdmin(res); if (!u) return;
+    const v = validateSrFlags(req.body); if (!v.ok) return fail(res, 422, v.error, v.field);
+    const at = iso();
+    for (const [k, val] of v.values) run("UPDATE assistant_settings SET value=?, updated_at=?, updated_by_user_id=? WHERE key=? AND value<>?", val, at, u.id, k, val);
+    res.json({ flags: readSrFlags(db) });
+  });
+  if (process.env.CRM_SALES_REPORT_TICK !== "0") {
+    const srTick = () => { try { const ex = excludeTestOn(db); takeOverdueSnapshot(db, now(), ex); noCommissionAlerts(db, now(), ex); } catch (e: any) { console.error("sales-report tick", e?.message); } };
+    setTimeout(srTick, 60_000).unref(); setInterval(srTick, 3_600_000).unref();
+  }
   /** Assistants this user can open (enabled + global on). */
   function mine(u: any) {
     if (!u || !globalOn()) return [];

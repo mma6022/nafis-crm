@@ -148,22 +148,19 @@ async function request(role, extra = "") {
 try {
   assert.equal((await request()).status, 401);
   assert.equal((await request("registrar")).status, 403);
-  assert.equal((await request("salesperson", "&salespersonId=2")).status, 403);
-  assert.equal((await request("salesperson", "&salespersonId=1&salespersonId=2")).status, 400);
+  // 2026-10-26: the team report is admin-only; every non-admin (expert, unlinked, broad custom role) gets 403 + link to /my-performance.
+  for (const role of ["salesperson", "unlinked", "broad"]) {
+    const r = await request(role); assert.equal(r.status, 403, role); assert.equal(r.data.link, "/my-performance");
+  }
+  assert.equal((await request("salesperson", "&salespersonId=1&salespersonId=2")).status, 403);
   assert.equal((await request("admin", "&salespersonId=oops")).status, 400);
   assert.equal((await request("admin", "&anchor=2026-02-30")).status, 400);
-  const sales = await request("salesperson");
-  assert.equal(sales.status, 200); assert.equal(sales.data.summary.leads, 6);
-  assert.equal(sales.data.summary.requests, 6); assert.equal(sales.data.summary.contacted, 6);
-  assert.equal(sales.data.scope.canSelectSalesperson, false); assert.deepEqual(sales.data.salespeople, []);
-  assert.equal((await request("unlinked")).data.summary.leads, 0);
-  assert.equal((await request("broad")).data.summary.leads, 6, "non-admin broad-scope account still cannot query the team");
   const admin = await request("admin");
   assert.equal(admin.data.summary.leads, 7); assert.equal(admin.data.salespeople.length, 2);
   assert.equal(admin.data.scope.canSelectSalesperson, true);
   const filtered = await request("admin", "&salespersonId=2");
   assert.equal(filtered.data.summary.leads, 1); assert.equal(filtered.data.summary.requests, 1);
-  console.log("PASS real route+synthetic SQLite: authentication, permission, own/all/specific salesperson, no-linked fail closed, broad custom role constrained, forged/duplicate filter rejected, scoped joins and unique counts");
+  console.log("PASS real route+synthetic SQLite: authentication, permission, admin-only (expert/unlinked/broad 403 + /my-performance), all/specific salesperson, forged/duplicate filter rejected, scoped joins and unique counts");
 } finally { server.close(); if (!process.argv.includes("--serve")) db.close(); }
 if (process.argv.includes("--serve")) {
   serving = true;
