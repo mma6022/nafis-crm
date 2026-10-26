@@ -10,7 +10,8 @@
  *  - sales assistant: customers of its own expert (P1-only for closers), not merged/cancelled/completed;
  *  - Sarina: exactly the registrar smart-filing view — customers with a real smart-filing job on a panel-linked plan,
  *    plus customers with a panel-linked application in the funder-registration stage; every Sarina message is bound
- *    to such a case and recipients are the registrars, the admins and that customer's own (non-trainee) sales expert.
+ *    to such a case and recipients are ONLY the registrars and the admins (v6 decision: Sarina belongs to «ثبت» only —
+ *    sales experts never get a Sarina thread, message, event or bell row; old rows stay in the DB and are filtered at read time).
  *  - never: priority, assignment, money, contracts, case advancement, SMS, customer messages. Trainees see nothing.
  * Out-of-scope customer → 404 not_found (+ audit); disabled → 423; bad/revoked token → 401; banned words → 422.
  */
@@ -169,15 +170,16 @@ export function createAssistants(deps: Deps) {
     if (!u || EXCLUDED_USER_IDS.includes(u.id) || u.active === 0) return false;
     if (u.role === "salesperson" && (!u.salesperson_id || TRAINEE_SALESPERSON_IDS.includes(u.salesperson_id))) return false;
     if (a.kind === "sales") return u.id === a.bound_user_id && u.role === "salesperson";
-    return u.role === "registrar" || u.role === "admin" || u.role === "salesperson";
+    return u.role === "registrar" || u.role === "admin"; // v6: Sarina is registrar/admin only
   }
+  /** v6: Sarina may never address a sales expert (or anyone outside registrar/admin). */
+  const filingRecipientBlocked = (a: any, u: any) => a.kind === "filing" && Boolean(u) && u.role !== "registrar" && u.role !== "admin";
   /** For Sarina: may this user see a message bound to this customer? (registrar/admin all in-scope; sales only own). */
   function userSeesCase(a: any, u: any, customerId: number | null): boolean {
     if (a.kind === "sales") return customerId == null || inScope(a, customerId);
-    if (customerId == null) return u.role !== "salesperson"; // user-authored, case-less lines only in registrar/admin threads
-    if (!inScope(a, customerId)) return false;
-    if (u.role === "salesperson") return Boolean(row("SELECT 1 FROM customers WHERE id=? AND salesperson_id=?", customerId, u.salesperson_id));
-    return true;
+    if (u?.role !== "registrar" && u?.role !== "admin") return false; // v6: Sarina lines only for registrar/admin
+    if (customerId == null) return true; // user-authored, case-less lines in registrar/admin threads
+    return inScope(a, customerId);
   }
   const userRow = (id: number) => row<any>("SELECT id,role,salesperson_id,active,full_name,username FROM users WHERE id=?", id);
   function threadFor(a: any, userId: number, create: boolean) {
@@ -203,6 +205,7 @@ export function createAssistants(deps: Deps) {
   function bell(a: any, m: any, u: any) {
     if (m.suppressed_reason === "digested" || m.customer_id == null) return;
     if (a.kind !== "filing" && !BELL_KINDS[m.kind] && m.priority !== "high") return; // sales chat replies stay in the chat
+    if (filingRecipientBlocked(a, u)) return; // v6: never a Sarina bell row for a sales expert
     if (!userEligible(a, u) || !userSeesCase(a, u, m.customer_id)) return;
     if (!bellReady) bellReady = hasTable("site_notification_events") && rows<{ name: string }>("PRAGMA table_info(site_notification_events)").some(c => c.name === "recipient_user_id");
     if (!bellReady) return;
@@ -399,8 +402,9 @@ export function createAssistants(deps: Deps) {
   function pendingEvents(a: any, after: number) {
     syncCallEvents(a);
     const list = rows<any>("SELECT * FROM assistant_events WHERE assistant_id=? AND id>? ORDER BY id LIMIT 100", a.id, after);
-    // Sarina: drop events whose case left her scope.
-    return list.filter(e => e.customer_id == null || inScope(a, e.customer_id));
+    // Sarina: drop events whose case left her scope, and (v6) any event from/for a non-registrar/admin user (old sales threads).
+    return list.filter(e => (e.customer_id == null || inScope(a, e.customer_id))
+      && (a.kind !== "filing" || e.user_id == null || !filingRecipientBlocked(a, userRow(e.user_id) ?? { role: "" })));
   }
   runner.get("/events", async (req, res) => {
     const a = A(res);
@@ -436,6 +440,7 @@ export function createAssistants(deps: Deps) {
       const uid = b.userId != null ? Number(b.userId) : a.kind === "sales" ? a.bound_user_id : NaN;
       u = Number.isSafeInteger(uid) ? userRow(uid) : undefined;
     }
+    if (filingRecipientBlocked(a, u)) { audit({ req, a, tokenId: TK(res), userId: u.id, action: `${req.method} ${req.path}`, outcome: "recipient_role_not_allowed", detail: { role: u.role } }); fail(res, 403, "recipient_role_not_allowed", "سارینا فقط با کارشناس ثبت (registrar) یا مدیر (admin) حرف می‌زند؛ کارشناس فروش سارینا ندارد."); return null; }
     if (!u || !userEligible(a, u)) { audit({ req, a, tokenId: TK(res), action: `${req.method} ${req.path}`, outcome: "not_in_scope", detail: { recipient: true } }); fail(res, 404, "recipient_not_found"); return null; }
     const customerId = b.customerId == null || b.customerId === "" ? null : Number(b.customerId);
     if (customerId != null && !inScope(a, customerId)) { notFound(req, res, customerId); return null; }

@@ -159,10 +159,11 @@ function permitted(user: AuthUser) {
   const assigned = user.role!=="admin";
   const owner = assigned ? "(CASE WHEN c.id IS NOT NULL THEN c.salesperson_id ELSE e.owner_id END=?)" : "1";
   // Assistant rows (recipient_user_id set) reach only their addressee, re-checked at read time with the current role scoping:
-  // registrar/admin (Sarina) as addressed; a sales expert only while the customer is still theirs; trainees / excluded never.
+  // registrar/admin (Sarina) as addressed; a sales expert only while the customer is still theirs (never Sarina rows); trainees / excluded never.
   const blocked = EXCLUDED_USER_IDS.includes(user.id) || (user.role==="salesperson" && (!user.salespersonId || TRAINEE_SALESPERSON_IDS.includes(user.salespersonId)));
   const wide = user.role==="admin" || user.role==="registrar";
-  const mine = blocked ? "0" : `e.recipient_user_id=? AND c.id IS NOT NULL${wide ? "" : " AND c.salesperson_id=?"}`;
+  // v6: Sarina is registrar/admin only — old Sarina rows addressed to anyone else stay in the DB but never show.
+  const mine = blocked ? "0" : `e.recipient_user_id=? AND c.id IS NOT NULL${wide ? "" : " AND c.salesperson_id=? AND COALESCE(e.actor_key,'')<>'assistant:sarina'"}`;
   return {
     sql:`((e.recipient_user_id IS NULL AND ${owner} ${permissions ? `AND e.permission IN (${permissions.length?permissions.map(()=>"?").join(","):"NULL"})` : ""}) OR (${mine}))`,
     params:[...(assigned?[user.salespersonId??-1]:[]),...(permissions??[]),...(blocked?[]:[user.id,...(wide?[]:[user.salespersonId??-1])])],
