@@ -6,7 +6,7 @@ import fs from "node:fs"; import os from "node:os"; import path from "node:path"
 import express from "express";
 import { createAssistants, ensureAssistantSchema, hashAssistantToken, hasBannedWord, inQuietHours } from "../src/lib/assistants.ts";
 import { createSmartFiling, ensureSmartFilingSchema, hashRunnerToken } from "../src/lib/smart-filing.ts";
-import { isTestCustomerName, testCustomerSql } from "../src/lib/test-customers.ts";
+import { isTestCustomerName, testCustomerIds, testCustomerSql } from "../src/lib/test-customers.ts";
 import { normRoute, prunePageUsage } from "../src/lib/page-usage.ts";
 
 const db = new DatabaseSync(":memory:");
@@ -435,7 +435,7 @@ try {
       for (const [n, d, want] of [["TEST a", "", true], ["  [test] b", "", true], ["[[ Test-ui", "", true], ["تست پنل", "", true], ["عادی", "x [TEST] y", true], ["عادی", "[test]", true],
         ["حسنی تست", "", false], ["Atest", "", false], ["مشتری", "test", false], ["", null, false]]) {
         assert.equal(isTestCustomerName(n, d), want, `js ${n}`);
-        assert.equal(db.prepare(`SELECT ${testCustomerSql("c")} t FROM (SELECT ? name, ? description, NULL first_name, NULL last_name) c`).get(n, d).t, want ? 1 : 0, `sql ${n}`);
+        assert.equal(db.prepare(`SELECT ${testCustomerSql("c")} t FROM (SELECT NULL id, ? name, ? description, NULL first_name, NULL last_name) c`).get(n, d).t, want ? 1 : 0, `sql ${n}`);
       }
       const snapT = snap();
       const okT = (await S(1, "GET", "/admin/assistants/reporting-settings")).j; assert.equal(okT.excludeTestCustomers, true); assert.equal(okT.pageUsageEnabled, true);
@@ -446,22 +446,27 @@ try {
       db.exec(`INSERT INTO customers(id,name,phone,description,created_at,salesperson_id,priority,status) VALUES(170,'TEST a','09125550170','','2026-10-01',3,1,'in_progress'),
         (171,'[test] b','09125550171','','2026-10-01',3,1,'in_progress'),(172,'تست ج','09125550172','','2026-10-01',3,1,'in_progress'),(173,'عادی د','09125550173','ورود [TEST]','2026-10-01',3,1,'in_progress');
         INSERT INTO call_logs VALUES(970,170,3,'تماس','x','y','2026-10-26T06:00:00Z'),(971,173,3,'تماس','x','y','2026-10-26T06:10:00Z');
-        INSERT INTO reminders(id,user_id,salesperson_id,message,remind_at,created_at,subject,customer_id) VALUES(970,2,3,'پیگیری','2026-10-20','2026-10-02','پیگیری',171);`);
+        INSERT INTO reminders(id,user_id,salesperson_id,message,remind_at,created_at,subject,customer_id) VALUES(970,2,3,'پیگیری','2026-10-20','2026-10-02','پیگیری',171);
+        INSERT INTO customers(id,name,phone,description,created_at,salesperson_id,priority,status) VALUES(174,'عادی ه','09125550174','','2026-10-01',3,1,'in_progress'),
+        (175,'عادی و','09125550175','','2026-10-01',3,1,'in_progress'),(176,'عادی ز','09125550176','','2026-10-01',3,1,'cancelled');
+        CREATE TABLE public_leads(id INTEGER PRIMARY KEY,customer_id INTEGER,utm_source TEXT); CREATE TABLE callback_requests(id INTEGER PRIMARY KEY,customer_id INTEGER,utm_source TEXT);
+        INSERT INTO public_leads VALUES(1,174,' GrokBot-Test '),(2,176,'deploy-test'); INSERT INTO callback_requests VALUES(1,175,'grokbot-test'),(2,176,'ig');`);
+      { const ids = testCustomerIds(db); assert.ok([170, 171, 172, 173, 174, 175].every(i => ids.has(i)) && !ids.has(176), "utm_source=grokbot-test (lead or callback) matches; deploy-test does not " + [...ids].join(",")); }
       const ctx1 = (await R(iss.somayeh, "GET", "/my-context")).j; const rep1 = (await R(tk, "GET", "/manager/report")).j;
       assert.equal(ctx1.testCustomersExcluded, true); assert.equal(rep1.testCustomersExcluded, true);
       assert.equal(ctx1.customersInScope, ctx0.customersInScope); assert.equal(ctx1.today.calls, ctx0.today.calls);
       const e1 = rep1.experts.find(e => e.salespersonId === 3);
       assert.equal(e1.calls.count, rep0.calls.count); assert.equal(e1.overdueReminders.count, rep0.overdueReminders.count); assert.equal(e1.p1NoCall.count, rep0.p1NoCall.count);
-      assert.ok(![170, 171, 172, 173].some(id => JSON.stringify(rep1).includes(`"customerId":${id}`)));
+      assert.ok(![170, 171, 172, 173, 174, 175].some(id => JSON.stringify(rep1).includes(`"customerId":${id}`)));
       assert.ok(!JSON.stringify((await R(tk, "GET", "/manager/alerts")).j).match(/"customerId":17[0-3]\b/));
       assert.equal((await S(1, "PUT", "/admin/assistants/reporting-settings", { excludeTestCustomers: false })).j.excludeTestCustomers, false);
       const ctx2 = (await R(iss.somayeh, "GET", "/my-context")).j; const e2 = (await R(tk, "GET", "/manager/report")).j.experts.find(e => e.salespersonId === 3);
-      assert.equal(ctx2.testCustomersExcluded, false); assert.equal(ctx2.customersInScope, ctx0.customersInScope + 4, "scope"); assert.equal(ctx2.today.calls, ctx0.today.calls + 2, "ctx calls");
-      assert.equal(e2.calls.count, rep0.calls.count + 2, "rep calls"); assert.equal(e2.overdueReminders.count, rep0.overdueReminders.count + 1); assert.equal(e2.p1NoCall.count, rep0.p1NoCall.count + 2, "p1 (170/173 were called today)");
+      assert.equal(ctx2.testCustomersExcluded, false); assert.equal(ctx2.customersInScope, ctx0.customersInScope + 6, "scope"); assert.equal(ctx2.today.calls, ctx0.today.calls + 2, "ctx calls");
+      assert.equal(e2.calls.count, rep0.calls.count + 2, "rep calls"); assert.equal(e2.overdueReminders.count, rep0.overdueReminders.count + 1); assert.equal(e2.p1NoCall.count, rep0.p1NoCall.count + 4, "p1 (170/173 were called today; +174/175)");
       assert.equal((await S(1, "PUT", "/admin/assistants/reporting-settings", { excludeTestCustomers: true })).s, 200);
-      db.exec("DELETE FROM customers WHERE id IN (170,171,172,173); DELETE FROM call_logs WHERE id IN (970,971); DELETE FROM reminders WHERE id=970;");
+      db.exec("DELETE FROM customers WHERE id IN (170,171,172,173,174,175,176); DROP TABLE public_leads; DROP TABLE callback_requests; DELETE FROM call_logs WHERE id IN (970,971); DELETE FROM reminders WHERE id=970;");
       assert.equal(snap(), snapT);
-      ok("v10a: TEST customers (name TEST… / [TEST… / «تست…» or [TEST] in description) left out of report, alerts, my-context; admin switch (29 → 403)");
+      ok("v10a: TEST customers (name TEST… / [TEST… / «تست…», [TEST] in description, or lead/callback utm_source=grokbot-test) left out of report, alerts, my-context; admin switch (29 → 403)");
     }
     { // v10b: page-usage tracker — patterns only, user 29 never, switch off = nothing stored, harmless on bad input, 90-day prune of its own table only
       const snapP = snap(); const cnt = () => db.prepare("SELECT COUNT(*) n FROM page_usage_events").get().n;
