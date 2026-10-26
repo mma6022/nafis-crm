@@ -29,10 +29,11 @@ export const MANAGER_SETTING_KEYS = {
   overdueRemindersMax: "manager_overdue_reminders_max",
   siteLeadsMax: "manager_site_leads_max",
   p1NoCallDays: "manager_p1_no_call_days",
+  registrationStuckHours: "manager_registration_stuck_hours", // v11: /manager/registration «گیر کرده» threshold (hours in the current stage)
 } as const;
-export type ManagerSettings = { callsRatio: number; callsCompare: "same_time" | "full_day"; overdueRemindersMax: number; siteLeadsMax: number; p1NoCallDays: number };
-export const MANAGER_DEFAULTS: ManagerSettings = { callsRatio: 0.7, callsCompare: "same_time", overdueRemindersMax: 5, siteLeadsMax: 0, p1NoCallDays: 3 };
-const LIMITS = { callsRatio: [0.1, 1], overdueRemindersMax: [0, 200], siteLeadsMax: [0, 50], p1NoCallDays: [1, 60] } as const;
+export type ManagerSettings = { callsRatio: number; callsCompare: "same_time" | "full_day"; overdueRemindersMax: number; siteLeadsMax: number; p1NoCallDays: number; registrationStuckHours: number };
+export const MANAGER_DEFAULTS: ManagerSettings = { callsRatio: 0.7, callsCompare: "same_time", overdueRemindersMax: 5, siteLeadsMax: 0, p1NoCallDays: 3, registrationStuckHours: 24 };
+const LIMITS = { callsRatio: [0.1, 1], overdueRemindersMax: [0, 200], siteLeadsMax: [0, 50], p1NoCallDays: [1, 60], registrationStuckHours: [1, 720] } as const;
 
 export function readManagerSettings(get: (key: string) => string | undefined): ManagerSettings {
   const num = (k: keyof typeof LIMITS, int: boolean) => {
@@ -41,7 +42,7 @@ export function readManagerSettings(get: (key: string) => string | undefined): M
   };
   const cmp = get(MANAGER_SETTING_KEYS.callsCompare);
   return { callsRatio: num("callsRatio", false), callsCompare: cmp === "full_day" ? "full_day" : "same_time",
-    overdueRemindersMax: num("overdueRemindersMax", true), siteLeadsMax: num("siteLeadsMax", true), p1NoCallDays: num("p1NoCallDays", true) };
+    overdueRemindersMax: num("overdueRemindersMax", true), siteLeadsMax: num("siteLeadsMax", true), p1NoCallDays: num("p1NoCallDays", true), registrationStuckHours: num("registrationStuckHours", true) };
 }
 /** Validates a partial update; returns the key/value pairs to store or an error code. */
 export function validateManagerSettings(body: any): { ok: true; values: Array<[string, string]> } | { ok: false; error: string; field?: string } {

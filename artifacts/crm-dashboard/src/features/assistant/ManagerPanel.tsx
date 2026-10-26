@@ -8,7 +8,7 @@ import { asFetch, asWhen, faNum } from './api';
 /** v8 «احمد | مدیر فروش» admin panel: editable underperformance thresholds (assistant_settings manager_* keys only)
  *  and a read-only preview of what the manager runner will report (today / this week). Piece B (conversions, commission,
  *  active hours, yesterday/month) is not here yet. */
-type Th = { callsRatio: number; callsCompare: 'same_time' | 'full_day'; overdueRemindersMax: number; siteLeadsMax: number; p1NoCallDays: number };
+type Th = { callsRatio: number; callsCompare: 'same_time' | 'full_day'; overdueRemindersMax: number; siteLeadsMax: number; p1NoCallDays: number; registrationStuckHours: number };
 type Alert = { rule: string; points: number; reason: string };
 type Exp = { salespersonId: number; name: string; trainee?: boolean; calls: { count: number; answered: number; answeredShare: number | null };
   overdueReminders: { count: number; maxDaysLate: number }; siteLeadsOverdue: { count: number }; p1NoCall: { count: number; days: number };
@@ -52,6 +52,7 @@ export function ManagerPanel() {
       {num('overdueRemindersMax', 'یادآور عقب‌افتاده بیش از', 'پیش‌فرض ۵', 0, 200)}
       {num('siteLeadsMax', 'سرنخ سایت بی‌جواب بیش از', 'پیش‌فرض ۰ (هر سرنخ)', 0, 50)}
       {num('p1NoCallDays', 'P1 بی‌تماس بیش از (روز)', 'پیش‌فرض ۳', 1, 60)}
+      {num('registrationStuckHours', 'پرونده‌ی ثبتِ گیرکرده بیش از (ساعت در یک مرحله)', 'پیش‌فرض ۲۴ (۱ تا ۷۲۰)', 1, 720)}
       <div className="mgr-act"><button type="submit" className="btn btn-primary" disabled={busy} data-testid="button-mgr-save">ذخیره</button>
         <button type="button" className="btn" disabled={busy || !st.data} onClick={() => void save(st.data!.defaults)} data-testid="button-mgr-defaults">پیش‌فرض‌ها</button></div>
     </form>}

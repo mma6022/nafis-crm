@@ -55,7 +55,7 @@ assert.deepEqual(Object.keys(As).sort(), ["ahmad", "masoud", "mohaddeseh", "sari
 assert.equal(As.ahmad.kind, "sales"); assert.equal(As.ahmad.scope_rule, "manager"); assert.equal(As.ahmad.bound_role, "admin");
 assert.equal(As.ahmad.bound_user_id, null); assert.equal(As.ahmad.bound_salesperson_id, null);
 assert.deepEqual(Object.fromEntries(db.prepare("SELECT key,value FROM assistant_settings WHERE key LIKE 'manager_%'").all().map(r => [r.key, r.value])),
-  { manager_calls_ratio: "0.7", manager_calls_compare: "same_time", manager_overdue_reminders_max: "5", manager_site_leads_max: "0", manager_p1_no_call_days: "3" });
+  { manager_calls_ratio: "0.7", manager_calls_compare: "same_time", manager_overdue_reminders_max: "5", manager_site_leads_max: "0", manager_p1_no_call_days: "3", manager_registration_stuck_hours: "24" });
 assert.equal(As.somayeh.bound_user_id, 2); assert.equal(As.mohaddeseh.bound_user_id, 3); assert.equal(As.masoud.bound_user_id, 8);
 assert.equal(As.sarina.bound_user_id, null); assert.equal(As.sarina.bound_role, "registrar");
 assert.ok(Object.values(As).every(a => a.enabled === 0)); // seeded off
@@ -518,6 +518,72 @@ try {
       const n0 = cnt(); assert.equal(prunePageUsage(db, clock), 1); assert.equal(cnt(), n0 - 1);
       db.exec("DELETE FROM page_usage_events"); assert.equal(snap(), snapP);
       ok("v10b: page usage — route patterns only (no ids / query), user 29 never, switch off = nothing, junk harmless, report day/week/month + never-clicked menu, 29 → 403, 90-day prune");
+    }
+    { // v11: open «فاکتور» work (goods_purchases) + registration cases (loan_applications) — read only, manager only, TEST excluded
+      db.exec(`CREATE TABLE goods_purchases(id INTEGER PRIMARY KEY,customer_id INTEGER,salesperson_id INTEGER,stage TEXT,credit_amount_toman TEXT,commission_toman TEXT,created_by INTEGER,created_at TEXT);
+        CREATE TABLE goods_purchase_events(id INTEGER PRIMARY KEY AUTOINCREMENT,purchase_id INTEGER,action TEXT,actor_user_id INTEGER,detail TEXT,created_at TEXT);
+        CREATE TABLE loan_application_stage_history(id INTEGER PRIMARY KEY AUTOINCREMENT,application_id INTEGER,from_stage TEXT,to_stage TEXT,action TEXT,reason TEXT,actor_id INTEGER,created_at TEXT);
+        INSERT INTO customers(id,name,phone,description,created_at,salesperson_id,priority,status) VALUES(180,'مشتری ثبت','09125550180','','2026-10-01',4,1,'in_progress'),(181,'TEST ثبت','09125550181','','2026-10-01',3,1,'in_progress');
+        INSERT INTO goods_purchases VALUES(1,100,3,'acknowledgement_signature','180000000','999777',4,'2026-10-20T06:00:00Z'),(2,110,4,'invoice_signature','283256000',NULL,4,'2026-10-25T07:00:00Z'),
+          (3,120,6,'completed','5',NULL,4,'2026-10-20T06:00:00Z'),(4,140,NULL,'invoice_draft','5',NULL,4,'2026-10-20T06:00:00Z'),(5,181,3,'invoice_draft','5',NULL,4,'2026-10-20T06:00:00Z'),
+          (6,121,6,'invoice_draft','5',NULL,4,'2026-10-20T06:00:00Z'),(7,130,5,'invoice_draft','266000000',NULL,1,'2026-10-24T07:00:00Z');
+        INSERT INTO goods_purchase_events(purchase_id,action,actor_user_id,created_at) VALUES(1,'created',4,'2026-10-20T06:00:00Z'),(1,'external_discharge_confirmed',4,'2026-10-20T07:00:00Z'),
+          (1,'invoice_saved',4,'2026-10-21T06:00:00Z'),(1,'invoice_generated',4,'2026-10-21T06:01:00Z'),(1,'invoice_pending',NULL,'2026-10-21T07:00:00Z'),(1,'invoice_pending',NULL,'2026-10-22T07:00:00Z'),
+          (1,'invoice_signed',NULL,'2026-10-22T10:00:00Z'),(1,'settled',1,'2026-10-23T10:00:00Z'),(1,'acknowledgement_generated',4,'2026-10-23T10:05:00Z'),(1,'acknowledgement_pending',NULL,'2026-10-24T07:00:00Z'),(1,'acknowledgement_pending',NULL,'2026-10-25T07:00:00Z'),
+          (2,'created',1,'2026-10-25T07:00:00Z'),(2,'external_discharge_confirmed',1,'2026-10-25T08:00:00Z'),(2,'invoice_saved',4,'2026-10-25T09:00:00Z'),(2,'invoice_pending',NULL,'2026-10-26T01:00:00Z'),(2,'invoice_pending',29,'2026-10-26T05:00:00Z');
+        INSERT INTO loan_applications(id,customer_id,plan_id,status,stage,created_at) VALUES(600,180,7,'reviewing','customer_documents_review','2026-10-20T06:00:00Z'),(601,110,7,'approved','completed','2026-10-10T06:00:00Z'),
+          (602,100,7,'rejected','funder_initial_approval','2026-10-10T06:00:00Z'),(603,181,7,'reviewing','collateral_upload','2026-10-26T05:00:00Z'),(604,180,7,'requested','draft','2026-10-26T06:00:00Z');
+        INSERT INTO loan_application_stage_history(application_id,from_stage,to_stage,action,actor_id,created_at) VALUES(600,NULL,'draft','created',2,'2026-10-20T06:00:00Z'),
+          (600,'draft','primary_contract_pending_signature','submit',2,'2026-10-21T06:00:00Z'),(600,'primary_contract_pending_signature','customer_documents_upload','primary_signature_verified',NULL,'2026-10-25T10:00:00Z'),
+          (600,'customer_documents_upload','customer_documents_review','submit-customer-documents',4,'2026-10-26T03:00:00Z'),(600,'customer_documents_review','customer_documents_review','case-note-added',1,'2026-10-26T06:30:00Z'),
+          (601,'admin_approval','completed','approve-wallet-charge',4,'2026-10-26T02:00:00Z'),(602,'funder_initial_approval','funder_initial_approval','cancel-case',1,'2026-10-26T04:00:00Z'),
+          (603,NULL,'collateral_upload','created',4,'2026-10-26T05:00:00Z'),(604,NULL,'draft','created',4,'2026-10-26T06:00:00Z');`);
+      const s11 = JSON.stringify(db.prepare("SELECT * FROM goods_purchases").all()) + snap() + JSON.stringify(db.prepare("SELECT * FROM loan_application_stage_history").all());
+      const inv = await R(tk, "GET", "/manager/invoices/open"); assert.equal(inv.s, 200); const I = inv.j;
+      assert.equal(I.table, "goods_purchases"); assert.equal(I.concept, "goods_purchase_invoice"); assert.equal(I.amountUnit, "toman"); assert.equal(I.testCustomersExcluded, true);
+      assert.deepEqual(I.items.map(x => x.purchaseId), [1, 7, 2]); // longest stuck first; completed, unassigned, merged and TEST left out
+      assert.deepEqual(I.items.map(x => x.hoursInStage), [69, 48, 6]); // settled 10-23 10:00Z (repeat «pending» sends don't reset); no events → created_at
+      const i1 = I.items[0]; assert.equal(i1.stageLabel, "رسید و اقرارنامه"); assert.equal(i1.waitingOn, "customer"); assert.equal(i1.amount, 180000000); assert.equal(i1.amountUnit, "toman");
+      assert.deepEqual(i1.responsible, { userId: 4, name: "ثبت", role: "registrar", basis: "last_staff_action" }); assert.deepEqual(i1.salesperson, { salespersonId: 3, name: "حسنی" });
+      assert.equal(I.items[2].responsible.userId, 4); // user 29's action never names 29
+      assert.equal(I.items[1].responsible.basis, "created_by"); assert.equal(I.items[1].salesperson.name, "کارآموز۵");
+      assert.equal(I.count, 3); assert.equal(I.totalAmount, 180000000 + 266000000 + 283256000);
+      assert.deepEqual(I.byStage.map(b => `${b.stage}:${b.count}`), ["invoice_draft:1", "invoice_signature:1", "acknowledgement_signature:1"]);
+      const ij = JSON.stringify(I); assert.ok(!/09\d{9}/.test(ij) && i1.phoneMasked && !ij.includes("999777") && !ij.includes("commission"));
+      assert.equal((await R(iss.masoud, "GET", "/manager/invoices/open")).j.error, "manager_only");
+      for (const u of [2, 4, 29]) assert.equal((await S(u, "GET", "/admin/assistants/manager-invoices")).s, 403);
+      assert.equal((await S(1, "GET", "/admin/assistants/manager-invoices")).j.count, 3);
+      assert.equal((await S(1, "PUT", "/admin/assistants/reporting-settings", { excludeTestCustomers: false })).s, 200);
+      assert.deepEqual((await R(tk, "GET", "/manager/invoices/open")).j.items.map(x => x.purchaseId).sort(), [1, 2, 5, 7]);
+      const regOff = (await R(tk, "GET", "/manager/registration?range=day")).j; assert.equal(regOff.flow.newCases, 2); assert.equal(regOff.openCount, 6);
+      assert.equal((await S(1, "PUT", "/admin/assistants/reporting-settings", { excludeTestCustomers: true })).s, 200);
+      ok("v11a: /manager/invoices/open — goods_purchases «فاکتور», longest stuck first, time in stage from events, amounts in toman, phones masked, no commission, TEST/merged/unassigned out, manager only, 29 → 403");
+      const rg = await R(tk, "GET", "/manager/registration?range=day"); assert.equal(rg.s, 200); const G = rg.j;
+      assert.equal(G.table, "loan_applications"); assert.equal(G.historyTable, "loan_application_stage_history"); assert.equal(G.weekStarts, "saturday");
+      assert.equal(G.from, "2026-10-25T20:30:00.000Z"); assert.equal(G.stuckHours, 24); assert.equal(G.stuckHoursSource, "setting");
+      assert.equal(G.openCount, 5); // 500 501 502 (fixture) + 600 + 604; completed / rejected / TEST left out
+      assert.deepEqual(G.flow, { newCases: 1, completed: 1, closed: 1, inflow: 3, outflow: 3 });
+      const st = Object.fromEntries(G.byStage.map(b => [b.stage, b]));
+      assert.deepEqual([st.customer_documents_review.open, st.customer_documents_review.inflow, st.customer_documents_upload.outflow, st.completed.inflow, st.funder_initial_approval.closed, st.draft.inflow, st.draft.open], [1, 1, 1, 1, 1, 1, 1]);
+      assert.deepEqual(G.stuck.items.map(x => x.applicationId), [500, 501, 502]);
+      const c600 = (await R(tk, "GET", "/manager/registration?range=day&stuckHours=3")).j; assert.equal(c600.stuckHoursSource, "query");
+      assert.deepEqual(c600.stuck.items.map(x => x.applicationId), [500, 501, 502, 600]);
+      const x600 = c600.stuck.items[3]; assert.equal(x600.hoursInStage, 4); assert.equal(x600.stageEnteredAt, "2026-10-26T03:00:00Z"); assert.deepEqual(x600.registrar, { userId: 4, name: "ثبت", basis: "last_registrar_action" });
+      assert.equal(x600.stageLabel, "بررسی مدارک مشتری"); assert.ok(x600.phoneMasked && !/09\d{9}/.test(JSON.stringify(c600)));
+      assert.deepEqual(G.registrars.map(r => `${r.userId}:${r.open}:${r.stuck}`), ["null:3:3", "4:2:0"]);
+      const wk = (await R(tk, "GET", "/manager/registration?range=week")).j; assert.equal(wk.from, "2026-10-23T20:30:00.000Z");
+      assert.deepEqual(wk.flow, { newCases: 1, completed: 1, closed: 1, inflow: 4, outflow: 4 });
+      for (const q of ["range=month", "range=day&stuckHours=0", "range=day&stuckHours=abc", "stuckHours=721"]) assert.equal((await R(tk, "GET", `/manager/registration?${q}`)).s, 422, q);
+      assert.equal((await S(1, "PUT", "/admin/assistants/manager-settings", { registrationStuckHours: 0 })).s, 422);
+      assert.equal((await S(1, "PUT", "/admin/assistants/manager-settings", { registrationStuckHours: 3 })).j.thresholds.registrationStuckHours, 3);
+      assert.equal((await R(tk, "GET", "/manager/registration")).j.stuck.count, 4);
+      await S(1, "PUT", "/admin/assistants/manager-settings", { registrationStuckHours: 24 });
+      assert.equal((await R(iss.masoud, "GET", "/manager/registration")).j.error, "manager_only");
+      for (const u of [2, 4, 29]) assert.equal((await S(u, "GET", "/admin/assistants/manager-registration?range=day")).s, 403);
+      assert.equal((await S(1, "GET", "/admin/assistants/manager-registration?range=week")).j.openCount, 5);
+      assert.equal(JSON.stringify(db.prepare("SELECT * FROM goods_purchases").all()) + snap() + JSON.stringify(db.prepare("SELECT * FROM loan_application_stage_history").all()), s11, "v11 reads changed nothing");
+      db.exec("DROP TABLE goods_purchases; DROP TABLE goods_purchase_events; DROP TABLE loan_application_stage_history; DELETE FROM loan_applications WHERE id>=600; DELETE FROM customers WHERE id IN (180,181);");
+      ok("v11b: /manager/registration — loan_applications per stage, inflow/outflow (moves + closures) per Tehran day / Saturday week, stuck over 24h setting or ?stuckHours=, registrar expert, 422s, manager only, 29 → 403, no writes");
     }
     // thresholds (assistant_settings manager_* only)
     assert.equal((await S(2, "PUT", "/admin/assistants/manager-settings", { overdueRemindersMax: 10 })).s, 403);

@@ -31,6 +31,7 @@ import { expertCallsToday, EXPERT_CALLS_DEFINITION, tehranDayStartMs } from "./e
 import { customerApplicationPayout } from "./customer-application-payout";
 import { parseConsultAmountToman } from "./consultation-report";
 import { EXCLUDE_TEST_CUSTOMERS_KEY, excludeTestOn, testCustomerSql, testCustomerIds } from "./test-customers";
+import { openInvoices, registrationReport, REGISTRATION_RANGES, type RegistrationRange } from "./manager-work";
 import { PAGE_USAGE_ENABLED_KEY, PAGE_USAGE_RANGES, ensurePageUsageSchema, pageUsageOn, pageUsageReport, recordPageUsage, type PageUsageRange } from "./page-usage";
 import { MANAGER_RANGES, MANAGER_SLOTS, MANAGER_SETTING_KEYS, MANAGER_DEFAULTS, managerAlerts, managerExperts, managerReport, managerSummary,
   readManagerSettings, validateManagerSettings, type ManagerRange, type ManagerSlot, type SiteLeadLite } from "./assistant-manager";
@@ -847,6 +848,27 @@ export function createAssistants(deps: Deps) {
     audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/page-usage", outcome: "ok", detail: { range } });
     res.json(maskAll(pageUsageReport(db, range, now())));
   });
+  // v11: open «فاکتور» work (goods_purchases) and registration cases (loan_applications) — read only, manager token only.
+  const workDeps = () => ({ db, now: now(), excludeTest: excludeTestOn(db) });
+  const regParams = (req: Request, res: Response): { range: RegistrationRange; stuckHours: number; src: "query" | "setting" | "default" } | null => {
+    const r = String(req.query.range ?? "day");
+    if (!(REGISTRATION_RANGES as readonly string[]).includes(r)) { fail(res, 422, "bad_range", `range یکی از: ${REGISTRATION_RANGES.join(", ")}`); return null; }
+    const q = req.query.stuckHours;
+    if (q != null && q !== "") { const n = Number(q);
+      if (!Number.isInteger(n) || n < 1 || n > 720) { fail(res, 422, "bad_stuck_hours", "stuckHours باید عدد صحیح ۱ تا ۷۲۰ باشد."); return null; }
+      return { range: r as RegistrationRange, stuckHours: n, src: "query" }; }
+    const set = row<{ value: string }>("SELECT value FROM assistant_settings WHERE key=?", MANAGER_SETTING_KEYS.registrationStuckHours);
+    return { range: r as RegistrationRange, stuckHours: mgrSettings().registrationStuckHours, src: set ? "setting" : "default" };
+  };
+  runner.get("/manager/invoices/open", managerOnly, (req, res) => {
+    audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/invoices/open", outcome: "ok" });
+    res.json(maskAll(openInvoices(workDeps())));
+  });
+  runner.get("/manager/registration", managerOnly, (req, res) => {
+    const p = regParams(req, res); if (!p) return;
+    audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/registration", outcome: "ok", detail: { range: p.range, stuckHours: p.stuckHours } });
+    res.json(maskAll(registrationReport(workDeps(), p.range, p.stuckHours, p.src)));
+  });
   // Bale 1b runner routes (/bale/send: sales assistants only — the manager is refused there by kind)
   deps.extendRunner?.(runner, { inScope });
   runner.use((req, res) => { if (req.method !== "GET") return deny(req, res); fail(res, 404, "not_found"); });
@@ -1064,6 +1086,11 @@ export function createAssistants(deps: Deps) {
     const r = String(req.query.range ?? "today");
     if (!(MANAGER_RANGES as readonly string[]).includes(r)) return fail(res, 422, "range_not_supported");
     res.json(maskAll(managerReport(mgrDeps(), r as ManagerRange)));
+  });
+  // v11 admin previews (user 29 refused, like every manager admin route)
+  staff.get("/admin/assistants/manager-invoices", admin, mgrAdmin, (_req, res) => { res.json(maskAll(openInvoices(workDeps()))); });
+  staff.get("/admin/assistants/manager-registration", admin, mgrAdmin, (req, res) => {
+    const p = regParams(req, res); if (!p) return; res.json(maskAll(registrationReport(workDeps(), p.range, p.stuckHours, p.src)));
   });
   staff.put("/admin/assistants/:id", admin, (req, res) => {
     const a = adminA(req, res); if (!a) return; const u = res.locals.assistantAdmin;
