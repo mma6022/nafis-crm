@@ -106,3 +106,8 @@
 .bl-pick button:hover, .bl-pick button:focus-visible { border-color: var(--nf-brand, #1F5FAD); outline: none; box-shadow: 0 0 0 2px rgba(31,95,173,.15); }
 .bl-queue li[data-focus] { outline: 2px solid var(--nf-brand, #1F5FAD); outline-offset: 2px; border-radius: 10px; }
 .bl-policy { display: grid; gap: 8px; }
+
+.bl-paused { flex-wrap: wrap; }
+.bl-paused > span { flex: 1 1 220px; }
+.bl-paused small { display: block; margin-top: 4px; opacity: .85; }
+.bl-paused > .btn { margin-inline-start: auto; }

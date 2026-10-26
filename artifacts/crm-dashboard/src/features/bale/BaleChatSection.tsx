@@ -123,12 +123,13 @@ export function BaleChatSection({ customerId }: { customerId: number }) {
           {d.outbox.map(o => <OutboxCard key={`${o.id}-${o.status}-${o.text}`} o={o} busy={busy} act={act} />)}
         </div> : <p className="muted" style={{ margin: 0 }}>هنوز گفتگویی در بله با این مشتری ثبت نشده است.</p>}
         {owner ? <>
-          {d.paused ? <div className="bl-note warn" data-testid="bale-paused"><PauseCircle size={18} /><span style={{ flex: 1 }}>
-            <b>این گفتگو متوقف است</b> — {d.paused.message}<small style={{ display: 'block', marginTop: 4 }}>توقف در {baleWhen(d.paused.at)}{d.paused.unverified ? '؛ تشخیص «مسدود شدن» هنوز با سیم‌کارت آزمایشی تأیید نشده است.' : ''}</small></span>
+          {d.paused ? <div className="bl-note warn bl-paused" data-testid="bale-paused"><PauseCircle size={18} /><span>
+            <b>این گفتگو متوقف است.</b> احتمالاً مشتری شما را در بله مسدود کرده؛ فقط همین گفتگو متوقف شد و بقیه‌ی پیام‌ها عادی می‌روند.
+            <small>از {baleWhen(d.paused.at)}{d.paused.unverified ? '؛ تشخیص «مسدود شدن» هنوز با سیم‌کارت آزمایشی تأیید نشده است.' : ''}</small></span>
             <button type="button" className="btn" disabled={busy} onClick={() => void resume()} data-testid="button-bale-resume"><Play size={15} /> دوباره فعال کن</button></div> : null}
           {d.sendBlockedMessage && !d.paused ? <div className="bl-note off" data-testid="bale-send-off"><Info size={18} /><span>{d.sendBlockedMessage}</span></div> : null}
           {s?.quietNow && d.canSend ? <div className="bl-note warn" data-testid="bale-quiet"><Moon size={18} /><span>ساعت آرام است؛ پیام‌ها {s.quietEnd ? `از ${baleWhen(s.quietEnd)}` : 'بعد از پایان ساعت آرام'} فرستاده می‌شوند.</span></div> : null}
-          {d.canSend ? <form className="bl-compose" onSubmit={send} data-testid="form-bale-send">
+          {d.canSend && !d.paused ? <form className="bl-compose" onSubmit={send} data-testid="form-bale-send">
             <label htmlFor={`bale-text-${customerId}`} className="sr-only">متن پیام بله</label>
             <textarea id={`bale-text-${customerId}`} className="bl-ta" placeholder="پیام به مشتری…" value={text} maxLength={BALE_MAX_TEXT} disabled={busy}
               onChange={e => { setText(e.target.value); setErr(null); }} aria-invalid={Boolean(err)} aria-describedby={err ? `bale-err-${customerId}` : undefined} data-testid="input-bale-text" />

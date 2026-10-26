@@ -404,7 +404,7 @@ function BellInner() {
                         {n.assistant ? <span className="sn-asav"><AssistantAvatar slug={n.assistant.slug} size={32} /></span> : null}
                         <span className="sn-title">{isP1(n) ? <Star size={14} className="sn-star" aria-label="اولویت ۱" /> : null}{n.title}</span>
                         <span className="sn-body">{n.body}</span>
-                        <span className="sn-meta"><span>{n.customerName ? <CustomerName id={n.customerId} name={n.customerName} /> : null}{allScope && n.page && PAGE_LABELS[n.page] ? ` · ${PAGE_LABELS[n.page]}` : ''}</span><time dateTime={n.createdAt}>{fmtTime(n.createdAt)}</time></span>
+                        <span className="sn-meta"><span>{n.customerName ? <CustomerName id={n.customerId} name={n.customerName} /> : null}{allScope && n.page && n.kind !== 'bale-unknown' && PAGE_LABELS[n.page] ? ` · ${PAGE_LABELS[n.page]}` : ''}</span><time dateTime={n.createdAt}>{fmtTime(n.createdAt)}</time></span>
                       </button>
                       {n.action?.type === 'credit-permission' ? <CreditActions n={n} onDone={(status) => { setItems((prev) => { const cur = prev.get(n.id); if (!cur || !cur.action) return prev; return new Map(prev).set(n.id, { ...cur, readAt: cur.readAt ?? new Date().toISOString(), action: { ...cur.action, open: false, status } }); }); if (!n.readAt) void markNotificationRead(n.id).catch(() => {}); }} onOpen={() => void activate(n)} /> : null}
                       {n.assistant ? <button type="button" className="sn-read sn-asopen" onClick={() => { const t = n.assistant!.threadId; if (!n.readAt) void markOne(n); setOpen(false); openAssistantThread(t); }} data-testid={`button-notification-assistant-open-${n.id}`}>باز کردن گفتگو</button> : null}
