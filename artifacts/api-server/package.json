@@ -66,7 +66,8 @@
     "fixture:kazemi-source": "node scripts/run-bundled-fixture.mjs scripts/kazemi-source-fixture.mjs",
     "fixture:consult-filters": "node scripts/consult-filters-fixture.mjs",
     "fixture:nonp1-kazemi": "node scripts/run-bundled-fixture.mjs scripts/nonp1-kazemi-fixture.mjs",
-    "fixture:kz-return": "node scripts/run-bundled-fixture.mjs scripts/kz-return-fixture.mjs"
+    "fixture:kz-return": "node scripts/run-bundled-fixture.mjs scripts/kz-return-fixture.mjs",
+    "test:bale": "node scripts/run-bundled-fixture.mjs scripts/bale-fixture.mjs"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.3.0",

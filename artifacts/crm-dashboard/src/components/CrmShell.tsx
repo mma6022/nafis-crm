@@ -1,5 +1,5 @@
 import { CustomerName } from '@/components/customer/CustomerName';
-import { AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, LifeBuoy, LogOut, Menu, MessageCircle, MessagesSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, type LucideIcon } from 'lucide-react';
+import { AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, Link2, LifeBuoy, LogOut, Menu, MessageCircle, MessagesSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, type LucideIcon } from 'lucide-react';
 import { UserAvatar, AvatarPicker } from '@/components/UserAvatar';
 import { useHealthCheck, getHealthCheckQueryKey, useGetAuthSession, useLogout, useUpdateAuthProfile, useListReminders, useAcknowledgeReminder, getListRemindersQueryKey, getGetAuthSessionQueryKey, type CrmUser, type Reminder } from '@workspace/api-client-react';
 import { Link, useLocation } from 'wouter';
@@ -22,11 +22,12 @@ import { usePendingCounts } from '@/lib/pending-create';
 import { canUseDrafts, useDraftCounts } from '@/lib/request-drafts';
 import { CreateReminderForm } from './Forms';
 import { sfScope } from '@/features/smart-filing/access';
+import { baleNavVisible } from '@/features/bale/api';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem } from './ui/dropdown-menu';
 
 const nafissLogoUrl = `${import.meta.env.BASE_URL}nafiss-financial-logo.png`;
 
-type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; walletOwner?: boolean; adminLabel?: string };
+type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string };
 
 // Routes and permission rules are unchanged; only grouping, order, labels of groups and icons are new.
 const allNavItems: NavItem[] = [
@@ -51,6 +52,7 @@ const allNavItems: NavItem[] = [
   { href: '/chat', label: 'گفتگو با مشتریان', icon: MessagesSquare, permission: 'customers.view' },
   { href: '/internal-chat', label: 'گفتگوی داخلی', icon: MessageCircle, permission: 'internal_chat.use' },
   { href: '/messengers', label: 'پیام‌رسان‌ها', icon: Send, permission: 'internal_chat.use' },
+  { href: '/settings/bale', label: 'اتصال بله', icon: Link2, bale: true },
   { href: '/instagram-inbox', label: 'سرنخ‌های دایرکت اینستاگرام', icon: Instagram, staffOnly: true },
   { href: '/calls', label: 'تماس‌ها', icon: PhoneCall, permission: 'calls.view' },
   { href: '/mobile-calls', label: 'تماس‌های موبایل', icon: Smartphone, permission: 'calls.view' },
@@ -73,7 +75,7 @@ const navGroups: NavGroup[] = [
   { id: 'loans', label: 'وام و قرارداد', icon: HandCoins, hrefs: ['/loan-applications', '/smart-filing', '/loan-plans', '/contracts', '/credit-rank-overrides'] },
   { id: 'goods', label: 'خرید کالا', icon: Store, hrefs: ['/goods-purchases', '/sales-commissions', '/my-wallet'] },
   { id: 'finance', label: 'مالی و پرداخت', icon: Banknote, hrefs: ['/payment-orders', '/wallet-management', '/bank-accounts', '/accounting'] },
-  { id: 'comms', label: 'پیام‌ها و تلفن', icon: Headset, hrefs: ['/chat', '/internal-chat', '/messengers', '/instagram-inbox', '/mobile-calls', '/phone'] },
+  { id: 'comms', label: 'پیام‌ها و تلفن', icon: Headset, hrefs: ['/chat', '/internal-chat', '/messengers', '/settings/bale', '/instagram-inbox', '/mobile-calls', '/phone'] },
   { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/social-monitor-reports', '/voice-notes-usage'] },
   { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/settings/notifications', '/settings/assistants', '/settings/releases'] },
 ];
@@ -177,6 +179,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
     if (item.walletOwner && !isAdminUser && !(user as { salespersonId?: number | null } | undefined)?.salespersonId) return false;
     if ('staffOnly' in item && item.staffOnly) return user?.role === 'admin' || user?.role === 'registrar';
     if ('adminOnly' in item && item.adminOnly) return user?.role === 'admin';
+    if (item.bale) return baleNavVisible(user as { id?: number; role?: string; salespersonId?: number | null } | undefined);
     if ('smartFiling' in item && item.smartFiling) return sfScope(user as { role?: string; salespersonId?: number | null } | undefined) !== null;
     const needed = ([] as string[]).concat((item as { permission?: string | string[] }).permission ?? []);
     return user?.role === 'admin' || needed.some((p) => user?.permissions?.includes(p));

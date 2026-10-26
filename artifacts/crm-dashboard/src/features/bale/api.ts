@@ -1,0 +1,40 @@
+/** «حساب شخصی بله» staff client (api-server lib/bale.ts, piece 1a). The server is the real gate for every rule. */
+export { asFetch as baleFetch, asWhen as baleWhen, faNum } from '@/features/assistant/api';
+
+export type BaleMode = 'off' | 'approve_first' | 'auto';
+export type BaleAccount = { id: number; status: 'connected' | 'disconnected' | 'banned' | 'error'; mode: BaleMode; phoneMasked: string | null; connectedAt: string | null; lastSeenAt: string | null; lastError: string | null; disconnectedAt: string | null; hasSession: boolean };
+export type BaleMe = {
+  eligible: boolean; masterEnabled: boolean; ready: boolean; account: BaleAccount | null;
+  flow: { step: 'code' | 'password'; expiresAt: string; phoneMasked: string; codeType: string } | null;
+  startsLeft: number; remoteSignOut?: 'ok' | 'failed' | 'no_session';
+};
+export type BaleAdmin = {
+  masterEnabled: boolean; keyReady: boolean; sidecar: { configured: boolean; reachable: boolean };
+  limits: { gapMinS: number; gapMaxS: number; perHour: number; perDay: number; newChatsPerDay: number; quietStart: string; quietEnd: string };
+  experts: { userId: number; name: string; account: (BaleAccount & { user: { id: number; name: string } }) | null }[];
+};
+export type BaleAuditItem = { id: number; at: string; actor: string | null; accountId: number | null; customerId: number | null; action: string; outcome: string; detail: Record<string, unknown> | null };
+export type BaleChat = {
+  customerId: number; masterEnabled: boolean; readOnly: true; conversationMode: 'assistant' | 'human' | null;
+  expert: { name: string; connected: boolean; mode: BaleMode } | null;
+  messages: { id: number; direction: 'in' | 'out'; text: string | null; hasFile: boolean; status: string | null; createdAt: string; expertName: string | null }[];
+};
+
+export const BALE_TRAINEES: readonly number[] = [5, 19, 20];
+type U = { id?: number; role?: string | null; salespersonId?: number | null } | null | undefined;
+/** May connect an own Bale account (mirrors server baleEligible). */
+export const baleCanConnect = (u: U) => Boolean(u && u.id !== 29 && u.role === 'salesperson' && u.salespersonId && !BALE_TRAINEES.includes(u.salespersonId));
+/** May open «اتصال بله» page (experts) or manage it (admin, never 29). */
+export const baleNavVisible = (u: U) => Boolean(u && u.id !== 29 && (u.role === 'admin' || baleCanConnect(u)));
+/** May see the read-only «گفتگوی بله» section on a customer (customer scope is checked on the server). */
+export const baleChatVisible = baleNavVisible;
+
+export const MODE_LABEL: Record<BaleMode, string> = { off: 'خاموش', approve_first: 'اول تأیید من', auto: 'خودکار' };
+export const MODE_HINT: Record<BaleMode, string> = {
+  off: 'هیچ پیامی از حساب شما فرستاده نمی‌شود.',
+  approve_first: 'هر پیام اول برای شما می‌آید و فقط بعد از تأیید شما فرستاده می‌شود.',
+  auto: 'پیام‌هایی که خودتان دستور داده‌اید یا یادآورشان رسیده، با رعایت سقف‌ها و ساعت آرام خودکار فرستاده می‌شود.',
+};
+export const STATUS_LABEL: Record<BaleAccount['status'], string> = { connected: 'وصل', disconnected: 'قطع', banned: 'مسدود', error: 'خطا' };
+export const toFaDigits = (s: string) => s.replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
+export const toEnDigits = (s: string) => s.replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
