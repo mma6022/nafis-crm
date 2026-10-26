@@ -300,7 +300,9 @@ try {
       assert.equal((await S(29, "GET", `/assistant/threads/${ahT}/messages`)).s, 403); assert.equal((await S(29, "POST", `/assistant/threads/${ahT}/messages`, { body: "x" })).s, 403);
       const l29 = (await S(29, "GET", "/admin/assistants")); assert.equal(l29.s, 200); assert.equal(l29.j.managerAccess, false);
       assert.ok(!l29.j.assistants.some(a => a.slug === "ahmad")); assert.ok(l29.j.assistants.some(a => a.slug === "sarina") && l29.j.assistants.some(a => a.slug === "somayeh")); // other cards unchanged
-      assert.equal((await S(29, "GET", "/admin/assistant-audit")).s, 200); assert.equal((await S(1, "GET", "/admin/assistants")).j.managerAccess, true);
+      { const a29 = await S(29, "GET", "/admin/assistant-audit"), a1 = await S(1, "GET", "/admin/assistant-audit");
+        assert.equal(a29.s, 200); assert.ok(a1.j.items.some(x => x.assistantId === As.ahmad.id)); assert.ok(!a29.j.items.some(x => x.assistantId === As.ahmad.id)); assert.ok(a29.j.items.length > 0); }
+      assert.equal((await S(1, "GET", "/admin/assistants")).j.managerAccess, true);
       assert.equal((await S(1, "GET", "/admin/assistants/manager-settings")).s, 200);
       assert.equal(db.prepare("SELECT COUNT(*) n FROM assistant_tokens WHERE assistant_id=? AND name='x'").get(As.ahmad.id).n, 0);
       assert.equal(db.prepare("SELECT enabled FROM assistants WHERE id=?").get(As.ahmad.id).enabled, 1);

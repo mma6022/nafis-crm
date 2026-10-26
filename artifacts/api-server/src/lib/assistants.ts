@@ -1000,7 +1000,10 @@ export function createAssistants(deps: Deps) {
   staff.get("/admin/assistant-audit", admin, (req, res) => {
     const aid = req.query.assistantId ? Number(req.query.assistantId) : null;
     const limit = Math.max(1, Math.min(200, Number(req.query.limit ?? 100) || 100));
-    const items = rows<any>(`SELECT * FROM assistant_audit ${aid ? "WHERE assistant_id=?" : ""} ORDER BY id DESC LIMIT ?`, ...(aid ? [aid] : []), limit)
+    // user 29 (excluded) never sees the manager assistant's audit rows; the rest of the audit stays visible
+    const hideMgr = noMgr(res.locals.assistantAdmin);
+    const w = [aid ? "assistant_id=?" : "", hideMgr ? "(assistant_id IS NULL OR assistant_id NOT IN (SELECT id FROM assistants WHERE scope_rule='manager'))" : ""].filter(Boolean);
+    const items = rows<any>(`SELECT * FROM assistant_audit ${w.length ? "WHERE " + w.join(" AND ") : ""} ORDER BY id DESC LIMIT ?`, ...(aid ? [aid] : []), limit)
       .map(x => ({ id: x.id, at: x.at, assistantId: x.assistant_id, actor: x.actor_label, action: x.action, customerId: x.customer_id, outcome: x.outcome, detail: x.detail_json ? JSON.parse(x.detail_json) : null }));
     res.json({ items });
   });
