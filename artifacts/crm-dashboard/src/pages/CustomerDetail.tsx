@@ -38,6 +38,7 @@ import { DataAccuracyCard } from '@/features/team-commission/DataAccuracyCard';
 import { CustomerName, customerNameText } from '@/components/customer/CustomerName';
 import { VoiceNoteButton } from '@/features/voice-notes/VoiceNoteButton';
 import { BaleChatSection } from '@/features/bale/BaleChatSection';
+import { BaleLinkBadge } from '@/features/bale/BaleLinkBadge';
 import { baleChatVisible } from '@/features/bale/api';
 
 const faNum = (n: number) => n.toLocaleString('fa-IR');
@@ -447,7 +448,7 @@ export default function CustomerDetail() {
       <div className="who">
         <span className="csx-av" aria-hidden="true">{initialsOf(customer.name)}</span>
         <div style={{ minWidth: 0 }}>
-          <h2 id="customer-hero-name" className="kzs-wrap"><CustomerName id={customer.id} name={customer.name} nameTestId="text-customer-name" badgeTestId="text-customer-id" /><KazemiSourceChip source={kazemiSourceOf(customer)} testId="chip-kazemi-source" /></h2>
+          <h2 id="customer-hero-name" className="kzs-wrap"><CustomerName id={customer.id} name={customer.name} nameTestId="text-customer-name" badgeTestId="text-customer-id" /><KazemiSourceChip source={kazemiSourceOf(customer)} testId="chip-kazemi-source" />{baleOn ? <BaleLinkBadge customerId={customer.id} /> : null}</h2>
           <div className="sub">کارشناس: {handoff ? handoff.closerName : customer.salespersonName || 'بدون تخصیص'}</div>
         </div>
       </div>

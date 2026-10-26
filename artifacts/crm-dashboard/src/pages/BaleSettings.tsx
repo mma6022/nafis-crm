@@ -10,6 +10,7 @@ import { baleCanConnect, baleFetch, baleWhen, balePill, faNum, MODE_HINT, MODE_L
 import { BaleOutboxPanel } from '@/features/bale/BaleOutboxPanel';
 import { BaleUnknownPanel } from '@/features/bale/BaleUnknownPanel';
 import { BaleTestPanel } from '@/features/bale/BaleTestPanel';
+import { BaleContactScanPanel } from '@/features/bale/BaleContactScanPanel';
 import '@/features/bale/bale.css';
 
 const ME_KEY = ['bale', 'me'] as const;
@@ -253,6 +254,7 @@ const AUDIT_FA: Record<string, string> = {
   'test.disconnect': 'حساب تستی: قطع اتصال', 'test.send_request': 'حساب تستی: درخواست ارسال', 'test.send': 'حساب تستی: ارسال', 'test.inbound': 'حساب تستی: پیام دریافتی',
   'admin.attachments_on': 'روشن کردن ارسال فایل طرح', 'admin.attachments_off': 'خاموش کردن ارسال فایل طرح', 'plan_file.upload': 'بارگذاری فایل طرح', 'plan_file.remove': 'حذف فایل طرح',
   'outbox.assistant_file': 'پیشنهاد فایل طرح توسط دستیار',
+  'contacts.scan': 'اسکن مخاطب‌های بله', 'contacts.link': 'اتصال مخاطب بله به مشتری', 'contacts.unlink': 'قطع اتصال مخاطب بله',
   'test.auto_stop': 'حساب تستی: توقف خودکار', 'test.session.attach': 'حساب تستی: باز کردن نشست',
 };
 const OUT_FA: Record<string, string> = { ok: 'موفق', forbidden: 'بدون دسترسی', not_in_scope: 'خارج از محدوده', disabled: 'خاموش', rate_limited: 'سقف', wrong_code: 'کد نادرست', wrong_password: 'رمز نادرست', password_needed: 'نیاز به رمز', code_expired: 'منقضی', error: 'خطا', not_allowlisted: 'خارج از فهرست تستی', customer_number: 'شماره‌ی مشتری', queued: 'در صف', sent: 'فرستاده شد', stored: 'ذخیره شد', test_disabled: 'کلید تستی خاموش' };
@@ -267,6 +269,7 @@ export default function BaleSettings() {
       <p>{isAdmin ? 'روشن و خاموش کردن بله، وضعیت اتصال کارشناس‌ها و گزارش رویدادها.' : 'حساب بله‌ی شخصی‌تان را امن به CRM وصل کنید تا گفتگوی هر مشتری در پرونده‌اش دیده شود.'}</p></div></div>
     {session.isLoading ? <SkeletonPanel rows={3} /> : <div style={{ display: 'grid', gap: 16 }}>
       {expert ? <ExpertWizard /> : null}
+      {expert || isAdmin ? <BaleContactScanPanel /> : null}
       {expert ? <BaleUnknownPanel /> : null}
       {expert ? <BaleOutboxPanel /> : null}
       {isAdmin ? <AdminPanel /> : null}

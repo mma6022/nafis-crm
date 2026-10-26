@@ -348,6 +348,67 @@ class LiveSessionTest(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(sidecar.is_loopback_http(u))
 
 
+class FakeContacts(FakeLive):
+    """Fake contact book: GetContacts → ids, LoadUsers → names, LoadFullUsers → phones. Records every call (all reads)."""
+    mode = "contacts"
+
+    async def __call__(self, method):
+        self.calls.append(("call", type(method).__name__))
+        if FakeContacts.mode == "no_contacts":
+            raise BaleErr("METHOD_NOT_AVAILABLE")
+        return SimpleNamespace(users=[SimpleNamespace(id=i, type=1) for i in (11, 12, 13)])
+
+    async def load_dialogs(self, limit=40, offset_date=-1, exclude_pinned=False):
+        self.calls.append(("dialogs", offset_date))
+        return [SimpleNamespace(peer=SimpleNamespace(id=21, type=SimpleNamespace(value=1)), sort_date=5),
+                SimpleNamespace(peer=SimpleNamespace(id=900, type=SimpleNamespace(value=2)), sort_date=4)]
+
+    async def load_users(self, peers):
+        self.calls.append(("users", [p.id for p in peers]))
+        names = {11: ("Ali", "مشتری ۱۲۳"), 12: ("Sara", None), 13: ("bot", None), 21: ("Reza", "رضا")}
+        return [SimpleNamespace(id=p.id, name=names[p.id][0], local_name=names[p.id][1], is_bot=p.id == 13, is_deleted=False) for p in peers]
+
+    async def load_full_users(self, peers):
+        self.calls.append(("full", [p.id for p in peers]))
+        return [SimpleNamespace(id=11, contact_info=SimpleNamespace(value=989120000011)), SimpleNamespace(id=12, contact_info=None)]
+
+
+class ContactsTest(LiveSessionTest):
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        FakeContacts.mode = "contacts"; self.state.session_factory = FakeContacts; self.now = [1000.0]; self.state.clock = lambda: self.now[0]
+
+    async def test_contacts_read_only_rate_limited_and_not_logged(self):
+        s, j = await self.post("/v1/contacts", {"accountRef": "acc-1"}); self.assertEqual((s, j["error"]), (409, "not_attached"))
+        await self.post("/v1/session/attach", {"accountRef": "acc-1", "token": "JWT-LIVE", "deviceHash": DH}); live = FakeLive.instances[-1]
+        s, j = await self.post("/v1/contacts", {"accountRef": "acc-1"})
+        self.assertEqual(s, 200); self.assertEqual(j["source"], "contacts"); self.assertFalse(j["truncated"])
+        self.assertEqual(sorted(j["contacts"], key=lambda x: x["baleUserId"]), [
+            {"baleUserId": "11", "name": "Ali", "localName": "مشتری ۱۲۳", "phone": "09120000011"},
+            {"baleUserId": "12", "name": "Sara", "localName": None, "phone": None}])
+        kinds = {c[0] for c in live.calls}; self.assertTrue(kinds <= {"call", "users", "full"})  # reads only: no send / typing / search / import
+        s, j = await self.post("/v1/contacts", {"accountRef": "acc-1"}); self.assertEqual((s, j["error"]), (429, "rate_limited")); self.assertGreater(j["retryAfterS"], 0)
+        self.now[0] += sidecar.CONTACTS_COOLDOWN_S + 1
+        FakeContacts.mode = "no_contacts"; live.calls.clear()
+        s, j = await self.post("/v1/contacts", {"accountRef": "acc-1"})
+        self.assertEqual(s, 200); self.assertEqual(j["source"], "dialogs")
+        self.assertEqual(j["contacts"], [{"baleUserId": "21", "name": "Reza", "localName": "رضا", "phone": None}])  # groups/channels skipped
+        self.assertNotIn("full", {c[0] for c in live.calls})
+        logs = self.logbuf.getvalue()
+        for secret in ["09120000011", "989120000011", "Ali", "Sara", "Reza", "مشتری", "JWT-LIVE", TOKEN]:
+            self.assertNotIn(secret, logs)
+
+    async def test_send_by_known_peer_without_phone(self):
+        await self.post("/v1/session/attach", {"accountRef": "acc-1", "token": "JWT-LIVE", "deviceHash": DH}); live = FakeLive.instances[-1]
+        s, j = await self.post("/v1/send", {"accountRef": "acc-1", "phone": "", "peerId": "777", "text": "x", "typingMs": 0})
+        self.assertEqual((s, j["peerId"]), (200, "777")); self.assertEqual(live.calls, [("send", 777, "x")])
+        s, j = await self.post("/v1/send", {"accountRef": "acc-1", "phone": "", "peerId": None, "text": "x", "typingMs": 0}); self.assertEqual(s, 400)
+
+    def test_contact_phone_normalizes(self):
+        f = lambda v: sidecar.contact_phone(SimpleNamespace(contact_info=SimpleNamespace(value=v)))
+        self.assertEqual([f(989120000033), f("09120000033"), f(9120000033), f(982100000055), f(None), f(12)], ["09120000033"] * 3 + [None, None, None])
+
+
 class VendoredLibTest(unittest.TestCase):
     def test_vendored_client_never_writes_a_session(self):
         d = tempfile.mkdtemp(); cwd = os.getcwd(); os.chdir(d)

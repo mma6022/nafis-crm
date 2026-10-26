@@ -36,7 +36,10 @@ export interface BaleSidecar {
   send(p: { accountRef: string; phone: string; peerId: string | null; text: string; typingMs: number }): Promise<{ messageId: string; peerId: string }>;
   /** Sidecar 1b-0.3: one plan file as a Bale document with a caption (the API already read + sha-checked the file). */
   sendFile(p: BaleSendFileIn): Promise<{ messageId: string; peerId: string }>;
+  /** Sidecar 1b-0.4: READ-ONLY contact list (GetContacts → names/phones; dialog list as fallback). Rate-limited by the sidecar. */
+  contacts(p: { accountRef: string }): Promise<BaleContactsOut>;
 }
+export type BaleContactsOut = { source: "contacts" | "dialogs"; truncated: boolean; contacts: { baleUserId: string; name: string; localName: string | null; phone: string | null }[] };
 export type BaleSendFileIn = { accountRef: string; phone: string; peerId: string | null; caption: string; fileName: string; mime: string; fileB64: string; sha256: string; typingMs: number };
 
 const KNOWN = new Set<string>(["phone_invalid", "rate_limited", "number_banned", "wrong_code", "code_expired", "sign_up_needed", "wrong_password", "flow_expired", "unauthorized", "unknown",
@@ -103,6 +106,14 @@ export function createHttpBaleSidecar(env: () => KeyEnv, opts: { timeoutMs?: num
       const j = await call<any>("/v1/send-file", p, 120_000); // upload of up to 10 MB
       if (j?.messageId == null || j?.peerId == null) throw new BaleSidecarError("sidecar_bad_response");
       return { messageId: String(j.messageId), peerId: String(j.peerId) };
+    },
+    async contacts(p) {
+      const j = await call<any>("/v1/contacts", p, 180_000);
+      if (!Array.isArray(j?.contacts) || (j.source !== "contacts" && j.source !== "dialogs")) throw new BaleSidecarError("sidecar_bad_response");
+      const str = (v: unknown, n: number) => (v == null || v === "" ? null : String(v).slice(0, n));
+      return { source: j.source, truncated: j.truncated === true,
+        contacts: j.contacts.filter((c: any) => c && /^\d{1,20}$/.test(String(c.baleUserId ?? ""))).slice(0, 5000)
+          .map((c: any) => ({ baleUserId: String(c.baleUserId), name: str(c.name, 120) ?? "", localName: str(c.localName, 120), phone: str(c.phone, 20) })) };
     },
   };
 }

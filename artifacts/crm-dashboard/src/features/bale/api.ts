@@ -102,3 +102,20 @@ export type BaleTest = {
 export const TEST_MSG_STATUS_LABEL: Record<BaleTestMessage['status'], string> = {
   queued: 'در صف', sending: 'در حال ارسال', sent: 'فرستاده شد', failed: 'ناموفق', blocked: 'فرستاده نشد', received: 'دریافت شد', external: 'از گوشی تستی',
 };
+
+/* «اسکن بله و اتصال مشتری» */
+export type BaleMatchMethod = 'id' | 'phone' | 'name' | 'manual';
+export type BaleScanLink = { id: number; customerId: number; baleUserId: string; method: BaleMatchMethod; linkedAt: string };
+export type BaleScanCandidate = { customerId: number; name: string; method: BaleMatchMethod; phoneMasked: string | null; linkedToOther: boolean };
+export type BaleScanRow = { baleUserId: string; contactName: string; phoneMasked: string | null; note: null | 'name_mismatch' | 'conflict' | 'duplicate' | 'many'; link: BaleScanLink | null; candidates: BaleScanCandidate[] };
+export type BaleScanResult = { scanId: string; source: 'contacts' | 'dialogs'; truncated: boolean; accountId: number; expert: string; all: boolean;
+  counts: { contacts: number; confident: number; review: number; notFound: number }; confident: BaleScanRow[]; review: BaleScanRow[]; notFound: BaleScanRow[] };
+export type BaleScanStatus = { admin: boolean; masterEnabled: boolean; cooldownS: number;
+  accounts: { id: number; userId: number; name: string; session: BaleSession; nextScanInS: number; links: number }[] };
+export type BaleLinkResult = { ok: true; linked: { baleUserId: string; customerId: number; linkId: number; method: BaleMatchMethod }[]; skipped: { baleUserId: string; customerId: number; reason: string }[] };
+export const METHOD_LABEL: Record<BaleMatchMethod, string> = { id: 'شناسه در نام', phone: 'شماره', name: 'نام', manual: 'انتخاب دستی' };
+export const SCAN_NOTE_LABEL: Record<NonNullable<BaleScanRow['note']>, string> = {
+  name_mismatch: 'شناسه پیدا شد ولی نام با پرونده نمی‌خواند', conflict: 'شناسه و شماره به دو مشتری مختلف می‌رسند',
+  duplicate: 'چند مخاطب به همین مشتری می‌رسند', many: 'چند مشتری با این نام',
+};
+export const SKIP_LABEL: Record<string, string> = { out_of_scope: 'مشتری شما نیست', not_in_scan: 'در اسکن نبود', customer_linked: 'این مشتری به مخاطب دیگری وصل است', contact_linked: 'این مخاطب به مشتری دیگری وصل است' };

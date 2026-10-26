@@ -28,6 +28,7 @@ import { baleHasKey, baleSessionAad, baleSidecarToken, openBaleSession, sealBale
 import { BaleSidecarError, type BaleSidecar } from "./bale-sidecar-client";
 import { createBaleOutbox, ensureBaleOutboxSchema, BLOCK_FA } from "./bale-outbox";
 import multer from "multer";
+import { ensureCustomerBaleLinks, matchContacts, maskPhone, normMobile, peerTag, type BaleScanContact, type MatchRow } from "./bale-contact-links";
 import { createBalePlanFiles, ensureBalePlanFilesSchema, BALE_PLAN_FILE_MAX_BYTES, BALE_PLAN_FILE_TYPES } from "./bale-plan-files";
 
 type Db = DatabaseSync;
@@ -93,6 +94,7 @@ export function ensureBaleSchema(db: Db, nowIso = new Date().toISOString()): voi
   ensureBaleOutboxSchema(db);
   ensureBaleTestSchema(db);
   ensureBalePlanFilesSchema(db);
+  ensureCustomerBaleLinks(db);
   const ins = db.prepare("INSERT OR IGNORE INTO bale_settings(key,value,updated_at) VALUES(?,?,?)");
   for (const [k, v] of Object.entries(BALE_DEFAULT_SETTINGS)) ins.run(k, v, nowIso);
 }
@@ -143,6 +145,16 @@ const ERR_FA: Record<string, string> = {
   already_connected: "حساب بله‌ی شما همین الان وصل است.",
   unauthorized: "سرویس بله درخواست را نپذیرفت. به مدیر خبر بدهید.",
   unknown: "خطای ناشناخته از بله. دوباره امتحان کنید.",
+  forbidden: "دسترسی ندارید.",
+  scan_too_soon: "اسکن بله هر ۵ دقیقه یک بار ممکن است. کمی بعد دوباره امتحان کنید.",
+  not_attached: "اتصال بله‌ی این حساب هنوز کامل نشده است. یک دقیقه‌ی دیگر دوباره امتحان کنید.",
+  session_invalid: "نشست بله منقضی شده است. حساب بله را دوباره وصل کنید.",
+  account_banned: "حساب بله مسدود است.",
+  timeout: "بله دیر جواب داد. کمی بعد دوباره امتحان کنید.",
+  client_error: "خواندن فهرست مخاطب‌ها از بله ممکن نشد. کمی بعد دوباره امتحان کنید.",
+  scan_expired: "نتیجه‌ی اسکن قدیمی شده است. دوباره اسکن کنید.",
+  bad_request: "درخواست نامعتبر است.",
+  not_found: "پیدا نشد.",
 };
 
 export function createBale(deps: BaleDeps) {
@@ -464,6 +476,124 @@ export function createBale(deps: BaleDeps) {
     const u = res.locals.baleUser; const a = ownAccount(req, res); if (!a) return;
     if (!outbox.cancelReminder(u, a, Number(req.params.id))) return fail(res, 404, "not_found");
     res.json({ ok: true });
+  });
+
+  /* ---------------- «اسکن بله و اتصال مشتری»: read-only contact scan → expert-confirmed links (customer_bale_links) ---------------- */
+  const SCAN_COOLDOWN_MS = 5 * 60_000; const SCAN_TTL_MS = 30 * 60_000;
+  type Scan = { id: string; userId: number; accountId: number; expertUserId: number; all: boolean; at: number; contacts: Map<string, { method: Map<number, string> }> };
+  const scans = new Map<string, Scan>(); const lastScan = new Map<number, number>();
+  const scanner = (req: Request, res: Response, next: NextFunction) => {
+    const u = me(res); if (!u) return fail(res, 401, "unauthorized");
+    const isAdmin = u.role === "admin" && !EXCLUDED_USER_IDS.includes(u.id) && u.active !== 0;
+    if (!isAdmin && !baleEligible(u)) { audit({ req, u, action: `${req.method} ${req.path}`, outcome: "forbidden" }); return fail(res, 403, "forbidden"); }
+    res.locals.scanUser = u; res.locals.scanAdmin = isAdmin; next();
+  };
+  const activeLinks = (expertUserId: number) => rows<any>("SELECT * FROM customer_bale_links WHERE expert_user_id=? AND unlinked_at IS NULL", expertUserId);
+  const scopeCustomers = (all: boolean, spId: number | null) => all
+    ? rows<any>("SELECT id,name,phone,salesperson_id FROM customers WHERE merged_into_customer_id IS NULL")
+    : rows<any>("SELECT id,name,phone,salesperson_id FROM customers WHERE salesperson_id=? AND merged_into_customer_id IS NULL", spId);
+  const inScope = (all: boolean, spId: number | null, customerId: number) => {
+    const c = Number.isSafeInteger(customerId) && customerId > 0 ? row<any>("SELECT id,name,phone,salesperson_id,merged_into_customer_id FROM customers WHERE id=?", customerId) : undefined;
+    return c && c.merged_into_customer_id == null && (all || (spId != null && c.salesperson_id === spId)) ? c : undefined;
+  };
+  /** Which Bale account a scan reads: the expert's own; admin picks a connected expert account (body.accountId). */
+  const scanAccount = (res: Response, accountId: unknown) => {
+    const u = res.locals.scanUser;
+    if (!res.locals.scanAdmin || (accountId == null && accountOf(u.id))) return accountOf(u.id);
+    const a = row<any>("SELECT * FROM bale_accounts WHERE id=? AND kind<>'system_test'", Number(accountId));
+    return a && baleEligible(userRow(a.user_id)) ? a : undefined;
+  };
+  function linkView(l: any) { return l ? { id: l.id, customerId: l.customer_id, baleUserId: l.bale_user_id, method: l.match_method, linkedAt: l.linked_at } : null; }
+  staff.get("/bale/contact-scan", scanner, (_req, res) => {
+    const u = res.locals.scanUser; const isAdmin = res.locals.scanAdmin;
+    const accs = isAdmin ? rows<any>("SELECT * FROM bale_accounts WHERE kind<>'system_test' AND status='connected' ORDER BY id").filter(a => baleEligible(userRow(a.user_id)))
+      : [accountOf(u.id)].filter(a => a && a.status === "connected");
+    res.json({ admin: isAdmin, masterEnabled: masterOn(), cooldownS: SCAN_COOLDOWN_MS / 1000,
+      accounts: accs.map(a => ({ id: a.id, userId: a.user_id, name: nameOf(userRow(a.user_id)), session: outbox.liveState(a),
+        nextScanInS: Math.max(0, Math.ceil(((lastScan.get(a.id) ?? 0) + SCAN_COOLDOWN_MS - now().getTime()) / 1000)),
+        links: Number(row<any>("SELECT count(*) n FROM customer_bale_links WHERE expert_user_id=? AND unlinked_at IS NULL", a.user_id)?.n ?? 0) })) });
+  });
+  staff.post("/bale/contact-scan", scanner, async (req, res) => {
+    const u = res.locals.scanUser; const all = Boolean(res.locals.scanAdmin);
+    if (!masterOn()) return fail(res, 423, "bale_disabled");
+    const a = scanAccount(res, req.body?.accountId);
+    if (!a || a.status !== "connected" || !a.session_ct) return fail(res, 409, "not_connected");
+    const t0 = now().getTime(); const last = lastScan.get(a.id) ?? 0;
+    if (t0 - last < SCAN_COOLDOWN_MS) { audit({ req, u, accountId: a.id, action: "contacts.scan", outcome: "rate_limited" }); return void res.status(429).json({ error: "scan_too_soon", message: ERR_FA.scan_too_soon, retryAfterS: Math.ceil((last + SCAN_COOLDOWN_MS - t0) / 1000) }); }
+    lastScan.set(a.id, t0);
+    let got: { source: "contacts" | "dialogs"; contacts: BaleScanContact[]; truncated: boolean };
+    try { got = await deps.sidecar.contacts({ accountRef: `acc-${a.id}` }); }
+    catch (e) {
+      const code = e instanceof BaleSidecarError ? e.code : "unknown";
+      audit({ req, u, accountId: a.id, action: "contacts.scan", outcome: "error", detail: { code } });
+      if (e instanceof BaleSidecarError) return fail(res, code === "rate_limited" ? 429 : code === "not_attached" ? 409 : code === "session_invalid" || code === "account_banned" ? 409 : 502, code === "rate_limited" ? "scan_too_soon" : code);
+      return sidecarFail(res, e);
+    }
+    const expert = userRow(a.user_id);
+    const customers = scopeCustomers(all, expert?.salesperson_id ?? null);
+    const byId = new Map(customers.map(c => [c.id, c]));
+    const m = matchContacts(got.contacts, customers);
+    const links = activeLinks(a.user_id); const linkByPeer = new Map(links.map(l => [l.bale_user_id, l])); const linkByCustomer = new Map(links.map(l => [l.customer_id, l]));
+    const scan: Scan = { id: randomUUID(), userId: u.id, accountId: a.id, expertUserId: a.user_id, all, at: t0, contacts: new Map() };
+    for (const [k, v] of scans) if (v.at < t0 - SCAN_TTL_MS || (v.userId === u.id && v.accountId === a.id)) scans.delete(k);
+    const view = (r: MatchRow) => {
+      scan.contacts.set(r.contact.baleUserId, { method: new Map(r.candidates.map(c => [c.customerId, c.method])) });
+      const link = linkByPeer.get(r.contact.baleUserId);
+      return { baleUserId: r.contact.baleUserId, contactName: r.label.slice(0, 80), phoneMasked: maskPhone(normMobile(r.contact.phone)), note: r.note, link: linkView(link),
+        candidates: r.candidates.slice(0, 8).map(c => { const cu = byId.get(c.customerId); const other = linkByCustomer.get(c.customerId);
+          return { customerId: c.customerId, name: cu?.name ?? "", method: c.method, phoneMasked: maskPhone(normMobile(cu?.phone)),
+            linkedToOther: Boolean(other && other.bale_user_id !== r.contact.baleUserId) }; }) };
+    };
+    const out = { scanId: scan.id, source: got.source, truncated: got.truncated, accountId: a.id, expert: nameOf(expert), all,
+      counts: { contacts: got.contacts.length, confident: m.confident.length, review: m.review.length, notFound: m.notFound.length },
+      confident: m.confident.map(view), review: m.review.map(view), notFound: m.notFound.map(view) };
+    scans.set(scan.id, scan);
+    audit({ req, u, accountId: a.id, action: "contacts.scan", outcome: "ok", detail: { source: got.source, ...out.counts, admin: all } });
+    res.json(out);
+  });
+  staff.post("/bale/contact-links", scanner, (req, res) => {
+    const u = res.locals.scanUser;
+    const scan = scans.get(String(req.body?.scanId ?? ""));
+    if (!scan || scan.userId !== u.id || scan.at < now().getTime() - SCAN_TTL_MS) return fail(res, 410, "scan_expired");
+    const items: any[] = Array.isArray(req.body?.items) ? req.body.items.slice(0, 500) : [];
+    if (!items.length) return fail(res, 400, "bad_request");
+    const expert = userRow(scan.expertUserId); const spId = expert?.salesperson_id ?? null;
+    if (!baleEligible(expert)) return fail(res, 409, "not_connected");
+    const done: { baleUserId: string; customerId: number; linkId: number; method: string }[] = []; const skipped: { baleUserId: string; customerId: number; reason: string }[] = [];
+    for (const it of items) {
+      const peer = String(it?.baleUserId ?? ""); const cid = Number(it?.customerId);
+      const sc = scan.contacts.get(peer);
+      if (!sc) { skipped.push({ baleUserId: peer, customerId: cid, reason: "not_in_scan" }); continue; }
+      if (!inScope(scan.all, spId, cid)) { skipped.push({ baleUserId: peer, customerId: cid, reason: "out_of_scope" }); continue; }
+      const byPeer = row<any>("SELECT * FROM customer_bale_links WHERE expert_user_id=? AND bale_user_id=? AND unlinked_at IS NULL", scan.expertUserId, peer);
+      if (byPeer?.customer_id === cid) { done.push({ baleUserId: peer, customerId: cid, linkId: byPeer.id, method: byPeer.match_method }); continue; }
+      if (byPeer) { skipped.push({ baleUserId: peer, customerId: cid, reason: "contact_linked" }); continue; }
+      if (row("SELECT 1 FROM customer_bale_links WHERE expert_user_id=? AND customer_id=? AND unlinked_at IS NULL", scan.expertUserId, cid)) { skipped.push({ baleUserId: peer, customerId: cid, reason: "customer_linked" }); continue; }
+      const method = sc.method.get(cid) ?? "manual";
+      const id = Number(run("INSERT INTO customer_bale_links(bale_user_id,customer_id,expert_user_id,account_id,match_method,linked_at,linked_by) VALUES(?,?,?,?,?,?,?)",
+        peer, cid, scan.expertUserId, scan.accountId, method, iso(), u.id).lastInsertRowid);
+      audit({ req, u, accountId: scan.accountId, customerId: cid, action: "contacts.link", outcome: "ok", detail: { method, linkId: id, peer: peerTag(peer) } });
+      done.push({ baleUserId: peer, customerId: cid, linkId: id, method });
+    }
+    res.json({ ok: true, linked: done, skipped });
+  });
+  staff.post("/bale/contact-links/:id/unlink", scanner, (req, res) => {
+    const u = res.locals.scanUser;
+    const l = row<any>("SELECT * FROM customer_bale_links WHERE id=? AND unlinked_at IS NULL", Number(req.params.id));
+    if (!l || (!res.locals.scanAdmin && l.expert_user_id !== u.id)) return fail(res, 404, "not_found");
+    run("UPDATE customer_bale_links SET unlinked_at=?, unlinked_by=?, unlink_reason=? WHERE id=?", iso(), u.id, res.locals.scanAdmin && l.expert_user_id !== u.id ? "admin" : "expert", l.id);
+    audit({ req, u, accountId: l.account_id, customerId: l.customer_id, action: "contacts.unlink", outcome: "ok", detail: { linkId: l.id, peer: peerTag(l.bale_user_id) } });
+    res.json({ ok: true });
+  });
+  /** «متصل به بله» badge on the customer profile: admin sees any customer; an eligible expert only their own. */
+  staff.get("/bale/customers/:id/link", (req, res) => {
+    const u = me(res); if (!u) return fail(res, 401, "unauthorized");
+    const v = baleChatViewer(u); if (!v) return fail(res, 403, "forbidden");
+    const cid = Number(req.params.id);
+    const c = inScope(v === "all", u.salesperson_id ?? null, cid); if (!c) return fail(res, 404, "not_found");
+    const l = row<any>("SELECT l.*, u.full_name, u.username FROM customer_bale_links l LEFT JOIN users u ON u.id=l.expert_user_id WHERE l.customer_id=? AND l.unlinked_at IS NULL"
+      + (v === "all" ? "" : " AND l.expert_user_id=" + Number(u.id)) + " ORDER BY l.id DESC LIMIT 1", cid);
+    res.json({ linked: Boolean(l), link: l ? { ...linkView(l), expertName: nameOf({ id: l.expert_user_id, full_name: l.full_name, username: l.username }), canUnlink: v === "all" || l.expert_user_id === u.id } : null });
   });
 
   /* ---------------- admin ---------------- */

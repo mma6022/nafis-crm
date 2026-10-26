@@ -6,13 +6,17 @@
 // "session_invalid" | … → that error), health { bootId, attached }, restart() = new bootId + every client dropped,
 // inbound(apiBase, accountRef, events) = what the real sidecar POSTs to the API for incoming messages.
 // /v1/send-file (plan file: fileB64 + sha256 + mime + caption; checks like the real sidecar) → state.sentFiles (no bytes kept, only size/sha).
+// 1b-0.4: /v1/contacts (READ-ONLY) → state.contacts[accountRef] ?? state.contacts["*"] (fake list), state.contactsSource
+// ("contacts" | "dialogs"), state.contactsCooldownMs (sidecar-side 429 rate_limited), state.contactsError; MOCK_BALE_CONTACTS_FILE seeds it.
+// /v1/send + /v1/send-file accept phone "" when a numeric peerId is given (customer linked via «اسکن بله و اتصال مشتری»).
 // state.blockedPhones (Set) → /v1/send answers peer_blocked for that phone (the UNVERIFIED "this customer blocked you" path).
 import http from "node:http"; import crypto from "node:crypto"; import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
 export function startMockBaleSidecar({ token, port = 0, host = "127.0.0.1" }) {
-  const flows = new Map(); const log = []; const state = { failSignOut: false, down: false, sendError: null, attachError: null, blockedPhones: new Set(), sentFiles: [] };
+  const flows = new Map(); const log = []; const state = { failSignOut: false, down: false, sendError: null, attachError: null, blockedPhones: new Set(), sentFiles: [], contacts: {}, contactsSource: "contacts", contactsCooldownMs: 0, contactsError: null, contactsAt: {} };
   const attached = new Map(); const sent = []; let bootId = crypto.randomBytes(8).toString("hex"); let seq = 5000;
+  const phoneOk = j => /^09\d{9}$/.test(String(j.phone)) || (j.phone === "" && /^\d{1,20}$/.test(String(j.peerId ?? "")));
   const peerOf = phone => String(800000000 + Number(String(phone).slice(-6)));
   const ERR_STATUS = { rate_limited: 429, account_banned: 403, session_invalid: 401, not_attached: 409, peer_not_found: 404, peer_blocked: 403, unknown: 502 };
   const srv = http.createServer((req, res) => {
@@ -34,16 +38,26 @@ export function startMockBaleSidecar({ token, port = 0, host = "127.0.0.1" }) {
       if (req.url === "/v1/send") {
         if (!attached.has(j.accountRef)) return send(409, { error: "not_attached" });
         if (state.sendError) return send(ERR_STATUS[state.sendError] ?? 502, { error: state.sendError });
-        if (!/^09\d{9}$/.test(String(j.phone)) || typeof j.text !== "string" || !j.text) return send(400, { error: "bad_request" });
+        if (!phoneOk(j) || typeof j.text !== "string" || !j.text) return send(400, { error: "bad_request" });
         if (j.phone === "09990000008") return send(404, { error: "peer_not_found" });
         if (state.blockedPhones.has(j.phone)) return send(403, { error: "peer_blocked" }); // UNVERIFIED wording on real Bale
         const m = { accountRef: j.accountRef, phone: j.phone, peerId: j.peerId ?? peerOf(j.phone), text: j.text, typingMs: j.typingMs, messageId: String(++seq) };
         sent.push(m); return send(200, { messageId: m.messageId, peerId: m.peerId });
       }
+      if (req.url === "/v1/contacts") {
+        if (!attached.has(j.accountRef)) return send(409, { error: "not_attached" });
+        if (state.contactsError) return send(ERR_STATUS[state.contactsError] ?? 502, { error: state.contactsError });
+        const t = Date.now(); const last = state.contactsAt[j.accountRef] ?? 0;
+        if (state.contactsCooldownMs && t - last < state.contactsCooldownMs) return send(429, { error: "rate_limited", retryAfterS: Math.ceil((last + state.contactsCooldownMs - t) / 1000) });
+        state.contactsAt[j.accountRef] = t;
+        const list = state.contacts[j.accountRef] ?? state.contacts["*"] ?? [];
+        return send(200, { ok: true, source: state.contactsSource, truncated: false,
+          contacts: list.map(c => state.contactsSource === "dialogs" ? { ...c, localName: null, phone: null } : c) });
+      }
       if (req.url === "/v1/send-file") {
         if (!attached.has(j.accountRef)) return send(409, { error: "not_attached" });
         if (state.sendError) return send(ERR_STATUS[state.sendError] ?? 502, { error: state.sendError });
-        if (!/^09\d{9}$/.test(String(j.phone)) || typeof j.caption !== "string" || j.caption.length > 1024) return send(400, { error: "bad_request" });
+        if (!phoneOk(j) || typeof j.caption !== "string" || j.caption.length > 1024) return send(400, { error: "bad_request" });
         if (!["application/pdf", "image/jpeg", "image/png", "image/webp"].includes(j.mime) || !/^[^/\\]{1,120}$/.test(String(j.fileName ?? ""))) return send(400, { error: "bad_request" });
         const bytes = Buffer.from(String(j.fileB64 ?? ""), "base64");
         if (!bytes.length || bytes.length > 10 * 1024 * 1024 || crypto.createHash("sha256").update(bytes).digest("hex") !== j.sha256) return send(400, { error: "bad_request" });
@@ -91,5 +105,6 @@ export function startMockBaleSidecar({ token, port = 0, host = "127.0.0.1" }) {
 if (process.argv[1]?.endsWith("bale-mock-sidecar.mjs") && fileURLToPath(import.meta.url) === process.argv[1]) {
   const token = fs.readFileSync(process.env.MOCK_BALE_TOKEN_FILE, "utf8").trim();
   const m = await startMockBaleSidecar({ token, port: Number(process.env.MOCK_BALE_PORT || 18470) });
+  if (process.env.MOCK_BALE_CONTACTS_FILE) { const c = JSON.parse(fs.readFileSync(process.env.MOCK_BALE_CONTACTS_FILE, "utf8")); m.state.contacts = c.contacts ?? c; if (c.source) m.state.contactsSource = c.source; }
   console.log("mock bale sidecar on 127.0.0.1:" + m.port);
 }

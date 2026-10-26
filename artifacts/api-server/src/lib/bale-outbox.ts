@@ -212,6 +212,9 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     if (!c || c.salesperson_id !== u.salesperson_id || c.merged_into_customer_id != null) return null;
     return { u, c };
   }
+  /** Active customer_bale_links row for (expert, customer) → Bale user id, else null. */
+  const linkedPeer = (expertUserId: number, customerId: number): string | null =>
+    row<any>("SELECT bale_user_id FROM customer_bale_links WHERE expert_user_id=? AND customer_id=? AND unlinked_at IS NULL", expertUserId, customerId)?.bale_user_id ?? null;
   const hasPriorChat = (accountId: number, customerId: number) => Boolean(
     row("SELECT 1 FROM bale_contacts WHERE account_id=? AND customer_id=? AND has_prior_chat=1", accountId, customerId)
     || row("SELECT 1 FROM bale_messages WHERE account_id=? AND customer_id=? AND direction='in' LIMIT 1", accountId, customerId));
@@ -237,7 +240,9 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     if (o.attachmentId != null && !attachmentUsable(o.attachmentId)) return { ok: false, reason: "attachment_missing" };
     if (pausedOf(a.id, customerId)) return { ok: false, reason: "conversation_paused" };
     const tp = baleTextProblem(text, banned()); if (tp) return { ok: false, reason: tp };
-    const phone = normalizeMobile(own.c.phone); if (!phone) return { ok: false, reason: "no_phone" };
+    // «اسکن بله و اتصال مشتری»: an expert-confirmed link (customer_bale_links) names the Bale user directly; then no mobile is needed.
+    const linked = linkedPeer(a.user_id, customerId);
+    const phone = normalizeMobile(own.c.phone) ?? (linked ? "" : null); if (phone == null) return { ok: false, reason: "no_phone" };
     const prior = hasPriorChat(a.id, customerId);
     if (!prior && !o.explicit) return { ok: false, reason: "no_prior_chat" };
     if (o.stage === "enqueue" && row(`SELECT 1 FROM bale_outbox WHERE account_id=? AND customer_id=? AND status IN ${ACTIVE} AND id<>?`, a.id, customerId, o.selfId ?? 0))
@@ -457,7 +462,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     if (!o.send_now && quietNow()) return hold(quietEnd(), "quiet");
     if (run("UPDATE bale_outbox SET status='sending', attempts=attempts+1, updated_at=? WHERE id=? AND status='queued'", iso(), o.id).changes !== 1) return "raced";
     const contact = row<any>("SELECT peer_id FROM bale_contacts WHERE account_id=? AND customer_id=?", a.id, o.customer_id);
-    const payload = { accountRef: ref(a), phone: r.phone, peerId: contact?.peer_id ?? null, text: o.text, typingMs: Math.min(8000, 1200 + o.text.length * 50) };
+    const payload = { accountRef: ref(a), phone: r.phone, peerId: linkedPeer(a.user_id, o.customer_id) ?? contact?.peer_id ?? null, text: o.text, typingMs: Math.min(8000, 1200 + o.text.length * 50) };
     // Plan file: read + re-verify the bytes right before the send (sha256 vs the DB); one file = one message for every cap.
     let file: { row: any; bytes: Buffer } | null = null;
     if (o.attachment_id != null) {
@@ -541,6 +546,9 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     if (peer) {
       const c = row<any>("SELECT customer_id FROM bale_contacts WHERE account_id=? AND peer_id=?", a.id, peer);
       if (c) return c.customer_id;
+      const l = row<any>(`SELECT l.customer_id FROM customer_bale_links l JOIN customers c ON c.id=l.customer_id
+        WHERE l.expert_user_id=? AND l.bale_user_id=? AND l.unlinked_at IS NULL AND c.salesperson_id=? AND c.merged_into_customer_id IS NULL`, a.user_id, peer, spId);
+      if (l) return l.customer_id;
     }
     const phone = normalizeMobile(ev.peerPhone);
     if (!phone) return null;
@@ -660,7 +668,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
   function sendState(a: any | undefined, customerId: number) {
     const prior = a ? hasPriorChat(a.id, customerId) : false;
     const t = now();
-    return { quietNow: quietNow(t), quietEnd: quietNow(t) ? iso(quietEnd(t)) : null, hasPriorChat: prior,
+    return { quietNow: quietNow(t), quietEnd: quietNow(t) ? iso(quietEnd(t)) : null, hasPriorChat: prior, baleLinked: Boolean(a && linkedPeer(a.user_id, customerId)),
       sentLastHour: a ? sentSince(a.id, 3_600_000) : 0, perHour: num("per_hour", 20), sentToday: a ? sentSince(a.id, 86_400_000) : 0, perDay: num("per_day", 80),
       reminders: a ? rows<any>(`SELECT m.reminder_id,m.text,m.status,r.remind_at FROM bale_reminder_messages m JOIN reminders r ON r.id=m.reminder_id
         WHERE m.account_id=? AND m.customer_id=? AND m.status='scheduled' ORDER BY r.remind_at`, a.id, customerId).map(x => ({ reminderId: x.reminder_id, text: x.text, remindAt: x.remind_at })) : [] };

@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "ven
 
 from aiohttp import web  # noqa: E402
 
-VERSION = "1b-0.3"
+VERSION = "1b-0.4"
 ATTACH_TIMEOUT_S = 25
 MAX_TYPING_MS = 8000
 MAX_TEXT = 4000
@@ -51,6 +51,12 @@ MAX_CAPTION = 1024
 LIB_DEFAULT_DEVICE_HASH = "ce5ced83-a9ab-47fa-80c8-ed425eeb2ace"
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 PHONE_RE = re.compile(r"^09\d{9}$")
+# /v1/contacts (READ-ONLY «اسکن بله»): one scan per account per cooldown; never sends, never adds/removes contacts, never logs names/phones.
+CONTACTS_COOLDOWN_S = 300
+CONTACTS_MAX = 3000
+CONTACTS_CHUNK = 100
+CONTACTS_PAUSE_S = 0.4
+DIALOG_PAGES_MAX = 30
 log = logging.getLogger("bale-sidecar")
 
 
@@ -159,6 +165,7 @@ class State:
     poster: Callable[..., Any] = default_poster
     sleep: Callable[[float], Any] = asyncio.sleep
     pending: set = field(default_factory=set)
+    contacts_at: dict = field(default_factory=dict)  # accountRef -> clock() of the last /v1/contacts scan
 
 
 def read_token(path: Optional[str]) -> str:
@@ -248,6 +255,75 @@ async def _stop(client: Any) -> None:
         await client.stop()
     except Exception:  # best effort
         pass
+
+
+def phone_ok(phone: str, peer: Any) -> bool:
+    """A valid 09.. number, or no number at all when the API already knows the Bale user id (customer_bale_links)."""
+    return bool(PHONE_RE.match(phone)) or (phone == "" and isinstance(peer, (str, int)) and str(peer).isdigit())
+
+
+def contact_phone(full: Any) -> Optional[str]:
+    """FullUser.contact_info.value → 09xxxxxxxxx when it looks like an Iranian mobile; anything else is dropped."""
+    v = getattr(getattr(full, "contact_info", None), "value", None)
+    d = re.sub(r"\D", "", str(v)) if v is not None else ""
+    if d.startswith("0098"):
+        d = d[4:]
+    elif d.startswith("98") and len(d) == 12:
+        d = d[2:]
+    elif d.startswith("0") and len(d) == 11:
+        d = d[1:]
+    return "0" + d if re.fullmatch(r"9\d{9}", d) else None
+
+
+async def read_contacts(c: Any, sleep: Callable[..., Any]) -> dict:
+    """READ-ONLY. GetContacts (user ids) → LoadUsers (name / saved contact name) → LoadFullUsers (phone, best effort).
+    Falls back to the dialog list (private chats only) when the contact list is unavailable or empty."""
+    from aiobale.methods import GetContacts
+    from aiobale.types import InfoPeer
+    from aiobale.enums import ChatType
+    source, ids = "contacts", []
+    try:
+        res = await c(GetContacts())
+        ids = [int(u.id) for u in (getattr(res, "users", None) or []) if getattr(u, "id", None) is not None]
+    except Exception as e:
+        log.warning("/v1/contacts get_contacts unavailable %s", describe(e))
+        ids = []
+    if not ids:
+        source, seen, offset = "dialogs", set(), -1
+        for _ in range(DIALOG_PAGES_MAX):
+            page = await c.load_dialogs(limit=100, offset_date=offset, exclude_pinned=False) or []
+            last = None
+            for d in page:
+                peer = getattr(d, "peer", None); t = getattr(getattr(peer, "type", None), "value", getattr(peer, "type", None))
+                if peer is not None and t == 1 and peer.id not in seen:
+                    seen.add(peer.id); ids.append(int(peer.id))
+                last = getattr(d, "sort_date", None) or getattr(d, "date", None) or last
+            if len(page) < 100 or last is None or last == offset or len(ids) >= CONTACTS_MAX:
+                break
+            offset = last
+            await sleep(CONTACTS_PAUSE_S)
+    truncated = len(ids) > CONTACTS_MAX
+    ids = list(dict.fromkeys(ids))[:CONTACTS_MAX]
+    out: dict = {}
+    for i in range(0, len(ids), CONTACTS_CHUNK):
+        chunk = [InfoPeer(id=x, type=ChatType.PRIVATE) for x in ids[i:i + CONTACTS_CHUNK]]
+        if i:
+            await sleep(CONTACTS_PAUSE_S)
+        for u in await c.load_users(chunk) or []:
+            if getattr(u, "is_deleted", False) or getattr(u, "is_bot", False):
+                continue
+            out[int(u.id)] = {"baleUserId": str(u.id), "name": str(getattr(u, "name", "") or "")[:120],
+                              "localName": str(getattr(u, "local_name", "") or "")[:120] or None, "phone": None}
+        if source == "contacts":
+            try:
+                await sleep(CONTACTS_PAUSE_S)
+                for f in await c.load_full_users(chunk) or []:
+                    uid = getattr(f, "id", None)
+                    if uid is not None and int(uid) in out:
+                        out[int(uid)]["phone"] = contact_phone(f)
+            except Exception as e:  # the phone is optional: names and ids still match
+                log.warning("/v1/contacts full_users unavailable %s", describe(e))
+    return {"source": source, "contacts": list(out.values()), "truncated": truncated}
 
 
 def make_app(state: State) -> web.Application:
@@ -461,7 +537,7 @@ def make_app(state: State) -> web.Application:
         j = await body(request)
         ref = ref_of(j)
         phone, text, peer = str(j.get("phone", "")), j.get("text"), j.get("peerId")
-        if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT or not PHONE_RE.match(phone):
+        if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT or not phone_ok(phone, peer):
             return err(400, "bad_request")
         try:
             typing_ms = max(0, min(MAX_TYPING_MS, int(j.get("typingMs", 0))))
@@ -479,7 +555,8 @@ def make_app(state: State) -> web.Application:
                 if not found or getattr(found, "id", None) is None:
                     return err(404, "peer_not_found")
                 chat_id = int(found.id)
-            sess.peer_phone[str(chat_id)] = phone
+            if phone:
+                sess.peer_phone[str(chat_id)] = phone
             if typing_ms:
                 try:
                     await c.start_typing(chat_id, pt)
@@ -517,7 +594,7 @@ def make_app(state: State) -> web.Application:
         ref = ref_of(j)
         phone, peer, caption = str(j.get("phone", "")), j.get("peerId"), j.get("caption")
         name, mime, b64, sha = j.get("fileName"), j.get("mime"), j.get("fileB64"), j.get("sha256")
-        if (not PHONE_RE.match(phone) or not isinstance(caption, str) or len(caption) > MAX_CAPTION or not isinstance(name, str)
+        if (not phone_ok(phone, peer) or not isinstance(caption, str) or len(caption) > MAX_CAPTION or not isinstance(name, str)
                 or not name.strip() or len(name) > 120 or "/" in name or "\\" in name or not isinstance(mime, str) or not isinstance(b64, str)
                 or not isinstance(sha, str)):
             return err(400, "bad_request")
@@ -543,7 +620,8 @@ def make_app(state: State) -> web.Application:
                 if not found or getattr(found, "id", None) is None:
                     return err(404, "peer_not_found")
                 chat_id = int(found.id)
-            sess.peer_phone[str(chat_id)] = phone
+            if phone:
+                sess.peer_phone[str(chat_id)] = phone
             if typing_ms:
                 try:
                     await c.start_typing(chat_id, pt)
@@ -569,6 +647,31 @@ def make_app(state: State) -> web.Application:
             return err(502, "unknown")
         return web.json_response({"messageId": str(mid), "peerId": str(chat_id)})
 
+    async def contacts(request: web.Request):
+        """READ-ONLY contact list of one attached account («اسکن بله و اتصال مشتری»). Rate-limited per account; the result
+        lives only in this response (never logged, never stored here)."""
+        j = await body(request)
+        ref = ref_of(j)
+        sess = state.sessions.get(ref)
+        if sess is None:
+            return err(409, "not_attached")
+        now = state.clock()
+        last = state.contacts_at.get(ref)
+        if last is not None and now - last < CONTACTS_COOLDOWN_S:
+            return web.json_response({"error": "rate_limited", "retryAfterS": int(CONTACTS_COOLDOWN_S - (now - last)) + 1}, status=429)
+        state.contacts_at[ref] = now
+        try:
+            res = await read_contacts(sess.client, state.sleep)
+        except Exception as e:
+            code_ = error_code(e)
+            log.warning("/v1/contacts error %s", describe(e))
+            if code_ in ("session_invalid", "account_banned"):
+                state.sessions.pop(ref, None)
+                await _stop(sess.client)
+            return err(STATUS[code_], code_)
+        log.info("/v1/contacts ok source=%s n=%d", res["source"], len(res["contacts"]))
+        return web.json_response(res)
+
     async def on_cleanup(_app: web.Application) -> None:
         for ref in list(state.sessions):
             await _stop(state.sessions.pop(ref).client)
@@ -581,6 +684,7 @@ def make_app(state: State) -> web.Application:
     app.router.add_post("/v1/session/detach", detach)
     app.router.add_post("/v1/send", send)
     app.router.add_post("/v1/send-file", send_file)
+    app.router.add_post("/v1/contacts", contacts)
     app.router.add_get("/v1/health", health)
     app.router.add_post("/v1/auth/start", start)
     app.router.add_post("/v1/auth/code", code)
