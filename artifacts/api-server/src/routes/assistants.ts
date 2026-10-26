@@ -6,7 +6,7 @@ import { crmDb } from "../lib/crm-db";
 import { createAssistants, ensureAssistantSchema } from "../lib/assistants";
 import { suggestionsFor, todayCounts } from "../lib/sales-assist";
 import { consultProfile } from "../lib/consult-profile";
-import { siteLeadHistory } from "../lib/site-leads";
+import { activeSiteLeads, siteLeadHistory } from "../lib/site-leads";
 import { baleRunnerSend } from "./bale";
 
 ensureAssistantSchema(crmDb);
@@ -14,7 +14,8 @@ const assistants = createAssistants({
   db: crmDb,
   // v7: the runner reuses the exact CRM read logic (box of 3, «امروز» counters, «اطلاعات مشاوره», site-lead contact time).
   // suggestionsFor is a pure read; recordImpressions is deliberately NOT called for the assistant.
-  sales: { suggestions: (sp, now) => suggestionsFor(sp, now, 3), today: (sp, now) => todayCounts(sp, now), consultProfile, siteLeadHistory },
+  sales: { suggestions: (sp, now) => suggestionsFor(sp, now, 3), today: (sp, now) => todayCounts(sp, now), consultProfile, siteLeadHistory,
+    activeSiteLeads: (now) => activeSiteLeads(undefined, now) },
   actor: (res: Response) => {
     const u = res.locals.authUser as AuthUser | undefined;
     return u ? { id: u.id, role: u.role, salespersonId: u.salespersonId ?? null, name: (u as any).fullName ?? u.username } : null;

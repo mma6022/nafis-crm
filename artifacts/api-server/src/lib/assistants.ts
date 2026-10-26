@@ -14,6 +14,13 @@
  *    sales experts never get a Sarina thread, message, event or bell row; old rows stay in the DB and are filtered at read time).
  *  - never: priority, assignment, money, contracts, case advancement, SMS, customer messages. Trainees see nothing.
  * Out-of-scope customer → 404 not_found (+ audit); disabled → 423; bad/revoked token → 401; banned words → 422.
+ *
+ * v8 «احمد» — the sales-manager assistant (piece A). Talks ONLY to admins (never user 29). Reads every non-trainee expert's
+ * customers (sp ≠ 5/19/20), calls, notes, reminders and cases, plus /manager/* reports, alerts and the ready summaries.
+ * Writes only chat messages / notifications to an admin and its own assistant notes; never reminders or proposals.
+ * Storage: the assistants.kind CHECK only allows sales|filing (no destructive migration), so the row is kind='sales' with
+ * scope_rule='manager', bound_role='admin' and no bound expert. Every load goes through norm(), which reports kind 'manager';
+ * code that does not normalize (or an older release after a rollback) sees a sales row with no expert → scope "0", nobody eligible.
  */
 import express, { Router, type Request, type Response, type NextFunction } from "express";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -21,6 +28,8 @@ import type { DatabaseSync } from "node:sqlite";
 import { ensureSchemaObject } from "./schema-objects";
 import { maskData, maskText, maskPhone } from "./smart-filing";
 import { customerApplicationPayout } from "./customer-application-payout";
+import { MANAGER_RANGES, MANAGER_SLOTS, MANAGER_SETTING_KEYS, MANAGER_DEFAULTS, managerAlerts, managerExperts, managerReport, managerSummary,
+  readManagerSettings, validateManagerSettings, type ManagerRange, type ManagerSlot, type SiteLeadLite } from "./assistant-manager";
 
 export type Db = DatabaseSync;
 export type Actor = { id: number; role: string; salespersonId: number | null; name: string };
@@ -34,6 +43,8 @@ export type SalesReads = {
   consultProfile?: (customerId: number) => { latest: any; versions: any[] };
   /** lib/site-leads.ts siteLeadHistory — site/callback requests with the preferred call time. */
   siteLeadHistory?: (customerId: number) => any[];
+  /** v8 manager: lib/site-leads.ts activeSiteLeads (unanswered site/callback requests with their call deadline). Pure read. */
+  activeSiteLeads?: (now: Date) => Map<number, SiteLeadLite>;
 };
 export type Deps = { db: Db; now?: () => Date; actor: (res: Response) => Actor | null; sales?: SalesReads;
   /** Extra runner routes owned by another module (e.g. Bale POST /bale/send); mounted after auth, before the deny-by-default catch-all. */
@@ -59,7 +70,14 @@ export const SEED = [
   { slug: "mohaddeseh", name: "محدثه", kind: "sales", salespersonId: 4, scopeRule: "p1" },
   { slug: "masoud", name: "مسعود", kind: "sales", salespersonId: 6, scopeRule: "all" },
   { slug: "sarina", name: "سارینا", kind: "filing", salespersonId: null, scopeRule: "registrar" },
+  // v8: stored as kind 'sales' (CHECK constraint) + scope_rule 'manager'; see norm().
+  { slug: "ahmad", name: "احمد", kind: "manager", salespersonId: null, scopeRule: "manager" },
 ] as const;
+/** Row → in-memory view: the manager row is reported as kind 'manager'. */
+export function normAssistant<T extends { kind?: string; scope_rule?: string } | undefined | null>(a: T): T {
+  if (a && a.scope_rule === "manager" && a.kind === "sales") return { ...a, kind: "manager" } as T;
+  return a;
+}
 
 export function ensureAssistantSchema(db: Db, nowIso = new Date().toISOString()): void {
   db.exec(`
@@ -113,13 +131,17 @@ export function ensureAssistantSchema(db: Db, nowIso = new Date().toISOString())
   // «اجازه‌ی استعلام»: who may grant the credit-inquiry permission in smart filing (manager|expert). Default manager.
   // Read-only for now: the live smart-filing flow has no expert permission step yet, so nothing consumes it.
   db.prepare("INSERT OR IGNORE INTO assistant_settings(key,value,updated_at) VALUES('credit_inquiry_permission','manager',?)").run(nowIso);
+  // v8 manager thresholds (new keys only — notification_settings / team_sales_config are not touched).
+  for (const [k, key] of Object.entries(MANAGER_SETTING_KEYS))
+    db.prepare("INSERT OR IGNORE INTO assistant_settings(key,value,updated_at) VALUES(?,?,?)").run(key, String((MANAGER_DEFAULTS as any)[k]), nowIso);
   for (const s of SEED) {
     if (db.prepare("SELECT 1 FROM assistants WHERE slug=?").get(s.slug)) continue;
     const u = s.salespersonId
       ? db.prepare("SELECT id FROM users WHERE salesperson_id=? AND role='salesperson' ORDER BY id LIMIT 1").get(s.salespersonId) as { id: number } | undefined
       : undefined;
     db.prepare(`INSERT INTO assistants(slug,display_name,kind,bound_user_id,bound_salesperson_id,bound_role,scope_rule,enabled,max_msgs_per_hour,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?,0,6,?,?)`).run(s.slug, s.name, s.kind, u?.id ?? null, s.salespersonId, s.kind === "filing" ? "registrar" : null, s.scopeRule, nowIso, nowIso);
+      VALUES(?,?,?,?,?,?,?,0,6,?,?)`).run(s.slug, s.name, s.kind === "manager" ? "sales" : s.kind, u?.id ?? null, s.salespersonId,
+        s.kind === "filing" ? "registrar" : s.kind === "manager" ? "admin" : null, s.scopeRule, nowIso, nowIso);
   }
 }
 
@@ -147,7 +169,7 @@ export function createAssistants(deps: Deps) {
   const run = (sql: string, ...p: any[]) => db.prepare(sql).run(...p);
   const ip = (req: Request) => String((req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() || req.socket.remoteAddress || "").slice(0, 64);
   const fail = (res: Response, status: number, error: string, message?: string) => { if (!res.headersSent) res.status(status).json({ error, ...(message ? { message } : {}) }); };
-  const label = (a: any) => `دستیار ${a.display_name}`;
+  const label = (a: any) => a.scope_rule === "manager" ? `${a.display_name} | مدیر فروش` : `دستیار ${a.display_name}`;
   const setting = (k: string, d: string) => row<{ value: string }>("SELECT value FROM assistant_settings WHERE key=?", k)?.value ?? d;
   const globalOn = () => row<{ value: string }>("SELECT value FROM assistant_settings WHERE key='global_enabled'")?.value === "1";
   const online = (a: any) => Boolean(a?.last_seen_at && now().getTime() - Date.parse(a.last_seen_at) < ONLINE_MS);
@@ -164,6 +186,12 @@ export function createAssistants(deps: Deps) {
   /** SQL predicate over alias `c` + params: the customers this assistant may see. */
   function scopeSql(a: any): { sql: string; params: any[] } {
     const base = "c.merged_into_customer_id IS NULL";
+    if (a.kind === "manager") {
+      const ids = managerExperts(db).map(e => e.salespersonId).filter(id => !TRAINEE_SALESPERSON_IDS.includes(id));
+      if (!ids.length) return { sql: "0", params: [] };
+      return { sql: `${base} AND c.salesperson_id IN (${ids.map(() => "?").join(",")}) AND COALESCE(c.status,'') NOT IN ('cancelled','completed')`, params: ids };
+    }
+    if (a.kind === "sales" && a.scope_rule === "manager") return { sql: "0", params: [] }; // un-normalized manager row: fail closed
     if (a.kind === "sales") {
       if (!a.bound_salesperson_id || TRAINEE_SALESPERSON_IDS.includes(a.bound_salesperson_id)) return { sql: "0", params: [] };
       return { sql: `${base} AND c.salesperson_id=? AND COALESCE(c.status,'') NOT IN ('cancelled','completed')${a.scope_rule === "p1" ? " AND c.priority=1" : ""}`, params: [a.bound_salesperson_id] };
@@ -183,6 +211,8 @@ export function createAssistants(deps: Deps) {
   function userEligible(a: any, u: { id: number; role: string; salesperson_id: number | null; active?: number }): boolean {
     if (!u || EXCLUDED_USER_IDS.includes(u.id) || u.active === 0) return false;
     if (u.role === "salesperson" && (!u.salesperson_id || TRAINEE_SALESPERSON_IDS.includes(u.salesperson_id))) return false;
+    if (a.kind === "manager") return u.role === "admin"; // v8: Ahmad talks to admins only (29 excluded above)
+    if (a.scope_rule === "manager") return false; // un-normalized manager row: fail closed
     if (a.kind === "sales") return u.id === a.bound_user_id && u.role === "salesperson";
     return u.role === "registrar" || u.role === "admin"; // v6: Sarina is registrar/admin only
   }
@@ -191,6 +221,7 @@ export function createAssistants(deps: Deps) {
   /** For Sarina: may this user see a message bound to this customer? (registrar/admin all in-scope; sales only own). */
   function userSeesCase(a: any, u: any, customerId: number | null): boolean {
     if (a.kind === "sales") return customerId == null || inScope(a, customerId);
+    if (a.kind === "manager") return u?.role === "admin" && !EXCLUDED_USER_IDS.includes(Number(u?.id)) && (customerId == null || inScope(a, customerId));
     if (u?.role !== "registrar" && u?.role !== "admin") return false; // v6: Sarina lines only for registrar/admin
     if (customerId == null) return true; // user-authored, case-less lines in registrar/admin threads
     return inScope(a, customerId);
@@ -286,7 +317,7 @@ export function createAssistants(deps: Deps) {
       audit({ req, action: "auth", outcome: "bad_token", actorLabel: "runner" });
       return fail(res, 401, "unauthorized");
     }
-    const a = row<any>("SELECT * FROM assistants WHERE id=?", tok.assistant_id);
+    const a = normAssistant(row<any>("SELECT * FROM assistants WHERE id=?", tok.assistant_id));
     const t = iso();
     run("UPDATE assistant_tokens SET last_used_at=?, last_used_ip=? WHERE id=?", t, ip(req), tok.id);
     run("UPDATE assistants SET last_seen_at=?, last_seen_ip=? WHERE id=?", t, ip(req), a.id);
@@ -332,12 +363,13 @@ export function createAssistants(deps: Deps) {
     const rem = hasTable("reminders") ? row<any>("SELECT MIN(remind_at) t FROM reminders WHERE customer_id=? AND done=0", c.id) : null;
     return { id: c.id, name: custName(c), status: c.status, statusLabel: STATUS_FA[c.status] ?? c.status, city: c.city ?? null,
       mobile: c.phone ? maskPhone(String(c.phone)) : null, createdAt: c.created_at, lastCallAt: last?.t ?? null, nextReminderAt: rem?.t ?? null,
-      ...(a?.kind === "sales" ? { priority: c.priority == null ? null : Number(c.priority), priorityLabel: c.priority == null ? "بدون اولویت" : `اولویت ${c.priority}`, isUrgent: Number(c.is_urgent) === 1 } : {}) };
+      ...(a?.kind === "manager" ? { expert: { id: c.salesperson_id ?? null, name: spName(c.salesperson_id) } } : {}),
+      ...(a?.kind === "sales" || a?.kind === "manager" ? { priority: c.priority == null ? null : Number(c.priority), priorityLabel: c.priority == null ? "بدون اولویت" : `اولویت ${c.priority}`, isUrgent: Number(c.is_urgent) === 1 } : {}) };
   }
   /* ---------- v7 sales-only reads (allowlisted; never contract/fee/commission/wallet fields) ---------- */
   const salesOnly = (req: Request, res: Response, next: NextFunction) => {
     const a = A(res);
-    if (a.kind === "sales") return next();
+    if (a.kind === "sales" || a.kind === "manager") return next();
     audit({ req, a, tokenId: TK(res), action: `${req.method} ${req.path.replace(/\/\d+(?=\/|$)/g, "/:id")}`.slice(0, 80), outcome: "sales_only" });
     fail(res, 403, "sales_only", "این بخش فقط برای دستیارهای فروش است.");
   };
@@ -425,6 +457,16 @@ export function createAssistants(deps: Deps) {
       sales = { today: today ? { calls: Number(today.calls), notNow: Number(today.notNow) } : null, nextCustomer: box[0] ?? null, suggestions: box,
         suggestionPool: pool, ...(unavailable ? { salesBoxUnavailable: true } : {}) };
     }
+    if (a.kind === "manager") {
+      const experts = managerExperts(db).map(e => ({ salespersonId: e.salespersonId, name: e.name }));
+      return void res.json(maskAll({ customersInScope: Number(n), people: threads, scope: "manager_all_non_trainee_experts", experts,
+        thresholds: readManagerSettings(k => row<{ value: string }>("SELECT value FROM assistant_settings WHERE key=?", k)?.value),
+        ranges: MANAGER_RANGES, summarySlots: MANAGER_SLOTS,
+        allowed: ["read every non-trainee expert's customers, calls, notes, reminders and cases (read)", "manager report today/week (read)", "alerts + score (read)",
+          "summary text for 09:00 / 18:00 / Thursday (read)", "chat messages to an admin", "notifications to an admin", "assistant notes", "typing"],
+        blocked: ["changing priority", "assignment", "money/fees/wallets/commission", "contracts", "case stage", "SMS", "customer messages", "reminders or reminder proposals", "deleting anything",
+          "messages to anyone but an admin"] }));
+    }
     res.json(maskData({ customersInScope: Number(n), people: threads, scope: a.kind === "sales" ? (a.scope_rule === "p1" ? "own_p1_customers" : "own_customers") : "registrar_smart_filing_cases",
       ...sales,
       allowed: a.kind === "sales"
@@ -437,8 +479,9 @@ export function createAssistants(deps: Deps) {
     const limit = Math.max(1, Math.min(200, Number(req.query.limit ?? 50) || 50));
     const after = Math.max(0, Number(req.query.afterId ?? 0) || 0);
     const q = String(req.query.q ?? "").trim().slice(0, 60);
-    const list = rows<any>(`SELECT c.* FROM customers c WHERE ${s.sql} AND c.id>? ${q ? "AND (c.name LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ?)" : ""} ORDER BY c.id LIMIT ?`,
-      ...s.params, after, ...(q ? [`%${q}%`, `%${q}%`, `%${q}%`] : []), limit + 1);
+    const spF = a.kind === "manager" && req.query.salespersonId != null && req.query.salespersonId !== "" ? Number(req.query.salespersonId) : null; // v8: manager may filter by expert
+    const list = rows<any>(`SELECT c.* FROM customers c WHERE ${s.sql} AND c.id>? ${spF != null ? "AND c.salesperson_id=?" : ""} ${q ? "AND (c.name LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ?)" : ""} ORDER BY c.id LIMIT ?`,
+      ...s.params, after, ...(spF != null ? [spF] : []), ...(q ? [`%${q}%`, `%${q}%`, `%${q}%`] : []), limit + 1);
     audit({ req, a, tokenId: TK(res), action: "GET /customers", outcome: "ok", detail: { n: Math.min(list.length, limit) } });
     res.json(maskData({ items: list.slice(0, limit).map(c => customerCard(c, a)), nextAfterId: list.length > limit ? list[limit - 1].id : null }));
   });
@@ -449,7 +492,7 @@ export function createAssistants(deps: Deps) {
   };
   runner.get("/customers/:id", (req, res) => {
     const c = scopedCustomer(req, res); if (!c) return; const a = A(res);
-    const apps = a.kind === "sales"
+    const apps = a.kind === "sales" || a.kind === "manager"
       ? rows<any>(`SELECT * FROM loan_applications WHERE customer_id=? AND deleted_at IS NULL ORDER BY id DESC LIMIT 10`, c.id).map(loanView)
       : rows<any>(`SELECT id,stage,status,created_at FROM loan_applications WHERE customer_id=? AND deleted_at IS NULL ORDER BY id DESC LIMIT 10`, c.id)
         .map(x => ({ id: x.id, stage: x.stage, status: x.status, createdAt: x.created_at }));
@@ -463,7 +506,7 @@ export function createAssistants(deps: Deps) {
   });
   runner.get("/customers/:id/calls", (req, res) => {
     const c = scopedCustomer(req, res); if (!c) return;
-    const sales = A(res).kind === "sales";
+    const sales = A(res).kind === "sales" || A(res).kind === "manager";
     const items = rows<any>("SELECT * FROM call_logs WHERE customer_id=? ORDER BY id DESC LIMIT 30", c.id)
       .map(l => sales ? callView(l) : ({ id: l.id, subject: l.subject, customerRequest: l.customer_request, expertNotes: l.expert_notes, createdAt: l.created_at }));
     audit({ req, a: A(res), tokenId: TK(res), action: "GET /customers/:id/calls", customerId: c.id, outcome: "ok" });
@@ -593,6 +636,7 @@ export function createAssistants(deps: Deps) {
       if (!t) { fail(res, 404, "thread_not_found"); return null; }
       u = userRow(t.user_id);
     } else {
+      if (b.userId == null && a.kind === "manager") { fail(res, 422, "recipient_required", "برای دستیار مدیر userId یا threadId یک مدیر (admin) لازم است."); return null; }
       const uid = b.userId != null ? Number(b.userId) : a.kind === "sales" ? a.bound_user_id : NaN;
       u = Number.isSafeInteger(uid) ? userRow(uid) : undefined;
     }
@@ -639,6 +683,7 @@ export function createAssistants(deps: Deps) {
    *  which saves the reminder through the existing POST /api/reminders under the expert's own session. */
   runner.post("/reminder-proposals", (req, res) => {
     const a = A(res); const b = req.body ?? {};
+    if (a.kind === "manager") { audit({ req, a, tokenId: TK(res), action: "POST /reminder-proposals", outcome: "manager_read_only" }); return fail(res, 403, "manager_read_only", "دستیار مدیر یادآور پیشنهاد نمی‌دهد؛ فقط گزارش می‌دهد."); }
     if (b.customerId == null || b.customerId === "") return fail(res, 422, "customer_required");
     const at = Date.parse(String(b.remindAt ?? ""));
     if (!Number.isFinite(at) || at <= now().getTime() + 60_000 || at > now().getTime() + REMINDER_PROPOSAL_MAX_DAYS * 86400_000) return fail(res, 422, "bad_remind_at", "زمان یادآور باید در آینده و حداکثر ۳۰ روز بعد باشد.");
@@ -669,6 +714,52 @@ export function createAssistants(deps: Deps) {
       .filter(m => m.customer_id == null || inScope(a, m.customer_id));
     res.json(maskData({ threadId: t.id, userId: t.user_id, messages: list.map(m => messageView(m, true)) }));
   });
+  /* ---------- v8 manager (Ahmad) reads: piece A — today / this week, alerts + score, ready summaries ---------- */
+  const managerOnly = (req: Request, res: Response, next: NextFunction) => {
+    const a = A(res);
+    if (a.kind === "manager") return next();
+    audit({ req, a, tokenId: TK(res), action: `${req.method} ${req.path}`.slice(0, 80), outcome: "manager_only" });
+    fail(res, 403, "manager_only", "این بخش فقط برای دستیار مدیر فروش است.");
+  };
+  /** Deep masking without maskData's depth cap (report → experts → alerts → numbers is deeper); keeps Persian digits when nothing is masked. */
+  const lat = (x: string) => x.replace(/[۰-۹]/g, d => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
+  const maskAll = (v: any): any => Array.isArray(v) ? v.map(maskAll)
+    : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, maskAll(x)]))
+    : typeof v === "string" ? (() => { const m = maskText(v); return m === lat(v) ? v : m; })() : v;
+  const mgrSettings = () => readManagerSettings(k => row<{ value: string }>("SELECT value FROM assistant_settings WHERE key=?", k)?.value);
+  const mgrDeps = () => { const t = now(); return { db, now: t, settings: mgrSettings(), siteLeads: deps.sales?.activeSiteLeads ? () => deps.sales!.activeSiteLeads!(t) : undefined }; };
+  const mgrRange = (req: Request, res: Response): ManagerRange | null => {
+    const r = String(req.query.range ?? "today");
+    if ((MANAGER_RANGES as readonly string[]).includes(r)) return r as ManagerRange;
+    fail(res, 422, "range_not_supported", `بازه‌های فعلی: ${MANAGER_RANGES.join(", ")} (دیروز و ماه در فاز بعد).`); return null;
+  };
+  const mgrSp = (req: Request, res: Response): number | null | false => {
+    if (req.query.salespersonId == null || req.query.salespersonId === "") return null;
+    const id = Number(req.query.salespersonId);
+    if (!managerExperts(db).some(e => e.salespersonId === id)) { audit({ req, a: A(res), tokenId: TK(res), action: `GET ${req.path}`, outcome: "not_in_scope", detail: { salespersonId: req.query.salespersonId } }); fail(res, 404, "not_found"); return false; }
+    return id;
+  };
+  runner.get("/manager/experts", managerOnly, (req, res) => {
+    audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/experts", outcome: "ok" });
+    res.json({ experts: managerExperts(db).map(e => ({ salespersonId: e.salespersonId, name: e.name })) });
+  });
+  runner.get("/manager/settings", managerOnly, (_req, res) => { res.json({ thresholds: mgrSettings(), defaults: MANAGER_DEFAULTS, ranges: MANAGER_RANGES, summarySlots: MANAGER_SLOTS }); });
+  runner.get("/manager/report", managerOnly, (req, res) => {
+    const range = mgrRange(req, res); if (!range) return; const sp = mgrSp(req, res); if (sp === false) return;
+    audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/report", outcome: "ok", detail: { range, salespersonId: sp } });
+    res.json(maskAll(managerReport(mgrDeps(), range, sp)));
+  });
+  runner.get("/manager/alerts", managerOnly, (req, res) => {
+    audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/alerts", outcome: "ok" });
+    res.json(maskAll(managerAlerts(mgrDeps())));
+  });
+  runner.get("/manager/summary", managerOnly, (req, res) => {
+    const slot = String(req.query.slot ?? "");
+    if (!(MANAGER_SLOTS as readonly string[]).includes(slot)) return fail(res, 422, "bad_slot", `slot یکی از: ${MANAGER_SLOTS.join(", ")}`);
+    audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/summary", outcome: "ok", detail: { slot } });
+    res.json(maskAll(managerSummary(mgrDeps(), slot as ManagerSlot)));
+  });
+  // Bale 1b runner routes (/bale/send: sales assistants only — the manager is refused there by kind)
   deps.extendRunner?.(runner, { inScope });
   runner.use((req, res) => { if (req.method !== "GET") return deny(req, res); fail(res, 404, "not_found"); });
   runner.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -684,7 +775,7 @@ export function createAssistants(deps: Deps) {
   /** Assistants this user can open (enabled + global on). */
   function mine(u: any) {
     if (!u || !globalOn()) return [];
-    return rows<any>("SELECT * FROM assistants WHERE enabled=1 ORDER BY id").filter(a => userEligible(a, u));
+    return rows<any>("SELECT * FROM assistants WHERE enabled=1 ORDER BY id").map(normAssistant).filter(a => userEligible(a, u));
   }
   function visibleMessages(a: any, u: any, t: any, after: number, limit = 80) {
     return rows<any>("SELECT * FROM assistant_messages WHERE thread_id=? AND id>? ORDER BY id DESC LIMIT ?", t.id, after, limit).reverse()
@@ -806,7 +897,8 @@ export function createAssistants(deps: Deps) {
 
   /* ---------------- admin ---------------- */
   const admin = (req: Request, res: Response, next: NextFunction) => { const u = me(res); if (!u || u.role !== "admin") return fail(res, 403, "forbidden"); res.locals.assistantAdmin = u; next(); };
-  const adminView = (a: any) => {
+  const adminView = (raw: any) => {
+    const a = normAssistant(raw);
     const bound = a.bound_user_id ? userRow(a.bound_user_id) : null;
     return { id: a.id, slug: a.slug, name: a.display_name, label: label(a), kind: a.kind, boundRole: a.bound_role, scopeRule: a.scope_rule,
       boundUser: bound ? { id: bound.id, name: bound.full_name || bound.username } : null, enabled: Boolean(a.enabled), maxMessagesPerHour: a.max_msgs_per_hour,
@@ -828,12 +920,26 @@ export function createAssistants(deps: Deps) {
     audit({ req, userId: u.id, actorLabel: u.full_name || u.username, action: on ? "admin.global_on" : "admin.global_off", outcome: "ok" });
     res.json({ globalEnabled: globalOn() });
   });
-  const adminA = (req: Request, res: Response) => { const a = row<any>("SELECT * FROM assistants WHERE id=?", Number(req.params.id)); if (!a) fail(res, 404, "not_found"); return a; };
+  const adminA = (req: Request, res: Response) => { const a = normAssistant(row<any>("SELECT * FROM assistants WHERE id=?", Number(req.params.id))); if (!a) fail(res, 404, "not_found"); return a; };
   for (const [p, v] of [["enable", 1], ["disable", 0]] as const) staff.post(`/admin/assistants/:id/${p}`, admin, (req, res) => {
     const a = adminA(req, res); if (!a) return; const u = res.locals.assistantAdmin;
     run("UPDATE assistants SET enabled=?, updated_at=?, updated_by_user_id=? WHERE id=?", v, iso(), u.id, a.id);
     audit({ req, a, userId: u.id, actorLabel: u.full_name || u.username, action: `admin.${p}`, outcome: "ok" });
     res.json(adminView(row<any>("SELECT * FROM assistants WHERE id=?", a.id)));
+  });
+  /* v8 manager thresholds (assistant_settings manager_* keys only) + an admin preview of the manager report. */
+  staff.get("/admin/assistants/manager-settings", admin, (_req, res) => { res.json({ thresholds: mgrSettings(), defaults: MANAGER_DEFAULTS }); });
+  staff.put("/admin/assistants/manager-settings", admin, (req, res) => {
+    const v = validateManagerSettings(req.body); const u = res.locals.assistantAdmin;
+    if (!v.ok) return fail(res, 422, v.error, v.field ? `مقدار «${v.field}» معتبر نیست.` : undefined);
+    for (const [k, val] of v.values) run("INSERT INTO assistant_settings(key,value,updated_at,updated_by_user_id) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,updated_by_user_id=excluded.updated_by_user_id", k, val, iso(), u.id);
+    audit({ req, userId: u.id, actorLabel: u.full_name || u.username, action: "admin.manager_settings", outcome: "ok", detail: Object.fromEntries(v.values) });
+    res.json({ thresholds: mgrSettings(), defaults: MANAGER_DEFAULTS });
+  });
+  staff.get("/admin/assistants/manager-report", admin, (req, res) => {
+    const r = String(req.query.range ?? "today");
+    if (!(MANAGER_RANGES as readonly string[]).includes(r)) return fail(res, 422, "range_not_supported");
+    res.json(maskAll(managerReport(mgrDeps(), r as ManagerRange)));
   });
   staff.put("/admin/assistants/:id", admin, (req, res) => {
     const a = adminA(req, res); if (!a) return; const u = res.locals.assistantAdmin;
