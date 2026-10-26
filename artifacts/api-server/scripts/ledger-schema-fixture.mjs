@@ -29,10 +29,10 @@ const all = (db, sql, ...p) => db.prepare(sql).all(...p);
   ok(all(db, "select value from gl_settings").every(r => r.value === "0"), "gl_settings rows all 0");
   // coding
   ok(one(db, "select count(*) n from gl_accounts where level='kol'").n === 12, "12 kol");
-  ok(one(db, "select count(*) n from gl_accounts where level='moein'").n === 31, "31 moein");
+  ok(one(db, "select count(*) n from gl_accounts where level='moein'").n === 34, "34 moein");
   ok(one(db, "select title from gl_accounts where code='6203'").title.includes("گرد"), "6203 rounding account");
   ok(one(db, "select nature from gl_accounts where code='3102'").nature === "both", "3102 owner current both");
-  ok(all(db, "select code from gl_accounts where active=0 order by code").map(r => r.code).join() === "1202,2301,4104", "inactive pending accounts");
+  ok(all(db, "select code from gl_accounts where active=0 order by code").map(r => r.code).join() === "1202,2104,2301,4104,6103,6104", "inactive pending accounts");
   ok(one(db, "select count(*) n from gl_accounts m join gl_accounts k on k.id=m.parent_id where m.level='moein' and substr(m.code,1,2)<>k.code").n === 0, "parents match codes");
   ok(one(db, "select count(*) n from gl_fiscal_years").n === 0 && one(db, "select count(*) n from treasury_accounts").n === 0, "no fiscal year / treasury seeded (Q5 / Q1 pending)");
   ok(one(db, "select count(*) n from gl_vouchers").n === 0, "no vouchers");
@@ -65,6 +65,15 @@ const all = (db, sql, ...p) => db.prepare(sql).all(...p);
   throwsCode(() => Ln(v6, 1, "1103", 0, 0), "CHECK");
   throwsCode(() => Ln(v6, 1, "11", 100, 0), "gl_account_not_postable");
   throwsCode(() => Ln(v6, 1, "2301", 100, 0), "gl_account_not_postable");
+  // payable to a person (2102 / marketing 6103) needs the person's SP tafsili, except in the opening voucher (control totals)
+  const T = (type, code) => db.prepare("insert into gl_tafsili(type,ref_id,code,title,created_at) values(?,?,?,?,?)").run(type, null, code, "t", NOW).lastInsertRowid;
+  const tSP = T("SP", "SP-T1"), tCU = T("CU", "CU-T1");
+  const LnT = (v, no, code, d, c, t) => db.prepare("insert into gl_voucher_lines(voucher_id,line_no,account_id,tafsili_id,debit_rial,credit_rial) values(?,?,?,?,?,?)").run(v, no, acc(code), t, d, c);
+  const v7 = V({ temp: 907 });
+  throwsCode(() => Ln(v7, 1, "2102", 0, 100), "gl_beneficiary_required");
+  throwsCode(() => LnT(v7, 1, "2102", 0, 100, tCU), "gl_beneficiary_required");
+  ok(LnT(v7, 1, "2102", 0, 100, tSP).changes === 1, "2102 payable with SP beneficiary accepted");
+  const v8 = V({ temp: 908, kind: "opening" }); ok(Ln(v8, 1, "2102", 0, 100).changes === 1, "opening control total on 2102 needs no tafsili");
   // immutability
   throwsCode(() => db.prepare("update gl_vouchers set total_rial=1 where id=?").run(v1), "voucher_immutable");
   throwsCode(() => db.prepare("update gl_vouchers set event_date='2026-10-24' where id=?").run(v1), "voucher_immutable");
@@ -161,6 +170,20 @@ const all = (db, sql, ...p) => db.prepare(sql).all(...p);
   throwsCode(() => SET("tax.vat.rate_bp", "900", "2026-01-01", { reason: "  " }), "CHECK");
   throwsCode(() => SET("tax.vat.rate_bp", "900", "2026-01-01", { by: null }), "NOT NULL");
   throwsCode(() => SET("tax.vat.rate_bp", "900", "2026/01/01"), "CHECK");
+
+  // Salamatian final lists (2026-10-26 23:02)
+  const K = (k) => one(db, "select allowed_values a, list_status s, ui_preselect p from finance_setting_keys where key=?", k);
+  ok(JSON.parse(K("plan.supplier_deposit_method").a).join() === "gross,net_of_fees,to_customer_direct,prepaid_full_credit" && K("plan.supplier_deposit_method").s === "final", "deposit method: 4 final values");
+  ok(K("discount.development.nature").s === "final" && K("discount.development.nature").p === "revenue_reduction", "discount nature final; wizard preselect only");
+  ok(K("fee.inquiry.payer").s === "proposed" && K("fee.inquiry.payer").p === null, "other lists stay proposed");
+  ok(one(db, "select count(*) n from finance_settings where key like 'discount.%'").n === 0, "preselect is not a stored value");
+  SET("plan.supplier_deposit_method", "prepaid_full_credit", "2026-10-01", { scope: "loan_plan", id: 5 });
+  ok(L.financeSettingAsOf(db, "plan.supplier_deposit_method", "2026-10-26", { type: "loan_plan", id: 5 }) === "prepaid_full_credit", "prepaid_full_credit accepted");
+  throwsCode(() => db.prepare("insert into finance_setting_keys(key,value_type,allowed_values,scope_type,title,list_status,ui_preselect,created_at) values('x.y','enum','[\"a\"]','global','t','final','b',?)").run(NOW), "finance_setting_preselect_invalid");
+  throwsCode(() => L.assertDevelopmentDiscountInputs("marketing_expense", null), "discount_beneficiary_required");
+  throwsCode(() => L.assertDevelopmentDiscountInputs(null, 3), "finance_setting_missing");
+  L.assertDevelopmentDiscountInputs("revenue_reduction", null); L.assertDevelopmentDiscountInputs("marketing_expense", 3); ok(true, "discount validator");
+  ok(all(db, "select code from gl_accounts where code in ('2104','6103','6104') and active=0").length === 3, "rule accounts seeded inactive");
   // per-plan scope
   throwsCode(() => SET("plan.supplier_deposit_method", "gross", "2026-01-01"), "finance_setting_scope");
   throwsCode(() => SET("tax.vat.rate_bp", "900", "2026-01-01", { scope: "loan_plan", id: 3 }), "finance_setting_scope");
@@ -257,7 +280,7 @@ if (process.env.LEDGER_DB_COPY) {
   ok(before === after, "existing schema objects unchanged on the copy");
   ok(c0 === counts(), "existing row counts unchanged on the copy");
   ok(one(db, "pragma integrity_check").integrity_check === "ok", "copy integrity ok");
-  ok(one(db, "select count(*) n from gl_accounts").n === 43, "copy seeded");
+  ok(one(db, "select count(*) n from gl_accounts").n === 46, "copy seeded");
   ok(one(db, "select count(*) n from schema_migrations where version=?", L.FINANCE_MIGRATION).n === 1, "copy v1b marker");
   ok(one(db, "select count(*) n from finance_settings").n === 0 && one(db, "select count(*) n from finance_setting_keys").n === L.FINANCE_SETTING_KEYS.length, "copy: keys only, no values");
 }

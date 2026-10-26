@@ -47,6 +47,7 @@ const MOEIN: Acc[] = [
   ["2101", "پرداختنی به مشتریان بابت خرید کالا", "liability", "credit", "CU", 1],
   ["2102", "پورسانت پرداختنی فروشندگان و بازاریابان", "liability", "credit", "SP", 1],
   ["2103", "پرداختنی به تأمین‌کنندگان خدمت", "liability", "credit", "VN", 1],
+  ["2104", "پیش‌دریافت اعتبار از تأمین‌کنندگان (prepaid_full_credit)", "liability", "credit", "FD,PL", 0, "قاعده‌ی سلامتیان؛ کد منتظر تأیید، فعال‌سازی در G3"],
   ["2109", "سایر پرداختنی‌ها", "liability", "credit", "", 1],
   ["2201", "موجودی کیف نقدی مشتریان", "liability", "credit", "CU", 1],
   ["2301", "مالیات و عوارض ارزش افزوده", "liability", "credit", "", 0, "Q9؛ غیرفعال تا تصمیم"],
@@ -62,6 +63,8 @@ const MOEIN: Acc[] = [
   ["5101", "بهای تمام‌شده‌ی فروش اعتباری", "cogs", "debit", "PL", 1],
   ["6101", "هزینه‌ی پورسانت فروش", "expense", "debit", "SP", 1],
   ["6102", "پاداش دقت داده و پاداش تیمی", "expense", "debit", "SP", 1],
+  ["6103", "هزینه‌ی بازاریابی (تخفیف توسعه)", "expense", "debit", "SP", 0, "فقط با marketing_expense؛ کد منتظر تأیید، فعال‌سازی در G3"],
+  ["6104", "کارمزد تأمین‌کننده‌ی اعتبار", "expense", "debit", "FD,PL", 0, "net_of_fees: ردیف جدا، هرگز خالص درآمد؛ کد منتظر تأیید، فعال‌سازی در G3"],
   ["6201", "هزینه‌ی استعلام اعتبار (ICS24)", "expense", "debit", "VN", 1, "ICS24 فعلاً بیرون از دفتر"],
   ["6202", "کارمزد درگاه و بانک", "expense", "debit", "GW,BK", 1],
   ["6203", "اختلاف گرد کردن", "expense", "both", "", 1, "تنها یک ردیف در همان سند"],
@@ -305,16 +308,19 @@ export const LEDGER_TABLES = [
  * ------------------------------------------------------------------------------------------- */
 export const FINANCE_MIGRATION = "general-ledger-v1b";
 
-type KeyDef = [key: string, type: string, scope: "global" | "loan_plan", title: string, allowed: string[] | null, min: number | null, max: number | null, usedBy: string, managedElsewhere?: string];
-/** Allowed enum values are design-level and provisional until Armita's wizard design / Salamatian sign-off. */
+type KeyDef = [key: string, type: string, scope: "global" | "loan_plan", title: string, allowed: string[] | null, min: number | null, max: number | null, usedBy: string, managedElsewhere?: string | null, listStatus?: "final", preselect?: string];
+/**
+ * Enum lists are 'proposed' until Armita / Salamatian confirm them; FINAL ones are marked.
+ * `preselect` is ONLY the wizard's preselected option. It is never stored as a value: no default exists in finance_settings.
+ */
 export const FINANCE_SETTING_KEYS: KeyDef[] = [
   ["gl.fiscal_year_start_jalali", "jalali_mmdd", "global", "شروع سال مالی (ماه-روز شمسی)", null, null, null, "G2"],
   ["gl.ledger_start_date", "date", "global", "تاریخ شروع دفتر کل", null, null, null, "G2"],
   ["gl.opening_base_date", "date", "global", "تاریخ مبنای سند افتتاحیه", null, null, null, "G2"],
   ["fee.inquiry.payer", "enum", "global", "پرداخت‌کننده‌ی هزینه‌ی استعلام", ["customer", "company"], null, null, "P7"],
   ["fee.inquiry.amount_rial", "int_rial", "global", "مبلغ هزینه‌ی استعلام (ریال)", null, 0, null, "P7"],
-  ["plan.supplier_deposit_method", "enum", "loan_plan", "روش واریز تأمین‌کننده برای این طرح", ["gross", "net_of_fees", "to_customer_direct"], null, null, "P7"],
-  ["discount.development.nature", "enum", "global", "ماهیت تخفیف توسعه", ["revenue_reduction", "marketing_expense"], null, null, "P7"],
+  ["plan.supplier_deposit_method", "enum", "loan_plan", "روش واریز تأمین‌کننده برای این طرح", ["gross", "net_of_fees", "to_customer_direct", "prepaid_full_credit"], null, null, "P7", null, "final"],
+  ["discount.development.nature", "enum", "global", "ماهیت تخفیف توسعه", ["revenue_reduction", "marketing_expense"], null, null, "P7", null, "final", "revenue_reduction"],
   ["discount.development.rate_bp", "bp", "global", "درصد تخفیف توسعه (صدم درصد)", null, 0, 10000, "P7"],
   ["tax.vat.applies", "bool", "global", "مشمول مالیات بر ارزش افزوده", null, null, null, "P7"],
   ["tax.vat.rate_bp", "bp", "global", "نرخ ارزش افزوده (صدم درصد)", null, 0, 10000, "P7"],
@@ -339,8 +345,19 @@ CREATE TABLE IF NOT EXISTS finance_setting_keys (
   allowed_values TEXT CHECK(allowed_values IS NULL OR (json_valid(allowed_values) AND json_type(allowed_values) = 'array')),
   scope_type TEXT NOT NULL DEFAULT 'global' CHECK(scope_type IN ('global','loan_plan')),
   min_value INTEGER, max_value INTEGER, title TEXT NOT NULL, used_by TEXT,
-  managed_elsewhere TEXT, created_at TEXT NOT NULL,
-  CHECK((value_type = 'enum') = (allowed_values IS NOT NULL)));
+  managed_elsewhere TEXT,
+  list_status TEXT CHECK(list_status IS NULL OR list_status IN ('proposed','final')),
+  ui_preselect TEXT,
+  created_at TEXT NOT NULL,
+  CHECK((value_type = 'enum') = (allowed_values IS NOT NULL)),
+  CHECK((value_type = 'enum') = (list_status IS NOT NULL)),
+  CHECK(ui_preselect IS NULL OR allowed_values IS NOT NULL));
+CREATE TRIGGER IF NOT EXISTS finance_keys_preselect_insert BEFORE INSERT ON finance_setting_keys
+WHEN NEW.ui_preselect IS NOT NULL AND NOT EXISTS (SELECT 1 FROM json_each(NEW.allowed_values) j WHERE j.value = NEW.ui_preselect)
+BEGIN SELECT RAISE(ABORT, 'finance_setting_preselect_invalid'); END;
+CREATE TRIGGER IF NOT EXISTS finance_keys_preselect_update BEFORE UPDATE OF ui_preselect, allowed_values ON finance_setting_keys
+WHEN NEW.ui_preselect IS NOT NULL AND NOT EXISTS (SELECT 1 FROM json_each(NEW.allowed_values) j WHERE j.value = NEW.ui_preselect)
+BEGIN SELECT RAISE(ABORT, 'finance_setting_preselect_invalid'); END;
 
 CREATE TABLE IF NOT EXISTS finance_settings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -400,6 +417,12 @@ CREATE TRIGGER IF NOT EXISTS finance_settings_no_update BEFORE UPDATE ON finance
 CREATE TRIGGER IF NOT EXISTS finance_settings_no_delete BEFORE DELETE ON finance_settings BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
 CREATE TRIGGER IF NOT EXISTS finance_log_no_update BEFORE UPDATE ON finance_settings_log BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
 CREATE TRIGGER IF NOT EXISTS finance_log_no_delete BEFORE DELETE ON finance_settings_log BEGIN SELECT RAISE(ABORT, 'gl_append_only'); END;
+
+CREATE TRIGGER IF NOT EXISTS gl_payable_beneficiary BEFORE INSERT ON gl_voucher_lines
+WHEN EXISTS (SELECT 1 FROM gl_accounts a WHERE a.id = NEW.account_id AND a.code IN ('2102','6103'))
+  AND NOT EXISTS (SELECT 1 FROM gl_vouchers v WHERE v.id = NEW.voucher_id AND v.kind = 'opening')
+  AND NOT EXISTS (SELECT 1 FROM gl_tafsili t WHERE t.id = NEW.tafsili_id AND t.type = 'SP')
+BEGIN SELECT RAISE(ABORT, 'gl_beneficiary_required'); END;
 
 CREATE TABLE IF NOT EXISTS gl_opening_balance_sets (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -511,13 +534,24 @@ function ensureFinanceInputs(db: DatabaseSync, nowIso: string): void {
   if (!cols.has("purpose_note")) db.exec("ALTER TABLE treasury_accounts ADD COLUMN purpose_note TEXT");
   db.exec(FINANCE_DDL);
   db.exec(TREASURY_RULES_DDL);
-  const key = db.prepare(`INSERT OR IGNORE INTO finance_setting_keys(key,value_type,allowed_values,scope_type,min_value,max_value,title,used_by,managed_elsewhere,created_at)
-    VALUES(?,?,?,?,?,?,?,?,?,?)`);
-  for (const [k, type, scope, title, allowed, min, max, usedBy, elsewhere] of FINANCE_SETTING_KEYS)
-    key.run(k, type, allowed ? JSON.stringify(allowed) : null, scope, min, max, title, usedBy, elsewhere ?? null, nowIso);
+  const key = db.prepare(`INSERT OR IGNORE INTO finance_setting_keys(key,value_type,allowed_values,scope_type,min_value,max_value,title,used_by,managed_elsewhere,list_status,ui_preselect,created_at)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`);
+  for (const [k, type, scope, title, allowed, min, max, usedBy, elsewhere, listStatus, preselect] of FINANCE_SETTING_KEYS)
+    key.run(k, type, allowed ? JSON.stringify(allowed) : null, scope, min, max, title, usedBy, elsewhere ?? null, allowed ? (listStatus ?? "proposed") : null, preselect ?? null, nowIso);
   // Approved title for 6203 (title edits are allowed; identity is not). Only if still the v1 seed text.
   db.prepare("UPDATE gl_accounts SET title='اختلاف گرد کردن' WHERE code='6203' AND title='اختلاف گرد کردن (ریال)'").run();
   db.prepare("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(?,?)").run(FINANCE_MIGRATION, nowIso);
+}
+
+/**
+ * Salamatian's final rule (for G3/P7): development discount.
+ *  - revenue_reduction: debit 4102 (contra-sales); no beneficiary.
+ *  - marketing_expense: debit 6103 and credit 2102 with the beneficiary's SP tafsili (a payable to that person). Beneficiary REQUIRED.
+ * Also enforced in the DB: lines on 2102/6103 outside the opening voucher need an SP tafsili (gl_beneficiary_required).
+ */
+export function assertDevelopmentDiscountInputs(nature: string | null, beneficiaryTafsiliId: number | null): void {
+  if (nature !== "revenue_reduction" && nature !== "marketing_expense") throw new Error("finance_setting_missing:discount.development.nature");
+  if (nature === "marketing_expense" && !(Number.isInteger(beneficiaryTafsiliId) && (beneficiaryTafsiliId as number) > 0)) throw new Error("discount_beneficiary_required");
 }
 
 /**
