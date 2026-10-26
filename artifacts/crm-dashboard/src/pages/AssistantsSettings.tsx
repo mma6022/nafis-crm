@@ -11,7 +11,7 @@ import '@/features/assistant/assistant.css';
 
 type Tok = { id: number; name: string; createdAt: string; lastUsedAt: string | null; revokedAt: string | null };
 type Adm = { id: number; slug: string; name: string; label: string; kind: AsKind; boundRole: string | null; boundUser: { id: number; name: string } | null; enabled: boolean; maxMessagesPerHour: number; online: boolean; lastSeenAt: string | null; tokens: Tok[] };
-type AdminData = { globalEnabled: boolean; creditInquiryPermission: 'manager' | 'expert'; assistants: Adm[] };
+type AdminData = { globalEnabled: boolean; creditInquiryPermission: 'manager' | 'expert'; managerAccess?: boolean; assistants: Adm[] };
 type AuditItem = { id: number; at: string; assistantId: number | null; actor: string | null; action: string; customerId: number | null; outcome: string };
 
 const KEY = ['admin-assistants'];
@@ -92,7 +92,7 @@ export default function AssistantsSettings() {
         })}
       </div>
 
-      {d.assistants.some(a => a.kind === 'manager') ? <ManagerPanel /> : null}
+      {d.managerAccess !== false && d.assistants.some(a => a.kind === 'manager') ? <ManagerPanel /> : null}
 
       <div className="panel" data-testid="panel-assistant-audit">
         <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: 8 }}><Bot size={18} /> گزارش کارهای دستیارها</h3>

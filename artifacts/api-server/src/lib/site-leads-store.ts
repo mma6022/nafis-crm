@@ -13,10 +13,9 @@ export const SITE_LEAD_CONTACT_FA: Record<string, string> = {
 };
 export const SITE_LEAD_WINDOW_KIND = "site-lead-window";
 
-/** Timeline rows that are not a call with the customer (P1 hand-off note, manager accuracy review). */
-export function realCallSql(subjectColumn: string): string {
-  return `(COALESCE(${subjectColumn},'') NOT LIKE 'ارتقا به اولویت ۱ توسط%' AND COALESCE(${subjectColumn},'') NOT IN ('اطلاعات تماس اول درست بود','اطلاعات تماس اول درست نبود'))`;
-}
+/** Moved to ./real-call (one shared definition); re-exported for existing importers. */
+export { realCallSql } from "./real-call";
+import { realCallSql } from "./real-call";
 
 const TABLE_SQL = `CREATE TABLE IF NOT EXISTS site_lead_requests(
   id INTEGER PRIMARY KEY AUTOINCREMENT,

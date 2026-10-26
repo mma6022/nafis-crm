@@ -291,7 +291,21 @@ try {
     await S(1, "POST", `/admin/assistants/${As.ahmad.id}/enable`);
     assert.ok((await S(1, "GET", "/assistant/mine")).j.assistants.some(a => a.slug === "ahmad" && a.kind === "manager"));
     for (const u of [29, 4, 2, 3, 8, 6, 27, 30]) assert.ok(!(await S(u, "GET", "/assistant/mine")).j.assistants?.some(a => a.slug === "ahmad"), `user ${u} must not see ahmad`);
-    for (const u of [2, 4, 6, 8, 29]) assert.equal((await S(u, "GET", "/admin/assistants/manager-report")).s, u === 29 ? 200 : 403); // 29 is an admin: admin routes are role-based
+    for (const u of [2, 4, 6, 8, 29]) assert.equal((await S(u, "GET", "/admin/assistants/manager-report")).s, 403); // v8 fix: 29 is an admin but never reaches the manager
+    { // v8 fix: user 29 stays out of «احمد» (server 403 + hidden) while the rest of 29's admin access is unchanged
+      for (const [m, p, b] of [["GET", "/admin/assistants/manager-settings"], ["PUT", "/admin/assistants/manager-settings", { overdueRemindersMax: 9 }], ["GET", "/admin/assistants/manager-report?range=week"],
+        ["POST", `/admin/assistants/${As.ahmad.id}/tokens`, { name: "x" }], ["POST", `/admin/assistants/${As.ahmad.id}/disable`], ["PUT", `/admin/assistants/${As.ahmad.id}`, { maxMessagesPerHour: 5 }]])
+        assert.equal((await S(29, m, p, b)).s, 403, `29 ${m} ${p}`);
+      const ahT = (await S(1, "GET", "/assistant/mine")).j.assistants.find(a => a.slug === "ahmad").threadId;
+      assert.equal((await S(29, "GET", `/assistant/threads/${ahT}/messages`)).s, 403); assert.equal((await S(29, "POST", `/assistant/threads/${ahT}/messages`, { body: "x" })).s, 403);
+      const l29 = (await S(29, "GET", "/admin/assistants")); assert.equal(l29.s, 200); assert.equal(l29.j.managerAccess, false);
+      assert.ok(!l29.j.assistants.some(a => a.slug === "ahmad")); assert.ok(l29.j.assistants.some(a => a.slug === "sarina") && l29.j.assistants.some(a => a.slug === "somayeh")); // other cards unchanged
+      assert.equal((await S(29, "GET", "/admin/assistant-audit")).s, 200); assert.equal((await S(1, "GET", "/admin/assistants")).j.managerAccess, true);
+      assert.equal((await S(1, "GET", "/admin/assistants/manager-settings")).s, 200);
+      assert.equal(db.prepare("SELECT COUNT(*) n FROM assistant_tokens WHERE assistant_id=? AND name='x'").get(As.ahmad.id).n, 0);
+      assert.equal(db.prepare("SELECT enabled FROM assistants WHERE id=?").get(As.ahmad.id).enabled, 1);
+      ok("manager: user 29 → 403 on report/settings/ahmad admin card/thread, hidden in lists; other admin access kept");
+    }
     const me8 = await R(tk, "GET", "/me"); assert.equal(me8.s, 200); assert.equal(me8.j.assistant.kind, "manager"); assert.equal(me8.j.assistant.label, "احمد | مدیر فروش");
     const ctx = (await R(tk, "GET", "/my-context")).j; assert.deepEqual(ctx.people.map(p => p.userId), [1]); assert.equal(ctx.scope, "manager_all_experts_incl_trainees_readonly");
     assert.deepEqual(ctx.experts.map(e => e.salespersonId), [3, 4, 5, 6, 19]); // trainees read-only; user 29 never
@@ -367,6 +381,19 @@ try {
     assert.equal((await R(tk, "GET", "/manager/report?salespersonId=5")).s, 200); assert.equal((await R(tk, "GET", "/manager/report?salespersonId=20")).s, 404); // sp 20: no active user
     const al = (await R(tk, "GET", "/manager/alerts")).j.items; assert.deepEqual(al.map(a => `${a.salespersonId}:${a.rule}`), ["3:calls_below_average", "4:overdue_reminders", "4:site_leads_unanswered", "5:site_leads_unanswered"]);
     ok("manager: today/week report, alerts with reasons + numbers");
+    { // v8 fix: ONE call definition — by the logging expert, hand-off/review rows out — same number in /my-context and the manager report
+      ins.run(940, 101, 3, "ارتقا به اولویت ۱ توسط کاظمی", "2026-10-26 06:00:00"); ins.run(941, 101, 3, "اطلاعات تماس اول درست بود", "2026-10-26 06:01:00");
+      ins.run(942, 110, 3, "", "2026-10-26 06:10:00"); // sp3 calls a customer owned by sp4: counts for sp3 (the logger)
+      const h2 = (await R(tk, "GET", "/manager/report?range=today&salespersonId=3")).j.experts[0].calls;
+      assert.equal(h2.count, 3); assert.equal((await R(tk, "GET", "/manager/report?range=today&salespersonId=4")).j.experts[0].calls.count, 0);
+      const myc = (await R(iss.somayeh, "GET", "/my-context")).j.today; assert.equal(myc.calls, 3); assert.equal(myc.answered, h2.answered); assert.equal(myc.fromSuggestionBox, null);
+      assert.ok(/logged/.test(myc.definition));
+      const cv = (await R(iss.somayeh, "GET", "/customers/100/calls")).j.items.find(x => x.id === 1);
+      assert.deepEqual(cv.loggedBy, { name: "حسنی", salespersonId: 3 }); assert.ok(!JSON.stringify(cv).includes("09121234567")); // staff name + id clear, phone masked
+      const mv = (await R(tk, "GET", "/customers/100/calls")).j.items.find(x => x.id === 1); assert.deepEqual(mv.loggedBy, cv.loggedBy); assert.ok(!JSON.stringify(mv).includes("09121234567"));
+      db.exec("DELETE FROM call_logs WHERE id IN (940,941,942)");
+      ok("calls: one shared definition (logger, not owner; hand-off rows excluded) in /my-context + manager; loggedBy = staff name");
+    }
     // thresholds (assistant_settings manager_* only)
     assert.equal((await S(2, "PUT", "/admin/assistants/manager-settings", { overdueRemindersMax: 10 })).s, 403);
     assert.equal((await S(1, "PUT", "/admin/assistants/manager-settings", { overdueRemindersMax: -1 })).s, 422);

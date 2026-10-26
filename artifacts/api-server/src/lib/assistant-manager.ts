@@ -4,13 +4,14 @@
  *
  * Experts in scope: active salespeople, trainees 5/19/20 included READ-ONLY (flagged trainee:true; approved 10:18); user 29 is never included.
  * Days and weeks are Tehran days (fixed UTC+03:30); the week starts on Saturday like the CRM sales report.
- * Answered / not answered uses the CRM's own rule (lib/sales-report.ts callOutcome) plus the first-call form result.
+ * Calls use the ONE shared definition in lib/expert-calls.ts (by the logging expert; hand-off/review rows excluded).
  *
  * Piece B (not built yet; the shapes leave room for it): conversions, paid amount + commission, first/last activity and
  * active hours, more ranges (yesterday, month), «الان نه» reasons and the assistant-to-assistant thread.
  */
 import type { DatabaseSync } from "node:sqlite";
-import { callOutcome } from "./sales-report";
+import { expertCalls, expertCallStats } from "./expert-calls";
+import { realCallSql } from "./real-call";
 
 export const MANAGER_TRAINEE_SALESPERSON_IDS = [5, 19, 20];
 export const MANAGER_EXCLUDED_USER_IDS = [29];
@@ -94,30 +95,9 @@ export const managerExpertIds = (db: DatabaseSync) => managerExperts(db).map(e =
 const has = (db: DatabaseSync, t: string) => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(t));
 const custName = (c: any) => (c?.first_name && c?.last_name ? `${c.first_name} ${c.last_name}` : c?.name ?? "مشتری");
 
-type CallRec = { at: number; outcome: "yes" | "no" | "unknown" };
-/** Calls made by an expert (call_logs.salesperson_id, plus phone-system calls not linked to a call log), live calls excluded. */
-function callsOf(db: DatabaseSync, sp: number, fromIso: string, toIso: string): CallRec[] {
-  const voip = has(db, "voip_after_call_events"); const q = has(db, "team_sales_qualifications");
-  const at = voip ? "COALESCE(e.started_at,l.created_at)" : "l.created_at";
-  const sql = `SELECT ${at} at, ${voip ? "e.status, e.mobile_answered_at" : "NULL status, NULL mobile_answered_at"},
-      ${q ? "(SELECT call_result FROM team_sales_qualifications tq WHERE tq.call_log_id=l.id ORDER BY tq.id DESC LIMIT 1)" : "NULL"} qres
-    FROM call_logs l ${voip ? "LEFT JOIN voip_after_call_events e ON e.call_log_id=l.id" : ""}
-    WHERE l.salesperson_id=? ${voip ? "AND COALESCE(e.is_live,0)=0" : ""} AND julianday(${at})>=julianday(?) AND julianday(${at})<julianday(?)
-    ${voip ? `UNION ALL SELECT e.started_at at, e.status, e.mobile_answered_at, NULL qres FROM voip_after_call_events e
-      WHERE e.call_log_id IS NULL AND e.is_live=0 AND e.salesperson_id=? AND julianday(e.started_at)>=julianday(?) AND julianday(e.started_at)<julianday(?)` : ""}`;
-  const p: any[] = [sp, fromIso, toIso]; if (voip) p.push(sp, fromIso, toIso);
-  return (db.prepare(sql).all(...p) as any[]).map(r => {
-    let o = callOutcome(r.status, r.mobile_answered_at);
-    if (o === "unknown" && r.qres) o = r.qres === "answered" ? "yes" : r.qres === "no_answer" ? "no" : "unknown";
-    const s = String(r.at ?? ""); const at = Date.parse(/^\d{4}-\d\d-\d\d[ T]\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(s) ? s.replace(" ", "T") + "Z" : s);
-    return { at, outcome: o };
-  });
-}
-function callStats(list: CallRec[]) {
-  const answered = list.filter(c => c.outcome === "yes").length, notAnswered = list.filter(c => c.outcome === "no").length;
-  const known = answered + notAnswered;
-  return { count: list.length, answered, notAnswered, unknown: list.length - known, answeredShare: known ? Math.round((answered / known) * 1000) / 1000 : null };
-}
+/** v8 fix: the one shared definition (lib/expert-calls.ts) — same counter as /my-context «امروز». */
+const callsOf = expertCalls;
+const callStats = expertCallStats;
 
 export type Alert = { rule: "calls_below_average" | "overdue_reminders" | "site_leads_unanswered"; points: number; reason: string; numbers: Record<string, number | string | null> };
 export type ExpertReport = {
@@ -164,8 +144,8 @@ function expertReport(d: ManagerDeps, e: Expert, range: ManagerRange, leads: Map
   slItems.sort((x, y) => y.hoursLate - x.hoursLate);
   // P1 with no call for more than X days (reference: last call on the customer, else when it was created)
   const X = settings.p1NoCallDays;
-  const p1 = (db.prepare(`SELECT c.id, c.name, c.first_name, c.last_name, c.created_at, (SELECT MAX(julianday(l.created_at)) FROM call_logs l WHERE l.customer_id=c.id) lj,
-      (SELECT l.created_at FROM call_logs l WHERE l.customer_id=c.id ORDER BY julianday(l.created_at) DESC LIMIT 1) last_at
+  const p1 = (db.prepare(`SELECT c.id, c.name, c.first_name, c.last_name, c.created_at, (SELECT MAX(julianday(l.created_at)) FROM call_logs l WHERE l.customer_id=c.id AND ${realCallSql("l.subject")}) lj,
+      (SELECT l.created_at FROM call_logs l WHERE l.customer_id=c.id AND ${realCallSql("l.subject")} ORDER BY julianday(l.created_at) DESC LIMIT 1) last_at
     FROM customers c WHERE c.salesperson_id=? AND c.priority=1 AND c.merged_into_customer_id IS NULL AND COALESCE(c.status,'') NOT IN ('cancelled','completed')`).all(e.salespersonId) as any[])
     .map(c => { const ref = c.lj != null ? (Number(c.lj) - 2440587.5) * DAY : Date.parse(String(c.created_at).replace(" ", "T") + (/[zZ]|[+-]\d\d:?\d\d$/.test(String(c.created_at)) ? "" : "Z"));
       return { customerId: Number(c.id), customerName: custName(c), lastCallAt: c.last_at ?? null, ms: t - ref }; })

@@ -27,6 +27,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { ensureSchemaObject } from "./schema-objects";
 import { maskData, maskText, maskPhone } from "./smart-filing";
+import { expertCallsToday, EXPERT_CALLS_DEFINITION } from "./expert-calls";
 import { customerApplicationPayout } from "./customer-application-payout";
 import { MANAGER_RANGES, MANAGER_SLOTS, MANAGER_SETTING_KEYS, MANAGER_DEFAULTS, managerAlerts, managerExperts, managerReport, managerSummary,
   readManagerSettings, validateManagerSettings, type ManagerRange, type ManagerSlot, type SiteLeadLite } from "./assistant-manager";
@@ -357,6 +358,24 @@ export function createAssistants(deps: Deps) {
     runner.all(p, (req, res, next) => (req.method === "GET" ? next() : deny(req, res)));
 
   const custName = (c: any) => (c.first_name && c.last_name ? `${c.first_name} ${c.last_name}` : c.name);
+  /** v8 fix: smart-filing maskData matched internal ids by key name («salespersonId», «applicationId» contain "nid") and
+   *  masked them. Runner output keeps numeric internal ids and staff display names; customer phones / national ids / text
+   *  stay masked exactly as before (every other key and value still goes through maskData). */
+  const KEEP_ID = (k: string) => (/^[a-z][A-Za-z]*Id$/.test(k) && !/national|melli|token|code/i.test(k)) || /^siteLeads[A-Z]/.test(k);
+  const maskOut = (v: unknown, depth = 0): unknown => {
+    if (depth > 8) return null;
+    if (Array.isArray(v)) return v.slice(0, 200).map(x => maskOut(x, depth + 1));
+    if (v && typeof v === "object") {
+      const out: Record<string, unknown> = {};
+      for (const [k, x] of Object.entries(v as Record<string, unknown>).slice(0, 200)) {
+        if (KEEP_ID(k) && (x == null || typeof x === "number" || (typeof x === "string" && /^\d+$/.test(x)))) out[k] = x;
+        else if (x && typeof x === "object" && !/password|pass|otp|token|secret/i.test(k)) out[k] = maskOut(x, depth + 1);
+        else out[k] = (maskData({ [k]: x }) as Record<string, unknown>)[k];
+      }
+      return out;
+    }
+    return maskData(v);
+  };
   const STATUS_FA: Record<string, string> = { in_progress: "در حال پیگیری", cancelled: "انصرافی", completed: "تکمیل‌شده" };
   function customerCard(c: any, a?: any) {
     const last = row<any>("SELECT MAX(created_at) t FROM call_logs WHERE customer_id=?", c.id);
@@ -454,7 +473,10 @@ export function createAssistants(deps: Deps) {
           topOfList: x.topOfList ? { kind: x.topOfList.kind, dueAt: x.topOfList.dueAt, overdue: Boolean(x.topOfList.overdue), windowNow: Boolean(x.topOfList.windowNow) } : null,
           callForm: x.callForm, lastCallAt: x.lastCallAt ?? null })); }
       } catch { unavailable = true; }
-      sales = { today: today ? { calls: Number(today.calls), notNow: Number(today.notNow) } : null, nextCustomer: box[0] ?? null, suggestions: box,
+      // v8 fix: «تماس‌های امروز» = the shared lib/expert-calls.ts definition (by the logging expert), not only calls started from the box.
+      let calls: ReturnType<typeof expertCallsToday> | null = null; try { calls = expertCallsToday(db, sp, t); } catch { unavailable = true; }
+      sales = { today: { calls: calls?.count ?? null, answered: calls?.answered ?? null, notAnswered: calls?.notAnswered ?? null, unknownResult: calls?.unknown ?? null,
+          fromSuggestionBox: today ? Number(today.calls) : null, notNow: today ? Number(today.notNow) : null, definition: EXPERT_CALLS_DEFINITION }, nextCustomer: box[0] ?? null, suggestions: box,
         suggestionPool: pool, ...(unavailable ? { salesBoxUnavailable: true } : {}) };
     }
     if (a.kind === "manager") {
@@ -467,7 +489,7 @@ export function createAssistants(deps: Deps) {
         blocked: ["changing priority", "assignment", "money/fees/wallets/commission", "contracts", "case stage", "SMS", "customer messages", "reminders or reminder proposals", "deleting anything",
           "messages to anyone but an admin", "any change to trainees"] }));
     }
-    res.json(maskData({ customersInScope: Number(n), people: threads, scope: a.kind === "sales" ? (a.scope_rule === "p1" ? "own_p1_customers" : "own_customers") : "registrar_smart_filing_cases",
+    res.json(maskOut({ customersInScope: Number(n), people: threads, scope: a.kind === "sales" ? (a.scope_rule === "p1" ? "own_p1_customers" : "own_customers") : "registrar_smart_filing_cases",
       ...sales,
       allowed: a.kind === "sales"
         ? ["read customers in scope", "priority (read)", "loan cases: received/installment amount/count (read)", "assignment history (read)", "notes/history (read)", "calls with who/result/duration (read)", "consultation + preferred call time (read)", "today + next customer (read)", "chat messages", "notifications", "assistant notes", "typing"]
@@ -483,7 +505,7 @@ export function createAssistants(deps: Deps) {
     const list = rows<any>(`SELECT c.* FROM customers c WHERE ${s.sql} AND c.id>? ${spF != null ? "AND c.salesperson_id=?" : ""} ${q ? "AND (c.name LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ?)" : ""} ORDER BY c.id LIMIT ?`,
       ...s.params, after, ...(spF != null ? [spF] : []), ...(q ? [`%${q}%`, `%${q}%`, `%${q}%`] : []), limit + 1);
     audit({ req, a, tokenId: TK(res), action: "GET /customers", outcome: "ok", detail: { n: Math.min(list.length, limit) } });
-    res.json(maskData({ items: list.slice(0, limit).map(c => customerCard(c, a)), nextAfterId: list.length > limit ? list[limit - 1].id : null }));
+    res.json(maskOut({ items: list.slice(0, limit).map(c => customerCard(c, a)), nextAfterId: list.length > limit ? list[limit - 1].id : null }));
   });
   const scopedCustomer = (req: Request, res: Response) => {
     const id = Number(req.params.id); const a = A(res);
@@ -502,7 +524,7 @@ export function createAssistants(deps: Deps) {
     const notes = rows<any>("SELECT id,body,author_label,created_at FROM assistant_customer_notes WHERE customer_id=? AND assistant_id=? ORDER BY id DESC LIMIT 20", c.id, a.id)
       .map(n => ({ id: n.id, body: n.body, author: n.author_label, createdAt: n.created_at }));
     audit({ req, a, tokenId: TK(res), action: "GET /customers/:id", customerId: c.id, outcome: "ok" });
-    res.json(maskData({ customer: { ...customerCard(c, a), description: maskText(c.description ?? "").slice(0, 1000) }, applications: apps, ...(jobs ? { smartFilingJobs: jobs } : {}), assistantNotes: notes }));
+    res.json(maskOut({ customer: { ...customerCard(c, a), description: maskText(c.description ?? "").slice(0, 1000) }, applications: apps, ...(jobs ? { smartFilingJobs: jobs } : {}), assistantNotes: notes }));
   });
   runner.get("/customers/:id/calls", (req, res) => {
     const c = scopedCustomer(req, res); if (!c) return;
@@ -510,14 +532,14 @@ export function createAssistants(deps: Deps) {
     const items = rows<any>("SELECT * FROM call_logs WHERE customer_id=? ORDER BY id DESC LIMIT 30", c.id)
       .map(l => sales ? callView(l) : ({ id: l.id, subject: l.subject, customerRequest: l.customer_request, expertNotes: l.expert_notes, createdAt: l.created_at }));
     audit({ req, a: A(res), tokenId: TK(res), action: "GET /customers/:id/calls", customerId: c.id, outcome: "ok" });
-    res.json(maskData({ items }));
+    res.json(maskOut({ items }));
   });
   runner.get("/customers/:id/reminders", (req, res) => {
     const c = scopedCustomer(req, res); if (!c) return;
     const items = rows<any>("SELECT id,subject,message,remind_at,done,created_at FROM reminders WHERE customer_id=? ORDER BY remind_at DESC LIMIT 30", c.id)
       .map(r => ({ id: r.id, subject: r.subject, message: r.message, remindAt: r.remind_at, done: Boolean(r.done), createdAt: r.created_at }));
     audit({ req, a: A(res), tokenId: TK(res), action: "GET /customers/:id/reminders", customerId: c.id, outcome: "ok" });
-    res.json(maskData({ items }));
+    res.json(maskOut({ items }));
   });
   /** v7: «تاریخچه و یادداشت‌ها» — /notes and /timeline are aliases (runners called them before they existed → router 404). */
   const PH_SOURCE_FA: Record<string, string> = { customer_update: "ویرایش در CRM", promote: "ارتقا به اولویت ۱", qualifier_form: "فرم تماس اول",
@@ -549,7 +571,7 @@ export function createAssistants(deps: Deps) {
       ...assistantNotes.map(n => ({ at: n.at, type: "assistant_note", text: String(n.text).slice(0, 200) })),
     ].sort((x, y) => String(y.at).localeCompare(String(x.at))).slice(0, 100);
     audit({ req, a, tokenId: TK(res), action: `GET /customers/:id/${req.path.split("/").pop()}`.slice(0, 80), customerId: c.id, outcome: "ok" });
-    res.json(maskData({ customerId: c.id, priority: c.priority == null ? null : Number(c.priority), assignmentHistory: assignment, expertNotes, caseNotes, caseStages, assistantNotes, timeline }));
+    res.json(maskOut({ customerId: c.id, priority: c.priority == null ? null : Number(c.priority), assignmentHistory: assignment, expertNotes, caseNotes, caseStages, assistantNotes, timeline }));
   });
   /** v7: «فرم مشاوره» + «اطلاعات مشاوره» + preferred call time (site/callback requests). */
   const FORM_FIELDS = ["job_type", "credit_rank", "loan_purpose", "requested_amount", "requested_amount_toman", "need_days", "needs_fast_receive", "receive_mode", "loan_pref",
@@ -579,7 +601,7 @@ export function createAssistants(deps: Deps) {
     catch { unavailable = true; }
     const pref = requests[0] ? { contactTime: requests[0].contactTime, contactTimeLabel: requests[0].contactTimeLabel, requestedAt: requests[0].requestedAt, source: requests[0].source } : null;
     audit({ req, a, tokenId: TK(res), action: `GET /customers/:id/${req.path.split("/").pop()}`.slice(0, 80), customerId: c.id, outcome: "ok" });
-    res.json(maskData({ customerId: c.id, consultationForm: form, consultProfile: profile, preferredCallTime: pref, siteRequests: requests, ...(unavailable ? { partial: true } : {}) }));
+    res.json(maskOut({ customerId: c.id, consultationForm: form, consultProfile: profile, preferredCallTime: pref, siteRequests: requests, ...(unavailable ? { partial: true } : {}) }));
   });
   runner.post("/customers/:id/assistant-notes", (req, res) => {
     const c = scopedCustomer(req, res); if (!c) return; const a = A(res);
@@ -619,7 +641,7 @@ export function createAssistants(deps: Deps) {
       run("UPDATE assistant_events SET picked_at=COALESCE(picked_at,?) WHERE id=?", t, e.id);
       if (e.message_id && e.type === "user_message") run("UPDATE assistant_messages SET picked_at=COALESCE(picked_at,?) WHERE id=?", t, e.message_id);
     }
-    res.json(maskData({ events: list.map(e => eventView(a, e)), cursor: list.length ? Number(list[list.length - 1].id) : after }));
+    res.json(maskOut({ events: list.map(e => eventView(a, e)), cursor: list.length ? Number(list[list.length - 1].id) : after }));
   });
   runner.post("/events/ack", (req, res) => {
     const a = A(res); const upTo = Number(req.body?.upTo);
@@ -714,7 +736,7 @@ export function createAssistants(deps: Deps) {
     const after = Math.max(0, Number(req.query.after ?? 0) || 0);
     const list = rows<any>("SELECT * FROM assistant_messages WHERE thread_id=? AND id>? ORDER BY id DESC LIMIT 100", t.id, after).reverse()
       .filter(m => m.customer_id == null || inScope(a, m.customer_id));
-    res.json(maskData({ threadId: t.id, userId: t.user_id, messages: list.map(m => messageView(m, true)) }));
+    res.json(maskOut({ threadId: t.id, userId: t.user_id, messages: list.map(m => messageView(m, true)) }));
   });
   /* ---------- v8 manager (Ahmad) reads: piece A — today / this week, alerts + score, ready summaries ---------- */
   const managerOnly = (req: Request, res: Response, next: NextFunction) => {
@@ -774,6 +796,8 @@ export function createAssistants(deps: Deps) {
   const staff = Router();
   staff.use(["/assistant", "/admin/assistants", "/admin/assistant-tokens", "/admin/assistant-audit"], (_req, res, next) => { res.setHeader("Cache-Control", "no-store"); next(); });
   const me = (res: Response) => { const x = deps.actor(res); return x ? userRow(x.id) : undefined; };
+  /** v8: user 29 never reaches the manager assistant (dock, chat, report preview, thresholds, its admin card) — other admin access unchanged. */
+  const noMgr = (u: any) => EXCLUDED_USER_IDS.includes(Number(u?.id));
   /** Assistants this user can open (enabled + global on). */
   function mine(u: any) {
     if (!u || !globalOn()) return [];
@@ -785,6 +809,8 @@ export function createAssistants(deps: Deps) {
   }
   function threadAccess(req: Request, res: Response) {
     const u = me(res); if (!u) { fail(res, 401, "unauthorized"); return null; }
+    if (noMgr(u)) { const ta = row<any>("SELECT a.* FROM assistant_threads t JOIN assistants a ON a.id=t.assistant_id WHERE t.id=?", Number(req.params.id));
+      if (ta && normAssistant(ta)?.kind === "manager") { audit({ req, a: ta, userId: u.id, actorLabel: u.full_name || u.username, action: `${req.method} manager thread`, outcome: "forbidden" }); fail(res, 403, "forbidden"); return null; } }
     const t = row<any>("SELECT * FROM assistant_threads WHERE id=? AND user_id=?", Number(req.params.id), u.id);
     const a = t ? mine(u).find(x => x.id === t.assistant_id) : undefined;
     if (!t || !a) { fail(res, 404, "not_found"); return null; }
@@ -915,14 +941,18 @@ export function createAssistants(deps: Deps) {
     audit({ req, userId: u.id, actorLabel: u.full_name || u.username, action: "admin.credit_inquiry_permission", outcome: "ok", detail: { value: v } });
     res.json({ creditInquiryPermission: v });
   });
-  staff.get("/admin/assistants", admin, (_req, res) => { res.json({ globalEnabled: globalOn(), creditInquiryPermission: setting("credit_inquiry_permission", "manager"), assistants: rows<any>("SELECT * FROM assistants ORDER BY id").map(adminView) }); });
+  staff.get("/admin/assistants", admin, (_req, res) => { res.json({ globalEnabled: globalOn(), creditInquiryPermission: setting("credit_inquiry_permission", "manager"), managerAccess: !noMgr(res.locals.assistantAdmin),
+    assistants: rows<any>("SELECT * FROM assistants ORDER BY id").filter(r => !(noMgr(res.locals.assistantAdmin) && normAssistant(r)?.kind === "manager")).map(adminView) }); });
   staff.put("/admin/assistants/global", admin, (req, res) => {
     const on = Boolean(req.body?.enabled); const u = res.locals.assistantAdmin;
     run("UPDATE assistant_settings SET value=?, updated_at=?, updated_by_user_id=? WHERE key='global_enabled'", on ? "1" : "0", iso(), u.id);
     audit({ req, userId: u.id, actorLabel: u.full_name || u.username, action: on ? "admin.global_on" : "admin.global_off", outcome: "ok" });
     res.json({ globalEnabled: globalOn() });
   });
-  const adminA = (req: Request, res: Response) => { const a = normAssistant(row<any>("SELECT * FROM assistants WHERE id=?", Number(req.params.id))); if (!a) fail(res, 404, "not_found"); return a; };
+  const adminA = (req: Request, res: Response) => { const a = normAssistant(row<any>("SELECT * FROM assistants WHERE id=?", Number(req.params.id))); if (!a) { fail(res, 404, "not_found"); return a; }
+    if (a.kind === "manager" && noMgr(res.locals.assistantAdmin)) { mgrForbidden(req, res); return null; } return a; };
+  const mgrForbidden = (req: Request, res: Response) => { const u = res.locals.assistantAdmin; audit({ req, userId: u?.id ?? null, actorLabel: u ? (u.full_name || u.username) : undefined, action: `${req.method} ${req.path.replace(/\/\d+(?=\/|$)/g, "/:id")}`.slice(0, 80), outcome: "forbidden" }); fail(res, 403, "forbidden"); };
+  const mgrAdmin = (req: Request, res: Response, next: NextFunction) => noMgr(res.locals.assistantAdmin) ? mgrForbidden(req, res) : next();
   for (const [p, v] of [["enable", 1], ["disable", 0]] as const) staff.post(`/admin/assistants/:id/${p}`, admin, (req, res) => {
     const a = adminA(req, res); if (!a) return; const u = res.locals.assistantAdmin;
     run("UPDATE assistants SET enabled=?, updated_at=?, updated_by_user_id=? WHERE id=?", v, iso(), u.id, a.id);
@@ -930,15 +960,15 @@ export function createAssistants(deps: Deps) {
     res.json(adminView(row<any>("SELECT * FROM assistants WHERE id=?", a.id)));
   });
   /* v8 manager thresholds (assistant_settings manager_* keys only) + an admin preview of the manager report. */
-  staff.get("/admin/assistants/manager-settings", admin, (_req, res) => { res.json({ thresholds: mgrSettings(), defaults: MANAGER_DEFAULTS }); });
-  staff.put("/admin/assistants/manager-settings", admin, (req, res) => {
+  staff.get("/admin/assistants/manager-settings", admin, mgrAdmin, (_req, res) => { res.json({ thresholds: mgrSettings(), defaults: MANAGER_DEFAULTS }); });
+  staff.put("/admin/assistants/manager-settings", admin, mgrAdmin, (req, res) => {
     const v = validateManagerSettings(req.body); const u = res.locals.assistantAdmin;
     if (!v.ok) return fail(res, 422, v.error, v.field ? `مقدار «${v.field}» معتبر نیست.` : undefined);
     for (const [k, val] of v.values) run("INSERT INTO assistant_settings(key,value,updated_at,updated_by_user_id) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,updated_by_user_id=excluded.updated_by_user_id", k, val, iso(), u.id);
     audit({ req, userId: u.id, actorLabel: u.full_name || u.username, action: "admin.manager_settings", outcome: "ok", detail: Object.fromEntries(v.values) });
     res.json({ thresholds: mgrSettings(), defaults: MANAGER_DEFAULTS });
   });
-  staff.get("/admin/assistants/manager-report", admin, (req, res) => {
+  staff.get("/admin/assistants/manager-report", admin, mgrAdmin, (req, res) => {
     const r = String(req.query.range ?? "today");
     if (!(MANAGER_RANGES as readonly string[]).includes(r)) return fail(res, 422, "range_not_supported");
     res.json(maskAll(managerReport(mgrDeps(), r as ManagerRange)));
@@ -961,6 +991,7 @@ export function createAssistants(deps: Deps) {
   });
   staff.post("/admin/assistant-tokens/:id/revoke", admin, (req, res) => {
     const t = row<any>("SELECT * FROM assistant_tokens WHERE id=?", Number(req.params.id)); if (!t) return fail(res, 404, "not_found");
+    if (noMgr(res.locals.assistantAdmin) && normAssistant(row<any>("SELECT * FROM assistants WHERE id=?", t.assistant_id))?.kind === "manager") return mgrForbidden(req, res);
     const u = res.locals.assistantAdmin;
     run("UPDATE assistant_tokens SET revoked_at=COALESCE(revoked_at,?), revoked_by_user_id=COALESCE(revoked_by_user_id,?) WHERE id=?", iso(), u.id, t.id);
     audit({ req, a: row<any>("SELECT * FROM assistants WHERE id=?", t.assistant_id), userId: u.id, actorLabel: u.full_name || u.username, action: "admin.token_revoke", outcome: "ok", detail: { tokenId: t.id } });
