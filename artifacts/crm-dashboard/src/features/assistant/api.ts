@@ -1,6 +1,8 @@
 /** «دستیار هوشمند» staff client (api-server lib/assistants.ts). The server is the real gate for scope. */
+/** 'manager' = «احمد | مدیر فروش» (admin only, read-only reports). */
+export type AsKind = 'sales' | 'filing' | 'manager';
 export type AsPrefs = { sound: boolean; dndUntil: string | null; dnd: boolean; quiet: boolean };
-export type AsMine = { id: number; slug: string; name: string; label: string; kind: 'sales' | 'filing'; threadId: number; unread: number; typing: boolean; online: boolean };
+export type AsMine = { id: number; slug: string; name: string; label: string; kind: AsKind; threadId: number; unread: number; typing: boolean; online: boolean };
 export type AsMessage = {
   id: number; threadId: number; author: 'user' | 'assistant' | 'system'; authorLabel: string | null; kind: string; priority: 'low' | 'normal' | 'high';
   body: string; customerId: number | null; customerName: string | null; clientId: string | null; createdAt: string;
@@ -25,7 +27,7 @@ export async function asFetch<T>(path: string, init?: { method?: string; body?: 
 }
 const ERR: Record<string, string> = { forbidden: 'دسترسی ندارید.', not_found: 'پیدا نشد.', bad_body: 'متن پیام خالی یا خیلی بلند است.', bad_limit: 'عدد بین ۱ تا ۳۰ باشد.' };
 
-export const AS_COLORS: Record<string, string> = { masoud: '#29369B', somayeh: '#1F7A4D', mohaddeseh: '#8A6212', sarina: '#00006D' };
+export const AS_COLORS: Record<string, string> = { masoud: '#29369B', somayeh: '#1F7A4D', mohaddeseh: '#8A6212', sarina: '#00006D', ahmad: '#5E2B97' };
 export const asColor = (slug: string) => AS_COLORS[slug] ?? '#29369B';
 export const faNum = (n: number | string) => String(n).replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
 export const asTime = (iso: string | null) => iso ? new Date(iso).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tehran' }) : '';
