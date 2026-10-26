@@ -1,4 +1,4 @@
-# nafisvam-bale sidecar (pieces 1a + 1b — NOT installed anywhere yet)
+# nafisvam-bale sidecar (pieces 1a + 1b)
 
 Loopback-only Python service that talks to Bale for each expert's personal account, using the vendored
 `aiobale` 0.3.10 (unmodified, see `vendor/README.md`). The CRM API is the only client; contract in `CONTRACT.md`.
@@ -14,33 +14,15 @@ Loopback-only Python service that talks to Bale for each expert's personal accou
 
 Local tests: `python -m unittest discover -s tests -v` (FakeClient, no network).
 
-## Draft install (do not apply without a release plan)
+## Server install (release kit `bale-rel`, B.sh)
 
-```
-useradd --system --home /opt/nafisvam/bale-sidecar --shell /usr/sbin/nologin nafisbale
-python3 -m venv /opt/nafisvam/bale-sidecar/venv && /opt/nafisvam/bale-sidecar/venv/bin/pip install -r requirements.txt
-# /etc/nafisvam/bale-sidecar.token (0640 root:nafisbale) shared with the API user; /etc/nafisvam/bale-session.key (0600, API user only)
-```
-
-`/etc/systemd/system/nafisvam-bale.service`:
-
-```
-[Unit]
-Description=Nafis CRM Bale sidecar (loopback)
-After=network-online.target
-[Service]
-User=nafisbale
-WorkingDirectory=/opt/nafisvam/bale-sidecar
-Environment=BALE_SIDECAR_HOST=127.0.0.1 BALE_SIDECAR_PORT=18470 BALE_SIDECAR_TOKEN_FILE=/etc/nafisvam/bale-sidecar.token
-# direct to the API's own loopback port (NOT nginx: the API refuses proxied inbound calls)
-Environment=BALE_INBOUND_URL=http://127.0.0.1:<API_PORT>/internal/bale/inbound
-ExecStart=/opt/nafisvam/bale-sidecar/venv/bin/python sidecar.py
-Restart=on-failure
-NoNewPrivileges=yes
-ProtectSystem=strict
-ProtectHome=yes
-PrivateTmp=yes
-ReadWritePaths=
-[Install]
-WantedBy=multi-user.target
-```
+* Python 3.14 (server) — pins in `requirements.txt` (aiohttp 3.13.2 / pydantic 2.12.3: first versions with cp314 wheels),
+  full set in `requirements.lock`. The venv is built from a wheelhouse shipped with the kit (`pip --no-index`), so the
+  server never downloads from PyPI.
+* System user `nafisbale` (no shell), code + venv in `/opt/nafisvam/bale-sidecar` (root-owned, read-only for the service).
+* `/etc/nafisvam/bale-sidecar.token` 0640 `www-data:nafisbale` (API reads as owner, sidecar via group);
+  `/etc/nafisvam/bale-session.key` 0600 `www-data:www-data` (API only). Both generated on the server, never printed.
+* `nafisvam-bale.service`: `BALE_SIDECAR_HOST=127.0.0.1`, port 18470, `BALE_INBOUND_URL=http://127.0.0.1:<API_PORT>/internal/bale/inbound`
+  (direct API port, never nginx), `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp`, `IPAddressDeny`-free (it must reach Bale).
+* API env (`/etc/nafisvam/crm.env`): `BALE_SIDECAR_URL`, `BALE_SIDECAR_TOKEN_FILE`, `BALE_SESSION_KEY_FILE`.
+  Every Bale switch stays off after install; the first account is connected by an admin in «تنظیمات → حساب شخصی بله».
