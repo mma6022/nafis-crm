@@ -10,6 +10,7 @@ import { startSiteLeadWorker } from "./lib/site-leads";
 import { notifySiteLeadWindow } from "./lib/customer-notifications";
 import { crmDb } from "./lib/crm-db";
 import { ensureLedgerSchema } from "./lib/ledger";
+import { ensureGlShadowSchema, startGlShadowWorker } from "./lib/gl-shadow";
 
 const rawPort = process.env["PORT"];
 
@@ -32,6 +33,12 @@ try {
 } catch (err) {
   logger.error({ err }, "general ledger schema not ensured");
 }
+// G3: versioned mapping table + capture triggers (inert while gl.shadow_nonbank is OFF).
+try {
+  ensureGlShadowSchema(crmDb);
+} catch (err) {
+  logger.error({ err }, "general ledger shadow schema not ensured");
+}
 
 app.listen(port, (err) => {
   if (err) {
@@ -47,4 +54,5 @@ app.listen(port, (err) => {
   startExpertIntroSmsWorker();
   startSiteLeadWorker({ info: (m) => logger.info(m), error: (m) => logger.error(m) }, notifySiteLeadWindow);
   startTeamBonusScheduler(); // inert unless the team model AND the monthly team bonus are enabled
+  startGlShadowWorker(crmDb, logger); // inert unless gl.shadow_nonbank is ON
 });
