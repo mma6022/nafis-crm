@@ -1,0 +1,14 @@
+{
+  "about": "G6 dated exceptions: purchases whose P7 (and P7C) is FORCED to post on or after gl.ledger_start_date. APPEND-ONLY: add a new entry with the next seq; never edit or remove an entry. Once an entry has been applied, the backfill refuses to run if it is changed or missing (gl_forced_post_list_not_append_only). Post date = max(gl.ledger_start_date, day after gl.opening_base_date, Tehran date of the purchase's first payment order). Refused if any payment order of the purchase is already in the opening 2101.",
+  "entries": [
+    {
+      "seq": 1,
+      "purchaseId": 42,
+      "reason": "تسویه پیش از شروع دفتر (۲۰۲۶-۱۰-۲۱)، ولی دستور پرداختش پس از تاریخ مبنا ساخته شده؛ نه در ۲۱۰۱ افتتاحیه است نه در سند P7 (شکاف G6)",
+      "decision": "t250s795",
+      "decidedBy": "Mohammad",
+      "decidedAt": "2026-10-27T01:28+03:30",
+      "addedAt": "2026-10-27"
+    }
+  ]
+}

@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, readFile, rm, writeFile } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -128,6 +128,8 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     throw new Error("Cannot make Pino worker paths relocatable");
   }
   await writeFile(bundlePath, bundle.replace(embeddedPath, "const outputDir = globalThis.__dirname;"));
+  // G6: the append-only dated-exception list read by dist/gl-backfill-cli.mjs (not used by the server bundle)
+  await copyFile(path.resolve(artifactDir, "config/gl-backfill-forced-post.json"), path.join(distDir, "gl-backfill-forced-post.json"));
 }
 
 buildAll().catch((err) => {

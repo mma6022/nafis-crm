@@ -15,10 +15,17 @@
  *  - purchase #2 style corrections (company_credit with a non-standard key, e.g. goods:2:settings-correction:...) are a
  *    second voucher (P7C) with the reverse sign of the moved amount; the original P7 uses the original rows.
  *  - --exclude-fee ids get status only (gl_excluded:fee_list) and are listed as exceptions.
+ *  - G6 dated exceptions (config/gl-backfill-forced-post.json, append-only): a listed purchase whose settlement is dated
+ *    before the start / on or before the base date gets its own P7 (and P7C) voucher dated
+ *    max(gl.ledger_start_date, day after gl.opening_base_date, Tehran date of its first payment order). The reason and the
+ *    decision are in the voucher description and in gl_exceptions (code gl_forced_post_after_start:<seq>, voucher id, digest).
+ *    Refused (status only) if any payment order of the purchase is already in the opening 2101 -> never a double count.
+ *    An applied entry that is later edited or removed stops the run (gl_forced_post_list_not_append_only).
  *  - dry-run: everything inside one transaction that is ROLLED BACK -> no write survives; report = counts, account totals, exceptions.
  *  - apply: one BEGIN IMMEDIATE per batch of 50 events; re-running continues where it stopped (idempotent; 2nd apply = 0 new).
  */
 import type { DatabaseSync } from "node:sqlite";
+import { createHash } from "node:crypto";
 import { buildShadowVoucher, ensureGlShadowSchema, glMappingAsOf } from "./gl-shadow";
 import { postVoucher, reverseVoucher, recordGlException, tehranDateOf, addDays, tomanToRial, ensureTafsili, type GlLineInput } from "./gl-posting";
 import { financeSettingAsOf } from "./ledger";
@@ -34,12 +41,13 @@ export type BackfillReport = {
   byType: Record<string, Record<string, number>>;
   accounts: Record<string, { debitRial: number; creditRial: number }>;
   exceptions: Array<{ table: string; id: number; eventType: string; code: string }>;
+  forcedPosts: Array<{ seq: number; purchaseId: number; eventType: string; sourceKey: string; settledDate: string; postDate: string; voucherId: number | null; status: BackfillStatus; code: string | null }>;
   controls: BackfillControls; items: BackfillItem[];
 };
 export type BackfillControls = {
   tbBalanced: boolean; totalDebitRial: number; totalCreditRial: number;
   gl4103Rial: number; feesInScopeRial: number; gl4101Rial: number; salesInScopeRial: number;
-  gl2102Rial: number; commissionsInScopeRial: number; gl2101Rial: number; opening2101Rial: number; postStartP7PayoutRial: number; p8PaidRial: number;
+  gl2102Rial: number; commissionsInScopeRial: number; gl2101Rial: number; opening2101Rial: number; postStartP7PayoutRial: number; forcedP7PayoutRial: number; forcedPurchases: number[]; p8PaidRial: number;
   p7Overlap: number[]; p7Gaps: number[];
 };
 
@@ -110,31 +118,85 @@ export function collectBackfillEvents(db: DatabaseSync): BackfillEvent[] {
   return out.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : tOrder.indexOf(a.table) - tOrder.indexOf(b.table) || a.id - b.id));
 }
 
+/** One dated exception (append-only list). */
+export type ForcedPostEntry = { seq: number; purchaseId: number; reason: string; decision: string; decidedBy: string; decidedAt: string; addedAt: string };
+export const FORCED_CODE = "gl_forced_post_after_start";
+export function forcedPostDigest(e: ForcedPostEntry): string {
+  return createHash("sha256").update(JSON.stringify([e.seq, e.purchaseId, e.reason, e.decision, e.decidedBy, e.decidedAt, e.addedAt])).digest("hex").slice(0, 16);
+}
+/** Validates the list: { entries: [...] } with seq 1..n in order, unique purchase ids, all fields present. Throws gl_forced_post_list_invalid:<why>. */
+export function validateForcedPostList(raw: unknown): ForcedPostEntry[] {
+  const bad = (why: string): never => { throw new Error(`gl_forced_post_list_invalid:${why}`); };
+  const entries = (raw && typeof raw === "object" && Array.isArray((raw as { entries?: unknown }).entries)) ? (raw as { entries: unknown[] }).entries : bad("no_entries");
+  const seen = new Set<number>();
+  return entries.map((x, i) => {
+    const e = x as Record<string, unknown>;
+    if (!e || typeof e !== "object") bad(`entry_${i + 1}`);
+    if (e.seq !== i + 1) bad(`seq_${i + 1}`);
+    if (!Number.isSafeInteger(e.purchaseId) || (e.purchaseId as number) <= 0) bad(`purchase_${i + 1}`);
+    if (seen.has(e.purchaseId as number)) bad(`duplicate_purchase_${e.purchaseId}`);
+    seen.add(e.purchaseId as number);
+    for (const k of ["reason", "decision", "decidedBy", "decidedAt", "addedAt"]) if (typeof e[k] !== "string" || !(e[k] as string).trim() || (e[k] as string).length > 300) bad(`${k}_${i + 1}`);
+    return { seq: e.seq as number, purchaseId: e.purchaseId as number, reason: e.reason as string, decision: e.decision as string, decidedBy: e.decidedBy as string, decidedAt: e.decidedAt as string, addedAt: e.addedAt as string };
+  });
+}
+/** Every applied entry (gl_exceptions code gl_forced_post_after_start:<seq>) must still be in the list, unchanged. */
+function assertForcedAppendOnly(db: DatabaseSync, list: ForcedPostEntry[]): void {
+  const bySeq = new Map(list.map((e) => [e.seq, e]));
+  for (const r of db.prepare(`SELECT source_id, code, note FROM gl_exceptions WHERE code LIKE '${FORCED_CODE}:%'`).all() as Array<{ source_id: string; code: string; note: string }>) {
+    const seq = Number(/^gl_forced_post_after_start:(\d+)/.exec(r.code)?.[1]);
+    const dg = /digest=([0-9a-f]{16})/.exec(r.note)?.[1];
+    const e = bySeq.get(seq);
+    if (!e || String(e.purchaseId) !== r.source_id || forcedPostDigest(e) !== dg) throw new Error(`gl_forced_post_list_not_append_only:seq_${seq}`);
+  }
+}
+
 const eventDateOf = (e: BackfillEvent) => { const ev = String(e.payload.event_date ?? ""); return /^\d{4}-\d{2}-\d{2}$/.test(ev) ? ev : tehranDateOf(String(e.payload.at ?? e.at)); };
 /** End of a Tehran calendar date as a UTC instant (UTC+03:30, no DST since 2022). */
 const endOfTehranDay = (d: string) => new Date(Date.parse(`${addDays(d, 1)}T00:00:00+03:30`)).toISOString();
 
-type Built = { skip: string; note: string } | { post: Parameters<typeof postVoucher>[1] } | { reverse: { voucherId: number; eventDate: string; reason: string; sourceKey: string } };
+type Forced = { entry: ForcedPostEntry; settledDate: string; postDate: string; note: string };
+type Built = { skip: string; note: string; forced?: Forced } | { post: Parameters<typeof postVoucher>[1]; forced?: Forced } | { reverse: { voucherId: number; eventDate: string; reason: string; sourceKey: string } };
 
-/** P7 / P7C: the G6 2101 rule on top of the shared builder. */
-function buildEvent(db: DatabaseSync, e: BackfillEvent, nowIso: string): Built {
+/** P7 / P7C: the G6 2101 rule on top of the shared builder, plus the dated exceptions. */
+function buildEvent(db: DatabaseSync, e: BackfillEvent, nowIso: string, forced: Map<number, ForcedPostEntry>): Built {
   const row = { id: 0, source_key: e.sourceKey, event_type: e.eventType, source_type: e.sourceType, source_id: e.sourceId, payload_json: JSON.stringify(e.payload), attempts: 0 };
   if (e.eventType !== "P7" && e.eventType !== "P7C") return buildShadowVoucher(db, row, nowIso) as Built;
   const eventDate = eventDateOf(e);
   const start = financeSettingAsOf(db, "gl.ledger_start_date", eventDate);
   if (!start) throw new Error("finance_setting_missing:gl.ledger_start_date");
-  if (eventDate < start) return { skip: "gl_before_ledger_start", note: "پیش از شروع دفتر؛ مانده در سند افتتاحیه" };
-  const base = financeSettingAsOf(db, "gl.opening_base_date", eventDate);
-  if (!base) throw new Error("finance_setting_missing:gl.opening_base_date");
-  if (eventDate <= base) return { skip: "gl_before_opening_base", note: "تا تاریخ مبنا؛ مانده‌ی ۲۱۰۱ در سند افتتاحیه" };
   const pid = Number(e.payload.purchase_id);
-  if (has(db, "customer_payment_orders")) {
-    const inOpening = one<{ id: number }>(db, "SELECT id FROM customer_payment_orders WHERE purchase_id=? AND created_at < ? LIMIT 1", pid, endOfTehranDay(base));
-    if (inOpening) return { skip: "gl_in_opening_2101", note: `دستور پرداخت #${inOpening.id} در جمع ۲۱۰۱ افتتاحیه است` };
+  const f = forced.get(pid);
+  const base = (eventDate < start && !f) ? null : financeSettingAsOf(db, "gl.opening_base_date", eventDate);
+  if (eventDate < start && !f) return { skip: "gl_before_ledger_start", note: "پیش از شروع دفتر؛ مانده در سند افتتاحیه" };
+  if (!base) throw new Error("finance_setting_missing:gl.opening_base_date");
+  const orders = has(db, "customer_payment_orders")
+    ? db.prepare("SELECT id, created_at FROM customer_payment_orders WHERE purchase_id=? ORDER BY created_at, id").all(pid) as Array<{ id: number; created_at: string }> : [];
+  const inOpening = orders.find((o) => iso(o.created_at) < endOfTehranDay(base));
+  if (f && (eventDate < start || eventDate <= base)) {
+    // dated exception: its own voucher after the start, never on top of the opening 2101
+    if (inOpening) return { skip: `gl_forced_post_conflict:in_opening_2101`, note: `استثنای تاریخ‌دار #${f.seq} رد شد: دستور پرداخت #${inOpening.id} در جمع ۲۱۰۱ افتتاحیه است (ثبت دوباره نمی‌شود)` };
+    const startEff = financeSettingAsOf(db, "gl.ledger_start_date", addDays(base, 1)) ?? start;
+    const cands = [start, startEff, addDays(base, 1), ...(orders[0] ? [tehranDateOf(iso(orders[0].created_at))] : [])];
+    const postDate = cands.reduce((a, b) => (a > b ? a : b));
+    const why = orders[0] ? `= max(شروع دفتر ${start}، ایجاد دستور پرداخت #${orders[0].id} در ${tehranDateOf(iso(orders[0].created_at))})` : `= شروع دفتر ${start}`;
+    const note = `استثنای تاریخ‌دار #${f.seq} digest=${forcedPostDigest(f)}: خرید #${pid} تسویه‌ی ${eventDate}، ثبت با تاریخ ${postDate} ${why}. تصمیم: ${f.decidedBy}، کارت ${f.decision}، ${f.decidedAt}. ${f.reason}`.slice(0, 500);
+    const fx: Forced = { entry: f, settledDate: eventDate, postDate, note };
+    const e2: BackfillEvent = { ...e, payload: { ...e.payload, event_date: postDate, settled_date: eventDate, forced_seq: f.seq } };
+    const b = e.eventType === "P7" ? buildShadowVoucher(db, { ...row, payload_json: JSON.stringify(e2.payload) }, nowIso) as Built : buildP7C(db, e2, postDate, nowIso, pid);
+    if ("post" in b) return { post: { ...b.post, description: `${b.post.description} — استثنای تاریخ‌دار #${f.seq}: تسویه ${eventDate}، ثبت ${postDate} (تصمیم ${f.decidedBy}، کارت ${f.decision})` }, forced: fx };
+    if ("skip" in b) return { ...b, forced: fx };
+    return b;
   }
+  if (eventDate <= base) return { skip: "gl_before_opening_base", note: "تا تاریخ مبنا؛ مانده‌ی ۲۱۰۱ در سند افتتاحیه" };
+  if (inOpening) return { skip: "gl_in_opening_2101", note: `دستور پرداخت #${inOpening.id} در جمع ۲۱۰۱ افتتاحیه است` };
   // P7 original: built from the original rows (a later correction is its own P7C voucher)
   if (e.eventType === "P7") return buildShadowVoucher(db, row, nowIso) as Built;
-  // P7C: settings correction moving amounts between 1201 (company share) and the discount account; credit unchanged
+  return buildP7C(db, e, eventDate, nowIso, pid);
+}
+
+/** P7C: settings correction moving amounts between 1201 (company share) and the discount account; credit unchanged */
+function buildP7C(db: DatabaseSync, e: BackfillEvent, eventDate: string, nowIso: string, pid: number): Built {
   const { version, m } = glMappingAsOf(db, "P7", eventDate);
   const nature = financeSettingAsOf(db, "discount.development.nature", eventDate);
   if (!nature) return { skip: "finance_setting_missing:discount.development.nature", note: "تنظیم مالی در تاریخ رویداد خالی است" };
@@ -158,15 +220,17 @@ function buildEvent(db: DatabaseSync, e: BackfillEvent, nowIso: string): Built {
     description: `اصلاح تسویه‌ی خرید #${pid} (علامت برگشتی، نگاشت P7 نسخه ${version})`, lines } };
 }
 
-export type BackfillOptions = { apply: boolean; excludeFees?: number[]; retrySkipped?: boolean; batchSize?: number; nowIso?: string; keepItems?: boolean };
+export type BackfillOptions = { apply: boolean; excludeFees?: number[]; forcedPost?: ForcedPostEntry[]; retrySkipped?: boolean; batchSize?: number; nowIso?: string; keepItems?: boolean };
 
 /** Runs the backfill. dry-run: one transaction, rolled back. apply: batches of 50 in BEGIN IMMEDIATE. Never call inside a transaction. */
 export function runGlBackfill(db: DatabaseSync, opts: BackfillOptions): BackfillReport {
   if ((db as unknown as { isTransaction?: boolean }).isTransaction) throw new Error("gl_backfill_in_transaction");
   const nowIso = opts.nowIso ?? new Date().toISOString();
   const exclude = new Set(opts.excludeFees ?? []);
+  const forcedList = validateForcedPostList({ entries: opts.forcedPost ?? [] });
+  const forced = new Map(forcedList.map((f) => [f.purchaseId, f]));
   const batch = Math.max(1, Math.min(opts.batchSize ?? 50, 50));
-  const report: BackfillReport = { mode: opts.apply ? "apply" : "dry-run", events: 0, created: 0, byType: {}, accounts: {}, exceptions: [], controls: null as unknown as BackfillControls, items: [] };
+  const report: BackfillReport = { mode: opts.apply ? "apply" : "dry-run", events: 0, created: 0, byType: {}, accounts: {}, exceptions: [], forcedPosts: [], controls: null as unknown as BackfillControls, items: [] };
   // the ledger schema (G1) must already exist; the backfill never creates it
   if (!has(db, "gl_vouchers") || !has(db, "gl_accounts")) throw new Error("gl_ledger_schema_missing");
   const vBefore = one<{ m: number }>(db, "SELECT COALESCE(MAX(id),0) m FROM gl_vouchers")?.m ?? 0;
@@ -174,12 +238,21 @@ export function runGlBackfill(db: DatabaseSync, opts: BackfillOptions): Backfill
   begin();
   try {
     ensureGlShadowSchema(db, nowIso);
+    assertForcedAppendOnly(db, forcedList);
     const events = collectBackfillEvents(db);
     report.events = events.length;
     let inBatch = 0;
     for (const e of events) {
-      const item = processOne(db, e, exclude, !!opts.retrySkipped, nowIso);
+      const item = processOne(db, e, exclude, !!opts.retrySkipped, nowIso, forced);
       report.items.push(item);
+      const fPid = (e.eventType === "P7" || e.eventType === "P7C") ? Number(e.payload.purchase_id) : 0;
+      const fe = fPid ? forced.get(fPid) : undefined;
+      if (fe) {
+        const ex = one<{ voucher_id: number | null; note: string }>(db, `SELECT voucher_id, note FROM gl_exceptions WHERE source_type='goods_purchases' AND source_id=? AND code=?`, String(fPid), forcedCode(fe, e));
+        const v = item.voucherId ? one<{ event_date: string }>(db, "SELECT event_date FROM gl_vouchers WHERE id=?", item.voucherId) : undefined;
+        if (ex || (item.code ?? "").startsWith("gl_forced_post"))
+          report.forcedPosts.push({ seq: fe.seq, purchaseId: fPid, eventType: e.eventType, sourceKey: e.sourceKey, settledDate: eventDateOf(e), postDate: v?.event_date ?? "-", voucherId: item.voucherId, status: item.status, code: item.code });
+      }
       (report.byType[e.eventType] ??= {})[item.status] = ((report.byType[e.eventType] ??= {})[item.status] ?? 0) + 1;
       if (item.status === "skip" || item.status === "excluded" || item.status === "fail")
         if (item.code !== "gl_before_ledger_start") report.exceptions.push({ table: e.table, id: e.id, eventType: e.eventType, code: item.code ?? "-" });
@@ -198,12 +271,17 @@ export function runGlBackfill(db: DatabaseSync, opts: BackfillOptions): Backfill
   return report;
 }
 
-function processOne(db: DatabaseSync, e: BackfillEvent, exclude: Set<number>, retrySkipped: boolean, nowIso: string): BackfillItem {
+const forcedCode = (f: ForcedPostEntry, e: BackfillEvent) => e.eventType === "P7" ? `${FORCED_CODE}:${f.seq}` : `${FORCED_CODE}:${f.seq}:correction:${e.id}`;
+
+function processOne(db: DatabaseSync, e: BackfillEvent, exclude: Set<number>, retrySkipped: boolean, nowIso: string, forced: Map<number, ForcedPostEntry>): BackfillItem {
   const base = { table: e.table, id: e.id, eventType: e.eventType, sourceKey: e.sourceKey };
   const v = one<{ id: number; event_date: string }>(db, "SELECT id,event_date FROM gl_vouchers WHERE source_key IN (?,?) LIMIT 1", e.sourceKey, e.backfillKey);
   if (v) return { ...base, eventDate: v.event_date, status: "already", code: null, voucherId: v.id };
   const q = one<{ id: number; status: string; last_error: string | null; attempts: number }>(db, "SELECT id,status,last_error,attempts FROM gl_posting_queue WHERE source_key=?", e.sourceKey);
-  if (q && q.status === "skipped" && !retrySkipped) return { ...base, eventDate: null, status: "already", code: q.last_error, voucherId: null };
+  // an entry appended to the dated-exception list re-opens that purchase's date skips (no --retry-skipped needed)
+  const reopened = q?.status === "skipped" && (e.eventType === "P7" || e.eventType === "P7C") && forced.has(Number(e.payload.purchase_id))
+    && (q.last_error === "gl_before_ledger_start" || q.last_error === "gl_before_opening_base");
+  if (q && q.status === "skipped" && !retrySkipped && !reopened) return { ...base, eventDate: null, status: "already", code: q.last_error, voucherId: null };
   const upsert = (status: "posted" | "skipped" | "failed", err: string | null, voucherId: number | null) =>
     db.prepare(`INSERT INTO gl_posting_queue(source_key,event_type,source_type,source_id,payload_json,status,attempts,next_attempt_at,last_error,voucher_id,created_at,updated_at)
       VALUES(?,?,?,?,?,?,1,NULL,?,?,?,?)
@@ -218,7 +296,7 @@ function processOne(db: DatabaseSync, e: BackfillEvent, exclude: Set<number>, re
   }
   db.exec("SAVEPOINT gl_backfill_one");
   try {
-    const b = buildEvent(db, e, nowIso);
+    const b = buildEvent(db, e, nowIso, forced);
     let out: BackfillItem;
     if ("skip" in b) {
       recordGlException(db, e.sourceType, e.sourceId, b.skip, b.note, nowIso);
@@ -229,7 +307,13 @@ function processOne(db: DatabaseSync, e: BackfillEvent, exclude: Set<number>, re
         ? reverseVoucher(db, b.reverse.voucherId, { eventDate: b.reverse.eventDate, reason: b.reverse.reason, sourceKey: b.reverse.sourceKey, nowIso })
         : postVoucher(db, { ...b.post, kind: "backfill" });
       upsert("posted", null, r.voucherId);
-      out = { ...base, eventDate, status: r.created ? "post" : "already", code: null, voucherId: r.voucherId };
+      const fx = "post" in b ? b.forced : undefined;
+      if (fx) {
+        // audit: the dated exception, its reason, the decision and the voucher (append-only table)
+        db.prepare("INSERT OR IGNORE INTO gl_exceptions(source_type,source_id,code,note,voucher_id,created_at) VALUES('goods_purchases',?,?,?,?,?)")
+          .run(String(fx.entry.purchaseId), forcedCode(fx.entry, e), fx.note, r.voucherId, nowIso);
+      }
+      out = { ...base, eventDate: fx ? fx.postDate : eventDate, status: r.created ? "post" : "already", code: fx ? forcedCode(fx.entry, e) : null, voucherId: r.voucherId };
     }
     db.exec("RELEASE gl_backfill_one");
     return out;
@@ -252,7 +336,11 @@ export function backfillControls(db: DatabaseSync, items: BackfillItem[]): Backf
   const purchaseOf = (gflId: number) => one<{ p: number }>(db, "SELECT purchase_id p FROM goods_finance_ledger WHERE id=?", gflId)!.p;
   const p7Purchases = p7.map((i) => purchaseOf(i.id));
   const sales = sumSrc(p7Purchases, "SELECT credit_amount_toman a FROM goods_purchases WHERE id=?");
-  const payout = sumSrc(p7Purchases, "SELECT payout_amount_toman a FROM goods_purchases WHERE id=?");
+  // dated exceptions with a P7 voucher (from the append-only audit rows, so a 2nd run sees them too)
+  const forcedSet = new Set((db.prepare(`SELECT source_id s FROM gl_exceptions WHERE source_type='goods_purchases' AND code GLOB '${FORCED_CODE}:[0-9]*' AND code NOT LIKE '%:correction:%' AND voucher_id IS NOT NULL`).all() as Array<{ s: string }>).map((r) => Number(r.s)));
+  const forcedPurchases = p7Purchases.filter((p) => forcedSet.has(p)).sort((a, b) => a - b);
+  const payout = sumSrc(p7Purchases.filter((p) => !forcedSet.has(p)), "SELECT payout_amount_toman a FROM goods_purchases WHERE id=?");
+  const forcedPayout = sumSrc(forcedPurchases, "SELECT payout_amount_toman a FROM goods_purchases WHERE id=?");
   const comm = ["P10", "P11"].flatMap(inScope).map((i) => i.id), neg = inScope("P12").map((i) => i.id);
   const commissions = sumSrc(comm, "SELECT amount_toman a FROM goods_finance_ledger WHERE id=?") - sumSrc(neg, "SELECT amount_toman a FROM goods_finance_ledger WHERE id=?");
   const opening2101 = one<{ n: number }>(db, "SELECT COALESCE(SUM(l.credit_rial),0)-COALESCE(SUM(l.debit_rial),0) n FROM gl_voucher_lines l JOIN gl_accounts a ON a.id=l.account_id JOIN gl_vouchers v ON v.id=l.voucher_id WHERE a.code='2101' AND v.kind='opening'")!.n;
@@ -272,5 +360,5 @@ export function backfillControls(db: DatabaseSync, items: BackfillItem[]): Backf
   return { tbBalanced: t.d === t.c, totalDebitRial: t.d, totalCreditRial: t.c,
     gl4103Rial: accBal(db, "4103"), feesInScopeRial: fees, gl4101Rial: accBal(db, "4101"), salesInScopeRial: sales,
     gl2102Rial: accBal(db, "2102"), commissionsInScopeRial: commissions, gl2101Rial: accBal(db, "2101"), opening2101Rial: opening2101,
-    postStartP7PayoutRial: payout, p8PaidRial: p8, p7Overlap: overlap, p7Gaps: [...new Set(gaps)].sort((a, b) => a - b) };
+    postStartP7PayoutRial: payout, forcedP7PayoutRial: forcedPayout, forcedPurchases, p8PaidRial: p8, p7Overlap: overlap, p7Gaps: [...new Set(gaps)].sort((a, b) => a - b) };
 }

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import * as L from "../src/lib/ledger.ts";
 import * as P from "../src/lib/gl-posting.ts";
@@ -48,7 +48,7 @@ CREATE TABLE accounting_documents (id INTEGER PRIMARY KEY, fund_id INTEGER NOT N
   purpose TEXT NOT NULL, document_type TEXT NOT NULL, transaction_type TEXT NOT NULL, source TEXT NOT NULL, source_order_id INTEGER UNIQUE, request_key TEXT NOT NULL UNIQUE,
   request_hash TEXT NOT NULL, balance_before_toman TEXT NOT NULL, balance_after_toman TEXT NOT NULL, created_by INTEGER NOT NULL, created_at TEXT NOT NULL);`;
 const PRE = "2026-10-10T08:00:00.000Z", POST = "2026-10-24T08:00:00.000Z", POST2 = "2026-10-25T08:00:00.000Z";
-function fresh({ nature = true } = {}) {
+function fresh({ nature = true, late = false } = {}) {
   const db = new DatabaseSync(":memory:"); db.exec("PRAGMA foreign_keys=ON"); db.exec(SRC);
   L.ensureLedgerSchema(db, NOW); S.ensureGlShadowSchema(db, NOW);
   db.prepare("insert into gl_fiscal_years(title,start_date,end_date,created_at) values('1405','2026-03-21','2027-03-20',?)").run(NOW);
@@ -79,6 +79,12 @@ function fresh({ nature = true } = {}) {
   db.prepare("insert into team_commission_ledger_meta(ledger_id,salesperson_id,kind,commission_month) values(?,9,'salesperson_commission','1405-08')").run(cid);
   const O = db.prepare("insert into customer_payment_orders(id,customer_id,purchase_id,amount_toman,stage,created_at) values(?,?,?,?,'awaiting_payment',?)");
   O.run(1, 41, 2, "180000000", PRE); O.run(2, 41, 3, "60000000", POST); O.run(3, 42, 4, "50000000", POST2); O.run(4, 42, 5, "40000000", "2026-10-22T20:00:00.000Z");
+  if (late) {
+    // #7 like live purchase 42: settled before the start, its payment order created after the base date (2026-10-24 Tehran),
+    // plus a pre-start settings correction (P7C) to prove the exception is generic
+    GP.run(7, 43, "120000000", "120000000", "70000000", "40000000", "80000000", "70000000"); settle(7, 43, "120000000", "40000000", "80000000", "70000000", PRE); corr(7, 43, "4000000", PRE);
+    O.run(5, 43, 7, "70000000", POST);
+  }
   return db;
 }
 const pay = (db, oid, amount, at = "2026-10-26T08:00:00.000Z") => db.prepare(`insert into accounting_documents(fund_id,document_date,transaction_date,amount_toman,purpose,document_type,transaction_type,source,source_order_id,request_key,request_hash,balance_before_toman,balance_after_toman,created_by,created_at)
@@ -183,7 +189,65 @@ const R = (toman) => Number(toman) * 10;
     ok(r.status === 3 && /apply_refused_on_live/.test(r.stderr), "CLI refuses --apply on the live DB path");
     const r2 = spawnSync(process.execPath, [cli, "--db", "/opt/nafisvam/none.db", "--apply"], { encoding: "utf8" });
     ok(r2.status !== 0, "CLI refuses a missing / live path");
+    const r3 = spawnSync(process.execPath, [cli, "--db", tmp, "--forced-post", "/tmp/none-forced.json"], { env: { PATH: process.env.PATH }, encoding: "utf8" });
+    ok(r3.status === 2 && /gl_forced_post_list_missing/.test(r3.stderr), "CLI refuses without the dated-exception list");
   }
+}
+
+// 6. dated exception (pattern of Mohammad's decision t250s795 for live purchase 42): its own P7 after the start
+{
+  const LIST = [{ seq: 1, purchaseId: 7, reason: "آزمون: تسویه پیش از شروع، دستور پرداخت پس از مبنا", decision: "t-test", decidedBy: "Mohammad", decidedAt: "2026-10-27T01:28+03:30", addedAt: "2026-10-27" }];
+  const cuBal = (db, cust) => one(db, "select coalesce(sum(l.credit_rial),0)-coalesce(sum(l.debit_rial),0) n from gl_voucher_lines l join gl_accounts a on a.id=l.account_id join gl_tafsili t on t.id=l.tafsili_id where a.code='2101' and t.type='CU' and t.ref_id=?", cust).n;
+  {
+    const db = fresh({ late: true }); opening(db);
+    const r = B.runGlBackfill(db, { apply: false, excludeFees: [105], nowIso: NOW });
+    ok(r.controls.p7Gaps.join() === "6,7", "without the dated exception: #7 is a gap (like live #42)");
+  }
+  const db = fresh({ late: true }); const exp = opening(db);
+  ok(exp === R(180000000) + R(40000000), "#7's order is not in the opening 2101");
+  const h = oldHash(db);
+  const a = B.runGlBackfill(db, { apply: true, excludeFees: [105], forcedPost: LIST, nowIso: NOW, keepItems: true });
+  const v = db.prepare("select id,event_date,description,kind,source_key from gl_vouchers where source_key like 'gl:goods:7:%' order by id").all();
+  ok(v.length === 2 && v[0].source_key === "gl:goods:7:settle" && v[1].source_key.startsWith("gl:goods:7:correction:"), "#7: own P7 voucher + its P7C, one each");
+  ok(v.every((x) => x.event_date === "2026-10-24" && x.kind === "backfill"), "dated max(start 2026-10-23, order created 2026-10-24) = 2026-10-24");
+  ok(v.every((x) => x.description.includes("استثنای تاریخ‌دار #1") && x.description.includes("t-test") && x.description.includes("2026-10-10")), "voucher description: exception #, decision, settled date");
+  const ex = db.prepare("select code,note,voucher_id from gl_exceptions where source_type='goods_purchases' and source_id='7' and code like 'gl_forced_post_after_start:%' order by id").all();
+  ok(ex.length === 2 && ex[0].code === "gl_forced_post_after_start:1" && ex[0].voucher_id === v[0].id && ex[1].voucher_id === v[1].id, "audit rows in gl_exceptions with the voucher ids");
+  ok(ex.every((x) => x.note.includes(`digest=${B.forcedPostDigest(LIST[0])}`) && x.note.includes("t-test") && x.note.includes("Mohammad") && x.note.includes("#5")), "audit note: digest, decision, who, the payment order");
+  ok(a.forcedPosts.length === 2 && a.forcedPosts.every((f) => f.postDate === "2026-10-24" && f.settledDate === "2026-10-10" && f.voucherId), "report lists the forced posts");
+  const p7lines = db.prepare("select a.code,l.credit_rial c from gl_voucher_lines l join gl_accounts a on a.id=l.account_id where l.voucher_id=? and a.code='2101'").all(v[0].id);
+  ok(p7lines.length === 1 && p7lines[0].c === R(70000000) && cuBal(db, 43) === R(70000000), "P7 credits 2101 on the customer's subledger by the payout");
+  const c = a.controls;
+  ok(c.p7Gaps.join() === "6" && c.p7Overlap.length === 0 && c.forcedPurchases.join() === "7", "no gap for #7, no overlap");
+  ok(c.forcedP7PayoutRial === R(70000000) && c.postStartP7PayoutRial === R(60000000) + R(50000000), "forced payout reported apart from the post-start P7");
+  ok(bal(db, "2101") === exp + R(60000000) + R(50000000) + R(70000000) && c.gl2101Rial === c.opening2101Rial + c.postStartP7PayoutRial + c.forcedP7PayoutRial, "2101 = opening + post-start P7 + #7 (no gap, no double count)");
+  ok(c.tbBalanced, "TB balanced");
+  ok(oldHash(db) === h, "old tables (purchase, its ledger rows, its order) unchanged");
+  const vc = n(db, "gl_vouchers");
+  const a2 = B.runGlBackfill(db, { apply: true, excludeFees: [105], forcedPost: LIST, nowIso: NOW });
+  ok(a2.created === 0 && n(db, "gl_vouchers") === vc && a2.controls.forcedPurchases.join() === "7" && a2.controls.gl2101Rial === a2.controls.opening2101Rial + a2.controls.postStartP7PayoutRial + a2.controls.forcedP7PayoutRial, "second apply: 0 new, controls still hold");
+  // append-only: an applied entry may not be edited or removed; appending is fine
+  let e1 = null; try { B.runGlBackfill(db, { apply: false, forcedPost: [{ ...LIST[0], reason: "x" }], nowIso: NOW }); } catch (x) { e1 = x; }
+  ok(e1 && /gl_forced_post_list_not_append_only:seq_1/.test(e1.message), "edited applied entry: refused");
+  let e2 = null; try { B.runGlBackfill(db, { apply: false, forcedPost: [], nowIso: NOW }); } catch (x) { e2 = x; }
+  ok(e2 && /gl_forced_post_list_not_append_only/.test(e2.message), "removed applied entry: refused");
+  const more = [...LIST, { ...LIST[0], seq: 2, purchaseId: 6, decision: "t-test-2" }];
+  const am = B.runGlBackfill(db, { apply: false, forcedPost: more, nowIso: NOW, keepItems: true });
+  ok(am.created === 1 && am.items.find((i) => i.sourceKey === "gl:goods:6:settle").eventDate === "2026-10-23", "appended entry (#6, earlier skipped, no order): re-opened without --retry-skipped, dated at the start");
+  let e3 = null; try { B.validateForcedPostList({ entries: [{ ...LIST[0], seq: 2 }] }); } catch (x) { e3 = x; }
+  let e4 = null; try { B.validateForcedPostList({ entries: [LIST[0], { ...LIST[0], seq: 2 }] }); } catch (x) { e4 = x; }
+  ok(e3 && e4 && /gl_forced_post_list_invalid/.test(e3.message) && /duplicate_purchase/.test(e4.message), "list validation: seq order, unique purchase");
+  // paying the order after the start: P8 brings the subledger to zero, once
+  pay(db, 5, "70000000");
+  const a3 = B.runGlBackfill(db, { apply: true, excludeFees: [105], forcedPost: LIST, nowIso: NOW });
+  ok(a3.created === 1 && cuBal(db, 43) === 0 && a3.controls.gl2101Rial === a3.controls.opening2101Rial + a3.controls.postStartP7PayoutRial + a3.controls.forcedP7PayoutRial - a3.controls.p8PaidRial, "paying #5 (like #37): subledger 0, 2101 rule holds");
+  // a forced purchase whose order is already in the opening 2101: refused, status only (never a double count)
+  const dbc = fresh(); const expc = opening(dbc);
+  const ac = B.runGlBackfill(dbc, { apply: true, excludeFees: [105], forcedPost: [{ ...LIST[0], purchaseId: 2 }], nowIso: NOW, keepItems: true });
+  ok(ac.items.find((i) => i.sourceKey === "gl:goods:2:settle").code === "gl_forced_post_conflict:in_opening_2101" && n(dbc, "gl_vouchers", "source_key like 'gl:goods:2:%'") === 0 && bal(dbc, "2101") === expc + R(60000000) + R(50000000), "forced purchase already in the opening: refused");
+  // the shipped list: entry #1 = purchase 42, decision t250s795 (pinned digest; editing it fails this fixture)
+  const shipped = B.validateForcedPostList(JSON.parse(readFileSync(path.resolve(process.cwd(), "config/gl-backfill-forced-post.json"), "utf8")));
+  ok(shipped[0].purchaseId === 42 && shipped[0].decision === "t250s795" && shipped[0].decidedBy === "Mohammad" && B.forcedPostDigest(shipped[0]) === "43a078e9d9961550", `shipped list entry #1 pinned (${B.forcedPostDigest(shipped[0])})`);
 }
 
 // 5. masked copy (apply only on the copy)
@@ -199,22 +263,43 @@ if (COPY) {
   const exp = opening(db, 900001, 900002);
   const h = oldHash(db);
   const FEES = [105, 127, 157, 175];
-  const d1 = B.runGlBackfill(db, { apply: false, excludeFees: FEES, nowIso: NOW }), d2 = B.runGlBackfill(db, { apply: false, excludeFees: FEES, nowIso: NOW });
+  const FORCED = B.validateForcedPostList(JSON.parse(readFileSync(path.resolve(process.cwd(), "config/gl-backfill-forced-post.json"), "utf8")));
+  const d1 = B.runGlBackfill(db, { apply: false, excludeFees: FEES, forcedPost: FORCED, nowIso: NOW }), d2 = B.runGlBackfill(db, { apply: false, excludeFees: FEES, forcedPost: FORCED, nowIso: NOW });
   ok(strip(d1) === strip(d2) && n(db, "gl_posting_queue") === 0, "copy: two identical dry-runs, nothing written");
-  const a1 = B.runGlBackfill(db, { apply: true, excludeFees: FEES, nowIso: NOW, keepItems: true });
+  const a1 = B.runGlBackfill(db, { apply: true, excludeFees: FEES, forcedPost: FORCED, nowIso: NOW, keepItems: true });
   const c = a1.controls;
   ok(c.tbBalanced, "copy: TB balanced");
   ok(c.p7Overlap.length === 0, "copy: no P7 overlap with the opening 2101");
-  ok(c.gl2101Rial === c.opening2101Rial + c.postStartP7PayoutRial - c.p8PaidRial && c.opening2101Rial === exp, "copy: 2101 = opening + post-start P7 (- P8)");
+  ok(c.gl2101Rial === c.opening2101Rial + c.postStartP7PayoutRial + c.forcedP7PayoutRial - c.p8PaidRial && c.opening2101Rial === exp, "copy: 2101 = opening + post-start P7 + purchase 42 (- P8)");
+  ok(bal(db, "2101") === c.gl2101Rial && c.p7Gaps.length === 0 && c.forcedPurchases.join() === "42", `copy: no gap left, purchase 42 is the dated exception (gaps ${c.p7Gaps.join(" ") || "-"})`);
+  const v42 = db.prepare("select id,event_date,kind,description from gl_vouchers where source_key like 'gl:goods:42:%'").all();
+  const cust42 = one(db, "select customer_id c from goods_purchases where id=42").c;
+  const o37 = one(db, "select id,amount_toman a,created_at from customer_payment_orders where purchase_id=42");
+  const cuBalC = (d) => one(d, "select coalesce(sum(l.credit_rial),0)-coalesce(sum(l.debit_rial),0) n from gl_voucher_lines l join gl_accounts a on a.id=l.account_id join gl_tafsili t on t.id=l.tafsili_id where a.code='2101' and t.type='CU' and t.ref_id=?", cust42).n;
+  ok(v42.length === 1 && v42[0].event_date === "2026-10-24" && v42[0].kind === "backfill" && v42[0].description.includes("t250s795") && o37.id === 37, `copy: purchase 42 = one P7 voucher dated 2026-10-24 (order #37's date) citing t250s795`);
+  ok(cuBalC(db) === R(o37.a) && c.forcedP7PayoutRial === R(o37.a), "copy: 42's subledger on 2101 = payout = order #37 amount");
+  const ex42 = one(db, "select note,voucher_id from gl_exceptions where source_type='goods_purchases' and source_id='42' and code='gl_forced_post_after_start:1'");
+  ok(ex42 && ex42.voucher_id === v42[0].id && ex42.note.includes("t250s795") && ex42.note.includes("#37"), "copy: audit row for 42 with the voucher, decision and order #37");
   ok(n(db, "gl_vouchers", "kind='backfill' and event_date<'2026-10-23'") === 0, "copy: no voucher before the start");
   ok(c.gl4103Rial === c.feesInScopeRial && c.gl4101Rial === c.salesInScopeRial && c.gl2102Rial === c.commissionsInScopeRial, "copy: 4103 / 4101 / 2102 match the sources in scope");
   ok(a1.items.filter((i) => i.status === "fail").length === 0, `copy: 0 failed (${a1.items.filter((i) => i.status === "fail").map((i) => i.code).join(",")})`);
   const vc = n(db, "gl_vouchers");
-  const a2 = B.runGlBackfill(db, { apply: true, excludeFees: FEES, nowIso: NOW });
+  const a2 = B.runGlBackfill(db, { apply: true, excludeFees: FEES, forcedPost: FORCED, nowIso: NOW });
   ok(a2.created === 0 && n(db, "gl_vouchers") === vc, "copy: second apply 0 new");
-  ok(oldHash(db) === h, "copy: old tables unchanged");
+  ok(oldHash(db) === h, "copy: old tables unchanged (purchase 42 rows, order #37)");
   ok(one(db, "pragma integrity_check").integrity_check === "ok", "copy: integrity ok");
-  const rep = { events: a1.events, created: a1.created, byType: a1.byType, accounts: a1.accounts, controls: c, exceptions: a1.exceptions.map((x) => ({ table: x.table, id: x.id, ev: x.eventType, code: x.code })), dryRunCreated: d1.created, secondApplyCreated: a2.created };
+  // simulate paying #37 on a SECOND throw-away copy (the main copy and every source row stay as they are)
+  const PAYCOPY = `${COPY}.pay37.db`; rmSync(PAYCOPY, { force: true }); db.exec(`VACUUM INTO '${PAYCOPY}'`);
+  const dp = new DatabaseSync(PAYCOPY); dp.exec("PRAGMA foreign_keys=ON");
+  const by = one(dp, "select min(id) i from users").i;
+  // the masked copy has no bank accounts: a synthetic one on the throw-away copy only
+  const fund = one(dp, "select min(id) i from finance_bank_accounts").i ?? Number(dp.prepare("insert into finance_bank_accounts(bank_name,owner_name,fund_name,iban,owner_type,created_by,created_at) values('آزمون','آزمون','آزمون','IR000000000000000000000000','company',?,?)").run(by, NOW).lastInsertRowid);
+  dp.prepare(`insert into accounting_documents(fund_id,document_date,transaction_date,amount_toman,purpose,document_type,transaction_type,source,source_order_id,request_key,request_hash,balance_before_toman,balance_after_toman,created_by,created_at)
+    values(?,'2026-10-27','2026-10-27',?,'payment-order','debit','withdrawal','payment_order',37,'payment:37:test','h','0','0',?,?)`).run(fund, o37.a, by, NOW);
+  const a3 = B.runGlBackfill(dp, { apply: true, excludeFees: FEES, forcedPost: FORCED, nowIso: NOW });
+  ok(a3.created === 1 && cuBalC(dp) === 0 && a3.controls.gl2101Rial === a3.controls.opening2101Rial + a3.controls.postStartP7PayoutRial + a3.controls.forcedP7PayoutRial - a3.controls.p8PaidRial, "copy: paying #37 brings 42's subledger to 0; 2101 rule holds");
+  dp.close(); rmSync(PAYCOPY, { force: true });
+  const rep = { events: a1.events, created: a1.created, forcedPosts: a1.forcedPosts, byType: a1.byType, accounts: a1.accounts, controls: c, exceptions: a1.exceptions.map((x) => ({ table: x.table, id: x.id, ev: x.eventType, code: x.code })), dryRunCreated: d1.created, secondApplyCreated: a2.created };
   if (process.env.G6_REPORT) writeFileSync(process.env.G6_REPORT, JSON.stringify(rep, null, 2), { mode: 0o600 });
   console.log(`copy: events ${a1.events}, created ${a1.created}, opening2101 ${c.opening2101Rial}, postStartP7 ${c.postStartP7PayoutRial}, gl2101 ${c.gl2101Rial}, gaps ${c.p7Gaps.join(" ") || "-"}, exceptions ${a1.exceptions.length}`);
   db.close();
