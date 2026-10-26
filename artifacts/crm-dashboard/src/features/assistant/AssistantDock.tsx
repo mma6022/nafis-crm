@@ -15,6 +15,14 @@ type Mine = { assistants: AsMine[]; prefs: AsPrefs };
 const EMPTY: ThreadState = { messages: [], userSeen: [], typing: false, online: false, prefs: { sound: true, dnd: false, dndUntil: null, quiet: false }, lastId: 0, loaded: false };
 const KIND_FA: Record<string, string> = { suggestion: 'پیشنهاد', alert: 'هشدار', digest: 'خلاصه', text: '', reminder_proposal: 'پیشنهاد یادآور', brief: 'خلاصه', report: 'گزارش' };
 const BUBBLE_MS = 12_000;
+/** v4: «بعداً» re-shows the same message once LATER_MS after it was pressed (pressing «بعداً» again re-arms it). Persisted per user so a reload
+ *  neither loses nor repeats it; messages snoozed more than a day ago are not resurrected. */
+const LATER_MS = 60 * 60_000; const LATER_MAX_AGE_MS = 24 * 3600_000;
+const laterStore = (uid: number) => `nas-later-shown-${uid}`;
+function loadLater(uid: number): Set<string> { try { const v = JSON.parse(localStorage.getItem(laterStore(uid)) || '[]'); return new Set(Array.isArray(v) ? v.map(String) : []); } catch { return new Set(); } }
+function saveLater(uid: number, s: Set<string>) { try { localStorage.setItem(laterStore(uid), JSON.stringify([...s].slice(-200))); } catch { /* storage full / private mode: re-show only lives for this tab */ } }
+/** v4: unread assistant messages as a «(۲) » prefix on the tab title; removed when everything is read. */
+const TITLE_RX = /^\([۰-۹0-9+]+\)\s/;
 /** Tehran wall-clock → ISO (Iran has no DST since 2022: fixed UTC+03:30). */
 function tehranAt(dayOffset: number, h: number, min = 0) {
   const off = 210 * 60_000; const t = new Date(Date.now() + off);
@@ -204,6 +212,32 @@ export function AssistantDock({ user, bottomOffset, phone, slot }: { user: { id:
     const f = (e: Event) => { const id = Number((e as CustomEvent<{ threadId?: number }>).detail?.threadId); if (id && listRef.current.some(a => a.threadId === id)) { setOpenId(id); setBubble(null); } };
     window.addEventListener('nafis:assistant-open', f); return () => window.removeEventListener('nafis:assistant-open', f);
   }, []);
+  // v4 «بعداً» → re-show after 60 min (one 30 s tick; waits while a form is open, the user is typing, or DND is on).
+  const uid = user?.id ?? 0;
+  const laterShown = useRef<Set<string> | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => { const i = setInterval(() => setTick(x => x + 1), 30_000); return () => clearInterval(i); }, []);
+  useEffect(() => {
+    if (!uid || !list.length || bubble || overlay || prefsNow.dnd || typingInField()) return;
+    const shown = laterShown.current ??= loadLater(uid); const now = Date.now(); let pick: AsMessage | null = null; let dirty = false;
+    for (const a of list) for (const m of threads[a.threadId]?.messages ?? []) {
+      if (m.author === 'user' || m.actionTaken !== 'later' || !m.actedAt) continue;
+      const at = Date.parse(m.actedAt); const age = now - at;
+      // Same snooze = same id with actedAt within 5 min (the local click time and the server's acted_at differ by a little).
+      if (!(age >= LATER_MS) || [...shown].some(e => { const [i, t] = e.split(':'); return Number(i) === m.id && Math.abs(Number(t) - at) < 300_000; })) continue;
+      shown.add(`${m.id}:${at}`); dirty = true;
+      if (age <= LATER_MAX_AGE_MS && openRef.current !== m.threadId && !pick) pick = m;
+    }
+    if (dirty) saveLater(uid, shown);
+    if (pick) { const p = prefsRef.current; if (p.sound && !p.quiet) chime(false); setBubble(pick); }
+  }, [tick, threads, list, bubble, overlay, prefsNow.dnd, uid]);
+  // v4 tab-title badge: «(۲) …» while assistant messages are unread.
+  const unreadTotal = list.reduce((n, a) => n + (a.unread > 0 ? a.unread : 0), 0);
+  useEffect(() => {
+    const base = document.title.replace(TITLE_RX, '');
+    document.title = unreadTotal > 0 ? `(${faNum(unreadTotal)}) ${base}` : base;
+  }, [unreadTotal]);
+  useEffect(() => () => { document.title = document.title.replace(TITLE_RX, ''); }, []);
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const anchor = useAnchor(anchorEl, Boolean(slot) && (bubble != null || Object.values(threads).some(t => t.typing)), bubble?.threadId);
 
@@ -249,8 +283,8 @@ export function AssistantDock({ user, bottomOffset, phone, slot }: { user: { id:
     if (a === 'remind') { if (m.customerId) setQuickFor(m); else setRemindFor(m); }
     setBubble(b => (b?.id === m.id ? null : b));
     setThreads(prev => { const t = prev[m.threadId]; if (!t) return prev; const at = new Date().toISOString(); return { ...prev, [m.threadId]: { ...t, messages: t.messages.map(x => x.id === m.id ? { ...x, actedAt: at, actionTaken: a, readAt: x.readAt ?? at } : x) } }; });
-    asFetch(`/assistant/messages/${m.id}/action`, { method: 'POST', body: { action: a } }).catch(() => undefined);
-  }, [setLocation]);
+    asFetch(`/assistant/messages/${m.id}/action`, { method: 'POST', body: { action: a } }).then(() => { void qc.invalidateQueries({ queryKey: ['assistant-mine'] }); }).catch(() => undefined);
+  }, [setLocation, qc]);
 
   useEffect(() => {
     if (!bubble || bubble.kind === 'reminder_proposal' || bubble.priority === 'high') return;
