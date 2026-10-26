@@ -28,6 +28,7 @@ import { socialMonitorFeature } from "./lib/social-monitor";
 import { mountPublicLeads } from "./routes/public-leads";
 import { smartFilingRunnerRouter } from "./routes/smart-filing";
 import { assistantRunnerRouter } from "./routes/assistants";
+import { baleInternalRouter } from "./routes/bale";
 
 const app: Express = express();
 
@@ -65,6 +66,8 @@ app.use(
 // Smart-filing runner: Bearer token, own 2 MB JSON limit and own 404, so it must run before the global 100 KB parser.
 app.use("/api/smart-filing-runner", smartFilingRunnerRouter);
 app.use("/api/assistant-runner", assistantRunnerRouter);
+// Bale sidecar → API inbound messages: loopback + internal token, own JSON limit, outside /api (no CRM session).
+app.use(baleInternalRouter);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());

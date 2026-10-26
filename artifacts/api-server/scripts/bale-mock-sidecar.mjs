@@ -1,11 +1,18 @@
 // MOCK Bale sidecar (same HTTP contract as artifacts/bale-sidecar/sidecar.py). Never talks to Bale; used by the fixture
 // and the masked screenshot kit. Rules: code 11111 → connected; 22222 → password_needed (then password "mock-2fa" → connected);
 // 00000 → wrong_code; 99999 → code_expired. Phone 09990000009 → number_banned. CLI: MOCK_BALE_PORT=18470 MOCK_BALE_TOKEN_FILE=… node bale-mock-sidecar.mjs
+// 1b: /v1/session/attach (token must look like a mock token, else session_invalid), /v1/session/detach, /v1/send
+// (not attached → not_attached; phone 09990000008 → peer_not_found; state.sendError = "rate_limited" | "account_banned" |
+// "session_invalid" | … → that error), health { bootId, attached }, restart() = new bootId + every client dropped,
+// inbound(apiBase, accountRef, events) = what the real sidecar POSTs to the API for incoming messages.
 import http from "node:http"; import crypto from "node:crypto"; import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
 export function startMockBaleSidecar({ token, port = 0, host = "127.0.0.1" }) {
-  const flows = new Map(); const log = []; const state = { failSignOut: false, down: false };
+  const flows = new Map(); const log = []; const state = { failSignOut: false, down: false, sendError: null, attachError: null };
+  const attached = new Map(); const sent = []; let bootId = crypto.randomBytes(8).toString("hex"); let seq = 5000;
+  const peerOf = phone => String(800000000 + Number(String(phone).slice(-6)));
+  const ERR_STATUS = { rate_limited: 429, account_banned: 403, session_invalid: 401, not_attached: 409, peer_not_found: 404, unknown: 502 };
   const srv = http.createServer((req, res) => {
     const send = (s, j) => { res.writeHead(s, { "content-type": "application/json" }); res.end(JSON.stringify(j)); };
     if (state.down) { req.socket.destroy(); return; }
@@ -14,7 +21,21 @@ export function startMockBaleSidecar({ token, port = 0, host = "127.0.0.1" }) {
     req.on("end", () => {
       let j = {}; try { j = b ? JSON.parse(b) : {}; } catch { return send(400, { error: "unknown" }); }
       log.push({ path: req.url, body: j });
-      if (req.url === "/v1/health") return send(200, { ok: true, version: "mock-1", sessions: 0 });
+      if (req.url === "/v1/health") return send(200, { ok: true, version: "mock-1b", sessions: flows.size, bootId, attached: [...attached.keys()] });
+      if (req.url === "/v1/session/attach") {
+        if (state.attachError) return send(ERR_STATUS[state.attachError] ?? 502, { error: state.attachError });
+        if (!/^acc-\d+$/.test(String(j.accountRef)) || !String(j.token).startsWith("mock.")) return send(401, { error: "session_invalid" });
+        attached.set(j.accountRef, { deviceHash: j.deviceHash }); return send(200, { ok: true, baleUserId: "777000111" });
+      }
+      if (req.url === "/v1/session/detach") { attached.delete(j.accountRef); return send(200, { ok: true }); }
+      if (req.url === "/v1/send") {
+        if (!attached.has(j.accountRef)) return send(409, { error: "not_attached" });
+        if (state.sendError) return send(ERR_STATUS[state.sendError] ?? 502, { error: state.sendError });
+        if (!/^09\d{9}$/.test(String(j.phone)) || typeof j.text !== "string" || !j.text) return send(400, { error: "bad_request" });
+        if (j.phone === "09990000008") return send(404, { error: "peer_not_found" });
+        const m = { accountRef: j.accountRef, phone: j.phone, peerId: j.peerId ?? peerOf(j.phone), text: j.text, typingMs: j.typingMs, messageId: String(++seq) };
+        sent.push(m); return send(200, { messageId: m.messageId, peerId: m.peerId });
+      }
       if (req.url === "/v1/auth/start") {
         if (!/^09\d{9}$/.test(String(j.phone))) return send(422, { error: "phone_invalid" });
         if (j.phone === "09990000009") return send(403, { error: "number_banned" });
@@ -36,11 +57,19 @@ export function startMockBaleSidecar({ token, port = 0, host = "127.0.0.1" }) {
         return j.password === "mock-2fa" ? connected() : send(422, { error: "wrong_password" });
       }
       if (req.url === "/v1/auth/cancel") { flows.delete(j.flowId); return send(200, { ok: true }); }
-      if (req.url === "/v1/session/signout") return state.failSignOut ? send(502, { error: "unknown" }) : send(200, { ok: true });
+      if (req.url === "/v1/session/signout") { attached.delete(j.accountRef); return state.failSignOut ? send(502, { error: "unknown" }) : send(200, { ok: true }); }
       send(404, { error: "unknown" });
     });
   });
-  return new Promise(r => srv.listen(port, host, () => r({ srv, port: srv.address().port, log, flows, state, close: () => new Promise(c => srv.close(c)) })));
+  const restart = () => { attached.clear(); bootId = crypto.randomBytes(8).toString("hex"); };
+  /** What the real sidecar does for an incoming Bale message: POST to the API's internal inbound route. */
+  const inbound = async (apiBase, accountRef, events, headers = {}) => {
+    const r = await fetch(`${apiBase}/internal/bale/inbound`, { method: "POST", headers: { "content-type": "application/json", "x-bale-internal-token": token, ...headers },
+      body: JSON.stringify({ accountRef, events }) });
+    return { s: r.status, j: await r.json().catch(() => null) };
+  };
+  return new Promise(r => srv.listen(port, host, () => r({ srv, port: srv.address().port, log, flows, state, attached, sent, restart, inbound, peerOf,
+    close: () => new Promise(c => srv.close(c)) })));
 }
 
 if (process.argv[1]?.endsWith("bale-mock-sidecar.mjs") && fileURLToPath(import.meta.url) === process.argv[1]) {
