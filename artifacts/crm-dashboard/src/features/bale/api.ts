@@ -1,5 +1,6 @@
 /** «حساب شخصی بله» staff client (api-server lib/bale.ts + lib/bale-outbox.ts). The server is the real gate for every rule. */
 export { asFetch as baleFetch, asWhen as baleWhen, faNum } from '@/features/assistant/api';
+import { faNum as faN } from '@/features/assistant/api';
 
 export type BaleMode = 'off' | 'approve_first' | 'auto';
 export type BaleAccount = { id: number; status: 'connected' | 'disconnected' | 'banned' | 'error'; mode: BaleMode; phoneMasked: string | null; connectedAt: string | null; lastSeenAt: string | null; lastError: string | null; disconnectedAt: string | null; hasSession: boolean; unknownOpen?: number; session?: BaleSession | null };
@@ -12,6 +13,8 @@ export type BaleMe = {
 };
 export type BaleAdmin = {
   masterEnabled: boolean; keyReady: boolean; sidecar: { configured: boolean; reachable: boolean };
+  /** «فایل طرح در بله»: its own switch (default OFF until the PM approves). */
+  attachmentsEnabled?: boolean; planFilesReady?: boolean; sidecarVersion?: string | null;
   /** Decision (b): UNVERIFIED until the test-SIM check; account_stop is the safe default. */
   peerBlock?: { mode: BalePeerBlockMode; verified: boolean };
   limits: { gapMinS: number; gapMaxS: number; perHour: number; perDay: number; newChatsPerDay: number; quietStart: string; quietEnd: string };
@@ -26,7 +29,18 @@ export type BaleOutboxItem = {
   id: number; customerId: number | null; status: BaleOutboxStatus; source: 'expert_command' | 'reminder' | 'assistant' | 'auto_reply'; sourceLabel: string;
   text: string | null; reason: string | null; blockReason: string | null; blockMessage: string | null; error: string | null; errorMessage: string | null;
   scheduledAt: string | null; sendNow: boolean; sentAt: string | null; createdAt: string; newChat: boolean; canAct: boolean; customerName?: string | null;
+  /** Plan file sent with this row (caption = text). Only present while bale_attachments_enabled is ON. */
+  attachment?: BaleAttachment | null;
 };
+export type BaleAttachment = { id: number; planId: number | null; planName: string | null; name: string | null; mime: string | null; typeLabel: string | null;
+  size: number | null; isImage: boolean; url: string | null; available: boolean };
+export type BalePlanFile = { id: number; planId: number; name: string; mime: string; typeLabel: string; size: number; sha256: string; isImage: boolean;
+  uploadedAt: string; uploadedBy: string | null; url: string };
+export type BalePlanFiles = { attachmentsEnabled: boolean; maxBytes: number; types: string[]; plans: { planId: number; name: string; active: boolean; file: BalePlanFile | null }[] };
+/** Same-origin URL for a plan file (cookie session; the server checks admin / eligible expert). */
+export const balePlanFileHref = (url: string) => `${(import.meta.env.BASE_URL || '/').replace(/\/$/, '')}${url}`;
+export const faSize = (n: number | null | undefined) => n == null ? '—' : n >= 1024 * 1024 ? `${faN(Math.round(n / 1024 / 102.4) / 10).replace('.', '٫')} مگابایت` : `${faN(Math.max(1, Math.round(n / 1024)))} کیلوبایت`;
+export const BALE_PLAN_FILE_ACCEPT = 'application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp';
 export type BaleSendState = {
   quietNow: boolean; quietEnd: string | null; hasPriorChat: boolean; sentLastHour: number; perHour: number; sentToday: number; perDay: number;
   reminders: { reminderId: number; text: string; remindAt: string }[];

@@ -136,3 +136,20 @@
 /* connected in the DB but the sidecar holds no working session: honest amber «اتصال ناقص، در حال رفع» */
 .bl-pill[data-s='partial'] { background: #FEF3C7; color: #78350F; } .bl-pill[data-s='partial'] i { background: #D97706; }
 .bl-done.partial .big { color: #B45309; background: #FEF3C7; }
+/* «فایل طرح» on a draft / queued / blocked row */
+.bl-file { display: flex; gap: 10px; align-items: center; background: #fff; border: 1px solid #E5E7EB; border-radius: 12px; padding: 8px; min-width: 0; }
+.bl-file .thumb, .bl-file .ico { flex: 0 0 72px; width: 72px; height: 72px; border-radius: 10px; overflow: hidden; display: grid; place-items: center; background: #F3F4F6; color: #4B5563; }
+.bl-file .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.bl-file .inf { display: grid; gap: 2px; min-width: 0; font-size: 13px; }
+.bl-file .inf b { overflow-wrap: anywhere; }
+.bl-file .inf .muted { font-size: 12px; }
+.bl-file .inf a { font-size: 13px; min-height: 32px; display: inline-flex; align-items: center; }
+.bl-file.compact { padding: 4px 6px; margin-bottom: 4px; background: transparent; border-style: dashed; }
+.bl-file.compact .ico { flex-basis: 32px; width: 32px; height: 32px; }
+.bl-file.compact .ico svg { width: 16px; height: 16px; }
+.bl-planfile { display: grid; gap: 8px; }
+.bl-planfile h4 { display: flex; gap: 6px; align-items: center; margin: 0; }
+.bl-planfile > p { margin: 0; font-size: 13px; }
+.bl-planfile .bl-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.bl-plan-badge { display: inline-flex; gap: 3px; align-items: center; background: #E8F3EE; color: #1F7A4D; }
+@media (max-width: 640px) { .bl-planfile .bl-acts .btn { flex: 1 1 100%; min-height: 40px; } }

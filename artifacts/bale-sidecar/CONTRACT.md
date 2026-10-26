@@ -32,9 +32,11 @@ No session is written to disk (`Client(session_file=None)`); the API seals the t
 | `POST /v1/session/attach` | `{accountRef, token, deviceHash}` | `{ok:true, baleUserId}` | 401 session_invalid, 403 account_banned, 502 unknown (incl. 25 s connect timeout) |
 | `POST /v1/session/detach` | `{accountRef}` | `{ok:true}` | – |
 | `POST /v1/send` | `{accountRef, phone:"09…", peerId\|null, text (≤4000), typingMs}` | `{messageId, peerId}` | 409 not_attached, 404 peer_not_found, 429 rate_limited, 403 account_banned, 403 peer_blocked (UNVERIFIED), 401 session_invalid, 400 bad_request |
+| `POST /v1/send-file` (1b-0.3) | `{accountRef, phone, peerId\|null, caption (≤1024, may be ""), fileName (≤120, no slashes), mime: application/pdf\|image/jpeg\|image/png\|image/webp, fileB64 (≤10 MB decoded), sha256, typingMs}` — body ≤15 MB on this route only | `{messageId, peerId}` | same as `/v1/send`; 400 bad_request also when the bytes do not match the mime magic or the sha256 |
 
 * Sessions live in memory only. A sidecar restart changes `bootId` and empties `attached`; the API worker sees that in
   `/v1/health` and re-attaches every connected, enabled account (and re-attaches once on a `not_attached` send).
+* `/v1/send-file`: one plan file sent with aiobale `send_document` (upload + DocumentMessage) and an optional caption. The API decides everything (the `bale_attachments_enabled` switch, expert approval, caps, gaps, quiet hours, live session, peer-block policy); the sidecar never touches disk, never logs the caption, phone or bytes. Real delivery on Bale is UNVERIFIED until checked with the test SIM.
 * `/v1/send`: with no `peerId` the sidecar looks the phone up with `search_contact` (lookup only, never imports into the
   expert's contacts). "typing…" is shown for `typingMs`, capped at 8 s. `session_invalid`/`account_banned` drop the live
   session; `rate_limited` keeps it (the API auto-stops the account either way).

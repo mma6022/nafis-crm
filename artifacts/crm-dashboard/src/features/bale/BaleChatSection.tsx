@@ -1,10 +1,10 @@
 import { useState, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getListRemindersQueryKey, useCreateReminder } from '@workspace/api-client-react';
-import { AlertCircle, BellPlus, Bot, Check, Clock, Eye, Info, MessageCircle, Moon, PauseCircle, Paperclip, Pencil, Play, Send, X, Zap } from 'lucide-react';
+import { AlertCircle, BellPlus, Bot, Check, Clock, Eye, FileText, Info, MessageCircle, Moon, PauseCircle, Paperclip, Pencil, Play, Send, X, Zap } from 'lucide-react';
 import { ErrorState } from '@/components/CrmShell';
 import { toast } from '@/hooks/use-toast';
-import { BALE_MAX_TEXT, baleFetch, baleWhen, faNum, MODE_LABEL, OUTBOX_STATUS_LABEL, type BaleChat, type BaleOutboxItem, type BaleSendResult } from './api';
+import { BALE_MAX_TEXT, baleFetch, balePlanFileHref, baleWhen, faNum, faSize, MODE_LABEL, OUTBOX_STATUS_LABEL, type BaleAttachment, type BaleChat, type BaleOutboxItem, type BaleSendResult } from './api';
 import './bale.css';
 
 const errMsg = (e: unknown) => (e instanceof Error && e.message) || 'درخواست انجام نشد. دوباره تلاش کنید.';
@@ -20,25 +20,47 @@ const REMINDER_PRESETS = [
   { key: 'week', label: 'یک هفته دیگر ساعت ۱۰', at: () => tehranAt(7, 10) },
 ];
 
+/** Plan file attached to an outbox row: name, type, size, thumbnail for images, «باز کردن» for PDFs (same-origin, server-gated). */
+export function BaleAttachmentCard({ a, compact = false }: { a: BaleAttachment; compact?: boolean }) {
+  const href = a.url && a.available ? balePlanFileHref(a.url) : null;
+  return <div className={`bl-file${compact ? ' compact' : ''}`} data-testid={`bale-attachment-${a.id}`}>
+    {a.isImage && href && !compact ? <a href={href} target="_blank" rel="noopener noreferrer" className="thumb" aria-label={`نمایش بزرگ ${a.name ?? 'عکس طرح'}`}>
+      <img src={href} alt={a.name ?? 'عکس طرح'} loading="lazy" width={72} height={72} /></a>
+      : <span className="ico" aria-hidden="true">{a.isImage ? <Paperclip size={22} /> : <FileText size={22} />}</span>}
+    <span className="inf">
+      <b dir="auto">{a.name ?? 'فایل طرح'}</b>
+      <span className="muted">{[a.planName ? (a.planName.startsWith('طرح') ? a.planName : `طرح ${a.planName}`) : null, a.typeLabel, faSize(a.size)].filter(Boolean).join('، ')}</span>
+      {!a.available ? <span className="bl-err" style={{ margin: 0 }}><AlertCircle size={13} /> این فایل دیگر در تنظیمات طرح‌ها نیست و فرستاده نمی‌شود.</span>
+        : href && !compact ? <a href={href} target="_blank" rel="noopener noreferrer" data-testid={`link-bale-attachment-${a.id}`}>{a.isImage ? 'نمایش عکس' : 'باز کردن فایل'}</a> : null}
+    </span>
+  </div>;
+}
+
 /** One outbox row inside the tab: approve-first draft card, queued/held item, or a blocked/failed notice. */
 function OutboxCard({ o, busy, act }: { o: BaleOutboxItem; busy: boolean; act: (o: BaleOutboxItem, what: 'approve' | 'cancel' | 'send-now' | 'edit', text?: string) => Promise<boolean> }) {
   const [editing, setEditing] = useState(false); const [text, setText] = useState(o.text ?? '');
   const held = o.status === 'queued' && o.scheduledAt && new Date(o.scheduledAt).getTime() > Date.now();
-  if (o.status === 'pending_approval') return <div className="bl-draft" data-testid={`bale-draft-${o.id}`} role="group" aria-label="پیش‌نویس منتظر تأیید">
-    <div className="hd"><Bot size={16} /> <b>پیش‌نویس {o.sourceLabel}</b><span className="bl-tag warn">{OUTBOX_STATUS_LABEL.pending_approval}</span></div>
+  const file = o.attachment ?? null;
+  if (o.status === 'pending_approval') return <div className={`bl-draft${file ? ' has-file' : ''}`} data-testid={`bale-draft-${o.id}`} role="group" aria-label={file ? 'فایل طرح منتظر تأیید' : 'پیش‌نویس منتظر تأیید'}>
+    <div className="hd">{file ? <Paperclip size={16} /> : <Bot size={16} />} <b>{file ? `فایل طرح، پیشنهاد ${o.sourceLabel}` : `پیش‌نویس ${o.sourceLabel}`}</b><span className="bl-tag warn">{OUTBOX_STATUS_LABEL.pending_approval}</span></div>
     {o.reason ? <p className="why">{o.reason}</p> : null}
-    {editing ? <textarea className="bl-ta" value={text} maxLength={BALE_MAX_TEXT} onChange={e => setText(e.target.value)} aria-label="متن پیش‌نویس" data-testid={`input-bale-draft-${o.id}`} />
+    {file ? <BaleAttachmentCard a={file} /> : null}
+    {file ? <span className="hint muted" style={{ fontSize: 12 }}>متن همراه فایل:</span> : null}
+    {editing ? <textarea className="bl-ta" value={text} maxLength={BALE_MAX_TEXT} onChange={e => setText(e.target.value)} aria-label={file ? 'متن همراه فایل' : 'متن پیش‌نویس'} data-testid={`input-bale-draft-${o.id}`} />
       : <p className="txt">{o.text}</p>}
+    {file ? <p className="note"><Info size={14} /> فایل فقط با تأیید شما فرستاده می‌شود؛ یک فایل یک پیام حساب می‌شود.</p> : null}
     {o.newChat ? <p className="note"><Info size={14} /> اولین پیام شما به این مشتری در بله است.</p> : null}
     {o.canAct ? <div className="bl-acts">
-      <button type="button" className="btn btn-primary" disabled={busy || (editing && !text.trim())} data-testid={`button-bale-approve-${o.id}`}
-        onClick={() => void act(o, 'approve', editing ? text : undefined).then(ok => ok && setEditing(false))}><Send size={15} /> {editing ? 'ذخیره و بفرست' : 'بفرست'}</button>
+      <button type="button" className="btn btn-primary" data-testid={`button-bale-approve-${o.id}`}
+        disabled={busy || (editing && !text.trim()) || (file ? !file.available : false)}
+        onClick={() => void act(o, 'approve', editing ? text : undefined).then(ok => ok && setEditing(false))}><Send size={15} /> {editing ? 'ذخیره و بفرست' : file ? 'تأیید و ارسال فایل' : 'بفرست'}</button>
       {editing ? <button type="button" className="btn" disabled={busy || !text.trim()} onClick={() => void act(o, 'edit', text).then(ok => ok && setEditing(false))} data-testid={`button-bale-save-${o.id}`}><Check size={15} /> فقط ذخیره</button>
         : <button type="button" className="btn" disabled={busy} onClick={() => { setText(o.text ?? ''); setEditing(true); }} data-testid={`button-bale-edit-${o.id}`}><Pencil size={15} /> ویرایش</button>}
-      <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void act(o, 'cancel')} data-testid={`button-bale-cancel-${o.id}`}><X size={15} /> لغو</button>
+      <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => void act(o, 'cancel')} data-testid={`button-bale-cancel-${o.id}`}><X size={15} /> {file ? 'رد' : 'لغو'}</button>
     </div> : null}
   </div>;
   if (o.status === 'queued' || o.status === 'sending') return <div className="bl-msg out pending" data-testid={`bale-queued-${o.id}`}>
+    {file ? <BaleAttachmentCard a={file} compact /> : null}
     {o.text}
     <span className="meta">{held ? <><Moon size={12} /> ساعت آرام؛ ارسال در {baleWhen(o.scheduledAt)}</> : <><Clock size={12} /> {OUTBOX_STATUS_LABEL[o.status]}</>} — {o.sourceLabel}</span>
     {o.canAct && o.status === 'queued' ? <span className="bl-mini">
@@ -50,6 +72,7 @@ function OutboxCard({ o, busy, act }: { o: BaleOutboxItem; busy: boolean; act: (
     <AlertCircle size={16} />
     <div><b>{OUTBOX_STATUS_LABEL[o.status]} — {o.sourceLabel}</b>
       <span>{o.blockMessage ?? o.errorMessage ?? ''}</span>
+      {file ? <BaleAttachmentCard a={file} compact /> : null}
       {o.text ? <q>{o.text}</q> : null}
       <small>{baleWhen(o.createdAt)}</small></div>
   </div>;
@@ -81,7 +104,7 @@ export function BaleChatSection({ customerId }: { customerId: number }) {
     try {
       if (what === 'edit') await baleFetch(`/bale/outbox/${o.id}`, { method: 'PUT', body: { text: t } });
       else await baleFetch(`/bale/outbox/${o.id}/${what}`, { method: 'POST', body: what === 'approve' && t !== undefined ? { text: t } : {} });
-      toast({ title: what === 'approve' ? 'پیام تأیید شد و در صف ارسال است' : what === 'cancel' ? 'پیام لغو شد' : what === 'send-now' ? 'پیام همین الان فرستاده می‌شود' : 'پیش‌نویس ذخیره شد' });
+      toast({ title: what === 'approve' ? (o.attachment ? 'فایل طرح تأیید شد و در صف ارسال است' : 'پیام تأیید شد و در صف ارسال است') : what === 'cancel' ? 'پیام لغو شد' : what === 'send-now' ? 'پیام همین الان فرستاده می‌شود' : 'پیش‌نویس ذخیره شد' });
       return true;
     } catch (x) { setErr(errMsg(x)); return false; } finally { setBusy(false); void refresh(); }
   };

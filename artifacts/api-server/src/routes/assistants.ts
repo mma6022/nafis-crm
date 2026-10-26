@@ -7,7 +7,7 @@ import { createAssistants, ensureAssistantSchema } from "../lib/assistants";
 import { suggestionsFor, todayCounts } from "../lib/sales-assist";
 import { consultProfile } from "../lib/consult-profile";
 import { activeSiteLeads, siteLeadHistory } from "../lib/site-leads";
-import { baleRunnerSend } from "./bale";
+import { baleRunnerPlanFiles, baleRunnerSend } from "./bale";
 import { startPageUsagePrune } from "../lib/page-usage";
 
 ensureAssistantSchema(crmDb);
@@ -23,7 +23,7 @@ const assistants = createAssistants({
     return u ? { id: u.id, role: u.role, salespersonId: u.salespersonId ?? null, name: (u as any).fullName ?? u.username } : null;
   },
   // «حساب شخصی بله» 1b: the expert's own sales assistant may queue / draft a Bale message (all checks in lib/bale-outbox.ts).
-  extendRunner: (runner, h) => { runner.post("/bale/send", (req, res) => baleRunnerSend(req, res, h)); },
+  extendRunner: (runner, h) => { runner.post("/bale/send", (req, res) => baleRunnerSend(req, res, h)); runner.get("/bale/plan-files", (req, res) => baleRunnerPlanFiles(req, res)); },
 });
 export const assistantRunnerRouter = assistants.runner;
 export default assistants.staff;

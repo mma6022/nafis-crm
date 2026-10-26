@@ -32,6 +32,8 @@ CREATE TABLE assistants(id INTEGER PRIMARY KEY,slug TEXT,display_name TEXT,kind 
 CREATE TABLE assistant_events(id INTEGER PRIMARY KEY AUTOINCREMENT,assistant_id INTEGER,type TEXT,thread_id INTEGER,user_id INTEGER,customer_id INTEGER,message_id INTEGER,data_json TEXT,created_at TEXT);
 CREATE TABLE assistant_threads(id INTEGER PRIMARY KEY AUTOINCREMENT,assistant_id INTEGER,user_id INTEGER);
 CREATE TABLE assistant_messages(id INTEGER PRIMARY KEY AUTOINCREMENT,thread_id INTEGER,author TEXT,body TEXT,created_at TEXT);
+CREATE TABLE loan_plans(id INTEGER PRIMARY KEY,name TEXT,active INTEGER DEFAULT 1);
+INSERT INTO loan_plans VALUES(7,'ترنم',1),(8,'طرح بهار',1),(9,'طرح قدیمی',0);
 INSERT INTO assistants VALUES(1,'sales-hasani','مریم','sales',2,3,1),(2,'sarina','سارینا','filing',NULL,NULL,1),(3,'sales-ghasemi','علی','sales',3,4,1);`);
 ensureBaleSchema(db); ensureBaleSchema(db);
 const cookie = db.prepare("PRAGMA schema_version").get().schema_version;
@@ -40,13 +42,18 @@ assert.equal(db.prepare("PRAGMA schema_version").get().schema_version, cookie, "
 
 let clock = new Date("2026-10-26T07:00:00Z");
 const sidecar = createHttpBaleSidecar(() => ENV, { timeoutMs: 3000 });
-const bale = createBale({ db, env: () => ENV, sidecar, now: () => clock, random: () => 0.5, actor: res => (res.locals.uid ? { id: res.locals.uid } : null) });
+const PLAN_DIR = path.join(tmp, "data", "bale-plan-files");
+const bale = createBale({ db, env: () => ENV, sidecar, now: () => clock, random: () => 0.5, actor: res => (res.locals.uid ? { id: res.locals.uid } : null), planFilesDir: PLAN_DIR });
 const app = express();
 app.use(bale.internal);
 const RUNNER_SCOPE = new Set([100, 102, 105, 110]);
 app.post("/runner/bale/send", express.json(), (req, res) => {
   res.locals.assistant = db.prepare("SELECT * FROM assistants WHERE id=?").get(Number(req.headers["x-asst"]));
   bale.runnerSend(req, res, { inScope: (_a, cid) => RUNNER_SCOPE.has(cid) });
+});
+app.get("/runner/bale/plan-files", (req, res) => {
+  res.locals.assistant = db.prepare("SELECT * FROM assistants WHERE id=?").get(Number(req.headers["x-asst"]));
+  bale.runnerPlanFiles(req, res);
 });
 app.use(express.json({ limit: "100kb" }));
 app.use("/api", (req, res, next) => { res.locals.uid = Number(req.headers["x-user"] || 0); next(); }, bale.staff);
@@ -543,6 +550,140 @@ try {
   r = await mock.inbound(API, REF, [{ messageId: "u-4", peerId: "p-x", text: "x" }]); assert.equal(r.j.stored, 0); assert.equal(bells(2, "bale-unknown"), 2, "dismissed: silent");
   assert.equal(db.prepare("SELECT count(*) n FROM bale_messages WHERE text IN ('ناشناس','باز هم من','مشتری دیگری','x')").get().n, 0);
   ok("(c) unknown sender: opaque peer only (no text/phone), one bell per chat, list/search own customers (masked phone), link → bale_contacts + audit, conflicts, dismiss");
+
+  // ---- plan files («فایل طرح برای بله»): own switch default OFF, admin upload, always a draft, mock sidecar only ----
+  {
+    const UP = async (u, planId, buf, name, type = "application/octet-stream") => {
+      const fd = new FormData(); if (buf) fd.append("file", new Blob([buf], { type }), name);
+      const r = await fetch(`http://127.0.0.1:${port}/api/admin/bale/plans/${planId}/file`, { method: "POST", headers: u ? { "x-user": String(u) } : {}, body: fd });
+      const t = await r.text(); let j; try { j = JSON.parse(t); } catch { j = t; } return { s: r.status, j };
+    };
+    const PDF = Buffer.concat([Buffer.from("%PDF-1.4\n% taranom plan\n"), crypto.randomBytes(3000), Buffer.from("\n%%EOF\n")]);
+    const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), crypto.randomBytes(500)]);
+    const WEBP = Buffer.concat([Buffer.from("RIFF"), Buffer.from([0, 1, 0, 0]), Buffer.from("WEBPVP8 "), crypto.randomBytes(64)]);
+    clock = T("2026-11-02T06:30:00Z"); // Monday 10:00 Tehran
+    db.prepare("UPDATE bale_accounts SET next_send_at=NULL WHERE id=?").run(hid);
+    r = await S(2, "PUT", "/bale/me/mode", { mode: "auto" }); assert.equal(r.s, 200, JSON.stringify(r.j));
+    // defaults
+    assert.equal(db.prepare("SELECT value v FROM bale_settings WHERE key='bale_attachments_enabled'").get().v, "0", "switch default OFF");
+    r = await S(1, "GET", "/admin/bale"); assert.equal(r.j.attachmentsEnabled, false); assert.equal(r.j.planFilesReady, true);
+    r = await S(1, "GET", "/admin/bale/plan-files"); assert.equal(r.s, 200); assert.deepEqual(r.j.plans.map(p => [p.planId, p.file]), [[7, null], [8, null], [9, null]]);
+    for (const u of [2, 4, 29, 30, 0]) { r = await S(u, "GET", "/admin/bale/plan-files"); assert.ok([401, 403].includes(r.s), `user ${u} plan-files`); }
+    // upload validation (switch OFF: upload still works)
+    for (const u of [2, 4, 29, 30]) { r = await UP(u, 7, PDF, "taranom.pdf"); assert.equal(r.s, 403, `user ${u} upload`); }
+    r = await UP(1, 999, PDF, "x.pdf"); assert.equal(r.s, 404); assert.equal(r.j.error, "plan_not_found");
+    r = await UP(1, 7, null); assert.equal(r.s, 422); assert.equal(r.j.error, "file_missing");
+    r = await UP(1, 7, Buffer.from("<html><script>alert(1)</script>"), "evil.pdf", "application/pdf"); assert.equal(r.s, 415, "magic bytes, not the extension / browser type"); assert.equal(r.j.error, "file_type");
+    r = await UP(1, 7, Buffer.from("GIF89a" + "x".repeat(50)), "a.gif", "image/gif"); assert.equal(r.s, 415);
+    r = await UP(1, 7, Buffer.concat([Buffer.from("%PDF-"), Buffer.alloc(10 * 1024 * 1024)]), "big.pdf"); assert.equal(r.s, 413); assert.equal(r.j.error, "file_too_large"); assert.ok(r.j.message);
+    assert.equal(db.prepare("SELECT count(*) n FROM bale_plan_files").get().n, 0);
+    r = await UP(1, 7, PDF, "../../etc/طرح ترنم\u202e.exe.pdf"); assert.equal(r.s, 200, JSON.stringify(r.j));
+    const f1 = r.j.file; assert.equal(f1.mime, "application/pdf"); assert.equal(f1.size, PDF.length); assert.equal(f1.typeLabel, "PDF");
+    assert.ok(!/[\\/\u202e]/.test(f1.name) && f1.name.endsWith(".pdf"), f1.name);
+    const row1 = db.prepare("SELECT * FROM bale_plan_files WHERE id=?").get(f1.id);
+    assert.equal(row1.sha256, crypto.createHash("sha256").update(PDF).digest("hex")); assert.match(row1.stored_name, /^plan-7-[0-9a-f]{16}-[0-9a-f]{8}\.pdf$/);
+    assert.ok(fs.readFileSync(path.join(PLAN_DIR, row1.stored_name)).equals(PDF)); assert.equal(fs.statSync(path.join(PLAN_DIR, row1.stored_name)).mode & 0o777, 0o640);
+    r = await UP(1, 8, WEBP, "bahar.webp"); assert.equal(r.s, 200); const fB = r.j.file; assert.equal(fB.isImage, true);
+    r = await UP(1, 7, PNG, "taranom.png"); assert.equal(r.s, 200); const f2 = r.j.file; assert.equal(f2.mime, "image/png");
+    assert.deepEqual(db.prepare("SELECT id,status FROM bale_plan_files WHERE plan_id=7 ORDER BY id").all().map(x => [x.id, x.status]), [[f1.id, "replaced"], [f2.id, "active"]], "one active file per plan");
+    r = await UP(1, 7, PDF, "طرح ترنم.pdf"); const fT = r.j.file; assert.equal(fT.name, "طرح ترنم.pdf");
+    r = await S(1, "GET", "/admin/bale/plan-files"); assert.deepEqual(r.j.plans.map(p => [p.planId, p.file?.id ?? null]), [[7, fT.id], [8, fB.id], [9, null]]);
+    // content: admin + eligible experts only, safe headers
+    let c = await fetch(`http://127.0.0.1:${port}/api/bale/plan-files/${fT.id}/content`, { headers: { "x-user": "2" } });
+    assert.equal(c.status, 200); assert.equal(c.headers.get("content-type"), "application/pdf"); assert.equal(c.headers.get("x-content-type-options"), "nosniff");
+    assert.ok(Buffer.from(await c.arrayBuffer()).equals(PDF)); assert.match(c.headers.get("content-disposition"), /^inline; filename="plan-7\.pdf"; filename\*=UTF-8''/);
+    c = await fetch(`http://127.0.0.1:${port}/api/bale/plan-files/${fB.id}/content`, { headers: { "x-user": "1" } }); assert.equal(c.status, 200); assert.match(c.headers.get("content-security-policy"), /sandbox/);
+    for (const u of [4, 6, 29, 30, 31]) { c = await fetch(`http://127.0.0.1:${port}/api/bale/plan-files/${fT.id}/content`, { headers: { "x-user": String(u) } }); assert.equal(c.status, 403, `content user ${u}`); }
+    c = await fetch(`http://127.0.0.1:${port}/api/bale/plan-files/${f1.id}/content`, { headers: { "x-user": "1" } }); assert.equal(c.status, 200, "replaced file still viewable for old drafts");
+    ok("plan files: admin-only upload (not 29) even with the switch OFF; magic-byte type check (PDF/JPG/PNG/WebP), ≤10MB, safe name + sha256, one active per plan; content only admin/eligible experts with nosniff");
+
+    // switch OFF → runner refuses, nothing stored, nothing in the approval UI
+    const nOut = db.prepare("SELECT count(*) n FROM bale_outbox").get().n; const nFiles = mock.state.sentFiles.length;
+    for (const body of [{ customerId: 100, planId: 7, caption: "طرح ترنم" }, { customerId: 100, attachmentId: fT.id }]) {
+      r = await R(1, body); assert.equal(r.s, 423, JSON.stringify(r.j)); assert.equal(r.j.status, "blocked"); assert.equal(r.j.error, "attachments_disabled"); assert.match(r.j.message, /خاموش/);
+    }
+    assert.equal(db.prepare("SELECT count(*) n FROM bale_outbox").get().n, nOut, "switch OFF → no outbox row");
+    assert.ok(db.prepare("SELECT count(*) n FROM bale_audit WHERE action='outbox.assistant_file' AND outcome='blocked:attachments_disabled'").get().n >= 2);
+    r = await S(2, "PUT", "/admin/bale/attachments", { enabled: true }); assert.equal(r.s, 403);
+    r = await S(29, "PUT", "/admin/bale/attachments", { enabled: true }); assert.equal(r.s, 403);
+    r = await S(1, "PUT", "/admin/bale/attachments", { enabled: true }); assert.equal(r.s, 200); assert.equal(r.j.attachmentsEnabled, true);
+    { // runner read-only list: names/type/size + attachmentId only (no bytes, no path, no sha); sales assistants only; inactive plans left out
+      const L = async a => { const x = await fetch(`http://127.0.0.1:${port}/runner/bale/plan-files`, { headers: { "x-asst": String(a) } }); return { s: x.status, j: await x.json() }; };
+      let l = await L(2); assert.equal(l.s, 403);
+      l = await L(1); assert.equal(l.s, 200); assert.equal(l.j.attachmentsEnabled, true);
+      const t7 = l.j.plans.find(p => p.planId === 7); assert.ok(t7?.file?.attachmentId && t7.file.name && t7.file.typeLabel && t7.file.size > 0, JSON.stringify(t7));
+      assert.ok(!l.j.plans.some(p => p.planId === 9), "inactive plan not listed");
+      const raw = JSON.stringify(l.j); assert.ok(!/sha256|storage|bale-plan-files|base64|"url"/.test(raw), "list leaks nothing");
+    }
+    // ON: scope / missing / always a draft (also in auto mode) with the disclaimer
+    r = await R(1, { customerId: 110, planId: 7 }); assert.equal(r.s, 404); assert.equal(r.j.error, "out_of_scope");
+    r = await R(1, { customerId: 130, planId: 7 }); assert.equal(r.s, 404);
+    r = await R(1, { customerId: 100, planId: 9 }); assert.equal(r.s, 422); assert.equal(r.j.error, "attachment_missing");
+    r = await R(1, { customerId: 100, planId: 999 }); assert.equal(r.s, 422);
+    r = await R(1, { customerId: 100, attachmentId: f1.id }); assert.equal(r.s, 422, "a replaced file cannot be sent");
+    r = await R(2, { customerId: 100, planId: 7 }); assert.equal(r.s, 403, "filing assistant cannot send");
+    assert.equal(acc(2).mode, "auto");
+    r = await R(1, { customerId: 100, planId: 7, caption: "سلام، این فایل طرح ترنم است" }); assert.equal(r.s, 200, JSON.stringify(r.j));
+    assert.equal(r.j.status, "pending_approval", "plan file: always a draft, even in auto mode"); assert.equal(r.j.attachmentId, fT.id); const oF = r.j.outboxId;
+    assert.equal(OB(oF).attachment_id, fT.id); assert.ok(OB(oF).text.startsWith("سلام، این فایل طرح ترنم است")); assert.ok(OB(oF).text.endsWith(BALE_AMOUNT_DISCLAIMER));
+    assert.equal(OB(oF).approved_by, null); assert.equal(db.prepare("SELECT count(*) n FROM site_notification_events WHERE kind='bale-draft' AND title LIKE 'فایل طرح%'").get().n, 1);
+    let tk = await tick(); assert.equal(mock.state.sentFiles.length, nFiles, "draft is never sent by the worker");
+    r = await S(2, "GET", "/bale/outbox"); let it = r.j.items.find(i => i.id === oF);
+    assert.ok(it); assert.equal(it.attachment.name, "طرح ترنم.pdf"); assert.equal(it.attachment.typeLabel, "PDF"); assert.equal(it.attachment.size, PDF.length);
+    assert.equal(it.attachment.planName, "ترنم"); assert.equal(it.attachment.available, true); assert.equal(it.attachment.url, `/api/bale/plan-files/${fT.id}/content`);
+    r = await S(2, "GET", "/bale/customers/100/messages"); assert.ok(r.j.outbox.some(i => i.id === oF && i.attachment?.id === fT.id), JSON.stringify(Object.keys(r.j)));
+    // switch flipped OFF while the draft waits → hidden + approve blocked
+    await S(1, "PUT", "/admin/bale/attachments", { enabled: false });
+    r = await S(2, "GET", "/bale/outbox"); assert.ok(!r.j.items.some(i => i.id === oF), "OFF → hidden from the approval list");
+    r = await S(2, "GET", "/bale/customers/100/messages"); assert.ok(!r.j.outbox.some(i => i.id === oF), "OFF → hidden from the chat tab");
+    r = await S(2, "POST", `/bale/outbox/${oF}/approve`); assert.equal(r.s, 423, JSON.stringify(r.j)); assert.equal(r.j.error, "attachments_disabled");
+    assert.equal(OB(oF).status, "blocked"); assert.equal(mock.state.sentFiles.length, nFiles);
+    await S(1, "PUT", "/admin/bale/attachments", { enabled: true });
+    // approve → mock sidecar /v1/send-file; counts as one message; file_ref on the chat line
+    r = await R(1, { customerId: 100, planId: 7, caption: "" }); assert.equal(r.j.status, "pending_approval"); const oG = r.j.outboxId; assert.equal(OB(oG).text, BALE_AMOUNT_DISCLAIMER);
+    r = await S(3, "POST", `/bale/outbox/${oG}/approve`); assert.ok([404, 409].includes(r.s), "another expert cannot approve");
+    r = await S(2, "PUT", `/bale/outbox/${oG}`, { text: "این هم فایل طرح" }); assert.equal(r.s, 200, JSON.stringify(r.j)); assert.ok(r.j.text.endsWith(BALE_AMOUNT_DISCLAIMER));
+    r = await S(2, "POST", `/bale/outbox/${oG}/approve`); assert.equal(r.s, 200, JSON.stringify(r.j));
+    const sentBefore = db.prepare("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status='sent' AND sent_at>?").get(hid, new Date(clock.getTime() - 3_600_000).toISOString()).n;
+    tk = await tick(); assert.equal(tk.results[hid], "sent", JSON.stringify(tk)); assert.equal(OB(oG).status, "sent");
+    const sf = mock.state.sentFiles.at(-1); assert.equal(mock.state.sentFiles.length, nFiles + 1);
+    assert.equal(sf.mime, "application/pdf"); assert.equal(sf.size, PDF.length); assert.equal(sf.fileName, "طرح ترنم.pdf"); assert.ok(sf.caption.startsWith("این هم فایل طرح")); assert.equal(sf.phone, "09120000001");
+    assert.equal(db.prepare("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status='sent' AND sent_at>?").get(hid, new Date(clock.getTime() - 3_600_000).toISOString()).n, sentBefore + 1, "one file = one message");
+    assert.equal(db.prepare("SELECT file_ref f FROM bale_messages WHERE outbox_id=?").get(oG).f, `plan-file:${fT.id}`);
+    assert.ok(!mock.log.some(l => l.path === "/v1/send-file" && JSON.stringify(l.body).includes(PDF.toString("base64").slice(0, 40))), "mock log keeps no bytes");
+    // gap holds the next file; caps: per-hour cap counts files
+    r = await R(1, { customerId: 100, planId: 8 }); const oH = r.j.outboxId; r = await S(2, "POST", `/bale/outbox/${oH}/approve`); assert.equal(r.s, 200);
+    tk = await tick(); assert.equal(tk.results[hid], "gap");
+    db.prepare("INSERT INTO bale_settings(key,value,updated_at) VALUES('per_hour',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(db.prepare("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status='sent' AND sent_at>?").get(hid, new Date(clock.getTime() - 3_600_000).toISOString()).n), clock.toISOString());
+    clock = new Date(clock.getTime() + 5 * 60_000); tk = await tick(); assert.equal(tk.results[hid], "held:cap_hour", JSON.stringify(tk)); assert.equal(OB(oH).status, "queued");
+    db.prepare("DELETE FROM bale_settings WHERE key='per_hour'").run();
+    // session_not_live lock: never calls the sidecar
+    const nF2 = mock.state.sentFiles.length;
+    db.prepare("UPDATE bale_outbox SET scheduled_at=NULL WHERE id=?").run(oH);
+    // a file removed from the plan between approve and send → attachment_missing, nothing sent
+    r = await S(1, "DELETE", "/admin/bale/plans/8/file"); assert.equal(r.s, 200); r = await S(1, "DELETE", "/admin/bale/plans/8/file"); assert.equal(r.s, 404);
+    clock = new Date(clock.getTime() + 61 * 60_000); tk = await tick();
+    assert.equal(OB(oH).status, "blocked"); assert.equal(OB(oH).block_reason, "attachment_missing"); assert.equal(mock.state.sentFiles.length, nF2);
+    // sha mismatch on disk → attachment_missing
+    r = await R(1, { customerId: 100, planId: 7 }); const oI = r.j.outboxId; await S(2, "POST", `/bale/outbox/${oI}/approve`);
+    const pth = path.join(PLAN_DIR, db.prepare("SELECT stored_name s FROM bale_plan_files WHERE id=?").get(fT.id).s);
+    const keep = fs.readFileSync(pth); const bad = Buffer.from(keep); bad[bad.length - 2] ^= 0xff; fs.writeFileSync(pth, bad);
+    clock = new Date(clock.getTime() + 10 * 60_000); tk = await tick(); assert.equal(OB(oI).status, "blocked"); assert.equal(OB(oI).block_reason, "attachment_missing");
+    c = await fetch(`http://127.0.0.1:${port}/api/bale/plan-files/${fT.id}/content`, { headers: { "x-user": "1" } }); assert.equal(c.status, 404, "tampered bytes never served");
+    fs.writeFileSync(pth, keep); assert.equal(mock.state.sentFiles.length, nF2);
+    // session_not_live: approved file waits, the sidecar is never called
+    r = await R(1, { customerId: 100, planId: 7 }); const oJ = r.j.outboxId; await S(2, "POST", `/bale/outbox/${oJ}/approve`);
+    const logN = mock.log.length; mock.restart(); mock.state.attachError = "client_error";
+    clock = new Date(clock.getTime() + 61_000); tk = await tick(); tk = await tick();
+    assert.equal((await S(2, "GET", "/bale/me")).j.account.session, "down");
+    assert.ok(!mock.log.slice(logN).some(l => l.path === "/v1/send-file"), "session not live → no send-file call");
+    assert.equal(OB(oJ).status, "queued", "approved file waits (held), never sent while the session is down");
+    mock.state.attachError = null; await S(2, "POST", `/bale/outbox/${oJ}/cancel`); assert.equal(OB(oJ).status, "cancelled");
+    clock = new Date(clock.getTime() + 61_000); await tick(); assert.equal((await S(2, "GET", "/bale/me")).j.account.session, "live");
+    assert.equal(mock.state.sentFiles.length, nF2);
+    await S(1, "PUT", "/admin/bale/attachments", { enabled: false });
+    ok("plan file over Bale: runner GET /bale/plan-files (sales only, active plans, no bytes/paths); switch OFF → 423 + nothing stored + hidden + approve blocked; ON → scope/missing checks, always pending_approval (even auto) with disclaimer; approve → mock /v1/send-file once, file_ref, gap/cap count it; removed/tampered file → attachment_missing; session lock");
+  }
 
   // ---- secrets / phones ----
   const dump1b = JSON.stringify(["bale_accounts", "bale_audit", "bale_outbox", "bale_contacts", "bale_reminder_messages", "site_notification_events", "assistant_events", "bale_unknown_chats"].map(x => db.prepare(`SELECT * FROM ${x}`).all()));

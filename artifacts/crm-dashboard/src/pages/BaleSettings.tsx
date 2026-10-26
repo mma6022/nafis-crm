@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, CheckCircle2, Info, Link2, Lock, LogOut, Power, ShieldCheck, Smartphone, Unplug } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Info, Link2, Lock, LogOut, Paperclip, Power, ShieldCheck, Smartphone, Unplug } from 'lucide-react';
+import { Link } from 'wouter';
 import { useGetAuthSession, getGetAuthSessionQueryKey } from '@workspace/api-client-react';
 import { ErrorState, SkeletonPanel } from '@/components/CrmShell';
 import { Modal } from '@/components/DataTools';
 import { toast } from '@/hooks/use-toast';
-import { baleCanConnect, baleFetch, baleWhen, balePill, faNum, MODE_HINT, MODE_LABEL, PARTIAL_LABEL, toEnDigits, type BaleAdmin, type BaleAuditItem, type BaleMe, type BaleMode, type BalePeerBlockMode } from '@/features/bale/api';
+import { baleCanConnect, baleFetch, baleWhen, balePill, faNum, MODE_HINT, MODE_LABEL, PARTIAL_LABEL, toEnDigits, type BaleAdmin, type BaleAuditItem, type BalePlanFiles, type BaleMe, type BaleMode, type BalePeerBlockMode } from '@/features/bale/api';
 import { BaleOutboxPanel } from '@/features/bale/BaleOutboxPanel';
 import { BaleUnknownPanel } from '@/features/bale/BaleUnknownPanel';
 import { BaleTestPanel } from '@/features/bale/BaleTestPanel';
@@ -143,7 +144,8 @@ function AdminPanel() {
   const q = useQuery({ queryKey: ADMIN_KEY, queryFn: () => baleFetch<BaleAdmin>('/admin/bale') });
   const audit = useQuery({ queryKey: AUDIT_KEY, queryFn: () => baleFetch<{ items: BaleAuditItem[] }>('/admin/bale/audit?limit=50') });
   const [busy, setBusy] = useState(false);
-  const [confirm, setConfirm] = useState<null | { kind: 'master' } | { kind: 'disconnect'; id: number; name: string } | { kind: 'peer'; mode: BalePeerBlockMode }>(null);
+  const planFiles = useQuery({ queryKey: ['bale', 'plan-files'], queryFn: () => baleFetch<BalePlanFiles>('/admin/bale/plan-files'), retry: false });
+  const [confirm, setConfirm] = useState<null | { kind: 'master' } | { kind: 'attachments'; on: boolean } | { kind: 'disconnect'; id: number; name: string } | { kind: 'peer'; mode: BalePeerBlockMode }>(null);
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     setBusy(true);
     try { const r = await fn() as { remoteSignOut?: string } | undefined; toast({ title: ok, description: r?.remoteSignOut === 'failed' ? 'بله خروج را تأیید نکرد؛ از کارشناس بخواهید در بله › «دستگاه‌های فعال» دستگاه Nafis CRM را حذف کند.' : undefined }); }
@@ -205,19 +207,34 @@ function AdminPanel() {
       </div>
     </div> : null}
 
+    {d.planFilesReady ? <div className="panel bl-policy" data-testid="panel-bale-attachments">
+      <h3 style={{ margin: 0, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}><Paperclip size={18} /> ارسال فایل طرح در بله
+        <span className="bl-pill" data-s={d.attachmentsEnabled ? 'connected' : 'none'} data-testid="pill-bale-attachments"><i />{d.attachmentsEnabled ? 'روشن' : 'خاموش'}</span></h3>
+      <p className="muted" style={{ margin: 0, fontSize: 13 }}>دستیار فروش می‌تواند فایل طرح (PDF یا عکس) را برای مشتری پیشنهاد دهد؛ همیشه اول برای تأیید کارشناس می‌آید و هیچ‌وقت خودکار فرستاده نمی‌شود.
+        {!d.attachmentsEnabled ? ' تا تأیید مدیر محصول خاموش بماند؛ وقتی خاموش است پیشنهاد فایل رد می‌شود و پیش‌نویس‌های فایل نمایش داده نمی‌شوند.' : ''}</p>
+      {planFiles.data ? <p style={{ margin: 0, fontSize: 13 }} data-testid="text-bale-plan-files-count">
+        فایل بارگذاری‌شده برای {faNum(planFiles.data.plans.filter(p => p.file).length)} طرح از {faNum(planFiles.data.plans.length)} طرح.{' '}
+        <Link href="/loan-plans">بارگذاری در «طرح‌ها»</Link></p> : null}
+      <div className="bl-acts">
+        <button type="button" className="btn" disabled={busy} data-testid="toggle-bale-attachments"
+          onClick={() => setConfirm({ kind: 'attachments', on: !d.attachmentsEnabled })}>{d.attachmentsEnabled ? 'خاموش کن' : 'روشن کن'}</button>
+      </div>
+    </div> : null}
+
     <div className="panel" data-testid="panel-bale-audit" style={{ display: 'grid', gap: 8 }}>
       <h3 style={{ margin: 0 }}>گزارش رویدادها</h3>
       {audit.isLoading ? <SkeletonPanel rows={3} /> : audit.isError ? <ErrorState onRetry={() => audit.refetch()} /> : !audit.data?.items.length ? <div style={{ color: 'var(--nf-ink-muted)' }}>هنوز چیزی ثبت نشده.</div>
         : <ul className="bl-audit">{audit.data.items.map(x => <li key={x.id}><span className="at">{baleWhen(x.at)}</span><b>{x.actor ?? '—'}</b><span>{AUDIT_FA[x.action] ?? x.action}</span><span className="bl-pill" data-s={x.outcome === 'ok' ? 'connected' : 'error'}><i />{OUT_FA[x.outcome] ?? x.outcome}</span>{x.customerId ? <span>مشتری {faNum(x.customerId)}</span> : null}</li>)}</ul>}
     </div>
 
-    {confirm ? <Modal title={confirm.kind === 'master' ? 'خاموش کردن بله' : confirm.kind === 'peer' ? 'تغییر رفتار در برابر مسدود شدن' : `قطع اتصال ${confirm.name}`} onClose={() => setConfirm(null)} testId="bale-admin-confirm">
-      <p>{confirm.kind === 'master' ? 'اتصال تازه ممکن نمی‌شود و هیچ کاری از طرف بله انجام نمی‌شود. اتصال‌های فعلی پاک نمی‌شوند.'
+    {confirm ? <Modal title={confirm.kind === 'attachments' ? (confirm.on ? 'روشن کردن ارسال فایل طرح' : 'خاموش کردن ارسال فایل طرح') : confirm.kind === 'master' ? 'خاموش کردن بله' : confirm.kind === 'peer' ? 'تغییر رفتار در برابر مسدود شدن' : `قطع اتصال ${confirm.name}`} onClose={() => setConfirm(null)} testId="bale-admin-confirm">
+      <p>{confirm.kind === 'attachments' ? (confirm.on ? 'فقط بعد از تأیید مدیر محصول روشن کنید. دستیار فروش می‌تواند فایل طرح را پیشنهاد دهد؛ هر فایل اول برای تأیید کارشناس می‌آید. ارسال واقعی فایل در بله هنوز با سیم‌کارت آزمایشی بررسی نشده است.' : 'پیشنهاد فایل رد می‌شود و پیش‌نویس‌های فایلِ منتظر تأیید پنهان می‌شوند. فایل‌های طرح پاک نمی‌شوند.')
+        : confirm.kind === 'master' ? 'اتصال تازه ممکن نمی‌شود و هیچ کاری از طرف بله انجام نمی‌شود. اتصال‌های فعلی پاک نمی‌شوند.'
         : confirm.kind === 'peer' ? (confirm.mode === 'conversation_pause' ? 'این مسیر هنوز «تأییدنشده» است. اگر تشخیص اشتباه باشد، حسابی که واقعاً مسدود شده ممکن است به ارسال ادامه دهد. فقط بعد از آزمایش با سیم‌کارت روشنش کنید.' : 'به حالت امن برمی‌گردد: در صورت شک کل ارسال کارشناس متوقف می‌شود.')
         : 'نشست بله‌ی این کارشناس از سرور پاک می‌شود و حالت ارسال خاموش می‌شود.'}</p>
       <div className="bl-acts">
         <button type="button" className="btn btn-primary" style={{ background: '#B42318', borderColor: '#B42318' }} disabled={busy} data-testid="button-confirm-bale-admin"
-          onClick={() => void (confirm.kind === 'peer' ? run(() => baleFetch('/admin/bale/peer-block-mode', { method: 'PUT', body: { mode: confirm.mode } }), 'تنظیم ذخیره شد') : confirm.kind === 'master' ? run(() => baleFetch('/admin/bale/master', { method: 'PUT', body: { enabled: false } }), 'بله خاموش شد') : run(() => baleFetch(`/admin/bale/accounts/${confirm.id}/disconnect`, { method: 'POST' }), 'اتصال قطع شد')).then(() => setConfirm(null))}>تأیید</button>
+          onClick={() => void (confirm.kind === 'attachments' ? run(() => baleFetch('/admin/bale/attachments', { method: 'PUT', body: { enabled: confirm.on } }), confirm.on ? 'ارسال فایل طرح روشن شد' : 'ارسال فایل طرح خاموش شد') : confirm.kind === 'peer' ? run(() => baleFetch('/admin/bale/peer-block-mode', { method: 'PUT', body: { mode: confirm.mode } }), 'تنظیم ذخیره شد') : confirm.kind === 'master' ? run(() => baleFetch('/admin/bale/master', { method: 'PUT', body: { enabled: false } }), 'بله خاموش شد') : run(() => baleFetch(`/admin/bale/accounts/${confirm.id}/disconnect`, { method: 'POST' }), 'اتصال قطع شد')).then(() => setConfirm(null))}>تأیید</button>
         <button type="button" className="btn" onClick={() => setConfirm(null)}>انصراف</button>
       </div>
     </Modal> : null}
@@ -234,6 +251,8 @@ const AUDIT_FA: Record<string, string> = {
   'test.connect.start': 'حساب تستی: درخواست کد', 'test.connect.start_limited': 'حساب تستی: درخواست کد (بیش از سقف)', 'test.connect.start_refused': 'حساب تستی: درخواست کد (کلید خاموش)',
   'test.connect.code': 'حساب تستی: ورود کد', 'test.connect.password': 'حساب تستی: ورود رمز دومرحله‌ای', 'test.connect.connected': 'حساب تستی: وصل شد', 'test.connect.cancel': 'حساب تستی: انصراف',
   'test.disconnect': 'حساب تستی: قطع اتصال', 'test.send_request': 'حساب تستی: درخواست ارسال', 'test.send': 'حساب تستی: ارسال', 'test.inbound': 'حساب تستی: پیام دریافتی',
+  'admin.attachments_on': 'روشن کردن ارسال فایل طرح', 'admin.attachments_off': 'خاموش کردن ارسال فایل طرح', 'plan_file.upload': 'بارگذاری فایل طرح', 'plan_file.remove': 'حذف فایل طرح',
+  'outbox.assistant_file': 'پیشنهاد فایل طرح توسط دستیار',
   'test.auto_stop': 'حساب تستی: توقف خودکار', 'test.session.attach': 'حساب تستی: باز کردن نشست',
 };
 const OUT_FA: Record<string, string> = { ok: 'موفق', forbidden: 'بدون دسترسی', not_in_scope: 'خارج از محدوده', disabled: 'خاموش', rate_limited: 'سقف', wrong_code: 'کد نادرست', wrong_password: 'رمز نادرست', password_needed: 'نیاز به رمز', code_expired: 'منقضی', error: 'خطا', not_allowlisted: 'خارج از فهرست تستی', customer_number: 'شماره‌ی مشتری', queued: 'در صف', sent: 'فرستاده شد', stored: 'ذخیره شد', test_disabled: 'کلید تستی خاموش' };

@@ -5,12 +5,13 @@
 // (not attached → not_attached; phone 09990000008 → peer_not_found; state.sendError = "rate_limited" | "account_banned" |
 // "session_invalid" | … → that error), health { bootId, attached }, restart() = new bootId + every client dropped,
 // inbound(apiBase, accountRef, events) = what the real sidecar POSTs to the API for incoming messages.
+// /v1/send-file (plan file: fileB64 + sha256 + mime + caption; checks like the real sidecar) → state.sentFiles (no bytes kept, only size/sha).
 // state.blockedPhones (Set) → /v1/send answers peer_blocked for that phone (the UNVERIFIED "this customer blocked you" path).
 import http from "node:http"; import crypto from "node:crypto"; import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
 export function startMockBaleSidecar({ token, port = 0, host = "127.0.0.1" }) {
-  const flows = new Map(); const log = []; const state = { failSignOut: false, down: false, sendError: null, attachError: null, blockedPhones: new Set() };
+  const flows = new Map(); const log = []; const state = { failSignOut: false, down: false, sendError: null, attachError: null, blockedPhones: new Set(), sentFiles: [] };
   const attached = new Map(); const sent = []; let bootId = crypto.randomBytes(8).toString("hex"); let seq = 5000;
   const peerOf = phone => String(800000000 + Number(String(phone).slice(-6)));
   const ERR_STATUS = { rate_limited: 429, account_banned: 403, session_invalid: 401, not_attached: 409, peer_not_found: 404, peer_blocked: 403, unknown: 502 };
@@ -18,10 +19,11 @@ export function startMockBaleSidecar({ token, port = 0, host = "127.0.0.1" }) {
     const send = (s, j) => { res.writeHead(s, { "content-type": "application/json" }); res.end(JSON.stringify(j)); };
     if (state.down) { req.socket.destroy(); return; }
     if (req.headers["x-bale-internal-token"] !== token) return send(401, { error: "unauthorized" });
-    let b = ""; req.on("data", c => { b += c; if (b.length > 16384) req.destroy(); });
+    const cap = req.url === "/v1/send-file" ? 15 * 1024 * 1024 : 16384;
+    let b = ""; req.on("data", c => { b += c; if (b.length > cap) req.destroy(); });
     req.on("end", () => {
       let j = {}; try { j = b ? JSON.parse(b) : {}; } catch { return send(400, { error: "unknown" }); }
-      log.push({ path: req.url, body: j });
+      log.push({ path: req.url, body: req.url === "/v1/send-file" ? { ...j, fileB64: `<${String(j.fileB64 ?? "").length} b64 chars>` } : j });
       if (req.url === "/v1/health") return send(200, { ok: true, version: "mock-1b", sessions: flows.size, bootId, attached: [...attached.keys()] });
       if (req.url === "/v1/session/attach") {
         if (state.attachError) return send(ERR_STATUS[state.attachError] ?? 502, { error: state.attachError });
@@ -37,6 +39,18 @@ export function startMockBaleSidecar({ token, port = 0, host = "127.0.0.1" }) {
         if (state.blockedPhones.has(j.phone)) return send(403, { error: "peer_blocked" }); // UNVERIFIED wording on real Bale
         const m = { accountRef: j.accountRef, phone: j.phone, peerId: j.peerId ?? peerOf(j.phone), text: j.text, typingMs: j.typingMs, messageId: String(++seq) };
         sent.push(m); return send(200, { messageId: m.messageId, peerId: m.peerId });
+      }
+      if (req.url === "/v1/send-file") {
+        if (!attached.has(j.accountRef)) return send(409, { error: "not_attached" });
+        if (state.sendError) return send(ERR_STATUS[state.sendError] ?? 502, { error: state.sendError });
+        if (!/^09\d{9}$/.test(String(j.phone)) || typeof j.caption !== "string" || j.caption.length > 1024) return send(400, { error: "bad_request" });
+        if (!["application/pdf", "image/jpeg", "image/png", "image/webp"].includes(j.mime) || !/^[^/\\]{1,120}$/.test(String(j.fileName ?? ""))) return send(400, { error: "bad_request" });
+        const bytes = Buffer.from(String(j.fileB64 ?? ""), "base64");
+        if (!bytes.length || bytes.length > 10 * 1024 * 1024 || crypto.createHash("sha256").update(bytes).digest("hex") !== j.sha256) return send(400, { error: "bad_request" });
+        if (j.phone === "09990000008") return send(404, { error: "peer_not_found" });
+        if (state.blockedPhones.has(j.phone)) return send(403, { error: "peer_blocked" });
+        const m = { accountRef: j.accountRef, phone: j.phone, peerId: j.peerId ?? peerOf(j.phone), caption: j.caption, fileName: j.fileName, mime: j.mime, size: bytes.length, sha256: j.sha256, typingMs: j.typingMs, messageId: String(++seq) };
+        state.sentFiles.push(m); return send(200, { messageId: m.messageId, peerId: m.peerId });
       }
       if (req.url === "/v1/auth/start") {
         if (!/^09\d{9}$/.test(String(j.phone))) return send(422, { error: "phone_invalid" });

@@ -23,6 +23,7 @@ import { normalizeFa } from "./assistants";
 import { maskText } from "./smart-filing";
 import { baleSessionAad, openBaleSession, BaleKeyMissing, type KeyEnv } from "./bale-crypto";
 import { BaleSidecarError, type BaleSidecar } from "./bale-sidecar-client";
+import type { BalePlanFiles } from "./bale-plan-files";
 
 export const BALE_MAX_TEXT = 1000;
 export const BALE_SENDING_STALE_MS = 2 * 60_000;
@@ -33,7 +34,7 @@ export const BALE_AMOUNT_DISCLAIMER = "مبلغ قطعی را بانک یا تأ
 export type BaleBlockReason =
   | "bale_disabled" | "not_connected" | "mode_off" | "out_of_scope" | "empty" | "too_long" | "banned_word" | "loan_type_question"
   | "no_phone" | "no_prior_chat" | "already_pending" | "cap_hour" | "cap_day" | "cap_new_chats" | "auto_stopped" | "not_eligible"
-  | "conversation_paused" | "session_not_live";
+  | "conversation_paused" | "session_not_live" | "attachments_disabled" | "attachment_missing";
 export const BLOCK_FA: Record<BaleBlockReason | "quiet_hours" | "no_bale_account" | "uncertain" | "send_failed" | "peer_blocked", string> = {
   bale_disabled: "بله فعلاً از طرف مدیر خاموش است؛ پیامی فرستاده نشد.",
   not_connected: "حساب بله‌ی کارشناس وصل نیست؛ پیامی فرستاده نشد.",
@@ -58,7 +59,15 @@ export const BLOCK_FA: Record<BaleBlockReason | "quiet_hours" | "no_bale_account
   conversation_paused: "گفتگوی بله با این مشتری متوقف است (احتمالاً مشتری شما را در بله مسدود کرده). از برگه‌ی «گفتگوی بله» می‌توانید دوباره فعالش کنید.",
   peer_blocked: "به نظر می‌رسد این مشتری شما را در بله مسدود کرده است؛ پیام نرسید.",
   session_not_live: "اتصال بله‌ی کارشناس ناقص است و در حال رفع است؛ تا وقتی اتصال کامل نشود هیچ پیامی فرستاده نمی‌شود.",
+  attachments_disabled: "ارسال فایل طرح در بله فعلاً از طرف مدیر خاموش است؛ چیزی فرستاده نشد. فقط پیام متنی ممکن است.",
+  attachment_missing: "فایل این طرح در تنظیمات طرح‌ها بارگذاری نشده یا دیگر در دسترس نیست؛ چیزی فرستاده نشد.",
 };
+/** Plan files: the caption ALWAYS ends with the amount disclaimer (a plan file names a plan by definition). */
+export function withPlanFileCaption(caption: string): string {
+  const t = String(caption ?? "").trim();
+  if (t.includes(BALE_AMOUNT_DISCLAIMER)) return t;
+  return t ? `${t}\n${BALE_AMOUNT_DISCLAIMER}` : BALE_AMOUNT_DISCLAIMER;
+}
 
 /* ------------------------------ pure helpers (unit-tested in scripts/bale-fixture.mjs) ------------------------------ */
 const TEHRAN_HM = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tehran", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
@@ -115,6 +124,8 @@ export function ensureBaleOutboxSchema(db: DatabaseSync): void {
   add("bale_outbox", "approved_at", "TEXT");
   add("bale_outbox", "reminder_id", "INTEGER");
   add("bale_outbox", "assistant_id", "INTEGER");
+  // Plan file (lib/bale-plan-files.ts → bale_plan_files.id): a REFERENCE to the stored file, never the bytes.
+  add("bale_outbox", "attachment_id", "INTEGER");
   db.exec(`CREATE TABLE IF NOT EXISTS bale_reminder_messages (
     reminder_id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES bale_accounts(id), customer_id INTEGER NOT NULL, text TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'scheduled' CHECK(status IN ('scheduled','enqueued','cancelled')), outbox_id INTEGER,
@@ -141,11 +152,15 @@ export type OutboxCtx = {
   /** «حساب تستی» (lib/bale-test.ts): its own switch, independent of the experts' master switch. */
   testOn?: () => boolean;
   testInbound?: (a: any, evs: any[]) => { stored: number; ignored: number };
+  /** Plan files + their switch (bale_settings.bale_attachments_enabled, default OFF). Absent → attachments impossible. */
+  planFiles?: BalePlanFiles; attachmentsOn?: () => boolean;
 };
 export type EnqueueIn = {
   accountId: number; customerId: number; text: string; source: "expert_command" | "reminder" | "assistant";
   explicit: boolean; createdBy: number | null; assistant?: { id: number; inScope: boolean } | null; reason?: string | null;
   reminderId?: number | null; sendNow?: boolean;
+  /** bale_plan_files.id — the row is then ALWAYS a draft (pending_approval), whatever the expert's mode is. */
+  attachmentId?: number | null;
 };
 export type EnqueueOut =
   | { status: "blocked"; reason: BaleBlockReason; message: string; outboxId: number | null }
@@ -207,14 +222,19 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     AND (status IN ('queued','sending') OR (status='sent' AND sent_at>?))`, accountId, excludeId, since(86_400_000))?.n ?? 0);
 
   /** All checks. `stage` = enqueue (queued rows count toward caps) | send (only real sends count). */
-  function check(a: any | undefined, customerId: number, text: string, o: { explicit: boolean; assistantInScope?: boolean; stage: "enqueue" | "send"; selfId?: number }):
+  const attachmentsOn = () => Boolean(ctx.planFiles && ctx.attachmentsOn?.());
+  /** A plan file is usable only while it is still the plan's active file and its bytes on disk match the stored sha256. */
+  const attachmentUsable = (id: number) => { const f = ctx.planFiles?.byId(id); return Boolean(f && f.status === "active" && ctx.planFiles!.read(f)); };
+  function check(a: any | undefined, customerId: number, text: string, o: { explicit: boolean; assistantInScope?: boolean; stage: "enqueue" | "send"; selfId?: number; attachmentId?: number | null }):
     { ok: true; phone: string; newChat: boolean } | { ok: false; reason: BaleBlockReason } {
     if (!ctx.masterOn()) return { ok: false, reason: "bale_disabled" };
     if (!a || a.status !== "connected" || !a.session_ct) return { ok: false, reason: "not_connected" };
     if (a.mode === "off") return { ok: false, reason: "mode_off" };
+    if (o.attachmentId != null && !attachmentsOn()) return { ok: false, reason: "attachments_disabled" };
     if (liveState(a) === "down") return { ok: false, reason: "session_not_live" };
     const own = ownCustomer(a, customerId);
     if (!own || o.assistantInScope === false) return { ok: false, reason: "out_of_scope" };
+    if (o.attachmentId != null && !attachmentUsable(o.attachmentId)) return { ok: false, reason: "attachment_missing" };
     if (pausedOf(a.id, customerId)) return { ok: false, reason: "conversation_paused" };
     const tp = baleTextProblem(text, banned()); if (tp) return { ok: false, reason: tp };
     const phone = normalizeMobile(own.c.phone); if (!phone) return { ok: false, reason: "no_phone" };
@@ -231,29 +251,32 @@ export function createBaleOutbox(ctx: OutboxCtx) {
 
   function enqueue(p: EnqueueIn): EnqueueOut {
     const a = acc(p.accountId); const t = iso();
-    const text = withAmountDisclaimer(String(p.text ?? ""));
-    const r = check(a, p.customerId, text, { explicit: p.explicit, assistantInScope: p.assistant ? p.assistant.inScope : undefined, stage: "enqueue" });
+    const att = p.attachmentId ?? null;
+    const text = att != null ? withPlanFileCaption(String(p.text ?? "")) : withAmountDisclaimer(String(p.text ?? ""));
+    const r = check(a, p.customerId, text, { explicit: p.explicit, assistantInScope: p.assistant ? p.assistant.inScope : undefined, stage: "enqueue", attachmentId: att });
     const actor = p.createdBy ? ctx.userRow(p.createdBy) : undefined;
     if (!r.ok) {
       let outboxId: number | null = null;
       // Assistant / reminder attempts are kept (blocked) so the expert sees what was stopped; the expert's own typing is not stored.
       if (a && p.source !== "expert_command" && r.reason !== "already_pending") {
-        outboxId = Number(run(`INSERT INTO bale_outbox(account_id,customer_id,text,source,explicit_expert_command,status,block_reason,created_by,created_at,updated_at,reason,reminder_id,assistant_id)
-          VALUES(?,?,?,?,?,'blocked',?,?,?,?,?,?,?)`, a.id, p.customerId, text.slice(0, BALE_MAX_TEXT * 2), p.source, p.explicit ? 1 : 0, r.reason, p.createdBy, t, t,
-          p.reason ?? null, p.reminderId ?? null, p.assistant?.id ?? null).lastInsertRowid);
+        outboxId = Number(run(`INSERT INTO bale_outbox(account_id,customer_id,text,source,explicit_expert_command,status,block_reason,created_by,created_at,updated_at,reason,reminder_id,assistant_id,attachment_id)
+          VALUES(?,?,?,?,?,'blocked',?,?,?,?,?,?,?,?)`, a.id, p.customerId, text.slice(0, BALE_MAX_TEXT * 2), p.source, p.explicit ? 1 : 0, r.reason, p.createdBy, t, t,
+          p.reason ?? null, p.reminderId ?? null, p.assistant?.id ?? null, att).lastInsertRowid);
       }
       ctx.audit({ u: actor, accountId: a?.id ?? null, customerId: p.customerId, action: `outbox.${p.source}`, outcome: `blocked:${r.reason}`, detail: { outboxId } });
       return { status: "blocked", reason: r.reason, message: BLOCK_FA[r.reason], outboxId };
     }
-    const draft = p.source !== "expert_command" && a.mode === "approve_first";
+    // A plan file is NEVER auto-sent: always a draft the expert approves, also in «خودکار» mode.
+    const draft = att != null || (p.source !== "expert_command" && a.mode === "approve_first");
     const sendNow = p.source === "expert_command" && Boolean(p.sendNow);
     const held = !draft && !sendNow && quietNow() ? iso(quietEnd()) : null;
     const id = Number(run(`INSERT INTO bale_outbox(account_id,customer_id,text,source,explicit_expert_command,status,created_by,scheduled_at,created_at,updated_at,
-        is_new_chat,send_now,reason,reminder_id,assistant_id,approved_by,approved_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        is_new_chat,send_now,reason,reminder_id,assistant_id,approved_by,approved_at,attachment_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       a.id, p.customerId, text, p.source, p.explicit ? 1 : 0, draft ? "pending_approval" : "queued", p.createdBy, held, t, t, r.newChat ? 1 : 0, sendNow ? 1 : 0,
-      p.reason ?? null, p.reminderId ?? null, p.assistant?.id ?? null, p.source === "expert_command" ? p.createdBy : null, p.source === "expert_command" ? t : null).lastInsertRowid);
-    if (draft) bell(a.user_id, p.customerId, "bale-draft", "پیش‌نویس پیام بله منتظر تأیید شما", p.source === "reminder" ? "یادآور رسید؛ پیام را ببینید و بفرستید." : "دستیار یک پیام پیشنهاد داده؛ ببینید و بفرستید.");
-    ctx.audit({ u: actor, accountId: a.id, customerId: p.customerId, action: `outbox.${p.source}`, outcome: draft ? "pending_approval" : "queued", detail: { outboxId: id, held: Boolean(held), newChat: r.newChat, sendNow } });
+      p.reason ?? null, p.reminderId ?? null, p.assistant?.id ?? null, !draft && p.source === "expert_command" ? p.createdBy : null, !draft && p.source === "expert_command" ? t : null, att).lastInsertRowid);
+    if (draft) bell(a.user_id, p.customerId, "bale-draft", att != null ? "فایل طرح برای ارسال در بله منتظر تأیید شما" : "پیش‌نویس پیام بله منتظر تأیید شما",
+      att != null ? "دستیار پیشنهاد داده فایل طرح برای مشتری فرستاده شود؛ فایل را ببینید و تأیید یا رد کنید." : p.source === "reminder" ? "یادآور رسید؛ پیام را ببینید و بفرستید." : "دستیار یک پیام پیشنهاد داده؛ ببینید و بفرستید.");
+    ctx.audit({ u: actor, accountId: a.id, customerId: p.customerId, action: `outbox.${p.source}`, outcome: draft ? "pending_approval" : "queued", detail: { outboxId: id, held: Boolean(held), newChat: r.newChat, sendNow, attachmentId: att } });
     return { status: draft ? "pending_approval" : "queued", outboxId: id, heldUntil: held, message: held ? BLOCK_FA.quiet_hours : null, text };
   }
 
@@ -261,11 +284,12 @@ export function createBaleOutbox(ctx: OutboxCtx) {
   function approve(id: number, u: any, newText?: string): EnqueueOut {
     const o = row<any>("SELECT * FROM bale_outbox WHERE id=?", id); const a = o ? acc(o.account_id) : undefined;
     if (!o || !a || o.status !== "pending_approval") return { status: "blocked", reason: "already_pending", message: "این پیش‌نویس دیگر منتظر تأیید نیست.", outboxId: o?.id ?? null };
-    const text = withAmountDisclaimer(newText ?? o.text);
+    const att = o.attachment_id ?? null;
+    const text = att != null ? withPlanFileCaption(newText ?? o.text) : withAmountDisclaimer(newText ?? o.text);
     // The expert's approval IS an explicit command for this customer.
-    const r = check(a, o.customer_id, text, { explicit: true, stage: "enqueue", selfId: o.id });
+    const r = check(a, o.customer_id, text, { explicit: true, stage: "enqueue", selfId: o.id, attachmentId: att });
     if (!r.ok) {
-      if (r.reason === "out_of_scope" || r.reason === "bale_disabled" || r.reason === "not_connected" || r.reason === "mode_off")
+      if (r.reason === "out_of_scope" || r.reason === "bale_disabled" || r.reason === "not_connected" || r.reason === "mode_off" || r.reason === "attachments_disabled" || r.reason === "attachment_missing")
         run("UPDATE bale_outbox SET status='blocked', block_reason=?, updated_at=? WHERE id=?", r.reason, iso(), o.id);
       ctx.audit({ u, accountId: a.id, customerId: o.customer_id, action: "outbox.approve", outcome: `blocked:${r.reason}`, detail: { outboxId: o.id } });
       return { status: "blocked", reason: r.reason, message: BLOCK_FA[r.reason], outboxId: o.id };
@@ -279,7 +303,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
   function editDraft(id: number, u: any, text: string): { ok: true; text: string } | { ok: false; reason: BaleBlockReason | "not_editable"; message: string } {
     const o = row<any>("SELECT * FROM bale_outbox WHERE id=?", id);
     if (!o || o.status !== "pending_approval") return { ok: false, reason: "not_editable", message: "این پیش‌نویس دیگر قابل ویرایش نیست." };
-    const t = withAmountDisclaimer(String(text ?? ""));
+    const t = o.attachment_id != null ? withPlanFileCaption(String(text ?? "")) : withAmountDisclaimer(String(text ?? ""));
     const tp = baleTextProblem(t, banned()); if (tp) return { ok: false, reason: tp, message: BLOCK_FA[tp] };
     run("UPDATE bale_outbox SET text=?, updated_at=? WHERE id=?", t, iso(), o.id);
     ctx.audit({ u, accountId: o.account_id, customerId: o.customer_id, action: "outbox.edit", outcome: "ok", detail: { outboxId: o.id } });
@@ -415,7 +439,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     const block = (reason: BaleBlockReason) => { run("UPDATE bale_outbox SET status='blocked', block_reason=?, updated_at=? WHERE id=?", reason, iso(), o.id);
       ctx.audit({ accountId: a.id, customerId: o.customer_id, action: "outbox.send", outcome: `blocked:${reason}`, detail: { outboxId: o.id } }); return `blocked:${reason}`; };
     const hold = (until: Date, why: string) => { run("UPDATE bale_outbox SET scheduled_at=?, updated_at=? WHERE id=?", iso(until), iso(), o.id); return `held:${why}`; };
-    const r = check(a, o.customer_id, o.text, { explicit: Boolean(o.explicit_expert_command), stage: "send" });
+    const r = check(a, o.customer_id, o.text, { explicit: Boolean(o.explicit_expert_command), stage: "send", attachmentId: o.attachment_id ?? null });
     if (!r.ok) {
       if (r.reason === "cap_day") { const first = row<any>("SELECT min(COALESCE(sent_at,updated_at)) t FROM bale_outbox WHERE account_id=? AND status IN ('sent','sending') AND COALESCE(sent_at,updated_at)>?", a.id, since(86_400_000))?.t; return hold(new Date(Date.parse(first ?? nowIso) + 86_400_000 + 1000), "cap_day"); }
       if (r.reason === "cap_new_chats") return hold(new Date(now().getTime() + 3_600_000), "cap_new_chats");
@@ -434,24 +458,35 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     if (run("UPDATE bale_outbox SET status='sending', attempts=attempts+1, updated_at=? WHERE id=? AND status='queued'", iso(), o.id).changes !== 1) return "raced";
     const contact = row<any>("SELECT peer_id FROM bale_contacts WHERE account_id=? AND customer_id=?", a.id, o.customer_id);
     const payload = { accountRef: ref(a), phone: r.phone, peerId: contact?.peer_id ?? null, text: o.text, typingMs: Math.min(8000, 1200 + o.text.length * 50) };
+    // Plan file: read + re-verify the bytes right before the send (sha256 vs the DB); one file = one message for every cap.
+    let file: { row: any; bytes: Buffer } | null = null;
+    if (o.attachment_id != null) {
+      const f = ctx.planFiles?.byId(o.attachment_id); const bytes = f && f.status === "active" ? ctx.planFiles!.read(f) : null;
+      if (!f || !bytes) return block("attachment_missing");
+      file = { row: f, bytes };
+    }
+    const deliver = () => file
+      ? ctx.sidecar.sendFile({ accountRef: payload.accountRef, phone: payload.phone, peerId: payload.peerId, caption: o.text, fileName: file.row.display_name, mime: file.row.mime,
+          fileB64: file.bytes.toString("base64"), sha256: file.row.sha256, typingMs: 1500 })
+      : ctx.sidecar.send(payload);
     try {
       let out;
-      try { out = await ctx.sidecar.send(payload); }
+      try { out = await deliver(); }
       catch (e) {
         if (!(e instanceof BaleSidecarError && e.code === "not_attached")) throw e;
         if (!(await attachOne(a))) throw e;
-        out = await ctx.sidecar.send(payload);
+        out = await deliver();
       }
       const t = iso();
       run("UPDATE bale_outbox SET status='sent', sent_at=?, bale_msg_id=?, error=NULL, updated_at=? WHERE id=?", t, out.messageId, t, o.id);
-      run(`INSERT INTO bale_messages(account_id,customer_id,direction,text,bale_msg_id,outbox_id,status,created_at) VALUES(?,?,'out',?,?,?,'sent',?)
-        ON CONFLICT(account_id,bale_msg_id) DO NOTHING`, a.id, o.customer_id, o.text, out.messageId, o.id, t);
+      run(`INSERT INTO bale_messages(account_id,customer_id,direction,text,file_ref,bale_msg_id,outbox_id,status,created_at) VALUES(?,?,'out',?,?,?,?,'sent',?)
+        ON CONFLICT(account_id,bale_msg_id) DO NOTHING`, a.id, o.customer_id, o.text, file ? `plan-file:${file.row.id}` : null, out.messageId, o.id, t);
       run(`INSERT INTO bale_contacts(account_id,customer_id,peer_id,first_contact_at,has_prior_chat,created_at) VALUES(?,?,?,?,0,?)
         ON CONFLICT(account_id,customer_id) DO UPDATE SET peer_id=excluded.peer_id, first_contact_at=COALESCE(bale_contacts.first_contact_at,excluded.first_contact_at)`,
         a.id, o.customer_id, out.peerId, t, t);
       run("UPDATE bale_accounts SET next_send_at=?, last_seen_at=? WHERE id=?", new Date(now().getTime() + gapMs()).toISOString(), t, a.id);
       if (o.reminder_id) run("UPDATE reminders SET done=1 WHERE id=? AND done=0", o.reminder_id);
-      ctx.audit({ accountId: a.id, customerId: o.customer_id, action: "outbox.send", outcome: "sent", detail: { outboxId: o.id, source: o.source } });
+      ctx.audit({ accountId: a.id, customerId: o.customer_id, action: "outbox.send", outcome: "sent", detail: { outboxId: o.id, source: o.source, attachmentId: o.attachment_id ?? null } });
       return "sent";
     } catch (e) {
       const code = e instanceof BaleSidecarError ? e.code : "error";
@@ -608,11 +643,20 @@ export function createBaleOutbox(ctx: OutboxCtx) {
       reason: o.reason ?? null, blockReason: o.block_reason ?? null, blockMessage: o.block_reason ? BLOCK_FA[o.block_reason as BaleBlockReason] ?? null : null,
       error: o.error ?? null, errorMessage: o.error ? BLOCK_FA[o.error as keyof typeof BLOCK_FA] ?? BLOCK_FA.send_failed : null,
       scheduledAt: o.scheduled_at ?? null, sendNow: Boolean(o.send_now), sentAt: o.sent_at ?? null, createdAt: o.created_at, newChat: Boolean(o.is_new_chat),
-      canAct: viewerIsOwner && ["pending_approval", "queued"].includes(o.status) };
+      canAct: viewerIsOwner && ["pending_approval", "queued"].includes(o.status), attachment: attachmentView(o) };
+  }
+  /** Draft preview of a plan file: name, type, size, plan; url serves the bytes to admins / eligible experts (thumbnail). */
+  function attachmentView(o: any) {
+    if (o.attachment_id == null || !ctx.planFiles) return null;
+    const f = ctx.planFiles.byId(o.attachment_id); if (!f) return { id: o.attachment_id, planId: null, planName: null, name: null, mime: null, typeLabel: null, size: null, isImage: false, url: null, available: false };
+    const v = ctx.planFiles.view(f);
+    return { id: v.id, planId: f.plan_id, planName: ctx.planFiles.planRow(f.plan_id)?.name ?? null, name: v.name, mime: v.mime, typeLabel: v.typeLabel, size: v.size,
+      isImage: v.isImage, url: v.url, available: f.status === "active" };
   }
   /** Rows shown in the tab: active ones + blocked/failed in the last 3 days (sent rows are already bubbles). */
+  // While bale_attachments_enabled is OFF, plan-file rows are hidden from the approval UI (they cannot be approved or sent).
   const tabItems = (accountId: number, customerId: number) => rows<any>(`SELECT * FROM bale_outbox WHERE account_id=? AND customer_id=?
-      AND (status IN ${ACTIVE} OR (status IN ('blocked','failed') AND updated_at>?)) ORDER BY id DESC LIMIT 20`, accountId, customerId, since(3 * 86_400_000)).reverse();
+      AND (status IN ${ACTIVE} OR (status IN ('blocked','failed') AND updated_at>?))${attachmentsOn() ? "" : " AND attachment_id IS NULL"} ORDER BY id DESC LIMIT 20`, accountId, customerId, since(3 * 86_400_000)).reverse();
   function sendState(a: any | undefined, customerId: number) {
     const prior = a ? hasPriorChat(a.id, customerId) : false;
     const t = now();
@@ -639,7 +683,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     return n === 1;
   }
 
-  return { liveState, enqueue, approve, editDraft, cancel, sendNow, tick, syncSessions, inbound, itemView, tabItems, sendState, linkReminder, cancelReminder, autoStop, check, bell,
+  return { attachmentsOn, liveState, enqueue, approve, editDraft, cancel, sendNow, tick, syncSessions, inbound, itemView, tabItems, sendState, linkReminder, cancelReminder, autoStop, check, bell,
     pausedOf, pauseConversation, resumeConversation, unknownList, linkUnknown, dismissUnknown, ownCustomerSearch };
 }
 

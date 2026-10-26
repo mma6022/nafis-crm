@@ -27,10 +27,14 @@ import { TRAINEE_SALESPERSON_IDS, EXCLUDED_USER_IDS, BANNED_WORDS } from "./assi
 import { baleHasKey, baleSessionAad, baleSidecarToken, openBaleSession, sealBaleSession, BaleKeyMissing, type KeyEnv } from "./bale-crypto";
 import { BaleSidecarError, type BaleSidecar } from "./bale-sidecar-client";
 import { createBaleOutbox, ensureBaleOutboxSchema, BLOCK_FA } from "./bale-outbox";
+import multer from "multer";
+import { createBalePlanFiles, ensureBalePlanFilesSchema, BALE_PLAN_FILE_MAX_BYTES, BALE_PLAN_FILE_TYPES } from "./bale-plan-files";
 
 type Db = DatabaseSync;
 export type BaleActor = { id: number } | null;
-export type BaleDeps = { db: Db; env: () => KeyEnv; sidecar: BaleSidecar; now?: () => Date; actor: (res: Response) => BaleActor; random?: () => number };
+export type BaleDeps = { db: Db; env: () => KeyEnv; sidecar: BaleSidecar; now?: () => Date; actor: (res: Response) => BaleActor; random?: () => number;
+  /** Where plan files live (<data dir>/bale-plan-files). Absent → no plan files at all. */
+  planFilesDir?: string };
 
 export const BALE_MODES = ["off", "approve_first", "auto"] as const;
 export type BaleMode = typeof BALE_MODES[number];
@@ -46,6 +50,8 @@ export const BALE_DEFAULT_SETTINGS: Record<string, string> = {
   peer_block_mode: "account_stop",
   // «حساب تستی» (system-owned spare SIM): its own switch, default OFF, independent of master_enabled.
   test_enabled: "0",
+  // Plan files over Bale (PDF / image of a plan, always an expert-approved draft): its own switch, default OFF.
+  bale_attachments_enabled: "0",
 };
 export const BALE_PEER_BLOCK_MODES = ["account_stop", "conversation_pause"] as const;
 
@@ -86,6 +92,7 @@ export function ensureBaleSchema(db: Db, nowIso = new Date().toISOString()): voi
   ensureSchemaObject(db, "index", "idx_bale_contacts_customer", "CREATE INDEX idx_bale_contacts_customer ON bale_contacts(customer_id)");
   ensureBaleOutboxSchema(db);
   ensureBaleTestSchema(db);
+  ensureBalePlanFilesSchema(db);
   const ins = db.prepare("INSERT OR IGNORE INTO bale_settings(key,value,updated_at) VALUES(?,?,?)");
   for (const [k, v] of Object.entries(BALE_DEFAULT_SETTINGS)) ins.run(k, v, nowIso);
 }
@@ -160,9 +167,11 @@ export function createBale(deps: BaleDeps) {
   }
   const accountOf = (userId: number) => row<any>("SELECT * FROM bale_accounts WHERE user_id=? AND kind<>'system_test'", userId);
   const testOn = () => setting("test_enabled") === "1";
+  const attachmentsOn = () => setting("bale_attachments_enabled") === "1";
+  const planFiles = deps.planFilesDir ? createBalePlanFiles({ db, dir: deps.planFilesDir, now, nameOf: id => (id == null ? null : nameOf(userRow(id))) }) : undefined;
   let test: ReturnType<typeof createBaleTest>;
   const outbox = createBaleOutbox({ db, now, env: deps.env, sidecar: deps.sidecar, random: deps.random, setting, masterOn, userRow, nameOf, eligible: baleEligible,
-    audit: o => audit(o), testOn, testInbound: (a, evs) => test.inbound(a, evs) });
+    audit: o => audit(o), testOn, testInbound: (a, evs) => test.inbound(a, evs), planFiles, attachmentsOn });
   test = createBaleTest({ db, now, env: deps.env, sidecar: deps.sidecar, random: deps.random, setting, nameOf, userRow, audit: o => audit(o),
     normalize: normalizeIranMobile, mask: maskMobile, asciiDigits, syncSessions: () => outbox.syncSessions(true) });
 
@@ -372,7 +381,7 @@ export function createBale(deps: BaleDeps) {
     }
     return { a, o };
   };
-  const blockedStatus = (reason: string) => ["bale_disabled", "not_connected", "mode_off", "session_not_live"].includes(reason) ? 423 : reason === "out_of_scope" ? 404
+  const blockedStatus = (reason: string) => ["bale_disabled", "not_connected", "mode_off", "session_not_live", "attachments_disabled"].includes(reason) ? 423 : reason === "out_of_scope" ? 404
     : ["already_pending"].includes(reason) ? 409 : ["cap_hour", "cap_day", "cap_new_chats"].includes(reason) ? 429 : 422;
   const sendOut = (res: Response, r: ReturnType<typeof outbox.enqueue>) => r.status === "blocked"
     ? res.status(blockedStatus(r.reason)).json({ error: r.reason, message: r.message, outboxId: r.outboxId })
@@ -434,13 +443,14 @@ export function createBale(deps: BaleDeps) {
 
   staff.get("/bale/outbox", expert, (req, res) => {
     const u = res.locals.baleUser; const a = accountOf(u.id); if (!a) return void res.json({ items: [] });
+    // Switch OFF → plan-file rows are not shown at all (they can be neither approved nor sent).
     const list = rows<any>(`SELECT o.*, c.name cname, c.salesperson_id csp, c.merged_into_customer_id cm FROM bale_outbox o LEFT JOIN customers c ON c.id=o.customer_id
-      WHERE o.account_id=? AND (o.status IN ('pending_approval','queued','sending') OR o.updated_at>?) ORDER BY o.id DESC LIMIT 100`, a.id, new Date(now().getTime() - 3 * 86_400_000).toISOString());
+      WHERE o.account_id=? AND (o.status IN ('pending_approval','queued','sending') OR o.updated_at>?)${attachmentsOn() ? "" : " AND o.attachment_id IS NULL"} ORDER BY o.id DESC LIMIT 100`, a.id, new Date(now().getTime() - 3 * 86_400_000).toISOString());
     res.json({ items: list.map(o => {
       const own = o.csp === u.salesperson_id && o.cm == null;
       // Out-of-scope rows (e.g. the assistant tried a foreign customer, or the customer was reassigned): no name, no text.
       return own ? { ...outbox.itemView(o, true), customerName: o.cname }
-        : { ...outbox.itemView({ ...o, text: "" }, false), customerId: null, customerName: null, text: null };
+        : { ...outbox.itemView({ ...o, text: "" }, false), customerId: null, customerName: null, text: null, attachment: null };
     }) });
   });
   staff.post("/bale/reminder-messages", expert, (req, res) => {
@@ -470,6 +480,7 @@ export function createBale(deps: BaleDeps) {
     const health = deps.sidecar.configured() ? await deps.sidecar.health() : { ok: false };
     res.json({
       masterEnabled: masterOn(), keyReady: baleHasKey(deps.env()), sidecar: { configured: deps.sidecar.configured(), reachable: health.ok },
+      attachmentsEnabled: attachmentsOn(), planFilesReady: Boolean(planFiles), sidecarVersion: health.version ?? null,
       limits: { gapMinS: Number(setting("gap_min_s")), gapMaxS: Number(setting("gap_max_s")), perHour: Number(setting("per_hour")), perDay: Number(setting("per_day")),
         newChatsPerDay: Number(setting("new_chats_per_day")), quietStart: setting("quiet_start"), quietEnd: setting("quiet_end") },
       // Decision (b): UNVERIFIED until checked with the test SIM; the default is the safe whole-account stop.
@@ -483,6 +494,58 @@ export function createBale(deps: BaleDeps) {
     if (!on) flows.clear();
     audit({ req, u, action: on ? "admin.master_on" : "admin.master_off", outcome: "ok" });
     res.json({ masterEnabled: masterOn() });
+  });
+  /* ---------------- plan files («فایل طرح برای بله») ---------------- */
+  staff.put("/admin/bale/attachments", admin, (req, res) => {
+    const on = req.body?.enabled === true; const u = res.locals.baleAdmin;
+    run("INSERT INTO bale_settings(key,value,updated_at,updated_by_user_id) VALUES('bale_attachments_enabled',?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,updated_by_user_id=excluded.updated_by_user_id", on ? "1" : "0", iso(), u.id);
+    audit({ req, u, action: on ? "admin.attachments_on" : "admin.attachments_off", outcome: "ok" });
+    res.json({ attachmentsEnabled: attachmentsOn() });
+  });
+  const planFileLimits = { maxBytes: BALE_PLAN_FILE_MAX_BYTES, types: BALE_PLAN_FILE_TYPES.map(t => t.label) };
+  staff.get("/admin/bale/plan-files", admin, (_req, res) => {
+    if (!planFiles) return fail(res, 503, "plan_files_unavailable");
+    res.json({ attachmentsEnabled: attachmentsOn(), ...planFileLimits, plans: planFiles.list() });
+  });
+  // Upload works whatever the switch says (the admin prepares files before the PM turns sending on).
+  const planUpload = multer({ storage: multer.memoryStorage(), defParamCharset: "utf8", limits: { fileSize: BALE_PLAN_FILE_MAX_BYTES, files: 1, fields: 4 } } as any).single("file");
+  staff.post("/admin/bale/plans/:id/file", admin, (req, res) => {
+    if (!planFiles) return fail(res, 503, "plan_files_unavailable");
+    planUpload(req, res, (e: any) => {
+      const u = res.locals.baleAdmin; const planId = Number(req.params.id);
+      if (e) {
+        const big = e?.code === "LIMIT_FILE_SIZE";
+        audit({ req, u, action: "plan_file.upload", outcome: big ? "too_large" : "bad_upload", detail: { planId: Number.isSafeInteger(planId) ? planId : null } });
+        return void res.status(big ? 413 : 400).json({ error: big ? "file_too_large" : "bad_upload", message: big ? "حجم فایل بیشتر از ۱۰ مگابایت است." : "فایل درست فرستاده نشد؛ دوباره امتحان کنید." });
+      }
+      const f = (req as any).file as { buffer: Buffer; originalname?: string } | undefined;
+      const name = typeof req.body?.name === "string" && req.body.name.trim() ? req.body.name : f?.originalname;
+      const r = planFiles.save(planId, f?.buffer, name, u.id);
+      audit({ req, u, action: "plan_file.upload", outcome: r.ok ? "ok" : r.error, detail: r.ok ? { planId, fileId: r.file.id, size: r.file.size, type: r.file.typeLabel } : { planId: Number.isSafeInteger(planId) ? planId : null } });
+      if (!r.ok) return void res.status(r.status).json({ error: r.error, message: r.message });
+      res.json({ file: r.file, attachmentsEnabled: attachmentsOn() });
+    });
+  });
+  staff.delete("/admin/bale/plans/:id/file", admin, (req, res) => {
+    if (!planFiles) return fail(res, 503, "plan_files_unavailable");
+    const u = res.locals.baleAdmin; const planId = Number(req.params.id);
+    const ok = planFiles.remove(planId, u.id);
+    audit({ req, u, action: "plan_file.remove", outcome: ok ? "ok" : "not_found", detail: { planId: Number.isSafeInteger(planId) ? planId : null } });
+    if (!ok) return fail(res, 404, "not_found");
+    res.json({ ok: true });
+  });
+  /** Bytes for the draft preview / thumbnail: admins (not 29) and eligible sales experts only; plan files are not customer data. */
+  staff.get("/bale/plan-files/:id/content", (req, res) => {
+    const u = me(res); if (!u) return fail(res, 401, "unauthorized");
+    const isAdmin = u.role === "admin" && !EXCLUDED_USER_IDS.includes(u.id) && u.active !== 0;
+    if (!isAdmin && !baleEligible(u)) return fail(res, 403, "not_eligible");
+    const f = planFiles?.byId(Number(req.params.id)); const bytes = f ? planFiles!.read(f) : null;
+    if (!f || !bytes) return fail(res, 404, "not_found");
+    res.setHeader("Content-Type", f.mime);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Disposition", `inline; filename="plan-${f.plan_id}.${f.stored_name.split(".").pop()}"; filename*=UTF-8''${encodeURIComponent(f.display_name)}`);
+    if (f.mime !== "application/pdf") res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
+    res.end(bytes);
   });
   staff.put("/admin/bale/peer-block-mode", admin, (req, res) => {
     const mode = String(req.body?.mode ?? ""); const u = res.locals.baleAdmin;
@@ -512,7 +575,8 @@ export function createBale(deps: BaleDeps) {
   });
 
   /* ============ runner hook: the expert's own sales assistant (mounted inside /api/assistant-runner, Bearer already checked) ============ */
-  /** POST /bale/send {customerId, text, reason?, explicitExpertCommand?}. Only a sales assistant bound to an expert; only the
+  /** POST /bale/send {customerId, text, reason?, explicitExpertCommand?} — or a plan file: {customerId, planId | attachmentId, caption?, reason?}
+   *  (only while bale_attachments_enabled = 1; ALWAYS pending_approval; caption always ends with the amount disclaimer). Only a sales assistant bound to an expert; only the
    *  assistant's in-scope customers that are also the expert's own. explicitExpertCommand (first message to a customer with no
    *  prior chat) is honoured only when the expert wrote to the assistant in the last 15 minutes. Never bypasses quiet hours. */
   function runnerSend(req: Request, res: Response, ctx: { inScope: (a: any, cid: number) => boolean }) {
@@ -528,10 +592,37 @@ export function createBale(deps: BaleDeps) {
       explicit = Boolean(row(`SELECT 1 FROM assistant_messages m JOIN assistant_threads t ON t.id=m.thread_id WHERE t.assistant_id=? AND t.user_id=? AND m.author='user' AND m.created_at>? LIMIT 1`,
         asst.id, u.id, since));
     }
-    const r = outbox.enqueue({ accountId: a.id, customerId: cid, text: typeof req.body?.text === "string" ? req.body.text : "", source: "assistant", explicit,
-      createdBy: null, assistant: { id: asst.id, inScope: Number.isSafeInteger(cid) && ctx.inScope(asst, cid) }, reason: typeof req.body?.reason === "string" ? req.body.reason.slice(0, 300) : null });
+    const inScope = Number.isSafeInteger(cid) && ctx.inScope(asst, cid);
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.slice(0, 300) : null;
+    // Plan file: {planId | attachmentId, caption?}. Switch OFF → refused before anything is stored. Always a draft the expert approves.
+    const wantsFile = (req.body?.planId != null && req.body.planId !== "") || (req.body?.attachmentId != null && req.body.attachmentId !== "");
+    let attachmentId: number | null = null;
+    if (wantsFile) {
+      const blockedFile = (code: "attachments_disabled" | "attachment_missing" | "out_of_scope") => {
+        audit({ accountId: a.id, customerId: Number.isSafeInteger(cid) ? cid : null, action: "outbox.assistant_file", outcome: `blocked:${code}`, detail: { assistantId: asst.id } });
+        res.status(blockedStatus(code)).json({ status: "blocked", error: code, message: BLOCK_FA[code] });
+      };
+      if (!planFiles || !attachmentsOn()) return blockedFile("attachments_disabled");
+      if (!inScope) return blockedFile("out_of_scope");
+      const f = planFiles.resolve({ planId: req.body?.planId, attachmentId: req.body?.attachmentId });
+      if (!f || !planFiles.read(f)) return blockedFile("attachment_missing");
+      attachmentId = f.id;
+    }
+    const text = wantsFile ? (typeof req.body?.caption === "string" ? req.body.caption : typeof req.body?.text === "string" ? req.body.text : "")
+      : typeof req.body?.text === "string" ? req.body.text : "";
+    const r = outbox.enqueue({ accountId: a.id, customerId: cid, text, source: "assistant", explicit,
+      createdBy: null, assistant: { id: asst.id, inScope }, reason, attachmentId });
     if (r.status === "blocked") return void res.status(blockedStatus(r.reason)).json({ status: "blocked", error: r.reason, message: r.message });
-    res.json({ status: r.status, outboxId: r.outboxId, heldUntil: r.heldUntil });
+    res.json({ status: r.status, outboxId: r.outboxId, heldUntil: r.heldUntil, ...(attachmentId != null ? { attachmentId } : {}) });
+  }
+
+  /** GET /bale/plan-files (runner, read-only): which plans have a Bale file, so the assistant can pick planId. Names / type / size only, never bytes or paths. */
+  function runnerPlanFiles(_req: Request, res: Response) {
+    const asst = res.locals.assistant;
+    if (!asst || asst.kind !== "sales" || !asst.bound_user_id) return void res.status(403).json({ error: "forbidden", message: "این کار برای دستیار مجاز نیست." });
+    const plans = planFiles ? planFiles.list().filter(p => p.active) : [];
+    res.json({ attachmentsEnabled: Boolean(planFiles) && attachmentsOn(),
+      plans: plans.map(p => ({ planId: p.planId, name: p.name, file: p.file ? { attachmentId: p.file.id, name: p.file.name, typeLabel: p.file.typeLabel, size: p.file.size } : null })) });
   }
 
   /* ============ internal router: sidecar → API inbound (mounted OUTSIDE /api, before session auth) ============ */
@@ -558,5 +649,5 @@ export function createBale(deps: BaleDeps) {
     stop() { if (timer) clearInterval(timer); timer = null; },
   };
 
-  return { staff, internal, runnerSend, worker, _internal: { flows, masterOn, outbox, test } };
+  return { staff, internal, runnerSend, runnerPlanFiles, worker, _internal: { flows, masterOn, outbox, test } };
 }

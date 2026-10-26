@@ -25,6 +25,7 @@ import { api, errText, useMe } from '@/lib/goods-api';
 import { ErrorState, formatDate, SkeletonPanel } from '@/components/CrmShell';
 import { EmptyState, Modal } from '@/components/DataTools';
 import { CHECK_KIND_LABEL, encodeSide, NO_REQUIREMENTS, requirementsText, sideRequirements, type SideRequirements } from '@/lib/plan-requirements';
+import { BalePlanFileBadge, BalePlanFileBox } from '@/features/bale/BalePlanFilePanel';
 import { Choice, faDigits, formatToman, LockBadge, TomanInput, WizardProgress, YES_NO, yn } from '@/components/plans-consult/parts';
 
 const INSTALLMENT_OPTIONS = [6, 9, 12, 18, 24, 36, 48] as const;
@@ -227,7 +228,7 @@ export default function LoanPlans() {
     {list.isLoading ? <SkeletonPanel rows={5} /> : list.isError ? <ErrorState onRetry={() => list.refetch()} /> : <div className="plan-grid">
       <div className="plan-list">
         {plans.length ? plans.map((plan) => { const active = (plan as PlanWithStatus).active !== false; return <div className={`plan-card ${selectedId === plan.id ? 'selected' : ''}`} key={plan.id} onClick={() => setSelectedId(plan.id)} data-testid={`card-loan-plan-${plan.id}`}>
-          <div className="plan-card-head"><div><h3>{plan.name}</h3><p>{plan.bankName || 'بانک مشخص نشده'}{plan.platformName ? ` · ${plan.platformName}` : ''}</p></div><span className={`inline-badge ${active ? 'active' : 'inactive'}`}>{active ? 'فعال' : 'غیرفعال'}</span></div>
+          <div className="plan-card-head"><div><h3>{plan.name}</h3><p>{plan.bankName || 'بانک مشخص نشده'}{plan.platformName ? ` · ${plan.platformName}` : ''}</p></div><span style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}><BalePlanFileBadge planId={plan.id} /><span className={`inline-badge ${active ? 'active' : 'inactive'}`}>{active ? 'فعال' : 'غیرفعال'}</span></span></div>
           <div className="plan-facts"><div className="plan-fact">سقف تسهیلات<strong>{plan.principalAmount ? `${plan.principalAmount} تومان` : '—'}</strong></div><div className="plan-fact">سود سالانه<strong>{plan.annualInterest || '—'}</strong></div><div className="plan-fact">اقساط<strong>{plan.installmentTerms?.map((term) => term.installments).join('، ') || plan.installments || '—'}</strong></div></div>
         </div>; }) : <div className="panel"><EmptyState title="طرحی در این فیلتر نیست" description="یک طرح تازه ایجاد کنید یا فیلتر را روی همه طرح‌ها بگذارید." /></div>}
       </div>
@@ -277,6 +278,7 @@ function PlanDetail({ plan, loading, onEdit }: { plan: LoanPlan | null; loading:
         </div>;
       }) : <div className="subtle-note">شرطی ثبت نشده است.</div>}</div>
     </section>
+    <BalePlanFileBox planId={plan.id} />
   </div>;
 }
 

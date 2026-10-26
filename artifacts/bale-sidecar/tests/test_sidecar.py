@@ -161,6 +161,12 @@ class FakeLive:
             raise BaleErr(self.fail_send)
         return SimpleNamespace(message_id=9001)
 
+    async def send_document(self, file, chat_id, ct, caption=None):
+        self.calls.append(("doc", chat_id, file.info.name, file.info.mime_type, file.info.size, caption))
+        if self.fail_send:
+            raise BaleErr(self.fail_send)
+        return SimpleNamespace(message_id=9002)
+
     async def stop(self):
         self.stopped = True
 
@@ -237,6 +243,34 @@ class LiveSessionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((s, j["error"]), (403, "account_banned")); self.assertNotIn("acc-1", self.state.sessions); self.assertTrue(live.stopped)
         logs = self.logbuf.getvalue()
         for secret in ["09120000001", "989120000001", "سلام", "دوباره", "JWT-LIVE", TOKEN]:
+            self.assertNotIn(secret, logs)
+
+    async def test_send_file_document_with_caption_and_checks(self):
+        import base64, hashlib
+        pdf = b"%PDF-1.4\n" + b"x" * 40000  # > 16 KB: only /v1/send-file accepts a large body
+        b = {"accountRef": "acc-1", "phone": "09120000001", "peerId": None, "caption": "طرح نمونه", "fileName": "طرح نمونه.pdf",
+             "mime": "application/pdf", "fileB64": base64.b64encode(pdf).decode(), "sha256": hashlib.sha256(pdf).hexdigest(), "typingMs": 1500}
+        s, j = await self.post("/v1/send-file", b); self.assertEqual((s, j["error"]), (409, "not_attached"))
+        await self.post("/v1/session/attach", {"accountRef": "acc-1", "token": "JWT-LIVE", "deviceHash": DH}); live = FakeLive.instances[0]
+        s, j = await self.post("/v1/send-file", b)
+        self.assertEqual((s, j), (200, {"messageId": "9002", "peerId": "777"}))
+        self.assertEqual(live.calls[-1], ("doc", 777, "طرح نمونه.pdf", "application/pdf", len(pdf), "طرح نمونه"))
+        live.calls.clear()
+        bad = [{"sha256": "0" * 64}, {"mime": "image/png"}, {"mime": "text/html"}, {"fileName": "../x.pdf"}, {"fileB64": "@@@"}, {"caption": "x" * 1025}, {"phone": "1"}]
+        for d in bad:
+            x = dict(b); x.update(d); s, j = await self.post("/v1/send-file", x); self.assertEqual((s, j["error"]), (400, "bad_request"), d)
+        png = b"\x89PNG\r\n\x1a\n" + b"p" * 10
+        x = dict(b, mime="image/png", fileName="a.png", fileB64=base64.b64encode(png).decode(), sha256=hashlib.sha256(png).hexdigest(), caption="")
+        s, j = await self.post("/v1/send-file", x); self.assertEqual(s, 200); self.assertEqual(live.calls[-1][-1], None)
+        big = b"%PDF-" + b"y" * (sidecar.MAX_FILE_BYTES)
+        x = dict(b, fileB64=base64.b64encode(big).decode(), sha256=hashlib.sha256(big).hexdigest())
+        s, _ = await self.post("/v1/send-file", x); self.assertIn(s, (400, 413))
+        s, _ = await self.post("/v1/send", {"accountRef": "acc-1", "phone": "09120000001", "peerId": "777", "text": "x" * 20000, "typingMs": 0})
+        self.assertIn(s, (400, 413))  # the normal route keeps its 16 KB cap
+        live.fail_send = "USER_DEACTIVATED_BAN"
+        s, j = await self.post("/v1/send-file", b); self.assertEqual((s, j["error"]), (403, "account_banned")); self.assertNotIn("acc-1", self.state.sessions)
+        logs = self.logbuf.getvalue()
+        for secret in ["09120000001", "989120000001", "طرح نمونه", "JWT-LIVE", TOKEN, b["fileB64"][:40]]:
             self.assertNotIn(secret, logs)
 
     async def test_attach_local_failure_is_client_error_and_logged_redacted(self):

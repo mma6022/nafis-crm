@@ -19,6 +19,8 @@ Contract: see CONTRACT.md. Run: BALE_SIDECAR_TOKEN_FILE=/etc/nafisvam/bale-sidec
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import hmac
 import logging
 import os
@@ -34,13 +36,18 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "ven
 
 from aiohttp import web  # noqa: E402
 
-VERSION = "1b-0.2"
+VERSION = "1b-0.3"
 ATTACH_TIMEOUT_S = 25
 MAX_TYPING_MS = 8000
 MAX_TEXT = 4000
 INBOUND_RETRIES = (1.0, 3.0, 10.0)
 FLOW_TTL_S = 300
 MAX_BODY = 16 * 1024
+# /v1/send-file only: one plan file (≤ 10 MB) as base64 in the JSON body (the API reads the file; the sidecar never touches disk).
+MAX_FILE_BYTES = 10 * 1024 * 1024
+MAX_FILE_BODY = 15 * 1024 * 1024
+FILE_MIMES = {"application/pdf": (b"%PDF-",), "image/jpeg": (b"\xff\xd8\xff",), "image/png": (b"\x89PNG\r\n\x1a\n",), "image/webp": (b"RIFF",)}
+MAX_CAPTION = 1024
 LIB_DEFAULT_DEVICE_HASH = "ce5ced83-a9ab-47fa-80c8-ed425eeb2ace"
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 PHONE_RE = re.compile(r"^09\d{9}$")
@@ -94,6 +101,18 @@ def private_chat_type():
         return ChatType.PRIVATE
     except Exception:  # pragma: no cover
         return 1
+
+
+def make_file_input(data: bytes, name: str, mime: str):
+    from aiobale.types import FileInput  # vendored
+    return FileInput(data, name=name, size=len(data), mime_type=mime)
+
+
+def file_ok(data: bytes, mime: str) -> bool:
+    heads = FILE_MIMES.get(mime)
+    if not heads or not data or len(data) > MAX_FILE_BYTES or not any(data.startswith(h) for h in heads):
+        return False
+    return mime != "image/webp" or data[8:12] == b"WEBP"
 
 
 def is_loopback_http(u: Optional[str]) -> bool:
@@ -486,6 +505,70 @@ def make_app(state: State) -> web.Application:
             return err(502, "unknown")
         return web.json_response({"messageId": str(mid), "peerId": str(chat_id)})
 
+    async def send_file(request: web.Request):
+        """One plan file (document) with a caption. Same pipe semantics as /v1/send: the API already decided everything
+        (switch, approval, caps, gaps, quiet hours, live session, peer-block policy); this only checks the bytes."""
+        try:
+            j = await request.clone(client_max_size=MAX_FILE_BODY).json()
+        except Exception:
+            return err(400, "bad_request")
+        if not isinstance(j, dict):
+            return err(400, "bad_request")
+        ref = ref_of(j)
+        phone, peer, caption = str(j.get("phone", "")), j.get("peerId"), j.get("caption")
+        name, mime, b64, sha = j.get("fileName"), j.get("mime"), j.get("fileB64"), j.get("sha256")
+        if (not PHONE_RE.match(phone) or not isinstance(caption, str) or len(caption) > MAX_CAPTION or not isinstance(name, str)
+                or not name.strip() or len(name) > 120 or "/" in name or "\\" in name or not isinstance(mime, str) or not isinstance(b64, str)
+                or not isinstance(sha, str)):
+            return err(400, "bad_request")
+        try:
+            data = base64.b64decode(b64, validate=True)
+        except Exception:
+            return err(400, "bad_request")
+        if not file_ok(data, mime) or not hmac.compare_digest(hashlib.sha256(data).hexdigest(), sha.lower()):
+            return err(400, "bad_request")
+        try:
+            typing_ms = max(0, min(MAX_TYPING_MS, int(j.get("typingMs", 0))))
+        except (TypeError, ValueError):
+            typing_ms = 0
+        sess = state.sessions.get(ref)
+        if sess is None:
+            return err(409, "not_attached")
+        c = sess.client
+        pt = private_chat_type()
+        try:
+            chat_id = int(peer) if isinstance(peer, (str, int)) and str(peer).isdigit() else None
+            if chat_id is None:
+                found = await c.search_contact("98" + phone[1:])  # lookup only: never import into the expert's contacts
+                if not found or getattr(found, "id", None) is None:
+                    return err(404, "peer_not_found")
+                chat_id = int(found.id)
+            sess.peer_phone[str(chat_id)] = phone
+            if typing_ms:
+                try:
+                    await c.start_typing(chat_id, pt)
+                    await state.sleep(typing_ms / 1000)
+                finally:
+                    try:
+                        await c.stop_typing(chat_id, pt)
+                    except Exception:
+                        pass
+            msg = await c.send_document(make_file_input(data, name.strip(), mime), chat_id, pt, caption=caption.strip() or None)
+        except Exception as e:
+            code_ = error_code(e)
+            log.warning("/v1/send-file error %s", describe(e))
+            if code_ in ("session_invalid", "account_banned"):
+                state.sessions.pop(ref, None)
+                await _stop(c)
+            log.warning("/v1/send-file failed %s", code_)
+            return err(STATUS[code_], code_)
+        if isinstance(msg, list):
+            msg = msg[0] if msg else None
+        mid = getattr(msg, "message_id", None)
+        if mid is None:
+            return err(502, "unknown")
+        return web.json_response({"messageId": str(mid), "peerId": str(chat_id)})
+
     async def on_cleanup(_app: web.Application) -> None:
         for ref in list(state.sessions):
             await _stop(state.sessions.pop(ref).client)
@@ -497,6 +580,7 @@ def make_app(state: State) -> web.Application:
     app.router.add_post("/v1/session/attach", attach)
     app.router.add_post("/v1/session/detach", detach)
     app.router.add_post("/v1/send", send)
+    app.router.add_post("/v1/send-file", send_file)
     app.router.add_get("/v1/health", health)
     app.router.add_post("/v1/auth/start", start)
     app.router.add_post("/v1/auth/code", code)

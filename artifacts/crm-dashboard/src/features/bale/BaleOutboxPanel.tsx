@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
-import { Inbox } from 'lucide-react';
+import { Inbox, Paperclip } from 'lucide-react';
 import { baleFetch, baleWhen, OUTBOX_STATUS_LABEL, type BaleOutboxItem } from './api';
 import './bale.css';
 
@@ -18,6 +18,7 @@ export function BaleOutboxPanel() {
         <span className={`bl-tag${o.status === 'pending_approval' ? ' warn' : ''}`} style={{ marginInlineStart: 0 }}>{OUTBOX_STATUS_LABEL[o.status]}</span>
         <span className="muted">{o.sourceLabel}، {baleWhen(o.createdAt)}</span></div>
       {o.blockMessage || o.errorMessage ? <span className="why">{o.blockMessage ?? o.errorMessage}</span> : null}
+      {o.attachment ? <span className="muted" style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 12 }} data-testid={`bale-outbox-file-${o.id}`}><Paperclip size={13} /> فایل: <bdi>{o.attachment.name ?? 'فایل طرح'}</bdi></span> : null}
       {o.text ? <q>{o.text}</q> : null}
     </li>)}</ul>
   </div>;

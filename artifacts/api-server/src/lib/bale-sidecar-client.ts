@@ -34,7 +34,10 @@ export interface BaleSidecar {
   detach(p: { accountRef: string }): Promise<void>;
   /** 1b: one private text message. typingMs = how long "typing…" is shown first (sidecar caps it). */
   send(p: { accountRef: string; phone: string; peerId: string | null; text: string; typingMs: number }): Promise<{ messageId: string; peerId: string }>;
+  /** Sidecar 1b-0.3: one plan file as a Bale document with a caption (the API already read + sha-checked the file). */
+  sendFile(p: BaleSendFileIn): Promise<{ messageId: string; peerId: string }>;
 }
+export type BaleSendFileIn = { accountRef: string; phone: string; peerId: string | null; caption: string; fileName: string; mime: string; fileB64: string; sha256: string; typingMs: number };
 
 const KNOWN = new Set<string>(["phone_invalid", "rate_limited", "number_banned", "wrong_code", "code_expired", "sign_up_needed", "wrong_password", "flow_expired", "unauthorized", "unknown",
   "not_attached", "peer_not_found", "session_invalid", "account_banned", "bad_request", "peer_blocked",
@@ -93,6 +96,11 @@ export function createHttpBaleSidecar(env: () => KeyEnv, opts: { timeoutMs?: num
     async detach(p) { try { await call("/v1/session/detach", p, 5000); } catch { /* best effort */ } },
     async send(p) {
       const j = await call<any>("/v1/send", p, 30_000);
+      if (j?.messageId == null || j?.peerId == null) throw new BaleSidecarError("sidecar_bad_response");
+      return { messageId: String(j.messageId), peerId: String(j.peerId) };
+    },
+    async sendFile(p) {
+      const j = await call<any>("/v1/send-file", p, 120_000); // upload of up to 10 MB
       if (j?.messageId == null || j?.peerId == null) throw new BaleSidecarError("sidecar_bad_response");
       return { messageId: String(j.messageId), peerId: String(j.peerId) };
     },
