@@ -122,3 +122,11 @@
 @media (max-width:720px){.sa-set-g{grid-template-columns:1fr}.sa-sig{flex-wrap:nowrap}.sa-sig>div:first-child{min-width:0;flex:1}.sa-step button{width:42px;height:42px}.sa-foot{position:static;flex-wrap:wrap;padding-inline-start:80px}}
 .sa-nn legend .req{color:var(--nf-danger, #B91C1C)}
 .sa-snz{flex-direction:column;align-items:stretch}.sa-snz .sa-seg{width:100%}
+
+/* v7: customer name = link to the profile */
+.sac a.nm-link{display:inline-block;max-width:100%;color:var(--nf-ink, #0B1450);text-decoration:underline;text-decoration-color:color-mix(in srgb, var(--nf-brand-500, #3B4CCA) 35%, transparent);text-decoration-thickness:1.5px;text-underline-offset:5px;border-radius:6px;cursor:pointer;transition:color .15s, text-decoration-color .15s}
+.sac a.nm-link:hover{color:var(--nf-brand-600, #2A37A8);text-decoration-color:currentColor;text-decoration-thickness:2px}
+.sac a.nm-link:focus-visible{outline:3px solid var(--nf-brand-500, #3B4CCA);outline-offset:2px;text-decoration-color:currentColor}
+.sac a.nm-link:active{color:var(--nf-brand-800, #141B5E)}
+@media (max-width:720px), (pointer:coarse){.sac a.nm-link{min-height:44px;line-height:44px;padding-inline:2px}}
+@media (prefers-reduced-motion:reduce){.sac a.nm-link{transition:none}}

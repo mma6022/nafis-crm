@@ -113,7 +113,8 @@ export function SalesAssistBox({ user, onCall }: { user: User; onCall: (customer
         ? <div key={it.customerId} className="sac gone" role="status"><span className="ok"><Check className="i" /></span><b>{gone[it.customerId] === 'call' ? `تماس ${it.displayName} ثبت شد` : `${it.displayName} کنار گذاشته شد`}</b><span>از پیشنهادها رفت</span><span className="nx"><Loader2 className="i sa-spin" /> نفر بعدی در راه است…</span></div>
         : <article key={it.customerId} className={`sac${freshIds.includes(it.customerId) ? ' fresh' : ''}`} data-testid={`sales-assist-card-${it.customerId}`} data-rank={it.rank} data-tier={it.tier}>
           {freshIds.includes(it.customerId) ? <span className="new"><Sparkles className="i" /> تازه</span> : null}
-          <div className="r1"><span className="nm" title={it.displayName}>{it.displayName}</span><CustomerIdBadge id={it.customerId} className="cid" testId={`sales-assist-id-${it.customerId}`} />
+          <div className="r1">{/* v7: the name opens the profile (same route as the customer list). A plain router link: no dismiss / impression / call handler — only a logged call removes the card. Ctrl/Cmd/Shift/middle-click are left to the browser (new tab). */}
+            <Link href={`/customers/${it.customerId}`} className="nm nm-link" title={`باز کردن پرونده‌ی ${it.displayName}`} data-testid={`sales-assist-name-${it.customerId}`}>{it.displayName}</Link><CustomerIdBadge id={it.customerId} className="cid" testId={`sales-assist-id-${it.customerId}`} />
             {it.priority ? <span className={`sa-pri ${PRI[it.priority]}`}>اولویت {faNum(it.priority)}</span> : null}</div>
           {it.chips.length ? <div className="tgs">{it.chips.slice(0, 3).map((c) => <span key={c.key} className={`tgx ${chipCls[c.key]}`}>{chipIcon[c.key]}{c.label}</span>)}</div> : null}
           <div className="why">{reasonIcon(it.reason.kind)}<span>{it.reason.text}</span></div>
