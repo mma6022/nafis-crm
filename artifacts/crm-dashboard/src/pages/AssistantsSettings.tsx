@@ -40,7 +40,7 @@ function ReportingPanel() {
     </div>;
   return <div className="panel" data-testid="panel-assistant-reporting">
     <h3 style={{ marginTop: 0 }}>گزارش‌ها</h3>
-    {row(<FlaskConical size={20} />, 'حذف مشتری‌های تستی از گزارش‌ها', 'مشتری‌هایی که نامشان با TEST یا «تست» شروع می‌شود (یا [TEST] در توضیحاتشان است) در گزارش مدیر فروش، هشدارها و آمار دستیارها شمرده نمی‌شوند. فقط در گزارش؛ خود مشتری تغییری نمی‌کند.',
+    {row(<FlaskConical size={20} />, 'حذف مشتری‌های تستی از گزارش‌ها', 'مشتری‌هایی که نامشان با TEST یا «تست» شروع می‌شود (یا [TEST] در توضیحاتشان است، یا سرنخ/درخواست تماسشان با utm_source=grokbot-test آمده) در گزارش مدیر فروش، هشدارها و آمار دستیارها شمرده نمی‌شوند. فقط در گزارش؛ خود مشتری تغییری نمی‌کند.',
       d?.excludeTestCustomers, 'toggle-exclude-test-customers', () => void set({ excludeTestCustomers: !d?.excludeTestCustomers }, d?.excludeTestCustomers ? 'مشتری‌های تستی دوباره شمرده می‌شوند' : 'مشتری‌های تستی از گزارش‌ها حذف شدند'))}
     {row(<MousePointerClick size={20} />, 'ثبت استفاده از صفحه‌ها', 'فقط نوع صفحه (بدون شماره‌ی مشتری)، زمان ورود، مدت فعال بودن تب، کلیک منو و راه ورود ثبت می‌شود؛ هیچ اطلاعات مشتری یا شماره‌ای ثبت نمی‌شود. نگهداری ۹۰ روز.',
       d?.pageUsageEnabled, 'toggle-page-usage', () => void set({ pageUsageEnabled: !d?.pageUsageEnabled }, d?.pageUsageEnabled ? 'ثبت استفاده خاموش شد' : 'ثبت استفاده روشن شد'))}
