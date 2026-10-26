@@ -64,7 +64,7 @@ export default function AssistantsSettings() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <AssistantAvatar slug={a.slug} kind={a.kind} state={a.enabled && d.globalEnabled ? 'idle' : 'off'} size={44} />
               <div style={{ flex: 1 }}><b>{a.label}</b>
-                <div style={{ fontSize: 13, color: 'var(--nf-ink-muted)' }}>{a.kind === 'manager' ? 'مدیر فروش — فقط مدیر (admin) · فقط خواندن گزارش کارشناس‌ها (بدون کارآموزها)' : a.kind === 'filing' ? 'نقش ثبت (کارشناس ثبت، مدیر و کارشناس فروش همان پرونده)' : `کارشناس: ${a.boundUser?.name ?? '—'}`}</div>
+                <div style={{ fontSize: 13, color: 'var(--nf-ink-muted)' }}>{a.kind === 'manager' ? 'مدیر فروش — فقط مدیر (admin) · فقط خواندن گزارش کارشناس‌ها و کارآموزها' : a.kind === 'filing' ? 'نقش ثبت (کارشناس ثبت، مدیر و کارشناس فروش همان پرونده)' : `کارشناس: ${a.boundUser?.name ?? '—'}`}</div>
                 <div style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}><i style={{ width: 8, height: 8, borderRadius: '50%', background: status.c, display: 'inline-block' }} />{status.t}{a.lastSeenAt ? ` · آخرین اتصال ${asWhen(a.lastSeenAt)}` : ''}</div>
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>

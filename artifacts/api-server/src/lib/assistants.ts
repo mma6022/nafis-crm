@@ -15,8 +15,8 @@
  *  - never: priority, assignment, money, contracts, case advancement, SMS, customer messages. Trainees see nothing.
  * Out-of-scope customer → 404 not_found (+ audit); disabled → 423; bad/revoked token → 401; banned words → 422.
  *
- * v8 «احمد» — the sales-manager assistant (piece A). Talks ONLY to admins (never user 29). Reads every non-trainee expert's
- * customers (sp ≠ 5/19/20), calls, notes, reminders and cases, plus /manager/* reports, alerts and the ready summaries.
+ * v8 «احمد» — the sales-manager assistant (piece A). Talks ONLY to admins (never user 29). Reads every expert's customers,
+ * trainees 5/19/20 included READ-ONLY (approved 10:18; flagged trainee:true), user 29 never; calls, notes, reminders and cases, plus /manager/* reports, alerts and the ready summaries.
  * Writes only chat messages / notifications to an admin and its own assistant notes; never reminders or proposals.
  * Storage: the assistants.kind CHECK only allows sales|filing (no destructive migration), so the row is kind='sales' with
  * scope_rule='manager', bound_role='admin' and no bound expert. Every load goes through norm(), which reports kind 'manager';
@@ -187,7 +187,7 @@ export function createAssistants(deps: Deps) {
   function scopeSql(a: any): { sql: string; params: any[] } {
     const base = "c.merged_into_customer_id IS NULL";
     if (a.kind === "manager") {
-      const ids = managerExperts(db).map(e => e.salespersonId).filter(id => !TRAINEE_SALESPERSON_IDS.includes(id));
+      const ids = managerExperts(db).map(e => e.salespersonId); // v8: trainees included read-only (approved); user 29 excluded in managerExperts
       if (!ids.length) return { sql: "0", params: [] };
       return { sql: `${base} AND c.salesperson_id IN (${ids.map(() => "?").join(",")}) AND COALESCE(c.status,'') NOT IN ('cancelled','completed')`, params: ids };
     }
@@ -458,14 +458,14 @@ export function createAssistants(deps: Deps) {
         suggestionPool: pool, ...(unavailable ? { salesBoxUnavailable: true } : {}) };
     }
     if (a.kind === "manager") {
-      const experts = managerExperts(db).map(e => ({ salespersonId: e.salespersonId, name: e.name }));
-      return void res.json(maskAll({ customersInScope: Number(n), people: threads, scope: "manager_all_non_trainee_experts", experts,
+      const experts = managerExperts(db).map(e => ({ salespersonId: e.salespersonId, name: e.name, trainee: e.trainee }));
+      return void res.json(maskAll({ customersInScope: Number(n), people: threads, scope: "manager_all_experts_incl_trainees_readonly", experts,
         thresholds: readManagerSettings(k => row<{ value: string }>("SELECT value FROM assistant_settings WHERE key=?", k)?.value),
         ranges: MANAGER_RANGES, summarySlots: MANAGER_SLOTS,
-        allowed: ["read every non-trainee expert's customers, calls, notes, reminders and cases (read)", "manager report today/week (read)", "alerts + score (read)",
+        allowed: ["read every expert's customers, calls, notes, reminders and cases, trainees included (read only; user 29 never)", "manager report today/week (read)", "alerts + score (read)",
           "summary text for 09:00 / 18:00 / Thursday (read)", "chat messages to an admin", "notifications to an admin", "assistant notes", "typing"],
         blocked: ["changing priority", "assignment", "money/fees/wallets/commission", "contracts", "case stage", "SMS", "customer messages", "reminders or reminder proposals", "deleting anything",
-          "messages to anyone but an admin"] }));
+          "messages to anyone but an admin", "any change to trainees"] }));
     }
     res.json(maskData({ customersInScope: Number(n), people: threads, scope: a.kind === "sales" ? (a.scope_rule === "p1" ? "own_p1_customers" : "own_customers") : "registrar_smart_filing_cases",
       ...sales,
@@ -583,6 +583,8 @@ export function createAssistants(deps: Deps) {
   });
   runner.post("/customers/:id/assistant-notes", (req, res) => {
     const c = scopedCustomer(req, res); if (!c) return; const a = A(res);
+    // v8: the manager reads trainees' customers but writes nothing on them (no change of any kind to trainees).
+    if (a.kind === "manager" && TRAINEE_SALESPERSON_IDS.includes(Number(c.salesperson_id))) { audit({ req, a, tokenId: TK(res), action: "POST /customers/:id/assistant-notes", customerId: c.id, outcome: "trainee_read_only" }); return fail(res, 403, "trainee_read_only", "مشتری‌های کارآموز برای دستیار مدیر فقط خواندنی است."); }
     const body = String(req.body?.body ?? "").trim();
     if (!body || body.length > MAX_BODY) return fail(res, 422, "bad_body");
     if (hasBannedWord(body)) { audit({ req, a, tokenId: TK(res), action: "POST /customers/:id/assistant-notes", customerId: c.id, outcome: "banned_word", detail: { len: body.length } }); return fail(res, 422, "banned_word"); }
@@ -741,7 +743,7 @@ export function createAssistants(deps: Deps) {
   };
   runner.get("/manager/experts", managerOnly, (req, res) => {
     audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/experts", outcome: "ok" });
-    res.json({ experts: managerExperts(db).map(e => ({ salespersonId: e.salespersonId, name: e.name })) });
+    res.json({ experts: managerExperts(db).map(e => ({ salespersonId: e.salespersonId, name: e.name, trainee: e.trainee })) });
   });
   runner.get("/manager/settings", managerOnly, (_req, res) => { res.json({ thresholds: mgrSettings(), defaults: MANAGER_DEFAULTS, ranges: MANAGER_RANGES, summarySlots: MANAGER_SLOTS }); });
   runner.get("/manager/report", managerOnly, (req, res) => {

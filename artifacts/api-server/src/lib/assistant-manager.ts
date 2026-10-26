@@ -2,7 +2,7 @@
  * «دستیار مدیر فروش» (احمد) — piece A: read-only per-expert reports, a rule-based underperformance score and the ready-made
  * 09:00 / 18:00 / Thursday summary. Pure reads over the CRM tables (no writes here; the runner posts its own chat lines).
  *
- * Experts in scope: active salespeople with a non-trainee salesperson id (trainees 5/19/20 and user 29 are never included).
+ * Experts in scope: active salespeople, trainees 5/19/20 included READ-ONLY (flagged trainee:true; approved 10:18); user 29 is never included.
  * Days and weeks are Tehran days (fixed UTC+03:30); the week starts on Saturday like the CRM sales report.
  * Answered / not answered uses the CRM's own rule (lib/sales-report.ts callOutcome) plus the first-call form result.
  *
@@ -75,7 +75,7 @@ const pct = (n: number | null) => (n == null ? "—" : `${faDigits(Math.round(n 
 /* ---------------- data ---------------- */
 export type SiteLeadLite = { dueAt: string; requestedAt: string; openRequests: number; isRepeat: boolean };
 export type ManagerDeps = { db: DatabaseSync; now: Date; settings: ManagerSettings; siteLeads?: () => Map<number, SiteLeadLite> };
-export type Expert = { salespersonId: number; name: string; userIds: number[]; userName: string | null };
+export type Expert = { salespersonId: number; name: string; trainee: boolean; userIds: number[]; userName: string | null };
 
 export function managerExperts(db: DatabaseSync): Expert[] {
   const rows = db.prepare(`SELECT u.id, u.salesperson_id sp, u.full_name, u.username, s.name sp_name FROM users u JOIN salespersons s ON s.id=u.salesperson_id
@@ -83,8 +83,8 @@ export function managerExperts(db: DatabaseSync): Expert[] {
   const by = new Map<number, Expert>();
   for (const r of rows) {
     const sp = Number(r.sp);
-    if (MANAGER_TRAINEE_SALESPERSON_IDS.includes(sp) || MANAGER_EXCLUDED_USER_IDS.includes(Number(r.id))) continue;
-    const e: Expert = by.get(sp) ?? { salespersonId: sp, name: r.sp_name, userIds: [] as number[], userName: r.full_name || r.username || null };
+    if (MANAGER_EXCLUDED_USER_IDS.includes(Number(r.id))) continue; // trainees are read (read-only); user 29 never
+    const e: Expert = by.get(sp) ?? { salespersonId: sp, name: r.sp_name, trainee: MANAGER_TRAINEE_SALESPERSON_IDS.includes(sp), userIds: [] as number[], userName: r.full_name || r.username || null };
     e.userIds.push(Number(r.id)); by.set(sp, e);
   }
   return [...by.values()];
@@ -121,7 +121,7 @@ function callStats(list: CallRec[]) {
 
 export type Alert = { rule: "calls_below_average" | "overdue_reminders" | "site_leads_unanswered"; points: number; reason: string; numbers: Record<string, number | string | null> };
 export type ExpertReport = {
-  salespersonId: number; name: string;
+  salespersonId: number; name: string; trainee: boolean;
   calls: ReturnType<typeof callStats>;
   overdueReminders: { count: number; maxDaysLate: number; items: { reminderId: number; customerId: number | null; customerName: string | null; subject: string; remindAt: string; daysLate: number }[] };
   siteLeadsOverdue: { count: number; items: { customerId: number; customerName: string; requestedAt: string; dueAt: string; hoursLate: number; openRequests: number; isRepeat: boolean }[] };
@@ -186,7 +186,7 @@ function expertReport(d: ManagerDeps, e: Expert, range: ManagerRange, leads: Map
       reason: `${faDigits(slItems.length)} سرنخ سایت بعد از مهلت تماس هنوز بی‌تماس مانده؛ بیشترین تأخیر ${faDigits(slItems[0]?.hoursLate ?? 0)} ساعت.`,
       numbers: { unanswered: slItems.length, max: settings.siteLeadsMax, maxHoursLate: slItems[0]?.hoursLate ?? 0 } });
   const points = alerts.reduce((s, a) => s + a.points, 0);
-  return { salespersonId: e.salespersonId, name: e.name, calls,
+  return { salespersonId: e.salespersonId, name: e.name, trainee: e.trainee, calls,
     overdueReminders: { count: remItems.length, maxDaysLate: remItems[0]?.daysLate ?? 0, items: remItems.slice(0, 15) },
     siteLeadsOverdue: { count: slItems.length, items: slItems.slice(0, 15) },
     p1NoCall: { days: X, count: p1.length, items: p1.slice(0, 15) },
@@ -218,7 +218,7 @@ export function managerReport(d: ManagerDeps, range: ManagerRange, salespersonId
 export function managerAlerts(d: ManagerDeps) {
   const r = managerReport(d, "today");
   return { generatedAt: r.generatedAt, thresholds: r.thresholds,
-    items: r.experts.flatMap(e => e.score.alerts.map(a => ({ salespersonId: e.salespersonId, expert: e.name, level: e.score.level, scorePoints: e.score.points, ...a }))) };
+    items: r.experts.flatMap(e => e.score.alerts.map(a => ({ salespersonId: e.salespersonId, expert: e.name, trainee: e.trainee, level: e.score.level, scorePoints: e.score.points, ...a }))) };
 }
 
 const SLOT_FA: Record<ManagerSlot, string> = { morning: "گزارش ۹ صبح", evening: "گزارش ۶ عصر", thursday: "گزارش هفتگی (پنجشنبه)" };
@@ -232,7 +232,7 @@ export function managerSummary(d: ManagerDeps, slot: ManagerSlot) {
     const s = today.experts.find(x => x.salespersonId === e.salespersonId)?.score ?? e.score;
     const parts = [`${faDigits(e.calls.count)} تماس`, `پاسخ‌داده ${pct(e.calls.answeredShare)}`, `یادآور عقب‌افتاده ${faDigits(e.overdueReminders.count)}${e.overdueReminders.count ? ` (تا ${faDigits(e.overdueReminders.maxDaysLate)} روز)` : ""}`,
       `سرنخ سایت بی‌تماس ${faDigits(e.siteLeadsOverdue.count)}`, `اولویت ۱ بی‌تماس بیش از ${faDigits(e.p1NoCall.days)} روز: ${faDigits(e.p1NoCall.count)}`];
-    lines.push(`${s.level === "alert" ? "🔴" : s.level === "watch" ? "🟠" : "🟢"} ${e.name}: ${parts.join(" · ")}`);
+    lines.push(`${s.level === "alert" ? "🔴" : s.level === "watch" ? "🟠" : "🟢"} ${e.name}${e.trainee ? " (کارآموز)" : ""}: ${parts.join(" · ")}`);
     for (const a of s.alerts) lines.push(`   – ${a.reason}`);
   }
   if (slot === "morning") lines.push("تماس‌های امروز تازه شروع شده؛ مقایسه با میانگین تا همین ساعت است.");
