@@ -5,14 +5,15 @@
 // (not attached → not_attached; phone 09990000008 → peer_not_found; state.sendError = "rate_limited" | "account_banned" |
 // "session_invalid" | … → that error), health { bootId, attached }, restart() = new bootId + every client dropped,
 // inbound(apiBase, accountRef, events) = what the real sidecar POSTs to the API for incoming messages.
+// state.blockedPhones (Set) → /v1/send answers peer_blocked for that phone (the UNVERIFIED "this customer blocked you" path).
 import http from "node:http"; import crypto from "node:crypto"; import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
 export function startMockBaleSidecar({ token, port = 0, host = "127.0.0.1" }) {
-  const flows = new Map(); const log = []; const state = { failSignOut: false, down: false, sendError: null, attachError: null };
+  const flows = new Map(); const log = []; const state = { failSignOut: false, down: false, sendError: null, attachError: null, blockedPhones: new Set() };
   const attached = new Map(); const sent = []; let bootId = crypto.randomBytes(8).toString("hex"); let seq = 5000;
   const peerOf = phone => String(800000000 + Number(String(phone).slice(-6)));
-  const ERR_STATUS = { rate_limited: 429, account_banned: 403, session_invalid: 401, not_attached: 409, peer_not_found: 404, unknown: 502 };
+  const ERR_STATUS = { rate_limited: 429, account_banned: 403, session_invalid: 401, not_attached: 409, peer_not_found: 404, peer_blocked: 403, unknown: 502 };
   const srv = http.createServer((req, res) => {
     const send = (s, j) => { res.writeHead(s, { "content-type": "application/json" }); res.end(JSON.stringify(j)); };
     if (state.down) { req.socket.destroy(); return; }
@@ -33,6 +34,7 @@ export function startMockBaleSidecar({ token, port = 0, host = "127.0.0.1" }) {
         if (state.sendError) return send(ERR_STATUS[state.sendError] ?? 502, { error: state.sendError });
         if (!/^09\d{9}$/.test(String(j.phone)) || typeof j.text !== "string" || !j.text) return send(400, { error: "bad_request" });
         if (j.phone === "09990000008") return send(404, { error: "peer_not_found" });
+        if (state.blockedPhones.has(j.phone)) return send(403, { error: "peer_blocked" }); // UNVERIFIED wording on real Bale
         const m = { accountRef: j.accountRef, phone: j.phone, peerId: j.peerId ?? peerOf(j.phone), text: j.text, typingMs: j.typingMs, messageId: String(++seq) };
         sent.push(m); return send(200, { messageId: m.messageId, peerId: m.peerId });
       }

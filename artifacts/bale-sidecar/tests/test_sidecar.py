@@ -244,6 +244,15 @@ class LiveSessionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([m(BaleErr(x)) for x in ["FLOOD_WAIT_30", "TOO_MANY_REQUESTS", "USER_BANNED", "AUTH_KEY_INVALID", "PEER_ID_INVALID", "WHATEVER"]],
                          ["rate_limited", "rate_limited", "account_banned", "session_invalid", "peer_not_found", "unknown"])
         self.assertEqual(m(ValueError("x")), "unknown")
+        # UNVERIFIED guess (PM decision b): one customer blocked the expert → peer_blocked, checked before the generic BAN/BLOCK.
+        self.assertEqual([m(BaleErr(x)) for x in ["USER_BLOCKED", "PEER_BLOCKED", "BLOCKED_BY_USER", "ACCOUNT_BLOCKED"]],
+                         ["peer_blocked", "peer_blocked", "peer_blocked", "account_banned"])
+
+    async def test_peer_blocked_keeps_the_session(self):
+        await self.post("/v1/session/attach", {"accountRef": "acc-1", "token": "JWT-LIVE", "deviceHash": DH}); live = FakeLive.instances[0]
+        live.fail_send = "PEER_BLOCKED"
+        s, j = await self.post("/v1/send", {"accountRef": "acc-1", "phone": "09120000001", "peerId": "777", "text": "x", "typingMs": 0})
+        self.assertEqual((s, j["error"]), (403, "peer_blocked")); self.assertIn("acc-1", self.state.sessions, "the API decides whether the account stops")
 
     async def test_inbound_forwarding(self):
         await self.post("/v1/session/attach", {"accountRef": "acc-1", "token": "JWT-LIVE", "deviceHash": DH}); live = FakeLive.instances[0]

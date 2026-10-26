@@ -137,6 +137,9 @@ def auth_error_code(e: Any) -> str:
     }.get(name, "unknown")
 
 
+PEER_BLOCKED_HINTS = ("USER_BLOCKED", "PEER_BLOCKED", "BLOCKED_BY_USER", "BLOCKED_BY_PEER", "YOU_ARE_BLOCKED", "USER_IS_BLOCKED")
+
+
 def bale_error_code(e: Any) -> str:
     """Map a runtime BaleError to a contract code by its message text (aiobale has no typed runtime errors).
     The substrings are a best guess and must be confirmed with the test SIM before go-live."""
@@ -145,6 +148,11 @@ def bale_error_code(e: Any) -> str:
     m = str(getattr(e, "message", "") or "").upper()
     if any(k in m for k in ("FLOOD", "RATE", "LIMIT", "TOO_MANY")):
         return "rate_limited"
+    # UNVERIFIED (PM decision b): "this one customer blocked the expert". The exact Bale wording is not known yet; these
+    # substrings are a guess to be confirmed with the test SIM. The API treats peer_blocked exactly like account_banned
+    # (whole account stops) unless the admin setting peer_block_mode = conversation_pause is switched on after verification.
+    if any(k in m for k in PEER_BLOCKED_HINTS):
+        return "peer_blocked"
     if any(k in m for k in ("BAN", "BLOCK", "DEACTIVATED")):
         return "account_banned"
     if any(k in m for k in ("AUTH", "TOKEN", "SESSION", "UNAUTHORIZED")):
@@ -156,7 +164,7 @@ def bale_error_code(e: Any) -> str:
 
 STATUS = {"phone_invalid": 422, "wrong_code": 422, "wrong_password": 422, "sign_up_needed": 422, "rate_limited": 429,
           "number_banned": 403, "flow_expired": 410, "code_expired": 410, "unknown": 502,
-          "not_attached": 409, "peer_not_found": 404, "session_invalid": 401, "account_banned": 403, "bad_request": 400}
+          "not_attached": 409, "peer_not_found": 404, "session_invalid": 401, "account_banned": 403, "peer_blocked": 403, "bad_request": 400}
 
 
 async def _stop(client: Any) -> None:
