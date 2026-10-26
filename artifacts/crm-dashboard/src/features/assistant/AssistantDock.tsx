@@ -285,7 +285,8 @@ export function AssistantDock({ user, bottomOffset, phone }: { user: { id: numbe
   }, [dndBar]);
   // v3 bell: «باز کردن گفتگو» on an assistant row opens that chat (only if it is one of this user's threads).
   useEffect(() => {
-    const f = (e: Event) => { const id = Number((e as CustomEvent<{ threadId?: number }>).detail?.threadId); if (id && listRef.current.some(a => a.threadId === id)) { setOpenId(id); setBubble(null); } };
+    // Sidebar «چت دستیار» sends { first: true } (no threadId): open this user's first assistant chat.
+    const f = (e: Event) => { const d = (e as CustomEvent<{ threadId?: number; first?: boolean }>).detail; const id = d?.first && !d.threadId ? listRef.current[0]?.threadId : Number(d?.threadId); if (id && listRef.current.some(a => a.threadId === id)) { setOpenId(id); setBubble(null); } };
     window.addEventListener('nafis:assistant-open', f); return () => window.removeEventListener('nafis:assistant-open', f);
   }, []);
   // v4 «بعداً» → re-show after 60 min (one 30 s tick; waits while a form is open, the user is typing, or DND is on).

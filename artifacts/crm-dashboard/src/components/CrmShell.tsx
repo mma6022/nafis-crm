@@ -1,5 +1,5 @@
 import { CustomerName } from '@/components/customer/CustomerName';
-import { AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, Link2, LifeBuoy, LogOut, Menu, MessageCircle, MessagesSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, type LucideIcon } from 'lucide-react';
+import { AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, Link2, LifeBuoy, LogOut, Menu, MessageCircle, MoreHorizontal, Sparkles, MessagesSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, type LucideIcon } from 'lucide-react';
 import { UserAvatar, AvatarPicker } from '@/components/UserAvatar';
 import { useHealthCheck, getHealthCheckQueryKey, useGetAuthSession, useLogout, useUpdateAuthProfile, useListReminders, useAcknowledgeReminder, getListRemindersQueryKey, getGetAuthSessionQueryKey, type CrmUser, type Reminder } from '@workspace/api-client-react';
 import { Link, useLocation } from 'wouter';
@@ -24,11 +24,13 @@ import { canUseDrafts, useDraftCounts } from '@/lib/request-drafts';
 import { CreateReminderForm } from './Forms';
 import { sfScope } from '@/features/smart-filing/access';
 import { baleNavVisible } from '@/features/bale/api';
+import { layoutFor, menuKindFor, TRAINEE_SALESPERSON_IDS } from './nav-layout';
+import { asFetch, asVisibleTo } from '@/features/assistant/api';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem } from './ui/dropdown-menu';
 
 const nafissLogoUrl = `${import.meta.env.BASE_URL}nafiss-financial-logo.png`;
 
-type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string };
+type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean };
 
 // Routes and permission rules are unchanged; only grouping, order, labels of groups and icons are new.
 const allNavItems: NavItem[] = [
@@ -44,6 +46,8 @@ const allNavItems: NavItem[] = [
   { href: '/credit-rank-overrides', label: 'نادیده گرفتن رتبه', icon: ShieldAlert, adminOnly: true },
   { href: '/goods-purchases', label: 'خرید کالا', icon: ShoppingBag, permission: 'goods_purchases.view' },
   { href: '/sales-commissions', label: 'پورسانت فروش', icon: Coins, permission: 'goods_finance.view' },
+  // «عملکرد و پورسانت من» (Task D): non-trainee experts see their own, admin sees all; same rule as the /api/my-performance check.
+  { href: '/my-performance', label: 'عملکرد و پورسانت من', icon: BarChart3, permission: 'customers.view', perf: true },
   // «کیف پول من»: own wallet for salespeople with goods_finance.view; admin sees every salesperson («کیف پول کارشناس‌ها»).
   { href: '/my-wallet', label: 'کیف پول من', adminLabel: 'کیف پول کارشناس‌ها', icon: Wallet, permission: 'goods_finance.view', walletOwner: true },
   { href: '/payment-orders', label: 'دستورهای پرداخت', icon: Receipt, permission: 'payment_orders.view' },
@@ -69,12 +73,13 @@ const allNavItems: NavItem[] = [
 ];
 
 const mobilePrimaryNavHrefs = ['/', '/customers', '/chat', '/internal-chat'];
+const compactLabels: Record<string, string> = { '/': 'خانه', '/chat': 'گفتگو', '/internal-chat': 'داخلی', '/messengers': 'پیام‌رسان', '/customers': 'مشتری‌ها', '/loan-applications': 'پرونده‌ها', '/smart-filing': 'ثبت هوشمند' };
 type NavGroup = { id: string; label: string; icon: LucideIcon; hrefs: string[]; pinned?: boolean };
 const navGroups: NavGroup[] = [
   { id: 'dashboard', label: 'داشبورد', icon: LayoutDashboard, hrefs: ['/', '/reminders'], pinned: true },
   { id: 'customers', label: 'مشتریان و مشاوره', icon: Contact, hrefs: ['/customers', '/calls', '/consultations', '/callback-requests', '/manual-verifications'] },
   { id: 'loans', label: 'وام و قرارداد', icon: HandCoins, hrefs: ['/loan-applications', '/smart-filing', '/loan-plans', '/contracts', '/credit-rank-overrides'] },
-  { id: 'goods', label: 'خرید کالا', icon: Store, hrefs: ['/goods-purchases', '/sales-commissions', '/my-wallet'] },
+  { id: 'goods', label: 'خرید کالا', icon: Store, hrefs: ['/goods-purchases', '/sales-commissions', '/my-performance', '/my-wallet'] },
   { id: 'finance', label: 'مالی و پرداخت', icon: Banknote, hrefs: ['/payment-orders', '/wallet-management', '/bank-accounts', '/accounting'] },
   { id: 'comms', label: 'پیام‌ها و تلفن', icon: Headset, hrefs: ['/chat', '/internal-chat', '/messengers', '/settings/bale', '/instagram-inbox', '/mobile-calls', '/phone'] },
   { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/social-monitor-reports', '/voice-notes-usage'] },
@@ -175,18 +180,27 @@ export function CrmShell({ children }: { children: ReactNode }) {
   });
 
   const isAdminUser = user?.role === 'admin';
-  const pageTitle = isAdminUser && (location === '/my-wallet' || location.startsWith('/my-wallet/')) ? 'کیف پول کارشناس‌ها' : titleFor(location);
+  const basePageTitle = isAdminUser && (location === '/my-wallet' || location.startsWith('/my-wallet/')) ? 'کیف پول کارشناس‌ها' : titleFor(location);
   
   const navItems = allNavItems.filter(item => {
     if (item.walletOwner && !isAdminUser && !(user as { salespersonId?: number | null } | undefined)?.salespersonId) return false;
     if ('staffOnly' in item && item.staffOnly) return user?.role === 'admin' || user?.role === 'registrar';
     if ('adminOnly' in item && item.adminOnly) return user?.role === 'admin';
+    if (item.perf) { const u = user as { id?: number; role?: string; salespersonId?: number | null } | undefined;
+      return (u?.role === 'admin' && u?.id !== 29) || (u?.role === 'salesperson' && !!u?.salespersonId && !TRAINEE_SALESPERSON_IDS.includes(u.salespersonId)); }
     if (item.bale) return baleNavVisible(user as { id?: number; role?: string; salespersonId?: number | null } | undefined);
     if ('smartFiling' in item && item.smartFiling) return sfScope(user as { role?: string; salespersonId?: number | null } | undefined) !== null;
     const needed = ([] as string[]).concat((item as { permission?: string | string[] }).permission ?? []);
     return user?.role === 'admin' || needed.some((p) => user?.permissions?.includes(p));
   }).map(item => (isAdminUser && item.adminLabel ? { ...item, label: item.adminLabel } : item));
-  const mobileQuickNavItems = navItems.filter(item => mobilePrimaryNavHrefs.includes(item.href));
+  // Role layout (display only, AFTER the permission filter above): main items + collapsed «بیشتر». null = old grouped menu.
+  const menuKind = menuKindFor(user as { role?: string | null; salespersonId?: number | null } | undefined);
+  const roleLayout = menuKind ? layoutFor(menuKind, navItems) : null;
+  // «چت دستیار»: only when the dock already lists an assistant for this user (reads the dock's cached query; never fetches itself).
+  const asMine = useQuery<{ assistants?: { threadId: number }[] }>({ queryKey: ['assistant-mine', user?.id], enabled: false, queryFn: () => asFetch<{ assistants?: { threadId: number }[] }>('/assistant/mine') }); // same key + same fetch as the dock, so a refetch through either observer is identical
+  const hasAssistant = Boolean(asVisibleTo(user as { id: number; role?: string | null; salespersonId?: number | null } | undefined) && (asMine.data?.assistants?.length ?? 0) > 0);
+  const roleTitle = roleLayout?.main.flatMap(m => (m.kind === 'link' ? [m.item] : [])).find(item => item.href !== '/' ? (location === item.href || location.startsWith(`${item.href}/`)) : location === '/')?.label;
+  const mobileQuickNavItems = roleLayout ? roleLayout.shortcuts : navItems.filter(item => mobilePrimaryNavHrefs.includes(item.href));
   const visibleNavGroups = navGroups
     .map(group => ({ ...group, items: group.hrefs.map(href => navItems.find(item => item.href === href)).filter((item): item is NavItem => Boolean(item)) }))
     .filter(group => group.items.length > 0);
@@ -200,6 +214,10 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const drawer = useRef<HTMLElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const activeGroupId = visibleNavGroups.find(group => group.items.some(item => isNavItemActive(item.href)))?.id;
+  const pageTitle = roleTitle ?? basePageTitle;
+  // «بیشتر» starts collapsed on every load (not persisted); it opens by itself only when the current page lives inside it.
+  const moreActive = Boolean(roleLayout?.more.some(g => g.items.some(item => isNavItemActive(item.href))));
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const toggleGroup = useCallback((id: string) => setOpenGroups(current => {
     const next = current.includes(id) ? current.filter(x => x !== id) : [...current, id];
@@ -209,6 +227,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Open the active page's group without closing the others the user opened.
+    if (moreActive) setMoreOpen(true);
     if (activeGroupId) setOpenGroups(current => {
       if (current.includes(activeGroupId)) return current;
       const next = [...current, activeGroupId];
@@ -264,7 +283,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
         title={label}
       >
         <Icon aria-hidden="true" />
-        <span>{compact ? (href === '/' ? 'خانه' : href === '/chat' ? 'گفتگو' : href === '/internal-chat' ? 'داخلی' : label) : label}</span>
+        <span>{compact ? (compactLabels[href] ?? label) : label}</span>
         {href === '/chat' && (unread.data?.count ?? 0) > 0 ? <b className="side-badge" aria-label={`${unread.data!.count} پیام خوانده‌نشده`} data-testid={`${mobile ? (compact ? 'badge-mobile-shortcut-chat-unread' : 'badge-mobile-chat-unread') : 'badge-chat-unread'}`}>{unread.data!.count.toLocaleString('fa-IR')}</b> : null}
         {href === '/internal-chat' && (team.data?.unreadCount ?? 0) > 0 ? <b className="side-badge" aria-label={`${team.data!.unreadCount} پیام خوانده‌نشده`} data-testid={`${mobile ? (compact ? 'badge-mobile-shortcut-internal-unread' : 'badge-mobile-internal-unread') : 'badge-internal-unread'}`}>{team.data!.unreadCount.toLocaleString('fa-IR')}</b> : null}
         {href === '/callback-requests' && (callbacksBadge.data?.new ?? 0) > 0 ? <b className="side-badge" aria-label={`${callbacksBadge.data!.new} درخواست تماس جدید`} data-testid={`${mobile ? 'badge-mobile-callbacks-new' : 'badge-callbacks-new'}`}>{callbacksBadge.data!.new.toLocaleString('fa-IR')}</b> : null}
@@ -277,7 +296,44 @@ export function CrmShell({ children }: { children: ReactNode }) {
     );
   };
   
-  const renderGroups = (mobile: boolean) => visibleNavGroups.map(({ id, label, icon: Icon, items, pinned }) => {
+  const renderRoleMenu = (mobile: boolean) => {
+    if (!roleLayout) return null;
+    const p = mobile ? 'mobile-' : '';
+    return (
+      <>
+        <section className="side-nav-group is-pinned side-main" key="main" data-testid={`${p}nav-main`}>
+          <div className="side-group-items" role="list">
+            {roleLayout.main.map(m => m.kind === 'link' ? renderNavLink(m.item, mobile) : hasAssistant ? (
+              <button key="assistant" type="button" className="side-link side-assistant-link" title={m.label} aria-label={m.label} data-testid={`${p}button-nav-assistant-chat`}
+                onClick={() => { if (mobile) setMobileMenuOpen(false); window.dispatchEvent(new CustomEvent('nafis:assistant-open', { detail: { first: true } })); }}>
+                <Sparkles aria-hidden="true" /><span>{m.label}</span>
+              </button>
+            ) : null)}
+          </div>
+        </section>
+        {roleLayout.more.length ? (
+          <section className={`side-nav-group side-more${moreActive ? ' has-active' : ''}`} key="more" data-testid={`${p}nav-more`}>
+            <button className="side-group-toggle" type="button" aria-expanded={moreOpen} aria-controls={`${p}side-more-items`} title="بیشتر" onClick={() => setMoreOpen(o => !o)} data-testid={`button-${p}nav-more`}>
+              <MoreHorizontal className="side-group-icon" aria-hidden="true" />
+              <span>بیشتر</span>
+              {moreActive && !moreOpen ? <i className="side-group-dot" aria-label="صفحهٔ فعلی در «بیشتر» است" /> : null}
+              <ChevronDown className="side-group-chevron" aria-hidden="true" />
+            </button>
+            {moreOpen && <div id={`${p}side-more-items`} className="side-more-items">
+              {roleLayout.more.map(g => (
+                <div key={g.id} className="side-more-group" data-testid={`${p}nav-more-group-${g.id}`}>
+                  {g.label ? <div className="side-group-label side-more-label">{g.label}</div> : null}
+                  <div className="side-group-items" role="list">{g.items.map(item => renderNavLink(item, mobile))}</div>
+                </div>
+              ))}
+            </div>}
+          </section>
+        ) : null}
+      </>
+    );
+  };
+
+  const renderGroups = (mobile: boolean) => roleLayout ? renderRoleMenu(mobile) : visibleNavGroups.map(({ id, label, icon: Icon, items, pinned }) => {
     const expanded = pinned || openGroups.includes(id);
     const hasActive = id === activeGroupId;
     const listId = `${mobile ? 'mobile-' : ''}side-group-${id}`;

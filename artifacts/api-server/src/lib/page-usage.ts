@@ -15,20 +15,31 @@ export type PageUsageRange = (typeof PAGE_USAGE_RANGES)[number];
 export const PAGE_USAGE_SOURCES = ["menu", "link", "notification", "assistant", "direct", "history"] as const;
 const DAY = 86_400_000; const OFFSET = 210 * 60_000;
 
-/** The sidebar (artifacts/crm-dashboard/src/components/CrmShell.tsx allNavItems + navGroups) — labels for the report only. */
-export const SIDEBAR_MENU: ReadonlyArray<{ href: string; label: string; group: string }> = [
-  ["/", "نمای کلی", "داشبورد"], ["/reminders", "یادآورها", "داشبورد"],
-  ["/customers", "مشتریان", "مشتریان و مشاوره"], ["/calls", "تماس‌ها", "مشتریان و مشاوره"], ["/consultations", "مشاوره‌ها", "مشتریان و مشاوره"],
-  ["/callback-requests", "درخواست‌های تماس", "مشتریان و مشاوره"], ["/manual-verifications", "بررسی دستی هویت", "مشتریان و مشاوره"],
-  ["/loan-applications", "درخواست‌های تسهیلات", "وام و قرارداد"], ["/smart-filing", "ثبت هوشمند", "وام و قرارداد"], ["/loan-plans", "طرح‌های تسهیلاتی", "وام و قرارداد"],
-  ["/contracts", "قراردادها", "وام و قرارداد"], ["/credit-rank-overrides", "نادیده گرفتن رتبه", "وام و قرارداد"],
-  ["/goods-purchases", "خرید کالا", "خرید کالا"], ["/sales-commissions", "پورسانت فروش", "خرید کالا"], ["/my-wallet", "کیف پول من / کیف پول کارشناس‌ها", "خرید کالا"],
-  ["/payment-orders", "دستورهای پرداخت", "مالی و پرداخت"], ["/wallet-management", "مدیریت کیف پول", "مالی و پرداخت"], ["/bank-accounts", "حساب‌های بانکی", "مالی و پرداخت"], ["/accounting", "حسابداری", "مالی و پرداخت"],
-  ["/chat", "گفتگو با مشتریان", "پیام‌ها و تلفن"], ["/internal-chat", "گفتگوی داخلی", "پیام‌ها و تلفن"], ["/messengers", "پیام‌رسان‌ها", "پیام‌ها و تلفن"], ["/settings/bale", "اتصال بله", "پیام‌ها و تلفن"],
-  ["/instagram-inbox", "سرنخ‌های دایرکت اینستاگرام", "پیام‌ها و تلفن"], ["/mobile-calls", "تماس‌های موبایل", "پیام‌ها و تلفن"], ["/phone", "تلفن شرکت", "پیام‌ها و تلفن"],
-  ["/sales-reports", "گزارش فروش", "گزارش‌ها"], ["/social-monitor-reports", "گزارش پیام‌رسان‌ها", "گزارش‌ها"], ["/voice-notes-usage", "مصرف تبدیل صدا به متن", "گزارش‌ها"],
-  ["/users", "کاربران CRM", "مدیریت و تنظیمات"], ["/settings/notifications", "تنظیمات", "مدیریت و تنظیمات"], ["/settings/assistants", "دستیارهای هوشمند", "مدیریت و تنظیمات"], ["/settings/releases", "نسخه‌های سایت", "مدیریت و تنظیمات"],
-].map(([href, label, group]) => ({ href, label, group }));
+/** The sidebar (artifacts/crm-dashboard/src/components/CrmShell.tsx allNavItems + components/nav-layout.ts ROLE_MENUS) — labels
+ *  for the report only. 34 routes: the 33 from before + /my-performance (Task D); the role layout is display-only; `group` = where admin sees it, `mainFor` =
+ *  roles that have it in the main menu (everywhere else it is under «بیشتر» or not listed). «چت دستیار» is a button, not a route. */
+const M = "منوی اصلی", MORE = "بیشتر · ";
+export const SIDEBAR_MENU: ReadonlyArray<{ href: string; label: string; group: string; mainFor: string[] }> = ([
+  ["/", "نمای کلی / کارهای امروز من / کارتابل ثبت من / داشبورد مدیر فروش", M, "expert,trainee,registrar,admin"],
+  ["/loan-applications", "درخواست‌های تسهیلات / پرونده‌های وام من", M, "expert,trainee,registrar,admin"],
+  ["/customers", "مشتریان / مشتری‌های من", M, "expert,trainee,admin"],
+  ["/calls", "تماس‌ها", M, "admin"],
+  ["/goods-purchases", "خرید کالا", M, "registrar,admin"],
+  ["/payment-orders", "دستورهای پرداخت", M, "expert,admin"],
+  ["/internal-chat", "گفتگوی داخلی", M, "expert,trainee,registrar,admin"],
+  ["/sales-reports", "گزارش فروش", M, "admin"],
+  ["/settings/assistants", "دستیارهای هوشمند", M, "admin"],
+  ["/reminders", "یادآورها", MORE + "فروش", "trainee"], ["/consultations", "مشاوره‌ها", MORE + "فروش", ""], ["/callback-requests", "درخواست‌های تماس", MORE + "فروش", ""],
+  ["/smart-filing", "ثبت هوشمند", MORE + "فروش", "registrar"], ["/loan-plans", "طرح‌های تسهیلاتی", MORE + "فروش", "trainee"], ["/contracts", "قراردادها", MORE + "فروش", ""],
+  ["/sales-commissions", "پورسانت فروش", MORE + "مالی", ""], ["/my-performance", "عملکرد و پورسانت من", MORE + "مالی", "expert"], ["/my-wallet", "کیف پول من / کیف پول کارشناس‌ها", MORE + "مالی", ""],
+  ["/wallet-management", "مدیریت کیف پول", MORE + "مالی", ""], ["/bank-accounts", "حساب‌های بانکی", MORE + "مالی", ""], ["/accounting", "حسابداری", MORE + "مالی", ""],
+  ["/chat", "گفتگو با مشتریان", MORE + "پیام و تلفن", ""], ["/messengers", "پیام‌رسان‌ها / گفتگو در پیام‌رسان‌ها", MORE + "پیام و تلفن", "expert"],
+  ["/settings/bale", "اتصال بله", MORE + "پیام و تلفن", ""], ["/instagram-inbox", "سرنخ‌های دایرکت اینستاگرام", MORE + "پیام و تلفن", ""],
+  ["/mobile-calls", "تماس‌های موبایل", MORE + "پیام و تلفن", ""], ["/phone", "تلفن شرکت", MORE + "پیام و تلفن", ""],
+  ["/manual-verifications", "بررسی دستی هویت", MORE + "استثناها", ""], ["/credit-rank-overrides", "نادیده گرفتن رتبه", MORE + "استثناها", ""],
+  ["/social-monitor-reports", "گزارش پیام‌رسان‌ها", MORE + "تنظیمات", ""], ["/voice-notes-usage", "مصرف تبدیل صدا به متن", MORE + "تنظیمات", ""],
+  ["/users", "کاربران CRM", MORE + "تنظیمات", ""], ["/settings/notifications", "تنظیمات", MORE + "تنظیمات", ""], ["/settings/releases", "نسخه‌های سایت", MORE + "تنظیمات", ""],
+] as const).map(([href, label, group, main]) => ({ href, label, group, mainFor: main ? main.split(",") : [] }));
 const MENU_HREFS = new Set(SIDEBAR_MENU.map(m => m.href));
 
 export function ensurePageUsageSchema(db: DatabaseSync): void {
@@ -141,7 +152,7 @@ export function pageUsageReport(db: DatabaseSync, range: PageUsageRange, now = n
     entrySources: sources,
     pages: pagesOut(pages),
     menu: SIDEBAR_MENU.map(m => ({ href: m.href, label: m.label, group: m.group, clicks: menu.get(m.href)?.clicks ?? 0, users: menu.get(m.href)?.users.size ?? 0 })).filter(m => m.clicks > 0).sort((x, y) => y.clicks - x.clicks),
-    neverClickedMenu: SIDEBAR_MENU.filter(m => !menu.has(m.href)).map(m => ({ href: m.href, label: m.label, group: m.group })),
+    neverClickedMenu: SIDEBAR_MENU.filter(m => !menu.has(m.href)).map(m => ({ href: m.href, label: m.label, group: m.group, mainFor: m.mainFor })),
     byExpert: [...byUser.values()].sort((x, y) => y.dwellMs - x.dwellMs).map(w => ({ userId: w.userId, name: w.name, salespersonId: w.salespersonId, role: w.role,
       visits: w.visits, dwellMs: w.dwellMs, menuClicks: w.menuClicks, pages: pagesOut(w.pages, 10).map(({ users, ...p }) => p), menu: menuOut(w.menu) })),
     byRole: [...byRole.values()].sort((x, y) => y.dwellMs - x.dwellMs).map(r => ({ role: r.role, users: r.users.size, visits: r.visits, dwellMs: r.dwellMs, menuClicks: r.menuClicks,

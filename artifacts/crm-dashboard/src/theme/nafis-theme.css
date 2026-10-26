@@ -385,3 +385,13 @@ button.nf-stepper-btn:focus-visible .nf-stepper-dot { box-shadow: var(--nf-ring)
   .app-sidebar .side-foot span.is-ok { color: #8FE0B5; }
   .app-sidebar .side-nav-group + .side-nav-group { border-top-color: rgba(255, 255, 255, .12); }
 }
+
+/* Role sidebar (display only): main items, then the collapsed «بیشتر» drawer at the bottom — desktop, rail and phone drawer. */
+.side-more { border-top: 1px solid var(--nf-line-soft); padding-top: 6px; margin-top: 6px; }
+.side-more-items { display: grid; gap: 2px; margin-top: 2px; }
+.side-more-group + .side-more-group .side-more-label { padding-top: 8px; }
+.side-more-label { padding: 6px 12px 2px; }
+button.side-link.side-assistant-link { width: 100%; border: 0; background: transparent; font: inherit; cursor: pointer; display: flex; align-items: center; text-align: start; }
+@media (min-width: 641px) { .app-sidebar .side-more { border-top-color: rgba(255, 255, 255, .12); } }
+@media (max-width: 980px) and (min-width: 641px) { .side-more-label { display: none; } }
+.mobile-nav-drawer .side-more-label { display: block; }
