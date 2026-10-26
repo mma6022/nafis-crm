@@ -29,6 +29,22 @@ const permission = (p: string): RequestHandler => (_req, res, next) => {
   if (!permitted(actor(res), p)) { res.status(403).json({ error: "forbidden" }); return; }
   res.setHeader("Cache-Control", "no-store"); next();
 };
+/**
+ * G5 / scene 726 (v1.3 N7): an order with a live «قبلاً پرداخت شده» record dated on/before the base date (pre_start) is
+ * inside the opening 2101 balance: it gets a neutral «در ماندهٔ افتتاحیه» badge, has no voucher and no «لغو پرداخت‌شده».
+ * Read-only; returns an empty map when the ledger schema is absent.
+ */
+export function preOpeningOrders(orderIds: number[]): Map<number, { paidDate: string; trackingNo: string; receiptFilename: string }> {
+  const out = new Map<number, { paidDate: string; trackingNo: string; receiptFilename: string }>();
+  if (!orderIds.length) return out;
+  try {
+    for (const r of queryRows<any>(`SELECT p.payment_order_id oid, p.paid_date, p.tracking_no, p.receipt_filename FROM payment_order_prior_payments p
+      WHERE p.pre_start=1 AND p.payment_order_id IN (${orderIds.map(() => "?").join(",")})
+        AND NOT EXISTS (SELECT 1 FROM payment_order_prior_payment_voids v WHERE v.prior_payment_id=p.id) ORDER BY p.id`, orderIds))
+      out.set(r.oid, { paidDate: r.paid_date, trackingNo: r.tracking_no, receiptFilename: r.receipt_filename });
+  } catch { /* ledger schema not present: no marker */ }
+  return out;
+}
 const fail = (res: any, status: number, error: string) => res.status(status).json({ error });
 /** G4: a general-ledger failure gets its own code + clear Persian message (it used to hide behind payment_recording_conflict). */
 const GL_FAILED_FA = "ثبت سند دفتر کل ناموفق بود و پرداخت ثبت نشد. چیزی تغییر نکرد؛ به مدیر سیستم اطلاع دهید.";
@@ -151,7 +167,8 @@ router.get("/payment-orders", permission("payment_orders.view"), (req, res) => {
     LEFT JOIN customers current_customer ON current_customer.id=COALESCE(c.merged_into_customer_id,c.id) AND current_customer.merged_into_customer_id IS NULL
     LEFT JOIN salespersons current_salesperson ON current_salesperson.id=current_customer.salesperson_id
     ${where} ORDER BY ${rank.sql}o.id DESC LIMIT ? OFFSET ?`, [...args, ...rank.params, limit, (page - 1) * limit]);
-  return res.json({ items: rows.map(r => paymentOrderView(r)), page, limit, total: queryRow<any>(`SELECT COUNT(*) total FROM customer_payment_orders o JOIN customers c ON c.id=o.customer_id${where}`, args)?.total ?? 0 });
+  const pre = preOpeningOrders(rows.map((r) => Number(r.id)));
+  return res.json({ items: rows.map(r => ({ ...paymentOrderView(r), preOpening: pre.has(Number(r.id)) })), page, limit, total: queryRow<any>(`SELECT COUNT(*) total FROM customer_payment_orders o JOIN customers c ON c.id=o.customer_id${where}`, args)?.total ?? 0 });
 });
 router.post("/payment-orders", permission("payment_orders.create"), (req, res) => {
   const u = actor(res), purchaseId = id(req.body?.purchaseId);
@@ -170,10 +187,11 @@ router.post("/payment-orders", permission("payment_orders.create"), (req, res) =
   return res.json(paymentOrderView(paymentOrder(orderId, u), true));
 });
 /** Detail view + the commission block filtered for this viewer on the server (admin: all, salesperson: own rows, others: status only). */
-const detailView = (order: any, u: AuthUser) => ({
+const detailView = (order: any, u: AuthUser, pre = preOpeningOrders([Number(order.id)]).get(Number(order.id)) ?? null) => ({
   ...paymentOrderView(order, true),
   commission: orderCommissionView(order.purchase_id, { id: u.id, role: u.role, salespersonId: u.salespersonId }),
-  canUnpay: u.role === "admin" && order.stage === "paid",
+  preOpening: pre,
+  canUnpay: u.role === "admin" && order.stage === "paid" && !pre,
   paidReversals: paidReversalCount(order.id),
 });
 router.get("/payment-orders/:id", permission("payment_orders.view"), (req, res) => {
@@ -219,6 +237,7 @@ const receiveReceipt: RequestHandler = (req, res, next) => upload.single("receip
 router.post("/payment-orders/:id/pay", permission("payment_orders.pay"), receiveReceipt, (req, res) => {
   const u = actor(res), order = paymentOrder(id(req.params.id), u);
   if (!order) return fail(res, 404, "payment_order_not_found");
+  if (preOpeningOrders([Number(order.id)]).size) return fail(res, 409, "pre_opening_pay_forbidden");
   const sourceId = id(req.body?.sourceBankAccountId), tracking = text(req.body?.trackingNumber, 100);
   const dateInput = String(req.body?.paidAt ?? ""), date = new Date(dateInput);
   const file = req.file;
@@ -275,6 +294,7 @@ router.post("/payment-orders/:id/unpay", permission("payment_orders.view"), (req
   const reason = text(req.body?.reason, 500);
   if (reason.length < 5) return fail(res, 400, "unpay_reason_required");
   if (order.stage !== "paid") return fail(res, 409, "wrong_payment_stage");
+  if (preOpeningOrders([Number(order.id)]).size) return fail(res, 409, "pre_opening_unpay_forbidden");
   try {
     runTransaction(() => {
       const revision = paidReversalCount(order.id) + 1;

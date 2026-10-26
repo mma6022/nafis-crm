@@ -11,6 +11,7 @@ import { notifySiteLeadWindow } from "./lib/customer-notifications";
 import { crmDb } from "./lib/crm-db";
 import { ensureLedgerSchema } from "./lib/ledger";
 import { ensureGlShadowSchema, startGlShadowWorker } from "./lib/gl-shadow";
+import { ensureGlReportsSchema, startGlNightlyCompare } from "./lib/gl-reports";
 
 const rawPort = process.env["PORT"];
 
@@ -39,6 +40,12 @@ try {
 } catch (err) {
   logger.error({ err }, "general ledger shadow schema not ensured");
 }
+// G5: nightly compare run log (additive; reports are read-only and behind gl.reports / gl.nightly_compare, both OFF).
+try {
+  ensureGlReportsSchema(crmDb);
+} catch (err) {
+  logger.error({ err }, "general ledger reports schema not ensured");
+}
 
 app.listen(port, (err) => {
   if (err) {
@@ -55,4 +62,5 @@ app.listen(port, (err) => {
   startSiteLeadWorker({ info: (m) => logger.info(m), error: (m) => logger.error(m) }, notifySiteLeadWindow);
   startTeamBonusScheduler(); // inert unless the team model AND the monthly team bonus are enabled
   startGlShadowWorker(crmDb, logger); // inert unless gl.shadow_nonbank is ON
+  startGlNightlyCompare(crmDb, logger); // inert unless gl.nightly_compare is ON; report only
 });

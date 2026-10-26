@@ -35,6 +35,7 @@ import GoodsPurchaseDetail from '@/pages/GoodsPurchaseDetail';
 import PaymentOrders from '@/pages/PaymentOrders';
 import BankAccounts from '@/pages/BankAccounts';
 import Accounting from '@/pages/Accounting';
+import LedgerReports from '@/features/gl/LedgerReports';
 import SalesCommissions from '@/pages/SalesCommissions';
 import StaffWallet from '@/features/staff-wallet/StaffWallet';
 import ManualVerifications from '@/pages/ManualVerifications';
@@ -242,6 +243,7 @@ function AppWithRoutes() {
                     <Route path="/payment-orders"><PermissionRoute permission="payment_orders.view"><PaymentOrders /></PermissionRoute></Route>
                     <Route path="/payment-orders/:id"><PermissionRoute permission="payment_orders.view"><PaymentOrders /></PermissionRoute></Route>
                     <Route path="/bank-accounts"><PermissionRoute permission={['bank_accounts.view', 'bank_accounts.manage']}><BankAccounts /></PermissionRoute></Route>
+                    <Route path="/accounting/ledger"><PermissionRoute permission="accounting.view"><LedgerReports /></PermissionRoute></Route>
                     <Route path="/accounting"><PermissionRoute permission="accounting.view"><Accounting /></PermissionRoute></Route>
                     <Route path="/sales-reports"><SalesReports /></Route>
                     <Route path="/sales-commissions"><PermissionRoute permission="goods_finance.view"><SalesCommissions /></PermissionRoute></Route>

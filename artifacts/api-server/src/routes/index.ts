@@ -18,6 +18,7 @@ import goodsDocumentsRouter from "./goods-documents";
 import contractUpdatesRouter from "./contract-updates";
 import paymentOrdersRouter from "./payment-orders";
 import accountingRouter from "./accounting";
+import glReportsRouter from "./gl-reports";
 import instagramRouter from "./instagram";
 import voipAfterCallRouter from "./voip-after-call";
 import recordingTranscriptsRouter from "./recording-transcripts";
@@ -90,6 +91,7 @@ router.use(goodsDocumentsRouter);
 router.use(contractUpdatesRouter);
 router.use(paymentOrdersRouter);
 router.use(accountingRouter);
+router.use(glReportsRouter);
 router.use(instagramRouter);
 router.use(createSiteNotificationRouter());
 

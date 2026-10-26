@@ -25,7 +25,7 @@ const all = (db, sql, ...p) => db.prepare(sql).all(...p);
   ok(one(db, "pragma integrity_check").integrity_check === "ok", "integrity");
   ok(all(db, "pragma foreign_key_check").length === 0, "fk check");
   // flags all OFF
-  const f = L.readGlFlags(db); ok(Object.keys(f).length === 3 && Object.values(f).every(v => v === false), "all gl flags OFF");
+  const f = L.readGlFlags(db); ok(Object.keys(f).length === 5 /* G5: + gl.reports, gl.nightly_compare */ && Object.values(f).every(v => v === false), "all gl flags OFF");
   ok(all(db, "select value from gl_settings").every(r => r.value === "0"), "gl_settings rows all 0");
   // coding
   ok(one(db, "select count(*) n from gl_accounts where level='kol'").n === 12, "12 kol");

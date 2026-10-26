@@ -25,6 +25,8 @@ export const GL_FLAG_DEFAULTS: Readonly<Record<string, "0">> = Object.freeze({
   "gl.shadow_nonbank": "0", // G3: shadow posting of non-bank events
   "gl.shadow_bank": "0", // G4: shadow posting of bank payments via the queue (never blocks /pay)
   "gl.bank_blocking": "0", // after a clean one-month parallel run only
+  "gl.reports": "0", // G5: read-only ledger reports page (/accounting/ledger)
+  "gl.nightly_compare": "0", // G5: nightly system-vs-ledger compare (report only, never fixes)
 });
 
 type Acc = [code: string, title: string, category: string, nature: "debit" | "credit" | "both", tafsili: string, active: 0 | 1, note?: string];

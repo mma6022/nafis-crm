@@ -1,0 +1,33 @@
+/* G5 general-ledger reports (read-only). Mobile: tables become label/value cards. */
+.gl-page .gl-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-bottom: 12px; }
+.gl-page .gl-toolbar .field { min-width: 150px; }
+.gl-seg { display: inline-flex; background: #eef2f6; border-radius: 10px; padding: 3px; gap: 2px; }
+.gl-seg button { border: 0; background: transparent; padding: 6px 12px; border-radius: 8px; font: inherit; font-size: 13px; color: #475569; cursor: pointer; }
+.gl-seg button.active { background: #fff; color: #0f172a; font-weight: 700; box-shadow: 0 1px 2px rgba(15,23,42,.08); }
+.gl-table td.num, .gl-table th.num { text-align: left; direction: ltr; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gl-table tr.gl-kol td { background: #f6f8fb; font-weight: 700; }
+.gl-table tr.gl-total td { border-top: 2px solid #cbd5e1; font-weight: 800; }
+.gl-code { display: inline-block; min-width: 38px; padding: 1px 6px; margin-inline-end: 6px; border-radius: 6px; background: #eef2f6; color: #475569; font-size: 11px; text-align: center; direction: ltr; }
+.gl-dc { display: block; font-size: 11px; color: #64748b; }
+.gl-status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.gl-flags { display: flex; flex-wrap: wrap; gap: 6px; }
+.gl-voucher { border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
+.gl-voucher-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.gl-rec-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.gl-note { font-size: 12px; color: #64748b; line-height: 1.8; margin: 6px 0 0; }
+.gl-pre-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; white-space: nowrap; }
+.gp-hero2-amount span.gl-pre-badge { color: #334155; background: #f1f5f9; border-color: #e2e8f0; opacity: 1; font-size: 12px; font-weight: 700; margin-top: 6px; }
+.gl-sum { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; margin: 6px 0 10px; }
+.gl-sum b { font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) {
+  .gl-table thead { display: none; }
+  .gl-table, .gl-table tbody, .gl-table tr, .gl-table td { display: block; width: 100%; }
+  .data-table.gl-table { min-width: 0; }
+  .gl-table td, .gl-table td.num { direction: rtl; white-space: normal; }
+  .gl-table td.num { font-variant-numeric: tabular-nums; }
+  .gl-table tr { border: 1px solid #e2e8f0; border-radius: 12px; padding: 8px 10px; margin-bottom: 8px; background: #fff; }
+  .gl-table td { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; border: 0; text-align: right; }
+  .gl-table td[data-label]::before { content: attr(data-label); color: #64748b; font-size: 12px; font-weight: 400; }
+  .gl-table td.gl-name { font-weight: 700; }
+  .gl-page .gl-toolbar .field { min-width: 0; flex: 1 1 140px; }
+}

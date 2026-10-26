@@ -14,9 +14,10 @@ import { KIND_LABELS } from '@/features/team-commission/api';
 import { parseJalaliValue, jalaliToIso } from '@/lib/jalali';
 import { usePaymentOrderCount, usePaymentOrderList, type PoListParams } from '@/lib/payment-order-queries';
 import { CustomerIdBadge, CustomerName, customerNameText } from '@/components/customer/CustomerName';
+import '@/features/gl/ledger.css';
 import {
   api, ApiError, digitsOnly, errText, faPercent, listOf, monthLabel, openAuthedFile, percentOf, poEventLabel, poStageLabel, PO_STAGES, shortFaDate,
-  tehranJalaliValue, tehranTimeNow, toBig, toman, useMe, type BankAccount, type OrderCommission, type PaymentOrder,
+  tehranJalaliValue, tehranTimeNow, toBig, toman, useMe, type BankAccount, type OrderCommission, type PaymentOrder, type PreOpening,
 } from '@/lib/goods-api';
 
 const absBig = (v?: string | null) => { const b = toBig(v); return b < 0n ? -b : b; };
@@ -82,7 +83,7 @@ function OrderList() {
           <td className="mono">#{o.id.toLocaleString('fa-IR')}</td>
           <td><span className="primary-cell"><CustomerName id={o.customerId} name={o.customerName ?? '—'} badgeTestId={`badge-order-customer-id-${o.id}`} /></span><span className="secondary-cell gp-sub">خرید #{o.purchaseId.toLocaleString('fa-IR')} · {o.customerSalespersonName || 'بدون کارشناس'}</span></td>
           <td className="gp-money">{toman(o.amountToman)}</td>
-          <td><StageChip stage={o.stage} /></td>
+          <td><StageChip stage={o.stage} />{o.preOpening ? <> <PreOpeningBadge id={o.id} /></> : null}</td>
           <td className="secondary-cell">{shortFaDate(o.updatedAt ?? o.createdAt)}</td>
           <td><div className="gp-row-actions">
             {needsMark(o) && canPay ? <button type="button" className="btn gp-btn-green sm" onClick={() => setPaying(o)} data-testid={`button-mark-paid-${o.id}`}><Check size={15} />علامت پرداخت‌شده</button> : null}
@@ -92,7 +93,7 @@ function OrderList() {
       </table></div>
       <div className="gp-cards-list gp-mobile-only">{rows.map((o) => <div key={o.id} className={`gp-mcard ${needsMark(o) ? 'mark' : ''}`} data-testid={`card-payment-order-${o.id}`}>
         <div className="gp-mcard-top"><Link href={`/payment-orders/${o.id}`}><strong>{o.customerName ?? '—'}</strong></Link> <CustomerIdBadge id={o.customerId} /><span className="mono">#{o.id.toLocaleString('fa-IR')}</span></div>
-        <div className="gp-mcard-mid"><span className="gp-money">{toman(o.amountToman)}</span><StageChip stage={o.stage} /></div>
+        <div className="gp-mcard-mid"><span className="gp-money">{toman(o.amountToman)}</span><StageChip stage={o.stage} />{o.preOpening ? <PreOpeningBadge id={o.id} /> : null}</div>
         <span className="secondary-cell">خرید #{o.purchaseId.toLocaleString('fa-IR')} · {shortFaDate(o.updatedAt ?? o.createdAt)}</span>
         <div className="gp-mcard-actions">
           {needsMark(o) && canPay ? <button type="button" className="btn gp-btn-green" onClick={() => setPaying(o)} data-testid={`button-mark-paid-m-${o.id}`}><Check size={15} />علامت پرداخت‌شده</button> : null}
@@ -161,6 +162,7 @@ function OrderDetail({ id }: { id: number }) {
   const o = q.data;
   const idx = Math.max(0, PO_STAGES.findIndex((s) => s.key === o.stage));
   const dest = o.destinationIban ? `${o.destinationOwnerName ?? ''} ${o.destinationIban}`.trim() : '—';
+  const pre = o.preOpening && typeof o.preOpening === 'object' ? o.preOpening : null;
   return <section className="data-page gp-page">
     <Link href="/payment-orders" className="text-link gp-back"><ArrowRight size={14} />بازگشت به دستورهای پرداخت</Link>
     <div className="gp-hero2" data-testid="po-hero">
@@ -169,23 +171,24 @@ function OrderDetail({ id }: { id: number }) {
         <h2><CustomerName id={o.customerId} name={o.customerName ?? 'مشتری'} /></h2>
         <p>کارشناس فروش: {o.customerSalespersonName || 'بدون تخصیص'}{o.planName ? ` · ${o.planName}` : ''}</p>
       </div>
-      <div className="gp-hero2-amount"><span>مبلغ واریزی به مشتری</span><strong>{toBig(o.amountToman).toLocaleString('fa-IR')} <small>تومان</small></strong><em className={`gp-chip ${o.stage === 'paid' ? 'green' : 'light'}`}><i />{poStageLabel(o.stage)}</em></div>
+      <div className="gp-hero2-amount"><span>مبلغ واریزی به مشتری</span><strong>{toBig(o.amountToman).toLocaleString('fa-IR')} <small>تومان</small></strong><em className={`gp-chip ${o.stage === 'paid' ? 'green' : 'light'}`}><i />{poStageLabel(o.stage)}</em>{pre ? <PreOpeningBadge id={o.id} /> : null}</div>
     </div>
     <Stepper steps={PO_STAGES.map((s) => s.step)} current={idx} done={o.stage === 'paid'} testId="po-stepper" />
     <div className="gp-detail2">
       <div className="gp-main-col">
-        {o.stage === 'sales_approval' ? (can('payment_orders.sales_approve')
+        {pre ? <PreOpeningCard order={o} pre={pre} /> : null}
+        {!pre && o.stage === 'sales_approval' ? (can('payment_orders.sales_approve')
           ? <ActionCard icon={<CreditCard size={18} />} title="تأیید فروش و حساب مقصد" text="حساب تأییدشدهٔ مشتری را انتخاب کن تا دستور به تأیید مدیر برود." button={<button className="btn btn-primary gp-big" onClick={() => setDialog('sales')} data-testid="button-start-sales-approve">شروع تأیید فروش</button>} />
           : <Waiting text="منتظر تأیید کارشناس فروش" />) : null}
-        {o.stage === 'admin_approval' ? (canAdmin(can)
+        {!pre && o.stage === 'admin_approval' ? (canAdmin(can)
           ? <ActionCard icon={<ShieldCheck size={18} />} title="تأیید مدیریت" text={<>حساب مقصد: <span dir="ltr" className="mono">{dest}</span></>} button={<button className="btn btn-primary gp-big" onClick={() => setDialog('admin')} data-testid="button-admin-approve">تأیید پرداخت</button>} />
           : <Waiting text="منتظر تأیید مدیر" />) : null}
-        {o.stage === 'awaiting_payment' ? (can('payment_orders.pay')
+        {!pre && o.stage === 'awaiting_payment' ? (can('payment_orders.pay')
           ? <ActionCard tone="green" icon={<BadgeCheck size={18} />} title="پول به حساب مشتری واریز شد؟" text={<>واریز {toman(o.amountToman)} به <span dir="ltr" className="mono">{dest}</span></>}
             button={<button className="btn gp-btn-green gp-big" onClick={() => setDialog('pay')} data-testid="button-open-pay"><Check size={18} />علامت پرداخت‌شده</button>}
             foot={<><Database size={14} /> با این علامت، پورسانت این پرونده ثبت می‌شود.</>} />
           : <Waiting text="منتظر علامت «پرداخت‌شده» از حسابداری" />) : null}
-        {o.stage === 'paid' ? <PaidCard order={o} dest={dest} onUnpay={o.canUnpay ? () => setDialog('unpay') : undefined} /> : null}
+        {!pre && o.stage === 'paid' ? <PaidCard order={o} dest={dest} onUnpay={o.canUnpay ? () => setDialog('unpay') : undefined} /> : null}
         {o.commission ? <CommissionCard order={o} c={o.commission} isAdmin={isAdmin} onReturn={() => setDialog('return')} onRetried={(t) => done(t)} /> : null}
         <AmountCard order={o} />
         <div className="panel gp-card"><h3><Landmark size={16} /> حساب مقصد</h3>{o.destinationIban ? <div className="gp-kv"><span>صاحب حساب</span><b>{o.destinationOwnerName ?? '—'}</b><span>شبا</span><b dir="ltr" className="mono">{o.destinationIban}</b></div> : <p className="secondary-cell">هنوز در تأیید فروش انتخاب نشده.</p>}</div>
@@ -199,6 +202,29 @@ function OrderDetail({ id }: { id: number }) {
     {dialog === 'return' && o.commission ? <ReturnCaseDialog order={o} c={o.commission} onClose={() => setDialog('')} onDone={() => done('برگشت پرونده ثبت شد؛ کسر در ماه بعد اعمال می‌شود.')} /> : null}
     {toast ? <Toast text={toast} onDone={() => setToast('')} /> : null}
   </section>;
+}
+
+/** G5 (scene 726 po_pre_dr): paid before the GL start; part of the 2101 opening balance, so it has no GL voucher and no unpay. */
+function PreOpeningBadge({ id }: { id: number }) {
+  return <span className="gl-pre-badge" data-testid={`badge-pre-opening-${id}`}><Lock size={12} />در ماندهٔ افتتاحیه</span>;
+}
+function PreOpeningCard({ order: o, pre }: { order: PaymentOrder; pre: PreOpening }) {
+  const [err, setErr] = useState('');
+  return <div className="panel gp-card" data-testid="po-pre-opening-card">
+    <h3><Lock size={16} /> پرداخت‌شده پیش از شروع دفتر کل</h3>
+    <div className="gp-kv">
+      <span>مشتری</span><b>{o.customerName ?? '—'}</b>
+      <span>مبلغ</span><b>{toman(o.amountToman)}</b>
+      <span>ثبت دستور</span><b>{shortFaDate(o.createdAt)}</b>
+      <span>واریز (تهران)</span><b>{shortFaDate(pre.paidDate)}</b>
+      <span>کد پیگیری</span><b dir="ltr" className="mono">{pre.trackingNo || '—'}</b>
+      <span>رسید</span><b>{pre.receiptFilename ? <button type="button" className="text-link" onClick={() => openAuthedFile(`/payment-orders/${o.id}/receipt`).catch((e) => setErr(errText(e)))} data-testid="button-pre-opening-receipt">{pre.receiptFilename}</button> : '—'}</b>
+      <span>سند دفتر کل</span><b>ندارد</b>
+    </div>
+    {err ? <div className="gp-alert">{err}</div> : null}
+    <div className="gp-alert warn">این دستور تا پایان تاریخ مبنای موجودی اولیه پرداخت شده و در ماندهٔ افتتاحیهٔ ۲۱۰۱ لحاظ شده است؛ برای همین سند پرداخت جدا ندارد.</div>
+    <p className="secondary-cell">«لغو پرداخت‌شده» برای این دستور نیست؛ اصلاح فقط از راه بازبینی موجودی اولیه.</p>
+  </div>;
 }
 
 function ActionCard({ icon, title, text, button, foot, tone }: { icon: ReactNode; title: string; text: ReactNode; button: ReactNode; foot?: ReactNode; tone?: 'green' }) {

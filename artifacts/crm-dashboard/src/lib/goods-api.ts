@@ -26,6 +26,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 const ERRORS: Record<string, string> = {
+  gl_posting_failed: 'ثبت سند دفتر کل ناموفق بود؛ هیچ تغییری ذخیره نشد. دوباره تلاش کنید یا به مدیر سیستم خبر دهید.',
+  pre_opening_pay_forbidden: 'این دستور پیش از شروع دفتر کل پرداخت شده و در ماندهٔ افتتاحیه لحاظ شده؛ علامت پرداخت دوباره ندارد.',
+  pre_opening_unpay_forbidden: 'این دستور پیش از شروع دفتر کل پرداخت شده و در ماندهٔ افتتاحیه لحاظ شده؛ «لغو پرداخت‌شده» برای آن نیست. اصلاح فقط از راه بازبینی موجودی اولیه.',
+  gl_reports_off: 'دفتر کل هنوز فعال نیست.',
+  gl_report_failed: 'ساخت گزارش دفتر کل با خطا روبه‌رو شد.',
+  gl_bad_range: 'بازهٔ تاریخ درست نیست («از» نباید بعد از «تا» باشد).',
+  gl_unknown_account: 'این حساب در سرفصل‌ها نیست.',
   invalid_fee_discount: 'تخفیف کارمزد باید مبلغ صحیح به تومان باشد.',
   invalid_customer_payout: 'مبلغ نهایی واریزی مشتری باید بیشتر از صفر و در محدودهٔ مجاز باشد.',
   settlement_discount_locked: 'تخفیف کارمزد پس از ثبت تسویه قابل تغییر نیست.',
@@ -154,7 +161,10 @@ export type PaymentOrder = {
   basePayoutAmountToman?: string | null; feeDiscountToman?: string | null;
   principalAmountToman?: string | null; planPayoutBps?: number | null; planName?: string | null;
   commission?: OrderCommission; canUnpay?: boolean; paidReversals?: number;
+  /** G5: paid before the GL start and included in the 2101 opening balance (list: boolean; detail: the prior-payment record). */
+  preOpening?: boolean | PreOpening | null;
 };
+export type PreOpening = { paidDate: string; trackingNo: string | null; receiptFilename: string | null };
 export type PlanFinanceSettings = { customerPayoutPercent: number | string | null; developmentDiscountPercent: number | string | null; acknowledgementTemplateId: number | null };
 export type SalespersonSettings = { target1Toman: string; target2Toman: string; target3Toman: string; rate0Percent: number | string; rate1Percent: number | string; rate2Percent: number | string; rate3Percent: number | string };
 export type CommissionTx = { id?: number; purchaseId?: number | null; amountToman: string; kind?: string; createdAt: string; month?: string | null; customerName?: string | null; customerId?: number | null; meta?: Record<string, unknown> | null; settingsVersionId?: number | null };

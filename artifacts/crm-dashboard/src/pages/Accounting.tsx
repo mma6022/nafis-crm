@@ -1,7 +1,9 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { useTableState } from '@/hooks/use-table-state';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FileText, Landmark, Paperclip, Plus } from 'lucide-react';
+import { BookOpen, FileText, Landmark, Paperclip, Plus } from 'lucide-react';
+import { Link } from 'wouter';
+import { glApi } from '@/lib/gl-api';
 import { EmptyState, Modal, Pagination } from '@/components/DataTools';
 import { ErrorState, SkeletonPanel, formatDateTime } from '@/components/CrmShell';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
@@ -57,9 +59,12 @@ export default function Accounting() {
   const items = funds.data?.items ?? [];
   const canManage = can('accounting.manage');
   const canOpen = can('accounting.opening');
+  // G5: the ledger link shows only when gl.reports is ON (the status endpoint answers {enabled:false} otherwise).
+  const gl = useQuery({ queryKey: ['gl', 'status'], queryFn: () => glApi.status(), staleTime: 60_000, retry: false });
   return <section className="data-page">
     <div className="page-intro"><div><div className="eyebrow">خزانه</div><h2>حسابداری</h2><p>صندوق‌ها، موجودی و اسناد حسابداری ثبت‌شده. اسناد پس از ثبت تغییرناپذیرند.</p></div>
-      {canManage ? <button className="btn btn-primary" onClick={() => setCreating(true)} data-testid="button-new-document"><Plus size={16} />سند دستی</button> : null}</div>
+      <div className="gp-btn-row">{gl.data?.enabled ? <Link className="btn btn-ghost" href="/accounting/ledger" data-testid="link-gl-reports"><BookOpen size={16} />دفتر کل</Link> : null}
+      {canManage ? <button className="btn btn-primary" onClick={() => setCreating(true)} data-testid="button-new-document"><Plus size={16} />سند دستی</button> : null}</div></div>
     {funds.isLoading ? <SkeletonPanel rows={3} /> : funds.isError ? <div className="panel"><div className="gp-alert">{errText(funds.error)}</div><ErrorState onRetry={() => funds.refetch()} /></div> : !items.length ? <div className="panel"><EmptyState title="صندوقی وجود ندارد" description="ابتدا حساب بانکی شرکت را ثبت کنید." /></div> :
       <div className="gp-bank-grid">{items.map((f) => <div key={f.id} className="gp-bank-card" data-testid={`card-fund-${f.id}`}>
         <div className="gp-card-top"><Landmark size={18} /><span className={`inline-badge ${f.initialized ? 'gold' : ''}`}>{f.initialized ? 'فعال' : 'بدون موجودی اولیه'}</span></div>
