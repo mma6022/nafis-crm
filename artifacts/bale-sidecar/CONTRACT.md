@@ -5,7 +5,7 @@
 * Secrets (code, 2FA password, session token) travel only in JSON bodies. Neither side logs bodies. Max body 16 KB.
 * Errors: `{"error": <code>}` with codes `phone_invalid | rate_limited | number_banned | wrong_code | code_expired |
   sign_up_needed | wrong_password | flow_expired | unauthorized | unknown` and (1b) `not_attached | peer_not_found |
-  session_invalid | account_banned | bad_request`.
+  session_invalid | account_banned | peer_blocked (UNVERIFIED) | bad_request`.
 
 | Route | Body | 200 response |
 |---|---|---|
@@ -25,7 +25,7 @@ No session is written to disk (`Client(session_file=None)`); the API seals the t
 |---|---|---|---|
 | `POST /v1/session/attach` | `{accountRef, token, deviceHash}` | `{ok:true, baleUserId}` | 401 session_invalid, 403 account_banned, 502 unknown (incl. 25 s connect timeout) |
 | `POST /v1/session/detach` | `{accountRef}` | `{ok:true}` | – |
-| `POST /v1/send` | `{accountRef, phone:"09…", peerId\|null, text (≤4000), typingMs}` | `{messageId, peerId}` | 409 not_attached, 404 peer_not_found, 429 rate_limited, 403 account_banned, 401 session_invalid, 400 bad_request |
+| `POST /v1/send` | `{accountRef, phone:"09…", peerId\|null, text (≤4000), typingMs}` | `{messageId, peerId}` | 409 not_attached, 404 peer_not_found, 429 rate_limited, 403 account_banned, 403 peer_blocked (UNVERIFIED), 401 session_invalid, 400 bad_request |
 
 * Sessions live in memory only. A sidecar restart changes `bootId` and empties `attached`; the API worker sees that in
   `/v1/health` and re-attaches every connected, enabled account (and re-attaches once on a `not_attached` send).
@@ -35,6 +35,11 @@ No session is written to disk (`Client(session_file=None)`); the API seals the t
 * Error mapping is by BaleError message substring (FLOOD/RATE/LIMIT/TOO_MANY → rate_limited; BAN/BLOCK/DEACTIVATED →
   account_banned; AUTH/TOKEN/SESSION/UNAUTHORIZED → session_invalid; PEER/NOT_FOUND → peer_not_found). **Confirm with the
   test SIM before go-live.**
+* **UNVERIFIED — `peer_blocked`** (one customer blocked the expert): USER_BLOCKED / PEER_BLOCKED / BLOCKED_BY_USER /
+  BLOCKED_BY_PEER / YOU_ARE_BLOCKED / USER_IS_BLOCKED, checked before the generic BAN/BLOCK rule. The sidecar keeps the
+  session on `peer_blocked`; the API decides. Default (`bale_settings.peer_block_mode = account_stop`) = exactly the old
+  behaviour: treated as `account_banned`, the whole account stops and the client is detached. Only after the real Bale
+  wording is confirmed with the test SIM may an admin switch to `conversation_pause` (only that customer's chat pauses).
 * Inbound: for every PRIVATE message the sidecar POSTs to `BALE_INBOUND_URL` (loopback HTTP, straight to the API port —
   the API refuses anything carrying proxy headers) with the same `x-bale-internal-token`:
   `{accountRef, events:[{peerId, peerPhone|null, messageId, text|null, hasFile, fromSelf, date(ms)}]}`.

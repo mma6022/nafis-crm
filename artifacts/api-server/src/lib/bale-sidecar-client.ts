@@ -11,7 +11,9 @@ export type BaleSidecarErrorCode =
   | "sidecar_not_configured" | "sidecar_unavailable" | "sidecar_bad_response" | "phone_invalid" | "rate_limited" | "number_banned"
   | "wrong_code" | "code_expired" | "sign_up_needed" | "wrong_password" | "flow_expired" | "unauthorized" | "unknown"
   // 1b (send / session):
-  | "not_attached" | "peer_not_found" | "session_invalid" | "account_banned" | "bad_request";
+  | "not_attached" | "peer_not_found" | "session_invalid" | "account_banned" | "bad_request"
+  // UNVERIFIED (PM decision b): one customer blocked the expert. Default policy still stops the whole account.
+  | "peer_blocked";
 export class BaleSidecarError extends Error { constructor(public code: BaleSidecarErrorCode) { super(code); } }
 
 export type StartAuthIn = { accountRef: string; phone: string; deviceHash: string; deviceTitle: string };
@@ -35,7 +37,7 @@ export interface BaleSidecar {
 }
 
 const KNOWN = new Set<string>(["phone_invalid", "rate_limited", "number_banned", "wrong_code", "code_expired", "sign_up_needed", "wrong_password", "flow_expired", "unauthorized", "unknown",
-  "not_attached", "peer_not_found", "session_invalid", "account_banned", "bad_request"]);
+  "not_attached", "peer_not_found", "session_invalid", "account_banned", "bad_request", "peer_blocked"]);
 /** Only loopback HTTP is accepted: the sidecar must never be reachable from outside the server. */
 export function isLoopbackUrl(u: string): boolean {
   try { const x = new URL(u); return x.protocol === "http:" && ["127.0.0.1", "[::1]", "localhost"].includes(x.hostname); } catch { return false; }
