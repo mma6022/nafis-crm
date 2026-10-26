@@ -1,6 +1,6 @@
 // Task B (2026-10-26): «پیشنهاد دستیار فروش» P1 daily quota. Synthetic in-memory DB only; no real data, no notification.
 // Checks: quota size (default 10) oldest first, stable through the Tehran day, red > 7 days on top, overdue reminders before the quota,
-// site lead / «از کاظمی» tiers untouched, trainees excluded, the «بی‌تماس» rule = manager_p1_no_call_days (3), admin-editable settings,
+// site lead tier untouched, B2: red P1 ahead of «از کاظمی», trainees excluded, the «بی‌تماس» rule = manager_p1_no_call_days (3), admin-editable settings,
 // and nothing but the two new assistant_settings keys is written.
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -71,13 +71,13 @@ try {
     assert.deepEqual(sa.getP1Settings(), { quota: 10, redDays: 7, noCallDays: 3 });
   });
   let first;
-  ok("overdue reminder first, then the 10 oldest stale P1 (red first, oldest first), then the rest", () => {
+  ok("B2: red P1 quota first (oldest first), then the overdue reminder, then the rest", () => {
     const l = order(); first = l;
-    assert.equal(l[0].customerId, 130); assert.equal(l[0].reason.kind, "reminder"); assert.equal(l[0].p1Stale, null);
-    // stale > 3 days as of day start: 121(30d),120(20d),114..104 → 10 oldest = 121,120,114,113,112,111,110,109,108,107
-    assert.deepEqual(ids(l.slice(1, 11)), [121, 120, 114, 113, 112, 111, 110, 109, 108, 107]);
-    assert.ok(l.slice(1, 11).every((x) => x.p1Stale && x.reason.kind === "p1_stale"));
-    assert.deepEqual(l.slice(1, 11).map((x) => x.p1Stale.quotaRank), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    // stale > 3 days as of day start: 121(30d),120(20d),114..104 → 10 oldest = 121,120,114,113,112,111,110,109,108,107 — all > 7 d = red
+    assert.deepEqual(ids(l.slice(0, 10)), [121, 120, 114, 113, 112, 111, 110, 109, 108, 107]);
+    assert.ok(l.slice(0, 10).every((x) => x.p1Stale && x.p1Stale.red && x.reason.kind === "p1_stale"));
+    assert.deepEqual(l.slice(0, 10).map((x) => x.p1Stale.quotaRank), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    assert.equal(l[10].customerId, 130); assert.equal(l[10].reason.kind, "reminder"); assert.equal(l[10].p1Stale, null);
     const rest = ids(l.slice(11)); for (const id of [106, 105, 104, 103, 102, 101]) assert.ok(rest.includes(id));
     assert.ok(l.slice(11).every((x) => x.p1Stale == null));
   });
@@ -87,14 +87,16 @@ try {
     assert.equal(by.get(121).p1Stale.daysSince, 30); assert.equal(by.get(107).p1Stale.daysSince, 7); assert.equal(by.get(107).p1Stale.red, true); // 7 d 1 h > 7 d
     // with red = 12 days: 121,120,114,113,112 red (> 12 d), 111..107 plain; red block first
     sa.saveP1Settings(sa.validateP1Settings({ redDays: 12 }).values, 1);
-    const q = order().filter((x) => x.p1Stale);
+    const l12 = order(); const q = l12.filter((x) => x.p1Stale);
     assert.deepEqual(q.map((x) => x.p1Stale.red), [true, true, true, true, true, false, false, false, false, false]);
     assert.equal(q[5].chips[0].tone, undefined);
+    // red block, then the reminder, then the not-red quota (Task B band order inside tier 1 unchanged)
+    assert.deepEqual(ids(l12.slice(0, 7)), [121, 120, 114, 113, 112, 130, 111]);
     sa.saveP1Settings(sa.validateP1Settings({ redDays: 7 }).values, 1);
   });
-  ok("box of 3: reminder, then the two oldest P1; summary counts", () => {
+  ok("box of 3: the three oldest red P1; summary counts", () => {
     const r = sa.suggestionsFor(3, now, 3);
-    assert.deepEqual(ids(r.items), [130, 121, 120]);
+    assert.deepEqual(ids(r.items), [121, 120, 114]);
     assert.deepEqual(r.p1Quota, { quota: 10, redDays: 7, noCallDays: 3, remaining: 10, red: 10 });
   });
   ok("stable through the day: a customer called today leaves and is NOT replaced", () => {
@@ -111,11 +113,39 @@ try {
     assert.equal(q.length, 10); assert.ok(q.includes(106) || q.includes(105)); assert.ok(!q.includes(121));
     crmDb.prepare("DELETE FROM call_logs WHERE customer_id=121 AND created_at>?").run(iso(0)); // undo the synthetic «called today»
   });
-  ok("site lead tier stays above the reminder and the quota", () => {
+  ok("site lead tier stays above the red P1 and the reminder", () => {
     cust(140, 3, 1); call(140, 2 * DAY);
     sa.leads.TOP.push({ customerId: 140, kind: "site_lead", startedAt: iso(3600_000), dueAt: iso(-3600_000), windowNow: false });
-    const l = order(); assert.equal(l[0].customerId, 140); assert.equal(l[0].tier, 3); assert.equal(l[1].customerId, 130);
+    const l = order(); assert.equal(l[0].customerId, 140); assert.equal(l[0].tier, 3); assert.equal(l[1].customerId, 121);
     sa.leads.TOP.length = 0;
+  });
+  ok("B2: red P1 ahead of «از کاظمی»; not-red quota and the reminder stay below it; tier field unchanged", () => {
+    // #150 sp 3 «از کاظمی» (P1, called 1 d ago → not stale); #151 sp 3 red P1 (25 d) that is ALSO «از کاظمی» → counts as red.
+    cust(150, 3, 1); call(150, DAY);
+    sa.leads.TOP.push({ customerId: 150, kind: "from_kazemi", startedAt: iso(3600_000), dueAt: iso(-3600_000), windowNow: false });
+    let l = order(); const reds = l.filter((x) => x.p1Stale?.red).map((x) => x.customerId);
+    const iK = ids(l).indexOf(150); assert.equal(l[iK].tier, 2);
+    assert.ok(reds.every((id) => ids(l).indexOf(id) < iK), "every red P1 before «از کاظمی»");
+    assert.ok(iK < ids(l).indexOf(130), "«از کاظمی» still before the overdue reminder");
+    // red = 12 d: not-red quota customers come after «از کاظمی» (the old tier order)
+    sa.saveP1Settings(sa.validateP1Settings({ redDays: 12 }).values, 1);
+    l = order(); assert.deepEqual(ids(l.slice(0, 7)), [121, 120, 114, 113, 112, 150, 130]);
+    assert.ok(ids(l).indexOf(111) > ids(l).indexOf(130));
+    sa.saveP1Settings(sa.validateP1Settings({ redDays: 7 }).values, 1);
+    // «از کاظمی» + red P1 on the same customer
+    cust(151, 3, 1, 90 * DAY); call(151, 25 * DAY);
+    sa.leads.TOP.push({ customerId: 151, kind: "from_kazemi", startedAt: iso(3600_000), dueAt: iso(-3600_000), windowNow: false });
+    l = order(); const x151 = l.find((x) => x.customerId === 151);
+    assert.equal(x151.tier, 2); assert.equal(x151.p1Stale?.red, true); assert.ok(ids(l).indexOf(151) < ids(l).indexOf(150));
+    sa.leads.TOP.length = 0; crmDb.prepare("DELETE FROM call_logs WHERE customer_id IN (150,151)").run(); crmDb.prepare("DELETE FROM customers WHERE id IN (150,151)").run();
+  });
+  ok("B2 for every expert: sp 4 red P1 before its «از کاظمی»; trainees still nothing", () => {
+    cust(210, 4, 1); call(210, DAY);
+    sa.leads.TOP.push({ customerId: 210, kind: "from_kazemi", startedAt: iso(3600_000), dueAt: iso(-3600_000), windowNow: false });
+    assert.deepEqual(ids(order(4)), [200, 210]);
+    cust(510, 5, 1); sa.leads.TOP.push({ customerId: 510, kind: "from_kazemi", startedAt: iso(3600_000), dueAt: iso(-3600_000), windowNow: false });
+    assert.deepEqual(order(5), []);
+    sa.leads.TOP.length = 0; crmDb.prepare("DELETE FROM call_logs WHERE customer_id IN (210)").run(); crmDb.prepare("DELETE FROM customers WHERE id IN (210,510)").run();
   });
   ok("each expert only gets their own customers; trainee 5 gets nothing", () => {
     assert.deepEqual(ids(order(4)), [200]); assert.equal(order(4)[0].p1Stale.red, true);
