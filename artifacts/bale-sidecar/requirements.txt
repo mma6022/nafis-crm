@@ -1,0 +1,8 @@
+# Pinned runtime deps for the Bale sidecar (aiobale-py itself is vendored under vendor/aiobale).
+aiohttp==3.12.15
+aiofiles==23.2.1
+colorama==0.4.6
+pydantic==2.11.9
+typing_extensions==4.15.0
+blackboxprotobuf==1.0.1
+magic-filter==1.0.12

@@ -37,6 +37,8 @@ import { TsToast, UpgradeCard, UpgradeDialog, UpgradedCard } from '@/features/te
 import { DataAccuracyCard } from '@/features/team-commission/DataAccuracyCard';
 import { CustomerName, customerNameText } from '@/components/customer/CustomerName';
 import { VoiceNoteButton } from '@/features/voice-notes/VoiceNoteButton';
+import { BaleChatSection } from '@/features/bale/BaleChatSection';
+import { baleChatVisible } from '@/features/bale/api';
 
 const faNum = (n: number) => n.toLocaleString('fa-IR');
 const faId = (n: number) => n.toLocaleString('fa-IR', { useGrouping: false });
@@ -239,6 +241,7 @@ export default function CustomerDetail() {
   const canNewLoan = can('loan_applications.create');
   const walletRole = ['admin', 'salesperson', 'registrar'].includes(role);
   const userId = session.data?.user.id;
+  const baleOn = baleChatVisible(session.data?.user as { id?: number; role?: string; salespersonId?: number | null } | undefined);
   const loansQuery = useListLoanApplications({ customerId: id, limit: 20 }, { query: { queryKey: getListLoanApplicationsQueryKey({ customerId: id, limit: 20 }), enabled: Number.isSafeInteger(id) && canLoansView } });
   const loans: LoanApplication[] = loansQuery.data && 'items' in loansQuery.data ? loansQuery.data.items : [];
   const loansTotal = loansQuery.data && 'total' in loansQuery.data ? loansQuery.data.total : loans.length;
@@ -275,7 +278,7 @@ export default function CustomerDetail() {
   useEffect(() => { setHandoff(null); setSimpleFormOpen(false); setUpgradeOpen(false); }, [id]);
   useEffect(() => {
     if (!customer) return;
-    const ids = ['info', 'loans', 'calls', 'wallet'];
+    const ids = ['info', 'loans', 'calls', 'bale', 'wallet'];
     const nodes = ids.map((key) => document.getElementById(`sec-${key}`)).filter(Boolean) as HTMLElement[];
     if (!nodes.length || typeof IntersectionObserver === 'undefined') return;
     const observer = new IntersectionObserver((entries) => {
@@ -284,7 +287,7 @@ export default function CustomerDetail() {
     }, { rootMargin: '-80px 0px -55% 0px' });
     nodes.forEach((node) => observer.observe(node));
     return () => observer.disconnect();
-  }, [customer?.id, canLoansView, walletRole]);
+  }, [customer?.id, canLoansView, walletRole, baleOn]);
   if (customerQuery.isLoading) return <div className="csx" dir="rtl" aria-busy="true" data-testid="customer-detail-loading">
     <span className="csx-sr" role="status">در حال بارگذاری پرونده مشتری…</span>
     <div className="csx-crumb"><Link href="/customers" data-testid="link-back-customers"><ArrowRight size={16} /> مشتریان</Link></div>
@@ -434,6 +437,7 @@ export default function CustomerDetail() {
     ['info', 'اطلاعات', null],
     ...(canLoansView ? [['loans', 'تسهیلات', loansQuery.data ? loansTotal : null] as [string, string, number | null]] : []),
     ['calls', 'تماس‌ها', activity.length],
+    ...(baleOn ? [['bale', 'بله', null] as [string, string, number | null]] : []),
     ...(walletRole ? [['wallet', 'کیف پول', null] as [string, string, number | null]] : []),
   ];
   const fieldErr = (key: string, testId: string) => profileErrors[key] ? <p className="err" id={`${testId}-err`} role="alert"><AlertCircle size={16} /> {profileErrors[key]}</p> : null;
@@ -695,7 +699,7 @@ export default function CustomerDetail() {
     {readOnlyRole ? <div className="csx-note warn" data-testid="note-readonly-role"><Lock size={18} /><p>فقط مشاهده — ویرایش، تماس و کیف پول برای نقش شما فعال نیست.</p></div> : null}
     <nav className="csx-secnav m-only" aria-label="بخش‌های پرونده">{secs.map(([key, label, n]) => <a key={key} href={`#sec-${key}`} aria-current={activeSec === key ? 'true' : undefined} onClick={(event) => { event.preventDefault(); setActiveSec(key); document.getElementById(`sec-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>{label}{n != null ? <span className="n">{faNum(n)}</span> : null}</a>)}</nav>
     <div className="csx-dgrid">
-      <div className="colA"><ConsultProfileCard customerId={customer.id} onEditFirstCall={canEditFirstCall ? openFcEdit : undefined} />{firstCall ? <FirstCallSummaryCard fc={firstCall} editInfo={fcEditInfo.data} onEdit={canEditFirstCall ? openFcEdit : undefined} /> : null}{infoSec}{loansSec}{callsSec}</div>
+      <div className="colA"><ConsultProfileCard customerId={customer.id} onEditFirstCall={canEditFirstCall ? openFcEdit : undefined} />{firstCall ? <FirstCallSummaryCard fc={firstCall} editInfo={fcEditInfo.data} onEdit={canEditFirstCall ? openFcEdit : undefined} /> : null}{infoSec}{loansSec}{callsSec}{baleOn ? <BaleChatSection customerId={customer.id} /> : null}</div>
       <div className="colB">{tsCard ? <div className="d-only">{tsCard}</div> : null}<div className="d-only"><DataAccuracyCard customerId={id} place="d" onSubmitted={refreshAfterAccuracy} /></div>{statusSec}{creditSec}{walletSec}{adminSec}</div>
     </div>
     {editing ? <div className="csx-formhost"><Sheet title={`ویرایش پرونده ${customer.name}`} onClose={() => { setEditing(false); setProfileErrors({}); }} testId="customer-edit-sheet" initialFocus='[data-testid="input-detail-name"]' footer={<>

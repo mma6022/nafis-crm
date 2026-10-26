@@ -25,6 +25,8 @@ import LoginPage from '@/pages/Login';
 import PhonePage from '@/pages/Phone';
 import Releases from '@/pages/Releases';
 import AssistantsSettings from '@/pages/AssistantsSettings';
+import BaleSettings from '@/pages/BaleSettings';
+import { baleNavVisible } from '@/features/bale/api';
 import WalletTopUp from '@/pages/WalletTopUp';
 import GoodsPurchases from '@/pages/GoodsPurchases';
 import GoodsPurchaseDetail from '@/pages/GoodsPurchaseDetail';
@@ -168,6 +170,16 @@ function SmartFilingRoute({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+function BaleRoute({ children }: { children: ReactNode }) {
+  const { data: session, isLoading } = useGetAuthSession({
+    query: { queryKey: getGetAuthSessionQueryKey(), retry: false },
+  });
+  if (isLoading) return <LoadingSplash />;
+  if (!session?.user) return <Redirect to="/login" />;
+  if (!baleNavVisible(session.user as { id?: number; role?: string; salespersonId?: number | null })) return <Redirect to="/" />;
+  return <>{children}</>;
+}
+
 function PermissionRoute({ permission, children }: { permission: string | string[]; children: ReactNode }) {
   const { data: session, isLoading } = useGetAuthSession({
     query: { queryKey: getGetAuthSessionQueryKey(), retry: false },
@@ -256,6 +268,9 @@ function AppWithRoutes() {
                     <Route path="/sales-assist-settings"><AdminOnlyRoute><SalesAssistSettings /></AdminOnlyRoute></Route>
                     <Route path="/settings/assistants">
                       <AdminOnlyRoute><AssistantsSettings /></AdminOnlyRoute>
+                    </Route>
+                    <Route path="/settings/bale">
+                      <BaleRoute><BaleSettings /></BaleRoute>
                     </Route>
                     <Route path="/settings/releases">
                       <AdminOnlyRoute><Releases /></AdminOnlyRoute>
