@@ -125,7 +125,16 @@ try {
   }
   assert.ok(db.prepare("SELECT COUNT(*) n FROM assistant_audit WHERE outcome='not_in_scope'").get().n >= 9);
   const c100 = await R(iss.somayeh, "GET", "/customers/100"); assert.equal(c100.s, 200);
-  const txt = JSON.stringify(c100.j); assert.ok(!txt.includes("09121234567") && !txt.includes("0012345678")); assert.ok(!/priority|salesperson|amount/i.test(txt));
+  const txt = JSON.stringify(c100.j); assert.ok(!txt.includes("09121234567") && !txt.includes("0012345678")); assert.equal(c100.j.customer.priority, 1); // v7: priority is readable for sales assistants
+  assert.ok(!/fee|commission|contract|wallet|deposit|deduct|prepayment/i.test(Object.keys(JSON.parse(txt)).join() + JSON.stringify(c100.j.applications.map(Object.keys))));
+  // v7: new reads — Sarina 403, out of scope 404, /notes and /timeline exist
+  for (const p of ["history", "notes", "timeline", "consultation"]) {
+    assert.equal((await R(iss.somayeh, "GET", `/customers/100/${p}`)).s, 200, p);
+    assert.equal((await R(iss.somayeh, "GET", `/customers/110/${p}`)).s, 404, p);
+    assert.equal((await R(iss.sarina, "GET", `/customers/150/${p}`)).s, 403, p);
+  }
+  const ctx = await R(iss.somayeh, "GET", "/my-context"); assert.equal(ctx.s, 200); assert.ok("nextCustomer" in ctx.j && "today" in ctx.j);
+  assert.ok(!("nextCustomer" in (await R(iss.sarina, "GET", "/my-context")).j));
   const calls = await R(iss.somayeh, "GET", "/customers/100/calls"); assert.ok(!JSON.stringify(calls.j).includes("09121234567"));
   assert.equal((await R(iss.somayeh, "GET", "/customers/100/reminders")).j.items.length, 1);
   const sar = await R(iss.sarina, "GET", "/customers/150"); assert.equal(sar.s, 200); assert.equal(sar.j.smartFilingJobs.length, 1); assert.ok(!/amount/i.test(JSON.stringify(sar.j)));
@@ -149,38 +158,33 @@ try {
   assert.equal((await R(iss.sarina, "POST", "/messages", { body: "بدون پرونده", userId: 4 })).s, 422); // case required
   assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 4, customerId: 150 })).s, 201); // registrar
   assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 1, customerId: 150 })).s, 201); // admin
-  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 8, customerId: 150 })).s, 201); // the case's own expert
-  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 2, customerId: 150 })).s, 404); // another expert
-  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 6, customerId: 150 })).s, 404); // trainee
+  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 8, customerId: 150 })).s, 403); // v6: the case's sales expert gets no Sarina line
+  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 2, customerId: 150 })).s, 403); // v6: sales expert
+  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 6, customerId: 150 })).s, 403); // v6: trainee (salesperson role)
   assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 29, customerId: 150 })).s, 404); // user 29
-  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 30, customerId: 150 })).s, 404); // other role
+  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 30, customerId: 150 })).s, 403); // v6: other role
   assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 4, customerId: 120 })).s, 404); // not a filing case
   ok("messages + Sarina binding");
   // v3 bell: one addressed row per case-bound line (masked), only for the thread's own user
-  { const b = bellRows(); assert.deepEqual(b.map(r => [r.recipient_user_id, r.customer_id]), [[8, 120], [4, 150], [1, 150], [8, 150]]);
+  { const b = bellRows(); assert.deepEqual(b.map(r => [r.recipient_user_id, r.customer_id]), [[8, 120], [4, 150], [1, 150]]);
     assert.ok(b.every(r => r.kind === "assistant-message" && r.permission === "assistant.recipient" && r.actor_key.startsWith("assistant:")));
     assert.ok(!JSON.stringify(b).includes("09120000004")); assert.equal(b[0].title, "دستیار مسعود · پیشنهاد"); assert.equal(b[0].resource_id, m1.j.message.id);
     assert.ok(!b.some(r => [2, 6, 27, 29, 30].includes(r.recipient_user_id))); }
-  assert.equal((await R(iss.masoud, "POST", "/messages", { body: "جواب چت", customerId: 120 })).s, 201); assert.equal(bellRows().length, 4); // sales chat reply stays in chat
+  assert.equal((await R(iss.masoud, "POST", "/messages", { body: "جواب چت", customerId: 120 })).s, 201); assert.equal(bellRows().length, 3); // sales chat reply stays in chat
   db.prepare("DELETE FROM assistant_messages WHERE body='جواب چت'").run();
   ok("bell rows: addressed, masked, role-scoped");
   // staff side: who sees what
-  const mineK = await S(8, "GET", "/assistant/mine"); assert.deepEqual(mineK.j.assistants.map(a => a.slug).sort(), ["masoud", "sarina"]);
+  const mineK = await S(8, "GET", "/assistant/mine"); assert.deepEqual(mineK.j.assistants.map(a => a.slug).sort(), ["masoud"]);
   assert.equal(mineK.j.assistants.find(a => a.slug === "masoud").online, true);
   for (const u of [6, 27, 29, 30]) assert.equal((await S(u, "GET", "/assistant/mine")).j.assistants.length, 0, `user ${u} sees nothing`);
-  assert.deepEqual((await S(2, "GET", "/assistant/mine")).j.assistants.map(a => a.slug).sort(), ["sarina", "somayeh"]);
+  assert.deepEqual((await S(2, "GET", "/assistant/mine")).j.assistants.map(a => a.slug).sort(), ["somayeh"]); // v6: no Sarina for sales experts
   assert.deepEqual((await S(4, "GET", "/assistant/mine")).j.assistants.map(a => a.slug), ["sarina"]);
   const tK = mineK.j.assistants.find(a => a.slug === "masoud").threadId;
-  const tS = mineK.j.assistants.find(a => a.slug === "sarina").threadId;
-  const tH = (await S(2, "GET", "/assistant/mine")).j.assistants.find(a => a.slug === "sarina").threadId;
+  const tS = (await S(4, "GET", "/assistant/mine")).j.assistants.find(a => a.slug === "sarina").threadId;
   assert.equal((await S(2, "GET", `/assistant/threads/${tK}/messages`)).s, 404); // someone else's thread
   const hist = await S(8, "GET", `/assistant/threads/${tK}/messages`); assert.equal(hist.j.messages.length, 1); assert.equal(hist.j.messages[0].authorLabel, "دستیار مسعود");
-  assert.equal((await S(8, "GET", `/assistant/threads/${tS}/messages`)).j.messages.length, 1);
-  assert.equal((await S(2, "GET", `/assistant/threads/${tH}/messages`)).j.messages.length, 0);
-  // case reassigned away from Kazemi → the Sarina message disappears from his thread
-  db.prepare("UPDATE customers SET salesperson_id=4 WHERE id=150").run();
-  assert.equal((await S(8, "GET", `/assistant/threads/${tS}/messages`)).j.messages.length, 0);
-  db.prepare("UPDATE customers SET salesperson_id=6 WHERE id=150").run();
+  assert.equal((await S(4, "GET", `/assistant/threads/${tS}/messages`)).j.messages.length, 1); // registrar sees the case line
+  assert.equal((await S(8, "GET", `/assistant/threads/${tS}/messages`)).s, 404); // v6: the sales expert never reads a Sarina thread
   ok("staff visibility");
   // user message → runner event (long-poll) → seen; actions
   const after0 = (await R(iss.masoud, "GET", "/events")).j.cursor;
@@ -205,7 +209,7 @@ try {
   // typing
   assert.equal((await R(iss.masoud, "POST", "/typing", { threadId: tK, seconds: 10 })).s, 200);
   assert.equal((await S(8, "GET", `/assistant/threads/${tK}/messages?after=999`)).j.typing, true);
-  assert.equal((await R(iss.masoud, "POST", "/typing", { threadId: tH, seconds: 10 })).s, 404); // not his thread
+  assert.equal((await R(iss.masoud, "POST", "/typing", { threadId: tS, seconds: 10 })).s, 404); // not his thread
   ok("typing");
   // rate limit / digest / high cap / DND
   await S(1, "PUT", `/admin/assistants/${As.mohaddeseh.id}`, { maxMessagesPerHour: 2 });
@@ -279,7 +283,7 @@ try {
   assert.equal((await R(iss.somayeh, "GET", "/me")).s, 401);
   await S(1, "POST", `/admin/assistants/${As.masoud.id}/disable`);
   assert.equal((await R(iss.masoud, "GET", "/me")).s, 423);
-  assert.equal((await S(8, "GET", "/assistant/mine")).j.assistants.map(a => a.slug).join(), "sarina");
+  assert.equal((await S(8, "GET", "/assistant/mine")).j.assistants.map(a => a.slug).join(), ""); // v6: no Sarina for sales experts
   await S(1, "PUT", "/admin/assistants/global", { enabled: false });
   assert.equal((await R(iss.sarina, "GET", "/me")).s, 423);
   assert.equal((await S(4, "GET", "/assistant/mine")).j.assistants.length, 0);

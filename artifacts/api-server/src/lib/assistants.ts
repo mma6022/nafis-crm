@@ -20,10 +20,22 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { ensureSchemaObject } from "./schema-objects";
 import { maskData, maskText, maskPhone } from "./smart-filing";
+import { customerApplicationPayout } from "./customer-application-payout";
 
 export type Db = DatabaseSync;
 export type Actor = { id: number; role: string; salespersonId: number | null; name: string };
-export type Deps = { db: Db; now?: () => Date; actor: (res: Response) => Actor | null };
+/** v7: read-only CRM views injected by routes/assistants.ts so the runner reuses the exact CRM logic (never a copy). */
+export type SalesReads = {
+  /** lib/sales-assist.ts suggestionsFor — the «۳ مشتری پیشنهادی» box (site lead → from Kazemi → score). Pure read. */
+  suggestions?: (salespersonId: number, now: Date) => { items: any[]; pool: number };
+  /** lib/sales-assist.ts todayCounts — the box's «امروز» counters. */
+  today?: (salespersonId: number, now: Date) => { calls: number; notNow: number };
+  /** lib/consult-profile.ts consultProfile — «اطلاعات مشاوره» card (append-only versions). */
+  consultProfile?: (customerId: number) => { latest: any; versions: any[] };
+  /** lib/site-leads.ts siteLeadHistory — site/callback requests with the preferred call time. */
+  siteLeadHistory?: (customerId: number) => any[];
+};
+export type Deps = { db: Db; now?: () => Date; actor: (res: Response) => Actor | null; sales?: SalesReads };
 
 export const TRAINEE_SALESPERSON_IDS = [5, 19, 20];
 export const EXCLUDED_USER_IDS = [29];
@@ -313,14 +325,71 @@ export function createAssistants(deps: Deps) {
 
   const custName = (c: any) => (c.first_name && c.last_name ? `${c.first_name} ${c.last_name}` : c.name);
   const STATUS_FA: Record<string, string> = { in_progress: "در حال پیگیری", cancelled: "انصرافی", completed: "تکمیل‌شده" };
-  function customerCard(c: any) {
+  function customerCard(c: any, a?: any) {
     const last = row<any>("SELECT MAX(created_at) t FROM call_logs WHERE customer_id=?", c.id);
     const rem = hasTable("reminders") ? row<any>("SELECT MIN(remind_at) t FROM reminders WHERE customer_id=? AND done=0", c.id) : null;
     return { id: c.id, name: custName(c), status: c.status, statusLabel: STATUS_FA[c.status] ?? c.status, city: c.city ?? null,
-      mobile: c.phone ? maskPhone(String(c.phone)) : null, createdAt: c.created_at, lastCallAt: last?.t ?? null, nextReminderAt: rem?.t ?? null };
+      mobile: c.phone ? maskPhone(String(c.phone)) : null, createdAt: c.created_at, lastCallAt: last?.t ?? null, nextReminderAt: rem?.t ?? null,
+      ...(a?.kind === "sales" ? { priority: c.priority == null ? null : Number(c.priority), priorityLabel: c.priority == null ? "بدون اولویت" : `اولویت ${c.priority}`, isUrgent: Number(c.is_urgent) === 1 } : {}) };
+  }
+  /* ---------- v7 sales-only reads (allowlisted; never contract/fee/commission/wallet fields) ---------- */
+  const salesOnly = (req: Request, res: Response, next: NextFunction) => {
+    const a = A(res);
+    if (a.kind === "sales") return next();
+    audit({ req, a, tokenId: TK(res), action: `${req.method} ${req.path.replace(/\/\d+(?=\/|$)/g, "/:id")}`.slice(0, 80), outcome: "sales_only" });
+    fail(res, 403, "sales_only", "این بخش فقط برای دستیارهای فروش است.");
+  };
+  const latin = (v: unknown) => String(v ?? "").replace(/[۰-۹]/g, d => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).trim();
+  const amount = (v: unknown): number | null => { const t = latin(v); return /^[1-9]\d{0,15}$/.test(t) ? Number(t) : null; };
+  const json = (v: unknown): any => { if (typeof v !== "string") return v ?? null; try { return JSON.parse(latin(v)); } catch { return null; } };
+  /** Same formulas as the customer-portal calculator (plan-display-values durationPercent + plan-calculator-values monthlyPmt). */
+  function durationPercent(value: unknown, months: number): number | null {
+    let v: any = typeof value === "string" ? (json(value) ?? latin(value)) : value;
+    if (v && typeof v === "object" && !Array.isArray(v)) v = v[String(months)];
+    if ((typeof v !== "string" && typeof v !== "number") || String(v).trim() === "") return null;
+    const n = Number(v); return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null;
+  }
+  function monthlyPmt(principal: number, annualPercent: number, months: number): number | null {
+    if (!Number.isSafeInteger(principal) || principal <= 0 || !Number.isFinite(annualPercent) || annualPercent < 0 || !Number.isInteger(months) || months <= 0 || months > 600) return null;
+    const r = annualPercent / 1200;
+    const p = r === 0 ? principal / months : principal * r / -Math.expm1(-months * Math.log1p(r));
+    return Number.isFinite(p) && p > 0 ? Math.round(p) : null;
+  }
+  /** Loan case view for a sales assistant: amounts received, installment amount and count only. */
+  function loanView(x: any) {
+    const plan = json(x.plan_snapshot_json);
+    const months = Number(x.duration_months ?? x.requested_duration_months);
+    const count = Number.isInteger(months) && months > 0 ? months : null;
+    const principal = amount(x.approved_amount) ?? amount(x.requested_amount);
+    const rate = plan && count ? durationPercent(plan.annual_interest ?? plan.annualInterest, count) : null;
+    const net = amount(x.net_amount);
+    let received: number | null = net, receivedSource: string | null = net != null ? "net_after_deductions" : null;
+    if (received == null) { try { const p = customerApplicationPayout(x); const v = amount(p.cashPayoutAmount); if (v != null) { received = v; receivedSource = "plan_terms"; } } catch { /* unknown */ } }
+    const planName = (plan && typeof plan.name === "string" ? plan.name : null) ?? (x.plan_id ? row<any>("SELECT name FROM loan_plans WHERE id=?", x.plan_id)?.name ?? null : null);
+    return { id: x.id, stage: x.stage, status: x.status, createdAt: x.created_at, planName,
+      requestedAmount: amount(x.requested_amount), approvedAmount: amount(x.approved_amount),
+      receivedAmount: received, receivedAmountSource: receivedSource,
+      installmentAmount: principal != null && rate != null && count ? monthlyPmt(principal, rate, count) : null,
+      installmentCount: count, requestedInstallmentCount: x.requested_duration_months == null ? null : Number(x.requested_duration_months) };
+  }
+  const CALL_RESULT_FA: Record<string, string> = { answered: "پاسخ داد", no_answer: "پاسخ نداد", callback: "تماس بعدی خواست", wrong_number: "شماره اشتباه",
+    ANSWERED: "پاسخ داد", "NO ANSWER": "پاسخ نداد", BUSY: "مشغول", BARRED: "برقرار نشد", FAILED: "ناموفق", CANCEL: "لغو شد" };
+  const spName = (id: unknown) => id == null ? null : row<any>("SELECT name FROM salespersons WHERE id=?", id)?.name ?? null;
+  const userName = (id: unknown) => id == null ? null : (() => { const u = row<any>("SELECT full_name,username FROM users WHERE id=?", id); return u ? (u.full_name || u.username) : null; })();
+  function callView(l: any) {
+    const q = hasTable("team_sales_qualifications") ? row<any>("SELECT call_result,actor_user_id FROM team_sales_qualifications WHERE call_log_id=? ORDER BY id DESC LIMIT 1", l.id) : null;
+    let v: any = null;
+    if (hasTable("voip_after_call_events")) try { v = row<any>("SELECT status,direction,duration_seconds,started_at,ended_at,expert_name FROM voip_after_call_events WHERE call_log_id=? ORDER BY id DESC LIMIT 1", l.id); } catch { v = null; }
+    let dur: number | null = v?.duration_seconds == null ? null : Number(v.duration_seconds);
+    if (dur == null && v?.started_at && v?.ended_at) { const d = Math.round((Date.parse(v.ended_at) - Date.parse(v.started_at)) / 1000); dur = Number.isFinite(d) && d >= 0 ? d : null; }
+    const code = q?.call_result ?? v?.status ?? null;
+    return { id: l.id, subject: l.subject, customerRequest: l.customer_request, expertNotes: l.expert_notes, createdAt: l.created_at,
+      loggedBy: { name: (q ? userName(q.actor_user_id) : null) ?? l.salesperson_name_snapshot ?? spName(l.salesperson_id), salespersonId: l.salesperson_id ?? null },
+      result: code == null ? null : { key: String(code), label: CALL_RESULT_FA[String(code)] ?? String(code) },
+      durationSeconds: dur, direction: v?.direction ?? null, source: v ? "phone_system" : q ? "first_call_form" : "manual" };
   }
   const notFound = (req: Request, res: Response, customerId: number) => {
-    audit({ req, a: A(res), tokenId: TK(res), action: `${req.method} ${req.route?.path ?? req.path}`.slice(0, 80), customerId: Number.isSafeInteger(customerId) ? customerId : null, outcome: "not_in_scope" });
+    audit({ req, a: A(res), tokenId: TK(res), action: `${req.method} ${req.path.replace(/\/\d+(?=\/|$)/g, "/:id")}`.slice(0, 80), customerId: Number.isSafeInteger(customerId) ? customerId : null, outcome: "not_in_scope" });
     fail(res, 404, "not_found");
   };
 
@@ -337,9 +406,29 @@ export function createAssistants(deps: Deps) {
     const users = a.kind === "sales" ? [a.bound_user_id].filter(Boolean).map(id => userRow(id)).filter(Boolean)
       : rows<any>("SELECT id,role,salesperson_id,active,full_name,username FROM users WHERE active=1 ORDER BY id").filter(u => userEligible(a, u));
     const threads = users.map((u: any) => ({ userId: u.id, name: u.full_name || u.username, role: u.role, threadId: threadFor(a, u.id, false)?.id ?? null, ...prefsOf(u.id) }));
-    res.json({ customersInScope: Number(n), people: threads, scope: a.kind === "sales" ? (a.scope_rule === "p1" ? "own_p1_customers" : "own_customers") : "registrar_smart_filing_cases",
-      allowed: ["read customers in scope", "chat messages", "notifications", "assistant notes", "typing"],
-      blocked: ["priority", "assignment", "money/fees/wallets", "contracts", "case stage", "SMS", "customer messages"] });
+    // v7: sales assistants also get the box of 3 (same lib/sales-assist.ts logic, no impression is recorded) and today's counters.
+    let sales: any = {};
+    if (a.kind === "sales" && a.bound_salesperson_id && !TRAINEE_SALESPERSON_IDS.includes(a.bound_salesperson_id)) {
+      const sp = Number(a.bound_salesperson_id); const t = now();
+      let today: any = null, box: any[] = [], pool: number | null = null, unavailable = false;
+      try { today = deps.sales?.today ? deps.sales.today(sp, t) : null; } catch { unavailable = true; }
+      try {
+        const r = deps.sales?.suggestions ? deps.sales.suggestions(sp, t) : null;
+        if (r) { pool = r.pool; box = r.items.filter((x: any) => inScope(a, Number(x.customerId))).map((x: any) => ({
+          customerId: x.customerId, name: x.displayName, priority: x.priority ?? null, rank: x.rank, tier: x.tier,
+          reason: x.reason ? { kind: x.reason.kind, text: x.reason.text } : null, chips: (x.chips ?? []).map((c: any) => c.label),
+          topOfList: x.topOfList ? { kind: x.topOfList.kind, dueAt: x.topOfList.dueAt, overdue: Boolean(x.topOfList.overdue), windowNow: Boolean(x.topOfList.windowNow) } : null,
+          callForm: x.callForm, lastCallAt: x.lastCallAt ?? null })); }
+      } catch { unavailable = true; }
+      sales = { today: today ? { calls: Number(today.calls), notNow: Number(today.notNow) } : null, nextCustomer: box[0] ?? null, suggestions: box,
+        suggestionPool: pool, ...(unavailable ? { salesBoxUnavailable: true } : {}) };
+    }
+    res.json(maskData({ customersInScope: Number(n), people: threads, scope: a.kind === "sales" ? (a.scope_rule === "p1" ? "own_p1_customers" : "own_customers") : "registrar_smart_filing_cases",
+      ...sales,
+      allowed: a.kind === "sales"
+        ? ["read customers in scope", "priority (read)", "loan cases: received/installment amount/count (read)", "assignment history (read)", "notes/history (read)", "calls with who/result/duration (read)", "consultation + preferred call time (read)", "today + next customer (read)", "chat messages", "notifications", "assistant notes", "typing"]
+        : ["read customers in scope", "chat messages", "notifications", "assistant notes", "typing"],
+      blocked: ["changing priority", "assignment", "money/fees/wallets", "contracts", "case stage", "SMS", "customer messages"] }));
   });
   runner.get("/customers", (req, res) => {
     const a = A(res); const s = scopeSql(a);
@@ -349,7 +438,7 @@ export function createAssistants(deps: Deps) {
     const list = rows<any>(`SELECT c.* FROM customers c WHERE ${s.sql} AND c.id>? ${q ? "AND (c.name LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ?)" : ""} ORDER BY c.id LIMIT ?`,
       ...s.params, after, ...(q ? [`%${q}%`, `%${q}%`, `%${q}%`] : []), limit + 1);
     audit({ req, a, tokenId: TK(res), action: "GET /customers", outcome: "ok", detail: { n: Math.min(list.length, limit) } });
-    res.json(maskData({ items: list.slice(0, limit).map(customerCard), nextAfterId: list.length > limit ? list[limit - 1].id : null }));
+    res.json(maskData({ items: list.slice(0, limit).map(c => customerCard(c, a)), nextAfterId: list.length > limit ? list[limit - 1].id : null }));
   });
   const scopedCustomer = (req: Request, res: Response) => {
     const id = Number(req.params.id); const a = A(res);
@@ -358,20 +447,23 @@ export function createAssistants(deps: Deps) {
   };
   runner.get("/customers/:id", (req, res) => {
     const c = scopedCustomer(req, res); if (!c) return; const a = A(res);
-    const apps = rows<any>(`SELECT id,stage,status,created_at FROM loan_applications WHERE customer_id=? AND deleted_at IS NULL ORDER BY id DESC LIMIT 10`, c.id)
-      .map(x => ({ id: x.id, stage: x.stage, status: x.status, createdAt: x.created_at }));
+    const apps = a.kind === "sales"
+      ? rows<any>(`SELECT * FROM loan_applications WHERE customer_id=? AND deleted_at IS NULL ORDER BY id DESC LIMIT 10`, c.id).map(loanView)
+      : rows<any>(`SELECT id,stage,status,created_at FROM loan_applications WHERE customer_id=? AND deleted_at IS NULL ORDER BY id DESC LIMIT 10`, c.id)
+        .map(x => ({ id: x.id, stage: x.stage, status: x.status, createdAt: x.created_at }));
     const jobs = a.kind === "filing" && hasTable("smart_filing_jobs")
       ? rows<any>("SELECT id,application_id,status,step_label,progress,updated_at FROM smart_filing_jobs WHERE customer_id=? AND job_type='real' ORDER BY id DESC LIMIT 10", c.id)
         .map(j => ({ id: j.id, applicationId: j.application_id, status: j.status, step: j.step_label, progress: j.progress, updatedAt: j.updated_at })) : undefined;
     const notes = rows<any>("SELECT id,body,author_label,created_at FROM assistant_customer_notes WHERE customer_id=? AND assistant_id=? ORDER BY id DESC LIMIT 20", c.id, a.id)
       .map(n => ({ id: n.id, body: n.body, author: n.author_label, createdAt: n.created_at }));
     audit({ req, a, tokenId: TK(res), action: "GET /customers/:id", customerId: c.id, outcome: "ok" });
-    res.json(maskData({ customer: { ...customerCard(c), description: maskText(c.description ?? "").slice(0, 1000) }, applications: apps, ...(jobs ? { smartFilingJobs: jobs } : {}), assistantNotes: notes }));
+    res.json(maskData({ customer: { ...customerCard(c, a), description: maskText(c.description ?? "").slice(0, 1000) }, applications: apps, ...(jobs ? { smartFilingJobs: jobs } : {}), assistantNotes: notes }));
   });
   runner.get("/customers/:id/calls", (req, res) => {
     const c = scopedCustomer(req, res); if (!c) return;
-    const items = rows<any>("SELECT id,subject,customer_request,expert_notes,created_at FROM call_logs WHERE customer_id=? ORDER BY id DESC LIMIT 30", c.id)
-      .map(l => ({ id: l.id, subject: l.subject, customerRequest: l.customer_request, expertNotes: l.expert_notes, createdAt: l.created_at }));
+    const sales = A(res).kind === "sales";
+    const items = rows<any>("SELECT * FROM call_logs WHERE customer_id=? ORDER BY id DESC LIMIT 30", c.id)
+      .map(l => sales ? callView(l) : ({ id: l.id, subject: l.subject, customerRequest: l.customer_request, expertNotes: l.expert_notes, createdAt: l.created_at }));
     audit({ req, a: A(res), tokenId: TK(res), action: "GET /customers/:id/calls", customerId: c.id, outcome: "ok" });
     res.json(maskData({ items }));
   });
@@ -381,6 +473,68 @@ export function createAssistants(deps: Deps) {
       .map(r => ({ id: r.id, subject: r.subject, message: r.message, remindAt: r.remind_at, done: Boolean(r.done), createdAt: r.created_at }));
     audit({ req, a: A(res), tokenId: TK(res), action: "GET /customers/:id/reminders", customerId: c.id, outcome: "ok" });
     res.json(maskData({ items }));
+  });
+  /** v7: «تاریخچه و یادداشت‌ها» — /notes and /timeline are aliases (runners called them before they existed → router 404). */
+  const PH_SOURCE_FA: Record<string, string> = { customer_update: "ویرایش در CRM", promote: "ارتقا به اولویت ۱", qualifier_form: "فرم تماس اول",
+    nonp1_auto_transfer: "انتقال خودکار غیر اولویت ۱", no_answer_archive: "بایگانی بی‌پاسخ", kazemi_return: "بازگشت به کاظمی" };
+  runner.get(["/customers/:id/history", "/customers/:id/notes", "/customers/:id/timeline"], salesOnly, (req, res) => {
+    const c = scopedCustomer(req, res); if (!c) return; const a = A(res);
+    const assignment = hasTable("customer_priority_history")
+      ? rows<any>("SELECT * FROM customer_priority_history WHERE customer_id=? ORDER BY id DESC LIMIT 100", c.id).map(h => ({
+        id: h.id, at: h.created_at, oldPriority: h.old_priority ?? null, newPriority: h.new_priority ?? null,
+        fromExpert: spName(h.old_salesperson_id), toExpert: spName(h.new_salesperson_id), transferred: h.old_salesperson_id !== h.new_salesperson_id,
+        by: userName(h.actor_user_id), source: h.source, sourceLabel: PH_SOURCE_FA[h.source] ?? h.source, reason: maskText(h.reason ?? "").slice(0, 500) })) : [];
+    const expertNotes = rows<any>("SELECT * FROM call_logs WHERE customer_id=? AND (COALESCE(TRIM(expert_notes),'')<>'' OR COALESCE(TRIM(customer_request),'')<>'') ORDER BY id DESC LIMIT 50", c.id)
+      .map(l => ({ callId: l.id, at: l.created_at, by: l.salesperson_name_snapshot ?? spName(l.salesperson_id), subject: l.subject, customerRequest: l.customer_request, text: l.expert_notes }));
+    const caseNotes = hasTable("loan_application_notes")
+      ? rows<any>(`SELECT n.id,n.application_id,n.author_name,n.text,n.created_at FROM loan_application_notes n JOIN loan_applications la ON la.id=n.application_id
+          WHERE la.customer_id=? AND la.deleted_at IS NULL AND n.object_path IS NULL AND COALESCE(TRIM(n.text),'')<>'' ORDER BY n.id DESC LIMIT 50`, c.id)
+        .map(n => ({ id: n.id, applicationId: n.application_id, at: n.created_at, by: n.author_name, text: n.text })) : [];
+    const caseStages = hasTable("loan_application_stage_history")
+      ? rows<any>(`SELECT h.id,h.application_id,h.from_stage,h.to_stage,h.action,h.created_at FROM loan_application_stage_history h JOIN loan_applications la ON la.id=h.application_id
+          WHERE la.customer_id=? AND la.deleted_at IS NULL ORDER BY h.id DESC LIMIT 50`, c.id)
+        .map(h => ({ id: h.id, applicationId: h.application_id, at: h.created_at, fromStage: h.from_stage, toStage: h.to_stage, action: h.action })) : [];
+    const assistantNotes = rows<any>("SELECT id,body,author_label,created_at FROM assistant_customer_notes WHERE customer_id=? AND assistant_id=? ORDER BY id DESC LIMIT 20", c.id, a.id)
+      .map(n => ({ id: n.id, at: n.created_at, by: n.author_label, text: n.body }));
+    const timeline = [
+      ...assignment.map(h => ({ at: h.at, type: h.transferred ? "transfer" : "priority", text: `${h.sourceLabel}${h.transferred ? ` · ${h.fromExpert ?? "—"} ← ${h.toExpert ?? "—"}` : ""}${h.newPriority != null ? ` · اولویت ${h.newPriority}` : ""}` })),
+      ...expertNotes.map(n => ({ at: n.at, type: "call_note", text: `${n.by ?? ""}: ${String(n.text ?? n.customerRequest ?? "").slice(0, 200)}` })),
+      ...caseNotes.map(n => ({ at: n.at, type: "case_note", text: `${n.by ?? ""}: ${String(n.text).slice(0, 200)}` })),
+      ...caseStages.map(h => ({ at: h.at, type: "case_stage", text: `${h.fromStage ?? "—"} → ${h.toStage ?? "—"}` })),
+      ...assistantNotes.map(n => ({ at: n.at, type: "assistant_note", text: String(n.text).slice(0, 200) })),
+    ].sort((x, y) => String(y.at).localeCompare(String(x.at))).slice(0, 100);
+    audit({ req, a, tokenId: TK(res), action: `GET /customers/:id/${req.path.split("/").pop()}`.slice(0, 80), customerId: c.id, outcome: "ok" });
+    res.json(maskData({ customerId: c.id, priority: c.priority == null ? null : Number(c.priority), assignmentHistory: assignment, expertNotes, caseNotes, caseStages, assistantNotes, timeline }));
+  });
+  /** v7: «فرم مشاوره» + «اطلاعات مشاوره» + preferred call time (site/callback requests). */
+  const FORM_FIELDS = ["job_type", "credit_rank", "loan_purpose", "requested_amount", "requested_amount_toman", "need_days", "needs_fast_receive", "receive_mode", "loan_pref",
+    "has_check", "check_type", "customer_check_status", "has_promissory", "has_guarantor", "has_guarantor_check", "has_guarantor_promissory", "guarantor_credit_rank", "guarantor_job_type",
+    "guarantor_check_type", "guarantor_collateral_type", "collateral_type", "has_business_license", "has_account_turnover", "has_avg_balance", "has_customer_salary_deduct",
+    "has_guarantor_salary_deduct", "is_retired", "military_status", "prefer_remote", "prefer_in_person", "extra_notes", "created_at", "updated_at"];
+  const camel = (k: string) => k.replace(/_([a-z])/g, (_m, ch) => ch.toUpperCase());
+  const PROFILE_FIELDS = ["jobType", "guarantorAvailable", "guarantorCheque", "creditRank", "gRank", "gJobType", "military", "city", "selectedPlans", "noPlanFit", "noPlanNote", "urgency", "formDate", "submitterName"];
+  const pick = (d: any) => { const o: any = {}; if (!d || typeof d !== "object") return null;
+    for (const k of PROFILE_FIELDS) if (k in d) o[k] = k === "selectedPlans" ? (Array.isArray(d[k]) ? d[k].map((p: any) => ({ id: p?.id ?? null, name: p?.name ?? null, status: p?.status ?? null })) : []) : d[k];
+    return o; };
+  runner.get(["/customers/:id/consultation", "/customers/:id/consultation-form"], salesOnly, (req, res) => {
+    const c = scopedCustomer(req, res); if (!c) return; const a = A(res);
+    let form: any = null;
+    if (hasTable("consultation_forms")) {
+      const f = row<any>("SELECT * FROM consultation_forms WHERE customer_id=? ORDER BY COALESCE(updated_at,created_at) DESC, id DESC LIMIT 1", c.id);
+      if (f) { form = { id: f.id, author: userName(f.author_user_id) }; for (const k of FORM_FIELDS) if (k in f) form[camel(k)] = k.startsWith("requested_amount") ? amount(f[k]) : f[k] ?? null; }
+    }
+    let profile: any = null, unavailable = false;
+    try { const p = deps.sales?.consultProfile ? deps.sales.consultProfile(c.id) : null;
+      if (p) profile = { latest: p.latest ? { at: p.latest.createdAt ?? p.latest.created_at ?? null, by: p.latest.actorName ?? null, source: p.latest.source ?? null, data: pick(p.latest.data) } : null,
+        versions: (p.versions ?? []).slice(0, 10).map((v: any) => ({ id: v.id, at: v.createdAt ?? null, by: v.actorName ?? null, source: v.source ?? null, changedFields: v.changedFields ?? null })) };
+    } catch { unavailable = true; }
+    let requests: any[] = [];
+    try { requests = (deps.sales?.siteLeadHistory ? deps.sales.siteLeadHistory(c.id) : []).slice(0, 10).map((r: any) => ({
+      source: r.source, requestedAt: r.requestedAt, contactTime: r.contactTime, contactTimeLabel: r.contactTimeFa, isRepeat: Boolean(r.isRepeat), answeredAt: r.answeredAt ?? null })); }
+    catch { unavailable = true; }
+    const pref = requests[0] ? { contactTime: requests[0].contactTime, contactTimeLabel: requests[0].contactTimeLabel, requestedAt: requests[0].requestedAt, source: requests[0].source } : null;
+    audit({ req, a, tokenId: TK(res), action: `GET /customers/:id/${req.path.split("/").pop()}`.slice(0, 80), customerId: c.id, outcome: "ok" });
+    res.json(maskData({ customerId: c.id, consultationForm: form, consultProfile: profile, preferredCallTime: pref, siteRequests: requests, ...(unavailable ? { partial: true } : {}) }));
   });
   runner.post("/customers/:id/assistant-notes", (req, res) => {
     const c = scopedCustomer(req, res); if (!c) return; const a = A(res);
