@@ -83,6 +83,12 @@ function phoneKey(phone: string, id: number) {
   else if (value.length === 10 && value.startsWith("9")) value = "0" + value;
   return value || `customer:${id}`;
 }
+/** The CRM's single answered / not-answered rule (phone-system status or the mobile app's answered time); also used by the manager assistant. */
+export function callOutcome(statusRaw: string | null | undefined, mobileAnsweredAt?: string | null): "yes" | "no" | "unknown" {
+  const status = (statusRaw ?? "").toUpperCase().replace(/[\s-]/g, "_");
+  return mobileAnsweredAt || ["ANSWERED", "CONNECTED"].includes(status) ? "yes"
+    : ["NO_ANSWER", "NOANSWER", "MISSED", "BUSY", "REJECTED", "FAILED", "CANCEL", "CANCELLED", "CANCELED"].includes(status) ? "no" : "unknown";
+}
 export function buildSalesReport(customers: CustomerRow[], calls: CallRow[], applications: ApplicationRow[], input: ReportInput, now = new Date()) {
   const range = reportRange(input, now);
   type Lead = { key: string; created: number; calls: Array<{ day: number; outcome: "yes" | "no" | "unknown" }>; apps: Array<ApplicationRow & { day: number }> };
@@ -97,10 +103,7 @@ export function buildSalesReport(customers: CustomerRow[], calls: CallRow[], app
   for (const call of calls) {
     const lead = byId.get(call.customer_id);
     if (!lead) continue;
-    const status = (call.status ?? "").toUpperCase().replace(/[\s-]/g, "_");
-    const outcome = call.mobile_answered_at || ["ANSWERED", "CONNECTED"].includes(status) ? "yes"
-      : ["NO_ANSWER", "NOANSWER", "MISSED", "BUSY", "REJECTED", "FAILED", "CANCEL", "CANCELLED", "CANCELED"].includes(status) ? "no" : "unknown";
-    lead.calls.push({ day: dayNumber(call.created_at), outcome });
+    lead.calls.push({ day: dayNumber(call.created_at), outcome: callOutcome(call.status, call.mobile_answered_at) });
   }
   for (const app of applications) byId.get(app.customer_id)?.apps.push({ ...app, day: dayNumber(app.created_at) });
   const all = [...leads.values()];

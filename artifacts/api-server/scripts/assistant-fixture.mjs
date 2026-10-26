@@ -48,7 +48,12 @@ const cookie = db.prepare("PRAGMA schema_version").get().schema_version;
 ensureAssistantSchema(db);
 assert.equal(db.prepare("PRAGMA schema_version").get().schema_version, cookie, "second start must not bump schema_version");
 const As = Object.fromEntries(db.prepare("SELECT * FROM assistants").all().map(a => [a.slug, a]));
-assert.deepEqual(Object.keys(As).sort(), ["masoud", "mohaddeseh", "sarina", "somayeh"]);
+assert.deepEqual(Object.keys(As).sort(), ["ahmad", "masoud", "mohaddeseh", "sarina", "somayeh"]);
+// v8 manager row: kind 'sales' in the DB (CHECK constraint) + scope_rule 'manager', bound to the admin role only, off, no token
+assert.equal(As.ahmad.kind, "sales"); assert.equal(As.ahmad.scope_rule, "manager"); assert.equal(As.ahmad.bound_role, "admin");
+assert.equal(As.ahmad.bound_user_id, null); assert.equal(As.ahmad.bound_salesperson_id, null);
+assert.deepEqual(Object.fromEntries(db.prepare("SELECT key,value FROM assistant_settings WHERE key LIKE 'manager_%'").all().map(r => [r.key, r.value])),
+  { manager_calls_ratio: "0.7", manager_calls_compare: "same_time", manager_overdue_reminders_max: "5", manager_site_leads_max: "0", manager_p1_no_call_days: "3" });
 assert.equal(As.somayeh.bound_user_id, 2); assert.equal(As.mohaddeseh.bound_user_id, 3); assert.equal(As.masoud.bound_user_id, 8);
 assert.equal(As.sarina.bound_user_id, null); assert.equal(As.sarina.bound_role, "registrar");
 assert.ok(Object.values(As).every(a => a.enabled === 0)); // seeded off
@@ -56,7 +61,8 @@ assert.equal(db.prepare("SELECT value FROM assistant_settings WHERE key='global_
 
 let clock = new Date("2026-10-26T07:00:00Z"); // 10:30 Tehran
 const users = { 1: "admin", 2: "salesperson", 3: "salesperson", 4: "registrar", 6: "salesperson", 8: "salesperson", 27: "salesperson", 29: "admin", 30: "accountant" };
-const as = createAssistants({ db, now: () => clock, actor: res => { const id = Number(res.locals.uid); return users[id] ? { id, role: users[id], salespersonId: null, name: "x" } : null; } });
+let siteLeadsStub = new Map();
+const as = createAssistants({ db, now: () => clock, sales: { activeSiteLeads: () => siteLeadsStub }, actor: res => { const id = Number(res.locals.uid); return users[id] ? { id, role: users[id], salespersonId: null, name: "x" } : null; } });
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "asst-fx-"));
 const sf = createSmartFiling({ db, env: () => ({}), filesRoot: path.join(tmp, "f"), docRoots: [], actor: () => null });
 const app = express();
@@ -274,6 +280,118 @@ try {
     await S(1, "PUT", "/admin/assistants/settings", { creditInquiryPermission: "manager" });
   }
   ok("reminder proposals (one-click, never auto) + credit-inquiry setting");
+  { // v8 «احمد» — sales-manager assistant (piece A)
+    const mgrBefore = snap(); const clockBefore = clock; clock = new Date("2026-10-26T07:00:00Z"); // Mon 10:30 Tehran
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM assistant_tokens WHERE assistant_id=?").get(As.ahmad.id).n, 0); // no token seeded
+    const adm = (await S(1, "GET", "/admin/assistants")).j.assistants.find(a => a.slug === "ahmad");
+    assert.equal(adm.kind, "manager"); assert.equal(adm.enabled, false); assert.equal(adm.boundRole, "admin");
+    const tk = (await S(1, "POST", `/admin/assistants/${As.ahmad.id}/tokens`, { name: "ahmad-fx" })).j.token;
+    assert.equal((await R(tk, "GET", "/me")).s, 423); // own switch still off
+    assert.ok(!(await S(1, "GET", "/assistant/mine")).j.assistants.some(a => a.slug === "ahmad"));
+    await S(1, "POST", `/admin/assistants/${As.ahmad.id}/enable`);
+    assert.ok((await S(1, "GET", "/assistant/mine")).j.assistants.some(a => a.slug === "ahmad" && a.kind === "manager"));
+    for (const u of [29, 4, 2, 3, 8, 6, 27, 30]) assert.ok(!(await S(u, "GET", "/assistant/mine")).j.assistants?.some(a => a.slug === "ahmad"), `user ${u} must not see ahmad`);
+    for (const u of [2, 4, 6, 8, 29]) assert.equal((await S(u, "GET", "/admin/assistants/manager-report")).s, u === 29 ? 200 : 403); // 29 is an admin: admin routes are role-based
+    const me8 = await R(tk, "GET", "/me"); assert.equal(me8.s, 200); assert.equal(me8.j.assistant.kind, "manager"); assert.equal(me8.j.assistant.label, "احمد | مدیر فروش");
+    const ctx = (await R(tk, "GET", "/my-context")).j; assert.deepEqual(ctx.people.map(p => p.userId), [1]); assert.equal(ctx.scope, "manager_all_non_trainee_experts");
+    assert.deepEqual(ctx.experts.map(e => e.salespersonId), [3, 4, 6]);
+    ok("manager: seeded off, admin-only dock, own token + switch");
+    // scope: every non-trainee expert's live customers; masking holds
+    const cl = (await R(tk, "GET", "/customers?limit=200")).j.items;
+    assert.deepEqual(cl.map(c => c.id).sort((a, b) => a - b), [100, 101, 110, 120, 150, 151]);
+    assert.ok(cl.every(c => !/09\d{9}/.test(JSON.stringify(c)))); assert.ok(!cl.find(c => c.id === 100).mobile.includes("1234567"));
+    assert.equal(cl.find(c => c.id === 110).expert.name, "قاسمی"); assert.equal(cl.find(c => c.id === 100).priority, 1);
+    assert.deepEqual((await R(tk, "GET", "/customers?salespersonId=4")).j.items.map(c => c.id), [110]);
+    for (const id of [130, 140, 102, 121]) assert.equal((await R(tk, "GET", `/customers/${id}`)).s, 404);
+    const c100 = await R(tk, "GET", "/customers/100"); assert.equal(c100.s, 200);
+    assert.ok(!JSON.stringify(c100.j).includes("0012345678") && !JSON.stringify(c100.j).includes("09121234567"));
+    assert.equal((await R(tk, "GET", "/customers/100/history")).s, 200); assert.equal((await R(tk, "GET", "/customers/100/consultation")).s, 200);
+    const calls100 = await R(tk, "GET", "/customers/100/calls"); assert.equal(calls100.s, 200); assert.ok(!JSON.stringify(calls100.j).includes("09121234567"));
+    assert.equal((await R(tk, "GET", "/customers/130/calls")).s, 404);
+    ok("manager: read scope (no trainees / merged / cancelled) + masking");
+    // writes: only chat/notifications to an admin and assistant notes
+    assert.equal((await R(tk, "POST", "/messages", { body: "سلام" })).j.error, "recipient_required");
+    for (const u of [2, 4, 6, 8, 29, 30]) assert.equal((await R(tk, "POST", "/messages", { userId: u, body: "سلام" })).s, 404, `no message to user ${u}`);
+    assert.equal((await R(tk, "POST", "/messages", { userId: 1, body: "گزارش امروز آماده است" })).s, 201);
+    const nb = bellRows().length;
+    assert.equal((await R(tk, "POST", "/notifications", { userId: 1, customerId: 110, body: "سرنخ سایت بی‌تماس" })).s, 201);
+    assert.equal(bellRows().length, nb + 1); assert.equal(bellRows().at(-1).recipient_user_id, 1); assert.equal(bellRows().at(-1).actor_key, "assistant:ahmad");
+    assert.equal((await R(tk, "POST", "/notifications", { userId: 1, customerId: 130, body: "x" })).s, 404);
+    const rp = await R(tk, "POST", "/reminder-proposals", { userId: 1, customerId: 100, remindAt: new Date(clock.getTime() + 86400_000).toISOString() });
+    assert.equal(rp.s, 403); assert.equal(rp.j.error, "manager_read_only");
+    for (const [m, p2] of [["POST", "/customers/100/priority"], ["PUT", "/customers/100/assign"], ["POST", "/reminders"], ["DELETE", "/customers/100"], ["POST", "/payments"], ["POST", "/sms"],
+      ["POST", "/customer-messages"], ["POST", "/manager/report"], ["DELETE", "/messages/1"], ["PUT", "/manager/settings"], ["POST", "/commission"]])
+      assert.equal((await R(tk, m, p2, { priority: 3 })).s, 403, `${m} ${p2}`);
+    assert.equal((await R(tk, "POST", "/customers/100/assistant-notes", { body: "یادداشت مدیر" })).s, 201);
+    assert.equal((await R(tk, "POST", "/customers/130/assistant-notes", { body: "x" })).s, 404);
+    for (const t2 of [iss.mohaddeseh, iss.sarina]) for (const p2 of ["/manager/report", "/manager/alerts", "/manager/summary?slot=morning", "/manager/experts", "/manager/settings"])
+      assert.equal((await R(t2, "GET", p2)).j.error, "manager_only");
+    ok("manager: writes limited to admin chat + notes; other assistants get manager_only");
+    // report numbers (Mon 10:30 Tehran)
+    db.exec(`CREATE TABLE voip_after_call_events(id INTEGER PRIMARY KEY,call_log_id INTEGER,customer_id INTEGER,salesperson_id INTEGER,status TEXT,started_at TEXT,ended_at TEXT,is_live INTEGER DEFAULT 0,
+        mobile_answered_at TEXT,direction TEXT,duration_seconds INTEGER,expert_name TEXT);
+      CREATE TABLE team_sales_qualifications(id INTEGER PRIMARY KEY,call_log_id INTEGER,call_result TEXT,actor_user_id INTEGER,customer_id INTEGER);`);
+    const ins = db.prepare("INSERT INTO call_logs(id,customer_id,salesperson_id,subject,created_at) VALUES(?,?,?,?,?)");
+    ins.run(900, 100, 3, "x", "2026-10-26 05:30:00"); ins.run(901, 101, 3, "x", "2026-10-26T06:10:00.000Z");
+    db.exec("INSERT INTO voip_after_call_events(id,call_log_id,customer_id,salesperson_id,status,started_at) VALUES(1,900,100,3,'ANSWERED','2026-10-26T05:30:00Z')");
+    db.exec("INSERT INTO team_sales_qualifications(id,call_log_id,call_result) VALUES(1,901,'no_answer')");
+    db.exec("INSERT INTO voip_after_call_events(id,call_log_id,customer_id,salesperson_id,status,started_at,is_live) VALUES(2,NULL,101,3,'ANSWERED','2026-10-26T06:20:00Z',1)"); // live: not counted
+    for (let i = 0; i < 5; i++) { ins.run(910 + i, 101, 3, "x", `2026-10-25 0${i}:00:00`); ins.run(920 + i, 101, 3, "x", `2026-10-24 0${i}:00:00`); } // 5/day before 10:30 Tehran
+    ins.run(930, 130, 5, "trainee", "2026-10-26 05:00:00");
+    const rins = db.prepare("INSERT INTO reminders(id,user_id,salesperson_id,message,remind_at,done,created_at,subject,customer_id) VALUES(?,?,?,?,?,?,?,?,?)");
+    for (let i = 0; i < 6; i++) rins.run(900 + i, 3, 4, "پیگیری 09121234567", "2026-10-20T07:00:00.000Z", 0, "2026-10-19", "پیگیری", 110);
+    rins.run(910, 3, 4, "done", "2026-10-20T07:00:00.000Z", 1, "2026-10-19", "x", 110); rins.run(911, 6, 5, "trainee", "2026-10-20T07:00:00.000Z", 0, "2026-10-19", "x", 130);
+    siteLeadsStub = new Map([[110, { requestedAt: "2026-10-26T04:00:00Z", dueAt: "2026-10-26T05:00:00Z", openRequests: 1, isRepeat: false }],
+      [130, { requestedAt: "2026-10-26T04:00:00Z", dueAt: "2026-10-26T05:00:00Z", openRequests: 1, isRepeat: false }],
+      [101, { requestedAt: "2026-10-26T06:50:00Z", dueAt: "2026-10-26T09:00:00Z", openRequests: 1, isRepeat: true }]]);
+    const rep = (await R(tk, "GET", "/manager/report?range=today")).j;
+    assert.deepEqual(rep.experts.map(e => e.salespersonId), [3, 4, 6]);
+    const h = rep.experts.find(e => e.salespersonId === 3), g = rep.experts.find(e => e.salespersonId === 4), k = rep.experts.find(e => e.salespersonId === 6);
+    assert.deepEqual(h.calls, { count: 2, answered: 1, notAnswered: 1, unknown: 0, answeredShare: 0.5 });
+    assert.equal(h.baseline.average, 5); assert.equal(h.baseline.activeDays, 2);
+    assert.deepEqual(h.score.alerts.map(a => a.rule), ["calls_below_average"]); assert.equal(h.score.alerts[0].numbers.threshold, 3.5); assert.equal(h.score.level, "watch");
+    assert.deepEqual(h.p1NoCall.items.map(x => x.customerId), [151]); // 100 was called today
+    assert.equal(g.overdueReminders.count, 6); assert.equal(g.overdueReminders.maxDaysLate, 6); assert.ok(!JSON.stringify(g).includes("09121234567"));
+    assert.deepEqual(g.siteLeadsOverdue.items.map(x => x.customerId), [110]); assert.equal(g.siteLeadsOverdue.items[0].hoursLate, 2);
+    assert.deepEqual(g.score.alerts.map(a => a.rule), ["overdue_reminders", "site_leads_unanswered"]); assert.equal(g.score.level, "alert"); assert.equal(g.score.points, 60);
+    assert.ok(g.score.alerts.every(a => a.reason && a.numbers)); assert.deepEqual(g.p1NoCall.items.map(x => x.customerId), [110]);
+    assert.equal(k.calls.count, 0); assert.equal(k.score.level, "ok");
+    assert.equal(rep.team.calls, 2); assert.ok(!JSON.stringify(rep).includes("کارآموز"));
+    const wk = (await R(tk, "GET", "/manager/report?range=week&salespersonId=3")).j;
+    assert.equal(wk.from, "2026-10-23T20:30:00.000Z"); assert.equal(wk.experts.length, 1); assert.equal(wk.experts[0].calls.count, 12);
+    assert.equal((await R(tk, "GET", "/manager/report?range=month")).j.error, "range_not_supported");
+    assert.equal((await R(tk, "GET", "/manager/report?salespersonId=5")).s, 404);
+    const al = (await R(tk, "GET", "/manager/alerts")).j.items; assert.deepEqual(al.map(a => `${a.salespersonId}:${a.rule}`), ["3:calls_below_average", "4:overdue_reminders", "4:site_leads_unanswered"]);
+    ok("manager: today/week report, alerts with reasons + numbers");
+    // thresholds (assistant_settings manager_* only)
+    assert.equal((await S(2, "PUT", "/admin/assistants/manager-settings", { overdueRemindersMax: 10 })).s, 403);
+    assert.equal((await S(1, "PUT", "/admin/assistants/manager-settings", { overdueRemindersMax: -1 })).s, 422);
+    assert.equal((await S(1, "PUT", "/admin/assistants/manager-settings", { callsRatio: 2 })).s, 422);
+    assert.equal((await S(1, "PUT", "/admin/assistants/manager-settings", { foo: 1 })).s, 422);
+    const put = await S(1, "PUT", "/admin/assistants/manager-settings", { overdueRemindersMax: 10, callsRatio: 0.3 }); assert.equal(put.s, 200); assert.equal(put.j.thresholds.overdueRemindersMax, 10);
+    const al2 = (await R(tk, "GET", "/manager/alerts")).j.items; assert.deepEqual(al2.map(a => `${a.salespersonId}:${a.rule}`), ["4:site_leads_unanswered"]);
+    assert.equal((await S(1, "PUT", "/admin/assistants/manager-settings", { p1NoCallDays: 30, callsCompare: "full_day" })).s, 200);
+    const r30 = (await R(tk, "GET", "/manager/report")).j; assert.deepEqual(r30.experts.find(e => e.salespersonId === 4).p1NoCall.items, []); assert.equal(r30.thresholds.callsCompare, "full_day");
+    await S(1, "PUT", "/admin/assistants/manager-settings", { overdueRemindersMax: 5, callsRatio: 0.7, p1NoCallDays: 3, callsCompare: "same_time" });
+    assert.equal((await S(1, "GET", "/admin/assistants/manager-report?range=today")).j.experts.length, 3);
+    ok("manager: editable thresholds");
+    for (const slot of ["morning", "evening", "thursday"]) {
+      const sm = (await R(tk, "GET", `/manager/summary?slot=${slot}`)); assert.equal(sm.s, 200);
+      assert.ok(sm.j.text.includes("حسنی") && sm.j.text.includes("قاسمی") && /[۰-۹]/.test(sm.j.text) && !/09\d{9}/.test(sm.j.text), slot);
+      assert.equal(sm.j.range, slot === "thursday" ? "week" : "today");
+    }
+    assert.equal((await R(tk, "GET", "/manager/summary?slot=x")).s, 422);
+    ok("manager: 09:00 / 18:00 / Thursday summaries");
+    // rollback safety: an un-normalized row (what an older release sees) has no scope and nobody eligible
+    const raw = db.prepare("SELECT * FROM assistants WHERE slug='ahmad'").get();
+    assert.equal(as._internal.scopeSql(raw).sql, "0"); assert.equal(as._internal.userEligible(raw, { id: 1, role: "admin", salesperson_id: null }), false);
+    // cleanup: fixture rows only; CRM tables identical to before the manager group
+    db.exec("DELETE FROM call_logs WHERE id>=900; DELETE FROM reminders WHERE id>=900; DROP TABLE voip_after_call_events; DROP TABLE team_sales_qualifications;");
+    siteLeadsStub = new Map(); await S(1, "POST", `/admin/assistants/${As.ahmad.id}/disable`);
+    assert.equal(snap(), mgrBefore, "manager traffic changed no CRM table");
+    clock = clockBefore;
+    ok("manager: fail-closed when not normalized + CRM tables unchanged");
+  }
   // revoke mid long-poll → 401; disable → 423
   const tokRow = db.prepare("SELECT id FROM assistant_tokens WHERE token_hash=?").get(hashAssistantToken(iss.somayeh));
   const lp = R(iss.somayeh, "GET", "/events?after=999999&wait=6");
