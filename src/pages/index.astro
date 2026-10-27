@@ -82,7 +82,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
       <div class="svc">
         {
           KEYWORD_PAGES.map((k) => (
-            <a href={`/${k.slug}`}>
+            <a href={`/${k.slug}/`}>
               <span class="ic"><I name={SVC_ICON[k.slug] ?? 'doc'} /></span>
               <div>
                 <b>{k.label}</b>
@@ -109,7 +109,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
         <li><span class="ic"><I name="phone" /></span>کارشناس تماس می‌گیرد و مدارک را تحویل می‌دهید</li>
         <li><span class="ic"><I name="check" /></span>پرداخت تسهیلات طبق شرایط طرح</li>
       </ol>
-      <div class="steps-cta"><a class="nf-btn nf-btn--text" href="/request?src=home-steps">شروع درخواست <I name="arrow" size={18} /></a></div>
+      <div class="steps-cta"><a class="nf-btn nf-btn--text" href="/request/?src=home-steps">شروع درخواست <I name="arrow" size={18} /></a></div>
     </div>
   </section>
 
@@ -125,7 +125,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
         <div class="container-nf">
           <div class="sec-head">
             <h2 id="blog-h">مجله نفیس</h2>
-            <a class="nf-btn nf-btn--text" href="/blog">همه مقاله‌ها</a>
+            <a class="nf-btn nf-btn--text" href="/blog/">همه مقاله‌ها</a>
           </div>
           <div class="posts">
             {posts.map((p) => (
@@ -144,7 +144,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
         <p>جواب سؤالی را پیدا نکردید؟ <a {...pickerTrigger('call')}>با کارشناس تماس بگیرید</a>.</p>
       </div>
       <FaqList items={faq} />
-      <div class="faq-more"><a class="nf-btn nf-btn--text" href="/faq">همه سؤالات متداول <I name="arrow" size={18} /></a></div>
+      <div class="faq-more"><a class="nf-btn nf-btn--text" href="/faq/">همه سؤالات متداول <I name="arrow" size={18} /></a></div>
     </div>
   </section>
 

@@ -97,7 +97,7 @@ const src = Astro.props.src ?? (path.split('/').filter(Boolean)[0] || 'home');
     {
       minimal ? (
         <footer class="container-nf rq-foot">
-          © {jalaliYear()} {SITE.name} · <a href="/privacy" style="color:inherit;text-decoration:underline;text-underline-offset:3px">حریم خصوصی</a>
+          © {jalaliYear()} {SITE.name} · <a href="/privacy/" style="color:inherit;text-decoration:underline;text-underline-offset:3px">حریم خصوصی</a>
         </footer>
       ) : (
         <Footer />

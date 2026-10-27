@@ -57,7 +57,7 @@ export function PlanCard({
       </dl>
       <a
         className={`nf-btn ${featured ? 'nf-btn--primary' : 'nf-btn--secondary'} nf-btn--block`}
-        href={`/request?plan=${c.id}&term=${c.term}&src=${encodeURIComponent(src)}`}
+        href={`/request/?plan=${c.id}&term=${c.term}&src=${encodeURIComponent(src)}`}
       >
         {btn}
         {featured && <I name="arrow" />}

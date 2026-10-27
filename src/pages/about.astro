@@ -10,7 +10,7 @@ import { SITE, SOCIAL, TRUST_STATS, WORK_HOURS } from '../lib/site';
 import { pickerTrigger } from '../data/experts';
 const crumbs = [
   { name: 'خانه', path: '/' },
-  { name: 'درباره ما', path: '/about' },
+  { name: 'درباره ما', path: '/about/' },
 ];
 const facts = planFacts(LOAN_PLANS_SNAPSHOT);
 ---
@@ -44,7 +44,7 @@ const facts = planFacts(LOAN_PLANS_SNAPSHOT);
       </dl>
       <p class="about-more">کارشناسان فروش و راه‌های پیام‌رسان در صفحه‌ی <a href="/contact/#experts">تماس با ما</a>.</p>
     </section>
-    <p class="mt-6"><a class="nf-btn nf-btn--primary" href="/request?src=about">ثبت درخواست</a></p>
+    <p class="mt-6"><a class="nf-btn nf-btn--primary" href="/request/?src=about">ثبت درخواست</a></p>
   </div>
   <FinalCTA src="about" />
 </BaseLayout>

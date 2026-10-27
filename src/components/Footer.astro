@@ -19,7 +19,7 @@ const facts = planFacts(LOAN_PLANS_SNAPSHOT);
       </div>
       <details data-foot>
         <summary>خدمات <I name="down" size={20} /></summary>
-        <ul>{KEYWORD_PAGES.map((k) => <li><a href={`/${k.slug}`}>{k.label}</a></li>)}</ul>
+        <ul>{KEYWORD_PAGES.map((k) => <li><a href={`/${k.slug}/`}>{k.label}</a></li>)}</ul>
       </details>
       <details data-foot>
         <summary>راهنما <I name="down" size={20} /></summary>
@@ -48,7 +48,7 @@ const facts = planFacts(LOAN_PLANS_SNAPSHOT);
     </div>
     <div class="legal">
       <span>© {jalaliYear()} {SITE.name}</span>
-      <nav aria-label="حقوقی"><a href="/privacy">حریم خصوصی</a><a href="/terms">قوانین</a></nav>
+      <nav aria-label="حقوقی"><a href="/privacy/">حریم خصوصی</a><a href="/terms/">قوانین</a></nav>
     </div>
   </div>
 </footer>

@@ -40,8 +40,8 @@ function inSitemap(path) {
   if (path.endsWith('/404') || path === '/request' || path === '/loan-plans' || /\/\d+$/.test(path) || hiddenPostPaths.has(path)) return false;
   const cat = path.match(/^\/blog\/category\/([^/]+)$/)?.[1];
   if (cat) return indexedCategories.has(cat);
-  const tag = path.match(/^\/blog\/tag\/([^/]+)$/)?.[1];
-  if (tag) return indexedTags.has(decodeURIComponent(tag));
+  // SEO audit 2026-10-27: tag archives are all noindex → never in the sitemap
+  if (path.startsWith('/blog/tag/')) return false;
   return true;
 }
 const snapshotPath = fileURLToPath(new URL('./src/data/loan-plans.snapshot.json', import.meta.url));
@@ -68,7 +68,8 @@ function devLoanPlans() {
 export default defineConfig({
   site: SITE,
   output: 'static',
-  trailingSlash: 'never',
+  // internal links end with `/` (src/lib/site.ts href()); pages are <path>/index.html and nginx 301s `/x` → `/x/`
+  trailingSlash: 'always',
   redirects: { '/loan-plans': '/plans/' },
   build: { format: 'directory', inlineStylesheets: 'auto' },
   integrations: [

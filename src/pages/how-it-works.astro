@@ -8,7 +8,7 @@ import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 import { breadcrumbLd } from '../lib/seo';
 const crumbs = [
   { name: 'خانه', path: '/' },
-  { name: 'مراحل دریافت', path: '/how-it-works' },
+  { name: 'مراحل دریافت', path: '/how-it-works/' },
 ];
 // Review times straight from the plan JSON (ANSWERS-1 §9): «کمتر از ۷ روز (۲ طرح)، ۱۰ تا ۱۵ روز (۱۶ طرح)»
 const times = Object.entries(
@@ -57,7 +57,7 @@ const steps = [
       }
     </ol>
     <p class="text-ink-muted mt-4 text-caption">بررسی بیشتر طرح‌ها ۱۰ تا ۱۵ روز و در طرح‌های سریع کمتر از ۷ روز طول می‌کشد.</p>
-    <p class="mt-6"><a class="nf-btn nf-btn--primary" href="/request?src=how-it-works">ثبت درخواست</a></p>
+    <p class="mt-6"><a class="nf-btn nf-btn--primary" href="/request/?src=how-it-works">ثبت درخواست</a></p>
   </div>
   <FinalCTA src="how-it-works" />
 </BaseLayout>

@@ -10,7 +10,7 @@ import { fillFacts, planFacts } from '../lib/plans';
 const facts = planFacts(LOAN_PLANS_SNAPSHOT);
 const crumbs = [
   { name: 'خانه', path: '/' },
-  { name: 'خدمات', path: '/services' },
+  { name: 'خدمات', path: '/services/' },
 ];
 ---
 
@@ -25,7 +25,7 @@ const crumbs = [
       {
         KEYWORD_PAGES.map((p) => (
           <li>
-            <a href={`/${p.slug}`} class="hover:border-brand-300 flex min-h-option items-center gap-3 rounded-card border border-line bg-white p-4">
+            <a href={`/${p.slug}/`} class="hover:border-brand-300 flex min-h-option items-center gap-3 rounded-card border border-line bg-white p-4">
               <span class="bg-brand-50 text-brand-600 grid size-11 shrink-0 place-items-center rounded-xl">
                 <Icon name={p.icon} />
               </span>
@@ -42,7 +42,7 @@ const crumbs = [
       }
     </ul>
     <p class="mt-6">
-      <a class="nf-btn nf-btn--secondary" href="/plans#plan-finder">مطمئن نیستید کدام؟ طرح‌یاب ۲ سؤالی <Icon name="chev" /></a>
+      <a class="nf-btn nf-btn--secondary" href="/plans/#plan-finder">مطمئن نیستید کدام؟ طرح‌یاب ۲ سؤالی <Icon name="chev" /></a>
     </p>
   </div>
   <FinalCTA src="services" />

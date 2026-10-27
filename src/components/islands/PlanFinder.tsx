@@ -224,7 +224,7 @@ export default function PlanFinder({
             </div>
           )}
           <div className="all-link">
-            <a className="nf-btn nf-btn--text" href="/plans">
+            <a className="nf-btn nf-btn--text" href="/plans/">
               دیدن همه طرح‌ها
             </a>
           </div>

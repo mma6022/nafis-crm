@@ -12,5 +12,5 @@ const { src = 'page' } = Astro.props;
 <nav class="bar" aria-label="تماس سریع">
   <a {...pickerTrigger('call')} aria-label="تماس با کارشناس"><I name="phone" />تماس</a>
   {hasChannel('whatsapp') && <a {...pickerTrigger('whatsapp')} aria-label="پیام در واتساپ به کارشناس"><I name="wa" />واتساپ</a>}
-  <a class="req" href={`/request?src=${src}-sticky`}>درخواست وام <I name="arrow" size={20} /></a>
+  <a class="req" href={`/request/?src=${src}-sticky`}>درخواست وام <I name="arrow" size={20} /></a>
 </nav>

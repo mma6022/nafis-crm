@@ -1,7 +1,7 @@
 /**
  * Header «مشاوره‌ی رایگان» / mobile-menu «درخواست مشاوره‌ی رایگان» → <dialog> with the sheet CallbackForm
  * (CALLBACK-HANDOFF.md: bottom sheet on mobile, 520px modal on desktop; focus → name field; Esc closes; focus
- * returns to the opener). Links keep href="/contact#callback" so they work without JS. Never a floating button.
+ * returns to the opener). Links keep href="/contact/#callback" so they work without JS. Never a floating button.
  */
 import { useEffect, useRef, useState } from 'react';
 import { I } from '../ui/I';

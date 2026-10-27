@@ -17,7 +17,7 @@ interface Props {
 const { primary, secondary, secondaryHref } = Astro.props;
 const page = (Astro.url.pathname.replace(/^\/+|\/+$/g, '').split('/').pop() || 'home').replace(/[^a-z0-9_-]/g, '') || 'home';
 const blog = Astro.url.pathname.startsWith('/blog/');
-const href = Astro.props.href ?? `/request?src=${blog ? 'blog-' : ''}${page}-inline`;
+const href = Astro.props.href ?? `/request/?src=${blog ? 'blog-' : ''}${page}-inline`;
 const lead =
   Astro.props.lead ??
   (blog

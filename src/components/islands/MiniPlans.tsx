@@ -28,7 +28,7 @@ export default function MiniPlans({ snapshot, ids, src }: { snapshot: LoanPlan[]
             <span>تعداد اقساط</span>
             <b>{fa(c.term)}</b>
           </div>
-          <a className="nf-btn nf-btn--secondary nf-btn--block nf-btn--sm" style={{ marginTop: 6 }} href={`/request?plan=${c.id}&term=${c.term}&src=${encodeURIComponent(src)}`}>
+          <a className="nf-btn nf-btn--secondary nf-btn--block nf-btn--sm" style={{ marginTop: 6 }} href={`/request/?plan=${c.id}&term=${c.term}&src=${encodeURIComponent(src)}`}>
             درخواست این طرح
           </a>
         </div>

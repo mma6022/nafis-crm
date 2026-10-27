@@ -31,7 +31,7 @@ export const organizationLd = () => ({
     {
       '@type': 'ContactPoint',
       email: SITE.email,
-      url: absoluteUrl('/contact'),
+      url: absoluteUrl('/contact/'),
       contactType: 'customer service',
       areaServed: 'IR',
       availableLanguage: ['fa'],

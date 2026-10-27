@@ -82,19 +82,19 @@ export const KEYWORD_PAGES = [
 export type NavItem = { href: string; label: string };
 
 export const MAIN_NAV: NavItem[] = [
-  { href: '/plans', label: 'طرح‌ها' },
-  { href: '/calculator', label: 'محاسبه قسط' },
-  { href: '/how-it-works', label: 'مراحل دریافت' },
-  { href: '/blog', label: 'مجله' },
-  { href: '/about', label: 'درباره ما' },
-  { href: '/contact', label: 'تماس' },
+  { href: '/plans/', label: 'طرح‌ها' },
+  { href: '/calculator/', label: 'محاسبه قسط' },
+  { href: '/how-it-works/', label: 'مراحل دریافت' },
+  { href: '/blog/', label: 'مجله' },
+  { href: '/about/', label: 'درباره ما' },
+  { href: '/contact/', label: 'تماس' },
 ];
 
 export const GUIDE_NAV: NavItem[] = [
-  { href: '/calculator', label: 'محاسبه قسط' },
-  { href: '/how-it-works', label: 'مراحل دریافت' },
-  { href: '/faq', label: 'سؤالات متداول' },
-  { href: '/blog', label: 'مجله نفیس' },
+  { href: '/calculator/', label: 'محاسبه قسط' },
+  { href: '/how-it-works/', label: 'مراحل دریافت' },
+  { href: '/faq/', label: 'سؤالات متداول' },
+  { href: '/blog/', label: 'مجله نفیس' },
   { href: SITE.portal, label: 'ورود مشتریان' },
 ];
 
@@ -108,6 +108,20 @@ export const absoluteUrl = (path: string) => {
   const last = u.pathname.split('/').pop() ?? '';
   if (!u.pathname.endsWith('/') && !last.includes('.')) u.pathname += '/';
   return u.toString();
+};
+
+/**
+ * Internal link in the form nginx serves without a 301 (SEO audit 2026-10-27: 237 internal links each cost a redirect).
+ * Pages are `<path>/index.html` and Astro `trailingSlash: 'always'`, so `/contact#callback` → `/contact/#callback` and
+ * `/request?src=x` → `/request/?src=x`. Files whose last segment has an extension (`/rss.xml`), external / protocol-relative
+ * URLs and bare `#hash` / `?query` links are returned unchanged.
+ */
+export const href = (url: string) => {
+  const m = /^(\/(?!\/)[^?#]*)(.*)$/s.exec(url);
+  if (!m) return url;
+  const [, path, rest] = m;
+  const last = path.split('/').pop() ?? '';
+  return path.endsWith('/') || last.includes('.') ? url : `${path}/${rest}`;
 };
 
 /** Current Jalali year in Persian digits, computed at build time (footer «©»). */

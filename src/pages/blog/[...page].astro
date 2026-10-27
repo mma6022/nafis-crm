@@ -14,7 +14,7 @@ export const getStaticPaths = (async ({ paginate }) =>
 const { page } = Astro.props as { page: Page<Post> };
 const crumbs = [
   { name: 'خانه', path: '/' },
-  { name: 'مجله', path: '/blog' },
+  { name: 'مجله', path: '/blog/' },
 ];
 const suffix = page.currentPage > 1 ? ` — صفحه ${toFaDigits(page.currentPage)}` : '';
 import FinalCTA from '../../components/FinalCTA.astro';

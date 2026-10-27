@@ -6,7 +6,7 @@ interface Props {
 }
 const { page } = Astro.props;
 const base = page.url.first ?? page.url.current;
-const href = (n: number) => (n === 1 ? base : `${base.replace(/\/$/, '')}/${n}`);
+const href = (n: number) => (n === 1 ? base : `${base.replace(/\/$/, '')}/${n}/`);
 ---
 
 {page.lastPage > 1 && (

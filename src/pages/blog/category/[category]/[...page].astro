@@ -25,7 +25,7 @@ const category = Astro.params.category as CategoryKey;
 const cat = CATEGORIES[category];
 const crumbs = [
   { name: 'خانه', path: '/' },
-  { name: 'مجله', path: '/blog' },
+  { name: 'مجله', path: '/blog/' },
   { name: cat.label, path: categoryPath(category) },
 ];
 ---

@@ -60,7 +60,7 @@ const via = (p: (typeof list)[number]) => [p.bankName, p.platformName].map((s) =
             <span>روش: {MODE_LABEL[p.processMode] ?? p.processMode}</span>
             {p.documentsNote && <span>مدارک: {p.documentsNote}</span>}
           </p>
-          <a class="nf-btn nf-btn--secondary gp-btn" href={`/request?plan=${p.id}&src=${encodeURIComponent(src + '-guarantee')}`}>درخواست این طرح</a>
+          <a class="nf-btn nf-btn--secondary gp-btn" href={`/request/?plan=${p.id}&src=${encodeURIComponent(src + '-guarantee')}`}>درخواست این طرح</a>
         </li>
       ))}
     </ul>

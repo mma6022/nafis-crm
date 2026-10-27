@@ -18,7 +18,7 @@ const home = (await getCollection('pages', (p) => p.data.slug === '/'))[0]!;
 const faq = home.data.faq.slice(0, 3).map((f) => ({ q: fillFacts(f.q, facts), a: fillFacts(f.a, facts) }));
 const crumbs = [
   { name: 'خانه', path: '/' },
-  { name: 'طرح‌ها', path: '/plans' },
+  { name: 'طرح‌ها', path: '/plans/' },
 ];
 ---
 

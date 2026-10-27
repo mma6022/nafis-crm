@@ -10,9 +10,10 @@ export async function getPosts(): Promise<Post[]> {
   return posts.sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
 }
 
-export const postPath = (p: Post) => `/blog/${p.id}`;
-export const categoryPath = (c: CategoryKey) => `/blog/category/${c}`;
-export const tagPath = (t: string) => `/blog/tag/${tagSlug(t)}`;
+/** page paths end with `/` (trailingSlash 'always'), the form nginx serves without a 301 */
+export const postPath = (p: Post) => `/blog/${p.id}/`;
+export const categoryPath = (c: CategoryKey) => `/blog/category/${c}/`;
+export const tagPath = (t: string) => `/blog/tag/${tagSlug(t)}/`;
 export const categoryLabel = (c: CategoryKey) => CATEGORIES[c].label;
 
 /** Reading time in minutes = words / 200 (designer build_site.py: tags and MDX comments removed, min 1). */

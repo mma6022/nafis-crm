@@ -37,7 +37,7 @@ const src = `blog-${post.id}`.slice(0, 40);
 const minutes = readingMinutes(post.body);
 const crumbs = [
   { name: 'خانه', path: '/' },
-  { name: 'مجله نفیس', path: '/blog' },
+  { name: 'مجله نفیس', path: '/blog/' },
   { name: categoryLabel(d.category), path: categoryPath(d.category) },
 ];
 const ldCrumbs = [...crumbs, { name: d.title, path }];
@@ -152,7 +152,7 @@ const updated = d.updated ?? d.date;
         <section class="sec" aria-labelledby="brel">
           <div class="sec-head">
             <h2 id="brel">مقاله‌های مرتبط</h2>
-            <a class="nf-btn nf-btn--text" href="/blog">همه مقاله‌ها</a>
+            <a class="nf-btn nf-btn--text" href="/blog/">همه مقاله‌ها</a>
           </div>
           <div class="posts">
             {related.map((p) => (

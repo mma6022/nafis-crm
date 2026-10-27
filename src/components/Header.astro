@@ -19,14 +19,18 @@ interface Props {
 const { src = 'page', minimal = false } = Astro.props;
 const facts = planFacts(LOAN_PLANS_SNAPSHOT);
 const path = Astro.url.pathname.replace(/\/$/, '') || '/';
-const cur = (href: string) => (path === href || (href !== '/' && path.startsWith(href + '/')) ? 'page' : undefined);
+/** nav hrefs end with `/` (trailingSlash 'always'); compare without it */
+const cur = (href: string) => {
+  const h = href.replace(/\/$/, '') || '/';
+  return path === h || (h !== '/' && path.startsWith(h + '/')) ? 'page' : undefined;
+};
 const blurb = (b: string) => b.replace('{planCount}', fa(facts.planCount));
 const DD_BLURB: Record<string, string> = { 'vam-ba-chek': 'با ضمانت چک صیادی' };
 const NAV = [
-  { href: '/plans', label: 'طرح‌ها' },
-  { href: '/calculator', label: 'محاسبه قسط' },
-  { href: '/blog', label: 'مجله' },
-  { href: '/about', label: 'درباره ما' },
+  { href: '/plans/', label: 'طرح‌ها' },
+  { href: '/calculator/', label: 'محاسبه قسط' },
+  { href: '/blog/', label: 'مجله' },
+  { href: '/about/', label: 'درباره ما' },
   // «تماس» left the desktop nav (CALLBACK-HANDOFF.md); it stays in the mobile menu and the footer
 ];
 ---
@@ -44,12 +48,12 @@ const NAV = [
             </button>
             <div class="dd-menu" id="dd-svc" hidden>
               {KEYWORD_PAGES.map((k) => (
-                <a href={`/${k.slug}`} aria-current={cur(`/${k.slug}`)}>
+                <a href={`/${k.slug}/`} aria-current={cur(`/${k.slug}`)}>
                   <b>{k.label}</b>
                   <small>{blurb(DD_BLURB[k.slug] ?? k.blurb)}</small>
                 </a>
               ))}
-              <a class="all" href="/services">همه خدمات</a>
+              <a class="all" href="/services/">همه خدمات</a>
             </div>
           </div>
           {NAV.map((n) => (
@@ -64,13 +68,13 @@ const NAV = [
     <a class="tel" {...pickerTrigger('call')} aria-label="تماس با کارشناس" title="تماس با کارشناس"><I name="phone" size={20} /></a>
     {
       !minimal && (
-        <a class="cbk d-only" href="/contact#callback" data-callback={`${src}-header`}>
+        <a class="cbk d-only" href="/contact/#callback" data-callback={`${src}-header`}>
           <I name="callback" size={18} />
           مشاوره‌ی رایگان
         </a>
       )
     }
-    {!minimal && <a class="cta" href={`/request?src=${src}-header`}>درخواست وام</a>}
+    {!minimal && <a class="cta" href={`/request/?src=${src}-header`}>درخواست وام</a>}
     {
       !minimal && (
         <button type="button" class="icon-btn m-only" aria-label="منو" aria-expanded="false" aria-controls="mmenu" id="menu-btn">
@@ -92,20 +96,20 @@ const NAV = [
             <ul>
               {KEYWORD_PAGES.map((k) => (
                 <li>
-                  <a href={`/${k.slug}`}>{k.label}</a>
+                  <a href={`/${k.slug}/`}>{k.label}</a>
                 </li>
               ))}
             </ul>
           </details>
         </li>
-        <li><a href="/calculator">محاسبه قسط</a></li>
-        <li><a href="/how-it-works">مراحل دریافت</a></li>
-        <li><a href="/blog">مجله نفیس</a></li>
-        <li><a href="/about">درباره ما</a></li>
-        <li><a href="/contact">تماس</a></li>
+        <li><a href="/calculator/">محاسبه قسط</a></li>
+        <li><a href="/how-it-works/">مراحل دریافت</a></li>
+        <li><a href="/blog/">مجله نفیس</a></li>
+        <li><a href="/about/">درباره ما</a></li>
+        <li><a href="/contact/">تماس</a></li>
       </ul>
       <div class="mfoot">
-        <a class="nf-btn nf-btn--secondary nf-btn--block" href="/contact#callback" data-callback={`${src}-menu`}><I name="callback" /> درخواست مشاوره‌ی رایگان</a>
+        <a class="nf-btn nf-btn--secondary nf-btn--block" href="/contact/#callback" data-callback={`${src}-menu`}><I name="callback" /> درخواست مشاوره‌ی رایگان</a>
         <a class="nf-btn nf-btn--secondary nf-btn--block" href={SITE.portal}><I name="login" /> ورود مشتریان</a>
         <a class="nf-btn nf-btn--secondary nf-btn--block" {...pickerTrigger('call')}><I name="phone" /> تماس با کارشناس</a>
         {

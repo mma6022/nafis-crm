@@ -1,6 +1,7 @@
 ---
 /** Breadcrumb trail (mockup `.crumbs`); BreadcrumbList JSON-LD is emitted by the page (lib/seo.ts). */
 import type { Crumb } from '../lib/seo';
+import { href } from '../lib/site';
 interface Props {
   items: Crumb[];
 }
@@ -8,5 +9,5 @@ const { items } = Astro.props;
 ---
 
 <ol class="crumbs" aria-label="مسیر">
-  {items.map((c, i) => <li>{i < items.length - 1 ? <a href={c.path}>{c.name}</a> : <span aria-current="page">{c.name}</span>}</li>)}
+  {items.map((c, i) => <li>{i < items.length - 1 ? <a href={href(c.path)}>{c.name}</a> : <span aria-current="page">{c.name}</span>}</li>)}
 </ol>

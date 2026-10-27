@@ -17,7 +17,7 @@ export const getStaticPaths = (async ({ paginate }) => {
 const { page, label } = Astro.props as { page: Page<Post>; label: string };
 const crumbs = [
   { name: 'خانه', path: '/' },
-  { name: 'مجله', path: '/blog' },
+  { name: 'مجله', path: '/blog/' },
   { name: `#${label}`, path: Astro.url.pathname },
 ];
 ---
@@ -26,7 +26,7 @@ const crumbs = [
   title={`برچسب ${label} — مجله`}
   description={`مقالات مجله نفیس وام با برچسب «${label}»: آموزش وام، تسهیلات و اقساط به زبان ساده.`}
   jsonLd={[breadcrumbLd(crumbs)]}
-  noindex={!page.data.some((p) => !p.data.sample && !p.data.draft)}
+  noindex /* SEO audit 2026-10-27: every tag archive is thin / duplicate → noindex (and out of the sitemap, astro.config.mjs) */
 >
   <PageHeader title={`#${label}`} lead="مطالب مرتبط با این برچسب" crumbs={crumbs} />
   <div class="container-nf py-10">

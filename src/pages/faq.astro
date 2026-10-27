@@ -10,7 +10,7 @@ import { fillFacts, planFacts } from '../lib/plans';
 import { breadcrumbLd, faqLd } from '../lib/seo';
 const crumbs = [
   { name: 'خانه', path: '/' },
-  { name: 'سوالات متداول', path: '/faq' },
+  { name: 'سوالات متداول', path: '/faq/' },
 ];
 const facts = planFacts(LOAN_PLANS_SNAPSHOT);
 const groups = FAQ_GROUPS.map((g) => ({ ...g, items: g.items.map((i) => ({ q: fillFacts(i.q, facts), a: fillFacts(i.a, facts) })) }));
