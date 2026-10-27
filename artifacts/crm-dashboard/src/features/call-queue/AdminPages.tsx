@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { ArrowDown, ArrowUp } from 'lucide-react';
-import { cqApi, faClock, faNum, GROUP_FA, useCqConfig, type CqConfig, type QueueGroup } from './api';
+import { cqApi, cqOn, faClock, faNum, GROUP_FA, useCqConfig, type CqConfig, type DsSettings, type QueueGroup } from './api';
 import './call-queue.css';
 
 export function CallQueueSettingsPage() {
@@ -63,5 +63,64 @@ export function CallQueueEventsPage() {
       <small>{[e.reminderSubject ? `یادآور: ${e.reminderSubject}` : '', e.sourceText ? `منبع: «${e.sourceText.slice(0, 80)}»` : '', e.reopenAt ? `باز شدن دوباره ${faClock(e.reopenAt)}` : '', e.nextCallAt ? `ثبت تماس ${faClock(e.nextCallAt)}` : ''].filter(Boolean).join(' · ')}</small>
       {e.kind === 'p1_no_answer_3' && !e.seenAt ? <button type="button" className="btn btn-ghost sm" onClick={() => void cqApi.seen(e.id).then(() => ev.refetch())} data-testid="cq-ev-seen">دیدم</button> : null}
     </article>)}
+  </div>;
+}
+
+const DS_FIELDS: { key: Exclude<keyof DsSettings, 'transferMode' | 'excludedReceivers'>; label: string; unit: string }[] = [
+  { key: 'onTimeMin', label: 'پنجره‌ی «به‌موقع» بعد از برگشت به CRM', unit: 'دقیقه' },
+  { key: 'onTimeCapMin', label: 'سقف «به‌موقع» وقتی برگشتی ثبت نشد', unit: 'دقیقه' },
+  { key: 'newPct', label: 'حد گزارش به‌موقع برای گرفتن مشتری تازه (بالای)', unit: '٪' },
+  { key: 'newMaxOverdue', label: 'حد یادآور عقب‌افتاده برای مشتری تازه (کمتر از)', unit: 'مورد' },
+  { key: 'restrictOverdue', label: 'پنل محدود بالای', unit: 'یادآور عقب‌افتاده' },
+  { key: 'alertDays', label: 'هشدار به مدیر بعد از', unit: 'روز کاری پشت سر هم' },
+  { key: 'wReport', label: 'وزن گزارش به‌موقع', unit: 'امتیاز' },
+  { key: 'wOverdue', label: 'وزن یادآور عقب‌افتاده', unit: 'امتیاز' },
+  { key: 'wNocall', label: 'کسر برای هر «مشغولم» بدون تماس بعدی', unit: 'امتیاز' },
+  { key: 'dropPct', label: 'سیگنال افت تماس CRM (نسبت به ۵ روز کاری قبل)', unit: '٪' },
+];
+const DS_KEY_FA: Record<string, string> = Object.fromEntries(DS_FIELDS.map((f) => [f.key, f.label]));
+
+/** R2 «نظم پیگیری» — manager page: team table, daily digest signals, settings (display only; no money effect). */
+export function CallQueueDisciplinePage() {
+  const cfg = useCqConfig().data; const qc = useQueryClient();
+  const [date, setDate] = useState('');
+  const team = useQuery({ queryKey: ['call-queue', 'discipline', 'team'], queryFn: cqApi.teamDiscipline, enabled: !!cfg?.manager, retry: false, refetchInterval: 120_000 });
+  const sig = useQuery({ queryKey: ['call-queue', 'signals', date], queryFn: () => cqApi.signals(date || undefined), enabled: !!cfg?.manager && Boolean(cfg?.flags?.signals), retry: false });
+  const ds = useQuery({ queryKey: ['call-queue', 'ds-settings'], queryFn: cqApi.dsSettings, enabled: !!cfg?.manager, retry: false });
+  const [draft, setDraft] = useState<DsSettings | null>(null); const [msg, setMsg] = useState(''); const [err, setErr] = useState('');
+  useEffect(() => { if (ds.data && !draft) setDraft(ds.data.settings); }, [ds.data, draft]);
+  if (cfg && !cfg.manager) return <div className="cq-page"><p role="alert">این صفحه فقط برای مدیر است.</p></div>;
+  const save = async (reset = false) => {
+    if (!draft) return; setErr(''); setMsg('');
+    try { const r = await cqApi.saveDs(reset ? { reset: true } : draft); setMsg(r.changed ? `${faNum(r.changed)} تنظیم ذخیره شد و در گزارش تغییرات ثبت شد.` : 'تغییری نبود.');
+      setDraft(null); void qc.invalidateQueries({ queryKey: ['call-queue'] }); } catch (e) { setErr(e instanceof Error ? e.message : 'ذخیره نشد.'); }
+  };
+  const t = team.data;
+  return <div className="cq-page" data-testid="cq-discipline-page"><h1>نظم پیگیری تیم</h1>
+    <p className="cq-rule">فقط برای دیدن است؛ هیچ اثری روی حقوق یا پورسانت ندارد.</p>
+    {t && !t.enabled ? <p data-testid="cq-ds-off">«امتیاز نظم پیگیری» هنوز فعال نشده است.</p> : null}
+    {t?.enabled ? <table className="cq-table" data-testid="cq-ds-team"><thead><tr><th>کارشناس</th><th>امتیاز امروز</th><th>به‌موقع</th><th>عقب‌افتاده</th><th>«مشغولم» بی‌تماس</th><th>مشتری تازه</th><th>روز پشت سر هم</th></tr></thead>
+      <tbody>{t.experts.map((e) => <tr key={e.userId} className={e.today.ok ? '' : 'out'} data-testid="cq-ds-row">
+        <td>{e.name}{e.restricted ? <span className="cq-urgent">پنل محدود</span> : null}</td><td><b>{faNum(e.today.score)}</b></td>
+        <td>{e.today.onTimePct == null ? '—' : `${faNum(e.today.onTimePct)}٪`} <small>({faNum(e.today.onTime)}/{faNum(e.today.crmCalls)})</small></td>
+        <td>{faNum(e.today.overdue)}</td><td>{faNum(e.today.nocall)}</td><td>{e.today.ok ? 'بله' : 'نه'}</td><td>{e.streak ? faNum(e.streak) : '—'}</td></tr>)}</tbody></table> : null}
+    {cfg?.flags?.signals ? <section className="cq-group" data-testid="cq-signals"><h2>سیگنال‌های گزارش روزانه</h2>
+      <label>روز (میلادی، خالی = روز کاری قبل) <input dir="ltr" value={date} onChange={(e) => setDate(e.target.value.replace(/[^0-9-]/g, '').slice(0, 10))} placeholder="YYYY-MM-DD" data-testid="cq-signals-date" /></label>
+      {sig.data?.enabled ? <><p className="cq-hint">{sig.data.workday ? '' : 'این روز تعطیل است؛ سیگنالی حساب نمی‌شود. '}{sig.data.note}</p>
+        {sig.data.items.length ? sig.data.items.map((i, n) => <article key={n} className={`cq-ev k-${i.kind}`} data-testid="cq-signal-row"><span className="cq-gtag">{i.kind === 'signal_crm_drop' ? 'افت تماس از CRM' : 'ثبت دستی بدون تماس CRM'}</span> {i.name} · {i.customerId ? <Link href={`/customers/${i.customerId}`}>{i.customerName}</Link> : null} {i.text}</article>)
+          : <p className="cq-empty">سیگنالی نیست.</p>}</> : null}
+    </section> : null}
+    {draft && ds.data ? <section className="cq-group" data-testid="cq-ds-settings"><h2>تنظیمات نظم پیگیری</h2>
+      {DS_FIELDS.map((f) => { const [lo, hi] = ds.data.ranges[f.key] ?? [0, 1000]; return <label key={f.key} className="cq-set-row">{f.label}
+        <input type="number" min={lo} max={hi} value={draft[f.key]} onChange={(e) => setDraft({ ...draft, [f.key]: Number(e.target.value) })} data-testid={`cq-ds-${f.key}`} /> <small>{f.unit} · پیش‌فرض {faNum(ds.data.defaults[f.key])}</small></label>; })}
+      <label className="cq-set-row">بررسی هنگام تحویل مشتری
+        <select value={draft.transferMode} onChange={(e) => setDraft({ ...draft, transferMode: e.target.value as DsSettings['transferMode'] })} data-testid="cq-ds-transferMode"><option value="warn">فقط هشدار</option><option value="block">جلوگیری (با دلیل برای عبور)</option></select></label>
+      <label className="cq-set-row">کاربرانی که مشتری تحویل نمی‌گیرند (شناسه‌ی کاربر، با ویرگول)
+        <input dir="ltr" value={draft.excludedReceivers.join(',')} onChange={(e) => setDraft({ ...draft, excludedReceivers: e.target.value.split(/[,، ]+/).map(Number).filter((n) => n > 0) })} data-testid="cq-ds-excluded" /></label>
+      <p className="cq-hint">وزن گزارش به‌موقع + وزن یادآور عقب‌افتاده باید ۱۰۰ شود. سقف «به‌موقع» نباید از پنجره کمتر باشد.</p>
+      {err ? <p className="cq-err" role="alert" data-testid="cq-ds-err">{err}</p> : null}{msg ? <p role="status" data-testid="cq-ds-msg">{msg}</p> : null}
+      <div className="cq-actions"><button type="button" className="btn btn-primary" onClick={() => void save()} data-testid="cq-ds-save">ذخیره</button><button type="button" className="btn btn-ghost" onClick={() => void save(true)} data-testid="cq-ds-reset">بازگشت به پیش‌فرض</button></div>
+      {ds.data.log.length ? <details><summary>گزارش تغییرات</summary><ul>{ds.data.log.slice(0, 30).map((l) => <li key={l.id}>{faClock(l.at)} · {DS_KEY_FA[l.key.replace(/^ds\./, '')] ?? l.key}: {l.oldValue ?? '—'} ← {l.newValue}</li>)}</ul></details> : null}
+    </section> : null}
   </div>;
 }

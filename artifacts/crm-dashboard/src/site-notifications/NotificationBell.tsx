@@ -1,4 +1,5 @@
 import { CustomerName, customerNameText } from '@/components/customer/CustomerName';
+import { cqDial } from '@/features/call-queue/api';
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AlarmClock, Inbox, Phone, Star, X } from 'lucide-react';
@@ -213,6 +214,9 @@ function ProviderInner({ children }: { children: ReactNode }) {
                   const phone = await customerPhone(n.customerId);
                   if (!phone) { openItem(n).catch(() => setToastError('باز کردن پرونده انجام نشد.')); return; }
                   markNotificationRead(n.id).then(() => applyRead(n), () => applyRead(n));
+                  // crm-call-queue R2 «قفل تماس»: through the CRM-button call when the lock is ON (untouched while OFF).
+                  const cq = await cqDial(n.customerId, 'bell');
+                  if (cq) { if (!cq.ok) setToastError(cq.error); return; }
                   window.location.href = `tel:${phone}`;
                 })(); }} data-testid={`button-toast-call-${n.id}`}><Phone size={16} /> تماس</button>
                 <button type="button" className="sn-p1-open" onClick={() => { setToastError(''); openItem(n).catch((e) => setToastError(e instanceof Error ? e.message : 'باز کردن اعلان انجام نشد.')); }} data-testid={`button-toast-open-${n.id}`}>پرونده</button>

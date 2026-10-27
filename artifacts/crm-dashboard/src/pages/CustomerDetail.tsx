@@ -1,5 +1,5 @@
 import { ArrowUp, AlertCircle, ArrowRight, Check, ChevronLeft, Copy, FileText, Flag, Gauge, History, Layers, Lock, MessageSquarePlus, Pencil, Phone, PhoneCall, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, Wallet, X } from 'lucide-react';
-import { announceCallSaved } from '@/features/call-queue/api';
+import { announceCallSaved, cqTelClick } from '@/features/call-queue/api';
 import { CustomerIntroLog } from '@/features/expert-intro-sms/CustomerIntroLog';
 import { CustomerAnnotations } from '@/features/lead-annotator/CustomerAnnotations';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
@@ -488,7 +488,7 @@ export default function CustomerDetail() {
     </div>
     <div className="acts">
       {showSimpleForm ? <button type="button" className="csx-call" onClick={() => setSimpleFormOpen(true)} data-testid="button-ts-simple-form"><PhoneCall size={20} /> تماس و فرم</button>
-        : canCallsCreate || isAdmin ? <a className="csx-call" href={`tel:${customer.phone}`} data-testid="link-call-customer"><PhoneCall size={20} /> تماس</a> : null}
+        : canCallsCreate || isAdmin ? <a className="csx-call" href={`tel:${customer.phone}`} onClick={(e) => { cqTelClick(e, customer.id, 'customer', setToast); }} data-testid="link-call-customer"><PhoneCall size={20} /> تماس</a> : null}
       {showUpgrade && showsUpgradeButton(tsConfig.data, session.data?.user, customer) ? <button type="button" className="ts-up-btn hero" onClick={() => setUpgradeOpen(true)} data-testid="button-ts-upgrade-hero"><ArrowUp size={18} aria-hidden="true" /> ارتقا به اولویت ۱</button> : null}
       {canUpdate ? <button type="button" className="csx-ghost" onClick={() => setEditing(true)} data-testid="button-toggle-customer-edit" aria-haspopup="dialog"><Pencil size={18} /> ویرایش</button> : null}
       {canNewLoan ? <Link href={loanWizardHref(customer.id)} className="csx-primary wide" data-testid="button-new-loan-from-customer"><Plus size={20} /> درخواست تسهیلات جدید</Link> : null}

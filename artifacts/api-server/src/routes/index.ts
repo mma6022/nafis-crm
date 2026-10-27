@@ -46,6 +46,7 @@ import callQueueRouter from "./call-queue";
 import { ensureCallQueueSchema } from "../lib/call-queue";
 import defaultOwnerRouter from "./default-owner";
 import leadAnnotatorRouter from "./lead-annotator";
+import { startCallQueueJobs } from "../lib/call-queue-r2";
 import { ensureTeamSalesSchema } from "../lib/team-sales";
 import teamCommissionRouter from "./team-commission";
 import staffWalletRouter from "./staff-wallet";
@@ -57,6 +58,8 @@ startDatabaseBackupScheduler();
 ensureTeamSalesSchema();
 // crm-call-queue R1: additive columns/tables, every flag seeded OFF.
 ensureCallQueueSchema();
+// R2: daily discipline snapshot / 3-workday alerts; does nothing while flag.discipline is OFF.
+startCallQueueJobs();
 startInstagramWorker();
 
 router.use(healthRouter);

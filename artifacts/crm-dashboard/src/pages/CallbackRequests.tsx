@@ -1,4 +1,5 @@
 import { CustomerIdBadge } from '@/components/customer/CustomerName';
+import { cqTelClick } from '@/features/call-queue/api';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
@@ -208,7 +209,7 @@ function CallbackCard({ item, meta, selected, shownPhone, calledPrompt, busy, on
         <button type="button" className="cbx-more small" onClick={onOpen} data-testid={`button-open-${item.id}`}>جزئیات</button>
       </> : <div className="acts">
         {item.phone
-          ? <a className="cbx-call" href={`tel:${item.phone}`} onClick={onCall} data-testid={`link-tel-${item.id}`}><Phone size={22} aria-hidden="true" />تماس</a>
+          ? <a className="cbx-call" href={`tel:${item.phone}`} onClick={(e) => { cqTelClick(e, item.customerId, 'callback'); onCall(); }} data-testid={`link-tel-${item.id}`}><Phone size={22} aria-hidden="true" />تماس</a>
           : <span className="cbx-call is-off" aria-disabled="true"><Phone size={22} aria-hidden="true" />شماره در دسترس شما نیست</span>}
         <button type="button" className="cbx-more" onClick={onOpen} data-testid={`button-open-${item.id}`}>جزئیات{item.notesCount > 0 && <span className="n">{fa(item.notesCount)}</span>}</button>
       </div>}
@@ -278,7 +279,7 @@ function CallbackDetail({ item, meta, wide, assignees, busy, run, say, onClose, 
               <b dir="ltr">{item.phone ? fmtPhone(item.phone) : fa(item.phoneMasked)}</b>
               {item.phone && <button type="button" className="cbx-ib" onClick={copy} aria-label="کپی شماره" data-testid="button-copy-phone"><Copy size={22} /></button>}
             </div>
-            {item.phone && item.status !== 'cancelled' && <a className="nf-btn nf-btn-primary cbx-bigcall" href={`tel:${item.phone}`} onClick={onCall} data-testid="link-tel-detail">
+            {item.phone && item.status !== 'cancelled' && <a className="nf-btn nf-btn-primary cbx-bigcall" href={`tel:${item.phone}`} onClick={(e) => { cqTelClick(e, item.customerId, 'callback'); onCall(); }} data-testid="link-tel-detail">
               <PhoneCall size={20} aria-hidden="true" /> تماس با {firstName(item.name)}</a>}
             <dl className="dl">
               <dt>زمان درخواستی</dt><dd>{CONTACT_TIME_FA[item.contactTime]}</dd>

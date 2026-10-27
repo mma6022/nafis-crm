@@ -20,8 +20,8 @@ import { normalizeDigits, validateIranianNationalCode } from '@/lib/customer-fie
 import { VoiceNoteButton } from '@/features/voice-notes/VoiceNoteButton';
 import { saveQuickCreditNationalCode, useConsultProfile, type Military } from '@/features/team-sales/api';
 import { Choice, faDigits, formatToman, TomanInput, WizardProgress } from '@/components/plans-consult/parts';
-import { cqApi, cqOn, useCqConfig } from '@/features/call-queue/api';
-import { CqResultFields, cqResultError, emptyCqResult } from '@/features/call-queue/ResultFields';
+import { cqApi, cqLockActive, cqOn, useCqConfig } from '@/features/call-queue/api';
+import { CqManualType, CqResultFields, cqResultError, emptyCqResult } from '@/features/call-queue/ResultFields';
 
 type CallFormProps = {
   customers: { id: number; name: string; phone: string; salespersonName?: string | null; priority?: number | null; status?: string; nationalCode?: string | null; postalCode?: string | null; birthDateJalali?: string | null; verificationStatus?: string; isUrgent?: boolean }[];
@@ -80,6 +80,11 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
   const cqPre = useQuery({ queryKey: ['call-queue', 'pre-call', Number(form.customerId) || 0], queryFn: () => cqApi.preCall(Number(form.customerId)), enabled: cqPreOn && !!Number(form.customerId), retry: false, staleTime: 15_000 }).data;
   const [cqVal, setCqVal] = useState(emptyCqResult);
   const [cqShowErr, setCqShowErr] = useState(false);
+  // R2 «قفل تماس»: without an open CRM-button call for this customer the expert picks حضوری / بله.
+  const cqLock = cqLockActive(cqCfg);
+  const cqPend = useQuery({ queryKey: ['call-queue', 'pending'], queryFn: cqApi.pending, enabled: cqLock, retry: false }).data;
+  const cqNeedManual = cqLock && cqPend?.pending?.customerId !== (Number(form.customerId) || 0);
+  const [cqManual, setCqManual] = useState('');
   const selectCustomer = (customer: CallCustomer) => {
     setPickedCustomer(customer);
     setCustomerSelectionError(false);
@@ -144,7 +149,7 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
     if (!form.customerId) { setCustomerSelectionError(true); return null; }
     if (cqResultOn) {
       // With «نتیجه‌ی تماس» on, the one-line note is the required part and «یادداشت کارشناس» becomes optional.
-      if (cqResultError(cqVal)) { setCqShowErr(true); (document.querySelector('[data-testid="cq-result"] [aria-invalid="true"], [data-testid="cq-result"] .cq-chip:not(:disabled)') as HTMLElement | null)?.focus(); return null; }
+      if (cqResultError(cqVal) || (cqNeedManual && !cqManual)) { setCqShowErr(true); (document.querySelector('[data-testid="cq-result"] [aria-invalid="true"], [data-testid="cq-result"] .cq-chip:not(:disabled)') as HTMLElement | null)?.focus(); return null; }
       setCqShowErr(false);
     } else {
     // crm-call-note-min: «یادداشت کارشناس» trimmed must be >= 10 characters.
@@ -175,6 +180,7 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
         birthDateJalali: form.birthDateJalali.trim() || null,
       },
       ...(cqResultOn ? { outcome: cqVal.outcome, oneLineNote: cqVal.oneLine.trim(), followUpAt: cqVal.outcome === 'follow_up' ? cqVal.followUpAt : undefined } : {}),
+      ...(cqNeedManual ? { manualType: cqManual } : {}),
     } as CallInput;
   };
   const submit = (event: FormEvent) => {
@@ -292,6 +298,7 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
                 <VoiceNoteButton value={form.customerRequest} onChange={(v) => update('customerRequest', v)} field="call_note" testId="call-request-voice"><textarea id="call-request" value={form.customerRequest} onChange={(event) => update('customerRequest', event.target.value)} data-testid="textarea-call-request" /></VoiceNoteButton>
               </div>
               {cqResultOn ? <CqResultFields value={cqVal} onChange={setCqVal} showErrors={cqShowErr} pre={cqPre} /> : cqPre?.due?.length ? <CqResultFields.PreOnly pre={cqPre} /> : null}
+              {cqNeedManual ? <CqManualType value={cqManual} onChange={setCqManual} showError={cqShowErr} idPrefix="call-mt" /> : null}
               <div className="field call-grow call-grow-lg">
                 <label htmlFor="call-notes">یادداشت کارشناس {cqResultOn ? <span className="cq-opt">(اختیاری)</span> : <span className="req" aria-hidden="true">*</span>}</label>
                 <VoiceNoteButton value={form.expertNotes} onChange={(v) => update('expertNotes', v)} field="call_note" testId="call-notes-voice"><textarea id="call-notes" value={form.expertNotes} onChange={(event) => update('expertNotes', event.target.value)} aria-invalid={!cqResultOn && noteError && !callNoteOk(form.expertNotes)} aria-describedby="call-notes-meta" aria-required={!cqResultOn} data-testid="textarea-call-notes" /></VoiceNoteButton>

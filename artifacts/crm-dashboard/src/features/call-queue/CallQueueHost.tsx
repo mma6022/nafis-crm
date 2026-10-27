@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BellRing, Phone, Send, Sparkles, X } from 'lucide-react';
-import { CqResultFields, cqResultError, emptyCqResult, type CqResultValue } from './ResultFields';
-import { cqApi, cqOn, CQ_SAVED_EVENT, faClock, faNum, faWhen, useCqConfig, type AfterSave, type CqConfig, type CqReminder } from './api';
+import { CqManualType, CqResultFields, cqResultError, emptyCqResult, type CqResultValue } from './ResultFields';
+import { cqApi, cqDial, cqLockActive, cqOn, cqSetConfigCache, cqTelClick, CQ_PENDING_EVENT, CQ_SAVED_EVENT, faClock, faNum, faWhen, useCqConfig, type AfterSave, type CqConfig, type CqPending, type CqReminder } from './api';
 import './call-queue.css';
 
 /** Toast text per spec §4 (sv_both / sv_closed / sv_new / sv_na). */
@@ -25,6 +25,7 @@ type Card = { key: string; kind: 'toast' | 'suggest' | 'bale'; a: AfterSave & { 
 /** Mounted once in CrmShell. Renders nothing while every call-queue flag is OFF. */
 export function CallQueueHost({ onModalActive }: { onModalActive?: (active: boolean) => void }) {
   const cfg = useCqConfig().data;
+  cqSetConfigCache(cfg);
   const anyOn = Boolean(cfg?.eligible && (cfg.flags.result || cfg.flags.autoclose || cfg.flags.assistant_reminders));
   const [cards, setCards] = useState<Card[]>([]);
   const drop = (key: string) => setCards((cs) => cs.filter((c) => c.key !== key));
@@ -46,7 +47,26 @@ export function CallQueueHost({ onModalActive }: { onModalActive?: (active: bool
     return () => window.removeEventListener(CQ_SAVED_EVENT, on);
   }, [anyOn]);
   const modalOn = Boolean(cfg && cqOn(cfg, 'modal') && cfg.flags.result && cfg.flags.autoclose);
-  useEffect(() => { onModalActive?.(modalOn); }, [modalOn, onModalActive]);
+  const lockOn = cqLockActive(cfg);
+  const pendingQ = useQuery({ queryKey: ['call-queue', 'pending'], queryFn: cqApi.pending, enabled: lockOn, refetchInterval: 30_000, retry: false, refetchOnWindowFocus: true });
+  const pending = lockOn && pendingQ.data?.enabled ? pendingQ.data.pending : null;
+  useEffect(() => {
+    if (!lockOn) return;
+    const on = () => void pendingQ.refetch();
+    window.addEventListener(CQ_PENDING_EVENT, on); window.addEventListener(CQ_SAVED_EVENT, on);
+    return () => { window.removeEventListener(CQ_PENDING_EVENT, on); window.removeEventListener(CQ_SAVED_EVENT, on); };
+  }, [lockOn, pendingQ]);
+  // A page load / refresh with an open CRM call counts as the first return to the CRM.
+  const returnedSent = useRef(0);
+  useEffect(() => {
+    if (pending && !pending.returnedAt && returnedSent.current !== pending.callId && Date.now() - Date.parse(pending.linkIssuedAt) > 3000) {
+      returnedSent.current = pending.callId; void cqApi.returned(pending.callId).then(() => pendingQ.refetch()).catch(() => {});
+    }
+  }, [pending, pendingQ]);
+  const dueQ = useQuery({ queryKey: ['call-queue', 'due'], queryFn: cqApi.due, enabled: modalOn, refetchInterval: 30_000, retry: false });
+  const dueCur = modalOn && dueQ.data?.enabled ? dueQ.data.items[0] : undefined;
+  const pendingCovered = Boolean(pending && dueCur && dueCur.customerId === pending.customerId);
+  useEffect(() => { onModalActive?.(modalOn || Boolean(pending)); }, [modalOn, pending, onModalActive]);
   if (!cfg?.eligible) return null;
   return <>
     {cards.length ? <div className="cq-stack" aria-live="polite" data-testid="cq-stack">
@@ -55,7 +75,8 @@ export function CallQueueHost({ onModalActive }: { onModalActive?: (active: bool
         : c.kind === 'suggest' ? <SuggestCard key={c.key} a={c.a} onDone={() => drop(c.key)} />
         : <BaleCard key={c.key} a={c.a} text={c.text} onDone={() => drop(c.key)} />)}
     </div> : null}
-    {modalOn ? <DueModal cfg={cfg} /> : null}
+    {modalOn ? <DueModal cfg={cfg} pending={pending} /> : null}
+    {pending && !pendingCovered ? <PendingModal key={pending.callId} cfg={cfg} p={pending} onSaved={() => { void pendingQ.refetch(); }} /> : null}
   </>;
 }
 
@@ -95,7 +116,7 @@ function BaleCard({ a, text, onDone }: { a: AfterSave & { found: true }; text: s
 }
 
 /* ---------------- Blocking due-reminder modal (spec §7) ---------------- */
-function DueModal({ cfg }: { cfg: CqConfig }) {
+function DueModal({ cfg, pending }: { cfg: CqConfig; pending: CqPending | null }) {
   const qc = useQueryClient();
   const due = useQuery({ queryKey: ['call-queue', 'due'], queryFn: cqApi.due, refetchInterval: 30_000, retry: false });
   const items = due.data?.enabled ? due.data.items : [];
@@ -112,9 +133,11 @@ function DueModal({ cfg }: { cfg: CqConfig }) {
     return () => window.clearTimeout(h);
   }, [snoozed, due]);
   useEffect(() => { if (!items.length) setDoneCount(0); }, [items.length]);
+  // R2 lock: an open CRM call for another customer must be reported first (PendingModal shows instead of this one).
+  if (pending && cur && cur.customerId !== pending.customerId) return null;
   return <>
     {snoozed.length && !cur ? <SnoozeBar r={snoozed[0]} /> : null}
-    {cur ? <DueDialog key={cur.id} r={cur} index={doneCount + 1} total={total} lastToast={lastToast} cfg={cfg}
+    {cur ? <DueDialog key={cur.id} r={cur} startInForm={Boolean(pending && pending.customerId === cur.customerId)} index={doneCount + 1} total={total} lastToast={lastToast} cfg={cfg}
       onSaved={(t) => { setDoneCount((n) => n + 1); setLastToast(t); void qc.invalidateQueries({ queryKey: ['call-queue'] }); void due.refetch(); }}
       onSnoozed={() => void due.refetch()} /> : null}
   </>;
@@ -126,7 +149,7 @@ function SnoozeBar({ r }: { r: CqReminder }) {
   const left = Math.max(0, Math.ceil((Date.parse(r.snoozeUntil ?? '') - Date.now()) / 60_000));
   return <div className="cq-snoozebar" role="status" data-testid="cq-snoozebar">
     <BellRing size={16} aria-hidden="true" /> یادآور {r.customerName} ۱۰ دقیقه عقب افتاد · ساعت {r.snoozeUntil ? faClock(r.snoozeUntil) : ''} دوباره باز می‌شود · {faNum(left)} دقیقه مانده
-    {r.phone ? <a className="btn btn-primary sm" href={`tel:${r.phone}`} data-testid="cq-snooze-callnow">الان تماس می‌گیرم</a> : null}
+    {r.phone ? <a className="btn btn-primary sm" href={`tel:${r.phone}`} onClick={(e) => { cqTelClick(e, r.customerId, 'snooze'); }} data-testid="cq-snooze-callnow">الان تماس می‌گیرم</a> : null}
   </div>;
 }
 
@@ -135,12 +158,17 @@ function useInertBackground(active: boolean) {
     if (!active) return;
     const root = document.getElementById('root'); if (!root) return;
     root.setAttribute('inert', ''); root.setAttribute('aria-hidden', 'true');
-    return () => { root.removeAttribute('inert'); root.removeAttribute('aria-hidden'); };
+    // Mobile overlap fix: body-level overlays (DND bar, legacy popups) hide while a call-queue modal is open (call-queue.css).
+    document.body.classList.add('cq-lock-open');
+    return () => { root.removeAttribute('inert'); root.removeAttribute('aria-hidden'); document.body.classList.remove('cq-lock-open'); };
   }, [active]);
 }
 
-function DueDialog({ r, index, total, lastToast, cfg, onSaved, onSnoozed }: { r: CqReminder; index: number; total: number; lastToast: string; cfg: CqConfig; onSaved: (toast: string) => void; onSnoozed: () => void }) {
-  const [stage, setStage] = useState<'ask' | 'form'>('ask');
+function DueDialog({ r, index, total, lastToast, cfg, onSaved, onSnoozed, startInForm }: { startInForm?: boolean; r: CqReminder; index: number; total: number; lastToast: string; cfg: CqConfig; onSaved: (toast: string) => void; onSnoozed: () => void }) {
+  const [stage, setStage] = useState<'ask' | 'form'>(startInForm ? 'form' : 'ask');
+  const pendQ = useQuery({ queryKey: ['call-queue', 'pending'], queryFn: cqApi.pending, enabled: cqLockActive(cfg), retry: false });
+  const needManual = cqLockActive(cfg) && pendQ.data?.pending?.customerId !== r.customerId;
+  const [manual, setManual] = useState('');
   const [val, setVal] = useState<CqResultValue>(emptyCqResult); const [showErr, setShowErr] = useState(false);
   const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [shake, setShake] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null); const callRef = useRef<HTMLAnchorElement>(null);
@@ -162,11 +190,11 @@ function DueDialog({ r, index, total, lastToast, cfg, onSaved, onSnoozed }: { r:
     try { await cqApi.snooze(r.id); onSnoozed(); } catch (e) { setErr(e instanceof Error ? e.message : 'انجام نشد.'); } finally { setBusy(false); }
   };
   const save = async () => {
-    if (cqResultError(val)) { setShowErr(true); return; }
+    if (cqResultError(val) || (needManual && !manual)) { setShowErr(true); return; }
     setBusy(true); setErr('');
     try {
       const saved = await cqApi.createCall({ customerId: r.customerId, salespersonId: cfg.salespersonId, subject: r.subject || 'پیگیری یادآور', customerRequest: '', expertNotes: val.oneLine.trim(),
-        outcome: val.outcome, oneLineNote: val.oneLine.trim(), followUpAt: val.outcome === 'follow_up' ? val.followUpAt : undefined });
+        outcome: val.outcome, oneLineNote: val.oneLine.trim(), followUpAt: val.outcome === 'follow_up' ? val.followUpAt : undefined, ...(needManual ? { manualType: manual } : {}) });
       const a = await cqApi.afterSave(saved.id).catch(() => null);
       // the modal shows its own «ثبت شد» line; the host still gets the event so assistant suggestions / Bale cards appear
       window.dispatchEvent(new CustomEvent(CQ_SAVED_EVENT, { detail: { callId: saved.id, noToast: true } }));
@@ -188,16 +216,69 @@ function DueDialog({ r, index, total, lastToast, cfg, onSaved, onSnoozed }: { r:
       </div>
       <p id="cq-lock-d" className={`cq-lock-desc${shake ? ' shake' : ''}`}>این پنجره بسته نمی‌شود تا تماس را بگیری و نتیجه و یادداشتش را ثبت کنی. اگر همین حالا روی تماس دیگری هستی، فقط یک بار می‌توانی ۱۰ دقیقه عقبش بیندازی.</p>
       {stage === 'ask' ? <div className="cq-lock-actions">
-        <a ref={callRef} className="btn btn-primary cq-big" href={r.phone ? `tel:${r.phone}` : undefined} onClick={(e) => { if (!r.phone) e.preventDefault(); setStage('form'); }} data-testid="cq-due-call"><Phone size={17} aria-hidden="true" /> تماس با {r.customerName}</a>
+        <a ref={callRef} className="btn btn-primary cq-big" href={r.phone ? `tel:${r.phone}` : undefined} onClick={(e) => { if (!r.phone) { e.preventDefault(); setStage('form'); return; }
+          if (cqTelClick(e, r.customerId, 'due', (m) => setErr(m))) { setStage('form'); return; } setStage('form'); }} data-testid="cq-due-call"><Phone size={17} aria-hidden="true" /> تماس با {r.customerName}</a>
         <button type="button" className="btn btn-ghost" disabled={busy} aria-disabled={r.snoozeUsed || undefined} aria-describedby="cq-busy-d" onClick={() => void snooze()} data-testid="cq-due-snooze">مشغول تماس دیگه‌ام</button>
         <small id="cq-busy-d" className="cq-hint">{r.snoozeUsed ? 'یک بار ۱۰ دقیقه عقب انداختی. برای این یادآور دوباره نمی‌شود؛ حالا فقط تماس.' : '۱۰ دقیقه · فقط یک بار برای این یادآور · در گزارش مدیر ثبت می‌شود'}</small>
       </div> : <div className="cq-lock-form" data-testid="cq-due-form">
         <CqResultFields value={val} onChange={setVal} showErrors={showErr} pre={pre} idPrefix="cq-lk" />
+        {needManual ? <CqManualType value={manual} onChange={setManual} showError={showErr} idPrefix="cq-lk-mt" /> : null}
         {naNext ? <p className="cq-hint" data-testid="cq-due-na-next">یادآور بعدی ساخته می‌شود: {pre!.naAttemptIfNoAnswer === 1 ? '۴ ساعت بعد' : '۲۴ ساعت بعد'} (ساعت کاری)</p> : null}
         <div className="cq-lock-actions"><button type="button" className="btn btn-primary cq-big" disabled={busy} onClick={() => void save()} data-testid="cq-due-save">{busy ? 'در حال ثبت…' : 'ثبت نتیجه'}</button>
-          {r.phone ? <a className="btn btn-ghost" href={`tel:${r.phone}`} data-testid="cq-due-recall"><Phone size={15} aria-hidden="true" /> دوباره تماس</a> : null}</div>
+          {r.phone ? <a className="btn btn-ghost" href={`tel:${r.phone}`} onClick={(e) => { cqTelClick(e, r.customerId, 'due', (m) => setErr(m)); }} data-testid="cq-due-recall"><Phone size={15} aria-hidden="true" /> دوباره تماس</a> : null}</div>
       </div>}
       {err ? <p className="cq-err" role="alert" data-testid="cq-due-error">{err}</p> : null}
+    </div>
+  </div>, document.body);
+}
+
+/* ---------------- R2 «قفل تماس»: the report of the open CRM call (survives refresh; no close) ---------------- */
+function PendingModal({ cfg, p, onSaved }: { cfg: CqConfig; p: CqPending; onSaved: () => void }) {
+  const qc = useQueryClient();
+  const [val, setVal] = useState<CqResultValue>(emptyCqResult); const [showErr, setShowErr] = useState(false);
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [shake, setShake] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const pre = useQuery({ queryKey: ['call-queue', 'pre-call', p.customerId], queryFn: () => cqApi.preCall(p.customerId), retry: false }).data;
+  const [, tick] = useState(0);
+  useEffect(() => { const h = window.setInterval(() => tick((n) => n + 1), 20_000); return () => window.clearInterval(h); }, []);
+  useInertBackground(true);
+  useEffect(() => { (boxRef.current?.querySelector('[role="radio"]') as HTMLElement | null)?.focus(); }, []);
+  const onKey = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setShake(true); window.setTimeout(() => setShake(false), 450); return; }
+    if (e.key !== 'Tab') return;
+    const els = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex="0"]')).filter((x) => x.getClientRects().length > 0);
+    const first = els[0], last = els[els.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+  }, []);
+  const save = async () => {
+    if (cqResultError(val)) { setShowErr(true); return; }
+    setBusy(true); setErr('');
+    try {
+      const saved = await cqApi.createCall({ customerId: p.customerId, salespersonId: cfg.salespersonId, subject: 'تماس از دکمه‌ی CRM', customerRequest: '', expertNotes: val.oneLine.trim(),
+        outcome: val.outcome, oneLineNote: val.oneLine.trim(), followUpAt: val.outcome === 'follow_up' ? val.followUpAt : undefined });
+      window.dispatchEvent(new CustomEvent(CQ_SAVED_EVENT, { detail: { callId: saved.id } }));
+      void qc.invalidateQueries({ queryKey: ['call-queue'] });
+      onSaved();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'ثبت نشد. دوباره تلاش کن.'); } finally { setBusy(false); }
+  };
+  const left = Math.ceil((Date.parse(p.onTimeUntil) - Date.now()) / 60_000);
+  return createPortal(<div className="cq-lock-backdrop" data-testid="cq-pending-backdrop">
+    <div ref={boxRef} className={`cq-lock${shake ? ' shake' : ''}`} role="alertdialog" aria-modal="true" aria-labelledby="cq-pend-t" aria-describedby="cq-pend-d" onKeyDown={onKey} data-testid="cq-pending-modal" data-call={p.callId}>
+      <div className="cq-lock-top"><span className="cq-pill"><Phone size={13} aria-hidden="true" /> گزارش تماس</span>
+        <span className={`cq-counter-pill${left <= 0 ? ' late' : ''}`} data-testid="cq-pending-ontime">{left > 0 ? `به‌موقع تا ${faNum(left)} دقیقه‌ی دیگر` : 'دیر شد · هنوز ثبت کن'}</span></div>
+      <h2 id="cq-pend-t">گزارش تماس با {p.customerName} را ثبت کن</h2>
+      <div className="cq-lock-cust">
+        <div><b>{p.customerName}</b> <span className="cq-id">#{faNum(p.customerId)}</span>{p.urgent ? <span className="cq-urgent">مشتری فوری</span> : null}{p.priority ? <span className="cq-pri">اولویت {faNum(p.priority)}</span> : null}</div>
+        <div className="cq-lock-rem">تماس از CRM ساعت {faClock(p.linkIssuedAt)}{p.returnedAt ? ` · برگشت به CRM ${faClock(p.returnedAt)}` : ''}</div>
+      </div>
+      <p id="cq-pend-d" className={`cq-lock-desc${shake ? ' shake' : ''}`}>تا گزارش این تماس ثبت نشود، دکمه‌ی تماس بعدی باز نمی‌شود. «به‌موقع» یعنی ثبت تا {faNum(cfg.discipline?.onTimeMin ?? 10)} دقیقه بعد از برگشت به CRM (بدون برگشت: تا {faNum(cfg.discipline?.onTimeCapMin ?? 30)} دقیقه بعد از تماس).</p>
+      <div className="cq-lock-form" data-testid="cq-pending-form">
+        <CqResultFields value={val} onChange={setVal} showErrors={showErr} pre={pre} idPrefix="cq-pd" />
+        <div className="cq-lock-actions"><button type="button" className="btn btn-primary cq-big" disabled={busy} onClick={() => void save()} data-testid="cq-pending-save">{busy ? 'در حال ثبت…' : 'ثبت گزارش تماس'}</button>
+          {p.phone ? <button type="button" className="btn btn-ghost" onClick={() => void cqDial(p.customerId, 'pending').then((r) => { if (r && !r.ok) setErr(r.error); })} data-testid="cq-pending-recall"><Phone size={15} aria-hidden="true" /> دوباره تماس</button> : null}</div>
+      </div>
+      {err ? <p className="cq-err" role="alert" data-testid="cq-pending-error">{err}</p> : null}
     </div>
   </div>, document.body);
 }

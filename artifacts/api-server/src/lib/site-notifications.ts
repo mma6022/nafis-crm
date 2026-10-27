@@ -165,7 +165,7 @@ function permitted(user: AuthUser) {
   const wide = user.role==="admin" || user.role==="registrar";
   // v6: Sarina is registrar/admin only — old Sarina rows addressed to anyone else stay in the DB but never show.
   // «پیام از شماره‌ی ناشناس» (Bale, resource_type bale-unknown) has no customer: addressee only, never role-scoped.
-  const mine = blocked ? "0" : `e.recipient_user_id=? AND ((c.id IS NOT NULL${wide ? "" : " AND c.salesperson_id=? AND COALESCE(e.actor_key,'')<>'assistant:sarina'"}) OR e.resource_type='bale-unknown' OR e.kind='urgent-change' OR (e.resource_type='expert-analysis'${wide ? "" : ` AND e.owner_id=${Number(user.salespersonId ?? -1)}`}))`;
+  const mine = blocked ? "0" : `e.recipient_user_id=? AND ((c.id IS NOT NULL${wide ? "" : " AND c.salesperson_id=? AND COALESCE(e.actor_key,'')<>'assistant:sarina'"}) OR e.resource_type='bale-unknown' OR e.kind='urgent-change' OR (e.resource_type IN ('expert-analysis','cq-discipline-me')${wide ? "" : ` AND e.owner_id=${Number(user.salespersonId ?? -1)}`}) OR (e.resource_type='cq-discipline'${wide ? "" : " AND 0"}))`;
   return {
     sql:`((e.recipient_user_id IS NULL AND ${owner} ${permissions ? `AND e.permission IN (${permissions.length?permissions.map(()=>"?").join(","):"NULL"})` : ""}) OR (${mine}))`,
     params:[...(assigned?[user.salespersonId??-1]:[]),...(permissions??[]),...(blocked?[]:[user.id,...(wide?[]:[user.salespersonId??-1])])],
@@ -181,7 +181,7 @@ function from(user: AuthUser) {
     LEFT JOIN site_notification_reads r ON r.event_id=e.id AND r.user_id=?
     LEFT JOIN site_notification_watermarks w ON w.user_id=?
     WHERE ${scope.sql}
-      AND (c.id IS NOT NULL OR (e.resource_type IN ('bale-unknown','expert-analysis') AND e.recipient_user_id IS NOT NULL) OR (e.kind='customer-deleted' AND NOT EXISTS(SELECT 1 FROM customers missing WHERE missing.id=e.customer_id)))`,
+      AND (c.id IS NOT NULL OR (e.resource_type IN ('bale-unknown','expert-analysis','cq-discipline','cq-discipline-me') AND e.recipient_user_id IS NOT NULL) OR (e.kind='customer-deleted' AND NOT EXISTS(SELECT 1 FROM customers missing WHERE missing.id=e.customer_id)))`,
     params:[user.id,user.id,...scope.params]};
 }
 const selection=`e.*,COALESCE(c.name,e.customer_name) customer_name,c.id current_customer_id,
@@ -191,6 +191,7 @@ const notificationPages = {
   goods: "goods-purchases", contract: "contracts", payment: "payment-orders",
   calls: "calls", consultations: "consultations", wallet: "wallet-management", smart_filing: "smart-filing",
   "expert-analysis": "my-performance", // Task D: «تحلیل عملکرد من» (no customer; addressee only)
+  "cq-discipline": "call-queue-discipline", "cq-discipline-me": "my-queue", // crm-call-queue R2 3-workday alerts (addressee only)
 } as const;
 const pageExpression = `CASE e.resource_type ${Object.entries(notificationPages).map(([type,page])=>`WHEN ${lit(type)} THEN ${lit("/"+page)}`).join(" ")} ELSE '/customers' END`;
 function pageFilter(value: unknown): {sql:string;params:string[]} | null {

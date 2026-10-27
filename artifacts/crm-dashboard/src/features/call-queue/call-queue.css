@@ -105,3 +105,27 @@
   .cq-stack{inset-inline:8px;max-width:none}
   .cq-snoozebar{top:auto;bottom:8px;padding:6px 10px;font-size:12.5px;gap:6px;flex-wrap:nowrap}.cq-snoozebar .btn{white-space:nowrap;padding:6px 10px;font-size:12.5px;flex:none}
 }
+
+/* ---- R2 ---- */
+/* mobile overlap: while a call-queue modal is open, body-level overlays step aside */
+body.cq-lock-open .nas-dndbar, body.cq-lock-open [data-testid="assistant-dnd-card"], body.cq-lock-open [data-testid="due-reminder"],
+body.cq-lock-open .sn-toasts.sn-top, body.cq-lock-open [data-testid="status-after-call"], body.cq-lock-open .cq-stack,
+body.cq-lock-open #root .modal-backdrop { display: none !important; }
+/* #root is inert while a CQ modal is open, so any legacy modal there (e.g. the VoIP «نتیجه تماس» popup) is unusable: hide it until the CQ modal closes. */
+.cq-urgent { display: inline-block; margin-inline-start: 6px; padding: 1px 8px; border-radius: 999px; background: #fde2e1; color: #a1251b; font-size: 12px; font-weight: 700; }
+.cq-gtag.g-urgent, .cq-anchor.urgent { background: #fde2e1; color: #a1251b; border-color: #f3b4ae; }
+.cq-qcard.g-urgent { border-inline-start: 4px solid #c0392b; }
+.cq-counter-pill { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #e7f4ec; color: #1d6b3a; }
+.cq-counter-pill.late { background: #fdecea; color: #a1251b; }
+.cq-restricted { margin: 10px 0; padding: 12px 14px; border-radius: 12px; background: #fff4e5; border: 1px solid #f0c27b; color: #6b4200; line-height: 1.9; }
+.cq-restricted small { display: block; }
+.cq-ds { margin: 12px 0; padding: 12px 14px; border-radius: 12px; border: 1px solid #d9e2ec; background: #fff; }
+.cq-ds.ok { border-color: #a9d8b8; } .cq-ds.out { border-color: #f0c27b; background: #fffaf2; }
+.cq-ds-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.cq-ds-top h2 { font-size: 16px; margin: 0; } .cq-ds-score { font-size: 24px; font-weight: 800; } .cq-ds-score small { font-size: 12px; font-weight: 400; }
+.cq-ds-facts { margin: 6px 0; padding-inline-start: 18px; line-height: 1.9; }
+.cq-ds-note { font-size: 12px; color: #52606d; margin: 4px 0 0; }
+.cq-table { width: 100%; border-collapse: collapse; font-size: 13px; } .cq-table th, .cq-table td { padding: 6px 8px; border-bottom: 1px solid #e4e7eb; text-align: start; }
+.cq-table tr.out td { background: #fffaf2; }
+.cq-set-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; } .cq-set-row input[type=number] { width: 90px; }
+@media (max-width: 640px) { .cq-table { display: block; overflow-x: auto; } }

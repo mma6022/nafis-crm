@@ -26,14 +26,14 @@ import { sfScope } from '@/features/smart-filing/access';
 import { baleNavVisible } from '@/features/bale/api';
 import { layoutFor, menuKindFor, TRAINEE_SALESPERSON_IDS } from './nav-layout';
 import { asFetch, asVisibleTo } from '@/features/assistant/api';
-import { cqOn, useCqConfig } from '@/features/call-queue/api';
+import { cqOn, faNum, useCqConfig } from '@/features/call-queue/api';
 import { CallQueueHost } from '@/features/call-queue/CallQueueHost';
 import { useLeadAnnotatorMe } from '@/features/lead-annotator/api';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem } from './ui/dropdown-menu';
 
 const nafissLogoUrl = `${import.meta.env.BASE_URL}nafiss-financial-logo.png`;
 
-type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin'; leadAnnotator?: boolean };
+type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin' | 'discipline'; leadAnnotator?: boolean };
 
 // Routes and permission rules are unchanged; only grouping, order, labels of groups and icons are new.
 const allNavItems: NavItem[] = [
@@ -79,6 +79,7 @@ const allNavItems: NavItem[] = [
   { href: '/settings/releases', label: 'نسخه‌های سایت', icon: Rocket, adminOnly: true },
   { href: '/call-queue-events', label: 'گزارش مدیر · صف تماس', icon: PieChart, cq: 'admin' },
   { href: '/settings/call-queue', label: 'تنظیمات صف تماس', icon: SlidersHorizontal, cq: 'admin' },
+  { href: '/call-queue-discipline', label: 'نظم پیگیری تیم', icon: PieChart, cq: 'discipline' },
 ];
 
 const mobilePrimaryNavHrefs = ['/', '/customers', '/chat', '/internal-chat'];
@@ -91,7 +92,7 @@ const navGroups: NavGroup[] = [
   { id: 'goods', label: 'خرید کالا', icon: Store, hrefs: ['/goods-purchases', '/sales-commissions', '/my-performance', '/my-wallet'] },
   { id: 'finance', label: 'مالی و پرداخت', icon: Banknote, hrefs: ['/payment-orders', '/wallet-management', '/bank-accounts', '/accounting'] },
   { id: 'comms', label: 'پیام‌ها و تلفن', icon: Headset, hrefs: ['/chat', '/internal-chat', '/messengers', '/settings/bale', '/bale/autoreply', '/instagram-inbox', '/mobile-calls', '/phone'] },
-  { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/social-monitor-reports', '/voice-notes-usage', '/call-queue-events'] },
+  { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/social-monitor-reports', '/voice-notes-usage', '/call-queue-events', '/call-queue-discipline'] },
   { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/settings/notifications', '/settings/assistants', '/settings/default-owner', '/call-queue-events', '/settings/call-queue', '/settings/releases'] },
 ];
 
@@ -140,6 +141,9 @@ export function CrmShell({ children }: { children: ReactNode }) {
   usePageUsage(user?.id, location); // v10: page-usage tracker (route patterns + visible dwell only; silent on any failure)
   const cqCfg = useCqConfig(Boolean(user)).data;
   const [cqModalActive, setCqModalActive] = useState(false);
+  const cqRestricted = Boolean(cqCfg?.restriction?.restricted);
+  const cqAllowed = (loc: string) => loc === '/my-queue' || loc.startsWith('/reminders') || loc === '/profile'
+    || (/^\/customers\/(\d+)/.test(loc) && (cqCfg?.restriction?.customerIds ?? []).includes(Number(loc.split('/')[2])));
   const dueParams = { done: false, due: true };
   const dueReminders = useListReminders(dueParams, {
     query: {
@@ -200,6 +204,9 @@ export function CrmShell({ children }: { children: ReactNode }) {
     if (item.cq === 'queue') return cqOn(cqCfg, 'queue');
     if (item.cq === 'admin') return Boolean(cqCfg?.manager && Object.values(cqCfg.flags).some(Boolean));
     if (item.leadAnnotator) return Boolean(leadAnnotatorMe.data?.enabled);
+    if (item.cq === 'discipline') return Boolean(cqCfg?.manager && cqCfg.flags.discipline);
+    // R2 «پنل محدود»: only «صف تماس من» and «یادآورها» stay in the menu.
+    if (cqRestricted && item.href !== '/my-queue' && item.href !== '/reminders') return false;
     if (item.walletOwner && !isAdminUser && !(user as { salespersonId?: number | null } | undefined)?.salespersonId) return false;
     if ('staffOnly' in item && item.staffOnly) return user?.role === 'admin' || user?.role === 'registrar';
     if ('adminOnly' in item && item.adminOnly) return user?.role === 'admin';
@@ -454,7 +461,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
             </DropdownMenu>
           </div>
         </header>
-        <DiagnosticPageBoundary key={location}>{children}</DiagnosticPageBoundary>
+        <DiagnosticPageBoundary key={location}>{cqRestricted && !cqAllowed(location) ? <div className="cq-page" data-testid="cq-restricted-guard"><div className="cq-restricted" role="alert"><b>پنل محدود شد</b> · {faNum(cqCfg?.restriction?.overdue ?? 0)} یادآور عقب‌افتاده داری. تا وقتی به {faNum(cqCfg?.restriction?.threshold ?? 0)} یا کمتر برسد فقط یادآورهای عقب‌افتاده باز است.</div><Link className="btn btn-primary" href="/my-queue">رفتن به صف تماس من</Link></div> : children}</DiagnosticPageBoundary>
       </main>
       {user && (canChat || canTeam) && !onChatPage ? <FloatingChat key={phone ? 'phone' : 'wide'} bottomOffset={phone ? 84 : 20} actor={`staff:${user.id}`} items={[...(canChat ? [{ href: '/chat', label: 'گفتگو با مشتریان', count: unread.data?.count ?? 0 }] : []), ...(canTeam ? [{ href: '/internal-chat', label: 'گفتگوی داخلی', count: team.data?.unreadCount ?? 0 }] : [])]} /> : null}
       {/* «دستیار هوشمند» (HANDOFF §1): avatars portal into the sidebar-bottom slot (desktop) or the top-bar slot next to the bell (phone); renders nothing unless the server lists an assistant for this user. */}

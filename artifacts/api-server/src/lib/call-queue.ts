@@ -13,7 +13,11 @@ export const CQ_TRAINEE_SALESPERSON_IDS: readonly number[] = [5, 19, 20];
 export const CQ_TRAINEE_USER_IDS: readonly number[] = [6, 27, 28];
 export const CQ_EXCLUDED_USER_IDS: readonly number[] = [29];
 
-export const CQ_FLAGS = ["result", "autoclose", "assistant_reminders", "queue", "modal", "hide_not_now", "p1_notify"] as const;
+export const CQ_FLAGS = ["result", "autoclose", "assistant_reminders", "queue", "modal", "hide_not_now", "p1_notify",
+  // R2 (crm-call-queue v1.6 §7ج/§8-16…36), all seeded OFF:
+  "call_lock", "discipline", "restrict_panel", "alerts", "signals",
+  // R3: transfer check
+  "transfer_check"] as const;
 export type CqFlag = typeof CQ_FLAGS[number];
 export const CQ_FLAG_LABELS: Record<CqFlag, string> = {
   result: "نتیجه‌ی تماس و یادداشت یک‌خطی در فرم ثبت تماس",
@@ -23,9 +27,17 @@ export const CQ_FLAG_LABELS: Record<CqFlag, string> = {
   modal: "مودال اجباری یادآور سررسیده",
   hide_not_now: "برداشتن «الان نه» از دستیار فروش",
   p1_notify: "اعلان CRM برای مدیر: اولویت ۱ · ۳ بار بی‌پاسخ",
+  call_lock: "قفل تماس: تماس از دکمه‌ی CRM + گزارش اجباری قبل از تماس بعدی",
+  discipline: "امتیاز نظم پیگیری (فقط نمایش؛ بی‌اثر روی حقوق و پورسانت)",
+  restrict_panel: "پنل محدود با بیش از ۱۰ پیگیری عقب‌افتاده",
+  alerts: "هشدار ۳ روز کاری پیاپی زیر حد (مدیر + خود کارشناس، فقط CRM)",
+  signals: "سیگنال‌های نظم در گزارش روزانه‌ی مدیر",
+  transfer_check: "بررسی گیرنده هنگام انتقال مشتری (درصد به‌موقع و عقب‌افتاده‌ها)",
 };
 export type QueueGroup = "due" | "new" | "p1" | "assist";
 export const CQ_GROUPS: QueueGroup[] = ["due", "new", "p1", "assist"];
+/** «مشتری فوری» (customers.is_urgent=1) is above every group, even overdue reminders (PM 2026-10-27). Not part of the editable order. */
+export type QueueCardGroup = QueueGroup | "urgent";
 export const CQ_DEFAULT_TEMPLATE = "سلام، تماس گرفتم در دسترس نبودید. هر وقت فرصت داشتید خبرم کنید.";
 export const CQ_DEFAULTS = { order: CQ_GROUPS, newRedHours: 24, p1StaleDays: 7, naTemplate: CQ_DEFAULT_TEMPLATE };
 export const CQ_LIMITS = { newRedHours: [1, 168], p1StaleDays: [1, 60], naTemplateMax: 200, oneLineMax: 80, voidNoteMax: 60 } as const;
@@ -60,6 +72,15 @@ export function ensureCallQueueSchema(): void {
     ["voided_at", "TEXT"], ["void_reason", "TEXT"], ["void_note", "TEXT"], ["voided_by", "INTEGER"], ["snooze_until", "TEXT"], ["snooze_used", "INTEGER NOT NULL DEFAULT 0"],
     ["created_by", "INTEGER"]] as const) ensureCol("reminders", c, d);
   crmDb.exec("CREATE INDEX IF NOT EXISTS idx_reminders_cq_due ON reminders(user_id, done, remind_at)");
+  // R2 «قفل تماس»: a CRM-button call lives here from the moment its tel: link is issued until its report is saved (then it is linked to
+  // the call_logs row, which gets source='crm_button', started_at, returned_at, report_saved_at). Kept apart so an unreported dial never
+  // shows up as an empty call in the existing call lists and reports.
+  crmDb.exec(`CREATE TABLE IF NOT EXISTS call_queue_calls(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, salesperson_id INTEGER,
+      customer_id INTEGER NOT NULL, via TEXT, link_issued_at TEXT NOT NULL, returned_at TEXT, report_saved_at TEXT, call_log_id INTEGER, on_time INTEGER)
+    ;CREATE INDEX IF NOT EXISTS idx_cq_calls_user ON call_queue_calls(user_id, report_saved_at, id)
+    ;CREATE INDEX IF NOT EXISTS idx_cq_calls_at ON call_queue_calls(link_issued_at)
+    ;CREATE TABLE IF NOT EXISTS call_queue_daily(day TEXT NOT NULL, user_id INTEGER NOT NULL, salesperson_id INTEGER, crm_calls INTEGER NOT NULL, on_time INTEGER NOT NULL,
+      on_time_pct INTEGER, overdue INTEGER NOT NULL, nocall INTEGER NOT NULL, score INTEGER NOT NULL, ok INTEGER NOT NULL, computed_at TEXT NOT NULL, PRIMARY KEY(day,user_id))`);
   const seed = crmDb.prepare("INSERT OR IGNORE INTO call_queue_settings(key,value,updated_by,updated_at) VALUES(?,?,NULL,?)");
   for (const f of CQ_FLAGS) seed.run(`flag.${f}`, "0", now);
   ready = true;
@@ -73,6 +94,7 @@ export function cqFlags(): Record<CqFlag, boolean> {
   return Object.fromEntries(CQ_FLAGS.map(f => [f, m.get(`flag.${f}`) === "1"])) as Record<CqFlag, boolean>;
 }
 export const cqFlag = (f: CqFlag) => raw(`flag.${f}`) === "1";
+export const cqRaw = raw;
 export type CqSettings = { order: QueueGroup[]; newRedHours: number; p1StaleDays: number; naTemplate: string };
 export function cqSettings(): CqSettings {
   let order: QueueGroup[] = CQ_DEFAULTS.order;
@@ -195,14 +217,32 @@ export function cqEvent(kind: string, e: { userId?: number | null; salespersonId
 }
 
 /* ---------------- POST /calls hook ---------------- */
-export type CqCallInput = { active: boolean; resultOn: boolean; outcome: CqOutcome | null; oneLine: string | null; followUpAt: Date | null; hasLegacyReminder: boolean };
+export type CqCallInput = { active: boolean; resultOn: boolean; outcome: CqOutcome | null; oneLine: string | null; followUpAt: Date | null; hasLegacyReminder: boolean;
+  /** R2: the pending CRM-button call this report closes (same expert + same customer), or null. */
+  startedCallId: number | null; manualType: "in_person" | "bale" | null; lockOn: boolean };
+export const CQ_MANUAL_TYPES = { in_person: "حضوری", bale: "بله" } as const;
+/** R2 lock is active only with «نتیجه‌ی تماس» on too: the report that unlocks needs a result + one-line note. */
+export const cqLockOn = (user: CqUser, f = cqFlags()) => cqEligible(user) && f.call_lock && f.result;
+export function cqPendingCall(userId: number): { id: number; customer_id: number; link_issued_at: string; returned_at: string | null } | null {
+  ensureCallQueueSchema();
+  return queryRow<any>("SELECT id,customer_id,link_issued_at,returned_at FROM call_queue_calls WHERE user_id=? AND report_saved_at IS NULL ORDER BY id DESC LIMIT 1", [userId]) ?? null;
+}
 /** Reads the raw request body (zod strips unknown keys). Returns an error message (400) or the parsed input. */
 export function cqParseCall(body: any, user: CqUser): { error: string } | CqCallInput {
   ensureCallQueueSchema();
   const f = cqFlags(); const eligible = cqEligible(user);
   const resultOn = eligible && f.result; const active = eligible && (f.result || f.autoclose);
-  const base: CqCallInput = { active, resultOn, outcome: null, oneLine: null, followUpAt: null, hasLegacyReminder: Boolean(body?.reminder) };
+  const base: CqCallInput = { active, resultOn, outcome: null, oneLine: null, followUpAt: null, hasLegacyReminder: Boolean(body?.reminder), startedCallId: null, manualType: null, lockOn: false };
   if (!resultOn) return base;
+  if (cqLockOn(user, f)) {
+    base.lockOn = true;
+    const pend = cqPendingCall(user.id); const cust = Number(body?.customerId);
+    const mt = String(body?.manualType ?? "");
+    if (mt && mt !== "in_person" && mt !== "bale") return { error: "نوع گفت‌وگو معتبر نیست." };
+    if (pend && Number(pend.customer_id) === cust && !mt) base.startedCallId = Number(pend.id);
+    else if (mt) base.manualType = mt as "in_person" | "bale";
+    else return { error: "این گفت‌وگو از دکمه‌ی تماس CRM نبود؛ نوعش را انتخاب کن (حضوری یا بله)." };
+  }
   const outcome = String(body?.outcome ?? "");
   const oneLine = String(body?.oneLineNote ?? "").replace(/\s+/g, " ").trim();
   const missing = [!CQ_OUTCOMES.includes(outcome as CqOutcome) ? "نتیجه‌ی تماس" : null, !oneLine ? "یادداشت یک‌خطی" : null].filter(Boolean);
@@ -240,8 +280,9 @@ export function cqAfterCall(callId: number, input: CqCallInput, user: CqUser & {
   const res: CqCallResult = { callId, resultOn: input.resultOn, outcome: input.outcome, closed: [], created: [], naAttempt: null, coldSuggest: false, p1NoAnswer3: false, managerNotified: false };
   const sp = user.salespersonId ?? null;
   executeChanges("UPDATE call_logs SET created_by_user_id=?, source=COALESCE(source,'manual') WHERE id=?", [user.id, callId]);
-  if (input.resultOn && input.outcome)
+  if (input.resultOn && input.outcome && !input.lockOn)
     executeChanges("UPDATE call_logs SET outcome=?, one_line_note=?, report_saved_at=? WHERE id=?", [input.outcome, input.oneLine, nowIso, callId]);
+  if (input.lockOn) cqLinkReport(callId, input, user, customerId, nowIso);
   if (f.autoclose) {
     const due = queryRows<{ id: number; remind_at: string }>(`SELECT id,remind_at FROM reminders WHERE user_id=? AND customer_id=? AND done=0
       AND voided_at IS NULL AND remind_at<=? ORDER BY remind_at`, [user.id, customerId, nowIso]);
@@ -297,10 +338,91 @@ function notifyManagersP1(customerId: number, name: string, user: CqUser & { ful
   }
   return n;
 }
+/** R2: a CRM-button report fills call_logs.source/started_at/returned_at/report_saved_at and unlocks; a manual one never unlocks. */
+function cqLinkReport(callId: number, input: CqCallInput, user: CqUser, customerId: number, nowIso: string) {
+  if (input.startedCallId) {
+    const p = queryRow<any>("SELECT * FROM call_queue_calls WHERE id=? AND user_id=? AND report_saved_at IS NULL", [input.startedCallId, user.id]);
+    if (p) {
+      const ot = cqOnTime(p.link_issued_at, p.returned_at, nowIso);
+      executeChanges("UPDATE call_queue_calls SET report_saved_at=?, call_log_id=?, on_time=? WHERE id=?", [nowIso, callId, ot ? 1 : 0, p.id]);
+      executeChanges(`UPDATE call_logs SET outcome=?, one_line_note=?, source='crm_button', manual_type=NULL, started_at=?, returned_at=?, report_saved_at=? WHERE id=?`,
+        [input.outcome, input.oneLine, p.link_issued_at, p.returned_at ?? null, nowIso, callId]);
+      return;
+    }
+  }
+  // manual entry: report_saved_at stays NULL (it never counts and never unlocks)
+  executeChanges("UPDATE call_logs SET outcome=?, one_line_note=?, source='manual', manual_type=? WHERE id=?", [input.outcome, input.oneLine, input.manualType ?? null, callId]);
+  cqManualSignal(user, customerId, callId, input.manualType, nowIso);
+}
+/** §8-33 signal_manual_no_crm: a manual save with no CRM-button call the same Tehran day for the same customer by the same expert. */
+export function cqManualSignal(user: CqUser, customerId: number, callId: number, manualType: string | null, nowIso: string) {
+  const p = tParts(new Date(nowIso)); const from = fromTehran(p.y, p.m, p.d).toISOString(); const to = new Date(Date.parse(from) + 86_400_000).toISOString();
+  const had = queryRow("SELECT 1 FROM call_queue_calls WHERE user_id=? AND customer_id=? AND link_issued_at>=? AND link_issued_at<?", [user.id, customerId, from, to]);
+  if (!had) cqEvent("signal_manual_no_crm", { userId: user.id, salespersonId: user.salespersonId, customerId, callId, reason: manualType, at: nowIso });
+}
+/** «به‌موقع» (§8-21/22): returned → report ≤ on_time_min; no return → report − link ≤ on_time_cap_min. */
+export function cqOnTime(linkIso: string, returnedIso: string | null, reportIso: string): boolean {
+  const { onTimeMin, onTimeCapMin } = cqDisciplineSettings();
+  const rep = Date.parse(reportIso);
+  if (returnedIso) return rep - Date.parse(returnedIso) <= onTimeMin * 60_000;
+  return rep - Date.parse(linkIso) <= onTimeCapMin * 60_000;
+}
+export type CqDisciplineSettings = { onTimeMin: number; onTimeCapMin: number; newPct: number; newMaxOverdue: number; restrictOverdue: number; alertDays: number;
+  wReport: number; wOverdue: number; wNocall: number; dropPct: number; transferMode: "warn" | "block"; excludedReceivers: number[] };
+export const CQ_DS_DEFAULTS: CqDisciplineSettings = { onTimeMin: 10, onTimeCapMin: 30, newPct: 90, newMaxOverdue: 5, restrictOverdue: 10, alertDays: 3,
+  wReport: 70, wOverdue: 30, wNocall: 5, dropPct: 50, transferMode: "warn", excludedReceivers: [31] };
+const DS_KEYS: Record<keyof CqDisciplineSettings, string> = { onTimeMin: "on_time_min", onTimeCapMin: "on_time_cap_min", newPct: "new_customer_pct", newMaxOverdue: "new_customer_max_overdue",
+  restrictOverdue: "restrict_overdue", alertDays: "alert_days", wReport: "w_report", wOverdue: "w_overdue", wNocall: "w_nocall", dropPct: "drop_pct", transferMode: "transfer_mode", excludedReceivers: "excluded_receivers" };
+export const CQ_DS_RANGES: Partial<Record<keyof CqDisciplineSettings, [number, number]>> = { onTimeMin: [1, 120], onTimeCapMin: [1, 120], newPct: [1, 100], newMaxOverdue: [0, 100],
+  restrictOverdue: [1, 200], alertDays: [1, 10], wReport: [0, 100], wOverdue: [0, 100], wNocall: [0, 50], dropPct: [1, 100] };
+export function cqDisciplineSettings(): CqDisciplineSettings {
+  const out: any = { ...CQ_DS_DEFAULTS };
+  for (const [k, key] of Object.entries(DS_KEYS) as [keyof CqDisciplineSettings, string][]) {
+    const v = raw(`ds.${key}`); if (v == null) continue;
+    if (k === "transferMode") { if (v === "warn" || v === "block") out.transferMode = v; continue; }
+    if (k === "excludedReceivers") { try { const a = JSON.parse(v); if (Array.isArray(a) && a.every(x => Number.isInteger(x) && x > 0)) out.excludedReceivers = a; } catch { /* default */ } continue; }
+    const n = Number(v); const r = CQ_DS_RANGES[k]!; if (Number.isInteger(n) && n >= r[0] && n <= r[1]) out[k] = n;
+  }
+  return out;
+}
+export function validateDiscipline(b: any): { ok: true; value: Partial<CqDisciplineSettings> } | { ok: false; error: string } {
+  const cur = cqDisciplineSettings(); const out: any = {};
+  for (const k of Object.keys(CQ_DS_RANGES) as (keyof CqDisciplineSettings)[]) {
+    if (b?.[k] === undefined) continue; const v = Number(b[k]); const r = CQ_DS_RANGES[k]!;
+    if (!Number.isInteger(v) || v < r[0] || v > r[1]) return { ok: false, error: `مقدار «${k}» باید عدد صحیح بین ${r[0]} تا ${r[1]} باشد.` };
+    out[k] = v;
+  }
+  if (b?.transferMode !== undefined) { if (b.transferMode !== "warn" && b.transferMode !== "block") return { ok: false, error: "حالت بررسی انتقال: هشدار یا جلوگیری." }; out.transferMode = b.transferMode; }
+  if (b?.excludedReceivers !== undefined) {
+    const a = b.excludedReceivers; if (!Array.isArray(a) || a.length > 50 || !a.every((x: unknown) => Number.isInteger(x) && Number(x) > 0)) return { ok: false, error: "فهرست کاربران مستثنا معتبر نیست." };
+    out.excludedReceivers = [...new Set(a.map(Number))].sort((x, y) => x - y);
+  }
+  const m = { ...cur, ...out };
+  if (m.onTimeCapMin < m.onTimeMin) return { ok: false, error: "سقف بدون بازگشت باید دست‌کم برابر پنجره‌ی به‌موقع باشد." };
+  if (m.wReport + m.wOverdue !== 100) return { ok: false, error: "وزن «به‌موقع» و «عقب‌افتاده» باید روی هم ۱۰۰ شود." };
+  if (m.restrictOverdue <= m.newMaxOverdue) return { ok: false, error: "حد پنل محدود باید از حد دریافت مشتری جدید بیشتر باشد." };
+  return { ok: true, value: out };
+}
+export function saveDiscipline(v: Partial<CqDisciplineSettings>, userId: number, at = new Date().toISOString()): number {
+  let n = 0;
+  for (const [k, val] of Object.entries(v) as [keyof CqDisciplineSettings, unknown][])
+    n += +setRaw(`ds.${DS_KEYS[k]}`, Array.isArray(val) ? JSON.stringify(val) : String(val), userId, at);
+  return n;
+}
+
 /** team-sales first-call form path: only the auto-close part (that form has its own attempt counter). */
 export function cqAutoCloseOnly(callId: number, user: CqUser, customerId: number, outcome: string | null, nowIso: string): void {
   if (!cqEligible(user)) return;
   const f = cqFlags();
+  if (cqLockOn(user, f)) {
+    // The first-call form is the report of a CRM-button call only when one is pending for this customer; otherwise it is a plain save.
+    const pend = cqPendingCall(user.id);
+    if (pend && Number(pend.customer_id) === customerId) {
+      const ot = cqOnTime(pend.link_issued_at, pend.returned_at, nowIso);
+      executeChanges("UPDATE call_queue_calls SET report_saved_at=?, call_log_id=?, on_time=? WHERE id=?", [nowIso, callId, ot ? 1 : 0, pend.id]);
+      executeChanges("UPDATE call_logs SET source='crm_button', started_at=?, returned_at=?, report_saved_at=? WHERE id=?", [pend.link_issued_at, pend.returned_at ?? null, nowIso, callId]);
+    }
+  }
   if (f.result && outcome) executeChanges("UPDATE call_logs SET outcome=COALESCE(outcome,?), created_by_user_id=? WHERE id=?",
     [outcome === "answered" ? "answered" : outcome === "no_answer" ? "no_answer" : "follow_up", user.id, callId]);
   if (!f.autoclose) return;
@@ -349,9 +471,9 @@ export function cqOwnedCustomerSql(alias = "c") { return `${alias}.merged_into_c
 export function cqDue(user: CqUser, now = new Date()) {
   const n = nowIsoOf(now);
   const rows = queryRows<any>(`SELECT r.id,r.customer_id,r.subject,r.message,r.remind_at,r.source,r.source_note_id,r.source_span,r.snooze_until,r.snooze_used,
-      c.name customer_name, c.phone, c.priority
+      c.name customer_name, c.phone, c.priority, COALESCE(c.is_urgent,0) is_urgent
     FROM reminders r JOIN customers c ON c.id=r.customer_id
-    WHERE r.user_id=? AND r.done=0 AND r.voided_at IS NULL AND r.remind_at<=? AND ${cqOwnedCustomerSql()} ORDER BY r.remind_at, r.id LIMIT 200`, [user.id, n, user.salespersonId ?? -1]);
+    WHERE r.user_id=? AND r.done=0 AND r.voided_at IS NULL AND r.remind_at<=? AND ${cqOwnedCustomerSql()} ORDER BY COALESCE(c.is_urgent,0) DESC, r.remind_at, r.id LIMIT 200`, [user.id, n, user.salespersonId ?? -1]);
   const view = rows.map(reminderView);
   const active = view.filter(r => !r.snoozeUntil || Date.parse(r.snoozeUntil) <= now.getTime());
   const snoozed = view.filter(r => r.snoozeUntil && Date.parse(r.snoozeUntil) > now.getTime());
@@ -361,7 +483,7 @@ function reminderView(r: any) {
   let span: { start: number; end: number; phrase: string } | null = null; try { span = r.source_span ? JSON.parse(r.source_span) : null; } catch { span = null; }
   const note = r.source === "assistant" && r.source_note_id ? queryRow<any>(`SELECT cl.id, COALESCE(cl.one_line_note,'') one, COALESCE(cl.expert_notes,'') notes, cl.created_at,
     COALESCE(u.full_name,u.username,cl.salesperson_name_snapshot) author FROM call_logs cl LEFT JOIN users u ON u.id=cl.created_by_user_id WHERE cl.id=?`, [r.source_note_id]) : null;
-  return { id: Number(r.id), customerId: Number(r.customer_id), customerName: r.customer_name ?? "", phone: r.phone ?? null, priority: r.priority ?? null,
+  return { id: Number(r.id), customerId: Number(r.customer_id), customerName: r.customer_name ?? "", phone: r.phone ?? null, priority: r.priority ?? null, urgent: Number(r.is_urgent) === 1,
     subject: r.subject ?? "", message: r.message ?? "", remindAt: r.remind_at, source: r.source ?? "manual", snoozeUntil: r.snooze_until ?? null, snoozeUsed: Boolean(r.snooze_used),
     sourceNote: note ? { callId: Number(note.id), text: [note.one, note.notes].filter(Boolean).join("\n"), at: note.created_at, author: note.author ?? null, span } : null };
 }
@@ -428,7 +550,7 @@ export function cqRejectSuggestion(user: CqUser, callId: number, now = new Date(
 }
 
 /* ---------------- the single queue ---------------- */
-export type QueueCard = { customerId: number; name: string; phone: string | null; priority: number | null; group: QueueGroup; also: QueueGroup[];
+export type QueueCard = { customerId: number; name: string; phone: string | null; priority: number | null; urgent: boolean; group: QueueCardGroup; also: QueueGroup[];
   reason: string; at: string | null; late: boolean; reminder: ReturnType<typeof reminderView> | null; lastCall: { at: string; text: string } | null; assistRank?: number; isUrgent?: boolean };
 export function cqQueue(user: CqUser, suggestions: { customerId: number; rank: number; reason?: string }[], now = new Date()) {
   const s = cqSettings(); const sp = user.salespersonId ?? -1; const n = now.toISOString();
@@ -443,6 +565,9 @@ export function cqQueue(user: CqUser, suggestions: { customerId: number; rank: n
     WHERE ${cqOwnedCustomerSql()} AND c.status='in_progress' AND c.priority=1 ORDER BY c.id`, [sp]).filter(r => !r.last || r.last < staleBefore);
   const p1At = new Map(p1.map(r => [Number(r.id), r.last])); for (const r of p1) add(Number(r.id), "p1");
   const sugBy = new Map(suggestions.map(x => [x.customerId, x])); for (const x of suggestions) add(x.customerId, "assist");
+  // «مشتری فوری»: every owned in-progress urgent customer is in the queue, on top.
+  const urgentRows = queryRows<{ id: number }>(`SELECT c.id FROM customers c WHERE ${cqOwnedCustomerSql()} AND c.status='in_progress' AND c.is_urgent=1 ORDER BY c.id LIMIT 200`, [sp]);
+  const urgentIds = new Set(urgentRows.map(r => Number(r.id))); for (const r of urgentRows) if (!groups.has(Number(r.id))) groups.set(Number(r.id), new Set());
   const ids = [...groups.keys()];
   const info = new Map<number, any>();
   for (let i = 0; i < ids.length; i += 400) {
@@ -450,27 +575,33 @@ export function cqQueue(user: CqUser, suggestions: { customerId: number; rank: n
     for (const r of queryRows<any>(`SELECT c.id,c.name,c.phone,c.priority,COALESCE(c.is_urgent,0) is_urgent,(SELECT l.created_at||char(31)||COALESCE(NULLIF(l.one_line_note,''),l.expert_notes,'') FROM call_logs l WHERE l.customer_id=c.id ORDER BY l.id DESC LIMIT 1) lastcall
       FROM customers c WHERE c.id IN (${ch.map(() => "?").join(",")}) AND ${cqOwnedCustomerSql()}`, [...ch as SqlValue[], sp])) info.set(Number(r.id), r);
   }
-  const rank = (g: QueueGroup) => s.order.indexOf(g);
+  const rank = (g: QueueCardGroup) => g === "urgent" ? -1 : s.order.indexOf(g);
   const cards: QueueCard[] = [];
   for (const [id, set] of groups) {
     const c = info.get(id); if (!c) continue;
-    const gs = [...set].sort((a, b) => rank(a) - rank(b)); const g = gs[0];
+    const gs = [...set].sort((a, b) => rank(a) - rank(b));
+    const urgent = urgentIds.has(id) || Number(c.is_urgent) === 1;
+    const g: QueueCardGroup = urgent ? "urgent" : gs[0];
     const [lcAt, lcText] = c.lastcall ? String(c.lastcall).split("\u001f") : [null, null];
     let reason = "", at: string | null = null, late = false;
-    if (g === "due") { const r = dueBy.get(id)!; at = r.remindAt; late = true; reason = r.subject || "یادآور سررسیده"; }
+    if (g === "urgent") {
+      const r = dueBy.get(id); at = r?.remindAt ?? freshAt.get(id) ?? null; late = Boolean(r);
+      reason = ["مشتری فوری", r ? (r.subject || "یادآور سررسیده") : freshAt.has(id) ? "جدید" : sugBy.get(id)?.reason || ""].filter(Boolean).join(" · ");
+    } else if (g === "due") { const r = dueBy.get(id)!; at = r.remindAt; late = true; reason = r.subject || "یادآور سررسیده"; }
     else if (g === "new") { at = freshAt.get(id) ?? null; late = !!at && now.getTime() - Date.parse(at) > s.newRedHours * 3_600_000; reason = late ? `جدید · بیش از ${s.newRedHours} ساعت` : "جدید"; }
     else if (g === "p1") { at = p1At.get(id) ?? null; late = true; reason = at ? `اولویت ۱ · بیش از ${s.p1StaleDays} روز بی‌تماس` : "اولویت ۱ · هنوز تماسی ثبت نشده"; }
     else { reason = sugBy.get(id)?.reason || "پیشنهاد امروز دستیار فروش"; }
-    cards.push({ customerId: id, name: c.name ?? "", phone: c.phone ?? null, priority: c.priority ?? null, group: g, also: gs.slice(1), reason, at, late,
-      reminder: dueBy.get(id) ?? null, lastCall: lcAt ? { at: lcAt, text: String(lcText ?? "").slice(0, 140) } : null, assistRank: sugBy.get(id)?.rank, isUrgent: Number(c.is_urgent) === 1 });
+    cards.push({ customerId: id, name: c.name ?? "", phone: c.phone ?? null, priority: c.priority ?? null, urgent, group: g, also: g === "urgent" ? gs : gs.slice(1), reason, at, late,
+      reminder: dueBy.get(id) ?? null, lastCall: lcAt ? { at: lcAt, text: String(lcText ?? "").slice(0, 140) } : null, assistRank: sugBy.get(id)?.rank, isUrgent: urgent });
   }
   const within = (a: QueueCard, b: QueueCard) => {
+    if (a.group === "urgent") { const da = a.reminder ? 0 : 1, db = b.reminder ? 0 : 1; return da - db || String(a.at ?? "~").localeCompare(String(b.at ?? "~")); }
     if (a.group === "assist") return (a.assistRank ?? 9) - (b.assistRank ?? 9);
     return String(a.at ?? "").localeCompare(String(b.at ?? ""));
   };
-  // crm-urgent (PM 22:28): «مشتری فوری» ranks above everything else inside the queue (display order only).
-  cards.sort((a, b) => Number(!!b.isUrgent) - Number(!!a.isUrgent) || rank(a.group) - rank(b.group) || within(a, b));
-  const counts = Object.fromEntries(CQ_GROUPS.map(g => [g, cards.filter(c => c.group === g).length])) as Record<QueueGroup, number>;
+  // «مشتری فوری» (PM 22:28 / Kazemi 07107f3): the "urgent" pseudo-group ranks above every group (rank -1), so urgent cards come first.
+  cards.sort((a, b) => rank(a.group) - rank(b.group) || within(a, b));
+  const counts = Object.fromEntries([...CQ_GROUPS, "urgent" as const].map(g => [g, cards.filter(c => c.group === g).length])) as Record<QueueCardGroup, number>;
   return { now: n, order: s.order, settings: { newRedHours: s.newRedHours, p1StaleDays: s.p1StaleDays }, counts, total: cards.length, cards, snoozed: due.snoozed };
 }
 

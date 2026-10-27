@@ -12,6 +12,8 @@ import {
   validateCqSettings, type CqFlag,
 } from "../lib/call-queue";
 import { customerInScope, salesAssistScope, suggestionsFor } from "../lib/sales-assist";
+import { CQ_DS_DEFAULTS, CQ_DS_RANGES, CQ_MANUAL_TYPES, cqDisciplineSettings, cqLockOn, saveDiscipline, validateDiscipline } from "../lib/call-queue";
+import { cqMarkReturned, cqMyDiscipline, cqPendingView, cqRestriction, cqSignals, cqStartCall, cqTeamDiscipline } from "../lib/call-queue-r2";
 
 const router: IRouter = Router();
 const me = (res: Response) => res.locals.authUser as AuthUser;
@@ -23,7 +25,11 @@ router.get("/call-queue/config", requirePermission("customers.view"), (_req, res
   const u = me(res); const s = cqSettings();
   res.json({ flags: cqFlags(), eligible: cqEligible(u), manager: cqManager(u), userId: u.id, salespersonId: u.salespersonId ?? null,
     settings: { order: s.order, newRedHours: s.newRedHours, p1StaleDays: s.p1StaleDays, naTemplate: s.naTemplate },
-    limits: CQ_LIMITS, voidReasons: Object.entries(CQ_VOID_REASONS).map(([key, label]) => ({ key, label })), snoozeMinutes: CQ_SNOOZE_MIN });
+    limits: CQ_LIMITS, voidReasons: Object.entries(CQ_VOID_REASONS).map(([key, label]) => ({ key, label })), snoozeMinutes: CQ_SNOOZE_MIN,
+    // R2
+    lockOn: cqLockOn(u), manualTypes: Object.entries(CQ_MANUAL_TYPES).map(([key, label]) => ({ key, label })),
+    restriction: cqEligible(u) && cqFlags().restrict_panel ? (({ overdueCustomerIds, ...r }) => ({ ...r, customerIds: overdueCustomerIds }))(cqRestriction(u)) : null,
+    discipline: (({ onTimeMin, onTimeCapMin, restrictOverdue }) => ({ onTimeMin, onTimeCapMin, restrictOverdue }))(cqDisciplineSettings()) });
 });
 
 router.get("/call-queue/after-save", requirePermission("calls.create"), (req, res) => {
@@ -50,7 +56,13 @@ router.get("/call-queue", requirePermission("customers.view"), (_req, res) => {
   try {
     if (salesAssistScope(sp)) { sug = suggestionsFor(sp, new Date(), 3).items.map((x) => ({ customerId: Number(x.customerId), rank: Number(x.rank), reason: x.reason?.text || undefined })); }
   } catch { sug = []; }
-  res.json({ eligible: true, ...cqQueue(u, sug) });
+  const q = cqQueue(u, sug);
+  // R2 «پنل محدود» (server side): above the threshold only group A (overdue reminders) is open.
+  if (cqFlags().restrict_panel) {
+    const r = cqRestriction(u);
+    if (r.restricted) { const cards = q.cards.filter(c => c.reminder); res.json({ eligible: true, ...q, cards, total: cards.length, restricted: { overdue: r.overdue, threshold: r.threshold, leftToUnlock: r.leftToUnlock } }); return; }
+  }
+  res.json({ eligible: true, ...q });
 });
 
 router.get("/call-queue/due", requirePermission("customers.view"), (_req, res) => {
@@ -88,6 +100,21 @@ router.post("/call-queue/suggestions/:callId/reject", requirePermission("custome
   const r = cqRejectSuggestion(u, id); res.status(r.status).json(r.error ? { error: r.error } : { ok: true });
 });
 
+/* -------- R2: call lock -------- */
+router.post("/call-queue/calls/start", requirePermission("calls.create"), (req, res) => {
+  const u = me(res); const cid = idOf(req.body?.customerId); if (!cid) { res.status(400).json({ error: "customerId" }); return; }
+  const r = cqStartCall(u, cid, String(req.body?.via ?? "crm").replace(/[^a-z_-]/gi, "") || "crm");
+  if (r.status !== 200) { res.status(r.status).json({ error: r.error, pending: r.pending ?? null, restricted: r.restricted ?? false }); return; }
+  res.json({ ok: true, callId: r.callId, tel: r.tel, reused: r.reused ?? false });
+});
+router.post("/call-queue/calls/:id/returned", requirePermission("calls.create"), (req, res) => {
+  const u = me(res); const id = idOf(req.params.id); if (!id) { res.status(400).json({ error: "id" }); return; }
+  res.json({ ok: cqMarkReturned(u, id) });
+});
+router.get("/call-queue/pending", requirePermission("customers.view"), (_req, res) => { res.json(cqPendingView(me(res))); });
+/* -------- R2: discipline (display only) -------- */
+router.get("/call-queue/discipline/me", requirePermission("customers.view"), (_req, res) => { res.json(cqMyDiscipline(me(res))); });
+
 /* -------- admin (managers: role admin, never user 29) -------- */
 const admin = (res: Response) => { const u = me(res); if (!cqManager(u)) { res.status(403).json({ error: "فقط مدیر." }); return null; } return u; };
 router.get("/call-queue/settings", (_req: Request, res) => {
@@ -108,6 +135,20 @@ router.put("/call-queue/flags/:flag", (req, res) => {
   saveCqFlag(f, req.body.on, u.id);
   res.json({ ok: true, flags: cqFlags() });
 });
+router.get("/call-queue/discipline/team", (_req, res) => { if (!admin(res)) return; res.json(cqTeamDiscipline()); });
+router.get("/call-queue/discipline/settings", (_req, res) => {
+  if (!admin(res)) return;
+  res.json({ settings: cqDisciplineSettings(), defaults: CQ_DS_DEFAULTS, ranges: CQ_DS_RANGES, log: cqSettingsLog().filter((l: any) => String(l.key).startsWith("ds.")) });
+});
+router.put("/call-queue/discipline/settings", (req, res) => {
+  const u = admin(res); if (!u) return;
+  const v = validateDiscipline(req.body?.reset === true ? CQ_DS_DEFAULTS : req.body);
+  if (!v.ok) { res.status(422).json({ error: v.error }); return; }
+  const changed = saveDiscipline(v.value, u.id);
+  res.json({ ok: true, changed, settings: cqDisciplineSettings(), log: cqSettingsLog().filter((l: any) => String(l.key).startsWith("ds.")) });
+});
+/** §8-33 daily digest signals — managers and admins only. */
+router.get("/reports/discipline-signals", (req, res) => { if (!admin(res)) return; res.json(cqSignals(req.query.date)); });
 router.get("/call-queue/events", (req, res) => {
   if (!admin(res)) return;
   const sps = queryRows<{ id: number; name: string }>("SELECT id,name FROM salespersons WHERE active=1 AND id NOT IN (5,19,20) ORDER BY id");

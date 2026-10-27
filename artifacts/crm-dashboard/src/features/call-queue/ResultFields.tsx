@@ -107,3 +107,16 @@ CqResultFields.PreOnly = function PreOnly({ pre }: { pre: PreCall }) {
     {pre.due.length === 1 ? <>یادآور سررسیده‌ی {pre.due[0].label} با ثبت این تماس خودکار بسته می‌شود.</> : <>{faNum(pre.due.length)} یادآور سررسیده با ثبت این تماس خودکار بسته می‌شوند.</>}
   </div>;
 };
+
+/** R2 «قفل تماس»: a call that did not start from the CRM button must say what it was (spec: حضوری / بله). */
+export function CqManualType({ value, onChange, showError, idPrefix = 'cq-mt' }: { value: string; onChange: (v: 'in_person' | 'bale') => void; showError?: boolean; idPrefix?: string }) {
+  const opts: { key: 'in_person' | 'bale'; label: string }[] = [{ key: 'in_person', label: 'حضوری' }, { key: 'bale', label: 'بله' }];
+  return <div className="cq-field" data-testid="cq-manual-type">
+    <span className="cq-label" id={`${idPrefix}-l`}>این گفت‌وگو از دکمه‌ی تماس CRM نبود؛ نوعش چه بود؟</span>
+    <div className="cq-chips" role="radiogroup" aria-labelledby={`${idPrefix}-l`} aria-invalid={showError && !value || undefined}>
+      {opts.map((o) => <button key={o.key} type="button" role="radio" aria-checked={value === o.key} className={`cq-chip${value === o.key ? ' on' : ''}`} onClick={() => onChange(o.key)} data-testid={`cq-manual-${o.key}`}>{o.label}</button>)}
+    </div>
+    {showError && !value ? <p className="cq-err" role="alert" data-testid="cq-manual-err">نوع گفت‌وگو را انتخاب کن (حضوری یا بله).</p> : null}
+    <small className="cq-hint">تماس تلفنی فقط از دکمه‌ی تماس CRM ثبت می‌شود.</small>
+  </div>;
+}

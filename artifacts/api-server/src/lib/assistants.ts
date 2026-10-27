@@ -25,6 +25,7 @@
 import { cqFlag } from "./call-queue";
 import { registeredByRange, registeredByReport } from "./registered-by-report";
 import { ASSISTANT_URGENT_WRITE_KEY, ensureUrgentSchema, setCustomerUrgent } from "./customer-urgent";
+import { cqSignals, cqTeamDiscipline } from "./call-queue-r2";
 import express, { Router, type Request, type Response, type NextFunction } from "express";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
@@ -880,6 +881,11 @@ export function createAssistants(deps: Deps) {
     const range = mgrRange(req, res); if (!range) return; const sp = mgrSp(req, res); if (sp === false) return;
     audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/report", outcome: "ok", detail: { range, salespersonId: sp } });
     res.json(maskAll(managerReport(mgrDeps(), range, sp)));
+  });
+  // crm-call-queue R2: «امتیاز نظم پیگیری» + daily digest signals, read-only for Ahmad ({enabled:false} while the flags are OFF).
+  runner.get("/manager/discipline", managerOnly, (req, res) => {
+    audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/discipline", outcome: "ok" });
+    res.json(maskAll({ discipline: cqTeamDiscipline(), signals: cqSignals(req.query.date) }));
   });
   runner.get("/manager/alerts", managerOnly, (req, res) => {
     audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/alerts", outcome: "ok" });
