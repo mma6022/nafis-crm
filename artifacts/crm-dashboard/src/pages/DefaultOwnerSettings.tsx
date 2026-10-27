@@ -1,5 +1,7 @@
 /* «قانون ثبت مشتری» + «ثبت‌شده‌ها بر اساس ثبت‌کننده» (admin only; crm-default-owner, PM 2026-10-27 22:12). Counts only — no names / phones of customers. */
 import { useEffect, useState } from 'react';
+import { PersianDatePicker } from '@/components/PersianDatePicker';
+import { gregorianToJalaliValue, jalaliValueToGregorian } from '@/lib/jalali';
 import '@/features/lead-annotator/lead-annotator.css';
 import './customers.css';
 
@@ -53,11 +55,11 @@ export default function DefaultOwnerSettings() {
 
       <h2 style={{ fontSize: 18, margin: '8px 0 0' }}>ثبت‌شده‌ها بر اساس ثبت‌کننده</h2>
       <div className="chips" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <label>از <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
-        <label>تا <input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+        <div className="smr-date"><span>از تاریخ</span><PersianDatePicker value={gregorianToJalaliValue(from)} noFuture onChange={(v) => { const g = jalaliValueToGregorian(v); if (g) setFrom(g > to ? to : g); }} testId="dor-from" /></div>
+        <div className="smr-date"><span>تا تاریخ</span><PersianDatePicker value={gregorianToJalaliValue(to)} noFuture onChange={(v) => { const g = jalaliValueToGregorian(v); if (g) setTo(g < from ? from : g); }} testId="dor-to" /></div>
       </div>
       {rep ? <>
-        <small>{rep.timezone} · فقط شمارش (بدون نام و شماره‌ی مشتری)</small>
+        <small>به وقت تهران · فقط شمارش (بدون نام و شماره‌ی مشتری)</small>
         <div className="dor-wrap"><table className="dor-table" data-testid="dor-report"><thead><tr><th>ثبت‌کننده</th><th>ثبت</th><th>به ثبت‌نام رسید</th><th>به ودیعه رسید</th><th>منبع ورود</th><th>کانال</th></tr></thead>
           <tbody>{rep.registrars.map((r) => <tr key={String(r.userId)}><td>{r.name}{r.salespersonName ? <small> · {r.salespersonName}</small> : null}</td>
             <td className="n" data-l="ثبت">{fa(r.registered)}</td><td className="n" data-l="ثبت‌نام">{fa(r.reachedRegistration)}</td><td className="n" data-l="ودیعه">{fa(r.reachedDeposit)}</td>

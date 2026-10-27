@@ -429,7 +429,7 @@ export function cqRejectSuggestion(user: CqUser, callId: number, now = new Date(
 
 /* ---------------- the single queue ---------------- */
 export type QueueCard = { customerId: number; name: string; phone: string | null; priority: number | null; group: QueueGroup; also: QueueGroup[];
-  reason: string; at: string | null; late: boolean; reminder: ReturnType<typeof reminderView> | null; lastCall: { at: string; text: string } | null; assistRank?: number };
+  reason: string; at: string | null; late: boolean; reminder: ReturnType<typeof reminderView> | null; lastCall: { at: string; text: string } | null; assistRank?: number; isUrgent?: boolean };
 export function cqQueue(user: CqUser, suggestions: { customerId: number; rank: number; reason?: string }[], now = new Date()) {
   const s = cqSettings(); const sp = user.salespersonId ?? -1; const n = now.toISOString();
   const groups = new Map<number, Set<QueueGroup>>(); const add = (id: number, g: QueueGroup) => { const x = groups.get(id) ?? new Set(); x.add(g); groups.set(id, x); };
@@ -447,7 +447,7 @@ export function cqQueue(user: CqUser, suggestions: { customerId: number; rank: n
   const info = new Map<number, any>();
   for (let i = 0; i < ids.length; i += 400) {
     const ch = ids.slice(i, i + 400);
-    for (const r of queryRows<any>(`SELECT c.id,c.name,c.phone,c.priority,(SELECT l.created_at||char(31)||COALESCE(NULLIF(l.one_line_note,''),l.expert_notes,'') FROM call_logs l WHERE l.customer_id=c.id ORDER BY l.id DESC LIMIT 1) lastcall
+    for (const r of queryRows<any>(`SELECT c.id,c.name,c.phone,c.priority,COALESCE(c.is_urgent,0) is_urgent,(SELECT l.created_at||char(31)||COALESCE(NULLIF(l.one_line_note,''),l.expert_notes,'') FROM call_logs l WHERE l.customer_id=c.id ORDER BY l.id DESC LIMIT 1) lastcall
       FROM customers c WHERE c.id IN (${ch.map(() => "?").join(",")}) AND ${cqOwnedCustomerSql()}`, [...ch as SqlValue[], sp])) info.set(Number(r.id), r);
   }
   const rank = (g: QueueGroup) => s.order.indexOf(g);
@@ -462,13 +462,14 @@ export function cqQueue(user: CqUser, suggestions: { customerId: number; rank: n
     else if (g === "p1") { at = p1At.get(id) ?? null; late = true; reason = at ? `اولویت ۱ · بیش از ${s.p1StaleDays} روز بی‌تماس` : "اولویت ۱ · هنوز تماسی ثبت نشده"; }
     else { reason = sugBy.get(id)?.reason || "پیشنهاد امروز دستیار فروش"; }
     cards.push({ customerId: id, name: c.name ?? "", phone: c.phone ?? null, priority: c.priority ?? null, group: g, also: gs.slice(1), reason, at, late,
-      reminder: dueBy.get(id) ?? null, lastCall: lcAt ? { at: lcAt, text: String(lcText ?? "").slice(0, 140) } : null, assistRank: sugBy.get(id)?.rank });
+      reminder: dueBy.get(id) ?? null, lastCall: lcAt ? { at: lcAt, text: String(lcText ?? "").slice(0, 140) } : null, assistRank: sugBy.get(id)?.rank, isUrgent: Number(c.is_urgent) === 1 });
   }
   const within = (a: QueueCard, b: QueueCard) => {
     if (a.group === "assist") return (a.assistRank ?? 9) - (b.assistRank ?? 9);
     return String(a.at ?? "").localeCompare(String(b.at ?? ""));
   };
-  cards.sort((a, b) => rank(a.group) - rank(b.group) || within(a, b));
+  // crm-urgent (PM 22:28): «مشتری فوری» ranks above everything else inside the queue (display order only).
+  cards.sort((a, b) => Number(!!b.isUrgent) - Number(!!a.isUrgent) || rank(a.group) - rank(b.group) || within(a, b));
   const counts = Object.fromEntries(CQ_GROUPS.map(g => [g, cards.filter(c => c.group === g).length])) as Record<QueueGroup, number>;
   return { now: n, order: s.order, settings: { newRedHours: s.newRedHours, p1StaleDays: s.p1StaleDays }, counts, total: cards.length, cards, snoozed: due.snoozed };
 }
