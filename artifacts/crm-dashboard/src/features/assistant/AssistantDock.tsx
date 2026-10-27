@@ -193,6 +193,69 @@ function HeadPop({ head, side, phone, top, children, testid }: { head: DOMRect |
     style={{ left: st?.left ?? -9999, top: st?.top ?? 0, width: st?.width, maxHeight: st?.maxH, visibility: st ? 'visible' : 'hidden', ['--tail' as string]: `${Math.round(st?.tail ?? 24)}px` }}>{children}</div>;
 }
 
+/** AR30c: the open modal's own box (desktop) — the head and the «مزاحم نشو» card must never sit on top of it (e.g. the
+ *  «سؤال از کارشناس» popup's «بفرست» at 1280). Largest visible dialog that is not a full-screen backdrop; re-measured on DOM / size changes. */
+const MODAL_BOX_SEL = '.modal,[role="dialog"],[role="alertdialog"],[aria-modal="true"]';
+function useModalBox(active: boolean): DOMRect | null {
+  const [box, setBox] = useState<DOMRect | null>(null);
+  useEffect(() => {
+    if (!active) { setBox(null); return; }
+    let f = 0; let ro: ResizeObserver | null = null; let watched: Element | null = null;
+    const m = () => {
+      f = 0; const vw = window.innerWidth; const vh = window.innerHeight; let best: Element | null = null; let bestR: DOMRect | null = null;
+      for (const el of Array.from(document.querySelectorAll(MODAL_BOX_SEL))) {
+        if (el.closest('.nas-chw,.nas-qr,.nas-pop,.diag-layer-content,.diag-backdrop')) continue;
+        const r = el.getBoundingClientRect(); if (r.width < 40 || r.height < 40 || r.width * r.height >= 0.95 * vw * vh) continue;
+        const cs = getComputedStyle(el); if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+        if (!bestR || r.width * r.height > bestR.width * bestR.height) { best = el; bestR = r; }
+      }
+      if (best !== watched) { ro?.disconnect(); ro = null; watched = best; if (best) { ro = new ResizeObserver(sch); ro.observe(best); } }
+      setBox(b => (b && bestR && b.left === bestR.left && b.top === bestR.top && b.width === bestR.width && b.height === bestR.height) || (!b && !bestR) ? b : bestR);
+    };
+    const sch = () => { if (!f) f = requestAnimationFrame(m); };
+    const mo = new MutationObserver(sch); mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'data-state'] });
+    window.addEventListener('resize', sch); sch();
+    return () => { mo.disconnect(); ro?.disconnect(); window.removeEventListener('resize', sch); if (f) cancelAnimationFrame(f); };
+  }, [active]);
+  return box;
+}
+const hits = (a: { left: number; top: number; right: number; bottom: number }, b: DOMRect, pad = 6) => a.left < b.right + pad && a.right > b.left - pad && a.top < b.bottom + pad && a.bottom > b.top - pad;
+type Gutter = { left: number; right: number };
+/** Desktop with a modal open: keep the head in a free side gutter (or hide it when there is none) and fit the DND card in that gutter. */
+function modalSafe(head: DOMRect | null, side: Side, m: DOMRect | null): { x: number | null; hidden: boolean; side: Side; gutter: Gutter | null } {
+  if (!head || !m) return { x: null, hidden: false, side, gutter: null };
+  const vw = window.innerWidth; const s = safeInsets();
+  const g: Record<Side, Gutter> = { left: { left: s.left + EDGE, right: m.left - EDGE }, right: { left: m.right + EDGE, right: vw - s.right - EDGE } };
+  const w = (k: Side) => g[k].right - g[k].left;
+  if (!hits({ left: head.left, top: head.top, right: head.right, bottom: head.bottom }, m)) return { x: null, hidden: false, side, gutter: head.left >= g.right.left ? g.right : head.right <= g.left.right ? g.left : null };
+  const k: Side = w(side) >= head.width ? side : w(side === 'left' ? 'right' : 'left') >= head.width ? (side === 'left' ? 'right' : 'left') : side;
+  if (w(k) < head.width) return { x: null, hidden: true, side, gutter: null };
+  return { x: k === 'left' ? g.left.left : g.right.right - head.width, hidden: false, side: k, gutter: g[k] };
+}
+/** The desktop «مزاحم نشو» card, inside the head's gutter: beside the head when it fits, else stacked above/below it; never over the modal. */
+function DndCard({ head, side, gutter, children }: { head: DOMRect; side: Side; gutter: Gutter; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [st, setSt] = useState<{ left: number; top: number; width: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current; if (!el) return;
+    const m = () => {
+      const vh = window.innerHeight; const beside = side === 'left' ? gutter.right - (head.right + 12) : (head.left - 12) - gutter.left;
+      if (beside >= 200) {
+        const width = Math.min(360, beside); el.style.width = `${width}px`; const ph = el.offsetHeight;
+        const top = clampN(head.top + head.height / 2 > vh / 2 ? head.bottom - ph : head.top, EDGE, vh - ph - EDGE);
+        setSt({ left: side === 'left' ? head.right + 12 : head.left - 12 - width, top, width }); return;
+      }
+      const gw = gutter.right - gutter.left; if (gw < 150) { setSt(null); return; }
+      const width = Math.min(360, gw); el.style.width = `${width}px`; const ph = el.offsetHeight;
+      const up = head.top - 10 - ph >= EDGE; const top = up ? head.top - 10 - ph : Math.min(head.bottom + 10, vh - ph - EDGE);
+      setSt({ left: side === 'left' ? gutter.left : gutter.right - width, top, width });
+    };
+    m(); const ro = new ResizeObserver(m); ro.observe(el); return () => ro.disconnect();
+  }, [head.left, head.top, head.width, head.height, side, gutter.left, gutter.right]);
+  return <div ref={ref} className={`nas-pop fl d-h s-${side}`} data-testid="assistant-dnd-card" data-fit={st ? '1' : '0'}
+    style={{ left: st?.left ?? -9999, top: st?.top ?? 0, width: st?.width, visibility: st ? 'visible' : 'hidden' }}>{children}</div>;
+}
+
 const sleep = (ms: number, signal: AbortSignal) => new Promise<void>(r => { const t = setTimeout(r, ms); signal.addEventListener('abort', () => { clearTimeout(t); r(); }, { once: true }); });
 
 /** Long-polls one thread (wait=20) and reports merged state up. Backs off when the server answers instantly with nothing new. */
@@ -391,6 +454,7 @@ export function AssistantDock({ user, bottomOffset, phone }: { user: { id: numbe
     try { const r = await asFetch<{ prefs: AsPrefs }>('/assistant/prefs', { method: 'PUT', body }); setPrefs(r.prefs); } catch (e) { toast({ title: (e as Error).message }); }
   };
 
+  const modalBox = useModalBox(!phone && overlay);
   const shown = allowed && list.length > 0;
   const hidePhone = phone && formOpen; // phone form open: the «مزاحم نشو» bar speaks for the assistant; the head never covers form buttons
   useLayoutEffect(() => { if (shown && uid) place(loadHead(uid)); }, [shown, uid, place, list.length, dndBar, hidePhone]);
@@ -476,16 +540,21 @@ export function AssistantDock({ user, bottomOffset, phone }: { user: { id: numbe
         })}
       </div>;
   const side = pos?.side ?? 'left';
+  // AR30c: desktop + modal open → the head moves into a free gutter beside the modal (or hides), the card fits that gutter.
+  const safe = !phone && overlay && !dragging ? modalSafe(headRect, side, modalBox) : { x: null, hidden: false, side, gutter: null };
+  const headX = safe.x ?? pos?.x ?? 0; const effSide = safe.side;
+  const effHead = headRect && safe.x != null ? new DOMRect(safe.x, headRect.top, headRect.width, headRect.height) : headRect;
   const chatSent = (m: AsMessage) => setThreads(prev => { const t = prev[m.threadId] ?? EMPTY; if (t.messages.some(x => x.id === m.id)) return prev; return { ...prev, [m.threadId]: { ...t, messages: [...t.messages, m], lastId: Math.max(t.lastId, m.id) } }; });
   return <>
     {pollers}
     {!hidePhone ? <div ref={headRef} className={`nas-head s-${side}${dragging ? ' drag' : ''}${active ? ' act' : ''}`} dir="rtl" data-testid="assistant-dock" data-placement="floating" data-side={side} data-dragging={dragging ? '1' : undefined}
-      style={{ transform: pos ? `translate3d(${Math.round(pos.x)}px,${Math.round(pos.y)}px,0)` : undefined, visibility: pos ? 'visible' : 'hidden' }}
+      style={{ transform: pos ? `translate3d(${Math.round(headX)}px,${Math.round(pos.y)}px,0)` : undefined, visibility: pos && !safe.hidden ? 'visible' : 'hidden' }} data-modal-safe={safe.x != null ? 'moved' : safe.hidden ? 'hidden' : undefined}
       onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onKeyDown={onKeys} onDragStart={e => e.preventDefault()}>
       {avatars}
     </div> : null}
     {!dragging && !hidePhone && pop ? <HeadPop head={headRect} side={side} phone={phone} top={bTop} testid="assistant-pop">{pop}</HeadPop> : null}
-    {!dragging && !phone && overlay ? <HeadPop head={headRect} side={side} phone={false} top={bTop} testid="assistant-dnd-card"><div className="nas-dndc"><Moon size={14} /> <span><b>مزاحم نشو</b> تا این پنجره باز است{queued ? ` · ${faNum(queued)} پیام در صف` : ''}</span></div></HeadPop> : null}
+    {!dragging && !phone && overlay && !safe.hidden ? (modalBox ? (effHead && safe.gutter ? <DndCard head={effHead} side={effSide} gutter={safe.gutter}><div className="nas-dndc"><Moon size={14} /> <span><b>مزاحم نشو</b> تا این پنجره باز است{queued ? ` · ${faNum(queued)} پیام در صف` : ''}</span></div></DndCard> : null)
+      : <HeadPop head={headRect} side={side} phone={false} top={bTop} testid="assistant-dnd-card"><div className="nas-dndc"><Moon size={14} /> <span><b>مزاحم نشو</b> تا این پنجره باز است{queued ? ` · ${faNum(queued)} پیام در صف` : ''}</span></div></HeadPop>) : null}
     {dndBar ? createPortal(<div className="nas-dndbar" role="status" aria-live="polite" dir="rtl" data-testid="assistant-dnd-bar">
       <Moon size={18} aria-hidden="true" /><span className="t"><b>مزاحم نشو</b> — تا این فرم باز است؛ {queued ? `${faNum(queued)} پیام در صف` : 'پیام‌ها در صف می‌مانند'}</span>
       <button type="button" onClick={() => setBarOff(true)} data-testid="button-assistant-dnd-bar-off">خاموش کن</button>

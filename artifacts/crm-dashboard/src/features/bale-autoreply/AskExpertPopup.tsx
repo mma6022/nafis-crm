@@ -41,7 +41,7 @@ export function AskExpertPopup({ uid }: { uid: number }) {
     const t = text.trim(); if (!t) { setErr('جواب خالی است.'); return; }
     if (save && t.length > AR_LEARNED_MAX) { setErr('جواب ذخیره‌شونده حداکثر ۵۰۰ نویسه است.'); return; }
     setBusy(true); setErr(null);
-    try { const r = await baleFetch<{ status: string; learnedId: number | null; message: string }>(`/bale/me/autoreply/questions/${cur.id}/answer`, { method: 'POST', body: { text: t, save } });
+    try { const r = await baleFetch<{ status: string; learnedId: number | null; saveSkipped?: string | null; message: string }>(`/bale/me/autoreply/questions/${cur.id}/answer`, { method: 'POST', body: { text: t, save } });
       toast({ title: r.message || 'جواب رفت' }); done(); }
     catch (e) { setErr(errMsg(e)); }
     finally { setBusy(false); }
@@ -62,7 +62,7 @@ export function AskExpertPopup({ uid }: { uid: number }) {
       <label style={{ display: 'grid', gap: 4 }}><span><b>جواب تو</b> <small className="muted">به اسم تو در بله می‌رود</small></span>
         <textarea className="input" dir="auto" rows={4} maxLength={1000} value={text} onChange={e => setText(e.target.value)} data-testid="ar-ask-answer" /></label>
       <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}><input type="checkbox" checked={save} onChange={e => setSave(e.target.checked)} data-testid="ar-ask-save" />
-        <span><b>برای دفعه‌های بعد هم همین جواب رو بده</b><br /><small className="muted">در «جواب‌های آموخته‌شده» ذخیره می‌شود. تو یا مدیر هر وقت بخواهید ویرایشش می‌کنید.{save ? ` (${faNum(text.trim().length)} از ${faNum(AR_LEARNED_MAX)} نویسه؛ بدون مبلغ و بدون قول)` : ''}</small></span></label>
+        <span><b>برای دفعه‌های بعد هم همین جواب رو بده</b><br /><small className="muted">در «جواب‌های آموخته‌شده» ذخیره می‌شود. تو یا مدیر هر وقت بخواهید ویرایشش می‌کنید.{save ? ` (${faNum(text.trim().length)} از ${faNum(AR_LEARNED_MAX)} نویسه؛ اگر مبلغ یا قول داشته باشد فرستاده می‌شود ولی ذخیره نمی‌شود)` : ''}</small></span></label>
       <div className="esc gold" style={{ borderRadius: 10 }}><HelpCircle size={16} /><div><p>{cur.holdResult === 'queued' || cur.holdResult === 'sent' ? <>تا جواب ندهی، مشتری فقط پیام نگه‌دار گرفته است: «{cur.holdText}»</> : <>پیام نگه‌دار برای مشتری نرفت؛ مشتری هنوز جوابی نگرفته است.</>}
         {cur.timeoutMin ? <> اگر تا {faNum(cur.timeoutMin)} دقیقه جواب نیاید، گفتگو به تو سپرده می‌شود.</> : null}</p></div></div>
       {cur.quietUntil ? <div className="esc" style={{ borderRadius: 10 }} data-testid="ar-ask-quiet"><Moon size={16} /><div><p><b>الان ساعت آرام است.</b> جوابت صبح ساعت {faNum(quietHm(cur.quietEnd))} ارسال می‌شه (همان سقف‌ها و قاعده‌ها).</p></div></div> : null}

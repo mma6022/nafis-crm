@@ -432,8 +432,8 @@ try {
   r = await S(2, "POST", `/bale/me/autoreply/questions/${qid}/answer`, { text: "x" }); assert.equal(r.s, 404, JSON.stringify(r.j));
   r = await S(8, "GET", "/bale/me/autoreply"); assert.equal(r.j.list.find(x => x.customerId === 204)?.state, "asked", JSON.stringify(r.j.list));
   s2 = sent(); const n204 = autoAll(204).length;
-  r = await S(8, "POST", `/bale/me/autoreply/questions/${qid}/answer`, { text: "بله، تا ۵۰ میلیون تومان وام می‌گیره.", save: true }); assert.equal(r.s, 422, JSON.stringify(r.j)); assert.equal(r.j.error, "learned_amount");
-  assert.equal(autoAll(204).length, n204, "refused learned save → nothing queued");
+  r = await S(8, "POST", `/bale/me/autoreply/questions/${qid}/answer`, { text: "x".repeat(501), save: true }); assert.equal(r.s, 422, JSON.stringify(r.j)); assert.equal(r.j.error, "text_too_long");
+  assert.equal(autoAll(204).length, n204, "refused learned save (too long) → nothing queued");
   r = await S(8, "POST", `/bale/me/autoreply/questions/${qid}/answer`, { text: "بله، برای کارمند پیمانی هم وام داریم؛ قرارداد کاری رو بفرستید.", save: true }); assert.equal(r.s, 200, JSON.stringify(r.j));
   const lid = r.j.learnedId; assert.ok(lid > 0, JSON.stringify(r.j));
   const ans = autoRows(204).at(-1); assert.equal(ans.ar_kind, "answer"); assert.equal(ans.ar_question_id, qid); assert.ok(ans.reply_to_msg_id > 0);
@@ -441,7 +441,7 @@ try {
   assert.equal(one("SELECT status FROM bale_ar_questions WHERE id=?", qid).status, "answered");
   r = await S(8, "POST", `/bale/me/autoreply/questions/${qid}/answer`, { text: "باز هم" }); assert.ok(r.s === 409 || r.s === 404, JSON.stringify(r.j));
   assert.equal(acc(8).mode, "off");
-  ok("AR30 ask-expert: runner question → bell + popup, one holding message, Masoud blocked while pending, Kazemi's answer sent as the reply through the outbox checks, learned save refused on amounts before anything is queued");
+  ok("AR30 ask-expert: runner question → bell + popup, one holding message, Masoud blocked while pending, Kazemi's answer sent as the reply through the outbox checks, learned save refused (too long) before anything is queued");
 
   // learned answers
   r = await S(8, "GET", "/bale/me/autoreply/learned"); assert.equal(r.s, 200, JSON.stringify(r.j)); assert.equal(r.j.items.length, 1);
@@ -559,6 +559,43 @@ try {
   clock = new Date("2026-11-05T05:01:00Z"); await tick(); assert.equal(sent(), s2 + 1); assert.equal(mock.sent.at(-1).text, um.text);
   assert.equal(acc(8).mode, "off");
   ok("AR30b: Kazemi's after-hours answer goes out right away; inside the quiet window (21:30–08:30) it is held until 08:30 and the popup / answer say «صبح ساعت ۸:۳۰ ارسال می‌شه»; worker re-holds; caps still apply");
+
+  // ---------- AR30c: amount/promise with the learned tick on → sent as usual (all outbox checks), only the learned save is skipped ----------
+  clock = new Date("2026-11-05T07:00:00Z"); // Thu 10:30 Tehran (open hours)
+  const DISC = "مبلغ قطعی را بانک یا تأمین‌کننده‌ی مالی پس از اعتبارسنجی تعیین می‌کند.";
+  const L0 = one("SELECT count(*) n FROM bale_ar_learned").n;
+  db.prepare("UPDATE bale_conversation_state SET ar_owner='assistant', ar_reason=NULL, ar_night_at=NULL WHERE customer_id IN (200,204,205)").run();
+  r = await inb(KREF, 200, "یه سؤال دیگه هم داشتم"); assert.equal(r.j.stored, 1);
+  r = await R(10, "POST", "/bale/ask-expert", { customerId: 200, question: "سقف وام؟" }); assert.equal(r.s, 201, JSON.stringify(r.j)); const qx = r.j.questionId; await tick();
+  s2 = sent();
+  r = await S(8, "POST", `/bale/me/autoreply/questions/${qx}/answer`, { text: "بله، تا ۵۰ میلیون تومان وام می‌گیره.", save: true }); assert.equal(r.s, 200, JSON.stringify(r.j));
+  assert.equal(r.j.learnedId, null); assert.equal(r.j.saveSkipped, "learned_amount"); assert.equal(r.j.message, "جواب رفت · این جواب چون مبلغ یا قول داره ذخیره نشد");
+  let ax = autoRows(200).at(-1); assert.equal(ax.ar_kind, "answer"); assert.equal(ax.ar_question_id, qx); assert.ok(ax.text.includes(DISC), "amount disclaimer still added: " + ax.text);
+  assert.deepEqual({ ...one("SELECT status,save_learned,learned_id FROM bale_ar_questions WHERE id=?", qx) }, { status: "answered", save_learned: 0, learned_id: null });
+  assert.equal(one("SELECT count(*) n FROM bale_ar_learned").n, L0, "nothing saved");
+  await tick(); assert.equal(sent(), s2 + 1); assert.equal(mock.sent.at(-1).text, ax.text);
+  // promise
+  r = await inb(KREF, 205, "یه سؤال دیگه هم دارم"); assert.equal(r.j.stored, 1);
+  r = await R(10, "POST", "/bale/ask-expert", { customerId: 205, question: "قول میدید؟" }); assert.equal(r.s, 201, JSON.stringify(r.j)); const qy = r.j.questionId; await tick();
+  const pText = "تضمین می‌کنم وام جور بشه";
+  assert.equal(ar.learnedProblem(pText), "learned_promise");
+  r = await S(8, "POST", `/bale/me/autoreply/questions/${qy}/answer`, { text: pText, save: true }); assert.equal(r.s, 200, JSON.stringify(r.j));
+  assert.equal(r.j.saveSkipped, "learned_promise"); assert.ok(r.j.message.endsWith("این جواب چون مبلغ یا قول داره ذخیره نشد"), r.j.message); assert.equal(r.j.learnedId, null);
+  assert.equal(one("SELECT count(*) n FROM bale_ar_learned").n, L0);
+  await tick();
+  // an outbox refusal still refuses (per-hour cap at enqueue): nothing queued, nothing saved, question stays pending
+  r = await inb(KREF, 204, "سؤال آخرم اینه"); r = await R(10, "POST", "/bale/ask-expert", { customerId: 204, question: "قسط؟" }); assert.equal(r.s, 201, JSON.stringify(r.j)); const qz = r.j.questionId; await tick();
+  const ph1 = one("SELECT value FROM bale_settings WHERE key='per_hour'")?.value ?? null; const n204b = autoRows(204).length;
+  db.prepare("INSERT INTO bale_settings(key,value,updated_at) VALUES('per_hour','0',?) ON CONFLICT(key) DO UPDATE SET value='0'").run(clock.toISOString());
+  r = await S(8, "POST", `/bale/me/autoreply/questions/${qz}/answer`, { text: "قسطش ماهی ۳ میلیون تومانه.", save: true }); assert.ok(r.s >= 400 && r.s < 500, JSON.stringify(r.j)); assert.equal(r.j.error, "cap_hour", JSON.stringify(r.j));
+  if (ph1 == null) db.prepare("DELETE FROM bale_settings WHERE key='per_hour'").run(); else db.prepare("UPDATE bale_settings SET value=? WHERE key='per_hour'").run(ph1);
+  assert.equal(autoRows(204).length, n204b, "blocked → nothing sendable queued"); assert.equal(one("SELECT status FROM bale_ar_questions WHERE id=?", qz).status, "pending"); assert.equal(one("SELECT count(*) n FROM bale_ar_learned").n, L0);
+  // a clean answer with the tick still saves
+  r = await S(8, "POST", `/bale/me/autoreply/questions/${qz}/answer`, { text: "اقساط بعد از اعتبارسنجی مشخص می‌شه؛ مدارک رو بفرستید.", save: true }); assert.equal(r.s, 200, JSON.stringify(r.j)); assert.ok(r.j.learnedId > 0); assert.equal(r.j.saveSkipped, null);
+  db.prepare("DELETE FROM bale_ar_learned WHERE id=?").run(r.j.learnedId);
+  await tick();
+  assert.equal(acc(8).mode, "off");
+  ok("AR30c: amount/promise answer with the learned tick on is sent through the outbox as usual (disclaimer kept), not saved, message «این جواب چون مبلغ یا قول داره ذخیره نشد»; outbox refusals still refuse");
 
   // ---------- expert OFF switch + final ----------
   r = await S(1, "PUT", "/admin/bale/autoreply/pairs/10", ON); assert.equal(r.s, 200, JSON.stringify(r.j)); assert.equal(pair("masoud").stopped_reason, null);

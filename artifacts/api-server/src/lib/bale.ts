@@ -35,6 +35,8 @@ import { createBalePlanFiles, ensureBalePlanFilesSchema, BALE_PLAN_FILE_MAX_BYTE
 
 type Db = DatabaseSync;
 export type BaleActor = { id: number } | null;
+/** AR30c: shown when the learned tick was on but the answer has an amount or a promise (sent, not saved). */
+export const LEARNED_SKIPPED_FA = "این جواب چون مبلغ یا قول داره ذخیره نشد";
 /** AR30b: «صبح ساعت ۸:۳۰ ارسال می‌شه» (the quiet window's end, Persian digits). */
 export function quietMorningFa(end: string | null | undefined): string {
   const m = /^(\d{1,2}):(\d{2})$/.exec(String(end ?? "")); const hm = m ? `${Number(m[1])}:${m[2]}` : "8:30";
@@ -684,8 +686,10 @@ export function createBale(deps: BaleDeps) {
     const text = String(req.body?.text ?? "").trim(); const save = req.body?.save === true;
     if (!text) return void res.status(422).json({ error: "empty", message: "جواب خالی است." });
     if (text.length > AR_TEXT_MAX) return void res.status(422).json({ error: "too_long", message: "جواب خیلی بلند است." });
-    // A learned answer may never carry an amount or a promise: refused BEFORE anything is sent.
-    if (save) { const e = ar.learnedProblem(text); if (e) return void res.status(422).json({ error: e, message: e === "learned_amount" ? "جوابی که مبلغ دارد برای دفعه‌های بعد ذخیره نمی‌شود؛ تیک را بردار یا مبلغ را حذف کن." : e === "learned_promise" ? "جوابی که قول یا تعهد دارد برای دفعه‌های بعد ذخیره نمی‌شود؛ تیک را بردار یا متن را عوض کن." : e === "text_too_long" ? "جواب ذخیره‌شونده حداکثر ۵۰۰ نویسه است." : (BLOCK_FA as any)[e] ?? "این جواب قابل ذخیره نیست." }); }
+    // A learned answer may never carry an amount or a promise. AR30c (PM): that no longer refuses the answer — it is sent as usual
+    // (every outbox check, cap and the amount disclaimer unchanged) and only the learned save is skipped. Other save problems still refuse.
+    let saveSkipped: "learned_amount" | "learned_promise" | null = null;
+    if (save) { const e = ar.learnedProblem(text); if (e === "learned_amount" || e === "learned_promise") saveSkipped = e; else if (e) return void res.status(422).json({ error: e, message: e === "text_too_long" ? "جواب ذخیره‌شونده حداکثر ۵۰۰ نویسه است." : (BLOCK_FA as any)[e] ?? "این جواب قابل ذخیره نیست." }); }
     const a = accountOf(u.id); const p = ar.pairOfAssistant(q.assistant_id);
     if (!a || a.id !== q.account_id || !p) return fail(res, 404, "not_found");
     if (!ar.pairOn(p)) { audit({ req, u, accountId: a.id, action: "autoreply.ask_answer", outcome: "autoreply_off", detail: { questionId: q.id } }); return void res.status(423).json({ error: "autoreply_off", message: (BLOCK_FA as any).autoreply_off ?? "پاسخ خودکار خاموش است؛ چیزی فرستاده نشد." }); }
@@ -702,10 +706,11 @@ export function createBale(deps: BaleDeps) {
       if (r !== "queued") return void res.status(blockedStatus(r)).json({ error: r, message: (BLOCK_FA as any)[r] ?? r });
       sent = { arMessageId: ar.lastUnknownMessageId() }; heldUntil = ar.lastUnknownHeld();
     }
-    const learnedId = ar.recordAnswer(q, u.id, text, save, sent);
+    const learnedId = ar.recordAnswer(q, u.id, text, save && !saveSkipped, sent);
     // AR30b: inside the sidecar quiet window (21:30–08:30) the answer is held and goes out at its end.
     const head = heldUntil ? `جواب ثبت شد · ${quietMorningFa(setting("quiet_end"))}` : "جواب رفت";
-    res.json({ status: "queued", learnedId, heldUntil, message: learnedId ? `${head} · در «جواب‌های آموخته‌شده» ذخیره شد` : head });
+    const tail = learnedId ? " · در «جواب‌های آموخته‌شده» ذخیره شد" : saveSkipped ? ` · ${LEARNED_SKIPPED_FA}` : "";
+    res.json({ status: "queued", learnedId, heldUntil, saveSkipped, message: `${head}${tail}` });
   });
   staff.post("/bale/me/autoreply/questions/:id/self", expert, (req, res) => {
     const g = ownQuestion(req, res); if (!g) return;
