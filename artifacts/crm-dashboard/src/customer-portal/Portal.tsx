@@ -371,7 +371,7 @@ function Apply({ profile, planId, months = '' }: { profile: Profile; planId: num
       await queryClient.invalidateQueries({ queryKey: ['customer', 'applications'] }); await queryClient.invalidateQueries({ queryKey: ['customer', 'active-applications'] }); navigate(`/customer/applications/${app.id}`); }
     catch (e) { setError(message(e)); }
   };
-  const selectionHint = !selectionOk && <div className="nfp-alert nfp-info" role="status" data-testid="status-select-amount"><Icon icon={Info} small /><span>ابتدا مبلغ دریافتی و تعداد اقساط را انتخاب کنید.</span></div>;
+  const selectionHint = !selectionOk && <div className="nfp-alert nfp-info" role="status" data-testid="status-select-amount"><Icon icon={Info} small /><span>ابتدا مبلغ واریزی و تعداد اقساط را انتخاب کنید.</span></div>;
   const errorAlert = error && <div className="nfp-alert" role="alert"><Icon icon={AlertCircle} small /><span>{error}</span></div>;
   const alertOf = (e: unknown) => <div className="nfp-alert" role="alert"><Icon icon={AlertCircle} small /><span>{message(e)}</span></div>;
   const loadingRow = <div className="nfp-sk" style={{ height: 48 }} role="status" aria-label="در حال دریافت" />;
@@ -452,8 +452,8 @@ function Apply({ profile, planId, months = '' }: { profile: Profile; planId: num
   const calculator = <PlanCalculator key={`c${plan.planId}`} planId={plan.planId} eligiblePlan={plan} amount={amount} duration={duration} onAmount={setAmount} onDuration={setDuration}
     feeToman={feeAmount} onSummary={setSummary} />;
   const summaryLine = summary && summary.cash != null
-    ? <>مبلغ دریافتی {number(summary.cash)} تومان<Sep />{summary.installment == null ? 'قسط بعداً اعلام می‌شود' : `قسط ${number(summary.installment)} تومان`}<Sep />{number(summary.months)} قسط</>
-    : 'مبلغ دریافتی و تعداد اقساط را انتخاب کنید';
+    ? <>مبلغ واریزی {number(summary.cash)} تومان<Sep />{summary.installment == null ? 'قسط بعداً اعلام می‌شود' : `قسط ${number(summary.installment)} تومان`}<Sep />{number(summary.months)} قسط</>
+    : 'مبلغ واریزی و تعداد اقساط را انتخاب کنید';
   return <ApplyFrame>
     <div className="nfp-wz-meta"><span>مرحله <b>{fa(step + 1)}</b> از {fa(APPLY_STEPS.length)}<Sep />{APPLY_STEPS[step]}</span></div>
     <div className="nf-progress" style={{ ['--steps' as string]: APPLY_STEPS.length }} role="progressbar" aria-valuemin={1} aria-valuemax={APPLY_STEPS.length} aria-valuenow={step + 1} aria-label="پیشرفت ثبت درخواست">

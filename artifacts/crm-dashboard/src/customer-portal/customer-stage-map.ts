@@ -24,7 +24,7 @@ export const STAGE_MAP: Record<string, StageCopy> = {
   collateral_upload: { phase: 1, turn: 'you', title: 'مدارک وثیقه را بفرستید', description: 'مدارک وثیقه را در گفتگو برای کارشناس بفرستید.', cta: 'docs' },
   collateral_review: { phase: 1, turn: 'us', title: 'وثیقه در حال بررسی است', description: NOTHING_TO_DO },
   expert_approval: { phase: 2, turn: 'us', title: 'پرونده نزد تأمین‌کننده است', description: 'تأمین‌کننده پرونده را بررسی می‌کند. نتیجه همین‌جا نشان داده می‌شود.' },
-  funder_initial_approval: { phase: 2, turn: 'us', title: 'مبلغ وام در حال تصویب است', description: NOTHING_TO_DO },
+  funder_initial_approval: { phase: 2, turn: 'us', title: 'مبلغ واریزی در حال تأیید است', description: NOTHING_TO_DO },
   approved_contract_pending_signature: { phase: 2, turn: 'you', title: 'قرارداد جدید را امضا کنید', description: 'شرایط قرارداد تغییر کرده است؛ قرارداد جدید برای امضای شما در امضامی آماده است.', cta: 'sign' },
   // Awaiting Mohammad's approval (handoff section 9): turn and text of this card.
   physical_documents_submission: { phase: 3, turn: 'us', title: 'کارشناس با شما تماس می‌گیرد', description: NOTHING_TO_DO },

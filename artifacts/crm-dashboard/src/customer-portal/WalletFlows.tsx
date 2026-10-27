@@ -195,7 +195,7 @@ export function WalletFeePage() {
   const alert = stale ? <div className="nfp-alert nfp-warn" role="alert"><Icon icon={AlertCircle} small /><span>نتیجه‌ی اعتبارسنجی شما قدیمی شده است. اول اعتبارسنجی را دوباره انجام دهید.</span></div>
     : noMatch ? <div className="nfp-alert nfp-warn" role="alert"><Icon icon={AlertCircle} small /><span>شرایط این طرح با اطلاعات شما جور نیست. مبلغ یا تعداد اقساط را تغییر دهید یا <ExpertLink>با کارشناس صحبت کنید</ExpertLink>.</span></div>
     : noConfig ? <div className="nfp-alert nfp-info" role="alert"><Icon icon={Info} small /><span>مبلغ این هزینه هنوز مشخص نشده است. <ExpertLink>با کارشناس صحبت کنید</ExpertLink>.</span></div>
-    : !hasDraft ? <div className="nfp-alert nfp-info" role="status"><Icon icon={Info} small /><span>اول مبلغ دریافتی و تعداد اقساط را در ثبت درخواست انتخاب کنید.</span></div>
+    : !hasDraft ? <div className="nfp-alert nfp-info" role="status"><Icon icon={Info} small /><span>اول مبلغ واریزی و تعداد اقساط را در ثبت درخواست انتخاب کنید.</span></div>
     : c === 'customer_profile_incomplete' || c === 'customer_identity_not_verified' ? <div className="nfp-alert" role="alert"><Icon icon={AlertCircle} small /><span>{error?.text} <Link href="/customer/profile">رفتن به پروفایل</Link></span></div>
     : error && c !== 'insufficient_cash_balance' ? <div className="nfp-alert" role="alert"><Icon icon={AlertCircle} small /><span>پرداخت انجام نشد و مبلغی از کیف پول کم نشد. دوباره تلاش کنید.</span></div>
     : null;

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { FileText, RefreshCw } from 'lucide-react';
-import { getPublicLoanPlan } from '@workspace/api-client-react';
+import { publicPlansApi } from './api';
 
 const LABELS: Record<string, string> = {
   national_card: 'کارت ملی', birth_certificate_all_pages: 'شناسنامه (تمام صفحات)', employment_proof: 'مدرک اشتغال به کار',
@@ -18,7 +18,7 @@ export function documentDisplayLabel(value: unknown): string {
 }
 
 export function PlanRequirements({ planId }: { planId: number }) {
-  const q = useQuery({ queryKey: ['customer', 'plan-details', planId], queryFn: () => getPublicLoanPlan(planId), staleTime: 60_000 });
+  const q = useQuery({ queryKey: ['customer', 'plan-documents', planId], queryFn: () => publicPlansApi.documents(planId), staleTime: 60_000 });
   if (q.isLoading) return <section className="cp-card" role="status" aria-label="در حال دریافت"><div className="cp-skeleton" /></section>;
   if (q.isError || !q.data) return <div className="cp-alert" role="alert">دریافت مدارک طرح ناموفق بود. <button type="button" className="cp-btn cp-btn-outline cp-btn-small" onClick={() => void q.refetch()} data-testid="button-retry-plan-details">تلاش دوباره <RefreshCw size={13} /></button></div>;
   const docs = (q.data.requiredDocuments ?? []).map(documentDisplayLabel);

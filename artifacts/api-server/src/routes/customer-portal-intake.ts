@@ -9,6 +9,7 @@ import { normalizeDigits } from "../lib/ics24";
 import { freshSuccessfulCredit,payablePlan,planAcceptsCustomerCredit,reusableFilingFeeCharge } from "./loan-applications";
 import { verifyPortalCustomer } from "./customer-portal-profile";
 import { consultationFields,consultationQuestionnaireOptions,getConsultation,computeConsultationPlanMatches } from "./crm";
+import { finderQuote } from "../lib/plan-quote-math";
 import { questionnaireError } from "../lib/consultation-questionnaire";
 import { CreateConsultationBody } from "@workspace/api-zod";
 const router=Router();router.use(requireCustomerPortal);
@@ -99,6 +100,11 @@ router.post("/plan-finder",(req,res)=>{
     executeChanges("UPDATE consultation_forms SET plan_matches_snapshot=? WHERE id=?",[JSON.stringify({capturedAt:at,requestedAmount:saved.requestedAmount,matches}),id]);
     return {consultationId:id,matches};
   });
-  res.status(201).json(response);
+  // Customer view: no plan internals (principal/rates/percents) — only names, status and server-computed payout/installment.
+  res.status(201).json({consultationId:response.consultationId,matches:response.matches.map(m=>({
+    plan:{id:m.plan.id,name:m.plan.name,bankName:m.plan.bankName,filingFeeToman:m.plan.filingFeeToman},
+    status:m.status,failedRequirements:m.failedRequirements,missingInformation:m.missingInformation,
+    quote:finderQuote(m.plan,m.customerMaximumAmount),
+  }))});
 });
 export default router;

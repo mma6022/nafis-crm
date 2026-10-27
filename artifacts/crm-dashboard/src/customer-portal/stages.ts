@@ -1,5 +1,5 @@
 export const stages: Record<string, string> = {
-  draft: 'در انتظار تکمیل قرارداد توسط کارشناس', funder_initial_approval: 'تصویب مبلغ وام',
+  draft: 'در انتظار تکمیل قرارداد توسط کارشناس', funder_initial_approval: 'تأیید مبلغ واریزی',
   primary_contract_pending_signature: 'در انتظار امضای قرارداد اولیه',
   approved_contract_pending_signature: 'در انتظار امضای قرارداد جایگزین',
   customer_documents_upload: 'بارگذاری مدارک', customer_documents_review: 'بررسی مدارک',

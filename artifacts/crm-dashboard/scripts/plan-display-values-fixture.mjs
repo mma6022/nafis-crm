@@ -1,6 +1,6 @@
 // Run: node --experimental-strip-types artifacts/crm-dashboard/scripts/plan-display-values-fixture.mjs
 import assert from 'node:assert/strict';
-import { displayPlanTerms, durationPercent, planDurations } from '../src/customer-portal/plan-display-values.ts';
+import { displayPlanTerms, durationPercent, planDurations } from '../../api-server/src/lib/plan-quote-math.ts';
 
 assert.deepEqual(planDurations('["12","24","12"]'), [12, 24]);
 assert.deepEqual(planDurations('["۱۲","۲۴"]'), [12, 24]);

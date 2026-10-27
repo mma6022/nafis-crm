@@ -56,6 +56,8 @@ export type LoanOption = {
   description?: string | null;
   maximumAmount?: string | number | null;
   minimumAmount?: string | number | null;
+  /** Server-computed largest «مبلغ واریزی» across the customer's allowed options. */
+  maximumPayout?: number | null;
   allowedDurations?: number[];
   conditionId?: number | null;
   conditionName?: string | null;
@@ -84,6 +86,8 @@ export type PortalDocument = {
 };
 export type Application = CustomerPortalApplication & {
   manualValues?: Record<string, string> | null;
+  /** Server-computed monthly installment (rates never reach the browser). */
+  installmentAmount?: number | null;
 };
 export type ConsultationMessage = {
   id: number | string;
@@ -157,7 +161,21 @@ function loanOption(value: unknown): LoanOption {
 export type ChatThread = { customerId: number; expertName: string | null; expertOnline: boolean; unreadCount: number };
 export type ChatMessage = { id: number; customerId: number; senderType: 'customer' | 'staff'; senderId?: number; senderName: string | null; text: string | null; kind: 'text' | 'image' | 'audio' | 'file'; fileName: string | null; mimeType: string | null; fileSize: number | null; fileUrl: string | null; createdAt: string; clientId: string | null };
 export type ChatPage = { items: ChatMessage[]; nextCursor: number | string | null; lastReadId: number | null };
-export type PlanFinderMatch = { plan: { id: number; name: string; bankName?: string | null; filingFeeToman: string; principalAmount?: string | null }; status: 'eligible' | 'needs_review' | 'not_eligible'; customerMaximumAmount?: string | null; failedRequirements: string[]; missingInformation: string[] };
+export type QuoteTerm = { installments: number; payout: number | null; installment: number | null };
+export type PlanFinderMatch = { plan: { id: number; name: string; bankName?: string | null; filingFeeToman: string }; status: 'eligible' | 'needs_review' | 'not_eligible'; failedRequirements: string[]; missingInformation: string[];
+  /** Server-computed card values (payout + installment per duration, default duration). */
+  quote?: { best: number | null; terms: QuoteTerm[] } | null };
+/** Public plan (logged-out whitelist): no principal, rates or percents — money per term only. */
+export type PublicPlan = { id: number; name: string; installments?: string | null; loanType?: string | null; processMode?: string | null;
+  grantDays?: number | string | null; bankName?: string | null; platformName?: string | null; installmentTerms: QuoteTerm[] };
+export type PlanQuote = { months: number; durations: number[]; minPayout: number | null; maxPayout: number | null;
+  payout: number | null; installment: number | null; requestedAmount?: string | null; conditionId?: number | null };
+export const publicPlansApi = {
+  list: () => request<PublicPlan[]>('/public/loan-plans', {}, '/api'),
+  documents: (planId: number) => request<{ id: number; requiredDocuments: string[] }>(`/public/loan-plans/${planId}/documents`, {}, '/api'),
+  quote: (planId: number, body: { months?: number | null; cash?: number | null }) =>
+    request<PlanQuote>(`/public/loan-plans/${planId}/quote`, { method: 'POST', body: json(body) }, '/api'),
+};
 export type PlanFinderMatches = PlanFinderMatch[];
 export type IntakeStatus = { creditValid: boolean; creditRank: string | null; planEligible: boolean; feeChargeId: number | null; filingFeeToman: string;
   existingApplicationId?:number|null;requiredDocumentTypes?:string[];
@@ -261,6 +279,9 @@ export const portalApi = {
   },
   chatRead: (lastMessageId: number) => request<unknown>('/chat/read', { method: 'POST', body: json({ lastMessageId }) }),
   presence: () => request<unknown>('/chat/presence', { method: 'POST', body: '{}' }),
+  /** Logged-in calculator quote on the customer's own eligible option; returns the principal the apply form submits. */
+  planQuote: (body: { planId: number; months?: number | null; cash?: number | null; amount?: number | null; eligible: 1 }) =>
+    request<PlanQuote>('/plan-quote', { method: 'POST', body: json(body) }),
   planFinderOptions: () => request<{ options: Array<{ fieldKey: string; value: string; label: string }> }>('/plan-finder/options'),
   planFinder: (body: PlanFinderRequest) => request<{ consultationId: number; matches: PlanFinderMatches }>('/plan-finder', { method: 'POST', body: json(body) }),
   intakeStatus: (planId: number) => request<IntakeStatus>(`/intake/status?planId=${planId}`),

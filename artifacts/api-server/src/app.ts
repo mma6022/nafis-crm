@@ -121,9 +121,11 @@ app.use("/api/social-monitor", socialMonitorFeature.ingestRouter);
 const requireApiAuth: RequestHandler = (req, res, next): void => {
   const isPublicLoanPlanRequest =
     req.method === "GET" &&
-    /^\/public\/loan-plans(?:\/[^/]+)?\/?$/.test(req.path);
+    /^\/public\/loan-plans(?:\/[^/]+(?:\/documents)?)?\/?$/.test(req.path);
+  // Public calculator quote (payout + installment only; validated + per-IP rate limit in the route).
+  const isPublicLoanPlanQuote = req.method === "POST" && /^\/public\/loan-plans\/[^/]+\/quote\/?$/.test(req.path);
   const isPublicWalletShare = isPublicWalletRequest(req.method, req.path);
-  if (req.path === "/healthz" || isPublicLoanPlanRequest || isPublicWalletShare) {
+  if (req.path === "/healthz" || isPublicLoanPlanRequest || isPublicLoanPlanQuote || isPublicWalletShare) {
     next();
     return;
   }

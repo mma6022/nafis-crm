@@ -4,6 +4,15 @@ import { customerGuarantorGrade } from "../lib/guarantor-grade-source";
 import { creditProviderFailure } from "../lib/credit-provider-failure";
 import { supportedDocumentUpload } from "../lib/document-upload-type";
 import { customerApplicationPayout } from "../lib/customer-application-payout";
+import { applicationInstallment, calculatorQuote, eligibleConditionId, maximumCustomerPayout } from "../lib/plan-quote-math";
+import { createQuoteRateLimit, parseQuoteBody } from "../lib/plan-quote-guard";
+import { trustedClientIp } from "../lib/client-ip";
+import { activeQuotePlan as crmActiveQuotePlan } from "./crm";
+
+/** Full plan (rates) for server-side quotes only; never serialized. Fails closed (unknown amount) like the old browser fetch. */
+function activeQuotePlan(id: number) {
+  try { return crmActiveQuotePlan(id); } catch { return undefined; }
+}
 import fs from "node:fs";
 import path from "node:path";
 import crypto, { randomBytes } from "node:crypto";
@@ -246,6 +255,9 @@ function portalApplication(applicationId: number, customerId: number) {
     requestedAmount: String(row.requested_amount),
     ...customerApplicationPayout(row),
     approvedAmount: row.approved_amount == null ? null : String(row.approved_amount),
+    // Monthly installment on today's plan terms (was computed in the browser from public rates).
+    installmentAmount: applicationInstallment(activeQuotePlan(Number(row.plan_id)),
+      Number(row.approved_amount ?? row.requested_amount), Number(row.duration_months) || Number(row.requested_duration_months ?? 0)),
     requestedDurationMonths: Number(row.requested_duration_months ?? row.duration_months),
     durationMonths: Number(row.duration_months),
     conditionId: condition?.id == null ? null : Number(condition.id),
@@ -406,13 +418,11 @@ function planConditions(planId: number, customerId: number, requireRank = false)
     });
 }
 
-router.get("/loan-options", (req, res) => {
-  const customer = portalCustomer(res); if (!customer) return;
+function customerLoanOptions(customer: { id: number }) {
   const plans = queryRows<any>(
     "SELECT * FROM loan_plans WHERE active=1 ORDER BY id",
   ).filter((plan) => payablePlan(Number(plan.id)));
-  return res.json({
-    plans: plans.map((plan) => {
+  return plans.map((plan) => {
       // Before credit inquiry show the plan preview. After inquiry, never offer
       // a condition that the filing-fee/final-submission guards would reject.
       const hasCredit = freshSuccessfulCredit(customer.id) != null;
@@ -460,7 +470,41 @@ router.get("/loan-options", (req, res) => {
         contractTemplateId: templateId || null,
         manualFields,
       };
-    }),
+  });
+}
+
+/** The customer's own option plus the server-computed payout ceiling (rates stay on the server). */
+function withMaximumPayout(option: ReturnType<typeof customerLoanOptions>[number]) {
+  const plan = activeQuotePlan(option.planId);
+  return { ...option, maximumPayout: plan ? maximumCustomerPayout(plan, option) : null };
+}
+
+router.get("/loan-options", (req, res) => {
+  const customer = portalCustomer(res); if (!customer) return;
+  return res.json({ plans: customerLoanOptions(customer).map(withMaximumPayout) });
+});
+
+const customerQuoteRateLimit = createQuoteRateLimit(120, 60_000, (req) => {
+  const session = req.res ? customerPortalSession(req.res) : undefined;
+  return session ? `customer:${session.mobile}` : `ip:${trustedClientIp(req)}`;
+});
+
+// Calculator quote for a logged-in customer: payout + installment from the customer's own eligible option (if any),
+// plus requestedAmount — the principal the apply form submits (the customer's own request amount, never a rate).
+router.post("/plan-quote", customerQuoteRateLimit, (req, res) => {
+  const customer = portalCustomer(res); if (!customer) return;
+  const body = parseQuoteBody(req.body, ["planId", "months", "cash", "amount", "eligible"]);
+  if (!body || body.planId == null || (body.eligible != null && body.eligible !== 1)) return jsonError(res, 400, "invalid_quote_input");
+  const plan = activeQuotePlan(body.planId);
+  if (!plan) return jsonError(res, 404, "loan_plan_not_found");
+  const option = body.eligible === 1 ? customerLoanOptions(customer).find((item) => item.planId === plan.id) : undefined;
+  if (body.eligible === 1 && !option) return jsonError(res, 404, "loan_plan_not_found");
+  const q = calculatorQuote(plan, { months: body.months, cash: body.cash, amount: body.amount }, option);
+  return res.json({
+    months: q.months, durations: q.durations, minPayout: q.minPayout, maxPayout: q.maxPayout,
+    payout: q.payout, installment: q.installment,
+    requestedAmount: q.principal == null ? null : String(q.principal),
+    conditionId: option && q.principal != null ? eligibleConditionId(option, String(q.principal), q.months) : null,
   });
 });
 

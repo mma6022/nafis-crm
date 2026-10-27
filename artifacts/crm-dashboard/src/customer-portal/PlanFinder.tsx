@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { useMutation, useQueries, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
-import { getPublicLoanPlan, type PublicLoanPlanDetails } from '@workspace/api-client-react';
 import { AlertCircle, ArrowRight, Bot, ChevronLeft, Clock, List, Lock, MessageCircle, MessageSquare, RefreshCw, Search, Sparkles } from 'lucide-react';
 import { PortalApiError, portalApi, type PlanFinderMatch } from './api';
 import { buildPlanFinderRequest, planFinderYes as yes } from './plan-finder-answers';
-import { planFinderCalc, type PlanFinderCalc } from './plan-finder-math';
 import { ErrorBox, Icon, fa } from './PortalUi';
 import { GradePicker } from '@/components/grade/GradePicker';
 import { gradeText, isGradeValue, isSubgrade } from '@/lib/credit-grade';
@@ -131,15 +129,17 @@ export function PlanFinder() {
 }
 
 /* ---------- results ---------- */
-type Calc = PlanFinderCalc;
-function planMath(m: PlanFinderMatch, plan?: PublicLoanPlanDetails): Calc | null {
-  return plan ? planFinderCalc(plan, m.customerMaximumAmount) : null;
+/** Card values come pre-computed from the server (POST /plan-finder → match.quote); no plan rates in the browser. */
+type Calc = { durations: number[]; payout: (months: number) => number | null; installment: (months: number) => number | null; best: number | null };
+function planMath(m: PlanFinderMatch): Calc | null {
+  const q = m.quote; if (!q) return null;
+  const at = (n: number) => q.terms.find(t => t.installments === n);
+  return { durations: q.terms.map(t => t.installments), payout: n => at(n)?.payout ?? null, installment: n => at(n)?.installment ?? null, best: q.best };
 }
 
 function Results({ matches, onEdit, titleRef }: { matches: PlanFinderMatch[]; onEdit: () => void; titleRef: RefObject<HTMLHeadingElement | null> }) {
   const shown = matches.filter(m => m.status !== 'not_eligible').sort((a, b) => (a.status === 'eligible' ? 0 : 1) - (b.status === 'eligible' ? 0 : 1));
-  const details = useQueries({ queries: shown.map(m => ({ queryKey: ['customer', 'plan-details', m.plan.id], queryFn: () => getPublicLoanPlan(m.plan.id), staleTime: 60_000, retry: false })) });
-  const calcs = shown.map((m, i) => planMath(m, details[i]?.data));
+  const calcs = shown.map(m => planMath(m));
   // «مناسب‌ترین»: the eligible plan with the highest payout at its default duration; needs_review never wins.
   let bestIdx = -1; let bestPay = -1;
   shown.forEach((m, i) => { const c = calcs[i]; const v = c?.best != null ? c.payout(c.best) ?? -1 : -1; if (m.status === 'eligible' && v > bestPay) { bestPay = v; bestIdx = i; } });
@@ -151,7 +151,7 @@ function Results({ matches, onEdit, titleRef }: { matches: PlanFinderMatch[]; on
     <button type="button" className="nf-btn nf-btn--text" onClick={onEdit} data-testid="button-finder-restart">تغییر پاسخ‌ها</button></div></div>;
   return <>
     <div className="nfp-page-hd"><div><h1 className="nfp-h1" ref={titleRef} tabIndex={-1}>{fa(shown.length)} طرح برای شما پیدا شد</h1><p className="nfp-lede">مبلغ و قسط هر طرح را ببینید و یکی را انتخاب کنید.</p></div></div>
-    <div className="nfp-res-grid">{order.map(i => <PlanCard key={shown[i].plan.id} m={shown[i]} calc={calcs[i]} loading={details[i]?.isLoading ?? false} best={i === bestIdx} />)}</div>
+    <div className="nfp-res-grid">{order.map(i => <PlanCard key={shown[i].plan.id} m={shown[i]} calc={calcs[i]} loading={false} best={i === bestIdx} />)}</div>
     <div className="nfp-ch-row" style={{ justifyContent: 'center' }}><button type="button" className="nf-btn nf-btn--text" onClick={onEdit} data-testid="button-finder-restart"><Icon icon={RefreshCw} small />تغییر پاسخ‌ها</button></div>
   </>;
 }
@@ -168,7 +168,7 @@ function PlanCard({ m, calc, loading, best }: { m: PlanFinderMatch; calc: Calc |
   return <article className={`nfp-card nfp-pl${best ? ' nfp-best' : ''}`} aria-labelledby={id} data-testid={`card-finder-${m.plan.id}`}>
     <div className="nfp-pl-top"><div>{best && <span className="nfp-badge-best"><Icon icon={Sparkles} small />مناسب‌ترین برای شما</span>}<b id={id} style={{ display: 'block' }}>{m.plan.name}</b></div>
       {review ? <span className="nfp-st nfp-you">نیازمند بررسی کارشناس</span> : best ? null : <span className="nfp-st nfp-ok">مناسب شما</span>}</div>
-    <div className="nfp-facts"><div className="nfp-fact nfp-big"><span>مبلغ دریافتی</span><b data-testid={`text-finder-payout-${m.plan.id}`}>{pay != null ? <Toman value={pay} /> : unknown}</b></div>
+    <div className="nfp-facts"><div className="nfp-fact nfp-big"><span>مبلغ واریزی</span><b data-testid={`text-finder-payout-${m.plan.id}`}>{pay != null ? <Toman value={pay} /> : unknown}</b></div>
       <div className="nfp-fact"><span>مبلغ قسط</span><b data-testid={`text-finder-installment-${m.plan.id}`}>{inst != null ? <Toman value={inst} /> : review ? <span className="nfp-later">بعداً اعلام می‌شود</span> : unknown}</b></div>
       <div className="nfp-fact"><span>تعداد اقساط</span><b>{n != null ? <>{fa(n)} <small>ماه</small></> : unknown}</b></div></div>
     {calc && calc.durations.length > 1 && <div className="nfp-dur"><span id={`${id}-d`}>تعداد اقساط را انتخاب کنید</span>

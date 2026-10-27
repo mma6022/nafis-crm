@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { bestPayoutDuration, planFinderCalc } from "../src/customer-portal/plan-finder-math.ts";
+import { bestPayoutDuration, planFinderCalc } from "../../api-server/src/lib/plan-quote-math.ts";
 
 const term = (installments, depositPercent) => ({ installments, prepaymentPercent: null, deductionPercent: null, depositPercent: String(depositPercent) });
 const plan = (terms, conditions, principalAmount = "200000000") => ({

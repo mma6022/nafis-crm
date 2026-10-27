@@ -1,14 +1,11 @@
 // Shared building blocks of the redesigned customer tracking pages (nfp-* classes from nfp.css).
 import type { ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
-import { getPublicLoanPlan } from '@workspace/api-client-react';
 import {
   AlertCircle, Ban, Check, ChevronLeft, ExternalLink, FileText, FileX, Hourglass, MessageSquare,
   PartyPopper, PenLine, Phone, RefreshCw, Search, Upload, UserRound, X,
 } from 'lucide-react';
 import type { Application } from './api';
-import { monthlyPmt, planAnnualInterest } from './plan-calculator-values';
 import {
   CHAT_HREF, DOC_STATUS, EMZAME_URL, PHASES, PHASE_HINTS, UNKNOWN_AMOUNT,
   isCompleted, stageCopy, stageLabel, terminalOf, type DocTone,
@@ -27,14 +24,10 @@ const payout = (app: Application) => { const n = Number(app.cashPayoutAmount); r
 const Sep = () => <span className="nfp-sep" aria-hidden="true" />;
 const I = ({ icon: Icon, small }: { icon: typeof Check; small?: boolean }) => <Icon className={`nfp-i${small ? ' nfp-s' : ''}`} aria-hidden="true" />;
 
-/** Installment is not returned by the API; it is computed client-side exactly like PlanCalculator (handoff §6). */
+/** Installment is computed on the server (application.installmentAmount); plan rates never reach the browser. */
 export function useInstallment(app: Application): number | null {
-  const plan = useQuery({ queryKey: ['customer', 'plan-details', app.planId], queryFn: () => getPublicLoanPlan(app.planId), staleTime: 60_000, retry: false });
-  const n = months(app);
-  const principal = Number(app.approvedAmount ?? app.requestedAmount);
-  if (!plan.data || !n || !Number.isSafeInteger(principal)) return null;
-  const rate = planAnnualInterest(plan.data, n);
-  return rate == null ? null : monthlyPmt(principal, rate, n);
+  const value = app.installmentAmount;
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 export function Amount({ value, big }: { value: number | null; big?: boolean }) {
@@ -73,7 +66,7 @@ export function RequestCard({ app }: { app: Application }) {
   return <Link className="nfp-rq" href={`/customer/applications/${app.id}`} aria-label={`${name}، پرونده ${fa(app.id)}`} data-testid={`link-application-${app.id}`}>
     <div className="nfp-rq-top" data-testid={`card-application-${app.id}`}><div><b>{name}</b><small>پرونده {fa(app.id)}<Sep />ثبت {day(app.createdAt)}</small></div><Pill app={app} /></div>
     <div className="nfp-rq-facts">
-      <div><span>مبلغ دریافتی</span>{pay == null ? <b className="nfp-none">{UNKNOWN_AMOUNT}</b> : <b>{money(pay)} تومان</b>}</div>
+      <div><span>مبلغ واریزی</span>{pay == null ? <b className="nfp-none">{UNKNOWN_AMOUNT}</b> : <b>{money(pay)} تومان</b>}</div>
       <div><span>مبلغ قسط<Sep />{fa(months(app))} قسط</span>{inst == null ? <b className="nfp-none">{UNKNOWN_AMOUNT}</b> : <b>{money(inst)} تومان</b>}</div>
     </div>
     {!term && <div style={{ display: 'grid', gap: 6 }}><PhaseBar app={app} /><span className="nfp-muted">مرحله {fa(phase + 1)} از {fa(PHASES.length)}: {PHASES[phase]}</span></div>}
@@ -148,7 +141,7 @@ export function MoneyBlock({ app }: { app: Application }) {
   const inst = useInstallment(app);
   return <section className="nfp-card" aria-labelledby="nfp-mn"><h2 id="nfp-mn">خلاصه‌ی وام</h2>
     <div className="nfp-facts" style={{ marginTop: 10 }}>
-      <div className="nfp-fact nfp-big" data-testid="text-cash-payout"><span>مبلغ دریافتی</span><Amount value={payout(app)} big /></div>
+      <div className="nfp-fact nfp-big" data-testid="text-cash-payout"><span>مبلغ واریزی</span><Amount value={payout(app)} big /></div>
       <div className="nfp-fact" data-testid="text-installment"><span>مبلغ قسط</span><Amount value={inst} /></div>
       <div className="nfp-fact"><span>تعداد اقساط</span><b>{fa(months(app))} <small>قسط ماهانه</small></b></div>
     </div></section>;

@@ -192,7 +192,8 @@ import { normalizeCustomerMobile, normalizeCustomerNationalCode, isAdminRole } f
 import { mergeCustomerRecords } from "../lib/customer-merge";
 import { insertCustomerRecord, lastCustomerCreateOutcome } from "../lib/customer-create";
 import { recordUrgentChange, setCustomerUrgent, URGENT_REASON_MAX } from "../lib/customer-urgent";
-import { publicPlanGuarantees } from "../lib/public-plan-guarantees";
+import { calculatorQuote, publicPlanTerms } from "../lib/plan-quote-math";
+import { publicQuoteRateLimit, parseQuoteBody } from "../lib/plan-quote-guard";
 import { isPortalRegistration } from "../lib/customer-portal-features";
 import { acceptedGradeEdit, compactRankList, expandRankList, GRADE_EDIT_ERROR, isLegacyGradeLetter, parseStoredRanks } from "../lib/credit-subgrades";
 import {
@@ -1106,40 +1107,32 @@ function planFromRow(row: LoanPlanRow) {
 
 type LoanPlan = ReturnType<typeof planFromRow>;
 
+/**
+ * Public (logged-out) plan shape. Strict whitelist: no principal, rates, percents, commissions, fees, discounts,
+ * penalties, notes or conditions. Money per term is pre-computed on the server (payout + installment only).
+ * Full plan data stays behind staff auth (/api/loan-plans).
+ */
 function publicPlanSummary(plan: LoanPlan) {
   return {
     id: plan.id,
     name: plan.name,
-    bankName: plan.bankName,
-    platformName: plan.platformName,
-    principalAmount: plan.principalAmount,
-    annualInterest: plan.annualInterest,
     installments: plan.installments,
-    installmentTerms: plan.installmentTerms,
     loanType: plan.loanType,
     processMode: plan.processMode,
     grantDays: plan.grantDays,
-    notes: plan.notes,
-    // Derived from the plan's eligibility conditions (see public-plan-guarantees).
-    ...publicPlanGuarantees(plan),
+    bankName: plan.bankName,
+    platformName: plan.platformName,
+    installmentTerms: publicPlanTerms(plan),
   };
 }
 
 function publicPlanDetails(plan: LoanPlan) {
+  return publicPlanSummary(plan);
+}
+
+function publicPlanDocuments(plan: LoanPlan) {
   return {
-    ...publicPlanSummary(plan),
-    contractTemplateId: plan.contractTemplateId,
-    platformCompanyName: plan.platformCompanyName,
-    goodsStoreName: plan.goodsStoreName,
-    commissionPercent: plan.commissionPercent,
-    operationCostsPercent: plan.operationCostsPercent,
-    grantedDiscountPercent: plan.grantedDiscountPercent,
-    purchaseCommissionPercent: plan.purchaseCommissionPercent,
-    salesCommissionPercent: plan.salesCommissionPercent,
-    loanAcquisitionFeePercent: plan.loanAcquisitionFeePercent,
-    penaltyMode: plan.penaltyMode,
-    penaltyValue: plan.penaltyValue,
-    contractDurationDays: plan.contractDurationDays,
+    id: plan.id,
     requiredDocuments: plan.requiredDocuments.map(key => {
       const configured = queryRow<{ label: string }>(
         "SELECT label_fa AS label FROM consult_options WHERE field_key='required_document' AND option_value=? LIMIT 1",
@@ -1147,24 +1140,14 @@ function publicPlanDetails(plan: LoanPlan) {
       )?.label;
       return publicDocumentLabel(key, configured);
     }),
-    deductPercents: plan.deductPercents,
-    customerRanks: plan.customerRanks,
-    customerCheck: plan.customerCheck,
-    needsCustomerPromissory: plan.needsCustomerPromissory,
-    customerJobs: plan.customerJobs,
-    needsGuarantor: plan.needsGuarantor,
-    guarantorRanks: plan.guarantorRanks,
-    guarantorCheck: plan.guarantorCheck,
-    needsGuarantorPromissory: plan.needsGuarantorPromissory,
-    guarantorJobs: plan.guarantorJobs,
-    needsAccountTurnover: plan.needsAccountTurnover,
-    needsAvgBalance: plan.needsAvgBalance,
-    prepaymentPercents: plan.prepaymentPercents,
-    depositPercents: plan.depositPercents,
-    needsCustomerSalaryDeduct: plan.needsCustomerSalaryDeduct,
-    needsGuarantorSalaryDeduct: plan.needsGuarantorSalaryDeduct,
-    conditions: plan.conditions,
   };
+}
+
+/** Active plan object for server-side quotes (customer portal); never serialized to the browser. */
+export function activeQuotePlan(id: number) {
+  if (!Number.isSafeInteger(id) || id <= 0) return undefined;
+  const plan = getPlan(id);
+  return plan?.active ? plan : undefined;
 }
 
 function userFromRow(row: UserRow) {
@@ -5491,6 +5474,22 @@ router.get("/public/loan-plans/:id", (req, res): void => {
     return;
   }
   res.json(publicPlanDetails(plan));
+});
+
+router.get("/public/loan-plans/:id/documents", (req, res): void => {
+  const plan = activeQuotePlan(Number(req.params.id));
+  if (!plan) { res.status(404).json({ error: "Loan plan not found" }); return; }
+  res.json(publicPlanDocuments(plan));
+});
+
+// Public calculator quote: payout + installment only, validated and rate limited per IP.
+router.post("/public/loan-plans/:id/quote", publicQuoteRateLimit, (req, res): void => {
+  const plan = activeQuotePlan(Number(req.params.id));
+  if (!plan) { res.status(404).json({ error: "Loan plan not found" }); return; }
+  const body = parseQuoteBody(req.body, ["months", "cash"]);
+  if (!body) { res.status(400).json({ error: "invalid_quote_input" }); return; }
+  const q = calculatorQuote(plan, body);
+  res.json({ months: q.months, durations: q.durations, minPayout: q.minPayout, maxPayout: q.maxPayout, payout: q.payout, installment: q.installment });
 });
 
 router.get(

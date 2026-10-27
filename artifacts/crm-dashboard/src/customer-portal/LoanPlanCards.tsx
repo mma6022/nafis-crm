@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { RefreshCw } from 'lucide-react';
-import { listPublicLoanPlans } from '@workspace/api-client-react';
 import { PlanCarousel } from './PlanCarousel';
 import { PlanRequirements } from './PlanRequirements';
 import { PlanCalculator } from './PlanCalculator';
+import { publicPlansApi } from './api';
 
-export function useCatalog() { return useQuery({ queryKey: ['customer', 'catalog'], queryFn: () => listPublicLoanPlans(), staleTime: 60_000 }); }
+export function useCatalog() { return useQuery({ queryKey: ['customer', 'catalog'], queryFn: () => publicPlansApi.list(), staleTime: 60_000 }); }
 
 export function LoanPlanCards() {
   const options = useCatalog();

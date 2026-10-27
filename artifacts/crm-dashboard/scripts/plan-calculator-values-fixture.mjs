@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { monthlyPmt, parseCalculatorAmount, principalCeiling, calculatorDurations, calculatorCeiling,
   customerPayout, maximumCustomerPayout, planAnnualInterest, cashCalculatorBounds,
-  principalFromCustomerPayout, eligibleConditionId } from '../src/customer-portal/plan-calculator-values.ts';
+  principalFromCustomerPayout, eligibleConditionId } from '../../api-server/src/lib/plan-quote-math.ts';
 
 // Independently known end-of-period PMT reference (1% monthly, twelve payments).
 assert.ok(Math.abs(monthlyPmt(1_000_000, 12, 12) - 88_848.7886783417) < 0.000001);
