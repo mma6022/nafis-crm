@@ -7,6 +7,7 @@
  *   ranking is lexicographic [preset guarantee] > band > priority (priority relaxed first, then band);
  *   de-duplicated by plan name; always 1–3 cards, never "not found".
  */
+import type { PlanRate } from './rates';
 import { qualifiesFor, type GuaranteePage, type GuaranteeType } from '../data/plan-guarantees';
 import { monthlyInstallment, type LoanPlan } from './loan-plans';
 
@@ -64,7 +65,10 @@ export function planFacts(plans: LoanPlan[]) {
     hasFast: plans.some((p) => p.grantDays === 'under_7'),
     fastCount: plans.filter((p) => p.grantDays === 'under_7').length,
     onlineCount: plans.filter((p) => p.processMode === 'both' || p.processMode === 'online').length,
-    /** «از ۱۰۰ تا ۷۰۰ میلیون تومان» (nominal principal) */
+    /** «۱۰۰» / «۵۰۰» (nominal principal in million تومان, Persian digits) */
+    minAmount: has ? millionsFa(Math.min(...principals)) : '',
+    maxAmount: has ? millionsFa(Math.max(...principals)) : '',
+    /** «از ۱۰۰ تا ۵۰۰ میلیون تومان» (nominal principal) */
     amountRange: has ? `از ${millionsFa(Math.min(...principals))} تا ${millionsFa(Math.max(...principals))} میلیون تومان` : '',
     /** «بازپرداخت ۱۲ تا ۴۸ ماهه» */
     termRange: has ? `بازپرداخت ${fa(Math.min(...terms))} تا ${fa(Math.max(...terms))} ماهه` : '',
@@ -93,6 +97,9 @@ export interface Combo {
   guarantees?: Guarantee[];
   guaranteeOptions?: Guarantee[][];
   guaranteePages?: GuaranteePage[];
+  /** public rate object (lib/rates.ts) + admin rate_stale_days; drives the card «نرخ» box */
+  rateInfo?: PlanRate;
+  staleDays?: number;
   /** offered only to retirees (finder/calculator show it only when «بازنشسته هستم» is on) */
   retirees?: boolean;
 }
@@ -117,6 +124,8 @@ export function combos(plans: LoanPlan[]): Combo[] {
       guaranteeOptions: p.guaranteeOptions,
       guaranteePages: p.guaranteePages,
       retirees: !!p.retireesOnly,
+      rateInfo: p.rate,
+      staleDays: p.rateStaleDays,
     })),
   );
 }
@@ -342,15 +351,30 @@ export const guaranteePagePlans = (plans: LoanPlan[], page: GuaranteePage) =>
 /** review-time order of the CRM's grantDays buckets (smaller = faster) */
 export const DAYS_RANK: Record<string, number> = { under_7: 0, '10_to_15': 1 };
 /**
- * PM 2026-10-23: the «فوری بدون چک / بدون ضامن» sections never ship empty. They list the FASTEST plans that meet the
- * base guarantee condition (no-cheque / no-guarantor), max 3, sorted by the real review-time data (grantDays), ties
- * by CRM id. No time is promised on those sections.
+ * «فوری بدون چک / بدون ضامن» (PM 2026-10-23; copy A2/A3 2026-10-28): never empty. The plans meeting the base
+ * guarantee condition (no-cheque / no-guarantor), max 3, sorted by the real review-time data (grantDays, DAYS_RANK).
+ * Page-restricted plans (17: «بسته به رتبه‌ی اعتباری») stay out of the fast sections.
+ * - no-guarantor ties: highest مبلغ دریافتی obtainable WITHOUT a guarantor (planNoGuarantorPayout), then id; a plan
+ *   base name is never repeated (A3 note 1).
+ * - no-cheque ties: CRM id (unchanged).
+ * No time is promised on those sections.
  */
-export const fastestGuaranteePlans = (plans: LoanPlan[], base: 'no-cheque' | 'no-guarantor', max = 3) =>
-  guaranteePagePlans(plans, base)
-    .slice()
-    .sort((a, b) => (DAYS_RANK[a.grantDays] ?? 9) - (DAYS_RANK[b.grantDays] ?? 9) || a.id - b.id)
-    .slice(0, max);
+export const fastestGuaranteePlans = (plans: LoanPlan[], base: 'no-cheque' | 'no-guarantor', max = 3) => {
+  const pool = guaranteePagePlans(plans, base).filter((p) => !p.guaranteePages || p.guaranteePages.includes(`fast-${base}`));
+  const days = (p: LoanPlan) => DAYS_RANK[p.grantDays] ?? 9;
+  if (base === 'no-cheque') return pool.slice().sort((a, b) => days(a) - days(b) || a.id - b.id).slice(0, max);
+  const sorted = pool.slice().sort((a, b) => days(a) - days(b) || planNoGuarantorPayout(b) - planNoGuarantorPayout(a) || a.id - b.id);
+  const used = new Set<string>();
+  const out: LoanPlan[] = [];
+  for (const p of sorted) {
+    const n = planBaseName(p.name);
+    if (used.has(n)) continue;
+    used.add(n);
+    out.push(p);
+    if (out.length >= max) break;
+  }
+  return out;
+};
 /** Highest مبلغ دریافتی of a plan over its terms (principal × depositPercent, the same figure the cards show). */
 export const planMaxPayout = (p: LoanPlan) =>
   p.installmentTerms.reduce((m, t) => Math.max(m, (p.principalAmount * t.depositPercent) / 100), 0);
@@ -421,6 +445,8 @@ export function planFilter(name: string, plans: LoanPlan[]): ((p: LoanPlan) => b
   if (name === 'goods') return (p) => p.loanType === 'goods';
   if (name === 'cash') return (p) => p.loanType === 'score';
   if (name === 'fast') return (p) => p.grantDays === 'under_7';
+  // A1 /vam-ani/: plans that can run without an in-person visit (same rule as the finder's «بدون مراجعه حضوری»)
+  if (name === 'online') return (p) => p.processMode === 'both' || p.processMode === 'online';
   return () => true;
 }
 /** One value for `<PlanFact>`; null when the plan/term is gone (caller keeps the snapshot text). */
@@ -450,9 +476,9 @@ export function planFactValue(plans: LoanPlan[], id: number, field: string, term
       return null;
   }
 }
-/** Replaces {planCount} {goodsCount} {cashCount} {bankCount} {fastCount} {minTerm} {maxTerm} {amountRange} {termRange} in frontmatter strings. */
+/** Replaces {planCount} {goodsCount} {cashCount} {bankCount} {fastCount} {onlineCount} {minTerm} {maxTerm} {minAmount} {maxAmount} {amountRange} {termRange} in frontmatter strings. */
 export const fillFacts = (s: string, f: PlanFacts) =>
-  s.replace(/\{(planCount|goodsCount|cashCount|bankCount|fastCount|minTerm|maxTerm|amountRange|termRange)\}/g, (_, k: keyof PlanFacts) =>
+  s.replace(/\{(planCount|goodsCount|cashCount|bankCount|fastCount|onlineCount|minTerm|maxTerm|minAmount|maxAmount|amountRange|termRange)\}/g, (_, k: keyof PlanFacts) =>
     typeof f[k] === 'number' ? fa(f[k] as number) : String(f[k]),
   );
 /**

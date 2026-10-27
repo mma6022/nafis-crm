@@ -19,7 +19,6 @@ import { combos, fa, millionsFa, reqBands, type AmountBand, type Combo } from '.
 import { isValidMobile } from '../../lib/format';
 import { LeadError, readUtm, submitLead, type ContactTime } from '../../lib/lead';
 import { SITE } from '../../lib/site';
-import { pickerTrigger } from '../../data/picker-trigger';
 import { stepOrder } from '../../lib/request-flow';
 import { CONSENT_TEXT } from '../../lib/callback';
 
@@ -284,7 +283,11 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
           <div className="alert" id="rq-fail" role="alert" tabIndex={-1} ref={failRef} hidden={!fail}>
             <I name="alert" />
             <span>
-              ثبت نشد. لطفاً دوباره تلاش کنید یا با <a {...pickerTrigger('call')}>کارشناسان ما</a> تماس بگیرید.
+              ثبت نشد. لطفاً دوباره تلاش کنید.
+              {/* HANDOFF §0 v1.2 #10: resends exactly the data already entered (state is kept on failure) */}
+              <button type="button" className="nf-btn nf-btn--secondary alert-retry" disabled={busy} onClick={() => void onSubmit({ preventDefault() {} })}>
+                دوباره تلاش کنید
+              </button>
             </span>
           </div>
           <form className="fields" id="rq-form" noValidate onSubmit={onSubmit}>
@@ -365,7 +368,7 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
             <I name="check" />
           </div>
           <h1 tabIndex={-1}>درخواست شما ثبت شد</h1>
-          <p>کارشناسان ما در اولین زمان کاری با شما تماس می‌گیرند.</p>
+          <p>کارشناس در ساعت کاری با شما تماس می‌گیرد.</p>
           {code && (
             <div className="code-wrap">
               <div className="code">
@@ -374,11 +377,8 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
             </div>
           )}
           <div className="row">
-            <a className="nf-btn nf-btn--secondary nf-btn--block" href={SITE.portal}>
+            <a className="nf-btn nf-btn--primary nf-btn--block" href={SITE.portal}>
               <I name="login" /> پیگیری در پنل مشتریان
-            </a>
-            <a className="nf-btn nf-btn--secondary nf-btn--block" {...pickerTrigger('call')}>
-              <I name="phone" /> تماس با کارشناس
             </a>
           </div>
           <p style={{ marginTop: 16 }}>

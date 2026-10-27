@@ -4,7 +4,7 @@
  * - Ignored: tel:/mailto:/sms:, other origins (Emzami, WhatsApp/Telegram/Bale, Instagram…), downloads and file
  *   links, target other than _self, modifier/middle clicks, same-page #hash links, clicks a handler already
  *   preventDefault()ed (React islands, the menu), anything with [data-no-loader] and links inside a <dialog>
- *   (the expert picker: tel:/wa.me/t.me/ble.ir rows never show the loader even if one is ever same-origin).
+ *   (tel:/messenger links are banned on the site since HANDOFF §0 v1.2; still ignored defensively).
  * - Back/forward cache: hidden on pagehide(persisted) and every pageshow, so a restored page is never stuck.
  * - Native form submits disable their submit button until the page changes (restored on pageshow / «بستن»).
  */

@@ -1,21 +1,26 @@
 ---
-/** /plans (UX-SPEC §8): finder first, then every active plan in one list (no cash / goods grouping: legal 2026-10-24). */
+/** /plans (UX-SPEC §8): finder first, then every active plan in one list (no cash / goods grouping: legal 2026-10-24).
+ * v1.2 (design site-seo-pages /plans): ≥1024px a 7-column table (.pt) with the «نرخ» column; below that the same cards (.pt-cards). */
 import BaseLayout from '../layouts/BaseLayout.astro';
 import PageHeader from '../components/PageHeader.astro';
 import PlanFinder from '../components/islands/PlanFinder';
 import { PlanCard } from '../components/islands/PlanCard';
+import { RateBox } from '../components/ui/RateBox';
+import I from '../components/ui/I.astro';
+import { fillFaq } from '../lib/faq-fill';
 import FaqList from '../components/FaqList.astro';
 import FinalCTA from '../components/FinalCTA.astro';
 import { getCollection } from 'astro:content';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
-import { byId, combos, fa, fillFacts, planFacts } from '../lib/plans';
+import { MODE_LABEL, byId, combos, fa, millionsFa, planFacts } from '../lib/plans';
 import { breadcrumbLd, faqLd } from '../lib/seo';
 const facts = planFacts(LOAN_PLANS_SNAPSHOT);
 const all = combos(LOAN_PLANS_SNAPSHOT);
 const one = [...new Set(all.map((c) => c.id))].map((id) => byId(all, id)!);
 // FAQ: the plan questions from home.mdx (count, which plan suits me, amounts/terms) — ANSWERS-1 §9
 const home = (await getCollection('pages', (p) => p.data.slug === '/'))[0]!;
-const faq = home.data.faq.slice(0, 3).map((f) => ({ q: fillFacts(f.q, facts), a: fillFacts(f.a, facts) }));
+const faq = fillFaq(home.data.faq.slice(0, 3), LOAN_PLANS_SNAPSHOT);
+const MODE_ICON: Record<string, 'online' | 'pin'> = { both: 'online', online: 'online', in_person: 'pin' };
 const crumbs = [
   { name: 'خانه', path: '/' },
   { name: 'طرح‌ها', path: '/plans/' },
@@ -36,7 +41,23 @@ const crumbs = [
   <section class="container-nf pt-section" aria-labelledby="all-h">
     <h2 id="all-h" class="text-h2 lg:text-h2-lg mb-4">همه طرح‌ها</h2>
     <p class="text-ink-muted mb-4">{fa(one.length)} طرح فعال؛ مبلغ دریافتی، قسط و شرایط هر طرح روی کارت آن آمده است.</p>
-    <div class="cards plan-list">
+    <div class="pt not-prose" role="table" aria-label="همه طرح‌ها">
+      <div class="pt-h" role="row">
+        <span role="columnheader">طرح</span><span role="columnheader">روش</span><span role="columnheader">مبلغ دریافتی</span><span role="columnheader">مبلغ هر قسط</span><span role="columnheader">تعداد اقساط</span><span role="columnheader">نرخ</span><span role="columnheader"><span class="sr">درخواست</span></span>
+      </div>
+      {one.map((c) => (
+        <div class="pt-r" role="row">
+          <b class="pt-nm" role="rowheader">{c.name}{c.retirees && <small>ویژه‌ی بازنشستگان</small>}</b>
+          <span role="cell">{MODE_LABEL[c.mode] && <span class={`mode mode--${c.mode}`}><I name={MODE_ICON[c.mode] ?? 'online'} size={18} /><span><span class="sr">روش: </span>{MODE_LABEL[c.mode]}</span></span>}</span>
+          <span role="cell"><b class="pt-n">حدود {millionsFa(c.payout)}</b><small>میلیون تومان</small></span>
+          <span role="cell"><b class="pt-n">حدود {millionsFa(c.inst)}</b><small>میلیون تومان</small></span>
+          <span role="cell"><b class="pt-n">{fa(c.term)}</b><small>قسط ماهانه</small></span>
+          <span role="cell"><RateBox rate={c.rateInfo} staleDays={c.staleDays} src="plans" row /></span>
+          <span role="cell"><a class="nf-btn nf-btn--secondary pt-go" href={`/request/?plan=${c.id}&term=${c.term}&src=plans-table`}>درخواست این طرح</a></span>
+        </div>
+      ))}
+    </div>
+    <div class="cards plan-list pt-cards">
       {one.map((c) => (
         <PlanCard c={c} src="plans-list" />
       ))}

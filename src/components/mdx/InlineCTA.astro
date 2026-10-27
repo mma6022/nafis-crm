@@ -1,20 +1,23 @@
 ---
 /**
- * In-content CTA (mockup `.inline-cta`): lead line + primary button + «تماس با کارشناس». In blog posts it sits at the
- * end of the 2nd H2 section (enforced by tests/content-rules.test.ts).
+ * In-content CTA (mockup `.inline-cta`): lead line + ONE primary button (default /request/?src=…-inline). HANDOFF §0
+ * v1.2: no «تماس با کارشناس» / picker. A second text link renders only with an explicit `secondaryHref` (never a
+ * call / messenger link) and never with `noContact`. In blog posts it sits at the end of the 2nd H2 section
+ * (enforced by tests/content-rules.test.ts).
  */
 import I from '../ui/I.astro';
-import { pickerTrigger } from '../../data/experts';
 interface Props {
   primary: string;
   href?: string;
-  /** text link instead of «تماس با کارشناس»: own href, or «واتساپ» */
+  /** optional second text link (needs secondaryHref) */
   secondary?: string;
   secondaryHref?: string;
+  /** copy B1–B3: single-button CTA (also the default when no secondaryHref is given) */
+  noContact?: boolean;
   /** lead line; defaults per page type */
   lead?: string;
 }
-const { primary, secondary, secondaryHref } = Astro.props;
+const { primary, secondary, secondaryHref, noContact = false } = Astro.props;
 const page = (Astro.url.pathname.replace(/^\/+|\/+$/g, '').split('/').pop() || 'home').replace(/[^a-z0-9_-]/g, '') || 'home';
 const blog = Astro.url.pathname.startsWith('/blog/');
 const href = Astro.props.href ?? `/request/?src=${blog ? 'blog-' : ''}${page}-inline`;
@@ -25,15 +28,14 @@ const lead =
     : page === 'vam-fori'
       ? 'سریع‌ترین طرح متناسب با شما را کارشناس ما پیشنهاد می‌دهد.'
       : 'طرح متناسب با شما را کارشناس ما پیشنهاد می‌دهد.');
-const sec = secondaryHref
-  ? { attrs: { href: secondaryHref }, text: secondary!, icon: null }
-  : { attrs: pickerTrigger('call'), text: 'تماس با کارشناس', icon: 'phone' as const };
+const blocked = (h: string) => /^(tel|sms|whatsapp|tg|bale):|wa\.me|t\.me|ble\.ir|#experts/.test(h);
+const sec = !noContact && secondary && secondaryHref && !blocked(secondaryHref) ? { href: secondaryHref, text: secondary } : null;
 ---
 
 <div class="inline-cta not-prose">
   <p>{lead}</p>
   <div class="row">
     <a class="nf-btn nf-btn--primary" href={href}>{primary} <I name="arrow" /></a>
-    <a class="nf-btn nf-btn--text" {...sec.attrs}>{sec.icon && <I name={sec.icon} size={18} />} {sec.text}</a>
+    {sec && <a class="nf-btn nf-btn--text" href={sec.href}>{sec.text}</a>}
   </div>
 </div>

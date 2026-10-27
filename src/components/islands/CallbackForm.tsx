@@ -13,8 +13,7 @@ import { I } from '../ui/I';
 import { fa } from '../../lib/plans';
 import { normalizeIranMobile } from '../../lib/format';
 import { LeadError, readUtm } from '../../lib/lead';
-import { CALLBACK_WHATSAPP, WORK_HOURS } from '../../lib/site';
-import { pickerTrigger } from '../../data/picker-trigger';
+import { WORK_HOURS } from '../../lib/site';
 import {
   CB_DONE,
   CB_SUBMIT,
@@ -43,7 +42,6 @@ export default function CallbackForm({
   planId = null,
   title = CB_TITLE,
   lead,
-  wa = false,
   primary = variant !== 'inline',
   titleTag = 'h2',
   autoFocus = false,
@@ -53,7 +51,7 @@ export default function CallbackForm({
   planId?: number | null;
   title?: string;
   lead?: string;
-  /** home only: «یا در واتساپ بپرسید» (shown only when CALLBACK_WHATSAPP is set) */
+  /** kept for call-site compatibility; HANDOFF §0 v1.2 #9: no messenger line (CALLBACK_WHATSAPP stays empty) */
   wa?: boolean;
   primary?: boolean;
   titleTag?: 'h2' | 'h3';
@@ -157,7 +155,6 @@ export default function CallbackForm({
   }, []);
 
   const opts = timeOptions(inHours);
-  const showWa = wa && !!CALLBACK_WHATSAPP;
 
   return (
     <div className={`cb cb--${variant}`} ref={root} data-step={step}>
@@ -176,10 +173,6 @@ export default function CallbackForm({
           >
             <I name="callback" /> درخواست تماس
           </button>
-          <p className="cb-alt">
-            یا{' '}
-            <a {...pickerTrigger('call')}>تماس با کارشناس</a>
-          </p>
         </div>
       )}
       {open && (
@@ -188,11 +181,6 @@ export default function CallbackForm({
             <div className="cb-intro">
               <H className="cb-h">{title}</H>
               <p>{lead ?? (variant === 'inline' ? LEAD_INLINE : LEAD_SECTION)}</p>
-              {showWa && (
-                <p className="cb-alt cb-wa">
-                  یا <a href={CALLBACK_WHATSAPP}>در واتساپ بپرسید</a>
-                </p>
-              )}
             </div>
           )}
           <div className="cb-card">
@@ -216,7 +204,11 @@ export default function CallbackForm({
             <div className="alert" role="alert" tabIndex={-1} ref={failRef} hidden={!fail}>
               <I name="alert" />
               <span>
-                ثبت نشد. لطفاً دوباره تلاش کنید یا با <a {...pickerTrigger('call')}>کارشناسان ما</a> تماس بگیرید.
+                ثبت نشد. لطفاً دوباره تلاش کنید.
+                {/* HANDOFF §0 v1.2 #10: resends the same entered data (state is kept on failure; failure happens only on step 2) */}
+                <button type="button" className="nf-btn nf-btn--secondary alert-retry" disabled={busy} onClick={() => void onSubmit({ preventDefault() {} } as FormEvent)}>
+                  دوباره تلاش کنید
+                </button>
               </span>
             </div>
             {step !== 3 && (

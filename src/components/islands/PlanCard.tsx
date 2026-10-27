@@ -1,9 +1,10 @@
 /**
  * Plan card — ONE rendering everywhere (PM 2026-10-23): hero sample, /plans, PlanCards, finder and calculator results.
  * Name + kind, the «ویژه‌ی بازنشستگان» tag where it applies, then ONLY مبلغ دریافتی / مبلغ هر قسط / تعداد اقساط and a
- * single «درخواست این طرح» button. No review time, method, «جزئیات بیشتر» or explanatory text.
+ * «نرخ» box (RateBox, PM 2026-10-28; fail-closed) and a single «درخواست این طرح» button. No review time, method, «جزئیات بیشتر» or explanatory text.
  */import { fa, millionsFa, type Combo } from '../../lib/plans';
 import { I } from '../ui/I';
+import { RateBox } from '../ui/RateBox';
 
 /** QA-only stress label (designer `?longname=1`); enabled in dev or with PUBLIC_QA=1, never in a normal build. */
 export const QA = import.meta.env.DEV || import.meta.env.PUBLIC_QA === '1';
@@ -55,6 +56,7 @@ export function PlanCard({
           <dd className="unit">قسط ماهانه</dd>
         </div>
       </dl>
+      <RateBox rate={c.rateInfo} staleDays={c.staleDays} src={src} />
       <a
         className={`nf-btn ${featured ? 'nf-btn--primary' : 'nf-btn--secondary'} nf-btn--block`}
         href={`/request/?plan=${c.id}&term=${c.term}&src=${encodeURIComponent(src)}`}

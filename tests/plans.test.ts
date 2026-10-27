@@ -28,7 +28,8 @@ test('9 combinations (band × priority; no type question since legal 2026-10-24)
 });
 
 test('exact match → featured card scores 100', () => {
-  const r = recommend(all, { band: 2, prio: 'fast' });
+  // 17 live plans (2026-10-28): the only under_7 plan is 11 هرمز (۱۵۰ میلیون → band 1)
+  const r = recommend(all, { band: 1, prio: 'fast' });
   assert.equal(r.exact, true);
   assert.equal(r.cards[0]!.score, 100);
   assert.equal(r.cards[0]!.days, 'under_7');
@@ -51,30 +52,31 @@ test('guarantee preset is a hard filter: only truly qualifying plans, empty when
   assert.ok(r0.cards.every((c) => comboQualifies(c, 'no-guarantor')));
   const r1 = recommend(all, { band: 0, prio: 'fast' }, { guarantee: { page: 'promissory', label: 'سفته' } });
   assert.ok(r1.cards.every((c) => c.id === 20));
+  // the fast pages exist now (/vam-fori-bedun-chek/): the preset lists the qualifying no-cheque plans
   const r2 = recommend(all, { band: 0, prio: 'fast' }, { guarantee: { page: 'fast-no-cheque', label: 'فوری بدون چک' } });
-  assert.deepEqual(r2.cards, []);
+  assert.ok(r2.cards.length > 0 && r2.cards.every((c) => comboQualifies(c, 'fast-no-cheque')));
   // unknown guarantee data is never listed
   const unknown: Combo[] = all.map((c) => ({ ...c, guaranteeOptions: undefined, guarantees: undefined }));
   assert.deepEqual(recommend(unknown, { band: 1, prio: 'cheap' }, { guarantee: { page: 'cheque', label: 'چک' } }).cards, []);
 });
 
-test('guarantee pages: plan sets match Mohammad\'s answers (2026-10-23)', () => {
+test('guarantee pages: plan sets match Mohammad\'s answers (2026-10-23) on the 17 live plans (10 خورشید inactive)', () => {
   const ids = (page: GuaranteePage) => guaranteePagePlans(plans, page).map((p) => p.id).sort((a, b) => a - b);
   assert.deepEqual(ids('no-guarantor'), [3, 7, 8, 9, 12, 14, 15, 17, 18, 19, 21, 22]);
   assert.deepEqual(ids('no-cheque'), [15, 20, 21]);
-  assert.deepEqual(ids('cheque'), [1, 3, 4, 5, 7, 8, 9, 10, 11, 12, 14, 18, 19, 22]);
+  assert.deepEqual(ids('cheque'), [1, 3, 4, 5, 7, 8, 9, 11, 12, 14, 18, 19, 22]);
   assert.deepEqual(ids('promissory'), [20]);
-  assert.deepEqual(ids('fast-no-guarantor'), []);
-  assert.deepEqual(ids('fast-no-cheque'), []);
+  assert.deepEqual(ids('fast-no-guarantor'), [3, 7, 8, 9, 12, 14, 15, 18, 19, 21, 22]); // 17 is page-restricted
+  assert.deepEqual(ids('fast-no-cheque'), [15, 20, 21]);
   assert.equal(plans.find((p) => p.id === 21)?.retireesOnly, true);
 });
 
 test('facts are computed from data', () => {
   const f = planFacts(plans);
-  assert.equal(f.planCount, 18);
+  assert.equal(f.planCount, 17);
   assert.equal(f.goodsCount, 14);
   assert.equal(f.minPrincipal, 100e6);
-  assert.equal(f.maxPrincipal, 700e6);
+  assert.equal(f.maxPrincipal, 500e6);
   assert.equal(f.minTerm, 12);
   assert.equal(f.maxTerm, 48);
   assert.ok(f.hasFast);
@@ -83,7 +85,7 @@ test('facts are computed from data', () => {
 
 test('wizard bands (by payout) only list bands that contain a plan', () => {
   const all = combos(plans);
-  assert.deepEqual(reqBands(all).map((b) => b.key), ['0-100', '100-200', '200-300', '300-500']); // no plan pays out > 500M
+  assert.deepEqual(reqBands(all).map((b) => b.key), ['0-100', '100-200', '200-300']); // no plan pays out > 300M (10 inactive)
 });
 
 test('money format', () => {
@@ -97,26 +99,27 @@ test('PlanFact values reproduce the numbers written in the content (snapshot 2 A
     [18, 'installment', undefined, '۹٫۴ میلیون تومان'],
     [22, 'installment', undefined, '۱۶٫۶ میلیون تومان'],
     [1, 'payout', undefined, '۱۸۰ میلیون تومان'],
-    [10, 'payout', undefined, '۳۱۵ میلیون تومان'],
+    [9, 'payout', undefined, '۲۹۰ میلیون تومان'],
     [11, 'rate', undefined, '۴٪'],
     [8, 'installment', 24, '۱۵٫۷ میلیون تومان'],
     [12, 'prepayment', undefined, '۱۴٫۳٪'],
   ];
   for (const [id, f, t, want] of cases) assert.equal(planFactValue(plans, id, f, t), want, `${id}.${f}`);
   assert.equal(planFactValue(plans, 999, 'principal'), null);
+  assert.equal(planFactValue(plans, 10, 'payout'), null, 'inactive plan 10 is not in the live data');
 });
 test('content presets map onto finder presets', () => {
   assert.deepEqual(toFinderPreset({ need: 'goods' }), {}, 'need (cash/goods) is ignored since legal 2026-10-24');
   assert.deepEqual(toFinderPreset({ need: 'cash', priority: 'fast' }), { prio: 'fast' });
   assert.equal(toFinderPreset({ guarantee: 'no-guarantor' }).guarantee?.label, 'بدون ضامن');
   assert.deepEqual(toFinderPreset({ guarantee: 'bogus' }), {});
-  assert.equal(fillFacts('بین {planCount} طرح', planFacts(plans)), 'بین ۱۸ طرح');
+  assert.equal(fillFacts('بین {planCount} طرح', planFacts(plans)), 'بین ۱۷ طرح');
 });
 
-test('fast sections: fastest ≤3 plans meeting the base condition, by grantDays then id (never empty)', () => {
+test('fast pages: fastest ≤3 plans meeting the base condition, by grantDays (never empty)', () => {
   const ids = (b: 'no-cheque' | 'no-guarantor') => fastestGuaranteePlans(plans, b).map((p) => p.id);
   assert.deepEqual(ids('no-cheque'), [15, 20, 21]);
-  assert.deepEqual(ids('no-guarantor'), [3, 7, 8]); // helper unchanged; the page now uses topPlanPerType
+  assert.deepEqual(ids('no-guarantor'), [19, 8, 9]); // all 10_to_15 → ties by مبلغ دریافتی without a guarantor (9 capped at ۳۰۰)
   for (const b of ['no-cheque', 'no-guarantor'] as const)
     for (const p of fastestGuaranteePlans(plans, b)) assert.ok(guaranteePagePlans(plans, b).some((q) => q.id === p.id));
 });

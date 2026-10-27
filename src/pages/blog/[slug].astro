@@ -18,6 +18,7 @@ import { articleLd, breadcrumbLd, faqLd } from '../../lib/seo';
 import { formatDateFa, toFaDigits } from '../../lib/format';
 import { mdxComponents } from '../../components/mdx';
 import { LOAN_PLANS_SNAPSHOT } from '../../lib/loan-plans.snapshot';
+import { fillFaq } from '../../lib/faq-fill';
 
 export const getStaticPaths = (async () => {
   const posts = await getPosts();
@@ -27,7 +28,7 @@ export const getStaticPaths = (async () => {
 const { post, related } = Astro.props as { post: Post; related: Post[] };
 const d = post.data;
 const { Content, headings } = await render(post);
-const faqItems = d.faq;
+const faqItems = fillFaq(d.faq, LOAN_PLANS_SNAPSHOT);
 Astro.locals.faq = faqItems;
 Astro.locals.headings = headings;
 Astro.locals.ctaLead = d.category === 'vam-fori' ? 'طرح‌های سریع فعلی را با مبلغ و قسط واقعی ببینید.' : 'طرح‌های فعلی را با مبلغ و قسط واقعی ببینید.';
@@ -75,7 +76,7 @@ const updated = d.updated ?? d.date;
     <div class="lp-grid">
       <article>
         <header class="post-head">
-          <h1>{d.title}</h1>
+          <h1>{d.h1 ?? d.title}</h1>
           <div class="post-meta">
             <span>نویسنده: {d.author}</span><span class="sep"></span>
             <span>انتشار: <time datetime={d.date.toISOString()}>{formatDateFa(d.date)}</time></span><span class="sep"></span>

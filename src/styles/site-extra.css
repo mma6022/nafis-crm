@@ -124,8 +124,6 @@ a.enamad:hover,a.enamad:focus-visible{text-decoration:none;box-shadow:0 0 0 3px 
 .cb--inline{text-align:start}
 .cb--inline .cb-collapsed{text-align:center}
 .cb--inline .cb-h{margin:0 0 12px;font-weight:600;color:var(--nf-ink)}
-.cb-alt{margin:12px 0 0;font-size:15px;color:var(--nf-ink-muted)}
-.cb-alt a{color:var(--nf-brand-700);font-weight:600;display:inline-flex;min-height:44px;align-items:center}
 .cb--inline .cb-body{display:grid;gap:12px}
 .cb--inline .cb-intro .cb-h{font-size:17px;margin:0}
 .cb--inline .cb-intro p{font-size:15px}
@@ -149,7 +147,7 @@ a.enamad:hover,a.enamad:focus-visible{text-decoration:none;box-shadow:0 0 0 3px 
 /* header fit 1024–1279: phone number hides (it stays in footer/contact), nav tighter */
 @media (max-width:1279px) and (min-width:1024px){.dnav>a,.dd>button{padding:0 9px}}
 /* header labels never wrap (callback button added) */
-.hdr .dnav>a,.hdr .dd>button,.hdr .portal,.hdr .cta,.hdr .tel{white-space:nowrap}
+.hdr .dnav>a,.hdr .dd>button,.hdr .portal,.hdr .cta{white-space:nowrap}
 /* callback title = «درخواست مشاوره‌ی رایگان» (all variants) */
 .cb--inline .cb-collapsed .cb-h{margin:0 0 2px;font-weight:800;font-size:17px}
 .cb--inline .cb-sub{margin:0 0 12px;color:var(--nf-ink-muted);font-size:15px}
@@ -185,25 +183,9 @@ a.enamad:hover,a.enamad:focus-visible{text-decoration:none;box-shadow:0 0 0 3px 
 .gplans-empty{border:1px dashed var(--nf-line-strong);border-radius:16px;padding:16px;margin:16px 0;background:var(--nf-brand-50)}
 .gplans-empty p{margin:0 0 10px;line-height:1.9}
 
-/* /contact «کارشناسان فروش» (Mohammad 2026-10-23): ≥48px call button + 48px messenger icon links.
-   /contact#experts (header/mobile bar «پیام»/footer links) lands below the sticky header via html{scroll-padding-top}
-   in site.css; no extra scroll-margin here (it would add to that padding and leave a ~90px gap). */
-.experts{margin-top:16px;padding-top:16px;border-top:1px solid var(--nf-line)}
-.experts h2{font-size:1.125rem;font-weight:800;margin:0}
-.experts-hours{display:flex;align-items:center;gap:6px;margin:4px 0 12px;color:var(--nf-ink-3,#5b6275);font-size:.9375rem}
-.experts ul{list-style:none;margin:0;padding:0;display:grid;gap:10px}
-@media (min-width:1024px){.experts ul{grid-template-columns:repeat(3,minmax(0,1fr))}}
-.expert{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--nf-line);border-radius:14px}
-.expert-name{font-weight:800;color:var(--nf-ink)}
-.expert-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-.expert-call{min-height:48px;flex:1 1 100%;justify-content:center;font-weight:800}
-.expert-call span{unicode-bidi:isolate;direction:ltr}
-.expert-msg{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:var(--nf-surface);color:var(--nf-ink);border:1px solid var(--nf-line);text-decoration:none}
-.expert-msg:hover{background:var(--nf-surface-2)}
-.expert-msg:focus-visible{outline:3px solid var(--nf-brand-600);outline-offset:2px}
 .site-foot .legal-id{margin-top:10px;color:#C9CEE8;font-size:var(--nf-text-small)}
 
-/* /about facts (legal name, national ID, phone, hours) */
+/* /about facts (legal name, national ID, hours, «ارتباط با ما») */
 .about-facts{margin-top:24px;background:#fff;border:1px solid var(--nf-line);border-radius:16px;padding:20px}
 .about-facts h2{font-size:1.25rem;font-weight:800;margin:0 0 12px}
 .about-facts dl{display:grid;gap:10px;margin:0}
@@ -220,66 +202,34 @@ a.enamad:hover,a.enamad:focus-visible{text-decoration:none;box-shadow:0 0 0 3px 
   .gplans-cb .cb-intro .cb-h{font-size:var(--nf-text-h3);line-height:var(--nf-lh-h3)}
 }
 
-/* ── Expert picker «با کدام کارشناس تماس می‌گیرید؟» (components/experts/ExpertPicker.astro, data/experts.ts) ──
-   Bottom sheet < 640px, small centred dialog ≥ 640px. Rows ≥ 64px, buttons ≥ 48px. */
-/* expert picker (components/experts/ExpertPicker.astro; spec: Armita CONTACT-EXPERTS.md) */
-html.xp-lock{overflow:hidden}
-.xp{padding:0;border:0;background:transparent;color:var(--nf-ink);max-width:none;max-height:none;width:100%;height:100%;margin:0;inset:0;overflow:hidden}
-.xp:not([open]){display:none}
-.xp[open]{display:flex;align-items:flex-end;justify-content:center}
-.xp::backdrop{background:rgba(11,20,80,.45)}
-.xp [hidden]{display:none!important}
-.xp-card{position:relative;width:100%;max-height:calc(100% - 48px);overflow:auto;background:#fff;border-radius:var(--nf-radius-sheet) var(--nf-radius-sheet) 0 0;box-shadow:var(--nf-shadow-pop);padding:8px 20px calc(16px + env(safe-area-inset-bottom));animation:xp-up var(--nf-dur) var(--nf-ease)}
-.xp-grab{width:40px;height:4px;border-radius:4px;background:var(--nf-line-strong);margin:4px auto 12px}
-.xp-head{display:flex;align-items:center;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--nf-line)}
-.xp-ch{flex:none;width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:var(--nf-brand-50);color:var(--nf-brand-600)}
-.xp[data-mode=whatsapp] .xp-ch{background:#E8F7EE;color:#1F7A4D}
-.xp[data-mode=telegram] .xp-ch{background:#E7F3FB;color:#1C6FA3}
-.xp[data-mode=bale] .xp-ch{background:#E6F6F3;color:#0C7A66}
-.xp-tt{flex:1;min-width:0}
-.xp-head h2{margin:0;font-size:var(--nf-text-h3);line-height:1.6;font-weight:800;color:var(--nf-ink)}
-.xp-via{margin:0;font-size:var(--nf-text-small);color:var(--nf-ink-muted);line-height:1.5}
-.xp-x{flex:none;width:48px;height:48px;border:0;border-radius:14px;background:var(--nf-surface-2);color:var(--nf-ink);display:grid;place-items:center;cursor:pointer}
-.xp-x:hover{background:var(--nf-line)}
-.xp-list{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:0}
-.xp-list li:not(:has(.xp-row:not([hidden]))){display:none}
-.xp-row{display:flex;align-items:center;gap:12px;min-height:64px;padding:8px 4px;border-radius:var(--nf-radius-control);color:var(--nf-ink);text-decoration:none}
-a.xp-row:hover{background:var(--nf-surface)}
-.xp a:focus-visible,.xp-x:focus-visible{outline:3px solid var(--nf-brand-600);outline-offset:2px}
-.xp-av{flex:none;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--nf-brand-100);color:var(--nf-brand-800);font-weight:800;font-size:18px}
-.xp-who{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.5}
-.xp-who b{font-weight:800;font-size:16px}
-.xp-who small{font-size:14px;color:var(--nf-ink-muted)}
-.xp-go{flex:none;display:inline-flex;align-items:center;gap:6px;min-height:48px;padding:0 16px;border-radius:999px;background:var(--nf-surface-2);color:var(--nf-brand-700);font-weight:800;font-size:15px}
-.xp-go--whatsapp{color:#1F7A4D}
-.xp-go--telegram{color:#1C6FA3}
-.xp-go--bale{color:#0C7A66}
-a.xp-row:hover .xp-go{filter:brightness(.95)}
-.xp-hours{display:flex;align-items:center;justify-content:center;gap:6px;margin:8px 0 0;font-size:var(--nf-text-caption);color:var(--nf-ink-muted)}
-/* ≥768px: 400px popover (Armita 2026-10-23: title on one line; never wider than the viewport − 32px) anchored to the trigger (left/top set by scripts/expert-picker.ts), transparent backdrop */
-@media (min-width:768px){
-  .xp[open]{display:block}
-  .xp::backdrop{background:transparent}
-  .xp-card{position:absolute;left:var(--xp-x,50%);top:var(--xp-y,96px);width:400px;max-width:calc(100vw - 32px);max-height:calc(100vh - 32px);border:1px solid var(--nf-line);border-radius:var(--nf-radius-card);padding:12px 16px 14px;animation-name:xp-in}
-  .xp-head h2{font-size:16px}
-  .xp-grab{display:none}
-}
-@keyframes xp-up{from{transform:translateY(24px);opacity:.4}}
-@keyframes xp-in{from{transform:translateY(-4px);opacity:0}}
-@media (prefers-reduced-motion:reduce){.xp-card{animation:none}}
 
-/* landline removed (2026-10-23): header / footer / CTA expert-picker triggers */
-.hdr .tel{direction:rtl;width:48px;min-width:48px;min-height:48px;justify-content:center;padding:0;background:var(--nf-surface-2)}
-.hdr .tel svg{width:20px;height:20px}
-.ftel{display:flex;flex-wrap:wrap;gap:8px}
-.site-foot .ftel a{min-width:48px;min-height:48px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:14px;background:rgba(255,255,255,.08);color:inherit;text-decoration:none;padding:0 12px}
-.site-foot .ftel a:hover{background:rgba(255,255,255,.16)}
-.site-foot .ftel a.only-ic{padding:0;width:48px}
-.c-xp{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
-.c-xp .expert-msg{width:52px;height:52px}
-.nf-btn--text[data-experts]{min-height:48px}
-.site-foot .ftel>a:first-child{flex:1 0 100%;justify-content:flex-start}
-.expert-name small{display:block;font-weight:400;font-size:14px;color:var(--nf-ink-muted)}
-.m-xp{display:flex;gap:8px;justify-content:center;margin-top:8px}
-.m-xp a{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:var(--nf-surface-2);color:var(--nf-brand-700)}
-.m-xp a.m-xp-whatsapp{color:#1F7A4D}.m-xp a.m-xp-telegram{color:#1C6FA3}.m-xp a.m-xp-bale{color:#0C7A66}
+.c-req a{display:inline-flex;align-items:center;min-height:44px}
+.alert-retry{display:flex;margin-top:8px;min-height:44px;padding:0 16px;font-size:15px}
+/* «نرخ» box + /plans table (design site-seo-pages seo.css v1.1, HANDOFF §0 v1.2) */
+.rate{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;align-items:center;margin:12px 0 14px;padding:12px 14px;border-radius:14px;background:var(--nf-surface);border:1px solid var(--nf-line)}
+.rate-l{font-size:14px;color:var(--nf-ink-muted);font-weight:600}
+.rate-m{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.rate-v{font-size:20px;font-weight:800;color:var(--nf-ink);line-height:1.4}
+.rate-ty{font-size:14px;font-weight:700;color:var(--nf-brand-700);background:var(--nf-brand-50);border-radius:8px;padding:2px 8px}
+.rate-q{font-size:13px;font-weight:700;color:var(--nf-ink-soft);border:1px solid var(--nf-line-strong);border-radius:8px;padding:1px 7px;background:#fff}
+.rate-d{grid-column:1/-1;font-size:13px;color:var(--nf-ink-muted)}
+.rate--ask .rate-ask{justify-self:start;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 12px;border-radius:12px;color:var(--nf-brand-700);font-weight:700;text-decoration:none;background:#fff;border:1.5px solid var(--nf-brand-200)}
+.rate--ask .rate-ask:hover{background:var(--nf-brand-50)}
+.rate--row{background:none;border:0;padding:0;margin:0;grid-template-columns:1fr}
+.rate--row .rate-l{display:none}
+.mode{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:0 12px 0 10px;border-radius:999px;font-size:13px;font-weight:800;line-height:1}
+.mode--both,.mode--online{background:var(--nf-brand-600);color:#fff}
+.mode--in_person{background:var(--nf-surface-2);color:var(--nf-ink-soft);border:1px solid var(--nf-line-strong)}
+.pt{display:none}
+@media (min-width:1024px){
+  .pt{display:block;border:1px solid var(--nf-line);border-radius:var(--nf-radius-card);overflow:hidden;background:#fff}
+  .cards.plan-list.pt-cards{display:none}
+  .pt-h,.pt-r{display:grid;grid-template-columns:minmax(170px,1.3fr) 170px .9fr .8fr .7fr minmax(210px,1.5fr) 150px;gap:12px;align-items:center;padding:14px 18px}
+  .pt-h{background:var(--nf-surface-2);font-size:14px;font-weight:700;color:var(--nf-ink-soft)}
+  .pt-r{border-top:1px solid var(--nf-line)}
+  .pt-nm{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center}
+  .pt-nm small{flex-basis:100%;font-weight:600;color:var(--nf-brand-700);font-size:13px}
+  .pt-r>span small{display:block;font-size:13px;color:var(--nf-ink-muted)}
+  .pt-n{font-size:17px}
+  .pt-go{min-height:44px;padding:0 12px;font-size:14px;white-space:nowrap}
+}

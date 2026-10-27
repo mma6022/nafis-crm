@@ -108,6 +108,8 @@ details.more .body{padding:0 12px 8px;font-size:14px}
 .bar a{min-height:56px;border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;text-decoration:none;font-size:14px;font-weight:600;color:var(--nf-ink);background:var(--nf-surface);line-height:1.4}
 .bar a svg{width:20px;height:20px}
 .bar a.req{flex-direction:row;gap:8px;font-size:16px;font-weight:800;background:var(--nf-gold-400);color:var(--nf-ink)}
+.bar--one{grid-template-columns:1fr}
+.bar--one a.req{width:100%}
 .wa{color:#1F7A4D}
 .foot{padding:24px 0;text-align:center;font-size:14px;color:var(--nf-ink-muted);border-top:1px solid var(--nf-line);background:#fff}
 
@@ -132,8 +134,6 @@ h1,h2,h3{color:var(--nf-ink)}
 /* ---------- Header: mobile menu + desktop nav ---------- */
 .hdr .wrap{max-width:calc(var(--nf-container) + 2*var(--nf-gutter))}
 .dnav{display:none}
-.hdr .tel{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 10px;color:var(--nf-ink);font-weight:800;text-decoration:none;direction:ltr;border-radius:10px}
-.hdr .tel:hover{background:var(--nf-surface-2)}
 .hdr .portal{min-height:44px;display:inline-flex;align-items:center;padding:0 10px;color:var(--nf-brand-700);font-weight:600;text-decoration:none;border-radius:10px;font-size:15px}
 .hdr .portal:hover{background:var(--nf-surface-2)}
 .hdr--min .cta,.hdr--min .icon-btn{display:none}

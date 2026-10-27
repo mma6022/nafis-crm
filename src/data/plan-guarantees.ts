@@ -92,8 +92,8 @@ export const GUARANTEE_PAGES: Record<GuaranteePage, { label: string; slug: strin
   'no-cheque': { label: 'بدون چک', slug: 'vam-bedun-chek' },
   cheque: { label: 'با چک', slug: 'vam-ba-chek' },
   promissory: { label: 'با سفته', slug: 'vam-ba-safte' },
-  'fast-no-guarantor': { label: 'فوری بدون ضامن', slug: 'vam-bedun-zamen', fast: true },
-  'fast-no-cheque': { label: 'فوری بدون چک', slug: 'vam-bedun-chek', fast: true },
+  'fast-no-guarantor': { label: 'فوری بدون ضامن', slug: 'vam-fori-bedun-zamen', fast: true },
+  'fast-no-cheque': { label: 'فوری بدون چک', slug: 'vam-fori-bedun-chek', fast: true },
 };
 
 const opt = (o: GuaranteeType[]) => ({
@@ -119,7 +119,8 @@ const BASE: Record<GuaranteePage, keyof typeof OPTION_OK> = {
 
 /**
  * Does a plan truly meet a guarantee page's condition? Unknown guarantee (no options) → false. A plan restricted
- * to some pages (17) only qualifies there. Fast pages also need grantDays 'under_7'.
+ * to some pages (17) only qualifies there. Fast pages (2026-10-28, copy A2/A3) use the SAME base condition as their
+ * guarantee page: «فوری» is only the review-time ORDER (lib/plans fastestGuaranteePlans, DAYS_RANK), never a filter.
  */
 export function qualifiesFor(
   p: { id: number; grantDays: string; guaranteeOptions?: GuaranteeType[][]; guaranteePages?: GuaranteePage[] },
@@ -127,7 +128,6 @@ export function qualifiesFor(
 ): boolean {
   if (!p.guaranteeOptions?.length) return false;
   if (p.guaranteePages && !p.guaranteePages.includes(page)) return false;
-  if (GUARANTEE_PAGES[page].fast && p.grantDays !== 'under_7') return false;
   return p.guaranteeOptions.some(OPTION_OK[BASE[page]]);
 }
 export const whyFor = (id: number, page: GuaranteePage) => {

@@ -14,10 +14,10 @@ import I from '../components/ui/I.astro';
 import FaqList from '../components/FaqList.astro';
 import PostCard from '../components/blog/PostCard.astro';
 import { KEYWORD_PAGES, TRUST_STATS } from '../lib/site';
-import { pickerTrigger } from '../data/experts';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 import { fa, fillFacts, planFacts } from '../lib/plans';
 import { financialServiceLd, faqLd } from '../lib/seo';
+import { fillFaq } from '../lib/faq-fill';
 import { getPosts, homePosts } from '../lib/blog';
 import type { SpriteIcon } from '../components/ui/I';
 
@@ -25,7 +25,7 @@ const HOME_FAQ_MAX = 4; // PM: max 4 questions on home (home.mdx order) + link t
 const page = (await getCollection('pages', (p) => p.data.slug === '/'))[0]!;
 const facts = planFacts(LOAN_PLANS_SNAPSHOT);
 const fill = (s: string) => fillFacts(s, facts);
-const faq = page.data.faq.slice(0, HOME_FAQ_MAX).map((f) => ({ q: fill(f.q), a: fill(f.a) }));
+const faq = fillFaq(page.data.faq.slice(0, HOME_FAQ_MAX), LOAN_PLANS_SNAPSHOT);
 const posts = homePosts(await getPosts());
 const SVC_ICON: Record<string, SpriteIcon> = {
   'vam-fori': 'bolt',
@@ -141,7 +141,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
     <div class="container-nf faq-wrap">
       <div class="sec-head" style="display:block">
         <h2 id="faq-h">سؤالات متداول</h2>
-        <p>جواب سؤالی را پیدا نکردید؟ <a {...pickerTrigger('call')}>با کارشناس تماس بگیرید</a>.</p>
+        <p>جواب سؤالی را پیدا نکردید؟ <a href="/contact/#callback">درخواست مشاوره‌ی رایگان بگذارید</a>.</p>
       </div>
       <FaqList items={faq} />
       <div class="faq-more"><a class="nf-btn nf-btn--text" href="/faq/">همه سؤالات متداول <I name="arrow" size={18} /></a></div>

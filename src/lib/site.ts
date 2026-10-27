@@ -7,9 +7,9 @@ export const SITE = {
   description:
     'نفیس وام، همراه شما برای شناخت گزینه‌های تسهیلات، وام فوری، وام بدون ضامن و انتخاب اقساط متناسب با شرایط واقعی زندگی.',
   /**
-   * NO company phone (Mohammad 2026-10-23): the landline is not in service and must not appear anywhere. Every call /
-   * messenger entry point opens the expert picker (src/data/experts.ts). scripts/check-guarantees.mjs fails the build
-   * if the old landline appears in dist/ or src/ in any format.
+   * NO phone number anywhere (Mohammad 2026-10-23 + HANDOFF §0 v1.2 #13): no tel:/sms:/messenger links and no numbers;
+   * the only contact path is the «درخواست مشاوره‌ی رایگان» callback form (/contact/#callback) or /request/.
+   * scripts/check-messengers.mjs + check-guarantees.mjs fail the build otherwise.
    */
   /** the .com MX is live (webmail.nafisvam.com) */
   email: 'info@nafisvam.com',
@@ -32,12 +32,10 @@ export const SITE = {
   locale: 'fa_IR',
 } as const;
 
-/** Public social profile (Mohammad 2026-10-23). Messengers exist only per sales expert (src/data/experts.ts). */
+/** Public social profile (Mohammad 2026-10-23). No messenger links anywhere (HANDOFF §0 v1.2). */
 export const SOCIAL = {
   instagram: { label: 'اینستاگرام', href: 'https://instagram.com/nafisvamm', handle: 'nafisvamm' },
 } as const;
-
-/** Sales experts: single source is src/data/experts.ts (import it directly; not re-exported here so client islands that use site.ts do not bundle it). */
 
 /**
  * Callback / contact hours (PM-confirmed 2026-10-23): 09:00–18:00 Asia/Tehran; «صبح» = 9–13, «عصر» = 13–18.
@@ -55,23 +53,22 @@ export const WORK_HOURS = {
   days: [6, 0, 1, 2, 3, 4] as readonly number[],
   fa: '۹ صبح تا ۶ عصر',
   daysFa: 'شنبه تا پنجشنبه',
-  /** short form used on /contact next to the experts */
+  /** short form (privacy / terms)  */
   shortFa: 'شنبه تا پنجشنبه، ۹ تا ۱۸',
   /** schema.org openingHoursSpecification dayOfWeek */
   schemaDays: ['Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'],
   daysConfirmed: true,
 } as const;
 
-/**
- * «یا در واتساپ بپرسید» link under the home callback lead. Empty = hidden. Never a wa.me link: every messenger entry
- * point opens the expert picker, and scripts/check-messengers.mjs fails the build on any wa.me / api.whatsapp /
- * whatsapp: link outside the picker and the /contact «کارشناسان فروش» block. If this is ever enabled, use '/contact/#experts'.
- */
+/** HANDOFF §0 v1.2 #9: must stay empty (no messenger line under the callback form; check-messengers fails otherwise). */
 export const CALLBACK_WHATSAPP = '';
 
-/** The 6 keyword landing pages (UX-SPEC §3/§8). Order = menu/footer order. */
+/** The 9 keyword landing pages (UX-SPEC §3/§8). Order = menu/footer order. */
 export const KEYWORD_PAGES = [
   { slug: 'vam-fori', label: 'وام فوری', blurb: 'طرح‌هایی با بررسی کمتر از ۷ روز', icon: 'clock' },
+  { slug: 'vam-ani', label: 'وام آنی', blurb: 'درخواست آنلاین در دو مرحله‌ی کوتاه', icon: 'online' },
+  { slug: 'vam-fori-bedun-chek', label: 'وام فوری بدون چک', blurb: 'سریع‌ترین طرح‌ها میان طرح‌های بدون چک', icon: 'check' },
+  { slug: 'vam-fori-bedun-zamen', label: 'وام فوری بدون ضامن', blurb: 'سریع‌ترین طرح‌ها میان طرح‌های بدون ضامن', icon: 'user' },
   { slug: 'vam-bedun-zamen', label: 'وام بدون ضامن', blurb: 'بدون نیاز به معرفی ضامن', icon: 'user' },
   { slug: 'vam-bedun-chek', label: 'وام بدون چک', blurb: 'بدون نیاز به چک صیادی', icon: 'check' },
   { slug: 'vam-ba-chek', label: 'وام با چک', blurb: 'با ضمانت چک صیادی خودتان یا دیگری', icon: 'cash' },
@@ -87,7 +84,7 @@ export const MAIN_NAV: NavItem[] = [
   { href: '/how-it-works/', label: 'مراحل دریافت' },
   { href: '/blog/', label: 'مجله' },
   { href: '/about/', label: 'درباره ما' },
-  { href: '/contact/', label: 'تماس' },
+  { href: '/contact/', label: 'ارتباط با ما' },
 ];
 
 export const GUIDE_NAV: NavItem[] = [
@@ -128,9 +125,8 @@ export const href = (url: string) => {
 export const jalaliYear = (d = new Date()) =>
   new Intl.DateTimeFormat('fa-IR-u-ca-persian', { year: 'numeric' }).format(d).replace(/[^۰-۹]/g, '');
 
-/** Confirmed by Mohammad (2026-10-23). Order is fixed: years, requests, customers. `b` = the bold part. */
+/** Confirmed by Mohammad (2026-10-23). Order is fixed: years, requests («۳٬۰۰۰ نفر وام‌گرفته» removed 2026-10-28, HANDOFF B). `b` = the bold part. */
 export const TRUST_STATS = [
   { pre: '', b: '۷ سال', post: 'سابقه' },
   { pre: 'بیش از', b: '۳۰ هزار', post: 'درخواست وام' },
-  { pre: 'بیش از', b: '۳٬۰۰۰', post: 'نفر وام‌گرفته' },
 ] as const;

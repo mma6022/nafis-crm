@@ -5,6 +5,7 @@
  */
 // Hand-written validation (no zod) keeps the client islands small — this module ships to the browser.
 import { PLAN_GUARANTEES, type GuaranteePage, type GuaranteeType } from '../data/plan-guarantees';
+import { parseRate, parseStaleDays, type PlanRate } from './rates';
 
 export const LOAN_PLANS_URL = '/data/loan-plans.json';
 
@@ -41,6 +42,10 @@ export interface LoanPlan {
   documentsNote?: string;
   /** Loan cap (تومان) of the without-guarantor way when lower than principalAmount (data/plan-guarantees.ts). */
   noGuarantorMaxPrincipal?: number;
+  /** Public rate (CRM annual_interest + rate_updated_at; lib/rates.ts). Absent/invalid = unknown → «از کارشناس بپرسید». */
+  rate?: PlanRate;
+  /** CRM admin setting rate_stale_days (default 30) */
+  rateStaleDays?: number;
 }
 const GUARANTEES = new Set(['cheque', 'digital_cheque', 'guarantor', 'promissory', 'none']);
 const ORDER: GuaranteeType[] = ['cheque', 'promissory', 'guarantor', 'none'];
@@ -101,6 +106,7 @@ export function parseLoanPlan(p: unknown): LoanPlan | null {
     bankName: o.bankName as string,
     platformName: o.platformName as string,
     installmentTerms: terms as InstallmentTerm[],
+    ...(o.rate && typeof o.rate === 'object' ? { rate: parseRate(o.rate), rateStaleDays: parseStaleDays(o.rateStaleDays) } : {}),
     ...(Array.isArray(o.guaranteeOptions) &&
     o.guaranteeOptions.length &&
     o.guaranteeOptions.every((x) => Array.isArray(x) && x.length && x.every((g) => GUARANTEES.has(g as string)))

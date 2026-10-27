@@ -6,7 +6,6 @@
 import type { CollectionEntry } from 'astro:content';
 import { render } from 'astro:content';
 import BaseLayout from './BaseLayout.astro';
-import { pickerTrigger } from '../data/experts';
 import Breadcrumbs from '../components/Breadcrumbs.astro';
 import I from '../components/ui/I.astro';
 import CallbackForm from '../components/islands/CallbackForm';
@@ -14,6 +13,7 @@ import { mdxComponents } from '../components/mdx';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 import { fa, fillFacts, leadHtml, planFacts, planFilter } from '../lib/plans';
 import { breadcrumbLd, faqLd } from '../lib/seo';
+import { fillFaq } from '../lib/faq-fill';
 interface Props {
   entry: CollectionEntry<'pages'>;
 }
@@ -21,7 +21,7 @@ const { entry } = Astro.props;
 const d = entry.data;
 const facts = planFacts(LOAN_PLANS_SNAPSHOT);
 const fill = (s: string) => fillFacts(s, facts);
-const faq = d.faq.map((f) => ({ q: fill(f.q), a: fill(f.a) }));
+const faq = fillFaq(d.faq, LOAN_PLANS_SNAPSHOT);
 Astro.locals.faq = faq;
 const { Content, headings } = await render(entry);
 Astro.locals.headings = headings;
@@ -35,6 +35,9 @@ const CB_LEAD: Record<string, string> = {
   'vam-ba-chek': 'نام و شماره‌تان را بگذارید؛ کارشناس نفیس وام طرح‌های با ضمانت چک را رایگان برایتان توضیح می‌دهد.',
   'vam-ba-safte': 'نام و شماره‌تان را بگذارید؛ کارشناس نفیس وام طرح‌های با ضمانت سفته را رایگان برایتان توضیح می‌دهد.',
   'kharid-aghsati': 'نام و شماره‌تان را بگذارید؛ کارشناس نفیس وام طرح‌های متناسب با مبلغ و شرایط شما را رایگان برایتان توضیح می‌دهد.',
+  'vam-ani': 'نام و شماره‌تان را بگذارید؛ کارشناس نفیس وام تماس می‌گیرد و مسیر درخواست آنلاین را رایگان برایتان توضیح می‌دهد.',
+  'vam-fori-bedun-chek': 'نام و شماره‌تان را بگذارید؛ کارشناس نفیس وام سریع‌ترین طرح‌های بدون چک را رایگان برایتان توضیح می‌دهد.',
+  'vam-fori-bedun-zamen': 'نام و شماره‌تان را بگذارید؛ کارشناس نفیس وام سریع‌ترین طرح‌های بدون ضامن را رایگان برایتان توضیح می‌دهد.',
 };
 const cbLead = CB_LEAD[page];
 const toc = headings.filter((h) => h.depth === 2);
@@ -54,19 +57,26 @@ const BADGE: Record<string, { filter: string; key: 'fastCount' | 'planCount' | n
   'vam-bedun-chek': { filter: 'noCheque', key: null, text: 'طرح فعال بدون چک', tone: 'brand' },
   'vam-ba-chek': { filter: 'cheque', key: null, text: 'طرح فعال با چک', tone: 'brand' },
   'vam-ba-safte': { filter: 'promissory', key: null, text: 'طرح فعال با سفته', tone: 'brand' },
+  /** A1: plans that can run without an in-person visit (processMode both|online). A2/A3 deliberately have no badge. */
+  'vam-ani': { filter: 'online', key: null, text: 'طرح فعال با امکان پیشبرد بدون مراجعه حضوری', tone: 'brand' },
 };
 const badgeDef = BADGE[page];
 const badgeFn = badgeDef ? planFilter(badgeDef.filter, LOAN_PLANS_SNAPSHOT) : null;
 const badgeN = badgeFn ? new Set(LOAN_PLANS_SNAPSHOT.filter(badgeFn).map((p) => p.id)).size : 0;
 const badge = badgeDef && badgeFn && badgeN > 0 ? { ...badgeDef, n: badgeN } : null;
-/** Side panel (ANSWERS-1 §7): never a guarantee claim; primary = frontmatter cta.primary, then تماس (no messenger buttons: none is published for the landline). */
+/** Side panel (ANSWERS-1 §7): never a guarantee claim; only the frontmatter cta.primary (no call / messenger button: HANDOFF §0 v1.2). */
 const ASIDE: Record<string, { h?: string; p: string }> = {
   'vam-fori': { p: 'درخواست ثبت کنید؛ کارشناس سریع‌ترین طرح متناسب با شما را پیشنهاد می‌دهد.' },
   'kharid-aghsati': { h: 'قصد خرید اقساطی دارید؟', p: 'درخواست ثبت کنید؛ کارشناس طرح متناسب با مبلغ و قسط شما را پیشنهاد می‌دهد.' },
+  'vam-ani': { h: 'می‌خواهید آنلاین شروع کنید؟', p: 'درخواست را از گوشی ثبت کنید؛ کارشناس در ساعت کاری، پس از ثبت درخواست تماس می‌گیرد.' },
+  'vam-fori-bedun-chek': { h: 'دسته‌چک ندارید و عجله دارید؟', p: 'درخواست ثبت کنید؛ کارشناس سریع‌ترین طرح بدون چک متناسب با شما را پیشنهاد می‌دهد.' },
+  'vam-fori-bedun-zamen': { h: 'ضامن ندارید و عجله دارید؟', p: 'درخواست ثبت کنید؛ کارشناس سریع‌ترین طرح بدون ضامن متناسب با شما را پیشنهاد می‌دهد.' },
 };
 const aside = { h: ASIDE[page]?.h ?? `${d.primaryKeyword} لازم دارید؟`, p: ASIDE[page]?.p ?? 'درخواست ثبت کنید؛ کارشناس مناسب‌ترین طرح را با شما مرور می‌کند.' };
-/** frontmatter cta.secondary «تماس» = /contact/#experts → opens the expert picker (landline removed 2026-10-23) */
-const isTel = (h: string) => h.startsWith('/contact/#experts') || h.startsWith('/contact#experts');
+/** HANDOFF §0 v1.2: no call / picker entry point anywhere — a cta.secondary that pointed to the old /contact/#experts
+ *  picker is never rendered (the pages no longer have one; this guards stale frontmatter). */
+const isTel = (h: string) => /^\/contact\/?#experts/.test(h) || /^(tel|sms):/.test(h);
+const secondary = d.cta.secondary && !isTel(d.cta.secondary.href) ? d.cta.secondary : null;
 ---
 
 <BaseLayout rawTitle title={fill(d.title)} description={fill(d.description)} canonicalPath={d.slug} src={page} jsonLd={[faqLd(faq), breadcrumbLd(crumbs)]}>
@@ -84,13 +94,7 @@ const isTel = (h: string) => h.startsWith('/contact/#experts') || h.startsWith('
       {lead && <p class="lead" set:html={lead} />}
       <div class="actions">
         <a class="nf-btn nf-btn--primary nf-btn--block" href={d.cta.primary.href}>{d.cta.primary.text} <I name="arrow" /></a>
-        {
-          d.cta.secondary && (
-            <a class="nf-btn nf-btn--text" {...(isTel(d.cta.secondary.href) ? pickerTrigger('call') : { href: d.cta.secondary.href })}>
-              {isTel(d.cta.secondary.href) && <I name="phone" size={18} />} {d.cta.secondary.text}
-            </a>
-          )
-        }
+        {secondary && <a class="nf-btn nf-btn--text" href={secondary.href}>{secondary.text}</a>}
       </div>
     </div>
   </section>
@@ -103,7 +107,6 @@ const isTel = (h: string) => h.startsWith('/contact/#experts') || h.startsWith('
         <h2>{aside.h}</h2>
         <p>{aside.p}</p>
         <a class="nf-btn nf-btn--primary nf-btn--block" href={d.cta.primary.href}>{d.cta.primary.text}</a>
-        <a class="nf-btn nf-btn--secondary nf-btn--block" {...pickerTrigger('call')}><I name="phone" size={18} /> تماس با کارشناس</a>
       </div>
       {
         toc.length > 1 && (

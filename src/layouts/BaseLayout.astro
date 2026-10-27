@@ -4,7 +4,6 @@ import '../styles/global.css';
 import Header from '../components/Header.astro';
 import CallbackDialog from '../components/islands/CallbackDialog';
 import Footer from '../components/Footer.astro';
-import ExpertPicker from '../components/experts/ExpertPicker.astro';
 import StickyBar from '../components/StickyBar.astro';
 import JsonLd from '../components/JsonLd.astro';
 import { SITE, absoluteUrl, jalaliYear } from '../lib/site';
@@ -104,11 +103,11 @@ const src = Astro.props.src ?? (path.split('/').filter(Boolean)[0] || 'home');
       )
     }
     {!hideStickyBar && <StickyBar src={src} />}
-    <ExpertPicker />
     <script>
       import { captureUtm, refreshLiveFacts } from '../scripts/live-facts';
       import { initChrome } from '../scripts/chrome';
       import { initPageLoader } from '../scripts/page-loader';
+      import '../scripts/rate-expiry';
       initChrome();
       initPageLoader();
       captureUtm();

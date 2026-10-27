@@ -6,14 +6,13 @@ import FaqList from '../components/FaqList.astro';
 import FinalCTA from '../components/FinalCTA.astro';
 import { FAQ_GROUPS } from '../data/faq';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
-import { fillFacts, planFacts } from '../lib/plans';
+import { fillFaq } from '../lib/faq-fill';
 import { breadcrumbLd, faqLd } from '../lib/seo';
 const crumbs = [
   { name: 'خانه', path: '/' },
   { name: 'سوالات متداول', path: '/faq/' },
 ];
-const facts = planFacts(LOAN_PLANS_SNAPSHOT);
-const groups = FAQ_GROUPS.map((g) => ({ ...g, items: g.items.map((i) => ({ q: fillFacts(i.q, facts), a: fillFacts(i.a, facts) })) }));
+const groups = FAQ_GROUPS.map((g) => ({ ...g, items: fillFaq(g.items, LOAN_PLANS_SNAPSHOT) }));
 ---
 
 <BaseLayout

@@ -114,8 +114,8 @@ test('recommend on synthetic data: band > priority, plan type ignored; alternati
 test('reqBands: payout bands from data, labels and keys like site.js, empty bands hidden', () => {
   const ours = reqBands(all);
   assert.deepEqual(ours, D.reqBands(D.combos));
-  assert.deepEqual(ours.map((b) => b.key), ['0-100', '100-200', '200-300', '300-500']);
-  assert.deepEqual(ours.map((b) => b.label), ['تا ۱۰۰ میلیون تومان', '۱۰۰ تا ۲۰۰ میلیون تومان', '۲۰۰ تا ۳۰۰ میلیون تومان', '۳۰۰ تا ۵۰۰ میلیون تومان']);
+  assert.deepEqual(ours.map((b) => b.key), ['0-100', '100-200', '200-300']);
+  assert.deepEqual(ours.map((b) => b.label), ['تا ۱۰۰ میلیون تومان', '۱۰۰ تا ۲۰۰ میلیون تومان', '۲۰۰ تا ۳۰۰ میلیون تومان']);
   for (const b of ours) {
     const ids = new Set(all.filter((c) => c.payout > b.lo && c.payout <= b.hi).map((c) => c.id));
     assert.equal(b.n, ids.size, `${b.key} counts distinct plans`);
@@ -145,13 +145,14 @@ test('bank names: split on - | / ، , +, ZWNJ/space collapsed, «بانک» drop
   assert.equal(bankNames(dup).size, 2);
 });
 
-test('facts: amount/term range text and hero sample (plan 10) from data', () => {
+test('facts: amount/term range text and hero sample from data (plan 10 inactive → best-payout fallback)', () => {
   const f = planFacts(plans);
-  assert.equal(f.amountRange, 'از ۱۰۰ تا ۷۰۰ میلیون تومان');
+  assert.equal(f.amountRange, 'از ۱۰۰ تا ۵۰۰ میلیون تومان');
   assert.equal(f.termRange, 'بازپرداخت ۱۲ تا ۴۸ ماهه');
   assert.equal(f.bankCount, 12);
-  const s = byId(all, 10)!;
-  assert.equal(s.payout, Math.max(...all.filter((c) => c.id === 10).map((c) => c.payout)));
+  assert.equal(byId(all, 10), undefined);
+  const s = byId(all, 9)!;
+  assert.equal(s.payout, Math.max(...all.filter((c) => c.id === 9).map((c) => c.payout)));
 });
 
 /* ---------- digits + mobile ---------- */

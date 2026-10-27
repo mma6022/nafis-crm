@@ -1,7 +1,5 @@
 ---
-import Icon from './ui/Icon.astro';
 import { buttonClass } from './ui/styles';
-import { pickerTrigger } from '../data/experts';
 interface Props {
   src?: string;
 }
@@ -16,9 +14,6 @@ const { src = 'page' } = Astro.props;
     </div>
     <div class="grid gap-2 sm:flex">
       <a href={`/request/?src=${src}`} class={buttonClass('gold', 'lg', 'w-full sm:w-auto')}>درخواست مشاوره رایگان</a>
-      <a {...pickerTrigger('call')} class={buttonClass('ghost', 'lg', 'w-full !text-white hover:!bg-white/10 sm:w-auto')}>
-        <Icon name="phone" /> تماس با کارشناس
-      </a>
     </div>
   </div>
 </section>

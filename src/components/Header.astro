@@ -2,13 +2,13 @@
 /**
  * Site header + mobile menu (mockup src/header.html). Behaviour lives in scripts/chrome.ts:
  * services dropdown, menu ⇄ x toggle, `.is-stuck` (desktop CTA turns primary once the hero is gone).
- * `minimal` = /request: `.hdr--min` (logo + call icon only).
- * The landline is not in service (2026-10-23): the phone icon opens the expert picker (data/experts.ts).
+ * `minimal` = /request: `.hdr--min` (logo only).
+ * HANDOFF §0 v1.2 (2026-10-28): no call / messenger entry point — desktop «مشاوره‌ی رایگان» → /contact/#callback,
+ * mobile = menu icon; the mobile menu has no «تماس با کارشناس» and no messenger icons.
  */
 import I from './ui/I.astro';
 import Logo from './Logo.astro';
 import { KEYWORD_PAGES, SITE } from '../lib/site';
-import { CHANNELS, MESSENGERS, pickerTrigger } from '../data/experts';
 import { fa, planFacts } from '../lib/plans';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
 interface Props {
@@ -65,7 +65,6 @@ const NAV = [
       )
     }
     {!minimal && <a class="portal d-only" href={SITE.portal}>ورود مشتریان</a>}
-    <a class="tel" {...pickerTrigger('call')} aria-label="تماس با کارشناس" title="تماس با کارشناس"><I name="phone" size={20} /></a>
     {
       !minimal && (
         <a class="cbk d-only" href="/contact/#callback" data-callback={`${src}-header`}>
@@ -106,23 +105,11 @@ const NAV = [
         <li><a href="/how-it-works/">مراحل دریافت</a></li>
         <li><a href="/blog/">مجله نفیس</a></li>
         <li><a href="/about/">درباره ما</a></li>
-        <li><a href="/contact/">تماس</a></li>
+        <li><a href="/contact/">ارتباط با ما</a></li>
       </ul>
       <div class="mfoot">
         <a class="nf-btn nf-btn--secondary nf-btn--block" href="/contact/#callback" data-callback={`${src}-menu`}><I name="callback" /> درخواست مشاوره‌ی رایگان</a>
         <a class="nf-btn nf-btn--secondary nf-btn--block" href={SITE.portal}><I name="login" /> ورود مشتریان</a>
-        <a class="nf-btn nf-btn--secondary nf-btn--block" {...pickerTrigger('call')}><I name="phone" /> تماس با کارشناس</a>
-        {
-          MESSENGERS.length > 0 && (
-            <div class="m-xp">
-              {MESSENGERS.map((ch) => (
-                <a class={`m-xp-${ch}`} {...pickerTrigger(ch)} aria-label={CHANNELS[ch].trigger} title={CHANNELS[ch].trigger}>
-                  <I name={CHANNELS[ch].icon} size={22} />
-                </a>
-              ))}
-            </div>
-          )
-        }
       </div>
     </div>
   )
