@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'wouter';
 import { getListRemindersQueryKey, useCreateReminder } from '@workspace/api-client-react';
 import { AlertCircle, BellPlus, Bot, Check, Clock, Eye, FileText, Info, MessageCircle, Moon, PauseCircle, Paperclip, Pencil, Play, Send, X, Zap } from 'lucide-react';
 import { ErrorState } from '@/components/CrmShell';
@@ -141,10 +142,13 @@ export function BaleChatSection({ customerId }: { customerId: number }) {
           {d.messages.map(m => <div key={m.id} className={`bl-msg ${m.direction}`} data-testid={`bale-msg-${m.id}`}>
             {m.hasFile ? <span style={{ display: 'flex', gap: 4, alignItems: 'center' }}><Paperclip size={14} /> فایل</span> : null}
             {m.text ?? (m.hasFile ? null : '—')}
-            <span className="meta">{m.direction === 'in' ? 'مشتری' : (m.expertName ?? 'کارشناس')} · {baleWhen(m.createdAt)}</span>
+            <span className="meta">{m.auto ? <Bot size={12} aria-hidden="true" /> : null}{m.direction === 'in' ? 'مشتری' : (m.expertName ?? 'کارشناس')}{m.arKind === 'hold' ? ' · پیام نگه‌دار' : m.arKind === 'night' ? ' · پیام شب' : ''} · {baleWhen(m.createdAt)}</span>
           </div>)}
           {d.outbox.map(o => <OutboxCard key={`${o.id}-${o.status}-${o.text}`} o={o} busy={busy} act={act} />)}
         </div> : <p className="muted" style={{ margin: 0 }}>هنوز گفتگویی در بله با این مشتری ثبت نشده است.</p>}
+        {d.autoReply?.on ? <div className="bl-note off" data-testid="bale-autoreply-owner"><Bot size={18} /><span>{d.autoReply.owner === 'expert'
+          ? <>این گفتگو دست کارشناس است؛ {d.autoReply.label} جواب نمی‌دهد.{owner ? <> برگرداندن از <Link href="/bale/autoreply">پاسخ خودکار بله</Link>.</> : null}</>
+          : <>{d.autoReply.label} به پیام‌های این مشتری جواب می‌دهد. با جواب شما از اینجا، گفتگو دست خودتان می‌شود.</>}</span></div> : null}
         {owner ? <>
           {d.paused ? <div className="bl-note warn bl-paused" data-testid="bale-paused"><PauseCircle size={18} /><span>
             <b>این گفتگو متوقف است.</b> احتمالاً مشتری شما را در بله مسدود کرده؛ فقط همین گفتگو متوقف شد و بقیه‌ی پیام‌ها عادی می‌روند.

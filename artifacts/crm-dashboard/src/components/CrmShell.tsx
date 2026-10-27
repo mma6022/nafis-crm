@@ -58,6 +58,7 @@ const allNavItems: NavItem[] = [
   { href: '/internal-chat', label: 'گفتگوی داخلی', icon: MessageCircle, permission: 'internal_chat.use' },
   { href: '/messengers', label: 'پیام‌رسان‌ها', icon: Send, permission: 'internal_chat.use' },
   { href: '/settings/bale', label: 'اتصال بله', icon: Link2, bale: true },
+  { href: '/bale/autoreply', label: 'پاسخ خودکار بله', icon: Bot, bale: true },
   { href: '/instagram-inbox', label: 'سرنخ‌های دایرکت اینستاگرام', icon: Instagram, staffOnly: true },
   { href: '/calls', label: 'تماس‌ها', icon: PhoneCall, permission: 'calls.view' },
   { href: '/mobile-calls', label: 'تماس‌های موبایل', icon: Smartphone, permission: 'calls.view' },
@@ -81,7 +82,7 @@ const navGroups: NavGroup[] = [
   { id: 'loans', label: 'وام و قرارداد', icon: HandCoins, hrefs: ['/loan-applications', '/smart-filing', '/loan-plans', '/contracts', '/credit-rank-overrides'] },
   { id: 'goods', label: 'خرید کالا', icon: Store, hrefs: ['/goods-purchases', '/sales-commissions', '/my-performance', '/my-wallet'] },
   { id: 'finance', label: 'مالی و پرداخت', icon: Banknote, hrefs: ['/payment-orders', '/wallet-management', '/bank-accounts', '/accounting'] },
-  { id: 'comms', label: 'پیام‌ها و تلفن', icon: Headset, hrefs: ['/chat', '/internal-chat', '/messengers', '/settings/bale', '/instagram-inbox', '/mobile-calls', '/phone'] },
+  { id: 'comms', label: 'پیام‌ها و تلفن', icon: Headset, hrefs: ['/chat', '/internal-chat', '/messengers', '/settings/bale', '/bale/autoreply', '/instagram-inbox', '/mobile-calls', '/phone'] },
   { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/social-monitor-reports', '/voice-notes-usage'] },
   { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/settings/notifications', '/settings/assistants', '/settings/releases'] },
 ];

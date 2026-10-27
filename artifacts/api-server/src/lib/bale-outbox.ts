@@ -24,6 +24,7 @@ import { maskText } from "./smart-filing";
 import { baleSessionAad, openBaleSession, BaleKeyMissing, type KeyEnv } from "./bale-crypto";
 import { BaleSidecarError, type BaleSidecar } from "./bale-sidecar-client";
 import type { BalePlanFiles } from "./bale-plan-files";
+import { AR_BLOCK_FA, arVoice, createBaleAutoreply, ensureBaleAutoreplySchema, type ArBlock, type ArTarget } from "./bale-autoreply";
 
 export const BALE_MAX_TEXT = 1000;
 export const BALE_SENDING_STALE_MS = 2 * 60_000;
@@ -34,7 +35,7 @@ export const BALE_AMOUNT_DISCLAIMER = "مبلغ قطعی را بانک یا تأ
 export type BaleBlockReason =
   | "bale_disabled" | "not_connected" | "mode_off" | "out_of_scope" | "empty" | "too_long" | "banned_word" | "loan_type_question"
   | "no_phone" | "no_prior_chat" | "already_pending" | "cap_hour" | "cap_day" | "cap_new_chats" | "auto_stopped" | "not_eligible"
-  | "conversation_paused" | "session_not_live" | "attachments_disabled" | "attachment_missing";
+  | "conversation_paused" | "session_not_live" | "attachments_disabled" | "attachment_missing" | ArBlock;
 export const BLOCK_FA: Record<BaleBlockReason | "quiet_hours" | "no_bale_account" | "uncertain" | "send_failed" | "peer_blocked", string> = {
   bale_disabled: "بله فعلاً از طرف مدیر خاموش است؛ پیامی فرستاده نشد.",
   not_connected: "حساب بله‌ی کارشناس وصل نیست؛ پیامی فرستاده نشد.",
@@ -61,6 +62,7 @@ export const BLOCK_FA: Record<BaleBlockReason | "quiet_hours" | "no_bale_account
   session_not_live: "اتصال بله‌ی کارشناس ناقص است و در حال رفع است؛ تا وقتی اتصال کامل نشود هیچ پیامی فرستاده نمی‌شود.",
   attachments_disabled: "ارسال فایل طرح در بله فعلاً از طرف مدیر خاموش است؛ چیزی فرستاده نشد. فقط پیام متنی ممکن است.",
   attachment_missing: "فایل این طرح در تنظیمات طرح‌ها بارگذاری نشده یا دیگر در دسترس نیست؛ چیزی فرستاده نشد.",
+  ...AR_BLOCK_FA,
 };
 /** Plan files: the caption ALWAYS ends with the amount disclaimer (a plan file names a plan by definition). */
 export function withPlanFileCaption(caption: string): string {
@@ -140,6 +142,8 @@ export function ensureBaleOutboxSchema(db: DatabaseSync): void {
     first_at TEXT NOT NULL, last_at TEXT NOT NULL, messages INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','linked','dismissed')), customer_id INTEGER, decided_by INTEGER, decided_at TEXT,
     UNIQUE(account_id, peer_id))`);
+  // «پاسخ خودکار دستیارها» (lib/bale-autoreply.ts): pairs, owner flags, unknown-sender chats. Everything OFF.
+  ensureBaleAutoreplySchema(db);
 }
 export const BALE_UNKNOWN_OPEN_MAX = 200;
 
@@ -154,9 +158,13 @@ export type OutboxCtx = {
   testInbound?: (a: any, evs: any[]) => { stored: number; ignored: number };
   /** Plan files + their switch (bale_settings.bale_attachments_enabled, default OFF). Absent → attachments impossible. */
   planFiles?: BalePlanFiles; attachmentsOn?: () => boolean;
+  /** Tests only: wake-webhook transport + sleep. */
+  fetchImpl?: (url: string, init: any) => Promise<{ ok: boolean; status: number }>; sleep?: (ms: number) => Promise<void>; log?: (m: string, d: Record<string, unknown>) => void;
 };
 export type EnqueueIn = {
-  accountId: number; customerId: number; text: string; source: "expert_command" | "reminder" | "assistant";
+  accountId: number; customerId: number; text: string; source: "expert_command" | "reminder" | "assistant" | "auto_reply";
+  /** auto_reply only: reply (runner text) | plan (runner plan file) | hold / night (server texts). */
+  arKind?: "reply" | "plan" | "hold" | "night";
   explicit: boolean; createdBy: number | null; assistant?: { id: number; inScope: boolean } | null; reason?: string | null;
   reminderId?: number | null; sendNow?: boolean;
   /** bale_plan_files.id — the row is then ALWAYS a draft (pending_approval), whatever the expert's mode is. */
@@ -184,6 +192,14 @@ export function createBaleOutbox(ctx: OutboxCtx) {
   const ref = (a: any) => `acc-${a.id}`;
   const since = (ms: number) => new Date(now().getTime() - ms).toISOString();
   let bellCols: boolean | null = null;
+  // Auto-reply core (lib/bale-autoreply.ts). Closures are lazy: liveState / gapMs are defined further down.
+  const ar = createBaleAutoreply({
+    db, now, setting: ctx.setting, masterOn: ctx.masterOn, env: () => ctx.env() as Record<string, string | undefined>, audit: ctx.audit, userRow: ctx.userRow, nameOf: ctx.nameOf,
+    bell: (uid, cid, kind, title, body) => bell(uid, cid, kind, title, body), bellNoCustomer: (uid, title, body) => bellNoCustomer(uid, title, body),
+    liveState: a => liveState(a), textProblem: t => baleTextProblem(t, banned()), sidecar: ctx.sidecar as any, planFiles: ctx.planFiles,
+    attachmentsOn: () => attachmentsOn(), attachOne: a => attachOne(a), gapMs: () => gapMs(), ref: a => ref(a), autoStop: (a, code, cid, from) => autoStop(a, code, cid, from),
+    fetchImpl: ctx.fetchImpl, sleep: ctx.sleep, log: ctx.log,
+  });
   const hasTable = (n: string) => Boolean(row("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", n));
 
   /** Bell row (site_notification_events) addressed to one user; actor_key set so the request-local trigger leaves it alone. */
@@ -205,6 +221,12 @@ export function createBaleOutbox(ctx: OutboxCtx) {
       VALUES(0,'',NULL,'bale-unknown',?,'bale-unknown',?,?,'bale.recipient',?,'bale:system',?)`, unknownId, "پیام از شماره‌ی ناشناس",
       "کسی که در فهرست مشتری‌های شما نیست در بله پیام داد. متنش ذخیره نشد؛ اگر مشتری خودتان است، گفتگو را به پرونده‌اش وصل کنید.", iso(), userId);
   }
+  /** Bell without a customer (unknown-sender chats, auto-stop with no customer): addressee only, like bellUnknown. */
+  function bellNoCustomer(userId: number, title: string, body: string) {
+    if (!bellReady()) return;
+    run(`INSERT INTO site_notification_events(customer_id,customer_name,owner_id,resource_type,resource_id,kind,title,body,permission,created_at,actor_key,recipient_user_id)
+      VALUES(0,'',NULL,'bale-unknown',0,'bale-autoreply',?,?,'bale.recipient',?,'bale:system',?)`, title.slice(0, 120), body.slice(0, 300), iso(), userId);
+  }
   function ownCustomer(a: any, customerId: number) {
     const u = ctx.userRow(a.user_id);
     if (!u || !ctx.eligible(u) || !u.salesperson_id) return null;
@@ -219,8 +241,11 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     row("SELECT 1 FROM bale_contacts WHERE account_id=? AND customer_id=? AND has_prior_chat=1", accountId, customerId)
     || row("SELECT 1 FROM bale_messages WHERE account_id=? AND customer_id=? AND direction='in' LIMIT 1", accountId, customerId));
   const pausedOf = (accountId: number, customerId: number) => row<any>("SELECT paused_reason, paused_at FROM bale_conversation_state WHERE account_id=? AND customer_id=? AND paused_reason IS NOT NULL", accountId, customerId);
-  const sentSince = (accountId: number, ms: number) => Number(row<any>("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status IN ('sent','sending') AND COALESCE(sent_at,updated_at)>?", accountId, since(ms))?.n ?? 0);
-  const queuedCount = (accountId: number, excludeId = 0) => Number(row<any>("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status='queued' AND id<>?", accountId, excludeId)?.n ?? 0);
+  // Account caps also count the auto replies sent in unknown-sender chats (bale_ar_messages).
+  const sentSince = (accountId: number, ms: number) => Number(row<any>("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status IN ('sent','sending') AND COALESCE(sent_at,updated_at)>?", accountId, since(ms))?.n ?? 0)
+    + ar.arSentSince(accountId, ms);
+  const queuedCount = (accountId: number, excludeId = 0) => Number(row<any>("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status='queued' AND id<>?", accountId, excludeId)?.n ?? 0)
+    + ar.arQueued(accountId);
   const newChatsToday = (accountId: number, excludeId = 0) => Number(row<any>(`SELECT count(*) n FROM bale_outbox WHERE account_id=? AND is_new_chat=1 AND id<>?
     AND (status IN ('queued','sending') OR (status='sent' AND sent_at>?))`, accountId, excludeId, since(86_400_000))?.n ?? 0);
 
@@ -228,11 +253,14 @@ export function createBaleOutbox(ctx: OutboxCtx) {
   const attachmentsOn = () => Boolean(ctx.planFiles && ctx.attachmentsOn?.());
   /** A plan file is usable only while it is still the plan's active file and its bytes on disk match the stored sha256. */
   const attachmentUsable = (id: number) => { const f = ctx.planFiles?.byId(id); return Boolean(f && f.status === "active" && ctx.planFiles!.read(f)); };
-  function check(a: any | undefined, customerId: number, text: string, o: { explicit: boolean; assistantInScope?: boolean; stage: "enqueue" | "send"; selfId?: number; attachmentId?: number | null }):
+  function check(a: any | undefined, customerId: number, text: string, o: { explicit: boolean; assistantInScope?: boolean; stage: "enqueue" | "send"; selfId?: number; attachmentId?: number | null;
+    auto?: { kind: "reply" | "plan" | "hold" | "night"; replyTo?: number | null; rawText?: string } }):
     { ok: true; phone: string; newChat: boolean } | { ok: false; reason: BaleBlockReason } {
     if (!ctx.masterOn()) return { ok: false, reason: "bale_disabled" };
     if (!a || a.status !== "connected" || !a.session_ct) return { ok: false, reason: "not_connected" };
-    if (a.mode === "off") return { ok: false, reason: "mode_off" };
+    // Auto replies ignore the account mode (Mohammad 2026-10-27): their own switches are checked in ar.rules() below.
+    if (o.auto && !ar.pairOn(ar.pairOfAccount(a))) return { ok: false, reason: "autoreply_off" };
+    if (!o.auto && a.mode === "off") return { ok: false, reason: "mode_off" };
     if (o.attachmentId != null && !attachmentsOn()) return { ok: false, reason: "attachments_disabled" };
     if (liveState(a) === "down") return { ok: false, reason: "session_not_live" };
     const own = ownCustomer(a, customerId);
@@ -244,7 +272,8 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     const linked = linkedPeer(a.user_id, customerId);
     const phone = normalizeMobile(own.c.phone) ?? (linked ? "" : null); if (phone == null) return { ok: false, reason: "no_phone" };
     const prior = hasPriorChat(a.id, customerId);
-    if (!prior && !o.explicit) return { ok: false, reason: "no_prior_chat" };
+    if (!prior && (!o.explicit || o.auto)) return { ok: false, reason: o.auto ? "not_a_reply" : "no_prior_chat" };
+    if (o.auto) { const r = ar.rules(a, ar.pairOfAccount(a), { customerId }, { kind: o.auto.kind, stage: o.stage, replyTo: o.auto.replyTo, rawText: o.auto.rawText ?? text }); if (r) return { ok: false, reason: r }; }
     if (o.stage === "enqueue" && row(`SELECT 1 FROM bale_outbox WHERE account_id=? AND customer_id=? AND status IN ${ACTIVE} AND id<>?`, a.id, customerId, o.selfId ?? 0))
       return { ok: false, reason: "already_pending" };
     const extra = o.stage === "enqueue" ? queuedCount(a.id, o.selfId) : 0;
@@ -257,28 +286,44 @@ export function createBaleOutbox(ctx: OutboxCtx) {
   function enqueue(p: EnqueueIn): EnqueueOut {
     const a = acc(p.accountId); const t = iso();
     const att = p.attachmentId ?? null;
-    const text = att != null ? withPlanFileCaption(String(p.text ?? "")) : withAmountDisclaimer(String(p.text ?? ""));
-    const r = check(a, p.customerId, text, { explicit: p.explicit, assistantInScope: p.assistant ? p.assistant.inScope : undefined, stage: "enqueue", attachmentId: att });
+    const isAuto = p.source === "auto_reply";
+    const arKind = isAuto ? p.arKind ?? (att != null ? "plan" : "reply") : null;
+    // Auto replies: expert's voice (signature lines stripped); escalation runs on the RAW text, before captions / disclaimers.
+    const base = isAuto && (arKind === "reply" || arKind === "plan") ? arVoice(String(p.text ?? "")).text : String(p.text ?? "");
+    const text = att != null ? withPlanFileCaption(base) : isAuto && arKind !== "reply" ? base.trim() : withAmountDisclaimer(base);
+    const replyTo = isAuto && a ? ar.facts(a, { customerId: p.customerId }).lastIn?.id ?? null : null;
+    const r = check(a, p.customerId, text, { explicit: p.explicit, assistantInScope: p.assistant ? p.assistant.inScope : undefined, stage: "enqueue", attachmentId: att,
+      auto: isAuto ? { kind: arKind!, replyTo, rawText: String(p.text ?? "") } : undefined });
     const actor = p.createdBy ? ctx.userRow(p.createdBy) : undefined;
     if (!r.ok) {
       let outboxId: number | null = null;
       // Assistant / reminder attempts are kept (blocked) so the expert sees what was stopped; the expert's own typing is not stored.
       if (a && p.source !== "expert_command" && r.reason !== "already_pending") {
-        outboxId = Number(run(`INSERT INTO bale_outbox(account_id,customer_id,text,source,explicit_expert_command,status,block_reason,created_by,created_at,updated_at,reason,reminder_id,assistant_id,attachment_id)
-          VALUES(?,?,?,?,?,'blocked',?,?,?,?,?,?,?,?)`, a.id, p.customerId, text.slice(0, BALE_MAX_TEXT * 2), p.source, p.explicit ? 1 : 0, r.reason, p.createdBy, t, t,
-          p.reason ?? null, p.reminderId ?? null, p.assistant?.id ?? null, att).lastInsertRowid);
+        outboxId = Number(run(`INSERT INTO bale_outbox(account_id,customer_id,text,source,explicit_expert_command,status,block_reason,created_by,created_at,updated_at,reason,reminder_id,assistant_id,attachment_id,ar_kind)
+          VALUES(?,?,?,?,?,'blocked',?,?,?,?,?,?,?,?,?)`, a.id, p.customerId, text.slice(0, BALE_MAX_TEXT * 2), p.source, p.explicit ? 1 : 0, r.reason, p.createdBy, t, t,
+          p.reason ?? null, p.reminderId ?? null, p.assistant?.id ?? null, att, isAuto ? arKind ?? null : null).lastInsertRowid);
       }
       ctx.audit({ u: actor, accountId: a?.id ?? null, customerId: p.customerId, action: `outbox.${p.source}`, outcome: `blocked:${r.reason}`, detail: { outboxId } });
+      if (isAuto && a) {
+        const pr = ar.pairOfAccount(a); const tg: ArTarget = { customerId: p.customerId };
+        if (r.reason === "escalated") { const k = ar.escalation(String(p.text ?? "")); if (k) ar.escalate(a, pr, tg, k, "draft"); ar.serverReply(a, pr, tg, ar.inDay() ? "hold" : "night"); }
+        else if (r.reason === "reply_window" && ar.ownerOf(a, tg).owner !== "expert") {
+          ar.setOwner(a, tg, "expert", "stale_backlog", null);
+          bell(a.user_id, p.customerId, "bale-escalated", "پیام بی‌جواب قدیمی به شما سپرده شد", "این پیام بیش از ۲۴ ساعت بی‌جواب مانده؛ مسعود به آن جواب نمی‌دهد.");
+        }
+      }
       return { status: "blocked", reason: r.reason, message: BLOCK_FA[r.reason], outboxId };
     }
     // A plan file is NEVER auto-sent: always a draft the expert approves, also in «خودکار» mode.
-    const draft = att != null || (p.source !== "expert_command" && a.mode === "approve_first");
+    // Auto replies (pair ON) never wait for approval and are not held by the quiet window (their own hours rule applies).
+    const draft = !isAuto && (att != null || (p.source !== "expert_command" && a.mode === "approve_first"));
     const sendNow = p.source === "expert_command" && Boolean(p.sendNow);
-    const held = !draft && !sendNow && quietNow() ? iso(quietEnd()) : null;
+    const held = !draft && !sendNow && !isAuto && quietNow() ? iso(quietEnd()) : null;
     const id = Number(run(`INSERT INTO bale_outbox(account_id,customer_id,text,source,explicit_expert_command,status,created_by,scheduled_at,created_at,updated_at,
         is_new_chat,send_now,reason,reminder_id,assistant_id,approved_by,approved_at,attachment_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       a.id, p.customerId, text, p.source, p.explicit ? 1 : 0, draft ? "pending_approval" : "queued", p.createdBy, held, t, t, r.newChat ? 1 : 0, sendNow ? 1 : 0,
       p.reason ?? null, p.reminderId ?? null, p.assistant?.id ?? null, !draft && p.source === "expert_command" ? p.createdBy : null, !draft && p.source === "expert_command" ? t : null, att).lastInsertRowid);
+    if (isAuto) run("UPDATE bale_outbox SET reply_to_msg_id=?, ar_kind=? WHERE id=?", replyTo, arKind, id);
     if (draft) bell(a.user_id, p.customerId, "bale-draft", att != null ? "فایل طرح برای ارسال در بله منتظر تأیید شما" : "پیش‌نویس پیام بله منتظر تأیید شما",
       att != null ? "دستیار پیشنهاد داده فایل طرح برای مشتری فرستاده شود؛ فایل را ببینید و تأیید یا رد کنید." : p.source === "reminder" ? "یادآور رسید؛ پیام را ببینید و بفرستید." : "دستیار یک پیام پیشنهاد داده؛ ببینید و بفرستید.");
     ctx.audit({ u: actor, accountId: a.id, customerId: p.customerId, action: `outbox.${p.source}`, outcome: draft ? "pending_approval" : "queued", detail: { outboxId: id, held: Boolean(held), newChat: r.newChat, sendNow, attachmentId: att } });
@@ -331,7 +376,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
   }
 
   /* ---------------- auto-stop ---------------- */
-  function autoStop(a: any, code: string, customerId: number, from?: string) {
+  function autoStop(a: any, code: string, customerId: number | null, from?: string) {
     const t = iso();
     // The session is gone (banned / dead): close the live client too, so nothing keeps listening on it.
     if (code === "account_banned" || code === "session_invalid") void ctx.sidecar.detach({ accountRef: ref(a) }).catch(() => undefined);
@@ -339,12 +384,14 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     run(`UPDATE bale_accounts SET mode='off', status=?, last_error=?, stopped_reason=?, updated_at=?${code === "session_invalid" || code === "account_banned" ? ", session_ct=NULL, session_key_id=NULL" : ""} WHERE id=?`,
       status, code, code, t, a.id);
     const n = run(`UPDATE bale_outbox SET status='blocked', block_reason='auto_stopped', updated_at=? WHERE account_id=? AND status IN ('pending_approval','queued')`, t, a.id).changes;
+    ar.onAutoStop(a, code); // every auto-reply pair of this expert goes OFF (only an admin turns it back on)
     ctx.audit({ accountId: a.id, customerId, action: "account.auto_stop", outcome: code, detail: { blockedRows: Number(n), ...(from ? { from, unverified: true } : {}) } });
     const why = code === "rate_limited" ? "بله محدودیت ارسال گذاشت" : code === "account_banned" ? "بله حساب را مسدود کرد" : "نشست بله از کار افتاد";
     const owner = ctx.userRow(a.user_id);
-    bell(a.user_id, customerId, "bale-stopped", "ارسال بله متوقف شد", `${why}؛ حالت ارسال خاموش شد. از صفحه‌ی «اتصال بله» وضعیت را ببینید.`);
+    const ring = (uid: number, title: string, body: string) => customerId && row("SELECT 1 FROM customers WHERE id=?", customerId) ? bell(uid, customerId, "bale-stopped", title, body) : bellNoCustomer(uid, title, body);
+    ring(a.user_id, "ارسال بله متوقف شد", `${why}؛ حالت ارسال و پاسخ خودکار خاموش شد. از صفحه‌ی «اتصال بله» وضعیت را ببینید.`);
     for (const ad of rows<any>("SELECT id FROM users WHERE role='admin' AND COALESCE(active,1)=1 AND id<>29"))
-      bell(ad.id, customerId, "bale-stopped", `ارسال بله‌ی ${ctx.nameOf(owner) ?? "کارشناس"} متوقف شد`, `${why}؛ حالت ارسال خودکار خاموش شد.`);
+      ring(ad.id, `ارسال بله‌ی ${ctx.nameOf(owner) ?? "کارشناس"} متوقف شد`, `${why}؛ حالت ارسال و پاسخ خودکار خاموش شد.`);
   }
 
   /* ---------------- decision (b): pause ONE conversation (UNVERIFIED peer_blocked; only when peer_block_mode = conversation_pause) ---------------- */
@@ -444,7 +491,10 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     const block = (reason: BaleBlockReason) => { run("UPDATE bale_outbox SET status='blocked', block_reason=?, updated_at=? WHERE id=?", reason, iso(), o.id);
       ctx.audit({ accountId: a.id, customerId: o.customer_id, action: "outbox.send", outcome: `blocked:${reason}`, detail: { outboxId: o.id } }); return `blocked:${reason}`; };
     const hold = (until: Date, why: string) => { run("UPDATE bale_outbox SET scheduled_at=?, updated_at=? WHERE id=?", iso(until), iso(), o.id); return `held:${why}`; };
-    const r = check(a, o.customer_id, o.text, { explicit: Boolean(o.explicit_expert_command), stage: "send", attachmentId: o.attachment_id ?? null });
+    const isAuto = o.source === "auto_reply";
+    const r = check(a, o.customer_id, o.text, { explicit: Boolean(o.explicit_expert_command), stage: "send", attachmentId: o.attachment_id ?? null,
+      auto: isAuto ? { kind: o.ar_kind ?? (o.attachment_id != null ? "plan" : "reply"), replyTo: o.reply_to_msg_id ?? null } : undefined });
+    if (!r.ok && isAuto) return block(r.reason); // no queue for auto replies (design: «بی‌جواب · سقف پر»)
     if (!r.ok) {
       if (r.reason === "cap_day") { const first = row<any>("SELECT min(COALESCE(sent_at,updated_at)) t FROM bale_outbox WHERE account_id=? AND status IN ('sent','sending') AND COALESCE(sent_at,updated_at)>?", a.id, since(86_400_000))?.t; return hold(new Date(Date.parse(first ?? nowIso) + 86_400_000 + 1000), "cap_day"); }
       if (r.reason === "cap_new_chats") return hold(new Date(now().getTime() + 3_600_000), "cap_new_chats");
@@ -455,11 +505,12 @@ export function createBaleOutbox(ctx: OutboxCtx) {
       }
       return block(r.reason);
     }
+    if (isAuto && sentSince(a.id, 3_600_000) >= num("per_hour", 20)) return block("cap_hour");
     if (sentSince(a.id, 3_600_000) >= num("per_hour", 20)) {
       const first = row<any>("SELECT min(COALESCE(sent_at,updated_at)) t FROM bale_outbox WHERE account_id=? AND status IN ('sent','sending') AND COALESCE(sent_at,updated_at)>?", a.id, since(3_600_000))?.t;
       return hold(new Date(Date.parse(first ?? nowIso) + 3_600_000 + 1000), "cap_hour");
     }
-    if (!o.send_now && quietNow()) return hold(quietEnd(), "quiet");
+    if (!o.send_now && !isAuto && quietNow()) return hold(quietEnd(), "quiet");
     if (run("UPDATE bale_outbox SET status='sending', attempts=attempts+1, updated_at=? WHERE id=? AND status='queued'", iso(), o.id).changes !== 1) return "raced";
     const contact = row<any>("SELECT peer_id FROM bale_contacts WHERE account_id=? AND customer_id=?", a.id, o.customer_id);
     const payload = { accountRef: ref(a), phone: r.phone, peerId: linkedPeer(a.user_id, o.customer_id) ?? contact?.peer_id ?? null, text: o.text, typingMs: Math.min(8000, 1200 + o.text.length * 50) };
@@ -491,6 +542,9 @@ export function createBaleOutbox(ctx: OutboxCtx) {
         a.id, o.customer_id, out.peerId, t, t);
       run("UPDATE bale_accounts SET next_send_at=?, last_seen_at=? WHERE id=?", new Date(now().getTime() + gapMs()).toISOString(), t, a.id);
       if (o.reminder_id) run("UPDATE reminders SET done=1 WHERE id=? AND done=0", o.reminder_id);
+      // The expert answered from the CRM: Masoud goes silent in this conversation (only «برگردون به مسعود» brings him back).
+      if (!isAuto && o.source === "expert_command" && ar.activeFor(a) && ar.ownerOf(a, { customerId: o.customer_id }).owner !== "expert")
+        ar.setOwner(a, { customerId: o.customer_id }, "expert", "expert_crm_reply", o.created_by ?? a.user_id);
       ctx.audit({ accountId: a.id, customerId: o.customer_id, action: "outbox.send", outcome: "sent", detail: { outboxId: o.id, source: o.source, attachmentId: o.attachment_id ?? null } });
       return "sent";
     } catch (e) {
@@ -526,14 +580,22 @@ export function createBaleOutbox(ctx: OutboxCtx) {
       const reminders = dueReminders();
       await syncSessions();
       const results: Record<number, string> = {};
-      for (const a of rows<any>(`SELECT * FROM bale_accounts WHERE kind<>'system_test' AND id IN (SELECT DISTINCT account_id FROM bale_outbox WHERE status='queued')`)) {
-        if (!ctx.masterOn() || a.status !== "connected" || a.mode === "off") {
+      ar.sweep();
+      for (const a of rows<any>(`SELECT * FROM bale_accounts WHERE kind<>'system_test' AND (id IN (SELECT DISTINCT account_id FROM bale_outbox WHERE status='queued')
+          OR id IN (SELECT DISTINCT account_id FROM bale_ar_messages WHERE status='queued'))`)) {
+        if (!ctx.masterOn() || a.status !== "connected") {
           // Switched off / disconnected while rows were queued: nothing is sent; rows become blocked with the reason.
-          const reason: BaleBlockReason = !ctx.masterOn() ? "bale_disabled" : a.status !== "connected" ? "not_connected" : "mode_off";
+          const reason: BaleBlockReason = !ctx.masterOn() ? "bale_disabled" : "not_connected";
           run("UPDATE bale_outbox SET status='blocked', block_reason=?, updated_at=? WHERE account_id=? AND status='queued'", reason, iso(), a.id);
+          run("UPDATE bale_ar_messages SET status='blocked', block_reason=?, updated_at=? WHERE account_id=? AND status='queued'", reason, iso(), a.id);
           results[a.id] = `blocked:${reason}`; continue;
         }
-        results[a.id] = await sendOne(a);
+        if (a.mode === "off") {
+          // Mode off blocks everything EXCEPT auto replies, which follow their own pair switch (re-checked in sendOne).
+          run("UPDATE bale_outbox SET status='blocked', block_reason='mode_off', updated_at=? WHERE account_id=? AND status='queued' AND source<>'auto_reply'", iso(), a.id);
+        }
+        const r1 = await sendOne(a);
+        results[a.id] = r1 === "idle" && !(a.next_send_at && a.next_send_at > iso()) ? await ar.sendOneUnknown(a) : r1;
       }
       return { reminders, results };
     } finally { busy = false; }
@@ -571,11 +633,29 @@ export function createBaleOutbox(ctx: OutboxCtx) {
       const cid = matchCustomer(a, u.salesperson_id, ev);
       const own = cid ? ownCustomer(a, cid) : null;
       const mid = ev.messageId == null ? "" : String(ev.messageId).slice(0, 64);
-      if (!cid && mid && ev.fromSelf !== true && ev.peerId != null && String(ev.peerId).trim()) unknownSeen(a, String(ev.peerId).slice(0, 40));
-      if (!cid || !own || !mid) { ignored++; continue; }
       const text = typeof ev.text === "string" ? ev.text.slice(0, 4000) : null;
       const dir = ev.fromSelf === true ? "out" : "in";
       const at = Number.isFinite(Number(ev.date)) && Number(ev.date) > 1e12 ? new Date(Number(ev.date)).toISOString() : iso();
+      if (!cid && mid && ev.peerId != null && String(ev.peerId).trim()) {
+        // Pair ON with allow_unknown (masoud only): keep text + opaque peer id (never a phone) so it can be answered generically.
+        const u2 = ar.inboundUnknown(a, { messageId: mid, peerId: String(ev.peerId).slice(0, 40), text, hasFile: ev.hasFile === true, fromSelf: ev.fromSelf === true, at });
+        if (u2.stored) {
+          stored++;
+          if (dir === "in") {
+            const pr = ar.pairOfAccount(a);
+            unknownSeen(a, String(ev.peerId).slice(0, 40)); // same «ناشناس» list + bell as before (link to an existing customer from there)
+            if (pr && hasTable("assistant_events") && !u2.escalated && ar.ownerOf(a, { chatId: u2.chatId! }).owner !== "expert") {
+              const evId = Number(run("INSERT INTO assistant_events(assistant_id,type,thread_id,user_id,customer_id,message_id,data_json,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                pr.assistant_id, "bale_inbound", null, u.id, null, null, JSON.stringify({ arChatId: u2.chatId, arMessageId: u2.messageId, unknown: true, autoReply: true, night: Boolean(u2.night),
+                  preview: ar.maskPreview(text), hasFile: ev.hasFile === true }), iso()).lastInsertRowid);
+              void ar.wake(evId, pr.slug);
+            }
+          }
+          continue;
+        }
+        if (ev.fromSelf !== true) unknownSeen(a, String(ev.peerId).slice(0, 40));
+      }
+      if (!cid || !own || !mid) { ignored++; continue; }
       const ins = run(`INSERT INTO bale_messages(account_id,customer_id,direction,text,file_ref,bale_msg_id,status,created_at) VALUES(?,?,?,?,?,?,?,?)
         ON CONFLICT(account_id,bale_msg_id) DO NOTHING`, a.id, cid, dir, text, ev.hasFile === true ? "bale:pending" : null, mid, dir === "in" ? "received" : "external", at);
       if (ins.changes !== 1) continue; // duplicate (sidecar retry) or our own sent message echoed back
@@ -584,12 +664,21 @@ export function createBaleOutbox(ctx: OutboxCtx) {
       run(`INSERT INTO bale_contacts(account_id,customer_id,peer_id,first_contact_at,has_prior_chat,created_at) VALUES(?,?,?,?,1,?)
         ON CONFLICT(account_id,customer_id) DO UPDATE SET has_prior_chat=1, peer_id=COALESCE(excluded.peer_id,bale_contacts.peer_id),
         first_contact_at=COALESCE(bale_contacts.first_contact_at,excluded.first_contact_at)`, a.id, cid, peer, at, iso());
-      if (dir !== "in") continue;
+      const pr = ar.activeFor(a);
+      if (dir !== "in") {
+        // PM 2026-10-27: the expert wrote from the Bale app himself → the conversation is his; Masoud silent, no automatic return.
+        if (pr && ar.ownerOf(a, { customerId: cid }).owner !== "expert") ar.setOwner(a, { customerId: cid }, "expert", "expert_app_reply", a.user_id);
+        continue;
+      }
       const preview = text ? text.replace(/\s+/g, " ").slice(0, 120) : ev.hasFile === true ? "یک فایل فرستاد." : "";
       bell(a.user_id, cid, "bale-inbound", "مشتری در بله جواب داد", preview);
+      const arr = pr ? ar.afterInbound(a, pr, { customerId: cid }, text) : null;
       if (sa && hasTable("assistant_events")) {
-        run("INSERT INTO assistant_events(assistant_id,type,thread_id,user_id,customer_id,message_id,data_json,created_at) VALUES(?,?,?,?,?,?,?,?)",
-          sa.id, "bale_inbound", null, u.id, cid, null, JSON.stringify({ baleMessageId: Number(ins.lastInsertRowid), preview: maskText(text ?? "").slice(0, 500), hasFile: ev.hasFile === true }), iso());
+        const auto = Boolean(pr && pr.assistant_id === sa.id && !arr?.escalated && ar.ownerOf(a, { customerId: cid }).owner !== "expert");
+        const evId = Number(run("INSERT INTO assistant_events(assistant_id,type,thread_id,user_id,customer_id,message_id,data_json,created_at) VALUES(?,?,?,?,?,?,?,?)",
+          sa.id, "bale_inbound", null, u.id, cid, null, JSON.stringify({ baleMessageId: Number(ins.lastInsertRowid), preview: maskText(text ?? "").slice(0, 500), hasFile: ev.hasFile === true,
+            ...(pr ? { autoReply: auto, night: Boolean(arr?.night), escalated: arr?.escalated ?? null } : {}) }), iso()).lastInsertRowid);
+        if (auto) void ar.wake(evId, pr.slug);
       }
       ctx.audit({ accountId: a.id, customerId: cid, action: "inbound.message", outcome: "stored", detail: { hasFile: ev.hasFile === true } });
     }
@@ -646,8 +735,9 @@ export function createBaleOutbox(ctx: OutboxCtx) {
 
   /* ---------------- views ---------------- */
   const SOURCE_FA: Record<string, string> = { expert_command: "دستور شما", reminder: "یادآور", assistant: "دستیار فروش", auto_reply: "پاسخ خودکار" };
+  const autoLabel = (o: any) => { const s = o.assistant_id && hasTable("assistants") ? row<any>("SELECT display_name FROM assistants WHERE id=?", o.assistant_id) : undefined; return `${s?.display_name ?? "مسعود"} (خودکار)`; };
   function itemView(o: any, viewerIsOwner: boolean) {
-    return { id: o.id, customerId: o.customer_id, status: o.status, source: o.source, sourceLabel: SOURCE_FA[o.source] ?? o.source, text: o.text,
+    return { id: o.id, customerId: o.customer_id, status: o.status, source: o.source, sourceLabel: o.source === "auto_reply" ? autoLabel(o) : SOURCE_FA[o.source] ?? o.source, text: o.text, arKind: o.ar_kind ?? null,
       reason: o.reason ?? null, blockReason: o.block_reason ?? null, blockMessage: o.block_reason ? BLOCK_FA[o.block_reason as BaleBlockReason] ?? null : null,
       error: o.error ?? null, errorMessage: o.error ? BLOCK_FA[o.error as keyof typeof BLOCK_FA] ?? BLOCK_FA.send_failed : null,
       scheduledAt: o.scheduled_at ?? null, sendNow: Boolean(o.send_now), sentAt: o.sent_at ?? null, createdAt: o.created_at, newChat: Boolean(o.is_new_chat),
@@ -691,7 +781,11 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     return n === 1;
   }
 
-  return { attachmentsOn, liveState, enqueue, approve, editDraft, cancel, sendNow, tick, syncSessions, inbound, itemView, tabItems, sendState, linkReminder, cancelReminder, autoStop, check, bell,
+  ar.bindOutbox((a, _p, customerId, text, kind) => { const r = enqueue({ accountId: a.id, customerId, text, source: "auto_reply", arKind: kind, explicit: false, createdBy: null, assistant: _p ? { id: _p.assistant_id, inScope: true } : null, reason: kind });
+    return r.status === "blocked" ? r.reason : r.status; });
+  ar.bindAccountCaps((a, withQueued) => { const extra = withQueued ? queuedCount(a.id) : 0;
+    return sentSince(a.id, 86_400_000) + extra >= num("per_day", 80) || sentSince(a.id, 3_600_000) + extra >= num("per_hour", 20); }, withPlanFileCaption);
+  return { autoreply: ar, attachmentsOn, liveState, enqueue, approve, editDraft, cancel, sendNow, tick, syncSessions, inbound, itemView, tabItems, sendState, linkReminder, cancelReminder, autoStop, check, bell,
     pausedOf, pauseConversation, resumeConversation, unknownList, linkUnknown, dismissUnknown, ownCustomerSearch };
 }
 

@@ -69,7 +69,8 @@
     "fixture:ledger-schema": "node scripts/run-bundled-fixture.mjs scripts/ledger-schema-fixture.mjs",
     "fixture:nonp1-kazemi": "node scripts/run-bundled-fixture.mjs scripts/nonp1-kazemi-fixture.mjs",
     "fixture:kz-return": "node scripts/run-bundled-fixture.mjs scripts/kz-return-fixture.mjs",
-    "test:bale": "node scripts/run-bundled-fixture.mjs scripts/bale-fixture.mjs && node scripts/run-bundled-fixture.mjs scripts/bale-test-account-fixture.mjs && node scripts/run-bundled-fixture.mjs scripts/bale-contact-scan-fixture.mjs"
+    "test:bale": "node scripts/run-bundled-fixture.mjs scripts/bale-fixture.mjs && node scripts/run-bundled-fixture.mjs scripts/bale-test-account-fixture.mjs && node scripts/run-bundled-fixture.mjs scripts/bale-contact-scan-fixture.mjs",
+    "test:bale-autoreply": "node scripts/run-bundled-fixture.mjs scripts/bale-autoreply-fixture.mjs"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.3.0",

@@ -14,10 +14,10 @@ try {
   const out = path.join(temp, "fixture.mjs");
   await build({
     entryPoints: [entry], outfile: out, bundle: true, format: "esm", platform: "node",
-    logLevel: "silent",
+    logLevel: "silent", ...(process.env.FIXTURE_SOURCEMAP ? { sourcemap: "inline" } : {}),
     banner: { js: `import {createRequire} from 'node:module';const require=createRequire(${JSON.stringify(pathToFileURL(path.join(root, "package.json")).href)});` },
   });
-  const result = spawnSync(process.execPath, [out], { stdio: "inherit", timeout: 60000 });
+  const result = spawnSync(process.execPath, [...(process.env.FIXTURE_SOURCEMAP ? ["--enable-source-maps"] : []), out], { stdio: "inherit", timeout: 60000 });
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;
 } finally {

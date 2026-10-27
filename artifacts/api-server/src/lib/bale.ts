@@ -26,7 +26,8 @@ import { createBaleTest, ensureBaleTestSchema } from "./bale-test";
 import { TRAINEE_SALESPERSON_IDS, EXCLUDED_USER_IDS, BANNED_WORDS } from "./assistants";
 import { baleHasKey, baleSessionAad, baleSidecarToken, openBaleSession, sealBaleSession, BaleKeyMissing, type KeyEnv } from "./bale-crypto";
 import { BaleSidecarError, type BaleSidecar } from "./bale-sidecar-client";
-import { createBaleOutbox, ensureBaleOutboxSchema, BLOCK_FA } from "./bale-outbox";
+import { createBaleOutbox, ensureBaleOutboxSchema, BLOCK_FA, baleTextProblem } from "./bale-outbox";
+import { AR_DEFAULT_SETTINGS, arEscalation, arParseDays, arParseHm, arVoice, AR_TEXT_MAX } from "./bale-autoreply";
 import multer from "multer";
 import { ensureCustomerBaleLinks, matchContacts, maskPhone, normMobile, peerTag, type BaleScanContact, type MatchRow } from "./bale-contact-links";
 import { createBalePlanFiles, ensureBalePlanFilesSchema, BALE_PLAN_FILE_MAX_BYTES, BALE_PLAN_FILE_TYPES } from "./bale-plan-files";
@@ -35,7 +36,9 @@ type Db = DatabaseSync;
 export type BaleActor = { id: number } | null;
 export type BaleDeps = { db: Db; env: () => KeyEnv; sidecar: BaleSidecar; now?: () => Date; actor: (res: Response) => BaleActor; random?: () => number;
   /** Where plan files live (<data dir>/bale-plan-files). Absent → no plan files at all. */
-  planFilesDir?: string };
+  planFilesDir?: string;
+  /** Tests only: auto-reply wake-webhook transport / sleep / log (production uses fetch, setTimeout, console). */
+  arWake?: { fetchImpl?: (url: string, init: any) => Promise<{ ok: boolean; status: number }>; sleep?: (ms: number) => Promise<void>; log?: (m: string, d: Record<string, unknown>) => void } };
 
 export const BALE_MODES = ["off", "approve_first", "auto"] as const;
 export type BaleMode = typeof BALE_MODES[number];
@@ -166,7 +169,7 @@ export function createBale(deps: BaleDeps) {
   const run = (sql: string, ...p: any[]) => db.prepare(sql).run(...p);
   const ip = (req: Request) => String((req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() || req.socket.remoteAddress || "").slice(0, 64);
   const fail = (res: Response, status: number, error: string) => { if (!res.headersSent) res.status(status).json({ error, message: ERR_FA[error] ?? ERR_FA.unknown }); };
-  const setting = (k: string) => row<{ value: string }>("SELECT value FROM bale_settings WHERE key=?", k)?.value ?? BALE_DEFAULT_SETTINGS[k];
+  const setting = (k: string) => row<{ value: string }>("SELECT value FROM bale_settings WHERE key=?", k)?.value ?? BALE_DEFAULT_SETTINGS[k] ?? AR_DEFAULT_SETTINGS[k];
   const masterOn = () => setting("master_enabled") === "1";
   const userRow = (id: number) => row<any>("SELECT id,role,salesperson_id,active,full_name,username FROM users WHERE id=?", id);
   const nameOf = (u: any) => u ? (u.full_name || u.username || `کاربر ${u.id}`) : null;
@@ -183,7 +186,8 @@ export function createBale(deps: BaleDeps) {
   const planFiles = deps.planFilesDir ? createBalePlanFiles({ db, dir: deps.planFilesDir, now, nameOf: id => (id == null ? null : nameOf(userRow(id))) }) : undefined;
   let test: ReturnType<typeof createBaleTest>;
   const outbox = createBaleOutbox({ db, now, env: deps.env, sidecar: deps.sidecar, random: deps.random, setting, masterOn, userRow, nameOf, eligible: baleEligible,
-    audit: o => audit(o), testOn, testInbound: (a, evs) => test.inbound(a, evs), planFiles, attachmentsOn });
+    audit: o => audit(o), testOn, testInbound: (a, evs) => test.inbound(a, evs), planFiles, attachmentsOn, ...(deps.arWake ?? {}) });
+  const ar = outbox.autoreply;
   test = createBaleTest({ db, now, env: deps.env, sidecar: deps.sidecar, random: deps.random, setting, nameOf, userRow, audit: o => audit(o),
     normalize: normalizeIranMobile, mask: maskMobile, asciiDigits, syncSessions: () => outbox.syncSessions(true) });
 
@@ -355,8 +359,9 @@ export function createBale(deps: BaleDeps) {
       audit({ req, u, customerId: Number.isSafeInteger(cid) ? cid : null, action: "chat.view", outcome: "not_in_scope" });
       return fail(res, 404, "not_found");
     }
-    const msgs = rows<any>(`SELECT m.id,m.direction,m.text,m.file_ref,m.status,m.created_at,m.account_id,u.full_name,u.username FROM bale_messages m
-      JOIN bale_accounts a ON a.id=m.account_id LEFT JOIN users u ON u.id=a.user_id WHERE m.customer_id=? ORDER BY m.id DESC LIMIT 200`, cid).reverse();
+    const msgs = rows<any>(`SELECT m.id,m.direction,m.text,m.file_ref,m.status,m.created_at,m.account_id,u.full_name,u.username,o.source AS o_source,o.ar_kind,o.assistant_id AS o_asst FROM bale_messages m
+      JOIN bale_accounts a ON a.id=m.account_id LEFT JOIN users u ON u.id=a.user_id LEFT JOIN bale_outbox o ON o.id=m.outbox_id WHERE m.customer_id=? ORDER BY m.id DESC LIMIT 200`, cid).reverse();
+    const autoName = (id: number | null) => { const s = id ? row<any>("SELECT display_name FROM assistants WHERE id=?", id) : undefined; return `${s?.display_name ?? "مسعود"} (خودکار)`; };
     const owner = c.salesperson_id ? row<any>("SELECT u.id,u.full_name,u.username,a.status,a.mode FROM users u LEFT JOIN bale_accounts a ON a.user_id=u.id WHERE u.salesperson_id=? AND u.role='salesperson' ORDER BY u.id LIMIT 1", c.salesperson_id) : undefined;
     const st = owner ? row<any>("SELECT s.mode, s.paused_reason, s.paused_at FROM bale_conversation_state s JOIN bale_accounts a ON a.id=s.account_id WHERE s.customer_id=? AND a.user_id=?", cid, owner.id) : undefined;
     const ownerAcc = owner ? accountOf(owner.id) : undefined;
@@ -371,8 +376,10 @@ export function createBale(deps: BaleDeps) {
       expert: owner ? { name: nameOf(owner), connected: owner.status === "connected", session: ownerAcc && ownerAcc.status === "connected" ? outbox.liveState(ownerAcc) : null, mode: owner.mode ?? "off" } : null,
       conversationMode: st?.mode ?? null,
       paused: st?.paused_reason ? { reason: st.paused_reason, at: st.paused_at, message: BLOCK_FA.conversation_paused, unverified: true } : null,
+      autoReply: ownerAcc && ar.pairOfAccount(ownerAcc) ? (() => { const pr = ar.pairOfAccount(ownerAcc); const o = ar.ownerOf(ownerAcc, { customerId: cid });
+        return { label: ar.label(pr), on: Boolean(ar.activeFor(ownerAcc)), owner: o.owner, reason: o.reason, at: o.at, by: o.by ? nameOf(userRow(o.by)) : null }; })() : null,
       messages: msgs.map(m => ({ id: m.id, direction: m.direction, text: m.text, hasFile: Boolean(m.file_ref), status: m.status, createdAt: m.created_at,
-        expertName: m.full_name || m.username || null })),
+        expertName: m.o_source === "auto_reply" ? autoName(m.o_asst) : m.full_name || m.username || null, auto: m.o_source === "auto_reply", arKind: m.ar_kind ?? null })),
     });
   });
 
@@ -393,8 +400,10 @@ export function createBale(deps: BaleDeps) {
     }
     return { a, o };
   };
-  const blockedStatus = (reason: string) => ["bale_disabled", "not_connected", "mode_off", "session_not_live", "attachments_disabled"].includes(reason) ? 423 : reason === "out_of_scope" ? 404
-    : ["already_pending"].includes(reason) ? 409 : ["cap_hour", "cap_day", "cap_new_chats"].includes(reason) ? 429 : 422;
+  const blockedStatus = (reason: string) => ["bale_disabled", "not_connected", "mode_off", "session_not_live", "attachments_disabled", "autoreply_off", "plan_file_off"].includes(reason) ? 423
+    : reason === "out_of_scope" || reason === "unknown_off" ? 404
+    : ["already_pending", "already_replied", "human_mode", "human_replied", "escalated", "reply_window", "after_hours"].includes(reason) ? 409
+    : ["cap_hour", "cap_day", "cap_new_chats", "cap_pair_hour", "cap_pair_day"].includes(reason) ? 429 : 422;
   const sendOut = (res: Response, r: ReturnType<typeof outbox.enqueue>) => r.status === "blocked"
     ? res.status(blockedStatus(r.reason)).json({ error: r.reason, message: r.message, outboxId: r.outboxId })
     : res.json({ status: r.status, outboxId: r.outboxId, heldUntil: r.heldUntil, message: r.message, text: r.text });
@@ -603,6 +612,117 @@ export function createBale(deps: BaleDeps) {
     if (!u || u.role !== "admin" || EXCLUDED_USER_IDS.includes(u.id) || u.active === 0) { if (u) audit({ req, u, action: `${req.method} ${req.path}`, outcome: "forbidden" }); return fail(res, 403, "forbidden"); }
     res.locals.baleAdmin = u; next();
   };
+  /* ================= «پاسخ خودکار دستیارها در بله» (lib/bale-autoreply.ts) — everything OFF by default ================= */
+  const arTextCheck = (t: unknown): string | null => {
+    const s = String(t ?? "").trim(); if (!s) return "empty"; if (s.length > AR_TEXT_MAX) return "too_long";
+    const tp = baleTextProblem(s, (() => { try { const l = JSON.parse(setting("banned_words")); return Array.isArray(l) ? l.map(String) : []; } catch { return []; } })()); if (tp) return tp;
+    if (arVoice(s).problem) return "signature";
+    // Admin-written fixed texts: a vague day word (the PM's «فردا صبح پیگیری می‌کنم») is allowed; promises, amounts, anger words are not.
+    const k = arEscalation(s); if (k && k !== "date") return "escalated"; return null;
+  };
+  const arTarget = (req: Request): { customerId: number } | { chatId: number } | null => {
+    const id = Number(req.params.id); if (!Number.isSafeInteger(id) || id < 1) return null;
+    return req.params.kind === "customer" ? { customerId: id } : req.params.kind === "unknown" ? { chatId: id } : null;
+  };
+  /** The expert's own live view: switch card + conversation list. */
+  staff.get("/bale/me/autoreply", expert, (_req, res) => {
+    const u = res.locals.baleUser; const a = accountOf(u.id); const pr = a ? ar.pairOfAccount(a) : ar.pairs().find(p => p.expert_user_id === u.id && p.bound_user_id === u.id);
+    if (!pr) { res.json({ paired: false }); return; }
+    res.json({ paired: true, pair: ar.pairView(pr), settings: ar.settingsView(), connected: Boolean(a && a.status === "connected"),
+      list: a ? ar.liveList(a, pr).map(x => ({ ...x, lastText: String(x.lastText ?? "").slice(0, 140) })) : [] });
+  });
+  /** Expert: OFF only (turning it on is an admin action with confirmation). */
+  staff.put("/bale/me/autoreply", expert, (req, res) => {
+    const u = res.locals.baleUser; const pr = ar.pairs().find(p => p.expert_user_id === u.id && p.bound_user_id === u.id);
+    if (!pr) return fail(res, 404, "not_found");
+    if (req.body?.enabled !== false) { audit({ req, u, action: "autoreply.expert_on", outcome: "forbidden" }); return void res.status(403).json({ error: "admin_only", message: "روشن کردن پاسخ خودکار فقط با مدیر است." }); }
+    run("UPDATE bale_autoreply_pairs SET enabled=0, updated_by=?, updated_at=? WHERE assistant_id=?", u.id, iso(), pr.assistant_id);
+    audit({ req, u, action: "autoreply.pair_off", outcome: "ok", detail: { assistantId: pr.assistant_id, by: "expert" } });
+    res.json({ pair: ar.pairView(ar.pairs().find(p => p.assistant_id === pr.assistant_id)) });
+  });
+  /** «خودم جواب می‌دم» / «برگردون به مسعود» — own account only; matched customers must still be the expert's own. */
+  for (const act of ["takeover", "giveback"] as const) {
+    staff.post(`/bale/me/autoreply/:kind/:id/${act}`, expert, (req, res) => {
+      const u = res.locals.baleUser; const a = accountOf(u.id); const t = arTarget(req);
+      if (!a || !t) return fail(res, 404, "not_found");
+      if ("customerId" in t) {
+        const c = row<any>("SELECT salesperson_id,merged_into_customer_id FROM customers WHERE id=?", t.customerId);
+        if (!c || c.salesperson_id !== u.salesperson_id || c.merged_into_customer_id != null) { audit({ req, u, accountId: a.id, action: `autoreply.${act}`, outcome: "not_in_scope" }); return fail(res, 404, "not_found"); }
+      } else if (!row("SELECT 1 FROM bale_ar_chats WHERE id=? AND account_id=?", t.chatId, a.id)) return fail(res, 404, "not_found");
+      const cancelled = ar.setOwner(a, t as any, act === "takeover" ? "expert" : "assistant", act === "takeover" ? "expert_button" : "expert_giveback", u.id);
+      res.json({ owner: ar.ownerOf(a, t as any), cancelled });
+    });
+  }
+  staff.get("/bale/me/autoreply/unknown/:id", expert, (req, res) => {
+    const u = res.locals.baleUser; const a = accountOf(u.id); const v = a ? ar.unknownMessages(a, Number(req.params.id)) : null;
+    if (!v) return fail(res, 404, "not_found");
+    res.json(v);
+  });
+  /* admin */
+  staff.get("/admin/bale/autoreply", admin, (_req, res) => { res.json({ settings: ar.settingsView(), pairs: ar.pairs().map(p => ar.pairView(p)) }); });
+  staff.put("/admin/bale/autoreply/settings", admin, (req, res) => {
+    const u = res.locals.baleAdmin; const b = req.body ?? {}; const set: [string, string][] = [];
+    if (b.globalEnabled !== undefined) {
+      if (b.globalEnabled === true && b.confirm !== "روشن") return void res.status(428).json({ error: "confirm_required", message: "برای روشن کردن، «روشن» را تایپ کنید." });
+      set.push(["autoreply_enabled", b.globalEnabled === true ? "1" : "0"]);
+    }
+    for (const [k, key] of [["dayStart", "autoreply_day_start"], ["dayEnd", "autoreply_day_end"]] as const) if (b[k] !== undefined) {
+      if (arParseHm(String(b[k]), -1) < 0) return void res.status(422).json({ error: "bad_time", message: "ساعت را به شکل ۰۸:۳۰ بنویسید." });
+      set.push([key, String(b[k]).trim().padStart(5, "0")]);
+    }
+    if (b.days !== undefined) { const d = arParseDays(Array.isArray(b.days) ? b.days.join(",") : String(b.days)); set.push(["autoreply_days", [...d].sort().join(",")]); }
+    if (b.holidays !== undefined) {
+      if (!Array.isArray(b.holidays) || b.holidays.length > 60) return void res.status(422).json({ error: "bad_holidays", message: "فهرست تعطیلات معتبر نیست." });
+      const seen = new Set<string>(); const list: { date: string; label: string | null }[] = [];
+      for (const h of b.holidays) {
+        const date = String(h?.date ?? ""); const lab = h?.label == null ? null : String(h.label).trim().slice(0, 40) || null;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T12:00:00+03:30`))) return void res.status(422).json({ error: "bad_holiday_date", message: "تاریخ تعطیلی معتبر نیست." });
+        if (!seen.has(date)) { seen.add(date); list.push({ date, label: lab }); }
+      }
+      set.push(["autoreply_holidays", JSON.stringify(list.sort((x, y) => x.date.localeCompare(y.date)))]);
+    }
+    for (const [k, key] of [["holdText", "autoreply_hold_text"], ["nightText", "autoreply_night_text"]] as const) if (b[k] !== undefined) {
+      const e = arTextCheck(b[k]); if (e) return void res.status(422).json({ error: e, message: BLOCK_FA[e as keyof typeof BLOCK_FA] ?? "متن قابل قبول نیست." });
+      set.push([key, String(b[k]).trim()]);
+    }
+    for (const [k, v] of set) run("INSERT INTO bale_settings(key,value,updated_at,updated_by_user_id) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,updated_by_user_id=excluded.updated_by_user_id", k, v, iso(), u.id);
+    audit({ req, u, action: "autoreply.settings", outcome: "ok", detail: { keys: set.map(x => x[0]).join(",") } });
+    res.json({ settings: ar.settingsView() });
+  });
+  staff.put("/admin/bale/autoreply/pairs/:assistantId", admin, (req, res) => {
+    const u = res.locals.baleAdmin; const p = ar.pairs().find(x => x.assistant_id === Number(req.params.assistantId)); const b = req.body ?? {};
+    if (!p) return fail(res, 404, "not_found");
+    if (b.allowUnknown === true && p.slug !== "masoud") return void res.status(422).json({ error: "unknown_off", message: "پاسخ به شماره‌ی ناشناس فقط برای جفت کاظمی–مسعود است." });
+    // Every «روشن» (the pair, reads, unknown numbers, plan file) needs the typed confirmation; turning OFF never does.
+    if ((["enabled", "readsEnabled", "allowUnknown", "allowPlanFile"] as const).some(k => b[k] === true) && b.confirm !== "روشن") return void res.status(428).json({ error: "confirm_required", message: "برای روشن کردن، «روشن» را تایپ کنید." });
+    const n = (v: any, lo: number, hi: number) => { const x = Number(v); return Number.isInteger(x) && x >= lo && x <= hi ? x : null; };
+    const upd: [string, any][] = [];
+    if (b.enabled !== undefined) { upd.push(["enabled", b.enabled === true ? 1 : 0]); if (b.enabled === true) upd.push(["stopped_reason", null]); }
+    for (const [k, col] of [["readsEnabled", "reads_enabled"], ["allowPlanFile", "allow_plan_file"]] as const) if (b[k] !== undefined) upd.push([col, b[k] === true ? 1 : 0]);
+    if (b.allowUnknown !== undefined) { if (b.allowUnknown === true && p.slug !== "masoud") return void res.status(422).json({ error: "unknown_off", message: "پاسخ به شماره‌ی ناشناس فقط برای جفت کاظمی–مسعود است." }); upd.push(["allow_unknown", b.allowUnknown === true ? 1 : 0]); }
+    for (const [k, col, lo, hi] of [["perHour", "per_hour", 1, 20], ["perDay", "per_day", 1, 80], ["replyWindowMin", "reply_window_min", 5, 1440]] as const) if (b[k] !== undefined) {
+      const v = n(b[k], lo, hi); if (v == null) return void res.status(422).json({ error: "bad_limit", message: `عدد ${k} باید بین ${lo} و ${hi} باشد.` }); upd.push([col, v]);
+    }
+    if (!upd.length) return fail(res, 422, "unknown");
+    run(`UPDATE bale_autoreply_pairs SET ${upd.map(x => `${x[0]}=?`).join(",")}, updated_by=?, updated_at=? WHERE assistant_id=?`, ...upd.map(x => x[1]), u.id, iso(), p.assistant_id);
+    audit({ req, u, action: "autoreply.pair", outcome: "ok", detail: { assistantId: p.assistant_id, ...Object.fromEntries(upd.map(([k, v]) => [k, v])) } });
+    res.json({ pair: ar.pairView(ar.pairs().find(x => x.assistant_id === p.assistant_id)) });
+  });
+  /** Admin live view (read-only). */
+  staff.get("/admin/bale/autoreply/pairs/:assistantId/live", admin, (req, res) => {
+    const p = ar.pairs().find(x => x.assistant_id === Number(req.params.assistantId)); if (!p) return fail(res, 404, "not_found");
+    const a = accountOf(p.expert_user_id);
+    res.json({ pair: ar.pairView(p), readOnly: true, list: a ? ar.liveList(a, p).map(x => ({ ...x, lastText: String(x.lastText ?? "").slice(0, 140) })) : [] });
+  });
+  /** Admin live view: one unknown-number conversation (read-only; text + label only, never a phone). */
+  staff.get("/admin/bale/autoreply/pairs/:assistantId/unknown/:id", admin, (req, res) => {
+    const p = ar.pairs().find(x => x.assistant_id === Number(req.params.assistantId)); if (!p) return fail(res, 404, "not_found");
+    const a = accountOf(p.expert_user_id); const v = a ? ar.unknownMessages(a, Number(req.params.id)) : null;
+    if (!v) return fail(res, 404, "not_found");
+    res.json({ ...v, readOnly: true });
+  });
+
+
   test.mount(staff, admin); // «حساب تستی»: /admin/bale/test/* — every route behind the same admin gate (never 29)
   const adminAccount = (a: any) => ({ ...accountView(a), user: { id: a.user_id, name: nameOf(userRow(a.user_id)) }, salespersonId: a.salesperson_id });
   staff.get("/admin/bale", admin, async (_req, res) => {
@@ -747,6 +867,84 @@ export function createBale(deps: BaleDeps) {
     res.json({ status: r.status, outboxId: r.outboxId, heldUntil: r.heldUntil, ...(attachmentId != null ? { attachmentId } : {}) });
   }
 
+  /* ============ runner: auto reply (pair-locked; Masoud ↔ Kazemi, Somayeh ↔ Hasani, Mohaddeseh ↔ Ghasemi) ============ */
+  const runnerPair = (res: Response) => {
+    const asst = res.locals.assistant;
+    if (!asst || asst.kind !== "sales" || !asst.bound_user_id || EXCLUDED_USER_IDS.includes(asst.bound_user_id)) { res.status(403).json({ error: "forbidden", message: "این کار برای دستیار مجاز نیست." }); return null; }
+    const p = ar.pairOfAssistant(asst.id); const u = p ? userRow(p.expert_user_id) : undefined;
+    if (!p || !u || !baleEligible(u)) { res.status(404).json({ error: "not_found" }); return null; }
+    return { asst, p, u, a: accountOf(u.id) };
+  };
+  /** POST /bale/auto-reply {customerId | arChatId, text, planId? | attachmentId?} — replies only; every rule in check() + ar.rules(). */
+  function runnerAutoReply(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean }) {
+    const r0 = runnerPair(res); if (!r0) return; const { asst, p, a } = r0;
+    if (!a) return void res.status(423).json({ status: "blocked", error: "not_connected", message: BLOCK_FA.not_connected });
+    const wantsFile = (req.body?.planId != null && req.body.planId !== "") || (req.body?.attachmentId != null && req.body.attachmentId !== "");
+    let attachmentId: number | null = null;
+    if (wantsFile) {
+      if (!planFiles || !attachmentsOn() || p.allow_plan_file !== 1) return void res.status(423).json({ status: "blocked", error: "plan_file_off", message: BLOCK_FA.plan_file_off });
+      const f = planFiles.resolve({ planId: req.body?.planId, attachmentId: req.body?.attachmentId });
+      if (!f || !planFiles.read(f)) return void res.status(422).json({ status: "blocked", error: "attachment_missing", message: BLOCK_FA.attachment_missing });
+      attachmentId = f.id;
+    }
+    const text = typeof req.body?.text === "string" ? req.body.text : typeof req.body?.caption === "string" ? req.body.caption : "";
+    if (req.body?.arChatId != null) {
+      const chatId = Number(req.body.arChatId);
+      if (!Number.isSafeInteger(chatId) || !row("SELECT 1 FROM bale_ar_chats WHERE id=? AND account_id=?", chatId, a.id)) return void res.status(404).json({ error: "not_found" });
+      const r = ar.enqueueUnknown(a, p, chatId, text, { kind: attachmentId != null ? "plan" : "reply", attachmentId, assistantId: asst.id });
+      return void (r === "queued" ? res.json({ status: "queued" }) : res.status(blockedStatus(r)).json({ status: "blocked", error: r, message: BLOCK_FA[r as keyof typeof BLOCK_FA] ?? r }));
+    }
+    const cid = Number(req.body?.customerId);
+    if (!Number.isSafeInteger(cid) || !h.inScope(asst, cid)) { audit({ accountId: a.id, customerId: Number.isSafeInteger(cid) ? cid : null, action: "outbox.auto_reply", outcome: "not_in_scope", detail: { assistantId: asst.id } }); return void res.status(404).json({ error: "not_found" }); }
+    const r = outbox.enqueue({ accountId: a.id, customerId: cid, text, source: "auto_reply", arKind: attachmentId != null ? "plan" : "reply", explicit: false, createdBy: null,
+      assistant: { id: asst.id, inScope: true }, reason: "auto_reply", attachmentId });
+    if (r.status === "blocked") return void res.status(blockedStatus(r.reason)).json({ status: "blocked", error: r.reason, message: r.message });
+    res.json({ status: r.status, outboxId: r.outboxId });
+  }
+  /** GET /bale/auto-reply/state — switches, hours, counters; no customer data. */
+  function runnerAutoReplyState(_req: Request, res: Response) {
+    const r0 = runnerPair(res); if (!r0) return; const { p, a } = r0; const v = ar.pairView(p);
+    res.json({ on: Boolean(a && ar.activeFor(a)), readsOn: ar.readsOn(p), pair: { slug: v.slug, enabled: v.enabled, allowUnknown: v.allowUnknown, allowPlanFile: v.allowPlanFile, perHour: v.perHour, perDay: v.perDay,
+      sentLastHour: v.sentLastHour, sentToday: v.sentToday, stoppedReason: v.stoppedReason }, hours: { ...(({ dayStart, dayEnd, days, openNow }) => ({ dayStart, dayEnd, days, openNow }))(ar.settingsView()) } });
+  }
+  /** Scoped reads (reads_enabled or pair ON): own in-scope customers only; anything else → 404. */
+  function runnerReadGate(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean }) {
+    const r0 = runnerPair(res); if (!r0) return null;
+    if (!ar.readsOn(r0.p)) { res.status(423).json({ error: "reads_off", message: "خواندن گفتگوهای بله برای این دستیار خاموش است." }); return null; }
+    const cid = Number(req.params.customerId ?? req.params.id);
+    if (!Number.isSafeInteger(cid) || !h.inScope(r0.asst, cid)) { audit({ accountId: r0.a?.id ?? null, customerId: Number.isSafeInteger(cid) ? cid : null, action: `runner.${req.path.split("/")[1] ?? "read"}`, outcome: "not_in_scope", detail: { assistantId: r0.asst.id } }); res.status(404).json({ error: "not_found" }); return null; }
+    return { ...r0, cid };
+  }
+  function runnerConversation(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean }) {
+    const g = runnerReadGate(req, res, h); if (!g) return;
+    const msgs = g.a ? rows<any>(`SELECT m.id,m.direction,m.text,m.file_ref,m.created_at,o.source FROM bale_messages m LEFT JOIN bale_outbox o ON o.id=m.outbox_id
+      WHERE m.account_id=? AND m.customer_id=? ORDER BY m.id DESC LIMIT 50`, g.a.id, g.cid).reverse() : [];
+    const own = g.a ? ar.ownerOf(g.a, { customerId: g.cid }) : null;
+    res.json({ customerId: g.cid, owner: own?.owner ?? "assistant", messages: msgs.map(m => ({ id: m.id, direction: m.direction, text: m.text, hasFile: Boolean(m.file_ref), at: m.created_at,
+      by: m.direction === "in" ? "customer" : m.source === "auto_reply" ? "assistant" : "expert" })) });
+  }
+  const DOC_FA: Record<string, string> = { national_card_front: "کارت ملی (رو)", national_card_back: "کارت ملی (پشت)", birth_cert_p1: "شناسنامه ص۱", birth_cert_p2: "شناسنامه ص۲", birth_cert_p3: "شناسنامه ص۳" };
+  const DOC_STATUS_FA: Record<string, string> = { pending: "منتظر", uploaded: "رسیده", approved: "تأیید شد", accepted: "تأیید شد", incomplete: "ناقص", rejected: "ردشده", submitted: "رسیده" };
+  function runnerDocuments(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean }) {
+    const g = runnerReadGate(req, res, h); if (!g) return;
+    const has = (t: string) => Boolean(row("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", t));
+    const items: { label: string; status: string }[] = [];
+    if (has("loan_application_documents") && has("loan_applications"))
+      for (const d of rows<any>(`SELECT d.label, d.status FROM loan_application_documents d JOIN loan_applications l ON l.id=d.application_id WHERE l.customer_id=? AND l.deleted_at IS NULL ORDER BY d.id LIMIT 100`, g.cid))
+        items.push({ label: String(d.label ?? "").slice(0, 80), status: DOC_STATUS_FA[d.status] ?? String(d.status ?? "") });
+    if (has("customer_identity_documents"))
+      for (const d of rows<any>("SELECT document_type FROM customer_identity_documents WHERE customer_id=? AND is_latest=1 ORDER BY id LIMIT 20", g.cid))
+        items.push({ label: DOC_FA[d.document_type] ?? "مدرک هویتی", status: "رسیده" });
+    res.json({ customerId: g.cid, documents: items });
+  }
+  /** Unknown-sender chats (masoud only): their own text, never anything from customers or cases. */
+  function runnerArChats(req: Request, res: Response) {
+    const r0 = runnerPair(res); if (!r0) return; const { p, a } = r0;
+    if (!ar.readsOn(p) || p.allow_unknown !== 1 || !a) return void res.status(404).json({ error: "not_found" });
+    if (req.params.id) { const v = ar.unknownMessages(a, Number(req.params.id)); if (!v) return void res.status(404).json({ error: "not_found" });
+      return void res.json({ ...v, messages: v.messages.map(m => ({ id: m.id, direction: m.direction, text: m.text, hasFile: m.hasFile, by: m.by, at: m.createdAt })) }); }
+    res.json({ chats: rows<any>("SELECT id, owner, last_at FROM bale_ar_chats WHERE account_id=? ORDER BY last_at DESC LIMIT 50", a.id).map(c => ({ arChatId: c.id, label: "ناشناس", owner: c.owner, lastAt: c.last_at })) });
+  }
   /** GET /bale/plan-files (runner, read-only): which plans have a Bale file, so the assistant can pick planId. Names / type / size only, never bytes or paths. */
   function runnerPlanFiles(_req: Request, res: Response) {
     const asst = res.locals.assistant;
@@ -780,5 +978,5 @@ export function createBale(deps: BaleDeps) {
     stop() { if (timer) clearInterval(timer); timer = null; },
   };
 
-  return { staff, internal, runnerSend, runnerPlanFiles, worker, _internal: { flows, masterOn, outbox, test } };
+  return { staff, internal, runnerSend, runnerPlanFiles, runnerAutoReply, runnerAutoReplyState, runnerConversation, runnerDocuments, runnerArChats, worker, _internal: { flows, masterOn, outbox, test, ar } };
 }

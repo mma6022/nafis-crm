@@ -22,3 +22,13 @@ export const baleInternalRouter = bale.internal;
 export const baleRunnerSend = (req: Request, res: Response, h: { inScope: (a: any, customerId: number) => boolean }) => bale.runnerSend(req, res, h);
 export default bale.staff;
 export const baleRunnerPlanFiles = (req: Request, res: Response) => bale.runnerPlanFiles(req, res);
+type Scope = { inScope: (a: any, customerId: number) => boolean };
+/** «پاسخ خودکار» runner routes (pair-locked; see lib/bale.ts). */
+export function mountBaleAutoreplyRunner(runner: import("express").Router, h: Scope) {
+  runner.post("/bale/auto-reply", (req, res) => bale.runnerAutoReply(req, res, h));
+  runner.get("/bale/auto-reply/state", (req, res) => bale.runnerAutoReplyState(req, res));
+  runner.get("/bale/conversations/:customerId/messages", (req, res) => bale.runnerConversation(req, res, h));
+  runner.get("/bale/ar-chats", (req, res) => bale.runnerArChats(req, res));
+  runner.get("/bale/ar-chats/:id/messages", (req, res) => bale.runnerArChats(req, res));
+  runner.get("/customers/:id/documents", (req, res) => bale.runnerDocuments(req, res, h));
+}

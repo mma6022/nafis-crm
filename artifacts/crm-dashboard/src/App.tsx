@@ -28,6 +28,7 @@ import PhonePage from '@/pages/Phone';
 import Releases from '@/pages/Releases';
 import AssistantsSettings from '@/pages/AssistantsSettings';
 import BaleSettings from '@/pages/BaleSettings';
+import BaleAutoreply from '@/pages/BaleAutoreply';
 import { baleNavVisible } from '@/features/bale/api';
 import WalletTopUp from '@/pages/WalletTopUp';
 import GoodsPurchases from '@/pages/GoodsPurchases';
@@ -276,6 +277,9 @@ function AppWithRoutes() {
                     </Route>
                     <Route path="/settings/bale">
                       <BaleRoute><BaleSettings /></BaleRoute>
+                    </Route>
+                    <Route path="/bale/autoreply">
+                      <BaleRoute><BaleAutoreply /></BaleRoute>
                     </Route>
                     <Route path="/settings/releases">
                       <AdminOnlyRoute><Releases /></AdminOnlyRoute>

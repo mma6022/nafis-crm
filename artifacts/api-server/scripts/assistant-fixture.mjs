@@ -163,7 +163,7 @@ try {
   assert.equal((await R(iss.masoud, "POST", "/messages", { body: "سلام", userId: 2 })).s, 404); // not his expert
   assert.equal((await R(iss.masoud, "POST", "/messages", { body: "سلام", userId: 6 })).s, 404); // trainee
   assert.equal((await R(iss.masoud, "POST", "/messages", { body: "x".repeat(2001) })).s, 422);
-  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "بدون پرونده", userId: 4 })).s, 422); // case required
+  assert.equal((await R(iss.sarina, "POST", "/messages", { body: "بدون پرونده", userId: 4 })).s, 201); // 01117c6: Sarina (filing) may send case-less to registrar/admin
   assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 4, customerId: 150 })).s, 201); // registrar
   assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 1, customerId: 150 })).s, 201); // admin
   assert.equal((await R(iss.sarina, "POST", "/messages", { body: "پرونده", userId: 8, customerId: 150 })).s, 403); // v6: the case's sales expert gets no Sarina line
@@ -191,7 +191,7 @@ try {
   const tS = (await S(4, "GET", "/assistant/mine")).j.assistants.find(a => a.slug === "sarina").threadId;
   assert.equal((await S(2, "GET", `/assistant/threads/${tK}/messages`)).s, 404); // someone else's thread
   const hist = await S(8, "GET", `/assistant/threads/${tK}/messages`); assert.equal(hist.j.messages.length, 1); assert.equal(hist.j.messages[0].authorLabel, "دستیار مسعود");
-  assert.equal((await S(4, "GET", `/assistant/threads/${tS}/messages`)).j.messages.length, 1); // registrar sees the case line
+  assert.equal((await S(4, "GET", `/assistant/threads/${tS}/messages`)).j.messages.length, 2); // registrar sees the case line + the case-less line (01117c6)
   assert.equal((await S(8, "GET", `/assistant/threads/${tS}/messages`)).s, 404); // v6: the sales expert never reads a Sarina thread
   ok("staff visibility");
   // user message → runner event (long-poll) → seen; actions
@@ -381,7 +381,7 @@ try {
     assert.equal(rep.team.calls, 3); assert.ok(!JSON.stringify(rep).includes("ادمین۲۹"));
     const wk = (await R(tk, "GET", "/manager/report?range=week&salespersonId=3")).j;
     assert.equal(wk.from, "2026-10-23T20:30:00.000Z"); assert.equal(wk.experts.length, 1); assert.equal(wk.experts[0].calls.count, 12);
-    assert.equal((await R(tk, "GET", "/manager/report?range=month")).j.error, "range_not_supported");
+    assert.equal((await R(tk, "GET", "/manager/report?range=decade")).j.error, "range_not_supported"); // month is supported since the Shamsi-month release
     assert.equal((await R(tk, "GET", "/manager/report?salespersonId=5")).s, 200); assert.equal((await R(tk, "GET", "/manager/report?salespersonId=20")).s, 404); // sp 20: no active user
     const al = (await R(tk, "GET", "/manager/alerts")).j.items; assert.deepEqual(al.map(a => `${a.salespersonId}:${a.rule}`), ["3:calls_below_average", "4:overdue_reminders", "4:site_leads_unanswered", "5:site_leads_unanswered"]);
     ok("manager: today/week report, alerts with reasons + numbers");

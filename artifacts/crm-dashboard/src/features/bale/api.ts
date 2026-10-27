@@ -51,7 +51,9 @@ export type BaleChat = {
   outbox: BaleOutboxItem[]; sendState: BaleSendState | null; conversationMode: 'assistant' | 'human' | null;
   paused: { reason: string; at: string; message: string; unverified: boolean } | null;
   expert: { name: string; connected: boolean; session?: BaleSession | null; mode: BaleMode } | null;
-  messages: { id: number; direction: 'in' | 'out'; text: string | null; hasFile: boolean; status: string | null; createdAt: string; expertName: string | null }[];
+  messages: { id: number; direction: 'in' | 'out'; text: string | null; hasFile: boolean; status: string | null; createdAt: string; expertName: string | null; auto?: boolean; arKind?: string | null }[];
+  /** Auto-reply pilot (present when the expert's account has an assistant pair). */
+  autoReply?: { label: string; on: boolean; owner: 'assistant' | 'expert'; reason: string | null; at: string | null; by: string | null } | null;
 };
 
 export const BALE_TRAINEES: readonly number[] = [5, 19, 20];
