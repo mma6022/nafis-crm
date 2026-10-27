@@ -254,7 +254,7 @@ h1,h2,h3{color:var(--nf-ink)}
 .lp-hero h1{font-size:var(--nf-text-display);line-height:var(--nf-lh-display);margin:8px 0 12px}
 .lp-hero .lead{margin:0 0 20px;color:var(--nf-ink-soft)}
 .lp-hero .actions{display:grid;gap:8px;justify-items:center}
-.lp-grid{display:grid;gap:32px}
+.lp-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:32px}
 .prose-nf{max-width:var(--nf-prose);font-size:var(--nf-text-body);line-height:var(--nf-lh-body);color:var(--nf-ink-soft)}
 .prose-nf.article{font-size:var(--nf-text-article);line-height:var(--nf-lh-article)}
 .prose-nf h2{font-size:var(--nf-text-h2);line-height:var(--nf-lh-h2);margin:40px 0 12px;scroll-margin-top:calc(var(--nf-header-h) + 16px)}
