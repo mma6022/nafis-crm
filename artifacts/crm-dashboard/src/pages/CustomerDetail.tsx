@@ -646,7 +646,7 @@ function CustomerDetailFull() {
   </div> : null;
 
   const loansSec = canLoansView ? <section className="csx-sec" id="sec-loans" aria-labelledby="h-loans" data-testid="section-customer-loans">
-    <header><h2 id="h-loans"><Layers size={20} /> درخواست‌های تسهیلات</h2>{loansQuery.data ? <span className="muted">{faNum(loansTotal)} پرونده</span> : null}</header>
+    <header><h2 id="h-loans"><Layers size={20} /> درخواست‌های تسهیلات</h2>{loansQuery.data ? <span className="muted" data-testid="text-customer-loans-summary">{faNum(loansTotal)} پرونده{loans.length ? (() => { const done = loans.filter((l) => loanBusinessStatus(l) === 'completed').length; const cx = loans.filter((l) => loanBusinessStatus(l) === 'canceled').length; const act = loans.length - done - cx; return `، ${faNum(act)} فعال${done ? `، ${faNum(done)} تکمیل‌شده` : ''}${cx ? `، ${faNum(cx)} لغوشده` : ''}`; })() : ''}</span> : null}</header>
     {serverDraftNote}
     {draftNote}
     {loansQuery.isLoading ? <div className="stack" aria-busy="true"><span className="csx-sk" style={{ height: 72 }} /><span className="csx-sk" style={{ height: 72 }} /></div>
@@ -655,7 +655,7 @@ function CustomerDetailFull() {
         <div className="r1"><b>پرونده #{faId(loan.id)}</b>{bs && BUSINESS_STATUS_LABELS[bs] ? <span className="csx-st" data-bs={bs}>{BUSINESS_STATUS_LABELS[bs]}</span> : <span className="csx-st">{label}</span>}</div>
         {stage ? <div className="csx-loan-stage" data-testid={`text-customer-loan-stage-${loan.id}`}>مرحله: {stage}</div> : null}
         <div className="muted">{loan.planName || 'طرح تسهیلات'}، {toman(loan.approvedAmount || loan.requestedAmount)} تومان{(loan.durationMonths ?? loan.requestedDurationMonths) ? `، ${faNum(Number(loan.durationMonths ?? loan.requestedDurationMonths))} ماهه` : ''}</div>
-        <div className="muted">ثبت {jalaliDate(loan.createdAt)}</div>
+        <div className="muted">ثبت {jalaliDate(loan.createdAt)}{loan.updatedAt ? <span data-testid={`text-customer-loan-updated-${loan.id}`}>{` · ${bs === 'completed' ? 'تکمیل' : bs === 'canceled' ? 'لغو' : 'آخرین تغییر'} ${jalaliDate(loan.updatedAt)}`}</span> : null}</div>
       </Link>; })}</div>
       : <p className="muted" style={{ margin: 0 }}>برای این مشتری هنوز درخواست تسهیلاتی ثبت نشده است.</p>}
     {canNewLoan ? <Link href={loanWizardHref(customer.id)} className="csx-ghost sm" data-testid="link-new-loan-for-customer"><Plus size={18} /> ثبت درخواست تسهیلات برای این مشتری</Link> : null}
