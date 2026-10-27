@@ -54,8 +54,6 @@ export type LoanOption = {
   name: string;
   bankName?: string | null;
   description?: string | null;
-  maximumAmount?: string | number | null;
-  minimumAmount?: string | number | null;
   /** Server-computed largest «مبلغ واریزی» across the customer's allowed options. */
   maximumPayout?: number | null;
   allowedDurations?: number[];
@@ -65,8 +63,6 @@ export type LoanOption = {
     id: number;
     name: string;
     description?: string | null;
-    minimumAmount?: string | number | null;
-    maximumAmount?: string | number | null;
     allowedDurations?: number[];
   }>;
   terms?: string | null;
@@ -140,13 +136,12 @@ function loanOption(value: unknown): LoanOption {
   const validAmount = (amount: unknown) => amount == null || /^\d+$/.test(String(amount));
   if (!Number.isSafeInteger(plan.planId) || Number(plan.planId) <= 0 || typeof plan.name !== 'string'
     || !Array.isArray(plan.conditions) || !Array.isArray(plan.allowedDurations) || !Array.isArray(plan.manualFields)
-    || !validAmount(plan.minimumAmount) || !validAmount(plan.maximumAmount) || !validAmount(plan.filingFeeToman)
+    || !validAmount(plan.filingFeeToman)
     || !plan.allowedDurations.every(months => Number.isSafeInteger(months) && months > 0)
     || !plan.conditions.every(condition => {
       if (!condition || typeof condition !== 'object') return false;
       const item = condition as Record<string, unknown>;
       return Number.isSafeInteger(item.id) && typeof item.name === 'string'
-        && validAmount(item.minimumAmount) && validAmount(item.maximumAmount)
         && Array.isArray(item.allowedDurations) && item.allowedDurations.every(months => Number.isSafeInteger(months) && months > 0);
     })
     || !plan.manualFields.every(field => {
@@ -176,6 +171,7 @@ export const publicPlansApi = {
   quote: (planId: number, body: { months?: number | null; cash?: number | null }) =>
     request<PlanQuote>(`/public/loan-plans/${planId}/quote`, { method: 'POST', body: json(body) }, '/api'),
 };
+export type LoanSelection = { planId: number; conditionId: number | null; durations: number[] };
 export type PlanFinderMatches = PlanFinderMatch[];
 export type IntakeStatus = { creditValid: boolean; creditRank: string | null; planEligible: boolean; feeChargeId: number | null; filingFeeToman: string;
   existingApplicationId?:number|null;requiredDocumentTypes?:string[];
@@ -282,6 +278,9 @@ export const portalApi = {
   /** Logged-in calculator quote on the customer's own eligible option; returns the principal the apply form submits. */
   planQuote: (body: { planId: number; months?: number | null; cash?: number | null; amount?: number | null; eligible: 1 }) =>
     request<PlanQuote>('/plan-quote', { method: 'POST', body: json(body) }),
+  /** Server-chosen condition for (principal, months); min/max principal never reach the browser (PM item 2). */
+  loanSelection: (body: { planId: number; amount: string; months: number }) =>
+    request<LoanSelection>('/loan-options/selection', { method: 'POST', body: json(body) }),
   planFinderOptions: () => request<{ options: Array<{ fieldKey: string; value: string; label: string }> }>('/plan-finder/options'),
   planFinder: (body: PlanFinderRequest) => request<{ consultationId: number; matches: PlanFinderMatches }>('/plan-finder', { method: 'POST', body: json(body) }),
   intakeStatus: (planId: number) => request<IntakeStatus>(`/intake/status?planId=${planId}`),

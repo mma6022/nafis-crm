@@ -16,7 +16,7 @@ import { LoanPlanCards } from './LoanPlanCards';
 import { ActiveRequestList } from './ActiveRequests';
 import { PlanRequirements } from './PlanRequirements';
 import { PlanCalculator, type CalculatorSummary } from './PlanCalculator';
-import { eligibleConditionId } from './plan-calculator-values';
+import { useLoanSelection } from './use-loan-selection';
 import { readPaymentDraft, savePaymentDraft } from './payment-return';
 import { AdviceHub, PlanFinder } from './PlanFinder';
 import { PortalChat } from './PortalChat';
@@ -279,11 +279,11 @@ function Apply({ profile, planId, months = '' }: { profile: Profile; planId: num
   const [summary, setSummary] = useState<CalculatorSummary | null>(null);
   const plan = options.data?.find(p => p.planId === planId);
   const status = intake.data;
-  const chosenCondition = eligibleConditionId(plan, amount, Number(duration));
+  // Condition + principal range are checked on the server (min/max principal never reach the browser).
+  const selection = useLoanSelection(planId, amount, duration, !!plan);
+  const chosenCondition = selection.conditionId;
   const conditionDetails = plan?.conditions?.find(item => item.id === chosenCondition);
-  const minimumAmount = conditionDetails?.minimumAmount ?? plan?.minimumAmount;
-  const maximumAmount = conditionDetails?.maximumAmount ?? plan?.maximumAmount;
-  const durations = conditionDetails?.allowedDurations ?? plan?.allowedDurations ?? [];
+  const durations = conditionDetails?.allowedDurations ?? selection.durations ?? plan?.allowedDurations ?? [];
   const feeKey = `customer-fee:${profile.id}:${planId}`;
   useEffect(() => { try { setPendingFeeKey(sessionStorage.getItem(feeKey) || ''); } catch { setPendingFeeKey(''); } }, [feeKey]);
   useEffect(() => { if (status && !postalTouched) setPostal(status.verification.postalCode || profile.postalCode || ''); }, [status, postalTouched, profile.postalCode]);
@@ -309,7 +309,7 @@ function Apply({ profile, planId, months = '' }: { profile: Profile; planId: num
     if (!status?.canSubmit || !verified(profile) || !status.feeChargeId || !plan ||
         !(status.documentsComplete || status.documentsPreviouslyApproved)) return;
     const requestedAmount = digits(amount).replace(/[,\s٬]/g, '');
-    const conditionId = eligibleConditionId(plan, amount, Number(duration));
+    const conditionId = chosenCondition;
     if (!conditionId || !/^[1-9]\d{0,17}$/.test(requestedAmount) ||
         !Number.isSafeInteger(Number(duration)) || Number(duration) < 1 ||
         automaticSubmission.current === status.feeChargeId) return;
@@ -323,7 +323,7 @@ function Apply({ profile, planId, months = '' }: { profile: Profile; planId: num
         queryClient.invalidateQueries({ queryKey: ['customer', key] })));
       navigate(`/customer/applications/${app.id}`);
     }).catch(failure => setError(message(failure)));
-  }, [status, profile, plan, planId, amount, duration, create.mutateAsync, queryClient, navigate]);
+  }, [status, profile, plan, planId, amount, duration, chosenCondition, create.mutateAsync, queryClient, navigate]);
 
   const back = `/customer/plans?planId=${planId}`;
   const head = (title: string, lede?: ReactNode) => <div><h1 className="nfp-h1">{title}</h1>{lede && <p className="nfp-lede" data-testid="card-selected-plan">{lede}</p>}</div>;
@@ -347,7 +347,7 @@ function Apply({ profile, planId, months = '' }: { profile: Profile; planId: num
   const knownFee = /^\d+$/.test(feeAmount);
   const canAffordFee = knownFee && wallet.data?.cashBalanceToman != null && /^\d+$/.test(String(wallet.data.cashBalanceToman)) && BigInt(String(wallet.data.cashBalanceToman)) >= BigInt(feeAmount);
   const requestedAmount = digits(amount).replace(/[,\s٬]/g, '');
-  const amountOk = /^\d+$/.test(requestedAmount) && BigInt(requestedAmount) > 0n && (maximumAmount == null || BigInt(requestedAmount) <= BigInt(maximumAmount)) && (minimumAmount == null || BigInt(requestedAmount) >= BigInt(minimumAmount));
+  const amountOk = /^\d+$/.test(requestedAmount) && BigInt(requestedAmount) > 0n && !!chosenCondition; // range: server (selection + submit)
   const selectionOk = !!chosenCondition && amountOk && durations.includes(Number(duration));
   const payFee = async () => {
     if (!selectionOk || !chosenCondition || !knownFee || charge.isPending) return;

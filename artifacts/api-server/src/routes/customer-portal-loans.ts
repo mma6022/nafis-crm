@@ -473,10 +473,24 @@ function customerLoanOptions(customer: { id: number }) {
   });
 }
 
-/** The customer's own option plus the server-computed payout ceiling (rates stay on the server). */
+/** The customer's own option plus the server-computed payout ceiling (rates stay on the server).
+ *  PM item 2 (Mohammad): the principal never reaches the customer, not even in the API response — the min/max loan amount
+ *  (plan and condition level) stay on the server; the form works from minPayout/maxPayout (plan-quote) and the server
+ *  picks the condition and validates the principal (filing-fee + applications). */
 function withMaximumPayout(option: ReturnType<typeof customerLoanOptions>[number]) {
   const plan = activeQuotePlan(option.planId);
-  return { ...option, maximumPayout: plan ? maximumCustomerPayout(plan, option) : null };
+  const { minimumAmount: _min, maximumAmount: _max, conditions, ...rest } = option;
+  return {
+    ...rest,
+    conditions: conditions.map(({ minimumAmount: _cmin, maximumAmount: _cmax, ...condition }) => condition),
+    maximumPayout: plan ? maximumCustomerPayout(plan, option) : null,
+  };
+}
+
+/** Server-side lower bound of a condition's principal (was only enforced in the browser). */
+function belowConditionMinimum(condition: any, amount: string): boolean {
+  const min = String(condition?.min_principal ?? "0").replace(/\D/g, "") || "0";
+  return BigInt(amount) < BigInt(min);
 }
 
 router.get("/loan-options", (req, res) => {
@@ -506,6 +520,24 @@ router.post("/plan-quote", customerQuoteRateLimit, (req, res) => {
     requestedAmount: q.principal == null ? null : String(q.principal),
     conditionId: option && q.principal != null ? eligibleConditionId(option, String(q.principal), q.months) : null,
   });
+});
+
+// PM item 2: the browser no longer gets min/max principal, so the server picks the condition for (principal, months)
+// with the same rule the portal used to run (allowed duration + min ≤ principal ≤ max). Response: ids and months only.
+router.post("/loan-options/selection", customerQuoteRateLimit, (req, res) => {
+  const customer = portalCustomer(res); if (!customer) return;
+  const body = req.body;
+  if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some((k) => !["planId", "amount", "months"].includes(k)))
+    return jsonError(res, 400, "invalid_selection_input");
+  const planId = Number(body.planId), months = Number(body.months);
+  const amount = String(body.amount ?? "").trim();
+  if (!Number.isSafeInteger(planId) || planId <= 0 || !Number.isSafeInteger(months) || months < 0 || months > 600 ||
+    !/^([1-9]\d{0,17})?$/.test(amount)) return jsonError(res, 400, "invalid_selection_input");
+  const option = customerLoanOptions(customer).find((item) => item.planId === planId);
+  if (!option) return jsonError(res, 404, "loan_plan_not_found");
+  const conditionId = amount && months > 0 ? eligibleConditionId(option, amount, months) : null;
+  const condition = option.conditions.find((item) => item.id === conditionId);
+  return res.json({ planId, conditionId, durations: condition?.allowedDurations ?? option.allowedDurations });
 });
 
 router.get("/identity-documents", (req, res) => {
@@ -801,7 +833,7 @@ router.post("/filing-fee", (req, res) => {
         ||!guarantorGradeAllows(guarantorGradeVerdict(condition,customerGuarantorGrade(customer.id).rank,plan)))
         throw new Error("loan_plan_condition_not_matched");
       const terms=effectivePlanTerms(plan,condition);
-      if(terms.maximum<=0n||BigInt(amount)>terms.maximum||!terms.durations.includes(duration))throw new Error("loan_plan_condition_not_matched");
+      if(terms.maximum<=0n||BigInt(amount)>terms.maximum||belowConditionMinimum(condition,amount)||!terms.durations.includes(duration))throw new Error("loan_plan_condition_not_matched");
       const feeAmount = String(plan.filing_fee_toman ?? "");
       if (!/^(0|[1-9]\d*)$/.test(feeAmount)) throw new Error("invalid_filing_fee");
       const account = wallet(customer.id, "cash");
@@ -917,7 +949,7 @@ router.post("/applications", (req, res) => {
     return jsonError(res, 422, "loan_plan_condition_not_matched");
   if (!rowAllowsProfile(condition, latestApplicantProfile(customer.id))) return jsonError(res, 422, "loan_plan_condition_not_matched");
   const terms = effectivePlanTerms(plan, condition);
-  if (terms.maximum <= 0n || BigInt(amount) > terms.maximum || !terms.durations.includes(duration)) {
+  if (terms.maximum <= 0n || BigInt(amount) > terms.maximum || belowConditionMinimum(condition, amount) || !terms.durations.includes(duration)) {
     return jsonError(res, 422, "loan_plan_condition_not_matched");
   }
   const notes = body.notes === undefined ? null : body.notes;

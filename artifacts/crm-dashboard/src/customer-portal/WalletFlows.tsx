@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useSearch } from 'wouter';
 import { AlertCircle, ArrowLeft, ArrowRight, Ban, Check, ChevronLeft, CreditCard, Info, Lock, RefreshCw, RotateCcw, ShieldCheck } from 'lucide-react';
 import { portalApi, PortalApiError } from './api';
-import { eligibleConditionId } from './plan-calculator-values';
+import { useLoanSelection } from './use-loan-selection';
 import { readPaymentDraft } from './payment-return';
 import { ErrorBox, Icon, Sep, SkeletonCards, fa } from './PortalUi';
 import { Crumb, ExpertLink, Toman, moneyWords } from './Portal2Ui';
@@ -131,6 +131,8 @@ export function WalletFeePage() {
   const options = useQuery({ queryKey: ['customer', 'options'], queryFn: portalApi.options, enabled: valid });
   const intake = useQuery({ queryKey: ['customer', 'intake', planId], queryFn: () => portalApi.intakeStatus(planId), enabled: valid });
   const wallet = useQuery({ queryKey: ['customer', 'wallet'], queryFn: portalApi.wallet });
+  const draft = readPaymentDraft(me.data?.id ?? 0, planId);
+  const selection = useLoanSelection(planId, draft.amount, draft.duration, valid && !!me.data && !!options.data?.some(p => p.planId === planId));
   const charge = useMutation({ mutationFn: (v: { key: string; body: { planId: number; conditionId: number; requestedAmount: string; durationMonths: number } }) => portalApi.filingFee(v.body, v.key), retry: false });
   const [error, setError] = useState<{ code: string; text: string } | null>(null);
   const [paid, setPaid] = useState<{ remaining: bigint | null } | null>(null);
@@ -139,7 +141,7 @@ export function WalletFeePage() {
   const toApply = `/customer/apply?planId=${planId}`;
 
   if (!valid) return frame(<div className="nfp-card"><div className="nfp-empty"><span className="nfp-big"><Icon icon={Ban} /></span><h2>درخواستی برای پرداخت پیدا نشد</h2><p>از صفحه‌ی طرح‌ها یک طرح را انتخاب کنید و ثبت درخواست را شروع کنید.</p><Link className="nf-btn nf-btn--primary" href="/customer/plans">دیدن طرح‌ها</Link></div></div>);
-  if (me.isLoading || options.isLoading || intake.isLoading || wallet.isLoading) return frame(<><Title>هزینه تشکیل پرونده</Title><SkeletonCards n={1} /></>);
+  if (me.isLoading || options.isLoading || intake.isLoading || wallet.isLoading || selection.pending) return frame(<><Title>هزینه تشکیل پرونده</Title><SkeletonCards n={1} /></>);
   if (options.isError) return frame(<ErrorBox title="طرح‌ها بارگیری نشد" text={msg(options.error)} retry={() => void options.refetch()} />);
   if (intake.isError || !intake.data) return frame(<ErrorBox title="وضعیت درخواست بارگیری نشد" text={msg(intake.error)} retry={() => void intake.refetch()} />);
   if (wallet.isError) return frame(<ErrorBox title="موجودی کیف پول بارگیری نشد" text={msg(wallet.error)} retry={() => void wallet.refetch()} />);
@@ -163,13 +165,11 @@ export function WalletFeePage() {
     </div></section>);
   }
 
-  const draft = readPaymentDraft(me.data?.id ?? 0, planId);
-  const chosen = plan ? eligibleConditionId(plan, draft.amount, Number(draft.duration)) : null;
+  const chosen = selection.conditionId;
   const cond = plan?.conditions?.find(c => c.id === chosen);
-  const min = cond?.minimumAmount ?? plan?.minimumAmount; const max = cond?.maximumAmount ?? plan?.maximumAmount;
-  const durations = cond?.allowedDurations ?? plan?.allowedDurations ?? [];
+  const durations = cond?.allowedDurations ?? selection.durations ?? plan?.allowedDurations ?? [];
   const requested = digits(draft.amount);
-  const amountOk = /^\d+$/.test(requested) && BigInt(requested) > 0n && (max == null || BigInt(requested) <= BigInt(max)) && (min == null || BigInt(requested) >= BigInt(min));
+  const amountOk = /^\d+$/.test(requested) && BigInt(requested) > 0n && !!chosen; // range: server (selection + submit)
   const hasDraft = !!draft.amount.trim() && !!draft.duration.trim();
   const selectionOk = !!plan && !!chosen && amountOk && durations.includes(Number(draft.duration));
   const c = error?.code ?? '';
