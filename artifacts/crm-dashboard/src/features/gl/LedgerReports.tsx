@@ -41,7 +41,7 @@ export default function LedgerReports() {
   const [tab, setTab] = useState<Tab>('tb');
   const s = status.data;
   const { data: session } = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
-  const canSp = session?.user?.role === 'admin' || !!session?.user?.permissions?.includes('gl.commission_totals.view');
+  const canSp = session?.user?.id !== 29 && (session?.user?.role === 'admin' || !!session?.user?.permissions?.includes('gl.commission_totals.view'));
   const tabs = TABS.filter((t) => t.key !== 'sp' || canSp);
   return <section className="data-page gl-page" data-testid="page-gl-reports">
     <Link href="/accounting" className="text-link gp-back"><ArrowRight size={14} />بازگشت به حسابداری</Link>

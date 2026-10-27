@@ -7,7 +7,7 @@ import { requirePermission } from "../lib/access-control";
 import type { AuthUser } from "../lib/auth";
 import { crmDb } from "../lib/crm-db";
 import { tehranDateOf } from "../lib/gl-posting";
-import { accountLedger, accountList, commissionTotals, glFlagOn, journal, ledgerStatus, postingQueue, reconcile, trialBalance, type TbLevel } from "../lib/gl-reports";
+import { GL_FINANCE_EXCLUDED_USER_IDS, accountLedger, accountList, commissionTotals, glFlagOn, journal, ledgerStatus, postingQueue, reconcile, trialBalance, type TbLevel } from "../lib/gl-reports";
 
 const router = Router();
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -22,7 +22,8 @@ const financeOnly: RequestHandler = (_req, res, next) => {
 /** N2: per-seller commission totals — admin or gl.commission_totals.view (gl_accountant). The old accounting role keeps decision 5 (status only, no amounts). */
 const commissionTotalsAllowed: RequestHandler = (_req, res, next) => {
   const u = actor(res);
-  if (!u || (u.role !== "admin" && !u.permissions.includes("gl.commission_totals.view"))) { res.status(403).json({ error: "Forbidden" }); return; }
+  // per-seller amounts: admin or the accountant permission; never the hidden user 29 (same exclusion as finance-role eligibility)
+  if (!u || GL_FINANCE_EXCLUDED_USER_IDS.includes(Number(u.id)) || (u.role !== "admin" && !u.permissions.includes("gl.commission_totals.view"))) { res.status(403).json({ error: "Forbidden" }); return; }
   next();
 };
 const enabled: RequestHandler = (_req, res, next) => {

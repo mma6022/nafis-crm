@@ -225,7 +225,9 @@ if (process.env.LEDGER_DB_COPY) {
   who = { ...who, role: "salesperson", permissions: ["accounting.view", "gl.commission_totals.view"] };
   r = await get("/gl/reports/commission-totals"); ok(r.s === 403, "B (G6c): salesperson -> 403 even with the permission");
   who = { ...who, role: "accounting", permissions: ["accounting.view"] };
-  who = { ...who, role: "admin", permissions: [] };
+  who = { ...who, id: 29, role: "admin", permissions: [] };
+  r = await get("/gl/reports/commission-totals"); ok(r.s === 403, "B (G6c): hidden user 29 (admin) -> commission totals 403");
+  who = { ...who, id: admin, role: "admin", permissions: [] };
   ok((await fetch(base + "/gl/reports/commission-totals", { method: "POST" })).status === 404, "B (G6c): commission totals has no write (admin)");
   db.prepare("update gl_settings set value='0' where key='gl.reports'").run();
   r = await get("/gl/reports/commission-totals"); ok(r.s === 404 && r.b.error === "gl_reports_off", "B (G6c): flag OFF -> commission totals 404");
