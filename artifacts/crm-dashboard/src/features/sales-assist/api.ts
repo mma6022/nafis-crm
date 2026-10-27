@@ -1,7 +1,8 @@
 /** «پیشنهاد دستیار فروش» client. Server: artifacts/api-server/src/routes/sales-assist.ts */
 export type SaChip = { key: 'site_lead' | 'urgent' | 'from_kazemi' | 'repeat' | 'p1_stale'; label: string; tone?: 'red' };
 export type SaItem = {
-  customerId: number; displayName: string; priority: number | null; chips: SaChip[]; tier: 1 | 2 | 3; points: number;
+  /** displayName = short masked label (assistants); fullName = full name for the UI (name → phone → «بدون نام»). */
+  customerId: number; displayName: string; fullName?: string; priority: number | null; chips: SaChip[]; tier: 1 | 2 | 3; points: number;
   reason: { kind: string; text: string }; signals: string[]; rank: number; callForm: 'simple' | 'legacy';
   topOfList: { kind: string; dueAt: string; overdue: boolean; windowNow: boolean } | null;
   p1Stale?: { daysSince: number; red: boolean; quotaRank: number } | null;
@@ -11,7 +12,7 @@ export type SaP1Settings = { quota: number; redDays: number; noCallDays: number 
 export type SaReason = { key: 'busy' | 'customer_later' | 'bad_time' | 'other'; label: string; needsText: boolean };
 export type SaResponse = {
   eligible: boolean; preview?: boolean; salespersonId?: number; scope?: string; now?: string; snoozeHours?: number; snoozeLabel?: string;
-  items: SaItem[]; pool?: number; snoozed?: { customerId: number; displayName: string; until: string; reason: string }[];
+  items: SaItem[]; pool?: number; snoozed?: { customerId: number; displayName: string; fullName?: string; until: string; reason: string }[];
   today?: { calls: number; notNow: number }; p1Quota?: SaP1Quota; reasons: SaReason[]; previewable: { id: number; name: string; scope: string }[];
 };
 const base = () => (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
@@ -31,7 +32,7 @@ export type SaWeights = { settings: SaSettings; defaults: SaSettings; signals: S
   p1?: SaP1Settings; p1Defaults?: { quota: number; redDays: number }; p1Limits?: { quota: [number, number]; redDays: [number, number] } };
 export const fetchWeights = () => req<SaWeights>('/sales-assist/weights');
 export const saveWeights = (s: SaSettings & { p1?: { quota: number; redDays: number } }) => req<{ settings: SaSettings; p1?: SaP1Settings }>('/sales-assist/weights', { method: 'PUT', body: JSON.stringify(s) });
-export type SaPreviewItem = { rank: number; customerId: number; displayName: string; priority: number | null; tier: number; points: number; signals: string[]; was: number };
+export type SaPreviewItem = { rank: number; customerId: number; displayName: string; fullName?: string; priority: number | null; tier: number; points: number; signals: string[]; was: number };
 export const previewWeights = (salespersonId: number, levels: Record<string, number>) => req<{ items: SaPreviewItem[] }>('/sales-assist/weights/preview', { method: 'POST', body: JSON.stringify({ salespersonId, levels }) });
 
 /** Customers page tells the box that a call was saved (any outcome, «جواب نداد» included). */
@@ -40,3 +41,6 @@ export function notifySalesAssistCallSaved(customerId: number | null | undefined
   if (customerId) window.dispatchEvent(new CustomEvent(SA_CALL_SAVED, { detail: { customerId: Number(customerId) } }));
 }
 export const faNum = (n: number | string) => String(n).replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
+
+/** UI label: the full name (falls back to the short label for an older server). */
+export const saName = (i: { fullName?: string; displayName: string }) => (i.fullName ?? '').trim() || i.displayName || 'بدون نام';

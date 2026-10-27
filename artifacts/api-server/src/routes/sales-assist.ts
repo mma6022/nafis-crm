@@ -114,7 +114,7 @@ router.post("/sales-assist/weights/preview", requirePermission("customers.view")
   const now = new Date();
   const before = scoreForSalesperson(sp, now).map((x) => x.customerId);
   const after = scoreForSalesperson(sp, now, weightsFrom(v.settings)).slice(0, 6);
-  res.json({ items: after.map((x, i) => ({ rank: i + 1, customerId: x.customerId, displayName: x.displayName, priority: x.priority, tier: x.tier, points: x.points,
+  res.json({ items: after.map((x, i) => ({ rank: i + 1, customerId: x.customerId, displayName: x.displayName, fullName: x.fullName, priority: x.priority, tier: x.tier, points: x.points,
     signals: x.signals.slice(0, 4), was: before.indexOf(x.customerId) + 1 })) });
 });
 

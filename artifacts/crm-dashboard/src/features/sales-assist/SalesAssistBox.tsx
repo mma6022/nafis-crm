@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { CustomerIdBadge } from '@/components/customer/CustomerName';
 import { Sheet } from '@/pages/customers-ui';
-import { SA_CALL_SAVED, faNum, fetchSuggestions, logCall, notNow, restore, type SaChip, type SaItem, type SaReason } from './api';
+import { SA_CALL_SAVED, faNum, fetchSuggestions, logCall, notNow, restore, saName, type SaChip, type SaItem, type SaReason } from './api';
 import './sales-assist.css';
 
 type User = { id: number; role: string; salespersonId?: number | null } | undefined;
@@ -54,7 +54,7 @@ export function SalesAssistBox({ user, onCall }: { user: User; onCall: (customer
   const byId = useMemo(() => new Map((data?.items ?? []).map((i) => [i.customerId, i])), [data]);
   useEffect(() => {
     if (!data) return;
-    for (const i of data.items) names.current.set(i.customerId, i.displayName);
+    for (const i of data.items) names.current.set(i.customerId, saName(i));
     setSlots((prev) => {
       const next = reconcile(prev, data.items.map((i) => i.customerId));
       const added = prev.length ? next.filter((id, idx) => prev[idx] !== undefined && prev[idx] !== id) : [];
@@ -108,14 +108,14 @@ export function SalesAssistBox({ user, onCall }: { user: User; onCall: (customer
       {isAdmin ? <Link href="/sales-assist-settings" className="sa-tg" aria-label="تنظیمات دستیار فروش" title="تنظیمات دستیار فروش" data-testid="sales-assist-settings-link"><Settings2 className="i" /></Link> : null}
       <button type="button" className={`sa-tg${collapsed ? ' dn' : ''}`} onClick={toggle} aria-expanded={!collapsed} aria-label={collapsed ? 'باز کردن' : 'جمع کردن'} data-testid="sales-assist-toggle"><ChevronUp className="i" /></button>
     </div>
-    {collapsed ? (items.length ? <div className="sa-col">{items.map((i) => <span key={i.customerId} className="pp"><i className={PRI[i.priority ?? 0] ?? 'p0'} />{i.displayName}</span>)}</div> : null)
+    {collapsed ? (items.length ? <div className="sa-col">{items.map((i) => <span key={i.customerId} className="pp"><i className={PRI[i.priority ?? 0] ?? 'p0'} />{saName(i)}</span>)}</div> : null)
       : loading ? <div className="sa-g" aria-busy="true">{[0, 1, 2].map((k) => <div key={k} className="sac ld"><span className="sk w60" /><span className="sk w40" /><span className="sk h36" /><span className="sk h46" /></div>)}</div>
       : items.length ? <div className="sa-g">{items.map((it) => gone[it.customerId]
-        ? <div key={it.customerId} className="sac gone" role="status"><span className="ok"><Check className="i" /></span><b>{gone[it.customerId] === 'call' ? `تماس ${it.displayName} ثبت شد` : `${it.displayName} کنار گذاشته شد`}</b><span>از پیشنهادها رفت</span><span className="nx"><Loader2 className="i sa-spin" /> نفر بعدی در راه است…</span></div>
+        ? <div key={it.customerId} className="sac gone" role="status"><span className="ok"><Check className="i" /></span><b>{gone[it.customerId] === 'call' ? `تماس ${saName(it)} ثبت شد` : `${saName(it)} کنار گذاشته شد`}</b><span>از پیشنهادها رفت</span><span className="nx"><Loader2 className="i sa-spin" /> نفر بعدی در راه است…</span></div>
         : <article key={it.customerId} className={`sac${freshIds.includes(it.customerId) ? ' fresh' : ''}`} data-testid={`sales-assist-card-${it.customerId}`} data-rank={it.rank} data-tier={it.tier}>
           {freshIds.includes(it.customerId) ? <span className="new"><Sparkles className="i" /> تازه</span> : null}
           <div className="r1">{/* v7: the name opens the profile (same route as the customer list). A plain router link: no dismiss / impression / call handler — only a logged call removes the card. Ctrl/Cmd/Shift/middle-click are left to the browser (new tab). */}
-            <Link href={`/customers/${it.customerId}`} className="nm nm-link" title={`باز کردن پرونده‌ی ${it.displayName}`} data-testid={`sales-assist-name-${it.customerId}`}>{it.displayName}</Link><CustomerIdBadge id={it.customerId} className="cid" testId={`sales-assist-id-${it.customerId}`} />
+            <Link href={`/customers/${it.customerId}`} className="nm nm-link" title={`باز کردن پرونده‌ی ${saName(it)}`} data-testid={`sales-assist-name-${it.customerId}`}>{saName(it)}</Link><CustomerIdBadge id={it.customerId} className="cid" testId={`sales-assist-id-${it.customerId}`} />
             {it.priority ? <span className={`sa-pri ${PRI[it.priority]}`}>اولویت {faNum(it.priority)}</span> : null}</div>
           {it.chips.length ? <div className="tgs">{it.chips.slice(0, 3).map((c) => <span key={c.key} className={`tgx ${chipCls[c.key]}${c.tone === 'red' ? ' red' : ''}`} data-testid={c.key === 'p1_stale' ? `sales-assist-p1-${it.customerId}` : undefined}>{chipIcon[c.key]}{c.label}</span>)}</div> : null}
           <div className="why">{reasonIcon(it.reason.kind)}<span>{it.reason.text}</span></div>
@@ -147,7 +147,7 @@ function NotNowSheet({ item, reasons, hours, onClose, onDone }: { item: SaItem; 
     setBusy(true); setErr(null);
     try { await notNow(item, reason, needs ? text.trim() : undefined); onDone(); } catch (e) { setErr((e as Error).message || 'ثبت نشد'); setBusy(false); }
   };
-  return <Sheet title={`الان نه — ${item.displayName} #${faNum(item.customerId)}`} onClose={onClose} testId="sales-assist-later-sheet"
+  return <Sheet title={`الان نه — ${saName(item)} #${faNum(item.customerId)}`} onClose={onClose} testId="sales-assist-later-sheet"
     footer={<><button type="button" className="csx-primary" disabled={!reason || busy || len > 120} onClick={() => { void submit(); }} data-testid="sales-assist-later-submit">{busy ? 'در حال ثبت…' : 'ثبت و نفر بعدی'}</button>
       <button type="button" className="csx-ghost" onClick={onClose}>انصراف</button></>}>
     <div className="sa-nn">
@@ -158,7 +158,7 @@ function NotNowSheet({ item, reasons, hours, onClose, onDone }: { item: SaItem; 
       {needs ? <label className="txt"><span>توضیح کوتاه <em>اختیاری</em></span>
         <input value={text} maxLength={120} onChange={(e) => setText(e.target.value)} placeholder="مثلاً: گفت بعد از ساعت ۴ زنگ بزنید" data-testid="sales-assist-later-text" />
         <small>{faNum(len)} / ۱۲۰</small></label> : null}
-      <div className="info">{item.displayName} {hours > 0 ? `تا ${faNum(hours)} ساعت` : 'تا فردا صبح'} در پیشنهادها نمی‌آید و نفر بعدی جایش را می‌گیرد. در فهرست مشتریان سر جایش است.</div>
+      <div className="info">{saName(item)} {hours > 0 ? `تا ${faNum(hours)} ساعت` : 'تا فردا صبح'} در پیشنهادها نمی‌آید و نفر بعدی جایش را می‌گیرد. در فهرست مشتریان سر جایش است.</div>
       {err ? <div className="csx-note bad" role="alert"><p>{err}</p></div> : null}
     </div>
   </Sheet>;

@@ -216,7 +216,9 @@ const tms = (s: string | null | undefined) => (s ? Date.parse(/[zZ]$|[+-]\d\d:?\
 export type ReasonKind = "site_lead" | "from_kazemi" | "p1_stale" | "reminder" | "note" | "urgent" | "repeat" | "upgrade" | "docs" | "grade" | "new_lead" | "no_call" | "next";
 export type Chip = { key: "site_lead" | "urgent" | "from_kazemi" | "repeat" | "p1_stale"; label: string; tone?: "red" };
 export type ScoredCustomer = {
-  customerId: number; displayName: string; priority: number | null; chips: Chip[];
+  /** displayName = the short (first-name-only / «مشتری #id») label handed to the assistants; keep it masked.
+   *  fullName = what the logged-in expert sees in the box: customers.name → first+last → official first+last → phone → «بدون نام». UI only. */
+  customerId: number; displayName: string; fullName: string; priority: number | null; chips: Chip[];
   tier: 1 | 2 | 3; points: number; reason: { kind: ReasonKind; text: string }; signals: string[];
   topOfList: { kind: TopEntry["kind"]; dueAt: string; overdue: boolean; windowNow: boolean } | null;
   callForm: "simple" | "legacy"; lastCallAt: string | null;
@@ -224,7 +226,7 @@ export type ScoredCustomer = {
   p1Stale: { daysSince: number; red: boolean; quotaRank: number } | null;
 };
 export type Suggestion = ScoredCustomer & { rank: number };
-type CRow = { id: number; first_name: string | null; official_first_name: string | null; priority: number | null; is_urgent: number | null;
+type CRow = { id: number; name: string | null; first_name: string | null; last_name: string | null; official_first_name: string | null; official_last_name: string | null; phone: string | null; priority: number | null; is_urgent: number | null;
   credit_rank: string | null; created_at: string; status: string | null };
 
 function byIds<R>(sqlFn: (ph: string) => string, ids: number[]): R[] {
@@ -235,6 +237,7 @@ function byIds<R>(sqlFn: (ph: string) => string, ids: number[]): R[] {
 const has = (t: string) => !!queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name=?", [t]);
 const push = <K, V>(m: Map<K, V[]>, k: K, v: V) => { const l = m.get(k) ?? []; l.push(v); m.set(k, l); };
 
+const clean = (v: string | null | undefined) => String(v ?? "").replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/\s+/g, " ").trim();
 /** Every scorable customer of one salesperson, best first (snoozes not applied). Pure read. */
 export function scoreForSalesperson(salespersonId: number, now = new Date(), w: SalesAssistWeights = getSalesAssistWeights()): ScoredCustomer[] {
   const mode = salesAssistScope(salespersonId);
@@ -242,7 +245,7 @@ export function scoreForSalesperson(salespersonId: number, now = new Date(), w: 
   const cfg = getTeamSalesConfig();
   const qualifier = Number(cfg.qualifierSalespersonId);
   const nowMs = now.getTime();
-  const rows = queryRows<CRow>(`SELECT id, first_name, official_first_name, priority, is_urgent, credit_rank, created_at, status FROM customers c
+  const rows = queryRows<CRow>(`SELECT id, name, first_name, last_name, official_first_name, official_last_name, phone, priority, is_urgent, credit_rank, created_at, status FROM customers c
     WHERE salesperson_id=? AND merged_into_customer_id IS NULL AND COALESCE(status,'') NOT IN ('cancelled','completed')
       ${mode === "own_p1" ? "AND priority=1" : ""}
       AND NOT EXISTS (SELECT 1 FROM loan_applications la WHERE la.customer_id=c.id AND la.deleted_at IS NULL AND la.stage='completed')
@@ -387,9 +390,10 @@ export function scoreForSalesperson(salespersonId: number, now = new Date(), w: 
       if (!t && !od.length) why.unshift([1e5, "p1_stale", `اولویت ۱؛ ${faNum(daysSince)} روز است تماسی نگرفته${red ? " — بیش از " + faNum(p1s.redDays) + " روز" : ""} (سهمیه‌ی امروز)`]);
     }
     why.sort((a, b) => b[0] - a[0]);
-    const fn = (r.first_name || r.official_first_name || "").replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/\s+/g, " ").trim();
+    const fn = clean(r.first_name || r.official_first_name);
+    const full = clean(r.name) || clean(`${r.first_name ?? ""} ${r.last_name ?? ""}`) || clean(`${r.official_first_name ?? ""} ${r.official_last_name ?? ""}`) || clean(r.phone) || "بدون نام";
     return {
-      customerId: cid, displayName: fn || `مشتری #${faNum(cid)}`, priority: r.priority == null ? null : Number(r.priority), chips: chips.slice(0, 3),
+      customerId: cid, displayName: fn || `مشتری #${faNum(cid)}`, fullName: full, priority: r.priority == null ? null : Number(r.priority), chips: chips.slice(0, 3),
       tier, points: Math.round(pts * 10) / 10,
       reason: why.length ? { kind: why[0][1], text: why[0][2] } : { kind: "next" as ReasonKind, text: "در نوبت بعدی لیست شماست" }, signals: sig,
       topOfList: t ? { kind: t.e.kind, dueAt: t.e.dueAt, overdue: Date.parse(t.e.dueAt) <= nowMs, windowNow: t.e.windowNow } : null,
@@ -429,14 +433,14 @@ export function todayCounts(salespersonId: number, now = new Date()): { calls: n
   return { calls: Number(r?.calls ?? 0), notNow: Number(r?.nn ?? 0) };
 }
 /** Up to 3 (exactly 3 whenever 3 un-snoozed customers exist). Snoozed customers are never shown inside their 3 hours. */
-export function suggestionsFor(salespersonId: number, now = new Date(), size = 3): { items: Suggestion[]; pool: number; snoozed: { customerId: number; displayName: string; until: string; reason: string }[]; p1Quota: ReturnType<typeof p1QuotaSummary> } {
+export function suggestionsFor(salespersonId: number, now = new Date(), size = 3): { items: Suggestion[]; pool: number; snoozed: { customerId: number; displayName: string; fullName: string; until: string; reason: string }[]; p1Quota: ReturnType<typeof p1QuotaSummary> } {
   const all = scoreForSalesperson(salespersonId, now);
   const sn = activeSnoozes(salespersonId, now);
   // A logged call (any outcome) takes the customer out of the box for called_recently_hours (2 h); the list keeps its own rules.
   const recentMs = getSalesAssistWeights().called_recently_hours * 3600_000;
   const items = all.filter((x) => !sn.has(x.customerId) && !(x.lastCallAt && now.getTime() - tms(x.lastCallAt) < recentMs)).slice(0, size).map((x, i) => ({ ...x, rank: i + 1 }));
-  const names = new Map(all.map((x) => [x.customerId, x.displayName]));
-  const snoozed = [...sn].filter(([id]) => names.has(id)).map(([customerId, s]) => ({ customerId, displayName: names.get(customerId)!, until: s.until, reason: s.reason }));
+  const names = new Map(all.map((x) => [x.customerId, x]));
+  const snoozed = [...sn].filter(([id]) => names.has(id)).map(([customerId, s]) => ({ customerId, displayName: names.get(customerId)!.displayName, fullName: names.get(customerId)!.fullName, until: s.until, reason: s.reason }));
   return { items, pool: all.length, snoozed, p1Quota: p1QuotaSummary(all) };
 }
 /** Task B summary for the box header: today's P1 quota of one expert. */

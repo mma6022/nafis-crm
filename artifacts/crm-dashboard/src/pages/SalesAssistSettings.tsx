@@ -3,7 +3,7 @@
 import { Minus, Plus, RotateCcw, Save, ShieldCheck, ArrowUp, ArrowDown, Lock } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { fetchWeights, faNum, previewWeights, saveWeights, type SaPreviewItem, type SaSettings, type SaWeights } from '@/features/sales-assist/api';
+import { fetchWeights, faNum, previewWeights, saName, saveWeights, type SaPreviewItem, type SaSettings, type SaWeights } from '@/features/sales-assist/api';
 import '@/features/sales-assist/sales-assist.css';
 import './customers.css';
 
@@ -73,7 +73,7 @@ export default function SalesAssistSettings() {
         <select className="sa-sel" value={sp ?? ''} onChange={(e) => setSp(Number(e.target.value))} aria-label="کارشناس">{w.previewable.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
         {prev ? <ol>{prev.map((it) => <li key={it.customerId} className={it.rank === 4 ? 'cut' : ''}>
           {it.rank === 4 ? <span className="sa-cut">این ۳ نفر در باکس دیده می‌شوند</span> : null}
-          <span className="rk">{faNum(it.rank)}</span><span className="nm">{it.displayName}</span>
+          <span className="rk">{faNum(it.rank)}</span><span className="nm">{saName(it)}</span>
           <span className="pt">{it.tier === 3 ? 'سرنخ سایت' : it.tier === 2 ? 'از کاظمی' : faNum(Math.round(it.points))}</span>
           {it.was && it.was !== it.rank ? <span className={`mv ${it.was > it.rank ? 'up' : 'dn'}`}>{it.was > it.rank ? <ArrowUp size={14} /> : <ArrowDown size={14} />}{faNum(Math.abs(it.was - it.rank))}</span> : null}
           <small>{it.signals.join(' · ')}</small></li>)}</ol> : <p className="sa-help">…</p>}
