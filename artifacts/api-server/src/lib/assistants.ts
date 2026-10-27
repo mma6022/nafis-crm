@@ -23,6 +23,7 @@
  * code that does not normalize (or an older release after a rollback) sees a sales row with no expert → scope "0", nobody eligible.
  */
 import { cqFlag } from "./call-queue";
+import { registeredByRange, registeredByReport } from "./registered-by-report";
 import express, { Router, type Request, type Response, type NextFunction } from "express";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
@@ -904,6 +905,14 @@ export function createAssistants(deps: Deps) {
     const p = regParams(req, res); if (!p) return;
     audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/registration", outcome: "ok", detail: { range: p.range, stuckHours: p.stuckHours } });
     res.json(maskAll(registrationReport(workDeps(), p.range, p.stuckHours, p.src)));
+  });
+  /** crm-default-owner: «ثبت‌شده‌ها بر اساس ثبت‌کننده» — per registrar over [from,to] (Tehran dates): registered / reached
+   *  registration / reached deposit. Counts only (no customer id / name / phone); user 29 is never a row. Manager token only. */
+  runner.get("/manager/registered-by", managerOnly, (req, res) => {
+    const r = registeredByRange({ from: req.query.from, to: req.query.to }, now());
+    if ("error" in r) return fail(res, 422, r.error, "from / to باید تاریخ تهران YYYY-MM-DD باشند، from ≤ to و حداکثر ۴۰۰ روز.");
+    audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/registered-by", outcome: "ok", detail: { from: r.from, to: r.to } });
+    res.json(maskAll(registeredByReport(db, r, { excludeTest: excludeTestOn(db), now: now() })));
   });
   /* ---------- Task D (2026-10-26) «تحلیل عملکرد من»: per-period numbers + Ahmad's written analysis per expert ---------- */
   ensureExpertAnalysisSchema(db);

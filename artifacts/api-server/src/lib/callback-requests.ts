@@ -420,7 +420,8 @@ export function convertCallback(actor: CallbackActor, id: number, now = new Date
       if (!can(actor, "customers.create")) return { ok: false, error: "forbidden" };
       const assigneeSalesperson = current.assignedUserId == null ? null
         : queryRow<{ salesperson_id: number | null }>("SELECT salesperson_id FROM users WHERE id=?", [current.assignedUserId])?.salesperson_id ?? null;
-      const base = { name: current.name, phone, description: callbackDescription(current, noteTexts(id)), priority: null };
+      const base = { name: current.name, phone, description: callbackDescription(current, noteTexts(id)), priority: null,
+        registeredByUserId: actor.id ?? null, registrationSource: "site_callback" as const };
       if (assigneeSalesperson != null) {
         customerId = insertCustomerRecord({ ...base, assignedSalespersonId: Number(assigneeSalesperson) });
       } else {

@@ -496,6 +496,8 @@ function createNewCustomer(
       allocationProgramId,
       priority: null,
       isUrgent: urgent,
+      registeredByUserId: null,
+      registrationSource: "instagram_auto",
     });
     executeChanges(
       `UPDATE instagram_threads SET customer_id=COALESCE(customer_id,?),updated_at=?

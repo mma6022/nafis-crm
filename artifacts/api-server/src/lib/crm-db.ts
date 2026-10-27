@@ -491,6 +491,9 @@ ensureColumn("customers", "postal_code", "TEXT");
 ensureColumn("customers", "verification_status", "TEXT NOT NULL DEFAULT 'unverified'");
 ensureColumn("customers", "verification_version", "INTEGER NOT NULL DEFAULT 0");
 ensureColumn("customers", "identity_changed_at", "TEXT");
+// crm-default-owner: real registrar (users.id; NULL = system intake) and intake channel of a new customer.
+ensureColumn("customers", "registered_by", "INTEGER");
+ensureColumn("customers", "registration_source", "TEXT");
 ensureColumn("customers", "is_urgent", "INTEGER NOT NULL DEFAULT 0");
 ensureColumn("customers", "father_name", "TEXT");
 ensureColumn("customers", "address", "TEXT");

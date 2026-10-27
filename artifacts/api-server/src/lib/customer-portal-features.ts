@@ -1,5 +1,6 @@
 import { crmDb, queryRow, execute, runImmediateTransaction } from "./crm-db";
 import { nextAllocatedSalesperson } from "./customer-create";
+import { defaultOwnerDecision, logRuleAssignment } from "./default-owner-rule";
 import "./customer-chat-schema";
 
 crmDb.exec(`
@@ -21,6 +22,18 @@ export function allocatePortalSalesperson(): number {
     "SELECT s.id FROM salespersons s JOIN users u ON u.salesperson_id=s.id AND u.active=1 WHERE s.id=? AND s.active=1 GROUP BY s.id HAVING COUNT(u.id)=1", [id]);
   if (!valid) throw new Error("NO_ACTIVE_SALESPERSON");
   return Number(id);
+}
+/**
+ * crm-default-owner: owner of a NEW portal customer. «قانون ثبت» (source portal, no registrar) wins and does not move
+ * the allocation cursor; otherwise the old portal allocation decides. Call portalOwnerLogged() right after the INSERT.
+ */
+export function portalNewCustomerOwner(): { salespersonId: number; ruleApplied: boolean } {
+  const d = defaultOwnerDecision("portal", null);
+  if (d.apply) return { salespersonId: d.ownerSalespersonId, ruleApplied: true };
+  return { salespersonId: allocatePortalSalesperson(), ruleApplied: false };
+}
+export function portalOwnerLogged(customerId: number, owner: { salespersonId: number; ruleApplied: boolean }) {
+  if (owner.ruleApplied) logRuleAssignment({ customerId, registrarUserId: null, source: "portal", ownerSalespersonId: owner.salespersonId });
 }
 export function markPortalRegistration(id: number) {
   execute("INSERT OR IGNORE INTO customer_portal_registrations(customer_id,created_at) VALUES(?,?)", [id,new Date().toISOString()]);

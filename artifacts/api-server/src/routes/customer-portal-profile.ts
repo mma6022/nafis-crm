@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { identityValueChanged, identityValuesChanged } from "../lib/identity-change";
 import { createHash } from "node:crypto";
-import { allocatePortalSalesperson, markPortalRegistration, claimInquiry } from "../lib/customer-portal-features";
+import { markPortalRegistration, claimInquiry, portalNewCustomerOwner, portalOwnerLogged } from "../lib/customer-portal-features";
 import { customerPortalSession, requireCustomerPortal, updateCustomerPortalSessionCustomer } from "../lib/customer-portal-auth";
 import { execute, executeChanges, queryRow, queryRows, runTransaction } from "../lib/crm-db";
 import { normalizeCustomerNationalCode, normalizeCustomerMobile } from "../lib/customer-integrity";
@@ -135,12 +135,13 @@ router.post("/identity", async (req, res): Promise<void> => {
     const reserved = runTransaction(() => {
       let id = existing?.id;
       if (id == null) {
-        const salesperson = allocatePortalSalesperson();
-        if (salesperson == null) throw new Error("NO_ACTIVE_SALESPERSON");
+        const owner = portalNewCustomerOwner();
+        if (owner.salespersonId == null) throw new Error("NO_ACTIVE_SALESPERSON");
         id = execute(`INSERT INTO customers
-          (name,phone,verification_status,is_urgent,created_at,salesperson_id,status)
-          VALUES (?,?,'unverified',0,?,?,'in_progress')`,
-          ["در انتظار احراز هویت", session.mobile.replace(/^\+98/, "0"), now, salesperson]);
+          (name,phone,verification_status,is_urgent,created_at,salesperson_id,status,registered_by,registration_source)
+          VALUES (?,?,'unverified',0,?,?,'in_progress',NULL,'portal')`,
+          ["در انتظار احراز هویت", session.mobile.replace(/^\+98/, "0"), now, owner.salespersonId]);
+        portalOwnerLogged(id, owner);
         markPortalRegistration(id);
         updateCustomerPortalSessionCustomer(req, id);
       }
@@ -357,16 +358,18 @@ router.patch("/profile", (req, res): void => {
         return existing.id;
       }
 
-      const salespersonId = allocatePortalSalesperson();
+      const owner = portalNewCustomerOwner();
+      const salespersonId = owner.salespersonId;
       if (salespersonId === undefined) throw new Error("NO_ACTIVE_SALESPERSON");
       const phone = session.mobile.replace(/^\+98/, "0");
       const id = execute(
         `INSERT INTO customers
            (name,phone,description,national_code,birth_date_jalali,postal_code,father_name,
-             verification_status,is_urgent,created_at,salesperson_id,priority,status,identity_changed_at)
-         VALUES (?,?,NULL,?,?,?,?,'unverified',0,?,?,NULL,'in_progress',?)`,
+             verification_status,is_urgent,created_at,salesperson_id,priority,status,identity_changed_at,registered_by,registration_source)
+         VALUES (?,?,NULL,?,?,?,?,'unverified',0,?,?,NULL,'in_progress',?,NULL,'portal')`,
         [profile.name, phone, profile.nationalCode, profile.birthDate, profile.postalCode, profile.fatherName, now, salespersonId, now],
       );
+      portalOwnerLogged(id, owner);
       markPortalRegistration(id);
       execute(
         `INSERT INTO customer_portal_profile_audit

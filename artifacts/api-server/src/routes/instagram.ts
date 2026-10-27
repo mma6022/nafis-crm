@@ -339,6 +339,8 @@ router.post("/instagram/threads/:id/convert", (req, res): void => {
         description: `درخواست ثبت‌شده از دایرکت اینستاگرام: ${request}`,
         allocationProgramId: Number(program.id),
         status: "in_progress",
+        registeredByUserId: user.id,
+        registrationSource: "instagram",
       });
       const updated = executeChanges(
         `UPDATE instagram_threads

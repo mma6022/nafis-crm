@@ -1,4 +1,5 @@
 import { execute, executeChanges, queryRow, queryRows } from "./crm-db";
+import { defaultOwnerDecision, logRuleAssignment, type RegistrationSource } from "./default-owner-rule";
 
 export type CustomerCreateInput = {
   name: string;
@@ -16,7 +17,16 @@ export type CustomerCreateInput = {
   priority?: number | null;
   status?: string;
   assignedSalespersonId?: number | null;
+  /** crm-default-owner: real registrar (users.id) — null/undefined for system intakes. */
+  registeredByUserId?: number | null;
+  /** crm-default-owner: intake channel; every caller passes one. */
+  registrationSource: RegistrationSource;
 };
+
+/** Result of the last insertCustomerRecord in this process (read synchronously by the caller right after the insert). */
+export type CustomerCreateOutcome = { customerId: number; ruleApplied: boolean; salespersonId: number | null };
+let lastOutcome: CustomerCreateOutcome | null = null;
+export const lastCustomerCreateOutcome = (): CustomerCreateOutcome | null => lastOutcome;
 
 export function nextAllocatedSalesperson(programId: number): number | undefined {
   const program = queryRow<{
@@ -55,20 +65,32 @@ export function nextAllocatedSalesperson(programId: number): number | undefined 
   return Number(item.salesperson_id);
 }
 
-/** Insert a new unverified CRM customer and apply optional allocation within the caller's transaction. */
+/**
+ * Insert a new unverified CRM customer and apply optional allocation within the caller's transaction.
+ * crm-default-owner: when «قانون ثبت» applies, the default owner wins over assignment/allocation (the allocation cursor is
+ * NOT advanced) and one history row is written; registered_by / registration_source are always stored.
+ */
 export function insertCustomerRecord(input: CustomerCreateInput): number {
-  const allocatedSalespersonId = input.allocationProgramId
-    ? nextAllocatedSalesperson(input.allocationProgramId)
-    : undefined;
-  if (input.allocationProgramId && !allocatedSalespersonId) {
-    throw new Error("ALLOCATION_PROGRAM_UNAVAILABLE");
+  const rule = defaultOwnerDecision(input.registrationSource, input.registeredByUserId ?? null);
+  let owner: number | null;
+  if (rule.apply) owner = rule.ownerSalespersonId;
+  else {
+    const allocatedSalespersonId = input.allocationProgramId
+      ? nextAllocatedSalesperson(input.allocationProgramId)
+      : undefined;
+    if (input.allocationProgramId && !allocatedSalespersonId) {
+      throw new Error("ALLOCATION_PROGRAM_UNAVAILABLE");
+    }
+    owner = input.assignedSalespersonId !== undefined
+      ? input.assignedSalespersonId
+      : input.salespersonId ?? allocatedSalespersonId ?? null;
   }
-  return execute(
+  const id = execute(
     `INSERT INTO customers
       (name, phone, description, national_code, birth_date_jalali, postal_code,
        father_name, address, email, verification_status, is_urgent, created_at,
-       salesperson_id, priority, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'unverified', ?, ?, ?, ?, ?)`,
+       salesperson_id, priority, status, registered_by, registration_source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'unverified', ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.name,
       input.phone,
@@ -81,11 +103,15 @@ export function insertCustomerRecord(input: CustomerCreateInput): number {
       input.email ?? null,
       input.isUrgent ? 1 : 0,
       new Date().toISOString(),
-      input.assignedSalespersonId !== undefined
-        ? input.assignedSalespersonId
-        : input.salespersonId ?? allocatedSalespersonId ?? null,
+      owner,
       input.priority ?? null,
       input.status ?? "in_progress",
+      input.registeredByUserId ?? null,
+      input.registrationSource,
     ],
   );
+  if (rule.apply) logRuleAssignment({ customerId: id, registrarUserId: input.registeredByUserId ?? null, source: input.registrationSource,
+    ownerSalespersonId: rule.ownerSalespersonId, priority: input.priority ?? null });
+  lastOutcome = { customerId: id, ruleApplied: rule.apply, salespersonId: owner };
+  return id;
 }

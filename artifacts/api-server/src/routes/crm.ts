@@ -189,7 +189,7 @@ import { normalizeSideFlags } from "../lib/plan-requirements";
 import { retainedIdentityChecks } from "../lib/identity-check-retention";
 import { normalizeCustomerMobile, normalizeCustomerNationalCode, isAdminRole } from "../lib/customer-integrity";
 import { mergeCustomerRecords } from "../lib/customer-merge";
-import { insertCustomerRecord } from "../lib/customer-create";
+import { insertCustomerRecord, lastCustomerCreateOutcome } from "../lib/customer-create";
 import { publicPlanGuarantees } from "../lib/public-plan-guarantees";
 import { isPortalRegistration } from "../lib/customer-portal-features";
 import { acceptedGradeEdit, compactRankList, expandRankList, GRADE_EDIT_ERROR, isLegacyGradeLetter, parseStoredRanks } from "../lib/credit-subgrades";
@@ -2031,6 +2031,7 @@ router.post(
     }
     let id: number;
     let createdNonP1: NonP1Result | null = null;
+    let ruleOwner: number | null | undefined;
     try {
       id = runTransaction(() => {
         const newId = insertCustomerRecord({
@@ -2049,7 +2050,15 @@ router.post(
           priority: body.priority,
           status: body.status,
           assignedSalespersonId: user.customerScope === "assigned" ? user.salespersonId : undefined,
+          registeredByUserId: user.id,
+          registrationSource: "staff_form",
         });
+        const created = lastCustomerCreateOutcome();
+        if (created?.customerId === newId && created.ruleApplied) {
+          // crm-default-owner: «قانون ثبت» already set the owner; the non-P1 handoff must not run on top of it.
+          ruleOwner = created.salespersonId;
+          return newId;
+        }
         // crm-nonp1-to-kazemi: an expert creating a P2 / P3 customer hands it to Kazemi in the same transaction
         // (an admin's explicit salesperson choice is respected; «بدون اولویت» on create is not a priority change).
         if (body.priority != null && body.priority !== 1) {
@@ -2090,7 +2099,11 @@ router.post(
       }
       throw error;
     }
-    const transferredOnCreate = (createdNonP1 as NonP1Result | null)?.transferred === true;
+    // crm-default-owner: a customer the rule gave to someone else is answered unscoped + the transfer header (toast,
+    // list refresh, leave the page) exactly like the non-P1 handoff, instead of a scoped 500 for an assigned-scope user.
+    const intendedOwner = user.customerScope === "assigned" ? (user.salespersonId ?? null) : (body.salespersonId ?? null);
+    const ruleMovedAway = ruleOwner !== undefined && intendedOwner != null && ruleOwner !== intendedOwner;
+    const transferredOnCreate = (createdNonP1 as NonP1Result | null)?.transferred === true || ruleMovedAway;
     const customer = transferredOnCreate ? getCustomer(id) : getCustomer(id, user);
     if (!customer) {
       res.status(500).json({ error: "Customer was not created" });
