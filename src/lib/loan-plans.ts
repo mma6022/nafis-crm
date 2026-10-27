@@ -5,22 +5,24 @@
  */
 // Hand-written validation (no zod) keeps the client islands small — this module ships to the browser.
 import { PLAN_GUARANTEES, type GuaranteePage, type GuaranteeType } from '../data/plan-guarantees';
-import { parseRate, parseStaleDays, type PlanRate } from './rates';
 
 export const LOAN_PLANS_URL = '/data/loan-plans.json';
 
+/**
+ * Public term (Mohammad 2026-10-28: the customer sees ONLY مبلغ واریزی and the installments — no principal, rate,
+ * percentage or other calculation). The CRM export publishes per term the amount paid to the customer (`payout`,
+ * تومان) and the monthly installment (`installment`, تومان), already computed. Nothing else is read; a term
+ * without both figures is invalid (the plan is dropped, the islands fall back to the build snapshot).
+ */
 export interface InstallmentTerm {
   installments: number; // months
-  prepaymentPercent: number; // پیش‌پرداخت ٪ of principal
-  deductionPercent: number; // کسر ٪
-  depositPercent: number; // مبلغ واریزی به مشتری ٪ of principal
+  payout: number; // مبلغ واریزی به شما (تومان)
+  installment: number; // مبلغ هر قسط ماهانه (تومان)
 }
 
 export interface LoanPlan {
   id: number;
   name: string;
-  principalAmount: number; // تومان
-  annualInterest: number; // ٪ per year
   installments: string; // CSV of month options, e.g. "12,18,24"
   loanType: 'goods' | 'score' | (string & {}); // کالایی | امتیازی
   processMode: 'both' | 'in_person' | 'online' | (string & {});
@@ -40,12 +42,8 @@ export interface LoanPlan {
   retireesOnly?: boolean;
   /** Document note that differs from the generic list. */
   documentsNote?: string;
-  /** Loan cap (تومان) of the without-guarantor way when lower than principalAmount (data/plan-guarantees.ts). */
-  noGuarantorMaxPrincipal?: number;
-  /** Public rate (CRM annual_interest + rate_updated_at; lib/rates.ts). Absent/invalid = unknown → «از کارشناس بپرسید». */
-  rate?: PlanRate;
-  /** CRM admin setting rate_stale_days (default 30) */
-  rateStaleDays?: number;
+  /** Share (0–1) of the payout obtainable without a guarantor, when lower than with one (data/plan-guarantees.ts). */
+  noGuarantorShare?: number;
 }
 const GUARANTEES = new Set(['cheque', 'digital_cheque', 'guarantor', 'promissory', 'none']);
 const ORDER: GuaranteeType[] = ['cheque', 'promissory', 'guarantor', 'none'];
@@ -63,7 +61,7 @@ export function applyPlanOverrides(p: LoanPlan): LoanPlan {
   if (g.pages) out.guaranteePages = g.pages;
   if (g.retireesOnly) out.retireesOnly = true;
   if (g.documents) out.documentsNote = g.documents;
-  if (typeof g.noGuarantorMaxPrincipal === 'number' && g.noGuarantorMaxPrincipal > 0) out.noGuarantorMaxPrincipal = g.noGuarantorMaxPrincipal;
+  if (typeof g.noGuarantorShare === 'number' && g.noGuarantorShare > 0 && g.noGuarantorShare < 1) out.noGuarantorShare = g.noGuarantorShare;
   return out;
 }
 
@@ -74,13 +72,8 @@ function parseTerm(t: unknown): InstallmentTerm | null {
   if (!t || typeof t !== 'object') return null;
   const o = t as Record<string, unknown>;
   if (!isNum(o.installments, 1) || !Number.isInteger(o.installments)) return null;
-  if (!isNum(o.prepaymentPercent, 0) || !isNum(o.deductionPercent, 0) || !isNum(o.depositPercent, 0)) return null;
-  return {
-    installments: o.installments,
-    prepaymentPercent: o.prepaymentPercent,
-    deductionPercent: o.deductionPercent,
-    depositPercent: o.depositPercent,
-  };
+  if (!isNum(o.payout, 0) || !isNum(o.installment, 0)) return null;
+  return { installments: o.installments, payout: Math.round(o.payout), installment: Math.round(o.installment) };
 }
 
 /** Returns a clean plan or null. Unknown enum strings are tolerated so a new CRM value never blanks the site. */
@@ -88,17 +81,14 @@ export function parseLoanPlan(p: unknown): LoanPlan | null {
   if (!p || typeof p !== 'object') return null;
   const o = p as Record<string, unknown>;
   if (!isNum(o.id) || !Number.isInteger(o.id) || !isStr(o.name)) return null;
-  if (!isNum(o.principalAmount, 0) || !isNum(o.annualInterest, 0)) return null;
   const strs = ['installments', 'loanType', 'processMode', 'grantDays', 'bankName', 'platformName'] as const;
   if (!strs.every((k) => isStr(o[k]))) return null;
   if (!Array.isArray(o.installmentTerms)) return null;
-  const terms = o.installmentTerms.map(parseTerm);
+  const terms = o.installmentTerms.map((t) => parseTerm(t));
   if (!terms.length || terms.some((t) => t === null)) return null;
   return {
     id: o.id,
     name: o.name,
-    principalAmount: o.principalAmount,
-    annualInterest: o.annualInterest,
     installments: o.installments as string,
     loanType: o.loanType as string,
     processMode: o.processMode as string,
@@ -106,7 +96,6 @@ export function parseLoanPlan(p: unknown): LoanPlan | null {
     bankName: o.bankName as string,
     platformName: o.platformName as string,
     installmentTerms: terms as InstallmentTerm[],
-    ...(o.rate && typeof o.rate === 'object' ? { rate: parseRate(o.rate), rateStaleDays: parseStaleDays(o.rateStaleDays) } : {}),
     ...(Array.isArray(o.guaranteeOptions) &&
     o.guaranteeOptions.length &&
     o.guaranteeOptions.every((x) => Array.isArray(x) && x.length && x.every((g) => GUARANTEES.has(g as string)))
@@ -147,7 +136,7 @@ export async function fetchLoanPlans(fallback: LoanPlan[] = [], signal?: AbortSi
   }
 }
 
-/** Standard amortised monthly installment (same formula as the current live site). */
+/** Standard amortised monthly installment (tests only; the CRM export ships the installment, the site never computes it). */
 export function monthlyInstallment(principal: number, annualInterestPercent: number, months: number): number {
   const r = annualInterestPercent / 100 / 12;
   if (months <= 0) return 0;
@@ -158,11 +147,18 @@ export function monthlyInstallment(principal: number, annualInterestPercent: num
 
 export function planQuote(plan: LoanPlan, months: number) {
   const term = plan.installmentTerms.find((t) => t.installments === months) ?? plan.installmentTerms[0]!;
-  return {
-    term,
-    months: term.installments,
-    monthly: Math.round(monthlyInstallment(plan.principalAmount, plan.annualInterest, term.installments)),
-    deposit: Math.round(plan.principalAmount * (term.depositPercent / 100)),
-    prepayment: Math.round(plan.principalAmount * (term.prepaymentPercent / 100)),
-  };
+  return { term, months: term.installments, monthly: term.installment, deposit: term.payout };
 }
+
+/** The public export shape (what /data/loan-plans.json carries after the CRM change, and what islands receive). */
+export const toPublicPlan = (p: LoanPlan) => ({
+  id: p.id,
+  name: p.name,
+  installments: p.installments,
+  loanType: p.loanType,
+  processMode: p.processMode,
+  grantDays: p.grantDays,
+  bankName: p.bankName,
+  platformName: p.platformName,
+  installmentTerms: p.installmentTerms.map((t) => ({ installments: t.installments, payout: t.payout, installment: t.installment })),
+});

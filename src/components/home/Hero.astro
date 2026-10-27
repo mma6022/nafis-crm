@@ -32,15 +32,15 @@ const [before, after] = h1.split('{planCount}');
         }
       </h1>
       <p class="lead">
-        به ۲ سؤال ساده جواب دهید تا مناسب‌ترین طرح را با <b>مبلغ قابل دریافت</b> و <b>قسط ماهانه</b>‌اش ببینید. مشاوره رایگان است و تعهدی ایجاد نمی‌کند.
+        به ۲ سؤال ساده جواب دهید تا مناسب‌ترین طرح را با <b>مبلغ واریزی</b> و <b>قسط ماهانه</b>‌اش ببینید. مشاوره رایگان است و تعهدی ایجاد نمی‌کند.
       </p>
       <div class="actions">
         <a class="nf-btn nf-btn--primary nf-btn--block" href="#plan-finder" id="hero-cta">پیدا کردن طرح مناسب من <I name="arrow" /></a>
       </div>
       <ul class="ticks">
-        <li><span class="ok"><I name="check" /></span><span data-plan-count="amountRange">{f.amountRange}</span></li>
+        <li><span class="ok"><I name="check" /></span><span data-plan-count="payoutRange">{f.payoutRange}</span></li>
         <li><span class="ok"><I name="check" /></span><span data-plan-count="termRange">{f.termRange}</span></li>
-        {f.hasFast && <li><span class="ok"><I name="check" /></span>بررسی برخی طرح‌ها کمتر از ۷ روز</li>}
+        {f.hasFast && <li><span class="ok"><I name="check" /></span>{f.fastCount === 1 ? 'بررسی یکی از طرح‌ها کمتر از ۷ روز' : 'بررسی برخی طرح‌ها کمتر از ۷ روز'}</li>}
       </ul>
     </div>
     <div class="sample d-only" aria-label="نمونه یک طرح فعال">

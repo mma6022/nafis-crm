@@ -36,7 +36,7 @@ export default function HomeCalc({ snapshot }: { snapshot: LoanPlan[] }) {
         </div>
         <div className="calc">
           <div className="grp">
-            <span id="cb-l">مبلغ موردنیاز (قابل دریافت)</span>
+            <span id="cb-l">مبلغ موردنیاز (واریزی)</span>
             <div className="seg" role="group" aria-labelledby="cb-l">
               {FINDER_LABEL.band.map((l, i) => (
                 <button type="button" key={l} aria-pressed={band === i} onClick={() => setBand(i as FinderBand)}>
@@ -67,7 +67,7 @@ export default function HomeCalc({ snapshot }: { snapshot: LoanPlan[] }) {
               </p>
               <dl className="money money--3" style={{ marginBottom: 16 }}>
                 <div>
-                  <dt className="lbl">مبلغ دریافتی</dt>
+                  <dt className="lbl">مبلغ واریزی</dt>
                   <dd className="val">حدود {millionsFa(c.payout)}</dd>
                   <dd className="unit">میلیون تومان</dd>
                 </div>

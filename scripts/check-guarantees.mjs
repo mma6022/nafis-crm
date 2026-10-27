@@ -10,11 +10,11 @@
 //  6. Fast sections (PM 2026-10-23): never empty; the fastest ≤3 plans meeting the base condition, ordered by real
 //     grantDays (ties by id), retiree tag kept, no time promise on /vam-bedun-chek, /vam-bedun-zamen and the two fast pages, callback form below.
 //     Fast pages (copy A2/A3 2026-10-28): /vam-fori-bedun-chek/ (fast-no-cheque: by grantDays, ties by id) and
-//     /vam-fori-bedun-zamen/ (fast-no-guarantor: by grantDays, ties by the highest مبلغ دریافتی obtainable WITHOUT a
-//     guarantor — no-guarantor caps respected, plan 9 ≤ ۳۰۰ میلیون — then id; no repeated plan base name).
+//     /vam-fori-bedun-zamen/ (fast-no-guarantor: by grantDays, ties by the highest مبلغ واریزی obtainable WITHOUT a
+//     guarantor — no-guarantor caps respected (plan 9: share 0.6) — then id; no repeated plan base name).
 //     Page-restricted plans (17, pages ['no-guarantor']) stay out of the fast sections.
 //     Every fast section fails the build if two rows show the same plan name.
-//  7. Plan cards everywhere: only مبلغ دریافتی / مبلغ هر قسط / تعداد اقساط + one «درخواست این طرح» button.
+//  7. Plan cards everywhere: only مبلغ واریزی / مبلغ هر قسط / تعداد اقساط (no rate, %, principal: Mohammad 2026-10-28) + one «درخواست این طرح» button.
 // Run: node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-guarantees.mjs
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -45,7 +45,7 @@ const PAGES = {
 /** Mohammad's confirmed answers (2026-10-23). Changing plan data must change this table deliberately. */
 const CONFIRMED = {
   'no-guarantor': [3, 7, 8, 9, 12, 14, 15, 17, 18, 19, 21, 22],
-  /** copy A3 (2026-10-28) rule on the 17 live plans: all qualifying plans are 10_to_15 → ties by the highest مبلغ دریافتی
+  /** copy A3 (2026-10-28) rule on the 17 live plans: all qualifying plans are 10_to_15 → ties by the highest مبلغ واریزی
    *  without a guarantor: 19 چابک, 8, 9 (9 capped at ۳۰۰ میلیون). DERIVED FROM DATA 2026-10-28 — flagged for PM / Mohammad
    *  confirmation (the 2026-10-23 per-type answer was [19, 15]). */
   'fast-no-guarantor': [19, 8, 9],
@@ -66,21 +66,20 @@ const baseName = (n) => {
   if (!s.startsWith('طرح')) s = `طرح ${s}`;
   return s;
 };
-const payout = (p) => {
-  const principal = Math.min(p.principalAmount, p.noGuarantorMaxPrincipal > 0 ? p.noGuarantorMaxPrincipal : Infinity);
-  return Math.max(0, ...p.installmentTerms.map((t) => (principal * t.depositPercent) / 100));
-};
-/** the cap must be the number the public «بدون ضامن تا سقف (وام) N میلیون» text states, and vice versa */
-const faNum = (s) => Number(String(s).replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d)));
+const payout = (p) => Math.max(0, ...p.installmentTerms.map((t) => t.payout)) * (p.noGuarantorShare > 0 ? Math.min(1, p.noGuarantorShare) : 1);
+/** a lower no-guarantor cap is stated ONLY as مبلغ واریزی («بدون ضامن … حدود N میلیون تومان», Mohammad 2026-10-28: never
+ *  the principal) and N must equal the data; a plan without a lower cap states none */
+const faNum = (s) => Number(String(s).replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace('٫', '.'));
 for (const p of plans) {
-  const text = [p.guaranteeSummary ?? ''].join(' ');
-  const m = text.match(/بدون ضامن تا سقف(?: وام)? ([۰-۹0-9]+) میلیون/);
-  const stated = m ? faNum(m[1]) * 1e6 : undefined;
-  if (stated !== p.noGuarantorMaxPrincipal)
-    errors.push(`plan ${p.id}: no-guarantor cap ${p.noGuarantorMaxPrincipal ?? '—'} does not match its text (${stated ?? '—'})`);
+  const text = p.guaranteeSummary ?? '';
+  const m = text.match(/بدون ضامن(?: مبلغ واریزی)? حدود ([۰-۹0-9٫.]+) میلیون/);
+  const stated = m ? Math.round(faNum(m[1]) * 1e6) : undefined;
+  const want = p.noGuarantorShare ? Math.round(payout(p) / 1e5) * 1e5 : undefined;
+  if (stated !== want) errors.push(`plan ${p.id}: no-guarantor payout ${want ?? '—'} does not match its text (${stated ?? '—'})`);
+  if (/سقف وام|اصل وام|مبلغ اسمی/.test(text)) errors.push(`plan ${p.id}: guarantee summary states a loan principal/cap`);
 }
 /** independent re-implementation of lib/plans fastestGuaranteePlans('no-guarantor') (copy A3 2026-10-28): sorted by
- *  grantDays, ties by the highest مبلغ دریافتی WITHOUT a guarantor, then id; a plan base name never repeats; max 3 */
+ *  grantDays, ties by the highest مبلغ واریزی WITHOUT a guarantor, then id; a plan base name never repeats; max 3 */
 const fastNoGuarantor = (q) => {
   const used = new Set();
   const out = [];
@@ -184,9 +183,9 @@ for (const f of files) {
   for (const m of h.matchAll(/<article class="nf-card plan[^"]*"[^>]*>([\s\S]*?)<\/article>|<div class="nf-card mini">([\s\S]*?)<\/a><\/div>/g)) {
     const card = m[1] ?? m[2];
     cardCount++;
-    for (const bad of ['زمان بررسی', 'روش', 'جزئیات بیشتر', 'مبلغ اسمی', 'مبلغ قابل دریافت', 'پیش‌پرداخت', 'سود سالانه'])
+    for (const bad of ['زمان بررسی', 'روش', 'جزئیات بیشتر', 'مبلغ اسمی', 'مبلغ دریافتی', 'قابل دریافت', 'پیش‌پرداخت', 'سود', 'نرخ', '٪', 'آخرین به‌روزرسانی', 'اصل وام', 'کارمزد'])
       if (card.includes(bad)) errors.push(`${rel}: a plan card shows «${bad}»`);
-    for (const need of ['مبلغ دریافتی', 'مبلغ هر قسط', 'تعداد اقساط'])
+    for (const need of ['مبلغ واریزی', 'مبلغ هر قسط', 'تعداد اقساط'])
       if (!card.includes(need)) errors.push(`${rel}: a plan card lacks «${need}»`);
     const btns = (card.match(/<a [^>]*nf-btn/g) ?? []).length;
     if (btns !== 1 || !card.includes('درخواست این طرح')) errors.push(`${rel}: a plan card must have exactly one «درخواست این طرح» button (has ${btns})`);
@@ -215,7 +214,7 @@ if (calc) {
 // in dist/ or src/ — any format: Latin, Persian or Arabic-Indic digits, with or without 021 / +9821 / 009821, with spaces,
 // dashes, dots, ZWNJ or NBSP between digits (021-91303819, ۰۲۱-۹۱۳۰۳۸۱۹, tel:+982191303819, 9130 3819 …). The old number
 // 91090380 and unnormalised tel:0… links stay banned. HANDOFF §0 v1.2: no call / messenger entry point at all (callback form only).
-// Plan and result cards never show the nominal amount (only مبلغ دریافتی / مبلغ هر قسط / تعداد اقساط).
+// Plan and result cards never show the nominal amount (only مبلغ واریزی / مبلغ هر قسط / تعداد اقساط).
 const DIGIT = { 0: '0۰٠', 1: '1۱١', 2: '2۲٢', 3: '3۳٣', 4: '4۴٤', 5: '5۵٥', 6: '6۶٦', 7: '7۷٧', 8: '8۸٨', 9: '9۹٩' };
 const SEP = '[\\s\\-.\u200c\u200f\u200e\u00a0()/]{0,3}';
 const phoneRe = (digits) => new RegExp(digits.split('').map((d) => `[${DIGIT[d]}]`).join(SEP));
@@ -274,6 +273,48 @@ for (const f of walk(DIST).filter((x) => /sitemap-\d+\.xml$/.test(x))) {
   for (const m of readFileSync(f, 'utf8').matchAll(/<loc>([^<]+)<\/loc>/g)) if (!m[1].endsWith('/')) errors.push(`${relative(DIST, f)}: <loc> without trailing slash (${m[1]})`);
 }
 
+// 404 (PM 10-28): noindex, no canonical, no og:url.
+{
+  const t = existsSync(join(DIST, '404.html')) ? readFileSync(join(DIST, '404.html'), 'utf8') : '';
+  if (!t) errors.push('404.html missing');
+  else {
+    if (!/<meta name="robots" content="noindex/.test(t)) errors.push('404: robots is not noindex');
+    if (/rel="canonical"|property="og:url"/.test(t)) errors.push('404: has a canonical / og:url');
+  }
+}
+// No «method/time/prepayment/nominal is on the card» sentence anywhere (cards show only مبلغ واریزی, مبلغ هر قسط, تعداد اقساط).
+const CARD_CLAIM = /(روش|زمان|پیش‌پرداخت|مبلغ اسمی|هر دو عدد را روی کارت طرح)[^.؟!«»"<]{0,60}روی کارت|روی کارت[^.؟!"<]{0,40}(روش|زمان بررسی|پیش‌پرداخت|مبلغ اسمی)/;
+for (const f of walk(DIST).filter((x) => x.endsWith('.html'))) {
+  const m = readFileSync(f, 'utf8').replace(/<[^>]+>/g, ' ').match(CARD_CLAIM);
+  if (m) errors.push(`${relative(DIST, f)}: card claim «${m[0].slice(0, 80)}»`);
+}
+// The «۳٬۰۰۰» trust claim stays removed (PM 10-28): visible text, meta and JSON-LD.
+for (const f of walk(DIST).filter((x) => /\.(html|xml|json)$/.test(x) && !x.includes('/data/'))) {
+  const m = readFileSync(f, 'utf8').match(/(?:۳[٬,،]?۰۰۰|3[,٬]?000)(?![0-9۰-۹])[^<"]{0,20}(?:درخواست|مشتری|نفر|وام|عضو)/);
+  if (m) errors.push(`${relative(DIST, f)}: «۳٬۰۰۰» claim «${m[0]}»`);
+}
+// /vam-fori wording follows the data: exactly one under_7 plan → singular + «از سریع‌ترین‌ها»; several → plural.
+{
+  const t = html('vam-fori');
+  const fastN = new Set(plans.filter((p) => p.grantDays === 'under_7').map((p) => p.id)).size;
+  if (t && fastN === 1) {
+    if (!t.includes('از سریع‌ترین‌ها')) errors.push('vam-fori: one fast plan but no «از سریع‌ترین‌ها»');
+    for (const w of ['طرح‌هایی که کمتر از ۷ روز', 'چند طرح داریم که', 'طرح‌های سریع فعلی ما', 'سریع‌ترین طرح‌های ما هم', 'سریع‌ترین طرح‌های بالا'])
+      if (t.includes(w)) errors.push(`vam-fori: plural wording «${w}» with one fast plan`);
+  }
+  if (t && fastN > 1 && t.includes('طرحی که کمتر از ۷ روز')) errors.push('vam-fori: singular wording with several fast plans');
+}
+
+// No-rates rule (Mohammad 2026-10-28): customers see only مبلغ واریزی and the installments. No rate/profit/percentage/
+// principal/fee word anywhere in the built site (pages, JSON-LD, meta, og, bundles), and no CRM rate field name in any asset.
+let noRatesScanned = 0;
+for (const f of walk(DIST).filter((x) => /\.(html|js|mjs|json|xml|txt|webmanifest)$/.test(x))) {
+  const h = readFileSync(f, 'utf8');
+  noRatesScanned++;
+  for (const w of ['٪', 'سود', 'نرخ', 'اصل وام', 'کارمزد', 'درصد', 'مبلغ اسمی', 'principalAmount', 'annualInterest', 'depositPercent', 'prepaymentPercent', 'deductionPercent', 'commissionPercent'])
+    if (h.includes(w)) errors.push(`${relative(DIST, f)}: no-rates rule — contains «${w}»`);
+}
+
 if (errors.length) {
   console.error(`guarantees: ${errors.length} problem(s)\n  ` + errors.join('\n  '));
   process.exit(1);
@@ -283,5 +324,5 @@ console.log(
     Object.entries(seen)
       .map(([p, ids]) => `${p} [${ids.join(',') || '—'}]`)
       .join(' · ') +
-    ` · no «سپرده» anywhere (${files.length} pages) · consent text on every form · calculator FAQ exact · no landline in any format (${landlineScanned} dist+src files) · address + PostalAddress · home canonical = sitemap · canonical/og:url/sitemap locs end with / · fast pages: no-guarantor = fastest ≤3 by grantDays then max مبلغ دریافتی without a guarantor (caps from data), no-cheque = fastest ≤3, no repeated name, + callback, no time promise · ${cardCount} plan cards = 3 figures + one button`,
+    ` · no «سپرده» anywhere (${files.length} pages) · consent text on every form · calculator FAQ exact · no landline in any format (${landlineScanned} dist+src files) · address + PostalAddress · home canonical = sitemap · canonical/og:url/sitemap locs end with / · 404 noindex + no canonical · no method/time/prepay/nominal-on-card claim · /vam-fori singular/plural from data · fast pages: no-guarantor = fastest ≤3 by grantDays then max مبلغ واریزی without a guarantor (caps from data), no-cheque = fastest ≤3, no repeated name, + callback, no time promise · ${cardCount} plan cards = 3 figures + one button · no rate/profit/%/principal/fee word or CRM rate field in ${noRatesScanned} dist files`,
 );

@@ -3,13 +3,11 @@
  * Zero-JS accordion (mockup faq_html): `.faq` > details > summary(q + chevron) + answer. All closed unless
  * `openFirst`. FAQPage structured data is emitted once per page as JSON-LD (lib/seo.ts), not as microdata,
  * to avoid a duplicate FAQPage entity.
- * Rate answers (lib/faq-fill.ts) carry `fb` + `exp`: scripts/rate-expiry.ts swaps in the no-number answer (and the
- * JSON-LD text) from the first Tehran day a rate is stale. The script is loaded once per page by BaseLayout.
  */
 import { splitMarkers } from '../lib/markers';
 import I from './ui/I.astro';
 interface Props {
-  items: { q: string; a: string; fb?: string; exp?: string }[];
+  items: { q: string; a: string }[];
   openFirst?: number;
 }
 const { items, openFirst = 0 } = Astro.props;
@@ -25,7 +23,7 @@ const rich = (t: string) => splitMarkers(t).map((x) => (x.marker ? `<span class=
           <span set:html={rich(i.q)} />
           <I name="down" size={20} />
         </summary>
-        {i.fb && i.exp ? <div data-rate-fb={i.fb} data-rate-exp={i.exp} set:html={rich(i.a)} /> : <div set:html={rich(i.a)} />}
+        <div set:html={rich(i.a)} />
       </details>
     ))
   }

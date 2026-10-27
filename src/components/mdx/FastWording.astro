@@ -1,0 +1,13 @@
+---
+/** MDX `<FastWording one="…" many="…" />`: singular text when exactly one active plan is reviewed in under 7 days, else plural (plan data). */
+import { LOAN_PLANS_SNAPSHOT } from '../../lib/loan-plans.snapshot';
+import { planFacts } from '../../lib/plans';
+interface Props {
+  one: string;
+  many: string;
+}
+const { one, many } = Astro.props;
+const text = planFacts(LOAN_PLANS_SNAPSHOT).fastCount === 1 ? one : many;
+---
+
+{text}

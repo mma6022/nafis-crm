@@ -17,6 +17,8 @@ export interface Props {
   ogType?: 'website' | 'article';
   noindex?: boolean;
   canonicalPath?: string; // defaults to the current path
+  /** no <link rel=canonical> and no og:url (404: noindex, nothing to canonicalise) */
+  noCanonical?: boolean;
   jsonLd?: unknown[];
   publishedTime?: Date;
   modifiedTime?: Date;
@@ -34,6 +36,7 @@ const {
   image = SITE.ogImage,
   ogType = 'website',
   noindex = false,
+  noCanonical = false,
   jsonLd = [],
   publishedTime,
   modifiedTime,
@@ -54,7 +57,7 @@ const src = Astro.props.src ?? (path.split('/').filter(Boolean)[0] || 'home');
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
-    <link rel="canonical" href={canonical} />
+    {!noCanonical && <link rel="canonical" href={canonical} />}
     <meta name="robots" content={noindex ? 'noindex, follow' : 'index, follow, max-image-preview:large'} />
     <meta name="theme-color" content="#0B1450" />
     <meta name="google-site-verification" content="VhW_iD7oU9fdKDTZY_fnW6e3FZPZBJno8XldP-bBEnc" />
@@ -65,7 +68,7 @@ const src = Astro.props.src ?? (path.split('/').filter(Boolean)[0] || 'home');
     <meta property="og:type" content={ogType} />
     <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
-    <meta property="og:url" content={canonical} />
+    {!noCanonical && <meta property="og:url" content={canonical} />}
     <meta property="og:image" content={ogImage} />
     {image === SITE.ogImage && <meta property="og:image:width" content="1200" />}
     {image === SITE.ogImage && <meta property="og:image:height" content="630" />}
@@ -107,7 +110,6 @@ const src = Astro.props.src ?? (path.split('/').filter(Boolean)[0] || 'home');
       import { captureUtm, refreshLiveFacts } from '../scripts/live-facts';
       import { initChrome } from '../scripts/chrome';
       import { initPageLoader } from '../scripts/page-loader';
-      import '../scripts/rate-expiry';
       initChrome();
       initPageLoader();
       captureUtm();

@@ -1,0 +1,38 @@
+---
+/**
+ * MDX `<FastPlans />` (/vam-fori): the plans reviewed in under 7 days from the plan data (best مبلغ واریزی first).
+ * Fewer than 3 → the remaining slots are introduced as «از سریع‌ترین‌ها» (next-fastest grantDays bucket, lib/plans
+ * fastPlanGroups). Singular wording when exactly one plan is under 7 days. Cards stay 3 figures + one button.
+ */
+import { PlanCard } from '../islands/PlanCard';
+import { LOAN_PLANS_SNAPSHOT } from '../../lib/loan-plans.snapshot';
+import { fastPlanGroups } from '../../lib/plans';
+const { fast, rest, restDays } = fastPlanGroups(LOAN_PLANS_SNAPSHOT, 3);
+const one = fast.length === 1;
+---
+
+{
+  fast.length > 0 && (
+    <>
+      <p>{one ? 'در حال حاضر این طرح بررسی کمتر از ۷ روز دارد:' : 'این طرح‌ها در حال حاضر بررسی کمتر از ۷ روز دارند:'}</p>
+      <div class={`cards plancards n${fast.length} not-prose`}>
+        {fast.map((c, i) => (
+          <PlanCard c={c} featured={i === 0} src="vam-fori-cards" />
+        ))}
+      </div>
+    </>
+  )
+}
+{
+  rest.length > 0 && (
+    <>
+      <h3>از سریع‌ترین‌ها</h3>
+      <p>{`${one ? 'بعد از طرح بالا' : 'بعد از طرح‌های بالا'}، این ${rest.length === 1 ? 'طرح' : 'طرح‌ها'} از سریع‌ترین گزینه‌های ما ${rest.length === 1 ? 'است' : 'هستند'}${restDays ? ` و بررسی‌${rest.length === 1 ? 'اش' : 'شان'} ${restDays} طول می‌کشد` : ''}:`}</p>
+      <div class={`cards plancards n${rest.length} not-prose`}>
+        {rest.map((c) => (
+          <PlanCard c={c} src="vam-fori-cards-next" />
+        ))}
+      </div>
+    </>
+  )
+}

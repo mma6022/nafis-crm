@@ -9,9 +9,9 @@
  * - pages: when set, the plan may be listed ONLY on these guarantee pages (plan 17).
  * - A plan that is missing here has NO guarantee data: it is never listed on a guarantee page and the site states
  *   nothing about its guarantee (fail-closed for plans the CRM adds later).
- * - noGuarantorMaxPrincipal: loan cap (تومان) of the WITHOUT-guarantor way, when it is lower than the plan's own
- *   principal (plan 3: ۱۰۰ میلیون, plan 9: ۳۰۰ میلیون; must match the «بدون ضامن تا سقف …» text, checked in the build).
- *   Absent = no lower cap (the no-guarantor way goes up to the plan's principal). Used by «سریع‌ترین بدون ضامن».
+ * - noGuarantorShare: share of the payout obtainable WITHOUT a guarantor when that way has a lower loan cap (plan 3:
+ *   1/3, plan 9: 0.6). The public text states only مبلغ واریزی (Mohammad 2026-10-28: never the principal); the build
+ *   checks the «بدون ضامن … حدود N میلیون» figure against the data. Absent = no lower cap. Used by «سریع‌ترین بدون ضامن».
  * - retireesOnly: the plan is offered ONLY to retirees (plan 21, DB condition #437 job = بازنشسته, note «فقط مخصوص
  *   بازنشسته ها»): the finder shows it only when «بازنشسته» is chosen and its card carries «ویژه‌ی بازنشستگان».
  * Every guarantee page is checked against these rules by scripts/check-guarantees.mjs (runs in the build).
@@ -29,8 +29,8 @@ export interface PlanGuarantee {
   documents?: string;
   pages?: GuaranteePage[];
   retireesOnly?: boolean;
-  /** cap (تومان) of the loan obtainable without a guarantor, when lower than the plan's principal */
-  noGuarantorMaxPrincipal?: number;
+  /** share (0–1) of the payout obtainable without a guarantor, when lower than with one (plan 3: 1/3, plan 9: 0.6) */
+  noGuarantorShare?: number;
 }
 
 const CHEQUE_3P = 'اگر خودتان چک ندارید، چک شخص دیگری هم پذیرفته می‌شود.';
@@ -41,18 +41,18 @@ export const PLAN_GUARANTEES: Record<number, PlanGuarantee> = {
   7: { guaranteeOptions: [['cheque']], summary: 'چک شخصی خود متقاضی؛ اگر چک ندارید، چک شخص دیگری هم پذیرفته می‌شود' },
   3: {
     guaranteeOptions: [['cheque', 'guarantor'], ['cheque']],
-    summary: 'چک صیادی؛ با ضامن تا سقف وام ۳۰۰ میلیون تومان، بدون ضامن تا سقف ۱۰۰ میلیون تومان',
-    why: { 'no-guarantor': 'بدون ضامن تا سقف وام ۱۰۰ میلیون تومان، فقط با چک صیادی' },
-    noGuarantorMaxPrincipal: 100_000_000,
+    summary: 'چک صیادی؛ با ضامن مبلغ واریزی حدود ۱۶۹٫۵ میلیون تومان، بدون ضامن حدود ۵۶٫۵ میلیون تومان',
+    why: { 'no-guarantor': 'بدون ضامن، فقط با چک صیادی (مبلغ واریزی حدود ۵۶٫۵ میلیون تومان)' },
+    noGuarantorShare: 1 / 3,
   },
   4: { guaranteeOptions: [['cheque', 'guarantor']], summary: 'چک صیادی به‌همراه ضامن' },
   5: { guaranteeOptions: [['cheque', 'guarantor']], summary: 'چک صیادی به‌همراه ضامن' },
   8: { guaranteeOptions: [['cheque']], summary: 'فقط چک صیادی؛ ضامن لازم نیست' },
   9: {
     guaranteeOptions: [['cheque'], ['cheque', 'guarantor']],
-    summary: 'چک صیادی؛ بدون ضامن تا سقف وام ۳۰۰ میلیون تومان، با ضامن تا ۵۰۰ میلیون تومان',
-    why: { 'no-guarantor': 'بدون ضامن تا سقف وام ۳۰۰ میلیون تومان، با چک صیادی' },
-    noGuarantorMaxPrincipal: 300_000_000,
+    summary: 'چک صیادی؛ بدون ضامن مبلغ واریزی حدود ۱۷۴ میلیون تومان، با ضامن حدود ۲۹۰ میلیون تومان',
+    why: { 'no-guarantor': 'بدون ضامن، با چک صیادی (مبلغ واریزی حدود ۱۷۴ میلیون تومان)' },
+    noGuarantorShare: 0.6,
   },
   10: { guaranteeOptions: [['cheque', 'guarantor']], summary: 'دو ضامن و یک چک صیادی دیجیتال (چک را متقاضی یا یکی از ضامن‌ها می‌دهد)' },
   11: { guaranteeOptions: [['cheque', 'guarantor']], summary: 'یک ضامن و یک چک صیادی دیجیتال (چک را متقاضی یا ضامن می‌دهد)' },
@@ -71,8 +71,8 @@ export const PLAN_GUARANTEES: Record<number, PlanGuarantee> = {
   18: { guaranteeOptions: [['cheque']], summary: 'فقط چک صیادی؛ ضامن لازم نیست' },
   19: {
     guaranteeOptions: [['cheque'], ['cheque', 'guarantor']],
-    summary: 'چک صیادی، با یا بدون ضامن (سقف وام به رتبه‌ی اعتباری بستگی دارد)',
-    why: { 'no-guarantor': 'راه بدون ضامن هم دارد: فقط چک صیادی (سقف وام به رتبه‌ی اعتباری بستگی دارد)' },
+    summary: 'چک صیادی، با یا بدون ضامن (مبلغ به رتبه‌ی اعتباری بستگی دارد)',
+    why: { 'no-guarantor': 'راه بدون ضامن هم دارد: فقط چک صیادی (مبلغ به رتبه‌ی اعتباری بستگی دارد)' },
   },
   20: { guaranteeOptions: [['promissory', 'guarantor']], summary: 'سفته و یک ضامن؛ چک لازم نیست' },
   21: {

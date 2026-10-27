@@ -29,8 +29,6 @@ export const formatTomanShort = (n: number): string => {
   return formatToman(n);
 };
 
-/** 23 → "۲۳٪" */
-export const formatPercentFa = (n: number): string => `${formatNumberFa(n, { maximumFractionDigits: 2 })}٪`;
 
 /** Iranian mobile: accepts ۰۹۱۲…, 0912…, +98912…, 98912… → "09121234567" or null. */
 export const normalizeIranMobile = (v: string): string | null => {

@@ -205,18 +205,7 @@ a.enamad:hover,a.enamad:focus-visible{text-decoration:none;box-shadow:0 0 0 3px 
 
 .c-req a{display:inline-flex;align-items:center;min-height:44px}
 .alert-retry{display:flex;margin-top:8px;min-height:44px;padding:0 16px;font-size:15px}
-/* «نرخ» box + /plans table (design site-seo-pages seo.css v1.1, HANDOFF §0 v1.2) */
-.rate{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;align-items:center;margin:12px 0 14px;padding:12px 14px;border-radius:14px;background:var(--nf-surface);border:1px solid var(--nf-line)}
-.rate-l{font-size:14px;color:var(--nf-ink-muted);font-weight:600}
-.rate-m{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.rate-v{font-size:20px;font-weight:800;color:var(--nf-ink);line-height:1.4}
-.rate-ty{font-size:14px;font-weight:700;color:var(--nf-brand-700);background:var(--nf-brand-50);border-radius:8px;padding:2px 8px}
-.rate-q{font-size:13px;font-weight:700;color:var(--nf-ink-soft);border:1px solid var(--nf-line-strong);border-radius:8px;padding:1px 7px;background:#fff}
-.rate-d{grid-column:1/-1;font-size:13px;color:var(--nf-ink-muted)}
-.rate--ask .rate-ask{justify-self:start;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 12px;border-radius:12px;color:var(--nf-brand-700);font-weight:700;text-decoration:none;background:#fff;border:1.5px solid var(--nf-brand-200)}
-.rate--ask .rate-ask:hover{background:var(--nf-brand-50)}
-.rate--row{background:none;border:0;padding:0;margin:0;grid-template-columns:1fr}
-.rate--row .rate-l{display:none}
+/* /plans table (design site-seo-pages seo.css v1.1, HANDOFF §0 v1.2) */
 .mode{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:0 12px 0 10px;border-radius:999px;font-size:13px;font-weight:800;line-height:1}
 .mode--both,.mode--online{background:var(--nf-brand-600);color:#fff}
 .mode--in_person{background:var(--nf-surface-2);color:var(--nf-ink-soft);border:1px solid var(--nf-line-strong)}
@@ -224,7 +213,7 @@ a.enamad:hover,a.enamad:focus-visible{text-decoration:none;box-shadow:0 0 0 3px 
 @media (min-width:1024px){
   .pt{display:block;border:1px solid var(--nf-line);border-radius:var(--nf-radius-card);overflow:hidden;background:#fff}
   .cards.plan-list.pt-cards{display:none}
-  .pt-h,.pt-r{display:grid;grid-template-columns:minmax(170px,1.3fr) 170px .9fr .8fr .7fr minmax(210px,1.5fr) 150px;gap:12px;align-items:center;padding:14px 18px}
+  .pt-h,.pt-r{display:grid;grid-template-columns:minmax(170px,1.3fr) 170px 1fr .9fr .8fr 160px;gap:12px;align-items:center;padding:14px 18px}
   .pt-h{background:var(--nf-surface-2);font-size:14px;font-weight:700;color:var(--nf-ink-soft)}
   .pt-r{border-top:1px solid var(--nf-line)}
   .pt-nm{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center}

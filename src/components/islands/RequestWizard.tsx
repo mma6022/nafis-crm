@@ -262,7 +262,7 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
                 <small>طرح انتخابی شما</small>
                 <b>{longName ?? chosen.name}</b>
                 <small>
-                  دریافتی حدود {millionsFa(chosen.payout)} م · قسط {fa(chosen.term)} ماهه حدود {millionsFa(chosen.inst)} م
+                  واریزی حدود {millionsFa(chosen.payout)} م · قسط {fa(chosen.term)} ماهه حدود {millionsFa(chosen.inst)} م
                 </small>
               </span>
               <button

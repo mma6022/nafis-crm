@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import raw from '../src/data/loan-plans.snapshot.json' with { type: 'json' };
 import { parseLoanPlans, type LoanPlan } from '../src/lib/loan-plans.ts';
 import {
-  combos, recommend, planFacts, bankNames, normBank, splitBanks, reqBands, installment, byId, bandOf, millionsFa,
+  combos, recommend, planFacts, bankNames, normBank, splitBanks, reqBands, installment, byId, bandOf, millionsFa, heroSample, SAMPLE_PLAN_ID, fastPlanGroups, fillFacts, leadHtml,
   FINDER_BANDS, FINDER_PRIOS, REQ_BAND_KEYS, type Combo,
 } from '../src/lib/plans.ts';
 import { toEnDigits, mobileDigits, isValidMobile } from '../src/lib/format.ts';
@@ -17,32 +17,44 @@ import { PLAN_GUARANTEES } from '../src/data/plan-guarantees.ts';
 
 const plans = parseLoanPlans(raw);
 const all = combos(plans);
-const D = designer(raw);
+/**
+ * The public loan-plans.json (Mohammad 2026-10-28) carries only payout + installment per term. The designer's
+ * verbatim logic needs principal/rate/percent, so each term becomes a pseudo-plan that reproduces exactly that
+ * term's payout and installment (rate 0 → P/n; P = installment × n; deposit% = payout / P). Order is preserved.
+ */
+const legacyView = (list: unknown) =>
+  (list as { installmentTerms: { installments: number; payout: number; installment: number }[] }[]).flatMap((p) =>
+    p.installmentTerms.map((t) => {
+      const P = t.installment * t.installments;
+      return { ...p, principalAmount: P, annualInterest: 0, installmentTerms: [{ installments: t.installments, prepaymentPercent: 0, deductionPercent: 0, depositPercent: (t.payout * 100) / P }] };
+    }),
+  );
+const D = designer(legacyView(raw));
 /** P3 (6:09): retiree-only plans (21) are hidden from the finder unless «بازنشسته هستم»; the designer never knew them */
-const DR = designer((raw as { id: number }[]).filter((p) => !PLAN_GUARANTEES[p.id]?.retireesOnly));
+const DR = designer(legacyView((raw as { id: number }[]).filter((p) => !PLAN_GUARANTEES[p.id]?.retireesOnly)));
 
 /* ---------- installment ---------- */
 test('installment: annuity P·r/(1−(1+r)^−n), r = annual/100/12', () => {
   // 100M at 24%/yr over 12 months: r = 0.02 → 9,455,960 (standard annuity table value)
   assert.equal(Math.round(installment(100e6, 24, 12)), 9_455_960);
   assert.equal(installment(120e6, 0, 12), 10e6, 'zero rate → P/n');
-  for (const c of all) assert.ok(Math.abs(c.inst - D.installment(c.principal, c.rate, c.term)) < 1e-6);
+  for (const c of all) assert.equal(c.inst, plans.find((p) => p.id === c.id)!.installmentTerms.find((t) => t.installments === c.term)!.installment, 'inst = the published term installment');
   assert.equal(installment(1e6, 23, 0), 0, 'no term → 0, never Infinity');
 });
 
 /* ---------- received amount ---------- */
-test('payout (received) = principal × depositPercent / 100, same combos as the designer', () => {
+test('payout = the published term payout, same combos as the designer', () => {
   assert.equal(all.length, D.combos.length);
   all.forEach((c, i) => {
     const d = D.combos[i];
-    assert.equal(c.payout, d.payout);
+    assert.equal(c.payout, Math.round(d.payout));
     assert.equal(c.id, d.id);
     assert.equal(c.term, d.term);
     assert.equal(c.name, d.name);
   });
   const p = plans[0]!;
   const t = p.installmentTerms[0]!;
-  assert.equal(all[0]!.payout, (p.principalAmount * t.depositPercent) / 100);
+  assert.equal(all[0]!.payout, t.payout);
   assert.equal(millionsFa(315e6), D.millions(315e6));
   assert.equal(millionsFa(36_740_000), '۳۶٫۷');
 });
@@ -79,7 +91,7 @@ test('recommend: same ranking and exact flag as site.js (type «any») for all 9
 test('recommend online: processMode=both ranks above in-person; deterministic id tie-break', () => {
   const mk = (id: number, o: Partial<Combo>): Combo => ({
     id, name: `طرح ${id}`, type: 'score', mode: 'in_person', days: '10_to_15', bank: 'ملی', platform: 'x',
-    principal: 150e6, rate: 23, term: 12, prepay: 0, payout: 150e6, inst: 14e6, ...o,
+    term: 12, payout: 150e6, inst: 14e6, ...o,
   });
   const list = [mk(9, {}), mk(7, { mode: 'both' }), mk(5, { mode: 'both' })];
   assert.deepEqual(recommend(list, { band: 1, prio: 'online' }).cards.map((c) => c.id), [5, 7, 9]);
@@ -89,7 +101,7 @@ test('recommend online: processMode=both ranks above in-person; deterministic id
 test('recommend on synthetic data: band > priority, plan type ignored; alternatives within 30 points', () => {
   const mk = (id: number, o: Partial<Combo>): Combo => ({
     id, name: `طرح ${id}`, type: 'score', mode: 'in_person', days: '10_to_15', bank: 'ملی', platform: 'x',
-    principal: 150e6, rate: 23, term: 12, prepay: 0, payout: 150e6, inst: 14e6, ...o,
+    term: 12, payout: 150e6, inst: 14e6, ...o,
   });
   const list = [
     mk(1, { type: 'goods', payout: 150e6, days: 'under_7' }), // right band + fast (type does not matter)
@@ -145,14 +157,48 @@ test('bank names: split on - | / ، , +, ZWNJ/space collapsed, «بانک» drop
   assert.equal(bankNames(dup).size, 2);
 });
 
-test('facts: amount/term range text and hero sample from data (plan 10 inactive → best-payout fallback)', () => {
+test('facts: amount/term range text; home payout range like the finder; hero sample plan 19 → first active fallback', () => {
   const f = planFacts(plans);
-  assert.equal(f.amountRange, 'از ۱۰۰ تا ۵۰۰ میلیون تومان');
+  assert.equal(f.amountRange, 'از ۶۰ تا ۲۹۰ میلیون تومان', 'FAQ range = مبلغ واریزی (Mohammad 2026-10-28: never the principal)');
   assert.equal(f.termRange, 'بازپرداخت ۱۲ تا ۴۸ ماهه');
   assert.equal(f.bankCount, 12);
-  assert.equal(byId(all, 10), undefined);
-  const s = byId(all, 9)!;
-  assert.equal(s.payout, Math.max(...all.filter((c) => c.id === 9).map((c) => c.payout)));
+  const pool = all.filter((c) => !c.retirees).map((c) => c.payout);
+  assert.equal(f.payoutRange, `مبلغ واریزی از ${millionsFa(Math.min(...pool))} تا ${millionsFa(Math.max(...pool))} میلیون تومان`);
+  assert.equal(f.payoutRange, 'مبلغ واریزی از ۶۰ تا ۲۹۰ میلیون تومان');
+  // retiree-only plans are outside the finder's default pool → outside the home range
+  const huge = plans.map((p, i) => (i === 0 ? { ...p, retireesOnly: true, installmentTerms: p.installmentTerms.map((t) => ({ ...t, payout: 9e9 })) } : p));
+  assert.equal(planFacts(huge).payoutRange, planFacts(plans.slice(1)).payoutRange);
+  assert.equal(SAMPLE_PLAN_ID, 19);
+  assert.equal(heroSample(all)!.id, 19);
+  assert.equal(heroSample(all)!.payout, Math.max(...all.filter((c) => c.id === 19).map((c) => c.payout)));
+  const no19 = combos(plans.filter((p) => p.id !== 19));
+  const firstActive = plans.find((p) => p.id !== 19)!.id;
+  assert.equal(heroSample(no19)!.id, firstActive, 'plan 19 inactive → first active plan in export order');
+  assert.equal(heroSample([]), undefined);
+});
+
+test('/vam-fori wording + cards from data: one under-7 plan → singular + «از سریع‌ترین‌ها», several → plural', () => {
+  const f = planFacts(plans);
+  assert.equal(f.fastCount, 1);
+  assert.equal(fillFacts('{fast:طرحی|طرح‌هایی} با {fastCount}', f), 'طرحی با ۱');
+  assert.equal(fillFacts('{fast:طرحی|طرح‌هایی}', { ...f, fastCount: 2 }), 'طرح‌هایی');
+  assert.ok(leadHtml('{fast:یک طرح **سریع**|چند طرح}', f).startsWith('یک طرح <strong>سریع</strong>'));
+  const g = fastPlanGroups(plans);
+  assert.deepEqual(g.fast.map((c) => c.id), [11]);
+  assert.equal(g.rest.length, 2);
+  assert.equal(g.restDays, '۱۰ تا ۱۵ روز');
+  const restIds = g.rest.map((c) => c.id);
+  const nextBest = [...new Set(plans.filter((p) => p.grantDays === '10_to_15').map((p) => p.id))]
+    .map((id) => byId(all, id)!)
+    .filter((c) => !c.retirees)
+    .sort((a, b) => b.payout - a.payout)
+    .slice(0, 2)
+    .map((c) => c.id);
+  assert.deepEqual(restIds, nextBest);
+  const many = plans.map((p) => (restIds.includes(p.id) ? { ...p, grantDays: 'under_7' } : p)) as LoanPlan[];
+  const g2 = fastPlanGroups(many);
+  assert.equal(g2.fast.length, 3);
+  assert.equal(g2.rest.length, 0);
 });
 
 /* ---------- digits + mobile ---------- */

@@ -1,6 +1,6 @@
 ---
 /**
- * /calculator (UX-SPEC §7, designer ANSWERS-1 §9): type → band → term, 1–3 result cards (مبلغ دریافتی / مبلغ هر قسط / تعداد اقساط), FAQ.
+ * /calculator (UX-SPEC §7, designer ANSWERS-1 §9): type → band → term, 1–3 result cards (مبلغ واریزی / مبلغ هر قسط / تعداد اقساط), FAQ.
  * The long 18-plan <select> is gone; money is shown as «حدود ۳۱۵ میلیون تومان», never «۳۱۵,۰۰۰,۰۰۰».
  */
 import BaseLayout from '../layouts/BaseLayout.astro';
@@ -25,7 +25,7 @@ const faq = [
 
 <BaseLayout
   title="محاسبه قسط وام"
-  description="با محاسبه‌گر قسط نفیس وام حدود مبلغ و مدت بازپرداخت را انتخاب کنید و مبلغ قابل دریافت و قسط ماهانه طرح‌های نزدیک را ببینید."
+  description="با محاسبه‌گر قسط نفیس وام حدود مبلغ و مدت بازپرداخت را انتخاب کنید و مبلغ واریزی و قسط ماهانه طرح‌های نزدیک را ببینید."
   jsonLd={[breadcrumbLd(crumbs), faqLd(faq)]}
 >
   <PageHeader title="محاسبه قسط وام" lead="مبلغ و مدت را انتخاب کنید؛ نزدیک‌ترین طرح‌های فعال را با قسط تقریبی نشان می‌دهیم." crumbs={crumbs} />

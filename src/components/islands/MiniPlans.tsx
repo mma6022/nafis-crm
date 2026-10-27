@@ -17,7 +17,7 @@ export default function MiniPlans({ snapshot, ids, src }: { snapshot: LoanPlan[]
           <h3>{c.name}</h3>
           {c.retirees && <span className="nf-badge nf-badge--brand plan-tag">ویژه‌ی بازنشستگان</span>}
           <div className="row">
-            <span>مبلغ دریافتی</span>
+            <span>مبلغ واریزی</span>
             <b>حدود {millionsFa(c.payout)} میلیون</b>
           </div>
           <div className="row">

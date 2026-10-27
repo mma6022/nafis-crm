@@ -1,7 +1,7 @@
 /**
  * /calculator island (UX-SPEC §7, designer ANSWERS-1 §9): received-amount band (option cards) → term (chips),
  * then 1–3 PlanCards (lib/plans `calcPicks`). No 18-plan <select>; amounts read «حدود ۳۱۵ میلیون تومان».
- * Same amortisation as the CRM (annual rate / 12). No plan-type selector (legal 2026-10-24): every eligible plan counts.
+ * Amounts are the public مبلغ واریزی and installment of each term. No plan-type selector (legal 2026-10-24): every eligible plan counts.
  */
 import { useMemo, useState } from 'react';
 import type { LoanPlan } from '../../lib/loan-plans';
@@ -27,7 +27,7 @@ export default function LoanCalculator({ snapshot, src = 'calculator' }: { snaps
     <div className="lc">
       <div className="lc-in">
         <div className="grp">
-          <span id="lc-b">مبلغ موردنیاز (قابل دریافت)</span>
+          <span id="lc-b">مبلغ موردنیاز (واریزی)</span>
           <div className="opts" role="group" aria-labelledby="lc-b">
             {FINDER_Q.band.opts.map((o) => (
               <button type="button" className="nf-option" key={o.v} aria-pressed={band === o.v} onClick={() => setBand(o.v)}>

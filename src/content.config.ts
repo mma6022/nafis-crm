@@ -3,9 +3,8 @@ import { glob } from 'astro/loaders';
 import { z } from 'astro/zod';
 import { categoryKey } from './data/blog-taxonomy';
 
-/** `a` may use fact tokens and rate tokens ({rateMain} {rateLow} {rateLowCount} {rateLowNames}); `aNoRate` = the
- *  no-number answer used when the rate is unknown/stale (default lib/rates RATE_FAQ_FALLBACK). lib/faq-fill.ts */
-const faq = z.array(z.object({ q: z.string().min(5), a: z.string().min(10), aNoRate: z.string().min(10).optional() })).default([]);
+/** `a` may use fact tokens (lib/faq-fill.ts). No rate tokens: FAQs never state a rate or percentage (Mohammad 2026-10-28). */
+const faq = z.array(z.object({ q: z.string().min(5), a: z.string().min(10) })).default([]);
 
 const blog = defineCollection({
   // The glob loader uses frontmatter `slug` as the entry id → /blog/<slug>
