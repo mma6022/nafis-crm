@@ -1,4 +1,5 @@
 import { cqAfterCall, cqParseCall, type CqCallResult } from "../lib/call-queue";
+import { dpAfterCall, dpAfterCommit, dpPreCall, dpSearchCheck } from "../lib/daily-plan";
 import express, { Router, type IRouter, type RequestHandler } from "express";
 import { deleteCustomerIntro } from "../lib/expert-intro-sms-core";
 import { callNoteError } from "../lib/call-note-rule";
@@ -1670,6 +1671,9 @@ router.get(
   "/customers",
   requirePermission("customers.view"),
   (req, res): void => {
+    // crm-daily-plan: while «کارهای امروز» is active the expert searches only for an incoming call (flag.daily_plan OFF = unchanged).
+    const dpSearch = dpSearchCheck(res.locals.authUser as AuthUser, req.query);
+    if (dpSearch) { res.status(dpSearch.status).json({ error: dpSearch.error, message: dpSearch.message, details: dpSearch.details ?? null }); return; }
     const parsed = ListCustomersQueryParams.safeParse(req.query);
     if (!parsed.success) {
       res.status(400).json({ error: parsed.error.message });
@@ -4478,6 +4482,13 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
     return;
   }
   const body = parsed.data;
+  // crm-daily-plan (flag.daily_plan OFF = unchanged): the report must be for the current item (planItemId) or «خارج از لیست» (outOfList).
+  const dpPre = dpPreCall(req.body, res.locals.authUser as AuthUser);
+  if (dpPre) {
+    res.status(dpPre.status).json({ error: dpPre.error, message: dpPre.message, details: dpPre.details ?? null });
+    return;
+  }
+  if (req.body?.__dp === "outside" && !body.subject) body.subject = req.body.subject;
   // crm-call-queue R1 (flags OFF = unchanged): outcome + one-line note come from the raw body (zod strips unknown keys).
   const cqInput = cqParseCall(req.body, res.locals.authUser as AuthUser);
   if ("error" in cqInput) {
@@ -4551,6 +4562,7 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
     return;
   }
   let cqResult: CqCallResult | null = null;
+  let dpResult: ReturnType<typeof dpAfterCall> = null;
   const id = runTransaction(() => {
     if (profile) {
       const current = queryRow<{ phone: string; national_code: string | null; postal_code: string | null; birth_date_jalali: string | null }>(
@@ -4633,6 +4645,7 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
         ],
       );
     cqResult = cqAfterCall(callId, cqInput, user, body.customerId);
+    dpResult = dpAfterCall(req.body, callId, user, body.customerId);
     return callId;
   });
   const row = queryRow<CallRecordRow>(`${callSelect} WHERE cl.id = ?`, [id]);
@@ -4640,7 +4653,9 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
     res.status(500).json({ error: "Call log was not created" });
     return;
   }
-  res.status(201).json({ ...CreateCallResponse.parse(callFromRow(row)), ...(cqResult ? { callQueue: cqResult } : {}) });
+  const dpDone = dpResult as { kind: string; itemId: number } | null;
+  const dpNext = dpDone ? dpAfterCommit(user) : null;
+  res.status(201).json({ ...CreateCallResponse.parse(callFromRow(row)), ...(cqResult ? { callQueue: cqResult } : {}), ...(dpDone ? { dailyPlan: { ...dpDone, ...(dpNext ?? {}) } } : {}) });
 });
 
 const consultationSelect = `

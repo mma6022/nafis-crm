@@ -23,7 +23,8 @@ export function afterSaveToast(a: AfterSave & { found: true }): string {
 type Card = { key: string; kind: 'toast' | 'suggest' | 'bale'; a: AfterSave & { found: true }; text: string };
 
 /** Mounted once in CrmShell. Renders nothing while every call-queue flag is OFF. */
-export function CallQueueHost({ onModalActive }: { onModalActive?: (active: boolean) => void }) {
+/** dailyPlan: «کارهای امروز» is active for this user → its page owns the lock and the next-item flow, so the due / pending modals stay hidden. */
+export function CallQueueHost({ onModalActive, dailyPlan = false }: { onModalActive?: (active: boolean) => void; dailyPlan?: boolean }) {
   const cfg = useCqConfig().data;
   cqSetConfigCache(cfg);
   const anyOn = Boolean(cfg?.eligible && (cfg.flags.result || cfg.flags.autoclose || cfg.flags.assistant_reminders));
@@ -46,8 +47,8 @@ export function CallQueueHost({ onModalActive }: { onModalActive?: (active: bool
     window.addEventListener(CQ_SAVED_EVENT, on);
     return () => window.removeEventListener(CQ_SAVED_EVENT, on);
   }, [anyOn]);
-  const modalOn = Boolean(cfg && cqOn(cfg, 'modal') && cfg.flags.result && cfg.flags.autoclose);
-  const lockOn = cqLockActive(cfg);
+  const modalOn = Boolean(cfg && cqOn(cfg, 'modal') && cfg.flags.result && cfg.flags.autoclose) && !dailyPlan;
+  const lockOn = cqLockActive(cfg) && !dailyPlan;
   const pendingQ = useQuery({ queryKey: ['call-queue', 'pending'], queryFn: cqApi.pending, enabled: lockOn, refetchInterval: 30_000, retry: false, refetchOnWindowFocus: true });
   const pending = lockOn && pendingQ.data?.enabled ? pendingQ.data.pending : null;
   useEffect(() => {

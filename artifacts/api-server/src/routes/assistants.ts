@@ -1,5 +1,6 @@
 /** «دستیار هوشمند» routes (see lib/assistants.ts). The staff router sits behind the CRM session under /api; the runner
  * router is mounted in app.ts before the global JSON parser with its own 256 KB limit and Bearer token. */
+import { mountDailyPlanRunner } from "./daily-plan";
 import type { Response } from "express";
 import type { AuthUser } from "../lib/auth";
 import { crmDb } from "../lib/crm-db";
@@ -24,7 +25,7 @@ const assistants = createAssistants({
   },
   // «حساب شخصی بله» 1b: the expert's own sales assistant may queue / draft a Bale message (all checks in lib/bale-outbox.ts).
   extendRunner: (runner, h) => { runner.post("/bale/send", (req, res) => baleRunnerSend(req, res, h)); runner.get("/bale/plan-files", (req, res) => baleRunnerPlanFiles(req, res));
-    mountBaleAutoreplyRunner(runner, h); },
+    mountBaleAutoreplyRunner(runner, h); mountDailyPlanRunner(runner); },
 });
 export const assistantRunnerRouter = assistants.runner;
 export default assistants.staff;

@@ -1,5 +1,5 @@
 import { CustomerName } from '@/components/customer/CustomerName';
-import { AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, Link2, LifeBuoy, LogOut, Menu, MessageCircle, MoreHorizontal, Sparkles, MessagesSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, type LucideIcon } from 'lucide-react';
+import { AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, Link2, LifeBuoy, LogOut, Menu, MessageCircle, MoreHorizontal, Sparkles, MessagesSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, ListChecks, type LucideIcon } from 'lucide-react';
 import { UserAvatar, AvatarPicker } from '@/components/UserAvatar';
 import { useHealthCheck, getHealthCheckQueryKey, useGetAuthSession, useLogout, useUpdateAuthProfile, useListReminders, useAcknowledgeReminder, getListRemindersQueryKey, getGetAuthSessionQueryKey, type CrmUser, type Reminder } from '@workspace/api-client-react';
 import { Link, useLocation } from 'wouter';
@@ -28,16 +28,18 @@ import { layoutFor, menuKindFor, TRAINEE_SALESPERSON_IDS } from './nav-layout';
 import { asFetch, asVisibleTo } from '@/features/assistant/api';
 import { cqOn, faNum, useCqConfig } from '@/features/call-queue/api';
 import { CallQueueHost } from '@/features/call-queue/CallQueueHost';
+import { dpActive, dpManager, useDpConfig } from '@/features/daily-plan/api';
 import { useLeadAnnotatorMe } from '@/features/lead-annotator/api';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem } from './ui/dropdown-menu';
 
 const nafissLogoUrl = `${import.meta.env.BASE_URL}nafiss-financial-logo.png`;
 
-type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin' | 'discipline'; leadAnnotator?: boolean };
+type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin' | 'discipline'; dp?: 'today' | 'admin'; leadAnnotator?: boolean };
 
 // Routes and permission rules are unchanged; only grouping, order, labels of groups and icons are new.
 const allNavItems: NavItem[] = [
   { href: '/', label: 'نمای کلی', icon: LayoutDashboard, permission: 'dashboard.view' },
+  { href: '/today', label: 'کارهای امروز', icon: ListChecks, dp: 'today' }, // crm-daily-plan: replaces «صف تماس من» while flag.daily_plan is ON
   { href: '/my-queue', label: 'صف تماس من', icon: PhoneCall, cq: 'queue' },
   { href: '/reminders', label: 'یادآورها', icon: Bell, permission: 'reminders.view' },
   { href: '/customers', label: 'مشتریان', icon: UsersRound, permission: 'customers.view' },
@@ -80,19 +82,20 @@ const allNavItems: NavItem[] = [
   { href: '/call-queue-events', label: 'گزارش مدیر · صف تماس', icon: PieChart, cq: 'admin' },
   { href: '/settings/call-queue', label: 'تنظیمات صف تماس', icon: SlidersHorizontal, cq: 'admin' },
   { href: '/call-queue-discipline', label: 'نظم پیگیری تیم', icon: PieChart, cq: 'discipline' },
+  { href: '/daily-plans', label: 'لیست‌های روزانه', icon: ListChecks, dp: 'admin' },
 ];
 
 const mobilePrimaryNavHrefs = ['/', '/customers', '/chat', '/internal-chat'];
 const compactLabels: Record<string, string> = { '/': 'خانه', '/chat': 'گفتگو', '/internal-chat': 'داخلی', '/messengers': 'پیام‌رسان', '/customers': 'مشتری‌ها', '/loan-applications': 'پرونده‌ها', '/smart-filing': 'ثبت هوشمند' };
 type NavGroup = { id: string; label: string; icon: LucideIcon; hrefs: string[]; pinned?: boolean };
 const navGroups: NavGroup[] = [
-  { id: 'dashboard', label: 'داشبورد', icon: LayoutDashboard, hrefs: ['/', '/my-queue', '/reminders'], pinned: true },
+  { id: 'dashboard', label: 'داشبورد', icon: LayoutDashboard, hrefs: ['/', '/today', '/my-queue', '/reminders'], pinned: true },
   { id: 'customers', label: 'مشتریان و مشاوره', icon: Contact, hrefs: ['/customers', '/lead-annotator', '/calls', '/consultations', '/callback-requests', '/manual-verifications'] },
   { id: 'loans', label: 'وام و قرارداد', icon: HandCoins, hrefs: ['/loan-applications', '/smart-filing', '/loan-plans', '/contracts', '/credit-rank-overrides'] },
   { id: 'goods', label: 'خرید کالا', icon: Store, hrefs: ['/goods-purchases', '/sales-commissions', '/my-performance', '/my-wallet'] },
   { id: 'finance', label: 'مالی و پرداخت', icon: Banknote, hrefs: ['/payment-orders', '/wallet-management', '/bank-accounts', '/accounting'] },
   { id: 'comms', label: 'پیام‌ها و تلفن', icon: Headset, hrefs: ['/chat', '/internal-chat', '/messengers', '/settings/bale', '/bale/autoreply', '/instagram-inbox', '/mobile-calls', '/phone'] },
-  { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/social-monitor-reports', '/voice-notes-usage', '/call-queue-events', '/call-queue-discipline'] },
+  { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/social-monitor-reports', '/voice-notes-usage', '/call-queue-events', '/call-queue-discipline', '/daily-plans'] },
   { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/settings/notifications', '/settings/assistants', '/settings/default-owner', '/call-queue-events', '/settings/call-queue', '/settings/releases'] },
 ];
 
@@ -140,9 +143,11 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const user = session?.user;
   usePageUsage(user?.id, location); // v10: page-usage tracker (route patterns + visible dwell only; silent on any failure)
   const cqCfg = useCqConfig(Boolean(user)).data;
+  const dpCfg = useDpConfig(Boolean(user)).data;
+  const dpOnForMe = dpActive(dpCfg);
   const [cqModalActive, setCqModalActive] = useState(false);
   const cqRestricted = Boolean(cqCfg?.restriction?.restricted);
-  const cqAllowed = (loc: string) => loc === '/my-queue' || loc.startsWith('/reminders') || loc === '/profile'
+  const cqAllowed = (loc: string) => loc === '/my-queue' || loc === '/today' || loc.startsWith('/reminders') || loc === '/profile'
     || (/^\/customers\/(\d+)/.test(loc) && (cqCfg?.restriction?.customerIds ?? []).includes(Number(loc.split('/')[2])));
   const dueParams = { done: false, due: true };
   const dueReminders = useListReminders(dueParams, {
@@ -201,12 +206,14 @@ export function CrmShell({ children }: { children: ReactNode }) {
   
   const navItems = allNavItems.filter(item => {
     // crm-call-queue: hidden while its flags are OFF (and for user 29 / trainees, enforced by the server config).
-    if (item.cq === 'queue') return cqOn(cqCfg, 'queue');
+    if (item.dp === 'today') return dpOnForMe;
+    if (item.dp === 'admin') return dpManager(dpCfg);
+    if (item.cq === 'queue') return cqOn(cqCfg, 'queue') && !dpOnForMe;
     if (item.cq === 'admin') return Boolean(cqCfg?.manager && Object.values(cqCfg.flags).some(Boolean));
     if (item.leadAnnotator) return Boolean(leadAnnotatorMe.data?.enabled);
     if (item.cq === 'discipline') return Boolean(cqCfg?.manager && cqCfg.flags.discipline);
     // R2 «پنل محدود»: only «صف تماس من» and «یادآورها» stay in the menu.
-    if (cqRestricted && item.href !== '/my-queue' && item.href !== '/reminders') return false;
+    if (cqRestricted && item.href !== '/my-queue' && item.href !== '/today' && item.href !== '/reminders') return false;
     if (item.walletOwner && !isAdminUser && !(user as { salespersonId?: number | null } | undefined)?.salespersonId) return false;
     if ('staffOnly' in item && item.staffOnly) return user?.role === 'admin' || user?.role === 'registrar';
     if ('adminOnly' in item && item.adminOnly) return user?.role === 'admin';
@@ -219,7 +226,9 @@ export function CrmShell({ children }: { children: ReactNode }) {
   }).map(item => (isAdminUser && item.adminLabel ? { ...item, label: item.adminLabel } : item));
   // Role layout (display only, AFTER the permission filter above): main items + collapsed «بیشتر». null = old grouped menu.
   const menuKind = menuKindFor(user as { role?: string | null; salespersonId?: number | null } | undefined);
-  const roleLayout = menuKind ? layoutFor(menuKind, navItems) : null;
+  const roleLayout0 = menuKind ? layoutFor(menuKind, navItems) : null;
+  // crm-daily-plan: once the real «کارهای امروز» page exists for this user, «/» goes back to its own name.
+  const roleLayout = roleLayout0 && dpOnForMe ? { ...roleLayout0, main: roleLayout0.main.map((m) => (m.kind === 'link' && m.item.href === '/' && m.item.label === 'کارهای امروز من' ? { ...m, item: { ...m.item, label: 'نمای کلی' } } : m)) } : roleLayout0;
   // «چت دستیار»: only when the dock already lists an assistant for this user (reads the dock's cached query; never fetches itself).
   const asMine = useQuery<{ assistants?: { threadId: number }[] }>({ queryKey: ['assistant-mine', user?.id], enabled: false, queryFn: () => asFetch<{ assistants?: { threadId: number }[] }>('/assistant/mine') }); // same key + same fetch as the dock, so a refetch through either observer is identical
   const hasAssistant = Boolean(asVisibleTo(user as { id: number; role?: string | null; salespersonId?: number | null } | undefined) && (asMine.data?.assistants?.length ?? 0) > 0);
@@ -461,14 +470,14 @@ export function CrmShell({ children }: { children: ReactNode }) {
             </DropdownMenu>
           </div>
         </header>
-        <DiagnosticPageBoundary key={location}>{cqRestricted && !cqAllowed(location) ? <div className="cq-page" data-testid="cq-restricted-guard"><div className="cq-restricted" role="alert"><b>پنل محدود شد</b> · {faNum(cqCfg?.restriction?.overdue ?? 0)} یادآور عقب‌افتاده داری. تا وقتی به {faNum(cqCfg?.restriction?.threshold ?? 0)} یا کمتر برسد فقط یادآورهای عقب‌افتاده باز است.</div><Link className="btn btn-primary" href="/my-queue">رفتن به صف تماس من</Link></div> : children}</DiagnosticPageBoundary>
+        <DiagnosticPageBoundary key={location}>{cqRestricted && !cqAllowed(location) ? <div className="cq-page" data-testid="cq-restricted-guard"><div className="cq-restricted" role="alert"><b>پنل محدود شد</b> · {faNum(cqCfg?.restriction?.overdue ?? 0)} یادآور عقب‌افتاده داری. تا وقتی به {faNum(cqCfg?.restriction?.threshold ?? 0)} یا کمتر برسد فقط یادآورهای عقب‌افتاده باز است.</div><Link className="btn btn-primary" href={dpOnForMe ? '/today' : '/my-queue'}>{dpOnForMe ? 'رفتن به کارهای امروز' : 'رفتن به صف تماس من'}</Link></div> : children}</DiagnosticPageBoundary>
       </main>
       {user && (canChat || canTeam) && !onChatPage ? <FloatingChat key={phone ? 'phone' : 'wide'} bottomOffset={phone ? 84 : 20} actor={`staff:${user.id}`} items={[...(canChat ? [{ href: '/chat', label: 'گفتگو با مشتریان', count: unread.data?.count ?? 0 }] : []), ...(canTeam ? [{ href: '/internal-chat', label: 'گفتگوی داخلی', count: team.data?.unreadCount ?? 0 }] : [])]} /> : null}
       {/* «دستیار هوشمند» (HANDOFF §1): avatars portal into the sidebar-bottom slot (desktop) or the top-bar slot next to the bell (phone); renders nothing unless the server lists an assistant for this user. */}
       {user ? <AssistantDock user={user as { id: number; role?: string | null; salespersonId?: number | null }} phone={phone} slot={phone ? asTopSlot : asSideSlot} bottomOffset={(phone ? 84 : 20) + 66} /> : null}
       {profileOpen && user ? <ProfileModal user={user} onClose={() => setProfileOpen(false)} /> : null}
       {reminderFormOpen ? <CreateReminderForm onClose={() => setReminderFormOpen(false)} /> : null}
-      {user ? <CallQueueHost onModalActive={setCqModalActive} /> : null}
+      {user ? <CallQueueHost onModalActive={setCqModalActive} dailyPlan={dpOnForMe} /> : null}
       {dueReminder && !cqModalActive ? (
         <Modal title={dueReminder.subject} eyebrow="زمان یادآور رسیده است" onClose={() => setDueReminder(null)} testId="due-reminder">
           <div className="due-reminder">

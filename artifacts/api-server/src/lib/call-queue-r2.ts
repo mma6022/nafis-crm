@@ -10,6 +10,7 @@ import {
   CQ_EXCLUDED_USER_IDS, cqDisciplineSettings, cqDue, cqEligible, cqEvent, cqFlags, cqLockOn, cqManagerIds, cqOnTime, cqOwnedCustomerSql, cqPendingCall,
   ensureCallQueueSchema, fromTehran, isWorkDay, tParts, tYmd, type CqUser, type TParts,
 } from "./call-queue";
+import { dpOverdueExtra } from "./daily-plan";
 
 const dayRange = (ymd: string) => { const [y, m, d] = ymd.split("-").map(Number); const from = fromTehran(y, m, d); return { from: from.toISOString(), to: new Date(from.getTime() + 86_400_000).toISOString() }; };
 const ymdParts = (ymd: string): TParts => tParts(new Date(Date.parse(dayRange(ymd).from) + 12 * 3_600_000));
@@ -94,7 +95,7 @@ export function cqDayStat(user: CqUser, ymd: string, now = new Date()): DayStat 
     if (now.getTime() > lim) counted++;
   }
   const pct = counted ? Math.round((onTime / counted) * 100) : null;
-  const overdue = cqDue(user, now).total;
+  const overdue = cqDue(user, now).total + dpOverdueExtra(user, now).length;
   const nocall = nocallAfterSnooze(user.id, from, to, now);
   const reasons: string[] = [];
   if (pct != null && pct <= s.newPct) reasons.push(`به‌موقع ${pct}٪ (باید بالای ${s.newPct}٪)`);
@@ -102,9 +103,9 @@ export function cqDayStat(user: CqUser, ymd: string, now = new Date()): DayStat 
   return { day: ymd, crmCalls: rows.length, onTime, onTimePct: pct, overdue, nocall, score: cqScore(pct, overdue, nocall), ok: reasons.length === 0, reasons };
 }
 export function cqRestriction(user: CqUser, now = new Date()) {
-  const s = cqDisciplineSettings(); const d = cqDue(user, now);
-  const ids = [...new Set([...d.items, ...d.snoozed].map(r => r.customerId))];
-  return { restricted: d.total > s.restrictOverdue, overdue: d.total, threshold: s.restrictOverdue, leftToUnlock: Math.max(0, d.total - s.restrictOverdue), overdueCustomerIds: ids };
+  const s = cqDisciplineSettings(); const d = cqDue(user, now); const extra = dpOverdueExtra(user, now); const total = d.total + extra.length;
+  const ids = [...new Set([...d.items, ...d.snoozed].map(r => r.customerId).concat(extra))];
+  return { restricted: total > s.restrictOverdue, overdue: total, threshold: s.restrictOverdue, leftToUnlock: Math.max(0, total - s.restrictOverdue), overdueCustomerIds: ids };
 }
 export function cqStreak(userId: number, todayOk: boolean | null, days: number, ymd: string): number {
   let n = todayOk === false ? 1 : 0; if (todayOk === true) return 0;

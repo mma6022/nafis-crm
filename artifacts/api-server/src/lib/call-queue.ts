@@ -17,7 +17,9 @@ export const CQ_FLAGS = ["result", "autoclose", "assistant_reminders", "queue", 
   // R2 (crm-call-queue v1.6 §7ج/§8-16…36), all seeded OFF:
   "call_lock", "discipline", "restrict_panel", "alerts", "signals",
   // R3: transfer check
-  "transfer_check"] as const;
+  "transfer_check",
+  // crm-daily-plan «کارهای امروز» (Armita v1.2), all seeded OFF:
+  "daily_plan", "assistant_full_scope", "daily_plan_discipline"] as const;
 export type CqFlag = typeof CQ_FLAGS[number];
 export const CQ_FLAG_LABELS: Record<CqFlag, string> = {
   result: "نتیجه‌ی تماس و یادداشت یک‌خطی در فرم ثبت تماس",
@@ -33,6 +35,9 @@ export const CQ_FLAG_LABELS: Record<CqFlag, string> = {
   alerts: "هشدار ۳ روز کاری پیاپی زیر حد (مدیر + خود کارشناس، فقط CRM)",
   signals: "سیگنال‌های نظم در گزارش روزانه‌ی مدیر",
   transfer_check: "بررسی گیرنده هنگام انتقال مشتری (درصد به‌موقع و عقب‌افتاده‌ها)",
+  daily_plan: "«کارهای امروز» به‌جای صف تماس (لیست روزانه‌ی دستیار، قفل کار بعدی، جابه‌جایی)",
+  assistant_full_scope: "دسترسی خواندنی دستیار به همه‌ی مشتری‌های کارشناس (بدون شماره) برای نوشتن لیست",
+  daily_plan_discipline: "کارهای مانده از دیروز در «کارهای امروز» جزو عقب‌افتاده‌های امتیاز نظم",
 };
 export type QueueGroup = "due" | "new" | "p1" | "assist";
 export const CQ_GROUPS: QueueGroup[] = ["due", "new", "p1", "assist"];
@@ -125,6 +130,7 @@ function setRaw(key: string, value: string, userId: number, at: string) {
   execute("INSERT INTO call_queue_settings_log(key,old_value,new_value,user_id,at) VALUES(?,?,?,?,?)", [key, old, value, userId, at]);
   return true;
 }
+export const cqSetRaw = (key: string, value: string, userId: number, at: string): number => (setRaw(key, value, userId, at) ? 1 : 0);
 export function saveCqSettings(v: Partial<CqSettings>, userId: number, at = new Date().toISOString()): number {
   let n = 0;
   if (v.order) n += +setRaw("order", JSON.stringify(v.order), userId, at);
@@ -224,7 +230,9 @@ export function cqEvent(kind: string, e: { userId?: number | null; salespersonId
 /* ---------------- POST /calls hook ---------------- */
 export type CqCallInput = { active: boolean; resultOn: boolean; outcome: CqOutcome | null; oneLine: string | null; followUpAt: Date | null; hasLegacyReminder: boolean;
   /** R2: the pending CRM-button call this report closes (same expert + same customer), or null. */
-  startedCallId: number | null; manualType: "in_person" | "bale" | null; lockOn: boolean };
+  startedCallId: number | null; manualType: "in_person" | "bale" | null; lockOn: boolean;
+  /** crm-daily-plan: 'plan' = report for the current «کارهای امروز» item, 'outside' = «خارج از لیست» (incoming call). Set by dpPreCall. */
+  dp?: "plan" | "outside" | null };
 export const CQ_MANUAL_TYPES = { in_person: "حضوری", bale: "بله" } as const;
 /** R2 lock is active only with «نتیجه‌ی تماس» on too: the report that unlocks needs a result + one-line note. */
 export const cqLockOn = (user: CqUser, f = cqFlags()) => cqEligible(user) && f.call_lock && f.result;
@@ -236,10 +244,18 @@ export function cqPendingCall(userId: number): { id: number; customer_id: number
 export function cqParseCall(body: any, user: CqUser): { error: string } | CqCallInput {
   ensureCallQueueSchema();
   const f = cqFlags(); const eligible = cqEligible(user);
-  const resultOn = eligible && f.result; const active = eligible && (f.result || f.autoclose);
-  const base: CqCallInput = { active, resultOn, outcome: null, oneLine: null, followUpAt: null, hasLegacyReminder: Boolean(body?.reminder), startedCallId: null, manualType: null, lockOn: false };
+  const dp: "plan" | "outside" | null = eligible && f.daily_plan && (body?.__dp === "plan" || body?.__dp === "outside") ? body.__dp : null;
+  const resultOn = eligible && (f.result || dp != null); const active = eligible && (f.result || f.autoclose || dp != null);
+  const base: CqCallInput = { active, resultOn, outcome: null, oneLine: null, followUpAt: null, hasLegacyReminder: Boolean(body?.reminder), startedCallId: null, manualType: null, lockOn: false, dp };
   if (!resultOn) return base;
-  if (cqLockOn(user, f)) {
+  if (dp) {
+    // «کارهای امروز»: the next item stays locked until outcome + note are saved. 'outside' never links a CRM-button call.
+    base.lockOn = true;
+    const pend = cqPendingCall(user.id); const mt = String(body?.manualType ?? "");
+    if (mt && mt !== "in_person" && mt !== "bale") return { error: "نوع گفت‌وگو معتبر نیست." };
+    if (dp === "plan" && pend && Number(pend.customer_id) === Number(body?.customerId) && !mt) base.startedCallId = Number(pend.id);
+    else if (mt) base.manualType = mt as "in_person" | "bale";
+  } else if (cqLockOn(user, f)) {
     base.lockOn = true;
     const pend = cqPendingCall(user.id); const cust = Number(body?.customerId);
     const mt = String(body?.manualType ?? "");
@@ -345,6 +361,10 @@ function notifyManagersP1(customerId: number, name: string, user: CqUser & { ful
 }
 /** R2: a CRM-button report fills call_logs.source/started_at/returned_at/report_saved_at and unlocks; a manual one never unlocks. */
 function cqLinkReport(callId: number, input: CqCallInput, user: CqUser, customerId: number, nowIso: string) {
+  if (input.dp === "outside") {
+    executeChanges("UPDATE call_logs SET outcome=?, one_line_note=?, source='out_of_list', manual_type=? WHERE id=?", [input.outcome, input.oneLine, input.manualType ?? null, callId]);
+    return;
+  }
   if (input.startedCallId) {
     const p = queryRow<any>("SELECT * FROM call_queue_calls WHERE id=? AND user_id=? AND report_saved_at IS NULL", [input.startedCallId, user.id]);
     if (p) {
