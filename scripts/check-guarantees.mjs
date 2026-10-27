@@ -193,7 +193,7 @@ for (const f of files) {
 }
 if (cardCount === 0) errors.push('no plan cards found in dist (hero sample / plans page)');
 
-const CALC = 'مبلغی که ماشین‌حساب نشون می‌ده، مبلغیه که به دستت می‌رسه، و جزئیات دقیقش رو کارشناس توی مشاوره‌ی رایگان توضیح می‌ده.';
+const CALC = 'مبلغی که ماشین‌حساب نشون می‌ده، مبلغ واریزیه، و جزئیات دقیقش رو کارشناس توی مشاوره‌ی رایگان توضیح می‌ده.';
 const calc = html('calculator');
 if (calc) {
   const ld = [...calc.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].flatMap((m) => {

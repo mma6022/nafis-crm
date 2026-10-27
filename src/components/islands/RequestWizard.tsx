@@ -228,7 +228,7 @@ export default function RequestWizard({ snapshot }: { snapshot: LoanPlan[] }) {
 
         <section className="rq-step" data-step="amount" hidden={step !== 'amount'}>
           <h1 tabIndex={-1}>حدوداً چه مبلغی لازم دارید؟</h1>
-          <p className="sub">مبلغی که به دست شما می‌رسد. دقیقش را کارشناس با شما مرور می‌کند.</p>
+          <p className="sub">منظور، مبلغ واریزی است. دقیقش را کارشناس با شما مرور می‌کند.</p>
           <div className="opts" role="group" aria-label="حدود مبلغ">
             {bands.map((b, k) => (
               <Opt
