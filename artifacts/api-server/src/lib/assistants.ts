@@ -31,6 +31,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { ensureSchemaObject } from "./schema-objects";
 import { maskData, maskText, maskPhone } from "./smart-filing";
+import { loanRequests, allNotes, latestNote, customerFamily } from "./assistant-notes";
 import { expertCallsToday, EXPERT_CALLS_DEFINITION, tehranDayStartMs } from "./expert-calls";
 import { customerApplicationPayout } from "./customer-application-payout";
 import { parseConsultAmountToman } from "./consultation-report";
@@ -238,6 +239,26 @@ export function createAssistants(deps: Deps) {
     const s = scopeSql(a);
     return Boolean(row(`SELECT 1 FROM customers c WHERE c.id=? AND ${s.sql}`, customerId, ...s.params));
   }
+  /** assistants38 read-after-transfer: a sales assistant may still READ (history / notes / requests, masked) a customer its own expert
+   *  logged a call, a note or a follow-up on, even after the customer moved to another expert or was closed. Never the queue,
+   *  suggestions or any write; ownership is untouched. Trainee assistants, trainee-owned customers, merged customers and user 29 are excluded. */
+  function historyReadable(a: any, customerId: number): boolean {
+    if (a.kind !== "sales" || a.scope_rule === "manager" || !a.bound_salesperson_id || TRAINEE_SALESPERSON_IDS.includes(a.bound_salesperson_id)) return false;
+    if (!Number.isSafeInteger(customerId) || customerId < 1) return false;
+    const c = row<any>("SELECT id,salesperson_id,merged_into_customer_id FROM customers WHERE id=?", customerId);
+    if (!c || c.merged_into_customer_id != null || TRAINEE_SALESPERSON_IDS.includes(Number(c.salesperson_id))) return false;
+    const uid = Number(a.bound_user_id) || 0; const sp = a.bound_salesperson_id;
+    if (EXCLUDED_USER_IDS.includes(uid)) return false;
+    if (row("SELECT 1 FROM call_logs WHERE customer_id=? AND (salesperson_id=? OR (?>0 AND created_by_user_id=?)) LIMIT 1", customerId, sp, uid, uid)) return true;
+    if (hasTable("reminders") && row("SELECT 1 FROM reminders WHERE customer_id=? AND (salesperson_id=? OR (?>0 AND (user_id=? OR created_by=?))) LIMIT 1", customerId, sp, uid, uid, uid)) return true;
+    if (uid > 0 && hasTable("loan_application_notes") && row("SELECT 1 FROM loan_application_notes n JOIN loan_applications la ON la.id=n.application_id WHERE la.customer_id=? AND n.author_id=? LIMIT 1", customerId, uid)) return true;
+    return false;
+  }
+  /** "own" (in scope) | "history_read_only" (read-after-transfer) | null */
+  function readAccess(a: any, customerId: number): "own" | "history_read_only" | null {
+    if (inScope(a, customerId)) return "own";
+    return historyReadable(a, customerId) ? "history_read_only" : null;
+  }
   /** Humans who may chat with this assistant at all. */
   function userEligible(a: any, u: { id: number; role: string; salesperson_id: number | null; active?: number }): boolean {
     if (!u || EXCLUDED_USER_IDS.includes(u.id) || u.active === 0) return false;
@@ -417,7 +438,7 @@ export function createAssistants(deps: Deps) {
     return { id: c.id, name: custName(c), status: c.status, statusLabel: STATUS_FA[c.status] ?? c.status, city: c.city ?? null,
       mobile: c.phone ? maskPhone(String(c.phone)) : null, createdAt: c.created_at, lastCallAt: last?.t ?? null, nextReminderAt: rem?.t ?? null,
       ...(a?.kind === "manager" ? { expert: { id: c.salesperson_id ?? null, name: spName(c.salesperson_id) } } : {}),
-      ...(a?.kind === "sales" || a?.kind === "manager" ? { priority: c.priority == null ? null : Number(c.priority), priorityLabel: c.priority == null ? "بدون اولویت" : `اولویت ${c.priority}`, isUrgent: Number(c.is_urgent) === 1 } : {}) };
+      ...(a?.kind === "sales" || a?.kind === "manager" ? { latestNote: (() => { try { return latestNote(db, c.id, a.id); } catch { return null; } })(), priority: c.priority == null ? null : Number(c.priority), priorityLabel: c.priority == null ? "بدون اولویت" : `اولویت ${c.priority}`, isUrgent: Number(c.is_urgent) === 1 } : {}) };
   }
   /* ---------- v7 sales-only reads (allowlisted; never contract/fee/commission/wallet fields) ---------- */
   const salesOnly = (req: Request, res: Response, next: NextFunction) => {
@@ -590,10 +611,21 @@ export function createAssistants(deps: Deps) {
     if (!inScope(a, id)) { notFound(req, res, id); return null; }
     return row<any>("SELECT * FROM customers WHERE id=?", id);
   };
+  /** GET-only twin of scopedCustomer: also allows read-after-transfer (res.locals.access = "history_read_only"). Never used by writes. */
+  const readableCustomer = (req: Request, res: Response) => {
+    const id = Number(req.params.id); const a = A(res);
+    const acc = readAccess(a, id);
+    if (!acc) { notFound(req, res, id); return null; }
+    res.locals.access = acc;
+    return row<any>("SELECT * FROM customers WHERE id=?", id);
+  };
+  const famIn = (ids: number[]) => `(${ids.map(() => "?").join(",")})`;
   runner.get("/customers/:id", (req, res) => {
-    const c = scopedCustomer(req, res); if (!c) return; const a = A(res);
-    const apps = a.kind === "sales" || a.kind === "manager"
-      ? rows<any>(`SELECT * FROM loan_applications WHERE customer_id=? AND deleted_at IS NULL ORDER BY id DESC LIMIT 10`, c.id).map(loanView)
+    const c = readableCustomer(req, res); if (!c) return; const a = A(res);
+    const own = res.locals.access !== "history_read_only"; const fam = customerFamily(db, c.id);
+    const apps = !own ? loanRequests(db, c.id, { showRequestedAmount: false }).filter(r => !r.deleted).map(r => ({ id: r.id, plan: r.plan, stage: r.stage, stageLabel: r.stageLabel, status: r.status, statusLabel: r.statusLabel, active: r.active, createdAt: r.created.at, fromMergedCustomer: r.fromMergedCustomer }))
+      : a.kind === "sales" || a.kind === "manager"
+      ? rows<any>(`SELECT * FROM loan_applications WHERE customer_id IN ${famIn(fam)} AND deleted_at IS NULL ORDER BY id DESC LIMIT 100`, ...fam).map(loanView)
       : rows<any>(`SELECT id,stage,status,created_at FROM loan_applications WHERE customer_id=? AND deleted_at IS NULL ORDER BY id DESC LIMIT 10`, c.id)
         .map(x => ({ id: x.id, stage: x.stage, status: x.status, createdAt: x.created_at }));
     const jobs = a.kind === "filing" && hasTable("smart_filing_jobs")
@@ -602,10 +634,10 @@ export function createAssistants(deps: Deps) {
     const notes = rows<any>("SELECT id,body,author_label,created_at FROM assistant_customer_notes WHERE customer_id=? AND assistant_id=? ORDER BY id DESC LIMIT 20", c.id, a.id)
       .map(n => ({ id: n.id, body: n.body, author: n.author_label, createdAt: n.created_at }));
     audit({ req, a, tokenId: TK(res), action: "GET /customers/:id", customerId: c.id, outcome: "ok" });
-    res.json(maskOut({ customer: { ...customerCard(c, a), description: maskText(c.description ?? "").slice(0, 1000) }, applications: apps, ...(jobs ? { smartFilingJobs: jobs } : {}), assistantNotes: notes }));
+    res.json(maskOut({ access: res.locals.access, customer: { ...customerCard(c, a), description: maskText(c.description ?? "").slice(0, 1000) }, applications: apps, ...(jobs ? { smartFilingJobs: jobs } : {}), assistantNotes: notes }));
   });
   runner.get("/customers/:id/calls", (req, res) => {
-    const c = scopedCustomer(req, res); if (!c) return;
+    const c = readableCustomer(req, res); if (!c) return;
     const sales = A(res).kind === "sales" || A(res).kind === "manager";
     const items = rows<any>("SELECT * FROM call_logs WHERE customer_id=? ORDER BY id DESC LIMIT 30", c.id)
       .map(l => sales ? callView(l) : ({ id: l.id, subject: l.subject, customerRequest: l.customer_request, expertNotes: l.expert_notes, createdAt: l.created_at }));
@@ -613,7 +645,7 @@ export function createAssistants(deps: Deps) {
     res.json(maskOut({ items }));
   });
   runner.get("/customers/:id/reminders", (req, res) => {
-    const c = scopedCustomer(req, res); if (!c) return;
+    const c = readableCustomer(req, res); if (!c) return;
     const items = rows<any>("SELECT id,subject,message,remind_at,done,created_at FROM reminders WHERE customer_id=? ORDER BY remind_at DESC LIMIT 30", c.id)
       .map(r => ({ id: r.id, subject: r.subject, message: r.message, remindAt: r.remind_at, done: Boolean(r.done), createdAt: r.created_at }));
     audit({ req, a: A(res), tokenId: TK(res), action: "GET /customers/:id/reminders", customerId: c.id, outcome: "ok" });
@@ -623,33 +655,46 @@ export function createAssistants(deps: Deps) {
   const PH_SOURCE_FA: Record<string, string> = { customer_update: "ویرایش در CRM", promote: "ارتقا به اولویت ۱", qualifier_form: "فرم تماس اول",
     nonp1_auto_transfer: "انتقال خودکار غیر اولویت ۱", no_answer_archive: "بایگانی بی‌پاسخ", kazemi_return: "بازگشت به کاظمی" };
   runner.get(["/customers/:id/history", "/customers/:id/notes", "/customers/:id/timeline"], salesOnly, (req, res) => {
-    const c = scopedCustomer(req, res); if (!c) return; const a = A(res);
+    const c = readableCustomer(req, res); if (!c) return; const a = A(res);
     const assignment = hasTable("customer_priority_history")
       ? rows<any>("SELECT * FROM customer_priority_history WHERE customer_id=? ORDER BY id DESC LIMIT 100", c.id).map(h => ({
         id: h.id, at: h.created_at, oldPriority: h.old_priority ?? null, newPriority: h.new_priority ?? null,
         fromExpert: spName(h.old_salesperson_id), toExpert: spName(h.new_salesperson_id), transferred: h.old_salesperson_id !== h.new_salesperson_id,
         by: userName(h.actor_user_id), source: h.source, sourceLabel: PH_SOURCE_FA[h.source] ?? h.source, reason: maskText(h.reason ?? "").slice(0, 500) })) : [];
+    const fam = customerFamily(db, c.id);
+    const requests = loanRequests(db, c.id, { showRequestedAmount: res.locals.access === "own", assistantId: a.id });
+    const notesAll = allNotes(db, c.id, a.id, requests);
     const expertNotes = rows<any>("SELECT * FROM call_logs WHERE customer_id=? AND (COALESCE(TRIM(expert_notes),'')<>'' OR COALESCE(TRIM(customer_request),'')<>'') ORDER BY id DESC LIMIT 50", c.id)
       .map(l => ({ callId: l.id, at: l.created_at, by: l.salesperson_name_snapshot ?? spName(l.salesperson_id), subject: l.subject, customerRequest: l.customer_request, text: l.expert_notes }));
-    const caseNotes = hasTable("loan_application_notes")
-      ? rows<any>(`SELECT n.id,n.application_id,n.author_name,n.text,n.created_at FROM loan_application_notes n JOIN loan_applications la ON la.id=n.application_id
-          WHERE la.customer_id=? AND la.deleted_at IS NULL AND n.object_path IS NULL AND COALESCE(TRIM(n.text),'')<>'' ORDER BY n.id DESC LIMIT 50`, c.id)
-        .map(n => ({ id: n.id, applicationId: n.application_id, at: n.created_at, by: n.author_name, text: n.text })) : [];
-    const caseStages = hasTable("loan_application_stage_history")
-      ? rows<any>(`SELECT h.id,h.application_id,h.from_stage,h.to_stage,h.action,h.created_at FROM loan_application_stage_history h JOIN loan_applications la ON la.id=h.application_id
-          WHERE la.customer_id=? AND la.deleted_at IS NULL ORDER BY h.id DESC LIMIT 50`, c.id)
-        .map(h => ({ id: h.id, applicationId: h.application_id, at: h.created_at, fromStage: h.from_stage, toStage: h.to_stage, action: h.action })) : [];
+    // assistants38: every request (merged sources too), image notes as «یادداشت تصویری», no shared 50-row cap across requests
+    const caseNotes = requests.flatMap(r => r.notes.filter((n: any) => n.source === "request_note").map((n: any) => ({ id: Number(String(n.id).split(":")[1]), applicationId: r.id,
+      at: n.at, atJalali: n.atJalali, by: n.author.name, authorRole: n.author.roleLabel, text: n.text, isImage: n.isImage, imageCount: n.imageCount })))
+      .sort((x: any, y: any) => String(y.at).localeCompare(String(x.at)));
+    const caseStages = requests.flatMap(r => r.stageHistory.map((h: any) => ({ id: h.id, applicationId: r.id, at: h.at, atJalali: h.atJalali, fromStage: h.fromStage, toStage: h.toStage,
+      toStageLabel: h.toStageLabel, action: h.action, by: h.actor.name, actorRole: h.actor.roleLabel }))).sort((x: any, y: any) => String(y.at).localeCompare(String(x.at)));
+    void fam;
     const assistantNotes = rows<any>("SELECT id,body,author_label,created_at FROM assistant_customer_notes WHERE customer_id=? AND assistant_id=? ORDER BY id DESC LIMIT 20", c.id, a.id)
       .map(n => ({ id: n.id, at: n.created_at, by: n.author_label, text: n.body }));
     const timeline = [
       ...assignment.map(h => ({ at: h.at, type: h.transferred ? "transfer" : "priority", text: `${h.sourceLabel}${h.transferred ? ` · ${h.fromExpert ?? "—"} ← ${h.toExpert ?? "—"}` : ""}${h.newPriority != null ? ` · اولویت ${h.newPriority}` : ""}` })),
       ...expertNotes.map(n => ({ at: n.at, type: "call_note", text: `${n.by ?? ""}: ${String(n.text ?? n.customerRequest ?? "").slice(0, 200)}` })),
-      ...caseNotes.map(n => ({ at: n.at, type: "case_note", text: `${n.by ?? ""}: ${String(n.text).slice(0, 200)}` })),
-      ...caseStages.map(h => ({ at: h.at, type: "case_stage", text: `${h.fromStage ?? "—"} → ${h.toStage ?? "—"}` })),
+      ...caseNotes.map((n: any) => ({ at: n.at, type: "case_note", text: `${n.by ?? ""}: ${String(n.text).slice(0, 200)}` })),
+      ...caseStages.map((h: any) => ({ at: h.at, type: "case_stage", text: `#${h.applicationId} ${h.fromStage ?? "—"} → ${h.toStage ?? "—"}` })),
       ...assistantNotes.map(n => ({ at: n.at, type: "assistant_note", text: String(n.text).slice(0, 200) })),
-    ].sort((x, y) => String(y.at).localeCompare(String(x.at))).slice(0, 100);
+    ].sort((x, y) => String(y.at).localeCompare(String(x.at))).slice(0, 200);
     audit({ req, a, tokenId: TK(res), action: `GET /customers/:id/${req.path.split("/").pop()}`.slice(0, 80), customerId: c.id, outcome: "ok" });
-    res.json(maskOut({ customerId: c.id, priority: c.priority == null ? null : Number(c.priority), assignmentHistory: assignment, expertNotes, caseNotes, caseStages, assistantNotes, timeline }));
+    res.json(maskOut({ customerId: c.id, access: res.locals.access, priority: c.priority == null ? null : Number(c.priority), assignmentHistory: assignment, expertNotes, caseNotes, caseStages, assistantNotes, timeline,
+      requests, notes: notesAll.slice(0, 500), latestNote: notesAll[0] ?? null }));
+  });
+  /** assistants38: loan-request-centred view — every request (old / inactive / closed; soft-deleted flagged; merged sources included),
+   *  stage history, every note with source + author + role + ISO/Jalali. Read only; masked; never contract amounts, files or links. */
+  runner.get(["/customers/:id/requests", "/customers/:id/loan-requests", "/customers/:id/cases"], salesOnly, (req, res) => {
+    const c = readableCustomer(req, res); if (!c) return; const a = A(res);
+    const requests = loanRequests(db, c.id, { showRequestedAmount: res.locals.access === "own", assistantId: a.id });
+    const notesAll = allNotes(db, c.id, a.id, requests);
+    audit({ req, a, tokenId: TK(res), action: `GET /customers/:id/${req.path.split("/").pop()}`.slice(0, 80), customerId: c.id, outcome: "ok" });
+    res.json(maskOut({ customerId: c.id, access: res.locals.access, customer: customerCard(c, a), requestCount: requests.length,
+      activeCount: requests.filter(r => r.active).length, requests, latestNote: notesAll[0] ?? null, otherNotes: notesAll.filter(n => n.requestId == null).slice(0, 300) }));
   });
   /** v7: «فرم مشاوره» + «اطلاعات مشاوره» + preferred call time (site/callback requests). */
   const FORM_FIELDS = ["job_type", "credit_rank", "loan_purpose", "requested_amount", "requested_amount_toman", "need_days", "needs_fast_receive", "receive_mode", "loan_pref",
@@ -667,7 +712,7 @@ export function createAssistants(deps: Deps) {
     const r = row<any>("SELECT p.amount_band b FROM site_lead_requests s JOIN public_leads p ON p.id=s.source_id WHERE s.id=? AND s.source='lead'", siteLeadRequestId);
     return r ? bandView(r.b) : null; } catch { return null; } };
   runner.get(["/customers/:id/consultation", "/customers/:id/consultation-form"], salesOnly, (req, res) => {
-    const c = scopedCustomer(req, res); if (!c) return; const a = A(res);
+    const c = readableCustomer(req, res); if (!c) return; const a = A(res);
     let form: any = null;
     if (hasTable("consultation_forms")) {
       const f = row<any>("SELECT * FROM consultation_forms WHERE customer_id=? ORDER BY COALESCE(updated_at,created_at) DESC, id DESC LIMIT 1", c.id);
