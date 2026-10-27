@@ -31,6 +31,7 @@ import { startInstagramWorker } from "../lib/instagram";
 import callReportsRouter from "./call-reports";
 import mobileCallsRouter from "./mobile-calls";
 import { createSiteNotificationRouter } from "../lib/site-notifications";
+import planRatesRouter from "./plan-rates";
 import salesReportsRouter from "./sales-reports";
 import { createInternalChatRouter } from "../lib/internal-chat";
 import { createAvatarRouter } from "../lib/avatars";
@@ -71,6 +72,7 @@ router.use("/internal-chat",createInternalChatRouter({db:crmDb,requireAuth,requi
 // Before crmRouter: «/consultations/report» must not reach «/consultations/:id».
 router.use(consultationReportRouter);
 router.use(leadAnnotatorRouter);
+router.use(planRatesRouter);
 router.use(crmRouter);
 router.use(teamSalesRouter);
 router.use(salesAssistRouter);

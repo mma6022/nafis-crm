@@ -9,6 +9,7 @@ import { startTeamBonusScheduler } from "./lib/team-commission";
 import { startSiteLeadWorker } from "./lib/site-leads";
 import { notifySiteLeadWindow } from "./lib/customer-notifications";
 import { crmDb } from "./lib/crm-db";
+import { startPlanRateAlerts } from "./lib/plan-rates";
 import { ensureLedgerSchema } from "./lib/ledger";
 import { ensureGlShadowSchema, startGlShadowWorker } from "./lib/gl-shadow";
 import { ensureGlReportsSchema, startGlNightlyCompare } from "./lib/gl-reports";
@@ -63,4 +64,5 @@ app.listen(port, (err) => {
   startTeamBonusScheduler(); // inert unless the team model AND the monthly team bonus are enabled
   startGlShadowWorker(crmDb, logger); // inert unless gl.shadow_nonbank is ON
   startGlNightlyCompare(crmDb, logger); // inert unless gl.nightly_compare is ON; report only
+  startPlanRateAlerts(logger); // daily 09:00 Tehran; CRM-internal admin rows only (nothing is sent); PLAN_RATE_ALERTS_DISABLED=1 in tests
 });

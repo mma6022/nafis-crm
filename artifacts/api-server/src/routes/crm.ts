@@ -172,6 +172,7 @@ import {
 } from "../lib/database-backup";
 import { databasePath } from "../lib/crm-db";
 import { PERMISSIONS, requirePermission } from "../lib/access-control";
+import { installPlanRates, recordRateChange } from "../lib/plan-rates";
 import {
   deriveCreditRank,
   invalidCreditScoreMessage,
@@ -202,6 +203,8 @@ import {
 } from "../lib/salesperson-identity";
 import { tehranJalaliFileDay } from "../lib/jalali-file-day";
 
+// rate_updated_at + loan_plan_rate_history (additive, idempotent; one-time 'initial_confirmed' stamp).
+installPlanRates();
 const router: IRouter = Router();
 
 function normalizeCustomerIdentity(value: string): string {
@@ -5538,6 +5541,7 @@ router.post(
         params,
       );
       replacePlanConditions(createdId, (input.conditions as PlanConditionInput[] | undefined) ?? []);
+      recordRateChange(createdId, null, values.find(([column]) => column === "annual_interest")?.[1] ?? null, res.locals.authUser, "create");
       return createdId;
     });
     const plan = getPlan(id);
@@ -5632,6 +5636,9 @@ router.patch(
           params.data.id,
         ]);
       }
+      // PM 2026-10-28: every annual_interest change writes one loan_plan_rate_history row + loan_plans.rate_updated_at.
+      const rate = values.find(([column]) => column === "annual_interest");
+      if (rate) recordRateChange(params.data.id, existingPlan?.annualInterest, rate[1], res.locals.authUser);
       if (input.conditions !== undefined) {
         replacePlanConditions(params.data.id, input.conditions as PlanConditionInput[]);
       }

@@ -26,6 +26,7 @@ import { ErrorState, formatDate, SkeletonPanel } from '@/components/CrmShell';
 import { EmptyState, Modal } from '@/components/DataTools';
 import { CHECK_KIND_LABEL, encodeSide, NO_REQUIREMENTS, requirementsText, sideRequirements, type SideRequirements } from '@/lib/plan-requirements';
 import { BalePlanFileBadge, BalePlanFileBox } from '@/features/bale/BalePlanFilePanel';
+import { PlanRateAlerts, PlanRateFacts, planRateKeys } from '@/features/plan-rates/PlanRatePanel';
 import { Choice, faDigits, formatToman, LockBadge, TomanInput, WizardProgress, YES_NO, yn } from '@/components/plans-consult/parts';
 
 const INSTALLMENT_OPTIONS = [6, 9, 12, 18, 24, 36, 48] as const;
@@ -203,6 +204,8 @@ export default function LoanPlans() {
         setEditing(undefined);
         client.invalidateQueries({ queryKey: getListLoanPlansQueryKey() });
         client.invalidateQueries({ queryKey: getGetLoanPlanQueryKey(editing.id) });
+        client.invalidateQueries({ queryKey: planRateKeys.history(editing.id) });
+        client.invalidateQueries({ queryKey: planRateKeys.alerts });
       } });
     } else {
       create.mutate({ data }, { onSuccess: async (created) => {
@@ -220,6 +223,7 @@ export default function LoanPlans() {
       <div><div className="eyebrow">کاتالوگ تأمین مالی</div><h2>طرح‌های تسهیلاتی</h2><p>شرایط هر طرح را دقیق ببینید و نسخه فعال کاتالوگ را کنترل کنید.</p></div>
       <button className="btn btn-primary" onClick={() => setEditing(null)} data-testid="button-new-loan-plan"><Plus size={16} />طرح جدید</button>
     </div>
+    <PlanRateAlerts onUpdate={async (planId) => { setSelectedId(planId); const plan = plans.find((p) => p.id === planId) ?? await api.get<LoanPlan>(`/loan-plans/${planId}`).catch(() => null); if (plan) setEditing(plan); }} />
     <div className="filter-tabs" style={{ width: 'fit-content', marginBottom: 14 }}>
       <button className={`filter-tab ${filter === 'active' ? 'active' : ''}`} onClick={() => setFilter('active')}>فعال‌ها</button>
       <button className={`filter-tab ${filter === 'inactive' ? 'active' : ''}`} onClick={() => setFilter('inactive')}>غیرفعال‌ها</button>
@@ -249,6 +253,7 @@ function PlanDetail({ plan, loading, onEdit }: { plan: LoanPlan | null; loading:
     <div className="panel-head"><div><div className="eyebrow">جزئیات طرح</div><h3>{plan.name}</h3><p>{plan.bankName || 'بانک مشخص نشده'} · آخرین ثبت {formatDate(plan.createdAt)}</p></div><button className="table-action" onClick={onEdit}><Edit3 size={13} />ویرایش</button></div>
      <div className="plan-facts"><div className="plan-fact">نوع طرح <LockBadge>فقط کارکنان</LockBadge><strong>{optionsFor(options, 'loan_type').find((item) => item.value === plan.loanType)?.labelFa || plan.loanType || '—'}</strong></div><div className="plan-fact">روش اجرا<strong>{plan.processMode || '—'}</strong></div><div className="plan-fact">هزینه ثابت تشکیل پرونده<strong>{BigInt(plan.filingFeeToman).toLocaleString('fa-IR')} تومان</strong></div><div className="plan-fact">زمان انجام<strong>{GRANT_TIMES.find((item) => item.value === plan.grantDays)?.label || plan.grantDays || '—'}</strong></div><div className="plan-fact">قالب قرارداد<strong>{templatesReq.data?.find((template) => template.id === plan.contractTemplateId)?.name || '—'}</strong></div></div>
      {plan.loanType === 'goods' ? <section className="plan-detail-section"><h4>اطلاعات خرید کالا</h4><div className="plan-facts"><div className="plan-fact">شرکت پلتفرم<strong>{plan.platformCompanyName || '—'}</strong></div><div className="plan-fact">فروشگاه خریدار<strong>{plan.goodsStoreName || '—'}</strong></div><div className="plan-fact">حق‌العمل<strong>{plan.commissionPercent == null ? '—' : `${plan.commissionPercent}٪`}</strong></div><div className="plan-fact">هزینه عملیات<strong>{plan.operationCostsPercent == null ? '—' : `${plan.operationCostsPercent}٪`}</strong></div><div className="plan-fact">تخفیف اعطایی<strong>{plan.grantedDiscountPercent == null ? '—' : `${plan.grantedDiscountPercent}٪`}</strong></div><div className="plan-fact">حق‌العمل خرید<strong>{plan.purchaseCommissionPercent == null ? '—' : `${plan.purchaseCommissionPercent}٪`}</strong></div><div className="plan-fact">حق‌العمل فروش<strong>{plan.salesCommissionPercent == null ? '—' : `${plan.salesCommissionPercent}٪`}</strong></div><div className="plan-fact">کارمزد اخذ وام<strong>{plan.loanAcquisitionFeePercent == null ? '—' : `${plan.loanAcquisitionFeePercent}٪`}</strong></div><div className="plan-fact">وجه التزام<strong>{plan.penaltyValue == null ? '—' : `${plan.penaltyValue.toLocaleString('fa-IR')}${plan.penaltyMode === 'percent' ? '٪' : ' تومان'}`}</strong></div><div className="plan-fact">مدت قرارداد<strong>{plan.contractDurationDays == null ? '—' : `${plan.contractDurationDays} روز`}</strong></div></div></section> : null}
+    <PlanRateFacts planId={plan.id} />
     {plan.installmentTerms?.length ? <section className="plan-detail-section"><h4>اقساط و درصدها</h4><div className="installment-terms-display">{plan.installmentTerms.map((term) => <div className="term-display-card" key={term.installments}><strong>{term.installments} قسط</strong><span>پیش‌پرداخت: {term.prepaymentPercent}٪</span><span>کسر از مشتری: {term.deductionPercent}٪</span><span>واریزی مشتری: {term.depositPercent}٪</span></div>)}</div></section> : null}
     {plan.requiredDocuments?.length ? <section className="plan-detail-section"><h4>مدارک مورد نیاز</h4><div className="docs-list">{labelsFor(plan.requiredDocuments, documentOptions).map((label) => <span className="doc-badge" key={label}>{label}</span>)}</div></section> : null}
     {plan.notes ? <section className="plan-detail-section"><h4>توضیحات</h4><p className="subtle-note">{plan.notes}</p></section> : null}
