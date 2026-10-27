@@ -190,6 +190,7 @@ import { retainedIdentityChecks } from "../lib/identity-check-retention";
 import { normalizeCustomerMobile, normalizeCustomerNationalCode, isAdminRole } from "../lib/customer-integrity";
 import { mergeCustomerRecords } from "../lib/customer-merge";
 import { insertCustomerRecord, lastCustomerCreateOutcome } from "../lib/customer-create";
+import { recordUrgentChange, setCustomerUrgent, URGENT_REASON_MAX } from "../lib/customer-urgent";
 import { publicPlanGuarantees } from "../lib/public-plan-guarantees";
 import { isPortalRegistration } from "../lib/customer-portal-features";
 import { acceptedGradeEdit, compactRankList, expandRankList, GRADE_EDIT_ERROR, isLegacyGradeLetter, parseStoredRanks } from "../lib/credit-subgrades";
@@ -3158,6 +3159,10 @@ router.patch(
           `UPDATE customers SET ${setClause} WHERE id = ?`,
           [...entries.map(([, value]) => value), params.data.id],
         );
+        // crm-urgent-history: one history row + one bell to Kazemi when the tick really changed.
+        if (changed && body.isUrgent !== undefined)
+          recordUrgentChange(crmDb, params.data.id, existingCustomer.isUrgent ? 1 : 0, body.isUrgent ? 1 : 0,
+            { kind: "user", userId: user.id, label: user.fullName || user.username }, "customer_update");
         // Same additive log as the quick-credit save; '' as new value = explicitly cleared.
         if (changed && nationalCodeLog) execute(
           `INSERT INTO ${IDENTITY_LOG_TABLE} (customer_id,old_national_code,new_national_code,identity_changed,source,actor_user_id,created_at)
@@ -3215,6 +3220,20 @@ router.patch(
     res.json(UpdateCustomerResponse.parse(customer));
   },
 );
+
+/* crm-urgent-history (PM 2026-10-27 22:28): the urgent tick alone for the owner / admin, with an optional reason; history +
+   bells in lib/customer-urgent.ts. Other users (incl. lead_annotator) use routes/lead-annotator.ts. */
+router.patch("/customers/:id/urgent", requirePermission("customers.update"), (req, res): void => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid customer id" }); return; }
+  if (typeof req.body?.isUrgent !== "boolean") { res.status(400).json({ error: "isUrgent (boolean) is required" }); return; }
+  const reason = req.body?.reason == null ? null : String(req.body.reason).trim();
+  if (reason && reason.length > URGENT_REASON_MAX) { res.status(400).json({ error: "reason too long" }); return; }
+  const user = res.locals.authUser as AuthUser;
+  if (!customerOwnerOrAdmin(id, user)) { res.status(404).json({ error: "Customer not found" }); return; }
+  const r = runTransaction(() => setCustomerUrgent(crmDb, id, req.body.isUrgent, { kind: "user", userId: user.id, label: user.fullName || user.username }, "urgent_toggle", reason || null));
+  res.json({ id, isUrgent: r.isUrgent, changed: r.changed });
+});
 
 router.patch(
   "/customers/:id/tags",

@@ -4,6 +4,8 @@
  * priority, stage, money, team_sales_config or notification_settings; no SMS, no customer message, no notification.
  *
  * Order (consistent with the customers list «اول لیست», lib/site-leads.ts topOfList):
+ *   very first (crm-urgent-first, PM 2026-10-27 22:28): every «مشتری فوری» (customers.is_urgent=1), above overdue reminders and
+ *     site leads; among urgent customers the usual points / last-call order applies,
  *   first (Task B3, 2026-10-26, Mohammad's item (c)): every customer with an OVERDUE reminder (no call since it fell due), by points —
  *     ahead of new suggestions, site leads included (a site lead with an overdue reminder sits here too),
  *   tier 3 = active site lead (unanswered website request, repeats included) in the list order,
@@ -400,17 +402,18 @@ export function scoreForSalesperson(salespersonId: number, now = new Date(), w: 
       // Same rule as the customers page (usesSimpleForm): the qualifier's own in-progress customers with NO priority -> simple 3-step form; P1/P2/P3 -> legacy.
       callForm: (cfg.enabled && salespersonId === qualifier && r.priority == null && (r.status ?? "in_progress") === "in_progress" ? "simple" : "legacy") as "simple" | "legacy",
       lastCallAt: cl?.last ?? null, p1Stale,
-      pos: t ? t.i : Number.MAX_SAFE_INTEGER, lastMs: Number.isFinite(lastMs) ? lastMs : 0, band, staleMs,
+      pos: t ? t.i : Number.MAX_SAFE_INTEGER, lastMs: Number.isFinite(lastMs) ? lastMs : 0, band, staleMs, urg: Number(r.is_urgent) === 1,
     };
   });
   // Ties: the older last call first (design), then id.
   // Groups (Task B3): overdue reminder (5) > site lead (4) > red P1 quota, oldest first (3) > «از کاظمی» (2) > tier 1 (1).
   // Tier 1 bands (Task B): quota (oldest first) > rest by points.
-  const grp = (x: { tier: number; band: number; p1Stale: ScoredCustomer["p1Stale"] }) => x.band === 3 ? 5 : x.tier === 3 ? 4 : x.p1Stale?.red ? 3 : x.tier === 2 ? 2 : 1;
+  // crm-urgent-first (PM 2026-10-27 22:28): «مشتری فوری» (is_urgent) ranks above EVERYTHING, overdue reminders included (6).
+  const grp = (x: { tier: number; band: number; p1Stale: ScoredCustomer["p1Stale"]; urg: boolean }) => x.urg ? 6 : x.band === 3 ? 5 : x.tier === 3 ? 4 : x.p1Stale?.red ? 3 : x.tier === 2 ? 2 : 1;
   out.sort((a, b) => { const ga = grp(a), gb = grp(b);
     return gb - ga || (ga === 4 || ga === 2 ? a.pos - b.pos : 0) || (ga === 3 ? b.staleMs - a.staleMs : 0) || (ga === 1 ? b.band - a.band : 0)
       || (ga === 1 && (a.band === 1 || a.band === 2) ? b.staleMs - a.staleMs : 0) || b.points - a.points || a.lastMs - b.lastMs || a.customerId - b.customerId; });
-  return out.map(({ pos: _p, lastMs: _l, band: _b, staleMs: _s, ...x }) => x);
+  return out.map(({ pos: _p, lastMs: _l, band: _b, staleMs: _s, urg: _u, ...x }) => x);
 }
 
 /* ---------------- box of 3 + events ---------------- */

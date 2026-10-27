@@ -45,6 +45,7 @@ import salesAssistRouter from "./sales-assist";
 import callQueueRouter from "./call-queue";
 import { ensureCallQueueSchema } from "../lib/call-queue";
 import defaultOwnerRouter from "./default-owner";
+import leadAnnotatorRouter from "./lead-annotator";
 import { ensureTeamSalesSchema } from "../lib/team-sales";
 import teamCommissionRouter from "./team-commission";
 import staffWalletRouter from "./staff-wallet";
@@ -66,6 +67,7 @@ router.use("/internal-chat",createInternalChatRouter({db:crmDb,requireAuth,requi
   saveFile:saveChatObject,readFile:readChatObject,deleteFile:deleteChatObject,validateFile:validateInternalChatFile}));
 // Before crmRouter: «/consultations/report» must not reach «/consultations/:id».
 router.use(consultationReportRouter);
+router.use(leadAnnotatorRouter);
 router.use(crmRouter);
 router.use(teamSalesRouter);
 router.use(salesAssistRouter);

@@ -58,7 +58,7 @@ function schemaSql() {
       verification_checked_at TEXT,identity_changed_at TEXT,verification_version INTEGER DEFAULT 0,
       verification_provider TEXT,shahkar_status TEXT,person_info_status TEXT,postal_code_info_status TEXT,
       sana_status TEXT,shahkar_ok INTEGER,person_info_ok INTEGER,postal_code_info_ok INTEGER,sana_ok INTEGER,
-      salesperson_id INTEGER,merged_into_customer_id INTEGER,is_urgent INTEGER DEFAULT 0,
+      salesperson_id INTEGER,merged_into_customer_id INTEGER,is_urgent INTEGER DEFAULT 0,registered_by INTEGER,registration_source TEXT,source TEXT,credit_grade TEXT,
       created_at TEXT NOT NULL,priority TEXT,status TEXT DEFAULT 'in_progress',credit_score REAL,credit_rank TEXT,
       credit_checked_at TEXT,first_name TEXT,last_name TEXT,address TEXT,official_first_name TEXT,
       official_last_name TEXT,official_father_name TEXT,official_address TEXT,official_postal_code TEXT,

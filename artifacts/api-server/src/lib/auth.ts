@@ -4,6 +4,7 @@ import { execute, executeChanges, queryRow, crmDb } from "./crm-db";
 import { permissionsForRole } from "./access-control";
 import { isAdminRole } from "./customer-integrity";
 import { withNotificationActor } from "./notification-actor-context";
+import { hasLeadAnnotator } from "./lead-annotator";
 
 const SESSION_COOKIE = "crm_session";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -52,6 +53,8 @@ export type AuthUser = {
   salespersonName: string | null;
   active: boolean;
   createdAt: string;
+  /** lead_annotator capability (lib/lead-annotator.ts): additive, two actions on any customer, every phone masked in responses. */
+  leadAnnotator?: boolean;
 };
 
 type AuthUserRow = {
@@ -92,6 +95,7 @@ function userFromRow(row: AuthUserRow): AuthUser {
     salespersonName: row.salesperson_name ?? null,
     active: Boolean(row.active),
     createdAt: row.created_at,
+    leadAnnotator: hasLeadAnnotator(crmDb, Number(row.id)),
   };
 }
 

@@ -1,6 +1,7 @@
-import { execute, executeChanges, queryRow, queryRows } from "./crm-db";
+import { crmDb, execute, executeChanges, queryRow, queryRows } from "./crm-db";
 import { defaultOwnerDecision, logRuleAssignment, type RegistrationSource } from "./default-owner-rule";
 import { customerSourceFor } from "./registration-sources";
+import { recordUrgentChange } from "./customer-urgent";
 
 export type CustomerCreateInput = {
   name: string;
@@ -112,6 +113,9 @@ export function insertCustomerRecord(input: CustomerCreateInput): number {
       customerSourceFor(input.registrationSource, input.registeredByUserId),
     ],
   );
+  // crm-urgent-history: a customer created «فوری» counts as a set (one history row + one bell to Kazemi).
+  if (input.isUrgent) recordUrgentChange(crmDb, id, 0, 1, input.registeredByUserId != null
+    ? { kind: "user", userId: input.registeredByUserId } : { kind: "system", label: input.registrationSource }, `create:${input.registrationSource}`);
   if (rule.apply) logRuleAssignment({ customerId: id, registrarUserId: input.registeredByUserId ?? null, source: input.registrationSource,
     ownerSalespersonId: rule.ownerSalespersonId, priority: input.priority ?? null });
   lastOutcome = { customerId: id, ruleApplied: rule.apply, salespersonId: owner };

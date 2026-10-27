@@ -127,7 +127,8 @@ export function installSiteNotifications() {
       "verification_version","portal_auth_version","phone_normalized","national_code_normalized",
       // crm-no-plan-option: customers.city is filled by the first-call form in the same save; no separate bell event.
       "city",
-    ].includes(n))).filter(n=>names.has(n));
+    ].includes(n) && !(source.table==="customers" && n==="is_urgent"))).filter(n=>names.has(n));
+    // crm-urgent-history (PM 22:28): an is_urgent-only change sends Kazemi ONE addressed bell (lib/customer-urgent.ts), not this generic one.
     for (const operation of source.insertOnly ? ["INSERT"] : ["INSERT","UPDATE","DELETE"]) {
       if (operation==="UPDATE" && !watched.length) continue;
       const row = operation==="DELETE" ? "OLD" : "NEW";
@@ -164,7 +165,7 @@ function permitted(user: AuthUser) {
   const wide = user.role==="admin" || user.role==="registrar";
   // v6: Sarina is registrar/admin only — old Sarina rows addressed to anyone else stay in the DB but never show.
   // «پیام از شماره‌ی ناشناس» (Bale, resource_type bale-unknown) has no customer: addressee only, never role-scoped.
-  const mine = blocked ? "0" : `e.recipient_user_id=? AND ((c.id IS NOT NULL${wide ? "" : " AND c.salesperson_id=? AND COALESCE(e.actor_key,'')<>'assistant:sarina'"}) OR e.resource_type='bale-unknown' OR (e.resource_type='expert-analysis'${wide ? "" : ` AND e.owner_id=${Number(user.salespersonId ?? -1)}`}))`;
+  const mine = blocked ? "0" : `e.recipient_user_id=? AND ((c.id IS NOT NULL${wide ? "" : " AND c.salesperson_id=? AND COALESCE(e.actor_key,'')<>'assistant:sarina'"}) OR e.resource_type='bale-unknown' OR e.kind='urgent-change' OR (e.resource_type='expert-analysis'${wide ? "" : ` AND e.owner_id=${Number(user.salespersonId ?? -1)}`}))`;
   return {
     sql:`((e.recipient_user_id IS NULL AND ${owner} ${permissions ? `AND e.permission IN (${permissions.length?permissions.map(()=>"?").join(","):"NULL"})` : ""}) OR (${mine}))`,
     params:[...(assigned?[user.salespersonId??-1]:[]),...(permissions??[]),...(blocked?[]:[user.id,...(wide?[]:[user.salespersonId??-1])])],

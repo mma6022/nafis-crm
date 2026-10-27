@@ -28,11 +28,12 @@ import { layoutFor, menuKindFor, TRAINEE_SALESPERSON_IDS } from './nav-layout';
 import { asFetch, asVisibleTo } from '@/features/assistant/api';
 import { cqOn, useCqConfig } from '@/features/call-queue/api';
 import { CallQueueHost } from '@/features/call-queue/CallQueueHost';
+import { useLeadAnnotatorMe } from '@/features/lead-annotator/api';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem } from './ui/dropdown-menu';
 
 const nafissLogoUrl = `${import.meta.env.BASE_URL}nafiss-financial-logo.png`;
 
-type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin' };
+type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin'; leadAnnotator?: boolean };
 
 // Routes and permission rules are unchanged; only grouping, order, labels of groups and icons are new.
 const allNavItems: NavItem[] = [
@@ -71,6 +72,8 @@ const allNavItems: NavItem[] = [
   { href: '/voice-notes-usage', label: 'مصرف تبدیل صدا به متن', icon: AudioLines, adminOnly: true },
   { href: '/smart-filing', label: 'ثبت هوشمند', icon: Bot, smartFiling: true },
   { href: '/settings/assistants', label: 'دستیارهای هوشمند', icon: Bot, adminOnly: true },
+  { href: '/settings/default-owner', label: 'قانون ثبت مشتری', icon: UserCog, adminOnly: true },
+  { href: '/lead-annotator', label: 'یادداشت سرنخ (اینستاگرام)', icon: Instagram, leadAnnotator: true },
   { href: '/users', label: 'کاربران CRM', icon: UserCog, permission: 'users.view' },
   { href: '/settings/notifications', label: 'تنظیمات', icon: Settings, permission: 'notifications.view' },
   { href: '/settings/releases', label: 'نسخه‌های سایت', icon: Rocket, adminOnly: true },
@@ -83,13 +86,13 @@ const compactLabels: Record<string, string> = { '/': 'خانه', '/chat': 'گف�
 type NavGroup = { id: string; label: string; icon: LucideIcon; hrefs: string[]; pinned?: boolean };
 const navGroups: NavGroup[] = [
   { id: 'dashboard', label: 'داشبورد', icon: LayoutDashboard, hrefs: ['/', '/my-queue', '/reminders'], pinned: true },
-  { id: 'customers', label: 'مشتریان و مشاوره', icon: Contact, hrefs: ['/customers', '/calls', '/consultations', '/callback-requests', '/manual-verifications'] },
+  { id: 'customers', label: 'مشتریان و مشاوره', icon: Contact, hrefs: ['/customers', '/lead-annotator', '/calls', '/consultations', '/callback-requests', '/manual-verifications'] },
   { id: 'loans', label: 'وام و قرارداد', icon: HandCoins, hrefs: ['/loan-applications', '/smart-filing', '/loan-plans', '/contracts', '/credit-rank-overrides'] },
   { id: 'goods', label: 'خرید کالا', icon: Store, hrefs: ['/goods-purchases', '/sales-commissions', '/my-performance', '/my-wallet'] },
   { id: 'finance', label: 'مالی و پرداخت', icon: Banknote, hrefs: ['/payment-orders', '/wallet-management', '/bank-accounts', '/accounting'] },
   { id: 'comms', label: 'پیام‌ها و تلفن', icon: Headset, hrefs: ['/chat', '/internal-chat', '/messengers', '/settings/bale', '/bale/autoreply', '/instagram-inbox', '/mobile-calls', '/phone'] },
   { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/social-monitor-reports', '/voice-notes-usage', '/call-queue-events'] },
-  { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/settings/notifications', '/settings/assistants', '/call-queue-events', '/settings/call-queue', '/settings/releases'] },
+  { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/settings/notifications', '/settings/assistants', '/settings/default-owner', '/call-queue-events', '/settings/call-queue', '/settings/releases'] },
 ];
 
 const OPEN_GROUPS_KEY = 'nafis.nav.openGroups';
@@ -189,12 +192,14 @@ export function CrmShell({ children }: { children: ReactNode }) {
   });
 
   const isAdminUser = user?.role === 'admin';
+  const leadAnnotatorMe = useLeadAnnotatorMe(Boolean(user) && !isAdminUser);
   const basePageTitle = isAdminUser && (location === '/my-wallet' || location.startsWith('/my-wallet/')) ? 'کیف پول کارشناس‌ها' : titleFor(location);
   
   const navItems = allNavItems.filter(item => {
     // crm-call-queue: hidden while its flags are OFF (and for user 29 / trainees, enforced by the server config).
     if (item.cq === 'queue') return cqOn(cqCfg, 'queue');
     if (item.cq === 'admin') return Boolean(cqCfg?.manager && Object.values(cqCfg.flags).some(Boolean));
+    if (item.leadAnnotator) return Boolean(leadAnnotatorMe.data?.enabled);
     if (item.walletOwner && !isAdminUser && !(user as { salespersonId?: number | null } | undefined)?.salespersonId) return false;
     if ('staffOnly' in item && item.staffOnly) return user?.role === 'admin' || user?.role === 'registrar';
     if ('adminOnly' in item && item.adminOnly) return user?.role === 'admin';

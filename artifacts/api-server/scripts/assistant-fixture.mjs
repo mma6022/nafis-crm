@@ -604,6 +604,22 @@ try {
     }
     assert.equal((await R(tk, "GET", "/manager/summary?slot=x")).s, 422);
     ok("manager: 09:00 / 18:00 / Thursday summaries");
+    { // PM 22:16: «ثبت‌شده‌ها بر اساس ثبت‌کننده» on the manager endpoint — counts only, user 29 excluded, no ids / names of customers / phones
+      db.exec("ALTER TABLE customers ADD COLUMN registered_by INTEGER; ALTER TABLE customers ADD COLUMN registration_source TEXT; ALTER TABLE customers ADD COLUMN source TEXT");
+      db.exec("UPDATE customers SET registered_by=2, registration_source='staff_form', source='staff' WHERE id IN (100,110); UPDATE customers SET registered_by=29, registration_source='staff_form', source='staff' WHERE id=120");
+      const from = "2026-09-01", to = "2026-10-26";
+      const rb = await R(tk, "GET", `/manager/registered-by?from=${from}&to=${to}`); assert.equal(rb.s, 200, JSON.stringify(rb.j));
+      assert.equal(rb.j.countsOnly, true); assert.ok(rb.j.definitions && rb.j.registrars.length >= 1);
+      assert.ok(!rb.j.registrars.some(x => x.userId === 29)); const r2 = rb.j.registrars.find(x => x.userId === 2); assert.ok(r2 && r2.registered >= 1);
+      for (const x of rb.j.registrars) for (const k of ["registered", "reachedRegistration", "reachedDeposit"]) assert.equal(typeof x[k], "number");
+      const txt = JSON.stringify(rb.j); assert.ok(!/09\d{9}/.test(txt) && !txt.includes("customerId") && !txt.includes("phone"));
+      assert.ok(Array.isArray(rb.j.totals.byChannel));
+      assert.equal((await R(tk, "GET", "/manager/registered-by?from=2026-10-26&to=2026-01-01")).s, 422);
+      assert.equal((await R(tk, "GET", "/manager/registered-by?from=bad")).s, 422);
+      assert.equal((await R(iss.somayeh, "GET", "/manager/registered-by")).j.error, "manager_only");
+      db.exec("ALTER TABLE customers DROP COLUMN registered_by; ALTER TABLE customers DROP COLUMN registration_source; ALTER TABLE customers DROP COLUMN source");
+      ok("manager: /manager/registered-by — per registrar registered / reached registration / reached deposit, counts only, 29 excluded, 422s, manager only");
+    }
     // rollback safety: an un-normalized row (what an older release sees) has no scope and nobody eligible
     const raw = db.prepare("SELECT * FROM assistants WHERE slug='ahmad'").get();
     assert.equal(as._internal.scopeSql(raw).sql, "0"); assert.equal(as._internal.userEligible(raw, { id: 1, role: "admin", salesperson_id: null }), false);
@@ -613,6 +629,40 @@ try {
     assert.equal(snap(), mgrBefore, "manager traffic changed no CRM table");
     clock = clockBefore;
     ok("manager: fail-closed when not normalized + CRM tables unchanged");
+  }
+  { // crm-urgent-history (PM 22:28): narrow assistant urgent write — default OFF (423), admin-only switch, scope, one history row + one bell to Kazemi (8)
+    db.exec("ALTER TABLE customers ADD COLUMN is_urgent INTEGER NOT NULL DEFAULT 0");
+    const urg = (id) => db.prepare("SELECT is_urgent v FROM customers WHERE id=?").get(id).v;
+    const hist = () => db.prepare("SELECT * FROM customer_urgent_history ORDER BY id").all();
+    const ub = () => db.prepare("SELECT * FROM site_notification_events WHERE kind='urgent-change' ORDER BY id").all();
+    const nBells = () => db.prepare("SELECT COUNT(*) n FROM site_notification_events").get().n;
+    assert.equal(db.prepare("SELECT value FROM assistant_settings WHERE key='assistant_urgent_write'").get().value, "0");
+    const b0 = nBells();
+    const off = await R(iss.masoud, "POST", "/customers/120/urgent", { isUrgent: true, reason: "پیگیری فوری" }); assert.equal(off.s, 423); assert.equal(off.j.error, "urgent_write_disabled");
+    assert.equal(urg(120), 0); assert.equal(hist().length, 0); assert.equal(nBells(), b0);
+    for (const u of [2, 8, 29]) assert.equal((await S(u, "PUT", "/admin/assistants/urgent-write", { enabled: true })).s, 403);
+    assert.equal((await S(1, "PUT", "/admin/assistants/urgent-write", { enabled: "yes" })).s, 422);
+    assert.equal((await S(1, "PUT", "/admin/assistants/urgent-write", { enabled: true })).j.enabled, true);
+    assert.equal((await S(1, "GET", "/admin/assistants/urgent-write")).j.enabled, true);
+    assert.equal((await R(iss.masoud, "POST", "/customers/120/urgent", { isUrgent: "1" })).s, 422);
+    assert.equal((await R(iss.masoud, "POST", "/customers/120/urgent", { isUrgent: true })).j.error, "reason_required"); // reason is REQUIRED (PM 22:37)
+    assert.equal(urg(120), 0);
+    const ownerU = db.prepare("SELECT u.id FROM users u JOIN customers c ON c.salesperson_id=u.salesperson_id WHERE c.id=120 AND u.role='salesperson' AND u.active=1 ORDER BY u.id LIMIT 1").get()?.id;
+    const expect = [...new Set([ownerU, 8].filter((x) => x != null && x !== 29))].sort();
+    const per = expect.length;
+    assert.equal((await R(iss.masoud, "POST", "/customers/100/urgent", { isUrgent: true, reason: "پیگیری فوری" })).s, 404); // not in Masoud's scope
+    const on = await R(iss.masoud, "POST", "/customers/120/urgent", { isUrgent: true, reason: "پیگیری فوری" }); assert.equal(on.s, 200); assert.equal(on.j.changed, true); assert.equal(urg(120), 1);
+    let h = hist(); assert.equal(h.length, 1); assert.equal(h[0].actor_kind, "assistant"); assert.equal(h[0].assistant_id, As.masoud.id); assert.equal(h[0].new_value, 1);
+    assert.equal(h[0].reason, "پیگیری فوری");
+    let bl = ub(); assert.deepEqual(bl.map((x) => x.recipient_user_id).sort(), expect); assert.equal(h[0].bell_event_id, bl[0].id); assert.equal(nBells(), b0 + per);
+    assert.deepEqual(JSON.parse(h[0].bell_recipients), bl.map((x) => x.id));
+    assert.equal((await R(iss.masoud, "POST", "/customers/120/urgent", { isUrgent: true, reason: "پیگیری فوری" })).j.changed, false); assert.equal(hist().length, 1); assert.equal(nBells(), b0 + per);
+    assert.equal((await R(iss.masoud, "POST", "/customers/120/urgent", { isUrgent: false, reason: "پیگیری شد" })).j.changed, true); assert.equal(urg(120), 0);
+    h = hist(); bl = ub(); assert.equal(h.length, 2); assert.equal(h[1].old_value, 1); assert.equal(h[1].new_value, 0); assert.equal(bl.length, 2 * per); assert.equal(nBells(), b0 + 2 * per);
+    assert.equal((await S(1, "PUT", "/admin/assistants/urgent-write", { enabled: false })).j.enabled, false);
+    assert.equal((await R(iss.masoud, "POST", "/customers/120/urgent", { isUrgent: true, reason: "پیگیری فوری" })).s, 423);
+    db.exec("DELETE FROM customer_urgent_history; DELETE FROM site_notification_events WHERE kind='urgent-change'; ALTER TABLE customers DROP COLUMN is_urgent");
+    ok("urgent: assistant write OFF by default (423), admin-only switch (2/8/29 → 403), scope 404, reason required, one history (actor assistant) + one bell each to owner and Kazemi per real change");
   }
   // revoke mid long-poll → 401; disable → 423
   const tokRow = db.prepare("SELECT id FROM assistant_tokens WHERE token_hash=?").get(hashAssistantToken(iss.somayeh));

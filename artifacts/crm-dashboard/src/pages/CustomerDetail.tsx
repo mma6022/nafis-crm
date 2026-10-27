@@ -1,6 +1,7 @@
 import { ArrowUp, AlertCircle, ArrowRight, Check, ChevronLeft, Copy, FileText, Flag, Gauge, History, Layers, Lock, MessageSquarePlus, Pencil, Phone, PhoneCall, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, Wallet, X } from 'lucide-react';
 import { announceCallSaved } from '@/features/call-queue/api';
 import { CustomerIntroLog } from '@/features/expert-intro-sms/CustomerIntroLog';
+import { CustomerAnnotations } from '@/features/lead-annotator/CustomerAnnotations';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useParams, Link, useLocation } from 'wouter';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -655,6 +656,7 @@ export default function CustomerDetail() {
     {canCallsCreate ? <button type="button" className="csx-ghost sm" onClick={() => callLauncher.launch(customer)} data-testid="button-add-call-detail" data-form={callChoice} aria-busy={callLauncher.pending ? true : undefined}><MessageSquarePlus size={18} /> ثبت تماس / یادداشت</button> : null}
     <SiteLeadHistory customer={customer} />
     <CustomerIntroLog key={`eis-${id}`} customerId={id} />
+    <CustomerAnnotations key={`ann-${id}`} customerId={id} />
     {hasCallsView ? <details className="csx-sub" data-testid="section-voip-history"><summary>تماس‌های تلفن شرکت{historyQuery.data ? ` (${faNum(historyQuery.data.total)})` : ''} <ChevronLeft size={16} /></summary>
       {historyQuery.isLoading ? <span className="csx-sk" style={{ height: 48 }} /> : historyQuery.isError ? <ErrorState onRetry={() => historyQuery.refetch()} /> : historyQuery.data?.items && historyQuery.data.items.length > 0 ? <>
         <ol className="csx-tl">{historyQuery.data.items.map(record => <li key={record.id}>

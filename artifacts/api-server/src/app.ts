@@ -1,3 +1,4 @@
+import { leadAnnotatorMask } from "./lib/lead-annotator-mask";
 import express, { type Express, type RequestHandler } from "express";
 import { isPublicWalletRequest } from "./lib/wallet-public-access";
 import cors from "cors";
@@ -129,6 +130,7 @@ const requireApiAuth: RequestHandler = (req, res, next): void => {
   requireAuth(req, res, next);
 };
 
-app.use("/api", requireApiAuth, router);
+// lead_annotator: every phone in every /api response is masked for a user holding the capability (lib/lead-annotator-mask.ts).
+app.use("/api", requireApiAuth, leadAnnotatorMask, router);
 
 export default app;

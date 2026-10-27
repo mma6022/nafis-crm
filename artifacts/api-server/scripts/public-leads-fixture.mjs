@@ -205,7 +205,8 @@ function seed() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,phone TEXT NOT NULL,description TEXT,national_code TEXT,
       birth_date_jalali TEXT,postal_code TEXT,father_name TEXT,address TEXT,email TEXT,verification_status TEXT,
       is_urgent INTEGER DEFAULT 0,created_at TEXT NOT NULL,salesperson_id INTEGER REFERENCES salespersons(id),
-      priority INTEGER,status TEXT,merged_into_customer_id INTEGER REFERENCES customers(id)
+      priority INTEGER,status TEXT,merged_into_customer_id INTEGER REFERENCES customers(id),
+      registered_by INTEGER,registration_source TEXT,source TEXT,credit_grade TEXT -- crm-default-owner (crm-db ensureColumn)
     );
     CREATE TABLE customer_tag_catalog(tag TEXT PRIMARY KEY,label_fa TEXT NOT NULL,canonical_label TEXT);
     CREATE UNIQUE INDEX idx_customer_tag_catalog_canonical_label ON customer_tag_catalog(canonical_label);

@@ -24,6 +24,7 @@
  */
 import { cqFlag } from "./call-queue";
 import { registeredByRange, registeredByReport } from "./registered-by-report";
+import { ASSISTANT_URGENT_WRITE_KEY, ensureUrgentSchema, setCustomerUrgent } from "./customer-urgent";
 import express, { Router, type Request, type Response, type NextFunction } from "express";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
@@ -147,6 +148,9 @@ export function ensureAssistantSchema(db: Db, nowIso = new Date().toISOString())
   ensureSchemaObject(db, "index", "idx_assistant_tokens_assistant", "CREATE INDEX idx_assistant_tokens_assistant ON assistant_tokens(assistant_id)");
   // Seed once (all disabled, global switch off). Bound users are looked up via salesperson_id, never hard-coded.
   db.prepare("INSERT OR IGNORE INTO assistant_settings(key,value,updated_at) VALUES('global_enabled','0',?)").run(nowIso);
+  // crm-urgent-history (PM 22:28): the assistant urgent write is OFF by default; a new assistant write needs Mohammad's own OK to turn on.
+  db.prepare("INSERT OR IGNORE INTO assistant_settings(key,value,updated_at) VALUES(?,'0',?)").run(ASSISTANT_URGENT_WRITE_KEY, nowIso);
+  ensureUrgentSchema(db);
   // «اجازه‌ی استعلام»: who may grant the credit-inquiry permission in smart filing (manager|expert). Default manager.
   // Read-only for now: the live smart-filing flow has no expert permission step yet, so nothing consumes it.
   db.prepare("INSERT OR IGNORE INTO assistant_settings(key,value,updated_at) VALUES('credit_inquiry_permission','manager',?)").run(nowIso);
@@ -701,6 +705,22 @@ export function createAssistants(deps: Deps) {
     res.status(201).json({ ok: true, id: Number(r.lastInsertRowid) });
   });
 
+  /* crm-urgent-history: the narrow assistant write — ONLY customers.is_urgent on an in-scope customer, behind assistant_urgent_write
+     (default '0' → 423 urgent_write_disabled). Never on trainees' customers. One history row (actor = assistant) + one bell to Kazemi. */
+  runner.post("/customers/:id/urgent", (req, res) => {
+    const a = A(res);
+    const flagOn = row<{ value: string }>("SELECT value FROM assistant_settings WHERE key=?", ASSISTANT_URGENT_WRITE_KEY)?.value === "1";
+    if (!flagOn) { audit({ req, a, tokenId: TK(res), action: "POST /customers/:id/urgent", outcome: "urgent_write_disabled" }); return fail(res, 423, "urgent_write_disabled", "نوشتن «فوری» برای دستیارها خاموش است."); }
+    const c = scopedCustomer(req, res); if (!c) return;
+    if (TRAINEE_SALESPERSON_IDS.includes(Number(c.salesperson_id))) { audit({ req, a, tokenId: TK(res), action: "POST /customers/:id/urgent", customerId: c.id, outcome: "trainee_read_only" }); return fail(res, 403, "trainee_read_only"); }
+    if (typeof req.body?.isUrgent !== "boolean") return fail(res, 422, "bad_body");
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+    if (reason.length < 3 || reason.length > 300) return fail(res, 422, "reason_required", "دلیل «فوری» لازم است");
+    const r = setCustomerUrgent(db, Number(c.id), req.body.isUrgent, { kind: "assistant", assistantId: a.id, label: label(a) }, `assistant:${a.kind}`, reason);
+    audit({ req, a, tokenId: TK(res), action: "POST /customers/:id/urgent", customerId: c.id, outcome: "ok", detail: { isUrgent: r.isUrgent, changed: r.changed } });
+    res.json({ ok: true, customerId: Number(c.id), isUrgent: r.isUrgent, changed: r.changed });
+  });
+
   /* events: user messages, bubble actions, DND changes, calls logged on in-scope customers */
   function eventView(a: any, e: any) {
     const d = e.data_json ? JSON.parse(e.data_json) : {};
@@ -1231,6 +1251,16 @@ export function createAssistants(deps: Deps) {
   });
   staff.get("/admin/assistants", admin, (_req, res) => { res.json({ globalEnabled: globalOn(), creditInquiryPermission: setting("credit_inquiry_permission", "manager"), managerAccess: !noMgr(res.locals.assistantAdmin),
     assistants: rows<any>("SELECT * FROM assistants ORDER BY id").filter(r => !(noMgr(res.locals.assistantAdmin) && normAssistant(r)?.kind === "manager")).map(adminView) }); });
+  // crm-urgent-history: Mohammad's own switch for the assistant urgent write (admin only; default OFF; logged in assistant_audit).
+  staff.get("/admin/assistants/urgent-write", admin, (_req, res) => { if (noMgr(res.locals.assistantAdmin)) return fail(res, 403, "forbidden"); res.json({ enabled: setting(ASSISTANT_URGENT_WRITE_KEY, "0") === "1" }); });
+  staff.put("/admin/assistants/urgent-write", admin, (req, res) => {
+    if (noMgr(res.locals.assistantAdmin)) return fail(res, 403, "forbidden");
+    if (typeof req.body?.enabled !== "boolean") return fail(res, 422, "bad_value");
+    const u = res.locals.assistantAdmin; const on = req.body.enabled;
+    run("INSERT INTO assistant_settings(key,value,updated_at,updated_by_user_id) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,updated_by_user_id=excluded.updated_by_user_id", ASSISTANT_URGENT_WRITE_KEY, on ? "1" : "0", iso(), u.id);
+    audit({ req, userId: u.id, actorLabel: u.full_name || u.username, action: on ? "admin.urgent_write_on" : "admin.urgent_write_off", outcome: "ok" });
+    res.json({ enabled: on });
+  });
   staff.put("/admin/assistants/global", admin, (req, res) => {
     const on = Boolean(req.body?.enabled); const u = res.locals.assistantAdmin;
     run("UPDATE assistant_settings SET value=?, updated_at=?, updated_by_user_id=? WHERE key='global_enabled'", on ? "1" : "0", iso(), u.id);

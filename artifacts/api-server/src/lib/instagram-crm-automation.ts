@@ -1,4 +1,6 @@
+import { recordUrgentChange } from "./customer-urgent";
 import {
+  crmDb,
   execute,
   executeChanges,
   queryRow,
@@ -235,7 +237,10 @@ function findCustomerByMobile(mobile: string): { id: number; name: string } | un
 }
 
 function markUrgent(customerId: number, urgent: boolean): void {
-  if (urgent) executeChanges("UPDATE customers SET is_urgent=1 WHERE id=?", [customerId]);
+  if (!urgent) return;
+  const before = queryRow<{ is_urgent: number }>("SELECT is_urgent FROM customers WHERE id=?", [customerId]);
+  if (executeChanges("UPDATE customers SET is_urgent=1 WHERE id=? AND is_urgent<>1", [customerId]))
+    recordUrgentChange(crmDb, customerId, before?.is_urgent ?? 0, 1, { kind: "system", label: "instagram_auto" }, "instagram_auto");
 }
 
 function addSessionEvent(input: {

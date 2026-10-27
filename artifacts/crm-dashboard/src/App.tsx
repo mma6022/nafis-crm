@@ -11,6 +11,8 @@ import MyPerformance from '@/pages/MyPerformance';
 import SalesAssistSettings from '@/pages/SalesAssistSettings';
 import MyQueuePage from '@/features/call-queue/MyQueue';
 import { CallQueueEventsPage, CallQueueSettingsPage } from '@/features/call-queue/AdminPages';
+import DefaultOwnerSettings from '@/pages/DefaultOwnerSettings';
+import LeadAnnotator from '@/pages/LeadAnnotator';
 import CustomerDetail from '@/pages/CustomerDetail';
 import Reminders from '@/pages/Reminders';
 import Calls from '@/pages/Calls';
@@ -277,6 +279,9 @@ function AppWithRoutes() {
                     <Route path="/my-queue"><PermissionRoute permission="customers.view"><MyQueuePage /></PermissionRoute></Route>
                     <Route path="/settings/call-queue"><AdminOnlyRoute><CallQueueSettingsPage /></AdminOnlyRoute></Route>
                     <Route path="/call-queue-events"><AdminOnlyRoute><CallQueueEventsPage /></AdminOnlyRoute></Route>
+                    <Route path="/settings/default-owner"><AdminOnlyRoute><DefaultOwnerSettings /></AdminOnlyRoute></Route>
+                    {/* lead_annotator: the page itself checks /api/lead-annotator/me; the server enforces everything */}
+                    <Route path="/lead-annotator"><LeadAnnotator /></Route>
                     <Route path="/settings/assistants">
                       <AdminOnlyRoute><AssistantsSettings /></AdminOnlyRoute>
                     </Route>
