@@ -26,8 +26,9 @@ import { createBaleTest, ensureBaleTestSchema } from "./bale-test";
 import { TRAINEE_SALESPERSON_IDS, EXCLUDED_USER_IDS, BANNED_WORDS } from "./assistants";
 import { baleHasKey, baleSessionAad, baleSidecarToken, openBaleSession, sealBaleSession, BaleKeyMissing, type KeyEnv } from "./bale-crypto";
 import { BaleSidecarError, type BaleSidecar } from "./bale-sidecar-client";
-import { createBaleOutbox, ensureBaleOutboxSchema, BLOCK_FA, baleTextProblem } from "./bale-outbox";
-import { AR_DEFAULT_SETTINGS, arEscalation, arParseDays, arParseHm, arVoice, AR_TEXT_MAX } from "./bale-autoreply";
+import { createBaleOutbox, ensureBaleOutboxSchema, BLOCK_FA, baleTextProblem, withAmountDisclaimer } from "./bale-outbox";
+import { AR_DEFAULT_SETTINGS, arEscalation, arParseDays, arParseHm, arVoice, AR_TEXT_MAX, AR_OTHER_PAIRS_CONFIRM, AR_ASK_TIMEOUT_MIN } from "./bale-autoreply";
+import { listOfficialHolidays, addOfficialHoliday, deleteOfficialHoliday, replaceOfficialHolidays } from "./official-holidays";
 import multer from "multer";
 import { ensureCustomerBaleLinks, matchContacts, maskPhone, normMobile, peerTag, type BaleScanContact, type MatchRow } from "./bale-contact-links";
 import { createBalePlanFiles, ensureBalePlanFilesSchema, BALE_PLAN_FILE_MAX_BYTES, BALE_PLAN_FILE_TYPES } from "./bale-plan-files";
@@ -359,7 +360,7 @@ export function createBale(deps: BaleDeps) {
       audit({ req, u, customerId: Number.isSafeInteger(cid) ? cid : null, action: "chat.view", outcome: "not_in_scope" });
       return fail(res, 404, "not_found");
     }
-    const msgs = rows<any>(`SELECT m.id,m.direction,m.text,m.file_ref,m.status,m.created_at,m.account_id,u.full_name,u.username,o.source AS o_source,o.ar_kind,o.assistant_id AS o_asst FROM bale_messages m
+    const msgs = rows<any>(`SELECT m.id,m.direction,m.text,m.file_ref,m.status,m.created_at,m.account_id,u.full_name,u.username,o.source AS o_source,o.ar_kind,o.assistant_id AS o_asst,o.ar_overlap_at,o.ar_source FROM bale_messages m
       JOIN bale_accounts a ON a.id=m.account_id LEFT JOIN users u ON u.id=a.user_id LEFT JOIN bale_outbox o ON o.id=m.outbox_id WHERE m.customer_id=? ORDER BY m.id DESC LIMIT 200`, cid).reverse();
     const autoName = (id: number | null) => { const s = id ? row<any>("SELECT display_name FROM assistants WHERE id=?", id) : undefined; return `${s?.display_name ?? "مسعود"} (خودکار)`; };
     const owner = c.salesperson_id ? row<any>("SELECT u.id,u.full_name,u.username,a.status,a.mode FROM users u LEFT JOIN bale_accounts a ON a.user_id=u.id WHERE u.salesperson_id=? AND u.role='salesperson' ORDER BY u.id LIMIT 1", c.salesperson_id) : undefined;
@@ -379,7 +380,8 @@ export function createBale(deps: BaleDeps) {
       autoReply: ownerAcc && ar.pairOfAccount(ownerAcc) ? (() => { const pr = ar.pairOfAccount(ownerAcc); const o = ar.ownerOf(ownerAcc, { customerId: cid });
         return { label: ar.label(pr), on: Boolean(ar.activeFor(ownerAcc)), owner: o.owner, reason: o.reason, at: o.at, by: o.by ? nameOf(userRow(o.by)) : null }; })() : null,
       messages: msgs.map(m => ({ id: m.id, direction: m.direction, text: m.text, hasFile: Boolean(m.file_ref), status: m.status, createdAt: m.created_at,
-        expertName: m.o_source === "auto_reply" ? autoName(m.o_asst) : m.full_name || m.username || null, auto: m.o_source === "auto_reply", arKind: m.ar_kind ?? null })),
+        expertName: m.o_source === "auto_reply" ? autoName(m.o_asst) : m.full_name || m.username || null, auto: m.o_source === "auto_reply", arKind: m.ar_kind ?? null,
+        overlap: Boolean(m.ar_overlap_at), arSource: m.ar_source ?? null })),
     });
   });
 
@@ -402,7 +404,7 @@ export function createBale(deps: BaleDeps) {
   };
   const blockedStatus = (reason: string) => ["bale_disabled", "not_connected", "mode_off", "session_not_live", "attachments_disabled", "autoreply_off", "plan_file_off"].includes(reason) ? 423
     : reason === "out_of_scope" || reason === "unknown_off" ? 404
-    : ["already_pending", "already_replied", "human_mode", "human_replied", "escalated", "reply_window", "after_hours"].includes(reason) ? 409
+    : ["already_pending", "already_replied", "human_mode", "human_replied", "escalated", "reply_window", "after_hours", "ask_pending", "already_asked"].includes(reason) ? 409
     : ["cap_hour", "cap_day", "cap_new_chats", "cap_pair_hour", "cap_pair_day"].includes(reason) ? 429 : 422;
   const sendOut = (res: Response, r: ReturnType<typeof outbox.enqueue>) => r.status === "blocked"
     ? res.status(blockedStatus(r.reason)).json({ error: r.reason, message: r.message, outboxId: r.outboxId })
@@ -658,6 +660,68 @@ export function createBale(deps: BaleDeps) {
     if (!v) return fail(res, 404, "not_found");
     res.json(v);
   });
+  /* ---------- AR30: «سؤال از کارشناس» (expert side; own questions only) ---------- */
+  const ownQuestion = (req: Request, res: Response) => {
+    const u = me(res); if (!u) { fail(res, 401, "unauthorized"); return null; }
+    const q = ar.questionById(Number(req.params.id));
+    if (!q || q.expert_user_id !== u.id) { fail(res, 404, "not_found"); return null; }
+    return { u, q };
+  };
+  /** Polled by the assistant dock (only for Bale-eligible experts; anyone else gets an empty list, never another expert's rows). */
+  staff.get("/bale/me/autoreply/questions", (_req, res) => {
+    const u = me(res); if (!u) return fail(res, 401, "unauthorized");
+    if (!baleEligible(u)) return void res.json({ questions: [] });
+    res.json({ questions: ar.questionsFor(u.id, false) });
+  });
+  staff.post("/bale/me/autoreply/questions/:id/answer", expert, (req, res) => {
+    const g = ownQuestion(req, res); if (!g) return; const { u, q } = g;
+    if (q.status !== "pending") return void res.status(409).json({ error: "not_pending", message: "این سؤال دیگر منتظر جواب نیست." });
+    const text = String(req.body?.text ?? "").trim(); const save = req.body?.save === true;
+    if (!text) return void res.status(422).json({ error: "empty", message: "جواب خالی است." });
+    if (text.length > AR_TEXT_MAX) return void res.status(422).json({ error: "too_long", message: "جواب خیلی بلند است." });
+    // A learned answer may never carry an amount or a promise: refused BEFORE anything is sent.
+    if (save) { const e = ar.learnedProblem(text); if (e) return void res.status(422).json({ error: e, message: e === "learned_amount" ? "جوابی که مبلغ دارد برای دفعه‌های بعد ذخیره نمی‌شود؛ تیک را بردار یا مبلغ را حذف کن." : e === "learned_promise" ? "جوابی که قول یا تعهد دارد برای دفعه‌های بعد ذخیره نمی‌شود؛ تیک را بردار یا متن را عوض کن." : e === "text_too_long" ? "جواب ذخیره‌شونده حداکثر ۵۰۰ نویسه است." : (BLOCK_FA as any)[e] ?? "این جواب قابل ذخیره نیست." }); }
+    const a = accountOf(u.id); const p = ar.pairOfAssistant(q.assistant_id);
+    if (!a || a.id !== q.account_id || !p) return fail(res, 404, "not_found");
+    if (!ar.pairOn(p)) { audit({ req, u, accountId: a.id, action: "autoreply.ask_answer", outcome: "autoreply_off", detail: { questionId: q.id } }); return void res.status(423).json({ error: "autoreply_off", message: (BLOCK_FA as any).autoreply_off ?? "پاسخ خودکار خاموش است؛ چیزی فرستاده نشد." }); }
+    let sent: { outboxId?: number | null; arMessageId?: number | null };
+    if (q.customer_id != null) {
+      const c = row<any>("SELECT salesperson_id,merged_into_customer_id FROM customers WHERE id=?", q.customer_id);
+      if (!c || c.salesperson_id !== u.salesperson_id || c.merged_into_customer_id != null) return fail(res, 404, "not_found");
+      const r = outbox.enqueue({ accountId: a.id, customerId: q.customer_id, text, source: "auto_reply", arKind: "answer", arSource: "expert_answer", questionId: q.id, explicit: false,
+        createdBy: u.id, assistant: { id: q.assistant_id, inScope: true }, reason: "ask_expert" });
+      if (r.status === "blocked") return void res.status(blockedStatus(r.reason)).json({ error: r.reason, message: r.message });
+      sent = { outboxId: r.outboxId };
+    } else {
+      const r = ar.enqueueUnknown(a, p, q.chat_id, withAmountDisclaimer(text), { kind: "answer", source: "expert_answer", questionId: q.id, assistantId: q.assistant_id });
+      if (r !== "queued") return void res.status(blockedStatus(r)).json({ error: r, message: (BLOCK_FA as any)[r] ?? r });
+      sent = { arMessageId: ar.lastUnknownMessageId() };
+    }
+    const learnedId = ar.recordAnswer(q, u.id, text, save, sent);
+    res.json({ status: "queued", learnedId, message: learnedId ? "جواب رفت · در «جواب‌های آموخته‌شده» ذخیره شد" : "جواب رفت" });
+  });
+  staff.post("/bale/me/autoreply/questions/:id/self", expert, (req, res) => {
+    const g = ownQuestion(req, res); if (!g) return;
+    if (g.q.status !== "pending") return void res.status(409).json({ error: "not_pending", message: "این سؤال دیگر منتظر جواب نیست." });
+    ar.selfAnswer(g.q, g.u.id); res.json({ status: "self" });
+  });
+  /* ---------- AR30: «جواب‌های آموخته‌شده» — expert (own) ---------- */
+  const learnedBody = (b: any) => ({ question: b?.question === undefined ? undefined : String(b.question), answer: b?.answer === undefined ? undefined : String(b.answer), active: b?.active === undefined ? undefined : b.active === true });
+  const learnedErr = (res: Response, e: string) => res.status(422).json({ error: e, message: e === "learned_amount" ? "جواب آموخته‌شده نباید مبلغ داشته باشد." : e === "learned_promise" ? "جواب آموخته‌شده نباید قول یا تعهد داشته باشد." : e.endsWith("too_long") ? "حداکثر ۵۰۰ نویسه." : e === "signature" ? BLOCK_FA.signature : (BLOCK_FA as any)[e] ?? "متن قابل قبول نیست." });
+  staff.get("/bale/me/autoreply/learned", expert, (req, res) => {
+    const u = res.locals.baleUser; res.json({ items: ar.learnedList(u.id, { q: String(req.query.q ?? "").slice(0, 80) }), max: 500 });
+  });
+  staff.put("/bale/me/autoreply/learned/:id", expert, (req, res) => {
+    const u = res.locals.baleUser; const l = ar.learnedById(Number(req.params.id));
+    if (!l || l.expert_user_id !== u.id) return fail(res, 404, "not_found");
+    const r = ar.updateLearned(l, learnedBody(req.body), u.id); if (!r.ok) return void learnedErr(res, r.error);
+    res.json({ item: r.item });
+  });
+  staff.delete("/bale/me/autoreply/learned/:id", expert, (req, res) => {
+    const u = res.locals.baleUser; const l = ar.learnedById(Number(req.params.id));
+    if (!l || l.expert_user_id !== u.id) return fail(res, 404, "not_found");
+    ar.deleteLearned(l, u.id); res.json({ ok: true });
+  });
   /* admin */
   staff.get("/admin/bale/autoreply", admin, (_req, res) => { res.json({ settings: ar.settingsView(), pairs: ar.pairs().map(p => ar.pairView(p)) }); });
   staff.put("/admin/bale/autoreply/settings", admin, (req, res) => {
@@ -671,6 +735,17 @@ export function createBale(deps: BaleDeps) {
       set.push([key, String(b[k]).trim().padStart(5, "0")]);
     }
     if (b.days !== undefined) { const d = arParseDays(Array.isArray(b.days) ? b.days.join(",") : String(b.days)); set.push(["autoreply_days", [...d].sort().join(",")]); }
+    let holidayList: { date: string; label: string | null }[] | null = null;
+    if (b.allowOtherPairs !== undefined) {
+      // AR30 pair guard: only Mohammad's separate approval (recorded by an admin with this typed phrase) lets a non-masoud pair be switched on.
+      if (b.allowOtherPairs === true && b.confirm !== AR_OTHER_PAIRS_CONFIRM) return void res.status(428).json({ error: "confirm_required", message: `فقط با تأیید جداگانه‌ی محمد: «${AR_OTHER_PAIRS_CONFIRM}» را تایپ کنید.` });
+      set.push(["autoreply_allow_other_pairs", b.allowOtherPairs === true ? "1" : "0"]);
+    }
+    if (b.askTimeoutMin !== undefined) {
+      const v = Number(b.askTimeoutMin);
+      if (!Number.isInteger(v) || v < AR_ASK_TIMEOUT_MIN[0] || v > AR_ASK_TIMEOUT_MIN[1]) return void res.status(422).json({ error: "bad_limit", message: `مهلت جواب کارشناس باید بین ${AR_ASK_TIMEOUT_MIN[0]} و ${AR_ASK_TIMEOUT_MIN[1]} دقیقه باشد.` });
+      set.push(["autoreply_ask_timeout_min", String(v)]);
+    }
     if (b.holidays !== undefined) {
       if (!Array.isArray(b.holidays) || b.holidays.length > 60) return void res.status(422).json({ error: "bad_holidays", message: "فهرست تعطیلات معتبر نیست." });
       const seen = new Set<string>(); const list: { date: string; label: string | null }[] = [];
@@ -679,20 +754,28 @@ export function createBale(deps: BaleDeps) {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T12:00:00+03:30`))) return void res.status(422).json({ error: "bad_holiday_date", message: "تاریخ تعطیلی معتبر نیست." });
         if (!seen.has(date)) { seen.add(date); list.push({ date, label: lab }); }
       }
-      set.push(["autoreply_holidays", JSON.stringify(list.sort((x, y) => x.date.localeCompare(y.date)))]);
+      holidayList = list; // AR30: stored in the shared official_holidays table (synced below)
+      set.push(["autoreply_holidays", "[]"]); // the legacy JSON setting stays empty (touched so «آخرین تغییر» shows who edited)
     }
     for (const [k, key] of [["holdText", "autoreply_hold_text"], ["nightText", "autoreply_night_text"]] as const) if (b[k] !== undefined) {
       const e = arTextCheck(b[k]); if (e) return void res.status(422).json({ error: e, message: BLOCK_FA[e as keyof typeof BLOCK_FA] ?? "متن قابل قبول نیست." });
       set.push([key, String(b[k]).trim()]);
     }
     for (const [k, v] of set) run("INSERT INTO bale_settings(key,value,updated_at,updated_by_user_id) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,updated_by_user_id=excluded.updated_by_user_id", k, v, iso(), u.id);
-    audit({ req, u, action: "autoreply.settings", outcome: "ok", detail: { keys: set.map(x => x[0]).join(",") } });
+    let hol: { added: number; removed: number } | null = null;
+    if (holidayList) { hol = replaceOfficialHolidays(db, holidayList, u.id, iso()); audit({ req, u, action: "holidays.replace", outcome: "ok", detail: { added: hol.added, removed: hol.removed } }); }
+    audit({ req, u, action: "autoreply.settings", outcome: "ok", detail: { keys: [...set.map(x => x[0]), ...(holidayList ? ["official_holidays"] : [])].join(",") } });
     res.json({ settings: ar.settingsView() });
   });
   staff.put("/admin/bale/autoreply/pairs/:assistantId", admin, (req, res) => {
     const u = res.locals.baleAdmin; const p = ar.pairs().find(x => x.assistant_id === Number(req.params.assistantId)); const b = req.body ?? {};
     if (!p) return fail(res, 404, "not_found");
     if (b.allowUnknown === true && p.slug !== "masoud") return void res.status(422).json({ error: "unknown_off", message: "پاسخ به شماره‌ی ناشناس فقط برای جفت کاظمی–مسعود است." });
+    // AR30 pair guard: Hasani–Somayeh / Ghasemi–Mohaddeseh stay OFF until Mohammad approves them separately (autoreply_allow_other_pairs).
+    if (p.slug !== "masoud" && (["enabled", "readsEnabled", "allowPlanFile"] as const).some(k => b[k] === true) && setting("autoreply_allow_other_pairs") !== "1") {
+      audit({ req, u, action: "autoreply.pair", outcome: "pair_needs_mohammad", detail: { assistantId: p.assistant_id } });
+      return void res.status(423).json({ error: "pair_needs_mohammad", message: "این جفت فقط با تأیید جداگانه‌ی محمد روشن می‌شود؛ فعلاً فقط جفت کاظمی–مسعود مجاز است." });
+    }
     // Every «روشن» (the pair, reads, unknown numbers, plan file) needs the typed confirmation; turning OFF never does.
     if ((["enabled", "readsEnabled", "allowUnknown", "allowPlanFile"] as const).some(k => b[k] === true) && b.confirm !== "روشن") return void res.status(428).json({ error: "confirm_required", message: "برای روشن کردن، «روشن» را تایپ کنید." });
     const n = (v: any, lo: number, hi: number) => { const x = Number(v); return Number.isInteger(x) && x >= lo && x <= hi ? x : null; };
@@ -720,6 +803,38 @@ export function createBale(deps: BaleDeps) {
     const a = accountOf(p.expert_user_id); const v = a ? ar.unknownMessages(a, Number(req.params.id)) : null;
     if (!v) return fail(res, 404, "not_found");
     res.json({ ...v, readOnly: true });
+  });
+
+  /* ---------- AR30: admin — learned answers per pair, questions (read-only), shared official holidays ---------- */
+  staff.get("/admin/bale/autoreply/pairs/:assistantId/learned", admin, (req, res) => {
+    const p = ar.pairs().find(x => x.assistant_id === Number(req.params.assistantId)); if (!p) return fail(res, 404, "not_found");
+    res.json({ pair: { assistantId: p.assistant_id, slug: p.slug, label: ar.label(p) }, items: ar.learnedList(p.expert_user_id, { q: String(req.query.q ?? "").slice(0, 80) }), max: 500 });
+  });
+  staff.get("/admin/bale/autoreply/pairs/:assistantId/questions", admin, (req, res) => {
+    const p = ar.pairs().find(x => x.assistant_id === Number(req.params.assistantId)); if (!p) return fail(res, 404, "not_found");
+    res.json({ readOnly: true, questions: ar.questionsFor(p.expert_user_id, true) });
+  });
+  staff.put("/admin/bale/autoreply/learned/:id", admin, (req, res) => {
+    const u = res.locals.baleAdmin; const l = ar.learnedById(Number(req.params.id)); if (!l) return fail(res, 404, "not_found");
+    const r = ar.updateLearned(l, learnedBody(req.body), u.id); if (!r.ok) return void learnedErr(res, r.error);
+    res.json({ item: r.item });
+  });
+  staff.delete("/admin/bale/autoreply/learned/:id", admin, (req, res) => {
+    const u = res.locals.baleAdmin; const l = ar.learnedById(Number(req.params.id)); if (!l) return fail(res, 404, "not_found");
+    ar.deleteLearned(l, u.id); res.json({ ok: true });
+  });
+  staff.get("/admin/holidays", admin, (_req, res) => { res.json({ holidays: listOfficialHolidays(db) }); });
+  staff.post("/admin/holidays", admin, (req, res) => {
+    const u = res.locals.baleAdmin; const r = addOfficialHoliday(db, { date: String(req.body?.date ?? ""), label: req.body?.label == null ? null : String(req.body.label) }, u.id, iso());
+    if (!r.ok) return void res.status(422).json({ error: r.error, message: r.error === "too_many" ? "تعداد تعطیلات بیش از حد است." : r.error === "label_too_long" ? "عنوان حداکثر ۴۰ نویسه." : "تاریخ تعطیلی معتبر نیست." });
+    audit({ req, u, action: "holidays.add", outcome: r.created ? "created" : "updated", detail: { id: r.id } });
+    res.status(r.created ? 201 : 200).json({ id: r.id, holidays: listOfficialHolidays(db) });
+  });
+  staff.delete("/admin/holidays/:id", admin, (req, res) => {
+    const u = res.locals.baleAdmin; const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || !deleteOfficialHoliday(db, id)) return fail(res, 404, "not_found");
+    audit({ req, u, action: "holidays.remove", outcome: "ok", detail: { id } });
+    res.json({ holidays: listOfficialHolidays(db) });
   });
 
 
@@ -890,19 +1005,61 @@ export function createBale(deps: BaleDeps) {
       if (!f || !planFiles.read(f)) return void res.status(422).json({ status: "blocked", error: "attachment_missing", message: BLOCK_FA.attachment_missing });
       attachmentId = f.id;
     }
-    const text = typeof req.body?.text === "string" ? req.body.text : typeof req.body?.caption === "string" ? req.body.caption : "";
+    let text = typeof req.body?.text === "string" ? req.body.text : typeof req.body?.caption === "string" ? req.body.caption : "";
+    // AR30: learnedId = send the expert's approved «جواب آموخته‌شده» word for word (own expert's, active only; never with a file).
+    let learned: any = null;
+    if (req.body?.learnedId != null && req.body.learnedId !== "") {
+      if (attachmentId != null) return void res.status(422).json({ status: "blocked", error: "learned_with_file", message: "جواب آموخته‌شده با فایل فرستاده نمی‌شود." });
+      learned = ar.learnedById(Number(req.body.learnedId));
+      if (!learned || learned.expert_user_id !== p.expert_user_id || learned.active !== 1) return void res.status(404).json({ error: "learned_not_found" });
+      text = learned.answer;
+    }
+    const src = learned ? { source: "learned" as const, learnedId: learned.id } : {};
     if (req.body?.arChatId != null) {
       const chatId = Number(req.body.arChatId);
       if (!Number.isSafeInteger(chatId) || !row("SELECT 1 FROM bale_ar_chats WHERE id=? AND account_id=?", chatId, a.id)) return void res.status(404).json({ error: "not_found" });
-      const r = ar.enqueueUnknown(a, p, chatId, text, { kind: attachmentId != null ? "plan" : "reply", attachmentId, assistantId: asst.id });
+      const r = ar.enqueueUnknown(a, p, chatId, text, { kind: attachmentId != null ? "plan" : "reply", attachmentId, assistantId: asst.id, ...src });
+      if (r === "queued" && learned) ar.useLearned(learned.id);
       return void (r === "queued" ? res.json({ status: "queued" }) : res.status(blockedStatus(r)).json({ status: "blocked", error: r, message: BLOCK_FA[r as keyof typeof BLOCK_FA] ?? r }));
     }
     const cid = Number(req.body?.customerId);
     if (!Number.isSafeInteger(cid) || !h.inScope(asst, cid)) { audit({ accountId: a.id, customerId: Number.isSafeInteger(cid) ? cid : null, action: "outbox.auto_reply", outcome: "not_in_scope", detail: { assistantId: asst.id } }); return void res.status(404).json({ error: "not_found" }); }
     const r = outbox.enqueue({ accountId: a.id, customerId: cid, text, source: "auto_reply", arKind: attachmentId != null ? "plan" : "reply", explicit: false, createdBy: null,
-      assistant: { id: asst.id, inScope: true }, reason: "auto_reply", attachmentId });
+      assistant: { id: asst.id, inScope: true }, reason: "auto_reply", attachmentId, ...(learned ? { arSource: "learned" as const, learnedId: learned.id } : {}) });
     if (r.status === "blocked") return void res.status(blockedStatus(r.reason)).json({ status: "blocked", error: r.reason, message: r.message });
+    if (learned) ar.useLearned(learned.id);
     res.json({ status: r.status, outboxId: r.outboxId });
+  }
+  /** AR30 runner: POST /bale/ask-expert {customerId | arChatId, question, summary?} — Masoud doesn't know the answer. OFF → 423, nothing stored. */
+  function runnerAskExpert(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean }) {
+    const r0 = runnerPair(res); if (!r0) return; const { asst, p, a } = r0;
+    if (!ar.pairOn(p)) { audit({ accountId: a?.id ?? null, action: "autoreply.ask", outcome: "autoreply_off", detail: { assistantId: asst.id } });
+      return void res.status(423).json({ status: "blocked", error: "autoreply_off", message: (BLOCK_FA as any).autoreply_off ?? "پاسخ خودکار خاموش است؛ چیزی ذخیره یا فرستاده نشد." }); }
+    if (!a) return void res.status(423).json({ status: "blocked", error: "not_connected", message: BLOCK_FA.not_connected });
+    let t: { customerId: number } | { chatId: number };
+    if (req.body?.arChatId != null) {
+      const chatId = Number(req.body.arChatId);
+      if (p.allow_unknown !== 1 || !Number.isSafeInteger(chatId) || !row("SELECT 1 FROM bale_ar_chats WHERE id=? AND account_id=?", chatId, a.id)) return void res.status(404).json({ error: "not_found" });
+      t = { chatId };
+    } else {
+      const cid = Number(req.body?.customerId);
+      if (!Number.isSafeInteger(cid) || !h.inScope(asst, cid)) return void res.status(404).json({ error: "not_found" });
+      const c = row<any>("SELECT salesperson_id,merged_into_customer_id FROM customers WHERE id=?", cid);
+      const ex = userRow(p.expert_user_id);
+      if (!c || c.salesperson_id !== ex?.salesperson_id || c.merged_into_customer_id != null) return void res.status(404).json({ error: "not_found" });
+      t = { customerId: cid };
+    }
+    const r = ar.askExpert(a, p, t as any, String(req.body?.question ?? ""), req.body?.summary == null ? null : String(req.body.summary));
+    const ASK_FA: Record<string, string> = { question_required: "متن سؤال خالی است.", question_too_long: "سؤال بیشتر از ۵۰۰ نویسه است.", summary_too_long: "خلاصه بیشتر از ۸۰۰ نویسه است.",
+      already_asked: "برای همین پیام مشتری یک سؤال بی‌جواب از کارشناس هست." };
+    if (!r.ok) return void res.status(r.status).json({ status: "blocked", error: r.error, message: ASK_FA[r.error] ?? (BLOCK_FA as any)[r.error] ?? r.error });
+    res.status(201).json({ status: "pending", questionId: r.id, hold: r.hold });
+  }
+  /** AR30 runner: GET /bale/learned — the pair's own expert's active learned answers (reads gate). */
+  function runnerLearned(_req: Request, res: Response) {
+    const r0 = runnerPair(res); if (!r0) return;
+    if (!ar.readsOn(r0.p)) return void res.status(423).json({ error: "reads_off", message: "خواندن برای این دستیار خاموش است." });
+    res.json({ items: ar.learnedList(r0.p.expert_user_id, { activeOnly: true }).map(l => ({ id: l.id, question: l.question, answer: l.answer })) });
   }
   /** GET /bale/auto-reply/state — switches, hours, counters; no customer data. */
   function runnerAutoReplyState(_req: Request, res: Response) {
@@ -981,5 +1138,5 @@ export function createBale(deps: BaleDeps) {
     stop() { if (timer) clearInterval(timer); timer = null; },
   };
 
-  return { staff, internal, runnerSend, runnerPlanFiles, runnerAutoReply, runnerAutoReplyState, runnerConversation, runnerDocuments, runnerArChats, worker, _internal: { flows, masterOn, outbox, test, ar } };
+  return { staff, internal, runnerSend, runnerPlanFiles, runnerAutoReply, runnerAutoReplyState, runnerAskExpert, runnerLearned, runnerConversation, runnerDocuments, runnerArChats, worker, _internal: { flows, masterOn, outbox, test, ar } };
 }

@@ -10,6 +10,8 @@ import { AssistantAvatar, type AvState } from './AssistantAvatar';
 import { AsError, asFetch, asTime, asWhen, asVisibleTo, chime, faNum, unlockAudio, type AsAction, type AsMessage, type AsMine, type AsPrefs, type AsThread, type AsProposal, type AsKind } from './api';
 import './assistant.css';
 import { claimOnce, tabMayPoll, tabSleep, tabVisible } from '@/lib/tab-coordinator';
+import { AskExpertPopup } from '@/features/bale-autoreply/AskExpertPopup';
+import { baleCanConnect } from '@/features/bale/api';
 
 type ThreadState = AsThread & { lastId: number; loaded: boolean };
 type Mine = { assistants: AsMine[]; prefs: AsPrefs };
@@ -441,7 +443,9 @@ export function AssistantDock({ user, bottomOffset, phone }: { user: { id: numbe
     const p = { ...m[e.key], y: clampN(m[e.key].y, b.minY, b.maxY) }; saveHead(uid, p); place(p);
   };
 
-  if (!shown) return null;
+  // AR30 «سؤال از کارشناس» popup: only Bale-eligible experts (never 29/trainees); shown even when no dock assistant is listed.
+  const askPop = uid && baleCanConnect(user) ? <AskExpertPopup uid={uid} /> : null;
+  if (!shown) return askPop;
   const pollers = list.map(a => <ThreadPoller key={a.threadId} threadId={a.threadId} onData={onData} />);
   const bubbleA = bubble ? list.find(a => a.threadId === bubble.threadId) : undefined;
   const openA = openId != null ? list.find(a => a.threadId === openId) : undefined;
@@ -489,6 +493,7 @@ export function AssistantDock({ user, bottomOffset, phone }: { user: { id: numbe
     {openA ? <ChatPanel a={openA} t={openThread ?? EMPTY} prefs={prefsNow} phone={phone} customerId={ctxCustomer} onClose={() => setOpenId(null)} onAct={act} onPrefs={savePrefs} onDecided={decided} onSent={chatSent} /> : null}
     {quickFor ? <QuickReminder m={quickFor} onClose={() => setQuickFor(null)} onFull={() => { setRemindFor(quickFor); setQuickFor(null); }} /> : null}
     {remindFor ? <CreateReminderForm onClose={() => setRemindFor(null)} /> : null}
+    {askPop}
   </>;
 }
 

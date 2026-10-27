@@ -59,6 +59,8 @@ const runner = express.Router();
 runner.use(express.json(), (req, res, next) => { res.locals.assistant = db.prepare("SELECT * FROM assistants WHERE id=?").get(Number(req.headers["x-asst"])); next(); });
 runner.post("/bale/auto-reply", (req, res) => bale.runnerAutoReply(req, res, { inScope }));
 runner.get("/bale/auto-reply/state", (req, res) => bale.runnerAutoReplyState(req, res));
+runner.post("/bale/ask-expert", (req, res) => bale.runnerAskExpert(req, res, { inScope }));
+runner.get("/bale/learned", (req, res) => bale.runnerLearned(req, res));
 runner.get("/bale/conversations/:customerId/messages", (req, res) => bale.runnerConversation(req, res, { inScope }));
 runner.get("/bale/ar-chats", (req, res) => bale.runnerArChats(req, res));
 runner.get("/bale/ar-chats/:id/messages", (req, res) => bale.runnerArChats(req, res));
@@ -312,9 +314,12 @@ try {
   assert.ok(!JSON.stringify(r.j).includes("990011") && r.j.messages.length >= 2, "admin unknown thread: text + label, no peer id / phone");
   for (const u of [8, 29]) { r = await S(u, "GET", `/admin/bale/autoreply/pairs/10/unknown/${chat.id}`); assert.equal(r.s, 403, `admin unknown thread user ${u}`); }
   r = await S(1, "GET", `/admin/bale/autoreply/pairs/11/unknown/${chat.id}`); assert.equal(r.s, 404, "other pair's account never resolves the chat");
+  r = await S(1, "PUT", "/admin/bale/autoreply/pairs/11", { ...ON }); assert.equal(r.s, 423, JSON.stringify(r.j)); assert.equal(r.j.error, "pair_needs_mohammad");
+  r = await S(1, "PUT", "/admin/bale/autoreply/settings", { allowOtherPairs: true, confirm: "تأیید جدای محمد" }); assert.equal(r.s, 200, JSON.stringify(r.j));
   r = await S(1, "PUT", "/admin/bale/autoreply/pairs/11", { ...ON }); assert.equal(r.s, 200, JSON.stringify(r.j));
   r = await mock.inbound(API, HREF, [{ messageId: "u-h1", peerId: "880011", text: "سلام" }]); assert.equal(r.j.stored, 0, "Somayeh pair: unknown numbers never stored");
   r = await S(1, "PUT", "/admin/bale/autoreply/pairs/11", { enabled: false });
+  r = await S(1, "PUT", "/admin/bale/autoreply/settings", { allowOtherPairs: false }); assert.equal(r.s, 200, JSON.stringify(r.j));
   await tick();
   ok("unknown numbers: Kazemi pair only, text + Bale id (no phone column), label «ناشناس», generic reply via peerId, no customer data, escalation → Kazemi, isolated from other experts");
 
@@ -387,6 +392,117 @@ try {
   r = await R(10, "POST", "/bale/auto-reply", { customerId: 200, text: "سلام" }); assert.equal(r.s, 423, JSON.stringify(r.j));
   r = await S(1, "GET", "/admin/bale/autoreply"); assert.equal(r.j.pairs[0].stoppedReason, "rate_limited");
   ok("auto-stop: rate limit → Masoud pair OFF with the reason, account mode stays off, only an admin turns it back on");
+
+  // ---------- AR30: pair guard, ask-expert, learned answers, overlap, holidays table, 24h from arrival ----------
+  const ar = bale._internal.ar;
+  clock = new Date("2026-11-02T07:00:00Z"); // Monday 10:30 Tehran
+  r = await S(1, "PUT", "/admin/bale/autoreply/pairs/10", ON); assert.equal(r.s, 200, JSON.stringify(r.j));
+  db.prepare("UPDATE bale_conversation_state SET ar_owner='assistant', ar_reason=NULL WHERE customer_id IN (200,202,203,204,205,206)").run();
+  // pair guard: only masoud can be enabled without the separate admin override
+  r = await S(1, "PUT", "/admin/bale/autoreply/pairs/12", ON); assert.equal(r.s, 423, JSON.stringify(r.j)); assert.equal(r.j.error, "pair_needs_mohammad");
+  r = await S(1, "PUT", "/admin/bale/autoreply/pairs/12", { readsEnabled: true }); assert.equal(r.s, 423, JSON.stringify(r.j));
+  assert.equal(pair("mohaddeseh").enabled, 0); assert.equal(pair("mohaddeseh").reads_enabled, 0);
+  r = await S(1, "PUT", "/admin/bale/autoreply/settings", { allowOtherPairs: true, confirm: "روشن" }); assert.equal(r.s, 428, JSON.stringify(r.j));
+  db.prepare("UPDATE bale_autoreply_pairs SET enabled=1, reads_enabled=1 WHERE slug='mohaddeseh'").run();
+  assert.equal(ar.pairOn(pair("mohaddeseh")), false, "server guard: a non-masoud pair stays OFF even if the row says enabled");
+  assert.equal(ar.readsOn(pair("mohaddeseh")), false);
+  db.prepare("UPDATE bale_autoreply_pairs SET enabled=0, reads_enabled=0 WHERE slug='mohaddeseh'").run();
+  r = await S(1, "GET", "/admin/bale/autoreply"); assert.equal(r.j.settings.allowOtherPairs, false); assert.equal(r.j.pairs.find(p => p.slug === "mohaddeseh").needsMohammad, true);
+  assert.equal(r.j.pairs.find(p => p.slug === "masoud").needsMohammad, false);
+  r = await R(12, "POST", "/bale/ask-expert", { customerId: 220, question: "سؤال" }); assert.equal(r.s, 423, JSON.stringify(r.j));
+  assert.equal(one("SELECT count(*) n FROM bale_ar_questions").n, 0, "OFF pair: nothing stored");
+  r = await R(11, "GET", "/bale/learned"); assert.equal(r.s, 423, JSON.stringify(r.j));
+  ok("AR30 pair guard: Hasani↔Somayeh / Ghasemi↔Mohaddeseh cannot be enabled (423 pair_needs_mohammad), server-side pairOn guard, override needs a typed «تأیید جدای محمد»");
+
+  // ask-expert
+  r = await inb(KREF, 204, "برای کارمند پیمانی هم وام میدید؟"); assert.equal(r.j.stored, 1);
+  const b0 = bells(8, "bale-ask");
+  r = await R(10, "POST", "/bale/ask-expert", { customerId: 204, question: "", summary: null }); assert.equal(r.s, 422, JSON.stringify(r.j));
+  r = await R(10, "POST", "/bale/ask-expert", { customerId: 210, question: "x" }); assert.ok([403, 404].includes(r.s), "out of scope: " + r.s);
+  r = await R(10, "POST", "/bale/ask-expert", { customerId: 204, question: "کارمند پیمانی وام می‌گیره؟", summary: "مشتری کارمند پیمانی است و مدارکش را نفرستاده." });
+  assert.equal(r.s, 201, JSON.stringify(r.j)); const qid = r.j.questionId; assert.ok(qid > 0);
+  assert.equal(bells(8, "bale-ask"), b0 + 1, "bell «مسعود جواب رو نمی‌دونه»");
+  assert.equal(autoRows(204).at(-1).ar_kind, "hold", "holding message queued once");
+  r = await R(10, "POST", "/bale/ask-expert", { customerId: 204, question: "دوباره" }); assert.equal(r.s, 409, JSON.stringify(r.j)); assert.equal(r.j.error, "already_asked");
+  r = await R(10, "POST", "/bale/auto-reply", { customerId: 204, text: "بله حتماً" }); assert.equal(r.s, 409, JSON.stringify(r.j)); assert.equal(r.j.error, "ask_pending");
+  let s2 = sent(); await tick(); assert.equal(sent(), s2 + 1); assert.equal(mock.sent.at(-1).text, AR_DEFAULT_SETTINGS.autoreply_hold_text);
+  r = await S(8, "GET", "/bale/me/autoreply/questions"); assert.equal(r.s, 200, JSON.stringify(r.j)); assert.equal(r.j.questions.length, 1); assert.equal(r.j.questions[0].id, qid);
+  assert.ok(!JSON.stringify(r.j).includes("09121110"), "no phone in the popup payload");
+  r = await S(2, "GET", "/bale/me/autoreply/questions"); assert.equal(r.s, 200); assert.equal(r.j.questions.length, 0, "other experts see nothing");
+  r = await S(2, "POST", `/bale/me/autoreply/questions/${qid}/answer`, { text: "x" }); assert.equal(r.s, 404, JSON.stringify(r.j));
+  r = await S(8, "GET", "/bale/me/autoreply"); assert.equal(r.j.list.find(x => x.customerId === 204)?.state, "asked", JSON.stringify(r.j.list));
+  s2 = sent(); const n204 = autoAll(204).length;
+  r = await S(8, "POST", `/bale/me/autoreply/questions/${qid}/answer`, { text: "بله، تا ۵۰ میلیون تومان وام می‌گیره.", save: true }); assert.equal(r.s, 422, JSON.stringify(r.j)); assert.equal(r.j.error, "learned_amount");
+  assert.equal(autoAll(204).length, n204, "refused learned save → nothing queued");
+  r = await S(8, "POST", `/bale/me/autoreply/questions/${qid}/answer`, { text: "بله، برای کارمند پیمانی هم وام داریم؛ قرارداد کاری رو بفرستید.", save: true }); assert.equal(r.s, 200, JSON.stringify(r.j));
+  const lid = r.j.learnedId; assert.ok(lid > 0, JSON.stringify(r.j));
+  const ans = autoRows(204).at(-1); assert.equal(ans.ar_kind, "answer"); assert.equal(ans.ar_question_id, qid); assert.ok(ans.reply_to_msg_id > 0);
+  await tick(); assert.equal(sent(), s2 + 1); assert.equal(mock.sent.at(-1).text, ans.text);
+  assert.equal(one("SELECT status FROM bale_ar_questions WHERE id=?", qid).status, "answered");
+  r = await S(8, "POST", `/bale/me/autoreply/questions/${qid}/answer`, { text: "باز هم" }); assert.ok(r.s === 409 || r.s === 404, JSON.stringify(r.j));
+  assert.equal(acc(8).mode, "off");
+  ok("AR30 ask-expert: runner question → bell + popup, one holding message, Masoud blocked while pending, Kazemi's answer sent as the reply through the outbox checks, learned save refused on amounts before anything is queued");
+
+  // learned answers
+  r = await S(8, "GET", "/bale/me/autoreply/learned"); assert.equal(r.s, 200, JSON.stringify(r.j)); assert.equal(r.j.items.length, 1);
+  r = await R(10, "GET", "/bale/learned"); assert.equal(r.s, 200, JSON.stringify(r.j)); assert.equal(r.j.items.length, 1);
+  r = await S(2, "GET", "/bale/me/autoreply/learned"); assert.ok(r.s === 200 ? r.j.items.length === 0 : r.s === 403);
+  r = await inb(KREF, 205, "سلام، کارمند پیمانی هستم، میشه؟"); assert.equal(r.j.stored, 1);
+  r = await R(10, "POST", "/bale/auto-reply", { customerId: 205, learnedId: lid, text: "ignored" }); assert.equal(r.s, 200, JSON.stringify(r.j));
+  const lr = autoRows(205).at(-1); assert.equal(lr.ar_source, "learned"); assert.equal(lr.ar_learned_id, lid); assert.ok(lr.text.includes("قرارداد کاری"));
+  assert.equal(one("SELECT use_count FROM bale_ar_learned WHERE id=?", lid).use_count, 1);
+  await tick();
+  r = await S(8, "PUT", `/bale/me/autoreply/learned/${lid}`, { answer: "تضمین می‌کنم وام جور بشه" }); assert.equal(r.s, 422, JSON.stringify(r.j));
+  r = await S(8, "PUT", `/bale/me/autoreply/learned/${lid}`, { answer: "x".repeat(501) }); assert.equal(r.s, 422, JSON.stringify(r.j));
+  r = await S(2, "PUT", `/bale/me/autoreply/learned/${lid}`, { active: false }); assert.equal(r.s, 404, JSON.stringify(r.j));
+  r = await S(8, "PUT", `/bale/me/autoreply/learned/${lid}`, { active: false }); assert.equal(r.s, 200, JSON.stringify(r.j));
+  r = await R(10, "GET", "/bale/learned"); assert.equal(r.j.items.length, 0, "inactive answers hidden from Masoud");
+  r = await S(29, "GET", "/admin/bale/autoreply/pairs/10/learned"); assert.equal(r.s, 403);
+  r = await S(1, "GET", "/admin/bale/autoreply/pairs/10/learned"); assert.equal(r.s, 200); assert.equal(r.j.items.length, 1);
+  r = await S(8, "DELETE", `/bale/me/autoreply/learned/${lid}`); assert.equal(r.s, 200, JSON.stringify(r.j));
+  r = await S(8, "GET", "/bale/me/autoreply/learned"); assert.equal(r.j.items.length, 0);
+  ok("AR30 learned answers: per expert, Masoud reads via runner (active only), learnedId reply uses the stored text, edit validated (promise / 500), others 404, admin read, soft delete");
+
+  // «خودم جواب می‌دم» + timeout
+  r = await inb(KREF, 203, "یه سؤال دیگه هم دارم"); r = await R(10, "POST", "/bale/ask-expert", { customerId: 203, question: "سؤال دوم" }); assert.equal(r.s, 201, JSON.stringify(r.j));
+  r = await S(8, "POST", `/bale/me/autoreply/questions/${r.j.questionId}/self`); assert.equal(r.s, 200, JSON.stringify(r.j));
+  own = one("SELECT ar_owner, ar_reason FROM bale_conversation_state WHERE customer_id=203"); assert.equal(own.ar_owner, "expert"); assert.equal(own.ar_reason, "expert_button");
+  r = await inb(KREF, 202, "برای وام ضامن هم لازمه؟"); db.prepare("UPDATE bale_conversation_state SET ar_owner=\'assistant\', ar_reason=NULL WHERE customer_id=202").run(); r = await R(10, "POST", "/bale/ask-expert", { customerId: 202, question: "ضامن؟" }); assert.equal(r.s, 201, JSON.stringify(r.j)); const q3 = r.j.questionId;
+  await tick();
+  clock = new Date(clock.getTime() + 29 * 60_000); ar.sweep(true); assert.equal(one("SELECT status FROM bale_ar_questions WHERE id=?", q3).status, "pending");
+  const be = bells(8, "bale-escalated");
+  clock = new Date(clock.getTime() + 2 * 60_000); ar.sweep(true);
+  assert.equal(one("SELECT status FROM bale_ar_questions WHERE id=?", q3).status, "expired");
+  own = one("SELECT ar_owner, ar_reason FROM bale_conversation_state WHERE customer_id=202"); assert.equal(own.ar_owner, "expert"); assert.equal(own.ar_reason, "ask_timeout");
+  assert.equal(bells(8, "bale-escalated"), be + 1);
+  ok("AR30 «خودم جواب می‌دم» hands the chat to Kazemi; unanswered question escalates after 30 min (open hours) with a bell");
+
+  // overlap: Masoud's reply went out before Kazemi's app reply was seen
+  db.prepare("UPDATE bale_conversation_state SET ar_owner='assistant', ar_reason=NULL WHERE customer_id=206").run(); r = await inb(KREF, 206, "سلام، مدارک رو کجا بفرستم؟"); r = await R(10, "POST", "/bale/auto-reply", { customerId: 206, text: "همین‌جا در بله بفرستید." }); assert.equal(r.s, 200, JSON.stringify(r.j));
+  await tick(); const ov = autoRows(206).at(-1); assert.equal(ov.status, "sent");
+  r = await inb(KREF, 206, "از گوشی جواب دادم", { fromSelf: true });
+  assert.ok(one("SELECT ar_overlap_at FROM bale_outbox WHERE id=?", ov.id).ar_overlap_at, "overlap logged");
+  assert.ok(one("SELECT count(*) n FROM bale_audit WHERE action='autoreply.app_overlap'").n >= 1);
+  r = await S(8, "GET", "/bale/customers/206/messages"); assert.ok(r.j.messages.some(m => m.overlap), "gold badge flag in history");
+  ok("AR30 overlap: a Masoud reply sent before Kazemi's app reply was seen is logged (ar_overlap_at + audit) and flagged for the gold badge");
+
+  // holidays: shared table
+  r = await S(8, "POST", "/admin/holidays", { date: "2026-11-03", label: "x" }); assert.equal(r.s, 403);
+  r = await S(1, "POST", "/admin/holidays", { date: "2026-02-30", label: "x" }); assert.equal(r.s, 422, JSON.stringify(r.j));
+  assert.ok(ar.inDay(new Date("2026-11-03T07:00:00Z")));
+  r = await S(1, "POST", "/admin/holidays", { date: "2026-11-03", label: "تعطیل رسمی" }); assert.ok([200, 201].includes(r.s), JSON.stringify(r.j));
+  assert.ok(!ar.inDay(new Date("2026-11-03T07:00:00Z")), "official holiday behaves like Friday");
+  r = await S(1, "GET", "/admin/holidays"); assert.equal(r.s, 200); const hid = r.j.holidays.find(h => h.date === "2026-11-03").id;
+  r = await S(1, "GET", "/admin/bale/autoreply"); assert.ok(r.j.settings.holidays.some(h => h.date === "2026-11-03"));
+  r = await S(1, "DELETE", `/admin/holidays/${hid}`); assert.equal(r.s, 200, JSON.stringify(r.j));
+  assert.ok(ar.inDay(new Date("2026-11-03T07:00:00Z")));
+  ok("AR30 holidays: shared official_holidays table (admin only, validated), behaves like Friday");
+
+  // 24h window counts from when the customer message arrived
+  db.prepare("UPDATE bale_conversation_state SET ar_owner='assistant', ar_reason=NULL WHERE customer_id=203").run();
+  r = await inb(KREF, 203, "پیام قدیمی", { date: clock.getTime() - 25 * 3600_000 }); assert.equal(r.j.stored, 1);
+  r = await R(10, "POST", "/bale/auto-reply", { customerId: 203, text: "سلام" }); assert.equal(r.s, 409, JSON.stringify(r.j)); assert.equal(r.j.error, "reply_window");
+  ok("AR30 24h window counts from the customer message's arrival time");
 
   // ---------- expert OFF switch + final ----------
   r = await S(1, "PUT", "/admin/bale/autoreply/pairs/10", ON); assert.equal(r.s, 200, JSON.stringify(r.j)); assert.equal(pair("masoud").stopped_reason, null);

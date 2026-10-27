@@ -25,6 +25,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { normalizeFa } from "./assistants";
 import { maskText } from "./smart-filing";
+import { ensureOfficialHolidaysSchema, officialHolidaysJson, listOfficialHolidays } from "./official-holidays";
 
 export const AR_PAIR_SEED = [
   { slug: "masoud", allowUnknown: 0, allowPlanFile: 0 },
@@ -42,13 +43,23 @@ export const AR_DEFAULT_SETTINGS: Record<string, string> = {
   autoreply_escalate_extra: "[]",
   /** Official holidays (design v1.4): JSON [{date:"YYYY-MM-DD" (Tehran calendar day, Gregorian), label}] — closed like Friday. */
   autoreply_holidays: "[]",
+  /** AR30 pair guard: only the Kazemi–Masoud pair may be switched ON. Any other pair needs Mohammad's separate approval, recorded by an
+   *  admin as this flag = 1 (typed confirm «تأیید جدای محمد»). While 0 the server treats every non-masoud pair as OFF. */
+  autoreply_allow_other_pairs: "0",
+  /** AR30 «سؤال از کارشناس»: minutes (in open hours) before an unanswered question is handed to the expert. */
+  autoreply_ask_timeout_min: "30",
 };
+export const AR_ASK_TIMEOUT_MIN = [5, 240] as const;
+export const AR_LEARNED_MAX = 500;
+export const AR_QUESTION_MAX = 500;
+export const AR_SUMMARY_MAX = 800;
+export const AR_OTHER_PAIRS_CONFIRM = "تأیید جدای محمد";
 export const AR_REPLY_WINDOW_MIN = 1440;
 export const AR_TEXT_MAX = 600;
 export const AR_WAKE_DELAYS_MS = [0, 2000, 8000, 30000];
 
 export type ArBlock = "autoreply_off" | "not_a_reply" | "reply_window" | "human_replied" | "already_replied" | "human_mode" | "after_hours"
-  | "escalated" | "cap_pair_hour" | "cap_pair_day" | "plan_file_off" | "signature" | "unknown_off";
+  | "escalated" | "cap_pair_hour" | "cap_pair_day" | "plan_file_off" | "signature" | "unknown_off" | "ask_pending";
 export const AR_BLOCK_FA: Record<ArBlock, string> = {
   autoreply_off: "پاسخ خودکار برای این دستیار خاموش است؛ چیزی فرستاده نشد.",
   not_a_reply: "پاسخ خودکار فقط جواب آخرین پیام مشتری است؛ پیام اول یا پیام بی‌جواب‌نمانده فرستاده نمی‌شود.",
@@ -63,7 +74,9 @@ export const AR_BLOCK_FA: Record<ArBlock, string> = {
   plan_file_off: "ارسال خودکار فایل طرح برای این دستیار خاموش است.",
   signature: "پاسخ باید با صدای خود کارشناس باشد؛ اسم دستیار، «ربات» یا «پاسخ خودکار» در متن نیاید.",
   unknown_off: "این گفتگوی ناشناس در دسترس دستیار نیست.",
+  ask_pending: "مسعود این سؤال را از کارشناس پرسیده است؛ تا جواب کارشناس چیزی جز پیام نگه‌دار نمی‌رود.",
 };
+export type ArKind = "reply" | "plan" | "hold" | "night" | "answer";
 
 /* ------------------------------------------------ pure helpers ------------------------------------------------ */
 const HM = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tehran", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
@@ -165,8 +178,29 @@ export function ensureBaleAutoreplySchema(db: DatabaseSync, nowIso = new Date().
     block_reason TEXT, error TEXT, attempts INTEGER NOT NULL DEFAULT 0, bale_msg_id TEXT, sent_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
     UNIQUE(account_id, bale_msg_id))`);
   db.exec("CREATE INDEX IF NOT EXISTS idx_bale_ar_messages_chat ON bale_ar_messages(chat_id, id)");
+  // AR30 (all additive): overlap log, learned-answer / expert-answer source, ask-expert questions, learned answers, shared holidays.
+  for (const t of ["bale_outbox", "bale_ar_messages"]) {
+    add(t, "ar_overlap_at", "TEXT");      // Masoud's reply went out before the expert's Bale-app reply was seen (gold badge)
+    add(t, "ar_source", "TEXT");          // NULL (runner text) | learned | expert_answer
+    add(t, "ar_learned_id", "INTEGER");
+    add(t, "ar_question_id", "INTEGER");
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS bale_ar_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, assistant_id INTEGER NOT NULL, account_id INTEGER NOT NULL, expert_user_id INTEGER NOT NULL,
+    customer_id INTEGER, chat_id INTEGER, reply_to_msg_id INTEGER, question TEXT NOT NULL, summary TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','answered','self','expired','cancelled')),
+    answer TEXT, answer_outbox_id INTEGER, answer_ar_message_id INTEGER, save_learned INTEGER NOT NULL DEFAULT 0, learned_id INTEGER,
+    hold_result TEXT, escalated_at TEXT, created_at TEXT NOT NULL, answered_at TEXT, answered_by INTEGER, updated_at TEXT NOT NULL,
+    CHECK((customer_id IS NULL) <> (chat_id IS NULL)))`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_bale_ar_questions_status ON bale_ar_questions(expert_user_id, status)");
+  db.exec(`CREATE TABLE IF NOT EXISTS bale_ar_learned (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, expert_user_id INTEGER NOT NULL, assistant_id INTEGER NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL,
+    source_question_id INTEGER, active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)), use_count INTEGER NOT NULL DEFAULT 0, last_used_at TEXT,
+    created_by INTEGER, created_at TEXT NOT NULL, updated_by INTEGER, updated_at TEXT NOT NULL, deleted_by INTEGER, deleted_at TEXT)`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_bale_ar_learned_expert ON bale_ar_learned(expert_user_id, deleted_at)");
   const ins = db.prepare("INSERT OR IGNORE INTO bale_settings(key,value,updated_at) VALUES(?,?,?)");
   for (const [k, v] of Object.entries(AR_DEFAULT_SETTINGS)) ins.run(k, v, nowIso);
+  ensureOfficialHolidaysSchema(db, nowIso);
   seedArPairs(db, nowIso);
 }
 /** Idempotent: one OFF pair per seeded sales assistant that is bound to an expert. Never changes an existing row. */
@@ -206,12 +240,14 @@ export function createBaleAutoreply(core: ArCore) {
   const S = (k: string) => core.setting(k) ?? AR_DEFAULT_SETTINGS[k];
   /** «آخرین تغییر» of the admin settings (hours, texts, holidays). */
   const settingMeta = () => row<any>(`SELECT s.updated_at, COALESCE(u.full_name, u.username) AS by FROM bale_settings s LEFT JOIN users u ON u.id=s.updated_by_user_id
-    WHERE s.key IN ('autoreply_day_start','autoreply_day_end','autoreply_days','autoreply_hold_text','autoreply_night_text','autoreply_holidays') AND s.updated_by_user_id IS NOT NULL ORDER BY s.updated_at DESC LIMIT 1`);
+    WHERE s.key IN ('autoreply_day_start','autoreply_day_end','autoreply_days','autoreply_hold_text','autoreply_night_text','autoreply_holidays','autoreply_ask_timeout_min','autoreply_allow_other_pairs') AND s.updated_by_user_id IS NOT NULL ORDER BY s.updated_at DESC LIMIT 1`);
   const globalOn = () => S("autoreply_enabled") === "1";
   const extraWords = () => { try { const l = JSON.parse(S("autoreply_escalate_extra")); return Array.isArray(l) ? l.map(String).slice(0, 100) : []; } catch { return []; } };
   const escalation = (t: string) => arEscalation(t, extraWords());
-  const inDay = (d = now()) => arInDay(d, S("autoreply_day_start"), S("autoreply_day_end"), S("autoreply_days"), S("autoreply_holidays"));
-  const closedSince = (d = now()) => arClosedSince(d, S("autoreply_day_start"), S("autoreply_day_end"), S("autoreply_days"), S("autoreply_holidays"));
+  // AR30: official holidays come from the shared official_holidays table (closed like Friday).
+  const hol = () => officialHolidaysJson(db);
+  const inDay = (d = now()) => arInDay(d, S("autoreply_day_start"), S("autoreply_day_end"), S("autoreply_days"), hol());
+  const closedSince = (d = now()) => { const h = hol(); return arClosedSince(d, S("autoreply_day_start"), S("autoreply_day_end"), S("autoreply_days"), h); };
   let seeded = false;
   const seed = () => { if (!seeded) { seedArPairs(db, iso()); seeded = Boolean(row("SELECT 1 FROM bale_autoreply_pairs LIMIT 1")); } };
 
@@ -226,11 +262,13 @@ export function createBaleAutoreply(core: ArCore) {
     return row<any>(`${PAIR_SQL} WHERE p.expert_user_id=? AND s.bound_user_id=p.expert_user_id AND s.kind='sales' ORDER BY p.assistant_id LIMIT 1`, a.user_id);
   }
   function pairOfAssistant(asstId: number): any | undefined { if (!asstReady()) return undefined; seed(); return row<any>(`${PAIR_SQL} WHERE p.assistant_id=? AND s.bound_user_id=p.expert_user_id AND s.kind='sales'`, asstId); }
-  const pairOn = (p: any) => Boolean(p && globalOn() && p.enabled === 1 && p.asst_enabled === 1 && !p.stopped_reason);
+  /** AR30 pair guard: a non-masoud pair counts as OFF (whatever its row says) until autoreply_allow_other_pairs = 1. */
+  const pairAllowed = (p: any) => Boolean(p && (p.slug === "masoud" || S("autoreply_allow_other_pairs") === "1"));
+  const pairOn = (p: any) => Boolean(p && globalOn() && pairAllowed(p) && p.enabled === 1 && p.asst_enabled === 1 && !p.stopped_reason);
   const accountReady = (a: any) => Boolean(a && a.status === "connected" && a.session_ct && core.masterOn() && core.liveState(a) !== "down");
   /** True when an auto-reply may be considered at all for this account (mode deliberately ignored). */
   const activeFor = (a: any) => { const p = pairOfAccount(a); return pairOn(p) && accountReady(a) ? p : null; };
-  const readsOn = (p: any) => Boolean(p && p.asst_enabled === 1 && (p.reads_enabled === 1 || pairOn(p)));
+  const readsOn = (p: any) => Boolean(p && p.asst_enabled === 1 && pairAllowed(p) && (p.reads_enabled === 1 || pairOn(p)));
 
   /* ---------------- owner (takeover) ---------------- */
   function ownerOf(a: any, t: ArTarget): { owner: "assistant" | "expert"; reason: string | null; by: number | null; at: string | null; nightAt: string | null } {
@@ -257,24 +295,26 @@ export function createBaleAutoreply(core: ArCore) {
   }
 
   /* ---------------- conversation facts ---------------- */
-  type Facts = { lastIn: { id: number; at: string; text: string | null } | null; humanAfter: boolean; autoTexts: number; autoFiles: number; autoAny: number };
+  type Facts = { lastIn: { id: number; at: string; text: string | null } | null; humanAfter: boolean; autoTexts: number; autoFiles: number; autoAny: number; autoContent: number };
   function facts(a: any, t: ArTarget): Facts {
     if (t.chatId != null) {
       const li = row<any>("SELECT id, created_at, text FROM bale_ar_messages WHERE chat_id=? AND direction='in' ORDER BY id DESC LIMIT 1", t.chatId);
-      if (!li) return { lastIn: null, humanAfter: false, autoTexts: 0, autoFiles: 0, autoAny: 0 };
+      if (!li) return { lastIn: null, humanAfter: false, autoTexts: 0, autoFiles: 0, autoAny: 0, autoContent: 0 };
       const humanAfter = Boolean(row("SELECT 1 FROM bale_ar_messages WHERE chat_id=? AND direction='out' AND source='expert' AND id>?", t.chatId, li.id));
-      const c = row<any>(`SELECT SUM(CASE WHEN attachment_id IS NULL THEN 1 ELSE 0 END) t, SUM(CASE WHEN attachment_id IS NOT NULL THEN 1 ELSE 0 END) f FROM bale_ar_messages
+      const c = row<any>(`SELECT SUM(CASE WHEN attachment_id IS NULL THEN 1 ELSE 0 END) t, SUM(CASE WHEN attachment_id IS NOT NULL THEN 1 ELSE 0 END) f,
+        SUM(CASE WHEN attachment_id IS NULL AND COALESCE(ar_kind,'reply') IN ('reply','answer') THEN 1 ELSE 0 END) k FROM bale_ar_messages
         WHERE chat_id=? AND source='auto_reply' AND reply_to=? AND status IN ('queued','sending','sent')`, t.chatId, li.id);
-      return { lastIn: { id: li.id, at: li.created_at, text: li.text }, humanAfter, autoTexts: Number(c?.t ?? 0), autoFiles: Number(c?.f ?? 0), autoAny: Number(c?.t ?? 0) + Number(c?.f ?? 0) };
+      return { lastIn: { id: li.id, at: li.created_at, text: li.text }, humanAfter, autoTexts: Number(c?.t ?? 0), autoFiles: Number(c?.f ?? 0), autoAny: Number(c?.t ?? 0) + Number(c?.f ?? 0), autoContent: Number(c?.k ?? 0) };
     }
     const li = row<any>("SELECT id, created_at, text FROM bale_messages WHERE account_id=? AND customer_id=? AND direction='in' ORDER BY id DESC LIMIT 1", a.id, t.customerId);
-    if (!li) return { lastIn: null, humanAfter: false, autoTexts: 0, autoFiles: 0, autoAny: 0 };
+    if (!li) return { lastIn: null, humanAfter: false, autoTexts: 0, autoFiles: 0, autoAny: 0, autoContent: 0 };
     // A human reply = any 'out' row after it that is not one of our auto_reply sends (CRM «بفرست», reminder, assistant draft, Bale app).
     const humanAfter = Boolean(row(`SELECT 1 FROM bale_messages m LEFT JOIN bale_outbox o ON o.id=m.outbox_id WHERE m.account_id=? AND m.customer_id=? AND m.direction='out'
       AND m.id>? AND COALESCE(o.source,'')<>'auto_reply'`, a.id, t.customerId, li.id));
-    const c = row<any>(`SELECT SUM(CASE WHEN attachment_id IS NULL THEN 1 ELSE 0 END) t, SUM(CASE WHEN attachment_id IS NOT NULL THEN 1 ELSE 0 END) f FROM bale_outbox
+    const c = row<any>(`SELECT SUM(CASE WHEN attachment_id IS NULL THEN 1 ELSE 0 END) t, SUM(CASE WHEN attachment_id IS NOT NULL THEN 1 ELSE 0 END) f,
+      SUM(CASE WHEN attachment_id IS NULL AND COALESCE(ar_kind,'reply') IN ('reply','answer') THEN 1 ELSE 0 END) k FROM bale_outbox
       WHERE account_id=? AND customer_id=? AND source='auto_reply' AND reply_to_msg_id=? AND status IN ('queued','sending','sent')`, a.id, t.customerId, li.id);
-    return { lastIn: { id: li.id, at: li.created_at, text: li.text }, humanAfter, autoTexts: Number(c?.t ?? 0), autoFiles: Number(c?.f ?? 0), autoAny: Number(c?.t ?? 0) + Number(c?.f ?? 0) };
+    return { lastIn: { id: li.id, at: li.created_at, text: li.text }, humanAfter, autoTexts: Number(c?.t ?? 0), autoFiles: Number(c?.f ?? 0), autoAny: Number(c?.t ?? 0) + Number(c?.f ?? 0), autoContent: Number(c?.k ?? 0) };
   }
   /** Auto sends of this pair (both tables) in the window; stage enqueue also counts queued rows. */
   function pairSent(a: any, ms: number, withQueued: boolean): number {
@@ -290,7 +330,7 @@ export function createBaleAutoreply(core: ArCore) {
    * Auto-reply rules shared by both conversation kinds (the generic checks — master, connection, scope, text filters, account caps —
    * are done by the caller). kind: reply (runner text) | plan (runner plan file) | hold (server, after escalation) | night (server).
    */
-  function rules(a: any, p: any, t: ArTarget, o: { kind: "reply" | "plan" | "hold" | "night"; stage: "enqueue" | "send"; replyTo?: number | null; rawText?: string; selfId?: number }): ArBlock | null {
+  function rules(a: any, p: any, t: ArTarget, o: { kind: ArKind; stage: "enqueue" | "send"; replyTo?: number | null; rawText?: string; selfId?: number; learned?: boolean }): ArBlock | null {
     if (!pairOn(p)) return "autoreply_off";
     if (t.chatId != null && p.allow_unknown !== 1) return "unknown_off";
     if (o.kind === "plan" && (p.allow_plan_file !== 1 || !core.attachmentsOn())) return "plan_file_off";
@@ -302,14 +342,20 @@ export function createBaleAutoreply(core: ArCore) {
     // «برگردون به مسعود»: Masoud answers only from the customer's NEXT message (nothing older than the give-back).
     if (own.reason === "expert_giveback" && own.at && f.lastIn.at <= own.at && o.kind !== "hold") return "not_a_reply";
     if (f.humanAfter) return "human_replied";
+    // AR30: while a «سؤال از کارشناس» is pending, Masoud sends no content of his own (the expert's answer is the reply).
+    if ((o.kind === "reply" || o.kind === "plan") && pendingQuestion(a, t)) return "ask_pending";
     if (o.stage === "enqueue") {
+      // PM 2026-10-27: the 24 h window counts from when the customer's message ARRIVED (bale_messages.created_at = the Bale event date).
       if (Date.parse(f.lastIn.at) < now().getTime() - Math.max(5, Number(p.reply_window_min) || AR_REPLY_WINDOW_MIN) * 60_000) return "reply_window";
       if ((o.kind === "reply" || o.kind === "plan") && !inDay()) return "after_hours";
-      if (o.kind === "night" || o.kind === "hold" ? f.autoAny > 0 : o.kind === "plan" ? f.autoFiles > 0 : f.autoTexts > 0) return "already_replied";
-      if (o.kind === "reply" || o.kind === "plan") {
+      // The expert's answer (kind 'answer') may follow the holding text; one content reply per customer message.
+      if (o.kind === "night" || o.kind === "hold" ? f.autoAny > 0 : o.kind === "plan" ? f.autoFiles > 0 : o.kind === "answer" ? f.autoContent > 0 : f.autoTexts > 0) return "already_replied";
+      if (o.kind === "reply" || o.kind === "plan" || o.kind === "answer") {
         const raw = String(o.rawText ?? "");
         if (arVoice(raw).problem) return "signature";
-        if (escalation(raw)) return "escalated";
+        // The expert's own answer is not keyword-escalated (his words). A learned answer was approved by him: dates allowed, never amount / promise.
+        const k = o.kind === "answer" ? null : escalation(raw);
+        if (k && !(o.learned && k === "date")) return "escalated";
       }
     }
     if (pairSent(a, 86_400_000, o.stage === "enqueue") >= Math.max(1, Number(p.per_day) || 40)) return "cap_pair_day";
@@ -329,7 +375,12 @@ export function createBaleAutoreply(core: ArCore) {
   /* ---------------- unknown chats (no CRM customer) ---------------- */
   /** Inbound from a peer that matched no customer. Stored ONLY while the pair is ON with allow_unknown; text + peer id, never a phone. */
   function inboundUnknown(a: any, ev: { messageId: string; peerId: string; text: string | null; hasFile: boolean; fromSelf: boolean; at: string }): { stored: boolean; chatId?: number; messageId?: number; escalated?: string | null; night?: boolean } {
-    const p = activeFor(a); if (!p || p.allow_unknown !== 1) return { stored: false };
+    const p = activeFor(a);
+    if (!p || p.allow_unknown !== 1) {
+      // AR30: an existing chat still logs the expert's own Bale-app reply (overlap badge) even after the pair went OFF.
+      if (ev.fromSelf) { const c0 = row<any>("SELECT * FROM bale_ar_chats WHERE account_id=? AND peer_id=?", a.id, ev.peerId); if (c0) appReplySeen(a, { chatId: c0.id }, ev.at); }
+      return { stored: false };
+    }
     const t = iso();
     let c = row<any>("SELECT * FROM bale_ar_chats WHERE account_id=? AND peer_id=?", a.id, ev.peerId);
     if (!c) {
@@ -344,6 +395,7 @@ export function createBaleAutoreply(core: ArCore) {
     run("UPDATE bale_ar_chats SET last_at=? WHERE id=?", ev.at, c.id);
     const target: ArTarget = { chatId: c.id };
     if (dir === "out") { // PM: the expert wrote from the Bale app → the conversation is his; no automatic return.
+      appReplySeen(a, target, ev.at, Number(ins.lastInsertRowid));
       if (c.owner !== "expert") setOwner(a, target, "expert", "expert_app_reply", a.user_id);
       return { stored: true, chatId: c.id, messageId: Number(ins.lastInsertRowid) };
     }
@@ -382,7 +434,7 @@ export function createBaleAutoreply(core: ArCore) {
   const bindOutbox = (fn: typeof core_enqueueMatched) => { core_enqueueMatched = fn; };
 
   /** Enqueue a reply in an unknown chat (runner reply / plan, or server hold / night). Returns "queued" or a block reason. */
-  function enqueueUnknown(a: any, p: any, chatId: number, text: string, o: { kind: "reply" | "plan" | "hold" | "night"; attachmentId?: number | null; assistantId?: number | null }): string {
+  function enqueueUnknown(a: any, p: any, chatId: number, text: string, o: { kind: ArKind; attachmentId?: number | null; assistantId?: number | null; source?: "learned" | "expert_answer" | null; learnedId?: number | null; questionId?: number | null }): string {
     const t = iso(); const target: ArTarget = { chatId };
     const block = (reason: string) => { core.audit({ accountId: a.id, action: `autoreply.unknown_${o.kind}`, outcome: `blocked:${reason}`, detail: { chatId } }); return reason; };
     if (!core.masterOn()) return block("bale_disabled");
@@ -394,7 +446,7 @@ export function createBaleAutoreply(core: ArCore) {
     const body = o.kind === "plan" ? planCaption(voiced) : voiced;
     const tp = core.textProblem(body); if (tp) return block(tp);
     if (o.kind === "plan") { const f = o.attachmentId != null ? core.planFiles?.byId(o.attachmentId) : null; if (!f || f.status !== "active" || !core.planFiles!.read(f)) return block("attachment_missing"); }
-    const r = rules(a, p, target, { kind: o.kind, stage: "enqueue", rawText: raw });
+    const r = rules(a, p, target, { kind: o.kind, stage: "enqueue", rawText: raw, learned: o.source === "learned" });
     if (r) {
       if (r === "escalated") { const k = escalation(raw); if (k) escalate(a, p, target, k, "draft"); serverReply(a, p, target, inDay() ? "hold" : "night"); }
       return block(r);
@@ -402,11 +454,14 @@ export function createBaleAutoreply(core: ArCore) {
     if (row("SELECT 1 FROM bale_ar_messages WHERE chat_id=? AND status IN ('queued','sending')", chatId)) return block("already_pending");
     if (accountCapHit(a, true)) return block("cap_day");
     const f = facts(a, target);
-    const id = Number(run(`INSERT INTO bale_ar_messages(chat_id,account_id,direction,source,ar_kind,text,has_file,attachment_id,reply_to,assistant_id,status,created_at,updated_at)
-      VALUES(?,?,'out','auto_reply',?,?,?,?,?,?,'queued',?,?)`, chatId, a.id, o.kind, body, o.attachmentId != null ? 1 : 0, o.attachmentId ?? null, f.lastIn?.id ?? null, o.assistantId ?? p.assistant_id, t, t).lastInsertRowid);
+    const id = Number(run(`INSERT INTO bale_ar_messages(chat_id,account_id,direction,source,ar_kind,text,has_file,attachment_id,reply_to,assistant_id,status,created_at,updated_at,ar_source,ar_learned_id,ar_question_id)
+      VALUES(?,?,'out','auto_reply',?,?,?,?,?,?,'queued',?,?,?,?,?)`, chatId, a.id, o.kind, body, o.attachmentId != null ? 1 : 0, o.attachmentId ?? null, f.lastIn?.id ?? null, o.assistantId ?? p.assistant_id, t, t,
+      o.source ?? null, o.learnedId ?? null, o.questionId ?? null).lastInsertRowid);
+    lastUnknownId = id;
     core.audit({ accountId: a.id, action: `autoreply.unknown_${o.kind}`, outcome: "queued", detail: { chatId, arMessageId: id } });
     return "queued";
   }
+  let lastUnknownId = 0;
   let accountCapHit: (a: any, withQueued: boolean) => boolean = () => false;
   let planCaption: (s: string) => string = s => s;
   const bindAccountCaps = (fn: typeof accountCapHit, caption: typeof planCaption) => { accountCapHit = fn; planCaption = caption; };
@@ -470,6 +525,7 @@ export function createBaleAutoreply(core: ArCore) {
     for (const p of pairs()) {
       if (!pairOn(p)) continue;
       const a = row<any>("SELECT * FROM bale_accounts WHERE user_id=? AND kind<>'system_test'", p.expert_user_id); if (!a) continue;
+      n += expireQuestions(p, a);
       const cut = since(Math.max(5, Number(p.reply_window_min) || AR_REPLY_WINDOW_MIN) * 60_000);
       const lo = since(7 * 86_400_000);
       for (const c of rows<any>(`SELECT customer_id, MAX(id) mid FROM bale_messages WHERE account_id=? AND created_at>? GROUP BY customer_id`, a.id, lo)) {
@@ -477,19 +533,153 @@ export function createBaleAutoreply(core: ArCore) {
         if (!last || last.direction !== "in" || last.created_at >= cut) continue;
         const t: ArTarget = { customerId: c.customer_id };
         if (ownerOf(a, t).owner === "expert") continue;
-        if (facts(a, t).autoAny > 0) continue;
+        if (facts(a, t).autoAny > 0 || pendingQuestion(a, t)) continue;
         setOwner(a, t, "expert", "stale_backlog", null); n++;
         core.bell(a.user_id, c.customer_id, "bale-escalated", "پیام بی‌جواب قدیمی به شما سپرده شد", "این پیام بیش از ۲۴ ساعت بی‌جواب مانده؛ مسعود به آن جواب نمی‌دهد.");
       }
       for (const c of rows<any>("SELECT * FROM bale_ar_chats WHERE account_id=? AND owner='assistant' AND last_at>?", a.id, lo)) {
         const last = row<any>("SELECT * FROM bale_ar_messages WHERE chat_id=? AND status NOT IN ('blocked','cancelled','failed') ORDER BY id DESC LIMIT 1", c.id);
-        if (!last || last.direction !== "in" || last.created_at >= cut) continue;
+        if (!last || last.direction !== "in" || last.created_at >= cut || pendingQuestion(a, { chatId: c.id })) continue;
         setOwner(a, { chatId: c.id }, "expert", "stale_backlog", null); n++;
         core.bellNoCustomer(a.user_id, "پیام بی‌جواب قدیمی (ناشناس) به شما سپرده شد", "این پیام بیش از ۲۴ ساعت بی‌جواب مانده؛ مسعود به آن جواب نمی‌دهد.");
       }
     }
     return n;
   }
+
+  /* ---------------- AR30: overlap log (expert's Bale-app reply seen after Masoud already replied) ---------------- */
+  /** Called for every outgoing message the expert wrote in the Bale app (even when the pair is OFF now). Masoud's sent reply/plan rows that
+   *  answered the customer's latest message before this one get ar_overlap_at (gold badge «مسعود پیش از دیده شدن جواب تو…»). A pending
+   *  «سؤال از کارشناس» for the conversation is closed as 'self' (the expert answered in the app). Returns the number of rows flagged. */
+  function appReplySeen(a: any, t: ArTarget, atIso: string, outMsgId?: number): number {
+    const at = iso(); let n = 0;
+    if (t.chatId != null) {
+      const li = row<any>(`SELECT id FROM bale_ar_messages WHERE chat_id=? AND direction='in'${outMsgId ? " AND id<?" : ""} ORDER BY id DESC LIMIT 1`, ...(outMsgId ? [t.chatId, outMsgId] : [t.chatId]));
+      if (li) n = Number(run(`UPDATE bale_ar_messages SET ar_overlap_at=?, updated_at=? WHERE chat_id=? AND source='auto_reply' AND ar_kind IN ('reply','plan') AND status='sent'
+        AND reply_to=? AND ar_overlap_at IS NULL`, atIso || at, at, t.chatId, li.id).changes);
+    } else if (t.customerId != null) {
+      const li = row<any>(`SELECT id FROM bale_messages WHERE account_id=? AND customer_id=? AND direction='in'${outMsgId ? " AND id<?" : ""} ORDER BY id DESC LIMIT 1`, ...(outMsgId ? [a.id, t.customerId, outMsgId] : [a.id, t.customerId]));
+      if (li) n = Number(run(`UPDATE bale_outbox SET ar_overlap_at=?, updated_at=? WHERE account_id=? AND customer_id=? AND source='auto_reply' AND ar_kind IN ('reply','plan') AND status='sent'
+        AND reply_to_msg_id=? AND ar_overlap_at IS NULL`, atIso || at, at, a.id, t.customerId, li.id).changes);
+    }
+    const q = pendingQuestion(a, t);
+    if (q) run("UPDATE bale_ar_questions SET status='self', answered_at=?, answered_by=?, updated_at=? WHERE id=? AND status='pending'", at, a.user_id, at, q.id);
+    if (n) core.audit({ accountId: a.id, action: "autoreply.app_overlap", outcome: "logged", detail: { customerId: t.customerId ?? null, chatId: t.chatId ?? null, rows: n } });
+    return n;
+  }
+
+  /* ---------------- AR30: «سؤال از کارشناس» ---------------- */
+  const tgtSql = (t: ArTarget) => t.chatId != null ? { w: "chat_id=?", v: t.chatId } : { w: "customer_id=?", v: t.customerId };
+  function pendingQuestion(a: any, t: ArTarget): any | null {
+    if (!a) return null; const g = tgtSql(t);
+    return row<any>(`SELECT * FROM bale_ar_questions WHERE account_id=? AND ${g.w} AND status='pending' ORDER BY id DESC LIMIT 1`, a.id, g.v) ?? null;
+  }
+  const askTimeoutMin = () => Math.min(AR_ASK_TIMEOUT_MIN[1], Math.max(AR_ASK_TIMEOUT_MIN[0], Number(S("autoreply_ask_timeout_min")) || 30));
+  /** Runner: Masoud doesn't know the answer. The pair must be ON (caller checks). Stores the question, sends the holding text ONCE (night
+   *  text when closed, at most once per closed window) through the normal checks, and bells the expert. Never sends the question itself. */
+  function askExpert(a: any, p: any, t: ArTarget, question: string, summary: string | null):
+    { ok: true; id: number; hold: string } | { ok: false; status: number; error: string } {
+    const q = String(question ?? "").trim(); const sm = summary == null ? null : String(summary).trim() || null;
+    if (!q) return { ok: false, status: 422, error: "question_required" };
+    if (q.length > AR_QUESTION_MAX) return { ok: false, status: 422, error: "question_too_long" };
+    if (sm && sm.length > AR_SUMMARY_MAX) return { ok: false, status: 422, error: "summary_too_long" };
+    if (ownerOf(a, t).owner === "expert") return { ok: false, status: 409, error: "human_mode" };
+    const f = facts(a, t);
+    if (!f.lastIn) return { ok: false, status: 409, error: "not_a_reply" };
+    if (f.humanAfter) return { ok: false, status: 409, error: "human_replied" };
+    if (Date.parse(f.lastIn.at) < now().getTime() - Math.max(5, Number(p.reply_window_min) || AR_REPLY_WINDOW_MIN) * 60_000) return { ok: false, status: 409, error: "reply_window" };
+    if (pendingQuestion(a, t)) return { ok: false, status: 409, error: "already_asked" };
+    const at = iso();
+    const id = Number(run(`INSERT INTO bale_ar_questions(assistant_id,account_id,expert_user_id,customer_id,chat_id,reply_to_msg_id,question,summary,status,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,'pending',?,?)`, p.assistant_id, a.id, p.expert_user_id, t.customerId ?? null, t.chatId ?? null, f.lastIn.id, q, sm, at, at).lastInsertRowid);
+    const hold = serverReply(a, p, t, inDay() ? "hold" : "night");
+    run("UPDATE bale_ar_questions SET hold_result=? WHERE id=?", hold, id);
+    if (t.customerId != null) core.bell(p.expert_user_id, t.customerId, "bale-ask", "مسعود جواب رو نمی‌دونه", q.slice(0, 160));
+    else core.bellNoCustomer(p.expert_user_id, "مسعود جواب رو نمی‌دونه (ناشناس)", q.slice(0, 160));
+    core.audit({ accountId: a.id, action: "autoreply.ask", outcome: "pending", detail: { questionId: id, customerId: t.customerId ?? null, chatId: t.chatId ?? null, hold } });
+    return { ok: true, id, hold };
+  }
+  function questionById(id: number): any | null { return row<any>("SELECT * FROM bale_ar_questions WHERE id=?", id) ?? null; }
+  function questionView(q: any) {
+    const c = q.customer_id != null ? row<any>("SELECT id,name FROM customers WHERE id=?", q.customer_id) : null;
+    const p = pairOfAssistant(q.assistant_id);
+    return { id: q.id, status: q.status, customerId: q.customer_id ?? null, chatId: q.chat_id ?? null, customerName: c?.name ?? (q.chat_id != null ? "ناشناس" : null),
+      question: q.question, summary: q.summary ?? null, holdText: S("autoreply_hold_text"), holdResult: q.hold_result ?? null, assistantName: p?.display_name ?? null,
+      answer: q.answer ?? null, saveLearned: q.save_learned === 1, learnedId: q.learned_id ?? null, createdAt: q.created_at, answeredAt: q.answered_at ?? null,
+      escalatedAt: q.escalated_at ?? null, timeoutMin: askTimeoutMin() };
+  }
+  function questionsFor(expertUserId: number, all = false) {
+    return rows<any>(`SELECT * FROM bale_ar_questions WHERE expert_user_id=? AND ${all ? "created_at>?" : "status='pending' AND created_at>?"} ORDER BY id DESC LIMIT 50`, expertUserId, since(7 * 86_400_000)).map(questionView);
+  }
+  /** Mark answered after the answer was QUEUED (the caller enqueues through the full checks). Saves a learned row only when ticked. */
+  function recordAnswer(q: any, by: number, text: string, save: boolean, sent: { outboxId?: number | null; arMessageId?: number | null }): number | null {
+    const at = iso(); let learnedId: number | null = null;
+    if (save) learnedId = Number(run(`INSERT INTO bale_ar_learned(expert_user_id,assistant_id,question,answer,source_question_id,active,created_by,created_at,updated_by,updated_at)
+      VALUES(?,?,?,?,?,1,?,?,?,?)`, q.expert_user_id, q.assistant_id, String(q.question).slice(0, AR_LEARNED_MAX), text.trim(), q.id, by, at, by, at).lastInsertRowid);
+    run(`UPDATE bale_ar_questions SET status='answered', answer=?, answer_outbox_id=?, answer_ar_message_id=?, save_learned=?, learned_id=?, answered_at=?, answered_by=?, updated_at=? WHERE id=?`,
+      text.trim(), sent.outboxId ?? null, sent.arMessageId ?? null, save ? 1 : 0, learnedId, at, by, at, q.id);
+    core.audit({ accountId: q.account_id, u: core.userRow(by), action: "autoreply.ask_answer", outcome: "queued", detail: { questionId: q.id, learnedId } });
+    return learnedId;
+  }
+  function selfAnswer(q: any, by: number) {
+    const a = row<any>("SELECT * FROM bale_accounts WHERE id=?", q.account_id); const at = iso();
+    run("UPDATE bale_ar_questions SET status='self', answered_at=?, answered_by=?, updated_at=? WHERE id=? AND status='pending'", at, by, at, q.id);
+    const t: ArTarget = q.chat_id != null ? { chatId: q.chat_id } : { customerId: q.customer_id };
+    if (a && ownerOf(a, t).owner !== "expert") setOwner(a, t, "expert", "expert_button", by);
+    core.audit({ accountId: q.account_id, u: core.userRow(by), action: "autoreply.ask_self", outcome: "ok", detail: { questionId: q.id } });
+  }
+  /** Open-hours timeout: an unanswered question is handed to the expert (owner = expert, reason ask_timeout) and belled once. */
+  function expireQuestions(p: any, a: any): number {
+    if (!inDay()) return 0;
+    let n = 0; const at = iso();
+    for (const q of rows<any>("SELECT * FROM bale_ar_questions WHERE account_id=? AND status='pending' AND created_at<?", a.id, since(askTimeoutMin() * 60_000))) {
+      run("UPDATE bale_ar_questions SET status='expired', escalated_at=?, updated_at=? WHERE id=? AND status='pending'", at, at, q.id);
+      const t: ArTarget = q.chat_id != null ? { chatId: q.chat_id } : { customerId: q.customer_id };
+      if (ownerOf(a, t).owner !== "expert") setOwner(a, t, "expert", "ask_timeout", null);
+      if (q.customer_id != null) core.bell(p.expert_user_id, q.customer_id, "bale-escalated", "سؤال مسعود بی‌جواب ماند", "گفتگو به شما سپرده شد؛ مسعود دیگر جواب نمی‌دهد.");
+      else core.bellNoCustomer(p.expert_user_id, "سؤال مسعود بی‌جواب ماند (ناشناس)", "گفتگو به شما سپرده شد؛ مسعود دیگر جواب نمی‌دهد.");
+      core.audit({ accountId: a.id, action: "autoreply.ask_timeout", outcome: "handed_to_expert", detail: { questionId: q.id } });
+      n++;
+    }
+    return n;
+  }
+
+  /* ---------------- AR30: «جواب‌های آموخته‌شده» (per expert; saved only when the expert ticks the box) ---------------- */
+  function learnedProblem(text: string): string | null {
+    const t = String(text ?? "").trim();
+    if (!t) return "text_empty";
+    if (t.length > AR_LEARNED_MAX) return "text_too_long";
+    const tp = core.textProblem(t); if (tp) return tp;
+    if (arVoice(t).problem) return "signature";
+    const k = escalation(t); if (k === "amount" || k === "promise") return `learned_${k}`;
+    return null;
+  }
+  function learnedView(l: any) {
+    return { id: l.id, expertUserId: l.expert_user_id, assistantId: l.assistant_id, question: l.question, answer: l.answer, active: l.active === 1,
+      useCount: Number(l.use_count ?? 0), lastUsedAt: l.last_used_at ?? null, sourceQuestionId: l.source_question_id ?? null,
+      createdAt: l.created_at, updatedAt: l.updated_at, updatedBy: l.updated_by ? core.nameOf(core.userRow(l.updated_by)) : null };
+  }
+  function learnedList(expertUserId: number, o: { activeOnly?: boolean; q?: string } = {}) {
+    const q = String(o.q ?? "").trim();
+    return rows<any>(`SELECT * FROM bale_ar_learned WHERE expert_user_id=? AND deleted_at IS NULL${o.activeOnly ? " AND active=1" : ""}${q ? " AND (question LIKE ? OR answer LIKE ?)" : ""} ORDER BY id DESC LIMIT 300`,
+      ...(q ? [expertUserId, `%${q}%`, `%${q}%`] : [expertUserId])).map(learnedView);
+  }
+  function learnedById(id: number): any | null { return row<any>("SELECT * FROM bale_ar_learned WHERE id=? AND deleted_at IS NULL", id) ?? null; }
+  function updateLearned(l: any, patch: { question?: string; answer?: string; active?: boolean }, by: number): { ok: true; item: any } | { ok: false; error: string } {
+    const question = patch.question !== undefined ? String(patch.question).trim() : l.question;
+    const answer = patch.answer !== undefined ? String(patch.answer).trim() : l.answer;
+    if (!question || question.length > AR_LEARNED_MAX) return { ok: false, error: !question ? "question_required" : "question_too_long" };
+    const e = learnedProblem(answer); if (e) return { ok: false, error: e };
+    const at = iso();
+    run("UPDATE bale_ar_learned SET question=?, answer=?, active=?, updated_by=?, updated_at=? WHERE id=?", question, answer, patch.active === undefined ? l.active : patch.active ? 1 : 0, by, at, l.id);
+    core.audit({ u: core.userRow(by), action: "autoreply.learned_update", outcome: "ok", detail: { learnedId: l.id } });
+    return { ok: true, item: learnedView(learnedById(l.id)) };
+  }
+  function deleteLearned(l: any, by: number) {
+    const at = iso(); run("UPDATE bale_ar_learned SET deleted_at=?, deleted_by=?, active=0, updated_at=? WHERE id=?", at, by, at, l.id);
+    core.audit({ u: core.userRow(by), action: "autoreply.learned_delete", outcome: "ok", detail: { learnedId: l.id } });
+  }
+  function useLearned(id: number) { run("UPDATE bale_ar_learned SET use_count=use_count+1, last_used_at=? WHERE id=?", iso(), id); }
 
   /* ---------------- wake webhook (optional; both env vars unset by default) ---------------- */
   function wakeConfig(): { url: string; key: string } | null {
@@ -536,11 +726,16 @@ export function createBaleAutoreply(core: ArCore) {
       sentLastHour: a ? pairSent(a, 3_600_000, false) : 0, sentToday: a ? pairSent(a, 86_400_000, false) : 0,
       handedToExpert: a ? cnt("SELECT count(*) n FROM bale_conversation_state WHERE account_id=? AND ar_owner='expert'", a.id) + cnt("SELECT count(*) n FROM bale_ar_chats WHERE account_id=? AND owner='expert'", a.id) : 0,
       unknownChats: a ? cnt("SELECT count(*) n FROM bale_ar_chats WHERE account_id=?", a.id) : 0,
+      // AR30 pair guard: true = this pair cannot be switched ON until Mohammad's separate approval is recorded (allowOtherPairs).
+      needsMohammad: !pairAllowed(p),
+      pendingQuestions: a ? cnt("SELECT count(*) n FROM bale_ar_questions WHERE account_id=? AND status='pending'", a.id) : 0,
+      learnedCount: cnt("SELECT count(*) n FROM bale_ar_learned WHERE expert_user_id=? AND deleted_at IS NULL", p.expert_user_id),
     };
   }
   function settingsView() {
     return { globalEnabled: globalOn(), dayStart: S("autoreply_day_start"), dayEnd: S("autoreply_day_end"), days: [...arParseDays(S("autoreply_days"))].sort(),
-      holdText: S("autoreply_hold_text"), nightText: S("autoreply_night_text"), holidays: arParseHolidays(S("autoreply_holidays")),
+      holdText: S("autoreply_hold_text"), nightText: S("autoreply_night_text"), holidays: listOfficialHolidays(db).map(h => ({ id: h.id, date: h.date, label: h.label })),
+      askTimeoutMin: askTimeoutMin(), allowOtherPairs: S("autoreply_allow_other_pairs") === "1",
       openNow: inDay(), wakeConfigured: Boolean(wakeConfig()), updatedAt: settingMeta()?.updated_at ?? null, updatedBy: settingMeta()?.by ?? null };
   }
   /** Conversation list for the live view (expert own account / admin read-only). Names come from the CRM only for matched customers. */
@@ -554,17 +749,17 @@ export function createBaleAutoreply(core: ArCore) {
         const failed = row<any>("SELECT id FROM bale_outbox WHERE account_id=? AND customer_id=? AND source='auto_reply' AND status IN ('failed','blocked') AND updated_at>? ORDER BY id DESC LIMIT 1", a.id, x.customer_id, since(86_400_000));
         return { kind: "customer" as const, id: x.customer_id, customerId: x.customer_id, name: c?.name ?? null, lastAt: last?.created_at, lastText: last?.text ?? (last?.file_ref ? "فایل" : ""),
           lastDirection: last?.direction, lastBy: last?.direction === "in" ? "customer" : last?.source === "auto_reply" ? "assistant" : "expert", lastKind: last?.ar_kind ?? null,
-          owner: own.owner, ownerReason: own.reason, failed: Boolean(failed && last?.direction === "in") };
+          owner: own.owner, ownerReason: own.reason, failed: Boolean(failed && last?.direction === "in"), asked: Boolean(pendingQuestion(a, { customerId: x.customer_id })) };
       });
     const unknown = p && p.allow_unknown === 1 ? rows<any>("SELECT * FROM bale_ar_chats WHERE account_id=? AND last_at>? ORDER BY last_at DESC LIMIT ?", a.id, lo, limit).map(c => {
       const last = row<any>("SELECT * FROM bale_ar_messages WHERE chat_id=? AND status NOT IN ('cancelled') ORDER BY id DESC LIMIT 1", c.id);
       return { kind: "unknown" as const, id: c.id, customerId: null, name: null, label: "ناشناس", lastAt: last?.created_at ?? c.last_at, lastText: last?.text ?? (last?.has_file ? "فایل" : ""),
         lastDirection: last?.direction, lastBy: last?.direction === "in" ? "customer" : last?.source === "auto_reply" ? "assistant" : "expert", lastKind: last?.ar_kind ?? null,
-        owner: c.owner, ownerReason: c.owner_reason, failed: last?.status === "failed" || last?.status === "blocked" };
+        owner: c.owner, ownerReason: c.owner_reason, failed: last?.status === "failed" || last?.status === "blocked", asked: Boolean(pendingQuestion(a, { chatId: c.id })) };
     }) : [];
-    const all = [...matched, ...unknown].map(x => ({ ...x, state: x.owner === "expert" ? (String(x.ownerReason ?? "").startsWith("escalated") || x.ownerReason === "stale_backlog" ? "needs_expert" : "expert") : x.failed ? "failed"
+    const all = [...matched, ...unknown].map(x => ({ ...x, state: x.owner === "expert" ? (String(x.ownerReason ?? "").startsWith("escalated") || x.ownerReason === "stale_backlog" || x.ownerReason === "ask_timeout" ? "needs_expert" : "expert") : x.asked ? "asked" : x.failed ? "failed"
       : x.lastBy === "assistant" && x.lastKind === "night" ? "waiting" : x.lastBy === "customer" ? "unanswered" : "assistant" }));
-    const rank = (s: string) => s === "needs_expert" ? 0 : s === "failed" ? 1 : 2;
+    const rank = (s: string) => s === "needs_expert" || s === "asked" ? 0 : s === "failed" ? 1 : 2;
     return all.sort((x, y) => rank(x.state) - rank(y.state) || String(y.lastAt).localeCompare(String(x.lastAt))).slice(0, limit);
   }
   function unknownMessages(a: any, chatId: number) {
@@ -573,11 +768,13 @@ export function createBaleAutoreply(core: ArCore) {
     return { id: c.id, label: "ناشناس", owner: c.owner, ownerReason: c.owner_reason, ownerAt: c.owner_at, firstAt: c.first_at, lastAt: c.last_at,
       messages: rows<any>("SELECT * FROM bale_ar_messages WHERE chat_id=? ORDER BY id DESC LIMIT 200", c.id).reverse().map(m => ({ id: m.id, direction: m.direction, text: m.text, hasFile: Boolean(m.has_file || m.attachment_id),
         status: m.status, kind: m.ar_kind ?? null, by: m.direction === "in" ? "customer" : m.source === "auto_reply" ? "assistant" : "expert",
-        byLabel: m.direction === "in" ? "ناشناس" : m.source === "auto_reply" ? label(p) : core.nameOf(core.userRow(a.user_id)), blockReason: m.block_reason ?? null, createdAt: m.created_at })) };
+        byLabel: m.direction === "in" ? "ناشناس" : m.source === "auto_reply" ? label(p) : core.nameOf(core.userRow(a.user_id)), blockReason: m.block_reason ?? null, createdAt: m.created_at,
+        overlap: Boolean(m.ar_overlap_at), source: m.ar_source ?? null })) };
   }
 
   return { globalOn, pairs, pairOfAccount, pairOfAssistant, pairOn, activeFor, readsOn, ownerOf, setOwner, facts, rules, escalate, escalation, afterInbound, serverReply,
     inboundUnknown, enqueueUnknown, sendOneUnknown, onAutoStop, sweep, wake, wakeConfig, arSentSince, arQueued, pairView, settingsView, liveList, unknownMessages, label, inDay,
-    bindOutbox, bindAccountCaps, maskPreview: (t: string | null) => maskText(t ?? "").replace(/\s+/g, " ").slice(0, 500) };
+    bindOutbox, bindAccountCaps, pairAllowed, appReplySeen, pendingQuestion, askExpert, questionById, questionView, questionsFor, recordAnswer, selfAnswer, expireQuestions,
+    learnedProblem, learnedView, learnedList, learnedById, updateLearned, deleteLearned, useLearned, askTimeoutMin, lastUnknownMessageId: () => lastUnknownId, maskPreview: (t: string | null) => maskText(t ?? "").replace(/\s+/g, " ").slice(0, 500) };
 }
 export type BaleAutoreply = ReturnType<typeof createBaleAutoreply>;

@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
-import { AlertCircle, ArrowRight, Bot, Eye, FileText, Hand, Info, Moon, Paperclip, RotateCcw, ShieldAlert, UserRound } from 'lucide-react';
+import { AlertCircle, ArrowRight, BookOpen, Bot, Clock, Eye, FileText, Hand, HelpCircle, Info, Moon, Paperclip, RotateCcw, ShieldAlert, UserRound } from 'lucide-react';
 import { ErrorState, SkeletonPanel } from '@/components/CrmShell';
 import { toast } from '@/hooks/use-toast';
 import { baleFetch, baleWhen, faNum } from '@/features/bale/api';
-import { AR_FILTERS, AR_KIND_FA, arReasonFa, shortName, type ArChat, type ArFilter, type ArItem, type ArOwner, type ArPair, type ArUnknownThread } from './api';
+import { AR_FILTERS, AR_KIND_FA, AR_OVERLAP_FA, AR_SOURCE_FA, arReasonFa, shortName, type ArChat, type ArFilter, type ArItem, type ArOwner, type ArPair, type ArUnknownThread } from './api';
 
 const errMsg = (e: unknown) => (e instanceof Error && e.message) || 'درخواست انجام نشد. دوباره تلاش کنید.';
-type Msg = { id: number; dir: 'in' | 'out'; text: string | null; file: boolean; at: string; by: 'customer' | 'assistant' | 'expert'; byLabel: string; kind: string | null; failed: boolean };
+type Msg = { id: number; dir: 'in' | 'out'; text: string | null; file: boolean; at: string; by: 'customer' | 'assistant' | 'expert'; byLabel: string; kind: string | null; failed: boolean; overlap: boolean; source: string | null };
 type Thread = { title: string | null; unknown: boolean; owner: ArOwner; reason: string | null; at: string | null; by: string | null; customerId: number | null; msgs: Msg[] };
 
 function useThread(item: ArItem | null, admin: { assistantId: number } | null) {
@@ -21,17 +21,18 @@ function useThread(item: ArItem | null, admin: { assistantId: number } | null) {
         const d = await baleFetch<ArChat>(path!);
         return { title: item!.name, unknown: false, owner: d.autoReply?.owner ?? item!.owner, reason: d.autoReply?.reason ?? item!.ownerReason, at: d.autoReply?.at ?? null, by: d.autoReply?.by ?? null, customerId: d.customerId,
           msgs: d.messages.map(m => ({ id: m.id, dir: m.direction, text: m.text, file: m.hasFile, at: m.createdAt, by: m.direction === 'in' ? 'customer' : m.auto ? 'assistant' : 'expert',
-            byLabel: m.direction === 'in' ? 'مشتری' : m.expertName ?? 'کارشناس', kind: m.arKind ?? null, failed: m.status === 'failed' })) };
+            byLabel: m.direction === 'in' ? 'مشتری' : m.expertName ?? 'کارشناس', kind: m.arKind ?? null, failed: m.status === 'failed', overlap: Boolean(m.overlap), source: m.arSource ?? null })) };
       }
       const d = await baleFetch<ArUnknownThread>(path!);
       return { title: null, unknown: true, owner: d.owner, reason: d.ownerReason, at: d.ownerAt, by: null, customerId: null,
         msgs: d.messages.filter(m => m.status !== 'cancelled').map(m => ({ id: m.id, dir: m.direction, text: m.text, file: m.hasFile, at: m.createdAt, by: m.by, byLabel: m.byLabel, kind: m.kind,
-          failed: m.status === 'failed' || m.status === 'blocked' })) };
+          failed: m.status === 'failed' || m.status === 'blocked', overlap: Boolean(m.overlap), source: m.source ?? null })) };
     },
   });
 }
 
 function ItemBadges({ it, expert }: { it: ArItem; expert: string }) {
+  if (it.state === 'asked') return <span className="bdg gold" data-testid="ar-badge-asked"><Clock size={14} /> منتظر جواب {expert}</span>;
   if (it.state === 'needs_expert') return <span className="bdg red"><ShieldAlert size={14} /> نیاز به {expert}</span>;
   if (it.state === 'failed') return <span className="bdg redo"><AlertCircle size={14} /> فرستاده نشد</span>;
   if (it.state === 'expert') return <span className="bdg blue"><Hand size={14} /> دست {expert}</span>;
@@ -93,6 +94,7 @@ export function AutoreplyLive({ pair, list, admin = false, onChanged }: { pair: 
             {cur.customerId ? <Link href={`/customers/${cur.customerId}`} className="btn" data-testid="ar-open-case"><FileText size={16} /> پرونده</Link> : null}
           </div>
         </div>
+        {cur.asked && owner !== 'expert' ? <div className="esc gold" role="status" data-testid="ar-asked-banner"><HelpCircle size={18} /><div><b>منتظر جواب {expert} · {asst} جواب رو نمی‌دونه</b><p>به مشتری فقط پیام نگه‌دار رفته است. تا جواب ندهی، {asst} در این گفتگو چیز دیگری نمی‌فرستد{admin ? '' : '؛ جواب را از پنجره‌ی «مسعود جواب رو نمی‌دونه» در دستیار بفرست'}.</p></div></div> : null}
         {escalated ? <div className="esc" role="alert"><ShieldAlert size={18} /><div><b>این گفتگو به {expert} سپرده شد</b><p>{arReasonFa(reason)}؛ {asst} فقط پیام نگه‌دار فرستاد و دیگر جواب نمی‌دهد تا {admin ? 'کارشناس' : 'خودتان'} برگردانید.</p></div></div>
           : owner === 'expert' && reason === 'stale_backlog' ? <div className="esc gray"><Info size={18} /><div><b>پیام قدیمی</b><p>این پیام بیش از ۲۴ ساعت بی‌جواب مانده بود؛ {asst} جواب نداد و گفتگو دست {expert} است.</p></div></div>
           : owner === 'expert' ? <div className="esc blue"><Hand size={18} /><div><b>دست {expert}</b><p>{arReasonFa(reason) ?? 'گفتگو دست کارشناس است'}{th?.by ? ` · ${th.by}` : ''}{th?.at ? ` · ${baleWhen(th.at)}` : ''}. {asst} جواب نمی‌دهد؛ فقط دکمه‌ی «برگردون به {asst}» آن را برمی‌گرداند.</p></div></div>
@@ -103,9 +105,11 @@ export function AutoreplyLive({ pair, list, admin = false, onChanged }: { pair: 
               ? <div key={m.id} className="bin" data-testid={`ar-msg-${m.id}`}>{m.file ? <span style={{ display: 'flex', gap: 4, alignItems: 'center' }}><Paperclip size={14} /> فایل</span> : null}<span dir="auto">{m.text}</span><span className="tm2">{baleWhen(m.at)}</span></div>
               : <div key={m.id} className={`mo${m.kind === 'hold' || m.kind === 'night' ? ' hold' : ''}${m.failed ? ' fail' : ''}`} data-testid={`ar-msg-${m.id}`}>
                 <span className="mh2">{m.by === 'assistant' ? <span className="ptag"><Bot size={13} /> {m.byLabel.includes('خودکار') ? m.byLabel : `${asst} (خودکار)`}</span> : <span className="ptag kz"><UserRound size={13} /> {m.byLabel}</span>}
-                  {m.kind && AR_KIND_FA[m.kind] ? <span className="lab">{AR_KIND_FA[m.kind]}</span> : null}</span>
+                  {m.kind && AR_KIND_FA[m.kind] ? <span className="lab">{AR_KIND_FA[m.kind]}</span> : null}
+                  {m.source && AR_SOURCE_FA[m.source] && m.kind !== 'answer' ? <span className="lab src" data-testid={`ar-src-${m.id}`}><BookOpen size={12} /> {AR_SOURCE_FA[m.source]}</span> : null}</span>
                 <div className="bub">{m.file ? <span style={{ display: 'flex', gap: 4, alignItems: 'center' }}><Paperclip size={14} /> فایل</span> : null}<span dir="auto">{m.text}</span><span className="tm2">{baleWhen(m.at)}</span></div>
                 {m.failed ? <span className="fl"><AlertCircle size={14} /> فرستاده نشد</span> : null}
+                {m.overlap ? <span className="bdg gold ovl" data-testid={`ar-overlap-${m.id}`}><Clock size={13} /> {admin ? AR_OVERLAP_FA.replace('جواب تو', `جواب ${expert}`) : AR_OVERLAP_FA}</span> : null}
               </div>) : <span className="sys2">پیامی نیست</span>}
           </div>}
         <div className="comp">{admin ? <span><Eye size={16} /> نمای مدیر فقط خواندنی است.</span>

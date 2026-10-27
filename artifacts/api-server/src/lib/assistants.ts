@@ -59,6 +59,16 @@ export type Deps = { db: Db; now?: () => Date; actor: (res: Response) => Actor |
 
 export const TRAINEE_SALESPERSON_IDS = [5, 19, 20];
 export const EXCLUDED_USER_IDS = [29];
+/** AR30: an assistant bell row (actor_key 'assistant:*') never goes to user 29, a trainee role or a user bound to a trainee
+ *  salesperson id (5/19/20). Checked in code (bell(), expert-analysis bell) AND by the DB trigger trg_assistant_bell_recipient_guard. */
+export function assistantBellBlocked(u: { id?: unknown; role?: unknown; salesperson_id?: unknown } | null | undefined): boolean {
+  if (!u) return true;
+  return EXCLUDED_USER_IDS.includes(Number(u.id)) || u.role === "trainee" || (u.salesperson_id != null && TRAINEE_SALESPERSON_IDS.includes(Number(u.salesperson_id)));
+}
+export const ASSISTANT_BELL_GUARD_TRIGGER = `CREATE TRIGGER IF NOT EXISTS trg_assistant_bell_recipient_guard BEFORE INSERT ON site_notification_events
+  WHEN NEW.actor_key LIKE 'assistant:%' AND NEW.recipient_user_id IS NOT NULL AND (NEW.recipient_user_id IN (${EXCLUDED_USER_IDS.join(",")})
+    OR EXISTS(SELECT 1 FROM users WHERE id=NEW.recipient_user_id AND (role='trainee' OR salesperson_id IN (${TRAINEE_SALESPERSON_IDS.join(",")}))))
+  BEGIN SELECT RAISE(IGNORE); END`;
 export const MAX_WAIT_S = 25;
 export const STAFF_MAX_WAIT_S = 20;
 export const LONG_POLL_TICK_MS = 1000;
@@ -154,6 +164,9 @@ export function ensureAssistantSchema(db: Db, nowIso = new Date().toISOString())
         s.kind === "filing" ? "registrar" : s.kind === "manager" ? "admin" : null, s.scopeRule, nowIso, nowIso);
   }
   ensurePageUsageSchema(db); // v10: additive table page_usage_events + 2 indexes
+  // AR30: DB-level recipient guard for assistant bell rows (existing rows are left as they are).
+  const t = (n: string) => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(n));
+  if (t("site_notification_events") && t("users")) db.exec(ASSISTANT_BELL_GUARD_TRIGGER);
 }
 
 /** ي/ك → ی/ک, drop ZWNJ/zero-width + tatweel, آ → ا, so «برآورد»/«براورد»/«برآ‌ورد» (ZWNJ inside) all match. */
@@ -265,6 +278,7 @@ export function createAssistants(deps: Deps) {
     if (m.suppressed_reason === "digested" || m.customer_id == null) return;
     if (a.kind !== "filing" && !BELL_KINDS[m.kind] && m.priority !== "high") return; // sales chat replies stay in the chat
     if (filingRecipientBlocked(a, u)) return; // v6: never a Sarina bell row for a sales expert
+    if (assistantBellBlocked(row<any>("SELECT id,role,salesperson_id FROM users WHERE id=?", u?.id) ?? u)) return; // AR30: never 29 / trainees
     if (!userEligible(a, u) || !userSeesCase(a, u, m.customer_id)) return;
     if (!bellReady) bellReady = hasTable("site_notification_events") && rows<{ name: string }>("PRAGMA table_info(site_notification_events)").some(c => c.name === "recipient_user_id");
     if (!bellReady) return;
@@ -925,8 +939,8 @@ export function createAssistants(deps: Deps) {
     if (process.env.CRM_EXPERT_ANALYSIS_NOTIFY !== "0" && hasTable("site_notification_events")) {
       const PF: Record<string, string> = { day: "روز گذشته", week: "هفته", month: "ماه" };
       const first = body.split("\n").map(x => x.replace(/^[#>*\-\s]+/, "").trim()).find(Boolean) ?? "";
-      for (const u of rows<any>("SELECT id FROM users WHERE salesperson_id=? AND role='salesperson' AND active=1", sp)) {
-        if (EXCLUDED_USER_IDS.includes(Number(u.id))) continue;
+      for (const u of rows<any>("SELECT id,role,salesperson_id FROM users WHERE salesperson_id=? AND role='salesperson' AND active=1", sp)) {
+        if (assistantBellBlocked(u)) continue; // AR30: never 29 / trainees
         run(`INSERT INTO site_notification_events(customer_id,customer_name,owner_id,resource_type,resource_id,kind,title,body,permission,created_at,actor_key,recipient_user_id)
           VALUES(0,'',?,'expert-analysis',?,'expert-analysis',?,?,'assistant.recipient',?,?,?)`, sp, id, `${label(a)} · تحلیل عملکرد ${PF[period]}`, first.slice(0, 160), at, `assistant:${a.slug}`, u.id);
         notified.push(Number(u.id));

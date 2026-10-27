@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
-import { AlertCircle, Bot, CalendarOff, Clock, Info, Lock, Plus, Power, Save, ShieldCheck, Trash2, Undo2 } from 'lucide-react';
+import { AlertCircle, BookOpen, Bot, CalendarOff, Clock, Info, Lock, MessagesSquare, Plus, Power, Save, ShieldCheck, Trash2, Undo2 } from 'lucide-react';
 import { useGetAuthSession, getGetAuthSessionQueryKey } from '@workspace/api-client-react';
 import { ErrorState, SkeletonPanel } from '@/components/CrmShell';
 import { Modal } from '@/components/DataTools';
@@ -9,8 +9,9 @@ import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { toast } from '@/hooks/use-toast';
 import { dateToJalaliValue, jalaliValueToGregorian } from '@/lib/jalali';
 import { baleCanConnect, baleFetch, baleWhen, faNum, toEnDigits } from '@/features/bale/api';
-import { AR_DAYS, AR_TEXT_MAX, arStopFa, shortName, type ArAdmin, type ArHoliday, type ArItem, type ArMe, type ArPair, type ArSettings } from '@/features/bale-autoreply/api';
+import { AR_DAYS, AR_OTHER_PAIRS_CONFIRM, AR_TEXT_MAX, arStopFa, shortName, type ArAdmin, type ArHoliday, type ArItem, type ArMe, type ArPair, type ArSettings } from '@/features/bale-autoreply/api';
 import { AutoreplyLive } from '@/features/bale-autoreply/AutoreplyLive';
+import { LearnedAnswers } from '@/features/bale-autoreply/LearnedAnswers';
 import '@/features/bale/bale.css';
 import '@/features/bale-autoreply/ar.css';
 
@@ -20,15 +21,15 @@ const errMsg = (e: unknown) => (e instanceof Error && e.message) || 'درخوا�
 const faTime = (hm: string) => faNum(hm);
 const hoursFa = (s: ArSettings) => `${s.days.length === 7 ? 'همه‌ی روزها' : s.days.length ? s.days.map(d => AR_DAYS[d]).join('، ') : 'هیچ روزی'}، ساعت ${faTime(s.dayStart)} تا ${faTime(s.dayEnd)} (تهران)`;
 
-/** Typed «روشن» confirmation for every ON (the server refuses ON without it: 428). */
-function ConfirmOn({ title, lines, onClose, onOk, busy }: { title: string; lines: string[]; onClose: () => void; onOk: () => void; busy: boolean }) {
+/** Typed «روشن» confirmation for every ON (the server refuses ON without it: 428). AR30: the other-pairs override needs «تأیید جدای محمد». */
+function ConfirmOn({ title, lines, onClose, onOk, busy, phrase = 'روشن' }: { title: string; lines: string[]; onClose: () => void; onOk: () => void; busy: boolean; phrase?: string }) {
   const [v, setV] = useState('');
   return <Modal title={title} eyebrow="پاسخ خودکار بله" onClose={onClose} testId="ar-confirm-on">
-    <form className="ar-confirm" onSubmit={e => { e.preventDefault(); if (v.trim() === 'روشن') onOk(); }}>
+    <form className="ar-confirm" onSubmit={e => { e.preventDefault(); if (v.trim() === phrase) onOk(); }}>
       <ul className="rl">{lines.map(l => <li key={l}>{l}</li>)}</ul>
-      <label htmlFor="ar-confirm-input">برای تأیید، کلمه‌ی «روشن» را تایپ کنید.</label>
+      <label htmlFor="ar-confirm-input">برای تأیید، عبارت «{phrase}» را تایپ کنید.</label>
       <input id="ar-confirm-input" value={v} onChange={e => setV(e.target.value)} autoComplete="off" data-testid="input-ar-confirm" />
-      <div className="bl-acts"><button type="submit" className="btn btn-primary" disabled={busy || v.trim() !== 'روشن'} data-testid="button-ar-confirm">روشن کن</button>
+      <div className="bl-acts"><button type="submit" className="btn btn-primary" disabled={busy || v.trim() !== phrase} data-testid="button-ar-confirm">{phrase === 'روشن' ? 'روشن کن' : 'ثبت تأیید'}</button>
         <button type="button" className="btn" onClick={onClose}>انصراف</button></div>
     </form>
   </Modal>;
@@ -61,6 +62,7 @@ function ExpertView() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ME_KEY, queryFn: () => baleFetch<ArMe>('/bale/me/autoreply'), refetchInterval: 15_000 });
   const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<'live' | 'learned'>('live');
   if (q.isLoading) return <SkeletonPanel rows={4} />;
   if (q.isError || !q.data) return <ErrorState onRetry={() => q.refetch()} />;
   const d = q.data;
@@ -74,7 +76,12 @@ function ExpertView() {
   return <>
     <SwitchCard pair={d.pair} settings={d.settings} connected={d.connected} onOff={() => void off()} busy={busy} />
     {!d.connected ? <div className="bl-note warn"><AlertCircle size={18} /><span>حساب بله وصل نیست. <Link href="/settings/bale">اتصال بله</Link></span></div> : null}
-    <AutoreplyLive pair={d.pair} list={d.list} onChanged={() => void qc.invalidateQueries({ queryKey: ME_KEY })} />
+    <div className="tabs2" role="tablist" aria-label="بخش‌ها">
+      <button type="button" role="tab" className="ch" aria-selected={tab === 'live'} onClick={() => setTab('live')} data-testid="ar-tab-live"><MessagesSquare size={15} /> گفتگوها</button>
+      <button type="button" role="tab" className="ch" aria-selected={tab === 'learned'} onClick={() => setTab('learned')} data-testid="ar-tab-learned"><BookOpen size={15} /> جواب‌های آموخته‌شده{d.pair.learnedCount ? ` (${faNum(d.pair.learnedCount)})` : ''}</button>
+    </div>
+    {tab === 'live' ? <AutoreplyLive pair={d.pair} list={d.list} onChanged={() => void qc.invalidateQueries({ queryKey: ME_KEY })} />
+      : <LearnedAnswers target={{ mode: 'expert' }} expertName="تو" />}
   </>;
 }
 
@@ -86,18 +93,25 @@ const RULES = [
   'پیام قدیمی‌تر از ۲۴ ساعت ← جواب داده نمی‌شود و به کارشناس سپرده می‌شود؛ از پیام‌های جمع‌شده فقط آخرین پیام، یک بار.',
   'خارج از ساعت کاری فقط یک پیام شب برای هر گفتگو.',
   'شماره‌ی ناشناس (فقط کاظمی–مسعود): فقط جواب عمومی؛ شماره ذخیره نمی‌شود.',
+  'سؤالی که مسعود جوابش را نمی‌داند ← یک پیام نگه‌دار و پنجره‌ی «مسعود جواب رو نمی‌دونه» برای کارشناس؛ جواب کارشناس با همان سقف‌ها و قانون‌ها می‌رود و فقط با تیک کارشناس «آموخته» می‌شود؛ بی‌جواب ماندن ← گفتگو به کارشناس سپرده می‌شود.',
+  'مهلت ۲۴ ساعت از زمان رسیدن پیام حساب می‌شود؛ تعطیلات رسمی مثل جمعه‌اند.',
+  'اگر مسعود پیش از دیده شدن جواب کارشناس در اپ بله جواب داده باشد، با نشان طلایی ثبت می‌شود.',
+  'فعلاً فقط جفت کاظمی–مسعود روشن‌شدنی است؛ بقیه‌ی جفت‌ها تأیید جداگانه‌ی آقای ابوالقاسمی می‌خواهند.',
   'سقف ساعتی و روزانه؛ با محدودیت یا مسدود شدن بله، همه خودکار خاموش می‌شود و فقط مدیر روشن می‌کند.',
 ];
 
 function PairCard({ p, globalOn, busy, set }: { p: ArPair; globalOn: boolean; busy: boolean; set: (p: ArPair, body: Record<string, unknown>, label: string) => void }) {
   const stop = arStopFa(p.stoppedReason);
+  const locked = Boolean(p.needsMohammad) && !p.enabled; // AR30 server guard (423 pair_needs_mohammad)
   const opt = (k: 'readsEnabled' | 'allowUnknown' | 'allowPlanFile', label: string, hidden = false) => hidden ? null
     : <button type="button" role="switch" aria-checked={p[k]} className="tgl" disabled={busy} onClick={() => set(p, { [k]: !p[k] }, label)} data-testid={`ar-pair-${p.slug}-${k}`}><span className="k" aria-hidden="true" /> {label}</button>;
   return <article className={`pair${p.active ? ' on' : ''}`} data-testid={`ar-pair-${p.slug}`}>
     <div className="r"><span className="av0" aria-hidden="true"><Bot size={20} /></span>
       <div className="tx"><b>{shortName(p.expertName)} ← {p.assistantName}</b><span className="who">{p.expertName}</span></div>
-      <button type="button" role="switch" aria-checked={p.enabled} aria-label={`پاسخ خودکار ${p.assistantName}`} className="tgl" disabled={busy} onClick={() => set(p, { enabled: !p.enabled }, `پاسخ خودکار ${p.assistantName}`)} data-testid={`ar-pair-${p.slug}-enabled`}><span className="k" aria-hidden="true" /></button>
+      <button type="button" role="switch" aria-checked={p.enabled} aria-label={`پاسخ خودکار ${p.assistantName}`} className="tgl" disabled={busy || locked} title={locked ? 'بعد از پایلوت؛ تأیید جداگانه‌ی آقای ابوالقاسمی لازم است' : undefined} onClick={() => set(p, { enabled: !p.enabled }, `پاسخ خودکار ${p.assistantName}`)} data-testid={`ar-pair-${p.slug}-enabled`}><span className="k" aria-hidden="true" /></button>
     </div>
+    {p.needsMohammad ? <p className="gate" data-testid={`ar-pair-${p.slug}-gate`}><Lock size={15} /> <span><b>بعد از پایلوت</b> · این جفت فقط با تأیید جداگانه‌ی آقای ابوالقاسمی روشن می‌شود؛ فعلاً فقط کاظمی–مسعود مجاز است.</span></p> : null}
+    {p.pendingQuestions ? <span className="pil">{faNum(p.pendingQuestions)} سؤال منتظر جواب کارشناس</span> : null}
     <div className="pst">
       <span className={`pil ${p.active ? 'on' : stop ? 'bad' : 'mut'}`}>{p.active ? 'فعال' : stop ? `خودکار خاموش شد: ${stop}` : p.enabled ? (globalOn ? 'روشن، بله آماده نیست' : 'منتظر کلید کلی') : 'خاموش'}</span>
       <span className="pil mut">بله: {!p.account ? 'وصل نیست' : p.account.status === 'connected' ? (p.account.session === 'down' ? 'اتصال ناقص' : 'وصل') : 'وصل نیست'}</span>
@@ -121,7 +135,8 @@ function SettingsForm({ s, onSaved }: { s: ArSettings; onSaved: () => void }) {
   const save = async (e: FormEvent) => {
     e.preventDefault(); setBusy(true); setErr(null);
     try {
-      await baleFetch('/admin/bale/autoreply/settings', { method: 'PUT', body: { dayStart: toEnDigits(f.dayStart), dayEnd: toEnDigits(f.dayEnd), days: f.days, holdText: f.holdText, nightText: f.nightText, holidays: f.holidays } });
+      await baleFetch('/admin/bale/autoreply/settings', { method: 'PUT', body: { dayStart: toEnDigits(f.dayStart), dayEnd: toEnDigits(f.dayEnd), days: f.days, holdText: f.holdText, nightText: f.nightText, holidays: f.holidays.map(h => ({ date: h.date, label: h.label })),
+        ...(f.askTimeoutMin !== s.askTimeoutMin && f.askTimeoutMin != null ? { askTimeoutMin: Number(toEnDigits(String(f.askTimeoutMin))) } : {}) } });
       toast({ title: 'تنظیمات پاسخ خودکار ذخیره شد', description: 'هیچ کلیدی روشن نشد.' }); onSaved();
     } catch (x) { setErr(errMsg(x)); } finally { setBusy(false); }
   };
@@ -150,7 +165,7 @@ function SettingsForm({ s, onSaved }: { s: ArSettings; onSaved: () => void }) {
       <b>{name}</b>
       <button type="button" role="switch" aria-checked={on} aria-label={`${name}: ${on ? 'کاری' : 'تعطیل'}`} className="tgl" onClick={() => toggleDay(d)} data-testid={`ar-day-${d}`}><span className="k" aria-hidden="true" /></button>
       <span className="hint muted">{on ? `${faTime(f.dayStart)} تا ${faTime(f.dayEnd)}` : 'تعطیل؛ فقط پیام شب'}</span></li>; })}</ul>
-    <div className="fld"><label>تعطیلات رسمی</label><span className="hint muted" style={{ fontSize: 13 }}>این روزها مثل جمعه حساب می‌شوند: فقط پیام شب.</span>
+    <div className="fld"><label>تعطیلات رسمی</label><span className="hint muted" style={{ fontSize: 13 }}>این روزها مثل جمعه حساب می‌شوند: فقط پیام شب. فهرست مشترک تعطیلات رسمی است و بخش‌های دیگر CRM هم می‌توانند از آن استفاده کنند.</span>
       <div className="hadd">
         <PersianDatePicker value={hDate} onChange={setHDate} testId="input-ar-holiday-date" />
         <input value={hLabel} onChange={e => setHLabel(e.target.value)} maxLength={40} placeholder="عنوان (مثلاً تاسوعا)" aria-label="عنوان تعطیلی" data-testid="input-ar-holiday-label" />
@@ -160,6 +175,9 @@ function SettingsForm({ s, onSaved }: { s: ArSettings; onSaved: () => void }) {
         <button type="button" className="btn btn-ghost" aria-label={`حذف ${h.label ?? h.date}`} onClick={() => setF({ ...f, holidays: f.holidays.filter(x => x.date !== h.date) })}><Trash2 size={16} /></button></li>)}</ul>
         : <span className="who">تعطیل رسمی ثبت نشده است.</span>}
     </div>
+    <div className="fld"><label htmlFor="ar-ask-timeout">مهلت جواب کارشناس به «سؤال از کارشناس» (دقیقه)</label>
+      <span className="hint muted" style={{ fontSize: 13 }}>اگر کارشناس تا این مدت (فقط در ساعت کاری) جواب ندهد، گفتگو به او سپرده می‌شود. بین ۵ و ۲۴۰.</span>
+      <input id="ar-ask-timeout" className="tmi" inputMode="numeric" value={f.askTimeoutMin == null ? '' : faNum(f.askTimeoutMin)} onChange={e => { const n = Number(toEnDigits(e.target.value)); setF({ ...f, askTimeoutMin: Number.isFinite(n) ? n : f.askTimeoutMin }); }} data-testid="input-ar-ask-timeout" /></div>
     {text('holdText', 'پیام نگه‌دار (در ساعت کاری)', 'وقتی گفتگو به کارشناس سپرده می‌شود. بدون قول، مبلغ یا تاریخ.')}
     {text('nightText', 'پیام شب (خارج از ساعت کاری)', 'یک بار برای هر گفتگو در هر شب.')}
     {err ? <p className="bl-err" role="alert"><AlertCircle size={16} /> {err}</p> : null}
@@ -182,9 +200,10 @@ function AdminLive({ pairs }: { pairs: ArPair[] }) {
 function AdminView() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ADMIN_KEY, queryFn: () => baleFetch<ArAdmin>('/admin/bale/autoreply'), refetchInterval: 20_000 });
-  const [tab, setTab] = useState<'pairs' | 'settings' | 'live'>('pairs');
+  const [tab, setTab] = useState<'pairs' | 'settings' | 'live' | 'learned'>('pairs');
   const [busy, setBusy] = useState(false);
-  const [confirm, setConfirm] = useState<null | { title: string; lines: string[]; path: string; body: Record<string, unknown> }>(null);
+  const [confirm, setConfirm] = useState<null | { title: string; lines: string[]; path: string; body: Record<string, unknown>; phrase?: string }>(null);
+  const [lp, setLp] = useState<number | null>(null);
   if (q.isLoading) return <SkeletonPanel rows={4} />;
   if (q.isError || !q.data) return <ErrorState onRetry={() => q.refetch()} />;
   const d = q.data; const refresh = () => void qc.invalidateQueries({ queryKey: ADMIN_KEY });
@@ -202,7 +221,7 @@ function AdminView() {
   const g = d.settings.globalEnabled;
   return <>
     <div className="tabs2" role="tablist" aria-label="بخش‌ها">
-      {([['pairs', 'جفت‌ها و کلیدها'], ['settings', 'ساعت و متن‌ها'], ['live', 'نمای زنده']] as const).map(([k, l]) => <button key={k} type="button" role="tab" className="ch" aria-selected={tab === k} onClick={() => setTab(k)} data-testid={`ar-tab-${k}`}>{l}</button>)}
+      {([['pairs', 'جفت‌ها و کلیدها'], ['settings', 'ساعت و متن‌ها'], ['live', 'نمای زنده'], ['learned', 'جواب‌های آموخته‌شده']] as const).map(([k, l]) => <button key={k} type="button" role="tab" className="ch" aria-selected={tab === k} onClick={() => setTab(k)} data-testid={`ar-tab-${k}`}>{l}</button>)}
     </div>
     {tab === 'pairs' ? <>
       <div className={`swc st-${g ? 'on' : 'off'}`} data-testid="ar-global">
@@ -215,10 +234,24 @@ function AdminView() {
             : setConfirm({ title: 'روشن کردن کلید کلی', path: '/admin/bale/autoreply/settings', body: { globalEnabled: true }, lines: ['همه‌ی جفت‌های روشن شروع به جواب دادن می‌کنند.', 'حالت حساب بله‌ی کارشناس‌ها تغییر نمی‌کند.', 'پیش از روشن کردن، تأیید مستقیم آقای ابوالقاسمی لازم است.'] })}><span className="k" aria-hidden="true" /> {g ? 'خاموش کن' : 'روشن کن'}</button></div>
       </div>
       <div className="pairs">{d.pairs.map(p => <PairCard key={p.assistantId} p={p} globalOn={g} busy={busy} set={setPair} />)}</div>
+      <div className="panel" style={{ display: 'grid', gap: 8 }} data-testid="ar-other-pairs">
+        <h3 style={{ margin: 0, display: 'flex', gap: 8, alignItems: 'center' }}><Lock size={18} /> قفل جفت‌های دیگر</h3>
+        <p className="muted" style={{ margin: 0, fontSize: 13.5 }}>{d.settings.allowOtherPairs ? 'تأیید جداگانه‌ی آقای ابوالقاسمی ثبت شده؛ جفت‌های دیگر هم روشن‌شدنی‌اند (هر کدام باز هم تأیید «روشن» می‌خواهد).' : 'فقط جفت کاظمی–مسعود روشن‌شدنی است. حسنی–سمیه و قاسمی–محدثه تا تأیید جداگانه‌ی آقای ابوالقاسمی قفل‌اند (سرور هم رد می‌کند).'}</p>
+        <div><button type="button" role="switch" aria-checked={Boolean(d.settings.allowOtherPairs)} className="tgl" disabled={busy} data-testid="ar-allow-other-pairs"
+          onClick={() => d.settings.allowOtherPairs ? void put('/admin/bale/autoreply/settings', { allowOtherPairs: false }, 'قفل جفت‌های دیگر برگشت')
+            : setConfirm({ title: 'باز کردن قفل جفت‌های دیگر', path: '/admin/bale/autoreply/settings', body: { allowOtherPairs: true }, phrase: AR_OTHER_PAIRS_CONFIRM,
+              lines: ['فقط وقتی آقای ابوالقاسمی جداگانه برای حسنی–سمیه و قاسمی–محدثه تأیید داده است.', 'با این کار هیچ جفتی روشن نمی‌شود؛ روشن کردن هر جفت جداگانه است.', 'حالت حساب بله‌ی کارشناس‌ها تغییر نمی‌کند.'] })}>
+          <span className="k" aria-hidden="true" /> {d.settings.allowOtherPairs ? 'قفل کن' : 'باز کن'}</button></div>
+      </div>
       <div className="panel" style={{ display: 'grid', gap: 8 }}><h3 style={{ margin: 0, display: 'flex', gap: 8, alignItems: 'center' }}><ShieldCheck size={18} /> قانون‌های ثابت</h3>
         <ol className="rl">{RULES.map(r => <li key={r}>{r}</li>)}</ol></div>
-    </> : tab === 'settings' ? <SettingsForm s={d.settings} onSaved={refresh} /> : <AdminLive pairs={d.pairs} />}
-    {confirm ? <ConfirmOn title={confirm.title} lines={confirm.lines} busy={busy} onClose={() => setConfirm(null)} onOk={() => void put(confirm.path, { ...confirm.body, confirm: 'روشن' }, `${confirm.title.replace('روشن کردن ', '')} روشن شد`)} /> : null}
+    </> : tab === 'settings' ? <SettingsForm s={d.settings} onSaved={refresh} /> : tab === 'live' ? <AdminLive pairs={d.pairs} /> : (() => {
+      const cur = d.pairs.find(p => p.assistantId === lp) ?? d.pairs[0];
+      return cur ? <div style={{ display: 'grid', gap: 10 }}>
+        <div className="tabs2" role="tablist" aria-label="جفت">{d.pairs.map(p => <button key={p.assistantId} type="button" role="tab" className="ch" aria-selected={cur.assistantId === p.assistantId} onClick={() => setLp(p.assistantId)} data-testid={`ar-learned-tab-${p.slug}`}>{shortName(p.expertName)} ← {p.assistantName}{p.needsMohammad ? <small> · بعد از پایلوت</small> : p.learnedCount ? <small> {faNum(p.learnedCount)}</small> : null}</button>)}</div>
+        <LearnedAnswers key={cur.assistantId} target={{ mode: 'admin', assistantId: cur.assistantId }} expertName={shortName(cur.expertName)} />
+      </div> : null; })()}
+    {confirm ? <ConfirmOn title={confirm.title} lines={confirm.lines} busy={busy} onClose={() => setConfirm(null)} phrase={confirm.phrase} onOk={() => void put(confirm.path, { ...confirm.body, confirm: confirm.phrase ?? 'روشن' }, confirm.phrase ? 'تأیید جداگانه ثبت شد؛ هیچ جفتی روشن نشد' : `${confirm.title.replace('روشن کردن ', '')} روشن شد`)} /> : null}
   </>;
 }
 

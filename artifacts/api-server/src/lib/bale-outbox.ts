@@ -164,7 +164,9 @@ export type OutboxCtx = {
 export type EnqueueIn = {
   accountId: number; customerId: number; text: string; source: "expert_command" | "reminder" | "assistant" | "auto_reply";
   /** auto_reply only: reply (runner text) | plan (runner plan file) | hold / night (server texts). */
-  arKind?: "reply" | "plan" | "hold" | "night";
+  arKind?: "reply" | "plan" | "hold" | "night" | "answer";
+  /** AR30: learned = the exact text of a «جواب آموخته‌شده» (learnedId) · expert_answer = the expert's answer to «سؤال از کارشناس» (questionId). */
+  arSource?: "learned" | "expert_answer" | null; learnedId?: number | null; questionId?: number | null;
   explicit: boolean; createdBy: number | null; assistant?: { id: number; inScope: boolean } | null; reason?: string | null;
   reminderId?: number | null; sendNow?: boolean;
   /** bale_plan_files.id — the row is then ALWAYS a draft (pending_approval), whatever the expert's mode is. */
@@ -254,7 +256,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
   /** A plan file is usable only while it is still the plan's active file and its bytes on disk match the stored sha256. */
   const attachmentUsable = (id: number) => { const f = ctx.planFiles?.byId(id); return Boolean(f && f.status === "active" && ctx.planFiles!.read(f)); };
   function check(a: any | undefined, customerId: number, text: string, o: { explicit: boolean; assistantInScope?: boolean; stage: "enqueue" | "send"; selfId?: number; attachmentId?: number | null;
-    auto?: { kind: "reply" | "plan" | "hold" | "night"; replyTo?: number | null; rawText?: string } }):
+    auto?: { kind: "reply" | "plan" | "hold" | "night" | "answer"; replyTo?: number | null; rawText?: string; learned?: boolean } }):
     { ok: true; phone: string; newChat: boolean } | { ok: false; reason: BaleBlockReason } {
     if (!ctx.masterOn()) return { ok: false, reason: "bale_disabled" };
     if (!a || a.status !== "connected" || !a.session_ct) return { ok: false, reason: "not_connected" };
@@ -273,7 +275,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     const phone = normalizeMobile(own.c.phone) ?? (linked ? "" : null); if (phone == null) return { ok: false, reason: "no_phone" };
     const prior = hasPriorChat(a.id, customerId);
     if (!prior && (!o.explicit || o.auto)) return { ok: false, reason: o.auto ? "not_a_reply" : "no_prior_chat" };
-    if (o.auto) { const r = ar.rules(a, ar.pairOfAccount(a), { customerId }, { kind: o.auto.kind, stage: o.stage, replyTo: o.auto.replyTo, rawText: o.auto.rawText ?? text }); if (r) return { ok: false, reason: r }; }
+    if (o.auto) { const r = ar.rules(a, ar.pairOfAccount(a), { customerId }, { kind: o.auto.kind, stage: o.stage, replyTo: o.auto.replyTo, rawText: o.auto.rawText ?? text, learned: o.auto.learned }); if (r) return { ok: false, reason: r }; }
     if (o.stage === "enqueue" && row(`SELECT 1 FROM bale_outbox WHERE account_id=? AND customer_id=? AND status IN ${ACTIVE} AND id<>?`, a.id, customerId, o.selfId ?? 0))
       return { ok: false, reason: "already_pending" };
     const extra = o.stage === "enqueue" ? queuedCount(a.id, o.selfId) : 0;
@@ -290,10 +292,11 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     const arKind = isAuto ? p.arKind ?? (att != null ? "plan" : "reply") : null;
     // Auto replies: expert's voice (signature lines stripped); escalation runs on the RAW text, before captions / disclaimers.
     const base = isAuto && (arKind === "reply" || arKind === "plan") ? arVoice(String(p.text ?? "")).text : String(p.text ?? "");
-    const text = att != null ? withPlanFileCaption(base) : isAuto && arKind !== "reply" ? base.trim() : withAmountDisclaimer(base);
+    // The expert's own answer (AR30 'answer') keeps his words as typed, with the same amount disclaimer as any expert text.
+    const text = att != null ? withPlanFileCaption(base) : isAuto && arKind !== "reply" && arKind !== "answer" ? base.trim() : withAmountDisclaimer(arKind === "answer" ? base.trim() : base);
     const replyTo = isAuto && a ? ar.facts(a, { customerId: p.customerId }).lastIn?.id ?? null : null;
     const r = check(a, p.customerId, text, { explicit: p.explicit, assistantInScope: p.assistant ? p.assistant.inScope : undefined, stage: "enqueue", attachmentId: att,
-      auto: isAuto ? { kind: arKind!, replyTo, rawText: String(p.text ?? "") } : undefined });
+      auto: isAuto ? { kind: arKind!, replyTo, rawText: String(p.text ?? ""), learned: p.arSource === "learned" } : undefined });
     const actor = p.createdBy ? ctx.userRow(p.createdBy) : undefined;
     if (!r.ok) {
       let outboxId: number | null = null;
@@ -323,7 +326,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
         is_new_chat,send_now,reason,reminder_id,assistant_id,approved_by,approved_at,attachment_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       a.id, p.customerId, text, p.source, p.explicit ? 1 : 0, draft ? "pending_approval" : "queued", p.createdBy, held, t, t, r.newChat ? 1 : 0, sendNow ? 1 : 0,
       p.reason ?? null, p.reminderId ?? null, p.assistant?.id ?? null, !draft && p.source === "expert_command" ? p.createdBy : null, !draft && p.source === "expert_command" ? t : null, att).lastInsertRowid);
-    if (isAuto) run("UPDATE bale_outbox SET reply_to_msg_id=?, ar_kind=? WHERE id=?", replyTo, arKind, id);
+    if (isAuto) run("UPDATE bale_outbox SET reply_to_msg_id=?, ar_kind=?, ar_source=?, ar_learned_id=?, ar_question_id=? WHERE id=?", replyTo, arKind, p.arSource ?? null, p.learnedId ?? null, p.questionId ?? null, id);
     if (draft) bell(a.user_id, p.customerId, "bale-draft", att != null ? "فایل طرح برای ارسال در بله منتظر تأیید شما" : "پیش‌نویس پیام بله منتظر تأیید شما",
       att != null ? "دستیار پیشنهاد داده فایل طرح برای مشتری فرستاده شود؛ فایل را ببینید و تأیید یا رد کنید." : p.source === "reminder" ? "یادآور رسید؛ پیام را ببینید و بفرستید." : "دستیار یک پیام پیشنهاد داده؛ ببینید و بفرستید.");
     ctx.audit({ u: actor, accountId: a.id, customerId: p.customerId, action: `outbox.${p.source}`, outcome: draft ? "pending_approval" : "queued", detail: { outboxId: id, held: Boolean(held), newChat: r.newChat, sendNow, attachmentId: att } });
@@ -666,6 +669,8 @@ export function createBaleOutbox(ctx: OutboxCtx) {
         first_contact_at=COALESCE(bale_contacts.first_contact_at,excluded.first_contact_at)`, a.id, cid, peer, at, iso());
       const pr = ar.activeFor(a);
       if (dir !== "in") {
+        // AR30: log Masoud replies that went out before this app reply was seen (gold badge) — also when the pair is OFF now.
+        ar.appReplySeen(a, { customerId: cid }, at, Number(ins.lastInsertRowid));
         // PM 2026-10-27: the expert wrote from the Bale app himself → the conversation is his; Masoud silent, no automatic return.
         if (pr && ar.ownerOf(a, { customerId: cid }).owner !== "expert") ar.setOwner(a, { customerId: cid }, "expert", "expert_app_reply", a.user_id);
         continue;

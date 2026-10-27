@@ -142,7 +142,8 @@ export function BaleChatSection({ customerId }: { customerId: number }) {
           {d.messages.map(m => <div key={m.id} className={`bl-msg ${m.direction}`} data-testid={`bale-msg-${m.id}`}>
             {m.hasFile ? <span style={{ display: 'flex', gap: 4, alignItems: 'center' }}><Paperclip size={14} /> فایل</span> : null}
             {m.text ?? (m.hasFile ? null : '—')}
-            <span className="meta">{m.auto ? <Bot size={12} aria-hidden="true" /> : null}{m.direction === 'in' ? 'مشتری' : (m.expertName ?? 'کارشناس')}{m.arKind === 'hold' ? ' · پیام نگه‌دار' : m.arKind === 'night' ? ' · پیام شب' : ''} · {baleWhen(m.createdAt)}</span>
+            <span className="meta">{m.auto ? <Bot size={12} aria-hidden="true" /> : null}{m.direction === 'in' ? 'مشتری' : (m.expertName ?? 'کارشناس')}{m.arKind === 'hold' ? ' · پیام نگه‌دار' : m.arKind === 'night' ? ' · پیام شب' : m.arKind === 'answer' ? ' · جواب کارشناس' : m.arSource === 'learned' ? ' · جواب آموخته‌شده' : ''} · {baleWhen(m.createdAt)}</span>
+            {m.overlap ? <span className="meta" style={{ color: 'var(--nf-gold-700)', fontWeight: 800 }} data-testid={`bale-msg-overlap-${m.id}`}>مسعود پیش از دیده شدن جواب تو در اپ بله فرستاد · ثبت شد</span> : null}
           </div>)}
           {d.outbox.map(o => <OutboxCard key={`${o.id}-${o.status}-${o.text}`} o={o} busy={busy} act={act} />)}
         </div> : <p className="muted" style={{ margin: 0 }}>هنوز گفتگویی در بله با این مشتری ثبت نشده است.</p>}
