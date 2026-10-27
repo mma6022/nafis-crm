@@ -157,11 +157,12 @@ export function ceilingPayout(raw: number | null): number | null {
   return v >= 1_000_000 ? v : null;
 }
 
-/** Card value for one term at a principal ceiling: the floored payout and the installment the calculator shows at that payout. */
+/** Card value for one term at a principal ceiling: the floored payout and the installment the calculator shows at that payout.
+ *  A term without a payout figure (no payout percent) keeps the previous installment at the principal ceiling, unchanged. */
 export function termAtCeiling(plan: PublicLoanPlanDetails, months: number, maximumPrincipal: number | null) {
   if (maximumPrincipal == null) return { payout: null, installment: null };
   const payout = ceilingPayout(customerPayout(plan, maximumPrincipal, months));
-  const principal = payout == null ? null : principalFromCustomerPayout(plan, payout, months, maximumPrincipal, 1);
+  const principal = payout == null ? maximumPrincipal : principalFromCustomerPayout(plan, payout, months, maximumPrincipal, 1);
   const rate = planAnnualInterest(plan, months);
   return { payout, installment: principal == null || rate == null ? null : wholeToman(monthlyPmt(principal, rate, months)) };
 }
