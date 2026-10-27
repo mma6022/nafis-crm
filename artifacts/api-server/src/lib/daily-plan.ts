@@ -276,14 +276,14 @@ export function dpStats(p: Plan) {
   const all = items(p.id);
   const main = all.filter(i => i.bucket === "main" && i.status !== "transferred");
   const mainDone = main.filter(i => i.status === "done").length;
-  const extra = all.filter(i => i.bucket === "extra" && i.status !== "transferred");
+  const extra = all.filter(i => i.bucket === "extra" && i.status !== "transferred" && i.status !== "reserve");
   const cnt = (f: (i: Item) => boolean) => all.filter(f).length;
   return { main: main.length, mainDone, completionPct: main.length ? Math.round((mainDone / main.length) * 1000) / 10 : null,
     extra: extra.length, extraDone: extra.filter(i => i.status === "done").length,
     inserted: cnt(i => i.bucket === "extra" && (i.source === "inserted" || i.source === "transferred_in")), supplementary: cnt(i => i.source === "supplementary"),
     autoExtra: cnt(i => i.bucket === "extra" && i.source === "auto"), outOfList: cnt(i => i.bucket === "outside"),
-    carried: cnt(i => i.source === "carried"), autoFilled: cnt(i => i.bucket === "main" && i.source === "auto"),
-    moved: all.reduce((s, i) => s + Number(i.move_count || 0), 0), undone: cnt(i => i.status === "undone"), transferred: cnt(i => i.status === "transferred"),
+    carried: cnt(i => i.source === "carried"), carriedExtra: cnt(i => i.source === "carried_extra" && i.status !== "reserve"), reserve: cnt(i => i.status === "reserve"), autoFilled: cnt(i => i.bucket === "main" && i.source === "auto"),
+    moved: all.reduce((s, i) => s + Number(i.move_count || 0), 0), undone: cnt(i => i.bucket === "main" && i.status === "undone"), extraUndone: cnt(i => i.bucket === "extra" && i.status === "undone"), transferred: cnt(i => i.status === "transferred"),
     mode: p.mode, auto: p.mode === "auto", final: Boolean(p.closed_at), backlog: Boolean(p.backlog), capacity: p.capacity };
 }
 
@@ -308,6 +308,36 @@ function fillFromQueue(p: Plan, u: CqUser, n: number, bucket: "main" | "extra", 
     taken.add(c.customerId); k++;
   }
   return k;
+}
+
+/** «تماس اول» (PM 2026-10-28): any owned customer with no call logged yet, for every expert. */
+const noCalls = (cid: number) => !queryRow("SELECT 1 FROM call_logs WHERE customer_id=? LIMIT 1", [cid]);
+const firstIfNoCalls = (cid: number, t: DpType): DpType => (t === "urgent" || t === "due" || !noCalls(cid) ? t : "first");
+/**
+ * Carried extras (PM 2026-10-28): yesterday's undone extras sit inside today's capacity after the main list,
+ * never make a backlog and never count in completion % / discipline (bucket stays 'extra', source 'carried_extra').
+ * Whatever does not fit waits as status 'reserve' and is handed out first in today's «لیست خودکار» batches.
+ */
+function fitCarriedExtras(p: Plan, cap: number | null): number {
+  const mainCount = items(p.id, "bucket='main' AND status<>'transferred'").length;
+  const ce = items(p.id, "source='carried_extra' AND status IN ('pending','reserve')").sort((a, b) => a.position - b.position || a.id - b.id);
+  const room = cap == null ? 0 : Math.max(0, cap - mainCount); let k = 0;
+  for (const i of ce) {
+    if (!owned(p.salesperson_id, i.customer_id)) { executeChanges("UPDATE dp_items SET status='transferred', label=? WHERE id=?", [DP_LABELS.transferred, i.id]); continue; }
+    if (k < room) { executeChanges("UPDATE dp_items SET status='pending', label=? WHERE id=?", [DP_LABELS.carried, i.id]); k++; }
+    else executeChanges("UPDATE dp_items SET status='reserve', label=? WHERE id=?", [DP_LABELS.auto, i.id]);
+  }
+  return k;
+}
+/** Hands out up to n reserved carried extras as «لیست خودکار» extras; returns how many. */
+function releaseReserve(p: Plan, n: number, now: Date): number {
+  let k = 0; const start = 9000 + items(p.id).length;
+  for (const i of items(p.id, "status='reserve'").sort((a, b) => a.position - b.position || a.id - b.id)) {
+    if (k >= n) break;
+    if (!owned(p.salesperson_id, i.customer_id)) { executeChanges("UPDATE dp_items SET status='transferred', label=? WHERE id=?", [DP_LABELS.transferred, i.id]); continue; }
+    executeChanges("UPDATE dp_items SET status='pending', label=?, position=? WHERE id=?", [DP_LABELS.auto, start + k, i.id]); k++;
+  }
+  void now; return k;
 }
 
 /* ---------------- assistant writes ---------------- */
@@ -377,16 +407,19 @@ export function dpWritePlan(a: Asst, dayIn: unknown, body: any, now = new Date()
   if (note && DIGITS.test(note)) return err(422, "invalid_rows", "یادداشت عدد دارد.", { rows: [{ row: -1, code: "note_has_digits", field: "note" }] });
   const p = p0 ?? planFor(ex, day, at);
   executeChanges("DELETE FROM dp_items WHERE plan_id=? AND source IN ('plan','auto') AND bucket='main' AND status='pending'", [p.id]);
+  // a customer the assistant writes in replaces its carried-extra copy.
+  for (const r of rows) executeChanges("DELETE FROM dp_items WHERE plan_id=? AND source='carried_extra' AND customer_id=? AND status IN ('pending','reserve')", [p.id, r.customerId]);
   let pos = 1; const urg = rows.filter(r => r.type === "urgent"), rest = rows.filter(r => r.type !== "urgent");
   for (const r of urg) addItem(p.id, { ...r, source: "plan", bucket: "main", position: pos++ }, at);
   for (const c of [...carried].sort((x, y) => x.position - y.position)) executeChanges("UPDATE dp_items SET position=? WHERE id=?", [pos++, c.id]);
   for (const r of rest) addItem(p.id, { ...r, source: "plan", bucket: "main", position: pos++ }, at);
+  const carriedExtra = fitCarriedExtras(p, cap);
   let autoFilled = 0;
-  if (restricted && !backlog) autoFilled = fillFromQueue(p, ex, cap - carried.length - rows.length, "main", now, 1000);
+  if (restricted && !backlog) autoFilled = fillFromQueue(p, ex, cap - carried.length - rows.length - carriedExtra, "main", now, 1000);
   executeChanges("UPDATE dp_plans SET mode='assistant', version=version+1, written_at=?, assistant_id=?, assistant_note=?, capacity=?, backlog=? WHERE id=?",
     [at, a.id, note, cap, backlog ? 1 : 0, p.id]);
   const np = planRow(sp, day)!;
-  return { ok: true, date: day, version: np.version, capacity: cap, carried: carried.length, written: rows.length, autoFilled, backlog, scope: restricted ? "p1" : "all", plan: dpAssistantView(np) };
+  return { ok: true, date: day, version: np.version, capacity: cap, carried: carried.length, carriedExtra, reserve: items(p.id, "status='reserve'").length, written: rows.length, autoFilled, backlog, scope: restricted ? "p1" : "all", plan: dpAssistantView(np) };
 }
 /** POST /daily-plans/{date}/supplementary: today only, until 18:00; exempt from capacity; extra after the current item. */
 export function dpSupplementary(a: Asst, dayIn: unknown, body: any, now = new Date()) {
@@ -488,7 +521,7 @@ export function dpRefresh(p0: Plan, now = new Date()): Plan {
     if (c && Number(c.salesperson_id) === sp && c.merged == null) continue;
     executeChanges("UPDATE dp_items SET status='transferred', label=?, done_at=? WHERE id=?", [DP_LABELS.transferred, at, it.id]);
     const np = c && c.merged == null && c.salesperson_id != null ? openPlanOf(Number(c.salesperson_id), today) : null;
-    if (np && seenOnce(np.id, `t:${it.id}`)) pushExtra(np, it.customer_id, it.type, 1, DP_LABELS.added, "transferred_in", at, it.reason);
+    if (np && seenOnce(np.id, `t:${it.id}`)) { seenOnce(np.id, `n:${it.customer_id}`); pushExtra(np, it.customer_id, firstIfNoCalls(it.customer_id, it.type), 1, DP_LABELS.added, "transferred_in", at, it.reason); }
   }
   // 2. moved items whose time has come.
   for (const it of items(p.id, "status='moved' AND moved_to<=?", [at]))
@@ -501,9 +534,17 @@ export function dpRefresh(p0: Plan, now = new Date()): Plan {
   for (const r of queryRows<{ id: number; customer_id: number }>(`SELECT r.id,r.customer_id FROM reminders r JOIN customers c ON c.id=r.customer_id
       WHERE r.user_id=? AND r.done=0 AND r.voided_at IS NULL AND r.remind_at>? AND r.remind_at<=? AND c.salesperson_id=? AND c.merged_into_customer_id IS NULL ORDER BY r.remind_at`, [p.user_id, t0, at, sp]))
     if (seenOnce(p.id, `r:${r.id}`)) pushExtra(p, Number(r.customer_id), "due", 1, DP_LABELS.due, "inserted", at);
-  for (const c of queryRows<{ id: number }>(`SELECT c.id FROM customers c WHERE c.salesperson_id=? AND c.merged_into_customer_id IS NULL AND c.status='in_progress' AND c.created_at>?
-      AND NOT EXISTS(SELECT 1 FROM call_logs l WHERE l.customer_id=c.id) ORDER BY c.created_at`, [sp, t0]))
-    if (seenOnce(p.id, `n:${c.id}`)) pushExtra(p, Number(c.id), "first", 1, DP_LABELS.added, "inserted", at);
+  // «تماس اول» for any customer that became this expert's with no call yet (new or transferred, every expert).
+  // The first pass only notes who was already there (created before t0), so nothing old floods in.
+  const fresh = queryRows<{ id: number; created_at: string }>(`SELECT c.id,c.created_at FROM customers c WHERE c.salesperson_id=? AND c.merged_into_customer_id IS NULL AND c.status='in_progress'
+      AND NOT EXISTS(SELECT 1 FROM call_logs l WHERE l.customer_id=c.id) ORDER BY c.created_at, c.id`, [sp]);
+  const seenN = new Set(queryRows<{ ref: string }>("SELECT ref FROM dp_seen WHERE plan_id=? AND ref LIKE 'n:%'", [p.id]).map(r => r.ref));
+  const seeding = seenOnce(p.id, "n0");
+  for (const c of fresh) {
+    const ref = `n:${c.id}`; if (seenN.has(ref)) continue;
+    if (seeding && !(String(c.created_at) > t0)) { seenOnce(p.id, ref); continue; }
+    if (seenOnce(p.id, ref)) pushExtra(p, Number(c.id), "first", 1, DP_LABELS.added, "inserted", at);
+  }
   // 4. finished → event once; after waitMin, «لیست خودکار» extra batches of 5.
   let pr = planRow(sp, p.day)!;
   const open = () => items(p.id, "status IN ('pending','current')").length;
@@ -518,7 +559,8 @@ export function dpRefresh(p0: Plan, now = new Date()): Plan {
     const waitUntil = Date.parse(pr.finished_at!) + dpSettings().waitMin * 60_000;
     if (now.getTime() < atTehran(p.day, DP_CLOSE_MIN).getTime() && (pr.auto_at || now.getTime() >= waitUntil)) {
       const u: CqUser = { id: pr.user_id, role: "salesperson", salespersonId: sp, active: true };
-      fillFromQueue(pr, u, DP_AUTO_BATCH, "extra", now, 9000 + items(p.id).length);
+      const fromReserve = releaseReserve(pr, DP_AUTO_BATCH, now);
+      fillFromQueue(pr, u, DP_AUTO_BATCH - fromReserve, "extra", now, 9000 + items(p.id).length);
       if (!pr.auto_at) executeChanges("UPDATE dp_plans SET auto_at=? WHERE id=?", [at, p.id]);
     }
   }
@@ -541,9 +583,10 @@ function startPlan(e: DpExpert, day: string, now: Date) {
   if (!p.written_at) {
     // «لیست خودکار» (PM item 2): the 08:00 auto list IS that day's main list, capped at capacity; the day is «خودکار» and not averaged.
     const carried = items(p.id, "source='carried' AND status<>'transferred'").length;
-    fillFromQueue(p, e, Math.max(0, (cap ?? 0) - carried), "main", now, 1000);
+    const carriedExtra = fitCarriedExtras(p, cap);
+    fillFromQueue(p, e, Math.max(0, (cap ?? 0) - carried - carriedExtra), "main", now, 1000);
     executeChanges("UPDATE dp_plans SET mode='auto', capacity=? WHERE id=?", [cap, p.id]);
-  }
+  } else fitCarriedExtras(p, cap);
   executeChanges("UPDATE dp_plans SET started_at=? WHERE id=? AND started_at IS NULL", [at, p.id]);
   return planRow(sp, day);
 }
@@ -555,7 +598,7 @@ function closePlan(p: Plan, now: Date, waitForCall: boolean): boolean {
     // Q6: an in-progress call waits up to the on-time cap (30 min) from the link, then the item is undone.
     if (call && Date.parse(call.link_issued_at) + cap * 60_000 > now.getTime()) return false;
   }
-  executeChanges(`UPDATE dp_items SET status='undone' WHERE plan_id=? AND ${ACTIVE}`, [p.id]);
+  executeChanges(`UPDATE dp_items SET status='undone' WHERE plan_id=? AND (${ACTIVE} OR status='reserve')`, [p.id]);
   executeChanges("UPDATE dp_plans SET closed_at=? WHERE id=? AND closed_at IS NULL", [at, p.id]);
   carry(planRow(p.salesperson_id, p.day)!, now);
   return true;
@@ -566,12 +609,16 @@ function carry(p: Plan, now: Date) {
   if (!und.length) return;
   const np = planFor({ id: p.user_id, salespersonId: sp }, next, at);
   const taken = new Set(items(np.id, "status<>'transferred'").map(i => Number(i.customer_id)));
-  let pos = 500;
-  for (const i of und) if (!taken.has(i.customer_id) && seenOnce(np.id, `c:${i.id}`)) {
-    addItem(np.id, { customerId: i.customer_id, type: i.type, reason: i.reason, keyNote: i.key_note, source: "carried", bucket: "main", position: pos++, label: DP_LABELS.carried }, at);
+  // main undone → main «مانده از دیروز» (these alone decide a backlog); extra undone → carried extras, inside capacity, overflow to «لیست خودکار».
+  let pos = 500, xpos = 900;
+  for (const i of [...und.filter(x => x.bucket === "main"), ...und.filter(x => x.bucket === "extra")]) if (!taken.has(i.customer_id) && seenOnce(np.id, `c:${i.id}`)) {
+    const main = i.bucket === "main";
+    addItem(np.id, { customerId: i.customer_id, type: i.type, reason: i.reason, keyNote: i.key_note, source: main ? "carried" : "carried_extra", bucket: main ? "main" : "extra",
+      position: main ? pos++ : xpos++, label: main ? DP_LABELS.carried : DP_LABELS.auto, status: main ? "pending" : "reserve" }, at);
     taken.add(i.customer_id);
   }
   const carried = items(np.id, "source='carried' AND status<>'transferred'").length; const cap = dpCapacity(sp, next).capacity;
+  if (!np.started_at) fitCarriedExtras(np, cap);
   if (cap != null && carried >= cap && !np.backlog) {
     executeChanges("UPDATE dp_plans SET backlog=1 WHERE id=?", [np.id]);
     const e = expertBySp(sp); const data = { salespersonId: sp, expertName: e?.name ?? "", date: next, carried, capacity: cap };
