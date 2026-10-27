@@ -878,6 +878,9 @@ export function createBale(deps: BaleDeps) {
   /** POST /bale/auto-reply {customerId | arChatId, text, planId? | attachmentId?} — replies only; every rule in check() + ar.rules(). */
   function runnerAutoReply(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean }) {
     const r0 = runnerPair(res); if (!r0) return; const { asst, p, a } = r0;
+    // OFF (global / pair / auto-stopped): refuse before anything is stored — no outbox row, audit line only.
+    if (!ar.pairOn(p)) { audit({ accountId: a?.id ?? null, customerId: Number.isSafeInteger(Number(req.body?.customerId)) ? Number(req.body.customerId) : null, action: "outbox.auto_reply", outcome: "autoreply_off", detail: { assistantId: asst.id } });
+      return void res.status(423).json({ status: "blocked", error: "autoreply_off", message: (BLOCK_FA as any).autoreply_off ?? "پاسخ خودکار برای این دستیار خاموش است؛ چیزی فرستاده نشد." }); }
     if (!a) return void res.status(423).json({ status: "blocked", error: "not_connected", message: BLOCK_FA.not_connected });
     const wantsFile = (req.body?.planId != null && req.body.planId !== "") || (req.body?.attachmentId != null && req.body.attachmentId !== "");
     let attachmentId: number | null = null;

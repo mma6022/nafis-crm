@@ -107,7 +107,7 @@ try {
   // ---------- defaults: everything OFF ----------
   const ps = all("SELECT * FROM bale_autoreply_pairs ORDER BY assistant_id");
   assert.deepEqual(ps.map(p => [p.slug, p.expert_user_id, p.enabled, p.reads_enabled, p.allow_unknown, p.allow_plan_file]),
-    [["masoud", 8, 0, 0, 1, 1], ["somayeh", 2, 0, 0, 0, 0], ["mohaddeseh", 3, 0, 0, 0, 0]], "3 pairs, all OFF; no pair for trainees / 29 / filing");
+    [["masoud", 8, 0, 0, 0, 0], ["somayeh", 2, 0, 0, 0, 0], ["mohaddeseh", 3, 0, 0, 0, 0]], "3 pairs, all OFF; no pair for trainees / 29 / filing");
   assert.equal(one("SELECT value FROM bale_settings WHERE key='autoreply_enabled'").value, "0");
   for (const k of Object.keys(AR_DEFAULT_SETTINGS)) assert.equal(one("SELECT value FROM bale_settings WHERE key=?", k).value, AR_DEFAULT_SETTINGS[k]);
   assert.equal(AR_DEFAULT_SETTINGS.autoreply_day_start, "08:30"); assert.equal(AR_DEFAULT_SETTINGS.autoreply_day_end, "20:00");
@@ -134,7 +134,7 @@ try {
   r = await R(10, "GET", "/bale/conversations/200/messages"); assert.equal(r.s, 423, "reads off by default");
   r = await R(10, "GET", "/bale/ar-chats"); assert.equal(r.s, 404, JSON.stringify(r.j));
   r = await inb(KREF, 200, "تضمین می‌کنید؟"); assert.equal(r.j.stored, 1);
-  assert.deepEqual(autoAll(200).map(x => [x.status, x.block_reason, x.ar_kind]), [["blocked", "autoreply_off", "reply"]], "only the refused runner attempt (blocked); no hold text while OFF"); assert.equal(bells(8, "bale-escalated"), 0, "no escalation while OFF");
+  assert.deepEqual(autoAll(200).map(x => [x.status, x.block_reason, x.ar_kind]), [], "OFF: the refused runner attempt stores no outbox row; no hold text while OFF"); assert.equal(bells(8, "bale-escalated"), 0, "no escalation while OFF");
   r = await mock.inbound(API, KREF, [{ messageId: "u-off", peerId: "p-stranger", text: "سلام وام میخواستم" }]); assert.equal(r.j.stored, 0);
   assert.equal(one("SELECT count(*) n FROM bale_ar_messages").n, 0, "unknown chats not stored while OFF");
   const ev0 = one("SELECT data_json FROM assistant_events WHERE type='bale_inbound' ORDER BY id DESC LIMIT 1"); assert.ok(!JSON.parse(ev0.data_json).autoReply);
@@ -164,7 +164,7 @@ try {
 
   // ---------- ON (Masoud only) — mode stays off, fully automatic ----------
   r = await S(1, "PUT", "/admin/bale/autoreply/settings", { globalEnabled: true, confirm: "روشن" }); assert.equal(r.s, 200, JSON.stringify(r.j));
-  r = await S(1, "PUT", "/admin/bale/autoreply/pairs/10", { ...ON, readsEnabled: true }); assert.equal(r.s, 200, JSON.stringify(r.j)); assert.equal(r.j.pair.enabled, true);
+  r = await S(1, "PUT", "/admin/bale/autoreply/pairs/10", { ...ON, readsEnabled: true, allowUnknown: true, allowPlanFile: true }); assert.equal(r.s, 200, JSON.stringify(r.j)); assert.equal(r.j.pair.enabled, true);
   assert.equal(acc(8).mode, "off", "turning the pair ON never touches the account mode");
   clock = new Date(clock.getTime() + 60_000);
   r = await R(10, "POST", "/bale/auto-reply", { customerId: 202, text: "سلام، خوش آمدید" }); assert.equal(r.s, 422, JSON.stringify(r.j)); assert.equal(r.j.error, "not_a_reply", "never a first message");
@@ -343,7 +343,7 @@ try {
   r = await R(10, "POST", "/bale/auto-reply", { customerId: 201, text: "سلام" }); assert.equal(r.s, 404, "merged");
   r = await R(10, "POST", "/bale/auto-reply", { customerId: 230, text: "سلام" }); assert.equal(r.s, 404, "trainee customer");
   r = await R(11, "POST", "/bale/auto-reply", { customerId: 210, text: "سلام" }); assert.equal(r.s, 423, JSON.stringify(r.j)); assert.equal(r.j.error, "autoreply_off", "Somayeh stays OFF while Masoud is ON");
-  r = await R(11, "POST", "/bale/auto-reply", { customerId: 200, text: "سلام" }); assert.equal(r.s, 404, JSON.stringify(r.j));
+  r = await R(11, "POST", "/bale/auto-reply", { customerId: 200, text: "سلام" }); assert.equal(r.s, 423, JSON.stringify(r.j)); // Somayeh OFF: refused before scope
   r = await R(13, "POST", "/bale/auto-reply", { customerId: 230, text: "سلام" }); assert.equal(r.s, 404, "trainee assistant: no pair");
   r = await R(15, "POST", "/bale/auto-reply", { customerId: 200, text: "سلام" }); assert.equal(r.s, 403, "user 29");
   r = await R(14, "POST", "/bale/auto-reply", { customerId: 200, text: "سلام" }); assert.equal(r.s, 403, "filing assistant");

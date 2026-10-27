@@ -18,7 +18,7 @@ const ME_KEY = ['bale', 'ar', 'me'] as const;
 const ADMIN_KEY = ['bale', 'ar', 'admin'] as const;
 const errMsg = (e: unknown) => (e instanceof Error && e.message) || 'درخواست انجام نشد. دوباره تلاش کنید.';
 const faTime = (hm: string) => faNum(hm);
-const hoursFa = (s: ArSettings) => `${s.days.length === 7 ? 'همه‌ی روزها' : s.days.length ? s.days.map(d => AR_DAYS[d]).join('، ') : 'هیچ روزی'} · ${faTime(s.dayStart)} تا ${faTime(s.dayEnd)} (تهران)`;
+const hoursFa = (s: ArSettings) => `${s.days.length === 7 ? 'همه‌ی روزها' : s.days.length ? s.days.map(d => AR_DAYS[d]).join('، ') : 'هیچ روزی'}، ساعت ${faTime(s.dayStart)} تا ${faTime(s.dayEnd)} (تهران)`;
 
 /** Typed «روشن» confirmation for every ON (the server refuses ON without it: 428). */
 function ConfirmOn({ title, lines, onClose, onOk, busy }: { title: string; lines: string[]; onClose: () => void; onOk: () => void; busy: boolean }) {

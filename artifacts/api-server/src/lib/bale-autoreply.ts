@@ -27,7 +27,7 @@ import { normalizeFa } from "./assistants";
 import { maskText } from "./smart-filing";
 
 export const AR_PAIR_SEED = [
-  { slug: "masoud", allowUnknown: 1, allowPlanFile: 1 },
+  { slug: "masoud", allowUnknown: 0, allowPlanFile: 0 },
   { slug: "somayeh", allowUnknown: 0, allowPlanFile: 0 },
   { slug: "mohaddeseh", allowUnknown: 0, allowPlanFile: 0 },
 ] as const;
