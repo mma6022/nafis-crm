@@ -229,6 +229,9 @@ export function createAssistants(deps: Deps) {
   }
   /** v6: Sarina may never address a sales expert (or anyone outside registrar/admin). */
   const filingRecipientBlocked = (a: any, u: any) => a.kind === "filing" && Boolean(u) && u.role !== "registrar" && u.role !== "admin";
+  /** Task SRA (2026-10-27, Mohammad's approval 12:50 Tehran): only Sarina's own row (kind filing, slug sarina) gets
+   *  (1) case-less POST /messages to registrar/admin recipients and (2) read-only GET /manager/registration. */
+  const isSarina = (a: any) => a?.kind === "filing" && a?.slug === "sarina";
   /** For Sarina: may this user see a message bound to this customer? (registrar/admin all in-scope; sales only own). */
   function userSeesCase(a: any, u: any, customerId: number | null): boolean {
     if (a.kind === "sales") return customerId == null || inScope(a, customerId);
@@ -714,7 +717,7 @@ export function createAssistants(deps: Deps) {
   });
 
   /** Resolve the target thread of a runner write; enforces recipients and (Sarina) case binding. */
-  function targetThread(req: Request, res: Response): { t: any; u: any; customerId: number | null } | null {
+  function targetThread(req: Request, res: Response, allowCaseless = false): { t: any; u: any; customerId: number | null } | null {
     const a = A(res); const b = req.body ?? {};
     let u: any; let t: any;
     if (b.threadId != null) {
@@ -730,7 +733,9 @@ export function createAssistants(deps: Deps) {
     if (!u || !userEligible(a, u)) { audit({ req, a, tokenId: TK(res), action: `${req.method} ${req.path}`, outcome: "not_in_scope", detail: { recipient: true } }); fail(res, 404, "recipient_not_found"); return null; }
     const customerId = b.customerId == null || b.customerId === "" ? null : Number(b.customerId);
     if (customerId != null && !inScope(a, customerId)) { notFound(req, res, customerId); return null; }
-    if (a.kind === "filing" && customerId == null) { fail(res, 422, "case_required", "هر پیام سارینا باید به یک پرونده وصل باشد (customerId)."); return null; }
+    // SRA: Sarina may send a case-less chat line (POST /messages only) to a registrar/admin; sales/others were refused above (403) and stay so.
+    const caselessOk = allowCaseless && isSarina(a) && (u.role === "registrar" || u.role === "admin");
+    if (a.kind === "filing" && customerId == null && !caselessOk) { fail(res, 422, "case_required", "هر پیام سارینا باید به یک پرونده وصل باشد (customerId)."); return null; }
     if (!userSeesCase(a, u, customerId)) { notFound(req, res, customerId ?? NaN); return null; }
     return { t: t ?? threadFor(a, u.id, true), u, customerId };
   }
@@ -743,7 +748,7 @@ export function createAssistants(deps: Deps) {
     if (!(PRIORITIES as readonly string[]).includes(priority)) return fail(res, 422, "bad_priority");
     if (!body || body.length > MAX_BODY) return fail(res, 422, "bad_body");
     const actions = Array.isArray(b.actions) ? b.actions.filter((x: any) => (ACTIONS as readonly string[]).includes(String(x))).slice(0, 4) : (kind === "suggestion" || kind === "alert" ? [...ACTIONS] : []);
-    const tt = targetThread(req, res); if (!tt) return;
+    const tt = targetThread(req, res, !forcedKind && req.path === "/messages"); if (!tt) return;
     if (hasBannedWord(body)) { audit({ req, a, tokenId: TK(res), action: "POST /messages", customerId: tt.customerId, outcome: "banned_word", detail: { len: body.length } }); return fail(res, 422, "banned_word", "این متن واژهٔ ممنوع دارد."); }
     if (clientId) { const dup = row<any>("SELECT * FROM assistant_messages WHERE thread_id=? AND author='assistant' AND client_id=?", tt.t.id, clientId); if (dup) return void res.json({ message: messageView(dup, true), delivered: "duplicate" }); }
     const hour = new Date(now().getTime() - 3600_000).toISOString();
@@ -869,7 +874,13 @@ export function createAssistants(deps: Deps) {
     audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/invoices/open", outcome: "ok" });
     res.json(maskAll(openInvoices(workDeps())));
   });
-  runner.get("/manager/registration", managerOnly, (req, res) => {
+  /** SRA: the manager OR Sarina (GET only — this route has no write verb, and every other /manager route stays managerOnly). */
+  const managerOrSarinaRead = (req: Request, res: Response, next: NextFunction) => {
+    const a = A(res);
+    if (a.kind === "manager" || (isSarina(a) && req.method === "GET")) return next();
+    managerOnly(req, res, next);
+  };
+  runner.get("/manager/registration", managerOrSarinaRead, (req, res) => {
     const p = regParams(req, res); if (!p) return;
     audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/registration", outcome: "ok", detail: { range: p.range, stuckHours: p.stuckHours } });
     res.json(maskAll(registrationReport(workDeps(), p.range, p.stuckHours, p.src)));
