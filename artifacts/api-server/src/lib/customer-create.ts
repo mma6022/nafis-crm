@@ -1,5 +1,6 @@
 import { execute, executeChanges, queryRow, queryRows } from "./crm-db";
 import { defaultOwnerDecision, logRuleAssignment, type RegistrationSource } from "./default-owner-rule";
+import { customerSourceFor } from "./registration-sources";
 
 export type CustomerCreateInput = {
   name: string;
@@ -89,8 +90,8 @@ export function insertCustomerRecord(input: CustomerCreateInput): number {
     `INSERT INTO customers
       (name, phone, description, national_code, birth_date_jalali, postal_code,
        father_name, address, email, verification_status, is_urgent, created_at,
-       salesperson_id, priority, status, registered_by, registration_source)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'unverified', ?, ?, ?, ?, ?, ?, ?)`,
+       salesperson_id, priority, status, registered_by, registration_source, source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'unverified', ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.name,
       input.phone,
@@ -108,6 +109,7 @@ export function insertCustomerRecord(input: CustomerCreateInput): number {
       input.status ?? "in_progress",
       input.registeredByUserId ?? null,
       input.registrationSource,
+      customerSourceFor(input.registrationSource, input.registeredByUserId),
     ],
   );
   if (rule.apply) logRuleAssignment({ customerId: id, registrarUserId: input.registeredByUserId ?? null, source: input.registrationSource,

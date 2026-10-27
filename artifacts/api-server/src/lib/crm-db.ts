@@ -494,6 +494,10 @@ ensureColumn("customers", "identity_changed_at", "TEXT");
 // crm-default-owner: real registrar (users.id; NULL = system intake) and intake channel of a new customer.
 ensureColumn("customers", "registered_by", "INTEGER");
 ensureColumn("customers", "registration_source", "TEXT");
+// PM 2026-10-27 22:27: coarse lead source (staff / form / site / instagram / assistant / api; see registration-sources.ts)
+// and an optional credit grade (NULL, no UI yet; the form/display come with the crm-instagram-leads design).
+ensureColumn("customers", "source", "TEXT");
+ensureColumn("customers", "credit_grade", "TEXT");
 ensureColumn("customers", "is_urgent", "INTEGER NOT NULL DEFAULT 0");
 ensureColumn("customers", "father_name", "TEXT");
 ensureColumn("customers", "address", "TEXT");

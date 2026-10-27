@@ -9,6 +9,8 @@
  * source  = customers.registration_source; for older rows (NULL) it is inferred from the link tables (inferred=true):
  *           public_leads → site_lead, callback_requests → site_callback, instagram_crm_automation_sessions → instagram_auto,
  *           instagram_threads → instagram, customer_portal_registrations → portal, else «unknown».
+ * channel = customers.source (staff / form / site / instagram / assistant / api; NULL for customers before this release),
+ *           see CUSTOMER_SOURCE_BY_REGISTRATION in registration-sources.ts. byChannel groups by it.
  * reachedRegistration = the customer has a non-deleted loan application that ever entered «بررسی مدارک مشتری»
  *           (loan_application_stage_history.to_stage='customer_documents_review'; same stage as the expert report's
  *           sentToRegistration), at any time up to now.
@@ -16,7 +18,7 @@
  *           OR a paid payment order (customer_payment_orders.stage='paid'), at any time up to now.
  */
 import type { DatabaseSync } from "node:sqlite";
-import { REGISTRATION_SOURCES, DEFAULT_OWNER_EXCLUDED_USER_IDS } from "./registration-sources";
+import { REGISTRATION_SOURCES, DEFAULT_OWNER_EXCLUDED_USER_IDS, CUSTOMER_SOURCE_LABELS } from "./registration-sources";
 import { testCustomerSql } from "./test-customers";
 
 const OFFSET_MS = 3.5 * 3600_000;
@@ -47,11 +49,11 @@ export function registeredByRange(q: { from?: unknown; to?: unknown }, now: Date
   return { from, to };
 }
 
-type Row = { registrar: number | null; source: string; inferred: number; reg: number; dep: number; goods: number; po: number };
+type Row = { registrar: number | null; source: string; ch: string | null; inferred: number; reg: number; dep: number; goods: number; po: number };
 export function registeredByReport(db: DatabaseSync, range: RegisteredByRange, opts: { excludeTest: boolean; now?: Date }) {
   const now = opts.now ?? new Date();
   const fromIso = startUtc(range.from), toIso = startUtc(addDays(range.to, 1));
-  const rb = hasCol(db, "customers", "registered_by"), rs = hasCol(db, "customers", "registration_source");
+  const rb = hasCol(db, "customers", "registered_by"), rs = hasCol(db, "customers", "registration_source"), cs = hasCol(db, "customers", "source");
   const infer: string[] = [];
   if (has(db, "public_leads")) infer.push("WHEN EXISTS (SELECT 1 FROM public_leads x WHERE x.customer_id=c.id) THEN 'site_lead'");
   if (has(db, "callback_requests")) infer.push("WHEN EXISTS (SELECT 1 FROM callback_requests x WHERE x.customer_id=c.id) THEN 'site_callback'");
@@ -67,19 +69,19 @@ export function registeredByReport(db: DatabaseSync, range: RegisteredByRange, o
   const goodsSql = has(db, "goods_purchases") ? "EXISTS (SELECT 1 FROM goods_purchases g WHERE g.customer_id=c.id AND g.stage='completed' AND g.completed_at IS NOT NULL)" : "0";
   const poSql = has(db, "customer_payment_orders") ? "EXISTS (SELECT 1 FROM customer_payment_orders p WHERE p.customer_id=c.id AND p.stage='paid')" : "0";
   const excl = DEFAULT_OWNER_EXCLUDED_USER_IDS.join(",");
-  const rows = db.prepare(`SELECT registrar, source, inferred, SUM(reg) reg, SUM(goods OR po) dep, SUM(goods) goods, SUM(po) po, COUNT(*) n FROM (
-      SELECT ${rb ? "c.registered_by" : "NULL"} registrar, ${src} source, ${inf} inferred,
+  const rows = db.prepare(`SELECT registrar, source, ch, inferred, SUM(reg) reg, SUM(goods OR po) dep, SUM(goods) goods, SUM(po) po, COUNT(*) n FROM (
+      SELECT ${rb ? "c.registered_by" : "NULL"} registrar, ${src} source, ${cs ? "c.source" : "NULL"} ch, ${inf} inferred,
              (${regSql}) reg, (${goodsSql}) goods, (${poSql}) po
       FROM customers c
       WHERE c.merged_into_customer_id IS NULL AND julianday(c.created_at)>=julianday(?) AND julianday(c.created_at)<julianday(?)
         ${rb ? `AND (c.registered_by IS NULL OR c.registered_by NOT IN (${excl}))` : ""}
         ${opts.excludeTest ? `AND NOT ${testCustomerSql("c")}` : ""})
-    GROUP BY registrar, source, inferred`).all(fromIso, toIso) as unknown as (Row & { n: number })[];
+    GROUP BY registrar, source, ch, inferred`).all(fromIso, toIso) as unknown as (Row & { n: number })[];
   const users = new Map((db.prepare("SELECT u.id, u.full_name, u.username, u.salesperson_id, u.role FROM users u").all() as any[]).map((u) => [Number(u.id), u]));
   const sps = new Map((db.prepare("SELECT id, name FROM salespersons").all() as any[]).map((s) => [Number(s.id), String(s.name ?? "")]));
   type Out = { userId: number | null; name: string; salespersonId: number | null; salespersonName: string | null; registered: number;
     reachedRegistration: number; reachedDeposit: number; depositGoods: number; depositPaymentOrders: number;
-    bySource: { source: string; label: string; count: number; inferred: number }[] };
+    bySource: { source: string; label: string; count: number; inferred: number }[]; byChannel: { channel: string | null; label: string; count: number }[] };
   const by = new Map<string, Out>();
   for (const r of rows) {
     const key = r.registrar == null ? "none" : String(r.registrar);
@@ -88,7 +90,7 @@ export function registeredByReport(db: DatabaseSync, range: RegisteredByRange, o
       const u = r.registrar == null ? null : users.get(Number(r.registrar));
       const sp = u?.salesperson_id == null ? null : Number(u.salesperson_id);
       o = { userId: r.registrar == null ? null : Number(r.registrar), name: r.registrar == null ? "سیستم / نامشخص" : String(u?.full_name || u?.username || `کاربر ${r.registrar}`),
-        salespersonId: sp, salespersonName: sp == null ? null : sps.get(sp) ?? null, registered: 0, reachedRegistration: 0, reachedDeposit: 0, depositGoods: 0, depositPaymentOrders: 0, bySource: [] };
+        salespersonId: sp, salespersonName: sp == null ? null : sps.get(sp) ?? null, registered: 0, reachedRegistration: 0, reachedDeposit: 0, depositGoods: 0, depositPaymentOrders: 0, bySource: [], byChannel: [] };
       by.set(key, o);
     }
     const n = Number(r.n);
@@ -96,18 +98,25 @@ export function registeredByReport(db: DatabaseSync, range: RegisteredByRange, o
     let s = o.bySource.find((x) => x.source === r.source);
     if (!s) { s = { source: r.source, label: (REGISTRATION_SOURCES as Record<string, string>)[r.source] ?? UNKNOWN_SOURCE_LABEL, count: 0, inferred: 0 }; o.bySource.push(s); }
     s.count += n; if (Number(r.inferred)) s.inferred += n;
+    const chn = r.ch == null ? null : String(r.ch);
+    let h = o.byChannel.find((x) => x.channel === chn);
+    if (!h) { h = { channel: chn, label: chn == null ? UNKNOWN_SOURCE_LABEL : CUSTOMER_SOURCE_LABELS[chn] ?? chn, count: 0 }; o.byChannel.push(h); }
+    h.count += n;
   }
   const registrars = [...by.values()].map((o) => ({ ...o, bySource: o.bySource.sort((a, b) => b.count - a.count || a.source.localeCompare(b.source)) }))
     .sort((a, b) => (a.userId == null ? 1 : 0) - (b.userId == null ? 1 : 0) || b.registered - a.registered || Number(a.userId) - Number(b.userId));
   const sum = (k: "registered" | "reachedRegistration" | "reachedDeposit" | "depositGoods" | "depositPaymentOrders") => registrars.reduce((t, o) => t + o[k], 0);
   const bySource = new Map<string, { source: string; label: string; count: number; inferred: number }>();
   for (const o of registrars) for (const s of o.bySource) { const t = bySource.get(s.source) ?? { ...s, count: 0, inferred: 0 }; t.count += s.count; t.inferred += s.inferred; bySource.set(s.source, t); }
+  const byChannel = new Map<string, { channel: string | null; label: string; count: number }>();
+  for (const o of registrars) for (const h of o.byChannel) { const k = String(h.channel); const t = byChannel.get(k) ?? { ...h, count: 0 }; t.count += h.count; byChannel.set(k, t); }
   return {
     from: range.from, to: range.to, timezone: "Asia/Tehran (UTC+03:30)", generatedAt: now.toISOString(), testCustomersExcluded: opts.excludeTest,
     countsOnly: true, definitions: REGISTERED_BY_DEFINITIONS,
     totals: { registered: sum("registered"), reachedRegistration: sum("reachedRegistration"), reachedDeposit: sum("reachedDeposit"),
       depositGoods: sum("depositGoods"), depositPaymentOrders: sum("depositPaymentOrders"),
-      bySource: [...bySource.values()].sort((a, b) => b.count - a.count || a.source.localeCompare(b.source)) },
+      bySource: [...bySource.values()].sort((a, b) => b.count - a.count || a.source.localeCompare(b.source)),
+      byChannel: [...byChannel.values()].sort((a, b) => b.count - a.count) },
     registrars,
   };
 }

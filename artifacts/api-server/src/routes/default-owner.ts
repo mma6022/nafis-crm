@@ -8,10 +8,12 @@ import { Router, type IRouter } from "express";
 import { requirePermission } from "../lib/access-control";
 import type { AuthUser } from "../lib/auth";
 import { crmDb, queryRows } from "../lib/crm-db";
-import { DEFAULT_OWNER_EXCLUDED_USER_IDS, REGISTRATION_SOURCES, getDefaultOwnerConfig, saveDefaultOwnerConfig, validateDefaultOwnerConfig } from "../lib/default-owner-rule";
+import { ensureDefaultOwnerSchema, DEFAULT_OWNER_EXCLUDED_USER_IDS, REGISTRATION_SOURCES, getDefaultOwnerConfig, saveDefaultOwnerConfig, validateDefaultOwnerConfig } from "../lib/default-owner-rule";
 import { registeredByRange, registeredByReport } from "../lib/registered-by-report";
 import { excludeTestOn } from "../lib/test-customers";
 
+// Tables exist from boot (the live enable script and the report need them before anyone opens the page).
+ensureDefaultOwnerSchema();
 const router: IRouter = Router();
 const isAdmin = (u: AuthUser | undefined) => u?.role === "admin" && !DEFAULT_OWNER_EXCLUDED_USER_IDS.includes(Number(u.id));
 const guard = requirePermission("customers.view");
