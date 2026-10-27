@@ -10,8 +10,8 @@
  * Display / control only: no SMS, Bale, customer or staff message.
  */
 import { execute, queryRow, queryRows } from "./crm-db";
-import { CQ_EXCLUDED_USER_IDS, CQ_TRAINEE_SALESPERSON_IDS, CQ_TRAINEE_USER_IDS, cqDisciplineSettings, cqEligible, cqFlags, ensureCallQueueSchema, type CqUser } from "./call-queue";
-import { cqDayStat, todayYmd } from "./call-queue-r2";
+import { CQ_EXCLUDED_USER_IDS, CQ_TRAINEE_SALESPERSON_IDS, CQ_TRAINEE_USER_IDS, cqDisciplineSettings, cqEligible, cqEvent, cqFlags, cqOnTime, ensureCallQueueSchema, fromTehran, type CqUser } from "./call-queue";
+import { cqDayStat, prevWorkDays, todayYmd } from "./call-queue-r2";
 import { getTeamSalesConfig } from "./team-sales";
 
 export const TRANSFER_REASON_MIN = 5;
@@ -20,6 +20,8 @@ export const TRANSFER_REASON_MAX = 500;
 export type ReceiverCheck = {
   salespersonId: number; userId: number | null; name: string; eligible: boolean; excluded: boolean; ok: boolean;
   onTimePct: number | null; overdue: number; crmCalls: number; reasons: string[]; wayBack: string;
+  /** R3-fallback: where onTimePct comes from — today, the last 7 working days, or «نامعلوم» (no CRM-button call in either; never blocks). */
+  pctSource: "today" | "7d" | "unknown"; pctUnknown: boolean;
   settings: { newPct: number; newMaxOverdue: number; mode: "warn" | "block" };
 };
 export type TransferCheckPayload = ReceiverCheck & { canOverride: boolean; needReason: boolean; reasonError?: string; customerId: number };
@@ -36,7 +38,26 @@ const fa = (v: string | number) => String(v).replace(/[0-9]/g, d => "۰۱۲۳۴�
 
 export function cqTransferCheckOn(): boolean { try { return cqFlags().transfer_check; } catch { return false; } }
 
-/** Live check of one receiver (salesperson id). Read-only. No CRM-button call yet today = no % condition (counts as OK). */
+export const CQ_PCT_FALLBACK_DAYS = 7;
+export const CQ_PCT_UNKNOWN_LABEL = "نامعلوم";
+export const CQ_SIGNAL_PCT_UNKNOWN = "signal_transfer_pct_unknown";
+/** On-time % over the last `n` working days before today (Friday + official_holidays skipped; same counting as cqDayStat). null = no counted CRM-button call. */
+export function cqOnTimePctWorkDays(user: CqUser, now = new Date(), n = CQ_PCT_FALLBACK_DAYS): { pct: number | null; counted: number; onTime: number; days: string[] } {
+  const s = cqDisciplineSettings(); const days = prevWorkDays(todayYmd(now), n);
+  let counted = 0, onTime = 0;
+  for (const ymd of days) {
+    const [y, m, d] = ymd.split("-").map(Number); const from = fromTehran(y, m, d).toISOString(); const to = new Date(Date.parse(from) + 86_400_000).toISOString();
+    for (const r of queryRows<{ link_issued_at: string; returned_at: string | null; report_saved_at: string | null; on_time: number | null }>(
+      "SELECT link_issued_at,returned_at,report_saved_at,on_time FROM call_queue_calls WHERE user_id=? AND link_issued_at>=? AND link_issued_at<?", [user.id, from, to])) {
+      if (r.report_saved_at) { counted++; if (r.on_time ?? (cqOnTime(r.link_issued_at, r.returned_at, r.report_saved_at) ? 1 : 0)) onTime++; continue; }
+      const lim = r.returned_at ? Date.parse(r.returned_at) + s.onTimeMin * 60_000 : Date.parse(r.link_issued_at) + s.onTimeCapMin * 60_000;
+      if (now.getTime() > lim) counted++;
+    }
+  }
+  return { pct: counted ? Math.round((onTime / counted) * 100) : null, counted, onTime, days };
+}
+
+/** Live check of one receiver (salesperson id). Read-only. % = today's CRM-button calls; none today → last 7 working days; none there → «نامعلوم» (no % condition, never blocks). */
 export function cqReceiverCheck(toSp: number, now = new Date()): ReceiverCheck {
   const s = cqDisciplineSettings();
   const sp = queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [toSp]);
@@ -47,16 +68,21 @@ export function cqReceiverCheck(toSp: number, now = new Date()): ReceiverCheck {
   const eligible = !excluded && cqEligible(user);
   const base = { salespersonId: toSp, userId: user?.id ?? null, name: sp?.name ?? "", settings: { newPct: s.newPct, newMaxOverdue: s.newMaxOverdue, mode: s.transferMode } };
   if (!eligible || !user) {
-    return { ...base, eligible: false, excluded, ok: false, onTimePct: null, overdue: 0, crmCalls: 0,
+    return { ...base, eligible: false, excluded, ok: false, onTimePct: null, overdue: 0, crmCalls: 0, pctSource: "unknown", pctUnknown: false,
       reasons: [excluded ? "این کاربر در فهرست مستثنای گیرنده‌ها است (کارآموز، کاربر مستثنا یا تا تأیید مدیر)." : "این کارشناس گیرنده‌ی مجاز سپردن نیست."],
       wayBack: "مدیر باید کارشناس پیگیری دیگری را در تنظیمات فروش تیمی تعیین کند." };
   }
   const d = cqDayStat(user, todayYmd(now), now);
+  let pct = d.onTimePct; let pctSource: ReceiverCheck["pctSource"] = "today"; const reasons = [...d.reasons];
+  if (pct == null) {
+    const w = cqOnTimePctWorkDays(user, now); pct = w.pct; pctSource = pct == null ? "unknown" : "7d";
+    if (pct != null && pct <= s.newPct) reasons.unshift(`به‌موقع ${pct}٪ در ${CQ_PCT_FALLBACK_DAYS} روز کاری اخیر (باید بالای ${s.newPct}٪)`);
+  }
   const way: string[] = [];
-  if (d.onTimePct != null && d.onTimePct <= s.newPct) way.push(`گزارش تماس‌های بعدی را به‌موقع ثبت کند تا درصد به‌موقع از ${fa(s.newPct)}٪ بالاتر برود`);
+  if (pct != null && pct <= s.newPct) way.push(`گزارش تماس‌های بعدی را به‌موقع ثبت کند تا درصد به‌موقع از ${fa(s.newPct)}٪ بالاتر برود`);
   if (d.overdue >= s.newMaxOverdue) way.push(`${fa(d.overdue - s.newMaxOverdue + 1)} پیگیری عقب‌افتاده را انجام دهد تا کمتر از ${fa(s.newMaxOverdue)} بماند`);
-  return { ...base, eligible: true, excluded: false, ok: d.ok, onTimePct: d.onTimePct, overdue: d.overdue, crmCalls: d.crmCalls,
-    reasons: d.reasons, wayBack: way.length ? `راه برگشت: ${way.join("؛ ")}.` : "" };
+  return { ...base, eligible: true, excluded: false, ok: reasons.length === 0, onTimePct: pct, overdue: d.overdue, crmCalls: d.crmCalls, pctSource, pctUnknown: pctSource === "unknown",
+    reasons, wayBack: way.length ? `راه برگشت: ${way.join("؛ ")}.` : "" };
 }
 
 /* Override context: set by the route for the duration of one synchronous call (node:sqlite is sync, so no interleaving). */
@@ -74,22 +100,32 @@ function logRow(r: TransferLogRow): number {
     [r.customerId, r.customerName, r.fromSp, r.toSp, r.toUser, r.actorUserId, r.source, r.mode, r.outcome, r.outcome === "override" ? 1 : 0, r.reason,
       r.check.onTimePct, r.check.overdue, JSON.stringify(r.check.reasons), r.at]);
 }
-/** After a refused hand-off rolled back: keep the «blocked» row for the manager report (best effort, never throws). */
-export function cqLogRefusedTransfer(e: TransferCheckError): void { try { logRow(e.logRow); } catch { /* never break the response */ } }
+/**
+ * «نامعلوم» signal for the managers' daily digest (cqSignals, §8-33 — no individual notification, nothing sent): one event per receiver per Tehran day.
+ * Read by GET /reports/discipline-signals and Ahmad's manager report for that day (the morning summary shows the previous working day).
+ */
+function signalPctUnknown(r: TransferLogRow): void {
+  if (!r.check.pctUnknown || r.toUser == null) return;
+  const day = todayYmd(new Date(r.at)); const [y, m, d] = day.split("-").map(Number); const from = fromTehran(y, m, d).toISOString(); const to = new Date(Date.parse(from) + 86_400_000).toISOString();
+  if (queryRow("SELECT 1 FROM call_queue_events WHERE kind=? AND user_id=? AND created_at>=? AND created_at<?", [CQ_SIGNAL_PCT_UNKNOWN, r.toUser, from, to])) return;
+  cqEvent(CQ_SIGNAL_PCT_UNKNOWN, { userId: r.toUser, salespersonId: r.toSp, customerId: r.customerId, reason: r.outcome, data: { days: CQ_PCT_FALLBACK_DAYS, source: r.source }, at: r.at });
+}
+/** After a refused hand-off rolled back: keep the «blocked» row (and the «نامعلوم» signal) for the manager report (best effort, never throws). */
+export function cqLogRefusedTransfer(e: TransferCheckError): void { try { logRow(e.logRow); signalPctUnknown(e.logRow); } catch { /* never break the response */ } }
 
 /**
  * Gate inside promoteInTx, after the closer is chosen and BEFORE any write of that hand-off.
- * Returns silently when OFF / ok / valid override (then the ok|override row is written in the same transaction); throws TransferCheckError otherwise.
+ * Returns null when OFF / ok, the override (for the hand-off's history line) on a valid override — the ok|override row is written in the same transaction; throws TransferCheckError otherwise.
  */
 export function cqTransferGate(a: { customerId: number; customerName: string | null; fromSp: number | null; toSp: number;
-  actor: { id: number; role: string }; source: string; now: Date }): void {
-  if (!cqTransferCheckOn()) return;
+  actor: { id: number; role: string }; source: string; now: Date }): { outcome: "override"; reason: string; actorRole: string } | null {
+  if (!cqTransferCheckOn()) return null;
   const s = cqDisciplineSettings();
   const check = cqReceiverCheck(a.toSp, a.now);
   const reason = overrideCtx?.reason ?? null;
   const row = (outcome: TransferLogRow["outcome"], why: string | null): TransferLogRow => ({ customerId: a.customerId, customerName: a.customerName, fromSp: a.fromSp,
     toSp: a.toSp, toUser: check.userId, actorUserId: a.actor.id, source: a.source, mode: s.transferMode, outcome, reason: why, check, at: a.now.toISOString() });
-  if (check.ok) { logRow(row("ok", null)); return; }
+  if (check.ok) { const r = row("ok", null); logRow(r); signalPctUnknown(r); return null; }
   const isAdmin = a.actor.role === "admin";
   const canOverride = check.eligible && (s.transferMode === "warn" || isAdmin);
   const payload = (reasonError?: string): TransferCheckPayload => ({ ...check, customerId: a.customerId, canOverride, needReason: canOverride, ...(reasonError ? { reasonError } : {}) });
@@ -98,7 +134,8 @@ export function cqTransferGate(a: { customerId: number; customerName: string | n
       throw new TransferCheckError(400, `دلیل نادیده گرفتن شرط باید بین ${fa(TRANSFER_REASON_MIN)} تا ${fa(TRANSFER_REASON_MAX)} نویسه باشد.`,
         payload("دلیل کوتاه یا بلند است."), row("blocked", reason.slice(0, TRANSFER_REASON_MAX)));
     }
-    logRow(row("override", reason)); return;
+    const r = row("override", reason); logRow(r); signalPctUnknown(r);
+    return { outcome: "override", reason, actorRole: a.actor.role };
   }
   const who = check.name || "کارشناس گیرنده";
   const msg = !check.eligible ? `سپردن به ${who} ممکن نیست: ${check.reasons.join("؛ ")}`

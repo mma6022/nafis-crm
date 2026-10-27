@@ -210,6 +210,13 @@ export function cqSignals(dateIn: unknown, now = new Date()) {
     items.push({ kind: "signal_manual_no_crm", userId: u.id, salespersonId: u.salespersonId, name: u.name, customerId: e.customer_id, customerName: e.customer_name ?? "",
       callId: e.call_id, manualType: e.reason, at: e.created_at, text: `ثبت دستی (${e.reason === "bale" ? "بله" : e.reason === "in_person" ? "حضوری" : "—"}) بدون تماس CRM همان روز` });
   }
+  // crm-call-queue R3-fallback: a hand-off checked while the receiver's on-time % was «نامعلوم» (no CRM-button call today nor in the last 7 working days).
+  for (const e of queryRows<any>(`SELECT e.user_id,e.customer_id,e.reason,e.created_at,c.name customer_name FROM call_queue_events e LEFT JOIN customers c ON c.id=e.customer_id
+      WHERE e.kind='signal_transfer_pct_unknown' AND e.created_at>=? AND e.created_at<? ORDER BY e.created_at`, [from, to])) {
+    const u = byId.get(Number(e.user_id)); if (!u) continue;
+    items.push({ kind: "signal_transfer_pct_unknown", userId: u.id, salespersonId: u.salespersonId, name: u.name, customerId: e.customer_id, customerName: e.customer_name ?? "",
+      outcome: e.reason, at: e.created_at, text: "درصد به‌موقع گیرنده‌ی سپردن «نامعلوم» بود (نه امروز و نه در ۷ روز کاری اخیر تماس CRM نداشت)؛ سپردن متوقف نشد" });
+  }
   if (work) {
     const prev = prevWorkDays(ymd, 5);
     for (const u of users) {

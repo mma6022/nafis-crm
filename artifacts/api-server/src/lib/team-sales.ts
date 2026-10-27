@@ -207,7 +207,7 @@ function promoteInTx(c: CustomerState, actor: Actor, cfg: TeamSalesConfig, sourc
   const choice = chooseCloserFor(c.id, c.salesperson_id, cfg);
   const closer = choice.kind === "previous_expert" ? choice.salespersonId : nextCloserSalespersonId(cfg);
   // crm-call-queue R3 «بررسی سپردن» (flag.transfer_check, OFF = no-op): may throw before any write of this hand-off → whole transaction (cursor too) rolls back.
-  cqTransferGate({ customerId: c.id, customerName: c.name, fromSp: c.salesperson_id, toSp: closer, actor, source, now });
+  const tcOverride = cqTransferGate({ customerId: c.id, customerName: c.name, fromSp: c.salesperson_id, toSp: closer, actor, source, now });
   const nowIso = now.toISOString();
   const preMax = Number(queryRow<{ m: number | null }>("SELECT MAX(id) AS m FROM site_notification_events")?.m ?? 0);
   const changed = executeChanges(
@@ -231,7 +231,9 @@ function promoteInTx(c: CustomerState, actor: Actor, cfg: TeamSalesConfig, sourc
     [c.id, actor.salespersonId ?? null, `ارتقا به اولویت ۱ توسط ${shortName(actorName)}`, null,
       [`واگذاری به ${closerName} (${choice.label}) — قبلاً ${prev}${fromForm ? " — از فرم تماس اول" : ""}`,
         `مهلت تماس ${closerName}: ${fa(cfg.closerFirstCallWorkingHours)} ساعت کاری (تا ${dueLabel})`,
-        note ? `یادداشت: ${note}` : null].filter(Boolean).join("\n"),
+        note ? `یادداشت: ${note}` : null,
+        // crm-call-queue R3: an override (admin or warn mode) stays in the customer's history with its reason.
+        tcOverride ? `انتقال با نادیده گرفتن شرط${tcOverride.actorRole === "admin" ? " (مدیر)" : ""} — دلیل: ${tcOverride.reason}` : null].filter(Boolean).join("\n"),
       nowIso, actorName]);
 
   // Exactly one bell event for the closer: reuse the customers-UPDATE trigger row, drop the call_logs one.

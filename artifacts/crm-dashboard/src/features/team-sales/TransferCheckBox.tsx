@@ -23,7 +23,7 @@ export function TransferCheckBox({ tc, pending, onOverride, actionLabel = 'ان�
       <div>
         <b>{tc.eligible ? `${tc.name || 'کارشناس گیرنده'} امروز شرط دریافت مشتری را ندارد` : `سپردن به ${tc.name || 'این کاربر'} ممکن نیست`}</b>
         {tc.eligible ? <div data-testid="ts-tc-numbers" style={{ fontWeight: 500 }}>
-          درصد به‌موقع: {tc.onTimePct == null ? 'هنوز تماسی نیست' : `${fa(tc.onTimePct)}٪`} (باید بالای {fa(tc.settings.newPct)}٪ باشد) ·
+          درصد به‌موقع: {tc.onTimePct == null ? (tc.pctUnknown ? 'نامعلوم' : 'هنوز تماسی نیست') : `${fa(tc.onTimePct)}٪${tc.pctSource === '7d' ? ' (۷ روز کاری اخیر)' : ''}`} (باید بالای {fa(tc.settings.newPct)}٪ باشد) ·
           پیگیری عقب‌افتاده: {fa(tc.overdue)} (باید کمتر از {fa(tc.settings.newMaxOverdue)} باشد)
         </div> : null}
         {tc.reasons.length ? <div style={{ fontWeight: 500 }} data-testid="ts-tc-reasons">{fa(tc.reasons.join('؛ '))}</div> : null}

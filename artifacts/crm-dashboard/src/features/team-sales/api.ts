@@ -58,6 +58,7 @@ export type QualifyResult = {
 export type TransferCheck = {
   salespersonId: number; userId: number | null; name: string; eligible: boolean; excluded: boolean; ok: boolean;
   onTimePct: number | null; overdue: number; crmCalls: number; reasons: string[]; wayBack: string;
+  pctSource?: 'today' | '7d' | 'unknown'; pctUnknown?: boolean;
   settings: { newPct: number; newMaxOverdue: number; mode: 'warn' | 'block' };
   canOverride: boolean; needReason: boolean; reasonError?: string;
 };

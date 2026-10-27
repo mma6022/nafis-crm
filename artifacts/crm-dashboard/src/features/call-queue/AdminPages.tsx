@@ -119,7 +119,7 @@ export function CallQueueDisciplinePage() {
       {tr.data?.items.length ? <table className="cq-table" data-testid="cq-transfers-table"><thead><tr><th>زمان</th><th>مشتری</th><th>گیرنده</th><th>به‌موقع / عقب‌افتاده</th><th>نتیجه</th><th>دلیل</th><th>انجام‌دهنده</th></tr></thead>
         <tbody>{tr.data.items.map((r) => <tr key={r.id} className={r.outcome === 'ok' ? '' : 'out'} data-testid="cq-transfer-row">
           <td>{faClock(r.createdAt)}</td><td><Link href={`/customers/${r.customerId}`}>{r.customerName ?? `#${faNum(r.customerId)}`}</Link></td><td>{r.toName ?? '—'}</td>
-          <td>{r.onTimePct == null ? '—' : `${faNum(r.onTimePct)}٪`} / {faNum(r.overdue ?? 0)}</td>
+          <td>{r.onTimePct == null ? 'نامعلوم' : `${faNum(r.onTimePct)}٪`} / {faNum(r.overdue ?? 0)}</td>
           <td>{r.outcome === 'override' ? 'انتقال با نادیده گرفتن شرط' : r.outcome === 'blocked' ? 'انجام نشد' : 'با شرط'} <small>({r.mode === 'block' ? 'جلوگیری' : 'هشدار'})</small></td>
           <td>{r.overrideReason ?? (r.reasons.length ? r.reasons.join('؛ ') : '—')}</td><td>{r.actorName ?? '—'}</td></tr>)}</tbody></table>
         : tr.data ? <p className="cq-empty" data-testid="cq-transfers-empty">موردی نیست.</p> : null}
