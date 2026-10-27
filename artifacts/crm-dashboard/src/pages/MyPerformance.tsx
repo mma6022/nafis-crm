@@ -23,7 +23,7 @@ function psLabel(p: Period, ps: string): string {
 const TABS: { id: Period; label: string; prev: string }[] = [
   { id: 'day', label: 'روز گذشته', prev: 'روز قبلش' }, { id: 'week', label: 'هفته', prev: 'هفته‌ی قبل' }, { id: 'month', label: 'ماه', prev: 'ماه قبل' }];
 const fa = (n: number | string) => toPersianDigits(String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','));
-const faDate = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('fa-IR', { timeZone: 'Asia/Tehran', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }); };
+const faDate = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }); };
 async function getJson<T>(url: string): Promise<T> {
   const r = await fetch(url, { credentials: 'include' }); const b = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(r.status === 403 ? 'این صفحه برای حساب شما فعال نیست.' : (b as { message?: string }).message || 'دریافت اطلاعات انجام نشد.');

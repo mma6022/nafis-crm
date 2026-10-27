@@ -51,6 +51,27 @@ export function jalaliValueToGregorian(value: string) {
   return date ? date.toISOString().slice(0, 10) : undefined;
 }
 
+/** 'YYYY-MM-DD' (Gregorian calendar day, as stored/sent to the API) → Jalali 'YYYY/MM/DD' for display. */
+export function gregorianToJalaliValue(value: string | null | undefined) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return '';
+  const date = new Date(`${value}T12:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = persianParts(date);
+  return formatJalaliValue(parts.year, parts.month, parts.day);
+}
+
+/** File-name day: Gregorian 'YYYY-MM-DD' → Jalali '1405-08-05' ('all' when empty). */
+export function jalaliFileDay(value: string | null | undefined) {
+  const jalali = gregorianToJalaliValue(value);
+  return jalali ? jalali.replace(/\//g, '-') : 'all';
+}
+
+/** Today in Tehran as Jalali '1405-08-05' for file names. */
+export function tehranJalaliFileDay(now: Date = new Date()) {
+  const parts = tehranPersianParts(now);
+  return formatJalaliValue(parts.year, parts.month, parts.day).replace(/\//g, '-');
+}
+
 export function jalaliValueToDate(value: string) {
   const gregorian = jalaliValueToGregorian(value);
   return gregorian ? new Date(`${gregorian}T12:00:00.000Z`) : undefined;
@@ -69,13 +90,31 @@ export function dateToJalaliValue(date: Date) {
   return formatJalaliValue(parts.year, parts.month, parts.day);
 }
 
-export function todayJalali() {
-  return persianParts(new Date());
+const tehranPersianDateFormatter = new Intl.DateTimeFormat('en-US-u-ca-persian-nu-latn', {
+  year: 'numeric',
+  month: 'numeric',
+  day: 'numeric',
+  timeZone: 'Asia/Tehran',
+});
+
+/** Jalali calendar day of an instant as seen in Tehran (not UTC). */
+export function tehranPersianParts(date: Date) {
+  const values = Object.fromEntries(
+    tehranPersianDateFormatter
+      .formatToParts(date)
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, Number(part.value)]),
+  );
+  return { year: values.year, month: values.month, day: values.day };
 }
 
-export function defaultReminderJalali() {
-  const future = new Date(Date.now() + 30 * 60_000);
-  const date = persianParts(future);
+export function todayJalali() {
+  return tehranPersianParts(new Date());
+}
+
+export function defaultReminderJalali(now: number = Date.now()) {
+  const future = new Date(now + 30 * 60_000);
+  const date = tehranPersianParts(future);
   const timeFormatter = new Intl.DateTimeFormat('en-US-u-nu-latn', {
     hour: '2-digit',
     minute: '2-digit',

@@ -12,6 +12,7 @@ import {
 } from '@workspace/api-client-react';
 import { ErrorState, SkeletonPanel } from '@/components/CrmShell';
 import { ExpertIntroSmsCard } from '@/features/expert-intro-sms/ExpertIntroSmsCard';
+import { tehranJalaliFileDay } from '@/lib/jalali';
 
 export default function NotificationSettingsPage() {
   const queryClient = useQueryClient();
@@ -62,7 +63,7 @@ export default function NotificationSettingsPage() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `crm-backup-${new Date().toISOString().slice(0, 10)}.db`;
+      anchor.download = `crm-backup-${tehranJalaliFileDay()}.db`;
       anchor.click();
       URL.revokeObjectURL(url);
       setDatabaseMessage('نسخه پشتیبان آماده و دانلود شد.');

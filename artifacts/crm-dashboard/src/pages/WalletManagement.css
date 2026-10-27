@@ -400,3 +400,4 @@
     margin: 4px auto;
   }
 }
+.wm-date .persian-date-trigger { min-height: 36px; font-size: 11px; padding: 0 8px; }

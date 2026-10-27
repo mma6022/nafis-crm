@@ -5,7 +5,7 @@ import { historyActionLabel, historyDetailsFa } from '@/lib/loan-history-fa.mjs'
 import { fetchHistory, type HistoryEvent } from './api';
 import './case-history.css';
 
-const when = (v: string) => new Date(v).toLocaleString('fa-IR', { dateStyle: 'medium', timeStyle: 'short' });
+const when = (v: string) => new Date(v).toLocaleString('fa-IR-u-ca-persian', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Tehran' });
 const FOCUSABLE = 'a[href],button:not([disabled]),textarea,input,select,[tabindex]:not([tabindex="-1"])';
 
 export function CaseHistoryDialog({ applicationId, onClose }: { applicationId: number; onClose: () => void }) {

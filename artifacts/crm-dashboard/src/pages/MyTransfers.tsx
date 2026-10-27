@@ -8,7 +8,7 @@ import type { MyTransfer } from '@/lib/other-owner';
 import './customers.css';
 import '@/components/customer/other-owner.css';
 
-const faDate = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('fa-IR', { timeZone: 'Asia/Tehran', year: 'numeric', month: 'long', day: 'numeric' }); };
+const faDate = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', year: 'numeric', month: 'long', day: 'numeric' }); };
 
 export default function MyTransfers() {
   const q = useQuery({

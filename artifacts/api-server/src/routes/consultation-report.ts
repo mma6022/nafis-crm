@@ -13,6 +13,7 @@ import {
   type ConsultFilters, type CustomerExtras, type DerivedFacts, type MatchLike,
 } from "../lib/consultation-report";
 import { activeMatchPlans, computeConsultationPlanMatches, consultationFromRow } from "./crm";
+import { tehranJalaliFileDay } from "../lib/jalali-file-day";
 
 type Row = Parameters<typeof consultationFromRow>[0] & {
   plan_matches_snapshot?: string | null; customer_salesperson_id?: number | null; customer_city?: string | null; case_id?: number | null;
@@ -139,7 +140,7 @@ router.get("/consultations/report/export", requirePermission("consultations.view
   const all = consultationReport(user, q);
   const body = "\ufeff" + [CSV_HEADER.join(","), ...all.map((e) => csvRow(e.consultation, e.facts))].join("\r\n") + "\r\n";
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", `attachment; filename="consultations-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.setHeader("Content-Disposition", `attachment; filename="consultations-${tehranJalaliFileDay()}.csv"`);
   res.setHeader("Cache-Control", "no-store");
   res.send(body);
 });

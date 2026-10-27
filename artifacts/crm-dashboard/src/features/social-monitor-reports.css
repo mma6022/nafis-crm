@@ -59,3 +59,6 @@
 .smr-start{text-align:center;color:#94a3b8;font-size:11px}
 .smr-older{justify-self:center}
 .smr-messages{max-height:60vh;padding:4px}
+.smr-date{display:grid;gap:5px;min-width:150px;font-size:12px;font-weight:700;color:#475569}
+.smr-date .persian-date-trigger{min-height:38px;font-weight:400}
+@media(max-width:760px){.smr-date{flex:1;min-width:calc(50% - 8px)}}

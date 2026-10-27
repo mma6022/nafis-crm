@@ -8,7 +8,7 @@ import { ErrorState, SkeletonPanel } from '@/components/CrmShell';
 import { useTeamSalesConfig } from '@/features/team-sales/api';
 import { CommissionReport } from '@/features/team-commission/CommissionBreakdown';
 import { TeamSettingsTab } from '@/features/team-commission/TeamSettingsTab';
-import { api, digitsOnly, errText, toBig, toman, useMe, type SalespersonSettings, type SalespersonSummary } from '@/lib/goods-api';
+import { api, digitsOnly, errText, monthLabel, toBig, toman, useMe, type SalespersonSettings, type SalespersonSummary } from '@/lib/goods-api';
 
 export function useSalespersonSummary(id?: number | null) {
   return useQuery({ queryKey: ['salesperson-summary', id], queryFn: () => api.get<SalespersonSummary>(`/goods-finance/salespersons/${id}/summary`), enabled: Boolean(id), staleTime: 30_000 });
@@ -21,7 +21,7 @@ export function SalespersonSummaryCard({ id, compact = false }: { id: number; co
   const s = q.data;
   return <div className="gp-commission">
     <div className="gp-wallet"><Coins size={20} /><span>کیف پول پورسانت</span><strong>{toman(s.balanceToman)}</strong><small>انباشته و بدون صفرشدن ماهانه</small></div>
-    <div className="gp-fig"><span>فروش ماه {s.month}</span><strong>{toman(s.monthlySalesToman)}</strong></div>
+    <div className="gp-fig"><span>فروش ماه {monthLabel(s.month)}</span><strong>{toman(s.monthlySalesToman)}</strong></div>
     <div className="gp-fig teal"><span>کل فروش</span><strong>{toman(s.totalSalesToman)}</strong></div>
     {compact ? <Link href="/sales-commissions" className="text-link">دفتر پورسانت</Link> : null}
   </div>;

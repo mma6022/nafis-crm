@@ -14,6 +14,8 @@ import { Link } from 'wouter';
 import { Search, ArrowLeftRight, ArrowUp, ArrowDown, ArrowUpDown, Check, X, AlertCircle, ChevronLeft, ChevronRight, CheckCircle2, RotateCcw } from 'lucide-react';
 import { SkeletonPanel, ErrorState, formatDateTime } from '@/components/CrmShell';
 import './WalletManagement.css';
+import { PersianDatePicker } from '@/components/PersianDatePicker';
+import { gregorianToJalaliValue, jalaliValueToGregorian } from '@/lib/jalali';
 import CompanyWalletPanel from './CompanyWalletPanel';
 import { CustomerIdBadge, CustomerName, customerNameText } from '@/components/customer/CustomerName';
 import TransactionsStatus from '@/features/tx-status/TransactionsStatus';
@@ -688,12 +690,12 @@ function TransactionsTab() {
         
         <div className="flex items-center gap-2 border-r border-slate-200 pr-3">
           <span className="text-[11px] text-slate-500 font-bold">از</span>
-          <input type="date" value={filters.from} onChange={e => updateFilter('from', e.target.value)} className="w-[115px] font-mono text-[11px]" />
+          <div className="w-[140px] wm-date"><PersianDatePicker value={gregorianToJalaliValue(filters.from)} onChange={v => updateFilter('from', v ? (jalaliValueToGregorian(v) ?? '') : '')} placeholder="از تاریخ" testId="input-wallet-from" /></div>
         </div>
         
         <div className="flex items-center gap-2">
           <span className="text-[11px] text-slate-500 font-bold">تا</span>
-          <input type="date" value={filters.to} onChange={e => updateFilter('to', e.target.value)} className="w-[115px] font-mono text-[11px]" />
+          <div className="w-[140px] wm-date"><PersianDatePicker value={gregorianToJalaliValue(filters.to)} onChange={v => updateFilter('to', v ? (jalaliValueToGregorian(v) ?? '') : '')} placeholder="تا تاریخ" testId="input-wallet-to" /></div>
         </div>
 
         <button 

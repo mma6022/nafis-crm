@@ -11,6 +11,9 @@ import { GradePicker } from '@/components/grade/GradePicker';
 import { gradeText, isLegacy } from '@/lib/credit-grade';
 import { CustomerName } from '@/components/customer/CustomerName';
 import { VoiceNoteButton } from '@/features/voice-notes/VoiceNoteButton';
+import { PersianDatePicker } from '@/components/PersianDatePicker';
+import { formatJalaliValue, jalaliToIso, parseJalaliValue, tehranPersianParts } from '@/lib/jalali';
+import { tehranJalaliValue } from '@/lib/goods-api';
 
 /**
  * First-call form (design crm-call-form-plans): 6 steps when the customer answered —
@@ -20,7 +23,7 @@ import { VoiceNoteButton } from '@/features/voice-notes/VoiceNoteButton';
  * Other call results keep only step 1 and the note.
  */
 type Draft = {
-  step: number; callResult: CallResult | null; callbackAt: string; amount: string;
+  step: number; callResult: CallResult | null; callbackAt: string; callbackDate: string; callbackHour: string; callbackMinute: string; amount: string;
   urgency: SimpleAnswers['urgency']; docsReady: SimpleAnswers['docsReady']; creditRank: string | null;
   cheque: 'check' | 'promissory' | 'none' | null; bounced: 'yes' | 'no' | null;
   gAvail: Tri | null; gCheque: Tri | null; gRank: string | null; selected: number[]; note: string;
@@ -28,10 +31,25 @@ type Draft = {
   /** null = not touched: follows the server default (checked when no plan fits or depends). */
   noPlan: boolean | null; noPlanNote: string;
 };
-const EMPTY: Draft = { step: 1, callResult: null, callbackAt: '', amount: '', urgency: null, docsReady: null, creditRank: null, cheque: null, bounced: null,
+const EMPTY: Draft = { step: 1, callResult: null, callbackAt: '', callbackDate: '', callbackHour: '', callbackMinute: '', amount: '', urgency: null, docsReady: null, creditRank: null, cheque: null, bounced: null,
   gAvail: null, gCheque: null, gRank: null, selected: [], note: '',
   military: null, jobType: null, gJobType: null, city: '', cityTouched: false, noPlan: null, noPlanNote: '' };
 // New key: a 3-step draft from the old form has a different step numbering and must not be restored into this one.
+/** «زمان تماس بعدی»: Jalali date + Tehran hour/minute → ISO (UTC) for the API; '' while incomplete/invalid. */
+export function callbackIso(date: string, hour: string, minute: string): string {
+  const p = parseJalaliValue(date);
+  if (!p || hour.trim() === '' || minute.trim() === '') return '';
+  return jalaliToIso(p.year, p.month, p.day, Number(hour), Number(minute)) ?? '';
+}
+/** Drafts saved before the Jalali picker held a browser-local datetime-local value; carry it over as Tehran Jalali parts. */
+function migrateCallback(raw: Partial<Draft>): Partial<Draft> {
+  if (!raw.callbackAt || raw.callbackDate !== undefined) return raw;
+  const t = new Date(raw.callbackAt);
+  if (Number.isNaN(t.getTime())) return { ...raw, callbackAt: '' };
+  const p = tehranPersianParts(t);
+  const hm = new Intl.DateTimeFormat('en-US-u-nu-latn', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Asia/Tehran' }).format(t).split(':');
+  return { ...raw, callbackAt: t.toISOString(), callbackDate: formatJalaliValue(p.year, p.month, p.day), callbackHour: hm[0], callbackMinute: hm[1] };
+}
 const draftKey = (userId: number | undefined, customerId: number) => `nafis-ts-firstcall-draft:${userId ?? 0}:${customerId}`;
 const STEP_NOTE = 6;
 const STEP_PROFILE = 7; // applicant sub-step (between 3 and 4)
@@ -175,7 +193,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   edit?: FirstCallEditMode;
 }) {
   const key = draftKey(userId, customer.id);
-  const [d, setD] = useState<Draft>(() => { if (edit) return draftFromFirstCall(edit.fc); try { const raw = localStorage.getItem(key); return raw ? { ...EMPTY, ...JSON.parse(raw) } : EMPTY; } catch { return EMPTY; } });
+  const [d, setD] = useState<Draft>(() => { if (edit) return draftFromFirstCall(edit.fc); try { const raw = localStorage.getItem(key); return raw ? { ...EMPTY, ...migrateCallback(JSON.parse(raw)) } : EMPTY; } catch { return EMPTY; } });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
   const [serverError, setServerError] = useState('');
@@ -259,7 +277,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   const answers = useMemo<SimpleAnswers>(() => {
     const a: SimpleAnswers = { mode: 'simple', callResult: d.callResult ?? 'no_answer', formVersion: 2 };
     if (d.callResult === 'callback' && d.callbackAt) {
-      // datetime-local is '' until picked; never call toISOString on an invalid date (it throws and crashes the page)
+      // callbackAt is '' until date+hour+minute are complete; never call toISOString on an invalid date (it throws and crashes the page)
       const t = new Date(d.callbackAt);
       if (!Number.isNaN(t.getTime())) a.callbackAt = t.toISOString();
     }
@@ -421,8 +439,16 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
       <div className="ts-script"><b>بگو:</b><p>«سلام، وقتتون بخیر. از نفیس وام تماس می‌گیرم، شماره‌تون رو برای مشاوره‌ی وام گذاشته بودید.»</p></div>
       <fieldset className="ts-q"><legend>نتیجه‌ی تماس <span className="req">*</span></legend>
         <Chips name="callResult" list={CALL_RESULTS} value={d.callResult} onChange={(v) => set({ callResult: v })} cols />{err('callResult')}</fieldset>
-      {d.callResult === 'callback' ? <div className="ts-q"><label htmlFor="ts-callback">زمان تماس بعدی <span className="req">*</span></label>
-        <input id="ts-callback" className="ts-inp ltr" type="datetime-local" value={d.callbackAt} onChange={(e) => set({ callbackAt: e.target.value })} aria-invalid={Boolean(errors.callbackAt)} data-testid="ts-callback-at" />{err('callbackAt')}</div> : null}
+      {d.callResult === 'callback' ? <div className="ts-q"><label id="ts-callback-label">زمان تماس بعدی <span className="req">*</span></label>
+        <div className="ts-callback-row" id="ts-callback" role="group" aria-labelledby="ts-callback-label" data-testid="ts-callback-at" data-iso={d.callbackAt} aria-invalid={Boolean(errors.callbackAt)}>
+          <PersianDatePicker value={d.callbackDate} minValue={tehranJalaliValue(0)} onChange={(v) => set({ callbackDate: v, callbackAt: callbackIso(v, d.callbackHour, d.callbackMinute) })} placeholder="انتخاب تاریخ (شمسی)" testId="ts-callback-date" popoverClassName="ts-callback-popover" />
+          <div className="reminder-time-grid ts-callback-time" dir="ltr">
+            <input className="ts-inp" type="number" inputMode="numeric" min="0" max="23" placeholder="ساعت" value={d.callbackHour} onChange={(e) => set({ callbackHour: e.target.value, callbackAt: callbackIso(d.callbackDate, e.target.value, d.callbackMinute) })} aria-label="ساعت تماس بعدی (به وقت تهران)" data-testid="ts-callback-hour" />
+            <span>:</span>
+            <input className="ts-inp" type="number" inputMode="numeric" min="0" max="59" placeholder="دقیقه" value={d.callbackMinute} onChange={(e) => set({ callbackMinute: e.target.value, callbackAt: callbackIso(d.callbackDate, d.callbackHour, e.target.value) })} aria-label="دقیقه" data-testid="ts-callback-minute" />
+          </div>
+        </div>
+        <p className="ts-callback-note">ساعت به وقت تهران</p>{err('callbackAt')}</div> : null}
     </>;
   } else if (d.step === 2) {
     body = <>

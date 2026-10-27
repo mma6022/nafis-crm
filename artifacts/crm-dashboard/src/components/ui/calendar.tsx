@@ -1,3 +1,8 @@
+/**
+ * DO NOT USE for dates shown to users: this shadcn Calendar renders a Gregorian DayPicker.
+ * The CRM shows Jalali (شمسی) dates everywhere — use `@/components/PersianDatePicker` instead.
+ * Kept only because it is part of the generated ui kit; nothing imports it (date audit L4).
+ */
 'use client';
 
 import * as React from 'react';

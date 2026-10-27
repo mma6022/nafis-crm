@@ -86,4 +86,4 @@ export const pct = (bps: number) => `${fa((bps / 100).toString())}٪`;
 /** «۱۴۰۵-۰۸-۰۲» -> «۲ آبان ۱۴۰۵» */
 const MONTHS = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'];
 export const jalaliLabel = (d: string) => { const [y, m, day] = d.split('-').map(Number); return day ? `${fa(day)} ${MONTHS[m - 1]} ${fa(y)}` : `${MONTHS[m - 1]} ${fa(y)}`; };
-export const faDateTime = (iso: string) => new Date(iso).toLocaleString('fa-IR', { timeZone: 'Asia/Tehran', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+export const faDateTime = (iso: string) => new Date(iso).toLocaleString('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });

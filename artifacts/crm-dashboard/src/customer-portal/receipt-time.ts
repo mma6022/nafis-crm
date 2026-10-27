@@ -15,3 +15,15 @@ export function receiptTime(value: string | null | undefined, now: Date = new Da
   if (k === dayKey(new Date(now.getTime() - 86_400_000))) return `دیروز ${t}`;
   return `${date.format(d)}، ${t}`;
 }
+
+/** Tehran calendar-day key (Gregorian YYYY-MM-DD; for grouping only). */
+export const tehranDayKey = (v: string | number | Date) => dayKey(new Date(v));
+/** «امروز» / «دیروز» / «۲۹ مهر ۱۴۰۵», judged by the Tehran day. */
+export function tehranDayLabel(v: string | number | Date, now: Date = new Date()): string {
+  const k = tehranDayKey(v);
+  if (k === dayKey(now)) return 'امروز';
+  if (k === dayKey(new Date(now.getTime() - 86_400_000))) return 'دیروز';
+  return date.format(new Date(v));
+}
+/** Tehran hour:minute in Persian digits. */
+export const tehranClock = (v: string | number | Date) => clock.format(new Date(v));

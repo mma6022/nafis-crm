@@ -495,6 +495,10 @@ export function createAssistants(deps: Deps) {
   const tehranClock = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
   const tehranText = (isoAt: string) => { const d = new Date(isoAt); if (Number.isNaN(d.getTime())) return null;
     const p = Object.fromEntries(tehranClock.formatToParts(d).map(x => [x.type, x.value])); return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`; };
+  /** Jalali twin of tehranText for the assistant to quote (e.g. "۱۴۰۵/۰۸/۰۵ ۱۴:۰۵"); the Gregorian fields stay as they were. */
+  const tehranClockFa = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { timeZone: "Asia/Tehran", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const tehranTextFa = (isoAt: string) => { const d = new Date(isoAt); if (Number.isNaN(d.getTime())) return null;
+    const p = Object.fromEntries(tehranClockFa.formatToParts(d).map(x => [x.type, x.value])); return `${p.year}/${p.month}/${p.day} ${p.hour}:${p.minute}`; };
   const maskName = (n: unknown) => { const w = String(n ?? "").trim().split(/\s+/).filter(Boolean); if (!w.length) return null;
     return maskText([w[0], ...w.slice(1).map(x => `${Array.from(x)[0]}…`)].join(" ")); };
   const SOURCE_FA: Record<string, string> = { qualifier_form: "فرم سنجش کاظمی — واگذاری (تقسیم عادلانه)", customer_update: "ویرایش دستی مشتری", nonp1_auto_transfer: "انتقال خودکار غیر اولویت ۱", promote: "ارتقای اولویت" };
@@ -513,8 +517,9 @@ export function createAssistants(deps: Deps) {
         reason: { source: h.source ?? null, label: SOURCE_FA[String(h.source)] ?? h.source ?? null, rule, text: h.reason ? maskText(h.reason).slice(0, 200) : null,
           byUser: userName(h.actor_user_id) ?? null, newPriority: h.new_priority == null ? null : Number(h.new_priority) },
         toWhom: { salespersonId: Number(h.new_salesperson_id), name: spName(h.new_salesperson_id) },
-        at: h.created_at, atTehran: tehranText(h.created_at),
-        requestAnsweredAt: lead?.answered_at ?? null, requestAnsweredAtTehran: lead?.answered_at ? tehranText(lead.answered_at) : null };
+        at: h.created_at, atTehran: tehranText(h.created_at), atTehranFa: tehranTextFa(h.created_at),
+        requestAnsweredAt: lead?.answered_at ?? null, requestAnsweredAtTehran: lead?.answered_at ? tehranText(lead.answered_at) : null,
+        requestAnsweredAtTehranFa: lead?.answered_at ? tehranTextFa(lead.answered_at) : null };
     });
   }
   runner.get("/my-context", (_req, res) => {

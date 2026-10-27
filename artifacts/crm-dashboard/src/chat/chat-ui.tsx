@@ -40,7 +40,7 @@ export function dayLabel(iso: string) {
   const k = dayKey(iso); const now = Date.now();
   if (k === dayKey(new Date(now).toISOString())) return 'امروز';
   if (k === dayKey(new Date(now - 864e5).toISOString())) return 'دیروز';
-  return new Date(iso).toLocaleDateString('fa-IR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: TZ });
+  return new Date(iso).toLocaleDateString('fa-IR-u-ca-persian', { weekday: 'long', day: 'numeric', month: 'long', timeZone: TZ });
 }
 /** List-row time: clock for today, «دیروز», weekday within a week, otherwise a short date. */
 export function listTime(iso?: string | null) {
@@ -49,8 +49,8 @@ export function listTime(iso?: string | null) {
   const lbl = dayLabel(iso);
   if (lbl === 'امروز') return clock(iso);
   if (lbl === 'دیروز') return lbl;
-  if (age < 6 * 864e5) return d.toLocaleDateString('fa-IR', { weekday: 'long', timeZone: TZ });
-  return d.toLocaleDateString('fa-IR', { day: 'numeric', month: 'short', timeZone: TZ });
+  if (age < 6 * 864e5) return d.toLocaleDateString('fa-IR-u-ca-persian', { weekday: 'long', timeZone: TZ });
+  return d.toLocaleDateString('fa-IR-u-ca-persian', { day: 'numeric', month: 'short', timeZone: TZ });
 }
 export const fsize = (n: number | null | undefined) => n == null ? '' : n >= 1048576 ? `${(n / 1048576).toLocaleString('fa-IR', { maximumFractionDigits: 1 })} مگابایت` : `${Math.max(1, Math.ceil(n / 1024)).toLocaleString('fa-IR')} کیلوبایت`;
 export const fileTypeLabel = (mime?: string | null, name?: string | null) => {

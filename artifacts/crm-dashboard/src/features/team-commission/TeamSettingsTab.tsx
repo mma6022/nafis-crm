@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, CalendarDays, Check, Coins, Gift, History, Layers, Lock, Power, Star, Users } from 'lucide-react';
 import { fa, faDateTime, jalaliLabel, latin, pct, tcApi, tm, TeamCommissionApiError, type TeamSettings, type TeamSettingsPayload } from './api';
 import './team-commission.css';
+import { PersianDatePicker } from '@/components/PersianDatePicker';
 
 type Form = Omit<TeamSettings, 'teamSplit'> & { teamSplit: Array<{ salespersonId: number; percent: string }> };
 const SAMPLE = 300_000_000n;
@@ -139,9 +140,9 @@ export function TeamSettingsTab() {
     </> : <div className="tc-offbox">خاموش است و هیچ پاداش تیمی حساب نمی‌شود. با روشن‌کردن: {pct(tb ?? 0)} فروش تیم بالای {short(thr)} تومان، تقسیم {f.teamSplit.map((t) => fa(String(Number(latin(t.percent))))).join('/')}.</div>}
   </section>;
   const secD = <section className="tc-sec"><header><h2><CalendarDays size={20} /> تاریخ شروع مدل</h2></header>
-    <div className="tc-sf"><label className="tc-lbl" htmlFor="tc-modelStartDate">از این تاریخ اعمال می‌شود (شمسی)</label>
-      <input id="tc-modelStartDate" className="tc-inp" dir="ltr" style={{ textAlign: 'left' }} value={fa(f.modelStartDate.replace(/-/g, '/'))} onChange={(e) => set('modelStartDate', latin(e.target.value).replace(/[^\d/-]/g, ''))}
-        aria-invalid={errs.modelStartDate ? true : undefined} data-testid="tc-set-modelStartDate" />
+    <div className="tc-sf"><label className="tc-lbl">از این تاریخ اعمال می‌شود (شمسی)</label>
+      <div id="tc-modelStartDate" className="tc-date" aria-invalid={errs.modelStartDate ? true : undefined}>
+        <PersianDatePicker value={latin(f.modelStartDate).replace(/-/g, '/')} onChange={(v) => set('modelStartDate', v.replace(/\//g, '-'))} placeholder="انتخاب تاریخ شمسی" testId="tc-set-modelStartDate" /></div>
       {errs.modelStartDate ? <p className="tc-ferr" role="alert"><AlertCircle size={16} /> {errs.modelStartDate}</p> : <span className="help">{jalaliLabel(latin(f.modelStartDate).replace(/\//g, '-'))} — فقط فروش‌هایی که از این تاریخ به بعد ثبت می‌شوند. پورسانت‌های قبلی دست نمی‌خورند.</span>}
     </div></section>;
   const secR = <section className="tc-sec"><header><h2><Layers size={20} /> نرخ پلکانی کارشناس‌ها</h2><span className="tc-rotag"><Lock size={14} /> بدون تغییر</span></header>

@@ -34,7 +34,7 @@ import { CustomerLogin } from './CustomerLogin';
 import { ExpertPickerButton } from './ExpertPicker';
 
 const number = (value: string | number | null | undefined) => value == null || value === '' ? '—' : Number(value).toLocaleString('fa-IR');
-const date = (value?: string) => value ? new Date(value).toLocaleDateString('fa-IR') : '—';
+const date = (value?: string) => value ? new Date(value).toLocaleDateString('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran' }) : '—';
 const digits = (value: string) => value.replace(/[۰-۹]/g, c => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(c))).replace(/[٠-٩]/g, c => String('٠١٢٣٤٥٦٧٨٩'.indexOf(c)));
 const message = (error: unknown) => error instanceof Error ? error.message : 'درخواست انجام نشد. دوباره تلاش کنید.';
 const verified = (profile: Profile) => profile.verificationStatus === 'verified';
@@ -192,7 +192,7 @@ function RequestsPage() {
   </div>;
 }
 
-const clock = new Intl.DateTimeFormat('fa-IR', { hour: '2-digit', minute: '2-digit' });
+const clock = new Intl.DateTimeFormat('fa-IR', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tehran' });
 function ApplicationDetail() {
   const { id } = useParams<{ id: string }>();
   const appId = Number(id);

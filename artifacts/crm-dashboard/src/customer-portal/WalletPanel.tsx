@@ -8,6 +8,7 @@ import { BottomSheet } from './BottomSheet';
 import { Icon } from './PortalUi';
 import { Crumb, HelpCard, Toman } from './Portal2Ui';
 import { findFeeDraft } from './fee-draft';
+import { tehranClock, tehranDayLabel } from './receipt-time';
 
 const digits = (v: string) => v.replace(/[۰-۹]/g, c => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(c))).replace(/[٠-٩]/g, c => String('٠١٢٣٤٥٦٧٨٩'.indexOf(c))).replace(/[,\s٬]/g, '');
 const msg = (e: unknown) => e instanceof Error ? e.message : 'درخواست انجام نشد.';
@@ -15,13 +16,8 @@ const money = (v: string | number | null | undefined) => { try { return v == nul
 const num = (v: string | number | null | undefined) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const kindLabels: Record<string, string> = { top_up: 'شارژ آنلاین', transfer_in: 'انتقال دریافتی', transfer_out: 'انتقال ارسالی', filing_fee: 'هزینه تشکیل پرونده' };
 const newKey = () => crypto.randomUUID();
-export const dayLabel = (v: string) => {
-  const d = new Date(v); const today = new Date(); const y = new Date(); y.setDate(today.getDate() - 1);
-  if (d.toDateString() === today.toDateString()) return 'امروز';
-  if (d.toDateString() === y.toDateString()) return 'دیروز';
-  return new Intl.DateTimeFormat('fa-IR-u-ca-persian', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
-};
-const clock = (v: string) => new Date(v).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
+export const dayLabel = (v: string) => tehranDayLabel(v);
+const clock = (v: string) => tehranClock(v);
 
 type Receipt = { id: number; amount: string; name: string };
 function TransferSheet({ open, onClose, cash, onDone }: { open: boolean; onClose: () => void; cash: string | null; onDone: (r: Receipt) => void }) {

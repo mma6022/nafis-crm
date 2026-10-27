@@ -199,6 +199,7 @@ import {
   resolveSalespersonIdentity,
   salespersonIdentityReport,
 } from "../lib/salesperson-identity";
+import { tehranJalaliFileDay } from "../lib/jalali-file-day";
 
 const router: IRouter = Router();
 
@@ -502,7 +503,7 @@ router.get("/database-backup", requireAdmin, (_req, res): void => {
     backupPath = createDatabaseBackup("download");
     res.download(
       backupPath,
-      `crm-backup-${new Date().toISOString().slice(0, 10)}.db`,
+      `crm-backup-${tehranJalaliFileDay()}.db`,
       (error) => {
         if (backupPath) fs.rmSync(backupPath, { force: true });
         if (error && !res.headersSent)

@@ -38,7 +38,7 @@ export function CustomerConsultationStatus({ customerId }: { customerId?: number
   return <div style={card} data-testid="status-consultation">
     {head}
     <p style={{ margin: '0 0 12px', fontSize: 11, color: '#64748b', lineHeight: 1.9 }}>
-      ثبت‌شده در {date ? new Date(date).toLocaleDateString('fa-IR') : FALLBACK} · شناسه مشاوره #{c.id.toLocaleString('fa-IR')}
+      ثبت‌شده در {date ? new Date(date).toLocaleDateString('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran' }) : FALLBACK} · شناسه مشاوره #{c.id.toLocaleString('fa-IR')}
       <br />رتبه این مشاوره صرفاً اظهار کارشناس و راهنماست؛ تأیید رتبه اعتباری نیست.
     </p>
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>

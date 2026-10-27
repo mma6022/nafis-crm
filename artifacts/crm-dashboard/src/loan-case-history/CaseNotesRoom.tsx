@@ -7,7 +7,7 @@ import {
 import { useVoiceRecorder } from './useVoiceRecorder';
 import './case-history.css';
 
-const when = (v: string) => new Date(v).toLocaleString('fa-IR', { dateStyle: 'medium', timeStyle: 'short' });
+const when = (v: string) => new Date(v).toLocaleString('fa-IR-u-ca-persian', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Tehran' });
 const sizeLabel = (n: number) => n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB`;
 const clock = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`.replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
 const errText = (e: unknown) => e instanceof Error ? e.message : 'ارسال انجام نشد.';

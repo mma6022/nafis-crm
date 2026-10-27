@@ -718,7 +718,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
               <div className="h"><span><RotateCcw size={16} aria-hidden="true" /> ادامه‌ی درخواست نیمه‌کاره</span><span className="muted">{resumeInfo.paid ? 'هزینه‌ی پرونده واریز شده' : 'هزینه واریز نشده'}</span></div>
               <div>مشتری: <b>{resumeInfo.customerName ?? selectedCustomer.name}</b> <CustomerIdBadge id={resumeInfo.customerId} /></div>
               <b>همه‌ی اطلاعات قبلی سر جایش است؛ از مرحله {fa(displayStep)} ادامه بده.{resumeInfo.step > displayStep ? ` (آخرین مرحله‌ی ذخیره‌شده ${fa(resumeInfo.step)} بود؛ ${displayStep <= 4 || creditNudge ? 'اول استعلام اعتبار باید تازه شود' : 'طرح دوباره بررسی شود'}.)` : ''}</b>
-              <span className="muted">آخرین ذخیره: {new Date(resumeInfo.updatedAt).toLocaleDateString('fa-IR', { timeZone: 'Asia/Tehran', day: 'numeric', month: 'long' })}، {tehranTime(resumeInfo.updatedAt)}{resumeInfo.updatedByName ? `، توسط ${resumeInfo.updatedByName}` : ''}</span>
+              <span className="muted">آخرین ذخیره: {new Date(resumeInfo.updatedAt).toLocaleDateString('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', day: 'numeric', month: 'long' })}، {tehranTime(resumeInfo.updatedAt)}{resumeInfo.updatedByName ? `، توسط ${resumeInfo.updatedByName}` : ''}</span>
               {session.data?.user?.role !== 'salesperson' && resumeInfo.salespersonName && resumeInfo.salespersonId !== (session.data?.user as { salespersonId?: number | null } | undefined)?.salespersonId
                 ? <span className="muted" data-testid="wizard-resume-other"><User size={14} aria-hidden="true" /> درخواست {resumeInfo.salespersonName} را ادامه می‌دهی؛ کارشناس پرونده همان می‌ماند.</span> : null}
             </div> : null}
@@ -876,7 +876,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
         onConfirm={() => { if (dupDraft.canContinue) void hydrate(dupDraft); }}
         onClose={() => { setDupDraft(null); setSrv(null); selectCustomer(null); setResumeInfo(null); setSaveState('idle'); if (step !== 1) { pendingSub.current = 0; setStep(1); } }}>
         <p><b>{dupDraft.customerName}</b> <CustomerIdBadge id={dupDraft.customerId} /> · مرحله {fa(dupDraft.step)} از {fa(dupDraft.totalSteps)} ({dupDraft.stepLabel}){dupDraft.paid ? ' · هزینه‌ی پرونده واریز شده' : ''}</p>
-        <p className="lwz-muted">آخرین ذخیره {new Date(dupDraft.updatedAt).toLocaleDateString('fa-IR', { timeZone: 'Asia/Tehran' })}، {tehranTime(dupDraft.updatedAt)}{dupDraft.updatedByName ? `، توسط ${dupDraft.updatedByName}` : ''}. برای هر مشتری فقط یک درخواست باز ممکن است.</p>
+        <p className="lwz-muted">آخرین ذخیره {new Date(dupDraft.updatedAt).toLocaleDateString('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran' })}، {tehranTime(dupDraft.updatedAt)}{dupDraft.updatedByName ? `، توسط ${dupDraft.updatedByName}` : ''}. برای هر مشتری فقط یک درخواست باز ممکن است.</p>
         {!dupDraft.canContinue ? <p className="lwz-note bad">این درخواست مال کارشناس دیگری است.</p> : null}
       </ConfirmDialog> : null}
     </div>,

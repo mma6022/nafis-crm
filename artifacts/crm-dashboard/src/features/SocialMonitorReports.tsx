@@ -1,5 +1,7 @@
 import { CustomerIdBadge, CustomerName, customerNameText } from '@/components/customer/CustomerName';
 import { useEffect, useRef, useMemo, useState } from 'react';
+import { PersianDatePicker } from '@/components/PersianDatePicker';
+import { gregorianToJalaliValue, jalaliValueToGregorian } from '@/lib/jalali';
 import type { SocialMonitorThread as Thread, SocialThreadMessage as Message, SocialThreadHistory as MessagesBody, SocialThreadSummary as Summary } from '@workspace/api-client-react';
 
 type Employee = { id: number; name: string };
@@ -15,7 +17,7 @@ const fmtDay = (d: Date) => new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit',
 }).format(d);
 const todayTehran = () => fmtDay(new Date());
-const faDate = (day: string) => new Intl.DateTimeFormat('fa-IR-u-ca-persian', { year: 'numeric', month: 'long', day: 'numeric' })
+const faDate = (day: string) => new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', year: 'numeric', month: 'long', day: 'numeric' })
   .format(new Date(`${day}T12:00:00+03:30`));
 const faTime = (value: string) => new Intl.DateTimeFormat('fa-IR', { timeZone: 'Asia/Tehran', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 const faDateTime = (value: string) => `${faDate(fmtDay(new Date(value)))}، ${faTime(value)}`;
@@ -264,8 +266,8 @@ export function SocialMonitorReports() {
         <button className="btn btn-primary" type="button" onClick={() => void refresh()} disabled={loading} data-testid="button-refresh">به‌روزرسانی</button>
       </header>
       <div className="smr-filters">
-        <label>از تاریخ<input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)} /></label>
-        <label>تا تاریخ<input type="date" value={to} min={from} max={today} onChange={e => setTo(e.target.value)} /></label>
+        <div className="smr-date"><span>از تاریخ</span><PersianDatePicker value={gregorianToJalaliValue(from)} noFuture onChange={v => { const g = jalaliValueToGregorian(v); if (g) setFrom(g > to ? to : g); }} testId="input-smr-from" /></div>
+        <div className="smr-date"><span>تا تاریخ</span><PersianDatePicker value={gregorianToJalaliValue(to)} noFuture minValue={gregorianToJalaliValue(from)} onChange={v => { const g = jalaliValueToGregorian(v); if (g) setTo(g > today ? today : g < from ? from : g); }} testId="input-smr-to" /></div>
         <label>کارشناس<select value={employeeId} onChange={e => setEmployeeId(e.target.value)}><option value="">همهٔ کارشناسان</option>{report?.employees.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
         <label>پیام‌رسان<select value={service} onChange={e => setService(e.target.value)}><option value="">همه</option><option value="tg">تلگرام</option><option value="wa">واتس‌اپ</option><option value="bale">بله</option></select></label>
       </div>

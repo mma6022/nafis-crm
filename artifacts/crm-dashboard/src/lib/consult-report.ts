@@ -1,7 +1,7 @@
 // crm-consult-filters: client side of GET /consultations/report (+ /export, admin only).
 // Filter state lives in the URL query (?f.period=week&f.grades=A1,B2 …) so a filtered view can be shared or reloaded.
 import type { Consultation } from '@workspace/api-client-react';
-import { jalaliValueToGregorian, persianParts, formatJalaliValue } from './jalali';
+import { jalaliValueToGregorian, persianParts, formatJalaliValue, tehranJalaliFileDay } from './jalali';
 
 export type Period = 'all' | 'today' | 'week' | 'month' | 'range';
 export type PlanResult = 'eligible' | 'review' | 'none';
@@ -138,7 +138,7 @@ export async function downloadConsultCsv(qs: string) {
   if (!res.ok) throw await failure(res);
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = `consultations-${tehranDay(new Date())}.csv`;
+  const a = document.createElement('a'); a.href = url; a.download = `consultations-${tehranJalaliFileDay()}.csv`;
   document.body.appendChild(a); a.click(); a.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 export const fa = (n: number) => n.toLocaleString('fa-IR');

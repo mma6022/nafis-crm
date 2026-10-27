@@ -31,7 +31,7 @@ export const AS_COLORS: Record<string, string> = { masoud: '#29369B', somayeh: '
 export const asColor = (slug: string) => AS_COLORS[slug] ?? '#29369B';
 export const faNum = (n: number | string) => String(n).replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
 export const asTime = (iso: string | null) => iso ? new Date(iso).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Tehran' }) : '';
-export const asWhen = (iso: string | null) => iso ? new Date(iso).toLocaleString('fa-IR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Tehran' }) : '—';
+export const asWhen = (iso: string | null) => iso ? new Date(iso).toLocaleString('fa-IR-u-ca-persian', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Tehran' }) : '—';
 /** Who may see the assistant UI at all (mirrors the server; trainees 5/19/20 and user 29 never). */
 export const AS_TRAINEES: readonly number[] = [5, 19, 20];
 export function asVisibleTo(user: { id?: number; role?: string | null; salespersonId?: number | null } | null | undefined) {

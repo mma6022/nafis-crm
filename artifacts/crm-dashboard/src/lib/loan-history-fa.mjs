@@ -173,7 +173,7 @@ function detailValue(key, value) {
   if (values[value]) return values[value];
   if (actions[value]) return actions[value];
   if (/At$/.test(key) && !Number.isNaN(Date.parse(String(value)))) {
-    return new Date(value).toLocaleString('fa-IR', { timeZone: 'Asia/Tehran' });
+    return new Date(value).toLocaleString('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran' });
   }
   if (['reason', 'note', 'description'].includes(key)) return String(value);
   if (/^[a-z][a-z0-9_.:/-]*$/i.test(String(value))) return 'مقدار سیستمی بدون ترجمه فارسی';
@@ -196,7 +196,7 @@ function adminValue(key, value) {
   if (key === 'requestedAmount' || key === 'approvedAmount' || key === 'netAmount') return `${faNumber(value, true)} تومان`;
   if (key === 'status') return { requested: 'درخواست شده', reviewing: 'در حال بررسی', approved: 'تأیید شده', rejected: 'رد شده' }[value] || 'نامشخص';
   if (key === 'durationMonths' || key === 'approvedDurationMonths') return `${faNumber(value)} ماه`;
-  if (key.endsWith('At') && !Number.isNaN(Date.parse(String(value)))) return new Date(value).toLocaleString('fa-IR', { timeZone: 'Asia/Tehran' });
+  if (key.endsWith('At') && !Number.isNaN(Date.parse(String(value)))) return new Date(value).toLocaleString('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran' });
   if (key === 'approvedAmountSource') return values[value] || 'مبنای ثبت‌شدهٔ سیستمی';
   if (typeof value === 'boolean') return value ? 'بله' : 'خیر';
   if (Array.isArray(value)) return value.map(v => adminValue(key, v)).join('، ');

@@ -12,18 +12,14 @@ import { ExpertPickerButton } from './ExpertPicker';
 import { Icon, fa, money } from './PortalUi';
 import { HelpCard, useCaseExpert } from './Portal2Ui';
 import { CHAT_ACCEPT_DOCS, CHAT_ACCEPT_IMAGES, acceptChatFile, chatFileKind, type ChatFileKind } from '@/chat/chat-files';
+import { tehranClock, tehranDayKey, tehranDayLabel } from './receipt-time';
 
 type Pick = { id: string; file: File; url: string | null; bad: '' | 'type' | 'size' | 'empty' };
 type Out = { clientId: string; text: string; file?: File; url: string | null; state: 'queued' | 'up' | 'failed'; pct: number; error?: string; at: number };
 const uuid = () => crypto.randomUUID();
-const clock = (v: string | number) => new Date(v).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
-const dayKey = (v: string) => new Date(v).toDateString();
-const dayLabel = (v: string) => {
-  const d = new Date(v); const today = new Date(); const y = new Date(); y.setDate(today.getDate() - 1);
-  if (d.toDateString() === today.toDateString()) return 'امروز';
-  if (d.toDateString() === y.toDateString()) return 'دیروز';
-  return new Intl.DateTimeFormat('fa-IR-u-ca-persian', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
-};
+const clock = (v: string | number) => tehranClock(v);
+const dayKey = (v: string) => tehranDayKey(v);
+const dayLabel = (v: string) => tehranDayLabel(v);
 const bytes = (n?: number | null) => n == null ? '' : n >= 1048576 ? `${fa((n / 1048576).toFixed(1).replace('.', '٫'))} مگابایت` : `${money(Math.max(1, Math.ceil(n / 1024)))} کیلوبایت`;
 const shortBytes = (n: number) => n >= 1048576 ? `${fa((n / 1048576).toFixed(1).replace('.', '٫'))} م.ب` : `${money(Math.max(1, Math.ceil(n / 1024)))} ک.ب`;
 const withBase = (u: string | null) => !u ? null : /^(https?:)?\/\//.test(u) || !u.startsWith('/') ? u : `${import.meta.env.BASE_URL.replace(/\/$/, '')}${u}`;

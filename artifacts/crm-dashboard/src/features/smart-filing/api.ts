@@ -42,7 +42,7 @@ const ERR: Record<string, string> = {
 };
 export const fa = (n: number | string) => String(n).replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
 export const money = (v: string | null) => { const n = Number(String(v ?? '').replace(/[^\d]/g, '')); return n ? `${n.toLocaleString('fa-IR')} تومان` : '—'; };
-export const when = (iso: string | null) => iso ? new Date(iso).toLocaleString('fa-IR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Tehran' }) : '—';
+export const when = (iso: string | null) => iso ? new Date(iso).toLocaleString('fa-IR-u-ca-persian', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Tehran' }) : '—';
 export const TONE: Record<SfStatus, string> = { queued: 'muted', running: 'info', waiting_human: 'warn', ready_for_approval: 'warn', submitted: 'info', approved: 'ok', rejected: 'bad', error: 'bad', cancelled: 'muted' };
 
 export function useSfJobs() {

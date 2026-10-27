@@ -267,3 +267,10 @@ textarea.ts-inp { resize: vertical; line-height: 1.8; }
 .fc-edit-btn { font-weight: 800; color: var(--nf-brand-600, #29369B); }
 .fc-edits ul { margin: 4px 0 0; padding-inline-start: 18px; }
 .fc-edits .ts-pill { margin-inline-start: 6px; }
+
+/* «زمان تماس بعدی»: Jalali date picker + Tehran hour/minute (replaces datetime-local) */
+.ts-callback-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ts-callback-row .persian-date-trigger { min-height: 52px; flex: 1 1 200px; }
+.ts-callback-row[aria-invalid="true"] .persian-date-trigger { border-color: var(--nf-danger, #B42318); }
+.ts-callback-time .ts-inp { width: 76px; text-align: center; padding: 10px 6px; }
+.ts-callback-note { margin: 6px 0 0; color: #667085; font-size: 13px; }

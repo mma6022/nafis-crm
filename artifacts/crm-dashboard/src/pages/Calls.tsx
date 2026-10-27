@@ -17,7 +17,7 @@ import { CallReportDialog } from '@/components/voip/CallReportDialog';
 import { removeCompletedAfterCallFromQueue } from '@/components/voip/after-call-cache';
 import { RecordedCallsPanel } from '@/components/RecordedCallsPanel';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
-import { jalaliValueToGregorian } from '@/lib/jalali';
+import { jalaliFileDay, jalaliValueToGregorian } from '@/lib/jalali';
 import { useDialogFocus, useMinWidth } from './customers-ui';
 import './calls.css';
 import { CustomerName } from '@/components/customer/CustomerName';
@@ -203,7 +203,7 @@ function ManualCalls({ desktop = true }: { desktop?: boolean }) {
       ].map(row => row.map(cell).join(',')).join('\r\n');
       const url = URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }));
       const link = document.createElement('a');
-      link.href = url; link.download = `calls-${params.from ?? 'all'}-${params.to ?? 'all'}.csv`;
+      link.href = url; link.download = `calls-${jalaliFileDay(params.from)}_${jalaliFileDay(params.to)}.csv`;
       document.body.appendChild(link); link.click(); link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) {

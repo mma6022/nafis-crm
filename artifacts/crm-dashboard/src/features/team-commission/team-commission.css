@@ -166,3 +166,5 @@ textarea.tc-inp { min-height: 88px; resize: vertical; line-height: 1.8; }
 .tc-rcols .table-wrap { overflow-x: auto; max-width: 100%; }
 .tc-rcols { display: grid; gap: 16px; align-items: start; }
 @media (min-width: 1440px) { .tc-rcols { grid-template-columns: minmax(320px, 1fr) minmax(0, 1.6fr); } }
+.tc-date .persian-date-trigger { min-height: 52px; border-radius: 14px; border: 1.5px solid #D0D5DD; font-size: 16px; }
+.tc-date[aria-invalid="true"] .persian-date-trigger { border-color: var(--nf-danger, #B42318); }
