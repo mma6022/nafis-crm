@@ -35,6 +35,11 @@ import { createBalePlanFiles, ensureBalePlanFilesSchema, BALE_PLAN_FILE_MAX_BYTE
 
 type Db = DatabaseSync;
 export type BaleActor = { id: number } | null;
+/** AR30b: «صبح ساعت ۸:۳۰ ارسال می‌شه» (the quiet window's end, Persian digits). */
+export function quietMorningFa(end: string | null | undefined): string {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(end ?? "")); const hm = m ? `${Number(m[1])}:${m[2]}` : "8:30";
+  return `صبح ساعت ${hm.replace(/\d/g, d => "۰۱۲۳۴۵۶۷۸۹"[Number(d)])} ارسال می‌شه`;
+}
 export type BaleDeps = { db: Db; env: () => KeyEnv; sidecar: BaleSidecar; now?: () => Date; actor: (res: Response) => BaleActor; random?: () => number;
   /** Where plan files live (<data dir>/bale-plan-files). Absent → no plan files at all. */
   planFilesDir?: string;
@@ -684,21 +689,23 @@ export function createBale(deps: BaleDeps) {
     const a = accountOf(u.id); const p = ar.pairOfAssistant(q.assistant_id);
     if (!a || a.id !== q.account_id || !p) return fail(res, 404, "not_found");
     if (!ar.pairOn(p)) { audit({ req, u, accountId: a.id, action: "autoreply.ask_answer", outcome: "autoreply_off", detail: { questionId: q.id } }); return void res.status(423).json({ error: "autoreply_off", message: (BLOCK_FA as any).autoreply_off ?? "پاسخ خودکار خاموش است؛ چیزی فرستاده نشد." }); }
-    let sent: { outboxId?: number | null; arMessageId?: number | null };
+    let sent: { outboxId?: number | null; arMessageId?: number | null }; let heldUntil: string | null = null;
     if (q.customer_id != null) {
       const c = row<any>("SELECT salesperson_id,merged_into_customer_id FROM customers WHERE id=?", q.customer_id);
       if (!c || c.salesperson_id !== u.salesperson_id || c.merged_into_customer_id != null) return fail(res, 404, "not_found");
       const r = outbox.enqueue({ accountId: a.id, customerId: q.customer_id, text, source: "auto_reply", arKind: "answer", arSource: "expert_answer", questionId: q.id, explicit: false,
         createdBy: u.id, assistant: { id: q.assistant_id, inScope: true }, reason: "ask_expert" });
       if (r.status === "blocked") return void res.status(blockedStatus(r.reason)).json({ error: r.reason, message: r.message });
-      sent = { outboxId: r.outboxId };
+      sent = { outboxId: r.outboxId }; heldUntil = r.heldUntil ?? null;
     } else {
       const r = ar.enqueueUnknown(a, p, q.chat_id, withAmountDisclaimer(text), { kind: "answer", source: "expert_answer", questionId: q.id, assistantId: q.assistant_id });
       if (r !== "queued") return void res.status(blockedStatus(r)).json({ error: r, message: (BLOCK_FA as any)[r] ?? r });
-      sent = { arMessageId: ar.lastUnknownMessageId() };
+      sent = { arMessageId: ar.lastUnknownMessageId() }; heldUntil = ar.lastUnknownHeld();
     }
     const learnedId = ar.recordAnswer(q, u.id, text, save, sent);
-    res.json({ status: "queued", learnedId, message: learnedId ? "جواب رفت · در «جواب‌های آموخته‌شده» ذخیره شد" : "جواب رفت" });
+    // AR30b: inside the sidecar quiet window (21:30–08:30) the answer is held and goes out at its end.
+    const head = heldUntil ? `جواب ثبت شد · ${quietMorningFa(setting("quiet_end"))}` : "جواب رفت";
+    res.json({ status: "queued", learnedId, heldUntil, message: learnedId ? `${head} · در «جواب‌های آموخته‌شده» ذخیره شد` : head });
   });
   staff.post("/bale/me/autoreply/questions/:id/self", expert, (req, res) => {
     const g = ownQuestion(req, res); if (!g) return;

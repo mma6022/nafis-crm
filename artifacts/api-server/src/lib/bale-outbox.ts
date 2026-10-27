@@ -198,7 +198,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
   const ar = createBaleAutoreply({
     db, now, setting: ctx.setting, masterOn: ctx.masterOn, env: () => ctx.env() as Record<string, string | undefined>, audit: ctx.audit, userRow: ctx.userRow, nameOf: ctx.nameOf,
     bell: (uid, cid, kind, title, body) => bell(uid, cid, kind, title, body), bellNoCustomer: (uid, title, body) => bellNoCustomer(uid, title, body),
-    liveState: a => liveState(a), textProblem: t => baleTextProblem(t, banned()), sidecar: ctx.sidecar as any, planFiles: ctx.planFiles,
+    liveState: a => liveState(a), quietUntil: () => (quietNow() ? iso(quietEnd()) : null), quietEndText: () => String(ctx.setting("quiet_end") ?? "08:30"), textProblem: t => baleTextProblem(t, banned()), sidecar: ctx.sidecar as any, planFiles: ctx.planFiles,
     attachmentsOn: () => attachmentsOn(), attachOne: a => attachOne(a), gapMs: () => gapMs(), ref: a => ref(a), autoStop: (a, code, cid, from) => autoStop(a, code, cid, from),
     fetchImpl: ctx.fetchImpl, sleep: ctx.sleep, log: ctx.log,
   });
@@ -319,9 +319,11 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     }
     // A plan file is NEVER auto-sent: always a draft the expert approves, also in «خودکار» mode.
     // Auto replies (pair ON) never wait for approval and are not held by the quiet window (their own hours rule applies).
+    // AR30b: except the expert's own answer to «سؤال از کارشناس» (kind 'answer'): sent right away, but held by the quiet window.
     const draft = !isAuto && (att != null || (p.source !== "expert_command" && a.mode === "approve_first"));
     const sendNow = p.source === "expert_command" && Boolean(p.sendNow);
-    const held = !draft && !sendNow && !isAuto && quietNow() ? iso(quietEnd()) : null;
+    const quietApplies = !isAuto || arKind === "answer";
+    const held = !draft && !sendNow && quietApplies && quietNow() ? iso(quietEnd()) : null;
     const id = Number(run(`INSERT INTO bale_outbox(account_id,customer_id,text,source,explicit_expert_command,status,created_by,scheduled_at,created_at,updated_at,
         is_new_chat,send_now,reason,reminder_id,assistant_id,approved_by,approved_at,attachment_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       a.id, p.customerId, text, p.source, p.explicit ? 1 : 0, draft ? "pending_approval" : "queued", p.createdBy, held, t, t, r.newChat ? 1 : 0, sendNow ? 1 : 0,
@@ -513,7 +515,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
       const first = row<any>("SELECT min(COALESCE(sent_at,updated_at)) t FROM bale_outbox WHERE account_id=? AND status IN ('sent','sending') AND COALESCE(sent_at,updated_at)>?", a.id, since(3_600_000))?.t;
       return hold(new Date(Date.parse(first ?? nowIso) + 3_600_000 + 1000), "cap_hour");
     }
-    if (!o.send_now && !isAuto && quietNow()) return hold(quietEnd(), "quiet");
+    if (!o.send_now && (!isAuto || o.ar_kind === "answer") && quietNow()) return hold(quietEnd(), "quiet");
     if (run("UPDATE bale_outbox SET status='sending', attempts=attempts+1, updated_at=? WHERE id=? AND status='queued'", iso(), o.id).changes !== 1) return "raced";
     const contact = row<any>("SELECT peer_id FROM bale_contacts WHERE account_id=? AND customer_id=?", a.id, o.customer_id);
     const payload = { accountRef: ref(a), phone: r.phone, peerId: linkedPeer(a.user_id, o.customer_id) ?? contact?.peer_id ?? null, text: o.text, typingMs: Math.min(8000, 1200 + o.text.length * 50) };

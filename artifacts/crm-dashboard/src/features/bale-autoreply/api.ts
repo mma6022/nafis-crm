@@ -59,6 +59,8 @@ export const AR_LEARNED_MAX = 500;
 export const AR_OTHER_PAIRS_CONFIRM = 'تأیید جدای محمد';
 export type ArQuestion = { id: number; status: 'pending' | 'answered' | 'self' | 'expired' | 'cancelled'; customerId: number | null; chatId: number | null; customerName: string | null;
   question: string; summary: string | null; holdText: string; holdResult: string | null; assistantName: string | null; answer: string | null; saveLearned: boolean;
-  learnedId: number | null; createdAt: string; answeredAt: string | null; escalatedAt: string | null; timeoutMin: number };
+  learnedId: number | null; createdAt: string; answeredAt: string | null; escalatedAt: string | null; timeoutMin: number;
+  /** AR30b: end of the current quiet window (ISO) when the answer would be held; quietEnd = 'HH:MM'. */
+  quietUntil?: string | null; quietEnd?: string };
 export type ArLearned = { id: number; expertUserId: number; assistantId: number; question: string; answer: string; active: boolean; useCount: number; lastUsedAt: string | null;
   sourceQuestionId: number | null; createdAt: string; updatedAt: string; updatedBy: string | null };

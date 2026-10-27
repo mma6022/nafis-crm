@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
-import { HelpCircle, Send } from 'lucide-react';
+import { HelpCircle, Moon, Send } from 'lucide-react';
 import { Modal } from '@/components/DataTools';
 import { toast } from '@/hooks/use-toast';
 import { baleFetch, baleWhen, faNum } from '@/features/bale/api';
 import { AR_LEARNED_MAX, type ArQuestion } from './api';
 import './ar.css';
 
+/** 'HH:MM' → 'H:MM' (08:30 → 8:30). */
+const quietHm = (s?: string) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(s ?? '')); return m ? `${Number(m[1])}:${m[2]}` : '8:30'; };
 const errMsg = (e: unknown) => (e instanceof Error && e.message) || 'درخواست انجام نشد. دوباره تلاش کنید.';
 /** «بعداً» hides one question on this device for SNOOZE_MS (client-only; the server timeout still runs). */
 const SNOOZE_MS = 10 * 60_000;
@@ -16,7 +18,8 @@ function loadSnooze(uid: number): Record<string, number> { try { const v = JSON.
 function saveSnooze(uid: number, v: Record<string, number>) { try { localStorage.setItem(snoozeKey(uid), JSON.stringify(v)); } catch { /* private mode */ } }
 
 /** AR30 «سؤال از کارشناس»: Masoud did not know the answer → popup in the expert's dock. The answer goes to the customer as the reply
- *  through the same server caps/checks; it is saved as a learned answer ONLY when the box is ticked (unticked by default). */
+ *  through the same server caps/checks; it is saved as a learned answer ONLY when the box is ticked (ticked by default, AR30b; he can untick).
+ *  Inside the sidecar quiet window (21:30–08:30) the answer is held until its end: the popup says so before he sends. */
 export function AskExpertPopup({ uid }: { uid: number }) {
   const qc = useQueryClient();
   const [, navigate] = useLocation();
@@ -28,8 +31,8 @@ export function AskExpertPopup({ uid }: { uid: number }) {
   const pending = useMemo(() => (q.data?.questions ?? []).filter(x => x.status === 'pending'), [q.data]);
   const visible = useMemo(() => pending.filter(x => !(snooze[x.id] > Date.now())), [pending, snooze, tick]);
   const cur = visible[visible.length - 1] ?? null; // oldest first
-  const [text, setText] = useState(''); const [save, setSave] = useState(false); const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
-  useEffect(() => { setText(''); setSave(false); setErr(null); }, [cur?.id]);
+  const [text, setText] = useState(''); const [save, setSave] = useState(true); const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { setText(''); setSave(true); setErr(null); }, [cur?.id]);
   if (!cur) return null;
 
   const later = () => { const v: Record<string, number> = { ...snooze, [cur.id]: Date.now() + SNOOZE_MS }; for (const k of Object.keys(v)) if (v[k] < Date.now()) delete v[k]; setSnooze(v); saveSnooze(uid, v); };
@@ -62,6 +65,7 @@ export function AskExpertPopup({ uid }: { uid: number }) {
         <span><b>برای دفعه‌های بعد هم همین جواب رو بده</b><br /><small className="muted">در «جواب‌های آموخته‌شده» ذخیره می‌شود. تو یا مدیر هر وقت بخواهید ویرایشش می‌کنید.{save ? ` (${faNum(text.trim().length)} از ${faNum(AR_LEARNED_MAX)} نویسه؛ بدون مبلغ و بدون قول)` : ''}</small></span></label>
       <div className="esc gold" style={{ borderRadius: 10 }}><HelpCircle size={16} /><div><p>{cur.holdResult === 'queued' || cur.holdResult === 'sent' ? <>تا جواب ندهی، مشتری فقط پیام نگه‌دار گرفته است: «{cur.holdText}»</> : <>پیام نگه‌دار برای مشتری نرفت؛ مشتری هنوز جوابی نگرفته است.</>}
         {cur.timeoutMin ? <> اگر تا {faNum(cur.timeoutMin)} دقیقه جواب نیاید، گفتگو به تو سپرده می‌شود.</> : null}</p></div></div>
+      {cur.quietUntil ? <div className="esc" style={{ borderRadius: 10 }} data-testid="ar-ask-quiet"><Moon size={16} /><div><p><b>الان ساعت آرام است.</b> جوابت صبح ساعت {faNum(quietHm(cur.quietEnd))} ارسال می‌شه (همان سقف‌ها و قاعده‌ها).</p></div></div> : null}
       {err ? <div role="alert" style={{ color: "var(--nf-danger)", fontWeight: 700, fontSize: 13.5 }} data-testid="ar-ask-error">{err}</div> : null}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
         <button type="button" className="btn btn-ghost" disabled={busy} onClick={later} data-testid="ar-ask-later">بعداً</button>

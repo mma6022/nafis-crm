@@ -504,6 +504,62 @@ try {
   r = await R(10, "POST", "/bale/auto-reply", { customerId: 203, text: "سلام" }); assert.equal(r.s, 409, JSON.stringify(r.j)); assert.equal(r.j.error, "reply_window");
   ok("AR30 24h window counts from the customer message's arrival time");
 
+  // ---------- AR30b: learned tick ON by default (UI), expert answer after hours: right away, but held by the quiet window ----------
+  // 20:45 Tehran (closed, not quiet): Kazemi's answer goes out right away.
+  clock = new Date("2026-11-02T17:15:00Z");
+  db.prepare("UPDATE bale_conversation_state SET ar_owner='assistant', ar_reason=NULL, ar_night_at=NULL WHERE customer_id IN (200,205)").run();
+  r = await inb(KREF, 200, "ببخشید، سفته هم قبول می‌کنید؟"); assert.equal(r.j.stored, 1);
+  r = await R(10, "POST", "/bale/ask-expert", { customerId: 200, question: "سفته قبول می‌کنید؟" }); assert.equal(r.s, 201, JSON.stringify(r.j)); const qa = r.j.questionId;
+  await tick();
+  r = await S(8, "GET", "/bale/me/autoreply/questions"); const pa = r.j.questions.find(x => x.id === qa); assert.equal(pa.quietUntil, null); assert.equal(pa.quietEnd, "08:30");
+  s2 = sent();
+  r = await S(8, "POST", `/bale/me/autoreply/questions/${qa}/answer`, { text: "بله، سفته هم قبول می‌کنیم.", save: false }); assert.equal(r.s, 200, JSON.stringify(r.j));
+  assert.equal(r.j.heldUntil, null); assert.equal(r.j.message, "جواب رفت");
+  let an = autoRows(200).at(-1); assert.equal(an.ar_kind, "answer"); assert.equal(an.scheduled_at, null);
+  await tick(); assert.equal(sent(), s2 + 1, "after hours, outside quiet: sent right away"); assert.equal(mock.sent.at(-1).text, an.text);
+  // 23:10 Tehran (quiet 21:30–08:30): the popup says «صبح ساعت ۸:۳۰ ارسال می‌شه»; the answer is held until 08:30.
+  clock = new Date("2026-11-02T19:40:00Z");
+  r = await inb(KREF, 205, "برای خرید لوازم خونه هم وام دارید؟"); assert.equal(r.j.stored, 1);
+  r = await R(10, "POST", "/bale/ask-expert", { customerId: 205, question: "وام لوازم خانگی؟" }); assert.equal(r.s, 201, JSON.stringify(r.j)); const qb = r.j.questionId;
+  await tick();
+  r = await S(8, "GET", "/bale/me/autoreply/questions"); const pb = r.j.questions.find(x => x.id === qb);
+  assert.equal(pb.quietUntil, "2026-11-03T05:00:00.000Z", JSON.stringify(pb)); assert.equal(pb.quietEnd, "08:30");
+  s2 = sent();
+  r = await S(8, "POST", `/bale/me/autoreply/questions/${qb}/answer`, { text: "بله، برای لوازم خانگی هم وام داریم.", save: true }); assert.equal(r.s, 200, JSON.stringify(r.j));
+  assert.equal(r.j.heldUntil, "2026-11-03T05:00:00.000Z"); assert.ok(r.j.message.includes("صبح ساعت ۸:۳۰ ارسال می‌شه"), r.j.message); assert.ok(r.j.learnedId > 0);
+  an = autoRows(205).at(-1); assert.equal(an.ar_kind, "answer"); assert.equal(an.status, "queued"); assert.equal(an.scheduled_at, "2026-11-03T05:00:00.000Z");
+  await tick(); clock = new Date("2026-11-03T04:59:00Z"); await tick(); assert.equal(sent(), s2, "held through the quiet window");
+  // a held row whose scheduled_at was cleared is still re-held by the worker inside quiet
+  db.prepare("UPDATE bale_outbox SET scheduled_at=NULL WHERE id=?").run(an.id); await tick(); assert.equal(sent(), s2);
+  assert.ok(one("SELECT scheduled_at FROM bale_outbox WHERE id=?", an.id).scheduled_at >= "2026-11-03T05:00", "worker re-held it");
+  clock = new Date("2026-11-03T05:00:30Z"); await tick(); assert.equal(sent(), s2 + 1, "sent at 08:30"); assert.equal(mock.sent.at(-1).text, an.text);
+  // caps still apply to the answer (per-hour cap hit → not sent)
+  clock = new Date("2026-11-03T19:40:00Z");
+  db.prepare("UPDATE bale_conversation_state SET ar_owner='assistant', ar_reason=NULL, ar_night_at=NULL WHERE customer_id=204").run();
+  r = await inb(KREF, 204, "یه سؤال دیگه: چک صیادی؟"); r = await R(10, "POST", "/bale/ask-expert", { customerId: 204, question: "چک صیادی؟" }); assert.equal(r.s, 201, JSON.stringify(r.j)); const qc2 = r.j.questionId; await tick();
+  r = await S(8, "POST", `/bale/me/autoreply/questions/${qc2}/answer`, { text: "بله، چک صیادی هم قبول است.", save: false }); assert.equal(r.s, 200, JSON.stringify(r.j)); assert.ok(r.j.heldUntil);
+  const capId = autoRows(204).at(-1).id; clock = new Date("2026-11-04T05:00:30Z");
+  const ph0 = one("SELECT value FROM bale_settings WHERE key='per_hour'")?.value ?? null;
+  db.prepare("INSERT INTO bale_settings(key,value,updated_at) VALUES('per_hour','0',?) ON CONFLICT(key) DO UPDATE SET value='0'").run(clock.toISOString());
+  s2 = sent(); await tick(); assert.equal(sent(), s2, "per-hour cap applies to the expert answer");
+  assert.notEqual(one("SELECT status FROM bale_outbox WHERE id=?", capId).status, "sent");
+  if (ph0 == null) db.prepare("DELETE FROM bale_settings WHERE key='per_hour'").run(); else db.prepare("UPDATE bale_settings SET value=? WHERE key='per_hour'").run(ph0);
+  // unknown chat (ناشناس): the same quiet hold on bale_ar_messages.scheduled_at
+  clock = new Date("2026-11-04T19:45:00Z");
+  db.prepare("UPDATE bale_ar_chats SET owner='assistant', owner_reason=NULL, night_at=NULL WHERE peer_id='990011'").run();
+  r = await mock.inbound(API, KREF, [{ messageId: "u-q1", peerId: "990011", text: "سلام دوباره، برای بازنشسته‌ها هم هست؟", date: clock.getTime() }]); assert.equal(r.j.stored, 1);
+  const uc = one("SELECT id FROM bale_ar_chats WHERE peer_id='990011'").id;
+  db.prepare("UPDATE bale_ar_messages SET status='cancelled' WHERE chat_id=? AND status='queued'").run(uc);
+  r = await R(10, "POST", "/bale/ask-expert", { arChatId: uc, question: "بازنشسته؟" }); assert.equal(r.s, 201, JSON.stringify(r.j)); const qu = r.j.questionId;
+  db.prepare("UPDATE bale_ar_messages SET status='cancelled' WHERE chat_id=? AND status='queued'").run(uc);
+  r = await S(8, "POST", `/bale/me/autoreply/questions/${qu}/answer`, { text: "بله، برای بازنشسته‌ها هم وام داریم.", save: false }); assert.equal(r.s, 200, JSON.stringify(r.j));
+  assert.equal(r.j.heldUntil, "2026-11-05T05:00:00.000Z"); assert.ok(r.j.message.includes("صبح ساعت ۸:۳۰"));
+  const um = one("SELECT * FROM bale_ar_messages WHERE chat_id=? AND ar_kind='answer' ORDER BY id DESC LIMIT 1", uc); assert.equal(um.scheduled_at, "2026-11-05T05:00:00.000Z"); assert.equal(um.status, "queued");
+  s2 = sent(); await tick(); assert.equal(sent(), s2, "unknown-chat answer held in quiet");
+  clock = new Date("2026-11-05T05:01:00Z"); await tick(); assert.equal(sent(), s2 + 1); assert.equal(mock.sent.at(-1).text, um.text);
+  assert.equal(acc(8).mode, "off");
+  ok("AR30b: Kazemi's after-hours answer goes out right away; inside the quiet window (21:30–08:30) it is held until 08:30 and the popup / answer say «صبح ساعت ۸:۳۰ ارسال می‌شه»; worker re-holds; caps still apply");
+
   // ---------- expert OFF switch + final ----------
   r = await S(1, "PUT", "/admin/bale/autoreply/pairs/10", ON); assert.equal(r.s, 200, JSON.stringify(r.j)); assert.equal(pair("masoud").stopped_reason, null);
   r = await S(8, "PUT", "/bale/me/autoreply", { enabled: false }); assert.equal(r.s, 200, JSON.stringify(r.j)); assert.equal(pair("masoud").enabled, 0);

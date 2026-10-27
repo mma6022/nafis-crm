@@ -185,6 +185,7 @@ export function ensureBaleAutoreplySchema(db: DatabaseSync, nowIso = new Date().
     add(t, "ar_learned_id", "INTEGER");
     add(t, "ar_question_id", "INTEGER");
   }
+  add("bale_ar_messages", "scheduled_at", "TEXT"); // AR30b: expert answer held by the quiet window (unknown chats)
   db.exec(`CREATE TABLE IF NOT EXISTS bale_ar_questions (
     id INTEGER PRIMARY KEY AUTOINCREMENT, assistant_id INTEGER NOT NULL, account_id INTEGER NOT NULL, expert_user_id INTEGER NOT NULL,
     customer_id INTEGER, chat_id INTEGER, reply_to_msg_id INTEGER, question TEXT NOT NULL, summary TEXT,
@@ -220,6 +221,9 @@ export type ArCore = {
   bell: (userId: number, customerId: number, kind: string, title: string, body: string) => void;
   bellNoCustomer: (userId: number, title: string, body: string) => void;
   liveState: (a: any) => "live" | "down" | "unknown";
+  /** AR30b: end of the current sidecar quiet window (21:30–08:30) as ISO, or null when not quiet. The expert's answer is held until then. */
+  quietUntil?: () => string | null;
+  quietEndText?: () => string;
   textProblem: (text: string) => string | null;
   sidecar: { send: (p: any) => Promise<{ messageId: string; peerId: string }>; sendFile: (p: any) => Promise<{ messageId: string; peerId: string }> };
   planFiles?: { byId: (id: number) => any; read: (f: any) => Buffer | null };
@@ -454,21 +458,23 @@ export function createBaleAutoreply(core: ArCore) {
     if (row("SELECT 1 FROM bale_ar_messages WHERE chat_id=? AND status IN ('queued','sending')", chatId)) return block("already_pending");
     if (accountCapHit(a, true)) return block("cap_day");
     const f = facts(a, target);
-    const id = Number(run(`INSERT INTO bale_ar_messages(chat_id,account_id,direction,source,ar_kind,text,has_file,attachment_id,reply_to,assistant_id,status,created_at,updated_at,ar_source,ar_learned_id,ar_question_id)
-      VALUES(?,?,'out','auto_reply',?,?,?,?,?,?,'queued',?,?,?,?,?)`, chatId, a.id, o.kind, body, o.attachmentId != null ? 1 : 0, o.attachmentId ?? null, f.lastIn?.id ?? null, o.assistantId ?? p.assistant_id, t, t,
-      o.source ?? null, o.learnedId ?? null, o.questionId ?? null).lastInsertRowid);
-    lastUnknownId = id;
+    // AR30b: the expert's own answer goes out right away, except inside the sidecar quiet window (held until its end, e.g. 08:30).
+    const held = o.kind === "answer" ? core.quietUntil?.() ?? null : null;
+    const id = Number(run(`INSERT INTO bale_ar_messages(chat_id,account_id,direction,source,ar_kind,text,has_file,attachment_id,reply_to,assistant_id,status,created_at,updated_at,ar_source,ar_learned_id,ar_question_id,scheduled_at)
+      VALUES(?,?,'out','auto_reply',?,?,?,?,?,?,'queued',?,?,?,?,?,?)`, chatId, a.id, o.kind, body, o.attachmentId != null ? 1 : 0, o.attachmentId ?? null, f.lastIn?.id ?? null, o.assistantId ?? p.assistant_id, t, t,
+      o.source ?? null, o.learnedId ?? null, o.questionId ?? null, held).lastInsertRowid);
+    lastUnknownId = id; lastUnknownHeld = held;
     core.audit({ accountId: a.id, action: `autoreply.unknown_${o.kind}`, outcome: "queued", detail: { chatId, arMessageId: id } });
     return "queued";
   }
-  let lastUnknownId = 0;
+  let lastUnknownId = 0; let lastUnknownHeld: string | null = null;
   let accountCapHit: (a: any, withQueued: boolean) => boolean = () => false;
   let planCaption: (s: string) => string = s => s;
   const bindAccountCaps = (fn: typeof accountCapHit, caption: typeof planCaption) => { accountCapHit = fn; planCaption = caption; };
 
   /** Worker: one unknown-chat send for this account (called when bale_outbox had nothing due). Same gap / errors / auto-stop. */
   async function sendOneUnknown(a: any): Promise<string> {
-    const m = row<any>("SELECT * FROM bale_ar_messages WHERE account_id=? AND status='queued' ORDER BY id LIMIT 1", a.id);
+    const m = row<any>("SELECT * FROM bale_ar_messages WHERE account_id=? AND status='queued' AND (scheduled_at IS NULL OR scheduled_at<=?) ORDER BY id LIMIT 1", a.id, iso());
     if (!m) return "idle";
     const block = (reason: string) => { run("UPDATE bale_ar_messages SET status='blocked', block_reason=?, updated_at=? WHERE id=?", reason, iso(), m.id);
       core.audit({ accountId: a.id, action: "autoreply.unknown_send", outcome: `blocked:${reason}`, detail: { arMessageId: m.id } }); return `blocked:${reason}`; };
@@ -479,6 +485,7 @@ export function createBaleAutoreply(core: ArCore) {
     const r = rules(a, p, { chatId: m.chat_id }, { kind: m.ar_kind ?? "reply", stage: "send", replyTo: m.reply_to });
     if (r) return block(r);
     if (accountCapHit(a, false)) return block("cap_day");
+    if ((m.ar_kind ?? "reply") === "answer") { const q = core.quietUntil?.() ?? null; if (q) { run("UPDATE bale_ar_messages SET scheduled_at=?, updated_at=? WHERE id=?", q, iso(), m.id); return "held:quiet"; } }
     const chat = row<any>("SELECT * FROM bale_ar_chats WHERE id=?", m.chat_id);
     if (!chat) return block("unknown_off");
     let file: { row: any; bytes: Buffer } | null = null;
@@ -606,7 +613,8 @@ export function createBaleAutoreply(core: ArCore) {
     return { id: q.id, status: q.status, customerId: q.customer_id ?? null, chatId: q.chat_id ?? null, customerName: c?.name ?? (q.chat_id != null ? "ناشناس" : null),
       question: q.question, summary: q.summary ?? null, holdText: S("autoreply_hold_text"), holdResult: q.hold_result ?? null, assistantName: p?.display_name ?? null,
       answer: q.answer ?? null, saveLearned: q.save_learned === 1, learnedId: q.learned_id ?? null, createdAt: q.created_at, answeredAt: q.answered_at ?? null,
-      escalatedAt: q.escalated_at ?? null, timeoutMin: askTimeoutMin() };
+      escalatedAt: q.escalated_at ?? null, timeoutMin: askTimeoutMin(),
+      quietUntil: core.quietUntil?.() ?? null, quietEnd: core.quietEndText?.() ?? "08:30" };
   }
   function questionsFor(expertUserId: number, all = false) {
     return rows<any>(`SELECT * FROM bale_ar_questions WHERE expert_user_id=? AND ${all ? "created_at>?" : "status='pending' AND created_at>?"} ORDER BY id DESC LIMIT 50`, expertUserId, since(7 * 86_400_000)).map(questionView);
@@ -775,6 +783,6 @@ export function createBaleAutoreply(core: ArCore) {
   return { globalOn, pairs, pairOfAccount, pairOfAssistant, pairOn, activeFor, readsOn, ownerOf, setOwner, facts, rules, escalate, escalation, afterInbound, serverReply,
     inboundUnknown, enqueueUnknown, sendOneUnknown, onAutoStop, sweep, wake, wakeConfig, arSentSince, arQueued, pairView, settingsView, liveList, unknownMessages, label, inDay,
     bindOutbox, bindAccountCaps, pairAllowed, appReplySeen, pendingQuestion, askExpert, questionById, questionView, questionsFor, recordAnswer, selfAnswer, expireQuestions,
-    learnedProblem, learnedView, learnedList, learnedById, updateLearned, deleteLearned, useLearned, askTimeoutMin, lastUnknownMessageId: () => lastUnknownId, maskPreview: (t: string | null) => maskText(t ?? "").replace(/\s+/g, " ").slice(0, 500) };
+    learnedProblem, learnedView, learnedList, learnedById, updateLearned, deleteLearned, useLearned, askTimeoutMin, lastUnknownMessageId: () => lastUnknownId, lastUnknownHeld: () => lastUnknownHeld, maskPreview: (t: string | null) => maskText(t ?? "").replace(/\s+/g, " ").slice(0, 500) };
 }
 export type BaleAutoreply = ReturnType<typeof createBaleAutoreply>;
