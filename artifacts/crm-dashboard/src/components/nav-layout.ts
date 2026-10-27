@@ -26,6 +26,7 @@ export const ROLE_MENUS: Record<MenuKind, RoleMenu> = {
   expert: {
     main: [
       { href: '/', label: 'کارهای امروز من' }, // «کارهای امروز من» page does not exist yet → nearest existing page
+      { href: '/today' }, // crm-daily-plan: only present when flag.daily_plan is ON (then «/my-queue» is filtered out)
       { href: '/my-queue' }, // crm-call-queue: only present when flag.queue is ON (otherwise filtered out before layout)
       { href: '/customers', label: 'مشتری‌های من' },
       { href: '/loan-applications', label: 'پرونده‌های وام من' },
@@ -55,7 +56,7 @@ export const ROLE_MENUS: Record<MenuKind, RoleMenu> = {
   admin: {
     main: [{ href: '/', label: 'داشبورد مدیر فروش' }, { href: '/loan-applications' }, { href: '/customers' }, { href: '/calls' }, { href: '/goods-purchases' }, { href: '/payment-orders' }, { href: '/internal-chat' }, { href: '/sales-reports' }, { href: '/settings/assistants' }],
     more: [
-      { id: 'sales', label: 'فروش', hrefs: ['/reminders', '/consultations', '/callback-requests', '/smart-filing', '/loan-plans', '/contracts'] },
+      { id: 'sales', label: 'فروش', hrefs: ['/daily-plans', '/reminders', '/consultations', '/callback-requests', '/smart-filing', '/loan-plans', '/contracts'] },
       { id: 'finance', label: 'مالی', hrefs: ['/sales-commissions', '/my-performance', '/my-wallet', '/wallet-management', '/bank-accounts', '/accounting'] },
       { id: 'comms', label: 'پیام و تلفن', hrefs: ['/chat', '/messengers', '/settings/bale', '/instagram-inbox', '/mobile-calls', '/phone'] },
       { id: 'exceptions', label: 'استثناها', hrefs: ['/manual-verifications', '/credit-rank-overrides'] },
