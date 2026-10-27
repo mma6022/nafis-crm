@@ -11,7 +11,8 @@ import { Router, type IRouter, type NextFunction, type Request, type Response } 
 import type { AuthUser } from "../lib/auth";
 import { requirePermission } from "../lib/access-control";
 import { crmDb, execute, queryRow, queryRows, runTransaction } from "../lib/crm-db";
-import { parseUrgentReason, setCustomerUrgent, urgentHistory, URGENT_REASONS } from "../lib/customer-urgent";
+import { urgentHistory, URGENT_REASONS } from "../lib/customer-urgent";
+import { applyStaffUrgent } from "../lib/lead-intake";
 import { ensureLeadAnnotatorSchema, LEAD_ANNOTATOR_NOTE_LABEL, maskPhonesDeep, NOTE_MAX } from "../lib/lead-annotator";
 import { maskCustomerPhone } from "../lib/cross-owner-search";
 import { normalizeCustomerMobile, normalizePersianSearchText } from "../lib/customer-integrity";
@@ -102,15 +103,14 @@ router.post("/lead-annotator/customers/:id/notes", gate, (req, res): void => {
 router.post("/lead-annotator/customers/:id/urgent", gate, (req, res): void => {
   const u = me(res); const id = Number(req.params.id);
   if (typeof req.body?.isUrgent !== "boolean") { res.status(422).json({ error: "isUrgent_required" }); return; }
-  const pr = parseUrgentReason(req.body, true);
-  if ("error" in pr) { res.status(422).json({ error: pr.error }); return; }
-  const reason = pr.reason;
   if (!(Number.isSafeInteger(id) && id > 0 && customer(id))) { res.status(404).json({ error: "Customer not found" }); return; }
+  // urgent v1.1 (lib/lead-intake.ts applyStaffUrgent): reason required; already urgent = attempt row; clearing is admin only.
   const r = runTransaction(() => {
-    const out = setCustomerUrgent(crmDb, id, req.body.isUrgent, { kind: "user", userId: u.id, label: actorLabel(u) }, "lead_annotator", reason);
-    audit(u.id, out.changed ? "urgent" : "urgent_noop", id); return out;
+    const out = applyStaffUrgent(crmDb, id, req.body.isUrgent, { kind: "user", userId: u.id, label: actorLabel(u) }, u.role === "admin" && Number(u.id) !== 29, req.body, "lead_annotator", true);
+    if (out.status === 200) audit(u.id, out.body.changed ? "urgent" : "urgent_noop", id);
+    return out;
   });
-  res.json({ id, isUrgent: r.isUrgent, changed: r.changed });
+  res.status(r.status).json(r.body);
 });
 
 /** Owners / admins read the annotations on a customer they can already open (same scope rule as the customer page). */

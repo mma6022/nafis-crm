@@ -2,6 +2,7 @@ import { crmDb, execute, executeChanges, queryRow, queryRows } from "./crm-db";
 import { defaultOwnerDecision, logRuleAssignment, type RegistrationSource } from "./default-owner-rule";
 import { customerSourceFor } from "./registration-sources";
 import { recordUrgentChange } from "./customer-urgent";
+import { intakeValuesForCreate, type IntakeInput } from "./lead-intake";
 
 export type CustomerCreateInput = {
   name: string;
@@ -23,6 +24,10 @@ export type CustomerCreateInput = {
   registeredByUserId?: number | null;
   /** crm-default-owner: intake channel; every caller passes one. */
   registrationSource: RegistrationSource;
+  /** crm-instagram-leads: source / intake rank / registrar note (validated by the caller); missing → server defaults. */
+  intake?: IntakeInput;
+  /** urgent v1.1: the required reason when created «فوری» from the staff form. */
+  urgentReason?: { reason: string; code: string } | null;
 };
 
 /** Result of the last insertCustomerRecord in this process (read synchronously by the caller right after the insert). */
@@ -87,12 +92,15 @@ export function insertCustomerRecord(input: CustomerCreateInput): number {
       ? input.assignedSalespersonId
       : input.salespersonId ?? allocatedSalespersonId ?? null;
   }
+  const createdAt = new Date().toISOString();
+  const iv = intakeValuesForCreate(crmDb, input.registrationSource, input.registeredByUserId ?? null, input.intake, createdAt);
   const id = execute(
     `INSERT INTO customers
       (name, phone, description, national_code, birth_date_jalali, postal_code,
        father_name, address, email, verification_status, is_urgent, created_at,
-       salesperson_id, priority, status, registered_by, registration_source, source)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'unverified', ?, ?, ?, ?, ?, ?, ?, ?)`,
+       salesperson_id, priority, status, registered_by, registration_source, source,
+       lead_source, lead_source_other, intake_credit_rank, registrar_note, registered_by_seller_id, registered_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'unverified', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.name,
       input.phone,
@@ -104,18 +112,20 @@ export function insertCustomerRecord(input: CustomerCreateInput): number {
       input.address ?? null,
       input.email ?? null,
       input.isUrgent ? 1 : 0,
-      new Date().toISOString(),
+      createdAt,
       owner,
       input.priority ?? null,
       input.status ?? "in_progress",
       input.registeredByUserId ?? null,
       input.registrationSource,
-      customerSourceFor(input.registrationSource, input.registeredByUserId),
+      customerSourceFor(input.registrationSource, iv.leadSource),
+      iv.leadSource, iv.leadSourceOther, iv.intakeCreditRank, iv.registrarNote, iv.registeredBySellerId, iv.registeredAt,
     ],
   );
   // crm-urgent-history: a customer created «فوری» counts as a set (one history row + one bell to Kazemi).
   if (input.isUrgent) recordUrgentChange(crmDb, id, 0, 1, input.registeredByUserId != null
-    ? { kind: "user", userId: input.registeredByUserId } : { kind: "system", label: input.registrationSource }, `create:${input.registrationSource}`);
+    ? { kind: "user", userId: input.registeredByUserId } : { kind: "system", label: input.registrationSource }, `create:${input.registrationSource}`,
+    input.urgentReason?.reason ?? null, { reasonCode: input.urgentReason?.code ?? null });
   if (rule.apply) logRuleAssignment({ customerId: id, registrarUserId: input.registeredByUserId ?? null, source: input.registrationSource,
     ownerSalespersonId: rule.ownerSalespersonId, priority: input.priority ?? null });
   lastOutcome = { customerId: id, ruleApplied: rule.apply, salespersonId: owner };

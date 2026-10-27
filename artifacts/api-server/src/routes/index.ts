@@ -47,6 +47,7 @@ import callQueueRouter from "./call-queue";
 import { ensureCallQueueSchema } from "../lib/call-queue";
 import defaultOwnerRouter from "./default-owner";
 import leadAnnotatorRouter from "./lead-annotator";
+import leadIntakeRouter from "./lead-intake";
 import { startCallQueueJobs } from "../lib/call-queue-r2";
 import { ensureTeamSalesSchema } from "../lib/team-sales";
 import teamCommissionRouter from "./team-commission";
@@ -73,6 +74,7 @@ router.use("/internal-chat",createInternalChatRouter({db:crmDb,requireAuth,requi
 router.use(consultationReportRouter);
 router.use(leadAnnotatorRouter);
 router.use(planRatesRouter);
+router.use(leadIntakeRouter);
 router.use(crmRouter);
 router.use(teamSalesRouter);
 router.use(salesAssistRouter);

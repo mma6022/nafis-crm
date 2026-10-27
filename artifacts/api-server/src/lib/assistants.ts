@@ -23,8 +23,8 @@
  * code that does not normalize (or an older release after a rollback) sees a sales row with no expert → scope "0", nobody eligible.
  */
 import { cqFlag } from "./call-queue";
-import { registeredByRange, registeredByReport } from "./registered-by-report";
-import { ASSISTANT_URGENT_IDS_KEY, ASSISTANT_URGENT_WRITE_KEY, URGENT_REASONS, ensureUrgentSchema, parseUrgentReason, setCustomerUrgent } from "./customer-urgent";
+import { leadSourceFilter, registeredByRange, registeredByReport } from "./registered-by-report";
+import { ASSISTANT_URGENT_IDS_KEY, ASSISTANT_URGENT_WRITE_KEY, URGENT_REASONS, ensureUrgentSchema, parseUrgentReason, setCustomerUrgent , recordUrgentAttempt } from "./customer-urgent";
 import { cqSignals, cqTeamDiscipline } from "./call-queue-r2";
 import express, { Router, type Request, type Response, type NextFunction } from "express";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -770,7 +770,9 @@ export function createAssistants(deps: Deps) {
     if (req.body?.isUrgent !== undefined && req.body?.isUrgent !== true) return fail(res, 422, "bad_body");
     const pr = parseUrgentReason(req.body, false);
     if ("error" in pr) return fail(res, 422, pr.error, pr.error === "other_text_required" ? "برای «سایر» توضیح لازم است (۳ تا ۲۸۰ حرف)." : "دلیل «فوری» یکی از این‌هاست: شاکیه کسی زنگ نزده، درخواست تماس فوری، سایر (با توضیح).");
-    const r = setCustomerUrgent(db, Number(c.id), true, { kind: "assistant", assistantId: a.id, label: label(a) }, `assistant:${a.kind}`, pr.reason, { ownerOnly: true });
+    const r = setCustomerUrgent(db, Number(c.id), true, { kind: "assistant", assistantId: a.id, label: label(a) }, `assistant:${a.kind}`, pr.reason, { ownerOnly: true, reasonCode: pr.code });
+    // urgent v1.1 §0-16: already urgent → one 'attempt' row (no bell, no change).
+    if (!r.changed) recordUrgentAttempt(db, Number(c.id), { kind: "assistant", assistantId: a.id, label: label(a) }, `assistant:${a.kind}`, pr.reason, pr.code);
     audit({ req, a, tokenId: TK(res), action: act, customerId: c.id, outcome: "ok", detail: { isUrgent: r.isUrgent, changed: r.changed, reasonCode: pr.code } });
     res.json({ ok: true, customerId: Number(c.id), isUrgent: r.isUrgent, changed: r.changed, reason: pr.reason });
   });
@@ -990,8 +992,10 @@ export function createAssistants(deps: Deps) {
   runner.get("/manager/registered-by", managerOnly, (req, res) => {
     const r = registeredByRange({ from: req.query.from, to: req.query.to }, now());
     if ("error" in r) return fail(res, 422, r.error, "from / to باید تاریخ تهران YYYY-MM-DD باشند، from ≤ to و حداکثر ۴۰۰ روز.");
-    audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/registered-by", outcome: "ok", detail: { from: r.from, to: r.to } });
-    res.json(maskAll(registeredByReport(db, r, { excludeTest: excludeTestOn(db), now: now() })));
+    const lf = leadSourceFilter(db, req.query.source, r);
+    if ("error" in lf) return fail(res, 422, lf.error, lf.message);
+    audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/registered-by", outcome: "ok", detail: { from: r.from, to: r.to, source: lf.leadSource } });
+    res.json(maskAll(registeredByReport(db, r, { excludeTest: excludeTestOn(db), now: now(), leadSource: lf.leadSource })));
   });
   /* ---------- Task D (2026-10-26) «تحلیل عملکرد من»: per-period numbers + Ahmad's written analysis per expert ---------- */
   ensureExpertAnalysisSchema(db);

@@ -191,7 +191,8 @@ import { retainedIdentityChecks } from "../lib/identity-check-retention";
 import { normalizeCustomerMobile, normalizeCustomerNationalCode, isAdminRole } from "../lib/customer-integrity";
 import { mergeCustomerRecords } from "../lib/customer-merge";
 import { insertCustomerRecord, lastCustomerCreateOutcome } from "../lib/customer-create";
-import { recordUrgentChange, setCustomerUrgent, URGENT_REASON_MAX } from "../lib/customer-urgent";
+import { parseStaffUrgentReason } from "../lib/customer-urgent";
+import { applyStaffUrgent, defaultLeadSourceForUser, ensureLeadIntakeSchema, parseIntake, URGENT_ERRORS, validateUrgentClear } from "../lib/lead-intake";
 import { calculatorQuote, publicPlanTerms } from "../lib/plan-quote-math";
 import { publicQuoteRateLimit, parseQuoteBody } from "../lib/plan-quote-guard";
 import { isPortalRegistration } from "../lib/customer-portal-features";
@@ -1293,6 +1294,10 @@ router.post(
       return;
     }
     const user = res.locals.authUser as AuthUser;
+    // crm-instagram-leads §0-6: the form's source / intake rank / note ride on the repeat request (never a new customer, no owner change).
+    const intake = parseIntake(req.body);
+    if (!intake.ok) { res.status(400).json({ error: intake.error, field: intake.field }); return; }
+    ensureLeadIntakeSchema(crmDb);
     let requestId: number;
     try {
       requestId = runTransaction(() => {
@@ -1312,6 +1317,9 @@ router.post(
             createdAt,
           ],
         );
+        // old clients that send no source: the registrar's default from the setting (same as a new customer).
+        execute("UPDATE customer_repeat_requests SET lead_source=?, lead_source_other=?, intake_credit_rank=?, registrar_note=? WHERE id=?",
+            [intake.value.leadSource ?? defaultLeadSourceForUser(crmDb, user.id), intake.value.leadSourceOther ?? null, intake.value.intakeCreditRank ?? null, intake.value.registrarNote ?? null, id]);
         execute(
           "INSERT OR IGNORE INTO customer_tags(customer_id,tag,created_at) VALUES(?,'repeat_request',?)",
           [customer.id, createdAt],
@@ -1977,6 +1985,16 @@ router.post(
       res.status(403).json({ error: "Only administrators may assign a salesperson" });
       return;
     }
+    // crm-instagram-leads: intake fields (not in the generated zod body — read from req.body, validated here).
+    const intake = parseIntake(req.body);
+    if (!intake.ok) { res.status(400).json({ error: intake.error, field: intake.field }); return; }
+    // urgent v1.1 §0-15: «فوری» on create needs a reason (urgentReasonCode + urgentReasonText for «سایر» ≤ 80).
+    let urgentReason: { reason: string; code: string } | null = null;
+    if (body.isUrgent) {
+      const pr = parseStaffUrgentReason({ reasonCode: req.body?.urgentReasonCode, reasonText: req.body?.urgentReasonText });
+      if ("error" in pr) { res.status(422).json({ error: pr.error, field: "urgentReason", message: URGENT_ERRORS[pr.error] ?? pr.error }); return; }
+      urgentReason = pr;
+    }
     if (body.salespersonId != null && !queryRow("SELECT id FROM salespersons WHERE id=?", [body.salespersonId])) {
       res.status(400).json({ error: "Salesperson does not exist" });
       return;
@@ -2039,6 +2057,8 @@ router.post(
           assignedSalespersonId: user.customerScope === "assigned" ? user.salespersonId : undefined,
           registeredByUserId: user.id,
           registrationSource: "staff_form",
+          intake: intake.value,
+          urgentReason,
         });
         const created = lastCustomerCreateOutcome();
         if (created?.customerId === newId && created.ruleApplied) {
@@ -3120,13 +3140,25 @@ router.patch(
         ["sana_status", null],
       );
     }
-    if (body.isUrgent !== undefined)
-      entries.push(["is_urgent", body.isUrgent ? 1 : 0]);
+    // urgent v1.1: a real change of the tick through the edit form follows the staff policy (reason to set; admin + clear reason
+    // to clear) and is applied by applyStaffUrgent below, not by the generic UPDATE.
+    const urgentChange = body.isUrgent !== undefined && Boolean(body.isUrgent) !== Boolean(existingCustomer.isUrgent);
+    if (urgentChange && !body.isUrgent && !(user.role === "admin" && Number(user.id) !== 29)) {
+      res.status(403).json({ error: "urgent_clear_admin_only", message: URGENT_ERRORS.urgent_clear_admin_only }); return;
+    }
+    if (urgentChange && !body.isUrgent) {
+      const cr = validateUrgentClear(req.body);
+      if (cr) { res.status(422).json({ error: cr, field: "urgentClear", message: URGENT_ERRORS[cr] }); return; }
+    }
+    if (urgentChange && body.isUrgent) {
+      const pr = parseStaffUrgentReason(req.body);
+      if ("error" in pr) { res.status(422).json({ error: pr.error, field: "urgentReason", message: URGENT_ERRORS[pr.error] ?? pr.error }); return; }
+    }
     if (body.salespersonId !== undefined && user.role === "admin")
       entries.push(["salesperson_id", body.salespersonId]);
     if (body.priority !== undefined) entries.push(["priority", body.priority]);
     if (body.status !== undefined) entries.push(["status", body.status]);
-    if (!entries.length) {
+    if (!entries.length && !urgentChange) {
       res.status(400).json({ error: "At least one field is required" });
       return;
     }
@@ -3141,14 +3173,17 @@ router.patch(
     try {
       if (nationalCodeLog) ensureIdentityLogSchema();
       changes = runTransaction(() => {
-        const changed = executeChanges(
+        let changed = entries.length ? executeChanges(
           `UPDATE customers SET ${setClause} WHERE id = ?`,
           [...entries.map(([, value]) => value), params.data.id],
-        );
-        // crm-urgent-history: one history row + one bell to Kazemi when the tick really changed.
-        if (changed && body.isUrgent !== undefined)
-          recordUrgentChange(crmDb, params.data.id, existingCustomer.isUrgent ? 1 : 0, body.isUrgent ? 1 : 0,
-            { kind: "user", userId: user.id, label: user.fullName || user.username }, "customer_update");
+        ) : 0;
+        // crm-urgent-history / urgent v1.1: history row (+ bells on set) through the staff policy.
+        if (urgentChange) {
+          const u = applyStaffUrgent(crmDb, params.data.id, Boolean(body.isUrgent), { kind: "user", userId: user.id, label: user.fullName || user.username },
+            user.role === "admin" && Number(user.id) !== 29, req.body, "customer_update");
+          if (u.status !== 200) throw new Error(`URGENT_POLICY:${String(u.body.error)}`);
+          changed = changed || (u.body.changed ? 1 : 0);
+        }
         // Same additive log as the quick-credit save; '' as new value = explicitly cleared.
         if (changed && nationalCodeLog) execute(
           `INSERT INTO ${IDENTITY_LOG_TABLE} (customer_id,old_national_code,new_national_code,identity_changed,source,actor_user_id,created_at)
@@ -3213,12 +3248,12 @@ router.patch("/customers/:id/urgent", requirePermission("customers.update"), (re
   const id = Number(req.params.id);
   if (!Number.isSafeInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid customer id" }); return; }
   if (typeof req.body?.isUrgent !== "boolean") { res.status(400).json({ error: "isUrgent (boolean) is required" }); return; }
-  const reason = req.body?.reason == null ? null : String(req.body.reason).trim();
-  if (reason && reason.length > URGENT_REASON_MAX) { res.status(400).json({ error: "reason too long" }); return; }
   const user = res.locals.authUser as AuthUser;
   if (!customerOwnerOrAdmin(id, user)) { res.status(404).json({ error: "Customer not found" }); return; }
-  const r = runTransaction(() => setCustomerUrgent(crmDb, id, req.body.isUrgent, { kind: "user", userId: user.id, label: user.fullName || user.username }, "urgent_toggle", reason || null));
-  res.json({ id, isUrgent: r.isUrgent, changed: r.changed });
+  // urgent v1.1: reason required to set (fixed chips / «سایر» ≤ 80); clearing = admin only with a clear reason (lib/lead-intake.ts).
+  const r = runTransaction(() => applyStaffUrgent(crmDb, id, req.body.isUrgent, { kind: "user", userId: user.id, label: user.fullName || user.username },
+    user.role === "admin" && Number(user.id) !== 29, req.body, "urgent_toggle"));
+  res.status(r.status).json(r.body);
 });
 
 router.patch(

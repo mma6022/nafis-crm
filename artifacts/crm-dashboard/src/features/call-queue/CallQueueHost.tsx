@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useUrgentWaiting } from '@/features/lead-intake/api';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BellRing, Phone, Send, Sparkles, X } from 'lucide-react';
@@ -173,6 +174,7 @@ function DueDialog({ r, index, total, lastToast, cfg, onSaved, onSnoozed, startI
   const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [shake, setShake] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null); const callRef = useRef<HTMLAnchorElement>(null);
   const pre = useQuery({ queryKey: ['call-queue', 'pre-call', r.customerId], queryFn: () => cqApi.preCall(r.customerId), retry: false }).data;
+  const urgentWaiting = useUrgentWaiting().data?.count ?? 0;
   useInertBackground(true);
   useEffect(() => { callRef.current?.focus(); }, []);
   useEffect(() => { if (stage === 'form') (boxRef.current?.querySelector('[role="radio"]') as HTMLElement | null)?.focus(); }, [stage]);
@@ -207,6 +209,7 @@ function DueDialog({ r, index, total, lastToast, cfg, onSaved, onSnoozed, startI
       <div className="cq-lock-top"><span className="cq-pill"><BellRing size={13} aria-hidden="true" /> یادآور سررسیده</span>
         {total > 1 ? <span className="cq-counter-pill" data-testid="cq-due-counter">{faNum(index)} از {faNum(total)} <i aria-hidden="true">{Array.from({ length: total }, (_, i) => <b key={i} className={i < index ? 'on' : ''} />)}</i></span> : null}</div>
       <h2 id="cq-lock-t">این مشتری رو الان باید پیگیری کنی</h2>
+      {urgentWaiting ? <p className="cq-lock-prev" role="status" data-testid="cq-due-urgent-waiting">بعد از این یادآور: {faNum(urgentWaiting)} مشتری فوری منتظر تماس است.</p> : null}
       {lastToast && index > 1 ? <p className="cq-lock-prev" role="status" data-testid="cq-due-prev">{faNum(index - 1)} مورد ثبت شد · {lastToast}</p> : null}
       <div className="cq-lock-cust">
         <div><b>{r.customerName}</b> <span className="cq-id">#{faNum(r.customerId)}</span>{r.priority ? <span className="cq-pri">اولویت {faNum(r.priority)}</span> : null}</div>

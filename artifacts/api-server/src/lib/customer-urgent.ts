@@ -46,7 +46,28 @@ export function parseUrgentReason(body: any, allowFree = false): { reason: strin
   if (text.length < URGENT_OTHER_MIN || text.length > URGENT_OTHER_MAX) return { error: "other_text_required" };
   return { reason: `سایر: ${text}`, code: "other" };
 }
-export type UrgentBellOpts = { ownerOnly?: boolean };
+/** v1.1 (§0-14/15): staff flag — one of the two fixed reasons, or «سایر» + a short sentence (≤ 80). The assistant runner keeps 3–280. */
+export const URGENT_STAFF_OTHER_MAX = 80;
+export function parseStaffUrgentReason(body: any): { reason: string; code: string } | { error: string } {
+  const code = typeof body?.reasonCode === "string" ? body.reasonCode.trim() : "";
+  if (!code) return { error: "reason_required" };
+  const opt = URGENT_REASONS.find((o) => o.code === code);
+  if (!opt) return { error: "bad_reason_code" };
+  if (opt.code !== "other") return { reason: opt.label, code };
+  const text = typeof body?.reasonText === "string" ? body.reasonText.trim() : "";
+  if (!text) return { error: "other_text_required" };
+  if ([...text].length > URGENT_STAFF_OTHER_MAX) return { error: "other_text_too_long" };
+  return { reason: `سایر: ${text}`, code };
+}
+/** v1.1 §0-20: manual clear reasons (admin only). auto_call is written only by the call-result trigger (lib/lead-intake.ts). */
+export const URGENT_CLEAR_REASONS = [
+  { code: "customer_called", label: "مشتری خودش تماس گرفت" },
+  { code: "handled_elsewhere", label: "کارش از راه دیگری انجام شد" },
+  { code: "mistake", label: "اشتباه زده شده" },
+  { code: "other", label: "سایر" },
+] as const;
+export const URGENT_CLEAR_NOTE_MAX = 80;
+export type UrgentBellOpts = { ownerOnly?: boolean; noBell?: boolean; reasonCode?: string | null; clearReasonCode?: string | null; clearNote?: string | null };
 
 export type UrgentActor = { kind: "user" | "assistant" | "system"; userId?: number | null; assistantId?: number | null; label?: string | null };
 
@@ -69,6 +90,9 @@ export function ensureUrgentSchema(db: DatabaseSync): void {
   const cols = colsOf(db, "customer_urgent_history");
   if (!cols.includes("reason")) db.exec("ALTER TABLE customer_urgent_history ADD COLUMN reason TEXT");
   if (!cols.includes("bell_recipients")) db.exec("ALTER TABLE customer_urgent_history ADD COLUMN bell_recipients TEXT");
+  // v1.1: event set | clear | attempt | auto_clear, structured reason / clear reason, the CRM call that auto-cleared it.
+  for (const [c, d] of [["event", "TEXT"], ["reason_code", "TEXT"], ["clear_reason_code", "TEXT"], ["clear_note", "TEXT"], ["call_log_id", "INTEGER"]])
+    if (!cols.includes(c)) db.exec(`ALTER TABLE customer_urgent_history ADD COLUMN ${c} ${d}`);
 }
 
 /** Owner user of the case + Kazemi, deduplicated, active only, never a trainee owner or user 29. */
@@ -108,10 +132,11 @@ export function recordUrgentChange(db: DatabaseSync, customerId: number, oldValu
   ensureUrgentSchema(db);
   const at = new Date().toISOString();
   const why = reason && reason.trim() ? reason.trim().slice(0, URGENT_REASON_MAX) : null;
-  const ids = bells(db, customerId, n === 1, actor, why, at, opts);
-  const r = db.prepare(`INSERT INTO customer_urgent_history(customer_id,old_value,new_value,actor_kind,actor_user_id,assistant_id,actor_label,via,bell_event_id,created_at,reason,bell_recipients)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(customerId, o, n, actor.kind, actor.userId ?? null, actor.assistantId ?? null, actor.label ?? null, via.slice(0, 60),
-    ids[0] ?? null, at, why, JSON.stringify(ids));
+  const ids = opts.noBell ? [] : bells(db, customerId, n === 1, actor, why, at, opts);
+  const r = db.prepare(`INSERT INTO customer_urgent_history(customer_id,old_value,new_value,actor_kind,actor_user_id,assistant_id,actor_label,via,bell_event_id,created_at,reason,bell_recipients,event,reason_code,clear_reason_code,clear_note)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(customerId, o, n, actor.kind, actor.userId ?? null, actor.assistantId ?? null, actor.label ?? null, via.slice(0, 60),
+    ids[0] ?? null, at, why, JSON.stringify(ids), n === 1 ? "set" : "clear", n === 1 ? opts.reasonCode ?? null : null,
+    n === 0 ? opts.clearReasonCode ?? null : null, n === 0 ? opts.clearNote ?? null : null);
   return Number(r.lastInsertRowid);
 }
 
@@ -125,7 +150,16 @@ export function setCustomerUrgent(db: DatabaseSync, customerId: number, isUrgent
   return { changed: true, isUrgent, historyId: recordUrgentChange(db, customerId, old ? 1 : 0, isUrgent ? 1 : 0, actor, via, reason, opts) };
 }
 
+/** v1.1 §0-16: a flag on an already-urgent customer is not a second flag — one 'attempt' row (no bell, no change). */
+export function recordUrgentAttempt(db: DatabaseSync, customerId: number, actor: UrgentActor, via: string, reason: string | null, reasonCode: string | null): number {
+  ensureUrgentSchema(db);
+  const r = db.prepare(`INSERT INTO customer_urgent_history(customer_id,old_value,new_value,actor_kind,actor_user_id,assistant_id,actor_label,via,bell_event_id,created_at,reason,bell_recipients,event,reason_code)
+      VALUES(?,1,1,?,?,?,?,?,NULL,?,?,'[]','attempt',?)`).run(customerId, actor.kind, actor.userId ?? null, actor.assistantId ?? null, actor.label ?? null, via.slice(0, 60),
+    new Date().toISOString(), reason, reasonCode);
+  return Number(r.lastInsertRowid);
+}
+
 export function urgentHistory(db: DatabaseSync, customerId: number, limit = 20) {
   ensureUrgentSchema(db);
-  return db.prepare("SELECT id, old_value oldValue, new_value newValue, actor_kind actorKind, actor_label actorLabel, reason, via, created_at createdAt FROM customer_urgent_history WHERE customer_id=? ORDER BY id DESC LIMIT ?").all(customerId, limit);
+  return db.prepare("SELECT id, old_value oldValue, new_value newValue, actor_kind actorKind, actor_label actorLabel, reason, via, created_at createdAt, event, reason_code reasonCode, clear_reason_code clearReasonCode, clear_note clearNote FROM customer_urgent_history WHERE customer_id=? ORDER BY id DESC LIMIT ?").all(customerId, limit);
 }

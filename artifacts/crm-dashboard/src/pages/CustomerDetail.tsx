@@ -4,6 +4,7 @@ import { CustomerIntroLog } from '@/features/expert-intro-sms/CustomerIntroLog';
 import { CustomerAnnotations } from '@/features/lead-annotator/CustomerAnnotations';
 import { RestrictedCase } from '@/features/lead-annotator/RestrictedCase';
 import { useLeadAnnotatorMe } from '@/features/lead-annotator/api';
+import { LeadIntakePanel } from '@/features/lead-intake/LeadIntakePanel';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useParams, Link, useLocation } from 'wouter';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -211,7 +212,7 @@ function CustomerDetailFull() {
   const [editing, setEditing] = useState(false);
   const [consultationFormOpen, setConsultationFormOpen] = useState(false);
   const createConsult = useCreateConsultation();
-  const [form, setForm] = useState<{ name: string; phone: string; nationalCode: string; postalCode: string; birthDateJalali: string; description: string; priority: string; status: CustomerUpdateStatus; isUrgent: boolean }>({ name: '', phone: '', nationalCode: '', postalCode: '', birthDateJalali: '', description: '', priority: '', status: 'in_progress', isUrgent: false });
+  const [form, setForm] = useState<{ name: string; phone: string; nationalCode: string; postalCode: string; birthDateJalali: string; description: string; priority: string; status: CustomerUpdateStatus }>({ name: '', phone: '', nationalCode: '', postalCode: '', birthDateJalali: '', description: '', priority: '', status: 'in_progress' });
   const [salespersonSelection, setSalespersonSelection] = useState('');
   const [salespersonError, setSalespersonError] = useState('');
   const [nationalCode, setNationalCode] = useState('');
@@ -223,7 +224,7 @@ function CustomerDetailFull() {
   const [ncTouched, setNcTouched] = useState(false);
   useEffect(() => {
     if (customer) {
-      setForm({ name: customer.name, phone: customer.phone, nationalCode: customer.nationalCode ?? '', postalCode: customer.postalCode ?? '', birthDateJalali: customer.birthDateJalali ?? '', description: customer.description ?? '', priority: customer.priority ? String(customer.priority) : '', status: customer.status, isUrgent: customer.isUrgent ?? false });
+      setForm({ name: customer.name, phone: customer.phone, nationalCode: customer.nationalCode ?? '', postalCode: customer.postalCode ?? '', birthDateJalali: customer.birthDateJalali ?? '', description: customer.description ?? '', priority: customer.priority ? String(customer.priority) : '', status: customer.status });
       setSalespersonSelection(customer.salespersonId ? String(customer.salespersonId) : '');
       setNcTouched(false);
       setNationalCode(current => current || customer.nationalCode || '');
@@ -353,7 +354,7 @@ function CustomerDetailFull() {
       if (first) window.requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-testid="${testIds[first]}"]`)?.focus());
       return;
     }
-    const data: CustomerUpdate & { clearNationalCode?: true } = { name: form.name.trim(), phone: normalizeDigits(form.phone.trim()), ...nc.patch, postalCode: form.postalCode.trim() ? normalizeDigits(form.postalCode.trim()) : null, birthDateJalali: form.birthDateJalali.trim() || null, description: form.description, priority: form.priority ? Number(form.priority) : null, status: form.status, isUrgent: form.isUrgent };
+    const data: CustomerUpdate & { clearNationalCode?: true } = { name: form.name.trim(), phone: normalizeDigits(form.phone.trim()), ...nc.patch, postalCode: form.postalCode.trim() ? normalizeDigits(form.postalCode.trim()) : null, birthDateJalali: form.birthDateJalali.trim() || null, description: form.description, priority: form.priority ? Number(form.priority) : null, status: form.status };
     update.mutate({ id, data }, {
       onSuccess: () => { setEditing(false); setNcTouched(false); setProfileErrors({}); customerQuery.refetch(); setToast('تغییرات پرونده ذخیره شد.'); },
       onError: (error) => {
@@ -391,7 +392,8 @@ function CustomerDetailFull() {
       setLocation('/customers');
     } });
   };
-  const quickUpdate = (data: { status?: CustomerUpdateStatus; priority?: number | null; isUrgent?: boolean }) => {
+  // urgent v1.1: «فوری» is set / cleared only through LeadIntakePanel (reason required, clear admin-only).
+  const quickUpdate = (data: { status?: CustomerUpdateStatus; priority?: number | null }) => {
     setQuickError('');
     update.mutate({ id, data }, {
       onSuccess: () => { void customerQuery.refetch(); void queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() }); setToast('وضعیت پرونده به‌روز شد.'); },
@@ -547,7 +549,6 @@ function CustomerDetailFull() {
     {canUpdate ? <>
       <div className="csx-chips" role="radiogroup" aria-label="وضعیت">{(['in_progress', 'completed', 'cancelled'] as CustomerUpdateStatus[]).map((key) => <button key={key} type="button" className="csx-chip" role="radio" aria-checked={customer.status === key} data-s={key} disabled={update.isPending} onClick={() => customer.status !== key && quickUpdate({ status: key })} data-testid={`chip-status-${key}`}>{STATUS_LABEL[key]}</button>)}</div>
       <div className="csx-chips" role="radiogroup" aria-label="اولویت">{[1, 2, 3, null].map((value) => <button key={String(value)} type="button" className="csx-chip" role="radio" aria-checked={(customer.priority ?? null) === value} data-p={value ?? undefined} disabled={update.isPending} onClick={() => (customer.priority ?? null) !== value && quickUpdate({ priority: value })} data-testid={`chip-priority-${value ?? 'none'}`}>{value ? `اولویت ${faNum(value)}` : 'بدون اولویت'}</button>)}</div>
-      <label className="csx-chip" style={{ justifySelf: 'start' }}><input type="checkbox" checked={customer.isUrgent ?? false} disabled={update.isPending} onChange={(event) => quickUpdate({ isUrgent: event.target.checked })} style={{ width: 20, height: 20 }} data-testid="checkbox-quick-urgent" /> فوری</label>
       {quickError ? <div className="csx-note bad" role="alert"><AlertCircle size={18} /><p>{quickError}</p></div> : null}
     </> : <div className="csx-chips" style={{ gap: 6 }}><StatusPill status={customer.status} /><PriorityLabel value={customer.priority} />{customer.isUrgent ? <span className="csx-tag warn">فوری</span> : null}</div>}
     {isAdmin ? <form className="csx-fld" onSubmit={reassignSalesperson} data-testid="panel-customer-salesperson-assignment" style={{ display: 'grid', gap: 8 }}>
@@ -733,6 +734,7 @@ function CustomerDetailFull() {
     />}
     <nav className="csx-crumb" aria-label="مسیر"><Link href="/customers" data-testid="link-back-customers"><ArrowRight size={16} /> مشتریان</Link><ChevronLeft size={14} aria-hidden="true" /><span aria-current="page">{customerNameText(customer.name, customer.id)}</span></nav>
     {hero}
+    <LeadIntakePanel key={`li-${id}`} customerId={id} />
     {tsCard ? <div className="m-only">{tsCard}</div> : null}
     <div className="m-only"><DataAccuracyCard customerId={id} place="m" onSubmitted={refreshAfterAccuracy} /></div>
     {readOnlyRole ? <div className="csx-note warn" data-testid="note-readonly-role"><Lock size={18} /><p>فقط مشاهده — ویرایش، تماس و کیف پول برای نقش شما فعال نیست.</p></div> : null}
@@ -756,7 +758,6 @@ function CustomerDetailFull() {
           <div className="field"><label htmlFor="detail-priority">اولویت</label><select id="detail-priority" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} data-testid="select-detail-priority"><option value="">بدون اولویت</option>{[1, 2, 3].map((value) => <option key={value} value={value} disabled={showUpgrade && value === 1}>اولویت {faNum(value)}{showUpgrade && value === 1 ? ' (فقط با «ارتقا به اولویت ۱»)' : ''}</option>)}</select>{showUpgrade ? <small className="hint" data-testid="hint-detail-p1-upgrade-only">اولویت ۱ فقط با دکمهٔ «ارتقا به اولویت ۱»</small> : null}</div>
           <div className="field"><label htmlFor="detail-status">وضعیت</label><select id="detail-status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as CustomerUpdateStatus })} data-testid="select-detail-status"><option value="in_progress">در حال انجام</option><option value="cancelled">لغو شده</option><option value="completed">اتمام</option></select></div>
         </div>
-        <label className="csx-check"><input type="checkbox" checked={form.isUrgent} onChange={(e) => setForm({ ...form, isUrgent: e.target.checked })} data-testid="checkbox-detail-is-urgent" /> مشتری فوری</label>
         <div className="field"><label htmlFor="detail-desc">توضیح</label><VoiceNoteButton value={form.description} onChange={(v) => setForm((f) => ({ ...f, description: v }))} field="customer_description" testId="detail-desc-voice"><textarea id="detail-desc" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} data-testid="textarea-detail-description" /></VoiceNoteButton></div>
         <p className="hint">ویرایش کد ملی، تاریخ تولد، کد پستی یا موبایل، وضعیت احراز را به «احراز نشده» برمی‌گرداند.</p>
       </form>

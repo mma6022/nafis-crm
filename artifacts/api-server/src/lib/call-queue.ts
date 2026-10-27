@@ -8,6 +8,7 @@
  */
 import { crmDb, execute, executeChanges, queryRow, queryRows, type SqlValue } from "./crm-db";
 import { ensureOfficialHolidaysSchema, isOfficialHoliday } from "./official-holidays";
+import { openUrgentFlags } from "./lead-intake";
 
 export const CQ_TRAINEE_SALESPERSON_IDS: readonly number[] = [5, 19, 20];
 export const CQ_TRAINEE_USER_IDS: readonly number[] = [6, 27, 28];
@@ -581,6 +582,8 @@ export function cqQueue(user: CqUser, suggestions: { customerId: number; rank: n
       FROM customers c WHERE c.id IN (${ch.map(() => "?").join(",")}) AND ${cqOwnedCustomerSql()}`, [...ch as SqlValue[], sp])) info.set(Number(r.id), r);
   }
   const rank = (g: QueueCardGroup) => g === "urgent" ? -1 : s.order.indexOf(g);
+  // urgent v1.1 §0-18: urgent cards by the open flag's time, oldest first (fallback: reminder / new time).
+  const flagAt = openUrgentFlags(crmDb, [...info.keys()].filter((k) => urgentIds.has(k) || Number(info.get(k)?.is_urgent) === 1));
   const cards: QueueCard[] = [];
   for (const [id, set] of groups) {
     const c = info.get(id); if (!c) continue;
@@ -590,7 +593,7 @@ export function cqQueue(user: CqUser, suggestions: { customerId: number; rank: n
     const [lcAt, lcText] = c.lastcall ? String(c.lastcall).split("\u001f") : [null, null];
     let reason = "", at: string | null = null, late = false;
     if (g === "urgent") {
-      const r = dueBy.get(id); at = r?.remindAt ?? freshAt.get(id) ?? null; late = Boolean(r);
+      const r = dueBy.get(id); at = flagAt.get(id)?.at ?? r?.remindAt ?? freshAt.get(id) ?? null; late = Boolean(r);
       reason = ["مشتری فوری", r ? (r.subject || "یادآور سررسیده") : freshAt.has(id) ? "جدید" : sugBy.get(id)?.reason || ""].filter(Boolean).join(" · ");
     } else if (g === "due") { const r = dueBy.get(id)!; at = r.remindAt; late = true; reason = r.subject || "یادآور سررسیده"; }
     else if (g === "new") { at = freshAt.get(id) ?? null; late = !!at && now.getTime() - Date.parse(at) > s.newRedHours * 3_600_000; reason = late ? `جدید · بیش از ${s.newRedHours} ساعت` : "جدید"; }
@@ -600,7 +603,7 @@ export function cqQueue(user: CqUser, suggestions: { customerId: number; rank: n
       reminder: dueBy.get(id) ?? null, lastCall: lcAt ? { at: lcAt, text: String(lcText ?? "").slice(0, 140) } : null, assistRank: sugBy.get(id)?.rank, isUrgent: urgent });
   }
   const within = (a: QueueCard, b: QueueCard) => {
-    if (a.group === "urgent") { const da = a.reminder ? 0 : 1, db = b.reminder ? 0 : 1; return da - db || String(a.at ?? "~").localeCompare(String(b.at ?? "~")); }
+    if (a.group === "urgent") return String(a.at ?? "~").localeCompare(String(b.at ?? "~")) || a.customerId - b.customerId;
     if (a.group === "assist") return (a.assistRank ?? 9) - (b.assistRank ?? 9);
     return String(a.at ?? "").localeCompare(String(b.at ?? ""));
   };

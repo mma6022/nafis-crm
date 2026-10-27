@@ -2,14 +2,15 @@
  * crm-default-owner admin API («قانون ثبت مشتری» + «ثبت‌شده‌ها بر اساس ثبت‌کننده»). Admin only (user 29 never).
  * GET  /admin/default-owner-rule           settings + options (active salespersons, registrars, sources)
  * PUT  /admin/default-owner-rule           save settings (validated, logged old → new)
- * GET  /admin/registered-by?from&to        counts by registrar + source (no customer ids / names / phones)
+ * GET  /admin/registered-by?from&to[&source] counts by registrar + source, funnel, «درخواست دوباره», urgent by flagger (counts only)
  */
 import { Router, type IRouter } from "express";
 import { requirePermission } from "../lib/access-control";
 import type { AuthUser } from "../lib/auth";
 import { crmDb, queryRows } from "../lib/crm-db";
 import { ensureDefaultOwnerSchema, DEFAULT_OWNER_EXCLUDED_USER_IDS, REGISTRATION_SOURCES, getDefaultOwnerConfig, saveDefaultOwnerConfig, validateDefaultOwnerConfig } from "../lib/default-owner-rule";
-import { registeredByRange, registeredByReport } from "../lib/registered-by-report";
+import { leadSourceFilter, registeredByRange, registeredByReport } from "../lib/registered-by-report";
+import { ensureLeadIntakeSchema } from "../lib/lead-intake";
 import { excludeTestOn } from "../lib/test-customers";
 
 // Tables exist from boot (the live enable script and the report need them before anyone opens the page).
@@ -47,7 +48,10 @@ router.get("/admin/registered-by", guard, (req, res) => {
   if (!isAdmin(res.locals.authUser as AuthUser)) { res.status(403).json({ error: "forbidden" }); return; }
   const r = registeredByRange({ from: req.query.from, to: req.query.to }, new Date());
   if ("error" in r) { res.status(400).json({ error: r.error }); return; }
-  res.json(registeredByReport(crmDb, r, { excludeTest: excludeTestOn(crmDb) }));
+  ensureLeadIntakeSchema(crmDb);
+  const lf = leadSourceFilter(crmDb, req.query.source, r);
+  if ("error" in lf) { res.status(400).json(lf); return; }
+  res.json(registeredByReport(crmDb, r, { excludeTest: excludeTestOn(crmDb), leadSource: lf.leadSource }));
 });
 
 export default router;

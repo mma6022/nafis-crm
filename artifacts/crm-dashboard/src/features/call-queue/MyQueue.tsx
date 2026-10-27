@@ -5,6 +5,8 @@ import { MessageSquarePlus, Phone, Sparkles } from 'lucide-react';
 import { CqResultFields, emptyCqResult, type CqResultValue } from './ResultFields';
 import { cqApi, cqOn, cqTelClick, faNum, faWhen, GROUP_FA, useCqConfig, type MyDiscipline, type QueueCard, type QueueCardGroup, type QueueGroup } from './api';
 import './call-queue.css';
+import { useQueueBadges, type Badge } from '@/features/lead-intake/api';
+import { QueueLine } from '@/features/lead-intake/QueueLine';
 
 const LETTER: Record<QueueGroup, string> = { due: 'الف', new: 'ب', p1: 'ج', assist: 'د' };
 const gFa = (g: QueueCardGroup) => g === 'urgent' ? 'مشتری فوری' : GROUP_FA[g];
@@ -13,6 +15,7 @@ export default function MyQueuePage() {
   const cfg = useCqConfig().data;
   const on = cqOn(cfg, 'queue');
   const q = useQuery({ queryKey: ['call-queue', 'queue'], queryFn: cqApi.queue, enabled: on, refetchInterval: 60_000, retry: false });
+  const badges = useQueueBadges((q.data?.cards ?? []).slice(0, 200).map((c) => c.customerId)).data;
   const dq = useQuery({ queryKey: ['call-queue', 'discipline', 'me'], queryFn: cqApi.myDiscipline, enabled: cqOn(cfg, 'discipline') || cqOn(cfg, 'transfer_check'), refetchInterval: 120_000, retry: false });
   if (!cfg) return <div className="cq-page"><p role="status">در حال بارگذاری…</p></div>;
   if (!on) return <div className="cq-page"><h1>صف تماس من</h1><p data-testid="cq-queue-off">این بخش هنوز فعال نشده است.</p></div>;
@@ -37,14 +40,14 @@ export default function MyQueuePage() {
         const cards = data.cards.filter((c) => c.group === g); if (!cards.length) return null;
         return <section key={g} id={`cq-g-${g}`} className={`cq-group g-${g}`} aria-labelledby={`cq-gh-${g}`}>
           <h2 id={`cq-gh-${g}`}><span className="cq-letter">{letters[g]}</span> {gFa(g)} <small>{faNum(cards.length)} مورد</small></h2>
-          {cards.map((c) => <QueueCardView key={c.customerId} c={c} letters={letters} voidReasons={cfg.voidReasons} />)}
+          {cards.map((c) => <QueueCardView key={c.customerId} c={c} letters={letters} voidReasons={cfg.voidReasons} badge={badges?.get(c.customerId)} />)}
         </section>;
       })}
     </> : q.isLoading ? <p role="status">در حال بارگذاری صف…</p> : null}
   </div>;
 }
 
-function QueueCardView({ c, letters, voidReasons }: { c: QueueCard; letters: Record<QueueCardGroup, string>; voidReasons: { key: string; label: string }[] }) {
+function QueueCardView({ c, letters, voidReasons, badge }: { c: QueueCard; letters: Record<QueueCardGroup, string>; voidReasons: { key: string; label: string }[]; badge?: Badge }) {
   const r = c.reminder; const ai = r?.source === 'assistant';
   const [mode, setMode] = useState<'' | 'edit' | 'void'>('');
   return <article className={`cq-qcard g-${c.group}`} data-testid="cq-card" data-customer={c.customerId} data-group={c.group}>
@@ -57,6 +60,7 @@ function QueueCardView({ c, letters, voidReasons }: { c: QueueCard; letters: Rec
         {c.at ? <span className={`cq-at${c.late ? ' late' : ''}`}>{faWhen(c.at)}</span> : null}
       </div>
       <h3><Link href={`/customers/${c.customerId}`}>{c.name}</Link> <span className="cq-id">#{faNum(c.customerId)}</span></h3>
+      <QueueLine b={badge} />
       <p className="cq-reason">{(c.group === 'due' || c.group === 'urgent') && r ? `${c.group === 'urgent' ? 'مشتری فوری · ' : ''}یادآور: ${r.subject || r.message || 'پیگیری'}` : c.reason}</p>
       {ai && r?.sourceNote ? <div className="cq-ai" data-testid="cq-ai-src"><span className="cq-ai-tag"><Sparkles size={12} aria-hidden="true" /> ساخته‌شده توسط دستیار</span>
         <blockquote>{r.sourceNote.span ? <>{r.sourceNote.text.slice(0, r.sourceNote.span.start)}<mark>{r.sourceNote.text.slice(r.sourceNote.span.start, r.sourceNote.span.end)}</mark>{r.sourceNote.text.slice(r.sourceNote.span.end)}</> : r.sourceNote.text}</blockquote>

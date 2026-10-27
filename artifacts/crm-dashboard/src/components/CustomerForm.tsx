@@ -13,6 +13,9 @@ import { formatPhoneForDisplay } from '@/lib/phone';
 import { refreshCustomerViews } from './RepeatRequestReview';
 import { CustomerTagCreate } from './CustomerTagCreate';
 import { VoiceNoteButton } from '@/features/voice-notes/VoiceNoteButton';
+import { useIntakeOptions } from '@/features/lead-intake/api';
+import { IntakeFields, emptyIntake, intakeError, intakePayload, type IntakeValue } from '@/features/lead-intake/IntakeFields';
+import { UrgentPick, urgentPickReady, type UrgentPickValue } from '@/features/lead-intake/UrgentPick';
 
 type Props = { open: boolean; customer?: Customer | null; salespersons: Salesperson[]; onClose: () => void; onSaved: () => void;
   /** Team sales: P1 for this customer only via «ارتقا به اولویت ۱» (handoff dialog), not a plain edit. */
@@ -39,11 +42,23 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
   const [programsOpen, setProgramsOpen] = useState(false);
   const [sourceText, setSourceText] = useState('');
   const [ncTouched, setNcTouched] = useState(false);
-  const [form, setForm] = useState({ name: '', phone: '', nationalCode: '', postalCode: '', birthDateJalali: '', description: '', salespersonId: '', priority: '', status: 'in_progress', isUrgent: false });
+  const [form, setForm] = useState({ name: '', phone: '', nationalCode: '', postalCode: '', birthDateJalali: '', description: '', salespersonId: '', priority: '', status: 'in_progress' });
+  // crm-instagram-leads + urgent v1.1: intake block (source default from the admin setting), urgent with a required reason, success summary.
+  const intakeOpts = useIntakeOptions(open);
+  const [intake, setIntake] = useState<IntakeValue>(emptyIntake());
+  const [intakeTouched, setIntakeTouched] = useState(false);
+  const [urgentPick, setUrgentPick] = useState<UrgentPickValue>({ on: false, reasonCode: '', reasonText: '' });
+  const [triedSave, setTriedSave] = useState(false);
+  const [done, setDone] = useState<{ name: string; owner: string; source: string; rank: string; urgent: string } | null>(null);
+  useEffect(() => { if (open && !intakeTouched && intakeOpts.data) setIntake(emptyIntake(intakeOpts.data)); }, [open, intakeOpts.data, intakeTouched]);
+  const changeIntake = (v: IntakeValue) => { setIntakeTouched(true); setIntake(v); };
+  const urgentPayload = () => urgentPick.on ? { isUrgent: true, urgentReasonCode: urgentPick.reasonCode, urgentReasonText: urgentPick.reasonCode === 'other' ? urgentPick.reasonText.trim() : undefined } : { isUrgent: false };
+  const labelOf = (list: { key: string; label: string }[] | undefined, key: string) => list?.find((x) => x.key === key)?.label ?? key;
   const defaultProgram = programs.data?.find((program) => program.isDefault);
   useEffect(() => {
-    setForm({ name: customer?.name ?? '', phone: customer?.phone ?? '', nationalCode: customer?.nationalCode ?? '', postalCode: customer?.postalCode ?? '', birthDateJalali: customer?.birthDateJalali ?? '', description: customer?.description ?? '', salespersonId: customer?.salespersonId ? String(customer.salespersonId) : '', priority: customer?.priority ? String(customer.priority) : '', status: customer?.status ?? 'in_progress', isUrgent: customer?.isUrgent ?? false });
+    setForm({ name: customer?.name ?? '', phone: customer?.phone ?? '', nationalCode: customer?.nationalCode ?? '', postalCode: customer?.postalCode ?? '', birthDateJalali: customer?.birthDateJalali ?? '', description: customer?.description ?? '', salespersonId: customer?.salespersonId ? String(customer.salespersonId) : '', priority: customer?.priority ? String(customer.priority) : '', status: customer?.status ?? 'in_progress' });
     setSourceText(''); setNcTouched(false);
+    setIntakeTouched(false); setIntake(emptyIntake()); setUrgentPick({ on: false, reasonCode: '', reasonText: '' }); setTriedSave(false); setDone(null);
     setTags(customer?.tags.filter(tag => tag !== 'repeat_request') ?? []);
     setMatched(null); setExplanation(''); setError(''); setCreatedForTags(null); setFieldErrors({});
   }, [customer, open]);
@@ -68,7 +83,7 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
       },
     );
   };
-  const saveTagsAndFinish = async (saved: Customer) => {
+  const saveTagsAndFinish = async (saved: Customer, summary = false) => {
     if (tags.length || (customer && tagsCatalog.isSuccess)) {
       try {
         await updateTags.mutateAsync({ id: saved.id, data: { tags: [...tags, ...saved.tags.filter(tag => tag === 'repeat_request')] } });
@@ -79,6 +94,8 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
       }
     }
     refreshCustomerViews(queryClient, saved.id);
+    if (summary) { setDone({ name: saved.name, owner: saved.salespersonName || 'بدون تخصیص', source: labelOf(intakeOpts.data?.leadSources, intake.leadSource) + (intake.leadSource === 'other' && intake.leadSourceOther.trim() ? ` (${intake.leadSourceOther.trim()})` : ''),
+      rank: labelOf(intakeOpts.data?.ranks, intake.intakeCreditRank), urgent: saved.isUrgent ? 'بله؛ به کارشناس خبر داده شد' : 'خیر' }); return; }
     onSaved();
   };
   const submit = async (event: FormEvent) => {
@@ -90,11 +107,17 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
     const nc = nationalCodePatch(form.nationalCode, customer?.nationalCode, ncTouched);
     if (nc.error) errors.nationalCode = nc.error;
     setFieldErrors(errors);
+    if (!customer) {
+      setTriedSave(true);
+      const ie = intakeError(intake, intakeOpts.data);
+      if (ie) { setError(ie); return; }
+      if (!urgentPickReady(urgentPick, intakeOpts.data?.urgentOtherMax ?? 80)) { setError('دلیل را کامل کن تا علامت ثبت شود.'); document.getElementById('li-urgent-anchor')?.scrollIntoView({ block: 'center' }); return; }
+    }
     if (Object.keys(errors).length) { window.setTimeout(() => document.getElementById(errors.name ? 'customer-name' : errors.phone ? 'customer-phone' : 'customer-national-code')?.focus(), 0); return; }
     setError('');
     if (createdForTags) { await saveTagsAndFinish(createdForTags); return; }
     const allocationProgramId = isAdmin && form.salespersonId.startsWith('allocation:') ? Number(form.salespersonId.split(':')[1]) : null;
-    const data = { name: form.name.trim(), phone: form.phone.trim(), nationalCode: nc.patch.nationalCode ?? null, postalCode: form.postalCode.trim() || null, birthDateJalali: form.birthDateJalali.trim() || null, description: form.description.trim(), ...(isAdmin ? { salespersonId: allocationProgramId ? null : form.salespersonId ? Number(form.salespersonId) : null, allocationProgramId: customer ? null : allocationProgramId } : {}), priority: form.priority ? Number(form.priority) : null, status: form.status as any, isUrgent: form.isUrgent };
+    const data = { name: form.name.trim(), phone: form.phone.trim(), nationalCode: nc.patch.nationalCode ?? null, postalCode: form.postalCode.trim() || null, birthDateJalali: form.birthDateJalali.trim() || null, description: form.description.trim(), ...(isAdmin ? { salespersonId: allocationProgramId ? null : form.salespersonId ? Number(form.salespersonId) : null, allocationProgramId: customer ? null : allocationProgramId } : {}), priority: form.priority ? Number(form.priority) : null, status: form.status as any };
     if (customer) {
       // Unchanged / untouched-empty national code is not sent, so editing the name never rewrites or clears it.
       const { nationalCode: _ignored, ...rest } = data;
@@ -110,8 +133,9 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
     try {
       const match = await lookupCustomerByPhone({ phone: normalizeDigits(form.phone.trim()) });
       if (match.customer) { setMatched(match.customer); return; }
-      const saved = await create.mutateAsync({ data });
-      await saveTagsAndFinish(saved);
+      const createData = { ...data, ...intakePayload(intake), ...urgentPayload() };
+      const saved = await create.mutateAsync({ data: createData });
+      await saveTagsAndFinish(saved, true);
     } catch (cause) {
       const failure = cause as { status?: number; data?: { code?: string; customer?: Customer; message?: string } };
       if (failure.status === 409 && failure.data?.code === 'duplicate_mobile') {
@@ -124,6 +148,7 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
           } catch { setError('بررسی مشتری موجود انجام نشد. دوباره تلاش کنید.'); }
         }
       } else if (failure.status === 409) setError('کد ملی واردشده برای مشتری دیگری ثبت شده است. کد ملی را بررسی کنید؛ پرونده جدیدی ایجاد نشد.');
+      else if (failure.status === 422 && failure.data?.message) setError(failure.data.message);
       else setError('بررسی یا ثبت مشتری انجام نشد. لطفاً دوباره تلاش کنید.');
     } finally { setChecking(false); }
   };
@@ -143,23 +168,29 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
     <div className="field"><label>تاریخ تولد (شمسی)</label><PersianDatePicker value={form.birthDateJalali} onChange={(v) => setValue('birthDateJalali', v)} placeholder="YYYY/MM/DD" testId="input-customer-birth-date" birthDate /></div>
     <div className="field"><label htmlFor="customer-priority">اولویت پیگیری</label><select id="customer-priority" value={form.priority} onChange={(e) => setValue('priority', e.target.value)} data-testid="select-customer-priority"><option value="">بدون اولویت</option>{[1, 2, 3].map((value) => <option value={value} key={value} disabled={lockP1 && value === 1 && form.priority !== '1'}>اولویت {value}{lockP1 && value === 1 ? ' (فقط با «ارتقا به اولویت ۱»)' : ''}</option>)}</select>{lockP1 ? <p className="hint" data-testid="hint-p1-upgrade-only">برای اولویت ۱ از دکمهٔ «ارتقا به اولویت ۱» استفاده کنید تا مشتری به کارشناس پیگیری نوبت بعدی برسد.</p> : null}</div>
     <div className="field"><label htmlFor="customer-status">وضعیت</label><select id="customer-status" value={form.status} onChange={(e) => setValue('status', e.target.value)} data-testid="select-customer-status"><option value="in_progress">در حال انجام</option><option value="cancelled">لغو شده</option><option value="completed">اتمام</option></select></div>
-    <div className="field"><label className="boolean-field"><input type="checkbox" checked={form.isUrgent} onChange={(e) => setForm(c => ({ ...c, isUrgent: e.target.checked }))} data-testid="checkbox-customer-is-urgent" /> <strong>مشتری فوری</strong> (نیاز به پیگیری سریع)</label></div>
     <div className="field"><label>برچسب‌های مشتری</label>
       {tagsCatalog.isLoading ? <div className="skeleton loading-line" /> : tagsCatalog.isError ? <div className="profile-form-error" role="alert">فهرست برچسب‌ها دریافت نشد. <button type="button" className="field-link-button" onClick={() => void tagsCatalog.refetch()}>تلاش دوباره</button></div> : <div className="tag-selector">{(tagsCatalog.data ?? []).filter(tag => tag.key !== 'repeat_request').map(tag => <label className="tag-choice" key={tag.key}><input type="checkbox" checked={tags.includes(tag.key)} onChange={e => setTags(current => e.target.checked ? [...current, tag.key] : current.filter(key => key !== tag.key))} data-testid={`checkbox-form-tag-${tag.key}`} />{tag.label}</label>)}</div>}
       <CustomerTagCreate onCreated={tag => setTags(current => current.includes(tag.key) ? current : [...current, tag.key])} />
     </div>
   </>;
-  const createRepeat = () => matched && repeat.mutate({ data: { phone: normalizeDigits(form.phone.trim()), requestedName: form.name.trim(), submittedDescription: form.description.trim() || null, explanation: explanation.trim() } }, { onSuccess: () => { refreshCustomerViews(queryClient, matched.id); onSaved(); }, onError: (cause) => { const failure = cause as { status?: number }; if (failure.status === 404) setError('پرونده با این شماره دیگر پیدا نشد. دوباره بررسی کنید.'); } });
+  const createRepeat = () => { if (!matched) return; const ie = intakeError(intake, intakeOpts.data); if (ie) { setError(ie); return; }
+    const repeatData = { phone: normalizeDigits(form.phone.trim()), requestedName: form.name.trim(), submittedDescription: form.description.trim() || null, explanation: explanation.trim(), ...intakePayload(intake) };
+    repeat.mutate({ data: repeatData }, { onSuccess: () => { refreshCustomerViews(queryClient, matched.id); onSaved(); }, onError: (cause) => { const failure = cause as { status?: number }; if (failure.status === 404) setError('پرونده با این شماره دیگر پیدا نشد. دوباره بررسی کنید.'); } }); };
   return <div className="csx csx-formhost" dir="rtl">
     <Sheet title={isEditing ? `ویرایش ${initials(customer?.name)}` : 'مشتری جدید'} onClose={onClose} testId="customer-form" initialFocus="#customer-name"
       footer={<>
-        <button className="csx-ghost" type="button" onClick={onClose} data-testid="button-cancel-customer">انصراف</button>
-        <button className="csx-primary" type="submit" form="customer-form-el" disabled={pending} data-testid="button-save-customer">{pending ? 'در حال بررسی و ذخیره…' : createdForTags ? 'تلاش دوباره برای ذخیره برچسب‌ها' : isEditing ? 'ذخیره تغییرات' : 'ثبت مشتری'}</button>
+        <button className="csx-ghost" type="button" onClick={done ? onSaved : onClose} data-testid="button-cancel-customer">{done ? 'بستن' : 'انصراف'}</button>
+        <button className="csx-primary" type="submit" form="customer-form-el" disabled={pending || Boolean(done)} data-testid="button-save-customer">{pending ? 'در حال بررسی و ذخیره…' : createdForTags ? 'تلاش دوباره برای ذخیره برچسب‌ها' : isEditing ? 'ذخیره تغییرات' : 'ثبت مشتری'}</button>
       </>}>
       <span className="csx-sr" id="customer-form-title">{isEditing ? 'ویرایش پرونده' : 'افزودن مشتری جدید'}</span>
       <button type="button" className="csx-sr" onClick={onClose} data-testid="button-close-customer-form">بستن</button>
       {error && <div className="csx-note bad" role="alert" data-testid="error-save-customer"><p>{error}</p></div>}
-      <form id="customer-form-el" onSubmit={submit} noValidate>
+      {done ? <div className="li-sum" data-testid="li-create-summary" role="status">
+        <div className="csx-note ok"><p>مشتری «{done.name}» ثبت شد.</p></div>
+        <dl><dt>کارشناس</dt><dd>{done.owner}</dd><dt>منبع</dt><dd>{done.source}</dd><dt>رتبه‌ی اعتباری</dt><dd>{done.rank}</dd><dt>فوری</dt><dd>{done.urgent}</dd></dl>
+        <button type="button" className="csx-primary" onClick={onSaved} data-testid="li-summary-done">تمام</button>
+      </div> : null}
+      <form id="customer-form-el" hidden={Boolean(done)} onSubmit={submit} noValidate>
         <div className="form-grid">
           {!isEditing ? <details className="csx-more ai-customer-import" open={sourceText.length > 0 || undefined}>
             <summary><Sparkles size={18} aria-hidden="true" /> استخراج خودکار از متن پیام</summary>
@@ -187,7 +218,7 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
           </div>
           {matched ? <div className="csx-dupe" data-testid="duplicate-mobile">
             <Link href={`/customers/${matched.id}`} className="csx-link" onClick={onClose} data-testid="link-open-existing-customer">باز کردن پرونده موجود</Link>
-            <p className="hint">پرونده جدید ساخته نمی‌شود و کارشناس فعلی تغییر نمی‌کند. اگر مشتری درخواست تازه‌ای دارد، دلیل تماس دوباره را بنویسید تا برای همان پرونده ثبت شود.</p>
+            <p className="hint">پرونده جدید ساخته نمی‌شود، کارشناس فعلی تغییر نمی‌کند و این مورد «درخواست دوباره» حساب می‌شود (نه «ثبت»). اگر مشتری درخواست تازه‌ای دارد، دلیل تماس دوباره را بنویسید تا برای همان پرونده ثبت شود.</p>
             <details className="csx-more">
               <summary>اطلاعات پرونده موجود</summary>
               <div className="body duplicate-profile" data-testid="profile-existing-customer">
@@ -212,6 +243,11 @@ export function CustomerForm({ open, customer, salespersons, onClose, onSaved, l
             </div>
           </div> : null}
           <div className="field"><label htmlFor="customer-description">توضیح (اختیاری)</label><VoiceNoteButton value={form.description} onChange={(v) => setValue('description', v)} field="customer_description" testId="customer-description-voice"><textarea id="customer-description" value={form.description} onChange={(e) => setValue('description', e.target.value)} placeholder="زمینه تماس یا نیاز مالی مشتری..." data-testid="textarea-customer-description" /></VoiceNoteButton></div>
+          {!isEditing ? <>
+            <IntakeFields value={intake} onChange={changeIntake} options={intakeOpts.data} showErrors={triedSave} />
+            {!matched ? <div id="li-urgent-anchor"><UrgentPick value={urgentPick} onChange={setUrgentPick} reasons={intakeOpts.data?.urgentReasons} max={intakeOpts.data?.urgentOtherMax ?? 80} showErrors={triedSave} /></div> : null}
+            {!isAdmin && intakeOpts.data?.owner ? <p className="hint" data-testid="li-owner-line">{intakeOpts.data.owner.name ? `این مشتری به «${intakeOpts.data.owner.name}» می‌رسد${intakeOpts.data.owner.byRule ? ' (طبق قانون مالک پیش‌فرض)' : ''}.` : 'کارشناس این مشتری را مدیر تعیین می‌کند.'}</p> : null}
+          </> : null}
           {salespersonField}
           {isEditing ? moreFields : <details className="csx-more" data-testid="customer-form-more">
             <summary>اطلاعات بیشتر (اختیاری)</summary>
