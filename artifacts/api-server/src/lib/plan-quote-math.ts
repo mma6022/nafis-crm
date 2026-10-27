@@ -122,7 +122,7 @@ export function maximumCustomerPayout(plan: PublicLoanPlanDetails, eligiblePlan?
     if (!durations.length) return null;
     const payouts = durations.map(months => {
       const ceiling = cashCalculatorBounds(plan, months, eligiblePlan).maximumPrincipal;
-      return ceiling == null ? null : customerPayout(plan, ceiling, months);
+      return ceiling == null ? null : ceilingPayout(customerPayout(plan, ceiling, months));
     });
     return payouts.some(v => v == null) ? null : Math.max(...payouts as number[]);
   }
@@ -133,7 +133,7 @@ export function maximumCustomerPayout(plan: PublicLoanPlanDetails, eligiblePlan?
     const durations = calculatorDurations(plan, conditionId);
     if (ceiling == null || !durations.length) return null;
     for (const months of durations) {
-      const payout = customerPayout(plan, ceiling, months);
+      const payout = ceilingPayout(customerPayout(plan, ceiling, months));
       if (payout == null) return null;
       payouts.push(payout);
     }
@@ -149,11 +149,28 @@ export function planPayoutPercent(plan: PublicLoanPlanDetails, months: number): 
   return displayPlanTerms(plan).find(t => t.installments === months)?.depositPercent ?? null;
 }
 
+/** ONE rounding rule for every customer-visible payout ceiling (plan card, finder card, logged-in «سقف», calculator max):
+ *  the raw ceiling payout floored to a whole million toman — the largest amount the calculator can actually select. */
+export function ceilingPayout(raw: number | null): number | null {
+  if (raw == null || !Number.isSafeInteger(raw)) return null;
+  const v = Math.floor(raw / 1_000_000) * 1_000_000;
+  return v >= 1_000_000 ? v : null;
+}
+
+/** Card value for one term at a principal ceiling: the floored payout and the installment the calculator shows at that payout. */
+export function termAtCeiling(plan: PublicLoanPlanDetails, months: number, maximumPrincipal: number | null) {
+  if (maximumPrincipal == null) return { payout: null, installment: null };
+  const payout = ceilingPayout(customerPayout(plan, maximumPrincipal, months));
+  const principal = payout == null ? null : principalFromCustomerPayout(plan, payout, months, maximumPrincipal, 1);
+  const rate = planAnnualInterest(plan, months);
+  return { payout, installment: principal == null || rate == null ? null : wholeToman(monthlyPmt(principal, rate, months)) };
+}
+
 export function millionCashSliderRange(minimum: number | null, maximum: number | null) {
   if (minimum == null || maximum == null || !Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum))
     return { minimum: null, maximum: null };
   const low = Math.max(1_000_000, Math.ceil(minimum / 1_000_000) * 1_000_000);
-  const high = Math.floor(maximum / 1_000_000) * 1_000_000;
+  const high = ceilingPayout(maximum) ?? 0;
   return high >= low ? { minimum: low, maximum: high } : { minimum: null, maximum: null };
 }
 
@@ -238,9 +255,9 @@ const wholeToman = (v: number | null): number | null => v == null || !Number.isF
 /** Per-term public money facts: payout and installment at the plan's own ceiling (same as the plan finder without a customer cap). */
 export function publicPlanTerms(plan: PublicLoanPlanDetails): Array<{ installments: number; payout: number | null; installment: number | null }> {
   const calc = planFinderCalc(plan);
-  // Same term list the portal showed before (the plan's configured terms), money computed at the plan ceiling.
+  // Same term list the portal showed before (the plan's configured terms); money = the calculator's highest figure for that term.
   const months = [...new Set(displayPlanTerms(plan).map(t => t.installments))].filter(n => Number.isInteger(n) && n > 0);
-  return months.map(n => ({ installments: n, payout: wholeToman(calc.payout(n)), installment: wholeToman(calc.installment(n)) }));
+  return months.map(n => ({ installments: n, ...termAtCeiling(plan, n, calc.principal(n)) }));
 }
 
 /** Plan-finder card values for one match (customerMaximumAmount stays on the server). */
@@ -248,7 +265,7 @@ export function finderQuote(plan: PublicLoanPlanDetails, customerMaximumAmount?:
   const calc = planFinderCalc(plan, customerMaximumAmount);
   return {
     best: calc.best,
-    terms: calc.durations.map(n => ({ installments: n, payout: wholeToman(calc.payout(n)), installment: wholeToman(calc.installment(n)) })),
+    terms: calc.durations.map(n => ({ installments: n, ...termAtCeiling(plan, n, calc.principal(n)) })),
   };
 }
 

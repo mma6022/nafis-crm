@@ -9,7 +9,7 @@ export type StageCta = 'sign' | 'docs' | 'call';
 export type StageCopy = { phase: 0 | 1 | 2 | 3 | 4; turn: Turn; title: string; description: string; cta?: StageCta };
 
 export const PHASES = ['قرارداد اولیه', 'مدارک و ضامن', 'بررسی و تصویب', 'ارسال اصل مدارک', 'واریز و پایان'] as const;
-export const PHASE_HINTS = ['آماده‌سازی و امضای قرارداد', 'مدارک شما، ضامن و وثیقه', 'تصمیم تأمین‌کننده و تصویب مبلغ', 'ارسال و بررسی اصل مدارک', 'تأیید نهایی و واریز'] as const;
+export const PHASE_HINTS = ['آماده‌سازی و امضای قرارداد', 'مدارک شما، ضامن و وثیقه', 'تصمیم تأمین‌کننده و تأیید مبلغ واریزی', 'ارسال و بررسی اصل مدارک', 'تأیید نهایی و واریز'] as const;
 
 const NOTHING_TO_DO = 'فعلاً لازم نیست کاری انجام دهید.';
 
