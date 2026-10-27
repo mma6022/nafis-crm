@@ -251,8 +251,67 @@ export function ledgerStatus(db: DatabaseSync, today: string) {
     (SELECT COUNT(*) FROM gl_posting_queue WHERE status='failed') f`)!;
   const last = hasTable(db, "gl_reconciliation_runs") ? one<any>(db, "SELECT run_date,status,mismatch_count,finished_at FROM gl_reconciliation_runs ORDER BY run_date DESC LIMIT 1") : undefined;
   return { today, flags, ledgerStartDate: base.ledgerStartDate, baseDate: base.baseDate, baseOk: base.ok, baseError: base.ok ? null : base.code, fiscalYears: fiscal, opening,
-    vouchers: c.v, queuePending: c.q, queueFailed: c.f,
+    vouchers: c.v, queuePending: c.q, queueFailed: c.f, financeRoles: financeRoles(db),
     lastRun: last ? { runDate: last.run_date, status: last.status, mismatchCount: last.mismatch_count, finishedAt: last.finished_at } : null };
+}
+
+/* ------------------------------------------------------------------ G6c: finance roles (two-person rule) */
+export const GL_FINANCE_TRAINEE_SALESPERSON_IDS = [5, 19, 20]; // same as MANAGER_TRAINEE_SALESPERSON_IDS: trainees never get a finance role
+export const GL_FINANCE_EXCLUDED_USER_IDS = [29]; // never listed
+const ROLE_ACC = "gl_accountant", ROLE_APR = "gl_voucher_approver";
+type FinUser = { id: number; role: string };
+function eligibleFinanceUsers(db: DatabaseSync): FinUser[] {
+  if (!hasTable(db, "users")) return [];
+  const cols = all<{ name: string }>(db, "PRAGMA table_info(users)").map((c) => c.name);
+  const sp = cols.includes("salesperson_id") ? "salesperson_id" : "NULL";
+  return all<{ id: number; role: string; sp: number | null }>(db, `SELECT id, role, ${sp} sp FROM users WHERE active=1 AND role IN ('admin','${ROLE_ACC}','${ROLE_APR}')`)
+    .filter((u) => !GL_FINANCE_EXCLUDED_USER_IDS.includes(Number(u.id)) && !(u.sp != null && GL_FINANCE_TRAINEE_SALESPERSON_IDS.includes(Number(u.sp))))
+    .map((u) => ({ id: Number(u.id), role: u.role }));
+}
+/** Who can draft (admin / gl_accountant) and who can approve (admin / gl_voucher_approver) a manual voucher; solo = no distinct pair. */
+export function financeRoles(db: DatabaseSync) {
+  const users = eligibleFinanceUsers(db);
+  const creators = users.filter((u) => u.role === "admin" || u.role === ROLE_ACC).map((u) => u.id);
+  const approvers = users.filter((u) => u.role === "admin" || u.role === ROLE_APR).map((u) => u.id);
+  const pair = creators.some((c) => approvers.some((a) => a !== c));
+  const assigned = { accountants: users.filter((u) => u.role === ROLE_ACC).length, approvers: users.filter((u) => u.role === ROLE_APR).length };
+  const financeUsers = new Set([...creators, ...approvers]).size;
+  return { assigned, creators: creators.length, approvers: approvers.length, financeUsers, twoPersonOk: pair, solo: !pair,
+    noAssigned: assigned.accountants === 0 && assigned.approvers === 0 };
+}
+/** Server-side two-person check for a manual voucher (DB CHECKs are the last word). Throws a code; never logs a name. */
+export function assertManualVoucherApprover(db: DatabaseSync, approver: { id: number; role: string; permissions?: string[] }, createdByUserId: number): void {
+  if (approver.role !== "admin" && !(approver.permissions ?? []).includes("gl.manual_voucher.approve")) throw new Error("gl_approver_forbidden");
+  if (Number(approver.id) === Number(createdByUserId)) throw new Error("gl_approver_is_creator");
+  if (!eligibleFinanceUsers(db).some((u) => u.id === Number(approver.id))) throw new Error("gl_approver_not_eligible");
+}
+
+/* ------------------------------------------------------------------ G6c / N2: commission totals per seller (read-only) */
+const COMMISSION_KINDS_N2 = ["salesperson_commission", "p1_referral_share", "data_accuracy_bonus", "returned_case_deduction", "paid_mark_reversal", "team_bonus"];
+const NEUTRALIZED_N2 = "EXISTS (SELECT 1 FROM team_commission_ledger_meta r WHERE r.kind='paid_mark_reversal' AND CAST(json_extract(r.meta_json,'$.reversedLedgerId') AS INTEGER)=l.id)";
+/**
+ * One row per seller: name only (no mobile), number of cases, registered commission (system ledger; a neutralized row and its paid_mark_reversal both out, as in staff-wallet: same net as v1.3),
+ * payable (seller wallet) and the ledger side (6101 / 2102 by SP tafsili, sealed vouchers). No per-case amounts, no actions.
+ * «پرداخت‌شده» is not recorded in the system yet: returned as null, never guessed.
+ */
+export function commissionTotals(db: DatabaseSync, asOf: string) {
+  if (!hasTable(db, "goods_finance_ledger") || !hasTable(db, "salespersons")) return { asOf, rows: [], totals: { cases: 0, registeredRial: 0, payableRial: 0, glExpenseRial: 0, glPayableRial: 0 }, paidTracked: false };
+  const meta = hasTable(db, "team_commission_ledger_meta");
+  const reg = all<{ sp: number; cases: number; amt: string }>(db, `SELECT l.salesperson_id sp, COUNT(DISTINCT l.purchase_id) cases,
+      CAST(COALESCE(SUM(CAST(l.amount_toman AS INTEGER)),0) AS TEXT) amt FROM goods_finance_ledger l
+    WHERE l.salesperson_id IS NOT NULL AND l.kind IN (${COMMISSION_KINDS_N2.map(() => "?").join(",")})${meta ? ` AND NOT ${NEUTRALIZED_N2}` : ""} AND l.kind<>'paid_mark_reversal' GROUP BY l.salesperson_id`, ...COMMISSION_KINDS_N2);
+  const wal = new Map<number, number>();
+  if (hasTable(db, "goods_salesperson_wallets")) for (const w of all<{ salesperson_id: number; balance_toman: string }>(db, "SELECT salesperson_id, balance_toman FROM goods_salesperson_wallets")) wal.set(Number(w.salesperson_id), toRial(w.balance_toman));
+  const gl = (code: string, sign: 1 | -1) => new Map(all<{ ref: number; d: number; c: number }>(db, `SELECT t.ref_id ref, COALESCE(SUM(l.debit_rial),0) d, COALESCE(SUM(l.credit_rial),0) c ${SEALED}
+      JOIN gl_tafsili t ON t.id=l.tafsili_id WHERE a.code=? AND t.type='SP' AND v.event_date <= ? GROUP BY t.ref_id`, code, asOf).map((r) => [Number(r.ref), sign * (r.d - r.c)]));
+  const exp = gl("6101", 1), pay = gl("2102", -1);
+  const names = nameMap(db, "SELECT id, name FROM salespersons");
+  const ids = new Set<number>([...reg.map((r) => Number(r.sp)), ...[...wal.entries()].filter(([, v]) => v !== 0).map(([k]) => k), ...exp.keys(), ...pay.keys()]);
+  const regMap = new Map(reg.map((r) => [Number(r.sp), r]));
+  const rows = [...ids].sort((a, b) => a - b).map((id) => ({ salespersonId: id, name: names.get(id) ?? `فروشنده #${id}`, cases: Number(regMap.get(id)?.cases ?? 0),
+    registeredRial: toRial(regMap.get(id)?.amt ?? "0"), paidRial: null as number | null, payableRial: wal.get(id) ?? 0, glExpenseRial: exp.get(id) ?? 0, glPayableRial: pay.get(id) ?? 0 }));
+  const sum = (k: "cases" | "registeredRial" | "payableRial" | "glExpenseRial" | "glPayableRial") => rows.reduce((s, r) => s + r[k], 0);
+  return { asOf, rows, totals: { cases: sum("cases"), registeredRial: sum("registeredRial"), payableRial: sum("payableRial"), glExpenseRial: sum("glExpenseRial"), glPayableRial: sum("glPayableRial") }, paidTracked: false };
 }
 
 /* ------------------------------------------------------------------ nightly compare (report only) */

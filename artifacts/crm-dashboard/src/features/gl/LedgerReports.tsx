@@ -5,22 +5,24 @@
 import { useMemo, useState, type ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
+import { useGetAuthSession, getGetAuthSessionQueryKey } from '@workspace/api-client-react';
 import { AlertTriangle, ArrowRight, BookOpen, CheckCircle2, Lock, Scale } from 'lucide-react';
 import { EmptyState, Pagination } from '@/components/DataTools';
 import { ErrorState, SkeletonPanel, formatDateTime } from '@/components/CrmShell';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { errText } from '@/lib/goods-api';
 import { jalaliValueToGregorian } from '@/lib/jalali';
-import { faGDate, glApi, glReason, rialToman, type GlLevel, type GlStatus, type GlTbRow, type GlTotals } from '@/lib/gl-api';
+import { faGDate, glApi, glReason, rialToman, type GlFinanceRoles, type GlLevel, type GlStatus, type GlTbRow, type GlTotals } from '@/lib/gl-api';
 import './ledger.css';
 
-type Tab = 'tb' | 'journal' | 'ledger' | 'queue' | 'rec';
+type Tab = 'tb' | 'journal' | 'ledger' | 'queue' | 'rec' | 'sp';
 const TABS: { key: Tab; label: string }[] = [
   { key: 'tb', label: 'تراز آزمایشی' }, { key: 'journal', label: 'دفتر روزنامه' }, { key: 'ledger', label: 'دفتر حساب' },
-  { key: 'queue', label: 'صف ثبت و استثناها' }, { key: 'rec', label: 'مغایرت‌ها' },
+  { key: 'queue', label: 'صف ثبت و استثناها' }, { key: 'rec', label: 'مغایرت‌ها' }, { key: 'sp', label: 'پورسانت کارشناس‌ها' },
 ];
 const FLAG_LABEL: Record<string, string> = {
   'gl.shadow_nonbank': 'ثبت سایهٔ غیربانکی', 'gl.shadow_bank': 'ثبت سایهٔ بانکی', 'gl.bank_blocking': 'ثبت بانکی الزامی', 'gl.reports': 'گزارش‌ها', 'gl.nightly_compare': 'کنترل شبانه',
+  'gl.p7_prefunded': 'P7 پیش‌دریافت (منتظر تأیید)',
 };
 const Q = { staleTime: 15_000 };
 
@@ -38,16 +40,19 @@ export default function LedgerReports() {
   const status = useQuery({ queryKey: ['gl', 'status'], queryFn: () => glApi.status(), ...Q });
   const [tab, setTab] = useState<Tab>('tb');
   const s = status.data;
+  const { data: session } = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
+  const canSp = session?.user?.role === 'admin' || !!session?.user?.permissions?.includes('gl.commission_totals.view');
+  const tabs = TABS.filter((t) => t.key !== 'sp' || canSp);
   return <section className="data-page gl-page" data-testid="page-gl-reports">
     <Link href="/accounting" className="text-link gp-back"><ArrowRight size={14} />بازگشت به حسابداری</Link>
     <div className="page-intro"><div><div className="eyebrow">حسابداری · فقط نمایش</div><h2><BookOpen size={20} /> دفتر کل و تراز آزمایشی</h2>
       <p>گزارش‌ها فقط از سندهای مهروموم‌شدهٔ دفتر کل ساخته می‌شوند. حساب‌های انتظامی (۸۱) جدا و بیرون از جمع نشان داده می‌شوند.</p></div></div>
     {status.isLoading ? <Loading /> : status.isError ? <Failed e={status.error} retry={() => status.refetch()} /> : !s || !s.enabled ? <GlOff /> : <>
       <StatusPanel s={s} />
-      <div className="gp-tabs" role="tablist" aria-label="گزارش‌های دفتر کل">{TABS.map((t) => <button key={t.key} type="button" role="tab" aria-selected={tab === t.key}
+      <div className="gp-tabs" role="tablist" aria-label="گزارش‌های دفتر کل">{tabs.map((t) => <button key={t.key} type="button" role="tab" aria-selected={tab === t.key}
         className={`gp-tab ${tab === t.key ? 'active' : ''}`} onClick={() => setTab(t.key)} data-testid={`tab-gl-${t.key}`}><span>{t.label}</span>
         {t.key === 'queue' && s.queueFailed ? <b>{s.queueFailed.toLocaleString('fa-IR')}</b> : null}</button>)}</div>
-      {tab === 'tb' ? <TrialBalance /> : tab === 'journal' ? <Journal /> : tab === 'ledger' ? <AccountLedger /> : tab === 'queue' ? <QueueView /> : <Reconciliation onQueue={() => setTab('queue')} />}
+      {tab === 'tb' ? <TrialBalance /> : tab === 'journal' ? <Journal /> : tab === 'ledger' ? <AccountLedger /> : tab === 'queue' ? <QueueView /> : tab === 'sp' && canSp ? <CommissionTotals /> : <Reconciliation onQueue={() => setTab('queue')} />}
     </>}
   </section>;
 }
@@ -66,6 +71,7 @@ function StatusPanel({ s }: { s: Extract<GlStatus, { enabled: true }> }) {
     {c?.status === 'mismatch' ? <div className="gp-alert warn" data-testid="gl-2101-warn"><AlertTriangle size={15} /> <b>موجودی اولیه با دستورهای پرداخت‌شده نمی‌خواند.</b>{' '}
       ماندهٔ ۲۱۰۱ در موجودی اولیه {rialToman(c.draftRial)} تومان است ولی جمع دستورهای پرداخت‌نشده تا تاریخ مبنا {rialToman(c.expectedRial)} تومان است. تا این اختلاف رفع نشود، تأیید سند افتتاحیه قفل است.</div> : null}
     {c?.status === 'step4_pending' ? <div className="gp-alert warn" data-testid="gl-step4-warn"><Lock size={14} /> گام ۴ (دستورهای پرداخت‌شده تا تاریخ مبنا) هنوز تأیید نشده؛ تأیید سند افتتاحیه قفل است.</div> : null}
+    <FinanceRolesWarn r={s.financeRoles} />
     <div className="gl-status-grid">
       <div><h3 className="panel-title">سال مالی و تاریخ‌ها</h3><div className="gp-kv">
         <span>سال مالی</span><b>{fy ? `${fy.title.replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)])} (${faGDate(fy.startDate)} تا ${faGDate(fy.endDate)})` : 'تعریف نشده'}</b>
@@ -223,5 +229,39 @@ function Reconciliation({ onQueue }: { onQueue: () => void }) {
       </tbody></table></div> : null}
       {s.notes.map((n) => <p key={n} className="gl-note">{n}</p>)}
     </div>)}
+  </div>;
+}
+
+/** G6c: single-finance-user warning (Armita v1.3 acc_setup_solo). Counts only; trainees and hidden users are not counted. */
+function FinanceRolesWarn({ r }: { r?: GlFinanceRoles }) {
+  if (!r || !r.solo) return null;
+  return <div className="gp-alert warn gl-wbx" data-testid="gl-solo-warn"><AlertTriangle size={15} /> <b>فقط یک نفر نقش مالی دارد.</b>{' '}
+    سند افتتاحیه و هر سند دستی دو نفر لازم دارد: یکی ثبت می‌کند و دیگری تأیید. تا نفر دوم (حسابدار یا تأییدکننده‌ی سند دستی) از «کاربران» تعیین نشود، این سندها قفل می‌مانند.
+    <span className="gl-dc">کارآموزها نقش مالی نمی‌گیرند و در این شمارش نیستند.</span></div>;
+}
+
+/** G6c / N2: each seller's commission total — read-only, name only, no per-case amounts and no action. */
+function CommissionTotals() {
+  const q = useQuery({ queryKey: ['gl', 'sp-totals'], queryFn: () => glApi.commissionTotals(), ...Q });
+  if (q.isLoading) return <Loading />;
+  if (q.isError || !q.data) return <Failed e={q.error} retry={() => q.refetch()} />;
+  const d = q.data; const t = d.totals;
+  return <div className="panel" data-testid="gl-sp-totals">
+    <div className="gl-kpis">
+      <div className="gl-kpi"><span>پورسانت ثبت‌شده</span><b data-testid="gl-sp-registered">{rialToman(t.registeredRial)}</b><small>تومان</small></div>
+      <div className="gl-kpi"><span>پرداخت‌شده</span><b data-testid="gl-sp-paid">—</b><small>هنوز در سامانه ثبت نمی‌شود</small></div>
+      <div className="gl-kpi"><span>قابل پرداخت</span><b data-testid="gl-sp-payable">{rialToman(t.payableRial)}</b><small>تومان · کیف کارشناس</small></div>
+    </div>
+    <p className="gl-note">پورسانت با «پرداخت‌شده» شدن دستور پرداخت مشتری ثبت می‌شود؛ پیش از آن «در انتظار» است و در این جمع نیست. این صفحه فقط نمایش است.</p>
+    {!d.rows.length ? <EmptyState title="پورسانتی ثبت نشده" description="هنوز برای هیچ کارشناسی پورسانت ثبت نشده است." /> :
+      <div className="table-wrap"><table className="data-table gl-table"><thead><tr><th>کارشناس</th><th className="num">پرونده</th><th className="num">ثبت‌شده</th><th className="num">پرداخت‌شده</th><th className="num">قابل پرداخت</th><th className="num">دفتر کل (۲۱۰۲)</th></tr></thead><tbody>
+        {d.rows.map((r) => <tr key={r.salespersonId} data-testid={`gl-sp-row-${r.salespersonId}`}><td className="gl-name">{r.name}</td>
+          <td className="num" data-label="پرونده">{r.cases.toLocaleString('fa-IR')}</td><td className="num" data-label="ثبت‌شده">{rialToman(r.registeredRial)}</td>
+          <td className="num" data-label="پرداخت‌شده">—</td><td className="num" data-label="قابل پرداخت">{rialToman(r.payableRial)}</td>
+          <td className="num" data-label="دفتر کل (۲۱۰۲)">{rialToman(r.glPayableRial)}</td></tr>)}
+        <tr className="gl-total"><td className="gl-name">جمع</td><td className="num" data-label="پرونده">{t.cases.toLocaleString('fa-IR')}</td><td className="num" data-label="ثبت‌شده">{rialToman(t.registeredRial)}</td>
+          <td className="num" data-label="پرداخت‌شده">—</td><td className="num" data-label="قابل پرداخت">{rialToman(t.payableRial)}</td><td className="num" data-label="دفتر کل (۲۱۰۲)">{rialToman(t.glPayableRial)}</td></tr>
+      </tbody></table></div>}
+    <p className="gl-note">مبلغ هر پرونده این‌جا نشان داده نمی‌شود (فقط مدیر). ستون دفتر کل تا شروع دفتر کل صفر است.</p>
   </div>;
 }

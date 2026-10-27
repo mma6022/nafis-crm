@@ -25,7 +25,8 @@ const all = (db, sql, ...p) => db.prepare(sql).all(...p);
   ok(one(db, "pragma integrity_check").integrity_check === "ok", "integrity");
   ok(all(db, "pragma foreign_key_check").length === 0, "fk check");
   // flags all OFF
-  const f = L.readGlFlags(db); ok(Object.keys(f).length === 5 /* G5: + gl.reports, gl.nightly_compare */ && Object.values(f).every(v => v === false), "all gl flags OFF");
+  const f = L.readGlFlags(db); ok(Object.keys(f).length === 6 /* G5: + gl.reports, gl.nightly_compare; G6c: + gl.p7_prefunded */ && Object.values(f).every(v => v === false), "all gl flags OFF");
+  ok(f["gl.p7_prefunded"] === false, "G6c: gl.p7_prefunded seeded OFF");
   ok(all(db, "select value from gl_settings").every(r => r.value === "0"), "gl_settings rows all 0");
   // coding
   ok(one(db, "select count(*) n from gl_accounts where level='kol'").n === 12, "12 kol");
@@ -175,6 +176,9 @@ const all = (db, sql, ...p) => db.prepare(sql).all(...p);
   const K = (k) => one(db, "select allowed_values a, list_status s, ui_preselect p from finance_setting_keys where key=?", k);
   ok(JSON.parse(K("plan.supplier_deposit_method").a).join() === "gross,net_of_fees,to_customer_direct,prefunded_full_credit" && K("plan.supplier_deposit_method").s === "final", "deposit method: 4 final values");
   ok(K("discount.development.nature").s === "final" && K("discount.development.nature").p === "revenue_reduction", "discount nature final; wizard preselect only");
+  ok(K("plan.supplier_deposit_method").p === "prefunded_full_credit", "G6c: deposit method preselect = prefunded_full_credit (wizard only)");
+  ok(one(db, "select count(*) n from finance_settings where key='plan.supplier_deposit_method'").n === 0, "G6c: deposit-method preselect is not a stored value");
+  ok(L.financeSettingAsOf(db, "plan.supplier_deposit_method", "2026-10-26", { type: "loan_plan", id: 5 }) === null, "G6c: unset method reads null (no hardcoded default)");
   ok(K("fee.inquiry.payer").s === "proposed" && K("fee.inquiry.payer").p === null, "other lists stay proposed");
   ok(one(db, "select count(*) n from finance_settings where key like 'discount.%'").n === 0, "preselect is not a stored value");
   SET("plan.supplier_deposit_method", "prefunded_full_credit", "2026-10-01", { scope: "loan_plan", id: 5 });
@@ -309,12 +313,13 @@ const all = (db, sql, ...p) => db.prepare(sql).all(...p);
 {
   const db = fresh();
   const K = "plan.supplier_deposit_method", OLD = '["gross","net_of_fees","to_customer_direct","prepaid_full_credit"]';
-  db.prepare("update finance_setting_keys set allowed_values=? where key=?").run(OLD, K);
+  db.prepare("update finance_setting_keys set allowed_values=?, ui_preselect=NULL where key=?").run(OLD, K); // v1b had no preselect here
   db.prepare("update gl_accounts set title=? where code='2104'").run("پیش‌دریافت اعتبار از تأمین‌کنندگان (prepaid_full_credit)");
   db.prepare("delete from schema_migrations where version=?").run(L.FINANCE_V1C_MIGRATION);
   L.ensureLedgerSchema(db); L.ensureLedgerSchema(db);
   ok(JSON.parse(one(db, "select allowed_values a from finance_setting_keys where key=?", K).a).includes("prefunded_full_credit"), "v1b -> v1c: catalog renamed to prefunded_full_credit");
   ok(!one(db, "select allowed_values a from finance_setting_keys where key=?", K).a.includes("prepaid"), "v1b -> v1c: old name gone");
+  ok(one(db, "select ui_preselect p from finance_setting_keys where key=?", K).p === "prefunded_full_credit", "G6c: catalog sync sets the deposit preselect");
   ok(one(db, "select title from gl_accounts where code='2104'").title.includes("prefunded_full_credit"), "v1b -> v1c: 2104 title renamed");
   ok(one(db, "select count(*) n from schema_migrations").n === 3, "v1b -> v1c: three markers");
   ok(one(db, "select count(*) n from sqlite_master where type='trigger' and name in ('prior_pay_guard','gl_opening_set_guard')").n === 0, "old guards replaced by _v1c");
@@ -332,6 +337,10 @@ if (process.env.LEDGER_DB_COPY) {
   ok(c0 === counts(), "existing row counts unchanged on the copy");
   ok(one(db, "pragma integrity_check").integrity_check === "ok", "copy integrity ok");
   ok(one(db, "select count(*) n from gl_accounts").n === 46, "copy seeded");
+  ok(one(db, "select ui_preselect p from finance_setting_keys where key='plan.supplier_deposit_method'").p === "prefunded_full_credit"
+    && one(db, "select ui_preselect p from finance_setting_keys where key='discount.development.nature'").p === "revenue_reduction", "G6c copy: both preselects in the catalog");
+  ok(one(db, "select count(*) n from finance_settings").n === 0, "G6c copy: still no finance_settings value");
+  ok(one(db, "select active from gl_accounts where code='2104'").active === 0, "G6c copy: 2104 stays inactive");
   ok(one(db, "select count(*) n from schema_migrations where version=?", L.FINANCE_MIGRATION).n === 1, "copy v1b marker");
   ok(one(db, "select count(*) n from finance_settings").n === 0 && one(db, "select count(*) n from finance_setting_keys").n === L.FINANCE_SETTING_KEYS.length, "copy: keys only, no values");
 }

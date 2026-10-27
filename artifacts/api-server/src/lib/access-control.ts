@@ -43,6 +43,8 @@ export const PERMISSIONS = [
   "bank_accounts.view", "bank_accounts.manage",
   "accounting.view", "accounting.manage", "accounting.opening",
   "callbacks.view", "callbacks.manage", "callbacks.assign",
+  // G6c (general ledger): read-only per-seller commission totals; manual vouchers need two people (drafter != approver).
+  "gl.commission_totals.view", "gl.manual_voucher.draft", "gl.manual_voucher.approve",
 ] as const;
 
 export type Permission = typeof PERMISSIONS[number];
@@ -106,6 +108,22 @@ if (!queryRows("SELECT 1 AS hit FROM schema_migrations WHERE version='callbacks_
     }
   }
   execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES ('callbacks_permissions_v1', ?)", [now]);
+}
+
+// G6c: two ledger roles, created once and assigned to NOBODY (Mohammad names the people later from Users).
+// No payment_orders.pay here: marking payment orders paid stays out until Salamatian's list (deferred).
+export const GL_ACCOUNTANT_ROLE = "gl_accountant";
+export const GL_APPROVER_ROLE = "gl_voucher_approver";
+if (!queryRows("SELECT 1 AS hit FROM schema_migrations WHERE version='gl_roles_v1'").length) {
+  execute("INSERT OR IGNORE INTO app_roles (slug, name, description, customer_scope, is_system, created_at) VALUES (?, ?, ?, 'all', 1, ?)",
+    [GL_ACCOUNTANT_ROLE, "حسابدار", "دفتر کل (فقط خواندنی)، جمع پورسانت هر فروشنده، پیش‌نویس سند دستی", now]);
+  execute("INSERT OR IGNORE INTO app_roles (slug, name, description, customer_scope, is_system, created_at) VALUES (?, ?, ?, 'all', 1, ?)",
+    [GL_APPROVER_ROLE, "تأییدکننده‌ی سند دستی", "تأیید سند دستی و افتتاحیه؛ نمی‌تواند همان حسابدارِ ثبت‌کننده باشد", now]);
+  for (const [role, permissions] of Object.entries({
+    [GL_ACCOUNTANT_ROLE]: ["internal_chat.use", "dashboard.view", "accounting.view", "gl.commission_totals.view", "gl.manual_voucher.draft"],
+    [GL_APPROVER_ROLE]: ["internal_chat.use", "accounting.view", "gl.manual_voucher.approve"],
+  })) for (const permission of permissions) execute("INSERT OR IGNORE INTO role_permissions(role_slug,permission) VALUES(?,?)", [role, permission]);
+  execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES ('gl_roles_v1', ?)", [now]);
 }
 
 export function permissionsForRole(role: string): string[] {

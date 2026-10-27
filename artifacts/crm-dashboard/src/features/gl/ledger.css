@@ -19,6 +19,10 @@
 .gp-hero2-amount span.gl-pre-badge { color: #334155; background: #f1f5f9; border-color: #e2e8f0; opacity: 1; font-size: 12px; font-weight: 700; margin-top: 6px; }
 .gl-sum { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; margin: 6px 0 10px; }
 .gl-sum b { font-variant-numeric: tabular-nums; }
+.gl-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 6px; }
+.gl-kpi { border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.gl-kpi span { font-size: 12px; color: #64748b; } .gl-kpi b { font-size: 18px; font-variant-numeric: tabular-nums; } .gl-kpi small { font-size: 11px; color: #94a3b8; }
+.gl-wbx .gl-dc { margin-top: 4px; }
 @media (max-width: 640px) {
   .gl-table thead { display: none; }
   .gl-table, .gl-table tbody, .gl-table tr, .gl-table td { display: block; width: 100%; }

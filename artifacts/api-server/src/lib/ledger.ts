@@ -27,6 +27,7 @@ export const GL_FLAG_DEFAULTS: Readonly<Record<string, "0">> = Object.freeze({
   "gl.bank_blocking": "0", // after a clean one-month parallel run only
   "gl.reports": "0", // G5: read-only ledger reports page (/accounting/ledger)
   "gl.nightly_compare": "0", // G5: nightly system-vs-ledger compare (report only, never fixes)
+  "gl.p7_prefunded": "0", // G6c: P7 'prefunded_full_credit' path (company share on 2104) — awaiting Salamatian's P7 sign-off
 });
 
 type Acc = [code: string, title: string, category: string, nature: "debit" | "credit" | "both", tafsili: string, active: 0 | 1, note?: string];
@@ -324,7 +325,7 @@ export const FINANCE_SETTING_KEYS: KeyDef[] = [
   ["gl.opening_base_date", "date", "global", "تاریخ مبنای سند افتتاحیه", null, null, null, "G2"],
   ["fee.inquiry.payer", "enum", "global", "پرداخت‌کننده‌ی هزینه‌ی استعلام", ["customer", "company"], null, null, "P7"],
   ["fee.inquiry.amount_rial", "int_rial", "global", "مبلغ هزینه‌ی استعلام (ریال)", null, 0, null, "P7"],
-  ["plan.supplier_deposit_method", "enum", "loan_plan", "روش واریز تأمین‌کننده برای این طرح", ["gross", "net_of_fees", "to_customer_direct", "prefunded_full_credit"], null, null, "P7", null, "final"],
+  ["plan.supplier_deposit_method", "enum", "loan_plan", "روش واریز تأمین‌کننده برای این طرح", ["gross", "net_of_fees", "to_customer_direct", "prefunded_full_credit"], null, null, "P7", null, "final", "prefunded_full_credit"],
   ["discount.development.nature", "enum", "global", "ماهیت تخفیف توسعه", ["revenue_reduction", "marketing_expense"], null, null, "P7", null, "final", "revenue_reduction"],
   ["discount.development.rate_bp", "bp", "global", "درصد تخفیف توسعه (صدم درصد)", null, 0, 10000, "P7"],
   ["tax.vat.applies", "bool", "global", "مشمول مالیات بر ارزش افزوده", null, null, null, "P7"],

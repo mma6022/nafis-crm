@@ -17,6 +17,12 @@
  *  - Deferred (open questions): P1/P6 and the P7 memo voucher use memo accounts 8101/8102 (Q7) -> 'skipped' with an
  *    exception; P7 with a deposit method other than 'gross' or a 'marketing_expense' discount needs inactive accounts
  *    2104/6104/6103 (codes awaiting confirmation) -> exception. No SMS, no notification, gl_* not a notification source.
+ * Package G6c (2026-10-27): P7 for 'prefunded_full_credit' — BUILT BUT NOT FINAL (awaiting Salamatian's P7 sign-off).
+ *    Behind gl.p7_prefunded (OFF). The company-share line moves from 1201 to 2104 (PL tafsili), same amount; the rest of the
+ *    voucher (4102 under revenue_reduction, 5101, 4101, 2101) is unchanged. Posts only when the flag is ON, account 2104 is
+ *    active (code still awaiting Armita/Salamatian -> stays inactive) and the plan's 2104 balance covers the purchase
+ *    (proposed no-negative rule); otherwise an exception row, never a guessed voucher. The supplier deposit (Dr 1102 /
+ *    Cr 2104) needs the manual bank document's counter account (W3, deferred).
  */
 import type { DatabaseSync } from "node:sqlite";
 import { financeSettingAsOf } from "./ledger";
@@ -57,6 +63,35 @@ export const GL_MAPPING_V1: Array<[string, Record<string, unknown>, string]> = [
   ["P18", { counter: "W3", deferred_counter: "W3" }, "واریز/برداشت دستی بانک (حساب مقابل از ویزارد W3)"],
   ["P12", { kinds: ["returned_case_deduction", "paid_mark_reversal"], expense_of: { salesperson_commission: "6101", p1_referral_share: "6101", data_accuracy_bonus: "6102", team_bonus: "6102" }, default_expense: "6101", payable: "2102" }, "کسر پورسانت"],
 ];
+
+/**
+ * Draft rule for 'prefunded_full_credit' (awaiting Salamatian's P7 sign-off). Used only while the P7 mapping row in effect has no
+ * `prefunded` block; when the rule is signed off it goes into a new P7 mapping version with the effective_from the admin picks.
+ */
+export const P7_PREFUNDED_DRAFT = Object.freeze({ account: "2104", tafsili: "PL", noNegative: true, status: "awaiting_salamatian_p7_signoff" });
+export const P7_PREFUNDED_FLAG = "gl.p7_prefunded";
+
+/**
+ * Which account carries the company share of a P7 voucher for this deposit method. gross -> m.receivable (1201).
+ * prefunded_full_credit -> 2104 only if gl.p7_prefunded is ON, 2104 is active and (no-negative rule) the plan's 2104 credit
+ * balance up to eventDate covers `amountRial`. Anything else -> skip with an exception code.
+ */
+export function p7CompanyShareAccount(db: DatabaseSync, m: any, method: string, planTafsiliId: number | null, eventDate: string, amountRial: number):
+  { account: string } | { skip: string; note: string } {
+  if (method === "gross" && (m.supported_methods as string[]).includes("gross")) return { account: m.receivable };
+  if (method !== "prefunded_full_credit") return { skip: `gl_deferred:deposit_method:${method}`, note: "حساب‌های این روش (۲۱۰۴/۶۱۰۴) هنوز فعال نیستند" };
+  const rule = { ...P7_PREFUNDED_DRAFT, ...((m.prefunded ?? {}) as Partial<typeof P7_PREFUNDED_DRAFT>) };
+  const flag = one<{ value: string }>(db, "SELECT value FROM gl_settings WHERE key=?", P7_PREFUNDED_FLAG)?.value === "1";
+  if (!flag) return { skip: "gl_deferred:deposit_method:prefunded_full_credit", note: "قاعده‌ی ثبت P7 پیش‌دریافت کامل اعتبار منتظر تأیید خانم سلامتیان است" };
+  const acc = one<{ id: number; active: number }>(db, "SELECT id,active FROM gl_accounts WHERE code=?", rule.account);
+  if (!acc || !acc.active) return { skip: `gl_account_inactive:${rule.account}`, note: `کد حساب ${rule.account} منتظر تأیید آرمیتا و خانم سلامتیان است` };
+  if (rule.noNegative && amountRial > 0) {
+    const b = one<{ bal: number }>(db, `SELECT COALESCE(SUM(l.credit_rial),0)-COALESCE(SUM(l.debit_rial),0) bal FROM gl_voucher_lines l JOIN gl_vouchers v ON v.id=l.voucher_id
+      WHERE l.account_id=? AND l.tafsili_id IS ? AND v.event_date<=?`, acc.id, planTafsiliId, eventDate);
+    if (Number(b?.bal ?? 0) < amountRial) return { skip: "gl_prefunded_insufficient:2104", note: "مانده‌ی پیش‌دریافت این طرح برای این خرید کافی نیست (قاعده‌ی پیشنهادی: ۲۱۰۴ منفی نشود)" };
+  }
+  return { account: rule.account };
+}
 
 const COMMISSION_KINDS = ["salesperson_commission", "p1_referral_share", "data_accuracy_bonus", "team_bonus", "returned_case_deduction", "paid_mark_reversal"];
 const q = (s: string) => `'${s.replace(/'/g, "''")}'`;
@@ -179,14 +214,18 @@ export function buildShadowVoucher(db: DatabaseSync, row: QueueRow, nowIso: stri
       const nature = financeSettingAsOf(db, "discount.development.nature", eventDate);
       const missing = [!method && "plan.supplier_deposit_method", !nature && "discount.development.nature"].filter(Boolean) as string[];
       if (missing.length) return { skip: `finance_setting_missing:${missing.join(",")}`, note: "تنظیم مالی در تاریخ رویداد خالی است" };
-      if (!(m.supported_methods as string[]).includes(method!)) return { skip: `gl_deferred:deposit_method:${method}`, note: "حساب‌های این روش (۲۱۰۴/۶۱۰۴) هنوز فعال نیستند" };
+      if (method !== "prefunded_full_credit" && !(m.supported_methods as string[]).includes(method!)) return { skip: `gl_deferred:deposit_method:${method}`, note: "حساب‌های این روش (۲۱۰۴/۶۱۰۴) هنوز فعال نیستند" };
       const discountAcc = m.discount[nature!];
       if (!discountAcc || nature === "marketing_expense") return { skip: `gl_deferred:discount_nature:${nature}`, note: "حساب ۶۱۰۳ و ذی‌نفع هنوز فعال نیستند" };
       const credit = tomanToRial(String(payload.credit)), discount = tomanToRial(String(payload.discount)), company = tomanToRial(String(payload.company)), payout = tomanToRial(String(payload.payout));
       if (company + discount !== credit) throw new Error("gl_p7_amounts_inconsistent");
+      const plT0 = method === "prefunded_full_credit" ? one<{ id: number }>(db, "SELECT id FROM gl_tafsili WHERE type='PL' AND ref_id=?", planId)?.id ?? null : null;
+      const share = p7CompanyShareAccount(db, m, method!, plT0, eventDate, company);
+      if ("skip" in share) return share;
       const plT = pl(db, planId, nowIso), cuT = cu(db, custId, nowIso);
+      const prefunded = share.account !== m.receivable;
       const lines: GlLineInput[] = [
-        { account: m.receivable, tafsiliId: plT, debitRial: company, description: "سهم شرکت" },
+        { account: share.account, tafsiliId: plT, debitRial: company, description: prefunded ? "سهم شرکت از پیش‌دریافت تأمین‌کننده" : "سهم شرکت" },
         { account: discountAcc, tafsiliId: plT, debitRial: discount, description: "تخفیف توسعه" },
         { account: m.cogs, tafsiliId: plT, debitRial: payout, description: `پرداختی مشتری (پایه ${payload.base_payout ?? "-"} ، کسر کارمزد ${payload.fee_discount ?? "0"} تومان)` },
         { account: m.sales, tafsiliId: plT, creditRial: credit, description: "فروش اعتباری" },

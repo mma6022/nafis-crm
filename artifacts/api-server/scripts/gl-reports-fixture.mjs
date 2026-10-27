@@ -79,6 +79,47 @@ const setup = (db, admin = 7) => {
   ok(blocked, "A: run log append-only");
 }
 
+// ---------------------------------------------------------------- A2. G6c: finance roles (two-person rule) + N2 commission totals
+{
+  const db = new DatabaseSync(":memory:");
+  L.ensureLedgerSchema(db, NOW); R.ensureGlReportsSchema(db, NOW);
+  db.exec(`create table users (id integer primary key, role text not null, active integer not null default 1, salesperson_id integer);
+    create table salespersons (id integer primary key, name text not null, mobile text);
+    create table goods_finance_ledger (id integer primary key, purchase_id integer, plan_id integer, customer_id integer, salesperson_id integer, kind text not null, amount_toman text not null, idempotency_key text not null unique, created_at text not null);
+    create table team_commission_ledger_meta (ledger_id integer primary key, salesperson_id integer not null, kind text not null, commission_month text not null, meta_json text);
+    create table goods_salesperson_wallets (salesperson_id integer primary key, balance_toman text not null default '0');`);
+  const U = db.prepare("insert into users(id,role,active,salesperson_id) values(?,?,?,?)");
+  U.run(1, "admin", 1, null); U.run(29, "admin", 1, null); U.run(6, "gl_voucher_approver", 1, 5) /* trainee: never counted */; U.run(9, "gl_accountant", 0, null) /* inactive */;
+  let f = R.financeRoles(db);
+  ok(f.solo && !f.twoPersonOk && f.noAssigned && f.financeUsers === 1, "A2: one admin (29 hidden, trainee + inactive not counted) -> solo warning");
+  ok(R.ledgerStatus(db, "2026-10-26").financeRoles.solo === true, "A2: ledgerStatus carries the solo flag");
+  U.run(10, "gl_voucher_approver", 1, null);
+  f = R.financeRoles(db);
+  ok(!f.solo && f.twoPersonOk && f.assigned.approvers === 1 && f.assigned.accountants === 0 && !f.noAssigned, "A2: admin + approver -> two people, no warning");
+  const code = (fn) => { try { fn(); return "ok"; } catch (e) { return e.message; } };
+  ok(code(() => R.assertManualVoucherApprover(db, { id: 1, role: "admin" }, 1)) === "gl_approver_is_creator", "A2: approver = creator refused");
+  ok(code(() => R.assertManualVoucherApprover(db, { id: 11, role: "gl_accountant", permissions: ["gl.manual_voucher.draft"] }, 1)) === "gl_approver_forbidden", "A2: accountant cannot approve");
+  ok(code(() => R.assertManualVoucherApprover(db, { id: 6, role: "gl_voucher_approver", permissions: ["gl.manual_voucher.approve"] }, 1)) === "gl_approver_not_eligible", "A2: trainee approver refused");
+  ok(code(() => R.assertManualVoucherApprover(db, { id: 29, role: "admin" }, 1)) === "gl_approver_not_eligible", "A2: hidden user refused");
+  ok(code(() => R.assertManualVoucherApprover(db, { id: 10, role: "gl_voucher_approver", permissions: ["gl.manual_voucher.approve"] }, 1)) === "ok", "A2: second person approves");
+  db.prepare("insert into gl_fiscal_years(title,start_date,end_date,created_at) values('1405','2026-03-21','2027-03-20',?)").run(NOW);
+  let dbBlocked = false; try { tx(db, () => P.postVoucher(db, { eventDate: "2026-10-23", kind: "manual", description: "x", sourceKey: "gl:fx:same", createdByUserId: 1, approvedByUserId: 1, nowIso: NOW,
+    lines: [{ account: "1101", tafsiliId: P.ensureTafsili(db, "CB", 1, "CB", NOW), debitRial: 10 }, { account: "3104", creditRial: 10 }] })); } catch { dbBlocked = true; }
+  ok(dbBlocked && n(db, "gl_vouchers") === 0, "A2: DB CHECK still refuses approver = creator");
+  db.exec("insert into salespersons(id,name,mobile) values(3,'کارشناس الف','09000000000'),(4,'کارشناس ب','09000000001')");
+  const G = db.prepare("insert into goods_finance_ledger(id,purchase_id,salesperson_id,kind,amount_toman,idempotency_key,created_at) values(?,?,?,?,?,?,?)");
+  G.run(1, 11, 3, "salesperson_commission", "270000", "a", NOW); G.run(2, 12, 3, "salesperson_commission", "300000", "b", NOW); G.run(3, 12, 3, "paid_mark_reversal", "-300000", "c", NOW);
+  G.run(4, 13, 4, "salesperson_commission", "100000", "d", NOW); G.run(5, null, 4, "data_accuracy_bonus", "50000", "e", NOW); G.run(6, 13, 4, "company_credit", "999999", "f", NOW);
+  db.prepare("insert into team_commission_ledger_meta(ledger_id,salesperson_id,kind,commission_month,meta_json) values(3,3,'paid_mark_reversal','1405-08',?)").run(JSON.stringify({ reversedLedgerId: 2 }));
+  db.exec("insert into goods_salesperson_wallets values(3,'270000'),(4,'150000')");
+  const t = R.commissionTotals(db, "2026-10-26");
+  const r3 = t.rows.find((x) => x.salespersonId === 3), r4 = t.rows.find((x) => x.salespersonId === 4);
+  ok(r3.registeredRial === 2700000 && r3.cases === 1, "A2: neutralized commission and its reversal both out (270k toman, 1 case)");
+  ok(r4.registeredRial === 1500000 && r4.cases === 1 && r4.payableRial === 1500000, "A2: non-commission kinds ignored; payable = seller wallet");
+  ok(t.totals.registeredRial === 4200000 && t.totals.payableRial === 4200000 && t.rows.every((x) => x.paidRial === null) && t.paidTracked === false, "A2: totals; «paid» not invented");
+  ok(t.rows.every((x) => JSON.stringify(Object.keys(x).sort()) === JSON.stringify(["cases", "glExpenseRial", "glPayableRial", "name", "paidRial", "payableRial", "registeredRial", "salespersonId"])) && !JSON.stringify(t).includes("0900"), "A2: name only, no mobile, no per-case amounts");
+}
+
 // ---------------------------------------------------------------- B. probe copy
 if (process.env.LEDGER_DB_COPY) {
   const tmp = `${process.env.LEDGER_DB_COPY}.g5probe`;
@@ -138,6 +179,20 @@ if (process.env.LEDGER_DB_COPY) {
   db.prepare(`insert into payment_order_prior_payments(payment_order_id,paid_date,tracking_no,amount_rial,receipt_filename,receipt_mime,receipt_sha256,entered_by_user_id,reason,created_at,ledger_start_date,pre_start,opening_mismatch)
     values(?,?,?,?,?,?,?,?,?,?,?,1,0)`).run(order.id, "2026-10-20", "TRK-0001", 10, "r.pdf", "application/pdf", "0".repeat(64), admin, "آزمون", NOW, "2026-10-22");
   ok(one(db, "select marker m from payment_order_prior_payment_log").m === "pre_opening", "B: pre-start record logged as pre_opening");
+  // G6c roles on the copy: created once by access-control, assigned to nobody, no payment_orders.pay
+  const AC = await import("../src/lib/access-control.ts");
+  const roles = db.prepare("select slug,is_system,customer_scope from app_roles where slug in ('gl_accountant','gl_voucher_approver') order by slug").all();
+  ok(roles.length === 2 && roles.every((x) => x.is_system === 1 && x.customer_scope === "all"), "B (G6c): two roles created (system, scope all)");
+  ok(n(db, "users", "role in ('gl_accountant','gl_voucher_approver')") === 0, "B (G6c): nobody assigned to the new roles");
+  ok(AC.permissionsForRole("gl_accountant").join() === "accounting.view,dashboard.view,gl.commission_totals.view,gl.manual_voucher.draft,internal_chat.use"
+    && AC.permissionsForRole("gl_voucher_approver").join() === "accounting.view,gl.manual_voucher.approve,internal_chat.use", "B (G6c): role permissions, no payment_orders.pay");
+  ok(n(db, "schema_migrations", "version='gl_roles_v1'") === 1 && !AC.permissionsForRole("accounting").includes("gl.commission_totals.view"), "B (G6c): seeded once; old accounting role unchanged (decision 5)");
+  const fr = R.financeRoles(db);
+  console.log("B (G6c) financeRoles:", JSON.stringify(fr));
+  ok(fr.noAssigned && fr.assigned.accountants === 0 && fr.assigned.approvers === 0, "B (G6c): copy has no assigned accountant/approver");
+  const ct = R.commissionTotals(db, "2026-10-26");
+  const walSum = db.prepare("select coalesce(sum(cast(balance_toman as integer)),0) s from goods_salesperson_wallets").get().s * 10;
+  ok(ct.rows.length > 0 && ct.totals.payableRial === walSum && ct.rows.every((x) => x.paidRial === null) && !/\b09\d{9}\b/.test(JSON.stringify(ct)), `B (G6c): commission totals on the copy (${ct.rows.length} sellers), payable = wallets, no mobile`);
   const express = (await import("express")).default;
   const glRouter = (await import("../src/routes/gl-reports.ts")).default;
   const poRouter = (await import("../src/routes/payment-orders.ts")).default;
@@ -161,6 +216,20 @@ if (process.env.LEDGER_DB_COPY) {
   r = await get("/gl/reports/queue"); ok(r.s === 200 && r.b.counts.pending === 0, "B: queue via HTTP");
   r = await get("/gl/reports/reconciliation"); ok(r.s === 200 && r.b.live.sections.find((s) => s.key === "wallet_cash").mismatchCount === 1 && r.b.nightlyEnabled === false, "B: reconciliation via HTTP shows the tamper");
   ok((await fetch(base + "/gl/reports/status", { method: "POST" })).status === 404, "B: no write endpoint");
+  r = await get("/gl/reports/commission-totals"); ok(r.s === 403, "B (G6c): accounting role -> commission totals 403 (decision 5: status only)");
+  who = { ...who, role: "gl_accountant", permissions: AC.permissionsForRole("gl_accountant") };
+  r = await get("/gl/reports/commission-totals"); ok(r.s === 200 && r.b.rows.length === ct.rows.length && r.cc === "private, no-store", "B (G6c): accountant -> commission totals 200, no-store");
+  r = await get("/gl/reports/status"); ok(r.s === 200 && r.b.financeRoles && typeof r.b.financeRoles.solo === "boolean", "B (G6c): accountant sees the ledger status + finance roles block");
+  who = { ...who, role: "gl_voucher_approver", permissions: AC.permissionsForRole("gl_voucher_approver") };
+  r = await get("/gl/reports/commission-totals"); ok(r.s === 403, "B (G6c): approver -> commission totals 403");
+  who = { ...who, role: "salesperson", permissions: ["accounting.view", "gl.commission_totals.view"] };
+  r = await get("/gl/reports/commission-totals"); ok(r.s === 403, "B (G6c): salesperson -> 403 even with the permission");
+  who = { ...who, role: "accounting", permissions: ["accounting.view"] };
+  who = { ...who, role: "admin", permissions: [] };
+  ok((await fetch(base + "/gl/reports/commission-totals", { method: "POST" })).status === 404, "B (G6c): commission totals has no write (admin)");
+  db.prepare("update gl_settings set value='0' where key='gl.reports'").run();
+  r = await get("/gl/reports/commission-totals"); ok(r.s === 404 && r.b.error === "gl_reports_off", "B (G6c): flag OFF -> commission totals 404");
+  db.prepare("update gl_settings set value='1' where key='gl.reports'").run();
   who = { ...who, role: "admin", permissions: [] };
   r = await get(`/payment-orders/${order.id}`); ok(r.s === 200 && r.b.preOpening && r.b.preOpening.paidDate === "2026-10-20" && r.b.canUnpay === false, "B: 726 order detail: preOpening marker, no unpay");
   r = await get(`/payment-orders?stage=paid`); ok(r.s === 200 && r.b.items.find((x) => x.id === order.id)?.preOpening === true && r.b.items.filter((x) => x.preOpening).length === 1, "B: list marks only that order preOpening");

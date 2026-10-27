@@ -26,7 +26,7 @@
  */
 import type { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
-import { buildShadowVoucher, ensureGlShadowSchema, glMappingAsOf } from "./gl-shadow";
+import { buildShadowVoucher, ensureGlShadowSchema, glMappingAsOf, p7CompanyShareAccount } from "./gl-shadow";
 import { postVoucher, reverseVoucher, recordGlException, tehranDateOf, addDays, tomanToRial, ensureTafsili, type GlLineInput } from "./gl-posting";
 import { financeSettingAsOf } from "./ledger";
 
@@ -204,6 +204,16 @@ function buildP7C(db: DatabaseSync, e: BackfillEvent, eventDate: string, nowIso:
   if (!discountAcc || nature === "marketing_expense") return { skip: `gl_deferred:discount_nature:${nature}`, note: "حساب ۶۱۰۳ و ذی‌نفع هنوز فعال نیستند" };
   const p = one<{ plan_id: number }>(db, "SELECT plan_id FROM goods_purchases WHERE id=?", pid);
   if (!p) throw new Error("gl_source_missing");
+  // G6c: under 'prefunded_full_credit' the company share sits on 2104 (draft rule, awaiting Salamatian's sign-off; flag OFF).
+  const method = financeSettingAsOf(db, "plan.supplier_deposit_method", eventDate, { type: "loan_plan", id: p.plan_id });
+  let shareAcc: string = m.receivable;
+  if (method === "prefunded_full_credit") {
+    const share = p7CompanyShareAccount(db, m, method, null, eventDate, 0);
+    if ("skip" in share) return share;
+    // a correction moves amounts inside its own P7: without that voucher (skipped by the no-negative rule) it waits too
+    if (!one(db, "SELECT 1 x FROM gl_vouchers WHERE source_key=?", `gl:goods:${pid}:settle`)) return { skip: "gl_prefunded_p7c_without_p7", note: "سند P7 این خرید هنوز ثبت نشده؛ اصلاحیه هم منتظر می‌ماند" };
+    shareAcc = share.account;
+  }
   const plT = ensureTafsili(db, "PL", p.plan_id, `طرح #${p.plan_id}`, nowIso);
   const lines: GlLineInput[] = [];
   let sum = 0n;
@@ -211,7 +221,7 @@ function buildP7C(db: DatabaseSync, e: BackfillEvent, eventDate: string, nowIso:
     const v = BigInt(String(amt).trim()); sum += v;
     if (v === 0n) continue;
     const r = tomanToRial((v < 0n ? -v : v).toString());
-    const acc = kind === "company_credit" ? m.receivable : discountAcc;
+    const acc = kind === "company_credit" ? shareAcc : discountAcc;
     lines.push(v > 0n ? { account: acc, tafsiliId: plT, debitRial: r, description: kind } : { account: acc, tafsiliId: plT, creditRial: r, description: kind });
   }
   if (sum !== 0n) throw new Error("gl_p7_correction_changes_credit");

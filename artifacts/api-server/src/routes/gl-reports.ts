@@ -7,15 +7,22 @@ import { requirePermission } from "../lib/access-control";
 import type { AuthUser } from "../lib/auth";
 import { crmDb } from "../lib/crm-db";
 import { tehranDateOf } from "../lib/gl-posting";
-import { accountLedger, accountList, glFlagOn, journal, ledgerStatus, postingQueue, reconcile, trialBalance, type TbLevel } from "../lib/gl-reports";
+import { accountLedger, accountList, commissionTotals, glFlagOn, journal, ledgerStatus, postingQueue, reconcile, trialBalance, type TbLevel } from "../lib/gl-reports";
 
 const router = Router();
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const actor = (res: import("express").Response) => res.locals.authUser as AuthUser | undefined;
-/** Finance roles only (admin / accounting) on top of accounting.view; a trainee or salesperson never sees the ledger. */
+/** Finance roles only (admin / accounting / G6c gl_accountant, gl_voucher_approver) on top of accounting.view; a trainee or salesperson never sees the ledger. */
+const FINANCE_ROLES = new Set(["admin", "accounting", "gl_accountant", "gl_voucher_approver"]);
 const financeOnly: RequestHandler = (_req, res, next) => {
   const u = actor(res);
-  if (!u || (u.role !== "admin" && u.role !== "accounting")) { res.status(403).json({ error: "Forbidden" }); return; }
+  if (!u || !FINANCE_ROLES.has(u.role)) { res.status(403).json({ error: "Forbidden" }); return; }
+  next();
+};
+/** N2: per-seller commission totals — admin or gl.commission_totals.view (gl_accountant). The old accounting role keeps decision 5 (status only, no amounts). */
+const commissionTotalsAllowed: RequestHandler = (_req, res, next) => {
+  const u = actor(res);
+  if (!u || (u.role !== "admin" && !u.permissions.includes("gl.commission_totals.view"))) { res.status(403).json({ error: "Forbidden" }); return; }
   next();
 };
 const enabled: RequestHandler = (_req, res, next) => {
@@ -64,6 +71,10 @@ router.get("/gl/reports/ledger", enabled, wrap((req, res) => {
   if (tf !== null && !(Number.isSafeInteger(tf) && tf > 0)) return res.status(400).json({ error: "gl_bad_tafsili" });
   const out = accountLedger(crmDb, { code, tafsiliId: tf, ...r, page: page(req.query.page), limit: 50 });
   return out ? res.json(out) : res.status(404).json({ error: "gl_unknown_account" });
+}));
+router.get("/gl/reports/commission-totals", enabled, commissionTotalsAllowed, wrap((req, res) => {
+  const t = today(); const asOf = typeof req.query.to === "string" && DATE.test(req.query.to) ? req.query.to : t;
+  return res.json(commissionTotals(crmDb, asOf));
 }));
 router.get("/gl/reports/queue", enabled, wrap((_req, res) => res.json(postingQueue(crmDb))));
 router.get("/gl/reports/reconciliation", enabled, wrap((_req, res) => {

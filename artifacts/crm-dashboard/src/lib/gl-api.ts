@@ -25,7 +25,12 @@ export type GlStatus = { enabled: false } | {
   fiscalYears: { id: number; title: string; startDate: string; endDate: string; status: string; lockedUntil: string | null }[];
   opening: { state: 'none' | 'draft' | 'posted'; setId?: number; asOfDate?: string; step4Done?: boolean; approvalLocked?: boolean; lockReasons?: string[]; check2101?: Gl2101 | null };
   vouchers: number; queuePending: number; queueFailed: number; lastRun: GlRun | null;
+  financeRoles?: GlFinanceRoles;
 };
+/** G6c: counts only (no names). solo = no two different people for drafter + approver of a manual voucher. */
+export type GlFinanceRoles = { assigned: { accountants: number; approvers: number }; creators: number; approvers: number; financeUsers: number; twoPersonOk: boolean; solo: boolean; noAssigned: boolean };
+export type GlCommissionRow = { salespersonId: number; name: string; cases: number; registeredRial: number; paidRial: number | null; payableRial: number; glExpenseRial: number; glPayableRial: number };
+export type GlCommissionTotals = { asOf: string; rows: GlCommissionRow[]; totals: { cases: number; registeredRial: number; payableRial: number; glExpenseRial: number; glPayableRial: number }; paidTracked: boolean };
 
 const qs = (o: Record<string, string | number | undefined | null>) => {
   const p = new URLSearchParams();
@@ -40,6 +45,7 @@ export const glApi = {
   ledger: (q: { code: string; tafsiliId?: number | null; from?: string; to?: string; page: number }) => api.get<GlLedger>(`/gl/reports/ledger${qs(q)}`),
   queue: () => api.get<GlQueue>('/gl/reports/queue'),
   reconciliation: () => api.get<GlReconciliation>('/gl/reports/reconciliation'),
+  commissionTotals: () => api.get<GlCommissionTotals>('/gl/reports/commission-totals'),
 };
 
 /** Rial -> toman text (fa digits). A rial remainder is shown as a decimal toman. */

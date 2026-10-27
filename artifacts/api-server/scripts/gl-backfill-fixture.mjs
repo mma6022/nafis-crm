@@ -48,13 +48,13 @@ CREATE TABLE accounting_documents (id INTEGER PRIMARY KEY, fund_id INTEGER NOT N
   purpose TEXT NOT NULL, document_type TEXT NOT NULL, transaction_type TEXT NOT NULL, source TEXT NOT NULL, source_order_id INTEGER UNIQUE, request_key TEXT NOT NULL UNIQUE,
   request_hash TEXT NOT NULL, balance_before_toman TEXT NOT NULL, balance_after_toman TEXT NOT NULL, created_by INTEGER NOT NULL, created_at TEXT NOT NULL);`;
 const PRE = "2026-10-10T08:00:00.000Z", POST = "2026-10-24T08:00:00.000Z", POST2 = "2026-10-25T08:00:00.000Z";
-function fresh({ nature = true, late = false } = {}) {
+function fresh({ nature = true, late = false, method = "gross" } = {}) {
   const db = new DatabaseSync(":memory:"); db.exec("PRAGMA foreign_keys=ON"); db.exec(SRC);
   L.ensureLedgerSchema(db, NOW); S.ensureGlShadowSchema(db, NOW);
   db.prepare("insert into gl_fiscal_years(title,start_date,end_date,created_at) values('1405','2026-03-21','2027-03-20',?)").run(NOW);
   setting(db, "gl.ledger_start_date", "2026-10-23"); setting(db, "gl.opening_base_date", "2026-10-22");
   if (nature) setting(db, "discount.development.nature", "revenue_reduction");
-  for (const p of [3]) setting(db, "plan.supplier_deposit_method", "gross", "2026-09-01", p);
+  for (const p of [3]) setting(db, "plan.supplier_deposit_method", method, "2026-09-01", p);
   db.exec("insert into wallet_accounts_v2(id,customer_id,wallet_type) values(1,41,'cash'),(2,41,'credit'),(3,42,'cash'),(4,42,'credit')");
   const W = db.prepare("insert into wallet_ledger_v2(wallet_id,amount,kind,idempotency_key,created_at) values(?,?,?,?,?)");
   W.run(1, "500000", "cash_payment", "cash-payment:1", PRE); W.run(1, "700000", "cash_payment", "cash-payment:2", POST); W.run(2, "300000000", "loan_credit:actor:7", "loan-application:5:credit", POST);
@@ -248,6 +248,23 @@ const R = (toman) => Number(toman) * 10;
   // the shipped list: entry #1 = purchase 42, decision t250s795 (pinned digest; editing it fails this fixture)
   const shipped = B.validateForcedPostList(JSON.parse(readFileSync(path.resolve(process.cwd(), "config/gl-backfill-forced-post.json"), "utf8")));
   ok(shipped[0].purchaseId === 42 && shipped[0].decision === "t250s795" && shipped[0].decidedBy === "Mohammad" && B.forcedPostDigest(shipped[0]) === "43a078e9d9961550", `shipped list entry #1 pinned (${B.forcedPostDigest(shipped[0])})`);
+}
+
+// 6b. G6c: prefunded_full_credit in the backfill (draft rule, flag OFF) — P7 and P7C share the same company-share account rule
+{
+  const db = fresh({ method: "prefunded_full_credit" }); opening(db);
+  const codes = (r) => r.items.filter((i) => /^gl:goods:\d+:(settle|correction)/.test(i.sourceKey) && i.eventDate > "2026-10-22").map((i) => i.code ?? "post").filter((c) => c !== "gl_in_opening_2101");
+  const r = B.runGlBackfill(db, { apply: false, excludeFees: [105], nowIso: NOW, keepItems: true });
+  console.log("G6c prefunded OFF codes:", JSON.stringify([...new Set(codes(r))]));
+  ok(codes(r).length > 0 && codes(r).every((c) => c === "gl_deferred:deposit_method:prefunded_full_credit"), "backfill, flag OFF: every post-start P7/P7C under prefunded is deferred");
+  db.prepare("update gl_settings set value='1' where key='gl.p7_prefunded'").run();
+  const r2 = B.runGlBackfill(db, { apply: false, excludeFees: [105], nowIso: NOW, keepItems: true });
+  ok(codes(r2).every((c) => c === "gl_account_inactive:2104"), "backfill, flag ON + 2104 inactive: exception, never a guessed voucher");
+  db.prepare("update gl_accounts set active=1 where code='2104'").run();
+  const r3 = B.runGlBackfill(db, { apply: false, excludeFees: [105], nowIso: NOW, keepItems: true });
+  console.log("G6c prefunded ON codes:", JSON.stringify([...new Set(codes(r3))]));
+  ok(codes(r3).length > 0 && codes(r3).every((c) => c === "gl_prefunded_insufficient:2104" || c === "gl_prefunded_p7c_without_p7"), "backfill, 2104 active but no deposit: no-negative rule; corrections wait for their P7");
+  ok(n(db, "gl_vouchers", "kind='backfill'") === 0, "dry-runs left no backfill voucher");
 }
 
 // 5. masked copy (apply only on the copy)

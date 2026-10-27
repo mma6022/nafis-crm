@@ -141,6 +141,37 @@ const bal = (db, code) => one(db, "select coalesce(sum(l.debit_rial),0)-coalesce
   ok(!one(db, "select 1 x from gl_vouchers where source_key='gl:goods:2:settle'"), "setting effective after the event date is not used (as-of event date)");
 }
 
+// 5b. G6c: P7 'prefunded_full_credit' (draft rule, awaiting Salamatian's P7 sign-off) — behind gl.p7_prefunded, 2104 active, no-negative 2104
+{
+  const pre = (db, v) => db.prepare("update gl_settings set value=? where key='gl.p7_prefunded'").run(v);
+  const base = (nature = "revenue_reduction") => { const db = fresh(); flag(db, "1"); setting(db, "gl.ledger_start_date", "2026-10-22"); setting(db, "discount.development.nature", nature);
+    setting(db, "plan.supplier_deposit_method", "prefunded_full_credit", "2026-10-01", 3); return db; };
+  const ex = (db, code) => n(db, "gl_exceptions", `code='${code}'`) === 1 && !one(db, "select 1 x from gl_vouchers where source_key='gl:goods:2:settle'");
+  ok(S.P7_PREFUNDED_DRAFT.status === "awaiting_salamatian_p7_signoff" && S.P7_PREFUNDED_DRAFT.account === "2104", "prefunded rule is a draft awaiting Salamatian's sign-off");
+  ok(one(fresh(), "select value from gl_settings where key='gl.p7_prefunded'").value === "0", "gl.p7_prefunded seeded OFF");
+  { const db = base(); scenario(db); S.processGlShadowQueue(db, { nowIso: NOW }); ok(ex(db, "gl_deferred:deposit_method:prefunded_full_credit"), "flag OFF: prefunded stays an exception"); }
+  { const db = base(); db.prepare("delete from gl_settings where key='gl.p7_prefunded'").run(); scenario(db); S.processGlShadowQueue(db, { nowIso: NOW }); ok(ex(db, "gl_deferred:deposit_method:prefunded_full_credit"), "flag row missing = OFF"); }
+  { const db = base(); pre(db, "1"); scenario(db); S.processGlShadowQueue(db, { nowIso: NOW }); ok(ex(db, "gl_account_inactive:2104"), "flag ON but 2104 inactive (code awaiting confirmation): exception"); }
+  { const db = base(); pre(db, "1"); db.prepare("update gl_accounts set active=1 where code='2104'").run(); scenario(db); S.processGlShadowQueue(db, { nowIso: NOW });
+    ok(ex(db, "gl_prefunded_insufficient:2104"), "no supplier deposit on 2104: no-negative rule -> exception, no voucher"); }
+  {
+    const db = base(); pre(db, "1"); db.prepare("update gl_accounts set active=1 where code='2104'").run();
+    db.exec("BEGIN"); // synthetic supplier deposit (the real one needs the manual bank document's counter account, W3 deferred)
+    const pl3 = P.ensureTafsili(db, "PL", 3, "طرح #3", NOW), bk = P.ensureTafsili(db, "BK", 1, "بانک آزمون", NOW);
+    P.postVoucher(db, { eventDate: "2026-10-23", kind: "manual", description: "واریز پیش‌دریافت تأمین‌کننده (آزمون)", sourceKey: "gl:test:deposit:3", createdByUserId: 7, approvedByUserId: 8, nowIso: NOW,
+      lines: [{ account: "1102", tafsiliId: bk, debitRial: 300000000 }, { account: "2104", tafsiliId: pl3, creditRial: 300000000 }] });
+    db.exec("COMMIT");
+    scenario(db); S.processGlShadowQueue(db, { nowIso: NOW });
+    const v = one(db, "select id from gl_vouchers where source_key='gl:goods:2:settle'");
+    ok(!!v, "flag ON + 2104 active + deposit covers it: P7 posts");
+    const lines = db.prepare("select a.code, l.debit_rial d, l.credit_rial c from gl_voucher_lines l join gl_accounts a on a.id=l.account_id where l.voucher_id=? order by l.line_no").all(v.id);
+    ok(JSON.stringify(lines.map((x) => [x.code, x.d, x.c])) === JSON.stringify([["2104", 249000000, 0], ["4102", 51000000, 0], ["5101", 180000000, 0], ["4101", 0, 300000000], ["2101", 0, 180000000]]), "prefunded P7: 1201 replaced by 2104, discount on 4102 (revenue_reduction), rest unchanged");
+    ok(bal(db, "1201") === 0 && bal(db, "2104") === -51000000, "1201 untouched; 2104 credit balance reduced by the company share");
+  }
+  { const db = base("marketing_expense"); pre(db, "1"); db.prepare("update gl_accounts set active=1 where code='2104'").run(); scenario(db); S.processGlShadowQueue(db, { nowIso: NOW });
+    ok(ex(db, "gl_deferred:discount_nature:marketing_expense"), "prefunded + marketing_expense: still deferred (6103 inactive)"); }
+}
+
 // 6. forced posting failure: business write intact, queue row failed, no partial voucher; retry later succeeds
 {
   const db = fresh(); flag(db, "1"); setting(db, "gl.ledger_start_date", "2026-10-22");
@@ -181,6 +212,8 @@ if (process.env.LEDGER_DB_COPY) {
   L.ensureLedgerSchema(db, NOW); S.ensureGlShadowSchema(db, NOW); S.ensureGlShadowSchema(db, NOW);
   ok(n(db, "sqlite_master", "type='trigger' and name like 'gl_capture_%'") === 5, "copy: 5 capture triggers on the real tables (4 non-bank + G4 accounting_documents)");
   ok(n(db, "gl_event_mappings") === 12, "copy: 12 mappings");
+  ok(one(db, "select value from gl_settings where key='gl.p7_prefunded'").value === "0" && one(db, "select active from gl_accounts where code='2104'").active === 0
+    && n(db, "gl_event_mappings", "event_code='P7'") === 1, "copy (G6c): gl.p7_prefunded OFF, 2104 inactive, no new P7 mapping version");
   ok(n(db, "gl_vouchers") === 0 && n(db, "gl_posting_queue") === 0 && n(db, "gl_exceptions") === 0, "copy: ledger, queue, exceptions empty");
   ok(one(db, "select value from gl_settings where key='gl.shadow_nonbank'").value === "0" && S.processGlShadowQueue(db) === null, "copy: flag OFF, worker inert");
   ok(c0 === counts(), "copy: old tables' row counts unchanged");
