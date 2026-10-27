@@ -1,3 +1,4 @@
+import { cqAfterCall, cqParseCall, type CqCallResult } from "../lib/call-queue";
 import express, { Router, type IRouter, type RequestHandler } from "express";
 import { deleteCustomerIntro } from "../lib/expert-intro-sms-core";
 import { callNoteError } from "../lib/call-note-rule";
@@ -4458,8 +4459,16 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
     return;
   }
   const body = parsed.data;
+  // crm-call-queue R1 (flags OFF = unchanged): outcome + one-line note come from the raw body (zod strips unknown keys).
+  const cqInput = cqParseCall(req.body, res.locals.authUser as AuthUser);
+  if ("error" in cqInput) {
+    res.status(400).json({ error: cqInput.error, field: "callQueue" });
+    return;
+  }
+  // With «نتیجه‌ی تماس» ON the one-line note is the required one and «یادداشت کارشناس» is optional (spec v1.1 §2).
+  if (cqInput.resultOn && !String(body.expertNotes ?? "").trim()) body.expertNotes = cqInput.oneLine ?? "";
   // crm-call-note-min: «یادداشت کارشناس» is required (trimmed, >= 10 characters).
-  const callNoteErr = callNoteError(body.expertNotes);
+  const callNoteErr = cqInput.resultOn ? null : callNoteError(body.expertNotes);
   if (callNoteErr) {
     res.status(400).json({ error: callNoteErr });
     return;
@@ -4522,6 +4531,7 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
     res.status(409).json({ error: "An active customer already has this national code" });
     return;
   }
+  let cqResult: CqCallResult | null = null;
   const id = runTransaction(() => {
     if (profile) {
       const current = queryRow<{ phone: string; national_code: string | null; postal_code: string | null; birth_date_jalali: string | null }>(
@@ -4603,6 +4613,7 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
           callId,
         ],
       );
+    cqResult = cqAfterCall(callId, cqInput, user, body.customerId);
     return callId;
   });
   const row = queryRow<CallRecordRow>(`${callSelect} WHERE cl.id = ?`, [id]);
@@ -4610,7 +4621,7 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
     res.status(500).json({ error: "Call log was not created" });
     return;
   }
-  res.status(201).json(CreateCallResponse.parse(callFromRow(row)));
+  res.status(201).json({ ...CreateCallResponse.parse(callFromRow(row)), ...(cqResult ? { callQueue: cqResult } : {}) });
 });
 
 const consultationSelect = `

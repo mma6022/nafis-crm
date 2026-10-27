@@ -22,6 +22,7 @@
  * scope_rule='manager', bound_role='admin' and no bound expert. Every load goes through norm(), which reports kind 'manager';
  * code that does not normalize (or an older release after a rollback) sees a sales row with no expert → scope "0", nobody eligible.
  */
+import { cqFlag } from "./call-queue";
 import express, { Router, type Request, type Response, type NextFunction } from "express";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
@@ -1168,6 +1169,8 @@ export function createAssistants(deps: Deps) {
       if (!r || r.user_id !== u.id || Number(r.customer_id) !== Number(p.customer_id) || now().getTime() - Date.parse(r.created_at) > 15 * 60_000) return fail(res, 422, "bad_reminder");
       if (row("SELECT 1 FROM assistant_reminder_proposals WHERE reminder_id=?", rid)) return fail(res, 409, "reminder_already_linked");
       run("UPDATE assistant_reminder_proposals SET status='accepted', decided_by_user_id=?, decided_at=?, reminder_id=? WHERE id=?", u.id, t, rid, p.id);
+      // crm-call-queue R1 (flag OFF = no-op): an accepted assistant proposal is an «یادآور دستیار» (voidable with a reason in the due modal).
+      if (cqFlag("assistant_reminders")) run("UPDATE reminders SET source='assistant', created_by=COALESCE(created_by,?) WHERE id=? AND source IS NULL", u.id, rid);
     } else run("UPDATE assistant_reminder_proposals SET status='rejected', decided_by_user_id=?, decided_at=? WHERE id=?", u.id, t, p.id);
     if (p.message_id) run("UPDATE assistant_messages SET acted_at=?, action_taken=?, read_at=COALESCE(read_at,?) WHERE id=?", t, accept ? "reminder" : "dismissed", t, p.message_id);
     event(a, "suggestion_action", { threadId: row<any>("SELECT thread_id FROM assistant_messages WHERE id=?", p.message_id)?.thread_id ?? null, userId: u.id, customerId: p.customer_id, messageId: p.message_id, data: { proposalId: p.id, accepted: accept } });

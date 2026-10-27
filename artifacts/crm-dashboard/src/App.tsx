@@ -9,6 +9,8 @@ import Customers from '@/pages/Customers';
 import MyTransfers from '@/pages/MyTransfers';
 import MyPerformance from '@/pages/MyPerformance';
 import SalesAssistSettings from '@/pages/SalesAssistSettings';
+import MyQueuePage from '@/features/call-queue/MyQueue';
+import { CallQueueEventsPage, CallQueueSettingsPage } from '@/features/call-queue/AdminPages';
 import CustomerDetail from '@/pages/CustomerDetail';
 import Reminders from '@/pages/Reminders';
 import Calls from '@/pages/Calls';
@@ -272,6 +274,9 @@ function AppWithRoutes() {
                       <AdminOnlyRoute><SocialMonitorReports /></AdminOnlyRoute>
                     </Route>
                     <Route path="/sales-assist-settings"><AdminOnlyRoute><SalesAssistSettings /></AdminOnlyRoute></Route>
+                    <Route path="/my-queue"><PermissionRoute permission="customers.view"><MyQueuePage /></PermissionRoute></Route>
+                    <Route path="/settings/call-queue"><AdminOnlyRoute><CallQueueSettingsPage /></AdminOnlyRoute></Route>
+                    <Route path="/call-queue-events"><AdminOnlyRoute><CallQueueEventsPage /></AdminOnlyRoute></Route>
                     <Route path="/settings/assistants">
                       <AdminOnlyRoute><AssistantsSettings /></AdminOnlyRoute>
                     </Route>

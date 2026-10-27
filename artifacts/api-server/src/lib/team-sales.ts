@@ -4,6 +4,7 @@
  * Priority-history logging (customer_priority_history) is always on: it is additive and invisible.
  * Never sends SMS (customers or staff): closer reminders are in-app only (reminder_sms_deliveries pre-marked).
  */
+import { cqAutoCloseOnly } from "./call-queue";
 import { callNoteError } from "./call-note-rule";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import {
@@ -559,6 +560,8 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
           selected.length ? `\n— طرح‌های انتخاب‌شده: ${selected.map((p) => `${p.name}${p.status === "depends" ? " (مشروط)" : ""}`).join("، ")}` : ""}${
           noPlanFit ? `\n— هیچ طرحی به این مشتری نمی‌خوره${cleanNoPlanNote ? `: ${cleanNoPlanNote}` : ""}` : ""}`,
         now.toISOString(), spName]);
+    // crm-call-queue R1 (flag OFF = no-op): the first-call form also closes the expert's own due reminders for this customer.
+    cqAutoCloseOnly(callLogId, actor, c.id, answers.callResult, now.toISOString());
     const qualificationId = execute(
       `INSERT INTO team_sales_qualifications (customer_id, actor_user_id, call_log_id, call_result, answers_json, matches_json,
         priority, outcome, score, reasons_json, next_action_at, note, created_at, selected_plans_json, no_plan_fit, no_plan_note)

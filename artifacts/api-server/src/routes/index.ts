@@ -42,6 +42,8 @@ import { validateInternalChatFile } from "../lib/internal-chat-files";
 import { socialMonitorFeature } from "../lib/social-monitor";
 import teamSalesRouter from "./team-sales";
 import salesAssistRouter from "./sales-assist";
+import callQueueRouter from "./call-queue";
+import { ensureCallQueueSchema } from "../lib/call-queue";
 import { ensureTeamSalesSchema } from "../lib/team-sales";
 import teamCommissionRouter from "./team-commission";
 import staffWalletRouter from "./staff-wallet";
@@ -51,6 +53,8 @@ const router: IRouter = Router();
 startDatabaseBackupScheduler();
 // The salesperson call-history scope reads team_sales_qualifications (first-call form authors).
 ensureTeamSalesSchema();
+// crm-call-queue R1: additive columns/tables, every flag seeded OFF.
+ensureCallQueueSchema();
 startInstagramWorker();
 
 router.use(healthRouter);
@@ -64,6 +68,7 @@ router.use(consultationReportRouter);
 router.use(crmRouter);
 router.use(teamSalesRouter);
 router.use(salesAssistRouter);
+router.use(callQueueRouter);
 router.use(teamCommissionRouter);
 router.use(staffWalletRouter);
 router.use(callReportsRouter);

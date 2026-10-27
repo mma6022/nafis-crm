@@ -26,6 +26,7 @@ export const ROLE_MENUS: Record<MenuKind, RoleMenu> = {
   expert: {
     main: [
       { href: '/', label: 'کارهای امروز من' }, // «کارهای امروز من» page does not exist yet → nearest existing page
+      { href: '/my-queue' }, // crm-call-queue: only present when flag.queue is ON (otherwise filtered out before layout)
       { href: '/customers', label: 'مشتری‌های من' },
       { href: '/loan-applications', label: 'پرونده‌های وام من' },
       { href: '/payment-orders' },

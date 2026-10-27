@@ -9,6 +9,7 @@ import { CustomerIdBadge } from '@/components/customer/CustomerName';
 import { Sheet } from '@/pages/customers-ui';
 import { SA_CALL_SAVED, faNum, fetchSuggestions, logCall, notNow, restore, saName, type SaChip, type SaItem, type SaReason } from './api';
 import './sales-assist.css';
+import { useCqConfig } from '@/features/call-queue/api';
 
 type User = { id: number; role: string; salespersonId?: number | null } | undefined;
 const PRI: Record<number, string> = { 1: 'p1', 2: 'p2', 3: 'p3' };
@@ -34,6 +35,8 @@ function reconcile(prev: number[], ids: number[]): number[] {
 export function SalesAssistBox({ user, onCall }: { user: User; onCall: (customerId: number) => void }) {
   const qc = useQueryClient();
   const isAdmin = user?.role === 'admin';
+  // crm-call-queue: «الان نه» is removed when flag.hide_not_now is ON (the queue only empties by logging a call).
+  const hideNotNow = Boolean(useCqConfig(Boolean(user)).data?.flags.hide_not_now);
   const [previewSp, setPreviewSp] = useState<number | null>(null);
   const key = ['sales-assist', user?.id ?? 0, previewSp ?? 0];
   const q = useQuery({ queryKey: key, queryFn: () => fetchSuggestions(previewSp), enabled: !!user, refetchInterval: 120_000, staleTime: 30_000 });
@@ -121,13 +124,13 @@ export function SalesAssistBox({ user, onCall }: { user: User; onCall: (customer
           <div className="why">{reasonIcon(it.reason.kind)}<span>{it.reason.text}</span></div>
           <div className="ac">
             <button type="button" className="sa-btn pri" disabled={preview} onClick={() => { launched.current = it; onCall(it.customerId); }} data-testid={`sales-assist-call-${it.customerId}`}><PhoneCall className="i" /> تماس و ثبت</button>
-            <button type="button" className="sa-btn" disabled={preview} onClick={() => setSheetFor(it)} data-testid={`sales-assist-later-${it.customerId}`}><Clock className="i" /> الان نه</button>
+            {hideNotNow ? null : <button type="button" className="sa-btn" disabled={preview} onClick={() => setSheetFor(it)} data-testid={`sales-assist-later-${it.customerId}`}><Clock className="i" /> الان نه</button>}
           </div>
         </article>)}</div>
       : (data?.pool ?? 0) > 0 || snoozed.length ? <div className="sa-em done" data-testid="sales-assist-done"><span className="big"><Check className="i" /></span><div><b>فعلاً کسی نمونده</b>
           <p>همه‌ی پیشنهادهای امروز را انجام دادید. با رسیدن سرنخ تازه یا یادآور بعدی، این‌جا دوباره پر می‌شود.</p>
-          <div className="stt"><span>{faNum(data?.today?.calls ?? 0)} تماس ثبت شد</span><span>{faNum(data?.today?.notNow ?? 0)} «الان نه»</span></div></div>
-          {snoozed.length && !preview ? <button type="button" className="sa-btn lnk" onClick={async () => { for (const s of snoozed) await restore(s.customerId).catch(() => undefined); void q.refetch(); }} data-testid="sales-assist-restore">دیدن «الان نه»‌ها ({faNum(snoozed.length)})</button> : null}</div>
+          <div className="stt"><span>{faNum(data?.today?.calls ?? 0)} تماس ثبت شد</span>{hideNotNow ? null : <span>{faNum(data?.today?.notNow ?? 0)} «الان نه»</span>}</div></div>
+          {snoozed.length && !preview && !hideNotNow ? <button type="button" className="sa-btn lnk" onClick={async () => { for (const s of snoozed) await restore(s.customerId).catch(() => undefined); void q.refetch(); }} data-testid="sales-assist-restore">دیدن «الان نه»‌ها ({faNum(snoozed.length)})</button> : null}</div>
       : <div className="sa-em" data-testid="sales-assist-empty"><span className="big"><Sparkles className="i" /></span><div><b>هنوز داده‌ای برای پیشنهاد نیست</b>
           <p>وقتی مشتری‌ای به شما تخصیص داده شود یا سرنخ تازه‌ای از سایت برسد، این‌جا ۳ نفر را برای تماس پیشنهاد می‌دهیم.</p></div></div>}
     {toast ? <div className="ts-toast ok sa-toast" role="status" data-testid="sales-assist-toast"><Check size={18} /> <span>{toast}</span></div> : null}

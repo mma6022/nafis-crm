@@ -7,7 +7,7 @@ import { GradePicker } from '@/components/grade/GradePicker';
 import { createPortal } from 'react-dom';
 import './CallForm.css';
 import { ArrowLeft, ArrowRight, BellPlus, FileText, PhoneCall, Search, X } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { Modal } from '@/components/DataTools';
 import { defaultReminderJalali, formatJalaliValue, jalaliToIso, parseJalaliValue } from '@/lib/jalali';
@@ -20,6 +20,8 @@ import { normalizeDigits, validateIranianNationalCode } from '@/lib/customer-fie
 import { VoiceNoteButton } from '@/features/voice-notes/VoiceNoteButton';
 import { saveQuickCreditNationalCode, useConsultProfile, type Military } from '@/features/team-sales/api';
 import { Choice, faDigits, formatToman, TomanInput, WizardProgress } from '@/components/plans-consult/parts';
+import { cqApi, cqOn, useCqConfig } from '@/features/call-queue/api';
+import { CqResultFields, cqResultError, emptyCqResult } from '@/features/call-queue/ResultFields';
 
 type CallFormProps = {
   customers: { id: number; name: string; phone: string; salespersonName?: string | null; priority?: number | null; status?: string; nationalCode?: string | null; postalCode?: string | null; birthDateJalali?: string | null; verificationStatus?: string; isUrgent?: boolean }[];
@@ -71,6 +73,13 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
   const [historyCall, setHistoryCall] = useState<CallRecord | null>(null);
   const update = (key: keyof typeof form, value: string) => setForm((current) => ({ ...current, [key]: value }));
   const selectedCustomer = pickedCustomer ?? customers.find((customer) => customer.id === Number(form.customerId));
+  // crm-call-queue R1: «نتیجه‌ی تماس» block (flag.result) and the due-reminder pre-notice (flag.autoclose). All OFF → the form is unchanged.
+  const cqCfg = useCqConfig().data;
+  const cqResultOn = cqOn(cqCfg, 'result');
+  const cqPreOn = cqResultOn || cqOn(cqCfg, 'autoclose');
+  const cqPre = useQuery({ queryKey: ['call-queue', 'pre-call', Number(form.customerId) || 0], queryFn: () => cqApi.preCall(Number(form.customerId)), enabled: cqPreOn && !!Number(form.customerId), retry: false, staleTime: 15_000 }).data;
+  const [cqVal, setCqVal] = useState(emptyCqResult);
+  const [cqShowErr, setCqShowErr] = useState(false);
   const selectCustomer = (customer: CallCustomer) => {
     setPickedCustomer(customer);
     setCustomerSelectionError(false);
@@ -133,11 +142,17 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
   const buildInput = (): CallInput | null => {
     if (pickCheck) return null;
     if (!form.customerId) { setCustomerSelectionError(true); return null; }
+    if (cqResultOn) {
+      // With «نتیجه‌ی تماس» on, the one-line note is the required part and «یادداشت کارشناس» becomes optional.
+      if (cqResultError(cqVal)) { setCqShowErr(true); (document.querySelector('[data-testid="cq-result"] [aria-invalid="true"], [data-testid="cq-result"] .cq-chip:not(:disabled)') as HTMLElement | null)?.focus(); return null; }
+      setCqShowErr(false);
+    } else {
     // crm-call-note-min: «یادداشت کارشناس» trimmed must be >= 10 characters.
     if (!callNoteOk(form.expertNotes)) { setNoteError(true); document.getElementById('call-notes')?.focus(); return null; }
+    }
     setNoteError(false);
     let reminderInput: { subject: string; message: string; remindAt: string } | undefined;
-    if (reminderOpen) {
+    if (reminderOpen && !cqResultOn) {
       const result = validateReminder();
       if (result.error) {
         setReminderError(result.error);
@@ -158,8 +173,9 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
         nationalCode: form.nationalCode.trim() || null,
         postalCode: form.postalCode.trim() || null,
         birthDateJalali: form.birthDateJalali.trim() || null,
-      }
-    };
+      },
+      ...(cqResultOn ? { outcome: cqVal.outcome, oneLineNote: cqVal.oneLine.trim(), followUpAt: cqVal.outcome === 'follow_up' ? cqVal.followUpAt : undefined } : {}),
+    } as CallInput;
   };
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -275,10 +291,11 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
                 <label htmlFor="call-request">درخواست مشتری</label>
                 <VoiceNoteButton value={form.customerRequest} onChange={(v) => update('customerRequest', v)} field="call_note" testId="call-request-voice"><textarea id="call-request" value={form.customerRequest} onChange={(event) => update('customerRequest', event.target.value)} data-testid="textarea-call-request" /></VoiceNoteButton>
               </div>
+              {cqResultOn ? <CqResultFields value={cqVal} onChange={setCqVal} showErrors={cqShowErr} pre={cqPre} /> : cqPre?.due?.length ? <CqResultFields.PreOnly pre={cqPre} /> : null}
               <div className="field call-grow call-grow-lg">
-                <label htmlFor="call-notes">یادداشت کارشناس <span className="req" aria-hidden="true">*</span></label>
-                <VoiceNoteButton value={form.expertNotes} onChange={(v) => update('expertNotes', v)} field="call_note" testId="call-notes-voice"><textarea id="call-notes" value={form.expertNotes} onChange={(event) => update('expertNotes', event.target.value)} aria-invalid={noteError && !callNoteOk(form.expertNotes)} aria-describedby="call-notes-meta" aria-required="true" data-testid="textarea-call-notes" /></VoiceNoteButton>
-                <CallNoteCounter value={form.expertNotes} showError={noteError} id="call-notes-meta" testId="call-notes-counter" />
+                <label htmlFor="call-notes">یادداشت کارشناس {cqResultOn ? <span className="cq-opt">(اختیاری)</span> : <span className="req" aria-hidden="true">*</span>}</label>
+                <VoiceNoteButton value={form.expertNotes} onChange={(v) => update('expertNotes', v)} field="call_note" testId="call-notes-voice"><textarea id="call-notes" value={form.expertNotes} onChange={(event) => update('expertNotes', event.target.value)} aria-invalid={!cqResultOn && noteError && !callNoteOk(form.expertNotes)} aria-describedby="call-notes-meta" aria-required={!cqResultOn} data-testid="textarea-call-notes" /></VoiceNoteButton>
+                {cqResultOn ? null : <CallNoteCounter value={form.expertNotes} showError={noteError} id="call-notes-meta" testId="call-notes-counter" />}
               </div>
             </div>
 
@@ -289,12 +306,12 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
                 </button>
                 <button className="btn btn-ghost" type="button" onClick={onClose} data-testid="button-cancel-call">انصراف</button>
               </div>
-              <div className="call-reminder-actions">
+              {cqResultOn ? null : <div className="call-reminder-actions">
                 <button ref={sheetOpener} className={`btn reminder-toggle ${reminderOpen ? 'active' : ''}`} type="button" aria-haspopup="dialog" aria-expanded={sheetOpen} onClick={() => setSheetOpen(true)} data-testid="button-toggle-call-reminder">
                   <BellPlus size={15} /> {reminderOpen ? 'ویرایش یادآور' : 'افزودن یادآور'}
                 </button>
                 {reminderOpen ? <button className="btn btn-ghost" type="button" onClick={removeReminder} data-testid="button-remove-call-reminder">حذف یادآور</button> : null}
-              </div>
+              </div>}
             </div>
           </form>
         </div>

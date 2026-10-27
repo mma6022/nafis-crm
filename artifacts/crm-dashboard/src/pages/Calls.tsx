@@ -1,4 +1,5 @@
 import { CalendarDays, Check, ChevronDown, ClipboardList, Download, Edit3, FileText, PhoneCall, Plus, Search, SlidersHorizontal, UserRound, X } from 'lucide-react';
+import { announceCallSaved } from '@/features/call-queue/api';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'wouter';
@@ -155,6 +156,8 @@ function ManualCalls({ desktop = true }: { desktop?: boolean }) {
       closeForms();
       await removeCompletedAfterCallFromQueue(queryClient, { callLogId: saved.id });
       invalidate();
+      void queryClient.invalidateQueries({ queryKey: ['call-queue'] });
+      announceCallSaved(saved.id, data.customerId);
     } catch {
       // Keep the form open so the user can retry.
     }

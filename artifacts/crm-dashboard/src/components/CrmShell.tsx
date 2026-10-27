@@ -26,15 +26,18 @@ import { sfScope } from '@/features/smart-filing/access';
 import { baleNavVisible } from '@/features/bale/api';
 import { layoutFor, menuKindFor, TRAINEE_SALESPERSON_IDS } from './nav-layout';
 import { asFetch, asVisibleTo } from '@/features/assistant/api';
+import { cqOn, useCqConfig } from '@/features/call-queue/api';
+import { CallQueueHost } from '@/features/call-queue/CallQueueHost';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem } from './ui/dropdown-menu';
 
 const nafissLogoUrl = `${import.meta.env.BASE_URL}nafiss-financial-logo.png`;
 
-type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean };
+type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin' };
 
 // Routes and permission rules are unchanged; only grouping, order, labels of groups and icons are new.
 const allNavItems: NavItem[] = [
   { href: '/', label: 'نمای کلی', icon: LayoutDashboard, permission: 'dashboard.view' },
+  { href: '/my-queue', label: 'صف تماس من', icon: PhoneCall, cq: 'queue' },
   { href: '/reminders', label: 'یادآورها', icon: Bell, permission: 'reminders.view' },
   { href: '/customers', label: 'مشتریان', icon: UsersRound, permission: 'customers.view' },
   { href: '/consultations', label: 'مشاوره‌ها', icon: ClipboardList, permission: 'consultations.view' },
@@ -71,20 +74,22 @@ const allNavItems: NavItem[] = [
   { href: '/users', label: 'کاربران CRM', icon: UserCog, permission: 'users.view' },
   { href: '/settings/notifications', label: 'تنظیمات', icon: Settings, permission: 'notifications.view' },
   { href: '/settings/releases', label: 'نسخه‌های سایت', icon: Rocket, adminOnly: true },
+  { href: '/call-queue-events', label: 'گزارش مدیر · صف تماس', icon: PieChart, cq: 'admin' },
+  { href: '/settings/call-queue', label: 'تنظیمات صف تماس', icon: SlidersHorizontal, cq: 'admin' },
 ];
 
 const mobilePrimaryNavHrefs = ['/', '/customers', '/chat', '/internal-chat'];
 const compactLabels: Record<string, string> = { '/': 'خانه', '/chat': 'گفتگو', '/internal-chat': 'داخلی', '/messengers': 'پیام‌رسان', '/customers': 'مشتری‌ها', '/loan-applications': 'پرونده‌ها', '/smart-filing': 'ثبت هوشمند' };
 type NavGroup = { id: string; label: string; icon: LucideIcon; hrefs: string[]; pinned?: boolean };
 const navGroups: NavGroup[] = [
-  { id: 'dashboard', label: 'داشبورد', icon: LayoutDashboard, hrefs: ['/', '/reminders'], pinned: true },
+  { id: 'dashboard', label: 'داشبورد', icon: LayoutDashboard, hrefs: ['/', '/my-queue', '/reminders'], pinned: true },
   { id: 'customers', label: 'مشتریان و مشاوره', icon: Contact, hrefs: ['/customers', '/calls', '/consultations', '/callback-requests', '/manual-verifications'] },
   { id: 'loans', label: 'وام و قرارداد', icon: HandCoins, hrefs: ['/loan-applications', '/smart-filing', '/loan-plans', '/contracts', '/credit-rank-overrides'] },
   { id: 'goods', label: 'خرید کالا', icon: Store, hrefs: ['/goods-purchases', '/sales-commissions', '/my-performance', '/my-wallet'] },
   { id: 'finance', label: 'مالی و پرداخت', icon: Banknote, hrefs: ['/payment-orders', '/wallet-management', '/bank-accounts', '/accounting'] },
   { id: 'comms', label: 'پیام‌ها و تلفن', icon: Headset, hrefs: ['/chat', '/internal-chat', '/messengers', '/settings/bale', '/bale/autoreply', '/instagram-inbox', '/mobile-calls', '/phone'] },
-  { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/social-monitor-reports', '/voice-notes-usage'] },
-  { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/settings/notifications', '/settings/assistants', '/settings/releases'] },
+  { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/social-monitor-reports', '/voice-notes-usage', '/call-queue-events'] },
+  { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/settings/notifications', '/settings/assistants', '/call-queue-events', '/settings/call-queue', '/settings/releases'] },
 ];
 
 const OPEN_GROUPS_KEY = 'nafis.nav.openGroups';
@@ -130,6 +135,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
   });
   const user = session?.user;
   usePageUsage(user?.id, location); // v10: page-usage tracker (route patterns + visible dwell only; silent on any failure)
+  const cqCfg = useCqConfig(Boolean(user)).data;
+  const [cqModalActive, setCqModalActive] = useState(false);
   const dueParams = { done: false, due: true };
   const dueReminders = useListReminders(dueParams, {
     query: {
@@ -159,13 +166,14 @@ export function CrmShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const next = dueReminders.data?.[0];
-    if (!next || dueReminder) return;
+    // crm-call-queue: the blocking modal (flag.modal) replaces this popup; it neither shows nor acknowledges while active.
+    if (!next || dueReminder || cqModalActive) return;
     setDueReminder(next);
     acknowledgeReminder.mutate(
       { id: next.id },
       { onSuccess: () => queryClient.invalidateQueries({ queryKey: getListRemindersQueryKey(dueParams) }) },
     );
-  }, [dueReminders.data, dueReminder, acknowledgeReminder, queryClient]);
+  }, [dueReminders.data, dueReminder, acknowledgeReminder, queryClient, cqModalActive]);
   const logoutMutation = useLogout({
     mutation: {
       onSuccess: () => {
@@ -184,6 +192,9 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const basePageTitle = isAdminUser && (location === '/my-wallet' || location.startsWith('/my-wallet/')) ? 'کیف پول کارشناس‌ها' : titleFor(location);
   
   const navItems = allNavItems.filter(item => {
+    // crm-call-queue: hidden while its flags are OFF (and for user 29 / trainees, enforced by the server config).
+    if (item.cq === 'queue') return cqOn(cqCfg, 'queue');
+    if (item.cq === 'admin') return Boolean(cqCfg?.manager && Object.values(cqCfg.flags).some(Boolean));
     if (item.walletOwner && !isAdminUser && !(user as { salespersonId?: number | null } | undefined)?.salespersonId) return false;
     if ('staffOnly' in item && item.staffOnly) return user?.role === 'admin' || user?.role === 'registrar';
     if ('adminOnly' in item && item.adminOnly) return user?.role === 'admin';
@@ -445,7 +456,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
       {user ? <AssistantDock user={user as { id: number; role?: string | null; salespersonId?: number | null }} phone={phone} slot={phone ? asTopSlot : asSideSlot} bottomOffset={(phone ? 84 : 20) + 66} /> : null}
       {profileOpen && user ? <ProfileModal user={user} onClose={() => setProfileOpen(false)} /> : null}
       {reminderFormOpen ? <CreateReminderForm onClose={() => setReminderFormOpen(false)} /> : null}
-      {dueReminder ? (
+      {user ? <CallQueueHost onModalActive={setCqModalActive} /> : null}
+      {dueReminder && !cqModalActive ? (
         <Modal title={dueReminder.subject} eyebrow="زمان یادآور رسیده است" onClose={() => setDueReminder(null)} testId="due-reminder">
           <div className="due-reminder">
             <div className="due-reminder-icon"><BellRing size={22} /></div>

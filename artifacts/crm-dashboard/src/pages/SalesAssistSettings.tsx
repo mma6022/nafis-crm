@@ -1,6 +1,7 @@
 /* «تنظیمات دستیار فروش» (admin only) — Armita's a_set / a_chg / a_reset. Levels 0–10 per signal (5 = default points, 0 = ignored,
    10 = double). Site lead and «از کاظمی» are fixed tiers (PM rule: always on top), so they are shown but not editable. */
 import { Minus, Plus, RotateCcw, Save, ShieldCheck, ArrowUp, ArrowDown, Lock } from 'lucide-react';
+import { useCqConfig } from '@/features/call-queue/api';
 import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { fetchWeights, faNum, previewWeights, saName, saveWeights, type SaPreviewItem, type SaSettings, type SaWeights } from '@/features/sales-assist/api';
@@ -10,6 +11,7 @@ import './customers.css';
 const hoursLabel = (h: number, def: number) => (h === 0 ? 'تا فردا صبح' : `${faNum(h)} ساعت`) + (h === def ? ' (پیش‌فرض)' : '');
 
 export default function SalesAssistSettings() {
+  const hideNotNow = Boolean(useCqConfig().data?.flags.hide_not_now);
   const qc = useQueryClient();
   const [w, setW] = useState<SaWeights | null>(null);
   const [draft, setDraft] = useState<SaSettings | null>(null);
@@ -57,8 +59,8 @@ export default function SalesAssistSettings() {
               <output aria-live="polite">{faNum(v)}</output>
               <button type="button" onClick={() => set(s.key, v + 1)} disabled={v >= 10} aria-label={`زیاد کردن ${s.label}`}><Plus size={18} /></button></div>
           </div>; })}
-        <div className="sa-sig sa-snz"><div><b>بعد از «الان نه»، مشتری تا کی پنهان بماند؟</b><small>«تا فردا صبح» یعنی تا ساعت ۹ صبح بعد</small></div>
-          <div className="sa-seg" role="radiogroup">{w.snoozeOptions.map((h) => <button key={h} type="button" role="radio" aria-checked={draft.snoozeHours === h} className={draft.snoozeHours === h ? 'on' : ''} onClick={() => setDraft({ ...draft, snoozeHours: h })}>{hoursLabel(h, w.defaults.snoozeHours)}</button>)}</div></div>
+{hideNotNow ? null : <><div className="sa-sig sa-snz"><div><b>بعد از «الان نه»، مشتری تا کی پنهان بماند؟</b><small>«تا فردا صبح» یعنی تا ساعت ۹ صبح بعد</small></div>
+          <div className="sa-seg" role="radiogroup">{w.snoozeOptions.map((h) => <button key={h} type="button" role="radio" aria-checked={draft.snoozeHours === h} className={draft.snoozeHours === h ? 'on' : ''} onClick={() => setDraft({ ...draft, snoozeHours: h })}>{hoursLabel(h, w.defaults.snoozeHours)}</button>)}</div></div></>}
         {p1 && w.p1 && w.p1Limits ? <>{/* Task B: today's P1 quota (oldest first) and the red threshold. «بی‌تماس» = the manager report's rule (more than N days). */}
           <div className="sa-sig" data-testid="sa-p1-quota"><div><b>سهمیه‌ی روزانه‌ی اولویت ۱ بی‌تماس</b><small>هر روز این تعداد از قدیمی‌ترین مشتری‌های اولویت ۱ که بیش از {faNum(w.p1.noCallDays)} روز تماس نگرفته‌اند، بعد از یادآورهای گذشته بالا می‌آیند. ۰ یعنی خاموش.</small></div>
             <div className="sa-step"><button type="button" onClick={() => setP1({ ...p1, quota: Math.max(w.p1Limits!.quota[0], p1.quota - 1) })} disabled={p1.quota <= w.p1Limits.quota[0]} aria-label="کم کردن سهمیه"><Minus size={18} /></button>

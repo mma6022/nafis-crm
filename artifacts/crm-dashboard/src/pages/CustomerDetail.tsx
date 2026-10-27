@@ -1,6 +1,7 @@
 import { ArrowUp, AlertCircle, ArrowRight, Check, ChevronLeft, Copy, FileText, Flag, Gauge, History, Layers, Lock, MessageSquarePlus, Pencil, Phone, PhoneCall, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, Wallet, X } from 'lucide-react';
+import { announceCallSaved } from '@/features/call-queue/api';
 import { CustomerIntroLog } from '@/features/expert-intro-sms/CustomerIntroLog';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useParams, Link, useLocation } from 'wouter';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getGetAuthSessionQueryKey, getGetCustomerQueryKey, getGetCustomerWalletPaymentQueryKey, getListCustomerActivityQueryKey, getListCustomerTagsQueryKey, getListCustomersQueryKey, getListConsultationsQueryKey, getListSalespersonsQueryKey, getListCustomerCreditChecksQueryKey, getListLoanApplicationsQueryKey, getListCallsQueryKey, getListRemindersQueryKey, useDeleteCustomer, useGetAuthSession, useGetCustomer, useGetCustomerWalletPayment, useListCustomerActivity, useListCustomerTags, useListSalespersons, useListCustomerCreditChecks, useInitiateCustomerCreditCheck, useValidateCustomerCreditCheck, useRenewCustomerCreditCheckOtp, useRefreshCustomerCreditCheckStatus, useUpdateCustomer, useCreateConsultation, useCreateCall, useListLoanApplications, type CallInput, type CustomerUpdate, type CustomerUpdateStatus, type ConsultationInput, type LoanApplication } from '@workspace/api-client-react';
@@ -277,6 +278,16 @@ export default function CustomerDetail() {
   const fcEditInfo = useFirstCallEditInfo(id, tsConfig.data?.enabled === true);
   const [tsToast, setTsToast] = useState('');
   useEffect(() => { setHandoff(null); setSimpleFormOpen(false); setUpgradeOpen(false); }, [id]);
+  // crm-call-queue: «ثبت تماس» on a «صف تماس من» card links here with ?cq=call → open the same call form once.
+  const cqCallDone = useRef(false);
+  useEffect(() => {
+    if (cqCallDone.current || !customer || !canCallsCreate) return;
+    if (new URLSearchParams(window.location.search).get('cq') !== 'call') return;
+    cqCallDone.current = true;
+    window.history.replaceState(window.history.state, '', window.location.pathname);
+    callLauncher.launch(customer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customer?.id, canCallsCreate]);
   useEffect(() => {
     if (!customer) return;
     const ids = ['info', 'loans', 'calls', 'bale', 'wallet'];
@@ -380,7 +391,10 @@ export default function CustomerDetail() {
       void queryClient.invalidateQueries({ queryKey: getListRemindersQueryKey() });
       void queryClient.invalidateQueries({ queryKey: getListCustomerActivityQueryKey(id) });
       void customerQuery.refetch();
-      setToast('تماس ثبت شد.');
+      void queryClient.invalidateQueries({ queryKey: ['call-queue'] });
+      announceCallSaved(saved.id, id);
+      // crm-call-queue: when the call-result flow is on, the shared after-save summary replaces this toast.
+      if (!(saved as { callQueue?: { resultOn?: boolean } }).callQueue?.resultOn) setToast('تماس ثبت شد.');
     } catch {
       // Mutation error state is rendered inside the call form.
     }
@@ -393,6 +407,8 @@ export default function CustomerDetail() {
     void queryClient.invalidateQueries({ queryKey: getListCallsQueryKey() });
     void queryClient.invalidateQueries({ queryKey: getListCustomerActivityQueryKey(id) });
     void queryClient.invalidateQueries({ queryKey: getGetCustomerQueryKey(id) });
+    void queryClient.invalidateQueries({ queryKey: ['call-queue'] });
+    announceCallSaved(saved.id, id);
     setLocation(loanWizardHref(id));
   };
   const isQualifier = tsConfig.data?.enabled === true && session.data?.user.salespersonId != null && session.data.user.salespersonId === tsConfig.data.qualifierSalespersonId;
