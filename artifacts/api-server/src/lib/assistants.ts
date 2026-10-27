@@ -24,7 +24,7 @@
  */
 import { cqFlag } from "./call-queue";
 import { registeredByRange, registeredByReport } from "./registered-by-report";
-import { ASSISTANT_URGENT_WRITE_KEY, ensureUrgentSchema, setCustomerUrgent } from "./customer-urgent";
+import { ASSISTANT_URGENT_IDS_KEY, ASSISTANT_URGENT_WRITE_KEY, URGENT_REASONS, ensureUrgentSchema, parseUrgentReason, setCustomerUrgent } from "./customer-urgent";
 import { cqSignals, cqTeamDiscipline } from "./call-queue-r2";
 import express, { Router, type Request, type Response, type NextFunction } from "express";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -706,20 +706,28 @@ export function createAssistants(deps: Deps) {
     res.status(201).json({ ok: true, id: Number(r.lastInsertRowid) });
   });
 
-  /* crm-urgent-history: the narrow assistant write — ONLY customers.is_urgent on an in-scope customer, behind assistant_urgent_write
-     (default '0' → 423 urgent_write_disabled). Never on trainees' customers. One history row (actor = assistant) + one bell to Kazemi. */
+  /* crm-urgent-history + Mohammad 2026-10-27 23:42: the narrow assistant write — ONLY customers.is_urgent 0→1 on an in-scope customer.
+     Gates: assistant_urgent_write='1' (else 423) AND the assistant id in assistant_urgent_write_ids (else 403 urgent_write_not_allowed),
+     sales kind only, never user 29, never trainees' customers. SET-ONLY: isUrgent=false → 403 set_only (clearing stays automatic on a logged
+     call or by a manager/admin). Reason: reasonCode no_callback | urgent_call | other (+ reasonText 3–280, required for other).
+     One history row (actor = the assistant) + exactly ONE CRM bell to the case owner. No SMS, no Bale. */
+  const urgentWriteIds = () => setting(ASSISTANT_URGENT_IDS_KEY, "").split(",").map((x) => Number(x.trim())).filter((n) => Number.isSafeInteger(n) && n > 0);
+  const urgentWriteAllowed = (a: any) => setting(ASSISTANT_URGENT_WRITE_KEY, "0") === "1" && urgentWriteIds().includes(Number(a?.id))
+    && normAssistant(a)?.kind === "sales" && a?.bound_user_id != null && Number(a?.bound_user_id) !== 29;
+  runner.get("/urgent/options", (_req, res) => { res.json({ enabled: urgentWriteAllowed(A(res)), setOnly: true, reasons: URGENT_REASONS, otherTextRequired: true }); });
   runner.post("/customers/:id/urgent", (req, res) => {
-    const a = A(res);
-    const flagOn = row<{ value: string }>("SELECT value FROM assistant_settings WHERE key=?", ASSISTANT_URGENT_WRITE_KEY)?.value === "1";
-    if (!flagOn) { audit({ req, a, tokenId: TK(res), action: "POST /customers/:id/urgent", outcome: "urgent_write_disabled" }); return fail(res, 423, "urgent_write_disabled", "نوشتن «فوری» برای دستیارها خاموش است."); }
+    const a = A(res); const act = "POST /customers/:id/urgent";
+    if (setting(ASSISTANT_URGENT_WRITE_KEY, "0") !== "1") { audit({ req, a, tokenId: TK(res), action: act, outcome: "urgent_write_disabled" }); return fail(res, 423, "urgent_write_disabled", "نوشتن «فوری» برای دستیارها خاموش است."); }
+    if (!urgentWriteAllowed(a)) { audit({ req, a, tokenId: TK(res), action: act, outcome: "urgent_write_not_allowed" }); return fail(res, 403, "urgent_write_not_allowed", "زدن «فوری» برای این دستیار فعال نیست."); }
     const c = scopedCustomer(req, res); if (!c) return;
-    if (TRAINEE_SALESPERSON_IDS.includes(Number(c.salesperson_id))) { audit({ req, a, tokenId: TK(res), action: "POST /customers/:id/urgent", customerId: c.id, outcome: "trainee_read_only" }); return fail(res, 403, "trainee_read_only"); }
-    if (typeof req.body?.isUrgent !== "boolean") return fail(res, 422, "bad_body");
-    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
-    if (reason.length < 3 || reason.length > 300) return fail(res, 422, "reason_required", "دلیل «فوری» لازم است");
-    const r = setCustomerUrgent(db, Number(c.id), req.body.isUrgent, { kind: "assistant", assistantId: a.id, label: label(a) }, `assistant:${a.kind}`, reason);
-    audit({ req, a, tokenId: TK(res), action: "POST /customers/:id/urgent", customerId: c.id, outcome: "ok", detail: { isUrgent: r.isUrgent, changed: r.changed } });
-    res.json({ ok: true, customerId: Number(c.id), isUrgent: r.isUrgent, changed: r.changed });
+    if (TRAINEE_SALESPERSON_IDS.includes(Number(c.salesperson_id))) { audit({ req, a, tokenId: TK(res), action: act, customerId: c.id, outcome: "trainee_read_only" }); return fail(res, 403, "trainee_read_only"); }
+    if (req.body?.isUrgent === false) { audit({ req, a, tokenId: TK(res), action: act, customerId: c.id, outcome: "set_only" }); return fail(res, 403, "set_only", "دستیار فقط می‌تواند «فوری» بزند؛ برداشتن آن خودکار (با ثبت تماس) یا با مدیر است."); }
+    if (req.body?.isUrgent !== undefined && req.body?.isUrgent !== true) return fail(res, 422, "bad_body");
+    const pr = parseUrgentReason(req.body, false);
+    if ("error" in pr) return fail(res, 422, pr.error, pr.error === "other_text_required" ? "برای «سایر» توضیح لازم است (۳ تا ۲۸۰ حرف)." : "دلیل «فوری» یکی از این‌هاست: شاکیه کسی زنگ نزده، درخواست تماس فوری، سایر (با توضیح).");
+    const r = setCustomerUrgent(db, Number(c.id), true, { kind: "assistant", assistantId: a.id, label: label(a) }, `assistant:${a.kind}`, pr.reason, { ownerOnly: true });
+    audit({ req, a, tokenId: TK(res), action: act, customerId: c.id, outcome: "ok", detail: { isUrgent: r.isUrgent, changed: r.changed, reasonCode: pr.code } });
+    res.json({ ok: true, customerId: Number(c.id), isUrgent: r.isUrgent, changed: r.changed, reason: pr.reason });
   });
 
   /* events: user messages, bubble actions, DND changes, calls logged on in-scope customers */
@@ -1258,7 +1266,7 @@ export function createAssistants(deps: Deps) {
   staff.get("/admin/assistants", admin, (_req, res) => { res.json({ globalEnabled: globalOn(), creditInquiryPermission: setting("credit_inquiry_permission", "manager"), managerAccess: !noMgr(res.locals.assistantAdmin),
     assistants: rows<any>("SELECT * FROM assistants ORDER BY id").filter(r => !(noMgr(res.locals.assistantAdmin) && normAssistant(r)?.kind === "manager")).map(adminView) }); });
   // crm-urgent-history: Mohammad's own switch for the assistant urgent write (admin only; default OFF; logged in assistant_audit).
-  staff.get("/admin/assistants/urgent-write", admin, (_req, res) => { if (noMgr(res.locals.assistantAdmin)) return fail(res, 403, "forbidden"); res.json({ enabled: setting(ASSISTANT_URGENT_WRITE_KEY, "0") === "1" }); });
+  staff.get("/admin/assistants/urgent-write", admin, (_req, res) => { if (noMgr(res.locals.assistantAdmin)) return fail(res, 403, "forbidden"); res.json({ enabled: setting(ASSISTANT_URGENT_WRITE_KEY, "0") === "1", assistantIds: setting(ASSISTANT_URGENT_IDS_KEY, "").split(",").map(Number).filter((n) => n > 0) }); });
   staff.put("/admin/assistants/urgent-write", admin, (req, res) => {
     if (noMgr(res.locals.assistantAdmin)) return fail(res, 403, "forbidden");
     if (typeof req.body?.enabled !== "boolean") return fail(res, 422, "bad_value");

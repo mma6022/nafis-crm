@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { Link } from 'wouter';
+import { useLeadAnnotatorMe } from '@/features/lead-annotator/api';
 import { toPersianDigits } from '@/lib/customer-id';
 import { otherOwnerLabel, otherOwnerLimitedOf, otherOwnerMatchesOf, requestTransferCall, type TransferCallInfo } from '@/lib/other-owner';
 import './other-owner.css';
@@ -14,6 +16,7 @@ export function OtherOwnerResults({ page, variant = 'block', testId = 'other-own
 }) {
   const items = otherOwnerMatchesOf(page);
   const limited = otherOwnerLimitedOf(page);
+  const la = useLeadAnnotatorMe();
   const [info, setInfo] = useState<Record<number, TransferCallInfo | { error: string } | 'loading'>>({});
   if (!items.length && !limited) return null;
   const transfer = async (id: number) => {
@@ -39,6 +42,8 @@ export function OtherOwnerResults({ page, variant = 'block', testId = 'other-own
                   disabled={state === 'loading'} onClick={(event) => { event.stopPropagation(); void transfer(item.id); }}>
                   {state === 'loading' ? 'در حال دریافت…' : 'انتقال تماس به کارشناسش'}
                 </button>
+                {la.data?.enabled ? <Link href={`/customers/${item.id}`} className="oo-transfer oo-note-urgent" data-testid={`button-la-open-${item.id}`}
+                  onClick={(event) => event.stopPropagation()}>یادداشت / فوری</Link> : null}
                 {state && state !== 'loading' && 'error' in state ? <span className="oo-transfer-error" role="alert">{state.error}</span> : null}
                 {state && state !== 'loading' && !('error' in state) ? <span className="oo-transfer-info" role="status" data-testid={`transfer-call-info-${item.id}`}>
                   {state.extension ? <>داخلی {state.ownerName}: <b dir="ltr">{toPersianDigits(state.extension)}</b></> : <>برای {state.ownerName} داخلی ثبت نشده است</>}

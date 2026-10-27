@@ -11,7 +11,7 @@ import { Router, type IRouter, type NextFunction, type Request, type Response } 
 import type { AuthUser } from "../lib/auth";
 import { requirePermission } from "../lib/access-control";
 import { crmDb, execute, queryRow, queryRows, runTransaction } from "../lib/crm-db";
-import { setCustomerUrgent, urgentHistory, URGENT_REASON_MAX } from "../lib/customer-urgent";
+import { parseUrgentReason, setCustomerUrgent, urgentHistory, URGENT_REASONS } from "../lib/customer-urgent";
 import { ensureLeadAnnotatorSchema, LEAD_ANNOTATOR_NOTE_LABEL, maskPhonesDeep, NOTE_MAX } from "../lib/lead-annotator";
 import { maskCustomerPhone } from "../lib/cross-owner-search";
 import { normalizeCustomerMobile, normalizePersianSearchText } from "../lib/customer-integrity";
@@ -39,7 +39,7 @@ const card = (r: Row) => ({ id: Number(r.id), name: r.name || `مشتری #${r.i
 const customer = (id: number) => queryRow<Row>("SELECT id, name, phone, is_urgent FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [id]);
 const actorLabel = (u: AuthUser) => (u.fullName || u.username || `کاربر ${u.id}`).trim();
 
-router.get("/lead-annotator/me", (_req, res): void => { res.json({ enabled: Boolean(me(res)?.leadAnnotator), noteLabel: LEAD_ANNOTATOR_NOTE_LABEL }); });
+router.get("/lead-annotator/me", (_req, res): void => { res.json({ enabled: Boolean(me(res)?.leadAnnotator), noteLabel: LEAD_ANNOTATOR_NOTE_LABEL, urgentReasons: URGENT_REASONS }); });
 
 router.get("/lead-annotator/customers", gate, (req, res): void => {
   const u = me(res); const raw = toLatinDigits(String(req.query.q ?? "")).trim();
@@ -70,6 +70,21 @@ router.get("/lead-annotator/customers/:id", gate, (req, res): void => {
   res.json(maskPhonesDeep({ ...card(c), annotations, urgentHistory: history }));
 });
 
+/** Restricted customer page (/customers/:id for a lead_annotator who cannot open the full case): id, name, urgent tick, annotations,
+ *  urgent history and the reason list. NO phone (not even masked), no owner, stage, amounts, documents, calls or finance. */
+router.get("/lead-annotator/customers/:id/case", gate, (req, res): void => {
+  const id = Number(req.params.id); const c = Number.isSafeInteger(id) && id > 0 ? customer(id) : undefined;
+  if (!c) { res.status(404).json({ error: "Customer not found" }); return; }
+  const annotations = queryRows<{ id: number; body: string; label: string; actor_label: string; created_at: string }>(
+    "SELECT id, body, label, actor_label, created_at FROM customer_annotations WHERE customer_id=? ORDER BY id DESC LIMIT 50", [id])
+    .map((a) => ({ id: Number(a.id), body: a.body, label: a.label, actorLabel: a.actor_label, createdAt: a.created_at }));
+  const history = (urgentHistory(crmDb, id, 20) as { newValue: number; actorLabel: string | null; actorKind: string; reason: string | null; createdAt: string }[])
+    .map((h) => ({ isUrgent: Number(h.newValue) === 1, actorLabel: h.actorKind === "system" ? "سیستم" : h.actorLabel, reason: h.reason, createdAt: h.createdAt }));
+  audit(me(res).id, "case_view", id);
+  res.json(maskPhonesDeep({ id: Number(c.id), name: c.name || `مشتری #${c.id}`, isUrgent: Number(c.is_urgent) === 1, annotations, urgentHistory: history,
+    urgentReasons: URGENT_REASONS, noteLabel: LEAD_ANNOTATOR_NOTE_LABEL }));
+});
+
 router.post("/lead-annotator/customers/:id/notes", gate, (req, res): void => {
   const u = me(res); const id = Number(req.params.id);
   const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
@@ -87,8 +102,9 @@ router.post("/lead-annotator/customers/:id/notes", gate, (req, res): void => {
 router.post("/lead-annotator/customers/:id/urgent", gate, (req, res): void => {
   const u = me(res); const id = Number(req.params.id);
   if (typeof req.body?.isUrgent !== "boolean") { res.status(422).json({ error: "isUrgent_required" }); return; }
-  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
-  if (reason.length < 3 || reason.length > URGENT_REASON_MAX) { res.status(422).json({ error: "reason_required" }); return; }
+  const pr = parseUrgentReason(req.body, true);
+  if ("error" in pr) { res.status(422).json({ error: pr.error }); return; }
+  const reason = pr.reason;
   if (!(Number.isSafeInteger(id) && id > 0 && customer(id))) { res.status(404).json({ error: "Customer not found" }); return; }
   const r = runTransaction(() => {
     const out = setCustomerUrgent(crmDb, id, req.body.isUrgent, { kind: "user", userId: u.id, label: actorLabel(u) }, "lead_annotator", reason);

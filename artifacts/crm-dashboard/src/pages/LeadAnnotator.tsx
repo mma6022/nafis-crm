@@ -1,7 +1,8 @@
 /* «یادداشت سرنخ (اینستاگرام)» — lead_annotator only (PM 2026-10-27 22:37). Exactly two actions on ANY customer: add a note («اینستاگرام»)
    and set / clear «مشتری فوری» with a REQUIRED reason. No edit, no call / tel link, no transfer, no financial data; phones arrive masked. */
 import { useState, type FormEvent } from 'react';
-import { faDate, laDetail, laNote, laSearch, laUrgent, useLeadAnnotatorMe, type LaCard, type LaDetail } from '@/features/lead-annotator/api';
+import { faDate, laDetail, laNote, laSearch, laUrgent, useLeadAnnotatorMe, type LaCard, type LaDetail, type UrgentReasonValue } from '@/features/lead-annotator/api';
+import { UrgentReasonPicker, urgentReasonReady } from '@/features/lead-annotator/UrgentReasonPicker';
 import '@/features/lead-annotator/lead-annotator.css';
 import './customers.css';
 
@@ -12,6 +13,7 @@ export default function LeadAnnotator() {
   const [cur, setCur] = useState<LaDetail | null>(null);
   const [note, setNote] = useState('');
   const [reason, setReason] = useState('');
+  const [pick, setPick] = useState<UrgentReasonValue | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -19,10 +21,11 @@ export default function LeadAnnotator() {
   if (!me.data?.enabled) return <section className="la" dir="rtl"><div className="csx-note warn" role="alert"><p>این بخش برای شما فعال نیست.</p></div></section>;
   const run = async <T,>(f: () => Promise<T>) => { setBusy(true); setErr(null); setMsg(null); try { return await f(); } catch (e) { setErr((e as Error).message); return null; } finally { setBusy(false); } };
   const search = async (e: FormEvent) => { e.preventDefault(); const r = await run(() => laSearch(q.trim())); if (r) { setItems(r.items); setCur(null); } };
-  const open = async (id: number) => { const r = await run(() => laDetail(id)); if (r) { setCur(r); setNote(''); setReason(''); } };
+  const open = async (id: number) => { const r = await run(() => laDetail(id)); if (r) { setCur(r); setNote(''); setReason(''); setPick(null); } };
   const addNote = async (e: FormEvent) => { e.preventDefault(); if (!cur) return; if (await run(() => laNote(cur.id, note.trim()))) { setMsg('یادداشت ثبت شد.'); await open(cur.id); setMsg('یادداشت ثبت شد.'); } };
   const toggle = async () => { if (!cur) return; const next = !cur.isUrgent;
-    const r = await run(() => laUrgent(cur.id, next, reason.trim()));
+    if (next && !pick) return;
+    const r = await run(() => laUrgent(cur.id, next, next ? pick! : { reason: reason.trim() }));
     if (r) { await open(cur.id); setMsg(next ? '«مشتری فوری» زده شد و به کارشناس پرونده خبر داده شد.' : '«مشتری فوری» برداشته شد.'); } };
   return (
     <section className="la" dir="rtl" data-testid="page-lead-annotator">
@@ -47,9 +50,10 @@ export default function LeadAnnotator() {
           <div className="la-row"><button type="submit" disabled={busy || !note.trim()}>ثبت یادداشت</button></div>
         </form>
         <div className="la-row" style={{ alignItems: 'stretch', flexDirection: 'column' }}>
-          <label htmlFor="la-reason">دلیل {cur.isUrgent ? 'برداشتن' : 'زدن'} «مشتری فوری» (الزامی)</label>
-          <input id="la-reason" type="text" maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} />
-          <div className="la-row"><button type="button" className={cur.isUrgent ? 'ghost' : ''} disabled={busy || reason.trim().length < 3} onClick={() => void toggle()} data-testid="la-urgent">
+          {cur.isUrgent ? <><label htmlFor="la-reason">دلیل برداشتن «مشتری فوری» (الزامی)</label>
+          <input id="la-reason" type="text" maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} /></>
+            : <UrgentReasonPicker value={pick} onChange={setPick} options={me.data.urgentReasons} idPrefix="la" disabled={busy} />}
+          <div className="la-row"><button type="button" className={cur.isUrgent ? 'ghost' : ''} disabled={busy || (cur.isUrgent ? reason.trim().length < 3 : !urgentReasonReady(pick))} onClick={() => void toggle()} data-testid="la-urgent">
             {cur.isUrgent ? 'برداشتن «مشتری فوری»' : 'زدن «مشتری فوری»'}</button></div>
         </div>
         {cur.annotations.length ? <><h2 style={{ fontSize: 16, margin: 0 }}>یادداشت‌ها</h2><ul className="la-notes">{cur.annotations.map((a) => <li key={a.id}>

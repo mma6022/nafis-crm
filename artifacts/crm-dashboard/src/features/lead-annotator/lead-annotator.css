@@ -34,3 +34,14 @@
 .dor small { color: #667; }
 @media (max-width: 480px) { .dor { padding: 10px; } .dor-table thead { display: none; } .dor-table tr { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid #e2e5ef; }
   .dor-table td { border: 0; } .dor-table td:first-child, .dor-table td.src { grid-column: 1 / -1; } .dor-table td[data-l]::before { content: attr(data-l) ': '; color: #667; } }
+/* restricted case page + reason picker (2026-10-27 23:44) */
+.la-col { display: flex; flex-direction: column; gap: 8px; }
+.la-case-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.la-case-head h1 { font-size: 20px; margin: 0; overflow-wrap: anywhere; }
+.la-h2 { font-size: 16px; margin: 0 0 6px; }
+.la-reasons { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; min-width: 0; }
+.la-reasons legend { font-weight: 600; padding: 0; margin-bottom: 4px; }
+.la-reason { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 10px; border: 1px solid #e2e5ef; border-radius: 12px; cursor: pointer; }
+.la-reasons input[type=text] { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--csx-line-strong, #c9cedf); border-radius: 12px; font: inherit; }
+.la-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.oo-note-urgent { margin-inline-start: 6px; }

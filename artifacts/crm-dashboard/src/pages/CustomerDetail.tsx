@@ -2,6 +2,8 @@ import { ArrowUp, AlertCircle, ArrowRight, Check, ChevronLeft, Copy, FileText, F
 import { announceCallSaved, cqTelClick } from '@/features/call-queue/api';
 import { CustomerIntroLog } from '@/features/expert-intro-sms/CustomerIntroLog';
 import { CustomerAnnotations } from '@/features/lead-annotator/CustomerAnnotations';
+import { RestrictedCase } from '@/features/lead-annotator/RestrictedCase';
+import { useLeadAnnotatorMe } from '@/features/lead-annotator/api';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useParams, Link, useLocation } from 'wouter';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -71,7 +73,25 @@ function inquiryErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+/* lead_annotator (bug 2026-10-27 23:44): a customer outside the user's scope → GET /customers/:id is 404 (and used to retry ~15 s on
+   «در حال بارگذاری پرونده…»). For a lead_annotator we probe once without retry and fall back to the restricted case page, which uses
+   only /api/lead-annotator/customers/:id/case + notes + urgent. Everyone else gets the full page exactly as before. */
 export default function CustomerDetail() {
+  const params = useParams<{ id: string }>();
+  const id = Number(params.id);
+  const la = useLeadAnnotatorMe();
+  const laOn = la.data?.enabled === true;
+  const probe = useGetCustomer(id, { query: { queryKey: getGetCustomerQueryKey(id), enabled: Number.isFinite(id) && laOn, retry: false } });
+  const loading = <div className="csx" dir="rtl" aria-busy="true" data-testid="customer-detail-loading"><span className="csx-sr" role="status">در حال بارگذاری پرونده مشتری…</span></div>;
+  if (la.isLoading) return loading;
+  if (laOn) {
+    if (probe.isLoading) return loading;
+    if (probe.isError || !probe.data) return <RestrictedCase id={id} />;
+  }
+  return <CustomerDetailFull />;
+}
+
+function CustomerDetailFull() {
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
