@@ -185,7 +185,7 @@ function capDayAllowed(day: unknown, now: Date): DpErr | string {
   if (!isYmd(day)) return err(422, "date_not_allowed", "تاریخ معتبر نیست.");
   const today = dpToday(now);
   if (day < today) return err(422, "date_not_allowed", "ظرفیت روز گذشته عوض نمی‌شود.");
-  if (!dpIsWork(day)) return err(422, "holiday", "این روز تعطیل است.");
+  if (!dpIsWork(day)) return err(409, "holiday", "این روز تعطیل است.");
   if (day === today && minOf(now) >= DP_START_MIN) return err(409, "after_cutoff", "لیست امروز از ساعت ۸ شروع شده؛ ظرفیت تازه از روز کاری بعد اثر دارد.");
   if (Date.parse(`${day}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`) > 14 * 86_400_000) return err(422, "date_not_allowed", "ظرفیت فقط تا ۱۴ روز جلوتر.");
   return day;
@@ -341,14 +341,14 @@ function parseRows(raw: any, sp: number, restricted: boolean, taken: Set<number>
 function planDayCheck(dayIn: unknown, now: Date): DpErr | string {
   if (!isYmd(dayIn)) return err(422, "date_not_allowed", "تاریخ معتبر نیست.");
   const day = dayIn; const today = dpToday(now); const m = minOf(now); const todayWork = dpIsWork(today);
-  if (day === today) { if (!todayWork) return err(422, "holiday", "امروز تعطیل است."); if (m >= DP_START_MIN) return err(409, "after_cutoff", "از ساعت ۸ لیست امروز بسته است؛ برای امروز «تکمیلی» بفرست."); return day; }
+  if (day === today) { if (!todayWork) return err(409, "holiday", "امروز تعطیل است."); if (m >= DP_START_MIN) return err(409, "after_cutoff", "از ساعت ۸ لیست امروز بسته است؛ برای امروز «تکمیلی» بفرست."); return day; }
   if (day === dpNextWork(today)) { if (todayWork && m < DP_CLOSE_MIN) return err(409, "not_open_yet", "لیست روز کاری بعد از ساعت ۱۸ باز می‌شود.", { opensAt: atTehran(today, DP_CLOSE_MIN).toISOString() }); return day; }
-  if (!dpIsWork(day)) return err(422, "holiday", "این روز تعطیل است.");
+  if (!dpIsWork(day)) return err(409, "holiday", "این روز تعطیل است.");
   return err(422, "date_not_allowed", "فقط امروز (تا ۸) یا روز کاری بعد.");
 }
 function expertOf(a: Asst): DpExpert | DpErr {
   const ex = a.bound_salesperson_id == null ? null : expertBySp(Number(a.bound_salesperson_id));
-  if (!ex || ex.assistant.id !== a.id) return err(403, "expert_not_eligible", "این دستیار به کارشناسی با «کارهای امروز» بسته نیست.");
+  if (!ex || ex.assistant.id !== a.id) return err(422, "expert_not_eligible", "این دستیار به کارشناسی با «کارهای امروز» بسته نیست.");
   return ex;
 }
 /** Runner: the token binds the expert; an expertId in body/query that differs → 403 (v1.2 §0). */
@@ -682,7 +682,7 @@ export function dpMarkReturned(user: CqUser, callId: number, now = new Date()) {
 export function dpMove(user: CqUser & { fullName?: string | null; username?: string }, itemId: number, body: any, now = new Date()) {
   const p = dpActiveFor(user, now); if (!p) return err(409, "no_active_plan", "«کارهای امروز» الان فعال نیست.");
   const it = currentItem(p, itemId); if (!it) return err(409, "not_current_item", "فقط کار فعلی جابه‌جا می‌شود.");
-  if (it.move_count >= DP_MOVE_MAX) return err(409, "move_limit_reached", "این کار دو بار جابه‌جا شده؛ دیگر نمی‌شود.", { max: DP_MOVE_MAX });
+  if (it.move_count >= DP_MOVE_MAX) return err(409, "move_limit_reached", "این کار دو بار جابه‌جا شده؛ دیگر نمی‌شود.", { moveCount: it.move_count, max: DP_MOVE_MAX });
   const reason = String(body?.reason ?? ""); if (!DP_MOVE_REASONS[reason]) return err(422, "reason_required", "دلیل جابه‌جایی را انتخاب کن.", { allowed: Object.keys(DP_MOVE_REASONS) });
   const text = String(body?.text ?? "").replace(/\s+/g, " ").trim();
   if (reason === "other" && !text) return err(422, "reason_text_required", "دلیل را کوتاه بنویس.");
@@ -742,11 +742,11 @@ export function dpAfterCommit(user: CqUser, now = new Date()) {
   const cur = ordered(p.id).find(i => i.status === "current");
   return { next: cur ? itemView(cur) : null, state: dpState(planRow(p.salesperson_id, p.day), now) };
 }
-/** GET /customers?search=… while the plan is active: only for incoming calls (purpose=incoming_call), else 403 purpose_required. */
+/** GET /customers?search=… while the plan is active: only for incoming calls (purpose=incoming_call), else 422 purpose_required. */
 export function dpSearchCheck(user: CqUser, q: any, now = new Date()): DpErr | null {
   const s = String(q?.search ?? "").trim(); if (!s) return null;
   if (!dpActiveFor(user, now)) return null;
-  return String(q?.purpose ?? "") === "incoming_call" ? null : err(403, "purpose_required", "جستجو فقط برای «تماس ورودی» است؛ کارهای امروز را از لیست برو.");
+  return String(q?.purpose ?? "") === "incoming_call" ? null : err(422, "purpose_required", "جستجو فقط برای «تماس ورودی» است؛ کارهای امروز را از لیست برو.");
 }
 /** R2 discipline on the plan (flag daily_plan_discipline): carried items still open today count as overdue. */
 export function dpOverdueExtra(user: CqUser, now = new Date()): number[] {
