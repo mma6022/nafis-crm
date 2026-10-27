@@ -13,7 +13,7 @@ export default function MyQueuePage() {
   const cfg = useCqConfig().data;
   const on = cqOn(cfg, 'queue');
   const q = useQuery({ queryKey: ['call-queue', 'queue'], queryFn: cqApi.queue, enabled: on, refetchInterval: 60_000, retry: false });
-  const dq = useQuery({ queryKey: ['call-queue', 'discipline', 'me'], queryFn: cqApi.myDiscipline, enabled: cqOn(cfg, 'discipline'), refetchInterval: 120_000, retry: false });
+  const dq = useQuery({ queryKey: ['call-queue', 'discipline', 'me'], queryFn: cqApi.myDiscipline, enabled: cqOn(cfg, 'discipline') || cqOn(cfg, 'transfer_check'), refetchInterval: 120_000, retry: false });
   if (!cfg) return <div className="cq-page"><p role="status">در حال بارگذاری…</p></div>;
   if (!on) return <div className="cq-page"><h1>صف تماس من</h1><p data-testid="cq-queue-off">این بخش هنوز فعال نشده است.</p></div>;
   const data = q.data; const order = data?.order ?? (['due', 'new', 'p1', 'assist'] as QueueGroup[]);
@@ -25,6 +25,7 @@ export default function MyQueuePage() {
     {data?.restricted ? <div className="cq-restricted" role="alert" data-testid="cq-restricted">
       <b>پنل محدود شد</b> · {faNum(data.restricted.overdue)} یادآور عقب‌افتاده داری (بیشتر از {faNum(data.restricted.threshold)}). تا وقتی به {faNum(data.restricted.threshold)} یا کمتر برسد فقط یادآورهای عقب‌افتاده باز است.
       <small>{faNum(data.restricted.leftToUnlock)} تماس دیگر تا باز شدن پنل</small></div> : null}
+    {dq.data?.receive ? <p className={`cq-receive ${dq.data.receive.ok ? 'ok' : 'out'}`} role="status" data-testid={dq.data.receive.ok ? 'cq-rcv-ok' : 'cq-rcv-out'}>{dq.data.receive.text.replace(/[0-9]/g, (x) => '۰۱۲۳۴۵۶۷۸۹'[Number(x)])}</p> : null}
     {dq.data?.enabled ? <DisciplineCard d={dq.data} /> : null}
     {q.isError ? <p className="cq-err" role="alert">صف بارگذاری نشد. <button type="button" onClick={() => void q.refetch()}>تلاش دوباره</button></p> : null}
     {data ? <>

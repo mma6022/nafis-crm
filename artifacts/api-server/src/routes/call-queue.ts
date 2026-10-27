@@ -13,6 +13,7 @@ import {
 } from "../lib/call-queue";
 import { customerInScope, salesAssistScope, suggestionsFor } from "../lib/sales-assist";
 import { CQ_DS_DEFAULTS, CQ_DS_RANGES, CQ_MANUAL_TYPES, cqDisciplineSettings, cqLockOn, saveDiscipline, validateDiscipline } from "../lib/call-queue";
+import { cqMyReceiveLine, cqTransfers } from "../lib/call-queue-r3";
 import { cqMarkReturned, cqMyDiscipline, cqPendingView, cqRestriction, cqSignals, cqStartCall, cqTeamDiscipline } from "../lib/call-queue-r2";
 
 const router: IRouter = Router();
@@ -113,7 +114,10 @@ router.post("/call-queue/calls/:id/returned", requirePermission("calls.create"),
 });
 router.get("/call-queue/pending", requirePermission("customers.view"), (_req, res) => { res.json(cqPendingView(me(res))); });
 /* -------- R2: discipline (display only) -------- */
-router.get("/call-queue/discipline/me", requirePermission("customers.view"), (_req, res) => { res.json(cqMyDiscipline(me(res))); });
+router.get("/call-queue/discipline/me", requirePermission("customers.view"), (_req, res) => {
+  // R3 ds_ok / ds_out: only with flag.transfer_check on (OFF = response unchanged).
+  const u = me(res); const receive = cqMyReceiveLine(u); res.json(receive ? { ...cqMyDiscipline(u), receive } : cqMyDiscipline(u));
+});
 
 /* -------- admin (managers: role admin, never user 29) -------- */
 const admin = (res: Response) => { const u = me(res); if (!cqManager(u)) { res.status(403).json({ error: "فقط مدیر." }); return null; } return u; };
@@ -148,6 +152,8 @@ router.put("/call-queue/discipline/settings", (req, res) => {
   res.json({ ok: true, changed, settings: cqDisciplineSettings(), log: cqSettingsLog().filter((l: any) => String(l.key).startsWith("ds.")) });
 });
 /** §8-33 daily digest signals — managers and admins only. */
+/* -------- R3: hand-off checks (manager report rpt_override) -------- */
+router.get("/call-queue/transfers", (req, res) => { if (!admin(res)) return; res.json(cqTransfers({ outcome: req.query.outcome, day: req.query.day, limit: req.query.limit })); });
 router.get("/reports/discipline-signals", (req, res) => { if (!admin(res)) return; res.json(cqSignals(req.query.date)); });
 router.get("/call-queue/events", (req, res) => {
   if (!admin(res)) return;

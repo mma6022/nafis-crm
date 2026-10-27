@@ -81,6 +81,11 @@ export function ensureCallQueueSchema(): void {
     ;CREATE INDEX IF NOT EXISTS idx_cq_calls_at ON call_queue_calls(link_issued_at)
     ;CREATE TABLE IF NOT EXISTS call_queue_daily(day TEXT NOT NULL, user_id INTEGER NOT NULL, salesperson_id INTEGER, crm_calls INTEGER NOT NULL, on_time INTEGER NOT NULL,
       on_time_pct INTEGER, overdue INTEGER NOT NULL, nocall INTEGER NOT NULL, score INTEGER NOT NULL, ok INTEGER NOT NULL, computed_at TEXT NOT NULL, PRIMARY KEY(day,user_id))`);
+  // R3 «بررسی سپردن»: one row per checked hand-off (flag.transfer_check only). outcome ok | override | blocked; numbers are the receiver's at that moment.
+  crmDb.exec(`CREATE TABLE IF NOT EXISTS call_queue_transfers(id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, customer_name TEXT,
+      from_salesperson_id INTEGER, to_salesperson_id INTEGER NOT NULL, to_user_id INTEGER, actor_user_id INTEGER NOT NULL, source TEXT NOT NULL, mode TEXT NOT NULL,
+      outcome TEXT NOT NULL, override INTEGER NOT NULL DEFAULT 0, override_reason TEXT, on_time_pct INTEGER, overdue INTEGER, reasons_json TEXT, created_at TEXT NOT NULL)
+    ;CREATE INDEX IF NOT EXISTS idx_cq_transfers_at ON call_queue_transfers(created_at)`);
   const seed = crmDb.prepare("INSERT OR IGNORE INTO call_queue_settings(key,value,updated_by,updated_at) VALUES(?,?,NULL,?)");
   for (const f of CQ_FLAGS) seed.run(`flag.${f}`, "0", now);
   ready = true;

@@ -1,7 +1,8 @@
 import { AlertCircle, AlertTriangle, Ban, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, HelpCircle, Info, Search, Timer, X } from 'lucide-react';
 import { CALL_NOTE_MIN, callNoteLength, callNoteMinMessage } from '@/lib/call-note';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { fa, fetchCities, fetchPlanOptions, fmtDateTime, shortName, submitFirstCallEdit, submitSimpleForm, TeamSalesApiError, type CallResult, type FirstCallEditResult, type FirstCallSummary, type Military, type QualifyResult, type SimpleAnswers, type SuggestedPlan, type Tri } from './api';
+import { TransferCheckBox } from './TransferCheckBox';
+import { fa, fetchCities, fetchPlanOptions, fmtDateTime, shortName, submitFirstCallEdit, submitSimpleForm, TeamSalesApiError, type TransferCheck, type CallResult, type FirstCallEditResult, type FirstCallSummary, type Military, type QualifyResult, type SimpleAnswers, type SuggestedPlan, type Tri } from './api';
 import { FIRST_CALL_FIELD_LABELS, firstCallValueText } from './first-call-edit-labels';
 import { NoPlanChip, PlanChip } from './PlanChip';
 import { JOB_LABELS, JOB_ORDER, MILITARY_LABELS, planMeta, planReasonText, type PlanEvaluation, type PlanReason } from './plan-reasons';
@@ -197,6 +198,8 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
   const [serverError, setServerError] = useState('');
+  // R3 «بررسی سپردن»: refused hand-off → the draft stays; resend with a reason (warn) or see the way back (block).
+  const [tc, setTc] = useState<{ check: TransferCheck; edit: boolean; send: boolean } | null>(null);
   const [rankLetter, setRankLetter] = useState<string | null>(null);
   const [gRankLetter, setGRankLetter] = useState<string | null>(null);
   const [result, setResult] = useState<QualifyResult | null>(null);
@@ -334,29 +337,31 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
     return () => { live = false; };
   }, [d.step, d.cityTouched, d.city, customer.id]);
 
-  const submitEdit = async (send: boolean) => {
+  const submitEdit = async (send: boolean, transferOverrideReason?: string) => {
     if (!edit) return;
     for (const s of steps) { const e = validate(s); if (Object.keys(e).length) { set({ step: s }); setErrors(e); return; } }
-    setPending(true); setServerError('');
+    setPending(true); setServerError(''); setTc(null);
     try {
       const r = await submitFirstCallEdit(customer.id, { answers: { ...answers, noPlanFit: noPlan }, note: d.note.trim(),
         selectedPlans: noPlan ? [] : selectedPlans.map((p) => p.planId), noPlanNote: noPlan ? d.noPlanNote.trim() || undefined : undefined,
-        send, baseId: edit.fc.id });
+        send, baseId: edit.fc.id, ...(transferOverrideReason ? { transferOverrideReason } : {}) });
       setEditResult(r); edit.onSaved(r);
     } catch (err) {
+      if (err instanceof TeamSalesApiError && err.transferCheck) { setTc({ check: err.transferCheck, edit: true, send }); return; }
       const msg = err instanceof TeamSalesApiError && err.message ? err.message : 'اتصال به سرور برقرار نشد. چیزی ذخیره نشد؛ دوباره امتحان کن.';
       setServerError(`ذخیره انجام نشد: ${msg}`);
     } finally { setPending(false); }
   };
-  const submit = async () => {
+  const submit = async (transferOverrideReason?: string) => {
     for (const s of steps) { const e = validate(s); if (Object.keys(e).length) { set({ step: s }); setErrors(e); return; } }
-    setPending(true); setServerError('');
+    setPending(true); setServerError(''); setTc(null);
     try {
       const r = await submitSimpleForm(customer.id, answered ? { ...answers, noPlanFit: noPlan } : answers, d.note.trim(),
-        answered ? (noPlan ? [] : selectedPlans.map((p) => p.planId)) : undefined, noPlan ? d.noPlanNote.trim() || undefined : undefined);
+        answered ? (noPlan ? [] : selectedPlans.map((p) => p.planId)) : undefined, noPlan ? d.noPlanNote.trim() || undefined : undefined, transferOverrideReason);
       try { localStorage.removeItem(key); } catch { /* ignore */ }
       setResult(r); onDone(r);
     } catch (err) {
+      if (err instanceof TeamSalesApiError && err.transferCheck) { setTc({ check: err.transferCheck, edit: false, send: false }); return; }
       const msg = err instanceof TeamSalesApiError && err.message ? err.message : 'اتصال به سرور برقرار نشد. چیزی ثبت نشد؛ دوباره امتحان کن.';
       setServerError(`ثبت انجام نشد: ${msg}`);
     } finally { setPending(false); }
@@ -553,6 +558,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
       {!answered && summary.length ? <div className="ts-summary"><span className="ts-muted">خلاصه:</span>{summary.map((s, i) => <span key={i} className="ts-pill">{s}</span>)}</div> : null}
       {edit ? <p className="ts-muted small" data-testid="ts-edit-hint">«فقط ذخیره» تماس جدیدی ثبت نمی‌کند. «ذخیره و ارسال به کارشناس فروش» همان «ارتقا به اولویت ۱» است.</p> : null}
       {serverError ? <div className="ts-alert" role="alert"><AlertCircle size={18} /> {serverError}</div> : null}
+      {tc ? <TransferCheckBox tc={tc.check} pending={pending} onOverride={(r) => { void (tc.edit ? submitEdit(tc.send, r) : submit(r)); }} /> : null}
     </>;
   }
 
@@ -591,7 +597,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
               title={!edit.canSend ? edit.sendBlockedReason ?? undefined : undefined} aria-describedby={!edit.canSend ? 'ts-edit-send-why' : undefined} data-testid="ts-edit-send">
               <Check size={18} /> ذخیره و ارسال به کارشناس فروش</button>
             {!edit.canSend ? <span id="ts-edit-send-why" className="sr-only">{edit.sendBlockedReason}</span> : null}
-          </> : lastStep ? <button type="button" className="ts-primary" onClick={submit} disabled={pending} data-testid="ts-submit"><Check size={18} /> {pending ? 'در حال ثبت…' : d.callResult === 'no_answer' ? 'ثبت تماس بی‌پاسخ' : 'ثبت و تعیین اولویت'}</button>
+          </> : lastStep ? <button type="button" className="ts-primary" onClick={() => void submit()} disabled={pending} data-testid="ts-submit"><Check size={18} /> {pending ? 'در حال ثبت…' : d.callResult === 'no_answer' ? 'ثبت تماس بی‌پاسخ' : 'ثبت و تعیین اولویت'}</button>
             : <button type="button" className="ts-primary" onClick={next} disabled={d.step === 5 && !planList} data-testid="ts-next">{nextLabel} <ChevronLeft size={18} /></button>}
         </div>}
         {!done && !edit ? <p className="ts-muted center small">پیش‌نویس روی همین دستگاه نگه داشته می‌شود</p> : null}

@@ -14,6 +14,7 @@ import { NONP1_TRANSFER_HEADER } from "../lib/nonp1-transfer";
 import { addWorkingHours, type QualifierAnswers } from "../lib/team-sales-rules";
 import { ConsultProfileError, canActOnCustomerProfile, consultProfile, editConsultProfile } from "../lib/consult-profile";
 import { isAdminRole } from "../lib/customer-integrity";
+import { TransferCheckError, cqLogRefusedTransfer, cqTransferPreview, withTransferOverride } from "../lib/call-queue-r3";
 
 const router: IRouter = Router();
 
@@ -27,6 +28,8 @@ function actorOf(res: Response) {
 }
 function fail(res: Response, error: unknown): void {
   if (error instanceof TeamSalesError) { res.status(error.status).json({ error: error.message }); return; }
+  // crm-call-queue R3: refused hand-off (only with flag.transfer_check on). The transaction already rolled back; keep the «blocked» row.
+  if (error instanceof TransferCheckError) { cqLogRefusedTransfer(error); res.status(error.status).json({ error: error.message, transferCheck: error.payload }); return; }
   throw error;
 }
 function answersOf(body: unknown): QualifierAnswers | null {
@@ -64,15 +67,16 @@ router.get("/sales/next-closer", requirePermission("customers.view"), (_req, res
   if (!next) { res.status(409).json({ error: "هیچ کارشناس پیگیری فعالی تعریف نشده است." }); return; }
   const now = new Date();
   const due = addWorkingHours(now, cfg.closerFirstCallWorkingHours, cfg);
-  res.json({ ...next, dueAt: due.toISOString(), dueLabel: formatDue(due, now), workingHours: cfg.closerFirstCallWorkingHours });
+  const transferCheck = cqTransferPreview(next.salespersonId, actor.role, now);
+  res.json({ ...next, dueAt: due.toISOString(), dueLabel: formatDue(due, now), workingHours: cfg.closerFirstCallWorkingHours, ...(transferCheck ? { transferCheck } : {}) });
 });
 
-function upgrade(req: { params: { id?: string }; body?: { note?: unknown; reason?: unknown } }, res: Response): void {
+function upgrade(req: { params: { id?: string }; body?: { note?: unknown; reason?: unknown; transferOverrideReason?: unknown } }, res: Response): void {
   const id = customerId(req.params.id);
   if (!id) { res.status(400).json({ error: "Invalid customer id" }); return; }
   const raw = typeof req.body?.note === "string" ? req.body.note : typeof req.body?.reason === "string" ? req.body.reason : "";
   const note = raw.trim().slice(0, 2000) || null; // optional
-  try { res.json(promoteToPriorityOne(id, actorOf(res), note)); } catch (e) { fail(res, e); }
+  try { res.json(withTransferOverride((req.body as { transferOverrideReason?: unknown } | undefined)?.transferOverrideReason, () => promoteToPriorityOne(id, actorOf(res), note))); } catch (e) { fail(res, e); }
 }
 router.post("/customers/:id/upgrade-priority", requirePermission("customers.update"), (req, res): void => upgrade(req, res));
 router.post("/customers/:id/team-sales/promote", requirePermission("customers.update"), (req, res): void => upgrade(req, res));
@@ -104,7 +108,7 @@ router.post("/customers/:id/team-sales/qualify", requirePermission("calls.create
   const selectedPlans = req.body?.selectedPlans ?? null;
   const noPlanNote = req.body?.noPlanNote ?? null;
   try {
-    const out = submitQualification(id, actorOf(res), answers, note, new Date(), selectedPlans, noPlanNote);
+    const out = withTransferOverride(req.body?.transferOverrideReason, () => submitQualification(id, actorOf(res), answers, note, new Date(), selectedPlans, noPlanNote));
     if (out.transferredToQualifier) res.setHeader(NONP1_TRANSFER_HEADER, String(id));
     res.json(out);
   } catch (e) { fail(res, e); }
@@ -126,8 +130,8 @@ router.post("/customers/:id/team-sales/first-call/edit", requirePermission("cust
   if (!getCustomer(id, res.locals.authUser as AuthUser)) { res.status(404).json({ error: "Customer not found" }); return; }
   const note = typeof req.body?.note === "string" ? req.body.note : "";
   try {
-    const out = editFirstCall(id, actorOf(res), answers, note, { selectedPlans: req.body?.selectedPlans ?? null,
-      noPlanNote: req.body?.noPlanNote ?? null, send: req.body?.send === true, baseId: req.body?.baseId ?? null });
+    const out = withTransferOverride(req.body?.transferOverrideReason, () => editFirstCall(id, actorOf(res), answers, note, { selectedPlans: req.body?.selectedPlans ?? null,
+      noPlanNote: req.body?.noPlanNote ?? null, send: req.body?.send === true, baseId: req.body?.baseId ?? null }));
     if (out.transferredToQualifier) res.setHeader(NONP1_TRANSFER_HEADER, String(id));
     res.json(out);
   } catch (e) { fail(res, e); }

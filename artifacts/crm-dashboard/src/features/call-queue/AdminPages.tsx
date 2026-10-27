@@ -86,6 +86,8 @@ export function CallQueueDisciplinePage() {
   const [date, setDate] = useState('');
   const team = useQuery({ queryKey: ['call-queue', 'discipline', 'team'], queryFn: cqApi.teamDiscipline, enabled: !!cfg?.manager, retry: false, refetchInterval: 120_000 });
   const sig = useQuery({ queryKey: ['call-queue', 'signals', date], queryFn: () => cqApi.signals(date || undefined), enabled: !!cfg?.manager && Boolean(cfg?.flags?.signals), retry: false });
+  const [tf, setTf] = useState('');
+  const tr = useQuery({ queryKey: ['call-queue', 'transfers', tf], queryFn: () => cqApi.transfers(tf || undefined), enabled: !!cfg?.manager && Boolean(cfg?.flags?.transfer_check), retry: false });
   const ds = useQuery({ queryKey: ['call-queue', 'ds-settings'], queryFn: cqApi.dsSettings, enabled: !!cfg?.manager, retry: false });
   const [draft, setDraft] = useState<DsSettings | null>(null); const [msg, setMsg] = useState(''); const [err, setErr] = useState('');
   useEffect(() => { if (ds.data && !draft) setDraft(ds.data.settings); }, [ds.data, draft]);
@@ -109,6 +111,18 @@ export function CallQueueDisciplinePage() {
       {sig.data?.enabled ? <><p className="cq-hint">{sig.data.workday ? '' : 'این روز تعطیل است؛ سیگنالی حساب نمی‌شود. '}{sig.data.note}</p>
         {sig.data.items.length ? sig.data.items.map((i, n) => <article key={n} className={`cq-ev k-${i.kind}`} data-testid="cq-signal-row"><span className="cq-gtag">{i.kind === 'signal_crm_drop' ? 'افت تماس از CRM' : 'ثبت دستی بدون تماس CRM'}</span> {i.name} · {i.customerId ? <Link href={`/customers/${i.customerId}`}>{i.customerName}</Link> : null} {i.text}</article>)
           : <p className="cq-empty">سیگنالی نیست.</p>}</> : null}
+    </section> : null}
+    {cfg?.flags?.transfer_check ? <section className="cq-group" data-testid="cq-transfers"><h2>بررسی سپردن مشتری</h2>
+      <label>نمایش <select value={tf} onChange={(e) => setTf(e.target.value)} data-testid="cq-transfers-filter"><option value="">همه</option>
+        <option value="override">انتقال با نادیده گرفتن شرط</option><option value="blocked">سپردن انجام نشد</option><option value="ok">با شرط</option></select></label>
+      {tr.data?.counts ? <p className="cq-hint">نادیده گرفتن شرط: {faNum(tr.data.counts.override ?? 0)} · انجام نشد: {faNum(tr.data.counts.blocked ?? 0)} · با شرط: {faNum(tr.data.counts.ok ?? 0)}</p> : null}
+      {tr.data?.items.length ? <table className="cq-table" data-testid="cq-transfers-table"><thead><tr><th>زمان</th><th>مشتری</th><th>گیرنده</th><th>به‌موقع / عقب‌افتاده</th><th>نتیجه</th><th>دلیل</th><th>انجام‌دهنده</th></tr></thead>
+        <tbody>{tr.data.items.map((r) => <tr key={r.id} className={r.outcome === 'ok' ? '' : 'out'} data-testid="cq-transfer-row">
+          <td>{faClock(r.createdAt)}</td><td><Link href={`/customers/${r.customerId}`}>{r.customerName ?? `#${faNum(r.customerId)}`}</Link></td><td>{r.toName ?? '—'}</td>
+          <td>{r.onTimePct == null ? '—' : `${faNum(r.onTimePct)}٪`} / {faNum(r.overdue ?? 0)}</td>
+          <td>{r.outcome === 'override' ? 'انتقال با نادیده گرفتن شرط' : r.outcome === 'blocked' ? 'انجام نشد' : 'با شرط'} <small>({r.mode === 'block' ? 'جلوگیری' : 'هشدار'})</small></td>
+          <td>{r.overrideReason ?? (r.reasons.length ? r.reasons.join('؛ ') : '—')}</td><td>{r.actorName ?? '—'}</td></tr>)}</tbody></table>
+        : tr.data ? <p className="cq-empty" data-testid="cq-transfers-empty">موردی نیست.</p> : null}
     </section> : null}
     {draft && ds.data ? <section className="cq-group" data-testid="cq-ds-settings"><h2>تنظیمات نظم پیگیری</h2>
       {DS_FIELDS.map((f) => { const [lo, hi] = ds.data.ranges[f.key] ?? [0, 1000]; return <label key={f.key} className="cq-set-row">{f.label}

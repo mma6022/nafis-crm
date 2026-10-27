@@ -8,7 +8,7 @@ export type TeamSalesConfig = {
 };
 export type NextCloser = { salespersonId: number; name: string; dueAt: string; dueLabel: string; workingHours: number;
   /** crm-kz-return: present when asked for a specific customer. */
-  assignment?: 'previous_expert' | 'fair_split'; assignmentLabel?: string };
+  assignment?: 'previous_expert' | 'fair_split'; assignmentLabel?: string; transferCheck?: TransferCheck };
 export type PromoteResult = {
   customerId: number; closerSalespersonId: number; closerName: string; dueAt: string; dueLabel: string;
   callLogId: number; message: string;
@@ -54,8 +54,15 @@ export type QualifyResult = {
   noPlanFit?: boolean; noPlanNote?: string | null; cityWritten?: boolean;
 };
 
+/** crm-call-queue R3 «بررسی سپردن»: the receiver's live numbers (only with flag.transfer_check on). */
+export type TransferCheck = {
+  salespersonId: number; userId: number | null; name: string; eligible: boolean; excluded: boolean; ok: boolean;
+  onTimePct: number | null; overdue: number; crmCalls: number; reasons: string[]; wayBack: string;
+  settings: { newPct: number; newMaxOverdue: number; mode: 'warn' | 'block' };
+  canOverride: boolean; needReason: boolean; reasonError?: string;
+};
 export class TeamSalesApiError extends Error {
-  constructor(message: string, public status: number) { super(message); }
+  constructor(message: string, public status: number, public transferCheck: TransferCheck | null = null) { super(message); }
 }
 const base = () => (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
 const hasPersian = (s: unknown): s is string => typeof s === 'string' && /[\u0600-\u06ff]/.test(s);
@@ -69,7 +76,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     });
   } catch { throw new TeamSalesApiError('', 0); }
   const body = await response.json().catch(() => null);
-  if (!response.ok) throw new TeamSalesApiError(hasPersian(body?.error) ? body.error : hasPersian(body?.message) ? body.message : '', response.status);
+  if (!response.ok) throw new TeamSalesApiError(hasPersian(body?.error) ? body.error : hasPersian(body?.message) ? body.message : '', response.status, body?.transferCheck ?? null);
   return body as T;
 }
 
@@ -112,11 +119,13 @@ export function canUpgradeToP1(
 export const showsUpgradeButton = (...a: Parameters<typeof canUpgradeToP1>) => canUpgradeToP1(...a) && (a[2]?.priority === 2 || a[2]?.priority === 3);
 export const fetchNextCloser = (customerId?: number) =>
   request<NextCloser>(customerId ? `/sales/next-closer?customerId=${encodeURIComponent(customerId)}` : '/sales/next-closer');
-export const upgradePriority = (customerId: number, note: string) =>
-  request<PromoteResult>(`/customers/${customerId}/upgrade-priority`, { method: 'POST', body: JSON.stringify({ note: note.trim() || null }) });
-export const submitSimpleForm = (customerId: number, answers: SimpleAnswers, note: string, selectedPlans?: number[], noPlanNote?: string) =>
+export const upgradePriority = (customerId: number, note: string, transferOverrideReason?: string) =>
+  request<PromoteResult>(`/customers/${customerId}/upgrade-priority`, { method: 'POST',
+    body: JSON.stringify({ note: note.trim() || null, ...(transferOverrideReason ? { transferOverrideReason } : {}) }) });
+export const submitSimpleForm = (customerId: number, answers: SimpleAnswers, note: string, selectedPlans?: number[], noPlanNote?: string, transferOverrideReason?: string) =>
   request<QualifyResult>(`/customers/${customerId}/team-sales/qualify`, { method: 'POST',
-    body: JSON.stringify({ answers, note, ...(selectedPlans ? { selectedPlans } : {}), ...(noPlanNote ? { noPlanNote } : {}) }) });
+    body: JSON.stringify({ answers, note, ...(selectedPlans ? { selectedPlans } : {}), ...(noPlanNote ? { noPlanNote } : {}),
+      ...(transferOverrideReason ? { transferOverrideReason } : {}) }) });
 /** Step 5: every active plan with fit / depends / no and the reasons (no writes). noPlanDefault = nothing fits or depends. */
 export const fetchPlanOptions = (customerId: number, answers: SimpleAnswers) =>
   request<{ plans: PlanEvaluation[]; noPlanDefault?: boolean }>(`/customers/${customerId}/team-sales/qualify/plans`, { method: 'POST', body: JSON.stringify({ answers }) });
@@ -201,5 +210,5 @@ export function useFirstCallEditInfo(customerId: number, enabled = true) {
   });
 }
 export const submitFirstCallEdit = (customerId: number, body: {
-  answers: SimpleAnswers; note: string; selectedPlans?: number[]; noPlanNote?: string; send: boolean; baseId: number;
+  answers: SimpleAnswers; note: string; selectedPlans?: number[]; noPlanNote?: string; send: boolean; baseId: number; transferOverrideReason?: string;
 }) => request<FirstCallEditResult>(`/customers/${customerId}/team-sales/first-call/edit`, { method: 'POST', body: JSON.stringify(body) });

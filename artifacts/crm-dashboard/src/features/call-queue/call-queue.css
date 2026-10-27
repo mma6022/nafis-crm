@@ -129,3 +129,7 @@ body.cq-lock-open #root .modal-backdrop { display: none !important; }
 .cq-table tr.out td { background: #fffaf2; }
 .cq-set-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; } .cq-set-row input[type=number] { width: 90px; }
 @media (max-width: 640px) { .cq-table { display: block; overflow-x: auto; } }
+/* R3 ds_ok / ds_out */
+.cq-receive { margin: 10px 0; padding: 10px 14px; border-radius: 12px; line-height: 1.9; font-weight: 700; }
+.cq-receive.ok { background: #ecfdf3; border: 1px solid #abefc6; color: #05603a; }
+.cq-receive.out { background: #fff4e5; border: 1px solid #f0c27b; color: #6b4200; }

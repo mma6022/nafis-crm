@@ -18,13 +18,19 @@ export type CqConfig = {
 export type CqPending = { callId: number; customerId: number; customerName: string; phone: string | null; priority: number | null; urgent: boolean;
   linkIssuedAt: string; returnedAt: string | null; onTimeUntil: string; late: boolean };
 export type DayStat = { day: string; crmCalls: number; onTime: number; onTimePct: number | null; overdue: number; nocall: number; score: number; ok: boolean; reasons?: string[] };
-export type MyDiscipline = { enabled: false } | { enabled: true; today: DayStat; history: DayStat[]; streak: number; alertDays: number; note: string;
+export type MyDiscipline = { enabled: true; today: DayStat; history: DayStat[]; streak: number; alertDays: number; note: string;
   settings: { newPct: number; newMaxOverdue: number; restrictOverdue: number; onTimeMin: number; onTimeCapMin: number };
-  restriction: { restricted: boolean; overdue: number; threshold: number; leftToUnlock: number } | null };
+  restriction: { restricted: boolean; overdue: number; threshold: number; leftToUnlock: number } | null; receive?: CqReceive } | { enabled: false; receive?: CqReceive };
+/** R3 ds_ok / ds_out (flag.transfer_check). */
+export type CqReceive = { ok: boolean; text: string };
 export type DsSettings = { onTimeMin: number; onTimeCapMin: number; newPct: number; newMaxOverdue: number; restrictOverdue: number; alertDays: number;
   wReport: number; wOverdue: number; wNocall: number; dropPct: number; transferMode: 'warn' | 'block'; excludedReceivers: number[] };
 export type TeamDiscipline = { enabled: false; experts: [] } | { enabled: true; day: string; note: string; settings: DsSettings;
   experts: { userId: number; salespersonId: number | null; name: string; today: DayStat; streak: number; restricted: boolean }[] };
+export type CqTransferRow = { id: number; customerId: number; customerName: string | null; fromName: string | null; toSalespersonId: number; toName: string | null;
+  actorName: string | null; source: string; mode: 'warn' | 'block'; outcome: 'ok' | 'override' | 'blocked'; override: boolean; overrideReason: string | null;
+  onTimePct: number | null; overdue: number | null; reasons: string[]; createdAt: string };
+export type CqTransfers = { enabled: boolean; items: CqTransferRow[]; counts?: Record<string, number> };
 export type Signals = { enabled: false; items: [] } | { enabled: true; date: string; workday: boolean; dropPct: number; note: string;
   items: { kind: 'signal_manual_no_crm' | 'signal_crm_drop'; userId: number; name: string; customerId?: number; customerName?: string; at?: string; text: string; count?: number; avg5?: number }[] };
 export type CqReminder = {
@@ -68,6 +74,7 @@ export const cqApi = {
   teamDiscipline: () => api.get<TeamDiscipline>('/call-queue/discipline/team'),
   dsSettings: () => api.get<{ settings: DsSettings; defaults: DsSettings; ranges: Record<string, [number, number]>; log: { id: number; key: string; oldValue: string | null; newValue: string; userId: number; at: string }[] }>('/call-queue/discipline/settings'),
   saveDs: (b: Partial<DsSettings> | { reset: true }) => api.put<{ ok: true; changed: number }>('/call-queue/discipline/settings', b),
+  transfers: (outcome?: string) => api.get<CqTransfers>(`/call-queue/transfers${outcome ? `?outcome=${outcome}` : ''}`),
   signals: (date?: string) => api.get<Signals>(`/reports/discipline-signals${date ? `?date=${date}` : ''}`),
   createCall: (b: Record<string, unknown>) => api.post<{ id: number; callQueue?: unknown }>('/calls', b),
   baleSend: (customerId: number, text: string) => api.post<unknown>(`/bale/customers/${customerId}/send`, { text }),

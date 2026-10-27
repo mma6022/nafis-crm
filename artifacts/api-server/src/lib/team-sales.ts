@@ -16,6 +16,7 @@ import { cleanProfile, type ApplicantProfile } from "./plan-profile-match";
 import { noteSalespersonChange } from "./expert-intro-sms";
 import { applyNonP1TransferInTx } from "./nonp1-transfer";
 import { chooseCloserFor, type CloserChoice } from "./closer-return";
+import { cqTransferGate } from "./call-queue-r3";
 import { consultProfile, dataFromAnswers, latestConsultApplicantProfile, officialGrade, recordFirstCallVersion, recordFirstCallEditVersion } from "./consult-profile";
 
 export const TEAM_SALES_CONFIG_KEY = "team_sales_config";
@@ -205,6 +206,8 @@ function promoteInTx(c: CustomerState, actor: Actor, cfg: TeamSalesConfig, sourc
   reason: string | null, now: Date, note: string | null = null): PromoteResult {
   const choice = chooseCloserFor(c.id, c.salesperson_id, cfg);
   const closer = choice.kind === "previous_expert" ? choice.salespersonId : nextCloserSalespersonId(cfg);
+  // crm-call-queue R3 «بررسی سپردن» (flag.transfer_check, OFF = no-op): may throw before any write of this hand-off → whole transaction (cursor too) rolls back.
+  cqTransferGate({ customerId: c.id, customerName: c.name, fromSp: c.salesperson_id, toSp: closer, actor, source, now });
   const nowIso = now.toISOString();
   const preMax = Number(queryRow<{ m: number | null }>("SELECT MAX(id) AS m FROM site_notification_events")?.m ?? 0);
   const changed = executeChanges(

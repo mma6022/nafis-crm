@@ -1,7 +1,8 @@
 import { CustomerName } from '@/components/customer/CustomerName';
 import { AlertCircle, ArrowUp, Check, Star } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { fetchNextCloser, shortName, TeamSalesApiError, upgradePriority, type NextCloser, type PromoteResult } from './api';
+import { fetchNextCloser, shortName, TeamSalesApiError, upgradePriority, type NextCloser, type PromoteResult, type TransferCheck } from './api';
+import { TransferCheckBox } from './TransferCheckBox';
 import './team-sales.css';
 
 /** Sidebar card «ارتقا به اولویت ۱» (screens 30-35). Only rendered for the qualifier on own P-/P2/P3 customers. */
@@ -32,6 +33,7 @@ export function UpgradeDialog({ customer, onClose, onDone }: {
   const [note, setNote] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [tcErr, setTcErr] = useState<TransferCheck | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { let live = true; fetchNextCloser(customer.id).then((n) => { if (live) setNext(n); }, () => { /* generic text fallback */ }); return () => { live = false; }; }, [customer.id]);
   useEffect(() => {
@@ -42,10 +44,13 @@ export function UpgradeDialog({ customer, onClose, onDone }: {
     return () => { document.removeEventListener('keydown', onKey); prev?.focus?.(); };
   }, [onClose, pending]);
   const who = next?.name ?? 'کارشناس پیگیری نوبت بعدی';
-  const confirm = async () => {
+  // R3: the receiver check from the preview, or from a refused hand-off (409 transferCheck).
+  const tc = tcErr ?? (next?.transferCheck && !next.transferCheck.ok ? next.transferCheck : null);
+  const confirm = async (overrideReason?: string) => {
     setPending(true); setError('');
-    try { onDone(await upgradePriority(customer.id, note)); }
+    try { onDone(await upgradePriority(customer.id, note, overrideReason)); }
     catch (e) {
+      if (e instanceof TeamSalesApiError && e.transferCheck) { setTcErr(e.transferCheck); return; }
       const why = e instanceof TeamSalesApiError && e.message ? e.message : 'اتصال به سرور برقرار نشد.';
       setError(`ارتقا انجام نشد؛ ${why} اولویت و کارشناس تغییری نکرد. دوباره امتحان کن.`);
     } finally { setPending(false); }
@@ -62,7 +67,8 @@ export function UpgradeDialog({ customer, onClose, onDone }: {
       <label htmlFor="ts-up-note" className="ts-lbl">یادداشت برای {next ? next.name : 'کارشناس پیگیری'} <span className="ts-muted">(اختیاری)</span></label>
       <textarea id="ts-up-note" className="ts-inp" rows={3} value={note} onChange={(e) => setNote(e.target.value.slice(0, 2000))} data-testid="ts-upgrade-note" />
       {error ? <div className="ts-alert" role="alert" data-testid="ts-upgrade-error"><AlertCircle size={18} /> {error}</div> : null}
-      <button type="button" className="ts-primary" onClick={confirm} disabled={pending} data-testid="ts-upgrade-confirm"><ArrowUp size={18} /> {pending ? 'در حال ارتقا…' : error ? 'تلاش دوباره' : 'بله، ارتقا بده'}</button>
+      {tc ? <TransferCheckBox tc={tc} pending={pending} onOverride={(r) => { void confirm(r); }} /> : null}
+      {tc ? null : <button type="button" className="ts-primary" onClick={() => { void confirm(); }} disabled={pending} data-testid="ts-upgrade-confirm"><ArrowUp size={18} /> {pending ? 'در حال ارتقا…' : error ? 'تلاش دوباره' : 'بله، ارتقا بده'}</button>}
       <button type="button" className="ts-ghost" onClick={onClose} disabled={pending} data-testid="ts-upgrade-cancel">انصراف</button>
     </div>
   </div>;
