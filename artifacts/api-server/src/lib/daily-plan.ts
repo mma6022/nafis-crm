@@ -181,6 +181,27 @@ export const DP_EXPERT_DECLARATION = "اعلام خود کارشناس";
 export const DP_EXEMPT_FIRST_DECLARATION = "expert_first_declaration";
 const normFa = (t: string) => t.replace(/\u200c/g, " ").replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/\s+/g, " ").trim();
 export const dpIsExpertDeclaration = (reason: unknown) => normFa(String(reason ?? "")).startsWith(DP_EXPERT_DECLARATION);
+/**
+ * CAPACITY-67 (Mohammad 2026-10-28 09:55): capacity reason «بر پایه‌ی انجام واقعی دیروز» is exempt from the ±guardPct guard but
+ * capped at ceil(done × 1.1), where done = main + extra items done on the previous working day before the target day
+ * (out-of-list mirrors and transferred items not counted). That day's plan must be closed (final), otherwise 409.
+ * Recorded as dp_capacity_log.exemption='actual_yesterday'. Not one-time; the 08:00 cut-off for today still applies.
+ */
+export const DP_ACTUAL_YESTERDAY = "بر پایه‌ی انجام واقعی دیروز";
+export const DP_EXEMPT_ACTUAL_YESTERDAY = "actual_yesterday";
+export const dpIsActualYesterday = (reason: unknown) => /^بر پایه(?: ?ی|ٔ)? انجام واقعی دیروز/.test(normFa(String(reason ?? "")));
+/** ceil(done × 1.1) in integer arithmetic (10 × 1.1 must be 11, not 12). */
+export const dpActualYesterdayMax = (done: number) => Math.ceil((done * 11) / 10);
+export function dpDayFacts(sp: number, day: string) {
+  const p = planRow(sp, day); if (!p) return { date: day, plan: false, final: false, done: null as number | null, mainDone: null as number | null, extraDone: null as number | null, listFinished: false };
+  const st = dpStats(p);
+  return { date: day, plan: true, final: Boolean(p.closed_at), done: st.mainDone + st.extraDone, mainDone: st.mainDone as number | null, extraDone: st.extraDone as number | null, listFinished: Boolean(p.finished_at) };
+}
+/** CAPACITY-67 item 1: adding to a list the expert already finished needs the existing confirm step (body.confirm === true);
+ *  without it nothing is written and a preview comes back (not stored under the Idempotency-Key). */
+const finishedPreview = (p: { day: string; finished_at: string | null; auto_at: string | null }, extra: Record<string, unknown>) => ({
+  ok: true, preview: true, confirmRequired: true, reason: "list_finished", date: p.day, finishedAt: p.finished_at, autoListStartedAt: p.auto_at,
+  message: "کارشناس لیست امروز را تمام کرده؛ اگر مطمئنی، همین درخواست را با confirm: true بفرست.", ...extra });
 export function dpDeclarationUsed(sp: number): boolean {
   ensureDailyPlanSchema();
   if (queryRow("SELECT 1 FROM dp_capacity_log WHERE salesperson_id=? AND outcome='ok' AND exemption=? LIMIT 1", [sp, DP_EXEMPT_FIRST_DECLARATION])) return true;
@@ -239,11 +260,26 @@ export function dpAssistantCapacity(a: Asst, dayIn: unknown, body: any, now = ne
   const ex = expertOf(a); if (isErr(ex)) return ex;
   const sp = Number(ex.salespersonId);
   const inp0 = capInput(body);
-  const declaration = !isErr(inp0) && dpIsExpertDeclaration(inp0.reason) && !dpDeclarationUsed(sp);
+  const actual = !isErr(inp0) && dpIsActualYesterday(inp0.reason);
+  const declaration = !actual && !isErr(inp0) && dpIsExpertDeclaration(inp0.reason) && !dpDeclarationUsed(sp);
   const day = capDayAllowed(dayIn, now, declaration); if (isErr(day)) return day;
   const inp = inp0; if (isErr(inp)) return inp;
   const at = now.toISOString(); const first = !hasAssistantCapacity(sp); const prev = dpCapacity(sp, day).capacity;
-  if (!first && !declaration) {
+  let actualInfo: { baseDay: string; doneYesterday: number; maxAllowed: number } | null = null;
+  if (actual) {
+    const base = dpPrevWork(day); const y = dpDayFacts(sp, base);
+    if (!y.final || y.done == null) {
+      capLog(sp, day, prev, inp.capacity, null, "rejected", false, inp.reason, "assistant", a.id, at);
+      return err(409, "actual_yesterday_not_final", "انجام واقعی روز کاری قبل هنوز نهایی نیست.", { baseDay: base, plan: y.plan, final: y.final });
+    }
+    const maxAllowed = dpActualYesterdayMax(y.done);
+    if (inp.capacity > maxAllowed) {
+      capLog(sp, day, prev, inp.capacity, null, "rejected", false, inp.reason, "assistant", a.id, at);
+      return err(422, "capacity_actual_cap_exceeded", `ظرفیت «${DP_ACTUAL_YESTERDAY}» حداکثر ${faDigits(String(maxAllowed))} است.`,
+        { baseDay: base, doneYesterday: y.done, requested: inp.capacity, maxAllowed, factor: 1.1 });
+    }
+    actualInfo = { baseDay: base, doneYesterday: y.done, maxAllowed };
+  } else if (!first && !declaration) {
     const g = guard(sp, day, inp.capacity);
     if (!g.ok) {
       capLog(sp, day, prev, inp.capacity, null, "rejected", false, inp.reason, "assistant", a.id, at);
@@ -251,9 +287,16 @@ export function dpAssistantCapacity(a: Asst, dayIn: unknown, body: any, now = ne
         { previous: g.previous, requested: inp.capacity, maxAllowed: g.maxAllowed, minAllowed: g.minAllowed, guardPct: g.guardPct });
     }
   }
-  capLog(sp, day, prev, inp.capacity, inp.capacity, "ok", false, inp.reason, "assistant", a.id, at, declaration ? DP_EXEMPT_FIRST_DECLARATION : null);
+  { // CAPACITY-67 item 1: raising today's capacity after the expert finished would add items → confirm step first.
+    const tp = day === dpToday(now) ? planRow(sp, day) : null;
+    if (tp && tp.started_at && !tp.closed_at && tp.finished_at && !tp.backlog && body?.confirm !== true) {
+      const mainNow = items(tp.id, "bucket='main' AND status<>'transferred'").length;
+      if (inp.capacity > mainNow) return finishedPreview(tp, { capacity: inp.capacity, previous: prev, main: mainNow, wouldAddUpTo: inp.capacity - mainNow, ...(actualInfo ? { actualYesterday: actualInfo } : {}) });
+    }
+  }
+  capLog(sp, day, prev, inp.capacity, inp.capacity, "ok", false, inp.reason, "assistant", a.id, at, declaration ? DP_EXEMPT_FIRST_DECLARATION : actual ? DP_EXEMPT_ACTUAL_YESTERDAY : null);
   const today = applyTodayCapacity(sp, day, inp.capacity, now);
-  return { ok: true, date: day, capacity: inp.capacity, previous: prev, firstWrite: first, firstDeclaration: declaration,
+  return { ok: true, date: day, capacity: inp.capacity, previous: prev, firstWrite: first, firstDeclaration: declaration, ...(actualInfo ? { actualYesterday: actualInfo } : {}),
     ...(today ? { todayList: { main: today.after, previousMain: today.before, added: today.added, lowered: today.lowered, keptAssigned: today.lowered } } : {}) };
 }
 /** Admin override (3-step modal): preview without confirm; reason required; outside the guard → «خارج از حد» + CRM bells (1, 5) + events. */
@@ -475,6 +518,7 @@ export function dpSupplementary(a: Asst, dayIn: unknown, body: any, now = new Da
   const p = planRow(Number(ex.salespersonId), dayIn); if (!p || p.closed_at) return err(404, "no_plan", "امروز لیستی برای این کارشناس نیست.");
   const taken = new Set(items(p.id, ACTIVE).map(i => Number(i.customer_id)));
   const parsed = parseRows(body?.items, Number(ex.salespersonId), dpScopeRestricted(a), taken, false); if (isErr(parsed)) return parsed;
+  if (p.finished_at && parsed.rows.length && body?.confirm !== true) return finishedPreview(p, { wouldAdd: parsed.rows.map(r => r.customerId) });
   const at = now.toISOString(); const ids: number[] = [];
   for (const r of parsed.rows) ids.push(addItem(p.id, { ...r, source: "supplementary", bucket: "extra", position: 5000, boostRank: 3, boostAt: at, label: DP_LABELS.supplementary }, at));
   if (ids.length) executeChanges("UPDATE dp_plans SET finished_at=NULL WHERE id=? AND auto_at IS NULL", [p.id]);
@@ -542,6 +586,13 @@ export function dpBoost(a: Asst, dayIn: unknown, body: any, now = new Date()) {
   const scopeErr = parsed.rows.map((r, i) => ({ r, i })).filter(({ r }) => !live(r.customerId) && restricted && parsed.cust.get(r.customerId)?.priority !== 1)
     .map(({ r, i }) => ({ row: i, code: "out_of_scope", customerId: r.customerId }));
   if (scopeErr.length) return err(422, "invalid_rows", "بعضی ردیف‌ها پذیرفته نشد؛ هیچ ردیفی ذخیره نشد.", { rows: scopeErr });
+  if (p.finished_at && body?.confirm !== true) {
+    const add = parsed.rows.filter(r => { const it = live(r.customerId); return !it || it.status === "reserve"; });
+    if (add.length) return finishedPreview(p, {
+      wouldInsert: add.filter(r => !live(r.customerId)).map(r => r.customerId), wouldReleaseFromReserve: add.filter(r => live(r.customerId)).map(r => r.customerId),
+      wouldBoost: parsed.rows.filter(r => { const it = live(r.customerId); return it && it.status === "pending"; }).map(r => r.customerId),
+      untouched: parsed.rows.filter(r => { const it = live(r.customerId); return it && (it.status === "current" || it.status === "moved"); }).map(r => r.customerId) });
+  }
   const at = now.toISOString();
   // place this call above earlier assistant boosts: ranks spread evenly inside (0, lowest pending assistant rank or 1)
   const toPlace = parsed.rows.filter(r => { const it = live(r.customerId); return !it || (it.status !== "current" && it.status !== "moved"); });
@@ -592,7 +643,11 @@ export function dpDecisionData(a: Asst, fromIn: unknown, toIn: unknown, now = ne
   if (from > to) return err(422, "date_not_allowed", "from بعد از to است.");
   const sp = Number(ex.salespersonId); const rows = dayRows(sp, dpWorkDays(from, to));
   const nextDay = dpNextOpenDay(now);
+  // CAPACITY-67 item 3: yesterday = the previous working day before today.
+  const y = dpDayFacts(sp, dpPrevWork(today)); const yb = dpDayFacts(sp, dpPrevWork(nextDay));
   return { expert: { salespersonId: sp, name: ex.name }, from, to, days: rows, ...average(rows), averageExcludes: DP_LABELS.autoDay,
+    doneYesterday: y.done, listFinishedYesterday: y.listFinished, yesterday: y, actualYesterdayReason: DP_ACTUAL_YESTERDAY,
+    actualYesterdayCap: { forDay: nextDay, baseDay: yb.date, final: yb.final, doneBase: yb.done, maxAllowed: yb.final && yb.done != null ? dpActualYesterdayMax(yb.done) : null, factor: 1.1 },
     nextDay, capacity: dpCapacity(sp, nextDay), firstCapacityWrite: !hasAssistantCapacity(sp), firstDeclarationAvailable: !dpDeclarationUsed(sp),
     todayCapacity: dpCapacity(sp, today), declarationReason: DP_EXPERT_DECLARATION, settings: dpSettings(), scope: dpScopeRestricted(a) ? "p1" : "all" };
 }
@@ -627,7 +682,7 @@ export function dpIdem(a: Asst, key: string | undefined, route: string, body: an
     return { status: Number(prev.status), body: { ...JSON.parse(prev.response_json), replayed: true } };
   }
   const out = run();
-  if (out.status < 500) execute("INSERT OR IGNORE INTO dp_idempotency(assistant_id,key,route,body_hash,status,response_json,created_at) VALUES(?,?,?,?,?,?,?)",
+  if (out.status < 500 && !out.body?.preview) execute("INSERT OR IGNORE INTO dp_idempotency(assistant_id,key,route,body_hash,status,response_json,created_at) VALUES(?,?,?,?,?,?,?)",
     [a.id, key, route, h, out.status, JSON.stringify(out.body), new Date().toISOString()]);
   return out;
 }
