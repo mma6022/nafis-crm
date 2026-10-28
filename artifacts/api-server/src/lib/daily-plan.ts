@@ -13,6 +13,8 @@ import {
   fromTehran, isWorkDay, tParts, tYmd, type CqUser,
 } from "./call-queue";
 import { cqEligibleUsers } from "./call-queue-r2";
+import { realCallSql } from "./real-call";
+import { getTeamSalesConfig } from "./team-sales";
 import { salesAssistScope, suggestionsFor } from "./sales-assist";
 
 /* ---------------- constants & names (final names for Armita: see DECISIONS) ---------------- */
@@ -649,6 +651,57 @@ function pushExtra(p: Plan, cid: number, type: DpType, rank: number, label: stri
   return "inserted";
 }
 const openPlanOf = (sp: number, day: string) => { const p = planRow(sp, day); return p && p.started_at && !p.closed_at ? p : null; };
+
+/* ---------------- LOGGED-CALL-63: a call the expert already saved counts, whatever form saved it ---------------- */
+// A REAL call (lib/real-call.ts: not the «ارتقا…» hand-off note, not the first-call review, not a «کارهای امروز ·» move row).
+const DP_REAL_CALL = `${realCallSql("l.subject")} AND COALESCE(l.source,'')<>'daily_plan'`;
+/** The plan owner's latest real call on this customer at/after `since`. POST /calls and the first-call form leave created_by_user_id
+ *  NULL (they stamp salesperson_id), so: written by the owner user, or stamped with the owner's salesperson and no other author. */
+export function dpOwnCallSince(p: Plan, customerId: number, since: string) {
+  return queryRow<{ id: number; outcome: string | null; created_at: string }>(`SELECT l.id,l.outcome,l.created_at FROM call_logs l WHERE l.customer_id=? AND l.created_at>=?
+      AND (l.created_by_user_id=? OR (l.salesperson_id=? AND l.created_by_user_id IS NULL)) AND ${DP_REAL_CALL} ORDER BY l.created_at DESC, l.id DESC LIMIT 1`,
+    [customerId, since, p.user_id, p.salesperson_id]) ?? null;
+}
+/**
+ * FIRSTCALL-62 rule 3 HOOK (owner: folder 59) — `true` = this item must NOT be closed by a generic call / self-heal:
+ * a «تماس اول» item of the qualifier (Kazemi) whose first-call form is still incomplete (customer his, in_progress, no priority, and no
+ * team_sales_qualifications row since the plan started). Only the first-call form (dpAfterFirstCallForm) closes it.
+ * Turn off with DP_FIRST_CALL_HOLD=false; 59 may refine the "incomplete" test here — every generic path calls only this function.
+ */
+export const DP_FIRST_CALL_HOLD = true;
+export function dpFirstCallIncomplete(p: Plan, it: { type: string; customer_id: number }): boolean {
+  if (!DP_FIRST_CALL_HOLD || it.type !== "first" || !hasTable("team_sales_qualifications")) return false;
+  let q: number | null = null; try { const cfg = getTeamSalesConfig(); q = cfg.enabled ? Number(cfg.qualifierSalespersonId) : null; } catch { q = null; }
+  if (q == null || q !== p.salesperson_id) return false;
+  const c = queryRow<{ salesperson_id: number | null; status: string | null; priority: number | null; merged: number | null }>(
+    "SELECT salesperson_id,status,priority,merged_into_customer_id merged FROM customers WHERE id=?", [it.customer_id]);
+  if (!c || c.merged != null || Number(c.salesperson_id) !== p.salesperson_id || c.status !== "in_progress" || c.priority != null) return false;
+  return !queryRow("SELECT 1 FROM team_sales_qualifications WHERE customer_id=? AND created_at>=? LIMIT 1", [it.customer_id, p.started_at ?? p.created_at]);
+}
+/** Close the owner's unreported «کارهای امروز» dial(s) on this customer with a saved call (dialled at/before the call) — never leaves a stale 423. */
+function dpCloseDialWith(p: Plan, customerId: number, log: { id: number; created_at: string }): number {
+  let n = 0;
+  for (const q of queryRows<{ id: number; link_issued_at: string; returned_at: string | null }>(
+    "SELECT id,link_issued_at,returned_at FROM call_queue_calls WHERE user_id=? AND customer_id=? AND via='daily_plan' AND report_saved_at IS NULL AND link_issued_at<=?", [p.user_id, customerId, log.created_at]))
+    n += executeChanges("UPDATE call_queue_calls SET report_saved_at=?, call_log_id=?, on_time=? WHERE id=? AND report_saved_at IS NULL",
+      [log.created_at, log.id, cqOnTime(q.link_issued_at, q.returned_at, log.created_at) ? 1 : 0, q.id]);
+  // the item left the plan by a P1 hand-off («منتقل شد»): keep the status, just link the call that ended it.
+  if (n) executeChanges("UPDATE dp_items SET call_log_id=? WHERE plan_id=? AND customer_id=? AND status='transferred' AND call_log_id IS NULL", [log.id, p.id, customerId]);
+  return n;
+}
+/** Self-heal (every refresh): an open item whose customer got a real call by the owner after the item existed is done (no mirror, no reorder);
+ *  an unreported dial whose customer got such a call after the dial is closed. */
+function dpSelfHeal(p: Plan) {
+  const start = p.started_at!;
+  for (const it of items(p.id, "status IN ('current','pending') AND bucket<>'outside'")) {
+    const l = dpOwnCallSince(p, it.customer_id, it.created_at > start ? it.created_at : start);
+    if (!l || dpFirstCallIncomplete(p, it)) continue;
+    executeChanges("UPDATE dp_items SET status='done', outcome=?, call_log_id=?, done_at=? WHERE id=? AND status IN ('current','pending')", [l.outcome ?? null, l.id, l.created_at, it.id]);
+  }
+  for (const q of queryRows<{ customer_id: number; link_issued_at: string }>("SELECT customer_id,link_issued_at FROM call_queue_calls WHERE user_id=? AND via='daily_plan' AND report_saved_at IS NULL", [p.user_id])) {
+    const l = dpOwnCallSince(p, Number(q.customer_id), q.link_issued_at); if (l) dpCloseDialWith(p, Number(q.customer_id), l);
+  }
+}
 export function dpRefresh(p0: Plan, now = new Date()): Plan {
   if (!dpOn()) return p0;
   const today = dpToday(now); if (p0.day !== today || !p0.started_at || p0.closed_at) return p0;
@@ -683,6 +736,8 @@ export function dpRefresh(p0: Plan, now = new Date()): Plan {
     if (seeding && !(String(c.created_at) > t0)) { seenOnce(p.id, ref); continue; }
     if (seenOnce(p.id, ref)) pushExtra(p, Number(c.id), "first", 1, DP_LABELS.added, "inserted", at);
   }
+  // 3b. LOGGED-CALL-63 self-heal: a call already saved by the owner (any form) closes its item / dial.
+  dpSelfHeal(p);
   // 4. finished → event once; after waitMin, «لیست خودکار» extra batches of 5.
   let pr = planRow(sp, p.day)!;
   const open = () => items(p.id, "status IN ('pending','current')").length;
@@ -899,9 +954,15 @@ export function dpPreCall(body: any, user: CqUser, now = new Date()): DpErr | nu
   const outcome = String(body.outcome ?? ""); const note = String(body.oneLineNote ?? "").replace(/\s+/g, " ").trim();
   const need = () => !CQ_OUTCOMES.includes(outcome as any) ? err(422, "outcome_required", "نتیجه‌ی تماس را انتخاب کن.", { allowed: CQ_OUTCOMES })
     : !note ? err(422, "note_required", "یادداشت یک‌خطی را بنویس.") : [...note].length > CQ_LIMITS.oneLineMax ? err(422, "field_too_long", "یادداشت یک‌خطی حداکثر ۸۰ نویسه است.", { field: "oneLineNote", max: CQ_LIMITS.oneLineMax }) : null;
+  // LOGGED-CALL-63: the customer's open item of today's plan (current first), if any.
+  const ownOpen = () => items(p.id, "customer_id=? AND status IN ('current','pending')", [Number(body.customerId)])
+    .sort((a, b) => (a.status === "current" ? 0 : 1) - (b.status === "current" ? 0 : 1) || a.id - b.id)[0];
   if (body.outOfList === true || body.context === "out_of_list") {
     const e = need(); if (e) return e;
-    body.__dp = "outside"; if (!String(body.subject ?? "").trim()) body.subject = DP_OUT_OF_LIST_SUBJECT; return null;
+    body.__dp = "outside"; if (!String(body.subject ?? "").trim()) body.subject = DP_OUT_OF_LIST_SUBJECT;
+    // LOGGED-CALL-63: an inbound call from a customer who IS on today's list closes that item (no «خارج از لیست» mirror).
+    const own = ownOpen(); if (own && !dpFirstCallIncomplete(p, own)) body.__dpItem = own.id;
+    return null;
   }
   if (body.planItemId === undefined || body.planItemId === null || body.planItemId === "") {
     // HOTFIX-CALLLOG-56: the regular «ثبت تماس جدید» dialog (customer page / customers list / assistant box) sends no planItemId.
@@ -909,8 +970,10 @@ export function dpPreCall(body: any, user: CqUser, now = new Date()): DpErr | nu
     // and only mirror it on today's plan as a done «خارج از لیست» item (bucket outside — not part of the completion %).
     // NEXTITEM-60: if this customer is an open item of today's plan (current or pending), the regular-dialog call closes THAT item
     // (done, no «خارج از لیست» mirror) and the next item becomes current. Otherwise the 4cd873b mirror stays as it was.
-    const own = items(p.id, "customer_id=? AND status IN ('current','pending')", [Number(body.customerId)])
-      .sort((a, b) => (a.status === "current" ? 0 : 1) - (b.status === "current" ? 0 : 1) || a.id - b.id)[0];
+    const own = ownOpen();
+    // LOGGED-CALL-63 / FIRSTCALL-62 rule 3: a qualifier first-call item with the first-call form still incomplete stays open ('held':
+    // no mirror, the dial is reported); only the first-call form closes it.
+    if (own && dpFirstCallIncomplete(p, own)) { body.__dp = "held"; body.__dpItem = own.id; return null; }
     if (own) { body.__dp = "legacy_item"; body.__dpItem = own.id; return null; }
     body.__dp = "legacy"; return null;
   }
@@ -922,10 +985,12 @@ export function dpPreCall(body: any, user: CqUser, now = new Date()): DpErr | nu
 }
 /** Inside the POST /calls transaction (no nested transaction). */
 export function dpAfterCall(body: any, callLogId: number, user: CqUser, customerId: number, nowIso = new Date().toISOString()) {
-  const kind = body?.__dp; if (kind !== "plan" && kind !== "outside" && kind !== "legacy" && kind !== "legacy_item") return null;
+  const kind = body?.__dp; if (kind !== "plan" && kind !== "outside" && kind !== "legacy" && kind !== "legacy_item" && kind !== "held") return null;
   const p = planRow(Number(user.salespersonId), dpToday(new Date(nowIso))); if (!p) return null;
+  const log = { id: callLogId, created_at: nowIso };
+  if (kind === "held") { dpCloseDialWith(p, customerId, log); return null; }
   const outcome = kind === "legacy" || kind === "legacy_item" ? (CQ_OUTCOMES.includes(String(body.outcome ?? "") as any) ? String(body.outcome) : null) : String(body.outcome ?? "");
-  if (kind === "legacy_item") {
+  if (kind === "legacy_item" || (kind === "outside" && body.__dpItem)) {
     const itemId = Number(body.__dpItem);
     const n = executeChanges("UPDATE dp_items SET status='done', outcome=?, call_log_id=?, done_at=? WHERE id=? AND plan_id=? AND customer_id=? AND status IN ('current','pending')",
       [outcome, callLogId, nowIso, itemId, p.id, customerId]);
@@ -938,13 +1003,14 @@ export function dpAfterCall(body: any, callLogId: number, user: CqUser, customer
         const next = ordered(p.id)[0];
         if (next) executeChanges("UPDATE dp_items SET status='current', became_current_at=? WHERE id=? AND status='pending'", [nowIso, next.id]);
       }
-      return { kind, itemId };
+      return { kind: "legacy_item", itemId };
     }
   }
   if (kind === "plan") {
     executeChanges("UPDATE dp_items SET status='done', outcome=?, call_log_id=?, done_at=? WHERE id=? AND plan_id=? AND status='current'", [outcome, callLogId, nowIso, Number(body.__dpItem), p.id]);
     return { kind, itemId: Number(body.__dpItem) };
   }
+  dpCloseDialWith(p, customerId, log);
   const id = addItem(p.id, { customerId, type: "followup", source: "out_of_list", bucket: "outside", position: 99999, label: DP_LABELS.outOfList, status: "done" }, nowIso);
   executeChanges("UPDATE dp_items SET outcome=?, call_log_id=?, done_at=? WHERE id=?", [outcome, callLogId, nowIso, id]);
   return { kind, itemId: id };
@@ -962,12 +1028,20 @@ export function dpAfterCommit(user: CqUser, now = new Date()) {
  */
 export const DP_FIRST_CALL_OUTCOME: Record<string, string | null> = { answered: "answered", no_answer: "no_answer", callback: "follow_up", wrong_number: null };
 export function dpAfterFirstCallForm(user: CqUser, customerId: number, callLogId: number, callResult: string, now = new Date()) {
-  const p = dpActiveFor(user, now); if (!p) return null;
-  const own = items(p.id, "customer_id=? AND status IN ('current','pending')", [Number(customerId)])
+  if (!dpOn() || !dpIsExpert(user)) return null;
+  const cid = Number(customerId);
+  const ownOf = (p: Plan) => items(p.id, "customer_id=? AND status IN ('current','pending')", [cid])
     .sort((a, b) => (a.status === "current" ? 0 : 1) - (b.status === "current" ? 0 : 1) || a.id - b.id)[0];
-  if (!own) return null;
-  const body: any = { __dp: "legacy_item", __dpItem: own.id, outcome: DP_FIRST_CALL_OUTCOME[callResult] ?? null };
-  return dpAfterCall(body, callLogId, user, Number(customerId), now.toISOString());
+  const close = (it: Item) => dpAfterCall({ __dp: "legacy_item", __dpItem: it.id, outcome: DP_FIRST_CALL_OUTCOME[callResult] ?? null }, callLogId, user, cid, now.toISOString());
+  // LOGGED-CALL-63: customer still the expert's → close the item BEFORE any refresh (the self-heal would close it too, but without the mapped outcome).
+  const p0 = openPlanOf(Number(user.salespersonId), dpToday(now));
+  if (p0 && owned(p0.salesperson_id, cid)) { const own = ownOf(p0); if (own) return close(own); }
+  const p = dpActiveFor(user, now); if (!p) return null;
+  const own = ownOf(p); if (own) return close(own);
+  // P1 hand-off: the refresh moved the customer («منتقل شد», the new owner got «تازه اضافه شد») — no open item, but the dial on it
+  // must still be reported, or it blocks every next «تماس» (423 «اول گزارش تماس با … را ثبت کن»). (The refresh self-heal normally did it already.)
+  dpCloseDialWith(p, cid, { id: callLogId, created_at: now.toISOString() });
+  return null;
 }
 /** GET /customers?search=… while the plan is active: only for incoming calls (purpose=incoming_call), else 422 purpose_required. */
 export function dpSearchCheck(user: CqUser, q: any, now = new Date()): DpErr | null {
