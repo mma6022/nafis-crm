@@ -60,7 +60,7 @@ export type SalesReads = {
 };
 export type Deps = { db: Db; now?: () => Date; actor: (res: Response) => Actor | null; sales?: SalesReads;
   /** Extra runner routes owned by another module (e.g. Bale POST /bale/send); mounted after auth, before the deny-by-default catch-all. */
-  extendRunner?: (runner: Router, h: { inScope: (a: any, customerId: number) => boolean }) => void };
+  extendRunner?: (runner: Router, h: { inScope: (a: any, customerId: number) => boolean; replyScope?: (a: any, customerId: number) => boolean }) => void };
 
 export const TRAINEE_SALESPERSON_IDS = [5, 19, 20];
 export const EXCLUDED_USER_IDS = [29];
@@ -1156,7 +1156,11 @@ export function createAssistants(deps: Deps) {
     res.json(srMask(r));
   });
   // Bale 1b runner routes (/bale/send: sales assistants only — the manager is refused there by kind)
-  deps.extendRunner?.(runner, { inScope });
+  // assistants72 reply side (Mohammad 15:42): the linked expert's OWN completed / cancelled customer (p1 / trainee / manager rules kept) may get a text
+  // reply; bale-outbox check() allows it only within 24 h of that customer's own inbound message — never a first / initiated message.
+  const replyScope = (a: any, customerId: number) => baleInboundDeliverable(a, customerId)
+    && ["completed", "cancelled"].includes(String(row<any>("SELECT status FROM customers WHERE id=?", customerId)?.status ?? ""));
+  deps.extendRunner?.(runner, { inScope, replyScope });
   runner.use((req, res) => { if (req.method !== "GET") return deny(req, res); fail(res, 404, "not_found"); });
   runner.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     if (err?.type === "entity.too.large") fail(res, 413, "body_too_large");

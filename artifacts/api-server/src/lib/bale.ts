@@ -415,7 +415,7 @@ export function createBale(deps: BaleDeps) {
   };
   const blockedStatus = (reason: string) => ["bale_disabled", "not_connected", "mode_off", "session_not_live", "attachments_disabled", "autoreply_off", "plan_file_off"].includes(reason) ? 423
     : reason === "out_of_scope" || reason === "unknown_off" ? 404
-    : ["already_pending", "already_replied", "human_mode", "human_replied", "escalated", "reply_window", "after_hours", "ask_pending", "already_asked"].includes(reason) ? 409
+    : ["already_pending", "closed_reply_window", "already_replied", "human_mode", "human_replied", "escalated", "reply_window", "after_hours", "ask_pending", "already_asked"].includes(reason) ? 409
     : ["cap_hour", "cap_day", "cap_new_chats", "cap_pair_hour", "cap_pair_day"].includes(reason) ? 429 : 422;
   const sendOut = (res: Response, r: ReturnType<typeof outbox.enqueue>) => r.status === "blocked"
     ? res.status(blockedStatus(r.reason)).json({ error: r.reason, message: r.message, outboxId: r.outboxId })
@@ -979,7 +979,7 @@ export function createBale(deps: BaleDeps) {
    *  (only while bale_attachments_enabled = 1; ALWAYS pending_approval; caption always ends with the amount disclaimer). Only a sales assistant bound to an expert; only the
    *  assistant's in-scope customers that are also the expert's own. explicitExpertCommand (first message to a customer with no
    *  prior chat) is honoured only when the expert wrote to the assistant in the last 15 minutes. Never bypasses quiet hours. */
-  function runnerSend(req: Request, res: Response, ctx: { inScope: (a: any, cid: number) => boolean }) {
+  function runnerSend(req: Request, res: Response, ctx: { inScope: (a: any, cid: number) => boolean; replyScope?: (a: any, cid: number) => boolean }) {
     const asst = res.locals.assistant;
     const cid = Number(req.body?.customerId);
     if (!asst || asst.kind !== "sales" || !asst.bound_user_id) return void res.status(403).json({ error: "forbidden", message: "این کار برای دستیار مجاز نیست." });
@@ -992,7 +992,10 @@ export function createBale(deps: BaleDeps) {
       explicit = Boolean(row(`SELECT 1 FROM assistant_messages m JOIN assistant_threads t ON t.id=m.thread_id WHERE t.assistant_id=? AND t.user_id=? AND m.author='user' AND m.created_at>? LIMIT 1`,
         asst.id, u.id, since));
     }
-    const inScope = Number.isSafeInteger(cid) && ctx.inScope(asst, cid);
+    const strictScope = Number.isSafeInteger(cid) && ctx.inScope(asst, cid);
+    // assistants72 reply side: text replies also to the expert's own completed / cancelled customer (24 h inbound window enforced in check()); plan files stay strict.
+    const wantsFile0 = (req.body?.planId != null && req.body.planId !== "") || (req.body?.attachmentId != null && req.body.attachmentId !== "");
+    const inScope = strictScope || (!wantsFile0 && Number.isSafeInteger(cid) && Boolean(ctx.replyScope?.(asst, cid)));
     const reason = typeof req.body?.reason === "string" ? req.body.reason.slice(0, 300) : null;
     // Plan file: {planId | attachmentId, caption?}. Switch OFF → refused before anything is stored. Always a draft the expert approves.
     const wantsFile = (req.body?.planId != null && req.body.planId !== "") || (req.body?.attachmentId != null && req.body.attachmentId !== "");
@@ -1003,7 +1006,7 @@ export function createBale(deps: BaleDeps) {
         res.status(blockedStatus(code)).json({ status: "blocked", error: code, message: BLOCK_FA[code] });
       };
       if (!planFiles || !attachmentsOn()) return blockedFile("attachments_disabled");
-      if (!inScope) return blockedFile("out_of_scope");
+      if (!strictScope) return blockedFile("out_of_scope");
       const f = planFiles.resolve({ planId: req.body?.planId, attachmentId: req.body?.attachmentId });
       if (!f || !planFiles.read(f)) return blockedFile("attachment_missing");
       attachmentId = f.id;
@@ -1025,7 +1028,7 @@ export function createBale(deps: BaleDeps) {
     return { asst, p, u, a: accountOf(u.id) };
   };
   /** POST /bale/auto-reply {customerId | arChatId, text, planId? | attachmentId?} — replies only; every rule in check() + ar.rules(). */
-  function runnerAutoReply(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean }) {
+  function runnerAutoReply(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean; replyScope?: (a: any, cid: number) => boolean }) {
     const r0 = runnerPair(res); if (!r0) return; const { asst, p, a } = r0;
     // OFF (global / pair / auto-stopped): refuse before anything is stored — no outbox row, audit line only.
     if (!ar.pairOn(p)) { audit({ accountId: a?.id ?? null, customerId: Number.isSafeInteger(Number(req.body?.customerId)) ? Number(req.body.customerId) : null, action: "outbox.auto_reply", outcome: "autoreply_off", detail: { assistantId: asst.id } });
@@ -1057,7 +1060,7 @@ export function createBale(deps: BaleDeps) {
       return void (r === "queued" ? res.json({ status: "queued" }) : res.status(blockedStatus(r)).json({ status: "blocked", error: r, message: BLOCK_FA[r as keyof typeof BLOCK_FA] ?? r }));
     }
     const cid = Number(req.body?.customerId);
-    if (!Number.isSafeInteger(cid) || !h.inScope(asst, cid)) { audit({ accountId: a.id, customerId: Number.isSafeInteger(cid) ? cid : null, action: "outbox.auto_reply", outcome: "not_in_scope", detail: { assistantId: asst.id } }); return void res.status(404).json({ error: "not_found" }); }
+    if (!Number.isSafeInteger(cid) || !(h.inScope(asst, cid) || (attachmentId == null && Boolean(h.replyScope?.(asst, cid))))) { audit({ accountId: a.id, customerId: Number.isSafeInteger(cid) ? cid : null, action: "outbox.auto_reply", outcome: "not_in_scope", detail: { assistantId: asst.id } }); return void res.status(404).json({ error: "not_found" }); }
     const r = outbox.enqueue({ accountId: a.id, customerId: cid, text, source: "auto_reply", arKind: attachmentId != null ? "plan" : "reply", explicit: false, createdBy: null,
       assistant: { id: asst.id, inScope: true }, reason: "auto_reply", attachmentId, ...(learned ? { arSource: "learned" as const, learnedId: learned.id } : {}) });
     if (r.status === "blocked") return void res.status(blockedStatus(r.reason)).json({ status: "blocked", error: r.reason, message: r.message });
@@ -1065,7 +1068,7 @@ export function createBale(deps: BaleDeps) {
     res.json({ status: r.status, outboxId: r.outboxId });
   }
   /** AR30 runner: POST /bale/ask-expert {customerId | arChatId, question, summary?} — Masoud doesn't know the answer. OFF → 423, nothing stored. */
-  function runnerAskExpert(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean }) {
+  function runnerAskExpert(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean; replyScope?: (a: any, cid: number) => boolean }) {
     const r0 = runnerPair(res); if (!r0) return; const { asst, p, a } = r0;
     if (!ar.pairOn(p)) { audit({ accountId: a?.id ?? null, action: "autoreply.ask", outcome: "autoreply_off", detail: { assistantId: asst.id } });
       return void res.status(423).json({ status: "blocked", error: "autoreply_off", message: (BLOCK_FA as any).autoreply_off ?? "پاسخ خودکار خاموش است؛ چیزی ذخیره یا فرستاده نشد." }); }
@@ -1102,15 +1105,15 @@ export function createBale(deps: BaleDeps) {
       sentLastHour: v.sentLastHour, sentToday: v.sentToday, stoppedReason: v.stoppedReason }, hours: { ...(({ dayStart, dayEnd, days, openNow }) => ({ dayStart, dayEnd, days, openNow }))(ar.settingsView()) } });
   }
   /** Scoped reads (reads_enabled or pair ON): own in-scope customers only; anything else → 404. */
-  function runnerReadGate(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean }) {
+  function runnerReadGate(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean; replyScope?: (a: any, cid: number) => boolean }, allowReply = false) {
     const r0 = runnerPair(res); if (!r0) return null;
     if (!ar.readsOn(r0.p)) { res.status(423).json({ error: "reads_off", message: "خواندن گفتگوهای بله برای این دستیار خاموش است." }); return null; }
     const cid = Number(req.params.customerId ?? req.params.id);
-    if (!Number.isSafeInteger(cid) || !h.inScope(r0.asst, cid)) { audit({ accountId: r0.a?.id ?? null, customerId: Number.isSafeInteger(cid) ? cid : null, action: `runner.${req.path.split("/")[1] ?? "read"}`, outcome: "not_in_scope", detail: { assistantId: r0.asst.id } }); res.status(404).json({ error: "not_found" }); return null; }
+    if (!Number.isSafeInteger(cid) || !(h.inScope(r0.asst, cid) || (allowReply && Boolean(h.replyScope?.(r0.asst, cid))))) { audit({ accountId: r0.a?.id ?? null, customerId: Number.isSafeInteger(cid) ? cid : null, action: `runner.${req.path.split("/")[1] ?? "read"}`, outcome: "not_in_scope", detail: { assistantId: r0.asst.id } }); res.status(404).json({ error: "not_found" }); return null; }
     return { ...r0, cid };
   }
-  function runnerConversation(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean }) {
-    const g = runnerReadGate(req, res, h); if (!g) return;
+  function runnerConversation(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean; replyScope?: (a: any, cid: number) => boolean }) {
+    const g = runnerReadGate(req, res, h, true); if (!g) return;
     const msgs = g.a ? rows<any>(`SELECT m.id,m.direction,m.text,m.file_ref,m.created_at,o.source FROM bale_messages m LEFT JOIN bale_outbox o ON o.id=m.outbox_id
       WHERE m.account_id=? AND m.customer_id=? ORDER BY m.id DESC LIMIT 50`, g.a.id, g.cid).reverse() : [];
     const own = g.a ? ar.ownerOf(g.a, { customerId: g.cid }) : null;
@@ -1119,7 +1122,7 @@ export function createBale(deps: BaleDeps) {
   }
   const DOC_FA: Record<string, string> = { national_card_front: "کارت ملی (رو)", national_card_back: "کارت ملی (پشت)", birth_cert_p1: "شناسنامه ص۱", birth_cert_p2: "شناسنامه ص۲", birth_cert_p3: "شناسنامه ص۳" };
   const DOC_STATUS_FA: Record<string, string> = { pending: "منتظر", uploaded: "رسیده", approved: "تأیید شد", accepted: "تأیید شد", incomplete: "ناقص", rejected: "ردشده", submitted: "رسیده" };
-  function runnerDocuments(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean }) {
+  function runnerDocuments(req: Request, res: Response, h: { inScope: (a: any, cid: number) => boolean; replyScope?: (a: any, cid: number) => boolean }) {
     const g = runnerReadGate(req, res, h); if (!g) return;
     const has = (t: string) => Boolean(row("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", t));
     const items: { label: string; status: string }[] = [];

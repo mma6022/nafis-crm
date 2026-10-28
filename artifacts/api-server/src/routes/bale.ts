@@ -19,10 +19,10 @@ const bale = createBale({
 // Sender / reminder / re-attach worker. BALE_WORKER=0 turns it off (tests, maintenance).
 if (process.env.BALE_WORKER !== "0" && process.env.NODE_ENV !== "test") bale.worker.start();
 export const baleInternalRouter = bale.internal;
-export const baleRunnerSend = (req: Request, res: Response, h: { inScope: (a: any, customerId: number) => boolean }) => bale.runnerSend(req, res, h);
+export const baleRunnerSend = (req: Request, res: Response, h: { inScope: (a: any, customerId: number) => boolean; replyScope?: (a: any, customerId: number) => boolean }) => bale.runnerSend(req, res, h);
 export default bale.staff;
 export const baleRunnerPlanFiles = (req: Request, res: Response) => bale.runnerPlanFiles(req, res);
-type Scope = { inScope: (a: any, customerId: number) => boolean };
+type Scope = { inScope: (a: any, customerId: number) => boolean; replyScope?: (a: any, customerId: number) => boolean };
 /** «پاسخ خودکار» runner routes (pair-locked; see lib/bale.ts). */
 export function mountBaleAutoreplyRunner(runner: import("express").Router, h: Scope) {
   runner.post("/bale/auto-reply", (req, res) => bale.runnerAutoReply(req, res, h));
