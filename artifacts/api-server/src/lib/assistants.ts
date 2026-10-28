@@ -419,7 +419,8 @@ export function createAssistants(deps: Deps) {
   const deny = (req: Request, res: Response) => { audit({ req, a: A(res), tokenId: TK(res), action: `${req.method} ${req.path}`.slice(0, 80), outcome: "forbidden" }); fail(res, 403, "forbidden", "این کار برای دستیار مجاز نیست."); };
   for (const p of ["/customers/:id/priority", "/customers/:id/assign", "/customers/:id/salesperson", "/customers/:id/status", "/customers/:id", "/customers/:id/transfer",
     "/payments", "/payment-orders", "/wallets", "/fees", "/contracts", "/loan-applications/:id", "/loan-applications/:id/stage", "/sms", "/customer-messages", "/reminders/:id"])
-    runner.all(p, (req, res, next) => (req.method === "GET" ? next() : deny(req, res)));
+    runner.all(p, (req, res, next) => (req.method === "GET" || (p === "/reminders/:id" && (req.method === "PATCH" || req.method === "DELETE")) ? next() : deny(req, res)));
+  // v80: PATCH/DELETE /reminders/:id fall through to the flag-gated handlers below (403 assistant_reminder_edit_off while the per-user flag is off).
 
   const custName = (c: any) => (c.first_name && c.last_name ? `${c.first_name} ${c.last_name}` : c.name);
   /** v8 fix: smart-filing maskData matched internal ids by key name («salespersonId», «applicationId» contain "nid") and
@@ -655,8 +656,9 @@ export function createAssistants(deps: Deps) {
   });
   runner.get("/customers/:id/reminders", (req, res) => {
     const c = readableCustomer(req, res); if (!c) return;
-    const items = rows<any>("SELECT id,subject,message,remind_at,done,created_at FROM reminders WHERE customer_id=? ORDER BY remind_at DESC LIMIT 30", c.id)
-      .map(r => ({ id: r.id, subject: r.subject, message: r.message, remindAt: r.remind_at, done: Boolean(r.done), createdAt: r.created_at }));
+    const items = rows<any>("SELECT id,subject,message,remind_at,done,created_at,voided_at,closed_at FROM reminders WHERE customer_id=? ORDER BY remind_at DESC LIMIT 30", c.id)
+      .map(r => ({ id: r.id, subject: r.subject, message: r.message, remindAt: r.remind_at, done: Boolean(r.done), createdAt: r.created_at,
+        status: r.voided_at ? "cancelled" : r.done || r.closed_at ? "done" : "open" }));
     audit({ req, a: A(res), tokenId: TK(res), action: "GET /customers/:id/reminders", customerId: c.id, outcome: "ok" });
     res.json(maskOut({ items }));
   });
@@ -962,6 +964,124 @@ export function createAssistants(deps: Deps) {
     event(a, "reminder_created", { userId: a.bound_user_id, customerId: cid, data: { reminderId: rid, remindAt: new Date(at).toISOString(), via: "runner" } });
     audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "ok", detail: { reminderId: rid, deduped: false, idempotencyKey: key || null, fingerprint } });
     res.status(201).json({ reminder: runnerReminderView(row<any>("SELECT * FROM reminders WHERE id=?", rid), a), deduped: false });
+  });
+  /* v80 (assistant_reminder_edit): PATCH / DELETE /api/assistant-runner/reminders/:id.
+   * Behind the PER-USER flag call_queue_settings key `flag.assistant_reminder_edit.user.<expertUserId>` = '1' (absent/anything else = OFF;
+   * shipped OFF for everyone; switched only by ops script are-flag.py with Mohammad's direct OK). While off: 403 assistant_reminder_edit_off.
+   * Scope: sales assistant with bound expert; the reminder must be OPEN (done=0, not voided/closed), belong to that expert (user_id) and sit on
+   * a customer that expert owns (salesperson_id, not merged). Missing/other expert's → 404 not_found (audited not_in_scope); closed → 403 reminder_closed.
+   * PATCH: remindAt/subject/note with the create rules (remindAt > now+60s and ≤ 30 days; subject ≤120, note ≤500, banned words, masking) and the
+   *   create count caps (≤20/h, ≤60/day per assistant, counted on successful edits). A changed remindAt clears snooze_until/snooze_used/notified_at, so
+   *   the REMINDER-B popup and the due list show it once at the new time only (the popup queue is computed live from reminders on every feed poll).
+   * DELETE: SOFT cancel only — voided_at/void_reason='assistant_cancel'/void_note=<reason>/voided_by=<expert user id>/done=1 (exactly like the expert's
+   *   own «باطل» path), never a row delete; ≤ 20 cancels per expert per Tehran day (429 after).
+   * Every edit/cancel writes assistant_reminder_changes (old + new values, actor, reason) → restorable; plus assistant_audit + assistant_events. No SMS, no bell, no Bale. */
+  const ARE_FLAG_PREFIX = "flag.assistant_reminder_edit.user.", RUNNER_CANCELS_PER_EXPERT_DAY = 20;
+  const areOn = (userId: number) => hasTable("call_queue_settings") && row<any>("SELECT value FROM call_queue_settings WHERE key=?", `${ARE_FLAG_PREFIX}${userId}`)?.value === "1";
+  let areReady = false;
+  const areEnsure = () => {
+    if (areReady) return;
+    db.exec(`CREATE TABLE IF NOT EXISTS assistant_reminder_changes (id INTEGER PRIMARY KEY AUTOINCREMENT, reminder_id INTEGER NOT NULL, action TEXT NOT NULL,
+      assistant_id INTEGER, token_id INTEGER, expert_user_id INTEGER, customer_id INTEGER, actor TEXT NOT NULL, reason TEXT, old_json TEXT NOT NULL, new_json TEXT, at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS idx_arc_expert_action_at ON assistant_reminder_changes(expert_user_id, action, at);
+      CREATE INDEX IF NOT EXISTS idx_arc_reminder ON assistant_reminder_changes(reminder_id)`);
+    areReady = true;
+  };
+  const reminderStatus = (r: any) => (r.voided_at ? "cancelled" : r.done || r.closed_at ? "done" : "open");
+  const reminderSnap = (r: any) => ({ remindAt: r.remind_at, subject: r.subject ?? null, message: r.message ?? null, done: Number(r.done ?? 0), voidedAt: r.voided_at ?? null,
+    voidReason: r.void_reason ?? null, voidNote: r.void_note ?? null, voidedBy: r.voided_by ?? null, snoozeUntil: r.snooze_until ?? null, snoozeUsed: Number(r.snooze_used ?? 0), notifiedAt: r.notified_at ?? null });
+  /** Shared gate for both verbs: returns the open own reminder or answers the request. */
+  function areGate(req: Request, res: Response, act: string): { a: any; r: any } | null {
+    const a = A(res);
+    if (a.kind === "manager" || a.scope_rule === "manager") { audit({ req, a, tokenId: TK(res), action: act, outcome: "manager_read_only" }); fail(res, 403, "manager_read_only", "دستیار مدیر یادآور را تغییر نمی‌دهد."); return null; }
+    if (a.kind !== "sales" || !a.bound_user_id || !a.bound_salesperson_id) { audit({ req, a, tokenId: TK(res), action: act, outcome: "forbidden" }); fail(res, 403, "forbidden", "این کار برای دستیار مجاز نیست."); return null; }
+    if (!areOn(Number(a.bound_user_id))) { audit({ req, a, tokenId: TK(res), action: act, outcome: "flag_off" }); fail(res, 403, "assistant_reminder_edit_off", "ویرایش و حذف یادآور توسط دستیار فعال نیست."); return null; }
+    const id = Number(req.params.id);
+    const r = Number.isSafeInteger(id) && id > 0 ? row<any>(`SELECT r.* FROM reminders r JOIN customers c ON c.id=r.customer_id
+      WHERE r.id=? AND r.user_id=? AND c.merged_into_customer_id IS NULL AND c.salesperson_id=?`, id, a.bound_user_id, a.bound_salesperson_id) : undefined;
+    if (!r || !inScope(a, Number(r.customer_id))) {
+      audit({ req, a, tokenId: TK(res), action: act, customerId: r ? Number(r.customer_id) : null, outcome: "not_in_scope", detail: { reminderId: Number.isSafeInteger(id) ? id : null } });
+      fail(res, 404, "not_found"); return null;
+    }
+    if (r.done || r.voided_at || r.closed_at) {
+      audit({ req, a, tokenId: TK(res), action: act, customerId: Number(r.customer_id), outcome: "reminder_closed", detail: { reminderId: r.id, status: reminderStatus(r) } });
+      fail(res, 403, "reminder_closed", "این یادآور بسته یا باطل شده است؛ فقط یادآورهای باز تغییر می‌کنند."); return null;
+    }
+    return { a, r };
+  }
+  const areActor = (v: unknown) => (String(v ?? "assistant").trim().toLowerCase() === "expert" ? "expert" : "assistant");
+  runner.patch("/reminders/:id", (req, res) => {
+    const act = "PATCH /reminders/:id"; const g = areGate(req, res, act); if (!g) return; const { a, r } = g; const b = req.body ?? {}; const cid = Number(r.customer_id);
+    const has = (k: string) => Object.prototype.hasOwnProperty.call(b, k) && b[k] !== undefined;
+    const noteKey = has("note") ? "note" : has("message") ? "message" : null;
+    if (!has("remindAt") && !has("subject") && !noteKey) return fail(res, 422, "nothing_to_change", "دست‌کم یکی از remindAt / subject / note را بفرست.");
+    const nowMs = now().getTime(); let at: number | null = null;
+    if (has("remindAt")) {
+      at = Date.parse(String(b.remindAt ?? ""));
+      if (!Number.isFinite(at) || at <= nowMs + 60_000 || at > nowMs + REMINDER_PROPOSAL_MAX_DAYS * 86400_000) {
+        audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "bad_remind_at", detail: { reminderId: r.id } });
+        return fail(res, 422, "bad_remind_at", "زمان یادآور باید دست‌کم یک دقیقه بعد و حداکثر ۳۰ روز بعد باشد.");
+      }
+    }
+    const subject = has("subject") ? (String(b.subject ?? "").trim().slice(0, 120) || "یادآور دستیار") : null;
+    const note = noteKey ? String(b[noteKey] ?? "").trim().slice(0, 500) : null;
+    if (hasBannedWord(`${subject ?? ""} ${note ?? ""}`)) { audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "banned_word", detail: { reminderId: r.id } }); return fail(res, 422, "banned_word", "این متن واژهٔ ممنوع دارد."); }
+    const cnt = (since: number) => Number(row<any>("SELECT COUNT(*) n FROM assistant_audit WHERE assistant_id=? AND action=? AND outcome='ok' AND at>=?", a.id, act, new Date(nowMs - since).toISOString())?.n ?? 0);
+    if (cnt(3600_000) >= RUNNER_REMINDERS_PER_HOUR || cnt(86400_000) >= RUNNER_REMINDERS_PER_DAY) {
+      audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "rate_limited", detail: { reminderId: r.id } });
+      return fail(res, 429, "rate_limited", "سقف ویرایش یادآور دستیار در این بازه پر شده.");
+    }
+    areEnsure();
+    const sets: string[] = [], vals: any[] = [];
+    const newAt = at != null ? new Date(at).toISOString() : null;
+    if (newAt != null && newAt !== r.remind_at) sets.push("remind_at=?", "snooze_until=NULL", "snooze_used=0", "notified_at=NULL"), vals.push(newAt);
+    if (subject != null) sets.push("subject=?"), vals.push(maskText(subject));
+    if (note != null) sets.push("message=?"), vals.push(note ? maskText(note) : "");
+    const t = iso(); const actor = areActor(b.actor);
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const cur = row<any>("SELECT * FROM reminders WHERE id=?", r.id);
+      if (!cur || cur.done || cur.voided_at || cur.closed_at) { db.exec("ROLLBACK"); return fail(res, 403, "reminder_closed", "این یادآور بسته یا باطل شده است؛ فقط یادآورهای باز تغییر می‌کنند."); }
+      if (sets.length) db.prepare(`UPDATE reminders SET ${sets.join(", ")} WHERE id=? AND done=0 AND voided_at IS NULL`).run(...vals, r.id);
+      const after = row<any>("SELECT * FROM reminders WHERE id=?", r.id);
+      run(`INSERT INTO assistant_reminder_changes(reminder_id,action,assistant_id,token_id,expert_user_id,customer_id,actor,reason,old_json,new_json,at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+        r.id, "edit", a.id, TK(res), a.bound_user_id, cid, actor, null, JSON.stringify(reminderSnap(cur)), JSON.stringify(reminderSnap(after)), t);
+      db.exec("COMMIT");
+    } catch (e) { db.exec("ROLLBACK"); throw e; }
+    const after = row<any>("SELECT * FROM reminders WHERE id=?", r.id);
+    event(a, "reminder_updated", { userId: a.bound_user_id, customerId: cid, data: { reminderId: r.id, from: r.remind_at, to: after.remind_at, via: "runner", actor } });
+    audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "ok", detail: { reminderId: r.id, old: { remindAt: r.remind_at, subject: r.subject ?? null, message: r.message ?? null }, actor } });
+    res.status(200).json({ reminder: { ...runnerReminderView(after, a), status: reminderStatus(after) }, changed: { remindAt: newAt != null && newAt !== r.remind_at, subject: subject != null, note: note != null },
+      previous: { remindAt: r.remind_at, subject: maskText(r.subject ?? ""), message: maskText(r.message ?? "") } });
+  });
+  runner.delete("/reminders/:id", (req, res) => {
+    const act = "DELETE /reminders/:id"; const g = areGate(req, res, act); if (!g) return; const { a, r } = g; const b = req.body ?? {}; const cid = Number(r.customer_id);
+    const reason = maskText(String(b.reason ?? req.query.reason ?? "").replace(/\s+/g, " ").trim().slice(0, 200));
+    if (reason && hasBannedWord(reason)) { audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "banned_word", detail: { reminderId: r.id } }); return fail(res, 422, "banned_word", "این متن واژهٔ ممنوع دارد."); }
+    areEnsure();
+    const nowD = now(); const dayStart = new Date(tehranDayStartMs(nowD.getTime())).toISOString();
+    const used = () => Number(row<any>("SELECT COUNT(*) n FROM assistant_reminder_changes WHERE expert_user_id=? AND action='cancel' AND at>=?", a.bound_user_id, dayStart)?.n ?? 0);
+    const actor = areActor(b.actor ?? req.query.actor); const t = iso();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      if (used() >= RUNNER_CANCELS_PER_EXPERT_DAY) {
+        db.exec("ROLLBACK");
+        audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "rate_limited", detail: { reminderId: r.id } });
+        return fail(res, 429, "rate_limited", "سقف ۲۰ حذف یادآور در روز برای این کارشناس پر شده.");
+      }
+      const cur = row<any>("SELECT * FROM reminders WHERE id=?", r.id);
+      if (!cur || cur.done || cur.voided_at || cur.closed_at) { db.exec("ROLLBACK"); return fail(res, 403, "reminder_closed", "این یادآور بسته یا باطل شده است؛ فقط یادآورهای باز تغییر می‌کنند."); }
+      db.prepare("UPDATE reminders SET voided_at=?, void_reason='assistant_cancel', void_note=?, voided_by=?, done=1 WHERE id=? AND done=0 AND voided_at IS NULL")
+        .run(t, reason ? `${actor}: ${reason}`.slice(0, 220) : actor, a.bound_user_id, r.id);
+      const after = row<any>("SELECT * FROM reminders WHERE id=?", r.id);
+      run(`INSERT INTO assistant_reminder_changes(reminder_id,action,assistant_id,token_id,expert_user_id,customer_id,actor,reason,old_json,new_json,at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+        r.id, "cancel", a.id, TK(res), a.bound_user_id, cid, actor, reason || null, JSON.stringify(reminderSnap(cur)), JSON.stringify(reminderSnap(after)), t);
+      db.exec("COMMIT");
+    } catch (e) { db.exec("ROLLBACK"); throw e; }
+    const left = Math.max(0, RUNNER_CANCELS_PER_EXPERT_DAY - used());
+    event(a, "reminder_cancelled", { userId: a.bound_user_id, customerId: cid, data: { reminderId: r.id, remindAt: r.remind_at, via: "runner", actor, reason: reason || null } });
+    audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "ok", detail: { reminderId: r.id, old: { remindAt: r.remind_at, subject: r.subject ?? null, message: r.message ?? null }, actor, reason: reason || null } });
+    res.status(200).json({ ok: true, reminderId: r.id, status: "cancelled", cancelledAt: t, actor, reason: reason || null, softDeleted: true, cancelsLeftToday: left });
   });
   runner.post("/typing", (req, res) => {
     const a = A(res); const t = row<any>("SELECT * FROM assistant_threads WHERE id=? AND assistant_id=?", Number(req.body?.threadId), a.id);
