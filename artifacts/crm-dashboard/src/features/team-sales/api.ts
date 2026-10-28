@@ -6,11 +6,13 @@ export type TeamSalesConfig = {
   enabled: boolean; qualifierSalespersonId: number; closerSalespersonIds: number[]; noteMinLength: number;
   closerFirstCallWorkingHours: number;
 };
-export type NextCloser = { salespersonId: number; name: string; dueAt: string; dueLabel: string; workingHours: number;
-  /** crm-kz-return: present when asked for a specific customer. */
-  assignment?: 'previous_expert' | 'fair_split'; assignmentLabel?: string; transferCheck?: TransferCheck };
+export type NextCloser = { salespersonId: number; name: string; dueAt: string | null; dueLabel: string | null; workingHours: number;
+  /** crm-kz-return: present when asked for a specific customer. HOTFIX-73: 'self' = a closer upgrading their own customer (stays with them). */
+  assignment?: 'previous_expert' | 'fair_split' | 'self'; self?: boolean; assignmentLabel?: string; transferCheck?: TransferCheck };
 export type PromoteResult = {
-  customerId: number; closerSalespersonId: number; closerName: string; dueAt: string; dueLabel: string;
+  customerId: number; closerSalespersonId: number; closerName: string; dueAt: string | null; dueLabel: string | null;
+  /** HOTFIX-73: true when a closer upgraded their own customer (no hand-off). */
+  kept?: boolean;
   callLogId: number; message: string;
   assignment?: 'previous_expert' | 'fair_split'; assignmentLabel?: string;
 };
@@ -107,13 +109,23 @@ export function usesSimpleForm(
  * Qualifier's own in-progress customer that is not P1 yet: P1 is reached ONLY through «ارتقا به اولویت ۱»
  * (confirm dialog → POST /customers/:id/upgrade-priority, round-robin handoff), never by a plain priority edit.
  */
+/** HOTFIX-73: the user is a closer of the team-sales config and owns this customer. */
+export function isCloserOwn(
+  cfg: TeamSalesConfig | undefined,
+  user: { salespersonId?: number | null } | undefined,
+  customer: { salespersonId?: number | null } | null | undefined,
+): boolean {
+  if (!cfg?.enabled || !user || user.salespersonId == null || !customer) return false;
+  return user.salespersonId !== cfg.qualifierSalespersonId && cfg.closerSalespersonIds.includes(user.salespersonId) && customer.salespersonId === user.salespersonId;
+}
 export function canUpgradeToP1(
   cfg: TeamSalesConfig | undefined,
   user: { salespersonId?: number | null } | undefined,
   customer: { salespersonId?: number | null; status?: string | null; priority?: number | null } | null | undefined,
 ): boolean {
   if (!cfg?.enabled || !user || user.salespersonId == null || !customer) return false;
-  if (user.salespersonId !== cfg.qualifierSalespersonId) return false;
+  // HOTFIX-73: a closer may upgrade their OWN in-progress customer (stays with them; the server limits it to the locked experts).
+  if (user.salespersonId !== cfg.qualifierSalespersonId) return isCloserOwn(cfg, user, customer) && customer.status === 'in_progress' && customer.priority !== 1;
   return customer.salespersonId === cfg.qualifierSalespersonId && customer.status === 'in_progress' && customer.priority !== 1;
 }
 /** P2/P3 customers get a visible «ارتقا به اولویت ۱» button in the list and on the customer page. */

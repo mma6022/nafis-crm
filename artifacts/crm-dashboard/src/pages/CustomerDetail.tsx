@@ -38,7 +38,7 @@ import './customers.css';
 import { useCallLauncher, CallLaunchStatus } from '@/features/team-sales/useCallLauncher';
 import { KazemiSourceChip, kazemiSourceOf } from '@/features/kazemi-source/KazemiSourceChip';
 import { DeadlineCountdown, PreferredTimeNote, SiteLeadChips, SiteLeadHistory, hideTagForSiteLead } from '@/features/site-leads/SiteLead';
-import { consultProfileKey, firstCallEditInfoKey, firstCallOf, showsUpgradeButton, useFirstCallEditInfo, usesSimpleForm, type FirstCallEditResult, type PromoteResult, type QualifyResult } from '@/features/team-sales/api';
+import { consultProfileKey, firstCallEditInfoKey, firstCallOf, isCloserOwn, showsUpgradeButton, useFirstCallEditInfo, usesSimpleForm, type FirstCallEditResult, type PromoteResult, type QualifyResult } from '@/features/team-sales/api';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 import { FirstCallSummaryCard, NoPlanBox, SuggestedPlansBox } from '@/features/team-sales/FirstCallCard';
 import { ConsultProfileCard } from "@/features/team-sales/ConsultProfileCard";
@@ -467,7 +467,7 @@ function CustomerDetailFull() {
     setLocation(loanWizardHref(id));
   };
   const isQualifier = tsConfig.data?.enabled === true && session.data?.user.salespersonId != null && session.data.user.salespersonId === tsConfig.data.qualifierSalespersonId;
-  const ownsCustomer = isQualifier && customer.salespersonId === tsConfig.data?.qualifierSalespersonId;
+  const ownsCustomer = (isQualifier && customer.salespersonId === tsConfig.data?.qualifierSalespersonId) || isCloserOwn(tsConfig.data, session.data?.user, customer); // HOTFIX-73
   const showSimpleForm = !handoff && canCallsCreate && usesSimpleForm(tsConfig.data, session.data?.user, customer);
   const callChoice = handoff ? 'legacy' : callLauncher.choose(customer);
   const showUpgrade = ownsCustomer && !handoff && canUpdate && customer.status === 'in_progress' && customer.priority !== 1;
@@ -475,6 +475,7 @@ function CustomerDetailFull() {
   const afterHandoff = (result: PromoteResult, toast = true) => {
     // The customer leaves the qualifier's scope, so do not refetch this page (it would 404); keep showing local state.
     setHandoff(result);
+    if (result.kept) void queryClient.invalidateQueries({ queryKey: getGetCustomerQueryKey(id) }); // HOTFIX-73: closer keeps it
     if (toast) setTsToast(result.message);
     void queryClient.invalidateQueries({ queryKey: getListCustomersQueryKey() });
   };

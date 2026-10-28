@@ -15,6 +15,7 @@ import { NONP1_TRANSFER_HEADER } from "../lib/nonp1-transfer";
 import { addWorkingHours, type QualifierAnswers } from "../lib/team-sales-rules";
 import { ConsultProfileError, canActOnCustomerProfile, consultProfile, editConsultProfile } from "../lib/consult-profile";
 import { isAdminRole } from "../lib/customer-integrity";
+import { expertUpgrade, selfNextCloser, up73Text } from "../lib/upgrade-73";
 import { TransferCheckError, cqLogRefusedTransfer, cqTransferPreview, withTransferOverride } from "../lib/call-queue-r3";
 
 const router: IRouter = Router();
@@ -56,6 +57,13 @@ router.get("/customers/:id/priority-history", requirePermission("customers.view"
 router.get("/sales/next-closer", requirePermission("customers.view"), (_req, res): void => {
   const cfg = getTeamSalesConfig();
   const actor = actorOf(res);
+  // HOTFIX-73: a closer (users 2/3) upgrading their OWN customer keeps it → the answer is «yourself», not 404.
+  if (cfg.enabled) {
+    const selfCid = customerId(typeof _req.query.customerId === "string" ? _req.query.customerId : undefined);
+    const self = selfNextCloser(actor, selfCid);
+    if (self && "notFound" in self) { res.status(404).json({ error: "Customer not found" }); return; }
+    if (self) { res.json({ ...self, dueAt: null, dueLabel: null, workingHours: 0 }); return; }
+  }
   if (!cfg.enabled || (actor.role !== "admin" && actor.salespersonId !== cfg.qualifierSalespersonId)) {
     res.status(404).json({ error: "Not found" }); return;
   }
@@ -72,12 +80,19 @@ router.get("/sales/next-closer", requirePermission("customers.view"), (_req, res
   res.json({ ...next, dueAt: due.toISOString(), dueLabel: formatDue(due, now), workingHours: cfg.closerFirstCallWorkingHours, ...(transferCheck ? { transferCheck } : {}) });
 });
 
-function upgrade(req: { params: { id?: string }; body?: { note?: unknown; reason?: unknown; transferOverrideReason?: unknown } }, res: Response): void {
+function upgrade(req: { params: { id?: string }; body?: { note?: unknown; reason?: unknown; transferOverrideReason?: unknown }; log?: { error: (o: unknown, m?: string) => void } }, res: Response): void {
   const id = customerId(req.params.id);
   if (!id) { res.status(400).json({ error: "Invalid customer id" }); return; }
-  const raw = typeof req.body?.note === "string" ? req.body.note : typeof req.body?.reason === "string" ? req.body.reason : "";
-  const note = raw.trim().slice(0, 2000) || null; // optional
-  try { res.json(withTransferOverride((req.body as { transferOverrideReason?: unknown } | undefined)?.transferOverrideReason, () => promoteToPriorityOne(id, actorOf(res), note))); } catch (e) { fail(res, e); }
+  const { reason, note } = up73Text(req.body); // HOTFIX-73: both optional (reason ≤80)
+  try {
+    res.json(withTransferOverride((req.body as { transferOverrideReason?: unknown } | undefined)?.transferOverrideReason, () => expertUpgrade(id, actorOf(res), reason, note)));
+  } catch (e) {
+    try { fail(res, e); } catch (err) {
+      // HOTFIX-73: an unexpected error used to fall through to the HTML 500 page (no log line, generic text in the dialog).
+      req.log?.error({ err, customerId: id }, "upgrade-priority failed");
+      if (!res.headersSent) res.status(500).json({ error: "خطای داخلی سرور؛ ارتقا ثبت نشد." });
+    }
+  }
 }
 router.post("/customers/:id/upgrade-priority", requirePermission("customers.update"), (req, res): void => upgrade(req, res));
 router.post("/customers/:id/team-sales/promote", requirePermission("customers.update"), (req, res): void => upgrade(req, res));

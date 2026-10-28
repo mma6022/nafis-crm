@@ -95,7 +95,7 @@ export function getTeamSalesConfig(): TeamSalesConfig {
 export type PriorityChange = {
   customerId: number; oldPriority: number | null; newPriority: number | null;
   oldSalespersonId: number | null; newSalespersonId: number | null;
-  actorUserId: number | null; source: "customer_update" | "promote" | "qualifier_form" | "no_answer_archive" | "first_call_edit" | "nonp1_auto_transfer" | "inbound_first_call";
+  actorUserId: number | null; source: "customer_update" | "promote" | "qualifier_form" | "no_answer_archive" | "first_call_edit" | "nonp1_auto_transfer" | "inbound_first_call" | "expert_upgrade";
   reason?: string | null; at?: string; always?: boolean;
 };
 export function logPriorityChange(c: PriorityChange): void {
