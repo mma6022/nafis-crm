@@ -1,0 +1,30 @@
+/* FILES-61 — on top of daily-plan.css (crm-daily-plan-cards). Round one: no cosmetic polish. */
+.fc-head .dp-head-t{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap}
+.fc-deck{transition:transform 280ms cubic-bezier(.2,.7,.2,1),opacity 280ms;}
+.fc-deck.out{transform:translateX(100%);opacity:0}
+.fc-deck.in{animation:fc-in 280ms cubic-bezier(.2,.7,.2,1)}
+@keyframes fc-in{from{transform:translateX(-100%);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.fc-deck,.fc-deck.in{transition:none;animation:none}}
+.fc-card.ro{opacity:.85;border-style:dashed}
+.fno{font-size:13px;color:#5b6274;margin:2px 0}
+.lfu{margin:4px 0;font-size:13px;color:#5b6274}
+.fc-result{border:0;padding:0;margin:12px 0 0}
+.fc-result legend{font-weight:600;margin-bottom:4px}
+.rlist{display:flex;flex-direction:column;gap:8px;margin:8px 0}
+.rr{display:flex;align-items:center;gap:8px;min-height:48px;border:1px solid #e3e6ef;border-radius:12px;padding:0 12px;cursor:pointer}
+.rr.on{border-color:var(--nf-brand-600);background:#f3f6ff}
+.fc-result .inp{width:100%;min-height:44px;margin:4px 0 8px}
+.fc-nav{display:flex;justify-content:space-between;gap:8px;margin:10px 0}
+.fc-next{font-size:13px;color:#5b6274;display:flex;gap:6px;align-items:center}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+@media (max-width:1023px){.fc-save{position:sticky;bottom:8px;width:100%;min-height:52px}}
+
+@media (max-width:520px){.fc-deck .dp-actions{flex-wrap:wrap}.fc-deck .dp-actions>:first-child{flex:1 1 100%}}
+/* Armita v1.2: draft chip neutral grey (.gtag.tg) */
+.dp-chip.fc-g-draft{color:#4B5263;background:#F1F3F6;border-color:#E3E6EB}
+.fc-next .dp-chip{margin-inline:4px;font-size:12px}
+.fc-nav{flex-wrap:wrap}
+.fc-next{flex-wrap:wrap;flex:1 1 100%;row-gap:4px}
+.fc-next{display:block;line-height:2}
+.fc-next svg{vertical-align:-2px;margin-inline-end:4px}
+.fc-next svg{display:inline-block}

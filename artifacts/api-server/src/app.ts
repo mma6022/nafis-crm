@@ -33,6 +33,7 @@ import { smartFilingRunnerRouter } from "./routes/smart-filing";
 import { assistantRunnerRouter } from "./routes/assistants";
 import { baleInternalRouter } from "./routes/bale";
 import { expertLockdownGuard } from "./lib/expert-lockdown";
+import { filesCarouselGuard } from "./lib/files-carousel";
 
 const app: Express = express();
 
@@ -138,6 +139,7 @@ const requireApiAuth: RequestHandler = (req, res, next): void => {
 // lead_annotator: every phone in every /api response is masked for a user holding the capability (lib/lead-annotator-mask.ts).
 // registrar_view (assistants53): read-only on customers the user registered but no longer owns — every write on them is 403.
 // expert_lockdown (assistants54): users 2 / 3 / 8 only while flag.expert_lockdown = 1 — everyone else passes straight through.
-app.use("/api", requireApiAuth, leadAnnotatorMask, makeRegistrarWriteGuard(() => crmDb), expertLockdownGuard, router);
+// files_carousel (FILES-61): users 2 / 3 / 8 only while flag.files_carousel = 1 — writes on a not-yet-current open file → 423.
+app.use("/api", requireApiAuth, leadAnnotatorMask, makeRegistrarWriteGuard(() => crmDb), expertLockdownGuard, filesCarouselGuard, router);
 
 export default app;
