@@ -7,6 +7,7 @@ import { FIRST_CALL_FIELD_LABELS, firstCallValueText } from './first-call-edit-l
 import { NoPlanChip, PlanChip } from './PlanChip';
 import { JOB_LABELS, JOB_ORDER, MILITARY_LABELS, planMeta, planReasonText, type PlanEvaluation, type PlanReason } from './plan-reasons';
 import './team-sales.css';
+import { saveFileCard, type FileCard as FileCardResult } from '@/features/history/api';
 import { GradeChip } from '@/components/grade/GradeChip';
 import { GradePicker } from '@/components/grade/GradePicker';
 import { gradeText, isLegacy } from '@/lib/credit-grade';
@@ -31,10 +32,24 @@ type Draft = {
   military: Military | null; jobType: string | null; gJobType: string | null; city: string; cityTouched: boolean;
   /** null = not touched: follows the server default (checked when no plan fits or depends). */
   noPlan: boolean | null; noPlanNote: string;
+  /** HISTORY-A v1.2: «متقاضی یا یکی از خانواده‌اش بازنشسته‌ی تأمین اجتماعی هست؟» (required) + optional relation (family only). */
+  sso: SsoRetiree | null; ssoRel: string;
 };
+export type SsoRetiree = 'self' | 'family' | 'none';
+export const SSO_RETIREE: Array<[SsoRetiree, string]> = [['self', 'خود متقاضی'], ['family', 'یکی از خانواده'], ['none', 'هیچ‌کدام']];
+const SSO_REL_MAX = 40;
+/** Expert-only hint (never shown to the customer; no loan amount or rate). */
+export function RetireeHint({ sso, rel, small }: { sso: SsoRetiree | null | undefined; rel?: string | null; small?: boolean }) {
+  if (sso !== 'self' && sso !== 'family') return null;
+  return <div className={`reth${small ? ' sm' : ''}`} role="note" data-testid="reth"><Info size={16} aria-hidden="true" className="i" />
+    <span><b>ترنا و طرح بازنشسته‌ها رو پیشنهاد بده</b>
+      {sso === 'family' ? <small>{rel ? `${rel} متقاضی` : 'یکی از خانواده‌ی متقاضی'} بازنشسته‌ی تأمین اجتماعی است؛ می‌تونه همون عضو خانواده رو هم معرفی کنه تا خودش متقاضی بشه.</small>
+        : <small>متقاضی خودش بازنشسته‌ی تأمین اجتماعی است.</small>}
+      <em className="xo">فقط برای کارشناس · به مشتری نشان داده نمی‌شود</em></span></div>;
+}
 const EMPTY: Draft = { step: 1, callResult: null, callbackAt: '', callbackDate: '', callbackHour: '', callbackMinute: '', amount: '', urgency: null, docsReady: null, creditRank: null, cheque: null, bounced: null,
   gAvail: null, gCheque: null, gRank: null, selected: [], note: '',
-  military: null, jobType: null, gJobType: null, city: '', cityTouched: false, noPlan: null, noPlanNote: '' };
+  military: null, jobType: null, gJobType: null, city: '', cityTouched: false, noPlan: null, noPlanNote: '', sso: null, ssoRel: '' };
 // New key: a 3-step draft from the old form has a different step numbering and must not be restored into this one.
 /** «زمان تماس بعدی»: Jalali date + Tehran hour/minute → ISO (UTC) for the API; '' while incomplete/invalid. */
 export function callbackIso(date: string, hour: string, minute: string): string {
@@ -60,8 +75,15 @@ export type FirstCallEditMode = {
   fc: FirstCallSummary; canSend: boolean; sendBlockedReason: string | null;
   onSaved: (r: FirstCallEditResult) => void;
 };
+/** HISTORY-A v1.2 «تکمیل/ویرایش پرونده مشتری»: same questions as the first-call form (steps 2,3,7,4 on one page), saved as answers only. */
+export type FileFormMode = { answers: Record<string, unknown> | null; city?: string | null; complete: boolean; onSaved: (card: FileCardResult) => void };
+function draftFromAnswers(a: Record<string, any> | null, city?: string | null): Draft {
+  if (!a) return { ...EMPTY, step: 2, callResult: 'answered', city: city ?? '', cityTouched: Boolean(city) };
+  return { ...draftFromFirstCall({ answers: a, note: '', selectedPlans: [], noPlanFit: false, noPlanNote: null } as unknown as FirstCallSummary), note: '', selected: [], noPlan: null,
+    city: a.city ?? city ?? '', cityTouched: Boolean(a.city ?? city) };
+}
 function draftFromFirstCall(fc: FirstCallSummary): Draft {
-  const a = fc.answers;
+  const a = fc.answers as FirstCallSummary['answers'] & { ssoRetiree?: SsoRetiree | null; ssoRetireeRelation?: string | null };
   const cheque: Draft['cheque'] = a.checkStatus && a.checkStatus !== 'none' ? 'check' : a.canPromissory === 'yes' ? 'promissory' : a.checkStatus ? 'none' : null;
   const tri = (v: unknown): Tri | null => (v === 'yes' || v === 'no' || v === 'unknown' ? v : null);
   const ids = (fc.selectedPlans ?? []).map((p) => Number(p.id));
@@ -70,7 +92,8 @@ function draftFromFirstCall(fc: FirstCallSummary): Draft {
     cheque, bounced: a.bouncedCheque === 'yes' || a.bouncedCheque === 'no' ? a.bouncedCheque : null,
     gAvail: tri(a.guarantorAvailable), gCheque: tri(a.guarantorCheque), gRank: a.gRank ?? null, selected: ids, note: fc.note ?? '',
     military: (a.military as Military) ?? null, jobType: a.jobType ?? null, gJobType: a.gJobType ?? null,
-    city: a.city ?? '', cityTouched: Boolean(a.city), noPlan: fc.noPlanFit ? true : ids.length ? false : null, noPlanNote: fc.noPlanNote ?? '' };
+    city: a.city ?? '', cityTouched: Boolean(a.city), noPlan: fc.noPlanFit ? true : ids.length ? false : null, noPlanNote: fc.noPlanNote ?? '',
+    sso: a.ssoRetiree === 'self' || a.ssoRetiree === 'family' || a.ssoRetiree === 'none' ? a.ssoRetiree : null, ssoRel: a.ssoRetireeRelation ?? '' };
 }
 const MILITARY: Array<[Military, string]> = (['has_card', 'no_card', 'female', 'unknown'] as Military[]).map((k) => [k, MILITARY_LABELS[k]]);
 
@@ -185,10 +208,10 @@ function PlanCard({ p, checked, onToggle }: { p: PlanEvaluation; checked: boolea
 }
 
 const STRICT_LABELS: Record<string, string> = { callResult: 'نتیجه‌ی تماس', callbackAt: 'زمان تماس بعدی', amount: 'مبلغ', docsReady: 'مدارک', creditRank: 'رتبه', cheque: 'چک صیادی / سفته',
-  bounced: 'چک برگشتی', military: 'نظام وظیفه', jobType: 'شغل', gAvail: 'ضامن', gJobType: 'شغل ضامن', gCheque: 'چک ضامن', gRank: 'رتبه‌ی ضامن', note: 'یادداشت', urgency: 'فوریت' };
+  bounced: 'چک برگشتی', military: 'نظام وظیفه', sso: 'بازنشستگی تأمین اجتماعی', jobType: 'شغل', gAvail: 'ضامن', gJobType: 'شغل ضامن', gCheque: 'چک ضامن', gRank: 'رتبه‌ی ضامن', note: 'یادداشت', urgency: 'فوریت' };
 const maskPh = (p: string) => { const s = String(p ?? ''); return s.length >= 8 ? `${s.slice(0, 4)}***${s.slice(-4)}` : s; };
 
-export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onClose: onCloseRaw, onDone, onNext, onChangeCustomer, edit, strict = false, confirmClose = false, closeConfirmBody, reopenNotice = false }: {
+export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onClose: onCloseRaw, onDone, onNext, onChangeCustomer, edit, file, strict = false, confirmClose = false, closeConfirmBody, reopenNotice = false }: {
   customer: { id: number; name: string; phone: string; priority?: number | null };
   userId: number | undefined; noteMin?: number;
   onClose: () => void; onDone: (r: QualifyResult) => void; onNext: () => void;
@@ -205,9 +228,11 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   reopenNotice?: boolean;
   /** incoming2-59 PM rule (opt-in): closing before the save (X, scrim, Esc, «بستن») asks «بستن بدون ثبت تماس؟» first. */
   confirmClose?: boolean;
+  /** HISTORY-A v1.2: Today-card file column «تکمیل/ویرایش پرونده مشتری» — answers only, single «ذخیره‌ی پرونده», no call/priority. */
+  file?: FileFormMode;
 }) {
   const key = draftKey(userId, customer.id);
-  const [d, setD] = useState<Draft>(() => { if (edit) return draftFromFirstCall(edit.fc); try { const raw = localStorage.getItem(key); return raw ? { ...EMPTY, ...migrateCallback(JSON.parse(raw)) } : EMPTY; } catch { return EMPTY; } });
+  const [d, setD] = useState<Draft>(() => { if (file) return draftFromAnswers(file.answers, file.city); if (edit) return draftFromFirstCall(edit.fc); try { const raw = localStorage.getItem(key); return raw ? { ...EMPTY, ...migrateCallback(JSON.parse(raw)) } : EMPTY; } catch { return EMPTY; } });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
   const [serverError, setServerError] = useState('');
@@ -231,7 +256,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   const [copyToast, setCopyToast] = useState('');
   const bodyRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (!result && !edit) try { localStorage.setItem(key, JSON.stringify(d)); } catch { /* quota */ } }, [d, key, result, edit]);
+  useEffect(() => { if (!result && !edit && !file) try { localStorage.setItem(key, JSON.stringify(d)); } catch { /* quota */ } }, [d, key, result, edit]);
   useEffect(() => { bodyRef.current?.scrollTo({ top: 0 }); }, [d.step, result, editResult]);
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
@@ -244,7 +269,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   const set = (patch: Partial<Draft>) => { setD((c) => ({ ...c, ...patch })); setErrors({}); setServerError(''); };
 
   const answered = d.callResult === 'answered';
-  const steps = edit ? [2, 3, STEP_PROFILE, 4, 5, STEP_NOTE] : answered ? [1, 2, 3, STEP_PROFILE, 4, 5, STEP_NOTE] : [1, STEP_NOTE];
+  const steps = file ? [2, 3, STEP_PROFILE, 4] : edit ? [2, 3, STEP_PROFILE, 4, 5, STEP_NOTE] : answered ? [1, 2, 3, STEP_PROFILE, 4, 5, STEP_NOTE] : [1, STEP_NOTE];
   const total = steps.length;
   const idx = Math.max(0, steps.indexOf(d.step)) + 1;
   const titles: Record<number, string> = { 1: 'نتیجه‌ی تماس', 2: 'نیاز و مدارک', 3: 'متقاضی — رتبه و چک', [STEP_PROFILE]: 'متقاضی — خدمت، شغل و شهر', 4: 'ضامن', 5: 'طرح‌های مناسب', 6: answered ? 'یادداشت و فوریت' : 'یادداشت' };
@@ -264,6 +289,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
       const amount = Number(toDigits(d.amount));
       if (!d.amount.trim() || !Number.isFinite(amount) || amount < 10 || amount > 5000) e.amount = 'مبلغ را بین ۱۰ تا ۵۰۰۰ میلیون تومان بنویس.';
       if (!d.docsReady) e.docsReady = 'وضعیت مدارک را انتخاب کن.';
+      if (file && !d.urgency) e.urgency = 'فوریت را انتخاب کن.';
     }
     if (step === 3) {
       if (!d.creditRank) e.creditRank = rankLetter ? `زیررتبه‌ی ${rankLetter} را انتخاب کن (${rankLetter}1، ${rankLetter}2 یا ${rankLetter}3) یا «نمی‌دونه» را بزن.` : 'رتبه‌ی اعتباری را انتخاب کن (یا «نمی‌دونه»).';
@@ -274,6 +300,8 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
     if (step === STEP_PROFILE) {
       if (!d.military) e.military = 'وضعیت نظام وظیفه را انتخاب کن (یا «نمی‌دونه»).';
       if (!d.jobType) e.jobType = 'شغل متقاضی را انتخاب کن (یا «نمی‌دونه»).';
+      if (!d.sso) e.sso = 'یکی را انتخاب کن.';
+      if ([...d.ssoRel.trim()].length > SSO_REL_MAX) e.sso = `نسبت حداکثر ${SSO_REL_MAX} نویسه.`;
     }
     if (step === 4) {
       if (!d.gAvail) e.gAvail = 'یکی از گزینه‌ها را انتخاب کن.';
@@ -317,11 +345,13 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
       a.military = d.military; a.jobType = d.jobType;
       a.gJobType = d.gAvail === 'yes' ? d.gJobType : null;
       a.city = d.city.trim() || null;
+      a.ssoRetiree = d.sso;
+      a.ssoRetireeRelation = d.sso === 'family' ? d.ssoRel.trim() || null : null;
     }
     return a;
   }, [d]);
   // Matching only depends on the answers of steps 2-4 (urgency and city have no effect on plans).
-  const planKey = answered ? JSON.stringify({ ...answers, urgency: null, city: null }) : '';
+  const planKey = answered ? JSON.stringify({ ...answers, urgency: null, city: null, ssoRetireeRelation: null }) : '';
   const planReq = useRef('');
   const [retry, setRetry] = useState(0);
   useEffect(() => {
@@ -372,6 +402,17 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
       setServerError(`ذخیره انجام نشد: ${msg}`);
     } finally { setPending(false); }
   };
+  const fileMissing = file ? steps.reduce<Record<string, string>>((m, s) => ({ ...m, ...validate(s) }), {}) : {};
+  const submitFile = async () => {
+    if (!file) return;
+    if (Object.keys(fileMissing).length) { setErrors(fileMissing); return; }
+    setPending(true); setServerError('');
+    try { const card = await saveFileCard(customer.id, answers); file.onSaved(card); }
+    catch (err) {
+      const msg = err instanceof Error && err.message ? err.message : 'اتصال به سرور برقرار نشد. چیزی ذخیره نشد؛ دوباره امتحان کن.';
+      setServerError(`ذخیره انجام نشد: ${msg}`);
+    } finally { setPending(false); }
+  };
   const submit = async (transferOverrideReason?: string) => {
     for (const s of steps) { const e = validate(s); if (Object.keys(e).length) { set({ step: s }); setErrors(e); return; } }
     setPending(true); setServerError(''); setTc(null);
@@ -405,6 +446,51 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
     ? `ضامن ${d.gCheque === 'yes' ? 'با چک' : d.gCheque === 'no' ? 'بدون چک' : '(چک نامعلوم)'} · ${d.gRank === 'unknown' ? 'رتبه نامعلوم' : rankChip(d.gRank)}`
     : d.gAvail === 'no' ? 'بدون ضامن' : 'ضامن نامعلوم';
 
+  const stepBody = (step: number): ReactNode => {
+    if (step === 2) return <>
+      <div className="ts-script"><b>بپرس:</b><p>«چه مبلغی لازم دارید؟ مدارکتون آماده‌ست؟»</p></div>
+      <div className="ts-q"><label htmlFor="ts-amount">مبلغ وام موردنیاز <span className="req">*</span> <span className="ts-muted small">بین ۱۰ تا ۵۰۰۰</span></label>
+        <div className="ts-suffix"><input id="ts-amount" className="ts-inp" inputMode="numeric" value={d.amount} onChange={(e) => set({ amount: e.target.value.replace(/[^\d۰-۹٠-٩]/g, '').slice(0, 5) })} aria-invalid={Boolean(errors.amount)} data-testid="ts-amount" /><span>میلیون تومان</span></div>{err('amount')}</div>
+      <fieldset className="ts-q"><legend>مدارک <span className="req">*</span></legend><Chips name="docs" list={DOCS} value={d.docsReady} onChange={(v) => set({ docsReady: v })} />{err('docsReady')}</fieldset>
+      {file ? <fieldset className="ts-q"><legend>فوریت <span className="req">*</span></legend><Chips name="urgency" list={URGENCY} value={d.urgency} onChange={(v) => set({ urgency: v })} />{err('urgency')}</fieldset>
+        : <div className="ts-alert info" role="note"><Info size={18} /> سؤال «فوریت» به آخر فرم رفت؛ بعد از صحبت درباره‌ی طرح‌ها پرسیده می‌شود.</div>}
+    </>;
+    if (step === 3) return <>
+      <div className="ts-script"><b>بپرس:</b><p>«رتبه‌ی اعتبارسنجی‌تون چنده؟ چک صیادی دارید؟»</p></div>
+      <RankQuestion name="rank" legend="رتبه‌ی اعتباری متقاضی" value={d.creditRank} error={err('creditRank')}
+        onChange={(v, l) => { setRankLetter(l); set({ creditRank: v }); }} />
+      <fieldset className="ts-q"><legend>چک صیادی یا سفته دارد؟ <span className="req">*</span></legend><Chips name="cheque" list={CHEQUE} value={d.cheque} onChange={(v) => set({ cheque: v })} />{err('cheque')}</fieldset>
+      <fieldset className="ts-q"><legend>چک برگشتی رفع‌نشده؟ <span className="req">*</span></legend><Chips name="bounced" list={BOUNCED} value={d.bounced} onChange={(v) => set({ bounced: v })} />{err('bounced')}</fieldset>
+    </>;
+    if (step === STEP_PROFILE) return <>
+      <div className="ts-script"><b>بپرس:</b><p>«کارت پایان خدمت دارید؟ شغلتون چیه؟ ساکن کدوم شهر هستید؟»</p></div>
+      <fieldset className="ts-q"><legend>وضعیت نظام وظیفه <span className="req">*</span><span className="ts-new">جدید</span></legend>
+        <Chips name="military" list={MILITARY} value={d.military} dashed="unknown" onChange={(v) => set({ military: v })} />{err('military')}</fieldset>
+      {d.military === 'no_card' ? <p className="ts-hint" data-testid="ts-mil-hint">طرح‌هایی که پایان خدمت لازم دارند «مناسب نیست» می‌شوند.</p> : null}
+      <JobQuestion name="jobType" legend="شغل متقاضی" value={d.jobType} error={err('jobType')} onChange={(v) => set({ jobType: v })} />
+      <CityQuestion customerId={customer.id} value={d.city} onChange={(v) => set({ city: v, cityTouched: true })} />
+      <fieldset className="ts-q" data-testid="ts-q-sso"><legend>متقاضی یا یکی از خانواده‌اش بازنشسته‌ی تأمین اجتماعی هست؟ <span className="req">*</span><span className="ts-new">جدید</span></legend>
+        <Chips name="sso" list={SSO_RETIREE} value={d.sso} onChange={(v) => set({ sso: v, ssoRel: v === 'family' ? d.ssoRel : '' })} />{err('sso')}</fieldset>
+      {d.sso === 'family' ? <div className="ts-q ts-sub-q"><label htmlFor="ts-sso-rel">نسبت <span className="ts-muted small">اختیاری · مثلاً پدر، مادر، همسر</span></label>
+        <input id="ts-sso-rel" className="ts-inp" value={d.ssoRel} maxLength={SSO_REL_MAX} onChange={(e) => set({ ssoRel: e.target.value.slice(0, SSO_REL_MAX) })} data-testid="ts-sso-rel" /></div> : null}
+      <RetireeHint sso={d.sso} rel={d.ssoRel.trim() || null} small />
+    </>;
+    if (step === 4) return <>
+      <div className="ts-script"><b>بپرس:</b><p>«می‌تونید یک ضامن معرفی کنید؟»</p></div>
+      <fieldset className="ts-q"><legend>ضامن می‌تونه معرفی کنه؟ <span className="req">*</span><span className="ts-new">جدید</span></legend>
+        <Chips name="gAvail" list={TRI} value={d.gAvail} dashed="unknown" onChange={(v) => { if (v !== 'yes') setGRankLetter(null); set({ gAvail: v }); }} />{err('gAvail')}</fieldset>
+      {d.gAvail === 'no' ? <p className="ts-hint" data-testid="ts-g-hint">طرح‌هایی که ضامن لازم دارند «مناسب نیست» می‌شوند.</p> : null}
+      {d.gAvail === 'unknown' ? <p className="ts-hint" data-testid="ts-g-hint">طرح‌هایی که ضامن لازم دارند در گروه «بستگی دارد» می‌آیند.</p> : null}
+      {d.gAvail === 'yes' ? <div className="ts-sub-q" data-testid="ts-g-follow">
+        <fieldset className="ts-q"><legend>ضامن می‌تونه چک بده؟ <span className="req">*</span><span className="ts-new">جدید</span></legend>
+          <Chips name="gCheque" list={TRI} value={d.gCheque} dashed="unknown" onChange={(v) => set({ gCheque: v })} />{err('gCheque')}</fieldset>
+        <RankQuestion name="gRank" legend="رتبه‌ی اعتباری ضامن" isNew hint="همیشه بعد از «بله» پرسیده می‌شود" value={d.gRank} error={err('gRank')}
+          onChange={(v, l) => { setGRankLetter(l); set({ gRank: v }); }} />
+        <JobQuestion name="gJobType" legend="شغل ضامن" value={d.gJobType} error={err('gJobType')} onChange={(v) => set({ gJobType: v })} />
+      </div> : null}
+    </>;
+    return null;
+  };
   let body: ReactNode;
   if (editResult) {
     const r = editResult; const h = r.handoff;
@@ -476,46 +562,10 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
         </div>
         <p className="ts-callback-note">ساعت به وقت تهران</p>{err('callbackAt')}</div> : null}
     </>;
-  } else if (d.step === 2) {
-    body = <>
-      <div className="ts-script"><b>بپرس:</b><p>«چه مبلغی لازم دارید؟ مدارکتون آماده‌ست؟»</p></div>
-      <div className="ts-q"><label htmlFor="ts-amount">مبلغ وام موردنیاز <span className="req">*</span> <span className="ts-muted small">بین ۱۰ تا ۵۰۰۰</span></label>
-        <div className="ts-suffix"><input id="ts-amount" className="ts-inp" inputMode="numeric" value={d.amount} onChange={(e) => set({ amount: e.target.value.replace(/[^\d۰-۹٠-٩]/g, '').slice(0, 5) })} aria-invalid={Boolean(errors.amount)} data-testid="ts-amount" /><span>میلیون تومان</span></div>{err('amount')}</div>
-      <fieldset className="ts-q"><legend>مدارک <span className="req">*</span></legend><Chips name="docs" list={DOCS} value={d.docsReady} onChange={(v) => set({ docsReady: v })} />{err('docsReady')}</fieldset>
-      <div className="ts-alert info" role="note"><Info size={18} /> سؤال «فوریت» به آخر فرم رفت؛ بعد از صحبت درباره‌ی طرح‌ها پرسیده می‌شود.</div>
-    </>;
-  } else if (d.step === 3) {
-    body = <>
-      <div className="ts-script"><b>بپرس:</b><p>«رتبه‌ی اعتبارسنجی‌تون چنده؟ چک صیادی دارید؟»</p></div>
-      <RankQuestion name="rank" legend="رتبه‌ی اعتباری متقاضی" value={d.creditRank} error={err('creditRank')}
-        onChange={(v, l) => { setRankLetter(l); set({ creditRank: v }); }} />
-      <fieldset className="ts-q"><legend>چک صیادی یا سفته دارد؟ <span className="req">*</span></legend><Chips name="cheque" list={CHEQUE} value={d.cheque} onChange={(v) => set({ cheque: v })} />{err('cheque')}</fieldset>
-      <fieldset className="ts-q"><legend>چک برگشتی رفع‌نشده؟ <span className="req">*</span></legend><Chips name="bounced" list={BOUNCED} value={d.bounced} onChange={(v) => set({ bounced: v })} />{err('bounced')}</fieldset>
-    </>;
-  } else if (d.step === STEP_PROFILE) {
-    body = <>
-      <div className="ts-script"><b>بپرس:</b><p>«کارت پایان خدمت دارید؟ شغلتون چیه؟ ساکن کدوم شهر هستید؟»</p></div>
-      <fieldset className="ts-q"><legend>وضعیت نظام وظیفه <span className="req">*</span><span className="ts-new">جدید</span></legend>
-        <Chips name="military" list={MILITARY} value={d.military} dashed="unknown" onChange={(v) => set({ military: v })} />{err('military')}</fieldset>
-      {d.military === 'no_card' ? <p className="ts-hint" data-testid="ts-mil-hint">طرح‌هایی که پایان خدمت لازم دارند «مناسب نیست» می‌شوند.</p> : null}
-      <JobQuestion name="jobType" legend="شغل متقاضی" value={d.jobType} error={err('jobType')} onChange={(v) => set({ jobType: v })} />
-      <CityQuestion customerId={customer.id} value={d.city} onChange={(v) => set({ city: v, cityTouched: true })} />
-    </>;
-  } else if (d.step === 4) {
-    body = <>
-      <div className="ts-script"><b>بپرس:</b><p>«می‌تونید یک ضامن معرفی کنید؟»</p></div>
-      <fieldset className="ts-q"><legend>ضامن می‌تونه معرفی کنه؟ <span className="req">*</span><span className="ts-new">جدید</span></legend>
-        <Chips name="gAvail" list={TRI} value={d.gAvail} dashed="unknown" onChange={(v) => { if (v !== 'yes') setGRankLetter(null); set({ gAvail: v }); }} />{err('gAvail')}</fieldset>
-      {d.gAvail === 'no' ? <p className="ts-hint" data-testid="ts-g-hint">طرح‌هایی که ضامن لازم دارند «مناسب نیست» می‌شوند.</p> : null}
-      {d.gAvail === 'unknown' ? <p className="ts-hint" data-testid="ts-g-hint">طرح‌هایی که ضامن لازم دارند در گروه «بستگی دارد» می‌آیند.</p> : null}
-      {d.gAvail === 'yes' ? <div className="ts-sub-q" data-testid="ts-g-follow">
-        <fieldset className="ts-q"><legend>ضامن می‌تونه چک بده؟ <span className="req">*</span><span className="ts-new">جدید</span></legend>
-          <Chips name="gCheque" list={TRI} value={d.gCheque} dashed="unknown" onChange={(v) => set({ gCheque: v })} />{err('gCheque')}</fieldset>
-        <RankQuestion name="gRank" legend="رتبه‌ی اعتباری ضامن" isNew hint="همیشه بعد از «بله» پرسیده می‌شود" value={d.gRank} error={err('gRank')}
-          onChange={(v, l) => { setGRankLetter(l); set({ gRank: v }); }} />
-        <JobQuestion name="gJobType" legend="شغل ضامن" value={d.gJobType} error={err('gJobType')} onChange={(v) => set({ gJobType: v })} />
-      </div> : null}
-    </>;
+  } else if (file) {
+    body = <div className="ffq" data-testid="ff-body">{steps.map((st) => <section key={st} className="ffs"><h4 className="fsh">{titles[st]}</h4>{stepBody(st)}</section>)}</div>;
+  } else if (d.step === 2 || d.step === 3 || d.step === STEP_PROFILE || d.step === 4) {
+    body = stepBody(d.step);
   } else if (d.step === 5) {
     const fit = (planList ?? []).filter((p) => p.status === 'fit');
     const dep = (planList ?? []).filter((p) => p.status === 'depends');
@@ -587,30 +637,33 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   const missing = strict && !done && !edit ? validate(d.step) : {};
   const blocked = Object.keys(missing).length > 0;
   const shown = Object.keys(errors).filter((k) => errors[k]);
-  const strictSummary = strict && shown.length ? <p className="ts-fbad" role="alert" data-testid="ts-missing">{shown.length === 1 ? 'یک مورد مانده' : shown.length === 2 ? 'دو مورد مانده' : `${fa(shown.length)} مورد مانده`}: {shown.map((k) => STRICT_LABELS[k] ?? k).join('، ')}</p> : null;
+  const strictSummary = (strict || file) && shown.length ? <p className="ts-fbad" role="alert" data-testid="ts-missing">{shown.length === 1 ? 'یک مورد مانده' : shown.length === 2 ? 'دو مورد مانده' : `${fa(shown.length)} مورد مانده`}: {shown.map((k) => STRICT_LABELS[k] ?? k).join('، ')}{file ? ' · تا کامل نشود ذخیره فعال نمی‌شود' : ''}</p> : null;
   return <div className="ts-layer" dir="rtl">
     <div className="ts-scrim" onClick={onClose} aria-hidden="true" />
-    <div ref={dialogRef} className={`ts-wz${strict ? ' strict' : ''}`} role="dialog" aria-modal="true" aria-labelledby="ts-wz-title" tabIndex={-1} data-testid="ts-simple-form">
+    <div ref={dialogRef} className={`ts-wz${strict || file ? ' strict' : ''}${file ? ' ffm' : ''}`} role="dialog" aria-modal="true" aria-labelledby="ts-wz-title" tabIndex={-1} data-testid="ts-simple-form">
       <div className="ts-wz-head">
         <div className="ts-wz-who">
-          <h2 id="ts-wz-title">{edit ? 'ویرایش خلاصه‌ی تماس اول' : 'فرم تماس'} — <CustomerName id={customer.id} name={customer.name} badgeTestId="ts-wz-customer-id" /></h2>
-          <div className="sub"><span className="ltr" dir="ltr" data-testid="ts-phone">{fa(strict ? maskPh(customer.phone) : customer.phone)}</span>
-            {strict ? null : <button type="button" className="ts-copy" onClick={copyPhone} aria-label={`کپی شماره‌ی ${customer.name}`} data-testid="ts-copy-phone"><Copy size={13} /> {copied ? 'کپی شد' : 'کپی'}</button>}
+          <h2 id="ts-wz-title">{file ? (file.complete ? 'ویرایش پرونده مشتری' : 'تکمیل پرونده مشتری') : edit ? 'ویرایش خلاصه‌ی تماس اول' : 'فرم تماس'} — <CustomerName id={customer.id} name={customer.name} badgeTestId="ts-wz-customer-id" /></h2>
+          <div className="sub"><span className="ltr" dir="ltr" data-testid="ts-phone">{fa(strict || file ? maskPh(customer.phone) : customer.phone)}</span>
+            {strict || file ? null : <button type="button" className="ts-copy" onClick={copyPhone} aria-label={`کپی شماره‌ی ${customer.name}`} data-testid="ts-copy-phone"><Copy size={13} /> {copied ? 'کپی شد' : 'کپی'}</button>}
             <span className="ts-badge gray">{prio}</span> <span className="ts-badge">نسخه‌ی ساده</span></div>
         </div>
         <button type="button" className="ts-ib" onClick={onClose} aria-label="بستن" data-testid="ts-close"><X size={22} /></button>
       </div>
       {reopenNotice && !done ? <div className="ts-reopen" role="status" data-testid="ts-reopen"><b>اطلاعات تماس اول این مشتری هنوز ثبت نشده</b>
         <small>مقادیر قبلی نگه داشته شده · کار این مشتری در لیست امروز باز است</small></div> : null}
-      <div className="ts-progress">
+      {file ? <p className="fmh" data-testid="ff-head">همان سؤال‌های فرم تماس اول · {file.answers ? 'پاسخ‌های قبلی پر شده‌اند' : 'هنوز پاسخی ثبت نشده'}{Object.keys(fileMissing).length ? <> · <span className="mc">{fa(Object.keys(fileMissing).length)} مورد مانده</span></> : null}</p> : <div className="ts-progress">
         <div className="row"><b>{done ? 'نتیجه' : titles[d.step]}</b><span className="ts-muted" data-testid="ts-step-of">{editResult ? 'ذخیره شد' : result ? 'ثبت شد' : `مرحله ${fa(idx)} از ${fa(total)}`}</span></div>
         <div className="bars" aria-hidden="true">{Array.from({ length: total }, (_, i) => <span key={i} className={done || i < idx ? 'on' : ''} />)}</div>
-      </div>
+      </div>}
       <div className="ts-wz-body" ref={bodyRef}>{onChangeCustomer && !done ? <div className="ts-picked-customer" data-testid="ts-picked-customer"><div><b><CustomerName id={customer.id} name={customer.name} badgeTestId="ts-picked-customer-id" /></b><span className="ts-muted"> | {prio}</span></div><button type="button" onClick={onChangeCustomer} data-testid="ts-change-customer"><ChevronRight size={16} aria-hidden="true" /> تغییر مشتری</button></div> : null}{body}</div>
       {copyToast ? <div className={`ts-toast${copied ? ' ok' : ''}`} role="status" data-testid="ts-copy-toast">{copyToast}</div> : null}
       {strictSummary}
       <div className="ts-wz-foot">
-        {editResult ? <div className="ts-two">
+        {file ? <div className="ts-two grow">
+          <button type="button" className="ts-ghost narrow" onClick={onClose} data-testid="ff-cancel">انصراف</button>
+          <button type="button" className="ts-primary" onClick={() => void submitFile()} disabled={pending} aria-disabled={Object.keys(fileMissing).length > 0 || undefined} data-testid="ff-save"><Check size={18} /> {pending ? 'در حال ذخیره…' : 'ذخیره‌ی پرونده'}</button>
+        </div> : editResult ? <div className="ts-two">
           <button type="button" className="ts-primary" onClick={onClose} data-testid="ts-edit-close">بازگشت به پرونده</button>
         </div> : result ? <div className="ts-two">
           <button type="button" className="ts-ghost" onClick={onClose} data-testid="ts-open-file">پرونده مشتری</button>
@@ -627,7 +680,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
           </> : lastStep ? <button type="button" className="ts-primary" onClick={() => void submit()} disabled={pending} aria-disabled={blocked || undefined} data-testid="ts-submit"><Check size={18} /> {pending ? 'در حال ثبت…' : d.callResult === 'no_answer' ? 'ثبت تماس بی‌پاسخ' : 'ثبت و تعیین اولویت'}</button>
             : <button type="button" className="ts-primary" onClick={next} disabled={d.step === 5 && !planList} aria-disabled={blocked || undefined} data-testid="ts-next">{nextLabel} <ChevronLeft size={18} /></button>}
         </div>}
-        {!done && !edit ? <p className="ts-muted center small">پیش‌نویس روی همین دستگاه نگه داشته می‌شود</p> : null}
+        {!done && !edit && !file ? <p className="ts-muted center small">پیش‌نویس روی همین دستگاه نگه داشته می‌شود</p> : null}
       </div>
       {cfm ? <div className="ts-cfx"><section className="ts-cfm" role="alertdialog" aria-modal="true" aria-labelledby="ts-cfm-t" data-testid="ts-close-confirm">
         <h2 id="ts-cfm-t">بستن بدون ثبت تماس؟</h2>

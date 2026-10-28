@@ -14,7 +14,8 @@ import { TodayCarousel } from './TodayCarousel';
 import { getGetAuthSessionQueryKey, getGetCustomerQueryKey, useGetAuthSession, useGetCustomer } from '@workspace/api-client-react';
 import { CallLaunchStatus, useCallLauncher } from '@/features/team-sales/useCallLauncher';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
-import { HistoryBox } from '@/features/history/HistoryBox';
+import { useHistorySummary, useFileCard } from '@/features/history/api';
+import { C3File, C3History, C3Upgrade, RetireeHint } from '@/features/history/TodayC3';
 
 /** FIRSTCALL-62: the customer handed to the existing first-call form (team-sales/SimpleCallForm), same props as the customer page. */
 type FcCustomer = { id: number; name: string; phone: string; priority?: number | null };
@@ -146,7 +147,14 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
     } catch (e) { setErr(e instanceof Error ? e.message : 'ثبت نشد.'); } finally { setBusy(false); }
   };
   const nextNo = d.progress.position + 1;
-  return <section className="dp-cur card" aria-labelledby="dp-cur-name" data-testid="dp-current">
+  // HISTORY-A v1.2: three columns only for a customer who already had calls (never on a first call / first-call form).
+  const hx = useHistorySummary(cur.customerId, formKind !== 'simple' && formKind !== 'wait');
+  const c3 = formKind !== 'simple' && formKind !== 'wait' && Boolean(hx.data) && !hx.data!.firstCall;
+  const fileQ = useFileCard(cur.customerId, c3);
+  const [toast, setToast] = useState('');
+  useEffect(() => { if (!toast) return; const t = window.setTimeout(() => setToast(''), 5000); return () => window.clearTimeout(t); }, [toast]);
+  const fa = fileQ.data?.answers;
+  const middle = <>
     <div className="dp-cur-top"><span className="dp-count">{cur.bucket === 'main' ? <>کار {faNum(d.progress.position)} از {faNum(d.progress.total)}</> : 'کار اضافه'}</span><Chips i={cur} /></div>
     <h2 id="dp-cur-name">{cur.name} <span className="dp-id">#{faNum(cur.customerId)}</span></h2>
     {cur.reason ? <p className="dp-reason" data-testid="dp-reason">{cur.reason}</p> : null}
@@ -163,8 +171,8 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
       <small data-testid="dp-move-count">جابه‌جایی {faNum(cur.moveCount)} از {faNum(d.moveMax)}</small>
     </div>
     {cur.movesLeft <= 0 ? <p className="dp-hint" data-testid="dp-move-limit">این کار ۲ بار جابه‌جا شده؛ باید نتیجه‌ی تماس ثبت شود.</p> : null}
-    {/* HISTORY-A: the customer's history (not on a first call) — compact before the call, full above the result form. */}
-    <HistoryBox customerId={cur.customerId} name={cur.name} compact={!opened} testId="dp-hx" />
+    {c3 && hx.data?.ask?.length && !opened ? <div className="hx-askb" data-testid="c3-ask"><b>چی بپرسه</b><ul className="hx-ask">{hx.data.ask.map((a) => <li key={a}>{a}</li>)}</ul></div> : null}
+    {c3 ? <RetireeHint sso={fa?.ssoRetiree} rel={fa?.ssoRetireeRelation ?? null} /> : null}
     {opened && formKind !== 'legacy' ? <div className="dp-result" data-testid="dp-result-first">
       {firstForm ? <button type="button" className="btn btn-primary dp-save" disabled={busy} onClick={openFirst} data-testid="dp-first-open"><FileText size={16} aria-hidden="true" /> فرم تماس اول</button>
         : <p className="dp-hint" role="status" data-testid="dp-first-wait">در حال آماده‌سازی فرم تماس…</p>}
@@ -176,6 +184,16 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
     <CallLaunchStatus status={launcher.status} onRetry={launcher.retry} onCancel={launcher.cancel} />
     {err ? <p className="dp-err" role="alert" data-testid="dp-err">{err}</p> : null}
     {move ? <MoveSheet d={d} cur={cur} onClose={() => setMove(false)} onMoved={() => { setMove(false); onDone(); }} /> : null}
+    {c3 && hx.data ? <C3Upgrade customerId={cur.customerId} name={cur.name} d={hx.data} /> : null}
+  </>;
+  if (!c3) return <section className="dp-cur card" aria-labelledby="dp-cur-name" data-testid="dp-current">{middle}</section>;
+  return <section className="dp-cur card c3" aria-labelledby="dp-cur-name" data-testid="dp-current" data-c3="1">
+    <div className="c3g">
+      <C3History customerId={cur.customerId} />
+      <div className="c3m" data-testid="c3-middle">{middle}</div>
+      <C3File customerId={cur.customerId} name={cur.name} phone={cust?.phone ?? cur.phone ?? ''} priority={cust?.priority ?? cur.priority ?? null} onSavedToast={setToast} />
+    </div>
+    {toast ? <div className="hx-toast" role="status" data-testid="c3-toast"><Check size={18} aria-hidden="true" /> <span>{toast}</span></div> : null}
   </section>;
 }
 

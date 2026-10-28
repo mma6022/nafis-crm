@@ -11,7 +11,8 @@
  */
 import { execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import { EL_ADMIN_USER_IDS, EL_USERS } from "./expert-lockdown";
-import { TeamSalesError, getTeamSalesConfig, logPriorityChange, ensureTeamSalesSchema, promoteToPriorityOne, shortName, type Actor } from "./team-sales";
+import { TeamSalesError, firstCallEditAccess, getTeamSalesConfig, latestFirstCall, logPriorityChange, ensureTeamSalesSchema, promoteToPriorityOne, shortName, type Actor } from "./team-sales";
+import { normalizeFirstCallAnswers, validateAnswers, type QualifierAnswers } from "./team-sales-rules";
 import { FC_STAGE_GROUPS, FC_GROUP_CODES, FC_GROUP_LABELS, FC_WAIT_GROUPS } from "./files-carousel";
 import { realCallSql } from "./real-call";
 
@@ -207,30 +208,92 @@ const maskPhone = (p: string | null | undefined) => {
   const d = String(p ?? "").replace(/[^0-9]/g, "");
   return d.length >= 8 ? `${d.slice(0, 4)}***${d.slice(-4)}` : null;
 };
-/** Read-only «پرونده» data for the Today card's file column. No national code / address / documents. */
+/* HISTORY-A v1.2 §الف-۱ «پرونده‌ی مشتری · پاسخ‌های فرم تماس اول»: the first-call answers + what is still missing (no city). */
+export const FILE_REQUIRED = ["amountMillion", "urgency", "docsReady", "creditRank", "cheque", "bouncedCheque", "military", "jobType", "ssoRetiree", "guarantorAvailable"] as const;
+export const FILE_GUARANTOR_REQUIRED = ["guarantorCheque", "gRank", "gJobType"] as const;
+const FILE_TABLE = "hx_file_answers";
+let fileSchemaReady = false;
+function ensureFileSchema() {
+  if (fileSchemaReady) return;
+  execute(`CREATE TABLE IF NOT EXISTS ${FILE_TABLE} (id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER NOT NULL, actor_user_id INTEGER NOT NULL, actor_name TEXT,
+    answers_json TEXT NOT NULL, before_json TEXT, changed_json TEXT NOT NULL, created_at TEXT NOT NULL)`);
+  execute(`CREATE INDEX IF NOT EXISTS idx_hx_file_answers_customer ON ${FILE_TABLE}(customer_id, id DESC)`);
+  fileSchemaReady = true;
+}
+const chequeOf = (a: Record<string, unknown>) =>
+  a.checkStatus && a.checkStatus !== "none" ? "check" : a.canPromissory === "yes" ? "promissory" : a.checkStatus ? "none" : null;
+/** Keys of required answers that are still empty. Guarantor sub-questions only when guarantorAvailable = yes; city never. */
+export function fileMissing(a: Record<string, unknown> | null): string[] {
+  const v = (k: string) => (k === "cheque" ? (a ? chequeOf(a) : null) : a?.[k]);
+  const empty = (x: unknown) => x == null || x === "" || (typeof x === "number" && !(x > 0));
+  const keys: string[] = [...FILE_REQUIRED];
+  if (a?.guarantorAvailable === "yes") keys.push(...FILE_GUARANTOR_REQUIRED);
+  return keys.filter((k) => empty(v(k)));
+}
+function latestFileOnly(customerId: number) {
+  ensureFileSchema();
+  const r = queryRow<{ id: number; answers_json: string; created_at: string; actor_name: string | null }>(
+    `SELECT id, answers_json, created_at, actor_name FROM ${FILE_TABLE} WHERE customer_id=? ORDER BY id DESC LIMIT 1`, [customerId]);
+  if (!r) return null;
+  try { return { id: r.id, answers: JSON.parse(r.answers_json) as Record<string, unknown>, at: r.created_at, by: r.actor_name }; } catch { return null; }
+}
+/** Read-only Today-card file column. No national code / address / documents; phone masked. */
 export function fileCard(customerId: number, actor: Actor) {
-  const c = queryRow<any>(`SELECT id,name,phone,priority,status,city,lead_source,created_at,is_urgent,merged_into_customer_id,salesperson_id FROM customers WHERE id=?`, [customerId]);
+  const c = queryRow<any>(`SELECT id,name,phone,priority,status,city,salesperson_id,merged_into_customer_id FROM customers WHERE id=?`, [customerId]);
   if (!c || c.merged_into_customer_id != null) return null;
-  const la = queryRow<any>(`SELECT id, stage, status, requested_amount, approved_amount, duration_months, created_at, updated_at FROM loan_applications
-    WHERE customer_id=? AND deleted_at IS NULL ORDER BY id DESC LIMIT 1`, [c.id]);
-  const cons = queryRow<any>(`SELECT id, requested_amount, requested_amount_toman, loan_purpose, need_days, has_check, has_guarantor, job_type, extra_notes, COALESCE(updated_at,created_at) at
-    FROM consultation_forms WHERE customer_id=? ORDER BY id DESC LIMIT 1`, [c.id]);
-  const remindersOpen = queryRows<any>(`SELECT id, subject, message, remind_at FROM reminders WHERE customer_id=? AND user_id=? AND COALESCE(done,0)=0 AND voided_at IS NULL
-    AND closed_at IS NULL ORDER BY remind_at, id LIMIT 5`, [c.id, actor.id]).map((r) => ({ id: r.id, text: one(r.subject || r.message, 80), at: r.remind_at }));
-  const fs = fileStatus(c);
+  const fc = latestFirstCall(c.id);
+  const fo0 = latestFileOnly(c.id);
+  // A «ذخیره‌ی پرونده» newer than the latest first-call record wins; a newer first-call record/edit wins over an older file save.
+  const fo = fo0 && (!fc || Date.parse(fo0.at) > Date.parse(fc.createdAt)) ? fo0 : null;
+  const answers: Record<string, unknown> | null = fo ? { ...fo.answers } : fc ? { ...fc.answers } : null;
+  if (answers) answers.cheque = chequeOf(answers);
+  const missing = fileMissing(answers);
+  const total = FILE_REQUIRED.length + (answers?.guarantorAvailable === "yes" ? FILE_GUARANTOR_REQUIRED.length : 0);
   const p1Src = c.priority === 1 ? lastP1Source(c.id) : null;
   return {
-    customerId: c.id, name: c.name, phoneMasked: maskPhone(c.phone), priority: c.priority, status: c.status, statusLabel: STATUS_FA[c.status] ?? c.status,
-    city: c.city ?? null, leadSource: c.lead_source ?? null, createdAt: c.created_at, urgent: Number(c.is_urgent) === 1,
-    fileStatus: fs.label, fileTone: fs.tone,
-    loanApplication: la ? { id: la.id, stage: la.stage, status: la.status, requestedAmount: la.requested_amount ?? null, approvedAmount: la.approved_amount ?? null,
-      durationMonths: la.duration_months ?? null, createdAt: la.created_at, updatedAt: la.updated_at ?? null } : null,
-    consultation: cons ? { id: cons.id, requestedAmount: cons.requested_amount_toman ?? cons.requested_amount ?? null, purpose: cons.loan_purpose ?? null, needDays: cons.need_days ?? null,
-      hasCheck: cons.has_check == null ? null : Boolean(cons.has_check), hasGuarantor: cons.has_guarantor == null ? null : Boolean(cons.has_guarantor),
-      jobType: cons.job_type ?? null, note: one(cons.extra_notes, 160) || null, at: cons.at } : null,
-    openReminders: remindersOpen,
+    customerId: c.id, name: c.name, phoneMasked: maskPhone(c.phone), priority: c.priority, status: c.status,
+    source: fo ? "file" : fc ? "first_call" : null, baseId: fc?.id ?? null, updatedAt: fo?.at ?? fc?.createdAt ?? null,
+    changedFields: fo ? lastChanged(c.id, fo.id) : [],
+    answers, city: (answers?.city as string | null | undefined) ?? c.city ?? null,
+    note: fc?.note ?? null, selectedPlanIds: fc ? fc.selectedPlans.map((p: any) => Number(p.id)) : [], noPlanFit: fc?.noPlanFit ?? false, noPlanNote: fc?.noPlanNote ?? null,
+    missing, missingCount: missing.length, total, complete: answers != null && missing.length === 0,
+    canEdit: firstCallEditAccess(actor, c).canEdit,
     isP1: c.priority === 1, revertAdminOnly: c.priority === 1 && p1Src != null && (HX_UPGRADE_SOURCES as readonly string[]).includes(p1Src), adminLine: HX_ADMIN_LINE,
   };
+}
+function lastChanged(customerId: number, id: number): string[] {
+  const r = queryRow<{ changed_json: string }>(`SELECT changed_json FROM ${FILE_TABLE} WHERE id=? AND customer_id=?`, [id, customerId]);
+  try { return r ? (JSON.parse(r.changed_json) as { field: string }[]).map((x) => x.field) : []; } catch { return []; }
+}
+/**
+ * «ذخیره‌ی پرونده» (Today card file column). Saves a file-layer record with before/changed; the first-call record itself
+ * stays as it was recorded. This path NEVER changes priority, owner, status or the qualification report, records no call
+ * and sends nothing (unlike «ویرایش خلاصه‌ی تماس اول», whose P3→P2 / transfer rules are untouched).
+ */
+export function saveFileOnly(customerId: number, actor: Actor, raw: unknown, now = new Date()) {
+  ensureTeamSalesSchema(); ensureFileSchema();
+  const c = queryRow<any>(`SELECT id,salesperson_id,priority,status,merged_into_customer_id FROM customers WHERE id=?`, [customerId]);
+  if (!c || c.merged_into_customer_id != null) throw new TeamSalesError(404, "Customer not found");
+  if (!firstCallEditAccess(actor, c).canEdit) throw new TeamSalesError(403, "تکمیل پرونده فقط برای مدیر، کارشناس تماس اول و کارشناس همین مشتری است.");
+  const src = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const a = { ...src, mode: "simple", formVersion: 2, callResult: "answered" } as QualifierAnswers;
+  const err = !a.ssoRetiree ? "بازنشستگی تأمین اجتماعی (متقاضی یا خانواده) را مشخص کنید." : validateAnswers(a, now);
+  if (err) throw new TeamSalesError(400, err);
+  const n = normalizeFirstCallAnswers(a) as Record<string, unknown>;
+  const KEEP = ["amountMillion", "urgency", "docsReady", "creditRank", "checkStatus", "canPromissory", "bouncedCheque", "military", "jobType", "city",
+    "ssoRetiree", "ssoRetireeRelation", "guarantorAvailable", "guarantorCheque", "gRank", "gJobType"];
+  const stored: Record<string, unknown> = {}; for (const k of KEEP) stored[k] = n[k] ?? null;
+  const cur = fileCard(c.id, actor);
+  const prev = cur?.answers ? { answers: cur.answers } : null;
+  const fields = [...KEEP.filter((k) => k !== "checkStatus" && k !== "canPromissory"), "cheque"];
+  const val = (o: Record<string, unknown> | null | undefined, k: string) => (o ? (k === "cheque" ? chequeOf(o) : o[k] ?? null) : null);
+  const changed = fields.filter((k) => JSON.stringify(val(prev?.answers, k)) !== JSON.stringify(val(stored, k)))
+    .map((k) => ({ field: k, old: val(prev?.answers, k), new: val(stored, k) }));
+  if (!changed.length) throw new TeamSalesError(400, "تغییری ثبت نشد.");
+  const actorName = queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [actor.salespersonId ?? -1])?.name ?? actor.fullName ?? null;
+  const id = execute(`INSERT INTO ${FILE_TABLE} (customer_id, actor_user_id, actor_name, answers_json, before_json, changed_json, created_at) VALUES (?,?,?,?,?,?,?)`,
+    [c.id, actor.id, actorName, JSON.stringify(stored), prev ? JSON.stringify(prev.answers) : null, JSON.stringify(changed), now.toISOString()]);
+  return { id, changed, priorityBefore: c.priority, priorityAfter: c.priority };
 }
 /** Real calls of one customer, newest first, keyset-paged by id (`before`). daily_plan mirrors and upgrade rows are excluded (realCallSql). */
 export function callHistory(customerId: number, limit = 20, before: number | null = null) {

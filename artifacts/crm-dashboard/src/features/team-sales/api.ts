@@ -27,6 +27,7 @@ export type SimpleAnswers = {
   guarantorAvailable?: Tri | null; guarantorCheque?: Tri | null; gRank?: string | null;
   /** crm-no-plan-option: applicant military service, applicant / guarantor job (job_type codes or «نمی‌دونه»), city. */
   military?: Military | null; jobType?: string | null; gJobType?: string | null; city?: string | null;
+  ssoRetiree?: 'self' | 'family' | 'none' | null; ssoRetireeRelation?: string | null;
   /** «هیچ طرحی به این مشتری نمی‌خوره» — never an automatic P1 (enforced on the server). */
   noPlanFit?: boolean;
 };
@@ -44,6 +45,7 @@ export type FirstCallSummary = {
     checkStatus: string | null; canPromissory: string | null; bouncedCheque: string | null;
     guarantorAvailable: Tri | null; guarantorCheque: Tri | null; gRank: string | null;
     military?: string | null; jobType?: string | null; gJobType?: string | null; city?: string | null;
+    ssoRetiree?: string | null; ssoRetireeRelation?: string | null;
   };
 };
 export type QualifyResult = {

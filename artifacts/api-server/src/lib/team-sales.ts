@@ -516,6 +516,7 @@ export function latestFirstCall(customerId: number) {
       checkStatus: pick("checkStatus"), canPromissory: pick("canPromissory"), bouncedCheque: pick("bouncedCheque"),
       guarantorAvailable: pick("guarantorAvailable"), guarantorCheque: pick("guarantorCheque"), gRank: pick("gRank"),
       military: pick("military"), jobType: pick("jobType"), gJobType: pick("gJobType"), city: pick("city"),
+      ssoRetiree: pick("ssoRetiree"), ssoRetireeRelation: pick("ssoRetireeRelation"),
     },
   };
 }
@@ -678,7 +679,8 @@ export function ensureFirstCallEditSchema(): void {
 type FirstCallVersion = { answers: Record<string, unknown>; note: string; selectedPlanIds: number[]; selectedPlanNames: string[];
   noPlanFit: boolean; noPlanNote: string | null };
 const EDIT_FIELDS = ["amountMillion", "docsReady", "creditRank", "cheque", "bouncedCheque", "military", "jobType", "city",
-  "guarantorAvailable", "guarantorCheque", "gRank", "gJobType", "selectedPlans", "noPlanFit", "noPlanNote", "urgency", "note"] as const;
+  "guarantorAvailable", "guarantorCheque", "gRank", "gJobType", "selectedPlans", "noPlanFit", "noPlanNote", "urgency", "note",
+  "ssoRetiree", "ssoRetireeRelation"] as const;
 export type FirstCallEditField = (typeof EDIT_FIELDS)[number];
 const chequeOf = (a: Record<string, unknown>) =>
   a.checkStatus && a.checkStatus !== "none" ? "check" : a.canPromissory === "yes" ? "promissory" : a.checkStatus ? "none" : null;

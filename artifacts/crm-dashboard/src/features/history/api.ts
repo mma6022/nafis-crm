@@ -31,3 +31,24 @@ export function useHistorySummary(customerId: number | null | undefined, enabled
 /** Armita «فاز ۲»: POST …/priority { level:1, reason } — reason ≤80 mandatory. */
 export const promoteToP1 = (customerId: number, reason: string) =>
   req<UpgradeResult>(`/customers/${customerId}/priority`, { method: 'POST', body: JSON.stringify({ level: 1, reason: reason.trim() }) });
+
+/* HISTORY-A v1.2: Today card 3 columns. */
+export type CallHistory = { items: HxCall[]; nextBefore: number | null };
+export type FileCard = {
+  customerId: number; name: string; phoneMasked: string; priority: number | null; status: string;
+  source: 'first_call' | 'file' | null; baseId: number | null; updatedAt: string | null; changedFields: string[];
+  answers: Record<string, any> | null; city: string | null; missing: string[]; missingCount: number; total: number; complete: boolean;
+  canEdit: boolean; isP1: boolean; revertAdminOnly: boolean; adminLine: string;
+};
+export const callHistoryKey = (id: number) => ['call-history', id] as const;
+export const fileCardKey = (id: number) => ['file-card', id] as const;
+export function useCallHistory(customerId: number, enabled = true) {
+  return useQuery<CallHistory>({ queryKey: callHistoryKey(customerId), enabled: Boolean(customerId) && enabled, retry: false, staleTime: 15_000,
+    queryFn: () => req<CallHistory>(`/customers/${customerId}/call-history?limit=30`) });
+}
+export function useFileCard(customerId: number, enabled = true) {
+  return useQuery<FileCard>({ queryKey: fileCardKey(customerId), enabled: Boolean(customerId) && enabled, retry: false, staleTime: 15_000,
+    queryFn: () => req<FileCard>(`/customers/${customerId}/file-card`) });
+}
+export const saveFileCard = (customerId: number, answers: unknown) =>
+  req<FileCard>(`/customers/${customerId}/file-card`, { method: 'POST', body: JSON.stringify({ answers }) });

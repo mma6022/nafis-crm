@@ -15,7 +15,7 @@ import { NONP1_TRANSFER_HEADER } from "../lib/nonp1-transfer";
 import { addWorkingHours, type QualifierAnswers } from "../lib/team-sales-rules";
 import { ConsultProfileError, canActOnCustomerProfile, consultProfile, editConsultProfile } from "../lib/consult-profile";
 import { isAdminRole } from "../lib/customer-integrity";
-import { HX_REASON_MAX, callHistory, fileCard, expertUpgrade, expertUpgradesReport, historySummary, hxCanSee, hxExpert, selfNextCloser, upgradeReasonOf } from "../lib/history-a";
+import { HX_REASON_MAX, callHistory, fileCard, saveFileOnly, expertUpgrade, expertUpgradesReport, historySummary, hxCanSee, hxExpert, selfNextCloser, upgradeReasonOf } from "../lib/history-a";
 import { TransferCheckError, cqLogRefusedTransfer, cqTransferPreview, withTransferOverride } from "../lib/call-queue-r3";
 
 const router: IRouter = Router();
@@ -121,6 +121,14 @@ router.get("/customers/:id/file-card", requirePermission("customers.view"), (req
   const out = fileCard(id, actorOf(res));
   if (!out) { res.status(404).json({ error: "Customer not found" }); return; }
   res.json(out);
+});
+/** HISTORY-A v1.2: «ذخیره‌ی پرونده» — answers only; never priority/owner/status, no call row, no message. */
+router.post("/customers/:id/file-card", requirePermission("customers.update"), (req, res): void => {
+  const id = hxScope(req, res); if (id == null) return;
+  try {
+    saveFileOnly(id, actorOf(res), req.body?.answers);
+    res.json(fileCard(id, actorOf(res)));
+  } catch (e) { fail(res, e); }
 });
 /** HISTORY-A v1.2 prep: Today card «سابقه‌ی تماس» column (read-only, keyset paging ?limit=&before=). */
 router.get("/customers/:id/call-history", requirePermission("customers.view"), (req, res): void => {

@@ -141,7 +141,12 @@ export type QualifierAnswers = {
   gJobType?: string | null;
   city?: string | null;
   noPlanFit?: boolean | null;
+  /** HISTORY-A v1.2 (Armita §الف-۳): «متقاضی یا یکی از خانواده‌اش بازنشسته‌ی تأمین اجتماعی هست؟» — required in the first-call form; relation optional (family only). */
+  ssoRetiree?: (typeof SSO_RETIREE)[number] | null;
+  ssoRetireeRelation?: string | null;
 };
+export const SSO_RETIREE = ["self", "family", "none"] as const;
+export const SSO_RELATION_MAX = 40;
 export type Tri = "yes" | "no" | "unknown";
 const TRI: readonly string[] = ["yes", "no", "unknown"];
 export const isFirstCallForm = (a: QualifierAnswers | null | undefined) => !!a && a.mode === "simple" && a.formVersion === 2;
@@ -194,6 +199,10 @@ export function validateAnswers(a: QualifierAnswers, now: Date = new Date(), leg
     if (a.gJobType != null && !JOBS.includes(a.gJobType) && a.gJobType !== "unknown") return "شغل ضامن معتبر نیست.";
     if (a.city != null && (typeof a.city !== "string" || [...a.city.trim()].length > 60)) return "شهر محل سکونت معتبر نیست (حداکثر ۶۰ نویسه).";
     if (a.noPlanFit != null && typeof a.noPlanFit !== "boolean") return "گزینه‌ی «هیچ طرحی نمی‌خوره» معتبر نیست.";
+    // Required in the new form UI (and by «ذخیره‌ی پرونده»); the server tolerates it missing so a tab still on the previous bundle can finish its call.
+    if (a.ssoRetiree != null && !(SSO_RETIREE as readonly string[]).includes(a.ssoRetiree)) return "بازنشستگی تأمین اجتماعی (متقاضی یا خانواده) معتبر نیست.";
+    if (a.ssoRetireeRelation != null && (typeof a.ssoRetireeRelation !== "string" || [...a.ssoRetireeRelation.trim()].length > SSO_RELATION_MAX))
+      return `نسبت عضو خانواده معتبر نیست (حداکثر ${SSO_RELATION_MAX} نویسه).`;
   } else if (a.noPlanFit) return "گزینه‌ی «هیچ طرحی نمی‌خوره» فقط در فرم تماس اول است.";
   return null;
 }
@@ -211,6 +220,8 @@ export function normalizeFirstCallAnswers(a: QualifierAnswers): QualifierAnswers
     ...a, guarantorCheque: cheque, gRank: yes ? a.gRank ?? null : null, guarantorCount: yes ? 1 : 0,
     gJobType: yes ? a.gJobType ?? null : null, city: typeof a.city === "string" ? a.city.trim().replace(/\s+/g, " ") || null : null,
     noPlanFit: a.noPlanFit === true,
+    ssoRetiree: a.ssoRetiree ?? null,
+    ssoRetireeRelation: a.ssoRetiree === "family" && typeof a.ssoRetireeRelation === "string" ? a.ssoRetireeRelation.trim().replace(/\s+/g, " ") || null : null,
     gPhysical: cheque === "yes", gDigital: cheque === "yes", gPromissory: false, gSalary: false,
   };
 }
