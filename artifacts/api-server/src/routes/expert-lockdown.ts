@@ -2,7 +2,7 @@
 import { Router, type IRouter } from "express";
 import type { AuthUser } from "../lib/auth";
 import { dpToday } from "../lib/daily-plan";
-import { EL_ADMIN_USER_IDS, EL_ALLOWED_PAGES, EL_GRANT_MINUTES, elDailyCounts, elIncomingOpen, elIncomingSearch, elLocked } from "../lib/expert-lockdown";
+import { EL_ADMIN_USER_IDS, EL_ALLOWED_PAGES, EL_GRANT_MINUTES, elDailyCounts, elIncomingChoose, elIncomingOpen, elIncomingSearch, elLocked, elNewCheck, elNewCreate } from "../lib/expert-lockdown";
 
 const router: IRouter = Router();
 const me = (res: any) => res.locals.authUser as AuthUser | undefined;
@@ -22,6 +22,25 @@ router.post("/expert-lockdown/incoming/search", (req, res): void => {
   if (!elLocked(u)) { res.status(404).json({ error: "not_found" }); return; }
   const r = elIncomingSearch(u!, req.body?.q);
   res.status(r.result === "rate_limited" ? 429 : 200).json(r);
+});
+// incoming2-59: «تماس ورودی داشتم» → option click log, «ثبت مشتری جدید» step 1 (phone duplicate check) and create.
+router.post("/expert-lockdown/incoming/choose", (req, res): void => {
+  const u = me(res);
+  if (!elLocked(u)) { res.status(404).json({ error: "not_found" }); return; }
+  const r = elIncomingChoose(u!, req.body?.option);
+  res.status(r.ok ? 200 : 400).json(r);
+});
+router.post("/expert-lockdown/incoming/new/check", (req, res): void => {
+  const u = me(res);
+  if (!elLocked(u)) { res.status(404).json({ error: "not_found" }); return; }
+  const r = elNewCheck(u!, req.body?.phone);
+  res.status(r.result === "rate_limited" ? 429 : r.result === "invalid" ? 400 : 200).json(r);
+});
+router.post("/expert-lockdown/incoming/new", (req, res): void => {
+  const u = me(res);
+  if (!elLocked(u)) { res.status(404).json({ error: "not_found" }); return; }
+  const r = elNewCreate(u!, req.body && typeof req.body === "object" ? req.body : undefined);
+  res.status(r.result === "rate_limited" ? 429 : r.result === "invalid" ? 400 : r.result === "duplicate" ? 409 : 201).json(r);
 });
 router.get("/expert-lockdown/admin/daily", (req, res): void => {
   const u = me(res);

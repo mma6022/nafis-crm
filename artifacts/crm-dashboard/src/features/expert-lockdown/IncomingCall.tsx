@@ -12,7 +12,7 @@ import { dpApi } from '@/features/daily-plan/api';
 import { elApi, type ElSearch } from './api';
 import './lockdown.css';
 
-export function LockedInbound({ onClose, onSaved, currentNo }: { onClose: () => void; onSaved: () => void; currentNo?: number | null }) {
+export function LockedInbound({ onClose, onSaved, currentNo, onBack }: { onClose: () => void; onSaved: () => void; currentNo?: number | null; onBack?: () => void }) {
   const cq = useCqConfig().data;
   const [term, setTerm] = useState('');
   const [res, setRes] = useState<ElSearch | null>(null);
@@ -61,6 +61,7 @@ export function LockedInbound({ onClose, onSaved, currentNo }: { onClose: () => 
       <li>مشتری خودت: پرونده چند دقیقه باز می‌شود و تماس «خارج از لیست» ثبت می‌شود.</li>
       <li>مشتری کارشناس دیگر: فقط نام کارشناسش را می‌بینی و به او خبر داده می‌شود.</li>
       <li>کار جاری سر جایش است و شمارنده‌ی لیست عوض نمی‌شود.</li></ul> : null}
+    {onBack ? <button type="button" className="btn btn-ghost" onClick={onBack} data-testid="el-in-back">برگشت به انتخاب</button> : null}
   </section>;
 }
 
@@ -70,7 +71,7 @@ export function IncomingStatsCard() {
   if (!data || !data.flag) return null;
   return <section className="card el-card" data-testid="el-stats" aria-labelledby="el-stats-h">
     <h2 id="el-stats-h"><PhoneIncoming size={16} aria-hidden="true" /> تماس ورودی کارشناس‌ها · امروز</h2>
-    <table><thead><tr><th>کارشناس</th><th>باز کردن</th><th>جست‌وجو</th><th>مشتری خودش</th><th>مشتری دیگران</th><th>پیدا نشد</th><th>ثبت خارج از لیست</th></tr></thead>
-      <tbody>{data.experts.map((x) => <tr key={x.userId} data-testid={`el-stats-${x.userId}`}><td>{x.name}</td><td>{faNum(x.opens)}</td><td>{faNum(x.searches)}</td><td>{faNum(x.own)}</td><td>{faNum(x.other)}</td><td>{faNum(x.none)}</td><td>{faNum(x.loggedOutOfList)}</td></tr>)}</tbody></table>
+    <table><thead><tr><th>کارشناس</th><th>باز کردن</th><th>«مشتری منه»</th><th>«مشتری جدید»</th><th>جست‌وجو</th><th>مشتری خودش</th><th>مشتری دیگران</th><th>پیدا نشد</th><th>ثبت خارج از لیست</th><th>شماره‌ی تکراری</th><th>مشتری جدید ثبت شد</th></tr></thead>
+      <tbody>{data.experts.map((x) => <tr key={x.userId} data-testid={`el-stats-${x.userId}`}><td>{x.name}</td><td>{faNum(x.opens)}</td><td>{faNum(x.chooseOwn ?? 0)}</td><td>{faNum(x.chooseNew ?? 0)}</td><td>{faNum(x.searches)}</td><td>{faNum(x.own)}</td><td>{faNum(x.other)}</td><td>{faNum(x.none)}</td><td>{faNum(x.loggedOutOfList)}</td><td>{faNum(x.duplicates ?? 0)}</td><td>{faNum(x.created ?? 0)}</td></tr>)}</tbody></table>
   </section>;
 }

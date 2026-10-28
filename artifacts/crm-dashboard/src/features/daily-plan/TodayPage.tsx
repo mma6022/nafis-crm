@@ -8,7 +8,7 @@ import { announceCallSaved, faClock, faNum, tehranParts, useCqConfig } from '@/f
 import { custList, dpApi, DpError, useDpConfig, type DpItem, type DpToday } from './api';
 import './daily-plan.css';
 import { elApi, useLockdownMe } from '@/features/expert-lockdown/api';
-import { LockedInbound } from '@/features/expert-lockdown/IncomingCall';
+import { LockedIncomingChoice } from '@/features/expert-lockdown/IncomingChoice';
 
 type Working = Extract<DpToday, { eligible: true }>;
 const faDate = (ymd: string) => new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(`${ymd}T12:00:00+03:30`));
@@ -54,10 +54,10 @@ export default function TodayPage() {
     <StateBox d={d} />
     {d.current ? <CurrentCard key={`${d.current.id}-${d.current.moveCount}`} d={d} cur={d.current} onDone={refresh} /> : null}
     <div className="dp-inbound-row">
-      <button type="button" className="btn btn-ghost" onClick={() => { if (locked && !inbound) void elApi.open().catch(() => undefined); setInbound((v) => !v); }} aria-expanded={inbound} data-testid="dp-inbound-open"><PhoneIncoming size={16} aria-hidden="true" /> {locked ? 'تماس ورودی · پیدا کردن پرونده' : 'تماس ورودی'}</button>
+      <button type="button" className="btn btn-ghost" onClick={() => { if (locked && !inbound) void elApi.open().catch(() => undefined); setInbound((v) => !v); }} aria-expanded={inbound} data-testid="dp-inbound-open"><PhoneIncoming size={16} aria-hidden="true" /> {locked ? 'تماس ورودی داشتم' : 'تماس ورودی'}</button>
       <small>فقط وقتی مشتری خودش زنگ زده؛ کار جاری عوض نمی‌شود.</small>
     </div>
-    {inbound ? locked ? <LockedInbound onClose={() => setInbound(false)} onSaved={refresh} /> : <Inbound onClose={() => setInbound(false)} onSaved={refresh} /> : null}
+    {inbound ? locked ? <LockedIncomingChoice onClose={() => setInbound(false)} onSaved={refresh} /> : <Inbound onClose={() => setInbound(false)} onSaved={refresh} /> : null}
     <Order d={d} />
   </div>;
 }
