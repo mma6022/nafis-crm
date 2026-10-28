@@ -1,3 +1,4 @@
+import { registrarCanTag } from "../lib/registrar-view";
 import { cqAfterCall, cqParseCall, type CqCallResult } from "../lib/call-queue";
 import { dpAfterCall, dpAfterCommit, dpPreCall, dpSearchCheck } from "../lib/daily-plan";
 import express, { Router, type IRouter, type RequestHandler } from "express";
@@ -3298,11 +3299,13 @@ router.patch(
     }
     const user = res.locals.authUser as AuthUser;
     const customerId = params.data.id;
-    if (!customerOwnerOrAdmin(customerId, user)) {
+    // REGTAG-55: the customer's own registrar (default-owner rule gave it to Kazemi) may ADD tags only — lib/registrar-view.ts.
+    const registrarTagOnly = !customerOwnerOrAdmin(customerId, user) && registrarCanTag(crmDb, user, customerId);
+    if (!registrarTagOnly && !customerOwnerOrAdmin(customerId, user)) {
       res.status(404).json({ error: "Customer not found" });
       return;
     }
-    const tags = [...new Set(parsed.data.tags)];
+    const tags = registrarTagOnly ? [...new Set([...customerTags(customerId), ...parsed.data.tags])] : [...new Set(parsed.data.tags)];
     const knownTags = queryRows<{ tag: string }>(
       `SELECT tag FROM customer_tag_catalog WHERE tag IN (${tags.map(() => "?").join(",") || "''"})`,
       tags,
