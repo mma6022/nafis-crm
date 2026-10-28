@@ -1,4 +1,4 @@
-/* Home banners (Armita v1.0, ۶ آبان ۱۴۰۵): kit _kit/hb.css + nafisvam brand.css, adapted (.hb-home instead of .hero.hb so site.css .hero rules don't apply). */
+/* Home banners (Armita v1.0 → v1.0.1, ۶ آبان ۱۴۰۵): kit _kit/hb.css + nafisvam brand.css, adapted (.hb-home instead of .hero.hb so site.css .hero rules don't apply). */
 /* home-banners kit v1.0 (۶ آبان ۱۴۰۵) — hero slider + mid banners over امید's banner sets. CSS-light. */
 .hb{position:relative;background:var(--hb-bg);color:var(--hb-fg);overflow:hidden;isolation:isolate}
 .hb-track{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;overscroll-behavior-x:contain;position:relative}
@@ -75,3 +75,12 @@
 .hb-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 @media (min-width:768px){.hb .hb-h{font-size:clamp(28px,3.1vw,42px)}}
 .hbm-wrap{margin:8px 0}
+/* v1.0.1 ports (deferred in v1.0): scroll-in reveal, gated by html.rv-on (set by home-banners.js only when it will reveal) */
+.rv-on .rv{opacity:0;transform:translateY(14px);transition:opacity .5s ease,transform .5s ease}
+.rv-on .rv.in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){.rv-on .rv{opacity:1;transform:none;transition:none}}
+/* mobile rhythm: tighter, even section spacing (brand.css; this file only loads on the home page) */
+@media (max-width:767px){.sec{padding-top:32px;padding-bottom:32px}.finder{padding-top:28px}}
+.svc a,.why2 li,.post{transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
+.svc a:hover,.post:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(11,20,80,.1)}
+@media (prefers-reduced-motion:reduce){.svc a,.post{transition:none}.svc a:hover,.post:hover{transform:none}}

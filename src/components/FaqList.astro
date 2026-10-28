@@ -9,8 +9,10 @@ import I from './ui/I.astro';
 interface Props {
   items: { q: string; a: string }[];
   openFirst?: number;
+  /** home: wrap «N طرح فعال» (N = this Persian planCount) in a live-refreshed data-plan-count span */
+  bindPlanCount?: string;
 }
-const { items, openFirst = 0 } = Astro.props;
+const { items, openFirst = 0, bindPlanCount } = Astro.props;
 const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const rich = (t: string) => splitMarkers(t).map((x) => (x.marker ? `<span class="ph">${esc(x.text)}</span>` : esc(x.text))).join('');
 ---
@@ -23,7 +25,7 @@ const rich = (t: string) => splitMarkers(t).map((x) => (x.marker ? `<span class=
           <span set:html={rich(i.q)} />
           <I name="down" size={20} />
         </summary>
-        <div set:html={rich(i.a)} />
+        <div set:html={bindPlanCount ? rich(i.a).replaceAll(`${bindPlanCount} طرح فعال`, `<span data-plan-count="planCount">${bindPlanCount}</span> طرح فعال`) : rich(i.a)} />
       </details>
     ))
   }

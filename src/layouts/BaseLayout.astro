@@ -13,6 +13,8 @@ export interface Props {
   title: string; // page title WITHOUT brand suffix (home passes the full title + `rawTitle`)
   description: string;
   rawTitle?: boolean;
+  /** home: `{planCount}` title template → <title data-bind-title>, refreshed from the live plan export (live-facts) */
+  titleTemplate?: string;
   image?: string;
   ogType?: 'website' | 'article';
   noindex?: boolean;
@@ -33,6 +35,7 @@ const {
   title,
   description,
   rawTitle = false,
+  titleTemplate,
   image = SITE.ogImage,
   ogType = 'website',
   noindex = false,
@@ -55,7 +58,7 @@ const src = Astro.props.src ?? (path.split('/').filter(Boolean)[0] || 'home');
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>{fullTitle}</title>
+    <title data-bind-title={titleTemplate}>{fullTitle}</title>
     <meta name="description" content={description} />
     {!noCanonical && <link rel="canonical" href={canonical} />}
     <meta name="robots" content={noindex ? 'noindex, follow' : 'index, follow, max-image-preview:large'} />

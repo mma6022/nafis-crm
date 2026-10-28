@@ -37,7 +37,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
 };
 ---
 
-<BaseLayout rawTitle title={fill(page.data.title)} description={page.data.description} src="home" jsonLd={[financialServiceLd(), faqLd(faq)]}>
+<BaseLayout rawTitle title={fill(page.data.title)} titleTemplate={page.data.title} description={page.data.description} src="home" jsonLd={[financialServiceLd(), faqLd(faq)]}>
   <HeroSlider facts={facts} />
 
   <section class="finder" id="plan-finder" aria-labelledby="finder-h">
@@ -56,7 +56,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
     <div class="container-nf"><CallbackForm client:visible variant="section" src="home-callback" wa /></div>
   </section>
 
-  <section class="sec trustwhy" aria-labelledby="why-h" style="padding-top:40px">
+  <section class="rv sec trustwhy" aria-labelledby="why-h" style="padding-top:40px">
     <div class="container-nf">
       <h2 id="why-h" class="vh">چرا نفیس وام؟</h2>
       <div class="trust">
@@ -74,7 +74,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
     </div>
   </section>
 
-  <section class="sec" aria-labelledby="svc-h">
+  <section class="rv sec" aria-labelledby="svc-h">
     <div class="container-nf">
       <div class="sec-head"><h2 id="svc-h">خدمات نفیس وام</h2></div>
       <div class="svc">
@@ -99,7 +99,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
     </div>
   </section>
 
-  <section class="sec" aria-labelledby="steps-h">
+  <section class="rv sec" aria-labelledby="steps-h">
     <div class="container-nf">
       <div class="sec-head"><h2 id="steps-h">از درخواست تا دریافت، در ۳ قدم</h2></div>
       <ol class="steps3">
@@ -121,7 +121,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
 
   {
     posts.length > 0 && (
-      <section class="sec" aria-labelledby="blog-h">
+      <section class="rv sec" aria-labelledby="blog-h">
         <div class="container-nf">
           <div class="sec-head">
             <h2 id="blog-h">مجله نفیس</h2>
@@ -145,7 +145,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
         <h2 id="faq-h">سؤالات متداول</h2>
         <p>جواب سؤالی را پیدا نکردید؟ <a href="/contact/#callback">درخواست مشاوره‌ی رایگان بگذارید</a>.</p>
       </div>
-      <FaqList items={faq} />
+      <FaqList items={faq} bindPlanCount={fa(facts.planCount)} />
       <div class="faq-more"><a class="nf-btn nf-btn--text" href="/faq/">همه سؤالات متداول <I name="arrow" size={18} /></a></div>
     </div>
   </section>

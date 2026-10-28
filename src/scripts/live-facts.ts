@@ -4,10 +4,14 @@ import { fa, planFactValue, planFacts } from '../lib/plans';
 
 export async function refreshLiveFacts() {
   const facts = document.querySelectorAll<HTMLElement>('[data-plan-fact],[data-plan-count]');
-  if (!facts.length) return;
+  const title = document.querySelector<HTMLTitleElement>('title[data-bind-title]');
+  if (!facts.length && !title) return;
   const plans = await fetchLoanPlans([]);
   if (!plans.length) return;
   const counts = planFacts(plans) as unknown as Record<string, number | string>;
+  // home <title data-bind-title="وام با {planCount} طرح فعال …"> (Armita v1.0.1): same template, live count
+  const tpl = title?.dataset.bindTitle;
+  if (tpl && typeof counts.planCount === 'number' && counts.planCount > 0) document.title = tpl.replace(/\{planCount\}/g, fa(counts.planCount));
   facts.forEach((el) => {
     const count = el.dataset.planCount;
     if (count) {

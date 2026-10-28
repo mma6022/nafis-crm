@@ -32,7 +32,7 @@ const N = slides.length;
     {
       slides.map((s, i) => (
         <div class={`hb-slide${i === 0 ? ' is-on' : ''}`} id={`hb-s${i + 1}`} role="group" aria-roledescription="اسلاید" aria-label={`${FA(i + 1)} از ${FA(N)}`}>
-          <BannerPicture kind="hero" n={i + 1} eager={i === 0} />
+          <BannerPicture kind="hero" n={i + 1} eager={i === 0} defer={i > 0} />
           <div class="hb-txt">
             {s.count ? (
               <p class="hb-eb">
