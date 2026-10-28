@@ -30,6 +30,7 @@ export function mountBaleAutoreplyRunner(runner: import("express").Router, h: Sc
   runner.post("/bale/ask-expert", (req, res) => bale.runnerAskExpert(req, res, h));   // AR30
   runner.get("/bale/learned", (req, res) => bale.runnerLearned(req, res));            // AR30
   runner.get("/bale/conversations/:customerId/messages", (req, res) => bale.runnerConversation(req, res, h));
+  runner.get("/bale/status", (req, res) => bale.runnerStatus(req, res));          // BALE-STATUS-64 (read-only)
   runner.get("/bale/ar-chats", (req, res) => bale.runnerArChats(req, res));
   runner.get("/bale/ar-chats/:id/messages", (req, res) => bale.runnerArChats(req, res));
   runner.get("/customers/:id/documents", (req, res) => bale.runnerDocuments(req, res, h));

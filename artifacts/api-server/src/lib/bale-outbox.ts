@@ -415,7 +415,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
   }
 
   /* ---------------- sessions (re-attach after a sidecar restart) ---------------- */
-  let lastBoot: string | null = null; let lastSync = 0;
+  let lastBoot: string | null = null; let lastSync = 0; let lastSyncOk = 0; // BALE-STATUS-64: last sidecar health answer (read-only status)
   /** General rule (2026-10-26): "connected" in the DB only means a sealed session exists. Whether the sidecar really holds a
    *  working client comes from the sidecar itself (health.attached + attach results): true = live, false = down (attach failed,
    *  not attached, or sidecar unreachable). While down, nothing is sent and the UI says «اتصال ناقص، در حال رفع». Never changes
@@ -447,6 +447,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     const h = await ctx.sidecar.health();
     const connected = rows<any>("SELECT * FROM bale_accounts WHERE status='connected' AND session_ct IS NOT NULL ORDER BY id");
     const seen = new Set(h.ok ? h.attached ?? [] : []);
+    if (h.ok) lastSyncOk = now().getTime();
     liveRefs.clear(); for (const a of connected) liveRefs.set(ref(a), seen.has(ref(a))); // sidecar down → every session is down
     if (!h.ok) return { attached: 0 };
     const masterOn = ctx.masterOn(), testOn = ctx.testOn?.() ?? false;
@@ -792,7 +793,8 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     return r.status === "blocked" ? r.reason : r.status; });
   ar.bindAccountCaps((a, withQueued) => { const extra = withQueued ? queuedCount(a.id) : 0;
     return sentSince(a.id, 86_400_000) + extra >= num("per_day", 80) || sentSince(a.id, 3_600_000) + extra >= num("per_hour", 20); }, withPlanFileCaption);
-  return { autoreply: ar, attachmentsOn, liveState, enqueue, approve, editDraft, cancel, sendNow, tick, syncSessions, inbound, itemView, tabItems, sendState, linkReminder, cancelReminder, autoStop, check, bell,
+  const syncInfo = () => ({ lastSyncAt: lastSync || null, lastSyncOkAt: lastSyncOk || null });
+  return { autoreply: ar, attachmentsOn, liveState, syncInfo, enqueue, approve, editDraft, cancel, sendNow, tick, syncSessions, inbound, itemView, tabItems, sendState, linkReminder, cancelReminder, autoStop, check, bell,
     pausedOf, pauseConversation, resumeConversation, unknownList, linkUnknown, dismissUnknown, ownCustomerSearch };
 }
 

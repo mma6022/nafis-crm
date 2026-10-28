@@ -1126,6 +1126,80 @@ export function createBale(deps: BaleDeps) {
       plans: plans.map(p => ({ planId: p.planId, name: p.name, file: p.file ? { attachmentId: p.file.id, name: p.file.name, typeLabel: p.file.typeLabel, size: p.file.size } : null })) });
   }
 
+
+  /* ============ BALE-STATUS-64: GET /api/assistant-runner/bale/status — READ-ONLY health of the bound expert's own Bale account ============
+   * Only a sales assistant bound to an expert; only that expert's account. Never a token, key, phone, chat/peer id, name or text.
+   * No DB write, no sidecar call, no reconnect/ping/send: the only state it touches is the in-memory per-token rate counter below
+   * (≈20/hour/token → 429 + Retry-After). sessionLive is NOT the stored «connected» flag: the sidecar keeps dead clients in its
+   * attached list, so a "live" session also needs recent evidence (a fresh attach or real Bale traffic within STATUS_STALE_MS). */
+  const STATUS_LIMIT = 20, STATUS_WINDOW_MS = 3600_000, STATUS_STALE_MS = 6 * 3600_000;
+  const statusHits = new Map<string, number[]>();
+  const TEHRAN_MS = 12_600_000; // Asia/Tehran is fixed UTC+03:30 (no DST)
+  const tehIso = (ms: number | null) => ms == null || !Number.isFinite(ms) ? null : new Date(ms + TEHRAN_MS).toISOString().replace("Z", "+03:30");
+  const tehDayStart = (t: number) => { const w = new Date(t + TEHRAN_MS); w.setUTCHours(0, 0, 0, 0); return w.getTime() - TEHRAN_MS; };
+  const msOf = (v: unknown) => { if (v == null || v === "") return null; const s = String(v); const t = Date.parse(/^\d{4}-\d\d-\d\d[ T]\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(s) ? s.replace(" ", "T") + "Z" : s); return Number.isFinite(t) ? t : null; };
+  const maxMs = (...v: (number | null)[]) => { const x = v.filter((n): n is number => n != null); return x.length ? Math.max(...x) : null; };
+  const STOP_FA: Record<string, string> = { rate_limited: "بله محدودیت ارسال گذاشت؛ ارسال خودکار متوقف شد.", account_banned: "حساب بله مسدود است.",
+    session_invalid: "نشست بله منقضی شده؛ باید دوباره وصل شود.", peer_blocked: "یک گیرنده دستیار را مسدود کرد؛ ارسال متوقف شد." };
+  const LIVE_FA: Record<string, string> = { ok: "اتصال بله برقرار است.", not_connected: "حساب بله وصل نیست.", bale_disabled: "کلید اصلی بله خاموش است.",
+    not_attached: "نشست بله باز نیست (یا سرویس بله در دسترس نیست).", stale_no_ping: "نشست باز نشان داده می‌شود ولی ساعت‌هاست هیچ نشانه‌ای از اتصال واقعی (پیام یا اتصال تازه) نیست؛ احتمالاً قطع است.",
+    unknown: "وضعیت نشست هنوز معلوم نیست.", banned: "حساب بله مسدود است." };
+  function runnerStatus(req: Request, res: Response) {
+    const asst = res.locals.assistant;
+    if (!asst || asst.kind !== "sales" || !asst.bound_user_id) return void res.status(403).json({ error: "forbidden", message: "این کار برای دستیار مجاز نیست." });
+    const t = now().getTime();
+    const key = String(res.locals.assistantTokenId ?? `a${asst.id}`);
+    const hits = (statusHits.get(key) ?? []).filter(x => t - x < STATUS_WINDOW_MS);
+    if (hits.length >= STATUS_LIMIT) {
+      const retry = Math.max(1, Math.ceil((hits[0] + STATUS_WINDOW_MS - t) / 1000));
+      statusHits.set(key, hits);
+      res.setHeader("Retry-After", String(retry));
+      return void res.status(429).json({ error: "rate_limited", message: `حداکثر ${STATUS_LIMIT} بار در ساعت. ${Math.ceil(retry / 60)} دقیقه‌ی دیگر دوباره امتحان کنید.`, retryAfterSec: retry });
+    }
+    hits.push(t); statusHits.set(key, hits);
+    if (statusHits.size > 500) for (const [k, v] of statusHits) if (!v.length || t - v[v.length - 1] >= STATUS_WINDOW_MS) statusHits.delete(k);
+    const a = accountOf(asst.bound_user_id);
+    const baleEnabled = masterOn();
+    const sync = outbox.syncInfo();
+    const base = { asOf: tehIso(t), baleEnabled, lastPingAt: null as string | null, lastSidecarCheckAt: tehIso(sync.lastSyncOkAt), staleAfterMin: STATUS_STALE_MS / 60_000 };
+    if (!a) return void res.json({ ...base, connected: false, sessionLive: false, sessionLiveReason: "not_connected", sessionLiveText: LIVE_FA.not_connected, mode: null,
+      autoStopped: false, autoStopReason: null, autoStopText: null, lastInboundAt: null, lastAttachAt: null, lastEvidenceAt: null, inboundToday: { customers: 0, nonCustomers: 0 }, queuedOutbound: 0, pendingApproval: 0 });
+    const one = (sql: string, ...p: any[]) => msOf(row<any>(sql, ...p)?.v);
+    const n = (sql: string, ...p: any[]) => Number(row<any>(sql, ...p)?.n ?? 0);
+    const lastCust = one("SELECT created_at v FROM bale_messages WHERE account_id=? AND direction='in' ORDER BY julianday(created_at) DESC LIMIT 1", a.id);
+    const lastUnknown = one("SELECT last_at v FROM bale_unknown_chats WHERE account_id=? ORDER BY julianday(last_at) DESC LIMIT 1", a.id);
+    const lastArIn = one("SELECT created_at v FROM bale_ar_messages WHERE account_id=? AND direction='in' ORDER BY julianday(created_at) DESC LIMIT 1", a.id);
+    const lastInbound = maxMs(lastCust, lastUnknown, lastArIn);
+    const lastSent = maxMs(one("SELECT sent_at v FROM bale_outbox WHERE account_id=? AND status='sent' AND sent_at IS NOT NULL ORDER BY julianday(sent_at) DESC LIMIT 1", a.id),
+      one("SELECT sent_at v FROM bale_ar_messages WHERE account_id=? AND status='sent' AND sent_at IS NOT NULL ORDER BY julianday(sent_at) DESC LIMIT 1", a.id),
+      one("SELECT created_at v FROM bale_ar_messages WHERE account_id=? AND direction='out' AND status='external' ORDER BY julianday(created_at) DESC LIMIT 1", a.id));
+    const lastAttach = msOf(a.last_seen_at); // written only by a successful attach / connect
+    const evidence = maxMs(lastAttach, lastInbound, lastSent);
+    const connected = a.status === "connected" && Boolean(a.session_ct);
+    const ls = connected ? outbox.liveState(a) : null;
+    let reason: string;
+    if (a.status === "banned") reason = "banned";
+    else if (!connected) reason = "not_connected";
+    else if (!baleEnabled) reason = "bale_disabled";
+    else if (ls === "down") reason = "not_attached";
+    else if (ls !== "live") reason = "unknown";
+    else if (evidence == null || t - evidence > STATUS_STALE_MS) reason = "stale_no_ping";
+    else reason = "ok";
+    const day = new Date(tehDayStart(t)).toISOString();
+    const customers = n("SELECT count(*) n FROM bale_messages WHERE account_id=? AND direction='in' AND julianday(created_at)>=julianday(?)", a.id, day);
+    // Unknown numbers: Bale text is discarded and only a per-chat row is kept, so this is «chats with a message today» (a lower bound on messages).
+    const nonCustomers = n(`SELECT count(*) n FROM (SELECT peer_id FROM bale_unknown_chats WHERE account_id=? AND julianday(last_at)>=julianday(?)
+      UNION SELECT c.peer_id FROM bale_ar_chats c WHERE c.account_id=? AND EXISTS (SELECT 1 FROM bale_ar_messages m WHERE m.chat_id=c.id AND m.direction='in' AND julianday(m.created_at)>=julianday(?)))`, a.id, day, a.id, day);
+    const queued = n("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status IN ('queued','sending')", a.id)
+      + n("SELECT count(*) n FROM bale_ar_messages WHERE account_id=? AND status IN ('queued','sending')", a.id);
+    const pending = n("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status='pending_approval'", a.id);
+    const stop = a.stopped_reason ? String(a.stopped_reason).slice(0, 40) : null;
+    res.json({ ...base, connected, sessionLive: reason === "ok", sessionLiveReason: reason, sessionLiveText: LIVE_FA[reason] ?? LIVE_FA.unknown,
+      mode: a.mode ?? null, autoStopped: Boolean(stop), autoStopReason: stop, autoStopText: stop ? (STOP_FA[stop] ?? "ارسال خودکار متوقف شده است.") : null,
+      lastInboundAt: tehIso(lastInbound), lastAttachAt: tehIso(lastAttach), lastEvidenceAt: tehIso(evidence),
+      inboundToday: { customers, nonCustomers }, queuedOutbound: queued, pendingApproval: pending });
+  }
+
   /* ============ internal router: sidecar → API inbound (mounted OUTSIDE /api, before session auth) ============ */
   const internal = Router();
   internal.post("/internal/bale/inbound", express.json({ limit: "128kb" }), (req, res) => {
@@ -1150,5 +1224,5 @@ export function createBale(deps: BaleDeps) {
     stop() { if (timer) clearInterval(timer); timer = null; },
   };
 
-  return { staff, internal, runnerSend, runnerPlanFiles, runnerAutoReply, runnerAutoReplyState, runnerAskExpert, runnerLearned, runnerConversation, runnerDocuments, runnerArChats, worker, _internal: { flows, masterOn, outbox, test, ar } };
+  return { staff, internal, runnerSend, runnerPlanFiles, runnerAutoReply, runnerAutoReplyState, runnerAskExpert, runnerLearned, runnerConversation, runnerDocuments, runnerArChats, runnerStatus, worker, _internal: { flows, masterOn, outbox, test, ar } };
 }
