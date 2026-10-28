@@ -407,7 +407,7 @@ ${portalConsultationContext(Number(customer.id))}`,
     });
   } catch (caught) {
     executeChanges("DELETE FROM customer_portal_messages WHERE id=? AND conversation_id=?", [userMessageId, conversationId]);
-    req.log.warn({ err: caught, customerId: Number(customer.id) }, "customer portal AI consultation failed");
+    req.log.warn({ event: "customer_advice_failed", reason: caught instanceof Error ? caught.message.slice(0, 80) : "unknown" }, "customer portal AI consultation failed");
     res.status(502).json({ error: "پاسخ دستیار هوشمند در دسترس نیست؛ لطفاً دوباره تلاش کنید." });
   }
 });
