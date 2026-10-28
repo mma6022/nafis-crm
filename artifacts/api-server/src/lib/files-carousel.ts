@@ -343,8 +343,11 @@ export function fcExpertFollowup(u: U, body: any, now = new Date()) {
   const deck = fcDeck(sp, day, now);
   const card = deck.cards.find(c => c.f.id === fid);
   if (!card) return err(404, "file_not_found", "این پرونده در کارهای امروزت نیست.");
-  if (card.state !== "current") return err(409, "not_current", "اول نتیجه‌ی پرونده‌ی جاری را ثبت کن.", { currentFileId: deck.current });
+  // HOTFIX-77h (Mohammad 17:11 Tehran «کارشناس فروشم بذار لغو کنه پرونده رو»): «لغو شده» works on any OWN open card of today's deck
+  // (current or pending); the other outcomes still need the current card.
+  if (card.state === "done" || (!cx && card.state !== "current")) return err(409, "not_current", "اول نتیجه‌ی پرونده‌ی جاری را ثبت کن.", { currentFileId: deck.current });
   const at = now.toISOString();
+  const isCur = deck.current === fid;
   if (cx) {
     // Own current file only; the existing «لغو پرونده» status (loan_applications.status='rejected' + stage history 'cancel-case' with the reason).
     // Contracts, stage, amounts, wallet and customer stay untouched; no SMS/Bale; the trigger-made case-change bells are removed in the same transaction.
@@ -352,8 +355,16 @@ export function fcExpertFollowup(u: U, body: any, now = new Date()) {
       const a = queryRow<{ status: string; stage: string; owner: number | null }>(
         "SELECT a.status, a.stage, cc.salesperson_id owner FROM loan_applications a JOIN customers cc ON cc.id=? WHERE a.id=? AND a.deleted_at IS NULL", [Number(card.f.cur_customer_id), fid]);
       if (!a || Number(a.owner) !== sp) return err(403, "not_own_file", "فقط پرونده‌ی مشتری خودت را می‌توانی لغو کنی.");
-      if (a.status === "rejected") return err(409, "case_already_closed", "این پرونده قبلاً بسته شده است.");
       if (queryRow("SELECT 1 x FROM fc_followups WHERE salesperson_id=? AND day=? AND file_id=?", [sp, day, fid])) return err(409, "already_done", "نتیجه‌ی این پرونده امروز ثبت شده است.");
+      if (a.status === "rejected") {
+        // HOTFIX-77h: the file was already closed elsewhere (e.g. admin «لغو پرونده» on the file page) while it stayed pinned as the
+        // expert's current card (PM 10:31). Before: 409 case_already_closed and the card stuck. Now: the expert's «لغو شده» is recorded
+        // as today's result (reason kept in fc_followups), the card leaves and the next one opens; status/history/contracts untouched.
+        execute("INSERT INTO fc_followups(salesperson_id,user_id,day,file_id,customer_id,outcome,note,created_at) VALUES(?,?,?,?,?,?,?,?)",
+          [sp, Number(u.id), day, fid, Number(card.f.cur_customer_id), outcome, note, at]);
+        if (isCur) executeChanges("UPDATE fc_days SET current_file_id=NULL, updated_at=? WHERE salesperson_id=? AND day=?", [at, sp, day]);
+        return null;
+      }
       const preMax = Number(queryRow<{ m: number | null }>("SELECT MAX(id) AS m FROM site_notification_events")?.m ?? 0);
       if (executeChanges("UPDATE loan_applications SET status='rejected', updated_at=? WHERE id=? AND status<>'rejected' AND deleted_at IS NULL", [at, fid]) !== 1)
         return err(409, "case_already_closed", "این پرونده قبلاً بسته شده است.");
@@ -363,7 +374,7 @@ export function fcExpertFollowup(u: U, body: any, now = new Date()) {
         [fid, Number(card.f.cur_customer_id), sp, Number(u.id), note, a.status, a.stage, at]);
       execute("INSERT INTO fc_followups(salesperson_id,user_id,day,file_id,customer_id,outcome,note,created_at) VALUES(?,?,?,?,?,?,?,?)",
         [sp, Number(u.id), day, fid, Number(card.f.cur_customer_id), outcome, note, at]);
-      executeChanges("UPDATE fc_days SET current_file_id=NULL, updated_at=? WHERE salesperson_id=? AND day=?", [at, sp, day]);
+      if (isCur) executeChanges("UPDATE fc_days SET current_file_id=NULL, updated_at=? WHERE salesperson_id=? AND day=?", [at, sp, day]);
       executeChanges("DELETE FROM site_notification_events WHERE id>? AND resource_type='loan' AND resource_id=?", [preMax, fid]);
       return null;
     });
