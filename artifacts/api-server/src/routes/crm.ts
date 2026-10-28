@@ -1211,8 +1211,9 @@ function reminderFromRow(row: ReminderRow, user: AuthUser) {
       salespersonName: sourceCall.salesperson_name, createdAt: sourceCall.created_at,
     } : null,
     callHistoryStatus: sourceCall ? "available" as const : storedCallId != null && !sourceCall ? "restricted" as const : "none" as const,
-    smsStatus: Boolean(row.sent_sms) ? "sent" as const : sms?.status ?? "pending" as const,
-    smsError: sms?.error_code ?? null,
+    // SMS-OFF-71: reminder SMS is off; rows closed by the data step read as in-app only.
+    smsStatus: Boolean(row.sent_sms) ? "sent" as const : (sms?.status as string) === "cancelled" || !sms ? "rejected" as const : sms.status,
+    smsError: (sms?.status as string) === "cancelled" || !sms ? "in_app_only" : sms?.error_code ?? null,
   };
 }
 

@@ -25,5 +25,5 @@ export function startExpertReminderSmsWorker() {
   const tick=()=>void queue.tick().catch(()=>logger.error("Expert reminder SMS worker failed"));
   tick();
   setInterval(tick,15_000).unref();
-  logger.info("Expert reminder SMS worker started");
+  logger.info("Expert reminder SMS is off (SMS-OFF-71): worker only marks reminders in-app only");
 }

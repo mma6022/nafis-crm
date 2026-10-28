@@ -36,36 +36,33 @@ const send=async(mobile:string,name:string)=>{
  return String(1000+sends.length);
 };
 const queue=createReminderSmsQueue(db,send,()=>time);
+// SMS-OFF-71: reminder SMS never sends, from any path; reminders stay in-app.
+const st=(id:number)=>db.prepare("SELECT status,error_code FROM reminder_sms_deliveries WHERE reminder_id=?").get(id) as {status:string;error_code:string|null}|undefined;
 await queue.tick();
 assert.equal(sends.length,0);
-assert.equal(db.prepare("SELECT status FROM reminder_sms_deliveries WHERE reminder_id=1").get()?.status,"legacy_skipped");
+assert.equal(st(1)?.status,"legacy_skipped");
+assert.equal(st(2)?.status,"rejected"); assert.equal(st(2)?.error_code,"in_app_only");
 time="2026-10-10T10:01:00Z";
 await Promise.all([queue.tick(),queue.tick()]);
-assert.equal(sends.length,1); assert.equal(sends[0].name,"Synthetic Expert");
-assert.equal(db.prepare("SELECT sent_sms FROM reminders WHERE id=2").get()?.sent_sms,1);
-assert.equal(db.prepare("SELECT status FROM reminder_sms_deliveries WHERE reminder_id=4").get()?.status,"blocked");
-await queue.tick(); assert.equal(sends.length,1);
-// Restart uses original cutoff and doesn't resend accepted reminders.
+assert.equal(sends.length,0);
+assert.equal(db.prepare("SELECT sent_sms FROM reminders WHERE id=2").get()?.sent_sms,0);
+assert.equal(st(4)?.status,"rejected");
 const restarted=createReminderSmsQueue(db,send,()=>time);
-await restarted.tick(); assert.equal(sends.length,1);
-// A missed future deadline survives downtime.
 add(5,1,"2026-10-10T10:02:00Z");
-time="2026-10-10T10:03:00Z"; await restarted.tick(); assert.equal(sends.length,2);
-add(6,1,time); failure="sms_delivery_unknown";
-await restarted.tick(); assert.equal(sends.length,3);
-failure=null; time="2026-10-10T10:10:00Z"; await restarted.tick(); assert.equal(sends.length,3);
-assert.equal(db.prepare("SELECT status FROM reminder_sms_deliveries WHERE reminder_id=6").get()?.status,"uncertain");
-// Missing number is retryable after the expert fixes their account.
+time="2026-10-10T10:03:00Z"; await restarted.tick(); assert.equal(sends.length,0); assert.equal(st(5)?.error_code,"in_app_only");
+// Old pending/blocked rows (pre-71) are closed, never sent.
+add(6,1,time); db.prepare("INSERT INTO reminder_sms_deliveries(reminder_id,status) VALUES(6,'pending')").run();
+add(7,2,time); db.prepare("INSERT INTO reminder_sms_deliveries(reminder_id,status,next_attempt_at) VALUES(7,'blocked',?)").run(time);
 db.prepare("UPDATE users SET mobile='09120000001' WHERE id=2").run();
-time="2026-10-10T10:16:00Z";
-await restarted.tick(); assert.equal(sends.length,4);
-add(7,1,time);
-await restarted.tick(); assert.equal(sends.length,5);
-// A crashed in-flight delivery is quarantined on restart, never silently resent.
+time="2026-10-10T10:16:00Z"; await restarted.tick(); assert.equal(sends.length,0);
+assert.equal(st(6)?.status,"rejected"); assert.equal(st(7)?.status,"rejected");
+// A crashed in-flight delivery is quarantined, never resent.
 add(8,1,time);
 db.prepare("INSERT INTO reminder_sms_deliveries(reminder_id,status,attempted_at) VALUES(8,'sending',?)").run("2026-10-10T10:00:00Z");
-await restarted.tick(); assert.equal(sends.length,5);
-assert.equal(db.prepare("SELECT status FROM reminder_sms_deliveries WHERE reminder_id=8").get()?.status,"uncertain");
+await restarted.tick(); assert.equal(sends.length,0);
+assert.equal(st(8)?.status,"uncertain");
+// The in-app reminder itself is untouched (still open, due, visible).
+assert.equal(db.prepare("SELECT count(*) n FROM reminders WHERE done=0").get()?.n,7);
 
 // Execute the actual call/reminder INSERT and mapper without importing CRM startup.
 const source=readFileSync("src/routes/crm.ts","utf8");
@@ -87,6 +84,9 @@ assert.equal(mapped.sourceCall.expertNotes,"Original Notes");
 assert.equal(mapper(row,{...actor,permissions:["reminders.view"]}).sourceCall,null);
 assert.equal(mapper(row,{...actor,salespersonId:22}).callHistoryStatus,"restricted");
 assert.equal(mapper({...row,id:1},actor).callHistoryStatus,"none");
+assert.equal(mapped.smsStatus,"rejected"); assert.equal(mapped.smsError,"in_app_only");
+db.prepare("INSERT INTO reminder_sms_deliveries(reminder_id,status,error_code) VALUES(?,'cancelled','sms_off_71')").run(linked);
+assert.equal(mapper(row,actor).smsStatus,"rejected"); assert.equal(mapper(row,actor).smsError,"in_app_only");
 // Neither detail reads nor scheduled SMS acknowledge or complete a reminder.
 assert.equal(db.prepare("SELECT done FROM reminders WHERE id=?").get(linked)?.done,0);
 assert.equal(db.prepare("SELECT notified_at FROM reminders WHERE id=?").get(linked)?.notified_at,null);
@@ -98,5 +98,21 @@ assert.equal(await sendReminderPattern("+989120000000","Synthetic Expert",transp
 assert.equal(payload.code,"2nuz0inzh8ywd36"); assert.deepEqual(payload.params,{name:"Synthetic Expert"});
 await assert.rejects(sendReminderPattern("+989120000000","Synthetic", {...transport,relayUrl:"https://example.com/send"} as never),/sms_relay_not_configured/);
 await assert.rejects(sendReminderPattern("+989120000000","Synthetic", {...transport,fetcher:async()=>new Response(JSON.stringify({ok:true,data:{meta:{status:true}}}))} as never),/sms_delivery_unknown/);
+// SMS-OFF-71 live triggers present: reminder rows / deliveries still insert (v1 double-quoted triggers broke every insert on node:sqlite).
+const trigSql=readFileSync(new URL("./sms-off71-triggers.sql",import.meta.url),"utf8");
+assert.ok(!/"[a-z_]+"/.test(trigSql.replace(/^--.*$/gm,"")),"triggers must use single-quoted literals");
+db.exec(trigSql);
+add(901,1,time); time="2026-10-10T10:40:00Z"; await restarted.tick(); assert.equal(sends.length,0); assert.equal(st(901)?.error_code,"in_app_only");
+add(902,1,time); db.prepare("INSERT INTO reminder_sms_deliveries(reminder_id,status,next_attempt_at) VALUES(902,'pending',?)").run(time);
+assert.deepEqual({...st(902)},{status:"rejected",error_code:"in_app_only"});
+db.prepare("UPDATE reminder_sms_deliveries SET status='blocked' WHERE reminder_id=902").run(); assert.equal(st(902)?.status,"rejected");
+add(903,1,time); db.prepare("INSERT INTO reminder_sms_deliveries(reminder_id,status) VALUES(903,'sent')").run(); assert.equal(st(903)?.status,"sent");
+time="2026-10-10T10:41:00Z"; await restarted.tick(); assert.equal(sends.length,0);
+db.exec("DROP TRIGGER sms_off71_block; DROP TRIGGER sms_off71_block_upd;");
+// The broken v1 form (double quotes) is what failed on live: prove the check above would catch it.
+db.exec(trigSql.replace(/'(pending|blocked|rejected|in_app_only)'/g,'"$1"'));
+assert.throws(()=>{add(904,1,time); db.prepare("INSERT INTO reminder_sms_deliveries(reminder_id,status) VALUES(904,'pending')").run();},/no such column/);
+db.exec("DROP TRIGGER sms_off71_block; DROP TRIGGER sms_off71_block_upd;");
 db.close();
-console.log("PASS: deadlines, no historical SMS, ownership, once-only/restarts, recovery, ambiguous delivery quarantine, actual reminder-call link, scoped source notes, read-only details and exact pattern payload.");
+console.log("PASS: SMS-OFF-71 live triggers (single-quoted) keep reminder inserts working; v1 double-quoted form rejected as on live.");
+console.log("PASS: SMS-OFF-71 zero reminder SMS (new/old pending/blocked/restart), deadlines, no historical SMS, ownership, once-only/restarts, recovery, ambiguous delivery quarantine, actual reminder-call link, scoped source notes, read-only details and exact pattern payload.");
