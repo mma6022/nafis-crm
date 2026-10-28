@@ -1,0 +1,74 @@
+---
+/**
+ * Home hero = 3-slide banner slider (Armita home-banners v1.0, Omid's banners). Kit: nafis-design/screens/home-banners/_kit.
+ * Text is HTML inside the banner's safe area; slide 1 is the page h1 and the LCP image. The plan count comes from planFacts
+ * (data-plan-count="planCount" is refreshed from the live JSON by live-facts), never hardcoded.
+ */
+import '../../styles/home-banners.css';
+import BannerPicture from './BannerPicture.astro';
+import { fa, type PlanFacts } from '../../lib/plans';
+interface Props {
+  facts: PlanFacts;
+}
+const { facts } = Astro.props;
+const FA = (n: number) => fa(n);
+const slides = [
+  {
+    h: 'وام مناسب‌تان را آنلاین پیدا کنید',
+    p: 'به ۲ سؤال ساده جواب دهید تا طرح‌های مناسب را با مبلغ واریزی و قسط ماهانه‌ی حدودی ببینید.',
+    cta: 'پیدا کردن طرح مناسب من',
+    href: '#plan-finder',
+    count: true,
+    extra: { text: 'ترجیح می‌دهم با من تماس بگیرند', href: '#callback' },
+  },
+  { eb: 'درخواست در ۳ قدم', h: 'از انتخاب طرح تا دریافت، ساده و روشن', p: 'طرح را انتخاب کنید، مدارک را تحویل دهید و همه‌ی شرایط را پیش از امضای قرارداد بدانید.', cta: 'شروع درخواست', href: '/request/?src=home-hero-2' },
+  { eb: 'همراهی کارشناس', h: 'کارشناس واقعی، نه ربات', p: 'یک نفر از تیم ما شرایط شما را می‌شنود و طرح مناسب را پیشنهاد می‌دهد.', cta: 'درخواست تماس کارشناس', href: '#callback' },
+];
+const N = slides.length;
+---
+
+<section class="hb hb-home" id="hero" data-hb aria-roledescription="کاروسل" aria-label="معرفی نفیس وام">
+  <div class="hb-track" tabindex="-1">
+    {
+      slides.map((s, i) => (
+        <div class={`hb-slide${i === 0 ? ' is-on' : ''}`} id={`hb-s${i + 1}`} role="group" aria-roledescription="اسلاید" aria-label={`${FA(i + 1)} از ${FA(N)}`}>
+          <BannerPicture kind="hero" n={i + 1} eager={i === 0} />
+          <div class="hb-txt">
+            {s.count ? (
+              <p class="hb-eb">
+                <span data-plan-count="planCount">{fa(facts.planCount)}</span> طرح فعال · مشاوره‌ی رایگان
+              </p>
+            ) : (
+              <p class="hb-eb">{s.eb}</p>
+            )}
+            {i === 0 ? <h1 class="hb-h">{s.h}</h1> : <h2 class="hb-h">{s.h}</h2>}
+            <p class="hb-p">{s.p}</p>
+            <div class="hb-acts">
+              <a class="btn-gold hb-cta" href={s.href} id={i === 0 ? 'hero-cta' : undefined}>
+                {s.cta} <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg>
+              </a>
+              {s.extra && <a class="btn-wl" href={s.extra.href}>{s.extra.text}</a>}
+            </div>
+          </div>
+        </div>
+      ))
+    }
+  </div>
+  <div class="hb-ctl">
+    <button class="hb-prev" type="button" aria-label="اسلاید قبلی"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg></button>
+    {
+      slides.map((_, i) => (
+        <button class="hb-dot" type="button" aria-controls={`hb-s${i + 1}`} aria-label={`اسلاید ${FA(i + 1)}`} aria-current={i === 0 ? 'true' : 'false'}>
+          <i />
+        </button>
+      ))
+    }
+    <button class="hb-next" type="button" aria-label="اسلاید بعدی"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg></button>
+    <button class="hb-pause" type="button" aria-pressed="false" aria-label="توقف اسلایدها"><svg class="ps" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6v12M15 6v12" /></svg><svg class="pl" viewBox="0 0 24 24" aria-hidden="true" style="display:none"><path d="M16 6v12L7 12z" /></svg></button>
+  </div>
+  <p class="vh hb-live" aria-live="polite"></p>
+</section>
+
+<script>
+  import '../../scripts/home-banners.js';
+</script>

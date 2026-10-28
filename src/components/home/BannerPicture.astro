@@ -1,0 +1,22 @@
+---
+/** Omid's banner set (nafis-design/banners/nafisvam, copied to /images/home): -m below 768px, -d above, 1x/2x, decorative. */
+interface Props {
+  kind: 'hero' | 'mid';
+  n: number;
+  eager?: boolean;
+}
+const { kind, n, eager = false } = Astro.props;
+const [dw, dh, mw, mh] = kind === 'hero' ? [1440, 560, 375, 420] : [1200, 320, 375, 250];
+const b = `/images/home/${kind}-${n}`;
+---
+
+<picture>
+  <source media="(max-width: 767px)" srcset={`${b}-m.webp 1x, ${b}-m@2x.webp 2x`} width={mw} height={mh} />
+  {
+    eager ? (
+      <img src={`${b}-d.webp`} srcset={`${b}-d.webp 1x, ${b}-d@2x.webp 2x`} width={dw} height={dh} alt="" fetchpriority="high" decoding="async" />
+    ) : (
+      <img src={`${b}-d.webp`} srcset={`${b}-d.webp 1x, ${b}-d@2x.webp 2x`} width={dw} height={dh} alt="" loading="lazy" decoding="async" />
+    )
+  }
+</picture>

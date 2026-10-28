@@ -1,0 +1,28 @@
+---
+/** Mid-page banner (Armita home-banners v1.0 `aside.hbm`, Omid's mid-1/mid-2), lazy image, text in the safe area. */
+import '../../styles/home-banners.css';
+import BannerPicture from './BannerPicture.astro';
+interface Props {
+  n: number;
+  eb: string;
+  h: string;
+  p: string;
+  cta: string;
+  href: string;
+}
+const { n, eb, h, p, cta, href } = Astro.props;
+---
+
+<div class="hbm-wrap">
+  <aside class="hbm" aria-label={h}>
+    <BannerPicture kind="mid" n={n} />
+    <div class="hbm-txt">
+      <p class="hb-eb">{eb}</p>
+      <h2 class="hb-h">{h}</h2>
+      <p class="hb-p">{p}</p>
+      <div class="hb-acts">
+        <a class="btn-gold hb-cta" href={href}>{cta} <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg></a>
+      </div>
+    </div>
+  </aside>
+</div>

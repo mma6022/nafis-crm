@@ -7,6 +7,7 @@
 //     cards: the removed note «مبالغ برآوردی است و مبلغ/رقم قطعی …» fails the build anywhere (dist and src).
 //  2. No national ID / registration number: 14013708689 in Latin, Persian or Arabic digits (any separators) fails the
 //     build in dist, src and public. The footer shows the legal name «بهینه فام نفیس» only.
+//  3. (home banners 2026-10-28) «سپرده» is banned the same way as «برآورد/تخمینی» (dist + src).
 // Run: node scripts/check-copy.mjs
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -24,7 +25,7 @@ const ALLOW = {
   // 2026-10-27 (SEO audit): /terms now says «حدودی» → no page is exempt any more
 };
 // بر + optional space/ZWNJ/ZWJ/RLM/NBSP + آ | ا (+ optional U+0653 madda) | أ + ورد  — covers every inflection (prefix match).
-const WORD = /بر[\s\u200c\u200d\u200f\u00a0]{0,2}(?:\u0622|\u0627\u0653?|\u0623)ورد|تخمینی/g;
+const WORD = /بر[\s\u200c\u200d\u200f\u00a0]{0,2}(?:\u0622|\u0627\u0653?|\u0623)ورد|تخمینی|سپرده/g;
 /** Decode \uXXXX escapes (JS/JSON bundles) so an escaped word cannot slip through. */
 const unesc = (t) => t.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
 // self-test of the matcher
@@ -33,7 +34,7 @@ const FINAL_SENTENCE = 'مبلغ قطعی را بانک یا تأمین\u200cک�
 for (const ok of [FINAL_SENTENCE, 'تأمین', 'تأمین\u200cکننده', 'تأمین\u200cکننده\u200cی مالی']) if (new RegExp(WORD.source).test(ok)) errors.push(`word matcher wrongly flags ${JSON.stringify(ok)}`);
 // The superseded sentence «مبلغ قطعی پس از اعتبارسنجی اعلام می‌شود» may not come back (terms page exempt, legal review).
 const OLD_FINAL = /مبلغ\s*قطعی\s*پس\s*از\s*اعتبارسنجی\s*اعلام/;
-for (const v of ['برآورد', 'برآوردی', 'برآوردها', 'براورد', 'بر\u200cآورد', 'بر آوردی', 'بر\u0627\u0653ورد', 'تخمینی']) if (!new RegExp(WORD.source).test(v)) errors.push(`word matcher misses ${JSON.stringify(v)}`);
+for (const v of ['برآورد', 'برآوردی', 'برآوردها', 'براورد', 'بر\u200cآورد', 'بر آوردی', 'بر\u0627\u0653ورد', 'تخمینی', 'سپرده']) if (!new RegExp(WORD.source).test(v)) errors.push(`word matcher misses ${JSON.stringify(v)}`);
 const REMOVED = /مبالغ\s*برآوردی\s*است\s*و\s*(مبلغ|رقم)\s*قطعی/;
 const hits = [];
 for (const f of walk(DIST).filter((x) => /\.(html|js|mjs|json|txt|xml)$/.test(x))) {

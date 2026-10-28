@@ -54,7 +54,7 @@ export function initChrome() {
 
   // Header CTA: soft by default; primary (desktop, CSS-gated) once the page hero has left the viewport under the header.
   const hdr = document.querySelector<HTMLElement>('.hdr');
-  const hero = document.querySelector('.hero, .lp-hero, .post-head');
+  const hero = document.querySelector('.hero, .hb-home, .lp-hero, .post-head');
   if (hdr && hero && 'IntersectionObserver' in window)
     new IntersectionObserver(([e]) => hdr.classList.toggle('is-stuck', !!e && !e.isIntersecting && e.boundingClientRect.top < 0), {
       rootMargin: '-72px 0px 0px 0px', // desktop header height (ANSWERS-1 §8); the CTA swap is CSS-gated to ≥1024px

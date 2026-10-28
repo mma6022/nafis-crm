@@ -5,8 +5,8 @@
  */
 import { getCollection } from 'astro:content';
 import BaseLayout from '../layouts/BaseLayout.astro';
-import Hero from '../components/home/Hero.astro';
-import HeroSample from '../components/islands/HeroSample';
+import HeroSlider from '../components/home/HeroSlider.astro';
+import MidBanner from '../components/home/MidBanner.astro';
 import PlanFinder from '../components/islands/PlanFinder';
 import HomeCalc from '../components/islands/HomeCalc';
 import CallbackForm from '../components/islands/CallbackForm';
@@ -38,9 +38,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
 ---
 
 <BaseLayout rawTitle title={fill(page.data.title)} description={page.data.description} src="home" jsonLd={[financialServiceLd(), faqLd(faq)]}>
-  <Hero facts={facts} h1={page.data.h1}>
-    <HeroSample client:media="(min-width: 1024px)" snapshot={LOAN_PLANS_SNAPSHOT} />
-  </Hero>
+  <HeroSlider facts={facts} />
 
   <section class="finder" id="plan-finder" aria-labelledby="finder-h">
     <div class="wrap">
@@ -113,6 +111,8 @@ const SVC_ICON: Record<string, SpriteIcon> = {
     </div>
   </section>
 
+  <MidBanner n={1} eb="قدم بعدی" h="طرح مناسب را پیدا کردید؟" p="درخواست‌تان را در چند دقیقه ثبت کنید؛ کارشناس برای ادامه با شما تماس می‌گیرد." cta="ثبت درخواست" href="/request/?src=home-mid-1" />
+
   <section class="sec" aria-labelledby="calc-h" id="calculator">
     <div class="container-nf">
       <HomeCalc client:visible snapshot={LOAN_PLANS_SNAPSHOT} />
@@ -136,6 +136,8 @@ const SVC_ICON: Record<string, SpriteIcon> = {
       </section>
     )
   }
+
+  <MidBanner n={2} eb="امنیت شما" h="با آرامش، مراقب کلاهبرداری باشید" p="فقط از راه‌های رسمی همین سایت با کارشناس‌ها در تماس باشید و کد یک‌بارمصرف یا رمز کارت را به هیچ‌کس ندهید." cta="راه‌های رسمی ارتباط" href="/contact/" />
 
   <section class="sec" aria-labelledby="faq-h">
     <div class="container-nf faq-wrap">
