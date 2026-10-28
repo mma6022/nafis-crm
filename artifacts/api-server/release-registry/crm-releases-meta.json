@@ -1,0 +1,409 @@
+{
+ "version": 1,
+ "note": "CRM release metadata (84A). schemaCutoff = newest RID that changed the DB schema; the UI blocks rollback to anything older.",
+ "schemaCutoff": "20261028211337",
+ "releases": {
+  "20261026140623": {
+   "commit": "726d993",
+   "branch": null,
+   "description": "C",
+   "schemaChange": null
+  },
+  "20261026141857": {
+   "commit": "ad25cce",
+   "branch": null,
+   "description": "B",
+   "schemaChange": null
+  },
+  "20261026145017": {
+   "commit": "18aa7fb",
+   "branch": null,
+   "description": "D",
+   "schemaChange": null
+  },
+  "20261026145417": {
+   "commit": "ff1a9e5",
+   "branch": null,
+   "description": "B2",
+   "schemaChange": null
+  },
+  "20261026150553": {
+   "commit": "61c8d81",
+   "branch": "feat/task-d-a",
+   "description": "A",
+   "schemaChange": null
+  },
+  "20261026151219": {
+   "commit": "3290025",
+   "branch": null,
+   "description": "B3",
+   "schemaChange": null
+  },
+  "20261026155826": {
+   "commit": "785ad23",
+   "branch": "feat/sales-assistant-a",
+   "description": "SR",
+   "schemaChange": null
+  },
+  "20261026185844": {
+   "commit": "1fcf1fb",
+   "branch": null,
+   "description": "G1",
+   "schemaChange": null
+  },
+  "20261026193918": {
+   "commit": "16f777d",
+   "branch": null,
+   "description": "G1v1b",
+   "schemaChange": null
+  },
+  "20261026195313": {
+   "commit": "4c44e17",
+   "branch": null,
+   "description": "G1v1c",
+   "schemaChange": null
+  },
+  "20261026202752": {
+   "commit": "e0ef049",
+   "branch": null,
+   "description": "G2+G3",
+   "schemaChange": null
+  },
+  "20261026204151": {
+   "commit": "4281f7a",
+   "branch": null,
+   "description": "G4",
+   "schemaChange": null
+  },
+  "20261026211048": {
+   "commit": "adb1942",
+   "branch": null,
+   "description": "G5",
+   "schemaChange": null
+  },
+  "20261026214829": {
+   "commit": "8a62980",
+   "branch": null,
+   "description": "G6",
+   "schemaChange": null
+  },
+  "20261026220645": {
+   "commit": "8f5acf3",
+   "branch": null,
+   "description": "G6b",
+   "schemaChange": null
+  },
+  "20261027070923": {
+   "commit": "a8427e2",
+   "branch": "fix/customer-names",
+   "description": "CN",
+   "schemaChange": null
+  },
+  "20261027072822": {
+   "commit": "abf044c",
+   "branch": "feat/gl-g1",
+   "description": "G6c",
+   "schemaChange": null
+  },
+  "20261027092548": {
+   "commit": "01117c6",
+   "branch": "feat/sarina-registrar-access",
+   "description": "SRA",
+   "schemaChange": null
+  },
+  "20261027172532": {
+   "commit": "1e4408c",
+   "branch": "feat/bale-autoreply-core",
+   "description": "AR29",
+   "schemaChange": null
+  },
+  "20261027175740": {
+   "commit": "08db179",
+   "branch": null,
+   "description": "AR30",
+   "schemaChange": null
+  },
+  "20261027181853": {
+   "commit": "538f90d",
+   "branch": null,
+   "description": "AR30b",
+   "schemaChange": null
+  },
+  "20261027184127": {
+   "commit": "dff8fe3",
+   "branch": null,
+   "description": "AR30c",
+   "schemaChange": null
+  },
+  "20261027185651": {
+   "commit": "abb59d8",
+   "branch": null,
+   "description": "CQ1",
+   "schemaChange": null
+  },
+  "20261027191206": {
+   "commit": "4d11673",
+   "branch": null,
+   "description": "DATE",
+   "schemaChange": null
+  },
+  "20261027193642": {
+   "commit": "679bfd1",
+   "branch": "feat/bale-autoreply-ar30",
+   "description": "SEO",
+   "schemaChange": null
+  },
+  "20261027194639": {
+   "commit": "07107f3",
+   "branch": null,
+   "description": "KAZEMI",
+   "schemaChange": null
+  },
+  "20261027195828": {
+   "commit": "7d2c7e6",
+   "branch": null,
+   "description": "CQ2",
+   "schemaChange": null
+  },
+  "20261027203849": {
+   "commit": "c8ca008",
+   "branch": "feat/la-urgent",
+   "description": "URGENT101-LA-CASE",
+   "schemaChange": null
+  },
+  "20261027205608": {
+   "commit": "11509ce",
+   "branch": null,
+   "description": "ASSISTANT-NOTES",
+   "schemaChange": null
+  },
+  "20261027211134": {
+   "commit": "869b04a",
+   "branch": null,
+   "description": "CQ3",
+   "schemaChange": null
+  },
+  "20261027211815": {
+   "commit": "c59d7ab",
+   "branch": "feat/plan-rate-history",
+   "description": "PLAN-RATES-PR1",
+   "schemaChange": null
+  },
+  "20261027221215": {
+   "commit": "67afa9d",
+   "branch": "release/no-rates-public",
+   "description": "NO-RATES-PUBLIC",
+   "schemaChange": null
+  },
+  "20261027234403": {
+   "commit": "bf146de",
+   "branch": "release/ig-v11-r3",
+   "description": "IG-V11-R3-PMX",
+   "schemaChange": null
+  },
+  "20261028005048": {
+   "commit": "54e178c",
+   "branch": "release/leaks46",
+   "description": "LEAKS46",
+   "schemaChange": null
+  },
+  "20261028010320": {
+   "commit": "218d1cc",
+   "branch": "release/round47",
+   "description": "ROUND47",
+   "schemaChange": null
+  },
+  "20261028012952": {
+   "commit": "9100553",
+   "branch": null,
+   "description": "DAILY-PLAN48",
+   "schemaChange": null
+  },
+  "20261028021706": {
+   "commit": "785e483",
+   "branch": "release/round49",
+   "description": "PLANS-49",
+   "schemaChange": null
+  },
+  "20261028050940": {
+   "commit": "fea970d",
+   "branch": null,
+   "description": "DP-FIRSTCAP-51",
+   "schemaChange": "additive column dp_capacity_log.exemption"
+  },
+  "20261028055554": {
+   "commit": "f4ebb4d",
+   "branch": null,
+   "description": "REGVIEW-53",
+   "schemaChange": null
+  },
+  "20261028063545": {
+   "commit": "4cd873b",
+   "branch": "hotfix/calllog-56",
+   "description": "HOTFIX-CALLLOG-56",
+   "schemaChange": null
+  },
+  "20261028063956": {
+   "commit": "1adf443",
+   "branch": "release/round51",
+   "description": "EL-54",
+   "schemaChange": "tables el_incoming_log/el_grants"
+  },
+  "20261028065024": {
+   "commit": "4846130",
+   "branch": "feat/boost-57",
+   "description": "BOOST-57",
+   "schemaChange": null
+  },
+  "20261028065501": {
+   "commit": "f46ddca",
+   "branch": "nextitem-60",
+   "description": "NEXTITEM-60",
+   "schemaChange": null
+  },
+  "20261028072458": {
+   "commit": "9ebec85",
+   "branch": "hotfix/firstcall-62",
+   "description": "FIRSTCALL-62",
+   "schemaChange": null
+  },
+  "20261028074625": {
+   "commit": "e1b0ebc",
+   "branch": "hotfix/logged-call-63",
+   "description": "LOGGED-CALL-63",
+   "schemaChange": null
+  },
+  "20261028081813": {
+   "commit": "857ee0f",
+   "branch": "feat/newcust-65",
+   "description": "NEWCUST-65",
+   "schemaChange": null
+  },
+  "20261028083628": {
+   "commit": "65752a2",
+   "branch": null,
+   "description": "SEARCH-65b",
+   "schemaChange": "index idx_customers_sp_phone"
+  },
+  "20261028084046": {
+   "commit": "bc93eb4",
+   "branch": "feat/search-65b",
+   "description": "SEARCH-65b.1",
+   "schemaChange": null
+  },
+  "20261028084517": {
+   "commit": "63fc976",
+   "branch": "feat/bale-status-64",
+   "description": "BALE-STATUS-64",
+   "schemaChange": null
+  },
+  "20261028091424": {
+   "commit": "8a75186",
+   "branch": "feat/incoming2-59b",
+   "description": "INCOMING2-59",
+   "schemaChange": null
+  },
+  "20261028092820": {
+   "commit": "3bae18c",
+   "branch": "feat/files-61-r59",
+   "description": "FILES-61",
+   "schemaChange": "tables fc_orders/fc_days/fc_followups/fc_presence"
+  },
+  "20261028102038": {
+   "commit": "8b676b8",
+   "branch": "feat/bale-fixb-66",
+   "description": "BALE-FIXB-66",
+   "schemaChange": "bale_settings rows"
+  },
+  "20261028103317": {
+   "commit": "88271c2",
+   "branch": "feat/regtag-55",
+   "description": "TAGS-55",
+   "schemaChange": null
+  },
+  "20261028112411": {
+   "commit": "4fd5d3f",
+   "branch": "feat/reminder-68",
+   "description": "REMINDER-68",
+   "schemaChange": null
+  },
+  "20261028115455": {
+   "commit": "6a2d659",
+   "branch": "hotfix/upgrade-73",
+   "description": "HOTFIX-73",
+   "schemaChange": "triggers sms_off71 corrected"
+  },
+  "20261028120217": {
+   "commit": "757d542",
+   "branch": "feat/smsoff-71",
+   "description": "SMS-OFF-71",
+   "schemaChange": "triggers sms_off71_block/_upd"
+  },
+  "20261028122401": {
+   "commit": "667bd1e",
+   "branch": "feat/bale-scope-72",
+   "description": "BALE-SCOPE-72",
+   "schemaChange": null
+  },
+  "20261028122930": {
+   "commit": "a71322b",
+   "branch": "feat/search-c",
+   "description": "SEARCH-C",
+   "schemaChange": "table el_referrals"
+  },
+  "20261028125733": {
+   "commit": "cba31de",
+   "branch": "feat/files-search-fix",
+   "description": "FILES-SEARCH-FIX-75",
+   "schemaChange": null
+  },
+  "20261028131101": {
+   "commit": "7f85587",
+   "branch": "feat/files-cancel",
+   "description": "FILES-CANCEL-76",
+   "schemaChange": "table fc_cancels"
+  },
+  "20261028134029": {
+   "commit": "b8903c2",
+   "branch": "feat/history-a",
+   "description": "HISTORY-A-77",
+   "schemaChange": "table hx_file_answers"
+  },
+  "20261028134916": {
+   "commit": "6ce0653",
+   "branch": "hotfix/cancel-own-78",
+   "description": "HOTFIX-77h",
+   "schemaChange": null
+  },
+  "20261028135327": {
+   "commit": "7fd8967",
+   "branch": "feat/reminder-b",
+   "description": "REMINDER-B-78",
+   "schemaChange": null
+  },
+  "20261028140906": {
+   "commit": "747a32d",
+   "branch": "fix/c3-qualifier",
+   "description": "C3-79",
+   "schemaChange": null
+  },
+  "20261028145657": {
+   "commit": "8b3edb7",
+   "branch": "feat/team-sales-model",
+   "description": "REMINDER-EDIT-80",
+   "schemaChange": "table assistant_reminder_changes"
+  },
+  "20261028203444": {
+   "commit": "f484615",
+   "branch": "feat/team-sales-model",
+   "description": "CALL-RESULT-81",
+   "schemaChange": "columns call_logs.call_result/follow_up_at"
+  },
+  "20261028211337": {
+   "commit": "33c26f9",
+   "branch": "feat/team-sales-model",
+   "description": "SITE-APPLY-82",
+   "schemaChange": "table site_apply_answers"
+  }
+ }
+}

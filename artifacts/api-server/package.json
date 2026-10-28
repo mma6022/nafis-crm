@@ -8,6 +8,7 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:release-registry": "node --experimental-strip-types scripts/release-registry-fixture.mjs && bash scripts/release-registry-append-fixture.sh",
     "fixture": "node scripts/contracts-fixture.mjs",
     "test:contracts": "pnpm run build && node scripts/contracts-fixture.mjs",
     "fixture:voip": "node scripts/voip-fixture.mjs",

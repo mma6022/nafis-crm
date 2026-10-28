@@ -1,0 +1,190 @@
+{
+ "version": 1,
+ "note": "Site release registry (84A). RID = UTC timestamp; rollback = how to undo this release (manual, developer only).",
+ "releases": [
+  {
+   "rid": "20261028212415",
+   "commit": "c03d782",
+   "branch": "site/apply-wizard-82",
+   "description": "ویزارد ۷ مرحله‌ای «ثبت درخواست» (/request) — ریلیز ۸۲",
+   "rollback": "بازگشت به 20261028160334: bash /root/site55/site-R.sh",
+   "notes": null
+  },
+  {
+   "rid": "20261028160334",
+   "commit": "7af9227",
+   "branch": "site/final-package-1028",
+   "description": "رفع سرریز بنر میانی صفحه‌ی خانه",
+   "rollback": "بازگشت به 20261028151251: bash /root/site54/site-R.sh",
+   "notes": null
+  },
+  {
+   "rid": "20261028151251",
+   "commit": "ce81df9",
+   "branch": "site/final-package-1028",
+   "description": "صفحه‌ی خانه v1.0.2 (دسترس‌پذیری و سرعت)",
+   "rollback": "بازگشت به 20261028142634: bash /root/site53/site-R.sh",
+   "notes": null
+  },
+  {
+   "rid": "20261028142634",
+   "commit": "92e4ef8",
+   "branch": "site/final-package-1028",
+   "description": "صفحه‌ی خانه v1.0.1 (فونت محلی)",
+   "rollback": "بازگشت به 20261028135927: bash /root/site52/site-R.sh",
+   "notes": null
+  },
+  {
+   "rid": "20261028135927",
+   "commit": "6629146",
+   "branch": "site/final-package-1028",
+   "description": "بنرهای خانه v1.0 (اسلایدر + ۲ بنر میانی)",
+   "rollback": "بازگشت به 20261028050432: bash /root/site51/site-R.sh",
+   "notes": null
+  },
+  {
+   "rid": "20261028050432",
+   "commit": "bfc5c11",
+   "branch": "site/final-package-1028",
+   "description": "طرح ۴ دوباره قابل محاسبه (۲۴ ماه)",
+   "rollback": "بازگشت به 20261028013458: bash /root/site50/site-R.sh",
+   "notes": null
+  },
+  {
+   "rid": "20261028013458",
+   "commit": "ea03779",
+   "branch": "site/final-package-1028",
+   "description": "طرح‌های بدون مبلغ قابل محاسبه: «به‌زودی» + exporter v2",
+   "rollback": "بازگشت به 20261027224237: bash /root/site49/site-R.sh",
+   "notes": "rollback این نسخه exporter را هم برمی‌گرداند؛ فقط با site-R.sh"
+  },
+  {
+   "rid": "20261027224237",
+   "commit": "5fc4e4f",
+   "branch": "site/final-package-1028",
+   "description": "عبارت «مبلغ واریزی» در فرم و ماشین‌حساب",
+   "rollback": "بازگشت به 20261027215425: ln -sfn /opt/nafisvam-site/releases/20261027215425 /opt/nafisvam-site/current.new && mv -T /opt/nafisvam-site/current.new /opt/nafisvam-site/current",
+   "notes": null
+  },
+  {
+   "rid": "20261027215425",
+   "commit": "bf5e40e",
+   "branch": "site/final-package-1028",
+   "description": "پکیج بدون نرخ (فقط مبلغ واریزی و اقساط)",
+   "rollback": "بازگشت به 20261027212439: ln -sfn /opt/nafisvam-site/releases/20261027212439 /opt/nafisvam-site/current.new && mv -T /opt/nafisvam-site/current.new /opt/nafisvam-site/current",
+   "notes": null
+  },
+  {
+   "rid": "20261027212439",
+   "commit": "eb7fab4",
+   "branch": "site/final-package-1028",
+   "description": "پکیج نهایی 1028 (اصلاح جدول‌های موبایل)",
+   "rollback": "بازگشت به 20261027193457: ln -sfn /opt/nafisvam-site/releases/20261027193457 /opt/nafisvam-site/current.new && mv -T /opt/nafisvam-site/current.new /opt/nafisvam-site/current",
+   "notes": null
+  },
+  {
+   "rid": "20261027193457",
+   "commit": "862c33d",
+   "branch": "seo/audit-quickwins",
+   "description": "بهبودهای سریع سئو (لینک‌های داخلی با اسلش)",
+   "rollback": "بازگشت به 20261025141801: ln -sfn /opt/nafisvam-site/releases/20261025141801 /opt/nafisvam-site/current.new && mv -T /opt/nafisvam-site/current.new /opt/nafisvam-site/current",
+   "notes": null
+  },
+  {
+   "rid": "20261025141801",
+   "commit": "b555b32",
+   "branch": "seo/gsc-verification",
+   "description": "متای تأیید Google Search Console",
+   "rollback": "بازگشت به 20261025095922: ln -sfn /opt/nafisvam-site/releases/20261025095922 /opt/nafisvam-site/current.new && mv -T /opt/nafisvam-site/current.new /opt/nafisvam-site/current",
+   "notes": null
+  },
+  {
+   "rid": "20261025095922",
+   "commit": null,
+   "branch": null,
+   "description": "نسخه‌ی ۲۵ اکتبر (کامیت ثبت نشده)",
+   "rollback": "بازگشت به 20261023200135: ln -sfn /opt/nafisvam-site/releases/20261023200135 /opt/nafisvam-site/current.new && mv -T /opt/nafisvam-site/current.new /opt/nafisvam-site/current",
+   "notes": "کامیت و شاخه در یادداشت‌های دیپلوی ثبت نشده"
+  },
+  {
+   "rid": "20261023200135",
+   "commit": "29aa551",
+   "branch": "main",
+   "description": "جمله‌ی «مبلغ قطعی…» در همه‌ی صفحه‌ها",
+   "rollback": "بازگشت به 20261023182628: ln -sfn /opt/nafisvam-site/releases/20261023182628 /opt/nafisvam-site/current.new && mv -T /opt/nafisvam-site/current.new /opt/nafisvam-site/current",
+   "notes": null
+  },
+  {
+   "rid": "20261023182628",
+   "commit": "6887e3e",
+   "branch": "release/site-loader",
+   "description": "نشان اینماد (خودمیزبان)",
+   "rollback": "بازگشت به 20261023180340: ln -sfn /opt/nafisvam-site/releases/20261023180340 /opt/nafisvam-site/current.new && mv -T /opt/nafisvam-site/current.new /opt/nafisvam-site/current",
+   "notes": null
+  },
+  {
+   "rid": "20261023180340",
+   "commit": "c95b1e7",
+   "branch": "release/site-loader",
+   "description": "لودر صفحه + حذف «مبالغ برآوردی»",
+   "rollback": "بازگشت به 20261023174353: ln -sfn /opt/nafisvam-site/releases/20261023174353 /opt/nafisvam-site/current.new && mv -T /opt/nafisvam-site/current.new /opt/nafisvam-site/current",
+   "notes": null
+  },
+  {
+   "rid": "20261023174353",
+   "commit": "eed1393",
+   "branch": "feat/expert-picker",
+   "description": "انتخاب کارشناس به‌جای تلفن ثابت",
+   "rollback": "بازگشت به 20261023165203: ln -sfn /opt/nafisvam-site/releases/20261023165203 /opt/nafisvam-site/current.new && mv -T /opt/nafisvam-site/current.new /opt/nafisvam-site/current",
+   "notes": null
+  },
+  {
+   "rid": "20261023165203",
+   "commit": "80734c8",
+   "branch": "main",
+   "description": "سئو: آدرس‌های canonical با اسلش پایانی",
+   "rollback": "بازگشت به 20261023161240: ln -sfn /opt/nafisvam-site/releases/20261023161240 /opt/nafisvam-site/current.new && mv -T /opt/nafisvam-site/current.new /opt/nafisvam-site/current",
+   "notes": null
+  },
+  {
+   "rid": "20261023161240",
+   "commit": "0ecb793",
+   "branch": "main",
+   "description": "«سریع‌ترین بدون ضامن»",
+   "rollback": "بازگشت به 20261023152256: ln -sfn /opt/nafisvam-site/releases/20261023152256 /opt/nafisvam-site/current.new && mv -T /opt/nafisvam-site/current.new /opt/nafisvam-site/current",
+   "notes": null
+  },
+  {
+   "rid": "20261023152256",
+   "commit": "cc24a6e",
+   "branch": "master",
+   "description": "راه‌اندازی سایت جدید (Astro)",
+   "rollback": "بازگشت به 20261021091438: ln -sfn /opt/nafisvam-site/releases/20261021091438 /opt/nafisvam-site/current.new && mv -T /opt/nafisvam-site/current.new /opt/nafisvam-site/current",
+   "notes": null
+  },
+  {
+   "rid": "20261021091438",
+   "commit": null,
+   "branch": null,
+   "description": "سایت قدیمی (SPA)",
+   "rollback": "بازگشت به 20260922115749: ln -sfn /opt/nafisvam-site/releases/20260922115749 /opt/nafisvam-site/current.new && mv -T /opt/nafisvam-site/current.new /opt/nafisvam-site/current",
+   "notes": "پیش از سایت Astro؛ کامیت ثبت نشده"
+  },
+  {
+   "rid": "20260922115749",
+   "commit": null,
+   "branch": null,
+   "description": "نسخه‌ی قدیمی سپتامبر",
+   "rollback": "بازگشت به 20260922114028: ln -sfn /opt/nafisvam-site/releases/20260922114028 /opt/nafisvam-site/current.new && mv -T /opt/nafisvam-site/current.new /opt/nafisvam-site/current",
+   "notes": "کامیت ثبت نشده"
+  },
+  {
+   "rid": "20260922114028",
+   "commit": null,
+   "branch": null,
+   "description": "قدیمی‌ترین نسخه‌ی ثبت‌شده",
+   "rollback": "قدیمی‌ترین نسخه؛ نسخه‌ی قبلی برای بازگشت ثبت نشده.",
+   "notes": "کامیت ثبت نشده"
+  }
+ ]
+}
