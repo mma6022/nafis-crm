@@ -11,8 +11,11 @@ export const LOAN_PLANS_URL = '/data/loan-plans.json';
 /**
  * Public term (Mohammad 2026-10-28: the customer sees ONLY مبلغ واریزی and the installments — no principal, rate,
  * percentage or other calculation). The CRM export publishes per term the amount paid to the customer (`payout`,
- * تومان) and the monthly installment (`installment`, تومان), already computed. Nothing else is read; a term
- * without both figures is invalid (the plan is dropped, the islands fall back to the build snapshot).
+ * تومان) and the monthly installment (`installment`, تومان), already computed (CRM card values = the portal
+ * calculator's maximum). Nothing else is read. A term whose payout AND installment are both `null` is one the CRM
+ * cannot calculate (the portal would not accept a payout): it is skipped; a plan with only such terms is never
+ * calculated or offered by the islands and is listed as «به‌زودی» (parseComingSoonPlans). Any other malformed term
+ * still invalidates the plan.
  */
 export interface InstallmentTerm {
   installments: number; // months
@@ -68,16 +71,20 @@ export function applyPlanOverrides(p: LoanPlan): LoanPlan {
 const isNum = (v: unknown, min = -Infinity): v is number => typeof v === 'number' && Number.isFinite(v) && v >= min;
 const isStr = (v: unknown): v is string => typeof v === 'string';
 
-function parseTerm(t: unknown): InstallmentTerm | null {
+/** A term the CRM cannot calculate: payout and installment both null (portal: no acceptable payout). */
+const SOON = 'soon' as const;
+function parseTerm(t: unknown): InstallmentTerm | typeof SOON | null {
   if (!t || typeof t !== 'object') return null;
   const o = t as Record<string, unknown>;
   if (!isNum(o.installments, 1) || !Number.isInteger(o.installments)) return null;
+  if (o.payout === null && o.installment === null) return SOON;
   if (!isNum(o.payout, 0) || !isNum(o.installment, 0)) return null;
   return { installments: o.installments, payout: Math.round(o.payout), installment: Math.round(o.installment) };
 }
 
-/** Returns a clean plan or null. Unknown enum strings are tolerated so a new CRM value never blanks the site. */
-export function parseLoanPlan(p: unknown): LoanPlan | null {
+type PlanMeta = Omit<LoanPlan, 'installmentTerms' | 'guaranteeTypes' | 'guaranteeOptions'>;
+/** Shared metadata check; returns the raw term results (null = malformed plan). */
+function parsePlanBase(p: unknown): { meta: PlanMeta; o: Record<string, unknown>; terms: (InstallmentTerm | typeof SOON)[] } | null {
   if (!p || typeof p !== 'object') return null;
   const o = p as Record<string, unknown>;
   if (!isNum(o.id) || !Number.isInteger(o.id) || !isStr(o.name)) return null;
@@ -87,15 +94,31 @@ export function parseLoanPlan(p: unknown): LoanPlan | null {
   const terms = o.installmentTerms.map((t) => parseTerm(t));
   if (!terms.length || terms.some((t) => t === null)) return null;
   return {
-    id: o.id,
-    name: o.name,
-    installments: o.installments as string,
-    loanType: o.loanType as string,
-    processMode: o.processMode as string,
-    grantDays: o.grantDays as string,
-    bankName: o.bankName as string,
-    platformName: o.platformName as string,
-    installmentTerms: terms as InstallmentTerm[],
+    o,
+    terms: terms as (InstallmentTerm | typeof SOON)[],
+    meta: {
+      id: o.id,
+      name: o.name,
+      installments: o.installments as string,
+      loanType: o.loanType as string,
+      processMode: o.processMode as string,
+      grantDays: o.grantDays as string,
+      bankName: o.bankName as string,
+      platformName: o.platformName as string,
+    },
+  };
+}
+
+/** Returns a clean plan (only its calculable terms) or null. Unknown enum strings are tolerated so a new CRM value never blanks the site. */
+export function parseLoanPlan(p: unknown): LoanPlan | null {
+  const base = parsePlanBase(p);
+  if (!base) return null;
+  const { o, meta } = base;
+  const terms = base.terms.filter((t): t is InstallmentTerm => t !== SOON);
+  if (!terms.length) return null; // no calculable term → parseComingSoonPlans
+  return {
+    ...meta,
+    installmentTerms: terms,
     ...(Array.isArray(o.guaranteeOptions) &&
     o.guaranteeOptions.length &&
     o.guaranteeOptions.every((x) => Array.isArray(x) && x.length && x.every((g) => GUARANTEES.has(g as string)))
@@ -105,6 +128,33 @@ export function parseLoanPlan(p: unknown): LoanPlan | null {
         })()
       : {}),
   };
+}
+
+/** An active CRM plan with no calculable term: listed with «به‌زودی» instead of figures, never calculated or offered. */
+export interface ComingSoonPlan {
+  id: number;
+  name: string;
+  loanType: string;
+  processMode: string;
+  grantDays: string;
+  /** the plan's configured terms (months), shown on the card */
+  terms: number[];
+  retireesOnly?: boolean;
+}
+export const COMING_SOON_LABEL = 'به‌زودی';
+
+/** Plans whose every term is uncalculable (payout and installment null), in export order. */
+export function parseComingSoonPlans(input: unknown): ComingSoonPlan[] {
+  if (!Array.isArray(input)) return [];
+  return input.flatMap((p) => {
+    const base = parsePlanBase(p);
+    if (!base || base.terms.some((t) => t !== SOON)) return [];
+    const { meta } = base;
+    const months = [...new Set(((base.o.installmentTerms as Record<string, unknown>[]).map((t) => t.installments as number)))];
+    const out: ComingSoonPlan = { id: meta.id, name: meta.name, loanType: meta.loanType, processMode: meta.processMode, grantDays: meta.grantDays, terms: months };
+    if (PLAN_GUARANTEES[meta.id]?.retireesOnly) out.retireesOnly = true;
+    return [out];
+  });
 }
 
 export const PROCESS_MODE_LABEL: Record<string, string> = {

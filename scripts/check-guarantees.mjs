@@ -52,8 +52,9 @@ const CONFIRMED = {
   'no-cheque': [15, 20, 21],
   /** fastest ≤3 qualifying plans (all 10_to_15 → ties by id) */
   'fast-no-cheque': [15, 20, 21],
-  /** 10 خورشید removed: inactive in the CRM (live 2026-10-28) */
-  cheque: [1, 3, 4, 5, 7, 8, 9, 11, 12, 14, 18, 19, 22],
+  /** 10 خورشید removed: inactive in the CRM (live 2026-10-28). 4 removed (PLANS-49, 2026-10-28): no payout the portal
+   *  accepts (condition offers 18 months, plan only 24) → listed «به‌زودی» on /plans only; re-add when Mohammad fixes it. */
+  cheque: [1, 3, 5, 7, 8, 9, 11, 12, 14, 18, 19, 22],
   promissory: [20],
 };
 const uniq = (a) => [...new Set(a)].sort((x, y) => x - y);
@@ -180,9 +181,17 @@ let cardCount = 0;
 for (const f of files) {
   const h = readFileSync(f, 'utf8');
   const rel = relative(DIST, f);
-  for (const m of h.matchAll(/<article class="nf-card plan[^"]*"[^>]*>([\s\S]*?)<\/article>|<div class="nf-card mini">([\s\S]*?)<\/a><\/div>/g)) {
-    const card = m[1] ?? m[2];
+  for (const m of h.matchAll(/<article class="nf-card plan[^"]*"([^>]*)>([\s\S]*?)<\/article>|<div class="nf-card mini">([\s\S]*?)<\/a><\/div>/g)) {
+    const card = m[2] ?? m[3];
     cardCount++;
+    // PLANS-49: a plan without a calculable payout shows «به‌زودی» instead of both figures and offers no request button
+    if (m[1] && m[1].includes('data-plan-soon="1"')) {
+      for (const bad of ['سود', 'نرخ', '٪', 'اصل وام', 'کارمزد', 'میلیون', 'تومان'])
+        if (card.includes(bad)) errors.push(`${rel}: a «به‌زودی» plan card shows «${bad}»`);
+      if ((card.split('به‌زودی').length - 1) < 2) errors.push(`${rel}: a «به‌زودی» plan card must show «به‌زودی» for مبلغ واریزی and مبلغ هر قسط`);
+      if (/<a [^>]*nf-btn/.test(card) || card.includes('درخواست این طرح')) errors.push(`${rel}: a «به‌زودی» plan card must not offer a request button`);
+      continue;
+    }
     for (const bad of ['زمان بررسی', 'روش', 'جزئیات بیشتر', 'مبلغ اسمی', 'مبلغ دریافتی', 'قابل دریافت', 'پیش‌پرداخت', 'سود', 'نرخ', '٪', 'آخرین به‌روزرسانی', 'اصل وام', 'کارمزد'])
       if (card.includes(bad)) errors.push(`${rel}: a plan card shows «${bad}»`);
     for (const need of ['مبلغ واریزی', 'مبلغ هر قسط', 'تعداد اقساط'])

@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import raw from '../src/data/loan-plans.snapshot.json' with { type: 'json' };
-import { parseLoanPlans } from '../src/lib/loan-plans.ts';
+import { parseComingSoonPlans, parseLoanPlans } from '../src/lib/loan-plans.ts';
 import {
   combos, recommend, planFacts, bankNames, reqBands, bandOf, millionsFa,
   FINDER_BANDS, FINDER_PRIOS, comboQualifies, guaranteePagePlans, fastestGuaranteePlans, topPlanPerType, planMaxPayout, planNoGuarantorPayout, planBaseName, type Combo,
@@ -12,7 +12,24 @@ import type { GuaranteePage } from '../src/data/plan-guarantees.ts';
 const plans = parseLoanPlans(raw);
 const all = combos(plans);
 
-test('snapshot parses fully', () => assert.equal(plans.length, (raw as unknown[]).length));
+test('snapshot parses fully (plans without a calculable payout are listed «به‌زودی», never calculated)', () => {
+  const soon = parseComingSoonPlans(raw);
+  assert.equal(plans.length + soon.length, (raw as unknown[]).length);
+  // PLANS-49: plan 4 has no payout the portal accepts (condition 396 offers 18 months, the plan only 24) → «به‌زودی»
+  assert.deepEqual(soon.map((p) => [p.id, p.terms]), [[4, [24]]]);
+  assert.ok(!plans.some((p) => p.id === 4));
+});
+
+test('parser: null payout/installment term = not calculable; a mixed plan keeps only its calculable terms', () => {
+  const base = { name: 'x', installments: '12,18', loanType: 'score', processMode: 'both', grantDays: '10_to_15', bankName: 'ملی', platformName: 'y' };
+  const mixed = { ...base, id: 901, installmentTerms: [{ installments: 12, payout: null, installment: null }, { installments: 18, payout: 60e6, installment: 5e6 }] };
+  const none = { ...base, id: 902, installmentTerms: [{ installments: 12, payout: null, installment: null }] };
+  const half = { ...base, id: 903, installmentTerms: [{ installments: 12, payout: 60e6, installment: null }] };
+  assert.deepEqual(parseLoanPlans([mixed]).map((p) => p.installmentTerms.map((t) => t.installments)), [[18]]);
+  assert.deepEqual(parseLoanPlans([none, half]), [], 'all-null plan is not calculable; a half-null term is malformed');
+  assert.deepEqual(parseComingSoonPlans([mixed, none, half]).map((p) => p.id), [902]);
+  assert.deepEqual(parseComingSoonPlans('x'), []);
+});
 
 test('9 combinations (band × priority; no type question since legal 2026-10-24) → 1..3 cards, unique names, valid CTA params', () => {
   let n = 0;
@@ -60,11 +77,11 @@ test('guarantee preset is a hard filter: only truly qualifying plans, empty when
   assert.deepEqual(recommend(unknown, { band: 1, prio: 'cheap' }, { guarantee: { page: 'cheque', label: 'چک' } }).cards, []);
 });
 
-test('guarantee pages: plan sets match Mohammad\'s answers (2026-10-23) on the 17 live plans (10 خورشید inactive)', () => {
+test('guarantee pages: plan sets match Mohammad\'s answers (2026-10-23) on the 16 calculable live plans (10 خورشید inactive, 4 «به‌زودی»)', () => {
   const ids = (page: GuaranteePage) => guaranteePagePlans(plans, page).map((p) => p.id).sort((a, b) => a - b);
   assert.deepEqual(ids('no-guarantor'), [3, 7, 8, 9, 12, 14, 15, 17, 18, 19, 21, 22]);
   assert.deepEqual(ids('no-cheque'), [15, 20, 21]);
-  assert.deepEqual(ids('cheque'), [1, 3, 4, 5, 7, 8, 9, 11, 12, 14, 18, 19, 22]);
+  assert.deepEqual(ids('cheque'), [1, 3, 5, 7, 8, 9, 11, 12, 14, 18, 19, 22]); // 4: no calculable payout (PLANS-49)
   assert.deepEqual(ids('promissory'), [20]);
   assert.deepEqual(ids('fast-no-guarantor'), [3, 7, 8, 9, 12, 14, 15, 18, 19, 21, 22]); // 17 is page-restricted
   assert.deepEqual(ids('fast-no-cheque'), [15, 20, 21]);
@@ -73,8 +90,8 @@ test('guarantee pages: plan sets match Mohammad\'s answers (2026-10-23) on the 1
 
 test('facts are computed from data', () => {
   const f = planFacts(plans);
-  assert.equal(f.planCount, 17);
-  assert.equal(f.goodsCount, 14);
+  assert.equal(f.planCount, 16); // + plan 4 «به‌زودی» (not calculable, PLANS-49)
+  assert.equal(f.goodsCount, 13);
   assert.equal(f.minAmount, '۶۰'); // مبلغ واریزی, never the principal (Mohammad 2026-10-28)
   assert.equal(f.maxAmount, '۲۹۰');
   assert.equal(f.minTerm, 12);
@@ -112,7 +129,7 @@ test('content presets map onto finder presets', () => {
   assert.deepEqual(toFinderPreset({ need: 'cash', priority: 'fast' }), { prio: 'fast' });
   assert.equal(toFinderPreset({ guarantee: 'no-guarantor' }).guarantee?.label, 'بدون ضامن');
   assert.deepEqual(toFinderPreset({ guarantee: 'bogus' }), {});
-  assert.equal(fillFacts('بین {planCount} طرح', planFacts(plans)), 'بین ۱۷ طرح');
+  assert.equal(fillFacts('بین {planCount} طرح', planFacts(plans)), 'بین ۱۶ طرح');
 });
 
 test('fast pages: fastest ≤3 plans meeting the base condition, by grantDays (never empty)', () => {
@@ -133,7 +150,7 @@ test('«سریع‌ترین بدون ضامن»: one plan per type, highest مب
   assert.equal(p9.noGuarantorShare, 0.6);
   assert.equal(planMaxPayout(p9), 290e6);
   assert.equal(planNoGuarantorPayout(p9), 174e6);
-  assert.equal(planNoGuarantorPayout(plans.find((p) => p.id === 3)!), 56.5e6); // ۱۰۰ میلیون cap
+  assert.equal(Math.round(planNoGuarantorPayout(plans.find((p) => p.id === 3)!)), 56e6); // ۱۰۰ میلیون cap → CRM card 56M (PLANS-49)
   assert.equal(planNoGuarantorPayout(plans.find((p) => p.id === 19)!), planMaxPayout(plans.find((p) => p.id === 19)!)); // no lower cap
   assert.equal(new Set(list.map((p) => planBaseName(p.name))).size, list.length);
   assert.equal(planBaseName('ترنم ( بازنشسته ها )'), planBaseName('ترنم'));

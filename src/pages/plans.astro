@@ -4,18 +4,21 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import PageHeader from '../components/PageHeader.astro';
 import PlanFinder from '../components/islands/PlanFinder';
-import { PlanCard } from '../components/islands/PlanCard';
+import { ComingSoonCard, PlanCard } from '../components/islands/PlanCard';
 import I from '../components/ui/I.astro';
 import { fillFaq } from '../lib/faq-fill';
 import FaqList from '../components/FaqList.astro';
 import FinalCTA from '../components/FinalCTA.astro';
 import { getCollection } from 'astro:content';
-import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
-import { MODE_LABEL, byId, combos, fa, millionsFa, planFacts } from '../lib/plans';
+import { COMING_SOON_SNAPSHOT, LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
+import { COMING_SOON_LABEL } from '../lib/loan-plans';
+import { MODE_LABEL, byId, cleanPlanName, combos, fa, millionsFa, planFacts } from '../lib/plans';
 import { breadcrumbLd, faqLd } from '../lib/seo';
 const facts = planFacts(LOAN_PLANS_SNAPSHOT);
 const all = combos(LOAN_PLANS_SNAPSHOT);
 const one = [...new Set(all.map((c) => c.id))].map((id) => byId(all, id)!);
+// Active plans with no calculable payout (CRM export payout/installment null): listed with «به‌زودی», never a number.
+const soon = COMING_SOON_SNAPSHOT.filter((p) => !one.some((c) => c.id === p.id));
 // FAQ: the plan questions from home.mdx (count, which plan suits me, amounts/terms) — ANSWERS-1 §9
 const home = (await getCollection('pages', (p) => p.data.slug === '/'))[0]!;
 const faq = fillFaq(home.data.faq.slice(0, 3), LOAN_PLANS_SNAPSHOT);
@@ -39,7 +42,7 @@ const crumbs = [
   </div>
   <section class="container-nf pt-section" aria-labelledby="all-h">
     <h2 id="all-h" class="text-h2 lg:text-h2-lg mb-4">همه طرح‌ها</h2>
-    <p class="text-ink-muted mb-4">{fa(one.length)} طرح فعال؛ مبلغ واریزی و قسط هر طرح روی کارت آن آمده است.</p>
+    <p class="text-ink-muted mb-4">{fa(one.length)} طرح فعال{soon.length > 0 && ` و ${fa(soon.length)} طرح ${COMING_SOON_LABEL}`}؛ مبلغ واریزی و قسط هر طرح روی کارت آن آمده است.</p>
     <div class="pt not-prose" role="table" aria-label="همه طرح‌ها">
       <div class="pt-h" role="row">
         <span role="columnheader">طرح</span><span role="columnheader">روش</span><span role="columnheader">مبلغ واریزی</span><span role="columnheader">مبلغ هر قسط</span><span role="columnheader">تعداد اقساط</span><span role="columnheader"><span class="sr">درخواست</span></span>
@@ -54,10 +57,23 @@ const crumbs = [
           <span role="cell"><a class="nf-btn nf-btn--secondary pt-go" href={`/request/?plan=${c.id}&term=${c.term}&src=plans-table`}>درخواست این طرح</a></span>
         </div>
       ))}
+      {soon.map((p) => (
+        <div class="pt-r pt-r--soon" role="row" data-plan-soon={p.id}>
+          <b class="pt-nm" role="rowheader">{cleanPlanName(p.name)}{p.retireesOnly && <small>ویژه‌ی بازنشستگان</small>}</b>
+          <span role="cell">{MODE_LABEL[p.processMode] && <span class={`mode mode--${p.processMode}`}><I name={MODE_ICON[p.processMode] ?? 'online'} size={18} /><span><span class="sr">روش: </span>{MODE_LABEL[p.processMode]}</span></span>}</span>
+          <span role="cell"><b class="pt-n">{COMING_SOON_LABEL}</b></span>
+          <span role="cell"><b class="pt-n">{COMING_SOON_LABEL}</b></span>
+          <span role="cell"><b class="pt-n">{p.terms.map((t) => fa(t)).join('، ')}</b><small>قسط ماهانه</small></span>
+          <span role="cell"></span>
+        </div>
+      ))}
     </div>
     <div class="cards plan-list pt-cards">
       {one.map((c) => (
         <PlanCard c={c} src="plans-list" />
+      ))}
+      {soon.map((p) => (
+        <ComingSoonCard p={p} name={cleanPlanName(p.name)} />
       ))}
     </div>
   </section>

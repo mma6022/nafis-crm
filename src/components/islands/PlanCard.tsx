@@ -4,6 +4,7 @@
  * and a single «درخواست این طرح» button (Mohammad 2026-10-28: no rate, percentage, principal or other calculation).
  * No review time, method, «جزئیات بیشتر» or explanatory text.
  */import { fa, millionsFa, type Combo } from '../../lib/plans';
+import { COMING_SOON_LABEL, type ComingSoonPlan } from '../../lib/loan-plans';
 import { I } from '../ui/I';
 
 /** QA-only stress label (designer `?longname=1`); enabled in dev or with PUBLIC_QA=1, never in a normal build. */
@@ -63,6 +64,36 @@ export function PlanCard({
         {btn}
         {featured && <I name="arrow" />}
       </a>
+    </article>
+  );
+}
+
+/**
+ * Card for an active plan the CRM cannot calculate yet (no payout the portal would accept): same layout, «به‌زودی»
+ * instead of مبلغ واریزی / مبلغ هر قسط, no request button (PM 2026-10-28: never a number, never silently hidden).
+ */
+export function ComingSoonCard({ p, name }: { p: ComingSoonPlan; name: string }) {
+  return (
+    <article className="nf-card plan plan--result plan--soon" data-plan-card={p.id} data-plan-soon="1">
+      <h3>
+        <span className="nm">{name}</span>
+      </h3>
+      {p.retireesOnly && <span className="nf-badge nf-badge--brand plan-tag">ویژه‌ی بازنشستگان</span>}
+      <dl className="money money--3">
+        <div>
+          <dt className="lbl">مبلغ واریزی</dt>
+          <dd className="val">{COMING_SOON_LABEL}</dd>
+        </div>
+        <div>
+          <dt className="lbl">مبلغ هر قسط</dt>
+          <dd className="val sm">{COMING_SOON_LABEL}</dd>
+        </div>
+        <div>
+          <dt className="lbl">تعداد اقساط</dt>
+          <dd className="val sm">{p.terms.map((t) => fa(t)).join('، ')}</dd>
+          <dd className="unit">قسط ماهانه</dd>
+        </div>
+      </dl>
     </article>
   );
 }

@@ -23,8 +23,9 @@ const all = combos(plans);
  * term's payout and installment (rate 0 → P/n; P = installment × n; deposit% = payout / P). Order is preserved.
  */
 const legacyView = (list: unknown) =>
-  (list as { installmentTerms: { installments: number; payout: number; installment: number }[] }[]).flatMap((p) =>
-    p.installmentTerms.map((t) => {
+  (list as { installmentTerms: { installments: number; payout: number | null; installment: number | null }[] }[]).flatMap((p) =>
+    // PLANS-49: a term the CRM cannot calculate (payout/installment null) is never calculated or offered by the site
+    p.installmentTerms.flatMap((t) => (t.payout == null || t.installment == null ? [] : [{ installments: t.installments, payout: t.payout, installment: t.installment }])).map((t) => {
       const P = t.installment * t.installments;
       return { ...p, principalAmount: P, annualInterest: 0, installmentTerms: [{ installments: t.installments, prepaymentPercent: 0, deductionPercent: 0, depositPercent: (t.payout * 100) / P }] };
     }),
