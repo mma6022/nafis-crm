@@ -23,17 +23,19 @@ t("ridToTehran UTC+03:30 with Persian digits/Jalali date", () => {
 t("mapOperation status mapping", () => {
   assert.deepEqual([mapOperation(null).kind, mapOperation(null).blocksActions], ["none", false]);
   assert.deepEqual([mapOperation({}).kind], ["none"]);
-  for (const s of ["running", "applying", "RUNNING"]) { const v = mapOperation({ status: s, target: "20261028211337" }); assert.equal(v.kind, "running"); assert.equal(v.blocksActions, true); assert.match(v.title, /20261028211337/); }
+  for (const s of ["running", "applying", "RUNNING"]) { const v = mapOperation({ status: s, target: "20261028211337" }); assert.equal(v.kind, "running"); assert.equal(v.blocksActions, true); assert.equal(v.badge, "در حال اجرا"); }
   for (const s of ["succeeded", "success"]) { const v = mapOperation({ status: s }); assert.equal(v.kind, "success"); assert.equal(v.blocksActions, false); }
+  // PM #6: manager restored the previous links itself -> «برگشت خودکار»
   const f = mapOperation({ status: "failed", error: "activation_failed" });
-  assert.equal(f.kind, "failed"); assert.equal(f.blocksActions, false); assert.match(f.message, /نسخه‌ی قبلی/);
+  assert.equal(f.kind, "auto_rollback"); assert.equal(f.badge, "برگشت خودکار"); assert.equal(f.blocksActions, false); assert.match(f.message, /نسخه‌ی قبلی/);
+  assert.equal(mapOperation({ status: "failed" }).kind, "auto_rollback");
   for (const e of ["database_schema_changed", "failed_to_restore_links"]) {
     const m = mapOperation({ status: "manual_recovery_required", error: e });
     assert.equal(m.kind, "manual_recovery"); assert.equal(m.blocksActions, true);
-    assert.equal(m.title, "CRM متوقف است؛ بازیابی دستی لازم است");
+    assert.equal(m.badge, "خطا"); assert.match(m.title, /نیاز به کار دستی/);
   }
   const u = mapOperation({ status: "weird" }); assert.equal(u.kind, "unknown"); assert.equal(u.blocksActions, true);
-  assert.equal(mapOperation({ status: "failed", error: "zzz" }).message, "zzz");
+  const z = mapOperation({ status: "failed", error: "zzz" }); assert.deepEqual([z.kind, z.badge, z.message], ["failed", "خطا", "zzz"]);
 });
 t("releaseGate schema cut-off", () => {
   const base = { current: "20261028211337", cutoff: "20261028203444", ready: true, busy: false };
@@ -41,6 +43,7 @@ t("releaseGate schema cut-off", () => {
   // older than cut-off -> disabled with reason
   const old = releaseGate({ ...base, version: "20261028145657" });
   assert.deepEqual([old.action, old.allowed], ["rollback", false]); assert.match(old.reason, /20261028203444/);
+  assert.equal(releaseGate({ ...base, cutoffLabel: "انتشار ۸۱", version: "20261028145657" }).reason, "با پایگاه داده‌ی فعلی جور نیست (ساختار از انتشار ۸۱ عوض شده)");
   // exactly the cut-off release -> allowed (its code matches the schema)
   assert.deepEqual([releaseGate({ ...base, version: "20261028203444" }).allowed], [true]);
   // between cut-off and current -> allowed
@@ -48,13 +51,14 @@ t("releaseGate schema cut-off", () => {
   // unknown cut-off blocks every rollback
   const unk = releaseGate({ ...base, cutoff: null, version: "20261028203444" });
   assert.deepEqual([unk.action, unk.allowed], ["rollback", false]);
-  // newer than current = deploy, cut-off irrelevant
-  assert.deepEqual(Object.values(releaseGate({ ...base, cutoff: null, version: "20261029000000" })).slice(0, 2), ["deploy", true]);
+  // PM #4: newer than current -> nothing offered (no deploy from this page)
+  assert.deepEqual(Object.values(releaseGate({ ...base, version: "20261029000000" })).slice(0, 2), ["none", false]);
+  assert.equal(releaseGate({ ...base, current: null, version: "20261028203444" }).allowed, false);
   // 12-digit cut-off normalised
   assert.equal(releaseGate({ ...base, cutoff: "202610282034", version: "20261028203300" }).allowed, false);
   // busy / not ready
-  assert.equal(releaseGate({ ...base, busy: true, version: "20261029000000" }).allowed, false);
-  assert.equal(releaseGate({ ...base, ready: false, version: "20261029000000" }).allowed, false);
+  assert.equal(releaseGate({ ...base, busy: true, version: "20261028203444" }).allowed, false);
+  assert.equal(releaseGate({ ...base, ready: false, version: "20261028203444" }).allowed, false);
   // seed: cut-off = current (82) -> every rollback disabled
   assert.equal(releaseGate({ current: "20261028211337", cutoff: "20261028211337", ready: true, busy: false, version: "20261028203444" }).allowed, false);
 });
@@ -67,8 +71,8 @@ t("paginate", () => {
   assert.equal(paginate(xs, NaN, 15).page, 1);
   assert.deepEqual(paginate([], 1, 10), { rows: [], page: 1, pages: 1, total: 0 });
 });
-t("refresh: 30s idle, 4s only while running", () => {
+t("refresh: 15s idle, 4s only while running", () => {
   assert.equal(crmRefetchMs("running"), 4000);
-  for (const k of ["none", "success", "failed", "manual_recovery", "unknown"]) assert.equal(crmRefetchMs(k), 30000);
+  for (const k of ["none", "success", "failed", "auto_rollback", "manual_recovery", "unknown"]) assert.equal(crmRefetchMs(k), 15000);
 });
 console.log(`releases-model fixture: ${n} passed`);

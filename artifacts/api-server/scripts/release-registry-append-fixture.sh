@@ -34,5 +34,9 @@ echo "ok - crm append keeps cut-off"
 python3 "$AP" crm --dir "$T" --rid 20261029040000 --commit abcdef4 --branch feat/y --desc "با تغییر ساختار" --schema-change "new column" >/dev/null
 python3 -c "import json;d=json.load(open('$T/crm-releases-meta.json'));assert d['schemaCutoff']=='20261029040000', d['schemaCutoff']"
 echo "ok - crm --schema-change raises cut-off"
+python3 "$AP" crm --dir "$T" --rid 20261029050000 --commit abcdef5 --branch feat/z --desc "شماره" --release-no 85 >/dev/null
+python3 -c "import json;d=json.load(open('$T/crm-releases-meta.json'));assert d['releases']['20261029050000']['releaseNo']=='85'"
+if python3 "$AP" crm --dir "$T" --rid 20261029060000 --commit abcdef6 --branch feat/z --desc d --release-no "8 5" >/dev/null 2>&1; then fail "bad release-no accepted"; fi
+echo "ok - --release-no stored and validated"
 ls -A "$T" | grep -q '\.tmp' && fail "tmp left behind" || true
 echo "release-registry append fixture: passed"

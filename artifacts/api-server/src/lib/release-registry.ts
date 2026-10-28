@@ -57,6 +57,14 @@ export type SiteRelease = {
   description: string | null;
   rollback: string | null;
   notes: string | null;
+  /** Release number when known from a fact (e.g. "55" from /root/site55); never invented. */
+  releaseNo: string | null;
+};
+
+const RELNO_RE = /^\d{1,4}[a-z]?$/;
+export const cleanReleaseNo = (v: unknown): string | null => {
+  const s = v == null ? "" : String(v).trim();
+  return RELNO_RE.test(s) ? s : null;
 };
 
 export function normalizeSiteEntry(raw: unknown): { ok: true; entry: SiteRelease } | { ok: false; error: string } {
@@ -77,6 +85,7 @@ export function normalizeSiteEntry(raw: unknown): { ok: true; entry: SiteRelease
       description: cleanText(r.description, 200),
       rollback: cleanText(r.rollback, 500),
       notes: cleanText(r.notes, 300),
+      releaseNo: cleanReleaseNo(r.releaseNo),
     },
   };
 }
@@ -101,7 +110,7 @@ export function parseSiteRegistry(doc: unknown): { releases: SiteRelease[]; erro
   return { releases: out, errors };
 }
 
-export type CrmMetaEntry = { commit: string | null; branch: string | null; description: string | null; schemaChange: string | null };
+export type CrmMetaEntry = { commit: string | null; branch: string | null; description: string | null; schemaChange: string | null; releaseNo: string | null };
 export type CrmMeta = { schemaCutoff: string | null; cutoffSource: "explicit" | "derived" | "none"; releases: Record<string, CrmMetaEntry> };
 
 /**
@@ -122,7 +131,7 @@ export function parseCrmMeta(doc: unknown): CrmMeta {
     const commit = typeof r.commit === "string" && COMMIT_RE.test(r.commit.toLowerCase()) ? r.commit.toLowerCase() : null;
     const branch = typeof r.branch === "string" && BRANCH_RE.test(r.branch) ? r.branch : null;
     const schemaChange = cleanText(r.schemaChange, 200);
-    releases[rid] = { commit, branch, description: cleanText(r.description, 200), schemaChange };
+    releases[rid] = { commit, branch, description: cleanText(r.description, 200), schemaChange, releaseNo: cleanReleaseNo(r.releaseNo) };
     if (schemaChange && (!derived || rid > derived)) derived = rid;
   }
   const explicit = typeof src.schemaCutoff === "string" && ridToDate(src.schemaCutoff) ? src.schemaCutoff : null;
