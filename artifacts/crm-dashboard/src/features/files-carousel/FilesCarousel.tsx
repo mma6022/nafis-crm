@@ -10,6 +10,8 @@ import { maskTel, phone11 } from '@/features/expert-lockdown/IncomingWizard';
 import '@/features/daily-plan/daily-plan.css';
 import './files-carousel.css';
 import { fcApi, type FcCard, type FcView } from './api';
+import FilesList from './FilesList';
+import { CatPill, RNote, fcDay } from './FcLabels';
 
 /** REMINDER-68 (Armita review #1): masked ۰۹۱۲***۰۰۱۲ for the expert; the «تماس» tel: link keeps the full number. */
 const telFa = (p: string) => maskTel(phone11(p) ?? p.replace(/^\+98/, '0'));
@@ -48,7 +50,8 @@ export default function FilesCarousel() {
     const apply = () => { qc.setQueryData(['files-carousel', 'today'], v); setView(null); setCxOut(null); setAnim(reduce ? '' : 'in'); setTimeout(() => { setAnim(''); titleRef.current?.focus(); }, reduce ? 0 : 290); };
     if (reduce) apply(); else { setAnim('out'); setTimeout(apply, 280); }
   };
-  return <div className="dp-page fc-page" data-testid="fc-page">
+  const listMode = d.mode === 'list';
+  return <div className={`dp-page fc-page${listMode ? ' fc-wide' : ''}`} data-testid="fc-page" data-mode={d.mode ?? 'cards'}>
     <header className="dp-head card fc-head" data-testid="fc-head">
       <div className="dp-head-t"><div><h1>پرونده‌های من</h1><p>{d.orderSource === 'assistant' ? 'به ترتیب اولویت دستیار' : 'ترتیب پیش‌فرض (دستیار هنوز ترتیب نداده)'}</p></div>
         <button type="button" className="btn btn-ghost fc-new" onClick={() => setWizard(true)} data-testid="fc-new"><Plus size={16} aria-hidden="true" /> ثبت پرونده جدید</button></div>
@@ -60,7 +63,8 @@ export default function FilesCarousel() {
     </header>
     {shift ? <div className="dp-box warn banner" role="status" data-testid="fc-shift">{shift.left ? `${faNum(shift.left)} پرونده از نوبت تو بیرون رفت (اقدامش با واحد دیگری است). ` : ''}{shift.back ? `${faNum(shift.back)} پرونده به نوبت تو برگشت و بعد از کارت جاری آمد.` : ''} <button type="button" className="dp-link" onClick={() => setShift(null)}>باشه</button></div> : null}
     <p className="sr-only" aria-live="polite">{d.index ? `پرونده ${faNum(d.index)} از ${faNum(d.total)}` : ''}</p>
-    {!d.total ? <div className="dp-box" data-testid="fc-empty">پرونده‌ی در جریانی که اقدامش با تو باشد نداری.{d.waiting?.total ? <p className="fc-waiting" data-testid="fc-waiting">{faNum(d.waiting.total)} پرونده‌ی شما منتظر قدم بعدی دیگرانه: {d.waiting.groups.map(w => `${w.label} ${faNum(w.count)}`).join('، ')}</p> : null}</div>
+    {listMode && view == null ? <FilesList d={d} cardsDone={d.total} />
+      : !d.total ? <div className="dp-box" data-testid="fc-empty">پرونده‌ی در جریانی که اقدامش با تو باشد نداری.{d.waiting?.total ? <p className="fc-waiting" data-testid="fc-waiting">{faNum(d.waiting.total)} پرونده‌ی شما منتظر قدم بعدی دیگرانه: {d.waiting.groups.map(w => `${w.label} ${faNum(w.count)}`).join('، ')}</p> : null}</div>
       : curIdx < 0 && view == null ? <div className="dp-box ok" data-testid="fc-done">همه‌ی پرونده‌های امروز پیگیری شد. ترتیب فردا را دستیار می‌نویسد.</div> : null}
     {toast ? <div className="fc-toast cx" role="status" data-testid="fc-cx-toast"><Check size={15} aria-hidden="true" /><span>پرونده لغو شد · کارت بعدی</span><span className="cxs">{toast.name} · برگرداندن فقط با ادمین</span></div> : null}
     {shown && (view != null || curIdx >= 0) ? <div className={`fc-deck ${anim}`}>
@@ -71,7 +75,7 @@ export default function FilesCarousel() {
       <button type="button" className="btn btn-ghost" disabled={shownIdx <= 0} onClick={() => setView(Math.max(0, shownIdx - 1))} data-testid="fc-prev"><ChevronRight size={16} aria-hidden="true" /> قبلی (فقط دیدن)</button>
       {view != null && view !== curIdx ? <button type="button" className="btn btn-ghost" onClick={() => setView(null)} data-testid="fc-back-current">برگشت به پرونده‌ی جاری <ChevronLeft size={16} aria-hidden="true" /></button> : null}
     </nav> : null}
-    {next && view == null ? <p className="fc-next" data-testid="fc-next"><Lock size={13} aria-hidden="true" /> بعدی: پرونده‌ی #{faNum(next.fileId)} <span className={`dp-chip fc-g-${next.group}`} data-testid="fc-next-group">{next.groupLabel}</span>{next.returnedToday ? <span className="dp-chip extra">برگشت به نوبت تو</span> : null} · تا ثبت نتیجه قفل است</p> : null}
+    {next && view == null ? <p className="fc-next" data-testid="fc-next"><Lock size={13} aria-hidden="true" /> بعدی: پرونده‌ی #{faNum(next.fileId)} {next.fc ? <CatPill c={next.fc} small /> : <span className={`dp-chip fc-g-${next.group}`} data-testid="fc-next-group">{next.groupLabel}</span>}{next.returnedToday ? <span className="dp-chip extra">برگشت به نوبت تو</span> : null} · تا ثبت نتیجه قفل است</p> : null}
     {wizard ? <CreateWizard onClose={() => { setWizard(false); void qc.invalidateQueries({ queryKey: ['files-carousel', 'today'] }); }} /> : null}
   </div>;
 }
@@ -98,12 +102,14 @@ function FileCard({ c, d, readOnly, titleRef, onSaved }: { c: FcCard; d: FcView;
   };
   return <section className={`dp-cur card fc-card${readOnly ? ' ro' : ''}`} aria-labelledby="fc-title" data-testid={readOnly ? 'fc-card-ro' : 'fc-card'} data-file={c.fileId}>
     <div className="dp-cur-top"><span className="dp-count">پرونده {faNum(c.position)} از {faNum(d.total)}</span>
-      <span className="dp-chips"><span className={`dp-chip fc-g-${c.group}`} data-testid="fc-group">{c.groupLabel}</span>{c.returnedToday ? <span className="dp-chip extra" data-testid="fc-returned">برگشت به نوبت تو</span> : null}</span></div>
+      <span className="dp-chips">{c.fc ? <CatPill c={c.fc} /> : <span className={`dp-chip fc-g-${c.group}`} data-testid="fc-group">{c.groupLabel}</span>}{c.returnedToday ? <span className="dp-chip extra" data-testid="fc-returned">برگشت به نوبت تو</span> : null}</span></div>
+    {c.fc ? <RNote c={c.fc} /> : null}
     <h2 id="fc-title" tabIndex={-1} ref={readOnly ? undefined : titleRef}>{c.customerName} <span className="dp-id">#{faNum(c.customerId)}</span></h2>
     <p className="fno" data-testid="fc-fileno">{c.typeLabel} #{faNum(c.fileId)}</p>
     {!c.reason && !c.ask ? <p className="dfb" data-testid="fc-default">ترتیب پیش‌فرض</p> : null}
     {c.reason ? <p className="dp-reason" data-testid="fc-reason">{c.reason}</p> : null}
     {c.ask ? <div className="dp-keynote"><small>چی بپرسم</small><q data-testid="fc-ask">{c.ask}</q></div> : null}
+    {c.fc ? <p className="lfu" data-testid="fc-lastact">آخرین فعالیت پرونده: {fcDay(c.fc.last_activity_at)}</p> : null}
     <p className="lfu" data-testid="fc-last">آخرین پیگیری: {c.lastFollowUp ? <>{jalaliAt(c.lastFollowUp.at)}{c.lastFollowUp.outcomeLabel ? ` · ${c.lastFollowUp.outcomeLabel}` : ''}</> : 'ندارد'}</p>
     {readOnly ? <div className="dp-box sm" data-testid="fc-ro-note">{c.todayFollowUp?.outcome === 'cancelled' ? <><span className="fc-cxtag in" data-testid="fc-ro-cx">لغو شد</span> دلیل لغو: {c.todayFollowUp.note}</> : c.todayFollowUp ? <>امروز ثبت شد: {c.todayFollowUp.outcomeLabel} · {c.todayFollowUp.note}</> : 'فقط دیدن؛ نوبت این پرونده نشده.'}</div> : <>
       {c.phone ? <p className="dp-phone" dir="ltr" data-testid="fc-phone"><Phone size={14} aria-hidden="true" /> {telFa(c.phone)}</p> : null}

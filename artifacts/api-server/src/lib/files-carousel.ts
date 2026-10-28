@@ -10,8 +10,11 @@ import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransa
 import { cqRaw, isWorkDay, tParts, tYmd, fromTehran, CQ_OUTCOMES } from "./call-queue";
 import { EL_USERS } from "./expert-lockdown";
 import { maskCustomerName } from "./cross-owner-search";
+import { faDigits, fcCategories, fcInGroupCompare, fcOldDays, FC_GROUP_LABELS83, FC_OLD_DAYS_KEY, FC_OLD_DAYS_DEFAULT, type FcCategory } from "./files-category";
 
 export const FC_FLAG_KEY = "flag.files_carousel";
+/** REL-83: category order (برگشتی → امضا → وثیقه/ضامن → قدیمی → بقیه) + list fallback + late-return bar. Seeded '0' (deploy = no-op). */
+export const FC_CAT_FLAG_KEY = "flag.fc_categories";
 export const FC_EVENTS = { prioritySet: "files_priority_set", followup: "files_followup_logged", rejected: "daily_plan_rejected" } as const;
 export const FC_TEXT_MAX = 80, FC_NOTE_MAX = 80, FC_ROWS_MAX = 200, FC_CLOSE_MIN = 18 * 60;
 export const FC_OUTCOME_LABELS: Record<string, string> = { answered: "جواب داد", no_answer: "جواب نداد", follow_up: "پیگیری بعدی", cancelled: "لغو شده" };
@@ -65,6 +68,8 @@ type U = { id: number; role: string; salespersonId: number | null };
 export const fcTarget = (u: U | null | undefined): boolean =>
   Boolean(u && u.role === "salesperson" && EL_USERS[Number(u.id)] != null && Number(u.salespersonId) === EL_USERS[Number(u.id)]);
 export const fcEnabledFor = (u: U | null | undefined) => fcTarget(u) && fcOn();
+export const fcCatOn = (): boolean => { try { return cqRaw(FC_CAT_FLAG_KEY) === "1"; } catch { return false; } };
+export const fcOldDaysNow = (): number => fcOldDays(cqRaw);
 export const fcSpAllowed = (sp: number) => Object.values(EL_USERS).includes(sp);
 export const fcToday = (now = new Date()) => tYmd(tParts(now));
 const minOf = (now: Date) => { const p = tParts(now); return p.h * 60 + p.mi; };
@@ -95,6 +100,13 @@ export function ensureFcSchema(): void {
       uncancelled_at TEXT, uncancelled_by INTEGER, uncancel_note TEXT);
     CREATE INDEX IF NOT EXISTS idx_fc_cancels_file ON fc_cancels(file_id, id);`);
   execute("INSERT OR IGNORE INTO call_queue_settings(key,value,updated_by,updated_at) VALUES(?, '0', NULL, ?)", [FC_FLAG_KEY, new Date().toISOString()]);
+  // REL-83: additive only — new flag (off), the stale threshold, and the moment the expert's list opened today.
+  execute("INSERT OR IGNORE INTO call_queue_settings(key,value,updated_by,updated_at) VALUES(?, '0', NULL, ?)", [FC_CAT_FLAG_KEY, new Date().toISOString()]);
+  execute("INSERT OR IGNORE INTO call_queue_settings(key,value,updated_by,updated_at) VALUES(?, ?, NULL, ?)", [FC_OLD_DAYS_KEY, String(FC_OLD_DAYS_DEFAULT), new Date().toISOString()]);
+  if (!queryRows<{ name: string }>("PRAGMA table_info(fc_days)").some(c => c.name === "list_opened_at")) crmDb.exec("ALTER TABLE fc_days ADD COLUMN list_opened_at TEXT");
+  // REL-83 «تازه برگشت» (PM 6): a file returned while the expert's list was open keeps the badge until the expert opens that file.
+  crmDb.exec(`CREATE TABLE IF NOT EXISTS fc_returns(salesperson_id INTEGER NOT NULL, file_id INTEGER NOT NULL, returned_at TEXT NOT NULL, reason_code TEXT,
+      created_at TEXT NOT NULL, opened_at TEXT, PRIMARY KEY(salesperson_id, file_id, returned_at));`);
   ready = true;
 }
 
@@ -132,8 +144,8 @@ function latestOrder(sp: number, day: string): { version: number; items: OrderRo
     "SELECT version,items_json,set_at,assistant_id FROM fc_orders WHERE salesperson_id=? AND day=? ORDER BY version DESC LIMIT 1", [sp, day]);
   return r ? { version: Number(r.version), items: JSON.parse(r.items_json), set_at: r.set_at, assistant_id: r.assistant_id } : null;
 }
-type FcDay = { started_at: string | null; current_file_id: number | null };
-const dayRow = (sp: number, day: string): FcDay | null => queryRow<FcDay>("SELECT started_at,current_file_id FROM fc_days WHERE salesperson_id=? AND day=?", [sp, day]) ?? null;
+type FcDay = { started_at: string | null; current_file_id: number | null; list_opened_at: string | null };
+const dayRow = (sp: number, day: string): FcDay | null => queryRow<FcDay>("SELECT started_at,current_file_id,list_opened_at FROM fc_days WHERE salesperson_id=? AND day=?", [sp, day]) ?? null;
 type Fu = { file_id: number; customer_id: number; outcome: string; note: string; created_at: string; user_id: number };
 const followupsOf = (sp: number, day: string) => queryRows<Fu>("SELECT file_id,customer_id,outcome,note,created_at,user_id FROM fc_followups WHERE salesperson_id=? AND day=? ORDER BY created_at, id", [sp, day]);
 
@@ -145,8 +157,12 @@ export function fcDeck(sp: number, day: string, now = new Date()) {
   const all = openFiles(sp); const fus = followupsOf(sp, day); const doneIds = new Set(fus.map(f => f.file_id));
   const byId = new Map<number, FileRow>(all.map(f => [f.id, f]));
   for (const fu of fus) if (!byId.has(fu.file_id)) { const f = fileById(fu.file_id); if (f) byId.set(f.id, f); }
-  const step = all.filter(f => fcExpertStep(f.stage));
+  const catMode = fcCatOn();
+  const cats: Map<number, FcCategory> = catMode ? fcCategories([...byId.keys()], now, fcOldDaysNow()) : new Map();
   const d = dayRow(sp, day); const at = now.toISOString();
+  // REL-83: once the list has opened today, nothing new becomes a card (no lock); late returns go to the bar instead.
+  const listOpenedAt = catMode ? d?.list_opened_at ?? null : null;
+  const step = all.filter(f => catMode ? Boolean(cats.get(f.id)?.card) : fcExpertStep(f.stage));
   const returned = new Map<number, string>();
   if (d?.started_at) {
     const pres = new Map(queryRows<{ file_id: number; present: number; returned_at: string | null }>(
@@ -165,16 +181,19 @@ export function fcDeck(sp: number, day: string, now = new Date()) {
   const ord = latestOrder(sp, day); const pos = new Map<number, number>(); const meta = new Map<number, OrderRow>();
   ord?.items.forEach((r, i) => { pos.set(r.fileId, i); meta.set(r.fileId, r); });
   const rank = (x: FileRow, y: FileRow) => {
+    if (catMode) { const cx = cats.get(x.id)!, cy = cats.get(y.id)!; const g = cx.priority_group - cy.priority_group || cx.sub_rank - cy.sub_rank; if (g) return g; }
     const rx = returned.get(x.id), ry = returned.get(y.id);
     if (rx && ry) return rx.localeCompare(ry) || x.id - y.id; if (rx) return -1; if (ry) return 1;
     const px = pos.get(x.id), py = pos.get(y.id);
-    if (px != null && py != null) return px - py; if (px != null) return -1; if (py != null) return 1; return fcDefaultCompare(x, y); };
+    if (px != null && py != null) return px - py; if (px != null) return -1; if (py != null) return 1;
+    return catMode ? fcInGroupCompare({ id: x.id, c: cats.get(x.id)! }, { id: y.id, c: cats.get(y.id)! }) : fcDefaultCompare(x, y); };
   let current: number | null = null;
   if (d?.started_at) {
     // PM 10:31: the current card never leaves the deck (even if its step moves away or the file closes mid-card).
     let pinnedOk = d.current_file_id != null && !doneIds.has(d.current_file_id);
     if (pinnedOk && !byId.has(d.current_file_id!)) { const f = fileById(d.current_file_id!); if (f && Number(f.owner) === sp) byId.set(f.id, f); else pinnedOk = false; }
     if (pinnedOk) current = d.current_file_id;
+    else if (listOpenedAt) current = null;
     else {
       current = step.filter(f => !doneIds.has(f.id)).sort(rank)[0]?.id ?? null;
     }
@@ -182,14 +201,29 @@ export function fcDeck(sp: number, day: string, now = new Date()) {
   } else {
     current = null;
   }
-  const pending = step.filter(f => !doneIds.has(f.id) && f.id !== current).sort(rank);
+  const pending = listOpenedAt ? [] : step.filter(f => !doneIds.has(f.id) && f.id !== current).sort(rank);
+  // REL-83: the deck ran out (or was empty) after the day started → the list opens for the rest of the day.
+  let listOpen = Boolean(listOpenedAt);
+  if (catMode && d?.started_at && !listOpenedAt && current == null && pending.length === 0) {
+    executeChanges("UPDATE fc_days SET list_opened_at=?, updated_at=? WHERE salesperson_id=? AND day=? AND list_opened_at IS NULL", [at, at, sp, day]);
+    listOpen = true;
+  }
+  // REL-83 (ج): a file the registrar returns after the list opened → recorded once in fc_returns (bar + «تازه برگشت» until opened).
+  if (catMode && listOpen) {
+    const since = listOpenedAt ?? at;
+    for (const f of all) { const c = cats.get(f.id);
+      if (c?.priority_category === "returned" && c.returned_at && c.returned_at > since && !doneIds.has(f.id))
+        execute("INSERT OR IGNORE INTO fc_returns(salesperson_id,file_id,returned_at,reason_code,created_at) VALUES(?,?,?,?,?)", [sp, f.id, c.returned_at, c.return_type, at]); }
+  }
+  const lateReturns = !catMode || !listOpen ? [] : fcUnseenReturns(sp).map(r => byId.get(Number(r.file_id))).filter((f): f is FileRow => Boolean(f) && cats.get(f!.id)?.priority_category === "returned");
   const seq: { f: FileRow; state: "done" | "current" | "pending" }[] = [
     ...fus.map(fu => ({ f: byId.get(fu.file_id)!, state: "done" as const })).filter(x => x.f),
     ...(current != null ? [{ f: byId.get(current)!, state: "current" as const }] : []),
     ...pending.map(f => ({ f, state: "pending" as const })),
   ];
   const fuBy = new Map(fus.map(f => [f.file_id, f]));
-  return { ord, current, returned, cards: seq.map((x, i) => ({ ...x, position: i + 1, returnedToday: returned.has(x.f.id), meta: meta.get(x.f.id) ?? null, fu: fuBy.get(x.f.id) ?? null })), doneCount: fus.length };
+  return { ord, current, returned, catMode, cats, listOpen, lateReturns, pos,
+    cards: seq.map((x, i) => ({ ...x, position: i + 1, returnedToday: returned.has(x.f.id), meta: meta.get(x.f.id) ?? null, fu: fuBy.get(x.f.id) ?? null, cat: cats.get(x.f.id) ?? null })), doneCount: fus.length };
 }
 const fileCore = (f: FileRow) => {
   const bs = STAGE_BS[f.stage] ?? f.stage;
@@ -197,6 +231,16 @@ const fileCore = (f: FileRow) => {
   return { fileId: f.id, customerId: Number(f.cur_customer_id), type: "loan_application", typeLabel: "درخواست تسهیلات", group: g, groupLabel: FC_GROUP_LABELS[g], stage: f.stage, stageLabel: FC_STAGE_LABELS[f.stage] ?? f.stage,
     status: f.status, isDraft: f.stage === "draft", businessStatus: bs, businessStatusLabel: FC_BS_LABELS[bs] ?? null, planName: f.plan_name ?? null, createdAt: f.created_at, lastFollowUp: lastFollowUp(f) };
 };
+
+/** REL-83 category fields, HANDOFF v1.0.1 (null while flag.fc_categories is off). return_note = the registrar's own comment, one line, digits masked. */
+export const catCore = (c: FcCategory | null | undefined) => c ? { priority_group: c.priority_group, priority_category: c.priority_category, sub_rank: c.sub_rank,
+  label_main: c.label_main, label_detail: c.label_detail, label: c.label, return_type: c.return_type, return_note: c.return_note,
+  returned_at: c.returned_at, returned_by: c.returned_by, signature_type: c.signature_type, signature_status: c.signature_status, signature_sent_at: c.signature_sent_at,
+  signature_reject_reason: c.signature_reject_reason, pending_signature_count: c.pending_signature_count, pending_item: c.pending_item,
+  last_activity_at: c.last_activity_at, idle_days: c.idle_days } : null;
+type URow = { file_id: number; returned_at: string; reason_code: string | null };
+export const fcUnseenReturns = (sp: number): URow[] => { ensureFcSchema();
+  return queryRows<URow>("SELECT file_id, MAX(returned_at) returned_at, MAX(reason_code) reason_code FROM fc_returns WHERE salesperson_id=? AND opened_at IS NULL GROUP BY file_id ORDER BY MAX(returned_at), file_id", [sp]); };
 
 /** Expert payload: no stageLabel / businessStatusLabel / planName on the card (Armita v1.1: they can contain «قرارداد» or rates). */
 const expertCore = (f: FileRow) => { const { stageLabel: _s, businessStatusLabel: _b, planName: _p, ...rest } = fileCore(f); return rest; };
@@ -223,7 +267,8 @@ export function fcAssistantOpen(a: Asst, now = new Date()) {
   const name = queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [sp])?.name ?? null;
   return { date: day, expert: { salespersonId: sp, name }, orderSource: deck.ord ? "assistant" : "default", orderSetAt: deck.ord?.set_at ?? null, orderVersion: deck.ord?.version ?? 0,
     total: deck.cards.length, done: deck.doneCount, currentFileId: deck.current,
-    items: deck.cards.map(c => ({ ...fileCore(c.f), maskedName: maskCustomerName(c.f.name), position: c.position, state: c.state, returnedToday: c.returnedToday,
+    mode: deck.listOpen ? "list" : "cards", lateReturns: deck.lateReturns.map(f => ({ fileId: f.id, maskedName: maskCustomerName(f.name), fc: catCore(deck.cats.get(f.id)) })),
+    items: deck.cards.map(c => ({ ...fileCore(c.f), maskedName: maskCustomerName(c.f.name), position: c.position, state: c.state, returnedToday: c.returnedToday, fc: catCore(c.cat),
       reason: c.meta?.reason ?? null, ask: c.meta?.ask ?? null,
       todayFollowUp: c.fu ? { at: c.fu.created_at, atTehran: tehranText(c.fu.created_at), outcome: c.fu.outcome, outcomeLabel: FC_OUTCOME_LABELS[c.fu.outcome] ?? null } : null })) };
 }
@@ -245,6 +290,8 @@ export function fcAssistantPriority(a: Asst, dayIn: unknown, body: any, now = ne
   if (!Array.isArray(raw) || raw.length === 0) return err(422, "bad_type", "items باید آرایه‌ی غیرخالی باشد.", { field: "items" });
   if (raw.length > FC_ROWS_MAX) return err(422, "too_many_rows", "حداکثر ۲۰۰ ردیف.", { max: FC_ROWS_MAX });
   const open = new Map(openFiles(sp).map(f => [f.id, f]));
+  // REL-83: with categories on, any card-eligible file (cat 1–4, or cat 5 at an expert step) can be ordered; the order applies inside its category only.
+  const cardOk = fcCatOn() ? new Set([...fcCategories([...open.keys()], now, fcOldDaysNow())].filter(([, c]) => c.card).map(([id]) => id)) : null;
   const errors: any[] = []; const rows: OrderRow[] = []; const seen = new Set<number>();
   raw.forEach((r: any, i: number) => {
     const fid = Number(r?.fileId);
@@ -258,7 +305,7 @@ export function fcAssistantPriority(a: Asst, dayIn: unknown, body: any, now = ne
       else errors.push({ row: i, code: "file_not_open", fileId: fid });
       return;
     }
-    if (!fcExpertStep(open.get(fid)!.stage)) { errors.push({ row: i, code: "file_not_with_expert", fileId: fid }); return; }
+    if (!(cardOk ? cardOk.has(fid) : fcExpertStep(open.get(fid)!.stage))) { errors.push({ row: i, code: "file_not_with_expert", fileId: fid }); return; }
     const e1 = lineErr(r.reason, "reason"); if (e1) { errors.push({ row: i, fileId: fid, ...e1 }); return; }
     const e2 = lineErr(r.ask, "ask"); if (e2) { errors.push({ row: i, fileId: fid, ...e2 }); return; }
     rows.push({ fileId: fid, reason: String(r.reason).trim(), ask: String(r.ask).trim() });
@@ -318,8 +365,11 @@ export function fcExpertView(u: U, now = new Date()) {
   const phone = curCust == null ? null : queryRow<{ phone: string | null }>("SELECT phone FROM customers WHERE id=? AND salesperson_id=?", [curCust, sp])?.phone ?? null;
   const idx = deck.current == null ? null : deck.cards.findIndex(c => c.f.id === deck.current) + 1;
   return { enabled: true, date: day, total: deck.cards.length, done: deck.doneCount, index: idx, currentFileId: deck.current,
+    // REL-83 (flag.fc_categories): mode «list» = cards ran out / none → the UI opens the full list (GET /files-carousel/list); lateReturns = the bar (no lock).
+    categories: deck.catMode, mode: deck.catMode && deck.listOpen ? "list" : "cards",
+    lateReturns: deck.lateReturns.map(f => { const c = deck.cats.get(f.id)!; return { type: "file_returned", file_id: f.id, customer_name: f.name ?? "", return_type: c.return_type, return_note: c.return_note, returned_at: c.returned_at }; }),
     orderSource: deck.ord ? "assistant" : "default", waiting: fcWaiting(sp, new Set(deck.cards.map(c => c.f.id))), outcomes: FC_OUTCOMES.map(o => ({ code: o, label: FC_OUTCOME_LABELS[o] })), noteMax: FC_NOTE_MAX, cancelReasonMax: FC_CANCEL_REASON_MAX,
-    cards: deck.cards.map(c => ({ ...expertCore(c.f), customerName: c.f.name ?? "", phone: c.state === "current" ? phone : null, returnedToday: c.returnedToday, position: c.position, state: c.state, reason: c.meta?.reason ?? null, ask: c.meta?.ask ?? null,
+    cards: deck.cards.map(c => ({ ...expertCore(c.f), customerName: c.f.name ?? "", phone: c.state === "current" ? phone : null, returnedToday: c.returnedToday, position: c.position, state: c.state, reason: c.meta?.reason ?? null, ask: c.meta?.ask ?? null, fc: catCore(c.cat),
       todayFollowUp: c.fu ? { at: c.fu.created_at, outcome: c.fu.outcome, outcomeLabel: FC_OUTCOME_LABELS[c.fu.outcome] ?? null, note: c.fu.note } : null })) };
 }
 export function fcExpertFollowup(u: U, body: any, now = new Date()) {
@@ -341,8 +391,15 @@ export function fcExpertFollowup(u: U, body: any, now = new Date()) {
   if (queryRow("SELECT 1 x FROM fc_followups WHERE salesperson_id=? AND day=? AND file_id=?", [sp, day, fid])) return err(409, "already_done", "نتیجه‌ی این پرونده امروز ثبت شده است.");
   execute("INSERT OR IGNORE INTO fc_days(salesperson_id,day,started_at,current_file_id,updated_at) VALUES(?,?,?,NULL,?)", [sp, day, now.toISOString(), now.toISOString()]);
   const deck = fcDeck(sp, day, now);
-  const card = deck.cards.find(c => c.f.id === fid);
+  let card: { f: FileRow; state: "done" | "current" | "pending" } | undefined = deck.cards.find(c => c.f.id === fid);
+  // REL-83 (ب): once the list is open, «پیگیری» works on any OWN file of the list (no lock; one result per file per day).
+  // v1.0.1 PM 5: completed / cancelled rows keep today's access — a result + note is fine, «لغو» of an already closed file is not.
+  if (!card && deck.catMode && deck.listOpen) { const f = fileById(fid);
+    if (f && Number(f.owner) === sp) { if (cx && !f.open) return err(409, "case_already_closed", "این پرونده بسته است.", { fileId: fid }); card = { f, state: "current" }; } }
+  // REL-83: «لغو» of an own file that is already closed is always 409 under the categories flag (list open or not).
+  if (!card && cx && deck.catMode) { const f = fileById(fid); if (f && Number(f.owner) === sp && !f.open) return err(409, "case_already_closed", "این پرونده بسته است.", { fileId: fid }); }
   if (!card) return err(404, "file_not_found", "این پرونده در کارهای امروزت نیست.");
+
   // HOTFIX-77h (Mohammad 17:11 Tehran «کارشناس فروشم بذار لغو کنه پرونده رو»): «لغو شده» works on any OWN open card of today's deck
   // (current or pending); the other outcomes still need the current card.
   if (card.state === "done" || (!cx && card.state !== "current")) return err(409, "not_current", "اول نتیجه‌ی پرونده‌ی جاری را ثبت کن.", { currentFileId: deck.current });
@@ -427,6 +484,10 @@ export function fcWriteLocked(u: U, fileId: number, now = new Date()): boolean {
 /** Express guard (after expertLockdownGuard): users 8/2/3 while ON — a write on another open file of theirs (not current, not done today) → 423 files_locked. */
 export function filesCarouselGuard(req: any, res: any, next: any): void {
   const u = res.locals.authUser as U | undefined;
+  if (fcTarget(u) && req.method === "GET") {
+    const o = /^\/loan-applications\/(\d+)$/.exec(req.path);
+    if (o) try { if (fcOn() && fcCatOn()) { const f = fileById(Number(o[1])); if (f && Number(f.owner) === Number(u!.salespersonId)) fcMarkOpened(Number(u!.salespersonId), f.id); } } catch { /* never block */ }
+  }
   if (!fcTarget(u) || req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") { next(); return; }
   const m = /^\/loan-applications\/(\d+)(\/|$)/.exec(req.path);
   if (!m || !fcOn()) { next(); return; }
@@ -436,4 +497,89 @@ export function filesCarouselGuard(req: any, res: any, next: any): void {
     }
   } catch { /* never block on a guard error */ }
   next();
+}
+
+/** REL-83 full list order (HANDOFF sort): priority_group → sub_rank → (groups 1–5: returned today → today's assistant order) → sort_at → file_id.
+ *  Inside groups 1–5 the assistant's order still applies (Mohammad: the assistant's order only inside a category), so cards and list agree. Read-only. */
+export function fcListOrder(sp: number, ids: number[], now = new Date()): { order: number[]; cats: Map<number, FcCategory> } {
+  ensureFcSchema();
+  const day = fcToday(now); const cats = fcCategories(ids, now, fcOldDaysNow());
+  const ord = latestOrder(sp, day); const pos = new Map<number, number>(); ord?.items.forEach((r, i) => pos.set(r.fileId, i));
+  const ret = new Map(queryRows<{ file_id: number; returned_at: string | null }>("SELECT file_id,returned_at FROM fc_presence WHERE salesperson_id=? AND day=? AND present=1 AND returned_at IS NOT NULL", [sp, day]).map(r => [Number(r.file_id), r.returned_at!]));
+  const order = [...ids].filter(id => cats.has(id)).sort((x, y) => {
+    const cx = cats.get(x)!, cy = cats.get(y)!;
+    const g = cx.priority_group - cy.priority_group || cx.sub_rank - cy.sub_rank; if (g) return g;
+    if (cx.priority_group <= 5) {
+      const rx = ret.get(x), ry = ret.get(y); if (rx && ry) return rx.localeCompare(ry) || x - y; if (rx) return -1; if (ry) return 1;
+      const px = pos.get(x), py = pos.get(y); if (px != null && py != null) return px - py; if (px != null) return -1; if (py != null) return 1;
+    }
+    return fcInGroupCompare({ id: x, c: cx }, { id: y, c: cy });
+  });
+  return { order, cats };
+}
+
+/* ---------------- REL-83 full list (HANDOFF phase 2) ---------------- */
+export const FC_PAGE_SIZES = [10, 20, 50] as const;
+const toAscii = (s: string) => s.replace(/[\u06F0-\u06F9]/g, d => String(d.charCodeAt(0) - 0x06F0)).replace(/[\u0660-\u0669]/g, d => String(d.charCodeAt(0) - 0x0660));
+const normFa = (s: string) => toAscii(s).replace(/[يى]/g, "ی").replace(/ك/g, "ک").replace(/\u200c/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+/** ۰۹۱۲***۰۰۱۲: the expert never receives a full number in the list (the call goes through GET /files-carousel/tel/:fileId). */
+export const fcMaskPhone = (p: string | null | undefined): string | null => {
+  if (!p) return null; let d = toAscii(String(p)).replace(/\D/g, ""); if (d.startsWith("98") && d.length === 12) d = "0" + d.slice(2);
+  if (d.length < 8) return null; return faDigits(d.slice(0, 4)) + "***" + faDigits(d.slice(-4));
+};
+type ListRow = FileRow & { phone: string | null };
+/** GET /files-carousel/list?q=&page=&page_size= : the expert's OWN files (customers.salesperson_id = theirs, not merged; the same scope as
+ *  expert_lockdown «پرونده‌های خودت»), open + completed + cancelled, in the shared order. Search (name / customer id / file id / last ≥4 mobile
+ *  digits) runs here, so no full number reaches the browser. Read-only. */
+export function fcExpertList(u: U, query: any, now = new Date()) {
+  ensureFcSchema();
+  const sp = Number(u.salespersonId); const day = fcToday(now);
+  const qRaw = typeof query?.q === "string" ? query.q.slice(0, 60) : "";
+  const q = normFa(qRaw).replace(/^#/, "");
+  const ps = Number(query?.page_size); const pageSize = (FC_PAGE_SIZES as readonly number[]).includes(ps) ? ps : 10;
+  const rows = queryRows<ListRow>(`${FILE_SELECT.replace("SELECT a.id,", "SELECT cc.phone, a.id,")} WHERE a.deleted_at IS NULL AND cc.salesperson_id=?`, [sp]);
+  const { order, cats } = fcListOrder(sp, rows.map(r => r.id), now);
+  const byId = new Map(rows.map(r => [r.id, r]));
+  const digits = /^\d+$/.test(q) ? q : null;
+  const match = (r: ListRow) => {
+    if (!q) return true;
+    if (digits) {
+      if (String(r.id) === digits || String(r.cur_customer_id) === digits) return true;
+      const ph = toAscii(r.phone ?? "").replace(/\D/g, "");
+      return digits.length >= 4 && ph.length >= 8 && ph.endsWith(digits);
+    }
+    return normFa(r.name ?? "").includes(q);
+  };
+  const hits = order.map(id => byId.get(id)!).filter(r => r && match(r));
+  const total = hits.length; const pages = Math.max(1, Math.ceil(total / pageSize));
+  const pg = Math.min(pages, Math.max(1, Math.floor(Number(query?.page) || 1)));
+  const done = new Set(queryRows<{ file_id: number }>("SELECT file_id FROM fc_followups WHERE salesperson_id=? AND day=?", [sp, day]).map(r => Number(r.file_id)));
+  const unopened = new Set(fcUnseenReturns(sp).map(r => Number(r.file_id)));
+  const groupCounts: Record<string, number> = {}; for (const r of hits) { const g = String(cats.get(r.id)!.priority_group); groupCounts[g] = (groupCounts[g] ?? 0) + 1; }
+  const items = hits.slice((pg - 1) * pageSize, pg * pageSize).map(r => {
+    const c = cats.get(r.id)!; const open = c.priority_group <= 5;
+    return { file_id: r.id, customer_id: Number(r.cur_customer_id), customer_name: r.name ?? "", phone_masked: fcMaskPhone(r.phone), ...catCore(c)!,
+      // v1.0.1: «تازه برگشت» stays until the file is opened (not when the bar closes); closed rows keep today's access (the server decides edits).
+      followed_up_today: done.has(r.id), returned_unopened: unopened.has(r.id), is_closed: !open, closed_at: open ? null : c.closed_at, can_follow_up: !done.has(r.id), can_cancel: open, can_edit: true };
+  });
+  return { q: qRaw, page: pg, page_size: pageSize, pages, total, group_counts: groupCounts, group_labels: FC_GROUP_LABELS83, items };
+}
+/** POST /files-carousel/opened {fileId}: the expert opened the file, so its «تازه برگشت» badge goes (PM 6). Own file only; no other effect. */
+export function fcExpertOpened(u: U, body: any, now = new Date()) {
+  ensureFcSchema();
+  const sp = Number(u.salespersonId); const fid = Number(body?.fileId);
+  if (!Number.isSafeInteger(fid) || fid <= 0) return err(400, "bad_type", "fileId", { field: "fileId" });
+  const f = fileById(fid); if (!f || Number(f.owner) !== sp) return err(404, "file_not_found", "پرونده پیدا نشد.");
+  return { ok: true as const, fileId: fid, cleared: fcMarkOpened(sp, fid, now) };
+}
+export const fcMarkOpened = (sp: number, fid: number, now = new Date()) => { ensureFcSchema();
+  return executeChanges("UPDATE fc_returns SET opened_at=? WHERE salesperson_id=? AND file_id=? AND opened_at IS NULL", [now.toISOString(), sp, fid]); };
+/** GET /files-carousel/tel/:fileId : the number for the «تماس» tel: link of one OWN open file (list «پیگیری» sheet only). */
+export function fcExpertTel(u: U, fileIdIn: unknown) {
+  ensureFcSchema();
+  const sp = Number(u.salespersonId); const fid = Number(fileIdIn);
+  if (!Number.isSafeInteger(fid) || fid <= 0) return err(404, "file_not_found", "پرونده پیدا نشد.");
+  const f = fileById(fid); if (!f || !f.open || Number(f.owner) !== sp) return err(404, "file_not_found", "پرونده پیدا نشد.");
+  const phone = queryRow<{ phone: string | null }>("SELECT phone FROM customers WHERE id=? AND salesperson_id=?", [Number(f.cur_customer_id), sp])?.phone ?? null;
+  return { fileId: fid, tel: phone };
 }

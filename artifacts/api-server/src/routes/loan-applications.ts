@@ -51,6 +51,7 @@ const stages = ["funder_initial_approval", "draft", "primary_contract_pending_si
   "wallet_charge_pending", "admin_approval", "final_invoice_pending_signature", "completed"] as const;
 type Stage = typeof stages[number];
 import { closeDraftsForCase, draftForFeeCharge, draftForSubmit, linkDraftFee } from "../lib/loan-request-drafts";
+import { fcCatOn, fcMarkOpened } from "../lib/files-carousel";
 const now = () => new Date().toISOString();
 const user = (res: any) => res.locals.authUser as AuthUser;
 const uploadRoot = path.join(path.dirname(databasePath), "loan-application-files");
@@ -1614,6 +1615,8 @@ router.post("/loan-applications/filing-fee-charges", requirePermission("loan_app
 });
 router.get("/loan-applications/:id", requirePermission("loan_applications.view"), (req, res) => {
   const r = scoped(Number(req.params.id), user(res)); if (!r) return error(res, 404, "loan_application_not_found");
+  // REL-83 (v1.0.1): the expert opening the file page clears its «تازه برگشت» badge (own rows only; flag.fc_categories).
+  { const me = user(res) as any; if (me?.salespersonId && fcCatOn()) { try { fcMarkOpened(Number(me.salespersonId), Number(r.id)); } catch { /* badge only */ } } }
   r.documents = loanProcessingDocuments(r.id)
     .map((document) => ({ ...document, original_name: normalizedUploadName(document.original_name), fileAvailable: fileExists(document.storage_path) }));
   r.history = queryRows("SELECT * FROM loan_application_stage_history WHERE application_id=? ORDER BY id", [r.id]);
