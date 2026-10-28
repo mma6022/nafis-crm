@@ -44,6 +44,7 @@
     "test:instagram-auto-registration": "node scripts/instagram-intake-identity-fixture.mjs && node scripts/instagram-crm-automation-fixture.mjs && node scripts/instagram-intake-runtime-fixture.mjs",
     "test:public-leads": "node scripts/public-leads-fixture.mjs && node scripts/new-customer-notifications-fixture.mjs",
     "test:callback-requests": "node scripts/callback-requests-fixture.mjs",
+    "test:site-apply": "NODE_ENV=production node scripts/run-bundled-fixture.mjs scripts/site-apply-fixture.mjs",
     "test:deposit-collateral-removal": "node --experimental-strip-types scripts/deposit-collateral-removal-fixture.mjs && node scripts/remove-deposit-collateral-fixture.mjs",
     "test:wallet-receipt-view": "node --experimental-strip-types scripts/wallet-receipt-view-fixture.mjs",
     "test:team-sales": "node scripts/run-bundled-fixture.mjs scripts/team-sales-fixture.mjs",

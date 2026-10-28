@@ -1,0 +1,30 @@
+/* v82 · Armita site-apply-wizard v1.0.1 بخش ب — «جواب‌های فرم سایت» (sa.css, adapted to the dashboard's hx-tg / fkv). */
+.sa{display:grid;gap:6px;padding:8px 10px 10px;border:1px solid #C9CEF0;background:#F7F8FF;border-radius:12px;margin-bottom:6px}
+.sa.rep{border-color:#EAAA08;background:#FFFDF0}
+.sa.none{background:#fff;border-style:dashed;border-color:var(--nf-line,#E4E7EC)}
+.sah{display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.sa h5{display:flex;align-items:center;gap:6px;margin:0!important;font-size:13px!important;color:#27309A}
+.sa .hx-tg.rpt{background:#FEF7C3;border-color:#EAAA08;color:#854A0E}
+.sam{margin:0;font-size:12px;line-height:1.7;color:var(--nf-ink-muted,#475467);font-weight:600}
+.sam svg{vertical-align:-2px;margin-inline-end:4px}
+.sam span{color:#27309A;font-weight:800}
+.sakv div{grid-template-columns:78px minmax(0,1fr)}
+.sakv dd{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.sakv .nw{background:#FEF0C7!important;color:#854A0E!important}
+.sakv .chg{background:#FEF7C3!important}
+.sa-nil{color:var(--nf-ink-muted,#475467);font-weight:600}
+.saprev{display:grid;gap:4px;font-size:12px}
+.saprev b{font-size:12px;color:#854A0E}
+.saprev ol{margin:0;padding:0;list-style:none;display:grid;gap:2px}
+.saprev li{display:grid;gap:0;color:#344054;font-weight:600;line-height:1.6}
+.saprev .cd{color:var(--nf-ink-muted,#475467);font-size:11.5px}
+.sa .hint{margin:0;display:flex;gap:4px;align-items:flex-start;font-size:12px;color:#475467}
+.sa .hint svg{flex:none;margin-top:3px}
+.sa0{margin:0;font-size:13px;color:var(--nf-ink-muted,#475467)}
+/* v1.0.1 · b4_prefill markers on the first-call / file form */
+.fsite{display:inline-block;margin-inline-start:6px;padding:1px 8px;border-radius:999px;background:#EEF0FB;color:var(--nf-brand-600,#3442C6);font-style:normal;font-size:11.5px;font-weight:700;vertical-align:1px}
+.fq-pf{background:#F7F8FE;border-radius:10px;box-shadow:inset 0 0 0 1px #DCE0F5}
+.fsh-s{margin:2px 0 6px;font-size:12px;line-height:1.6;color:#475467;font-weight:600}
+.fsh-s svg{vertical-align:-2px;margin-inline-end:4px;color:var(--nf-brand-600,#3442C6)}
+.fsb{display:flex;gap:6px;align-items:flex-start;margin:0 0 10px;padding:8px 10px;border-radius:10px;background:#EEF0FB;color:#1F2A7A;font-size:12.5px;line-height:1.7}
+.fsb svg{flex:none;margin-top:3px}

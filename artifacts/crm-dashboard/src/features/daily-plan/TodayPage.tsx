@@ -16,6 +16,7 @@ import { CallLaunchStatus, useCallLauncher } from '@/features/team-sales/useCall
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 import { useHistorySummary, useFileCard } from '@/features/history/api';
 import { C3File, C3History, C3Upgrade, RetireeHint } from '@/features/history/TodayC3';
+import { SiteAnswersBlock } from '@/features/site-answers/SiteAnswersBlock';
 
 /** FIRSTCALL-62: the customer handed to the existing first-call form (team-sales/SimpleCallForm), same props as the customer page. */
 type FcCustomer = { id: number; name: string; phone: string; priority?: number | null };
@@ -162,6 +163,7 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
     <h2 id="dp-cur-name">{cur.name} <span className="dp-id">#{faNum(cur.customerId)}</span></h2>
     {cur.reason ? <p className="dp-reason" data-testid="dp-reason">{cur.reason}</p> : null}
     {cur.keyNote ? <div className="dp-keynote"><small><FileText size={13} aria-hidden="true" /> نکته از یادداشت‌ها</small><q>{cur.keyNote}</q></div> : null}
+    {!c3 ? <SiteAnswersBlock customerId={cur.customerId} enabled={formKind !== 'wait'} /> : null}
     {cur.phone ? <p className="dp-phone" dir="ltr" data-testid="dp-phone"><Phone size={14} aria-hidden="true" /> {telFa(cur.phone)}</p> : null}
     {opened ? <div className="dp-box ok sm" role="status" data-testid="dp-called"><Phone size={14} aria-hidden="true" /> تماس با دکمه‌ی CRM{callAt ? ` ${faClock(callAt)}` : ''} شروع شد · حالا نتیجه را ثبت کن.</div> : null}
     <div className="dp-actions">

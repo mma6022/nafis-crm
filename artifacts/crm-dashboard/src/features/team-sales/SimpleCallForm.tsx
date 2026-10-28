@@ -8,6 +8,10 @@ import { NoPlanChip, PlanChip } from './PlanChip';
 import { JOB_LABELS, JOB_ORDER, MILITARY_LABELS, planMeta, planReasonText, type PlanEvaluation, type PlanReason } from './plan-reasons';
 import './team-sales.css';
 import { saveFileCard, type FileCard as FileCardResult } from '@/features/history/api';
+import { useSiteAnswers, saWhen, faN as saFaN } from '@/features/site-answers/api';
+import { siteHints, sitePrefill, type SiteHints, type SitePrefill } from '@/features/site-answers/prefill';
+import { Globe } from 'lucide-react';
+import '@/features/site-answers/site-answers.css';
 import { GradeChip } from '@/components/grade/GradeChip';
 import { GradePicker } from '@/components/grade/GradePicker';
 import { gradeText, isLegacy } from '@/lib/credit-grade';
@@ -140,14 +144,14 @@ function RankQuestion({ name, legend, value, onChange, error, isNew, hint }: {
 }
 
 /** Searchable job picker (same six options as the plan editor's job list) + a separate dashed «نمی‌دونه». */
-function JobQuestion({ name, legend, value, onChange, error, hint }: {
-  name: string; legend: string; value: string | null; onChange: (v: string | null) => void; error: ReactNode; hint?: string;
+function JobQuestion({ name, legend, value, onChange, error, hint, mark, siteHint, pf }: {
+  name: string; legend: string; value: string | null; onChange: (v: string | null) => void; error: ReactNode; hint?: string; mark?: ReactNode; siteHint?: ReactNode; pf?: boolean;
 }) {
   const [q, setQ] = useState('');
   const unknown = value === 'unknown';
   const norm = (x: string) => x.replace(/[\u200c\s]+/g, ' ').replace(/ي/g, 'ی').replace(/ك/g, 'ک').trim();
   const list = JOB_ORDER.filter((k) => !q.trim() || norm(JOB_LABELS[k]).includes(norm(q)));
-  return <fieldset className="ts-q"><legend>{legend} <span className="req">*</span><span className="ts-new">جدید</span>{hint ? <span className="ts-muted small"> {hint}</span> : null}</legend>
+  return <fieldset className={`ts-q${pf ? ' fq-pf' : ''}`}><legend>{legend} <span className="req">*</span><span className="ts-new">جدید</span>{hint ? <span className="ts-muted small"> {hint}</span> : null}{mark}</legend>{siteHint}
     <div className="ts-search"><Search size={18} aria-hidden="true" />
       <input className="ts-inp" type="search" value={q} onChange={(e) => setQ(e.target.value.slice(0, 40))} placeholder="جست‌وجو با نام شغل (مثلاً کارمند)" aria-label={`جست‌وجو در ${legend}`} disabled={unknown} data-testid={`ts-job-search-${name}`} /></div>
     <div className="ts-chips col ts-joblist" role="radiogroup" aria-label={legend}>
@@ -274,6 +278,29 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
     return () => { document.removeEventListener('keydown', onKey); prev?.focus?.(); };
   }, [onClose]);
   const set = (patch: Partial<Draft>) => { setD((c) => ({ ...c, ...patch })); setErrors({}); setServerError(''); };
+  // v82 (Armita site-apply-wizard v1.0.1 §۴ب): the customer's site answers prefill EMPTY fields only (never in «ویرایش» of a saved
+  // first call), each marked «از فرم سایت» and still editable; non one-to-one answers become «سایت: …» hint lines.
+  const siteQ = useSiteAnswers(customer.id, !edit);
+  const site = edit ? null : siteQ.data?.latest ?? null;
+  const [pfv, setPfv] = useState<SitePrefill>({});
+  const pfDone = useRef(false);
+  useEffect(() => {
+    if (!site || pfDone.current || result || editResult) return;
+    if (!file && d.callResult !== 'answered') return; // a no-answer first call never carries prefilled answers
+    pfDone.current = true;
+    const want = sitePrefill(site.answers); const took: SitePrefill = {};
+    for (const [k, v] of Object.entries(want)) if ((d as Record<string, unknown>)[k] == null) (took as Record<string, unknown>)[k] = v;
+    if (!Object.keys(took).length) return;
+    setPfv(took); setD((c) => { const n = { ...c } as Record<string, unknown>; for (const [k, v] of Object.entries(took)) if (n[k] == null) n[k] = v; return n as Draft; });
+  }, [site, file, d, result, editResult]);
+  const hints: SiteHints = site ? siteHints(site.answers) : {};
+  const isPf = (k: keyof SitePrefill) => pfv[k] != null && (d as Record<string, unknown>)[k] === pfv[k];
+  const pfMark = (k: keyof SitePrefill) => isPf(k) ? <i className="fsite" data-testid={`ts-pf-${k}`}>از فرم سایت</i> : null;
+  const pfHint = (k: keyof SiteHints) => hints[k] ? <p className="fsh-s" data-testid={`ts-sh-${k}`}><Globe size={13} aria-hidden="true" />{hints[k]}</p> : null;
+  const pfCls = (k: keyof SitePrefill) => `ts-q${isPf(k) ? ' fq-pf' : ''}`;
+  const pfCount = Object.keys(pfv).length;
+  const siteBanner = site && (pfCount || Object.keys(hints).length) && !result && !editResult ? <p className="fsb" role="note" data-testid="ts-site-banner"><Globe size={14} aria-hidden="true" />
+    <span>{pfCount ? <b>{saFaN(pfCount)} جواب از فرم سایت پر شد</b> : <b>جواب‌های فرم سایت به‌عنوان راهنما آمده</b>} ({saWhen(site.submittedAt)})؛ همه قابل تغییر است. بقیه را از مشتری بپرس.</span></p> : null;
 
   const answered = d.callResult === 'answered';
   const steps = file ? [2, 3, STEP_PROFILE, 4] : edit ? [2, 3, STEP_PROFILE, 4, 5, STEP_NOTE] : answered ? [1, 2, 3, STEP_PROFILE, 4, 5, STEP_NOTE] : [1, STEP_NOTE];
@@ -458,27 +485,28 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   const stepBody = (step: number): ReactNode => {
     if (step === 2) return <>
       <div className="ts-script"><b>بپرس:</b><p>«چه مبلغی لازم دارید؟ مدارکتون آماده‌ست؟»</p></div>
-      <div className="ts-q"><label htmlFor="ts-amount">مبلغ وام موردنیاز <span className="req">*</span> <span className="ts-muted small">بین ۱۰ تا ۵۰۰۰</span></label>
+      {siteBanner}
+      <div className="ts-q"><label htmlFor="ts-amount">مبلغ وام موردنیاز <span className="req">*</span> <span className="ts-muted small">بین ۱۰ تا ۵۰۰۰</span></label>{pfHint('amount')}
         <div className="ts-suffix"><input id="ts-amount" className="ts-inp" inputMode="numeric" value={d.amount} onChange={(e) => set({ amount: e.target.value.replace(/[^\d۰-۹٠-٩]/g, '').slice(0, 5) })} aria-invalid={Boolean(errors.amount)} data-testid="ts-amount" /><span>میلیون تومان</span></div>{err('amount')}</div>
-      <fieldset className="ts-q"><legend>مدارک <span className="req">*</span></legend><Chips name="docs" list={DOCS} value={d.docsReady} onChange={(v) => set({ docsReady: v })} />{err('docsReady')}</fieldset>
-      {file ? <fieldset className="ts-q"><legend>فوریت <span className="req">*</span></legend><Chips name="urgency" list={URGENCY} value={d.urgency} onChange={(v) => set({ urgency: v })} />{err('urgency')}</fieldset>
+      <fieldset className={pfCls('docsReady')}><legend>مدارک <span className="req">*</span>{pfMark('docsReady')}</legend>{pfHint('docsReady')}<Chips name="docs" list={DOCS} value={d.docsReady} onChange={(v) => set({ docsReady: v })} />{err('docsReady')}</fieldset>
+      {file ? <fieldset className={pfCls('urgency')}><legend>فوریت <span className="req">*</span>{pfMark('urgency')}</legend><Chips name="urgency" list={URGENCY} value={d.urgency} onChange={(v) => set({ urgency: v })} />{err('urgency')}</fieldset>
         : <div className="ts-alert info" role="note"><Info size={18} /> سؤال «فوریت» به آخر فرم رفت؛ بعد از صحبت درباره‌ی طرح‌ها پرسیده می‌شود.</div>}
     </>;
     if (step === 3) return <>
       <div className="ts-script"><b>بپرس:</b><p>«رتبه‌ی اعتبارسنجی‌تون چنده؟ چک صیادی دارید؟»</p></div>
       <RankQuestion name="rank" legend="رتبه‌ی اعتباری متقاضی" value={d.creditRank} error={err('creditRank')}
         onChange={(v, l) => { setRankLetter(l); set({ creditRank: v }); }} />
-      <fieldset className="ts-q"><legend>چک صیادی یا سفته دارد؟ <span className="req">*</span></legend><Chips name="cheque" list={CHEQUE} value={d.cheque} onChange={(v) => set({ cheque: v })} />{err('cheque')}</fieldset>
-      <fieldset className="ts-q"><legend>چک برگشتی رفع‌نشده؟ <span className="req">*</span></legend><Chips name="bounced" list={BOUNCED} value={d.bounced} onChange={(v) => set({ bounced: v })} />{err('bounced')}</fieldset>
+      <fieldset className={pfCls('cheque')}><legend>چک صیادی یا سفته دارد؟ <span className="req">*</span>{pfMark('cheque')}</legend><Chips name="cheque" list={CHEQUE} value={d.cheque} onChange={(v) => set({ cheque: v })} />{err('cheque')}</fieldset>
+      <fieldset className={pfCls('bounced')}><legend>چک برگشتی رفع‌نشده؟ <span className="req">*</span>{pfMark('bounced')}</legend>{pfHint('bounced')}<Chips name="bounced" list={BOUNCED} value={d.bounced} onChange={(v) => set({ bounced: v })} />{err('bounced')}</fieldset>
     </>;
     if (step === STEP_PROFILE) return <>
       <div className="ts-script"><b>بپرس:</b><p>«کارت پایان خدمت دارید؟ شغلتون چیه؟ ساکن کدوم شهر هستید؟»</p></div>
-      <fieldset className="ts-q"><legend>وضعیت نظام وظیفه <span className="req">*</span><span className="ts-new">جدید</span></legend>
+      <fieldset className={pfCls('military')}><legend>وضعیت نظام وظیفه <span className="req">*</span><span className="ts-new">جدید</span>{pfMark('military')}</legend>{pfHint('military')}
         <Chips name="military" list={MILITARY} value={d.military} dashed="unknown" onChange={(v) => set({ military: v })} />{err('military')}</fieldset>
       {d.military === 'no_card' ? <p className="ts-hint" data-testid="ts-mil-hint">طرح‌هایی که پایان خدمت لازم دارند «مناسب نیست» می‌شوند.</p> : null}
-      <JobQuestion name="jobType" legend="شغل متقاضی" value={d.jobType} error={err('jobType')} onChange={(v) => set({ jobType: v })} />
+      <JobQuestion name="jobType" legend="شغل متقاضی" value={d.jobType} error={err('jobType')} onChange={(v) => set({ jobType: v })} mark={pfMark('jobType')} siteHint={pfHint('jobType')} pf={isPf('jobType')} />
       <CityQuestion customerId={customer.id} value={d.city} onChange={(v) => set({ city: v, cityTouched: true })} />
-      <fieldset className="ts-q" data-testid="ts-q-sso"><legend>متقاضی یا یکی از خانواده‌اش بازنشسته‌ی تأمین اجتماعی هست؟ <span className="req">*</span><span className="ts-new">جدید</span></legend>
+      <fieldset className="ts-q" data-testid="ts-q-sso"><legend>متقاضی یا یکی از خانواده‌اش بازنشسته‌ی تأمین اجتماعی هست؟ <span className="req">*</span><span className="ts-new">جدید</span></legend>{pfHint('sso')}
         <Chips name="sso" list={SSO_RETIREE} value={d.sso} onChange={(v) => set({ sso: v, ssoRel: v === 'family' ? d.ssoRel : '' })} />{err('sso')}</fieldset>
       {d.sso === 'family' ? <div className="ts-q ts-sub-q"><label htmlFor="ts-sso-rel">نسبت <span className="ts-muted small">اختیاری · مثلاً پدر، مادر، همسر</span></label>
         <input id="ts-sso-rel" className="ts-inp" value={d.ssoRel} maxLength={SSO_REL_MAX} onChange={(e) => set({ ssoRel: e.target.value.slice(0, SSO_REL_MAX) })} data-testid="ts-sso-rel" /></div> : null}
@@ -486,7 +514,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
     </>;
     if (step === 4) return <>
       <div className="ts-script"><b>بپرس:</b><p>«می‌تونید یک ضامن معرفی کنید؟»</p></div>
-      <fieldset className="ts-q"><legend>ضامن می‌تونه معرفی کنه؟ <span className="req">*</span><span className="ts-new">جدید</span></legend>
+      <fieldset className={pfCls('gAvail')}><legend>ضامن می‌تونه معرفی کنه؟ <span className="req">*</span><span className="ts-new">جدید</span>{pfMark('gAvail')}</legend>{isPf('gAvail') ? null : pfHint('gAvail')}
         <Chips name="gAvail" list={TRI} value={d.gAvail} dashed="unknown" onChange={(v) => { if (v !== 'yes') setGRankLetter(null); set({ gAvail: v }); }} />{err('gAvail')}</fieldset>
       {d.gAvail === 'no' ? <p className="ts-hint" data-testid="ts-g-hint">طرح‌هایی که ضامن لازم دارند «مناسب نیست» می‌شوند.</p> : null}
       {d.gAvail === 'unknown' ? <p className="ts-hint" data-testid="ts-g-hint">طرح‌هایی که ضامن لازم دارند در گروه «بستگی دارد» می‌آیند.</p> : null}
@@ -636,7 +664,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
         {noPlan ? <NoPlanChip testId="ts-picked-noplan" /> : selectedPlans.length ? selectedPlans.map((p) => <PlanChip key={p.planId} plan={{ name: p.planName, status: p.status === 'depends' ? 'depends' : 'fit', reasons: p.reasons.filter((r) => r.kind === 'unknown').map(planReasonText) }} />)
           : <span className="ts-muted small">هیچ طرحی انتخاب نشد</span>}
         <button type="button" className="ts-link" onClick={() => go(5)} data-testid="ts-change-plans">تغییر</button></div> : null}
-      {answered ? <fieldset className="ts-q"><legend>فوریت <span className="req">*</span> <span className="ts-muted small">آخرین سؤال فرم</span></legend>
+      {answered ? <fieldset className={pfCls('urgency')}><legend>فوریت <span className="req">*</span> <span className="ts-muted small">آخرین سؤال فرم</span>{pfMark('urgency')}</legend>
         <Chips name="urgency" list={URGENCY} value={d.urgency} onChange={(v) => set({ urgency: v })} />{err('urgency')}</fieldset> : null}
       {!answered && summary.length ? <div className="ts-summary"><span className="ts-muted">خلاصه:</span>{summary.map((s, i) => <span key={i} className="ts-pill">{s}</span>)}</div> : null}
       {edit ? <p className="ts-muted small" data-testid="ts-edit-hint">«فقط ذخیره» تماس جدیدی ثبت نمی‌کند. «ذخیره و ارسال به کارشناس فروش» همان «ارتقا به اولویت ۱» است.</p> : null}

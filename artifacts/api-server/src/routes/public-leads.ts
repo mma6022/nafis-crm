@@ -8,6 +8,7 @@ import {
   publicIntakeType, recordPublicCallback, validatePublicCallback, leadContactTimeFa, leadRequestDetails,
   type PublicLead,
 } from "../lib/public-leads";
+import { recordSiteApply, siteApplySummary, validateSiteApply } from "../lib/site-apply";
 
 export const PUBLIC_LEADS_PATH = "/api/public/leads";
 /**
@@ -143,6 +144,40 @@ function handleCallback(req: Request, res: Response): void {
   void alertNewCallback(result.id);
 }
 
+/**
+ * v82 type=apply (7-step «ثبت درخواست»): its own validator (8 s minimum fill), then the same caps and 10-minute duplicate
+ * window as a lead. Staff get the usual single Telegram (customerSms:false) whose «این درخواست» part is only the
+ * customer's own answers; never an SMS, never a priority/rate/amount offer in the alert.
+ */
+function handleApply(req: Request, res: Response): void {
+  const validation = validateSiteApply(req.body);
+  if (!validation.ok) {
+    fail(res, validation.status, validation.error, validation.fields ? { fields: validation.fields } : {});
+    return;
+  }
+  const { apply } = validation;
+  const ipHash = hashLeadIp(trustedClientIp(req));
+  ensurePublicLeadSchema();
+  const counts = leadCounts(ipHash, apply.phone);
+  if (counts.phoneRecent > 0) {
+    res.status(200).json({ ok: true });
+    return;
+  }
+  if (counts.ipDay >= MAX_LEADS_PER_IP_DAY || counts.phoneDay >= MAX_LEADS_PER_PHONE_DAY) {
+    res.setHeader("Retry-After", "3600");
+    fail(res, 429, "rate_limited");
+    return;
+  }
+  const result = recordSiteApply(apply, ipHash, req.get("User-Agent") ?? null);
+  logger.info({ customerId: result.customerId, created: result.created, src: apply.src }, "Website apply form recorded");
+  res.status(201).json({ ok: true, trackingCode: result.trackingCode });
+  const requestDetails = siteApplySummary(apply.answers, result.planName, apply.planId, apply.term);
+  void notifyNewCustomer(result.customerId, {
+    customerSms: false, source: "website", kind: "request", requestDetails,
+    ...(result.created ? {} : { existingCustomer: true }),
+  });
+}
+
 export function createPublicLeadsRouter(limiter = new AttemptLimiter()): Router {
   const router = Router();
   router.use(publicLeadCors);
@@ -170,6 +205,10 @@ export function createPublicLeadsRouter(limiter = new AttemptLimiter()): Router 
       }
       if (kind === "callback") {
         handleCallback(req, res);
+        return;
+      }
+      if (kind === "apply") {
+        handleApply(req, res);
         return;
       }
       const validation = validatePublicLead(req.body);

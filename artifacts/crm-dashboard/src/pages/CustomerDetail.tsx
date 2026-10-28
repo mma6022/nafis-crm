@@ -1,4 +1,5 @@
 import { ArrowUp, AlertCircle, ArrowRight, Check, ChevronLeft, Copy, FileText, Flag, Gauge, History, Layers, Lock, MessageSquarePlus, Pencil, Phone, PhoneCall, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, Wallet, X } from 'lucide-react';
+import { SiteAnswersBlock } from '@/features/site-answers/SiteAnswersBlock';
 import { announceCallSaved, cqTelClick } from '@/features/call-queue/api';
 import { CustomerIntroLog } from '@/features/expert-intro-sms/CustomerIntroLog';
 import { CustomerAnnotations } from '@/features/lead-annotator/CustomerAnnotations';
@@ -773,7 +774,7 @@ function CustomerDetailFull() {
     {readOnlyRole ? <div className="csx-note warn" data-testid="note-readonly-role"><Lock size={18} /><p>فقط مشاهده — ویرایش، تماس و کیف پول برای نقش شما فعال نیست.</p></div> : null}
     <nav className="csx-secnav m-only" aria-label="بخش‌های پرونده">{secs.map(([key, label, n]) => <a key={key} href={`#sec-${key}`} aria-current={activeSec === key ? 'true' : undefined} onClick={(event) => { event.preventDefault(); setActiveSec(key); document.getElementById(`sec-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>{label}{n != null ? <span className="n">{faNum(n)}</span> : null}</a>)}</nav>
     <div className="csx-dgrid">
-      <div className="colA"><ConsultProfileCard customerId={customer.id} onEditFirstCall={canEditFirstCall ? openFcEdit : undefined} />{firstCall ? <FirstCallSummaryCard fc={firstCall} editInfo={fcEditInfo.data} onEdit={canEditFirstCall ? openFcEdit : undefined} /> : null}{infoSec}{loansSec}{callsSec}{baleOn ? <BaleChatSection customerId={customer.id} /> : null}</div>
+      <div className="colA"><ConsultProfileCard customerId={customer.id} onEditFirstCall={canEditFirstCall ? openFcEdit : undefined} /><SiteAnswersBlock customerId={customer.id} />{firstCall ? <FirstCallSummaryCard fc={firstCall} editInfo={fcEditInfo.data} onEdit={canEditFirstCall ? openFcEdit : undefined} /> : null}{infoSec}{loansSec}{callsSec}{baleOn ? <BaleChatSection customerId={customer.id} /> : null}</div>
       <div className="colB">{tsCard ? <div className="d-only">{tsCard}</div> : null}<div className="d-only"><DataAccuracyCard customerId={id} place="d" onSubmitted={refreshAfterAccuracy} /></div>{statusSec}{creditSec}{walletSec}{adminSec}</div>
     </div>
     {editing ? <div className="csx-formhost"><Sheet title={`ویرایش پرونده ${customer.name}`} onClose={() => { setEditing(false); setProfileErrors({}); }} testId="customer-edit-sheet" initialFocus='[data-testid="input-detail-name"]' footer={<>

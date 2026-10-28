@@ -17,6 +17,7 @@ import { addWorkingHours, type QualifierAnswers } from "../lib/team-sales-rules"
 import { ConsultProfileError, canActOnCustomerProfile, consultProfile, editConsultProfile } from "../lib/consult-profile";
 import { isAdminRole } from "../lib/customer-integrity";
 import { HX_REASON_MAX, callHistory, fileCard, saveFileOnly, expertUpgrade, expertUpgradesReport, historySummary, hxCanSee, hxExpert, selfNextCloser, upgradeReasonOf } from "../lib/history-a";
+import { siteAnswersForCustomer } from "../lib/site-apply";
 import { TransferCheckError, cqLogRefusedTransfer, cqTransferPreview, withTransferOverride } from "../lib/call-queue-r3";
 
 const router: IRouter = Router();
@@ -52,6 +53,14 @@ router.get("/customers/:id/priority-history", requirePermission("customers.view"
   const id = customerId(req.params.id);
   if (!id || !getCustomer(id, res.locals.authUser as AuthUser)) { res.status(404).json({ error: "Customer not found" }); return; }
   res.json(priorityHistory(id));
+});
+
+/** v82: the customer's own answers from the site's 7-step form (newest first). Same scope as the customer file. */
+router.get("/customers/:id/site-answers", requirePermission("customers.view"), (req, res): void => {
+  const id = customerId(req.params.id);
+  if (!id || !getCustomer(id, res.locals.authUser as AuthUser)) { res.status(404).json({ error: "Customer not found" }); return; }
+  res.setHeader("Cache-Control", "no-store");
+  res.json(siteAnswersForCustomer(id));
 });
 
 /** Peek (no reservation) at whose turn is next, for the confirm dialog. */

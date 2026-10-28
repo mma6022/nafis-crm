@@ -20,7 +20,7 @@ export const AMOUNT_BANDS = [
   "unsure",
 ] as const;
 export const CONTACT_TIMES = ["morning", "evening", "any"] as const;
-const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"] as const;
+export const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"] as const;
 const ALLOWED_KEYS = new Set<string>([
   "type", "name", "phone", "need", "amountBand", "planId", "term", "contactTime", "src", "consent",
   "website", "startedAt", "fillMs", ...UTM_KEYS,
@@ -87,11 +87,11 @@ const SLUG_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 // eslint-disable-next-line no-control-regex
 const CONTROL_RE = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/;
 
-function oneOf<T extends readonly string[]>(list: T, value: unknown): value is T[number] {
+export function oneOf<T extends readonly string[]>(list: T, value: unknown): value is T[number] {
   return typeof value === "string" && (list as readonly string[]).includes(value);
 }
 
-function optionalInt(value: unknown, min: number, max: number): number | null | undefined {
+export function optionalInt(value: unknown, min: number, max: number): number | null | undefined {
   if (value === undefined || value === null || value === "") return null;
   const n = typeof value === "string" && /^\d{1,7}$/.test(value) ? Number(value) : value;
   return typeof n === "number" && Number.isSafeInteger(n) && n >= min && n <= max ? n : undefined;
@@ -110,10 +110,10 @@ export function normalizeLeadPhone(value: unknown): string | undefined {
   return /^09\d{9}$/.test(phone) ? phone : undefined;
 }
 
-type IntakeFailure = { ok: false; status: 400 | 422; error: "invalid" | "spam" | "too_fast" | "expired"; fields?: string[] };
+export type IntakeFailure = { ok: false; status: 400 | 422; error: "invalid" | "spam" | "too_fast" | "expired"; fields?: string[] };
 
 /** Shape, allowed keys, honeypot and fill timing: identical for every public intake type. */
-function intakeGate(body: unknown, allowed: Set<string>, now: number): { input: Record<string, unknown> } | IntakeFailure {
+export function intakeGate(body: unknown, allowed: Set<string>, now: number, minFillMs: number = MIN_FILL_MS): { input: Record<string, unknown> } | IntakeFailure {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { ok: false, status: 400, error: "invalid", fields: ["body"] };
   }
@@ -140,15 +140,15 @@ function intakeGate(body: unknown, allowed: Set<string>, now: number): { input: 
   if (elapsed < -CLOCK_SKEW_MS || elapsed > MAX_FILL_MS + CLOCK_SKEW_MS) return { ok: false, status: 422, error: "expired" };
   if (fillMs !== null) {
     if (fillMs > MAX_FILL_MS) return { ok: false, status: 422, error: "expired" };
-    if (fillMs < MIN_FILL_MS) return { ok: false, status: 422, error: "too_fast" };
-  } else if (elapsed >= 0 && elapsed < MIN_FILL_MS) {
+    if (fillMs < minFillMs) return { ok: false, status: 422, error: "too_fast" };
+  } else if (elapsed >= 0 && elapsed < minFillMs) {
     // Negative elapsed = the device clock runs ahead; its fill time is unknown, so it is not called "too fast".
     return { ok: false, status: 422, error: "too_fast" };
   }
   return { input };
 }
 
-function readSrcAndUtm(input: Record<string, unknown>, fields: string[]): { src: string | null; utm: PublicLead["utm"] } {
+export function readSrcAndUtm(input: Record<string, unknown>, fields: string[]): { src: string | null; utm: PublicLead["utm"] } {
   let src: string | null = null;
   if (input.src !== undefined && input.src !== null && input.src !== "") {
     if (typeof input.src === "string" && SLUG_RE.test(input.src)) src = input.src;
@@ -171,10 +171,12 @@ function readSrcAndUtm(input: Record<string, unknown>, fields: string[]): { src:
  * Which intake a body is for. `kind:'callback'` is the callback form; absent kind (with absent or "lead" type)
  * is the request wizard (older site builds send neither). Anything else is rejected.
  */
-export function publicIntakeType(body: unknown): "lead" | "callback" | undefined {
+export function publicIntakeType(body: unknown): "lead" | "callback" | "apply" | undefined {
   if (!body || typeof body !== "object" || Array.isArray(body)) return "lead";
   const input = body as Record<string, unknown>;
   if (input.kind !== undefined) return input.kind === "callback" ? "callback" : undefined;
+  // v82: the 7-step «درخواست وام» wizard (site-apply.ts) — its own keys, validator and 8 s minimum fill time.
+  if (input.type === "apply") return "apply";
   if (input.type === undefined || input.type === "lead") return "lead";
   return undefined;
 }

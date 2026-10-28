@@ -3,6 +3,7 @@
  * history (right, «سابقه‌ی تماس‌ها») · middle (existing card + inline «ارتقا به اولویت یک») · file (left, first-call answers).
  * Mobile (<1024px): one column, middle first, the side columns are <details> (closed).
  */
+import { SiteAnswersBlock } from '@/features/site-answers/SiteAnswersBlock';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertCircle, ArrowUp, Check, ChevronLeft, FileText, History, PencilLine, User, Zap } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -72,6 +73,7 @@ export function C3File({ customerId, name, phone, priority, onSavedToast }: { cu
   const g = f?.answers?.guarantorAvailable === 'yes';
   return <Side cls="c3f" icon={<FileText size={16} aria-hidden="true" />} title="پرونده‌ی مشتری" testId="c3-file"
     sub={f ? <>پاسخ‌های فرم تماس اول · <span className={f.missingCount ? 'mc' : ''} data-testid="c3-file-count">{missTxt}</span></> : q.isLoading ? 'در حال بارگذاری…' : ''}>
+    <SiteAnswersBlock customerId={customerId} showEmpty />
     {q.isError ? <p className="hx-err" role="alert">پرونده بارگذاری نشد.</p> : !f ? null : !f.answers ? <div className="fempty" data-testid="c3-file-empty">
       <p><AlertCircle size={16} aria-hidden="true" /> هنوز فرم تماس اول این مشتری پر نشده. همان سؤال‌ها را بپرس و پرونده را کامل کن.</p>
       {f.canEdit ? <button type="button" className="btn fcb" onClick={() => setForm(true)} data-testid="c3-file-complete"><PencilLine size={20} aria-hidden="true" />

@@ -18,7 +18,7 @@ export type MyTransfer = {
 };
 
 export const TRANSFER_SOURCE_LABELS: Record<string, string> = {
-  qualifier_form: "فرم واجد شرایط", expert_upgrade: "ارتقا به اولویت ۱ توسط کارشناس", promote: "ارتقا به اولویت ۱", nonp1_auto_transfer: "انتقال خودکار غیر اولویت ۱",
+  qualifier_form: "فرم واجد شرایط", expert_upgrade: "ارتقا به اولویت ۱ توسط کارشناس", promote: "ارتقا به اولویت ۱", site_apply_form: "فرم سایت", nonp1_auto_transfer: "انتقال خودکار غیر اولویت ۱",
   customer_update: "ویرایش توسط مدیر",
 };
 const STATUS_LABELS: Record<string, string> = { in_progress: "در حال پیگیری", completed: "تکمیل شده", cancelled: "لغو شده" };

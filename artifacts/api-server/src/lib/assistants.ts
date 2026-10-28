@@ -541,7 +541,7 @@ export function createAssistants(deps: Deps) {
     const p = Object.fromEntries(tehranClockFa.formatToParts(d).map(x => [x.type, x.value])); return `${p.year}/${p.month}/${p.day} ${p.hour}:${p.minute}`; };
   const maskName = (n: unknown) => { const w = String(n ?? "").trim().split(/\s+/).filter(Boolean); if (!w.length) return null;
     return maskText([w[0], ...w.slice(1).map(x => `${Array.from(x)[0]}…`)].join(" ")); };
-  const SOURCE_FA: Record<string, string> = { qualifier_form: "فرم سنجش کاظمی — واگذاری (تقسیم عادلانه)", customer_update: "ویرایش دستی مشتری", nonp1_auto_transfer: "انتقال خودکار غیر اولویت ۱", expert_upgrade: "ارتقا به اولویت ۱ توسط کارشناس", promote: "ارتقای اولویت" };
+  const SOURCE_FA: Record<string, string> = { qualifier_form: "فرم سنجش کاظمی — واگذاری (تقسیم عادلانه)", customer_update: "ویرایش دستی مشتری", nonp1_auto_transfer: "انتقال خودکار غیر اولویت ۱", expert_upgrade: "ارتقا به اولویت ۱ توسط کارشناس", promote: "ارتقای اولویت", site_apply_form: "فرم سایت" };
   function leftScopeToday(sp: number, t: Date, excludeTest = false) {
     if (!hasTable("customer_priority_history")) return [];
     const from = new Date(tehranDayStartMs(t.getTime())).toISOString();
@@ -667,7 +667,7 @@ export function createAssistants(deps: Deps) {
   });
   /** v7: «تاریخچه و یادداشت‌ها» — /notes and /timeline are aliases (runners called them before they existed → router 404). */
   const PH_SOURCE_FA: Record<string, string> = { customer_update: "ویرایش در CRM", promote: "ارتقا به اولویت ۱", qualifier_form: "فرم تماس اول", inbound_first_call: "فرم تماس اول (تماس ورودی)",
-    nonp1_auto_transfer: "انتقال خودکار غیر اولویت ۱", no_answer_archive: "بایگانی بی‌پاسخ", kazemi_return: "بازگشت به کاظمی", expert_upgrade: "ارتقا به اولویت ۱ توسط کارشناس" };
+    nonp1_auto_transfer: "انتقال خودکار غیر اولویت ۱", no_answer_archive: "بایگانی بی‌پاسخ", kazemi_return: "بازگشت به کاظمی", expert_upgrade: "ارتقا به اولویت ۱ توسط کارشناس", site_apply_form: "فرم سایت" };
   runner.get(["/customers/:id/history", "/customers/:id/notes", "/customers/:id/timeline"], salesOnly, (req, res) => {
     const c = readableCustomer(req, res); if (!c) return; const a = A(res);
     const assignment = hasTable("customer_priority_history")

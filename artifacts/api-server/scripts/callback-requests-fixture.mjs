@@ -47,6 +47,7 @@ const fixtureDbModule = `
 const notifyModule = `
   import { appendFileSync } from "node:fs";
   export async function notifyNewCustomer(id){ appendFileSync(process.env.NOTIFY_LOG, "customer:"+String(id)+"\\n"); }
+  export function getNotificationSettings(){ return { ippanelEnabled: false }; }
   export async function notifyWebsiteCallback(alert){ appendFileSync(process.env.NOTIFY_LOG, "callback:"+JSON.stringify(alert)+"\\n"); return "sent"; }
 `;
 
