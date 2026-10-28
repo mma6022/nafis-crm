@@ -201,12 +201,6 @@ function hasSignedPrimaryContract(applicationId: number): boolean {
   return generations.some((generation) => isStrictSignedProviderState(generation.provider_status));
 }
 
-/** The case's effective principal ceiling from its own snapshots (0n when unknown). */
-function caseCeiling(plan: any, condition: any): bigint {
-  if (!plan || typeof plan !== "object" || !condition || typeof condition !== "object") return 0n;
-  try { return effectivePlanTerms(plan, condition).maximum; } catch { return 0n; }
-}
-
 /** LEAKS-46 (PM item A): the portal sends «مبلغ واریزی»; the principal is derived here with exactly the calculator rule the
  *  plan-quote used to hand to the browser (same plan, same eligible option, same months + cash → same principal).
  *  Returns null when that payout is not selectable for the customer (outside the slider range or not invertible). */
@@ -275,7 +269,6 @@ function portalApplication(applicationId: number, customerId: number) {
     createdAt: document.created_at,
   }));
   const condition = parseJson<any>(row.condition_snapshot_json);
-  const planSnapshot = parseJson<any>(row.plan_snapshot_json);
   const currentPrimarySigned = currentPrimaryContractSigned(row);
   const editable = row.stage === "draft" &&
     row.status !== "rejected" && row.initial_approval_at == null &&
@@ -290,7 +283,8 @@ function portalApplication(applicationId: number, customerId: number) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     // LEAKS-46 (PM item A): the customer sees «مبلغ واریزی» equivalents only; the stored principal stays internal.
-    ...customerApplicationPayouts(row, caseCeiling(planSnapshot, condition)),
+    // ROUND-47: the customer's own payout is exact (never floored); the whole-million floor is for plan ceilings/calculator only.
+    ...customerApplicationPayouts(row),
     // Monthly installment on today's plan terms (was computed in the browser from public rates).
     installmentAmount: applicationInstallment(activeQuotePlan(Number(row.plan_id)),
       Number(row.approved_amount ?? row.requested_amount), Number(row.duration_months) || Number(row.requested_duration_months ?? 0)),

@@ -30,10 +30,9 @@ function snapshotPercent(row: PayoutRow, months: number): string | null {
   return rateText;
 }
 
-/** «مبلغ واریزی» for one stored principal and term — same rule as the calculator quotes:
- *  round(principal × payout% / 100), and at/above the term's principal ceiling the payout is floored to a whole million
- *  (ceilingPayout). `ceiling` is the case's effective principal ceiling (condition/plan snapshot); 0n = unknown. */
-export function customerPayoutForPrincipal(row: PayoutRow, principalValue: unknown, months: number, ceiling = 0n): string | null {
+/** A customer's own «مبلغ واریزی» for one stored principal and term: exactly round(principal × payout% / 100).
+ *  ROUND-47: never rounded to a million — that rule belongs to plan maximums and the calculator only. */
+export function customerPayoutForPrincipal(row: PayoutRow, principalValue: unknown, months: number): string | null {
   const rateText=snapshotPercent(row, months);
   if(rateText==null)return null;
   const principal=digits(String(principalValue??"")).trim();
@@ -42,26 +41,21 @@ export function customerPayoutForPrincipal(row: PayoutRow, principalValue: unkno
   const scale=10n**BigInt(fraction.length);
   const numerator=BigInt(principal)*(BigInt(whole)*scale+BigInt(fraction||"0"));
   const divisor=100n*scale;
-  const raw=(numerator+divisor/2n)/divisor;
-  if(ceiling>0n&&BigInt(principal)>=ceiling){
-    const floored=raw/1_000_000n*1_000_000n;
-    if(floored>=1_000_000n)return floored.toString();
-  }
-  return raw.toString();
+  return ((numerator+divisor/2n)/divisor).toString();
 }
 
-export function customerApplicationPayout(row: PayoutRow, ceiling = 0n): {cashPayoutAmount:string|null;cashPayoutEstimated:boolean} {
+export function customerApplicationPayout(row: PayoutRow): {cashPayoutAmount:string|null;cashPayoutEstimated:boolean} {
   const months=Number(row.duration_months??row.requested_duration_months);
-  return {cashPayoutAmount:customerPayoutForPrincipal(row,row.approved_amount??row.requested_amount,months,ceiling),cashPayoutEstimated:true};
+  return {cashPayoutAmount:customerPayoutForPrincipal(row,row.approved_amount??row.requested_amount,months),cashPayoutEstimated:true};
 }
 
 /** LEAKS-46 (PM item A): customer view of a case — payout equivalents only, never the stored principal. */
-export function customerApplicationPayouts(row: PayoutRow, ceiling = 0n) {
+export function customerApplicationPayouts(row: PayoutRow) {
   const months=Number(row.duration_months??row.requested_duration_months);
   const requestedMonths=Number(row.requested_duration_months??row.duration_months);
   return {
-    requestedPayoutAmount: customerPayoutForPrincipal(row,row.requested_amount,requestedMonths,ceiling),
-    ...customerApplicationPayout(row,ceiling),
-    approvedPayoutAmount: row.approved_amount==null?null:customerPayoutForPrincipal(row,row.approved_amount,months,ceiling),
+    requestedPayoutAmount: customerPayoutForPrincipal(row,row.requested_amount,requestedMonths),
+    ...customerApplicationPayout(row),
+    approvedPayoutAmount: row.approved_amount==null?null:customerPayoutForPrincipal(row,row.approved_amount,months),
   };
 }
