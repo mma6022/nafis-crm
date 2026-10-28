@@ -54,6 +54,13 @@ const N = slides.length;
       ))
     }
   </div>
+  {/* v1.0.2: slides 2–3 are inert + aria-hidden from first paint (not static HTML, so without JS their links stay usable) */}
+  <script is:inline>
+    [].forEach.call(document.querySelectorAll('.hb[data-hb] .hb-slide:not(.is-on)'), function (s) {
+      s.inert = true;
+      s.setAttribute('aria-hidden', 'true');
+    });
+  </script>
   <div class="hb-ctl">
     <button class="hb-prev" type="button" aria-label="اسلاید قبلی"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg></button>
     {

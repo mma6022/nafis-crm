@@ -1,11 +1,11 @@
-// Home hero slider + scroll reveal — Armita's home-banners kit v1.0.1 hb.js (deferred slide images), with two site changes:
-// 1) cur starts at -1 so the first set(0) marks slides 2–3 aria-hidden + tabindex=-1 (kit returned early: slide 1 is already .is-on).
-// 2) reveal is gated: .rv only starts hidden once this script adds html.rv-on (no JS / no IO / reduced motion → always visible).
+// Home hero slider + scroll reveal — Armita's home-banners kit v1.0.2 hb.js (deferred slide images; the first set(0)
+// applies inert + aria-hidden to slides 2–3, so the v1.0.1 site fix cur=-1 is no longer needed). The reveal is
+// progressive: .rv is only hidden under html.js, which BaseLayout's <head> script sets (no JS → everything visible).
 /* eslint-disable */
 (function(){
   var root=document.querySelector('.hb[data-hb]'); if(root){
   var tr=root.querySelector('.hb-track'),S=[].slice.call(tr.children),dots=[].slice.call(root.querySelectorAll('.hb-dot')),
-      pb=root.querySelector('.hb-pause'),lv=root.querySelector('.hb-live'),cur=-1,t=null,
+      pb=root.querySelector('.hb-pause'),lv=root.querySelector('.hb-live'),cur=0,t=null,
       rm=matchMedia('(prefers-reduced-motion: reduce)'),user=rm.matches,hold=false;
   function go(i,focus){i=(i+S.length)%S.length;var s=S[i];
     tr.scrollTo({left:tr.scrollLeft+s.getBoundingClientRect().left-tr.getBoundingClientRect().left,behavior:rm.matches?'auto':'smooth'});set(i);
@@ -17,8 +17,9 @@
   function hydAll(){S.forEach(function(s,k){hyd(k)})}
   var loaded=document.readyState==='complete';
   function pre(){if(loaded&&!user)hyd(cur+1)}  // warm only the next slide, only after load, only when autoplay will show it
-  function set(i){hyd(i);if(i===cur&&S[i].classList.contains('is-on'))return;cur=i;
-    S.forEach(function(s,k){var on=k===i;s.classList.toggle('is-on',on);s.setAttribute('aria-hidden',on?'false':'true');
+  var ready=false;  // v1.0.2: the first set(0) must apply aria-hidden/inert too (v1.0.1 returned early on slide 0)
+  function set(i){hyd(i);if(ready&&i===cur)return;ready=true;cur=i;
+    S.forEach(function(s,k){var on=k===i;s.classList.toggle('is-on',on);s.inert=!on;if(on)s.removeAttribute('aria-hidden');else s.setAttribute('aria-hidden','true');
       s.querySelectorAll('a,button').forEach(function(a){a.tabIndex=on?0:-1});});
     dots.forEach(function(d,k){d.setAttribute('aria-current',k===i?'true':'false')});
     if(lv)lv.textContent='اسلاید '+(i+1).toLocaleString('fa-IR')+' از '+S.length.toLocaleString('fa-IR');pre();}
@@ -44,5 +45,5 @@
   var R=document.querySelectorAll('.rv');
   if(!('IntersectionObserver' in window)||matchMedia('(prefers-reduced-motion: reduce)').matches){R.forEach(function(e){e.classList.add('in')});return;}
   var ro=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');ro.unobserve(e.target)}})},{rootMargin:'0px 0px -8% 0px'});
-  document.documentElement.classList.add('rv-on');R.forEach(function(e){ro.observe(e)});
+  R.forEach(function(e){ro.observe(e)});
 })();

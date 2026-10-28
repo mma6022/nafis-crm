@@ -8,6 +8,10 @@ import StickyBar from '../components/StickyBar.astro';
 import JsonLd from '../components/JsonLd.astro';
 import { SITE, absoluteUrl, jalaliYear } from '../lib/site';
 import { organizationLd, websiteLd } from '../lib/seo';
+import fontAr400 from '../assets/fonts/vazirmatn-arabic-400-normal.woff2?url';
+import fontAr800 from '../assets/fonts/vazirmatn-arabic-800-normal.woff2?url';
+import fontLa400 from '../assets/fonts/vazirmatn-latin-400-normal.woff2?url';
+import fontLa800 from '../assets/fonts/vazirmatn-latin-800-normal.woff2?url';
 
 export interface Props {
   title: string; // page title WITHOUT brand suffix (home passes the full title + `rawTitle`)
@@ -58,6 +62,14 @@ const src = Astro.props.src ?? (path.split('/').filter(Boolean)[0] || 'home');
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    {/* v1.0.2: progressive enhancement flag (.rv reveal, deferred hero pictures) + preload the 400/800 weights used above the fold.
+        Kit preloads Arabic only; the latin subsets carry the space (U+0020), and without them a late latin-800 swap shifted
+        the finder heading at 390 (CLS 0.0007), so their small files are preloaded too. */}
+    <script is:inline>document.documentElement.classList.add('js');</script>
+    <link rel="preload" as="font" type="font/woff2" href={fontAr400} crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href={fontAr800} crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href={fontLa400} crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href={fontLa800} crossorigin />
     <title data-bind-title={titleTemplate}>{fullTitle}</title>
     <meta name="description" content={description} />
     {!noCanonical && <link rel="canonical" href={canonical} />}

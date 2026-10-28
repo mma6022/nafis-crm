@@ -1,4 +1,4 @@
-/* Home banners (Armita v1.0 → v1.0.1, ۶ آبان ۱۴۰۵): kit _kit/hb.css + nafisvam brand.css, adapted (.hb-home instead of .hero.hb so site.css .hero rules don't apply). */
+/* Home banners (Armita v1.0 → v1.0.1 → v1.0.2, ۶ آبان ۱۴۰۵): kit _kit/hb.css + nafisvam brand.css, adapted (.hb-home instead of .hero.hb so site.css .hero rules don't apply). */
 /* home-banners kit v1.0 (۶ آبان ۱۴۰۵) — hero slider + mid banners over امید's banner sets. CSS-light. */
 .hb{position:relative;background:var(--hb-bg);color:var(--hb-fg);overflow:hidden;isolation:isolate}
 .hb-track{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;overscroll-behavior-x:contain;position:relative}
@@ -6,6 +6,12 @@
 .hb-slide{position:relative;flex:0 0 100%;scroll-snap-align:start;scroll-snap-stop:always}
 .hb picture,.hbm picture{display:block}
 .hb img,.hbm img{display:block;width:100%;height:auto}
+/* v1.0.2 CLS 0: the box size comes from CSS, not from whichever <source> is hydrated (mobile slides 2–3 used to jump 1440/560 → 375/420) */
+.hb-slide picture{aspect-ratio:375/420}.hbm picture{aspect-ratio:375/250}
+.hb-slide picture img,.hbm picture img{height:100%;object-fit:cover}
+/* v1.0.2 no JS: deferred pictures have no src → hide them, the <noscript> copy shows; controls need JS */
+html:not(.js) .hb picture[data-defer],html:not(.js) .hb-ctl{display:none}
+html:not(.js) .hb-txt{padding-bottom:24px}
 .hb-txt{position:relative;margin-top:calc(-210% / 3.75);padding:12px 20px 76px;display:flex;flex-direction:column;align-items:flex-start;gap:8px;text-align:start}
 .hb-eb{font-size:13px;font-weight:700;color:var(--hb-acc);margin:0;line-height:1.6}
 .hb-h{font-size:24px;line-height:1.5;font-weight:800;margin:0;color:var(--hb-fg);letter-spacing:-.2px}
@@ -24,6 +30,7 @@
 @media (min-width:768px){
   .hb-slide{aspect-ratio:1440/560;max-height:600px}
   .hb-slide picture,.hb-slide img{position:absolute;inset:0;height:100%}
+  .hb-slide picture,.hbm picture{aspect-ratio:auto;width:100%}
   .hb-slide img{object-fit:cover;object-position:20% 50%}
   .hb-txt{position:absolute;inset-block:0;inset-inline-start:0;width:52%;margin:0;justify-content:center;padding:24px max(32px,calc((100vw - var(--hb-wrap,1200px))/2)) 72px 32px;padding-inline-end:32px;gap:12px}
   .hb-h{font-size:clamp(28px,3.1vw,42px)}
@@ -75,10 +82,10 @@
 .hb-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 @media (min-width:768px){.hb .hb-h{font-size:clamp(28px,3.1vw,42px)}}
 .hbm-wrap{margin:8px 0}
-/* v1.0.1 ports (deferred in v1.0): scroll-in reveal, gated by html.rv-on (set by home-banners.js only when it will reveal) */
-.rv-on .rv{opacity:0;transform:translateY(14px);transition:opacity .5s ease,transform .5s ease}
-.rv-on .rv.in{opacity:1;transform:none}
-@media (prefers-reduced-motion:reduce){.rv-on .rv{opacity:1;transform:none;transition:none}}
+/* v1.0.2 progressive reveal: only hidden when the <head> script has flagged html.js; with no JS every section is plain visible content */
+html.js .rv{opacity:0;transform:translateY(14px);transition:opacity .5s ease,transform .5s ease}
+html.js .rv.in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){html.js .rv{opacity:1;transform:none;transition:none}}
 /* mobile rhythm: tighter, even section spacing (brand.css; this file only loads on the home page) */
 @media (max-width:767px){.sec{padding-top:32px;padding-bottom:32px}.finder{padding-top:28px}}
 .svc a,.why2 li,.post{transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}

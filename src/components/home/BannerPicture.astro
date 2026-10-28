@@ -5,6 +5,7 @@
  * - `eager`: slide 1 = LCP (eager + fetchpriority high).
  * - `defer`: hero slides 2–3 keep their URLs in data-srcset/data-src; home-banners.js hydrates them when the slide is
  *   shown, the next one 1.5 s after load (autoplay only), and all on the first interaction — nothing is fetched early.
+ *   v1.0.2: a <noscript> copy with real srcset/src sits next to it (CSS hides picture[data-defer] under html:not(.js)).
  * - otherwise (mid banners): native loading="lazy".
  */
 interface Props {
@@ -22,11 +23,20 @@ const d = `${b}-d.webp 1x, ${b}-d@2x.webp 2x`;
 
 {
   defer ? (
-    <picture data-defer>
-      <source media="(max-width: 767px)" data-srcset={m} width={mw} height={mh} />
-      <source media="(min-width: 768px)" data-srcset={d} width={dw} height={dh} />
-      <img data-src={`${b}-d.webp`} data-srcset={d} width={dw} height={dh} alt="" loading="lazy" decoding="async" />
-    </picture>
+    <Fragment>
+      <picture data-defer>
+        <source media="(max-width: 767px)" data-srcset={m} width={mw} height={mh} />
+        <source media="(min-width: 768px)" data-srcset={d} width={dw} height={dh} />
+        <img data-src={`${b}-d.webp`} data-srcset={d} width={dw} height={dh} alt="" loading="lazy" decoding="async" />
+      </picture>
+      <noscript>
+        <picture>
+          <source media="(max-width: 767px)" srcset={m} width={mw} height={mh} />
+          <source media="(min-width: 768px)" srcset={d} width={dw} height={dh} />
+          <img src={`${b}-d.webp`} srcset={d} width={dw} height={dh} alt="" loading="lazy" decoding="async" />
+        </picture>
+      </noscript>
+    </Fragment>
   ) : (
     <picture>
       <source media="(max-width: 767px)" srcset={m} width={mw} height={mh} />
