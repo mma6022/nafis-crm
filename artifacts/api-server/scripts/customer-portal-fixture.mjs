@@ -348,11 +348,14 @@ try {
   const templateId = Number(database.prepare(`INSERT INTO contract_templates(name,mappings_json)
     VALUES('Synthetic Template','[{"sourceType":"loanPlan","loanPlanField":"loanPlan.principalAmount","variable":"principal"},{"sourceType":"manual","variable":"staff_contract_field","label":"اطلاعات قرارداد","required":true}]')`)
     .run().lastInsertRowid);
+  // PLANS-49: the payout path derives the principal from the full plan row (crm planSelect), so the synthetic schema carries every column it reads.
+  for (const column of ["deduct_percents", "customer_ranks", "customer_check", "needs_customer_promissory", "process_mode", "guarantor_ranks", "guarantor_check", "needs_guarantor_promissory", "guarantor_jobs", "loan_type", "grant_days", "needs_account_turnover", "needs_avg_balance", "created_at", "prepayment_percents", "needs_customer_salary_deduct", "needs_guarantor_salary_deduct", "invoice_template_id", "acknowledgement_template_id", "platform_company_name", "goods_store_name", "commission_percent", "operation_costs_percent", "granted_discount_percent", "purchase_commission_percent", "sales_commission_percent", "loan_acquisition_fee_percent", "penalty_mode", "penalty_value", "contract_duration_days"]) database.exec(`ALTER TABLE loan_plans ADD COLUMN ${column} TEXT`);
+  for (const column of ["guarantor_collateral_type","needs_customer_promissory","needs_guarantor_promissory","needs_customer_salary_deduct","needs_guarantor_salary_deduct","needs_customer_check","needs_guarantor_check","needs_military_service"]) database.exec(`ALTER TABLE loan_plan_conditions ADD COLUMN ${column} INTEGER`);
   planId = Number(database.prepare(`INSERT INTO loan_plans(name,active,contract_template_id,principal_amount,
-    installment_terms,filing_fee_toman,required_documents) VALUES('Synthetic Portal Plan',1,?,'100000','[{"installments":12}]','1200','[]')`)
+    installment_terms,annual_interest,filing_fee_toman,required_documents) VALUES('Synthetic Portal Plan',1,?,'100000000','[{"installments":12,"prepaymentPercent":0,"deductionPercent":10,"depositPercent":50}]','23','1200','[]')`)
     .run(templateId).lastInsertRowid);
   database.prepare(`INSERT INTO loan_plan_conditions(id,plan_id,name,min_principal,max_principal,installment_options,customer_ranks,sort_order)
-    VALUES(1,?,'Synthetic condition','0','100000','[12]','["A"]',0)`).run(planId);
+    VALUES(1,?,'Synthetic condition','0','100000000','[12]','["A"]',0)`).run(planId);
   nonpayablePlanId = Number(database.prepare(`INSERT INTO loan_plans(name,active,principal_amount,installment_terms,filing_fee_toman)
     VALUES('Synthetic Active Advice-Only Plan',1,'50000','[12]','0')`).run().lastInsertRowid);
   database.prepare("INSERT INTO wallet_accounts_v2(customer_id,wallet_type,balance,created_at) VALUES(?,'cash','5000',?)").run(customerA, now);
@@ -520,11 +523,14 @@ try {
     "customer portal application routes are scoped to the authenticated customer");
 
   const uniqueChargeKey = `fixture-charge-${randomBytes(5).toString("hex")}`;
-  const firstCharge = await post("/api/customer-portal/filing-fee", { planId,conditionId:1,requestedAmount:"5000",durationMonths:12 }, known.cookie, { "Idempotency-Key": uniqueChargeKey });
+  const legacyCharge = await post("/api/customer-portal/filing-fee", { planId,conditionId:1,requestedAmount:"5000",durationMonths:12 }, known.cookie, { "Idempotency-Key": `fixture-legacy-${randomBytes(5).toString("hex")}` });
+  assert.equal(legacyCharge.status, 410, "PLANS-49: a principal (requestedAmount) from an old page is refused before any charge");
+  assert.equal((await json(legacyCharge)).code, "legacy_amount_not_supported");
+  const firstCharge = await post("/api/customer-portal/filing-fee", { planId,conditionId:1,payoutAmount:"10000000",durationMonths:12 }, known.cookie, { "Idempotency-Key": uniqueChargeKey });
   assert.equal(firstCharge.status, 201, `initial filing fee charge: ${JSON.stringify(await json(firstCharge))}`);
   const chargeBody = await json(firstCharge);
   assert.equal(chargeBody.amountToman, "1200");
-  const secondCharge = await post("/api/customer-portal/filing-fee", { planId,conditionId:1,requestedAmount:"5000",durationMonths:12 }, known.cookie, {
+  const secondCharge = await post("/api/customer-portal/filing-fee", { planId,conditionId:1,payoutAmount:"10000000",durationMonths:12 }, known.cookie, {
     "Idempotency-Key": `fixture-retry-${randomBytes(5).toString("hex")}`,
   });
   assert.equal(secondCharge.status, 200, "a second idempotency key reuses the existing charge");
@@ -558,7 +564,7 @@ try {
     "an older read marker never makes newer messages unread again");
 
   const applicationResponse = await post("/api/customer-portal/applications", {
-    planId, conditionId: 1, requestedAmount: "5000", durationMonths: 12, feeChargeId: chargeBody.chargeId,
+    planId, conditionId: 1, payoutAmount:"10000000", durationMonths: 12, feeChargeId: chargeBody.chargeId,
   }, known.cookie);
   assert.equal(applicationResponse.status, 201, `portal application create: ${JSON.stringify(await json(applicationResponse))}`);
   const createdApplication = await json(applicationResponse);
@@ -566,12 +572,12 @@ try {
   assert.equal(createdApplication.stage,"draft","contract preparation is handed to the salesperson");
   assert.deepEqual(createdApplication.salesExpert,{name:"Synthetic Sales A",mobile:"09120000091"});
   const repeatApplication = await post("/api/customer-portal/applications", {
-    planId, conditionId: 1, requestedAmount: "5000", durationMonths: 12, feeChargeId: chargeBody.chargeId,
+    planId, conditionId: 1, payoutAmount:"10000000", durationMonths: 12, feeChargeId: chargeBody.chargeId,
   }, known.cookie);
   assert.equal(repeatApplication.status,200);
   assert.equal((await json(repeatApplication)).id,createdApplication.id,"reloads reuse the submitted case");
   assert.equal((await post("/api/customer-portal/applications", {
-    planId, conditionId: 1, requestedAmount: "5000", durationMonths: 12, feeChargeId: chargeBody.chargeId,
+    planId, conditionId: 1, payoutAmount:"10000000", durationMonths: 12, feeChargeId: chargeBody.chargeId,
     manualValues:{staff_contract_field:"customer must not prepare the contract"},
   }, known.cookie)).status,400,"contract fields are staff-owned, not customer input");
   assert.equal((await patch(`/api/customer-portal/applications/${createdApplication.id}`,{requestedAmount:"6000"},known.cookie)).status,409);
@@ -697,7 +703,7 @@ try {
   persistedCreditRows.close();
 
   const staleCreditApplication = await post("/api/customer-portal/applications", {
-    planId, conditionId: 1, requestedAmount: "5000", durationMonths: 12, feeChargeId: staleFeeChargeId,
+    planId, conditionId: 1, payoutAmount:"10000000", durationMonths: 12, feeChargeId: staleFeeChargeId,
   }, known.cookie);
   assert.equal(staleCreditApplication.status, 422);
   assert.equal((await json(staleCreditApplication)).error, "credit_check_stale",
@@ -709,7 +715,7 @@ try {
     .run(customerA, userA, customerA, nationalCode(100000101), freshCreditAt, freshCreditAt, freshCreditAt);
   freshCredit.close();
   const staleDocsApplication = await post("/api/customer-portal/applications", {
-    planId, conditionId: 1, requestedAmount: "5000", durationMonths: 12, feeChargeId: staleFeeChargeId,
+    planId, conditionId: 1, payoutAmount:"10000000", durationMonths: 12, feeChargeId: staleFeeChargeId,
   }, known.cookie);
   assert.equal(staleDocsApplication.status, 422);
   assert.equal((await json(staleDocsApplication)).error, "identity_documents_missing",
