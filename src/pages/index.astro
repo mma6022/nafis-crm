@@ -6,6 +6,7 @@
 import { getCollection } from 'astro:content';
 import BaseLayout from '../layouts/BaseLayout.astro';
 import HeroSlider from '../components/home/HeroSlider.astro';
+import HeroSefr from '../components/home/HeroSefr.astro';
 import MidBanner from '../components/home/MidBanner.astro';
 import PlanFinder from '../components/islands/PlanFinder';
 import HomeCalc from '../components/islands/HomeCalc';
@@ -21,6 +22,8 @@ import { fillFaq } from '../lib/faq-fill';
 import { getPosts, homePosts } from '../lib/blog';
 import type { SpriteIcon } from '../components/ui/I';
 
+/** Top section: «صفر تا صد» hero (Mohammad t627u/t628u). 'slider' restores the 3-slide banner hero (home v1.0.2) in one edit. */
+const HOME_HERO = 'sefr' as 'sefr' | 'slider';
 const HOME_FAQ_MAX = 4; // PM: max 4 questions on home (home.mdx order) + link to /faq
 const page = (await getCollection('pages', (p) => p.data.slug === '/'))[0]!;
 const facts = planFacts(LOAN_PLANS_SNAPSHOT);
@@ -38,7 +41,8 @@ const SVC_ICON: Record<string, SpriteIcon> = {
 ---
 
 <BaseLayout rawTitle title={fill(page.data.title)} titleTemplate={page.data.title} description={page.data.description} src="home" jsonLd={[financialServiceLd(), faqLd(faq)]}>
-  <HeroSlider facts={facts} />
+  {HOME_HERO === 'sefr' && <HeroSefr />}
+  <HeroSlider facts={facts} firstH1={HOME_HERO === 'slider'} />
 
   <section class="finder" id="plan-finder" aria-labelledby="finder-h">
     <div class="wrap">

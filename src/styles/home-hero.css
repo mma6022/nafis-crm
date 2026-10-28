@@ -1,0 +1,35 @@
+/* home-hero sefr-ta-sad v1.0 - top block of nafisvam.com, above the hero slider. Real HTML text, no images, CSS-only decoration. */
+.nvh{position:relative;isolation:isolate;overflow:hidden;background-color:#FFFFFF;border-bottom:1px solid #E3E6F0;
+  background-image:radial-gradient(70% 90% at 100% 0%,#EEF0FA 0%,rgba(238,240,250,0) 70%),radial-gradient(50% 70% at 0% 100%,#FEF8EA 0%,rgba(254,248,234,0) 70%)}
+.nvh-in{box-sizing:border-box;max-width:var(--hb-wrap,1200px);margin:0 auto;padding:24px 20px 28px;display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}
+.nvh-in>*{min-width:0}
+.nvh .nvh-h{margin:0;font-size:clamp(25px,7.6vw,30px);line-height:1.55;font-weight:800;color:#0B1450;letter-spacing:-.3px;text-wrap:balance;overflow-wrap:break-word}
+.nvh-mk{background:linear-gradient(180deg,transparent 64%,#F7D27F 64%,#F7D27F 90%,transparent 90%);padding-inline:2px;white-space:nowrap}
+.nvh-nw{white-space:nowrap}
+.nvh-p{margin:0;font-size:16px;line-height:1.95;font-weight:400;color:#3D4A6B;max-width:40em;text-wrap:pretty}
+.nvh-bdg{list-style:none;margin:2px 0 0;padding:0;display:grid;gap:8px}
+.nvh-bdg li{display:flex;align-items:center;gap:10px;min-height:40px;font-size:15px;line-height:1.6;font-weight:800;color:#0B1450}
+.nvh-ic{flex:none;width:36px;height:36px;border-radius:11px;background:#EEF0FA;color:rgb(41 54 155);display:grid;place-items:center}
+.nvh-ic svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.nvh-cta{box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:52px;margin-top:4px;padding:0 28px;border-radius:12px;
+  background:rgb(41 54 155);color:#FFFFFF;font-size:17px;line-height:1.4;font-weight:800;text-decoration:none;box-shadow:0 8px 20px rgba(41,54,155,.26);transition:background-color .18s ease,transform .18s ease,box-shadow .18s ease}
+.nvh-cta svg{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;transition:transform .18s ease}
+.nvh-cta:hover{background:#212C85;transform:translateY(-2px);box-shadow:0 12px 24px rgba(41,54,155,.3)}
+.nvh-cta:hover svg{transform:translateX(-3px)}
+.nvh-cta:active{transform:translateY(0) scale(.98)}
+/* focus: navy 3px ring with white gap - visible on white, on the gradient and against the button */
+.nvh-cta:focus{outline:none}
+.nvh-cta:focus-visible{outline:3px solid #0B1450;outline-offset:3px;background:#212C85;box-shadow:0 0 0 3px #FFFFFF}
+@media (min-width:768px){
+  .nvh-in{grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);grid-template-areas:"h b" "p b" "c b";column-gap:clamp(32px,5vw,72px);row-gap:16px;padding:40px 32px 44px;align-items:center}
+  .nvh .nvh-h{grid-area:h;font-size:clamp(32px,3.9vw,50px);line-height:1.45;align-self:end}
+  .nvh-p{grid-area:p;font-size:clamp(16px,1.45vw,18px)}
+  .nvh-cta{grid-area:c;width:auto;justify-self:start;min-height:56px;padding:0 36px;font-size:18px;margin-top:6px;align-self:start}
+  .nvh-bdg{grid-area:b;gap:12px;margin:0;align-self:center}
+  .nvh-bdg li{min-height:64px;padding:10px 16px;background:#FFFFFF;border:1px solid #E3E6F0;border-radius:16px;box-shadow:0 6px 18px rgba(11,20,80,.06);font-size:clamp(15px,1.35vw,17px)}
+  .nvh-ic{width:44px;height:44px;border-radius:12px}
+  .nvh-ic svg{width:24px;height:24px}
+}
+@media (min-width:1280px){.nvh-in{padding:48px 40px 52px}}
+@media (min-width:768px) and (max-width:1023px){.nvh-in{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);column-gap:28px}.nvh-bdg li{padding:10px 12px}}
+@media (prefers-reduced-motion:reduce){.nvh-cta,.nvh-cta svg{transition:none}.nvh-cta:hover,.nvh-cta:active{transform:none}.nvh-cta:hover svg{transform:none}}

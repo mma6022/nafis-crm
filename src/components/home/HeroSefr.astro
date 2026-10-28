@@ -1,0 +1,37 @@
+---
+/**
+ * Home top block «صفر تا صد» — Armita home-hero-sefr-ta-sad v1.0 FINAL (HANDOFF.md §۲, markup exact; index.html sha256
+ * 54b61501…). Sits directly after <main id="main">, ABOVE Omid's slider (HeroSlider, unchanged except slide 1 h1 → h2):
+ * this is the page's only h1. Text only, CSS-gradient decoration, no images/fonts → CLS 0, LCP stays slide 1's image.
+ * Copy comes from lib/home-hero.ts (pinned by tests/home-hero.test.ts). Styles: styles/home-hero.css (.nvh-*, verbatim).
+ * Armita's src/scene.js is mockup-only (?sc=) and is deliberately NOT included.
+ */
+import '../../styles/home-hero.css';
+import { HERO_SEFR as H } from '../../lib/home-hero';
+const nw = H.sloganAfter.trim();
+const icons = [
+  '<circle cx="12" cy="8" r="3.6"/><path d="M5 20c.8-3.6 3.6-5.6 7-5.6s6.2 2 7 5.6"/>',
+  '<circle cx="5.5" cy="18" r="2"/><path d="M7.5 18H14a3 3 0 0 0 0-6h-4a3 3 0 0 1 0-6h7"/><path d="M17 3.5v6M17 3.5h3.5l-1 1.5 1 1.5H17"/>',
+  '<rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/><path d="M9.5 10.5l2 2 3.5-4"/>',
+];
+---
+
+<section class="nvh" aria-labelledby="nvh-h">
+  <div class="nvh-in">
+    <h1 id="nvh-h" class="nvh-h">{H.sloganBefore}<span class="nvh-mk">{H.sloganEm}</span> <span class="nvh-nw">{nw}</span></h1>
+    <p class="nvh-p">{H.lead}</p>
+    <ul class="nvh-bdg">
+      {
+        H.badges.map((b, i) => (
+          <li>
+            <span class="nvh-ic" aria-hidden="true">
+              <svg viewBox="0 0 24 24" set:html={icons[i]} />
+            </span>
+            <span>{b.text}</span>
+          </li>
+        ))
+      }
+    </ul>
+    <a class="nvh-cta" href={H.href}>{H.cta} <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6" /></svg></a>
+  </div>
+</section>

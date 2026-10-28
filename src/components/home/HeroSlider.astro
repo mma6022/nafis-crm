@@ -9,8 +9,10 @@ import BannerPicture from './BannerPicture.astro';
 import { fa, type PlanFacts } from '../../lib/plans';
 interface Props {
   facts: PlanFacts;
+  /** slide 1 title as the page h1 (v1.0.2). Off under the «صفر تا صد» top block (Armita HANDOFF §۱.۲): same class, look unchanged. */
+  firstH1?: boolean;
 }
-const { facts } = Astro.props;
+const { facts, firstH1 = false } = Astro.props;
 const FA = (n: number) => fa(n);
 const slides = [
   {
@@ -41,7 +43,7 @@ const N = slides.length;
             ) : (
               <p class="hb-eb">{s.eb}</p>
             )}
-            {i === 0 ? <h1 class="hb-h">{s.h}</h1> : <h2 class="hb-h">{s.h}</h2>}
+            {i === 0 && firstH1 ? <h1 class="hb-h">{s.h}</h1> : <h2 class="hb-h">{s.h}</h2>}
             <p class="hb-p">{s.p}</p>
             <div class="hb-acts">
               <a class="btn-gold hb-cta" href={s.href} id={i === 0 ? 'hero-cta' : undefined}>
