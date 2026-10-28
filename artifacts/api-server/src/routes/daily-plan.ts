@@ -7,7 +7,7 @@ import { requirePermission } from "../lib/access-control";
 import type { AuthUser } from "../lib/auth";
 import { cqManager } from "../lib/call-queue";
 import {
-  dpAdminCapacity, dpAssistantCapacity, dpAssistantGet, dpBoard, dpCapacityView, dpCheckExpertId, dpConfig, dpDecisionData, dpExpertView, dpIdem, dpIsErr, dpIsExpert,
+  dpAdminCapacity, dpAssistantCapacity, dpAssistantGet, dpBoard, dpBoost, dpCapacityView, dpCheckExpertId, dpConfig, dpDecisionData, dpExpertView, dpIdem, dpIsErr, dpIsExpert,
   dpMarkReturned, dpMove, dpOn, dpRejectedEvent, dpReport, dpSaveSettings, dpScopeCustomers, dpSettings, dpStartCall, dpSupplementary, dpValidateSettings, dpWritePlan,
   dpExperts, dpToday, ensureDailyPlanSchema, type Asst, type DpErr,
 } from "../lib/daily-plan";
@@ -90,6 +90,7 @@ export function mountDailyPlanRunner(runner: Router) {
   runner.get("/daily-plans/:date", (req, res) => { const a = gate(req, res); if (a) send(res, dpAssistantGet(a, req.params.date)); });
   runner.put("/daily-plans/:date", write("PUT /daily-plans", (a, req) => dpWritePlan(a, req.params.date, req.body ?? {})));
   runner.post("/daily-plans/:date/supplementary", write("POST /daily-plans/supplementary", (a, req) => dpSupplementary(a, req.params.date, req.body ?? {})));
+  runner.post("/daily-plans/:date/boost", write("POST /daily-plans/boost", (a, req) => dpBoost(a, req.params.date, req.body ?? {})));
   runner.put("/capacity/:date", write("PUT /capacity", (a, req) => dpAssistantCapacity(a, req.params.date, req.body ?? {})));
   runner.get("/decision-data", (req, res) => { const a = gate(req, res); if (a) send(res, dpDecisionData(a, req.query.from, req.query.to)); });
 }

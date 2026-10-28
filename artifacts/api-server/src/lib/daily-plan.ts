@@ -20,9 +20,10 @@ export const DP_TYPES = ["urgent", "due", "first", "followup", "loan_followup"] 
 export type DpType = typeof DP_TYPES[number];
 export const DP_TYPE_LABELS: Record<DpType, string> = { urgent: "فوری", due: "یادآور سررسیده", first: "تماس اول", followup: "پیگیری", loan_followup: "پیگیری وام" };
 const RANK: Record<DpType, number> = { urgent: 0, due: 1, first: 2, followup: 3, loan_followup: 3 };
-export const DP_EVENTS = { finished: "daily_plan_finished", rejected: "daily_plan_rejected", capacityOverride: "daily_plan_capacity_override", backlog: "daily_plan_backlog" } as const;
+export const DP_EVENTS = { finished: "daily_plan_finished", rejected: "daily_plan_rejected", capacityOverride: "daily_plan_capacity_override", backlog: "daily_plan_backlog", boost: "daily_plan_boost" } as const;
 export const DP_LABELS = { auto: "لیست خودکار", added: "تازه اضافه شد", urgent: "فوری", due: "سررسید", carried: "مانده از دیروز", supplementary: "تکمیلی",
-  transferred: "منتقل شد", outOfList: "خارج از لیست", outOfGuard: "خارج از حد", autoDay: "خودکار" } as const;
+  transferred: "منتقل شد", outOfList: "خارج از لیست", outOfGuard: "خارج از حد", autoDay: "خودکار", boost: "اولویت دستیار" } as const;
+export const DP_BOOST_MAX = 20;
 export const DP_MOVE_MAX = 2;
 export const DP_MOVE_LAST_MIN = 17 * 60 + 45;
 export const DP_START_MIN = 8 * 60, DP_CLOSE_MIN = 18 * 60;
@@ -476,6 +477,100 @@ export function dpSupplementary(a: Asst, dayIn: unknown, body: any, now = new Da
   for (const r of parsed.rows) ids.push(addItem(p.id, { ...r, source: "supplementary", bucket: "extra", position: 5000, boostRank: 3, boostAt: at, label: DP_LABELS.supplementary }, at));
   if (ids.length) executeChanges("UPDATE dp_plans SET finished_at=NULL WHERE id=? AND auto_at IS NULL", [p.id]);
   return { ok: true, date: dayIn, added: ids.length, itemIds: ids, plan: dpAssistantView(planRow(p.salesperson_id, p.day)!) };
+}
+/**
+ * BOOST-57 (Mohammad 2026-10-28 09:55/10:10): POST /daily-plans/{today}/boost — the assistant puts customers at the top of
+ * today's list in the given order, mid-day. Today only, until 18:00, plan must exist and not be closed; all-or-nothing validation.
+ * - already active on the plan: 'current' → skipped "current_untouched" (never moved or relabelled); 'moved' → skipped "moved";
+ *   'pending' → boost_rank set to a fraction in (0,1) (after rank-0 urgent auto-inserts, before every rank-1/2/3 item and the
+ *   unboosted list), label «اولویت دستیار · …»; bucket, type, counters and the completion % are unchanged.
+ *   A carried extra waiting as 'reserve' is released to 'pending' (same as a «لیست خودکار» hand-out) and boosted.
+ * - not on the plan: inserted as bucket 'extra' / source 'assistant_boost' (exempt from capacity, like «تکمیلی»);
+ *   with assistant_full_scope OFF only priority-1 customers can be inserted (out_of_scope); boosting is always allowed.
+ * Each call places its customers ABOVE earlier assistant boosts (ranks are spread inside (0, lowest current assistant rank)).
+ * No SMS, no Bale, no bell; one assistant event (daily_plan_boost) + one assistant_audit row.
+ */
+type BoostRow = { customerId: number; reason: string; type: DpType | null };
+function parseBoost(raw: any, sp: number): { rows: BoostRow[]; cust: Map<number, { priority: number | null; urgent: number }> } | DpErr {
+  if (!Array.isArray(raw)) return err(422, "bad_type", "items باید آرایه باشد.", { field: "items" });
+  if (!raw.length) return err(422, "items_required", "حداقل یک مشتری بفرست.", { field: "items" });
+  if (raw.length > DP_BOOST_MAX) return err(422, "too_many_rows", `حداکثر ${faDigits(String(DP_BOOST_MAX))} ردیف.`, { max: DP_BOOST_MAX });
+  const rows: BoostRow[] = []; const errors: any[] = []; const ids = new Set<number>(); const cust = new Map<number, { priority: number | null; urgent: number }>();
+  raw.forEach((r: any, i: number) => {
+    const e = (code: string, extra: any = {}) => { errors.push({ row: i, code, ...extra }); };
+    const cid = Number(r?.customerId);
+    if (!r || typeof r !== "object" || !Number.isSafeInteger(cid) || cid <= 0) return e("bad_type", { field: "customerId" });
+    const v = r.reason;
+    if (v == null || (typeof v === "string" && !v.trim())) return e("reason_required", { field: "reason" });
+    if (typeof v !== "string") return e("bad_type", { field: "reason" });
+    const reason = v.replace(/\s+/g, " ").trim();
+    if ([...reason].length > DP_REASON_MAX) return e("field_too_long", { field: "reason", max: DP_REASON_MAX });
+    if (DIGITS.test(reason)) return e("note_has_digits", { field: "reason" });
+    const t = r.type == null || r.type === "" ? null : String(r.type) as DpType;
+    if (t != null && !DP_TYPES.includes(t)) return e("bad_type", { field: "type", allowed: DP_TYPES });
+    const c = queryRow<{ salesperson_id: number | null; merged: number | null; priority: number | null; urgent: number }>(
+      "SELECT salesperson_id,merged_into_customer_id merged,priority,COALESCE(is_urgent,0) urgent FROM customers WHERE id=?", [cid]);
+    if (!c) return e("unknown_customer", { customerId: cid });
+    if (Number(c.salesperson_id) !== sp || c.merged != null) return e("customer_not_owned", { customerId: cid });
+    if (ids.has(cid)) return e("duplicate_customer", { customerId: cid });
+    ids.add(cid); cust.set(cid, { priority: c.priority == null ? null : Number(c.priority), urgent: Number(c.urgent) });
+    rows.push({ customerId: cid, reason, type: t });
+  });
+  if (errors.length) return err(422, "invalid_rows", "بعضی ردیف‌ها پذیرفته نشد؛ هیچ ردیفی ذخیره نشد.", { rows: errors });
+  return { rows, cust };
+}
+const boostLabel = (reason: string) => `${DP_LABELS.boost} · ${reason}`;
+const auditBoost = (a: Asst, outcome: string, detail: unknown, at: string) => {
+  if (!hasTable("assistant_audit")) return;
+  try { execute("INSERT INTO assistant_audit(at,assistant_id,token_id,user_id,ip,actor_label,action,customer_id,outcome,detail_json) VALUES(?,?,NULL,?,NULL,?,?,NULL,?,?)",
+    [at, a.id, a.bound_user_id, `دستیار ${a.display_name}`, "POST /daily-plans/boost", outcome, JSON.stringify(detail)]); } catch { /* audit must never break the write */ }
+};
+export function dpBoost(a: Asst, dayIn: unknown, body: any, now = new Date()) {
+  ensureDailyPlanSchema();
+  const ex = expertOf(a); if (isErr(ex)) return ex;
+  if (!isYmd(dayIn) || dayIn !== dpToday(now)) return err(422, "date_not_allowed", "اولویت‌دهی فقط برای امروز.");
+  if (minOf(now) >= DP_CLOSE_MIN) return err(409, "after_cutoff", "بعد از ساعت ۱۸ اولویت‌دهی پذیرفته نمی‌شود.");
+  const sp = Number(ex.salespersonId);
+  const p = planRow(sp, dayIn); if (!p || p.closed_at) return err(404, "no_plan", "امروز لیستی برای این کارشناس نیست.");
+  const parsed = parseBoost(body?.items, sp); if (isErr(parsed)) return parsed;
+  const restricted = dpScopeRestricted(a);
+  // the customer's live row on the plan (active or a waiting carried extra)
+  const live = (cid: number) => items(p.id, "customer_id=? AND status IN ('pending','current','moved','reserve')", [cid])
+    .sort((x, y) => (x.status === "current" ? -1 : 0) - (y.status === "current" ? -1 : 0) || x.id - y.id)[0] ?? null;
+  const scopeErr = parsed.rows.map((r, i) => ({ r, i })).filter(({ r }) => !live(r.customerId) && restricted && parsed.cust.get(r.customerId)?.priority !== 1)
+    .map(({ r, i }) => ({ row: i, code: "out_of_scope", customerId: r.customerId }));
+  if (scopeErr.length) return err(422, "invalid_rows", "بعضی ردیف‌ها پذیرفته نشد؛ هیچ ردیفی ذخیره نشد.", { rows: scopeErr });
+  const at = now.toISOString();
+  // place this call above earlier assistant boosts: ranks spread evenly inside (0, lowest pending assistant rank or 1)
+  const toPlace = parsed.rows.filter(r => { const it = live(r.customerId); return !it || (it.status !== "current" && it.status !== "moved"); });
+  const prevRanks = items(p.id, "status='pending' AND boost_rank>0 AND boost_rank<1").filter(i => !toPlace.some(r => r.customerId === i.customer_id)).map(i => Number(i.boost_rank));
+  const top = prevRanks.length ? Math.min(...prevRanks) : 1;
+  const results: { customerId: number; result: string; itemId: number | null; bucket: string | null }[] = [];
+  let k = 0; let inserted = 0;
+  for (const r of parsed.rows) {
+    const it = live(r.customerId);
+    if (it && it.status === "current") { results.push({ customerId: r.customerId, result: "current_untouched", itemId: it.id, bucket: it.bucket }); continue; }
+    if (it && it.status === "moved") { results.push({ customerId: r.customerId, result: "moved", itemId: it.id, bucket: it.bucket }); continue; }
+    const rank = top * (k + 1) / (toPlace.length + 1); k++;
+    if (it) {
+      const fromReserve = it.status === "reserve";
+      executeChanges("UPDATE dp_items SET status='pending', boost_rank=?, boost_at=?, label=? WHERE id=?", [rank, at, boostLabel(r.reason), it.id]);
+      results.push({ customerId: r.customerId, result: fromReserve ? "boosted_from_reserve" : "boosted", itemId: it.id, bucket: it.bucket });
+    } else {
+      const c = parsed.cust.get(r.customerId)!;
+      const type: DpType = r.type ?? (c.urgent === 1 ? "urgent" : noCalls(r.customerId) ? "first" : "followup");
+      const id = addItem(p.id, { customerId: r.customerId, type, reason: r.reason, source: "assistant_boost", bucket: "extra", position: 5000, boostRank: rank, boostAt: at, label: boostLabel(r.reason) }, at);
+      inserted++; results.push({ customerId: r.customerId, result: "inserted", itemId: id, bucket: "extra" });
+    }
+  }
+  if (inserted) executeChanges("UPDATE dp_plans SET finished_at=NULL WHERE id=? AND auto_at IS NULL", [p.id]);
+  const np = planRow(sp, dayIn)!;
+  const order = ordered(p.id).map(i => ({ itemId: i.id, customerId: i.customer_id, status: i.status, label: i.label }));
+  const summary = { salespersonId: sp, date: dayIn, results: results.map(x => ({ customerId: x.customerId, result: x.result })) };
+  event(a.id, DP_EVENTS.boost, a.bound_user_id, summary, at);
+  auditBoost(a, "ok", summary, at);
+  return { ok: true, date: dayIn, boosted: results.filter(x => x.result.startsWith("boosted")).length, inserted, skipped: results.filter(x => x.result === "current_untouched" || x.result === "moved").length,
+    results, order, plan: dpAssistantView(np) };
 }
 function dayRows(sp: number, days: string[]) {
   return days.map(d => { const p = planRow(sp, d); const s = p ? dpStats(p) : null;
