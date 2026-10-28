@@ -808,6 +808,12 @@ export function dpPreCall(body: any, user: CqUser, now = new Date()): DpErr | nu
     const e = need(); if (e) return e;
     body.__dp = "outside"; if (!String(body.subject ?? "").trim()) body.subject = DP_OUT_OF_LIST_SUBJECT; return null;
   }
+  if (body.planItemId === undefined || body.planItemId === null || body.planItemId === "") {
+    // HOTFIX-CALLLOG-56: the regular «ثبت تماس جدید» dialog (customer page / customers list / assistant box) sends no planItemId.
+    // Never refuse it (409 plan_item_required lost real calls): save it exactly like before daily_plan (no outcome/note required),
+    // and only mirror it on today's plan as a done «خارج از لیست» item (bucket outside — not part of the completion %).
+    body.__dp = "legacy"; return null;
+  }
   const id = Number(body.planItemId);
   if (!Number.isSafeInteger(id) || id <= 0) return err(409, "plan_item_required", "این گزارش باید برای کار فعلی «کارهای امروز» باشد (یا «خارج از لیست»).");
   const it = currentItem(p, id); if (!it || it.customer_id !== Number(body.customerId)) return err(409, "not_current_item", "این کار، کار فعلی نیست.");
@@ -816,9 +822,9 @@ export function dpPreCall(body: any, user: CqUser, now = new Date()): DpErr | nu
 }
 /** Inside the POST /calls transaction (no nested transaction). */
 export function dpAfterCall(body: any, callLogId: number, user: CqUser, customerId: number, nowIso = new Date().toISOString()) {
-  const kind = body?.__dp; if (kind !== "plan" && kind !== "outside") return null;
+  const kind = body?.__dp; if (kind !== "plan" && kind !== "outside" && kind !== "legacy") return null;
   const p = planRow(Number(user.salespersonId), dpToday(new Date(nowIso))); if (!p) return null;
-  const outcome = String(body.outcome ?? "");
+  const outcome = kind === "legacy" ? (CQ_OUTCOMES.includes(String(body.outcome ?? "") as any) ? String(body.outcome) : null) : String(body.outcome ?? "");
   if (kind === "plan") {
     executeChanges("UPDATE dp_items SET status='done', outcome=?, call_log_id=?, done_at=? WHERE id=? AND plan_id=? AND status='current'", [outcome, callLogId, nowIso, Number(body.__dpItem), p.id]);
     return { kind, itemId: Number(body.__dpItem) };
