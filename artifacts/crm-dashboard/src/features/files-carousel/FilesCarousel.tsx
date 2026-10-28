@@ -6,11 +6,13 @@ import { Link } from 'wouter';
 import { ChevronLeft, ChevronRight, FileText, Lock, Pencil, Phone, Plus } from 'lucide-react';
 import { CreateWizard } from '@/components/loan-applications/CreateWizard';
 import { faNum } from '@/features/call-queue/api';
+import { maskTel, phone11 } from '@/features/expert-lockdown/IncomingWizard';
 import '@/features/daily-plan/daily-plan.css';
 import './files-carousel.css';
 import { fcApi, type FcCard, type FcView } from './api';
 
-const telFa = (p: string) => faNum(p.replace(/^\+98/, '0'));
+/** REMINDER-68 (Armita review #1): masked ۰۹۱۲***۰۰۱۲ for the expert; the «تماس» tel: link keeps the full number. */
+const telFa = (p: string) => maskTel(phone11(p) ?? p.replace(/^\+98/, '0'));
 const JFMT = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const jalaliAt = (iso: string | null | undefined) => { if (!iso) return ''; const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : JFMT.format(d); };
 const telHref = (p: string) => `tel:${p.replace(/[^\d+]/g, '')}`;
@@ -94,6 +96,7 @@ function FileCard({ c, d, readOnly, titleRef, onSaved }: { c: FcCard; d: FcView;
         {c.phone ? <a className="btn btn-primary dp-call" href={telHref(c.phone)} data-testid="fc-call"><Phone size={16} aria-hidden="true" /> تماس با {c.customerName}</a> : null}
         <Link href={`/loan-applications/${c.fileId}`} className="btn btn-ghost" data-testid="fc-edit"><Pencil size={16} aria-hidden="true" /> ویرایش پرونده</Link>
         <Link href={`/customers/${c.customerId}`} className="btn btn-ghost" data-testid="fc-customer"><FileText size={16} aria-hidden="true" /> مشتری</Link>
+        <a href={`/customers/${c.customerId}#sec-calls`} target="_blank" rel="noopener" className="btn btn-ghost" data-testid="fc-history">تاریخچه</a>
       </div>
       <fieldset className="fc-result" data-testid="fc-result"><legend>نتیجه‌ی پیگیری</legend>
         <div className="rlist" role="radiogroup">{d.outcomes.map((o) => <label key={o.code} className={`rr${outcome === o.code ? ' on' : ''}`}>

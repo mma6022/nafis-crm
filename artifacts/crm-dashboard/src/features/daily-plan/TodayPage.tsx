@@ -8,7 +8,7 @@ import { announceCallSaved, faClock, faNum, tehranParts, useCqConfig } from '@/f
 import { custList, dpApi, DpError, useDpConfig, type DpItem, type DpToday } from './api';
 import './daily-plan.css';
 import { elApi, useLockdownMe } from '@/features/expert-lockdown/api';
-import { IncomingTopButton, IncomingWizard } from '@/features/expert-lockdown/IncomingWizard';
+import { IncomingTopButton, IncomingWizard, maskTel, phone11 } from '@/features/expert-lockdown/IncomingWizard';
 import { TodayCarousel } from './TodayCarousel';
 
 import { getGetAuthSessionQueryKey, getGetCustomerQueryKey, useGetAuthSession, useGetCustomer } from '@workspace/api-client-react';
@@ -24,7 +24,8 @@ export const faDate = (ymd: string) => {
   const g = (t: Intl.DateTimeFormatPartTypes) => parts.find((x) => x.type === t)?.value ?? '';
   return faNum(`${g('weekday')} ${g('day')} ${g('month')} ${g('year')}`.replace(/\s+/g, ' ').trim());
 };
-const telFa = (p: string) => faNum(p.replace(/^\+98/, '0'));
+/** REMINDER-68 (Armita review #1): experts see the CRM's masked form ۰۹۱۲***۰۰۱۲ (same helper as the incoming wizard); tel: still dials the full number. */
+const telFa = (p: string) => maskTel(phone11(p) ?? p.replace(/^\+98/, '0'));
 
 export function Chips({ i }: { i: DpItem }) {
   return <span className="dp-chips">
@@ -154,6 +155,7 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
     <div className="dp-actions">
       <button type="button" className="btn btn-primary dp-call" disabled={busy} onClick={() => void call()} data-testid="dp-call"><Phone size={16} aria-hidden="true" /> {opened ? 'دوباره گرفتن شماره' : `تماس با ${cur.name}`}</button>
       <Link href={`/customers/${cur.customerId}`} className="btn btn-ghost" data-testid="dp-file"><FileText size={16} aria-hidden="true" /> پرونده</Link>
+      <a href={`/customers/${cur.customerId}#sec-calls`} target="_blank" rel="noopener" className="btn btn-ghost" title="تاریخچه‌ی تماس‌ها و یادداشت‌های قبلی (برگه‌ی جدید)" data-testid="dp-history"><Clock size={16} aria-hidden="true" /> تاریخچه</a>
     </div>
     <div className="dp-move-row">
       <button type="button" className="dp-link" disabled={cur.movesLeft <= 0 || busy} onClick={() => setMove(true)} data-testid="dp-move-open"><Clock size={15} aria-hidden="true" /> به ساعت دیگه‌ی امروز</button>

@@ -31,7 +31,7 @@
 .dp-keynote small{display:flex;gap:4px;align-items:center;color:#6b7280}
 .dp-keynote q{font-weight:700}
 .dp-phone{display:flex;gap:6px;align-items:center;justify-content:flex-end;font-weight:700;margin:8px 0}
-.dp-actions{display:flex;gap:8px;margin:8px 0}
+.dp-actions{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
 .dp-actions .btn{min-height:44px;display:inline-flex;gap:6px;align-items:center;justify-content:center}
 .dp-call{flex:1;background:#15803d!important;border-color:#15803d!important;color:#fff!important}
 .dp-move-row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:6px 0}

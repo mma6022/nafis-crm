@@ -103,3 +103,7 @@ body:has(.iw-dlg) .diag-floating,body:has(.ts-wz) .diag-floating{display:none!im
 @media (max-width:640px){html.nas-dnd-on .tc-ov:has(.iw-dlg){top:44px}html.nas-dnd-on .tc-ov .iw-dlg{height:calc(100dvh - 44px)}}
 /* incoming2-59: wizard footer buttons never wrap word-by-word on phones (stack full-width instead) */
 @media (max-width:640px){.iw-dlg .tc-foot{flex-direction:column}.iw-dlg .tc-foot .btn{width:100%;justify-content:center;white-space:nowrap;min-height:48px}}
+.iw-links{display:block;margin-top:3px;font-size:12px}.iw-links a{color:#1d4ed8;text-decoration:underline}
+
+/* REMINDER-68: with the extra «تاریخچه» link the call button gets its own row on phones (same as the files card) */
+@media (max-width:520px){.tc-card .dp-actions>.dp-call{flex:1 1 100%}}

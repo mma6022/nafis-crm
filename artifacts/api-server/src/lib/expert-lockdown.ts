@@ -95,7 +95,18 @@ const ALLOW: RegExp[] = [
   /^\/goods-purchases(\/|$)/, /^\/goods-documents(\/|$)/, /^\/payment-orders(\/|$)/, /^\/contracts\/[^/]+/, /^\/contract-updates(\/|$)/,
   // messengers + internal chat + the assistant chat drawer
   /^\/bale(\/|$)/, /^\/messengers(\/|$)/, /^\/internal-chat(\/|$)/, /^\/assistant\/(mine|prefs)$/, /^\/assistant\/threads\/\d+\/messages$/,
+  // REMINDER-68: the assistant's suggestion buttons (each handler scopes itself to the caller's own thread / proposal / reminder).
+  /^\/assistant\/threads\/\d+\/read$/, /^\/assistant\/messages\/\d+\/action$/, /^\/assistant\/reminder-proposals\/\d+\/decide$/,
+  /^\/reminders\/\d+\/acknowledge$/,
+  // REMINDER-68: «ارتقا به اولویت ۱» card's closer preview (?customerId= is still checked below, own customers only).
+  /^\/sales\/next-closer$/,
 ];
+/** REMINDER-68: the expert's own (not merged) customer — opens READ of the file/history/notes, «ثبت یادآور» and «ارتقا به اولویت ۱»
+ *  for every own customer (not only today's list). The customers list/menu stays closed; other experts' customers stay 403/404. */
+export function elOwnCustomer(u: U, customerId: number): boolean {
+  const r = queryRow<{ salesperson_id: number | null }>("SELECT salesperson_id FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [customerId]);
+  return Boolean(r && u.salespersonId != null && Number(r.salesperson_id) === Number(u.salespersonId));
+}
 /** The single-customer page and its APIs: allowed only for an accessible customer. */
 const CUSTOMER_PATH = /(?:^|\/)customers\/(\d+)(?=\/|$)/g;
 const idsOf = (req: Request): number[] => {
@@ -125,13 +136,17 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   // POST /calls (the normal call form, incl. «خارج از لیست») and POST /voip/calls (click-to-call) carry the customer in the body.
   const customerWrite = req.method === "POST" && /^\/(calls|voip\/calls|voip\/click-to-call)$/.test(path);
   const listedCustomerRead = req.method === "GET" && ids.length === 1 && EL_CUSTOMER_SCOPED_READS.some((re) => re.test(path));
-  if (!customerRoute && !customerWrite && !listedCustomerRead && !ALLOW.some((re) => re.test(path))) {
+  // REMINDER-68: «ثبت یادآور» (POST /reminders: own customer, or no customer = personal) and «done» (PATCH /reminders: the handler scopes to user_id).
+  const reminderWrite = (req.method === "POST" || req.method === "PATCH") && path === "/reminders";
+  const upgradeWrite = req.method === "POST" && /^\/customers\/\d+\/upgrade-priority$/.test(path);
+  const ownLevel = req.method === "GET" || req.method === "HEAD" || reminderWrite || upgradeWrite;
+  if (!customerRoute && !customerWrite && !listedCustomerRead && !reminderWrite && !ALLOW.some((re) => re.test(path))) {
     if (process.env.EL_TRACE === "1") console.warn(`[expert-lockdown] deny ${req.method} ${path}`);
     return deny(res, "expert_lockdown", "این بخش فعلاً برای شما بسته است. از «کارهای امروز من» کار کن.");
   }
   if ((customerRoute || customerWrite) && !ids.length) return deny(res, "expert_lockdown", "این بخش فعلاً برای شما بسته است.");
   for (const id of ids) {
-    if (!elCustomerAccess(u!, id)) {
+    if (!elCustomerAccess(u!, id) && !(ownLevel && elOwnCustomer(u!, id))) {
       if (process.env.EL_TRACE === "1") console.warn(`[expert-lockdown] deny-customer ${req.method} ${path}`);
       return deny(res, "expert_lockdown_customer", "این مشتری فعلاً برای شما باز نیست (فقط مشتری‌های «کارهای امروز»، پرونده‌های خودت یا «تماس ورودی»).");
     }

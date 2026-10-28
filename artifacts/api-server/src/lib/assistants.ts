@@ -409,7 +409,7 @@ export function createAssistants(deps: Deps) {
   /** Any write the runner attempts outside its allowed set (priority/assignment/money/…) is denied by default. */
   const deny = (req: Request, res: Response) => { audit({ req, a: A(res), tokenId: TK(res), action: `${req.method} ${req.path}`.slice(0, 80), outcome: "forbidden" }); fail(res, 403, "forbidden", "این کار برای دستیار مجاز نیست."); };
   for (const p of ["/customers/:id/priority", "/customers/:id/assign", "/customers/:id/salesperson", "/customers/:id/status", "/customers/:id", "/customers/:id/transfer",
-    "/payments", "/payment-orders", "/wallets", "/fees", "/contracts", "/loan-applications/:id", "/loan-applications/:id/stage", "/sms", "/customer-messages", "/reminders"])
+    "/payments", "/payment-orders", "/wallets", "/fees", "/contracts", "/loan-applications/:id", "/loan-applications/:id/stage", "/sms", "/customer-messages", "/reminders/:id"])
     runner.all(p, (req, res, next) => (req.method === "GET" ? next() : deny(req, res)));
 
   const custName = (c: any) => (c.first_name && c.last_name ? `${c.first_name} ${c.last_name}` : c.name);
@@ -883,6 +883,73 @@ export function createAssistants(deps: Deps) {
       run(`INSERT INTO assistant_reminder_proposals(assistant_id,user_id,customer_id,remind_at,note,reason,message_id,created_at) VALUES(?,?,?,?,?,?,?,?)`,
         a.id, tt.u.id, tt.customerId, new Date(at).toISOString(), note ? maskText(note) : null, reason ? maskText(reason) : null, m.id, iso());
     });
+  });
+  /* REMINDER-68 (Mohammad): the bound sales assistant may create an in-app reminder for ITS OWN expert on that expert's own customer.
+   * Supersedes the older "assistants never auto-create reminders" rule for this one endpoint only. Same Bearer auth / failure limiter;
+   * own customers only (404 otherwise, audited not_in_scope); remindAt > now+60s and ≤ REMINDER_PROPOSAL_MAX_DAYS; dedupe on the same
+   * expert+customer within ±RUNNER_REMINDER_DEDUPE_MIN; optional Idempotency-Key replay; ≤ RUNNER_REMINDERS_PER_HOUR / _PER_DAY per assistant.
+   * reminders.source='assistant' + assistant_audit/assistant_events record the assistant; the expert-reminder SMS queue is pre-marked
+   * in_app_only (no SMS); no Bale, no customer message, no bell — only the normal in-app reminder of that same expert. */
+  const RUNNER_REMINDER_DEDUPE_MIN = 30, RUNNER_REMINDERS_PER_HOUR = 20, RUNNER_REMINDERS_PER_DAY = 60;
+  const runnerReminderView = (r: any, a: any) => ({ id: r.id, customerId: r.customer_id, expertUserId: r.user_id, salespersonId: r.salesperson_id, subject: maskText(r.subject ?? ""),
+    message: maskText(r.message ?? ""), remindAt: r.remind_at, createdAt: r.created_at, source: r.source ?? null, createdByAssistantId: a.id, sms: false, done: Boolean(r.done) });
+  runner.post("/reminders", (req, res) => {
+    const a = A(res); const b = req.body ?? {}; const act = "POST /reminders";
+    const key = String(req.headers["idempotency-key"] ?? "").trim();
+    if (a.kind === "manager" || a.scope_rule === "manager") { audit({ req, a, tokenId: TK(res), action: act, outcome: "manager_read_only" }); return fail(res, 403, "manager_read_only", "دستیار مدیر یادآور نمی‌سازد."); }
+    if (a.kind !== "sales" || !a.bound_user_id || !a.bound_salesperson_id) { audit({ req, a, tokenId: TK(res), action: act, outcome: "forbidden" }); return fail(res, 403, "forbidden", "این کار برای دستیار مجاز نیست."); }
+    if (key.length > 120) return fail(res, 400, "bad_idempotency_key", "Idempotency-Key حداکثر ۱۲۰ نویسه.");
+    const cid = Number(b.customerId);
+    if (b.customerId == null || b.customerId === "") return fail(res, 422, "customer_required", "customerId لازم است.");
+    if (!inScope(a, cid)) return notFound(req, res, cid);
+    const at = Date.parse(String(b.remindAt ?? ""));
+    const nowMs = now().getTime();
+    if (!Number.isFinite(at) || at <= nowMs + 60_000 || at > nowMs + REMINDER_PROPOSAL_MAX_DAYS * 86400_000) {
+      audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "bad_remind_at" });
+      return fail(res, 422, "bad_remind_at", "زمان یادآور باید دست‌کم یک دقیقه بعد و حداکثر ۳۰ روز بعد باشد.");
+    }
+    const subject = String(b.subject ?? "").trim().slice(0, 120) || "یادآور دستیار";
+    const note = String(b.note ?? b.message ?? "").trim().slice(0, 500);
+    if (hasBannedWord(`${subject} ${note}`)) { audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "banned_word" }); return fail(res, 422, "banned_word", "این متن واژهٔ ممنوع دارد."); }
+    const fingerprint = JSON.stringify({ customerId: cid, remindAt: new Date(at).toISOString(), subject, note });
+    if (key) {
+      const prev = row<any>(`SELECT detail_json FROM assistant_audit WHERE assistant_id=? AND action=? AND outcome IN ('ok','deduped') AND json_valid(detail_json)
+        AND json_extract(detail_json,'$.idempotencyKey')=? ORDER BY id DESC LIMIT 1`, a.id, act, key);
+      if (prev) {
+        const d = JSON.parse(prev.detail_json);
+        if (d.fingerprint !== fingerprint) return fail(res, 409, "idempotency_conflict", "این Idempotency-Key قبلاً با بدنه‌ی دیگری به کار رفته.");
+        const r0 = row<any>("SELECT * FROM reminders WHERE id=?", d.reminderId);
+        if (r0) return void res.status(200).json({ reminder: runnerReminderView(r0, a), deduped: Boolean(d.deduped), replayed: true });
+      }
+    }
+    const lo = new Date(at - RUNNER_REMINDER_DEDUPE_MIN * 60_000).toISOString(), hi = new Date(at + RUNNER_REMINDER_DEDUPE_MIN * 60_000).toISOString();
+    const dup = row<any>(`SELECT * FROM reminders WHERE user_id=? AND customer_id=? AND done=0 AND voided_at IS NULL AND remind_at BETWEEN ? AND ? ORDER BY id LIMIT 1`,
+      a.bound_user_id, cid, lo, hi);
+    if (dup) {
+      audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "deduped", detail: { reminderId: dup.id, deduped: true, idempotencyKey: key || null, fingerprint } });
+      return void res.status(200).json({ reminder: runnerReminderView(dup, a), deduped: true });
+    }
+    const cnt = (since: number) => Number(row<any>("SELECT COUNT(*) n FROM assistant_audit WHERE assistant_id=? AND action=? AND outcome='ok' AND at>=?", a.id, act, new Date(nowMs - since).toISOString())?.n ?? 0);
+    if (cnt(3600_000) >= RUNNER_REMINDERS_PER_HOUR || cnt(86400_000) >= RUNNER_REMINDERS_PER_DAY) {
+      audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "rate_limited" });
+      return fail(res, 429, "rate_limited", "سقف ساخت یادآور دستیار در این بازه پر شده.");
+    }
+    db.exec(`CREATE TABLE IF NOT EXISTS reminder_sms_deliveries (
+      reminder_id INTEGER PRIMARY KEY REFERENCES reminders(id) ON DELETE CASCADE,
+      status TEXT NOT NULL, claim_token TEXT, attempted_at TEXT,
+      next_attempt_at TEXT, sent_at TEXT, provider_id TEXT, error_code TEXT)`);
+    const t = iso(); let rid = 0;
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      rid = Number(db.prepare(`INSERT INTO reminders(user_id,salesperson_id,customer_id,subject,message,remind_at,sent_sms,done,created_at,source)
+        VALUES(?,?,?,?,?,?,0,0,?,'assistant')`).run(a.bound_user_id, a.bound_salesperson_id, cid, maskText(subject), note ? maskText(note) : "", new Date(at).toISOString(), t).lastInsertRowid);
+      run(`INSERT INTO reminder_sms_deliveries(reminder_id,status,error_code) VALUES(?,'rejected','in_app_only')
+        ON CONFLICT(reminder_id) DO UPDATE SET status='rejected', error_code='in_app_only'`, rid);
+      db.exec("COMMIT");
+    } catch (e) { db.exec("ROLLBACK"); throw e; }
+    event(a, "reminder_created", { userId: a.bound_user_id, customerId: cid, data: { reminderId: rid, remindAt: new Date(at).toISOString(), via: "runner" } });
+    audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "ok", detail: { reminderId: rid, deduped: false, idempotencyKey: key || null, fingerprint } });
+    res.status(201).json({ reminder: runnerReminderView(row<any>("SELECT * FROM reminders WHERE id=?", rid), a), deduped: false });
   });
   runner.post("/typing", (req, res) => {
     const a = A(res); const t = row<any>("SELECT * FROM assistant_threads WHERE id=? AND assistant_id=?", Number(req.body?.threadId), a.id);

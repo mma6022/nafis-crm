@@ -140,7 +140,9 @@
  .nas-pop.top .nas-bub::before{content:"";position:absolute;top:-8px;left:calc(var(--tail,40px) - 15px);width:14px;height:14px;background:#fff;border-left:1px solid var(--nf-line,#E3E6F0);border-top:1px solid var(--nf-line,#E3E6F0);transform:rotate(45deg)}
  .nas-pop.top .nas-bub::after{display:none}
  .nas-chw{right:0}
- .nas-qr{left:8px;right:8px;width:auto;top:84px;bottom:auto}
+ .nas-qr{left:8px;right:8px;width:auto;top:84px;bottom:auto;z-index:75}
+ /* REMINDER-68: on phones the full-screen chat (z 70) hid the quick-reminder sheet and the full reminder form */
+ body:has([role=dialog][data-state=open]) .nas-chw{z-index:40}
 }
 
 /* ===== v3 (phone): «مزاحم نشو» bar while a form is open (HANDOFF §1, shot 12) =====

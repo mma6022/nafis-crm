@@ -153,7 +153,8 @@ export function IncomingWizard({ currentNo, onClose, onSaved, onEvent }: {
   const telBtn = ph ? <a className="btn btn-primary iw-tel" href={`tel:${ph}`} data-testid="iw-tel-call"><Phone size={15} aria-hidden="true" /> تماس</a> : null;
   const hit = (kind: 'own' | 'new' | 'dup') => <div className={`tc-hit${kind === 'own' ? '' : ` ${kind}`}`} data-testid={`iw-hit-${kind}`}>
     {kind === 'new' ? <Plus size={18} aria-hidden="true" /> : kind === 'dup' ? <AlertTriangle size={18} aria-hidden="true" /> : <Check size={18} aria-hidden="true" />}
-    <div><b>{cust?.name} <span className="dp-id">#{faNum(cust?.id ?? 0)}</span></b><small>{kind === 'new' ? 'ساخته شد · مشتری خودت · ' : 'مشتری خودت · '}<bdi dir="ltr" data-testid="iw-tel">{ph ? maskTel(ph) : tail ? `••••${faNum(tail)}` : ''}</bdi>{kind === 'dup' ? ' · مشتری تازه ساخته نشد' : ''}</small></div>
+    <div><b>{cust?.name} <span className="dp-id">#{faNum(cust?.id ?? 0)}</span></b><small>{kind === 'new' ? 'ساخته شد · مشتری خودت · ' : 'مشتری خودت · '}<bdi dir="ltr" data-testid="iw-tel">{ph ? maskTel(ph) : tail ? `••••${faNum(tail)}` : ''}</bdi>{kind === 'dup' ? ' · مشتری تازه ساخته نشد' : ''}</small>
+      {kind === 'own' && cust ? <span className="iw-links"><a href={`/customers/${cust.id}`} target="_blank" rel="noopener" data-testid="iw-file"><FileText size={13} aria-hidden="true" /> پرونده</a> · <a href={`/customers/${cust.id}#sec-calls`} target="_blank" rel="noopener" data-testid="iw-history">تاریخچه و یادداشت‌ها</a></span> : null}</div>
     {kind === 'dup' ? null : telBtn ?? (cust ? <PickedTel id={cust.id} /> : null)}</div>;
   return <div className="tc-ov" role="presentation" style={fcOpen ? { display: 'none' } : undefined} onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) close(step === 'ok' ? 'done' : 'cancel'); }}>
     <div className="tc-dlg iw-dlg" role="dialog" aria-modal="true" aria-labelledby="iw-h" ref={dlg} data-testid="iw-wizard" data-step={step} data-path={path}>

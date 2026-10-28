@@ -318,6 +318,9 @@ function CustomerDetailFull() {
   const [fcEditOpen, setFcEditOpen] = useState(false);
   const fcEditInfo = useFirstCallEditInfo(id, tsConfig.data?.enabled === true);
   const [tsToast, setTsToast] = useState('');
+  // REMINDER-68: «تاریخچه و یادداشت‌ها» links (today card / file card / incoming wizard) open /customers/:id#sec-calls → scroll there once loaded.
+  const callsReady = customerQuery.isSuccess && !activityQuery.isLoading;
+  useEffect(() => { if (callsReady && window.location.hash === '#sec-calls') window.setTimeout(() => document.getElementById('sec-calls')?.scrollIntoView({ block: 'start' }), 50); }, [callsReady, id]);
   useEffect(() => { setHandoff(null); setSimpleFormOpen(false); setUpgradeOpen(false); }, [id]);
   // crm-call-queue: «ثبت تماس» on a «صف تماس من» card links here with ?cq=call → open the same call form once.
   const cqCallDone = useRef(false);
