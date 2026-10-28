@@ -1,0 +1,50 @@
+/* Release 84(A) «نسخه‌ها» — CRM design system tokens (no Armita design for this screen). */
+.rel-tabs { display: inline-flex; gap: 6px; padding: 4px; background: var(--nf-surface-2, #eef2f8); border-radius: var(--nf-radius, 12px); margin-bottom: 16px; }
+.rel-tab { border: 1px solid transparent; background: transparent; color: var(--nf-ink-soft, #44536f); border-radius: var(--nf-radius-sm, 10px); padding: 8px 18px; min-height: 44px; font: inherit; font-weight: 700; cursor: pointer; }
+.rel-tab:hover { color: var(--nf-ink, #172950); background: #fff; }
+.rel-tab:focus-visible { outline: none; box-shadow: var(--nf-ring, 0 0 0 3px #9db4f0); }
+.rel-tab.active { background: var(--nf-brand-600, #1c3687); color: #fff; border-color: var(--nf-brand-600, #1c3687); }
+.rel-note { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 10px; border: 1px solid; margin-bottom: 16px; font-size: 13px; line-height: 1.8; }
+.rel-note strong { display: block; margin-bottom: 2px; font-size: 14px; }
+.rel-note p { margin: 0; }
+.rel-note svg { flex-shrink: 0; margin-top: 2px; }
+.rel-note.info { background: #eff6ff; color: #1e3a8a; border-color: #bfdbfe; }
+.rel-note.warn { background: #fffbeb; color: #92400e; border-color: #fde68a; }
+.rel-note.ok { background: #ecfdf5; color: #065f46; border-color: #a7f3d0; }
+.rel-note.err { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+.rel-list { display: flex; flex-direction: column; }
+.rel-row { display: grid; grid-template-columns: 150px 1fr auto; gap: 14px; align-items: start; padding: 14px 16px; border-top: 1px solid var(--nf-line, #e5e9f2); }
+.rel-row:first-child { border-top: 0; }
+.rel-row.is-current { background: #f0fdf4; }
+.rel-when { display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--nf-ink, #172950); }
+.rel-when b { font-size: 14px; }
+.rel-when small { color: #64748b; font-size: 11px; }
+.rel-main { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.rel-desc { font-weight: 700; color: var(--nf-ink, #172950); font-size: 14px; }
+.rel-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: #475569; }
+.rel-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: #f1f5f9; color: #334155; font-size: 12px; }
+.rel-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; direction: ltr; unicode-bidi: isolate; letter-spacing: .3px; }
+.rel-badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.rel-badge.current { background: #10b981; color: #fff; }
+.rel-badge.missing { background: #fee2e2; color: #b91c1c; }
+.rel-badge.schema { background: #fef3c7; color: #92400e; }
+.rel-badge.pending { background: #3b82f6; color: #fff; }
+.rel-rollback summary { cursor: pointer; color: var(--nf-brand-600, #1c3687); font-size: 12px; font-weight: 700; min-height: 32px; display: inline-flex; align-items: center; }
+.rel-rollback summary:focus-visible { outline: none; box-shadow: var(--nf-ring, 0 0 0 3px #9db4f0); border-radius: 6px; }
+.rel-rollback code { display: block; margin-top: 6px; padding: 8px 10px; background: #0f172a; color: #e2e8f0; border-radius: 8px; font-size: 12px; white-space: pre-wrap; word-break: break-all; direction: ltr; text-align: left; }
+.rel-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; max-width: 260px; }
+.rel-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; min-height: 40px; font-size: 13px; border-radius: 8px; border: 1px solid #bfdbfe; background: #eff6ff; color: #1d4ed8; cursor: pointer; font: inherit; font-weight: 700; }
+.rel-btn.back { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+.rel-btn[aria-disabled="true"] { background: #f1f5f9; color: #94a3b8; border-color: #e2e8f0; cursor: not-allowed; }
+.rel-btn:focus-visible { outline: none; box-shadow: var(--nf-ring, 0 0 0 3px #9db4f0); }
+.rel-why { font-size: 11px; color: #64748b; line-height: 1.7; text-align: left; direction: rtl; text-align: right; }
+.rel-pager { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--nf-line, #e5e9f2); font-size: 12px; color: #64748b; flex-wrap: wrap; }
+.rel-pager .pagination-actions button { min-width: 40px; min-height: 40px; }
+@media (max-width: 720px) {
+  .rel-tabs { display: flex; }
+  .rel-tab { flex: 1; padding: 8px 10px; }
+  .rel-row { grid-template-columns: 1fr; gap: 8px; }
+  .rel-when { flex-direction: row; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+  .rel-actions { align-items: stretch; max-width: none; }
+  .rel-btn { justify-content: center; }
+}

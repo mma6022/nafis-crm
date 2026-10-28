@@ -8,6 +8,7 @@
     "build": "vite build --config vite.config.ts && node scripts/dashboard-no-landline-fixture.mjs",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:releases-model": "node --experimental-strip-types scripts/releases-model-fixture.mjs",
     "test:wizard-flow": "node scripts/create-wizard-flow-fixture.mjs",
     "test:loan-document-review": "node scripts/loan-document-review-fixture.mjs",
     "test:plan-finder-answers": "node --experimental-transform-types scripts/plan-finder-answers-fixture.mjs",
