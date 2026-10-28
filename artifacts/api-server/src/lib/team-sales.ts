@@ -4,6 +4,7 @@
  * Priority-history logging (customer_priority_history) is always on: it is additive and invisible.
  * Never sends SMS (customers or staff): closer reminders are in-app only (reminder_sms_deliveries pre-marked).
  */
+import { ensureManualOutcomeSchema, type ManualOutcome } from "./call-outcome";
 import { cqAutoCloseOnly } from "./call-queue";
 import { callNoteError } from "./call-note-rule";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
@@ -72,6 +73,13 @@ export function ensureSelectedPlansColumn(): void {
   const cols = queryRows<{ name: string }>("SELECT name FROM pragma_table_info('team_sales_qualifications')");
   if (cols.length && !cols.some((c) => c.name === "selected_plans_json"))
     crmDb.exec("ALTER TABLE team_sales_qualifications ADD COLUMN selected_plans_json TEXT");
+}
+
+/** Release 81 (additive): 1 = the first-call questions were skipped because «جواب نداد» / «خاموش یا اشغال» was chosen; 0 = «جواب داد»; NULL = older rows. */
+export function ensureQuestionsSkippedColumn(): void {
+  const cols = queryRows<{ name: string }>("SELECT name FROM pragma_table_info('team_sales_qualifications')");
+  if (cols.length && !cols.some((c) => c.name === "questions_skipped"))
+    crmDb.exec("ALTER TABLE team_sales_qualifications ADD COLUMN questions_skipped INTEGER");
 }
 
 /**
@@ -542,11 +550,16 @@ const CALL_SUBJECT: Record<string, string> = {
  * (team_sales_qualifications.priority stores 0 = "none" because the column is NOT NULL). 3x no-answer -> status cancelled.
  */
 export function submitQualification(customerId: number, actor: Actor, rawAnswers: QualifierAnswers, note: string, now = new Date(),
-  selectedPlans: unknown = null, noPlanNote: unknown = null) {
+  selectedPlans: unknown = null, noPlanNote: unknown = null, manualOutcome: ManualOutcome | null = null) {
   ensureTeamSalesSchema();
   const cfg = getTeamSalesConfig();
   const err = validateAnswers(rawAnswers, now, legacyRanks(customerId));
   if (err) throw new TeamSalesError(400, err);
+  // Release 81: «جواب نداد» / «خاموش یا اشغال» is a no-answer form (only step 1 + note); «جواب داد» can't be a no-answer result.
+  if (manualOutcome && (manualOutcome === "answered") === (rawAnswers.callResult === "no_answer"))
+    throw new TeamSalesError(422, manualOutcome === "answered"
+      ? "نتیجه‌ی تماس «جواب داد» است ولی نتیجه‌ی فرم «جواب نداد» است؛ یکی را درست کن."
+      : "نتیجه‌ی تماس «جواب نداد / خاموش یا اشغال» است ولی فرم برای تماس جواب‌داده پر شده؛ یکی را درست کن.");
   const firstCall = isFirstCallForm(rawAnswers);
   const answers = firstCall ? normalizeFirstCallAnswers(rawAnswers) : rawAnswers;
   if (selectedPlans != null && (!firstCall || answers.callResult !== "answered") && !(Array.isArray(selectedPlans) && !selectedPlans.length))
@@ -587,6 +600,7 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
           selected.length ? `\n— طرح‌های انتخاب‌شده: ${selected.map((p) => `${p.name}${p.status === "depends" ? " (مشروط)" : ""}`).join("، ")}` : ""}${
           noPlanFit ? `\n— هیچ طرحی به این مشتری نمی‌خوره${cleanNoPlanNote ? `: ${cleanNoPlanNote}` : ""}` : ""}`,
         now.toISOString(), spName]);
+    if (manualOutcome) { ensureManualOutcomeSchema(); executeChanges("UPDATE call_logs SET call_result=? WHERE id=?", [manualOutcome, callLogId]); }
     // crm-call-queue R1 (flag OFF = no-op): the first-call form also closes the expert's own due reminders for this customer.
     cqAutoCloseOnly(callLogId, actor, c.id, answers.callResult, now.toISOString());
     const qualificationId = execute(
@@ -596,6 +610,8 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
       [c.id, actor.id, callLogId, answers.callResult, JSON.stringify(answers), JSON.stringify(matches.slice(0, 5)),
         result.priority ?? 0, result.outcome, result.score, JSON.stringify(result.reasons), result.nextActionAt, cleanNote, now.toISOString(),
         firstCall && answers.callResult === "answered" ? JSON.stringify(selected) : null, noPlanFit ? 1 : null, cleanNoPlanNote]);
+    const questionsSkipped = manualOutcome ? manualOutcome !== "answered" : null;
+    if (questionsSkipped != null) { ensureQuestionsSkippedColumn(); executeChanges("UPDATE team_sales_qualifications SET questions_skipped=? WHERE id=?", [questionsSkipped ? 1 : 0, qualificationId]); }
     // crm-no-plan-option (14:51): the answers also go to the customer's «اطلاعات مشاوره» history (append-only).
     if (firstCall && answers.callResult === "answered") {
       const submitter = queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [actor.salespersonId ?? -1])?.name
@@ -634,7 +650,7 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
         oldSalespersonId: c.salesperson_id, newSalespersonId: c.salesperson_id, actorUserId: actor.id,
         source: inbound ? INBOUND_FIRST_CALL_SOURCE : "qualifier_form", reason: reasonText, at: now.toISOString() });
     }
-    return { callLogId, result, matches: matches.slice(0, 5), handoff, selectedPlans: selected, noPlanFit, noPlanNote: cleanNoPlanNote, cityWritten, transferredToQualifier };
+    return { callLogId, result, matches: matches.slice(0, 5), handoff, selectedPlans: selected, noPlanFit, noPlanNote: cleanNoPlanNote, cityWritten, transferredToQualifier, questionsSkipped };
   });
 }
 

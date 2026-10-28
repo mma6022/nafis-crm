@@ -58,3 +58,9 @@
 .call-quick-credit .qc-confirm p { margin: 0 0 6px; line-height: 1.7; }
 .call-quick-credit .qc-confirm div { display: flex; gap: 6px; flex-wrap: wrap; }
 @media (max-width: 640px) { .call-quick-credit .qc-row { grid-template-columns: 1fr; } }
+
+/* Release 81: the call-form body is a fixed-height flex column; keep the «نتیجه‌ی تماس» group (and the call-queue blocks)
+   at their natural height so the .call-grow textareas above can't squeeze/overlap the label row. */
+.call-form-body .crf, .call-form-body .cq-result, .call-form-body .cq-field, .call-form-body .cq-pre-due { flex: 0 0 auto; }
+/* …and once the group is present the body scrolls anyway, so don't squeeze a .call-grow below its content (label + mic + textarea). */
+.call-form-body:has(> .crf) .call-grow { min-height: min-content; }

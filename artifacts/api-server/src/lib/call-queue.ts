@@ -73,7 +73,8 @@ export function ensureCallQueueSchema(): void {
     CREATE INDEX IF NOT EXISTS idx_cq_events_kind_at ON call_queue_events(kind, created_at);
     CREATE INDEX IF NOT EXISTS idx_cq_events_reminder ON call_queue_events(reminder_id);`);
   for (const [c, d] of [["outcome", "TEXT"], ["one_line_note", "TEXT"], ["na_attempt", "INTEGER"], ["source", "TEXT"], ["manual_type", "TEXT"],
-    ["created_by_user_id", "INTEGER"], ["started_at", "TEXT"], ["returned_at", "TEXT"], ["report_saved_at", "TEXT"]] as const) ensureCol("call_logs", c, d);
+    ["created_by_user_id", "INTEGER"], ["started_at", "TEXT"], ["returned_at", "TEXT"], ["report_saved_at", "TEXT"],
+    ["follow_up_at", "TEXT"] /* release 81 (additive): the «پیگیری بعدی» time chosen on this call */] as const) ensureCol("call_logs", c, d);
   for (const [c, d] of [["source", "TEXT"], ["source_note_id", "INTEGER"], ["source_span", "TEXT"], ["closed_by_call_id", "INTEGER"], ["closed_at", "TEXT"],
     ["voided_at", "TEXT"], ["void_reason", "TEXT"], ["void_note", "TEXT"], ["voided_by", "INTEGER"], ["snooze_until", "TEXT"], ["snooze_used", "INTEGER NOT NULL DEFAULT 0"],
     ["created_by", "INTEGER"]] as const) ensureCol("reminders", c, d);
@@ -271,7 +272,10 @@ export function cqParseCall(body: any, user: CqUser): { error: string } | CqCall
   if (missing.length) return { error: `${missing.join("، ")} هنوز خالی است.` };
   if ([...oneLine].length > CQ_LIMITS.oneLineMax) return { error: "یادداشت یک‌خطی حداکثر ۸۰ نویسه است؛ بقیه را در «یادداشت کارشناس» بنویس." };
   let followUpAt: Date | null = null;
-  if (outcome === "follow_up" && !base.hasLegacyReminder) {
+  // Release 81 (v1.0.1): «پیگیری بعدی» is a separate optional step — required with the legacy «follow_up» outcome, optional (validated
+  // when sent) with answered / no_answer. With no_answer it replaces the automatic 4h/24h retry (PM).
+  const fuRaw = body?.followUpAt; const fuSent = fuRaw != null && String(fuRaw).trim() !== "";
+  if ((outcome === "follow_up" || fuSent) && !base.hasLegacyReminder) {
     const d = new Date(String(body?.followUpAt ?? ""));
     if (Number.isNaN(d.getTime())) return { error: "زمان یادآور پیگیری بعدی را انتخاب کن." };
     if (d.getTime() <= Date.now() - 60_000) return { error: "زمان یادآور باید در آینده باشد." };
@@ -294,12 +298,13 @@ export type CqCallResult = {
   closed: { id: number; remindAt: string; label: string }[];
   created: { id: number; remindAt: string; label: string; kind: "followup" | "no_answer"; shifted: boolean }[];
   naAttempt: number | null; coldSuggest: boolean; p1NoAnswer3: boolean; managerNotified: boolean;
+  naRetryReplaced: boolean; // release 81: the expert's follow_up_at replaced the automatic no-answer retry
 };
 /** Inside the POST /calls transaction, right after the call_logs row exists. */
 export function cqAfterCall(callId: number, input: CqCallInput, user: CqUser & { fullName?: string | null; username?: string }, customerId: number, nowIso = new Date().toISOString()): CqCallResult | null {
   if (!input.active) return null;
   const f = cqFlags();
-  const res: CqCallResult = { callId, resultOn: input.resultOn, outcome: input.outcome, closed: [], created: [], naAttempt: null, coldSuggest: false, p1NoAnswer3: false, managerNotified: false };
+  const res: CqCallResult = { callId, resultOn: input.resultOn, outcome: input.outcome, closed: [], created: [], naAttempt: null, coldSuggest: false, p1NoAnswer3: false, managerNotified: false, naRetryReplaced: false };
   const sp = user.salespersonId ?? null;
   executeChanges("UPDATE call_logs SET created_by_user_id=?, source=COALESCE(source,'manual') WHERE id=?", [user.id, callId]);
   if (input.resultOn && input.outcome && !input.lockOn)
@@ -321,15 +326,19 @@ export function cqAfterCall(callId: number, input: CqCallInput, user: CqUser & {
         VALUES(?,?,?,?,?,?,0,0,?,?,?,?)`, [user.id, sp, customerId, subject, input.oneLine ?? subject, iso, nowIso, callId, kind, user.id]);
       res.created.push({ id, remindAt: iso, label: `${faDate(iso)} ساعت ${faTime(iso)}`, kind, shifted });
     };
-    if (input.outcome === "follow_up" && input.followUpAt) {
+    if (input.followUpAt) {
       const w = toWorkingTime(input.followUpAt); mk(w.at, "followup", "پیگیری بعدی", w.shifted);
-    } else if (input.outcome === "no_answer" && f.autoclose) {
+      executeChanges("UPDATE call_logs SET follow_up_at=? WHERE id=?", [w.at.toISOString(), callId]);
+    }
+    if (input.outcome === "no_answer" && f.autoclose) {
       const n = trailingNoAnswer(customerId, callId) + 1;
       res.naAttempt = Math.min(n, CQ_NA_MAX);
       executeChanges("UPDATE call_logs SET na_attempt=? WHERE id=?", [n, callId]);
-      if (n < CQ_NA_MAX) {
+      // PM (81): the expert's own «پیگیری بعدی» replaces the automatic retry — no duplicate task.
+      if (n < CQ_NA_MAX && input.followUpAt) res.naRetryReplaced = true;
+      else if (n < CQ_NA_MAX) {
         const w = toWorkingTime(new Date(Date.parse(nowIso) + (n === 1 ? 4 : 24) * 3_600_000));
-        mk(w.at, "no_answer", `تلاش ${n + 1} از ۳ · پاسخ نداد`, w.shifted);
+        mk(w.at, "no_answer", `تلاش ${n + 1} از ۳ · جواب نداد`, w.shifted);
       } else {
         const c = queryRow<{ priority: number | null; name: string | null }>("SELECT priority,name FROM customers WHERE id=?", [customerId]);
         if (Number(c?.priority) === 1) {

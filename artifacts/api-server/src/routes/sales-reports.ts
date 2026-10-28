@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { hasManualOutcomeColumn } from "../lib/call-outcome";
 import { requireAuth, type AuthUser } from "../lib/auth";
 import { requirePermission } from "../lib/access-control";
 import { queryRows, type SqlValue } from "../lib/crm-db";
@@ -33,13 +34,13 @@ router.get("/sales-reports", requireAuth, requirePermission("reports.view"), (re
     const activityParams: SqlValue[] = [...params, window.from, window.until];
     const customers = queryRows<CustomerRow>(`SELECT c.id,c.phone,c.created_at,c.salesperson_id FROM customers c WHERE c.merged_into_customer_id IS NULL${scope}`, params);
     const calls = queryRows<CallRow>(`
-      SELECT cl.customer_id,COALESCE(e.started_at,cl.created_at) AS created_at,e.status,e.mobile_answered_at
+      SELECT cl.customer_id,COALESCE(e.started_at,cl.created_at) AS created_at,e.status,e.mobile_answered_at,${hasManualOutcomeColumn() ? "cl.call_result" : "NULL"} AS manual_outcome
       FROM call_logs cl JOIN customers c ON c.id=cl.customer_id
       LEFT JOIN voip_after_call_events e ON e.call_log_id=cl.id
       WHERE c.merged_into_customer_id IS NULL${scope} AND COALESCE(e.is_live,0)=0
         AND julianday(COALESCE(e.started_at,cl.created_at))>=julianday(?) AND julianday(COALESCE(e.started_at,cl.created_at))<julianday(?)
       UNION ALL
-      SELECT e.customer_id,e.started_at AS created_at,e.status,e.mobile_answered_at
+      SELECT e.customer_id,e.started_at AS created_at,e.status,e.mobile_answered_at,NULL AS manual_outcome
       FROM voip_after_call_events e JOIN customers c ON c.id=e.customer_id
       WHERE e.call_log_id IS NULL AND e.is_live=0 AND c.merged_into_customer_id IS NULL${scope}
         AND julianday(e.started_at)>=julianday(?) AND julianday(e.started_at)<julianday(?)`, [...activityParams, ...activityParams]);

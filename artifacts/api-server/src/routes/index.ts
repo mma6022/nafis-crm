@@ -57,6 +57,8 @@ import { startCallQueueJobs } from "../lib/call-queue-r2";
 import { ensureDailyPlanSchema, startDailyPlanJobs } from "../lib/daily-plan";
 import { ensureTeamSalesSchema } from "../lib/team-sales";
 import teamCommissionRouter from "./team-commission";
+import { backfillFollowUpAt, ensureManualOutcomeSchema } from "../lib/call-outcome";
+import { ensureQuestionsSkippedColumn } from "../lib/team-sales";
 import staffWalletRouter from "./staff-wallet";
 import loanRequestDraftsRouter from "./loan-request-drafts";
 
@@ -66,6 +68,11 @@ startDatabaseBackupScheduler();
 ensureTeamSalesSchema();
 // crm-call-queue R1: additive columns/tables, every flag seeded OFF.
 ensureCallQueueSchema();
+// Release 81: call_logs.call_result (additive, old rows NULL).
+ensureManualOutcomeSchema();
+try { ensureQuestionsSkippedColumn(); } catch { /* table created lazily by team-sales; the submit path ensures it too */ }
+// Release 81 (v1.0.1): additive call_logs.follow_up_at + one idempotent fill from the old «follow_up» result's reminder (never alters outcome/reminders).
+try { ensureCallQueueSchema(); const n = backfillFollowUpAt(); if (n) console.log(`[release81] follow_up_at filled for ${n} old follow_up call logs`); } catch (e) { console.error("[release81] follow_up_at backfill skipped", (e as Error)?.message); }
 // R2: daily discipline snapshot / 3-workday alerts; does nothing while flag.discipline is OFF.
 startCallQueueJobs();
 ensureDailyPlanSchema();

@@ -8,7 +8,7 @@
  *   - plus phone-system calls (voip_after_call_events) of that expert that were never linked to a call log;
  *   - live (still ringing / in progress) phone-system calls are excluded.
  * Time = the phone-system start time when linked, else call_logs.created_at; days are Tehran days (fixed UTC+03:30).
- * Answered / not answered = lib/sales-report.ts callOutcome, then the first-call form result (team_sales_qualifications).
+ * Answered / not answered = lib/sales-report.ts callOutcome (release 81: call_logs.call_result first), then the first-call form result (team_sales_qualifications).
  */
 import type { DatabaseSync } from "node:sqlite";
 import { callOutcome } from "./sales-report";
@@ -54,16 +54,17 @@ export function expertCalls(db: DatabaseSync, sp: number, fromIso: string, toIso
   const rep = opts.reportAliases ? reportSpSql(db) : null;
   const who = rep ? `${rep.log}=?` : "l.salesperson_id=?";
   const vwho = rep && vcid ? `${rep.voip}=?` : "e.salesperson_id=?";
-  const sql = `SELECT l.id lid, ${at} at, ${voip ? "e.status, e.mobile_answered_at" : "NULL status, NULL mobile_answered_at"},
+  const mo = db.prepare("SELECT 1 FROM pragma_table_info('call_logs') WHERE name='call_result'").get() != null;
+  const sql = `SELECT l.id lid, ${at} at, ${voip ? "e.status, e.mobile_answered_at" : "NULL status, NULL mobile_answered_at"}, ${mo ? "l.call_result" : "NULL"} mo,
       ${q ? "(SELECT call_result FROM team_sales_qualifications tq WHERE tq.call_log_id=l.id ORDER BY tq.id DESC LIMIT 1)" : "NULL"} qres
     FROM call_logs l ${voip ? "LEFT JOIN voip_after_call_events e ON e.call_log_id=l.id" : ""} ${rep ? "LEFT JOIN customers gc ON gc.id=l.customer_id" : ""}
     WHERE ${who} AND ${realCallSql("l.subject")} ${voip ? "AND COALESCE(e.is_live,0)=0" : ""} ${tl}
       AND julianday(${at})>=julianday(?) AND julianday(${at})<julianday(?)
-    ${voip ? `UNION ALL SELECT NULL lid, e.started_at at, e.status, e.mobile_answered_at, NULL qres FROM voip_after_call_events e ${rep && vcid ? "LEFT JOIN customers gc ON gc.id=e.customer_id" : ""}
+    ${voip ? `UNION ALL SELECT NULL lid, e.started_at at, e.status, e.mobile_answered_at, NULL mo, NULL qres FROM voip_after_call_events e ${rep && vcid ? "LEFT JOIN customers gc ON gc.id=e.customer_id" : ""}
       WHERE e.call_log_id IS NULL AND e.is_live=0 AND ${vwho} ${tv} AND julianday(e.started_at)>=julianday(?) AND julianday(e.started_at)<julianday(?)` : ""}`;
   const p: any[] = [...(rep ? rep.logParams : []), sp, fromIso, toIso]; if (voip) p.push(sp, fromIso, toIso);
   return (db.prepare(sql).all(...p) as any[]).map(r => {
-    let o = callOutcome(r.status, r.mobile_answered_at);
+    let o = callOutcome(r.status, r.mobile_answered_at, r.mo);
     if (o === "unknown" && r.qres) o = r.qres === "answered" ? "yes" : r.qres === "no_answer" ? "no" : "unknown";
     return { at: parseAt(r.at), outcome: o, callLogId: r.lid == null ? null : Number(r.lid) };
   });

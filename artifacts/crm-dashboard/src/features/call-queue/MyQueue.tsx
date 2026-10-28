@@ -83,7 +83,7 @@ function QueueCardView({ c, letters, voidReasons, badge }: { c: QueueCard; lette
 
 function EditDate({ id, onDone }: { id: number; onDone: () => void }) {
   const qc = useQueryClient();
-  const [val, setVal] = useState<CqResultValue>({ ...emptyCqResult(), outcome: 'follow_up' }); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
+  const [val, setVal] = useState<CqResultValue>({ ...emptyCqResult(), outcome: 'follow_up', fu: true }); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
   const save = async () => { if (!val.followUpAt) { setErr('زمان را انتخاب کن.'); return; } setBusy(true); setErr('');
     try { await cqApi.editDate(id, val.followUpAt); void qc.invalidateQueries({ queryKey: ['call-queue'] }); onDone(); } catch (e) { setErr(e instanceof Error ? e.message : 'ذخیره نشد.'); } finally { setBusy(false); } };
   return <div className="cq-inline" data-testid="cq-ai-edit-form"><CqResultFields value={val} onChange={setVal} showErrors={false} idPrefix={`cq-ed-${id}`} onlyTime />

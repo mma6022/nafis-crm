@@ -138,9 +138,10 @@ export const fetchNextCloser = (customerId?: number) =>
 export const upgradePriority = (customerId: number, note: string, transferOverrideReason?: string, reason?: string) =>
   request<PromoteResult>(`/customers/${customerId}/upgrade-priority`, { method: 'POST',
     body: JSON.stringify({ note: note.trim() || null, ...(reason?.trim() ? { reason: reason.trim() } : {}), ...(transferOverrideReason ? { transferOverrideReason } : {}) }) });
-export const submitSimpleForm = (customerId: number, answers: SimpleAnswers, note: string, selectedPlans?: number[], noPlanNote?: string, transferOverrideReason?: string) =>
+export const submitSimpleForm = (customerId: number, answers: SimpleAnswers, note: string, selectedPlans?: number[], noPlanNote?: string, transferOverrideReason?: string,
+  manualOutcome?: 'answered' | 'no_answer' | 'off_or_busy') =>
   request<QualifyResult>(`/customers/${customerId}/team-sales/qualify`, { method: 'POST',
-    body: JSON.stringify({ answers, note, ...(selectedPlans ? { selectedPlans } : {}), ...(noPlanNote ? { noPlanNote } : {}),
+    body: JSON.stringify({ answers, note, ...(manualOutcome ? { call_result: manualOutcome } : {}), ...(selectedPlans ? { selectedPlans } : {}), ...(noPlanNote ? { noPlanNote } : {}),
       ...(transferOverrideReason ? { transferOverrideReason } : {}) }) });
 /** Step 5: every active plan with fit / depends / no and the reasons (no writes). noPlanDefault = nothing fits or depends. */
 export const fetchPlanOptions = (customerId: number, answers: SimpleAnswers) =>

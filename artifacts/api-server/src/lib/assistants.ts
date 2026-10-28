@@ -22,6 +22,7 @@
  * scope_rule='manager', bound_role='admin' and no bound expert. Every load goes through norm(), which reports kind 'manager';
  * code that does not normalize (or an older release after a rollback) sees a sales row with no expert → scope "0", nobody eligible.
  */
+import { isManualOutcome, MANUAL_OUTCOME_LABELS, type ManualOutcome } from "./call-outcome";
 import { cqFlag } from "./call-queue";
 import { leadSourceFilter, registeredByRange, registeredByReport } from "./registered-by-report";
 import { ASSISTANT_URGENT_IDS_KEY, ASSISTANT_URGENT_WRITE_KEY, URGENT_REASONS, ensureUrgentSchema, parseUrgentReason, setCustomerUrgent , recordUrgentAttempt } from "./customer-urgent";
@@ -499,8 +500,8 @@ export function createAssistants(deps: Deps) {
       installmentAmount: principal != null && rate != null && count ? monthlyPmt(principal, rate, count) : null,
       installmentCount: count, requestedInstallmentCount: x.requested_duration_months == null ? null : Number(x.requested_duration_months) };
   }
-  const CALL_RESULT_FA: Record<string, string> = { answered: "پاسخ داد", no_answer: "پاسخ نداد", callback: "تماس بعدی خواست", wrong_number: "شماره اشتباه",
-    ANSWERED: "پاسخ داد", "NO ANSWER": "پاسخ نداد", BUSY: "مشغول", BARRED: "برقرار نشد", FAILED: "ناموفق", CANCEL: "لغو شد" };
+  const CALL_RESULT_FA: Record<string, string> = { answered: "جواب داد", no_answer: "جواب نداد", callback: "تماس بعدی خواست", wrong_number: "شماره اشتباه",
+    ANSWERED: "جواب داد", "NO ANSWER": "جواب نداد", BUSY: "مشغول", BARRED: "برقرار نشد", FAILED: "ناموفق", CANCEL: "لغو شد" };
   const spName = (id: unknown) => id == null ? null : row<any>("SELECT name FROM salespersons WHERE id=?", id)?.name ?? null;
   const userName = (id: unknown) => id == null ? null : (() => { const u = row<any>("SELECT full_name,username FROM users WHERE id=?", id); return u ? (u.full_name || u.username) : null; })();
   function callView(l: any) {
@@ -513,7 +514,9 @@ export function createAssistants(deps: Deps) {
     return { id: l.id, subject: l.subject, customerRequest: l.customer_request, expertNotes: l.expert_notes, createdAt: l.created_at,
       loggedBy: { name: (q ? userName(q.actor_user_id) : null) ?? l.salesperson_name_snapshot ?? spName(l.salesperson_id), currentName: spName(l.salesperson_id), salespersonId: l.salesperson_id ?? null },
       result: code == null ? null : { key: String(code), label: CALL_RESULT_FA[String(code)] ?? String(code) },
-      durationSeconds: dur, direction: v?.direction ?? null, source: v ? "phone_system" : q ? "first_call_form" : "manual" };
+      durationSeconds: dur, direction: v?.direction ?? null, source: v ? "phone_system" : q ? "first_call_form" : "manual",
+      // Release 81 (§70): the expert's «نتیجه‌ی تماس» on a manual log — answered | no_answer | off_or_busy; null on older rows / phone-system calls.
+      callResult: isManualOutcome(l.call_result) ? { key: l.call_result, label: MANUAL_OUTCOME_LABELS[l.call_result as ManualOutcome] } : null };
   }
   const notFound = (req: Request, res: Response, customerId: number) => {
     audit({ req, a: A(res), tokenId: TK(res), action: `${req.method} ${req.path.replace(/\/\d+(?=\/|$)/g, "/:id")}`.slice(0, 80), customerId: Number.isSafeInteger(customerId) ? customerId : null, outcome: "not_in_scope" });

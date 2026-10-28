@@ -1,0 +1,11 @@
+/* App design tokens (release 81 · crm-call-result v1.0.1 HANDOFF §6, PM decision 7).
+   «نتیجه‌ی تماس» colours: جواب داد / جواب نداد / خاموش یا اشغال. --nf-brand-600 comes from theme/nafis-theme.css. */
+:root {
+  --nf-call-ok: #1F7A4D;      /* «جواب داد» (= design --nf-success) */
+  --nf-call-ok-50: #E8F5EE;
+  --nf-call-na: #4A5163;      /* «جواب نداد» */
+  --nf-call-na-50: #F1F2F5;
+  --nf-call-off: #A3480B;     /* «خاموش یا اشغال» — burnt orange, apart from the priority gold */
+  --nf-call-off-50: #FFF3EA;
+  --nf-call-focus: var(--nf-brand-600);
+}

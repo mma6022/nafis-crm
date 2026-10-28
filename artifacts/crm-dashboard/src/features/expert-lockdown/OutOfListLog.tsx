@@ -2,7 +2,7 @@
  *  POST /calls { outOfList: true, context: 'out_of_list' } with outcome + one-line note (≤ 80). Used after «ثبت مشتری جدید» and by the carousel wizard. */
 import { useState } from 'react';
 import { Check, Flag } from 'lucide-react';
-import { CqResultFields, cqResultError, emptyCqResult, type CqResultValue } from '@/features/call-queue/ResultFields';
+import { cqFollowUpAt, CqResultFields, cqResultError, emptyCqResult, type CqResultValue } from '@/features/call-queue/ResultFields';
 import { announceCallSaved, faNum, useCqConfig } from '@/features/call-queue/api';
 import { dpApi } from '@/features/daily-plan/api';
 import { callErrorMessage } from '@/lib/call-error';
@@ -18,8 +18,8 @@ export function OutOfListLog({ customer, onSaved, currentNo, idPrefix = 'ool', s
     setShow(true); if (cqResultError(val)) { setErr(''); return; }
     setBusy(true); setErr('');
     try { const one = val.oneLine.trim();
-      const r = await dpApi.saveCall({ customerId: customer.id, salespersonId: cq?.salespersonId ?? undefined, subject: 'تماس ورودی', customerRequest: '', expertNotes: one, outcome: val.outcome, oneLineNote: one,
-        followUpAt: val.outcome === 'follow_up' ? val.followUpAt : undefined, outOfList: true, context: 'out_of_list' });
+      const r = await dpApi.saveCall({ customerId: customer.id, salespersonId: cq?.salespersonId ?? undefined, subject: 'تماس ورودی', customerRequest: '', expertNotes: one, outcome: val.outcome, call_result: val.manual, oneLineNote: one,
+        followUpAt: cqFollowUpAt(val), outOfList: true, context: 'out_of_list' });
       announceCallSaved(r.id, customer.id); onSaved(`${customer.name}: «خارج از لیست» ثبت شد${back}`);
     } catch (e) { const m = callErrorMessage(e); setErr(m !== 'ثبت تماس با خطا مواجه شد. لطفاً دوباره تلاش کنید.' ? m : e instanceof Error && /[\u0600-\u06FF]/.test(e.message) ? e.message : 'ثبت نشد. دوباره تلاش کن.'); }
     finally { setBusy(false); }

@@ -12,7 +12,8 @@ import { propagateContractTemplateChange } from "../lib/contract-template-update
 import { creditProviderFailure } from "../lib/credit-provider-failure";
 import { publicDocumentLabel } from "../lib/public-document-labels";
 import { saveUserVoipExtension } from "../lib/user-voip-extension";
-import { savePendingAfterCallHistory } from "../lib/voip-after-call";
+import { pendingAfterCallLogId, savePendingAfterCallHistory } from "../lib/voip-after-call";
+import { ensureManualOutcomeSchema, manualOutcomeError, readManualOutcome } from "../lib/call-outcome";
 import { callReportDateBounds } from "../lib/call-report-filters";
 import { callHistoryScope, callListActorScope, isCallExportRequest } from "../lib/call-history-scope";
 import { systemSummaryForCall } from "../lib/call-reports";
@@ -4574,6 +4575,29 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
     res.status(404).json({ error: "Customer not found" });
     return;
   }
+  // Release 81: a manually logged call must say «جواب داد» / «جواب نداد» / «خاموش یا اشغال». A save that completes an automatic
+  // VoIP / mobile call (pending after-call) is exempt: its answered state comes from the provider, so a sent value is not stored there.
+  // PM (81, Q4): only the phone channel needs it — a حضوری / بله log (manualType) never 422s and never stores a value.
+  const rawManualType = String((req.body as Record<string, unknown> | null)?.manualType ?? "");
+  const nonPhone = rawManualType === "in_person" || rawManualType === "bale";
+  const manualIn = readManualOutcome(req.body);
+  const autoCallLogId = nonPhone ? null : pendingAfterCallLogId(body.customerId, user);
+  if (!nonPhone && autoCallLogId == null && !("value" in manualIn)) {
+    res.status(422).json(manualOutcomeError("missing" in manualIn ? "missing" : "invalid"));
+    return;
+  }
+  if (!nonPhone && "invalid" in manualIn) {
+    res.status(422).json(manualOutcomeError("invalid"));
+    return;
+  }
+  const manualOutcome = !nonPhone && autoCallLogId == null && "value" in manualIn ? manualIn.value : null;
+  // PM (81, Q3): «خاموش یا اشغال» counts exactly like «جواب نداد» for the 1-of-3 cap / auto-retry, so the call-queue outcome
+  // must agree with the result (answered ↔ answered, no_answer|off_or_busy ↔ no_answer; «پیگیری بعدی» goes with either).
+  const rawCqOutcome = String((req.body as Record<string, unknown> | null)?.outcome ?? "");
+  if (manualOutcome && (rawCqOutcome === "answered" || rawCqOutcome === "no_answer") && (rawCqOutcome === "answered") !== (manualOutcome === "answered")) {
+    res.status(422).json({ error: "call_result_conflict", field: "call_result", message: "نتیجه‌ی تماس با وضعیت تماس نمی‌خواند؛ «جواب داد» یعنی پاسخ، «جواب نداد» و «خاموش یا اشغال» یعنی بی‌پاسخ." });
+    return;
+  }
   if (
     body.reminder &&
     user.role !== "admin" &&
@@ -4709,6 +4733,7 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
           callId,
         ],
       );
+    if (manualOutcome) { ensureManualOutcomeSchema(); executeChanges("UPDATE call_logs SET call_result=? WHERE id=?", [manualOutcome, callId]); }
     cqResult = cqAfterCall(callId, cqInput, user, body.customerId);
     dpResult = dpAfterCall(req.body, callId, user, body.customerId);
     return callId;
@@ -4720,7 +4745,7 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
   }
   const dpDone = dpResult as { kind: string; itemId: number } | null;
   const dpNext = dpDone ? dpAfterCommit(user) : null;
-  res.status(201).json({ ...CreateCallResponse.parse(callFromRow(row)), ...(cqResult ? { callQueue: cqResult } : {}), ...(dpDone ? { dailyPlan: { ...dpDone, ...(dpNext ?? {}) } } : {}) });
+  res.status(201).json({ ...CreateCallResponse.parse(callFromRow(row)), call_result: manualOutcome, ...(cqResult ? { callQueue: cqResult } : {}), ...(dpDone ? { dailyPlan: { ...dpDone, ...(dpNext ?? {}) } } : {}) });
 });
 
 const consultationSelect = `

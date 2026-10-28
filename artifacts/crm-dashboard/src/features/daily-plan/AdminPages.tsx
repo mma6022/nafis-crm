@@ -66,7 +66,7 @@ function ExpertList() {
       <table className="dp-table"><thead><tr><th>#</th><th>مشتری</th><th>نوع</th><th>برچسب</th><th>بخش</th><th>وضعیت</th><th>جابه‌جایی</th><th>نتیجه</th></tr></thead>
         <tbody>{e.items.map((i, k) => <tr key={i.id} className={`s-${i.status}`}><td>{faNum(k + 1)}</td><td><Link href={`/customers/${i.customerId}`}>{i.name}</Link></td><td>{i.typeLabel}</td><td>{i.label ?? ''}</td>
           <td>{i.bucket === 'main' ? 'اصلی' : i.bucket === 'extra' ? 'کار اضافه' : 'خارج از لیست'}</td><td>{({ pending: 'در نوبت', current: 'جاری', done: 'انجام شد', moved: 'جابه‌جاشده', undone: 'انجام‌نشده', transferred: 'منتقل شد', reserve: 'در لیست خودکار' } as Record<string, string>)[i.status]}</td>
-          <td>{faNum(i.moveCount)} از ۲{i.movedTo ? ` · ${faClock(i.movedTo)}` : ''}</td><td>{i.outcome ? ({ answered: 'پاسخ داد', no_answer: 'پاسخ نداد', follow_up: 'پیگیری بعدی' } as Record<string, string>)[i.outcome] : ''}</td></tr>)}</tbody></table>
+          <td>{faNum(i.moveCount)} از ۲{i.movedTo ? ` · ${faClock(i.movedTo)}` : ''}</td><td>{i.outcome ? ({ answered: 'جواب داد', no_answer: 'جواب نداد', follow_up: 'پیگیری بعدی' } as Record<string, string>)[i.outcome] : ''}</td></tr>)}</tbody></table>
       {!e.items.length ? <div className="dp-box">برای این روز لیستی نیست.</div> : null}
     </> : null}
   </div>;

@@ -11,6 +11,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlarmClock, BellRing, Check, Clock, History, Phone, TriangleAlert } from 'lucide-react';
 import { announceCallSaved, faClock, faNum } from '@/features/call-queue/api';
 import { rmApi, useRmConfig, type RmFeed, type RmItem, type RmNext, type RmOutcome } from './api';
+import { ManualOutcomeField } from '@/features/call-queue/ResultFields';
 import './reminder-must.css';
 
 const OVERLAY_SEL = '[aria-modal="true"],[role="dialog"],[role="alertdialog"],.modal-backdrop,.call-sheet-backdrop,.ch-backdrop,.ic-sheet,[vaul-drawer],.dp-inbound';
@@ -22,8 +23,10 @@ const dayLabel = (iso: string, nowIso: string) => {
   if (a === b) return 'امروز'; if (a === y) return 'دیروز';
   return new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', day: 'numeric', month: 'long' }).format(new Date(iso));
 };
-const OUT: { v: RmOutcome; l: string }[] = [{ v: 'answered', l: 'پاسخ داد' }, { v: 'no_answer', l: 'پاسخ نداد' }, { v: 'follow_up', l: 'پیگیری بعدی' }];
-const OUT_FA: Record<string, string> = { answered: 'پاسخ داد', no_answer: 'پاسخ نداد', follow_up: 'پیگیری بعدی' };
+// Release 81: step 1 asks the required manual «نتیجه‌ی تماس» (call_logs.manual_outcome); the reminder outcome is derived from it
+// (جواب داد → answered, otherwise no_answer). «یادآور بعدی» in step 2 still covers the follow-up.
+type RmManual = 'answered' | 'no_answer' | 'off_or_busy';
+const OUT_FA: Record<string, string> = { answered: 'جواب داد', no_answer: 'جواب نداد', follow_up: 'پیگیری بعدی' };
 const NEXT: { v: RmNext; l: string; s: string }[] = [
   { v: 'tomorrow_am', l: 'فردا صبح', s: 'ساعت ۱۰:۰۰' }, { v: 'today_pm', l: 'امروز عصر', s: 'ساعت ۱۷:۰۰' },
   { v: 'in_3_days', l: '۳ روز دیگه', s: 'ساعت ۱۰:۰۰' }, { v: 'none', l: 'یادآور لازم نیست', s: 'قدم بعد در پرونده' },
@@ -105,7 +108,8 @@ export function ReminderMustHost({ userId }: { userId: number }) {
 function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { feed: RmFeed; item: RmItem; index: number; total: number; rest: RmItem[];
   onDone: (remaining: number) => void; onSnoozed: () => void }) {
   const [step, setStep] = useState<0 | 1 | 2>(0);
-  const [outcome, setOutcome] = useState<RmOutcome | null>(null);
+  const [manual, setManual] = useState<RmManual | null>(null);
+  const outcome: RmOutcome | null = manual == null ? null : manual === 'answered' ? 'answered' : 'no_answer';
   const [note, setNote] = useState('');
   const [next, setNext] = useState<RmNext | null>(null);
   const [reason, setReason] = useState('');
@@ -133,7 +137,7 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
       let callId = Number(sessionStorage.getItem(callKey(item.reminderId)) || 0);
       if (!callId) {
         const one = note.replace(/\s+/g, ' ').trim();
-        const c = await rmApi.saveCall({ customerId: item.customerId, subject: 'یادآور سررسید', customerRequest: '', expertNotes: one, outcome, oneLineNote: one, outOfList: true, context: 'out_of_list' });
+        const c = await rmApi.saveCall({ customerId: item.customerId, subject: 'یادآور سررسید', customerRequest: '', expertNotes: one, outcome, call_result: manual, oneLineNote: one, outOfList: true, context: 'out_of_list' });
         callId = c.id; sessionStorage.setItem(callKey(item.reminderId), String(callId)); announceCallSaved(callId, item.customerId);
       }
       const res = await rmApi.complete(item.reminderId, { callId, outcome: outcome!, note: note.replace(/\s+/g, ' ').trim(), next: next!, reason: reason.replace(/\s+/g, ' ').trim() });
@@ -159,8 +163,7 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
         {rest.length ? <p className="rmm-qnx" data-testid="rm-next-list"><span>بعد از این، به ترتیب ساعت:</span> {rest.map((x) => `${faClock(x.remindAt)} ${x.customerName}`).join(' · ')}{total > rest.length + 1 ? ' · …' : ''}</p> : null}
       </div> : null}
       {step === 1 ? <div className="rmm-b">
-        <fieldset className="rmm-seg"><legend>نتیجه‌ی تماس</legend>{OUT.map((o) =>
-          <button key={o.v} type="button" className={outcome === o.v ? 'on' : ''} aria-pressed={outcome === o.v} onClick={() => setOutcome(o.v)} data-testid={`rm-out-${o.v}`}>{o.l}</button>)}</fieldset>
+        <ManualOutcomeField value={manual ?? ''} onChange={(v) => setManual(v)} showError={show && !manual} idPrefix="rm" submitLabel="بعدی" />
         <label className="rmm-f"><span>یادداشت یک‌خطی <small>(اجباری)</small></span>
           <input value={note} maxLength={r.noteMax + 20} onChange={(e) => setNote(e.target.value)} placeholder="مثلاً: مدارک را فردا می‌فرستد" data-testid="rm-note" aria-invalid={show && Boolean(noteErr)} />
           <small className={len(note) > r.noteMax ? 'bad' : ''}>{fa(len(note))}/{fa(r.noteMax)}</small></label>

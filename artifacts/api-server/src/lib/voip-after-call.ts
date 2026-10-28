@@ -78,6 +78,14 @@ export function pendingAfterCalls(actor: AuthUser) {
 }
 // Called inside the history/profile/reminder transaction. A manual history
 // completes one corresponding queue entry, not other experts' or later calls.
+/** Release 81: the call_logs id a manual save would complete (an automatic VoIP / mobile call), or null for a plain manual log. Read-only. */
+export function pendingAfterCallLogId(customerId: number, actor: AuthUser): number | null {
+  const event = queryRows<AfterCallEvent>(
+    `${select} WHERE e.completed_at IS NULL AND c.id=? AND l.id IS NOT NULL ORDER BY e.id`,
+    [customerId],
+  ).find(e => canSeeAfterCall(e, actor) && canAccessAfterCallCustomer(e, actor));
+  return event?.call_log_id ?? null;
+}
 export function savePendingAfterCallHistory(customerId: number, actor: AuthUser, fields: {
   subject: string | null; customerRequest: string | null; expertNotes: string | null;
 }): number | null {

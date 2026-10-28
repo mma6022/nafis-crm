@@ -11,6 +11,7 @@ import { dpAfterCommit, dpAfterFirstCallForm } from "../lib/daily-plan";
 import {
   TeamSalesError, citySuggestions, editFirstCall, firstCallEditInfo, formatDue, getTeamSalesConfig, peekCloserFor, peekNextCloser, planOptions, previewQualification, priorityHistory, promoteToPriorityOne, submitQualification,
 } from "../lib/team-sales";
+import { manualOutcomeError, readManualOutcome } from "../lib/call-outcome";
 import { NONP1_TRANSFER_HEADER } from "../lib/nonp1-transfer";
 import { addWorkingHours, type QualifierAnswers } from "../lib/team-sales-rules";
 import { ConsultProfileError, canActOnCustomerProfile, consultProfile, editConsultProfile } from "../lib/consult-profile";
@@ -178,8 +179,11 @@ router.post("/customers/:id/team-sales/qualify", requirePermission("calls.create
   const note = typeof req.body?.note === "string" ? req.body.note : "";
   const selectedPlans = req.body?.selectedPlans ?? null;
   const noPlanNote = req.body?.noPlanNote ?? null;
+  // Release 81: the first-call form is a manually logged call → «نتیجه‌ی تماس» (call_result) is required.
+  const manualIn = readManualOutcome(req.body);
+  if (!("value" in manualIn)) { res.status(422).json(manualOutcomeError("missing" in manualIn ? "missing" : "invalid")); return; }
   try {
-    const out = withTransferOverride(req.body?.transferOverrideReason, () => submitQualification(id, actorOf(res), answers, note, new Date(), selectedPlans, noPlanNote));
+    const out = withTransferOverride(req.body?.transferOverrideReason, () => submitQualification(id, actorOf(res), answers, note, new Date(), selectedPlans, noPlanNote, manualIn.value));
     if (out.transferredToQualifier) res.setHeader(NONP1_TRANSFER_HEADER, String(id));
     // FIRSTCALL-62: close this customer's open «کارهای امروز» item (the form's call is already saved; this never undoes it).
     let dailyPlan: Record<string, unknown> | null = null;

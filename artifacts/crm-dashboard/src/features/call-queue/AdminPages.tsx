@@ -28,7 +28,7 @@ export function CallQueueSettingsPage() {
       <label>قرمز شدن «جدید» بعد از (ساعت، ۱ تا ۱۶۸)<input type="number" min={1} max={168} value={draft.newRedHours} aria-invalid={bad === 'new'} onChange={(e) => setDraft({ ...draft, newRedHours: Number(e.target.value) })} data-testid="cq-set-new" /></label>
       <label>اولویت ۱ بی‌تماس بعد از (روز، ۱ تا ۶۰)<input type="number" min={1} max={60} value={draft.p1StaleDays} aria-invalid={bad === 'p1'} onChange={(e) => setDraft({ ...draft, p1StaleDays: Number(e.target.value) })} data-testid="cq-set-p1" /></label>
       {bad === 'new' || bad === 'p1' ? <p className="cq-err" role="alert" data-testid="cq-set-bad">مقدار بیرون از بازه است.</p> : null}</section>
-    <section className="cq-panel"><h2>متن آماده‌ی بله · «پاسخ نداد»</h2>
+    <section className="cq-panel"><h2>متن آماده‌ی بله · «جواب نداد»</h2>
       <textarea value={draft.naTemplate} maxLength={200} onChange={(e) => setDraft({ ...draft, naTemplate: e.target.value })} aria-invalid={bad === 'tpl'} data-testid="cq-set-tpl" />
       <small className="cq-counter">{faNum([...draft.naTemplate].length)} / ۲۰۰</small>
       <p className="cq-hint">خودکار فرستاده نمی‌شود؛ فقط وقتی کارشناس «ارسال» بزند می‌رود.</p></section>

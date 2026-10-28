@@ -16,6 +16,7 @@ import { VoiceNoteButton } from '@/features/voice-notes/VoiceNoteButton';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { formatJalaliValue, jalaliToIso, parseJalaliValue, tehranPersianParts } from '@/lib/jalali';
 import { tehranJalaliValue } from '@/lib/goods-api';
+import { focusCallResult, MANUAL_OUTCOME_MISSING, MANUAL_OUTCOME_OPTIONS, ManualOutcomeField, type ManualOutcome } from '@/features/call-queue/ResultFields';
 
 /**
  * First-call form (design crm-call-form-plans): 6 steps when the customer answered —
@@ -23,8 +24,12 @@ import { tehranJalaliValue } from '@/lib/goods-api';
  * crm-no-plan-option: the applicant step got a sub-step (7: military service, job, city) shown right after 3, so the
  * progress bar counts 7 steps; step 4 asks the guarantor's job after «بله»; step 5 has «هیچ طرحی به این مشتری نمی‌خوره».
  * Other call results keep only step 1 and the note.
+ * Release 81: step 1 starts with the required 3-button «نتیجه‌ی تماس» (جواب داد / جواب نداد / خاموش یا اشغال); after «جواب داد»
+ * the expert picks صحبت کردیم / گفت بعداً زنگ بزنید / شماره اشتباه. The two no-answer choices make every first-call question optional (note only).
  */
 type Draft = {
+  /** Release 81: required «نتیجه‌ی تماس» (call_logs.call_result). جواب نداد / خاموش یا اشغال → callResult no_answer, questions skipped. */
+  manual: ManualOutcome | null;
   step: number; callResult: CallResult | null; callbackAt: string; callbackDate: string; callbackHour: string; callbackMinute: string; amount: string;
   urgency: SimpleAnswers['urgency']; docsReady: SimpleAnswers['docsReady']; creditRank: string | null;
   cheque: 'check' | 'promissory' | 'none' | null; bounced: 'yes' | 'no' | null;
@@ -47,7 +52,7 @@ export function RetireeHint({ sso, rel, small }: { sso: SsoRetiree | null | unde
         : <small>متقاضی خودش بازنشسته‌ی تأمین اجتماعی است.</small>}
       <em className="xo">فقط برای کارشناس · به مشتری نشان داده نمی‌شود</em></span></div>;
 }
-const EMPTY: Draft = { step: 1, callResult: null, callbackAt: '', callbackDate: '', callbackHour: '', callbackMinute: '', amount: '', urgency: null, docsReady: null, creditRank: null, cheque: null, bounced: null,
+const EMPTY: Draft = { manual: null, step: 1, callResult: null, callbackAt: '', callbackDate: '', callbackHour: '', callbackMinute: '', amount: '', urgency: null, docsReady: null, creditRank: null, cheque: null, bounced: null,
   gAvail: null, gCheque: null, gRank: null, selected: [], note: '',
   military: null, jobType: null, gJobType: null, city: '', cityTouched: false, noPlan: null, noPlanNote: '', sso: null, ssoRel: '' };
 // New key: a 3-step draft from the old form has a different step numbering and must not be restored into this one.
@@ -100,6 +105,8 @@ const MILITARY: Array<[Military, string]> = (['has_card', 'no_card', 'female', '
 const CALL_RESULTS: Array<[CallResult, string]> = [
   ['answered', 'جواب داد و صحبت کردیم'], ['no_answer', 'جواب نداد / خاموش'], ['callback', 'گفت بعداً زنگ بزنید'], ['wrong_number', 'شماره اشتباه'],
 ];
+/** Release 81: after «جواب داد», what happened on the call (the old step-1 list without «جواب نداد / خاموش»). */
+const ANSWERED_RESULTS: Array<[CallResult, string]> = [['answered', 'صحبت کردیم'], ['callback', 'گفت بعداً زنگ بزنید'], ['wrong_number', 'شماره اشتباه']];
 const URGENCY: Array<[NonNullable<SimpleAnswers['urgency']>, string]> = [['now', 'همین الان / این هفته'], ['month', 'تا یک ماه'], ['later', 'بعداً'], ['curious', 'فقط کنجکاوه']];
 const DOCS: Array<[NonNullable<SimpleAnswers['docsReady']>, string]> = [['all', 'همه آماده‌ست'], ['partial', 'بخشی'], ['none', 'آماده نیست']];
 const CHEQUE: Array<[NonNullable<Draft['cheque']>, string]> = [['check', 'چک دارد'], ['promissory', 'فقط سفته'], ['none', 'هیچ‌کدام']];
@@ -207,7 +214,7 @@ function PlanCard({ p, checked, onToggle }: { p: PlanEvaluation; checked: boolea
   </div>;
 }
 
-const STRICT_LABELS: Record<string, string> = { callResult: 'نتیجه‌ی تماس', callbackAt: 'زمان تماس بعدی', amount: 'مبلغ', docsReady: 'مدارک', creditRank: 'رتبه', cheque: 'چک صیادی / سفته',
+const STRICT_LABELS: Record<string, string> = { manual: 'نتیجه‌ی تماس', callResult: 'نتیجه‌ی گفت‌وگو', callbackAt: 'زمان تماس بعدی', amount: 'مبلغ', docsReady: 'مدارک', creditRank: 'رتبه', cheque: 'چک صیادی / سفته',
   bounced: 'چک برگشتی', military: 'نظام وظیفه', sso: 'بازنشستگی تأمین اجتماعی', jobType: 'شغل', gAvail: 'ضامن', gJobType: 'شغل ضامن', gCheque: 'چک ضامن', gRank: 'رتبه‌ی ضامن', note: 'یادداشت', urgency: 'فوریت' };
 const maskPh = (p: string) => { const s = String(p ?? ''); return s.length >= 8 ? `${s.slice(0, 4)}***${s.slice(-4)}` : s; };
 
@@ -277,7 +284,8 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   const validate = (step: number): Record<string, string> => {
     const e: Record<string, string> = {};
     if (step === 1) {
-      if (!d.callResult) e.callResult = 'نتیجه‌ی تماس را انتخاب کن.';
+      if (!d.manual) e.manual = MANUAL_OUTCOME_MISSING;
+      else if (!d.callResult) e.callResult = 'بعد از «جواب داد» بگو چه شد: صحبت کردیم، بعداً زنگ بزنید یا شماره اشتباه.';
       if (d.callResult === 'callback') {
         const t = d.callbackAt ? Date.parse(d.callbackAt) : NaN;
         if (Number.isNaN(t)) e.callbackAt = 'زمان تماس بعدی را مشخص کن.';
@@ -320,7 +328,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   const go = (step: number) => set({ step });
   const next = () => {
     const e = validate(d.step);
-    if (Object.keys(e).length) { setErrors(e); return; }
+    if (Object.keys(e).length) { setErrors(e); if (e.manual) focusCallResult('ts'); return; }
     const i = steps.indexOf(d.step);
     go(steps[Math.min(i + 1, steps.length - 1)]);
   };
@@ -418,7 +426,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
     setPending(true); setServerError(''); setTc(null);
     try {
       const r = await submitSimpleForm(customer.id, answered ? { ...answers, noPlanFit: noPlan } : answers, d.note.trim(),
-        answered ? (noPlan ? [] : selectedPlans.map((p) => p.planId)) : undefined, noPlan ? d.noPlanNote.trim() || undefined : undefined, transferOverrideReason);
+        answered ? (noPlan ? [] : selectedPlans.map((p) => p.planId)) : undefined, noPlan ? d.noPlanNote.trim() || undefined : undefined, transferOverrideReason, d.manual ?? undefined);
       try { localStorage.removeItem(key); } catch { /* ignore */ }
       setResult(r); onDone(r);
     } catch (err) {
@@ -435,7 +443,8 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
     setTimeout(() => { setCopied(false); setCopyToast(''); }, 2500);
   };
 
-  const summary = [label(CALL_RESULTS.map(([k, v]) => [k, k === 'answered' ? 'جواب داد' : v] as [CallResult, string]), d.callResult),
+  const summary = [d.manual && d.manual !== 'answered' ? label(MANUAL_OUTCOME_OPTIONS.map((o) => [o.key, o.label] as [ManualOutcome, string]), d.manual)
+      : label(CALL_RESULTS.map(([k, v]) => [k, k === 'answered' ? 'جواب داد' : v] as [CallResult, string]), d.callResult),
     d.callResult === 'callback' && d.callbackAt && !Number.isNaN(new Date(d.callbackAt).getTime()) ? `تماس بعدی: ${fmtDateTime(new Date(d.callbackAt).toISOString())}` : ''].filter(Boolean);
 
   const prio = customer.priority ? `اولویت ${fa(customer.priority)}` : 'بدون اولویت';
@@ -549,8 +558,12 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   } else if (d.step === 1) {
     body = <>
       <div className="ts-script"><b>بگو:</b><p>«سلام، وقتتون بخیر. از نفیس وام تماس می‌گیرم، شماره‌تون رو برای مشاوره‌ی وام گذاشته بودید.»</p></div>
-      <fieldset className="ts-q"><legend>نتیجه‌ی تماس <span className="req">*</span></legend>
-        <Chips name="callResult" list={CALL_RESULTS} value={d.callResult} onChange={(v) => set({ callResult: v })} cols />{err('callResult')}</fieldset>
+      <ManualOutcomeField value={d.manual ?? ''} idPrefix="ts" showError={Boolean(errors.manual)} submitLabel="بعدی"
+        onChange={(m) => set(m === 'answered' ? { manual: m, callResult: d.callResult && d.callResult !== 'no_answer' ? d.callResult : 'answered' } : { manual: m, callResult: 'no_answer' })} />
+      {d.manual === 'answered' ? <fieldset className="ts-q"><legend>چه شد؟ <span className="req">*</span></legend>
+        <Chips name="callResult" list={ANSWERED_RESULTS} value={d.callResult} onChange={(v) => set({ callResult: v })} cols />{err('callResult')}</fieldset>
+        : d.manual ? <div className="crs" role="note" data-testid="ts-na-optional"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>
+          <span><b>سؤال‌های فرم تماس اول برای این تماس لازم نیست</b><small>پرونده «تکمیل نشده» می‌ماند و در تماس بعدی با «جواب داد» دوباره باز می‌شود.</small></span></div> : null}
       {d.callResult === 'callback' ? <div className="ts-q"><label id="ts-callback-label">زمان تماس بعدی <span className="req">*</span></label>
         <div className="ts-callback-row" id="ts-callback" role="group" aria-labelledby="ts-callback-label" data-testid="ts-callback-at" data-iso={d.callbackAt} aria-invalid={Boolean(errors.callbackAt)}>
           <PersianDatePicker value={d.callbackDate} minValue={tehranJalaliValue(0)} onChange={(v) => set({ callbackDate: v, callbackAt: callbackIso(v, d.callbackHour, d.callbackMinute) })} placeholder="انتخاب تاریخ (شمسی)" testId="ts-callback-date" popoverClassName="ts-callback-popover" />
@@ -678,7 +691,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
               <Check size={18} /> ذخیره و ارسال به کارشناس فروش</button>
             {!edit.canSend ? <span id="ts-edit-send-why" className="sr-only">{edit.sendBlockedReason}</span> : null}
           </> : lastStep ? <button type="button" className="ts-primary" onClick={() => void submit()} disabled={pending} aria-disabled={blocked || undefined} data-testid="ts-submit"><Check size={18} /> {pending ? 'در حال ثبت…' : d.callResult === 'no_answer' ? 'ثبت تماس بی‌پاسخ' : 'ثبت و تعیین اولویت'}</button>
-            : <button type="button" className="ts-primary" onClick={next} disabled={d.step === 5 && !planList} aria-disabled={blocked || undefined} data-testid="ts-next">{nextLabel} <ChevronLeft size={18} /></button>}
+            : <button type="button" className={`ts-primary${d.step === 1 && !d.manual ? ' dis' : ''}`} onClick={next} disabled={d.step === 5 && !planList} aria-disabled={blocked || (d.step === 1 && !d.manual) || undefined} data-testid="ts-next">{nextLabel} <ChevronLeft size={18} /></button>}
         </div>}
         {!done && !edit && !file ? <p className="ts-muted center small">پیش‌نویس روی همین دستگاه نگه داشته می‌شود</p> : null}
       </div>

@@ -4,17 +4,66 @@ import { jalaliToIso, parseJalaliValue } from '@/lib/jalali';
 import { addTehranDays, faNum, faWhen, tehranParts, type CqOutcome, type PreCall } from './api';
 import './call-queue.css';
 
-export type CqResultValue = { outcome: CqOutcome | ''; oneLine: string; followUpAt: string; chip: 'evening' | 'tomorrow' | 'in3' | 'pick' | '' ; pickDate: string; pickHour: string; pickMinute: string };
-export const emptyCqResult = (): CqResultValue => ({ outcome: '', oneLine: '', followUpAt: '', chip: '', pickDate: '', pickHour: '10', pickMinute: '00' });
+/** Release 81 «نتیجه‌ی تماس اجباری» (Armita crm-call-result v1.0): stored as call_logs.call_result; sent as `call_result`. */
+export type ManualOutcome = 'answered' | 'no_answer' | 'off_or_busy';
+export const MANUAL_OUTCOME_OPTIONS: { key: ManualOutcome; label: string; cls: 'ok' | 'na' | 'off' }[] = [
+  { key: 'answered', label: 'جواب داد', cls: 'ok' }, { key: 'no_answer', label: 'جواب نداد', cls: 'na' }, { key: 'off_or_busy', label: 'خاموش یا اشغال', cls: 'off' }];
+export const MANUAL_OUTCOME_MISSING = 'نتیجه‌ی تماس را انتخاب کن: «جواب داد»، «جواب نداد» یا «خاموش یا اشغال».';
+/** The call-queue outcome derived from the result (+ the separate, optional «پیگیری بعدی» step — v1.0.1: not a result option).
+ *  off_or_busy counts exactly like no_answer (PM 3). A no-answer attempt stays «no_answer» even with a follow-up: the attempt is counted
+ *  and the expert's follow_up_at replaces the automatic 4h/24h retry (PM, 81). Answered / non-phone + follow-up = the legacy «follow_up» outcome. */
+export const cqOutcomeFor = (manual: ManualOutcome | '', followUp: boolean): CqOutcome | '' =>
+  manual === 'no_answer' || manual === 'off_or_busy' ? 'no_answer' : followUp ? 'follow_up' : manual === 'answered' ? 'answered' : '';
+/** followUpAt to send: only when the «پیگیری بعدی» switch is on. */
+export const cqFollowUpAt = (v: CqResultValue): string | undefined => (v.fu ? v.followUpAt || undefined : undefined);
+/** Submit buttons stay focusable with aria-disabled (spec §1); pressing one turns the hint red and focuses the group. */
+export const focusCallResult = (idPrefix: string) => {
+  const g = document.getElementById(`${idPrefix}-cr-group`);
+  (g?.querySelector('[tabindex="0"]') as HTMLElement | null)?.focus();
+};
+
+const Svg = ({ d }: { d: string[] }) => <svg viewBox="0 0 24 24" aria-hidden="true">{d.map((x) => <path key={x} d={x} />)}</svg>;
+const PHONE = 'M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z';
+const ICONS: Record<ManualOutcome, string[]> = { answered: [PHONE, 'm14.5 6 2 2 4-4'], no_answer: [PHONE, 'm15 3 6 6M21 3l-6 6'], off_or_busy: ['M12 3v8', 'M7.5 6.2a7 7 0 1 0 9 0'] };
+
+/** «نتیجه‌ی تماس *» — radiogroup with roving tabindex: ←/↓ next, →/↑ previous (RTL), Home/End, Space/Enter. Null until chosen. */
+export function ManualOutcomeField({ value, onChange, showError, idPrefix = 'mo', label = 'نتیجه‌ی تماس', submitLabel = 'ثبت' }: { value: ManualOutcome | ''; onChange: (v: ManualOutcome) => void; showError?: boolean; idPrefix?: string; label?: string; submitLabel?: string }) {
+  const opts = MANUAL_OUTCOME_OPTIONS; const bad = !!showError && !value;
+  const move = (n: number) => { const o = opts[(n + opts.length) % opts.length]; onChange(o.key); (document.getElementById(`${idPrefix}-cr-${o.key}`) as HTMLButtonElement | null)?.focus(); };
+  const onKey = (e: React.KeyboardEvent, i: number) => {
+    const k = e.key;
+    if (k === 'ArrowLeft' || k === 'ArrowDown') { e.preventDefault(); move(i + 1); }
+    else if (k === 'ArrowRight' || k === 'ArrowUp') { e.preventDefault(); move(i - 1); }
+    else if (k === 'Home') { e.preventDefault(); move(0); }
+    else if (k === 'End') { e.preventDefault(); move(opts.length - 1); }
+    else if (k === ' ' || k === 'Enter') { e.preventDefault(); onChange(opts[i].key); }
+  };
+  const picked = opts.find((o) => o.key === value);
+  return <div className="crf" data-cr={value || ''} data-testid="manual-outcome">
+    <div className="crl"><span id={`${idPrefix}-cr-label`}>{label} <span className="req" aria-hidden="true">*</span></span><small>اجباری · یکی را انتخاب کن</small></div>
+    <div className="crp" id={`${idPrefix}-cr-group`} role="radiogroup" aria-labelledby={`${idPrefix}-cr-label`} aria-describedby={`${idPrefix}-cr-hint`} aria-required="true" aria-invalid={bad || undefined}>
+      {opts.map((o, i) => <button key={o.key} id={`${idPrefix}-cr-${o.key}`} type="button" role="radio" aria-checked={value === o.key} data-v={o.key}
+        tabIndex={value ? (value === o.key ? 0 : -1) : (i === 0 ? 0 : -1)} onKeyDown={(e) => onKey(e, i)}
+        className={`cro ${o.cls}`} onClick={() => onChange(o.key)} data-testid={`manual-outcome-${o.key}`}>
+        <span className="cri"><Svg d={ICONS[o.key]} /></span><b>{o.label}</b><span className="crk" aria-hidden="true"><Svg d={['m5 12 5 5 9-10']} /></span></button>)}
+    </div>
+    <p className={`crh${bad ? ' bad' : ''}`} id={`${idPrefix}-cr-hint`} role={bad ? 'alert' : undefined} data-testid={bad ? 'manual-outcome-error' : 'manual-outcome-hint'}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>
+      {picked ? `«${picked.label}» انتخاب شد` : bad ? MANUAL_OUTCOME_MISSING : `تا نتیجه‌ی تماس را انتخاب نکنی، «${submitLabel}» غیرفعال است.`}</p>
+  </div>;
+}
+
+export type CqResultValue = { manual: ManualOutcome | ''; outcome: CqOutcome | ''; fu: boolean; oneLine: string; followUpAt: string; chip: 'evening' | 'tomorrow' | 'in3' | 'pick' | '' ; pickDate: string; pickHour: string; pickMinute: string };
+export const emptyCqResult = (): CqResultValue => ({ manual: '', outcome: '', fu: false, oneLine: '', followUpAt: '', chip: '', pickDate: '', pickHour: '10', pickMinute: '00' });
 export const CQ_ONE_LINE_MAX = 80;
 
 /** null = OK; otherwise the Persian error summary (spec §2 `fu_err`, `fu_next_err`, `fu_pick_bad`). */
-export function cqResultError(v: CqResultValue): string | null {
-  const missing = [!v.outcome ? 'نتیجه‌ی تماس' : null, !v.oneLine.trim() ? 'یادداشت یک‌خطی' : null].filter(Boolean);
+export function cqResultError(v: CqResultValue, needResult = true): string | null {
+  const missing = [needResult && !v.manual ? 'نتیجه‌ی تماس' : null, !v.oneLine.trim() ? 'یادداشت یک‌خطی' : null].filter(Boolean);
   if (missing.length) return `${missing.join('، ')} هنوز خالی است.`;
   if ([...v.oneLine.trim()].length > CQ_ONE_LINE_MAX) return 'یادداشت یک‌خطی حداکثر ۸۰ نویسه است.';
-  if (v.outcome === 'follow_up') {
-    if (!v.followUpAt) return v.chip === 'pick' ? pickError(v) ?? 'تاریخ و ساعت را انتخاب کن.' : 'زمان یادآور پیگیری بعدی را انتخاب کن.';
+  if (v.fu) {
+    if (!v.followUpAt) return v.chip === 'pick' ? pickError(v) ?? 'تاریخ و ساعت را انتخاب کن.' : 'برای «پیگیری بعدی» زمان یادآور را انتخاب کن.';
     if (Date.parse(v.followUpAt) <= Date.now()) return 'زمان یادآور باید در آینده باشد.';
   }
   return null;
@@ -29,7 +78,11 @@ function pickIso(v: CqResultValue): string {
   return jalaliToIso(p.year, p.month, p.day, Number(v.pickHour), Number(v.pickMinute)) ?? '';
 }
 
-export function CqResultFields({ value, onChange, showErrors, pre, idPrefix = 'cq', onlyTime = false }: { value: CqResultValue; onChange: (v: CqResultValue) => void; showErrors: boolean; pre?: PreCall | null; idPrefix?: string; onlyTime?: boolean }) {
+/** PM (81, Q4): «نتیجه‌ی تماس» only for the phone channel — a حضوری / بله log hides it, never sends it, and its outcome is «answered» unless «پیگیری بعدی». */
+export const cqSaveOutcome = (v: CqResultValue, nonPhone: boolean): { outcome: CqOutcome | ''; call_result?: ManualOutcome } =>
+  nonPhone ? { outcome: v.fu ? 'follow_up' : 'answered' } : { outcome: cqOutcomeFor(v.manual, v.fu), call_result: v.manual || undefined };
+
+export function CqResultFields({ value, onChange, showErrors, pre, idPrefix = 'cq', onlyTime = false, noResult = false, submitLabel }: { value: CqResultValue; onChange: (v: CqResultValue) => void; showErrors: boolean; pre?: PreCall | null; idPrefix?: string; onlyTime?: boolean; noResult?: boolean; submitLabel?: string }) {
   const set = (patch: Partial<CqResultValue>) => onChange({ ...value, ...patch });
   const now = new Date(); const tp = tehranParts(now);
   const eveningLate = tp.h * 60 + tp.mi >= 16 * 60 || tp.wd === 5;
@@ -41,28 +94,24 @@ export function CqResultFields({ value, onChange, showErrors, pre, idPrefix = 'c
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [tp.y, tp.m, tp.d, eveningLate]);
   const len = [...value.oneLine].length; const atMax = len >= CQ_ONE_LINE_MAX;
-  const err = showErrors ? cqResultError(value) : null;
-  const outcomes: { key: CqOutcome; label: string }[] = [{ key: 'answered', label: 'پاسخ داد' }, { key: 'no_answer', label: 'پاسخ نداد' }, { key: 'follow_up', label: 'پیگیری بعدی' }];
-  const [focusIdx, setFocusIdx] = useState(0);
-  const onRadioKey = (e: React.KeyboardEvent, i: number) => {
-    const dir = e.key === 'ArrowLeft' ? 1 : e.key === 'ArrowRight' ? -1 : e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0; // RTL
-    if (!dir) return; e.preventDefault(); const n = (i + dir + 3) % 3; setFocusIdx(n); set({ outcome: outcomes[n].key });
-    (document.getElementById(`${idPrefix}-out-${outcomes[n].key}`) as HTMLButtonElement | null)?.focus();
-  };
+  const err = showErrors ? cqResultError(value, !noResult) : null;
   const na = pre?.naAttemptIfNoAnswer ?? 1;
   return <div className={`cq-result${err ? ' has-err' : ''}`} data-testid="cq-result">
     {onlyTime ? null : <>{pre?.due?.length ? <div className="cq-pre-due" role="note" data-testid="cq-pre-due">
       {pre.due.length === 1 ? <>یادآور سررسیده‌ی {pre.due[0].label}{pre.due[0].subject ? ` («${pre.due[0].subject}»)` : ''} با ثبت این تماس خودکار بسته می‌شود.</>
         : <>{faNum(pre.due.length)} یادآور سررسیده ({pre.due.map((d) => d.label).join('، ')}) با ثبت این تماس خودکار بسته می‌شوند.</>}
     </div> : null}
-    <div className="field">
-      <label id={`${idPrefix}-out-label`}>نتیجه‌ی تماس <span className="req" aria-hidden="true">*</span></label>
-      <div className={`cq-outcomes${showErrors && !value.outcome ? ' bad' : ''}`} role="radiogroup" aria-labelledby={`${idPrefix}-out-label`} aria-required="true" aria-invalid={showErrors && !value.outcome}>
-        {outcomes.map((o, i) => <button key={o.key} id={`${idPrefix}-out-${o.key}`} type="button" role="radio" aria-checked={value.outcome === o.key}
-          tabIndex={value.outcome ? (value.outcome === o.key ? 0 : -1) : (i === focusIdx ? 0 : -1)} onKeyDown={(e) => onRadioKey(e, i)}
-          className={`cq-out ${value.outcome === o.key ? 'on' : ''} k-${o.key}`} onClick={() => set({ outcome: o.key })} data-testid={`cq-outcome-${o.key}`}>{o.label}</button>)}
+    {noResult ? null : <ManualOutcomeField value={value.manual} idPrefix={idPrefix} showError={showErrors} submitLabel={submitLabel}
+      onChange={(m) => set({ manual: m, outcome: cqOutcomeFor(m, value.fu) })} />}
+    {/* PM (81, Q2): «پیگیری بعدی» stays a separate step after the result. */}
+    <fieldset className="cq-fu" data-testid="cq-fu-step"><legend>پیگیری بعدی</legend>
+      <div className="cq-fu-toggle">
+        <button type="button" role="switch" aria-checked={value.fu} className={`cq-chip cfu${value.fu ? ' on' : ''}`}
+          onClick={() => set({ fu: !value.fu, outcome: cqOutcomeFor(value.manual, !value.fu) })} data-testid="cq-outcome-follow_up">
+          {value.fu ? '✓ ' : '+ '}یادآور پیگیری بعدی بگذار</button>
+        <small className="cq-hint">اختیاری؛ اگر باید دوباره زنگ بزنی، زمانش را انتخاب کن.</small>
       </div>
-    </div>
+    </fieldset>
     <div className="field">
       <label htmlFor={`${idPrefix}-one`}>یادداشت یک‌خطی <span className="req" aria-hidden="true">*</span></label>
       <input id={`${idPrefix}-one`} value={value.oneLine} maxLength={CQ_ONE_LINE_MAX} onChange={(e) => set({ oneLine: e.target.value.replace(/\n/g, ' ') })}
@@ -71,7 +120,7 @@ export function CqResultFields({ value, onChange, showErrors, pre, idPrefix = 'c
       <div id={`${idPrefix}-one-meta`} className={`cq-counter${atMax ? ' max' : ''}`} data-testid="cq-one-line-counter">
         {atMax ? 'به سقف رسیدی؛ بقیه را در «یادداشت کارشناس» بنویس · ' : ''}{faNum(len)} / {faNum(CQ_ONE_LINE_MAX)}</div>
     </div></>}
-    {value.outcome === 'follow_up' ? <div className="field" data-testid="cq-followup">
+    {value.fu ? <div className="field" data-testid="cq-followup">
       <label id={`${idPrefix}-fu-label`}>زمان یادآور <span className="req" aria-hidden="true">*</span></label>
       <div className="cq-chips" role="group" aria-labelledby={`${idPrefix}-fu-label`}>
         {chips.map((c) => <button key={c.key} type="button" className={`cq-chip${value.chip === c.key ? ' on' : ''}`} aria-pressed={value.chip === c.key} disabled={c.disabled}
@@ -89,12 +138,14 @@ export function CqResultFields({ value, onChange, showErrors, pre, idPrefix = 'c
       </div> : null}
       {value.followUpAt ? <small className="cq-hint" data-testid="cq-fu-when">یادآور: {faWhen(value.followUpAt)} (جمعه، تعطیل رسمی یا بیرون از ۹ تا ۱۸ به اولین زمان کاری بعد می‌رود)</small> : null}
     </div> : null}
-    {!onlyTime && value.outcome === 'no_answer' ? <div className="cq-na" data-testid="cq-na-box" data-attempt={na}>
+    {!onlyTime && !noResult && value.outcome === 'no_answer' ? <div className="cq-na" data-testid="cq-na-box" data-attempt={na}>
       <div className="cq-dots" aria-hidden="true">{[1, 2, 3].map((i) => <span key={i} className={i <= na ? 'on' : ''} />)}</div>
       <div><b>این تماس، تلاش بی‌پاسخ {faNum(na)} از ۳ است.</b>
-        {na < 3 ? <p>تاریخ نمی‌خواهد؛ تلاش بعدی خودکار ساخته می‌شود ({na === 1 ? '۴ ساعت بعد' : '۲۴ ساعت بعد'}، فقط ساعت کاری).</p>
+        {value.manual === 'off_or_busy' ? <p data-testid="cq-na-off">«خاموش یا اشغال» هم مثل «جواب نداد» یک تلاش بی‌پاسخ حساب می‌شود.</p> : null}
+        {value.fu ? <p data-testid="cq-na-fu">«پیگیری بعدی» تو جای تلاش خودکار بعدی را می‌گیرد؛ یادآور تکراری ساخته نمی‌شود.</p>
+          : na < 3 ? <p>تاریخ نمی‌خواهد؛ تلاش بعدی خودکار ساخته می‌شود ({na === 1 ? '۴ ساعت بعد' : '۲۴ ساعت بعد'}، فقط ساعت کاری).</p>
           : pre?.p1 ? <p data-testid="cq-na3-p1">تلاش بعدی ساخته نمی‌شود · اعلان به مدیر می‌رود. مشتری در فهرست تو می‌ماند.</p>
-          : <p data-testid="cq-na3-cold">بعد از ۳ تلاش بی‌پاسخ، بایگانی سرد پیشنهاد می‌شود. اگر هنوز می‌خواهی پیگیری کنی «پیگیری بعدی» را بزن.</p>}</div>
+          : <p data-testid="cq-na3-cold">بعد از ۳ تلاش بی‌پاسخ، بایگانی سرد پیشنهاد می‌شود. اگر هنوز می‌خواهی پیگیری کنی «یادآور پیگیری بعدی» را بزن.</p>}</div>
     </div> : null}
     {err ? <div className="cq-err" role="alert" data-testid="cq-result-error">{err}</div> : null}
   </div>;

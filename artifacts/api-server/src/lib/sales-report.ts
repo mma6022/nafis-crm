@@ -5,7 +5,7 @@ const persian = new Intl.DateTimeFormat("en-US-u-ca-persian-nu-latn", { timeZone
 export type ReportPeriod = "day" | "week" | "month" | "quarter" | "custom";
 export type ReportInput = { period?: string; anchor?: string; from?: string; to?: string; granularity?: string };
 export type CustomerRow = { id: number; phone: string; created_at: string; salesperson_id: number | null };
-export type CallRow = { customer_id: number; created_at: string; status: string | null; mobile_answered_at?: string | null };
+export type CallRow = { customer_id: number; created_at: string; status: string | null; mobile_answered_at?: string | null; manual_outcome?: string | null };
 export type ApplicationRow = { id: number; customer_id: number; created_at: string; requested_amount: string | number | null; is_pre_registration: number | null };
 export function dayNumber(value: string): number {
   // SQLite's legacy timestamps without a zone represent UTC.
@@ -83,8 +83,13 @@ function phoneKey(phone: string, id: number) {
   else if (value.length === 10 && value.startsWith("9")) value = "0" + value;
   return value || `customer:${id}`;
 }
-/** The CRM's single answered / not-answered rule (phone-system status or the mobile app's answered time); also used by the manager assistant. */
-export function callOutcome(statusRaw: string | null | undefined, mobileAnsweredAt?: string | null): "yes" | "no" | "unknown" {
+/** The CRM's single answered / not-answered rule; also used by the manager assistant.
+ *  Release 81: the expert's own «نتیجه‌ی تماس» on a manually logged call (call_logs.call_result) is read first —
+ *  answered → yes, no_answer / off_or_busy → no. Otherwise the phone-system status or the mobile app's answered time.
+ *  A bare COMPLETED status is never «yes» (it only means the call ended). */
+export function callOutcome(statusRaw: string | null | undefined, mobileAnsweredAt?: string | null, manualOutcome?: string | null): "yes" | "no" | "unknown" {
+  if (manualOutcome === "answered") return "yes";
+  if (manualOutcome === "no_answer" || manualOutcome === "off_or_busy") return "no";
   const status = (statusRaw ?? "").toUpperCase().replace(/[\s-]/g, "_");
   return mobileAnsweredAt || ["ANSWERED", "CONNECTED"].includes(status) ? "yes"
     : ["NO_ANSWER", "NOANSWER", "MISSED", "BUSY", "REJECTED", "FAILED", "CANCEL", "CANCELLED", "CANCELED"].includes(status) ? "no" : "unknown";
@@ -103,7 +108,7 @@ export function buildSalesReport(customers: CustomerRow[], calls: CallRow[], app
   for (const call of calls) {
     const lead = byId.get(call.customer_id);
     if (!lead) continue;
-    lead.calls.push({ day: dayNumber(call.created_at), outcome: callOutcome(call.status, call.mobile_answered_at) });
+    lead.calls.push({ day: dayNumber(call.created_at), outcome: callOutcome(call.status, call.mobile_answered_at, call.manual_outcome) });
   }
   for (const app of applications) byId.get(app.customer_id)?.apps.push({ ...app, day: dayNumber(app.created_at) });
   const all = [...leads.values()];

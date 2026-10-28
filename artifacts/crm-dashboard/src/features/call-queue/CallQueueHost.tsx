@@ -3,7 +3,7 @@ import { useUrgentWaiting } from '@/features/lead-intake/api';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BellRing, Phone, Send, Sparkles, X } from 'lucide-react';
-import { CqManualType, CqResultFields, cqResultError, emptyCqResult, type CqResultValue } from './ResultFields';
+import { CqManualType, cqFollowUpAt, CqResultFields, cqResultError, cqSaveOutcome, emptyCqResult, focusCallResult, type CqResultValue } from './ResultFields';
 import { cqApi, cqDial, cqLockActive, cqOn, cqSetConfigCache, cqTelClick, CQ_PENDING_EVENT, CQ_SAVED_EVENT, faClock, faNum, faWhen, useCqConfig, type AfterSave, type CqConfig, type CqPending, type CqReminder } from './api';
 import './call-queue.css';
 
@@ -85,7 +85,7 @@ export function CallQueueHost({ onModalActive, dailyPlan = false }: { onModalAct
 function SuggestCard({ a, onDone }: { a: AfterSave & { found: true }; onDone: () => void }) {
   const s = a.suggestion!; const qc = useQueryClient();
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
-  const [editing, setEditing] = useState(false); const [val, setVal] = useState<CqResultValue>({ ...emptyCqResult(), outcome: 'follow_up', oneLine: '-' });
+  const [editing, setEditing] = useState(false); const [val, setVal] = useState<CqResultValue>({ ...emptyCqResult(), outcome: 'follow_up', fu: true, oneLine: '-' });
   const go = async (fn: () => Promise<unknown>) => { setBusy(true); setErr(''); try { await fn(); void qc.invalidateQueries({ queryKey: ['call-queue'] }); onDone(); } catch (e) { setErr(e instanceof Error ? e.message : 'انجام نشد.'); } finally { setBusy(false); } };
   return <div className="cq-card cq-suggest" role="region" aria-label="پیشنهاد یادآور دستیار" data-testid="cq-suggest">
     <div className="cq-card-h"><Sparkles size={15} aria-hidden="true" /> دستیار در یادداشت «{a.customerName}» یک قول پیگیری دید</div>
@@ -193,11 +193,11 @@ function DueDialog({ r, index, total, lastToast, cfg, onSaved, onSnoozed, startI
     try { await cqApi.snooze(r.id); onSnoozed(); } catch (e) { setErr(e instanceof Error ? e.message : 'انجام نشد.'); } finally { setBusy(false); }
   };
   const save = async () => {
-    if (cqResultError(val) || (needManual && !manual)) { setShowErr(true); return; }
+    if (cqResultError(val, !needManual) || (needManual && !manual)) { setShowErr(true); if (!needManual && !val.manual) focusCallResult('cq-lk'); return; }
     setBusy(true); setErr('');
     try {
       const saved = await cqApi.createCall({ customerId: r.customerId, salespersonId: cfg.salespersonId, subject: r.subject || 'پیگیری یادآور', customerRequest: '', expertNotes: val.oneLine.trim(),
-        outcome: val.outcome, oneLineNote: val.oneLine.trim(), followUpAt: val.outcome === 'follow_up' ? val.followUpAt : undefined, ...(needManual ? { manualType: manual } : {}) });
+        ...cqSaveOutcome(val, needManual), oneLineNote: val.oneLine.trim(), followUpAt: cqFollowUpAt(val), ...(needManual ? { manualType: manual } : {}) });
       const a = await cqApi.afterSave(saved.id).catch(() => null);
       // the modal shows its own «ثبت شد» line; the host still gets the event so assistant suggestions / Bale cards appear
       window.dispatchEvent(new CustomEvent(CQ_SAVED_EVENT, { detail: { callId: saved.id, noToast: true } }));
@@ -225,10 +225,11 @@ function DueDialog({ r, index, total, lastToast, cfg, onSaved, onSnoozed, startI
         <button type="button" className="btn btn-ghost" disabled={busy} aria-disabled={r.snoozeUsed || undefined} aria-describedby="cq-busy-d" onClick={() => void snooze()} data-testid="cq-due-snooze">مشغول تماس دیگه‌ام</button>
         <small id="cq-busy-d" className="cq-hint">{r.snoozeUsed ? 'یک بار ۱۰ دقیقه عقب انداختی. برای این یادآور دوباره نمی‌شود؛ حالا فقط تماس.' : '۱۰ دقیقه · فقط یک بار برای این یادآور · در گزارش مدیر ثبت می‌شود'}</small>
       </div> : <div className="cq-lock-form" data-testid="cq-due-form">
-        <CqResultFields value={val} onChange={setVal} showErrors={showErr} pre={pre} idPrefix="cq-lk" />
+        {/* Release 81 (PM Q4): حضوری / بله → no «نتیجه‌ی تماس»; a CRM-button (phone) report needs it. */}
         {needManual ? <CqManualType value={manual} onChange={setManual} showError={showErr} idPrefix="cq-lk-mt" /> : null}
+        <CqResultFields value={val} onChange={setVal} showErrors={showErr} pre={pre} idPrefix="cq-lk" noResult={needManual} submitLabel="ثبت نتیجه" />
         {naNext ? <p className="cq-hint" data-testid="cq-due-na-next">یادآور بعدی ساخته می‌شود: {pre!.naAttemptIfNoAnswer === 1 ? '۴ ساعت بعد' : '۲۴ ساعت بعد'} (ساعت کاری)</p> : null}
-        <div className="cq-lock-actions"><button type="button" className="btn btn-primary cq-big" disabled={busy} onClick={() => void save()} data-testid="cq-due-save">{busy ? 'در حال ثبت…' : 'ثبت نتیجه'}</button>
+        <div className="cq-lock-actions"><button type="button" className="btn btn-primary cq-big" disabled={busy} onClick={() => void save()} aria-disabled={!needManual && !val.manual || undefined} data-testid="cq-due-save">{busy ? 'در حال ثبت…' : 'ثبت نتیجه'}</button>
           {r.phone ? <a className="btn btn-ghost" href={`tel:${r.phone}`} onClick={(e) => { cqTelClick(e, r.customerId, 'due', (m) => setErr(m)); }} data-testid="cq-due-recall"><Phone size={15} aria-hidden="true" /> دوباره تماس</a> : null}</div>
       </div>}
       {err ? <p className="cq-err" role="alert" data-testid="cq-due-error">{err}</p> : null}
@@ -256,11 +257,11 @@ function PendingModal({ cfg, p, onSaved }: { cfg: CqConfig; p: CqPending; onSave
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
   }, []);
   const save = async () => {
-    if (cqResultError(val)) { setShowErr(true); return; }
+    if (cqResultError(val)) { setShowErr(true); if (!val.manual) focusCallResult('cq-pd'); return; }
     setBusy(true); setErr('');
     try {
       const saved = await cqApi.createCall({ customerId: p.customerId, salespersonId: cfg.salespersonId, subject: 'تماس از دکمه‌ی CRM', customerRequest: '', expertNotes: val.oneLine.trim(),
-        outcome: val.outcome, oneLineNote: val.oneLine.trim(), followUpAt: val.outcome === 'follow_up' ? val.followUpAt : undefined });
+        ...cqSaveOutcome(val, false), oneLineNote: val.oneLine.trim(), followUpAt: cqFollowUpAt(val) });
       window.dispatchEvent(new CustomEvent(CQ_SAVED_EVENT, { detail: { callId: saved.id } }));
       void qc.invalidateQueries({ queryKey: ['call-queue'] });
       onSaved();
@@ -278,8 +279,8 @@ function PendingModal({ cfg, p, onSaved }: { cfg: CqConfig; p: CqPending; onSave
       </div>
       <p id="cq-pend-d" className={`cq-lock-desc${shake ? ' shake' : ''}`}>تا گزارش این تماس ثبت نشود، دکمه‌ی تماس بعدی باز نمی‌شود. «به‌موقع» یعنی ثبت تا {faNum(cfg.discipline?.onTimeMin ?? 10)} دقیقه بعد از برگشت به CRM (بدون برگشت: تا {faNum(cfg.discipline?.onTimeCapMin ?? 30)} دقیقه بعد از تماس).</p>
       <div className="cq-lock-form" data-testid="cq-pending-form">
-        <CqResultFields value={val} onChange={setVal} showErrors={showErr} pre={pre} idPrefix="cq-pd" />
-        <div className="cq-lock-actions"><button type="button" className="btn btn-primary cq-big" disabled={busy} onClick={() => void save()} data-testid="cq-pending-save">{busy ? 'در حال ثبت…' : 'ثبت گزارش تماس'}</button>
+        <CqResultFields value={val} onChange={setVal} showErrors={showErr} pre={pre} idPrefix="cq-pd" submitLabel="ثبت گزارش تماس" />
+        <div className="cq-lock-actions"><button type="button" className="btn btn-primary cq-big" disabled={busy} onClick={() => void save()} aria-disabled={!val.manual || undefined} data-testid="cq-pending-save">{busy ? 'در حال ثبت…' : 'ثبت گزارش تماس'}</button>
           {p.phone ? <button type="button" className="btn btn-ghost" onClick={() => void cqDial(p.customerId, 'pending').then((r) => { if (r && !r.ok) setErr(r.error); })} data-testid="cq-pending-recall"><Phone size={15} aria-hidden="true" /> دوباره تماس</button> : null}</div>
       </div>
       {err ? <p className="cq-err" role="alert" data-testid="cq-pending-error">{err}</p> : null}

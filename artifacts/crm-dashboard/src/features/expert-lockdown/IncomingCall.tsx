@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { Check, FileText, Info, Lock, PhoneIncoming, Search, UserPlus, UserRound, X } from 'lucide-react';
-import { CqResultFields, cqResultError, emptyCqResult, type CqResultValue } from '@/features/call-queue/ResultFields';
+import { cqFollowUpAt, CqResultFields, cqResultError, emptyCqResult, type CqResultValue } from '@/features/call-queue/ResultFields';
 import { announceCallSaved, faNum, useCqConfig } from '@/features/call-queue/api';
 import { dpApi } from '@/features/daily-plan/api';
 import { elApi, type ElSearch, type ElSuggest } from './api';
@@ -50,8 +50,8 @@ export function LockedInbound({ onClose, onSaved, currentNo, onBack, onNew }: { 
     if (!own) return; setShow(true); if (cqResultError(val)) { setErr(''); return; } // live error lives in CqResultFields (no stale copy)
     setBusy(true); setErr('');
     try { const one = val.oneLine.trim();
-      const r = await dpApi.saveCall({ customerId: own.id, salespersonId: cq?.salespersonId ?? undefined, subject: 'تماس ورودی', customerRequest: '', expertNotes: one, outcome: val.outcome, oneLineNote: one,
-        followUpAt: val.outcome === 'follow_up' ? val.followUpAt : undefined, outOfList: true, context: 'out_of_list' });
+      const r = await dpApi.saveCall({ customerId: own.id, salespersonId: cq?.salespersonId ?? undefined, subject: 'تماس ورودی', customerRequest: '', expertNotes: one, outcome: val.outcome, call_result: val.manual, oneLineNote: one,
+        followUpAt: cqFollowUpAt(val), outOfList: true, context: 'out_of_list' });
       announceCallSaved(r.id, own.id); setOk(`${own.name}: «خارج از لیست» ثبت شد${currentNo ? ` · برگشت به کار ${faNum(currentNo)}` : ''}`);
       setRes(null); setTerm(''); setVal(emptyCqResult()); setShow(false); onSaved();
     } catch (e) { setErr(e instanceof Error ? e.message : 'ثبت نشد.'); } finally { setBusy(false); }

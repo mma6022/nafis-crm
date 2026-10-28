@@ -14,7 +14,7 @@ import { maskCustomerName } from "./cross-owner-search";
 export const FC_FLAG_KEY = "flag.files_carousel";
 export const FC_EVENTS = { prioritySet: "files_priority_set", followup: "files_followup_logged", rejected: "daily_plan_rejected" } as const;
 export const FC_TEXT_MAX = 80, FC_NOTE_MAX = 80, FC_ROWS_MAX = 200, FC_CLOSE_MIN = 18 * 60;
-export const FC_OUTCOME_LABELS: Record<string, string> = { answered: "پاسخ داد", no_answer: "پاسخ نداد", follow_up: "پیگیری بعدی", cancelled: "لغو شده" };
+export const FC_OUTCOME_LABELS: Record<string, string> = { answered: "جواب داد", no_answer: "جواب نداد", follow_up: "پیگیری بعدی", cancelled: "لغو شده" };
 /** FILES-CANCEL (Armita crm-files-cards v1.3, scenes 10–13): a 4th result «لغو شده» with a required reason (≤120). */
 export const FC_CANCEL = "cancelled", FC_CANCEL_REASON_MAX = 120;
 export const FC_OUTCOMES: readonly string[] = [...CQ_OUTCOMES, FC_CANCEL];

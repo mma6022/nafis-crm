@@ -133,3 +133,39 @@ body.cq-lock-open #root .modal-backdrop { display: none !important; }
 .cq-receive { margin: 10px 0; padding: 10px 14px; border-radius: 12px; line-height: 1.9; font-weight: 700; }
 .cq-receive.ok { background: #ecfdf3; border: 1px solid #abefc6; color: #05603a; }
 .cq-receive.out { background: #fff4e5; border: 1px solid #f0c27b; color: #6b4200; }
+
+/* ---- Release 81: required «نتیجه‌ی تماس» (call_logs.call_result) — Armita crm-call-result v1.0 §1 (.crf/.crp/.cro) ---- */
+.crf{display:flex;flex-direction:column;gap:8px;min-width:0;container-type:inline-size;margin:0 0 12px}
+.crf .crl{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-weight:800;color:var(--nf-ink)}
+.crf .crl small{font-weight:500;font-size:13px;color:var(--nf-ink-soft)}
+.crp{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;min-width:0}
+.cro{position:relative;min-height:64px;min-width:44px;display:flex;align-items:center;justify-content:center;gap:8px;padding:8px 10px;border-radius:14px;border:2px solid var(--nf-line-strong,#C9CEDF);background:#fff;color:var(--nf-ink);font:inherit;font-weight:800;font-size:15px;line-height:1.5;cursor:pointer;text-align:center}
+.cro b{font-weight:800;min-width:0}
+.cro .cri{flex:none;width:32px;height:32px;border-radius:50%;display:grid;place-items:center}
+.cro .cri svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.cro.ok .cri{background:var(--cr-ok-50);color:var(--cr-ok)} .cro.na .cri{background:var(--cr-na-50);color:var(--cr-na)} .cro.off .cri{background:var(--cr-off-50);color:var(--cr-off)}
+.cro.ok{border-color:rgba(31,122,77,.45)} .cro.na{border-color:rgba(74,81,99,.4)} .cro.off{border-color:rgba(163,72,11,.45)}
+.cro .crk{display:none;position:absolute;top:-8px;inset-inline-start:-8px;width:24px;height:24px;border-radius:50%;background:#fff;place-items:center;box-shadow:0 0 0 2px currentColor}
+.cro .crk svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.cro[aria-checked="true"]{color:#fff;box-shadow:0 2px 8px rgba(0,0,60,.18)}
+.cro[aria-checked="true"] .cri{background:rgba(255,255,255,.18);color:#fff}
+.cro[aria-checked="true"] .crk{display:grid}
+.cro.ok[aria-checked="true"]{background:var(--cr-ok);border-color:var(--cr-ok)} .cro.ok[aria-checked="true"] .crk{color:var(--cr-ok)}
+.cro.na[aria-checked="true"]{background:var(--cr-na);border-color:var(--cr-na)} .cro.na[aria-checked="true"] .crk{color:var(--cr-na)}
+.cro.off[aria-checked="true"]{background:var(--cr-off);border-color:var(--cr-off)} .cro.off[aria-checked="true"] .crk{color:var(--cr-off)}
+.crp:has(.cro[aria-checked="true"]) .cro[aria-checked="false"]{opacity:.85}
+.cro:focus-visible{outline:3px solid var(--cr-focus);outline-offset:3px;box-shadow:none}
+.cro:hover{filter:brightness(.97)}
+.crh{margin:0;display:flex;align-items:center;gap:6px;font-size:14px;color:var(--nf-ink-soft);line-height:1.7}
+.crh svg{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.crh.bad{color:var(--nf-danger);font-weight:800}
+.crf[data-cr="answered"] .crh,.crf[data-cr="no_answer"] .crh,.crf[data-cr="off_or_busy"] .crh{color:var(--nf-ink);font-weight:600}
+.btn.dis,button.dis,.ts-primary.dis{opacity:.5;cursor:not-allowed}
+.crs{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:14px;border:1.5px solid rgba(74,81,99,.35);background:var(--cr-na-50);min-width:0;margin:0 0 12px}
+.crs>svg{width:22px;height:22px;flex:none;fill:none;stroke:var(--cr-na);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;margin-top:2px}
+.crs span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.crs small{font-size:14px;color:var(--nf-ink-soft);line-height:1.8}
+.cq-fu{border:0;margin:0 0 12px;padding:0}
+.cq-fu legend{font-weight:800;padding:0;margin-bottom:6px}
+.cq-fu-toggle{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+@container (max-width:440px){ .crp{gap:6px} .cro{flex-direction:column;gap:4px;min-height:80px;padding:8px 4px;font-size:14px} }

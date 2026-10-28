@@ -22,7 +22,7 @@ import { VoiceNoteButton } from '@/features/voice-notes/VoiceNoteButton';
 import { saveQuickCreditNationalCode, useConsultProfile, type Military } from '@/features/team-sales/api';
 import { Choice, faDigits, formatToman, TomanInput, WizardProgress } from '@/components/plans-consult/parts';
 import { cqApi, cqLockActive, cqOn, useCqConfig } from '@/features/call-queue/api';
-import { CqManualType, CqResultFields, cqResultError, emptyCqResult } from '@/features/call-queue/ResultFields';
+import { CqManualType, cqFollowUpAt, CqResultFields, cqResultError, cqSaveOutcome, emptyCqResult, focusCallResult, ManualOutcomeField, type ManualOutcome } from '@/features/call-queue/ResultFields';
 
 type CallFormProps = {
   customers: { id: number; name: string; phone: string; salespersonName?: string | null; priority?: number | null; status?: string; nationalCode?: string | null; postalCode?: string | null; birthDateJalali?: string | null; verificationStatus?: string; isUrgent?: boolean }[];
@@ -88,6 +88,11 @@ export function CallForm({ customers, salespersons, pending, error, errorDetail,
   const cqPend = useQuery({ queryKey: ['call-queue', 'pending'], queryFn: cqApi.pending, enabled: cqLock, retry: false }).data;
   const cqNeedManual = cqLock && cqPend?.pending?.customerId !== (Number(form.customerId) || 0);
   const [cqManual, setCqManual] = useState('');
+  // Release 81: «نتیجه‌ی تماس» is required on every manual call log (inside CqResultFields when flag.result is on).
+  const [mo, setMo] = useState<ManualOutcome | ''>('');
+  const [moErr, setMoErr] = useState(false);
+  /** spec §1: «ثبت تماس» stays focusable but aria-disabled until a phone log has its «نتیجه‌ی تماس». */
+  const crMissing = cqResultOn ? !cqNeedManual && !cqVal.manual : !mo;
   const selectCustomer = (customer: CallCustomer) => {
     setPickedCustomer(customer);
     setCustomerSelectionError(false);
@@ -152,9 +157,11 @@ export function CallForm({ customers, salespersons, pending, error, errorDetail,
     if (!form.customerId) { setCustomerSelectionError(true); return null; }
     if (cqResultOn) {
       // With «نتیجه‌ی تماس» on, the one-line note is the required part and «یادداشت کارشناس» becomes optional.
-      if (cqResultError(cqVal) || (cqNeedManual && !cqManual)) { setCqShowErr(true); (document.querySelector('[data-testid="cq-result"] [aria-invalid="true"], [data-testid="cq-result"] .cq-chip:not(:disabled)') as HTMLElement | null)?.focus(); return null; }
+      if (cqResultError(cqVal, !cqNeedManual) || (cqNeedManual && !cqManual)) { setCqShowErr(true); if (!cqNeedManual && !cqVal.manual) { focusCallResult('cq'); return null; } (document.querySelector('[data-testid="cq-result"] [aria-invalid="true"], [data-testid="cq-result"] .cq-chip:not(:disabled)') as HTMLElement | null)?.focus(); return null; }
       setCqShowErr(false);
     } else {
+    if (!mo) { setMoErr(true); focusCallResult('call'); return null; }
+    setMoErr(false);
     // crm-call-note-min: «یادداشت کارشناس» trimmed must be >= 10 characters.
     if (!callNoteOk(form.expertNotes)) { setNoteError(true); document.getElementById('call-notes')?.focus(); return null; }
     }
@@ -182,8 +189,9 @@ export function CallForm({ customers, salespersons, pending, error, errorDetail,
         postalCode: form.postalCode.trim() || null,
         birthDateJalali: form.birthDateJalali.trim() || null,
       },
-      ...(cqResultOn ? { outcome: cqVal.outcome, oneLineNote: cqVal.oneLine.trim(), followUpAt: cqVal.outcome === 'follow_up' ? cqVal.followUpAt : undefined } : {}),
+      ...(cqResultOn ? { ...cqSaveOutcome(cqVal, cqNeedManual), oneLineNote: cqVal.oneLine.trim(), followUpAt: cqFollowUpAt(cqVal) } : {}),
       ...(cqNeedManual ? { manualType: cqManual } : {}),
+      ...(cqResultOn ? {} : { call_result: mo }),
     } as CallInput;
   };
   const submit = (event: FormEvent) => {
@@ -300,8 +308,10 @@ export function CallForm({ customers, salespersons, pending, error, errorDetail,
                 <label htmlFor="call-request">درخواست مشتری</label>
                 <VoiceNoteButton value={form.customerRequest} onChange={(v) => update('customerRequest', v)} field="call_note" testId="call-request-voice"><textarea id="call-request" value={form.customerRequest} onChange={(event) => update('customerRequest', event.target.value)} data-testid="textarea-call-request" /></VoiceNoteButton>
               </div>
-              {cqResultOn ? <CqResultFields value={cqVal} onChange={setCqVal} showErrors={cqShowErr} pre={cqPre} /> : cqPre?.due?.length ? <CqResultFields.PreOnly pre={cqPre} /> : null}
+              {/* Release 81: «نتیجه‌ی تماس» (phone only; a حضوری / بله log under the R2 lock hides it — PM Q4). */}
+              {cqResultOn ? null : <ManualOutcomeField value={mo} onChange={(v) => { setMo(v); setMoErr(false); }} showError={moErr} idPrefix="call" submitLabel="ثبت تماس" />}
               {cqNeedManual ? <CqManualType value={cqManual} onChange={setCqManual} showError={cqShowErr} idPrefix="call-mt" /> : null}
+              {cqResultOn ? <CqResultFields value={cqVal} onChange={setCqVal} showErrors={cqShowErr} pre={cqPre} noResult={cqNeedManual} submitLabel="ثبت تماس" /> : cqPre?.due?.length ? <CqResultFields.PreOnly pre={cqPre} /> : null}
               <div className="field call-grow call-grow-lg">
                 <label htmlFor="call-notes">یادداشت کارشناس {cqResultOn ? <span className="cq-opt">(اختیاری)</span> : <span className="req" aria-hidden="true">*</span>}</label>
                 <VoiceNoteButton value={form.expertNotes} onChange={(v) => update('expertNotes', v)} field="call_note" testId="call-notes-voice"><textarea id="call-notes" value={form.expertNotes} onChange={(event) => update('expertNotes', event.target.value)} aria-invalid={!cqResultOn && noteError && !callNoteOk(form.expertNotes)} aria-describedby="call-notes-meta" aria-required={!cqResultOn} data-testid="textarea-call-notes" /></VoiceNoteButton>
@@ -311,7 +321,7 @@ export function CallForm({ customers, salespersons, pending, error, errorDetail,
 
             <div className="form-footer call-form-footer">
               <div className="form-footer-actions">
-                <button className="btn btn-primary" type="submit" disabled={pending || !!pickCheck} data-testid="button-save-call">
+                <button className={`btn btn-primary${crMissing ? ' dis' : ''}`} type="submit" disabled={pending || !!pickCheck} aria-disabled={crMissing || undefined} data-testid="button-save-call">
                   <PhoneCall size={15} />{pending ? 'در حال ثبت...' : 'ثبت تماس'}
                 </button>
                 <button className="btn btn-ghost" type="button" onClick={onClose} data-testid="button-cancel-call">انصراف</button>

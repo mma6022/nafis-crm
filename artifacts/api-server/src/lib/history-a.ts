@@ -125,7 +125,7 @@ export function assertP1RevertAllowed(customerId: number, newPriority: number | 
 
 /* ---------------- history summary ---------------- */
 const OUT: Record<string, [string, string]> = {
-  answered: ["پاسخ داد", "ok"], connected: ["پاسخ داد", "ok"], no_answer: ["پاسخ نداد", "na"], follow_up: ["پیگیری بعدی", "fc"],
+  answered: ["جواب داد", "ok"], connected: ["جواب داد", "ok"], no_answer: ["جواب نداد", "na"], follow_up: ["پیگیری بعدی", "fc"],
   callback: ["تماس بعدی", "fc"], not_interested: ["تمایل ندارد", "td"], wrong_number: ["شماره اشتباه", "td"], rejected: ["انصراف", "td"],
 };
 const STATUS_FA: Record<string, string> = { in_progress: "در حال پیگیری", cancelled: "انصرافی", completed: "تکمیل‌شده" };
@@ -134,7 +134,7 @@ const one = (s: string | null | undefined, n = 160) => { const t = String(s ?? "
 function callTag(outcome: string | null, subject: string | null): [string, string] {
   if (outcome && OUT[outcome]) return OUT[outcome];
   const s = String(subject ?? "").trim();
-  if (s.startsWith("تماس اولیه")) return s.includes("بی‌پاسخ") || s.includes("بی\u200cپاسخ") ? ["پاسخ نداد", "na"] : ["تماس اول", "fc"];
+  if (s.startsWith("تماس اولیه")) return s.includes("بی‌پاسخ") || s.includes("بی\u200cپاسخ") ? ["جواب نداد", "na"] : ["تماس اول", "fc"];
   return [s ? one(s, 24) : "تماس", ""];
 }
 

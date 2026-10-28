@@ -33,6 +33,14 @@
   --nf-danger-50: #fdeef0;
   --nf-success: #157a55;
   --nf-success-50: #e8f6ef;
+  /* Release 81 crm-call-result v1.0.1: the --nf-call-* tokens live in theme/tokens.css; --cr-* are aliases only (HANDOFF §6). */
+  --cr-ok: var(--nf-call-ok);
+  --cr-ok-50: var(--nf-call-ok-50);
+  --cr-na: var(--nf-call-na);
+  --cr-na-50: var(--nf-call-na-50);
+  --cr-off: var(--nf-call-off);
+  --cr-off-50: var(--nf-call-off-50);
+  --cr-focus: var(--nf-call-focus);
   /* Shape & depth */
   --nf-radius-sm: 10px;
   --nf-radius: 12px;

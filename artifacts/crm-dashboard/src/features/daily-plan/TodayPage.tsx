@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { Check, ChevronDown, Clock, FileText, Lock, Phone, PhoneIncoming, Search, X } from 'lucide-react';
-import { CqResultFields, cqResultError, emptyCqResult, type CqResultValue } from '@/features/call-queue/ResultFields';
+import { cqFollowUpAt, CqResultFields, cqResultError, emptyCqResult, focusCallResult, type CqResultValue } from '@/features/call-queue/ResultFields';
 import { announceCallSaved, faClock, faNum, tehranParts, useCqConfig } from '@/features/call-queue/api';
 import { custList, dpApi, DpError, useDpConfig, type DpItem, type DpToday } from './api';
 import './daily-plan.css';
@@ -137,12 +137,12 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
     catch (e) { setErr(e instanceof Error ? e.message : 'تماس باز نشد.'); } finally { setBusy(false); }
   };
   const save = async () => {
-    setShow(true); if (cqResultError(val)) { setErr(''); return; } // live error lives in CqResultFields (no stale copy)
+    setShow(true); if (cqResultError(val)) { setErr(''); if (!val.manual) focusCallResult('dp'); return; } // live error lives in CqResultFields (no stale copy)
     setBusy(true); setErr('');
     try {
       const one = val.oneLine.trim();
       const r = await dpApi.saveCall({ customerId: cur.customerId, salespersonId: cq?.salespersonId ?? undefined, subject: 'کارهای امروز', customerRequest: '', expertNotes: one,
-        outcome: val.outcome, oneLineNote: one, followUpAt: val.outcome === 'follow_up' ? val.followUpAt : undefined, planItemId: cur.id });
+        outcome: val.outcome, call_result: val.manual, oneLineNote: one, followUpAt: cqFollowUpAt(val), planItemId: cur.id });
       announceCallSaved(r.id, cur.customerId); onSaved?.(cur); onDone();
     } catch (e) { setErr(e instanceof Error ? e.message : 'ثبت نشد.'); } finally { setBusy(false); }
   };
@@ -181,8 +181,8 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
         : <p className="dp-hint" role="status" data-testid="dp-first-wait">در حال آماده‌سازی فرم تماس…</p>}
       <p className="dp-hint"><Lock size={13} aria-hidden="true" /> تماس اول با «فرم تماس اول» ثبت می‌شود (اطلاعات اولیه‌ی مشتری). بعد از ثبت، کار بعدی باز می‌شود.</p>
     </div> : opened ? <div className="dp-result" data-testid="dp-result">
-      <CqResultFields value={val} onChange={setVal} showErrors={show} idPrefix="dp" />
-      <button type="button" className="btn btn-primary dp-save" disabled={busy} onClick={() => void save()} data-testid="dp-save">{saveLabel ?? <>ثبت نتیجه و رفتن به کار {faNum(nextNo)}</>}</button>
+      <CqResultFields value={val} onChange={setVal} showErrors={show} idPrefix="dp" submitLabel="ثبت نتیجه" />
+      <button type="button" className={`btn btn-primary dp-save${val.manual ? '' : ' dis'}`} disabled={busy} aria-disabled={!val.manual || undefined} onClick={() => void save()} data-testid="dp-save">{saveLabel ?? <>ثبت نتیجه و رفتن به کار {faNum(nextNo)}</>}</button>
     </div> : <p className="dp-hint"><Lock size={13} aria-hidden="true" /> {firstForm ? 'بعد از زدن «تماس»، «فرم تماس اول» باز می‌شود. کار بعدی تا ثبت آن قفل است.' : 'بعد از زدن «تماس»، فرم «نتیجه‌ی تماس» همین‌جا باز می‌شود. کار بعدی تا ثبت نتیجه و یادداشت قفل است.'}</p>}
     <CallLaunchStatus status={launcher.status} onRetry={launcher.retry} onCancel={launcher.cancel} />
     {err ? <p className="dp-err" role="alert" data-testid="dp-err">{err}</p> : null}
@@ -249,8 +249,8 @@ function Inbound({ onClose, onSaved }: { onClose: () => void; onSaved: () => voi
     if (!pick) return; setShow(true); if (cqResultError(val)) { setErr(''); return; } // live error lives in CqResultFields (no stale copy)
     setBusy(true); setErr('');
     try { const one = val.oneLine.trim();
-      const r = await dpApi.saveCall({ customerId: pick.id, salespersonId: cq?.salespersonId ?? undefined, subject: 'تماس ورودی', customerRequest: '', expertNotes: one, outcome: val.outcome, oneLineNote: one,
-        followUpAt: val.outcome === 'follow_up' ? val.followUpAt : undefined, outOfList: true, context: 'out_of_list' });
+      const r = await dpApi.saveCall({ customerId: pick.id, salespersonId: cq?.salespersonId ?? undefined, subject: 'تماس ورودی', customerRequest: '', expertNotes: one, outcome: val.outcome, call_result: val.manual, oneLineNote: one,
+        followUpAt: cqFollowUpAt(val), outOfList: true, context: 'out_of_list' });
       announceCallSaved(r.id, pick.id); setOk(`برای ${pick.name} با برچسب «خارج از لیست» ثبت شد.`); setPick(null); setVal(emptyCqResult()); setShow(false); onSaved();
     } catch (e) { setErr(e instanceof Error ? e.message : 'ثبت نشد.'); } finally { setBusy(false); }
   };
@@ -263,7 +263,7 @@ function Inbound({ onClose, onSaved }: { onClose: () => void; onSaved: () => voi
     {rows && !pick ? rows.length ? <ul className="dp-in-list">{rows.slice(0, 10).map((c) => <li key={c.id}><button type="button" onClick={() => { setPick(c); setOk(''); }} data-testid={`dp-in-pick-${c.id}`}>
       <b>{c.name}</b> <span className="dp-id">#{faNum(c.id)}</span></button></li>)}</ul> : <p className="dp-hint">مشتری‌ای پیدا نشد.</p> : null}
     {pick ? <div className="dp-result" data-testid="dp-in-form"><p><b>{pick.name}</b> <span className="dp-id">#{faNum(pick.id)}</span> <span className="dp-chip l-out_of_list">خارج از لیست</span> · <Link href={`/customers/${pick.id}`}>پرونده</Link></p>
-      <CqResultFields value={val} onChange={setVal} showErrors={show} idPrefix="dp-in" />
+      <CqResultFields value={val} onChange={setVal} showErrors={show} idPrefix="dp-in" submitLabel="ثبت" />
       <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void save()} data-testid="dp-in-save">ثبت تماس ورودی</button></div> : null}
     {err ? <p className="dp-err" role="alert" data-testid="dp-in-err">{err}</p> : null}
   </section>;
