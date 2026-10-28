@@ -156,17 +156,19 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const cqRestricted = Boolean(cqCfg?.restriction?.restricted);
   const cqAllowed = (loc: string) => loc === '/my-queue' || loc === '/today' || loc.startsWith('/reminders') || loc === '/profile'
     || (/^\/customers\/(\d+)/.test(loc) && (cqCfg?.restriction?.customerIds ?? []).includes(Number(loc.split('/')[2])));
+  // HISTORY-A «دیدن پرونده»: inside the side-panel iframe (?panel=1) the shell shows only the page — no nav, polls, popups, chat or queue.
+  const [panelMode] = useState(() => typeof window !== 'undefined' && window.self !== window.top && new URLSearchParams(window.location.search).get('panel') === '1');
   const dueParams = { done: false, due: true };
   const dueReminders = useListReminders(dueParams, {
     query: {
       queryKey: getListRemindersQueryKey(dueParams),
-      enabled: Boolean(user?.role === 'admin' || user?.permissions?.includes('reminders.manage')) && !elLocked && !elPending,
+      enabled: Boolean(user?.role === 'admin' || user?.permissions?.includes('reminders.manage')) && !elLocked && !elPending && !panelMode,
       refetchInterval: 15_000,
       refetchOnWindowFocus: true,
     },
   });
   const acknowledgeReminder = useAcknowledgeReminder();
-  const canChat = Boolean(user && (user.role === 'admin' || user.permissions?.includes('customers.view'))) && !elLocked && !elPending;
+  const canChat = Boolean(user && (user.role === 'admin' || user.permissions?.includes('customers.view'))) && !elLocked && !elPending && !panelMode;
   const canTeam = Boolean(user && (user.role === 'admin' || user.permissions?.includes('internal_chat.use')));
   const team = useTeamInbox(canTeam);
   usePresence(staffChatPresence, canChat);
@@ -186,7 +188,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     const next = dueReminders.data?.[0];
     // crm-call-queue: the blocking modal (flag.modal) replaces this popup; it neither shows nor acknowledges while active.
-    if (!next || dueReminder || cqModalActive) return;
+    if (!next || dueReminder || cqModalActive || panelMode) return;
     setDueReminder(next);
     acknowledgeReminder.mutate(
       { id: next.id },
@@ -401,6 +403,15 @@ export function CrmShell({ children }: { children: ReactNode }) {
     );
   });
 
+  if (panelMode) return (
+    <DiagnosticsProvider actorId={user?.id ?? 'anon'} isAdmin={user?.role === 'admin'}>
+    <NotificationProvider user={user}>
+    <main className="app-main hx-panel-main" data-testid="hx-panel-main">
+      <DiagnosticPageBoundary key={location}>{elPending ? <div className="el-page" role="status" aria-busy="true" data-testid="el-pending" /> : elLocked && !elPageAllowed(elMe, location) ? <LockdownNotice /> : cqRestricted && !cqAllowed(location) ? <div className="cq-page" data-testid="cq-restricted-guard"><div className="cq-restricted" role="alert"><b>پنل محدود شد</b> · تا وقتی یادآورهای عقب‌افتاده کم نشود این پرونده باز نمی‌شود.</div></div> : children}</DiagnosticPageBoundary>
+    </main>
+    </NotificationProvider>
+    </DiagnosticsProvider>
+  );
   return (
     <DiagnosticsProvider actorId={user?.id ?? 'anon'} isAdmin={user?.role === 'admin'}>
     <NotificationProvider user={user}>

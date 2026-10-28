@@ -15,7 +15,7 @@ import { NONP1_TRANSFER_HEADER } from "../lib/nonp1-transfer";
 import { addWorkingHours, type QualifierAnswers } from "../lib/team-sales-rules";
 import { ConsultProfileError, canActOnCustomerProfile, consultProfile, editConsultProfile } from "../lib/consult-profile";
 import { isAdminRole } from "../lib/customer-integrity";
-import { expertUpgrade, selfNextCloser, up73Text } from "../lib/upgrade-73";
+import { HX_REASON_MAX, expertUpgrade, expertUpgradesReport, historySummary, hxCanSee, hxExpert, selfNextCloser, upgradeReasonOf } from "../lib/history-a";
 import { TransferCheckError, cqLogRefusedTransfer, cqTransferPreview, withTransferOverride } from "../lib/call-queue-r3";
 
 const router: IRouter = Router();
@@ -80,15 +80,19 @@ router.get("/sales/next-closer", requirePermission("customers.view"), (_req, res
   res.json({ ...next, dueAt: due.toISOString(), dueLabel: formatDue(due, now), workingHours: cfg.closerFirstCallWorkingHours, ...(transferCheck ? { transferCheck } : {}) });
 });
 
-function upgrade(req: { params: { id?: string }; body?: { note?: unknown; reason?: unknown; transferOverrideReason?: unknown }; log?: { error: (o: unknown, m?: string) => void } }, res: Response): void {
+function upgrade(req: { params: { id?: string }; body?: { note?: unknown; reason?: unknown; level?: unknown; transferOverrideReason?: unknown }; log?: { error: (o: unknown, m?: string) => void } }, res: Response): void {
   const id = customerId(req.params.id);
   if (!id) { res.status(400).json({ error: "Invalid customer id" }); return; }
-  const { reason, note } = up73Text(req.body); // HOTFIX-73: both optional (reason ≤80)
+  if (req.body?.level != null && Number(req.body.level) !== 1) { res.status(400).json({ error: "فقط ارتقا به اولویت ۱ پشتیبانی می‌شود." }); return; }
+  const actor = actorOf(res);
+  // HISTORY-A: short reason (≤80) is mandatory for everybody but an admin; recorded in the timeline + customer_priority_history.
+  const r = upgradeReasonOf(req.body, actor);
+  if ("error" in r) { res.status(400).json({ error: r.error, reasonMax: HX_REASON_MAX }); return; }
   try {
-    res.json(withTransferOverride((req.body as { transferOverrideReason?: unknown } | undefined)?.transferOverrideReason, () => expertUpgrade(id, actorOf(res), reason, note)));
+    res.json(withTransferOverride((req.body as { transferOverrideReason?: unknown } | undefined)?.transferOverrideReason, () => expertUpgrade(id, actor, r.reason, r.note)));
   } catch (e) {
     try { fail(res, e); } catch (err) {
-      // HOTFIX-73: an unexpected error used to fall through to the HTML 500 page (no log line, generic text in the dialog).
+      // HOTFIX-73: unexpected errors are logged and answered with JSON (never the HTML 500 page).
       req.log?.error({ err, customerId: id }, "upgrade-priority failed");
       if (!res.headersSent) res.status(500).json({ error: "خطای داخلی سرور؛ ارتقا ثبت نشد." });
     }
@@ -96,6 +100,29 @@ function upgrade(req: { params: { id?: string }; body?: { note?: unknown; reason
 }
 router.post("/customers/:id/upgrade-priority", requirePermission("customers.update"), (req, res): void => upgrade(req, res));
 router.post("/customers/:id/team-sales/promote", requirePermission("customers.update"), (req, res): void => upgrade(req, res));
+/** HISTORY-A (Armita «فاز ۲»): POST …/priority { level:1, reason } — same rules as upgrade-priority. */
+router.post("/customers/:id/priority", requirePermission("customers.update"), (req, res): void => upgrade(req, res));
+
+/** HISTORY-A: «.hx» history box data for one customer (own customers for the experts; getCustomer scopes everyone else). */
+router.get("/customers/:id/history-summary", requirePermission("customers.view"), (req, res): void => {
+  const id = customerId(req.params.id);
+  const u = res.locals.authUser as AuthUser;
+  if (!id || !getCustomer(id, u)) { res.status(404).json({ error: "Customer not found" }); return; }
+  const actor = actorOf(res);
+  if (!hxCanSee(actor)) { res.status(403).json({ error: "history_a_scope" }); return; }
+  if (hxExpert(actor) && !queryRow("SELECT 1 FROM customers WHERE id=? AND salesperson_id=?", [id, actor.salespersonId])) {
+    res.status(403).json({ error: "expert_lockdown_customer" }); return;
+  }
+  const out = historySummary(id, actor);
+  if (!out) { res.status(404).json({ error: "Customer not found" }); return; }
+  res.json(out);
+});
+
+/** HISTORY-A: manager report of P1 upgrades (expert + hand-off), admin only, read-only. */
+router.get("/team-sales/upgrades", requirePermission("customers.view"), (req, res): void => {
+  if (!isAdminRole((res.locals.authUser as AuthUser).role)) { res.status(403).json({ error: "Forbidden" }); return; }
+  res.json(expertUpgradesReport(Number(req.query.limit) || 200));
+});
 
 router.post("/customers/:id/team-sales/qualify/preview", requirePermission("customers.update"), (req, res): void => {
   const id = customerId(req.params.id);
