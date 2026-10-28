@@ -17,7 +17,11 @@ import { realCallSql } from "./real-call";
 
 export const HX_REASON_MAX = 80;
 export const HX_SOURCE = "expert_upgrade" as const;
-export const HX_REVERT_MSG = "فقط مدیر می‌تواند اولویت ۱ ثبت‌شده توسط کارشناس را برگرداند.";
+export const HX_REVERT_MSG = "برگرداندن فقط با ادمین: فقط مدیر می‌تواند اولویت ۱ ارتقایافته را برگرداند یا کم کند.";
+/** Armita v1.1 (scenes 03–07): the line shown in the confirm dialog and on the P1 label. */
+export const HX_ADMIN_LINE = "برگرداندن فقط با ادمین";
+/** P1 sources that count as «ارتقا به اولویت یک» (expert direct upgrade + the qualifier hand-off / resend). */
+export const HX_UPGRADE_SOURCES = [HX_SOURCE, "promote"] as const;
 
 const isAdmin = (a: { id: number; role: string }) => a.role === "admin";
 /** One of the three locked experts (users 8/2/3 with their own salesperson). */
@@ -70,7 +74,7 @@ export function closerSelfUpgrade(customerId: number, actor: Actor, reason: stri
     // PromoteResult-compatible (HOTFIX-73 UI): closer = self, no due time.
     return { customerId: c.id, priority: 1, kept: true, salespersonId: c.salesperson_id, salespersonName: actorName, callLogId,
       closerSalespersonId: Number(c.salesperson_id), closerName: actorName, dueAt: null, dueLabel: null, reminderId: null, notificationId: null,
-      assignment: "self" as const, assignmentLabel: "نزد خودت می‌ماند", message: "ارتقا یافت · اولویت ۱ (نزد خودت می‌ماند)" };
+      assignment: "self" as const, assignmentLabel: "نزد خودت می‌ماند", message: "ارتقا یافت · اولویت ۱ (نزد خودت می‌ماند)", adminLine: HX_ADMIN_LINE };
   });
 }
 
@@ -84,7 +88,7 @@ export function expertUpgrade(customerId: number, actor: Actor, reason: string |
   // Admin / qualifier: the existing hand-off, reason kept in its timeline note and history row.
   const merged = [reason ? `دلیل: ${reason}` : null, note].filter(Boolean).join(" — ") || null;
   const r = promoteToPriorityOne(customerId, actor, merged);
-  return { ...r, priority: 1, kept: false };
+  return { ...r, priority: 1, kept: false, adminLine: HX_ADMIN_LINE };
 }
 
 /** next-closer for a closer: the answer is «yourself» (no hand-off). Null when the actor is not a closer of the three. */
@@ -114,7 +118,8 @@ export function assertP1RevertAllowed(customerId: number, newPriority: number | 
   if (actor && (isAdmin(actor) || EL_ADMIN_USER_IDS.includes(Number(actor.id)))) return;
   const cur = queryRow<{ priority: number | null }>("SELECT priority FROM customers WHERE id=?", [customerId]);
   if (!cur || cur.priority !== 1) return;
-  if (lastP1Source(customerId) === HX_SOURCE) throw new TeamSalesError(403, HX_REVERT_MSG);
+  const src = lastP1Source(customerId);
+  if (src && (HX_UPGRADE_SOURCES as readonly string[]).includes(src)) throw new TeamSalesError(403, HX_REVERT_MSG);
 }
 
 /* ---------------- history summary ---------------- */
@@ -181,6 +186,7 @@ export function historySummary(customerId: number, actor: Actor) {
     consultations: cons?.n ? { count: Number(cons.n), lastAt: cons.last, note: one(consLast?.extra_notes || consLast?.loan_purpose || "", 120) || null } : null,
     ask: ask.slice(0, 3),
     isP1: c.priority === 1, upgradedByExpert: p1Src === HX_SOURCE,
+    revertAdminOnly: c.priority === 1 && p1Src != null && (HX_UPGRADE_SOURCES as readonly string[]).includes(p1Src), adminLine: HX_ADMIN_LINE, reasonMax: HX_REASON_MAX,
     canUpgrade: own && c.status === "in_progress" && c.priority !== 1 && getTeamSalesConfig().enabled
       && (isAdmin(actor) || hxCloser(actor) || Number(actor.salespersonId) === getTeamSalesConfig().qualifierSalespersonId),
     handoff: c.priority !== 1 && !isAdmin(actor) && Number(actor.salespersonId) === getTeamSalesConfig().qualifierSalespersonId,
@@ -194,4 +200,47 @@ export function expertUpgradesReport(limit = 200) {
       u.full_name actorName, h.actor_user_id actorUserId, h.source
     FROM customer_priority_history h JOIN customers c ON c.id=h.customer_id LEFT JOIN users u ON u.id=h.actor_user_id
     WHERE h.source IN ('expert_upgrade','promote') ORDER BY h.id DESC LIMIT ?`, [Math.min(500, Math.max(1, limit))]);
+}
+
+/* ---------------- HISTORY-A v1.2 backend prep: file card + full call history (read-only) ---------------- */
+const maskPhone = (p: string | null | undefined) => {
+  const d = String(p ?? "").replace(/[^0-9]/g, "");
+  return d.length >= 8 ? `${d.slice(0, 4)}***${d.slice(-4)}` : null;
+};
+/** Read-only «پرونده» data for the Today card's file column. No national code / address / documents. */
+export function fileCard(customerId: number, actor: Actor) {
+  const c = queryRow<any>(`SELECT id,name,phone,priority,status,city,lead_source,created_at,is_urgent,merged_into_customer_id,salesperson_id FROM customers WHERE id=?`, [customerId]);
+  if (!c || c.merged_into_customer_id != null) return null;
+  const la = queryRow<any>(`SELECT id, stage, status, requested_amount, approved_amount, duration_months, created_at, updated_at FROM loan_applications
+    WHERE customer_id=? AND deleted_at IS NULL ORDER BY id DESC LIMIT 1`, [c.id]);
+  const cons = queryRow<any>(`SELECT id, requested_amount, requested_amount_toman, loan_purpose, need_days, has_check, has_guarantor, job_type, extra_notes, COALESCE(updated_at,created_at) at
+    FROM consultation_forms WHERE customer_id=? ORDER BY id DESC LIMIT 1`, [c.id]);
+  const remindersOpen = queryRows<any>(`SELECT id, subject, message, remind_at FROM reminders WHERE customer_id=? AND user_id=? AND COALESCE(done,0)=0 AND voided_at IS NULL
+    AND closed_at IS NULL ORDER BY remind_at, id LIMIT 5`, [c.id, actor.id]).map((r) => ({ id: r.id, text: one(r.subject || r.message, 80), at: r.remind_at }));
+  const fs = fileStatus(c);
+  const p1Src = c.priority === 1 ? lastP1Source(c.id) : null;
+  return {
+    customerId: c.id, name: c.name, phoneMasked: maskPhone(c.phone), priority: c.priority, status: c.status, statusLabel: STATUS_FA[c.status] ?? c.status,
+    city: c.city ?? null, leadSource: c.lead_source ?? null, createdAt: c.created_at, urgent: Number(c.is_urgent) === 1,
+    fileStatus: fs.label, fileTone: fs.tone,
+    loanApplication: la ? { id: la.id, stage: la.stage, status: la.status, requestedAmount: la.requested_amount ?? null, approvedAmount: la.approved_amount ?? null,
+      durationMonths: la.duration_months ?? null, createdAt: la.created_at, updatedAt: la.updated_at ?? null } : null,
+    consultation: cons ? { id: cons.id, requestedAmount: cons.requested_amount_toman ?? cons.requested_amount ?? null, purpose: cons.loan_purpose ?? null, needDays: cons.need_days ?? null,
+      hasCheck: cons.has_check == null ? null : Boolean(cons.has_check), hasGuarantor: cons.has_guarantor == null ? null : Boolean(cons.has_guarantor),
+      jobType: cons.job_type ?? null, note: one(cons.extra_notes, 160) || null, at: cons.at } : null,
+    openReminders: remindersOpen,
+    isP1: c.priority === 1, revertAdminOnly: c.priority === 1 && p1Src != null && (HX_UPGRADE_SOURCES as readonly string[]).includes(p1Src), adminLine: HX_ADMIN_LINE,
+  };
+}
+/** Real calls of one customer, newest first, keyset-paged by id (`before`). daily_plan mirrors and upgrade rows are excluded (realCallSql). */
+export function callHistory(customerId: number, limit = 20, before: number | null = null) {
+  const real = realCallSql("l.subject");
+  const lim = Math.min(50, Math.max(1, Math.floor(limit) || 20));
+  const rows = queryRows<any>(`SELECT l.id, l.created_at, l.outcome, l.subject, l.one_line_note, l.expert_notes, l.customer_request, l.salesperson_name_snapshot
+    FROM call_logs l WHERE l.customer_id=? AND ${real} AND COALESCE(l.source,'')<>'daily_plan' ${before ? "AND l.id<?" : ""}
+    ORDER BY l.id DESC LIMIT ?`, before ? [customerId, before, lim + 1] : [customerId, lim + 1]);
+  const items = rows.slice(0, lim).map((r) => { const [label, tone] = callTag(r.outcome, r.subject);
+    return { id: r.id, at: r.created_at, result: label, tone, note: one(r.one_line_note || r.expert_notes || r.customer_request || "", 400) || null,
+      by: r.salesperson_name_snapshot ? shortName(String(r.salesperson_name_snapshot)) : null }; });
+  return { customerId, items, nextBefore: rows.length > lim ? items[items.length - 1].id : null };
 }

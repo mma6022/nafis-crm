@@ -15,7 +15,7 @@ import { NONP1_TRANSFER_HEADER } from "../lib/nonp1-transfer";
 import { addWorkingHours, type QualifierAnswers } from "../lib/team-sales-rules";
 import { ConsultProfileError, canActOnCustomerProfile, consultProfile, editConsultProfile } from "../lib/consult-profile";
 import { isAdminRole } from "../lib/customer-integrity";
-import { HX_REASON_MAX, expertUpgrade, expertUpgradesReport, historySummary, hxCanSee, hxExpert, selfNextCloser, upgradeReasonOf } from "../lib/history-a";
+import { HX_REASON_MAX, callHistory, fileCard, expertUpgrade, expertUpgradesReport, historySummary, hxCanSee, hxExpert, selfNextCloser, upgradeReasonOf } from "../lib/history-a";
 import { TransferCheckError, cqLogRefusedTransfer, cqTransferPreview, withTransferOverride } from "../lib/call-queue-r3";
 
 const router: IRouter = Router();
@@ -103,16 +103,36 @@ router.post("/customers/:id/team-sales/promote", requirePermission("customers.up
 /** HISTORY-A (Armita «فاز ۲»): POST …/priority { level:1, reason } — same rules as upgrade-priority. */
 router.post("/customers/:id/priority", requirePermission("customers.update"), (req, res): void => upgrade(req, res));
 
-/** HISTORY-A: «.hx» history box data for one customer (own customers for the experts; getCustomer scopes everyone else). */
-router.get("/customers/:id/history-summary", requirePermission("customers.view"), (req, res): void => {
+/** HISTORY-A scope for the read endpoints: experts 8/2/3 own customers only, admins any; everyone else 403. Returns the id or null (response sent). */
+function hxScope(req: { params: { id?: string } }, res: Response): number | null {
   const id = customerId(req.params.id);
   const u = res.locals.authUser as AuthUser;
-  if (!id || !getCustomer(id, u)) { res.status(404).json({ error: "Customer not found" }); return; }
+  if (!id || !getCustomer(id, u)) { res.status(404).json({ error: "Customer not found" }); return null; }
   const actor = actorOf(res);
-  if (!hxCanSee(actor)) { res.status(403).json({ error: "history_a_scope" }); return; }
+  if (!hxCanSee(actor)) { res.status(403).json({ error: "history_a_scope" }); return null; }
   if (hxExpert(actor) && !queryRow("SELECT 1 FROM customers WHERE id=? AND salesperson_id=?", [id, actor.salespersonId])) {
-    res.status(403).json({ error: "expert_lockdown_customer" }); return;
+    res.status(403).json({ error: "expert_lockdown_customer" }); return null;
   }
+  return id;
+}
+/** HISTORY-A v1.2 prep: Today card «پرونده» column (read-only). */
+router.get("/customers/:id/file-card", requirePermission("customers.view"), (req, res): void => {
+  const id = hxScope(req, res); if (id == null) return;
+  const out = fileCard(id, actorOf(res));
+  if (!out) { res.status(404).json({ error: "Customer not found" }); return; }
+  res.json(out);
+});
+/** HISTORY-A v1.2 prep: Today card «سابقه‌ی تماس» column (read-only, keyset paging ?limit=&before=). */
+router.get("/customers/:id/call-history", requirePermission("customers.view"), (req, res): void => {
+  const id = hxScope(req, res); if (id == null) return;
+  const before = Number(req.query.before); 
+  res.json(callHistory(id, Number(req.query.limit) || 20, Number.isFinite(before) && before > 0 ? before : null));
+});
+
+/** HISTORY-A: «.hx» history box data for one customer (own customers for the experts; getCustomer scopes everyone else). */
+router.get("/customers/:id/history-summary", requirePermission("customers.view"), (req, res): void => {
+  const id = hxScope(req, res); if (id == null) return;
+  const actor = actorOf(res);
   const out = historySummary(id, actor);
   if (!out) { res.status(404).json({ error: "Customer not found" }); return; }
   res.json(out);
