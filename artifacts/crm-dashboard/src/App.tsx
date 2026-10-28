@@ -1,4 +1,5 @@
 import { type ReactNode, Suspense, useEffect, useRef } from 'react';
+import FilesGate from "@/features/files-carousel/FilesGate";
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -243,7 +244,7 @@ function AppWithRoutes() {
                       <Route path="/consultations"><PermissionRoute permission="consultations.view"><Consultations /></PermissionRoute></Route>
                       <Route path="/callback-requests"><PermissionRoute permission="callbacks.view"><CallbackRequests /></PermissionRoute></Route>
                     <Route path="/loan-plans"><PermissionRoute permission="loan_plans.view"><LoanPlans /></PermissionRoute></Route>
-                    <Route path="/loan-applications"><PermissionRoute permission="loan_applications.view"><LoanApplications /></PermissionRoute></Route>
+                    <Route path="/loan-applications"><PermissionRoute permission="loan_applications.view"><FilesGate><LoanApplications /></FilesGate></PermissionRoute></Route>
                     <Route path="/loan-applications/:id"><PermissionRoute permission="loan_applications.view"><LoanApplicationDetail /></PermissionRoute></Route>
                     <Route path="/goods-purchases"><PermissionRoute permission="goods_purchases.view"><GoodsPurchases /></PermissionRoute></Route>
                     <Route path="/goods-purchases/:id"><PermissionRoute permission="goods_purchases.view"><GoodsPurchaseDetail /></PermissionRoute></Route>

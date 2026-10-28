@@ -78,7 +78,7 @@ export function elCustomerAccess(u: U, customerId: number, now = new Date()): "p
 const ALLOW: RegExp[] = [
   // session / profile / shell
   /^\/(session|me|logout|profile)(\/|$)/, /^\/avatars(\/|$)/, /^\/users\/\d+\/avatar$/, /^\/healthz$/, /^\/roles\/me$/,
-  /^\/expert-lockdown\//,
+  /^\/expert-lockdown\//, /^\/files-carousel(\/|$)/,
   // shell reads that list no customers (feature switches / telemetry / staff names / form options)
   /^\/(lead-annotator|registrar-view)\/me$/, /^\/page-usage(\/config)?$/, /^\/voip\/config$/, /^\/salespersons$/, /^\/team-sales\/config$/,
   /^\/lead-intake\/options$/, /^\/customer-tags$/, /^\/consult-options$/, /^\/call-queue\/discipline\/me$/,

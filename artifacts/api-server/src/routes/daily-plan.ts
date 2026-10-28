@@ -12,6 +12,7 @@ import {
   dpMarkReturned, dpMove, dpOn, dpRejectedEvent, dpReport, dpSaveSettings, dpScopeCustomers, dpSettings, dpStartCall, dpSupplementary, dpValidateSettings, dpWritePlan,
   dpExperts, dpToday, ensureDailyPlanSchema, type Asst, type DpErr,
 } from "../lib/daily-plan";
+import { fcAssistantFollowups, fcAssistantOpen, fcAssistantPriority } from "../lib/files-carousel";
 
 const router: IRouter = Router();
 const me = (res: Response) => res.locals.authUser as AuthUser;
@@ -97,6 +98,10 @@ export function mountDailyPlanRunner(runner: Router) {
   runner.post("/daily-plans/:date/supplementary", write("POST /daily-plans/supplementary", (a, req) => dpSupplementary(a, req.params.date, req.body ?? {})));
   runner.post("/daily-plans/:date/boost", write("POST /daily-plans/boost", (a, req) => dpBoost(a, req.params.date, req.body ?? {})));
   runner.put("/capacity/:date", write("PUT /capacity", (a, req) => dpAssistantCapacity(a, req.params.date, req.body ?? {})));
+  /* FILES-61 «پرونده‌های من» — same gate / Idempotency-Key / rejected-event logging as boost. */
+  runner.get("/files/open", (req, res) => { const a = gate(req, res); if (a) send(res, fcAssistantOpen(a as any)); });
+  runner.put("/files/priority/:date", write("PUT /files/priority", (a, req) => fcAssistantPriority(a as any, req.params.date, req.body ?? {})));
+  runner.get("/files/followups", (req, res) => { const a = gate(req, res); if (a) send(res, fcAssistantFollowups(a as any, req.query.date)); });
   runner.get("/decision-data", (req, res) => { const a = gate(req, res); if (a) send(res, dpDecisionData(a, req.query.from, req.query.to)); });
 }
 export default router;
