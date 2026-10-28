@@ -44,7 +44,7 @@ export function portalIntakeState(customerId:number,planId:number) {
 router.get("/intake/status",(req,res)=>{
   const c=ownCustomer(res);if(!c)return;
   const planId=Number(req.query.planId);
-  if(!Number.isSafeInteger(planId)||planId<=0||!payablePlan(planId)){res.status(404).json({error:"loan_plan_not_found"});return;}
+  if(!Number.isSafeInteger(planId)||planId<=0||!payablePlan(planId)){res.status(404).json({error:"loan_plan_not_found",message:"این طرح در حال حاضر قابل درخواست نیست. از فهرست طرح‌ها طرح دیگری انتخاب کنید."});return;}
   res.setHeader("Cache-Control","no-store");res.json(portalIntakeState(c.id,planId));
 });
 router.post("/intake/verify",async(req,res):Promise<void>=>{
