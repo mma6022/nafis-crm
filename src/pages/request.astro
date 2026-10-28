@@ -1,21 +1,30 @@
 ---
-/** /request (mockup request.html): minimal chrome, no sticky bar, noindex, excluded from sitemap + robots. */
+/**
+ * /request — release 82: the 7-step «ثبت درخواست» wizard (site-apply-wizard v1.0.1). Minimal chrome, no sticky bar,
+ * noindex, excluded from sitemap + robots. ?plan=&term=, ?src= and utm_* deep links keep working (ApplyWizard).
+ */
 import BaseLayout from '../layouts/BaseLayout.astro';
-import RequestWizard from '../components/islands/RequestWizard';
+import ApplyWizard from '../components/islands/ApplyWizard';
+import I from '../components/ui/I.astro';
 import { LOAN_PLANS_SNAPSHOT } from '../lib/loan-plans.snapshot';
+import '../styles/apply-wizard.css';
 ---
 
-<BaseLayout title="درخواست وام" description="درخواست وام و مشاوره رایگان نفیس وام در کمتر از یک دقیقه؛ بدون تعهد." noindex minimal hideStickyBar src="request">
-  <div class="container-nf rq-layout">
-    <RequestWizard client:load snapshot={LOAN_PLANS_SNAPSHOT} />
-    <aside class="rq-aside" aria-label="بعد از ثبت درخواست">
-      <div class="nf-card aside-card">
+<BaseLayout title="ثبت درخواست وام" description="درخواست وام نفیس وام در چند قدم کوتاه؛ بدون کد پیامکی و بدون هزینه." noindex minimal hideStickyBar src="request">
+  <div class="container-nf rq-layout apw-main">
+    <ApplyWizard client:load snapshot={LOAN_PLANS_SNAPSHOT} />
+    <aside class="rq-aside wz-aside" aria-label="بعد از ثبت درخواست">
+      <div class="box">
         <h2>بعد از ثبت چه می‌شود؟</h2>
-        <ol class="steps" style="margin-top:8px">
-          <li><span>کارشناس نفیس وام با شما تماس می‌گیرد و شرایط را توضیح می‌دهد</span></li>
-          <li><span>مدارک را آنلاین یا حضوری تحویل می‌دهید</span></li>
-          <li><span>پس از تأیید، تسهیلات طبق شرایط طرح پرداخت می‌شود</span></li>
+        <ol>
+          <li>جواب‌هایتان به دست کارشناس نفیس وام می‌رسد.</li>
+          <li>کارشناس با شما تماس می‌گیرد و طرح‌های مناسب را بررسی می‌کند.</li>
+          <li>اگر طرحی مناسب بود، مدارک را با راهنمایی کارشناس آماده می‌کنید.</li>
         </ol>
+      </div>
+      <div class="box safe">
+        <I name="shield" size={20} />
+        <span>ثبت درخواست هزینه ندارد و کد پیامکی نمی‌خواهد. کارشناس‌های ما هیچ‌وقت رمز کارت یا کد یک‌بارمصرف نمی‌خواهند.</span>
       </div>
     </aside>
   </div>
