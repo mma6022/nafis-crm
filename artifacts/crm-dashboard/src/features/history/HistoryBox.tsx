@@ -51,7 +51,7 @@ function UpgradeConfirm({ name, priority, handoff, customerId, onCancel, onDone 
   const go = async () => {
     if (!t) { setError('دلیل کوتاه را بنویس.'); ref.current?.focus(); return; }
     setPending(true); setError('');
-    try { const r = await promoteToP1(customerId, t); onDone(r.message, r.closerName ?? null); }
+    try { const r = await promoteToP1(customerId, t); onDone(r.message, r.kept ? null : (r.closerName ?? null)); }
     catch (e) { setError(`ارتقا انجام نشد؛ ${e instanceof TeamSalesApiError && e.message ? e.message : 'اتصال به سرور برقرار نشد.'}`); }
     finally { setPending(false); }
   };
