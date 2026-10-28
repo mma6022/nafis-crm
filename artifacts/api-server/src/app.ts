@@ -1,4 +1,6 @@
 import { leadAnnotatorMask } from "./lib/lead-annotator-mask";
+import { makeRegistrarWriteGuard } from "./lib/registrar-view";
+import { crmDb } from "./lib/crm-db";
 import express, { type Express, type RequestHandler } from "express";
 import { isPublicWalletRequest } from "./lib/wallet-public-access";
 import cors from "cors";
@@ -133,6 +135,7 @@ const requireApiAuth: RequestHandler = (req, res, next): void => {
 };
 
 // lead_annotator: every phone in every /api response is masked for a user holding the capability (lib/lead-annotator-mask.ts).
-app.use("/api", requireApiAuth, leadAnnotatorMask, router);
+// registrar_view (assistants53): read-only on customers the user registered but no longer owns — every write on them is 403.
+app.use("/api", requireApiAuth, leadAnnotatorMask, makeRegistrarWriteGuard(() => crmDb), router);
 
 export default app;

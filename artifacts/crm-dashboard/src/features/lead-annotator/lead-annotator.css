@@ -45,3 +45,11 @@
 .la-reasons input[type=text] { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--csx-line-strong, #c9cedf); border-radius: 12px; font: inherit; }
 .la-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .oo-note-urgent { margin-inline-start: 6px; }
+/* registrar_view (assistants53): read-only «ثبت‌شده توسط شما» card */
+.rv-card .rv-ro { background: #eef2ff; color: #1d3b8b; border-radius: 999px; padding: 2px 10px; font-size: 13px; }
+.rv-dl { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 16px; }
+.rv-dl div { display: grid; gap: 2px; }
+.rv-dl dt { font-size: 12px; color: #667; }
+.rv-dl dd { margin: 0; overflow-wrap: anywhere; }
+.rv-dl dd[dir=ltr] { text-align: end; unicode-bidi: isolate; }
+.rv-note { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }

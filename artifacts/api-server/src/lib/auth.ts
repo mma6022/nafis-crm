@@ -5,6 +5,7 @@ import { permissionsForRole } from "./access-control";
 import { isAdminRole } from "./customer-integrity";
 import { withNotificationActor } from "./notification-actor-context";
 import { hasLeadAnnotator } from "./lead-annotator";
+import { hasRegistrarView } from "./registrar-view";
 
 const SESSION_COOKIE = "crm_session";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -55,6 +56,8 @@ export type AuthUser = {
   createdAt: string;
   /** lead_annotator capability (lib/lead-annotator.ts): additive, two actions on any customer, every phone masked in responses. */
   leadAnnotator?: boolean;
+  /** registrar_view capability (lib/registrar-view.ts): read-only on customers this user registered (registered_by), any owner. */
+  registrarView?: boolean;
 };
 
 type AuthUserRow = {
@@ -96,6 +99,7 @@ function userFromRow(row: AuthUserRow): AuthUser {
     active: Boolean(row.active),
     createdAt: row.created_at,
     leadAnnotator: hasLeadAnnotator(crmDb, Number(row.id)),
+    registrarView: hasRegistrarView(crmDb, Number(row.id), row.role, row.salesperson_id == null ? null : Number(row.salesperson_id)),
   };
 }
 

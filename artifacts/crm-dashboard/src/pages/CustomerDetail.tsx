@@ -4,6 +4,8 @@ import { CustomerIntroLog } from '@/features/expert-intro-sms/CustomerIntroLog';
 import { CustomerAnnotations } from '@/features/lead-annotator/CustomerAnnotations';
 import { RestrictedCase } from '@/features/lead-annotator/RestrictedCase';
 import { useLeadAnnotatorMe } from '@/features/lead-annotator/api';
+import { RegistrarCard } from '@/features/registrar-view/RegistrarCard';
+import { useRegistrarMe } from '@/features/registrar-view/api';
 import { LeadIntakePanel } from '@/features/lead-intake/LeadIntakePanel';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useParams, Link, useLocation } from 'wouter';
@@ -82,14 +84,22 @@ export default function CustomerDetail() {
   const id = Number(params.id);
   const la = useLeadAnnotatorMe();
   const laOn = la.data?.enabled === true;
-  const probe = useGetCustomer(id, { query: { queryKey: getGetCustomerQueryKey(id), enabled: Number.isFinite(id) && laOn, retry: false } });
+  // registrar_view (assistants53): a customer I registered but no longer own opens read-only (server 403s every write).
+  const rv = useRegistrarMe();
+  const rvOn = rv.data?.enabled === true;
+  const probe = useGetCustomer(id, { query: { queryKey: getGetCustomerQueryKey(id), enabled: Number.isFinite(id) && (laOn || rvOn), retry: false } });
   const loading = <div className="csx" dir="rtl" aria-busy="true" data-testid="customer-detail-loading"><span className="csx-sr" role="status">در حال بارگذاری پرونده مشتری…</span></div>;
-  if (la.isLoading) return loading;
-  if (laOn) {
+  if (la.isLoading || rv.isLoading) return loading;
+  if (laOn || rvOn) {
     if (probe.isLoading) return loading;
-    if (probe.isError || !probe.data) return <RestrictedCase id={id} />;
+    if (probe.isError || !probe.data) return laOn ? <RestrictedCase id={id} registrar={rvOn} /> : <RegistrarOnlyCase id={id} />;
   }
   return <CustomerDetailFull />;
+}
+
+function RegistrarOnlyCase({ id }: { id: number }) {
+  return <section className="la" dir="rtl" data-testid="rv-case"><div className="csx-crumb"><Link href="/customers">→ مشتریان</Link></div>
+    <RegistrarCard id={id} enabled /></section>;
 }
 
 function CustomerDetailFull() {

@@ -3,7 +3,7 @@ import { dpAfterCall, dpAfterCommit, dpPreCall, dpSearchCheck } from "../lib/dai
 import express, { Router, type IRouter, type RequestHandler } from "express";
 import { deleteCustomerIntro } from "../lib/expert-intro-sms-core";
 import { callNoteError } from "../lib/call-note-rule";
-import { CROSS_OWNER_EXCLUDED_USER_IDS, crossOwnerEligible, redactForeignCustomer, findOtherOwnerMatches, transferCallHint } from "../lib/cross-owner-search";
+import { CROSS_OWNER_EXCLUDED_USER_IDS, crossOwnerEligible, redactForeignCustomer, findOtherOwnerMatches, transferCallHint, maskCustomerPhone } from "../lib/cross-owner-search";
 import { myTransfers } from "../lib/my-transfers";
 import { customerSearchSql } from "../lib/customer-id-search";
 import { identityValuesChanged } from "../lib/identity-change";
@@ -1713,7 +1713,13 @@ router.get(
     const filters: string[] = ["c.merged_into_customer_id IS NULL"];
     const params: SqlValue[] = [];
     const user = res.locals.authUser as AuthUser;
-    if (user.customerScope === "assigned") {
+    // registrar_view (assistants53): «ثبت‌های من» = customers I registered (any owner), read-only; only for the capability holder.
+    const registeredScope = req.query.scope === "registered";
+    if (registeredScope && !user.registrarView) { res.status(403).json({ error: "registrar_view_only" }); return; }
+    if (registeredScope) {
+      filters.push("c.registered_by = ?");
+      params.push(user.id);
+    } else if (user.customerScope === "assigned") {
       filters.push("c.salesperson_id = ?");
       params.push(user.salespersonId);
     }
@@ -1841,7 +1847,7 @@ router.get(
     const suggested = latestSelectedPlans(listBody.items.map((item) => Number(item.id)));
     // crm-id-search-everywhere: a salesperson's exact id / mobile / full-name search also returns
     // other salespersons' matches as minimal faded hints (id, name, owner) — after their own rows.
-    const crossOwner = search && offset === 0 && customerId === undefined && crossOwnerEligible(user)
+    const crossOwner = !registeredScope && search && offset === 0 && customerId === undefined && crossOwnerEligible(user)
       ? findOtherOwnerMatches(user, search)
       : null;
     // crm-no-plan-option: grey «بدون طرح مناسب» chip.
@@ -1850,6 +1856,21 @@ router.get(
     const sources = kazemiSources(listBody.items.map((item) => Number(item.id)));
     const siteLeads = activeSiteLeads(listBody.items.map((item) => Number(item.id)));
     const topById = new Map(top.map((t) => [t.customerId, { kind: t.kind, startedAt: t.startedAt, dueAt: t.dueAt, windowNow: t.windowNow }]));
+    if (registeredScope) {
+      // registrar_view: read-only card fields only — no national code, address, KYC, credit or description; phone masked.
+      res.json({
+        ...listBody,
+        registrarReadOnly: true,
+        items: listBody.items.map((item) => ({
+          id: item.id, name: item.name, phone: maskCustomerPhone(item.phone), isUrgent: item.isUrgent, createdAt: item.createdAt,
+          salespersonId: item.salespersonId, salespersonName: item.salespersonName, priority: item.priority, status: item.status,
+          activityCount: item.activityCount, lastActivityAt: item.lastActivityAt, lastCallAt: item.lastCallAt, mergedIntoCustomerId: null,
+          tags: item.tags, pendingRepeatRequestCount: 0, suggestedPlans: [], noPlanFit: false, kazemiSource: sources.get(Number(item.id)) ?? null,
+          siteLead: null, topOfList: null, registrarReadOnly: !(user.salespersonId != null && Number(item.salespersonId) === Number(user.salespersonId)),
+        })),
+      });
+      return;
+    }
     res.json({
       ...listBody,
       items: listBody.items.map((item) => ({ ...item, suggestedPlans: suggested.get(Number(item.id)) ?? [], noPlanFit: noPlan.has(Number(item.id)),

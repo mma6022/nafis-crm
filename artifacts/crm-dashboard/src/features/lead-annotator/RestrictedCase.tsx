@@ -7,8 +7,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { faDate, laCase, laNote, laUrgent, type UrgentReasonValue } from './api';
 import { UrgentReasonPicker, urgentReasonReady } from './UrgentReasonPicker';
 import './lead-annotator.css';
+import { RegistrarCard } from '@/features/registrar-view/RegistrarCard';
 
-export function RestrictedCase({ id }: { id: number }) {
+export function RestrictedCase({ id, registrar = false }: { id: number; registrar?: boolean }) {
   const qc = useQueryClient();
   const key = ['lead-annotator', 'case', id];
   const q = useQuery({ queryKey: key, queryFn: () => laCase(id), retry: false });
@@ -37,6 +38,7 @@ export function RestrictedCase({ id }: { id: number }) {
         {c.isUrgent ? <span className="la-urgent" data-testid="la-case-urgent">مشتری فوری</span> : null}
       </header>
       <p className="muted">این پرونده متعلق به کارشناس دیگری است. فقط می‌توانید یادداشت ({c.noteLabel}) بگذارید و «مشتری فوری» را با دلیل بزنید.</p>
+      <RegistrarCard id={id} enabled={registrar} />
       {err ? <div className="csx-note bad" role="alert"><p>{err}</p></div> : null}
       {msg ? <div className="csx-note ok" role="status"><p>{msg}</p></div> : null}
       <article className="la-card">

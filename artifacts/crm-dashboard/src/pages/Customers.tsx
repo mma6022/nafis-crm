@@ -29,6 +29,7 @@ import './customers.css';
 import { KAZEMI_SOURCE_FILTERS, KazemiSourceChip, kazemiSourceOf } from '@/features/kazemi-source/KazemiSourceChip';
 import { SalesAssistBox } from '@/features/sales-assist/SalesAssistBox';
 import { notifySalesAssistCallSaved } from '@/features/sales-assist/api';
+import { useRegistrarMe } from '@/features/registrar-view/api';
 import { DeadlineCountdown, PreferredTimeNote, SiteLeadChips, hideTagForSiteLead, topOfListOf } from '@/features/site-leads/SiteLead';
 
 const fa = (n: number) => n.toLocaleString('fa-IR');
@@ -50,10 +51,15 @@ export default function Customers() {
   const [manualIdentity, setManualIdentity] = useState<Customer | null>(null);
   const isSalesperson = session.data?.user.customerScope === 'assigned';
   const permissions = session.data?.user.permissions ?? [];
+  // registrar_view (assistants53): «ثبت‌های من» = customers I registered (any owner), read only — every action hidden; server 403s writes.
+  const rvMe = useRegistrarMe(Boolean(session.data?.user) && !isAdmin);
+  const rvOn = rvMe.data?.enabled === true;
+  const [regMode, setRegMode] = useTableState('customers.registered', false);
+  const reg = rvOn && regMode;
   // §8: hide actions the role cannot use (the server already enforces the same permissions).
-  const can = (permission: string) => isAdmin || permissions.includes(permission);
+  const can = (permission: string) => !reg && (isAdmin || permissions.includes(permission));
   const sessionReady = Boolean(session.data?.user);
-  const canView = !sessionReady || can('customers.view');
+  const canView = !sessionReady || reg || can('customers.view');
   const canCreate = can('customers.create');
   const canUpdate = can('customers.update');
   const canCall = can('calls.create');
@@ -111,7 +117,7 @@ export default function Customers() {
   const isDesktop = useMinWidth(1024);
   const [mobileCount, setMobileCount] = useState(MOBILE_STEP);
   // The board is desktop-only and optional (PM decision); the list is the default everywhere else.
-  const isBoard = view === 'board' && isDesktop;
+  const isBoard = view === 'board' && isDesktop && !reg;
   const resetPaging = () => { setOffset(0); setMobileCount(MOBILE_STEP); };
 
   const pHasPriority = priority === 'null' ? false : undefined;
@@ -127,7 +133,8 @@ export default function Customers() {
     maxCallCount: maxCallCount ? Number(maxCallCount) : undefined,
     // Not in the generated ListCustomersParams: the generated client forwards extra keys to the query string.
     source: source === 'from_kazemi' || source === 'previous' ? source : undefined,
-  }), [search, tag, customerId, salespersonId, dateFrom, dateTo, minCallCount, maxCallCount, source]);
+    ...(reg ? { scope: 'registered' } : {}),
+  }), [search, tag, customerId, salespersonId, dateFrom, dateTo, minCallCount, maxCallCount, source, reg]);
 
   const params = useMemo(() => ({
     ...sharedParams,
@@ -432,7 +439,12 @@ export default function Customers() {
       </div> : <p className="csx-meta" style={{ padding: '0 16px 12px', margin: 0 }}>نمای بورد فقط مشتریان «در حال انجام» را بر اساس اولویت نشان می‌دهد؛ کارت‌ها را برای تغییر اولویت بکشید.</p>}
     </div>
 
-    {readOnly ? <div className="csx-note warn" role="note"><Eye size={20} aria-hidden="true" /><p>دسترسی شما «فقط مشاهده» است؛ ثبت، ویرایش و تماس غیرفعال است.</p></div>
+    {rvOn ? <div className="csx-chips rv-scope" role="radiogroup" aria-label="دامنه‌ی فهرست" data-testid="rv-scope">
+      <button type="button" role="radio" className="csx-chip" aria-checked={!reg} onClick={() => { setRegMode(false); resetPaging(); }} data-testid="rv-scope-mine">مشتریان من</button>
+      <button type="button" role="radio" className="csx-chip" aria-checked={reg} onClick={() => { setRegMode(true); resetPaging(); }} data-testid="rv-scope-registered">ثبت‌های من{rvMe.data?.count ? ` (${fa(rvMe.data.count)})` : ''}</button>
+    </div> : null}
+    {reg ? <div className="csx-note warn" role="note" data-testid="rv-note"><Eye size={20} aria-hidden="true" /><p>«ثبت‌های من»: مشتریانی که شما ثبت کرده‌اید، با هر کارشناسی که الان دارند. فقط مشاهده — ویرایش، انتقال، ثبت تماس و تغییر وضعیت یا اولویت بسته است.</p></div>
+      : readOnly ? <div className="csx-note warn" role="note"><Eye size={20} aria-hidden="true" /><p>دسترسی شما «فقط مشاهده» است؛ ثبت، ویرایش و تماس غیرفعال است.</p></div>
       : isSalesperson ? <div className="csx-note" role="note"><UserRound size={20} aria-hidden="true" /><p>فقط مشتریانی که به شما تخصیص داده شده‌اند نمایش داده می‌شوند. <Link href="/my-transfers" data-testid="link-my-transfers">تاریخچه‌ی انتقال‌های من</Link></p></div> : null}
 
     <div className="csx-tools">
