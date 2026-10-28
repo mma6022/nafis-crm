@@ -301,22 +301,22 @@ function Apply({ profile, planId, months = '' }: { profile: Profile; planId: num
   const validateCredit = useMutation({ mutationFn: () => portalApi.validateCreditOtp(pendingCredit!.id, digits(creditOtp).trim()), onSuccess: () => { setCreditOtp(''); afterCredit(); } });
   const renewCredit = useMutation({ mutationFn: () => portalApi.renewCreditOtp(pendingCredit!.id), onSuccess: afterCredit });
   const topUp = useMutation({ mutationFn: (a: string) => portalApi.topUpAndPay(a), retry: false });
-  const charge = useMutation({ mutationFn: (v: { key: string; body: { planId: number; conditionId: number; requestedAmount: string; durationMonths: number } }) => portalApi.filingFee(v.body, v.key), retry: false });
+  const charge = useMutation({ mutationFn: (v: { key: string; body: { planId: number; conditionId: number; payoutAmount: string; durationMonths: number } }) => portalApi.filingFee(v.body, v.key), retry: false });
   const verify = useMutation({ mutationFn: (code: string) => portalApi.intakeVerify(planId, code), retry: false, onSettled: () => { void refreshAll(); } });
   const create = useMutation({ mutationFn: portalApi.createApplication, retry: false });
   const automaticSubmission = useRef<number | null>(null);
   useEffect(() => {
     if (!status?.canSubmit || !verified(profile) || !status.feeChargeId || !plan ||
         !(status.documentsComplete || status.documentsPreviouslyApproved)) return;
-    const requestedAmount = digits(amount).replace(/[,\s٬]/g, '');
+    const requestedPayout = digits(amount).replace(/[,\s٬]/g, '');
     const conditionId = chosenCondition;
-    if (!conditionId || !/^[1-9]\d{0,17}$/.test(requestedAmount) ||
+    if (!conditionId || !/^[1-9]\d{0,17}$/.test(requestedPayout) ||
         !Number.isSafeInteger(Number(duration)) || Number(duration) < 1 ||
         automaticSubmission.current === status.feeChargeId) return;
     // The server consumes a fee only once, including reloads and other tabs.
     automaticSubmission.current = status.feeChargeId;
     setError('');
-    void create.mutateAsync({ planId, conditionId, requestedAmount, durationMonths: Number(duration),
+    void create.mutateAsync({ planId, conditionId, payoutAmount: requestedPayout, durationMonths: Number(duration),
       feeChargeId: status.feeChargeId }).then(async app => {
       if (!app?.id) throw new Error('شناسه پرونده دریافت نشد؛ فهرست درخواست‌ها را بررسی کنید.');
       await Promise.all(['applications', 'active-applications', 'intake'].map(key =>
@@ -346,14 +346,14 @@ function Apply({ profile, planId, months = '' }: { profile: Profile; planId: num
   const feeAmount = String(status.filingFeeToman ?? '');
   const knownFee = /^\d+$/.test(feeAmount);
   const canAffordFee = knownFee && wallet.data?.cashBalanceToman != null && /^\d+$/.test(String(wallet.data.cashBalanceToman)) && BigInt(String(wallet.data.cashBalanceToman)) >= BigInt(feeAmount);
-  const requestedAmount = digits(amount).replace(/[,\s٬]/g, '');
-  const amountOk = /^\d+$/.test(requestedAmount) && BigInt(requestedAmount) > 0n && !!chosenCondition; // range: server (selection + submit)
+  const requestedPayout = digits(amount).replace(/[,\s٬]/g, '');
+  const amountOk = /^\d+$/.test(requestedPayout) && BigInt(requestedPayout) > 0n && !!chosenCondition; // range: server (selection + submit)
   const selectionOk = !!chosenCondition && amountOk && durations.includes(Number(duration));
   const payFee = async () => {
     if (!selectionOk || !chosenCondition || !knownFee || charge.isPending) return;
     setError('');
     let key = pendingFeeKey; if (!key) { key = crypto.randomUUID(); try { sessionStorage.setItem(feeKey, key); } catch { /* guarded server-side */ } setPendingFeeKey(key); }
-    try { const r = await charge.mutateAsync({ key, body: { planId, conditionId: chosenCondition, requestedAmount, durationMonths: Number(duration) } }); if (typeof r.chargeId !== 'number') throw new Error('رسید پرداخت از سرور دریافت نشد. وضعیت را به‌روزرسانی کنید.'); await refreshAll(); }
+    try { const r = await charge.mutateAsync({ key, body: { planId, conditionId: chosenCondition, payoutAmount: requestedPayout, durationMonths: Number(duration) } }); if (typeof r.chargeId !== 'number') throw new Error('رسید پرداخت از سرور دریافت نشد. وضعیت را به‌روزرسانی کنید.'); await refreshAll(); }
     catch (e) { setError(message(e)); void refreshAll(); }
   };
   const submitVerify = (e: FormEvent) => {
@@ -366,7 +366,7 @@ function Apply({ profile, planId, months = '' }: { profile: Profile; planId: num
     event.preventDefault(); setError('');
     if (!status.canSubmit || !verified(profile) || status.feeChargeId == null) { setError('برای ثبت درخواست، مراحل هویتی و مدارک را تکمیل کنید.'); return; }
     if (!chosenCondition || !amountOk || !durations.includes(Number(duration))) { setError('مبلغ و مدت با بازه مجاز شرط انتخاب‌شده سازگار نیست.'); return; }
-    try { const app = await create.mutateAsync({ planId, conditionId: chosenCondition, requestedAmount, durationMonths: Number(duration), feeChargeId: status.feeChargeId, notes: notes.trim() || undefined });
+    try { const app = await create.mutateAsync({ planId, conditionId: chosenCondition, payoutAmount: requestedPayout, durationMonths: Number(duration), feeChargeId: status.feeChargeId, notes: notes.trim() || undefined });
       if (!app?.id) throw new Error('شناسه پرونده از سرور دریافت نشد. فهرست درخواست‌ها را بررسی کنید.');
       await queryClient.invalidateQueries({ queryKey: ['customer', 'applications'] }); await queryClient.invalidateQueries({ queryKey: ['customer', 'active-applications'] }); navigate(`/customer/applications/${app.id}`); }
     catch (e) { setError(message(e)); }

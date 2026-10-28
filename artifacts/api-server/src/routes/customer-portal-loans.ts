@@ -3,7 +3,7 @@ import { guarantorGradeAllows, guarantorGradeVerdict } from "../lib/guarantor-gr
 import { customerGuarantorGrade } from "../lib/guarantor-grade-source";
 import { creditProviderFailure } from "../lib/credit-provider-failure";
 import { supportedDocumentUpload } from "../lib/document-upload-type";
-import { customerApplicationPayout } from "../lib/customer-application-payout";
+import { customerApplicationPayouts } from "../lib/customer-application-payout";
 import { applicationInstallment, calculatorQuote, eligibleConditionId, maximumCustomerPayout } from "../lib/plan-quote-math";
 import { createQuoteRateLimit, parseQuoteBody } from "../lib/plan-quote-guard";
 import { trustedClientIp } from "../lib/client-ip";
@@ -201,6 +201,42 @@ function hasSignedPrimaryContract(applicationId: number): boolean {
   return generations.some((generation) => isStrictSignedProviderState(generation.provider_status));
 }
 
+/** The case's effective principal ceiling from its own snapshots (0n when unknown). */
+function caseCeiling(plan: any, condition: any): bigint {
+  if (!plan || typeof plan !== "object" || !condition || typeof condition !== "object") return 0n;
+  try { return effectivePlanTerms(plan, condition).maximum; } catch { return 0n; }
+}
+
+/** LEAKS-46 (PM item A): the portal sends «مبلغ واریزی»; the principal is derived here with exactly the calculator rule the
+ *  plan-quote used to hand to the browser (same plan, same eligible option, same months + cash → same principal).
+ *  Returns null when that payout is not selectable for the customer (outside the slider range or not invertible). */
+function principalForCustomerPayout(customer: { id: number } & Record<string, any>, planId: number, months: number, payoutText: string): string | null {
+  if (!/^[1-9]\d{0,17}$/.test(payoutText)) return null;
+  const cash = Number(payoutText);
+  if (!Number.isSafeInteger(cash) || !Number.isSafeInteger(months) || months <= 0) return null;
+  const plan = activeQuotePlan(planId);
+  if (!plan) return null;
+  const option = customerLoanOptions(customer as any).find((item) => item.planId === planId);
+  if (!option) return null;
+  const q = calculatorQuote(plan, { months, cash }, option);
+  if (q.months !== months || q.payout !== cash || q.principal == null) return null;
+  return String(q.principal);
+}
+
+/** Request amount: new bundles send payoutAmount («مبلغ واریزی»); cached old bundles may still send requestedAmount (principal). */
+function requestPrincipal(customer: any, planId: number, months: number, body: Record<string, unknown>): { amount: string; notMatched: boolean } {
+  const hasPayout = body.payoutAmount !== undefined, hasPrincipal = body.requestedAmount !== undefined;
+  if (hasPayout && hasPrincipal) return { amount: "", notMatched: false };
+  if (hasPayout) {
+    const payout = String(body.payoutAmount ?? "").trim();
+    if (!/^[1-9]\d{0,17}$/.test(payout)) return { amount: "", notMatched: false };
+    const amount = principalForCustomerPayout(customer, planId, months, payout);
+    // A well-formed payout the customer cannot select = same answer as an out-of-range principal used to get.
+    return amount == null ? { amount: "", notMatched: true } : { amount, notMatched: false };
+  }
+  return { amount: String(body.requestedAmount ?? "").trim(), notMatched: false };
+}
+
 function portalApplication(applicationId: number, customerId: number) {
   const row = queryRow<any>(
     `SELECT a.*,p.name AS plan_name
@@ -239,6 +275,7 @@ function portalApplication(applicationId: number, customerId: number) {
     createdAt: document.created_at,
   }));
   const condition = parseJson<any>(row.condition_snapshot_json);
+  const planSnapshot = parseJson<any>(row.plan_snapshot_json);
   const currentPrimarySigned = currentPrimaryContractSigned(row);
   const editable = row.stage === "draft" &&
     row.status !== "rejected" && row.initial_approval_at == null &&
@@ -252,9 +289,8 @@ function portalApplication(applicationId: number, customerId: number) {
     stage: row.stage,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    requestedAmount: String(row.requested_amount),
-    ...customerApplicationPayout(row),
-    approvedAmount: row.approved_amount == null ? null : String(row.approved_amount),
+    // LEAKS-46 (PM item A): the customer sees «مبلغ واریزی» equivalents only; the stored principal stays internal.
+    ...customerApplicationPayouts(row, caseCeiling(planSnapshot, condition)),
     // Monthly installment on today's plan terms (was computed in the browser from public rates).
     installmentAmount: applicationInstallment(activeQuotePlan(Number(row.plan_id)),
       Number(row.approved_amount ?? row.requested_amount), Number(row.duration_months) || Number(row.requested_duration_months ?? 0)),
@@ -504,7 +540,7 @@ const customerQuoteRateLimit = createQuoteRateLimit(120, 60_000, (req) => {
 });
 
 // Calculator quote for a logged-in customer: payout + installment from the customer's own eligible option (if any),
-// plus requestedAmount — the principal the apply form submits (the customer's own request amount, never a rate).
+// LEAKS-46: no principal in the response — the apply form submits the payout and the server derives the principal.
 router.post("/plan-quote", customerQuoteRateLimit, (req, res) => {
   const customer = portalCustomer(res); if (!customer) return;
   const body = parseQuoteBody(req.body, ["planId", "months", "cash", "amount", "eligible"]);
@@ -517,7 +553,7 @@ router.post("/plan-quote", customerQuoteRateLimit, (req, res) => {
   return res.json({
     months: q.months, durations: q.durations, minPayout: q.minPayout, maxPayout: q.maxPayout,
     payout: q.payout, installment: q.installment,
-    requestedAmount: q.principal == null ? null : String(q.principal),
+    requestedPayoutAmount: q.principal == null || q.payout == null ? null : String(q.payout),
     conditionId: option && q.principal != null ? eligibleConditionId(option, String(q.principal), q.months) : null,
   });
 });
@@ -527,14 +563,18 @@ router.post("/plan-quote", customerQuoteRateLimit, (req, res) => {
 router.post("/loan-options/selection", customerQuoteRateLimit, (req, res) => {
   const customer = portalCustomer(res); if (!customer) return;
   const body = req.body;
-  if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some((k) => !["planId", "amount", "months"].includes(k)))
+  if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some((k) => !["planId", "amount", "payout", "months"].includes(k)) ||
+    (body.amount !== undefined && body.payout !== undefined))
     return jsonError(res, 400, "invalid_selection_input");
   const planId = Number(body.planId), months = Number(body.months);
-  const amount = String(body.amount ?? "").trim();
+  const payout = String(body.payout ?? "").trim();
+  const legacyAmount = String(body.amount ?? "").trim();
   if (!Number.isSafeInteger(planId) || planId <= 0 || !Number.isSafeInteger(months) || months < 0 || months > 600 ||
-    !/^([1-9]\d{0,17})?$/.test(amount)) return jsonError(res, 400, "invalid_selection_input");
+    !/^([1-9]\d{0,17})?$/.test(legacyAmount) || !/^([1-9]\d{0,17})?$/.test(payout)) return jsonError(res, 400, "invalid_selection_input");
   const option = customerLoanOptions(customer).find((item) => item.planId === planId);
   if (!option) return jsonError(res, 404, "loan_plan_not_found");
+  // LEAKS-46: payout («مبلغ واریزی») → principal on the server; `amount` (principal) only from cached old bundles.
+  const amount = payout ? (months > 0 ? principalForCustomerPayout(customer, planId, months, payout) ?? "" : "") : legacyAmount;
   const conditionId = amount && months > 0 ? eligibleConditionId(option, amount, months) : null;
   const condition = option.conditions.find((item) => item.id === conditionId);
   return res.json({ planId, conditionId, durations: condition?.allowedDurations ?? option.allowedDurations });
@@ -787,10 +827,12 @@ router.post("/filing-fee", (req, res) => {
   const planId = Number(req.body?.planId);
   const key = String(req.header("Idempotency-Key") ?? "");
   const conditionId=Number(req.body?.conditionId),duration=Number(req.body?.durationMonths);
-  const amount=String(req.body?.requestedAmount??"").trim();
+  const feeBody = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {};
+  const requested = Number.isSafeInteger(planId) && planId > 0 ? requestPrincipal(customer, planId, duration, feeBody) : { amount: "", notMatched: false };
+  const amount = requested.amount;
   if (!Number.isSafeInteger(planId) || planId <= 0 || !/^[\x20-\x7e]{8,200}$/.test(key) ||
       !Number.isSafeInteger(conditionId)||conditionId<=0||!Number.isSafeInteger(duration)||duration<=0||
-      !/^[1-9]\d{0,17}$/.test(amount)||Object.keys(req.body??{}).some(k=>!["planId","conditionId","durationMonths","requestedAmount"].includes(k))) {
+      !(requested.notMatched||/^[1-9]\d{0,17}$/.test(amount))||Object.keys(req.body??{}).some(k=>!["planId","conditionId","durationMonths","requestedAmount","payoutAmount"].includes(k))) {
     return jsonError(res, 400, "invalid_filing_fee_request");
   }
   try {
@@ -832,6 +874,7 @@ router.post("/filing-fee", (req, res) => {
       if(!condition||!credit||!conditionAcceptsCreditRank(credit.score_label,parseConditionRanks(condition.customer_ranks))
         ||!guarantorGradeAllows(guarantorGradeVerdict(condition,customerGuarantorGrade(customer.id).rank,plan)))
         throw new Error("loan_plan_condition_not_matched");
+      if(requested.notMatched)throw new Error("loan_plan_condition_not_matched");
       const terms=effectivePlanTerms(plan,condition);
       if(terms.maximum<=0n||BigInt(amount)>terms.maximum||belowConditionMinimum(condition,amount)||!terms.durations.includes(duration))throw new Error("loan_plan_condition_not_matched");
       const feeAmount = String(plan.filing_fee_toman ?? "");
@@ -916,14 +959,15 @@ router.get("/applications/:id", (req, res) => {
 router.post("/applications", (req, res) => {
   const customer = portalCustomer(res); if (!customer) return;
   const body = req.body;
-  const allowed = new Set(["planId", "conditionId", "requestedAmount", "durationMonths", "feeChargeId", "notes"]);
+  const allowed = new Set(["planId", "conditionId", "requestedAmount", "payoutAmount", "durationMonths", "feeChargeId", "notes"]);
   if (!body || typeof body !== "object" || Array.isArray(body) ||
     Object.keys(body).some((key) => !allowed.has(key))) return jsonError(res, 400, "invalid_application_input");
   const planId = Number(body.planId), conditionId = Number(body.conditionId), feeChargeId = Number(body.feeChargeId);
-  const amount = String(body.requestedAmount ?? "").trim();
   const duration = Number(body.durationMonths);
+  const requested = Number.isSafeInteger(planId) && planId > 0 ? requestPrincipal(customer, planId, duration, body) : { amount: "", notMatched: false };
+  const amount = requested.amount;
   if (!Number.isSafeInteger(planId) || planId <= 0 || !Number.isSafeInteger(conditionId) || conditionId <= 0 ||
-    !Number.isSafeInteger(feeChargeId) || feeChargeId <= 0 || !/^[1-9]\d{0,17}$/.test(amount) ||
+    !Number.isSafeInteger(feeChargeId) || feeChargeId <= 0 || !(requested.notMatched || /^[1-9]\d{0,17}$/.test(amount)) ||
     !Number.isSafeInteger(duration) || duration < 1 || duration > 600) return jsonError(res, 400, "invalid_application_input");
   const charge = queryRow<any>(
     "SELECT * FROM loan_filing_fee_charges WHERE id=? AND customer_id=? AND plan_id=?",
@@ -948,6 +992,7 @@ router.post("/applications", (req, res) => {
   if (!guarantorGradeAllows(guarantorGradeVerdict(condition, customerGuarantorGrade(customer.id).rank, plan)))
     return jsonError(res, 422, "loan_plan_condition_not_matched");
   if (!rowAllowsProfile(condition, latestApplicantProfile(customer.id))) return jsonError(res, 422, "loan_plan_condition_not_matched");
+  if (requested.notMatched) return jsonError(res, 422, "loan_plan_condition_not_matched");
   const terms = effectivePlanTerms(plan, condition);
   if (terms.maximum <= 0n || BigInt(amount) > terms.maximum || belowConditionMinimum(condition, amount) || !terms.durations.includes(duration)) {
     return jsonError(res, 422, "loan_plan_condition_not_matched");
@@ -1034,13 +1079,17 @@ router.patch("/applications/:id", (req, res) => {
     return jsonError(res, 409, "approved_application_terms_immutable");
   }
   const body = req.body;
-  const allowed = new Set(["requestedAmount", "durationMonths", "manualValues", "notes"]);
+  const allowed = new Set(["requestedAmount", "payoutAmount", "durationMonths", "manualValues", "notes"]);
   if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length === 0 ||
     Object.keys(body).some((key) => !allowed.has(key))) return jsonError(res, 400, "invalid_application_input");
-  const amount = body.requestedAmount === undefined ? String(application.requested_amount) : String(body.requestedAmount).trim();
   const duration = body.durationMonths === undefined
     ? Number(application.requested_duration_months ?? application.duration_months)
     : Number(body.durationMonths);
+  const requested = body.requestedAmount === undefined && body.payoutAmount === undefined
+    ? { amount: String(application.requested_amount), notMatched: false }
+    : requestPrincipal(customer, Number(application.plan_id), duration, body);
+  const amount = requested.amount;
+  if (requested.notMatched) return jsonError(res, 422, "application_terms_not_eligible");
   if (!/^[1-9]\d{0,17}$/.test(amount) || !Number.isSafeInteger(duration) || duration < 1 || duration > 600) {
     return jsonError(res, 400, "invalid_application_input");
   }

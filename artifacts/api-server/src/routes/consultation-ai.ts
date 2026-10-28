@@ -19,6 +19,7 @@ import { invokeConsultationModel } from "../lib/consultation-engine";
 import { type AuthUser } from "../lib/auth";
 import { requirePermission } from "../lib/access-control";
 import { getCustomer } from "./crm";
+import { customerAdviceLeakReasons } from "../lib/customer-advice-filter";
 
 const router: IRouter = Router();
 type Conversation = { id: number; customer_id: number; title: string | null; created_at: string; updated_at: string };
@@ -111,7 +112,12 @@ function contextFor(customerId: number, user: AuthUser, customerFacing = false) 
   );
   const publicQuestionnaire=consultationContext ? Object.fromEntries(Object.entries(consultationContext)
     .filter(([key])=>["questionnaire_version","credit_rank","customer_check_status","has_customer_salary_deduct","job_type",
-      "has_guarantor","guarantor_credit_rank","guarantor_check_type","has_guarantor_salary_deduct","requested_amount"].includes(key))) : null;
+      "has_guarantor","guarantor_credit_rank","guarantor_check_type","has_guarantor_salary_deduct"].includes(key))) : null;
+  // LEAKS-46 (PM item C): the customer-facing prompt never gets plan principal/rates/percents (the portal route passes its own
+  // payout/installment/term context), the questionnaire principal, or approved knowledge that mentions them. Staff: unchanged.
+  const knowledgeFor = customerFacing
+    ? knowledge.filter((k) => !customerAdviceLeakReasons(`${k.question ?? ""}\n${k.corrected_answer || k.answer || ""}`).length)
+    : knowledge;
   return [
      `مشتری: ${JSON.stringify({
        name: customer.name,
@@ -125,8 +131,8 @@ function contextFor(customerId: number, user: AuthUser, customerFacing = false) 
      `آخرین فرم مشاوره: ${JSON.stringify(customerFacing ? publicQuestionnaire : consultationContext)}`,
     ...(customerFacing ? [] : [`تماس‌های اخیر: ${JSON.stringify(calls)}`]),
     `فهرست کامل نام طرح‌های فعال: ${JSON.stringify(plans.map((plan) => ({ id: plan.id, name: plan.name })))}`,
-    `جزئیات کامل طرح‌های فعال و شرایط آن‌ها: ${JSON.stringify(plans)}`,
-    `دانش تأییدشده کارشناسان: ${JSON.stringify(knowledge.map((k) => ({ question: k.question, answer: k.corrected_answer || k.answer })))}`,
+    ...(customerFacing ? [] : [`جزئیات کامل طرح‌های فعال و شرایط آن‌ها: ${JSON.stringify(plans)}`]),
+    `دانش تأییدشده کارشناسان: ${JSON.stringify(knowledgeFor.map((k) => ({ question: k.question, answer: k.corrected_answer || k.answer })))}`,
   ].join("\n").slice(0, 60000);
 }
 

@@ -6,6 +6,9 @@ import { customerPortalIdentityReady } from "../lib/customer-portal-identity";
 import { customerPortalSession, requireCustomerPortal } from "../lib/customer-portal-auth";
 import { execute, executeChanges, queryRow, queryRows, runTransaction } from "../lib/crm-db";
 import { payablePlan } from "./loan-applications";
+import { activeQuotePlan } from "./crm";
+import { calculatorDurations, principalCeiling, publicPlanTerms, termAtCeiling } from "../lib/plan-quote-math";
+import { customerAdviceLeakReasons, customerSafeAdvice } from "../lib/customer-advice-filter";
 
 const router = Router();
 router.use(requireCustomerPortal);
@@ -27,20 +30,19 @@ type MessageRow = {
   created_at: string;
 };
 
+/** LEAKS-46 (PM item C): this answer reaches customers — the plan context carries no principal, rate, percent or fee,
+ *  only names/requirements and per-term «مبلغ واریزی» (payout), monthly installment and number of installments. */
+type MoneyTerm = { installments: number; payout: number | null; installment: number | null };
 type PlanContext = {
   id: number;
   name: string;
   bank_name: string | null;
   platform_name: string | null;
-  principal_amount: string | null;
-  annual_interest: string | null;
-  installments: unknown;
-  installment_terms: unknown;
-  deposit_percents: unknown;
   required_documents: unknown;
   customer_jobs: unknown;
   needs_guarantor: number | null;
   notes: string | null;
+  terms: MoneyTerm[];
   conditions: Array<Record<string, unknown>>;
 };
 
@@ -74,39 +76,59 @@ function parseJson(value: unknown): unknown {
   }
 }
 
+/** Free text from plan/condition notes only when it carries no rate/percent/principal/fee wording. */
+const safeNote = (value: unknown) => typeof value === "string" && value.trim() && !customerAdviceLeakReasons(value).length ? value.trim() : null;
+
 function safePlanContext(): PlanContext[] {
-  const plans = queryRows<Omit<PlanContext, "conditions">>(`
-    SELECT id,name,bank_name,platform_name,principal_amount,annual_interest,
-      installments,installment_terms,deposit_percents,required_documents,
-      customer_jobs,needs_guarantor,notes
+  const plans = queryRows<{ id: number; name: string; bank_name: string | null; platform_name: string | null;
+    required_documents: unknown; customer_jobs: unknown; needs_guarantor: number | null; notes: string | null }>(`
+    SELECT id,name,bank_name,platform_name,required_documents,customer_jobs,needs_guarantor,notes
     FROM loan_plans
     WHERE COALESCE(active,1)=1
     ORDER BY id
   `);
-  return plans.filter((plan) => Boolean(payablePlan(Number(plan.id)))).map((plan) => ({
-    ...plan,
-    id: Number(plan.id),
-    installments: parseJson(plan.installments) ?? plan.installments,
-    installment_terms: parseJson(plan.installment_terms),
-    deposit_percents: parseJson(plan.deposit_percents),
-    required_documents: parseJson(plan.required_documents) ?? [],
-    customer_jobs: parseJson(plan.customer_jobs) ?? [],
-    needs_guarantor: plan.needs_guarantor == null ? null : Number(plan.needs_guarantor),
-    conditions: queryRows<Record<string, unknown>>(`
-      SELECT max_principal,customer_ranks,installment_options,customer_jobs,
-        collateral_type,needs_guarantor,guarantor_ranks,guarantor_jobs,notes
-      FROM loan_plan_conditions
-      WHERE plan_id=?
-      ORDER BY sort_order,id
-    `, [Number(plan.id)]).map((condition) => ({
-      ...condition,
-      customer_ranks: parseJson(compactRankJson(condition.customer_ranks)) ?? condition.customer_ranks,
-      installment_options: parseJson(condition.installment_options) ?? condition.installment_options,
-      customer_jobs: parseJson(condition.customer_jobs) ?? condition.customer_jobs,
-      guarantor_ranks: parseJson(compactRankJson(condition.guarantor_ranks)) ?? condition.guarantor_ranks,
-      guarantor_jobs: parseJson(condition.guarantor_jobs) ?? condition.guarantor_jobs,
-    })),
-  }));
+  return plans.filter((plan) => Boolean(payablePlan(Number(plan.id)))).map((plan) => {
+    const quotePlan = activeQuotePlan(Number(plan.id));
+    let terms: MoneyTerm[] = [];
+    try { terms = quotePlan ? publicPlanTerms(quotePlan) : []; } catch { terms = []; }
+    return {
+      id: Number(plan.id),
+      name: plan.name,
+      bank_name: plan.bank_name,
+      platform_name: plan.platform_name,
+      required_documents: parseJson(plan.required_documents) ?? [],
+      customer_jobs: parseJson(plan.customer_jobs) ?? [],
+      needs_guarantor: plan.needs_guarantor == null ? null : Number(plan.needs_guarantor),
+      notes: safeNote(plan.notes),
+      terms,
+      conditions: queryRows<Record<string, unknown>>(`
+        SELECT id,customer_ranks,installment_options,customer_jobs,
+          collateral_type,needs_guarantor,guarantor_ranks,guarantor_jobs,notes
+        FROM loan_plan_conditions
+        WHERE plan_id=?
+        ORDER BY sort_order,id
+      `, [Number(plan.id)]).map((condition) => {
+        // Payout at this condition's own ceiling per term (never the ceiling principal itself).
+        let conditionTerms: MoneyTerm[] = [];
+        try {
+          conditionTerms = quotePlan ? calculatorDurations(quotePlan, Number(condition.id)).map((months) => ({
+            installments: months, ...termAtCeiling(quotePlan, months, principalCeiling(quotePlan, Number(condition.id))),
+          })) : [];
+        } catch { conditionTerms = []; }
+        return {
+          customer_ranks: parseJson(compactRankJson(condition.customer_ranks)) ?? condition.customer_ranks,
+          installment_options: parseJson(condition.installment_options) ?? condition.installment_options,
+          customer_jobs: parseJson(condition.customer_jobs) ?? condition.customer_jobs,
+          collateral_type: condition.collateral_type,
+          needs_guarantor: condition.needs_guarantor,
+          guarantor_ranks: parseJson(compactRankJson(condition.guarantor_ranks)) ?? condition.guarantor_ranks,
+          guarantor_jobs: parseJson(condition.guarantor_jobs) ?? condition.guarantor_jobs,
+          notes: safeNote(condition.notes),
+          maximumPayoutByTerm: conditionTerms,
+        };
+      }),
+    };
+  });
 }
 
 function validConversation(conversationId: number, customerId: number): ConversationRow | undefined {
@@ -147,14 +169,16 @@ function visibleAnswer(answer: string, plans: PlanContext[]) {
 }
 
 function messageResponse(message: MessageRow, plans: PlanContext[]) {
+  // Stored answers from before LEAKS-46 may still mention rates/principal: filter on read too.
+  const assistantText = message.role === "assistant" ? customerSafeAdvice(message.content).content : message.content;
   const recommendations = message.role === "assistant"
-    ? planLinksFromAnswer(message.content, plans)
+    ? planLinksFromAnswer(assistantText, plans)
     : [];
   return {
     id: Number(message.id),
     conversationId: Number(message.conversation_id),
     role: message.role,
-    content: message.role === "assistant" ? visibleAnswer(message.content, plans) : message.content,
+    content: message.role === "assistant" ? visibleAnswer(assistantText, plans) : message.content,
     createdAt: message.created_at,
     recommendedPlans: recommendations,
   };
@@ -226,6 +250,8 @@ router.get("/consultations/:conversationId/messages", (req, res): void => {
     LIMIT 100
   `, [conversationId]);
   const plans = safePlanContext();
+  const blockedOnRead = messages.filter((message) => message.role === "assistant" && customerSafeAdvice(message.content).blocked).length;
+  if (blockedOnRead) req.log.warn({ event: "customer_advice_answer_blocked", source: "history", count: blockedOnRead }, "customer advice answer replaced");
   res.json({
     conversation: {
       id: Number(conversation.id),
@@ -301,7 +327,7 @@ router.post("/consultations/:conversationId/messages", async (req, res): Promise
       LIMIT 12
     `, [conversationId, userMessageId]).reverse();
     const recentContext = history
-      .map((message) => `${message.role === "assistant" ? "دستیار" : "مشتری"}: ${message.content.slice(0, 1200)}`)
+      .map((message) => `${message.role === "assistant" ? "دستیار" : "مشتری"}: ${(message.role === "assistant" ? customerSafeAdvice(message.content).content : message.content).slice(0, 1200)}`)
       .join("\n")
       .slice(-9000);
     const planContext = JSON.stringify(plans.map((plan) => ({
@@ -309,11 +335,8 @@ router.post("/consultations/:conversationId/messages", async (req, res): Promise
       name: plan.name,
       bank: plan.bank_name,
       platform: plan.platform_name,
-      principalAmount: plan.principal_amount,
-      annualInterest: plan.annual_interest,
-      installments: plan.installments,
-      installmentTerms: plan.installment_terms,
-      depositPercents: plan.deposit_percents,
+      // payout = «مبلغ واریزی» (highest selectable, toman), installment = monthly installment (toman), installments = count.
+      terms: plan.terms,
       requiredDocuments: plan.required_documents,
       customerJobs: plan.customer_jobs,
       needsGuarantor: Boolean(plan.needs_guarantor),
@@ -324,7 +347,8 @@ router.post("/consultations/:conversationId/messages", async (req, res): Promise
         {
           role: "system",
           content: `تو دستیار فارسی انتخاب طرح تسهیلات هستی و مستقیماً با متقاضی گفت‌وگو می‌کنی.
-فقط از شرایط فعال زیر و گفته‌های همین گفت‌وگو استفاده کن؛ هیچ مقررات، مبلغ، زمان، نرخ یا شرطی را حدس نزن.
+فقط از شرایط فعال زیر و گفته‌های همین گفت‌وگو استفاده کن؛ هیچ مقررات، مبلغ، زمان یا شرطی را حدس نزن.
+دربارهٔ پول فقط «مبلغ واریزی»، «قسط ماهانه» و «تعداد اقساط» را از داده‌های زیر بگو. هرگز از درصد، نرخ، سود یا بهره، اصل وام یا کارمزد حرف نزن و آن‌ها را محاسبه یا حدس نزن؛ اگر کاربر پرسید، بگو مبلغ واریزی و قسط را در ماشین‌حساب طرح ببیند یا از کارشناس بپرسد.
 تأیید نهایی، ظرفیت، احراز صلاحیت و زمان پرداخت فقط با بررسی کارشناسان است؛ هیچ‌وقت دریافت تسهیلات را تضمین نکن.
 اگر اطلاعات کافی نیست، حداکثر یک سؤال روشن و مرتبط بپرس. درباره اطلاعات حساس یا کد ملی/رمز یک‌بارمصرف سؤال نکن.
  اگر یک طرح دقیقاً در فهرست قابل درخواست زیر وجود دارد و واقعاً آن را برای کاربر پیشنهاد می‌کنی، بلافاصله بعد از نام آن شناسه‌اش را دقیقاً با قالب [PLAN_ID:عدد] قرار بده. شناسه یا لینک اختراع نکن. هر طرح را فقط با شرایط ثبت‌شده توضیح بده. بدون نتیجهٔ اعتبارسنجی مشتری، واجد شرایط بودن او را قطعی ندان.
@@ -344,14 +368,17 @@ ${portalConsultationContext(Number(customer.id))}`,
       ],{maxCompletionTokens:1100,timeoutMs:45000,requireComplete:true});
     if (!rawAnswer) throw new Error("empty_ai_response");
     const createdAnswerAt = new Date().toISOString();
-    const matchedPlans = planLinksFromAnswer(rawAnswer, plans);
-    const storedContent = visibleAnswer(rawAnswer, plans);
+    // Output filter: an answer that mentions a percent/rate/interest/principal/fee never reaches (or is stored for) the customer.
+    const safe = customerSafeAdvice(rawAnswer);
+    const answer = safe.content;
+    const matchedPlans = planLinksFromAnswer(answer, plans);
+    const storedContent = visibleAnswer(answer, plans);
     const assistantMessageId = runTransaction(() => {
       const inserted = execute(
         `INSERT INTO customer_portal_messages
           (conversation_id,role,content,suggested_plan_id,created_at)
          VALUES(?,'assistant',?,?,?)`,
-        [conversationId, rawAnswer, matchedPlans[0]?.id ?? null, createdAnswerAt],
+        [conversationId, answer, matchedPlans[0]?.id ?? null, createdAnswerAt],
       );
       executeChanges(
         "UPDATE customer_portal_conversations SET updated_at=? WHERE id=? AND customer_id=?",
@@ -359,6 +386,7 @@ ${portalConsultationContext(Number(customer.id))}`,
       );
       return inserted;
     });
+    if (safe.blocked) req.log.warn({ event: "customer_advice_answer_blocked", source: "answer", reasons: safe.reasons, messageId: assistantMessageId }, "customer advice answer replaced");
     res.status(201).json({
       userMessage: {
         id: userMessageId,

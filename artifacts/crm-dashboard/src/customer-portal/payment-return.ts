@@ -19,9 +19,11 @@ export function paymentReturnPath(): string | null {
     return url.origin === window.location.origin ? url.pathname + url.search : null;
   } catch { return null; }
 }
+// LEAKS-46: draft `amount` is the payout («مبلغ واریزی»); v2 key so a pre-release draft (principal) is never read as a payout.
+const draftKey = (customerId: number, planId: number) => `customer-payment-draft-v2:${customerId}:${planId}`;
 export function readPaymentDraft(customerId: number, planId: number): { amount: string; duration: string } {
   try {
-    const saved = JSON.parse(sessionStorage.getItem(`customer-payment-draft:${customerId}:${planId}`) || 'null');
+    const saved = JSON.parse(sessionStorage.getItem(draftKey(customerId, planId)) || 'null');
     if (saved && Date.now() - saved.at < 24 * 60 * 60 * 1000 &&
       typeof saved.amount === 'string' && typeof saved.duration === 'string') return saved;
   } catch { /* No saved draft. */ }
@@ -29,6 +31,6 @@ export function readPaymentDraft(customerId: number, planId: number): { amount: 
 }
 export function savePaymentDraft(customerId: number, planId: number, amount: string, duration: string) {
   try {
-    sessionStorage.setItem(`customer-payment-draft:${customerId}:${planId}`, JSON.stringify({ amount, duration, at: Date.now() }));
+    sessionStorage.setItem(draftKey(customerId, planId), JSON.stringify({ amount, duration, at: Date.now() }));
   } catch { /* Keep the form usable without storage. */ }
 }

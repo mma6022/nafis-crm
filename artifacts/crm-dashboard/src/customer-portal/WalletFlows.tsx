@@ -133,7 +133,7 @@ export function WalletFeePage() {
   const wallet = useQuery({ queryKey: ['customer', 'wallet'], queryFn: portalApi.wallet });
   const draft = readPaymentDraft(me.data?.id ?? 0, planId);
   const selection = useLoanSelection(planId, draft.amount, draft.duration, valid && !!me.data && !!options.data?.some(p => p.planId === planId));
-  const charge = useMutation({ mutationFn: (v: { key: string; body: { planId: number; conditionId: number; requestedAmount: string; durationMonths: number } }) => portalApi.filingFee(v.body, v.key), retry: false });
+  const charge = useMutation({ mutationFn: (v: { key: string; body: { planId: number; conditionId: number; payoutAmount: string; durationMonths: number } }) => portalApi.filingFee(v.body, v.key), retry: false });
   const [error, setError] = useState<{ code: string; text: string } | null>(null);
   const [paid, setPaid] = useState<{ remaining: bigint | null } | null>(null);
   const crumb = <Crumb items={[['کیف پول', '/customer/wallet'], ['هزینه تشکیل پرونده']]} />;
@@ -185,7 +185,7 @@ export function WalletFeePage() {
     let key = ''; try { key = sessionStorage.getItem(feeKey) || ''; } catch { /* guarded server-side */ }
     if (!key) { key = crypto.randomUUID(); try { sessionStorage.setItem(feeKey, key); } catch { /* guarded server-side */ } }
     try {
-      const r = await charge.mutateAsync({ key, body: { planId, conditionId: chosen, requestedAmount: requested, durationMonths: Number(draft.duration) } });
+      const r = await charge.mutateAsync({ key, body: { planId, conditionId: chosen, payoutAmount: requested, durationMonths: Number(draft.duration) } });
       if (typeof r.chargeId !== 'number') throw new Error('رسید پرداخت از سرور دریافت نشد. وضعیت را به‌روزرسانی کنید.');
       setPaid({ remaining: cash != null ? cash - feeBig : null });
     } catch (e) { setError({ code: code(e), text: msg(e) }); }

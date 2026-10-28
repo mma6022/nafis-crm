@@ -98,7 +98,8 @@ router.post("/plan-finder",(req,res)=>{
     const saved=getConsultation(id)!;
     const matches=computeConsultationPlanMatches(saved);
     executeChanges("UPDATE consultation_forms SET plan_matches_snapshot=? WHERE id=?",[JSON.stringify({capturedAt:at,requestedAmount:saved.requestedAmount,matches}),id]);
-    return {consultationId:id,matches};
+    // LEAKS-46 (PM item B): the staff snapshot above keeps staff wording; the customer response gets the payout-ceiling text.
+    return {consultationId:id,matches:computeConsultationPlanMatches(saved,undefined,{customerView:true})};
   });
   // Customer view: no plan internals (principal/rates/percents) — only names, status and server-computed payout/installment.
   res.status(201).json({consultationId:response.consultationId,matches:response.matches.map(m=>({

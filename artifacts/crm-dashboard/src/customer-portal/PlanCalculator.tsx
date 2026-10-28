@@ -23,12 +23,13 @@ export function PlanCalculator({ planId, amount, duration, onAmount, onDuration,
   const typed = Number(duration);
   const reqMonths = Number.isInteger(typed) && typed > 0 && typed <= 600 ? typed : null;
   const eligible = !!eligiblePlan;
-  // The saved principal only seeds the first quote of the apply flow (same as before: cash ?? savedCash ?? max).
-  const savedPrincipal = eligible && cash == null ? parseCalculatorAmount(amount) : null;
+  // The saved payout («مبلغ واریزی») only seeds the first quote of the apply flow (cash ?? savedPayout ?? max).
+  // LEAKS-46: `amount` carries the payout, never the principal (the server derives the principal on submit).
+  const savedPayout = eligible && cash == null ? parseCalculatorAmount(amount) : null;
   const q = useQuery({
-    queryKey: ['customer', 'plan-quote', planId, eligible ? 'eligible' : 'public', reqMonths, cash, savedPrincipal],
+    queryKey: ['customer', 'plan-quote', planId, eligible ? 'eligible' : 'public', reqMonths, cash, savedPayout],
     queryFn: () => eligible
-      ? portalApi.planQuote({ planId, months: reqMonths, cash, amount: savedPrincipal, eligible: 1 })
+      ? portalApi.planQuote({ planId, months: reqMonths, cash: cash ?? savedPayout, eligible: 1 })
       : publicPlansApi.quote(planId, { months: reqMonths, cash }),
     placeholderData: keepPreviousData, staleTime: 60_000, retry: 1,
   });
@@ -39,7 +40,7 @@ export function PlanCalculator({ planId, amount, duration, onAmount, onDuration,
   const maxCash = p?.maxPayout ?? null;
   const rangeOk = maxCash != null && minCash != null && maxCash >= minCash;
   const cashNow = drag ?? (rangeOk ? p?.payout ?? null : null);
-  const principal = p?.requestedAmount != null ? parseCalculatorAmount(p.requestedAmount) : null;
+  const requestedPayout = p?.requestedPayoutAmount != null ? parseCalculatorAmount(p.requestedPayoutAmount) : null;
   const pmt = drag == null ? p?.installment ?? null : null;
 
   useEffect(() => () => window.clearTimeout(dragTimer.current), []);
@@ -55,9 +56,9 @@ export function PlanCalculator({ planId, amount, duration, onAmount, onDuration,
   useEffect(() => { summaryRef.current?.({ cash: liveCash, installment: livePmt, months }); }, [liveCash, livePmt, months]);
   useEffect(() => {
     if (!eligible || !p || q.isPlaceholderData) return;
-    const next = principal == null ? '' : String(principal);
-    if (next !== amount && (principal != null || parseCalculatorAmount(amount) != null)) amountRef.current(next);
-  }, [eligible, principal, amount, p, q.isPlaceholderData]);
+    const next = requestedPayout == null ? '' : String(requestedPayout);
+    if (next !== amount && (requestedPayout != null || parseCalculatorAmount(amount) != null)) amountRef.current(next);
+  }, [eligible, requestedPayout, amount, p, q.isPlaceholderData]);
   const slide = (value: number) => {
     setDrag(value);
     window.clearTimeout(dragTimer.current);

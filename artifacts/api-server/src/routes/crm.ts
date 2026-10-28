@@ -193,7 +193,7 @@ import { mergeCustomerRecords } from "../lib/customer-merge";
 import { insertCustomerRecord, lastCustomerCreateOutcome } from "../lib/customer-create";
 import { parseStaffUrgentReason } from "../lib/customer-urgent";
 import { applyStaffUrgent, defaultLeadSourceForUser, ensureLeadIntakeSchema, parseIntake, URGENT_ERRORS, validateUrgentClear } from "../lib/lead-intake";
-import { calculatorQuote, publicPlanTerms } from "../lib/plan-quote-math";
+import { calculatorDurations, calculatorQuote, ceilingPayout, customerPayout, publicPlanTerms } from "../lib/plan-quote-math";
 import { publicQuoteRateLimit, parseQuoteBody } from "../lib/plan-quote-guard";
 import { isPortalRegistration } from "../lib/customer-portal-features";
 import { acceptedGradeEdit, compactRankList, expandRankList, GRADE_EDIT_ERROR, isLegacyGradeLetter, parseStoredRanks } from "../lib/credit-subgrades";
@@ -5743,7 +5743,21 @@ export function activeMatchPlans() {
   return queryRows<LoanPlanRow>(`${planSelect} WHERE active = 1 ORDER BY id DESC`).map(planFromRow);
 }
 
-export function computeConsultationPlanMatches(consultation: ReturnType<typeof consultationFromRow>, preloadedPlans?: ReturnType<typeof activeMatchPlans>) {
+/** LEAKS-46 (PM item B): customer-visible ceiling = the «مبلغ واریزی» at the condition's principal ceiling — the highest
+ *  whole-million payout over the condition's terms (same ceilingPayout rule as every customer quote). Null if not computable. */
+function customerPayoutCeiling(plan: ReturnType<typeof planFromRow>, conditionId: number, maximumPrincipal: number): number | null {
+  try {
+    const payouts = calculatorDurations(plan as any, conditionId)
+      .map((months) => ceilingPayout(customerPayout(plan as any, maximumPrincipal, months)))
+      .filter((value): value is number => value != null);
+    return payouts.length ? Math.max(...payouts) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function computeConsultationPlanMatches(consultation: ReturnType<typeof consultationFromRow>, preloadedPlans?: ReturnType<typeof activeMatchPlans>,
+  view: { customerView?: boolean } = {}) {
     const plans = preloadedPlans ?? activeMatchPlans();
     const matches = plans.map((plan) => {
       if (!plan.conditions.length) {
@@ -5762,7 +5776,15 @@ export function computeConsultationPlanMatches(consultation: ReturnType<typeof c
         const maximumAmount = consultationMaximumAmount(condition.maxPrincipal, plan.principalAmount);
         const requested = parseAmount(consultation.requestedAmount);
         if (maximumAmount != null && requested != null && requested > maximumAmount) {
-          result.failedRequirements.push(`مبلغ درخواستی بیشتر از سقف قابل دریافت مشتری (${maximumAmount.toLocaleString("fa-IR")} تومان) است`);
+          if (view.customerView) {
+            // Customer text: payout ceiling only, never the principal ceiling (staff text below is unchanged).
+            const payoutCeiling = customerPayoutCeiling(plan, condition.id, maximumAmount);
+            result.failedRequirements.push(payoutCeiling == null
+              ? "مبلغ درخواستی بیشتر از سقف قابل دریافت مشتری است"
+              : `مبلغ درخواستی بیشتر از سقف قابل دریافت مشتری (${payoutCeiling.toLocaleString("fa-IR")} تومان مبلغ واریزی) است`);
+          } else {
+            result.failedRequirements.push(`مبلغ درخواستی بیشتر از سقف قابل دریافت مشتری (${maximumAmount.toLocaleString("fa-IR")} تومان) است`);
+          }
         }
         // Everyone can supply average balance and account turnover in advice.
         // Their absence/negative legacy answer is not an advice eligibility barrier.

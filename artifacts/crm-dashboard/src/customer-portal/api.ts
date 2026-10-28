@@ -80,7 +80,10 @@ export type PortalDocument = {
   status?: string;
   reviewReason?: string | null;
 };
-export type Application = CustomerPortalApplication & {
+/** LEAKS-46: the customer view carries «مبلغ واریزی» equivalents only (no requestedAmount/approvedAmount principal). */
+export type Application = Omit<CustomerPortalApplication, 'requestedAmount' | 'approvedAmount'> & {
+  requestedPayoutAmount?: string | null;
+  approvedPayoutAmount?: string | null;
   manualValues?: Record<string, string> | null;
   /** Server-computed monthly installment (rates never reach the browser). */
   installmentAmount?: number | null;
@@ -164,7 +167,9 @@ export type PlanFinderMatch = { plan: { id: number; name: string; bankName?: str
 export type PublicPlan = { id: number; name: string; installments?: string | null; loanType?: string | null; processMode?: string | null;
   grantDays?: number | string | null; bankName?: string | null; platformName?: string | null; installmentTerms: QuoteTerm[] };
 export type PlanQuote = { months: number; durations: number[]; minPayout: number | null; maxPayout: number | null;
-  payout: number | null; installment: number | null; requestedAmount?: string | null; conditionId?: number | null };
+  payout: number | null; installment: number | null;
+  /** The payout the apply form submits (null when this payout is not selectable); never the principal (LEAKS-46). */
+  requestedPayoutAmount?: string | null; conditionId?: number | null };
 export const publicPlansApi = {
   list: () => request<PublicPlan[]>('/public/loan-plans', {}, '/api'),
   documents: (planId: number) => request<{ id: number; requiredDocuments: string[] }>(`/public/loan-plans/${planId}/documents`, {}, '/api'),
@@ -253,15 +258,15 @@ export const portalApi = {
     }
   },
   topUp: (amountToman: string) => request<{ paymentUrl?: string }>('/wallet/top-up', { method: 'POST', body: json({ amountToman }) }),
-  filingFee: (data: { planId: number; conditionId: number; requestedAmount: string; durationMonths: number }, idempotencyKey: string) => request<Fee>('/filing-fee', {
+  filingFee: (data: { planId: number; conditionId: number; payoutAmount: string; durationMonths: number }, idempotencyKey: string) => request<Fee>('/filing-fee', {
     method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: json(data),
   }),
   applications: async () => list<Application>(await request<unknown>('/applications'), 'applications'),
   activeApplications: async () => list<Application>(await request<unknown>('/applications?active=true'), 'applications'),
   application: (id: number) => request<Application>(`/applications/${id}`),
-  createApplication: (data: { planId: number; conditionId: number; requestedAmount: string; durationMonths: number; feeChargeId: number; notes?: string }) =>
+  createApplication: (data: { planId: number; conditionId: number; payoutAmount: string; durationMonths: number; feeChargeId: number; notes?: string }) =>
     request<Application>('/applications', { method: 'POST', body: json(data) }),
-  editApplication: (id: number, data: { requestedAmount: string; durationMonths: number; manualValues: Record<string, string>; notes?: string }) =>
+  editApplication: (id: number, data: { payoutAmount: string; durationMonths: number; manualValues: Record<string, string>; notes?: string }) =>
     request<Application>(`/applications/${id}`, { method: 'PATCH', body: json(data) }),
   uploadApplicationDocument: (id: number, requirementKey: string, file: File) => {
     const data = new FormData(); data.append('requirementKey', requirementKey); data.append('file', file);
@@ -279,7 +284,7 @@ export const portalApi = {
   planQuote: (body: { planId: number; months?: number | null; cash?: number | null; amount?: number | null; eligible: 1 }) =>
     request<PlanQuote>('/plan-quote', { method: 'POST', body: json(body) }),
   /** Server-chosen condition for (principal, months); min/max principal never reach the browser (PM item 2). */
-  loanSelection: (body: { planId: number; amount: string; months: number }) =>
+  loanSelection: (body: { planId: number; payout: string; months: number }) =>
     request<LoanSelection>('/loan-options/selection', { method: 'POST', body: json(body) }),
   planFinderOptions: () => request<{ options: Array<{ fieldKey: string; value: string; label: string }> }>('/plan-finder/options'),
   planFinder: (body: PlanFinderRequest) => request<{ consultationId: number; matches: PlanFinderMatches }>('/plan-finder', { method: 'POST', body: json(body) }),
