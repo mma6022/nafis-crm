@@ -14,6 +14,7 @@ import { TodayCarousel } from './TodayCarousel';
 import { getGetAuthSessionQueryKey, getGetCustomerQueryKey, useGetAuthSession, useGetCustomer } from '@workspace/api-client-react';
 import { CallLaunchStatus, useCallLauncher } from '@/features/team-sales/useCallLauncher';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
+import { HistoryBox } from '@/features/history/HistoryBox';
 
 /** FIRSTCALL-62: the customer handed to the existing first-call form (team-sales/SimpleCallForm), same props as the customer page. */
 type FcCustomer = { id: number; name: string; phone: string; priority?: number | null };
@@ -162,6 +163,8 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
       <small data-testid="dp-move-count">جابه‌جایی {faNum(cur.moveCount)} از {faNum(d.moveMax)}</small>
     </div>
     {cur.movesLeft <= 0 ? <p className="dp-hint" data-testid="dp-move-limit">این کار ۲ بار جابه‌جا شده؛ باید نتیجه‌ی تماس ثبت شود.</p> : null}
+    {/* HISTORY-A: the customer's history (not on a first call) — compact before the call, full above the result form. */}
+    <HistoryBox customerId={cur.customerId} name={cur.name} compact={!opened} testId="dp-hx" />
     {opened && formKind !== 'legacy' ? <div className="dp-result" data-testid="dp-result-first">
       {firstForm ? <button type="button" className="btn btn-primary dp-save" disabled={busy} onClick={openFirst} data-testid="dp-first-open"><FileText size={16} aria-hidden="true" /> فرم تماس اول</button>
         : <p className="dp-hint" role="status" data-testid="dp-first-wait">در حال آماده‌سازی فرم تماس…</p>}

@@ -183,7 +183,8 @@ import * as ics24 from "../lib/ics24";
 import { questionnaireError, consultationRankMatches, type QuestionnaireOption } from "../lib/consultation-questionnaire";
 import { consultationMaximumAmount } from "../lib/consultation-limits";
 import { verifyCustomer } from "../lib/sapi";
-import { latestFirstCall, latestNoPlanFit, latestSelectedPlans, logPriorityChange } from "../lib/team-sales";
+import { TeamSalesError, latestFirstCall, latestNoPlanFit, latestSelectedPlans, logPriorityChange } from "../lib/team-sales";
+import { assertP1RevertAllowed } from "../lib/history-a";
 import { applyNonP1TransferInTx, NONP1_TRANSFER_HEADER, type NonP1Result } from "../lib/nonp1-transfer";
 import { kazemiSourceFilterSql, kazemiSourceOf, kazemiSources } from "../lib/kazemi-source";
 import { ACTIVE_SITE_LEAD_EXISTS_SQL, activeSiteLeads, siteLeadHistory, siteLeadQueue, siteLeadsTableReady, topOfList, topOrderSql } from "../lib/site-leads";
@@ -3035,6 +3036,9 @@ router.patch(
       res.status(404).json({ error: "Customer not found" });
       return;
     }
+    // HISTORY-A: a P1 the expert set with «ارتقا به اولویت یک» goes back only through an admin.
+    try { assertP1RevertAllowed(params.data.id, body.priority, user); }
+    catch (e) { if (e instanceof TeamSalesError) { res.status(e.status).json({ error: e.message, code: "p1_revert_admin_only" }); return; } throw e; }
     if (body.name !== undefined) entries.push(["name", body.name]);
     if (body.phone !== undefined) {
       const mobile = ics24.normalizeMobile(body.phone);

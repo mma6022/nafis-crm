@@ -18,6 +18,7 @@ import { elApi, type ElSearch, type ElSuggest } from './api';
 import { liveQueryReady } from './IncomingCall';
 import './lockdown.css';
 import { OutOfListLog } from './OutOfListLog';
+import { HistoryBox } from '@/features/history/HistoryBox';
 import '@/features/daily-plan/carousel.css';
 
 type Step = 'choose' | 'old_phone' | 'own' | 'other' | 'referred' | 'none' | 'new_form' | 'dup' | 'log' | 'ok';
@@ -217,7 +218,7 @@ export function IncomingWizard({ currentNo, onClose, onSaved, onEvent }: {
         <div className="tc-foot"><button type="button" className="btn btn-primary" onClick={() => setConfirm(false)} data-testid="iw-confirm-stay">ادامهٔ ثبت</button>
           <button type="button" className="btn btn-ghost" onClick={() => { ev('incoming_discard'); close('cancel', true); }} data-testid="iw-confirm-discard">بستن بدون ثبت</button></div>
       </div> : null}
-      {!confirm && step === 'own' && cust ? <LogCall customer={cust} phone={ph} currentNo={currentNo} saveLabel="ثبت تماس" onSaved={saved} extra={hit('own')} onFormOpen={setFcOpen} onUnsaved={() => { ev('incoming_discard'); close('cancel', true); }} onKind={setKind} isNew={false} /> : null}
+      {!confirm && step === 'own' && cust ? <LogCall customer={cust} phone={ph} currentNo={currentNo} saveLabel="ثبت تماس" onSaved={saved} extra={<>{hit('own')}<HistoryBox customerId={cust.id} name={cust.name} testId="iw-hx" /></>} onFormOpen={setFcOpen} onUnsaved={() => { ev('incoming_discard'); close('cancel', true); }} onKind={setKind} isNew={false} /> : null}
       {!confirm && step === 'log' && cust ? <LogCall customer={cust} phone={ph} currentNo={currentNo} saveLabel="ثبت تماس و فرم تماس اول" onSaved={saved} extra={hit('new')} onFormOpen={setFcOpen} onUnsaved={() => { ev('incoming_discard'); close('cancel', true); }} onKind={setKind} isNew={true} /> : null}
 
       {step === 'dup' && cust ? <div className="tc-form">{hit('dup')}
