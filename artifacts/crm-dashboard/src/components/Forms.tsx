@@ -1,6 +1,7 @@
 import { CustomerName, customerNameText } from '@/components/customer/CustomerName';
 import { CallNoteCounter } from '@/components/CallNoteCounter';
 import { callNoteOk } from '@/lib/call-note';
+import { callErrorMessage } from '@/lib/call-error';
 import { OtherOwnerResults } from '@/components/customer/OtherOwnerResults';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { GradePicker } from '@/components/grade/GradePicker';
@@ -28,6 +29,8 @@ type CallFormProps = {
   salespersons: { id: number; name: string }[];
   pending: boolean;
   error?: boolean;
+  /** incoming2-59: the mutation's error object; its Persian server message (or a code mapping) is shown instead of the generic text. */
+  errorDetail?: unknown;
   initialCustomerId?: number;
   onClose: () => void;
   onSave: (data: CallInput) => Promise<void>;
@@ -45,7 +48,7 @@ type CallFormProps = {
   quickCredit?: { canAct: boolean; onSaveAndCredit: (data: CallInput) => Promise<void> };
 };
 
-export function CallForm({ customers, salespersons, pending, error, initialCustomerId, onClose, onSave, onCustomerPicked, pickCheck, onChangeCustomer, quickCredit }: CallFormProps) {
+export function CallForm({ customers, salespersons, pending, error, errorDetail, initialCustomerId, onClose, onSave, onCustomerPicked, pickCheck, onChangeCustomer, quickCredit }: CallFormProps) {
   const defaultReminder = defaultReminderJalali();
   const initialCustomer = customers.find((customer) => customer.id === initialCustomerId);
   const [pickedCustomer, setPickedCustomer] = useState<CallCustomer | undefined>(initialCustomer);
@@ -233,7 +236,7 @@ export function CallForm({ customers, salespersons, pending, error, initialCusto
         <div className="call-dialog-center">
           <form onSubmit={submit} className="call-form-shell">
             <div className="call-form-body">
-              {error ? <div className="profile-form-error" data-testid="error-call-submit">ثبت تماس با خطا مواجه شد. لطفاً دوباره تلاش کنید.</div> : null}
+              {error ? <div className="profile-form-error" data-testid="error-call-submit">{callErrorMessage(errorDetail)}</div> : null}
               <div className="call-form-row">
                 <div className="field call-field-customer">
                   <label id="call-customer-label" htmlFor="call-customer">مشتری</label>

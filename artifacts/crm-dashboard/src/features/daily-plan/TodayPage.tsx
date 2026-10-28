@@ -8,18 +8,25 @@ import { announceCallSaved, faClock, faNum, tehranParts, useCqConfig } from '@/f
 import { custList, dpApi, DpError, useDpConfig, type DpItem, type DpToday } from './api';
 import './daily-plan.css';
 import { elApi, useLockdownMe } from '@/features/expert-lockdown/api';
-import { LockedIncomingChoice } from '@/features/expert-lockdown/IncomingChoice';
+import { IncomingTopButton, IncomingWizard } from '@/features/expert-lockdown/IncomingWizard';
+import { TodayCarousel } from './TodayCarousel';
+
 import { getGetAuthSessionQueryKey, getGetCustomerQueryKey, useGetAuthSession, useGetCustomer } from '@workspace/api-client-react';
 import { CallLaunchStatus, useCallLauncher } from '@/features/team-sales/useCallLauncher';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 
-type Working = Extract<DpToday, { eligible: true }>;
 /** FIRSTCALL-62: the customer handed to the existing first-call form (team-sales/SimpleCallForm), same props as the customer page. */
 type FcCustomer = { id: number; name: string; phone: string; priority?: number | null };
-const faDate = (ymd: string) => new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(`${ymd}T12:00:00+03:30`));
+export type Working = Extract<DpToday, { eligible: true }>;
+/** «چهارشنبه ۶ آبان ۱۴۰۵» — assembled from parts so the RTL order never depends on the browser's ICU pattern (Armita bug: garbled header date). */
+export const faDate = (ymd: string) => {
+  const parts = new Intl.DateTimeFormat('fa-IR-u-ca-persian-nu-arabext', { timeZone: 'Asia/Tehran', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).formatToParts(new Date(`${ymd}T12:00:00+03:30`));
+  const g = (t: Intl.DateTimeFormatPartTypes) => parts.find((x) => x.type === t)?.value ?? '';
+  return faNum(`${g('weekday')} ${g('day')} ${g('month')} ${g('year')}`.replace(/\s+/g, ' ').trim());
+};
 const telFa = (p: string) => faNum(p.replace(/^\+98/, '0'));
 
-function Chips({ i }: { i: DpItem }) {
+export function Chips({ i }: { i: DpItem }) {
   return <span className="dp-chips">
     {i.typeLabel ? <span className={`dp-chip t-${i.type}`}>{i.typeLabel}</span> : null}
     {i.label ? <span className={`dp-chip l-${i.source}`} data-testid="dp-label">{i.label}</span> : null}
@@ -56,18 +63,20 @@ export default function TodayPage() {
   if (q.isError || !q.data) return <div className="dp-page"><h1>کارهای امروز</h1><div className="dp-box err" role="alert" data-testid="dp-error">لیست امروز بارگذاری نشد. <button type="button" className="btn btn-ghost" onClick={() => void q.refetch()}>تلاش دوباره</button></div></div>;
   const d = q.data as DpToday;
   if (!('eligible' in d) || !d.eligible) return <div className="dp-page"><h1>کارهای امروز</h1><div className="dp-box" data-testid="dp-not-eligible">«کارهای امروز» برای کارشناس‌های فروش است. برای حساب تو لیستی ساخته نمی‌شود.</div></div>;
+  if (cfg.carousel === true) return <TodayCarousel d={d} refresh={refresh} />; // incoming2-59 flag.today_carousel (8/2/3 only); OFF → the view below, unchanged
   return <div className="dp-page" data-testid="dp-today" data-state={d.state}>
     <Head d={d} />
+    {locked ? <IncomingTopButton onClick={() => { if (!inbound) void elApi.open().catch(() => undefined); setInbound(true); }} testId="dp-inbound-open" /> : null}
     {d.pendingCall ? <div className="dp-box warn" role="alert" data-testid="dp-pending-other">تماس باز با <b>{d.pendingCall.customerName}</b> هنوز نتیجه ندارد. اول نتیجه و یادداشتش را ثبت کن (از «تماس ورودی» همین صفحه یا پرونده‌ی مشتری).</div> : null}
     <StateBox d={d} />
     {d.current ? <CurrentCard key={`${d.current.id}-${d.current.moveCount}`} d={d} cur={d.current} onDone={refresh} onFirstCall={setFc} /> : null}
     {fc ? <SimpleCallForm customer={fc} userId={fcSession.data?.user?.id} onClose={() => { setFc(null); refresh(); }}
       onDone={(r) => { announceCallSaved(r.callLogId, fc.id); refresh(); }} onNext={() => { setFc(null); refresh(); }} /> : null}
-    <div className="dp-inbound-row">
+    {locked ? null : <div className="dp-inbound-row">
       <button type="button" className="btn btn-ghost" onClick={() => { if (locked && !inbound) void elApi.open().catch(() => undefined); setInbound((v) => !v); }} aria-expanded={inbound} data-testid="dp-inbound-open"><PhoneIncoming size={16} aria-hidden="true" /> {locked ? 'تماس ورودی داشتم' : 'تماس ورودی'}</button>
       <small>فقط وقتی مشتری خودش زنگ زده؛ کار جاری عوض نمی‌شود.</small>
-    </div>
-    {inbound ? locked ? <LockedIncomingChoice onClose={() => setInbound(false)} onSaved={refresh} /> : <Inbound onClose={() => setInbound(false)} onSaved={refresh} /> : null}
+    </div>}
+    {inbound ? locked ? <IncomingWizard currentNo={null} onClose={() => setInbound(false)} onSaved={refresh} /> : <Inbound onClose={() => setInbound(false)} onSaved={refresh} /> : null}
     <Order d={d} />
   </div>;
 }
@@ -86,7 +95,7 @@ function Head({ d }: { d: Working }) {
   </header>;
 }
 
-function StateBox({ d }: { d: Working }) {
+export function StateBox({ d }: { d: Working }) {
   const s = d.state;
   if (s === 'holiday') return <div className="dp-box" data-testid="dp-st-holiday">امروز تعطیل است. لیست روز کاری بعد صبح ساعت ۰۸:۰۰ آماده می‌شود.</div>;
   if (s === 'not_started') return <div className="dp-box" data-testid="dp-st-before">لیست امروز ساعت ۰۸:۰۰ باز می‌شود.</div>;
@@ -99,7 +108,7 @@ function StateBox({ d }: { d: Working }) {
   return null;
 }
 
-function CurrentCard({ d, cur, onDone, onFirstCall }: { d: Working; cur: NonNullable<Working['current']>; onDone: () => void; onFirstCall: (c: FcCustomer) => void }) {
+export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }: { d: Working; cur: NonNullable<Working['current']>; onDone: () => void; onSaved?: (cur: DpItem) => void; saveLabel?: string; onFirstCall: (c: FcCustomer) => void }) {
   const cq = useCqConfig().data;
   // FIRSTCALL-62 (Mohammad 10:33): a first call opens EXACTLY the existing first-call form — same rule as the customer page's «ثبت تماس»
   // (useCallLauncher → usesSimpleForm: the qualifier's own in-progress customer with no priority yet). Everything else keeps the result form below.
@@ -125,13 +134,13 @@ function CurrentCard({ d, cur, onDone, onFirstCall }: { d: Working; cur: NonNull
     catch (e) { setErr(e instanceof Error ? e.message : 'تماس باز نشد.'); } finally { setBusy(false); }
   };
   const save = async () => {
-    setShow(true); const bad = cqResultError(val); if (bad) { setErr(bad); return; }
+    setShow(true); if (cqResultError(val)) { setErr(''); return; } // live error lives in CqResultFields (no stale copy)
     setBusy(true); setErr('');
     try {
       const one = val.oneLine.trim();
       const r = await dpApi.saveCall({ customerId: cur.customerId, salespersonId: cq?.salespersonId ?? undefined, subject: 'کارهای امروز', customerRequest: '', expertNotes: one,
         outcome: val.outcome, oneLineNote: one, followUpAt: val.outcome === 'follow_up' ? val.followUpAt : undefined, planItemId: cur.id });
-      announceCallSaved(r.id, cur.customerId); onDone();
+      announceCallSaved(r.id, cur.customerId); onSaved?.(cur); onDone();
     } catch (e) { setErr(e instanceof Error ? e.message : 'ثبت نشد.'); } finally { setBusy(false); }
   };
   const nextNo = d.progress.position + 1;
@@ -157,7 +166,7 @@ function CurrentCard({ d, cur, onDone, onFirstCall }: { d: Working; cur: NonNull
       <p className="dp-hint"><Lock size={13} aria-hidden="true" /> تماس اول با «فرم تماس اول» ثبت می‌شود (اطلاعات اولیه‌ی مشتری). بعد از ثبت، کار بعدی باز می‌شود.</p>
     </div> : opened ? <div className="dp-result" data-testid="dp-result">
       <CqResultFields value={val} onChange={setVal} showErrors={show} idPrefix="dp" />
-      <button type="button" className="btn btn-primary dp-save" disabled={busy} onClick={() => void save()} data-testid="dp-save">ثبت نتیجه و رفتن به کار {faNum(nextNo)}</button>
+      <button type="button" className="btn btn-primary dp-save" disabled={busy} onClick={() => void save()} data-testid="dp-save">{saveLabel ?? <>ثبت نتیجه و رفتن به کار {faNum(nextNo)}</>}</button>
     </div> : <p className="dp-hint"><Lock size={13} aria-hidden="true" /> {firstForm ? 'بعد از زدن «تماس»، «فرم تماس اول» باز می‌شود. کار بعدی تا ثبت آن قفل است.' : 'بعد از زدن «تماس»، فرم «نتیجه‌ی تماس» همین‌جا باز می‌شود. کار بعدی تا ثبت نتیجه و یادداشت قفل است.'}</p>}
     <CallLaunchStatus status={launcher.status} onRetry={launcher.retry} onCancel={launcher.cancel} />
     {err ? <p className="dp-err" role="alert" data-testid="dp-err">{err}</p> : null}
@@ -211,7 +220,7 @@ function Inbound({ onClose, onSaved }: { onClose: () => void; onSaved: () => voi
   const find = async () => { if (term.trim().length < 2) { setErr('حداقل ۲ نویسه.'); return; } setBusy(true); setErr('');
     try { setRows(custList(await dpApi.search(term.trim()))); } catch (e) { setErr(e instanceof Error ? e.message : 'جست‌وجو انجام نشد.'); } finally { setBusy(false); } };
   const save = async () => {
-    if (!pick) return; setShow(true); const bad = cqResultError(val); if (bad) { setErr(bad); return; }
+    if (!pick) return; setShow(true); if (cqResultError(val)) { setErr(''); return; } // live error lives in CqResultFields (no stale copy)
     setBusy(true); setErr('');
     try { const one = val.oneLine.trim();
       const r = await dpApi.saveCall({ customerId: pick.id, salespersonId: cq?.salespersonId ?? undefined, subject: 'تماس ورودی', customerRequest: '', expertNotes: one, outcome: val.outcome, oneLineNote: one,

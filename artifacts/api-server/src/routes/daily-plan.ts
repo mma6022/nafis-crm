@@ -6,6 +6,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { requirePermission } from "../lib/access-control";
 import type { AuthUser } from "../lib/auth";
 import { cqManager } from "../lib/call-queue";
+import { tcLogEvent, tcOn } from "../lib/today-carousel";
 import {
   dpAdminCapacity, dpAssistantCapacity, dpAssistantGet, dpBoard, dpBoost, dpCapacityView, dpCheckExpertId, dpConfig, dpDecisionData, dpExpertView, dpIdem, dpIsErr, dpIsExpert,
   dpMarkReturned, dpMove, dpOn, dpRejectedEvent, dpReport, dpSaveSettings, dpScopeCustomers, dpSettings, dpStartCall, dpSupplementary, dpValidateSettings, dpWritePlan,
@@ -23,10 +24,14 @@ const admin = (res: Response) => { const u = me(res); if (!cqManager(u)) { sendE
 router.get("/daily-plans/config", requirePermission("customers.view"), (_req, res) => {
   ensureDailyPlanSchema(); const u = me(res);
   const c = dpConfig();
-  res.json({ ...c, experts: cqManager(u) ? c.experts : [], eligible: dpOn() && dpIsExpert(u), manager: cqManager(u), today: dpToday() });
+  // incoming2-59: `carousel` is added ONLY when flag.today_carousel applies to this user (off → response unchanged).
+  res.json({ ...c, experts: cqManager(u) ? c.experts : [], eligible: dpOn() && dpIsExpert(u), manager: cqManager(u), today: dpToday(), ...(tcOn(u) ? { carousel: true } : {}) });
 });
 /* -------- expert -------- */
 router.get("/daily-plans/today", requirePermission("customers.view"), (_req, res) => { if (off(res)) return; res.json(dpExpertView(me(res))); });
+router.post("/daily-plans/today/carousel-event", requirePermission("customers.view"), (req, res) => {
+  const r = tcLogEvent(me(res), req.body); res.status(r.status).json(r.body);
+});
 router.post("/daily-plans/items/:id/start", requirePermission("calls.create"), (req, res) => {
   if (off(res)) return; const id = idOf(req.params.id); if (!id) return void sendErr(res, { status: 400, error: "bad_type", message: "id", details: { field: "id" } });
   send(res, dpStartCall(me(res), id));

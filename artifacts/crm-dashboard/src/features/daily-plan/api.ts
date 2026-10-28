@@ -20,7 +20,7 @@ export type DpFlags = { daily_plan: boolean; assistant_full_scope: boolean; dail
 export type DpSettings = { guardPct: number; waitMin: number; firstDayCapacity: number | null };
 export type DpConfig = { flags: DpFlags; settings: DpSettings; ranges: Record<keyof DpSettings, [number, number]>; labels: Record<string, string>; typeLabels: Record<string, string>;
   moveReasons: Record<string, string>; limits: { moveMax: number; lastMove: string; start: string; close: string; moveTextMax: number; capReasonMax: number; capMax: number };
-  eligible: boolean; manager: boolean; today: string; experts: { userId: number; salespersonId: number; name: string; assistantId: number; scope: string }[] };
+  eligible: boolean; manager: boolean; today: string; carousel?: boolean; experts: { userId: number; salespersonId: number; name: string; assistantId: number; scope: string }[] };
 export type DpItem = { id: number; customerId: number; name: string; phone?: string | null; priority: number | null; urgent: boolean; type: string; typeLabel: string; reason: string | null; keyNote: string | null;
   bucket: 'main' | 'extra' | 'outside'; source: string; label: string | null; status: 'pending' | 'current' | 'done' | 'moved' | 'undone' | 'transferred'; moveCount: number; movesLeft: number;
   movedTo: string | null; outcome: CqOutcome | null; doneAt: string | null };
@@ -57,6 +57,8 @@ export const dpApi = {
   capacity: (sp: number) => req<DpCapView>('GET', `/capacity/${sp}`),
   override: (sp: number, date: string, b: { capacity: number; reason: string; confirm?: boolean }) => req<DpOverride>('POST', `/admin/capacity/${sp}/${date}/override`, b),
   settings: () => req<{ settings: DpSettings; flags: DpFlags }>('GET', '/admin/settings/daily-plan'),
+  /** incoming2-59 «کارهای امروز من» carousel analytics (404 while flag.today_carousel is off — callers ignore errors). */
+  carouselEvent: (name: string, b: { itemId?: number | null; cardIndex?: number | null } = {}) => req<{ ok: true }>('POST', '/daily-plans/today/carousel-event', { name, ...b }),
   saveSettings: (b: Partial<DpSettings>) => req<{ ok: true; changed: number; settings: DpSettings }>('PUT', '/admin/settings/daily-plan', b),
 };
 export function useDpConfig(enabled = true) {

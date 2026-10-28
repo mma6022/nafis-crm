@@ -3,7 +3,7 @@ import { announceCallSaved, cqTelClick } from '@/features/call-queue/api';
 import { CustomerIntroLog } from '@/features/expert-intro-sms/CustomerIntroLog';
 import { CustomerAnnotations } from '@/features/lead-annotator/CustomerAnnotations';
 import { RestrictedCase } from '@/features/lead-annotator/RestrictedCase';
-import { useLockdownMe } from '@/features/expert-lockdown/api';
+import { elApi, useLockdownMe } from '@/features/expert-lockdown/api';
 import { LockdownNotice } from '@/features/expert-lockdown/LockdownNotice';
 import { useLeadAnnotatorMe } from '@/features/lead-annotator/api';
 import { RegistrarCard } from '@/features/registrar-view/RegistrarCard';
@@ -329,6 +329,16 @@ function CustomerDetailFull() {
     callLauncher.launch(customer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customer?.id, canCallsCreate]);
+  // incoming2-59 PM rule: the qualifier's customer whose first-call form is incomplete → opening the file reopens the form
+  // (closing only via «بستن بدون ثبت تماس؟», temporary: next open reopens it). Server decides (read-only, inferred from first-call data).
+  const [fcReopen, setFcReopen] = useState(false);
+  const fcReopenDone = useRef<number | null>(null);
+  useEffect(() => {
+    if (!customer || !canCallsCreate || fcReopenDone.current === customer.id || callLauncher.choose(customer) !== 'simple') return;
+    fcReopenDone.current = customer.id;
+    void elApi.firstCallIncomplete(customer.id).then((r) => { if (r.incomplete) { setFcReopen(true); setSimpleFormOpen(true); } }).catch(() => undefined);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customer?.id, canCallsCreate, callLauncher.cfgState]);
   useEffect(() => {
     if (!customer) return;
     const ids = ['info', 'loans', 'calls', 'bale', 'wallet'];
@@ -785,7 +795,7 @@ function CustomerDetailFull() {
       <p>این کار برگشت‌پذیر نیست.</p>
       <p className="hint">پرونده و تمام تماس‌ها و مشاوره‌های مرتبط برای همیشه حذف می‌شوند.</p>
     </ConfirmDialog> : null}
-    {callFormOpen ? <CallForm customers={[customer]} salespersons={salespersons.data ?? []} pending={createCall.isPending} error={createCall.isError} initialCustomerId={customer.id} onClose={() => setCallFormOpen(false)} onSave={handleSaveCall}
+    {callFormOpen ? <CallForm customers={[customer]} salespersons={salespersons.data ?? []} pending={createCall.isPending} error={createCall.isError} errorDetail={createCall.error} initialCustomerId={customer.id} onClose={() => setCallFormOpen(false)} onSave={handleSaveCall}
       quickCredit={{ canAct: canNewLoan && (isAdmin || role === 'registrar' || (session.data?.user.salespersonId != null && session.data.user.salespersonId === customer.salespersonId)), onSaveAndCredit: handleSaveCallAndCredit }} /> : null}
     {consultationFormOpen && (
       <CreateConsultationForm
@@ -806,7 +816,7 @@ function CustomerDetailFull() {
       />
     )}
     {toast ? <div className="csx-toast" role="status">{toast}</div> : null}
-    {simpleFormOpen ? <SimpleCallForm customer={customer} userId={userId} noteMin={tsConfig.data?.noteMinLength ?? 10} onClose={() => setSimpleFormOpen(false)} onDone={afterSimpleForm} onNext={() => { setSimpleFormOpen(false); setLocation('/customers'); }} /> : null}
+    {simpleFormOpen ? <SimpleCallForm customer={customer} userId={userId} noteMin={tsConfig.data?.noteMinLength ?? 10} strict={fcReopen} confirmClose={fcReopen} reopenNotice={fcReopen} onClose={() => { setSimpleFormOpen(false); setFcReopen(false); }} onDone={(r) => { if (fcReopen) void elApi.firstCallLogged(customer.id, r.callLogId).catch(() => undefined); afterSimpleForm(r); }} onNext={() => { setSimpleFormOpen(false); setLocation('/customers'); }} /> : null}
     {fcEditOpen && firstCall && fcEditInfo.data ? <SimpleCallForm customer={customer} userId={userId} noteMin={tsConfig.data?.noteMinLength ?? 10}
       edit={{ fc: firstCall, canSend: fcEditInfo.data.canSend, sendBlockedReason: fcEditInfo.data.sendBlockedReason, onSaved: afterFirstCallEdit }}
       onClose={() => setFcEditOpen(false)} onDone={() => {}} onNext={() => setFcEditOpen(false)} /> : null}

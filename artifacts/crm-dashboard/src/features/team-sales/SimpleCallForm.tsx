@@ -1,6 +1,6 @@
 import { AlertCircle, AlertTriangle, Ban, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, HelpCircle, Info, Search, Timer, X } from 'lucide-react';
 import { CALL_NOTE_MIN, callNoteLength, callNoteMinMessage } from '@/lib/call-note';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { TransferCheckBox } from './TransferCheckBox';
 import { fa, fetchCities, fetchPlanOptions, fmtDateTime, shortName, submitFirstCallEdit, submitSimpleForm, TeamSalesApiError, type TransferCheck, type CallResult, type FirstCallEditResult, type FirstCallSummary, type Military, type QualifyResult, type SimpleAnswers, type SuggestedPlan, type Tri } from './api';
 import { FIRST_CALL_FIELD_LABELS, firstCallValueText } from './first-call-edit-labels';
@@ -184,7 +184,11 @@ function PlanCard({ p, checked, onToggle }: { p: PlanEvaluation; checked: boolea
   </div>;
 }
 
-export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onClose, onDone, onNext, onChangeCustomer, edit }: {
+const STRICT_LABELS: Record<string, string> = { callResult: 'نتیجه‌ی تماس', callbackAt: 'زمان تماس بعدی', amount: 'مبلغ', docsReady: 'مدارک', creditRank: 'رتبه', cheque: 'چک صیادی / سفته',
+  bounced: 'چک برگشتی', military: 'نظام وظیفه', jobType: 'شغل', gAvail: 'ضامن', gJobType: 'شغل ضامن', gCheque: 'چک ضامن', gRank: 'رتبه‌ی ضامن', note: 'یادداشت', urgency: 'فوریت' };
+const maskPh = (p: string) => { const s = String(p ?? ''); return s.length >= 8 ? `${s.slice(0, 4)}***${s.slice(-4)}` : s; };
+
+export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onClose: onCloseRaw, onDone, onNext, onChangeCustomer, edit, strict = false, confirmClose = false, closeConfirmBody, reopenNotice = false }: {
   customer: { id: number; name: string; phone: string; priority?: number | null };
   userId: number | undefined; noteMin?: number;
   onClose: () => void; onDone: (r: QualifyResult) => void; onNext: () => void;
@@ -192,6 +196,15 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   onChangeCustomer?: () => void;
   /** crm-first-call-edit: edit the latest first call instead of recording a new call. */
   edit?: FirstCallEditMode;
+  /** incoming2-59 (Armita crm-incoming-call v1.1, opt-in): «بعدی»/submit aria-disabled until this step's required fields are filled,
+   *  a click shows the field errors + «N مورد مانده: …»; phone masked in the header. Default off → customer page unchanged. */
+  strict?: boolean;
+  /** Body of the close confirm (Armita v1.1 wording by default). */
+  closeConfirmBody?: string;
+  /** incoming2-59 (Armita v1.1.1 scene 13 fc_reopen): reopened on opening the customer file; the local draft keeps the values. */
+  reopenNotice?: boolean;
+  /** incoming2-59 PM rule (opt-in): closing before the save (X, scrim, Esc, «بستن») asks «بستن بدون ثبت تماس؟» first. */
+  confirmClose?: boolean;
 }) {
   const key = draftKey(userId, customer.id);
   const [d, setD] = useState<Draft>(() => { if (edit) return draftFromFirstCall(edit.fc); try { const raw = localStorage.getItem(key); return raw ? { ...EMPTY, ...migrateCallback(JSON.parse(raw)) } : EMPTY; } catch { return EMPTY; } });
@@ -205,6 +218,13 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   const [result, setResult] = useState<QualifyResult | null>(null);
   const [editResult, setEditResult] = useState<FirstCallEditResult | null>(null);
   const done = Boolean(result || editResult);
+  const [cfm, setCfm] = useState(false);
+  const doneRef = useRef(false); doneRef.current = done;
+  const cfmRef = useRef(false); cfmRef.current = cfm;
+  const onClose = useCallback(() => {
+    if (cfmRef.current) { setCfm(false); return; }
+    if (confirmClose && !doneRef.current) setCfm(true); else onCloseRaw();
+  }, [confirmClose, onCloseRaw]);
   const [plans, setPlans] = useState<{ key: string; list: PlanEvaluation[] | null; error: string; noPlanDefault?: boolean }>({ key: '', list: null, error: '' });
   const [showAll, setShowAll] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -564,24 +584,31 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
 
   const lastStep = d.step === steps[steps.length - 1];
   const nextLabel = 'بعدی';
+  const missing = strict && !done && !edit ? validate(d.step) : {};
+  const blocked = Object.keys(missing).length > 0;
+  const shown = Object.keys(errors).filter((k) => errors[k]);
+  const strictSummary = strict && shown.length ? <p className="ts-fbad" role="alert" data-testid="ts-missing">{shown.length === 1 ? 'یک مورد مانده' : shown.length === 2 ? 'دو مورد مانده' : `${fa(shown.length)} مورد مانده`}: {shown.map((k) => STRICT_LABELS[k] ?? k).join('، ')}</p> : null;
   return <div className="ts-layer" dir="rtl">
     <div className="ts-scrim" onClick={onClose} aria-hidden="true" />
-    <div ref={dialogRef} className="ts-wz" role="dialog" aria-modal="true" aria-labelledby="ts-wz-title" tabIndex={-1} data-testid="ts-simple-form">
+    <div ref={dialogRef} className={`ts-wz${strict ? ' strict' : ''}`} role="dialog" aria-modal="true" aria-labelledby="ts-wz-title" tabIndex={-1} data-testid="ts-simple-form">
       <div className="ts-wz-head">
         <div className="ts-wz-who">
           <h2 id="ts-wz-title">{edit ? 'ویرایش خلاصه‌ی تماس اول' : 'فرم تماس'} — <CustomerName id={customer.id} name={customer.name} badgeTestId="ts-wz-customer-id" /></h2>
-          <div className="sub"><span className="ltr" dir="ltr" data-testid="ts-phone">{fa(customer.phone)}</span>
+          <div className="sub"><span className="ltr" dir="ltr" data-testid="ts-phone">{fa(strict ? maskPh(customer.phone) : customer.phone)}</span>
             <button type="button" className="ts-copy" onClick={copyPhone} aria-label={`کپی شماره‌ی ${customer.name}`} data-testid="ts-copy-phone"><Copy size={13} /> {copied ? 'کپی شد' : 'کپی'}</button>
             <span className="ts-badge gray">{prio}</span> <span className="ts-badge">نسخه‌ی ساده</span></div>
         </div>
         <button type="button" className="ts-ib" onClick={onClose} aria-label="بستن" data-testid="ts-close"><X size={22} /></button>
       </div>
+      {reopenNotice && !done ? <div className="ts-reopen" role="status" data-testid="ts-reopen"><b>اطلاعات تماس اول این مشتری هنوز ثبت نشده</b>
+        <small>مقادیر قبلی نگه داشته شده · کار این مشتری در لیست امروز باز است</small></div> : null}
       <div className="ts-progress">
         <div className="row"><b>{done ? 'نتیجه' : titles[d.step]}</b><span className="ts-muted" data-testid="ts-step-of">{editResult ? 'ذخیره شد' : result ? 'ثبت شد' : `مرحله ${fa(idx)} از ${fa(total)}`}</span></div>
         <div className="bars" aria-hidden="true">{Array.from({ length: total }, (_, i) => <span key={i} className={done || i < idx ? 'on' : ''} />)}</div>
       </div>
       <div className="ts-wz-body" ref={bodyRef}>{onChangeCustomer && !done ? <div className="ts-picked-customer" data-testid="ts-picked-customer"><div><b><CustomerName id={customer.id} name={customer.name} badgeTestId="ts-picked-customer-id" /></b><span className="ts-muted"> | {prio}</span></div><button type="button" onClick={onChangeCustomer} data-testid="ts-change-customer"><ChevronRight size={16} aria-hidden="true" /> تغییر مشتری</button></div> : null}{body}</div>
       {copyToast ? <div className={`ts-toast${copied ? ' ok' : ''}`} role="status" data-testid="ts-copy-toast">{copyToast}</div> : null}
+      {strictSummary}
       <div className="ts-wz-foot">
         {editResult ? <div className="ts-two">
           <button type="button" className="ts-primary" onClick={onClose} data-testid="ts-edit-close">بازگشت به پرونده</button>
@@ -597,11 +624,17 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
               title={!edit.canSend ? edit.sendBlockedReason ?? undefined : undefined} aria-describedby={!edit.canSend ? 'ts-edit-send-why' : undefined} data-testid="ts-edit-send">
               <Check size={18} /> ذخیره و ارسال به کارشناس فروش</button>
             {!edit.canSend ? <span id="ts-edit-send-why" className="sr-only">{edit.sendBlockedReason}</span> : null}
-          </> : lastStep ? <button type="button" className="ts-primary" onClick={() => void submit()} disabled={pending} data-testid="ts-submit"><Check size={18} /> {pending ? 'در حال ثبت…' : d.callResult === 'no_answer' ? 'ثبت تماس بی‌پاسخ' : 'ثبت و تعیین اولویت'}</button>
-            : <button type="button" className="ts-primary" onClick={next} disabled={d.step === 5 && !planList} data-testid="ts-next">{nextLabel} <ChevronLeft size={18} /></button>}
+          </> : lastStep ? <button type="button" className="ts-primary" onClick={() => void submit()} disabled={pending} aria-disabled={blocked || undefined} data-testid="ts-submit"><Check size={18} /> {pending ? 'در حال ثبت…' : d.callResult === 'no_answer' ? 'ثبت تماس بی‌پاسخ' : 'ثبت و تعیین اولویت'}</button>
+            : <button type="button" className="ts-primary" onClick={next} disabled={d.step === 5 && !planList} aria-disabled={blocked || undefined} data-testid="ts-next">{nextLabel} <ChevronLeft size={18} /></button>}
         </div>}
         {!done && !edit ? <p className="ts-muted center small">پیش‌نویس روی همین دستگاه نگه داشته می‌شود</p> : null}
       </div>
+      {cfm ? <div className="ts-cfx"><section className="ts-cfm" role="alertdialog" aria-modal="true" aria-labelledby="ts-cfm-t" data-testid="ts-close-confirm">
+        <h2 id="ts-cfm-t">بستن بدون ثبت تماس؟</h2>
+        <p>{closeConfirmBody ?? 'مشتری ثبت شده، ولی این تماس و اطلاعات تماس اول ثبت نمی‌شود. تا ثبت فرم، با باز کردن پرونده‌ی این مشتری یا تماس بعدی، همین فرم دوباره باز می‌شود و کارش در لیست امروز می‌ماند.'}</p>
+        <div className="ts-cfm-a"><button type="button" className="ts-primary" autoFocus onClick={() => setCfm(false)} data-testid="ts-cfm-stay">ادامهٔ فرم</button>
+          <button type="button" className="ts-ghost" onClick={() => { setCfm(false); onCloseRaw(); }} data-testid="ts-cfm-discard">بستن بدون ثبت</button></div>
+      </section></div> : null}
     </div>
   </div>;
 }

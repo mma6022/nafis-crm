@@ -88,7 +88,7 @@ const ALLOW: RegExp[] = [
   /^\/daily-plans\/(today|config|calls|items)(\/|$)/, /^\/call-queue\/(config|pre-call|after-save|pending|calls|reminders|suggestions)(\/|$)/,
   /^\/voice-notes(\/|$)/, /^\/voip\/after-call(\/|$)/,
   // FIRSTCALL-62: the first-call form's city autocomplete (city names only; ?customerId= is still checked below).
-  /^\/team-sales\/cities$/,
+  /^\/team-sales\/cities$/, /^\/team-sales\/first-call-incomplete\/\d+$/, // incoming2-59 (read-only, own customers only)
   // «پرونده‌های من» + «خرید کالا» + «دستور پرداخت» (+ the reads used inside them)
   /^\/loan-applications(\/|$)/, /^\/loan-request-drafts(\/|$)/, /^\/applications(\/|$)/, /^\/loan-plans(\/|$)/, /^\/loan-plan-rates(\/|$)/,
   /^\/loan-options(\/|$)/, /^\/plan-quote(\/|$)/, /^\/filing-fee(\/|$)/, /^\/identity-documents(\/|$)/, /^\/credit-checks(\/|$)/, /^\/smart-filing\/eligibility\/\d+$/,
@@ -152,8 +152,38 @@ function log(u: U, row: { action: string; kind?: string | null; hash?: string | 
     row.customerId ?? null, row.ownerSp ?? null, row.notified ? 1 : 0, at]);
 }
 export function elIncomingOpen(u: U, now = new Date()) { log(u, { action: "open" }, now.toISOString()); return { ok: true }; }
+/** incoming2-59: which of the two options was clicked («جزو مشتری‌های منه» = own, «ثبت مشتری جدید» = new). */
+export function elIncomingChoose(u: U, option: unknown, now = new Date()) {
+  if (option !== "own" && option !== "new") return { ok: false as const };
+  log(u, { action: option === "own" ? "choose_own" : "choose_new" }, now.toISOString()); return { ok: true as const };
+}
 
-/* ---------------- NEWCUST-65 «ثبت مشتری جدید» (interim, ahead of incoming2-59; same endpoints/shape as 59) ---------------- */
+/** One CRM bell to the customer's owner on a «جست‌وجو» hit of another expert's customer (NEWCUST-65: «ثبت مشتری جدید» duplicates never bell): active salesperson user, never user 29,
+ *  at most once per caller+customer per EL_BELL_WINDOW_MS; DP_TEST_NO_BELLS=1 writes to dp_test_bells instead. Returns whether one was sent. */
+function bellOwner(u: U, c: { id: number; name: string; sp: number | null }, now: Date): boolean {
+  const at = now.toISOString();
+  let notified = false;
+  const owner = c.sp == null ? null : queryRow<{ id: number }>("SELECT id FROM users WHERE salesperson_id=? AND role='salesperson' AND active=1 ORDER BY id LIMIT 1", [Number(c.sp)]);
+  if (owner && Number(owner.id) !== 29) {
+    const dup = queryRow("SELECT 1 x FROM el_incoming_log WHERE user_id=? AND customer_id=? AND notified=1 AND created_at>? LIMIT 1",
+      [Number(u.id), Number(c.id), new Date(now.getTime() - EL_BELL_WINDOW_MS).toISOString()]);
+    if (!dup) {
+      if (process.env.DP_TEST_NO_BELLS === "1") {
+        execute("CREATE TABLE IF NOT EXISTS dp_test_bells(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, resource_id INTEGER, recipient_user_id INTEGER, title TEXT, created_at TEXT)");
+        execute("INSERT INTO dp_test_bells(kind,resource_id,recipient_user_id,title,created_at) VALUES(?,?,?,?,?)", ["incoming-call", Number(c.id), Number(owner.id), "تماس ورودی", at]);
+      } else {
+        const caller = String(u.fullName ?? "").trim() || "یکی از همکاران";
+        execute(`INSERT INTO site_notification_events(customer_id,customer_name,owner_id,resource_type,resource_id,kind,title,body,permission,created_at,actor_key,recipient_user_id)
+          VALUES(?,?,?,'customer',?,'incoming-call','تماس ورودی',?,'customers.view',?,?,?)`,
+          [Number(c.id), String(c.name || "مشتری"), Number(c.sp), Number(c.id), `مشتری‌ات با ${caller} تماس گرفته؛ با او تماس بگیر.`, at, `expert-lockdown:${Number(u.id)}`, Number(owner.id)]);
+      }
+      notified = true;
+    }
+  }
+  return notified;
+}
+
+/* ---------------- NEWCUST-65 «ثبت مشتری جدید» (endpoints kept as-is by the incoming2-59 wizard: same create, source inbound_call, owner-name-only dup check, no bells) ---------------- */
 const rateLimited = (u: U, now: Date) => Number(queryRow<{ n: number }>("SELECT count(*) n FROM el_incoming_log WHERE user_id=? AND action IN ('search','new_check','new_create') AND created_at>?",
   [Number(u.id), new Date(now.getTime() - EL_SEARCH_WINDOW_MS).toISOString()])?.n ?? 0) >= EL_SEARCH_LIMIT;
 /** Same match as POST /customers' duplicate check (findCustomerByPhone): crm_customer_mobile_key(phone), any status, merged → survivor. */
@@ -266,24 +296,7 @@ export function elIncomingSearch(u: U, raw: unknown, now = new Date()): ElSearch
     return { result: "own", customer: { id: Number(c.id), name: String(c.name ?? "") }, windowMinutes: EL_GRANT_MINUTES };
   }
   // another expert's (or nobody's) customer: owner name only + one CRM bell to the owner
-  let notified = false;
-  const owner = c.sp == null ? null : queryRow<{ id: number }>("SELECT id FROM users WHERE salesperson_id=? AND role='salesperson' AND active=1 ORDER BY id LIMIT 1", [Number(c.sp)]);
-  if (owner && Number(owner.id) !== 29) {
-    const dup = queryRow("SELECT 1 x FROM el_incoming_log WHERE user_id=? AND customer_id=? AND notified=1 AND created_at>? LIMIT 1",
-      [Number(u.id), Number(c.id), new Date(now.getTime() - EL_BELL_WINDOW_MS).toISOString()]);
-    if (!dup) {
-      if (process.env.DP_TEST_NO_BELLS === "1") {
-        execute("CREATE TABLE IF NOT EXISTS dp_test_bells(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, resource_id INTEGER, recipient_user_id INTEGER, title TEXT, created_at TEXT)");
-        execute("INSERT INTO dp_test_bells(kind,resource_id,recipient_user_id,title,created_at) VALUES(?,?,?,?,?)", ["incoming-call", Number(c.id), Number(owner.id), "تماس ورودی", at]);
-      } else {
-        const caller = String(u.fullName ?? "").trim() || "یکی از همکاران";
-        execute(`INSERT INTO site_notification_events(customer_id,customer_name,owner_id,resource_type,resource_id,kind,title,body,permission,created_at,actor_key,recipient_user_id)
-          VALUES(?,?,?,'customer',?,'incoming-call','تماس ورودی',?,'customers.view',?,?,?)`,
-          [Number(c.id), String(c.name || "مشتری"), Number(c.sp), Number(c.id), `مشتری‌ات با ${caller} تماس گرفته؛ با او تماس بگیر.`, at, `expert-lockdown:${Number(u.id)}`, Number(owner.id)]);
-      }
-      notified = true;
-    }
-  }
+  const notified = bellOwner(u, { id: Number(c.id), name: String(c.name ?? ""), sp: c.sp == null ? null : Number(c.sp) }, now);
   log(u, { action: "search", kind: lk.kind, hash, result: "other", customerId: Number(c.id), ownerSp: c.sp == null ? null : Number(c.sp), notified }, at);
   return { result: "other", ownerName: String(c.owner_name ?? "") || "بدون کارشناس", notified };
 }
@@ -373,8 +386,10 @@ export function elIncomingPick(u: U, rawId: unknown, now = new Date()): ElSearch
 export function elDailyCounts(day: string) {
   ensureElSchema();
   const from = new Date(`${day}T00:00:00+03:30`).toISOString(), to = new Date(new Date(`${day}T00:00:00+03:30`).getTime() + 86_400_000).toISOString();
-  const rows = queryRows<any>(`SELECT l.user_id, s.name, SUM(action='open') opens, SUM(action='search') searches, SUM(result='own') own,
-      SUM(result='other') other, SUM(result IN ('none','ambiguous','invalid')) none, SUM(action='search_limited') limited, SUM(notified) bells
+  const rows = queryRows<any>(`SELECT l.user_id, s.name, SUM(action='open') opens, SUM(action='search') searches, SUM(action='search' AND result='own') own,
+      SUM(action='search' AND result='other') other, SUM(action='search' AND result IN ('none','ambiguous','invalid')) none, SUM(action='search_limited') limited, SUM(notified) bells,
+      SUM(action='choose_own') choose_own, SUM(action='choose_new') choose_new, SUM(action='new_check') new_checks,
+      SUM(action IN ('new_check','new_create') AND result='duplicate') duplicates, SUM(action='new_create' AND result='created') created
     FROM el_incoming_log l LEFT JOIN salespersons s ON s.id=l.salesperson_id WHERE l.created_at>=? AND l.created_at<? GROUP BY l.user_id ORDER BY l.user_id`, [from, to]);
   const logged = (sp: number) => queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='dp_items'")
     ? Number(queryRow<{ n: number }>("SELECT count(*) n FROM dp_items i JOIN dp_plans p ON p.id=i.plan_id WHERE p.salesperson_id=? AND p.day=? AND i.bucket='outside'", [sp, day])?.n ?? 0) : 0;
@@ -382,7 +397,8 @@ export function elDailyCounts(day: string) {
     const r = rows.find((x) => Number(x.user_id) === Number(uid));
     const name = r?.name ?? queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [sp])?.name ?? "";
     return { userId: Number(uid), salespersonId: sp, name, opens: Number(r?.opens ?? 0), searches: Number(r?.searches ?? 0), own: Number(r?.own ?? 0),
-      other: Number(r?.other ?? 0), none: Number(r?.none ?? 0), limited: Number(r?.limited ?? 0), bells: Number(r?.bells ?? 0), loggedOutOfList: logged(sp) };
+      other: Number(r?.other ?? 0), none: Number(r?.none ?? 0), limited: Number(r?.limited ?? 0), bells: Number(r?.bells ?? 0), loggedOutOfList: logged(sp),
+      chooseOwn: Number(r?.choose_own ?? 0), chooseNew: Number(r?.choose_new ?? 0), newChecks: Number(r?.new_checks ?? 0), duplicates: Number(r?.duplicates ?? 0), created: Number(r?.created ?? 0) };
   });
   return { day, flag: elFlagOn(), experts };
 }

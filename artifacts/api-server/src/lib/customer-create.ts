@@ -28,7 +28,7 @@ export type CustomerCreateInput = {
   intake?: IntakeInput;
   /** urgent v1.1: the required reason when created «فوری» from the staff form. */
   urgentReason?: { reason: string; code: string } | null;
-  /** NEWCUST-65 / incoming2-59 (expert lockdown «ثبت مشتری جدید»): the registering expert owns the customer; «قانون ثبت» is not applied. */
+  /** incoming2-59 (expert lockdown «ثبت مشتری جدید»): the registering expert owns the customer; «قانون ثبت» is not applied. */
   skipDefaultOwnerRule?: boolean;
 };
 

@@ -346,7 +346,7 @@ function ManualCalls({ desktop = true }: { desktop?: boolean }) {
       salespersons={salespersons.data ?? []} rangeFields={rangeFields('sheet-calls')} badRange={badRange} onClear={clearAll} /> : null}
     {pickerOpen ? <CallCustomerPicker user={user} config={launcher.config} search={pickerSearch} onSearch={setPickerSearch} checking={pickerChecking}
       onPick={(row) => void pick(row)} onRetry={() => { if (launcher.status === 'error') launcher.retry(); else if (lastPick.current) void pick(lastPick.current); }} onClose={closePicker} /> : null}
-    {legacyFor ? <CallForm key={legacyFor.customer.id} customers={[legacyFor.customer]} salespersons={salespersons.data ?? []} pending={create.isPending} error={create.isError}
+    {legacyFor ? <CallForm key={legacyFor.customer.id} customers={[legacyFor.customer]} salespersons={salespersons.data ?? []} pending={create.isPending} error={create.isError} errorDetail={create.error}
       initialCustomerId={legacyFor.customer.id} onClose={closeForms} onSave={save} onChangeCustomer={legacyFor.fromPicker ? backToPicker : undefined} /> : null}
     {simpleFor ? <SimpleCallForm key={simpleFor.customer.id} customer={simpleFor.customer} userId={user?.id} noteMin={launcher.config?.noteMinLength ?? 10}
       onClose={closeForms} onNext={closeForms} onChangeCustomer={simpleFor.fromPicker ? backToPicker : undefined} onDone={invalidate} /> : null}

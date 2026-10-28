@@ -47,7 +47,7 @@ export function LockedInbound({ onClose, onSaved, currentNo, onBack, onNew }: { 
   };
   const own = res?.result === 'own' ? res.customer : null;
   const save = async () => {
-    if (!own) return; setShow(true); const bad = cqResultError(val); if (bad) { setErr(bad); return; }
+    if (!own) return; setShow(true); if (cqResultError(val)) { setErr(''); return; } // live error lives in CqResultFields (no stale copy)
     setBusy(true); setErr('');
     try { const one = val.oneLine.trim();
       const r = await dpApi.saveCall({ customerId: own.id, salespersonId: cq?.salespersonId ?? undefined, subject: 'تماس ورودی', customerRequest: '', expertNotes: one, outcome: val.outcome, oneLineNote: one,
@@ -102,7 +102,7 @@ export function IncomingStatsCard() {
   if (!data || !data.flag) return null;
   return <section className="card el-card" data-testid="el-stats" aria-labelledby="el-stats-h">
     <h2 id="el-stats-h"><PhoneIncoming size={16} aria-hidden="true" /> تماس ورودی کارشناس‌ها · امروز</h2>
-    <table><thead><tr><th>کارشناس</th><th>باز کردن</th><th>جست‌وجو</th><th>مشتری خودش</th><th>مشتری دیگران</th><th>پیدا نشد</th><th>ثبت خارج از لیست</th></tr></thead>
-      <tbody>{data.experts.map((x) => <tr key={x.userId} data-testid={`el-stats-${x.userId}`}><td>{x.name}</td><td>{faNum(x.opens)}</td><td>{faNum(x.searches)}</td><td>{faNum(x.own)}</td><td>{faNum(x.other)}</td><td>{faNum(x.none)}</td><td>{faNum(x.loggedOutOfList)}</td></tr>)}</tbody></table>
+    <table><thead><tr><th>کارشناس</th><th>باز کردن</th><th>«مشتری منه»</th><th>«مشتری جدید»</th><th>جست‌وجو</th><th>مشتری خودش</th><th>مشتری دیگران</th><th>پیدا نشد</th><th>ثبت خارج از لیست</th><th>شماره‌ی تکراری</th><th>مشتری جدید ثبت شد</th></tr></thead>
+      <tbody>{data.experts.map((x) => <tr key={x.userId} data-testid={`el-stats-${x.userId}`}><td>{x.name}</td><td>{faNum(x.opens)}</td><td>{faNum(x.chooseOwn ?? 0)}</td><td>{faNum(x.chooseNew ?? 0)}</td><td>{faNum(x.searches)}</td><td>{faNum(x.own)}</td><td>{faNum(x.other)}</td><td>{faNum(x.none)}</td><td>{faNum(x.loggedOutOfList)}</td><td>{faNum(x.duplicates ?? 0)}</td><td>{faNum(x.created ?? 0)}</td></tr>)}</tbody></table>
   </section>;
 }

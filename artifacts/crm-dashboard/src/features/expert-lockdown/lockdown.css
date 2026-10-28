@@ -28,3 +28,4 @@
 .dp-chip.p2{background:#e0f2fe;color:#075985}.dp-chip.p3{background:#f1f5f9;color:#334155}.dp-chip.l-exact{background:#dcfce7;color:#166534}
 .el-live-none{display:flex;flex-direction:column;gap:8px;align-items:flex-start;margin-top:8px}
 .dp-inbound .dp-search{flex-wrap:wrap;align-items:center}.dp-inbound .dp-search>label{flex:1 0 100%;margin:0}.dp-inbound .dp-search input{min-width:0}
+.el-card{overflow-x:auto}.el-card th{white-space:nowrap}

@@ -274,3 +274,16 @@ textarea.ts-inp { resize: vertical; line-height: 1.8; }
 .ts-callback-row[aria-invalid="true"] .persian-date-trigger { border-color: var(--nf-danger, #B42318); }
 .ts-callback-time .ts-inp { width: 76px; text-align: center; padding: 10px 6px; }
 .ts-callback-note { margin: 6px 0 0; color: #667085; font-size: 13px; }
+/* incoming2-59 opt-in: strict required-fields + close confirm (Armita crm-incoming-call v1.1 .fbad / .cfm) */
+.ts-wz.strict .ts-primary[aria-disabled="true"]{opacity:.5;cursor:not-allowed}
+.ts-fbad{margin:0 20px 8px;padding:8px 12px;border-radius:10px;background:#fdecec;color:#b42318;font-size:.88rem}
+.ts-wz.strict [aria-invalid="true"],.ts-wz.strict .ts-err{border-color:#d92d20}
+.ts-cfx{position:absolute;inset:0;z-index:5;display:grid;place-items:center;background:rgba(11,20,80,.35);padding:16px}
+.ts-cfm{background:#fff;border-radius:16px;padding:18px;width:min(380px,100%);box-shadow:0 20px 50px rgba(16,24,40,.35)}
+.ts-cfm h2{margin:0 0 8px;font-size:1.1rem}.ts-cfm p{margin:0 0 14px;color:#4a5378;line-height:1.8}
+.ts-cfm-a{display:flex;gap:8px;flex-wrap:wrap}.ts-cfm-a>*{flex:1}
+@media (max-width:640px){.ts-wz.strict{width:100vw;max-height:100dvh;height:100dvh;border-radius:0}}
+.ts-reopen{margin:0 20px 6px;padding:10px 12px;border-radius:12px;background:#fff7e6;border:1px solid #f5c26b;display:flex;flex-direction:column;gap:2px}
+.ts-reopen b{font-size:.95rem;color:#7a4b00}.ts-reopen small{color:#7a5a20}
+/* incoming2-59: keep the full-screen strict form below the phone «مزاحم نشو» bar (assistant.css v3 convention) */
+@media (max-width:640px){html.nas-dnd-on .ts-wz.strict{height:calc(100dvh - 44px);max-height:calc(100dvh - 44px);margin-top:44px}}

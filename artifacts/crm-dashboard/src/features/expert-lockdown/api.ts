@@ -8,12 +8,12 @@ export type ElSearch =
   | { result: 'none' | 'ambiguous' | 'invalid' | 'rate_limited'; message: string };
 export type ElNew =
   | { result: 'new' }
-  | { result: 'duplicate'; ownerName: string; mine: boolean }
+  | { result: 'duplicate'; ownerName: string; mine: boolean; notified?: boolean }
   | { result: 'created'; customer: { id: number; name: string } }
   | { result: 'invalid' | 'rate_limited'; message: string; field?: string };
 export type ElSuggestItem = { id: number; name: string; phoneLast4: string; priority: number | null; match: 'exact' | 'phone' | 'name' };
 export type ElSuggest = { result: 'ok'; kind: 'phone' | 'name'; items: ElSuggestItem[]; phone?: string } | { result: 'short' | 'rate_limited'; message: string };
-export type ElDaily = { day: string; flag: boolean; experts: { userId: number; salespersonId: number; name: string; opens: number; searches: number; own: number; other: number; none: number; limited: number; bells: number; loggedOutOfList: number }[] };
+export type ElDaily = { day: string; flag: boolean; experts: { userId: number; salespersonId: number; name: string; opens: number; searches: number; own: number; other: number; none: number; limited: number; bells: number; loggedOutOfList: number; chooseOwn?: number; chooseNew?: number; newChecks?: number; duplicates?: number; created?: number }[] };
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const r = await fetch(`/api${path}`, { method, credentials: 'include', headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -28,8 +28,10 @@ export const elApi = {
   suggest: (q: string, signal?: AbortSignal) => fetch('/api/expert-lockdown/incoming/suggest', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q }), signal })
     .then(async (r) => { const d = await r.json().catch(() => null); if (!d?.result) throw new Error('جست‌وجو انجام نشد.'); return d as ElSuggest; }),
   pick: (id: number) => req<ElSearch>('POST', '/expert-lockdown/incoming/pick', { pick: id }),
+  choose: (option: 'own' | 'new') => req<{ ok: boolean }>('POST', '/expert-lockdown/incoming/choose', { option }),
   newCheck: (phone: string) => req<ElNew>('POST', '/expert-lockdown/incoming/new/check', { phone }),
   create: (body: { phone: string; name: string; description?: string }) => req<ElNew>('POST', '/expert-lockdown/incoming/new', body),
+  firstCallIncomplete: (customerId: number) => req<{ customerId: number; incomplete: boolean }>('GET', `/team-sales/first-call-incomplete/${customerId}`),
   firstCallLogged: (customerId: number, callLogId: number) => req<{ ok: true; mirrored: boolean }>('POST', '/expert-lockdown/incoming/first-call-logged', { customerId, callLogId }),
   daily: (day?: string) => req<ElDaily>('GET', `/expert-lockdown/admin/daily${day ? `?day=${day}` : ''}`),
 };

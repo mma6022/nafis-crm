@@ -6,7 +6,8 @@
  *    «customer_update»). The 848 bulk move Hasani/Ghasemi → Kazemi (team_sales_transfer_snapshot) is a move TO Kazemi
  *    and therefore never counts.
  *  - «مشتری قبلی» (previous): owned by a salesperson other than Kazemi and never handed off by Kazemi.
- *  - null: owned by Kazemi, unassigned, or unknown.
+ *  - null: owned by Kazemi, unassigned, or unknown — and (incoming2-59) a customer the CURRENT owner created through
+ *    «تماس ورودی داشتم → ثبت مشتری جدید» (el_incoming_log new_create/created): brand-new, never «مشتری قبلی».
  * Derived at read time: no table, no writes. Never used by commission, ownership or allocation code.
  */
 import { queryRow, queryRows } from "./crm-db";
@@ -44,8 +45,10 @@ export function kazemiSourceFilterSql(source: unknown): { sql: string; params: n
   ensureTeamSalesSchema();
   const exit = `EXISTS (SELECT 1 FROM customer_priority_history kzh WHERE kzh.customer_id=c.id
     AND kzh.old_salesperson_id=? AND kzh.new_salesperson_id IS NOT NULL AND kzh.new_salesperson_id<>?)`;
+  const fresh = source === "previous" && tableExists("el_incoming_log")
+    ? ` AND NOT EXISTS (SELECT 1 FROM el_incoming_log eln WHERE eln.action='new_create' AND eln.result='created' AND eln.customer_id=c.id AND eln.owner_salesperson_id=c.salesperson_id)` : "";
   return {
-    sql: `(c.salesperson_id IS NOT NULL AND c.salesperson_id<>? AND ${source === "previous" ? "NOT " : ""}${exit})`,
+    sql: `(c.salesperson_id IS NOT NULL AND c.salesperson_id<>? AND ${source === "previous" ? "NOT " : ""}${exit}${fresh})`,
     params: [k, k, k],
   };
 }
@@ -60,6 +63,7 @@ export function kazemiSources(customerIds: number[]): Map<number, KazemiSource> 
   if (!ids.length || k == null) return out;
   ensureTeamSalesSchema();
   const hasBulk = tableExists("team_sales_transfer_snapshot");
+  const hasEl = tableExists("el_incoming_log");
   for (let i = 0; i < ids.length; i += 500) {
     const chunk = ids.slice(i, i + 500);
     const ph = chunk.map(() => "?").join(",");
@@ -71,6 +75,8 @@ export function kazemiSources(customerIds: number[]): Map<number, KazemiSource> 
     const bulk = hasBulk ? queryRows<{ customer_id: number; previous_salesperson_id: number | null; created_at: string }>(
       `SELECT customer_id, previous_salesperson_id, created_at FROM team_sales_transfer_snapshot
        WHERE customer_id IN (${ph}) AND new_salesperson_id=? AND rolled_back_at IS NULL ORDER BY id`, [...chunk, k]) : [];
+    const fresh = new Set(hasEl ? queryRows<{ k: string }>(
+      `SELECT customer_id || ':' || owner_salesperson_id k FROM el_incoming_log WHERE action='new_create' AND result='created' AND customer_id IN (${ph})`, chunk).map((r) => r.k) : []);
     const histBy = new Map<number, HistRow[]>();
     for (const h of hist) { const l = histBy.get(Number(h.customer_id)) ?? []; l.push(h); histBy.set(Number(h.customer_id), l); }
     for (const o of owners) {
@@ -79,6 +85,7 @@ export function kazemiSources(customerIds: number[]): Map<number, KazemiSource> 
       const rows = histBy.get(Number(o.id)) ?? [];
       const exits = rows.filter((h) => Number(h.old_salesperson_id) === k && h.new_salesperson_id != null && Number(h.new_salesperson_id) !== k);
       const last = exits[exits.length - 1];
+      if (!last && fresh.has(`${o.id}:${cur}`)) continue; // incoming2-59: created by this owner from an incoming call → no chip
       if (!last) { out.set(Number(o.id), { kind: "previous", handoffAt: null, mechanism: null, handoffToSalespersonId: null, returned: false }); continue; }
       // Who had the customer right before this Kazemi stint: the latest move INTO Kazemi before the exit
       // (a history row, or the 848 bulk snapshot), whichever is later.

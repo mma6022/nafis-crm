@@ -587,7 +587,7 @@ export default function Customers() {
     {simpleCallFor ? <SimpleCallForm customer={simpleCallFor} userId={session.data?.user.id} noteMin={tsConfig.data?.noteMinLength ?? 10} onClose={() => setSimpleCallFor(null)} onDone={(r: QualifyResult) => { notifySalesAssistCallSaved(simpleCallFor.id); if (r.handoff) setTsToast(r.handoff.message); invalidateAll(); }} onNext={() => setSimpleCallFor(null)} /> : null}
     {upgradeFor ? <UpgradeDialog customer={upgradeFor} onClose={() => setUpgradeFor(null)} onDone={(r) => { setUpgradeFor(null); setTsToast(r.message); invalidateAll(); }} /> : null}
     {tsToast ? <TsToast text={tsToast} onClose={() => setTsToast('')} /> : null}
-    {newCallFor && <CallForm customers={[newCallFor]} salespersons={salespersons.data ?? []} pending={createCall.isPending} error={createCall.isError} initialCustomerId={newCallFor.id} onClose={() => setNewCallFor(null)} onSave={handleSaveCall} />}
+    {newCallFor && <CallForm customers={[newCallFor]} salespersons={salespersons.data ?? []} pending={createCall.isPending} error={createCall.isError} errorDetail={createCall.error} initialCustomerId={newCallFor.id} onClose={() => setNewCallFor(null)} onSave={handleSaveCall} />}
     {newConsultFor && <CreateConsultationForm customers={[newConsultFor]} pending={createConsult.isPending} initialCustomerId={newConsultFor.id} onClose={() => setNewConsultFor(null)} onSave={handleSaveConsult} />}
     {colorSettingsOpen && session.data?.user ? (
       <PriorityColorsModal

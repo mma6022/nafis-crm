@@ -107,11 +107,13 @@ function Capacity() {
     </> : null}
   </div>;
 }
+/** incoming2-59 (Armita): weekly axis labels only — the first column and each Saturday; every column keeps its date as a tooltip. */
+const weekStart = (ymd: string, i: number) => i === 0 || new Date(`${ymd}T12:00:00+03:30`).getUTCDay() === 6;
 function Chart({ c }: { c: DpCapView }) {
   const max = Math.max(10, ...c.chart.map((d) => d.capacity ?? 0));
-  return <div className="dp-chart" role="img" aria-label="نمودار ظرفیت ۱۴ روز کاری">{c.chart.map((d) => <div key={d.day} className={`dp-col${d.mode === 'auto' ? ' auto' : ''}`}>
+  return <div className="dp-chart" role="img" aria-label="نمودار ظرفیت ۱۴ روز کاری">{c.chart.map((d, i) => <div key={d.day} className={`dp-col${d.mode === 'auto' ? ' auto' : ''}`} title={faDate(d.day, { day: 'numeric', month: 'long' })}>
     <small>{d.capacity == null ? '—' : faNum(d.capacity)}</small><i style={{ height: `${Math.round(((d.capacity ?? 0) / max) * 100)}%` }} />
-    <span className="dp-pct">{pct(d.completionPct)}{d.label ? ` · ${d.label}` : ''}</span><small>{faDate(d.day, { day: 'numeric', month: 'short' })}</small></div>)}</div>;
+    <span className="dp-pct">{pct(d.completionPct)}{d.label ? ` · ${d.label}` : ''}</span><small className="dp-wk" aria-hidden={!weekStart(d.day, i)}>{weekStart(d.day, i) ? faDate(d.day, { day: 'numeric', month: 'short' }) : '\u00a0'}</small></div>)}</div>;
 }
 function OverrideModal({ sp, name, c, onClose }: { sp: number; name: string; c: DpCapView; onClose: () => void }) {
   const qc = useQueryClient();

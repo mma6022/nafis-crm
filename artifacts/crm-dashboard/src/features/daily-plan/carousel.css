@@ -1,0 +1,105 @@
+/* incoming2-59 «کارهای امروز من» deck — ported from Armita crm-daily-plan-cards v1.0 (src/cards.css); tc- prefix, only rendered with flag.today_carousel. */
+.tc-page{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:12px;padding-bottom:24px}
+.tc-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.tc-head h1{margin:0;font-size:22px}
+.tc-date{margin:2px 0 0;color:#5b6274;font-size:14px;unicode-bidi:isolate}
+.tc-inb{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 20px;border-radius:12px;border:0;background:var(--nf-brand-600,#29369B);color:#fff;font:inherit;font-weight:800;font-size:16px;cursor:pointer;white-space:nowrap}
+.tc-inb:focus-visible{outline:3px solid #f59e0b;outline-offset:2px}
+.tc-inb-d{margin-inline-start:auto}
+.tc-inb-wrap{display:none}
+.tc-kp{background:#fff;border:1px solid var(--nf-border,#e3e6ef);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.tc-kpr{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px}
+.tc-pos{font-size:17px}.tc-pos b{font-size:20px;font-weight:800}
+.tc-kpr small{color:#5b6274}
+.tc-bar{height:6px;border-radius:6px;background:#e9ecf5;overflow:hidden}
+.tc-bar i{display:block;height:100%;background:var(--nf-brand-600,#29369B);border-radius:6px}
+.tc-anote{font-size:13px;color:#5b6274;display:flex;gap:6px;align-items:center;margin:0}
+.tc-urgent{display:flex;align-items:center;gap:8px;background:#fdecec;border:1px solid #f5b5b5;color:#9b1c1c;border-radius:12px;padding:8px 12px;font-weight:700}
+.tc-urgent .dp-x{margin-inline-start:auto}
+.tc-deck{position:relative;overflow:hidden;padding-inline-end:28px;min-height:120px}
+.tc-card{position:relative;z-index:3}
+.tc-card>.card{margin:0}
+.tc-pk{position:absolute;top:10px;bottom:10px;inset-inline-end:0;width:calc(100% - 40px);background:#fff;border:1px solid #dfe3ee;border-radius:16px;opacity:.75;z-index:2;pointer-events:none}
+.tc-pk2{top:20px;bottom:20px;inset-inline-end:-8px;opacity:.45;z-index:1}
+@media (prefers-reduced-motion:no-preference){
+  .tc-deck.a-next .tc-card{animation:tcInNext 280ms cubic-bezier(.2,.7,.2,1)}
+  .tc-deck.a-prev .tc-card{animation:tcInPrev 280ms cubic-bezier(.2,.7,.2,1)}
+}
+@keyframes tcInNext{from{transform:translateX(-100%);opacity:0}to{transform:none;opacity:1}}
+@keyframes tcInPrev{from{transform:translateX(100%);opacity:0}to{transform:none;opacity:1}}
+.tc-done{background:#fbfcfe}
+.tc-done h3{margin:4px 0;font-size:20px}
+.tc-done-st{display:flex;gap:6px;align-items:center;color:#1c7a43;font-weight:700;margin:4px 0}
+.tc-fin{text-align:center;align-items:center;display:flex;flex-direction:column;gap:8px;padding:28px 16px}
+.tc-fin h3{margin:0}.tc-fin-i{color:#1c8a4a}
+.tc-pager{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.tc-dots{display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:center;align-items:center;margin:0}
+.tc-nxt{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:14px}
+.tc-dots small{color:#5b6274;display:inline-flex;gap:4px;align-items:center}
+.tc-live{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.tc-toast{position:fixed;z-index:70;inset-inline:16px;bottom:24px;margin:0 auto;max-width:420px;background:#0b1450;color:#fff;border-radius:12px;padding:10px 14px;display:flex;gap:8px;align-items:center;box-shadow:0 10px 30px rgba(0,0,60,.3)}
+/* «دوباره گرفتن شماره» never wraps (Armita bug c) */
+.tc-card .dp-call{white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* wizard */
+.tc-ov{position:fixed;inset:0;z-index:90;background:rgba(11,20,80,.45);display:grid;place-items:center;padding:16px}
+.tc-dlg{background:#fff;border-radius:20px;width:min(520px,100%);max-height:90dvh;overflow:auto;padding:16px 18px;box-shadow:0 30px 80px rgba(0,0,109,.28);display:flex;flex-direction:column;gap:10px}
+.tc-dlg-h{display:flex;align-items:flex-start;gap:8px}.tc-dlg-h>div{flex:1}.tc-dlg-h h2{margin:2px 0 0;font-size:19px}
+.tc-stp{display:flex;gap:6px;list-style:none;margin:0;padding:0;font-size:12px}
+.tc-stp li{flex:1;text-align:center;padding:4px;border-radius:999px;background:#eef0f6;color:#5b6274}
+.tc-stp li.on{background:var(--nf-brand-600,#29369B);color:#fff}
+.tc-form{display:flex;flex-direction:column;gap:8px}
+.tc-form label{font-weight:700;font-size:14px}
+.tc-form input{min-height:44px;border:1px solid #cfd5e3;border-radius:10px;padding:0 12px;font:inherit}
+.tc-form input.ro{background:#f4f5f8;color:#5b6274}
+.tc-foot{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.tc-hit{display:flex;gap:10px;align-items:flex-start;border:1px solid #cfe9d7;background:#f2fbf5;border-radius:12px;padding:12px;margin-bottom:6px}
+.tc-hit>div{display:flex;flex-direction:column;gap:4px}
+.tc-hit.oth{border-color:#f1d9a8;background:#fff8ea}
+.tc-hit.new{border-color:#cdd6f6;background:#f3f6ff}
+.tc-xol,.el-xol{display:flex;gap:6px;align-items:center;font-size:13px;margin:6px 0 0;color:#5b6274}
+@media (max-width:1023px){
+  .tc-inb-d{display:none}
+  /* sticky bottom bar (52px). Left 80px stays free for the chat / assistant floating buttons so they never cover the bar (Armita bug b). */
+  .tc-inb-wrap{display:block;height:72px}
+  .tc-inb-m{position:fixed;z-index:30;bottom:calc(12px + env(safe-area-inset-bottom));right:12px;left:80px;min-height:52px;box-shadow:0 6px 20px rgba(0,0,60,.25)}
+  .tc-deck{padding-inline-end:14px}.tc-pk{width:calc(100% - 20px)}
+  .tc-toast{bottom:84px}
+}
+@media (max-width:640px){
+  .tc-inb-m{bottom:calc(72px + env(safe-area-inset-bottom))}
+  .tc-toast{bottom:144px}
+  .tc-ov{align-items:end;padding:0}.tc-dlg{border-radius:24px 24px 0 0;width:100%;padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+}
+/* bug (b): keep the «گزارش خطا» pill clear of the sticky «تماس ورودی داشتم» bar (it rides just above the bar) */
+@media (max-width: 1023px) and (min-width: 641px) { body:has(.tc-inb-m) .diag-floating { bottom: 76px; } }
+@media (max-width: 640px) { body:has(.tc-inb-m) .diag-floating { bottom: calc(var(--nf-bottom-bar-h, 64px) + env(safe-area-inset-bottom, 0px) + 72px); } }
+/* incoming2-59 incoming wizard (shared: carousel + lockdown today view) */
+.iw-big{display:flex;align-items:center;gap:12px;width:100%;min-height:64px;margin:4px 0 12px;padding:12px 16px;border:0;border-radius:16px;background:#0b1450;color:#fff;font:inherit;text-align:start;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,109,.18)}
+.iw-big b{display:block;font-size:1.1rem}.iw-big small{display:block;opacity:.85;font-size:.82rem}
+.iw-big:focus-visible,.iw-opt:focus-visible{outline:3px solid #f5a524;outline-offset:2px}
+.iw-opts{display:grid;gap:10px}
+.iw-opt{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-height:96px;padding:14px 16px;border:2px solid #d8def3;border-radius:16px;background:#f7f9ff;font:inherit;text-align:start;cursor:pointer;color:#0b1450}
+.iw-opt b{font-size:1.08rem}.iw-opt small{color:#4a5378}
+.iw-opt:hover{border-color:#0b1450;background:#eef2ff}
+@media (min-width:641px){.iw-opts{grid-template-columns:1fr 1fr}.iw-opts .tc-foot{grid-column:1/-1}}
+.iw-opt.nw{border-color:#bfe3cf;background:#f3fbf6}
+.iw-dlg .tc-hit{align-items:center}.iw-dlg .tc-hit>div{flex:1;min-width:0}
+.iw-tel{white-space:nowrap;background:#1f7a4d;border-color:#1f7a4d}
+.tc-page .iw-big,.dp-page>.iw-big{margin-top:0}
+/* incoming2-59 · Armita crm-incoming-call v1.1 sizes */
+.iw-big{min-height:60px;margin:0 0 12px}
+.iw-wbar{height:4px;background:#eef0fb;border-radius:4px;margin-top:8px;overflow:hidden}.iw-wbar i{display:block;height:100%;background:#0b1450;transition:width .28s}
+@media (prefers-reduced-motion:reduce){.iw-wbar i{transition:none}}
+@media (min-width:641px){.tc-ov .iw-dlg{width:min(620px,100%)}}
+@media (max-width:640px){
+  .iw-big{position:sticky;top:0;z-index:20;min-height:52px;border-radius:12px;margin:0 0 10px}
+  .iw-big small{display:none}
+  .tc-ov:has(.iw-dlg){padding:0;align-items:stretch}
+  .tc-ov .iw-dlg{width:100%;max-height:none;height:100dvh;border-radius:0}
+}
+body:has(.iw-dlg) .diag-floating,body:has(.ts-wz) .diag-floating{display:none!important}
+@media (max-width:640px){body:has(.iw-big) .diag-floating{display:none!important}}
+/* incoming2-59: the full-screen wizard starts below the phone «مزاحم نشو» bar so its × / back buttons stay clickable */
+@media (max-width:640px){html.nas-dnd-on .tc-ov:has(.iw-dlg){top:44px}html.nas-dnd-on .tc-ov .iw-dlg{height:calc(100dvh - 44px)}}
+/* incoming2-59: wizard footer buttons never wrap word-by-word on phones (stack full-width instead) */
+@media (max-width:640px){.iw-dlg .tc-foot{flex-direction:column}.iw-dlg .tc-foot .btn{width:100%;justify-content:center;white-space:nowrap;min-height:48px}}
