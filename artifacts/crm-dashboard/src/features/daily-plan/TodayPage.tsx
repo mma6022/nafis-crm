@@ -147,9 +147,12 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
     } catch (e) { setErr(e instanceof Error ? e.message : 'ثبت نشد.'); } finally { setBusy(false); }
   };
   const nextNo = d.progress.position + 1;
-  // HISTORY-A v1.2: three columns only for a customer who already had calls (never on a first call / first-call form).
-  const hx = useHistorySummary(cur.customerId, formKind !== 'simple' && formKind !== 'wait');
-  const c3 = formKind !== 'simple' && formKind !== 'wait' && Boolean(hx.data) && !hx.data!.firstCall;
+  // HISTORY-A v1.2 + C3-79 (Mohammad 17:27): a first-call item (type 'first') keeps the one-column card + first-call form unless the
+  // customer already had calls on the old form; EVERY other Today card (urgent/followup/due/…; incl. Kazemi's no-priority customers that
+  // open the qualifier form) shows the three columns.
+  const firstItem = cur.type === 'first';
+  const hx = useHistorySummary(cur.customerId, formKind !== 'wait' && !(firstItem && formKind === 'simple'));
+  const c3 = formKind !== 'wait' && Boolean(hx.data) && (firstItem ? formKind !== 'simple' && !hx.data!.firstCall : true);
   const fileQ = useFileCard(cur.customerId, c3);
   const [toast, setToast] = useState('');
   useEffect(() => { if (!toast) return; const t = window.setTimeout(() => setToast(''), 5000); return () => window.clearTimeout(t); }, [toast]);
