@@ -82,7 +82,7 @@ const allNavItems: NavItem[] = [
   { href: '/lead-annotator', label: 'یادداشت سرنخ (اینستاگرام)', icon: Instagram, leadAnnotator: true },
   { href: '/users', label: 'کاربران CRM', icon: UserCog, permission: 'users.view' },
   { href: '/settings/notifications', label: 'تنظیمات', icon: Settings, permission: 'notifications.view' },
-  { href: '/settings/releases', label: 'نسخه‌ها', icon: Rocket, adminOnly: true },
+  { href: '/settings/releases', label: 'نسخه‌های سایت', icon: Rocket, adminOnly: true },
   { href: '/call-queue-events', label: 'گزارش مدیر · صف تماس', icon: PieChart, cq: 'admin' },
   { href: '/settings/call-queue', label: 'تنظیمات صف تماس', icon: SlidersHorizontal, cq: 'admin' },
   { href: '/call-queue-discipline', label: 'نظم پیگیری تیم', icon: PieChart, cq: 'discipline' },

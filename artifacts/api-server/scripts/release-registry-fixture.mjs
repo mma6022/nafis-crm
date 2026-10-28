@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  ridToDate, ridToTehran, normalizeSiteEntry, parseSiteRegistry, parseCrmMeta, loadSiteReleases, loadCrmMeta,
+  ridToDate, ridToTehran, normalizeSiteEntry, parseSiteRegistry, parseCrmMeta, loadSiteReleases, loadCrmMeta, cleanReleaseNo,
 } from "../src/lib/release-registry.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -55,6 +55,13 @@ t("parseCrmMeta schema cut-off", () => {
   assert.equal(parseCrmMeta({ schemaCutoff: "junk", releases: {} }).schemaCutoff, null);
   assert.equal(parseCrmMeta({ releases: { bad: { schemaChange: "x" } } }).schemaCutoff, null);
 });
+t("releaseNo: only real numbers, never invented", () => {
+  assert.deepEqual(["82", "7", "77b", " 55 ", "", "x82", "12345", "82.1", null, 82].map(cleanReleaseNo), ["82", "7", "77b", "55", null, null, null, null, null, "82"]);
+  assert.equal(normalizeSiteEntry({ rid: "20261028212415", releaseNo: "55" }).entry.releaseNo, "55");
+  assert.equal(normalizeSiteEntry({ rid: "20261028212415" }).entry.releaseNo, null);
+  assert.equal(normalizeSiteEntry({ rid: "20261028212415", releaseNo: "<b>" }).entry.releaseNo, null);
+  assert.equal(parseCrmMeta({ releases: { "20261028211337": { releaseNo: "82" }, "20261028000000": {} } }).releases["20261028000000"].releaseNo, null);
+});
 t("seed site-releases.json: 23 valid rows", () => {
   const doc = JSON.parse(readFileSync(path.join(here, "../release-registry/site-releases.json"), "utf8"));
   const r = parseSiteRegistry(doc);
@@ -69,6 +76,8 @@ t("seed crm-releases-meta.json: cut-off = 20261028211337", () => {
   const m = parseCrmMeta(doc);
   assert.equal(m.schemaCutoff, "20261028211337");
   assert.ok(Object.keys(m.releases).length >= 60);
+  assert.equal(m.releases["20261028211337"].releaseNo, "82");
+  assert.equal(m.releases["20261028203444"].releaseNo, "81");
 });
 
 const tmp = mkdtempSync(path.join(tmpdir(), "relreg-"));
@@ -84,14 +93,14 @@ try {
   writeFileSync(path.join(tmp, "reg", "site-releases.json"), "{not json");
   assert.equal((await loadSiteReleases()).reason, "invalid_json"); n++; console.log("ok - invalid json fails soft");
   writeFileSync(path.join(tmp, "reg", "site-releases.json"), JSON.stringify({ releases: [
-    { rid: "20261028212415", commit: "c03d782", branch: "site/apply-wizard-82", description: "x" },
+    { rid: "20261028212415", commit: "c03d782", branch: "site/apply-wizard-82", description: "x", releaseNo: "55" },
     { rid: "20261027000000", description: "gone" }, { rid: "nope" },
   ] }));
   const s = await loadSiteReleases();
   assert.equal(s.available, true); assert.equal(s.current, "20261028212415"); assert.equal(s.invalidRows, 1);
   assert.deepEqual(s.releases.map((r) => [r.rid, r.current, r.onDisk, r.tehran]), [
     ["20261028212415", true, true, "2026-10-29 00:54:15"], ["20261027000000", false, false, "2026-10-27 03:30:00"],
-  ]); n++; console.log("ok - loadSiteReleases current/onDisk/tehran");
+  ]); assert.deepEqual(s.releases.map((r) => r.releaseNo), ["55", null]); n++; console.log("ok - loadSiteReleases current/onDisk/tehran");
   writeFileSync(path.join(tmp, "reg", "crm-releases-meta.json"), JSON.stringify({ releases: { "20261028211337": { commit: "33c26f9", schemaChange: "x" } } }));
   const c = await loadCrmMeta();
   assert.deepEqual([c.available, c.schemaCutoff, c.cutoffSource], [true, "20261028211337", "derived"]); n++; console.log("ok - loadCrmMeta");

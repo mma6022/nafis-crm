@@ -33,57 +33,65 @@ export function ridToTehran(rid: string | null | undefined): TehranTime | null {
   return { iso, date, time: fa(`${p(t.getUTCHours())}:${p(t.getUTCMinutes())}`) };
 }
 
-export type OperationKind = 'none' | 'running' | 'success' | 'failed' | 'manual_recovery' | 'unknown';
-export type OperationView = { kind: OperationKind; title: string; message: string; blocksActions: boolean };
+export type OperationKind = 'none' | 'running' | 'success' | 'auto_rollback' | 'failed' | 'manual_recovery' | 'unknown';
+/** badge = short label for the target row; blocksActions = every rollback button off. */
+export type OperationView = { kind: OperationKind; badge: string; title: string; message: string; blocksActions: boolean };
 
 const ERROR_FA: Record<string, string> = {
-  activation_failed: 'فعال‌سازی ناموفق بود و نسخه‌ی قبلی سر جایش ماند.',
-  database_schema_changed: 'ساختار دیتابیس در حین تغییر نسخه عوض شد؛ سرویس CRM برای حفظ داده‌ها متوقف شد.',
-  failed_to_restore_links: 'لینک نسخه‌ی قبلی برنگشت؛ سرویس CRM متوقف است.',
+  activation_failed: 'نسخه‌ی تازه بالا نیامد و سیستم خودکار به نسخه‌ی قبلی برگشت. هیچ داده‌ای از دست نرفته.',
+  database_schema_changed: 'ساختار پایگاه داده وسط کار عوض شد؛ CRM برای حفظ داده‌ها متوقف شد.',
+  failed_to_restore_links: 'برگرداندن نسخه‌ی قبلی هم انجام نشد؛ CRM متوقف است.',
   operation_in_progress: 'یک عملیات دیگر در حال اجراست.',
 };
 
-/** Maps the release manager's operation file ({target,status,error,updatedAt}) to what the CRM tab shows. */
+/**
+ * Maps the release manager's operation file ({target,status,error,updatedAt}) to the CRM tab.
+ * failed + activation_failed = the manager restored the previous links itself -> «برگشت خودکار» (PM #6).
+ * manual_recovery_required (database_schema_changed / failed_to_restore_links) -> «خطا» + «نیاز به کار دستی».
+ */
 export function mapOperation(op: { status?: string | null; error?: string | null; target?: string | null } | null | undefined): OperationView {
   const status = String(op?.status ?? '').trim().toLowerCase();
-  const err = op?.error ? (ERROR_FA[op.error] ?? op.error) : '';
-  const target = op?.target ? ` (${op.target})` : '';
+  const code = String(op?.error ?? '').trim();
+  const err = code ? (ERROR_FA[code] ?? code) : '';
   switch (status) {
     case '':
-      return { kind: 'none', title: '', message: '', blocksActions: false };
+      return { kind: 'none', badge: '', title: '', message: '', blocksActions: false };
     case 'running':
     case 'applying':
-      return { kind: 'running', title: `در حال اعمال نسخه${target}`, message: 'تغییر نسخه در حال انجام است. تا پایان آن، هیچ دکمه‌ای فعال نیست.', blocksActions: true };
+      return { kind: 'running', badge: 'در حال اجرا', title: 'در حال تغییر نسخه‌ی CRM…', message: 'تا تمام شدن، برگشت یا استقرار دیگری ممکن نیست. می‌توانی این صفحه را ببندی؛ کار روی سرور ادامه پیدا می‌کند.', blocksActions: true };
     case 'succeeded':
     case 'success':
-      return { kind: 'success', title: `آخرین تغییر نسخه موفق بود${target}`, message: 'سرویس CRM با نسخه‌ی جدید بالا آمد.', blocksActions: false };
+      return { kind: 'success', badge: 'موفق', title: 'آخرین تغییر نسخه موفق بود.', message: 'CRM با این نسخه بالا آمد.', blocksActions: false };
     case 'failed':
-      return { kind: 'failed', title: `آخرین تغییر نسخه ناموفق بود${target}`, message: err || 'تغییرات اعمال نشد.', blocksActions: false };
+      if (code === 'activation_failed' || code === '') {
+        return { kind: 'auto_rollback', badge: 'برگشت خودکار', title: 'تغییر نسخه انجام نشد؛ CRM خودکار به نسخه‌ی قبلی برگشت.', message: err || ERROR_FA.activation_failed, blocksActions: false };
+      }
+      return { kind: 'failed', badge: 'خطا', title: 'تغییر نسخه انجام نشد.', message: err, blocksActions: false };
     case 'manual_recovery_required':
-      return { kind: 'manual_recovery', title: 'CRM متوقف است؛ بازیابی دستی لازم است', message: (err ? `${err} ` : '') + 'تا بازیابی توسط توسعه‌دهنده، هیچ تغییر نسخه‌ای از این صفحه انجام نمی‌شود.', blocksActions: true };
+      return { kind: 'manual_recovery', badge: 'خطا', title: 'CRM متوقف است؛ نیاز به کار دستی', message: (err ? `${err} ` : '') + 'تا توسعه‌دهنده دستی درستش نکند، هیچ تغییر نسخه‌ای از این صفحه انجام نمی‌شود.', blocksActions: true };
     default:
-      return { kind: 'unknown', title: `وضعیت ناشناخته: ${status}`, message: 'تا روشن شدن وضعیت، تغییر نسخه غیرفعال است.', blocksActions: true };
+      return { kind: 'unknown', badge: 'نامعلوم', title: 'وضعیت آخرین عملیات معلوم نیست.', message: 'تا روشن شدن وضعیت، برگشت غیرفعال است.', blocksActions: true };
   }
 }
 
-export type Gate = { action: 'none' | 'deploy' | 'rollback'; allowed: boolean; reason: string };
+export type Gate = { action: 'none' | 'rollback'; allowed: boolean; reason: string };
 
 /**
- * What the CRM tab may offer for one release. Rollback (version < current) is refused for anything
- * older than the last schema change (cutoff), and for everything when the cutoff is unknown.
+ * What the CRM tab may offer for one release. Only rollback (version < current); newer versions get
+ * nothing (PM #4: no deploy from this page). Rollback is refused for anything older than the last
+ * schema change (cutoff, given with its display label) and for everything when the cutoff is unknown.
  */
-export function releaseGate(args: { version: string; current: string | null; cutoff: string | null; ready: boolean; busy: boolean }): Gate {
+export function releaseGate(args: { version: string; current: string | null; cutoff: string | null; cutoffLabel?: string; ready: boolean; busy: boolean }): Gate {
   const { version, current, cutoff, ready, busy } = args;
-  if (current && version === current) return { action: 'none', allowed: false, reason: 'نسخه‌ی فعلی' };
-  const action: Gate['action'] = current && version < current ? 'rollback' : 'deploy';
-  if (!ready) return { action, allowed: false, reason: 'این نسخه کامل یا معتبر نیست.' };
-  if (busy) return { action, allowed: false, reason: 'تا پایان یا بازیابی عملیات جاری غیرفعال است.' };
-  if (action === 'rollback') {
-    if (!cutoff) return { action, allowed: false, reason: 'زمان آخرین تغییر ساختار دیتابیس معلوم نیست؛ بازگردانی از این صفحه بسته است.' };
-    const cut = cutoff.length === 12 ? `${cutoff}00` : cutoff;
-    if (version < cut) return { action, allowed: false, reason: `قدیمی‌تر از آخرین تغییر ساختار دیتابیس (${cut}) است؛ کد قدیمی با دیتابیس فعلی سازگار نیست. بازگردانی فقط دستی و توسط توسعه‌دهنده.` };
-  }
-  return { action, allowed: true, reason: '' };
+  if (!current) return { action: 'none', allowed: false, reason: 'نسخه‌ی فعلی معلوم نیست.' };
+  if (version === current) return { action: 'none', allowed: false, reason: 'نسخه‌ی فعلی' };
+  if (version > current) return { action: 'none', allowed: false, reason: 'نسخه‌ی جدیدتر؛ استقرار از این صفحه انجام نمی‌شود.' };
+  if (!ready) return { action: 'rollback', allowed: false, reason: 'این نسخه کامل یا معتبر نیست.' };
+  if (!cutoff) return { action: 'rollback', allowed: false, reason: 'زمان آخرین تغییر ساختار پایگاه داده معلوم نیست؛ برگشت بسته است.' };
+  const cut = cutoff.length === 12 ? `${cutoff}00` : cutoff;
+  if (version < cut) return { action: 'rollback', allowed: false, reason: `با پایگاه داده‌ی فعلی جور نیست (ساختار از ${args.cutoffLabel || cut} عوض شده)` };
+  if (busy) return { action: 'rollback', allowed: false, reason: 'تا تمام شدن عملیات جاری، برگشت ممکن نیست.' };
+  return { action: 'rollback', allowed: true, reason: '' };
 }
 
 export function paginate<T>(items: T[], page: number, size: number): { rows: T[]; page: number; pages: number; total: number } {
@@ -93,7 +101,7 @@ export function paginate<T>(items: T[], page: number, size: number): { rows: T[]
   return { rows: items.slice((p - 1) * size, p * size), page: p, pages, total };
 }
 
-/** Manager polling: slow when idle, faster only while an operation runs. */
+/** Manager polling: every 15 s while the tab is open (HANDOFF), 4 s only while an operation runs. */
 export function crmRefetchMs(kind: OperationKind): number {
-  return kind === 'running' ? 4000 : 30000;
+  return kind === 'running' ? 4000 : 15000;
 }

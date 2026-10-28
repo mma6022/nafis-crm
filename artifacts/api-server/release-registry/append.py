@@ -81,6 +81,7 @@ def main(argv=None):
     ap.add_argument("--rollback")
     ap.add_argument("--notes")
     ap.add_argument("--schema-change")
+    ap.add_argument("--release-no", help="release number when known (e.g. 55 or 65b); never guess")
     ap.add_argument("--dir", default=os.environ.get("NAFISVAM_RELEASE_REGISTRY_DIR", "/var/lib/nafisvam/release-registry"))
     ap.add_argument("--replace", action="store_true")
     a = ap.parse_args(argv)
@@ -96,6 +97,9 @@ def main(argv=None):
     desc = clean(a.desc, 200)
     if not desc:
         die("desc is required")
+    release_no = (a.release_no or "").strip() or None
+    if release_no and not re.match(r"^\d{1,4}[a-z]?$", release_no):
+        die("release-no must be digits (optional letter suffix)")
     if not os.path.isdir(a.dir):
         die(f"registry dir missing: {a.dir}", 3)
 
@@ -116,7 +120,7 @@ def main(argv=None):
             if not rollback:
                 rollback = f"بازگشت به {older[0]}: " + RELINK.format(p=older[0]) if older else "قدیمی‌ترین نسخه؛ نسخه‌ی قبلی ثبت نشده."
             rows.append({"rid": a.rid, "commit": commit, "branch": branch, "description": desc,
-                         "rollback": rollback, "notes": clean(a.notes, 300)})
+                         "rollback": rollback, "notes": clean(a.notes, 300), "releaseNo": release_no})
             rows.sort(key=lambda r: str(r.get("rid", "")), reverse=True)
             doc["releases"] = rows
         else:
@@ -128,7 +132,7 @@ def main(argv=None):
             if a.rid in rel and not a.replace:
                 die(f"rid {a.rid} already registered (use --replace)", 4)
             sc = clean(a.schema_change, 200)
-            rel[a.rid] = {"commit": commit, "branch": branch, "description": desc, "schemaChange": sc}
+            rel[a.rid] = {"commit": commit, "branch": branch, "description": desc, "schemaChange": sc, "releaseNo": release_no}
             if sc and (not doc.get("schemaCutoff") or a.rid > doc["schemaCutoff"]):
                 doc["schemaCutoff"] = a.rid
         doc["updatedAt"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
