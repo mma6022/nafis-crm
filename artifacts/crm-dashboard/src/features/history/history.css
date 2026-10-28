@@ -38,3 +38,5 @@
 @media (max-width:1023px){.hx-kv,.hx-col{grid-template-columns:1fr}.hx-fp-sheet{width:100%}}
 /* panel mode (iframe): the shell shows only the page */
 .app-shell.hx-panel-mode .app-sidebar,.app-shell.hx-panel-mode .app-topbar,.app-shell.hx-panel-mode .mobile-bottom-nav{display:none!important}
+/* HISTORY-A: on phone the assistant's «مزاحم نشو» bar (44px, html.nas-dnd-on) sits above every modal; start the panel and the confirm below it so the header and «بستن» stay tappable. */
+@media (max-width:640px){html.nas-dnd-on .hx-fp,html.nas-dnd-on .hx-cfx{top:44px}}
