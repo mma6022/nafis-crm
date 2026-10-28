@@ -23,6 +23,13 @@ type SiteResponse = { available: boolean; reason?: string; current?: string | nu
 const SITE_STEP = 10;
 const CRM_PER = 8;
 const fa = (v: string | number) => String(v).replace(/\d/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[Number(d)]);
+// Compact pager: first, last, current ±1; 0 marks a gap («…»).
+const pageWindow = (page: number, pages: number): number[] => {
+  const keep = new Set([1, pages, page - 1, page, page + 1].filter((n) => n >= 1 && n <= pages));
+  const out: number[] = []; let prev = 0;
+  for (const n of [...keep].sort((a, b) => a - b)) { if (n - prev > 1) out.push(n - prev === 2 ? n - 1 : 0); out.push(n); prev = n; }
+  return out;
+};
 const crmNo = (no?: string | null) => (no ? `انتشار ${fa(no)}` : null);
 const siteNo = (no?: string | null) => (no ? `انتشار سایت ${fa(no)}` : null);
 
@@ -44,7 +51,7 @@ function Sha({ sha }: { sha: string | null }) {
     <button type="button" className={`sha${did ? ' did' : ''}`} onClick={copy} aria-label={`کامیت ${sha.slice(0, 7)}، برای کپی بزن`} title={sha} data-testid="sha-copy">
       <GitCommitHorizontal className="i" aria-hidden />
       <bdi dir="ltr" className="mono">{sha.slice(0, 7)}</bdi>
-      <Copy className="i cp" aria-hidden />
+      <Copy className="i cpi" aria-hidden />
       <span className="cpd" aria-live="polite">{did ? 'کپی شد' : ''}</span>
     </button>
   );
@@ -55,7 +62,7 @@ function Branch({ name }: { name: string | null }) {
   return <span className="brn"><GitBranch className="i" aria-hidden /><bdi dir="ltr" className="mono" title={name}>{name}</bdi></span>;
 }
 
-const CurBadge = () => <span className="tg cur"><Check className="i" aria-hidden />نسخه‌ی فعلی</span>;
+const CurBadge = () => <span className="svtg cur"><Check className="i" aria-hidden />نسخه‌ی فعلی</span>;
 const Msg = ({ text }: { text: string | null | undefined }) => (text ? <>{text}</> : <span className="nomsg">توضیح ثبت نشده</span>);
 
 function When({ rid, inline }: { rid: string; inline?: boolean }) {
@@ -83,7 +90,7 @@ function Loading({ what }: { what: string }) {
   return (
     <div className="svl" aria-busy="true" data-testid="sv-loading">
       <p className="ldt"><span className="spn" aria-hidden />در حال خواندن {what}…</p>
-      <span className="sk cp" /><span className="sk w4" /><span className="sk w3" /><span className="sk cp" /><span className="sk w4" /><span className="sk w2" />
+      <span className="sk cpi" /><span className="sk w4" /><span className="sk w3" /><span className="sk cpi" /><span className="sk w4" /><span className="sk w2" />
     </div>
   );
 }
@@ -148,7 +155,7 @@ function SiteTab() {
             {rows.map((r) => (
               <tr key={r.rid} className={r.current ? 'iscur' : ''} data-testid={`site-release-${r.rid}`}>
                 <td><When rid={r.rid} /></td>
-                <td><div className="rl"><VersionLabel no={siteNo(r.releaseNo)} rid={r.rid} />{r.current ? <CurBadge /> : null}</div>{r.onDisk === false ? <div className="tgs"><span className="tg bad">روی سرور نیست</span></div> : null}</td>
+                <td><div className="rl"><VersionLabel no={siteNo(r.releaseNo)} rid={r.rid} />{r.current ? <CurBadge /> : null}</div>{r.onDisk === false ? <div className="tgs"><span className="svtg bad">روی سرور نیست</span></div> : null}</td>
                 <td><Sha sha={r.commit} /></td>
                 <td><Branch name={r.branch} /></td>
                 <td className="ms"><span><Msg text={r.description} /></span>{r.notes ? <small>{r.notes}</small> : null}<SiteRollbackText text={r.current ? null : r.rollback} /></td>
@@ -333,12 +340,12 @@ function CrmTab() {
 
   const status = (r: Release) => {
     const t = isTarget(r);
-    if (t && op.kind === 'running') return <span className="tg run"><i className="spn" aria-hidden />در حال اجرا</span>;
-    if (r.version === data.current) return <span className="tg act">فعال</span>;
-    if (t && op.kind === 'auto_rollback') return <span className="tg arb"><RotateCcw className="i" aria-hidden />برگشت خودکار</span>;
-    if (t && (op.kind === 'failed' || op.kind === 'manual_recovery')) return <span className="tg bad"><AlertTriangle className="i" aria-hidden />خطا</span>;
-    if (!r.ready) return <span className="tg bad">ناقص</span>;
-    return <span className="tg okk">آماده</span>;
+    if (t && op.kind === 'running') return <span className="svtg run"><i className="spn" aria-hidden />در حال اجرا</span>;
+    if (r.version === data.current) return <span className="svtg act">فعال</span>;
+    if (t && op.kind === 'auto_rollback') return <span className="svtg arb"><RotateCcw className="i" aria-hidden />برگشت خودکار</span>;
+    if (t && (op.kind === 'failed' || op.kind === 'manual_recovery')) return <span className="svtg bad"><AlertTriangle className="i" aria-hidden />خطا</span>;
+    if (!r.ready) return <span className="svtg bad">ناقص</span>;
+    return <span className="svtg okk">آماده</span>;
   };
   const note = (r: Release) => {
     if (!isTarget(r)) return null;
@@ -416,7 +423,7 @@ function CrmTab() {
     ? <Banner tone="info" icon={<Lock className="i" aria-hidden />} title="برگشت فقط به نسخه‌های هم‌ساختار">ساختار پایگاه داده از {cutoffLabel} عوض شده؛ نسخه‌های قدیمی‌تر روی داده‌ی فعلی امن نیستند و دکمه‌شان خاموش است.{cutoff === data.current ? ' چون آخرین تغییر ساختار همین نسخه‌ی فعلی است، فعلاً هیچ نسخه‌ی قدیمی‌تری قابل برگشت نیست.' : ''}</Banner>
     : <Banner tone="bad" icon={<Database className="i" aria-hidden />} title="زمان آخرین تغییر ساختار پایگاه داده معلوم نیست">تا فایل اطلاعات نسخه‌های CRM خوانده نشود، همه‌ی دکمه‌های برگشت خاموش است. به توسعه‌دهنده خبر بده.</Banner>;
   const rowCls = (r: Release) => `${r.version === data.current ? 'iscur' : ''}${isTarget(r) && (op.kind === 'failed' || op.kind === 'manual_recovery' || op.kind === 'auto_rollback') ? ' isf' : ''}`;
-  const schemaTag = (m: CrmMetaEntry | null) => (m?.schemaChange ? <span className="tg sch" title={m.schemaChange}>تغییر ساختار پایگاه داده</span> : null);
+  const schemaTag = (m: CrmMetaEntry | null) => (m?.schemaChange ? <span className="svtg sch" title={m.schemaChange}>تغییر ساختار پایگاه داده</span> : null);
 
   return (
     <>
@@ -462,7 +469,9 @@ function CrmTab() {
           {pg.pages > 1 ? (
             <nav className="pgn" aria-label="صفحه‌های فهرست نسخه‌های CRM">
               <button type="button" className="pgb" disabled={pg.page <= 1} onClick={() => setPage(pg.page - 1)} data-testid="rel-page-prev">قبلی</button>
-              {Array.from({ length: pg.pages }, (_, i) => i + 1).map((n) => (
+              {pageWindow(pg.page, pg.pages).map((n, i) => n === 0 ? (
+                <span key={`gap${i}`} className="pgg" aria-hidden="true">…</span>
+              ) : (
                 <button key={n} type="button" className={`pgb${n === pg.page ? ' on' : ''}`} aria-current={n === pg.page ? 'page' : undefined} aria-label={`صفحه‌ی ${fa(n)}`} onClick={() => setPage(n)}>{fa(n)}</button>
               ))}
               <button type="button" className="pgb" disabled={pg.page >= pg.pages} onClick={() => setPage(pg.page + 1)} data-testid="rel-page-next">بعدی</button>
