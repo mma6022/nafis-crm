@@ -5,7 +5,7 @@
  * access — every route stays reachable by link/URL with the same permission checks as before.
  * Roles without a layout here (funder, accounting, salesperson without salespersonId) keep the old grouped menu.
  */
-export type MenuKind = 'expert' | 'trainee' | 'registrar' | 'admin';
+export type MenuKind = 'expert' | 'trainee' | 'registrar' | 'admin' | 'expertLocked';
 export type MainEntry = { href: string; label?: string; fallback?: string } | { action: 'assistant'; label: string };
 export type MoreGroup = { id: string; label?: string; hrefs: string[] };
 export type RoleMenu = { main: MainEntry[]; more: MoreGroup[]; hide?: string[]; shortcuts: string[] };
@@ -22,6 +22,20 @@ export const menuKindFor = (user?: { role?: string | null; salespersonId?: numbe
 };
 
 export const ROLE_MENUS: Record<MenuKind, RoleMenu> = {
+  // expert lockdown (flag.expert_lockdown, users 2/3/8 only): the 4 allowed areas + messenger, nothing under «بیشتر».
+  expertLocked: {
+    main: [
+      { href: '/today', label: 'کارهای امروز من' },
+      { href: '/loan-applications', label: 'پرونده‌های من' },
+      { href: '/payment-orders' },
+      { href: '/goods-purchases' },
+      { href: '/messengers', label: 'گفتگو در پیام‌رسان‌ها' },
+      { href: '/internal-chat' },
+      { action: 'assistant', label: 'چت دستیار' },
+    ],
+    more: [{ id: 'more', hrefs: [] }],
+    shortcuts: ['/today', '/loan-applications', '/messengers', '/internal-chat'],
+  },
   // PM: exactly these 8; everything else (incl. the proposal's «حذف از منو» items) goes under «بیشتر».
   expert: {
     main: [

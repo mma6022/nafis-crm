@@ -7,6 +7,8 @@ import { CqResultFields, cqResultError, emptyCqResult, type CqResultValue } from
 import { announceCallSaved, faClock, faNum, tehranParts, useCqConfig } from '@/features/call-queue/api';
 import { custList, dpApi, DpError, useDpConfig, type DpItem, type DpToday } from './api';
 import './daily-plan.css';
+import { elApi, useLockdownMe } from '@/features/expert-lockdown/api';
+import { LockedInbound } from '@/features/expert-lockdown/IncomingCall';
 
 type Working = Extract<DpToday, { eligible: true }>;
 const faDate = (ymd: string) => new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(`${ymd}T12:00:00+03:30`));
@@ -40,6 +42,7 @@ export default function TodayPage() {
   const q = useQuery({ queryKey: ['daily-plan', 'today'], queryFn: dpApi.today, enabled: on, refetchInterval: 30_000, retry: false });
   const refresh = () => void qc.invalidateQueries({ queryKey: ['daily-plan', 'today'] });
   const [inbound, setInbound] = useState(false);
+  const locked = useLockdownMe(false).data?.locked === true; // expert_lockdown (assistants54): reads the shell's cached /expert-lockdown/me, never fetches
   if (!cfg || (on && q.isLoading)) return <div className="dp-page"><div className="dp-skel" role="status" data-testid="dp-loading">در حال بارگذاری کارهای امروز…</div></div>;
   if (!on) return <div className="dp-page"><h1>کارهای امروز</h1><p data-testid="dp-off">این بخش هنوز فعال نشده است.</p></div>;
   if (q.isError || !q.data) return <div className="dp-page"><h1>کارهای امروز</h1><div className="dp-box err" role="alert" data-testid="dp-error">لیست امروز بارگذاری نشد. <button type="button" className="btn btn-ghost" onClick={() => void q.refetch()}>تلاش دوباره</button></div></div>;
@@ -51,10 +54,10 @@ export default function TodayPage() {
     <StateBox d={d} />
     {d.current ? <CurrentCard key={`${d.current.id}-${d.current.moveCount}`} d={d} cur={d.current} onDone={refresh} /> : null}
     <div className="dp-inbound-row">
-      <button type="button" className="btn btn-ghost" onClick={() => setInbound((v) => !v)} aria-expanded={inbound} data-testid="dp-inbound-open"><PhoneIncoming size={16} aria-hidden="true" /> تماس ورودی</button>
+      <button type="button" className="btn btn-ghost" onClick={() => { if (locked && !inbound) void elApi.open().catch(() => undefined); setInbound((v) => !v); }} aria-expanded={inbound} data-testid="dp-inbound-open"><PhoneIncoming size={16} aria-hidden="true" /> {locked ? 'تماس ورودی · پیدا کردن پرونده' : 'تماس ورودی'}</button>
       <small>فقط وقتی مشتری خودش زنگ زده؛ کار جاری عوض نمی‌شود.</small>
     </div>
-    {inbound ? <Inbound onClose={() => setInbound(false)} onSaved={refresh} /> : null}
+    {inbound ? locked ? <LockedInbound onClose={() => setInbound(false)} onSaved={refresh} /> : <Inbound onClose={() => setInbound(false)} onSaved={refresh} /> : null}
     <Order d={d} />
   </div>;
 }

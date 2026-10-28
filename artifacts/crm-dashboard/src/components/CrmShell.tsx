@@ -25,6 +25,8 @@ import { CreateReminderForm } from './Forms';
 import { sfScope } from '@/features/smart-filing/access';
 import { baleNavVisible } from '@/features/bale/api';
 import { layoutFor, menuKindFor, TRAINEE_SALESPERSON_IDS } from './nav-layout';
+import { EL_UIDS, elPageAllowed, useLockdownMe } from '@/features/expert-lockdown/api';
+import { LockdownNotice } from '@/features/expert-lockdown/LockdownNotice';
 import { asFetch, asVisibleTo } from '@/features/assistant/api';
 import { cqOn, faNum, useCqConfig } from '@/features/call-queue/api';
 import { CallQueueHost } from '@/features/call-queue/CallQueueHost';
@@ -141,6 +143,11 @@ export function CrmShell({ children }: { children: ReactNode }) {
     query: { queryKey: getGetAuthSessionQueryKey(), retry: false },
   });
   const user = session?.user;
+  // expert_lockdown (assistants54): users 2 / 3 / 8 only, while flag.expert_lockdown is ON (server decides; everyone else → locked:false, never fetched).
+  const elMe = useLockdownMe(Boolean(user && EL_UIDS.includes(Number(user.id)))).data;
+  const elLocked = elMe?.locked === true;
+  const elPending = Boolean(user && EL_UIDS.includes(Number(user.id))) && elMe === undefined; // hold customer-list polls until we know
+  useEffect(() => { if (elLocked && location === '/') setLocation('/today'); }, [elLocked, location, setLocation]);
   usePageUsage(user?.id, location); // v10: page-usage tracker (route patterns + visible dwell only; silent on any failure)
   const cqCfg = useCqConfig(Boolean(user)).data;
   const dpCfg = useDpConfig(Boolean(user)).data;
@@ -153,18 +160,18 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const dueReminders = useListReminders(dueParams, {
     query: {
       queryKey: getListRemindersQueryKey(dueParams),
-      enabled: Boolean(user?.role === 'admin' || user?.permissions?.includes('reminders.manage')),
+      enabled: Boolean(user?.role === 'admin' || user?.permissions?.includes('reminders.manage')) && !elLocked && !elPending,
       refetchInterval: 15_000,
       refetchOnWindowFocus: true,
     },
   });
   const acknowledgeReminder = useAcknowledgeReminder();
-  const canChat = Boolean(user && (user.role === 'admin' || user.permissions?.includes('customers.view')));
+  const canChat = Boolean(user && (user.role === 'admin' || user.permissions?.includes('customers.view'))) && !elLocked && !elPending;
   const canTeam = Boolean(user && (user.role === 'admin' || user.permissions?.includes('internal_chat.use')));
   const team = useTeamInbox(canTeam);
   usePresence(staffChatPresence, canChat);
   const unread = useQuery({ queryKey: ['chat', 'unread'], queryFn: fetchStaffUnread, enabled: canChat, refetchInterval: 10_000, retry: false });
-  const canCallbacks = Boolean(user && (user.role === 'admin' || user.permissions?.includes('callbacks.view')));
+  const canCallbacks = Boolean(user && (user.role === 'admin' || user.permissions?.includes('callbacks.view'))) && !elLocked && !elPending;
   const callbacksBadge = useQuery({ queryKey: ['callbacks', 'badge'], queryFn: callbacksApi.badge, enabled: canCallbacks, refetchInterval: 30_000, retry: false });
   const canMarkPaid = Boolean(user && (user.role === 'admin' || (user.permissions?.includes('payment_orders.pay') && user.permissions?.includes('payment_orders.view'))));
   const awaitingMark = usePaymentOrderCount({ stage: 'awaiting_payment' }, canMarkPaid);
@@ -205,6 +212,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const basePageTitle = isAdminUser && (location === '/my-wallet' || location.startsWith('/my-wallet/')) ? 'کیف پول کارشناس‌ها' : titleFor(location);
   
   const navItems = allNavItems.filter(item => {
+    if (elLocked && elMe?.locked && !elMe.allowedPages.includes(item.href)) return false; // lockdown only removes items; the normal checks below still apply
     // crm-call-queue: hidden while its flags are OFF (and for user 29 / trainees, enforced by the server config).
     if (item.dp === 'today') return dpOnForMe;
     if (item.dp === 'admin') return dpManager(dpCfg);
@@ -226,7 +234,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   }).map(item => (isAdminUser && item.adminLabel ? { ...item, label: item.adminLabel } : item));
   // Role layout (display only, AFTER the permission filter above): main items + collapsed «بیشتر». null = old grouped menu.
   const menuKind = menuKindFor(user as { role?: string | null; salespersonId?: number | null } | undefined);
-  const roleLayout0 = menuKind ? layoutFor(menuKind, navItems) : null;
+  const roleLayout0 = menuKind ? layoutFor(elLocked && elMe?.locked && menuKind === 'expert' ? 'expertLocked' : menuKind, navItems) : null;
   // crm-daily-plan: once the real «کارهای امروز» page exists for this user, «/» goes back to its own name.
   const roleLayout = roleLayout0 && dpOnForMe ? { ...roleLayout0, main: roleLayout0.main.map((m) => (m.kind === 'link' && m.item.href === '/' && m.item.label === 'کارهای امروز من' ? { ...m, item: { ...m.item, label: 'نمای کلی' } } : m)) } : roleLayout0;
   // «چت دستیار»: only when the dock already lists an assistant for this user (reads the dock's cached query; never fetches itself).
@@ -470,7 +478,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
             </DropdownMenu>
           </div>
         </header>
-        <DiagnosticPageBoundary key={location}>{cqRestricted && !cqAllowed(location) ? <div className="cq-page" data-testid="cq-restricted-guard"><div className="cq-restricted" role="alert"><b>پنل محدود شد</b> · {faNum(cqCfg?.restriction?.overdue ?? 0)} یادآور عقب‌افتاده داری. تا وقتی به {faNum(cqCfg?.restriction?.threshold ?? 0)} یا کمتر برسد فقط یادآورهای عقب‌افتاده باز است.</div><Link className="btn btn-primary" href={dpOnForMe ? '/today' : '/my-queue'}>{dpOnForMe ? 'رفتن به کارهای امروز' : 'رفتن به صف تماس من'}</Link></div> : children}</DiagnosticPageBoundary>
+        <DiagnosticPageBoundary key={location}>{elPending ? <div className="el-page" role="status" aria-busy="true" data-testid="el-pending" /> : elLocked && !elPageAllowed(elMe, location) ? <LockdownNotice /> : cqRestricted && !cqAllowed(location) ? <div className="cq-page" data-testid="cq-restricted-guard"><div className="cq-restricted" role="alert"><b>پنل محدود شد</b> · {faNum(cqCfg?.restriction?.overdue ?? 0)} یادآور عقب‌افتاده داری. تا وقتی به {faNum(cqCfg?.restriction?.threshold ?? 0)} یا کمتر برسد فقط یادآورهای عقب‌افتاده باز است.</div><Link className="btn btn-primary" href={dpOnForMe ? '/today' : '/my-queue'}>{dpOnForMe ? 'رفتن به کارهای امروز' : 'رفتن به صف تماس من'}</Link></div> : children}</DiagnosticPageBoundary>
       </main>
       {user && (canChat || canTeam) && !onChatPage ? <FloatingChat key={phone ? 'phone' : 'wide'} bottomOffset={phone ? 84 : 20} actor={`staff:${user.id}`} items={[...(canChat ? [{ href: '/chat', label: 'گفتگو با مشتریان', count: unread.data?.count ?? 0 }] : []), ...(canTeam ? [{ href: '/internal-chat', label: 'گفتگوی داخلی', count: team.data?.unreadCount ?? 0 }] : [])]} /> : null}
       {/* «دستیار هوشمند» (HANDOFF §1): avatars portal into the sidebar-bottom slot (desktop) or the top-bar slot next to the bell (phone); renders nothing unless the server lists an assistant for this user. */}

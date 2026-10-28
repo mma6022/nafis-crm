@@ -6,6 +6,7 @@ import { BarChart3, ChevronRight, Eye, Lock, PencilLine, X } from 'lucide-react'
 import { faClock, faNum } from '@/features/call-queue/api';
 import { dpApi, STATE_FA, useDpConfig, type DpBoardExpert, type DpCapView, type DpOverride } from './api';
 import './daily-plan.css';
+import { IncomingStatsCard } from '@/features/expert-lockdown/IncomingCall';
 
 const faDate = (ymd: string, opt: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long' }) => new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', ...opt }).format(new Date(`${ymd}T12:00:00+03:30`));
 const pct = (v: number | null | undefined) => v == null ? '—' : `${faNum(Math.round(v))}٪`;
@@ -28,6 +29,7 @@ function Board() {
   return <div className="dp-page wide" data-testid="dp-board">
     <header className="dp-page-h"><div><h1>لیست روزانه‌ی کارشناس‌ها</h1>{q.data ? <p>{faDate(q.data.day)} · {faClock(new Date().toISOString())}</p> : null}</div></header>
     <Tabs on="/daily-plans" />
+    <IncomingStatsCard />
     {q.isError ? <p className="dp-err" role="alert">بارگذاری نشد. <button type="button" onClick={() => void q.refetch()}>تلاش دوباره</button></p> : null}
     {q.data?.experts.length === 0 ? <div className="dp-box">کارشناسی با دستیار فعال نیست.</div> : null}
     <ul className="dp-board">{q.data?.experts.map((e) => <BoardRow key={e.salespersonId} e={e} day={q.data!.day} />)}</ul>

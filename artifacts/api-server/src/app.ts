@@ -32,6 +32,7 @@ import { mountPublicLeads } from "./routes/public-leads";
 import { smartFilingRunnerRouter } from "./routes/smart-filing";
 import { assistantRunnerRouter } from "./routes/assistants";
 import { baleInternalRouter } from "./routes/bale";
+import { expertLockdownGuard } from "./lib/expert-lockdown";
 
 const app: Express = express();
 
@@ -136,6 +137,7 @@ const requireApiAuth: RequestHandler = (req, res, next): void => {
 
 // lead_annotator: every phone in every /api response is masked for a user holding the capability (lib/lead-annotator-mask.ts).
 // registrar_view (assistants53): read-only on customers the user registered but no longer owns — every write on them is 403.
-app.use("/api", requireApiAuth, leadAnnotatorMask, makeRegistrarWriteGuard(() => crmDb), router);
+// expert_lockdown (assistants54): users 2 / 3 / 8 only while flag.expert_lockdown = 1 — everyone else passes straight through.
+app.use("/api", requireApiAuth, leadAnnotatorMask, makeRegistrarWriteGuard(() => crmDb), expertLockdownGuard, router);
 
 export default app;

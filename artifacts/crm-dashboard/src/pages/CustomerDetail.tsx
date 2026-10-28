@@ -3,6 +3,8 @@ import { announceCallSaved, cqTelClick } from '@/features/call-queue/api';
 import { CustomerIntroLog } from '@/features/expert-intro-sms/CustomerIntroLog';
 import { CustomerAnnotations } from '@/features/lead-annotator/CustomerAnnotations';
 import { RestrictedCase } from '@/features/lead-annotator/RestrictedCase';
+import { useLockdownMe } from '@/features/expert-lockdown/api';
+import { LockdownNotice } from '@/features/expert-lockdown/LockdownNotice';
 import { useLeadAnnotatorMe } from '@/features/lead-annotator/api';
 import { RegistrarCard } from '@/features/registrar-view/RegistrarCard';
 import { useRegistrarMe } from '@/features/registrar-view/api';
@@ -87,9 +89,16 @@ export default function CustomerDetail() {
   // registrar_view (assistants53): a customer I registered but no longer own opens read-only (server 403s every write).
   const rv = useRegistrarMe();
   const rvOn = rv.data?.enabled === true;
-  const probe = useGetCustomer(id, { query: { queryKey: getGetCustomerQueryKey(id), enabled: Number.isFinite(id) && (laOn || rvOn), retry: false } });
+  // expert_lockdown (assistants54): cached /expert-lockdown/me from the shell (never fetched here); a closed customer → 403 → a plain notice, no retries.
+  const elOn = useLockdownMe(false).data?.locked === true;
+  const probe = useGetCustomer(id, { query: { queryKey: getGetCustomerQueryKey(id), enabled: Number.isFinite(id) && (laOn || rvOn || elOn), retry: false } });
   const loading = <div className="csx" dir="rtl" aria-busy="true" data-testid="customer-detail-loading"><span className="csx-sr" role="status">در حال بارگذاری پرونده مشتری…</span></div>;
   if (la.isLoading || rv.isLoading) return loading;
+  if (elOn) {
+    if (probe.isLoading) return loading;
+    if (probe.isError || !probe.data) return <LockdownNotice customer />;
+    return <CustomerDetailFull />;
+  }
   if (laOn || rvOn) {
     if (probe.isLoading) return loading;
     if (probe.isError || !probe.data) return laOn ? <RestrictedCase id={id} registrar={rvOn} /> : <RegistrarOnlyCase id={id} />;

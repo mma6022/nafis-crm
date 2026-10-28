@@ -1,0 +1,217 @@
+/**
+ * expert_lockdown (assistants54, Mohammad 2026-10-28 09:37 Tehran): while flag.expert_lockdown = '1' (call_queue_settings),
+ * the three sales experts Kazemi (user 8 / sp 6), Hasani (user 2 / sp 3) and Ghasemi (user 3 / sp 4) may use ONLY
+ * «کارهای امروز من», «پرونده‌های من», «دستور پرداخت», «خرید کالا» and the messengers. Every other staff API returns
+ * 403 expert_lockdown. A single customer (page + its APIs, by path /customers/:id…, query or body customerId) is open only if
+ *  (a) it is in the expert's own daily plan for today, (b) the expert's own «تماس ورودی» search found it (own customer only)
+ *  in the last EL_GRANT_MINUTES, or (c) it is the expert's own customer with one of their cases (loan application, goods purchase
+ *  or payment order); otherwise 403 expert_lockdown_customer.
+ * Everybody else (admins, trainees, registrars, Milad, user 29, the assistant runner tokens) never reaches any check here:
+ * the guard returns next() before touching the DB. Flag OFF (or absent) = old behaviour exactly.
+ * «تماس ورودی دارم»: exact full mobile or exact full name only; never a list; rate-limited; every click/search is logged
+ * (el_incoming_log — the query is stored only as an HMAC hash, never raw). Another expert's customer → owner name only + ONE
+ * CRM bell «تماس ورودی» to the owner (no SMS, no Bale).
+ */
+import { createHmac } from "node:crypto";
+import type { NextFunction, Request, Response } from "express";
+import { crmDb, execute, queryRow, queryRows } from "./crm-db";
+import { cqRaw } from "./call-queue";
+import { dpToday } from "./daily-plan";
+import { exactLookupOf } from "./cross-owner-search";
+
+export const EL_FLAG_KEY = "flag.expert_lockdown";
+/** users.id → their salespersons.id (checked against the session: a user whose salespersonId differs is not locked). */
+export const EL_USERS: Readonly<Record<number, number>> = { 8: 6, 2: 3, 3: 4 };
+export const EL_GRANT_MINUTES = 30;
+export const EL_SEARCH_LIMIT = 12;           // searches per user per window
+export const EL_SEARCH_WINDOW_MS = 10 * 60_000;
+export const EL_BELL_WINDOW_MS = 30 * 60_000; // at most one owner bell per caller + customer in this window
+export const EL_ADMIN_USER_IDS = [1, 5];
+/** Dashboard routes (hrefs) the locked experts keep. */
+export const EL_ALLOWED_PAGES = ["/today", "/loan-applications", "/payment-orders", "/goods-purchases", "/messengers", "/internal-chat"];
+
+type U = { id: number; role: string; salespersonId: number | null; fullName?: string | null; customerScope?: string };
+
+export const elFlagOn = (): boolean => { try { return cqRaw(EL_FLAG_KEY) === "1"; } catch { return false; } };
+export const elTarget = (u: U | null | undefined): boolean =>
+  Boolean(u && u.role === "salesperson" && EL_USERS[Number(u.id)] != null && Number(u.salespersonId) === EL_USERS[Number(u.id)]);
+export const elLocked = (u: U | null | undefined): boolean => elTarget(u) && elFlagOn();
+
+let ready = false;
+export function ensureElSchema(): void {
+  if (ready) return;
+  crmDb.exec(`CREATE TABLE IF NOT EXISTS el_incoming_log(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, salesperson_id INTEGER,
+      action TEXT NOT NULL, query_kind TEXT, query_hash TEXT, result TEXT, customer_id INTEGER, owner_salesperson_id INTEGER,
+      notified INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS idx_el_incoming_user ON el_incoming_log(user_id, created_at);
+    CREATE TABLE IF NOT EXISTS el_grants(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, customer_id INTEGER NOT NULL,
+      source TEXT NOT NULL, granted_at TEXT NOT NULL, expires_at TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS idx_el_grants_user ON el_grants(user_id, customer_id, expires_at);`);
+  ready = true;
+}
+
+/* ---------------- customer access (a)/(b)/(c) ---------------- */
+export function elCustomerAccess(u: U, customerId: number, now = new Date()): "plan" | "incoming" | "case" | null {
+  const sp = Number(u.salespersonId);
+  if (queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='dp_items'") &&
+      queryRow("SELECT 1 x FROM dp_items i JOIN dp_plans p ON p.id=i.plan_id WHERE p.salesperson_id=? AND p.day=? AND i.customer_id=? LIMIT 1", [sp, dpToday(now), customerId])) return "plan";
+  ensureElSchema();
+  const own = queryRow<{ salesperson_id: number | null }>("SELECT salesperson_id FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [customerId]);
+  if (!own || Number(own.salesperson_id) !== sp) return null;
+  if (queryRow("SELECT 1 x FROM el_grants WHERE user_id=? AND customer_id=? AND expires_at>? LIMIT 1", [Number(u.id), customerId, now.toISOString()])) return "incoming";
+  if (queryRow("SELECT 1 x FROM loan_applications WHERE customer_id=? AND deleted_at IS NULL LIMIT 1", [customerId])) return "case";
+  if (queryRow("SELECT 1 x FROM goods_purchases WHERE customer_id=? LIMIT 1", [customerId])) return "case";
+  if (queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='customer_payment_orders'") &&
+      queryRow("SELECT 1 x FROM customer_payment_orders WHERE customer_id=? LIMIT 1", [customerId])) return "case";
+  return null;
+}
+
+/* ---------------- API guard ---------------- */
+/** API families the five allowed areas need (paths are relative to /api). Customer-bearing requests are re-checked below. */
+const ALLOW: RegExp[] = [
+  // session / profile / shell
+  /^\/(session|me|logout|profile)(\/|$)/, /^\/avatars(\/|$)/, /^\/users\/\d+\/avatar$/, /^\/healthz$/, /^\/roles\/me$/,
+  /^\/expert-lockdown\//,
+  // shell reads that list no customers (feature switches / telemetry / staff names / form options)
+  /^\/(lead-annotator|registrar-view)\/me$/, /^\/page-usage(\/config)?$/, /^\/voip\/config$/, /^\/salespersons$/, /^\/team-sales\/config$/,
+  /^\/lead-intake\/options$/, /^\/customer-tags$/, /^\/consult-options$/, /^\/call-queue\/discipline\/me$/,
+  // bell
+  /^\/site-notifications(\/|$)/,
+  // «کارهای امروز من» + the call form (outcome / one-line note) + voice-to-text + after-call
+  /^\/daily-plans\/(today|config|calls|items)(\/|$)/, /^\/call-queue\/(config|pre-call|after-save|pending|calls|reminders|suggestions)(\/|$)/,
+  /^\/voice-notes(\/|$)/, /^\/voip\/after-call(\/|$)/,
+  // «پرونده‌های من» + «خرید کالا» + «دستور پرداخت» (+ the reads used inside them)
+  /^\/loan-applications(\/|$)/, /^\/loan-request-drafts(\/|$)/, /^\/applications(\/|$)/, /^\/loan-plans(\/|$)/, /^\/loan-plan-rates(\/|$)/,
+  /^\/loan-options(\/|$)/, /^\/plan-quote(\/|$)/, /^\/filing-fee(\/|$)/, /^\/identity-documents(\/|$)/, /^\/credit-checks(\/|$)/, /^\/smart-filing\/eligibility\/\d+$/,
+  /^\/goods-purchases(\/|$)/, /^\/goods-documents(\/|$)/, /^\/payment-orders(\/|$)/, /^\/contracts\/[^/]+/, /^\/contract-updates(\/|$)/,
+  // messengers + internal chat + the assistant chat drawer
+  /^\/bale(\/|$)/, /^\/messengers(\/|$)/, /^\/internal-chat(\/|$)/, /^\/assistant\/(mine|prefs)$/, /^\/assistant\/threads\/\d+\/messages$/,
+];
+/** The single-customer page and its APIs: allowed only for an accessible customer. */
+const CUSTOMER_PATH = /(?:^|\/)customers\/(\d+)(?=\/|$)/g;
+const idsOf = (req: Request): number[] => {
+  const out: number[] = [];
+  for (const m of req.path.matchAll(CUSTOMER_PATH)) out.push(Number(m[1]));
+  const add = (v: unknown) => { const n = Number(v); if (Number.isSafeInteger(n) && n > 0) out.push(n); };
+  const qy = req.query as Record<string, unknown>;
+  for (const k of ["customerId", "customer_id"]) if (typeof qy?.[k] === "string") add(qy[k]);
+  const b = req.body as Record<string, unknown> | undefined;
+  if (b && typeof b === "object" && !Array.isArray(b)) {
+    for (const k of ["customerId", "customer_id"]) if (b[k] != null) add(b[k]);
+    if (Array.isArray(b.customerIds)) for (const v of b.customerIds) add(v);
+  }
+  return [...new Set(out)];
+};
+const deny = (res: Response, error: string, message: string) => void res.status(403).json({ error, message });
+
+export function expertLockdownGuard(req: Request, res: Response, next: NextFunction): void {
+  const u = res.locals.authUser as U | undefined;
+  if (!elTarget(u)) { next(); return; }            // everybody else: no DB read, no change
+  if (!elFlagOn()) { next(); return; }
+  const path = req.path.replace(/\/+$/, "") || "/";
+  const ids = idsOf(req);
+  const customerRoute = /^\/(lead-intake\/)?customers\/\d+(\/|$)/.test(path) || /^\/team-sales\/customers\/\d+(\/|$)/.test(path);
+  // POST /calls (the normal call form, incl. «خارج از لیست») and POST /voip/calls (click-to-call) carry the customer in the body.
+  const customerWrite = req.method === "POST" && /^\/(calls|voip\/calls|voip\/click-to-call)$/.test(path);
+  const listedCustomerRead = req.method === "GET" && ids.length === 1 && EL_CUSTOMER_SCOPED_READS.some((re) => re.test(path));
+  if (!customerRoute && !customerWrite && !listedCustomerRead && !ALLOW.some((re) => re.test(path))) {
+    if (process.env.EL_TRACE === "1") console.warn(`[expert-lockdown] deny ${req.method} ${path}`);
+    return deny(res, "expert_lockdown", "این بخش فعلاً برای شما بسته است. از «کارهای امروز من» کار کن.");
+  }
+  if ((customerRoute || customerWrite) && !ids.length) return deny(res, "expert_lockdown", "این بخش فعلاً برای شما بسته است.");
+  for (const id of ids) {
+    if (!elCustomerAccess(u!, id)) {
+      if (process.env.EL_TRACE === "1") console.warn(`[expert-lockdown] deny-customer ${req.method} ${path}`);
+      return deny(res, "expert_lockdown_customer", "این مشتری فعلاً برای شما باز نیست (فقط مشتری‌های «کارهای امروز»، پرونده‌های خودت یا «تماس ورودی»).");
+    }
+  }
+  next();
+}
+/** List endpoints the customer page calls with ?customerId=N (scoped to that one customer). */
+export const EL_CUSTOMER_SCOPED_READS: RegExp[] = [/^\/calls$/, /^\/consultations$/, /^\/reminders$/, /^\/callback-requests$/, /^\/voip\/calls$/,
+  /^\/chat(\/|$)/, /^\/wallet(\/|$)/, /^\/contracts$/, /^\/call-reports(\/|$)/, /^\/mobile-calls$/, /^\/recordings(\/|$)/];
+
+/* ---------------- «تماس ورودی دارم» ---------------- */
+const hashQuery = (kind: string, value: string): string =>
+  createHmac("sha256", process.env.SESSION_SECRET || "nafis-el-fallback").update(`el:${kind}:${value}`).digest("hex").slice(0, 32);
+function log(u: U, row: { action: string; kind?: string | null; hash?: string | null; result?: string | null; customerId?: number | null; ownerSp?: number | null; notified?: boolean }, at: string) {
+  ensureElSchema();
+  execute(`INSERT INTO el_incoming_log(user_id,salesperson_id,action,query_kind,query_hash,result,customer_id,owner_salesperson_id,notified,created_at)
+    VALUES(?,?,?,?,?,?,?,?,?,?)`, [Number(u.id), Number(u.salespersonId), row.action, row.kind ?? null, row.hash ?? null, row.result ?? null,
+    row.customerId ?? null, row.ownerSp ?? null, row.notified ? 1 : 0, at]);
+}
+export function elIncomingOpen(u: U, now = new Date()) { log(u, { action: "open" }, now.toISOString()); return { ok: true }; }
+
+export type ElSearchResult =
+  | { result: "own"; customer: { id: number; name: string }; windowMinutes: number }
+  | { result: "other"; ownerName: string; notified: boolean }
+  | { result: "none" | "ambiguous" | "invalid" | "rate_limited"; message: string };
+
+export function elIncomingSearch(u: U, raw: unknown, now = new Date()): ElSearchResult {
+  ensureElSchema();
+  const at = now.toISOString();
+  const recent = Number(queryRow<{ n: number }>("SELECT count(*) n FROM el_incoming_log WHERE user_id=? AND action='search' AND created_at>?",
+    [Number(u.id), new Date(now.getTime() - EL_SEARCH_WINDOW_MS).toISOString()])?.n ?? 0);
+  if (recent >= EL_SEARCH_LIMIT) { log(u, { action: "search_limited", result: "rate_limited" }, at);
+    return { result: "rate_limited", message: "تعداد جست‌وجوها زیاد شد؛ چند دقیقه بعد دوباره امتحان کن." }; }
+  const lk = exactLookupOf(String(raw ?? "").slice(0, 120));
+  if (!lk || lk.kind === "id") { log(u, { action: "search", kind: lk?.kind ?? "invalid", result: "invalid" }, at);
+    return { result: "invalid", message: "شماره‌ی موبایل کامل (۱۱ رقم) یا نام و نام خانوادگی کامل مشتری را بنویس." }; }
+  const hash = hashQuery(lk.kind, lk.kind === "phone" ? lk.phone : lk.name);
+  const match = lk.kind === "phone"
+    ? { sql: "crm_customer_mobile_key(c.phone)=?", p: lk.phone }
+    : { sql: "trim(replace(replace(replace(replace(crm_persian_search_key(c.name),char(8204),' '),'   ',' '),'  ',' '),'  ',' '))=?", p: lk.name };
+  const rows = queryRows<{ id: number; name: string; sp: number | null; owner_name: string | null }>(
+    `SELECT c.id, c.name, c.salesperson_id sp, s.name owner_name FROM customers c LEFT JOIN salespersons s ON s.id=c.salesperson_id
+      WHERE c.merged_into_customer_id IS NULL AND ${match.sql} ORDER BY c.id LIMIT 3`, [match.p]);
+  if (!rows.length) { log(u, { action: "search", kind: lk.kind, hash, result: "none" }, at);
+    return { result: "none", message: "مشتری‌ای با این مشخصات پیدا نشد." }; }
+  if (rows.length > 1) { log(u, { action: "search", kind: lk.kind, hash, result: "ambiguous" }, at);
+    return { result: "ambiguous", message: "بیش از یک مشتری با این نام هست؛ با شماره‌ی موبایل کامل جست‌وجو کن." }; }
+  const c = rows[0];
+  if (Number(c.sp) === Number(u.salespersonId)) {
+    execute("INSERT INTO el_grants(user_id,customer_id,source,granted_at,expires_at) VALUES(?,?,?,?,?)",
+      [Number(u.id), Number(c.id), "incoming_call", at, new Date(now.getTime() + EL_GRANT_MINUTES * 60_000).toISOString()]);
+    log(u, { action: "search", kind: lk.kind, hash, result: "own", customerId: Number(c.id), ownerSp: Number(c.sp) }, at);
+    return { result: "own", customer: { id: Number(c.id), name: String(c.name ?? "") }, windowMinutes: EL_GRANT_MINUTES };
+  }
+  // another expert's (or nobody's) customer: owner name only + one CRM bell to the owner
+  let notified = false;
+  const owner = c.sp == null ? null : queryRow<{ id: number }>("SELECT id FROM users WHERE salesperson_id=? AND role='salesperson' AND active=1 ORDER BY id LIMIT 1", [Number(c.sp)]);
+  if (owner && Number(owner.id) !== 29) {
+    const dup = queryRow("SELECT 1 x FROM el_incoming_log WHERE user_id=? AND customer_id=? AND notified=1 AND created_at>? LIMIT 1",
+      [Number(u.id), Number(c.id), new Date(now.getTime() - EL_BELL_WINDOW_MS).toISOString()]);
+    if (!dup) {
+      if (process.env.DP_TEST_NO_BELLS === "1") {
+        execute("CREATE TABLE IF NOT EXISTS dp_test_bells(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, resource_id INTEGER, recipient_user_id INTEGER, title TEXT, created_at TEXT)");
+        execute("INSERT INTO dp_test_bells(kind,resource_id,recipient_user_id,title,created_at) VALUES(?,?,?,?,?)", ["incoming-call", Number(c.id), Number(owner.id), "تماس ورودی", at]);
+      } else {
+        const caller = String(u.fullName ?? "").trim() || "یکی از همکاران";
+        execute(`INSERT INTO site_notification_events(customer_id,customer_name,owner_id,resource_type,resource_id,kind,title,body,permission,created_at,actor_key,recipient_user_id)
+          VALUES(?,?,?,'customer',?,'incoming-call','تماس ورودی',?,'customers.view',?,?,?)`,
+          [Number(c.id), String(c.name || "مشتری"), Number(c.sp), Number(c.id), `مشتری‌ات با ${caller} تماس گرفته؛ با او تماس بگیر.`, at, `expert-lockdown:${Number(u.id)}`, Number(owner.id)]);
+      }
+      notified = true;
+    }
+  }
+  log(u, { action: "search", kind: lk.kind, hash, result: "other", customerId: Number(c.id), ownerSp: c.sp == null ? null : Number(c.sp), notified }, at);
+  return { result: "other", ownerName: String(c.owner_name ?? "") || "بدون کارشناس", notified };
+}
+
+/** Admin card: per-expert counts for one Tehran day. */
+export function elDailyCounts(day: string) {
+  ensureElSchema();
+  const from = new Date(`${day}T00:00:00+03:30`).toISOString(), to = new Date(new Date(`${day}T00:00:00+03:30`).getTime() + 86_400_000).toISOString();
+  const rows = queryRows<any>(`SELECT l.user_id, s.name, SUM(action='open') opens, SUM(action='search') searches, SUM(result='own') own,
+      SUM(result='other') other, SUM(result IN ('none','ambiguous','invalid')) none, SUM(action='search_limited') limited, SUM(notified) bells
+    FROM el_incoming_log l LEFT JOIN salespersons s ON s.id=l.salesperson_id WHERE l.created_at>=? AND l.created_at<? GROUP BY l.user_id ORDER BY l.user_id`, [from, to]);
+  const logged = (sp: number) => queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='dp_items'")
+    ? Number(queryRow<{ n: number }>("SELECT count(*) n FROM dp_items i JOIN dp_plans p ON p.id=i.plan_id WHERE p.salesperson_id=? AND p.day=? AND i.bucket='outside'", [sp, day])?.n ?? 0) : 0;
+  const experts = Object.entries(EL_USERS).map(([uid, sp]) => {
+    const r = rows.find((x) => Number(x.user_id) === Number(uid));
+    const name = r?.name ?? queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [sp])?.name ?? "";
+    return { userId: Number(uid), salespersonId: sp, name, opens: Number(r?.opens ?? 0), searches: Number(r?.searches ?? 0), own: Number(r?.own ?? 0),
+      other: Number(r?.other ?? 0), none: Number(r?.none ?? 0), limited: Number(r?.limited ?? 0), bells: Number(r?.bells ?? 0), loggedOutOfList: logged(sp) };
+  });
+  return { day, flag: elFlagOn(), experts };
+}

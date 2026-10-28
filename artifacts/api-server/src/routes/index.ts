@@ -49,6 +49,7 @@ import { ensureCallQueueSchema } from "../lib/call-queue";
 import defaultOwnerRouter from "./default-owner";
 import leadAnnotatorRouter from "./lead-annotator";
 import registrarViewRouter from "./registrar-view";
+import expertLockdownRouter from "./expert-lockdown";
 import leadIntakeRouter from "./lead-intake";
 import { startCallQueueJobs } from "../lib/call-queue-r2";
 import { ensureDailyPlanSchema, startDailyPlanJobs } from "../lib/daily-plan";
@@ -79,6 +80,7 @@ router.use("/internal-chat",createInternalChatRouter({db:crmDb,requireAuth,requi
 router.use(consultationReportRouter);
 router.use(leadAnnotatorRouter);
 router.use(registrarViewRouter);
+router.use(expertLockdownRouter);
 router.use(planRatesRouter);
 router.use(leadIntakeRouter);
 router.use(crmRouter);

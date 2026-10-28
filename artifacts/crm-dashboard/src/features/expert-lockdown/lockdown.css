@@ -1,0 +1,10 @@
+.el-page{max-width:640px;margin:24px auto;padding:0 16px;display:flex;flex-direction:column;gap:14px;align-items:flex-start}
+.el-box{display:flex;gap:10px;align-items:flex-start;background:#fff7ed;border:1px solid #fed7aa;color:#7c2d12;border-radius:12px;padding:14px 16px;width:100%}
+.el-box p{margin:4px 0 0;font-size:13px;line-height:1.8;color:#9a3412}
+.el-owner{background:#f1f5f9;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:6px}
+.el-owner b{font-size:15px}
+.el-owner small{color:#475569;line-height:1.8}
+.el-card{margin-top:12px}
+.el-card table{width:100%;border-collapse:collapse;font-size:13px}
+.el-card th,.el-card td{padding:6px 8px;border-bottom:1px solid #eef2f7;text-align:right}
+.el-card th{color:#64748b;font-weight:600}
