@@ -116,7 +116,9 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   if (!elTarget(u)) { next(); return; }            // everybody else: no DB read, no change
   if (!elFlagOn()) { next(); return; }
   const path = req.path.replace(/\/+$/, "") || "/";
-  const ids = idsOf(req);
+  // NEWCUST-65: the first-call mirror scopes itself (call by this expert, customer theirs or just moved by them to Kazemi),
+  // so a P2/P3 customer that left them in the same save can still get its «منتقل شد» entry.
+  const ids = path === "/expert-lockdown/incoming/first-call-logged" ? [] : idsOf(req);
   const customerRoute = /^\/(lead-intake\/)?customers\/\d+(\/|$)/.test(path) || /^\/team-sales\/customers\/\d+(\/|$)/.test(path);
   // POST /calls (the normal call form, incl. «خارج از لیست») and POST /voip/calls (click-to-call) carry the customer in the body.
   const customerWrite = req.method === "POST" && /^\/(calls|voip\/calls|voip\/click-to-call)$/.test(path);

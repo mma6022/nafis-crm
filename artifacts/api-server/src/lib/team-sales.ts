@@ -95,7 +95,7 @@ export function getTeamSalesConfig(): TeamSalesConfig {
 export type PriorityChange = {
   customerId: number; oldPriority: number | null; newPriority: number | null;
   oldSalespersonId: number | null; newSalespersonId: number | null;
-  actorUserId: number | null; source: "customer_update" | "promote" | "qualifier_form" | "no_answer_archive" | "first_call_edit" | "nonp1_auto_transfer";
+  actorUserId: number | null; source: "customer_update" | "promote" | "qualifier_form" | "no_answer_archive" | "first_call_edit" | "nonp1_auto_transfer" | "inbound_first_call";
   reason?: string | null; at?: string; always?: boolean;
 };
 export function logPriorityChange(c: PriorityChange): void {
@@ -164,6 +164,24 @@ function assertQualifierAccess(actor: Actor, c: CustomerState, cfg: TeamSalesCon
   if (!isAdmin && Number(c.salesperson_id) !== cfg.qualifierSalespersonId)
     throw new TeamSalesError(404, "Customer not found");
   if (c.status !== "in_progress") throw new TeamSalesError(409, "فقط پرونده‌های در جریان قابل ارتقا هستند.");
+}
+
+/**
+ * NEWCUST-65 (Mohammad 2026-10-28 11:36): a closer (Hasani / Ghasemi) may submit the first-call form ONLY on a customer they
+ * registered themselves through «تماس ورودی داشتم › ثبت مشتری جدید» (el_incoming_log new_create/created by this user,
+ * registered_by = this user, lead_source inbound_call) and that is still their own. Not for trainees, not for the qualifier
+ * (Kazemi keeps assertQualifierAccess unchanged), never for any other customer.
+ */
+export const INBOUND_FIRST_CALL_SOURCE = "inbound_first_call" as const;
+export function isInboundSelfRegistered(actor: Actor, customerId: number, cfg: TeamSalesConfig = getTeamSalesConfig()): boolean {
+  if (!cfg.enabled || actor.salespersonId == null) return false;
+  const sp = Number(actor.salespersonId);
+  if (sp === Number(cfg.qualifierSalespersonId) || !cfg.closerSalespersonIds.map(Number).includes(sp)) return false;
+  if (!queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='el_incoming_log'")) return false;
+  return Boolean(queryRow(
+    `SELECT 1 x FROM customers c JOIN el_incoming_log l ON l.customer_id=c.id AND l.user_id=? AND l.action='new_create' AND l.result='created'
+     WHERE c.id=? AND c.salesperson_id=? AND c.registered_by=? AND c.lead_source='inbound_call' AND c.merged_into_customer_id IS NULL LIMIT 1`,
+    [actor.id, customerId, sp, actor.id]));
 }
 
 const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
@@ -547,7 +565,10 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
   const plans = answers.callResult === "answered" ? activePlans() : [];
   return runImmediateTransaction(() => {
     const c = loadCustomer(customerId);
-    assertQualifierAccess(actor, c, cfg);
+    // NEWCUST-65: a closer's own «ثبت مشتری جدید» customer → P1 stays with them, P2/P3 → Kazemi (crm-nonp1-to-kazemi), no hand-off.
+    const inbound = isInboundSelfRegistered(actor, c.id, cfg);
+    if (inbound) { if (c.status !== "in_progress") throw new TeamSalesError(409, "فقط پرونده‌های در جریان قابل ارتقا هستند."); }
+    else assertQualifierAccess(actor, c, cfg);
     // The first-call form decides the priority, so it is only for customers that have none yet (P1/P2/P3 use the normal call form).
     if (c.priority != null)
       throw new TeamSalesError(409, "فرم تماس اول فقط برای مشتریان بدون اولویت است؛ برای این مشتری از فرم ثبت تماس معمولی استفاده کنید.");
@@ -587,7 +608,13 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
     const reasonText = result.reasons.join("؛ ");
     let handoff: ReturnType<typeof promoteInTx> | null = null;
     let transferredToQualifier = false;
-    if (result.priority === 1) {
+    if (result.priority === 1 && inbound) {
+      // NEWCUST-65: P1 stays with the expert who registered the customer (no closer hand-off, no reminders, no SMS).
+      executeChanges("UPDATE customers SET priority=1 WHERE id=?", [c.id]);
+      logPriorityChange({ customerId: c.id, oldPriority: c.priority, newPriority: 1,
+        oldSalespersonId: c.salesperson_id, newSalespersonId: c.salesperson_id, actorUserId: actor.id,
+        source: INBOUND_FIRST_CALL_SOURCE, reason: reasonText, at: now.toISOString() });
+    } else if (result.priority === 1) {
       handoff = promoteInTx(c, actor, cfg, "qualifier_form", reasonText, now);
     } else if (result.outcome === "cold_archive" || result.outcome === "invalid") {
       executeChanges("UPDATE customers SET priority=?, status='cancelled' WHERE id=?", [result.priority, c.id]);
@@ -604,7 +631,7 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
         actor, via: "فرم تماس اول", now }).transferred;
       if (!transferredToQualifier) logPriorityChange({ customerId: c.id, oldPriority: c.priority, newPriority: result.priority,
         oldSalespersonId: c.salesperson_id, newSalespersonId: c.salesperson_id, actorUserId: actor.id,
-        source: "qualifier_form", reason: reasonText, at: now.toISOString() });
+        source: inbound ? INBOUND_FIRST_CALL_SOURCE : "qualifier_form", reason: reasonText, at: now.toISOString() });
     }
     return { callLogId, result, matches: matches.slice(0, 5), handoff, selectedPlans: selected, noPlanFit, noPlanNote: cleanNoPlanNote, cityWritten, transferredToQualifier };
   });

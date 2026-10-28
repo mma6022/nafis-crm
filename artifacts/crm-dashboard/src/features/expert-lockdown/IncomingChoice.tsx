@@ -108,14 +108,19 @@ function LogNew({ customer, currentNo, onSaved, extra }: { customer: { id: numbe
   const kind = !user ? 'wait' : launcher.choose(cust);
   if (kind === 'wait' || kind === 'error') return <div className="el-nw-form">{extra}<p className="dp-hint" role="status" data-testid="el-nw-wait">{kind === 'error' ? 'تنظیمات فرم تماس بارگذاری نشد؛ دوباره امتحان کن.' : 'در حال آماده‌سازی فرم تماس…'}
     {kind === 'error' ? <button type="button" className="btn btn-ghost" onClick={launcher.retry}>تلاش دوباره</button> : null}</p></div>;
-  if (kind === 'simple') {
+  // NEWCUST-65 (11:36): Hasani / Ghasemi also record this new customer's call with the first-call form (server-scoped to
+  // their own «ثبت مشتری جدید» customers): P1 stays with them, P2/P3 move to Kazemi. Kazemi's path ('simple') is unchanged.
+  const closer = kind === 'legacy' && launcher.config?.enabled === true;
+  if (kind === 'simple' || closer) {
     const finish = () => { setFc(false); if (saved) onSaved(saved); };
     return <div className="el-nw-form">{extra}
-      <p className="dp-hint" data-testid="el-nw-first-hint"><Info size={13} aria-hidden="true" /> تماس اول این مشتری است: نتیجه‌ی تماس را با فرم تماس اول ثبت کن. با برچسب «خارج از لیست» در کارهای امروز می‌آید.</p>
+      <p className="dp-hint" data-testid="el-nw-first-hint"><Info size={13} aria-hidden="true" /> تماس اول این مشتری است: نتیجه‌ی تماس را با فرم تماس اول ثبت کن. {closer
+        ? 'اگر اولویت ۱ شد پیش خودت می‌ماند؛ اولویت ۲ یا ۳ خودکار به آقای کاظمی منتقل می‌شود.'
+        : 'با برچسب «خارج از لیست» در کارهای امروز می‌آید.'}</p>
       <button type="button" className="btn btn-primary" onClick={() => launcher.launch(cust)} data-testid="el-nw-first-open"><FileText size={15} aria-hidden="true" /> ثبت تماس (فرم تماس اول)</button>
       {fc ? <SimpleCallForm customer={{ id: customer.id, name: customer.name, phone: customer.phone, priority: null }} userId={user?.id}
         onClose={finish} onNext={finish}
-        onDone={(r) => { announceCallSaved(r.callLogId, customer.id); setSaved(`${customer.name}: تماس و فرم تماس اول ثبت شد («خارج از لیست»)`); void elApi.firstCallLogged(customer.id, r.callLogId).catch(() => undefined); }} /> : null}
+        onDone={(r) => { announceCallSaved(r.callLogId, customer.id); setSaved((r as { transferredToQualifier?: boolean }).transferredToQualifier ? `${customer.name}: فرم تماس اول ثبت شد و مشتری به آقای کاظمی منتقل شد` : `${customer.name}: تماس و فرم تماس اول ثبت شد («خارج از لیست»)`); void elApi.firstCallLogged(customer.id, r.callLogId).catch(() => undefined); }} /> : null}
     </div>;
   }
   return <OutOfListLog customer={customer} currentNo={currentNo} idPrefix="el-nw" onSaved={onSaved} extra={extra} />;
