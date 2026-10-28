@@ -75,6 +75,8 @@ export function ensureDailyPlanSchema(): void {
       response_json TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(assistant_id, key))`,
     "CREATE TABLE IF NOT EXISTS dp_seen(plan_id INTEGER NOT NULL, ref TEXT NOT NULL, PRIMARY KEY(plan_id, ref))",
   ]) execute(sql);
+  // DP-FIRSTCAP-51: additive column recording which one-time exemption (if any) a capacity row used.
+  if (!queryRows<{ name: string }>("PRAGMA table_info(dp_capacity_log)").some(c => c.name === "exemption")) execute("ALTER TABLE dp_capacity_log ADD COLUMN exemption TEXT");
   schemaDone = true;
 }
 export type DpSettings = { guardPct: number; waitMin: number; firstDayCapacity: number | null };
@@ -165,8 +167,26 @@ export function dpCapacity(sp: number, day: string): { capacity: number | null; 
   const f = dpSettings().firstDayCapacity; return f == null ? { capacity: null, source: null, outOfGuard: false } : { capacity: f, source: "first_day", outOfGuard: false };
 }
 const hasAssistantCapacity = (sp: number) => Boolean(queryRow("SELECT 1 FROM dp_capacity_log WHERE salesperson_id=? AND outcome='ok' AND actor_kind='assistant' LIMIT 1", [sp]));
+/**
+ * DP-FIRSTCAP-51 (Mohammad 2026-10-28 «ظرفیت روز اول رو از کارشناس بپرس»): the expert's own first capacity declaration
+ * (reason starting with «اعلام خود کارشناس») is exempt ONCE per expert from the ±guardPct guard and from the 08:00 cut-off
+ * for today (never for a past day / holiday / >14 days). Used once = any earlier accepted declaration row (exemption
+ * recorded in dp_capacity_log.exemption='expert_first_declaration'). From the next change on the guard applies again,
+ * including a second «اعلام خود کارشناس».
+ */
+export const DP_EXPERT_DECLARATION = "اعلام خود کارشناس";
+export const DP_EXEMPT_FIRST_DECLARATION = "expert_first_declaration";
+const normFa = (t: string) => t.replace(/\u200c/g, " ").replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/\s+/g, " ").trim();
+export const dpIsExpertDeclaration = (reason: unknown) => normFa(String(reason ?? "")).startsWith(DP_EXPERT_DECLARATION);
+export function dpDeclarationUsed(sp: number): boolean {
+  ensureDailyPlanSchema();
+  if (queryRow("SELECT 1 FROM dp_capacity_log WHERE salesperson_id=? AND outcome='ok' AND exemption=? LIMIT 1", [sp, DP_EXEMPT_FIRST_DECLARATION])) return true;
+  return queryRows<{ reason: string | null }>("SELECT reason FROM dp_capacity_log WHERE salesperson_id=? AND outcome='ok'", [sp]).some(r => dpIsExpertDeclaration(r.reason));
+}
 function guard(sp: number, day: string, requested: number) {
-  const s = dpSettings(); const base = dpCapacity(sp, dpPrevWork(day)).capacity ?? dpCapacity(sp, day).capacity;
+  // DP-FIRSTCAP-51: the base is the previous working day's SET capacity; when that day only has the default
+  // (firstDayCapacity, never a real number), the latest set capacity up to the target day is the base.
+  const s = dpSettings(); const pw = dpCapacity(sp, dpPrevWork(day)); const base = pw.source === "set" ? pw.capacity : dpCapacity(sp, day).capacity;
   if (base == null) return { ok: true, previous: null as number | null, maxAllowed: null as number | null, minAllowed: null as number | null, guardPct: s.guardPct };
   const maxAllowed = Math.floor(base * (1 + s.guardPct / 100)), minAllowed = Math.max(1, Math.ceil(base * (1 - s.guardPct / 100)));
   return { ok: requested <= maxAllowed && requested >= minAllowed, previous: base as number | null, maxAllowed: maxAllowed as number | null, minAllowed: minAllowed as number | null, guardPct: s.guardPct };
@@ -181,26 +201,46 @@ function capInput(b: any): DpErr | { capacity: number; reason: string } {
   if ([...reason].length > DP_CAP_REASON_MAX) return err(422, "field_too_long", `دلیل حداکثر ${faDigits(String(DP_CAP_REASON_MAX))} نویسه است.`, { field: "reason", max: DP_CAP_REASON_MAX });
   return { capacity: n, reason };
 }
-function capDayAllowed(day: unknown, now: Date): DpErr | string {
+function capDayAllowed(day: unknown, now: Date, allowTodayAfterStart = false): DpErr | string {
   if (!isYmd(day)) return err(422, "date_not_allowed", "تاریخ معتبر نیست.");
   const today = dpToday(now);
   if (day < today) return err(422, "date_not_allowed", "ظرفیت روز گذشته عوض نمی‌شود.");
   if (!dpIsWork(day)) return err(409, "holiday", "این روز تعطیل است.");
-  if (day === today && minOf(now) >= DP_START_MIN) return err(409, "after_cutoff", "لیست امروز از ساعت ۸ شروع شده؛ ظرفیت تازه از روز کاری بعد اثر دارد.");
+  if (day === today && minOf(now) >= DP_START_MIN && !allowTodayAfterStart) return err(409, "after_cutoff", "لیست امروز از ساعت ۸ شروع شده؛ ظرفیت تازه از روز کاری بعد اثر دارد.");
   if (Date.parse(`${day}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`) > 14 * 86_400_000) return err(422, "date_not_allowed", "ظرفیت فقط تا ۱۴ روز جلوتر.");
   return day;
 }
-const capLog = (sp: number, day: string, prev: number | null, req: number, acc: number | null, outcome: string, oog: boolean, reason: string, kind: string, actor: number, at: string) =>
-  Number(execute("INSERT INTO dp_capacity_log(salesperson_id,day,previous,requested,accepted,outcome,out_of_guard,reason,actor_kind,actor_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-    [sp, day, prev, req, acc, outcome, oog ? 1 : 0, reason, kind, actor, at]));
+const capLog = (sp: number, day: string, prev: number | null, req: number, acc: number | null, outcome: string, oog: boolean, reason: string, kind: string, actor: number, at: string, exemption: string | null = null) =>
+  Number(execute("INSERT INTO dp_capacity_log(salesperson_id,day,previous,requested,accepted,outcome,out_of_guard,reason,actor_kind,actor_id,created_at,exemption) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+    [sp, day, prev, req, acc, outcome, oog ? 1 : 0, reason, kind, actor, at, exemption]));
+/**
+ * DP-FIRSTCAP-51: a capacity change for TODAY after today's list exists. Raised → top up the main list to the new N from
+ * the normal queue (same fillFromQueue rules as the 08:00 list: carried extras first, never a customer already on the
+ * plan); lowered → nothing already assigned is removed (done/pending items stay; N on the plan = the new capacity).
+ */
+function applyTodayCapacity(sp: number, day: string, cap: number, now: Date): { planId: number; before: number; after: number; added: number; lowered: boolean } | null {
+  const p = planRow(sp, day); if (!p || !p.started_at || p.closed_at || day !== dpToday(now)) return null;
+  const mainCount = () => items(p.id, "bucket='main' AND status<>'transferred'").length;
+  const before = mainCount(); let added = 0;
+  if (cap > before && !p.backlog) {
+    const ex = expertBySp(sp);
+    if (ex) { const ce = fitCarriedExtras(p, cap); added = fillFromQueue(p, ex, Math.max(0, cap - before - ce), "main", now, 1000 + items(p.id).length); }
+  }
+  executeChanges("UPDATE dp_plans SET capacity=? WHERE id=?", [cap, p.id]);
+  if (added) executeChanges("UPDATE dp_plans SET finished_at=NULL WHERE id=? AND auto_at IS NULL", [p.id]); // the next tick picks the current item
+  return { planId: p.id, before, after: mainCount(), added, lowered: cap < before };
+}
 /** Assistant PUT /capacity/{date}: the first accepted write per expert skips the guard (PM item 11); from the second on ±guardPct of the previous working day. */
 export function dpAssistantCapacity(a: Asst, dayIn: unknown, body: any, now = new Date()) {
   ensureDailyPlanSchema();
   const ex = expertOf(a); if (isErr(ex)) return ex;
-  const sp = Number(ex.salespersonId); const day = capDayAllowed(dayIn, now); if (isErr(day)) return day;
-  const inp = capInput(body); if (isErr(inp)) return inp;
+  const sp = Number(ex.salespersonId);
+  const inp0 = capInput(body);
+  const declaration = !isErr(inp0) && dpIsExpertDeclaration(inp0.reason) && !dpDeclarationUsed(sp);
+  const day = capDayAllowed(dayIn, now, declaration); if (isErr(day)) return day;
+  const inp = inp0; if (isErr(inp)) return inp;
   const at = now.toISOString(); const first = !hasAssistantCapacity(sp); const prev = dpCapacity(sp, day).capacity;
-  if (!first) {
+  if (!first && !declaration) {
     const g = guard(sp, day, inp.capacity);
     if (!g.ok) {
       capLog(sp, day, prev, inp.capacity, null, "rejected", false, inp.reason, "assistant", a.id, at);
@@ -208,8 +248,10 @@ export function dpAssistantCapacity(a: Asst, dayIn: unknown, body: any, now = ne
         { previous: g.previous, requested: inp.capacity, maxAllowed: g.maxAllowed, minAllowed: g.minAllowed, guardPct: g.guardPct });
     }
   }
-  capLog(sp, day, prev, inp.capacity, inp.capacity, "ok", false, inp.reason, "assistant", a.id, at);
-  return { ok: true, date: day, capacity: inp.capacity, previous: prev, firstWrite: first };
+  capLog(sp, day, prev, inp.capacity, inp.capacity, "ok", false, inp.reason, "assistant", a.id, at, declaration ? DP_EXEMPT_FIRST_DECLARATION : null);
+  const today = applyTodayCapacity(sp, day, inp.capacity, now);
+  return { ok: true, date: day, capacity: inp.capacity, previous: prev, firstWrite: first, firstDeclaration: declaration,
+    ...(today ? { todayList: { main: today.after, previousMain: today.before, added: today.added, lowered: today.lowered, keptAssigned: today.lowered } } : {}) };
 }
 /** Admin override (3-step modal): preview without confirm; reason required; outside the guard → «خارج از حد» + CRM bells (1, 5) + events. */
 export function dpAdminCapacity(admin: CqUser, sp: number, dayIn: unknown, body: any, now = new Date()) {
@@ -239,7 +281,7 @@ export function dpCapacityView(sp: number, now = new Date()) {
   const chart = days.map(d => { const p = planRow(sp, d); const st = p ? dpStats(p) : null;
     return { day: d, capacity: dpCapacity(sp, d).capacity, main: st?.main ?? null, mainDone: st?.mainDone ?? null, completionPct: st?.completionPct ?? null, mode: p?.mode ?? null, label: p?.mode === "auto" ? DP_LABELS.autoDay : null }; });
   const nextDay = dpNextOpenDay(now);
-  return { salespersonId: sp, nextDay, current: dpCapacity(sp, nextDay), settings: dpSettings(), chart, history, firstWrite: !hasAssistantCapacity(sp) };
+  return { salespersonId: sp, nextDay, current: dpCapacity(sp, nextDay), settings: dpSettings(), chart, history, firstWrite: !hasAssistantCapacity(sp), firstDeclarationAvailable: !dpDeclarationUsed(sp) };
 }
 
 /* ---------------- plans & items ---------------- */
@@ -454,7 +496,8 @@ export function dpDecisionData(a: Asst, fromIn: unknown, toIn: unknown, now = ne
   const sp = Number(ex.salespersonId); const rows = dayRows(sp, dpWorkDays(from, to));
   const nextDay = dpNextOpenDay(now);
   return { expert: { salespersonId: sp, name: ex.name }, from, to, days: rows, ...average(rows), averageExcludes: DP_LABELS.autoDay,
-    nextDay, capacity: dpCapacity(sp, nextDay), firstCapacityWrite: !hasAssistantCapacity(sp), settings: dpSettings(), scope: dpScopeRestricted(a) ? "p1" : "all" };
+    nextDay, capacity: dpCapacity(sp, nextDay), firstCapacityWrite: !hasAssistantCapacity(sp), firstDeclarationAvailable: !dpDeclarationUsed(sp),
+    todayCapacity: dpCapacity(sp, today), declarationReason: DP_EXPERT_DECLARATION, settings: dpSettings(), scope: dpScopeRestricted(a) ? "p1" : "all" };
 }
 /** Full-scope read (PM item 10, flag assistant_full_scope): every in-progress customer of the expert, minimal fields, no phone. */
 export function dpScopeCustomers(a: Asst, q: any) {
