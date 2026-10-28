@@ -12,6 +12,13 @@ Security rules:
     log lines are "<route> <outcome>".
   * Live sessions (1b) exist in memory only. After a restart the sidecar has none; the API notices the new bootId in
     /v1/health and re-attaches each connected account with its decrypted token.
+  * (1b-0.6, BALE-FIXB-66) Dead-connection watchdog: aiobale already sends a protocol-level ping frame every 5 s (no message,
+    nobody sees it) and closes the websocket when a pong is late, but with run_in_background=True nothing ever reconnects and
+    the dead client stayed in `sessions`, so /v1/health kept listing it as attached for ~31 h (27 Oct). Now every pong / frame
+    from Bale is timestamped, and a session whose transport is closed, whose listener or ping loop stopped, or that got no pong
+    for PONG_STALE_S is dropped from `sessions` (checked every WATCH_EVERY_S and on every /v1/health). The API then sees it
+    missing from `attached` and re-attaches it with the already-sealed token (its existing once-a-minute path). The sidecar
+    never logs in, never asks for a code and never sends anything to check liveness.
   * Inbound private messages are forwarded to BALE_INBOUND_URL (loopback HTTP only, straight to the API port, never
     through nginx) with the same internal token. Message text is never logged.
 Contract: see CONTRACT.md. Run: BALE_SIDECAR_TOKEN_FILE=/etc/nafisvam/bale-sidecar.token python sidecar.py
@@ -36,7 +43,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "ven
 
 from aiohttp import web  # noqa: E402
 
-VERSION = "1b-0.5"
+VERSION = "1b-0.6"
 ATTACH_TIMEOUT_S = 25
 MAX_TYPING_MS = 8000
 MAX_TEXT = 4000
@@ -57,6 +64,11 @@ CONTACTS_MAX = 3000
 CONTACTS_CHUNK = 100
 CONTACTS_PAUSE_S = 0.4
 DIALOG_PAGES_MAX = 30
+# BALE-FIXB-66 watchdog: aiobale pings every 5 s; no pong for this long (or a closed transport / stopped listener / stopped ping
+# loop) = dead session → dropped so the API re-attaches it from the sealed token. Read-only observation: adds no traffic.
+PONG_STALE_S = 45
+WATCH_EVERY_S = 10
+WATCHDOG_KEY = web.AppKey("watchdog", asyncio.Task)
 log = logging.getLogger("bale-sidecar")
 
 
@@ -141,6 +153,62 @@ class Session:
     client: Any
     me_id: Optional[int]
     peer_phone: dict = field(default_factory=dict)  # peerId -> 09.. (memory only; lets the API match a reply)
+    attached_mono: float = 0.0
+    attached_wall: float = 0.0
+    last_pong_mono: Optional[float] = None  # last protocol pong from Bale (monotonic)
+    last_pong_wall: Optional[float] = None
+    last_rx_wall: Optional[float] = None    # last frame of any kind from Bale
+    probed: bool = False                    # True when the real aiobale transport could be observed
+
+
+def instrument(sess: Session, clock: Callable[[], float], wall: Callable[[], float]) -> bool:
+    """Timestamp the library's own keep-alive: wrap the websocket session's send_bytes (returns only once the matching pong
+    arrived; a late pong raises) and its frame handler. Never sends anything itself. False when the client is not a real
+    aiobale client (tests) — such sessions are only dropped by explicit errors, exactly as before."""
+    s = getattr(sess.client, "session", None)
+    send, recv = getattr(s, "send_bytes", None), getattr(s, "_handle_received_data", None)
+    if s is None or not callable(send) or not callable(recv) or not callable(getattr(s, "is_closed", None)):
+        return False
+
+    async def send_bytes(data, future_key, timeout=None):
+        r = await send(data, future_key, timeout)
+        if str(future_key).startswith("ping_"):
+            sess.last_pong_mono, sess.last_pong_wall = clock(), wall()
+        return r
+
+    async def handle(data):
+        sess.last_rx_wall = wall()
+        return await recv(data)
+
+    s.send_bytes = send_bytes
+    s._handle_received_data = handle
+    return True
+
+
+def liveness(sess: Session, now: float, stale_s: float) -> Optional[str]:
+    """None = alive (or not observable); otherwise the reason this client is dead. Pure inspection, no I/O."""
+    if not sess.probed:
+        return None
+    c = sess.client
+    s = getattr(c, "session", None)
+    try:
+        if s is None or s.is_closed():
+            return "transport_closed"
+        if getattr(s, "running", True) is False:
+            return "listener_stopped"
+        ws = getattr(s, "ws", None)
+        if ws is not None and getattr(ws, "closed", False):
+            return "ws_closed"
+        pt = getattr(c, "_ping_task", None)
+        if pt is None or pt.done():
+            return "ping_loop_stopped"
+    except Exception as e:  # never drop on a probe bug
+        log.warning("liveness probe error %s", type(e).__name__)
+        return None
+    last = sess.last_pong_mono if sess.last_pong_mono is not None else sess.attached_mono
+    if now - last > stale_s:
+        return "no_pong"
+    return None
 
 
 @dataclass
@@ -166,6 +234,31 @@ class State:
     sleep: Callable[[float], Any] = asyncio.sleep
     pending: set = field(default_factory=set)
     contacts_at: dict = field(default_factory=dict)  # accountRef -> clock() of the last /v1/contacts scan
+    wall: Callable[[], float] = time.time
+    pong_stale_s: float = PONG_STALE_S
+    watch_every_s: float = WATCH_EVERY_S  # 0 = no background watchdog (health still checks)
+    drops: dict = field(default_factory=dict)  # accountRef -> {at(ms), reason, count} — last watchdog drop (memory only)
+
+
+def _ms(t: Optional[float]) -> Optional[int]:
+    return None if t is None else int(t * 1000)
+
+
+def sweep_dead(state: State) -> list:
+    """Drop every dead live session (see liveness). Returns [(ref, reason)]. The client is stopped in the background."""
+    now, out = state.clock(), []
+    for ref, sess in list(state.sessions.items()):
+        why = liveness(sess, now, state.pong_stale_s)
+        if why is None or state.sessions.get(ref) is not sess:
+            continue
+        state.sessions.pop(ref, None)
+        prev = state.drops.get(ref) or {}
+        state.drops[ref] = {"at": _ms(state.wall()), "reason": why, "count": int(prev.get("count", 0)) + 1}
+        log.warning("session dropped ref=%s reason=%s", ref, why)
+        t = asyncio.ensure_future(_stop_quiet(sess.client))
+        state.pending.add(t); t.add_done_callback(state.pending.discard)
+        out.append((ref, why))
+    return out
 
 
 def read_token(path: Optional[str]) -> str:
@@ -254,6 +347,13 @@ async def _stop(client: Any) -> None:
     try:
         await client.stop()
     except Exception:  # best effort
+        pass
+
+
+async def _stop_quiet(client: Any) -> None:
+    try:
+        await asyncio.wait_for(_stop(client), 10)
+    except Exception:
         pass
 
 
@@ -419,7 +519,8 @@ def make_app(state: State) -> web.Application:
         except Exception as e:  # never echo exception text to the caller: it may contain request data
             log.error("%s exception %s", request.path, describe(e))
             return err(502, "client_error")
-        log.info("%s %s", request.path, resp.status)
+        # 1b-0.6: the CRM reads health every 10 s; a 200 there is not worth a journal line
+        (log.debug if request.path == "/v1/health" and resp.status == 200 else log.info)("%s %s", request.path, resp.status)
         return resp
 
     async def body(request: web.Request) -> dict:
@@ -442,8 +543,12 @@ def make_app(state: State) -> web.Application:
 
     async def health(_r: web.Request):
         gc()
+        sweep_dead(state)  # never report a dead client as attached
+        live = {ref: {"attachedAt": _ms(s.attached_wall), "lastPongAt": _ms(s.last_pong_wall), "lastRxAt": _ms(s.last_rx_wall),
+                      "probe": "ping" if s.probed else "none"} for ref, s in sorted(state.sessions.items())}
         return web.json_response({"ok": True, "version": VERSION, "sessions": len(state.sessions), "flows": len(state.flows),
-                                  "bootId": state.boot_id, "attached": sorted(state.sessions.keys())})
+                                  "bootId": state.boot_id, "attached": sorted(state.sessions.keys()), "live": live,
+                                  "drops": dict(state.drops), "pongStaleS": state.pong_stale_s})
 
     async def start(request: web.Request):
         j = await body(request)
@@ -602,7 +707,9 @@ def make_app(state: State) -> web.Application:
             log.warning("/v1/session/attach failed step=%s code=%s %s", step, code_, describe(e))
             return err(STATUS[code_], code_, step)
         uid = getattr(getattr(me, "user", me), "id", None)
-        state.sessions[ref] = Session(client=client, me_id=uid)
+        sess = Session(client=client, me_id=uid, attached_mono=state.clock(), attached_wall=state.wall())
+        sess.probed = instrument(sess, state.clock, state.wall)
+        state.sessions[ref] = sess
         return web.json_response({"ok": True, "baleUserId": str(uid) if uid is not None else None})
 
     async def detach(request: web.Request):
@@ -751,13 +858,29 @@ def make_app(state: State) -> web.Application:
         log.info("/v1/contacts ok source=%s n=%d", res["source"], len(res["contacts"]))
         return web.json_response(res)
 
-    async def on_cleanup(_app: web.Application) -> None:
+    async def watchdog() -> None:
+        while True:
+            await asyncio.sleep(state.watch_every_s)
+            try:
+                sweep_dead(state)
+            except Exception as e:  # keep watching
+                log.error("watchdog error %s", type(e).__name__)
+
+    async def on_startup(app: web.Application) -> None:
+        if state.watch_every_s and state.watch_every_s > 0:
+            app[WATCHDOG_KEY] = asyncio.ensure_future(watchdog())
+
+    async def on_cleanup(app: web.Application) -> None:
+        w = app.get(WATCHDOG_KEY)
+        if w is not None:
+            w.cancel()
         for ref in list(state.sessions):
             await _stop(state.sessions.pop(ref).client)
         for t in list(state.pending):
             t.cancel()
 
     app = web.Application(middlewares=[guard], client_max_size=MAX_BODY)
+    app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)
     app.router.add_post("/v1/session/attach", attach)
     app.router.add_post("/v1/session/detach", detach)

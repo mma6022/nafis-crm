@@ -23,7 +23,11 @@ export type CodeOut = Connected | { status: "password_needed" };
 export interface BaleSidecar {
   configured(): boolean;
   /** bootId changes on every sidecar start; attached = accountRefs with a live client (1b). */
-  health(): Promise<{ ok: boolean; version?: string; sessions?: number; bootId?: string; attached?: string[] }>;
+  health(): Promise<{ ok: boolean; version?: string; sessions?: number; bootId?: string; attached?: string[];
+    /** Sidecar ≥1b-0.6 (BALE-FIXB-66): per attached client, epoch ms of attach / last protocol pong / last frame; probe "ping" = observable. */
+    live?: Record<string, { attachedAt?: number | null; lastPongAt?: number | null; lastRxAt?: number | null; probe?: string }>;
+    /** Last watchdog drop per accountRef (memory only, reset on sidecar restart). */
+    drops?: Record<string, { at?: number; reason?: string; count?: number }> }>;
   startAuth(p: StartAuthIn): Promise<StartAuthOut>;
   submitCode(p: { flowId: string; code: string }): Promise<CodeOut>;
   submitPassword(p: { flowId: string; password: string }): Promise<Connected>;
@@ -74,7 +78,9 @@ export function createHttpBaleSidecar(env: () => KeyEnv, opts: { timeoutMs?: num
       try {
         const j = await call<any>("/v1/health", undefined, 3000);
         return { ok: j?.ok === true, version: String(j?.version ?? ""), sessions: Number(j?.sessions ?? 0),
-          bootId: typeof j?.bootId === "string" ? j.bootId : undefined, attached: Array.isArray(j?.attached) ? j.attached.map(String) : undefined };
+          bootId: typeof j?.bootId === "string" ? j.bootId : undefined, attached: Array.isArray(j?.attached) ? j.attached.map(String) : undefined,
+          live: j?.live && typeof j.live === "object" && !Array.isArray(j.live) ? j.live : undefined,
+          drops: j?.drops && typeof j.drops === "object" && !Array.isArray(j.drops) ? j.drops : undefined };
       } catch { return { ok: false }; }
     },
     async startAuth(p) {

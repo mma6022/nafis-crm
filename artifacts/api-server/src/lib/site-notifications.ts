@@ -165,7 +165,8 @@ function permitted(user: AuthUser) {
   const wide = user.role==="admin" || user.role==="registrar";
   // v6: Sarina is registrar/admin only — old Sarina rows addressed to anyone else stay in the DB but never show.
   // «پیام از شماره‌ی ناشناس» (Bale, resource_type bale-unknown) has no customer: addressee only, never role-scoped.
-  const mine = blocked ? "0" : `e.recipient_user_id=? AND ((c.id IS NOT NULL${wide ? "" : " AND c.salesperson_id=? AND COALESCE(e.actor_key,'')<>'assistant:sarina'"}) OR e.resource_type='bale-unknown' OR e.kind='urgent-change' OR (e.resource_type IN ('expert-analysis','cq-discipline-me')${wide ? "" : ` AND e.owner_id=${Number(user.salespersonId ?? -1)}`}) OR (e.resource_type='cq-discipline'${wide ? "" : " AND 0"}))`;
+  // BALE-FIXB-66 «سکوت بله» (bale-silence, no customer): addressee only AND the addressee must still be an admin.
+  const mine = blocked ? "0" : `e.recipient_user_id=? AND ((c.id IS NOT NULL${wide ? "" : " AND c.salesperson_id=? AND COALESCE(e.actor_key,'')<>'assistant:sarina'"}) OR e.resource_type='bale-unknown' OR e.kind='urgent-change' OR (e.resource_type IN ('expert-analysis','cq-discipline-me')${wide ? "" : ` AND e.owner_id=${Number(user.salespersonId ?? -1)}`}) OR (e.resource_type='cq-discipline'${wide ? "" : " AND 0"}) OR (e.resource_type='bale-silence'${user.role==="admin" ? "" : " AND 0"}))`;
   return {
     sql:`((e.recipient_user_id IS NULL AND ${owner} ${permissions ? `AND e.permission IN (${permissions.length?permissions.map(()=>"?").join(","):"NULL"})` : ""}) OR (${mine}))`,
     params:[...(assigned?[user.salespersonId??-1]:[]),...(permissions??[]),...(blocked?[]:[user.id,...(wide?[]:[user.salespersonId??-1])])],
@@ -181,7 +182,7 @@ function from(user: AuthUser) {
     LEFT JOIN site_notification_reads r ON r.event_id=e.id AND r.user_id=?
     LEFT JOIN site_notification_watermarks w ON w.user_id=?
     WHERE ${scope.sql}
-      AND (c.id IS NOT NULL OR (e.resource_type IN ('bale-unknown','expert-analysis','cq-discipline','cq-discipline-me') AND e.recipient_user_id IS NOT NULL) OR (e.kind='customer-deleted' AND NOT EXISTS(SELECT 1 FROM customers missing WHERE missing.id=e.customer_id)))`,
+      AND (c.id IS NOT NULL OR (e.resource_type IN ('bale-unknown','bale-silence','expert-analysis','cq-discipline','cq-discipline-me') AND e.recipient_user_id IS NOT NULL) OR (e.kind='customer-deleted' AND NOT EXISTS(SELECT 1 FROM customers missing WHERE missing.id=e.customer_id)))`,
     params:[user.id,user.id,...scope.params]};
 }
 const selection=`e.*,COALESCE(c.name,e.customer_name) customer_name,c.id current_customer_id,
@@ -203,6 +204,7 @@ function pageFilter(value: unknown): {sql:string;params:string[]} | null {
 }
 function target(e: Event) {
   if(e.resource_type==="bale-unknown")return `/settings/bale?unknown=${e.resource_id}`;
+  if(e.resource_type==="bale-silence")return "/settings/bale";
   if(e.resource_type==="expert-analysis")return `/my-performance?analysis=${Number(e.resource_id)}`;
   const id=e.current_customer_id;
   if (!id) return "/customers";

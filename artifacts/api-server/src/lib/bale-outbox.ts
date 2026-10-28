@@ -19,7 +19,8 @@
  *  Piece 2 (NOT here): document intake, auto-reply.
  */
 import type { DatabaseSync } from "node:sqlite";
-import { normalizeFa } from "./assistants";
+import { normalizeFa, EXCLUDED_USER_IDS } from "./assistants";
+import { isOfficialHoliday } from "./official-holidays";
 import { maskText } from "./smart-filing";
 import { baleSessionAad, openBaleSession, BaleKeyMissing, type KeyEnv } from "./bale-crypto";
 import { BaleSidecarError, type BaleSidecar } from "./bale-sidecar-client";
@@ -421,6 +422,20 @@ export function createBaleOutbox(ctx: OutboxCtx) {
    *  not attached, or sidecar unreachable). While down, nothing is sent and the UI says «اتصال ناقص، در حال رفع». Never changes
    *  mode or status; the worker keeps re-attaching once a minute. Unknown (no sync yet since the API started) is not "down". */
   const liveRefs = new Map<string, boolean>();
+  /** BALE-FIXB-66: sidecar ≥1b-0.6 reports, per attached client, when Bale last answered the library's own protocol ping
+   *  (health.live) and which clients its watchdog dropped (health.drops). Memory only; refreshed on every sync. */
+  type PingInfo = { lastPongAt: number | null; attachedAt: number | null; probe: string };
+  const pings = new Map<string, PingInfo>();
+  const dropSeen = new Map<string, number>();
+  const startedAt = now().getTime();
+  /** CRM-side backstop: a client the sidecar still lists but whose last pong (or attach) is older than this is treated as down
+   *  and re-attached from the sealed token (the sidecar's own watchdog normally drops it after 45 s). */
+  const PING_STALE_MS = 3 * 60_000;
+  const pingInfo = (a: any): PingInfo | null => pings.get(ref(a)) ?? null;
+  /** BALE-FIXB-66: the (loopback-only, read-only) health read runs every 10 s so a drop shows as «down» within seconds;
+   *  a re-attach of one account (the sealed token → sidecar, no login code, nothing sent) is still tried at most once a minute. */
+  const HEALTH_EVERY_MS = 10_000, ATTACH_EVERY_MS = 60_000;
+  const attachTry = new Map<string, number>();
   const liveState = (a: any): "live" | "down" | "unknown" => { const v = liveRefs.get(ref(a)); return v === undefined ? "unknown" : v ? "live" : "down"; };
   async function attachOne(a: any): Promise<boolean> {
     try {
@@ -442,12 +457,29 @@ export function createBaleOutbox(ctx: OutboxCtx) {
   }
   async function syncSessions(force = false): Promise<{ attached: number }> {
     if (!ctx.sidecar.configured()) return { attached: 0 };
-    if (!force && now().getTime() - lastSync < 60_000) return { attached: 0 };
+    if (!force && now().getTime() - lastSync < HEALTH_EVERY_MS) return { attached: 0 };
     lastSync = now().getTime();
     const h = await ctx.sidecar.health();
     const connected = rows<any>("SELECT * FROM bale_accounts WHERE status='connected' AND session_ct IS NOT NULL ORDER BY id");
     const seen = new Set(h.ok ? h.attached ?? [] : []);
     if (h.ok) lastSyncOk = now().getTime();
+    pings.clear();
+    const stale = new Set<string>();
+    if (h.ok) {
+      for (const [r, v] of Object.entries(h.live ?? {})) {
+        const p: PingInfo = { lastPongAt: Number.isFinite(Number(v?.lastPongAt)) && v?.lastPongAt != null ? Number(v.lastPongAt) : null,
+          attachedAt: Number.isFinite(Number(v?.attachedAt)) && v?.attachedAt != null ? Number(v.attachedAt) : null, probe: String(v?.probe ?? "none") };
+        pings.set(r, p);
+        const last = Math.max(p.lastPongAt ?? 0, p.attachedAt ?? 0);
+        if (p.probe === "ping" && last > 0 && now().getTime() - last > PING_STALE_MS) { stale.add(r); seen.delete(r); }
+      }
+      const byRef = new Map(connected.map(a => [ref(a), a]));
+      for (const [r, d] of Object.entries(h.drops ?? {})) {
+        const at = Number(d?.at); if (!Number.isFinite(at) || dropSeen.get(r) === at) continue;
+        dropSeen.set(r, at);
+        if (at >= startedAt - 120_000) ctx.audit({ accountId: byRef.get(r)?.id ?? null, action: "session.dropped", outcome: String(d?.reason ?? "unknown").slice(0, 30), detail: { at: new Date(at).toISOString(), count: Number(d?.count ?? 0) } });
+      }
+    }
     liveRefs.clear(); for (const a of connected) liveRefs.set(ref(a), seen.has(ref(a))); // sidecar down → every session is down
     if (!h.ok) return { attached: 0 };
     const masterOn = ctx.masterOn(), testOn = ctx.testOn?.() ?? false;
@@ -464,10 +496,90 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     let n = 0;
     for (const a of connected) {
       if (a.kind === "system_test" ? !testOn : !masterOn) continue;
-      if (!restarted && live.has(ref(a))) continue;
+      if (!restarted && live.has(ref(a)) && !stale.has(ref(a))) continue;
+      if (!force && !restarted && now().getTime() - (attachTry.get(ref(a)) ?? 0) < ATTACH_EVERY_MS) continue;
+      attachTry.set(ref(a), now().getTime());
+      if (stale.has(ref(a))) ctx.audit({ accountId: a.id, action: "session.stale", outcome: "reattach", detail: { lastPongAt: pings.get(ref(a))?.lastPongAt ? new Date(pings.get(ref(a))!.lastPongAt!).toISOString() : null } });
       if (await attachOne(a)) n++;
     }
     return { attached: n };
+  }
+
+  /* ---------------- BALE-FIXB-66: «سکوت بله» admin alert (bale_settings.bale_silence_alert, ships OFF) ----------------
+   * An expert account (status connected) with no inbound Bale message for N working hours → one bell to each active admin
+   * (never user 29), once per silence episode (bale_audit 'silence.alert' newer than the last inbound = already told).
+   * Working hours: bale_silence_from–bale_silence_to Tehran, Saturday–Thursday, official_holidays excluded. Read-only on
+   * Bale: nothing is sent, nothing reconnects; only the bell row + one audit row are written, and only while the switch is ON. */
+  const SILENCE_EVERY_MS = 5 * 60_000; let lastSilence = 0;
+  const TEH_MS = 12_600_000;
+  const hm = (v: unknown, d: number) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(v ?? "").trim()); if (!m) return d; const x = Number(m[1]) * 60 + Number(m[2]); return x >= 0 && x <= 1440 && Number(m[2]) < 60 ? x : d; };
+  function silenceCfg() {
+    const hours = Number(ctx.setting("bale_silence_hours"));
+    let from = hm(ctx.setting("bale_silence_from"), 540), to = hm(ctx.setting("bale_silence_to"), 1200);
+    if (to <= from) { from = 540; to = 1200; }
+    return { enabled: ctx.setting("bale_silence_alert") === "1", hours: Number.isFinite(hours) && hours >= 1 && hours <= 11 ? hours : 3, from, to };
+  }
+  const tehYmd = (ms: number) => new Date(ms + TEH_MS).toISOString().slice(0, 10);
+  const workDay = (ms: number) => new Date(ms + TEH_MS).getUTCDay() !== 5 && !isOfficialHoliday(db, tehYmd(ms));
+  /** Milliseconds of working time in [fromMs, toMs) (Tehran, fixed +03:30). */
+  function workingMs(fromMs: number, toMs: number, cfg = silenceCfg()): number {
+    let total = 0;
+    const w0 = new Date(fromMs + TEH_MS); w0.setUTCHours(0, 0, 0, 0);
+    for (let d = w0.getTime() - TEH_MS, i = 0; d < toMs && i < 120; d += 86_400_000, i++) {
+      if (!workDay(d + 43_200_000)) continue;
+      const s = Math.max(fromMs, d + cfg.from * 60_000), e = Math.min(toMs, d + cfg.to * 60_000);
+      if (e > s) total += e - s;
+    }
+    return total;
+  }
+  function inWorkWindow(t: number, cfg = silenceCfg()) {
+    const m = Math.floor(((t + TEH_MS) % 86_400_000) / 60_000);
+    return workDay(t) && m >= cfg.from && m < cfg.to;
+  }
+  const msOfDb = (v: unknown) => { if (v == null || v === "") return null; const x = String(v); const t = Date.parse(/^\d{4}-\d\d-\d\d[ T]\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(x) ? x.replace(" ", "T") + "Z" : x); return Number.isFinite(t) ? t : null; };
+  function lastInboundMs(a: any): number | null {
+    const one = (sql: string) => msOfDb(row<any>(sql, a.id)?.v);
+    const v = [one("SELECT created_at v FROM bale_messages WHERE account_id=? AND direction='in' ORDER BY julianday(created_at) DESC LIMIT 1"),
+      hasTable("bale_unknown_chats") ? one("SELECT last_at v FROM bale_unknown_chats WHERE account_id=? ORDER BY julianday(last_at) DESC LIMIT 1") : null,
+      hasTable("bale_ar_messages") ? one("SELECT created_at v FROM bale_ar_messages WHERE account_id=? AND direction='in' ORDER BY julianday(created_at) DESC LIMIT 1") : null].filter((x): x is number => x != null);
+    return v.length ? Math.max(...v) : null;
+  }
+  /** Read-only view for the admin page (works whether the switch is ON or OFF). */
+  function silenceView() {
+    const cfg = silenceCfg(), t = now().getTime();
+    const accounts = rows<any>("SELECT * FROM bale_accounts WHERE kind<>'system_test' AND status='connected' AND session_ct IS NOT NULL ORDER BY id").map(a => {
+      const li = lastInboundMs(a); const since = li ?? msOfDb(a.connected_at);
+      const w = since == null ? null : workingMs(since, t, cfg);
+      return { accountId: a.id, name: ctx.nameOf(ctx.userRow(a.user_id)), lastInboundAt: li == null ? null : new Date(li).toISOString(),
+        silentWorkingMin: w == null ? null : Math.floor(w / 60_000), overThreshold: w != null && w >= cfg.hours * 3600_000 };
+    });
+    const pad = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+    return { enabled: cfg.enabled, hours: cfg.hours, from: pad(cfg.from), to: pad(cfg.to), inWorkingHours: inWorkWindow(t, cfg), accounts };
+  }
+  function silenceSweep(force = false): number {
+    const cfg = silenceCfg();
+    if (!cfg.enabled || !ctx.masterOn() || !bellReady()) return 0;
+    const t = now().getTime();
+    if (!force && t - lastSilence < SILENCE_EVERY_MS) return 0;
+    lastSilence = t;
+    if (!inWorkWindow(t, cfg)) return 0;
+    const admins = rows<any>("SELECT id FROM users WHERE role='admin' AND COALESCE(active,1)=1 ORDER BY id").filter(u => !EXCLUDED_USER_IDS.includes(Number(u.id)));
+    if (!admins.length) return 0;
+    let n = 0;
+    for (const a of rows<any>("SELECT * FROM bale_accounts WHERE kind<>'system_test' AND status='connected' AND session_ct IS NOT NULL ORDER BY id")) {
+      const li = lastInboundMs(a); const since = li ?? msOfDb(a.connected_at); if (since == null) continue;
+      if (workingMs(since, t, cfg) < cfg.hours * 3600_000) continue;
+      if (row("SELECT 1 FROM bale_audit WHERE account_id=? AND action='silence.alert' AND julianday(at)>julianday(?) LIMIT 1", a.id, new Date(since).toISOString())) continue;
+      const name = ctx.nameOf(ctx.userRow(a.user_id)) ?? "کارشناس";
+      const sinceFa = li == null ? "از زمان اتصال" : `از ${new Date(li + TEH_MS).toISOString().slice(11, 16)} (${tehYmd(li)})`;
+      const title = `بله‌ی ${name}: ${cfg.hours} ساعت کاری بدون پیام ورودی`.slice(0, 120);
+      const body = `${sinceFa} هیچ پیام ورودی بله برای حساب ${name} ثبت نشده (فقط ساعت‌های کاری شمرده می‌شود). ممکن است اتصال قطع باشد؛ وضعیت را در تنظیمات بله ببینید. چیزی ارسال نشده است.`;
+      for (const u of admins) run(`INSERT INTO site_notification_events(customer_id,customer_name,owner_id,resource_type,resource_id,kind,title,body,permission,created_at,actor_key,recipient_user_id)
+        VALUES(0,'',NULL,'bale-silence',?,'bale-silence',?,?,'bale.admin',?,'bale:system',?)`, a.id, title, body.slice(0, 300), iso(), u.id);
+      ctx.audit({ accountId: a.id, action: "silence.alert", outcome: "bell", detail: { hours: cfg.hours, admins: admins.length, lastInboundAt: li == null ? null : new Date(li).toISOString() } });
+      n++;
+    }
+    return n;
   }
 
   /* ---------------- worker ---------------- */
@@ -585,6 +697,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
       stale();
       const reminders = dueReminders();
       await syncSessions();
+      silenceSweep();
       const results: Record<number, string> = {};
       ar.sweep();
       for (const a of rows<any>(`SELECT * FROM bale_accounts WHERE kind<>'system_test' AND (id IN (SELECT DISTINCT account_id FROM bale_outbox WHERE status='queued')
@@ -794,7 +907,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
   ar.bindAccountCaps((a, withQueued) => { const extra = withQueued ? queuedCount(a.id) : 0;
     return sentSince(a.id, 86_400_000) + extra >= num("per_day", 80) || sentSince(a.id, 3_600_000) + extra >= num("per_hour", 20); }, withPlanFileCaption);
   const syncInfo = () => ({ lastSyncAt: lastSync || null, lastSyncOkAt: lastSyncOk || null });
-  return { autoreply: ar, attachmentsOn, liveState, syncInfo, enqueue, approve, editDraft, cancel, sendNow, tick, syncSessions, inbound, itemView, tabItems, sendState, linkReminder, cancelReminder, autoStop, check, bell,
+  return { autoreply: ar, attachmentsOn, liveState, pingInfo, silenceView, silenceSweep, workingMs, syncInfo, enqueue, approve, editDraft, cancel, sendNow, tick, syncSessions, inbound, itemView, tabItems, sendState, linkReminder, cancelReminder, autoStop, check, bell,
     pausedOf, pauseConversation, resumeConversation, unknownList, linkUnknown, dismissUnknown, ownCustomerSearch };
 }
 

@@ -15,7 +15,7 @@
 
 | Route | Body | 200 response |
 |---|---|---|
-| `GET /v1/health` | – | `{ok, version, sessions, flows, bootId, attached:[accountRef]}` |
+| `GET /v1/health` | – | `{ok, version, sessions, flows, bootId, attached:[accountRef], live:{accountRef:{attachedAt, lastPongAt\|null, lastRxAt\|null, probe:"ping"\|"none"}}, drops:{accountRef:{at, reason, count}}, pongStaleS}` (live/drops/pongStaleS: 1b-0.6+, epoch ms) |
 | `POST /v1/auth/start` | `{accountRef, phone:"09xxxxxxxxx", deviceHash:<uuid, per expert>, deviceTitle}` | `{flowId, codeType:"app"\|"sms"\|"unknown", expiresInS}` |
 | `POST /v1/auth/code` | `{flowId, code}` | `{status:"connected", token, baleUserId}` or `{status:"password_needed"}` |
 | `POST /v1/auth/password` | `{flowId, password}` | `{status:"connected", token, baleUserId}` |
@@ -35,6 +35,15 @@ No session is written to disk (`Client(session_file=None)`); the API seals the t
 | `POST /v1/contacts` (1b-0.4+, READ-ONLY; 1b-0.5 reads GetContacts/LoadDialogs/LoadUsers raw) | `{accountRef}` | `{ok:true, source:"contacts"\|"dialogs", truncated, contacts:[{baleUserId, name, localName\|null, phone:"09…"\|null}]}` | 409 not_attached, 429 rate_limited `{retryAfterS}` (one read per account per 5 min), 401 session_invalid, 403 account_banned, 502 unknown |
 | `POST /v1/send-file` (1b-0.3) | `{accountRef, phone, peerId\|null, caption (≤1024, may be ""), fileName (≤120, no slashes), mime: application/pdf\|image/jpeg\|image/png\|image/webp, fileB64 (≤10 MB decoded), sha256, typingMs}` — body ≤15 MB on this route only | `{messageId, peerId}` | same as `/v1/send`; 400 bad_request also when the bytes do not match the mime magic or the sha256 |
 
+* Dead-connection watchdog (1b-0.6, BALE-FIXB-66): aiobale already pings Bale every 5 s over the open socket and waits
+  for the pong; the sidecar only OBSERVES that (wraps the client's own `send_bytes` result for `ping_*` keys and the
+  receive hook) — it never sends anything extra, never re-authenticates, never requests a code. A client is dropped from
+  `attached` when its transport is closed, its listener or ping loop has stopped, its websocket is closed, or no pong has
+  arrived for `pongStaleS` (45 s; before the first pong, counted from the attach). Checked every 10 s in the background
+  and on every `/v1/health`. The drop is logged (`session dropped ref=… reason=…`, no ids/tokens) and kept in `drops`
+  (memory only). The API then sees the ref missing from `attached`, marks it down (sends blocked) and re-attaches it from
+  the sealed token it already holds. A client whose internals cannot be observed reports `probe:"none"` and is never dropped
+  by the pong rule.
 * Sessions live in memory only. A sidecar restart changes `bootId` and empties `attached`; the API worker sees that in
   `/v1/health` and re-attaches every connected, enabled account (and re-attaches once on a `not_attached` send).
 * `/v1/contacts` («اسکن بله و اتصال مشتری»): `GetContacts` → `load_users` (saved contact name = `localName`, bots/deleted

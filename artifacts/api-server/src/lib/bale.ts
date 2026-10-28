@@ -64,6 +64,8 @@ export const BALE_DEFAULT_SETTINGS: Record<string, string> = {
   test_enabled: "0",
   // Plan files over Bale (PDF / image of a plan, always an expert-approved draft): its own switch, default OFF.
   bale_attachments_enabled: "0",
+  // BALE-FIXB-66 «سکوت بله»: admin bell after N working hours with no inbound (Sat–Thu, holidays excluded). Default OFF.
+  bale_silence_alert: "0", bale_silence_hours: "3", bale_silence_from: "09:00", bale_silence_to: "20:00",
 };
 export const BALE_PEER_BLOCK_MODES = ["account_stop", "conversation_pause"] as const;
 
@@ -166,6 +168,8 @@ const ERR_FA: Record<string, string> = {
   scan_expired: "نتیجه‌ی اسکن قدیمی شده است. دوباره اسکن کنید.",
   bad_request: "درخواست نامعتبر است.",
   not_found: "پیدا نشد.",
+  bad_hours: "تعداد ساعت باید عددی بین ۱ تا ۱۱ باشد.",
+  bad_time: "ساعت شروع و پایان باید به شکل ۰۹:۰۰ باشد و شروع قبل از پایان.",
 };
 
 export function createBale(deps: BaleDeps) {
@@ -873,6 +877,24 @@ export function createBale(deps: BaleDeps) {
     audit({ req, u, action: on ? "admin.master_on" : "admin.master_off", outcome: "ok" });
     res.json({ masterEnabled: masterOn() });
   });
+  /* ---------------- BALE-FIXB-66 «سکوت بله» admin alert (default OFF; turning ON needs confirm «روشن») ---------------- */
+  staff.get("/admin/bale/silence-alert", admin, (_req, res) => { res.json(outbox.silenceView()); });
+  staff.put("/admin/bale/silence-alert", admin, (req, res) => {
+    const u = res.locals.baleAdmin; const b = req.body ?? {};
+    const hhmm = (v: unknown) => typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
+    if (b.hours !== undefined && !(Number.isInteger(b.hours) && b.hours >= 1 && b.hours <= 11)) return fail(res, 400, "bad_hours");
+    if ((b.from !== undefined && !hhmm(b.from)) || (b.to !== undefined && !hhmm(b.to))) return fail(res, 400, "bad_time");
+    const cur = outbox.silenceView();
+    if ((b.from ?? cur.from) >= (b.to ?? cur.to)) return fail(res, 400, "bad_time");
+    if (b.enabled === true && !cur.enabled && b.confirm !== "روشن") return void res.status(428).json({ error: "confirm_required", message: "برای روشن کردن، «روشن» را تایپ کنید." });
+    const put = (k: string, v: string) => run("INSERT INTO bale_settings(key,value,updated_at,updated_by_user_id) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,updated_by_user_id=excluded.updated_by_user_id", k, v, iso(), u.id);
+    if (b.enabled !== undefined) put("bale_silence_alert", b.enabled === true ? "1" : "0");
+    if (b.hours !== undefined) put("bale_silence_hours", String(b.hours));
+    if (b.from !== undefined) put("bale_silence_from", b.from);
+    if (b.to !== undefined) put("bale_silence_to", b.to);
+    audit({ req, u, action: "admin.silence_alert", outcome: "ok", detail: { enabled: b.enabled === undefined ? null : b.enabled === true, hours: b.hours ?? null, from: b.from ?? null, to: b.to ?? null } });
+    res.json(outbox.silenceView());
+  });
   /* ---------------- plan files («فایل طرح برای بله») ---------------- */
   staff.put("/admin/bale/attachments", admin, (req, res) => {
     const on = req.body?.enabled === true; const u = res.locals.baleAdmin;
@@ -1131,8 +1153,11 @@ export function createBale(deps: BaleDeps) {
    * Only a sales assistant bound to an expert; only that expert's account. Never a token, key, phone, chat/peer id, name or text.
    * No DB write, no sidecar call, no reconnect/ping/send: the only state it touches is the in-memory per-token rate counter below
    * (≈20/hour/token → 429 + Retry-After). sessionLive is NOT the stored «connected» flag: the sidecar keeps dead clients in its
-   * attached list, so a "live" session also needs recent evidence (a fresh attach or real Bale traffic within STATUS_STALE_MS). */
-  const STATUS_LIMIT = 20, STATUS_WINDOW_MS = 3600_000, STATUS_STALE_MS = 6 * 3600_000;
+   * attached list, so a "live" session also needs recent evidence (a fresh attach or real Bale traffic within STATUS_STALE_MS).
+   * BALE-FIXB-66: with sidecar ≥1b-0.6 the evidence is the real protocol pong (cached from the last health sync, ≤10 s old):
+   * lastPingAt = when Bale last answered the library's own ping; live needs it (or a fresh attach) within PING_FRESH_MS.
+   * An older sidecar (no ping info) falls back to the 6 h evidence rule. */
+  const STATUS_LIMIT = 20, STATUS_WINDOW_MS = 3600_000, STATUS_STALE_MS = 6 * 3600_000, PING_FRESH_MS = 3 * 60_000;
   const statusHits = new Map<string, number[]>();
   const TEHRAN_MS = 12_600_000; // Asia/Tehran is fixed UTC+03:30 (no DST)
   const tehIso = (ms: number | null) => ms == null || !Number.isFinite(ms) ? null : new Date(ms + TEHRAN_MS).toISOString().replace("Z", "+03:30");
@@ -1174,8 +1199,10 @@ export function createBale(deps: BaleDeps) {
       one("SELECT sent_at v FROM bale_ar_messages WHERE account_id=? AND status='sent' AND sent_at IS NOT NULL ORDER BY julianday(sent_at) DESC LIMIT 1", a.id),
       one("SELECT created_at v FROM bale_ar_messages WHERE account_id=? AND direction='out' AND status='external' ORDER BY julianday(created_at) DESC LIMIT 1", a.id));
     const lastAttach = msOf(a.last_seen_at); // written only by a successful attach / connect
-    const evidence = maxMs(lastAttach, lastInbound, lastSent);
     const connected = a.status === "connected" && Boolean(a.session_ct);
+    const ping = connected ? outbox.pingInfo(a) : null;
+    const lastPing = ping?.lastPongAt ?? null;
+    const evidence = maxMs(lastAttach, lastInbound, lastSent, lastPing);
     const ls = connected ? outbox.liveState(a) : null;
     let reason: string;
     if (a.status === "banned") reason = "banned";
@@ -1183,6 +1210,7 @@ export function createBale(deps: BaleDeps) {
     else if (!baleEnabled) reason = "bale_disabled";
     else if (ls === "down") reason = "not_attached";
     else if (ls !== "live") reason = "unknown";
+    else if (ping && ping.probe === "ping") { const p = maxMs(lastPing, ping.attachedAt); reason = p != null && t - p <= PING_FRESH_MS ? "ok" : "stale_no_ping"; }
     else if (evidence == null || t - evidence > STATUS_STALE_MS) reason = "stale_no_ping";
     else reason = "ok";
     const day = new Date(tehDayStart(t)).toISOString();
@@ -1194,7 +1222,7 @@ export function createBale(deps: BaleDeps) {
       + n("SELECT count(*) n FROM bale_ar_messages WHERE account_id=? AND status IN ('queued','sending')", a.id);
     const pending = n("SELECT count(*) n FROM bale_outbox WHERE account_id=? AND status='pending_approval'", a.id);
     const stop = a.stopped_reason ? String(a.stopped_reason).slice(0, 40) : null;
-    res.json({ ...base, connected, sessionLive: reason === "ok", sessionLiveReason: reason, sessionLiveText: LIVE_FA[reason] ?? LIVE_FA.unknown,
+    res.json({ ...base, lastPingAt: tehIso(lastPing), connected, sessionLive: reason === "ok", sessionLiveReason: reason, sessionLiveText: LIVE_FA[reason] ?? LIVE_FA.unknown,
       mode: a.mode ?? null, autoStopped: Boolean(stop), autoStopReason: stop, autoStopText: stop ? (STOP_FA[stop] ?? "ارسال خودکار متوقف شده است.") : null,
       lastInboundAt: tehIso(lastInbound), lastAttachAt: tehIso(lastAttach), lastEvidenceAt: tehIso(evidence),
       inboundToday: { customers, nonCustomers }, queuedOutbound: queued, pendingApproval: pending });
