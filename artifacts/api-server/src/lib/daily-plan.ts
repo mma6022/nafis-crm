@@ -7,7 +7,7 @@
  * Defaults are listed in nafis-deploy/DAILY-PLAN-DECISIONS.md.
  */
 import { createHash } from "node:crypto";
-import { execute, executeChanges, queryRow, queryRows, type SqlValue } from "./crm-db";
+import { execute, executeChanges, queryRow, queryRows, runImmediateTransaction, type SqlValue } from "./crm-db";
 import {
   CQ_EXCLUDED_USER_IDS, CQ_LIMITS, CQ_OUTCOMES, cqDisciplineSettings, cqFlags, cqOnTime, cqPendingCall, cqQueue, cqRaw, cqSetRaw, ensureCallQueueSchema,
   fromTehran, isWorkDay, tParts, tYmd, type CqUser,
@@ -1102,4 +1102,30 @@ export function dpAssistantGet(a: Asst, dayIn: unknown, now = new Date()) {
   let p = planRow(Number(ex.salespersonId), dayIn); if (!p) return err(404, "no_plan", "برای این روز لیستی نیست.", { capacity: dpCapacity(Number(ex.salespersonId), dayIn) });
   if (dayIn === dpToday(now)) p = dpRefresh(p, now);
   return dpAssistantView(p);
+}
+
+/**
+ * NEWCUST-65 (= incoming2-59 PM 10:51 (a)): a call recorded through the first-call form right after «تماس ورودی داشتم › ثبت مشتری جدید»
+ * is «خارج از لیست». The first-call form (POST /customers/:id/team-sales/qualify) writes its own call_logs row and never reaches dpAfterCall,
+ * so the dialog confirms it here: mirror it on today's plan as a done «خارج از لیست» item (bucket outside, not in the %), exactly like the
+ * 4cd873b mirror of a regular call. Only this expert's own form call on his own customer, saved in the last 30 minutes, once.
+ * An open item of that customer is left to FIRSTCALL-62 (it closes that item). Never a plan item, never a notification.
+ */
+const DP_FC_OUTCOME: Record<string, string | null> = { answered: "answered", no_answer: "no_answer", callback: "follow_up", wrong_number: null };
+export function dpIncomingFirstCallMirror(user: CqUser, body: any, now = new Date()): { ok: true; mirrored: boolean; itemId?: number } | DpErr {
+  const customerId = Number(body?.customerId), callLogId = Number(body?.callLogId);
+  if (!Number.isSafeInteger(customerId) || customerId <= 0 || !Number.isSafeInteger(callLogId) || callLogId <= 0) return err(400, "invalid", "شناسه‌ها معتبر نیست.");
+  const cl = queryRow<{ customer_id: number; salesperson_id: number | null; created_at: string }>("SELECT customer_id,salesperson_id,created_at FROM call_logs WHERE id=?", [callLogId]);
+  const q = queryRow<{ call_result: string | null }>("SELECT call_result FROM team_sales_qualifications WHERE call_log_id=? AND customer_id=? AND actor_user_id=? ORDER BY id DESC LIMIT 1", [callLogId, customerId, user.id]);
+  const owner = queryRow<{ salesperson_id: number | null }>("SELECT salesperson_id FROM customers WHERE id=?", [customerId]);
+  if (!cl || !q || cl.customer_id !== customerId || owner?.salesperson_id == null || Number(owner.salesperson_id) !== Number(user.salespersonId)) return err(404, "not_found", "تماس پیدا نشد.");
+  if (now.getTime() - Date.parse(cl.created_at) > 30 * 60_000) return err(409, "too_old", "این تماس قدیمی است.");
+  const p = dpActiveFor(user, now); if (!p) return { ok: true, mirrored: false };
+  return runImmediateTransaction(() => {
+    if (queryRow("SELECT id FROM dp_items WHERE plan_id=? AND call_log_id=?", [p.id, callLogId])) return { ok: true as const, mirrored: false };
+    // LOGGED-CALL-63 rule: one «خارج از لیست» entry only for a customer NOT on today's plan (any list item, any status → no copy).
+    if (items(p.id, "customer_id=? AND bucket<>'outside'", [customerId]).length) return { ok: true as const, mirrored: false };
+    const r = dpAfterCall({ __dp: "legacy", outcome: DP_FC_OUTCOME[String(q.call_result ?? "")] ?? null }, callLogId, user, customerId, now.toISOString());
+    return { ok: true as const, mirrored: !!r, itemId: r?.itemId };
+  });
 }

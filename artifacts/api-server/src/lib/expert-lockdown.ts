@@ -14,10 +14,12 @@
  */
 import { createHmac } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
-import { crmDb, execute, queryRow, queryRows } from "./crm-db";
+import { crmDb, execute, queryRow, queryRows, runTransaction } from "./crm-db";
 import { cqRaw } from "./call-queue";
 import { dpToday } from "./daily-plan";
 import { exactLookupOf } from "./cross-owner-search";
+import { insertCustomerRecord } from "./customer-create";
+import { normalizeCustomerMobile } from "./customer-integrity";
 
 export const EL_FLAG_KEY = "flag.expert_lockdown";
 /** users.id → their salespersons.id (checked against the session: a user whose salespersonId differs is not locked). */
@@ -51,7 +53,7 @@ export function ensureElSchema(): void {
 }
 
 /* ---------------- customer access (a)/(b)/(c) ---------------- */
-export function elCustomerAccess(u: U, customerId: number, now = new Date()): "plan" | "incoming" | "case" | null {
+export function elCustomerAccess(u: U, customerId: number, now = new Date()): "plan" | "incoming" | "registered" | "case" | null {
   const sp = Number(u.salespersonId);
   if (queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='dp_items'") &&
       queryRow("SELECT 1 x FROM dp_items i JOIN dp_plans p ON p.id=i.plan_id WHERE p.salesperson_id=? AND p.day=? AND i.customer_id=? LIMIT 1", [sp, dpToday(now), customerId])) return "plan";
@@ -59,6 +61,9 @@ export function elCustomerAccess(u: U, customerId: number, now = new Date()): "p
   const own = queryRow<{ salesperson_id: number | null }>("SELECT salesperson_id FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [customerId]);
   if (!own || Number(own.salesperson_id) !== sp) return null;
   if (queryRow("SELECT 1 x FROM el_grants WHERE user_id=? AND customer_id=? AND expires_at>? LIMIT 1", [Number(u.id), customerId, now.toISOString()])) return "incoming";
+  // NEWCUST-65 (= incoming2-59 (d)): a customer this expert registered through «تماس ورودی داشتم › ثبت مشتری جدید» (still their own).
+  if (queryRow("SELECT 1 x FROM el_incoming_log l JOIN customers c ON c.id=l.customer_id WHERE l.user_id=? AND l.customer_id=? AND l.action='new_create' AND l.result='created' AND c.registered_by=? LIMIT 1",
+    [Number(u.id), customerId, Number(u.id)])) return "registered";
   if (queryRow("SELECT 1 x FROM loan_applications WHERE customer_id=? AND deleted_at IS NULL LIMIT 1", [customerId])) return "case";
   if (queryRow("SELECT 1 x FROM goods_purchases WHERE customer_id=? LIMIT 1", [customerId])) return "case";
   if (queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='customer_payment_orders'") &&
@@ -144,6 +149,85 @@ function log(u: U, row: { action: string; kind?: string | null; hash?: string | 
 }
 export function elIncomingOpen(u: U, now = new Date()) { log(u, { action: "open" }, now.toISOString()); return { ok: true }; }
 
+/* ---------------- NEWCUST-65 «ثبت مشتری جدید» (interim, ahead of incoming2-59; same endpoints/shape as 59) ---------------- */
+const rateLimited = (u: U, now: Date) => Number(queryRow<{ n: number }>("SELECT count(*) n FROM el_incoming_log WHERE user_id=? AND action IN ('search','new_check','new_create') AND created_at>?",
+  [Number(u.id), new Date(now.getTime() - EL_SEARCH_WINDOW_MS).toISOString()])?.n ?? 0) >= EL_SEARCH_LIMIT;
+/** Same match as POST /customers' duplicate check (findCustomerByPhone): crm_customer_mobile_key(phone), any status, merged → survivor. */
+function phoneOwner(phone: string): { id: number; name: string; sp: number | null; owner_name: string | null } | null {
+  const rows = queryRows<{ id: number; merged: number | null }>(`SELECT c.id, c.merged_into_customer_id merged FROM customers c WHERE crm_customer_mobile_key(c.phone)=?
+    ORDER BY CASE WHEN c.merged_into_customer_id IS NULL AND COALESCE(c.status,'in_progress')<>'cancelled' THEN 0 WHEN c.merged_into_customer_id IS NULL THEN 1 ELSE 2 END,
+      c.created_at DESC, c.id DESC LIMIT 1`, [phone]);
+  if (!rows.length) return null;
+  let id = Number(rows[0].id), merged = rows[0].merged;
+  for (let i = 0; merged != null && i < 10; i++) {
+    const n = queryRow<{ id: number; merged: number | null }>("SELECT id, merged_into_customer_id merged FROM customers WHERE id=?", [Number(merged)]);
+    if (!n) break; id = Number(n.id); merged = n.merged;
+  }
+  return queryRow<{ id: number; name: string; sp: number | null; owner_name: string | null }>(
+    "SELECT c.id, c.name, c.salesperson_id sp, s.name owner_name FROM customers c LEFT JOIN salespersons s ON s.id=c.salesperson_id WHERE c.id=?", [id]) ?? null;
+}
+const mobileOf = (raw: unknown): string | null => { const p = normalizeCustomerMobile(String(raw ?? "").slice(0, 40)); return /^09\d{9}$/.test(p) ? p : null; };
+export type ElNewResult =
+  | { result: "new" }
+  | { result: "duplicate"; ownerName: string; mine: boolean }
+  | { result: "created"; customer: { id: number; name: string } }
+  | { result: "invalid" | "rate_limited"; message: string; field?: string };
+const INVALID_PHONE = { result: "invalid" as const, field: "phone", message: "شماره‌ی موبایل کامل ۱۱ رقمی را بنویس (مثلاً ۰۹۱۲۱۲۳۴۵۶۷)." };
+const RATE_LIMITED = { result: "rate_limited" as const, message: "تعداد جست‌وجوها زیاد شد؛ چند دقیقه بعد دوباره امتحان کن." };
+/** Duplicate: the owner's (expert's) name only — no customer data. NEWCUST-65: no bell / SMS / notification to anyone. */
+const dupResult = (u: U, o: { sp: number | null; owner_name: string | null }): ElNewResult =>
+  ({ result: "duplicate", ownerName: o.sp == null ? "بدون کارشناس" : String(o.owner_name ?? "") || "بدون کارشناس", mine: o.sp != null && Number(o.sp) === Number(u.salespersonId) });
+/** Step 1: phone only → exact duplicate check. Nothing is created; a duplicate answers the owner's name only. */
+export function elNewCheck(u: U, raw: unknown, now = new Date()): ElNewResult {
+  ensureElSchema(); const at = now.toISOString();
+  if (rateLimited(u, now)) { log(u, { action: "search_limited", result: "rate_limited" }, at); return RATE_LIMITED; }
+  const phone = mobileOf(raw);
+  if (!phone) { log(u, { action: "new_check", kind: "invalid", result: "invalid" }, at); return INVALID_PHONE; }
+  const hash = hashQuery("phone", phone);
+  const o = phoneOwner(phone);
+  if (o) { log(u, { action: "new_check", kind: "phone", hash, result: "duplicate", customerId: Number(o.id), ownerSp: o.sp == null ? null : Number(o.sp) }, at); return dupResult(u, o); }
+  log(u, { action: "new_check", kind: "phone", hash, result: "new" }, at);
+  return { result: "new" };
+}
+export const EL_NEW_NAME_MAX = 80, EL_NEW_NOTE_MAX = 500;
+/** Last step: create. Re-checks the duplicate on the server; owner = this expert, registered_by = this expert, lead source «تماس ورودی»,
+ *  «قانون ثبت» not applied, no priority (no non-P1 hand-off), not urgent, and NO notifyNewCustomer (no Telegram / SMS / Bale / welcome / intro). */
+export function elNewCreate(u: U, body: Record<string, unknown> | undefined, now = new Date()): ElNewResult {
+  ensureElSchema(); const at = now.toISOString();
+  if (rateLimited(u, now)) { log(u, { action: "search_limited", result: "rate_limited" }, at); return RATE_LIMITED; }
+  const phone = mobileOf(body?.phone);
+  if (!phone) { log(u, { action: "new_create", kind: "invalid", result: "invalid" }, at); return INVALID_PHONE; }
+  const hash = hashQuery("phone", phone);
+  const name = String(body?.name ?? "").replace(/\s+/g, " ").trim();
+  if ([...name].length < 3 || [...name].length > EL_NEW_NAME_MAX || /[\d۰-۹٠-٩]/.test(name) || !name.includes(" ")) {
+    log(u, { action: "new_create", kind: "phone", hash, result: "invalid" }, at);
+    return { result: "invalid", field: "name", message: "نام و نام خانوادگی مشتری را کامل بنویس (بدون عدد)." };
+  }
+  const note = typeof body?.description === "string" ? body.description.trim() : "";
+  if ([...note].length > EL_NEW_NOTE_MAX) { log(u, { action: "new_create", kind: "phone", hash, result: "invalid" }, at);
+    return { result: "invalid", field: "description", message: "توضیح حداکثر ۵۰۰ نویسه است." }; }
+  const dupe = phoneOwner(phone);
+  if (dupe) { log(u, { action: "new_create", kind: "phone", hash, result: "duplicate", customerId: Number(dupe.id), ownerSp: dupe.sp == null ? null : Number(dupe.sp) }, at); return dupResult(u, dupe); }
+  let id: number;
+  try {
+    id = runTransaction(() => {
+      const newId = insertCustomerRecord({ name, phone, description: note || null, registeredByUserId: Number(u.id), registrationSource: "staff_form",
+        assignedSalespersonId: Number(u.salespersonId), intake: { leadSource: "inbound_call" }, skipDefaultOwnerRule: true });
+      log(u, { action: "new_create", kind: "phone", hash, result: "created", customerId: newId, ownerSp: Number(u.salespersonId) }, at);
+      return newId;
+    });
+  } catch (error) {
+    if (error instanceof Error && /ACTIVE_CUSTOMER_(MOBILE|NATIONAL_CODE)_CONFLICT/.test(error.message)) {
+      const o = phoneOwner(phone);
+      log(u, { action: "new_create", kind: "phone", hash, result: "duplicate", customerId: o ? Number(o.id) : null, ownerSp: o?.sp == null ? null : Number(o.sp) }, at);
+      return o ? dupResult(u, o) : { result: "duplicate", ownerName: "بدون کارشناس", mine: false };
+    }
+    throw error;
+  }
+  return { result: "created", customer: { id, name } };
+}
+
+
 export type ElSearchResult =
   | { result: "own"; customer: { id: number; name: string }; windowMinutes: number }
   | { result: "other"; ownerName: string; notified: boolean }
@@ -152,7 +236,7 @@ export type ElSearchResult =
 export function elIncomingSearch(u: U, raw: unknown, now = new Date()): ElSearchResult {
   ensureElSchema();
   const at = now.toISOString();
-  const recent = Number(queryRow<{ n: number }>("SELECT count(*) n FROM el_incoming_log WHERE user_id=? AND action='search' AND created_at>?",
+  const recent = Number(queryRow<{ n: number }>("SELECT count(*) n FROM el_incoming_log WHERE user_id=? AND action IN ('search','new_check','new_create') AND created_at>?",
     [Number(u.id), new Date(now.getTime() - EL_SEARCH_WINDOW_MS).toISOString()])?.n ?? 0);
   if (recent >= EL_SEARCH_LIMIT) { log(u, { action: "search_limited", result: "rate_limited" }, at);
     return { result: "rate_limited", message: "تعداد جست‌وجوها زیاد شد؛ چند دقیقه بعد دوباره امتحان کن." }; }

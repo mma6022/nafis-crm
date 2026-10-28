@@ -28,6 +28,8 @@ export type CustomerCreateInput = {
   intake?: IntakeInput;
   /** urgent v1.1: the required reason when created «فوری» from the staff form. */
   urgentReason?: { reason: string; code: string } | null;
+  /** NEWCUST-65 / incoming2-59 (expert lockdown «ثبت مشتری جدید»): the registering expert owns the customer; «قانون ثبت» is not applied. */
+  skipDefaultOwnerRule?: boolean;
 };
 
 /** Result of the last insertCustomerRecord in this process (read synchronously by the caller right after the insert). */
@@ -78,7 +80,9 @@ export function nextAllocatedSalesperson(programId: number): number | undefined 
  * NOT advanced) and one history row is written; registered_by / registration_source are always stored.
  */
 export function insertCustomerRecord(input: CustomerCreateInput): number {
-  const rule = defaultOwnerDecision(input.registrationSource, input.registeredByUserId ?? null);
+  const rule: ReturnType<typeof defaultOwnerDecision> = input.skipDefaultOwnerRule
+    ? { apply: false, skip: "incoming_call_expert" }
+    : defaultOwnerDecision(input.registrationSource, input.registeredByUserId ?? null);
   let owner: number | null;
   if (rule.apply) owner = rule.ownerSalespersonId;
   else {

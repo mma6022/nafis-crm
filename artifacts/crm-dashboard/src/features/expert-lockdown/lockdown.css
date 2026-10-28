@@ -8,3 +8,14 @@
 .el-card table{width:100%;border-collapse:collapse;font-size:13px}
 .el-card th,.el-card td{padding:6px 8px;border-bottom:1px solid #eef2f7;text-align:right}
 .el-card th{color:#64748b;font-weight:600}
+.el-choice{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:560px){.el-choice{grid-template-columns:1fr}}
+.el-opt{display:flex;flex-direction:column;align-items:flex-start;gap:6px;text-align:right;background:#fff;border:1px solid #dbe3ee;border-radius:12px;padding:14px 16px;cursor:pointer;font:inherit;color:inherit}
+.el-opt:hover,.el-opt:focus-visible{border-color:#2563eb;background:#f8fbff}
+.el-opt svg{color:#2563eb}
+.el-opt small{color:#64748b;line-height:1.8}
+.el-nw-form{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.el-nw-form input,.el-nw-form textarea{width:100%;font:inherit;border:1px solid #cbd5e1;border-radius:10px;padding:9px 12px}
+.el-nw-sum{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px}
+.el-nw-sum dt{color:#64748b}.el-nw-sum dd{margin:0;font-weight:600}
+.el-xol{display:flex;align-items:center;gap:6px;color:#64748b;font-size:12.5px;margin:6px 0}

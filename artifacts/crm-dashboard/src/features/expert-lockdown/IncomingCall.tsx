@@ -12,7 +12,7 @@ import { dpApi } from '@/features/daily-plan/api';
 import { elApi, type ElSearch } from './api';
 import './lockdown.css';
 
-export function LockedInbound({ onClose, onSaved, currentNo }: { onClose: () => void; onSaved: () => void; currentNo?: number | null }) {
+export function LockedInbound({ onClose, onSaved, currentNo, onBack }: { onClose: () => void; onSaved: () => void; currentNo?: number | null; onBack?: () => void }) {
   const cq = useCqConfig().data;
   const [term, setTerm] = useState('');
   const [res, setRes] = useState<ElSearch | null>(null);
@@ -61,6 +61,7 @@ export function LockedInbound({ onClose, onSaved, currentNo }: { onClose: () => 
       <li>مشتری خودت: پرونده چند دقیقه باز می‌شود و تماس «خارج از لیست» ثبت می‌شود.</li>
       <li>مشتری کارشناس دیگر: فقط نام کارشناسش را می‌بینی و به او خبر داده می‌شود.</li>
       <li>کار جاری سر جایش است و شمارنده‌ی لیست عوض نمی‌شود.</li></ul> : null}
+    {onBack ? <button type="button" className="btn btn-ghost" onClick={onBack} data-testid="el-in-back">برگشت به انتخاب</button> : null}
   </section>;
 }
 

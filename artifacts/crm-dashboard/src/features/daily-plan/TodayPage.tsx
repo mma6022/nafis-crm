@@ -8,7 +8,7 @@ import { announceCallSaved, faClock, faNum, tehranParts, useCqConfig } from '@/f
 import { custList, dpApi, DpError, useDpConfig, type DpItem, type DpToday } from './api';
 import './daily-plan.css';
 import { elApi, useLockdownMe } from '@/features/expert-lockdown/api';
-import { LockedInbound } from '@/features/expert-lockdown/IncomingCall';
+import { LockedIncomingChoice } from '@/features/expert-lockdown/IncomingChoice';
 import { getGetAuthSessionQueryKey, getGetCustomerQueryKey, useGetAuthSession, useGetCustomer } from '@workspace/api-client-react';
 import { CallLaunchStatus, useCallLauncher } from '@/features/team-sales/useCallLauncher';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
@@ -64,10 +64,10 @@ export default function TodayPage() {
     {fc ? <SimpleCallForm customer={fc} userId={fcSession.data?.user?.id} onClose={() => { setFc(null); refresh(); }}
       onDone={(r) => { announceCallSaved(r.callLogId, fc.id); refresh(); }} onNext={() => { setFc(null); refresh(); }} /> : null}
     <div className="dp-inbound-row">
-      <button type="button" className="btn btn-ghost" onClick={() => { if (locked && !inbound) void elApi.open().catch(() => undefined); setInbound((v) => !v); }} aria-expanded={inbound} data-testid="dp-inbound-open"><PhoneIncoming size={16} aria-hidden="true" /> {locked ? 'تماس ورودی · پیدا کردن پرونده' : 'تماس ورودی'}</button>
+      <button type="button" className="btn btn-ghost" onClick={() => { if (locked && !inbound) void elApi.open().catch(() => undefined); setInbound((v) => !v); }} aria-expanded={inbound} data-testid="dp-inbound-open"><PhoneIncoming size={16} aria-hidden="true" /> {locked ? 'تماس ورودی داشتم' : 'تماس ورودی'}</button>
       <small>فقط وقتی مشتری خودش زنگ زده؛ کار جاری عوض نمی‌شود.</small>
     </div>
-    {inbound ? locked ? <LockedInbound onClose={() => setInbound(false)} onSaved={refresh} /> : <Inbound onClose={() => setInbound(false)} onSaved={refresh} /> : null}
+    {inbound ? locked ? <LockedIncomingChoice onClose={() => setInbound(false)} onSaved={refresh} /> : <Inbound onClose={() => setInbound(false)} onSaved={refresh} /> : null}
     <Order d={d} />
   </div>;
 }
