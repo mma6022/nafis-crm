@@ -81,12 +81,14 @@ function LogCall({ customer, phone, currentNo, saveLabel, onSaved, extra, onForm
   if (kind === 'wait' || kind === 'error') return <div className="tc-form">{extra}<p className="dp-hint" role="status" data-testid="iw-wait">{kind === 'error' ? 'تنظیمات فرم تماس بارگذاری نشد؛ دوباره امتحان کن.' : 'در حال آماده‌سازی فرم تماس…'}</p></div>;
   if (kind === 'simple' && cust) {
     const finish = () => { setFc(false); if (savedRef.current) onSaved(savedRef.current, true); else onUnsaved(); };
+    // release 69 (Armita live-59 #2): the result footer is ONE «برگشت به کار N» → toast + back to the same current task (no «مشتری بعدی صف»).
+    const backLabel = currentNo ? `برگشت به کار ${faNum(currentNo)}` : 'برگشت به کارها';
     return <div className="tc-form">{extra}
       <p className="dp-hint" data-testid="iw-first-hint"><Info size={13} aria-hidden="true" /> تماس اول این مشتری است: نتیجه‌ی تماس و فرم تماس اول با هم ثبت می‌شوند (اجباری).</p>
       <p className="tc-xol"><Lock size={13} aria-hidden="true" /> {closer ? 'اگر اولویت ۱ شد پیش خودت می‌ماند؛ اولویت ۲ یا ۳ خودکار به آقای کاظمی منتقل می‌شود · کار جاری سر جایش می‌ماند' : 'با برچسب «خارج از لیست» ثبت می‌شود · کار جاری سر جایش می‌ماند'}</p>
       <div className="tc-foot"><button type="button" className="btn btn-primary" onClick={() => launcher.launch(cust)} data-testid="iw-first-open"><FileText size={15} aria-hidden="true" /> {saveLabel}</button></div>
       {fc ? createPortal(<SimpleCallForm strict confirmClose reopenNotice={reopen} closeConfirmBody={closer ? 'مشتری ثبت شده، ولی این تماس و اطلاعات تماس اول ثبت نمی‌شود.' : undefined} customer={{ id: customer.id, name: cust.name ?? customer.name, phone: cust.phone ?? phone ?? '', priority: cust.priority ?? null }} userId={user?.id}
-        onClose={finish} onNext={finish}
+        returnLabel={backLabel} eyebrow={isNew ? 'تماس ورودی · مشتری جدید' : 'تماس ورودی'} onClose={finish} onNext={finish}
         onDone={(r) => { savedRef.current = (r as { transferredToQualifier?: boolean }).transferredToQualifier ? `${customer.name}: فرم تماس اول ثبت شد و مشتری به آقای کاظمی منتقل شد` : `${customer.name}: تماس و فرم تماس اول ثبت شد`; void elApi.firstCallLogged(customer.id, r.callLogId).catch(() => undefined); }} />, document.body) : null}
     </div>;
   }
@@ -168,16 +170,22 @@ export function IncomingWizard({ currentNo, onClose, onSaved, onEvent }: {
       else setErr(r.message);
     } catch (e) { setErr(e instanceof Error ? e.message : 'ارجاع انجام نشد.'); } finally { setBusy(false); }
   };
-  const saved = (m: string) => { ev(created ? 'incoming_new_saved' : 'incoming_own_saved'); setOk(m); setStep('ok'); onSaved(m); };
+  const saved = (m: string, first = false) => { ev(created ? 'incoming_new_saved' : 'incoming_own_saved'); onSaved(m);
+    if (first) { onClose('done'); return; } // release 69 #2: the form's «برگشت به کار N» already was the done step
+    setOk(m); setStep('ok'); };
   // v1.1: new path = 3 steps; for the qualifier step 3 is the first-call form (call + form, one save).
   const P = path === 'new' && kind === 'simple' ? ['نوع تماس', 'شماره و نام', 'فرم تماس اول'] : PATHS[path];
   const stepNo = step === 'choose' ? 1 : step === 'old_phone' || step === 'new_form' || step === 'dup' || step === 'none' ? 2 : 3;
-  const counted = step !== 'choose' && step !== 'none' && step !== 'ok' && step !== 'referred';
+  const counted = step !== 'ok' && step !== 'referred'; // release 69 polish: chips on scenes 02 (choose) and 06 (none) too
   const title = { choose: 'کی زنگ زد؟', old_phone: 'مشتری قبلی: شماره‌اش را بزن', own: 'مشتری خودت است', other: 'این مشتری مال همکار است', referred: SC.referredTitle(owner?.name ?? ''), none: 'این شماره در CRM نیست',
     new_form: 'مشتری جدید: فقط شماره و نام', dup: 'این شماره از قبل هست', log: 'ثبت تماس با مشتری جدید', ok: 'ثبت شد' }[step];
+  // release 69 polish: the number shows in Persian digits grouped ۴-۳-۴; state keeps plain latin digits (search/API unchanged).
+  const grp = (v: string) => /^\+?\d+$/.test(v) ? faNum(v.length > 7 ? `${v.slice(0, 4)} ${v.slice(4, 7)} ${v.slice(7)}` : v.length > 4 ? `${v.slice(0, 4)} ${v.slice(4)}` : v) : v;
+  const onPhone = (raw: string) => { const lat = raw.replace(/[۰-۹]/g, (x) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(x))).replace(/[٠-٩]/g, (x) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(x)));
+    setPhone(/^[\d\s+-]*$/.test(lat) ? lat.replace(/[\s-]/g, '') : raw); };
   const phoneIn = (ro: boolean, lv = false) => <>
     <label htmlFor="iw-phone">{lv ? 'شماره یا نام تماس‌گیرنده*' : 'شماره‌ی تماس‌گیرنده*'} <small>{ro ? 'از مرحله‌ی قبل' : lv ? 'چند رقم یا نام' : 'دقیق، ۱۱ رقم'}</small></label>
-    <input id="iw-phone" className={ro ? 'ro' : undefined} readOnly={ro} value={ro ? faNum(ph ?? phone) : phone} onChange={(e) => setPhone(e.target.value)} placeholder={lv ? '۰۹۱۲… یا نام مشتری' : '۰۹۱۲۱۲۳۴۵۶۷'} inputMode={lv ? 'text' : 'tel'} dir={lv ? 'auto' : 'ltr'} autoComplete="off" data-testid="iw-phone" /></>;
+    <input id="iw-phone" className={ro ? 'ro' : undefined} readOnly={ro} value={ro ? grp(ph ?? phone) : grp(phone)} onChange={(e) => onPhone(e.target.value)} placeholder={lv ? '۰۹۱۲… یا نام مشتری' : '۰۹۱۲۱۲۳۴۵۶۷'} inputMode={lv ? 'text' : 'tel'} dir={lv ? 'auto' : 'ltr'} autoComplete="off" data-testid="iw-phone" /></>;
   const telBtn = ph ? <a className="btn btn-primary iw-tel" href={`tel:${ph}`} data-testid="iw-tel-call"><Phone size={15} aria-hidden="true" /> تماس</a> : null;
   const hit = (kind: 'own' | 'new' | 'dup') => <div className={`tc-hit${kind === 'own' ? '' : ` ${kind}`}`} data-testid={`iw-hit-${kind}`}>
     {kind === 'new' ? <Plus size={18} aria-hidden="true" /> : kind === 'dup' ? <AlertTriangle size={18} aria-hidden="true" /> : <Check size={18} aria-hidden="true" />}
@@ -203,7 +211,7 @@ export function IncomingWizard({ currentNo, onClose, onSaved, onEvent }: {
         <p className="dp-hint" data-testid="iw-hint"><Search size={13} aria-hidden="true" /> {SC.hint}</p>
         {live && live.r.result === 'ok' && live.r.items.length ? <ul className="el-live" data-testid="iw-live" aria-label="مشتری‌های خودت">
           {live.r.items.map((it) => <li key={it.id}><button type="button" className="el-live-row" disabled={busy} onClick={() => void pickLive(it.id, it.phoneLast4)} data-testid={`iw-live-${it.id}`}>
-            <b>{it.name}</b><span className="dp-chip l-own" data-testid="iw-live-own">{SC.own}</span><span className="el-live-ph" dir="ltr">••••{faNum(it.phoneLast4)}</span>
+            <b>{it.name}</b> <span className="dp-id" data-testid="iw-live-id">#{faNum(it.id)}</span><span className="dp-chip l-own" data-testid="iw-live-own">{SC.own}</span><span className="el-live-ph" dir="ltr">••••{faNum(it.phoneLast4)}</span>
             {it.priority && it.priority >= 1 && it.priority <= 3 ? <span className={`dp-chip p${it.priority}`}>{`اولویت ${faNum(it.priority)}`}</span> : null}
             {it.match === 'exact' ? <span className="dp-chip l-exact">{live.r.result === 'ok' && live.r.kind === 'phone' ? 'همین شماره' : 'همین نام'}</span> : null}</button></li>)}</ul> : null}
         {live && live.r.result === 'ok' && !live.r.items.length && live.q === phone.trim() ? <p className="dp-box sm" role="status" data-testid="iw-live-none"><Info size={14} aria-hidden="true" /> بین مشتری‌های خودت پیدا نشد{ph ? ' — «پیدا کن» را بزن تا مشتری همکار یا «مشتری جدید» را ببینی.' : '.'}</p> : null}

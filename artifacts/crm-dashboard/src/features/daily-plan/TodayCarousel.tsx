@@ -26,7 +26,7 @@ export function TodayCarousel({ d, refresh }: { d: Working; refresh: () => void 
   const p = d.progress;
   const [back, setBack] = useState(0); // 0 = current (or the last done card when there is no current)
   const [anim, setAnim] = useState<'' | 'next' | 'prev'>('');
-  const [toast, setToast] = useState('');
+  const [toast, setToast] = useState(''); const flashT = useRef<number | undefined>(undefined);
   const [live, setLive] = useState('');
   const [wiz, setWiz] = useState(false);
   const [urgent, setUrgent] = useState(false);
@@ -44,7 +44,8 @@ export function TodayCarousel({ d, refresh }: { d: Working; refresh: () => void 
   const viewDone: DpItem | null = cur && b === 0 ? null : done[done.length - (cur ? b : b + 1)] ?? null;
   const onCurrent = !!cur && b === 0;
   const finished = !cur && (d.state === 'finished' || d.state === 'finished_auto');
-  const flash = (m: string) => { setToast(m); window.setTimeout(() => setToast(''), 4000); };
+  // release 69 (Armita live-59 #3): ~3 s, bottom on mobile too (own class: team-commission.css also defines a global .tc-toast that pinned it to the top on phones).
+  const flash = (m: string) => { setToast(m); window.clearTimeout(flashT.current); flashT.current = window.setTimeout(() => setToast(''), 3000); };
   const kick = (a: 'next' | 'prev') => { setAnim(a); window.setTimeout(() => setAnim(''), 300); };
 
   useEffect(() => { ev('view', cur?.id, cur ? reviewLen : null); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -127,7 +128,7 @@ export function TodayCarousel({ d, refresh }: { d: Working; refresh: () => void 
     {d.moved.length ? <p className="dp-hint" data-testid="tc-moved">جابه‌جاشده‌ها: {d.moved.map((m) => `${m.name}${m.movedTo ? ` (${faClock(m.movedTo)})` : ''}`).join('، ')}</p> : null}
 
     <p className="tc-live" aria-live="polite" role="status" data-testid="tc-live">{live}</p>
-    {toast ? <div className="tc-toast" role="status" data-testid="tc-toast"><Check size={15} aria-hidden="true" /> {toast}</div> : null}
+    {toast ? <div className="tc-ctoast" role="status" data-testid="tc-toast"><Check size={15} aria-hidden="true" /> {toast}</div> : null}
     {fc ? <SimpleCallForm customer={fc} userId={fcSession.data?.user?.id} onClose={() => { setFc(null); refresh(); }}
       onDone={(r) => { announceCallSaved(r.callLogId, fc.id); pendingAdvance.current = { name: fc.name }; refresh(); }} onNext={() => { setFc(null); refresh(); }} /> : null}
     {wiz ? <IncomingWizard currentNo={curNo} onClose={(why) => { setWiz(false); setBack(0); if (why === 'cancel') ev('incoming_cancel'); window.setTimeout(() => focusHead(deckRef.current), 0); }} onSaved={(m) => { refresh(); flash(m); }} onEvent={(n) => ev(n)} /> : null}

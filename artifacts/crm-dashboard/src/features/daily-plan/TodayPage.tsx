@@ -62,6 +62,9 @@ export default function TodayPage() {
   // FIRSTCALL-62: the first-call form lives here (not in CurrentCard) so the 30s refetch / next item never unmounts its result screen.
   const [fc, setFc] = useState<FcCustomer | null>(null);
   const fcSession = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
+  // release 69 (Armita live-59 #2/#3): lockdown list view — the incoming wizard's save shows a 3 s bottom toast (same as the carousel).
+  const [iwToast, setIwToast] = useState('');
+  useEffect(() => { if (!iwToast) return; const t = window.setTimeout(() => setIwToast(''), 3000); return () => window.clearTimeout(t); }, [iwToast]);
   if (!cfg || (on && q.isLoading)) return <div className="dp-page"><div className="dp-skel" role="status" data-testid="dp-loading">در حال بارگذاری کارهای امروز…</div></div>;
   if (!on) return <div className="dp-page"><h1>کارهای امروز</h1><p data-testid="dp-off">این بخش هنوز فعال نشده است.</p></div>;
   if (q.isError || !q.data) return <div className="dp-page"><h1>کارهای امروز</h1><div className="dp-box err" role="alert" data-testid="dp-error">لیست امروز بارگذاری نشد. <button type="button" className="btn btn-ghost" onClick={() => void q.refetch()}>تلاش دوباره</button></div></div>;
@@ -80,8 +83,9 @@ export default function TodayPage() {
       <button type="button" className="btn btn-ghost" onClick={() => { if (locked && !inbound) void elApi.open().catch(() => undefined); setInbound((v) => !v); }} aria-expanded={inbound} data-testid="dp-inbound-open"><PhoneIncoming size={16} aria-hidden="true" /> {locked ? 'تماس ورودی داشتم' : 'تماس ورودی'}</button>
       <small>فقط وقتی مشتری خودش زنگ زده؛ کار جاری عوض نمی‌شود.</small>
     </div>}
-    {inbound ? locked ? <IncomingWizard currentNo={null} onClose={() => setInbound(false)} onSaved={refresh} /> : <Inbound onClose={() => setInbound(false)} onSaved={refresh} /> : null}
+    {inbound ? locked ? <IncomingWizard currentNo={null} onClose={() => setInbound(false)} onSaved={(m) => { refresh(); setIwToast(m); }} /> : <Inbound onClose={() => setInbound(false)} onSaved={refresh} /> : null}
     <Order d={d} />
+    {iwToast ? <div className="tc-ctoast" role="status" data-testid="dp-iw-toast"><Check size={15} aria-hidden="true" /> {iwToast}</div> : null}
   </div>;
 }
 

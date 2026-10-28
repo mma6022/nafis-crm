@@ -287,3 +287,9 @@ textarea.ts-inp { resize: vertical; line-height: 1.8; }
 .ts-reopen b{font-size:.95rem;color:#7a4b00}.ts-reopen small{color:#7a5a20}
 /* incoming2-59: keep the full-screen strict form below the phone «مزاحم نشو» bar (assistant.css v3 convention) */
 @media (max-width:640px){html.nas-dnd-on .ts-wz.strict{height:calc(100dvh - 44px);max-height:calc(100dvh - 44px);margin-top:44px}}
+/* release 69 (Armita live-59 #2/#6): context eyebrow above the form title; one compact «N مورد مانده» button inside the footer (jumps to the first missing field) */
+.ts-eyebrow{margin:0 0 2px;font-size:12.5px;font-weight:700;color:#5b6478;letter-spacing:0}
+.ts-fcount-row{flex-basis:100%;display:flex;justify-content:flex-start;margin:0 0 6px}
+.ts-fcount{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border-radius:999px;border:1px solid #f1c4c4;background:#fdf2f2;color:#9b1c1c;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+.ts-fcount::before{content:"";width:8px;height:8px;border-radius:50%;background:#c81e1e}
+.ts-fcount:focus-visible{outline:3px solid #93c5fd;outline-offset:2px}

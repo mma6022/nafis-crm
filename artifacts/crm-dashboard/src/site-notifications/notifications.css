@@ -1,5 +1,5 @@
 .sn-wrap { position: relative; display: inline-flex; }
-.sn-badge { position: absolute; top: -5px; inset-inline-end: -5px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #bc9252; color: #fff; font-size: 11px; line-height: 18px; text-align: center; font-weight: 700; pointer-events: none; }
+.sn-badge { position: absolute; top: -5px; inset-inline-end: -5px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #bc9252; color: var(--nf-ink, #172950); font-size: 11px; line-height: 18px; text-align: center; font-weight: 700; pointer-events: none; }
 .sn-panel { position: fixed; box-sizing: border-box; display: flex; flex-direction: column; background: #fff; border: 1px solid #e3e8ef; border-radius: 12px; box-shadow: 0 12px 32px rgba(15, 30, 55, .16); z-index: 500; overflow: hidden; }
 .sn-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px; border-bottom: 1px solid #eef1f5; }
 .sn-head strong { font-size: 14px; }

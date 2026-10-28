@@ -171,9 +171,9 @@ body { font-size: var(--nf-font-body); line-height: 1.75; color: var(--nf-ink); 
 .side-link svg { width: 20px; height: 20px; flex: none; }
 .side-link span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side-link:focus-visible, .side-group-toggle:focus-visible { outline: 2px solid var(--nf-brand-500); outline-offset: 1px; }
-.side-badge, .sn-nav-badge {
+.side-badge, .sn-nav-badge { /* release 69 .nb contrast: --nf-ink on gold 5.0:1 (white was 2.85:1) — never white on gold */
   margin-inline-start: auto; min-width: 22px; height: 22px; padding: 0 7px; border-radius: 999px;
-  display: inline-grid; place-items: center; background: var(--nf-gold-500); color: #fff; font-size: 12px; font-weight: 700; line-height: 1;
+  display: inline-grid; place-items: center; background: var(--nf-gold-500); color: var(--nf-ink); font-size: 12px; font-weight: 700; line-height: 1;
 }
 .side-link.active .side-badge, .side-link.active .sn-nav-badge { background: #fff; color: var(--nf-brand-700); }
 .side-foot { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 12px; border: 0; border-radius: var(--nf-radius-lg); background: var(--nf-surface); font-size: 13px; line-height: 1.6; color: var(--nf-ink-muted); }
@@ -386,7 +386,7 @@ button.nf-stepper-btn:focus-visible .nf-stepper-dot { box-shadow: var(--nf-ring)
   .app-sidebar .side-link, .app-sidebar .side-group-items .side-link { color: #C9CEF0; }
   .app-sidebar .side-link:hover { background: rgba(255, 255, 255, .08); color: #fff; }
   .app-sidebar .side-link.active, .app-sidebar .side-link.active:hover { background: rgba(255, 255, 255, .14); color: #fff; box-shadow: none; }
-  .app-sidebar .side-link.active .side-badge, .app-sidebar .side-link.active .sn-nav-badge { background: var(--nf-gold-500); color: #fff; }
+  .app-sidebar .side-link.active .side-badge, .app-sidebar .side-link.active .sn-nav-badge { background: var(--nf-gold-500); color: var(--nf-ink); }
   .app-sidebar .side-link:focus-visible, .app-sidebar .side-group-toggle:focus-visible { outline-color: #fff; }
   .app-sidebar .side-foot { background: rgba(255, 255, 255, .08); color: #C9CEF0; }
   .app-sidebar .side-foot b { color: #fff; }

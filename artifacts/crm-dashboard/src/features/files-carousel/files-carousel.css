@@ -179,3 +179,22 @@
 .fc-page .nwb .nwt{display:flex;flex-direction:column;line-height:1.5}
 .fc-page .nwb .nws{font-size:11px;font-weight:500;opacity:.92}
 .fc-page .rbt .rsrc{font-size:12px;font-weight:700;color:#B42318}
+/* ---- release 69 (Armita live-61 review) ---- */
+/* #4: the save button follows the note (no sticky bar over the outcomes); room under the card for the floating buttons (#8) */
+@media (max-width:1023px){.fc-save{position:static}}
+/* #8: «گزارش خطا» is in the top bar → hidden here at phone width; room under the card for the assistant / chat bubbles */
+@media (max-width:640px){body:has(.fc-page) .diag-floating{display:none!important}.fc-page{padding-bottom:calc(150px + env(safe-area-inset-bottom))!important}}
+.fc-save{min-height:44px;width:100%;justify-content:center}
+@media (max-width:1023px){.fc-save{min-height:52px}}
+.fc-save:disabled{opacity:.5;cursor:not-allowed}
+/* 3 outcomes side by side (design), also on phones */
+.rlist.s3{grid-template-columns:repeat(3,1fr)}
+@media (max-width:1023px){.rlist.s3{grid-template-columns:repeat(3,1fr)}.rlist.s3 .rr:nth-child(3){border-inline-start:1.5px solid #d5d9e4}.rlist.s3 .rr:nth-child(n+3){border-top:0}}
+.rlist.s3 .rr{flex-direction:column;gap:2px;padding:6px 4px;text-align:center;min-height:52px;font-size:14px}
+/* note: visible border */
+.fc-result .inp.fc-note{border:1.5px solid #b9c0d4;border-radius:12px;padding:0 12px;background:#fff}
+.fc-result .inp.fc-note:focus{border-color:var(--nf-brand-600);outline:2px solid var(--nf-brand-600);outline-offset:1px}
+/* banner «باشه»: ≥44px touch target */
+.dp-link.fc-okb{min-height:44px;min-width:44px;padding:0 12px;display:inline-flex;align-items:center;justify-content:center;font-weight:700}
+.fc-next b{font-weight:600;color:#1f2a44}
+.fc-toast.ok{background:#1F7A4D}

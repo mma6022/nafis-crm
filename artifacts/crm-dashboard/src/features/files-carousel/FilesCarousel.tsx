@@ -15,8 +15,13 @@ import { CatPill, RNote, fcDay } from './FcLabels';
 
 /** REMINDER-68 (Armita review #1): masked ۰۹۱۲***۰۰۱۲ for the expert; the «تماس» tel: link keeps the full number. */
 const telFa = (p: string) => maskTel(phone11(p) ?? p.replace(/^\+98/, '0'));
-const JFMT = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-const jalaliAt = (iso: string | null | undefined) => { if (!iso) return ''; const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : JFMT.format(d); };
+// release 69 polish (Armita live-61): readable «۲۸ مرداد ۱۲:۰۴» instead of «۱۴۰۵/۰۵/۲۸، ۱۲:۰۴».
+const JFMT = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+const jalaliAt = (iso: string | null | undefined) => { if (!iso) return ''; const d = new Date(iso); if (Number.isNaN(d.getTime())) return '';
+  const p = Object.fromEntries(JFMT.formatToParts(d).map((x) => [x.type, x.value])); return `${p.day} ${p.month} ${p.hour}:${p.minute}`; };
+/** release 69 polish: stage chips read «در انتظار امضا / وثیقه / مدارک» (UI wording only; codes and server labels unchanged). */
+const WAIT_GROUPS: Record<string, string> = { signature: 'در انتظار امضا', collateral: 'در انتظار وثیقه', documents: 'در انتظار مدارک' };
+const withStageLabels = (v: FcView): FcView => ({ ...v, cards: v.cards.map((c) => (WAIT_GROUPS[c.group] ? { ...c, groupLabel: WAIT_GROUPS[c.group] } : c)) });
 const telHref = (p: string) => `tel:${p.replace(/[^\d+]/g, '')}`;
 
 export default function FilesCarousel() {
@@ -26,8 +31,8 @@ export default function FilesCarousel() {
   const [wizard, setWizard] = useState(false);
   const [anim, setAnim] = useState<'' | 'out' | 'in'>('');
   const [cxOut, setCxOut] = useState<string | null>(null); // FILES-CANCEL: name on the leaving card («لغو شد» tag)
-  const [toast, setToast] = useState<{ name: string } | null>(null);
-  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t); }, [toast]);
+  const [toast, setToast] = useState<{ name: string; ok?: boolean } | null>(null);
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), toast.ok ? 3000 : 4000); return () => clearTimeout(t); }, [toast]);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const prevIds = useRef<number[] | null>(null); const [shift, setShift] = useState<{ left: number; back: number } | null>(null);
   useEffect(() => {
@@ -39,14 +44,15 @@ export default function FilesCarousel() {
   }, [q.data]);
   if (q.isLoading) return <div className="dp-page"><div className="dp-skel" role="status" data-testid="fc-loading">در حال بارگذاری پرونده‌ها…</div></div>;
   if (q.isError || !q.data) return <div className="dp-page"><h1>پرونده‌های من</h1><div className="dp-box err" role="alert" data-testid="fc-error">پرونده‌ها بارگذاری نشد. <button type="button" className="btn btn-ghost" onClick={() => void q.refetch()}>تلاش دوباره</button></div></div>;
-  const d = q.data;
+  const d = withStageLabels(q.data);
   const curIdx = d.cards.findIndex((c) => c.state === 'current');
   const shownIdx = view ?? (curIdx >= 0 ? curIdx : d.cards.length - 1);
   const shown = d.cards[shownIdx] ?? null;
   const next = curIdx >= 0 ? d.cards[curIdx + 1] ?? null : null;
-  const onSaved = (v: FcView, cancelledName?: string) => {
+  const onSaved = (v: FcView, cancelledName?: string, okName?: string) => {
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     if (cancelledName != null) { setCxOut(cancelledName); setToast({ name: cancelledName }); }
+    else if (okName) setToast({ name: okName, ok: true }); // release 69 polish: «‹نام›: پیگیری ثبت شد» after the flip
     const apply = () => { qc.setQueryData(['files-carousel', 'today'], v); setView(null); setCxOut(null); setAnim(reduce ? '' : 'in'); setTimeout(() => { setAnim(''); titleRef.current?.focus(); }, reduce ? 0 : 290); };
     if (reduce) apply(); else { setAnim('out'); setTimeout(apply, 280); }
   };
@@ -61,12 +67,13 @@ export default function FilesCarousel() {
         <p className="dp-sub" data-testid="fc-sub">{faNum(d.done)} پیگیری شد · {faNum(Math.max(0, d.total - d.done - (curIdx >= 0 ? 1 : 0)))} پرونده بعد از این</p>
       </> : null}
     </header>
-    {shift ? <div className="dp-box warn banner" role="status" data-testid="fc-shift">{shift.left ? `${faNum(shift.left)} پرونده از نوبت تو بیرون رفت (اقدامش با واحد دیگری است). ` : ''}{shift.back ? `${faNum(shift.back)} پرونده به نوبت تو برگشت و بعد از کارت جاری آمد.` : ''} <button type="button" className="dp-link" onClick={() => setShift(null)}>باشه</button></div> : null}
+    {shift ? <div className="dp-box warn banner" role="status" data-testid="fc-shift">{shift.left ? `${faNum(shift.left)} پرونده از نوبت تو بیرون رفت (اقدامش با واحد دیگری است). ` : ''}{shift.back ? `${faNum(shift.back)} پرونده به نوبت تو برگشت و بعد از کارت جاری آمد.` : ''} <button type="button" className="dp-link fc-okb" onClick={() => setShift(null)} data-testid="fc-shift-ok">باشه</button></div> : null}
     <p className="sr-only" aria-live="polite">{d.index ? `پرونده ${faNum(d.index)} از ${faNum(d.total)}` : ''}</p>
     {listMode && view == null ? <FilesList d={d} cardsDone={d.total} />
-      : !d.total ? <div className="dp-box" data-testid="fc-empty">پرونده‌ی در جریانی که اقدامش با تو باشد نداری.{d.waiting?.total ? <p className="fc-waiting" data-testid="fc-waiting">{faNum(d.waiting.total)} پرونده‌ی شما منتظر قدم بعدی دیگرانه: {d.waiting.groups.map(w => `${w.label} ${faNum(w.count)}`).join('، ')}</p> : null}</div>
+      : !d.total ? <div className="dp-box" data-testid="fc-empty">پرونده‌ی در جریانی که اقدامش با تو باشد نداری.{d.waiting?.total ? <p className="fc-waiting" data-testid="fc-waiting">{faNum(d.waiting.total)} پرونده منتظر قدم بعدی همکاران‌اند</p> : null}</div>
       : curIdx < 0 && view == null ? <div className="dp-box ok" data-testid="fc-done">همه‌ی پرونده‌های امروز پیگیری شد. ترتیب فردا را دستیار می‌نویسد.</div> : null}
-    {toast ? <div className="fc-toast cx" role="status" data-testid="fc-cx-toast"><Check size={15} aria-hidden="true" /><span>پرونده لغو شد · کارت بعدی</span><span className="cxs">{toast.name} · برگرداندن فقط با ادمین</span></div> : null}
+    {toast?.ok ? <div className="fc-toast ok" role="status" data-testid="fc-ok-toast"><Check size={15} aria-hidden="true" /><span>{toast.name}: پیگیری ثبت شد</span></div> : null}
+    {toast && !toast.ok ? <div className="fc-toast cx" role="status" data-testid="fc-cx-toast"><Check size={15} aria-hidden="true" /><span>پرونده لغو شد · کارت بعدی</span><span className="cxs">{toast.name} · برگرداندن فقط با ادمین</span></div> : null}
     {shown && (view != null || curIdx >= 0) ? <div className={`fc-deck ${anim}`}>
       {cxOut != null && anim === 'out' ? <span className="fc-cxtag" data-testid="fc-cx-tag">لغو شد</span> : null}
       <FileCard key={`${shown.fileId}-${shown.state}`} c={shown} d={d} readOnly={shown.state !== 'current'} titleRef={titleRef} onSaved={onSaved} />
@@ -75,12 +82,12 @@ export default function FilesCarousel() {
       <button type="button" className="btn btn-ghost" disabled={shownIdx <= 0} onClick={() => setView(Math.max(0, shownIdx - 1))} data-testid="fc-prev"><ChevronRight size={16} aria-hidden="true" /> قبلی (فقط دیدن)</button>
       {view != null && view !== curIdx ? <button type="button" className="btn btn-ghost" onClick={() => setView(null)} data-testid="fc-back-current">برگشت به پرونده‌ی جاری <ChevronLeft size={16} aria-hidden="true" /></button> : null}
     </nav> : null}
-    {next && view == null ? <p className="fc-next" data-testid="fc-next"><Lock size={13} aria-hidden="true" /> بعدی: پرونده‌ی #{faNum(next.fileId)} {next.fc ? <CatPill c={next.fc} small /> : <span className={`dp-chip fc-g-${next.group}`} data-testid="fc-next-group">{next.groupLabel}</span>}{next.returnedToday ? <span className="dp-chip extra">برگشت به نوبت تو</span> : null} · تا ثبت نتیجه قفل است</p> : null}
+    {next && view == null ? <p className="fc-next" data-testid="fc-next"><Lock size={13} aria-hidden="true" /> بعدی: <b data-testid="fc-next-name">{next.customerName}</b> <span className="dp-id">#{faNum(next.customerId)}</span> {next.fc ? <CatPill c={next.fc} small /> : <span className={`dp-chip fc-g-${next.group}`} data-testid="fc-next-group">{next.groupLabel}</span>}{next.returnedToday ? <span className="dp-chip extra">برگشت به نوبت تو</span> : null} · تا ثبت نتیجه قفل است</p> : null}
     {wizard ? <CreateWizard onClose={() => { setWizard(false); void qc.invalidateQueries({ queryKey: ['files-carousel', 'today'] }); }} /> : null}
   </div>;
 }
 
-function FileCard({ c, d, readOnly, titleRef, onSaved }: { c: FcCard; d: FcView; readOnly: boolean; titleRef: React.RefObject<HTMLHeadingElement | null>; onSaved: (v: FcView, cancelledName?: string) => void }) {
+function FileCard({ c, d, readOnly, titleRef, onSaved }: { c: FcCard; d: FcView; readOnly: boolean; titleRef: React.RefObject<HTMLHeadingElement | null>; onSaved: (v: FcView, cancelledName?: string, okName?: string) => void }) {
   const [outcome, setOutcome] = useState(''); const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
   const [reason, setReason] = useState(''); const [rErr, setRErr] = useState(''); const [confirm, setConfirm] = useState(false);
@@ -97,7 +104,7 @@ function FileCard({ c, d, readOnly, titleRef, onSaved }: { c: FcCard; d: FcView;
     if (!outcome) { setErr('نتیجه را انتخاب کن.'); return; }
     if (!note.trim()) { setErr('یادداشت یک‌خطی لازم است.'); return; }
     setBusy(true); setErr('');
-    try { const r = await fcApi.followup({ fileId: c.fileId, outcome, note: note.trim() }); onSaved(r.view); }
+    try { const r = await fcApi.followup({ fileId: c.fileId, outcome, note: note.trim() }); onSaved(r.view, undefined, c.customerName); }
     catch (e) { setErr(e instanceof Error ? e.message : 'ثبت نشد.'); } finally { setBusy(false); }
   };
   return <section className={`dp-cur card fc-card${readOnly ? ' ro' : ''}`} aria-labelledby="fc-title" data-testid={readOnly ? 'fc-card-ro' : 'fc-card'} data-file={c.fileId}>
@@ -110,7 +117,7 @@ function FileCard({ c, d, readOnly, titleRef, onSaved }: { c: FcCard; d: FcView;
     {c.reason ? <p className="dp-reason" data-testid="fc-reason">{c.reason}</p> : null}
     {c.ask ? <div className="dp-keynote"><small>چی بپرسم</small><q data-testid="fc-ask">{c.ask}</q></div> : null}
     {c.fc ? <p className="lfu" data-testid="fc-lastact">آخرین فعالیت پرونده: {fcDay(c.fc.last_activity_at)}</p> : null}
-    <p className="lfu" data-testid="fc-last">آخرین پیگیری: {c.lastFollowUp ? <>{jalaliAt(c.lastFollowUp.at)}{c.lastFollowUp.outcomeLabel ? ` · ${c.lastFollowUp.outcomeLabel}` : ''}</> : 'ندارد'}</p>
+    <p className="lfu" data-testid="fc-last">آخرین پیگیری: {c.lastFollowUp ? <>{jalaliAt(c.lastFollowUp.at)}{c.lastFollowUp.outcomeLabel ? ` · ${c.lastFollowUp.outcomeLabel}` : ''}</> : 'هنوز پیگیری نشده'}</p>
     {readOnly ? <div className="dp-box sm" data-testid="fc-ro-note">{c.todayFollowUp?.outcome === 'cancelled' ? <><span className="fc-cxtag in" data-testid="fc-ro-cx">لغو شد</span> دلیل لغو: {c.todayFollowUp.note}</> : c.todayFollowUp ? <>امروز ثبت شد: {c.todayFollowUp.outcomeLabel} · {c.todayFollowUp.note}</> : 'فقط دیدن؛ نوبت این پرونده نشده.'}</div> : <>
       {c.phone ? <p className="dp-phone" dir="ltr" data-testid="fc-phone"><Phone size={14} aria-hidden="true" /> {telFa(c.phone)}</p> : null}
       <div className="dp-actions">
@@ -120,7 +127,7 @@ function FileCard({ c, d, readOnly, titleRef, onSaved }: { c: FcCard; d: FcView;
         <a href={`/customers/${c.customerId}#sec-calls`} target="_blank" rel="noopener" className="btn btn-ghost" data-testid="fc-history">تاریخچه</a>
       </div>
       <fieldset className="fc-result" data-testid="fc-result"><legend>نتیجه‌ی پیگیری</legend>
-        <div className={`rlist${d.outcomes.length === 4 ? ' s4' : ''}`} role="radiogroup">{d.outcomes.map((o) => <label key={o.code} className={`rr${outcome === o.code ? ' on' : ''}${o.code === 'cancelled' ? ' cx' : ''}`}>
+        <div className={`rlist${d.outcomes.length === 4 ? ' s4' : d.outcomes.length === 3 ? ' s4 s3' : ''}`} role="radiogroup">{d.outcomes.map((o) => <label key={o.code} className={`rr${outcome === o.code ? ' on' : ''}${o.code === 'cancelled' ? ' cx' : ''}`}>
           <input type="radio" name="fc-outcome" value={o.code} checked={outcome === o.code} onChange={() => { setOutcome(o.code); setErr(''); }} data-testid={`fc-o-${o.code}`} /> <OIcon code={o.code} /> {o.label}</label>)}</div>
         {cx ? <div className="fc-cxf" data-testid="fc-cxf">
           <div className="fc-cxl"><label htmlFor="fc-cx-reason"><b>دلیل لغو<span className="req" aria-hidden="true">*</span></b> <small>کوتاه، حداکثر ۱۲۰ نویسه</small></label><span className="cnt" aria-live="polite" data-testid="fc-cx-count">{faNum([...reason].length)} / {faNum(rMax)}</span></div>
@@ -132,9 +139,9 @@ function FileCard({ c, d, readOnly, titleRef, onSaved }: { c: FcCard; d: FcView;
           <button type="button" className={`btn fc-dz fc-save${reason.trim() ? '' : ' off'}`} aria-disabled={!reason.trim() || busy} onClick={askCancel} data-testid="fc-cx-btn"><X size={16} aria-hidden="true" /> لغو پرونده و پرونده‌ی بعدی</button>
           <p className="fc-cxh" data-testid="fc-cx-hint"><Lock size={13} aria-hidden="true" /> {reason.trim() ? 'بعد از زدن، یک تأیید دیگر می‌آید.' : 'تا دلیل لغو نوشته نشود، این دکمه غیرفعال است.'}</p>
         </div> : <>
-        <input className="inp" maxLength={d.noteMax} value={note} onChange={(e) => setNote(e.target.value.replace(/[\r\n]/g, ' '))} placeholder="یادداشت یک‌خطی (حداکثر ۸۰ نویسه)" aria-label="یادداشت یک‌خطی" data-testid="fc-note" />
+        <input className="inp fc-note" maxLength={d.noteMax} value={note} onChange={(e) => setNote(e.target.value.replace(/[\r\n]/g, ' '))} placeholder="یادداشت یک‌خطی (حداکثر ۸۰ نویسه)" aria-label="یادداشت یک‌خطی" data-testid="fc-note" />
         {err ? <p className="dp-err" role="alert" data-testid="fc-err">{err}</p> : null}
-        <button type="button" className="btn btn-primary fc-save" disabled={busy} onClick={() => void save()} data-testid="fc-save">{busy ? 'در حال ثبت…' : 'ثبت نتیجه و پرونده‌ی بعدی'}</button>
+        <button type="button" className="btn btn-primary fc-save" disabled={busy || !outcome || !note.trim()} onClick={() => void save()} data-testid="fc-save">{busy ? 'در حال ثبت…' : 'ثبت نتیجه و پرونده‌ی بعدی'}</button>
         </>}
       </fieldset>
       {confirm ? <CancelConfirm c={c} reason={reason.trim()} busy={busy} onBack={() => setConfirm(false)} onYes={() => void doCancel()} /> : null}

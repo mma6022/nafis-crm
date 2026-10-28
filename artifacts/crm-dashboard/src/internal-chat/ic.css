@@ -35,11 +35,11 @@
 .ic-fab{width:54px;height:54px;border-radius:50%;border:0;background:#1d3a5f;color:#fff3d6;display:grid;place-items:center;cursor:grab;box-shadow:0 6px 18px rgba(29,58,95,.35);position:relative;animation:icfab 4s ease-in-out infinite}
 .ic-fab:active{cursor:grabbing;animation:none}
 .ic-fab:focus-visible{outline:3px solid #bc9252;outline-offset:2px}
-.ic-fab b{position:absolute;top:-4px;inset-inline-end:-4px;background:#bc9252;color:#fff;border-radius:10px;min-width:20px;padding:1px 5px;font-size:11px;text-align:center}
+.ic-fab b{position:absolute;top:-4px;inset-inline-end:-4px;background:#bc9252;color:var(--nf-ink,#172950);border-radius:10px;min-width:20px;padding:1px 5px;font-size:11px;text-align:center}
 .ic-menu{position:absolute;width:230px;background:#fff;border:1px solid #e3dccb;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.18);padding:6px;display:flex;flex-direction:column}
 .ic-menu a,.ic-menu button{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:8px;color:#1d3a5f;text-decoration:none;border:0;background:none;font:inherit;font-size:13px;cursor:pointer;text-align:right}
 .ic-menu a:hover,.ic-menu button:hover{background:#f3ecdb}
 .ic-menu a span{flex:1}
-.ic-menu i{font-style:normal;background:#bc9252;color:#fff;border-radius:10px;padding:0 7px;font-size:11px}
+.ic-menu i{font-style:normal;background:#bc9252;color:var(--nf-ink,#172950);border-radius:10px;padding:0 7px;font-size:11px}
 @keyframes icfab{50%{transform:translateY(-3px)}}
 @media(prefers-reduced-motion:reduce){.ic-fab{animation:none}}

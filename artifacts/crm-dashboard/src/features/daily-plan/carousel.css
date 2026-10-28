@@ -37,7 +37,7 @@
 .tc-nxt{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:14px}
 .tc-dots small{color:#5b6274;display:inline-flex;gap:4px;align-items:center}
 .tc-live{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-.tc-toast{position:fixed;z-index:70;inset-inline:16px;bottom:24px;margin:0 auto;max-width:420px;background:#0b1450;color:#fff;border-radius:12px;padding:10px 14px;display:flex;gap:8px;align-items:center;box-shadow:0 10px 30px rgba(0,0,60,.3)}
+.tc-ctoast{position:fixed;z-index:95;pointer-events:none;inset-inline:16px;bottom:24px;margin:0 auto;max-width:420px;background:#0b1450;color:#fff;border-radius:12px;padding:10px 14px;display:flex;gap:8px;align-items:center;box-shadow:0 10px 30px rgba(0,0,60,.3)}
 /* «دوباره گرفتن شماره» never wraps (Armita bug c) */
 .tc-card .dp-call{white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
 /* wizard */
@@ -63,11 +63,11 @@
   .tc-inb-wrap{display:block;height:72px}
   .tc-inb-m{position:fixed;z-index:30;bottom:calc(12px + env(safe-area-inset-bottom));right:12px;left:80px;min-height:52px;box-shadow:0 6px 20px rgba(0,0,60,.25)}
   .tc-deck{padding-inline-end:14px}.tc-pk{width:calc(100% - 20px)}
-  .tc-toast{bottom:84px}
+  .tc-ctoast{bottom:84px}
 }
 @media (max-width:640px){
   .tc-inb-m{bottom:calc(72px + env(safe-area-inset-bottom))}
-  .tc-toast{bottom:144px}
+  .tc-ctoast{bottom:144px}
   .tc-ov{align-items:end;padding:0}.tc-dlg{border-radius:24px 24px 0 0;width:100%;padding-bottom:calc(16px + env(safe-area-inset-bottom))}
 }
 /* bug (b): keep the «گزارش خطا» pill clear of the sticky «تماس ورودی داشتم» bar (it rides just above the bar) */
@@ -107,3 +107,17 @@ body:has(.iw-dlg) .diag-floating,body:has(.ts-wz) .diag-floating{display:none!im
 
 /* REMINDER-68: with the extra «تاریخچه» link the call button gets its own row on phones (same as the files card) */
 @media (max-width:520px){.tc-card .dp-actions>.dp-call{flex:1 1 100%}}
+
+/* release 69 (Armita live-59 #3): the carousel toast stays at the BOTTOM on phones too (own class; the global team-commission .tc-toast
+   pinned it to top:64px over the form header), above the wizard / first-call form footer, never taking taps; auto-closes after 3 s. */
+@media (max-width:640px){body:has(.ts-wz) .tc-ctoast,body:has(.iw-dlg) .tc-ctoast{bottom:calc(120px + env(safe-area-inset-bottom))}}
+/* release 69 (Armita live-59/61 #8): at phone width the floating assistant / chat bubbles and «گزارش خطا» covered the «بعدی:» line and the
+   outcomes. «گزارش خطا» is already in the top bar, so it is hidden on these two pages; the pages get room at the bottom so the last line
+   always scrolls clear of the assistant / chat bubbles. */
+@media (max-width:640px){
+  body:has(.tc-page) .diag-floating,body:has([data-testid="dp-today"]) .diag-floating{display:none!important}
+  .tc-page,.dp-page[data-testid="dp-today"]{padding-bottom:calc(150px + env(safe-area-inset-bottom))!important}
+}
+/* release 69 polish: team-commission.css also defines a global .tc-foot (grid + top rule); when it is loaded the incoming-call footer
+   (e.g. «مشتری جدیده، با همین شماره» + «شماره را درست کن») went side by side and ran off a 390px screen. Pin our footers back to flex. */
+.iw-dlg .tc-foot,.fs-search .tc-foot{display:flex;grid-template-columns:none;border-top:0;padding-top:0}

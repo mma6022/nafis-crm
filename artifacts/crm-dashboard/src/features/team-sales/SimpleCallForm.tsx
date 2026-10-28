@@ -220,9 +220,11 @@ function PlanCard({ p, checked, onToggle }: { p: PlanEvaluation; checked: boolea
 
 const STRICT_LABELS: Record<string, string> = { manual: 'نتیجه‌ی تماس', callResult: 'نتیجه‌ی گفت‌وگو', callbackAt: 'زمان تماس بعدی', amount: 'مبلغ', docsReady: 'مدارک', creditRank: 'رتبه', cheque: 'چک صیادی / سفته',
   bounced: 'چک برگشتی', military: 'نظام وظیفه', sso: 'بازنشستگی تأمین اجتماعی', jobType: 'شغل', gAvail: 'ضامن', gJobType: 'شغل ضامن', gCheque: 'چک ضامن', gRank: 'رتبه‌ی ضامن', note: 'یادداشت', urgency: 'فوریت' };
+/** release 69 polish: rule codes «(H2)» are internal; digits Persian («۱ از ۳»، «۴ ساعت»). */
+export const reasonText = (x: string) => fa(String(x ?? '').replace(/\s*\((?:H|R)\d+\)/g, ''));
 const maskPh = (p: string) => { const s = String(p ?? ''); return s.length >= 8 ? `${s.slice(0, 4)}***${s.slice(-4)}` : s; };
 
-export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onClose: onCloseRaw, onDone, onNext, onChangeCustomer, edit, file, strict = false, confirmClose = false, closeConfirmBody, reopenNotice = false }: {
+export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onClose: onCloseRaw, onDone, onNext, onChangeCustomer, edit, file, strict = false, confirmClose = false, closeConfirmBody, reopenNotice = false, returnLabel, eyebrow }: {
   customer: { id: number; name: string; phone: string; priority?: number | null };
   userId: number | undefined; noteMin?: number;
   onClose: () => void; onDone: (r: QualifyResult) => void; onNext: () => void;
@@ -239,6 +241,11 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   reopenNotice?: boolean;
   /** incoming2-59 PM rule (opt-in): closing before the save (X, scrim, Esc, «بستن») asks «بستن بدون ثبت تماس؟» first. */
   confirmClose?: boolean;
+  /** release 69 (Armita live-59 #2): opened from «تماس ورودی داشتم» — the result footer is one «برگشت به کار N» (onNext),
+   *  no «پرونده مشتری» / «مشتری بعدی صف»; the caller closes, toasts and stays on the same current task. */
+  returnLabel?: string;
+  /** release 69 polish: small line above the title, e.g. «تماس ورودی». */
+  eyebrow?: string;
   /** HISTORY-A v1.2: Today-card file column «تکمیل/ویرایش پرونده مشتری» — answers only, single «ذخیره‌ی پرونده», no call/priority. */
   file?: FileFormMode;
 }) {
@@ -549,7 +556,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
       {r.changed.length ? <div className="ts-why" data-testid="ts-edit-changed"><b>تغییرها</b><ul>{r.changed.map((c) => <li key={c.field}>
         {FIRST_CALL_FIELD_LABELS[c.field] ?? c.field}: {firstCallValueText(c.field, c.old)} ← {firstCallValueText(c.field, c.new)}</li>)}</ul></div>
         : <p className="ts-muted center">جواب‌ها تغییری نکرد.</p>}
-      {r.reasons.length ? <div className="ts-why"><b>{`چرا پیشنهاد اولویت ${fa(r.suggestedPriority)}؟`}</b><ul>{r.reasons.map((x, i) => <li key={i}>{x}</li>)}</ul></div> : null}
+      {r.reasons.length ? <div className="ts-why"><b>{`چرا پیشنهاد اولویت ${fa(r.suggestedPriority)}؟`}</b><ul>{r.reasons.map((x, i) => <li key={i}>{reasonText(x)}</li>)}</ul></div> : null}
     </div>;
   } else if (result) {
     const r = result.result; const h = result.handoff;
@@ -581,7 +588,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
         <div className="ts-picked"><NoPlanChip /></div>
         {result.noPlanNote ? <p>چرا: «{result.noPlanNote}»</p> : null}
       </div> : null}
-      {r.reasons.length ? <div className="ts-why"><b>{reasonsTitle}</b><ul>{r.reasons.map((x, i) => <li key={i}>{x}</li>)}</ul></div> : null}
+      {r.reasons.length ? <div className="ts-why"><b>{reasonsTitle}</b><ul>{r.reasons.map((x, i) => <li key={i}>{reasonText(x)}</li>)}</ul></div> : null}
     </div>;
   } else if (d.step === 1) {
     body = <>
@@ -678,12 +685,20 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   const missing = strict && !done && !edit ? validate(d.step) : {};
   const blocked = Object.keys(missing).length > 0;
   const shown = Object.keys(errors).filter((k) => errors[k]);
-  const strictSummary = (strict || file) && shown.length ? <p className="ts-fbad" role="alert" data-testid="ts-missing">{shown.length === 1 ? 'یک مورد مانده' : shown.length === 2 ? 'دو مورد مانده' : `${fa(shown.length)} مورد مانده`}: {shown.map((k) => STRICT_LABELS[k] ?? k).join('، ')}{file ? ' · تا کامل نشود ذخیره فعال نمی‌شود' : ''}</p> : null;
+  // release 69 (Armita live-59 #6): field errors stay inline; at most ONE short counter in the footer next to the button
+  // (never above the content). Tapping it scrolls/focuses the first missing field.
+  const jumpToFirst = () => { const b = bodyRef.current; if (!b) return; const k = shown[0];
+    const el = (k ? b.querySelector<HTMLElement>(`#ts-err-${k}`) : null) ?? b.querySelector<HTMLElement>('[aria-invalid="true"]') ?? b.querySelector<HTMLElement>('.ts-err');
+    if (!el) return; el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    const f = el.matches('input,textarea,select,button,[tabindex]') ? el : el.closest('.ts-q, fieldset, div')?.querySelector<HTMLElement>('input,textarea,select,button,[tabindex]:not([tabindex="-1"])');
+    f?.focus({ preventScroll: true }); };
+  const strictSummary = (strict || file) && shown.length ? <button type="button" className="ts-fcount" onClick={jumpToFirst} aria-label={`${shown.map((k) => STRICT_LABELS[k] ?? k).join('، ')} — برو به اولین مورد`} data-testid="ts-missing">{shown.length === 1 ? 'یک مورد مانده' : shown.length === 2 ? 'دو مورد مانده' : `${fa(shown.length)} مورد مانده`}</button> : null;
   return <div className="ts-layer" dir="rtl">
     <div className="ts-scrim" onClick={onClose} aria-hidden="true" />
     <div ref={dialogRef} className={`ts-wz${strict || file ? ' strict' : ''}${file ? ' ffm' : ''}`} role="dialog" aria-modal="true" aria-labelledby="ts-wz-title" tabIndex={-1} data-testid="ts-simple-form">
       <div className="ts-wz-head">
         <div className="ts-wz-who">
+          {eyebrow ? <p className="ts-eyebrow" data-testid="ts-eyebrow">{eyebrow}</p> : null}
           <h2 id="ts-wz-title">{file ? (file.complete ? 'ویرایش پرونده مشتری' : 'تکمیل پرونده مشتری') : edit ? 'ویرایش خلاصه‌ی تماس اول' : 'فرم تماس'} — <CustomerName id={customer.id} name={customer.name} badgeTestId="ts-wz-customer-id" /></h2>
           <div className="sub"><span className="ltr" dir="ltr" data-testid="ts-phone">{fa(strict || file ? maskPh(customer.phone) : customer.phone)}</span>
             {strict || file ? null : <button type="button" className="ts-copy" onClick={copyPhone} aria-label={`کپی شماره‌ی ${customer.name}`} data-testid="ts-copy-phone"><Copy size={13} /> {copied ? 'کپی شد' : 'کپی'}</button>}
@@ -699,13 +714,15 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
       </div>}
       <div className="ts-wz-body" ref={bodyRef}>{onChangeCustomer && !done ? <div className="ts-picked-customer" data-testid="ts-picked-customer"><div><b><CustomerName id={customer.id} name={customer.name} badgeTestId="ts-picked-customer-id" /></b><span className="ts-muted"> | {prio}</span></div><button type="button" onClick={onChangeCustomer} data-testid="ts-change-customer"><ChevronRight size={16} aria-hidden="true" /> تغییر مشتری</button></div> : null}{body}</div>
       {copyToast ? <div className={`ts-toast${copied ? ' ok' : ''}`} role="status" data-testid="ts-copy-toast">{copyToast}</div> : null}
-      {strictSummary}
       <div className="ts-wz-foot">
+        {strictSummary ? <div className="ts-fcount-row" role="status">{strictSummary}</div> : null}
         {file ? <div className="ts-two grow">
           <button type="button" className="ts-ghost narrow" onClick={onClose} data-testid="ff-cancel">انصراف</button>
           <button type="button" className="ts-primary" onClick={() => void submitFile()} disabled={pending} aria-disabled={Object.keys(fileMissing).length > 0 || undefined} data-testid="ff-save"><Check size={18} /> {pending ? 'در حال ذخیره…' : 'ذخیره‌ی پرونده'}</button>
         </div> : editResult ? <div className="ts-two">
           <button type="button" className="ts-primary" onClick={onClose} data-testid="ts-edit-close">بازگشت به پرونده</button>
+        </div> : result && returnLabel ? <div className="ts-two">
+          <button type="button" className="ts-primary" onClick={onNext} autoFocus data-testid="ts-return-current">{returnLabel}</button>
         </div> : result ? <div className="ts-two">
           <button type="button" className="ts-ghost" onClick={onClose} data-testid="ts-open-file">پرونده مشتری</button>
           <button type="button" className="ts-primary" onClick={onNext} data-testid="ts-next-customer">مشتری بعدی صف</button>
