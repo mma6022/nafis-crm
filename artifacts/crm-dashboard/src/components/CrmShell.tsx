@@ -1,4 +1,5 @@
 import { CustomerName } from '@/components/customer/CustomerName';
+import { HistoryBox } from '@/features/history/HistoryBox';
 import { AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, Link2, LifeBuoy, LogOut, Menu, MessageCircle, MoreHorizontal, Sparkles, MessagesSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, ListChecks, type LucideIcon } from 'lucide-react';
 import { UserAvatar, AvatarPicker } from '@/components/UserAvatar';
 import { useHealthCheck, getHealthCheckQueryKey, useGetAuthSession, useLogout, useUpdateAuthProfile, useListReminders, useAcknowledgeReminder, getListRemindersQueryKey, getGetAuthSessionQueryKey, type CrmUser, type Reminder } from '@workspace/api-client-react';
@@ -503,6 +504,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
             <div className="due-reminder-icon"><BellRing size={22} /></div>
             {dueReminder.customerName ? <><div className="due-reminder-customer">مشتری: <CustomerName id={dueReminder.customerId} name={dueReminder.customerName} /></div><div className="due-reminder-customer">کارشناس پرونده: {dueReminder.customerSalespersonName || 'بدون تخصیص'}</div></> : null}
             <p>{dueReminder.message}</p>
+            {/* HISTORY-A: experts 8/2/3 see the customer's history box here too (own customers only; the server answers 403 otherwise and the box renders nothing). */}
+            {dueReminder.customerId && user && EL_UIDS.includes(Number(user.id)) ? <HistoryBox customerId={dueReminder.customerId} name={dueReminder.customerName || ''} compact testId="rem-hx" /> : null}
             <div className="form-footer">
               <button className="btn btn-primary" type="button" onClick={() => setDueReminder(null)} data-testid="button-close-due-reminder">متوجه شدم</button>
               <Link className="btn btn-ghost" href="/reminders" onClick={() => setDueReminder(null)}>مشاهده یادآورها</Link>
