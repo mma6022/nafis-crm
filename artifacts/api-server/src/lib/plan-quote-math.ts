@@ -93,8 +93,12 @@ export function principalCeiling(plan: PublicLoanPlanDetails, conditionId?: numb
 export function calculatorDurations(plan: PublicLoanPlanDetails, conditionId?: number | null): number[] {
   const terms = displayPlanTerms(plan).map(t => t.installments);
   const conditions = conditionId == null ? plan.conditions : plan.conditions?.filter(c => c.id === conditionId);
+  // PLANS-49 (PM 2026-10-28): a condition only narrows the plan terms. An option the plan has no term for (no payout) is
+  // ignored; a condition whose options are ALL such stays empty (never falls back to the plan terms), so a plan with no
+  // calculable duration gets no quote (site «به‌زودی»). Same rule as lib/plan-condition-durations.ts (kept inline: this
+  // file is also imported as plain .ts by the dashboard fixtures).
   const configured = conditions?.flatMap(c => c.installmentOptions?.map(Number) ?? []) ?? [];
-  const values = configured.length ? configured : terms;
+  const values = configured.length ? configured.filter(n => terms.includes(n)) : terms;
   return [...new Set(values)].filter(n => Number.isInteger(n) && n > 0 && n <= 600).sort((a, b) => a - b);
 }
 

@@ -8,6 +8,7 @@ import { execute, executeChanges, queryRow, queryRows, runTransaction } from "..
 import { payablePlan } from "./loan-applications";
 import { activeQuotePlan } from "./crm";
 import { calculatorDurations, principalCeiling, publicPlanTerms, termAtCeiling } from "../lib/plan-quote-math";
+import { conditionDurations, conditionOptionMonths } from "../lib/plan-condition-durations";
 import { customerAdviceLeakReasons, customerSafeAdvice } from "../lib/customer-advice-filter";
 
 const router = Router();
@@ -117,7 +118,10 @@ function safePlanContext(): PlanContext[] {
         } catch { conditionTerms = []; }
         return {
           customer_ranks: parseJson(compactRankJson(condition.customer_ranks)) ?? condition.customer_ranks,
-          installment_options: parseJson(condition.installment_options) ?? condition.installment_options,
+          // PLANS-49: options the plan has no term for are dropped (never shown as an available duration)
+          installment_options: conditionOptionMonths(condition.installment_options).length
+            ? conditionDurations(condition.installment_options, terms.map((term) => term.installments))
+            : parseJson(condition.installment_options) ?? condition.installment_options,
           customer_jobs: parseJson(condition.customer_jobs) ?? condition.customer_jobs,
           collateral_type: condition.collateral_type,
           needs_guarantor: condition.needs_guarantor,

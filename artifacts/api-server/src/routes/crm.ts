@@ -194,7 +194,8 @@ import { mergeCustomerRecords } from "../lib/customer-merge";
 import { insertCustomerRecord, lastCustomerCreateOutcome } from "../lib/customer-create";
 import { parseStaffUrgentReason } from "../lib/customer-urgent";
 import { applyStaffUrgent, defaultLeadSourceForUser, ensureLeadIntakeSchema, parseIntake, URGENT_ERRORS, validateUrgentClear } from "../lib/lead-intake";
-import { calculatorDurations, calculatorQuote, ceilingPayout, customerPayout, publicPlanTerms } from "../lib/plan-quote-math";
+import { conditionOptionsError, invalidConditionOptions, planTermMonths } from "../lib/plan-condition-durations";
+import { calculatorDurations, calculatorQuote, ceilingPayout, customerPayout, planDurations, publicPlanTerms } from "../lib/plan-quote-math";
 import { publicQuoteRateLimit, parseQuoteBody } from "../lib/plan-quote-guard";
 import { isPortalRegistration } from "../lib/customer-portal-features";
 import { acceptedGradeEdit, compactRankList, expandRankList, GRADE_EDIT_ERROR, isLegacyGradeLetter, parseStoredRanks } from "../lib/credit-subgrades";
@@ -5151,6 +5152,26 @@ const goodsPlanFields = [
   "penaltyValue", "contractDurationDays",
 ] as const;
 
+function assertConditionOptionsArePlanTerms(normalized: Record<string, unknown>, existing?: ReturnType<typeof planFromRow>): void {
+  // PLANS-49 (PM 2026-10-28): a condition's installment options must be plan terms. Rows saved before this rule keep
+  // their options (the editor flags them) but a save never writes a new invalid option.
+  const termSource = normalized.installmentTerms !== undefined ? normalized.installmentTerms : existing?.installmentTerms;
+  const legacyInstallments = normalized.installments !== undefined ? normalized.installments : existing?.installments;
+  const planTerms = planTermMonths(termSource).length ? planTermMonths(termSource) : planTermMonths(planDurations(legacyInstallments == null ? null : String(legacyInstallments)));
+  if (Array.isArray(normalized.conditions)) {
+    const error = conditionOptionsError(normalized.conditions as { installmentOptions?: unknown }[], planTerms);
+    if (error) throw new Error(error);
+  } else if (existing && (normalized.installmentTerms !== undefined || normalized.installments !== undefined)) {
+    const oldTerms = planTermMonths(existing.installmentTerms).length ? planTermMonths(existing.installmentTerms) : planTermMonths(planDurations(existing.installments));
+    const newlyInvalid = (existing.conditions ?? []).map(condition => ({
+      installmentOptions: invalidConditionOptions(condition.installmentOptions, planTerms)
+        .filter(n => !invalidConditionOptions(condition.installmentOptions, oldTerms).includes(n)),
+    }));
+    const error = conditionOptionsError(newlyInvalid, planTerms);
+    if (error) throw new Error(`${error} اول اقساط این مسیر را اصلاح کنید.`);
+  }
+}
+
 function normalizePlanInput(body: Record<string, unknown>, existing?: ReturnType<typeof planFromRow>) {
   const normalized = { ...body };
   if (normalized.filingFeeToman !== undefined) {
@@ -5178,6 +5199,7 @@ function normalizePlanInput(body: Record<string, unknown>, existing?: ReturnType
   const loanType = normalized.loanType ?? existing?.loanType;
   if (loanType !== "goods") {
     for (const key of goodsPlanFields) normalized[key] = null;
+    assertConditionOptionsArePlanTerms(normalized, existing);
     return normalized;
   }
   const requiredGoodsValues = {
@@ -5222,6 +5244,7 @@ function normalizePlanInput(body: Record<string, unknown>, existing?: ReturnType
     (!Number.isInteger(days) || Number(days) <= 0)) {
     throw new Error("مدت قرارداد باید تعداد روز مثبت باشد.");
   }
+  assertConditionOptionsArePlanTerms(normalized, existing);
   return normalized;
 }
 

@@ -104,7 +104,13 @@ const filingFeeMessages: Record<string, string> = {
   invalid_filing_fee: "هزینه تشکیل پرونده طرح درست تنظیم نشده است. با پشتیبانی تماس بگیرید.",
   invalid_wallet_balance: "امکان بررسی موجودی کیف پول وجود ندارد. با پشتیبانی تماس بگیرید؛ هزینه‌ای کسر نشده است.",
   filing_fee_charge_failed: "پرداخت هزینه تشکیل پرونده ثبت نشد. موجودی را به‌روزرسانی و دوباره تلاش کنید.",
+  legacy_amount_not_supported: "این صفحه نسخه‌ی قدیمی است و درخواست ثبت نشد. لطفاً صفحه را تازه‌سازی کنید و دوباره «مبلغ واریزی» را انتخاب کنید؛ هزینه‌ای کسر نشده است.",
 };
+/** PLANS-49 (PM 2026-10-28): the legacy principal input (requestedAmount; `amount` in selection) is closed. The portal
+ *  sends the payout only; a cached old bundle gets this 410 with a Persian «refresh» message instead of a silent success. */
+const LEGACY_AMOUNT_STATUS = 410;
+const legacyAmountSent = (body: unknown, key: "requestedAmount" | "amount") =>
+  Boolean(body && typeof body === "object" && !Array.isArray(body) && Object.prototype.hasOwnProperty.call(body, key));
 const jsonError = (res: any, status: number, code: string) => res.status(status).json({
   error: code, code, ...(filingFeeMessages[code] ? { message: filingFeeMessages[code] } : {}),
 });
@@ -217,18 +223,18 @@ function principalForCustomerPayout(customer: { id: number } & Record<string, an
   return String(q.principal);
 }
 
-/** Request amount: new bundles send payoutAmount («مبلغ واریزی»); cached old bundles may still send requestedAmount (principal). */
+/** Request amount from payoutAmount («مبلغ واریزی») only. PLANS-49: requestedAmount (principal) is rejected by the
+ *  callers with legacy_amount_not_supported before this runs; it is never used as the principal here. */
 function requestPrincipal(customer: any, planId: number, months: number, body: Record<string, unknown>): { amount: string; notMatched: boolean } {
   const hasPayout = body.payoutAmount !== undefined, hasPrincipal = body.requestedAmount !== undefined;
-  if (hasPayout && hasPrincipal) return { amount: "", notMatched: false };
-  if (hasPayout) {
+  if (hasPrincipal || !hasPayout) return { amount: "", notMatched: false };
+  {
     const payout = String(body.payoutAmount ?? "").trim();
     if (!/^[1-9]\d{0,17}$/.test(payout)) return { amount: "", notMatched: false };
     const amount = principalForCustomerPayout(customer, planId, months, payout);
     // A well-formed payout the customer cannot select = same answer as an out-of-range principal used to get.
     return amount == null ? { amount: "", notMatched: true } : { amount, notMatched: false };
   }
-  return { amount: String(body.requestedAmount ?? "").trim(), notMatched: false };
 }
 
 function portalApplication(applicationId: number, customerId: number) {
@@ -557,18 +563,18 @@ router.post("/plan-quote", customerQuoteRateLimit, (req, res) => {
 router.post("/loan-options/selection", customerQuoteRateLimit, (req, res) => {
   const customer = portalCustomer(res); if (!customer) return;
   const body = req.body;
+  if (legacyAmountSent(body, "amount")) return jsonError(res, LEGACY_AMOUNT_STATUS, "legacy_amount_not_supported");
   if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some((k) => !["planId", "amount", "payout", "months"].includes(k)) ||
     (body.amount !== undefined && body.payout !== undefined))
     return jsonError(res, 400, "invalid_selection_input");
   const planId = Number(body.planId), months = Number(body.months);
   const payout = String(body.payout ?? "").trim();
-  const legacyAmount = String(body.amount ?? "").trim();
   if (!Number.isSafeInteger(planId) || planId <= 0 || !Number.isSafeInteger(months) || months < 0 || months > 600 ||
-    !/^([1-9]\d{0,17})?$/.test(legacyAmount) || !/^([1-9]\d{0,17})?$/.test(payout)) return jsonError(res, 400, "invalid_selection_input");
+    !/^([1-9]\d{0,17})?$/.test(payout)) return jsonError(res, 400, "invalid_selection_input");
   const option = customerLoanOptions(customer).find((item) => item.planId === planId);
   if (!option) return jsonError(res, 404, "loan_plan_not_found");
-  // LEAKS-46: payout («مبلغ واریزی») → principal on the server; `amount` (principal) only from cached old bundles.
-  const amount = payout ? (months > 0 ? principalForCustomerPayout(customer, planId, months, payout) ?? "" : "") : legacyAmount;
+  // LEAKS-46: payout («مبلغ واریزی») → principal on the server. PLANS-49: `amount` (principal) was rejected above.
+  const amount = payout && months > 0 ? principalForCustomerPayout(customer, planId, months, payout) ?? "" : "";
   const conditionId = amount && months > 0 ? eligibleConditionId(option, amount, months) : null;
   const condition = option.conditions.find((item) => item.id === conditionId);
   return res.json({ planId, conditionId, durations: condition?.allowedDurations ?? option.allowedDurations });
@@ -818,6 +824,7 @@ router.post("/wallet/top-up", (req, res) => {
 
 router.post("/filing-fee", (req, res) => {
   const customer = portalCustomer(res); if (!customer) return;
+  if (legacyAmountSent(req.body, "requestedAmount")) return jsonError(res, LEGACY_AMOUNT_STATUS, "legacy_amount_not_supported");
   const planId = Number(req.body?.planId);
   const key = String(req.header("Idempotency-Key") ?? "");
   const conditionId=Number(req.body?.conditionId),duration=Number(req.body?.durationMonths);
@@ -953,6 +960,7 @@ router.get("/applications/:id", (req, res) => {
 router.post("/applications", (req, res) => {
   const customer = portalCustomer(res); if (!customer) return;
   const body = req.body;
+  if (legacyAmountSent(body, "requestedAmount")) return jsonError(res, LEGACY_AMOUNT_STATUS, "legacy_amount_not_supported");
   const allowed = new Set(["planId", "conditionId", "requestedAmount", "payoutAmount", "durationMonths", "feeChargeId", "notes"]);
   if (!body || typeof body !== "object" || Array.isArray(body) ||
     Object.keys(body).some((key) => !allowed.has(key))) return jsonError(res, 400, "invalid_application_input");
@@ -1073,6 +1081,7 @@ router.patch("/applications/:id", (req, res) => {
     return jsonError(res, 409, "approved_application_terms_immutable");
   }
   const body = req.body;
+  if (legacyAmountSent(body, "requestedAmount")) return jsonError(res, LEGACY_AMOUNT_STATUS, "legacy_amount_not_supported");
   const allowed = new Set(["requestedAmount", "payoutAmount", "durationMonths", "manualValues", "notes"]);
   if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length === 0 ||
     Object.keys(body).some((key) => !allowed.has(key))) return jsonError(res, 400, "invalid_application_input");

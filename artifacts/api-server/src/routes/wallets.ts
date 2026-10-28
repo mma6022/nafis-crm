@@ -12,6 +12,7 @@ import type { AuthUser } from "../lib/auth";
 import { createHash, randomBytes } from "node:crypto";
 import { getNotificationSettings, normalizeIranianMobile, sendWalletShareSms } from "../lib/customer-notifications";
 import { verifyProvider, updatePaymentAttempt, verifyAndCreditWalletPayment, createWalletPaymentReceipt, readWalletPaymentReceipt, walletPaymentReceiptData } from "../lib/wallet-payment-recovery";
+import { conditionDurations as planConditionDurations } from "../lib/plan-condition-durations";
 
 ensureWalletSchema();
 const router = Router();
@@ -274,7 +275,9 @@ router.post("/customers/:customerId/wallet/share-links", requireAuth, requirePer
       let durations: unknown[] = [];
       try {
         const conditionDurations = JSON.parse(String(condition.installment_options ?? "[]"));
-        durations = Array.isArray(conditionDurations) && conditionDurations.length ? conditionDurations : JSON.parse(String(plan?.installment_terms ?? "[]"));
+        const planTerms: unknown = JSON.parse(String(plan?.installment_terms ?? "[]"));
+        // PLANS-49: only options the plan has a term for count (all invalid → not eligible, no fallback to the plan terms)
+        durations = Array.isArray(conditionDurations) && conditionDurations.length ? planConditionDurations(conditionDurations, planTerms) : planTerms as unknown[];
       } catch { durations = []; }
       const validDurations = durations.map((d: any) => typeof d === "object" && d !== null ? Number(d.installments) : Number(d)).some((d) => Number.isInteger(d) && d > 0);
       return (ignoreCreditRank || (conditionAcceptsCreditRank(credit?.score_label, ranks)

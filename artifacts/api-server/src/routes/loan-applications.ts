@@ -320,9 +320,13 @@ export function effectivePlanTerms(plan: any, condition: any) {
   const planMax = digits(plan.principal_amount);
   const maximum = conditionMax === 0n ? planMax : planMax === 0n ? conditionMax : conditionMax < planMax ? conditionMax : planMax;
   const conditionDurations = parseJson(condition.installment_options);
-  const planDurations = (parseJson(plan.installment_terms) ?? []).map((term: any) => typeof term === "object" ? term.installments : term);
-  const durations = (Array.isArray(conditionDurations) && conditionDurations.length ? conditionDurations : planDurations)
+  const planDurations = (parseJson(plan.installment_terms) ?? []).map((term: any) => typeof term === "object" ? term.installments : term)
     .map(Number).filter((value: number) => Number.isInteger(value) && value > 0);
+  // PLANS-49 (PM 2026-10-28): a condition option the plan has no term for is ignored; all options invalid → no durations
+  // (the condition offers nothing, never falls back to the plan terms).
+  const durations = Array.isArray(conditionDurations) && conditionDurations.length
+    ? conditionDurations.map(Number).filter((value: number) => Number.isInteger(value) && value > 0 && planDurations.includes(value))
+    : planDurations;
   return { maximum, durations };
 }
 export function payablePlan(planId: number): any | undefined {

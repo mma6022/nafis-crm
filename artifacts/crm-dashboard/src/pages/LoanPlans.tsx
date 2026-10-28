@@ -270,6 +270,7 @@ function PlanDetail({ plan, loading, onEdit }: { plan: LoanPlan | null; loading:
           <ul>
              {condition.maxPrincipal ? <li>سقف مبلغ: {condition.maxPrincipal} تومان</li> : null}
             {condition.installmentOptions?.length ? <li>اقساط مجاز: {condition.installmentOptions.join('، ')}</li> : null}
+            {invalidRouteOptions(condition.installmentOptions, plan.installmentTerms).length ? <li className="condition-warning" data-testid={`warning-condition-options-${condition.id}`}>⚠ اقساط {monthsText(invalidRouteOptions(condition.installmentOptions, plan.installmentTerms))} در اقساط این طرح نیست و نادیده گرفته می‌شود؛ پیش از ذخیره‌ی دوباره‌ی طرح اصلاحش کنید.</li> : null}
             {customerRanks.length ? <li>رتبه مشتری: <GradeChipList values={customerRanks} testId={`text-condition-customer-ranks-${condition.id}`} /></li> : null}
             {customerJobs.length ? <li>مشاغل مشتری: {customerJobs.join('، ')}</li> : null}
             {condition.needsMilitaryService ? <li data-testid={`text-condition-military-${condition.id}`}>پایان خدمت متقاضی لازم است (خانم‌ها معاف)</li> : null}
@@ -341,6 +342,14 @@ function SideRequirementFields({ who, value, onChange, testId }: { who: 'متق�
     </div>
   </>;
 }
+
+/** PLANS-49: installment options of a route that the plan has no term for (ignored by calculator, quotes and selection). */
+const invalidRouteOptions = (options: readonly number[] | null | undefined, terms: readonly { installments: number | string }[] | null | undefined) => {
+  if (!options?.length) return [];
+  const months = (terms ?? []).map((term) => Number(term.installments));
+  return options.filter((option) => !months.includes(Number(option)));
+};
+const monthsText = (values: readonly number[]) => values.map((value) => `${faDigits(value)} ماهه`).join('، ');
 
 function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave }: { plan: LoanPlan | null; pending: boolean; goodsError: string; canGoodsFinance: boolean; onClose: () => void; onSave: (data: LoanPlanInput, goods: GoodsPlanForm) => void }) {
   const [goods, setGoods] = useState<GoodsPlanForm>(blankGoodsPlanForm);
@@ -564,6 +573,12 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
     if (current.key !== 'review') { goStep(steps[Math.min(steps.length - 1, stepIndex + 1)].key); return; }
     const invalid = firstInvalidStep();
     if (invalid) { setStepError('چند مورد الزامی هنوز خالی است.'); setStep(invalid); return; }
+    const badRoute = conditions.findIndex((item) => invalidRouteOptions(item.installmentOptions, terms).length);
+    if (badRoute >= 0) {
+      setStep('applicant'); setRoute(badRoute);
+      setStepError(`مسیر ${faDigits(badRoute + 1)}: اقساط ${monthsText(invalidRouteOptions(conditions[badRoute].installmentOptions, terms))} در اقساط این طرح تعریف نشده است.`);
+      return;
+    }
     onSave(buildInput(), goods);
   };
 
@@ -627,7 +642,7 @@ function PlanForm({ plan, pending, goodsError, canGoodsFinance, onClose, onSave 
 
         {current.key === 'applicant' ? (condition ? <div className="form-grid" key={`applicant-${route}`}>
           <div className="field"><label>سقف مبلغ این مسیر <span className="pc-hint">خالی = سقف طرح</span></label><TomanText value={condition.maxPrincipal} onChange={(value) => updateCondition(route, 'maxPrincipal', value)} testId={`input-condition-max-${route}`} /></div>
-          <div className="field"><label>اقساط مجاز این مسیر <span className="pc-hint">خالی = همه‌ی اقساط طرح</span></label><ChipChoices values={INSTALLMENT_OPTIONS.map((value) => ({ value, label: `${faDigits(value)} ماهه` }))} selected={condition.installmentOptions} onChange={(value) => updateCondition(route, 'installmentOptions', value)} /></div>
+          <div className="field"><label>اقساط مجاز این مسیر <span className="pc-hint">خالی = همه‌ی اقساط طرح</span></label><ChipChoices values={INSTALLMENT_OPTIONS.map((value) => ({ value, label: `${faDigits(value)} ماهه` }))} selected={condition.installmentOptions} onChange={(value) => updateCondition(route, 'installmentOptions', value)} />{invalidRouteOptions(condition.installmentOptions, terms).length ? <p className="gp-alert" data-testid={`warning-route-options-${route}`}>اقساط {monthsText(invalidRouteOptions(condition.installmentOptions, terms))} در اقساط این طرح تعریف نشده است؛ فقط اقساط طرح را انتخاب کنید.</p> : null}</div>
           <div className="field full"><GradePickerMulti label="رتبه‌های مجاز متقاضی" values={condition.customerRanks} onChange={(value) => updateCondition(route, 'customerRanks', value)} note={conversionNote(condition, 'customerRanks')} testId={`grades-customer-${route}`} /></div>
           <div className="field full"><label>شغل متقاضی <span className="pc-hint">هیچ‌کدام = همه‌ی مشاغل</span></label><DictionaryChips selected={condition.customerJobs} options={optionsFor(options, 'job_type')} onChange={(value) => updateCondition(route, 'customerJobs', value)} testId={`jobs-customer-${route}`} /></div>
           <div className="field full"><Choice label="پایان خدمت متقاضی لازم است؟" hint="خانم‌ها معاف‌اند" value={yn(condition.needsMilitaryService)} options={YES_NO} onChange={(v) => updateCondition(route, 'needsMilitaryService', v === 'yes')} testId={`select-condition-military-${route}`} /></div>
