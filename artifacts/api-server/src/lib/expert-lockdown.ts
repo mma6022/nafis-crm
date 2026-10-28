@@ -9,15 +9,16 @@
  * Everybody else (admins, trainees, registrars, Milad, user 29, the assistant runner tokens) never reaches any check here:
  * the guard returns next() before touching the DB. Flag OFF (or absent) = old behaviour exactly.
  * «تماس ورودی دارم»: exact full mobile or exact full name only; never a list; rate-limited; every click/search is logged
- * (el_incoming_log — the query is stored only as an HMAC hash, never raw). Another expert's customer → owner name only + ONE
- * CRM bell «تماس ورودی» to the owner (no SMS, no Bale).
+ * (el_incoming_log — the query is stored only as an HMAC hash, never raw). SEARCH-C: another expert's customer (full number only) → customer name +
+ * owner name; the owner gets a CRM bell + a top Today item «تماس با مشتری ارجاعی» only when the caller presses «ارجاع» (no SMS, no Bale, nothing to the customer).
  */
-import { createHmac } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { crmDb, execute, queryRow, queryRows, runTransaction } from "./crm-db";
 import { cqRaw } from "./call-queue";
 import { dpToday } from "./daily-plan";
 import { exactLookupOf } from "./cross-owner-search";
+import { MANAGER_TRAINEE_SALESPERSON_IDS } from "./assistant-manager";
 import { insertCustomerRecord } from "./customer-create";
 import { normalizeCustomerMobile } from "./customer-integrity";
 
@@ -50,7 +51,12 @@ export function ensureElSchema(): void {
       source TEXT NOT NULL, granted_at TEXT NOT NULL, expires_at TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS idx_el_grants_user ON el_grants(user_id, customer_id, expires_at);
     -- SEARCH-65b: additive plain-column index for «تماس ورودی داشتم» live search (own customers by salesperson, phone stored normalized 09xxxxxxxxx).
-    CREATE INDEX IF NOT EXISTS idx_customers_sp_phone ON customers(salesperson_id, phone);`);
+    CREATE INDEX IF NOT EXISTS idx_customers_sp_phone ON customers(salesperson_id, phone);
+    -- SEARCH-C: «ارجاع» of another expert's customer (full number only) → owner bell + «تماس با مشتری ارجاعی» on top of the owner's Today (daily-plan dpRefresh).
+    CREATE TABLE IF NOT EXISTS el_referrals(id INTEGER PRIMARY KEY AUTOINCREMENT, from_user_id INTEGER NOT NULL, from_salesperson_id INTEGER, customer_id INTEGER NOT NULL,
+      owner_salesperson_id INTEGER NOT NULL, owner_user_id INTEGER NOT NULL, day TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS idx_el_referrals_owner ON el_referrals(owner_salesperson_id, day);
+    CREATE INDEX IF NOT EXISTS idx_el_referrals_from ON el_referrals(from_user_id, created_at);`);
   ready = true;
 }
 
@@ -173,30 +179,7 @@ export function elIncomingChoose(u: U, option: unknown, now = new Date()) {
   log(u, { action: option === "own" ? "choose_own" : "choose_new" }, now.toISOString()); return { ok: true as const };
 }
 
-/** One CRM bell to the customer's owner on a «جست‌وجو» hit of another expert's customer (NEWCUST-65: «ثبت مشتری جدید» duplicates never bell): active salesperson user, never user 29,
- *  at most once per caller+customer per EL_BELL_WINDOW_MS; DP_TEST_NO_BELLS=1 writes to dp_test_bells instead. Returns whether one was sent. */
-function bellOwner(u: U, c: { id: number; name: string; sp: number | null }, now: Date): boolean {
-  const at = now.toISOString();
-  let notified = false;
-  const owner = c.sp == null ? null : queryRow<{ id: number }>("SELECT id FROM users WHERE salesperson_id=? AND role='salesperson' AND active=1 ORDER BY id LIMIT 1", [Number(c.sp)]);
-  if (owner && Number(owner.id) !== 29) {
-    const dup = queryRow("SELECT 1 x FROM el_incoming_log WHERE user_id=? AND customer_id=? AND notified=1 AND created_at>? LIMIT 1",
-      [Number(u.id), Number(c.id), new Date(now.getTime() - EL_BELL_WINDOW_MS).toISOString()]);
-    if (!dup) {
-      if (process.env.DP_TEST_NO_BELLS === "1") {
-        execute("CREATE TABLE IF NOT EXISTS dp_test_bells(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, resource_id INTEGER, recipient_user_id INTEGER, title TEXT, created_at TEXT)");
-        execute("INSERT INTO dp_test_bells(kind,resource_id,recipient_user_id,title,created_at) VALUES(?,?,?,?,?)", ["incoming-call", Number(c.id), Number(owner.id), "تماس ورودی", at]);
-      } else {
-        const caller = String(u.fullName ?? "").trim() || "یکی از همکاران";
-        execute(`INSERT INTO site_notification_events(customer_id,customer_name,owner_id,resource_type,resource_id,kind,title,body,permission,created_at,actor_key,recipient_user_id)
-          VALUES(?,?,?,'customer',?,'incoming-call','تماس ورودی',?,'customers.view',?,?,?)`,
-          [Number(c.id), String(c.name || "مشتری"), Number(c.sp), Number(c.id), `مشتری‌ات با ${caller} تماس گرفته؛ با او تماس بگیر.`, at, `expert-lockdown:${Number(u.id)}`, Number(owner.id)]);
-      }
-      notified = true;
-    }
-  }
-  return notified;
-}
+/* SEARCH-C: the automatic owner bell on a search hit (bellOwner) was removed; the owner is told only via «ارجاع» (elIncomingRefer). */
 
 /* ---------------- NEWCUST-65 «ثبت مشتری جدید» (endpoints kept as-is by the incoming2-59 wizard: same create, source inbound_call, owner-name-only dup check, no bells) ---------------- */
 const rateLimited = (u: U, now: Date) => Number(queryRow<{ n: number }>("SELECT count(*) n FROM el_incoming_log WHERE user_id=? AND action IN ('search','new_check','new_create') AND created_at>?",
@@ -234,8 +217,8 @@ export function elNewCheck(u: U, raw: unknown, now = new Date()): ElNewResult {
   if (!phone) { log(u, { action: "new_check", kind: "invalid", result: "invalid" }, at); return INVALID_PHONE; }
   const hash = hashQuery("phone", phone);
   const o = phoneOwner(phone);
-  if (o) { log(u, { action: "new_check", kind: "phone", hash, result: "duplicate", customerId: Number(o.id), ownerSp: o.sp == null ? null : Number(o.sp) }, at); return dupResult(u, o); }
-  log(u, { action: "new_check", kind: "phone", hash, result: "new" }, at);
+  if (o) { log(u, { action: "new_check", kind: "token", hash, result: "duplicate", customerId: Number(o.id), ownerSp: o.sp == null ? null : Number(o.sp) }, at); return dupResult(u, o); }
+  log(u, { action: "new_check", kind: "token", hash, result: "new" }, at);
   return { result: "new" };
 }
 export const EL_NEW_NAME_MAX = 80, EL_NEW_NOTE_MAX = 500;
@@ -249,26 +232,26 @@ export function elNewCreate(u: U, body: Record<string, unknown> | undefined, now
   const hash = hashQuery("phone", phone);
   const name = String(body?.name ?? "").replace(/\s+/g, " ").trim();
   if ([...name].length < 3 || [...name].length > EL_NEW_NAME_MAX || /[\d۰-۹٠-٩]/.test(name) || !name.includes(" ")) {
-    log(u, { action: "new_create", kind: "phone", hash, result: "invalid" }, at);
+    log(u, { action: "new_create", kind: "token", hash, result: "invalid" }, at);
     return { result: "invalid", field: "name", message: "نام و نام خانوادگی مشتری را کامل بنویس (بدون عدد)." };
   }
   const note = typeof body?.description === "string" ? body.description.trim() : "";
-  if ([...note].length > EL_NEW_NOTE_MAX) { log(u, { action: "new_create", kind: "phone", hash, result: "invalid" }, at);
+  if ([...note].length > EL_NEW_NOTE_MAX) { log(u, { action: "new_create", kind: "token", hash, result: "invalid" }, at);
     return { result: "invalid", field: "description", message: "توضیح حداکثر ۵۰۰ نویسه است." }; }
   const dupe = phoneOwner(phone);
-  if (dupe) { log(u, { action: "new_create", kind: "phone", hash, result: "duplicate", customerId: Number(dupe.id), ownerSp: dupe.sp == null ? null : Number(dupe.sp) }, at); return dupResult(u, dupe); }
+  if (dupe) { log(u, { action: "new_create", kind: "token", hash, result: "duplicate", customerId: Number(dupe.id), ownerSp: dupe.sp == null ? null : Number(dupe.sp) }, at); return dupResult(u, dupe); }
   let id: number;
   try {
     id = runTransaction(() => {
       const newId = insertCustomerRecord({ name, phone, description: note || null, registeredByUserId: Number(u.id), registrationSource: "staff_form",
         assignedSalespersonId: Number(u.salespersonId), intake: { leadSource: "inbound_call" }, skipDefaultOwnerRule: true });
-      log(u, { action: "new_create", kind: "phone", hash, result: "created", customerId: newId, ownerSp: Number(u.salespersonId) }, at);
+      log(u, { action: "new_create", kind: "token", hash, result: "created", customerId: newId, ownerSp: Number(u.salespersonId) }, at);
       return newId;
     });
   } catch (error) {
     if (error instanceof Error && /ACTIVE_CUSTOMER_(MOBILE|NATIONAL_CODE)_CONFLICT/.test(error.message)) {
       const o = phoneOwner(phone);
-      log(u, { action: "new_create", kind: "phone", hash, result: "duplicate", customerId: o ? Number(o.id) : null, ownerSp: o?.sp == null ? null : Number(o.sp) }, at);
+      log(u, { action: "new_create", kind: "token", hash, result: "duplicate", customerId: o ? Number(o.id) : null, ownerSp: o?.sp == null ? null : Number(o.sp) }, at);
       return o ? dupResult(u, o) : { result: "duplicate", ownerName: "بدون کارشناس", mine: false };
     }
     throw error;
@@ -279,7 +262,7 @@ export function elNewCreate(u: U, body: Record<string, unknown> | undefined, now
 
 export type ElSearchResult =
   | { result: "own"; customer: { id: number; name: string }; windowMinutes: number }
-  | { result: "other"; ownerName: string; notified: boolean }
+  | { result: "other"; name: string; ownerName: string; notified: boolean; referable: boolean; referred: boolean; refToken: string | null }
   | { result: "none" | "ambiguous" | "invalid" | "rate_limited"; message: string };
 
 export function elIncomingSearch(u: U, raw: unknown, now = new Date()): ElSearchResult {
@@ -296,9 +279,11 @@ export function elIncomingSearch(u: U, raw: unknown, now = new Date()): ElSearch
   const match = lk.kind === "phone"
     ? { sql: "crm_customer_mobile_key(c.phone)=?", p: lk.phone }
     : { sql: "trim(replace(replace(replace(replace(crm_persian_search_key(c.name),char(8204),' '),'   ',' '),'  ',' '),'  ',' '))=?", p: lk.name };
+  // SEARCH-C: another expert's customer is reachable ONLY by the full number; an exact name resolves the caller's own customers only.
+  const ownOnly = lk.kind === "name" ? " AND c.salesperson_id=?" : "";
   const rows = queryRows<{ id: number; name: string; sp: number | null; owner_name: string | null }>(
     `SELECT c.id, c.name, c.salesperson_id sp, s.name owner_name FROM customers c LEFT JOIN salespersons s ON s.id=c.salesperson_id
-      WHERE c.merged_into_customer_id IS NULL AND ${match.sql} ORDER BY c.id LIMIT 3`, [match.p]);
+      WHERE c.merged_into_customer_id IS NULL AND ${match.sql}${ownOnly} ORDER BY c.id LIMIT 3`, ownOnly ? [match.p, Number(u.salespersonId)] : [match.p]);
   if (!rows.length) { log(u, { action: "search", kind: lk.kind, hash, result: "none" }, at);
     return { result: "none", message: "مشتری‌ای با این مشخصات پیدا نشد." }; }
   if (rows.length > 1) { log(u, { action: "search", kind: lk.kind, hash, result: "ambiguous" }, at);
@@ -310,10 +295,84 @@ export function elIncomingSearch(u: U, raw: unknown, now = new Date()): ElSearch
     log(u, { action: "search", kind: lk.kind, hash, result: "own", customerId: Number(c.id), ownerSp: Number(c.sp) }, at);
     return { result: "own", customer: { id: Number(c.id), name: String(c.name ?? "") }, windowMinutes: EL_GRANT_MINUTES };
   }
-  // another expert's (or nobody's) customer: owner name only + one CRM bell to the owner
-  const notified = bellOwner(u, { id: Number(c.id), name: String(c.name ?? ""), sp: c.sp == null ? null : Number(c.sp) }, now);
-  log(u, { action: "search", kind: lk.kind, hash, result: "other", customerId: Number(c.id), ownerSp: c.sp == null ? null : Number(c.sp), notified }, at);
-  return { result: "other", ownerName: String(c.owner_name ?? "") || "بدون کارشناس", notified };
+  // SEARCH-C: another expert's (or nobody's) customer, full number only → customer name + owner name; no id, phone, file or history.
+  // No automatic bell any more: the owner is told only when the caller presses «ارجاع» (POST …/incoming/refer).
+  log(u, { action: "search", kind: lk.kind, hash, result: "other", customerId: Number(c.id), ownerSp: c.sp == null ? null : Number(c.sp), notified: false }, at);
+  const ow = referralOwner(c.sp == null ? null : Number(c.sp));
+  return { result: "other", name: String(c.name ?? "") || "مشتری", ownerName: String(c.owner_name ?? "") || "بدون کارشناس", notified: false,
+    referable: Boolean(ow), referred: Boolean(ow && recentReferral(u, Number(c.id), now)), refToken: ow ? issueRefToken(u, Number(c.id), now) : null };
+}
+
+/* ---------------- SEARCH-C «ارجاع» ---------------- */
+export const EL_REFER_TASK = "تماس با مشتری ارجاعی";  // owner's Today label + bell title (Armita v1.1)
+export const EL_REFER_WINDOW_MS = 30 * 60_000;         // one referral per caller+customer per window; the search must be this recent
+export const EL_REFER_DAY_MAX = 10;                     // referrals per caller per Tehran day
+/** The referral target: an active salesperson user of that salesperson; never user 29, never a trainee (sp 5/19/20), never «بدون کارشناس». */
+function referralOwner(sp: number | null): { id: number } | null {
+  if (sp == null || MANAGER_TRAINEE_SALESPERSON_IDS.includes(sp)) return null;
+  const o = queryRow<{ id: number }>("SELECT id FROM users WHERE salesperson_id=? AND role='salesperson' AND active=1 AND id<>29 ORDER BY id LIMIT 1", [sp]);
+  return o ? { id: Number(o.id) } : null;
+}
+/** Opaque one-caller refToken (Armita v1.1 server contract `POST …/refer { refToken }`): random, in memory, bound to the caller, EL_REFER_WINDOW_MS. No id inside. */
+const refTokens = new Map<string, { userId: number; customerId: number; exp: number }>();
+function issueRefToken(u: U, customerId: number, now: Date): string {
+  const t = now.getTime(); for (const [k, v] of refTokens) if (v.exp <= t) refTokens.delete(k);
+  if (refTokens.size > 5000) refTokens.clear();
+  const tok = randomBytes(18).toString("base64url"); refTokens.set(tok, { userId: Number(u.id), customerId, exp: t + EL_REFER_WINDOW_MS }); return tok;
+}
+const recentReferral = (u: U, cid: number, now: Date) => queryRow<{ created_at: string }>(
+  "SELECT created_at FROM el_referrals WHERE from_user_id=? AND customer_id=? AND created_at>? ORDER BY id DESC LIMIT 1",
+  [Number(u.id), cid, new Date(now.getTime() - EL_REFER_WINDOW_MS).toISOString()]) ?? null;
+export type ElReferResult =
+  | { result: "referred"; name: string; ownerName: string; at: string; already: boolean }
+  | { result: "invalid" | "not_referable" | "rate_limited"; message: string };
+/**
+ * POST /expert-lockdown/incoming/refer {refToken}: the opaque token from the caller's own «other» search (no customer id ever leaves the server); also requires that
+ * «other» search of this customer in the last EL_REFER_WINDOW_MS, then: one in-CRM bell to the owner + a top «تماس با مشتری ارجاعی» item on the owner's Today
+ * (el_referrals → daily-plan dpRefresh). Nothing to the customer, no SMS, no Bale. One per caller+customer per window (a repeat answers already:true and
+ * sends nothing), ≤ EL_REFER_DAY_MAX per caller per day, logged (action 'refer'). DP_TEST_NO_BELLS=1 writes the bell to dp_test_bells.
+ */
+export function elIncomingRefer(u: U, rawToken: unknown, now = new Date()): ElReferResult {
+  ensureElSchema();
+  const at = now.toISOString();
+  const tk = typeof rawToken === "string" && rawToken.length <= 64 ? refTokens.get(rawToken) : undefined;
+  if (!tk || tk.userId !== Number(u.id) || tk.exp <= now.getTime()) { log(u, { action: "refer", kind: "token", result: "invalid" }, at);
+    return { result: "invalid", message: "مهلت ارجاع گذشته؛ شماره‌ی کامل مشتری را دوباره جست‌وجو کن." }; }
+  const hash = null;
+  const c = queryRow<{ id: number; name: string; sp: number | null; owner_name: string | null }>(
+    `SELECT c.id, c.name, c.salesperson_id sp, s.name owner_name FROM customers c LEFT JOIN salespersons s ON s.id=c.salesperson_id
+      WHERE c.merged_into_customer_id IS NULL AND c.id=?`, [tk.customerId]);
+  const searched = c && queryRow("SELECT 1 x FROM el_incoming_log WHERE user_id=? AND action='search' AND result='other' AND customer_id=? AND created_at>? LIMIT 1",
+    [Number(u.id), Number(c.id), new Date(now.getTime() - EL_REFER_WINDOW_MS).toISOString()]);
+  if (!c || c.sp == null || Number(c.sp) === Number(u.salespersonId) || !searched) {
+    log(u, { action: "refer", kind: "token", hash, result: "invalid" }, at);
+    return { result: "invalid", message: "اول شماره‌ی کامل مشتری را در «پیدا کردن مشتری» جست‌وجو کن." }; }
+  const sp = Number(c.sp); const name = String(c.name ?? "") || "مشتری"; const ownerName = String(c.owner_name ?? "") || "بدون کارشناس";
+  const owner = referralOwner(sp);
+  if (!owner) { log(u, { action: "refer", kind: "token", hash, result: "not_referable", customerId: Number(c.id), ownerSp: sp }, at);
+    return { result: "not_referable", message: "ارجاع برای این کارشناس فعال نیست." }; }
+  const prev = recentReferral(u, Number(c.id), now);
+  if (prev) { log(u, { action: "refer", kind: "token", hash, result: "already", customerId: Number(c.id), ownerSp: sp }, at);
+    return { result: "referred", name, ownerName, at: prev.created_at, already: true }; }
+  const today = dpToday(now);
+  const dayN = Number(queryRow<{ n: number }>("SELECT count(*) n FROM el_referrals WHERE from_user_id=? AND day=?", [Number(u.id), today])?.n ?? 0);
+  if (dayN >= EL_REFER_DAY_MAX) { log(u, { action: "refer_limited", kind: "token", hash, result: "rate_limited", customerId: Number(c.id), ownerSp: sp }, at);
+    return { result: "rate_limited", message: "سقف ارجاع امروز پر شد؛ با مدیر هماهنگ کن." }; }
+  const caller = String(u.fullName ?? "").trim() || "یکی از همکاران";
+  runTransaction(() => {
+    execute("INSERT INTO el_referrals(from_user_id,from_salesperson_id,customer_id,owner_salesperson_id,owner_user_id,day,created_at) VALUES(?,?,?,?,?,?,?)",
+      [Number(u.id), Number(u.salespersonId), Number(c.id), sp, owner.id, today, at]);
+    if (process.env.DP_TEST_NO_BELLS === "1") {
+      execute("CREATE TABLE IF NOT EXISTS dp_test_bells(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, resource_id INTEGER, recipient_user_id INTEGER, title TEXT, created_at TEXT)");
+      execute("INSERT INTO dp_test_bells(kind,resource_id,recipient_user_id,title,created_at) VALUES(?,?,?,?,?)", ["incoming-referral", Number(c.id), owner.id, EL_REFER_TASK, at]);
+    } else {
+      execute(`INSERT INTO site_notification_events(customer_id,customer_name,owner_id,resource_type,resource_id,kind,title,body,permission,created_at,actor_key,recipient_user_id)
+        VALUES(?,?,?,'customer',?,'incoming-call',?,?,'customers.view',?,?,?)`,
+        [Number(c.id), name, sp, Number(c.id), EL_REFER_TASK, `${caller} مشتری‌ات «${name}» را ارجاع داد (تماس ورودی)؛ با او تماس بگیر. در «کارهای امروز» بالای لیست است.`, at, `expert-lockdown:${Number(u.id)}`, owner.id]);
+    }
+    log(u, { action: "refer", kind: "token", hash, result: "referred", customerId: Number(c.id), ownerSp: sp, notified: true }, at);
+  });
+  return { result: "referred", name, ownerName, at, already: false };
 }
 
 /* ---------------- SEARCH-65b: live «تماس ورودی داشتم» search (own customers only) ---------------- */
@@ -404,7 +463,8 @@ export function elDailyCounts(day: string) {
   const rows = queryRows<any>(`SELECT l.user_id, s.name, SUM(action='open') opens, SUM(action='search') searches, SUM(action='search' AND result='own') own,
       SUM(action='search' AND result='other') other, SUM(action='search' AND result IN ('none','ambiguous','invalid')) none, SUM(action='search_limited') limited, SUM(notified) bells,
       SUM(action='choose_own') choose_own, SUM(action='choose_new') choose_new, SUM(action='new_check') new_checks,
-      SUM(action IN ('new_check','new_create') AND result='duplicate') duplicates, SUM(action='new_create' AND result='created') created
+      SUM(action IN ('new_check','new_create') AND result='duplicate') duplicates, SUM(action='new_create' AND result='created') created,
+      SUM(action='refer' AND result='referred') referred
     FROM el_incoming_log l LEFT JOIN salespersons s ON s.id=l.salesperson_id WHERE l.created_at>=? AND l.created_at<? GROUP BY l.user_id ORDER BY l.user_id`, [from, to]);
   const logged = (sp: number) => queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='dp_items'")
     ? Number(queryRow<{ n: number }>("SELECT count(*) n FROM dp_items i JOIN dp_plans p ON p.id=i.plan_id WHERE p.salesperson_id=? AND p.day=? AND i.bucket='outside'", [sp, day])?.n ?? 0) : 0;
@@ -413,7 +473,7 @@ export function elDailyCounts(day: string) {
     const name = r?.name ?? queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [sp])?.name ?? "";
     return { userId: Number(uid), salespersonId: sp, name, opens: Number(r?.opens ?? 0), searches: Number(r?.searches ?? 0), own: Number(r?.own ?? 0),
       other: Number(r?.other ?? 0), none: Number(r?.none ?? 0), limited: Number(r?.limited ?? 0), bells: Number(r?.bells ?? 0), loggedOutOfList: logged(sp),
-      chooseOwn: Number(r?.choose_own ?? 0), chooseNew: Number(r?.choose_new ?? 0), newChecks: Number(r?.new_checks ?? 0), duplicates: Number(r?.duplicates ?? 0), created: Number(r?.created ?? 0) };
+      chooseOwn: Number(r?.choose_own ?? 0), chooseNew: Number(r?.choose_new ?? 0), newChecks: Number(r?.new_checks ?? 0), duplicates: Number(r?.duplicates ?? 0), created: Number(r?.created ?? 0), referred: Number(r?.referred ?? 0) };
   });
   return { day, flag: elFlagOn(), experts };
 }

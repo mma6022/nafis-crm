@@ -4,7 +4,7 @@ import type { AuthUser } from "../lib/auth";
 import { dpIncomingFirstCallMirror, dpToday } from "../lib/daily-plan";
 import { firstCallIncomplete } from "../lib/first-call-incomplete";
 import { tcOn } from "../lib/today-carousel";
-import { EL_ADMIN_USER_IDS, EL_ALLOWED_PAGES, EL_GRANT_MINUTES, elDailyCounts, elIncomingChoose, elIncomingOpen, elIncomingSearch, elLocked, elNewCheck, elNewCreate, elIncomingSuggest, elIncomingPick } from "../lib/expert-lockdown";
+import { EL_ADMIN_USER_IDS, EL_ALLOWED_PAGES, EL_GRANT_MINUTES, elDailyCounts, elIncomingChoose, elIncomingOpen, elIncomingSearch, elIncomingRefer, elLocked, elNewCheck, elNewCreate, elIncomingSuggest, elIncomingPick } from "../lib/expert-lockdown";
 
 const router: IRouter = Router();
 const me = (res: any) => res.locals.authUser as AuthUser | undefined;
@@ -26,6 +26,13 @@ router.post("/expert-lockdown/incoming/search", (req, res): void => {
   if (!incomingOk(u)) { res.status(404).json({ error: "not_found" }); return; }
   const r = elIncomingSearch(u!, req.body?.q);
   res.status(r.result === "rate_limited" ? 429 : 200).json(r);
+});
+// SEARCH-C: «ارجاع» of another expert's customer found by full number → owner bell + top «تماس با مشتری ارجاعی» on the owner's Today. Nothing to the customer.
+router.post("/expert-lockdown/incoming/refer", (req, res): void => {
+  const u = me(res);
+  if (!incomingOk(u)) { res.status(404).json({ error: "not_found" }); return; }
+  const r = elIncomingRefer(u!, req.body?.refToken);
+  res.status(r.result === "rate_limited" ? 429 : r.result === "invalid" ? 400 : r.result === "not_referable" ? 409 : 200).json(r);
 });
 // incoming2-59: «تماس ورودی داشتم» → option click log, «ثبت مشتری جدید» step 1 (phone duplicate check) and create.
 router.post("/expert-lockdown/incoming/choose", (req, res): void => {

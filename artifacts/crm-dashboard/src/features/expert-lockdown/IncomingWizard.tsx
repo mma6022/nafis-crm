@@ -9,17 +9,36 @@
  *  → tap = 65b's /incoming/pick (same own path); «پیدا کن» with the full number is the existing exact search (other expert → owner name only). */
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Check, ChevronRight, FileText, Info, Lock, Pencil, Phone, PhoneIncoming, Plus, Search, User, X } from 'lucide-react';
+import { AlertTriangle, Check, ChevronRight, FileText, Info, Lock, Pencil, Phone, PhoneIncoming, Plus, Search, Send, User, X } from 'lucide-react';
 import { getGetAuthSessionQueryKey, getGetCustomerQueryKey, useGetAuthSession, useGetCustomer } from '@workspace/api-client-react';
 import { faNum } from '@/features/call-queue/api';
 import { useCallLauncher } from '@/features/team-sales/useCallLauncher';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 import { elApi, type ElSearch, type ElSuggest } from './api';
 import { liveQueryReady } from './IncomingCall';
+import './lockdown.css';
 import { OutOfListLog } from './OutOfListLog';
 import '@/features/daily-plan/carousel.css';
 
-type Step = 'choose' | 'old_phone' | 'own' | 'other' | 'none' | 'new_form' | 'dup' | 'log' | 'ok';
+type Step = 'choose' | 'old_phone' | 'own' | 'other' | 'referred' | 'none' | 'new_form' | 'dup' | 'log' | 'ok';
+/** SEARCH-C copy (Armita v1.1 scenes 16–18) in one place so later design passes only edit strings. */
+export const SC = {
+  own: 'مشتری خودت',
+  other: 'کارشناس دیگر',
+  hint: 'مشتری‌های خودت همین‌طور که می‌نویسی می‌آیند (چند رقم یا نام). مشتری همکار فقط با شماره‌ی کامل ۱۱ رقمی و «پیدا کن» پیدا می‌شود.',
+  belongs: (o: string) => `این مشتری برای کارشناس ${o} است`,
+  referTo: (o: string) => `ارجاع به ${o}`,
+  referring: 'در حال ارجاع…',
+  close: 'بستن',
+  referredTitle: (o: string) => `به ${o} ارجاع شد`,
+  referredLine: (o: string, t: string) => `ارجاع به کارشناس ${o} · امروز ${t}`,
+  b1: (o: string) => `${o} یک اعلان داخل CRM گرفت و کار «تماس با مشتری ارجاعی» اول لیست امروزش آمد؛ کاری که الان دستش است سر جایش می‌ماند.`,
+  b2: (o: string) => `به مشتری هیچ پیامی فرستاده نمی‌شود؛ به او بگو «${o} با شما تماس می‌گیرد».`,
+  b3: 'کار جاری تو سر جایش است.',
+  already: 'قبلاً ارجاع داده بودی؛ دوباره اعلان فرستاده نشد.',
+  notReferable: 'ارجاع برای این کارشناس فعال نیست؛ بگو کارشناسش با او تماس می‌گیرد.',
+};
+const tehHm = (iso: string) => { try { return new Intl.DateTimeFormat('fa-IR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Tehran' }).format(new Date(iso)); } catch { return ''; } };
 export const maskTel = (t: string | null) => (t ? faNum(`${t.slice(0, 4)}***${t.slice(-4)}`) : '');
 export const phone11 = (s: string) => {
   const d = s.replace(/[۰-۹]/g, (c) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(c))).replace(/[٠-٩]/g, (c) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(c))).replace(/\D/g, '');
@@ -89,7 +108,8 @@ export function IncomingWizard({ currentNo, onClose, onSaved, onEvent }: {
   const [path, setPath] = useState<'old' | 'new'>('old');
   const [phone, setPhone] = useState(''); const [name, setName] = useState('');
   const [cust, setCust] = useState<{ id: number; name: string } | null>(null); const [created, setCreated] = useState(false);
-  const [owner, setOwner] = useState<{ name: string; notified: boolean } | null>(null);
+  const [owner, setOwner] = useState<{ name: string; notified: boolean; cust?: string; refToken?: string | null; referable?: boolean; referred?: boolean } | null>(null);
+  const [refd, setRefd] = useState<{ at: string; already: boolean } | null>(null);
   const [live, setLive] = useState<{ q: string; r: ElSuggest } | null>(null); const [tail, setTail] = useState(''); const seq = useRef(0);
   const [err, setErr] = useState(''); const [busy, setBusy] = useState(false); const [ok, setOk] = useState('');
   const [fcOpen, setFcOpen] = useState(false); const [confirm, setConfirm] = useState(false); const [kind, setKind] = useState('');
@@ -122,7 +142,7 @@ export function IncomingWizard({ currentNo, onClose, onSaved, onEvent }: {
     if (!ph) return badPhone(); setBusy(true); setErr(''); setTail('');
     try { const r: ElSearch = await elApi.search(ph);
       if (r.result === 'own') { setCust(r.customer); setCreated(false); setStep('own'); }
-      else if (r.result === 'other') { setOwner({ name: r.ownerName, notified: r.notified }); setStep('other'); }
+      else if (r.result === 'other') { setOwner({ name: r.ownerName, notified: r.notified, cust: r.name, refToken: r.refToken, referable: r.referable, referred: r.referred }); setRefd(null); setStep('other'); ev('incoming_other'); }
       else if (r.result === 'none') setStep('none');
       else setErr(r.message);
     } catch (e) { setErr(e instanceof Error ? e.message : 'جست‌وجو انجام نشد.'); } finally { setBusy(false); }
@@ -140,12 +160,19 @@ export function IncomingWizard({ currentNo, onClose, onSaved, onEvent }: {
       } else setErr('message' in r ? r.message : 'ثبت نشد.');
     } catch (e) { setErr(e instanceof Error ? e.message : 'ثبت نشد.'); } finally { setBusy(false); }
   };
+  const refer = async () => {
+    if (!owner?.refToken) return; setBusy(true); setErr('');
+    try { const r = await elApi.refer(owner.refToken);
+      if (r.result === 'referred') { setRefd({ at: r.at, already: r.already }); setStep('referred'); ev('incoming_referred'); }
+      else setErr(r.message);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'ارجاع انجام نشد.'); } finally { setBusy(false); }
+  };
   const saved = (m: string) => { ev(created ? 'incoming_new_saved' : 'incoming_own_saved'); setOk(m); setStep('ok'); onSaved(m); };
   // v1.1: new path = 3 steps; for the qualifier step 3 is the first-call form (call + form, one save).
   const P = path === 'new' && kind === 'simple' ? ['نوع تماس', 'شماره و نام', 'فرم تماس اول'] : PATHS[path];
   const stepNo = step === 'choose' ? 1 : step === 'old_phone' || step === 'new_form' || step === 'dup' || step === 'none' ? 2 : 3;
-  const counted = step !== 'choose' && step !== 'none' && step !== 'ok';
-  const title = { choose: 'کی زنگ زد؟', old_phone: 'مشتری قبلی: شماره‌اش را بزن', own: 'مشتری خودت است', other: 'این مشتری مال همکار است', none: 'این شماره در CRM نیست',
+  const counted = step !== 'choose' && step !== 'none' && step !== 'ok' && step !== 'referred';
+  const title = { choose: 'کی زنگ زد؟', old_phone: 'مشتری قبلی: شماره‌اش را بزن', own: 'مشتری خودت است', other: 'این مشتری مال همکار است', referred: SC.referredTitle(owner?.name ?? ''), none: 'این شماره در CRM نیست',
     new_form: 'مشتری جدید: فقط شماره و نام', dup: 'این شماره از قبل هست', log: 'ثبت تماس با مشتری جدید', ok: 'ثبت شد' }[step];
   const phoneIn = (ro: boolean, lv = false) => <>
     <label htmlFor="iw-phone">{lv ? 'شماره یا نام تماس‌گیرنده*' : 'شماره‌ی تماس‌گیرنده*'} <small>{ro ? 'از مرحله‌ی قبل' : lv ? 'چند رقم یا نام' : 'دقیق، ۱۱ رقم'}</small></label>
@@ -153,7 +180,7 @@ export function IncomingWizard({ currentNo, onClose, onSaved, onEvent }: {
   const telBtn = ph ? <a className="btn btn-primary iw-tel" href={`tel:${ph}`} data-testid="iw-tel-call"><Phone size={15} aria-hidden="true" /> تماس</a> : null;
   const hit = (kind: 'own' | 'new' | 'dup') => <div className={`tc-hit${kind === 'own' ? '' : ` ${kind}`}`} data-testid={`iw-hit-${kind}`}>
     {kind === 'new' ? <Plus size={18} aria-hidden="true" /> : kind === 'dup' ? <AlertTriangle size={18} aria-hidden="true" /> : <Check size={18} aria-hidden="true" />}
-    <div><b>{cust?.name} <span className="dp-id">#{faNum(cust?.id ?? 0)}</span></b><small>{kind === 'new' ? 'ساخته شد · مشتری خودت · ' : 'مشتری خودت · '}<bdi dir="ltr" data-testid="iw-tel">{ph ? maskTel(ph) : tail ? `••••${faNum(tail)}` : ''}</bdi>{kind === 'dup' ? ' · مشتری تازه ساخته نشد' : ''}</small>
+    <div><b>{cust?.name} <span className="dp-id">#{faNum(cust?.id ?? 0)}</span></b><small><span className="dp-chip l-own" data-testid="iw-own-badge">{SC.own}</span> {kind === 'new' ? 'ساخته شد · ' : ''}<bdi dir="ltr" data-testid="iw-tel">{ph ? maskTel(ph) : tail ? `••••${faNum(tail)}` : ''}</bdi>{kind === 'dup' ? ' · مشتری تازه ساخته نشد' : ''}</small>
       {kind === 'own' && cust ? <span className="iw-links"><a href={`/customers/${cust.id}`} target="_blank" rel="noopener" data-testid="iw-file"><FileText size={13} aria-hidden="true" /> پرونده</a> · <a href={`/customers/${cust.id}#sec-calls`} target="_blank" rel="noopener" data-testid="iw-history">تاریخچه و یادداشت‌ها</a></span> : null}</div>
     {kind === 'dup' ? null : telBtn ?? (cust ? <PickedTel id={cust.id} /> : null)}</div>;
   return <div className="tc-ov" role="presentation" style={fcOpen ? { display: 'none' } : undefined} onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) close(step === 'ok' ? 'done' : 'cancel'); }}>
@@ -172,10 +199,10 @@ export function IncomingWizard({ currentNo, onClose, onSaved, onEvent }: {
 
       {step === 'old_phone' ? <form onSubmit={(e) => { e.preventDefault(); void findOld(); }} className="tc-form" role="search">
         {phoneIn(false, true)}
-        <p className="dp-hint"><Search size={13} aria-hidden="true" /> چند رقم از شماره (حداقل ۴) یا نامش (حداقل ۲ حرف) — مشتری‌های خودت همین‌طور که می‌نویسی می‌آیند. مشتری همکار: شماره‌ی کامل + «پیدا کن».</p>
+        <p className="dp-hint" data-testid="iw-hint"><Search size={13} aria-hidden="true" /> {SC.hint}</p>
         {live && live.r.result === 'ok' && live.r.items.length ? <ul className="el-live" data-testid="iw-live" aria-label="مشتری‌های خودت">
           {live.r.items.map((it) => <li key={it.id}><button type="button" className="el-live-row" disabled={busy} onClick={() => void pickLive(it.id, it.phoneLast4)} data-testid={`iw-live-${it.id}`}>
-            <b>{it.name}</b><span className="el-live-ph" dir="ltr">••••{faNum(it.phoneLast4)}</span>
+            <b>{it.name}</b><span className="dp-chip l-own" data-testid="iw-live-own">{SC.own}</span><span className="el-live-ph" dir="ltr">••••{faNum(it.phoneLast4)}</span>
             {it.priority && it.priority >= 1 && it.priority <= 3 ? <span className={`dp-chip p${it.priority}`}>{`اولویت ${faNum(it.priority)}`}</span> : null}
             {it.match === 'exact' ? <span className="dp-chip l-exact">{live.r.result === 'ok' && live.r.kind === 'phone' ? 'همین شماره' : 'همین نام'}</span> : null}</button></li>)}</ul> : null}
         {live && live.r.result === 'ok' && !live.r.items.length && live.q === phone.trim() ? <p className="dp-box sm" role="status" data-testid="iw-live-none"><Info size={14} aria-hidden="true" /> بین مشتری‌های خودت پیدا نشد{ph ? ' — «پیدا کن» را بزن تا مشتری همکار یا «مشتری جدید» را ببینی.' : '.'}</p> : null}
@@ -199,11 +226,28 @@ export function IncomingWizard({ currentNo, onClose, onSaved, onEvent }: {
           <button type="button" className="btn btn-ghost" onClick={() => go('new_form')}><ChevronRight size={15} aria-hidden="true" /> قبلی</button></div>
       </div> : null}
 
-      {step === 'other' && owner ? <div className="tc-form">
+      {step === 'other' && owner && owner.cust ? <div className="tc-form">
+        <div className="tc-hit oth" role="status" data-testid="iw-other"><Lock size={18} aria-hidden="true" /><div>
+          <b data-testid="iw-other-name">{owner.cust}</b>
+          <small data-testid="iw-owner">{SC.belongs(owner.name)}</small>
+          {owner.referred ? <small data-testid="iw-other-referred">{SC.already}</small> : null}
+          {!owner.referable ? <small data-testid="iw-other-noref">{SC.notReferable}</small> : null}</div></div>
+        <div className="tc-foot">{owner.referable && owner.refToken ? <button type="button" className="btn btn-primary" onClick={() => void refer()} disabled={busy} data-testid="iw-refer"><Send size={15} aria-hidden="true" /> {busy ? SC.referring : SC.referTo(owner.name)}</button> : null}
+          <button type="button" className={owner.referable && owner.refToken ? 'btn btn-ghost' : 'btn btn-primary'} onClick={() => close('done')} disabled={busy} data-testid="iw-close-other">{SC.close}</button></div>
+      </div> : null}
+      {step === 'other' && owner && !owner.cust ? <div className="tc-form">
         <div className="tc-hit oth" role="status" data-testid="iw-other"><Lock size={18} aria-hidden="true" /><div>
           <b data-testid="iw-owner">کارشناس این مشتری: {owner.name}</b>
           <small>{owner.name === 'خودت' ? 'این شماره مال خودت است.' : `جزئیات نشان داده نمی‌شود. بگو ${owner.name} با او تماس می‌گیرد.`}</small></div></div>
         <div className="tc-foot"><button type="button" className="btn btn-primary" onClick={() => close('done')} data-testid="iw-close-other">بستن و {backTxt}</button></div>
+      </div> : null}
+      {step === 'referred' && owner && refd ? <div className="tc-form">
+        <div className="tc-hit" role="status" data-testid="iw-referred"><Check size={18} aria-hidden="true" /><div>
+          <b>{owner.cust}</b><small>{SC.referredLine(owner.name, tehHm(refd.at))}</small></div></div>
+        <ul className="iw-ref-list" data-testid="iw-referred-list">
+          {refd.already ? <li>{SC.already}</li> : <li>{SC.b1(owner.name)}</li>}
+          <li>{SC.b2(owner.name)}</li><li>{SC.b3}</li></ul>
+        <div className="tc-foot"><button type="button" className="btn btn-primary" onClick={() => close('done')} data-testid="iw-close-referred">بستن و {backTxt}</button></div>
       </div> : null}
 
       {step === 'none' ? <div className="tc-form">

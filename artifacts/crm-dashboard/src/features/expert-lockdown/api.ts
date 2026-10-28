@@ -4,8 +4,10 @@ import { useQuery } from '@tanstack/react-query';
 export type ElMe = { locked: false } | { locked: true; allowedPages: string[]; grantMinutes: number };
 export type ElSearch =
   | { result: 'own'; customer: { id: number; name: string }; windowMinutes: number }
-  | { result: 'other'; ownerName: string; notified: boolean }
+  | { result: 'other'; name: string; ownerName: string; notified: boolean; referable: boolean; referred: boolean; refToken: string | null }
   | { result: 'none' | 'ambiguous' | 'invalid' | 'rate_limited'; message: string };
+/** SEARCH-C «ارجاع» (Armita v1.1: POST …/refer { refToken }). */
+export type ElRefer = { result: 'referred'; name: string; ownerName: string; at: string; already: boolean } | { result: 'invalid' | 'not_referable' | 'rate_limited'; message: string };
 export type ElNew =
   | { result: 'new' }
   | { result: 'duplicate'; ownerName: string; mine: boolean; notified?: boolean }
@@ -28,6 +30,7 @@ export const elApi = {
   suggest: (q: string, signal?: AbortSignal) => fetch('/api/expert-lockdown/incoming/suggest', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q }), signal })
     .then(async (r) => { const d = await r.json().catch(() => null); if (!d?.result) throw new Error('جست‌وجو انجام نشد.'); return d as ElSuggest; }),
   pick: (id: number) => req<ElSearch>('POST', '/expert-lockdown/incoming/pick', { pick: id }),
+  refer: (refToken: string) => req<ElRefer>('POST', '/expert-lockdown/incoming/refer', { refToken }),
   choose: (option: 'own' | 'new') => req<{ ok: boolean }>('POST', '/expert-lockdown/incoming/choose', { option }),
   newCheck: (phone: string) => req<ElNew>('POST', '/expert-lockdown/incoming/new/check', { phone }),
   create: (body: { phone: string; name: string; description?: string }) => req<ElNew>('POST', '/expert-lockdown/incoming/new', body),

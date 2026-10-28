@@ -78,8 +78,8 @@ export function LockedInbound({ onClose, onSaved, currentNo, onBack, onNew }: { 
     {res && res.result !== 'own' && res.result !== 'other' ? <p className="dp-box sm" role="status" data-testid={`el-in-${res.result}`}><Info size={14} aria-hidden="true" /> {res.message}</p> : null}
     {res?.result === 'other' ? <div className="el-owner" role="status" data-testid="el-in-other">
       <span><Lock size={14} aria-hidden="true" /> این مشتری مال کارشناس دیگری است</span>
-      <b data-testid="el-in-owner">کارشناس پرونده: {res.ownerName}</b>
-      <small>{res.notified ? `به ${res.ownerName} خبر دادیم که این مشتری تماس گرفته است.` : 'برای این تماس قبلاً خبر داده شده است.'} پرونده و ثبت تماس فقط برای کارشناس خودش باز است.</small>
+      <b data-testid="el-in-owner">{res.name} · این مشتری برای کارشناس {res.ownerName} است</b>
+      <small>پرونده و ثبت تماس فقط برای کارشناس خودش باز است. برای ارجاع از «تماس ورودی داشتم» استفاده کن.</small>
     </div> : null}
     {own ? <div className="dp-result" data-testid="el-in-file">
       <p><b>{own.name}</b> <span className="dp-id">#{faNum(own.id)}</span> <span className="dp-chip l-out_of_list">خارج از لیست</span> · <Link href={`/customers/${own.id}`} data-testid="el-in-open"><FileText size={13} aria-hidden="true" /> باز کردن پرونده</Link></p>
@@ -90,7 +90,7 @@ export function LockedInbound({ onClose, onSaved, currentNo, onBack, onNew }: { 
     {!res && !ok && !live ? <ul className="dp-hint" data-testid="el-in-rules">
       <li><UserRound size={13} aria-hidden="true" /> فقط وقتی مشتری خودش زنگ زده. همین‌طور که می‌نویسی، فقط مشتری‌های خودت (حداکثر ۸ تا) می‌آیند؛ روی اسم بزن.</li>
       <li>مشتری خودت: پرونده چند دقیقه باز می‌شود و تماس «خارج از لیست» ثبت می‌شود.</li>
-      <li>مشتری کارشناس دیگر: فقط نام کارشناسش را می‌بینی و به او خبر داده می‌شود.</li>
+      <li>مشتری کارشناس دیگر (فقط با شماره‌ی کامل): نام مشتری و نام کارشناسش را می‌بینی.</li>
       <li>کار جاری سر جایش است و شمارنده‌ی لیست عوض نمی‌شود.</li></ul> : null}
     {onBack ? <button type="button" className="btn btn-ghost" onClick={onBack} data-testid="el-in-back">برگشت به انتخاب</button> : null}
   </section>;

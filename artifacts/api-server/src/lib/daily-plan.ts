@@ -24,7 +24,7 @@ export const DP_TYPE_LABELS: Record<DpType, string> = { urgent: "فوری", due:
 const RANK: Record<DpType, number> = { urgent: 0, due: 1, first: 2, followup: 3, loan_followup: 3 };
 export const DP_EVENTS = { finished: "daily_plan_finished", rejected: "daily_plan_rejected", capacityOverride: "daily_plan_capacity_override", backlog: "daily_plan_backlog", boost: "daily_plan_boost" } as const;
 export const DP_LABELS = { auto: "لیست خودکار", added: "تازه اضافه شد", urgent: "فوری", due: "سررسید", carried: "مانده از دیروز", supplementary: "تکمیلی",
-  transferred: "منتقل شد", outOfList: "خارج از لیست", outOfGuard: "خارج از حد", autoDay: "خودکار", boost: "اولویت دستیار" } as const;
+  transferred: "منتقل شد", outOfList: "خارج از لیست", outOfGuard: "خارج از حد", autoDay: "خودکار", boost: "اولویت دستیار", referral: "تماس با مشتری ارجاعی" } as const;
 export const DP_BOOST_MAX = 20;
 export const DP_MOVE_MAX = 2;
 export const DP_MOVE_LAST_MIN = 17 * 60 + 45;
@@ -725,6 +725,13 @@ export function dpRefresh(p0: Plan, now = new Date()): Plan {
   for (const r of queryRows<{ id: number; customer_id: number }>(`SELECT r.id,r.customer_id FROM reminders r JOIN customers c ON c.id=r.customer_id
       WHERE r.user_id=? AND r.done=0 AND r.voided_at IS NULL AND r.remind_at>? AND r.remind_at<=? AND c.salesperson_id=? AND c.merged_into_customer_id IS NULL ORDER BY r.remind_at`, [p.user_id, t0, at, sp]))
     if (seenOnce(p.id, `r:${r.id}`)) pushExtra(p, Number(r.customer_id), "due", 1, DP_LABELS.due, "inserted", at);
+  // SEARCH-C: «ارجاع» by a colleague (el_referrals, today) → «تماس با مشتری ارجاعی» on top (rank 0), once per referral; only while still this expert's customer.
+  if (hasTable("el_referrals"))
+    for (const x of queryRows<{ id: number; customer_id: number; from_name: string | null; created_at: string }>(`SELECT x.id,x.customer_id,x.created_at,COALESCE(NULLIF(trim(u.full_name),''),u.username) from_name
+        FROM el_referrals x JOIN customers c ON c.id=x.customer_id LEFT JOIN users u ON u.id=x.from_user_id
+        WHERE x.owner_salesperson_id=? AND x.day=? AND c.salesperson_id=? AND c.merged_into_customer_id IS NULL ORDER BY x.id`, [sp, p.day, sp]))
+      if (seenOnce(p.id, `x:${x.id}`)) pushExtra(p, Number(x.customer_id), firstIfNoCalls(Number(x.customer_id), "followup"), 0, DP_LABELS.referral, "referral", at,
+        `ارجاع از ${String(x.from_name ?? "همکار")} · امروز ${faDigits(hhmm(x.created_at))} · مشتری تماس ورودی داشت`.slice(0, DP_REASON_MAX));
   // «تماس اول» for any customer that became this expert's with no call yet (new or transferred, every expert).
   // The first pass only notes who was already there (created before t0), so nothing old floods in.
   const fresh = queryRows<{ id: number; created_at: string }>(`SELECT c.id,c.created_at FROM customers c WHERE c.salesperson_id=? AND c.merged_into_customer_id IS NULL AND c.status='in_progress'
