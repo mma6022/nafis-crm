@@ -1,4 +1,6 @@
 import { Router, type IRouter } from "express";
+import { assertP1RevertAllowed } from "../lib/history-a";
+import { TeamSalesError } from "../lib/team-sales";
 import { callNoteError } from "../lib/call-note-rule";
 import { CompleteVoipAfterCallBody, CompleteVoipAfterCallParams, ListPendingVoipAfterCallsResponse } from "@workspace/api-zod";
 import { requirePermission } from "../lib/access-control";
@@ -92,6 +94,11 @@ router.patch("/voip/after-call/:id", requirePermission("calls.view"), requirePer
     }
     if (body.priority !== undefined && !canAccessAfterCallCustomer(event, actor)) {
       res.status(403).json({ error: "اجازهٔ تغییر اولویت این مشتری را ندارید." }); return;
+    }
+    // HISTORY-A: a P1 the expert set with «ارتقا به اولویت یک» goes back only through an admin.
+    if (body.priority !== undefined && event.actual_customer_id != null) {
+      try { assertP1RevertAllowed(Number(event.actual_customer_id), body.priority, actor); }
+      catch (e) { if (e instanceof TeamSalesError) { res.status(e.status).json({ error: e.message, code: "p1_revert_admin_only" }); return; } throw e; }
     }
     if (event.call_log_id != null) executeChanges("UPDATE call_logs SET expert_notes=?,subject=CASE WHEN ? THEN ? ELSE subject END,customer_request=CASE WHEN ? THEN ? ELSE customer_request END WHERE id=?",
       [body.expertNotes,body.subject!==undefined?1:0,body.subject??null,body.customerRequest!==undefined?1:0,body.customerRequest??null,event.call_log_id]);

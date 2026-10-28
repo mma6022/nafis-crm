@@ -7,7 +7,7 @@ export type TeamSalesConfig = {
   closerFirstCallWorkingHours: number;
 };
 export type NextCloser = { salespersonId: number; name: string; dueAt: string | null; dueLabel: string | null; workingHours: number;
-  /** crm-kz-return: present when asked for a specific customer. HOTFIX-73: 'self' = a closer upgrading their own customer (stays with them). */
+  /** crm-kz-return: present when asked for a specific customer. HISTORY-A: 'self' = a closer upgrading their own customer (stays with them). */
   assignment?: 'previous_expert' | 'fair_split' | 'self'; self?: boolean; assignmentLabel?: string; transferCheck?: TransferCheck };
 export type PromoteResult = {
   customerId: number; closerSalespersonId: number; closerName: string; dueAt: string | null; dueLabel: string | null;
@@ -132,9 +132,10 @@ export function canUpgradeToP1(
 export const showsUpgradeButton = (...a: Parameters<typeof canUpgradeToP1>) => canUpgradeToP1(...a) && (a[2]?.priority === 2 || a[2]?.priority === 3);
 export const fetchNextCloser = (customerId?: number) =>
   request<NextCloser>(customerId ? `/sales/next-closer?customerId=${encodeURIComponent(customerId)}` : '/sales/next-closer');
-export const upgradePriority = (customerId: number, note: string, transferOverrideReason?: string) =>
+/** HISTORY-A: `reason` (≤80) is mandatory for experts; the server records it in the priority history. */
+export const upgradePriority = (customerId: number, note: string, transferOverrideReason?: string, reason?: string) =>
   request<PromoteResult>(`/customers/${customerId}/upgrade-priority`, { method: 'POST',
-    body: JSON.stringify({ note: note.trim() || null, ...(transferOverrideReason ? { transferOverrideReason } : {}) }) });
+    body: JSON.stringify({ note: note.trim() || null, ...(reason?.trim() ? { reason: reason.trim() } : {}), ...(transferOverrideReason ? { transferOverrideReason } : {}) }) });
 export const submitSimpleForm = (customerId: number, answers: SimpleAnswers, note: string, selectedPlans?: number[], noPlanNote?: string, transferOverrideReason?: string) =>
   request<QualifyResult>(`/customers/${customerId}/team-sales/qualify`, { method: 'POST',
     body: JSON.stringify({ answers, note, ...(selectedPlans ? { selectedPlans } : {}), ...(noPlanNote ? { noPlanNote } : {}),

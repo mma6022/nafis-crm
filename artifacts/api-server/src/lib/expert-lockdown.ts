@@ -144,7 +144,7 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   const listedCustomerRead = req.method === "GET" && ids.length === 1 && EL_CUSTOMER_SCOPED_READS.some((re) => re.test(path));
   // REMINDER-68: «ثبت یادآور» (POST /reminders: own customer, or no customer = personal) and «done» (PATCH /reminders: the handler scopes to user_id).
   const reminderWrite = (req.method === "POST" || req.method === "PATCH") && path === "/reminders";
-  const upgradeWrite = req.method === "POST" && /^\/customers\/\d+\/upgrade-priority$/.test(path);
+  const upgradeWrite = req.method === "POST" && /^\/customers\/\d+\/(upgrade-priority|priority)$/.test(path);
   const ownLevel = req.method === "GET" || req.method === "HEAD" || reminderWrite || upgradeWrite;
   if (!customerRoute && !customerWrite && !listedCustomerRead && !reminderWrite && !ALLOW.some((re) => re.test(path))) {
     if (process.env.EL_TRACE === "1") console.warn(`[expert-lockdown] deny ${req.method} ${path}`);
