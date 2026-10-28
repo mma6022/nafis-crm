@@ -15,7 +15,7 @@ export type FcCard = { fileId: number; customerId: number; customerName: string;
   lastFollowUp: { at: string; atTehran: string | null; source: string; outcome: string | null; outcomeLabel: string | null } | null;
   position: number; state: 'done' | 'current' | 'pending'; reason: string | null; ask: string | null;
   todayFollowUp: { at: string; outcome: string; outcomeLabel: string | null; note: string } | null };
-export type FcView = { enabled: true; date: string; total: number; done: number; index: number | null; currentFileId: number | null; orderSource: 'assistant' | 'default';
+export type FcView = { enabled: true; date: string; total: number; done: number; index: number | null; currentFileId: number | null; orderSource: 'assistant' | 'default'; waiting?: { total: number; groups: Array<{ code: string; label: string; count: number }> };
   outcomes: { code: string; label: string }[]; noteMax: number; cards: FcCard[] };
 export const fcApi = {
   config: () => req<{ enabled: boolean }>('GET', '/files-carousel/config'),

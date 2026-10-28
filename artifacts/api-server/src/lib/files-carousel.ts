@@ -284,6 +284,24 @@ export function fcAssistantFollowups(a: Asst, dayIn: unknown, now = new Date()) 
 }
 
 /* ---------------- expert ---------------- */
+/** f_empty «منتظر دیگران» (PM 10:57): open files of the expert NOT in the deck, counted per waiting group. Counts only — no names/stage labels/amounts. */
+export const FC_WAIT_GROUPS: Array<{ code: string; label: string; stages: string[] }> = [
+  { code: "registrar", label: "ثبت‌کننده", stages: ["customer_documents_review", "guarantor_documents_review", "collateral_review", "physical_documents_review"] },
+  { code: "funder", label: "تأمین‌کننده", stages: ["funder_initial_approval", "expert_approval", "funder_result_review", "funder_amendment_review"] },
+  { code: "admin", label: "ادمین", stages: ["admin_approval"] },
+  { code: "wallet", label: "کیف پول", stages: ["wallet_charge_pending"] },
+];
+function fcWaiting(sp: number, deckIds: Set<number>) {
+  const cnt = new Map<string, number>();
+  for (const f of openFiles(sp)) {
+    if (deckIds.has(f.id) || fcExpertStep(f.stage)) continue;
+    const g = FC_WAIT_GROUPS.find(w => w.stages.includes(f.stage))?.code ?? "other";
+    cnt.set(g, (cnt.get(g) ?? 0) + 1);
+  }
+  const groups = [...FC_WAIT_GROUPS.map(w => ({ code: w.code, label: w.label })), { code: "other", label: "سایر" }]
+    .map(w => ({ ...w, count: cnt.get(w.code) ?? 0 })).filter(w => w.count > 0);
+  return { total: groups.reduce((a, w) => a + w.count, 0), groups };
+}
 export function fcExpertView(u: U, now = new Date()) {
   ensureFcSchema();
   const sp = Number(u.salespersonId); const day = fcToday(now); const at = now.toISOString();
@@ -293,7 +311,7 @@ export function fcExpertView(u: U, now = new Date()) {
   const phone = curCust == null ? null : queryRow<{ phone: string | null }>("SELECT phone FROM customers WHERE id=? AND salesperson_id=?", [curCust, sp])?.phone ?? null;
   const idx = deck.current == null ? null : deck.cards.findIndex(c => c.f.id === deck.current) + 1;
   return { enabled: true, date: day, total: deck.cards.length, done: deck.doneCount, index: idx, currentFileId: deck.current,
-    orderSource: deck.ord ? "assistant" : "default", outcomes: CQ_OUTCOMES.map(o => ({ code: o, label: FC_OUTCOME_LABELS[o] })), noteMax: FC_NOTE_MAX,
+    orderSource: deck.ord ? "assistant" : "default", waiting: fcWaiting(sp, new Set(deck.cards.map(c => c.f.id))), outcomes: CQ_OUTCOMES.map(o => ({ code: o, label: FC_OUTCOME_LABELS[o] })), noteMax: FC_NOTE_MAX,
     cards: deck.cards.map(c => ({ ...expertCore(c.f), customerName: c.f.name ?? "", phone: c.state === "current" ? phone : null, returnedToday: c.returnedToday, position: c.position, state: c.state, reason: c.meta?.reason ?? null, ask: c.meta?.ask ?? null,
       todayFollowUp: c.fu ? { at: c.fu.created_at, outcome: c.fu.outcome, outcomeLabel: FC_OUTCOME_LABELS[c.fu.outcome] ?? null, note: c.fu.note } : null })) };
 }

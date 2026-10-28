@@ -54,7 +54,7 @@ export default function FilesCarousel() {
     </header>
     {shift ? <div className="dp-box warn banner" role="status" data-testid="fc-shift">{shift.left ? `${faNum(shift.left)} پرونده از نوبت تو بیرون رفت (اقدامش با واحد دیگری است). ` : ''}{shift.back ? `${faNum(shift.back)} پرونده به نوبت تو برگشت و بعد از کارت جاری آمد.` : ''} <button type="button" className="dp-link" onClick={() => setShift(null)}>باشه</button></div> : null}
     <p className="sr-only" aria-live="polite">{d.index ? `پرونده ${faNum(d.index)} از ${faNum(d.total)}` : ''}</p>
-    {!d.total ? <div className="dp-box" data-testid="fc-empty">پرونده‌ی در جریانی که اقدامش با تو باشد نداری.</div>
+    {!d.total ? <div className="dp-box" data-testid="fc-empty">پرونده‌ی در جریانی که اقدامش با تو باشد نداری.{d.waiting?.total ? <p className="fc-waiting" data-testid="fc-waiting">{faNum(d.waiting.total)} پرونده‌ی شما منتظر قدم بعدی دیگرانه: {d.waiting.groups.map(w => `${w.label} ${faNum(w.count)}`).join('، ')}</p> : null}</div>
       : curIdx < 0 && view == null ? <div className="dp-box ok" data-testid="fc-done">همه‌ی پرونده‌های امروز پیگیری شد. ترتیب فردا را دستیار می‌نویسد.</div> : null}
     {shown && (view != null || curIdx >= 0) ? <div className={`fc-deck ${anim}`}>
       <FileCard key={`${shown.fileId}-${shown.state}`} c={shown} d={d} readOnly={shown.state !== 'current'} titleRef={titleRef} onSaved={onSaved} />
