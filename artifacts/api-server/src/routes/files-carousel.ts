@@ -20,7 +20,7 @@ router.post("/files-carousel/followup", (req, res) => {
   if (fcIsErr(r)) return void res.status(r.status).json({ error: r.error, message: r.message, details: r.details ?? null });
   res.json(r);
 });
-/** REL-83 (flag.fc_categories): full list, «تازه برگشت» cleared on open, and the tel: number for the list's «پیگیری» sheet. Off → 404 fc_categories_off. */
+/** REL-83 (flag.fc_categories): full list, «پرونده برگشت خورد» cleared on open, and the tel: number for the list's «پیگیری» sheet. Off → 404 fc_categories_off. */
 const catOff = (res: Response) => {
   if (off(res)) return true;
   if (fcCatOn()) return false;

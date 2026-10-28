@@ -32,17 +32,29 @@ const R = (action: string, stage: string, o: Partial<FcSignals> = {}, reason: st
   C({ stage, lastMove: { action, toStage: stage, at: ago(2), reason, by: 7 }, ...o });
 c = R("return-customer-documents", "customer_documents_upload", { lastActivityAt: ago(30) }, "تصویر واضح نیست");
 ok("return action → group 1 even if 30d idle", c.priority_group === 1 && c.priority_category === "returned" && c.card, c);
-ok("no rejected items → missing_documents «برگشتی: نقص مدارک»", c.return_type === "missing_documents" && c.label === "برگشتی: نقص مدارک", c.label);
+ok("no rejected items → other «برگشتی: سایر» (PM 29 Oct: no guessing)", c.return_type === "other" && c.label === "برگشتی: سایر", c.label);
 ok("return_note = registrar comment; returned_by", c.return_note === "تصویر واضح نیست" && c.returned_by === 7, c);
 ok("sort_at = returned_at", c.sort_at === ago(2) && c.returned_at === ago(2), c.sort_at);
 c = R("return-customer-documents", "customer_documents_upload", { rejItems: [{ kind: "identity", key: "national_card_front" }, { kind: "identity", key: "national_card_back" }] });
-ok("only national-card rejections → id_card_unreadable", c.return_type === "id_card_unreadable" && c.label_detail === "کارت ملی ناخوانا", c);
+ok("only national-card rejections → missing_documents (id_card_unreadable not derived)", c.return_type === "missing_documents" && c.label_detail === "نقص مدارک", c);
 c = R("return-customer-documents", "customer_documents_upload", { rejItems: [{ kind: "identity", key: "national_card_front" }, { kind: "identity", key: "birth_cert_p1" }] });
 ok("card + birth cert → missing_documents", c.return_type === "missing_documents", c);
 c = R("return-customer-documents", "customer_documents_upload", { rejItems: [{ kind: "customer", key: "payslip_last_month", label: "فیش حقوقی" }] });
-ok("payslip requirement → payslip_missing", c.return_type === "payslip_missing" && c.label_detail === "نقص فیش حقوقی", c);
+ok("payslip requirement → missing_documents (payslip_missing not derived)", c.return_type === "missing_documents" && c.label_detail === "نقص مدارک", c);
 c = R("return-customer-documents", "customer_documents_upload", { rejItems: [{ kind: "customer", key: "employment_proof", label: "مدرک شغلی" }] });
 ok("employment_proof → missing_documents", c.return_type === "missing_documents", c);
+c = R("return-customer-documents", "customer_documents_upload", { rejItems: [{ kind: "collateral", key: null }] });
+ok("only non-document rejections → other", c.return_type === "other", c);
+// PM 29 Oct: return_source from the action / stage (funder decisions are recorded by registrar users)
+const srcCases: Array<[string, string, string]> = [["funder-initial-reject", "customer_documents_upload", "funder"], ["return-funder-documents", "funder_documents_correction", "funder"],
+  ["return-customer-documents", "customer_documents_upload", "registrar"], ["return-guarantor-documents", "guarantor_documents_upload", "registrar"],
+  ["return-collateral", "collateral_upload", "registrar"], ["return-physical-documents", "physical_documents_submission", "registrar"],
+  ["expert-reject", "customer_documents_upload", "registrar"], ["admin-reject", "draft", "registrar"]];
+for (const [a, st, e] of srcCases) { c = R(a, st); ok(`${a} → source ${e}`, c.return_source === e, c.return_source); }
+ok("funder correction stage → source funder", C({ stage: "funder_documents_correction" }).return_source === "funder");
+ok("physical correction stage → source registrar", C({ stage: "physical_documents_correction" }).return_source === "registrar");
+ok("not returned → return_source null", C({ stage: "wallet_charge_pending" }).return_source === null);
+ok("id_card_unreadable / payslip_missing never produced", !srcCases.some(([a, st]) => ["id_card_unreadable", "payslip_missing"].includes(String(R(a, st).return_type))));
 const rt: Array<[string, string, string]> = [["return-guarantor-documents", "guarantor_documents_upload", "guarantor_documents_missing"],
   ["guarantor-review-reopened-for-upload", "guarantor_documents_upload", "guarantor_documents_missing"], ["return-collateral", "collateral_upload", "collateral_rejected"],
   ["return-physical-documents", "physical_documents_submission", "other"], ["return-funder-documents", "funder_documents_correction", "other"],

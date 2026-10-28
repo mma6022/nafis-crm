@@ -1615,7 +1615,7 @@ router.post("/loan-applications/filing-fee-charges", requirePermission("loan_app
 });
 router.get("/loan-applications/:id", requirePermission("loan_applications.view"), (req, res) => {
   const r = scoped(Number(req.params.id), user(res)); if (!r) return error(res, 404, "loan_application_not_found");
-  // REL-83 (v1.0.1): the expert opening the file page clears its «تازه برگشت» badge (own rows only; flag.fc_categories).
+  // REL-83 (v1.0.1): the expert opening the file page clears its «پرونده برگشت خورد» badge (own rows only; flag.fc_categories).
   { const me = user(res) as any; if (me?.salespersonId && fcCatOn()) { try { fcMarkOpened(Number(me.salespersonId), Number(r.id)); } catch { /* badge only */ } } }
   r.documents = loanProcessingDocuments(r.id)
     .map((document) => ({ ...document, original_name: normalizedUploadName(document.original_name), fileAvailable: fileExists(document.storage_path) }));

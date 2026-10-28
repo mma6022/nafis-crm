@@ -8,7 +8,7 @@ import type { FcCat } from './api';
 export const FC_CAT_CLS: Record<string, string> = { returned: 'k1', signature_rejected: 'k2x', signature_pending: 'k2', collateral_stage: 'k3', guarantor_stage: 'k3', stale: 'k4', open_other: 'k5', completed: 'k6', cancelled: 'k7' };
 const ICON: Record<string, typeof Undo2> = { k1: Undo2, k2x: Ban, k2: PenLine, k3: Shield, k4: Clock, k5: FileText, k6: Check, k7: X };
 /** pri.js GT: group headings of the full list. */
-export const FC_GROUP_TITLES: Record<number, string> = { 1: 'برگشتی از کارشناس ثبت', 2: 'در انتظار امضای مشتری', 3: 'مرحله‌ی وثیقه یا ضامن', 4: 'قدیمی: ۱۴ روز یا بیشتر بی‌فعالیت', 5: 'بقیه‌ی پرونده‌های باز', 6: 'تکمیل شده', 7: 'لغو شده' };
+export const FC_GROUP_TITLES: Record<number, string> = { 1: 'برگشتی از کارشناس ثبت یا تأمین‌کننده', 2: 'در انتظار امضای مشتری', 3: 'مرحله‌ی وثیقه یا ضامن', 4: 'قدیمی: ۱۴ روز یا بیشتر بی‌فعالیت', 5: 'بقیه‌ی پرونده‌های باز', 6: 'تکمیل شده', 7: 'لغو شده' };
 export const FC_GROUP_SHORT: Record<number, string> = { 1: 'برگشتی', 2: 'امضای مشتری', 3: 'مرحله‌ی وثیقه یا ضامن', 4: '۱۴ روز بی‌فعالیت', 5: 'بقیه‌ی باز', 6: 'تکمیل شده', 7: 'لغو شده' };
 
 export function CatPill({ c, small }: { c: FcCat; small?: boolean }) {

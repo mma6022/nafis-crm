@@ -173,3 +173,9 @@
 .fc-sht .dp-call{min-height:48px;justify-content:center}
 .fc-sht .req{color:var(--nf-danger);margin-inline-start:2px}
 @media (max-width:640px){.fc-shw{align-items:flex-end;padding:0}.fc-sht{width:100%;border-radius:18px 18px 0 0;max-height:92vh;padding-bottom:env(safe-area-inset-bottom)}}
+
+/* PM 29 Oct: «پرونده برگشت خورد» + source line (bar and badge) */
+.fc-page .nwb{border-radius:10px;align-items:flex-start;padding:3px 8px}
+.fc-page .nwb .nwt{display:flex;flex-direction:column;line-height:1.5}
+.fc-page .nwb .nws{font-size:11px;font-weight:500;opacity:.92}
+.fc-page .rbt .rsrc{font-size:12px;font-weight:700;color:#B42318}

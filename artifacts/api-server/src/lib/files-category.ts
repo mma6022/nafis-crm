@@ -35,7 +35,9 @@ export const FC_RETURN_ACTIONS: Record<string, string> = {
   "funder-initial-reject": "funder_reject", "expert-reject": "expert_reject", "admin-reject": "admin_reject",
 };
 /** v1.0.1 return_type (HANDOFF enum). Derived server-side from the recorded return action + the per-item rejections the registrar
- *  recorded just before it; anything else → "other". No new input field (PM). */
+ *  recorded just before it; anything else → "other" (shown to users as «سایر», never the raw code). No new input field (PM).
+ *  PM 29 Oct: no guessing — «نقص مدارک» only when the data proves it (rejected/incomplete document items); payslip_missing and
+ *  id_card_unreadable are kept in the enum but never derived (nothing in the data records them explicitly). */
 export type FcReturnType = "missing_documents" | "guarantor_documents_missing" | "collateral_rejected" | "payslip_missing" | "id_card_unreadable" | "other";
 export const FC_RETURN_TYPE_LABELS: Record<FcReturnType, string> = {
   missing_documents: "نقص مدارک", guarantor_documents_missing: "نقص مدارک ضامن", collateral_rejected: "رد وثیقه",
@@ -43,16 +45,18 @@ export const FC_RETURN_TYPE_LABELS: Record<FcReturnType, string> = {
 };
 /** A rejected item recorded before the return: identity doc type, or a plan document's requirement_key + label. */
 export type FcRejItem = { kind: "identity" | "customer" | "collateral" | "guarantor" | "contract"; key: string | null; label?: string | null };
-const PAYSLIP_RE = /payslip|pay_slip|salary_slip|fish|فیش/i;
 export function fcReturnType(code: string, items: FcRejItem[]): FcReturnType {
   if (code === "guarantor_documents") return "guarantor_documents_missing";
   if (code === "collateral") return "collateral_rejected";
-  if (code !== "customer_documents") return "other";
-  const docs = items.filter(i => i.kind === "identity" || i.kind === "customer");
-  if (docs.length && docs.every(i => i.kind === "identity" && /^national_card/.test(i.key ?? ""))) return "id_card_unreadable";
-  if (docs.length && docs.every(i => i.kind === "customer" && (PAYSLIP_RE.test(i.key ?? "") || PAYSLIP_RE.test(i.label ?? "")))) return "payslip_missing";
-  return "missing_documents";
+  if (code === "customer_documents" && items.some(i => i.kind === "identity" || i.kind === "customer")) return "missing_documents";
+  return "other";
 }
+/** PM 29 Oct: who returned the file (bar/badge source line). The funder's decisions are recorded by registrar users, so the action decides, not the actor role. */
+export type FcReturnSource = "registrar" | "funder";
+export const FC_FUNDER_RETURN_CODES = new Set(["funder_reject", "funder_documents"]);
+export const fcReturnSource = (code: string): FcReturnSource => FC_FUNDER_RETURN_CODES.has(code) ? "funder" : "registrar";
+export const FC_RETURN_SOURCE_LABELS: Record<FcReturnSource, string> = { registrar: "از کارشناس ثبت", funder: "از تأمین‌کننده" };
+
 export const FC_STAGE_SHORT: Record<string, string> = {
   draft: "پیش‌نویس", customer_documents_upload: "بارگذاری مدارک مشتری", customer_documents_review: "بررسی مدارک با کارشناس ثبت",
   guarantor_registration: "ثبت ضامن", guarantor_documents_upload: "بارگذاری مدارک ضامن", guarantor_documents_review: "بررسی مدارک ضامن با کارشناس ثبت",
@@ -85,7 +89,7 @@ export type FcSignals = {
 };
 export type FcCategory = {
   priority_group: number; priority_category: FcPriorityCategory; sub_rank: number; label_main: string; label_detail: string | null; label: string;
-  return_type: FcReturnType | null; return_note: string | null; returned_at: string | null; returned_by: number | null;
+  return_type: FcReturnType | null; return_note: string | null; returned_at: string | null; returned_by: number | null; return_source: FcReturnSource | null;
   signature_type: FcSigType | null; signature_status: "pending" | "rejected" | null; signature_sent_at: string | null; signature_reject_reason: string | null;
   /** Unsigned items (pending + rejected) incl. the one shown; «+N» = count − 1. */
   pending_signature_count: number; pending_item: string | null;
@@ -113,7 +117,7 @@ export const FC_EXPERT_STEP = new Set<string>([...Object.keys(FC_SIGNATURE_STAGE
 export function fcCategorize(s: FcSignals, now: Date, oldDays = FC_OLD_DAYS_DEFAULT): FcCategory {
   const last = s.lastActivityAt ?? s.createdAt;
   const idleRaw = Math.floor((now.getTime() - Date.parse(last)) / DAY); const idle = Number.isFinite(idleRaw) ? Math.max(0, idleRaw) : null;
-  const base = { return_type: null, return_note: null, returned_at: null, returned_by: null, signature_type: null, signature_status: null,
+  const base = { return_type: null, return_note: null, returned_at: null, returned_by: null, return_source: null, signature_type: null, signature_status: null,
     signature_sent_at: null, signature_reject_reason: null, pending_signature_count: 0, pending_item: null, last_activity_at: last, idle_days: idle, closed_at: null, sub_rank: 0, card: false, label_detail: null } as const;
   const mk = (group: number, cat: FcPriorityCategory, o: Partial<FcCategory>): FcCategory => {
     const detail = o.label_detail ?? null; const main = FC_CATEGORY_MAIN[cat];
@@ -137,7 +141,7 @@ export function fcCategorize(s: FcSignals, now: Date, oldDays = FC_OLD_DAYS_DEFA
       if (code) at = m?.at ?? null;
     }
     if (code) { const rt = fcReturnType(code, s.rejItems ?? []);
-      return mk(1, "returned", { label_detail: FC_RETURN_TYPE_LABELS[rt], return_type: rt, return_note: note, returned_at: at ?? s.createdAt, returned_by: by,
+      return mk(1, "returned", { label_detail: FC_RETURN_TYPE_LABELS[rt], return_type: rt, return_note: note, returned_at: at ?? s.createdAt, returned_by: by, return_source: fcReturnSource(code),
         sort_at: at ?? s.createdAt, card: true }); }
   }
   // 2 — signature with the customer: rejected first, then the oldest; «+n» for the rest (PM 4)

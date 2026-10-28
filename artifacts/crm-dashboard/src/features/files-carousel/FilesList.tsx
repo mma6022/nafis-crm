@@ -1,6 +1,6 @@
 /** REL-83 (Armita crm-files-priority v1.0.1, scenes l_*): the full list of the expert's own files once today's cards are done (or there are none).
  * Same priority order as the cards; search runs on the server (name, customer id, file id, last ≥4 mobile digits); 10/20/50 per page.
- * The list never locks. A file the registrar returns after the cards ran out shows the bar (role=status) and «تازه برگشت» until the file is opened. */
+ * The list never locks. A file returned (by the registrar or the funder) after the cards ran out shows the bar (role=status) and «پرونده برگشت خورد» + source until the file is opened. */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
@@ -11,6 +11,8 @@ import { CatPill, FC_CAT_CLS, FC_GROUP_SHORT, FC_GROUP_TITLES, RNote, fcDay } fr
 
 const SIZES = [10, 20, 50] as const;
 const RT_LABEL: Record<string, string> = { missing_documents: 'نقص مدارک', guarantor_documents_missing: 'نقص مدارک ضامن', collateral_rejected: 'رد وثیقه', payslip_missing: 'نقص فیش حقوقی', id_card_unreadable: 'کارت ملی ناخوانا', other: 'سایر' };
+/** PM 29 Oct: bar + badge source line (who returned the file). */
+const RS_LABEL: Record<string, string> = { registrar: 'از کارشناس ثبت', funder: 'از تأمین‌کننده' };
 const toEn = (s: string) => s.replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
 /** <mark> the query inside a shown string (Persian digits match ASCII input). */
 function Hl({ s, q }: { s: string; q: string }) {
@@ -70,7 +72,7 @@ function Row({ it, q, onFollow, onOpen }: { it: FcListItem; q: string; onFollow:
   const cls = FC_CAT_CLS[it.priority_category] ?? 'k5'; const closed = it.is_closed;
   return <li className={`lrow ${cls}${closed ? ' cl' : ''}${it.returned_unopened ? ' rnew' : ''}`} data-g={it.priority_group} data-file={it.file_id} data-testid="fc-row">
     <div className="lr1"><CatPill c={it} />
-      {it.returned_unopened ? <span className="nwb" title="تا وقتی پرونده را باز نکنی می‌ماند" data-testid="fc-nwb"><Undo2 aria-hidden="true" />تازه برگشت</span> : null}
+      {it.returned_unopened ? <span className="nwb" title="تا وقتی پرونده را باز نکنی می‌ماند" data-testid="fc-nwb"><Undo2 aria-hidden="true" /><span className="nwt">پرونده برگشت خورد{it.return_source ? <small className="nws" data-testid="fc-nwb-src">{RS_LABEL[it.return_source]}</small> : null}</span></span> : null}
       {it.followed_up_today ? <span className="tdy" data-testid="fc-tdy"><Check aria-hidden="true" />امروز پیگیری شد</span> : null}
       <RNote c={it} /></div>
     <div className="lr2"><b className="lnm"><span><Hl s={it.customer_name} q={q} /></span><span className="cid">#<Hl s={faId(it.customer_id)} q={q} /></span></b>
@@ -96,8 +98,9 @@ const HM = new Intl.DateTimeFormat('fa-IR', { timeZone: 'Asia/Tehran', hour: 'nu
 function RBar({ r, onOpen, onClose }: { r: FcLateReturn; onOpen: () => void; onClose: () => void }) {
   const when = r.returned_at ? `${fcDay(r.returned_at)} ساعت ${HM.format(new Date(r.returned_at))}` : '';
   return <div className="rbar" role="status" aria-live="polite" data-testid="fc-rbar" data-file={r.file_id}><Undo2 aria-hidden="true" />
-    <div className="rbt"><b>پرونده‌ی {faId(r.file_id)} برگشت: {RT_LABEL[r.return_type ?? 'other'] ?? 'سایر'}</b>
-      <p className="rbs"><span className="rbn">{r.customer_name}</span> کارشناس ثبت{when ? `، ${when}` : ''} برگرداند. حالا در دسته‌ی ۱ فهرست است؛ فهرست مثل قبل کار می‌کند.</p></div>
+    <div className="rbt"><b>پرونده برگشت خورد</b>
+      {r.return_source ? <span className="rsrc" data-testid="fc-rbar-src">{RS_LABEL[r.return_source]}</span> : null}
+      <p className="rbs">پرونده‌ی {faId(r.file_id)} · <span className="rbn">{r.customer_name}</span> · {RT_LABEL[r.return_type ?? 'other'] ?? 'سایر'}{when ? ` · ${when}` : ''}. حالا در دسته‌ی ۱ فهرست است؛ فهرست مثل قبل کار می‌کند.</p></div>
     <div className="rba"><Link href={`/loan-applications/${r.file_id}`} className="btn btn-primary" onClick={onOpen} data-testid="fc-rbar-open"><FileText size={16} aria-hidden="true" /> باز کردن پرونده</Link>
       <button type="button" className="ib rbx" aria-label="بستن این نوار" onClick={onClose} data-testid="fc-rbar-x"><X aria-hidden="true" /></button></div></div>;
 }

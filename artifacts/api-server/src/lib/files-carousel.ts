@@ -104,7 +104,7 @@ export function ensureFcSchema(): void {
   execute("INSERT OR IGNORE INTO call_queue_settings(key,value,updated_by,updated_at) VALUES(?, '0', NULL, ?)", [FC_CAT_FLAG_KEY, new Date().toISOString()]);
   execute("INSERT OR IGNORE INTO call_queue_settings(key,value,updated_by,updated_at) VALUES(?, ?, NULL, ?)", [FC_OLD_DAYS_KEY, String(FC_OLD_DAYS_DEFAULT), new Date().toISOString()]);
   if (!queryRows<{ name: string }>("PRAGMA table_info(fc_days)").some(c => c.name === "list_opened_at")) crmDb.exec("ALTER TABLE fc_days ADD COLUMN list_opened_at TEXT");
-  // REL-83 «تازه برگشت» (PM 6): a file returned while the expert's list was open keeps the badge until the expert opens that file.
+  // REL-83 «پرونده برگشت خورد» (PM 6): a file returned while the expert's list was open keeps the badge until the expert opens that file.
   crmDb.exec(`CREATE TABLE IF NOT EXISTS fc_returns(salesperson_id INTEGER NOT NULL, file_id INTEGER NOT NULL, returned_at TEXT NOT NULL, reason_code TEXT,
       created_at TEXT NOT NULL, opened_at TEXT, PRIMARY KEY(salesperson_id, file_id, returned_at));`);
   ready = true;
@@ -208,7 +208,7 @@ export function fcDeck(sp: number, day: string, now = new Date()) {
     executeChanges("UPDATE fc_days SET list_opened_at=?, updated_at=? WHERE salesperson_id=? AND day=? AND list_opened_at IS NULL", [at, at, sp, day]);
     listOpen = true;
   }
-  // REL-83 (ج): a file the registrar returns after the list opened → recorded once in fc_returns (bar + «تازه برگشت» until opened).
+  // REL-83 (ج): a file the registrar returns after the list opened → recorded once in fc_returns (bar + «پرونده برگشت خورد» until opened).
   if (catMode && listOpen) {
     const since = listOpenedAt ?? at;
     for (const f of all) { const c = cats.get(f.id);
@@ -235,7 +235,7 @@ const fileCore = (f: FileRow) => {
 /** REL-83 category fields, HANDOFF v1.0.1 (null while flag.fc_categories is off). return_note = the registrar's own comment, one line, digits masked. */
 export const catCore = (c: FcCategory | null | undefined) => c ? { priority_group: c.priority_group, priority_category: c.priority_category, sub_rank: c.sub_rank,
   label_main: c.label_main, label_detail: c.label_detail, label: c.label, return_type: c.return_type, return_note: c.return_note,
-  returned_at: c.returned_at, returned_by: c.returned_by, signature_type: c.signature_type, signature_status: c.signature_status, signature_sent_at: c.signature_sent_at,
+  returned_at: c.returned_at, returned_by: c.returned_by, return_source: c.return_source, signature_type: c.signature_type, signature_status: c.signature_status, signature_sent_at: c.signature_sent_at,
   signature_reject_reason: c.signature_reject_reason, pending_signature_count: c.pending_signature_count, pending_item: c.pending_item,
   last_activity_at: c.last_activity_at, idle_days: c.idle_days } : null;
 type URow = { file_id: number; returned_at: string; reason_code: string | null };
@@ -367,7 +367,7 @@ export function fcExpertView(u: U, now = new Date()) {
   return { enabled: true, date: day, total: deck.cards.length, done: deck.doneCount, index: idx, currentFileId: deck.current,
     // REL-83 (flag.fc_categories): mode «list» = cards ran out / none → the UI opens the full list (GET /files-carousel/list); lateReturns = the bar (no lock).
     categories: deck.catMode, mode: deck.catMode && deck.listOpen ? "list" : "cards",
-    lateReturns: deck.lateReturns.map(f => { const c = deck.cats.get(f.id)!; return { type: "file_returned", file_id: f.id, customer_name: f.name ?? "", return_type: c.return_type, return_note: c.return_note, returned_at: c.returned_at }; }),
+    lateReturns: deck.lateReturns.map(f => { const c = deck.cats.get(f.id)!; return { type: "file_returned", file_id: f.id, customer_name: f.name ?? "", return_type: c.return_type, return_note: c.return_note, returned_at: c.returned_at, return_source: c.return_source }; }),
     orderSource: deck.ord ? "assistant" : "default", waiting: fcWaiting(sp, new Set(deck.cards.map(c => c.f.id))), outcomes: FC_OUTCOMES.map(o => ({ code: o, label: FC_OUTCOME_LABELS[o] })), noteMax: FC_NOTE_MAX, cancelReasonMax: FC_CANCEL_REASON_MAX,
     cards: deck.cards.map(c => ({ ...expertCore(c.f), customerName: c.f.name ?? "", phone: c.state === "current" ? phone : null, returnedToday: c.returnedToday, position: c.position, state: c.state, reason: c.meta?.reason ?? null, ask: c.meta?.ask ?? null, fc: catCore(c.cat),
       todayFollowUp: c.fu ? { at: c.fu.created_at, outcome: c.fu.outcome, outcomeLabel: FC_OUTCOME_LABELS[c.fu.outcome] ?? null, note: c.fu.note } : null })) };
@@ -559,12 +559,12 @@ export function fcExpertList(u: U, query: any, now = new Date()) {
   const items = hits.slice((pg - 1) * pageSize, pg * pageSize).map(r => {
     const c = cats.get(r.id)!; const open = c.priority_group <= 5;
     return { file_id: r.id, customer_id: Number(r.cur_customer_id), customer_name: r.name ?? "", phone_masked: fcMaskPhone(r.phone), ...catCore(c)!,
-      // v1.0.1: «تازه برگشت» stays until the file is opened (not when the bar closes); closed rows keep today's access (the server decides edits).
+      // v1.0.1: «پرونده برگشت خورد» stays until the file is opened (not when the bar closes); closed rows keep today's access (the server decides edits).
       followed_up_today: done.has(r.id), returned_unopened: unopened.has(r.id), is_closed: !open, closed_at: open ? null : c.closed_at, can_follow_up: !done.has(r.id), can_cancel: open, can_edit: true };
   });
   return { q: qRaw, page: pg, page_size: pageSize, pages, total, group_counts: groupCounts, group_labels: FC_GROUP_LABELS83, items };
 }
-/** POST /files-carousel/opened {fileId}: the expert opened the file, so its «تازه برگشت» badge goes (PM 6). Own file only; no other effect. */
+/** POST /files-carousel/opened {fileId}: the expert opened the file, so its «پرونده برگشت خورد» badge goes (PM 6). Own file only; no other effect. */
 export function fcExpertOpened(u: U, body: any, now = new Date()) {
   ensureFcSchema();
   const sp = Number(u.salespersonId); const fid = Number(body?.fileId);
