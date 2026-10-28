@@ -4,7 +4,7 @@ import type { AuthUser } from "../lib/auth";
 import { dpIncomingFirstCallMirror, dpToday } from "../lib/daily-plan";
 import { firstCallIncomplete } from "../lib/first-call-incomplete";
 import { tcOn } from "../lib/today-carousel";
-import { EL_ADMIN_USER_IDS, EL_ALLOWED_PAGES, EL_GRANT_MINUTES, elDailyCounts, elIncomingChoose, elIncomingOpen, elIncomingSearch, elIncomingRefer, elLocked, elNewCheck, elNewCreate, elIncomingSuggest, elIncomingPick } from "../lib/expert-lockdown";
+import { EL_ADMIN_USER_IDS, EL_ALLOWED_PAGES, EL_GRANT_MINUTES, elDailyCounts, elIncomingChoose, elIncomingOpen, elIncomingSearch, elIncomingRefer, elLocked, elNewCheck, elNewCreate, elIncomingSuggest, elIncomingPick, elCtxOf } from "../lib/expert-lockdown";
 
 const router: IRouter = Router();
 const me = (res: any) => res.locals.authUser as AuthUser | undefined;
@@ -24,7 +24,7 @@ router.post("/expert-lockdown/incoming/open", (_req, res): void => {
 router.post("/expert-lockdown/incoming/search", (req, res): void => {
   const u = me(res);
   if (!incomingOk(u)) { res.status(404).json({ error: "not_found" }); return; }
-  const r = elIncomingSearch(u!, req.body?.q);
+  const r = elIncomingSearch(u!, req.body?.q, new Date(), elCtxOf(req.body?.context));
   res.status(r.result === "rate_limited" ? 429 : 200).json(r);
 });
 // SEARCH-C: «ارجاع» of another expert's customer found by full number → owner bell + top «تماس با مشتری ارجاعی» on the owner's Today. Nothing to the customer.
@@ -51,7 +51,7 @@ router.post("/expert-lockdown/incoming/suggest", (req, res): void => {
 router.post("/expert-lockdown/incoming/pick", (req, res): void => {
   const u = me(res);
   if (!incomingOk(u)) { res.status(404).json({ error: "not_found" }); return; }
-  res.json(elIncomingPick(u!, req.body?.pick));
+  res.json(elIncomingPick(u!, req.body?.pick, new Date(), elCtxOf(req.body?.context)));
 });
 // NEWCUST-65: «تماس ورودی داشتم › ثبت مشتری جدید» step 1 (phone duplicate check, owner name only) and create (owner = this expert). Locked experts only.
 router.post("/expert-lockdown/incoming/new/check", (req, res): void => {

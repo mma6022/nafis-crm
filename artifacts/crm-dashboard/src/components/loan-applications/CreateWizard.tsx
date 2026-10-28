@@ -1,6 +1,8 @@
 import { matchesCustomerSearch, rankExactCustomerId } from '@/lib/customer-id';
 import { CustomerIdBadge, CustomerName } from '@/components/customer/CustomerName';
 import { OtherOwnerResults } from '@/components/customer/OtherOwnerResults';
+import { useLockdownMe } from '@/features/expert-lockdown/api';
+import { FileCustomerSearch } from '@/features/expert-lockdown/FileCustomerSearch';
 import { createPortal } from "react-dom";
 import { requestWalletShare } from '@/lib/wallet-share';
 import { documentFileAccept, supportedDocumentFile } from '@/lib/document-upload-type';
@@ -197,9 +199,12 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
 
   // Global wizard state
   const [search, setSearch] = useState("");
+  // FILES-SEARCH-FIX: a locked expert (expert_lockdown) cannot read GET /customers (403) → step 1 uses the incoming-call search instead.
+  const lockdownMe = useLockdownMe();
+  const elSearch = lockdownMe.data?.locked === true;
   const { data: customersData, isLoading: loadingCustomers } = useListCustomers(
     { limit: 50, search: search || undefined },
-    { query: { queryKey: ["wizard-customers", search] } }
+    { query: { queryKey: ["wizard-customers", search], enabled: lockdownMe.isFetched && !elSearch } }
   );
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [feeChargeId, setFeeChargeId] = useState<number | null>(null);
@@ -757,7 +762,8 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
                search={search} setSearch={setSearch} 
                customers={customersData?.items || []} 
                otherOwnerPage={customersData}
-               loading={loadingCustomers}
+               loading={loadingCustomers || !lockdownMe.isFetched}
+               elSearch={elSearch}
                selectedCustomer={selectedCustomer} 
                 setSelectedCustomer={selectCustomer} 
                onNext={() => { void (async () => { if (selectedCustomer && await checkExistingCase(selectedCustomer.id)) return; if (await ensureDraft()) handleNext(); })(); }} 
@@ -990,8 +996,21 @@ function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, on
 }
 
 // --- Step 1 ---
-function Step1Customer({ search, setSearch, customers, otherOwnerPage, loading, selectedCustomer, setSelectedCustomer, onNext }: any) {
+function Step1Customer({ search, setSearch, customers, otherOwnerPage, loading, elSearch, selectedCustomer, setSelectedCustomer, onNext }: any) {
   const [attempted, setAttempted] = useState(false);
+  if (elSearch) return (
+    <div className="lwz-step" data-testid="wizard-step-1">
+      <FileCustomerSearch selectedId={selectedCustomer?.id ?? null} onSelect={(c) => setSelectedCustomer(c)} />
+      {selectedCustomer ? <p className="lwz-note" role="status" data-testid="fs-selected"><CheckCircle2 size={16} aria-hidden="true" /> انتخاب شد: <strong>{selectedCustomer.name}</strong> · مشتری خودت</p> : null}
+      {attempted && !selectedCustomer && <small role="alert" className="lwz-err" id="err-selected-customer" data-testid="error-selected-customer">برای ادامه یکی از مشتری‌های خودت را انتخاب کن.</small>}
+      <div className="form-footer">
+        <span />
+        <button type="button" className="btn btn-primary" onClick={() => { setAttempted(true); if (selectedCustomer) onNext(); }} data-testid="btn-next-1">
+          ادامه <ChevronLeft size={18} />
+        </button>
+      </div>
+    </div>
+  );
   const filteredCustomers = rankExactCustomerId(customers.filter((c: any) =>
     matchesCustomerSearch(search, { id: c.id, name: c.name, phone: c.phone, extra: [c.nationalCode] })
   ), search, (c: any) => c.id);

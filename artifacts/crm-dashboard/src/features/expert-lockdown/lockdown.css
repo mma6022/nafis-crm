@@ -36,3 +36,7 @@
 [data-testid="iw-other"] b{font-size:1.05rem;color:#7c2d12}
 [data-testid="iw-other"] small{color:#92400e;font-weight:600}
 .iw-ref-list{margin:10px 0 0;padding-inline-start:20px;display:grid;gap:6px;font-size:.88rem;line-height:1.7;color:#1e293b}
+/* FILES-SEARCH-FIX: «ثبت پرونده جدید» step 1 for a locked expert */
+.fs-search{gap:10px}
+.fs-search .el-live-row.on{border-color:#4f46e5;background:#eef2ff;box-shadow:0 0 0 1px #4f46e5 inset}
+.fs-search .tc-foot{justify-content:flex-start}

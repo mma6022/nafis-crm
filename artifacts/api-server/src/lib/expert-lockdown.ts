@@ -182,7 +182,7 @@ export function elIncomingChoose(u: U, option: unknown, now = new Date()) {
 /* SEARCH-C: the automatic owner bell on a search hit (bellOwner) was removed; the owner is told only via «ارجاع» (elIncomingRefer). */
 
 /* ---------------- NEWCUST-65 «ثبت مشتری جدید» (endpoints kept as-is by the incoming2-59 wizard: same create, source inbound_call, owner-name-only dup check, no bells) ---------------- */
-const rateLimited = (u: U, now: Date) => Number(queryRow<{ n: number }>("SELECT count(*) n FROM el_incoming_log WHERE user_id=? AND action IN ('search','new_check','new_create') AND created_at>?",
+const rateLimited = (u: U, now: Date) => Number(queryRow<{ n: number }>("SELECT count(*) n FROM el_incoming_log WHERE user_id=? AND action IN ('search','file_search','new_check','new_create') AND created_at>?",
   [Number(u.id), new Date(now.getTime() - EL_SEARCH_WINDOW_MS).toISOString()])?.n ?? 0) >= EL_SEARCH_LIMIT;
 /** Same match as POST /customers' duplicate check (findCustomerByPhone): crm_customer_mobile_key(phone), any status, merged → survivor. */
 function phoneOwner(phone: string): { id: number; name: string; sp: number | null; owner_name: string | null } | null {
@@ -265,7 +265,11 @@ export type ElSearchResult =
   | { result: "other"; name: string; ownerName: string; notified: boolean; referable: boolean; referred: boolean; refToken: string | null }
   | { result: "none" | "ambiguous" | "invalid" | "rate_limited"; message: string };
 
-export function elIncomingSearch(u: U, raw: unknown, now = new Date()): ElSearchResult {
+/** FILES-SEARCH-FIX: «پرونده‌های من › ثبت پرونده جدید» reuses the incoming search (suggest / full-number search / pick / refer);
+ *  ctx "new_file" only changes the log action ("file_search"/"file_pick") and the grant source ("new_file") so the daily report stays honest. */
+export type ElCtx = "incoming" | "new_file";
+export const elCtxOf = (v: unknown): ElCtx => (v === "new_file" ? "new_file" : "incoming");
+export function elIncomingSearch(u: U, raw: unknown, now = new Date(), ctx: ElCtx = "incoming"): ElSearchResult {
   ensureElSchema();
   const at = now.toISOString();
   const recent = Number(queryRow<{ n: number }>("SELECT count(*) n FROM el_incoming_log WHERE user_id=? AND action IN ('search','new_check','new_create') AND created_at>?",
@@ -273,7 +277,7 @@ export function elIncomingSearch(u: U, raw: unknown, now = new Date()): ElSearch
   if (recent >= EL_SEARCH_LIMIT) { log(u, { action: "search_limited", result: "rate_limited" }, at);
     return { result: "rate_limited", message: "تعداد جست‌وجوها زیاد شد؛ چند دقیقه بعد دوباره امتحان کن." }; }
   const lk = exactLookupOf(String(raw ?? "").slice(0, 120));
-  if (!lk || lk.kind === "id") { log(u, { action: "search", kind: lk?.kind ?? "invalid", result: "invalid" }, at);
+  if (!lk || lk.kind === "id") { log(u, { action: ctx === "new_file" ? "file_search" : "search", kind: lk?.kind ?? "invalid", result: "invalid" }, at);
     return { result: "invalid", message: "شماره‌ی موبایل کامل (۱۱ رقم) یا نام و نام خانوادگی کامل مشتری را بنویس." }; }
   const hash = hashQuery(lk.kind, lk.kind === "phone" ? lk.phone : lk.name);
   const match = lk.kind === "phone"
@@ -284,20 +288,20 @@ export function elIncomingSearch(u: U, raw: unknown, now = new Date()): ElSearch
   const rows = queryRows<{ id: number; name: string; sp: number | null; owner_name: string | null }>(
     `SELECT c.id, c.name, c.salesperson_id sp, s.name owner_name FROM customers c LEFT JOIN salespersons s ON s.id=c.salesperson_id
       WHERE c.merged_into_customer_id IS NULL AND ${match.sql}${ownOnly} ORDER BY c.id LIMIT 3`, ownOnly ? [match.p, Number(u.salespersonId)] : [match.p]);
-  if (!rows.length) { log(u, { action: "search", kind: lk.kind, hash, result: "none" }, at);
+  if (!rows.length) { log(u, { action: ctx === "new_file" ? "file_search" : "search", kind: lk.kind, hash, result: "none" }, at);
     return { result: "none", message: "مشتری‌ای با این مشخصات پیدا نشد." }; }
-  if (rows.length > 1) { log(u, { action: "search", kind: lk.kind, hash, result: "ambiguous" }, at);
+  if (rows.length > 1) { log(u, { action: ctx === "new_file" ? "file_search" : "search", kind: lk.kind, hash, result: "ambiguous" }, at);
     return { result: "ambiguous", message: "بیش از یک مشتری با این نام هست؛ با شماره‌ی موبایل کامل جست‌وجو کن." }; }
   const c = rows[0];
   if (Number(c.sp) === Number(u.salespersonId)) {
     execute("INSERT INTO el_grants(user_id,customer_id,source,granted_at,expires_at) VALUES(?,?,?,?,?)",
-      [Number(u.id), Number(c.id), "incoming_call", at, new Date(now.getTime() + EL_GRANT_MINUTES * 60_000).toISOString()]);
-    log(u, { action: "search", kind: lk.kind, hash, result: "own", customerId: Number(c.id), ownerSp: Number(c.sp) }, at);
+      [Number(u.id), Number(c.id), ctx === "new_file" ? "new_file" : "incoming_call", at, new Date(now.getTime() + EL_GRANT_MINUTES * 60_000).toISOString()]);
+    log(u, { action: ctx === "new_file" ? "file_search" : "search", kind: lk.kind, hash, result: "own", customerId: Number(c.id), ownerSp: Number(c.sp) }, at);
     return { result: "own", customer: { id: Number(c.id), name: String(c.name ?? "") }, windowMinutes: EL_GRANT_MINUTES };
   }
   // SEARCH-C: another expert's (or nobody's) customer, full number only → customer name + owner name; no id, phone, file or history.
   // No automatic bell any more: the owner is told only when the caller presses «ارجاع» (POST …/incoming/refer).
-  log(u, { action: "search", kind: lk.kind, hash, result: "other", customerId: Number(c.id), ownerSp: c.sp == null ? null : Number(c.sp), notified: false }, at);
+  log(u, { action: ctx === "new_file" ? "file_search" : "search", kind: lk.kind, hash, result: "other", customerId: Number(c.id), ownerSp: c.sp == null ? null : Number(c.sp), notified: false }, at);
   const ow = referralOwner(c.sp == null ? null : Number(c.sp));
   return { result: "other", name: String(c.name ?? "") || "مشتری", ownerName: String(c.owner_name ?? "") || "بدون کارشناس", notified: false,
     referable: Boolean(ow), referred: Boolean(ow && recentReferral(u, Number(c.id), now)), refToken: ow ? issueRefToken(u, Number(c.id), now) : null };
@@ -342,7 +346,7 @@ export function elIncomingRefer(u: U, rawToken: unknown, now = new Date()): ElRe
   const c = queryRow<{ id: number; name: string; sp: number | null; owner_name: string | null }>(
     `SELECT c.id, c.name, c.salesperson_id sp, s.name owner_name FROM customers c LEFT JOIN salespersons s ON s.id=c.salesperson_id
       WHERE c.merged_into_customer_id IS NULL AND c.id=?`, [tk.customerId]);
-  const searched = c && queryRow("SELECT 1 x FROM el_incoming_log WHERE user_id=? AND action='search' AND result='other' AND customer_id=? AND created_at>? LIMIT 1",
+  const searched = c && queryRow("SELECT 1 x FROM el_incoming_log WHERE user_id=? AND action IN ('search','file_search') AND result='other' AND customer_id=? AND created_at>? LIMIT 1",
     [Number(u.id), Number(c.id), new Date(now.getTime() - EL_REFER_WINDOW_MS).toISOString()]);
   if (!c || c.sp == null || Number(c.sp) === Number(u.salespersonId) || !searched) {
     log(u, { action: "refer", kind: "token", hash, result: "invalid" }, at);
@@ -442,17 +446,17 @@ export function elIncomingSuggest(u: U, raw: unknown, now = Date.now()): ElSugge
 }
 
 /** SEARCH-65b: tapping one live result = the existing «own» path (30-min window + log), scoped to the expert's own customer. */
-export function elIncomingPick(u: U, rawId: unknown, now = new Date()): ElSearchResult {
+export function elIncomingPick(u: U, rawId: unknown, now = new Date(), ctx: ElCtx = "incoming"): ElSearchResult {
   ensureElSchema();
   const at = now.toISOString();
   const id = Number(rawId);
   const c = Number.isSafeInteger(id) && id > 0
     ? queryRow<{ id: number; name: string; sp: number | null }>("SELECT id, name, salesperson_id sp FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [id]) : null;
-  if (!c || Number(c.sp) !== Number(u.salespersonId)) { log(u, { action: "pick", kind: "pick", result: "none" }, at);
+  if (!c || Number(c.sp) !== Number(u.salespersonId)) { log(u, { action: ctx === "new_file" ? "file_pick" : "pick", kind: "pick", result: "none" }, at);
     return { result: "none", message: "این مشتری در فهرست مشتری‌های تو نیست." }; }
   execute("INSERT INTO el_grants(user_id,customer_id,source,granted_at,expires_at) VALUES(?,?,?,?,?)",
-    [Number(u.id), Number(c.id), "incoming_call", at, new Date(now.getTime() + EL_GRANT_MINUTES * 60_000).toISOString()]);
-  log(u, { action: "pick", kind: "pick", result: "own", customerId: Number(c.id), ownerSp: Number(c.sp) }, at);
+    [Number(u.id), Number(c.id), ctx === "new_file" ? "new_file" : "incoming_call", at, new Date(now.getTime() + EL_GRANT_MINUTES * 60_000).toISOString()]);
+  log(u, { action: ctx === "new_file" ? "file_pick" : "pick", kind: "pick", result: "own", customerId: Number(c.id), ownerSp: Number(c.sp) }, at);
   return { result: "own", customer: { id: Number(c.id), name: String(c.name ?? "") }, windowMinutes: EL_GRANT_MINUTES };
 }
 
