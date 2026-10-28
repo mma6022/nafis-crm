@@ -9,7 +9,7 @@
 .tg-av{position:relative;flex:none;width:42px;height:42px;border-radius:50%;background:#1d3a5f;color:#fff3d6;display:grid;place-items:center;font-weight:700}
 .tg-dot{position:absolute;bottom:0;inset-inline-end:0;width:11px;height:11px;border-radius:50%;background:#2f9e6b;border:2px solid #fff}
 .tg-meta{flex:1;min-width:0}.tg-meta strong{display:block;font-size:13px}.tg-meta small{display:block;color:#7b7566;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tg-badge{background:#bc9252;color:#fff;border-radius:10px;min-width:20px;padding:1px 6px;font-size:11px;text-align:center}
+.tg-badge{background:#bc9252;color:var(--nf-ink,#172950);border-radius:10px;min-width:20px;padding:1px 6px;font-size:11px;text-align:center}
 .tg-pane{display:flex;flex-direction:column;min-height:0;min-width:0}
 .tg-head{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff;border-bottom:1px solid #e3dccb}
 .tg-back{display:none}

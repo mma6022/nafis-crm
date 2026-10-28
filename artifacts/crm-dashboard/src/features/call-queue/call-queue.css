@@ -169,3 +169,25 @@ body.cq-lock-open #root .modal-backdrop { display: none !important; }
 .cq-fu legend{font-weight:800;padding:0;margin-bottom:6px}
 .cq-fu-toggle{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 @container (max-width:440px){ .crp{gap:6px} .cro{flex-direction:column;gap:4px;min-height:80px;padding:8px 4px;font-size:14px} }
+/* release 69 — 81 alignment (Armita crm-call-result v1.0.1 §2.5): «پیگیری بعدی» is its own step after the note: switch + 4 time chips (≥52px) + .picked line */
+.cq-fu.crfu{border:1px solid #e3e6f0;border-radius:12px;padding:10px 12px 12px;margin:4px 0 12px;background:#fafbff}
+.cq-fu.crfu.on{border-color:#c7cdf0}
+.cq-fu legend{float:none;font-size:14px;padding:0 4px}
+.cq-fu legend small{font-weight:500;color:#5b6478;font-size:12px;margin-inline-start:4px}
+.cq-chip.cfu{display:inline-flex;align-items:center;gap:10px;min-height:48px;padding:0 14px;border-radius:12px;font-weight:700}
+.cq-chip.cfu.on{background:#fff;color:#1e3a8a;border-color:#1e3a8a}
+.cq-sw{position:relative;width:38px;height:22px;border-radius:999px;background:#c4c9d6;flex:none;transition:background .15s}
+.cq-sw i{position:absolute;top:3px;inset-inline-start:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:inset-inline-start .15s;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.cq-chip.cfu.on .cq-sw{background:#1e3a8a}.cq-chip.cfu.on .cq-sw i{inset-inline-start:19px}
+.cq-fu-time{margin:12px 0 0}
+.cq-fu-time .cq-label{display:block;font-weight:700;margin-bottom:6px}
+.cq-fu-chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:8px}
+.cq-chip.cq-fch{min-height:52px;border-radius:12px;padding:6px 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;text-align:center;line-height:1.4}
+.cq-chip.cq-fch b{font-size:14px}.cq-chip.cq-fch small{font-size:12px;color:#4b5563;display:flex;flex-direction:column;align-items:center}.cq-chip.cq-fch small span{white-space:nowrap}
+.cq-chip.cq-fch.on small{color:#e0e7ff}
+.cq-fu-chips[aria-invalid="true"] .cq-chip.cq-fch{border-color:#b91c1c}
+.cq-fu-time .picked{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px;margin:10px 0 0;font-weight:700;color:#1e3a8a;font-size:13.5px;line-height:1.7}
+.cq-fu-time .picked svg{width:16px;height:16px;flex:none;margin-top:3px;fill:none;stroke:currentColor;stroke-width:2}
+.cq-fu-time .picked span{flex:1 1 0;min-width:0}.cq-fu-time .picked small{flex:1 0 100%;font-weight:500;color:#5b6478;font-size:12.5px;line-height:1.6}
+@media (max-width:640px){.cq-fu-chips{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:360px){.cq-chip.cq-fch small span{white-space:normal}}

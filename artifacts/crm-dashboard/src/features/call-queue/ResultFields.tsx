@@ -22,6 +22,9 @@ export const focusCallResult = (idPrefix: string) => {
   (g?.querySelector('[tabindex="0"]') as HTMLElement | null)?.focus();
 };
 
+/** «پنج‌شنبه ۷ آبان» in Tehran time (design chip subline). */
+export const faDayLabel = (iso: string) => new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(iso)).replace('،', '');
+
 const Svg = ({ d }: { d: string[] }) => <svg viewBox="0 0 24 24" aria-hidden="true">{d.map((x) => <path key={x} d={x} />)}</svg>;
 const PHONE = 'M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z';
 const ICONS: Record<ManualOutcome, string[]> = { answered: [PHONE, 'm14.5 6 2 2 4-4'], no_answer: [PHONE, 'm15 3 6 6M21 3l-6 6'], off_or_busy: ['M12 3v8', 'M7.5 6.2a7 7 0 1 0 9 0'] };
@@ -87,47 +90,27 @@ export function CqResultFields({ value, onChange, showErrors, pre, idPrefix = 'c
   const now = new Date(); const tp = tehranParts(now);
   const eveningLate = tp.h * 60 + tp.mi >= 16 * 60 || tp.wd === 5;
   const tomorrow = addTehranDays(now, 1, 10); const tomorrowFriday = tehranParts(tomorrow).wd === 5;
+  /* release 69 (81 alignment, Armita crm-call-result v1.0.1 §2.5): chips are «title» + small «weekday day month · hh:mm», ≥52px, role=radio. */
   const chips = useMemo(() => [
-    { key: 'evening' as const, label: 'امروز عصر (۱۶:۰۰)', at: addTehranDays(now, 0, 16).toISOString(), disabled: eveningLate },
-    { key: 'tomorrow' as const, label: 'فردا صبح (۱۰:۰۰)', at: tomorrow.toISOString(), disabled: false },
-    { key: 'in3' as const, label: '۳ روز دیگه', at: addTehranDays(now, 3, 10).toISOString(), disabled: false },
+    { key: 'evening' as const, label: 'عصر امروز', at: addTehranDays(now, 0, 16).toISOString(), disabled: eveningLate },
+    { key: 'tomorrow' as const, label: 'فردا صبح', at: tomorrow.toISOString(), disabled: false },
+    { key: 'in3' as const, label: '۳ روز بعد', at: addTehranDays(now, 3, 10).toISOString(), disabled: false },
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [tp.y, tp.m, tp.d, eveningLate]);
   const len = [...value.oneLine].length; const atMax = len >= CQ_ONE_LINE_MAX;
   const err = showErrors ? cqResultError(value, !noResult) : null;
   const na = pre?.naAttemptIfNoAnswer ?? 1;
-  return <div className={`cq-result${err ? ' has-err' : ''}`} data-testid="cq-result">
-    {onlyTime ? null : <>{pre?.due?.length ? <div className="cq-pre-due" role="note" data-testid="cq-pre-due">
-      {pre.due.length === 1 ? <>یادآور سررسیده‌ی {pre.due[0].label}{pre.due[0].subject ? ` («${pre.due[0].subject}»)` : ''} با ثبت این تماس خودکار بسته می‌شود.</>
-        : <>{faNum(pre.due.length)} یادآور سررسیده ({pre.due.map((d) => d.label).join('، ')}) با ثبت این تماس خودکار بسته می‌شوند.</>}
-    </div> : null}
-    {noResult ? null : <ManualOutcomeField value={value.manual} idPrefix={idPrefix} showError={showErrors} submitLabel={submitLabel}
-      onChange={(m) => set({ manual: m, outcome: cqOutcomeFor(m, value.fu) })} />}
-    {/* PM (81, Q2): «پیگیری بعدی» stays a separate step after the result. */}
-    <fieldset className="cq-fu" data-testid="cq-fu-step"><legend>پیگیری بعدی</legend>
-      <div className="cq-fu-toggle">
-        <button type="button" role="switch" aria-checked={value.fu} className={`cq-chip cfu${value.fu ? ' on' : ''}`}
-          onClick={() => set({ fu: !value.fu, outcome: cqOutcomeFor(value.manual, !value.fu) })} data-testid="cq-outcome-follow_up">
-          {value.fu ? '✓ ' : '+ '}یادآور پیگیری بعدی بگذار</button>
-        <small className="cq-hint">اختیاری؛ اگر باید دوباره زنگ بزنی، زمانش را انتخاب کن.</small>
+  const fuMissing = showErrors && value.fu && !value.followUpAt;
+  const pickChip = (k: CqResultValue['chip'], at: string) => set({ chip: k, followUpAt: at });
+  const timeStep = value.fu ? <div className="field cq-fu-time" data-testid="cq-followup">
+      <span className="cq-label" id={`${idPrefix}-fu-label`}>زمان یادآور <span className="req" aria-hidden="true">*</span></span>
+      <div className="cq-chips cq-fu-chips" role="radiogroup" aria-labelledby={`${idPrefix}-fu-label`} aria-required="true" aria-invalid={fuMissing || undefined}>
+        {chips.map((c) => <button key={c.key} type="button" role="radio" className={`cq-chip cq-fch${value.chip === c.key ? ' on' : ''}`} aria-checked={value.chip === c.key} disabled={c.disabled}
+          onClick={() => pickChip(c.key, c.at)} data-testid={`cq-chip-${c.key}`}>
+          <b>{c.label}</b><small>{c.disabled ? 'ساعت کاری امروز تمام شده' : c.key === 'evening' ? <><span>امروز</span><span>۱۶:۰۰</span></> : <><span>{faDayLabel(c.at)}</span><span>۱۰:۰۰</span></>}</small></button>)}
+        <button type="button" role="radio" className={`cq-chip cq-fch${value.chip === 'pick' ? ' on' : ''}`} aria-checked={value.chip === 'pick'} onClick={() => pickChip('pick', pickIso(value))} data-testid="cq-chip-pick">
+          <b>انتخاب روز و ساعت</b><small><span>تقویم</span><span>۹ تا ۱۸</span></small></button>
       </div>
-    </fieldset>
-    <div className="field">
-      <label htmlFor={`${idPrefix}-one`}>یادداشت یک‌خطی <span className="req" aria-hidden="true">*</span></label>
-      <input id={`${idPrefix}-one`} value={value.oneLine} maxLength={CQ_ONE_LINE_MAX} onChange={(e) => set({ oneLine: e.target.value.replace(/\n/g, ' ') })}
-        className={showErrors && !value.oneLine.trim() ? 'bad' : ''} aria-invalid={showErrors && !value.oneLine.trim()} aria-describedby={`${idPrefix}-one-meta`} aria-required="true"
-        placeholder="مثلاً: مدارک را تا فردا می‌فرستد" data-testid="cq-one-line" />
-      <div id={`${idPrefix}-one-meta`} className={`cq-counter${atMax ? ' max' : ''}`} data-testid="cq-one-line-counter">
-        {atMax ? 'به سقف رسیدی؛ بقیه را در «یادداشت کارشناس» بنویس · ' : ''}{faNum(len)} / {faNum(CQ_ONE_LINE_MAX)}</div>
-    </div></>}
-    {value.fu ? <div className="field" data-testid="cq-followup">
-      <label id={`${idPrefix}-fu-label`}>زمان یادآور <span className="req" aria-hidden="true">*</span></label>
-      <div className="cq-chips" role="group" aria-labelledby={`${idPrefix}-fu-label`}>
-        {chips.map((c) => <button key={c.key} type="button" className={`cq-chip${value.chip === c.key ? ' on' : ''}`} aria-pressed={value.chip === c.key} disabled={c.disabled}
-          onClick={() => set({ chip: c.key, followUpAt: c.at })} data-testid={`cq-chip-${c.key}`}>{c.label}</button>)}
-        <button type="button" className={`cq-chip${value.chip === 'pick' ? ' on' : ''}`} aria-pressed={value.chip === 'pick'} onClick={() => set({ chip: 'pick', followUpAt: pickIso(value) })} data-testid="cq-chip-pick">انتخاب تاریخ</button>
-      </div>
-      {eveningLate ? <small className="cq-hint" data-testid="cq-fu-late">«امروز عصر» بعد از ساعت ۱۶ یا در روز تعطیل در دسترس نیست.</small> : null}
       {value.chip === 'tomorrow' && tomorrowFriday ? <small className="cq-hint" data-testid="cq-fu-next">فردا جمعه است؛ یادآور به اولین روز کاری بعد (ساعت ۱۰) می‌رود.</small> : null}
       {value.chip === 'pick' ? <div className="cq-pick">
         <PersianDatePicker value={value.pickDate} onChange={(d) => { const nv = { ...value, pickDate: d }; onChange({ ...nv, followUpAt: pickIso(nv) }); }} testId="cq-pick-date" />
@@ -136,8 +119,16 @@ export function CqResultFields({ value, onChange, showErrors, pre, idPrefix = 'c
         <select aria-label="دقیقه" value={value.pickMinute} onChange={(e) => { const nv = { ...value, pickMinute: e.target.value }; onChange({ ...nv, followUpAt: pickIso(nv) }); }} data-testid="cq-pick-minute">
           {['00', '15', '30', '45'].map((m) => <option key={m} value={m}>{faNum(m)}</option>)}</select>
       </div> : null}
-      {value.followUpAt ? <small className="cq-hint" data-testid="cq-fu-when">یادآور: {faWhen(value.followUpAt)} (جمعه، تعطیل رسمی یا بیرون از ۹ تا ۱۸ به اولین زمان کاری بعد می‌رود)</small> : null}
+      {value.followUpAt ? <p className="picked" data-testid="cq-fu-when"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0" /></svg>
+        <span>یادآور: {faWhen(value.followUpAt)}</span><small>جمعه، تعطیل رسمی یا بیرون از ۹ تا ۱۸ به اولین زمان کاری بعد می‌رود</small></p> : null}
+    </div> : null;
+  return <div className={`cq-result${err ? ' has-err' : ''}`} data-testid="cq-result">
+    {onlyTime ? null : <>{pre?.due?.length ? <div className="cq-pre-due" role="note" data-testid="cq-pre-due">
+      {pre.due.length === 1 ? <>یادآور سررسیده‌ی {pre.due[0].label}{pre.due[0].subject ? ` («${pre.due[0].subject}»)` : ''} با ثبت این تماس خودکار بسته می‌شود.</>
+        : <>{faNum(pre.due.length)} یادآور سررسیده ({pre.due.map((d) => d.label).join('، ')}) با ثبت این تماس خودکار بسته می‌شوند.</>}
     </div> : null}
+    {noResult ? null : <ManualOutcomeField value={value.manual} idPrefix={idPrefix} showError={showErrors} submitLabel={submitLabel}
+      onChange={(m) => set({ manual: m, outcome: cqOutcomeFor(m, value.fu) })} />}</>}
     {!onlyTime && !noResult && value.outcome === 'no_answer' ? <div className="cq-na" data-testid="cq-na-box" data-attempt={na}>
       <div className="cq-dots" aria-hidden="true">{[1, 2, 3].map((i) => <span key={i} className={i <= na ? 'on' : ''} />)}</div>
       <div><b>این تماس، تلاش بی‌پاسخ {faNum(na)} از ۳ است.</b>
@@ -147,6 +138,26 @@ export function CqResultFields({ value, onChange, showErrors, pre, idPrefix = 'c
           : pre?.p1 ? <p data-testid="cq-na3-p1">تلاش بعدی ساخته نمی‌شود · اعلان به مدیر می‌رود. مشتری در فهرست تو می‌ماند.</p>
           : <p data-testid="cq-na3-cold">بعد از ۳ تلاش بی‌پاسخ، بایگانی سرد پیشنهاد می‌شود. اگر هنوز می‌خواهی پیگیری کنی «یادآور پیگیری بعدی» را بزن.</p>}</div>
     </div> : null}
+    {onlyTime ? null : <>
+    <div className="field">
+      <label htmlFor={`${idPrefix}-one`}>یادداشت یک‌خطی <span className="req" aria-hidden="true">*</span></label>
+      <input id={`${idPrefix}-one`} value={value.oneLine} maxLength={CQ_ONE_LINE_MAX} onChange={(e) => set({ oneLine: e.target.value.replace(/\n/g, ' ') })}
+        className={showErrors && !value.oneLine.trim() ? 'bad' : ''} aria-invalid={showErrors && !value.oneLine.trim()} aria-describedby={`${idPrefix}-one-meta`} aria-required="true"
+        placeholder="مثلاً: مدارک را تا فردا می‌فرستد" data-testid="cq-one-line" />
+      <div id={`${idPrefix}-one-meta`} className={`cq-counter${atMax ? ' max' : ''}`} data-testid="cq-one-line-counter">
+        {atMax ? 'به سقف رسیدی؛ بقیه را در «یادداشت کارشناس» بنویس · ' : ''}{faNum(len)} / {faNum(CQ_ONE_LINE_MAX)}</div>
+    </div>
+    {/* PM (81, Q2) + v1.0.1 §2.5: «پیگیری بعدی» is a separate optional step AFTER the result and the note; channel stays phone (no type picker). */}
+    <fieldset className={`cq-fu crfu${value.fu ? ' on' : ''}`} data-testid="cq-fu-step"><legend>پیگیری بعدی <small>اختیاری</small></legend>
+      <div className="cq-fu-toggle">
+        <button type="button" role="switch" aria-checked={value.fu} className={`cq-chip cfu${value.fu ? ' on' : ''}`}
+          onClick={() => set({ fu: !value.fu, outcome: cqOutcomeFor(value.manual, !value.fu) })} data-testid="cq-outcome-follow_up">
+          <span className="cq-sw" aria-hidden="true"><i /></span>یادآور پیگیری بعدی بگذار</button>
+        {value.fu ? null : <small className="cq-hint">اگر باید دوباره زنگ بزنی، روشنش کن و زمانش را انتخاب کن.</small>}
+      </div>
+      {timeStep}
+    </fieldset></>}
+    {onlyTime ? timeStep : null}
     {err ? <div className="cq-err" role="alert" data-testid="cq-result-error">{err}</div> : null}
   </div>;
 }
