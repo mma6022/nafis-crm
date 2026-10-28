@@ -84,7 +84,7 @@ export function elCustomerAccess(u: U, customerId: number, now = new Date()): "p
 const ALLOW: RegExp[] = [
   // session / profile / shell
   /^\/(session|me|logout|profile)(\/|$)/, /^\/avatars(\/|$)/, /^\/users\/\d+\/avatar$/, /^\/healthz$/, /^\/roles\/me$/,
-  /^\/expert-lockdown\//, /^\/files-carousel(\/|$)/,
+  /^\/expert-lockdown\//, /^\/files-carousel(\/|$)/, /^\/reminder-must\/(config|feed|snooze|\d+\/(shown|complete))$/, // REMINDER-B (handlers scope to own reminders)
   // shell reads that list no customers (feature switches / telemetry / staff names / form options)
   /^\/(lead-annotator|registrar-view)\/me$/, /^\/page-usage(\/config)?$/, /^\/voip\/config$/, /^\/salespersons$/, /^\/team-sales\/config$/,
   /^\/lead-intake\/options$/, /^\/customer-tags$/, /^\/consult-options$/, /^\/call-queue\/discipline\/me$/,
@@ -112,6 +112,16 @@ const ALLOW: RegExp[] = [
 export function elOwnCustomer(u: U, customerId: number): boolean {
   const r = queryRow<{ salesperson_id: number | null }>("SELECT salesperson_id FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [customerId]);
   return Boolean(r && u.salespersonId != null && Number(r.salesperson_id) === Number(u.salespersonId));
+}
+/** REMINDER-B (v1.3): while flag.reminder_must = '1', the mandatory popup's call save (POST /calls) is open for the expert's OWN customer
+ *  that has one of THEIR open reminders already due in the popup queue (due at/after the flag was switched on). Nothing else opens. */
+export function elMustReminderCustomer(u: U, customerId: number, now = new Date()): boolean {
+  try {
+    const f = queryRow<{ value: string; updated_at: string }>("SELECT value, updated_at FROM call_queue_settings WHERE key='flag.reminder_must'");
+    if (!f || f.value !== "1" || !elOwnCustomer(u, customerId)) return false;
+    return Boolean(queryRow(`SELECT 1 x FROM reminders WHERE user_id=? AND customer_id=? AND done=0 AND voided_at IS NULL AND closed_at IS NULL
+      AND julianday(remind_at) <= julianday(?) AND julianday(remind_at) >= julianday(?) LIMIT 1`, [Number(u.id), customerId, now.toISOString(), f.updated_at]));
+  } catch { return false; }
 }
 /** The single-customer page and its APIs: allowed only for an accessible customer. */
 const CUSTOMER_PATH = /(?:^|\/)customers\/(\d+)(?=\/|$)/g;
@@ -152,7 +162,7 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   }
   if ((customerRoute || customerWrite) && !ids.length) return deny(res, "expert_lockdown", "این بخش فعلاً برای شما بسته است.");
   for (const id of ids) {
-    if (!elCustomerAccess(u!, id) && !(ownLevel && elOwnCustomer(u!, id))) {
+    if (!elCustomerAccess(u!, id) && !(ownLevel && elOwnCustomer(u!, id)) && !(req.method === "POST" && path === "/calls" && elMustReminderCustomer(u!, id))) {
       if (process.env.EL_TRACE === "1") console.warn(`[expert-lockdown] deny-customer ${req.method} ${path}`);
       return deny(res, "expert_lockdown_customer", "این مشتری فعلاً برای شما باز نیست (فقط مشتری‌های «کارهای امروز»، پرونده‌های خودت یا «تماس ورودی»).");
     }

@@ -1,3 +1,5 @@
+import { ReminderMustHost } from '@/features/reminder-must/ReminderMust';
+import { useRmConfig } from '@/features/reminder-must/api';
 import { CustomerName } from '@/components/customer/CustomerName';
 import { AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, Link2, LifeBuoy, LogOut, Menu, MessageCircle, MoreHorizontal, Sparkles, MessagesSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, ListChecks, type LucideIcon } from 'lucide-react';
 import { UserAvatar, AvatarPicker } from '@/components/UserAvatar';
@@ -158,11 +160,13 @@ export function CrmShell({ children }: { children: ReactNode }) {
     || (/^\/customers\/(\d+)/.test(loc) && (cqCfg?.restriction?.customerIds ?? []).includes(Number(loc.split('/')[2])));
   // HISTORY-A «دیدن پرونده»: inside the side-panel iframe (?panel=1) the shell shows only the page — no nav, polls, popups, chat or queue.
   const [panelMode] = useState(() => typeof window !== 'undefined' && window.self !== window.top && new URLSearchParams(window.location.search).get('panel') === '1');
+  // REMINDER-B: while the mandatory popup is on for this user (8/2/3 + flag.reminder_must), it replaces the «متوجه شدم» popup.
+  const rmOnForMe = useRmConfig(user ? Number(user.id) : null).data?.enabled === true;
   const dueParams = { done: false, due: true };
   const dueReminders = useListReminders(dueParams, {
     query: {
       queryKey: getListRemindersQueryKey(dueParams),
-      enabled: Boolean(user?.role === 'admin' || user?.permissions?.includes('reminders.manage')) && !elLocked && !elPending && !panelMode,
+      enabled: Boolean(user?.role === 'admin' || user?.permissions?.includes('reminders.manage')) && !elLocked && !elPending && !panelMode && !rmOnForMe,
       refetchInterval: 15_000,
       refetchOnWindowFocus: true,
     },
@@ -497,6 +501,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
       {profileOpen && user ? <ProfileModal user={user} onClose={() => setProfileOpen(false)} /> : null}
       {reminderFormOpen ? <CreateReminderForm onClose={() => setReminderFormOpen(false)} /> : null}
       {user ? <CallQueueHost onModalActive={setCqModalActive} dailyPlan={dpOnForMe} /> : null}
+      {user && EL_UIDS.includes(Number(user.id)) ? <ReminderMustHost userId={Number(user.id)} /> : null}
       {dueReminder && !cqModalActive ? (
         <Modal title={dueReminder.subject} eyebrow="زمان یادآور رسیده است" onClose={() => setDueReminder(null)} testId="due-reminder">
           <div className="due-reminder">
