@@ -11,6 +11,8 @@ export type ElNew =
   | { result: 'duplicate'; ownerName: string; mine: boolean }
   | { result: 'created'; customer: { id: number; name: string } }
   | { result: 'invalid' | 'rate_limited'; message: string; field?: string };
+export type ElSuggestItem = { id: number; name: string; phoneLast4: string; priority: number | null; match: 'exact' | 'phone' | 'name' };
+export type ElSuggest = { result: 'ok'; kind: 'phone' | 'name'; items: ElSuggestItem[]; phone?: string } | { result: 'short' | 'rate_limited'; message: string };
 export type ElDaily = { day: string; flag: boolean; experts: { userId: number; salespersonId: number; name: string; opens: number; searches: number; own: number; other: number; none: number; limited: number; bells: number; loggedOutOfList: number }[] };
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -23,6 +25,9 @@ export const elApi = {
   me: () => req<ElMe>('GET', '/expert-lockdown/me').catch((): ElMe => ({ locked: false })),
   open: () => req<{ ok: true }>('POST', '/expert-lockdown/incoming/open', {}),
   search: (q: string) => req<ElSearch>('POST', '/expert-lockdown/incoming/search', { q }),
+  suggest: (q: string, signal?: AbortSignal) => fetch('/api/expert-lockdown/incoming/suggest', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q }), signal })
+    .then(async (r) => { const d = await r.json().catch(() => null); if (!d?.result) throw new Error('جست‌وجو انجام نشد.'); return d as ElSuggest; }),
+  pick: (id: number) => req<ElSearch>('POST', '/expert-lockdown/incoming/pick', { pick: id }),
   newCheck: (phone: string) => req<ElNew>('POST', '/expert-lockdown/incoming/new/check', { phone }),
   create: (body: { phone: string; name: string; description?: string }) => req<ElNew>('POST', '/expert-lockdown/incoming/new', body),
   firstCallLogged: (customerId: number, callLogId: number) => req<{ ok: true; mirrored: boolean }>('POST', '/expert-lockdown/incoming/first-call-logged', { customerId, callLogId }),

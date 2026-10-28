@@ -23,26 +23,26 @@ const NAME_ERR = 'نام و نام خانوادگی مشتری را کامل ب�
 const PHONE_ERR = 'شماره‌ی موبایل کامل ۱۱ رقمی را بنویس (مثلاً ۰۹۱۲۱۲۳۴۵۶۷).';
 
 export function LockedIncomingChoice({ onClose, onSaved, currentNo }: { onClose: () => void; onSaved: () => void; currentNo?: number | null }) {
-  const [opt, setOpt] = useState<Opt>(null);
-  if (opt === 'own') return <LockedInbound onClose={onClose} onSaved={onSaved} currentNo={currentNo} onBack={() => setOpt(null)} />;
-  if (opt === 'new') return <NewCustomer onClose={onClose} onSaved={onSaved} currentNo={currentNo} onBack={() => setOpt(null)} />;
+  const [opt, setOpt] = useState<Opt>(null); const [carry, setCarry] = useState('');
+  if (opt === 'own') return <LockedInbound onClose={onClose} onSaved={onSaved} currentNo={currentNo} onBack={() => setOpt(null)} onNew={(p) => { setCarry(p); setOpt('new'); }} />;
+  if (opt === 'new') return <NewCustomer onClose={onClose} onSaved={onSaved} currentNo={currentNo} initialPhone={carry} onBack={() => { setCarry(''); setOpt(null); }} />;
   return <section className="dp-inbound card" aria-labelledby="el-ch-h" data-testid="el-choice">
     <div className="dp-sheet-h"><div><small className="dp-hint"><PhoneIncoming size={13} aria-hidden="true" /> مشتری خودش به خط تو زنگ زده</small>
       <h2 id="el-ch-h">تماس ورودی داشتم</h2></div>
       <button type="button" className="dp-x" onClick={onClose} aria-label="بستن"><X size={18} /></button></div>
     <div className="el-choice">
       <button type="button" className="el-opt" onClick={() => setOpt('own')} data-testid="el-choose-own">
-        <UserRound size={20} aria-hidden="true" /><b>جزو مشتری‌های منه</b><small>با شماره‌ی کامل یا نام کامل پرونده‌اش را پیدا کن و تماس را «خارج از لیست» ثبت کن.</small></button>
+        <UserRound size={20} aria-hidden="true" /><b>جزو مشتری‌های منه</b><small>چند رقم از شماره یا نامش را بنویس، از فهرست انتخاب کن و تماس را «خارج از لیست» ثبت کن.</small></button>
       <button type="button" className="el-opt" onClick={() => setOpt('new')} data-testid="el-choose-new">
         <UserPlus size={20} aria-hidden="true" /><b>ثبت مشتری جدید</b><small>اول شماره را چک می‌کنیم؛ اگر تکراری نبود، مشتری به نام خودت ثبت می‌شود.</small></button>
     </div>
   </section>;
 }
 
-function NewCustomer({ onClose, onBack, onSaved, currentNo }: { onClose: () => void; onBack: () => void; onSaved: () => void; currentNo?: number | null }) {
+function NewCustomer({ onClose, onBack, onSaved, currentNo, initialPhone }: { onClose: () => void; onBack: () => void; onSaved: () => void; currentNo?: number | null; initialPhone?: string }) {
   const [created, setCreated] = useState<{ id: number; name: string; phone: string } | null>(null); const [ok, setOk] = useState('');
   const [step, setStep] = useState<StepKey>('phone');
-  const [phone, setPhone] = useState(''); const [name, setName] = useState(''); const [note, setNote] = useState('');
+  const [phone, setPhone] = useState(initialPhone ?? ''); const [name, setName] = useState(''); const [note, setNote] = useState('');
   const [dup, setDup] = useState<Extract<ElNew, { result: 'duplicate' }> | null>(null);
   const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
   const fail = (r: ElNew) => {

@@ -2,19 +2,40 @@
  *  Exact match only (full mobile or full name) via POST /api/expert-lockdown/incoming/search — never a list.
  *  Own customer → the case opens for a short window and the call is logged with the normal out-of-list call form (POST /calls, context out_of_list).
  *  Another expert's customer → owner name only; the server sends that owner one internal bell. */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'wouter';
-import { Check, FileText, Info, Lock, PhoneIncoming, Search, UserRound, X } from 'lucide-react';
+import { Check, FileText, Info, Lock, PhoneIncoming, Search, UserPlus, UserRound, X } from 'lucide-react';
 import { CqResultFields, cqResultError, emptyCqResult, type CqResultValue } from '@/features/call-queue/ResultFields';
 import { announceCallSaved, faNum, useCqConfig } from '@/features/call-queue/api';
 import { dpApi } from '@/features/daily-plan/api';
-import { elApi, type ElSearch } from './api';
+import { elApi, type ElSearch, type ElSuggest } from './api';
 import './lockdown.css';
 
-export function LockedInbound({ onClose, onSaved, currentNo, onBack }: { onClose: () => void; onSaved: () => void; currentNo?: number | null; onBack?: () => void }) {
+/** SEARCH-65b input rules (mirror of the server's elPhoneQuery / elNameKey): when is a live query worth sending. */
+const latin = (v: string) => v.replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+export function liveQueryReady(v: string): boolean {
+  const s = latin(v).replace(/[\s\-–—_.()\[\]/]/g, '');
+  if (/^\+?\d+$/.test(s)) return s.replace(/\D/g, '').length >= 4;
+  return v.replace(/[\s\u200c]/g, '').length >= 2;
+}
+const PRIO_FA: Record<number, string> = { 1: 'اولویت ۱', 2: 'اولویت ۲', 3: 'اولویت ۳' };
+
+export function LockedInbound({ onClose, onSaved, currentNo, onBack, onNew }: { onClose: () => void; onSaved: () => void; currentNo?: number | null; onBack?: () => void; onNew?: (phone: string) => void }) {
   const cq = useCqConfig().data;
   const [term, setTerm] = useState('');
+  const [live, setLive] = useState<{ q: string; r: ElSuggest } | null>(null);
+  const seq = useRef(0);
+  useEffect(() => { // 250 ms debounce; stale answers dropped; aborted when the text changes.
+    const q = term.trim(); if (!liveQueryReady(q)) { setLive(null); return; }
+    const my = ++seq.current; const ac = new AbortController();
+    const t = window.setTimeout(() => { elApi.suggest(q, ac.signal).then((r) => { if (seq.current === my) setLive({ q, r }); }).catch(() => { /* aborted / offline: keep last */ }); }, 250);
+    return () => { window.clearTimeout(t); ac.abort(); };
+  }, [term]);
+  const pick = async (id: number) => {
+    setBusy(true); setErr(''); setOk(''); setVal(emptyCqResult()); setShow(false);
+    try { setRes(await elApi.pick(id)); setLive(null); } catch (e) { setErr(e instanceof Error ? e.message : 'باز نشد.'); } finally { setBusy(false); }
+  };
   const [res, setRes] = useState<ElSearch | null>(null);
   const [val, setVal] = useState<CqResultValue>(emptyCqResult());
   const [show, setShow] = useState(false); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false); const [ok, setOk] = useState('');
@@ -41,9 +62,19 @@ export function LockedInbound({ onClose, onSaved, currentNo, onBack }: { onClose
       <button type="button" className="dp-x" onClick={onClose} aria-label="بستن"><X size={18} /></button></div>
     {ok ? <p className="dp-box ok sm" role="status" data-testid="el-in-done"><Check size={14} aria-hidden="true" /> {ok}</p> : null}
     <form className="dp-search" onSubmit={(e) => { e.preventDefault(); void find(); }} role="search">
-      <label className="dp-hint" htmlFor="el-in-q">شماره‌ی موبایل کامل یا نام کامل مشتری</label>
-      <input id="el-in-q" value={term} onChange={(e) => setTerm(e.target.value)} placeholder="مثلاً ۰۹۱۲۱۲۳۴۵۶۷ یا نام و نام خانوادگی" inputMode="text" autoComplete="off" data-testid="el-in-q" />
+      <label className="dp-hint" htmlFor="el-in-q">شماره یا نام مشتری — نتیجه همین‌طور که می‌نویسی می‌آید</label>
+      <input id="el-in-q" value={term} onChange={(e) => { setTerm(e.target.value); if (res && res.result !== 'own') setRes(null); }} placeholder="چند رقم از شماره (حداقل ۴) یا نام (حداقل ۲ حرف)" inputMode="text" autoComplete="off" data-testid="el-in-q" />
       <button type="submit" className="btn btn-ghost" disabled={busy} data-testid="el-in-go"><Search size={15} aria-hidden="true" /> {busy && !own ? 'در حال جست‌وجو…' : 'پیدا کن'}</button></form>
+    {!res && live && live.r.result === 'ok' && live.r.items.length ? <ul className="el-live" data-testid="el-in-live" aria-label="مشتری‌های خودت">
+      {live.r.items.map((it) => <li key={it.id}><button type="button" className="el-live-row" disabled={busy} onClick={() => void pick(it.id)} data-testid={`el-in-hit-${it.id}`}>
+        <b>{it.name}</b><span className="el-live-ph" dir="ltr" data-testid="el-in-hit-ph">••••{faNum(it.phoneLast4)}</span>
+        {it.priority && PRIO_FA[it.priority] ? <span className={`dp-chip p${it.priority}`}>{PRIO_FA[it.priority]}</span> : null}
+        {it.match === 'exact' ? <span className="dp-chip l-exact">{(live.r.result === 'ok' && live.r.kind === 'phone') ? 'همین شماره' : 'همین نام'}</span> : null}</button></li>)}</ul> : null}
+    {!res && live && live.r.result === 'ok' && !live.r.items.length && live.q === term.trim() ? <div className="dp-box sm el-live-none" role="status" data-testid="el-in-nohit">
+      <span><Info size={14} aria-hidden="true" /> پیدا نشد — بین مشتری‌های خودت چنین {live.r.kind === 'phone' ? 'شماره‌ای' : 'نامی'} نیست.</span>
+      {onNew ? <button type="button" className="btn btn-primary" onClick={() => onNew(live.r.result === 'ok' && live.r.phone ? live.r.phone : (live.r.result === 'ok' && live.r.kind === 'phone' ? latin(live.q).replace(/[^\d+]/g, '') : ''))} data-testid="el-in-new"><UserPlus size={15} aria-hidden="true" /> ثبت مشتری جدید</button> : null}
+      <small>اگر مشتری کارشناس دیگری است، شماره‌ی کامل را بنویس و «پیدا کن» را بزن تا فقط نام کارشناسش را ببینی.</small></div> : null}
+    {!res && live && live.r.result === 'rate_limited' ? <p className="dp-box sm" role="status" data-testid="el-in-live-limited">{live.r.message}</p> : null}
     {res && res.result !== 'own' && res.result !== 'other' ? <p className="dp-box sm" role="status" data-testid={`el-in-${res.result}`}><Info size={14} aria-hidden="true" /> {res.message}</p> : null}
     {res?.result === 'other' ? <div className="el-owner" role="status" data-testid="el-in-other">
       <span><Lock size={14} aria-hidden="true" /> این مشتری مال کارشناس دیگری است</span>
@@ -56,8 +87,8 @@ export function LockedInbound({ onClose, onSaved, currentNo, onBack }: { onClose
       <CqResultFields value={val} onChange={setVal} showErrors={show} idPrefix="el-in" />
       <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void save()} data-testid="el-in-save"><Check size={15} aria-hidden="true" /> ثبت «خارج از لیست»{back}</button></div> : null}
     {err ? <p className="dp-err" role="alert" data-testid="el-in-err">{err}</p> : null}
-    {!res && !ok ? <ul className="dp-hint" data-testid="el-in-rules">
-      <li><UserRound size={13} aria-hidden="true" /> فقط وقتی مشتری خودش زنگ زده. فقط یک پرونده با همان شماره یا همان نام کامل پیدا می‌شود؛ فهرست نشان داده نمی‌شود.</li>
+    {!res && !ok && !live ? <ul className="dp-hint" data-testid="el-in-rules">
+      <li><UserRound size={13} aria-hidden="true" /> فقط وقتی مشتری خودش زنگ زده. همین‌طور که می‌نویسی، فقط مشتری‌های خودت (حداکثر ۸ تا) می‌آیند؛ روی اسم بزن.</li>
       <li>مشتری خودت: پرونده چند دقیقه باز می‌شود و تماس «خارج از لیست» ثبت می‌شود.</li>
       <li>مشتری کارشناس دیگر: فقط نام کارشناسش را می‌بینی و به او خبر داده می‌شود.</li>
       <li>کار جاری سر جایش است و شمارنده‌ی لیست عوض نمی‌شود.</li></ul> : null}

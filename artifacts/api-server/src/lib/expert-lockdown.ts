@@ -48,7 +48,9 @@ export function ensureElSchema(): void {
     CREATE INDEX IF NOT EXISTS idx_el_incoming_user ON el_incoming_log(user_id, created_at);
     CREATE TABLE IF NOT EXISTS el_grants(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, customer_id INTEGER NOT NULL,
       source TEXT NOT NULL, granted_at TEXT NOT NULL, expires_at TEXT NOT NULL);
-    CREATE INDEX IF NOT EXISTS idx_el_grants_user ON el_grants(user_id, customer_id, expires_at);`);
+    CREATE INDEX IF NOT EXISTS idx_el_grants_user ON el_grants(user_id, customer_id, expires_at);
+    -- SEARCH-65b: additive plain-column index for «تماس ورودی داشتم» live search (own customers by salesperson, phone stored normalized 09xxxxxxxxx).
+    CREATE INDEX IF NOT EXISTS idx_customers_sp_phone ON customers(salesperson_id, phone);`);
   ready = true;
 }
 
@@ -284,6 +286,85 @@ export function elIncomingSearch(u: U, raw: unknown, now = new Date()): ElSearch
   }
   log(u, { action: "search", kind: lk.kind, hash, result: "other", customerId: Number(c.id), ownerSp: c.sp == null ? null : Number(c.sp), notified }, at);
   return { result: "other", ownerName: String(c.owner_name ?? "") || "بدون کارشناس", notified };
+}
+
+/* ---------------- SEARCH-65b: live «تماس ورودی داشتم» search (own customers only) ---------------- */
+export const EL_SUGGEST_MAX = 8;
+export const EL_SUGGEST_PER_MIN = 90;          // keystroke-debounced calls per user per minute (in memory; not logged)
+const suggestHits = new Map<number, number[]>();
+const toLatin = (v: string) => v.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
+/** Name key: Persian ي/ى→ی, ك→ک, ZWNJ / tatweel / any whitespace → one space. Same mapping as crm_persian_search_key + ZWNJ folding. */
+export function elNameKey(v: unknown): string {
+  return toLatin(String(v ?? "").normalize("NFC")).replace(/[يى]/g, "ی").replace(/ك/g, "ک").replace(/[\u200c\u200d\u200e\u200f\u0640]/g, " ").replace(/\s+/g, " ").trim();
+}
+/** Phone query: Persian/Arabic digits → Latin; spaces, dashes, dots, parentheses dropped; +98 / 0098 / 98 / leading 9 → 09 form. null = not a phone query. */
+export function elPhoneQuery(raw: unknown): { digits: string; canon: string } | null {
+  const s = toLatin(String(raw ?? "")).replace(/[\s\-–—_.()\[\]\/]/g, "");
+  if (!/^\+?\d+$/.test(s)) return null;
+  const d = s.replace(/^\+/, "");
+  let canon = d;
+  if (/^0098/.test(d)) canon = `0${d.slice(4)}`;
+  else if (s.startsWith("+98") || /^989/.test(d)) canon = `0${d.slice(2)}`;
+  else if (/^9/.test(d)) canon = `0${d}`;
+  return { digits: d, canon };
+}
+const likeEsc = (v: string) => v.replace(/[\\%_]/g, (c) => `\\${c}`);
+export type ElSuggestItem = { id: number; name: string; phoneLast4: string; priority: number | null; match: "exact" | "phone" | "name" };
+export type ElSuggestResult = { result: "ok"; kind: "phone" | "name"; items: ElSuggestItem[]; phone?: string } | { result: "short" | "rate_limited"; message: string };
+
+export function elIncomingSuggest(u: U, raw: unknown, now = Date.now()): ElSuggestResult {
+  const uid = Number(u.id), sp = Number(u.salespersonId);
+  const hits = (suggestHits.get(uid) ?? []).filter((t) => t > now - 60_000);
+  if (hits.length >= EL_SUGGEST_PER_MIN) { suggestHits.set(uid, hits); return { result: "rate_limited", message: "کمی صبر کن و دوباره بنویس." }; }
+  hits.push(now); suggestHits.set(uid, hits);
+  ensureElSchema();
+  const q = String(raw ?? "").slice(0, 60);
+  const ph = elPhoneQuery(q);
+  type Row = { id: number; name: string; phone: string | null; priority: number | null; rk: number };
+  const out = (rows: Row[], kind: "phone" | "name", phone?: string): ElSuggestResult => ({ result: "ok", kind, phone,
+    items: rows.map((r) => ({ id: Number(r.id), name: String(r.name ?? ""), phoneLast4: String(r.phone ?? "").slice(-4),
+      priority: r.priority == null ? null : Number(r.priority), match: r.rk === 0 ? "exact" : kind === "phone" ? "phone" : "name" })) });
+  if (ph) {
+    if (ph.digits.length < 4) return { result: "short", message: "حداقل ۴ رقم بنویس." };
+    const d = likeEsc(ph.digits), c = likeEsc(ph.canon);
+    // exact (0) → canonical prefix (1) → suffix (2) → anywhere (3); own, not merged; uses idx_customers_sp_phone.
+    const rows = queryRows<Row>(`SELECT c.id, c.name, c.phone, c.priority,
+        CASE WHEN c.phone=? THEN 0 WHEN c.phone LIKE ? ESCAPE '\\' THEN 1 WHEN c.phone LIKE ? ESCAPE '\\' THEN 2 ELSE 3 END rk
+      FROM customers c WHERE c.salesperson_id=? AND c.merged_into_customer_id IS NULL
+        AND (c.phone LIKE ? ESCAPE '\\' OR c.phone LIKE ? ESCAPE '\\')
+      ORDER BY rk, c.id DESC LIMIT ${EL_SUGGEST_MAX}`,
+      [ph.canon, `${c}%`, `%${d}`, sp, `%${d}%`, `${c}%`]);
+    return out(rows, "phone", /^09\d{9}$/.test(ph.canon) ? ph.canon : undefined);
+  }
+  const key = elNameKey(q);
+  if (key.replace(/\s/g, "").length < 2) return { result: "short", message: "حداقل ۲ حرف بنویس." };
+  const toks = key.split(" ").filter(Boolean).slice(0, 4);
+  // name key in SQL: same folding as elNameKey (ي/ك via crm_persian_search_key, ZWNJ / tatweel → space, Persian/Arabic digits → Latin).
+  let nk = "replace(replace(crm_persian_search_key(c.name),char(8204),' '),char(1600),' ')";
+  for (const [i, d] of [..."۰۱۲۳۴۵۶۷۸۹"].entries()) nk = `replace(${nk},'${d}','${i}')`;
+  for (const [i, d] of [..."٠١٢٣٤٥٦٧٨٩"].entries()) nk = `replace(${nk},'${d}','${i}')`;
+  const rows = queryRows<Row>(`SELECT c.id, c.name, c.phone, c.priority,
+      CASE WHEN ${nk}=? THEN 0 WHEN ${nk} LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END rk
+    FROM customers c WHERE c.salesperson_id=? AND c.merged_into_customer_id IS NULL
+      AND ${toks.map(() => `${nk} LIKE ? ESCAPE '\\'`).join(" AND ")}
+    ORDER BY rk, c.id DESC LIMIT ${EL_SUGGEST_MAX}`,
+    [key, `${likeEsc(key)}%`, sp, ...toks.map((t) => `%${likeEsc(t)}%`)]);
+  return out(rows, "name");
+}
+
+/** SEARCH-65b: tapping one live result = the existing «own» path (30-min window + log), scoped to the expert's own customer. */
+export function elIncomingPick(u: U, rawId: unknown, now = new Date()): ElSearchResult {
+  ensureElSchema();
+  const at = now.toISOString();
+  const id = Number(rawId);
+  const c = Number.isSafeInteger(id) && id > 0
+    ? queryRow<{ id: number; name: string; sp: number | null }>("SELECT id, name, salesperson_id sp FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [id]) : null;
+  if (!c || Number(c.sp) !== Number(u.salespersonId)) { log(u, { action: "pick", kind: "pick", result: "none" }, at);
+    return { result: "none", message: "این مشتری در فهرست مشتری‌های تو نیست." }; }
+  execute("INSERT INTO el_grants(user_id,customer_id,source,granted_at,expires_at) VALUES(?,?,?,?,?)",
+    [Number(u.id), Number(c.id), "incoming_call", at, new Date(now.getTime() + EL_GRANT_MINUTES * 60_000).toISOString()]);
+  log(u, { action: "pick", kind: "pick", result: "own", customerId: Number(c.id), ownerSp: Number(c.sp) }, at);
+  return { result: "own", customer: { id: Number(c.id), name: String(c.name ?? "") }, windowMinutes: EL_GRANT_MINUTES };
 }
 
 /** Admin card: per-expert counts for one Tehran day. */

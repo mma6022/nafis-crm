@@ -2,7 +2,7 @@
 import { Router, type IRouter } from "express";
 import type { AuthUser } from "../lib/auth";
 import { dpIncomingFirstCallMirror, dpToday } from "../lib/daily-plan";
-import { EL_ADMIN_USER_IDS, EL_ALLOWED_PAGES, EL_GRANT_MINUTES, elDailyCounts, elIncomingOpen, elIncomingSearch, elLocked, elNewCheck, elNewCreate } from "../lib/expert-lockdown";
+import { EL_ADMIN_USER_IDS, EL_ALLOWED_PAGES, EL_GRANT_MINUTES, elDailyCounts, elIncomingOpen, elIncomingSearch, elLocked, elNewCheck, elNewCreate, elIncomingSuggest, elIncomingPick } from "../lib/expert-lockdown";
 
 const router: IRouter = Router();
 const me = (res: any) => res.locals.authUser as AuthUser | undefined;
@@ -22,6 +22,18 @@ router.post("/expert-lockdown/incoming/search", (req, res): void => {
   if (!elLocked(u)) { res.status(404).json({ error: "not_found" }); return; }
   const r = elIncomingSearch(u!, req.body?.q);
   res.status(r.result === "rate_limited" ? 429 : 200).json(r);
+});
+// SEARCH-65b: live search over the caller's OWN customers (≤8, exact phone first, phone shown as last 4 only) + pick → the existing own path.
+router.post("/expert-lockdown/incoming/suggest", (req, res): void => {
+  const u = me(res);
+  if (!elLocked(u)) { res.status(404).json({ error: "not_found" }); return; }
+  const r = elIncomingSuggest(u!, req.body?.q);
+  res.status(r.result === "rate_limited" ? 429 : 200).json(r);
+});
+router.post("/expert-lockdown/incoming/pick", (req, res): void => {
+  const u = me(res);
+  if (!elLocked(u)) { res.status(404).json({ error: "not_found" }); return; }
+  res.json(elIncomingPick(u!, req.body?.pick));
 });
 // NEWCUST-65: «تماس ورودی داشتم › ثبت مشتری جدید» step 1 (phone duplicate check, owner name only) and create (owner = this expert). Locked experts only.
 router.post("/expert-lockdown/incoming/new/check", (req, res): void => {
