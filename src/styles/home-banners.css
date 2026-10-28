@@ -48,7 +48,7 @@ html:not(.js) .hb-txt{padding-bottom:24px}
 .hbm .hb-h{font-size:20px}
 .hbm .hb-p{font-size:14px}
 @media (min-width:768px){
-  .hbm{aspect-ratio:1200/320;min-height:260px}
+  .hbm{width:100%;aspect-ratio:1200/320;min-height:260px} /* hbm-fix: explicit width so min-height×aspect-ratio can't widen it to 975px (768–975 h-scroll) */
   .hbm picture,.hbm img{position:absolute;inset:0;height:100%}
   .hbm img{object-fit:cover;object-position:15% 50%}
   .hbm-txt{position:absolute;inset-block:0;inset-inline-start:0;width:55%;margin:0;justify-content:center;padding:20px 48px;gap:8px}
