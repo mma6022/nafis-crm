@@ -52,9 +52,9 @@ const CONFIRMED = {
   'no-cheque': [15, 20, 21],
   /** fastest ≤3 qualifying plans (all 10_to_15 → ties by id) */
   'fast-no-cheque': [15, 20, 21],
-  /** 10 خورشید removed: inactive in the CRM (live 2026-10-28). 4 removed (PLANS-49, 2026-10-28): no payout the portal
-   *  accepts (condition offers 18 months, plan only 24) → listed «به‌زودی» on /plans only; re-add when Mohammad fixes it. */
-  cheque: [1, 3, 5, 7, 8, 9, 11, 12, 14, 18, 19, 22],
+  /** 10 خورشید removed: inactive in the CRM (live 2026-10-28). 4 re-added (PLANS-50, Mohammad 2026-10-28 08:27: condition
+   *  396 now offers [18,24] → 24 months calculable, 110M payout the portal accepts). */
+  cheque: [1, 3, 4, 5, 7, 8, 9, 11, 12, 14, 18, 19, 22],
   promissory: [20],
 };
 const uniq = (a) => [...new Set(a)].sort((x, y) => x - y);

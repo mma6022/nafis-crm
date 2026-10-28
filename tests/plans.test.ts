@@ -15,9 +15,9 @@ const all = combos(plans);
 test('snapshot parses fully (plans without a calculable payout are listed «به‌زودی», never calculated)', () => {
   const soon = parseComingSoonPlans(raw);
   assert.equal(plans.length + soon.length, (raw as unknown[]).length);
-  // PLANS-49: plan 4 has no payout the portal accepts (condition 396 offers 18 months, the plan only 24) → «به‌زودی»
-  assert.deepEqual(soon.map((p) => [p.id, p.terms]), [[4, [24]]]);
-  assert.ok(!plans.some((p) => p.id === 4));
+  // PLANS-50 (Mohammad 2026-10-28 08:27): condition 396 now offers [18,24] → plan 4 is calculable at 24 months (110M); nothing «به‌زودی»
+  assert.deepEqual(soon.map((p) => [p.id, p.terms]), []);
+  assert.ok(plans.some((p) => p.id === 4));
 });
 
 test('parser: null payout/installment term = not calculable; a mixed plan keeps only its calculable terms', () => {
@@ -77,11 +77,11 @@ test('guarantee preset is a hard filter: only truly qualifying plans, empty when
   assert.deepEqual(recommend(unknown, { band: 1, prio: 'cheap' }, { guarantee: { page: 'cheque', label: 'چک' } }).cards, []);
 });
 
-test('guarantee pages: plan sets match Mohammad\'s answers (2026-10-23) on the 16 calculable live plans (10 خورشید inactive, 4 «به‌زودی»)', () => {
+test('guarantee pages: plan sets match Mohammad\'s answers (2026-10-23) on the 17 calculable live plans (10 خورشید inactive)', () => {
   const ids = (page: GuaranteePage) => guaranteePagePlans(plans, page).map((p) => p.id).sort((a, b) => a - b);
   assert.deepEqual(ids('no-guarantor'), [3, 7, 8, 9, 12, 14, 15, 17, 18, 19, 21, 22]);
   assert.deepEqual(ids('no-cheque'), [15, 20, 21]);
-  assert.deepEqual(ids('cheque'), [1, 3, 5, 7, 8, 9, 11, 12, 14, 18, 19, 22]); // 4: no calculable payout (PLANS-49)
+  assert.deepEqual(ids('cheque'), [1, 3, 4, 5, 7, 8, 9, 11, 12, 14, 18, 19, 22]); // 4 re-added (PLANS-50)
   assert.deepEqual(ids('promissory'), [20]);
   assert.deepEqual(ids('fast-no-guarantor'), [3, 7, 8, 9, 12, 14, 15, 18, 19, 21, 22]); // 17 is page-restricted
   assert.deepEqual(ids('fast-no-cheque'), [15, 20, 21]);
@@ -90,8 +90,8 @@ test('guarantee pages: plan sets match Mohammad\'s answers (2026-10-23) on the 1
 
 test('facts are computed from data', () => {
   const f = planFacts(plans);
-  assert.equal(f.planCount, 16); // + plan 4 «به‌زودی» (not calculable, PLANS-49)
-  assert.equal(f.goodsCount, 13);
+  assert.equal(f.planCount, 17); // plan 4 calculable again (PLANS-50)
+  assert.equal(f.goodsCount, 14); // + plan 4 (goods, PLANS-50)
   assert.equal(f.minAmount, '۶۰'); // مبلغ واریزی, never the principal (Mohammad 2026-10-28)
   assert.equal(f.maxAmount, '۲۹۰');
   assert.equal(f.minTerm, 12);
@@ -129,7 +129,7 @@ test('content presets map onto finder presets', () => {
   assert.deepEqual(toFinderPreset({ need: 'cash', priority: 'fast' }), { prio: 'fast' });
   assert.equal(toFinderPreset({ guarantee: 'no-guarantor' }).guarantee?.label, 'بدون ضامن');
   assert.deepEqual(toFinderPreset({ guarantee: 'bogus' }), {});
-  assert.equal(fillFacts('بین {planCount} طرح', planFacts(plans)), 'بین ۱۶ طرح');
+  assert.equal(fillFacts('بین {planCount} طرح', planFacts(plans)), 'بین ۱۷ طرح');
 });
 
 test('fast pages: fastest ≤3 plans meeting the base condition, by grantDays (never empty)', () => {
