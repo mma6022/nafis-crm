@@ -798,6 +798,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
         const auto = Boolean(pr && pr.assistant_id === sa.id && !arr?.escalated && ar.ownerOf(a, { customerId: cid }).owner !== "expert");
         const evId = Number(run("INSERT INTO assistant_events(assistant_id,type,thread_id,user_id,customer_id,message_id,data_json,created_at) VALUES(?,?,?,?,?,?,?,?)",
           sa.id, "bale_inbound", null, u.id, cid, null, JSON.stringify({ baleMessageId: Number(ins.lastInsertRowid), preview: maskText(text ?? "").slice(0, 500), hasFile: ev.hasFile === true,
+            customerStatus: row<any>("SELECT status FROM customers WHERE id=?", cid)?.status ?? null, // assistants72: status label (completed / cancelled reach the assistant too)
             ...(pr ? { autoReply: auto, night: Boolean(arr?.night), escalated: arr?.escalated ?? null } : {}) }), iso()).lastInsertRowid);
         if (auto) void ar.wake(evId, pr.slug);
       }

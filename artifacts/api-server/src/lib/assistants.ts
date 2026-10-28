@@ -239,6 +239,15 @@ export function createAssistants(deps: Deps) {
     const s = scopeSql(a);
     return Boolean(row(`SELECT 1 FROM customers c WHERE c.id=? AND ${s.sql}`, customerId, ...s.params));
   }
+  /** assistants72 (Mohammad 2026-10-28, option A): a `bale_inbound` event about the linked expert's OWN customer (same salesperson, not merged —
+   *  the Bale inbound ownCustomer check) reaches the sales assistant whatever the customer's status (completed / cancelled too). Read/delivery
+   *  only: queue, suggestions, writes and every other event type keep inScope(); the p1 rule and trainee / manager exclusions stay. */
+  function baleInboundDeliverable(a: any, customerId: number): boolean {
+    if (a.kind !== "sales" || a.scope_rule === "manager" || !a.bound_salesperson_id || TRAINEE_SALESPERSON_IDS.includes(a.bound_salesperson_id)) return false;
+    if (!Number.isSafeInteger(customerId) || customerId < 1) return false;
+    return Boolean(row(`SELECT 1 FROM customers c WHERE c.id=? AND c.merged_into_customer_id IS NULL AND c.salesperson_id=?${a.scope_rule === "p1" ? " AND c.priority=1" : ""}`,
+      customerId, a.bound_salesperson_id));
+  }
   /** assistants38 read-after-transfer: a sales assistant may still READ (history / notes / requests, masked) a customer its own expert
    *  logged a call, a note or a follow-up on, even after the customer moved to another expert or was closed. Never the queue,
    *  suggestions or any write; ownership is untouched. Trainee assistants, trainee-owned customers, merged customers and user 29 are excluded. */
@@ -781,6 +790,9 @@ export function createAssistants(deps: Deps) {
   function eventView(a: any, e: any) {
     const d = e.data_json ? JSON.parse(e.data_json) : {};
     const out: any = { id: Number(e.id), type: e.type, threadId: e.thread_id, userId: e.user_id, customerId: e.customer_id, messageId: e.message_id, createdAt: e.created_at, ...d };
+    // assistants72: status label on Bale inbound (older events carry none → the customer's current status).
+    if (e.type === "bale_inbound" && e.customer_id != null && out.customerStatus === undefined)
+      out.customerStatus = row<any>("SELECT status FROM customers WHERE id=?", e.customer_id)?.status ?? null;
     if (e.message_id) { const m = row<any>("SELECT * FROM assistant_messages WHERE id=?", e.message_id); if (m) out.message = messageView(m, true); }
     return out;
   }
@@ -788,7 +800,7 @@ export function createAssistants(deps: Deps) {
     syncCallEvents(a);
     const list = rows<any>("SELECT * FROM assistant_events WHERE assistant_id=? AND id>? ORDER BY id LIMIT 100", a.id, after);
     // Sarina: drop events whose case left her scope, and (v6) any event from/for a non-registrar/admin user (old sales threads).
-    return list.filter(e => (e.customer_id == null || inScope(a, e.customer_id))
+    return list.filter(e => (e.customer_id == null || inScope(a, e.customer_id) || (e.type === "bale_inbound" && baleInboundDeliverable(a, Number(e.customer_id))))
       && (a.kind !== "filing" || e.user_id == null || !filingRecipientBlocked(a, userRow(e.user_id) ?? { role: "" })));
   }
   runner.get("/events", async (req, res) => {
