@@ -9,8 +9,13 @@ import { custList, dpApi, DpError, useDpConfig, type DpItem, type DpToday } from
 import './daily-plan.css';
 import { elApi, useLockdownMe } from '@/features/expert-lockdown/api';
 import { LockedInbound } from '@/features/expert-lockdown/IncomingCall';
+import { getGetAuthSessionQueryKey, getGetCustomerQueryKey, useGetAuthSession, useGetCustomer } from '@workspace/api-client-react';
+import { CallLaunchStatus, useCallLauncher } from '@/features/team-sales/useCallLauncher';
+import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 
 type Working = Extract<DpToday, { eligible: true }>;
+/** FIRSTCALL-62: the customer handed to the existing first-call form (team-sales/SimpleCallForm), same props as the customer page. */
+type FcCustomer = { id: number; name: string; phone: string; priority?: number | null };
 const faDate = (ymd: string) => new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(`${ymd}T12:00:00+03:30`));
 const telFa = (p: string) => faNum(p.replace(/^\+98/, '0'));
 
@@ -43,6 +48,9 @@ export default function TodayPage() {
   const refresh = () => void qc.invalidateQueries({ queryKey: ['daily-plan', 'today'] });
   const [inbound, setInbound] = useState(false);
   const locked = useLockdownMe(false).data?.locked === true; // expert_lockdown (assistants54): reads the shell's cached /expert-lockdown/me, never fetches
+  // FIRSTCALL-62: the first-call form lives here (not in CurrentCard) so the 30s refetch / next item never unmounts its result screen.
+  const [fc, setFc] = useState<FcCustomer | null>(null);
+  const fcSession = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   if (!cfg || (on && q.isLoading)) return <div className="dp-page"><div className="dp-skel" role="status" data-testid="dp-loading">در حال بارگذاری کارهای امروز…</div></div>;
   if (!on) return <div className="dp-page"><h1>کارهای امروز</h1><p data-testid="dp-off">این بخش هنوز فعال نشده است.</p></div>;
   if (q.isError || !q.data) return <div className="dp-page"><h1>کارهای امروز</h1><div className="dp-box err" role="alert" data-testid="dp-error">لیست امروز بارگذاری نشد. <button type="button" className="btn btn-ghost" onClick={() => void q.refetch()}>تلاش دوباره</button></div></div>;
@@ -52,7 +60,9 @@ export default function TodayPage() {
     <Head d={d} />
     {d.pendingCall ? <div className="dp-box warn" role="alert" data-testid="dp-pending-other">تماس باز با <b>{d.pendingCall.customerName}</b> هنوز نتیجه ندارد. اول نتیجه و یادداشتش را ثبت کن (از «تماس ورودی» همین صفحه یا پرونده‌ی مشتری).</div> : null}
     <StateBox d={d} />
-    {d.current ? <CurrentCard key={`${d.current.id}-${d.current.moveCount}`} d={d} cur={d.current} onDone={refresh} /> : null}
+    {d.current ? <CurrentCard key={`${d.current.id}-${d.current.moveCount}`} d={d} cur={d.current} onDone={refresh} onFirstCall={setFc} /> : null}
+    {fc ? <SimpleCallForm customer={fc} userId={fcSession.data?.user?.id} onClose={() => { setFc(null); refresh(); }}
+      onDone={(r) => { announceCallSaved(r.callLogId, fc.id); refresh(); }} onNext={() => { setFc(null); refresh(); }} /> : null}
     <div className="dp-inbound-row">
       <button type="button" className="btn btn-ghost" onClick={() => { if (locked && !inbound) void elApi.open().catch(() => undefined); setInbound((v) => !v); }} aria-expanded={inbound} data-testid="dp-inbound-open"><PhoneIncoming size={16} aria-hidden="true" /> {locked ? 'تماس ورودی · پیدا کردن پرونده' : 'تماس ورودی'}</button>
       <small>فقط وقتی مشتری خودش زنگ زده؛ کار جاری عوض نمی‌شود.</small>
@@ -89,15 +99,29 @@ function StateBox({ d }: { d: Working }) {
   return null;
 }
 
-function CurrentCard({ d, cur, onDone }: { d: Working; cur: NonNullable<Working['current']>; onDone: () => void }) {
+function CurrentCard({ d, cur, onDone, onFirstCall }: { d: Working; cur: NonNullable<Working['current']>; onDone: () => void; onFirstCall: (c: FcCustomer) => void }) {
   const cq = useCqConfig().data;
+  // FIRSTCALL-62 (Mohammad 10:33): a first call opens EXACTLY the existing first-call form — same rule as the customer page's «ثبت تماس»
+  // (useCallLauncher → usesSimpleForm: the qualifier's own in-progress customer with no priority yet). Everything else keeps the result form below.
+  const session = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
+  const user = session.data?.user;
+  const custQ = useGetCustomer(cur.customerId, { query: { queryKey: getGetCustomerQueryKey(cur.customerId), retry: false } });
+  const cust = custQ.data ?? (custQ.isError && user ? { id: cur.customerId, name: cur.name, phone: cur.phone ?? '', salespersonId: user.salespersonId ?? null, status: 'in_progress', priority: cur.priority ?? null } : null);
+  const fcOf = (c: NonNullable<typeof cust>): FcCustomer => ({ id: cur.customerId, name: c.name ?? cur.name, phone: c.phone ?? cur.phone ?? '', priority: c.priority ?? null });
+  const launcher = useCallLauncher(user, Boolean(user), (c: NonNullable<typeof cust>, kind) => { if (kind === 'simple') onFirstCall(fcOf(c)); });
+  const formKind = !user || (!cust && custQ.isLoading) ? 'wait' : launcher.choose(cust);
+  const firstForm = formKind === 'simple';
+  const openFirst = () => { if (cust) launcher.launch(cust); };
+  // «تماس» pressed before the customer/session finished loading: open the first-call form as soon as the choice is known.
+  const [autoFirst, setAutoFirst] = useState(false);
+  useEffect(() => { if (autoFirst && cust && formKind !== 'wait') { setAutoFirst(false); if (formKind !== 'legacy') launcher.launch(cust); } }, [autoFirst, cust, formKind]); // eslint-disable-line react-hooks/exhaustive-deps
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
   const [opened, setOpened] = useState(cur.callOpen); const [val, setVal] = useState<CqResultValue>(emptyCqResult()); const [show, setShow] = useState(false);
   const [move, setMove] = useState(false); const [callAt, setCallAt] = useState<string | null>(null);
   useEffect(() => { if (cur.callOpen) setOpened(true); }, [cur.callOpen]);
   const call = async () => {
     setBusy(true); setErr('');
-    try { const r = await dpApi.start(cur.id); setOpened(true); setCallAt(new Date().toISOString()); watchBack(r.callId, onDone); dial(r.tel); }
+    try { const r = await dpApi.start(cur.id); setOpened(true); setCallAt(new Date().toISOString()); watchBack(r.callId, onDone); dial(r.tel); if (formKind !== 'legacy') { if (cust) openFirst(); else setAutoFirst(true); } }
     catch (e) { setErr(e instanceof Error ? e.message : 'تماس باز نشد.'); } finally { setBusy(false); }
   };
   const save = async () => {
@@ -127,10 +151,15 @@ function CurrentCard({ d, cur, onDone }: { d: Working; cur: NonNullable<Working[
       <small data-testid="dp-move-count">جابه‌جایی {faNum(cur.moveCount)} از {faNum(d.moveMax)}</small>
     </div>
     {cur.movesLeft <= 0 ? <p className="dp-hint" data-testid="dp-move-limit">این کار ۲ بار جابه‌جا شده؛ باید نتیجه‌ی تماس ثبت شود.</p> : null}
-    {opened ? <div className="dp-result" data-testid="dp-result">
+    {opened && formKind !== 'legacy' ? <div className="dp-result" data-testid="dp-result-first">
+      {firstForm ? <button type="button" className="btn btn-primary dp-save" disabled={busy} onClick={openFirst} data-testid="dp-first-open"><FileText size={16} aria-hidden="true" /> فرم تماس اول</button>
+        : <p className="dp-hint" role="status" data-testid="dp-first-wait">در حال آماده‌سازی فرم تماس…</p>}
+      <p className="dp-hint"><Lock size={13} aria-hidden="true" /> تماس اول با «فرم تماس اول» ثبت می‌شود (اطلاعات اولیه‌ی مشتری). بعد از ثبت، کار بعدی باز می‌شود.</p>
+    </div> : opened ? <div className="dp-result" data-testid="dp-result">
       <CqResultFields value={val} onChange={setVal} showErrors={show} idPrefix="dp" />
       <button type="button" className="btn btn-primary dp-save" disabled={busy} onClick={() => void save()} data-testid="dp-save">ثبت نتیجه و رفتن به کار {faNum(nextNo)}</button>
-    </div> : <p className="dp-hint"><Lock size={13} aria-hidden="true" /> بعد از زدن «تماس»، فرم «نتیجه‌ی تماس» همین‌جا باز می‌شود. کار بعدی تا ثبت نتیجه و یادداشت قفل است.</p>}
+    </div> : <p className="dp-hint"><Lock size={13} aria-hidden="true" /> {firstForm ? 'بعد از زدن «تماس»، «فرم تماس اول» باز می‌شود. کار بعدی تا ثبت آن قفل است.' : 'بعد از زدن «تماس»، فرم «نتیجه‌ی تماس» همین‌جا باز می‌شود. کار بعدی تا ثبت نتیجه و یادداشت قفل است.'}</p>}
+    <CallLaunchStatus status={launcher.status} onRetry={launcher.retry} onCancel={launcher.cancel} />
     {err ? <p className="dp-err" role="alert" data-testid="dp-err">{err}</p> : null}
     {move ? <MoveSheet d={d} cur={cur} onClose={() => setMove(false)} onMoved={() => { setMove(false); onDone(); }} /> : null}
   </section>;

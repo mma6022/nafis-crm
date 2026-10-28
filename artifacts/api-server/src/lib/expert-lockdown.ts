@@ -80,6 +80,8 @@ const ALLOW: RegExp[] = [
   // «کارهای امروز من» + the call form (outcome / one-line note) + voice-to-text + after-call
   /^\/daily-plans\/(today|config|calls|items)(\/|$)/, /^\/call-queue\/(config|pre-call|after-save|pending|calls|reminders|suggestions)(\/|$)/,
   /^\/voice-notes(\/|$)/, /^\/voip\/after-call(\/|$)/,
+  // FIRSTCALL-62: the first-call form's city autocomplete (city names only; ?customerId= is still checked below).
+  /^\/team-sales\/cities$/,
   // «پرونده‌های من» + «خرید کالا» + «دستور پرداخت» (+ the reads used inside them)
   /^\/loan-applications(\/|$)/, /^\/loan-request-drafts(\/|$)/, /^\/applications(\/|$)/, /^\/loan-plans(\/|$)/, /^\/loan-plan-rates(\/|$)/,
   /^\/loan-options(\/|$)/, /^\/plan-quote(\/|$)/, /^\/filing-fee(\/|$)/, /^\/identity-documents(\/|$)/, /^\/credit-checks(\/|$)/, /^\/smart-filing\/eligibility\/\d+$/,

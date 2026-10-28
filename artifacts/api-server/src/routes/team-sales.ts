@@ -6,7 +6,8 @@ import { Router, type IRouter, type Response } from "express";
 import { requirePermission } from "../lib/access-control";
 import type { AuthUser } from "../lib/auth";
 import { getCustomer } from "./crm";
-import { queryRow } from "../lib/crm-db";
+import { queryRow, runImmediateTransaction } from "../lib/crm-db";
+import { dpAfterCommit, dpAfterFirstCallForm } from "../lib/daily-plan";
 import {
   TeamSalesError, citySuggestions, editFirstCall, firstCallEditInfo, formatDue, getTeamSalesConfig, peekCloserFor, peekNextCloser, planOptions, previewQualification, priorityHistory, promoteToPriorityOne, submitQualification,
 } from "../lib/team-sales";
@@ -110,7 +111,14 @@ router.post("/customers/:id/team-sales/qualify", requirePermission("calls.create
   try {
     const out = withTransferOverride(req.body?.transferOverrideReason, () => submitQualification(id, actorOf(res), answers, note, new Date(), selectedPlans, noPlanNote));
     if (out.transferredToQualifier) res.setHeader(NONP1_TRANSFER_HEADER, String(id));
-    res.json(out);
+    // FIRSTCALL-62: close this customer's open «کارهای امروز» item (the form's call is already saved; this never undoes it).
+    let dailyPlan: Record<string, unknown> | null = null;
+    try {
+      const actor = actorOf(res);
+      const done = runImmediateTransaction(() => dpAfterFirstCallForm(actor, id, out.callLogId, String(answers.callResult ?? "")));
+      if (done) dailyPlan = { ...done, ...(dpAfterCommit(actor) ?? {}) };
+    } catch (e) { console.error("[firstcall-62] plan item close failed", e instanceof Error ? e.message : e); }
+    res.json(dailyPlan ? { ...out, dailyPlan } : out);
   } catch (e) { fail(res, e); }
 });
 

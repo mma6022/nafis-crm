@@ -954,6 +954,21 @@ export function dpAfterCommit(user: CqUser, now = new Date()) {
   const cur = ordered(p.id).find(i => i.status === "current");
   return { next: cur ? itemView(cur) : null, state: dpState(planRow(p.salesperson_id, p.day), now) };
 }
+/**
+ * FIRSTCALL-62: the first-call form (POST /customers/:id/team-sales/qualify) writes its own call_logs row, not POST /calls,
+ * so it never reached dpAfterCall. Saving it on a customer that is an open item of the expert's plan today (current or pending)
+ * closes THAT item exactly like NEXTITEM-60 «legacy_item» (done, outcome mapped, call_log linked, open daily_plan dial closed,
+ * next item promoted). Not on today's plan → nothing (the first-call form never mirrored «خارج از لیست»). Own transaction, after the form committed.
+ */
+export const DP_FIRST_CALL_OUTCOME: Record<string, string | null> = { answered: "answered", no_answer: "no_answer", callback: "follow_up", wrong_number: null };
+export function dpAfterFirstCallForm(user: CqUser, customerId: number, callLogId: number, callResult: string, now = new Date()) {
+  const p = dpActiveFor(user, now); if (!p) return null;
+  const own = items(p.id, "customer_id=? AND status IN ('current','pending')", [Number(customerId)])
+    .sort((a, b) => (a.status === "current" ? 0 : 1) - (b.status === "current" ? 0 : 1) || a.id - b.id)[0];
+  if (!own) return null;
+  const body: any = { __dp: "legacy_item", __dpItem: own.id, outcome: DP_FIRST_CALL_OUTCOME[callResult] ?? null };
+  return dpAfterCall(body, callLogId, user, Number(customerId), now.toISOString());
+}
 /** GET /customers?search=… while the plan is active: only for incoming calls (purpose=incoming_call), else 422 purpose_required. */
 export function dpSearchCheck(user: CqUser, q: any, now = new Date()): DpErr | null {
   const s = String(q?.search ?? "").trim(); if (!s) return null;
