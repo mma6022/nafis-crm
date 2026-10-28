@@ -9,7 +9,7 @@
 import { createHash } from "node:crypto";
 import { execute, executeChanges, queryRow, queryRows, type SqlValue } from "./crm-db";
 import {
-  CQ_EXCLUDED_USER_IDS, CQ_LIMITS, CQ_OUTCOMES, cqDisciplineSettings, cqFlags, cqPendingCall, cqQueue, cqRaw, cqSetRaw, ensureCallQueueSchema,
+  CQ_EXCLUDED_USER_IDS, CQ_LIMITS, CQ_OUTCOMES, cqDisciplineSettings, cqFlags, cqOnTime, cqPendingCall, cqQueue, cqRaw, cqSetRaw, ensureCallQueueSchema,
   fromTehran, isWorkDay, tParts, tYmd, type CqUser,
 } from "./call-queue";
 import { cqEligibleUsers } from "./call-queue-r2";
@@ -907,6 +907,11 @@ export function dpPreCall(body: any, user: CqUser, now = new Date()): DpErr | nu
     // HOTFIX-CALLLOG-56: the regular «ثبت تماس جدید» dialog (customer page / customers list / assistant box) sends no planItemId.
     // Never refuse it (409 plan_item_required lost real calls): save it exactly like before daily_plan (no outcome/note required),
     // and only mirror it on today's plan as a done «خارج از لیست» item (bucket outside — not part of the completion %).
+    // NEXTITEM-60: if this customer is an open item of today's plan (current or pending), the regular-dialog call closes THAT item
+    // (done, no «خارج از لیست» mirror) and the next item becomes current. Otherwise the 4cd873b mirror stays as it was.
+    const own = items(p.id, "customer_id=? AND status IN ('current','pending')", [Number(body.customerId)])
+      .sort((a, b) => (a.status === "current" ? 0 : 1) - (b.status === "current" ? 0 : 1) || a.id - b.id)[0];
+    if (own) { body.__dp = "legacy_item"; body.__dpItem = own.id; return null; }
     body.__dp = "legacy"; return null;
   }
   const id = Number(body.planItemId);
@@ -917,9 +922,25 @@ export function dpPreCall(body: any, user: CqUser, now = new Date()): DpErr | nu
 }
 /** Inside the POST /calls transaction (no nested transaction). */
 export function dpAfterCall(body: any, callLogId: number, user: CqUser, customerId: number, nowIso = new Date().toISOString()) {
-  const kind = body?.__dp; if (kind !== "plan" && kind !== "outside" && kind !== "legacy") return null;
+  const kind = body?.__dp; if (kind !== "plan" && kind !== "outside" && kind !== "legacy" && kind !== "legacy_item") return null;
   const p = planRow(Number(user.salespersonId), dpToday(new Date(nowIso))); if (!p) return null;
-  const outcome = kind === "legacy" ? (CQ_OUTCOMES.includes(String(body.outcome ?? "") as any) ? String(body.outcome) : null) : String(body.outcome ?? "");
+  const outcome = kind === "legacy" || kind === "legacy_item" ? (CQ_OUTCOMES.includes(String(body.outcome ?? "") as any) ? String(body.outcome) : null) : String(body.outcome ?? "");
+  if (kind === "legacy_item") {
+    const itemId = Number(body.__dpItem);
+    const n = executeChanges("UPDATE dp_items SET status='done', outcome=?, call_log_id=?, done_at=? WHERE id=? AND plan_id=? AND customer_id=? AND status IN ('current','pending')",
+      [outcome, callLogId, nowIso, itemId, p.id, customerId]);
+    if (n > 0) {
+      // an unreported CRM-button dial for this customer is closed by this report, so it never blocks the next item (423 call_pending).
+      const pend = queryRow<{ id: number; link_issued_at: string; returned_at: string | null }>(
+        "SELECT id,link_issued_at,returned_at FROM call_queue_calls WHERE user_id=? AND customer_id=? AND via='daily_plan' AND report_saved_at IS NULL ORDER BY id DESC LIMIT 1", [user.id, customerId]);
+      if (pend) executeChanges("UPDATE call_queue_calls SET report_saved_at=?, call_log_id=?, on_time=? WHERE id=?", [nowIso, callLogId, cqOnTime(pend.link_issued_at, pend.returned_at, nowIso) ? 1 : 0, pend.id]);
+      if (!items(p.id, "status='current'").length) {
+        const next = ordered(p.id)[0];
+        if (next) executeChanges("UPDATE dp_items SET status='current', became_current_at=? WHERE id=? AND status='pending'", [nowIso, next.id]);
+      }
+      return { kind, itemId };
+    }
+  }
   if (kind === "plan") {
     executeChanges("UPDATE dp_items SET status='done', outcome=?, call_log_id=?, done_at=? WHERE id=? AND plan_id=? AND status='current'", [outcome, callLogId, nowIso, Number(body.__dpItem), p.id]);
     return { kind, itemId: Number(body.__dpItem) };
