@@ -17,6 +17,7 @@
     "check:jsonld": "node scripts/check-jsonld.mjs",
     "check:guarantees": "node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-guarantees.mjs && node scripts/check-copy.mjs",
     "check:copy": "node scripts/check-copy.mjs",
+    "import:post": "node scripts/import-post.mjs",
     "check:messengers": "node --experimental-strip-types --no-warnings --import ./tests/ts-resolve.mjs scripts/check-messengers.mjs"
   },
   "dependencies": {

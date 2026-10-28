@@ -16,6 +16,15 @@ export const categoryPath = (c: CategoryKey) => `/blog/category/${c}/`;
 export const tagPath = (t: string) => `/blog/tag/${tagSlug(t)}/`;
 export const categoryLabel = (c: CategoryKey) => CATEGORIES[c].label;
 
+/** A post whose SEO `title` already carries the brand gets <title> without the « | نفیس وام» suffix (no double brand). */
+export const brandInTitle = (d: Post['data']) => d.title.includes('نفیس وام');
+/**
+ * Visible headline for cards, breadcrumb and the Article schema: `h1 ?? title` for brand-titled posts (the SEO title is
+ * then a search-only string). Older posts keep `title` there so their built output stays byte-identical (verified by a
+ * before/after diff of every post's <title>, H1 and JSON-LD on 2026-10-29).
+ */
+export const postHeadline = (d: Post['data']) => (brandInTitle(d) ? (d.h1 ?? d.title) : d.title);
+
 /** Reading time in minutes = words / 200 (designer build_site.py: tags and MDX comments removed, min 1). */
 export function readingMinutes(body: string | undefined): number {
   const words = (body ?? '').replace(/<[^>]+>|\{\/\*[\s\S]*?\*\/\}/g, ' ').split(/\s+/).filter(Boolean).length;

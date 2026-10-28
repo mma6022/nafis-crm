@@ -13,7 +13,7 @@ import Breadcrumbs from '../../components/Breadcrumbs.astro';
 import PostCard from '../../components/blog/PostCard.astro';
 import FaqList from '../../components/FaqList.astro';
 import MiniPlans from '../../components/islands/MiniPlans';
-import { getPosts, postPath, categoryPath, categoryLabel, tagPath, readingMinutes, relatedPosts, type Post } from '../../lib/blog';
+import { getPosts, postPath, categoryPath, categoryLabel, tagPath, readingMinutes, relatedPosts, brandInTitle, postHeadline, type Post } from '../../lib/blog';
 import { articleLd, breadcrumbLd, faqLd } from '../../lib/seo';
 import { formatDateFa, toFaDigits } from '../../lib/format';
 import { mdxComponents } from '../../components/mdx';
@@ -41,13 +41,15 @@ const crumbs = [
   { name: 'مجله نفیس', path: '/blog/' },
   { name: categoryLabel(d.category), path: categoryPath(d.category) },
 ];
-const ldCrumbs = [...crumbs, { name: d.title, path }];
+const headline = postHeadline(d);
+const ldCrumbs = [...crumbs, { name: headline, path }];
 const ogImage = d.cover?.src;
 const updated = d.updated ?? d.date;
 ---
 
 <BaseLayout
   title={d.title}
+  rawTitle={brandInTitle(d)}
   description={d.description}
   ogType="article"
   image={ogImage}
@@ -57,7 +59,7 @@ const updated = d.updated ?? d.date;
   src={src}
   jsonLd={[
     articleLd({
-      title: d.title,
+      title: headline,
       description: d.description,
       path,
       date: d.date,
