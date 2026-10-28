@@ -4,7 +4,7 @@
  */
 import { Router, type IRouter, type Response } from "express";
 import type { AuthUser } from "../lib/auth";
-import { fcEnabledFor, fcExpertFollowup, fcExpertView, fcIsErr, fcTarget, fcOn } from "../lib/files-carousel";
+import { fcAdminUncancel, fcEnabledFor, fcExpertFollowup, fcExpertView, fcIsErr, fcTarget, fcOn } from "../lib/files-carousel";
 
 const router: IRouter = Router();
 const me = (res: Response) => res.locals.authUser as AuthUser;
@@ -17,6 +17,12 @@ router.get("/files-carousel/today", (_req, res) => { if (off(res)) return; res.j
 router.post("/files-carousel/followup", (req, res) => {
   if (off(res)) return;
   const r = fcExpertFollowup(me(res) as any, req.body ?? {});
+  if (fcIsErr(r)) return void res.status(r.status).json({ error: r.error, message: r.message, details: r.details ?? null });
+  res.json(r);
+});
+/** FILES-CANCEL: admin-only un-cancel of a «لغو شده» file (no flag dependency; everyone else 403). */
+router.post("/files/:id/uncancel", (req, res) => {
+  const r = fcAdminUncancel(me(res) as any, req.params.id, req.body ?? {});
   if (fcIsErr(r)) return void res.status(r.status).json({ error: r.error, message: r.message, details: r.details ?? null });
   res.json(r);
 });

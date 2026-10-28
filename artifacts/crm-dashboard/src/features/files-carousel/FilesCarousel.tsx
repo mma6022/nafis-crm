@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
-import { ChevronLeft, ChevronRight, FileText, Lock, Pencil, Phone, Plus } from 'lucide-react';
+import { AlertCircle, CalendarClock, Check, ChevronLeft, ChevronRight, FileText, Lock, Pencil, Phone, PhoneMissed, Plus, X } from 'lucide-react';
 import { CreateWizard } from '@/components/loan-applications/CreateWizard';
 import { faNum } from '@/features/call-queue/api';
 import { maskTel, phone11 } from '@/features/expert-lockdown/IncomingWizard';
@@ -23,6 +23,9 @@ export default function FilesCarousel() {
   const [view, setView] = useState<number | null>(null); // index of a card being paged back to (read-only); null = current
   const [wizard, setWizard] = useState(false);
   const [anim, setAnim] = useState<'' | 'out' | 'in'>('');
+  const [cxOut, setCxOut] = useState<string | null>(null); // FILES-CANCEL: name on the leaving card («لغو شد» tag)
+  const [toast, setToast] = useState<{ name: string } | null>(null);
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t); }, [toast]);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const prevIds = useRef<number[] | null>(null); const [shift, setShift] = useState<{ left: number; back: number } | null>(null);
   useEffect(() => {
@@ -39,9 +42,10 @@ export default function FilesCarousel() {
   const shownIdx = view ?? (curIdx >= 0 ? curIdx : d.cards.length - 1);
   const shown = d.cards[shownIdx] ?? null;
   const next = curIdx >= 0 ? d.cards[curIdx + 1] ?? null : null;
-  const onSaved = (v: FcView) => {
+  const onSaved = (v: FcView, cancelledName?: string) => {
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const apply = () => { qc.setQueryData(['files-carousel', 'today'], v); setView(null); setAnim(reduce ? '' : 'in'); setTimeout(() => { setAnim(''); titleRef.current?.focus(); }, reduce ? 0 : 290); };
+    if (cancelledName != null) { setCxOut(cancelledName); setToast({ name: cancelledName }); }
+    const apply = () => { qc.setQueryData(['files-carousel', 'today'], v); setView(null); setCxOut(null); setAnim(reduce ? '' : 'in'); setTimeout(() => { setAnim(''); titleRef.current?.focus(); }, reduce ? 0 : 290); };
     if (reduce) apply(); else { setAnim('out'); setTimeout(apply, 280); }
   };
   return <div className="dp-page fc-page" data-testid="fc-page">
@@ -58,7 +62,9 @@ export default function FilesCarousel() {
     <p className="sr-only" aria-live="polite">{d.index ? `پرونده ${faNum(d.index)} از ${faNum(d.total)}` : ''}</p>
     {!d.total ? <div className="dp-box" data-testid="fc-empty">پرونده‌ی در جریانی که اقدامش با تو باشد نداری.{d.waiting?.total ? <p className="fc-waiting" data-testid="fc-waiting">{faNum(d.waiting.total)} پرونده‌ی شما منتظر قدم بعدی دیگرانه: {d.waiting.groups.map(w => `${w.label} ${faNum(w.count)}`).join('، ')}</p> : null}</div>
       : curIdx < 0 && view == null ? <div className="dp-box ok" data-testid="fc-done">همه‌ی پرونده‌های امروز پیگیری شد. ترتیب فردا را دستیار می‌نویسد.</div> : null}
+    {toast ? <div className="fc-toast cx" role="status" data-testid="fc-cx-toast"><Check size={15} aria-hidden="true" /><span>پرونده لغو شد · کارت بعدی</span><span className="cxs">{toast.name} · برگرداندن فقط با ادمین</span></div> : null}
     {shown && (view != null || curIdx >= 0) ? <div className={`fc-deck ${anim}`}>
+      {cxOut != null && anim === 'out' ? <span className="fc-cxtag" data-testid="fc-cx-tag">لغو شد</span> : null}
       <FileCard key={`${shown.fileId}-${shown.state}`} c={shown} d={d} readOnly={shown.state !== 'current'} titleRef={titleRef} onSaved={onSaved} />
     </div> : null}
     {d.total ? <nav className="fc-nav" aria-label="پرونده‌های قبلی">
@@ -70,10 +76,19 @@ export default function FilesCarousel() {
   </div>;
 }
 
-function FileCard({ c, d, readOnly, titleRef, onSaved }: { c: FcCard; d: FcView; readOnly: boolean; titleRef: React.RefObject<HTMLHeadingElement | null>; onSaved: (v: FcView) => void }) {
+function FileCard({ c, d, readOnly, titleRef, onSaved }: { c: FcCard; d: FcView; readOnly: boolean; titleRef: React.RefObject<HTMLHeadingElement | null>; onSaved: (v: FcView, cancelledName?: string) => void }) {
   const [outcome, setOutcome] = useState(''); const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
-  useEffect(() => { setOutcome(''); setNote(''); setErr(''); }, [c.fileId]);
+  const [reason, setReason] = useState(''); const [rErr, setRErr] = useState(''); const [confirm, setConfirm] = useState(false);
+  const cx = outcome === 'cancelled'; const rMax = d.cancelReasonMax ?? 120;
+  useEffect(() => { setOutcome(''); setNote(''); setErr(''); setReason(''); setRErr(''); setConfirm(false); }, [c.fileId]);
+  const askCancel = () => { if (!reason.trim()) { setRErr('دلیل لغو را بنویس؛ بدون دلیل، پرونده لغو نمی‌شود.'); document.getElementById('fc-cx-reason')?.focus(); return; } setRErr(''); setConfirm(true); };
+  const doCancel = async () => {
+    setBusy(true); setErr('');
+    try { const r = await fcApi.followup({ fileId: c.fileId, outcome: 'cancelled', cancelReason: reason.trim() }); setConfirm(false); onSaved(r.view, c.customerName); }
+    catch (e) { setConfirm(false); if (e instanceof Error && (e as any).code === 'reason_required') setRErr(e.message); else setErr(e instanceof Error ? e.message : 'ثبت نشد.'); } finally { setBusy(false); }
+  };
+  const OIcon = ({ code }: { code: string }) => code === 'answered' ? <Check size={16} aria-hidden="true" /> : code === 'no_answer' ? <PhoneMissed size={16} aria-hidden="true" /> : code === 'follow_up' ? <CalendarClock size={16} aria-hidden="true" /> : code === 'cancelled' ? <X size={16} aria-hidden="true" /> : null;
   const save = async () => {
     if (!outcome) { setErr('نتیجه را انتخاب کن.'); return; }
     if (!note.trim()) { setErr('یادداشت یک‌خطی لازم است.'); return; }
@@ -90,7 +105,7 @@ function FileCard({ c, d, readOnly, titleRef, onSaved }: { c: FcCard; d: FcView;
     {c.reason ? <p className="dp-reason" data-testid="fc-reason">{c.reason}</p> : null}
     {c.ask ? <div className="dp-keynote"><small>چی بپرسم</small><q data-testid="fc-ask">{c.ask}</q></div> : null}
     <p className="lfu" data-testid="fc-last">آخرین پیگیری: {c.lastFollowUp ? <>{jalaliAt(c.lastFollowUp.at)}{c.lastFollowUp.outcomeLabel ? ` · ${c.lastFollowUp.outcomeLabel}` : ''}</> : 'ندارد'}</p>
-    {readOnly ? <div className="dp-box sm" data-testid="fc-ro-note">{c.todayFollowUp ? <>امروز ثبت شد: {c.todayFollowUp.outcomeLabel} · {c.todayFollowUp.note}</> : 'فقط دیدن؛ نوبت این پرونده نشده.'}</div> : <>
+    {readOnly ? <div className="dp-box sm" data-testid="fc-ro-note">{c.todayFollowUp?.outcome === 'cancelled' ? <><span className="fc-cxtag in" data-testid="fc-ro-cx">لغو شد</span> دلیل لغو: {c.todayFollowUp.note}</> : c.todayFollowUp ? <>امروز ثبت شد: {c.todayFollowUp.outcomeLabel} · {c.todayFollowUp.note}</> : 'فقط دیدن؛ نوبت این پرونده نشده.'}</div> : <>
       {c.phone ? <p className="dp-phone" dir="ltr" data-testid="fc-phone"><Phone size={14} aria-hidden="true" /> {telFa(c.phone)}</p> : null}
       <div className="dp-actions">
         {c.phone ? <a className="btn btn-primary dp-call" href={telHref(c.phone)} data-testid="fc-call"><Phone size={16} aria-hidden="true" /> تماس با {c.customerName}</a> : null}
@@ -99,12 +114,47 @@ function FileCard({ c, d, readOnly, titleRef, onSaved }: { c: FcCard; d: FcView;
         <a href={`/customers/${c.customerId}#sec-calls`} target="_blank" rel="noopener" className="btn btn-ghost" data-testid="fc-history">تاریخچه</a>
       </div>
       <fieldset className="fc-result" data-testid="fc-result"><legend>نتیجه‌ی پیگیری</legend>
-        <div className="rlist" role="radiogroup">{d.outcomes.map((o) => <label key={o.code} className={`rr${outcome === o.code ? ' on' : ''}`}>
-          <input type="radio" name="fc-outcome" value={o.code} checked={outcome === o.code} onChange={() => setOutcome(o.code)} data-testid={`fc-o-${o.code}`} /> {o.label}</label>)}</div>
+        <div className={`rlist${d.outcomes.length === 4 ? ' s4' : ''}`} role="radiogroup">{d.outcomes.map((o) => <label key={o.code} className={`rr${outcome === o.code ? ' on' : ''}${o.code === 'cancelled' ? ' cx' : ''}`}>
+          <input type="radio" name="fc-outcome" value={o.code} checked={outcome === o.code} onChange={() => { setOutcome(o.code); setErr(''); }} data-testid={`fc-o-${o.code}`} /> <OIcon code={o.code} /> {o.label}</label>)}</div>
+        {cx ? <div className="fc-cxf" data-testid="fc-cxf">
+          <div className="fc-cxl"><label htmlFor="fc-cx-reason"><b>دلیل لغو<span className="req" aria-hidden="true">*</span></b> <small>کوتاه، حداکثر ۱۲۰ نویسه</small></label><span className="cnt" aria-live="polite" data-testid="fc-cx-count">{faNum([...reason].length)} / {faNum(rMax)}</span></div>
+          <textarea id="fc-cx-reason" className={`inp tx${rErr ? ' bad' : ''}`} rows={2} maxLength={rMax} value={reason} aria-required="true" aria-invalid={rErr ? true : undefined} aria-describedby={rErr ? 'fc-cx-err' : undefined}
+            onChange={(e) => { setReason(e.target.value.replace(/[\r\n]/g, ' ')); if (rErr && e.target.value.trim()) setRErr(''); }} placeholder="مثلاً «از بانک دیگری وام گرفت و دیگر نیاز ندارد»" data-testid="fc-cx-reason" />
+          {rErr ? <p className="dp-err" id="fc-cx-err" role="alert" data-testid="fc-cx-err">{rErr}</p> : null}
+          <p className="fc-cxn" data-testid="fc-cx-info"><AlertCircle size={15} aria-hidden="true" /> پرونده‌ی لغوشده از «پرونده‌های من» و کارهای امروز بیرون می‌رود. برگرداندن لغو فقط با ادمین است.</p>
+          {err ? <p className="dp-err" role="alert" data-testid="fc-err">{err}</p> : null}
+          <button type="button" className={`btn fc-dz fc-save${reason.trim() ? '' : ' off'}`} aria-disabled={!reason.trim() || busy} onClick={askCancel} data-testid="fc-cx-btn"><X size={16} aria-hidden="true" /> لغو پرونده و پرونده‌ی بعدی</button>
+          <p className="fc-cxh" data-testid="fc-cx-hint"><Lock size={13} aria-hidden="true" /> {reason.trim() ? 'بعد از زدن، یک تأیید دیگر می‌آید.' : 'تا دلیل لغو نوشته نشود، این دکمه غیرفعال است.'}</p>
+        </div> : <>
         <input className="inp" maxLength={d.noteMax} value={note} onChange={(e) => setNote(e.target.value.replace(/[\r\n]/g, ' '))} placeholder="یادداشت یک‌خطی (حداکثر ۸۰ نویسه)" aria-label="یادداشت یک‌خطی" data-testid="fc-note" />
         {err ? <p className="dp-err" role="alert" data-testid="fc-err">{err}</p> : null}
         <button type="button" className="btn btn-primary fc-save" disabled={busy} onClick={() => void save()} data-testid="fc-save">{busy ? 'در حال ثبت…' : 'ثبت نتیجه و پرونده‌ی بعدی'}</button>
+        </>}
       </fieldset>
+      {confirm ? <CancelConfirm c={c} reason={reason.trim()} busy={busy} onBack={() => setConfirm(false)} onYes={() => void doCancel()} /> : null}
     </>}
   </section>;
+}
+
+/** FILES-CANCEL f_cxok: alertdialog (bottom sheet on mobile); initial focus on «برگشت»; Esc = برگشت. */
+function CancelConfirm({ c, reason, busy, onBack, onYes }: { c: FcCard; reason: string; busy: boolean; onBack: () => void; onYes: () => void }) {
+  const back = useRef<HTMLButtonElement>(null); const box = useRef<HTMLDivElement>(null);
+  useEffect(() => { const prev = document.activeElement as HTMLElement | null; back.current?.focus(); return () => { prev?.focus?.(); }; }, []);
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') { e.preventDefault(); if (!busy) onBack(); return; }
+    if (e.key === 'Tab' && box.current) { const f = [...box.current.querySelectorAll<HTMLElement>('button:not([disabled])')]; if (!f.length) return;
+      const first = f[0], last = f[f.length - 1]; if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); } }
+  };
+  return <div className="fc-dlgw" onKeyDown={onKey} data-testid="fc-cx-dialog-wrap">
+    <div className="fc-dlg" ref={box} role="alertdialog" aria-modal="true" aria-labelledby="fc-cx-t" aria-describedby="fc-cx-w" data-testid="fc-cx-dialog">
+      <div className="fc-cxhd"><AlertCircle size={24} aria-hidden="true" /><h2 id="fc-cx-t">پرونده لغو شود؟</h2></div>
+      <p className="fc-cxwho"><b>{c.customerName}</b> <span className="dp-id">#{faNum(c.customerId)}</span> · پرونده‌ی {faNum(c.fileId)}</p>
+      <div className="fc-cxq"><small>دلیل لغو</small><q data-testid="fc-cx-q">{reason}</q></div>
+      <p className="fc-cxa" id="fc-cx-w"><Lock size={14} aria-hidden="true" /><span><b>برگرداندن لغو فقط با ادمین است.</b> پرونده از «پرونده‌های من» و کارهای امروز بیرون می‌رود و کارت بعدی باز می‌شود.</span></p>
+      <div className="fc-acts">
+        <button type="button" ref={back} className="btn btn-ghost" onClick={onBack} disabled={busy} data-testid="fc-cx-back">برگشت</button>
+        <button type="button" className="btn fc-dzf" onClick={onYes} disabled={busy} data-testid="fc-cx-yes"><X size={16} aria-hidden="true" /> {busy ? 'در حال لغو…' : 'بله، لغو شود'}</button>
+      </div>
+    </div>
+  </div>;
 }

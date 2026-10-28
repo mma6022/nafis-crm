@@ -16,11 +16,11 @@ export type FcCard = { fileId: number; customerId: number; customerName: string;
   position: number; state: 'done' | 'current' | 'pending'; reason: string | null; ask: string | null;
   todayFollowUp: { at: string; outcome: string; outcomeLabel: string | null; note: string } | null };
 export type FcView = { enabled: true; date: string; total: number; done: number; index: number | null; currentFileId: number | null; orderSource: 'assistant' | 'default'; waiting?: { total: number; groups: Array<{ code: string; label: string; count: number }> };
-  outcomes: { code: string; label: string }[]; noteMax: number; cards: FcCard[] };
+  outcomes: { code: string; label: string }[]; noteMax: number; cancelReasonMax?: number; cards: FcCard[] };
 export const fcApi = {
   config: () => req<{ enabled: boolean }>('GET', '/files-carousel/config'),
   today: () => req<FcView>('GET', '/files-carousel/today'),
-  followup: (b: { fileId: number; outcome: string; note: string }) => req<{ ok: true; fileId: number; view: FcView }>('POST', '/files-carousel/followup', b),
+  followup: (b: { fileId: number; outcome: string; note?: string; cancelReason?: string }) => req<{ ok: true; fileId: number; view: FcView }>('POST', '/files-carousel/followup', b),
 };
 export const useFcConfig = (userId: number | null | undefined) =>
   useQuery({ queryKey: ['files-carousel', 'config', userId], queryFn: fcApi.config, enabled: userId != null && FC_USERS[userId] != null, retry: false, staleTime: 60_000 });

@@ -6,7 +6,7 @@
  * The current card is pinned (fc_days.current_file_id) and never moved by an assistant order. A follow-up result (fc_followups) closes it.
  * Nothing here changes a stage, contract, template, amount, wallet or customer, sends SMS/Bale/customer messages or rings any staff bell.
  */
-import { crmDb, execute, executeChanges, queryRow, queryRows } from "./crm-db";
+import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import { cqRaw, isWorkDay, tParts, tYmd, fromTehran, CQ_OUTCOMES } from "./call-queue";
 import { EL_USERS } from "./expert-lockdown";
 import { maskCustomerName } from "./cross-owner-search";
@@ -14,7 +14,10 @@ import { maskCustomerName } from "./cross-owner-search";
 export const FC_FLAG_KEY = "flag.files_carousel";
 export const FC_EVENTS = { prioritySet: "files_priority_set", followup: "files_followup_logged", rejected: "daily_plan_rejected" } as const;
 export const FC_TEXT_MAX = 80, FC_NOTE_MAX = 80, FC_ROWS_MAX = 200, FC_CLOSE_MIN = 18 * 60;
-export const FC_OUTCOME_LABELS: Record<string, string> = { answered: "پاسخ داد", no_answer: "پاسخ نداد", follow_up: "پیگیری بعدی" };
+export const FC_OUTCOME_LABELS: Record<string, string> = { answered: "پاسخ داد", no_answer: "پاسخ نداد", follow_up: "پیگیری بعدی", cancelled: "لغو شده" };
+/** FILES-CANCEL (Armita crm-files-cards v1.3, scenes 10–13): a 4th result «لغو شده» with a required reason (≤120). */
+export const FC_CANCEL = "cancelled", FC_CANCEL_REASON_MAX = 120;
+export const FC_OUTCOMES: readonly string[] = [...CQ_OUTCOMES, FC_CANCEL];
 export const FC_STAGE_LABELS: Record<string, string> = {
   funder_initial_approval: "تصویب مبلغ وام", draft: "پیش‌نویس",
   primary_contract_pending_signature: "در انتظار امضای قرارداد توسط مشتری", approved_contract_pending_signature: "امضای قرارداد جایگزین توسط مشتری",
@@ -86,7 +89,11 @@ export function ensureFcSchema(): void {
       UNIQUE(salesperson_id, day, file_id));
     CREATE INDEX IF NOT EXISTS idx_fc_followups_file ON fc_followups(file_id, created_at);
     CREATE TABLE IF NOT EXISTS fc_presence(salesperson_id INTEGER NOT NULL, day TEXT NOT NULL, file_id INTEGER NOT NULL, present INTEGER NOT NULL,
-      returned_at TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(salesperson_id, day, file_id));`);
+      returned_at TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(salesperson_id, day, file_id));
+    CREATE TABLE IF NOT EXISTS fc_cancels(id INTEGER PRIMARY KEY AUTOINCREMENT, file_id INTEGER NOT NULL, customer_id INTEGER NOT NULL, salesperson_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL, reason TEXT NOT NULL, prev_status TEXT NOT NULL, prev_stage TEXT NOT NULL, created_at TEXT NOT NULL,
+      uncancelled_at TEXT, uncancelled_by INTEGER, uncancel_note TEXT);
+    CREATE INDEX IF NOT EXISTS idx_fc_cancels_file ON fc_cancels(file_id, id);`);
   execute("INSERT OR IGNORE INTO call_queue_settings(key,value,updated_by,updated_at) VALUES(?, '0', NULL, ?)", [FC_FLAG_KEY, new Date().toISOString()]);
   ready = true;
 }
@@ -311,19 +318,26 @@ export function fcExpertView(u: U, now = new Date()) {
   const phone = curCust == null ? null : queryRow<{ phone: string | null }>("SELECT phone FROM customers WHERE id=? AND salesperson_id=?", [curCust, sp])?.phone ?? null;
   const idx = deck.current == null ? null : deck.cards.findIndex(c => c.f.id === deck.current) + 1;
   return { enabled: true, date: day, total: deck.cards.length, done: deck.doneCount, index: idx, currentFileId: deck.current,
-    orderSource: deck.ord ? "assistant" : "default", waiting: fcWaiting(sp, new Set(deck.cards.map(c => c.f.id))), outcomes: CQ_OUTCOMES.map(o => ({ code: o, label: FC_OUTCOME_LABELS[o] })), noteMax: FC_NOTE_MAX,
+    orderSource: deck.ord ? "assistant" : "default", waiting: fcWaiting(sp, new Set(deck.cards.map(c => c.f.id))), outcomes: FC_OUTCOMES.map(o => ({ code: o, label: FC_OUTCOME_LABELS[o] })), noteMax: FC_NOTE_MAX, cancelReasonMax: FC_CANCEL_REASON_MAX,
     cards: deck.cards.map(c => ({ ...expertCore(c.f), customerName: c.f.name ?? "", phone: c.state === "current" ? phone : null, returnedToday: c.returnedToday, position: c.position, state: c.state, reason: c.meta?.reason ?? null, ask: c.meta?.ask ?? null,
       todayFollowUp: c.fu ? { at: c.fu.created_at, outcome: c.fu.outcome, outcomeLabel: FC_OUTCOME_LABELS[c.fu.outcome] ?? null, note: c.fu.note } : null })) };
 }
 export function fcExpertFollowup(u: U, body: any, now = new Date()) {
   ensureFcSchema();
   const sp = Number(u.salespersonId); const day = fcToday(now);
-  const fid = Number(body?.fileId); const outcome = String(body?.outcome ?? ""); const note = typeof body?.note === "string" ? body.note.trim() : "";
+  const fid = Number(body?.fileId); const outcome = String(body?.outcome ?? ""); const cx = outcome === FC_CANCEL;
+  const note = cx ? (typeof body?.cancelReason === "string" ? body.cancelReason.replace(/\s+/g, " ").trim() : "") : (typeof body?.note === "string" ? body.note.trim() : "");
   if (!Number.isSafeInteger(fid) || fid <= 0) return err(400, "bad_type", "fileId", { field: "fileId" });
-  if (!(CQ_OUTCOMES as readonly string[]).includes(outcome)) return err(422, "bad_outcome", "نتیجه را انتخاب کن.", { allowed: CQ_OUTCOMES });
-  if (!note) return err(422, "note_required", "یادداشت یک‌خطی لازم است.", { field: "note" });
-  if (/[\r\n]/.test(note)) return err(422, "multi_line", "یادداشت باید یک خط باشد.", { field: "note" });
-  if ([...note].length > FC_NOTE_MAX) return err(422, "field_too_long", "یادداشت حداکثر ۸۰ نویسه است.", { field: "note", max: FC_NOTE_MAX });
+  if (!FC_OUTCOMES.includes(outcome)) return err(422, "bad_outcome", "نتیجه را انتخاب کن.", { allowed: FC_OUTCOMES });
+  if (cx) {
+    if (!note) return err(422, "reason_required", "دلیل لغو را بنویس؛ بدون دلیل، پرونده لغو نمی‌شود.", { field: "cancelReason" });
+    if ([...note].length > FC_CANCEL_REASON_MAX) return err(422, "field_too_long", "دلیل لغو حداکثر ۱۲۰ نویسه است.", { field: "cancelReason", max: FC_CANCEL_REASON_MAX });
+  } else {
+    if (!note) return err(422, "note_required", "یادداشت یک‌خطی لازم است.", { field: "note" });
+    if (/[\r\n]/.test(note)) return err(422, "multi_line", "یادداشت باید یک خط باشد.", { field: "note" });
+    if ([...note].length > FC_NOTE_MAX) return err(422, "field_too_long", "یادداشت حداکثر ۸۰ نویسه است.", { field: "note", max: FC_NOTE_MAX });
+  }
+  if (cx) { const f = fileById(fid); if (f && Number(f.owner) !== sp) return err(403, "not_own_file", "فقط پرونده‌ی مشتری خودت را می‌توانی لغو کنی."); }
   if (queryRow("SELECT 1 x FROM fc_followups WHERE salesperson_id=? AND day=? AND file_id=?", [sp, day, fid])) return err(409, "already_done", "نتیجه‌ی این پرونده امروز ثبت شده است.");
   execute("INSERT OR IGNORE INTO fc_days(salesperson_id,day,started_at,current_file_id,updated_at) VALUES(?,?,?,NULL,?)", [sp, day, now.toISOString(), now.toISOString()]);
   const deck = fcDeck(sp, day, now);
@@ -331,11 +345,61 @@ export function fcExpertFollowup(u: U, body: any, now = new Date()) {
   if (!card) return err(404, "file_not_found", "این پرونده در کارهای امروزت نیست.");
   if (card.state !== "current") return err(409, "not_current", "اول نتیجه‌ی پرونده‌ی جاری را ثبت کن.", { currentFileId: deck.current });
   const at = now.toISOString();
+  if (cx) {
+    // Own current file only; the existing «لغو پرونده» status (loan_applications.status='rejected' + stage history 'cancel-case' with the reason).
+    // Contracts, stage, amounts, wallet and customer stay untouched; no SMS/Bale; the trigger-made case-change bells are removed in the same transaction.
+    const r = runImmediateTransaction(() => {
+      const a = queryRow<{ status: string; stage: string; owner: number | null }>(
+        "SELECT a.status, a.stage, cc.salesperson_id owner FROM loan_applications a JOIN customers cc ON cc.id=? WHERE a.id=? AND a.deleted_at IS NULL", [Number(card.f.cur_customer_id), fid]);
+      if (!a || Number(a.owner) !== sp) return err(403, "not_own_file", "فقط پرونده‌ی مشتری خودت را می‌توانی لغو کنی.");
+      if (a.status === "rejected") return err(409, "case_already_closed", "این پرونده قبلاً بسته شده است.");
+      if (queryRow("SELECT 1 x FROM fc_followups WHERE salesperson_id=? AND day=? AND file_id=?", [sp, day, fid])) return err(409, "already_done", "نتیجه‌ی این پرونده امروز ثبت شده است.");
+      const preMax = Number(queryRow<{ m: number | null }>("SELECT MAX(id) AS m FROM site_notification_events")?.m ?? 0);
+      if (executeChanges("UPDATE loan_applications SET status='rejected', updated_at=? WHERE id=? AND status<>'rejected' AND deleted_at IS NULL", [at, fid]) !== 1)
+        return err(409, "case_already_closed", "این پرونده قبلاً بسته شده است.");
+      execute("INSERT INTO loan_application_stage_history(application_id,from_stage,to_stage,action,reason,actor_id,created_at) VALUES(?,?,?,?,?,?,?)",
+        [fid, a.stage, a.stage, "cancel-case", note, Number(u.id), at]);
+      execute("INSERT INTO fc_cancels(file_id,customer_id,salesperson_id,user_id,reason,prev_status,prev_stage,created_at) VALUES(?,?,?,?,?,?,?,?)",
+        [fid, Number(card.f.cur_customer_id), sp, Number(u.id), note, a.status, a.stage, at]);
+      execute("INSERT INTO fc_followups(salesperson_id,user_id,day,file_id,customer_id,outcome,note,created_at) VALUES(?,?,?,?,?,?,?,?)",
+        [sp, Number(u.id), day, fid, Number(card.f.cur_customer_id), outcome, note, at]);
+      executeChanges("UPDATE fc_days SET current_file_id=NULL, updated_at=? WHERE salesperson_id=? AND day=?", [at, sp, day]);
+      executeChanges("DELETE FROM site_notification_events WHERE id>? AND resource_type='loan' AND resource_id=?", [preMax, fid]);
+      return null;
+    });
+    if (r) return r;
+  } else {
   execute("INSERT INTO fc_followups(salesperson_id,user_id,day,file_id,customer_id,outcome,note,created_at) VALUES(?,?,?,?,?,?,?,?)",
     [sp, Number(u.id), day, fid, Number(card.f.cur_customer_id), outcome, note, at]);
   executeChanges("UPDATE fc_days SET current_file_id=NULL, updated_at=? WHERE salesperson_id=? AND day=?", [at, sp, day]);
+  }
   event(assistantOfSp(sp), FC_EVENTS.followup, Number(u.id), { salespersonId: sp, date: day, fileId: fid, outcome }, at);
   return { ok: true, fileId: fid, view: fcExpertView(u, now) };
+}
+/** FILES-CANCEL: admin-only «برگرداندن لغو» (no expert UI). Restores the status the file had before a «لغو شده» from «پرونده‌های من»;
+ *  only when the file is still closed by that same cancellation (no later close). History entry 'uncancel-case'. No bell, SMS or Bale. */
+export function fcAdminUncancel(u: U, fileIdIn: unknown, body: any, now = new Date()) {
+  ensureFcSchema();
+  if (!u || u.role !== "admin") return err(403, "admin_only", "برگرداندن لغو فقط با ادمین است.");
+  const fid = Number(fileIdIn); if (!Number.isSafeInteger(fid) || fid <= 0) return err(404, "file_not_found", "پرونده پیدا نشد.");
+  const note = typeof body?.reason === "string" ? body.reason.replace(/\s+/g, " ").trim() : "";
+  if ([...note].length > 200) return err(422, "field_too_long", "توضیح حداکثر ۲۰۰ نویسه است.", { field: "reason", max: 200 });
+  const at = now.toISOString();
+  return runImmediateTransaction(() => {
+    const a = queryRow<{ status: string; stage: string }>("SELECT status, stage FROM loan_applications WHERE id=? AND deleted_at IS NULL", [fid]);
+    if (!a) return err(404, "file_not_found", "پرونده پیدا نشد.");
+    const c = queryRow<{ id: number; prev_status: string; created_at: string; uncancelled_at: string | null }>("SELECT id, prev_status, created_at, uncancelled_at FROM fc_cancels WHERE file_id=? ORDER BY id DESC LIMIT 1", [fid]);
+    if (!c || c.uncancelled_at || a.status !== "rejected") return err(409, "not_cancelled", "این پرونده از «پرونده‌های من» لغو نشده است.");
+    const later = queryRow("SELECT 1 x FROM loan_application_stage_history WHERE application_id=? AND created_at>? AND action<>'case-note-added'", [fid, c.created_at]);
+    if (later) return err(409, "changed_after_cancel", "بعد از لغو، پرونده تغییر کرده است؛ از صفحه‌ی مدیریت پرونده اقدام کن.");
+    const preMax = Number(queryRow<{ m: number | null }>("SELECT MAX(id) AS m FROM site_notification_events")?.m ?? 0);
+    executeChanges("UPDATE loan_applications SET status=?, updated_at=? WHERE id=? AND status='rejected'", [c.prev_status, at, fid]);
+    execute("INSERT INTO loan_application_stage_history(application_id,from_stage,to_stage,action,reason,actor_id,created_at) VALUES(?,?,?,?,?,?,?)",
+      [fid, a.stage, a.stage, "uncancel-case", JSON.stringify({ reason: note || null, restoredStatus: c.prev_status, cancelId: Number(c.id) }), Number(u.id), at]);
+    executeChanges("UPDATE fc_cancels SET uncancelled_at=?, uncancelled_by=?, uncancel_note=? WHERE id=?", [at, Number(u.id), note || null, c.id]);
+    executeChanges("DELETE FROM site_notification_events WHERE id>? AND resource_type='loan' AND resource_id=?", [preMax, fid]);
+    return { ok: true as const, fileId: fid, status: c.prev_status, stage: a.stage };
+  });
 }
 /** While ON: writes on a file still waiting in the deck (pending: not current, not done today) → 423 (reads stay open). */
 export function fcWriteLocked(u: U, fileId: number, now = new Date()): boolean {

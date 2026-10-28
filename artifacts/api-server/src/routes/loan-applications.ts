@@ -152,7 +152,7 @@ function fileExists(rawPath: unknown): boolean {
 function shape(r: any, actor: AuthUser): any {
   if (!r) return r;
   const cancellation = queryRow<{ reason: string }>(
-    "SELECT reason FROM loan_application_stage_history WHERE application_id=? AND action='cancel-case' ORDER BY id DESC LIMIT 1", [r.id],
+    "SELECT reason FROM loan_application_stage_history WHERE application_id=? AND action='cancel-case' AND id>COALESCE((SELECT MAX(id) FROM loan_application_stage_history WHERE application_id=? AND action='uncancel-case'),0) ORDER BY id DESC LIMIT 1", [r.id, r.id],
   );
   const primaryGenerationId = applicationPrimaryGenerationId(r);
   const registrarReview = ["customer_documents_review", "guarantor_documents_review", "collateral_review", "physical_documents_review"].includes(r.stage)
