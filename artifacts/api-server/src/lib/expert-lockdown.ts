@@ -327,12 +327,14 @@ export function elIncomingSuggest(u: U, raw: unknown, now = Date.now()): ElSugge
   if (ph) {
     if (ph.digits.length < 4) return { result: "short", message: "حداقل ۴ رقم بنویس." };
     const d = likeEsc(ph.digits), c = likeEsc(ph.canon);
-    // exact (0) → canonical prefix (1) → suffix (2) → anywhere (3); own, not merged; uses idx_customers_sp_phone.
-    const rows = queryRows<Row>(`SELECT c.id, c.name, c.phone, c.priority,
-        CASE WHEN c.phone=? THEN 0 WHEN c.phone LIKE ? ESCAPE '\\' THEN 1 WHEN c.phone LIKE ? ESCAPE '\\' THEN 2 ELSE 3 END rk
-      FROM customers c WHERE c.salesperson_id=? AND c.merged_into_customer_id IS NULL
-        AND (c.phone LIKE ? ESCAPE '\\' OR c.phone LIKE ? ESCAPE '\\')
-      ORDER BY rk, c.id DESC LIMIT ${EL_SUGGEST_MAX}`,
+    // exact (0) → canonical prefix (1) → suffix (2) → anywhere (3); own, not merged; salesperson filter uses idx_customers_sp_phone.
+    // Live rows store phones in mixed shapes (+98…, Persian digits, 10-digit 9…): compare on crm_customer_mobile_key (→ 09…).
+    const rows = queryRows<Row>(`SELECT id, name, pk AS phone, priority,
+        CASE WHEN pk=? THEN 0 WHEN pk LIKE ? ESCAPE '\\' THEN 1 WHEN pk LIKE ? ESCAPE '\\' THEN 2 ELSE 3 END rk
+      FROM (SELECT c.id, c.name, c.priority, crm_customer_mobile_key(c.phone) pk FROM customers c
+        WHERE c.salesperson_id=? AND c.merged_into_customer_id IS NULL AND c.phone IS NOT NULL AND c.phone<>'')
+      WHERE pk LIKE ? ESCAPE '\\' OR pk LIKE ? ESCAPE '\\'
+      ORDER BY rk, id DESC LIMIT ${EL_SUGGEST_MAX}`,
       [ph.canon, `${c}%`, `%${d}`, sp, `%${d}%`, `${c}%`]);
     return out(rows, "phone", /^09\d{9}$/.test(ph.canon) ? ph.canon : undefined);
   }
@@ -343,7 +345,7 @@ export function elIncomingSuggest(u: U, raw: unknown, now = Date.now()): ElSugge
   let nk = "replace(replace(crm_persian_search_key(c.name),char(8204),' '),char(1600),' ')";
   for (const [i, d] of [..."۰۱۲۳۴۵۶۷۸۹"].entries()) nk = `replace(${nk},'${d}','${i}')`;
   for (const [i, d] of [..."٠١٢٣٤٥٦٧٨٩"].entries()) nk = `replace(${nk},'${d}','${i}')`;
-  const rows = queryRows<Row>(`SELECT c.id, c.name, c.phone, c.priority,
+  const rows = queryRows<Row>(`SELECT c.id, c.name, crm_customer_mobile_key(c.phone) AS phone, c.priority,
       CASE WHEN ${nk}=? THEN 0 WHEN ${nk} LIKE ? ESCAPE '\\' THEN 1 ELSE 2 END rk
     FROM customers c WHERE c.salesperson_id=? AND c.merged_into_customer_id IS NULL
       AND ${toks.map(() => `${nk} LIKE ? ESCAPE '\\'`).join(" AND ")}
