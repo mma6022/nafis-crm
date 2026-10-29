@@ -44,17 +44,19 @@ const PAGES = {
 };
 /** Mohammad's confirmed answers (2026-10-23). Changing plan data must change this table deliberately. */
 const CONFIRMED = {
-  'no-guarantor': [3, 7, 8, 9, 12, 14, 15, 17, 18, 19, 21, 22],
+  /** 2026-10-29: 5, 7, 11, 15 inactive in the CRM (live export = 14 active plans; snapshot refreshed at build) → removed
+   *  everywhere below. Only removals; new plan 23 has no confirmed guarantee layer → on no guarantee page. */
+  'no-guarantor': [3, 8, 9, 12, 14, 17, 18, 19, 21, 22],
   /** copy A3 (2026-10-28) rule on the 17 live plans: all qualifying plans are 10_to_15 → ties by the highest مبلغ واریزی
    *  without a guarantor: 19 چابک, 8, 9 (9 capped at ۳۰۰ میلیون). DERIVED FROM DATA 2026-10-28 — flagged for PM / Mohammad
    *  confirmation (the 2026-10-23 per-type answer was [19, 15]). */
   'fast-no-guarantor': [19, 8, 9],
-  'no-cheque': [15, 20, 21],
+  'no-cheque': [20, 21],
   /** fastest ≤3 qualifying plans (all 10_to_15 → ties by id) */
-  'fast-no-cheque': [15, 20, 21],
+  'fast-no-cheque': [20, 21],
   /** 10 خورشید removed: inactive in the CRM (live 2026-10-28). 4 re-added (PLANS-50, Mohammad 2026-10-28 08:27: condition
    *  396 now offers [18,24] → 24 months calculable, 110M payout the portal accepts). */
-  cheque: [1, 3, 4, 5, 7, 8, 9, 11, 12, 14, 18, 19, 22],
+  cheque: [1, 3, 4, 8, 9, 12, 14, 18, 19, 22],
   promissory: [20],
 };
 const uniq = (a) => [...new Set(a)].sort((x, y) => x - y);

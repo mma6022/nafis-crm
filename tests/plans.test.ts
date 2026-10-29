@@ -1,7 +1,9 @@
 /** UX-SPEC §6 acceptance: every one of the 3×3×3 = 27 answers yields 1–3 cards, never "not found". Run: pnpm test */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import raw from '../src/data/loan-plans.snapshot.json' with { type: 'json' };
+// Logic tests run on a frozen fixture (the 2026-10-28 snapshot, 17 plans) so they stay deterministic when the live
+// snapshot is refreshed at build time; the live snapshot itself is checked in plans-snapshot.test.ts.
+import raw from './fixtures/loan-plans.2026-10-28.json' with { type: 'json' };
 import { parseComingSoonPlans, parseLoanPlans } from '../src/lib/loan-plans.ts';
 import {
   combos, recommend, planFacts, bankNames, reqBands, bandOf, millionsFa,

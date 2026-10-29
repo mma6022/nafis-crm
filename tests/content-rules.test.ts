@@ -2,7 +2,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import raw from '../src/data/loan-plans.snapshot.json' with { type: 'json' };
+// Logic tests run on a frozen fixture (the 2026-10-28 snapshot, 17 plans) so they stay deterministic when the live
+// snapshot is refreshed at build time; the live snapshot itself is checked in plans-snapshot.test.ts.
+import raw from './fixtures/loan-plans.2026-10-28.json' with { type: 'json' };
 import { leadHtml, planFacts } from '../src/lib/plans.ts';
 import { parseLoanPlans } from '../src/lib/loan-plans.ts';
 

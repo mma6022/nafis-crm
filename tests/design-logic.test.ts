@@ -4,7 +4,9 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import raw from '../src/data/loan-plans.snapshot.json' with { type: 'json' };
+// Logic tests run on a frozen fixture (the 2026-10-28 snapshot, 17 plans) so they stay deterministic when the live
+// snapshot is refreshed at build time; the live snapshot itself is checked in plans-snapshot.test.ts.
+import raw from './fixtures/loan-plans.2026-10-28.json' with { type: 'json' };
 import { parseLoanPlans, type LoanPlan } from '../src/lib/loan-plans.ts';
 import {
   combos, recommend, planFacts, bankNames, normBank, splitBanks, reqBands, installment, byId, bandOf, millionsFa, heroSample, SAMPLE_PLAN_ID, fastPlanGroups, fillFacts, leadHtml,
