@@ -1,4 +1,5 @@
 import { InstantCreditCheck } from '@/features/team-sales/InstantCreditCheck';
+import { useIccEnabled } from '@/features/team-sales/api';
 import { AutoGrowTextarea } from '../../components/AutoGrowTextarea';
 import { useMemo, useState } from 'react';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
@@ -90,6 +91,7 @@ export const cqSaveOutcome = (v: CqResultValue, nonPhone: boolean): { outcome: C
 
 export function CqResultFields({ value, onChange, showErrors, pre, idPrefix = 'cq', onlyTime = false, noResult = false, submitLabel, creditCustomerId }: { value: CqResultValue; onChange: (v: CqResultValue) => void; showErrors: boolean; pre?: PreCall | null; idPrefix?: string; onlyTime?: boolean; noResult?: boolean; submitLabel?: string; /** ICC: show «اعتبارسنجی فوری» after «جواب داد»; never part of validation */ creditCustomerId?: number }) {
   const set = (patch: Partial<CqResultValue>) => onChange({ ...value, ...patch });
+  const iccOn = useIccEnabled();
   const now = new Date(); const tp = tehranParts(now);
   const eveningLate = tp.h * 60 + tp.mi >= 16 * 60 || tp.wd === 5;
   const tomorrow = addTehranDays(now, 1, 10); const tomorrowFriday = tehranParts(tomorrow).wd === 5;
@@ -132,7 +134,7 @@ export function CqResultFields({ value, onChange, showErrors, pre, idPrefix = 'c
     </div> : null}
     {noResult ? null : <ManualOutcomeField value={value.manual} idPrefix={idPrefix} showError={showErrors} submitLabel={submitLabel}
       onChange={(m) => set({ manual: m, outcome: cqOutcomeFor(m, value.fu) })} />}</>}
-    {!onlyTime && !noResult && creditCustomerId && value.manual === 'answered' ? <><InstantCreditCheck customerId={creditCustomerId} />
+    {iccOn && !onlyTime && !noResult && creditCustomerId && value.manual === 'answered' ? <><InstantCreditCheck customerId={creditCustomerId} />
       <p className="ts-cv-free" data-testid="cq-cv-free">استعلام ناموفق یا انجام‌نشده جلوی ثبت فرم را نمی‌گیرد.</p></> : null}
     {!onlyTime && !noResult && value.outcome === 'no_answer' ? <div className="cq-na" data-testid="cq-na-box" data-attempt={na}>
       <div className="cq-dots" aria-hidden="true">{[1, 2, 3].map((i) => <span key={i} className={i <= na ? 'on' : ''} />)}</div>
