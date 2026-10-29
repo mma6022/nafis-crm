@@ -1,3 +1,4 @@
+import { CALLED_LABEL, dialTel, NARROW_QUERY } from '@/features/call-number/CallNumber';
 import { CustomerName, customerNameText } from '@/components/customer/CustomerName';
 import { cqDial } from '@/features/call-queue/api';
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -9,6 +10,7 @@ import './notifications.css';
 import { AssistantAvatar } from '@/features/assistant/AssistantAvatar';
 import '@/features/assistant/assistant.css';
 import { claimOnce, tabLeader, tabVisible } from '@/lib/tab-coordinator';
+const narrowNow = () => typeof window !== 'undefined' && window.matchMedia?.(NARROW_QUERY).matches === true;
 /** Asks the assistant dock to open one chat (AssistantDock listens; ignored when that assistant is not this user's). */
 export const openAssistantThread = (threadId: number) => window.dispatchEvent(new CustomEvent('nafis:assistant-open', { detail: { threadId } }));
 
@@ -215,10 +217,14 @@ function ProviderInner({ children }: { children: ReactNode }) {
                   if (!phone) { openItem(n).catch(() => setToastError('باز کردن پرونده انجام نشد.')); return; }
                   markNotificationRead(n.id).then(() => applyRead(n), () => applyRead(n));
                   // crm-call-queue R2 «قفل تماس»: through the CRM-button call when the lock is ON (untouched while OFF).
-                  const cq = await cqDial(n.customerId, 'bell');
+                  // CALL-COPY v1.0.4: desktop never opens tel: — same call-start without dialing, then the result form
+                  // (lock ON: the lock's «گزارش تماس»; lock OFF: the customer's call form via ?cq=call). Below 700px: dial as before.
+                  const narrow = window.matchMedia?.(NARROW_QUERY).matches === true;
+                  const cq = await cqDial(n.customerId, 'bell', narrow);
                   if (cq) { if (!cq.ok) setToastError(cq.error); return; }
-                  window.location.href = `tel:${phone}`;
-                })(); }} data-testid={`button-toast-call-${n.id}`}><Phone size={16} /> تماس</button>
+                  if (narrow) { dialTel(phone); return; }
+                  if (n.customerId) window.location.assign(`/customers/${n.customerId}?cq=call`);
+                })(); }} data-testid={`button-toast-call-${n.id}`}><Phone size={16} /> {narrowNow() ? 'تماس' : CALLED_LABEL}</button>
                 <button type="button" className="sn-p1-open" onClick={() => { setToastError(''); openItem(n).catch((e) => setToastError(e instanceof Error ? e.message : 'باز کردن اعلان انجام نشد.')); }} data-testid={`button-toast-open-${n.id}`}>پرونده</button>
               </div>
             </div>

@@ -1,0 +1,14 @@
+/* CALL-COPY v1.0.4 — Armita: .ph/.phn/.phc/.phtoast (full number, copy 46×44, toast bottom-centre) */
+.cn{display:inline-flex;align-items:center;gap:4px;direction:rtl;white-space:nowrap;vertical-align:middle;max-width:100%}
+.cn-n{display:inline-flex;align-items:center;min-height:44px;padding:0 4px;direction:ltr;unicode-bidi:isolate;color:var(--nf-ink,#101828);font-weight:800;letter-spacing:.02em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum";user-select:all;cursor:text;text-decoration:none}
+.cn-lg .cn-n{font-size:22px;letter-spacing:.04em;min-height:48px}
+.cn-md .cn-n{font-size:17px}
+.cn-sm .cn-n{font-size:14.5px;min-height:36px}
+.cn-tap{cursor:pointer;user-select:none;text-decoration:underline;text-decoration-color:var(--nf-line-strong,#c9cede);text-underline-offset:4px;color:var(--nf-ink,#101828)}
+.cn-tap[aria-disabled=true]{opacity:.55;cursor:not-allowed}
+.cn-c{width:46px;height:44px;flex:0 0 46px;display:grid;place-items:center;border:0;padding:0;background:transparent;border-radius:12px;color:var(--nf-ink-muted,#667085);cursor:pointer}
+.cn-sm .cn-c{width:40px;height:36px;flex-basis:40px}
+.cn-c:hover{background:#F2F4F7}.cn-c:focus-visible{outline:2px solid var(--nf-brand-600,#3538cd);outline-offset:2px}
+.cn-c.done{color:#067647}
+.cn-toast{position:fixed;inset-inline:0;bottom:24px;margin-inline:auto;width:max-content;max-width:calc(100% - 32px);background:var(--nf-ink,#101828);color:#fff;border-radius:12px;padding:10px 16px;font-weight:800;font-size:14px;z-index:9999;pointer-events:none;white-space:nowrap}
+.cn-called{display:inline-flex;align-items:center;justify-content:center;gap:8px}

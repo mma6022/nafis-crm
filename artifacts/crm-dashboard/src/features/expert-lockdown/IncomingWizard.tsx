@@ -7,6 +7,7 @@
  *  The typed number stays full in the input; results show the CRM's masked form. No SMS/Bale (server side).
  *  SEARCH-65b reuse: «مشتری قبلیه» types a few digits or a name → 65b's live own-customer list (/incoming/suggest, ≤8, last 4 digits)
  *  → tap = 65b's /incoming/pick (same own path); «پیدا کن» with the full number is the existing exact search (other expert → owner name only). */
+import { CallNumber } from '@/features/call-number/CallNumber';
 import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Check, ChevronRight, FileText, Info, Lock, Pencil, Phone, PhoneIncoming, Plus, Search, Send, User, X } from 'lucide-react';
@@ -57,7 +58,8 @@ export const phone11 = (s: string) => {
 function PickedTel({ id }: { id: number }) {
   const q = useGetCustomer(id, { query: { queryKey: getGetCustomerQueryKey(id), retry: false } });
   const t = phone11(String((q.data as { phone?: string | null } | undefined)?.phone ?? ''));
-  return t ? <a className="btn btn-primary iw-tel" href={`tel:${t}`} data-testid="iw-tel-call"><Phone size={15} aria-hidden="true" /> تماس</a> : null;
+  // CALL-COPY v1.0.4: full number + copy; no tel: on desktop (below 700px the number dials via the call-lock start).
+  return t ? <CallNumber phone={t} customerId={id} via="incoming" size="sm" testId="iw-tel-call" /> : null;
 }
 
 function LogCall({ customer, phone, currentNo, saveLabel, onSaved, extra, onFormOpen, onUnsaved, onKind, isNew }: {
@@ -188,7 +190,7 @@ export function IncomingWizard({ currentNo, onClose, onSaved, onEvent }: {
   const phoneIn = (ro: boolean, lv = false) => <>
     <label htmlFor="iw-phone">{lv ? 'شماره یا نام تماس‌گیرنده*' : 'شماره‌ی تماس‌گیرنده*'} <small>{ro ? 'از مرحله‌ی قبل' : lv ? 'چند رقم یا نام' : 'دقیق، ۱۱ رقم'}</small></label>
     <input id="iw-phone" className={ro ? 'ro' : undefined} readOnly={ro} value={ro ? grp(ph ?? phone) : grp(phone)} onChange={(e) => onPhone(e.target.value)} placeholder={lv ? '۰۹۱۲… یا نام مشتری' : '۰۹۱۲۱۲۳۴۵۶۷'} inputMode={lv ? 'text' : 'tel'} dir={lv ? 'auto' : 'ltr'} autoComplete="off" data-testid="iw-phone" /></>;
-  const telBtn = ph ? <a className="btn btn-primary iw-tel" href={`tel:${ph}`} data-testid="iw-tel-call"><Phone size={15} aria-hidden="true" /> تماس</a> : null;
+  const telBtn = ph ? <CallNumber phone={ph} customerId={cust?.id} via="incoming" size="sm" testId="iw-tel-call" /> : null; // CALL-COPY v1.0.4
   const hit = (kind: 'own' | 'new' | 'dup') => <div className={`tc-hit${kind === 'own' ? '' : ` ${kind}`}`} data-testid={`iw-hit-${kind}`}>
     {kind === 'new' ? <Plus size={18} aria-hidden="true" /> : kind === 'dup' ? <AlertTriangle size={18} aria-hidden="true" /> : <Check size={18} aria-hidden="true" />}
     <div><b>{cust?.name} <span className="dp-id">#{faNum(cust?.id ?? 0)}</span></b><small><span className="dp-chip l-own" data-testid="iw-own-badge">{SC.own}</span> {kind === 'new' ? 'ساخته شد · ' : ''}<bdi dir="ltr" data-testid="iw-tel">{ph ? fullTel(ph) : tail ? (tail.length > 4 ? fullTel(phone11(tail) ?? tail) : `••••${faNum(tail)}`) : ''}</bdi>{kind === 'dup' ? ' · مشتری تازه ساخته نشد' : ''}</small>

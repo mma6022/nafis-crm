@@ -2,6 +2,7 @@
    Only the signed-in expert's own list; trainees / others get eligible:false from the server and see nothing.
    PM overrides of the design: hide = admin setting (default 3 h), 4 fixed reasons, any logged call replaces the card. */
 import { Bell, Check, ChevronUp, Clock, FileCheck2, Globe, Loader2, PhoneCall, Repeat, Settings2, Sparkles, Star, TrendingUp, UserRoundCheck, Zap, CalendarClock, PhoneOff } from 'lucide-react';
+import { CALLED_LABEL } from '@/features/call-number/CallNumber';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
@@ -123,7 +124,7 @@ export function SalesAssistBox({ user, onCall }: { user: User; onCall: (customer
           {it.chips.length ? <div className="tgs">{it.chips.slice(0, 3).map((c) => <span key={c.key} className={`tgx ${chipCls[c.key]}${c.tone === 'red' ? ' red' : ''}`} data-testid={c.key === 'p1_stale' ? `sales-assist-p1-${it.customerId}` : undefined}>{chipIcon[c.key]}{c.label}</span>)}</div> : null}
           <div className="why">{reasonIcon(it.reason.kind)}<span>{it.reason.text}</span></div>
           <div className="ac">
-            <button type="button" className="sa-btn pri" disabled={preview} onClick={() => { launched.current = it; onCall(it.customerId); }} data-testid={`sales-assist-call-${it.customerId}`}><PhoneCall className="i" /> تماس و ثبت</button>
+            <button type="button" className="sa-btn pri" disabled={preview} onClick={() => { launched.current = it; onCall(it.customerId); }} data-testid={`sales-assist-call-${it.customerId}`}><PhoneCall className="i" /> {CALLED_LABEL}</button>
             {hideNotNow ? null : <button type="button" className="sa-btn" disabled={preview} onClick={() => setSheetFor(it)} data-testid={`sales-assist-later-${it.customerId}`}><Clock className="i" /> الان نه</button>}
           </div>
         </article>)}</div>

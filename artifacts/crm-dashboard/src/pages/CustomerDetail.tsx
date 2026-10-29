@@ -41,6 +41,7 @@ import { KazemiSourceChip, kazemiSourceOf } from '@/features/kazemi-source/Kazem
 import { DeadlineCountdown, PreferredTimeNote, SiteLeadChips, SiteLeadHistory, hideTagForSiteLead } from '@/features/site-leads/SiteLead';
 import { consultProfileKey, firstCallEditInfoKey, firstCallOf, isCloserOwn, showsUpgradeButton, useFirstCallEditInfo, usesSimpleForm, type FirstCallEditResult, type PromoteResult, type QualifyResult } from '@/features/team-sales/api';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
+import { CallNumber, CALLED_LABEL, calledThenForm } from '@/features/call-number/CallNumber';
 import { FirstCallSummaryCard, NoPlanBox, SuggestedPlansBox } from '@/features/team-sales/FirstCallCard';
 import { ConsultProfileCard } from "@/features/team-sales/ConsultProfileCard";
 import { TsToast, UpgradeCard, UpgradeDialog, UpgradedCard } from '@/features/team-sales/UpgradeToP1';
@@ -498,7 +499,6 @@ function CustomerDetailFull() {
     void queryClient.invalidateQueries({ queryKey: getListRemindersQueryKey() });
     void customerQuery.refetch();
   };
-  const copyPhone = () => { void navigator.clipboard?.writeText(customer.phone).then(() => setToast('شماره کپی شد.'), () => setToast('کپی انجام نشد.')); };
   const baseActivity = activityQuery.data ?? customer.activity ?? [];
   const activity = handoff && !baseActivity.some((item) => item.id === handoff.callLogId)
     ? [{ ...(baseActivity[0] ?? {}), id: handoff.callLogId, salespersonName: session.data?.user.salespersonName ?? session.data?.user.fullName ?? null, createdAt: new Date().toISOString(), subject: `ارتقا به اولویت ۱ توسط ${(session.data?.user.salespersonName ?? '').replace(/^(آقای|خانم)\s+/, '') || 'کارشناس'}`, customerRequest: `واگذاری به ${handoff.closerName} (${handoff.assignmentLabel ?? (handoff.assignment === 'previous_expert' ? 'کارشناس قبلی مشتری' : 'تقسیم عادلانه')})`, expertNotes: `مهلت تماس تا ${handoff.dueLabel}` } as (typeof baseActivity)[number], ...baseActivity]
@@ -538,13 +538,13 @@ function CustomerDetailFull() {
       <PreferredTimeNote customer={customer} testId="preferred-time" />
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <Phone size={18} aria-hidden="true" style={{ color: 'var(--nf-ink-muted)' }} />
-        <b className="ltr" style={{ fontSize: 19 }} data-testid="text-customer-phone">{faDigits(formatPhoneForDisplay(customer.phone))}</b>
-        <button type="button" className="csx-ib" onClick={copyPhone} aria-label="کپی شماره موبایل" data-testid="button-copy-customer-phone"><Copy size={18} /></button>
+        {/* CALL-COPY v1.0.4: full number + copy («کپی شد»); below 700px tapping it dials through the call-lock start (cqTelClick). */}
+        <span data-testid="text-customer-phone"><CallNumber phone={customer.phone} customerId={customer.id} via="customer" onErr={setToast} size="md" testId="cust-ph" /></span>
       </div>
     </div>
     <div className="acts">
-      {showSimpleForm ? <button type="button" className="csx-call" onClick={() => setSimpleFormOpen(true)} data-testid="button-ts-simple-form"><PhoneCall size={20} /> تماس و فرم</button>
-        : canCallsCreate || isAdmin ? <a className="csx-call" href={`tel:${customer.phone}`} onClick={(e) => { cqTelClick(e, customer.id, 'customer', setToast); }} data-testid="link-call-customer"><PhoneCall size={20} /> تماس</a> : null}
+      {showSimpleForm ? <button type="button" className="csx-call" onClick={() => setSimpleFormOpen(true)} data-testid="button-ts-simple-form"><PhoneCall size={20} /> {CALLED_LABEL}</button>
+        : canCallsCreate || isAdmin ? <button type="button" className="csx-call" onClick={() => void calledThenForm(customer.id, 'customer', () => callLauncher.launch(customer), setToast)} data-testid="link-call-customer"><PhoneCall size={20} /> {CALLED_LABEL}</button> : null}
       {showUpgrade && showsUpgradeButton(tsConfig.data, session.data?.user, customer) ? <button type="button" className="ts-up-btn hero" onClick={() => setUpgradeOpen(true)} data-testid="button-ts-upgrade-hero"><ArrowUp size={18} aria-hidden="true" /> ارتقا به اولویت ۱</button> : null}
       {canUpdate ? <button type="button" className="csx-ghost" onClick={() => setEditing(true)} data-testid="button-toggle-customer-edit" aria-haspopup="dialog"><Pencil size={18} /> ویرایش</button> : null}
       {canNewLoan ? <Link href={loanWizardHref(customer.id)} className="csx-primary wide" data-testid="button-new-loan-from-customer"><Plus size={20} /> درخواست تسهیلات جدید</Link> : null}

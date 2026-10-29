@@ -123,12 +123,14 @@ export type DialResult = { ok: true } | { ok: false; error: string };
  * Lock ON: asks the server for the call (423 = previous report missing / restricted panel), then opens the tel: link it returns.
  * Lock OFF (or not eligible): returns null so the caller keeps its own tel: behaviour unchanged.
  */
-export async function cqDial(customerId: number | null | undefined, via: string): Promise<DialResult | null> {
+export async function cqDial(customerId: number | null | undefined, via: string, dialIt = true): Promise<DialResult | null> {
   if (!cqLockActive() || !customerId) return null;
   try {
     const r = await cqApi.startCall(customerId, via);
-    watchReturn(r.callId);
     window.dispatchEvent(new CustomEvent(CQ_PENDING_EVENT));
+    // CALL-COPY v1.0.4: desktop «تماس گرفتم، ثبت نتیجه» records the same server call-start but never opens a tel: link.
+    if (!dialIt) return { ok: true };
+    watchReturn(r.callId);
     // same as following a tel: link (an anchor click keeps the page's own tel: handling and the test kit's interception)
     const a = document.createElement('a'); a.href = r.tel; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
     return { ok: true };

@@ -1,8 +1,9 @@
+import { CallNumber, CALLED_LABEL, dialTel } from '@/features/call-number/CallNumber';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useUrgentWaiting } from '@/features/lead-intake/api';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BellRing, Phone, Send, Sparkles, X } from 'lucide-react';
+import { BellRing, Check, Phone, Send, Sparkles, X } from 'lucide-react';
 import { CqManualType, cqFollowUpAt, CqResultFields, cqResultError, cqSaveOutcome, emptyCqResult, focusCallResult, type CqResultValue } from './ResultFields';
 import { cqApi, cqDial, cqLockActive, cqOn, cqSetConfigCache, cqTelClick, CQ_PENDING_EVENT, CQ_SAVED_EVENT, faClock, faNum, faWhen, useCqConfig, type AfterSave, type CqConfig, type CqPending, type CqReminder } from './api';
 import './call-queue.css';
@@ -151,7 +152,7 @@ function SnoozeBar({ r }: { r: CqReminder }) {
   const left = Math.max(0, Math.ceil((Date.parse(r.snoozeUntil ?? '') - Date.now()) / 60_000));
   return <div className="cq-snoozebar" role="status" data-testid="cq-snoozebar">
     <BellRing size={16} aria-hidden="true" /> یادآور {r.customerName} ۱۰ دقیقه عقب افتاد · ساعت {r.snoozeUntil ? faClock(r.snoozeUntil) : ''} دوباره باز می‌شود · {faNum(left)} دقیقه مانده
-    {r.phone ? <a className="btn btn-primary sm" href={`tel:${r.phone}`} onClick={(e) => { cqTelClick(e, r.customerId, 'snooze'); }} data-testid="cq-snooze-callnow">الان تماس می‌گیرم</a> : null}
+    {r.phone ? <CallNumber phone={r.phone} customerId={r.customerId} via="snooze" size="sm" testId="cq-snooze-ph" /> : null}
   </div>;
 }
 
@@ -173,7 +174,7 @@ function DueDialog({ r, index, total, lastToast, cfg, onSaved, onSnoozed, startI
   const [manual, setManual] = useState('');
   const [val, setVal] = useState<CqResultValue>(emptyCqResult); const [showErr, setShowErr] = useState(false);
   const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [shake, setShake] = useState(false);
-  const boxRef = useRef<HTMLDivElement>(null); const callRef = useRef<HTMLAnchorElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null); const callRef = useRef<HTMLButtonElement>(null);
   const pre = useQuery({ queryKey: ['call-queue', 'pre-call', r.customerId], queryFn: () => cqApi.preCall(r.customerId), retry: false }).data;
   const urgentWaiting = useUrgentWaiting().data?.count ?? 0;
   useInertBackground(true);
@@ -216,12 +217,15 @@ function DueDialog({ r, index, total, lastToast, cfg, onSaved, onSnoozed, startI
         <div><b>{r.customerName}</b> <span className="cq-id">#{faNum(r.customerId)}</span>{r.priority ? <span className="cq-pri">اولویت {faNum(r.priority)}</span> : null}</div>
         <div className="cq-lock-rem">یادآور {faWhen(r.remindAt)}{r.subject ? ` · ${r.subject}` : ''}</div>
         {r.message ? <div className="cq-lock-msg">{r.message}</div> : null}
+        {r.phone ? <div className="cq-lock-ph" data-testid="cq-due-phone"><CallNumber phone={r.phone} testId="cq-due-ph" onDial={() => { setErr('');
+          void cqDial(r.customerId, 'due').then((x) => { if (x && !x.ok) { setErr(x.error); return; } if (!x) dialTel(r.phone!); setStage('form'); }); }} /></div> : null}
         {r.source === 'assistant' && r.sourceNote ? <div className="cq-ai-src"><Sparkles size={13} aria-hidden="true" /> ساخته‌شده توسط دستیار · «{r.sourceNote.text.slice(0, 120)}»</div> : null}
       </div>
       <p id="cq-lock-d" className={`cq-lock-desc${shake ? ' shake' : ''}`}>این پنجره بسته نمی‌شود تا تماس را بگیری و نتیجه و یادداشتش را ثبت کنی. اگر همین حالا روی تماس دیگری هستی، فقط یک بار می‌توانی ۱۰ دقیقه عقبش بیندازی.</p>
       {stage === 'ask' ? <div className="cq-lock-actions">
-        <a ref={callRef} className="btn btn-primary cq-big" href={r.phone ? `tel:${r.phone}` : undefined} onClick={(e) => { if (!r.phone) { e.preventDefault(); setStage('form'); return; }
-          if (cqTelClick(e, r.customerId, 'due', (m) => setErr(m))) { setStage('form'); return; } setStage('form'); }} data-testid="cq-due-call"><Phone size={17} aria-hidden="true" /> تماس با {r.customerName}</a>
+        {/* CALL-COPY v1.0.4: no tel: on desktop. Lock ON → the same server call-start (cqDial, no dial); a refusal (423) keeps this step. */}
+        <button ref={callRef} type="button" className="btn btn-primary cq-big cn-called" disabled={busy} onClick={() => { setErr('');
+          void cqDial(r.customerId, 'due', false).then((x) => { if (x && !x.ok) { setErr(x.error); return; } setStage('form'); }); }} data-testid="cq-due-call"><Check size={17} aria-hidden="true" /> {CALLED_LABEL}</button>
         <button type="button" className="btn btn-ghost" disabled={busy} aria-disabled={r.snoozeUsed || undefined} aria-describedby="cq-busy-d" onClick={() => void snooze()} data-testid="cq-due-snooze">مشغول تماس دیگه‌ام</button>
         <small id="cq-busy-d" className="cq-hint">{r.snoozeUsed ? 'یک بار ۱۰ دقیقه عقب انداختی. برای این یادآور دوباره نمی‌شود؛ حالا فقط تماس.' : '۱۰ دقیقه · فقط یک بار برای این یادآور · در گزارش مدیر ثبت می‌شود'}</small>
       </div> : <div className="cq-lock-form" data-testid="cq-due-form">
@@ -229,8 +233,7 @@ function DueDialog({ r, index, total, lastToast, cfg, onSaved, onSnoozed, startI
         {needManual ? <CqManualType value={manual} onChange={setManual} showError={showErr} idPrefix="cq-lk-mt" /> : null}
         <CqResultFields value={val} onChange={setVal} showErrors={showErr} pre={pre} idPrefix="cq-lk" noResult={needManual} submitLabel="ثبت نتیجه" />
         {naNext ? <p className="cq-hint" data-testid="cq-due-na-next">یادآور بعدی ساخته می‌شود: {pre!.naAttemptIfNoAnswer === 1 ? '۴ ساعت بعد' : '۲۴ ساعت بعد'} (ساعت کاری)</p> : null}
-        <div className="cq-lock-actions"><button type="button" className="btn btn-primary cq-big" disabled={busy} onClick={() => void save()} aria-disabled={!needManual && !val.manual || undefined} data-testid="cq-due-save">{busy ? 'در حال ثبت…' : 'ثبت نتیجه'}</button>
-          {r.phone ? <a className="btn btn-ghost" href={`tel:${r.phone}`} onClick={(e) => { cqTelClick(e, r.customerId, 'due', (m) => setErr(m)); }} data-testid="cq-due-recall"><Phone size={15} aria-hidden="true" /> دوباره تماس</a> : null}</div>
+        <div className="cq-lock-actions"><button type="button" className="btn btn-primary cq-big" disabled={busy} onClick={() => void save()} aria-disabled={!needManual && !val.manual || undefined} data-testid="cq-due-save">{busy ? 'در حال ثبت…' : 'ثبت نتیجه'}</button></div>
       </div>}
       {err ? <p className="cq-err" role="alert" data-testid="cq-due-error">{err}</p> : null}
     </div>
@@ -276,12 +279,12 @@ function PendingModal({ cfg, p, onSaved }: { cfg: CqConfig; p: CqPending; onSave
       <div className="cq-lock-cust">
         <div><b>{p.customerName}</b> <span className="cq-id">#{faNum(p.customerId)}</span>{p.urgent ? <span className="cq-urgent">مشتری فوری</span> : null}{p.priority ? <span className="cq-pri">اولویت {faNum(p.priority)}</span> : null}</div>
         <div className="cq-lock-rem">تماس از CRM ساعت {faClock(p.linkIssuedAt)}{p.returnedAt ? ` · برگشت به CRM ${faClock(p.returnedAt)}` : ''}</div>
+        {p.phone ? <div className="cq-lock-ph" data-testid="cq-pending-phone"><CallNumber phone={p.phone} testId="cq-pd-ph" onDial={() => void cqDial(p.customerId, 'pending').then((r) => { if (r && !r.ok) setErr(r.error); else if (!r) dialTel(p.phone!); })} /></div> : null}
       </div>
       <p id="cq-pend-d" className={`cq-lock-desc${shake ? ' shake' : ''}`}>تا گزارش این تماس ثبت نشود، دکمه‌ی تماس بعدی باز نمی‌شود. «به‌موقع» یعنی ثبت تا {faNum(cfg.discipline?.onTimeMin ?? 10)} دقیقه بعد از برگشت به CRM (بدون برگشت: تا {faNum(cfg.discipline?.onTimeCapMin ?? 30)} دقیقه بعد از تماس).</p>
       <div className="cq-lock-form" data-testid="cq-pending-form">
         <CqResultFields value={val} onChange={setVal} showErrors={showErr} pre={pre} idPrefix="cq-pd" submitLabel="ثبت گزارش تماس" />
-        <div className="cq-lock-actions"><button type="button" className="btn btn-primary cq-big" disabled={busy} onClick={() => void save()} aria-disabled={!val.manual || undefined} data-testid="cq-pending-save">{busy ? 'در حال ثبت…' : 'ثبت گزارش تماس'}</button>
-          {p.phone ? <button type="button" className="btn btn-ghost" onClick={() => void cqDial(p.customerId, 'pending').then((r) => { if (r && !r.ok) setErr(r.error); })} data-testid="cq-pending-recall"><Phone size={15} aria-hidden="true" /> دوباره تماس</button> : null}</div>
+        <div className="cq-lock-actions"><button type="button" className="btn btn-primary cq-big" disabled={busy} onClick={() => void save()} aria-disabled={!val.manual || undefined} data-testid="cq-pending-save">{busy ? 'در حال ثبت…' : 'ثبت گزارش تماس'}</button></div>
       </div>
       {err ? <p className="cq-err" role="alert" data-testid="cq-pending-error">{err}</p> : null}
     </div>

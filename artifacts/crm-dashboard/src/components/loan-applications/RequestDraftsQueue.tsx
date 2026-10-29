@@ -1,4 +1,5 @@
 // «در انتظار ثبت» queue (HANDOFF §6/§7). Server decides scope (salesperson → own) and canDelete (admin, unpaid only).
+import { CallNumber } from '@/features/call-number/CallNumber';
 import { useState } from 'react';
 import { Link } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
@@ -40,7 +41,7 @@ function WaitPill({ hours, at, verb }: { hours: number; at: string; verb: string
   return <div className="rqd-wait"><span className={`rqd-pill ${w.tone}`}><Clock size={14} aria-hidden="true" /> {w.text}</span><span className="muted">{verb} {jalaliDate(at)}، {tehranTime(at)}</span></div>;
 }
 function RoName({ name, id, phone, testId }: { name: string | null; id: number; phone: string | null; testId: string }) {
-  return <div className="rqd-name"><b>{name ?? '—'}</b> <CustomerIdBadge id={id} testId={testId} />{phone ? <div className="muted" dir="ltr">{phone}</div> : null}</div>;
+  return <div className="rqd-name"><b>{name ?? '—'}</b> <CustomerIdBadge id={id} testId={testId} />{phone ? <div className="rqd-ph"><CallNumber phone={phone} customerId={id} via="drafts" size="sm" testId={`${testId}-ph`} /></div> : null}</div>;
 }
 /** Admin only (server sends [] to everyone else). Read-only: no continue / delete. */
 function OrphanFees({ rows, isDesktop }: { rows: OrphanFeeRow[]; isDesktop: boolean }) {
@@ -127,10 +128,11 @@ export function RequestDraftsQueue({ isDesktop, isAdmin, onOpen }: { isDesktop: 
     : <span className="rqd-tip" data-tip={NOT_DELETABLE}><button type="button" className="csx-ib" disabled aria-disabled="true" aria-label={NOT_DELETABLE} title={NOT_DELETABLE} data-testid={`button-delete-draft-${d.id}`}><Trash2 size={18} /></button></span>;
   const cont = (d: RequestDraft) => d.canContinue
     ? <button type="button" className="csx-primary sm" onClick={() => onOpen(d)} data-testid={`button-continue-draft-${d.id}`}>ادامه <ChevronLeft size={16} aria-hidden="true" /></button> : null;
-  const name = (d: RequestDraft) => <div className="rqd-name">
+  const name = (d: RequestDraft, showPhone = true) => <div className="rqd-name">
     <b>{d.customerName ?? '—'}</b> <CustomerIdBadge id={d.customerId} testId={`draft-customer-id-${d.id}`} />
     {d.source === 'portal' ? <span className="rqd-portal">از پرتال</span> : null}
-    {d.customerPhone ? <div className="muted" dir="ltr">{d.customerPhone}</div> : null}
+    {/* CALL-COPY v1.0.4 / crm-request-drafts v1.0.2: full number + copy («کپی شد»); no tel: on desktop; the mobile card has no number column (HANDOFF §0). */}
+    {showPhone && d.customerPhone ? <div className="rqd-ph"><CallNumber phone={d.customerPhone} customerId={d.customerId} via="drafts" size="sm" testId={`draft-ph-${d.id}`} /></div> : null}
   </div>;
 
   return <div className="rqd" data-testid="request-drafts-queue">
@@ -162,7 +164,7 @@ export function RequestDraftsQueue({ isDesktop, isAdmin, onOpen }: { isDesktop: 
           <td><div className="rqd-acts">{cont(d)}{delBtn(d)}</div></td>
         </tr>)}</tbody></table>
       : <div className="csx-list rqd-cards">{items.map((d) => <article key={d.id} className={`csx-card rqd-card${draftWait(d.waitingHours).tone === 'red' ? ' late' : ''}`} data-testid={`draft-card-${d.id}`}>
-          <div className="top">{name(d)}<Wait d={d} /></div>
+          <div className="top">{name(d, false)}<Wait d={d} /></div>
           <StepBar d={d} /><Flags d={d} /><Fee d={d} />
           {showSp && d.salespersonName ? <div className="muted">کارشناس: {d.salespersonName}</div> : null}
           <div className="rqd-acts">{cont(d)}{isAdmin && d.canDelete ? delBtn(d) : null}</div>

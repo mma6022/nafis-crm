@@ -1,3 +1,4 @@
+import { CallNumber, CALLED_LABEL } from '@/features/call-number/CallNumber';
 import { AutoGrowTextarea } from '../../components/AutoGrowTextarea';
 /** FILES-61 «پرونده‌های من» (Armita crm-files-cards v1.0): one file at a time in the assistant's order; the next card stays locked until a result + one-line note is saved.
  * No list, no search, no skip, no reorder. Paging back is read-only. Edit = the existing file page (same powers as today). «ثبت پرونده جدید» = the existing wizard. */
@@ -120,9 +121,10 @@ function FileCard({ c, d, readOnly, titleRef, onSaved }: { c: FcCard; d: FcView;
     {c.fc ? <p className="lfu" data-testid="fc-lastact">آخرین فعالیت پرونده: {fcDay(c.fc.last_activity_at)}</p> : null}
     <p className="lfu" data-testid="fc-last">آخرین پیگیری: {c.lastFollowUp ? <>{jalaliAt(c.lastFollowUp.at)}{c.lastFollowUp.outcomeLabel ? ` · ${c.lastFollowUp.outcomeLabel}` : ''}</> : 'هنوز پیگیری نشده'}</p>
     {readOnly ? <div className="dp-box sm" data-testid="fc-ro-note">{c.todayFollowUp?.outcome === 'cancelled' ? <><span className="fc-cxtag in" data-testid="fc-ro-cx">لغو شد</span> دلیل لغو: {c.todayFollowUp.note}</> : c.todayFollowUp ? <>امروز ثبت شد: {c.todayFollowUp.outcomeLabel} · {c.todayFollowUp.note}</> : 'فقط دیدن؛ نوبت این پرونده نشده.'}</div> : <>
-      {c.phone ? <p className="dp-phone" dir="ltr" data-testid="fc-phone"><Phone size={14} aria-hidden="true" /> {telFa(c.phone)}</p> : null}
+      {c.phone ? <p className="dp-phone cn-line" data-testid="fc-phone"><CallNumber phone={c.phone} customerId={c.customerId} via="files" testId="fc-ph" /></p> : null}
       <div className="dp-actions">
-        {c.phone ? <a className="btn btn-primary dp-call" href={telHref(c.phone)} data-testid="fc-call"><Phone size={16} aria-hidden="true" /> تماس با {c.customerName}</a> : null}
+        {/* CALL-COPY v1.0.4: «تماس با [نام]» (raw tel:) replaced; the primary opens the follow-up result right here. */}
+        <button type="button" className="btn btn-primary dp-call cn-called" onClick={() => { const r = document.querySelector<HTMLElement>('[data-testid="fc-result"]'); r?.scrollIntoView({ block: 'center', behavior: 'smooth' }); r?.querySelector<HTMLInputElement>('input[type=radio]')?.focus({ preventScroll: true }); }} data-testid="fc-call"><Check size={16} aria-hidden="true" /> {CALLED_LABEL}</button>
         <Link href={`/loan-applications/${c.fileId}`} className="btn btn-ghost" data-testid="fc-edit"><Pencil size={16} aria-hidden="true" /> ویرایش پرونده</Link>
         <Link href={`/customers/${c.customerId}`} className="btn btn-ghost" data-testid="fc-customer"><FileText size={16} aria-hidden="true" /> مشتری</Link>
         <a href={`/customers/${c.customerId}#sec-calls`} target="_blank" rel="noopener" className="btn btn-ghost" data-testid="fc-history">تاریخچه</a>

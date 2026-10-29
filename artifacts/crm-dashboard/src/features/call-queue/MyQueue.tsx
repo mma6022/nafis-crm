@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'wouter';
-import { MessageSquarePlus, Phone, Sparkles } from 'lucide-react';
+import { Link, useLocation } from 'wouter';
+import { CallNumber, CALLED_LABEL, calledThenForm } from '@/features/call-number/CallNumber';
+import { Check, Sparkles } from 'lucide-react';
 import { CqResultFields, emptyCqResult, type CqResultValue } from './ResultFields';
-import { cqApi, cqOn, cqTelClick, faNum, faWhen, GROUP_FA, useCqConfig, type MyDiscipline, type QueueCard, type QueueCardGroup, type QueueGroup } from './api';
+import { cqApi, cqOn, faNum, faWhen, GROUP_FA, useCqConfig, type MyDiscipline, type QueueCard, type QueueCardGroup, type QueueGroup } from './api';
 import './call-queue.css';
 import { useQueueBadges, type Badge } from '@/features/lead-intake/api';
 import { QueueLine } from '@/features/lead-intake/QueueLine';
@@ -48,6 +49,7 @@ export default function MyQueuePage() {
 }
 
 function QueueCardView({ c, letters, voidReasons, badge }: { c: QueueCard; letters: Record<QueueCardGroup, string>; voidReasons: { key: string; label: string }[]; badge?: Badge }) {
+  const [, navigate] = useLocation();
   const r = c.reminder; const ai = r?.source === 'assistant';
   const [mode, setMode] = useState<'' | 'edit' | 'void'>('');
   return <article className={`cq-qcard g-${c.group}`} data-testid="cq-card" data-customer={c.customerId} data-group={c.group}>
@@ -75,8 +77,9 @@ function QueueCardView({ c, letters, voidReasons, badge }: { c: QueueCard; lette
       {c.lastCall ? <p className="cq-last">آخرین تماس {faWhen(c.lastCall.at)}{c.lastCall.text ? ` · «${c.lastCall.text}»` : ''}</p> : <p className="cq-last">هنوز تماسی ثبت نشده</p>}
     </div>
     <div className="cq-qcard-btns">
-      {c.phone ? <a className="btn btn-primary" href={`tel:${c.phone}`} onClick={(e) => { cqTelClick(e, c.customerId, 'queue'); }} data-testid="cq-card-call"><Phone size={15} aria-hidden="true" /> تماس</a> : null}
-      <Link className="btn btn-ghost" href={`/customers/${c.customerId}?cq=call`} data-testid="cq-card-log"><MessageSquarePlus size={15} aria-hidden="true" /> ثبت تماس</Link>
+      {/* CALL-COPY v1.0.4: «تماس» (tel:) + «ثبت تماس» → full number + copy, and one primary through the same call-start / log path. */}
+      {c.phone ? <CallNumber phone={c.phone} customerId={c.customerId} via="queue" size="md" testId="cq-card-ph" /> : null}
+      <button type="button" className="btn btn-primary cn-called" onClick={() => void calledThenForm(c.customerId, 'queue', () => navigate(`/customers/${c.customerId}?cq=call`), (m) => window.alert(m))} data-testid="cq-card-log"><Check size={15} aria-hidden="true" /> {CALLED_LABEL}</button>
     </div>
   </article>;
 }

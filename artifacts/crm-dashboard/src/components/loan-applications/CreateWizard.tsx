@@ -71,6 +71,7 @@ import {
 } from "lucide-react";
 import { PersianDatePicker } from "@/components/PersianDatePicker";
 import { formatPhoneForDisplay } from "@/lib/phone";
+import { CallNumber } from "@/features/call-number/CallNumber";
 import { Priority, formatDate, formatDateTime } from "@/components/CrmShell";
 import { normalizeDigits, serverFieldErrors, validateIranianMobile, validateIranianNationalCode, validateIranianPostalCode, validateJalaliBirthDate, validateOtp } from "@/lib/customer-field-validation";
 
@@ -706,7 +707,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
           <span className="av" aria-hidden="true">{selectedCustomer?.name ? selectedCustomer.name.trim().charAt(0) : <User size={16} />}</span>
           <span className="tx">
             <strong data-testid="wizard-customer-name">{selectedCustomer?.name || 'هنوز انتخاب نشده'}{selectedCustomer ? <> <CustomerIdBadge id={selectedCustomer.id} testId="wizard-customer-id" /></> : null}</strong>
-            <small><bdi dir="ltr" data-testid="wizard-customer-phone">{selectedCustomer?.phone ? formatPhoneForDisplay(selectedCustomer.phone) : '—'}</bdi> · کد ملی <bdi dir="ltr" data-testid="wizard-customer-national-code">{selectedCustomer ? selectedCustomer.nationalCode || 'ثبت نشده' : '—'}</bdi></small>
+            <small>{selectedCustomer?.phone ? <span data-testid="wizard-customer-phone"><CallNumber phone={selectedCustomer.phone} customerId={selectedCustomer.id} via="drafts" size="sm" testId="wz-cust-ph" /></span> : <bdi dir="ltr" data-testid="wizard-customer-phone">—</bdi>} · کد ملی <bdi dir="ltr" data-testid="wizard-customer-national-code">{selectedCustomer ? selectedCustomer.nationalCode || 'ثبت نشده' : '—'}</bdi></small>
           </span>
         </section>
       </header>
@@ -1037,7 +1038,7 @@ function Step1Customer({ search, setSearch, customers, otherOwnerPage, loading, 
             <input type="radio" name="customer" checked={selectedCustomer?.id === c.id} onChange={() => setSelectedCustomer(c)} />
             <span className="txt">
               <strong><CustomerName id={c.id} name={c.name} /></strong>
-              <small><bdi dir="ltr">{c.phone}</bdi> · {c.nationalCode || "بدون کدملی"}</small>
+              <small>{c.phone ? <CallNumber phone={c.phone} customerId={c.id} via="drafts" size="sm" testId={`wz-opt-ph-${c.id}`} /> : null} · {c.nationalCode || "بدون کدملی"}</small>
               <small>کارشناس فروش: {c.salespersonName || "بدون تخصیص"}</small>
             </span>
             {c.verificationStatus === 'verified' ? <span className="lwz-ok lwz-badge"><CheckCircle2 size={16} aria-hidden="true" /> احراز شده</span> : <span className="lwz-muted lwz-badge">احراز نشده</span>}
@@ -1466,7 +1467,8 @@ function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, can
             <strong>نیاز به تأیید پیامکی</strong>
             <p className="lwz-muted">کد اعتبارسنجی ارسال‌شده به موبایل مشتری را همین‌جا وارد کنید.</p>
             <div className="field">
-              <label htmlFor="wz-credit-otp">کد اعتبارسنجی</label>
+              <label htmlFor="wz-credit-otp">کد تأیید، ارسال به موبایل مشتری</label>
+              {customer.phone ? <span className="lwz-otp-ph" data-testid="credit-otp-phone"><CallNumber phone={customer.phone} customerId={customer.id} via="drafts" size="md" testId="wz-otp-ph" /></span> : null}
               <input id="wz-credit-otp" dir="ltr" inputMode="numeric" autoComplete="one-time-code" value={creditOtp}
                 onChange={(event) => { setCreditOtp(normalizeDigits(event.target.value).replace(/\D/g, '').slice(0, 8)); setCreditOtpError(''); }}
                 minLength={4} maxLength={8} aria-invalid={Boolean(creditOtpError)} aria-describedby={creditOtpError ? 'err-credit-otp' : undefined} data-testid="input-credit-otp" />

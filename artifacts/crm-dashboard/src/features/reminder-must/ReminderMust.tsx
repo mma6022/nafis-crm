@@ -16,7 +16,7 @@ import { ManualOutcomeField } from '@/features/call-queue/ResultFields';
 import { C3File, C3History } from '@/features/history/TodayC3';
 import { RctIcon, RctPicker, addDays, faDayLong, rctFromIso, rctIso, rctLong, rctModel, rctShort, type RctVal } from './CustomTime';
 import { useSalesShellV2 } from '@/features/sales-shell/api';
-import { PhoneLine } from '@/features/sales-shell/PhoneLine';
+import { CallNumber, CALLED_LABEL } from '@/features/call-number/CallNumber';
 import './reminder-must.css';
 import './rct.css';
 
@@ -248,7 +248,7 @@ function MustDialog({ ssV2 = false, feed, item, index, total, rest, onDone, onSn
         <C3History customerId={item.customerId} />
         <div className="c3m rmm-m" data-testid="rm-middle">
           <ol className="rmm-stp" aria-label="مراحل">{steps.map((s, i) => <li key={s} className={i < step ? 'dn' : i === step ? 'cu' : ''} aria-current={i === step ? 'step' : undefined}>{fa(i + 1)}. {s}</li>)}</ol>
-          <div className="rmm-who"><span className="rmm-id" data-testid="rm-id">#{fa(item.customerId)}</span> {ssV2 && item.phone ? <span className="rmm-ph" data-testid="rm-phone"><PhoneLine phone={item.phone} tel={item.tel} testId="rm-ph" /></span> : <span className="rmm-ph" dir="ltr" data-testid="rm-phone">{fa(item.phone || item.phoneMasked) /* UNMASK-EXPERT t674u */}</span>}</div>
+          <div className="rmm-who"><span className="rmm-id" data-testid="rm-id">#{fa(item.customerId)}</span> {item.phone ? <span className="rmm-ph" data-testid="rm-phone"><CallNumber phone={item.phone} customerId={item.customerId} via="reminder" size="md" testId="rm-ph" /></span> : <span className="rmm-ph" dir="ltr" data-testid="rm-phone">{fa(item.phoneMasked) /* no full number sent: nothing to copy */}</span>}</div>
           <div className="rmm-rsn"><h3>متن یادآور</h3><p data-testid="rm-reason">{item.reason || item.subject || '—'}</p><small>{item.createdBy}، ساخته‌شده {dayLabel(item.createdAt, feed.serverNow)} {faClock(item.createdAt)}</small></div>
           {step === 0 && rest.length ? <p className="rmm-qnx" title={qFull} data-testid="rm-next-list"><span>بعد از این، به ترتیب ساعت:</span> {qShown.map((x) => `${faClock(x.remindAt)} ${x.customerName || 'بدون نام'}`).join('، ')}
             {rest.length > 3 ? <button type="button" className="rmm-qmore" aria-expanded={qAll} onClick={() => setQAll(!qAll)} data-testid="rm-next-more">{qAll ? 'کمتر' : `و ${fa(rest.length - 3)} یادآور دیگر`}</button> : null}</p> : null}
@@ -286,8 +286,8 @@ function MustDialog({ ssV2 = false, feed, item, index, total, rest, onDone, onSn
         {err ? <p className="rmm-err rmm-err-b" role="alert" data-testid="rm-error">{err}</p> : null}
         <footer className="rmm-f2">
           {step === 0 ? <>
-            {item.tel ? <a className="btn rmm-call" href={`tel:${item.tel}`} data-testid="rm-call"><Phone size={16} aria-hidden="true" /> تماس با {first}</a> : null}
-            <button type="button" className="btn btn-primary rmm-p" onClick={() => setStep(1)} data-testid="rm-to-result">ثبت نتیجه</button>
+            {/* CALL-COPY v1.0.4: «تماس با [نام]» removed (no tel: on desktop; below 700px the number itself dials). */}
+            <button type="button" className="btn btn-primary rmm-p" onClick={() => setStep(1)} data-testid="rm-to-result">{CALLED_LABEL}</button>
             {feed.snooze.available ? <button type="button" className="btn btn-ghost rmm-snz" disabled={sending} onClick={() => void snooze()} data-testid="rm-snooze">
               <AlarmClock size={16} aria-hidden="true" /><span>الان مشتری جدید دارم — فقط یک بار<small>۱۰ دقیقه بعد دوباره باز می‌شود</small></span></button>
               : <p className="rmm-nosnz" data-testid="rm-no-snooze"><AlarmClock size={14} aria-hidden="true" /> مهلت ۱۰ دقیقه‌ای استفاده شد؛ این بار بدون مهلت.</p>}

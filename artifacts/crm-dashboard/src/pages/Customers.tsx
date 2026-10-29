@@ -22,6 +22,7 @@ import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { Modal } from '@/components/DataTools';
 import { jalaliValueToGregorian } from '@/lib/jalali';
 import { formatPhoneForDisplay } from '@/lib/phone';
+import { CallNumber, CALLED_LABEL, calledThenForm } from '@/features/call-number/CallNumber';
 import { removeCompletedAfterCallFromQueue } from '@/components/voip/after-call-cache';
 import { useTableState } from '@/hooks/use-table-state';
 import { ConfirmDialog, PriorityLabel, Sheet, StatusPill, initialsOf, jalaliDate, relativeTime, useMinWidth } from './customers-ui';
@@ -417,7 +418,7 @@ export default function Customers() {
 
   return <section className="csx" dir="rtl" data-testid="page-customers">
     <h1 className="csx-sr">مشتریان</h1>
-    {sessionReady ? <SalesAssistBox user={session.data?.user} onCall={(id) => { void getCustomer(id).then((c) => openCall(c)).catch(() => setTsToast('پرونده‌ی مشتری باز نشد؛ دوباره تلاش کنید.')); }} /> : null}
+    {sessionReady ? <SalesAssistBox user={session.data?.user} onCall={(id) => calledThenForm(id, 'customer', () => { void getCustomer(id).then((c) => openCall(c)).catch(() => setTsToast('پرونده‌ی مشتری باز نشد؛ دوباره تلاش کنید.')); }, setTsToast)} /> : null}
     <div className="csx-top">
       <div className="csx-bar">
         <label className="csx-search">
@@ -498,10 +499,10 @@ export default function Customers() {
                   <td>
                     <div className="nm kzs-wrap"><CustomerName id={customer.id} name={customer.name} href={`/customers/${customer.id}`} nameTestId={`link-customer-${customer.id}`} badgeTestId={`badge-customer-id-${customer.id}`} /><KazemiSourceChip source={kazemiSourceOf(customer)} testId={`chip-kazemi-source-${customer.id}`} /></div>
                     <div className="csx-chips" style={{ marginTop: 6 }}>{tagsFor(customer)}</div>
-                    <div className="phone-inline"><span className="ltr" dir="ltr">{formatPhoneForDisplay(customer.phone)}</span></div>
+                    <div className="phone-inline"><CallNumber phone={customer.phone} customerId={customer.id} via="customers" size="sm" testId={`cli-ph-${customer.id}`} /></div>
                     <div className="csx-meta reg-inline">ثبت {jalaliDate(customer.createdAt)}</div>
                   </td>
-                  <td className="col-phone"><span className="phone ltr" dir="ltr">{formatPhoneForDisplay(customer.phone)}</span></td>
+                  <td className="col-phone"><CallNumber phone={customer.phone} customerId={customer.id} via="customers" size="sm" testId={`cl-ph-${customer.id}`} /></td>
                   <td>{canUpdate ? <select className="csx-isel st" data-s={customer.status} value={customer.status} disabled={updateCustomer.isPending} aria-label={`وضعیت ${customer.name}`} onChange={(e) => updateInlineCustomer(customer, { status: e.target.value as 'in_progress' | 'cancelled' | 'completed' })} data-testid={`select-inline-status-${customer.id}`}>
                     <option value="in_progress">در حال انجام</option><option value="completed">اتمام</option><option value="cancelled">لغو شده</option>
                   </select> : <StatusPill status={customer.status} />}</td>
@@ -550,7 +551,7 @@ export default function Customers() {
               <h3 className="nm kzs-wrap"><CustomerName id={customer.id} name={customer.name} href={`/customers/${customer.id}`} nameTestId={`link-customer-${customer.id}`} badgeTestId={`badge-customer-id-${customer.id}`} /><KazemiSourceChip source={kazemiSourceOf(customer)} testId={`chip-kazemi-source-${customer.id}`} /></h3>
               <div className="csx-chips">{tagsFor(customer)}</div>
               <PreferredTimeNote customer={customer} testId={`preferred-time-${customer.id}`} />
-              <div className="row"><span className="phone" dir="ltr"><Phone size={16} aria-hidden="true" /> {formatPhoneForDisplay(customer.phone)}</span></div>
+              <div className="row"><CallNumber phone={customer.phone} customerId={customer.id} via="customers" size="sm" testId={`cc-ph-${customer.id}`} /></div>
               <div className="row">{salespersonCell(customer)}<span className="csx-meta">{fa(customer.activityCount)} فعالیت</span></div>
               {noPlanFitOf(customer) ? <div className="row csx-plans-row" data-testid={`plans-${customer.id}`}><NoPlanChip testId={`noplan-chip-${customer.id}`} /></div> : null}
               {!noPlanFitOf(customer) && suggestedPlansOf(customer).length ? <div className="row csx-plans-row" data-testid={`plans-${customer.id}`}><PlanChipsRow plans={suggestedPlansOf(customer)} testId={`plan-chips-${customer.id}`} /></div> : null}
@@ -721,7 +722,7 @@ function BoardColumn({ column, color, filters, tagLabels, onReview, onCall, onCo
             <CustomerIdBadge id={customer.id} testId={`badge-customer-id-${customer.id}`} />
             <RepeatRequestTag customer={customer} onClick={() => onReview(customer)} />
             <div style={{ display: 'flex', gap: 4 }}>
-              <button className="row-action" style={{ padding: 2 }} onClick={() => onCall(customer)} title="تماس"><PhoneCall size={12} /></button>
+              <button className="row-action" style={{ padding: 2 }} onClick={() => onCall(customer)} title={CALLED_LABEL} aria-label={CALLED_LABEL}><PhoneCall size={12} /></button>
               {(() => { const up = onUpgrade?.(customer); return up ? <button className="row-action ts-up-board" style={{ padding: '2px 6px' }} onClick={up} title="ارتقا به اولویت ۱" data-testid={`button-board-upgrade-p1-${customer.id}`}><ArrowUp size={12} /> ارتقا به ۱</button> : null; })()}
               <button className="row-action" style={{ padding: 2 }} onClick={() => onConsult(customer)} title="ثبت مشاوره" aria-label="ثبت مشاوره"><FileText size={12} /></button>
               <button className="row-action" style={{ padding: 2 }} onClick={() => onEdit(customer)} title="ویرایش مشتری" data-testid={`button-board-edit-customer-${customer.id}`}><Edit3 size={12} /></button>
@@ -729,7 +730,7 @@ function BoardColumn({ column, color, filters, tagLabels, onReview, onCall, onCo
               {onDelete ? <button className="row-action danger" style={{ padding: 2 }} onClick={() => onDelete(customer)} title="حذف مشتری" data-testid={`button-board-delete-customer-${customer.id}`}><Trash2 size={12} /></button> : null}
             </div>
           </div>
-          <div className="board-card-phone" dir="ltr">{formatPhoneForDisplay(customer.phone)}</div>
+          <div className="board-card-phone"><CallNumber phone={customer.phone} customerId={customer.id} via="customers" size="sm" testId={`bc-ph-${customer.id}`} /></div>
           <div className="board-card-id"><bdi>شناسه #{customer.id.toLocaleString('fa-IR')}</bdi></div>
           <div className="board-card-meta">
             <span>{customer.salespersonName || 'بدون تخصیص'}</span>

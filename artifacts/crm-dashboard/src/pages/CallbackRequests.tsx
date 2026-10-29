@@ -1,5 +1,6 @@
+import { CallNumber, CALLED_LABEL, dialTel } from '@/features/call-number/CallNumber';
 import { CustomerIdBadge } from '@/components/customer/CustomerName';
-import { cqTelClick } from '@/features/call-queue/api';
+import { cqDial, cqLockActive } from '@/features/call-queue/api';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
@@ -16,6 +17,16 @@ import {
   type CallbackEvent, type CallbackItem, type CallbackMeta, type CallbackStatus, type CallbackTab, type CallbackWho, type CancelReason,
 } from '@/lib/callbacks-api';
 import './callback-requests.css';
+
+/** CALL-COPY v1.0.4: the old link ran cqTelClick (lock ON → server call-start + dial) and then onCall() (the outcome prompt).
+ *  dialIt=false is the desktop «تماس گرفتم، ثبت نتیجه»: same start, no tel:. */
+function cbDial(item: { phone: string | null; customerId: number | null }, onCall: () => void, dialIt: boolean) {
+  if (item.customerId && cqLockActive()) {
+    void cqDial(item.customerId, 'callback', dialIt).then((r) => { if (r && !r.ok) window.alert(r.error); else if (!r && dialIt && item.phone) dialTel(item.phone); });
+  } else if (dialIt && item.phone) dialTel(item.phone);
+  onCall();
+}
+
 
 /*
  * «درخواست‌های تماس» — mockups/crm-callbacks.html. Mobile: card list + bottom sheet. ≥1024px: 384px list + detail pane.
@@ -193,7 +204,7 @@ function CallbackCard({ item, meta, selected, shownPhone, calledPrompt, busy, on
         {item.planId && <span className="cbx-tag">{item.planName ?? `طرح ${fa(item.planId)}`}</span>}
       </div>
       <div className="phone">
-        <b dir="ltr">{shownPhone ? fmtPhone(shownPhone) : fa(item.phoneMasked)}</b>
+        {shownPhone ? <CallNumber phone={shownPhone} size="sm" testId={`cb-ph-${item.id}`} onDial={item.status !== 'cancelled' ? () => cbDial({ ...item, phone: shownPhone }, onCall, true) : undefined} /> : <b dir="ltr">{fa(item.phoneMasked)}</b>}
         {meta.canSeePhone && <button type="button" className="cbx-ib" onClick={onReveal} aria-label={shownPhone ? 'پنهان کردن شماره' : 'نمایش شماره'} data-testid={`button-reveal-${item.id}`}>
           {shownPhone ? <EyeOff size={22} /> : <Eye size={22} />}
         </button>}
@@ -209,7 +220,7 @@ function CallbackCard({ item, meta, selected, shownPhone, calledPrompt, busy, on
         <button type="button" className="cbx-more small" onClick={onOpen} data-testid={`button-open-${item.id}`}>جزئیات</button>
       </> : <div className="acts">
         {item.phone
-          ? <a className="cbx-call" href={`tel:${item.phone}`} onClick={(e) => { cqTelClick(e, item.customerId, 'callback'); onCall(); }} data-testid={`link-tel-${item.id}`}><Phone size={22} aria-hidden="true" />تماس</a>
+          ? <><button type="button" className="cbx-call cn-called" onClick={() => cbDial(item, onCall, false)} data-testid={`link-tel-${item.id}`}><Check size={20} aria-hidden="true" />{CALLED_LABEL}</button></>
           : <span className="cbx-call is-off" aria-disabled="true"><Phone size={22} aria-hidden="true" />شماره در دسترس شما نیست</span>}
         <button type="button" className="cbx-more" onClick={onOpen} data-testid={`button-open-${item.id}`}>جزئیات{item.notesCount > 0 && <span className="n">{fa(item.notesCount)}</span>}</button>
       </div>}
@@ -261,7 +272,6 @@ function CallbackDetail({ item, meta, wide, assignees, busy, run, say, onClose, 
   const cancelWith = (reason: CancelReason) =>
     run(() => callbacksApi.status(item.id, 'cancelled', reason), () => { setPicking(false); say(`وضعیت: لغو (${CANCEL_REASON_FA[reason]})`); });
   const shownStatus: CallbackStatus = picking ? 'cancelled' : item.status;
-  const copy = () => item.phone && navigator.clipboard?.writeText(item.phone).then(() => say('شماره کپی شد'), () => undefined);
 
   const body = (
     <section ref={sheet} tabIndex={-1} className="cbx-detail" role={wide ? 'region' : 'dialog'} aria-modal={wide ? undefined : true}
@@ -275,12 +285,12 @@ function CallbackDetail({ item, meta, wide, assignees, busy, run, say, onClose, 
       <div className="cols">
         <div>
           <div className="dsec">
-            <div className="bigphone">
-              <b dir="ltr">{item.phone ? fmtPhone(item.phone) : fa(item.phoneMasked)}</b>
-              {item.phone && <button type="button" className="cbx-ib" onClick={copy} aria-label="کپی شماره" data-testid="button-copy-phone"><Copy size={22} /></button>}
+            <div className="bigphone" data-testid="cb-bigphone">
+              {item.phone ? <CallNumber phone={item.phone} testId="cb-dph" onDial={item.status !== 'cancelled' ? () => cbDial(item, onCall, true) : undefined} /> : <b dir="ltr">{fa(item.phoneMasked)}</b>}
             </div>
-            {item.phone && item.status !== 'cancelled' && <a className="nf-btn nf-btn-primary cbx-bigcall" href={`tel:${item.phone}`} onClick={(e) => { cqTelClick(e, item.customerId, 'callback'); onCall(); }} data-testid="link-tel-detail">
-              <PhoneCall size={20} aria-hidden="true" /> تماس با {firstName(item.name)}</a>}
+            {/* CALL-COPY v1.0.4: «تماس با [نام]» (tel:) → «تماس گرفتم، ثبت نتیجه» through the same call-start + outcome prompt. */}
+            {item.phone && item.status !== 'cancelled' && <button type="button" className="nf-btn nf-btn-primary cbx-bigcall cn-called" onClick={() => cbDial(item, onCall, false)} data-testid="link-tel-detail">
+              <Check size={20} aria-hidden="true" /> {CALLED_LABEL}</button>}
             <dl className="dl">
               <dt>زمان درخواستی</dt><dd>{CONTACT_TIME_FA[item.contactTime]}</dd>
               <dt>موضوع</dt><dd>{item.need ? NEED_FA[item.need] : 'انتخاب نشده'}</dd>

@@ -1,3 +1,4 @@
+import { CallNumber, CALLED_LABEL } from '@/features/call-number/CallNumber';
 import { AutoGrowTextarea } from '../../components/AutoGrowTextarea';
 /** REL-83 (Armita crm-files-priority v1.0.1, scenes l_*): the full list of the expert's own files once today's cards are done (or there are none).
  * Same priority order as the cards; search runs on the server (name, customer id, file id, last ≥4 mobile digits); 10/20/50 per page.
@@ -129,9 +130,11 @@ function FollowSheet({ it, d, onClose, onDone }: { it: FcListItem; d: FcView; on
       <header className="dsh"><div><span className="eb"><Phone size={14} aria-hidden="true" /> پیگیری پرونده‌ی {faId(it.file_id)}</span><h2 id="fc-fu-t">{it.customer_name} <span className="dp-id">#{faId(it.customer_id)}</span></h2></div>
         <button type="button" ref={closeBtn} className="ib" aria-label="بستن" onClick={onClose} disabled={busy}><X aria-hidden="true" /></button></header>
       <div className="dsb"><div className="fld"><CatPill c={it} /></div><RNote c={it} />
-        {it.phone || it.phone_masked ? <p className="dp-phone" data-testid={it.phone ? 'fc-fu-phone' : 'fc-fu-mask'}><Phone size={14} aria-hidden="true" /> <bdi dir="ltr">{it.phone ? faNum(it.phone) : it.phone_masked}</bdi></p> : null}
-        <button type="button" className="btn btn-primary dp-call" onClick={() => void call()} data-testid="fc-fu-call"><Phone size={16} aria-hidden="true" /> تماس با {it.customer_name}</button>
-        {calling ? <div className="calling" role="status"><Phone size={16} aria-hidden="true" /> تماس شروع شد؛ نتیجه را ثبت کن</div> : null}
+        {/* CALL-COPY v1.0.4: full number + copy; below 700px tapping it uses the same GET /tel path as the old «تماس با [نام]». */}
+        {it.phone ? <p className="dp-phone cn-line" data-testid="fc-fu-phone"><CallNumber phone={it.phone} onDial={() => void call()} testId="fc-fu-ph" /></p>
+          : it.phone_masked ? <p className="dp-phone" data-testid="fc-fu-mask"><Phone size={14} aria-hidden="true" /> <bdi dir="ltr">{it.phone_masked}</bdi></p> : null}
+        {calling ? <div className="calling" role="status" data-testid="fc-fu-called"><Phone size={16} aria-hidden="true" /> «تماس گرفتم» زدی · حالا نتیجه را ثبت کن</div>
+          : <button type="button" className="btn btn-primary dp-call cn-called" onClick={() => { setCalling(true); window.setTimeout(() => box.current?.querySelector<HTMLInputElement>('input[name=fc-fu-outcome]')?.focus(), 30); }} data-testid="fc-fu-call"><Check size={16} aria-hidden="true" /> {CALLED_LABEL}</button>}
         <fieldset className="fc-result"><legend>نتیجه‌ی پیگیری<span className="req" aria-hidden="true">*</span></legend>
           <div className={`rlist${outs.length === 4 ? ' s4' : ''}`} role="radiogroup">{outs.map((o) => <label key={o.code} className={`rr${outcome === o.code ? ' on' : ''}${o.code === 'cancelled' ? ' cx' : ''}`}>
             <input type="radio" name="fc-fu-outcome" value={o.code} checked={outcome === o.code} onChange={() => { setOutcome(o.code); setErr(''); setSure(false); }} data-testid={`fc-fu-o-${o.code}`} /> <OIcon code={o.code} /> {o.label}</label>)}</div>
