@@ -7,7 +7,7 @@ import { Link } from 'wouter';
 import { AlertCircle, CalendarClock, Check, ChevronLeft, ChevronRight, FileText, Lock, Pencil, Phone, PhoneMissed, Plus, X } from 'lucide-react';
 import { CreateWizard } from '@/components/loan-applications/CreateWizard';
 import { faNum } from '@/features/call-queue/api';
-import { maskTel, phone11 } from '@/features/expert-lockdown/IncomingWizard';
+import { fullTel, phone11 } from '@/features/expert-lockdown/IncomingWizard';
 import '@/features/daily-plan/daily-plan.css';
 import './files-carousel.css';
 import { fcApi, type FcCard, type FcView } from './api';
@@ -15,7 +15,7 @@ import FilesList from './FilesList';
 import { CatPill, RNote, fcDay } from './FcLabels';
 
 /** REMINDER-68 (Armita review #1): masked ۰۹۱۲***۰۰۱۲ for the expert; the «تماس» tel: link keeps the full number. */
-const telFa = (p: string) => maskTel(phone11(p) ?? p.replace(/^\+98/, '0'));
+const telFa = (p: string) => fullTel(phone11(p) ?? p.replace(/^\+98/, '0')); // UNMASK-EXPERT t674u: full number (own customer)
 // release 69 polish (Armita live-61): readable «۲۸ مرداد ۱۲:۰۴» instead of «۱۴۰۵/۰۵/۲۸، ۱۲:۰۴».
 const JFMT = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const jalaliAt = (iso: string | null | undefined) => { if (!iso) return ''; const d = new Date(iso); if (Number.isNaN(d.getTime())) return '';

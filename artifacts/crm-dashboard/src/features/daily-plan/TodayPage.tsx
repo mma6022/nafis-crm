@@ -8,7 +8,7 @@ import { announceCallSaved, faClock, faNum, tehranParts, useCqConfig } from '@/f
 import { custList, dpApi, DpError, useDpConfig, type DpItem, type DpToday } from './api';
 import './daily-plan.css';
 import { elApi, useLockdownMe } from '@/features/expert-lockdown/api';
-import { IncomingTopButton, IncomingWizard, maskTel, phone11 } from '@/features/expert-lockdown/IncomingWizard';
+import { IncomingTopButton, IncomingWizard, fullTel, phone11 } from '@/features/expert-lockdown/IncomingWizard';
 import { TodayCarousel } from './TodayCarousel';
 
 import { getGetAuthSessionQueryKey, getGetCustomerQueryKey, useGetAuthSession, useGetCustomer } from '@workspace/api-client-react';
@@ -28,7 +28,7 @@ export const faDate = (ymd: string) => {
   return faNum(`${g('weekday')} ${g('day')} ${g('month')} ${g('year')}`.replace(/\s+/g, ' ').trim());
 };
 /** REMINDER-68 (Armita review #1): experts see the CRM's masked form ۰۹۱۲***۰۰۱۲ (same helper as the incoming wizard); tel: still dials the full number. */
-const telFa = (p: string) => maskTel(phone11(p) ?? p.replace(/^\+98/, '0'));
+const telFa = (p: string) => fullTel(phone11(p) ?? p.replace(/^\+98/, '0')); // UNMASK-EXPERT t674u: full number (own customer)
 
 export function Chips({ i }: { i: DpItem }) {
   return <span className="dp-chips">

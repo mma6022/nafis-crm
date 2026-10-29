@@ -67,7 +67,7 @@ export function LockedInbound({ onClose, onSaved, currentNo, onBack, onNew }: { 
       <button type="submit" className="btn btn-ghost" disabled={busy} data-testid="el-in-go"><Search size={15} aria-hidden="true" /> {busy && !own ? 'در حال جست‌وجو…' : 'پیدا کن'}</button></form>
     {!res && live && live.r.result === 'ok' && live.r.items.length ? <ul className="el-live" data-testid="el-in-live" aria-label="مشتری‌های خودت">
       {live.r.items.map((it) => <li key={it.id}><button type="button" className="el-live-row" disabled={busy} onClick={() => void pick(it.id)} data-testid={`el-in-hit-${it.id}`}>
-        <b>{it.name}</b><span className="el-live-ph" dir="ltr" data-testid="el-in-hit-ph">••••{faNum(it.phoneLast4)}</span>
+        <b>{it.name}</b><span className="el-live-ph" dir="ltr" data-testid="el-in-hit-ph">{it.phone ? faNum(it.phone.replace(/^(?:\+98|0098)/, '0')) : `••••${faNum(it.phoneLast4)}`}</span>
         {it.priority && PRIO_FA[it.priority] ? <span className={`dp-chip p${it.priority}`}>{PRIO_FA[it.priority]}</span> : null}
         {it.match === 'exact' ? <span className="dp-chip l-exact">{(live.r.result === 'ok' && live.r.kind === 'phone') ? 'همین شماره' : 'همین نام'}</span> : null}</button></li>)}</ul> : null}
     {!res && live && live.r.result === 'ok' && !live.r.items.length && live.q === term.trim() ? <div className="dp-box sm el-live-none" role="status" data-testid="el-in-nohit">

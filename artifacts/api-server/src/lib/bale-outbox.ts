@@ -863,7 +863,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
       ? rows<any>("SELECT id,name,phone FROM customers WHERE salesperson_id=? AND merged_into_customer_id IS NULL AND phone IS NOT NULL AND phone<>'' ORDER BY id DESC LIMIT 5000", u.salesperson_id)
           .filter(c => (normalizeMobile(c.phone) ?? "").includes(digits)).slice(0, 15)
       : s.length >= 2 ? rows<any>("SELECT id,name,phone FROM customers WHERE salesperson_id=? AND merged_into_customer_id IS NULL AND name LIKE ? ORDER BY id DESC LIMIT 15", u.salesperson_id, `%${s}%`) : [];
-    return list.map(c => { const p = normalizeMobile(c.phone); return { id: c.id, name: c.name, phoneMasked: p ? `${p.slice(0, 4)}•••${p.slice(-2)}` : null }; });
+    return list.map(c => { const p = normalizeMobile(c.phone); return { id: c.id, name: c.name, phoneMasked: p ? `${p.slice(0, 4)}•••${p.slice(-2)}` : null, phone: p ?? null /* UNMASK-EXPERT t674u: own customers */ }; });
   }
 
   /* ---------------- views ---------------- */

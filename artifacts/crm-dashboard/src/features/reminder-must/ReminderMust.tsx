@@ -245,7 +245,7 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
         <C3History customerId={item.customerId} />
         <div className="c3m rmm-m" data-testid="rm-middle">
           <ol className="rmm-stp" aria-label="مراحل">{steps.map((s, i) => <li key={s} className={i < step ? 'dn' : i === step ? 'cu' : ''} aria-current={i === step ? 'step' : undefined}>{fa(i + 1)}. {s}</li>)}</ol>
-          <div className="rmm-who"><span className="rmm-id" data-testid="rm-id">#{fa(item.customerId)}</span> <span className="rmm-ph" dir="ltr" data-testid="rm-phone">{fa(item.phoneMasked)}</span></div>
+          <div className="rmm-who"><span className="rmm-id" data-testid="rm-id">#{fa(item.customerId)}</span> <span className="rmm-ph" dir="ltr" data-testid="rm-phone">{fa(item.phone || item.phoneMasked) /* UNMASK-EXPERT t674u */}</span></div>
           <div className="rmm-rsn"><h3>متن یادآور</h3><p data-testid="rm-reason">{item.reason || item.subject || '—'}</p><small>{item.createdBy}، ساخته‌شده {dayLabel(item.createdAt, feed.serverNow)} {faClock(item.createdAt)}</small></div>
           {step === 0 && rest.length ? <p className="rmm-qnx" title={qFull} data-testid="rm-next-list"><span>بعد از این، به ترتیب ساعت:</span> {qShown.map((x) => `${faClock(x.remindAt)} ${x.customerName || 'بدون نام'}`).join('، ')}
             {rest.length > 3 ? <button type="button" className="rmm-qmore" aria-expanded={qAll} onClick={() => setQAll(!qAll)} data-testid="rm-next-more">{qAll ? 'کمتر' : `و ${fa(rest.length - 3)} یادآور دیگر`}</button> : null}</p> : null}

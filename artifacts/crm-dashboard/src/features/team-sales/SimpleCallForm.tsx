@@ -222,7 +222,6 @@ const STRICT_LABELS: Record<string, string> = { manual: 'نتیجه‌ی تما�
   bounced: 'چک برگشتی', military: 'نظام وظیفه', sso: 'بازنشستگی تأمین اجتماعی', jobType: 'شغل', gAvail: 'ضامن', gJobType: 'شغل ضامن', gCheque: 'چک ضامن', gRank: 'رتبه‌ی ضامن', note: 'یادداشت', urgency: 'فوریت' };
 /** release 69 polish: rule codes «(H2)» are internal; digits Persian («۱ از ۳»، «۴ ساعت»). */
 export const reasonText = (x: string) => fa(String(x ?? '').replace(/\s*\((?:H|R)\d+\)/g, ''));
-const maskPh = (p: string) => { const s = String(p ?? ''); return s.length >= 8 ? `${s.slice(0, 4)}***${s.slice(-4)}` : s; };
 
 export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onClose: onCloseRaw, onDone, onNext, onChangeCustomer, edit, file, strict = false, confirmClose = false, closeConfirmBody, reopenNotice = false, returnLabel, eyebrow }: {
   customer: { id: number; name: string; phone: string; priority?: number | null };
@@ -700,7 +699,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
         <div className="ts-wz-who">
           {eyebrow ? <p className="ts-eyebrow" data-testid="ts-eyebrow">{eyebrow}</p> : null}
           <h2 id="ts-wz-title">{file ? (file.complete ? 'ویرایش پرونده مشتری' : 'تکمیل پرونده مشتری') : edit ? 'ویرایش خلاصه‌ی تماس اول' : 'فرم تماس'} — <CustomerName id={customer.id} name={customer.name} badgeTestId="ts-wz-customer-id" /></h2>
-          <div className="sub"><span className="ltr" dir="ltr" data-testid="ts-phone">{fa(strict || file ? maskPh(customer.phone) : customer.phone)}</span>
+          <div className="sub"><span className="ltr" dir="ltr" data-testid="ts-phone">{fa(customer.phone) /* UNMASK-EXPERT t674u: full number for the expert's own customer */}</span>
             {strict || file ? null : <button type="button" className="ts-copy" onClick={copyPhone} aria-label={`کپی شماره‌ی ${customer.name}`} data-testid="ts-copy-phone"><Copy size={13} /> {copied ? 'کپی شد' : 'کپی'}</button>}
             <span className="ts-badge gray">{prio}</span> <span className="ts-badge">نسخه‌ی ساده</span></div>
         </div>

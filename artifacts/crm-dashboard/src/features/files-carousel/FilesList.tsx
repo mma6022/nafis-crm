@@ -78,7 +78,7 @@ function Row({ it, q, onFollow, onOpen }: { it: FcListItem; q: string; onFollow:
       <RNote c={it} /></div>
     <div className="lr2"><b className="lnm"><span><Hl s={it.customer_name} q={q} /></span><span className="cid">#<Hl s={faId(it.customer_id)} q={q} /></span></b>
       <span className="fno">پرونده‌ی <Hl s={faId(it.file_id)} q={q} /></span>
-      {!closed && it.phone_masked ? <span className="ph msk" title="ماسک‌شده؛ دکمه‌ی تماس شماره‌ی کامل را می‌گیرد" data-testid="fc-pmask"><bdi dir="ltr">{it.phone_masked}</bdi></span> : null}</div>
+      {!closed && it.phone ? <span className="ph" data-testid="fc-phone-full"><bdi dir="ltr">{faNum(it.phone)}</bdi></span> : !closed && it.phone_masked ? <span className="ph msk" title="ماسک‌شده؛ دکمه‌ی تماس شماره‌ی کامل را می‌گیرد" data-testid="fc-pmask"><bdi dir="ltr">{it.phone_masked}</bdi></span> : null}</div>
     <div className="lr3"><History aria-hidden="true" />{closed ? `${it.priority_category === 'completed' ? 'بسته شد' : 'لغو شد'}: ${fcDay(it.closed_at ?? it.last_activity_at)}` : `آخرین فعالیت: ${fcDay(it.last_activity_at)}`}</div>
     <div className="lra">
       <button type="button" className="btn btn-primary" aria-haspopup="dialog" disabled={!it.can_follow_up} onClick={onFollow} data-testid="fc-follow"><Phone size={16} aria-hidden="true" /> پیگیری</button>
@@ -129,7 +129,7 @@ function FollowSheet({ it, d, onClose, onDone }: { it: FcListItem; d: FcView; on
       <header className="dsh"><div><span className="eb"><Phone size={14} aria-hidden="true" /> پیگیری پرونده‌ی {faId(it.file_id)}</span><h2 id="fc-fu-t">{it.customer_name} <span className="dp-id">#{faId(it.customer_id)}</span></h2></div>
         <button type="button" ref={closeBtn} className="ib" aria-label="بستن" onClick={onClose} disabled={busy}><X aria-hidden="true" /></button></header>
       <div className="dsb"><div className="fld"><CatPill c={it} /></div><RNote c={it} />
-        {it.phone_masked ? <p className="dp-phone" data-testid="fc-fu-mask"><Phone size={14} aria-hidden="true" /> <bdi dir="ltr">{it.phone_masked}</bdi></p> : null}
+        {it.phone || it.phone_masked ? <p className="dp-phone" data-testid={it.phone ? 'fc-fu-phone' : 'fc-fu-mask'}><Phone size={14} aria-hidden="true" /> <bdi dir="ltr">{it.phone ? faNum(it.phone) : it.phone_masked}</bdi></p> : null}
         <button type="button" className="btn btn-primary dp-call" onClick={() => void call()} data-testid="fc-fu-call"><Phone size={16} aria-hidden="true" /> تماس با {it.customer_name}</button>
         {calling ? <div className="calling" role="status"><Phone size={16} aria-hidden="true" /> تماس شروع شد؛ نتیجه را ثبت کن</div> : null}
         <fieldset className="fc-result"><legend>نتیجه‌ی پیگیری<span className="req" aria-hidden="true">*</span></legend>

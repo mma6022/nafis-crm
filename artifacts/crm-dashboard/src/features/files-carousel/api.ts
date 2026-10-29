@@ -22,7 +22,7 @@ export type FcCat = { priority_group: number; priority_category: FcCategoryCode;
   return_type: FcReturnType | null; return_note: string | null; returned_at: string | null; returned_by: number | null; return_source?: FcReturnSource | null;
   signature_type: 'contract' | 'replacement_contract' | 'addendum' | 'invoice' | null; signature_status: 'pending' | 'rejected' | null; signature_sent_at: string | null;
   signature_reject_reason: string | null; pending_signature_count: number; pending_item: string | null; last_activity_at: string | null; idle_days: number | null };
-export type FcListItem = FcCat & { file_id: number; customer_id: number; customer_name: string; phone_masked: string | null; followed_up_today: boolean;
+export type FcListItem = FcCat & { file_id: number; customer_id: number; customer_name: string; phone_masked: string | null; phone?: string | null; followed_up_today: boolean;
   returned_unopened: boolean; is_closed: boolean; closed_at: string | null; can_follow_up: boolean; can_cancel: boolean; can_edit: boolean };
 export type FcList = { q: string; page: number; page_size: number; pages: number; total: number; group_counts: Record<string, number>; group_labels: Record<string, string>; items: FcListItem[] };
 /** PM 29 Oct: who returned the file → the bar/badge source line. */

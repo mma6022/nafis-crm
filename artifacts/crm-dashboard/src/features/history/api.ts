@@ -36,7 +36,7 @@ export const promoteToP1 = (customerId: number, reason: string) =>
 /* HISTORY-A v1.2: Today card 3 columns. */
 export type CallHistory = { items: HxCall[]; nextBefore: number | null };
 export type FileCard = {
-  customerId: number; name: string; phoneMasked: string; priority: number | null; status: string;
+  customerId: number; name: string; phoneMasked: string; phone?: string | null; priority: number | null; status: string;
   source: 'first_call' | 'file' | null; baseId: number | null; updatedAt: string | null; changedFields: string[];
   answers: Record<string, any> | null; city: string | null; missing: string[]; missingCount: number; total: number; complete: boolean;
   canEdit: boolean; isP1: boolean; revertAdminOnly: boolean; adminLine: string;

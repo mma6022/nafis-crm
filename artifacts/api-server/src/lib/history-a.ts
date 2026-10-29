@@ -251,7 +251,7 @@ export function fileCard(customerId: number, actor: Actor) {
   const total = FILE_REQUIRED.length + (answers?.guarantorAvailable === "yes" ? FILE_GUARANTOR_REQUIRED.length : 0);
   const p1Src = c.priority === 1 ? lastP1Source(c.id) : null;
   return {
-    customerId: c.id, name: c.name, phoneMasked: maskPhone(c.phone), priority: c.priority, status: c.status,
+    customerId: c.id, name: c.name, phoneMasked: maskPhone(c.phone), phone: c.phone ?? null /* UNMASK-EXPERT t674u: hxScope = own customer or admin */, priority: c.priority, status: c.status,
     source: fo ? "file" : fc ? "first_call" : null, baseId: fc?.id ?? null, updatedAt: fo?.at ?? fc?.createdAt ?? null,
     changedFields: fo ? lastChanged(c.id, fo.id) : [],
     answers, city: (answers?.city as string | null | undefined) ?? c.city ?? null,

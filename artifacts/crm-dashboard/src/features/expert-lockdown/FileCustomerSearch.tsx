@@ -9,7 +9,7 @@ import type { Customer } from '@workspace/api-client-react';
 import { faNum } from '@/features/call-queue/api';
 import { elApi, type ElSuggest } from './api';
 import { liveQueryReady } from './IncomingCall';
-import { phone11, SC } from './IncomingWizard';
+import { fullTel, phone11, SC } from './IncomingWizard';
 import './lockdown.css';
 import '@/features/daily-plan/carousel.css';
 
@@ -71,7 +71,7 @@ export function FileCustomerSearch({ selectedId, onSelect }: { selectedId: numbe
       <p className="dp-hint" data-testid="fs-hint"><Info size={13} aria-hidden="true" /> {FS_HINT}</p>
       {items.length ? <ul className="el-live" data-testid="fs-live" aria-label="مشتری‌های خودت">
         {items.map((it) => <li key={it.id}><button type="button" className={`el-live-row${selectedId === it.id ? ' on' : ''}`} aria-pressed={selectedId === it.id} disabled={busy} onClick={() => void pick(it.id)} data-testid={`wizard-customer-option-${it.id}`}>
-          <b>{it.name}</b><span className="dp-chip l-own" data-testid="fs-own">{SC.own}</span><span className="el-live-ph" dir="ltr">••••{faNum(it.phoneLast4)}</span>
+          <b>{it.name}</b><span className="dp-chip l-own" data-testid="fs-own">{SC.own}</span><span className="el-live-ph" dir="ltr" data-testid="fs-ph">{it.phone ? fullTel(phone11(it.phone) ?? it.phone) : `••••${faNum(it.phoneLast4)}`}</span>
           {selectedId === it.id ? <Check size={16} aria-label="انتخاب شد" /> : null}</button></li>)}</ul> : null}
       {live && live.r.result === 'ok' && !items.length && live.q === q.trim() && !other && !none ? <p className="dp-box sm" role="status" data-testid="fs-live-none"><Info size={14} aria-hidden="true" /> بین مشتری‌های خودت پیدا نشد{ph ? ' — «پیدا کن» را بزن تا ببینی مشتری همکار است یا نه.' : '. اگر مشتری همکار است، شماره‌ی کامل ۱۱ رقمی را بنویس.'}</p> : null}
       {live && live.r.result !== 'ok' && live.q === q.trim() ? <p className="dp-box sm" role="status" data-testid="fs-live-msg">{live.r.message}</p> : null}

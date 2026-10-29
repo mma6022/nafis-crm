@@ -18,7 +18,6 @@ import { crmDb, execute, executeChanges, queryRow, queryRows, runTransaction } f
 import { cqRaw, fromTehran, nextWorkDayAt, toWorkingTime, tParts, tYmd, isWorkDay, WORK_END_MIN, REMINDER_START_MIN, rmBeforeOpen, rmOpenAt } from "./call-queue";
 import { listOfficialHolidays } from "./official-holidays";
 import { EL_USERS, elCustomerAccess, elLocked } from "./expert-lockdown";
-import { maskPhonesInText } from "./lead-annotator";
 
 export const RM_FLAG_KEY = "flag.reminder_must";
 export const RM_SNOOZE_MIN = 10;
@@ -92,6 +91,8 @@ const maskPhone = (p: string | null | undefined): string => {
   const s = String(p ?? "").replace(/\D/g, "");
   return s.length >= 8 ? `${s.slice(0, 4)}***${s.slice(-4)}` : s ? "***" : "";
 };
+/** UNMASK-EXPERT (Mohammad t674u): the expert sees the full number of their OWN customer (dueRows = own customers only). */
+const fullPhone = (p: string | null | undefined): string => String(p ?? "").replace(/[^\d+]/g, "").replace(/^(?:\+98|0098)/, "0");
 const clip = (s: unknown, n: number) => { const t = String(s ?? "").replace(/\s+/g, " ").trim(); return [...t].length > n ? [...t].slice(0, n).join("") + "…" : t; };
 
 type Row = { id: number; customer_id: number; subject: string | null; message: string | null; remind_at: string; created_at: string; source: string | null;
@@ -111,7 +112,7 @@ function dueRows(u: NonNullable<U>, now: Date): Row[] {
 function lastCalls(customerId: number) {
   return queryRows<{ id: number; created_at: string; outcome: string | null; one_line_note: string | null; expert_notes: string | null }>(
     "SELECT id, created_at, outcome, one_line_note, expert_notes FROM call_logs WHERE customer_id=? ORDER BY id DESC LIMIT 2", [customerId])
-    .map((c) => ({ id: c.id, at: c.created_at, outcome: c.outcome, note: maskPhonesInText(clip(c.one_line_note || c.expert_notes, 120)) }));
+    .map((c) => ({ id: c.id, at: c.created_at, outcome: c.outcome, note: clip(c.one_line_note || c.expert_notes, 120) })); // UNMASK-EXPERT (t674u)
 }
 function stateOf(u: NonNullable<U>) {
   ensure();
@@ -133,8 +134,8 @@ export function rmFeed(u: NonNullable<U>, now = new Date()) {
   const rows = dueRows(u, now);
   const snooze = snoozeInfo(u, rows, now);
   const items = work ? rows.map((r) => ({
-    reminderId: r.id, customerId: r.customer_id, customerName: r.name, phoneMasked: maskPhone(r.phone), tel: String(r.phone ?? "").replace(/[^\d+]/g, ""),
-    subject: maskPhonesInText(clip(r.subject, 120)), reason: maskPhonesInText(clip(r.message, 300)),
+    reminderId: r.id, customerId: r.customer_id, customerName: r.name, phoneMasked: maskPhone(r.phone), phone: fullPhone(r.phone), tel: String(r.phone ?? "").replace(/[^\d+]/g, ""),
+    subject: clip(r.subject, 120), reason: clip(r.message, 300), // UNMASK-EXPERT (t674u): own customers, full text
     createdBy: r.source === "assistant" ? "دستیار فروش" : r.created_by && r.created_by !== r.user_id ? (r.by_name || "همکار") : "خودت",
     createdAt: r.created_at, remindAt: r.remind_at, outsideHours: toWorkingTime(new Date(r.remind_at)).shifted,
   })) : [];

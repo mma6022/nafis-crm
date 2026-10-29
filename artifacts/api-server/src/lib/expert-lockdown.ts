@@ -410,7 +410,7 @@ export function elPhoneQuery(raw: unknown): { digits: string; canon: string } | 
   return { digits: d, canon };
 }
 const likeEsc = (v: string) => v.replace(/[\\%_]/g, (c) => `\\${c}`);
-export type ElSuggestItem = { id: number; name: string; phoneLast4: string; priority: number | null; match: "exact" | "phone" | "name" };
+export type ElSuggestItem = { id: number; name: string; phoneLast4: string; phone: string; priority: number | null; match: "exact" | "phone" | "name" };
 export type ElSuggestResult = { result: "ok"; kind: "phone" | "name"; items: ElSuggestItem[]; phone?: string } | { result: "short" | "rate_limited"; message: string };
 
 export function elIncomingSuggest(u: U, raw: unknown, now = Date.now()): ElSuggestResult {
@@ -423,7 +423,7 @@ export function elIncomingSuggest(u: U, raw: unknown, now = Date.now()): ElSugge
   const ph = elPhoneQuery(q);
   type Row = { id: number; name: string; phone: string | null; priority: number | null; rk: number };
   const out = (rows: Row[], kind: "phone" | "name", phone?: string): ElSuggestResult => ({ result: "ok", kind, phone,
-    items: rows.map((r) => ({ id: Number(r.id), name: String(r.name ?? ""), phoneLast4: String(r.phone ?? "").slice(-4),
+    items: rows.map((r) => ({ id: Number(r.id), name: String(r.name ?? ""), phoneLast4: String(r.phone ?? "").slice(-4), phone: String(r.phone ?? "") /* UNMASK-EXPERT t674u: own customers only */,
       priority: r.priority == null ? null : Number(r.priority), match: r.rk === 0 ? "exact" : kind === "phone" ? "phone" : "name" })) });
   if (ph) {
     if (ph.digits.length < 4) return { result: "short", message: "حداقل ۴ رقم بنویس." };

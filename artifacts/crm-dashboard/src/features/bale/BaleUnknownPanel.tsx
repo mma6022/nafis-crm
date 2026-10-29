@@ -38,11 +38,11 @@ function LinkWizard({ chat, onDone, onClose }: { chat: BaleUnknownChat; onDone: 
         : !res.data?.items.length ? <span className="muted" data-testid="bale-unknown-noresult">مشتری‌ای از فهرست شما پیدا نشد.</span>
         : <ul className="bl-pick" role="listbox" aria-label="مشتری‌های من">{res.data.items.map(c => <li key={c.id}>
             <button type="button" role="option" aria-selected={false} onClick={() => setPick(c)} data-testid={`button-bale-pick-${c.id}`}>
-              <b>{c.name}</b><span className="bl-ltr">{c.phoneMasked ?? '—'}</span></button></li>)}</ul> : null}
+              <b>{c.name}</b><span className="bl-ltr">{c.phone ?? c.phoneMasked ?? '—'}</span></button></li>)}</ul> : null}
       <div className="bl-acts"><button type="button" className="btn btn-ghost" onClick={onClose}>انصراف</button></div>
     </> : <>
       <div className="bl-done" style={{ textAlign: 'start' }}>
-        <span>این گفتگوی بله به <b>{pick.name}</b> (<span className="bl-ltr">{pick.phoneMasked ?? '—'}</span>) وصل شود؟</span>
+        <span>این گفتگوی بله به <b>{pick.name}</b> (<span className="bl-ltr">{pick.phone ?? pick.phoneMasked ?? '—'}</span>) وصل شود؟</span>
       </div>
       <ul className="bl-safe">
         <li><ShieldCheck size={16} /><span>فقط پیوند گفتگو ذخیره می‌شود؛ پیام‌های قبل از این لحظه ذخیره نشده‌اند و نمی‌شوند.</span></li>

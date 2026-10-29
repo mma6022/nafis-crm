@@ -41,6 +41,8 @@ export const SC = {
 };
 const tehHm = (iso: string) => { try { return new Intl.DateTimeFormat('fa-IR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Tehran' }).format(new Date(iso)); } catch { return ''; } };
 export const maskTel = (t: string | null) => (t ? faNum(`${t.slice(0, 4)}***${t.slice(-4)}`) : '');
+/** UNMASK-EXPERT (Mohammad t674u): the expert sees the full number of their OWN customer. */
+export const fullTel = (t: string | null) => (t ? faNum(t) : '');
 export const phone11 = (s: string) => {
   const d = s.replace(/[۰-۹]/g, (c) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(c))).replace(/[٠-٩]/g, (c) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(c))).replace(/\D/g, '');
   const t = d.startsWith('0098') ? `0${d.slice(4)}` : d.startsWith('98') && d.length === 12 ? `0${d.slice(2)}` : d.length === 10 && d.startsWith('9') ? `0${d}` : d;
@@ -135,7 +137,7 @@ export function IncomingWizard({ currentNo, onClose, onSaved, onEvent }: {
     const t = window.setTimeout(() => { elApi.suggest(q, ac.signal).then((r) => { if (seq.current === my) setLive({ q, r }); }).catch(() => undefined); }, 250);
     return () => { window.clearTimeout(t); ac.abort(); };
   }, [phone, step]);
-  const pickLive = async (id: number, last4: string) => {
+  const pickLive = async (id: number, last4: string) => { // last4 = the full own-customer number when the server sends it (UNMASK-EXPERT)
     setBusy(true); setErr('');
     try { const r = await elApi.pick(id);
       if (r.result === 'own') { setTail(last4); setCust(r.customer); setCreated(false); setLive(null); setStep('own'); ev('incoming_live_pick'); } else setErr('message' in r ? r.message : 'باز نشد.');
@@ -189,7 +191,7 @@ export function IncomingWizard({ currentNo, onClose, onSaved, onEvent }: {
   const telBtn = ph ? <a className="btn btn-primary iw-tel" href={`tel:${ph}`} data-testid="iw-tel-call"><Phone size={15} aria-hidden="true" /> تماس</a> : null;
   const hit = (kind: 'own' | 'new' | 'dup') => <div className={`tc-hit${kind === 'own' ? '' : ` ${kind}`}`} data-testid={`iw-hit-${kind}`}>
     {kind === 'new' ? <Plus size={18} aria-hidden="true" /> : kind === 'dup' ? <AlertTriangle size={18} aria-hidden="true" /> : <Check size={18} aria-hidden="true" />}
-    <div><b>{cust?.name} <span className="dp-id">#{faNum(cust?.id ?? 0)}</span></b><small><span className="dp-chip l-own" data-testid="iw-own-badge">{SC.own}</span> {kind === 'new' ? 'ساخته شد · ' : ''}<bdi dir="ltr" data-testid="iw-tel">{ph ? maskTel(ph) : tail ? `••••${faNum(tail)}` : ''}</bdi>{kind === 'dup' ? ' · مشتری تازه ساخته نشد' : ''}</small>
+    <div><b>{cust?.name} <span className="dp-id">#{faNum(cust?.id ?? 0)}</span></b><small><span className="dp-chip l-own" data-testid="iw-own-badge">{SC.own}</span> {kind === 'new' ? 'ساخته شد · ' : ''}<bdi dir="ltr" data-testid="iw-tel">{ph ? fullTel(ph) : tail ? (tail.length > 4 ? fullTel(phone11(tail) ?? tail) : `••••${faNum(tail)}`) : ''}</bdi>{kind === 'dup' ? ' · مشتری تازه ساخته نشد' : ''}</small>
       {kind === 'own' && cust ? <span className="iw-links"><a href={`/customers/${cust.id}`} target="_blank" rel="noopener" data-testid="iw-file"><FileText size={13} aria-hidden="true" /> پرونده</a> · <a href={`/customers/${cust.id}#sec-calls`} target="_blank" rel="noopener" data-testid="iw-history">تاریخچه و یادداشت‌ها</a></span> : null}</div>
     {kind === 'dup' ? null : telBtn ?? (cust ? <PickedTel id={cust.id} /> : null)}</div>;
   return <div className="tc-ov" role="presentation" style={fcOpen ? { display: 'none' } : undefined} onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) close(step === 'ok' ? 'done' : 'cancel'); }}>
@@ -210,8 +212,8 @@ export function IncomingWizard({ currentNo, onClose, onSaved, onEvent }: {
         {phoneIn(false, true)}
         <p className="dp-hint" data-testid="iw-hint"><Search size={13} aria-hidden="true" /> {SC.hint}</p>
         {live && live.r.result === 'ok' && live.r.items.length ? <ul className="el-live" data-testid="iw-live" aria-label="مشتری‌های خودت">
-          {live.r.items.map((it) => <li key={it.id}><button type="button" className="el-live-row" disabled={busy} onClick={() => void pickLive(it.id, it.phoneLast4)} data-testid={`iw-live-${it.id}`}>
-            <b>{it.name}</b> <span className="dp-id" data-testid="iw-live-id">#{faNum(it.id)}</span><span className="dp-chip l-own" data-testid="iw-live-own">{SC.own}</span><span className="el-live-ph" dir="ltr">••••{faNum(it.phoneLast4)}</span>
+          {live.r.items.map((it) => <li key={it.id}><button type="button" className="el-live-row" disabled={busy} onClick={() => void pickLive(it.id, it.phone || it.phoneLast4)} data-testid={`iw-live-${it.id}`}>
+            <b>{it.name}</b> <span className="dp-id" data-testid="iw-live-id">#{faNum(it.id)}</span><span className="dp-chip l-own" data-testid="iw-live-own">{SC.own}</span><span className="el-live-ph" dir="ltr" data-testid="iw-live-ph">{it.phone ? fullTel(phone11(it.phone) ?? it.phone) : `••••${faNum(it.phoneLast4)}`}</span>
             {it.priority && it.priority >= 1 && it.priority <= 3 ? <span className={`dp-chip p${it.priority}`}>{`اولویت ${faNum(it.priority)}`}</span> : null}
             {it.match === 'exact' ? <span className="dp-chip l-exact">{live.r.result === 'ok' && live.r.kind === 'phone' ? 'همین شماره' : 'همین نام'}</span> : null}</button></li>)}</ul> : null}
         {live && live.r.result === 'ok' && !live.r.items.length && live.q === phone.trim() ? <p className="dp-box sm" role="status" data-testid="iw-live-none"><Info size={14} aria-hidden="true" /> بین مشتری‌های خودت پیدا نشد{ph ? ' — «پیدا کن» را بزن تا مشتری همکار یا «مشتری جدید» را ببینی.' : '.'}</p> : null}

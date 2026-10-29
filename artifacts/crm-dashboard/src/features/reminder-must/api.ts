@@ -12,7 +12,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   return data as T;
 }
 export type RmCall = { id: number; at: string; outcome: string | null; note: string };
-export type RmItem = { reminderId: number; customerId: number; customerName: string; phoneMasked: string; tel: string; subject: string; reason: string; createdBy: string;
+export type RmItem = { reminderId: number; customerId: number; customerName: string; phoneMasked: string; phone?: string; tel: string; subject: string; reason: string; createdBy: string;
   createdAt: string; remindAt: string; outsideHours: boolean; lastCalls?: RmCall[]; fileEdit?: boolean };
 export type RmFeed = { enabled: true; workTime: boolean; pendingCount: number; items: RmItem[]; serverNow: string;
   snooze: { active: boolean; until: string | null; used: boolean; available: boolean; minutes: number };

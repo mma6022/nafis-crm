@@ -22,7 +22,7 @@ export type BaleAdmin = {
 };
 export type BalePeerBlockMode = 'account_stop' | 'conversation_pause';
 export type BaleUnknownChat = { id: number; firstAt: string; lastAt: string; messages: number; status: 'open' | 'linked' | 'dismissed' };
-export type BaleOwnCustomer = { id: number; name: string; phoneMasked: string | null };
+export type BaleOwnCustomer = { id: number; name: string; phoneMasked: string | null; phone?: string | null };
 export type BaleAuditItem = { id: number; at: string; actor: string | null; accountId: number | null; customerId: number | null; action: string; outcome: string; detail: Record<string, unknown> | null };
 export type BaleOutboxStatus = 'pending_approval' | 'queued' | 'sending' | 'sent' | 'blocked' | 'failed' | 'cancelled';
 export type BaleOutboxItem = {

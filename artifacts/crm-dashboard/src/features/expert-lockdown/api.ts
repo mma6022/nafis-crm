@@ -13,7 +13,7 @@ export type ElNew =
   | { result: 'duplicate'; ownerName: string; mine: boolean; notified?: boolean }
   | { result: 'created'; customer: { id: number; name: string } }
   | { result: 'invalid' | 'rate_limited'; message: string; field?: string };
-export type ElSuggestItem = { id: number; name: string; phoneLast4: string; priority: number | null; match: 'exact' | 'phone' | 'name' };
+export type ElSuggestItem = { id: number; name: string; phoneLast4: string; phone?: string; priority: number | null; match: 'exact' | 'phone' | 'name' };
 export type ElSuggest = { result: 'ok'; kind: 'phone' | 'name'; items: ElSuggestItem[]; phone?: string } | { result: 'short' | 'rate_limited'; message: string };
 export type ElDaily = { day: string; flag: boolean; experts: { userId: number; salespersonId: number; name: string; opens: number; searches: number; own: number; other: number; none: number; limited: number; bells: number; loggedOutOfList: number; chooseOwn?: number; chooseNew?: number; newChecks?: number; duplicates?: number; created?: number }[] };
 

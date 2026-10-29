@@ -524,6 +524,11 @@ export const fcMaskPhone = (p: string | null | undefined): string | null => {
   if (!p) return null; let d = toAscii(String(p)).replace(/\D/g, ""); if (d.startsWith("98") && d.length === 12) d = "0" + d.slice(2);
   if (d.length < 8) return null; return faDigits(d.slice(0, 4)) + "***" + faDigits(d.slice(-4));
 };
+/** UNMASK-EXPERT (Mohammad t674u): the expert sees the full number of their OWN file's customer (list scope = cc.salesperson_id = theirs). */
+export const fcFullPhone = (p: string | null | undefined): string | null => {
+  if (!p) return null; let d = toAscii(String(p)).replace(/\D/g, ""); if (d.startsWith("98") && d.length === 12) d = "0" + d.slice(2);
+  return d.length >= 8 ? d : null;
+};
 type ListRow = FileRow & { phone: string | null };
 /** GET /files-carousel/list?q=&page=&page_size= : the expert's OWN files (customers.salesperson_id = theirs, not merged; the same scope as
  *  expert_lockdown «پرونده‌های خودت»), open + completed + cancelled, in the shared order. Search (name / customer id / file id / last ≥4 mobile
@@ -555,7 +560,7 @@ export function fcExpertList(u: U, query: any, now = new Date()) {
   const groupCounts: Record<string, number> = {}; for (const r of hits) { const g = String(cats.get(r.id)!.priority_group); groupCounts[g] = (groupCounts[g] ?? 0) + 1; }
   const items = hits.slice((pg - 1) * pageSize, pg * pageSize).map(r => {
     const c = cats.get(r.id)!; const open = c.priority_group <= 5;
-    return { file_id: r.id, customer_id: Number(r.cur_customer_id), customer_name: r.name ?? "", phone_masked: fcMaskPhone(r.phone), ...catCore(c)!,
+    return { file_id: r.id, customer_id: Number(r.cur_customer_id), customer_name: r.name ?? "", phone_masked: fcMaskPhone(r.phone), phone: fcFullPhone(r.phone), ...catCore(c)!,
       // v1.0.1: «پرونده برگشت خورد» stays until the file is opened (not when the bar closes); closed rows keep today's access (the server decides edits).
       followed_up_today: done.has(r.id), returned_unopened: unopened.has(r.id), is_closed: !open, closed_at: open ? null : c.closed_at, can_follow_up: !done.has(r.id), can_cancel: open, can_edit: true };
   });
