@@ -196,7 +196,7 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
         : <p className="dp-hint" role="status" data-testid="dp-first-wait">در حال آماده‌سازی فرم تماس…</p>}
       <p className="dp-hint"><Lock size={13} aria-hidden="true" /> تماس اول با «فرم تماس اول» ثبت می‌شود (اطلاعات اولیه‌ی مشتری). بعد از ثبت، کار بعدی باز می‌شود.</p>
     </div> : opened ? <div className="dp-result" data-testid="dp-result">
-      <CqResultFields value={val} onChange={setVal} showErrors={show} idPrefix="dp" submitLabel="ثبت نتیجه" />
+      <CqResultFields value={val} onChange={setVal} showErrors={show} idPrefix="dp" submitLabel="ثبت نتیجه" creditCustomerId={cur.customerId} />
       <button type="button" className={`btn btn-primary dp-save${val.manual ? '' : ' dis'}`} disabled={busy} aria-disabled={!val.manual || undefined} onClick={() => void save()} data-testid="dp-save">{saveLabel ?? <>ثبت نتیجه و رفتن به کار {faNum(nextNo)}</>}</button>
     </div> : <p className="dp-hint"><Lock size={13} aria-hidden="true" /> {firstForm ? 'بعد از تماس با گوشی خودت «تماس گرفتم، ثبت نتیجه» را بزن؛ «فرم تماس اول» باز می‌شود. کار بعدی تا ثبت آن قفل است.' : 'بعد از تماس با گوشی خودت «تماس گرفتم، ثبت نتیجه» را بزن؛ فرم «نتیجه‌ی تماس» همین‌جا باز می‌شود. کار بعدی تا ثبت نتیجه و یادداشت قفل است.'}</p>}
     <CallLaunchStatus status={launcher.status} onRetry={launcher.retry} onCancel={launcher.cancel} />
@@ -278,7 +278,7 @@ function Inbound({ onClose, onSaved }: { onClose: () => void; onSaved: () => voi
     {rows && !pick ? rows.length ? <ul className="dp-in-list">{rows.slice(0, 10).map((c) => <li key={c.id}><button type="button" onClick={() => { setPick(c); setOk(''); }} data-testid={`dp-in-pick-${c.id}`}>
       <b>{c.name}</b> <span className="dp-id">#{faNum(c.id)}</span></button></li>)}</ul> : <p className="dp-hint">مشتری‌ای پیدا نشد.</p> : null}
     {pick ? <div className="dp-result" data-testid="dp-in-form"><p><b>{pick.name}</b> <span className="dp-id">#{faNum(pick.id)}</span> <span className="dp-chip l-out_of_list">خارج از لیست</span> · <Link href={`/customers/${pick.id}`}>پرونده</Link></p>
-      <CqResultFields value={val} onChange={setVal} showErrors={show} idPrefix="dp-in" submitLabel="ثبت" />
+      <CqResultFields value={val} onChange={setVal} showErrors={show} idPrefix="dp-in" submitLabel="ثبت" creditCustomerId={pick.id} />
       <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void save()} data-testid="dp-in-save">ثبت تماس ورودی</button></div> : null}
     {err ? <p className="dp-err" role="alert" data-testid="dp-in-err">{err}</p> : null}
   </section>;

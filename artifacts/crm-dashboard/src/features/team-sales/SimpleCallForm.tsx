@@ -3,6 +3,7 @@ import { AlertCircle, AlertTriangle, Ban, Check, ChevronDown, ChevronLeft, Chevr
 import { CALL_NOTE_MIN, callNoteLength, callNoteMinMessage } from '@/lib/call-note';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { TransferCheckBox } from './TransferCheckBox';
+import { InstantCreditCheck } from './InstantCreditCheck';
 import { fa, fetchCities, fetchPlanOptions, fmtDateTime, shortName, submitFirstCallEdit, submitSimpleForm, TeamSalesApiError, type TransferCheck, type CallResult, type FirstCallEditResult, type FirstCallSummary, type Military, type QualifyResult, type SimpleAnswers, type SuggestedPlan, type Tri } from './api';
 import { FIRST_CALL_FIELD_LABELS, firstCallValueText } from './first-call-edit-labels';
 import { NoPlanChip, PlanChip } from './PlanChip';
@@ -598,6 +599,8 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
         <Chips name="callResult" list={ANSWERED_RESULTS} value={d.callResult} onChange={(v) => set({ callResult: v })} cols />{err('callResult')}</fieldset>
         : d.manual ? <div className="crs" role="note" data-testid="ts-na-optional"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>
           <span><b>سؤال‌های فرم تماس اول برای این تماس لازم نیست</b><small>پرونده «تکمیل نشده» می‌ماند و در تماس بعدی با «جواب داد» دوباره باز می‌شود.</small></span></div> : null}
+      {d.manual === 'answered' && d.callResult === 'answered' && !edit && !file ? <><InstantCreditCheck customerId={customer.id} onRank={(rank) => setD((p) => (p.creditRank ? p : { ...p, creditRank: rank }))} />
+        <p className="ts-cv-free" data-testid="ts-cv-free">استعلام ناموفق یا انجام‌نشده جلوی ثبت فرم را نمی‌گیرد.</p></> : null}
       {d.callResult === 'callback' ? <div className="ts-q"><label id="ts-callback-label">زمان تماس بعدی <span className="req">*</span></label>
         <div className="ts-callback-row" id="ts-callback" role="group" aria-labelledby="ts-callback-label" data-testid="ts-callback-at" data-iso={d.callbackAt} aria-invalid={Boolean(errors.callbackAt)}>
           <PersianDatePicker value={d.callbackDate} minValue={tehranJalaliValue(0)} onChange={(v) => set({ callbackDate: v, callbackAt: callbackIso(v, d.callbackHour, d.callbackMinute) })} placeholder="انتخاب تاریخ (شمسی)" testId="ts-callback-date" popoverClassName="ts-callback-popover" />

@@ -84,7 +84,7 @@ export function LockedInbound({ onClose, onSaved, currentNo, onBack, onNew }: { 
     {own ? <div className="dp-result" data-testid="el-in-file">
       <p><b>{own.name}</b> <span className="dp-id">#{faNum(own.id)}</span> <span className="dp-chip l-out_of_list">خارج از لیست</span> · <Link href={`/customers/${own.id}`} data-testid="el-in-open"><FileText size={13} aria-hidden="true" /> باز کردن پرونده</Link></p>
       <div className="dp-box warn sm"><b>این پرونده در لیست امروزت نیست · «خارج از لیست»</b><br />از جست‌وجوی تماس ورودی باز شد. نتیجه و یادداشت یک‌خطی لازم است. در «گزارش مدیر» جدا شمرده می‌شود و در درصد نمی‌آید.</div>
-      <CqResultFields value={val} onChange={setVal} showErrors={show} idPrefix="el-in" />
+      <CqResultFields value={val} onChange={setVal} showErrors={show} idPrefix="el-in" creditCustomerId={own.id} />
       <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void save()} data-testid="el-in-save"><Check size={15} aria-hidden="true" /> ثبت «خارج از لیست»{back}</button></div> : null}
     {err ? <p className="dp-err" role="alert" data-testid="el-in-err">{err}</p> : null}
     {!res && !ok && !live ? <ul className="dp-hint" data-testid="el-in-rules">
