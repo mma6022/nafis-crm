@@ -12,7 +12,6 @@ export interface CallReportEdit {
      * @nullable
      */
   subject: string | null;
-  /** @maxLength 10000 */
   expertNotes: string;
   /** @minimum 0 */
   expectedRevision: number;

@@ -12,9 +12,6 @@ export interface HumanChatSend {
      * @maxLength 100
      */
   clientId: string;
-  /**
-     * @minLength 1
-     * @maxLength 6000
-     */
+  /** @minLength 1 */
   text: string;
 }

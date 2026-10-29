@@ -258,7 +258,7 @@ export function ChatPane({ adapter, visibleSelected = true, me }: { adapter: Cha
         </> : <>
           <button type="button" className="ib" aria-label="پیوست فایل" onClick={() => fileInput.current?.click()} data-testid="button-chat-attach"><Paperclip /></button>
           <div className={`fld ${focus ? 'on' : ''}`}>
-            <textarea rows={1} value={text} maxLength={4000} placeholder={draft ? 'توضیح فایل (اختیاری)…' : 'پیام…'} aria-label="متن پیام" onFocus={() => setFocus(true)} onBlur={() => setFocus(false)} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} data-testid="input-chat-text" />
+            <textarea rows={1} value={text} placeholder={draft ? 'توضیح فایل (اختیاری)…' : 'پیام…'} aria-label="متن پیام" onFocus={() => setFocus(true)} onBlur={() => setFocus(false)} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} data-testid="input-chat-text" />
             <button type="button" className="ib" aria-label="ایموجی" aria-expanded={emojiOpen} onClick={() => setEmojiOpen(v => !v)}><Smile /></button>
           </div>
         </>}

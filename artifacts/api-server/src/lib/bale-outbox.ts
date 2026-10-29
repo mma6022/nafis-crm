@@ -27,7 +27,7 @@ import { BaleSidecarError, type BaleSidecar } from "./bale-sidecar-client";
 import type { BalePlanFiles } from "./bale-plan-files";
 import { AR_BLOCK_FA, arVoice, createBaleAutoreply, ensureBaleAutoreplySchema, type ArBlock, type ArTarget } from "./bale-autoreply";
 
-export const BALE_MAX_TEXT = 1000;
+export const BALE_MAX_TEXT = 4000; // NOTES-NOMAX: Bale platform text limit (sidecar MAX_TEXT); the only cap, enforced in the sending layer
 export const BALE_SENDING_STALE_MS = 2 * 60_000;
 export const BALE_MAX_ATTEMPTS = 3;
 /** Plan line 36: appended to any customer message that names a plan or an amount. */

@@ -193,7 +193,7 @@ export function PortalChat() {
   };
   // Retry keeps the same clientId so the server de-duplicates a send that actually arrived.
   const retry = (id: string) => { setOutSync(l => l.map(o => o.clientId === id ? { ...o, state: 'queued', pct: 0, error: undefined } : o)); setTimeout(() => pump(), 0); };
-  const submitText = () => { const t = text.trim(); if (!t) return; setText(''); setNote(''); enqueue([{ text: t.slice(0, 6000) }]); };
+  const submitText = () => { const t = text.trim(); if (!t) return; setText(''); setNote(''); enqueue([{ text: t }]); };
 
   /* ---------- picking files ---------- */
   const addFiles = (list: FileList | File[] | null) => {
@@ -211,7 +211,7 @@ export function PortalChat() {
   const sendPicks = () => {
     if (!good.length || bad.length) return;
     // The caption travels with the first file only, so it is not repeated under every attachment.
-    enqueue(good.map((p, i) => ({ text: i === 0 ? caption.trim().slice(0, 6000) : '', file: p.file })));
+    enqueue(good.map((p, i) => ({ text: i === 0 ? caption.trim() : '', file: p.file })));
     setPicks([]); setCaption('');
   };
   const openSheet = () => setSheet(true);
@@ -284,7 +284,7 @@ export function PortalChat() {
         <small>{p.file.name} · {shortBytes(p.file.size)}</small><button type="button" className="nfp-rm" onClick={() => removePick(p.id)} aria-label={`حذف ${p.file.name}`}><Icon icon={X} /></button></div>; })}
       <button type="button" className="nfp-pv-add" onClick={openSheet}><Icon icon={Plus} />افزودن</button></div>
     {bad.map(p => <p key={p.id} className="nf-error" role="alert"><Icon icon={AlertCircle} small />{badText(p)}</p>)}
-    <input className="nf-input" aria-label="توضیح برای فایل‌ها (اختیاری)" placeholder="توضیح (اختیاری)، مثلاً: فیش شهریور" value={caption} maxLength={6000} onChange={e => setCaption(e.target.value)} data-testid="input-chat-caption" />
+    <input className="nf-input" aria-label="توضیح برای فایل‌ها (اختیاری)" placeholder="توضیح (اختیاری)، مثلاً: فیش شهریور" value={caption} onChange={e => setCaption(e.target.value)} data-testid="input-chat-caption" />
     <button type="button" className="nf-btn nf-btn--primary nf-btn--block" aria-disabled={!good.length || bad.length > 0 || undefined} onClick={sendPicks} data-testid="button-chat-send-files"><Icon icon={Send} small />ارسال {fa(good.length)} فایل</button>
   </section>;
 
@@ -293,7 +293,7 @@ export function PortalChat() {
     {note && <p className="nf-error" role="alert"><Icon icon={AlertCircle} small />{note}</p>}
     {preview || <div className="nfp-comp-row">
       <button ref={attachBtn} type="button" className="nfp-attach-btn" aria-label="ارسال مدرک یا فایل" aria-haspopup="dialog" aria-expanded={sheet} onClick={() => setSheet(s => !s)} data-testid="button-chat-attach"><Icon icon={Paperclip} />مدرک</button>
-      <textarea className="nfp-ta" rows={1} maxLength={6000} aria-label="متن پیام" placeholder={recording ? 'در حال ضبط… برای پایان، دکمه‌ی توقف را بزنید' : 'پیام خود را بنویسید…'} value={text} disabled={recording}
+      <textarea className="nfp-ta" rows={1} aria-label="متن پیام" placeholder={recording ? 'در حال ضبط… برای پایان، دکمه‌ی توقف را بزنید' : 'پیام خود را بنویسید…'} value={text} disabled={recording}
         onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && window.matchMedia('(min-width:1024px)').matches) { e.preventDefault(); submitText(); } }} data-testid="input-chat-text" />
       {text.trim() ? <button type="button" className="nfp-send" aria-label="ارسال پیام" onClick={submitText} data-testid="button-chat-send"><Icon icon={Send} /></button>
         : <button type="button" className="nfp-send nfp-mic" aria-label={recording ? 'پایان ضبط و ارسال' : 'ضبط پیام صوتی'} aria-pressed={recording} onClick={() => void toggleRec()} data-testid="button-chat-record" style={recording ? { background: 'var(--nf-danger)', color: '#fff' } : undefined}><Icon icon={recording ? Square : Mic} /></button>}

@@ -46,7 +46,7 @@ export default function LeadAnnotator() {
           <span className="la-row">{cur.isUrgent ? <span className="la-urgent">مشتری فوری</span> : null}<span className="la-phone">{cur.phoneMasked}</span></span></header>
         <form onSubmit={addNote} className="la-row" style={{ alignItems: 'stretch', flexDirection: 'column' }}>
           <label htmlFor="la-note">یادداشت ({me.data.noteLabel})</label>
-          <textarea id="la-note" rows={3} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} />
+          <textarea id="la-note" rows={3} value={note} onChange={(e) => setNote(e.target.value)} />
           <div className="la-row"><button type="submit" disabled={busy || !note.trim()}>ثبت یادداشت</button></div>
         </form>
         <div className="la-row" style={{ alignItems: 'stretch', flexDirection: 'column' }}>

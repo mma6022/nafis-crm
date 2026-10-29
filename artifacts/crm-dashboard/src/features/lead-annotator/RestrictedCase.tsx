@@ -44,7 +44,7 @@ export function RestrictedCase({ id, registrar = false }: { id: number; registra
       <article className="la-card">
         <form onSubmit={addNote} className="la-col">
           <label htmlFor="la-case-note">یادداشت ({c.noteLabel})</label>
-          <textarea id="la-case-note" rows={3} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} data-testid="la-case-note" />
+          <textarea id="la-case-note" rows={3} value={note} onChange={(e) => setNote(e.target.value)} data-testid="la-case-note" />
           <div className="la-row"><button type="submit" disabled={busy || !note.trim()} data-testid="la-case-note-save">ثبت یادداشت</button></div>
         </form>
       </article>

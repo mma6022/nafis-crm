@@ -97,7 +97,7 @@ export function registerLoanCaseNotes(router: Router, scoped: Scope, storage: St
     const user = actor(res), clientId = req.body?.clientId;
     const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
     if (typeof clientId !== "string" || !/^[a-zA-Z0-9_-]{8,100}$/.test(clientId) ||
-        text.length > 6000 || (!text && !req.file) ||
+        (!text && !req.file) ||
         Object.keys(req.body ?? {}).some(key => !["text", "clientId"].includes(key))) {
       fail(res, 400, "invalid_case_note", "متن یا فایل یادداشت معتبر نیست."); return;
     }

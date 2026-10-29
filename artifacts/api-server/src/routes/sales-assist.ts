@@ -68,7 +68,6 @@ router.post("/sales-assist/suggestions/:customerId/not-now", requirePermission("
   if (b.text != null && String(b.text).trim()) {
     if (reason !== "other") { res.status(400).json({ error: "توضیح فقط برای «سایر» است." }); return; }
     text = String(b.text).trim().replace(/\s+/g, " ");
-    if ([...text].length > 120) { res.status(400).json({ error: "توضیح حداکثر ۱۲۰ نویسه است." }); return; }
   }
   const now = new Date();
   const until = snoozeUntil(now, getSalesAssistSettings().snoozeHours).toISOString();

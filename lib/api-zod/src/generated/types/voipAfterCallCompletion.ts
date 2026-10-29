@@ -7,7 +7,6 @@
  */
 
 export interface VoipAfterCallCompletion {
-  /** @maxLength 10000 */
   expertNotes: string;
   /** Close the pending event without customer history; remove only its provisional automatic history and retain the PBX call. */
   discardHistory?: boolean;

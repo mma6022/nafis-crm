@@ -1,3 +1,4 @@
+import { AutoGrowTextarea } from '../../components/AutoGrowTextarea';
 import { useMemo, useState } from 'react';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { jalaliToIso, parseJalaliValue } from '@/lib/jalali';
@@ -58,13 +59,12 @@ export function ManualOutcomeField({ value, onChange, showError, idPrefix = 'mo'
 
 export type CqResultValue = { manual: ManualOutcome | ''; outcome: CqOutcome | ''; fu: boolean; oneLine: string; followUpAt: string; chip: 'evening' | 'tomorrow' | 'in3' | 'pick' | '' ; pickDate: string; pickHour: string; pickMinute: string };
 export const emptyCqResult = (): CqResultValue => ({ manual: '', outcome: '', fu: false, oneLine: '', followUpAt: '', chip: '', pickDate: '', pickHour: '10', pickMinute: '00' });
-export const CQ_ONE_LINE_MAX = 80;
+/** NOTES-NOMAX: the call note has no maximum (multi-line, auto-grow). */
 
 /** null = OK; otherwise the Persian error summary (spec §2 `fu_err`, `fu_next_err`, `fu_pick_bad`). */
 export function cqResultError(v: CqResultValue, needResult = true): string | null {
   const missing = [needResult && !v.manual ? 'نتیجه‌ی تماس' : null, !v.oneLine.trim() ? 'یادداشت یک‌خطی' : null].filter(Boolean);
   if (missing.length) return `${missing.join('، ')} هنوز خالی است.`;
-  if ([...v.oneLine.trim()].length > CQ_ONE_LINE_MAX) return 'یادداشت یک‌خطی حداکثر ۸۰ نویسه است.';
   if (v.fu) {
     if (!v.followUpAt) return v.chip === 'pick' ? pickError(v) ?? 'تاریخ و ساعت را انتخاب کن.' : 'برای «پیگیری بعدی» زمان یادآور را انتخاب کن.';
     if (Date.parse(v.followUpAt) <= Date.now()) return 'زمان یادآور باید در آینده باشد.';
@@ -97,7 +97,7 @@ export function CqResultFields({ value, onChange, showErrors, pre, idPrefix = 'c
     { key: 'in3' as const, label: '۳ روز بعد', at: addTehranDays(now, 3, 10).toISOString(), disabled: false },
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [tp.y, tp.m, tp.d, eveningLate]);
-  const len = [...value.oneLine].length; const atMax = len >= CQ_ONE_LINE_MAX;
+  const len = [...value.oneLine.trim()].length;
   const err = showErrors ? cqResultError(value, !noResult) : null;
   const na = pre?.naAttemptIfNoAnswer ?? 1;
   const fuMissing = showErrors && value.fu && !value.followUpAt;
@@ -140,12 +140,11 @@ export function CqResultFields({ value, onChange, showErrors, pre, idPrefix = 'c
     </div> : null}
     {onlyTime ? null : <>
     <div className="field">
-      <label htmlFor={`${idPrefix}-one`}>یادداشت یک‌خطی <span className="req" aria-hidden="true">*</span></label>
-      <input id={`${idPrefix}-one`} value={value.oneLine} maxLength={CQ_ONE_LINE_MAX} onChange={(e) => set({ oneLine: e.target.value.replace(/\n/g, ' ') })}
+      <label htmlFor={`${idPrefix}-one`}>یادداشت تماس <span className="req" aria-hidden="true">*</span></label>
+      <AutoGrowTextarea id={`${idPrefix}-one`} value={value.oneLine} onChange={(e) => set({ oneLine: e.target.value })}
         className={showErrors && !value.oneLine.trim() ? 'bad' : ''} aria-invalid={showErrors && !value.oneLine.trim()} aria-describedby={`${idPrefix}-one-meta`} aria-required="true"
         placeholder="مثلاً: مدارک را تا فردا می‌فرستد" data-testid="cq-one-line" />
-      <div id={`${idPrefix}-one-meta`} className={`cq-counter${atMax ? ' max' : ''}`} data-testid="cq-one-line-counter">
-        {atMax ? 'به سقف رسیدی؛ بقیه را در «یادداشت کارشناس» بنویس · ' : ''}{faNum(len)} / {faNum(CQ_ONE_LINE_MAX)}</div>
+      <div id={`${idPrefix}-one-meta`} className="cq-counter" data-testid="cq-one-line-counter">{faNum(len)} نویسه</div>
     </div>
     {/* PM (81, Q2) + v1.0.1 §2.5: «پیگیری بعدی» is a separate optional step AFTER the result and the note; channel stays phone (no type picker). */}
     <fieldset className={`cq-fu crfu${value.fu ? ' on' : ''}`} data-testid="cq-fu-step"><legend>پیگیری بعدی <small>اختیاری</small></legend>

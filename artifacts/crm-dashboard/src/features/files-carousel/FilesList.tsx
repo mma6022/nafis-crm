@@ -1,3 +1,4 @@
+import { AutoGrowTextarea } from '../../components/AutoGrowTextarea';
 /** REL-83 (Armita crm-files-priority v1.0.1, scenes l_*): the full list of the expert's own files once today's cards are done (or there are none).
  * Same priority order as the cards; search runs on the server (name, customer id, file id, last ≥4 mobile digits); 10/20/50 per page.
  * The list never locks. A file returned (by the registrar or the funder) after the cards ran out shows the bar (role=status) and «پرونده برگشت خورد» + source until the file is opened. */
@@ -111,11 +112,11 @@ function FollowSheet({ it, d, onClose, onDone }: { it: FcListItem; d: FcView; on
   const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [calling, setCalling] = useState(false); const [sure, setSure] = useState(false);
   const box = useRef<HTMLDivElement>(null); const closeBtn = useRef<HTMLButtonElement>(null);
   useEffect(() => { const prev = document.activeElement as HTMLElement | null; closeBtn.current?.focus(); return () => prev?.focus?.(); }, []);
-  const outs = d.outcomes.filter((o) => o.code !== 'cancelled' || it.can_cancel); const cx = outcome === 'cancelled'; const rMax = d.cancelReasonMax ?? 120;
+  const outs = d.outcomes.filter((o) => o.code !== 'cancelled' || it.can_cancel); const cx = outcome === 'cancelled';
   const call = async () => { setErr(''); try { const r = await fcApi.tel(it.file_id); if (!r.tel) { setErr('شماره‌ی این مشتری ثبت نشده.'); return; } setCalling(true); window.location.href = `tel:${r.tel.replace(/[^\d+]/g, '')}`; } catch (e) { setErr(e instanceof Error ? e.message : 'شماره گرفته نشد.'); } };
   const save = async () => {
     if (!outcome) { setErr('نتیجه را انتخاب کن.'); return; }
-    if (cx ? !reason.trim() : !note.trim()) { setErr(cx ? 'دلیل لغو را بنویس؛ بدون دلیل، پرونده لغو نمی‌شود.' : 'یادداشت یک‌خطی لازم است.'); return; }
+    if (cx ? !reason.trim() : !note.trim()) { setErr(cx ? 'دلیل لغو را بنویس؛ بدون دلیل، پرونده لغو نمی‌شود.' : 'یادداشت تماس لازم است.'); return; }
     if (cx && !sure) { setSure(true); return; }
     setBusy(true); setErr('');
     try { await fcApi.followup(cx ? { fileId: it.file_id, outcome, cancelReason: reason.trim() } : { fileId: it.file_id, outcome, note: note.trim() }); onDone(); }
@@ -134,9 +135,9 @@ function FollowSheet({ it, d, onClose, onDone }: { it: FcListItem; d: FcView; on
         <fieldset className="fc-result"><legend>نتیجه‌ی پیگیری<span className="req" aria-hidden="true">*</span></legend>
           <div className={`rlist${outs.length === 4 ? ' s4' : ''}`} role="radiogroup">{outs.map((o) => <label key={o.code} className={`rr${outcome === o.code ? ' on' : ''}${o.code === 'cancelled' ? ' cx' : ''}`}>
             <input type="radio" name="fc-fu-outcome" value={o.code} checked={outcome === o.code} onChange={() => { setOutcome(o.code); setErr(''); setSure(false); }} data-testid={`fc-fu-o-${o.code}`} /> <OIcon code={o.code} /> {o.label}</label>)}</div>
-          {cx ? <><label htmlFor="fc-fu-reason"><b>دلیل لغو</b> <small>کوتاه، حداکثر {faNum(rMax)} نویسه · برگرداندن لغو فقط با ادمین</small></label>
-            <textarea id="fc-fu-reason" className="inp tx" rows={2} maxLength={rMax} value={reason} onChange={(e) => setReason(e.target.value.replace(/[\r\n]/g, ' '))} data-testid="fc-fu-reason" /></>
-            : <input className="inp" maxLength={d.noteMax} value={note} onChange={(e) => setNote(e.target.value.replace(/[\r\n]/g, ' '))} placeholder={`یادداشت یک‌خطی (حداکثر ${faNum(d.noteMax)} نویسه)`} aria-label="یادداشت یک‌خطی" data-testid="fc-fu-note" />}
+          {cx ? <><label htmlFor="fc-fu-reason"><b>دلیل لغو</b> <small>برگرداندن لغو فقط با ادمین</small></label>
+            <textarea id="fc-fu-reason" className="inp tx" rows={2} value={reason} onChange={(e) => setReason(e.target.value.replace(/[\r\n]/g, ' '))} data-testid="fc-fu-reason" /></>
+            : <AutoGrowTextarea className="inp" value={note} onChange={(e) => setNote(e.target.value)} placeholder="یادداشت تماس" aria-label="یادداشت تماس" data-testid="fc-fu-note" />}
         </fieldset>
         {cx && sure ? <p className="fc-cxa" role="alert" data-testid="fc-fu-sure"><b>پرونده لغو شود؟</b> برگرداندن لغو فقط با ادمین است. برای تأیید دوباره بزن.</p> : null}
         {err ? <p className="dp-err" role="alert" data-testid="fc-fu-err">{err}</p> : null}</div>

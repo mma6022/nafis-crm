@@ -344,7 +344,7 @@ function CallbackDetail({ item, meta, wide, assignees, busy, run, say, onClose, 
           {meta.canManage && (
             <div className="dsec">
               <h3><NotebookPen size={18} aria-hidden="true" /><label htmlFor={`cbt${item.id}`}>یادداشت</label></h3>
-              <textarea className="cbx-ta" id={`cbt${item.id}`} maxLength={2000} value={note} onChange={e => setNote(e.target.value)}
+              <textarea className="cbx-ta" id={`cbt${item.id}`} value={note} onChange={e => setNote(e.target.value)}
                 placeholder="مثلاً: عصر دوباره تماس بگیرم" data-testid="input-note" />
               <button type="button" className="cbx-secondary" disabled={busy}
                 onClick={() => note.trim() ? run(() => callbacksApi.note(item.id, note), () => { setNote(''); say('یادداشت اضافه شد'); }) : say('اول متن یادداشت را بنویسید')} data-testid="button-add-note">افزودن یادداشت</button>

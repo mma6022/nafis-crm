@@ -1,3 +1,4 @@
+import { noteText } from "./note-text";
 /**
  * REMINDER-B (assistants75, Armita crm-reminder-incoming v1.1 scenes 08–15) — the mandatory due-reminder popup.
  * Behind flag.reminder_must (call_queue_settings, '1' = on; absent/anything else = off) AND only for the expert-lockdown
@@ -20,7 +21,7 @@ import { maskPhonesInText } from "./lead-annotator";
 
 export const RM_FLAG_KEY = "flag.reminder_must";
 export const RM_SNOOZE_MIN = 10;
-export const RM_NOTE_MIN = 10, RM_NOTE_MAX = 80, RM_REASON_MIN = 3, RM_REASON_MAX = 80;
+export const RM_NOTE_MIN = 10, RM_NOTE_MAX = null, RM_REASON_MIN = 3, RM_REASON_MAX = null;
 export const RM_OUTCOMES = ["answered", "no_answer", "follow_up"] as const;
 export const RM_NEXT = ["tomorrow_am", "today_pm", "in_3_days", "none"] as const;
 type U = { id: number; role: string; salespersonId: number | null; fullName?: string | null } | null | undefined;
@@ -155,15 +156,13 @@ export function rmNextAt(preset: string, now = new Date()): Date | null | "inval
 export function rmComplete(u: NonNullable<U>, id: number, b: any, now = new Date()): Err | Record<string, unknown> {
   ensure();
   const iso = now.toISOString();
-  const outcome = String(b?.outcome ?? ""); const note = String(b?.note ?? "").replace(/\s+/g, " ").trim();
+  const outcome = String(b?.outcome ?? ""); const note = noteText(b?.note);
   const next = String(b?.next ?? ""); const reason = String(b?.reason ?? "").replace(/\s+/g, " ").trim();
   const callId = Number(b?.callId);
   if (!(RM_OUTCOMES as readonly string[]).includes(outcome)) return err(422, "outcome_required", "نتیجه‌ی تماس را انتخاب کن.", { allowed: RM_OUTCOMES });
   if ([...note].length < RM_NOTE_MIN) return err(422, "note_required", `یادداشت یک‌خطی حداقل ${RM_NOTE_MIN.toLocaleString("fa-IR")} نویسه باشد.`);
-  if ([...note].length > RM_NOTE_MAX) return err(422, "field_too_long", "یادداشت یک‌خطی حداکثر ۸۰ نویسه است.", { field: "note", max: RM_NOTE_MAX });
   if (!(RM_NEXT as readonly string[]).includes(next)) return err(422, "next_required", "قدم بعد را انتخاب کن.", { allowed: RM_NEXT });
   if (next !== "none" && [...reason].length < RM_REASON_MIN) return err(422, "reason_required", "دلیل یادآور بعدی را بنویس.");
-  if ([...reason].length > RM_REASON_MAX) return err(422, "field_too_long", "دلیل یادآور بعدی حداکثر ۸۰ نویسه است.", { field: "reason", max: RM_REASON_MAX });
   if (!Number.isSafeInteger(callId) || callId <= 0) return err(422, "call_required", "اول تماس را ثبت کن.");
   const at = rmNextAt(next, now);
   if (at === "invalid") return err(422, "next_invalid", "«امروز عصر» دیگر ممکن نیست؛ گزینه‌ی دیگری بزن.");

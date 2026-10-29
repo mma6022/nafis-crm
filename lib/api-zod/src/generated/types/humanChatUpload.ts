@@ -12,7 +12,6 @@ export interface HumanChatUpload {
      * @maxLength 100
      */
   clientId: string;
-  /** @maxLength 6000 */
   text?: string;
   file: Blob;
 }

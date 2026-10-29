@@ -1,3 +1,4 @@
+import { noteText } from "./note-text";
 /**
  * FILES-61 «پرونده‌های من» تک‌کارتی (Mohammad 2026-10-28 10:23 Tehran, t113u). Behind flag.files_carousel (call_queue_settings, seeded '0').
  * «پرونده» = an open loan_applications row of the expert's own (current, post-merge) customer: not deleted, not a pre-registration draft,
@@ -16,10 +17,10 @@ export const FC_FLAG_KEY = "flag.files_carousel";
 /** REL-83: category order (برگشتی → امضا → وثیقه/ضامن → قدیمی → بقیه) + list fallback + late-return bar. Seeded '0' (deploy = no-op). */
 export const FC_CAT_FLAG_KEY = "flag.fc_categories";
 export const FC_EVENTS = { prioritySet: "files_priority_set", followup: "files_followup_logged", rejected: "daily_plan_rejected" } as const;
-export const FC_TEXT_MAX = 80, FC_NOTE_MAX = 80, FC_ROWS_MAX = 200, FC_CLOSE_MIN = 18 * 60;
+export const FC_TEXT_MAX = 80, FC_NOTE_MAX = null, FC_ROWS_MAX = 200, FC_CLOSE_MIN = 18 * 60;
 export const FC_OUTCOME_LABELS: Record<string, string> = { answered: "جواب داد", no_answer: "جواب نداد", follow_up: "پیگیری بعدی", cancelled: "لغو شده" };
 /** FILES-CANCEL (Armita crm-files-cards v1.3, scenes 10–13): a 4th result «لغو شده» with a required reason (≤120). */
-export const FC_CANCEL = "cancelled", FC_CANCEL_REASON_MAX = 120;
+export const FC_CANCEL = "cancelled", FC_CANCEL_REASON_MAX = null;
 export const FC_OUTCOMES: readonly string[] = [...CQ_OUTCOMES, FC_CANCEL];
 export const FC_STAGE_LABELS: Record<string, string> = {
   funder_initial_approval: "تصویب مبلغ وام", draft: "پیش‌نویس",
@@ -376,16 +377,13 @@ export function fcExpertFollowup(u: U, body: any, now = new Date()) {
   ensureFcSchema();
   const sp = Number(u.salespersonId); const day = fcToday(now);
   const fid = Number(body?.fileId); const outcome = String(body?.outcome ?? ""); const cx = outcome === FC_CANCEL;
-  const note = cx ? (typeof body?.cancelReason === "string" ? body.cancelReason.replace(/\s+/g, " ").trim() : "") : (typeof body?.note === "string" ? body.note.trim() : "");
+  const note = cx ? (typeof body?.cancelReason === "string" ? body.cancelReason.replace(/\s+/g, " ").trim() : "") : (typeof body?.note === "string" ? noteText(body.note) : "");
   if (!Number.isSafeInteger(fid) || fid <= 0) return err(400, "bad_type", "fileId", { field: "fileId" });
   if (!FC_OUTCOMES.includes(outcome)) return err(422, "bad_outcome", "نتیجه را انتخاب کن.", { allowed: FC_OUTCOMES });
   if (cx) {
     if (!note) return err(422, "reason_required", "دلیل لغو را بنویس؛ بدون دلیل، پرونده لغو نمی‌شود.", { field: "cancelReason" });
-    if ([...note].length > FC_CANCEL_REASON_MAX) return err(422, "field_too_long", "دلیل لغو حداکثر ۱۲۰ نویسه است.", { field: "cancelReason", max: FC_CANCEL_REASON_MAX });
   } else {
     if (!note) return err(422, "note_required", "یادداشت یک‌خطی لازم است.", { field: "note" });
-    if (/[\r\n]/.test(note)) return err(422, "multi_line", "یادداشت باید یک خط باشد.", { field: "note" });
-    if ([...note].length > FC_NOTE_MAX) return err(422, "field_too_long", "یادداشت حداکثر ۸۰ نویسه است.", { field: "note", max: FC_NOTE_MAX });
   }
   if (cx) { const f = fileById(fid); if (f && Number(f.owner) !== sp) return err(403, "not_own_file", "فقط پرونده‌ی مشتری خودت را می‌توانی لغو کنی."); }
   if (queryRow("SELECT 1 x FROM fc_followups WHERE salesperson_id=? AND day=? AND file_id=?", [sp, day, fid])) return err(409, "already_done", "نتیجه‌ی این پرونده امروز ثبت شده است.");
@@ -451,7 +449,6 @@ export function fcAdminUncancel(u: U, fileIdIn: unknown, body: any, now = new Da
   if (!u || u.role !== "admin") return err(403, "admin_only", "برگرداندن لغو فقط با ادمین است.");
   const fid = Number(fileIdIn); if (!Number.isSafeInteger(fid) || fid <= 0) return err(404, "file_not_found", "پرونده پیدا نشد.");
   const note = typeof body?.reason === "string" ? body.reason.replace(/\s+/g, " ").trim() : "";
-  if ([...note].length > 200) return err(422, "field_too_long", "توضیح حداکثر ۲۰۰ نویسه است.", { field: "reason", max: 200 });
   const at = now.toISOString();
   return runImmediateTransaction(() => {
     const a = queryRow<{ status: string; stage: string }>("SELECT status, stage FROM loan_applications WHERE id=? AND deleted_at IS NULL", [fid]);

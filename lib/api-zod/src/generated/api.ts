@@ -2909,14 +2909,13 @@ export const ListRemindersResponse = zod.array(ListRemindersResponseItem)
  */
 export const createReminderBodySubjectMax = 160;
 
-export const createReminderBodyMessageMax = 2000;
 
 
 
 export const CreateReminderBody = zod.object({
   "customerId": zod.number().int().nullish(),
   "subject": zod.string().min(1).max(createReminderBodySubjectMax),
-  "message": zod.string().min(1).max(createReminderBodyMessageMax),
+  "message": zod.string().min(1),
   "remindAt": zod.string()
 })
 
@@ -3075,7 +3074,6 @@ export const createCallBodyProfilePostalCodeRegExp = new RegExp('^[0-9]{10}$');
 export const createCallBodyProfileBirthDateJalaliRegExp = new RegExp('^[0-9]{4}/[0-9]{2}/[0-9]{2}$');
 export const createCallBodyReminderSubjectMax = 160;
 
-export const createCallBodyReminderMessageMax = 2000;
 
 
 
@@ -3092,7 +3090,7 @@ export const CreateCallBody = zod.object({
 }).nullish(),
   "reminder": zod.object({
   "subject": zod.string().min(1).max(createCallBodyReminderSubjectMax),
-  "message": zod.string().min(1).max(createCallBodyReminderMessageMax),
+  "message": zod.string().min(1),
   "remindAt": zod.string()
 }).nullish()
 })
@@ -3222,15 +3220,13 @@ export const UpdateCallReportParams = zod.object({
 
 export const updateCallReportBodySubjectMax = 160;
 
-export const updateCallReportBodyExpertNotesMax = 10000;
-
 export const updateCallReportBodyExpectedRevisionMin = 0;
 
 
 
 export const UpdateCallReportBody = zod.object({
   "subject": zod.string().max(updateCallReportBodySubjectMax).nullable(),
-  "expertNotes": zod.string().max(updateCallReportBodyExpertNotesMax),
+  "expertNotes": zod.string(),
   "expectedRevision": zod.number().int().min(updateCallReportBodyExpectedRevisionMin)
 })
 
@@ -3426,15 +3422,13 @@ export const UpdateVoipAfterCallReportParams = zod.object({
 
 export const updateVoipAfterCallReportBodySubjectMax = 160;
 
-export const updateVoipAfterCallReportBodyExpertNotesMax = 10000;
-
 export const updateVoipAfterCallReportBodyExpectedRevisionMin = 0;
 
 
 
 export const UpdateVoipAfterCallReportBody = zod.object({
   "subject": zod.string().max(updateVoipAfterCallReportBodySubjectMax).nullable(),
-  "expertNotes": zod.string().max(updateVoipAfterCallReportBodyExpertNotesMax),
+  "expertNotes": zod.string(),
   "expectedRevision": zod.number().int().min(updateVoipAfterCallReportBodyExpectedRevisionMin)
 })
 
@@ -8549,8 +8543,6 @@ export const CompleteVoipAfterCallParams = zod.object({
   "id": zod.coerce.number().int().min(1)
 })
 
-export const completeVoipAfterCallBodyExpertNotesMax = 10000;
-
 export const completeVoipAfterCallBodySubjectMax = 160;
 
 export const completeVoipAfterCallBodyCustomerRequestMax = 1200;
@@ -8561,7 +8553,7 @@ export const completeVoipAfterCallBodyPriorityMax = 3;
 
 
 export const CompleteVoipAfterCallBody = zod.object({
-  "expertNotes": zod.string().max(completeVoipAfterCallBodyExpertNotesMax),
+  "expertNotes": zod.string(),
   "discardHistory": zod.boolean().optional().describe('Close the pending event without customer history; remove only its provisional automatic history and retain the PBX call.'),
   "subject": zod.string().max(completeVoipAfterCallBodySubjectMax).nullish(),
   "customerRequest": zod.string().max(completeVoipAfterCallBodyCustomerRequestMax).nullish(),
@@ -10026,13 +10018,12 @@ export const ListPortalHumanMessagesResponse = zod.object({
 export const sendPortalHumanMessageBodyClientIdMin = 8;
 export const sendPortalHumanMessageBodyClientIdMax = 100;
 
-export const sendPortalHumanMessageBodyTextMax = 6000;
 
 
 
 export const SendPortalHumanMessageBody = zod.object({
   "clientId": zod.string().min(sendPortalHumanMessageBodyClientIdMin).max(sendPortalHumanMessageBodyClientIdMax),
-  "text": zod.string().min(1).max(sendPortalHumanMessageBodyTextMax)
+  "text": zod.string().min(1)
 })
 
 export const SendPortalHumanMessageResponse = zod.object({
@@ -10133,13 +10124,12 @@ export const SendStaffHumanMessageParams = zod.object({
 export const sendStaffHumanMessageBodyClientIdMin = 8;
 export const sendStaffHumanMessageBodyClientIdMax = 100;
 
-export const sendStaffHumanMessageBodyTextMax = 6000;
 
 
 
 export const SendStaffHumanMessageBody = zod.object({
   "clientId": zod.string().min(sendStaffHumanMessageBodyClientIdMin).max(sendStaffHumanMessageBodyClientIdMax),
-  "text": zod.string().min(1).max(sendStaffHumanMessageBodyTextMax)
+  "text": zod.string().min(1)
 })
 
 export const SendStaffHumanMessageResponse = zod.object({

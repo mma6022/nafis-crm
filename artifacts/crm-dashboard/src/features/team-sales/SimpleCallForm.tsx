@@ -1,3 +1,4 @@
+import { AutoGrowTextarea } from '../../components/AutoGrowTextarea';
 import { AlertCircle, AlertTriangle, Ban, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, HelpCircle, Info, Search, Timer, X } from 'lucide-react';
 import { CALL_NOTE_MIN, callNoteLength, callNoteMinMessage } from '@/lib/call-note';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -78,7 +79,6 @@ function migrateCallback(raw: Partial<Draft>): Partial<Draft> {
 const draftKey = (userId: number | undefined, customerId: number) => `nafis-ts-firstcall-draft:${userId ?? 0}:${customerId}`;
 const STEP_NOTE = 6;
 const STEP_PROFILE = 7; // applicant sub-step (between 3 and 4)
-const NO_PLAN_NOTE_MAX = 200;
 /** crm-first-call-edit: the wizard prefilled from «خلاصه‌ی تماس اول» (no call result step, no local draft). */
 export type FirstCallEditMode = {
   fc: FirstCallSummary; canSend: boolean; sendBlockedReason: string | null;
@@ -650,10 +650,10 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
                 <span className="ts-plan-meta">با انتخاب طرح جمع نمی‌شود. اگر مشتری جواب داد و قصد وام دارد، اولویت ۲ می‌گیرد. اگر فقط کنجکاو است یا چک برگشتی دارد، اولویت ۳ می‌گیرد. «ارتقا به اولویت ۱» دستی همچنان ممکن است.</span></span>
               <Ban size={20} className="ts-noplan-ic" aria-hidden="true" />
             </div>
-            {noPlan ? <div className="ts-q ts-noplan-why"><label htmlFor="ts-noplan-note">چرا؟ <span className="ts-muted small">اختیاری، کوتاه</span></label>
-              <input id="ts-noplan-note" className="ts-inp" value={d.noPlanNote} maxLength={NO_PLAN_NOTE_MAX} onChange={(e) => set({ noPlanNote: e.target.value.slice(0, NO_PLAN_NOTE_MAX) })}
+            {noPlan ? <div className="ts-q ts-noplan-why"><label htmlFor="ts-noplan-note">چرا؟ <span className="ts-muted small">اختیاری</span></label>
+              <AutoGrowTextarea id="ts-noplan-note" className="ts-inp" value={d.noPlanNote} onChange={(e) => set({ noPlanNote: e.target.value })}
                 placeholder="مثلاً: سقف طرح‌ها کمتر از مبلغ درخواستی است" data-testid="ts-noplan-note" />
-              <span className="ts-muted small" data-testid="ts-noplan-count">{fa(d.noPlanNote.trim().length)} از {fa(NO_PLAN_NOTE_MAX)} نویسه</span></div> : null}
+              <span className="ts-muted small" data-testid="ts-noplan-count">{fa(d.noPlanNote.trim().length)} نویسه</span></div> : null}
           </div>
         </>}
     </>;
@@ -665,7 +665,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
       <div className="ts-script">{answered ? <><b>قبل از قطع تماس بپرس:</b><p>«برای شما چقدر فوریه؟»</p></>
         : <><b>قبل از قطع تماس:</b><p>یادداشت کامل بنویس تا مشتری مجبور نشه همه‌چیز رو دوباره تعریف کنه.</p></>}</div>
       <div className="ts-q"><label htmlFor="ts-note">یادداشت تماس <span className="req">*</span></label>
-        <VoiceNoteButton value={d.note} onChange={(note) => set({ note: note.slice(0, 4000) })} field="first_call_note" maxLength={4000} testId="ts-note-voice"><textarea id="ts-note" className={`ts-inp ts-note${errors.note ? ' bad' : ''}`} rows={4} value={d.note} onChange={(e) => set({ note: e.target.value.slice(0, 4000) })} placeholder="مثلاً: شغل، مبلغ، ضامن، بهترین ساعت تماس…" aria-invalid={Boolean(errors.note)} aria-describedby="ts-note-meta" data-testid="ts-note" /></VoiceNoteButton>
+        <VoiceNoteButton value={d.note} onChange={(note) => set({ note })} field="first_call_note" testId="ts-note-voice"><AutoGrowTextarea id="ts-note" className={`ts-inp ts-note${errors.note ? ' bad' : ''}`} minRows={4} value={d.note} onChange={(e) => set({ note: e.target.value })} placeholder="مثلاً: شغل، مبلغ، ضامن، بهترین ساعت تماس…" aria-invalid={Boolean(errors.note)} aria-describedby="ts-note-meta" data-testid="ts-note" /></VoiceNoteButton>
         <div className="ts-note-meta" id="ts-note-meta"><span className={errors.note ? 'bad' : ''} role={errors.note ? 'alert' : undefined} data-testid="ts-note-msg">{errors.note ? callNoteMinMessage(noteMin) : `حداقل ${fa(noteMin)} نویسه`}</span><span className={noteLen < noteMin ? (errors.note ? 'bad' : '') : 'okc'} aria-live="polite" data-testid="ts-note-count">{fa(noteLen)} / {fa(noteMin)}</span></div></div>
       {answered ? <div className="ts-answers" data-testid="ts-picked"><span className="ts-muted small">طرح‌های انتخاب‌شده:</span>
         {noPlan ? <NoPlanChip testId="ts-picked-noplan" /> : selectedPlans.length ? selectedPlans.map((p) => <PlanChip key={p.planId} plan={{ name: p.planName, status: p.status === 'depends' ? 'depends' : 'fit', reasons: p.reasons.filter((r) => r.kind === 'unknown').map(planReasonText) }} />)

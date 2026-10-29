@@ -4513,7 +4513,7 @@ components:
       additionalProperties: false
       required: [expertNotes]
       properties:
-        expertNotes: { type: string, maxLength: 10000 }
+        expertNotes: { type: string }
         discardHistory:
           type: boolean
           description: Close the pending event without customer history; remove only its provisional automatic history and retain the PBX call.
@@ -5241,7 +5241,7 @@ components:
       required: [subject, expertNotes, expectedRevision]
       properties:
         subject: { type: ["string", "null"], maxLength: 160 }
-        expertNotes: { type: string, maxLength: 10000 }
+        expertNotes: { type: string }
         expectedRevision: { type: integer, minimum: 0 }
     CallReport:
       type: object
@@ -5312,7 +5312,7 @@ components:
           required: [subject, message, remindAt]
           properties:
             subject: { type: string, minLength: 1, maxLength: 160 }
-            message: { type: string, minLength: 1, maxLength: 2000 }
+            message: { type: string, minLength: 1 }
             remindAt: { type: string }
     Consultation:
       type: object
@@ -6585,7 +6585,7 @@ components:
       properties:
         customerId: { type: ["integer", "null"] }
         subject: { type: string, minLength: 1, maxLength: 160 }
-        message: { type: string, minLength: 1, maxLength: 2000 }
+        message: { type: string, minLength: 1 }
         remindAt: { type: string }
     ReminderUpdate:
       type: object
@@ -7568,13 +7568,13 @@ components:
       additionalProperties: false
       properties:
         clientId: { type: string, minLength: 8, maxLength: 100 }
-        text: { type: string, minLength: 1, maxLength: 6000 }
+        text: { type: string, minLength: 1 }
     HumanChatUpload:
       type: object
       required: [clientId, file]
       properties:
         clientId: { type: string, minLength: 8, maxLength: 100 }
-        text: { type: string, maxLength: 6000 }
+        text: { type: string }
         file: { type: string, format: binary }
     HumanChatMessage:
       type: object

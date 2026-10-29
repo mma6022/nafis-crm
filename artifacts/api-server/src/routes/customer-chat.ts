@@ -128,7 +128,7 @@ for(const [router,mode,prefix] of [[customerChatRouter,true,"/chat"],[staffChatR
   },async(req,res):Promise<void>=>{
     const id=customerId(req,res,mode);if(!id)return;
     const a=actor(res,mode),clientId=req.body?.clientId,text=typeof req.body?.text==="string"?req.body.text.trim():"";
-    if(typeof clientId!=="string"||!/^[a-zA-Z0-9_-]{8,100}$/.test(clientId)||text.length>6000||(!text&&!req.file)||
+    if(typeof clientId!=="string"||!/^[a-zA-Z0-9_-]{8,100}$/.test(clientId)||(!text&&!req.file)||
       Object.keys(req.body??{}).some(k=>!["clientId","text"].includes(k))){
       res.status(400).json({error:"invalid_chat_message",message:"متن یا فایل پیام معتبر نیست."});return;
     }

@@ -159,7 +159,7 @@ function NotNowSheet({ item, reasons, hours, onClose, onDone }: { item: SaItem; 
         <div className="chips">{reasons.map((r) => <button key={r.key} type="button" className={`chip${reason === r.key ? ' on' : ''}`} aria-pressed={reason === r.key} onClick={() => setReason(r.key)} data-testid={`sales-assist-reason-${r.key}`}>{r.label}</button>)}</div>
       </fieldset>
       {needs ? <label className="txt"><span>توضیح کوتاه <em>اختیاری</em></span>
-        <input value={text} maxLength={120} onChange={(e) => setText(e.target.value)} placeholder="مثلاً: گفت بعد از ساعت ۴ زنگ بزنید" data-testid="sales-assist-later-text" />
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="مثلاً: گفت بعد از ساعت ۴ زنگ بزنید" data-testid="sales-assist-later-text" />
         <small>{faNum(len)} / ۱۲۰</small></label> : null}
       <div className="info">{saName(item)} {hours > 0 ? `تا ${faNum(hours)} ساعت` : 'تا فردا صبح'} در پیشنهادها نمی‌آید و نفر بعدی جایش را می‌گیرد. در فهرست مشتریان سر جایش است.</div>
       {err ? <div className="csx-note bad" role="alert"><p>{err}</p></div> : null}

@@ -155,7 +155,7 @@ export function createInternalChatRouter(deps: Dependencies) {
     try {
       const user = actor(res), id = String(req.params.conversationId); members(id,user);
       const text = req.body?.text ?? "", clientId = req.body?.clientId, replyToId = req.body?.replyToId ? idFrom(req.body.replyToId) : null;
-      if (typeof text !== "string" || text.length > 8000 || typeof clientId !== "string" || !/^[a-zA-Z0-9_-]{8,100}$/.test(clientId) || (!text.trim() && !req.file)) throw fail(400, "متن یا شناسه ارسال معتبر نیست.");
+      if (typeof text !== "string" || typeof clientId !== "string" || !/^[a-zA-Z0-9_-]{8,100}$/.test(clientId) || (!text.trim() && !req.file)) throw fail(400, "متن یا شناسه ارسال معتبر نیست.");
       if (replyToId !== null && (!Number.isSafeInteger(replyToId) || !row("SELECT 1 FROM internal_chat_messages WHERE id=? AND conversation_id=?", [replyToId, id]))) throw fail(400, "پیام پاسخ در این گفتگو نیست.");
       const info = req.file ? deps.validateFile(req.file) : null;
       const hash = createHash("sha256").update(JSON.stringify([text,replyToId,info?.mime,req.file?.originalname])).update(req.file?.buffer ?? "").digest("hex");

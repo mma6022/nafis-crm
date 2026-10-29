@@ -1,3 +1,4 @@
+import { noteText } from "./note-text";
 /**
  * HISTORY-A (Armita crm-reminder-incoming v1.0 §2 + «فاز ۲ / نیاز سرور»), experts 8/2/3, own customers only:
  *  - historySummary(): the «.hx» box data (priority, file status, next step, last 3 real calls with note, consultations, «چی بپرسه»).
@@ -16,7 +17,7 @@ import { normalizeFirstCallAnswers, validateAnswers, type QualifierAnswers } fro
 import { FC_STAGE_GROUPS, FC_GROUP_CODES, FC_GROUP_LABELS, FC_WAIT_GROUPS } from "./files-carousel";
 import { realCallSql } from "./real-call";
 
-export const HX_REASON_MAX = 80;
+export const HX_REASON_MAX = null;
 export const HX_SOURCE = "expert_upgrade" as const;
 export const HX_REVERT_MSG = "برگرداندن فقط با ادمین: فقط مدیر می‌تواند اولویت ۱ ارتقایافته را برگرداند یا کم کند.";
 /** Armita v1.1 (scenes 03–07): the line shown in the confirm dialog and on the P1 label. */
@@ -37,9 +38,8 @@ export function hxCloser(a: Actor): boolean {
 /** Reason rule: an explicit `reason` is required for everybody but an admin; trimmed, one line, 1..80 chars (`note` never substitutes). */
 export function upgradeReasonOf(body: any, actor: Actor): { reason: string | null; note: string | null } | { error: string } {
   const clean = (v: unknown) => typeof v === "string" ? v.replace(/\s+/g, " ").trim() : "";
-  const note = clean(body?.note).slice(0, 2000) || null;
+  const note = noteText(body?.note) || null;
   let reason = clean(body?.reason) || null;
-  if (reason && reason.length > HX_REASON_MAX) return { error: `دلیل کوتاه حداکثر ${HX_REASON_MAX} حرف است.` };
   if (!reason && !isAdmin(actor)) return { error: "دلیل کوتاه ارتقا لازم است." };
   return { reason, note };
 }

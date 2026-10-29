@@ -1,3 +1,4 @@
+import { noteText } from "./note-text";
 /**
  * Team-sales model (qualifier Kazemi -> closers Hasani/Ghasemi), server side.
  * Inert unless notification_settings.team_sales_config has {"enabled":true}.
@@ -92,7 +93,7 @@ export function ensureNoPlanColumns(): void {
   if (!cols.some((c) => c.name === "no_plan_fit")) crmDb.exec("ALTER TABLE team_sales_qualifications ADD COLUMN no_plan_fit INTEGER");
   if (!cols.some((c) => c.name === "no_plan_note")) crmDb.exec("ALTER TABLE team_sales_qualifications ADD COLUMN no_plan_note TEXT");
 }
-export const NO_PLAN_NOTE_MAX = 200;
+export const NO_PLAN_NOTE_MAX = null;
 
 export function getTeamSalesConfig(): TeamSalesConfig {
   const row = queryRow<{ value: string }>("SELECT value FROM notification_settings WHERE key=?", [TEAM_SALES_CONFIG_KEY]);
@@ -567,10 +568,8 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
   // crm-no-plan-option: only on an answered first-call form; exclusive with selected plans; optional short note.
   const noPlanFit = firstCall && answers.callResult === "answered" && answers.noPlanFit === true;
   if (noPlanNote != null && typeof noPlanNote !== "string") throw new TeamSalesError(400, "توضیح «چرا؟» معتبر نیست.");
-  const cleanNoPlanNote = noPlanFit ? String(noPlanNote ?? "").trim().replace(/\s+/g, " ") || null : null;
+  const cleanNoPlanNote = noPlanFit ? noteText(noPlanNote) || null : null;
   if (!noPlanFit && String(noPlanNote ?? "").trim()) throw new TeamSalesError(400, "توضیح «چرا؟» فقط با گزینه‌ی «هیچ طرحی نمی‌خوره» ثبت می‌شود.");
-  if (cleanNoPlanNote && [...cleanNoPlanNote].length > NO_PLAN_NOTE_MAX)
-    throw new TeamSalesError(400, `توضیح «چرا؟» حداکثر ${NO_PLAN_NOTE_MAX} نویسه است.`);
   if (noPlanFit && Array.isArray(selectedPlans) && selectedPlans.length)
     throw new TeamSalesError(400, "«هیچ طرحی به این مشتری نمی‌خوره» با انتخاب طرح هم‌زمان ممکن نیست؛ یکی را بردارید.");
   const cleanNote = String(note ?? "").trim();
@@ -782,16 +781,14 @@ export function editFirstCall(customerId: number, actor: Actor, rawAnswers: Qual
   const noPlanFit = answers.noPlanFit === true;
   const { selectedPlans, noPlanNote } = opts;
   if (noPlanNote != null && typeof noPlanNote !== "string") throw new TeamSalesError(400, "توضیح «چرا؟» معتبر نیست.");
-  const cleanNoPlanNote = noPlanFit ? String(noPlanNote ?? "").trim().replace(/\s+/g, " ") || null : null;
+  const cleanNoPlanNote = noPlanFit ? noteText(noPlanNote) || null : null;
   if (!noPlanFit && String(noPlanNote ?? "").trim()) throw new TeamSalesError(400, "توضیح «چرا؟» فقط با گزینه‌ی «هیچ طرحی نمی‌خوره» ثبت می‌شود.");
-  if (cleanNoPlanNote && [...cleanNoPlanNote].length > NO_PLAN_NOTE_MAX) throw new TeamSalesError(400, `توضیح «چرا؟» حداکثر ${NO_PLAN_NOTE_MAX} نویسه است.`);
   if (noPlanFit && Array.isArray(selectedPlans) && selectedPlans.length)
     throw new TeamSalesError(400, "«هیچ طرحی به این مشتری نمی‌خوره» با انتخاب طرح هم‌زمان ممکن نیست؛ یکی را بردارید.");
   const noteMin = opts.noteMin ?? cfg.noteMinLength;
   const cleanNote = String(note ?? "").trim();
   const noteErr = callNoteError(cleanNote, noteMin);
   if (noteErr) throw new TeamSalesError(400, noteErr);
-  if (cleanNote.length > 4000) throw new TeamSalesError(400, "یادداشت تماس حداکثر ۴۰۰۰ نویسه است.");
   const plans = activePlans();
   return runImmediateTransaction(() => {
     const c = loadCustomer(customerId);

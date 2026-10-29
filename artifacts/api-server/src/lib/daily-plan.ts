@@ -1,3 +1,4 @@
+import { noteText } from "./note-text";
 /**
  * crm-daily-plan «کارهای امروز» (Armita v1.2, PM decisions 1–14). Everything is behind flag.daily_plan (seeded OFF);
  * flag.assistant_full_scope and flag.daily_plan_discipline are separate and OFF too. While flag.daily_plan is OFF every
@@ -29,7 +30,7 @@ export const DP_BOOST_MAX = 20;
 export const DP_MOVE_MAX = 2;
 export const DP_MOVE_LAST_MIN = 17 * 60 + 45;
 export const DP_START_MIN = 8 * 60, DP_CLOSE_MIN = 18 * 60;
-export const DP_REASON_MAX = 80, DP_KEYNOTE_MAX = 120, DP_MOVE_TEXT_MAX = 60, DP_CAP_REASON_MAX = 120, DP_ROWS_MAX = 200, DP_CAP_MAX = 200;
+export const DP_REASON_MAX = 80, DP_KEYNOTE_MAX = 120, DP_MOVE_TEXT_MAX = null, DP_CAP_REASON_MAX = 120, DP_ROWS_MAX = 200, DP_CAP_MAX = 200;
 export const DP_AUTO_BATCH = 5;
 export const DP_IDEM_HOURS = 48;
 export const DP_OUT_OF_LIST_SUBJECT = "خارج از لیست · تماس ورودی";
@@ -933,7 +934,6 @@ export function dpMove(user: CqUser & { fullName?: string | null; username?: str
   const reason = String(body?.reason ?? ""); if (!DP_MOVE_REASONS[reason]) return err(422, "reason_required", "دلیل جابه‌جایی را انتخاب کن.", { allowed: Object.keys(DP_MOVE_REASONS) });
   const text = String(body?.text ?? "").replace(/\s+/g, " ").trim();
   if (reason === "other" && !text) return err(422, "reason_text_required", "دلیل را کوتاه بنویس.");
-  if ([...text].length > DP_MOVE_TEXT_MAX) return err(422, "field_too_long", `حداکثر ${faDigits(String(DP_MOVE_TEXT_MAX))} نویسه.`, { field: "text", max: DP_MOVE_TEXT_MAX });
   const today = dpToday(now); const last = atTehran(today, DP_MOVE_LAST_MIN);
   let to: Date | null = null; const raw = String(body?.to ?? body?.at ?? "");
   if (/^\d{1,2}:\d{2}$/.test(raw)) { const [h, mi] = raw.split(":").map(Number); to = atTehran(today, h * 60 + mi); } else if (raw) to = new Date(raw);
@@ -958,9 +958,9 @@ export function dpPreCall(body: any, user: CqUser, now = new Date()): DpErr | nu
   if (!body || typeof body !== "object") return null;
   delete body.__dp; delete body.__dpItem;
   const p = dpActiveFor(user, now); if (!p) return null;
-  const outcome = String(body.outcome ?? ""); const note = String(body.oneLineNote ?? "").replace(/\s+/g, " ").trim();
+  const outcome = String(body.outcome ?? ""); const note = noteText(body.oneLineNote);
   const need = () => !CQ_OUTCOMES.includes(outcome as any) ? err(422, "outcome_required", "نتیجه‌ی تماس را انتخاب کن.", { allowed: CQ_OUTCOMES })
-    : !note ? err(422, "note_required", "یادداشت یک‌خطی را بنویس.") : [...note].length > CQ_LIMITS.oneLineMax ? err(422, "field_too_long", "یادداشت یک‌خطی حداکثر ۸۰ نویسه است.", { field: "oneLineNote", max: CQ_LIMITS.oneLineMax }) : null;
+    : !note ? err(422, "note_required", "یادداشت یک‌خطی را بنویس.") : null;
   // LOGGED-CALL-63: the customer's open item of today's plan (current first), if any.
   const ownOpen = () => items(p.id, "customer_id=? AND status IN ('current','pending')", [Number(body.customerId)])
     .sort((a, b) => (a.status === "current" ? 0 : 1) - (b.status === "current" ? 0 : 1) || a.id - b.id)[0];

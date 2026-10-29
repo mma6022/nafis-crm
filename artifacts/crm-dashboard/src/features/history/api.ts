@@ -9,7 +9,8 @@ export type HistorySummary = {
   isP1: boolean; upgradedByExpert: boolean; canUpgrade: boolean; handoff: boolean;
 };
 export type UpgradeResult = { customerId: number; priority: 1; kept: boolean; message: string; closerName?: string; salespersonName?: string; dueLabel?: string };
-export const HX_REASON_MAX = 80;
+/** NOTES-NOMAX: no maximum on the upgrade reason. */
+export const HX_REASON_MAX: number | null = null;
 
 const base = () => (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
 const fa = (s: unknown) => typeof s === 'string' && /[\u0600-\u06ff]/.test(s);

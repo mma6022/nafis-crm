@@ -620,7 +620,7 @@ export function recordDataAccuracy(customerId: number, actor: Actor, body: any) 
   const correct = body?.correct;
   if (typeof correct !== "boolean") throw new TeamCommissionError(400, "مقدار «درست بود / نبود» لازم است.", { correct: "لازم است." });
   let reason: AccuracyReason | null = null;
-  const note = String(body?.note ?? "").trim().slice(0, 2000) || null;
+  const note = String(body?.note ?? "").trim() || null;
   if (!correct) {
     if (!ACCURACY_REASONS.includes(body?.reason)) throw new TeamCommissionError(400, "یک دلیل انتخاب کن.", { reason: "یک دلیل انتخاب کن." });
     reason = body.reason;

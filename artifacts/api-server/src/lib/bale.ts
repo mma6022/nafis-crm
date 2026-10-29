@@ -627,7 +627,7 @@ export function createBale(deps: BaleDeps) {
   };
   /* ================= «پاسخ خودکار دستیارها در بله» (lib/bale-autoreply.ts) — everything OFF by default ================= */
   const arTextCheck = (t: unknown): string | null => {
-    const s = String(t ?? "").trim(); if (!s) return "empty"; if (s.length > AR_TEXT_MAX) return "too_long";
+    const s = String(t ?? "").trim(); if (!s) return "empty";
     const tp = baleTextProblem(s, (() => { try { const l = JSON.parse(setting("banned_words")); return Array.isArray(l) ? l.map(String) : []; } catch { return []; } })()); if (tp) return tp;
     if (arVoice(s).problem) return "signature";
     // Admin-written fixed texts: a vague day word (the PM's «فردا صبح پیگیری می‌کنم») is allowed; promises, amounts, anger words are not.
@@ -689,7 +689,6 @@ export function createBale(deps: BaleDeps) {
     if (q.status !== "pending") return void res.status(409).json({ error: "not_pending", message: "این سؤال دیگر منتظر جواب نیست." });
     const text = String(req.body?.text ?? "").trim(); const save = req.body?.save === true;
     if (!text) return void res.status(422).json({ error: "empty", message: "جواب خالی است." });
-    if (text.length > AR_TEXT_MAX) return void res.status(422).json({ error: "too_long", message: "جواب خیلی بلند است." });
     // A learned answer may never carry an amount or a promise. AR30c (PM): that no longer refuses the answer — it is sent as usual
     // (every outbox check, cap and the amount disclaimer unchanged) and only the learned save is skipped. Other save problems still refuse.
     let saveSkipped: "learned_amount" | "learned_promise" | null = null;

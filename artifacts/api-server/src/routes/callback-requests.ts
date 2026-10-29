@@ -105,7 +105,7 @@ router.patch("/callback-requests/:id/assign", ...manage, (req, res): void => {
 router.post("/callback-requests/:id/notes", ...manage, (req, res): void => {
   const id = idOf(req);
   const text = (req.body as { text?: unknown } | undefined)?.text;
-  if (!id || typeof text !== "string" || !text.trim() || text.length > MAX_NOTE) {
+  if (!id || typeof text !== "string" || !text.trim()) {
     res.status(400).json({ error: "invalid" });
     return;
   }

@@ -326,7 +326,7 @@ function ConversationPane({ conv, myId, title, onBack }: { conv: TeamConversatio
         </> : <>
           <button type="button" className="ib" disabled={busy || !!editing} aria-label="پیوست فایل" onClick={() => fileInput.current?.click()} data-testid="button-team-attach"><Paperclip /></button>
           <div className={`fld ${focus ? 'on' : ''}`}>
-            <textarea rows={1} value={text} disabled={busy} maxLength={4000} placeholder={editing ? 'متن ویرایش‌شده…' : file ? 'توضیح فایل (اختیاری)…' : 'پیام…'} aria-label="متن پیام" onFocus={() => setFocus(true)} onBlur={() => setFocus(false)} onChange={e => onType(e.target.value)} onKeyDown={e => { if (e.key === 'Escape' && editing) cancelEdit(); if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} data-testid={editing ? 'input-edit-message' : 'input-team-text'} />
+            <textarea rows={1} value={text} disabled={busy} placeholder={editing ? 'متن ویرایش‌شده…' : file ? 'توضیح فایل (اختیاری)…' : 'پیام…'} aria-label="متن پیام" onFocus={() => setFocus(true)} onBlur={() => setFocus(false)} onChange={e => onType(e.target.value)} onKeyDown={e => { if (e.key === 'Escape' && editing) cancelEdit(); if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); } }} data-testid={editing ? 'input-edit-message' : 'input-team-text'} />
             <button type="button" className="ib" disabled={busy} aria-label="ایموجی" aria-expanded={emojiOpen} onClick={() => setEmojiOpen(v => !v)} data-testid="button-team-emoji"><Smile /></button>
           </div>
         </>}

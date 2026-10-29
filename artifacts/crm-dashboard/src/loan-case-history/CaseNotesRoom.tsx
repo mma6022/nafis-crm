@@ -173,7 +173,7 @@ export function CaseNotesRoom({ applicationId, user }: { applicationId: number; 
         <span>{file.name}<small>{sizeLabel(file.size)}</small></span>
         <button type="button" disabled={sending} onClick={() => { setFile(null); clientId.current = null; setFailed(false); }} aria-label="حذف پیوست" data-testid="button-notes-remove-file"><Trash2 size={15} /></button>
       </div>}
-      <textarea rows={4} value={text} disabled={sending} maxLength={6000} placeholder="یادداشت درباره این پرونده…" aria-label="متن یادداشت" data-testid="input-notes-text"
+      <textarea rows={4} value={text} disabled={sending} placeholder="یادداشت درباره این پرونده…" aria-label="متن یادداشت" data-testid="input-notes-text"
         onChange={e => { setText(e.target.value); clientId.current = null; setFailed(false); }}
         onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void send(); } }} />
       <div className="cn-actions">

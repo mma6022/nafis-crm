@@ -15,10 +15,7 @@ export type CallInputReminder = {
      * @maxLength 160
      */
   subject: string;
-  /**
-     * @minLength 1
-     * @maxLength 2000
-     */
+  /** @minLength 1 */
   message: string;
   remindAt: string;
 } | null;

@@ -25,7 +25,7 @@ export function LeadIntakePanel({ customerId }: { customerId: number }) {
   const doFlag = async () => { setTried(true); if (!urgentPickReady(pick, max)) return;
     const r = await run(() => flagUrgent(customerId, pick.reasonCode, pick.reasonCode === 'other' ? pick.reasonText.trim() : undefined), 'علامت فوری ثبت شد.');
     if (r) { setFlagOpen(false); setTried(false); setPick({ on: true, reasonCode: '', reasonText: '' }); } };
-  const clearReady = Boolean(clr.code) && (clr.code !== 'other' || clr.note.trim().length > 0) && [...clr.note].length <= cmax;
+  const clearReady = Boolean(clr.code) && (clr.code !== 'other' || clr.note.trim().length > 0);
   const doClear = async () => { setTried(true); if (!clearReady) return;
     const r = await run(() => clearUrgent(customerId, clr.code, clr.note.trim() || undefined), 'علامت فوری برداشته شد.');
     if (r) { setClearOpen(false); setTried(false); setClr({ code: '', note: '' }); } };
@@ -49,7 +49,7 @@ export function LeadIntakePanel({ customerId }: { customerId: number }) {
       <h3>ثبت‌کننده: {card.registrar.name}{card.isNew ? <span className="li-tag new" data-testid="li-new">جدید</span> : null}</h3>
       <div className="li-meta"><span>منبع: <b>{card.leadSourceLabel}{card.leadSourceOther ? ` (${card.leadSourceOther})` : ''}</b></span>
         <span>رتبه‌ی اعتباری: <b data-testid="li-rank">{card.rankLabel}</b></span><span>{faWhen(card.registeredAt)}</span></div>
-      {card.note ? <p className="li-note" data-testid="li-note">{card.note}</p> : null}
+      {card.note ? <p className="li-note" style={{ whiteSpace: 'pre-line' }} data-testid="li-note">{card.note}</p> : null}
       {card.canEditRank ? (rankOpen ? <div className="li-chips" role="radiogroup" aria-label="رتبه‌ی اعتباری">{(o.data?.ranks ?? []).map((r) =>
         <button key={r.key} type="button" className="csx-chip" role="radio" aria-checked={card.rank === r.key} disabled={busy}
           onClick={async () => { if (await run(() => setRank(customerId, r.key), 'رتبه به‌روز شد.')) setRankOpen(false); }} data-testid={`li-rank-set-${r.key}`}>{r.label}</button>)}</div>
@@ -72,8 +72,8 @@ export function LeadIntakePanel({ customerId }: { customerId: number }) {
         <div className="li-chips">{(o.data?.clearReasons ?? []).map((r) => <button type="button" key={r.code} className="csx-chip" role="radio" aria-checked={clr.code === r.code}
           onClick={() => setClr({ ...clr, code: r.code })} data-testid={`li-clear-${r.code}`}>{r.label}</button>)}</div></div>
       <div className="field"><label htmlFor="li-clear-note">توضیح {clr.code === 'other' ? '(الزامی)' : '(اختیاری)'}</label>
-        <input id="li-clear-note" maxLength={cmax} value={clr.note} onChange={(e) => setClr({ ...clr, note: e.target.value })} data-testid="li-clear-note" />
-        <span className="li-count">{faNum([...clr.note].length)} / {faNum(cmax)}</span></div>
+        <input id="li-clear-note" value={clr.note} onChange={(e) => setClr({ ...clr, note: e.target.value })} data-testid="li-clear-note" />
+        <span className="li-count">{faNum([...clr.note].length)} نویسه</span></div>
       {tried && !clearReady ? <div className="csx-note warn" role="status"><p>{!clr.code ? 'یکی از دلیل‌ها را بزن.' : 'برای «سایر» یک توضیح کوتاه بنویس.'}</p></div> : null}
       <p className="hint">برداشتن علامت اعلانی نمی‌فرستد.</p>
       {err ? <div className="csx-note bad" role="alert"><p>{err}</p></div> : null}

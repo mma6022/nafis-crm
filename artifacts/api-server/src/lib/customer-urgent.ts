@@ -47,7 +47,7 @@ export function parseUrgentReason(body: any, allowFree = false): { reason: strin
   return { reason: `سایر: ${text}`, code: "other" };
 }
 /** v1.1 (§0-14/15): staff flag — one of the two fixed reasons, or «سایر» + a short sentence (≤ 80). The assistant runner keeps 3–280. */
-export const URGENT_STAFF_OTHER_MAX = 80;
+export const URGENT_STAFF_OTHER_MAX = null;
 export function parseStaffUrgentReason(body: any): { reason: string; code: string } | { error: string } {
   const code = typeof body?.reasonCode === "string" ? body.reasonCode.trim() : "";
   if (!code) return { error: "reason_required" };
@@ -56,7 +56,6 @@ export function parseStaffUrgentReason(body: any): { reason: string; code: strin
   if (opt.code !== "other") return { reason: opt.label, code };
   const text = typeof body?.reasonText === "string" ? body.reasonText.trim() : "";
   if (!text) return { error: "other_text_required" };
-  if ([...text].length > URGENT_STAFF_OTHER_MAX) return { error: "other_text_too_long" };
   return { reason: `سایر: ${text}`, code };
 }
 /** v1.1 §0-20: manual clear reasons (admin only). auto_call is written only by the call-result trigger (lib/lead-intake.ts). */
@@ -66,7 +65,7 @@ export const URGENT_CLEAR_REASONS = [
   { code: "mistake", label: "اشتباه زده شده" },
   { code: "other", label: "سایر" },
 ] as const;
-export const URGENT_CLEAR_NOTE_MAX = 80;
+export const URGENT_CLEAR_NOTE_MAX = null;
 export type UrgentBellOpts = { ownerOnly?: boolean; noBell?: boolean; reasonCode?: string | null; clearReasonCode?: string | null; clearNote?: string | null };
 
 export type UrgentActor = { kind: "user" | "assistant" | "system"; userId?: number | null; assistantId?: number | null; label?: string | null };

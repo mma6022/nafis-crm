@@ -23,7 +23,7 @@ export const LEAD_ANNOTATOR = "lead_annotator";
 export const LEAD_ANNOTATOR_NOTE_LABEL = "اینستاگرام";
 export const LEAD_ANNOTATOR_BLOCKED_USERS = [29];
 export const LEAD_ANNOTATOR_BLOCKED_SALESPERSONS = [5, 19, 20];
-export const NOTE_MAX = 1000;
+export const NOTE_MAX = null;
 
 export function ensureLeadAnnotatorSchema(db: DatabaseSync): void {
   db.exec(`CREATE TABLE IF NOT EXISTS access_capabilities (

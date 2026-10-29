@@ -372,7 +372,7 @@ export function CallForm({ customers, salespersons, pending, error, errorDetail,
                 </div>
                 <div className="field full">
                   <label htmlFor="reminder-message">متن یادآور</label>
-                  <textarea id="reminder-message" value={reminder.message} maxLength={2000} onChange={(event) => setReminder({ ...reminder, message: event.target.value })} data-testid="textarea-reminder-message" />
+                  <textarea id="reminder-message" value={reminder.message} onChange={(event) => setReminder({ ...reminder, message: event.target.value })} data-testid="textarea-reminder-message" />
                 </div>
                 <div className="field">
                   <label>تاریخ شمسی</label>
@@ -664,7 +664,7 @@ export function CreateReminderForm({ onClose }: { onClose: () => void }) {
           </div>
           <div className="field full">
             <label htmlFor="header-reminder-message">متن یادآور</label>
-            <textarea id="header-reminder-message" value={form.message} maxLength={2000} onChange={(event) => setForm({ ...form, message: event.target.value })} data-testid="textarea-header-reminder-message" />
+            <textarea id="header-reminder-message" value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} data-testid="textarea-header-reminder-message" />
           </div>
           <div className="field">
             <label>تاریخ شمسی</label>

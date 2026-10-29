@@ -33,7 +33,7 @@ export function TransferCheckBox({ tc, pending, onOverride, actionLabel = 'ان�
     </div>
     {!block ? <div style={{ width: '100%' }}>
       <label htmlFor="ts-tc-reason" className="ts-lbl">دلیل نادیده گرفتن شرط <span className="ts-muted">(اجباری؛ در گزارش مدیر ثبت می‌شود)</span></label>
-      <textarea id="ts-tc-reason" className="ts-inp" rows={2} value={reason} onChange={(e) => setReason(e.target.value.slice(0, 500))} data-testid="ts-tc-reason" />
+      <textarea id="ts-tc-reason" className="ts-inp" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} data-testid="ts-tc-reason" />
       {tc.reasonError ? <div data-testid="ts-tc-reason-error">{tc.reasonError}</div> : null}
       <button type="button" className="ts-primary" disabled={pending || r.length < REASON_MIN} onClick={() => onOverride(r)} data-testid="ts-tc-override">{pending ? 'در حال ثبت…' : actionLabel}</button>
     </div> : null}

@@ -232,7 +232,7 @@ function MoveSheet({ d, cur, onClose, onMoved }: { d: Working; cur: DpItem; onCl
         {!chips.length ? <p className="dp-hint">دیگر ساعتی تا ۱۷:۴۵ نمانده؛ نتیجه‌ی تماس را ثبت کن.</p> : null}</div>
       <div className="field"><label>دلیل <span className="req">*</span></label>
         <div className="dp-times">{d.moveReasons.map((r) => <button key={r.code} type="button" className={`dp-time${reason === r.code ? ' on' : ''}`} aria-pressed={reason === r.code} onClick={() => setReason(r.code)} data-testid={`dp-mv-r-${r.code}`}>{r.label}</button>)}</div>
-        {reason === 'other' ? <input value={text} maxLength={60} onChange={(e) => setText(e.target.value)} placeholder="یک خط، حداکثر ۶۰ نویسه" aria-label="توضیح" data-testid="dp-mv-text" /> : null}</div>
+        {reason === 'other' ? <input value={text} onChange={(e) => setText(e.target.value)} placeholder="توضیح دلیل" aria-label="توضیح" data-testid="dp-mv-text" /> : null}</div>
       <ul className="dp-rules"><li>کار در ساعت انتخابی برمی‌گردد و درست بعد از کار جاری می‌نشیند، با برچسب «جابه‌جاشده».</li>
         <li>هر جابه‌جایی با ساعت و دلیل در خط زمانی پرونده ثبت می‌شود و در گزارش مدیر شمرده می‌شود.</li>
         <li>هر کار حداکثر ۲ بار؛ آخرین ساعت ۱۷:۴۵. رد کردن یا حذف کار ممکن نیست.</li>

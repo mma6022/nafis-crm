@@ -89,7 +89,7 @@ export function cqReceiverCheck(toSp: number, now = new Date()): ReceiverCheck {
 let overrideCtx: { reason: string | null } | null = null;
 export function withTransferOverride<T>(reason: unknown, fn: () => T): T {
   const prev = overrideCtx;
-  overrideCtx = { reason: typeof reason === "string" ? reason.trim().slice(0, TRANSFER_REASON_MAX + 1) || null : null };
+  overrideCtx = { reason: typeof reason === "string" ? reason.trim() || null : null };
   try { return fn(); } finally { overrideCtx = prev; }
 }
 
@@ -130,9 +130,9 @@ export function cqTransferGate(a: { customerId: number; customerName: string | n
   const canOverride = check.eligible && (s.transferMode === "warn" || isAdmin);
   const payload = (reasonError?: string): TransferCheckPayload => ({ ...check, customerId: a.customerId, canOverride, needReason: canOverride, ...(reasonError ? { reasonError } : {}) });
   if (canOverride && reason) {
-    if (reason.length < TRANSFER_REASON_MIN || reason.length > TRANSFER_REASON_MAX) {
-      throw new TransferCheckError(400, `دلیل نادیده گرفتن شرط باید بین ${fa(TRANSFER_REASON_MIN)} تا ${fa(TRANSFER_REASON_MAX)} نویسه باشد.`,
-        payload("دلیل کوتاه یا بلند است."), row("blocked", reason.slice(0, TRANSFER_REASON_MAX)));
+    if (reason.length < TRANSFER_REASON_MIN) {
+      throw new TransferCheckError(400, `دلیل نادیده گرفتن شرط باید حداقل ${fa(TRANSFER_REASON_MIN)} نویسه باشد.`,
+        payload("دلیل کوتاه است."), row("blocked", reason));
     }
     const r = row("override", reason); logRow(r); signalPctUnknown(r);
     return { outcome: "override", reason, actorRole: a.actor.role };

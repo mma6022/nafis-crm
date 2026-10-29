@@ -157,7 +157,7 @@ function RejectWizard({ s, onClose, onDone }: { s: Visible; onClose: () => void;
         </div>
         <div className="tc-fld">
           <label className="tc-lbl" htmlFor="tc-note">توضیح {reason === 'other' ? <span className="tc-req">*</span> : <span className="tc-muted">(اختیاری)</span>}</label>
-          <textarea id="tc-note" className="tc-inp" value={note} onChange={(e) => setNote(e.target.value.slice(0, 2000))} placeholder="چه چیزی با فرم تماس اول نمی‌خواند؟" aria-invalid={noteErr || undefined} aria-describedby={noteErr ? 'tc-ne' : undefined} data-testid="tc-reject-note" />
+          <textarea id="tc-note" className="tc-inp" value={note} onChange={(e) => setNote(e.target.value)} placeholder="چه چیزی با فرم تماس اول نمی‌خواند؟" aria-invalid={noteErr || undefined} aria-describedby={noteErr ? 'tc-ne' : undefined} data-testid="tc-reject-note" />
           {noteErr ? <p className="tc-ferr" id="tc-ne" role="alert"><AlertCircle size={16} /> برای «سایر» توضیح لازم است (حداقل ۱۰ حرف).</p> : null}
         </div>
         <div className="tc-foot"><button type="button" className="tc-ghost" onClick={onClose}>انصراف</button><button type="button" className="tc-primary" onClick={next} data-testid="tc-reject-next">بعدی <ChevronLeft size={18} /></button></div>

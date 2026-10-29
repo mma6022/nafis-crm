@@ -11,7 +11,7 @@ import { createPortal } from 'react-dom';
 import { fetchNextCloser, TeamSalesApiError } from '@/features/team-sales/api';
 import { FIRST_CALL_FIELD_LABELS, firstCallValueText } from '@/features/team-sales/first-call-edit-labels';
 import { RetireeHint, SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
-import { HX_REASON_MAX, callHistoryKey, fileCardKey, historyKey, promoteToP1, useCallHistory, useFileCard, type FileCard, type HistorySummary } from './api';
+import { callHistoryKey, fileCardKey, historyKey, promoteToP1, useCallHistory, useFileCard, type FileCard, type HistorySummary } from './api';
 import './history.css';
 
 const FA = '۰۱۲۳۴۵۶۷۸۹';
@@ -46,7 +46,7 @@ export function C3History({ customerId }: { customerId: number }) {
       : <ol className="calls" data-testid="c3-calls">{items.map((c) => <li key={c.id}>
         <div className="clh"><span className="cd">{jAt(c.at)}</span><span className={`hx-tg ${c.tone}`}>{c.result}</span></div>
         {c.by ? <span className="ce"><User size={13} aria-hidden="true" /> {c.by}</span> : null}
-        {c.note ? <p>{c.note}</p> : null}</li>)}</ol>}
+        {c.note ? <p style={{ whiteSpace: 'pre-line' }}>{c.note}</p> : null}</li>)}</ol>}
   </Side>;
 }
 
@@ -132,9 +132,9 @@ export function C3Upgrade({ customerId, name, d, onUpgraded }: { customerId: num
     <h3 id="c3-upz-t"><ArrowUp size={18} aria-hidden="true" /> ارتقا به اولویت یک؟</h3>
     <p>{d.handoff ? `${name} از ${from} به اولویت ۱ می‌رود و به ${closer ?? 'کارشناس پیگیری'} سپرده می‌شود.` : `${name} از ${from} به اولویت ۱ می‌رود و در کارهای روزهای بعد جلوتر می‌آید.`} مدیر تیم این تغییر را در گزارش می‌بیند. برگرداندن فقط با ادمین.</p>
     <label htmlFor="c3-up-reason">دلیل کوتاه<span className="req">*</span></label>
-    <input id="c3-up-reason" className="ts-inp" autoFocus value={reason} maxLength={HX_REASON_MAX} onChange={(e) => { setReason(e.target.value.slice(0, HX_REASON_MAX)); setError(''); }}
+    <input id="c3-up-reason" className="ts-inp" autoFocus value={reason} onChange={(e) => { setReason(e.target.value); setError(''); }}
       placeholder="مثلاً «فیش را فرستاد و این هفته وام لازم دارد»" aria-required="true" data-testid="c3-up-reason" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void go(); } }} />
-    <span className="hx-cnt">{faN(t.length)} / {faN(HX_REASON_MAX)}</span>
+    <span className="hx-cnt">{faN(t.length)} نویسه</span>
     {error ? <p className="hx-err" role="alert" data-testid="c3-up-error">{error}</p> : null}
     <div className="hx-cfb cfb"><button type="button" className="btn btn-primary" onClick={() => void go()} disabled={pending || !t} data-testid="c3-up-go"><Check size={18} /> {pending ? 'در حال ارتقا…' : 'ارتقا بده'}</button>
       <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)} disabled={pending} data-testid="c3-up-cancel">انصراف</button></div>

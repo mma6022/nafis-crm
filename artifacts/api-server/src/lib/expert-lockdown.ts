@@ -231,7 +231,7 @@ export function elNewCheck(u: U, raw: unknown, now = new Date()): ElNewResult {
   log(u, { action: "new_check", kind: "token", hash, result: "new" }, at);
   return { result: "new" };
 }
-export const EL_NEW_NAME_MAX = 80, EL_NEW_NOTE_MAX = 500;
+export const EL_NEW_NAME_MAX = 80, EL_NEW_NOTE_MAX = null;
 /** Last step: create. Re-checks the duplicate on the server; owner = this expert, registered_by = this expert, lead source «تماس ورودی»,
  *  «قانون ثبت» not applied, no priority (no non-P1 hand-off), not urgent, and NO notifyNewCustomer (no Telegram / SMS / Bale / welcome / intro). */
 export function elNewCreate(u: U, body: Record<string, unknown> | undefined, now = new Date()): ElNewResult {
@@ -246,8 +246,6 @@ export function elNewCreate(u: U, body: Record<string, unknown> | undefined, now
     return { result: "invalid", field: "name", message: "نام و نام خانوادگی مشتری را کامل بنویس (بدون عدد)." };
   }
   const note = typeof body?.description === "string" ? body.description.trim() : "";
-  if ([...note].length > EL_NEW_NOTE_MAX) { log(u, { action: "new_create", kind: "token", hash, result: "invalid" }, at);
-    return { result: "invalid", field: "description", message: "توضیح حداکثر ۵۰۰ نویسه است." }; }
   const dupe = phoneOwner(phone);
   if (dupe) { log(u, { action: "new_create", kind: "token", hash, result: "duplicate", customerId: Number(dupe.id), ownerSp: dupe.sp == null ? null : Number(dupe.sp) }, at); return dupResult(u, dupe); }
   let id: number;

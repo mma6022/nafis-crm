@@ -507,7 +507,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
           <div className="due-reminder">
             <div className="due-reminder-icon"><BellRing size={22} /></div>
             {dueReminder.customerName ? <><div className="due-reminder-customer">مشتری: <CustomerName id={dueReminder.customerId} name={dueReminder.customerName} /></div><div className="due-reminder-customer">کارشناس پرونده: {dueReminder.customerSalespersonName || 'بدون تخصیص'}</div></> : null}
-            <p>{dueReminder.message}</p>
+            <p style={{ whiteSpace: 'pre-line' }}>{dueReminder.message}</p>
             <div className="form-footer">
               <button className="btn btn-primary" type="button" onClick={() => setDueReminder(null)} data-testid="button-close-due-reminder">متوجه شدم</button>
               <Link className="btn btn-ghost" href="/reminders" onClick={() => setDueReminder(null)}>مشاهده یادآورها</Link>

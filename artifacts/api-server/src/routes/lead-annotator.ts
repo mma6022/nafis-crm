@@ -89,7 +89,7 @@ router.get("/lead-annotator/customers/:id/case", gate, (req, res): void => {
 router.post("/lead-annotator/customers/:id/notes", gate, (req, res): void => {
   const u = me(res); const id = Number(req.params.id);
   const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
-  if (!body || body.length > NOTE_MAX) { res.status(422).json({ error: "bad_note" }); return; }
+  if (!body) { res.status(422).json({ error: "bad_note" }); return; }
   if (!(Number.isSafeInteger(id) && id > 0 && customer(id))) { res.status(404).json({ error: "Customer not found" }); return; }
   const at = new Date().toISOString();
   const r = runTransaction(() => {

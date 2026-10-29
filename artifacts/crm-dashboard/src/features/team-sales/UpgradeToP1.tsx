@@ -73,10 +73,10 @@ export function UpgradeDialog({ customer, onClose, onDone }: {
         <span className="ts-av" aria-hidden="true">{next ? shortName(next.name).slice(0, 1) : '؟'}</span>
         <div><b data-testid="ts-next-closer">{who}</b><p data-testid="ts-next-why">{next?.assignment === 'previous_expert' ? 'کارشناس قبلی مشتری' : 'تقسیم عادلانه (نوبت بعدی چرخش)'} — مهلت تماس ۳ ساعت کاری</p></div>
       </div>}
-      <label htmlFor="ts-up-reason" className="ts-lbl">دلیل کوتاه<span aria-hidden="true">*</span> <span className="ts-muted">(حداکثر ۸۰ حرف؛ در گزارش مدیر ثبت می‌شود)</span></label>
-      <input id="ts-up-reason" className="ts-inp" value={reason} maxLength={80} aria-required="true" onChange={(e) => { setReason(e.target.value.slice(0, 80)); setError(''); }} data-testid="ts-upgrade-reason" />
+      <label htmlFor="ts-up-reason" className="ts-lbl">دلیل کوتاه<span aria-hidden="true">*</span> <span className="ts-muted">(در گزارش مدیر ثبت می‌شود)</span></label>
+      <input id="ts-up-reason" className="ts-inp" value={reason} aria-required="true" onChange={(e) => { setReason(e.target.value); setError(''); }} data-testid="ts-upgrade-reason" />
       <label htmlFor="ts-up-note" className="ts-lbl">{self ? 'یادداشت' : `یادداشت برای ${next ? next.name : 'کارشناس پیگیری'}`} <span className="ts-muted">(اختیاری)</span></label>
-      <textarea id="ts-up-note" className="ts-inp" rows={3} value={note} onChange={(e) => setNote(e.target.value.slice(0, 2000))} data-testid="ts-upgrade-note" />
+      <textarea id="ts-up-note" className="ts-inp" rows={3} value={note} onChange={(e) => setNote(e.target.value)} data-testid="ts-upgrade-note" />
       {error ? <div className="ts-alert" role="alert" data-testid="ts-upgrade-error"><AlertCircle size={18} /> {error}</div> : null}
       {tc ? <TransferCheckBox tc={tc} pending={pending} onOverride={(r) => { void confirm(r); }} /> : null}
       {tc ? null : <button type="button" className="ts-primary" onClick={() => { void confirm(); }} disabled={pending} data-testid="ts-upgrade-confirm"><ArrowUp size={18} /> {pending ? 'در حال ارتقا…' : error ? 'تلاش دوباره' : 'بله، ارتقا بده'}</button>}

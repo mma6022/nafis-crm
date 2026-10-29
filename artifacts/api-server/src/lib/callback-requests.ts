@@ -351,7 +351,7 @@ export function assignCallback(actor: CallbackActor, id: number, userId: number 
   });
 }
 
-export const MAX_NOTE = 2000;
+export const MAX_NOTE = null;
 export function addCallbackNote(actor: CallbackActor, id: number, text: string, now = new Date()): CallbackResult {
   return runImmediateTransaction(() => {
     const current = getCallback(actor, id, now);

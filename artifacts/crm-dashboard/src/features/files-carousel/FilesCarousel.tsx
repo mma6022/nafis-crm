@@ -1,3 +1,4 @@
+import { AutoGrowTextarea } from '../../components/AutoGrowTextarea';
 /** FILES-61 «پرونده‌های من» (Armita crm-files-cards v1.0): one file at a time in the assistant's order; the next card stays locked until a result + one-line note is saved.
  * No list, no search, no skip, no reorder. Paging back is read-only. Edit = the existing file page (same powers as today). «ثبت پرونده جدید» = the existing wizard. */
 import { useEffect, useRef, useState } from 'react';
@@ -91,7 +92,7 @@ function FileCard({ c, d, readOnly, titleRef, onSaved }: { c: FcCard; d: FcView;
   const [outcome, setOutcome] = useState(''); const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
   const [reason, setReason] = useState(''); const [rErr, setRErr] = useState(''); const [confirm, setConfirm] = useState(false);
-  const cx = outcome === 'cancelled'; const rMax = d.cancelReasonMax ?? 120;
+  const cx = outcome === 'cancelled'; 
   useEffect(() => { setOutcome(''); setNote(''); setErr(''); setReason(''); setRErr(''); setConfirm(false); }, [c.fileId]);
   const askCancel = () => { if (!reason.trim()) { setRErr('دلیل لغو را بنویس؛ بدون دلیل، پرونده لغو نمی‌شود.'); document.getElementById('fc-cx-reason')?.focus(); return; } setRErr(''); setConfirm(true); };
   const doCancel = async () => {
@@ -130,8 +131,8 @@ function FileCard({ c, d, readOnly, titleRef, onSaved }: { c: FcCard; d: FcView;
         <div className={`rlist${d.outcomes.length === 4 ? ' s4' : d.outcomes.length === 3 ? ' s4 s3' : ''}`} role="radiogroup">{d.outcomes.map((o) => <label key={o.code} className={`rr${outcome === o.code ? ' on' : ''}${o.code === 'cancelled' ? ' cx' : ''}`}>
           <input type="radio" name="fc-outcome" value={o.code} checked={outcome === o.code} onChange={() => { setOutcome(o.code); setErr(''); }} data-testid={`fc-o-${o.code}`} /> <OIcon code={o.code} /> {o.label}</label>)}</div>
         {cx ? <div className="fc-cxf" data-testid="fc-cxf">
-          <div className="fc-cxl"><label htmlFor="fc-cx-reason"><b>دلیل لغو<span className="req" aria-hidden="true">*</span></b> <small>کوتاه، حداکثر ۱۲۰ نویسه</small></label><span className="cnt" aria-live="polite" data-testid="fc-cx-count">{faNum([...reason].length)} / {faNum(rMax)}</span></div>
-          <textarea id="fc-cx-reason" className={`inp tx${rErr ? ' bad' : ''}`} rows={2} maxLength={rMax} value={reason} aria-required="true" aria-invalid={rErr ? true : undefined} aria-describedby={rErr ? 'fc-cx-err' : undefined}
+          <div className="fc-cxl"><label htmlFor="fc-cx-reason"><b>دلیل لغو<span className="req" aria-hidden="true">*</span></b></label><span className="cnt" aria-live="polite" data-testid="fc-cx-count">{faNum([...reason].length)} نویسه</span></div>
+          <textarea id="fc-cx-reason" className={`inp tx${rErr ? ' bad' : ''}`} rows={2} value={reason} aria-required="true" aria-invalid={rErr ? true : undefined} aria-describedby={rErr ? 'fc-cx-err' : undefined}
             onChange={(e) => { setReason(e.target.value.replace(/[\r\n]/g, ' ')); if (rErr && e.target.value.trim()) setRErr(''); }} placeholder="مثلاً «از بانک دیگری وام گرفت و دیگر نیاز ندارد»" data-testid="fc-cx-reason" />
           {rErr ? <p className="dp-err" id="fc-cx-err" role="alert" data-testid="fc-cx-err">{rErr}</p> : null}
           <p className="fc-cxn" data-testid="fc-cx-info"><AlertCircle size={15} aria-hidden="true" /> پرونده‌ی لغوشده از «پرونده‌های من» و کارهای امروز بیرون می‌رود. برگرداندن لغو فقط با ادمین است.</p>
@@ -139,7 +140,7 @@ function FileCard({ c, d, readOnly, titleRef, onSaved }: { c: FcCard; d: FcView;
           <button type="button" className={`btn fc-dz fc-save${reason.trim() ? '' : ' off'}`} aria-disabled={!reason.trim() || busy} onClick={askCancel} data-testid="fc-cx-btn"><X size={16} aria-hidden="true" /> لغو پرونده و پرونده‌ی بعدی</button>
           <p className="fc-cxh" data-testid="fc-cx-hint"><Lock size={13} aria-hidden="true" /> {reason.trim() ? 'بعد از زدن، یک تأیید دیگر می‌آید.' : 'تا دلیل لغو نوشته نشود، این دکمه غیرفعال است.'}</p>
         </div> : <>
-        <input className="inp fc-note" maxLength={d.noteMax} value={note} onChange={(e) => setNote(e.target.value.replace(/[\r\n]/g, ' '))} placeholder="یادداشت یک‌خطی (حداکثر ۸۰ نویسه)" aria-label="یادداشت یک‌خطی" data-testid="fc-note" />
+        <AutoGrowTextarea className="inp fc-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="یادداشت تماس" aria-label="یادداشت تماس" data-testid="fc-note" />
         {err ? <p className="dp-err" role="alert" data-testid="fc-err">{err}</p> : null}
         <button type="button" className="btn btn-primary fc-save" disabled={busy || !outcome || !note.trim()} onClick={() => void save()} data-testid="fc-save">{busy ? 'در حال ثبت…' : 'ثبت نتیجه و پرونده‌ی بعدی'}</button>
         </>}

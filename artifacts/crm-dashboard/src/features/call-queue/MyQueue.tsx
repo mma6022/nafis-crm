@@ -101,8 +101,8 @@ function VoidForm({ id, reasons, onDone }: { id: number; reasons: { key: string;
   return <div className="cq-inline" data-testid="cq-ai-void-form">
     <p>یادآور حذف نمی‌شود؛ باطل می‌شود و در خط زمانی و گزارش مدیر می‌ماند.</p>
     <div className="cq-chips" role="radiogroup" aria-label="دلیل">{reasons.map((r) => <button key={r.key} type="button" role="radio" aria-checked={reason === r.key} className={`cq-chip${reason === r.key ? ' on' : ''}`} onClick={() => setReason(r.key)} data-testid={`cq-void-${r.key}`}>{r.label}</button>)}</div>
-    <input value={note} maxLength={60} onChange={(e) => setNote(e.target.value)} placeholder="توضیح کوتاه (اجباری)" aria-label="توضیح کوتاه" aria-invalid={tried && !note.trim()} data-testid="cq-void-note" />
-    <small className="cq-counter">{faNum([...note].length)} / ۶۰</small>
+    <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="توضیح (اجباری)" aria-label="توضیح کوتاه" aria-invalid={tried && !note.trim()} data-testid="cq-void-note" />
+    <small className="cq-counter">{faNum([...note].length)} نویسه</small>
     {tried && !ok ? <p className="cq-err" role="alert" data-testid="cq-void-err">{!reason ? 'دلیل را انتخاب کن. ' : ''}{!note.trim() ? 'توضیح کوتاه را بنویس.' : ''}</p> : null}
     {err ? <p className="cq-err" role="alert">{err}</p> : null}
     <div className="cq-actions"><button type="button" className="btn btn-danger sm" disabled={busy || (tried && !ok)} onClick={() => void go()} data-testid="cq-void-submit">باطل کردن یادآور</button><button type="button" className="btn btn-ghost sm" onClick={onDone}>انصراف</button></div>
@@ -121,6 +121,6 @@ function DisciplineCard({ d }: { d: MyDiscipline & { enabled: true } }) {
       {t.nocall ? <li>«مشغولم» بدون تماس بعدی: <b>{faNum(t.nocall)}</b></li> : null}
     </ul>
     {d.streak >= 1 && !t.ok ? <p className="cq-hint" data-testid="cq-ds-streak">{faNum(d.streak)} روز کاری پشت سر هم بیرون از حد · بعد از {faNum(d.alertDays)} روز مدیر باخبر می‌شود. با ثبت به‌موقع گزارش‌ها و کم کردن یادآورهای عقب‌افتاده برمی‌گردی.</p> : null}
-    <p className="cq-ds-note" data-testid="cq-ds-note">{d.note}</p>
+    <p className="cq-ds-note" style={{ whiteSpace: 'pre-line' }} data-testid="cq-ds-note">{d.note}</p>
   </section>;
 }

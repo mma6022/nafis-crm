@@ -24,7 +24,7 @@ export const isLeadSource = (v: unknown): v is LeadSource => typeof v === "strin
 export const INTAKE_RANKS = ["A", "B", "C1", "C2", "D", "E", "unknown"] as const;
 export type IntakeRank = (typeof INTAKE_RANKS)[number];
 export const RANK_LABEL = (r: string | null | undefined) => r == null || r === "unknown" ? "نامشخص" : r;
-export const LEAD_SOURCE_OTHER_MAX = 40, REGISTRAR_NOTE_MAX = 500;
+export const LEAD_SOURCE_OTHER_MAX = 40, REGISTRAR_NOTE_MAX = null;
 /** Code default when the setting row is missing; the boot seed writes the PM-approved {22: instagram} once (replaces the old user-31 constant). */
 export const DEFAULT_SOURCE_BY_SELLER_SEED: Record<string, LeadSource> = { "22": "instagram" };
 const SETTINGS = "lead_intake_settings";
@@ -157,7 +157,6 @@ export function parseIntake(body: any): { ok: true; value: IntakeInput } | { ok:
   if (body?.registrarNote != null) {
     if (typeof body.registrarNote !== "string") return { ok: false, error: "یادداشت نامعتبر است.", field: "registrarNote" };
     const n = body.registrarNote.trim();
-    if ([...n].length > REGISTRAR_NOTE_MAX) return { ok: false, error: "یادداشت ثبت‌کننده حداکثر ۵۰۰ نویسه است.", field: "registrarNote" };
     v.registrarNote = n || null;
   }
   return { ok: true, value: v };
@@ -244,7 +243,6 @@ export function validateUrgentClear(body: any): string | null {
   if (!URGENT_CLEAR_REASONS.some((r) => r.code === code)) return "clear_reason_required";
   const note = typeof body?.clearNote === "string" ? body.clearNote.trim() : "";
   if (code === "other" && !note) return "clear_note_required";
-  if ([...note].length > URGENT_CLEAR_NOTE_MAX) return "clear_note_too_long";
   return null;
 }
 export type StaffUrgentResult = { status: number; body: Record<string, unknown> };

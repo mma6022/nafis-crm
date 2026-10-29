@@ -8,7 +8,6 @@ export const emptyIntake = (o?: IntakeOptions): IntakeValue => ({ leadSource: o?
 export function intakeError(v: IntakeValue, o?: IntakeOptions): string | null {
   if (v.leadSource === 'other' && !v.leadSourceOther.trim()) return 'بنویس منبع دیگر چه بوده؛ یا یکی از گزینه‌های بالا را بزن.';
   if ([...v.leadSourceOther.trim()].length > (o?.leadSourceOtherMax ?? 40)) return `منبع دیگر حداکثر ${faNum(o?.leadSourceOtherMax ?? 40)} حرف است.`;
-  if ([...v.registrarNote].length > (o?.registrarNoteMax ?? 500)) return `یادداشت ثبت‌کننده حداکثر ${faNum(o?.registrarNoteMax ?? 500)} حرف است.`;
   return null;
 }
 export const intakePayload = (v: IntakeValue) => ({ leadSource: v.leadSource, leadSourceOther: v.leadSource === 'other' ? v.leadSourceOther.trim() : undefined,
@@ -17,7 +16,7 @@ export const intakePayload = (v: IntakeValue) => ({ leadSource: v.leadSource, le
 export function IntakeFields({ value, onChange, options, idPrefix = 'li', showErrors = false }: { value: IntakeValue; onChange: (v: IntakeValue) => void; options?: IntakeOptions; idPrefix?: string; showErrors?: boolean }) {
   const sources = (options?.leadSources ?? FALLBACK_SOURCES);
   const ranks = options?.ranks ?? [];
-  const max = options?.registrarNoteMax ?? 500; const n = [...value.registrarNote].length;
+  const n = [...value.registrarNote].length;
   const otherMissing = showErrors && value.leadSource === 'other' && !value.leadSourceOther.trim();
   return <div className="li-block" data-testid={`${idPrefix}-intake`}>
     <div className="li-block" role="radiogroup" aria-labelledby={`${idPrefix}-src-l`}>
@@ -37,6 +36,6 @@ export function IntakeFields({ value, onChange, options, idPrefix = 'li', showEr
     <div className="field"><label htmlFor={`${idPrefix}-note`}>یادداشت ثبت‌کننده برای کارشناس (اختیاری)</label>
       <textarea id={`${idPrefix}-note`} value={value.registrarNote} onChange={(e) => onChange({ ...value, registrarNote: e.target.value })}
         placeholder="مثلاً: ساعت ۶ به بعد جواب می‌دهد؛ دنبال وام ۲۰۰ میلیونی است." data-testid={`${idPrefix}-note`} />
-      <span className={`li-count${n > max ? ' over' : ''}`} aria-live="polite">{faNum(n)} / {faNum(max)}</span></div>
+      <span className="li-count" aria-live="polite">{faNum(n)} نویسه</span></div>
   </div>;
 }

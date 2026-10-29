@@ -1,3 +1,4 @@
+import { AutoGrowTextarea } from '../../components/AutoGrowTextarea';
 /**
  * REMINDER-B — mandatory due-reminder popup (Armita crm-reminder-incoming v1.1 scenes 08–15).
  * Mounted once in CrmShell for users 8/2/3 only; renders nothing unless the server says flag.reminder_must is on for this user.
@@ -128,8 +129,8 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
   const first = item.customerName.split(/\s+/)[0] || item.customerName;
   const when = `${dayLabel(item.remindAt, feed.serverNow)} ${faClock(item.remindAt)}`;
   const eyebrow = item.outsideHours ? `سررسید ${when} · بیرون از ساعت کاری بود؛ با ورودت باز شد` : `یادآور ${fa(index)} از ${fa(total)} · سر وقت · ${when}`;
-  const noteErr = !outcome ? 'نتیجه‌ی تماس را انتخاب کن.' : len(note) < r.noteMin ? `یادداشت یک‌خطی حداقل ${fa(r.noteMin)} نویسه.` : len(note) > r.noteMax ? `حداکثر ${fa(r.noteMax)} نویسه.` : '';
-  const nextErr = !next ? 'قدم بعد را انتخاب کن.' : next !== 'none' && len(reason) < r.reasonMin ? 'دلیل یادآور بعدی را بنویس.' : len(reason) > r.reasonMax ? `حداکثر ${fa(r.reasonMax)} نویسه.` : '';
+  const noteErr = !outcome ? 'نتیجه‌ی تماس را انتخاب کن.' : len(note) < r.noteMin ? `یادداشت یک‌خطی حداقل ${fa(r.noteMin)} نویسه.` : '';
+  const nextErr = !next ? 'قدم بعد را انتخاب کن.' : next !== 'none' && len(reason) < r.reasonMin ? 'دلیل یادآور بعدی را بنویس.' : '';
   const snooze = async () => { setSending(true); setErr(''); try { await rmApi.snooze(); onSnoozed(); } catch (e) { setErr(e instanceof Error ? e.message : 'انجام نشد.'); } finally { setSending(false); } };
   const submit = async () => {
     setShow(true); if (noteErr) { setStep(1); return; } if (nextErr) return;
@@ -166,9 +167,9 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
           {step === 0 && rest.length ? <p className="rmm-qnx" data-testid="rm-next-list"><span>بعد از این، به ترتیب ساعت:</span> {rest.map((x) => `${faClock(x.remindAt)} ${x.customerName}`).join(' · ')}{total > rest.length + 1 ? ' · …' : ''}</p> : null}
         {step === 1 ? <div className="rmm-b">
           <ManualOutcomeField value={manual ?? ''} onChange={(v) => setManual(v)} showError={show && !manual} idPrefix="rm" submitLabel="بعدی" />
-          <label className="rmm-f"><span>یادداشت یک‌خطی <small>(اجباری)</small></span>
-            <input value={note} maxLength={r.noteMax + 20} onChange={(e) => setNote(e.target.value)} placeholder="مثلاً: مدارک را فردا می‌فرستد" data-testid="rm-note" aria-invalid={show && Boolean(noteErr)} />
-            <small className={len(note) > r.noteMax ? 'bad' : ''}>{fa(len(note))}/{fa(r.noteMax)}</small></label>
+          <label className="rmm-f"><span>یادداشت تماس <small>(اجباری)</small></span>
+            <AutoGrowTextarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="مثلاً: مدارک را فردا می‌فرستد" data-testid="rm-note" aria-invalid={show && Boolean(noteErr)} />
+            <small className={len(note) < r.noteMin ? 'bad' : ''}>{fa(len(note))} نویسه · حداقل {fa(r.noteMin)}</small></label>
           {show && noteErr ? <p className="rmm-err" role="alert">{noteErr}</p> : null}
         </div> : null}
         {step === 2 ? <div className="rmm-b">
@@ -177,7 +178,7 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
             return <button key={n.v} type="button" className={`rmm-nx${next === n.v ? ' on' : ''}`} disabled={dis} aria-pressed={next === n.v} onClick={() => setNext(n.v)} data-testid={`rm-next-${n.v}`}>{n.l}<small>{dis ? 'دیگر ممکن نیست' : n.s}</small></button>; })}</fieldset>
           {next && next !== 'none' ? <label className="rmm-f"><span>دلیل یادآور بعدی</span>
             <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="مثلاً: پیگیری ارسال مدارک" data-testid="rm-reason-next" />
-            <small className={len(reason) > r.reasonMax ? 'bad' : ''}>{fa(len(reason))}/{fa(r.reasonMax)}</small></label> : null}
+            <small>{fa(len(reason))} نویسه</small></label> : null}
           {show && nextErr ? <p className="rmm-err" role="alert">{nextErr}</p> : null}
         </div> : null}
         {err ? <p className="rmm-err rmm-err-b" role="alert" data-testid="rm-error">{err}</p> : null}

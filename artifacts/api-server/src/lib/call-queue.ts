@@ -1,3 +1,4 @@
+import { noteText } from "./note-text";
 /**
  * «نتیجه‌ی تماس» + «صف تماس من» + یادآور اجباری (crm-call-queue v1.5, release 1). Everything is behind call_queue_settings
  * flags that are seeded '0' (OFF). While a flag is OFF the code paths below are no-ops and existing behaviour is unchanged.
@@ -46,7 +47,7 @@ export const CQ_GROUPS: QueueGroup[] = ["due", "new", "p1", "assist"];
 export type QueueCardGroup = QueueGroup | "urgent";
 export const CQ_DEFAULT_TEMPLATE = "سلام، تماس گرفتم در دسترس نبودید. هر وقت فرصت داشتید خبرم کنید.";
 export const CQ_DEFAULTS = { order: CQ_GROUPS, newRedHours: 24, p1StaleDays: 7, naTemplate: CQ_DEFAULT_TEMPLATE };
-export const CQ_LIMITS = { newRedHours: [1, 168], p1StaleDays: [1, 60], naTemplateMax: 200, oneLineMax: 80, voidNoteMax: 60 } as const;
+export const CQ_LIMITS = { newRedHours: [1, 168], p1StaleDays: [1, 60], naTemplateMax: 200, oneLineMax: null, voidNoteMax: null } as const;
 export const CQ_OUTCOMES = ["answered", "no_answer", "follow_up"] as const;
 export type CqOutcome = typeof CQ_OUTCOMES[number];
 export const CQ_VOID_REASONS: Record<string, string> = {
@@ -267,10 +268,9 @@ export function cqParseCall(body: any, user: CqUser): { error: string } | CqCall
     else return { error: "این گفت‌وگو از دکمه‌ی تماس CRM نبود؛ نوعش را انتخاب کن (حضوری یا بله)." };
   }
   const outcome = String(body?.outcome ?? "");
-  const oneLine = String(body?.oneLineNote ?? "").replace(/\s+/g, " ").trim();
+  const oneLine = noteText(body?.oneLineNote);
   const missing = [!CQ_OUTCOMES.includes(outcome as CqOutcome) ? "نتیجه‌ی تماس" : null, !oneLine ? "یادداشت یک‌خطی" : null].filter(Boolean);
   if (missing.length) return { error: `${missing.join("، ")} هنوز خالی است.` };
-  if ([...oneLine].length > CQ_LIMITS.oneLineMax) return { error: "یادداشت یک‌خطی حداکثر ۸۰ نویسه است؛ بقیه را در «یادداشت کارشناس» بنویس." };
   let followUpAt: Date | null = null;
   // Release 81 (v1.0.1): «پیگیری بعدی» is a separate optional step — required with the legacy «follow_up» outcome, optional (validated
   // when sent) with answered / no_answer. With no_answer it replaces the automatic 4h/24h retry (PM).
@@ -538,9 +538,8 @@ export function cqVoid(user: CqUser, id: number, reason: unknown, note: unknown,
   const r = ownReminder(user, id); if (!r) return { status: 404, error: "یادآور پیدا نشد." };
   if (r.source !== "assistant") return { status: 403, error: "فقط یادآورهای ساخته‌شده توسط دستیار باطل می‌شوند." };
   if (r.voided_at || r.done) return { status: 409, error: "این یادآور بسته شده است." };
-  const why = String(reason ?? ""); const txt = String(note ?? "").replace(/\s+/g, " ").trim();
+  const why = String(reason ?? ""); const txt = noteText(note);
   if (!CQ_VOID_REASONS[why] || !txt) return { status: 400, error: "دلیل و توضیح کوتاه را بنویس." };
-  if ([...txt].length > CQ_LIMITS.voidNoteMax) return { status: 400, error: "توضیح حداکثر ۶۰ نویسه است." };
   const at = now.toISOString();
   executeChanges("UPDATE reminders SET voided_at=?, void_reason=?, void_note=?, voided_by=?, done=1 WHERE id=? AND voided_at IS NULL", [at, why, txt, user.id, id]);
   const src = r.source_note_id ? queryRow<any>("SELECT COALESCE(one_line_note,'') one, COALESCE(expert_notes,'') notes FROM call_logs WHERE id=?", [r.source_note_id]) : null;

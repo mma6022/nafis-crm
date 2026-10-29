@@ -3,7 +3,7 @@ import { ArrowUp, Check, FileText, History, MessageCircle, X, Zap } from 'lucide
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { fetchNextCloser, TeamSalesApiError } from '@/features/team-sales/api';
-import { HX_REASON_MAX, historyKey, promoteToP1, useHistorySummary, type HistorySummary } from './api';
+import { historyKey, promoteToP1, useHistorySummary, type HistorySummary } from './api';
 import './history.css';
 
 const FA = '۰۱۲۳۴۵۶۷۸۹';
@@ -62,10 +62,10 @@ function UpgradeConfirm({ name, priority, handoff, customerId, onCancel, onDone 
       ? <p>{name} از {from} به اولویت ۱ می‌رود و به {closer ?? 'کارشناس پیگیری'} سپرده می‌شود. مدیر تیم این تغییر را در گزارش می‌بیند.</p>
       : <p>{name} از {from} به اولویت ۱ می‌رود و در کارهای روزهای بعد جلوتر می‌آید. مدیر تیم این تغییر را در گزارش می‌بیند.</p>}
     <label htmlFor="hx-up-reason">دلیل کوتاه<span className="req">*</span></label>
-    <input id="hx-up-reason" ref={ref} value={reason} maxLength={HX_REASON_MAX} onChange={(e) => { setReason(e.target.value.slice(0, HX_REASON_MAX)); setError(''); }}
+    <input id="hx-up-reason" ref={ref} value={reason} onChange={(e) => { setReason(e.target.value); setError(''); }}
       placeholder="مثلاً «فیش را فرستاد و این هفته وام لازم دارد»" aria-required="true" aria-invalid={Boolean(error) || undefined} data-testid="hx-up-reason"
       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void go(); } }} />
-    <span className="hx-cnt">{faN(t.length)} / {faN(HX_REASON_MAX)}</span>
+    <span className="hx-cnt">{faN(t.length)} نویسه</span>
     {error ? <p className="hx-err" role="alert" data-testid="hx-up-error">{error}</p> : null}
     <div className="hx-cfb">
       <button type="button" className="btn btn-primary" onClick={() => { void go(); }} disabled={pending || !t} data-testid="hx-up-go"><ArrowUp size={18} /> {pending ? 'در حال ارتقا…' : 'ارتقا بده'}</button>
@@ -101,7 +101,7 @@ export function HistoryBox({ customerId, name, compact = false, onUpgraded, test
     <div className="hx-col">
       <div><h4>تماس‌ها و یادداشت‌های قبلی <span className="hx-cnt">({faN(d.callCount)} تماس)</span></h4>
         <ol className="hx-calls" data-testid="hx-calls">{calls.map((c) => <li key={c.id}><span className="cd">{jDay(c.at)}</span><span className={`hx-tg ${c.tone}`}>{c.result}</span>
-          {c.note ? <p>{c.note}</p> : null}</li>)}</ol>
+          {c.note ? <p style={{ whiteSpace: 'pre-line' }}>{c.note}</p> : null}</li>)}</ol>
         {d.consultations ? <p className="hx-cons" data-testid="hx-cons">مشاوره: {faN(d.consultations.count)} فرم{d.consultations.lastAt ? ` · آخرین ${jDay(d.consultations.lastAt)}` : ''}{d.consultations.note ? ` · ${d.consultations.note}` : ''}</p> : null}
       </div>
       {compact ? null : <div><h4><MessageCircle size={14} /> چی بپرسه</h4><ul className="hx-ask" data-testid="hx-ask">{d.ask.map((a) => <li key={a}>{a}</li>)}</ul></div>}

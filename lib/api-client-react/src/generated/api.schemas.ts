@@ -279,7 +279,6 @@ export interface AccountingDocument {
 }
 
 export interface VoipAfterCallCompletion {
-  /** @maxLength 10000 */
   expertNotes: string;
   /** Close the pending event without customer history; remove only its provisional automatic history and retain the PBX call. */
   discardHistory?: boolean;
@@ -1342,7 +1341,6 @@ export interface CallReportEdit {
      * @nullable
      */
   subject: string | null;
-  /** @maxLength 10000 */
   expertNotes: string;
   /** @minimum 0 */
   expectedRevision: number;
@@ -1423,10 +1421,7 @@ export type CallInputReminder = {
      * @maxLength 160
      */
   subject: string;
-  /**
-     * @minLength 1
-     * @maxLength 2000
-     */
+  /** @minLength 1 */
   message: string;
   remindAt: string;
 } | null;
@@ -3385,10 +3380,7 @@ export interface ReminderInput {
      * @maxLength 160
      */
   subject: string;
-  /**
-     * @minLength 1
-     * @maxLength 2000
-     */
+  /** @minLength 1 */
   message: string;
   remindAt: string;
 }
@@ -4705,10 +4697,7 @@ export interface HumanChatSend {
      * @maxLength 100
      */
   clientId: string;
-  /**
-     * @minLength 1
-     * @maxLength 6000
-     */
+  /** @minLength 1 */
   text: string;
 }
 
@@ -4718,7 +4707,6 @@ export interface HumanChatUpload {
      * @maxLength 100
      */
   clientId: string;
-  /** @maxLength 6000 */
   text?: string;
   file: Blob;
 }
