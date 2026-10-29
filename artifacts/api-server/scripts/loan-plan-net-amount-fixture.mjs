@@ -15,14 +15,27 @@ try {
   assert.equal(net(app({deduct_percents:'{"12":"15","18":"18.5","24":"24"}'},24,"100000000")),"76000000");
   assert.equal(net(app({})),"120000000");
   assert.equal(net(app({deduct_percents:null})),"120000000");
-  assert.equal(net(app({deduct_percents:null,installment_terms:[{installments:18,deductionPercent:46.5}]})),"120000000");
+  // T664: NULL/empty deduct_percents (new plan form, plans 19+) ⇒ frozen installment_terms row for this duration.
+  assert.equal(net(app({deduct_percents:null,installment_terms:[{installments:18,deductionPercent:46.5}]})),"64200000");
+  assert.equal(net(app({deduct_percents:null,installment_terms:[{installments:18,prepaymentPercent:0,deductionPercent:19.5,depositPercent:60}]},18,"200000000")),"161000000");
+  assert.equal(net(app({deduct_percents:null,installment_terms:'[{"installments":18,"deductionPercent":19.5}]'},18,"200000000")),"161000000");
+  assert.equal(net(app({installment_terms:[{installments:18,deductionPercent:19.5}]},18,"200000000")),"161000000");
+  assert.equal(net(app({deduct_percents:"",installment_terms:[{installments:18,deductionPercent:19.5}]},18,"200000000")),"161000000");
+  assert.equal(net(app({deduct_percents:"{}",installment_terms:[{installments:18,deductionPercent:19.5}]},18,"200000000")),"161000000");
+  assert.equal(net(app({deduct_percents:{},installment_terms:[{installments:18,deductionPercent:19.5}]},18,"200000000")),"161000000");
+  assert.equal(net(app({deduct_percents:null,installment_terms:[{installments:24,deductionPercent:40}]},18,"200000000")),"200000000"); // no row ⇒ 0
+  assert.equal(net(app({deduct_percents:null,installment_terms:[{installments:12,deductionPercent:0},{installments:24,deductionPercent:0}]},24,"200000000")),"200000000");
+  assert.equal(net(app({deduct_percents:null,installment_terms:[{installments:24,deductionPercent:40}]},24,"100000000")),"60000000");
+  assert.throws(()=>net(app({deduct_percents:null,installment_terms:[{installments:18,deductionPercent:18},{installments:18,deductionPercent:19.5}]})),/invalid_deduction_percent/);
+  assert.throws(()=>net(app({deduct_percents:null,installment_terms:"broken"})),/invalid_deduction_percent/);
+  assert.throws(()=>net(app({deduct_percents:null,installment_terms:[{installments:18,deductionPercent:"1.234"}]})),/invalid_deduction_percent/);
   assert.equal(net(app({deduct_percents:"0"})),"120000000");
   assert.equal(net(app({deduct_percents:"100"})),"0");
   assert.equal(net(app({installment_terms:[{installments:18,deductionPercent:0}],deduct_percents:{"24":"40"}})),"120000000");
   assert.equal(net(app({installment_terms:[{installments:18,deductionPercent:19.5}],deduct_percents:{"18":"18.5"}})),"97800000");
   for(const snapshot of [
     {deduct_percents:'{"24":"40"}'},
-    {deduct_percents:"-1"},{deduct_percents:"100.01"},{deduct_percents:"NaN"},{deduct_percents:""},
+    {deduct_percents:"-1"},{deduct_percents:"100.01"},{deduct_percents:"NaN"},
     {installment_terms:"broken",deduct_percents:{"24":"40"}},
     {installment_terms:[{installments:18,deductionPercent:-1}],deduct_percents:{"24":"40"}},
     {installment_terms:[{installments:18,deductionPercent:"1.234"}],deduct_percents:{"24":"40"}},
