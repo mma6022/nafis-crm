@@ -63,6 +63,7 @@ import { ensureQuestionsSkippedColumn } from "../lib/team-sales";
 import staffWalletRouter from "./staff-wallet";
 import loanRequestDraftsRouter from "./loan-request-drafts";
 import reminderFollowRouter from "./reminder-follow";
+import salesShellRouter from "./sales-shell";
 import { ensureReminderFollowSchema } from "../lib/reminder-follow";
 
 const router: IRouter = Router();
@@ -105,6 +106,7 @@ router.use(dailyPlanRouter);
 router.use(filesCarouselRouter);
 router.use(reminderMustRouter);
 router.use(reminderFollowRouter);
+router.use(salesShellRouter); // SALES-SHELL v2 (per-user flag, read-only)
 router.use(defaultOwnerRouter);
 router.use(teamCommissionRouter);
 router.use(staffWalletRouter);

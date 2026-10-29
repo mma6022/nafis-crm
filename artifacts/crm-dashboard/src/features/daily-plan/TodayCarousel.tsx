@@ -8,6 +8,7 @@ import { AlertTriangle, Check, ChevronLeft, ChevronRight, FileText, Flag, Info, 
 import { faClock, faNum } from '@/features/call-queue/api';
 import { elApi } from '@/features/expert-lockdown/api';
 import { IncomingTopButton, IncomingWizard } from '@/features/expert-lockdown/IncomingWizard';
+import { useSsIncoming } from '@/features/sales-shell/api';
 import { dpApi, type DpItem } from './api';
 import { Chips, CurrentCard, StateBox, faDate, type Working } from './TodayPage';
 import './carousel.css';
@@ -84,6 +85,7 @@ export function TodayCarousel({ d, refresh }: { d: Working; refresh: () => void 
     : p.total ? <>{faNum(p.done)} از {faNum(p.total)} · {finished ? 'همه انجام شد' : 'کار جاری نداری'}</> : null;
   const openWiz = () => { setWiz(true); ev('incoming_open', cur?.id, cur ? reviewLen : null); void elApi.open().catch(() => undefined); };
   const curNo = cur && cur.bucket === 'main' ? p.position : null;
+  useSsIncoming(() => { if (!wiz) openWiz(); return true; }); // SALES-SHELL v2: the dock's «الان مشتری جدید دارم» opens this same wizard
 
   return <div className="dp-page tc-page" data-testid="dp-today" data-state={d.state} data-view="carousel">
     <header className="tc-head">

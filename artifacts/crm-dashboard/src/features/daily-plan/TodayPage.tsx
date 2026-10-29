@@ -10,6 +10,7 @@ import './daily-plan.css';
 import { elApi, useLockdownMe } from '@/features/expert-lockdown/api';
 import { IncomingTopButton, IncomingWizard, fullTel, phone11 } from '@/features/expert-lockdown/IncomingWizard';
 import { TodayCarousel } from './TodayCarousel';
+import { useSsIncoming } from '@/features/sales-shell/api';
 
 import { getGetAuthSessionQueryKey, getGetCustomerQueryKey, useGetAuthSession, useGetCustomer } from '@workspace/api-client-react';
 import { CallLaunchStatus, useCallLauncher } from '@/features/team-sales/useCallLauncher';
@@ -64,6 +65,8 @@ export default function TodayPage() {
   const fcSession = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   // release 69 (Armita live-59 #2/#3): lockdown list view — the incoming wizard's save shows a 3 s bottom toast (same as the carousel).
   const [iwToast, setIwToast] = useState('');
+  // SALES-SHELL v2: the dock's «الان مشتری جدید دارم» opens the same flow here (the carousel view takes it itself).
+  useSsIncoming(() => { if (!cfg || !q.data || cfg.carousel === true) return false; if (!inbound && locked) void elApi.open().catch(() => undefined); setInbound(true); return true; });
   useEffect(() => { if (!iwToast) return; const t = window.setTimeout(() => setIwToast(''), 3000); return () => window.clearTimeout(t); }, [iwToast]);
   if (!cfg || (on && q.isLoading)) return <div className="dp-page"><div className="dp-skel" role="status" data-testid="dp-loading">در حال بارگذاری کارهای امروز…</div></div>;
   if (!on) return <div className="dp-page"><h1>کارهای امروز</h1><p data-testid="dp-off">این بخش هنوز فعال نشده است.</p></div>;

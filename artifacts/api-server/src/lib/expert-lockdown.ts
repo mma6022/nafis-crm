@@ -21,6 +21,7 @@ import { exactLookupOf } from "./cross-owner-search";
 import { MANAGER_TRAINEE_SALESPERSON_IDS } from "./assistant-manager";
 import { insertCustomerRecord } from "./customer-create";
 import { normalizeCustomerMobile } from "./customer-integrity";
+import { ssOn } from "./sales-shell";
 
 export const EL_FLAG_KEY = "flag.expert_lockdown";
 /** users.id → their salespersons.id (checked against the session: a user whose salespersonId differs is not locked). */
@@ -106,6 +107,8 @@ const ALLOW: RegExp[] = [
   /^\/reminders\/\d+\/acknowledge$/,
   // REMINDERS-FOLLOW: own open reminders / read-only hand-off rows / shared labels (handlers scope to the caller).
   /^\/reminders\/(labels|follow-feed|handoffs)$/,
+  // SALES-SHELL v2: the shell flag + the dock counts (own reminders / DND end only; no customer rows).
+  /^\/sales-shell\/me$/, /^\/nav-badges$/,
   // REMINDER-68: «ارتقا به اولویت ۱» card's closer preview (?customerId= is still checked below, own customers only).
   /^\/sales\/next-closer$/,
 ];
@@ -158,7 +161,10 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   const reminderWrite = (req.method === "POST" || req.method === "PATCH") && path === "/reminders";
   const upgradeWrite = req.method === "POST" && /^\/customers\/\d+\/(upgrade-priority|priority|reactivate)$/.test(path); // + REMINDERS-FOLLOW reactivate (owner)
   const ownLevel = req.method === "GET" || req.method === "HEAD" || reminderWrite || upgradeWrite;
-  if (!customerRoute && !customerWrite && !listedCustomerRead && !reminderWrite && !ALLOW.some((re) => re.test(path))) {
+  // SALES-SHELL v2 (spec §9): «یادآورها» view-only while locked = GET /reminders without a customer (the handler lists only the
+  // caller's own rows: r.user_id = caller, assigned scope). Only for users whose sales_shell_v2 flag is ON; writes are unchanged.
+  const ownReminderList = req.method === "GET" && path === "/reminders" && ids.length === 0 && ssOn(Number(u!.id));
+  if (!customerRoute && !customerWrite && !listedCustomerRead && !reminderWrite && !ownReminderList && !ALLOW.some((re) => re.test(path))) {
     if (process.env.EL_TRACE === "1") console.warn(`[expert-lockdown] deny ${req.method} ${path}`);
     return deny(res, "expert_lockdown", "این بخش فعلاً برای شما بسته است. از «کارهای امروز من» کار کن.");
   }

@@ -1,7 +1,7 @@
 import { ReminderMustHost } from '@/features/reminder-must/ReminderMust';
 import { useRmConfig } from '@/features/reminder-must/api';
 import { CustomerName } from '@/components/customer/CustomerName';
-import { AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, Link2, LifeBuoy, LogOut, Menu, MessageCircle, MoreHorizontal, Sparkles, MessagesSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, ListChecks, type LucideIcon } from 'lucide-react';
+import { Moon, Lock, AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, Link2, LifeBuoy, LogOut, Menu, MessageCircle, MoreHorizontal, Sparkles, MessagesSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, ListChecks, type LucideIcon } from 'lucide-react';
 import { UserAvatar, AvatarPicker } from '@/components/UserAvatar';
 import { useHealthCheck, getHealthCheckQueryKey, useGetAuthSession, useLogout, useUpdateAuthProfile, useListReminders, useAcknowledgeReminder, getListRemindersQueryKey, getGetAuthSessionQueryKey, type CrmUser, type Reminder } from '@workspace/api-client-react';
 import { Link, useLocation } from 'wouter';
@@ -34,6 +34,10 @@ import { cqOn, faNum, useCqConfig } from '@/features/call-queue/api';
 import { CallQueueHost } from '@/features/call-queue/CallQueueHost';
 import { dpActive, dpManager, useDpConfig } from '@/features/daily-plan/api';
 import { useLeadAnnotatorMe } from '@/features/lead-annotator/api';
+import { useSalesShellV2, useNavBadges, ssRequestIncoming, tehranHm } from '@/features/sales-shell/api';
+import { SalesShellNav, useDockHeight, useSsOverlay, type SsItem, type SsGroup } from '@/features/sales-shell/SalesShellNav';
+import { CustLocked, RemLocked } from '@/features/sales-shell/LockedPages';
+import { useSiteNotifications } from '@/site-notifications/NotificationBell';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuItem } from './ui/dropdown-menu';
 
 const nafissLogoUrl = `${import.meta.env.BASE_URL}nafiss-financial-logo.png`;
@@ -217,8 +221,14 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const leadAnnotatorMe = useLeadAnnotatorMe(Boolean(user) && !isAdminUser);
   const basePageTitle = isAdminUser && (location === '/my-wallet' || location.startsWith('/my-wallet/')) ? 'کیف پول کارشناس‌ها' : titleFor(location);
   
+  // SALES-SHELL v2 (per-user flag.sales_shell_v2.user.<id>; ALL OFF by default): no sidebar, bottom dock / tab bar.
+  const ssV2 = useSalesShellV2(user ? Number(user.id) : null, Boolean(user) && !panelMode);
+  const ssMobile = useMediaQuery('(max-width: 1023px)');
+  const ssBadges = useNavBadges(ssV2).data;
+  useEffect(() => { if (!ssV2) return; document.documentElement.classList.add('ssv2-on'); return () => document.documentElement.classList.remove('ssv2-on'); }, [ssV2]);
   const navItems = allNavItems.filter(item => {
-    if (elLocked && elMe?.locked && !elMe.allowedPages.includes(item.href)) return false; // lockdown only removes items; the normal checks below still apply
+    // v2 (PM): «مشتریان» and «یادآورها» stay in the dock while locked — they render cust_locked / view-only reminders, never the list.
+    if (elLocked && elMe?.locked && !elMe.allowedPages.includes(item.href) && !(ssV2 && (item.href === '/customers' || item.href === '/reminders'))) return false; // lockdown only removes items; the normal checks below still apply
     // crm-call-queue: hidden while its flags are OFF (and for user 29 / trainees, enforced by the server config).
     if (item.dp === 'today') return dpOnForMe;
     if (item.dp === 'admin') return dpManager(dpCfg);
@@ -244,7 +254,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
   // crm-daily-plan: once the real «کارهای امروز» page exists for this user, «/» goes back to its own name.
   const roleLayout = roleLayout0 && dpOnForMe ? { ...roleLayout0, main: roleLayout0.main.map((m) => (m.kind === 'link' && m.item.href === '/' && m.item.label === 'کارهای امروز من' ? { ...m, item: { ...m.item, label: 'نمای کلی' } } : m)) } : roleLayout0;
   // «چت دستیار»: only when the dock already lists an assistant for this user (reads the dock's cached query; never fetches itself).
-  const asMine = useQuery<{ assistants?: { threadId: number }[] }>({ queryKey: ['assistant-mine', user?.id], enabled: false, queryFn: () => asFetch<{ assistants?: { threadId: number }[] }>('/assistant/mine') }); // same key + same fetch as the dock, so a refetch through either observer is identical
+  type AsMineLite = { assistants?: { threadId: number; unread?: number; name?: string }[]; prefs?: { dnd?: boolean } };
+  const asMine = useQuery<AsMineLite>({ queryKey: ['assistant-mine', user?.id], enabled: false, queryFn: () => asFetch<AsMineLite>('/assistant/mine') }); // same key + same fetch as the dock, so a refetch through either observer is identical
   const hasAssistant = Boolean(asVisibleTo(user as { id: number; role?: string | null; salespersonId?: number | null } | undefined) && (asMine.data?.assistants?.length ?? 0) > 0);
   const roleTitle = roleLayout?.main.flatMap(m => (m.kind === 'link' ? [m.item] : [])).find(item => item.href !== '/' ? (location === item.href || location.startsWith(`${item.href}/`)) : location === '/')?.label;
   const mobileQuickNavItems = roleLayout ? roleLayout.shortcuts : navItems.filter(item => mobilePrimaryNavHrefs.includes(item.href));
@@ -407,6 +418,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
     );
   });
 
+  const ssLockedPage = ssV2 && elLocked ? (location === '/customers' ? <CustLocked /> : location === '/reminders' ? <RemLocked /> : null) : null;
   if (panelMode) return (
     <DiagnosticsProvider actorId={user?.id ?? 'anon'} isAdmin={user?.role === 'admin'}>
     <NotificationProvider user={user}>
@@ -416,6 +428,88 @@ export function CrmShell({ children }: { children: ReactNode }) {
     </NotificationProvider>
     </DiagnosticsProvider>
   );
+  if (ssV2) {
+    const canRem = user?.role === 'admin' || user?.permissions?.includes('reminders.manage');
+    const dndUntil = ssBadges?.dndUntil && Date.parse(ssBadges.dndUntil) > Date.now() ? ssBadges.dndUntil : null;
+    const astName = asMine.data?.assistants?.[0]?.name ?? 'دستیار';
+    const astUnread = (asMine.data?.assistants ?? []).reduce((a, x) => a + (x.unread ?? 0), 0);
+    const astDnd = Boolean(asMine.data?.prefs?.dnd || dndUntil);
+    const openAst = () => window.dispatchEvent(new CustomEvent('nafis:assistant-open', { detail: { first: true } }));
+    const dndOff = async () => { try { await asFetch('/assistant/prefs', { method: 'PUT', body: { dndMinutes: 0 } }); } catch { /* chip stays; the chat panel has the same toggle */ } void queryClient.invalidateQueries({ queryKey: ['nav-badges'] }); void queryClient.invalidateQueries({ queryKey: ['assistant-mine'] }); };
+    const guard = elPending ? <div className="el-page" role="status" aria-busy="true" data-testid="el-pending" />
+      : ssLockedPage ?? (elLocked && !elPageAllowed(elMe, location) ? <LockdownNotice />
+      : cqRestricted && !cqAllowed(location) ? <div className="cq-page" data-testid="cq-restricted-guard"><div className="cq-restricted" role="alert"><b>پنل محدود شد</b> · {faNum(cqCfg?.restriction?.overdue ?? 0)} یادآور عقب‌افتاده داری. تا وقتی به {faNum(cqCfg?.restriction?.threshold ?? 0)} یا کمتر برسد فقط یادآورهای عقب‌افتاده باز است.</div><Link className="btn btn-primary" href={dpOnForMe ? '/today' : '/my-queue'}>{dpOnForMe ? 'رفتن به کارهای امروز' : 'رفتن به صف تماس من'}</Link></div>
+      : children);
+    return (
+    <DiagnosticsProvider actorId={user?.id ?? 'anon'} isAdmin={user?.role === 'admin'}>
+    <NotificationProvider user={user}>
+    <div className="app-shell ssv2" data-testid="ss-shell">
+      <SsMain setMainEl={setMainEl} mainEl={mainEl} stickyTop={stickyTop}>
+        <header className="topbar ss-top" ref={setTopEl}>
+          <Link href={navItems.some(i => i.href === '/today') ? '/today' : '/'} className="ss-brand" aria-label="گروه مالی نفیس — خانه"><img src={nafissLogoUrl} alt="" aria-hidden="true" /><small>پنل مشتریان</small></Link>
+          <div className="ss-ttl"><h1>{pageTitle}</h1><p>امروز، تمرکز روی قدم بعدی مشتری است.</p></div>
+          <div className="top-actions">
+            {elLocked ? <span className="ss-lkchip" role="note" aria-label="پنل محدود" data-testid="ss-lkchip"><Lock size={16} aria-hidden="true" /><span className="lt" aria-hidden="true">پنل محدود</span></span> : null}
+            {dndUntil ? <button type="button" className="ss-dndchip" aria-label={`مزاحم نشو روشن است تا ${tehranHm(dndUntil)}؛ برای خاموش کردن بزن`} onClick={() => void dndOff()} data-testid="ss-dndchip"><Moon size={18} aria-hidden="true" /><span className="dl">مزاحم نشو </span>تا {tehranHm(dndUntil)}</button> : null}
+            <span className={`ss-stx${health?.status === 'ok' ? '' : ' chk'}`} title="پشتیبانی تیم" data-testid="ss-health">{health?.status === 'ok' ? 'در دسترس' : 'در حال بررسی'}</span>
+            <DiagnosticsButton />
+            {canRem ? <button type="button" className="icon-button ss-rembtn" aria-label="ثبت یادآور" title="ثبت یادآور" onClick={() => setReminderFormOpen(true)} data-testid="button-header-reminder"><Bell size={20} /></button> : null}
+            <NotificationBell user={user} />
+            {hasAssistant && ssMobile ? <button type="button" className="icon-button ss-asttop" data-ss-ast="" aria-label={`چت دستیار (${astName})${astUnread ? `، ${faNum(astUnread)} پیام تازه` : ''}${astDnd ? '، مزاحم نشو روشن' : ''}`} onClick={openAst} data-testid="ss-ast-top">
+              <span className="ss-ic ss-avx" aria-hidden="true">{astName.slice(0, 1)}{astUnread ? <b className="ss-bdg n">{faNum(astUnread)}</b> : null}{astDnd ? <span className="ss-moon"><Moon size={13} /></span> : null}</span></button> : null}
+            <DropdownMenu dir="rtl">
+              <DropdownMenuTrigger asChild>
+                <button type="button" className="avatar account-menu-trigger" aria-label="منوی حساب کاربری" title="حساب کاربری" data-testid="avatar-current-user">
+                  <UserAvatar userId={user?.id} name={user?.fullName || user?.username || 'کاربر'} size={36} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" sideOffset={8} className="account-menu-content" data-testid="account-menu">
+                <DropdownMenuLabel>
+                  <strong className="account-menu-name">{user?.fullName || user?.username || 'کاربر'}</strong>
+                  <span className="account-menu-role">{user?.roleName || 'کاربر'}</span>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => setProfileOpen(true)} disabled={logoutMutation.isPending} data-testid="button-open-profile" className="account-menu-item">
+                  <Pencil size={16} /> ویرایش کاربر
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={(event) => { event.preventDefault(); logoutMutation.mutate(); }} disabled={logoutMutation.isPending} data-testid="button-logout" className="account-menu-item account-menu-logout">
+                  <LogOut size={16} /> {logoutMutation.isPending ? 'در حال خروج…' : 'خروج'}
+                </DropdownMenuItem>
+                {logoutMutation.isError && <p className="account-menu-error" role="alert">خروج انجام نشد؛ دوباره تلاش کنید.</p>}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </header>
+        <DiagnosticPageBoundary key={location}>{guard}</DiagnosticPageBoundary>
+      </SsMain>
+      <SsNavHost mainEl={mainEl} navItems={navItems} isActive={isNavItemActive} location={location} mobile={ssMobile} locked={elLocked} healthOk={health?.status === 'ok'}
+        onLogout={() => logoutMutation.mutate()} logoutPending={logoutMutation.isPending} canRem={Boolean(canRem)} onRemind={() => setReminderFormOpen(true)} onProfile={() => setProfileOpen(true)}
+        overdue={ssBadges?.reminders.overdue ?? 0} drafts={pendingDrafts} draftsLate={(draftCounts.data?.paidOver24h ?? 0) > 0} team={team.data?.unreadCount ?? 0}
+        pendingGoods={pendingGoods} pendingPayments={pendingPayments} callbacks={callbacksBadge.data?.new ?? 0}
+        ast={hasAssistant ? { name: astName, unread: astUnread, dnd: astDnd, open: openAst } : null} />
+      {user ? <AssistantDock user={user as { id: number; role?: string | null; salespersonId?: number | null }} phone={ssMobile} shellV2 slot={null} bottomOffset={0} /> : null}
+      {profileOpen && user ? <ProfileModal user={user} onClose={() => setProfileOpen(false)} /> : null}
+      {reminderFormOpen ? <CreateReminderForm onClose={() => setReminderFormOpen(false)} /> : null}
+      {user ? <CallQueueHost onModalActive={setCqModalActive} dailyPlan={dpOnForMe} /> : null}
+      {user && EL_UIDS.includes(Number(user.id)) ? <ReminderMustHost userId={Number(user.id)} /> : null}
+      {dueReminder && !cqModalActive ? (
+        <Modal title={dueReminder.subject} eyebrow="زمان یادآور رسیده است" onClose={() => setDueReminder(null)} testId="due-reminder">
+          <div className="due-reminder">
+            <div className="due-reminder-icon"><BellRing size={22} /></div>
+            {dueReminder.customerName ? <><div className="due-reminder-customer">مشتری: <CustomerName id={dueReminder.customerId} name={dueReminder.customerName} /></div><div className="due-reminder-customer">کارشناس پرونده: {dueReminder.customerSalespersonName || 'بدون تخصیص'}</div></> : null}
+            <p style={{ whiteSpace: 'pre-line' }}>{dueReminder.message}</p>
+            <div className="form-footer">
+              <button className="btn btn-primary" type="button" onClick={() => setDueReminder(null)} data-testid="button-close-due-reminder">متوجه شدم</button>
+              <Link className="btn btn-ghost" href="/reminders" onClick={() => setDueReminder(null)}>مشاهده یادآورها</Link>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+    </div>
+    </NotificationProvider>
+    </DiagnosticsProvider>
+    );
+  }
   return (
     <DiagnosticsProvider actorId={user?.id ?? 'anon'} isAdmin={user?.role === 'admin'}>
     <NotificationProvider user={user}>
@@ -519,6 +613,75 @@ export function CrmShell({ children }: { children: ReactNode }) {
     </NotificationProvider>
     </DiagnosticsProvider>
   );
+}
+
+/* ---------------- SALES-SHELL v2 (flag.sales_shell_v2.user.<id>) ---------------- */
+function SsMain({ children, setMainEl, mainEl, stickyTop }: { children: ReactNode; setMainEl: (el: HTMLElement | null) => void; mainEl: HTMLElement | null; stickyTop: boolean }) {
+  const ov = useSsOverlay(mainEl);
+  // spec §5: a modal outside <main> makes the page inert (focus can't wander behind it); modals inside main keep working.
+  return <main className={`app-main${stickyTop ? ' sticky-top' : ''}`} ref={setMainEl} inert={ov.outsideMain || undefined}>{children}</main>;
+}
+
+type SsHostProps = {
+  mainEl: HTMLElement | null; navItems: NavItem[]; isActive: (href: string) => boolean; location: string; mobile: boolean; locked: boolean; healthOk: boolean;
+  onLogout: () => void; logoutPending: boolean; canRem: boolean; onRemind: () => void; onProfile: () => void;
+  overdue: number; drafts: number; draftsLate: boolean; team: number; pendingGoods: number; pendingPayments: number; callbacks: number;
+  ast: { name: string; unread: number; dnd: boolean; open: () => void } | null;
+};
+const SS_MAIN: Record<string, { key: string; label: string; full: string; testId: string }> = {
+  '/today': { key: 'today', label: 'امروز', full: 'کارهای امروز من', testId: 'today' },
+  '/customers': { key: 'cust', label: 'مشتریان', full: 'مشتری‌های من', testId: 'cust' },
+  '/loan-applications': { key: 'files', label: 'پرونده‌ها', full: 'پرونده‌های وام من', testId: 'files' },
+  '/reminders': { key: 'rem', label: 'یادآورها', full: 'یادآورهای من', testId: 'rem' },
+  '/messengers': { key: 'msg', label: 'پیام‌رسان‌ها', full: 'گفتگو در پیام‌رسان‌ها', testId: 'msg' },
+  '/internal-chat': { key: 'team', label: 'داخلی', full: 'گفتگوی داخلی', testId: 'team' },
+};
+const SS_ACCOUNT = ['/my-wallet', '/my-performance'];
+function SsNavHost(p: SsHostProps) {
+  const { pageCounts } = useSiteNotifications();
+  const [, setLocation] = useLocation();
+  const ov = useSsOverlay(p.mainEl);
+  useDockHeight(p.mobile);
+  const has = (href: string) => p.navItems.find(i => i.href === href);
+  const ic = (I: LucideIcon) => <I size={24} aria-hidden="true" />;
+  const n = (href: string) => pageCounts[href] ?? 0;
+  const badgeFor = (href: string): SsItem['badge'] => {
+    if (href === '/reminders') return p.overdue ? { n: p.overdue, tone: 'r', what: 'یادآور سررسیده' } : null;
+    if (href === '/loan-applications') return p.drafts ? { n: p.drafts, tone: p.draftsLate ? 'r' : 'g', what: 'درخواست در انتظار ثبت' } : null;
+    if (href === '/messengers') return n(href) ? { n: n(href), tone: 'n', what: 'پیام تازه' } : null;
+    if (href === '/internal-chat') return p.team ? { n: p.team, tone: 'n', what: 'پیام خوانده‌نشده' } : null;
+    if (href === '/goods-purchases') return p.pendingGoods ? { n: p.pendingGoods, tone: 'r', what: 'مشتری در انتظار ایجاد خرید کالا' } : null;
+    if (href === '/payment-orders') return p.pendingPayments ? { n: p.pendingPayments, tone: 'r', what: 'خرید در انتظار ایجاد دستور پرداخت' } : null;
+    if (href === '/callback-requests') return p.callbacks ? { n: p.callbacks, tone: 'r', what: 'درخواست تماس جدید' } : null;
+    return n(href) ? { n: n(href), tone: 'n', what: 'مورد تازه' } : null;
+  };
+  // «امروز»: the daily-plan page when on; otherwise the overview.
+  const todayHref = has('/today') ? '/today' : has('/') ? '/' : null;
+  const mainOf = (href: string | null): SsItem | null => {
+    if (!href) return null;
+    const it = has(href); if (!it) return null;
+    const m = SS_MAIN[href] ?? (href === '/' ? SS_MAIN['/today'] : null); if (!m) return null;
+    return { ...m, href, icon: ic(it.icon), badge: badgeFor(href) };
+  };
+  const today = mainOf(todayHref), cust = mainOf('/customers'), files = mainOf('/loan-applications'), rem = mainOf('/reminders'), msg = mainOf('/messengers'), team = mainOf('/internal-chat');
+  const astItem: SsItem | null = p.ast ? { key: 'ast', label: 'دستیار', full: `چت دستیار (${p.ast.name})`, icon: <>{p.ast.name.slice(0, 1)}</>, avatar: true, testId: 'ast', onSelect: p.ast.open, moon: p.ast.dnd,
+    badge: p.ast.unread ? { n: p.ast.unread, tone: 'n', what: 'پیام تازه از دستیار' } : null } : null;
+  const used = new Set<string>(['/today', '/', '/customers', '/loan-applications', '/reminders', '/messengers', '/internal-chat', ...SS_ACCOUNT]);
+  // spec §3: every other option keeps its place in «بیشتر» › «پرونده و پرداخت» (route order of the old menu); wallet hidden while locked (PM).
+  const rest: SsItem[] = p.navItems.filter(i => !used.has(i.href) || (i.href === '/' && todayHref !== '/')).map(i => ({ key: i.href, href: i.href, label: i.label, full: i.label, icon: ic(i.icon), badge: badgeFor(i.href), testId: i.href.replace(/^\//, '').replace(/\//g, '-') || 'home' }));
+  const account: SsItem[] = [
+    ...SS_ACCOUNT.filter(h => has(h) && !(p.locked && h === '/my-wallet')).map(h => { const i = has(h)!; return { key: h, href: h, label: i.label, full: i.label, icon: ic(i.icon), badge: badgeFor(h), testId: h.slice(1) }; }),
+    ...(p.canRem && p.mobile ? [{ key: 'remind', label: 'ثبت یادآور', full: 'ثبت یادآور', icon: ic(Bell), testId: 'remind', onSelect: p.onRemind }] : []),
+    { key: 'profile', label: 'ویرایش کاربر', full: 'ویرایش کاربر', icon: ic(Pencil), testId: 'profile', onSelect: p.onProfile },
+  ];
+  const groups: SsGroup[] = [{ title: 'پرونده و پرداخت', items: rest }, { title: 'حساب من', items: account }];
+  const isP = <T,>(x: T | null): x is T => x !== null;
+  const primary = todayHref === '/today' ? () => { ssRequestIncoming(); if (p.location !== '/today') setLocation('/today'); } : null;
+  return <SalesShellNav
+    before={[today, cust, files, rem].filter(isP)} after={[msg, team, astItem].filter(isP)}
+    tabs={[today, cust, files].filter(isP)} daily={[rem, msg, team, astItem].filter(isP)} groups={groups}
+    primary={primary} isActive={p.isActive} healthOk={p.healthOk} onLogout={p.onLogout} logoutPending={p.logoutPending}
+    location={p.location} mobile={p.mobile} blocked={ov.any} />;
 }
 
 function ProfileModal({ user, onClose }: { user: CrmUser; onClose: () => void }) {
