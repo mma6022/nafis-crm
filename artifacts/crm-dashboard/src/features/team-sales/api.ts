@@ -229,3 +229,21 @@ export function useFirstCallEditInfo(customerId: number, enabled = true) {
 export const submitFirstCallEdit = (customerId: number, body: {
   answers: SimpleAnswers; note: string; selectedPlans?: number[]; noPlanNote?: string; send: boolean; baseId: number; transferOverrideReason?: string;
 }) => request<FirstCallEditResult>(`/customers/${customerId}/team-sales/first-call/edit`, { method: 'POST', body: JSON.stringify(body) });
+
+/* instant-credit-check v1 (Armita sales-shell v1.0.3 §4د): the call form's «اعتبارسنجی فوری» on the existing ICS24 routes.
+   The OTP is passed straight to validate and never kept by the caller. */
+export type CreditCheckLite = { id: number; status: 'awaiting_otp' | 'processing' | 'report_generated' | 'failed'; nationalCode?: string | null;
+  score: number | null; scoreLabel: string | null; errorMessage: string | null; createdAt: string; completedAt: string | null; reused?: boolean };
+export const fetchCustomerIdentity = async (customerId: number): Promise<{ nationalCode: string | null; phone: string | null }> => {
+  const c = await request<{ nationalCode?: string | null; phone?: string | null }>(`/customers/${customerId}`);
+  return { nationalCode: c.nationalCode ?? null, phone: c.phone ?? null };
+};
+export const listCreditChecks = (customerId: number) => request<CreditCheckLite[]>(`/customers/${customerId}/credit-checks`);
+export const startCreditCheck = (customerId: number, nationalCode: string) =>
+  request<CreditCheckLite>(`/customers/${customerId}/credit-checks`, { method: 'POST', body: JSON.stringify({ nationalCode, source: 'call_form', consent: true }) });
+export const validateCreditOtp = (customerId: number, checkId: number, otp: string) =>
+  request<CreditCheckLite>(`/customers/${customerId}/credit-checks/${checkId}/validate`, { method: 'POST', body: JSON.stringify({ otp, source: 'call_form' }) });
+export const renewCreditOtp = (customerId: number, checkId: number) =>
+  request<CreditCheckLite>(`/customers/${customerId}/credit-checks/${checkId}/renew`, { method: 'POST', body: JSON.stringify({ source: 'call_form' }) });
+export const refreshCreditCheckStatus = (customerId: number, checkId: number) =>
+  request<CreditCheckLite>(`/customers/${customerId}/credit-checks/${checkId}/status`, { method: 'POST' });
