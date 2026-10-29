@@ -28,6 +28,8 @@ const before10 = (ms: number) => { const p = tParts(new Date(ms)); return p.h * 
 import { leadSourceFilter, registeredByRange, registeredByReport } from "./registered-by-report";
 import { ASSISTANT_URGENT_IDS_KEY, ASSISTANT_URGENT_WRITE_KEY, URGENT_REASONS, ensureUrgentSchema, parseUrgentReason, setCustomerUrgent , recordUrgentAttempt } from "./customer-urgent";
 import { cqSignals, cqTeamDiscipline } from "./call-queue-r2";
+import { dpToday, dpNextWork } from "./daily-plan";
+import { cleanPayload as cleanDraftPayload } from "./loan-request-drafts";
 import express, { Router, type Request, type Response, type NextFunction } from "express";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
@@ -1294,6 +1296,145 @@ export function createAssistants(deps: Deps) {
     if ("error" in r && r.error) { const [st, m] = srErr[r.error as string] ?? [422, "نامعتبر"]; return fail(res, st, r.error as string, m); }
     audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/sales-report", outcome: "ok", detail: { range: q.range, expert: q.expert, plan: q.plan } });
     res.json(srMask(r));
+  });
+  /* assistantspf (Mohammad t687s2662, 29 Oct): «پیش‌پر کردن پرونده از روی یادداشت‌ها» —
+   * GET / PUT /api/assistant-runner/customers/:id/loan-request-draft.
+   * The expert's own SALES assistant may write a DRAFT («در انتظار ثبت», loan_request_drafts) for any customer on that expert's daily list
+   * («کارهای امروز» dp_plans/dp_items for Tehran today or the next work day, items not transferred) or in the normal runner scope (P1 rule).
+   * The customer must still belong to the expert (salesperson_id), not merged, status not cancelled/completed. Else 404 not_found (audited).
+   * Draft only: never a case, never a fee/charge, never a credit check, contract, SMS, Bale or bell; step is not advanced; final submit stays with the expert.
+   * Fill-empty-only: plan group (planId/conditionId/planName) only if the draft has no planId yet; amount/duration only if empty; manualValues per key only
+   * if that key is empty. Existing values are kept and returned in `skipped`. A draft with a fee charge is locked (409 draft_locked).
+   * Behind the PER-USER flag call_queue_settings `flag.assistant_draft_prefill.user.<expertUserId>` = '1' (absent/other = OFF; shipped OFF; ops script
+   * pf-flag.py). Idempotency-Key REQUIRED on PUT (≤120, 48 h replay, other body → 409). ≤ 60 ok writes / hour and ≤ 300 / day per assistant. */
+  const PF_FLAG_PREFIX = "flag.assistant_draft_prefill.user.", PF_PER_HOUR = 60, PF_PER_DAY = 300, PF_IDEM_HOURS = 48;
+  const pfOn = (userId: number) => hasTable("call_queue_settings") && row<any>("SELECT value FROM call_queue_settings WHERE key=?", `${PF_FLAG_PREFIX}${userId}`)?.value === "1";
+  const pfOnDailyList = (a: any, cid: number) => {
+    if (!hasTable("dp_plans") || !hasTable("dp_items")) return false;
+    const t = dpToday(now()); const n = dpNextWork(t);
+    return Boolean(row(`SELECT 1 FROM dp_items i JOIN dp_plans p ON p.id=i.plan_id WHERE i.customer_id=? AND p.salesperson_id=? AND p.day IN (?,?)
+      AND COALESCE(i.status,'')<>'transferred' LIMIT 1`, cid, a.bound_salesperson_id, t, n));
+  };
+  /** The prefill scope: own, live customer AND (normal runner scope OR on the expert's daily list today / next work day). */
+  const pfScope = (a: any, cid: number) => {
+    if (!Number.isSafeInteger(cid) || cid <= 0) return null;
+    const c = row<any>(`SELECT id,name,salesperson_id,status FROM customers WHERE id=? AND merged_into_customer_id IS NULL AND salesperson_id=?
+      AND COALESCE(status,'') NOT IN ('cancelled','completed')`, cid, a.bound_salesperson_id);
+    if (!c) return null;
+    const viaList = pfOnDailyList(a, cid);
+    if (!viaList && !inScope(a, cid)) return null;
+    return { c, via: viaList ? "daily_list" : "scope" };
+  };
+  const pfOpenDraft = (cid: number) => hasTable("loan_request_drafts") ? row<any>(`SELECT d.*, f.application_id AS fee_application_id FROM loan_request_drafts d
+      LEFT JOIN loan_filing_fee_charges f ON f.id=d.fee_charge_id WHERE d.customer_id=? AND d.deleted_at IS NULL AND (f.id IS NULL OR f.application_id IS NULL)
+      ORDER BY d.id DESC LIMIT 1`, cid) : undefined;
+  const pfParse = (raw: unknown): Record<string, any> => { try { const v = JSON.parse(String(raw ?? "{}")); return v && typeof v === "object" ? v : {}; } catch { return {}; } };
+  const pfView = (d: any, cid: number) => d ? { id: Number(d.id), customerId: cid, status: d.status, step: Number(d.step), version: Number(d.version),
+    locked: d.fee_charge_id != null, payload: (({ planId, planName, conditionId, amount, duration, manualValues }) => ({ planId: planId ?? null, planName: planName ?? null,
+      conditionId: conditionId ?? null, amount: amount ?? null, duration: duration ?? null, manualValues: manualValues ?? {} }))(pfParse(d.payload_json)),
+    updatedAt: d.updated_at } : null;
+  function pfGate(req: Request, res: Response, act: string) {
+    const a = A(res);
+    if (a.kind === "manager" || a.scope_rule === "manager") { audit({ req, a, tokenId: TK(res), action: act, outcome: "manager_read_only" }); fail(res, 403, "manager_read_only", "دستیار مدیر پرونده را پیش‌پر نمی‌کند."); return null; }
+    if (a.kind !== "sales" || !a.bound_user_id || !a.bound_salesperson_id) { audit({ req, a, tokenId: TK(res), action: act, outcome: "forbidden" }); fail(res, 403, "forbidden", "این کار برای دستیار مجاز نیست."); return null; }
+    if (!pfOn(Number(a.bound_user_id))) { audit({ req, a, tokenId: TK(res), action: act, outcome: "flag_off" }); fail(res, 403, "assistant_draft_prefill_off", "پیش‌پر کردن پرونده توسط دستیار فعال نیست."); return null; }
+    const cid = Number(req.params.id); const s = pfScope(a, cid);
+    if (!s) { notFound(req, res, cid); return null; }
+    return { a, cid, ...s };
+  }
+  runner.get("/customers/:id/loan-request-draft", (req, res) => {
+    const act = "GET /customers/:id/loan-request-draft"; const g = pfGate(req, res, act); if (!g) return;
+    const d = pfOpenDraft(g.cid);
+    audit({ req, a: g.a, tokenId: TK(res), action: act, customerId: g.cid, outcome: "ok", detail: { draftId: d ? Number(d.id) : null, via: g.via } });
+    res.json({ draft: pfView(d, g.cid), via: g.via });
+  });
+  runner.put("/customers/:id/loan-request-draft", (req, res) => {
+    const act = "PUT /customers/:id/loan-request-draft"; const g = pfGate(req, res, act); if (!g) return; const { a, cid } = g;
+    if (!hasTable("loan_request_drafts") || !hasTable("loan_request_draft_events")) return fail(res, 503, "drafts_unavailable", "جدول پیش‌نویس‌ها آماده نیست.");
+    const key = String(req.headers["idempotency-key"] ?? "").trim();
+    if (!key || key.length > 120) { audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "idempotency_key_required" }); return fail(res, 400, "idempotency_key_required", "سرآیند Idempotency-Key لازم است (حداکثر ۱۲۰ نویسه)."); }
+    const b = req.body ?? {};
+    const fingerprint = createHash("sha256").update(String(cid)).update("\n").update(JSON.stringify(b)).digest("hex");
+    const prev = row<any>(`SELECT detail_json FROM assistant_audit WHERE assistant_id=? AND action=? AND outcome='ok' AND at>=?
+      AND json_extract(detail_json,'$.idempotencyKey')=? ORDER BY id DESC LIMIT 1`, a.id, act, new Date(now().getTime() - PF_IDEM_HOURS * 3600_000).toISOString(), key);
+    if (prev) {
+      const d = pfParse(prev.detail_json);
+      if (d.fingerprint !== fingerprint) return fail(res, 409, "idempotency_conflict", "این Idempotency-Key قبلاً با بدنه‌ی دیگری به کار رفته.");
+      const cur = row<any>("SELECT * FROM loan_request_drafts WHERE id=?", d.draftId);
+      return res.status(Number(d.status ?? 200)).json({ draft: pfView(cur, cid), filled: d.filled ?? [], skipped: d.skipped ?? [], created: Boolean(d.created), replayed: true });
+    }
+    let inc: Record<string, any>;
+    const raw = b.payload;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) { audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "invalid_draft_payload" }); return fail(res, 400, "invalid_draft_payload", "payload باید یک شیء باشد."); }
+    const unknown = Object.keys(raw).filter(k => !["planId", "planName", "conditionId", "amount", "duration", "manualValues"].includes(k));
+    if (unknown.length) { audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "field_not_allowed", detail: { fields: unknown.slice(0, 10) } }); return fail(res, 422, "field_not_allowed", `این فیلدها را دستیار نمی‌نویسد: ${unknown.slice(0, 10).join(", ")}`); }
+    try { inc = cleanDraftPayload(raw); } catch (e: any) {
+      const st = Number(e?.status) || 400, code = String(e?.code ?? e?.message ?? "invalid_draft_payload");
+      audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: code });
+      return fail(res, st, code, st === 413 ? "payload بیش از ۳۲٬۰۰۰ نویسه است." : "مقدار یکی از فیلدهای payload نامعتبر است.");
+    }
+    delete inc.ignoreCreditRank;
+    if (!Object.keys(inc).length || (inc.manualValues && !Object.keys(inc.manualValues).length && Object.keys(inc).length === 1)) return fail(res, 422, "nothing_to_change", "دست‌کم یک فیلد بفرست.");
+    if (inc.conditionId != null && inc.planId == null) return fail(res, 422, "condition_requires_plan", "conditionId فقط همراه planId.");
+    if (inc.planId != null) {
+      const p = row<any>("SELECT id,name,active FROM loan_plans WHERE id=?", inc.planId);
+      if (!p || Number(p.active) !== 1) { audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "plan_not_available", detail: { planId: inc.planId } }); return fail(res, 422, "plan_not_available", "این طرح وجود ندارد یا فعال نیست."); }
+      if (inc.conditionId != null && !row("SELECT 1 FROM loan_plan_conditions WHERE id=? AND plan_id=?", inc.conditionId, inc.planId)) {
+        audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "condition_mismatch", detail: { planId: inc.planId, conditionId: inc.conditionId } }); return fail(res, 422, "condition_mismatch", "این شرط مال این طرح نیست.");
+      }
+      inc.planName = String(p.name ?? inc.planName ?? "").slice(0, 200);
+    }
+    const nowMs = now().getTime();
+    const cnt = (since: number) => Number(row<any>("SELECT COUNT(*) n FROM assistant_audit WHERE assistant_id=? AND action=? AND outcome='ok' AND at>=?", a.id, act, new Date(nowMs - since).toISOString())?.n ?? 0);
+    if (cnt(3600_000) >= PF_PER_HOUR || cnt(86400_000) >= PF_PER_DAY) { audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "rate_limited" }); return fail(res, 429, "rate_limited", "سقف پیش‌پر کردن دستیار در این بازه پر شده."); }
+    const empty = (v: unknown) => v === undefined || v === null || String(v).trim() === "";
+    const t = iso(); const expert = Number(a.bound_user_id);
+    let out: { status: number; body: any; detail: any } | null = null;
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const d = pfOpenDraft(cid);
+      if (d && d.fee_charge_id != null) { db.exec("ROLLBACK"); audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "draft_locked", detail: { draftId: Number(d.id) } }); return fail(res, 409, "draft_locked", "این درخواست هزینه‌ی ثبت دارد و قفل است؛ فقط کارشناس تغییرش می‌دهد."); }
+      if (d && b.version !== undefined && Number(b.version) !== Number(d.version)) { db.exec("ROLLBACK"); audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "draft_version_conflict", detail: { draftId: Number(d.id) } }); res.status(409).json({ error: "draft_version_conflict", message: "پیش‌نویس در این فاصله تغییر کرده؛ دوباره بخوان.", draft: pfView(d, cid) }); return; }
+      const cur = d ? pfParse(d.payload_json) : {};
+      const next: Record<string, any> = { ...cur }; const filled: string[] = [], skipped: string[] = [];
+      if (inc.planId != null) {
+        if (empty(cur.planId)) { next.planId = inc.planId; next.planName = inc.planName; filled.push("planId", "planName"); if (inc.conditionId != null) { next.conditionId = inc.conditionId; filled.push("conditionId"); } else delete next.conditionId; }
+        else { skipped.push("planId", "planName"); if (inc.conditionId != null) skipped.push("conditionId"); }
+      } else if (inc.planName != null) { if (empty(cur.planName) && empty(cur.planId)) { next.planName = inc.planName; filled.push("planName"); } else skipped.push("planName"); }
+      for (const k of ["amount", "duration"]) if (inc[k] != null) { if (empty(cur[k])) { next[k] = inc[k]; filled.push(k); } else skipped.push(k); }
+      if (inc.manualValues) {
+        const mv: Record<string, string> = { ...(cur.manualValues && typeof cur.manualValues === "object" ? cur.manualValues : {}) };
+        for (const [k, v] of Object.entries(inc.manualValues as Record<string, string>)) { if (empty(mv[k])) { if (!empty(v)) { mv[k] = v; filled.push(`manualValues.${k}`); } } else skipped.push(`manualValues.${k}`); }
+        if (Object.keys(mv).length > 60) { db.exec("ROLLBACK"); return fail(res, 400, "invalid_draft_payload", "manualValues حداکثر ۶۰ کلید."); }
+        next.manualValues = mv;
+      }
+      if (JSON.stringify(next).length > 32_000) { db.exec("ROLLBACK"); return fail(res, 413, "draft_payload_too_large", "payload بیش از ۳۲٬۰۰۰ نویسه است."); }
+      let id: number, created = false;
+      const ev = (draftId: number, action: string, detail: unknown) => run("INSERT INTO loan_request_draft_events(draft_id,customer_id,action,actor_user_id,reason,detail_json,created_at) VALUES(?,?,?,?,?,?,?)",
+        draftId, cid, action, expert, "assistant_prefill", JSON.stringify(detail), t);
+      const evDetail = { assistantId: a.id, assistantSlug: a.slug, tokenId: TK(res), filled, skipped, via: g.via };
+      if (!d) {
+        const r = db.prepare(`INSERT INTO loan_request_drafts(customer_id,source,created_by_user_id,salesperson_id,step,payload_json,created_at,updated_at,updated_by_user_id)
+          VALUES(?,?,?,?,?,?,?,?,?)`).run(cid, "crm", expert, g.c.salesperson_id ?? null, 2, JSON.stringify(next), t, t, expert);
+        id = Number(r.lastInsertRowid); created = true;
+        ev(id, "created", evDetail); ev(id, "assistant_prefill", evDetail);
+      } else {
+        id = Number(d.id);
+        if (filled.length) {
+          const ch = db.prepare(`UPDATE loan_request_drafts SET payload_json=?,version=version+1,updated_at=?,updated_by_user_id=?,expiry_warned_at=NULL
+            WHERE id=? AND version=? AND deleted_at IS NULL AND fee_charge_id IS NULL`).run(JSON.stringify(next), t, expert, id, Number(d.version));
+          if (Number(ch.changes) !== 1) { db.exec("ROLLBACK"); return fail(res, 409, "draft_version_conflict", "پیش‌نویس در این فاصله تغییر کرده؛ دوباره بخوان."); }
+          ev(id, "assistant_prefill", evDetail);
+        }
+      }
+      db.exec("COMMIT");
+      const status = created ? 201 : 200;
+      out = { status, body: { draft: pfView(row<any>("SELECT * FROM loan_request_drafts WHERE id=?", id), cid), filled, skipped, created, replayed: false },
+        detail: { draftId: id, created, filled, skipped, via: g.via, idempotencyKey: key, fingerprint, status } };
+    } catch (e) { try { db.exec("ROLLBACK"); } catch { /* already closed */ } throw e; }
+    audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "ok", detail: out.detail });
+    event(a, "draft_prefill", { userId: Number(a.bound_user_id), customerId: cid, data: { draftId: out.detail.draftId, created: out.detail.created, filled: out.detail.filled.length } });
+    res.status(out.status).json(out.body);
   });
   // Bale 1b runner routes (/bale/send: sales assistants only — the manager is refused there by kind)
   // assistants72 reply side (Mohammad 15:42): the linked expert's OWN completed / cancelled customer (p1 / trainee / manager rules kept) may get a text
