@@ -70,3 +70,16 @@ html.rmm-open .ts-toast{z-index:1265}
   .rmm-g{padding:10px}
   .rmm-m .rmm-f2{position:static}
 }
+/* CARD-FIX (Armita rem3 review): §1 the phone «مزاحم نشو» bar (44px, fixed) must not cover the popup header — the popup starts below it. */
+@media (max-width:640px){
+  html.nas-dnd-on .rmm-x{top:44px}
+  html.nas-dnd-on .rmm-snb,html.nas-dnd-on .rmm-rq{top:50px}
+}
+/* §4 overdue badge */
+.rmm-od{margin-inline-start:4px;background:#FEF3F2;color:#B42318;border:1px solid #FECDCA;border-radius:999px;padding:1px 8px;font-size:12px;font-weight:800;white-space:nowrap}
+/* §7 queue line: first 3 + expand */
+.rmm-qmore{border:0;background:none;padding:0 2px;color:#27309A;font:inherit;font-weight:700;text-decoration:underline;cursor:pointer;min-height:24px}
+/* §5 file button in the popup: outline, not filled */
+.rmm-x .c3f .fcb{background:#fff;color:#27309A;border:1.5px solid #27309A;box-shadow:none}
+.rmm-x .c3f .fcb:hover{background:#F4F5FD}
+.rmm-x .c3f .fcb .mc{color:#B42318}

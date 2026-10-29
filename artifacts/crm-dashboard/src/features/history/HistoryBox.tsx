@@ -101,7 +101,7 @@ export function HistoryBox({ customerId, name, compact = false, onUpgraded, test
     <div className="hx-col">
       <div><h4>تماس‌ها و یادداشت‌های قبلی <span className="hx-cnt">({faN(d.callCount)} تماس)</span></h4>
         <ol className="hx-calls" data-testid="hx-calls">{calls.map((c) => <li key={c.id}><span className="cd">{jDay(c.at)}</span><span className={`hx-tg ${c.tone}`}>{c.result}</span>
-          {c.note ? <p style={{ whiteSpace: 'pre-line' }}>{c.note}</p> : null}</li>)}</ol>
+          {c.note ? <p style={{ whiteSpace: 'pre-line' }}>{faN(c.note)}</p> : null}</li>)}</ol>
         {d.consultations ? <p className="hx-cons" data-testid="hx-cons">مشاوره: {faN(d.consultations.count)} فرم{d.consultations.lastAt ? ` · آخرین ${jDay(d.consultations.lastAt)}` : ''}{d.consultations.note ? ` · ${d.consultations.note}` : ''}</p> : null}
       </div>
       {compact ? null : <div><h4><MessageCircle size={14} /> چی بپرسه</h4><ul className="hx-ask" data-testid="hx-ask">{d.ask.map((a) => <li key={a}>{a}</li>)}</ul></div>}

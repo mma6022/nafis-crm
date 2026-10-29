@@ -36,17 +36,33 @@ function Side({ cls, icon, title, sub, testId, children }: { cls: string; icon: 
   </details>;
 }
 
+/** CARD-FIX (Armita rem3 review §7/§8): the newest C3_SHOW calls, then a «n تماس دیگر» row (no half-cut item in a scroll box); digits in notes are Persian. */
+const C3_SHOW = 3;
+/** A long note folds to 6 lines; «بیشتر» opens it in place. */
+function C3Note({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 280 || text.split('\n').length > 6;
+  return <>
+    <p className={long && !open ? 'c3-fold' : undefined} style={{ whiteSpace: 'pre-line' }}>{text}</p>
+    {long ? <button type="button" className="c3-nmore" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'کمتر' : 'بیشتر'}</button> : null}
+  </>;
+}
 export function C3History({ customerId }: { customerId: number }) {
   const q = useCallHistory(customerId);
   const items = q.data?.items ?? [];
+  const [all, setAll] = useState(false);
+  const shown = all ? items : items.slice(0, C3_SHOW);
+  const more = items.length - shown.length;
   return <Side cls="c3h" icon={<History size={16} aria-hidden="true" />} title="سابقه‌ی تماس‌ها" testId="c3-history"
-    sub={q.isLoading ? 'در حال بارگذاری…' : `${faN(items.length)}${q.data?.nextBefore ? '+' : ''} تماس · جدیدترین بالا`}>
+    sub={q.isLoading ? 'در حال بارگذاری…' : `${faN(items.length)}${q.data?.nextBefore ? '+' : ''} تماس، جدیدترین بالا`}>
     {q.isError ? <p className="hx-err" role="alert">سابقه بارگذاری نشد.</p>
       : !items.length && !q.isLoading ? <p className="dp-hint">تماس ثبت‌شده‌ای نیست.</p>
-      : <ol className="calls" data-testid="c3-calls">{items.map((c) => <li key={c.id}>
+      : <><ol className="calls" data-testid="c3-calls">{shown.map((c) => <li key={c.id}>
         <div className="clh"><span className="cd">{jAt(c.at)}</span><span className={`hx-tg ${c.tone}`}>{c.result}</span></div>
         {c.by ? <span className="ce"><User size={13} aria-hidden="true" /> {c.by}</span> : null}
-        {c.note ? <p style={{ whiteSpace: 'pre-line' }}>{c.note}</p> : null}</li>)}</ol>}
+        {c.note ? <C3Note text={faN(c.note)} /> : null}</li>)}</ol>
+        {more > 0 ? <button type="button" className="c3-more" onClick={() => setAll(true)} data-testid="c3-calls-more">{faN(more)}{q.data?.nextBefore ? '+' : ''} تماس دیگر</button>
+          : all && items.length > C3_SHOW ? <button type="button" className="c3-more" onClick={() => setAll(false)} data-testid="c3-calls-less">نمایش کمتر</button> : null}</>}
   </Side>;
 }
 
@@ -76,12 +92,12 @@ export function C3File({ customerId, name, phone, priority, onSavedToast, editab
   };
   const g = f?.answers?.guarantorAvailable === 'yes';
   return <Side cls="c3f" icon={<FileText size={16} aria-hidden="true" />} title="پرونده‌ی مشتری" testId="c3-file"
-    sub={f ? <>پاسخ‌های فرم تماس اول · <span className={f.missingCount ? 'mc' : ''} data-testid="c3-file-count">{missTxt}</span></> : q.isLoading ? 'در حال بارگذاری…' : ''}>
+    sub={f ? <>پاسخ‌های فرم تماس اول، <span className={f.missingCount ? 'mc' : ''} data-testid="c3-file-count">{missTxt}</span></> : q.isLoading ? 'در حال بارگذاری…' : ''}>
     <SiteAnswersBlock customerId={customerId} showEmpty />
     {q.isError ? <p className="hx-err" role="alert">پرونده بارگذاری نشد.</p> : !f ? null : !f.answers ? <div className="fempty" data-testid="c3-file-empty">
       <p><AlertCircle size={16} aria-hidden="true" /> هنوز فرم تماس اول این مشتری پر نشده. همان سؤال‌ها را بپرس و پرونده را کامل کن.</p>
       {canEdit ? <button type="button" className="btn fcb" onClick={() => setForm(true)} data-testid="c3-file-complete"><PencilLine size={20} aria-hidden="true" />
-        <span><b>تکمیل پرونده مشتری</b><span className="mc">{faN(f.missingCount)} مورد مانده</span></span></button> : hint}
+        <span><b>تکمیل پرونده مشتری</b></span></button> : hint}
     </div> : <>
       <div className="hx-tgs"><span className={`hx-tg ${f.priority === 1 ? 'p1' : 'pn'}`}>{f.priority == null ? 'بدون اولویت' : `اولویت ${faN(f.priority)}`}</span>
         <span className={`hx-tg ${f.complete ? 'ok' : 'warn'}`}>{f.complete ? `کامل · ${faN(f.total)} از ${faN(f.total)}` : `${faN(f.total - f.missingCount)} از ${faN(f.total)}`}</span></div>
@@ -92,7 +108,7 @@ export function C3File({ customerId, name, phone, priority, onSavedToast, editab
           {gr.title === 'متقاضی' && (f.answers?.ssoRetiree === 'self' || f.answers?.ssoRetiree === 'family') ? <p className="adm"><Zap size={13} aria-hidden="true" /> پیشنهاد بازنشسته‌ها در ستون وسط</p> : null}</div>; })}
       {f.missingCount ? <div className="fmiss"><p data-testid="c3-file-missing">مانده: {f.missing.map((k) => LABEL[k] ?? k).join('، ')}</p></div> : null}
       {canEdit ? <div className="fact">{f.missingCount
-        ? <button type="button" className="btn fcb" onClick={() => setForm(true)} data-testid="c3-file-complete"><PencilLine size={20} aria-hidden="true" /><span><b>تکمیل پرونده مشتری</b><span className="mc">{faN(f.missingCount)} مورد مانده</span></span></button>
+        ? <button type="button" className="btn fcb" onClick={() => setForm(true)} data-testid="c3-file-complete"><PencilLine size={20} aria-hidden="true" /><span><b>تکمیل پرونده مشتری</b></span></button>
         : <button type="button" className="btn btn-ghost feb" onClick={() => setForm(true)} data-testid="c3-file-edit"><PencilLine size={18} aria-hidden="true" /> ویرایش پرونده مشتری</button>}</div> : hint}
     </>}
     {form && f ? createPortal(<SimpleCallForm customer={{ id: customerId, name, phone, priority: priority ?? f.priority ?? null }} userId={undefined} onClose={() => setForm(false)} onDone={() => {}} onNext={() => {}}

@@ -33,6 +33,8 @@ const NEXT: { v: RmNext; l: string; s: string }[] = [
   { v: 'in_3_days', l: '۳ روز دیگه', s: 'ساعت ۱۰:۰۰' }, { v: 'none', l: 'یادآور لازم نیست', s: 'قدم بعد در پرونده' },
 ];
 const callKey = (id: number) => `rm-call-${id}`;
+/** CARD-FIX (Armita rem3 review §4): a reminder more than 15 minutes past its time is «عقب‌افتاده». */
+const RM_OVERDUE_MS = 15 * 60_000;
 
 function useBusy(active: boolean) {
   const [busy, setBusy] = useState(false);
@@ -87,7 +89,7 @@ export function ReminderMustHost({ userId }: { userId: number }) {
   useEffect(() => { const r = document.documentElement; r.classList.toggle('rmm-open', open); return () => r.classList.remove('rmm-open'); }, [open]);
   const done = useCallback(async (remaining: number) => {
     setOpen(false); setForceOpen(false);
-    setToast(remaining > 0 ? `ثبت شد · یادآور بعدی (${fa(remaining)} مانده) باز می‌شود` : 'ثبت شد · یادآور سررسید دیگری نداری');
+    setToast(remaining > 0 ? `ثبت شد؛ یادآور بعدی (${fa(remaining)} مانده) باز می‌شود` : 'ثبت شد؛ یادآور سررسید دیگری نداری');
     window.setTimeout(() => setToast(''), 5000);
     await qc.invalidateQueries({ queryKey: ['reminder-must', 'feed', userId] });
   }, [qc, userId]);
@@ -95,12 +97,12 @@ export function ReminderMustHost({ userId }: { userId: number }) {
   return createPortal(<div className="rmm-root" data-testid="rm-root">
     {head && !open && snoozed ? <div className="rmm-snb" role="status" data-testid="rm-snoozed">
       <AlarmClock size={18} aria-hidden="true" />
-      <span><b>{fa(items.length)} یادآور</b> (اولی {head.customerName} <span className="rmm-id">#{fa(head.customerId)}</span>) · <b className="rmm-cdn" data-testid="rm-countdown">{fa(new Date(snoozeLeft).toISOString().slice(14, 19))}</b> دیگر دوباره باز می‌شود · این بار بدون مهلت</span>
+      <span><b>{fa(items.length)} یادآور</b> (اولی {head.customerName} <span className="rmm-id">#{fa(head.customerId)}</span>)، <b className="rmm-cdn" data-testid="rm-countdown">{fa(new Date(snoozeLeft).toISOString().slice(14, 19))}</b> دیگر دوباره باز می‌شود · این بار بدون مهلت</span>
       <button type="button" className="btn btn-primary" onClick={() => setForceOpen(true)} data-testid="rm-open-now">الان باز کن</button>
     </div> : null}
     {head && !open && !snoozed && busy ? <p className="rmm-rq" role="status" data-testid="rm-queued"><BellRing size={15} aria-hidden="true" />
-      <span><b className="rmm-qn">{fa(items.length)}</b> یادآور سررسید شد · بعد از ثبت این فرم یکی‌یکی باز می‌شوند</span></p> : null}
-    {open && head ? <MustDialog key={head.reminderId} feed={feed} item={head} index={1} total={items.length} rest={items.slice(1, 4)} onDone={done}
+      <span><b className="rmm-qn">{fa(items.length)}</b> یادآور سررسید شد؛ بعد از ثبت این فرم یکی‌یکی باز می‌شوند</span></p> : null}
+    {open && head ? <MustDialog key={head.reminderId} feed={feed} item={head} index={1} total={items.length} rest={items.slice(1)} onDone={done}
       onSnoozed={async () => { setOpen(false); setForceOpen(false); await qc.invalidateQueries({ queryKey: ['reminder-must', 'feed', userId] }); }} /> : null}
     {toast ? <div className="rmm-toast" role="status" data-testid="rm-toast"><Check size={16} aria-hidden="true" /> {toast}</div> : null}
   </div>, document.body);
@@ -126,9 +128,13 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
     window.addEventListener('keydown', k, true); return () => window.removeEventListener('keydown', k, true);
   }, []);
   useEffect(() => { ref.current?.querySelector<HTMLElement>('h2')?.focus(); }, [step]);
-  const first = item.customerName.split(/\s+/)[0] || item.customerName;
+  const first = (item.customerName ?? '').trim().split(/\s+/)[0] || 'مشتری';
   const when = `${dayLabel(item.remindAt, feed.serverNow)} ${faClock(item.remindAt)}`;
-  const eyebrow = item.outsideHours ? `سررسید ${when} · بیرون از ساعت کاری بود؛ با ورودت باز شد` : `یادآور ${fa(index)} از ${fa(total)} · سر وقت · ${when}`;
+  const overdue = Date.parse(feed.serverNow) - Date.parse(item.remindAt) > RM_OVERDUE_MS;
+  const eyebrow = item.outsideHours ? `سررسید ${when}، بیرون از ساعت کاری بود؛ با ورودت باز شد` : `یادآور ${fa(index)} از ${fa(total)}، ${overdue ? 'سررسید' : 'سر وقت'} ${when}`;
+  const [qAll, setQAll] = useState(false);
+  const qShown = qAll ? rest : rest.slice(0, 3);
+  const qFull = rest.map((x) => `${faClock(x.remindAt)} ${x.customerName || 'بدون نام'}`).join('، ');
   const noteErr = !outcome ? 'نتیجه‌ی تماس را انتخاب کن.' : len(note) < r.noteMin ? `یادداشت یک‌خطی حداقل ${fa(r.noteMin)} نویسه.` : '';
   const nextErr = !next ? 'قدم بعد را انتخاب کن.' : next !== 'none' && len(reason) < r.reasonMin ? 'دلیل یادآور بعدی را بنویس.' : '';
   const snooze = async () => { setSending(true); setErr(''); try { await rmApi.snooze(); onSnoozed(); } catch (e) { setErr(e instanceof Error ? e.message : 'انجام نشد.'); } finally { setSending(false); } };
@@ -138,11 +144,11 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
     try {
       let callId = Number(sessionStorage.getItem(callKey(item.reminderId)) || 0);
       if (!callId) {
-        const one = note.replace(/\s+/g, ' ').trim();
+        const one = note.trim(); // NOMAX: keep line breaks; the server normalizes (noteText)
         const c = await rmApi.saveCall({ customerId: item.customerId, subject: 'یادآور سررسید', customerRequest: '', expertNotes: one, outcome, call_result: manual, oneLineNote: one, outOfList: true, context: 'out_of_list' });
         callId = c.id; sessionStorage.setItem(callKey(item.reminderId), String(callId)); announceCallSaved(callId, item.customerId);
       }
-      const res = await rmApi.complete(item.reminderId, { callId, outcome: outcome!, note: note.replace(/\s+/g, ' ').trim(), next: next!, reason: reason.replace(/\s+/g, ' ').trim() });
+      const res = await rmApi.complete(item.reminderId, { callId, outcome: outcome!, note: note.trim(), next: next!, reason: reason.replace(/\s+/g, ' ').trim() });
       sessionStorage.removeItem(callKey(item.reminderId));
       onDone(res.remaining);
     } catch (e) { setErr(e instanceof Error ? e.message : 'ثبت نشد. دوباره بزن.'); } finally { setSending(false); }
@@ -154,22 +160,23 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
   return <div className="rmm-x" data-testid="rm-overlay">
     <div className="rmm-d rmm-c3" role="alertdialog" aria-modal="true" aria-labelledby="rmm-t" aria-describedby="rmm-must" data-noclose ref={ref} data-testid="rm-dialog">
       <header className="rmm-h">
-        <p className="rmm-eb" data-testid="rm-eyebrow"><Clock size={14} aria-hidden="true" /> {eyebrow}</p>
-        <h2 id="rmm-t" tabIndex={-1}>وقت تماس با {item.customerName}</h2>
+        <p className="rmm-eb" data-testid="rm-eyebrow"><Clock size={14} aria-hidden="true" /> {eyebrow}{overdue ? <span className="rmm-od" data-testid="rm-overdue">عقب‌افتاده</span> : null}</p>
+        <h2 id="rmm-t" tabIndex={-1}>وقت تماس با {item.customerName?.trim() || 'بدون نام'}</h2>
       </header>
       <p className="rmm-must" id="rmm-must"><TriangleAlert size={14} aria-hidden="true" /> تا نتیجه ثبت نشود این پنجره بسته نمی‌شود</p>
       <div className="c3g rmm-g" data-testid="rm-c3">
         <C3History customerId={item.customerId} />
         <div className="c3m rmm-m" data-testid="rm-middle">
           <ol className="rmm-stp" aria-label="مراحل">{steps.map((s, i) => <li key={s} className={i < step ? 'dn' : i === step ? 'cu' : ''} aria-current={i === step ? 'step' : undefined}>{fa(i + 1)}. {s}</li>)}</ol>
-          <div className="rmm-who"><b>{item.customerName}</b> <span className="rmm-id">#{fa(item.customerId)}</span> <span className="rmm-ph" dir="ltr" data-testid="rm-phone">{item.phoneMasked}</span></div>
-          <div className="rmm-rsn"><h3>متن یادآور</h3><p data-testid="rm-reason">{item.reason || item.subject || '—'}</p><small>{item.createdBy} · ساخته‌شده {dayLabel(item.createdAt, feed.serverNow)} {faClock(item.createdAt)}</small></div>
-          {step === 0 && rest.length ? <p className="rmm-qnx" data-testid="rm-next-list"><span>بعد از این، به ترتیب ساعت:</span> {rest.map((x) => `${faClock(x.remindAt)} ${x.customerName}`).join(' · ')}{total > rest.length + 1 ? ' · …' : ''}</p> : null}
+          <div className="rmm-who"><span className="rmm-id" data-testid="rm-id">#{fa(item.customerId)}</span> <span className="rmm-ph" dir="ltr" data-testid="rm-phone">{fa(item.phoneMasked)}</span></div>
+          <div className="rmm-rsn"><h3>متن یادآور</h3><p data-testid="rm-reason">{item.reason || item.subject || '—'}</p><small>{item.createdBy}، ساخته‌شده {dayLabel(item.createdAt, feed.serverNow)} {faClock(item.createdAt)}</small></div>
+          {step === 0 && rest.length ? <p className="rmm-qnx" title={qFull} data-testid="rm-next-list"><span>بعد از این، به ترتیب ساعت:</span> {qShown.map((x) => `${faClock(x.remindAt)} ${x.customerName || 'بدون نام'}`).join('، ')}
+            {rest.length > 3 ? <button type="button" className="rmm-qmore" aria-expanded={qAll} onClick={() => setQAll(!qAll)} data-testid="rm-next-more">{qAll ? 'کمتر' : `و ${fa(rest.length - 3)} یادآور دیگر`}</button> : null}</p> : null}
         {step === 1 ? <div className="rmm-b">
           <ManualOutcomeField value={manual ?? ''} onChange={(v) => setManual(v)} showError={show && !manual} idPrefix="rm" submitLabel="بعدی" />
           <label className="rmm-f"><span>یادداشت تماس <small>(اجباری)</small></span>
             <AutoGrowTextarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="مثلاً: مدارک را فردا می‌فرستد" data-testid="rm-note" aria-invalid={show && Boolean(noteErr)} />
-            <small className={len(note) < r.noteMin ? 'bad' : ''}>{fa(len(note))} نویسه · حداقل {fa(r.noteMin)}</small></label>
+            <small className={len(note) < r.noteMin ? 'bad' : ''}>{fa(len(note))} نویسه، حداقل {fa(r.noteMin)}</small></label>
           {show && noteErr ? <p className="rmm-err" role="alert">{noteErr}</p> : null}
         </div> : null}
         {step === 2 ? <div className="rmm-b">

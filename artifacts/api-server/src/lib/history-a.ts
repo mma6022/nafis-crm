@@ -303,7 +303,7 @@ export function callHistory(customerId: number, limit = 20, before: number | nul
     FROM call_logs l WHERE l.customer_id=? AND ${real} AND COALESCE(l.source,'')<>'daily_plan' ${before ? "AND l.id<?" : ""}
     ORDER BY l.id DESC LIMIT ?`, before ? [customerId, before, lim + 1] : [customerId, lim + 1]);
   const items = rows.slice(0, lim).map((r) => { const [label, tone] = callTag(r.outcome, r.subject);
-    return { id: r.id, at: r.created_at, result: label, tone, note: one(r.one_line_note || r.expert_notes || r.customer_request || "", 400) || null,
+    return { id: r.id, at: r.created_at, result: label, tone, note: noteText(r.one_line_note || r.expert_notes || r.customer_request || "") || null, // NOMAX/CARD-FIX: full note, line breaks kept (the client folds long ones)
       by: r.salesperson_name_snapshot ? shortName(String(r.salesperson_name_snapshot)) : null }; });
   return { customerId, items, nextBefore: rows.length > lim ? items[items.length - 1].id : null };
 }
