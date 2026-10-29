@@ -57,11 +57,15 @@ const GROUPS: Array<{ title: string | null; keys: string[] }> = [
 const LABEL: Record<string, string> = { ...FIRST_CALL_FIELD_LABELS, amountMillion: 'مبلغ موردنیاز', cheque: 'چک صیادی یا سفته', bouncedCheque: 'چک برگشتی رفع‌نشده',
   military: 'پایان خدمت', guarantorAvailable: 'ضامن دارد؟', city: 'شهر', ssoRetiree: 'بازنشسته‌ی تأمین اجتماعی' };
 
-export function C3File({ customerId, name, phone, priority, onSavedToast }: { customerId: number; name: string; phone: string; priority: number | null; onSavedToast: (t: string) => void }) {
+/** `editable={false}` (REMINDER-3COL popup): read-only file — the save would be refused server-side (expert_lockdown) for this customer. */
+export function C3File({ customerId, name, phone, priority, onSavedToast, editable = true, lockedHint }: { customerId: number; name: string; phone: string; priority: number | null;
+  onSavedToast: (t: string) => void; editable?: boolean; lockedHint?: string }) {
   const qc = useQueryClient();
   const q = useFileCard(customerId);
   const [form, setForm] = useState(false);
   const f: FileCard | undefined = q.data;
+  const canEdit = Boolean(f?.canEdit) && editable;
+  const hint = f?.canEdit && !editable && lockedHint ? <p className="dp-hint c3-lk" data-testid="c3-file-locked">{lockedHint}</p> : null;
   const fresh = new Set(f?.changedFields ?? []);
   const missTxt = f ? (f.missingCount ? `${faN(f.missingCount)} مورد مانده` : 'کامل') : '';
   const val = (k: string) => {
@@ -76,8 +80,8 @@ export function C3File({ customerId, name, phone, priority, onSavedToast }: { cu
     <SiteAnswersBlock customerId={customerId} showEmpty />
     {q.isError ? <p className="hx-err" role="alert">پرونده بارگذاری نشد.</p> : !f ? null : !f.answers ? <div className="fempty" data-testid="c3-file-empty">
       <p><AlertCircle size={16} aria-hidden="true" /> هنوز فرم تماس اول این مشتری پر نشده. همان سؤال‌ها را بپرس و پرونده را کامل کن.</p>
-      {f.canEdit ? <button type="button" className="btn fcb" onClick={() => setForm(true)} data-testid="c3-file-complete"><PencilLine size={20} aria-hidden="true" />
-        <span><b>تکمیل پرونده مشتری</b><span className="mc">{faN(f.missingCount)} مورد مانده</span></span></button> : null}
+      {canEdit ? <button type="button" className="btn fcb" onClick={() => setForm(true)} data-testid="c3-file-complete"><PencilLine size={20} aria-hidden="true" />
+        <span><b>تکمیل پرونده مشتری</b><span className="mc">{faN(f.missingCount)} مورد مانده</span></span></button> : hint}
     </div> : <>
       <div className="hx-tgs"><span className={`hx-tg ${f.priority === 1 ? 'p1' : 'pn'}`}>{f.priority == null ? 'بدون اولویت' : `اولویت ${faN(f.priority)}`}</span>
         <span className={`hx-tg ${f.complete ? 'ok' : 'warn'}`}>{f.complete ? `کامل · ${faN(f.total)} از ${faN(f.total)}` : `${faN(f.total - f.missingCount)} از ${faN(f.total)}`}</span></div>
@@ -87,11 +91,11 @@ export function C3File({ customerId, name, phone, priority, onSavedToast }: { cu
             <dd className={miss ? 'mc' : undefined}>{miss ? 'خالی' : val(k)}{fresh.has(k) ? <em className="nw">تازه</em> : null}</dd></div>; })}</dl>
           {gr.title === 'متقاضی' && (f.answers?.ssoRetiree === 'self' || f.answers?.ssoRetiree === 'family') ? <p className="adm"><Zap size={13} aria-hidden="true" /> پیشنهاد بازنشسته‌ها در ستون وسط</p> : null}</div>; })}
       {f.missingCount ? <div className="fmiss"><p data-testid="c3-file-missing">مانده: {f.missing.map((k) => LABEL[k] ?? k).join('، ')}</p></div> : null}
-      {f.canEdit ? <div className="fact">{f.missingCount
+      {canEdit ? <div className="fact">{f.missingCount
         ? <button type="button" className="btn fcb" onClick={() => setForm(true)} data-testid="c3-file-complete"><PencilLine size={20} aria-hidden="true" /><span><b>تکمیل پرونده مشتری</b><span className="mc">{faN(f.missingCount)} مورد مانده</span></span></button>
-        : <button type="button" className="btn btn-ghost feb" onClick={() => setForm(true)} data-testid="c3-file-edit"><PencilLine size={18} aria-hidden="true" /> ویرایش پرونده مشتری</button>}</div> : null}
+        : <button type="button" className="btn btn-ghost feb" onClick={() => setForm(true)} data-testid="c3-file-edit"><PencilLine size={18} aria-hidden="true" /> ویرایش پرونده مشتری</button>}</div> : hint}
     </>}
-    {form && f ? createPortal(<SimpleCallForm customer={{ id: customerId, name, phone, priority }} userId={undefined} onClose={() => setForm(false)} onDone={() => {}} onNext={() => {}}
+    {form && f ? createPortal(<SimpleCallForm customer={{ id: customerId, name, phone, priority: priority ?? f.priority ?? null }} userId={undefined} onClose={() => setForm(false)} onDone={() => {}} onNext={() => {}}
       file={{ answers: f.answers, city: f.city, complete: Boolean(f.answers), onSaved: (card) => { setForm(false); qc.setQueryData(fileCardKey(customerId), card);
         void qc.invalidateQueries({ queryKey: historyKey(customerId) }); onSavedToast('پرونده ذخیره شد · اولویت و کارشناس تغییری نکرد'); } }} />, document.body) : null}
   </Side>;

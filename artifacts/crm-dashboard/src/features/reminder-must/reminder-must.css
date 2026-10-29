@@ -53,3 +53,20 @@ html.rmm-open body{overflow:hidden}
   .rmm-f2{position:sticky;bottom:0;background:#fff;margin-top:auto}.rmm-f2 .btn{min-height:48px}
   .rmm-snb,.rmm-rq{inset-inline:8px;top:6px}
 }
+/* REMINDER-3COL: the popup card = the «کارهای امروز من» 3-column card (.c3g from history.css). */
+.rmm-d.rmm-c3{width:1180px}
+.rmm-g{padding:12px}
+.rmm-m .rmm-b{padding:0}
+.rmm-m .rmm-f2{padding:10px 0 0;border-top:1px solid #EAECF0}
+.rmm-m .rmm-err-b{padding:0}
+.rmm-x .c3-lk{margin:8px 0 0;font-size:12.5px;color:#475467}
+/* SimpleCallForm («تکمیل/ویرایش پرونده») and its pop-ups open above the popup. */
+html.rmm-open .ts-layer{z-index:1250}
+html.rmm-open .pc-sheet-scrim{z-index:1255}
+html.rmm-open .pc-pop{z-index:1260}
+html.rmm-open .ts-toast{z-index:1265}
+@media (max-width:1023px){
+  .rmm-d.rmm-c3{width:100%}
+  .rmm-g{padding:10px}
+  .rmm-m .rmm-f2{position:static}
+}

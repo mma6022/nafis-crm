@@ -8,10 +8,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlarmClock, BellRing, Check, Clock, History, Phone, TriangleAlert } from 'lucide-react';
+import { AlarmClock, BellRing, Check, Clock, Phone, TriangleAlert } from 'lucide-react';
 import { announceCallSaved, faClock, faNum } from '@/features/call-queue/api';
 import { rmApi, useRmConfig, type RmFeed, type RmItem, type RmNext, type RmOutcome } from './api';
 import { ManualOutcomeField } from '@/features/call-queue/ResultFields';
+import { C3File, C3History } from '@/features/history/TodayC3';
 import './reminder-must.css';
 
 const OVERLAY_SEL = '[aria-modal="true"],[role="dialog"],[role="alertdialog"],.modal-backdrop,.call-sheet-backdrop,.ch-backdrop,.ic-sheet,[vaul-drawer],.dp-inbound';
@@ -26,7 +27,6 @@ const dayLabel = (iso: string, nowIso: string) => {
 // Release 81: step 1 asks the required manual «نتیجه‌ی تماس» (call_logs.manual_outcome); the reminder outcome is derived from it
 // (جواب داد → answered, otherwise no_answer). «یادآور بعدی» in step 2 still covers the follow-up.
 type RmManual = 'answered' | 'no_answer' | 'off_or_busy';
-const OUT_FA: Record<string, string> = { answered: 'جواب داد', no_answer: 'جواب نداد', follow_up: 'پیگیری بعدی' };
 const NEXT: { v: RmNext; l: string; s: string }[] = [
   { v: 'tomorrow_am', l: 'فردا صبح', s: 'ساعت ۱۰:۰۰' }, { v: 'today_pm', l: 'امروز عصر', s: 'ساعت ۱۷:۰۰' },
   { v: 'in_3_days', l: '۳ روز دیگه', s: 'ساعت ۱۰:۰۰' }, { v: 'none', l: 'یادآور لازم نیست', s: 'قدم بعد در پرونده' },
@@ -116,6 +116,7 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
   const [err, setErr] = useState('');
   const [show, setShow] = useState(false);
   const [sending, setSending] = useState(false);
+  const [fileToast, setFileToast] = useState('');
   const ref = useRef<HTMLDivElement>(null);
   const r = feed.rules;
   useEffect(() => { void rmApi.shown(item.reminderId).catch(() => {}); }, [item.reminderId]);
@@ -146,56 +147,62 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
     } catch (e) { setErr(e instanceof Error ? e.message : 'ثبت نشد. دوباره بزن.'); } finally { setSending(false); }
   };
   const steps = ['تماس', 'نتیجه', 'قدم بعد'];
+  const savedToast = (t: string) => { setFileToast(t); window.setTimeout(() => setFileToast(''), 4000); };
+  // REMINDER-3COL: same three columns as «کارهای امروز من» (C3History | middle | C3File); same endpoints and server checks
+  // (own customer only, expert_lockdown unchanged). Mobile (<1024px): one column, middle first, the two sides as closed sections.
   return <div className="rmm-x" data-testid="rm-overlay">
-    <div className="rmm-d" role="alertdialog" aria-modal="true" aria-labelledby="rmm-t" aria-describedby="rmm-must" data-noclose ref={ref} data-testid="rm-dialog">
+    <div className="rmm-d rmm-c3" role="alertdialog" aria-modal="true" aria-labelledby="rmm-t" aria-describedby="rmm-must" data-noclose ref={ref} data-testid="rm-dialog">
       <header className="rmm-h">
         <p className="rmm-eb" data-testid="rm-eyebrow"><Clock size={14} aria-hidden="true" /> {eyebrow}</p>
         <h2 id="rmm-t" tabIndex={-1}>وقت تماس با {item.customerName}</h2>
-        <ol className="rmm-stp" aria-label="مراحل">{steps.map((s, i) => <li key={s} className={i < step ? 'dn' : i === step ? 'cu' : ''} aria-current={i === step ? 'step' : undefined}>{fa(i + 1)}. {s}</li>)}</ol>
       </header>
       <p className="rmm-must" id="rmm-must"><TriangleAlert size={14} aria-hidden="true" /> تا نتیجه ثبت نشود این پنجره بسته نمی‌شود</p>
-      {step === 0 ? <div className="rmm-b">
-        <div className="rmm-who"><b>{item.customerName}</b> <span className="rmm-id">#{fa(item.customerId)}</span> <span className="rmm-ph" dir="ltr" data-testid="rm-phone">{item.phoneMasked}</span></div>
-        <div className="rmm-rsn"><h3>دلیل یادآور</h3><p data-testid="rm-reason">{item.reason || item.subject || '—'}</p><small>{item.createdBy} · ساخته‌شده {dayLabel(item.createdAt, feed.serverNow)} {faClock(item.createdAt)}</small></div>
-        {item.lastCalls?.length ? <div className="rmm-hx"><h3><History size={14} aria-hidden="true" /> آخرین تماس‌ها</h3><ul>{item.lastCalls.map((c) =>
-          <li key={c.id}><span className="rmm-cd">{dayLabel(c.at, feed.serverNow)} {faClock(c.at)}{c.outcome ? ` · ${OUT_FA[c.outcome] ?? ''}` : ''}</span><p>{c.note || '—'}</p></li>)}</ul></div>
-          : <p className="rmm-hint">تماس قبلی ثبت نشده.</p>}
-        {rest.length ? <p className="rmm-qnx" data-testid="rm-next-list"><span>بعد از این، به ترتیب ساعت:</span> {rest.map((x) => `${faClock(x.remindAt)} ${x.customerName}`).join(' · ')}{total > rest.length + 1 ? ' · …' : ''}</p> : null}
-      </div> : null}
-      {step === 1 ? <div className="rmm-b">
-        <ManualOutcomeField value={manual ?? ''} onChange={(v) => setManual(v)} showError={show && !manual} idPrefix="rm" submitLabel="بعدی" />
-        <label className="rmm-f"><span>یادداشت یک‌خطی <small>(اجباری)</small></span>
-          <input value={note} maxLength={r.noteMax + 20} onChange={(e) => setNote(e.target.value)} placeholder="مثلاً: مدارک را فردا می‌فرستد" data-testid="rm-note" aria-invalid={show && Boolean(noteErr)} />
-          <small className={len(note) > r.noteMax ? 'bad' : ''}>{fa(len(note))}/{fa(r.noteMax)}</small></label>
-        {show && noteErr ? <p className="rmm-err" role="alert">{noteErr}</p> : null}
-      </div> : null}
-      {step === 2 ? <div className="rmm-b">
-        <fieldset className="rmm-nxc"><legend>یادآور بعدی</legend>{NEXT.map((n) => {
-          const dis = n.v === 'today_pm' && !r.todayPmOpen;
-          return <button key={n.v} type="button" className={`rmm-nx${next === n.v ? ' on' : ''}`} disabled={dis} aria-pressed={next === n.v} onClick={() => setNext(n.v)} data-testid={`rm-next-${n.v}`}>{n.l}<small>{dis ? 'دیگر ممکن نیست' : n.s}</small></button>; })}</fieldset>
-        {next && next !== 'none' ? <label className="rmm-f"><span>دلیل یادآور بعدی</span>
-          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="مثلاً: پیگیری ارسال مدارک" data-testid="rm-reason-next" />
-          <small className={len(reason) > r.reasonMax ? 'bad' : ''}>{fa(len(reason))}/{fa(r.reasonMax)}</small></label> : null}
-        {show && nextErr ? <p className="rmm-err" role="alert">{nextErr}</p> : null}
-      </div> : null}
-      {err ? <p className="rmm-err rmm-err-b" role="alert" data-testid="rm-error">{err}</p> : null}
-      <footer className="rmm-f2">
-        {step === 0 ? <>
-          {item.tel ? <a className="btn rmm-call" href={`tel:${item.tel}`} data-testid="rm-call"><Phone size={16} aria-hidden="true" /> تماس با {first}</a> : null}
-          <button type="button" className="btn btn-primary rmm-p" onClick={() => setStep(1)} data-testid="rm-to-result">ثبت نتیجه</button>
-          {feed.snooze.available ? <button type="button" className="btn btn-ghost rmm-snz" disabled={sending} onClick={() => void snooze()} data-testid="rm-snooze">
-            <AlarmClock size={16} aria-hidden="true" /><span>الان مشتری جدید دارم — فقط یک بار<small>۱۰ دقیقه بعد دوباره باز می‌شود</small></span></button>
-            : <p className="rmm-nosnz" data-testid="rm-no-snooze"><AlarmClock size={14} aria-hidden="true" /> مهلت ۱۰ دقیقه‌ای استفاده شد؛ این بار بدون مهلت.</p>}
-        </> : null}
-        {step === 1 ? <>
-          <button type="button" className="btn btn-primary rmm-p" onClick={() => { setShow(true); if (!noteErr) { setShow(false); setStep(2); } }} data-testid="rm-continue">ادامه</button>
-          <button type="button" className="btn btn-ghost" onClick={() => setStep(0)}>قبلی</button>
-        </> : null}
-        {step === 2 ? <>
-          <button type="button" className="btn btn-primary rmm-p" disabled={sending} onClick={() => void submit()} data-testid="rm-submit">{sending ? 'در حال ثبت…' : 'ثبت و بستن یادآور'}</button>
-          <button type="button" className="btn btn-ghost" disabled={sending} onClick={() => setStep(1)}>قبلی</button>
-        </> : null}
-      </footer>
+      <div className="c3g rmm-g" data-testid="rm-c3">
+        <C3History customerId={item.customerId} />
+        <div className="c3m rmm-m" data-testid="rm-middle">
+          <ol className="rmm-stp" aria-label="مراحل">{steps.map((s, i) => <li key={s} className={i < step ? 'dn' : i === step ? 'cu' : ''} aria-current={i === step ? 'step' : undefined}>{fa(i + 1)}. {s}</li>)}</ol>
+          <div className="rmm-who"><b>{item.customerName}</b> <span className="rmm-id">#{fa(item.customerId)}</span> <span className="rmm-ph" dir="ltr" data-testid="rm-phone">{item.phoneMasked}</span></div>
+          <div className="rmm-rsn"><h3>متن یادآور</h3><p data-testid="rm-reason">{item.reason || item.subject || '—'}</p><small>{item.createdBy} · ساخته‌شده {dayLabel(item.createdAt, feed.serverNow)} {faClock(item.createdAt)}</small></div>
+          {step === 0 && rest.length ? <p className="rmm-qnx" data-testid="rm-next-list"><span>بعد از این، به ترتیب ساعت:</span> {rest.map((x) => `${faClock(x.remindAt)} ${x.customerName}`).join(' · ')}{total > rest.length + 1 ? ' · …' : ''}</p> : null}
+        {step === 1 ? <div className="rmm-b">
+          <ManualOutcomeField value={manual ?? ''} onChange={(v) => setManual(v)} showError={show && !manual} idPrefix="rm" submitLabel="بعدی" />
+          <label className="rmm-f"><span>یادداشت یک‌خطی <small>(اجباری)</small></span>
+            <input value={note} maxLength={r.noteMax + 20} onChange={(e) => setNote(e.target.value)} placeholder="مثلاً: مدارک را فردا می‌فرستد" data-testid="rm-note" aria-invalid={show && Boolean(noteErr)} />
+            <small className={len(note) > r.noteMax ? 'bad' : ''}>{fa(len(note))}/{fa(r.noteMax)}</small></label>
+          {show && noteErr ? <p className="rmm-err" role="alert">{noteErr}</p> : null}
+        </div> : null}
+        {step === 2 ? <div className="rmm-b">
+          <fieldset className="rmm-nxc"><legend>یادآور بعدی</legend>{NEXT.map((n) => {
+            const dis = n.v === 'today_pm' && !r.todayPmOpen;
+            return <button key={n.v} type="button" className={`rmm-nx${next === n.v ? ' on' : ''}`} disabled={dis} aria-pressed={next === n.v} onClick={() => setNext(n.v)} data-testid={`rm-next-${n.v}`}>{n.l}<small>{dis ? 'دیگر ممکن نیست' : n.s}</small></button>; })}</fieldset>
+          {next && next !== 'none' ? <label className="rmm-f"><span>دلیل یادآور بعدی</span>
+            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="مثلاً: پیگیری ارسال مدارک" data-testid="rm-reason-next" />
+            <small className={len(reason) > r.reasonMax ? 'bad' : ''}>{fa(len(reason))}/{fa(r.reasonMax)}</small></label> : null}
+          {show && nextErr ? <p className="rmm-err" role="alert">{nextErr}</p> : null}
+        </div> : null}
+        {err ? <p className="rmm-err rmm-err-b" role="alert" data-testid="rm-error">{err}</p> : null}
+        <footer className="rmm-f2">
+          {step === 0 ? <>
+            {item.tel ? <a className="btn rmm-call" href={`tel:${item.tel}`} data-testid="rm-call"><Phone size={16} aria-hidden="true" /> تماس با {first}</a> : null}
+            <button type="button" className="btn btn-primary rmm-p" onClick={() => setStep(1)} data-testid="rm-to-result">ثبت نتیجه</button>
+            {feed.snooze.available ? <button type="button" className="btn btn-ghost rmm-snz" disabled={sending} onClick={() => void snooze()} data-testid="rm-snooze">
+              <AlarmClock size={16} aria-hidden="true" /><span>الان مشتری جدید دارم — فقط یک بار<small>۱۰ دقیقه بعد دوباره باز می‌شود</small></span></button>
+              : <p className="rmm-nosnz" data-testid="rm-no-snooze"><AlarmClock size={14} aria-hidden="true" /> مهلت ۱۰ دقیقه‌ای استفاده شد؛ این بار بدون مهلت.</p>}
+          </> : null}
+          {step === 1 ? <>
+            <button type="button" className="btn btn-primary rmm-p" onClick={() => { setShow(true); if (!noteErr) { setShow(false); setStep(2); } }} data-testid="rm-continue">ادامه</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setStep(0)}>قبلی</button>
+          </> : null}
+          {step === 2 ? <>
+            <button type="button" className="btn btn-primary rmm-p" disabled={sending} onClick={() => void submit()} data-testid="rm-submit">{sending ? 'در حال ثبت…' : 'ثبت و بستن یادآور'}</button>
+            <button type="button" className="btn btn-ghost" disabled={sending} onClick={() => setStep(1)}>قبلی</button>
+          </> : null}
+        </footer>
+        </div>
+        <C3File customerId={item.customerId} name={item.customerName} phone={item.tel} priority={null} onSavedToast={savedToast}
+          editable={item.fileEdit !== false} lockedHint="تکمیل/ویرایش پرونده‌ی این مشتری از «کارهای امروز من» باز است." />
+      </div>
+      {fileToast ? <div className="hx-toast" role="status" data-testid="rm-file-toast"><Check size={18} aria-hidden="true" /> <span>{fileToast}</span></div> : null}
     </div>
   </div>;
 }

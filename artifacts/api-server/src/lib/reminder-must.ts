@@ -15,7 +15,7 @@
  */
 import { crmDb, execute, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
 import { cqRaw, fromTehran, nextWorkDayAt, toWorkingTime, tParts, isWorkDay } from "./call-queue";
-import { EL_USERS } from "./expert-lockdown";
+import { EL_USERS, elCustomerAccess, elLocked } from "./expert-lockdown";
 import { maskPhonesInText } from "./lead-annotator";
 
 export const RM_FLAG_KEY = "flag.reminder_must";
@@ -99,7 +99,10 @@ export function rmFeed(u: NonNullable<U>, now = new Date()) {
     createdBy: r.source === "assistant" ? "دستیار فروش" : r.created_by && r.created_by !== r.user_id ? (r.by_name || "همکار") : "خودت",
     createdAt: r.created_at, remindAt: r.remind_at, outsideHours: toWorkingTime(new Date(r.remind_at)).shifted,
   })) : [];
-  const head = items[0] ? { ...items[0], lastCalls: lastCalls(items[0].customerId) } : null;
+  // REMINDER-3COL: «تکمیل/ویرایش پرونده» in the popup's file column only where the today card could save it too
+  // (expert_lockdown unchanged: POST /customers/:id/file-card stays limited to today's plan / incoming / case customers).
+  const head = items[0] ? { ...items[0], lastCalls: lastCalls(items[0].customerId),
+    fileEdit: !elLocked(u) || elCustomerAccess(u, items[0].customerId, now) != null } : null;
   return { enabled: true, workTime: work, pendingCount: rows.length, items: head ? [head, ...items.slice(1)] : [], snooze, serverNow: now.toISOString(),
     rules: { noteMin: RM_NOTE_MIN, noteMax: RM_NOTE_MAX, reasonMin: RM_REASON_MIN, reasonMax: RM_REASON_MAX, outcomes: RM_OUTCOMES, next: RM_NEXT,
       todayPmOpen: todayPm(now) != null } };
