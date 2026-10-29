@@ -1,0 +1,48 @@
+/* home-order v1.0.1 (Armita FINAL, handoff screens/home-order, index.html sha256 1185c150…dfe; port of src/rhythm.css).
+   Home page only: imported by pages/index.astro and scoped to <main class="ho">, so /blog, /contact, landings etc. keep
+   site.css as-is. Unlayered on purpose: beats site.css/site-extra.css (@layer components) without touching them.
+   Layout only — no colour, copy, brand or content change. */
+main.ho{--ho-gap:80px;--ho-head:24px;--ho-wrap:1184px;--ho-gut:48px;--ho-h2:30px;--ho-h2-lh:1.5}
+@media (max-width:1023px){main.ho{--ho-gap:64px;--ho-gut:32px}}
+@media (max-width:767px){main.ho{--ho-gap:48px;--ho-head:16px;--ho-gut:20px;--ho-h2:22px;--ho-h2-lh:1.6}}
+
+/* 1) top-level blocks: no own vertical padding/margin; the gap between two blocks is exactly --ho-gap, and the same
+      gap before the footer */
+main.ho>:is(section,.hbm-wrap){padding-block:0!important;margin-block:0!important}
+main.ho>:is(section,.hbm-wrap)~:is(section,.hbm-wrap){margin-top:var(--ho-gap)!important}
+main.ho>:is(section,.hbm-wrap):last-of-type{margin-bottom:var(--ho-gap)!important}
+main.ho+.site-foot{margin-top:0!important}
+
+/* 2) one content width: 1184 content + gutters 48/32/20 for every block except the full-bleed slider (#hero) */
+main.ho>:is(section,.hbm-wrap):not(#hero) :is(.container-nf,.wrap,.nvh-in),main.ho>.hbm-wrap{box-sizing:border-box;max-width:calc(var(--ho-wrap) + 2*var(--ho-gut))!important;margin-inline:auto!important;padding-inline:var(--ho-gut)!important}
+main.ho>.hbm-wrap .hbm{max-width:none!important;width:100%}
+
+/* 3) one section heading: same size, weight, line-height and gap below (colours untouched) */
+main.ho>section :is(.sec-head h2,.finder-head h2,.cb-h,#why-h){font-size:var(--ho-h2)!important;line-height:var(--ho-h2-lh)!important;font-weight:800;margin:0!important}
+main.ho>section :is(.sec-head,.finder-head){margin:0 0 var(--ho-head)!important;min-height:0}
+main.ho .trustwhy #why-h{margin-bottom:var(--ho-head)!important}
+
+/* 4) per-block fixes */
+/* «صفر تا صد» (the page's only h1): a normal section on the page background, no second hero band */
+main.ho>.nvh{background:none!important;border:0!important;overflow:visible}
+main.ho>.nvh .nvh-in{padding-block:0!important}
+main.ho>.nvh .nvh-h{font-size:clamp(25px,7.2vw,28px)}
+@media (min-width:768px){main.ho>.nvh .nvh-h{font-size:clamp(30px,3vw,40px)}}
+/* why: the bar sits right under its (now visible) heading */
+main.ho .trustwhy .why2{margin-top:16px}
+/* FAQ: heading on top like every other section (was a 320px side column), list at full content width */
+main.ho .faq-wrap{display:block!important}
+main.ho .faq-more{margin-top:var(--ho-head)}
+/* consult card: .cb--section is a 2-column grid whose only child was .cb-body → empty left column on desktop.
+   Let .cb-intro and .cb-card take the two columns. */
+main.ho #callback .cb--section>.cb-body{display:contents}
+/* mid banners: same width/corner as the cards, no extra 8px band */
+main.ho>.hbm-wrap{padding-block:0!important}
+/* blog meta: a drawn dot between date and reading time (PostCard dot prop) */
+.ho-dot{display:inline-block;width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.6;vertical-align:middle;margin-inline:8px}
+
+/* §4 sticky bar (mobile/tablet; hidden ≥1024px by site.css): on home it appears only once the slider has scrolled
+   above it. Class set by the script in index.astro; without JS the bar behaves as on every other page. */
+body.ho-bar-wait .bar{transform:translateY(100%);visibility:hidden;transition:transform .2s ease,visibility 0s linear .2s}
+body.ho-bar-wait.ho-bar-on .bar{transform:none;visibility:visible;transition:transform .2s ease,visibility 0s}
+@media (prefers-reduced-motion:reduce){body.ho-bar-wait .bar,body.ho-bar-wait.ho-bar-on .bar{transition:none}}

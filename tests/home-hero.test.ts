@@ -25,11 +25,18 @@ test('home hero: no banned words, no rates/percentages', () => {
   assert.ok(!/[%٪]|درصد|نرخ|سود/.test(all));
 });
 
-test('home: sefr block (Armita v1.0) is the only h1, Omid slider stays below with slide 1 as h2, no scene.js', () => {
+test('home (home-order v1.0.1): slider first with slide 1 as h2, then the sefr block as the only h1, no scene.js', () => {
   const idx = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8');
-  assert.match(idx, /const HOME_HERO = 'sefr'/);
-  assert.match(idx, /<HeroSlider facts=\{facts\} firstH1=\{HOME_HERO === 'slider'\} \/>/);
-  assert.ok(idx.indexOf('<HeroSefr') < idx.indexOf('<HeroSlider'), 'top block sits above the slider');
+  assert.doesNotMatch(idx, /HOME_HERO/, 'the sefr/slider switch is gone');
+  assert.match(idx, /<HeroSlider facts=\{facts\} firstH1=\{false\} \/>/);
+  assert.ok(idx.indexOf('<HeroSlider') < idx.indexOf('<HeroSefr'), 'slider is the first block after the header');
+  const order = ['<HeroSlider', '<HeroSefr', 'id="why-h"', 'id="plan-finder"', 'id="calculator"', 'id="callback"', '<MidBanner n={1}', 'aria-labelledby="svc-h"', 'aria-labelledby="steps-h"', 'aria-labelledby="blog-h"', '<MidBanner n={2}', 'aria-labelledby="faq-h"'];
+  const at = order.map((k) => idx.indexOf(k));
+  assert.ok(at.every((v) => v > 0), 'all home blocks present');
+  assert.deepEqual([...at].sort((a, b) => a - b), at, 'home-order v1.0.1 §2 block order');
+  assert.match(idx, /<h2 id="why-h">/, '«چرا نفیس وام؟» heading visible (no .vh)');
+  assert.match(idx, /import '\.\.\/styles\/home-order\.css'/);
+  assert.match(idx, /mainClass="ho"/);
   const c = readFileSync(new URL('../src/components/home/HeroSefr.astro', import.meta.url), 'utf8');
   assert.equal((c.match(/<h1\b/g) ?? []).length, 1);
   assert.doesNotMatch(c, /import[^;\n]*scene|scene\.js['"]/, 'Armita scene.js is mockup-only');

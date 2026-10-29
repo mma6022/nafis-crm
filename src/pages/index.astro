@@ -2,6 +2,9 @@
 /**
  * Home (designer mockup home.html, UX-SPEC §8). Copy + FAQ from src/content/pages/home.mdx; every number from plan
  * data (snapshot at build, live JSON in the browser). No testimonials section until real, consented reviews exist.
+ * Order + rhythm: Armita home-order v1.0.1 FINAL (index.html sha256 1185c150…, HANDOFF §2): slider first (slide 1 = h2),
+ * «صفر تا صد» (the only h1), why, finder, calculator, callback, mid 1, services, steps, blog, mid 2, FAQ. Spacing, content width
+ * and section headings come only from styles/home-order.css (main.ho); no copy/colour/brand change.
  */
 import { getCollection } from 'astro:content';
 import BaseLayout from '../layouts/BaseLayout.astro';
@@ -20,10 +23,9 @@ import { fa, fillFacts, planFacts } from '../lib/plans';
 import { financialServiceLd, faqLd } from '../lib/seo';
 import { fillFaq } from '../lib/faq-fill';
 import { getPosts, homePosts } from '../lib/blog';
+import '../styles/home-order.css';
 import type { SpriteIcon } from '../components/ui/I';
 
-/** Top section: «صفر تا صد» hero (Mohammad t627u/t628u). 'slider' restores the 3-slide banner hero (home v1.0.2) in one edit. */
-const HOME_HERO = 'sefr' as 'sefr' | 'slider';
 const HOME_FAQ_MAX = 4; // PM: max 4 questions on home (home.mdx order) + link to /faq
 const page = (await getCollection('pages', (p) => p.data.slug === '/'))[0]!;
 const facts = planFacts(LOAN_PLANS_SNAPSHOT);
@@ -40,29 +42,13 @@ const SVC_ICON: Record<string, SpriteIcon> = {
 };
 ---
 
-<BaseLayout rawTitle title={fill(page.data.title)} titleTemplate={page.data.title} description={page.data.description} src="home" jsonLd={[financialServiceLd(), faqLd(faq)]}>
-  {HOME_HERO === 'sefr' && <HeroSefr />}
-  <HeroSlider facts={facts} firstH1={HOME_HERO === 'slider'} />
+<BaseLayout mainClass="ho" rawTitle title={fill(page.data.title)} titleTemplate={page.data.title} description={page.data.description} src="home" jsonLd={[financialServiceLd(), faqLd(faq)]}>
+  <HeroSlider facts={facts} firstH1={false} />
+  <HeroSefr />
 
-  <section class="finder" id="plan-finder" aria-labelledby="finder-h">
-    <div class="wrap">
-      <div class="finder-head">
-        <h2 id="finder-h">طرح مناسب‌تان را در ۲ قدم پیدا کنید</h2>
-        <span class="nf-badge nf-badge--brand" style="white-space:nowrap;margin-top:2px"><span data-plan-count="planCount">{fa(facts.planCount)}</span> طرح فعال</span>
-      </div>
-      <div class="finder-mount" id="finder">
-        <PlanFinder client:load snapshot={LOAN_PLANS_SNAPSHOT} src="home-finder" />
-      </div>
-    </div>
-  </section>
-
-  <section class="cb-sec" id="callback" aria-label="درخواست مشاوره‌ی رایگان">
-    <div class="container-nf"><CallbackForm client:visible variant="section" src="home-callback" wa /></div>
-  </section>
-
-  <section class="rv sec trustwhy" aria-labelledby="why-h" style="padding-top:40px">
+  <section class="rv sec trustwhy" aria-labelledby="why-h">
     <div class="container-nf">
-      <h2 id="why-h" class="vh">چرا نفیس وام؟</h2>
+      <h2 id="why-h">چرا نفیس وام؟</h2>
       <div class="trust">
         {/* 3 confirmed stats + live plan count + the اینماد chip (same self-hosted badge + link as the footer; the bar scrolls sideways on mobile). */}
         {TRUST_STATS.map((t) => <div class="t">{t.pre} <b>{t.b}</b> {t.post}</div>)}
@@ -77,6 +63,30 @@ const SVC_ICON: Record<string, SpriteIcon> = {
       </ul>
     </div>
   </section>
+
+  <section class="finder" id="plan-finder" aria-labelledby="finder-h">
+    <div class="wrap">
+      <div class="finder-head">
+        <h2 id="finder-h">طرح مناسب‌تان را در ۲ قدم پیدا کنید</h2>
+        <span class="nf-badge nf-badge--brand" style="white-space:nowrap;margin-top:2px"><span data-plan-count="planCount">{fa(facts.planCount)}</span> طرح فعال</span>
+      </div>
+      <div class="finder-mount" id="finder">
+        <PlanFinder client:load snapshot={LOAN_PLANS_SNAPSHOT} src="home-finder" />
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="calc-h" id="calculator">
+    <div class="container-nf">
+      <HomeCalc client:visible snapshot={LOAN_PLANS_SNAPSHOT} />
+    </div>
+  </section>
+
+  <section class="cb-sec" id="callback" aria-label="درخواست مشاوره‌ی رایگان">
+    <div class="container-nf"><CallbackForm client:visible variant="section" src="home-callback" wa /></div>
+  </section>
+
+  <MidBanner n={1} eb="قدم بعدی" h="طرح مناسب را پیدا کردید؟" p="درخواست‌تان را در چند دقیقه ثبت کنید؛ کارشناس برای ادامه با شما تماس می‌گیرد." cta="ثبت درخواست" href="/request/?src=home-mid-1" />
 
   <section class="rv sec" aria-labelledby="svc-h">
     <div class="container-nf">
@@ -115,14 +125,6 @@ const SVC_ICON: Record<string, SpriteIcon> = {
     </div>
   </section>
 
-  <MidBanner n={1} eb="قدم بعدی" h="طرح مناسب را پیدا کردید؟" p="درخواست‌تان را در چند دقیقه ثبت کنید؛ کارشناس برای ادامه با شما تماس می‌گیرد." cta="ثبت درخواست" href="/request/?src=home-mid-1" />
-
-  <section class="sec" aria-labelledby="calc-h" id="calculator">
-    <div class="container-nf">
-      <HomeCalc client:visible snapshot={LOAN_PLANS_SNAPSHOT} />
-    </div>
-  </section>
-
   {
     posts.length > 0 && (
       <section class="rv sec" aria-labelledby="blog-h">
@@ -133,7 +135,7 @@ const SVC_ICON: Record<string, SpriteIcon> = {
           </div>
           <div class="posts">
             {posts.map((p) => (
-              <PostCard post={p} />
+              <PostCard post={p} dot />
             ))}
           </div>
         </div>
@@ -160,5 +162,28 @@ const SVC_ICON: Record<string, SpriteIcon> = {
       const s = document.getElementById('callback');
       if (s) s.hidden = true;
     });
+
+    // home-order v1.0.1 §4: on the home page the mobile sticky bar waits until the slider's bottom edge has scrolled
+    // above the bar's top edge (the bar is display:none ≥1024px, so this only matters below that). No JS → bar as before.
+    const hero = document.getElementById('hero');
+    const bar = document.querySelector<HTMLElement>('.bar');
+    if (hero && bar) {
+      document.body.classList.add('ho-bar-wait');
+      let raf = 0;
+      const update = () => {
+        raf = 0;
+        // the bar's resting top edge (it is fixed to the bottom; ignore its own hide transform)
+        const barTop = window.innerHeight - bar.offsetHeight;
+        document.body.classList.toggle('ho-bar-on', hero.getBoundingClientRect().bottom <= barTop);
+      };
+      const queue = () => {
+        if (!raf) raf = requestAnimationFrame(update);
+      };
+      // IntersectionObserver wakes us while the slider crosses the viewport; scroll and viewport changes keep the edge exact
+      new IntersectionObserver(queue, { threshold: [0, 0.25, 0.5, 0.75, 1] }).observe(hero);
+      addEventListener('scroll', queue, { passive: true });
+      window.onresize = queue; // (property, not the event-name string: Tailwind would read that word as a utility)
+      update();
+    }
   </script>
 </BaseLayout>

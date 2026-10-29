@@ -6,8 +6,10 @@ import { postPath, categoryLabel, readingMinutes, thumbTitle, postHeadline } fro
 import { formatDateFa, toFaDigits } from '../../lib/format';
 interface Props {
   post: Post;
+  /** home-order v1.0.1 #10: 4px dot instead of «·» between date and reading time */
+  dot?: boolean;
 }
-const { post } = Astro.props;
+const { post, dot = false } = Astro.props;
 const d = post.data;
 const cat = categoryLabel(d.category);
 const title = postHeadline(d); // card text; the decorative thumb keeps the SEO title («صفر تا صد وام با نفیس وام», not just the brand)
@@ -27,6 +29,6 @@ const title = postHeadline(d); // card text; the decorative thumb keeps the SEO 
   <div class="body">
     <span class="cat">{cat}{d.sample && ' · نمونه'}</span>
     <b>{title}</b>
-    <span class="meta"><time datetime={d.date.toISOString()}>{formatDateFa(d.date)}</time> · {toFaDigits(readingMinutes(post.body))} دقیقه مطالعه</span>
+    <span class="meta"><time datetime={d.date.toISOString()}>{formatDateFa(d.date)}</time>{dot ? <span class="ho-dot" aria-hidden="true" /> : ' · '}{toFaDigits(readingMinutes(post.body))} دقیقه مطالعه</span>
   </div>
 </a>

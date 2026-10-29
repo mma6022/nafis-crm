@@ -34,6 +34,8 @@ export interface Props {
   hideStickyBar?: boolean;
   /** /request: logo + phone header, one-line footer (mockup request.html) */
   minimal?: boolean;
+  /** extra class on <main> (home: "ho" → styles/home-order.css scope) */
+  mainClass?: string;
 }
 const {
   title,
@@ -49,6 +51,7 @@ const {
   modifiedTime,
   hideStickyBar = false,
   minimal = false,
+  mainClass,
 } = Astro.props;
 const fullTitle = rawTitle ? title : `${title} | ${SITE.name}`;
 const path = Astro.props.canonicalPath ?? Astro.url.pathname;
@@ -108,7 +111,7 @@ const src = Astro.props.src ?? (path.split('/').filter(Boolean)[0] || 'home');
     <IconSprite />
     <Header src={src} minimal={minimal} />
     {!minimal && <CallbackDialog client:idle />}
-    <main id="main" class={minimal ? 'rq' : undefined}>
+    <main id="main" class={minimal ? 'rq' : mainClass}>
       <slot />
     </main>
     {
