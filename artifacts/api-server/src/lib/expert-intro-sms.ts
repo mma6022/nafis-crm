@@ -6,6 +6,7 @@ import { mergeTeamSalesConfig } from "./team-sales-rules";
 import {
   ensureExpertIntroSchema, expertIntroTick, onSalespersonChange, sendPatternViaRelay, type ChangeInput, type SendArgs,
 } from "./expert-intro-sms-core";
+import { einsTick } from "./expert-intro-newlead-core";
 
 export function teamSalesIds(): { qualifierId: number | null; closerIds: number[] } {
   let raw: unknown = null;
@@ -50,6 +51,8 @@ export function startExpertIntroSmsWorker(): void {
     busy = true;
     expertIntroTick(crmDb, { send: sendExpertIntroPattern, qualifierId: teamSalesIds().qualifierId, ippanelEnabled: () => getNotificationSettings().ippanelEnabled })
       .catch(() => logger.error("Expert intro SMS worker failed"))
+      .then(() => einsTick(crmDb, { send: sendExpertIntroPattern, ippanelEnabled: () => getNotificationSettings().ippanelEnabled }))
+      .catch(() => logger.error("Expert intro (new lead) SMS worker failed"))
       .finally(() => { busy = false; });
   };
   setTimeout(tick, 20_000).unref();

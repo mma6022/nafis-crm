@@ -3,6 +3,8 @@ import { defaultOwnerDecision, logRuleAssignment, type RegistrationSource } from
 import { customerSourceFor } from "./registration-sources";
 import { recordUrgentChange } from "./customer-urgent";
 import { intakeValuesForCreate, type IntakeInput } from "./lead-intake";
+import { einsSourceFor, onNewLead } from "./expert-intro-newlead-core";
+import { logger } from "./logger";
 
 export type CustomerCreateInput = {
   name: string;
@@ -30,6 +32,8 @@ export type CustomerCreateInput = {
   urgentReason?: { reason: string; code: string } | null;
   /** incoming2-59 (expert lockdown «ثبت مشتری جدید»): the registering expert owns the customer; «قانون ثبت» is not applied. */
   skipDefaultOwnerRule?: boolean;
+  /** EINS: true only from the site request form /request (v82 apply wizard site-apply.ts + legacy lead recordPublicLead) — any src. */
+  siteRequest?: boolean;
 };
 
 /** Result of the last insertCustomerRecord in this process (read synchronously by the caller right after the insert). */
@@ -132,6 +136,9 @@ export function insertCustomerRecord(input: CustomerCreateInput): number {
     input.urgentReason?.reason ?? null, { reasonCode: input.urgentReason?.code ?? null });
   if (rule.apply) logRuleAssignment({ customerId: id, registrarUserId: input.registeredByUserId ?? null, source: input.registrationSource,
     ownerSalespersonId: rule.ownerSalespersonId, priority: input.priority ?? null });
+  // EINS (flag.expert_intro_new_lead, default OFF): queue the expert-intro SMS for a new Instagram / site-request customer. Never breaks a create.
+  try { onNewLead(crmDb, id, einsSourceFor(input.registrationSource, iv.leadSource, input.siteRequest === true)); }
+  catch (error) { logger.warn({ err: error instanceof Error ? error.message : "unknown" }, "expert intro (new lead) enqueue failed"); }
   lastOutcome = { customerId: id, ruleApplied: rule.apply, salespersonId: owner };
   return id;
 }

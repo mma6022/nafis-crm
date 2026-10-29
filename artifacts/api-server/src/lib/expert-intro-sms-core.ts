@@ -413,4 +413,5 @@ export function introStats(db: Db): Record<string, number> {
 export function deleteCustomerIntro(db: Db, customerId: number): void {
   if (tableExists(db, "expert_intro_sms")) run(db, "DELETE FROM expert_intro_sms WHERE customer_id=?", customerId);
   if (tableExists(db, "expert_intro_sms_log")) run(db, "DELETE FROM expert_intro_sms_log WHERE customer_id=?", customerId);
+  if (tableExists(db, "expert_intro_newlead")) run(db, "DELETE FROM expert_intro_newlead WHERE customer_id=?", customerId);
 }

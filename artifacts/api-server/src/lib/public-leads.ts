@@ -546,7 +546,7 @@ export function recordPublicLead(lead: PublicLead, ipHash: string, now = new Dat
         ? queryRow<{ name: string }>("SELECT name FROM loan_plans WHERE id=?", [lead.planId])?.name ?? null
         : null;
       const base = { name: lead.name, phone: lead.phone, description: leadDescription(lead, planName), priority: null,
-        registeredByUserId: null, registrationSource: "site_lead" as const };
+        registeredByUserId: null, registrationSource: "site_lead" as const, siteRequest: true };
       const programId = defaultAllocationProgramId();
       try {
         customerId = insertCustomerRecord({ ...base, allocationProgramId: programId });

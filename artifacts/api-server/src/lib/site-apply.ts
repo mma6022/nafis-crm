@@ -242,7 +242,7 @@ export function recordSiteApply(apply: SiteApply, ipHash: string, userAgent: str
       const description = ["درخواست از فرم سایت nafisvam.com", ...(apply.src ? [`منبع صفحه: ${apply.src}`] : [])].join("\n");
       customerId = insertCustomerRecord({
         name: apply.name, phone: apply.phone, description, priority, registeredByUserId: null, registrationSource: "site_lead",
-        skipDefaultOwnerRule: true, assignedSalespersonId: owner,
+        skipDefaultOwnerRule: true, assignedSalespersonId: owner, siteRequest: true,
       });
       created = true;
       logPriorityChange({ customerId, oldPriority: null, newPriority: priority, oldSalespersonId: null, newSalespersonId: owner,
