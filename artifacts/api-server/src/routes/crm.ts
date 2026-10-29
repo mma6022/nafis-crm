@@ -191,6 +191,7 @@ import { applyNonP1TransferInTx, NONP1_TRANSFER_HEADER, type NonP1Result } from 
 import { kazemiSourceFilterSql, kazemiSourceOf, kazemiSources } from "../lib/kazemi-source";
 import { ACTIVE_SITE_LEAD_EXISTS_SQL, activeSiteLeads, siteLeadHistory, siteLeadQueue, siteLeadsTableReady, topOfList, topOrderSql } from "../lib/site-leads";
 import { IDENTITY_LOG_TABLE, canActOnCustomerProfile, ensureIdentityLogSchema } from "../lib/consult-profile";
+import { auditCredit, initiateLimit, perCheckLimit, scrubOtp } from "../lib/credit-check-guard";
 import { normalizeSideFlags } from "../lib/plan-requirements";
 import { retainedIdentityChecks } from "../lib/identity-check-retention";
 import { normalizeCustomerMobile, normalizeCustomerNationalCode, isAdminRole } from "../lib/customer-integrity";
@@ -3754,6 +3755,18 @@ router.post(
       return;
     }
     const customer = getCustomer(params.data.id, user)!;
+    // instant-credit-check v1: the call form sends source + consent; the tick is required there (Armita v1.0.3 §4د).
+    const rawBody = (req.body ?? {}) as { source?: unknown; consent?: unknown };
+    const creditSource = rawBody.source === "call_form" ? "call_form" : "customer_page";
+    const creditConsent = rawBody.consent === true;
+    const audit = (outcome: string, checkId?: number | null, detail?: string | null) => auditCredit({
+      actorUserId: user.id, customerId: params.data.id, checkId, action: "initiate", source: creditSource,
+      consent: creditSource === "call_form" ? creditConsent : null, outcome, detail });
+    if (creditSource === "call_form" && !creditConsent) {
+      audit("consent_missing");
+      res.status(400).json({ error: "تا تیک موافقت مشتری نخورد، استعلام فرستاده نمی‌شود.", code: "consent_required" });
+      return;
+    }
     const mobile = ics24.normalizeMobile(
       body.data.mobileNumber || customer.phone,
     );
@@ -3792,10 +3805,18 @@ router.post(
       )
       : undefined;
     if (fresh) {
+      audit("reused", Number(fresh.id));
       res.json({ ...creditCheckFromRow(fresh), reused: true, freshUntil: new Date(Date.parse(fresh.completed_at) + 86400000).toISOString() });
       return;
     }
+    const limited = initiateLimit(user, params.data.id);
+    if (limited) {
+      audit("rate_limited");
+      res.status(429).json({ error: limited, code: "credit_rate_limited" });
+      return;
+    }
     if (activeCreditStarts.has(params.data.id)) {
+      audit("active_exists");
       res
         .status(409)
         .json({ error: "برای این مشتری یک استعلام فعال وجود دارد." });
@@ -3863,6 +3884,7 @@ router.post(
         [hash, new Date().toISOString(), id],
       );
       const result = getCreditCheck(params.data.id, id)!;
+      audit("started", id);
       res
         .status(201)
         .json(
@@ -3870,6 +3892,7 @@ router.post(
         );
     } catch (error) {
       if (error instanceof Error && error.message === "ACTIVE_CREDIT_CHECK") {
+        audit("active_exists");
         res.status(409).json({ error: "برای این مشتری یک استعلام فعال وجود دارد." });
         return;
       }
@@ -3878,6 +3901,7 @@ router.post(
         return;
       }
       if (id === undefined) throw error;
+      audit("provider_error", id, error instanceof Error ? error.message : null);
       executeChanges(
         "UPDATE customer_credit_checks SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?",
         [
@@ -3906,6 +3930,9 @@ router.post(
   "/customers/:id/credit-checks/:checkId/validate",
   requirePermission("customers.credit_check"),
   async (req, res): Promise<void> => {
+    // instant-credit-check v1: the OTP lives only in this request. It is never logged (pino serializes method+url
+    // only), never stored (audit has no column for it; provider errors are scrubbed), never echoed back.
+    res.setHeader("Cache-Control", "no-store");
     const params = ValidateCustomerCreditCheckParams.safeParse(req.params);
     const body = ValidateCustomerCreditCheckBody.safeParse(req.body);
     const user = res.locals.authUser as AuthUser;
@@ -3922,17 +3949,29 @@ router.post(
       res.status(404).json({ error: "Credit check not found" });
       return;
     }
+    const otp = ics24.normalizeDigits(body.data.otp).trim();
+    const source = (req.body as { source?: unknown }).source === "call_form" ? "call_form" : "customer_page";
+    const audit = (outcome: string, detail?: string | null) => auditCredit({
+      actorUserId: user.id, customerId: params.data.id, checkId: row.id, action: "validate", source, outcome, detail, otp });
+    const limited = perCheckLimit(row.id, "validate");
+    if (limited) {
+      audit("rate_limited");
+      res.status(429).json({ error: limited, code: "credit_rate_limited" });
+      return;
+    }
     try {
       const current = await refreshCreditCheck(row);
       if (current.status === "report_generated" || current.status === "processing") {
+        audit("already_" + current.status);
         res.json(ValidateCustomerCreditCheckResponse.parse(creditCheckFromRow(current)));
         return;
       }
       if (current.status === "failed") {
-        res.status(422).json({ error: current.error_message || "این استعلام پایان یافته است؛ استعلام جدیدی آغاز کنید." });
+        audit("already_failed");
+        res.status(422).json({ error: scrubOtp(current.error_message || "این استعلام پایان یافته است؛ استعلام جدیدی آغاز کنید.", otp) });
         return;
       }
-      await ics24.validate(row.provider_reference!, body.data.otp);
+      await ics24.validate(row.provider_reference!, otp);
       execute(
         "UPDATE customer_credit_checks SET status = 'processing', updated_at = ?, error_message = NULL WHERE id = ?",
         [new Date().toISOString(), row.id],
@@ -3940,35 +3979,26 @@ router.post(
       const result = await refreshCreditCheck(
         getCreditCheck(row.customer_id, row.id)!,
       );
+      audit(result.status === "report_generated" ? "report_generated" : result.status === "failed" ? "failed_after_otp" : "accepted");
       res.json(
         ValidateCustomerCreditCheckResponse.parse(creditCheckFromRow(result)),
       );
     } catch (error) {
-      const terminal = creditProviderFailure(null, error instanceof Error ? error.message : null);
+      const reason = scrubOtp(error instanceof Error ? error.message : "اعتبارسنجی OTP ناموفق بود.", otp);
+      const terminal = creditProviderFailure(null, reason);
       if (terminal) {
+        audit("expired", terminal);
         execute("UPDATE customer_credit_checks SET status='failed',provider_status='RequestExpired',error_message=?,updated_at=? WHERE id=? AND status IN ('awaiting_otp','processing')",
           [terminal, new Date().toISOString(), row.id]);
         res.status(422).json({ error: terminal });
         return;
       }
+      audit("provider_error", reason);
       execute(
         "UPDATE customer_credit_checks SET error_message = ?, updated_at = ? WHERE id = ?",
-        [
-          error instanceof Error
-            ? error.message.slice(0, 240)
-            : "اعتبارسنجی OTP ناموفق بود.",
-          new Date().toISOString(),
-          row.id,
-        ],
+        [reason, new Date().toISOString(), row.id],
       );
-      res
-        .status(502)
-        .json({
-          error:
-            error instanceof Error
-              ? error.message
-              : "اعتبارسنجی OTP ناموفق بود.",
-        });
+      res.status(502).json({ error: reason });
     }
   },
 );
@@ -3988,6 +4018,15 @@ router.post(
       res.status(404).json({ error: "Credit check not found" });
       return;
     }
+    const renewSource = (req.body as { source?: unknown } | undefined)?.source === "call_form" ? "call_form" : "customer_page";
+    const audit = (outcome: string, detail?: string | null) => auditCredit({
+      actorUserId: user.id, customerId: params.data.id, checkId: row.id, action: "renew", source: renewSource, outcome, detail });
+    const limited = perCheckLimit(row.id, "renew");
+    if (limited) {
+      audit("rate_limited");
+      res.status(429).json({ error: limited, code: "credit_rate_limited" });
+      return;
+    }
     try {
       // A provider-side terminal result can arrive while our local row still
       // says awaiting_otp. Do not request another OTP for a closed request.
@@ -4001,6 +4040,7 @@ router.post(
         return;
       }
       await ics24.renew(row.provider_reference!);
+      audit("sent");
       execute("UPDATE customer_credit_checks SET updated_at = ? WHERE id = ?", [
         new Date().toISOString(),
         row.id,
@@ -4014,6 +4054,7 @@ router.post(
       const reason = error instanceof Error
         ? error.message.slice(0, 240)
         : "ارسال مجدد رمز انجام نشد.";
+      audit("provider_error", reason);
       const terminal = creditProviderFailure(null, reason);
       if (terminal) {
         execute("UPDATE customer_credit_checks SET status='failed',provider_status='RequestExpired',error_message=?,updated_at=? WHERE id=? AND status IN ('awaiting_otp','processing')",

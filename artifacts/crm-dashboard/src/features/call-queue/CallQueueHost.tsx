@@ -227,7 +227,7 @@ function DueDialog({ r, index, total, lastToast, cfg, onSaved, onSnoozed, startI
       </div> : <div className="cq-lock-form" data-testid="cq-due-form">
         {/* Release 81 (PM Q4): حضوری / بله → no «نتیجه‌ی تماس»; a CRM-button (phone) report needs it. */}
         {needManual ? <CqManualType value={manual} onChange={setManual} showError={showErr} idPrefix="cq-lk-mt" /> : null}
-        <CqResultFields value={val} onChange={setVal} showErrors={showErr} pre={pre} idPrefix="cq-lk" noResult={needManual} submitLabel="ثبت نتیجه" />
+        <CqResultFields value={val} onChange={setVal} showErrors={showErr} pre={pre} idPrefix="cq-lk" noResult={needManual} submitLabel="ثبت نتیجه" creditCustomerId={r.customerId} />
         {naNext ? <p className="cq-hint" data-testid="cq-due-na-next">یادآور بعدی ساخته می‌شود: {pre!.naAttemptIfNoAnswer === 1 ? '۴ ساعت بعد' : '۲۴ ساعت بعد'} (ساعت کاری)</p> : null}
         <div className="cq-lock-actions"><button type="button" className="btn btn-primary cq-big" disabled={busy} onClick={() => void save()} aria-disabled={!needManual && !val.manual || undefined} data-testid="cq-due-save">{busy ? 'در حال ثبت…' : 'ثبت نتیجه'}</button>
           {r.phone ? <a className="btn btn-ghost" href={`tel:${r.phone}`} onClick={(e) => { cqTelClick(e, r.customerId, 'due', (m) => setErr(m)); }} data-testid="cq-due-recall"><Phone size={15} aria-hidden="true" /> دوباره تماس</a> : null}</div>
@@ -279,7 +279,7 @@ function PendingModal({ cfg, p, onSaved }: { cfg: CqConfig; p: CqPending; onSave
       </div>
       <p id="cq-pend-d" className={`cq-lock-desc${shake ? ' shake' : ''}`}>تا گزارش این تماس ثبت نشود، دکمه‌ی تماس بعدی باز نمی‌شود. «به‌موقع» یعنی ثبت تا {faNum(cfg.discipline?.onTimeMin ?? 10)} دقیقه بعد از برگشت به CRM (بدون برگشت: تا {faNum(cfg.discipline?.onTimeCapMin ?? 30)} دقیقه بعد از تماس).</p>
       <div className="cq-lock-form" data-testid="cq-pending-form">
-        <CqResultFields value={val} onChange={setVal} showErrors={showErr} pre={pre} idPrefix="cq-pd" submitLabel="ثبت گزارش تماس" />
+        <CqResultFields value={val} onChange={setVal} showErrors={showErr} pre={pre} idPrefix="cq-pd" submitLabel="ثبت گزارش تماس" creditCustomerId={p.customerId} />
         <div className="cq-lock-actions"><button type="button" className="btn btn-primary cq-big" disabled={busy} onClick={() => void save()} aria-disabled={!val.manual || undefined} data-testid="cq-pending-save">{busy ? 'در حال ثبت…' : 'ثبت گزارش تماس'}</button>
           {p.phone ? <button type="button" className="btn btn-ghost" onClick={() => void cqDial(p.customerId, 'pending').then((r) => { if (r && !r.ok) setErr(r.error); })} data-testid="cq-pending-recall"><Phone size={15} aria-hidden="true" /> دوباره تماس</button> : null}</div>
       </div>
