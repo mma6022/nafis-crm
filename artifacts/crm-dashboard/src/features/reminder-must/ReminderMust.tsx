@@ -97,6 +97,13 @@ export function ReminderMustHost({ userId }: { userId: number }) {
     window.setTimeout(() => setToast(''), 5000);
     await qc.invalidateQueries({ queryKey: ['reminder-must', 'feed', userId] });
   }, [qc, userId]);
+  // SNZ-CLOSE: write the accepted snooze into the cached feed in the same render that closes the dialog; otherwise the
+  // auto-open effect sees the stale feed (snooze inactive) and reopens the same reminder before the refetch lands.
+  const snoozedNow = useCallback(async (until: string) => {
+    qc.setQueryData<RmFeed>(['reminder-must', 'feed', userId], (f) => f ? { ...f, snooze: { ...f.snooze, active: true, until, used: true, available: false } } : f);
+    setNow(Date.now()); setOpen(false); setForceOpen(false);
+    await qc.invalidateQueries({ queryKey: ['reminder-must', 'feed', userId] });
+  }, [qc, userId]);
   if (!on || !feed) return toast ? createPortal(<div className="rmm-root"><div className="rmm-toast" role="status" data-testid="rm-toast"><Check size={16} aria-hidden="true" /> {toast}</div></div>, document.body) : null;
   return createPortal(<div className="rmm-root" data-testid="rm-root">
     {head && !open && snoozed ? <div className="rmm-snb" role="status" data-testid="rm-snoozed">
@@ -107,13 +114,13 @@ export function ReminderMustHost({ userId }: { userId: number }) {
     {head && !open && !snoozed && busy ? <p className="rmm-rq" role="status" data-testid="rm-queued"><BellRing size={15} aria-hidden="true" />
       <span><b className="rmm-qn">{fa(items.length)}</b> یادآور سررسید شد؛ بعد از ثبت این فرم یکی‌یکی باز می‌شوند</span></p> : null}
     {open && head ? <MustDialog key={head.reminderId} feed={feed} item={head} index={1} total={items.length} rest={items.slice(1)} onDone={done}
-      onSnoozed={async () => { setOpen(false); setForceOpen(false); await qc.invalidateQueries({ queryKey: ['reminder-must', 'feed', userId] }); }} /> : null}
+      onSnoozed={snoozedNow} /> : null}
     {toast ? <div className="rmm-toast" role="status" data-testid="rm-toast"><Check size={16} aria-hidden="true" /> {toast}</div> : null}
   </div>, document.body);
 }
 
 function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { feed: RmFeed; item: RmItem; index: number; total: number; rest: RmItem[];
-  onDone: (remaining: number, nextLine?: string) => void; onSnoozed: () => void }) {
+  onDone: (remaining: number, nextLine?: string) => void; onSnoozed: (until: string) => void }) {
   const [step, setStep] = useState<0 | 1 | 2>(0);
   const [manual, setManual] = useState<RmManual | null>(null);
   const outcome: RmOutcome | null = manual == null ? null : manual === 'answered' ? 'answered' : 'no_answer';
@@ -193,7 +200,7 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
     pickCard(t.v, true);
     window.setTimeout(() => cardsRef.current?.querySelector<HTMLElement>(`[data-testid="rm-next-${t.v}"]`)?.focus(), 0);
   };
-  const snooze = async () => { setSending(true); setErr(''); try { await rmApi.snooze(); onSnoozed(); } catch (e) { setErr(e instanceof Error ? e.message : 'انجام نشد.'); } finally { setSending(false); } };
+  const snooze = async () => { setSending(true); setErr(''); try { const r = await rmApi.snooze(); onSnoozed(r.until); } catch (e) { setErr(e instanceof Error ? e.message : 'انجام نشد.'); } finally { setSending(false); } };
   const submit = async () => {
     setShow(true); if (noteErr) { setStep(1); return; }
     if (ctBlock) { setCtBad(true); if (!pk) setPk(true); window.setTimeout(() => (hoursRef.current?.querySelector<HTMLElement>('.rct-h:not([aria-disabled])') ?? hoursRef.current)?.focus(), 30); return; }
