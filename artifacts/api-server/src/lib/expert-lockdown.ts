@@ -109,6 +109,8 @@ const ALLOW: RegExp[] = [
   /^\/reminders\/(labels|follow-feed|handoffs)$/,
   // SALES-SHELL v2: the shell flag + the dock counts (own reminders / DND end only; no customer rows).
   /^\/sales-shell\/me$/, /^\/nav-badges$/,
+  // Instant credit check: its per-user flag read only (no customer rows; the check routes are customer routes above).
+  /^\/instant-credit-check\/me$/,
   // REMINDER-68: «ارتقا به اولویت ۱» card's closer preview (?customerId= is still checked below, own customers only).
   /^\/sales\/next-closer$/,
 ];
@@ -153,7 +155,8 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   // NEWCUST-65: the first-call mirror scopes itself (call by this expert, customer theirs or just moved by them to Kazemi),
   // so a P2/P3 customer that left them in the same save can still get its «منتقل شد» entry.
   const ids = path === "/expert-lockdown/incoming/first-call-logged" ? [] : idsOf(req);
-  const customerRoute = /^\/(lead-intake\/)?customers\/\d+(\/|$)/.test(path) || /^\/team-sales\/customers\/\d+(\/|$)/.test(path);
+  const customerRoute = /^\/(lead-intake\/)?customers\/\d+(\/|$)/.test(path) || /^\/team-sales\/customers\/\d+(\/|$)/.test(path)
+    || /^\/instant-credit-check\/customers\/\d+\/checks(\/|$)/.test(path); // instant credit check: same customer checks as /customers/:id/credit-checks
   // POST /calls (the normal call form, incl. «خارج از لیست») and POST /voip/calls (click-to-call) carry the customer in the body.
   const customerWrite = req.method === "POST" && /^\/(calls|voip\/calls|voip\/click-to-call)$/.test(path);
   const listedCustomerRead = req.method === "GET" && ids.length === 1 && EL_CUSTOMER_SCOPED_READS.some((re) => re.test(path));

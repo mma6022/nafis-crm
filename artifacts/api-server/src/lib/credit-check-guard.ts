@@ -104,3 +104,12 @@ export function perCheckLimit(checkId: number, action: "validate" | "renew"): st
   }
   return null;
 }
+
+/** instant-credit-check per-user flag: call_queue_settings `flag.instant_credit_check.user.<id>` = '1' → ON.
+ *  Absent / anything else = OFF (shipped OFF for everyone; switched only by the ops script icc-flag.py). Read-only. */
+export const ICC_FLAG_PREFIX = "flag.instant_credit_check.user.";
+export function iccOn(userId: number | null | undefined): boolean {
+  if (!userId) return false;
+  try { return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [`${ICC_FLAG_PREFIX}${Number(userId)}`])?.value === "1"; }
+  catch { return false; }
+}
