@@ -23,7 +23,8 @@
  * code that does not normalize (or an older release after a rollback) sees a sales row with no expert → scope "0", nobody eligible.
  */
 import { isManualOutcome, MANUAL_OUTCOME_LABELS, type ManualOutcome } from "./call-outcome";
-import { cqFlag } from "./call-queue";
+import { cqFlag, tParts, REMINDER_START_MIN } from "./call-queue";
+const before10 = (ms: number) => { const p = tParts(new Date(ms)); return p.h * 60 + p.mi < REMINDER_START_MIN; }; // 10:00 rule (t651u)
 import { leadSourceFilter, registeredByRange, registeredByReport } from "./registered-by-report";
 import { ASSISTANT_URGENT_IDS_KEY, ASSISTANT_URGENT_WRITE_KEY, URGENT_REASONS, ensureUrgentSchema, parseUrgentReason, setCustomerUrgent , recordUrgentAttempt } from "./customer-urgent";
 import { cqSignals, cqTeamDiscipline } from "./call-queue-r2";
@@ -925,6 +926,10 @@ export function createAssistants(deps: Deps) {
       audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "bad_remind_at" });
       return fail(res, 422, "bad_remind_at", "زمان یادآور باید دست‌کم یک دقیقه بعد و حداکثر ۳۰ روز بعد باشد.");
     }
+    if (before10(at)) {
+      audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "remind_at_before_10" });
+      return fail(res, 422, "remind_at_before_10", "یادآور فقط از ساعت ۱۰ صبح به بعد (وقت تهران) تنظیم می‌شود.");
+    }
     const subject = String(b.subject ?? "").trim().slice(0, 120) || "یادآور دستیار";
     const note = String(b.note ?? b.message ?? "").trim().slice(0, 500);
     if (hasBannedWord(`${subject} ${note}`)) { audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "banned_word" }); return fail(res, 422, "banned_word", "این متن واژهٔ ممنوع دارد."); }
@@ -1024,6 +1029,10 @@ export function createAssistants(deps: Deps) {
       if (!Number.isFinite(at) || at <= nowMs + 60_000 || at > nowMs + REMINDER_PROPOSAL_MAX_DAYS * 86400_000) {
         audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "bad_remind_at", detail: { reminderId: r.id } });
         return fail(res, 422, "bad_remind_at", "زمان یادآور باید دست‌کم یک دقیقه بعد و حداکثر ۳۰ روز بعد باشد.");
+      }
+      if (before10(at)) {
+        audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "remind_at_before_10", detail: { reminderId: r.id } });
+        return fail(res, 422, "remind_at_before_10", "یادآور فقط از ساعت ۱۰ صبح به بعد (وقت تهران) تنظیم می‌شود.");
       }
     }
     const subject = has("subject") ? (String(b.subject ?? "").trim().slice(0, 120) || "یادآور دستیار") : null;

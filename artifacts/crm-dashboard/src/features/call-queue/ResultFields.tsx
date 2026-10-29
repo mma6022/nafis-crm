@@ -75,7 +75,7 @@ export function cqResultError(v: CqResultValue, needResult = true): string | nul
 }
 function pickError(v: CqResultValue): string | null {
   const h = Number(v.pickHour), m = Number(v.pickMinute);
-  if (h < 9 || h > 18 || (h === 18 && m > 0)) return `${faNum(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`)} بیرون از ساعت کاری است (۹ تا ۱۸).`;
+  if (h < 10 || h > 18 || (h === 18 && m > 0)) return `${faNum(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`)} بیرون از ساعت یادآور است (۱۰ تا ۱۸).`;
   return null;
 }
 function pickIso(v: CqResultValue): string {
@@ -111,18 +111,18 @@ export function CqResultFields({ value, onChange, showErrors, pre, idPrefix = 'c
           onClick={() => pickChip(c.key, c.at)} data-testid={`cq-chip-${c.key}`}>
           <b>{c.label}</b><small>{c.disabled ? 'ساعت کاری امروز تمام شده' : c.key === 'evening' ? <><span>امروز</span><span>۱۶:۰۰</span></> : <><span>{faDayLabel(c.at)}</span><span>۱۰:۰۰</span></>}</small></button>)}
         <button type="button" role="radio" className={`cq-chip cq-fch${value.chip === 'pick' ? ' on' : ''}`} aria-checked={value.chip === 'pick'} onClick={() => pickChip('pick', pickIso(value))} data-testid="cq-chip-pick">
-          <b>انتخاب روز و ساعت</b><small><span>تقویم</span><span>۹ تا ۱۸</span></small></button>
+          <b>انتخاب روز و ساعت</b><small><span>تقویم</span><span>۱۰ تا ۱۸</span></small></button>
       </div>
       {value.chip === 'tomorrow' && tomorrowFriday ? <small className="cq-hint" data-testid="cq-fu-next">فردا جمعه است؛ یادآور به اولین روز کاری بعد (ساعت ۱۰) می‌رود.</small> : null}
       {value.chip === 'pick' ? <div className="cq-pick">
         <PersianDatePicker value={value.pickDate} onChange={(d) => { const nv = { ...value, pickDate: d }; onChange({ ...nv, followUpAt: pickIso(nv) }); }} testId="cq-pick-date" />
         <select aria-label="ساعت" value={value.pickHour} onChange={(e) => { const nv = { ...value, pickHour: e.target.value }; onChange({ ...nv, followUpAt: pickIso(nv) }); }} data-testid="cq-pick-hour">
-          {Array.from({ length: 10 }, (_, i) => String(i + 9)) /* Q1 (custom-time): 9..18 inclusive, 18 only with :00 (pickError) */.map((h) => <option key={h} value={h}>{faNum(h.padStart(2, '0'))}</option>)}</select>
+          {Array.from({ length: 9 }, (_, i) => String(i + 10)) /* 10:00 rule (t651u): 10..18 inclusive, 18 only with :00 (pickError) */.map((h) => <option key={h} value={h}>{faNum(h.padStart(2, '0'))}</option>)}</select>
         <select aria-label="دقیقه" value={value.pickMinute} onChange={(e) => { const nv = { ...value, pickMinute: e.target.value }; onChange({ ...nv, followUpAt: pickIso(nv) }); }} data-testid="cq-pick-minute">
           {['00', '15', '30', '45'].map((m) => <option key={m} value={m}>{faNum(m)}</option>)}</select>
       </div> : null}
       {value.followUpAt ? <p className="picked" data-testid="cq-fu-when"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15zM10 20a2 2 0 0 0 4 0" /></svg>
-        <span>یادآور: {faWhen(value.followUpAt)}</span><small>جمعه، تعطیل رسمی یا بیرون از ۹ تا ۱۸ به اولین زمان کاری بعد می‌رود</small></p> : null}
+        <span>یادآور: {faWhen(value.followUpAt)}</span><small>جمعه، تعطیل رسمی یا بیرون از ۱۰ تا ۱۸ به اولین زمان کاری بعد می‌رود</small></p> : null}
     </div> : null;
   return <div className={`cq-result${err ? ' has-err' : ''}`} data-testid="cq-result">
     {onlyTime ? null : <>{pre?.due?.length ? <div className="cq-pre-due" role="note" data-testid="cq-pre-due">

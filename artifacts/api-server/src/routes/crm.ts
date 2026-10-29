@@ -1,5 +1,5 @@
 import { registrarCanTag } from "../lib/registrar-view";
-import { cqAfterCall, cqParseCall, type CqCallResult } from "../lib/call-queue";
+import { cqAfterCall, cqParseCall, type CqCallResult, rmBeforeOpen, toReminderTime, tParts, REMINDER_START_MIN } from "../lib/call-queue";
 import { dpAfterCall, dpAfterCommit, dpPreCall, dpSearchCheck } from "../lib/daily-plan";
 import express, { Router, type IRouter, type RequestHandler } from "express";
 import { deleteCustomerIntro } from "../lib/expert-intro-sms-core";
@@ -4268,6 +4268,7 @@ router.get(
       params.push(done ? 1 : 0);
     }
     if (due === true) {
+      if (rmBeforeOpen(new Date())) filters.push("0"); // 10:00 rule (t651u): nothing is due before 10:00 Tehran
       filters.push("r.remind_at <= ?");
       filters.push("r.notified_at IS NULL");
       params.push(new Date().toISOString());
@@ -4307,6 +4308,10 @@ router.post(
       res.status(400).json({ error: "موعد یادآور باید در آینده باشد." });
       return;
     }
+    { const tp = tParts(new Date(parsed.data.remindAt)); if (tp.h * 60 + tp.mi < REMINDER_START_MIN) { // 10:00 rule (t651u)
+      res.status(422).json({ error: "یادآور فقط از ساعت ۱۰ صبح به بعد تنظیم می‌شود.", code: "remind_at_before_10" });
+      return;
+    } }
     if (parsed.data.customerId != null) {
       const customer = getCustomer(parsed.data.customerId, user);
       if (!customer) {
@@ -4728,7 +4733,7 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
           body.customerId,
           body.reminder.subject.trim(),
           body.reminder.message.trim(),
-          new Date(body.reminder.remindAt).toISOString(),
+          toReminderTime(new Date(body.reminder.remindAt)).at.toISOString(), // 10:00 rule: shift, never fail the call save
           new Date().toISOString(),
           callId,
         ],

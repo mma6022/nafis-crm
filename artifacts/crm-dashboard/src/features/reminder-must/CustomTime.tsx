@@ -1,6 +1,6 @@
 /**
  * Q1 «زمان دلخواه» (Armita reminder-custom-time v1.0 + PM answers) — the inline picker under the fifth «یادآور بعدی» card.
- * All rules come from the feed (rules.custom + serverNow): Sat–Thu, 09:00–18:00 (both ends), 15-minute steps, ≥ 15 min from the
+ * All rules come from the feed (rules.custom + serverNow): Sat–Thu, 10:00–18:00 (10:00 rule t651u) (both ends), 15-minute steps, ≥ 15 min from the
  * server's now, ≤ maxDay (90 days). Official holidays stay selectable with a faint «تعطیل» mark. The server re-checks everything
  * (remind_at_past / remind_at_closed / remind_at_too_far) and never silently moves a custom time.
  * Times are Tehran wall-clock (fixed +03:30, same as the server's tParts/fromTehran).

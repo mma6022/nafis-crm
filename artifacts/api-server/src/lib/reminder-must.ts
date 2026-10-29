@@ -15,7 +15,7 @@ import { noteText } from "./note-text";
  *    next reminder (in-app only: reminder_sms_deliveries rejected/in_app_only). No SMS, Bale, customer message or staff bell.
  */
 import { crmDb, execute, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
-import { cqRaw, fromTehran, nextWorkDayAt, toWorkingTime, tParts, tYmd, isWorkDay, WORK_START_MIN, WORK_END_MIN } from "./call-queue";
+import { cqRaw, fromTehran, nextWorkDayAt, toWorkingTime, tParts, tYmd, isWorkDay, WORK_END_MIN, REMINDER_START_MIN, rmBeforeOpen, rmOpenAt } from "./call-queue";
 import { listOfficialHolidays } from "./official-holidays";
 import { EL_USERS, elCustomerAccess, elLocked } from "./expert-lockdown";
 import { maskPhonesInText } from "./lead-annotator";
@@ -25,7 +25,7 @@ export const RM_SNOOZE_MIN = 10;
 export const RM_NOTE_MIN = 10, RM_NOTE_MAX = null, RM_REASON_MIN = 3, RM_REASON_MAX = null;
 export const RM_OUTCOMES = ["answered", "no_answer", "follow_up"] as const;
 export const RM_NEXT = ["tomorrow_am", "today_pm", "in_3_days", "none", "custom"] as const;
-/** Q1 «زمان دلخواه» (Armita reminder-custom-time v1.0 + PM answers): Sat–Thu, 09:00–18:00 (both ends allowed), 15-minute steps,
+/** Q1 «زمان دلخواه» (Armita reminder-custom-time v1.0 + PM answers; 10:00 rule t651u): Sat–Thu, 10:00–18:00 (both ends allowed), 15-minute steps,
  *  ≥ 15 minutes from now, ≤ 90 days ahead (Tehran calendar day). Official holidays are allowed (the picker marks them faintly).
  *  Unlike the fixed presets, a custom time is never moved to working time: an invalid one is refused with a reason code. */
 export const RM_CUSTOM = { stepMin: 15, minLeadMin: 15, maxDays: 90, closedWeekdays: [5] as number[] } as const;
@@ -39,7 +39,7 @@ function rmCustomWindow(now: Date) {
 }
 export function rmCustomRules(now: Date) {
   const w = rmCustomWindow(now);
-  return { workStart: "09:00", workEnd: "18:00", stepMin: RM_CUSTOM.stepMin, minLeadMin: RM_CUSTOM.minLeadMin, maxDays: RM_CUSTOM.maxDays,
+  return { workStart: "10:00", workEnd: "18:00", stepMin: RM_CUSTOM.stepMin, minLeadMin: RM_CUSTOM.minLeadMin, maxDays: RM_CUSTOM.maxDays,
     closedWeekdays: RM_CUSTOM.closedWeekdays, today: w.today, maxDay: w.maxDay, holidays: w.holidays, tz: "Asia/Tehran" };
 }
 /** Validates a custom remindAt; returns the Date or an Err with remind_at_invalid / remind_at_step / remind_at_past / remind_at_closed / remind_at_too_far. */
@@ -51,8 +51,8 @@ export function rmCustomAt(raw: unknown, now: Date): Date | Err {
   if (at.getUTCSeconds() !== 0 || at.getUTCMilliseconds() !== 0 || p.mi % RM_CUSTOM.stepMin !== 0)
     return err(422, "remind_at_step", "دقیقه باید ۰۰، ۱۵، ۳۰ یا ۴۵ باشد.");
   const min = p.h * 60 + p.mi;
-  if (RM_CUSTOM.closedWeekdays.includes(p.wd) || min < WORK_START_MIN || min > WORK_END_MIN)
-    return err(422, "remind_at_closed", "زمان دلخواه باید شنبه تا پنجشنبه، بین ساعت ۹ تا ۱۸ باشد.", { wd: p.wd, min });
+  if (RM_CUSTOM.closedWeekdays.includes(p.wd) || min < REMINDER_START_MIN || min > WORK_END_MIN)
+    return err(422, "remind_at_closed", "زمان دلخواه باید شنبه تا پنجشنبه، بین ساعت ۱۰ تا ۱۸ باشد.", { wd: p.wd, min });
   if (at.getTime() < now.getTime() + RM_CUSTOM.minLeadMin * 60_000)
     return err(422, "remind_at_past", "این زمان گذشته یا خیلی نزدیک است؛ دست‌کم ۱۵ دقیقه بعد از الان را انتخاب کن.");
   if (tYmd(p) > rmCustomWindow(now).maxDay)
@@ -97,6 +97,7 @@ type Row = { id: number; customer_id: number; subject: string | null; message: s
 /** The expert's due queue (own customers, flag-on onwards), time order. */
 function dueRows(u: NonNullable<U>, now: Date): Row[] {
   const f = flagRow(); if (!f || f.value !== "1") return [];
+  if (rmBeforeOpen(now)) return []; // 10:00 rule: nothing due is shown (or locks the screen) before 10:00 Tehran; rows stay until a result is recorded
   return queryRows<Row>(`SELECT r.id, r.customer_id, r.subject, r.message, r.remind_at, r.created_at, r.source, r.created_by, r.user_id,
       c.name, c.phone, cb.full_name AS by_name
     FROM reminders r JOIN customers c ON c.id=r.customer_id AND c.merged_into_customer_id IS NULL AND c.salesperson_id=?
@@ -126,7 +127,7 @@ function snoozeInfo(u: NonNullable<U>, rows: Row[], now: Date) {
 /** GET /reminder-must/feed */
 export function rmFeed(u: NonNullable<U>, now = new Date()) {
   ensure();
-  const work = !toWorkingTime(now).shifted;
+  const work = !toWorkingTime(now).shifted && !rmBeforeOpen(now);
   const rows = dueRows(u, now);
   const snooze = snoozeInfo(u, rows, now);
   const items = work ? rows.map((r) => ({
@@ -139,7 +140,7 @@ export function rmFeed(u: NonNullable<U>, now = new Date()) {
   // (expert_lockdown unchanged: POST /customers/:id/file-card stays limited to today's plan / incoming / case customers).
   const head = items[0] ? { ...items[0], lastCalls: lastCalls(items[0].customerId),
     fileEdit: !elLocked(u) || elCustomerAccess(u, items[0].customerId, now) != null } : null;
-  return { enabled: true, workTime: work, pendingCount: rows.length, items: head ? [head, ...items.slice(1)] : [], snooze, serverNow: now.toISOString(),
+  return { enabled: true, workTime: work, opensAt: rmBeforeOpen(now) ? rmOpenAt(now).toISOString() : null, pendingCount: rows.length, items: head ? [head, ...items.slice(1)] : [], snooze, serverNow: now.toISOString(),
     rules: { noteMin: RM_NOTE_MIN, noteMax: RM_NOTE_MAX, reasonMin: RM_REASON_MIN, reasonMax: RM_REASON_MAX, outcomes: RM_OUTCOMES, next: RM_NEXT,
       todayPmOpen: todayPm(now) != null, custom: rmCustomRules(now) } };
 }
@@ -157,13 +158,15 @@ export function rmShown(u: NonNullable<U>, id: number, now = new Date()): Err | 
 /** POST /reminder-must/snooze — one 10-minute snooze for the whole current queue. */
 export function rmSnooze(u: NonNullable<U>, now = new Date()): Err | { ok: true; until: string; count: number } {
   ensure();
+  // 10:00 rule: a snooze pressed before 10:00 Tehran (stale dialog) returns at 10:00 and does not use up the one 10-minute snooze.
+  if (!toWorkingTime(now).shifted && rmBeforeOpen(now)) { const until = rmOpenAt(now).toISOString(); log(u, null, "snooze_pre10", now.toISOString(), { data: { until } }); return { ok: true, until, count: 0 }; }
   if (toWorkingTime(now).shifted) return err(409, "outside_hours", "بیرون از ساعت کاری صفی باز نیست.");
   return runTransaction(() => {
     const rows = dueRows(u, now);
     if (!rows.length) return err(409, "queue_empty", "یادآور سررسیدی نداری.");
     const s = snoozeInfo(u, rows, now);
     if (s.used) return err(409, "snooze_used", "مهلت ۱۰ دقیقه‌ای فقط یک بار است؛ این بار بدون مهلت.", { until: s.until });
-    const until = new Date(now.getTime() + RM_SNOOZE_MIN * 60_000).toISOString();
+    const until = new Date(Math.max(now.getTime() + RM_SNOOZE_MIN * 60_000, rmOpenAt(now).getTime())).toISOString(); // 10:00 rule
     const through = rows[rows.length - 1].remind_at;
     execute(`INSERT INTO rm_must_state(user_id,snooze_until,snooze_through,snoozed_at) VALUES(?,?,?,?)
       ON CONFLICT(user_id) DO UPDATE SET snooze_until=excluded.snooze_until, snooze_through=excluded.snooze_through, snoozed_at=excluded.snoozed_at`,

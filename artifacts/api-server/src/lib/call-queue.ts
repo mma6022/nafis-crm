@@ -184,6 +184,18 @@ export function toWorkingTime(at: Date): { at: Date; shifted: boolean; why: "hol
   if (min > WORK_END_MIN) return { at: nextWorkDayAt(p), shifted: true, why: "after_hours" };
   return { at, shifted: false, why: null };
 }
+/** 10:00 rule (Mohammad t651u, 2026-10-29): reminders are only set and shown from 10:00 Tehran (the working day itself still
+ *  starts at 09:00 for calls / daily plan). Display is gated; stored remind_at values are never rewritten. */
+export const REMINDER_START_MIN = 10 * 60;
+export const rmBeforeOpen = (now: Date): boolean => { const p = tParts(now); return p.h * 60 + p.mi < REMINDER_START_MIN; };
+/** Today 10:00 Tehran (for a snooze pressed before 10:00). */
+export const rmOpenAt = (now: Date): Date => { const p = tParts(now); return fromTehran(p.y, p.m, p.d, 10, 0); };
+/** toWorkingTime + no new reminder before 10:00 Tehran (09:00–09:59 → same day 10:00). */
+export function toReminderTime(at: Date): ReturnType<typeof toWorkingTime> {
+  const w = toWorkingTime(at); const p = tParts(w.at);
+  if (p.h * 60 + p.mi < REMINDER_START_MIN) return { at: fromTehran(p.y, p.m, p.d, 10, 0), shifted: true, why: w.why ?? "before_hours" };
+  return w;
+}
 
 /* ---------------- phrase detector (suggest-first; never creates anything by itself) ---------------- */
 const FA = "۰۱۲۳۴۵۶۷۸۹", AR = "٠١٢٣٤٥٦٧٨٩";
@@ -217,7 +229,7 @@ export function detectFollowUpPhrase(textIn: string, now = new Date()): PhraseHi
   else if (/صبح/.test(t)) h = 10;
   let at = fromTehran(d0.y, d0.m, d0.d, h, mi);
   if (at.getTime() <= now.getTime()) return null;
-  const w = toWorkingTime(at); at = w.at;
+  const w = toReminderTime(at); at = w.at;
   void m;
   return { phrase: text.slice(idx, idx + len), start: idx, end: idx + len, remindAt: at.toISOString(), shifted: w.shifted };
 }
@@ -327,7 +339,7 @@ export function cqAfterCall(callId: number, input: CqCallInput, user: CqUser & {
       res.created.push({ id, remindAt: iso, label: `${faDate(iso)} ساعت ${faTime(iso)}`, kind, shifted });
     };
     if (input.followUpAt) {
-      const w = toWorkingTime(input.followUpAt); mk(w.at, "followup", "پیگیری بعدی", w.shifted);
+      const w = toReminderTime(input.followUpAt); mk(w.at, "followup", "پیگیری بعدی", w.shifted);
       executeChanges("UPDATE call_logs SET follow_up_at=? WHERE id=?", [w.at.toISOString(), callId]);
     }
     if (input.outcome === "no_answer" && f.autoclose) {
@@ -337,7 +349,7 @@ export function cqAfterCall(callId: number, input: CqCallInput, user: CqUser & {
       // PM (81): the expert's own «پیگیری بعدی» replaces the automatic retry — no duplicate task.
       if (n < CQ_NA_MAX && input.followUpAt) res.naRetryReplaced = true;
       else if (n < CQ_NA_MAX) {
-        const w = toWorkingTime(new Date(Date.parse(nowIso) + (n === 1 ? 4 : 24) * 3_600_000));
+        const w = toReminderTime(new Date(Date.parse(nowIso) + (n === 1 ? 4 : 24) * 3_600_000));
         mk(w.at, "no_answer", `تلاش ${n + 1} از ۳ · جواب نداد`, w.shifted);
       } else {
         const c = queryRow<{ priority: number | null; name: string | null }>("SELECT priority,name FROM customers WHERE id=?", [customerId]);
@@ -505,6 +517,7 @@ const nowIsoOf = (d: Date) => d.toISOString();
 export function cqOwnedCustomerSql(alias = "c") { return `${alias}.merged_into_customer_id IS NULL AND ${alias}.salesperson_id=?`; }
 export function cqDue(user: CqUser, now = new Date()) {
   const n = nowIsoOf(now);
+  if (rmBeforeOpen(now)) return { now: n, items: [] as ReturnType<typeof reminderView>[], snoozed: [] as ReturnType<typeof reminderView>[], total: 0 }; // 10:00 rule
   const rows = queryRows<any>(`SELECT r.id,r.customer_id,r.subject,r.message,r.remind_at,r.source,r.source_note_id,r.source_span,r.snooze_until,r.snooze_used,
       c.name customer_name, c.phone, c.priority, COALESCE(c.is_urgent,0) is_urgent
     FROM reminders r JOIN customers c ON c.id=r.customer_id
@@ -529,7 +542,7 @@ export function cqSnooze(user: CqUser, id: number, now = new Date()): { status: 
   if (r.done || r.voided_at) return { status: 409, error: "این یادآور بسته شده است." };
   if (Date.parse(r.remind_at) > now.getTime()) return { status: 409, error: "این یادآور هنوز سررسید نشده است." };
   if (r.snooze_used) return { status: 409, error: "برای این یادآور یک بار ۱۰ دقیقه عقب انداختی؛ دوباره نمی‌شود." };
-  const until = new Date(now.getTime() + CQ_SNOOZE_MIN * 60_000).toISOString();
+  const until = new Date(Math.max(now.getTime() + CQ_SNOOZE_MIN * 60_000, rmOpenAt(now).getTime())).toISOString(); // 10:00 rule: a snooze before 10:00 returns at 10:00
   if (!executeChanges("UPDATE reminders SET snooze_until=?, snooze_used=1 WHERE id=? AND snooze_used=0", [until, id])) return { status: 409, error: "قبلاً عقب افتاده است." };
   cqEvent("snooze", { userId: user.id, salespersonId: user.salespersonId, customerId: r.customer_id, reminderId: id, data: { from: now.toISOString(), until }, at: now.toISOString() });
   return { status: 200, until };
@@ -551,7 +564,7 @@ export function cqEditDate(user: CqUser, id: number, remindAt: unknown, now = ne
   const r = ownReminder(user, id); if (!r) return { status: 404, error: "یادآور پیدا نشد." };
   if (r.done || r.voided_at) return { status: 409, error: "این یادآور بسته شده است." };
   const d = new Date(String(remindAt ?? "")); if (Number.isNaN(d.getTime()) || d.getTime() <= now.getTime()) return { status: 400, error: "زمان یادآور باید در آینده باشد." };
-  const w = toWorkingTime(d);
+  const w = toReminderTime(d);
   executeChanges("UPDATE reminders SET remind_at=?, snooze_until=NULL, notified_at=NULL WHERE id=?", [w.at.toISOString(), id]);
   cqEvent("date_edit", { userId: user.id, salespersonId: user.salespersonId, customerId: r.customer_id, reminderId: id, data: { from: r.remind_at, to: w.at.toISOString() }, at: now.toISOString() });
   return { status: 200, remindAt: w.at.toISOString(), shifted: w.shifted };
@@ -566,7 +579,7 @@ export function cqAcceptSuggestion(user: CqUser, callId: number, remindAtOverrid
   let at = new Date(hit.remindAt);
   if (remindAtOverride != null && remindAtOverride !== "") {
     const d = new Date(String(remindAtOverride)); if (Number.isNaN(d.getTime()) || d.getTime() <= now.getTime()) return { status: 400, error: "زمان یادآور باید در آینده باشد." };
-    at = toWorkingTime(d).at;
+    at = toReminderTime(d).at;
   }
   const iso = at.toISOString(); const nowIso = now.toISOString();
   const id = execute(`INSERT INTO reminders(user_id,salesperson_id,customer_id,subject,message,remind_at,sent_sms,done,created_at,call_id,source,source_note_id,source_span,created_by)
