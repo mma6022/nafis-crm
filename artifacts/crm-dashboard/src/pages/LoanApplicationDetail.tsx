@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { CERTIFICATE_INACTIVE_MESSAGE } from '@/lib/contract-send-errors.mjs';
 import { documentFileAccept } from '@/lib/document-upload-type';
 import { Link, useLocation, useParams } from 'wouter';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -1669,7 +1670,7 @@ function ContractSection({ appId, docs = [], currentPrimaryGenerationId, tomanRe
         : code === 'application_primary_generation_mismatch'
         ? 'نسخهٔ موجود با شرایط مصوب این پرونده مطابقت ندارد. قرارداد امضاشده یا ارسال‌شده خودکار تغییر نمی‌کند؛ وضعیت نسخهٔ جاری را بررسی کنید.'
         : code === 'certificate_inactive'
-        ? 'این مشتری گواهی امضای فعال ندارد. ابتدا گواهی را در سرویس امضا فعال کنید و سپس دوباره تلاش کنید؛ از همین قرارداد استفاده می‌شود.'
+        ? CERTIFICATE_INACTIVE_MESSAGE
         : code === 'provider_certificate_check_failed'
           ? 'بررسی گواهی امضا در سرویس امضا موقتاً ناموفق بود. دوباره تلاش کنید؛ از همین قرارداد استفاده می‌شود.'
           : `${step} انجام نشد${code ? ` (${code})` : ''}. دوباره تلاش کنید؛ قرارداد موجود دوباره استفاده می‌شود.`);

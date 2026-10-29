@@ -1,4 +1,5 @@
 import { matchesCustomerSearch, rankExactCustomerId } from '@/lib/customer-id';
+import { CERTIFICATE_INACTIVE_MESSAGE } from '@/lib/contract-send-errors.mjs';
 import { CustomerIdBadge, CustomerName } from '@/components/customer/CustomerName';
 import { OtherOwnerResults } from '@/components/customer/OtherOwnerResults';
 import { useLockdownMe } from '@/features/expert-lockdown/api';
@@ -127,7 +128,7 @@ function apiErrorMessage(error: unknown, fallback: string) {
     filing_fee_idempotency_conflict: "تلاش پرداخت قبلی به مشتری یا طرح دیگری تعلق دارد.",
     loan_plan_not_found: "طرح انتخاب‌شده دیگر برای ثبت درخواست فعال نیست.",
     artifact_integrity: "فایل PDF قرارداد معتبر نیست؛ قرارداد را دوباره تولید کنید.",
-    certificate_inactive: "مشتری گواهی امضای دیجیتال فعال ندارد.",
+    certificate_inactive: CERTIFICATE_INACTIVE_MESSAGE,
     provider_certificate_check_failed: "امضامی نتوانست وضعیت گواهی مشتری را بررسی کند.",
     provider_file_upload_failed: "آپلود PDF قرارداد در امضامی ناموفق بود.",
     provider_contract_send_failed: "PDF آپلود شد، اما ثبت و ارسال قرارداد در امضامی ناموفق بود.",

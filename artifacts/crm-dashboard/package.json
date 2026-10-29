@@ -20,6 +20,7 @@
     "test:no-landline": "node scripts/no-landline-check.mjs",
     "test:no-sepordeh": "node scripts/no-sepordeh-check.mjs",
     "test:receipt-time": "node --experimental-strip-types scripts/receipt-time-fixture.mjs",
+    "test:contract-send-errors": "node scripts/contract-send-errors-fixture.mjs",
     "check:no-request-type": "node scripts/no-request-type-check.mjs"
   },
   "devDependencies": {

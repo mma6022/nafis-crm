@@ -7,6 +7,7 @@ import {
 import { Send } from 'lucide-react';
 import { Modal } from '@/components/DataTools';
 import { useToast } from '@/hooks/use-toast';
+import { CERTIFICATE_INACTIVE_MESSAGE, isCertificateInactiveError } from '@/lib/contract-send-errors.mjs';
 
 export function RejectedContractResend({ applicationId, generationId, rejected, repairPending = false }: {
   applicationId: number; generationId: number; rejected: boolean; repairPending?: boolean;
@@ -39,7 +40,8 @@ export function RejectedContractResend({ applicationId, generationId, rejected, 
     {open && <Modal title="ارسال مجدد قرارداد" testId="modal-resend-rejected-contract" onClose={() => { if (!send.isPending) setOpen(false); }}>
       <p>همان سند، بدون تغییر مبلغ یا مفاد، با شناسهٔ فایل و درخواست تازه برای امضا ارسال می‌شود. سوابق ارسال قبلی حفظ می‌شود.</p>
       {repairPending && <p role="status">ارسال قبلی هنوز آمادهٔ امضاست، اما از فایل ردشده استفاده کرده است. این کار درخواست تازه ایجاد می‌کند و درخواست قبلی را خودکار لغو نمی‌کند. اگر مشتری قبلاً امضا کرده، ابتدا وضعیت امضا را بررسی کنید.</p>}
-      {send.isError && <p className="form-error" role="alert">ارسال مجدد انجام نشد. وضعیت امضا را بررسی و صفحه را تازه‌سازی کنید؛ قرارداد امضاشده یا غیرجاری دوباره ارسال نمی‌شود.</p>}
+      {send.isError && isCertificateInactiveError(send.error) && <p className="form-error" role="alert" data-testid="error-resend-certificate-inactive">{CERTIFICATE_INACTIVE_MESSAGE}</p>}
+      {send.isError && !isCertificateInactiveError(send.error) && <p className="form-error" role="alert">ارسال مجدد انجام نشد. وضعیت امضا را بررسی و صفحه را تازه‌سازی کنید؛ قرارداد امضاشده یا غیرجاری دوباره ارسال نمی‌شود.</p>}
       <button type="button" className="btn btn-primary" disabled={send.isPending || send.isError}
         onClick={() => send.mutate()}>{send.isPending ? 'در حال ارسال...' : 'تأیید و ارسال'}</button>
     </Modal>}

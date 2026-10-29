@@ -41,6 +41,7 @@ import { FileSignature, Plus, Download, FileText, Send, CheckCircle2, AlertCircl
 import { useGetAuthSession, getGetAuthSessionQueryKey } from '@workspace/api-client-react';
 import { SkeletonPanel } from '@/components/CrmShell';
 import { useToast } from '@/hooks/use-toast';
+import { CERTIFICATE_INACTIVE_MESSAGE } from '@/lib/contract-send-errors.mjs';
 import { classifyProviderStatus, providerReportsSigned, providerReportsRejected, type SignatureStatusWorkflowOutcome } from '@/lib/loan-signature-verification-errors.mjs';
 
 function useDebounce<T>(value: T, delay: number): T {
@@ -60,7 +61,7 @@ const getErrorMessage = (err: any, defaultMsg: string) => {
     collaborator_required: 'نام، شماره همراه و کد ملی مشتری باید در پرونده تکمیل شود.',
     collaborator_invalid: 'فرمت شماره همراه یا کد ملی مشتری معتبر نیست. شماره همراه باید با ۰۹ و کد ملی شامل ۱۰ رقم باشد.',
     artifact_integrity: 'فایل قرارداد معتبر نیست. قرارداد را دوباره صادر کنید.',
-    certificate_inactive: 'این مشتری گواهی امضای دیجیتال فعال ندارد. ابتدا گواهی امضا را فعال کنید و سپس دوباره تلاش کنید.',
+    certificate_inactive: CERTIFICATE_INACTIVE_MESSAGE,
     provider_auth_failed: 'ورود CRM به سرویس امضامی ناموفق بود. نام کاربری یا رمز سرویس باید بررسی شود.',
     provider_certificate_check_failed: 'امضامی نتوانست وضعیت گواهی مشتری را بررسی کند.',
     provider_file_upload_failed: 'آپلود فایل PDF قرارداد در امضامی ناموفق بود.',
