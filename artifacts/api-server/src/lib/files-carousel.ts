@@ -466,12 +466,23 @@ export function fcAdminUncancel(u: U, fileIdIn: unknown, body: any, now = new Da
     return { ok: true as const, fileId: fid, status: c.prev_status, stage: a.stage };
   });
 }
+/** FC-NEWFILE (t669u, «ثبت پرونده تسهیلاتش انجام نمیشه»): a file this same expert created today is the filing in progress
+ *  (right after POST /loan-applications the form PATCHes plan/amount and generates the primary contract). It is never write-locked,
+ *  even while it shows as a pending card; it still appears in the deck/list as before. Older files keep the lock. Read-only check. */
+export function fcCreatedTodayBy(u: U, fileId: number, now = new Date()): boolean {
+  const r = queryRow<{ created_at: string | null; requested_by_user_id: number | null }>(
+    "SELECT created_at, requested_by_user_id FROM loan_applications WHERE id=? AND deleted_at IS NULL", [fileId]);
+  if (!r?.created_at || r.requested_by_user_id == null || Number(r.requested_by_user_id) !== Number(u.id)) return false;
+  const t = new Date(r.created_at); if (Number.isNaN(t.getTime())) return false;
+  return fcToday(t) === fcToday(now);
+}
 /** While ON: writes on a file still waiting in the deck (pending: not current, not done today) → 423 (reads stay open). */
 export function fcWriteLocked(u: U, fileId: number, now = new Date()): boolean {
   ensureFcSchema();
   const sp = Number(u.salespersonId); const day = fcToday(now);
   const f = fileById(fileId); if (!f || !f.open || Number(f.owner) !== sp) return false;
   if (queryRow("SELECT 1 x FROM fc_followups WHERE salesperson_id=? AND day=? AND file_id=?", [sp, day, fileId])) return false;
+  if (fcCreatedTodayBy(u, fileId, now)) return false;
   const d = dayRow(sp, day); if (!d?.started_at) return false;
   const deck = fcDeck(sp, day, now);
   // only files waiting in the deck are locked; files whose step is elsewhere (review/admin/wallet) are not the carousel's business.
