@@ -32,7 +32,7 @@ const WS: Record<WGroup, [string, string, LucideIcon]> = {
 const COMM_EMPTY = 'هنوز پورسانتی با مدل جدید ثبت نشده. پورسانت بعد از «پرداخت‌شده» شدن دستور پرداخت اینجا میاد.';
 const RANGES: [Range, string][] = [['all', 'همه'], ['today', 'امروز'], ['week', '۷ روز اخیر'], ['month', 'این ماه'], ['custom', 'از تا…']];
 const STAGES: [string, string][] = [['', 'همه'], ['sales_approval', 'منتظر تأیید فروش'], ['admin_approval', 'منتظر تأیید مدیر'], ['awaiting_payment', 'در انتظار علامت پرداخت']];
-const KINDS: [string, string][] = [['', 'همه'], ['payment', 'شارژ'], ['loan_credit', 'اعتبار تسهیلات'], ['goods_purchase', 'کسر خرید کالا'], ['filing_fee', 'کسر هزینه پرونده'], ['transfer', 'انتقال']];
+const KINDS: [string, string][] = [['', 'همه'], ['payment', 'شارژ'], ['loan_credit', 'اعتبار تسهیلات'], ['goods_purchase', 'کسر خرید کالا'], ['credit_correction', 'اصلاح کسر اقساط'], ['filing_fee', 'کسر هزینه پرونده'], ['transfer', 'انتقال']];
 const WTYPES: [string, string][] = [['', 'هر دو'], ['cash', 'نقدی'], ['credit', 'اعتباری']];
 const PAGE = 25;
 

@@ -58,6 +58,7 @@ const kindTranslate: Record<string, string> = {
   loan_credit: 'اعتبار تسهیلات',
   filing_fee: 'کسر هزینه تشکیل پرونده',
   goods_purchase: 'کسر بابت خرید کالا',
+  credit_correction: 'اصلاح کسر اقساط تسهیلات',
   transfer: 'انتقال',
   legacy: 'سابقه'
 };
@@ -677,6 +678,7 @@ function TransactionsTab() {
           <option value="loan_credit">اعتبار تسهیلات</option>
           <option value="filing_fee">کسر هزینه تشکیل پرونده</option>
           <option value="goods_purchase">کسر بابت خرید کالا</option>
+          <option value="credit_correction">اصلاح کسر اقساط تسهیلات</option>
           <option value="transfer">انتقال</option>
           <option value="legacy">سابقه</option>
         </select>

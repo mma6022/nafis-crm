@@ -136,7 +136,7 @@ router.get("/wallet-management/transactions", (req, res): void => {
   const search = String(req.query.search ?? "").trim().slice(0, 100);
   if ((customerId !== null && !validId(customerId)) || (actorId !== null && !validId(actorId))
     || (walletType && !["cash", "credit"].includes(walletType))
-    || (kind && !["payment", "loan_credit", "transfer", "legacy", "filing_fee", "goods_purchase"].includes(kind))
+    || (kind && !["payment", "loan_credit", "transfer", "legacy", "filing_fee", "goods_purchase", "credit_correction"].includes(kind))
     || (status && (!statuses.length || statuses.some((x) => !["requested", "gateway_ready", "failed", "cancelled", "credited", "verification_pending", "requires_reconciliation", "completed"].includes(x))))
     || (from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) || (to && !/^\d{4}-\d{2}-\d{2}$/.test(to))
     || (from && to && from > to)) { res.status(400).json({ error: "invalid_filters" }); return; }
@@ -156,12 +156,13 @@ router.get("/wallet-management/transactions", (req, res): void => {
       LEFT JOIN users u ON u.id=a.initiated_by_user_id WHERE 1=1 ${scope}
       UNION ALL
        SELECT CASE WHEN l.kind LIKE 'legacy_%' THEN 'legacy' WHEN l.kind='filing_fee_out' THEN 'filing_fee'
-         WHEN l.kind='goods_purchase_debit' THEN 'goods_purchase' ELSE 'loan_credit' END,
+         WHEN l.kind='goods_purchase_debit' THEN 'goods_purchase' WHEN l.kind='credit_correction_debit' THEN 'credit_correction' ELSE 'loan_credit' END,
         w.wallet_type,l.id,c.id,c.name,${survivorOwnerName("c.id")},NULL,NULL,NULL,l.amount,'completed',
         COALESCE(l.actor_user_id,CASE WHEN l.kind LIKE 'loan_credit:actor:%' THEN CAST(SUBSTR(l.kind,19) AS INTEGER) END),
         COALESCE(NULLIF(u.full_name,''),u.username),NULL,
          CASE WHEN l.kind LIKE 'legacy_%' THEN l.kind WHEN l.kind='filing_fee_out' THEN 'هزینه تشکیل پرونده'
-           WHEN l.kind='goods_purchase_debit' THEN 'کسر بابت خرید کالا' ELSE CAST(l.application_id AS TEXT) END,
+           WHEN l.kind='goods_purchase_debit' THEN 'کسر بابت خرید کالا'
+           WHEN l.kind='credit_correction_debit' THEN 'اصلاح کسر اقساط تسهیلات، پرونده ' || COALESCE(CAST(l.application_id AS TEXT),'') ELSE CAST(l.application_id AS TEXT) END,
         l.created_at,l.created_at
       FROM wallet_ledger_v2 l JOIN wallet_accounts_v2 w ON w.id=l.wallet_id
       JOIN customers c ON c.id=w.customer_id

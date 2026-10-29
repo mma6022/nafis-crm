@@ -51,11 +51,11 @@ export const RAW_STATUS: Record<string, string> = {
   credited: 'واریزشده', completed: 'انجام‌شده', failed: 'ناموفق', cancelled: 'لغوشده',
 };
 export const TX_KIND: Record<string, string> = {
-  payment: 'شارژ کیف پول', loan_credit: 'اعتبار تسهیلات', filing_fee: 'کسر هزینه تشکیل پرونده', goods_purchase: 'کسر بابت خرید کالا', transfer: 'انتقال', legacy: 'سابقه',
+  payment: 'شارژ کیف پول', loan_credit: 'اعتبار تسهیلات', filing_fee: 'کسر هزینه تشکیل پرونده', goods_purchase: 'کسر بابت خرید کالا', credit_correction: 'اصلاح کسر اقساط تسهیلات', transfer: 'انتقال', legacy: 'سابقه',
 };
 export const WALLET_TYPE: Record<string, string> = { cash: 'نقدی', credit: 'اعتباری' };
 /** Ledger amounts are stored positive; the sign comes from the kind. 0 = no sign (transfer, legacy). */
-export const txSign = (kind: string) => (kind === 'goods_purchase' || kind === 'filing_fee' ? -1 : kind === 'payment' || kind === 'loan_credit' ? 1 : 0);
+export const txSign = (kind: string) => (kind === 'goods_purchase' || kind === 'filing_fee' || kind === 'credit_correction' ? -1 : kind === 'payment' || kind === 'loan_credit' ? 1 : 0);
 
 const ERR: Record<string, string> = {
   gateway_unavailable: 'ارتباط با درگاه برقرار نشد. پولی کم نشده است.',

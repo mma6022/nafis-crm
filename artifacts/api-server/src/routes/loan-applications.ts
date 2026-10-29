@@ -568,7 +568,10 @@ function getScopedCustomer(id: number, u: AuthUser) {
   return queryRow<any>(`SELECT id,salesperson_id FROM customers WHERE id=? AND merged_into_customer_id IS NULL${u.customerScope === "assigned" ? " AND salesperson_id=?" : ""}`, u.customerScope === "assigned" ? [id, u.salespersonId] : [id]);
 }
 function netLoanAmount(app: any): string {
-  return loanPlanNetAmount(app);
+  // T664: an empty frozen deduct_percents uses the plan's CURRENT installment_terms
+  // (35/37/55 pinned at 46.5 inside loanPlanNetAmount). Only reached before charging.
+  const plan = app?.plan_id == null ? undefined : queryRow<any>("SELECT installment_terms FROM loan_plans WHERE id=?", [Number(app.plan_id)]);
+  return loanPlanNetAmount(app, plan ? (plan.installment_terms ?? null) : undefined);
 }
 function principalTemplateEvidence(generation: any): RenderedPrincipalTemplateEvidence {
   const template = queryRow<any>("SELECT storage_path,sha256 FROM contract_templates WHERE id=? AND deleted_at IS NULL", [Number(generation?.template_id)]);

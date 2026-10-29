@@ -19,6 +19,7 @@ const descriptions: Record<string, string> = {
   verified_cash_payment: "شارژ آنلاین", cash_payment: "شارژ آنلاین", loan_credit: "واریز اعتبار تسهیلات",
   loan_funding: "واریز اعتبار تسهیلات", legacy_credit: "اعتبار قبلی", admin_credit: "افزایش موجودی",
   admin_debit: "کسر موجودی", goods_purchase: "خرید کالا", goods_purchase_out: "خرید کالا",
+  credit_correction_debit: "اصلاح مبلغ اعتبار تسهیلات",
 };
 router.get("/wallet/transactions", (req, res): void => {
   const id = customerPortalSession(res)?.customerId;
