@@ -164,3 +164,11 @@ html.ssv2-on{--nf-gold-300:#F7D27F;--nf-gold-400:#F3BD47;--nf-brand-900:#0B1450;
 html.ssv2-on .diag-floating{bottom:calc(var(--ss-dock-h) + 28px + env(safe-area-inset-bottom,0px)) !important;left:18px;right:auto}
 /* no tooltip on «بیشتر» while its panel is open */
 .ssv2 .ss-i[aria-expanded="true"] .ss-tip{display:none}
+/* v1.0.2 §4ج full phone: tap = call, 44px copy (flag-ON users only; components render .ph only when the flag is ON) */
+.ph{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:var(--nf-ink,#0B1450);font-size:15px;white-space:nowrap;vertical-align:middle}
+.ph .phn{display:inline-flex;align-items:center;min-height:44px;min-width:44px;padding:0 4px;color:var(--nf-ink,#0B1450);font-weight:800;letter-spacing:.02em;text-decoration:underline;text-decoration-color:var(--nf-line-strong,#C9CEDF);text-underline-offset:4px;unicode-bidi:isolate}
+.ph .phn:hover{color:var(--nf-brand-600,#29369B);text-decoration-color:currentColor}
+.ph .phn:focus-visible,.ph .phc:focus-visible{outline:2px solid var(--nf-brand-600,#29369B);outline-offset:2px;border-radius:8px}
+.ph .phc{width:44px;height:44px;display:grid;place-items:center;border-radius:12px;color:var(--nf-ink-muted,#5B6280);background:transparent;border:0;cursor:pointer}
+.ph .phc:hover,.ph .phc.done{background:var(--nf-surface-2,#F3F4F9);color:var(--nf-brand-600,#29369B)}
+.ss-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}

@@ -9,6 +9,8 @@ import { custList, dpApi, DpError, useDpConfig, type DpItem, type DpToday } from
 import './daily-plan.css';
 import { elApi, useLockdownMe } from '@/features/expert-lockdown/api';
 import { IncomingTopButton, IncomingWizard, fullTel, phone11 } from '@/features/expert-lockdown/IncomingWizard';
+import { useSalesShellV2 } from '@/features/sales-shell/api';
+import { PhoneLine } from '@/features/sales-shell/PhoneLine';
 import { TodayCarousel } from './TodayCarousel';
 import { useSsIncoming } from '@/features/sales-shell/api';
 
@@ -125,6 +127,7 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
   // (useCallLauncher → usesSimpleForm: the qualifier's own in-progress customer with no priority yet). Everything else keeps the result form below.
   const session = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   const user = session.data?.user;
+  const ssV2 = useSalesShellV2(user ? Number(user.id) : null, Boolean(user)); // SALES-SHELL v2 §4ج: full number with tap-to-call + copy
   const custQ = useGetCustomer(cur.customerId, { query: { queryKey: getGetCustomerQueryKey(cur.customerId), retry: false } });
   const cust = custQ.data ?? (custQ.isError && user ? { id: cur.customerId, name: cur.name, phone: cur.phone ?? '', salespersonId: user.salespersonId ?? null, status: 'in_progress', priority: cur.priority ?? null } : null);
   const fcOf = (c: NonNullable<typeof cust>): FcCustomer => ({ id: cur.customerId, name: c.name ?? cur.name, phone: c.phone ?? cur.phone ?? '', priority: c.priority ?? null });
@@ -171,7 +174,8 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
     {cur.reason ? <p className="dp-reason" data-testid="dp-reason">{cur.reason}</p> : null}
     {cur.keyNote ? <div className="dp-keynote"><small><FileText size={13} aria-hidden="true" /> نکته از یادداشت‌ها</small><q>{cur.keyNote}</q></div> : null}
     {!c3 ? <SiteAnswersBlock customerId={cur.customerId} enabled={formKind !== 'wait'} /> : null}
-    {cur.phone ? <p className="dp-phone" dir="ltr" data-testid="dp-phone"><Phone size={14} aria-hidden="true" /> {telFa(cur.phone)}</p> : null}
+    {cur.phone && ssV2 ? <p className="dp-phone ss-dp-phone" data-testid="dp-phone"><Phone size={14} aria-hidden="true" /> <PhoneLine phone={cur.phone} onCall={() => { if (!busy) void call(); }} testId="dp-ph" /></p>
+      : cur.phone ? <p className="dp-phone" dir="ltr" data-testid="dp-phone"><Phone size={14} aria-hidden="true" /> {telFa(cur.phone)}</p> : null}
     {opened ? <div className="dp-box ok sm" role="status" data-testid="dp-called"><Phone size={14} aria-hidden="true" /> تماس با دکمه‌ی CRM{callAt ? ` ${faClock(callAt)}` : ''} شروع شد · حالا نتیجه را ثبت کن.</div> : null}
     <div className="dp-actions">
       <button type="button" className="btn btn-primary dp-call" disabled={busy} onClick={() => void call()} data-testid="dp-call"><Phone size={16} aria-hidden="true" /> {opened ? 'دوباره گرفتن شماره' : `تماس با ${cur.name}`}</button>

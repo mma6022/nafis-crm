@@ -15,6 +15,8 @@ import { rmApi, useRmConfig, type RmFeed, type RmItem, type RmNext, type RmOutco
 import { ManualOutcomeField } from '@/features/call-queue/ResultFields';
 import { C3File, C3History } from '@/features/history/TodayC3';
 import { RctIcon, RctPicker, addDays, faDayLong, rctFromIso, rctIso, rctLong, rctModel, rctShort, type RctVal } from './CustomTime';
+import { useSalesShellV2 } from '@/features/sales-shell/api';
+import { PhoneLine } from '@/features/sales-shell/PhoneLine';
 import './reminder-must.css';
 import './rct.css';
 
@@ -69,6 +71,7 @@ function useBusy(active: boolean) {
 
 export function ReminderMustHost({ userId }: { userId: number }) {
   const cfg = useRmConfig(userId).data;
+  const ssV2 = useSalesShellV2(userId, true); // SALES-SHELL v2 §4ج (flag-ON only): tap-to-call + copy on the number
   const on = cfg?.enabled === true;
   const qc = useQueryClient();
   const feedQ = useQuery({ queryKey: ['reminder-must', 'feed', userId], queryFn: rmApi.feed, enabled: on, refetchInterval: 30_000, refetchOnWindowFocus: true, retry: false });
@@ -113,13 +116,13 @@ export function ReminderMustHost({ userId }: { userId: number }) {
     </div> : null}
     {head && !open && !snoozed && busy ? <p className="rmm-rq" role="status" data-testid="rm-queued"><BellRing size={15} aria-hidden="true" />
       <span><b className="rmm-qn">{fa(items.length)}</b> یادآور سررسید شد؛ بعد از ثبت این فرم یکی‌یکی باز می‌شوند</span></p> : null}
-    {open && head ? <MustDialog key={head.reminderId} feed={feed} item={head} index={1} total={items.length} rest={items.slice(1)} onDone={done}
+    {open && head ? <MustDialog key={head.reminderId} ssV2={ssV2} feed={feed} item={head} index={1} total={items.length} rest={items.slice(1)} onDone={done}
       onSnoozed={snoozedNow} /> : null}
     {toast ? <div className="rmm-toast" role="status" data-testid="rm-toast"><Check size={16} aria-hidden="true" /> {toast}</div> : null}
   </div>, document.body);
 }
 
-function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { feed: RmFeed; item: RmItem; index: number; total: number; rest: RmItem[];
+function MustDialog({ ssV2 = false, feed, item, index, total, rest, onDone, onSnoozed }: { ssV2?: boolean; feed: RmFeed; item: RmItem; index: number; total: number; rest: RmItem[];
   onDone: (remaining: number, nextLine?: string) => void; onSnoozed: (until: string) => void }) {
   const [step, setStep] = useState<0 | 1 | 2>(0);
   const [manual, setManual] = useState<RmManual | null>(null);
@@ -245,7 +248,7 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
         <C3History customerId={item.customerId} />
         <div className="c3m rmm-m" data-testid="rm-middle">
           <ol className="rmm-stp" aria-label="مراحل">{steps.map((s, i) => <li key={s} className={i < step ? 'dn' : i === step ? 'cu' : ''} aria-current={i === step ? 'step' : undefined}>{fa(i + 1)}. {s}</li>)}</ol>
-          <div className="rmm-who"><span className="rmm-id" data-testid="rm-id">#{fa(item.customerId)}</span> <span className="rmm-ph" dir="ltr" data-testid="rm-phone">{fa(item.phone || item.phoneMasked) /* UNMASK-EXPERT t674u */}</span></div>
+          <div className="rmm-who"><span className="rmm-id" data-testid="rm-id">#{fa(item.customerId)}</span> {ssV2 && item.phone ? <span className="rmm-ph" data-testid="rm-phone"><PhoneLine phone={item.phone} tel={item.tel} testId="rm-ph" /></span> : <span className="rmm-ph" dir="ltr" data-testid="rm-phone">{fa(item.phone || item.phoneMasked) /* UNMASK-EXPERT t674u */}</span>}</div>
           <div className="rmm-rsn"><h3>متن یادآور</h3><p data-testid="rm-reason">{item.reason || item.subject || '—'}</p><small>{item.createdBy}، ساخته‌شده {dayLabel(item.createdAt, feed.serverNow)} {faClock(item.createdAt)}</small></div>
           {step === 0 && rest.length ? <p className="rmm-qnx" title={qFull} data-testid="rm-next-list"><span>بعد از این، به ترتیب ساعت:</span> {qShown.map((x) => `${faClock(x.remindAt)} ${x.customerName || 'بدون نام'}`).join('، ')}
             {rest.length > 3 ? <button type="button" className="rmm-qmore" aria-expanded={qAll} onClick={() => setQAll(!qAll)} data-testid="rm-next-more">{qAll ? 'کمتر' : `و ${fa(rest.length - 3)} یادآور دیگر`}</button> : null}</p> : null}
