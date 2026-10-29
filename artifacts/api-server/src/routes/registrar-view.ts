@@ -5,6 +5,7 @@
  * No national code, address, documents, call content, loans, wallet or finance. Phone always masked. Every case view is audited
  * (lead_annotator_audit, action 'registrar_view'). The list itself is GET /customers?scope=registered (routes/crm.ts).
  */
+import { CUSTOMER_STATUS_LABELS } from "../lib/reminder-follow";
 import { Router, type IRouter, type Response } from "express";
 import type { AuthUser } from "../lib/auth";
 import { crmDb, execute, queryRow } from "../lib/crm-db";
@@ -14,7 +15,7 @@ import { maskCustomerPhone } from "../lib/cross-owner-search";
 const router: IRouter = Router();
 const me = (res: Response) => res.locals.authUser as AuthUser;
 const SOURCE_LABEL: Record<string, string> = { instagram: "اینستاگرام", manual: "ثبت دستی", site: "سایت", portal: "پرتال مشتری", phone: "تماس تلفنی" };
-const STATUS_LABEL: Record<string, string> = { in_progress: "در حال انجام", completed: "اتمام", cancelled: "لغو شده" };
+const STATUS_LABEL: Record<string, string> = { in_progress: "در حال انجام", completed: CUSTOMER_STATUS_LABELS.completed, cancelled: CUSTOMER_STATUS_LABELS.cancelled } // shared labels (REMINDERS-FOLLOW item 14);
 
 router.get("/registrar-view/me", (_req, res): void => {
   const u = me(res);

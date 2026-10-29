@@ -62,6 +62,8 @@ import { backfillFollowUpAt, ensureManualOutcomeSchema } from "../lib/call-outco
 import { ensureQuestionsSkippedColumn } from "../lib/team-sales";
 import staffWalletRouter from "./staff-wallet";
 import loanRequestDraftsRouter from "./loan-request-drafts";
+import reminderFollowRouter from "./reminder-follow";
+import { ensureReminderFollowSchema } from "../lib/reminder-follow";
 
 const router: IRouter = Router();
 startDatabaseBackupScheduler();
@@ -77,6 +79,8 @@ try { ensureCallQueueSchema(); const n = backfillFollowUpAt(); if (n) console.lo
 // R2: daily discipline snapshot / 3-workday alerts; does nothing while flag.discipline is OFF.
 startCallQueueJobs();
 ensureDailyPlanSchema();
+// REMINDERS-FOLLOW: columns/tables, one-time data step (backed up), then the follow / one-open triggers.
+ensureReminderFollowSchema();
 startDailyPlanJobs();
 startInstagramWorker();
 
@@ -100,6 +104,7 @@ router.use(callQueueRouter);
 router.use(dailyPlanRouter);
 router.use(filesCarouselRouter);
 router.use(reminderMustRouter);
+router.use(reminderFollowRouter);
 router.use(defaultOwnerRouter);
 router.use(teamCommissionRouter);
 router.use(staffWalletRouter);

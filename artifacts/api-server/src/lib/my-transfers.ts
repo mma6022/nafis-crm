@@ -5,6 +5,7 @@
  * no writes, nothing editable. Only the masked name / mobile, the date, the target and current expert and the current
  * stage are returned — no notes, amounts, documents or calls.
  */
+import { CUSTOMER_STATUS_LABELS } from "./reminder-follow";
 import { queryRow, queryRows } from "./crm-db";
 import { maskCustomerName, maskCustomerPhone } from "./cross-owner-search";
 import { LOAN_STAGE_LABELS } from "./manager-work";
@@ -21,7 +22,7 @@ export const TRANSFER_SOURCE_LABELS: Record<string, string> = {
   qualifier_form: "فرم واجد شرایط", expert_upgrade: "ارتقا به اولویت ۱ توسط کارشناس", promote: "ارتقا به اولویت ۱", site_apply_form: "فرم سایت", nonp1_auto_transfer: "انتقال خودکار غیر اولویت ۱",
   customer_update: "ویرایش توسط مدیر",
 };
-const STATUS_LABELS: Record<string, string> = { in_progress: "در حال پیگیری", completed: "تکمیل شده", cancelled: "لغو شده" };
+const STATUS_LABELS: Record<string, string> = { in_progress: "در حال پیگیری", completed: CUSTOMER_STATUS_LABELS.completed, cancelled: CUSTOMER_STATUS_LABELS.cancelled };
 
 export function myTransfers(salespersonId: number, actorUserId: number | null, limit = 300): MyTransfer[] {
   if (!queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='customer_priority_history'")) return [];

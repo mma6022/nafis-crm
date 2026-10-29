@@ -24,6 +24,7 @@
  * qualifier never queues the expert-intro SMS; its switch is OFF anyway). Commission is untouched: it reads the
  * per-purchase salesperson_id and only history rows with new_priority=1 and source qualifier_form / promote.
  */
+import { rfTagHandoff } from "./reminder-follow";
 import { executeChanges, queryRow } from "./crm-db";
 import { getTeamSalesConfig, logPriorityChange } from "./team-sales";
 
@@ -127,6 +128,8 @@ export function applyNonP1TransferInTx(input: NonP1Input): NonP1Result {
     "UPDATE customers SET salesperson_id=? WHERE id=? AND salesperson_id=? AND status='in_progress' AND merged_into_customer_id IS NULL",
     [d.toSalespersonId, input.customerId, d.fromSalespersonId]);
   if (changed !== 1) return { transferred: false, skip: "concurrent_change", fromSalespersonId: d.fromSalespersonId, toSalespersonId: null };
+  // REMINDERS-FOLLOW: the owner trigger already moved the open reminders and wrote the hand-off row (7-day read-only); label it.
+  rfTagHandoff(input.customerId, input.reactivation ? "reactivation" : "nonp1_auto_transfer");
   if (bells) {
     // No staff notification: drop the bell rows fired by THIS move, and mark the customer's earlier events (incl. the
     // priority edit just written) read for the qualifier's users, since bell scope follows the current owner.

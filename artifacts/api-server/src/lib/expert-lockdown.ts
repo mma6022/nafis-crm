@@ -104,6 +104,8 @@ const ALLOW: RegExp[] = [
   // REMINDER-68: the assistant's suggestion buttons (each handler scopes itself to the caller's own thread / proposal / reminder).
   /^\/assistant\/threads\/\d+\/read$/, /^\/assistant\/messages\/\d+\/action$/, /^\/assistant\/reminder-proposals\/\d+\/decide$/,
   /^\/reminders\/\d+\/acknowledge$/,
+  // REMINDERS-FOLLOW: own open reminders / read-only hand-off rows / shared labels (handlers scope to the caller).
+  /^\/reminders\/(labels|follow-feed|handoffs)$/,
   // REMINDER-68: «ارتقا به اولویت ۱» card's closer preview (?customerId= is still checked below, own customers only).
   /^\/sales\/next-closer$/,
 ];
@@ -154,7 +156,7 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   const listedCustomerRead = req.method === "GET" && ids.length === 1 && EL_CUSTOMER_SCOPED_READS.some((re) => re.test(path));
   // REMINDER-68: «ثبت یادآور» (POST /reminders: own customer, or no customer = personal) and «done» (PATCH /reminders: the handler scopes to user_id).
   const reminderWrite = (req.method === "POST" || req.method === "PATCH") && path === "/reminders";
-  const upgradeWrite = req.method === "POST" && /^\/customers\/\d+\/(upgrade-priority|priority)$/.test(path);
+  const upgradeWrite = req.method === "POST" && /^\/customers\/\d+\/(upgrade-priority|priority|reactivate)$/.test(path); // + REMINDERS-FOLLOW reactivate (owner)
   const ownLevel = req.method === "GET" || req.method === "HEAD" || reminderWrite || upgradeWrite;
   if (!customerRoute && !customerWrite && !listedCustomerRead && !reminderWrite && !ALLOW.some((re) => re.test(path))) {
     if (process.env.EL_TRACE === "1") console.warn(`[expert-lockdown] deny ${req.method} ${path}`);

@@ -9,6 +9,7 @@
  *  6 completed, 7 cancelled (status='rejected') — list only, never cards, always last; current CRM access unchanged (PM 5).
  * A file sits in the FIRST group it matches. Pure: fcCategorize/fcCompare take plain signals; fcSignals() is read-only SQL.
  */
+import { CUSTOMER_STATUS_LABELS } from "./reminder-follow";
 import { queryRow, queryRows } from "./crm-db";
 
 /** Stages whose actionPolicy (routes/loan-applications.ts) includes «salesperson». A test pins this against the route. */
@@ -70,7 +71,7 @@ export const FC_STAGE_SHORT: Record<string, string> = {
 export type FcPriorityCategory = "returned" | "signature_rejected" | "signature_pending" | "collateral_stage" | "guarantor_stage" | "stale" | "open_other" | "completed" | "cancelled";
 export const FC_CATEGORY_MAIN: Record<FcPriorityCategory, string> = {
   returned: "برگشتی", signature_rejected: "امضا رد شد", signature_pending: "امضا نشده", collateral_stage: "مرحله وثیقه", guarantor_stage: "مرحله ضامن",
-  stale: "بی‌فعالیت", open_other: "باز", completed: "تکمیل شده", cancelled: "لغو شده",
+  stale: "بی‌فعالیت", open_other: "باز", completed: CUSTOMER_STATUS_LABELS.completed, cancelled: CUSTOMER_STATUS_LABELS.cancelled,
 };
 export const FC_GROUP_LABELS83: Record<number, string> = { 1: "برگشتی", 2: "امضا", 3: "وثیقه و ضامن", 4: "بی‌فعالیت", 5: "باز", 6: "تکمیل شده", 7: "لغو شده" };
 export const FC_OLD_DAYS_KEY = "fc_old_days", FC_OLD_DAYS_DEFAULT = 14;

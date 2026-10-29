@@ -1,5 +1,6 @@
 import { registrarCanTag } from "../lib/registrar-view";
-import { cqAfterCall, cqParseCall, type CqCallResult, rmBeforeOpen, toReminderTime, tParts, REMINDER_START_MIN } from "../lib/call-queue";
+import { rfCleanNote, rfCleanReactivationReason, rfCleanReactivationSource, rfRecordReactivation, rfTagHandoff, type RfReactivationSource } from "../lib/reminder-follow";
+import { cqAfterCall, cqParseCall, type CqCallResult, rmBeforeOpen, toReminderTime, tParts, REMINDER_START_MIN, rmAfterClose } from "../lib/call-queue";
 import { dpAfterCall, dpAfterCommit, dpPreCall, dpSearchCheck } from "../lib/daily-plan";
 import express, { Router, type IRouter, type RequestHandler } from "express";
 import { deleteCustomerIntro } from "../lib/expert-intro-sms-core";
@@ -3002,10 +3003,9 @@ router.post(
   },
 );
 
-router.patch(
-  "/customers/:id",
-  requirePermission("customers.update"),
-  (req, res): void => {
+// REMINDERS-FOLLOW / reminder-status-priority v1.0.2: the customer PATCH handler is shared with POST /customers/:id/reactivate
+// (res.locals.rfReactivate set) so the reactivation runs the same identity-conflict, nonP1 and history logic.
+const customerPatchHandler = (req: express.Request, res: express.Response): void => {
     const params = UpdateCustomerParams.safeParse(req.params);
     if (!params.success) {
       res.status(400).json({ error: params.error.message });
@@ -3203,6 +3203,30 @@ router.patch(
     let nonP1: NonP1Result | null = null;
     const nonP1Reactivation = body.status === "in_progress" &&
       (existingCustomer.status === "cancelled" || existingCustomer.status === "completed");
+    // REMINDERS-FOLLOW item 10: reactivation only by the customer's current expert or a manager (server-side), reason ≤120 kept
+    // with who / when / previous status and priority (customer_reactivations). The stored priority is kept (= the previous one).
+    let rfReason: string | null = null;
+    const rfRx = res.locals.rfReactivate as { reason: string; source: RfReactivationSource } | undefined;
+    if (rfRx && !nonP1Reactivation) {
+      res.status(409).json({ error: "فقط مشتری لغوشده یا تکمیل‌شده دوباره فعال می‌شود.", code: "not_reactivatable" }); return;
+    }
+    if (rfRx && existingCustomer.mergedIntoCustomerId != null) {
+      res.status(409).json({ error: "این مشتری در مشتری دیگری ادغام شده و دوباره فعال نمی‌شود.", code: "reactivation_merged" }); return;
+    }
+    if (!rfRx && existingCustomer.status === "cancelled" && body.status !== undefined && body.status !== "cancelled") {
+      res.status(409).json({ error: "مشتری لغوشده فقط با «فعال‌سازی دوباره» و نوشتن دلیل برمی‌گردد.", code: "reactivation_required" }); return;
+    }
+    if (nonP1Reactivation) {
+      const isManager = (user.role === "admin" || user.role === "manager") && Number(user.id) !== 29;
+      const isOwner = user.salespersonId != null && Number(existingCustomer.salespersonId) === Number(user.salespersonId);
+      if (!isManager && !isOwner) { res.status(403).json({ error: "فقط کارشناس فعلی مشتری یا مدیر می‌تواند مشتری را دوباره فعال کند.", code: "reactivation_forbidden" }); return; }
+      if (rfRx) rfReason = rfRx.reason;
+      else { // completed → in_progress by a plain PATCH (not blocked by v1.0.2); reason optional, audited as customer_patch.
+        const rr = rfCleanReactivationReason(req.body?.reactivationReason ?? req.body?.reason, false);
+        if (!rr.ok) { res.status(422).json({ error: rr.message, code: rr.error }); return; }
+        rfReason = rr.reason;
+      }
+    }
     try {
       if (nationalCodeLog) ensureIdentityLogSchema();
       changes = runTransaction(() => {
@@ -3222,6 +3246,9 @@ router.patch(
           `INSERT INTO ${IDENTITY_LOG_TABLE} (customer_id,old_national_code,new_national_code,identity_changed,source,actor_user_id,created_at)
            VALUES (?,?,?,?,'customer_update',?,?)`,
           [params.data.id, nationalCodeLog.previous || null, nationalCodeLog.next, identityStampChanged ? 1 : 0, user.id, new Date().toISOString()]);
+        if (changed && body.salespersonId !== undefined && user.role === "admin") rfTagHandoff(params.data.id, "customer_update");
+        if (changed && nonP1Reactivation) rfRecordReactivation({ customerId: params.data.id, actorUserId: user.id, reason: rfReason,
+          prevStatus: String(existingCustomer.status), prevPriority: existingCustomer.priority ?? null, source: rfRx?.source ?? "customer_patch" });
         // crm-nonp1-to-kazemi: a non-1 priority on a closer's customer moves it to Kazemi in this same transaction.
         // Reactivation (cancelled / completed → in_progress) with a non-1 priority does the same (PM 16:48).
         if (changed && (body.priority !== undefined || nonP1Reactivation)) {
@@ -3272,8 +3299,19 @@ router.patch(
     }
     if (nonP1Moved) res.setHeader(NONP1_TRANSFER_HEADER, String(params.data.id));
     res.json(UpdateCustomerResponse.parse(customer));
-  },
-);
+};
+router.patch("/customers/:id", requirePermission("customers.update"), customerPatchHandler);
+// customer.reactivate (HANDOFF item 10, v1.0.2): the ONLY way out of «لغوشده». Body { reason: 1–120, source: call_form | admin_page }.
+// Owner (current expert) or manager only, checked in the shared handler; status back to in_progress, stored priority kept.
+router.post("/customers/:id/reactivate", requirePermission("customers.update"), (req, res, next): void => {
+  const rr = rfCleanReactivationReason(req.body?.reason, true);
+  if (!rr.ok) { res.status(422).json({ error: rr.message, code: rr.error }); return; }
+  const src = rfCleanReactivationSource(req.body?.source);
+  if (!src.ok) { res.status(422).json({ error: src.message, code: src.error }); return; }
+  res.locals.rfReactivate = { reason: rr.reason, source: src.source };
+  req.body = { status: "in_progress" };
+  next();
+}, customerPatchHandler);
 
 /* crm-urgent-history (PM 2026-10-27 22:28): the urgent tick alone for the owner / admin, with an optional reason; history +
    bells in lib/customer-urgent.ts. Other users (incl. lead_annotator) use routes/lead-annotator.ts. */
@@ -4312,6 +4350,10 @@ router.post(
       res.status(422).json({ error: "یادآور فقط از ساعت ۱۰ صبح به بعد تنظیم می‌شود.", code: "remind_at_before_10" });
       return;
     } }
+    if (rmAfterClose(new Date(parsed.data.remindAt))) { // t654u: 10:00–18:00 Tehran, both ends inclusive
+      res.status(422).json({ error: "یادآور فقط تا ساعت ۱۸ (وقت تهران) تنظیم می‌شود.", code: "remind_at_after_18" });
+      return;
+    }
     if (parsed.data.customerId != null) {
       const customer = getCustomer(parsed.data.customerId, user);
       if (!customer) {
@@ -4319,10 +4361,14 @@ router.post(
         return;
       }
     }
+    // REMINDERS-FOLLOW item 1: optional note (≤80) and the creator are stored; item 12: the one-open trigger replaces the
+    // customer's previous open reminder in this same statement (replaced_by / replaced_at, kept in history).
+    const rfNote = rfCleanNote(req.body?.note);
+    if (!rfNote.ok) { res.status(422).json({ error: rfNote.message, code: rfNote.error }); return; }
     const id = execute(
       `INSERT INTO reminders
-      (user_id, salesperson_id, customer_id, subject, message, remind_at, sent_sms, done, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)`,
+      (user_id, salesperson_id, customer_id, subject, message, remind_at, sent_sms, done, created_at, created_by, note)
+     VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`,
       [
         user.id,
         user.salespersonId,
@@ -4331,6 +4377,8 @@ router.post(
         parsed.data.message.trim(),
         new Date(parsed.data.remindAt).toISOString(),
         new Date().toISOString(),
+        user.id,
+        rfNote.note,
       ],
     );
     const row = queryRow<ReminderRow>(

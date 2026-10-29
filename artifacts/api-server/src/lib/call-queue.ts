@@ -187,6 +187,9 @@ export function toWorkingTime(at: Date): { at: Date; shifted: boolean; why: "hol
 /** 10:00 rule (Mohammad t651u, 2026-10-29): reminders are only set and shown from 10:00 Tehran (the working day itself still
  *  starts at 09:00 for calls / daily plan). Display is gated; stored remind_at values are never rewritten. */
 export const REMINDER_START_MIN = 10 * 60;
+/** t654u (Mohammad, reminder-status-priority): no reminder after 18:00 Tehran either (18:00 itself allowed; both ends inclusive). */
+export const REMINDER_END_MIN = 18 * 60;
+export const rmAfterClose = (at: Date): boolean => { const p = tParts(at); return p.h * 60 + p.mi > REMINDER_END_MIN; };
 export const rmBeforeOpen = (now: Date): boolean => { const p = tParts(now); return p.h * 60 + p.mi < REMINDER_START_MIN; };
 /** Today 10:00 Tehran (for a snooze pressed before 10:00). */
 export const rmOpenAt = (now: Date): Date => { const p = tParts(now); return fromTehran(p.y, p.m, p.d, 10, 0); };

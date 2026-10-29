@@ -5,6 +5,7 @@ import { noteText } from "./note-text";
  * Priority-history logging (customer_priority_history) is always on: it is additive and invisible.
  * Never sends SMS (customers or staff): closer reminders are in-app only (reminder_sms_deliveries pre-marked).
  */
+import { rfTagHandoff } from "./reminder-follow";
 import { ensureManualOutcomeSchema, type ManualOutcome } from "./call-outcome";
 import { cqAutoCloseOnly } from "./call-queue";
 import { callNoteError } from "./call-note-rule";
@@ -241,6 +242,7 @@ function promoteInTx(c: CustomerState, actor: Actor, cfg: TeamSalesConfig, sourc
     "UPDATE customers SET priority=1, salesperson_id=? WHERE id=? AND salesperson_id IS ? AND status='in_progress'",
     [closer, c.id, c.salesperson_id]);
   if (changed !== 1) throw new TeamSalesError(409, "پرونده همزمان تغییر کرد؛ دوباره تلاش کنید.");
+  rfTagHandoff(c.id, String(source)); // REMINDERS-FOLLOW: open reminders already followed the customer (trigger); label the hand-off row.
   const nameOf = (id: number | null) => id == null ? null : queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [id])?.name ?? null;
   const qualifierName = nameOf(cfg.qualifierSalespersonId) ?? "کارشناس تماس اول";
   const actorName = (actor.salespersonId != null ? nameOf(actor.salespersonId) : null) ?? actor.fullName ?? qualifierName;
