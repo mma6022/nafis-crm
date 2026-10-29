@@ -15,7 +15,8 @@ import { noteText } from "./note-text";
  *    next reminder (in-app only: reminder_sms_deliveries rejected/in_app_only). No SMS, Bale, customer message or staff bell.
  */
 import { crmDb, execute, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
-import { cqRaw, fromTehran, nextWorkDayAt, toWorkingTime, tParts, isWorkDay } from "./call-queue";
+import { cqRaw, fromTehran, nextWorkDayAt, toWorkingTime, tParts, tYmd, isWorkDay, WORK_START_MIN, WORK_END_MIN } from "./call-queue";
+import { listOfficialHolidays } from "./official-holidays";
 import { EL_USERS, elCustomerAccess, elLocked } from "./expert-lockdown";
 import { maskPhonesInText } from "./lead-annotator";
 
@@ -23,7 +24,41 @@ export const RM_FLAG_KEY = "flag.reminder_must";
 export const RM_SNOOZE_MIN = 10;
 export const RM_NOTE_MIN = 10, RM_NOTE_MAX = null, RM_REASON_MIN = 3, RM_REASON_MAX = null;
 export const RM_OUTCOMES = ["answered", "no_answer", "follow_up"] as const;
-export const RM_NEXT = ["tomorrow_am", "today_pm", "in_3_days", "none"] as const;
+export const RM_NEXT = ["tomorrow_am", "today_pm", "in_3_days", "none", "custom"] as const;
+/** Q1 «زمان دلخواه» (Armita reminder-custom-time v1.0 + PM answers): Sat–Thu, 09:00–18:00 (both ends allowed), 15-minute steps,
+ *  ≥ 15 minutes from now, ≤ 90 days ahead (Tehran calendar day). Official holidays are allowed (the picker marks them faintly).
+ *  Unlike the fixed presets, a custom time is never moved to working time: an invalid one is refused with a reason code. */
+export const RM_CUSTOM = { stepMin: 15, minLeadMin: 15, maxDays: 90, closedWeekdays: [5] as number[] } as const;
+function rmCustomWindow(now: Date) {
+  const p = tParts(now);
+  const max = tParts(fromTehran(p.y, p.m, p.d + RM_CUSTOM.maxDays, 12, 0));
+  const from = tYmd(p), to = tYmd(max);
+  let holidays: { date: string; label: string | null }[] = [];
+  try { holidays = listOfficialHolidays(crmDb).filter((h) => h.date >= from && h.date <= to).map((h) => ({ date: h.date, label: h.label ?? null })); } catch { holidays = []; }
+  return { today: from, maxDay: to, holidays };
+}
+export function rmCustomRules(now: Date) {
+  const w = rmCustomWindow(now);
+  return { workStart: "09:00", workEnd: "18:00", stepMin: RM_CUSTOM.stepMin, minLeadMin: RM_CUSTOM.minLeadMin, maxDays: RM_CUSTOM.maxDays,
+    closedWeekdays: RM_CUSTOM.closedWeekdays, today: w.today, maxDay: w.maxDay, holidays: w.holidays, tz: "Asia/Tehran" };
+}
+/** Validates a custom remindAt; returns the Date or an Err with remind_at_invalid / remind_at_step / remind_at_past / remind_at_closed / remind_at_too_far. */
+export function rmCustomAt(raw: unknown, now: Date): Date | Err {
+  const s = String(raw ?? "").trim();
+  const ms = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/.test(s) ? Date.parse(s) : NaN;
+  if (!Number.isFinite(ms)) return err(422, "remind_at_invalid", "زمان دلخواه معتبر نیست؛ روز و ساعت را دوباره انتخاب کن.");
+  const at = new Date(ms); const p = tParts(at);
+  if (at.getUTCSeconds() !== 0 || at.getUTCMilliseconds() !== 0 || p.mi % RM_CUSTOM.stepMin !== 0)
+    return err(422, "remind_at_step", "دقیقه باید ۰۰، ۱۵، ۳۰ یا ۴۵ باشد.");
+  const min = p.h * 60 + p.mi;
+  if (RM_CUSTOM.closedWeekdays.includes(p.wd) || min < WORK_START_MIN || min > WORK_END_MIN)
+    return err(422, "remind_at_closed", "زمان دلخواه باید شنبه تا پنجشنبه، بین ساعت ۹ تا ۱۸ باشد.", { wd: p.wd, min });
+  if (at.getTime() < now.getTime() + RM_CUSTOM.minLeadMin * 60_000)
+    return err(422, "remind_at_past", "این زمان گذشته یا خیلی نزدیک است؛ دست‌کم ۱۵ دقیقه بعد از الان را انتخاب کن.");
+  if (tYmd(p) > rmCustomWindow(now).maxDay)
+    return err(422, "remind_at_too_far", "زمان دلخواه حداکثر ۹۰ روز بعد می‌تواند باشد.");
+  return at;
+}
 type U = { id: number; role: string; salespersonId: number | null; fullName?: string | null } | null | undefined;
 type Err = { status: number; error: string; message: string; details?: unknown };
 const err = (status: number, error: string, message: string, details?: unknown): Err => ({ status, error, message, details });
@@ -106,7 +141,7 @@ export function rmFeed(u: NonNullable<U>, now = new Date()) {
     fileEdit: !elLocked(u) || elCustomerAccess(u, items[0].customerId, now) != null } : null;
   return { enabled: true, workTime: work, pendingCount: rows.length, items: head ? [head, ...items.slice(1)] : [], snooze, serverNow: now.toISOString(),
     rules: { noteMin: RM_NOTE_MIN, noteMax: RM_NOTE_MAX, reasonMin: RM_REASON_MIN, reasonMax: RM_REASON_MAX, outcomes: RM_OUTCOMES, next: RM_NEXT,
-      todayPmOpen: todayPm(now) != null } };
+      todayPmOpen: todayPm(now) != null, custom: rmCustomRules(now) } };
 }
 
 /** POST /reminder-must/:id/shown — first delivery stamp (idempotent per reminder). */
@@ -152,7 +187,7 @@ export function rmNextAt(preset: string, now = new Date()): Date | null | "inval
   return "invalid";
 }
 
-/** POST /reminder-must/:id/complete {callId, outcome, note, next, reason} */
+/** POST /reminder-must/:id/complete {callId, outcome, note, next, reason, remindAt?} — remindAt only with next="custom" (validated by rmCustomAt). */
 export function rmComplete(u: NonNullable<U>, id: number, b: any, now = new Date()): Err | Record<string, unknown> {
   ensure();
   const iso = now.toISOString();
@@ -164,7 +199,9 @@ export function rmComplete(u: NonNullable<U>, id: number, b: any, now = new Date
   if (!(RM_NEXT as readonly string[]).includes(next)) return err(422, "next_required", "قدم بعد را انتخاب کن.", { allowed: RM_NEXT });
   if (next !== "none" && [...reason].length < RM_REASON_MIN) return err(422, "reason_required", "دلیل یادآور بعدی را بنویس.");
   if (!Number.isSafeInteger(callId) || callId <= 0) return err(422, "call_required", "اول تماس را ثبت کن.");
-  const at = rmNextAt(next, now);
+  let at: Date | null | "invalid";
+  if (next === "custom") { const c = rmCustomAt(b?.remindAt, now); if (rmIsErr(c)) return c; at = c; }
+  else at = rmNextAt(next, now);
   if (at === "invalid") return err(422, "next_invalid", "«امروز عصر» دیگر ممکن نیست؛ گزینه‌ی دیگری بزن.");
   return runTransaction(() => {
     const done = queryRow<{ id: number; closed_by_call_id: number | null; customer_id: number; user_id: number }>(
@@ -194,7 +231,7 @@ export function rmComplete(u: NonNullable<U>, id: number, b: any, now = new Date
       execute(`INSERT INTO reminder_sms_deliveries(reminder_id,status,error_code) VALUES(?,'rejected','in_app_only')
         ON CONFLICT(reminder_id) DO UPDATE SET status='rejected', error_code='in_app_only'`, [nextId]);
     }
-    log(u, id, "complete", iso, { callId, nextId, data: { outcome, next } });
+    log(u, id, "complete", iso, { callId, nextId, data: { outcome, next, ...(next === "custom" && at ? { remindAt: at.toISOString() } : {}) } });
     const remaining = dueRows(u, now).length;
     return { ok: true, reminderId: id, callId, nextReminderId: nextId, nextAt: at ? at.toISOString() : null, remaining };
   });

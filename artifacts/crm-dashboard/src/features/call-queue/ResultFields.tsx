@@ -68,6 +68,8 @@ export function cqResultError(v: CqResultValue, needResult = true): string | nul
   if (v.fu) {
     if (!v.followUpAt) return v.chip === 'pick' ? pickError(v) ?? 'تاریخ و ساعت را انتخاب کن.' : 'برای «پیگیری بعدی» زمان یادآور را انتخاب کن.';
     if (Date.parse(v.followUpAt) <= Date.now()) return 'زمان یادآور باید در آینده باشد.';
+    // Q1 (custom-time, PM): a picked time is at least 15 minutes from now, same rule as «زمان دلخواه».
+    if (v.chip === 'pick' && Date.parse(v.followUpAt) < Date.now() + 15 * 60_000) return 'زمان یادآور باید دست‌کم ۱۵ دقیقه بعد باشد.';
   }
   return null;
 }
@@ -115,7 +117,7 @@ export function CqResultFields({ value, onChange, showErrors, pre, idPrefix = 'c
       {value.chip === 'pick' ? <div className="cq-pick">
         <PersianDatePicker value={value.pickDate} onChange={(d) => { const nv = { ...value, pickDate: d }; onChange({ ...nv, followUpAt: pickIso(nv) }); }} testId="cq-pick-date" />
         <select aria-label="ساعت" value={value.pickHour} onChange={(e) => { const nv = { ...value, pickHour: e.target.value }; onChange({ ...nv, followUpAt: pickIso(nv) }); }} data-testid="cq-pick-hour">
-          {Array.from({ length: 9 }, (_, i) => String(i + 9)).map((h) => <option key={h} value={h}>{faNum(h.padStart(2, '0'))}</option>)}</select>
+          {Array.from({ length: 10 }, (_, i) => String(i + 9)) /* Q1 (custom-time): 9..18 inclusive, 18 only with :00 (pickError) */.map((h) => <option key={h} value={h}>{faNum(h.padStart(2, '0'))}</option>)}</select>
         <select aria-label="دقیقه" value={value.pickMinute} onChange={(e) => { const nv = { ...value, pickMinute: e.target.value }; onChange({ ...nv, followUpAt: pickIso(nv) }); }} data-testid="cq-pick-minute">
           {['00', '15', '30', '45'].map((m) => <option key={m} value={m}>{faNum(m)}</option>)}</select>
       </div> : null}

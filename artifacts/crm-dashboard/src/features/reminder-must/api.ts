@@ -1,6 +1,7 @@
 /** REMINDER-B client (mandatory due-reminder popup). Only users 8/2/3 ever call /reminder-must/config; everyone else never touches it. */
 import { useQuery } from '@tanstack/react-query';
 import { DpError } from '@/features/daily-plan/api';
+import type { RctRules } from './CustomTime';
 
 export const RM_USERS: Readonly<Record<number, number>> = { 8: 6, 2: 3, 3: 4 };
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -15,15 +16,15 @@ export type RmItem = { reminderId: number; customerId: number; customerName: str
   createdAt: string; remindAt: string; outsideHours: boolean; lastCalls?: RmCall[]; fileEdit?: boolean };
 export type RmFeed = { enabled: true; workTime: boolean; pendingCount: number; items: RmItem[]; serverNow: string;
   snooze: { active: boolean; until: string | null; used: boolean; available: boolean; minutes: number };
-  rules: { noteMin: number; noteMax: number; reasonMin: number; reasonMax: number; todayPmOpen: boolean } };
+  rules: { noteMin: number; noteMax: number; reasonMin: number; reasonMax: number; todayPmOpen: boolean; custom?: RctRules } };
 export type RmOutcome = 'answered' | 'no_answer' | 'follow_up';
-export type RmNext = 'tomorrow_am' | 'today_pm' | 'in_3_days' | 'none';
+export type RmNext = 'tomorrow_am' | 'today_pm' | 'in_3_days' | 'none' | 'custom';
 export const rmApi = {
   config: () => req<{ enabled: boolean }>('GET', '/reminder-must/config'),
   feed: () => req<RmFeed>('GET', '/reminder-must/feed'),
   shown: (id: number) => req<{ ok: true }>('POST', `/reminder-must/${id}/shown`, {}),
   snooze: () => req<{ ok: true; until: string; count: number }>('POST', '/reminder-must/snooze', {}),
-  complete: (id: number, b: { callId: number; outcome: RmOutcome; note: string; next: RmNext; reason: string }) =>
+  complete: (id: number, b: { callId: number; outcome: RmOutcome; note: string; next: RmNext; reason: string; remindAt?: string }) =>
     req<{ ok: true; remaining: number; nextAt: string | null }>('POST', `/reminder-must/${id}/complete`, b),
   saveCall: (b: Record<string, unknown>) => req<{ id: number }>('POST', '/calls', b),
 };

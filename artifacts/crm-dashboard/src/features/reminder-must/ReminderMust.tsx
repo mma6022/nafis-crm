@@ -6,15 +6,17 @@ import { AutoGrowTextarea } from '../../components/AutoGrowTextarea';
  * - Waits while another form / dialog is open or the user is typing (yellow «n یادآور سررسید شد» line instead).
  * - One 10-minute snooze for the whole queue (server-enforced) → sticky yellow bar with a countdown and «الان باز کن».
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlarmClock, BellRing, Check, Clock, Phone, TriangleAlert } from 'lucide-react';
+import { AlarmClock, BellRing, Check, Clock, Info, Phone, TriangleAlert } from 'lucide-react';
 import { announceCallSaved, faClock, faNum } from '@/features/call-queue/api';
 import { rmApi, useRmConfig, type RmFeed, type RmItem, type RmNext, type RmOutcome } from './api';
 import { ManualOutcomeField } from '@/features/call-queue/ResultFields';
 import { C3File, C3History } from '@/features/history/TodayC3';
+import { RctIcon, RctPicker, addDays, faDayLong, rctFromIso, rctIso, rctLong, rctModel, rctShort, type RctVal } from './CustomTime';
 import './reminder-must.css';
+import './rct.css';
 
 const OVERLAY_SEL = '[aria-modal="true"],[role="dialog"],[role="alertdialog"],.modal-backdrop,.call-sheet-backdrop,.ch-backdrop,.ic-sheet,[vaul-drawer],.dp-inbound';
 const fa = faNum;
@@ -31,6 +33,7 @@ type RmManual = 'answered' | 'no_answer' | 'off_or_busy';
 const NEXT: { v: RmNext; l: string; s: string }[] = [
   { v: 'tomorrow_am', l: 'فردا صبح', s: 'ساعت ۱۰:۰۰' }, { v: 'today_pm', l: 'امروز عصر', s: 'ساعت ۱۷:۰۰' },
   { v: 'in_3_days', l: '۳ روز دیگه', s: 'ساعت ۱۰:۰۰' }, { v: 'none', l: 'یادآور لازم نیست', s: 'قدم بعد در پرونده' },
+  { v: 'custom', l: 'زمان دلخواه', s: 'روز و ساعت را خودت انتخاب کن' },
 ];
 const callKey = (id: number) => `rm-call-${id}`;
 /** CARD-FIX (Armita rem3 review §4): a reminder more than 15 minutes past its time is «عقب‌افتاده». */
@@ -87,9 +90,10 @@ export function ReminderMustHost({ userId }: { userId: number }) {
   useEffect(() => { if (head && !snoozed && !busy && !open) setOpen(true); if (!head && open) setOpen(false); }, [head, snoozed, busy, open]);
   useEffect(() => { if (!snoozeLeft) setForceOpen(false); }, [snoozeLeft]);
   useEffect(() => { const r = document.documentElement; r.classList.toggle('rmm-open', open); return () => r.classList.remove('rmm-open'); }, [open]);
-  const done = useCallback(async (remaining: number) => {
+  const done = useCallback(async (remaining: number, nextLine?: string) => {
     setOpen(false); setForceOpen(false);
-    setToast(remaining > 0 ? `ثبت شد؛ یادآور بعدی (${fa(remaining)} مانده) باز می‌شود` : 'ثبت شد؛ یادآور سررسید دیگری نداری');
+    const rest = remaining > 0 ? `یادآور سررسید بعدی (${fa(remaining)} مانده) باز می‌شود` : 'یادآور سررسید دیگری نداری';
+    setToast(nextLine ? `نتیجه ثبت شد. ${nextLine}؛ ${rest}` : remaining > 0 ? `ثبت شد؛ یادآور بعدی (${fa(remaining)} مانده) باز می‌شود` : 'ثبت شد؛ یادآور سررسید دیگری نداری');
     window.setTimeout(() => setToast(''), 5000);
     await qc.invalidateQueries({ queryKey: ['reminder-must', 'feed', userId] });
   }, [qc, userId]);
@@ -109,22 +113,45 @@ export function ReminderMustHost({ userId }: { userId: number }) {
 }
 
 function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { feed: RmFeed; item: RmItem; index: number; total: number; rest: RmItem[];
-  onDone: (remaining: number) => void; onSnoozed: () => void }) {
+  onDone: (remaining: number, nextLine?: string) => void; onSnoozed: () => void }) {
   const [step, setStep] = useState<0 | 1 | 2>(0);
   const [manual, setManual] = useState<RmManual | null>(null);
   const outcome: RmOutcome | null = manual == null ? null : manual === 'answered' ? 'answered' : 'no_answer';
   const [note, setNote] = useState('');
   const [next, setNext] = useState<RmNext | null>(null);
   const [reason, setReason] = useState('');
+  // Q1 custom time: `ct` is the confirmed value (kept when another card is picked — PM: keep it in the UI, save only the selected card).
+  const [ct, setCt] = useState<RctVal | null>(null);
+  const [pk, setPk] = useState(false);
+  const [prevNext, setPrevNext] = useState<RmNext | null>(null);
+  const [ctBad, setCtBad] = useState(false);
+  const [live, setLive] = useState('');
+  const hoursRef = useRef<HTMLDivElement>(null);
+  const cardsRef = useRef<HTMLDivElement>(null);
+  const pkRef = useRef(false); pkRef.current = pk;
+  const cancelRef = useRef<() => void>(() => {});
   const [err, setErr] = useState('');
   const [show, setShow] = useState(false);
   const [sending, setSending] = useState(false);
   const [fileToast, setFileToast] = useState('');
   const ref = useRef<HTMLDivElement>(null);
   const r = feed.rules;
+  const skewMs = useMemo(() => Date.parse(feed.serverNow) - Date.now(), [feed.serverNow]);
+  const [tick, setTick] = useState(0);
+  useEffect(() => { const t = window.setInterval(() => setTick((x) => x + 1), 60_000); return () => window.clearInterval(t); }, []);
+  const cm = useMemo(() => (r.custom ? rctModel(r.custom, Date.now() + skewMs) : null), [r.custom, skewMs, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+  const presetSub = (v: RmNext): string | null => {
+    if (!cm || !r.custom) return null;
+    const work = (d: string) => !cm.closed(d) && !cm.hol.has(d);
+    const nextWork = (d: string, same: boolean) => { let x = same ? d : addDays(d, 1); for (let i = 0; i < 40 && !work(x); i++) x = addDays(x, 1); return x; };
+    if (v === 'tomorrow_am') return `${faDayLong(nextWork(cm.today, false))}، ${fa('10:00')}`;
+    if (v === 'in_3_days') return `${faDayLong(nextWork(addDays(cm.today, 3), true))}، ${fa('10:00')}`;
+    if (v === 'today_pm') return `امروز، ساعت ${fa('17:00')}`;
+    return null;
+  };
   useEffect(() => { void rmApi.shown(item.reminderId).catch(() => {}); }, [item.reminderId]);
   useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); } };
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (pkRef.current) cancelRef.current(); } };
     window.addEventListener('keydown', k, true); return () => window.removeEventListener('keydown', k, true);
   }, []);
   useEffect(() => { ref.current?.querySelector<HTMLElement>('h2')?.focus(); }, [step]);
@@ -136,10 +163,41 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
   const qShown = qAll ? rest : rest.slice(0, 3);
   const qFull = rest.map((x) => `${faClock(x.remindAt)} ${x.customerName || 'بدون نام'}`).join('، ');
   const noteErr = !outcome ? 'نتیجه‌ی تماس را انتخاب کن.' : len(note) < r.noteMin ? `یادداشت یک‌خطی حداقل ${fa(r.noteMin)} نویسه.` : '';
-  const nextErr = !next ? 'قدم بعد را انتخاب کن.' : next !== 'none' && len(reason) < r.reasonMin ? 'دلیل یادآور بعدی را بنویس.' : '';
+  const ctBlock = next === 'custom' && (!ct || pk);
+  const ctHint = !ctBlock ? '' : !ct && !pk ? 'برای «زمان دلخواه» روز و ساعت را انتخاب کن.' : pk && !ct ? 'برای «زمان دلخواه» یک ساعت انتخاب کن و «تأیید زمان» را بزن؛ تا آن موقع ثبت خاموش است.' : '«تأیید زمان» را بزن تا ثبت روشن شود.';
+  const nextErr = !next ? 'قدم بعد را انتخاب کن.' : ctBlock ? ctHint : next !== 'none' && len(reason) < r.reasonMin ? 'دلیل یادآور بعدی را بنویس.' : '';
+  const say = (t: string) => { setLive(''); window.setTimeout(() => setLive(t), 30); };
+  const pickCard = (v: RmNext, viaKey = false) => {
+    if (v === 'custom') {
+      if (next !== 'custom') setPrevNext(next);
+      setNext('custom'); setCtBad(false);
+      if (!pk) setPk(true);
+      if (!viaKey) window.setTimeout(() => (document.querySelector<HTMLElement>('#rct-pk .rct-day.on') ?? document.querySelector<HTMLElement>('#rct-pk .rct-day[tabindex="0"]'))?.focus(), 30);
+      return;
+    }
+    if (pk) { setPk(false); say(ct ? 'پنل زمان دلخواه بسته شد؛ زمان انتخابی نگه داشته شد ولی ثبت نمی‌شود.' : 'زمان دلخواه کنار رفت'); }
+    setNext(v); setCtBad(false);
+  };
+  cancelRef.current = () => {
+    setPk(false); setCtBad(false);
+    if (!ct) { setNext(prevNext); say('زمان دلخواه کنار رفت'); }
+    window.setTimeout(() => cardsRef.current?.querySelector<HTMLElement>('[data-testid="rm-next-custom"]')?.focus(), 30);
+  };
+  const cardKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
+    if (!keys.includes(e.key)) return;
+    const opts = NEXT.filter((n) => !(n.v === 'today_pm' && !r.todayPmOpen) && !(n.v === 'custom' && !cm));
+    const i = Math.max(0, opts.findIndex((n) => n.v === next));
+    const d = e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? 1 : -1; // RTL: ← goes forward
+    const t = opts[(i + d + opts.length) % opts.length]; e.preventDefault();
+    pickCard(t.v, true);
+    window.setTimeout(() => cardsRef.current?.querySelector<HTMLElement>(`[data-testid="rm-next-${t.v}"]`)?.focus(), 0);
+  };
   const snooze = async () => { setSending(true); setErr(''); try { await rmApi.snooze(); onSnoozed(); } catch (e) { setErr(e instanceof Error ? e.message : 'انجام نشد.'); } finally { setSending(false); } };
   const submit = async () => {
-    setShow(true); if (noteErr) { setStep(1); return; } if (nextErr) return;
+    setShow(true); if (noteErr) { setStep(1); return; }
+    if (ctBlock) { setCtBad(true); if (!pk) setPk(true); window.setTimeout(() => (hoursRef.current?.querySelector<HTMLElement>('.rct-h:not([aria-disabled])') ?? hoursRef.current)?.focus(), 30); return; }
+    if (nextErr) return;
     setSending(true); setErr('');
     try {
       let callId = Number(sessionStorage.getItem(callKey(item.reminderId)) || 0);
@@ -148,10 +206,14 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
         const c = await rmApi.saveCall({ customerId: item.customerId, subject: 'یادآور سررسید', customerRequest: '', expertNotes: one, outcome, call_result: manual, oneLineNote: one, outOfList: true, context: 'out_of_list' });
         callId = c.id; sessionStorage.setItem(callKey(item.reminderId), String(callId)); announceCallSaved(callId, item.customerId);
       }
-      const res = await rmApi.complete(item.reminderId, { callId, outcome: outcome!, note: note.trim(), next: next!, reason: reason.replace(/\s+/g, ' ').trim() });
+      const res = await rmApi.complete(item.reminderId, { callId, outcome: outcome!, note: note.trim(), next: next!, reason: reason.replace(/\s+/g, ' ').trim(),
+        ...(next === 'custom' && ct ? { remindAt: rctIso(ct) } : {}) });
       sessionStorage.removeItem(callKey(item.reminderId));
-      onDone(res.remaining);
-    } catch (e) { setErr(e instanceof Error ? e.message : 'ثبت نشد. دوباره بزن.'); } finally { setSending(false); }
+      onDone(res.remaining, res.nextAt ? `یادآور بعدی ${item.customerName?.trim() || 'مشتری'}: ${rctLong(rctFromIso(res.nextAt))}` : undefined);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'ثبت نشد. دوباره بزن.');
+      if (next === 'custom' && /^remind_at_/.test(String((e as { code?: string })?.code ?? ''))) { setCt(null); setPk(true); }
+    } finally { setSending(false); }
   };
   const steps = ['تماس', 'نتیجه', 'قدم بعد'];
   const savedToast = (t: string) => { setFileToast(t); window.setTimeout(() => setFileToast(''), 4000); };
@@ -180,13 +242,27 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
           {show && noteErr ? <p className="rmm-err" role="alert">{noteErr}</p> : null}
         </div> : null}
         {step === 2 ? <div className="rmm-b">
-          <fieldset className="rmm-nxc"><legend>یادآور بعدی</legend>{NEXT.map((n) => {
+          <fieldset className="rmm-nxc rct-cards"><legend id="rct-lg">یادآور بعدی</legend>
+            <div className="rct-cw" role="radiogroup" aria-labelledby="rct-lg" ref={cardsRef} onKeyDown={cardKey}>{NEXT.filter((n) => n.v !== 'custom' || cm).map((n) => {
             const dis = n.v === 'today_pm' && !r.todayPmOpen;
-            return <button key={n.v} type="button" className={`rmm-nx${next === n.v ? ' on' : ''}`} disabled={dis} aria-pressed={next === n.v} onClick={() => setNext(n.v)} data-testid={`rm-next-${n.v}`}>{n.l}<small>{dis ? 'دیگر ممکن نیست' : n.s}</small></button>; })}</fieldset>
+            const sub = dis ? 'دیگر ممکن نیست' : n.v === 'custom' ? (ct ? rctShort(ct) : n.s) : presetSub(n.v) ?? n.s;
+            const tabSel = next ? next === n.v : n.v === 'tomorrow_am';
+            return <button key={n.v} type="button" role="radio" className={`rmm-nx rct-c${next === n.v ? ' on' : ''}${n.v === 'custom' ? ' rct-cu' : ''}`} aria-disabled={dis ? true : undefined}
+              aria-checked={next === n.v} tabIndex={tabSel ? 0 : -1} onClick={() => { if (!dis) pickCard(n.v); }} data-testid={`rm-next-${n.v}`}
+              {...(n.v === 'custom' ? { 'aria-expanded': pk, 'aria-controls': 'rct-pk' } : {})}>
+              <span className="rct-t">{n.v === 'custom' ? <RctIcon size={15} aria-hidden="true" /> : null}{n.l}</span><small>{sub}</small></button>; })}</div>
+            {next === 'custom' && pk && cm && r.custom ? <RctPicker rules={r.custom} model={cm} initial={ct} bad={ctBad} hoursRef={hoursRef} announce={say}
+              onConfirm={(v) => { setCt(v); setPk(false); setCtBad(false); say(`یادآور بعدی: ${rctLong(v)}`); window.setTimeout(() => document.querySelector<HTMLElement>('[data-testid="rct-change"]')?.focus(), 30); }}
+              onCancel={() => cancelRef.current()} /> : null}
+            {next === 'custom' && !pk && ct ? <div className="rct-sum" data-testid="rct-summary"><span><Check size={16} aria-hidden="true" /> یادآور بعدی: <b>{rctLong(ct)}</b></span>
+              <button type="button" className="btn btn-ghost" onClick={() => { setPk(true); }} data-testid="rct-change">تغییر</button></div> : null}
+            <p className="vh" aria-live="polite" data-testid="rct-live">{live}</p>
+          </fieldset>
           {next && next !== 'none' ? <label className="rmm-f"><span>دلیل یادآور بعدی</span>
             <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="مثلاً: پیگیری ارسال مدارک" data-testid="rm-reason-next" />
             <small>{fa(len(reason))} نویسه</small></label> : null}
-          {show && nextErr ? <p className="rmm-err" role="alert">{nextErr}</p> : null}
+          {ctBlock ? <p className={`rct-sh${ctBad ? ' bad' : ''}`} role={ctBad ? 'alert' : undefined} data-testid="rct-hint"><Info size={15} aria-hidden="true" /> {ctHint}</p>
+            : show && nextErr ? <p className="rmm-err" role="alert">{nextErr}</p> : null}
         </div> : null}
         {err ? <p className="rmm-err rmm-err-b" role="alert" data-testid="rm-error">{err}</p> : null}
         <footer className="rmm-f2">
@@ -202,7 +278,7 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
             <button type="button" className="btn btn-ghost" onClick={() => setStep(0)}>قبلی</button>
           </> : null}
           {step === 2 ? <>
-            <button type="button" className="btn btn-primary rmm-p" disabled={sending} onClick={() => void submit()} data-testid="rm-submit">{sending ? 'در حال ثبت…' : 'ثبت و بستن یادآور'}</button>
+            <button type="button" className="btn btn-primary rmm-p" disabled={sending} aria-disabled={ctBlock ? true : undefined} onClick={() => void submit()} data-testid="rm-submit">{sending ? 'در حال ثبت…' : 'ثبت و بستن یادآور'}</button>
             <button type="button" className="btn btn-ghost" disabled={sending} onClick={() => setStep(1)}>قبلی</button>
           </> : null}
         </footer>
