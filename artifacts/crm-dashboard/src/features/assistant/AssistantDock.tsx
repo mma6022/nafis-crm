@@ -96,7 +96,7 @@ function useForeignOverlay() {
     const check = () => {
       f = 0;
       const shown = Array.from(document.querySelectorAll(OVERLAY_SEL)).filter(el => {
-        if (el.closest('.nas-chw,.nas-qr,.diag-layer-content,.diag-backdrop')) return false;
+        if (el.closest('.nas-chw,.nas-qr,.diag-layer-content,.diag-backdrop,.ss-more')) return false;
         const r = el.getBoundingClientRect(); if (!r.width && !r.height) return false;
         const cs = getComputedStyle(el); return cs.visibility !== 'hidden' && cs.display !== 'none';
       });
@@ -163,6 +163,54 @@ const clampN = (v: number, a: number, b: number) => Math.min(Math.max(v, a), b);
 
 /** A bubble / typing note / DND card placed next to the head: horizontally away from its edge (desktop) or full width above/below it
  *  (phone), vertically toward the larger free space, always clamped on screen. Measures itself once rendered. */
+/** SALES-SHELL v2: the assistant bubble opens above the dock's «دستیار» (desktop) or under the header avatar (phone). */
+function SsPop({ phone, children }: { phone: boolean; children: ReactNode }) {
+  const [st, setSt] = useState<{ left: number; top?: number; bottom?: number; width: number } | null>(null);
+  useLayoutEffect(() => {
+    const m = () => {
+      const a = Array.from(document.querySelectorAll<HTMLElement>('[data-ss-ast]')).find(el => el.getBoundingClientRect().width > 0);
+      const vw = window.innerWidth, vh = window.innerHeight;
+      if (!a) { setSt({ left: 12, bottom: 100, width: Math.min(360, vw - 24) }); return; }
+      const r = a.getBoundingClientRect();
+      if (phone) { setSt({ left: 12, top: r.bottom + 10, width: vw - 24 }); return; }
+      const width = Math.min(360, vw - 24);
+      setSt({ left: clampN(r.left + r.width / 2 - width / 2, 12, vw - width - 12), bottom: vh - r.top + 14, width });
+    };
+    m(); window.addEventListener('resize', m); return () => window.removeEventListener('resize', m);
+  }, [phone]);
+  return createPortal(<div className="ss-apop" dir="rtl" style={st ? { left: st.left, top: st.top, bottom: st.bottom, width: st.width } : { visibility: 'hidden' }} data-testid="assistant-pop">{children}</div>, document.body);
+}
+const SS_FORM_SEL = '[aria-modal="true"],[role="dialog"],[role="alertdialog"]';
+/** SALES-SHELL v2: mounts its children in-flow right under the header of the top-most open form (ReminderMust first). Never fixed. */
+function SsInflow({ children }: { children: ReactNode }) {
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    let cur: HTMLElement | null = null; let f = 0;
+    const find = () => {
+      f = 0;
+      const ds = Array.from(document.querySelectorAll<HTMLElement>(SS_FORM_SEL)).filter(el => {
+        if (el.closest('.nas-chw,.nas-qr,.ss-more,.diag-layer-content,.diag-backdrop,.sn-panel,.mobile-nav-overlay')) return false;
+        if (el.parentElement?.closest(SS_FORM_SEL)) return false; // the outer dialog only
+        const r = el.getBoundingClientRect(); if (!r.width && !r.height) return false;
+        return getComputedStyle(el).visibility !== 'hidden';
+      });
+      const d = ds.find(el => el.closest('.rmm-x')) ?? ds[ds.length - 1];
+      if (!d) { if (cur) { cur.remove(); cur = null; setHost(null); } return; }
+      if (cur && d.contains(cur)) return;
+      if (cur) cur.remove();
+      const h = document.createElement('div'); h.className = 'ss-dnd-host';
+      const head = d.querySelector<HTMLElement>('.modal-head, .rmm-h, header');
+      if (head && head.parentElement && head.closest(SS_FORM_SEL) === d) head.insertAdjacentElement('afterend', h); else d.prepend(h);
+      cur = h; setHost(h);
+    };
+    const sch = () => { if (!f) f = requestAnimationFrame(find); };
+    const mo = new MutationObserver(sch);
+    mo.observe(document.body, { childList: true, subtree: true });
+    find();
+    return () => { mo.disconnect(); if (f) cancelAnimationFrame(f); if (cur) cur.remove(); };
+  }, []);
+  return host ? createPortal(children, host) : null;
+}
 function HeadPop({ head, side, phone, top, children, testid }: { head: DOMRect | null; side: Side; phone: boolean; top: number; children: ReactNode; testid: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [st, setSt] = useState<{ left: number; top: number; width: number; maxH: number; dir: 'h' | 'up' | 'down'; tail: number } | null>(null);
@@ -308,7 +356,7 @@ function MsgActions({ m, onAct, compact }: { m: AsMessage; onAct: (m: AsMessage,
  *  the left over the content; phone — 44px avatar in the sticky top bar next to the bell, bubble full-width under the bar with its tail
  *  on the avatar. Nothing floats over page content, so card buttons at 390px are never covered. Without a slot it falls back to the
  *  old fixed bottom-left dock. */
-export function AssistantDock({ user, bottomOffset, phone }: { user: { id: number; role?: string | null; salespersonId?: number | null } | null | undefined; bottomOffset: number; phone: boolean; slot?: HTMLElement | null }) {
+export function AssistantDock({ user, bottomOffset, phone, shellV2 = false }: { user: { id: number; role?: string | null; salespersonId?: number | null } | null | undefined; bottomOffset: number; phone: boolean; slot?: HTMLElement | null; shellV2?: boolean }) {
   const allowed = asVisibleTo(user);
   const qc = useQueryClient();
   const [loc, setLocation] = useLocation();
@@ -341,11 +389,12 @@ export function AssistantDock({ user, bottomOffset, phone }: { user: { id: numbe
   // v3 phone «مزاحم نشو» bar (HANDOFF §1 / shot 12): shown while a form is open; «خاموش کن» hides it for this form only (messages keep queueing).
   const [barOff, setBarOff] = useState(false);
   useEffect(() => { if (!overlay) setBarOff(false); }, [overlay]);
-  const dndBar = phone && formOpen && !barOff;
+  // SALES-SHELL v2: the bar lives IN-FLOW under the open form's header on every width (never fixed; no nas-dnd-on offsets).
+  const dndBar = (shellV2 || phone) && formOpen && !barOff;
   const dndBarRef = useRef(dndBar); dndBarRef.current = dndBar;
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.toggle('nas-dnd-on', dndBar);
+    root.classList.toggle('nas-dnd-on', dndBar && !shellV2);
     return () => root.classList.remove('nas-dnd-on');
   }, [dndBar]);
   // v3 bell: «باز کردن گفتگو» on an assistant row opens that chat (only if it is one of this user's threads).
@@ -457,13 +506,13 @@ export function AssistantDock({ user, bottomOffset, phone }: { user: { id: numbe
   const modalBox = useModalBox(!phone && overlay);
   const shown = allowed && list.length > 0;
   const hidePhone = phone && formOpen; // phone form open: the «مزاحم نشو» bar speaks for the assistant; the head never covers form buttons
-  useLayoutEffect(() => { if (shown && uid) place(loadHead(uid)); }, [shown, uid, place, list.length, dndBar, hidePhone]);
+  useLayoutEffect(() => { if (shown && uid && !shellV2) place(loadHead(uid)); }, [shown, uid, place, list.length, dndBar, hidePhone, shellV2]);
   useEffect(() => {
-    if (!shown || !uid) return;
+    if (!shown || !uid || shellV2) return;
     const f = () => { if (!drag.current) place(loadHead(uid)); };
     window.addEventListener('resize', f); window.addEventListener('orientationchange', f); window.visualViewport?.addEventListener('resize', f);
     return () => { window.removeEventListener('resize', f); window.removeEventListener('orientationchange', f); window.visualViewport?.removeEventListener('resize', f); };
-  }, [shown, uid, place]);
+  }, [shown, uid, place, shellV2]);
   useLayoutEffect(() => {
     const el = headRef.current; if (!el || !pos) { setHeadRect(null); return; }
     const r = el.getBoundingClientRect(); const t = new DOMRect(pos.x, pos.y, r.width, r.height); setHeadRect(t);
@@ -545,6 +594,19 @@ export function AssistantDock({ user, bottomOffset, phone }: { user: { id: numbe
   const headX = safe.x ?? pos?.x ?? 0; const effSide = safe.side;
   const effHead = headRect && safe.x != null ? new DOMRect(safe.x, headRect.top, headRect.width, headRect.height) : headRect;
   const chatSent = (m: AsMessage) => setThreads(prev => { const t = prev[m.threadId] ?? EMPTY; if (t.messages.some(x => x.id === m.id)) return prev; return { ...prev, [m.threadId]: { ...t, messages: [...t.messages, m], lastId: Math.max(t.lastId, m.id) } }; });
+  const dndText = <><b>مزاحم نشو</b> — تا این فرم باز است؛ {queued ? `${faNum(queued)} پیام در صف` : 'پیام‌ها در صف می‌مانند'}</>;
+  if (shellV2) return <>
+    {pollers}
+    {pop && !dragging ? <SsPop phone={phone}>{pop}</SsPop> : null}
+    {dndBar ? <SsInflow><div className="ss-dnd" role="status" aria-live="polite" dir="rtl" data-testid="assistant-dnd-bar">
+      <Moon size={20} aria-hidden="true" /><span>{dndText}</span>
+      <button type="button" className="btn" onClick={() => setBarOff(true)} data-testid="button-assistant-dnd-bar-off">خاموش کن</button>
+    </div></SsInflow> : null}
+    {openA ? <ChatPanel a={openA} t={openThread ?? EMPTY} prefs={prefsNow} phone={phone} customerId={ctxCustomer} onClose={() => setOpenId(null)} onAct={act} onPrefs={savePrefs} onDecided={decided} onSent={chatSent} /> : null}
+    {quickFor ? <QuickReminder m={quickFor} onClose={() => setQuickFor(null)} onFull={() => { setRemindFor(quickFor); setQuickFor(null); }} /> : null}
+    {remindFor ? <CreateReminderForm onClose={() => setRemindFor(null)} /> : null}
+    {askPop}
+  </>;
   return <>
     {pollers}
     {!hidePhone ? <div ref={headRef} className={`nas-head s-${side}${dragging ? ' drag' : ''}${active ? ' act' : ''}`} dir="rtl" data-testid="assistant-dock" data-placement="floating" data-side={side} data-dragging={dragging ? '1' : undefined}
