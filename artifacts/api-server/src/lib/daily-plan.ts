@@ -23,9 +23,9 @@ export const DP_TYPES = ["urgent", "due", "first", "followup", "loan_followup"] 
 export type DpType = typeof DP_TYPES[number];
 export const DP_TYPE_LABELS: Record<DpType, string> = { urgent: "فوری", due: "یادآور سررسیده", first: "تماس اول", followup: "پیگیری", loan_followup: "پیگیری وام" };
 const RANK: Record<DpType, number> = { urgent: 0, due: 1, first: 2, followup: 3, loan_followup: 3 };
-export const DP_EVENTS = { finished: "daily_plan_finished", rejected: "daily_plan_rejected", capacityOverride: "daily_plan_capacity_override", backlog: "daily_plan_backlog", boost: "daily_plan_boost" } as const;
+export const DP_EVENTS = { finished: "daily_plan_finished", rejected: "daily_plan_rejected", capacityOverride: "daily_plan_capacity_override", backlog: "daily_plan_backlog", boost: "daily_plan_boost", skip: "daily_plan_skip" } as const;
 export const DP_LABELS = { auto: "لیست خودکار", added: "تازه اضافه شد", urgent: "فوری", due: "سررسید", carried: "مانده از دیروز", supplementary: "تکمیلی",
-  transferred: "منتقل شد", outOfList: "خارج از لیست", outOfGuard: "خارج از حد", autoDay: "خودکار", boost: "اولویت دستیار", referral: "تماس با مشتری ارجاعی" } as const;
+  transferred: "منتقل شد", coveredReminder: "یادآور امروز دارد", coveredCalled: "امروز تماس ثبت شد", replacement: "جایگزین خودکار", skipped: "کنار گذاشته شد (دستیار)", outOfList: "خارج از لیست", outOfGuard: "خارج از حد", autoDay: "خودکار", boost: "اولویت دستیار", referral: "تماس با مشتری ارجاعی" } as const;
 export const DP_BOOST_MAX = 20;
 export const DP_MOVE_MAX = 2;
 export const DP_MOVE_LAST_MIN = 17 * 60 + 45;
@@ -224,7 +224,7 @@ const capLog = (sp: number, day: string, prev: number | null, req: number, acc: 
  */
 function applyTodayCapacity(sp: number, day: string, cap: number, now: Date): { planId: number; before: number; after: number; added: number; lowered: boolean } | null {
   const p = planRow(sp, day); if (!p || !p.started_at || p.closed_at || day !== dpToday(now)) return null;
-  const mainCount = () => items(p.id, "bucket='main' AND status<>'transferred'").length;
+  const mainCount = () => items(p.id, "bucket='main' AND status NOT IN ('transferred','covered','skipped')").length;
   const before = mainCount(); let added = 0;
   if (cap > before && !p.backlog) {
     const ex = expertBySp(sp);
@@ -320,16 +320,16 @@ const custName = (cid: number) => queryRow<{ name: string }>("SELECT name FROM c
 /** Stats: completion % = done main ÷ main (PM item 2). Transferred items leave the denominator (item 12); extra / out-of-list never count. */
 export function dpStats(p: Plan) {
   const all = items(p.id);
-  const main = all.filter(i => i.bucket === "main" && i.status !== "transferred");
+  const main = all.filter(i => i.bucket === "main" && i.status !== "transferred" && i.status !== "covered" && i.status !== "skipped");
   const mainDone = main.filter(i => i.status === "done").length;
-  const extra = all.filter(i => i.bucket === "extra" && i.status !== "transferred" && i.status !== "reserve");
+  const extra = all.filter(i => i.bucket === "extra" && i.status !== "transferred" && i.status !== "reserve" && i.status !== "covered" && i.status !== "skipped");
   const cnt = (f: (i: Item) => boolean) => all.filter(f).length;
   return { main: main.length, mainDone, completionPct: main.length ? Math.round((mainDone / main.length) * 1000) / 10 : null,
     extra: extra.length, extraDone: extra.filter(i => i.status === "done").length,
     inserted: cnt(i => i.bucket === "extra" && (i.source === "inserted" || i.source === "transferred_in")), supplementary: cnt(i => i.source === "supplementary"),
     autoExtra: cnt(i => i.bucket === "extra" && i.source === "auto"), outOfList: cnt(i => i.bucket === "outside"),
     carried: cnt(i => i.source === "carried"), carriedExtra: cnt(i => i.source === "carried_extra" && i.status !== "reserve"), reserve: cnt(i => i.status === "reserve"), autoFilled: cnt(i => i.bucket === "main" && i.source === "auto"),
-    moved: all.reduce((s, i) => s + Number(i.move_count || 0), 0), undone: cnt(i => i.bucket === "main" && i.status === "undone"), extraUndone: cnt(i => i.bucket === "extra" && i.status === "undone"), transferred: cnt(i => i.status === "transferred"),
+    moved: all.reduce((s, i) => s + Number(i.move_count || 0), 0), undone: cnt(i => i.bucket === "main" && i.status === "undone"), extraUndone: cnt(i => i.bucket === "extra" && i.status === "undone"), transferred: cnt(i => i.status === "transferred"), covered: cnt(i => i.status === "covered"), skipped: cnt(i => i.status === "skipped"),
     mode: p.mode, auto: p.mode === "auto", final: Boolean(p.closed_at), backlog: Boolean(p.backlog), capacity: p.capacity };
 }
 
@@ -344,13 +344,14 @@ function queueCards(u: CqUser, now: Date) {
 }
 const typeOfGroup = (g: string): DpType => g === "urgent" ? "urgent" : g === "due" ? "due" : g === "new" ? "first" : "followup";
 /** Fills up to n items from the call queue (skipping customers already on the plan). */
-function fillFromQueue(p: Plan, u: CqUser, n: number, bucket: "main" | "extra", now: Date, startPos: number): number {
+function fillFromQueue(p: Plan, u: CqUser, n: number, bucket: "main" | "extra", now: Date, startPos: number, label: string = DP_LABELS.auto): number {
   if (n <= 0) return 0;
   const taken = new Set(items(p.id, "status<>'transferred'").map(i => Number(i.customer_id)));
   let k = 0; const at = now.toISOString();
   for (const c of queueCards(u, now)) {
     if (k >= n) break; if (taken.has(c.customerId)) continue;
-    addItem(p.id, { customerId: c.customerId, type: typeOfGroup(c.group), reason: c.reason.slice(0, DP_REASON_MAX), source: "auto", bucket, position: startPos + k, label: DP_LABELS.auto }, at);
+    if (dpCovered(p, c.customerId)) { taken.add(c.customerId); continue; } // DUP-64: reminder today / called today → never a today card
+    addItem(p.id, { customerId: c.customerId, type: typeOfGroup(c.group), reason: c.reason.slice(0, DP_REASON_MAX), source: "auto", bucket, position: startPos + k, label }, at);
     taken.add(c.customerId); k++;
   }
   return k;
@@ -365,7 +366,7 @@ const firstIfNoCalls = (cid: number, t: DpType): DpType => (t === "urgent" || t 
  * Whatever does not fit waits as status 'reserve' and is handed out first in today's «لیست خودکار» batches.
  */
 function fitCarriedExtras(p: Plan, cap: number | null): number {
-  const mainCount = items(p.id, "bucket='main' AND status<>'transferred'").length;
+  const mainCount = items(p.id, "bucket='main' AND status NOT IN ('transferred','covered','skipped')").length;
   const ce = items(p.id, "source='carried_extra' AND status IN ('pending','reserve')").sort((a, b) => a.position - b.position || a.id - b.id);
   const room = cap == null ? 0 : Math.max(0, cap - mainCount); let k = 0;
   for (const i of ce) {
@@ -381,6 +382,7 @@ function releaseReserve(p: Plan, n: number, now: Date): number {
   for (const i of items(p.id, "status='reserve'").sort((a, b) => a.position - b.position || a.id - b.id)) {
     if (k >= n) break;
     if (!owned(p.salesperson_id, i.customer_id)) { executeChanges("UPDATE dp_items SET status='transferred', label=? WHERE id=?", [DP_LABELS.transferred, i.id]); continue; }
+    if (dpCoverItem(p, i, now.toISOString())) continue; // DUP-64
     executeChanges("UPDATE dp_items SET status='pending', label=?, position=? WHERE id=?", [DP_LABELS.auto, start + k, i.id]); k++;
   }
   void now; return k;
@@ -648,6 +650,7 @@ function pushExtra(p: Plan, cid: number, type: DpType, rank: number, label: stri
     executeChanges("UPDATE dp_items SET boost_rank=MIN(COALESCE(boost_rank,9),?), boost_at=COALESCE(boost_at,?), label=? WHERE id=?", [rank, at, label, act.id]);
     return "boosted";
   }
+  if (dpCovered(p, cid)) return "skip"; // DUP-64: an open reminder today / a call saved today already covers this customer
   addItem(p.id, { customerId: cid, type, reason, source, bucket: "extra", position: 5000, boostRank: rank, boostAt: at, label }, at);
   return "inserted";
 }
@@ -703,6 +706,102 @@ function dpSelfHeal(p: Plan) {
     const l = dpOwnCallSince(p, Number(q.customer_id), q.link_issued_at); if (l) dpCloseDialWith(p, Number(q.customer_id), l);
   }
 }
+/* ---------------- DUP-64 «کارهای امروز من» without duplicates (PM 2026-10-29) ----------------
+ * (1) a customer with an open reminder for this expert due by the end of today is NOT a today card — the reminder covers it;
+ * (2) a customer the expert already called today with a saved result (any form: reminder, today card, file) is NOT a today card:
+ *     an open card is auto-closed («امروز تماس ثبت شد») and the next queued customer takes its place (main quota refills);
+ * (3) never a second task for the same customer. Covered cards leave the denominator (like «منتقل شد»); a card closed by a call
+ *     AFTER it was on the list stays «done» (LOGGED-CALL-63, counts). Kazemi's first-call hold and an open card dial are never touched. */
+const dpDayStart = (day: string) => atTehran(day, 0).toISOString();
+const dpDayEnd = (day: string) => new Date(atTehran(day, 0).getTime() + 86_400_000).toISOString();
+export function dpCovered(p: Plan, customerId: number): { kind: "reminder" | "called"; callId: number | null; outcome: string | null } | null {
+  const r = queryRow<{ id: number }>("SELECT id FROM reminders WHERE user_id=? AND customer_id=? AND done=0 AND voided_at IS NULL AND remind_at<? LIMIT 1",
+    [p.user_id, customerId, dpDayEnd(p.day)]);
+  if (r) return { kind: "reminder", callId: null, outcome: null };
+  const l = queryRow<{ id: number; outcome: string | null }>(`SELECT l.id,l.outcome FROM call_logs l WHERE l.customer_id=? AND l.created_at>=?
+      AND (l.created_by_user_id=? OR (l.salesperson_id=? AND l.created_by_user_id IS NULL)) AND ${DP_REAL_CALL} AND trim(COALESCE(l.outcome,''))<>''
+      ORDER BY l.created_at DESC, l.id DESC LIMIT 1`, [customerId, dpDayStart(p.day), p.user_id, p.salesperson_id]);
+  return l ? { kind: "called", callId: l.id, outcome: l.outcome } : null;
+}
+/** Closes one open/reserved/moved card as «covered» when (1)/(2) apply; true if it was closed. */
+function dpCoverItem(p: Plan, it: Item, at: string): boolean {
+  if (it.bucket === "outside") return false;
+  if (it.status === "current" && queryRow("SELECT 1 FROM call_queue_calls WHERE user_id=? AND customer_id=? AND via='daily_plan' AND report_saved_at IS NULL LIMIT 1", [p.user_id, it.customer_id])) return false;
+  const c = dpCovered(p, it.customer_id); if (!c) return false;
+  // first-call hold: a generic call never closes it (only the first-call form does); an open reminder today still covers it (rule 1).
+  if (c.kind === "called" && dpFirstCallIncomplete(p, it)) return false;
+  return executeChanges("UPDATE dp_items SET status='covered', label=?, outcome=COALESCE(?,outcome), call_log_id=COALESCE(?,call_log_id), done_at=? WHERE id=? AND status=?",
+    [c.kind === "reminder" ? DP_LABELS.coveredReminder : DP_LABELS.coveredCalled, c.outcome, c.callId, at, it.id, it.status]) > 0;
+}
+const DP_QUOTA_EXTRA = new Set(["auto", "carried_extra"]);
+function dpCoverAndRefill(p: Plan, now: Date) {
+  const at = now.toISOString(); let main = 0, extra = 0;
+  for (const it of items(p.id, "status IN ('pending','current','moved','reserve') AND bucket<>'outside'")) {
+    if (!dpCoverItem(p, it, at) || it.status === "reserve") continue;
+    if (it.bucket === "main") main++; else if (DP_QUOTA_EXTRA.has(it.source)) extra++;
+  }
+  dpRefill(p, main, extra, now);
+}
+/** Replacement cards: main up to capacity, quota extras from reserve then the queue (never a covered customer). Returns new item ids. */
+function dpRefill(p: Plan, main: number, extra: number, now: Date): number[] {
+  if ((!main && !extra) || now.getTime() >= atTehran(p.day, DP_CLOSE_MIN).getTime()) return [];
+  const before = Math.max(0, ...items(p.id).map(i => i.id));
+  const pr = planRow(p.salesperson_id, p.day)!;
+  const u: CqUser = { id: pr.user_id, role: "salesperson", salespersonId: pr.salesperson_id, active: true };
+  if (main) {
+    const cap = pr.capacity ?? dpCapacity(pr.salesperson_id, pr.day).capacity;
+    const live = items(p.id, "bucket='main' AND status NOT IN ('transferred','covered','skipped')").length;
+    const n = cap == null ? main : Math.min(main, Math.max(0, cap - live));
+    fillFromQueue(pr, u, n, "main", now, 1000 + items(p.id).length, DP_LABELS.replacement);
+  }
+  const r0 = extra ? items(p.id, "status='reserve'").map(i => i.id) : [];
+  if (extra) { const r = releaseReserve(pr, extra, now); fillFromQueue(pr, u, extra - r, "extra", now, 9000 + items(p.id).length, DP_LABELS.replacement); }
+  const released = r0.filter(id => items(p.id, "id=? AND status='pending'", [id]).length);
+  return [...released, ...items(p.id, "id>?", [before]).map(i => i.id)];
+}
+/* ---------------- DUP-64 assistant «کنار گذاشتن» one pending card ----------------
+ * POST /api/assistant-runner/daily-plans/{date}/items/{id}/skip {reason} — same Bearer token / expert binding / Idempotency-Key /
+ * rejected-event logging as boost. Today only, before 18:00; only a PENDING card of this assistant's own expert's plan whose customer
+ * is still the expert's (and in a p1-scoped assistant's scope). The card leaves the denominator («کنار گذاشته شد») and one replacement
+ * comes from the queue (main up to capacity; a quota extra from reserve/queue). Every skip is logged in dp_skip_log + an assistant event. */
+export function dpSkipItem(a: Asst, dayIn: unknown, idIn: unknown, body: any, now = new Date()) {
+  ensureDailyPlanSchema();
+  execute(`CREATE TABLE IF NOT EXISTS dp_skip_log(id INTEGER PRIMARY KEY AUTOINCREMENT, plan_id INTEGER NOT NULL, item_id INTEGER NOT NULL, customer_id INTEGER NOT NULL,
+    salesperson_id INTEGER NOT NULL, assistant_id INTEGER NOT NULL, reason TEXT NOT NULL, prev_status TEXT NOT NULL, bucket TEXT NOT NULL, source TEXT NOT NULL,
+    replacement_item_ids TEXT, created_at TEXT NOT NULL)`);
+  const ex = expertOf(a); if (isErr(ex)) return ex;
+  const raw = body?.reason;
+  if (raw != null && typeof raw !== "string") return err(400, "bad_type", "reason باید متن باشد.", { field: "reason" });
+  const reason = String(raw ?? "").replace(/\s+/g, " ").trim();
+  if (!reason) return err(400, "reason_required", "دلیل کنار گذاشتن را بنویس.", { field: "reason" });
+  if ([...reason].length > DP_KEYNOTE_MAX) return err(400, "field_too_long", "دلیل بلند است.", { field: "reason", max: DP_KEYNOTE_MAX });
+  const id = Number(idIn); if (!Number.isSafeInteger(id) || id <= 0) return err(400, "bad_type", "شناسه‌ی کار معتبر نیست.", { field: "id" });
+  if (!isYmd(dayIn) || dayIn !== dpToday(now)) return err(422, "date_not_allowed", "فقط برای امروز.");
+  if (minOf(now) >= DP_CLOSE_MIN) return err(409, "after_cutoff", "بعد از ساعت ۱۸ پذیرفته نمی‌شود.");
+  const sp = Number(ex.salespersonId);
+  const it = queryRow<Item & { p_sp: number; p_day: string }>("SELECT i.*, p.salesperson_id p_sp, p.day p_day FROM dp_items i JOIN dp_plans p ON p.id=i.plan_id WHERE i.id=?", [id]);
+  if (!it) return err(404, "not_found", "این کار پیدا نشد.");
+  if (Number(it.p_sp) !== sp) return err(403, "forbidden", "این کار مال کارشناس این دستیار نیست.");
+  if (it.p_day !== dayIn) return err(409, "not_today", "این کار مال لیست امروز نیست.");
+  const p = planRow(sp, dayIn)!; if (!p.started_at || p.closed_at) return err(409, "plan_not_active", "لیست امروز فعال نیست.");
+  const c = queryRow<{ salesperson_id: number | null; merged: number | null; priority: number | null }>("SELECT salesperson_id,merged_into_customer_id merged,priority FROM customers WHERE id=?", [it.customer_id]);
+  if (!c || Number(c.salesperson_id) !== sp || c.merged != null) return err(403, "customer_not_owned", "این مشتری دیگر مال این کارشناس نیست.");
+  if (dpScopeRestricted(a) && Number(c.priority) !== 1) return err(403, "out_of_scope", "این مشتری در دامنه‌ی این دستیار نیست.");
+  if (it.status !== "pending") return err(409, "not_pending", "فقط کار «در نوبت» کنار گذاشته می‌شود.", { status: it.status });
+  const at = now.toISOString();
+  // the conditional UPDATE is the guard (a concurrent second skip gets 409); the queue read for the replacement runs outside a transaction like every refill.
+  {
+    if (!executeChanges("UPDATE dp_items SET status='skipped', label=?, done_at=? WHERE id=? AND status='pending'", [DP_LABELS.skipped, at, id]))
+      return err(409, "not_pending", "فقط کار «در نوبت» کنار گذاشته می‌شود.");
+    const quota = it.bucket === "main" ? [1, 0] : DP_QUOTA_EXTRA.has(it.source) ? [0, 1] : [0, 0];
+    const repl = dpRefill(p, quota[0], quota[1], now);
+    execute(`INSERT INTO dp_skip_log(plan_id,item_id,customer_id,salesperson_id,assistant_id,reason,prev_status,bucket,source,replacement_item_ids,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+      [p.id, id, it.customer_id, sp, a.id, reason, it.status, it.bucket, it.source, JSON.stringify(repl), at]);
+    try { event(a.id, DP_EVENTS.skip, a.bound_user_id, { salespersonId: sp, date: dayIn, itemId: id, customerId: it.customer_id, reason, replacementItemIds: repl }, at); } catch { /* ignore */ }
+    const replacements = repl.map(r => { const x = items(p.id, "id=?", [r])[0]; return x ? { id: x.id, customerId: x.customer_id, name: custName(x.customer_id), bucket: x.bucket, label: x.label } : null; }).filter(Boolean);
+    return { ok: true, date: dayIn, itemId: id, customerId: it.customer_id, status: "skipped", reason, replacements, plan: dpAssistantView(planRow(sp, dayIn)!) };
+  }
+}
 export function dpRefresh(p0: Plan, now = new Date()): Plan {
   if (!dpOn()) return p0;
   const today = dpToday(now); if (p0.day !== today || !p0.started_at || p0.closed_at) return p0;
@@ -718,14 +817,12 @@ export function dpRefresh(p0: Plan, now = new Date()): Plan {
   // 2. moved items whose time has come.
   for (const it of items(p.id, "status='moved' AND moved_to<=?", [at]))
     executeChanges("UPDATE dp_items SET status='pending', boost_rank=2, boost_at=?, label=? WHERE id=?", [at, `جابه‌جاشده · ${faDigits(hhmm(it.moved_to!))}`, it.id]);
-  // 3. «فوری تازه», reminders that fell due, brand-new customers (after the list was written/started).
+  // 3. «فوری تازه», brand-new customers (after the list was written/started).
   if (hasTable("customer_urgent_history"))
     for (const h of queryRows<{ id: number; customer_id: number }>(`SELECT h.id,h.customer_id FROM customer_urgent_history h JOIN customers c ON c.id=h.customer_id
         WHERE h.new_value=1 AND h.created_at>? AND c.salesperson_id=? AND c.merged_into_customer_id IS NULL AND COALESCE(c.is_urgent,0)=1 ORDER BY h.id`, [t0, sp]))
       if (seenOnce(p.id, `u:${h.id}`)) pushExtra(p, Number(h.customer_id), "urgent", 0, DP_LABELS.urgent, "inserted", at);
-  for (const r of queryRows<{ id: number; customer_id: number }>(`SELECT r.id,r.customer_id FROM reminders r JOIN customers c ON c.id=r.customer_id
-      WHERE r.user_id=? AND r.done=0 AND r.voided_at IS NULL AND r.remind_at>? AND r.remind_at<=? AND c.salesperson_id=? AND c.merged_into_customer_id IS NULL ORDER BY r.remind_at`, [p.user_id, t0, at, sp]))
-    if (seenOnce(p.id, `r:${r.id}`)) pushExtra(p, Number(r.customer_id), "due", 1, DP_LABELS.due, "inserted", at);
+  // DUP-64: reminders that fall due are NOT added to the plan any more — the reminder popup covers them (no duplicate work).
   // SEARCH-C: «ارجاع» by a colleague (el_referrals, today) → «تماس با مشتری ارجاعی» on top (rank 0), once per referral; only while still this expert's customer.
   if (hasTable("el_referrals"))
     for (const x of queryRows<{ id: number; customer_id: number; from_name: string | null; created_at: string }>(`SELECT x.id,x.customer_id,x.created_at,COALESCE(NULLIF(trim(u.full_name),''),u.username) from_name
@@ -746,6 +843,8 @@ export function dpRefresh(p0: Plan, now = new Date()): Plan {
   }
   // 3b. LOGGED-CALL-63 self-heal: a call already saved by the owner (any form) closes its item / dial.
   dpSelfHeal(p);
+  // 3c. DUP-64: reminder today / call saved today → the card is covered and replaced.
+  dpCoverAndRefill(p, now);
   // 4. finished → event once; after waitMin, «لیست خودکار» extra batches of 5.
   let pr = planRow(sp, p.day)!;
   const open = () => items(p.id, "status IN ('pending','current')").length;
@@ -783,7 +882,7 @@ function startPlan(e: DpExpert, day: string, now: Date) {
   p = p ?? planFor(e, day, at);
   if (!p.written_at) {
     // «لیست خودکار» (PM item 2): the 08:00 auto list IS that day's main list, capped at capacity; the day is «خودکار» and not averaged.
-    const carried = items(p.id, "source='carried' AND status<>'transferred'").length;
+    const carried = items(p.id, "source='carried' AND status NOT IN ('transferred','covered','skipped')").length;
     const carriedExtra = fitCarriedExtras(p, cap);
     fillFromQueue(p, e, Math.max(0, (cap ?? 0) - carried - carriedExtra), "main", now, 1000);
     executeChanges("UPDATE dp_plans SET mode='auto', capacity=? WHERE id=?", [cap, p.id]);
@@ -818,7 +917,7 @@ function carry(p: Plan, now: Date) {
       position: main ? pos++ : xpos++, label: main ? DP_LABELS.carried : DP_LABELS.auto, status: main ? "pending" : "reserve" }, at);
     taken.add(i.customer_id);
   }
-  const carried = items(np.id, "source='carried' AND status<>'transferred'").length; const cap = dpCapacity(sp, next).capacity;
+  const carried = items(np.id, "source='carried' AND status NOT IN ('transferred','covered','skipped')").length; const cap = dpCapacity(sp, next).capacity;
   if (!np.started_at) fitCarriedExtras(np, cap);
   if (cap != null && carried >= cap && !np.backlog) {
     executeChanges("UPDATE dp_plans SET backlog=1 WHERE id=?", [np.id]);
@@ -902,6 +1001,8 @@ export function dpExpertView(user: CqUser, now = new Date()) {
     done: all.filter(i => i.status === "done").sort((a, b) => String(b.done_at).localeCompare(String(a.done_at))).map(i => itemView(i)),
     undone: all.filter(i => i.status === "undone").map(i => itemView(i)),
     transferred: all.filter(i => i.status === "transferred").map(i => itemView(i)),
+    covered: all.filter(i => i.status === "covered").map(i => itemView(i)),
+    skipped: all.filter(i => i.status === "skipped").map(i => itemView(i)),
     progress: { done: st.mainDone, total: st.main, position: Math.min(st.main, st.mainDone + curMain), pct: st.completionPct, extraDone: st.extraDone, outOfList: st.outOfList },
     waitUntil: p.finished_at && !p.auto_at ? new Date(Date.parse(p.finished_at) + dpSettings().waitMin * 60_000).toISOString() : null,
     pendingCall: pending && (!cur || Number(pending.customer_id) !== cur.customer_id) ? { callId: Number(pending.id), customerId: Number(pending.customer_id), customerName: custName(Number(pending.customer_id)) } : null };

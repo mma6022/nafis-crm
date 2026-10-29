@@ -22,7 +22,7 @@ export type DpConfig = { flags: DpFlags; settings: DpSettings; ranges: Record<ke
   moveReasons: Record<string, string>; limits: { moveMax: number; lastMove: string; start: string; close: string; moveTextMax: number; capReasonMax: number; capMax: number };
   eligible: boolean; manager: boolean; today: string; carousel?: boolean; experts: { userId: number; salespersonId: number; name: string; assistantId: number; scope: string }[] };
 export type DpItem = { id: number; customerId: number; name: string; phone?: string | null; priority: number | null; urgent: boolean; type: string; typeLabel: string; reason: string | null; keyNote: string | null;
-  bucket: 'main' | 'extra' | 'outside'; source: string; label: string | null; status: 'pending' | 'current' | 'done' | 'moved' | 'undone' | 'transferred'; moveCount: number; movesLeft: number;
+  bucket: 'main' | 'extra' | 'outside'; source: string; label: string | null; status: 'pending' | 'current' | 'done' | 'moved' | 'undone' | 'covered' | 'skipped' | 'transferred'; moveCount: number; movesLeft: number;
   movedTo: string | null; outcome: CqOutcome | null; doneAt: string | null };
 export type DpState = 'not_started' | 'working' | 'finished' | 'waiting' | 'auto' | 'closed' | 'holiday' | 'empty' | string;
 export type DpToday = { enabled: true; eligible: false } | { enabled: true; eligible: true; date: string; state: DpState; startsAt: string; closesAt: string; moveMax: number; lastMoveAt: string;

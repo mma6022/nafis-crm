@@ -9,7 +9,7 @@ import { cqManager } from "../lib/call-queue";
 import { tcLogEvent, tcOn } from "../lib/today-carousel";
 import {
   dpAdminCapacity, dpAssistantCapacity, dpAssistantGet, dpBoard, dpBoost, dpCapacityView, dpCheckExpertId, dpConfig, dpDecisionData, dpExpertView, dpIdem, dpIsErr, dpIsExpert,
-  dpMarkReturned, dpMove, dpOn, dpRejectedEvent, dpReport, dpSaveSettings, dpScopeCustomers, dpSettings, dpStartCall, dpSupplementary, dpValidateSettings, dpWritePlan,
+  dpMarkReturned, dpMove, dpOn, dpRejectedEvent, dpReport, dpSaveSettings, dpScopeCustomers, dpSettings, dpStartCall, dpSkipItem, dpSupplementary, dpValidateSettings, dpWritePlan,
   dpExperts, dpToday, ensureDailyPlanSchema, type Asst, type DpErr,
 } from "../lib/daily-plan";
 import { fcAssistantFollowups, fcAssistantOpen, fcAssistantPriority } from "../lib/files-carousel";
@@ -97,6 +97,8 @@ export function mountDailyPlanRunner(runner: Router) {
   runner.put("/daily-plans/:date", write("PUT /daily-plans", (a, req) => dpWritePlan(a, req.params.date, req.body ?? {})));
   runner.post("/daily-plans/:date/supplementary", write("POST /daily-plans/supplementary", (a, req) => dpSupplementary(a, req.params.date, req.body ?? {})));
   runner.post("/daily-plans/:date/boost", write("POST /daily-plans/boost", (a, req) => dpBoost(a, req.params.date, req.body ?? {})));
+  // DUP-64: put aside ONE pending card of this assistant's own expert (reason required) → one replacement from the queue; logged in dp_skip_log.
+  runner.post("/daily-plans/:date/items/:id/skip", write("POST /daily-plans/items/skip", (a, req) => dpSkipItem(a, req.params.date, req.params.id, req.body ?? {})));
   runner.put("/capacity/:date", write("PUT /capacity", (a, req) => dpAssistantCapacity(a, req.params.date, req.body ?? {})));
   /* FILES-61 «پرونده‌های من» — same gate / Idempotency-Key / rejected-event logging as boost. */
   runner.get("/files/open", (req, res) => { const a = gate(req, res); if (a) send(res, fcAssistantOpen(a as any)); });
