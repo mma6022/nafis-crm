@@ -53,3 +53,4 @@
 .rmm-x .vh{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 @media (max-width:1023px){.rct-pk{padding:10px}}
 @media (max-width:400px){.rct-day{height:44px;font-size:13px}.rct-grid{border-spacing:3px}}
+.rct-keep{margin:8px 0 0;display:flex;gap:6px;align-items:flex-start;font-size:12.5px;line-height:1.7;color:#3D4A6B;background:#F7F8FB;border:1px dashed var(--nf-line-strong);border-radius:10px;padding:6px 10px}.rct-keep svg{flex:none;margin-top:4px}

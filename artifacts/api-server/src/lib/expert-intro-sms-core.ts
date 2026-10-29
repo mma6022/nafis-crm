@@ -12,6 +12,7 @@
  * This module never imports crm-db: the DB handle, clock and sender are injected so the fixture runs it on a copy.
  */
 import { createHmac, randomUUID } from "node:crypto";
+import { smsFetch } from "./sms-proxy";
 import type { DatabaseSync } from "node:sqlite";
 
 export const EXPERT_INTRO_ENABLED_KEY = "expert_intro_sms_enabled";
@@ -358,7 +359,7 @@ export async function sendPatternViaRelay(args: SendArgs, o: { relayUrl: string;
   const signature = createHmac("sha256", o.secret).update(`${timestamp}.${body}`).digest("hex");
   let response: Response;
   try {
-    response = await (o.fetcher ?? fetch)(relay, { method: "POST", body, signal: AbortSignal.timeout(30_000),
+    response = await (o.fetcher ?? smsFetch)(relay, { method: "POST", body, signal: AbortSignal.timeout(30_000),
       headers: { "Content-Type": "application/json", "X-Relay-Timestamp": timestamp, "X-Relay-Signature": signature } });
   } catch { throw new Error("sms_delivery_unknown"); }
   let result: { ok?: boolean; error?: string; data?: { meta?: { status?: boolean }; data?: { message_outbox_ids?: unknown[] } } };

@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { smsFetch } from "./sms-proxy";
 
 export const EXPERT_REMINDER_PATTERN = "2nuz0inzh8ywd36";
 type TransportOptions = {
@@ -22,7 +23,7 @@ export async function sendReminderPattern(recipient: string, name: string, optio
   const signature = createHmac("sha256",options.secret).update(`${timestamp}.${body}`).digest("hex");
   let response: Response;
   try {
-    response = await (options.fetcher ?? fetch)(relay,{method:"POST",body,signal:AbortSignal.timeout(30_000),
+    response = await (options.fetcher ?? smsFetch)(relay,{method:"POST",body,signal:AbortSignal.timeout(30_000),
       headers:{"Content-Type":"application/json","X-Relay-Timestamp":timestamp,"X-Relay-Signature":signature}});
   } catch { throw new Error("sms_delivery_unknown"); }
   let result: {ok?:boolean;error?:string;data?:{meta?:{status?:boolean};data?:{message_outbox_ids?:unknown[]}}};

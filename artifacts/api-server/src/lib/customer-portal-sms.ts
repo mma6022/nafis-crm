@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { smsFetch } from "./sms-proxy";
 import { getNotificationSettings, normalizeIranianMobile } from "./customer-notifications";
 
 const OTP_PATTERN_CODE = "7ztdnd9x3l";
@@ -44,7 +45,7 @@ export async function sendCustomerPortalOtp(mobile: string, code: string): Promi
     .digest("hex");
   let response: Response;
   try {
-    response = await fetch(relayUrl, {
+    response = await smsFetch(relayUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

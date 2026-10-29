@@ -160,7 +160,7 @@ export function RctPicker({ rules, model, initial, bad, onConfirm, onCancel, ann
         <thead><tr>{WD.map((w, i) => <th key={w} scope="col" abbr={WDL[i]}>{w}</th>)}</tr></thead>
         <tbody>{rows.map((row, i) => <tr key={i}>{row.map((d, c) => <td key={c} role="gridcell" aria-selected={d ? day === d : undefined}>{d ? (() => {
           const ok = model.dayOk(d); const hol = model.hol.get(d); const past = d < model.today;
-          const reason = past ? 'گذشته' : d > rules.maxDay ? `بیشتر از ${fa(rules.maxDays)} روز` : !ok ? 'ساعت کاری گذشت' : '';
+          const reason = past ? 'گذشته' : d > rules.maxDay ? `بیش از ${fa(rules.maxDays)} روز` : !ok ? 'ساعت کاری گذشت' : '';
           return <button type="button" className={`rct-day${day === d ? ' on' : ''}${d === model.today ? ' td' : ''}${hol !== undefined ? ' hol' : ''}`} data-ymd={d}
             tabIndex={d === focus ? 0 : -1} aria-current={d === model.today ? 'date' : undefined} aria-disabled={ok ? undefined : true}
             aria-label={`${dayName(d)} ${fa(jOf(d).d)} ${monthName(d)} ${fa(jOf(d).y)}${hol !== undefined ? `، تعطیل${hol ? ` (${hol})` : ''}` : ''}${reason ? `، ${reason}` : ''}`}

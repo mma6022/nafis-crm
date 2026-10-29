@@ -28,6 +28,7 @@ export const RM_NEXT = ["tomorrow_am", "today_pm", "in_3_days", "none", "custom"
 /** Q1 «زمان دلخواه» (Armita reminder-custom-time v1.0 + PM answers; 10:00 rule t651u): Sat–Thu, 10:00–18:00 (both ends allowed), 15-minute steps,
  *  ≥ 15 minutes from now, ≤ 90 days ahead (Tehran calendar day). Official holidays are allowed (the picker marks them faintly).
  *  Unlike the fixed presets, a custom time is never moved to working time: an invalid one is refused with a reason code. */
+const rmHm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 export const RM_CUSTOM = { stepMin: 15, minLeadMin: 15, maxDays: 90, closedWeekdays: [5] as number[] } as const;
 function rmCustomWindow(now: Date) {
   const p = tParts(now);
@@ -39,7 +40,8 @@ function rmCustomWindow(now: Date) {
 }
 export function rmCustomRules(now: Date) {
   const w = rmCustomWindow(now);
-  return { workStart: "10:00", workEnd: "18:00", stepMin: RM_CUSTOM.stepMin, minLeadMin: RM_CUSTOM.minLeadMin, maxDays: RM_CUSTOM.maxDays,
+  // one server setting (call-queue REMINDER_START_MIN/WORK_END_MIN), both ends inclusive (custom-time v1.0.1)
+  return { workStart: rmHm(REMINDER_START_MIN), workEnd: rmHm(WORK_END_MIN), stepMin: RM_CUSTOM.stepMin, minLeadMin: RM_CUSTOM.minLeadMin, maxDays: RM_CUSTOM.maxDays,
     closedWeekdays: RM_CUSTOM.closedWeekdays, today: w.today, maxDay: w.maxDay, holidays: w.holidays, tz: "Asia/Tehran" };
 }
 /** Validates a custom remindAt; returns the Date or an Err with remind_at_invalid / remind_at_step / remind_at_past / remind_at_closed / remind_at_too_far. */

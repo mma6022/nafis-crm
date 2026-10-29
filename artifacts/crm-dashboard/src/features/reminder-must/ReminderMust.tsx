@@ -132,6 +132,7 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
   const [pk, setPk] = useState(false);
   const [prevNext, setPrevNext] = useState<RmNext | null>(null);
   const [ctBad, setCtBad] = useState(false);
+  const [ctBack, setCtBack] = useState(false); // v1.0.1 n_restore: kept value re-selected without reopening the picker
   const [live, setLive] = useState('');
   const hoursRef = useRef<HTMLDivElement>(null);
   const cardsRef = useRef<HTMLDivElement>(null);
@@ -178,12 +179,19 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
     if (v === 'custom') {
       if (next !== 'custom') setPrevNext(next);
       setNext('custom'); setCtBad(false);
+      if (ct && !pk && next !== 'custom') { // v1.0.1: restore the kept custom value, picker stays closed
+        setCtBack(true); say(`زمان دلخواه برگشت: ${rctLong(ct)}`);
+        window.setTimeout(() => document.querySelector<HTMLElement>('[data-testid="rct-change"]')?.focus(), 30);
+        return;
+      }
+      setCtBack(false);
       if (!pk) setPk(true);
       if (!viaKey) window.setTimeout(() => (document.querySelector<HTMLElement>('#rct-pk .rct-day.on') ?? document.querySelector<HTMLElement>('#rct-pk .rct-day[tabindex="0"]'))?.focus(), 30);
       return;
     }
     if (pk) { setPk(false); say(ct ? 'پنل زمان دلخواه بسته شد؛ زمان انتخابی نگه داشته شد ولی ثبت نمی‌شود.' : 'زمان دلخواه کنار رفت'); }
-    setNext(v); setCtBad(false);
+    else if (ct && next === 'custom') say('زمان دلخواه نگه داشته شد ولی ثبت نمی‌شود.');
+    setNext(v); setCtBad(false); setCtBack(false);
   };
   cancelRef.current = () => {
     setPk(false); setCtBad(false);
@@ -252,17 +260,18 @@ function MustDialog({ feed, item, index, total, rest, onDone, onSnoozed }: { fee
           <fieldset className="rmm-nxc rct-cards"><legend id="rct-lg">یادآور بعدی</legend>
             <div className="rct-cw" role="radiogroup" aria-labelledby="rct-lg" ref={cardsRef} onKeyDown={cardKey}>{NEXT.filter((n) => n.v !== 'custom' || cm).map((n) => {
             const dis = n.v === 'today_pm' && !r.todayPmOpen;
-            const sub = dis ? 'دیگر ممکن نیست' : n.v === 'custom' ? (ct ? rctShort(ct) : n.s) : presetSub(n.v) ?? n.s;
+            const sub = dis ? 'دیگر ممکن نیست' : n.v === 'custom' ? (ct ? `${next === 'custom' ? '' : 'نگه داشته شد: '}${rctShort(ct)}` : n.s) : presetSub(n.v) ?? n.s;
             const tabSel = next ? next === n.v : n.v === 'tomorrow_am';
             return <button key={n.v} type="button" role="radio" className={`rmm-nx rct-c${next === n.v ? ' on' : ''}${n.v === 'custom' ? ' rct-cu' : ''}`} aria-disabled={dis ? true : undefined}
               aria-checked={next === n.v} tabIndex={tabSel ? 0 : -1} onClick={() => { if (!dis) pickCard(n.v); }} data-testid={`rm-next-${n.v}`}
               {...(n.v === 'custom' ? { 'aria-expanded': pk, 'aria-controls': 'rct-pk' } : {})}>
               <span className="rct-t">{n.v === 'custom' ? <RctIcon size={15} aria-hidden="true" /> : null}{n.l}</span><small>{sub}</small></button>; })}</div>
             {next === 'custom' && pk && cm && r.custom ? <RctPicker rules={r.custom} model={cm} initial={ct} bad={ctBad} hoursRef={hoursRef} announce={say}
-              onConfirm={(v) => { setCt(v); setPk(false); setCtBad(false); say(`یادآور بعدی: ${rctLong(v)}`); window.setTimeout(() => document.querySelector<HTMLElement>('[data-testid="rct-change"]')?.focus(), 30); }}
+              onConfirm={(v) => { setCt(v); setPk(false); setCtBad(false); setCtBack(false); say(`یادآور بعدی: ${rctLong(v)}`); window.setTimeout(() => document.querySelector<HTMLElement>('[data-testid="rct-change"]')?.focus(), 30); }}
               onCancel={() => cancelRef.current()} /> : null}
-            {next === 'custom' && !pk && ct ? <div className="rct-sum" data-testid="rct-summary"><span><Check size={16} aria-hidden="true" /> یادآور بعدی: <b>{rctLong(ct)}</b></span>
+            {next === 'custom' && !pk && ct ? <div className="rct-sum" data-testid="rct-summary"><span><Check size={16} aria-hidden="true" /> {ctBack ? 'برگشت؛ ' : ''}یادآور بعدی: <b>{rctLong(ct)}</b></span>
               <button type="button" className="btn btn-ghost" onClick={() => { setPk(true); }} data-testid="rct-change">تغییر</button></div> : null}
+            {ct && next && next !== 'custom' ? <p className="rct-keep" data-testid="rct-keep"><RctIcon size={14} aria-hidden="true" /><span>زمان دلخواه ({rctLong(ct)}) نگه داشته شد ولی ثبت نمی‌شود، مگر دوباره «زمان دلخواه» را بزنی.</span></p> : null}
             <p className="vh" aria-live="polite" data-testid="rct-live">{live}</p>
           </fieldset>
           {next && next !== 'none' ? <label className="rmm-f"><span>دلیل یادآور بعدی</span>

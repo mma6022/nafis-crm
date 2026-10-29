@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { smsFetch } from "./sms-proxy";
 import { execute, queryRow, queryRows } from "./crm-db";
 
 export type NotificationSettings = {
@@ -274,7 +275,7 @@ async function sendIppanel(customer: NotificationCustomer, settings: Notificatio
     const signature = createHmac("sha256", relaySecret)
       .update(`${timestamp}.${body}`)
       .digest("hex");
-    response = await fetch(relayUrl, {
+    response = await smsFetch(relayUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -329,7 +330,7 @@ export async function sendWalletShareSms(
   const signature = createHmac("sha256", relaySecret).update(`${timestamp}.${body}`).digest("hex");
   let response: Response;
   try {
-    response = await fetch(relayUrl, {
+    response = await smsFetch(relayUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Relay-Timestamp": timestamp, "X-Relay-Signature": signature },
       signal: AbortSignal.timeout(30_000),
