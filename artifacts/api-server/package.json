@@ -25,6 +25,7 @@
     "test:goods-finance": "node scripts/goods-finance-fixture.mjs",
     "test:goods-http": "node scripts/goods-http-fixture.mjs",
     "test:salesperson-identity": "node --experimental-strip-types scripts/salesperson-identity-fixture.mjs",
+    "test:identity-egress": "node scripts/run-bundled-fixture.mjs scripts/identity-egress-fixture.ts",
     "test:customer-merge": "node scripts/run-bundled-fixture.mjs scripts/customer-merge-fixture.mjs",
     "test:customer-search-normalization": "node --experimental-strip-types scripts/customer-search-normalization-fixture.mjs",
     "test:customer-chat-merge": "node scripts/customer-chat-merge-fixture.mjs",

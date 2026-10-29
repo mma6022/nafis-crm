@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { identityEgress, sapiViaProxy } from "./identity-egress";
 
 type SapiCheck = "shahkarLite" | "personInfo" | "postalCodeInfo" | "sana";
 
@@ -50,7 +51,30 @@ function findString(value: unknown, aliases: string[], depth = 0): string | unde
   return undefined;
 }
 
+const directPaths: Record<SapiCheck, string> = {
+  shahkarLite: "api/sw1/ShahkarLite",
+  personInfo: "api/sw1/PersonInfo",
+  postalCodeInfo: "api/sw1/PostalCodeInfo",
+  sana: "api/sw1/Sana",
+};
+
 async function call(pathname: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (identityEgress() === "proxy") {
+    // identity_egress='proxy' (t687s2662): direct s.api.ir through the Iran proxy, relay not used.
+    const direct = directPaths[pathname as SapiCheck];
+    if (!direct) throw new Error("SAPI request failed (unknown_check)");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12_000);
+    try {
+      const r = await sapiViaProxy(direct, JSON.stringify(payload), { signal: controller.signal });
+      let body: unknown = {};
+      try { body = JSON.parse(r.text); } catch { body = {}; }
+      if (r.status < 200 || r.status >= 300) throw new Error(`SAPI request failed (${r.status})`);
+      return asRecord(body);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
   const relayBase = process.env.SAPI_RELAY_URL;
   const relaySecret = process.env.IR_RELAY_SHARED_SECRET;
   const requestBody = JSON.stringify(payload);
@@ -69,12 +93,6 @@ async function call(pathname: string, payload: Record<string, unknown>): Promise
   const token = process.env.SAPI_API_TOKEN;
   if (!base || !token) throw new Error("SAPI provider is not configured");
     headers.authorization = `Bearer ${token}`;
-    const directPaths: Record<SapiCheck, string> = {
-      shahkarLite: "api/sw1/ShahkarLite",
-      personInfo: "api/sw1/PersonInfo",
-      postalCodeInfo: "api/sw1/PostalCodeInfo",
-      sana: "api/sw1/Sana",
-    };
     url = `${base.replace(/\/$/, "")}/${directPaths[pathname as SapiCheck] ?? pathname.replace(/^\//, "")}`;
   }
   const controller = new AbortController();
