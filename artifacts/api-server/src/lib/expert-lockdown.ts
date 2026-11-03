@@ -156,7 +156,7 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   // so a P2/P3 customer that left them in the same save can still get its «منتقل شد» entry.
   // call-transcripts v1.1 (only while flag.call_transcripts.ui = 1): the customer page's «متن و خلاصه‌ی تماس» follows the same
   // single-customer rule as the customer page itself; nothing else under /call-transcripts opens for a locked expert.
-  const ctIds = ctLockdownIds(req, path);
+  const ctIds = ctLockdownIds(req, path, Number(u!.id));
   if (ctIds) {
     for (const id of ctIds) if (!elCustomerAccess(u!, id) && !elOwnCustomer(u!, id))
       return deny(res, "expert_lockdown_customer", "این مشتری فعلاً برای شما باز نیست (فقط مشتری‌های «کارهای امروز»، پرونده‌های خودت یا «تماس ورودی»).");
@@ -189,9 +189,18 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   next();
 }
 /** call-transcripts v1.1: null = not opened (normal lockdown rules apply); [] = feature switch; [customerId] = that customer's check. */
-function ctLockdownIds(req: Request, path: string): number[] | null {
-  if (!path.startsWith("/call-transcripts/")) return null;
+// CT-OWN (Mohammad 2026-11-03): a locked expert opens the transcript, summary and audio of THEIR OWN calls (expert_user_id = caller),
+// whatever the customer's current list; other experts' calls keep the customer rule here and the handlers' own-call check (403/404).
+function ctOwnEvent(where: string, arg: string | number, userId: number): boolean {
+  return !!queryRow(`SELECT 1 x FROM voip_after_call_events WHERE ${where} AND is_live=0 AND expert_user_id=? LIMIT 1`, [arg, userId]);
+}
+function ctLockdownIds(req: Request, path: string, userId: number): number[] | null {
+  const audio = /^\/voip\/recordings\/([A-Za-z0-9_.-]{1,128})\/audio$/.exec(path);
+  if (!audio && !path.startsWith("/call-transcripts/")) return null;
   try { if (queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key='flag.call_transcripts.ui'")?.value !== "1") return null; } catch { return null; }
+  if (audio) return req.method === "GET" && ctOwnEvent("COALESCE(recording_provider_id,external_id)=?", audio[1], userId) ? [] : null; // route re-checks own extension
+  const own = /^\/call-transcripts\/calls\/(\d+)(\/summary)?$/.exec(path);
+  if (own && (req.method === "GET" ? !own[2] : req.method === "PATCH" && !!own[2]) && ctOwnEvent("id=?", Number(own[1]), userId)) return [];
   if (req.method === "GET" && path === "/call-transcripts/config") return [];
   const list = /^\/call-transcripts\/customer\/(\d+)\/calls$/.exec(path);
   if (list && req.method === "GET") return [Number(list[1])];
