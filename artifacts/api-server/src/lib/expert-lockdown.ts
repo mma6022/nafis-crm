@@ -12,6 +12,7 @@
  * (el_incoming_log — the query is stored only as an HMAC hash, never raw). SEARCH-C: another expert's customer (full number only) → customer name +
  * owner name; the owner gets a CRM bell + a top Today item «تماس با مشتری ارجاعی» only when the caller presses «ارجاع» (no SMS, no Bale, nothing to the customer).
  */
+import { vcFlagOn } from "./voip-call";
 import { createHmac, randomBytes } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { crmDb, execute, queryRow, queryRows, runTransaction } from "./crm-db";
@@ -156,7 +157,8 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   // so a P2/P3 customer that left them in the same save can still get its «منتقل شد» entry.
   // call-transcripts v1.1 (only while flag.call_transcripts.ui = 1): the customer page's «متن و خلاصه‌ی تماس» follows the same
   // single-customer rule as the customer page itself; nothing else under /call-transcripts opens for a locked expert.
-  const ctIds = ctLockdownIds(req, path, Number(u!.id));
+  // VOIP-CALL (flag.voip_call for this user only): «تماس از تلفن ویپ» + the customer's call history follow the same single-customer rule.
+  const ctIds = ctLockdownIds(req, path, Number(u!.id)) ?? vcLockdownIds(req, path, Number(u!.id));
   if (ctIds) {
     for (const id of ctIds) if (!elCustomerAccess(u!, id) && !elOwnCustomer(u!, id))
       return deny(res, "expert_lockdown_customer", "این مشتری فعلاً برای شما باز نیست (فقط مشتری‌های «کارهای امروز»، پرونده‌های خودت یا «تماس ورودی»).");
@@ -209,6 +211,22 @@ function ctLockdownIds(req: Request, path: string, userId: number): number[] | n
     const r = queryRow<{ cid: number | null }>(`SELECT COALESCE(l.customer_id,e.customer_id) cid FROM voip_after_call_events e
       LEFT JOIN call_logs l ON l.id=e.call_log_id WHERE e.id=?`, [Number(call[1])]);
     return r?.cid ? [Number(r.cid)] : null; // a call without a customer stays closed
+  }
+  return null;
+}
+/** VOIP-CALL: null = not opened (flag off → normal lockdown = closed); [] = own-only endpoint; [customerId] = that customer's check. */
+function vcLockdownIds(req: Request, path: string, userId: number): number[] | null {
+  if (!path.startsWith("/voip-call/") || !vcFlagOn(userId)) return null;
+  if (req.method === "GET" && path === "/voip-call/me") return [];
+  if (req.method === "POST" && /^\/voip-call\/\d+\/dismiss$/.test(path)) return [];
+  if (req.method === "POST" && path === "/voip-call/start") { const c = Number((req.body as any)?.customerId); return Number.isSafeInteger(c) && c > 0 ? [c] : null; }
+  const h = /^\/voip-call\/customers\/(\d+)\/history$/.exec(path);
+  if (h && req.method === "GET") return [Number(h[1])];
+  const a = /^\/voip-call\/calls\/(\d+)\/audio$/.exec(path);
+  if (a && req.method === "GET") {
+    const r = queryRow<{ cid: number | null }>(`SELECT COALESCE(l.customer_id,e.customer_id) cid FROM voip_after_call_events e
+      LEFT JOIN call_logs l ON l.id=e.call_log_id WHERE e.id=?`, [Number(a[1])]);
+    return r?.cid ? [Number(r.cid)] : null;
   }
   return null;
 }
