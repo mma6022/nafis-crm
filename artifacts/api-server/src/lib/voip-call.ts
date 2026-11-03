@@ -11,9 +11,9 @@
  *    with voipCallId. The CDR (via the existing after-call event) is the final word on status, recording and duration.
  */
 import type { AuthUser } from "./auth";
-import { crmDb, executeChanges, queryRow, queryRows } from "./crm-db";
-import { normalizePhone } from "./voip-after-call";
-import { simotelOriginate, SimotelError } from "./simotel";
+import { crmDb, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
+import { normalizePhone, resolveEvent, experts, customerMatcher } from "./voip-after-call";
+import { simotelOriginate, SimotelError, type SimotelCall } from "./simotel";
 
 export const VC_ME_TIMEOUT_S = 30;
 const REQUEST_STALE_S = 45, DIAL_STALE_S = 180, TALK_STALE_S = 4 * 3600, NOTICE_KEEP_S = 15 * 60;
@@ -25,6 +25,7 @@ export type VcRow = {
   originate_id: string | null; cuid: string | null; leg_cuid: string | null; event_id: number | null; error_code: string | null; active: number;
   created_at: string; ring_deadline: string | null; me_answered_at: string | null; cust_answered_at: string | null; ended_at: string | null;
   updated_at: string; cdr_at: string | null; result_saved_at: string | null; result_outcome: string | null; dismissed_at: string | null;
+  cust_status?: string | null; billsec?: number | null;
 };
 
 const setting = (key: string) => { try { return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [key])?.value ?? null; } catch { return null; } };
@@ -60,9 +61,20 @@ export function ensureVcSchema() {
     CREATE INDEX IF NOT EXISTS idx_voip_click_cust ON voip_click_calls(customer_id, id);
     CREATE TABLE IF NOT EXISTS voip_click_signals(cuid TEXT NOT NULL, extension TEXT NOT NULL, state TEXT NOT NULL, dialer TEXT NOT NULL, party TEXT NOT NULL,
       call_id INTEGER, received_at TEXT NOT NULL, PRIMARY KEY(cuid, extension, state, dialer, party));`);
+  vcCdrColumns();
   ensured = true;
 }
 
+/** R2 VC-CDR: the customer's own leg from the originate CDR (cust_status: ANSWERED / NO ANSWER / BUSY / … / UNKNOWN / NOT_DIALED). */
+let cdrCols = false;
+function vcCdrColumns() {
+  if (cdrCols) return;
+  const have = new Set(queryRows<{ name: string }>("PRAGMA table_info(voip_click_calls)").map((c) => c.name));
+  if (!have.has("cust_status")) crmDb.exec("ALTER TABLE voip_click_calls ADD COLUMN cust_status TEXT");
+  if (!have.has("billsec")) crmDb.exec("ALTER TABLE voip_click_calls ADD COLUMN billsec INTEGER");
+  crmDb.exec("CREATE INDEX IF NOT EXISTS idx_voip_click_orig ON voip_click_calls(originate_id)");
+  cdrCols = true;
+}
 const iso = (d: Date) => d.toISOString();
 const ms = (s: string | null) => (s ? Date.parse(s) : NaN);
 function end(id: number, state: VcState, outcome: VcOutcome, now: Date, extra: Record<string, string | null> = {}) {
@@ -77,7 +89,9 @@ export function vcSweep(now = new Date()) {
     const age = (now.getTime() - ms(c.updated_at)) / 1000;
     if (c.state === "ring_me" && c.ring_deadline && now.getTime() >= ms(c.ring_deadline)) end(c.id, "me_timeout", null, now);
     else if (c.state === "requesting" && (now.getTime() - ms(c.created_at)) / 1000 > REQUEST_STALE_S) end(c.id, "error", null, now, { error_code: "request_stale" });
-    else if (c.state === "dial_cust" && age > DIAL_STALE_S) end(c.id, "ended", "no_answer", now);
+    // R2 VC-CDR: after the expert answers the call stays in dial_cust for the whole talk (the expert's own inuse is not the customer's answer);
+    // the idle NewState or the originate CDR ends it, this is only the lost-webhook safety net.
+    else if (c.state === "dial_cust" && age > (c.me_answered_at ? TALK_STALE_S : DIAL_STALE_S)) end(c.id, "ended", "no_answer", now);
     else if (c.state === "in_call" && age > TALK_STALE_S) end(c.id, "ended", "answered", now);
   }
 }
@@ -112,6 +126,85 @@ function vcLink(c: VcRow, now = new Date()): VcRow {
   }
   return c;
 }
+/** R2 VC-CDR: outcome of the customer's own leg. Answered = a customer details entry ANSWERED with billsec > 0. Not answered = every customer
+ *  entry (on every leg row) carries the same definite failure status, billsec 0 and no recording. Anything else is UNKNOWN (ambiguous). */
+const NOT_ANSWERED = new Set(["NO ANSWER", "BUSY", "FAILED", "CONGESTION", "CHANUNAVAIL", "CANCEL"]);
+export function vcCustomerLeg(rows: SimotelCall[], phone: string): { custStatus: string; billsec: number; answered: boolean; notAnswered: boolean } {
+  const legs = rows.flatMap((r) => (r.details ?? []).filter((d) => typeof d.exten === "string" && normalizePhone(d.exten) === phone)
+    .map((d) => ({ status: typeof d.status === "string" ? d.status.trim().toUpperCase() : null, billsec: Number(d.billsec) })));
+  const rowBill = Math.max(0, ...rows.map((r) => (Number.isFinite(Number(r.billsec)) ? Number(r.billsec) : 0)));
+  if (!legs.length) return { custStatus: "NOT_DIALED", billsec: rowBill, answered: false, notAnswered: false };
+  const legBill = Math.max(0, ...legs.map((l) => (Number.isFinite(l.billsec) ? l.billsec : 0)));
+  if (legs.some((l) => l.status === "ANSWERED" && Number.isFinite(l.billsec) && l.billsec > 0)) return { custStatus: "ANSWERED", billsec: legBill, answered: true, notAnswered: false };
+  const st = new Set(legs.map((l) => l.status));
+  const only = st.size === 1 ? [...st][0] : null;
+  if (only && NOT_ANSWERED.has(only) && legs.every((l) => Number.isFinite(l.billsec) && l.billsec === 0) && rowBill === 0 && rows.every((r) => !r.record))
+    return { custStatus: only, billsec: 0, answered: false, notAnswered: true };
+  return { custStatus: "UNKNOWN", billsec: Math.max(legBill, rowBill), answered: false, notAnswered: false };
+}
+const ORIG_SETTLE_MS = 60_000; // every leg of one originate is published within seconds; wait so the decision sees all of them
+export type VcCdrDecision = { callId: number; custStatus: string; notAnswered: boolean };
+/** R2 VC-CDR: called by syncAfterCalls with each day's CDR rows. Idempotent (only click calls whose cust_status is still NULL). */
+export function vcIngestOriginate(rows: SimotelCall[], now = new Date()): VcCdrDecision[] {
+  if (!vcTableExists()) return [];
+  const byOrig = new Map<string, SimotelCall[]>();
+  for (const r of rows) {
+    const o = typeof r.originated_call_id === "string" ? r.originated_call_id.trim() : "";
+    if (r.type !== "local" || !o) continue;
+    const list = byOrig.get(o) ?? []; list.push(r); byOrig.set(o, list);
+  }
+  if (!byOrig.size) return [];
+  vcCdrColumns();
+  const out: VcCdrDecision[] = [];
+  const pending = queryRows<VcRow>(`SELECT * FROM voip_click_calls WHERE originate_id IS NOT NULL AND cust_status IS NULL
+    AND julianday(created_at)>=julianday(?)-2 ORDER BY id`, [iso(now)]);
+  for (const c of pending) {
+    const legs = byOrig.get(c.originate_id!); if (!legs) continue;
+    const ends = legs.map((r) => Number(r.endtime?.$date?.$numberLong));
+    if (ends.some((e) => !Number.isFinite(e) || e <= 0 || e > now.getTime())) continue;
+    const lastEnd = Math.max(...ends);
+    if (now.getTime() - lastEnd < ORIG_SETTLE_MS) continue;
+    const leg = vcCustomerLeg(legs, c.phone);
+    const main = legs.find((r) => !!r.record) ?? legs.find((r) => /SIP\//.test(String((r as { dstchannel?: string }).dstchannel ?? ""))) ?? legs[0];
+    const cdrOutcome: VcOutcome = leg.answered ? "answered" : leg.notAnswered ? (leg.custStatus === "BUSY" ? "busy" : "no_answer")
+      : leg.custStatus === "UNKNOWN" ? CDR_OUT(String(main.disposition ?? "")) : null;
+    const evStatus = leg.answered || leg.notAnswered ? leg.custStatus : String(main.disposition ?? "").slice(0, 32) || "UNKNOWN";
+    const endedIso = new Date(lastEnd).toISOString();
+    runTransaction(() => {
+      let eventId = c.event_id;
+      if (eventId == null && (c.cuid || c.leg_cuid)) {
+        eventId = queryRow<{ id: number }>(`SELECT id FROM voip_after_call_events WHERE extension=? AND direction='outgoing' AND live_cuid IN (?,?)
+          AND id NOT IN (SELECT event_id FROM voip_click_calls WHERE event_id IS NOT NULL) ORDER BY id LIMIT 1`, [c.extension, c.cuid ?? "", c.leg_cuid ?? ""])?.id ?? null;
+      }
+      const taken = queryRow<{ id: number }>("SELECT id FROM voip_after_call_events WHERE external_id=? OR recording_provider_id=?", [main._id, main._id]);
+      if (eventId != null) {
+        if (!taken || taken.id === eventId)
+          executeChanges(`UPDATE voip_after_call_events SET recording_provider_id=COALESCE(recording_provider_id,?), status=?, is_live=0, ended_at=?,
+            has_recording=?, recording_file=COALESCE(?,recording_file) WHERE id=?`, [main._id, evStatus, endedIso, main.record ? 1 : 0, main.record ?? null, eventId]);
+      } else if (cdrOutcome && !taken) {
+        executeChanges(`INSERT OR IGNORE INTO voip_after_call_events(external_id,phone,direction,status,started_at,ended_at,extension,extensions_json,has_recording,recording_file,auto_capture)
+          VALUES(?,?,'outgoing',?,?,?,?,?,?,?,1)`, [main._id, c.phone, evStatus, c.created_at, endedIso, c.extension, JSON.stringify([c.extension]), main.record ? 1 : 0, main.record ?? null]);
+        eventId = queryRow<{ id: number }>("SELECT id FROM voip_after_call_events WHERE external_id=?", [main._id])?.id ?? null;
+        if (eventId != null) resolveEvent(eventId, experts(), customerMatcher());
+      } else if (taken) eventId = queryRow<{ id: number }>("SELECT id FROM voip_after_call_events WHERE id=? AND id NOT IN (SELECT event_id FROM voip_click_calls WHERE event_id IS NOT NULL)", [taken.id])?.id ?? null;
+      if (c.active) end(c.id, cdrOutcome ? "ended" : c.state === "ring_me" || c.state === "requesting" ? "me_timeout" : "ended", cdrOutcome, now);
+      executeChanges(`UPDATE voip_click_calls SET cust_status=?, billsec=?, cdr_at=COALESCE(cdr_at,?), event_id=COALESCE(event_id,?),
+        outcome=CASE WHEN ? IS NOT NULL THEN ? ELSE outcome END,
+        state=CASE WHEN ? IS NOT NULL AND state IN ('me_timeout','ended') THEN 'ended' ELSE state END,
+        cust_answered_at=CASE WHEN ?=1 THEN cust_answered_at ELSE NULL END, updated_at=? WHERE id=? AND cust_status IS NULL`,
+        [leg.custStatus, leg.billsec, iso(now), eventId, cdrOutcome, cdrOutcome, cdrOutcome, leg.answered ? 1 : 0, iso(now), c.id]);
+      if (eventId != null && (leg.answered || leg.notAnswered)) {
+        // The live row's call log was titled from the expert's NewState (e.g. «(ACTIVE)»); the customer's leg is the real status.
+        const log = queryRow<{ call_log_id: number | null }>("SELECT call_log_id FROM voip_after_call_events WHERE id=?", [eventId])?.call_log_id;
+        if (log != null) executeChanges("UPDATE call_logs SET subject=? WHERE id=? AND subject LIKE 'تماس خروجی مرکز تماس (%)'", [`تماس خروجی مرکز تماس (${leg.custStatus})`, log]);
+      }
+      const fresh = queryRow<VcRow>("SELECT * FROM voip_click_calls WHERE id=?", [c.id])!;
+      if (fresh.result_saved_at && fresh.event_id != null) vcCompleteEvent(fresh.event_id, fresh.user_id, now);
+    });
+    out.push({ callId: c.id, custStatus: leg.custStatus, notAnswered: leg.notAnswered });
+  }
+  return out;
+}
 /** The click call's own result also completes the after-call queue entry, so the expert is not asked twice for the same call. */
 function vcCompleteEvent(eventId: number, userId: number, now: Date) {
   const r = queryRow<{ result_outcome: string | null; note: string | null }>(
@@ -128,13 +221,15 @@ export type VcView = {
   createdAt: string; secondsLeft: number | null; meAnsweredAt: string | null; custAnsweredAt: string | null; endedAt: string | null;
   durationSeconds: number | null; cdr: boolean; recording: "processing" | "ready" | "none"; eventId: number | null; active: boolean;
   needsResult: boolean; resultSaved: boolean; resultOutcome: string | null; prefill: "answered" | "no_answer" | null; oneTap: boolean; errorCode: string | null;
+  custStatus: string | null; billsec: number | null;
 };
 export function vcView(c: VcRow, now = new Date()): VcView {
   const e0 = c.event_id != null ? queryRow<{ has_recording: number; recording_file: string | null; fin: number; started_at: string; ended_at: string }>(
     `SELECT has_recording, recording_file, ${FINAL} fin, started_at, ended_at FROM voip_after_call_events WHERE id=?`, [c.event_id]) : null;
   const e = e0 ? { ...e0, is_live: e0.fin ? 0 : 1 } : null;
   const ended = !c.active;
-  const talk = c.cust_answered_at && c.ended_at ? Math.max(0, Math.round((ms(c.ended_at) - ms(c.cust_answered_at)) / 1000))
+  const talk = c.cdr_at && c.billsec != null && c.outcome === "answered" ? c.billsec
+    : c.cust_answered_at && c.ended_at ? Math.max(0, Math.round((ms(c.ended_at) - ms(c.cust_answered_at)) / 1000))
     : c.outcome === "answered" && e && !e.is_live ? Math.max(0, Math.round((ms(e.ended_at) - ms(e.started_at)) / 1000)) : null;
   const talking = c.state === "in_call" && c.cust_answered_at ? Math.max(0, Math.round((now.getTime() - ms(c.cust_answered_at)) / 1000)) : null;
   const rec: VcView["recording"] = c.outcome !== "answered" ? "none" : e && !e.is_live ? (e.has_recording && e.recording_file ? "ready" : "none") : "processing";
@@ -147,6 +242,7 @@ export function vcView(c: VcRow, now = new Date()): VcView {
     recording: rec, eventId: c.event_id, active: !!c.active, needsResult: counts && c.file_id != null && !c.result_saved_at, resultSaved: !!c.result_saved_at,
     resultOutcome: c.result_outcome, prefill: !counts ? null : c.outcome === "answered" ? "answered" : "no_answer",
     oneTap: counts && (c.outcome === "no_answer" || c.outcome === "busy"), errorCode: c.error_code,
+    custStatus: c.cust_status ?? null, billsec: c.billsec ?? null,
   };
 }
 const err = (status: number, error: string, message: string, details?: object) => ({ status, body: { error, message, ...(details ? { details } : {}) } });
@@ -252,18 +348,14 @@ export function vcOnNewState(body: Record<string, unknown>, now = new Date()): b
   if (state === "inuse") {
     if (dialer === "yes" || rm) {
       if (rm || c.state === "dial_cust") {
-        const next = dialer === "yes" || party !== "c" ? "dial_cust" : "in_call";
-        executeChanges(`UPDATE voip_click_calls SET state=?, me_answered_at=COALESCE(me_answered_at,?), cust_answered_at=CASE WHEN ?='in_call' THEN COALESCE(cust_answered_at,?) ELSE cust_answered_at END,
-          updated_at=? WHERE id=? AND active=1`, [next, at, next, at, at, c.id]);
+        // R2 VC-CDR: the expert's inuse (dialer=no, party=customer) only proves the EXPERT answered — Simotel reports it before the customer
+        // picks up. Never infer in_call / cust_answered_at from it; the originate CDR's customer leg decides (vcIngestOriginate).
+        executeChanges(`UPDATE voip_click_calls SET state='dial_cust', me_answered_at=COALESCE(me_answered_at,?), updated_at=? WHERE id=? AND active=1`, [at, at, c.id]);
         return true;
       }
       return false;
     }
-    if (c.state === "dial_cust") {
-      executeChanges("UPDATE voip_click_calls SET state='in_call', cust_answered_at=COALESCE(cust_answered_at,?), updated_at=? WHERE id=? AND active=1", [at, at, c.id]);
-      return true;
-    }
-    return false;
+    return false; // R2 VC-CDR: was dial_cust → in_call on the expert's inuse (wrong for unanswered customers)
   }
   if (["idle", "unavailable", "pause", "notinuse"].includes(state)) {
     if (rm) end(c.id, "me_timeout", null, now);

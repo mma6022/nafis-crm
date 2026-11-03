@@ -6,7 +6,9 @@ export type SimotelCall = {
   start?: string; starttime?: string; duration: number; billsec: number;
   endtime?: { $date?: { $numberLong?: string } };
   disposition: string; record?: string;
-  details?: Array<{ exten?: string | null; status?: string | null }>;
+  details?: Array<{ exten?: string | null; status?: string | null; billsec?: number | null }>;
+  /** R2 VC-CDR: set on the legs of a click-to-call originate (type "local"); equals voip_click_calls.originate_id. */
+  originated_call_id?: string | null;
 };
 export class SimotelError extends Error {
   constructor(public code: string, public status: number, message: string) { super(message); }

@@ -266,6 +266,9 @@ export function syncAfterCalls() {
       while (day <= today) {
         const result = await getSimotelCalls(day, day, true);
         ingestAfterCalls(result.rows, now);
+        // R2 VC-CDR: click-to-call originates arrive as type "local" legs keyed by originated_call_id; the customer's own leg decides.
+        try { const { vcIngestOriginate } = await import("./voip-call"); vcIngestOriginate(result.rows, now); }
+        catch (e) { const { logger } = await import("./logger"); logger.error({ err: e instanceof Error ? e.message.slice(0, 200) : "error" }, "vc_cdr_ingest_failed"); }
         executeChanges("UPDATE voip_after_call_state SET last_checked_at=?,sync_error=NULL WHERE id=1",
           [day === today ? now.toISOString() : new Date(`${day}T23:59:59+03:30`).toISOString()]);
         day = new Date(Date.parse(`${day}T00:00:00Z`) + 86400000).toISOString().slice(0,10);
