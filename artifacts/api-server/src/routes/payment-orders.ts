@@ -13,6 +13,7 @@ import {
 } from "../lib/payment-orders";
 import { paymentOrderListScope } from "../lib/payment-order-scope";
 import { verifyCustomerBankAccount, normalizeBankBirthDate, lookupBankAccount } from "../lib/bank-verification";
+import { NO_CREDIT_FA } from "../lib/provider-credit";
 import { ensureAccountingSchema, postPaymentDocument, reversePaymentDocument, AccountingError } from "../lib/accounting";
 import { GlPostingError } from "../lib/gl-posting";
 import { onPaymentOrderPaid, unpayPurchaseCommission, orderCommissionView, TeamCommissionError } from "../lib/team-commission";
@@ -46,6 +47,7 @@ export function preOpeningOrders(orderIds: number[]): Map<number, { paidDate: st
   return out;
 }
 const fail = (res: any, status: number, error: string) => res.status(status).json({ error });
+const failNoCredit = (res: any) => res.status(503).json({ error: "bank_provider_no_credit", message: NO_CREDIT_FA });
 /** G4: a general-ledger failure gets its own code + clear Persian message (it used to hide behind payment_recording_conflict). */
 const GL_FAILED_FA = "ثبت سند دفتر کل ناموفق بود و پرداخت ثبت نشد. چیزی تغییر نکرد؛ به مدیر سیستم اطلاع دهید.";
 export function isGlFailure(error: unknown): boolean {
@@ -75,6 +77,7 @@ router.post("/bank-accounts", permission("bank_accounts.manage"), async (req, re
     verified = await lookupBankAccount(iban);
   } catch (error) {
     if (error instanceof Error && error.message === "bank_account_inactive") return fail(res, 422, "bank_account_inactive");
+    if (error instanceof Error && error.message === "bank_provider_no_credit") return failNoCredit(res);
     return fail(res, 503, "bank_verification_unavailable");
   }
   // Recheck after the network call; never trust client-supplied owner/fund names.
@@ -119,6 +122,7 @@ router.post("/customers/:id/bank-accounts/verify", permission("payment_orders.sa
     return res.json(bankAccountView(account));
   } catch (error) {
     if (error instanceof Error && error.message === "bank_ownership_mismatch") return fail(res, 422, "bank_ownership_mismatch");
+    if (error instanceof Error && error.message === "bank_provider_no_credit") return failNoCredit(res);
     return fail(res, 503, "bank_verification_unavailable");
   }
 });

@@ -429,7 +429,7 @@ function Apply({ profile, planId, months = '' }: { profile: Profile; planId: num
           <span className="nf-hint">۱۰ رقم، بدون خط تیره</span></div>
         {errorAlert}
         <button className="nf-btn nf-btn--primary nf-btn--block" disabled={verify.isPending} data-testid="button-intake-verify">{verify.isPending ? <><Icon icon={RefreshCw} small />در حال استعلام…</> : 'استعلام ثنا و کد پستی'}</button>
-        {verify.isSuccess && verify.data?.status === 'pending' && <div className="nfp-alert nfp-info" role="status"><Icon icon={Hourglass} small /><span>استعلام در انتظار نتیجه است.</span>
+        {verify.isSuccess && verify.data?.status === 'pending' && <div className="nfp-alert nfp-info" role="status"><Icon icon={Hourglass} small /><span data-testid="status-intake-unavailable">موقتاً در دسترس نیست، کمی بعد تلاش کنید</span>
           <button type="button" className="nf-btn nf-btn--secondary nf-btn--sm" onClick={() => void intake.refetch()} data-testid="button-refresh-verify">به‌روزرسانی</button></div>}
       </form>,
     <>

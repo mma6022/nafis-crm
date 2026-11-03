@@ -229,7 +229,8 @@ function RequestDialog({ selection, latestPendingId, onReplace, onClose, onFinis
     if (status === 409 || status === 404) void refresh();
   };
 
-  const reconcileRequest = async (customerId: number, edits: Partial<Record<ProfileKey, string>>, providerUnavailable = false) => {
+  const reconcileRequest = async (customerId: number, edits: Partial<Record<ProfileKey, string>>, providerUnavailable = false, noCredit = false) => {
+    const unavailableText = noCredit ? 'شارژ سرویس استعلام تمام شده، به مدیر سیستم بگویید' : '';
     setNeedsFreshChecks(true);
     setReconcileRequired(true);
     try {
@@ -243,7 +244,7 @@ function RequestDialog({ selection, latestPendingId, onReplace, onClose, onFinis
           id: replacement.id,
           draft: edits,
           ...(providerUnavailable
-            ? { message: 'سرویس استعلام در دسترس نبود. نتیجه عدم دسترسی ثبت شد؛ درخواست جایگزین را با دقت بررسی کنید.' }
+            ? { message: unavailableText || 'سرویس استعلام در دسترس نبود. نتیجه عدم دسترسی ثبت شد؛ درخواست جایگزین را با دقت بررسی کنید.' }
             : { notice: 'نتیجه استعلام تازه ثبت شد و درخواست جایگزین برای بررسی باز شده است. وضعیت هر چهار بررسی را دوباره مرور کنید.' }),
         });
         return;
@@ -252,11 +253,11 @@ function RequestDialog({ selection, latestPendingId, onReplace, onClose, onFinis
       const fresh = await refresh();
       if (!fresh) return;
       setReconcileRequired(false);
-      if (providerUnavailable) setMessage('سرویس استعلام در دسترس نبود. نتیجه عدم دسترسی ثبت شد؛ وضعیت تازه را بررسی کنید.');
+      if (providerUnavailable) setMessage(unavailableText || 'سرویس استعلام در دسترس نبود. نتیجه عدم دسترسی ثبت شد؛ وضعیت تازه را بررسی کنید.');
       else setNotice('استعلام انجام شد؛ وضعیت تازه هر چهار بررسی را مرور کنید و فقط برای موارد ناموفق دلیل ثبت کنید.');
     } catch (error) {
       setNeedsFreshChecks(true);
-      setMessage(`${providerUnavailable ? 'سرویس استعلام در دسترس نبود و نتیجه آن ثبت شد. ' : ''}درخواست بررسی با وضعیت تازه هماهنگ نشد. ${readableError(error, 'بارگذاری یا ایجاد درخواست تازه انجام نشد. دوباره تلاش کنید.')}`);
+      setMessage(`${providerUnavailable ? (unavailableText ? unavailableText + ' ' : 'سرویس استعلام در دسترس نبود و نتیجه آن ثبت شد. ') : ''}درخواست بررسی با وضعیت تازه هماهنگ نشد. ${readableError(error, 'بارگذاری یا ایجاد درخواست تازه انجام نشد. دوباره تلاش کنید.')}`);
     }
   };
 
@@ -295,7 +296,7 @@ function RequestDialog({ selection, latestPendingId, onReplace, onClose, onFinis
       setNeedsFreshChecks(true);
       if ((error as { status?: number })?.status === 502) {
         await refresh(false);
-        await reconcileRequest(customerId, edits, true);
+        await reconcileRequest(customerId, edits, true, ((error as { data?: { error?: unknown } })?.data?.error) === 'identity_provider_no_credit');
       } else {
         onError(error, 'استعلام سیستمی انجام نشد. اتصال و اطلاعات هویتی را بررسی و دوباره تلاش کنید.');
       }

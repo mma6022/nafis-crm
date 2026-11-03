@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCooldown, cooldownLabel } from '@/lib/use-cooldown';
 import { useTableState } from '@/hooks/use-table-state';
 import { documentFileAccept, supportedDocumentFile } from '@/lib/document-upload-type';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -418,9 +419,11 @@ function SalesApproveWizard({ order, onClose, onDone }: { order: PaymentOrder; o
   const [selected, setSelected] = useState<number | null>(null);
   const [mode, setMode] = useState<'iban' | 'card'>('iban');
   const [value, setValue] = useState('');
+  const verifyCooldown = useCooldown();
   const verify = useMutation({
     mutationFn: () => api.post<BankAccount>(`/customers/${cid}/bank-accounts/verify`, mode === 'iban' ? { iban: `IR${digitsOnly(value)}` } : { cardNumber: digitsOnly(value) }),
     onSuccess: (a) => { setValue(''); qc.invalidateQueries({ queryKey: accountsKey }); if (a?.id) setSelected(a.id); },
+    onError: () => verifyCooldown.start(),
   });
   const approve = useMutation({ mutationFn: () => api.post(`/payment-orders/${order.id}/sales-approve`, { customerBankAccountId: selected }), onSuccess: onDone });
   const verified = (accounts.data ?? []).filter((a) => Boolean(a.verifiedAt));
@@ -436,9 +439,9 @@ function SalesApproveWizard({ order, onClose, onDone }: { order: PaymentOrder; o
       <div className="gp-verify">
         <div className="filter-tabs"><button type="button" className={`filter-tab ${mode === 'iban' ? 'active' : ''}`} onClick={() => setMode('iban')}>شبا</button><button type="button" className={`filter-tab ${mode === 'card' ? 'active' : ''}`} onClick={() => setMode('card')}>کارت</button></div>
         <input dir="ltr" value={value} onChange={(e) => setValue(e.target.value)} placeholder={mode === 'iban' ? '24 رقم بدون IR' : '16 رقم کارت'} data-testid="input-verify-account" />
-        <button type="button" className="btn btn-ghost" disabled={!valid || verify.isPending || !cid} onClick={() => verify.mutate()} data-testid="button-verify-account">{verify.isPending ? 'در حال استعلام…' : 'استعلام مالکیت'}</button>
+        <button type="button" className="btn btn-ghost" disabled={!valid || verify.isPending || !cid || verifyCooldown.active} onClick={() => verify.mutate()} data-testid="button-verify-account" title={verifyCooldown.active ? cooldownLabel(verifyCooldown.left) : undefined}>{verify.isPending ? 'در حال استعلام…' : verifyCooldown.active ? cooldownLabel(verifyCooldown.left) : 'استعلام مالکیت'}</button>
       </div>
-      {verify.isError ? <div className="gp-alert">{errText(verify.error)}</div> : null}
+      {verify.isError ? <div className="gp-alert" role="alert" data-testid="verify-account-error">{errText(verify.error)}</div> : null}
       {verify.isSuccess ? <div className="gp-alert ok">حساب {verify.data?.bankName ?? ''} به نام {verify.data?.ownerName ?? ''} تأیید و انتخاب شد.</div> : null}
     </> : <>
       <div className="gp-kv gp-review"><span>حساب مقصد</span><b>{acc?.bankName} · {acc?.ownerName}</b><span>شبا</span><b dir="ltr" className="mono">{acc?.iban}</b><span>مبلغ</span><b>{toman(order.amountToman)}</b></div>

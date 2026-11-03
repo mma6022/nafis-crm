@@ -1,4 +1,5 @@
 import { matchesCustomerSearch, rankExactCustomerId } from '@/lib/customer-id';
+import { useCooldown, cooldownLabel } from '@/lib/use-cooldown';
 import { CERTIFICATE_INACTIVE_MESSAGE } from '@/lib/contract-send-errors.mjs';
 import { CustomerIdBadge, CustomerName } from '@/components/customer/CustomerName';
 import { OtherOwnerResults } from '@/components/customer/OtherOwnerResults';
@@ -109,6 +110,8 @@ function apiErrorMessage(error: unknown, fallback: string) {
     invalid_manual_values: "فیلدهای دستی قرارداد با تنظیمات فعلی قالب سازگار نیستند. اطلاعات قرارداد را دوباره بررسی کنید.",
     manual_values_invalid: "اطلاعات فیلدهای دستی قرارداد معتبر نیست.",
     manual_values_too_long: "حجم متن فیلدهای دستی قرارداد بیش از حد مجاز است.",
+    identity_provider_no_credit: "شارژ سرویس استعلام تمام شده، به مدیر سیستم بگویید",
+    bank_provider_no_credit: "شارژ سرویس استعلام تمام شده، به مدیر سیستم بگویید",
     identity_provider_unavailable: "یکی از سرویس‌های استعلام هویت در دسترس نیست. کمی بعد دوباره تلاش کنید.",
     identity_provider_timeout: "یکی از سرویس‌های استعلام هویت در زمان مقرر پاسخ نداد.",
     identity_provider_error: "استعلام سرویس‌های هویتی انجام نشد.",
@@ -1066,6 +1069,7 @@ function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, can
   const queryClient = useQueryClient();
   const updateCustomer = useUpdateCustomer();
   const verifyIdentity = useVerifyCustomerIdentity();
+  const verifyCooldown = useCooldown();
   
   const [form, setForm] = useState({
     nationalCode: customer.nationalCode || '',
@@ -1167,7 +1171,7 @@ function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, can
 
   const doVerify = () => {
     setVerifyError('');
-    if (editMode || isVerified) return;
+    if (editMode || isVerified || verifyCooldown.active) return;
     if (Object.keys(validateProfile()).length) {
       setEditing(true);
       return;
@@ -1204,6 +1208,7 @@ function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, can
       },
       onError: (error) => {
         setIdentityInquiryFailed(true);
+        verifyCooldown.start();
         setVerifyError(apiErrorMessage(error, 'استعلام سرویس‌های هویتی انجام نشد یا سرویس در دسترس نیست.'));
       },
     });
@@ -1389,9 +1394,10 @@ function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, can
       {part === 1 && <div className="lwz-card" data-testid="wizard-identity-verify">
         {!isVerified && <p className="lwz-muted">جهت ادامه، باید هویت مشتری (شاهکار، ثبت احوال، ثنا و نشانی) احراز شود.</p>}
         {lastVerificationCheckedAt && <p className="lwz-muted" data-testid="last-verification-time">آخرین استعلام: {formatDateTime(lastVerificationCheckedAt)}</p>}
-        <button type="button" className="btn btn-primary lwz-wide" onClick={doVerify} disabled={isVerified || editMode || verifyIdentity.isPending} data-testid="btn-verify-identity">
+        <button type="button" className="btn btn-primary lwz-wide" onClick={doVerify} disabled={isVerified || editMode || verifyIdentity.isPending || verifyCooldown.active} data-testid="btn-verify-identity">
           {verifyIdentity.isPending
             ? 'در حال استعلام...'
+            : verifyCooldown.active && !isVerified ? cooldownLabel(verifyCooldown.left)
             : isVerified ? 'هویت مشتری تأیید شده است'
             : lastVerificationCheckedAt
               ? 'تلاش دوباره فقط برای موارد ناموفق'

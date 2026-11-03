@@ -7,6 +7,7 @@ import { execute, executeChanges, queryRow, queryRows, runTransaction } from "..
 import { normalizeCustomerNationalCode, normalizeCustomerMobile } from "../lib/customer-integrity";
 import { normalizeDigits, validNationalCode } from "../lib/ics24";
 import { verifyCustomer } from "../lib/sapi";
+import { PORTAL_UNAVAILABLE_FA } from "../lib/provider-credit";
 import { retainedIdentityChecks } from "../lib/identity-check-retention";
 import { normalizeJalali, normalizePostal } from "../lib/customer-portal-validation";
 import { customerPortalIdentityReady } from "../lib/customer-portal-identity";
@@ -230,7 +231,10 @@ router.post("/identity", async (req, res): Promise<void> => {
   res.status(identityReady ? 200 : 422).json({
     identityReady, customerId,
     checks: { shahkarLite: { ok: result.checks.shahkarLite.ok }, personInfo: { ok: result.checks.personInfo.ok } },
-    message: identityReady ? "احراز هویت با موفقیت انجام شد." : !result.checks.shahkarLite.ok
+    // SAPI-NOCREDIT: provider errors (incl. no credit) only ever show the generic text to customers.
+    message: identityReady ? "احراز هویت با موفقیت انجام شد."
+      : result.checks.shahkarLite.completed === false || result.checks.personInfo.completed === false ? PORTAL_UNAVAILABLE_FA
+      : !result.checks.shahkarLite.ok
       ? "تطبیق مالکیت شماره همراه تأیید نشد یا سرویس پاسخ نداد. شماره باید به نام صاحب کد ملی باشد."
       : "استعلام مشخصات هویتی کامل نشد. کد ملی و تاریخ تولد را بررسی و دوباره تلاش کنید.",
   });
@@ -538,6 +542,7 @@ export async function verifyPortalCustomer(req: Request, res: Response): Promise
       checks: publicChecks,
       checkedAt: now,
       error: verified ? null : "Identity verification did not pass all required checks.",
+      ...(!verified && !completed ? { message: PORTAL_UNAVAILABLE_FA } : {}),
     };
     completeClaim(response,completed,true);
     res.status(200).json(response);
@@ -582,6 +587,7 @@ export async function verifyPortalCustomer(req: Request, res: Response): Promise
       checks: failedChecks,
       checkedAt: now,
       error: "Identity verification is currently unavailable.",
+      message: PORTAL_UNAVAILABLE_FA,
     };
     completeClaim(response,false);
     res.status(200).json(response);

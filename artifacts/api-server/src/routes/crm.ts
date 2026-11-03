@@ -185,6 +185,7 @@ import * as ics24 from "../lib/ics24";
 import { questionnaireError, consultationRankMatches, type QuestionnaireOption } from "../lib/consultation-questionnaire";
 import { consultationMaximumAmount } from "../lib/consultation-limits";
 import { verifyCustomer } from "../lib/sapi";
+import { NO_CREDIT_FA, ProviderNoCreditError } from "../lib/provider-credit";
 import { TeamSalesError, latestFirstCall, latestNoPlanFit, latestSelectedPlans, logPriorityChange } from "../lib/team-sales";
 import { assertP1RevertAllowed } from "../lib/history-a";
 import { applyNonP1TransferInTx, NONP1_TRANSFER_HEADER, type NonP1Result } from "../lib/nonp1-transfer";
@@ -2288,7 +2289,7 @@ function currentManualChecks(customer: ManualCustomerIdentity) {
     ok,
     status: ok
       ? providerStatus === "manual_verified" ? "manual_verified" : "verified"
-      : providerStatus === "manual_rejected" ? "manual_rejected" : providerStatus === "unavailable" ? "unavailable" : providerStatus == null ? null : "failed",
+      : providerStatus === "manual_rejected" ? "manual_rejected" : providerStatus === "unavailable" || providerStatus === "provider_no_credit" ? "unavailable" : providerStatus == null ? null : "failed",
   });
   return {
     shahkarLite: status(customer.shahkar_ok === 1, customer.shahkar_status),
@@ -2818,6 +2819,8 @@ router.post(
         name: customer.name,
         fatherName: typeof body.fatherName === "string" ? body.fatherName : null,
       }, retained);
+      // SAPI-NOCREDIT: a no-credit reply is recorded like an unavailable provider (catch path), not as a failed identity.
+      if (result.providerNoCredit) throw new ProviderNoCreditError();
       const now = new Date().toISOString();
       let staleAttempt = false;
       runTransaction(() => {
@@ -2997,6 +3000,10 @@ router.post(
       }
       if (identityConflict) {
         res.status(409).json({ error: "An active customer already has this mobile or national code" });
+        return;
+      }
+      if (error instanceof ProviderNoCreditError) {
+        res.status(502).json({ error: "identity_provider_no_credit", message: NO_CREDIT_FA });
         return;
       }
       res.status(502).json({ error: "SAPI verification unavailable" });

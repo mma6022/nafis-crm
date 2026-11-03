@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { logProviderFailure } from "./provider-credit";
 export function normalizedDigits(value: unknown): string {
   return String(value ?? "").replace(/[۰-۹]/g, d => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
     .replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).trim();
@@ -43,10 +44,20 @@ async function call(operation: keyof typeof paths, input: Record<string, string>
   const target = new URL(paths[operation], process.env.SAPI_API_BASE_URL || "https://s.api.ir");
   if (target.username || target.password || target.protocol !== "https:") throw new Error("bank_verification_unavailable");
   headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(target, { method: "POST", headers, body, signal: AbortSignal.timeout(30000), redirect: "error" });
-  if (!response.ok) throw new Error("bank_verification_unavailable");
-  const result = await response.json() as any;
-  if (result?.success !== true) throw new Error("bank_verification_unavailable");
+  let response: Response;
+  try {
+    response = await fetch(target, { method: "POST", headers, body, signal: AbortSignal.timeout(30000), redirect: "error" });
+  } catch (error) {
+    logProviderFailure("bank", operation, "network", { error: (error as Error)?.name || "fetch_failed" });
+    throw new Error("bank_verification_unavailable");
+  }
+  let result: any = null;
+  try { result = await response.json(); } catch { result = null; }
+  // SAPI-NOCREDIT: the no-credit reply gets its own code; every other provider error keeps bank_verification_unavailable.
+  if (!response.ok || result?.success !== true) {
+    const noCredit = logProviderFailure("bank", operation, response.status, result);
+    throw new Error(noCredit ? "bank_provider_no_credit" : "bank_verification_unavailable");
+  }
   return result;
 }
 export async function lookupBankAccount(ibanInput: unknown): Promise<{ iban: string; ownerName: string }> {

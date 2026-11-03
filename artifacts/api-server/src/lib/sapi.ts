@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { identityEgress, sapiViaProxy } from "./identity-egress";
+import { logProviderFailure } from "./provider-credit";
 
 type SapiCheck = "shahkarLite" | "personInfo" | "postalCodeInfo" | "sana";
 
@@ -17,6 +18,8 @@ export type SapiVerificationResult = {
   checks: Record<SapiCheck, { ok: boolean; providerStatus?: string; completed?: boolean }>;
   canonical: Record<string, string>;
   error?: string;
+  /** SAPI-NOCREDIT: at least one freshly queried check got the provider's no-credit reply (never shown to customers). */
+  providerNoCredit?: boolean;
 };
 
 const checks: SapiCheck[] = ["shahkarLite", "personInfo", "postalCodeInfo", "sana"];
@@ -69,7 +72,10 @@ async function call(pathname: string, payload: Record<string, unknown>): Promise
       const r = await sapiViaProxy(direct, JSON.stringify(payload), { signal: controller.signal });
       let body: unknown = {};
       try { body = JSON.parse(r.text); } catch { body = {}; }
-      if (r.status < 200 || r.status >= 300) throw new Error(`SAPI request failed (${r.status})`);
+      if (r.status < 200 || r.status >= 300) {
+        const noCredit = logProviderFailure("identity", pathname, r.status, body);
+        throw new Error(noCredit ? "sapi_provider_no_credit" : `SAPI request failed (${r.status})`);
+      }
       return asRecord(body);
     } finally {
       clearTimeout(timeout);
@@ -105,7 +111,10 @@ async function call(pathname: string, payload: Record<string, unknown>): Promise
       signal: controller.signal,
     });
     const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(`SAPI request failed (${response.status})`);
+    if (!response.ok) {
+      const noCredit = logProviderFailure("identity", pathname, response.status, body);
+      throw new Error(noCredit ? "sapi_provider_no_credit" : `SAPI request failed (${response.status})`);
+    }
     return asRecord(body);
   } finally {
     clearTimeout(timeout);
@@ -142,6 +151,9 @@ export async function verifyCustomer(
       const providerData = item.data;
       const ok = success(item) &&
         (check === "shahkarLite" || check === "sana" ? providerData === true : true);
+      if (!success(item) && logProviderFailure("identity", check, 200, body)) {
+        return { check, result: { ok: false, completed: false, providerStatus: "provider_no_credit" }, body: {}, noCredit: true };
+      }
       return {
         check,
         result: {
@@ -157,9 +169,10 @@ export async function verifyCustomer(
         result: {
           ok: false,
           completed: false,
-          providerStatus: error instanceof Error ? error.message : "provider_error",
+          providerStatus: error instanceof Error ? (error.message === "sapi_provider_no_credit" ? "provider_no_credit" : error.message) : "provider_error",
         },
         body: {},
+        noCredit: error instanceof Error && error.message === "sapi_provider_no_credit",
       };
     }
   }));
@@ -193,5 +206,6 @@ export async function verifyCustomer(
     checks: checkResults,
     canonical,
     error: failed.length ? `SAPI checks failed: ${failed.join(", ")}` : undefined,
+    providerNoCredit: results.some((item) => (item as { noCredit?: boolean }).noCredit === true),
   };
 }
