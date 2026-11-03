@@ -1,5 +1,5 @@
 /** Part 4 (design simotel v1.2 scenes 27–33): the incoming-call card. Answer / hang up stay on the VoIP phone; this card only shows who is calling.
- *  The current task and turn never change (no lock is bypassed). Not mounted for the admin role, and renders nothing while flag.voip_incoming is off. */
+ *  The current task and turn never change (no lock is bypassed). Not fetched for a plain admin («مدیر فروش» and experts get it), and renders nothing while flag.voip_incoming is off. */
 import { useEffect, useState } from 'react';
 import { Link } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
@@ -35,7 +35,7 @@ export function IncomingCard({ c, ext }: { c: ViCall; ext: string }) {
   const title = ended ? (c.outcome === 'answered' ? 'تماس ورودی تمام شد: پاسخ دادی' : 'تماس ورودی بی‌پاسخ ماند')
     : c.state === 'talking' ? 'تماس ورودی؛ در مکالمه' : 'تماس ورودی؛ تلفن ویپ شما زنگ می‌خورد';
   const [chip, chipK] = KIND_CHIP[c.kind];
-  const caseHref = c.customer ? (c.file && c.kind === 'own' ? `/loan-applications/${c.file.id}` : `/customers/${c.customer.id}`) : null;
+  const caseHref = c.customer ? (c.file && (c.kind === 'own' || (c.kind === 'other' && c.phone)) ? `/loan-applications/${c.file.id}` : `/customers/${c.customer.id}`) : null;
   return <section className={`vi-pop card ${c.state}`} role="dialog" aria-modal="false" aria-labelledby={`vi-h-${c.eventId}`} data-testid="vi-pop" data-kind={c.kind} data-state={c.state}>
     <header className="vi-ph">
       <span className="vi-pi" aria-hidden="true">{ended ? <Check className="i" /> : <Headset className="i" />}</span>
@@ -60,7 +60,7 @@ export function IncomingCard({ c, ext }: { c: ViCall; ext: string }) {
 
       {how ? <p className="vi-how" role="status" data-testid="vi-how"><ArrowLeftRight className="i" aria-hidden="true" /><span>{how}</span></p> : null}
       <div className="vi-acts">
-        {caseHref && (c.kind === 'own' || c.kind === 'support') ? <Link className="btn btn-primary vi-b" href={caseHref} data-testid="vi-open"><FileText size={16} aria-hidden="true" />باز کردن پرونده</Link> : null}
+        {caseHref && (c.kind === 'own' || c.kind === 'support' || (c.kind === 'other' && !!c.phone)) ? /* other + number = sales_manager (server sends the number only to them) */ <Link className="btn btn-primary vi-b" href={caseHref} data-testid="vi-open"><FileText size={16} aria-hidden="true" />باز کردن پرونده</Link> : null}
         {c.kind === 'other' && c.transfer ? <button type="button" className="btn btn-primary vi-b" disabled={!c.transfer.available || !!busy} aria-describedby={`vi-tr-${c.eventId}`} onClick={() => void transfer()} data-testid="vi-transfer">
           <ArrowLeftRight size={16} aria-hidden="true" />انتقال به {c.transfer.ownerName}{c.transfer.extension ? <> (داخلی <bdi>{fa(c.transfer.extension)}</bdi>)</> : null}</button> : null}
         {c.kind === 'unknown' && c.phone && !c.support ? <NewCustomerInline source="incoming" eventId={c.eventId} /> : null}

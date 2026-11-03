@@ -33,12 +33,14 @@ export const VI_ME_KEY = ['voip-incoming', 'me'] as const;
 export const VI_MISSED_KEY = ['voip-incoming', 'missed'] as const;
 function useSessionUser() {
   const { data } = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
-  return data?.user as { id?: number; role?: string; permissions?: string[] } | undefined;
+  return data?.user as { id?: number; role?: string; salesManager?: boolean; permissions?: string[] } | undefined;
 }
-/** Popup state. Never fetched for the admin role (the server 404s it too). With the change stream open: a 15 s safety poll; else 3 s. */
+/** Popup / missed audience: experts, support and «مدیر فروش» (role reads 'admin' + salesManager); never a plain admin. */
+const popupRole = (u: { id?: number; role?: string; salesManager?: boolean } | undefined) => Boolean(u?.id && (u.role !== 'admin' || u.salesManager === true));
+/** Popup state. Never fetched for a plain admin (the server 404s it too). With the change stream open: a 15 s safety poll; else 3 s. */
 export function useViMe() {
   const u = useSessionUser(); const qc = useQueryClient(); const { visible } = useTabState();
-  const enabled = Boolean(u?.id && u.role !== 'admin');
+  const enabled = popupRole(u);
   const [stream, setStream] = useState(false);
   const q = useQuery<ViMe>({ queryKey: [...VI_ME_KEY, u?.id ?? 0], enabled, retry: false, staleTime: 1_000,
     queryFn: () => viReq<ViMe>('GET', '/voip-incoming/me').catch(offOn404<ViMe>({ on: false })),
@@ -58,7 +60,7 @@ export function useViMe() {
 }
 export function useViMissed(enabled = true) {
   const u = useSessionUser();
-  return useQuery<ViMissed>({ queryKey: [...VI_MISSED_KEY, u?.id ?? 0], enabled: enabled && Boolean(u?.id && u.role !== 'admin'), retry: false, staleTime: 5_000,
+  return useQuery<ViMissed>({ queryKey: [...VI_MISSED_KEY, u?.id ?? 0], enabled: enabled && popupRole(u), retry: false, staleTime: 5_000,
     queryFn: () => viReq<ViMissed>('GET', '/voip-incoming/missed').catch(offOn404<ViMissed>({ on: false })),
     refetchInterval: (s) => ((s.state.data as ViMissed | undefined)?.on ? 30_000 : false), refetchIntervalInBackground: false });
 }

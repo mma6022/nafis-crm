@@ -8,6 +8,7 @@
  */
 import type { Request } from "express";
 import { crmDb, executeChanges, queryRow } from "./crm-db";
+import { isSalesManagerUser } from "./sales-manager";
 
 export const VI_FLAGS = { incoming: "flag.voip_incoming", missed: "flag.voip_missed", report: "flag.voip_report" } as const;
 const setting = (key: string): string | null => { try { return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [key])?.value ?? null; } catch { return null; } };
@@ -24,9 +25,12 @@ export function viExtension(userId: number): string | null {
   try { const e = queryRow<{ extension: string | null }>("SELECT extension FROM voip_extensions WHERE user_id=?", [userId])?.extension ?? null; return e && /^[0-9]{2,6}$/.test(e) ? e : null; }
   catch { return null; }
 }
-/** Part 4 popup audience: flag + own extension, never the admin role (experts, sales_manager, support). */
-export function viIncomingFor(u: { id: number; role?: string | null } | null | undefined): boolean {
-  return !!u && u.role !== "admin" && viFlag("incoming", u.id) && viExtension(u.id) != null;
+type ViUser = { id: number; role?: string | null; salesManager?: boolean; baseRole?: string };
+/** Popup / missed audience by role: experts, support and «مدیر فروش» (session role reads 'admin' + salesManager:true); never a plain admin. */
+export const viPopupRole = (u: ViUser | null | undefined): boolean => !!u && (u.role !== "admin" || isSalesManagerUser({ salesManager: u.salesManager, baseRole: u.baseRole, role: u.role ?? undefined }));
+/** Part 4 popup audience: flag + own extension + viPopupRole. */
+export function viIncomingFor(u: ViUser | null | undefined): boolean {
+  return viPopupRole(u) && viFlag("incoming", u!.id) && viExtension(u!.id) != null;
 }
 export function viIsSupport(u: { id: number; role?: string | null }): boolean {
   return setting(`voip_role.user.${Number(u.id)}`) === "support" || (u.role === "registrar" && setting(`voip_role.user.${Number(u.id)}`) !== "expert");
@@ -86,7 +90,8 @@ export function viSince(userId: number): string | null {
 export function viPendingFilterSql(): string {
   if (!viAnyOn("incoming")) return "";
   ensureViMarks();
-  // Admin role never gets the new popup (parent steer 2026-11-03: call popups hidden for admin) → their incoming calls stay in the old queue.
+  // Plain admins never get the new popup (Mohammad 2026-11-03) → their incoming calls stay in the old queue. users.role is the raw DB role here,
+  // so 'sales_manager' passes this filter like the experts do (it gets the popup).
   let users: { id: number; since: string }[] = [];
   try {
     users = (crmDb.prepare("SELECT u.id FROM users u JOIN voip_extensions e ON e.user_id=u.id WHERE u.role<>'admin' AND e.extension IS NOT NULL").all() as { id: number }[])
