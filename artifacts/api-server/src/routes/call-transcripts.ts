@@ -7,7 +7,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import type { AuthUser } from "../lib/auth";
 import { requirePermission } from "../lib/access-control";
 import { queryRows } from "../lib/crm-db";
-import { callView, ctFlag, ctSchemaReady, isCtManager, reportRows, rowView, saveReview, tehranRange, visibleEvent, ctEvent } from "../lib/call-transcripts";
+import { callView, ctAdminViewer, ctFlag, ctSchemaReady, isCtManager, reportRows, rowView, saveReview, tehranRange, visibleEvent, ctEvent } from "../lib/call-transcripts";
 import { queueTranscript, transcriptDTO } from "../lib/recording-transcript-jobs";
 import { storedCallSummary } from "../lib/recording-summary-jobs";
 import { appendSummaryEdit, SummaryEditConflict } from "../lib/recording-summary-edits";
@@ -33,7 +33,7 @@ const eventOf = (req: Request, res: Response) => {
 router.get("/call-transcripts/config", (_req, res) => {
   res.setHeader("Cache-Control", "private, no-store");
   const on = ctFlag("ui"); const u = me(res);
-  res.json(on ? { enabled: true, manager: isCtManager(u) } : { enabled: false });
+  res.json(on ? { enabled: true, manager: isCtManager(u), viewer: ctAdminViewer(u) } : { enabled: false });
 });
 /** CallHistory link map: call_log_id → event for one customer (only the actor's visible calls). */
 router.get("/call-transcripts/customer/:customerId/calls", requirePermission("calls.view"), (req, res) => {
@@ -86,16 +86,17 @@ router.put("/call-transcripts/calls/:eventId/review", requirePermission("calls.v
 });
 router.get("/call-transcripts/report", requirePermission("calls.view"), (req, res) => {
   if (off(res)) return; const u = me(res);
-  if (!isCtManager(u)) return fail(res, 403, "manager_only", "گزارش مرکز تماس فقط برای مدیر فروش است.");
+  if (!ctAdminViewer(u)) return fail(res, 403, "manager_only", "گزارش مرکز تماس فقط برای مدیر فروش و مدیر سیستم است.");
+  const mgr = isCtManager(u); // plain admin: read-only, no review flags (those belong to the sales manager's «بررسی»)
   const r = tehranRange(req.query.from, req.query.to, 93);
   if (!r) return fail(res, 400, "bad_range", "بازه‌ی تاریخ معتبر نیست (حداکثر ۹۳ روز).");
   const expert = req.query.expert == null || req.query.expert === "" ? null : Number(req.query.expert);
   if (expert != null && !Number.isInteger(expert)) return fail(res, 400, "bad_expert", "کارشناس معتبر نیست.");
   const cs = String(req.query.callStatus ?? "all"), ts = String(req.query.textStatus ?? "all");
   if (!["all", "answered", "missed"].includes(cs) || !["all", "completed", "pending", "failed", "no_recording", "pending_or_failed"].includes(ts)) return fail(res, 400, "bad_filter", "فیلتر معتبر نیست.");
-  const out = reportRows({ ...r, expertUserIds: expert == null ? null : [expert], callStatus: cs, textStatus: ts, flagged: req.query.flagged === "1", page: Number(req.query.page ?? 1) || 1 });
+  const out = reportRows({ ...r, expertUserIds: expert == null ? null : [expert], callStatus: cs, textStatus: ts, flagged: mgr && req.query.flagged === "1", page: Number(req.query.page ?? 1) || 1 });
   const experts = queryRows<{ id: number; name: string }>(`SELECT id,COALESCE(full_name,username) name FROM users WHERE active=1 AND id<>29
     AND id IN (SELECT DISTINCT expert_user_id FROM voip_after_call_events WHERE expert_user_id IS NOT NULL) ORDER BY id`);
-  res.json({ from: r.from, to: r.to, total: out.total, page: out.page, pageSize: out.pageSize, experts, rows: out.rows.map(e => rowView(e, summary)) });
+  res.json({ from: r.from, to: r.to, total: out.total, page: out.page, pageSize: out.pageSize, experts, manager: mgr, rows: out.rows.map(e => mgr ? rowView(e, summary) : { ...rowView(e, summary), flagged: false }) });
 });
 export default router;
