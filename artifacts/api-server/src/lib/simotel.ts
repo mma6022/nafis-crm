@@ -77,7 +77,7 @@ function checkStatus(response: Response) {
   throw new SimotelError("provider_failure", 502, "دریافت اطلاعات از سیموتل ناموفق بود.");
 }
 
-async function api(path: "reports/cdr/search" | "reports/audio/download", body: object) {
+async function api(path: "reports/cdr/search" | "reports/audio/download" | "call/originate/act", body: object) {
   const key = process.env.SIMOTEL_API_KEY;
   if (!key) throw new SimotelError("not_configured", 503, "کلید API سیموتل روی سرور تنظیم نشده است.");
   // Do not accept a destination or arbitrary path from a browser request.
@@ -200,4 +200,18 @@ export async function getSimotelAudio(file: string): Promise<Response> {
     throw new SimotelError("invalid_audio", 502, "پاسخ مرکز تماس فایل صوتی معتبر نیست.");
   }
   return response;
+}
+/** VOIP-CALL (Simotel parts 1–2, flag.voip_call): click-to-call. Simotel rings `caller` (the expert's own extension) first and, after it is
+ *  answered, dials `callee` (the customer). Fixed endpoint, server-chosen numbers only (never a browser-supplied destination). */
+export async function simotelOriginate(o: { caller: string; callee: string; context: string; callerId: string; trunkName?: string; timeout: number }): Promise<{ originateId: string | null }> {
+  if (!/^[0-9]{2,6}$/.test(o.caller) || !/^0\d{9,10}$/.test(o.callee) || !/^[A-Za-z0-9_-]{1,64}$/.test(o.context)) {
+    throw new SimotelError("invalid_originate", 400, "داخلی یا شماره‌ی مشتری برای تماس معتبر نیست.");
+  }
+  const body: Record<string, string> = { caller: o.caller, callee: o.callee, context: o.context, caller_id: o.callerId, timeout: String(o.timeout) };
+  if (o.trunkName) body.trunk_name = o.trunkName;
+  const response = await api("call/originate/act", body);
+  const data = await jsonBody(response);
+  if (data?.success !== 1 && data?.success !== true) throw new SimotelError("originate_failed", 502, "سامانه‌ی تلفن تماس را نپذیرفت.");
+  const id = typeof data?.data?.originated_call_id === "string" ? data.data.originated_call_id.slice(0, 128) : null;
+  return { originateId: id };
 }

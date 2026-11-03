@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { crmDb, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
 import { eventFor, experts, customerMatcher, normalizePhone, resolveEvent, finishSavedLiveReport, ensureAfterCallSchema } from "./voip-after-call";
 import { notifyCallReport } from "./voip-call-notifications";
+import { vcOnNewState, vcOnOutgoing } from "./voip-call"; // VOIP-CALL (flag.voip_call, OFF → both return false at once)
 
 type Signal = { cuid:string; phone:string; direction:string };
 function text(value:unknown,max=128) {
@@ -72,6 +73,7 @@ export function receiveSimotelCallEvent(payload:unknown,now=new Date()) {
       const direction=name==="incomingcall"?"incoming":"outgoing";
       executeChanges(`INSERT INTO simotel_call_signals(cuid,phone,direction,received_at) VALUES(?,?,?,?)
         ON CONFLICT(cuid,phone,direction) DO UPDATE SET received_at=excluded.received_at`,[cuid,phone,direction,now.toISOString()]);
+      if(direction==="outgoing" && cuid)vcOnOutgoing(cuid,phone,now);
       // Trunk and extension callbacks can arrive in either order.
       for(const waiting of queryRows<{extension:string;state:string;participant:string|null;direction:string|null;dialer:string|null;received_at:string}>(
         "SELECT * FROM simotel_extension_signals WHERE cuid=?",[cuid])) {
@@ -87,6 +89,7 @@ export function receiveSimotelCallEvent(payload:unknown,now=new Date()) {
         [cuid,extension,state,text(body.participant)||null,text(body.direction)||null,text(body.dialer)||null,now.toISOString()]);
       handled=markLive(body,now);
       liveHandled=handled;
+      if(vcOnNewState(body,now))handled=true;
     } else handled=true;
     if(liveHandled)executeChanges("UPDATE voip_call_reporting_state SET live_event_seen_at=? WHERE id=1",[now.toISOString()]);
     executeChanges("DELETE FROM simotel_call_signals WHERE julianday(received_at)<julianday(?)-2",[now.toISOString()]);

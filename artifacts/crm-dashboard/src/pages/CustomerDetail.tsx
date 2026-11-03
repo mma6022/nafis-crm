@@ -1,4 +1,5 @@
 import { ArrowUp, AlertCircle, ArrowRight, Check, ChevronLeft, Copy, FileText, Flag, Gauge, History, Layers, Lock, MessageSquarePlus, Pencil, Phone, PhoneCall, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, Wallet, X } from 'lucide-react';
+import { CustomerCallHistory, VoipCallBox } from '@/features/voip-call/VoipCall';
 import { SiteAnswersBlock } from '@/features/site-answers/SiteAnswersBlock';
 import { announceCallSaved, cqTelClick } from '@/features/call-queue/api';
 import { CustomerIntroLog } from '@/features/expert-intro-sms/CustomerIntroLog';
@@ -549,6 +550,7 @@ function CustomerDetailFull() {
       {canUpdate ? <button type="button" className="csx-ghost" onClick={() => setEditing(true)} data-testid="button-toggle-customer-edit" aria-haspopup="dialog"><Pencil size={18} /> ویرایش</button> : null}
       {canNewLoan ? <Link href={loanWizardHref(customer.id)} className="csx-primary wide" data-testid="button-new-loan-from-customer"><Plus size={20} /> درخواست تسهیلات جدید</Link> : null}
     </div>
+    <div className="csx-vc"><VoipCallBox customerId={customer.id} customerName={customer.name} variant="customer" /></div>
     {canCall || canConsult ? <div className="acts2">
       {canCall ? <button type="button" className="csx-ghost sm" title={canDialSystem ? 'تماس با تلفن شرکت' : 'برای تماس سیستمی، ابتدا در بخش تلفن شرکت متصل شوید'} onClick={() => { if (canDialSystem) dial(customer.phone); else setLocation('/phone'); }} data-testid="button-sys-call-customer"><Phone size={18} color={canDialSystem ? undefined : '#94a3b8'} /> تماس سیستمی</button> : null}
       {canConsult ? <button type="button" className="csx-ghost sm" onClick={() => setConsultationFormOpen(true)} data-testid="button-create-consultation"><FileText size={18} /> ثبت مشاوره</button> : null}
@@ -709,6 +711,7 @@ function CustomerDetailFull() {
       </li>)}</ol>
       : <p className="muted" style={{ margin: 0 }}>هنوز تماس یا یادداشتی ثبت نشده است.</p>}
     {canCallsCreate ? <button type="button" className="csx-ghost sm" onClick={() => callLauncher.launch(customer)} data-testid="button-add-call-detail" data-form={callChoice} aria-busy={callLauncher.pending ? true : undefined}><MessageSquarePlus size={18} /> ثبت تماس / یادداشت</button> : null}
+    <CustomerCallHistory key={`vch-${id}`} customerId={id} />
     <SiteLeadHistory customer={customer} />
     <CustomerIntroLog key={`eis-${id}`} customerId={id} />
     <CustomerAnnotations key={`ann-${id}`} customerId={id} />

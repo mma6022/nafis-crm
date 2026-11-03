@@ -47,7 +47,7 @@ export const fcApi = {
   list: (p: { q: string; page: number; pageSize: number }) => req<FcList>('GET', `/files-carousel/list?${new URLSearchParams({ q: p.q, page: String(p.page), page_size: String(p.pageSize) })}`),
   opened: (fileId: number) => req<{ ok: true; fileId: number; cleared: number }>('POST', '/files-carousel/opened', { fileId }),
   tel: (fileId: number) => req<{ fileId: number; tel: string | null }>('GET', `/files-carousel/tel/${fileId}`),
-  followup: (b: { fileId: number; outcome: string; note?: string; cancelReason?: string }) => req<{ ok: true; fileId: number; view: FcView }>('POST', '/files-carousel/followup', b),
+  followup: (b: { fileId: number; outcome: string; note?: string; cancelReason?: string; voipCallId?: number }) => req<{ ok: true; fileId: number; view: FcView }>('POST', '/files-carousel/followup', b),
 };
 export const useFcConfig = (userId: number | null | undefined) =>
   useQuery({ queryKey: ['files-carousel', 'config', userId], queryFn: fcApi.config, enabled: userId != null && FC_USERS[userId] != null, retry: false, staleTime: 60_000 });

@@ -21,6 +21,8 @@ import { useBoard } from './FilesBoard';
 import '@/features/daily-plan/daily-plan.css';
 import '@/features/files-carousel/files-carousel.css';
 import './today-split.css';
+import { useVcMe, vcRefresh } from '@/features/voip-call/api';
+import { VoipCallBox, VcCallItem, vcCallAsItem, useMyName, useVcForFile } from '@/features/voip-call/VoipCall';
 
 const JF = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', weekday: 'long', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const at = (iso?: string | null) => { if (!iso) return ''; const d = new Date(iso); if (Number.isNaN(d.getTime())) return '';
@@ -125,10 +127,14 @@ function reasonOf(c: FcCard): { k: string; t: string } | null {
 }
 function TaskCard({ c, pos, total, onResult, onFile }: { c: FcCard; pos: number; total: number; onResult: () => void; onFile: () => void }) {
   const r = reasonOf(c);
+  const vme = useVcMe().data; const vcOn = Boolean(vme?.on); const myName = useMyName();
+  const vcc = vcOn && vme?.call && vme.call.fileId === c.fileId && vme.call.state === 'ended' && vme.call.needsResult ? vme.call : null;
+  const fileBtn = <button type="button" className="btn btn-ghost" onClick={onFile} data-testid="ts-file"><FileText size={16} aria-hidden="true" /> پرونده</button>;
   return <section className="card ts-card" aria-labelledby="ts-card-h" data-testid="ts-card" data-file={c.fileId}>
     <aside className="ts-hist" aria-label="سابقه‌ی پیگیری"><h4><History size={17} aria-hidden="true" /> سابقه‌ی پیگیری</h4>
       {c.lastFollowUp ? <div className="ts-he"><b>{at(c.lastFollowUp.at)}</b><p>{c.lastFollowUp.outcomeLabel ?? 'پیگیری'}</p></div> : <p className="dp-sub">هنوز پیگیری نشده.</p>}
-      {c.fc?.last_activity_at ? <div className="ts-he"><b>آخرین فعالیت پرونده</b><p>{fcDay(c.fc.last_activity_at)}</p></div> : null}</aside>
+      {c.fc?.last_activity_at ? <div className="ts-he"><b>آخرین فعالیت پرونده</b><p>{fcDay(c.fc.last_activity_at)}</p></div> : null}
+      {vcc ? <ol className="vcx vc-cil"><VcCallItem i={vcCallAsItem(vcc, myName)} fresh /></ol> : null}</aside>
     <div className="ts-main">
       <div className="ts-chips"><span className="dp-count">تسک {faNum(pos)} از {faNum(total)}</span>{c.fc ? <CatPill c={c.fc} /> : <span className="dp-chip">{c.groupLabel}</span>}</div>
       <h2 id="ts-card-h">{c.customerName} <span className="dp-id">#{faNum(c.customerId)}</span></h2>
@@ -137,9 +143,10 @@ function TaskCard({ c, pos, total, onResult, onFile }: { c: FcCard; pos: number;
       {r ? <div className="dp-keynote ts-reason"><small>{r.k}</small><q data-testid="ts-reason">{r.t}</q></div> : null}
       {c.ask ? <div className="dp-keynote"><small>چی بپرسم</small><q>{c.ask}</q></div> : null}
       {c.phone ? <div className="ts-ph"><small>شماره‌ی مشتری</small><CallNumber phone={c.phone} customerId={c.customerId} via="files" testId="ts-ph" /></div> : null}
+      {vcOn ? <VoipCallBox customerId={c.customerId} fileId={c.fileId} customerName={c.customerName} onResult={onResult} extra={fileBtn} /> : <>
       <div className="dp-actions"><button type="button" className="btn btn-primary" onClick={onResult} data-testid="ts-call"><Check size={16} aria-hidden="true" /> تماس گرفتم، ثبت نتیجه</button>
-        <button type="button" className="btn btn-ghost" onClick={onFile} data-testid="ts-file"><FileText size={16} aria-hidden="true" /> پرونده</button></div>
-      <p className="ts-lock"><Lock size={13} aria-hidden="true" /> با گوشی خودت شماره را بگیر، بعد «تماس گرفتم، ثبت نتیجه» را بزن. تسک بعدی تا ثبت نتیجه قفل است.</p>
+        {fileBtn}</div>
+      <p className="ts-lock"><Lock size={13} aria-hidden="true" /> با گوشی خودت شماره را بگیر، بعد «تماس گرفتم، ثبت نتیجه» را بزن. تسک بعدی تا ثبت نتیجه قفل است.</p></>}
     </div>
     <aside className="ts-file" aria-label="پرونده"><h4><FileText size={17} aria-hidden="true" /> پرونده</h4>
       <dl><dt>شماره‌ی پرونده</dt><dd>{faNum(c.fileId)}</dd><dt>مرحله</dt><dd>{loanStageLabel(c.stage)}</dd>
@@ -152,13 +159,19 @@ function ResultDialog({ c, v, pos, onClose, onSaved }: { c: FcCard; v: FcView; p
   const [o, setO] = useState(''); const [note, setNote] = useState(''); const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [confirm, setConfirm] = useState(false);
   const box = useRef<HTMLDivElement>(null); const first = useRef<HTMLButtonElement>(null);
   useEffect(() => { const prev = document.activeElement as HTMLElement | null; first.current?.focus(); return () => prev?.focus?.(); }, []);
+  const qc = useQueryClient(); const vcc = useVcForFile(c.fileId); const myName = useMyName();
+  const [pre, setPre] = useState<string | null>(null);
+  useEffect(() => { if (vcc?.prefill && !o && v.outcomes.some((x) => x.code === vcc.prefill)) { setO(vcc.prefill); setPre(vcc.prefill); } // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vcc?.id]);
   const cx = o === 'cancelled'; const step = !o ? 2 : 3;
+  const oneTap = Boolean(vcc?.oneTap && o === 'no_answer');
   const submit = async () => {
     if (!o) { setErr('نتیجه را انتخاب کن.'); return; }
-    if (!note.trim()) { setErr(cx ? 'دلیل لغو را بنویس؛ بدون دلیل، پرونده لغو نمی‌شود.' : 'یادداشت یک‌خطی لازم است.'); return; }
+    if (!note.trim() && !oneTap) { setErr(cx ? 'دلیل لغو را بنویس؛ بدون دلیل، پرونده لغو نمی‌شود.' : 'یادداشت یک‌خطی لازم است.'); return; }
     if (cx && !confirm) { setConfirm(true); return; }
     setBusy(true); setErr('');
-    try { const r = await fcApi.followup(cx ? { fileId: c.fileId, outcome: 'cancelled', cancelReason: note.trim() } : { fileId: c.fileId, outcome: o, note: note.trim() }); onSaved(r.view, c.customerName); }
+    try { const r = await fcApi.followup(cx ? { fileId: c.fileId, outcome: 'cancelled', cancelReason: note.trim(), voipCallId: vcc?.id } : { fileId: c.fileId, outcome: o, note: note.trim(), voipCallId: vcc?.id });
+      if (vcc) vcRefresh(qc); onSaved(r.view, c.customerName); }
     catch (e) { setConfirm(false); setErr(e instanceof Error ? e.message : 'ثبت نشد.'); } finally { setBusy(false); }
   };
   const onKey = (e: React.KeyboardEvent) => { if (e.key === 'Escape' && !busy) { e.preventDefault(); onClose(); return; }
@@ -171,19 +184,24 @@ function ResultDialog({ c, v, pos, onClose, onSaved }: { c: FcCard; v: FcView; p
       <div className="ts-body">
         <ol className="ts-steps" aria-label={`گام ${faNum(step)} از ۳`}>{['تماس', 'نتیجه', 'یادداشت و ثبت'].map((t, i) => <li key={t} className={i + 1 < step ? 'dn' : i + 1 === step ? 'on' : ''} aria-current={i + 1 === step ? 'step' : undefined}>
           <span>{i + 1 < step ? <Check size={13} aria-hidden="true" /> : faNum(i + 1)}</span>{t}</li>)}</ol>
-        {c.phone ? <div className="ts-ph sm"><small>شماره‌ی مشتری</small><CallNumber phone={c.phone} customerId={c.customerId} via="files" testId="ts-r-ph" /></div> : null}
+        {vcc ? <div className="vcx vc-atc" data-testid="vc-attached"><p className="vc-atch"><Check className="i" aria-hidden="true" /><b>این تماس خودکار به پرونده وصل شد</b></p>
+          <ol className="vc-cil"><VcCallItem i={vcCallAsItem(vcc, myName)} /></ol></div>
+          : c.phone ? <div className="ts-ph sm"><small>شماره‌ی مشتری</small><CallNumber phone={c.phone} customerId={c.customerId} via="files" testId="ts-r-ph" /></div> : null}
         <fieldset className="ts-res"><legend>نتیجه</legend><div className="ts-rlist" role="radiogroup">{v.outcomes.map((x) => <label key={x.code} className={`ts-rr${o === x.code ? ' on' : ''}${x.code === 'cancelled' ? ' cx' : ''}`}>
-          <input type="radio" name="ts-o" value={x.code} checked={o === x.code} onChange={() => { setO(x.code); setErr(''); setConfirm(false); }} data-testid={`ts-o-${x.code}`} /> {x.label}</label>)}</div></fieldset>
+          <input type="radio" name="ts-o" value={x.code} checked={o === x.code} onChange={() => { setO(x.code); setErr(''); setConfirm(false); }} data-testid={`ts-o-${x.code}`} /> {x.label}{pre === x.code ? <small className="vc-pre" data-testid="vc-pre"> از تماس</small> : null}</label>)}</div></fieldset>
+        {vcc && pre && o === pre ? <p className="ts-hint vc-pfn" role="note" data-testid="vc-pfn"><Check size={14} aria-hidden="true" /> <span>{vcc.outcome === 'busy' ? 'از وضعیت تماس پیش‌پر شد: خط «اشغال» بود، پس «پاسخ نداد». اگر درست نیست، عوضش کن.'
+          : vcc.outcome === 'answered' ? 'از وضعیت تماس پیش‌پر شد: «پاسخ داد». اگر درست نیست، عوضش کن.' : 'از وضعیت تماس پیش‌پر شد: «پاسخ نداد». اگر درست نیست، عوضش کن.'}</span></p> : null}
+        {oneTap ? <p className="dp-box ok sm vc-one1" role="note" data-testid="vc-onetap"><Check size={15} aria-hidden="true" /> همین حالا با یک ضربه ثبت می‌شود: فیلد اجباری یا مرحله‌ی تأیید دیگری نیست. یادداشت اختیاری است.</p> : null}
         {c.state === 'current' ? <div className="ts-chips"><span className="ts-turn" data-testid="ts-r-turn"><Flag size={14} aria-hidden="true" /> نوبت این پرونده‌ست</span></div> : null}
         <p className="ts-hint" role="note" data-testid="ts-r-fu"><History size={14} aria-hidden="true" /> <span>این تماس پیگیری امروز همین پرونده هم حساب می‌شود. نتیجه‌ی نهایی فقط «لغو شده» یا رفتن پرونده به مرحله‌ی بعد است؛ تماس به‌تنهایی پرونده را جلو نمی‌برد. بدون نتیجه‌ی نهایی، پرونده روی تخته «پیگیری شد، فردا» می‌شود و نوبت به پرونده‌ی بعدی می‌رسد.</span></p>
         <p className="dp-sub">«لغو شده» قدم دلیل لغو را باز می‌کند، مثل امروز.</p>
-        <label className="ts-nl" htmlFor="ts-note"><b>{cx ? 'دلیل لغو' : 'یادداشت یک‌خطی'}</b></label>
+        <label className="ts-nl" htmlFor="ts-note"><b>{cx ? 'دلیل لغو' : 'یادداشت یک‌خطی'}</b>{oneTap ? <small className="muted"> (اختیاری)</small> : null}</label>
         <textarea id="ts-note" className="inp" rows={2} value={note} maxLength={cx ? v.cancelReasonMax ?? 500 : v.noteMax} onChange={(e) => { setNote(e.target.value.replace(/[\r\n]/g, ' ')); setErr(''); setConfirm(false); }}
-          placeholder={cx ? 'مثلاً «از بانک دیگری وام گرفت و دیگر نیاز ندارد»' : 'خلاصه‌ی تماس در یک خط'} data-testid="ts-note" />
+          placeholder={cx ? 'مثلاً «از بانک دیگری وام گرفت و دیگر نیاز ندارد»' : oneTap ? 'اختیاری؛ مثلاً «فردا صبح دوباره»' : 'خلاصه‌ی تماس در یک خط'} data-testid="ts-note" />
         {confirm ? <p className="dp-box warn sm" role="alert" data-testid="ts-cx-confirm"><AlertCircle size={15} aria-hidden="true" /> <b>برگرداندن لغو فقط با ادمین است.</b> پرونده از «پرونده‌های من» و کارهای امروز بیرون می‌رود. برای لغو، دوباره دکمه را بزن.</p> : null}
         {err ? <p className="dp-err" role="alert" data-testid="ts-err">{err}</p> : null}
       </div>
-      <footer><button type="button" className={`btn ${cx ? 'fc-dzf' : 'btn-primary'}`} disabled={busy || !o || !note.trim()} onClick={() => void submit()} data-testid="ts-save">
+      <footer><button type="button" className={`btn ${cx ? 'fc-dzf' : 'btn-primary'}`} disabled={busy || !o || (!note.trim() && !oneTap)} onClick={() => void submit()} data-testid="ts-save">
         {busy ? 'در حال ثبت…' : cx ? confirm ? 'بله، لغو شود و تسک بعدی' : 'لغو پرونده و تسک بعدی' : 'ثبت و تسک بعدی'}</button>
         <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy} data-testid="ts-later">بعداً</button></footer>
     </div>
