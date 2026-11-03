@@ -10,7 +10,7 @@ import { noteText } from "./note-text";
 import { createHash } from "node:crypto";
 import { execute, executeChanges, queryRow, queryRows, runImmediateTransaction, type SqlValue } from "./crm-db";
 import {
-  CQ_EXCLUDED_USER_IDS, CQ_LIMITS, CQ_OUTCOMES, cqDisciplineSettings, cqFlags, cqOnTime, cqPendingCall, cqQueue, cqRaw, cqSetRaw, ensureCallQueueSchema,
+  CQ_EXCLUDED_USER_IDS, CQ_LIMITS, CQ_OUTCOMES, cqDisciplineSettings, cqCloseCallsOfFormerOwner, cqFlags, cqOnTime, cqPendingCall, cqQueue, cqRaw, cqSetRaw, ensureCallQueueSchema,
   fromTehran, isWorkDay, tParts, tYmd, type CqUser,
 } from "./call-queue";
 import { cqEligibleUsers } from "./call-queue-r2";
@@ -811,6 +811,8 @@ export function dpRefresh(p0: Plan, now = new Date()): Plan {
     const c = queryRow<{ salesperson_id: number | null; merged: number | null }>("SELECT salesperson_id, merged_into_customer_id merged FROM customers WHERE id=?", [it.customer_id]);
     if (c && Number(c.salesperson_id) === sp && c.merged == null) continue;
     executeChanges("UPDATE dp_items SET status='transferred', label=?, done_at=? WHERE id=?", [DP_LABELS.transferred, at, it.id]);
+    // OWNER-CHANGE-UNBLOCK (t154u): also close this expert's unreported CRM-button call on the moved customer (any owner-change path).
+    cqCloseCallsOfFormerOwner({ customerId: it.customer_id }, at, "owner_changed");
     const np = c && c.merged == null && c.salesperson_id != null ? openPlanOf(Number(c.salesperson_id), today) : null;
     if (np && seenOnce(np.id, `t:${it.id}`)) { seenOnce(np.id, `n:${it.customer_id}`); pushExtra(np, it.customer_id, firstIfNoCalls(it.customer_id, it.type), 1, DP_LABELS.added, "transferred_in", at, it.reason); }
   }

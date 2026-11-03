@@ -25,6 +25,7 @@
  * per-purchase salesperson_id and only history rows with new_priority=1 and source qualifier_form / promote.
  */
 import { rfTagHandoff } from "./reminder-follow";
+import { cqCloseCallsOfFormerOwner } from "./call-queue";
 import { executeChanges, queryRow } from "./crm-db";
 import { getTeamSalesConfig, logPriorityChange } from "./team-sales";
 
@@ -130,6 +131,9 @@ export function applyNonP1TransferInTx(input: NonP1Input): NonP1Result {
   if (changed !== 1) return { transferred: false, skip: "concurrent_change", fromSalespersonId: d.fromSalespersonId, toSalespersonId: null };
   // REMINDERS-FOLLOW: the owner trigger already moved the open reminders and wrote the hand-off row (7-day read-only); label it.
   rfTagHandoff(input.customerId, input.reactivation ? "reactivation" : "nonp1_auto_transfer");
+  // OWNER-CHANGE-UNBLOCK (t154u): the previous expert's unreported CRM-button call on this customer is closed in the SAME transaction,
+  // so it never blocks their next item (their Today item itself turns «منتقل شد» on the next dpRefresh; reminders already moved above).
+  cqCloseCallsOfFormerOwner({ customerId: input.customerId }, nowIso, input.reactivation ? "owner_changed_reactivation" : "owner_changed_priority_down");
   if (bells) {
     // No staff notification: drop the bell rows fired by THIS move, and mark the customer's earlier events (incl. the
     // priority edit just written) read for the qualifier's users, since bell scope follows the current owner.
