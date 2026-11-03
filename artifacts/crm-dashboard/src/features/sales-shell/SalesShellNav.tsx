@@ -3,12 +3,12 @@
  *  Layers (spec §5): header 30 < scrim 38 / «بیشتر» 39 < dock 40 < modals 60+ < reminder lock. The dock is inert under any modal. */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Link } from 'wouter';
-import { LayoutGrid, LifeBuoy, LogOut, Moon, UserPlus } from 'lucide-react';
+import { LayoutGrid, LifeBuoy, Lock, LogOut, Moon, UserPlus } from 'lucide-react';
 import { faNum } from './api';
 import './sales-shell.css';
 
 export type SsBadge = { n: number; tone: 'r' | 'g' | 'n'; what: string };
-export type SsItem = { key: string; href?: string; label: string; full: string; icon: ReactNode; badge?: SsBadge | null; moon?: boolean; onSelect?: () => void; testId: string; avatar?: boolean };
+export type SsItem = { key: string; href?: string; label: string; full: string; icon: ReactNode; badge?: SsBadge | null; moon?: boolean; lock?: boolean; onSelect?: () => void; testId: string; avatar?: boolean };
 export type SsGroup = { title: string; items: SsItem[] };
 
 const PRIMARY_FULL = 'الان مشتری جدید دارم';
@@ -16,7 +16,7 @@ const PRIMARY_ARIA = 'الان مشتری جدید دارم: تماس ورودی
 const PRIMARY_TIP = 'تماس ورودی؛ کار جاری عوض نمی‌شود';
 const MORE_ARIA = 'بیشتر: یادآورها، پیام‌ها، دستیار و بقیه';
 
-const ariaOf = (it: SsItem) => it.badge && it.badge.n > 0 ? `${it.full}، ${faNum(it.badge.n)} ${it.badge.what}` : it.full;
+const ariaOf = (it: SsItem) => it.lock ? it.full : it.badge && it.badge.n > 0 ? `${it.full}، ${faNum(it.badge.n)} ${it.badge.what}` : it.full;
 const badgeEl = (b?: SsBadge | null) => b && b.n > 0 ? <b className={`ss-bdg${b.tone === 'r' ? '' : ` ${b.tone}`}`} aria-hidden="true">{b.n > 99 ? '+۹۹' : faNum(b.n)}</b> : null;
 const sumBadges = (items: SsItem[]) => items.reduce((s, i) => s + (i.badge?.n ?? 0), 0);
 
@@ -105,7 +105,7 @@ export function SalesShellNav(p: Props) {
   const itemEl = (it: SsItem, i: number) => {
     const act = activeOf(it);
     const inner = <>
-      <span className={`${p.mobile ? 'ss-tb-ic' : 'ss-ic'}${it.avatar ? ' ss-avx' : ''}`} aria-hidden="true">{it.icon}{badgeEl(it.badge)}{it.moon ? <span className="ss-moon"><Moon size={13} /></span> : null}</span>
+      <span className={`${p.mobile ? 'ss-tb-ic' : 'ss-ic'}${it.avatar ? ' ss-avx' : ''}`} aria-hidden="true">{it.icon}{badgeEl(it.badge)}{it.moon ? <span className="ss-moon"><Moon size={13} /></span> : null}{it.lock ? <span className="ss-moon ss-lockb" data-testid={`ss-lock-${it.testId}`}><Lock size={12} /></span> : null}</span>
       <span className="ss-lb">{it.label}</span>
       {!p.mobile ? <span className="ss-tip" aria-hidden="true">{it.full}</span> : null}
     </>;
@@ -140,7 +140,7 @@ export function SalesShellNav(p: Props) {
 
   const tile = (it: SsItem) => {
     const act = activeOf(it);
-    const inner = <><span className={`ss-ic${it.avatar ? ' ss-avx' : ''}`} aria-hidden="true">{it.icon}{badgeEl(it.badge)}{it.moon ? <span className="ss-moon"><Moon size={13} /></span> : null}</span><span>{it.label}</span></>;
+    const inner = <><span className={`ss-ic${it.avatar ? ' ss-avx' : ''}`} aria-hidden="true">{it.icon}{badgeEl(it.badge)}{it.moon ? <span className="ss-moon"><Moon size={13} /></span> : null}{it.lock ? <span className="ss-moon ss-lockb" data-testid={`ss-lock-${it.testId}`}><Lock size={12} /></span> : null}</span><span>{it.label}</span></>;
     const pick = () => { close(false); it.onSelect?.(); };
     return it.href
       ? <Link key={it.key} href={it.href} className="ss-mt" aria-label={ariaOf(it)} aria-current={act ? 'page' : undefined} onClick={() => close(false)} data-testid={`ss-more-${it.testId}`}>{inner}</Link>

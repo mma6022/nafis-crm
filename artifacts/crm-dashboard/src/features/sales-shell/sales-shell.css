@@ -172,3 +172,4 @@ html.ssv2-on .diag-floating{bottom:calc(var(--ss-dock-h) + 28px + env(safe-area-
 .ph .phc{width:44px;height:44px;display:grid;place-items:center;border-radius:12px;color:var(--nf-ink-muted,#5B6280);background:transparent;border:0;cursor:pointer}
 .ph .phc:hover,.ph .phc.done{background:var(--nf-surface-2,#F3F4F9);color:var(--nf-brand-600,#29369B)}
 .ss-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.ss-lockb{background:#fff;color:var(--nf-brand-700,#2b3a9b);border-color:var(--nf-line,#dfe3ee)}

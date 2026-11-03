@@ -11,6 +11,7 @@ import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransa
 import { cqRaw, isWorkDay, tParts, tYmd, fromTehran, CQ_OUTCOMES } from "./call-queue";
 import { EL_USERS } from "./expert-lockdown";
 import { tsOnSp } from "./today-split";
+import { flOn, FL_MESSAGE } from "./files-lock";
 import { maskCustomerName } from "./cross-owner-search";
 import { faDigits, fcCategories, fcInGroupCompare, fcOldDays, FC_GROUP_LABELS83, FC_OLD_DAYS_KEY, FC_OLD_DAYS_DEFAULT, type FcCategory } from "./files-category";
 
@@ -489,6 +490,27 @@ export function fcWriteLocked(u: U, fileId: number, now = new Date()): boolean {
   return deck.cards.some(c => c.f.id === fileId && c.state === "pending");
 }
 
+/** FILES-LOCK (stage 2, design 13): with the user's flag on, a file created today (the always-open «ثبت پرونده جدید») stays writable
+ *  even though it joins the deck as pending, so the wizard can finish. Flag off → false (stage-1 behaviour unchanged). */
+export function fcNewToday(u: U, fileId: number, now = new Date()): boolean {
+  if (!flOn(Number(u.id))) return false;
+  const f = fileById(fileId);
+  return Boolean(f?.created_at && fcToday(new Date(f.created_at)) === fcToday(now));
+}
+/** FILES-LOCK (stage 2, flag.files_lock.user.<id>): while today's «بالفعل» tasks remain and the list has not opened, a write on any OWN
+ *  open file other than the current card → locked. Not locked: files done today, files created today (the always-open «ثبت پرونده»). */
+export function fcFilesLocked(u: U, fileId: number, now = new Date()): boolean {
+  if (!flOn(Number(u.id))) return false;
+  ensureFcSchema();
+  const sp = Number(u.salespersonId); const day = fcToday(now);
+  const f = fileById(fileId); if (!f || !f.open || Number(f.owner) !== sp) return false;
+  if (f.created_at && fcToday(new Date(f.created_at)) === day) return false;
+  if (queryRow("SELECT 1 x FROM fc_followups WHERE salesperson_id=? AND day=? AND file_id=?", [sp, day, fileId])) return false;
+  const d = dayRow(sp, day); if (!d?.started_at || d.list_opened_at) return false;
+  const deck = fcDeck(sp, day, now);
+  if (deck.listOpen || deck.current === fileId) return false;
+  return deck.cards.some(c => c.state !== "done");
+}
 /** Express guard (after expertLockdownGuard): users 8/2/3 while ON — a write on another open file of theirs (not current, not done today) → 423 files_locked. */
 export function filesCarouselGuard(req: any, res: any, next: any): void {
   const u = res.locals.authUser as U | undefined;
@@ -500,8 +522,11 @@ export function filesCarouselGuard(req: any, res: any, next: any): void {
   const m = /^\/loan-applications\/(\d+)(\/|$)/.exec(req.path);
   if (!m || !fcOn()) { next(); return; }
   try {
-    if (fcWriteLocked(u!, Number(m[1]))) {
+    if (fcWriteLocked(u!, Number(m[1])) && !fcNewToday(u!, Number(m[1]))) {
       res.status(423).json({ error: "files_locked", message: "اول نتیجه‌ی پیگیری پرونده‌ی جاری را ثبت کن؛ این پرونده هنوز نوبتش نشده.", details: { fileId: Number(m[1]) } }); return;
+    }
+    if (fcFilesLocked(u!, Number(m[1]))) {
+      res.status(423).json({ error: "files_lock", message: FL_MESSAGE, details: { fileId: Number(m[1]) } }); return;
     }
   } catch { /* never block on a guard error */ }
   next();

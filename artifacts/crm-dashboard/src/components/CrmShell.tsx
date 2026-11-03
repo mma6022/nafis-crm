@@ -31,6 +31,7 @@ import { EL_UIDS, elPageAllowed, useLockdownMe } from '@/features/expert-lockdow
 import { LockdownNotice } from '@/features/expert-lockdown/LockdownNotice';
 import { asFetch, asVisibleTo } from '@/features/assistant/api';
 import { cqOn, faNum, useCqConfig } from '@/features/call-queue/api';
+import { useFilesLockHint } from '@/features/today-split/api';
 import { CallQueueHost } from '@/features/call-queue/CallQueueHost';
 import { dpActive, dpManager, useDpConfig } from '@/features/daily-plan/api';
 import { useLeadAnnotatorMe } from '@/features/lead-annotator/api';
@@ -645,7 +646,11 @@ function SsNavHost(p: SsHostProps) {
   const has = (href: string) => p.navItems.find(i => i.href === href);
   const ic = (I: LucideIcon) => <I size={24} aria-hidden="true" />;
   const n = (href: string) => pageCounts[href] ?? 0;
+  // FILES-LOCK (stage 2): cache-only hint; null unless that user's flag.files_lock is on and «بالفعل» tasks remain.
+  const { data: ssSession } = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
+  const fl = useFilesLockHint(ssSession?.user?.id != null ? Number(ssSession.user.id) : null);
   const badgeFor = (href: string): SsItem['badge'] => {
+    if (fl && (href === '/today' || href === '/')) return { n: fl.remaining, tone: 'r', what: 'تسک بالفعل مانده' };
     if (href === '/reminders') return p.overdue ? { n: p.overdue, tone: 'r', what: 'یادآور سررسیده' } : null;
     if (href === '/loan-applications') return p.drafts ? { n: p.drafts, tone: p.draftsLate ? 'r' : 'g', what: 'درخواست در انتظار ثبت' } : null;
     if (href === '/messengers') return n(href) ? { n: n(href), tone: 'n', what: 'پیام تازه' } : null;
@@ -661,7 +666,8 @@ function SsNavHost(p: SsHostProps) {
     if (!href) return null;
     const it = has(href); if (!it) return null;
     const m = SS_MAIN[href] ?? (href === '/' ? SS_MAIN['/today'] : null); if (!m) return null;
-    return { ...m, href, icon: ic(it.icon), badge: badgeFor(href) };
+    const base: SsItem = { ...m, href, icon: ic(it.icon), badge: badgeFor(href) };
+    return fl && href === '/loan-applications' ? { ...base, lock: true, full: `${m.full}، بسته تا پایان ${faNum(fl.remaining)} تسک بالفعل` } : base;
   };
   const today = mainOf(todayHref), cust = mainOf('/customers'), files = mainOf('/loan-applications'), rem = mainOf('/reminders'), msg = mainOf('/messengers'), team = mainOf('/internal-chat');
   const astItem: SsItem | null = p.ast ? { key: 'ast', label: 'دستیار', full: `چت دستیار (${p.ast.name})`, icon: <>{p.ast.name.slice(0, 1)}</>, avatar: true, testId: 'ast', onSelect: p.ast.open, moon: p.ast.dnd,

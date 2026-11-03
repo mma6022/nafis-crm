@@ -5,6 +5,7 @@
 import { Router, type IRouter, type Response } from "express";
 import type { AuthUser } from "../lib/auth";
 import { tsOn } from "../lib/today-split";
+import { flOn } from "../lib/files-lock";
 import { fcAdminUncancel, fcCatOn, fcEnabledFor, fcExpertFollowup, fcExpertList, fcExpertOpened, fcExpertTel, fcExpertView, fcIsErr, fcTarget, fcOn } from "../lib/files-carousel";
 
 const router: IRouter = Router();
@@ -16,7 +17,9 @@ const off = (res: Response) => {
 router.get("/files-carousel/config", (_req, res) => { const u = me(res) as any; res.json({ enabled: Boolean(fcTarget(u) && fcOn()) }); });
 /** TODAY-SPLIT: is the two-tab «کارهای امروز من» on for me? Any signed-in user may ask; false unless 8/2/3 + both file flags + own flag. */
 router.get("/files-carousel/split", (_req, res) => { const u = me(res) as any; res.setHeader("Cache-Control", "private, no-store");
-  res.json({ on: Boolean(u && fcEnabledFor(u) && fcCatOn() && tsOn(Number(u.id))) }); });
+  const on = Boolean(u && fcEnabledFor(u) && fcCatOn() && tsOn(Number(u.id)));
+  // FILES-LOCK: the key exists only while that user's own flag.files_lock is on (flag off → same body as before).
+  res.json(on && flOn(Number(u.id)) ? { on, filesLock: true } : { on }); });
 router.get("/files-carousel/today", (_req, res) => { if (off(res)) return; res.json(fcExpertView(me(res) as any)); });
 router.post("/files-carousel/followup", (req, res) => {
   if (off(res)) return;
