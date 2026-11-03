@@ -267,7 +267,16 @@ export function syncAfterCalls() {
         const result = await getSimotelCalls(day, day, true);
         ingestAfterCalls(result.rows, now);
         // R2 VC-CDR: click-to-call originates arrive as type "local" legs keyed by originated_call_id; the customer's own leg decides.
-        try { const { vcIngestOriginate } = await import("./voip-call"); vcIngestOriginate(result.rows, now); }
+        try {
+          const { vcIngestOriginate } = await import("./voip-call");
+          const decisions = vcIngestOriginate(result.rows, now);
+          // R3 VNA: customer SMS for a dialed-but-not-answered click call (own flag, default OFF; serialized, never throws).
+          if (decisions.some((d) => d.notAnswered)) {
+            const [{ vnaAfterDecisions }, { sendExpertIntroPattern }, { getNotificationSettings }] =
+              await Promise.all([import("./voip-noanswer-sms"), import("./expert-intro-sms"), import("./customer-notifications")]);
+            void vnaAfterDecisions(decisions, { send: sendExpertIntroPattern, ippanelEnabled: () => getNotificationSettings().ippanelEnabled });
+          }
+        }
         catch (e) { const { logger } = await import("./logger"); logger.error({ err: e instanceof Error ? e.message.slice(0, 200) : "error" }, "vc_cdr_ingest_failed"); }
         executeChanges("UPDATE voip_after_call_state SET last_checked_at=?,sync_error=NULL WHERE id=1",
           [day === today ? now.toISOString() : new Date(`${day}T23:59:59+03:30`).toISOString()]);

@@ -14,6 +14,7 @@ import type { AuthUser } from "./auth";
 import { crmDb, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
 import { normalizePhone, resolveEvent, experts, customerMatcher } from "./voip-after-call";
 import { simotelOriginate, SimotelError, type SimotelCall } from "./simotel";
+import { vnaSent } from "./voip-noanswer-sms";
 
 export const VC_ME_TIMEOUT_S = 30;
 const REQUEST_STALE_S = 45, DIAL_STALE_S = 180, TALK_STALE_S = 4 * 3600, NOTICE_KEEP_S = 15 * 60;
@@ -143,7 +144,7 @@ export function vcCustomerLeg(rows: SimotelCall[], phone: string): { custStatus:
   return { custStatus: "UNKNOWN", billsec: Math.max(legBill, rowBill), answered: false, notAnswered: false };
 }
 const ORIG_SETTLE_MS = 60_000; // every leg of one originate is published within seconds; wait so the decision sees all of them
-export type VcCdrDecision = { callId: number; custStatus: string; notAnswered: boolean };
+export type VcCdrDecision = { callId: number; custStatus: string; notAnswered: boolean; startedAt: string | null; endedAt: string | null };
 /** R2 VC-CDR: called by syncAfterCalls with each day's CDR rows. Idempotent (only click calls whose cust_status is still NULL). */
 export function vcIngestOriginate(rows: SimotelCall[], now = new Date()): VcCdrDecision[] {
   if (!vcTableExists()) return [];
@@ -201,7 +202,10 @@ export function vcIngestOriginate(rows: SimotelCall[], now = new Date()): VcCdrD
       const fresh = queryRow<VcRow>("SELECT * FROM voip_click_calls WHERE id=?", [c.id])!;
       if (fresh.result_saved_at && fresh.event_id != null) vcCompleteEvent(fresh.event_id, fresh.user_id, now);
     });
-    out.push({ callId: c.id, custStatus: leg.custStatus, notAnswered: leg.notAnswered });
+    // call start = earliest leg end − duration (the CDR "start" field is Jalali text); falls back to the click time.
+    const starts = legs.map((r) => Number(r.endtime?.$date?.$numberLong) - Number(r.duration) * 1000).filter((x) => Number.isFinite(x) && x > 0);
+    out.push({ callId: c.id, custStatus: leg.custStatus, notAnswered: leg.notAnswered, endedAt: endedIso,
+      startedAt: starts.length ? new Date(Math.min(...starts)).toISOString() : c.created_at });
   }
   return out;
 }
@@ -221,7 +225,7 @@ export type VcView = {
   createdAt: string; secondsLeft: number | null; meAnsweredAt: string | null; custAnsweredAt: string | null; endedAt: string | null;
   durationSeconds: number | null; cdr: boolean; recording: "processing" | "ready" | "none"; eventId: number | null; active: boolean;
   needsResult: boolean; resultSaved: boolean; resultOutcome: string | null; prefill: "answered" | "no_answer" | null; oneTap: boolean; errorCode: string | null;
-  custStatus: string | null; billsec: number | null;
+  custStatus: string | null; billsec: number | null; noanswerSmsSent: boolean;
 };
 export function vcView(c: VcRow, now = new Date()): VcView {
   const e0 = c.event_id != null ? queryRow<{ has_recording: number; recording_file: string | null; fin: number; started_at: string; ended_at: string }>(
@@ -242,7 +246,7 @@ export function vcView(c: VcRow, now = new Date()): VcView {
     recording: rec, eventId: c.event_id, active: !!c.active, needsResult: counts && c.file_id != null && !c.result_saved_at, resultSaved: !!c.result_saved_at,
     resultOutcome: c.result_outcome, prefill: !counts ? null : c.outcome === "answered" ? "answered" : "no_answer",
     oneTap: counts && (c.outcome === "no_answer" || c.outcome === "busy"), errorCode: c.error_code,
-    custStatus: c.cust_status ?? null, billsec: c.billsec ?? null,
+    custStatus: c.cust_status ?? null, billsec: c.billsec ?? null, noanswerSmsSent: c.outcome !== "answered" && vnaSent(c.id),
   };
 }
 const err = (status: number, error: string, message: string, details?: object) => ({ status, body: { error, message, ...(details ? { details } : {}) } });
@@ -413,7 +417,8 @@ export function vcHistory(u: U, customerId: number, now = new Date()) {
   const items: any[] = clicks.map((c) => { const v = vcView(c, now); return {
     kind: "voip", id: `k${c.id}`, at: c.created_at, status: c.outcome, durationSeconds: v.durationSeconds, expert: c.expert ?? null,
     fileId: c.file_id, recording: v.recording, playable: v.recording === "ready" && (u.role === "admin" || c.user_id === u.id), eventId: c.event_id,
-    result: c.result_outcome ? { label: outLabel[c.result_outcome] ?? c.result_outcome, note: noteOf(c) } : null, pending: !c.result_saved_at };
+    result: c.result_outcome ? { label: outLabel[c.result_outcome] ?? c.result_outcome, note: noteOf(c) } : null, pending: !c.result_saved_at,
+    noanswerSms: v.noanswerSmsSent };
   });
   // Other Simotel calls of this customer (incoming or from the panel), CDR-final only.
   for (const e of queryRows<{ id: number; started_at: string; ended_at: string; status: string; direction: string; has_recording: number; recording_file: string | null; expert_name: string | null; expert_user_id: number | null; expert_notes: string }>(

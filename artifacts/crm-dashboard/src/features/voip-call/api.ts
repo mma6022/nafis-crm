@@ -17,11 +17,11 @@ export type VcOutcome = 'answered' | 'no_answer' | 'busy' | null;
 export type VcCall = { id: number; state: VcState; outcome: VcOutcome; customerId: number; fileId: number | null; extension: string; customerName: string | null;
   createdAt: string; secondsLeft: number | null; meAnsweredAt: string | null; custAnsweredAt: string | null; endedAt: string | null; durationSeconds: number | null;
   cdr: boolean; recording: 'processing' | 'ready' | 'none'; eventId: number | null; active: boolean; needsResult: boolean; resultSaved: boolean;
-  resultOutcome: string | null; prefill: 'answered' | 'no_answer' | null; oneTap: boolean; errorCode: string | null };
+  resultOutcome: string | null; prefill: 'answered' | 'no_answer' | null; oneTap: boolean; errorCode: string | null; noanswerSmsSent?: boolean };
 export type VcMe = { on: boolean; extension?: string | null; call?: VcCall | null; timeoutSeconds?: number };
 export type VcHistItem = { kind: 'voip' | 'simotel' | 'manual'; id: string; at: string; status: 'answered' | 'no_answer' | 'busy' | null; direction?: string;
   durationSeconds: number | null; expert: string | null; fileId: number | null; recording: 'processing' | 'ready' | 'none'; playable: boolean; eventId: number | null;
-  result: { label: string | null; note: string } | null; pending: boolean };
+  result: { label: string | null; note: string } | null; pending: boolean; noanswerSms?: boolean };
 
 export const VC_ME_KEY = ['voip-call', 'me'] as const;
 const OFF: VcMe = { on: false };

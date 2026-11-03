@@ -24,6 +24,8 @@ function ringLeft(c: VcCall, total: number) {
 }
 
 const STAT: Record<string, [string, string]> = { answered: ['پاسخ داد', 's'], no_answer: ['پاسخ نداد', 'q'], busy: ['اشغال', 'g'] };
+/** VNA (t757u): the customer got the «عدم پاسخ» SMS for this call. */
+const NoAnsSms = ({ on }: { on?: boolean }) => (on ? <span className="vc-chip q" data-testid="vc-nosms">پیامک عدم پاسخ رفت</span> : null);
 export function VcStat({ s }: { s: string | null }) { if (!s || !STAT[s]) return null; const [t, k] = STAT[s];
   return <span className={`vc-chip ${k}`} data-testid="vc-stat" data-st={s}>{s === 'answered' ? <Check className="i" aria-hidden="true" /> : s === 'busy' ? <span className="dot" aria-hidden="true" /> : <X className="i" aria-hidden="true" />}{t}</span>; }
 
@@ -105,7 +107,7 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
     <section className={`vc-cw ${kind}`} aria-label="وضعیت تماس" role="status" aria-live="polite" data-testid="vc-panel">
       {kind === 'warn' || kind === 'err' ? null : <Steps n={step} />}
       <div className="vc-cwh"><span className="vc-cwi" aria-hidden="true">{kind === 'err' || kind === 'warn' ? <AlertTriangle className="i" /> : kind === 'ok' ? <Check className="i" /> : <Headset className="i" />}</span>
-        <div><h3 data-testid="vc-title">{P[kind][0]}</h3><p>{P[kind][1]}</p></div></div>
+        <div><h3 data-testid="vc-title">{P[kind][0]}</h3><p>{P[kind][1]}</p>{kind === 'na' || kind === 'bz' ? <NoAnsSms on={c.noanswerSmsSent} /> : null}</div></div>
       {kind === 'ring' ? <div className="vc-cdn"><span className="vc-bar" role="progressbar" aria-label="زمان جواب دادن" aria-valuemin={0} aria-valuemax={total} aria-valuenow={left} aria-valuetext={`${faNum(left)} ثانیه مانده`}>
         <i style={{ width: `${Math.round((left / total) * 100)}%` }} /></span><span className="muted" data-testid="vc-left">{faNum(left)} ثانیه مانده</span></div> : null}
       {kind === 'talk' ? <p className="vc-tmr"><span dir="ltr" data-testid="vc-timer" aria-label="زمان مکالمه">{mmss(talkSeconds(c))}</span><span className="vc-recdot">در حال ضبط</span></p> : null}
@@ -161,7 +163,7 @@ export function VcCallItem({ i, fresh }: { i: VcHistItem; fresh?: boolean }) {
     : i.kind === 'simotel' ? `تماس ${i.direction === 'incoming' ? 'ورودی' : 'خروجی'} سیموتل، ${i.expert ?? 'کارشناس'}` : `ثبت دستی، ${i.expert ?? 'کارشناس'} (با گوشی خودش)`;
   return <li className={`vc-ci${fresh ? ' fresh' : ''}`} data-testid="vc-item" data-kind={i.kind}>
     <div className="vc-cih"><span className="vc-cic" aria-hidden="true">{i.kind === 'manual' ? <PenLine className="i" /> : <Headset className="i" />}</span>
-      <b>{atText(i.at)}</b><VcStat s={i.status} />{dur ? <span className="vc-cid"><Clock className="i" aria-hidden="true" />{dur}</span> : null}</div>
+      <b>{atText(i.at)}</b><VcStat s={i.status} /><NoAnsSms on={i.noanswerSms} />{dur ? <span className="vc-cid"><Clock className="i" aria-hidden="true" />{dur}</span> : null}</div>
     <p className="vc-cis">{src}</p>
     <Rec i={i} />
     {i.result ? <p className="vc-cir"><span className="muted">نتیجه:</span> {i.result.label ? i.result.label : ''}{i.result.label && i.result.note ? '؛ ' : ''}{i.result.note ? `«${i.result.note}»` : ''}</p>
@@ -171,7 +173,7 @@ export function VcCallItem({ i, fresh }: { i: VcHistItem; fresh?: boolean }) {
 /** The live/ended click call as a history row (task card «سابقه‌ی پیگیری» and the result form). */
 export function vcCallAsItem(c: VcCall, expert: string | null): VcHistItem {
   return { kind: 'voip', id: `k${c.id}`, at: c.createdAt, status: c.outcome, durationSeconds: c.durationSeconds, expert, fileId: c.fileId, recording: c.recording,
-    playable: c.recording === 'ready' && c.eventId != null, eventId: c.eventId, result: null, pending: c.needsResult };
+    playable: c.recording === 'ready' && c.eventId != null, eventId: c.eventId, result: null, pending: c.needsResult, noanswerSms: c.noanswerSmsSent };
 }
 
 /** Customer page «سابقه‌ی تماس‌ها» (scene 16/17). */
