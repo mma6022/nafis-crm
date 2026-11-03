@@ -54,10 +54,12 @@ export const ROLE_MENUS: Record<MenuKind, RoleMenu> = {
     shortcuts: ['/', '/customers', '/messengers', '/internal-chat'],
   },
   // «کارهای امروز من» for trainees is UNDECIDED → «/» keeps its old label.
+  // TRAINEE-PERM (Mohammad 2026-11-03 t744u): «دستور پرداخت» and «خرید کالا» shown to trainees. Display only — trainees share the
+  // salesperson role, so their server permissions and own-customer scoping are exactly the experts' (no create/admin-approve/pay).
   trainee: {
-    main: [{ href: '/' }, { href: '/customers', label: 'مشتری‌های من' }, { href: '/loan-applications', label: 'پرونده‌های وام من' }, { href: '/reminders' }, { href: '/loan-plans' }, { href: '/internal-chat' }],
+    main: [{ href: '/' }, { href: '/customers', label: 'مشتری‌های من' }, { href: '/loan-applications', label: 'پرونده‌های وام من' }, { href: '/payment-orders' }, { href: '/goods-purchases' }, { href: '/reminders' }, { href: '/loan-plans' }, { href: '/internal-chat' }],
     more: [{ id: 'more', hrefs: ['/calls', '/consultations', '/callback-requests', '/my-wallet', '/chat', '/phone'] }],
-    hide: ['/mobile-calls', '/contracts', '/goods-purchases', '/sales-commissions', '/my-performance', '/payment-orders', '/wallet-management', '/bank-accounts', '/messengers'],
+    hide: ['/mobile-calls', '/contracts', '/sales-commissions', '/my-performance', '/wallet-management', '/bank-accounts', '/messengers'],
     shortcuts: ['/', '/customers', '/reminders', '/internal-chat'],
   },
   registrar: {
