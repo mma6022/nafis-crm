@@ -6,7 +6,7 @@ export type SimotelCall = {
   start?: string; starttime?: string; duration: number; billsec: number;
   endtime?: { $date?: { $numberLong?: string } };
   disposition: string; record?: string;
-  details?: Array<{ exten?: string; status?: string }>;
+  details?: Array<{ exten?: string | null; status?: string | null }>;
 };
 export class SimotelError extends Error {
   constructor(public code: string, public status: number, message: string) { super(message); }
@@ -104,8 +104,9 @@ export function validateCall(value: unknown): value is SimotelCall {
     && Number.isFinite(v.duration) && v.duration >= 0 && Number.isFinite(v.billsec) && v.billsec >= 0
     && (v.record === undefined || typeof v.record === "string")
     && (v.details === undefined || (Array.isArray(v.details) && v.details.every(x =>
-      x && typeof x === "object" && (x.exten === undefined || typeof x.exten === "string")
-      && (x.status === undefined || typeof x.status === "string"))));
+      x && typeof x === "object" && (x.exten === undefined || x.exten === null || typeof x.exten === "string")
+      // R1 CDR-NULL: originate CDRs carry details[0].status=null (expert leg); accept null, consumers already treat it as "not ANSWERED".
+      && (x.status === undefined || x.status === null || typeof x.status === "string"))));
 }
 
 async function loadCalls(from: string, to: string) {
