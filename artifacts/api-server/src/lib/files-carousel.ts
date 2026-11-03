@@ -7,6 +7,7 @@ import { noteText } from "./note-text";
  * The current card is pinned (fc_days.current_file_id) and never moved by an assistant order. A follow-up result (fc_followups) closes it.
  * Nothing here changes a stage, contract, template, amount, wallet or customer, sends SMS/Bale/customer messages or rings any staff bell.
  */
+import { vcFollowupCheck, vcFollowupSaved } from "./voip-call";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import { cqRaw, isWorkDay, tParts, tYmd, fromTehran, CQ_OUTCOMES } from "./call-queue";
 import { EL_USERS } from "./expert-lockdown";
@@ -389,10 +390,14 @@ export function fcExpertFollowup(u: U, body: any, now = new Date()) {
   const note = cx ? (typeof body?.cancelReason === "string" ? body.cancelReason.replace(/\s+/g, " ").trim() : "") : (typeof body?.note === "string" ? noteText(body.note) : "");
   if (!Number.isSafeInteger(fid) || fid <= 0) return err(400, "bad_type", "fileId", { field: "fileId" });
   if (!FC_OUTCOMES.includes(outcome)) return err(422, "bad_outcome", "نتیجه را انتخاب کن.", { allowed: FC_OUTCOMES });
+  // VOIP-CALL (flag.voip_call.user.<id>, OFF → vc = { call: null, noteOptional: false } and nothing below changes): a result for the expert's own
+  // «تماس از تلفن ویپ» call. For a no-answer / busy call the «جواب نداد» result is one tap: the note is optional.
+  const vc = vcFollowupCheck(u as any, body, null, outcome, now);
+  if (!vc.ok) { const b = vc.body as { error: string; message: string }; return err(vc.status, b.error, b.message); }
   if (cx) {
     if (!note) return err(422, "reason_required", "دلیل لغو را بنویس؛ بدون دلیل، پرونده لغو نمی‌شود.", { field: "cancelReason" });
   } else {
-    if (!note) return err(422, "note_required", "یادداشت یک‌خطی لازم است.", { field: "note" });
+    if (!note && !vc.noteOptional) return err(422, "note_required", "یادداشت یک‌خطی لازم است.", { field: "note" });
   }
   if (cx) { const f = fileById(fid); if (f && Number(f.owner) !== sp) return err(403, "not_own_file", "فقط پرونده‌ی مشتری خودت را می‌توانی لغو کنی."); }
   if (queryRow("SELECT 1 x FROM fc_followups WHERE salesperson_id=? AND day=? AND file_id=?", [sp, day, fid])) return err(409, "already_done", "نتیجه‌ی این پرونده امروز ثبت شده است.");
@@ -418,6 +423,7 @@ export function fcExpertFollowup(u: U, body: any, now = new Date()) {
   // HOTFIX-77h (Mohammad 17:11 Tehran «کارشناس فروشم بذار لغو کنه پرونده رو»): «لغو شده» works on any OWN open card of today's deck
   // (current or pending); the other outcomes still need the current card.
   if (card.state === "done" || (!cx && card.state !== "current")) return err(409, "not_current", "اول نتیجه‌ی پرونده‌ی جاری را ثبت کن.", { currentFileId: deck.current });
+  if (vc.call && vc.call.customer_id !== Number(card.f.cur_customer_id)) return err(409, "voip_call_other_customer", "این تماس مال مشتری دیگری است.");
   const at = now.toISOString();
   const isCur = deck.current === fid;
   if (cx) {
@@ -456,6 +462,7 @@ export function fcExpertFollowup(u: U, body: any, now = new Date()) {
     [sp, Number(u.id), day, fid, Number(card.f.cur_customer_id), outcome, note, at]);
   executeChanges("UPDATE fc_days SET current_file_id=NULL, updated_at=? WHERE salesperson_id=? AND day=?", [at, sp, day]);
   }
+  if (vc.call) vcFollowupSaved(vc.call, outcome, now);
   event(assistantOfSp(sp), FC_EVENTS.followup, Number(u.id), { salespersonId: sp, date: day, fileId: fid, outcome }, at);
   return { ok: true, fileId: fid, view: fcExpertView(u, now) };
 }
