@@ -100,7 +100,7 @@ export function RecordedCallsPanel() {
   };
 
   return <div className="data-page" data-testid="panel-recorded-calls">
-    <div className="page-intro"><div><div className="eyebrow">تماس‌های مرکز تلفن</div><h2>گزارش مرکز تماس</h2><p>گزارش تماس‌های ثبت‌شده در مرکز تلفن و فایل‌های ضبط‌شده، بر اساس دسترسی شما.</p></div>
+    <div className="page-intro"><div><div className="eyebrow">تماس‌های مرکز تلفن</div><h2>گزارش مرکز تماس</h2></div>
       {data ? <div className="data-summary"><span>تماس‌های دارای ضبط</span><strong data-testid="text-recorded-total">{fa(data.recordedTotal)}</strong></div> : null}</div>
 
     <form className="panel" onSubmit={apply} style={{ marginBottom: 16 }}>

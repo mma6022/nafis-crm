@@ -53,7 +53,7 @@ export default function Calls() {
   const [tab, setTab] = useTableState<'manual' | 'recordings'>('calls.tab', 'manual');
   const desktop = useMinWidth(981);
   return <section className={`clx${tab === 'manual' && !desktop ? ' has-mbar' : ''}`} data-testid="page-calls">
-    {desktop ? <div className="clx-intro"><div><p>تماس‌های امروز را ببینید و از همین‌جا تماس یا مشاوره‌ی بعدی را ثبت کنید.</p></div><span id="clx-new-slot" /></div> : null}
+    {desktop ? <div className="clx-intro"><div /><span id="clx-new-slot" /></div> : null}
     <div className="clx-seg" role="tablist" aria-label="نوع گزارش تماس">
       <button type="button" role="tab" aria-selected={tab === 'manual'} onClick={() => setTab('manual')} data-testid="tab-manual">تماس‌های ثبت‌شده</button>
       <button type="button" role="tab" aria-selected={tab === 'recordings'} onClick={() => setTab('recordings')} data-testid="tab-recordings">گزارش مرکز تماس</button>

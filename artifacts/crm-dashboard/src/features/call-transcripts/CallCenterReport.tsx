@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Eye, Filter, Flag, Phone as PhoneIcon, RefreshCw, User, X } from 'lucide-react';
+import { AlertTriangle, Eye, Filter, Flag, RefreshCw, User, X } from 'lucide-react';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { formatJalaliValue, gregorianToJalaliValue, jalaliValueToGregorian, todayJalali } from '@/lib/jalali';
 import { atText, CtError, ctReq, dirText, durText, fa, useCtConfig, type CtReport, type CtRow } from './api';
@@ -36,7 +36,6 @@ export default function CallCenterReport() {
   return <div className="ctp" dir="rtl" data-testid="ct-report">
     <div className="hrow"><h2>تماس‌های ضبط‌شده‌ی کارشناسان</h2><span className="muted">{new Intl.DateTimeFormat('fa-IR', { timeZone: 'Asia/Tehran', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())}</span>
       {!mgr ? <span className="chip n" data-testid="ct-admin-view"><Eye className="i" />نمای مدیر سیستم، فقط مشاهده</span> : <span className="chip b"><User className="i" />نمای احمد، مدیر فروش</span>}</div>
-    <p className="note rq"><PhoneIcon className="i" /><span>هر تماس ضبط‌شده خودکار به متن کامل تبدیل و خلاصه‌اش ذخیره می‌شود تا نحوه‌ی صحبت کارشناسان را مرور کنی. در این صفحه آمار، درصد یا نمره‌ای نشان داده نمی‌شود.</span></p>
     <details className="card flt" open={typeof window === 'undefined' || window.innerWidth >= 700}><summary><Filter className="i" />فیلترها<span className="muted">{summaryLine}</span></summary><div className="flt-b">
       <label className={`fsel${f.expert ? ' on' : ''}`}><small>کارشناس</small><select value={f.expert} onChange={(e) => up({ expert: e.target.value })} data-testid="ct-f-expert">
         <option value="">همه‌ی کارشناسان</option>{d?.experts.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
