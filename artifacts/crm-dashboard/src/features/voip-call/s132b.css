@@ -1,6 +1,6 @@
 /* SIMOTEL-132 B (flag.simotel132b only). Every rule is scoped to .s1b-* so nothing changes while the flag is off. */
-.s1b-top{position:fixed;top:84px;left:20px;z-index:55;display:flex;flex-direction:column;gap:10px;width:400px;max-width:calc(100vw - 32px)}
-.s1b-bot{position:fixed;bottom:calc(var(--ss-dock-h,72px) + 24px);left:20px;z-index:55;display:flex;flex-direction:column;gap:8px;width:420px;max-width:calc(100vw - 32px)}
+.s1b-top{position:fixed;top:84px;left:20px;z-index:1290;display:flex;flex-direction:column;gap:10px;width:400px;max-width:calc(100vw - 32px)}
+.s1b-bot{position:fixed;bottom:calc(var(--ss-dock-h,72px) + 24px);left:20px;z-index:1290;display:flex;flex-direction:column;gap:8px;width:420px;max-width:calc(100vw - 32px)}
 .s1b-card,.s1b-toast{background:#fff;border:1px solid var(--nf-line,#e5e7eb);border-radius:16px;box-shadow:0 12px 32px rgba(15,23,42,.16);position:relative;direction:rtl}
 .s1b-card.live{border-color:#93c5fd}
 .s1b-h{display:flex;gap:10px;align-items:flex-start;padding:14px 14px 10px;border-bottom:1px solid var(--nf-line,#eef0f3)}

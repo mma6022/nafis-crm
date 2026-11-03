@@ -173,6 +173,10 @@ function processEvent(u: AuthUser, e: Ev, now: Date) {
   if (e.direction === "outgoing" && e.customer_id != null && e.call_log_id != null && row.cls === "own" && !firstForm) {
     try { savepoint(() => dpAfterFirstCallForm(u as any, Number(e.customer_id), Number(e.call_log_id), outcome, now)); } catch { /* plan stays as it is */ }
   }
+  if (e.call_log_id != null) { // the live row wrote its call log at ring time; give it the final status
+    const d = e.direction === "incoming" ? "تماس ورودی" : "تماس خروجی";
+    executeChanges("UPDATE call_logs SET subject=? WHERE id=? AND subject IN (?,?)", [`${d} مرکز تماس (${e.status})`, e.call_log_id, `${d} مرکز تماس (RINGING)`, `${d} مرکز تماس (ACTIVE)`]);
+  }
   if (u.role === "registrar" && e.call_log_id != null)
     executeChanges("UPDATE call_logs SET subject='پشتیبانی، ' || subject WHERE id=? AND subject LIKE '%مرکز تماس (%' AND subject NOT LIKE 'پشتیبانی، %'", [e.call_log_id]);
   else if (e.direction === "outgoing" && e.call_log_id != null)

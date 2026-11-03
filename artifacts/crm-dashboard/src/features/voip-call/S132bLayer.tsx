@@ -105,7 +105,7 @@ function InCard({ c, onClose, onNew }: { c: S132bCard; onClose: () => void; onNe
   const head = c.live ? (ringing(c) ? 'تماس ورودی؛ تلفن ویپ شما زنگ می‌خورد' : 'تماس ورودی؛ در مکالمه')
     : `تماس ورودی تمام شد: ${isAns(c) ? 'پاسخ داد' : 'بی‌پاسخ'}`;
   const support = c.cls === 'support';
-  return <section className={`s1b-card${c.live ? ' live' : ''}`} role="dialog" aria-label={head} data-testid="s1b-in" data-cls={c.cls} data-live={c.live ? '1' : '0'}>
+  return <section className={`s1b-card${c.live ? ' live' : ''}`} role="region" aria-live="polite" aria-label={head} data-testid="s1b-in" data-cls={c.cls} data-live={c.live ? '1' : '0'}>
     <header className="s1b-h"><span className={`s1b-ic${ringing(c) ? ' rg' : ''}`}><Headset size={20} aria-hidden="true" /></span>
       <div><h3>{head}</h3><p>{c.live ? <>داخلی <bdi>{faNum(c.extension ?? '')}</bdi>؛ جواب دادن و قطع تماس از خود تلفن ویپ است.</> : c.durationSeconds ? <>مدت {faDur(c.durationSeconds)} · ساعت {faClock(c.startedAt)}</> : <>ساعت {faClock(c.startedAt)}</>}</p></div>
       <button type="button" className="s1b-x" onClick={onClose} aria-label="بستن پنجره" data-testid="s1b-close"><X size={18} aria-hidden="true" /></button></header>

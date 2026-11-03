@@ -230,7 +230,7 @@ function vcLockdownIds(req: Request, path: string, userId: number): number[] | n
     if (f && req.method === "GET") return [Number(f[1])];
   }
   // SIMOTEL-132 B (flag on only): own-call endpoints; the handler checks the call / customer is the expert's own
-  if (s132bFlagOn(userId) && /^\/voip-call\/b\//.test(path)) return [];
+  if (/^\/voip-call\/b\//.test(path) && s132bFlagOn(userId)) return [];
   const a = /^\/voip-call\/calls\/(\d+)\/audio$/.exec(path);
   if (a && req.method === "GET") {
     const r = queryRow<{ cid: number | null }>(`SELECT COALESCE(l.customer_id,e.customer_id) cid FROM voip_after_call_events e
