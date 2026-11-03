@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { CallReportDialog } from '@/components/voip/CallReportDialog';
 import { getListCallsQueryKey, useListCalls, type CallRecord } from '@workspace/api-client-react';
 import '@/components/voip/CallReportDialog.css';
+import { Link } from 'wouter';
+import { useCtConfig, useCustomerCtCalls } from '@/features/call-transcripts/api';
 import { Modal } from '@/components/DataTools';
 import { formatDateTime } from '@/components/CrmShell';
 import { Pagination } from '@/components/DataTools';
@@ -38,6 +40,10 @@ export function CustomerCallHistory({
     },
   });
   const items = calls.data?.items ?? [];
+  // call-transcripts v1.1 (flag.call_transcripts.ui; OFF = nothing below renders): «متن و خلاصه‌ی تماس» link per recorded call.
+  const ctOn = Boolean(useCtConfig(Boolean(customerId)).data?.enabled);
+  const ctCalls = useCustomerCtCalls(customerId, ctOn).data?.calls ?? [];
+  const ctByLog = new Map(ctCalls.filter((c) => c.hasRecording && c.callLogId != null).map((c) => [c.callLogId as number, c.eventId]));
   const [openId, setOpenId] = useState<number | null>(null);
   const selectedRowRef = useRef<HTMLButtonElement | null>(null);
 
@@ -67,9 +73,9 @@ export function CustomerCallHistory({
         <Pagination total={calls.data?.total ?? 0} offset={offset} limit={pageLimit} onChange={setOffset} testId="call-history" />
       </div>}
       {items.map((call) => (
+        <div key={call.id} className="call-history-item" style={{ display: 'contents' }}>
         <button
           type="button"
-          key={call.id}
           ref={call.id === selectedCallId ? selectedRowRef : undefined}
           className={`call-history-row ${call.id === selectedCallId ? 'selected' : ''}`}
           onClick={() => setOpenId(call.id)}
@@ -87,6 +93,8 @@ export function CustomerCallHistory({
             <span>کارشناس فعلی پرونده: {call.customerSalespersonName || 'بدون تخصیص'}</span>
           </span>
         </button>
+        {ctByLog.has(call.id) ? <Link href={`/call-view/${ctByLog.get(call.id)}`} className="call-history-ct" style={{ alignSelf: 'flex-start', fontSize: 14, fontWeight: 600, color: 'var(--nf-brand-600)', padding: '4px 10px', minHeight: 32 }} data-testid={`link-call-transcript-${call.id}`}>متن و خلاصه‌ی تماس</Link> : null}
+        </div>
       ))}
     </div>
   );

@@ -154,6 +154,14 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   const path = req.path.replace(/\/+$/, "") || "/";
   // NEWCUST-65: the first-call mirror scopes itself (call by this expert, customer theirs or just moved by them to Kazemi),
   // so a P2/P3 customer that left them in the same save can still get its «منتقل شد» entry.
+  // call-transcripts v1.1 (only while flag.call_transcripts.ui = 1): the customer page's «متن و خلاصه‌ی تماس» follows the same
+  // single-customer rule as the customer page itself; nothing else under /call-transcripts opens for a locked expert.
+  const ctIds = ctLockdownIds(req, path);
+  if (ctIds) {
+    for (const id of ctIds) if (!elCustomerAccess(u!, id) && !elOwnCustomer(u!, id))
+      return deny(res, "expert_lockdown_customer", "این مشتری فعلاً برای شما باز نیست (فقط مشتری‌های «کارهای امروز»، پرونده‌های خودت یا «تماس ورودی»).");
+    next(); return;
+  }
   const ids = path === "/expert-lockdown/incoming/first-call-logged" ? [] : idsOf(req);
   const customerRoute = /^\/(lead-intake\/)?customers\/\d+(\/|$)/.test(path) || /^\/team-sales\/customers\/\d+(\/|$)/.test(path)
     || /^\/instant-credit-check\/customers\/\d+\/checks(\/|$)/.test(path); // instant credit check: same customer checks as /customers/:id/credit-checks
@@ -179,6 +187,21 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
     }
   }
   next();
+}
+/** call-transcripts v1.1: null = not opened (normal lockdown rules apply); [] = feature switch; [customerId] = that customer's check. */
+function ctLockdownIds(req: Request, path: string): number[] | null {
+  if (!path.startsWith("/call-transcripts/")) return null;
+  try { if (queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key='flag.call_transcripts.ui'")?.value !== "1") return null; } catch { return null; }
+  if (req.method === "GET" && path === "/call-transcripts/config") return [];
+  const list = /^\/call-transcripts\/customer\/(\d+)\/calls$/.exec(path);
+  if (list && req.method === "GET") return [Number(list[1])];
+  const call = /^\/call-transcripts\/calls\/(\d+)(\/summary)?$/.exec(path);
+  if (call && (req.method === "GET" ? !call[2] : req.method === "PATCH" && !!call[2])) {
+    const r = queryRow<{ cid: number | null }>(`SELECT COALESCE(l.customer_id,e.customer_id) cid FROM voip_after_call_events e
+      LEFT JOIN call_logs l ON l.id=e.call_log_id WHERE e.id=?`, [Number(call[1])]);
+    return r?.cid ? [Number(r.cid)] : null; // a call without a customer stays closed
+  }
+  return null;
 }
 /** List endpoints the customer page calls with ?customerId=N (scoped to that one customer). */
 export const EL_CUSTOMER_SCOPED_READS: RegExp[] = [/^\/calls$/, /^\/consultations$/, /^\/reminders$/, /^\/callback-requests$/, /^\/voip\/calls$/,

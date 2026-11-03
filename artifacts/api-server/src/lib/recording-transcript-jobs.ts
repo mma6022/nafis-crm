@@ -12,9 +12,10 @@ import {getSimotelAudio,SimotelError} from "./simotel";
 import {authorizedVoipRecording} from "../routes/simotel-recordings";
 import {transcribeRecording,TranscriptionError,speechConfigured} from "./recording-transcription";
 import {callSummaryDTO,queueCallSummary,processCallSummaryQueue} from "./recording-summary-jobs";
+import {ctFlag,ensureCallTranscriptSchema,retryPlan,systemActor,SYSTEM_REQUESTER} from "./call-transcripts";
 
 type Job={external_id:string;source_file:string;range_from:string;range_to:string;requested_by:number;state:string;
-  phase:string|null;error:string|null;result_json:string|null;completed_at:string|null;lease_until:string|null};
+  phase:string|null;error:string|null;result_json:string|null;completed_at:string|null;lease_until:string|null;attempts?:number|null};
 export function ensureTranscriptSchema(){
   crmDb.exec(`CREATE TABLE IF NOT EXISTS voip_recording_transcripts(
     external_id TEXT PRIMARY KEY,source_file TEXT NOT NULL,range_from TEXT NOT NULL,range_to TEXT NOT NULL,
@@ -40,7 +41,7 @@ export function queueTranscript(id:string,file:string,from:string,to:string,user
   if(!speechConfigured())throw new TranscriptionError("کلید سرویس تبدیل گفتار روی سرور تنظیم نشده است.");
   const pending=queryRow<{n:number}>("SELECT COUNT(*) n FROM voip_recording_transcripts WHERE state IN ('queued','processing')")!.n;
   if(pending>=10)throw new TranscriptionError("صف تبدیل گفتار پر است؛ پس از پایان پردازش‌های جاری دوباره تلاش کنید.");
-  const mine=queryRow<{n:number}>("SELECT COUNT(*) n FROM voip_recording_transcripts WHERE requested_by=? AND state IN ('queued','processing')",[userId])!.n;
+  const mine=userId===SYSTEM_REQUESTER?0:queryRow<{n:number}>("SELECT COUNT(*) n FROM voip_recording_transcripts WHERE requested_by=? AND state IN ('queued','processing')",[userId])!.n;
   if(mine>=2)throw new TranscriptionError("دو تبدیلِ شما در انتظار پردازش است؛ ابتدا منتظر پایان آن‌ها بمانید.");
   const now=new Date().toISOString();
   executeChanges(`INSERT INTO voip_recording_transcripts(external_id,source_file,range_from,range_to,requested_by,state,created_at,updated_at)
@@ -51,13 +52,19 @@ export function queueTranscript(id:string,file:string,from:string,to:string,user
     completed_at=CASE WHEN source_file=excluded.source_file THEN completed_at ELSE NULL END,
     lease_until=NULL,updated_at=excluded.updated_at`,
     [id,file,from,to,userId,now,now]);
+  // call-transcripts (auto flag): a fresh request restarts the retry budget.
+  if(ctFlag("auto")){ensureCallTranscriptSchema();executeChanges("UPDATE voip_recording_transcripts SET attempts=0,next_attempt_at=NULL WHERE external_id=?",[id]);}
 }
 let busy=false;
 export async function processTranscriptQueue(){
   if(busy)return;
   executeChanges(`UPDATE voip_recording_transcripts SET state='failed',phase=NULL,error=?,lease_until=NULL,updated_at=?
     WHERE state='processing' AND lease_until<?`,["پردازش قبلی قطع شده است؛ برای تلاش دوباره دکمهٔ تبدیل را بزنید.",new Date().toISOString(),new Date().toISOString()]);
-  const job=queryRow<Job>("SELECT * FROM voip_recording_transcripts WHERE state='queued' ORDER BY created_at LIMIT 1");
+  const auto=ctFlag("auto");
+  if(auto)ensureCallTranscriptSchema();
+  const job=queryRow<Job>(auto
+    ?"SELECT * FROM voip_recording_transcripts WHERE state='queued' AND (next_attempt_at IS NULL OR next_attempt_at<=?) ORDER BY created_at LIMIT 1"
+    :"SELECT * FROM voip_recording_transcripts WHERE state='queued' ORDER BY created_at LIMIT 1",auto?[new Date().toISOString()]:[]);
   if(!job)return;
   busy=true;
   let temporary:string|undefined,heartbeat:NodeJS.Timeout|undefined;
@@ -68,7 +75,7 @@ export async function processTranscriptQueue(){
       [new Date(Date.now()+90000).toISOString(),new Date().toISOString(),job.external_id]))return;
     heartbeat=setInterval(()=>{executeChanges("UPDATE voip_recording_transcripts SET lease_until=? WHERE external_id=? AND state='processing'",
       [new Date(Date.now()+90000).toISOString(),job.external_id]);},15000);heartbeat.unref();
-    const actor=getAuthUserById(job.requested_by);
+    const actor=job.requested_by===SYSTEM_REQUESTER&&auto?systemActor(job.external_id):getAuthUserById(job.requested_by);
     if(!actor?.active || (actor.role!=="admin"&&(!actor.permissions.includes("calls.view")||!actor.permissions.includes("calls.create"))))
       throw new TranscriptionError("دسترسی درخواست‌کنندهٔ تبدیل تغییر کرده است.");
     const {row}=await authorizedVoipRecording(job.external_id,{from:job.range_from,to:job.range_to},actor);
@@ -89,6 +96,18 @@ export async function processTranscriptQueue(){
      try { queueCallSummary(job.external_id,job.requested_by,job.range_from,job.range_to); }
      catch { logger.warn("Unable to queue call summary; transcript remains available"); }
   }catch(error){
+    // call-transcripts (auto flag): the recording often appears in Simotel minutes after hangup → requeue with backoff, cap, then fail.
+    const plan=auto?retryPlan(error,Number(job.attempts??0)):null;
+    if(plan?.retry){
+      executeChanges("UPDATE voip_recording_transcripts SET state='queued',phase=NULL,error=NULL,attempts=attempts+1,next_attempt_at=?,updated_at=?,lease_until=NULL WHERE external_id=?",
+        [plan.nextAt,new Date().toISOString(),job.external_id]);
+      return;
+    }
+    if(plan&&!plan.retry){
+      executeChanges("UPDATE voip_recording_transcripts SET state='failed',phase=NULL,error=?,attempts=attempts+1,next_attempt_at=NULL,updated_at=?,lease_until=NULL WHERE external_id=?",
+        [plan.message,new Date().toISOString(),job.external_id]);
+      return;
+    }
     const message=error instanceof TranscriptionError||error instanceof SimotelError?error.message:"تبدیل گفتار انجام نشد؛ دوباره تلاش کنید.";
     executeChanges("UPDATE voip_recording_transcripts SET state='failed',phase=NULL,error=?,updated_at=?,lease_until=NULL WHERE external_id=?",
       [message,new Date().toISOString(),job.external_id]);

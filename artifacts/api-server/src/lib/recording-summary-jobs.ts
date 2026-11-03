@@ -5,6 +5,7 @@ import { authorizedVoipRecording } from "../routes/simotel-recordings";
 import { CallSummaryError, summarizeCall } from "./recording-call-summary";
 import { SimotelError } from "./simotel";
 import { latestSummaryEdit } from "./recording-summary-edits";
+import { ctFlag, systemActor, SYSTEM_REQUESTER } from "./call-transcripts";
 
 type SummaryJob = { external_id: string; source_hash: string; requested_by: number; range_from: string; range_to: string;
   state: "queued" | "processing" | "completed" | "failed"; error: string | null; result_json: string | null };
@@ -64,7 +65,7 @@ export async function processCallSummaryQueue() {
   try {
     if (!executeChanges("UPDATE voip_recording_summaries SET state='processing',lease_until=?,updated_at=? WHERE external_id=? AND source_hash=? AND state='queued'",
       [new Date(Date.now() + 180000).toISOString(), new Date().toISOString(), job.external_id, job.source_hash])) return;
-    const actor = getAuthUserById(job.requested_by);
+    const actor = job.requested_by === SYSTEM_REQUESTER && ctFlag("auto") ? systemActor(job.external_id) : getAuthUserById(job.requested_by);
     if (!actor?.active || (actor.role !== "admin" && (!actor.permissions.includes("calls.view") || !actor.permissions.includes("calls.create")))) {
       throw new CallSummaryError("دسترسی درخواست‌کنندهٔ خلاصه تغییر کرده است.");
     }

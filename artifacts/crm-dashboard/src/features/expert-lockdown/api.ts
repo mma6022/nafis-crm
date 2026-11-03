@@ -48,5 +48,6 @@ export function useLockdownMe(enabled = true) {
 export function elPageAllowed(me: ElMe | undefined, loc: string): boolean {
   if (!me?.locked) return true;
   if (loc === '/profile' || /^\/customers\/\d+(\/|$)/.test(loc)) return true;
+  if (/^\/call-view\/\d+$/.test(loc)) return true; // call-transcripts v1.1: the server applies the customer-page rule (flag.call_transcripts.ui)
   return me.allowedPages.some((p) => loc === p || loc.startsWith(`${p}/`) || loc.startsWith(`${p}?`));
 }

@@ -72,7 +72,7 @@ export const ROLE_MENUS: Record<MenuKind, RoleMenu> = {
     more: [
       { id: 'sales', label: 'فروش', hrefs: ['/daily-plans', '/reminders', '/consultations', '/callback-requests', '/smart-filing', '/loan-plans', '/contracts'] },
       { id: 'finance', label: 'مالی', hrefs: ['/sales-commissions', '/my-performance', '/my-wallet', '/wallet-management', '/bank-accounts', '/accounting'] },
-      { id: 'comms', label: 'پیام و تلفن', hrefs: ['/chat', '/messengers', '/settings/bale', '/instagram-inbox', '/mobile-calls', '/phone'] },
+      { id: 'comms', label: 'پیام و تلفن', hrefs: ['/chat', '/messengers', '/settings/bale', '/instagram-inbox', '/mobile-calls', '/phone', '/call-center'] },
       { id: 'exceptions', label: 'استثناها', hrefs: ['/manual-verifications', '/credit-rank-overrides'] },
       { id: 'settings', label: 'تنظیمات', hrefs: ['/social-monitor-reports', '/voice-notes-usage', '/users', '/settings/notifications', '/settings/releases'] },
     ],

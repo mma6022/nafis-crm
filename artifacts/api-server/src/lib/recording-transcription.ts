@@ -161,5 +161,7 @@ export async function transcribeRecording(input: string, directory: string, phas
       :"متن کامل از صدای اصلی و قطعه‌های پیوسته در مکث‌های طبیعی تهیه شده و مبناست؛ متن اشتباه قطعه‌های دیگر به مدل داده نمی‌شود. زمان‌بندی گویندگان تقریبی است و تفکیک گفتار هم‌زمان تضمین نمی‌شود.")
       + " اعداد، رتبه اعتباری و بخش‌های نامفهوم را حتماً با صدا بررسی کنید؛ متن ماشینی تأیید مالی محسوب نمی‌شود."
       + (/\.\.\.|…|\[نامفهوم\]/.test(text) ? " در این تبدیل هنوز بخش‌های نامفهوم وجود دارد؛ کامل و قطعی بودن مکالمه تأیید نشده است." : ""),
-    speakers,segments,text};
+    speakers,segments,text,
+    // call-transcripts: channel of each speaker in stereo, so the expert/customer mapping can be applied at read time.
+    ...(independent?{speakerChannels:Object.fromEntries(keys.map((k,i)=>[speakers[i].id,Number(k.split(":")[0])]))}:{})};
 }

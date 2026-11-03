@@ -28,6 +28,8 @@ const before10 = (ms: number) => { const p = tParts(new Date(ms)); return p.h * 
 import { leadSourceFilter, registeredByRange, registeredByReport } from "./registered-by-report";
 import { ASSISTANT_URGENT_IDS_KEY, ASSISTANT_URGENT_WRITE_KEY, URGENT_REASONS, ensureUrgentSchema, parseUrgentReason, setCustomerUrgent , recordUrgentAttempt } from "./customer-urgent";
 import { cqSignals, cqTeamDiscipline } from "./call-queue-r2";
+import { ctFlag, ctSchemaReady, lastFour, reportRows, rowView, tehranRange, transcriptView } from "./call-transcripts";
+import { storedCallSummary } from "./recording-summary-jobs";
 import { dpToday, dpNextWork } from "./daily-plan";
 import { cleanPayload as cleanDraftPayload } from "./loan-request-drafts";
 import express, { Router, type Request, type Response, type NextFunction } from "express";
@@ -1309,6 +1311,39 @@ export function createAssistants(deps: Deps) {
     if (req.query.periodStart && !ps) return fail(res, 422, "bad_period_start", "periodStart باید تاریخ شروع همان بازه (YYYY-MM-DD تهران) باشد.");
     audit({ req, a: A(res), tokenId: TK(res), action: "GET /manager/expert-performance", outcome: "ok", detail: { salespersonId: sp, period, periodStart: ps } });
     res.json(performanceReport(db, sp, period, now(), excludeTestOn(db), ps));
+  });
+  // call-transcripts v1.1: Ahmad reads recorded calls (DB only, never Simotel/OpenAI). 404 while flag.call_transcripts.ahmad is OFF.
+  // Phones → last 4 digits; free text through maskAll; speaker names replaced by «کارشناس»/«مشتری»; test customers excluded when the switch is on.
+  const ctHits = new Map<number, number[]>();
+  runner.get("/manager/call-transcripts", managerOnly, (req, res) => {
+    const a = A(res), tk = TK(res), act = "GET /manager/call-transcripts";
+    if (!ctFlag("ahmad") || !ctSchemaReady()) return fail(res, 404, "call_transcripts_off", "خوراک متن تماس‌ها فعال نیست.");
+    const t = Date.now(), key = Number(tk ?? 0), hits = (ctHits.get(key) ?? []).filter(x => t - x < 600_000);
+    if (hits.length >= 30) { audit({ req, a, tokenId: tk, action: act, outcome: "rate_limited" }); return fail(res, 429, "rate_limited", "سقف ۳۰ درخواست در ۱۰ دقیقه پر شده."); }
+    hits.push(t); ctHits.set(key, hits);
+    const sp = mgrSp(req, res); if (sp === false) return;
+    const r = tehranRange(req.query.from, req.query.to, 31);
+    if (!r) { audit({ req, a, tokenId: tk, action: act, outcome: "bad_range" }); return fail(res, 422, "bad_range", "from/to به شکل YYYY-MM-DD (تهران)، حداکثر ۳۱ روز."); }
+    const limit = Math.min(50, Math.max(1, Number(req.query.limit ?? 20) || 20));
+    const withText = req.query.includeText !== "0";
+    const page = req.query.page == null || req.query.page === "" ? 1 : Number(req.query.page);
+    const ts = String(req.query.textStatus ?? "all"), cs = String(req.query.callStatus ?? "all"), fl = String(req.query.flagged ?? "");
+    if (!Number.isInteger(page) || page < 1 || page > 1000 || !["all", "completed", "failed", "no_recording", "pending"].includes(ts) || !["all", "answered", "missed"].includes(cs) || !["", "0", "1"].includes(fl)) {
+      audit({ req, a, tokenId: tk, action: act, outcome: "bad_filter" });
+      return fail(res, 422, "bad_filter", "page ≥ 1؛ textStatus یکی از all|completed|failed|no_recording|pending؛ callStatus یکی از all|answered|missed؛ flagged=1 فقط علامت‌خورده‌ها.");
+    }
+    const experts = managerExperts(db);
+    const userIds = sp == null ? experts.flatMap(e => e.userIds) : experts.find(e => e.salespersonId === sp)!.userIds;
+    const spOf = new Map(experts.flatMap(e => e.userIds.map(u => [u, e.salespersonId] as const)));
+    const out = reportRows({ ...r, expertUserIds: userIds, pageSize: limit, page, textStatus: ts, callStatus: cs, flagged: fl === "1", excludeCustomerIds: excludeTestOn(db) ? testCustomerIds(db) : undefined });
+    const calls = out.rows.map(e => { const v = rowView(e, id => storedCallSummary(id)); const tx = withText ? transcriptView(e, { maskNames: true }) : null;
+      return { eventId: v.eventId, customerId: v.customerId, phone: lastFour(v.phone), direction: v.direction, status: v.status,
+        startedAt: v.startedAt, durationSeconds: v.durationSeconds, salespersonId: v.expertUserId != null ? spOf.get(v.expertUserId) ?? null : null,
+        expertName: v.expertName, textState: v.textState, subject: v.summary?.subject ?? null, customerRequest: v.summary?.request ?? null,
+        flaggedForReview: v.flagged, roleSource: tx?.roleSource ?? null,
+        segments: tx ? tx.segments.map(s => ({ speaker: s.role ?? "unknown", label: s.label, start: s.start, end: s.end, text: s.text })) : undefined }; });
+    audit({ req, a, tokenId: tk, action: act, outcome: "ok", detail: { salespersonId: sp, from: r.from, to: r.to, n: calls.length, total: out.total, page, textStatus: ts, callStatus: cs, flagged: fl === "1", withText } });
+    res.json(maskAll({ from: r.from, to: r.to, timezone: "Asia/Tehran", total: out.total, page, pageSize: limit, returned: calls.length, hasMore: page * limit < out.total, calls }));
   });
   runner.get("/manager/expert-analysis", managerOnly, (req, res) => {
     const sp = mgrSp(req, res); if (sp === false) return;
