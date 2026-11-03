@@ -3,10 +3,10 @@
  *  - VcHeaderBadge: header chip while a call is live, on every page.
  *  - VcCallItem / VcPlayer / CustomerCallHistory: «سابقه‌ی تماس‌ها» with recording playback (own calls + admin; server-enforced).
  *  Everything renders nothing while /voip-call/me says off (flag OFF or no extension) — those users keep today's number + «کپی». */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getGetAuthSessionQueryKey, useGetAuthSession } from '@workspace/api-client-react';
-import { AlertTriangle, Check, Clock, EyeOff, Flag, Headset, History, Lock, MessageSquare, PenLine, Play, Pause, RefreshCw, Sparkles, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Check, Clock, EyeOff, Flag, Headset, History, Lock, MessageSquare, PenLine, Play, Pause, RefreshCw, Sparkles, X } from 'lucide-react';
 import { faNum } from '@/features/call-queue/api';
 import { atText, durText, mmss } from '@/features/call-transcripts/api';
 import { useS132First, useVcHistory, useVcMe, vcApi, vcAudioSrc, VcError, VC_ME_KEY, vcRefresh, type S132Bar, type S132Status, type VcCall, type VcHistItem, type VcMe } from './api';
@@ -26,7 +26,7 @@ function ringLeft(c: VcCall, total: number) {
 const STAT: Record<string, [string, string]> = { answered: ['پاسخ داد', 's'], no_answer: ['پاسخ نداد', 'q'], busy: ['اشغال', 'g'], failed: ['ناموفق', 'r'] };
 /** VNA (t757u): the customer got the «عدم پاسخ» SMS for this call. */
 const NoAnsSms = ({ on }: { on?: boolean }) => (on ? <span className="vc-chip q" data-testid="vc-nosms">پیامک عدم پاسخ رفت</span> : null);
-export function VcStat({ s }: { s: string | null }) { if (!s || !STAT[s]) return null; const [t, k] = STAT[s];
+export function VcStat({ s, s132 }: { s: string | null; s132?: boolean }) { if (!s || !STAT[s]) return null; const [t0, k] = STAT[s]; const t = s132 ? S_LBL[s as S132Status] : t0;
   return <span className={`vc-chip ${k}`} data-testid="vc-stat" data-st={s}>{s === 'answered' ? <Check className="i" aria-hidden="true" /> : s === 'busy' ? <span className="dot" aria-hidden="true" /> : <X className="i" aria-hidden="true" />}{t}</span>; }
 
 function Steps({ n, four }: { n: number; four?: boolean }) {
@@ -53,8 +53,15 @@ export function VoipCallBox(p: BoxProps) {
     seen.current = lastId;
   }, [lastId]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!me?.on) return null;
-  const last = me.s132?.last ?? null;
-  return <>{last && p.variant !== 'customer' ? <S132AutoBar b={last} /> : null}<VcBoxOn me={me} {...p} /></>;
+  // SIMOTEL-132 c (item 5): the automatic-save strip now sits at the top of the page (S132TopBar), not inside the task card.
+  return <VcBoxOn me={me} {...p} />;
+}
+/** SIMOTEL-132 c: the «ثبت خودکار» strip at the top of «کارهای امروز من», above the progress card (renders only while me.s132.last exists). */
+export const S132InSplit = createContext(false);
+export function S132TopBar({ split }: { split?: boolean }) {
+  const inSplit = useContext(S132InSplit); // the split page shows it once, under its tabs
+  const me = useVcMe().data; const last = me?.on ? me.s132?.last ?? null : null;
+  return last && (split || !inSplit) ? <S132AutoBar b={last} /> : null;
 }
 const S132_WAIT = 120;
 function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra, variant = 'task', onStarted, onFirstForm }: BoxProps & { me: VcMe }) {
@@ -105,7 +112,7 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
   if (!mine || !c || (c.state === 'ended' && !c.needsResult && c.fileId != null && !scPending)) {
     const fc1 = s132 && firstQ.data?.firstCall === true;
     return <div className="vcx" data-testid="vc-box" data-state="idle">
-      <div className="dp-actions vc-row">{vBtn('تماس از تلفن ویپ', <Headset size={18} aria-hidden="true" />)}{fc1 ? <span className="vc-chip fc1" data-testid="vc-fc1"><Flag className="i" aria-hidden="true" />تماس اول</span> : null}{resBtn(false)}{extra}</div>
+      <div className="dp-actions vc-row">{vBtn('تماس از تلفن ویپ', <Headset size={18} aria-hidden="true" />)}{resBtn(false)}{extra}</div>
       <p className="vc-lock vln"><Headset className="i" aria-hidden="true" /><span>اول تلفن ویپ شما زنگ می‌خورد؛ جواب بده تا شماره‌ی مشتری خودکار گرفته شود. {s132 ? <span data-testid="vc-s132-line">{fc1 ? 'تماس اول این مشتری است: بعد از مکالمه، فرم تماس اول باز می‌شود. ' : 'نتیجه‌ی تماس را خود سیموتل می‌فرستد و چیزی پرسیده نمی‌شود. '}</span> : null}خط تو: داخلی <bdi>{faNum(me.extension ?? '')}</bdi>
         <span className="vc-mo"> زدن روی شماره از سیم‌کارت گوشی خودت می‌گیرد؛ این دکمه از داخلی ویپ.</span></span></p>{errLine}</div>;
   }
@@ -115,24 +122,28 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
     const first = sc.firstCall;
     const k = sc.phase;
     const left = sc.waitSeconds ?? 0;
-    const t = k === 'waiting' ? ['در انتظار نتیجه از سیموتل', 'تماس قطع شد. وضعیت و مدت تماس چند ثانیه‌ی دیگر خودش می‌رسد؛ لازم نیست چیزی بزنی.']
+    const saving = k === 'waiting' && sc.expertStatus != null;
+    const t = saving ? [`ثبت وضعیت: ${S_LBL[sc.expertStatus!]}`, 'وضعیتی که زدی ذخیره شد؛ همین الان کار جاری بسته می‌شود.']
+      : k === 'waiting' ? ['در انتظار نتیجه از سیموتل', 'تماس قطع شد. وضعیت و مدت تماس چند ثانیه‌ی دیگر خودش می‌رسد؛ لازم نیست چیزی بزنی.']
       : k === 'first_form' ? ['تماس اول: جواب داد', 'نتیجه از سیموتل آمد. فرم تماس اول را پر کن؛ مرحله‌ی اول از سیموتل پر شده است.']
       : ['نتیجه از سیموتل نرسید', first ? 'تماس اول این مشتری است: اگر جواب داد، فرم تماس اول باز می‌شود. اگر جواب نداد، اشغال بود یا ناموفق، فقط وضعیت ثبت می‌شود و «تماس اول» برای تماس بعدی می‌ماند.'
         : '۲ دقیقه بعد از قطع تماس، وضعیتی نیامد. فقط بزن چه شد؛ فرمی باز نمی‌شود و اگر مکالمه ضبط شده باشد، یادداشت از خلاصه‌ی تماس خودش نوشته می‌شود.'];
-    const sb = (s: S132Status, label: string, pri = false) => <button key={s} type="button" className={`btn ${pri ? 'btn-primary' : 'btn-ghost'}`} disabled={busy} onClick={() => void pick(s)} data-testid={`vc-st-${s}`}>{label}</button>;
-    const btns = k === 'waiting' ? <button type="button" className="btn btn-ghost vc-btn" aria-disabled="true" onClick={(e) => e.preventDefault()} data-testid="vc-wait-btn"><Lock size={16} aria-hidden="true" />در انتظار نتیجه</button>
+    const SI: Record<S132Status, ReactNode> = { answered: <Check size={16} aria-hidden="true" />, no_answer: <X size={16} aria-hidden="true" />, busy: <span className="vc-sdot" aria-hidden="true" />, failed: <AlertCircle size={16} aria-hidden="true" /> };
+    const sb = (s: S132Status, label: string, pri = false) => <button key={s} type="button" className={`btn ${pri ? 'btn-primary' : 'btn-ghost'}`} disabled={busy} onClick={() => void pick(s)} data-testid={`vc-st-${s}`}>{SI[s]}{label}</button>;
+    const btns = saving ? <button type="button" className="btn btn-ghost vc-btn" aria-disabled="true" onClick={(e) => e.preventDefault()} data-testid="vc-saving-btn"><Check size={16} aria-hidden="true" />{S_LBL[sc.expertStatus!]} ثبت شد</button>
+      : k === 'waiting' ? <button type="button" className="btn btn-ghost vc-btn" aria-disabled="true" onClick={(e) => e.preventDefault()} data-testid="vc-wait-btn"><Lock size={16} aria-hidden="true" />در انتظار نتیجه</button>
       : k === 'first_form' ? <button type="button" className="btn btn-primary" onClick={() => onFirstForm?.(c.id)} data-testid="vc-first-form"><Flag size={16} aria-hidden="true" /> فرم تماس اول</button>
       : <>{sb('answered', first ? 'جواب داد، فرم تماس اول' : 'جواب داد', true)}{sb('no_answer', 'جواب نداد')}{sb('busy', 'اشغال')}{sb('failed', 'ناموفق')}
         {vBtn('دوباره زنگ بزن', <RefreshCw size={16} aria-hidden="true" />, false, 'vc-again')}</>;
-    const lockTxt = k === 'waiting' ? 'نتیجه‌ی همین تماس در راه است؛ دکمه‌های دستی لازم نیست. اگر تا ۲ دقیقه نرسید، فقط چهار دکمه‌ی وضعیت می‌آید.'
+    const lockTxt = saving ? 'وضعیت ثبت شد؛ تسک بعدی چند ثانیه‌ی دیگر خودش باز می‌شود.' : k === 'waiting' ? 'نتیجه‌ی همین تماس در راه است؛ دکمه‌های دستی لازم نیست. اگر تا ۲ دقیقه نرسید، فقط چهار دکمه‌ی وضعیت می‌آید.'
       : k === 'first_form' ? 'تسک بعدی تا ثبت فرم تماس اول قفل است.'
       : first ? 'تسک بعدی تا زدن وضعیت (و با «جواب داد»، تا ثبت فرم تماس اول) قفل است.' : 'فقط یک ضربه: تسک با زدن وضعیت از «کارهای امروز من» می‌رود و تسک بعدی باز می‌شود.';
-    return <div className="vcx" data-testid="vc-box" data-state={st} data-kind={`s132-${k}`}>
-      <section className={`vc-cw ${k === 'late' ? 'bz' : k === 'first_form' ? 'ok' : 'dial'}`} aria-label="وضعیت تماس" role="status" aria-live="polite" data-testid="vc-panel">
+    return <div className="vcx" data-testid="vc-box" data-state={st} data-kind={`s132-${saving ? 'saving' : k}`}>
+      <section className={`vc-cw ${k === 'first_form' || saving ? 'ok' : 'dial'}${k === 'late' ? ' s132l' : ''}`} aria-label="وضعیت تماس" role="status" aria-live="polite" data-testid="vc-panel">
         <Steps n={k === 'first_form' ? 4 : 3} four />
-        <div className="vc-cwh"><span className="vc-cwi" aria-hidden="true">{k === 'late' ? <AlertTriangle className="i" /> : k === 'first_form' ? <Check className="i" /> : <Clock className="i" />}</span>
-          <div><h3 data-testid="vc-title">{t[0]}</h3><p>{t[1]}</p>{first ? <span className="vc-chip fc1"><Flag className="i" aria-hidden="true" />تماس اول</span> : null}</div></div>
-        {k === 'waiting' ? <div className="vc-cdn"><span className="vc-bar" role="progressbar" aria-label="انتظار برای نتیجه از سیموتل" aria-valuemin={0} aria-valuemax={S132_WAIT} aria-valuenow={S132_WAIT - left}>
+        <div className="vc-cwh"><span className="vc-cwi" aria-hidden="true">{k === 'first_form' || saving ? <Check className="i" /> : <Clock className="i" />}</span>
+          <div><h3 data-testid="vc-title">{t[0]}</h3><p>{t[1]}</p></div></div>
+        {k === 'waiting' && !saving ? <div className="vc-cdn"><span className="vc-bar" role="progressbar" aria-label="انتظار برای نتیجه از سیموتل" aria-valuemin={0} aria-valuemax={S132_WAIT} aria-valuenow={S132_WAIT - left}>
           <i style={{ width: `${Math.round(((S132_WAIT - left) / S132_WAIT) * 100)}%` }} /></span><span className="muted">معمولاً چند ثانیه</span></div> : null}
       </section>
       <div className="dp-actions vc-row">{btns}{extra}</div>
@@ -149,8 +160,8 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
     ring: ['تلفن ویپ شما زنگ می‌خورد، جواب بده', `بعد از جواب دادن، شماره‌ی ${nm} خودکار گرفته می‌شود.`],
     dial: ['در حال گرفتن شماره‌ی مشتری…', 'روی خط بمان؛ صدای بوق را از همان تلفن ویپ می‌شنوی.'],
     talk: [`در مکالمه با ${nm}`, 'برای پایان، قطع تماس از تلفن ویپ. این تماس ضبط می‌شود.'],
-    ok: ['تماس تمام شد: پاسخ داد', `${dur ? `${dur}. ` : ''}${fileTxt}؛ ${c.recording === 'ready' ? 'فایل ضبط آماده است.' : c.recording === 'processing' ? 'فایل ضبط در حال آماده شدن است.' : 'فایل ضبط ندارد.'}`],
-    na: ['مشتری پاسخ نداد', `بوق خورد ولی برنداشت. با وضعیت «پاسخ نداد»، ${fileTxt}.`],
+    ok: [s132 ? 'تماس تمام شد: جواب داد' : 'تماس تمام شد: پاسخ داد', `${dur ? `${dur}. ` : ''}${fileTxt}؛ ${c.recording === 'ready' ? 'فایل ضبط آماده است.' : c.recording === 'processing' ? 'فایل ضبط در حال آماده شدن است.' : 'فایل ضبط ندارد.'}`],
+    na: s132 ? ['مشتری جواب نداد', `بوق خورد ولی برنداشت. با وضعیت «جواب نداد»، ${fileTxt}.`] : ['مشتری پاسخ نداد', `بوق خورد ولی برنداشت. با وضعیت «پاسخ نداد»، ${fileTxt}.`],
     bz: ['خط مشتری اشغال بود', `با وضعیت «اشغال»، ${fileTxt}.`],
     warn: ['تلفن ویپ را جواب ندادی', `${faNum(total)} ثانیه گذشت و تماس لغو شد. با مشتری تماسی گرفته نشد، پس قفل آزاد شد و ثبت نتیجه لازم نیست.`],
     err: ['تماس برقرار نشد', 'سامانه‌ی تلفن جواب نداد. دوباره امتحان کن، یا شماره را کپی کن و با گوشی خودت بگیر. قفل آزاد است.'],
@@ -182,6 +193,12 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
 export function VcHeaderBadge() {
   const me = useVcMe().data; const c = me?.on ? me.call : null;
   useTick(Boolean(c && c.state === 'in_call'));
+  // SIMOTEL-132 c: body[data-s132] scopes the mobile badge / bottom-bar fixes to flag-on users only.
+  const on132 = Boolean(me?.on && me.s132);
+  useEffect(() => { if (!on132) return; document.body.dataset.s132 = '1'; return () => { delete document.body.dataset.s132; }; }, [on132]);
+  if (on132 && c && !LIVE.has(c.state) && c.s132?.phase === 'waiting' && c.s132.expertStatus == null) {
+    return <span className="vc-hb dial s132w" role="status" aria-label="در انتظار نتیجه از سیموتل" data-testid="vc-badge-s132"><Headset className="i" aria-hidden="true" /><span><b className="vc-hb-l">در انتظار نتیجه از سیموتل</b><b className="vc-hb-s" aria-hidden="true">نتیجه…</b>{c.customerName ? <small>{c.customerName}</small> : null}</span></span>;
+  }
   if (!c || !LIVE.has(c.state)) return null;
   const t = c.state === 'in_call' ? `در مکالمه ${mmss(talkSeconds(c))}` : c.state === 'dial_cust' ? 'در حال گرفتن مشتری' : 'تلفن ویپ شما زنگ می‌خورد';
   const k = c.state === 'in_call' ? 'talk' : c.state === 'dial_cust' ? 'dial' : 'ring';
@@ -218,13 +235,13 @@ function Rec({ i }: { i: Pick<VcHistItem, 'kind' | 'recording' | 'playable' | 'e
   if (i.kind === 'manual') return <p className="vc-rp none"><EyeOff className="i" aria-hidden="true" /><span>ثبت دستی پیش از سیموتل؛ مدت و فایل ضبط ندارد.</span></p>;
   return <p className="vc-rp none"><EyeOff className="i" aria-hidden="true" /><span>فایل ضبط ندارد؛ مکالمه‌ای برقرار نشد.</span></p>;
 }
-export function VcCallItem({ i, fresh }: { i: VcHistItem; fresh?: boolean }) {
+export function VcCallItem({ i, fresh, s132 }: { i: VcHistItem; fresh?: boolean; s132?: boolean }) {
   const dur = durText(i.durationSeconds);
   const src = i.kind === 'voip' ? `تماس از تلفن ویپ، ${i.expert ?? 'کارشناس'}، ${i.fileId != null ? `خودکار به پرونده ${faNum(i.fileId)} وصل شد` : 'خودکار به سابقه‌ی مشتری وصل شد'}`
     : i.kind === 'simotel' ? `تماس ${i.direction === 'incoming' ? 'ورودی' : 'خروجی'} سیموتل، ${i.expert ?? 'کارشناس'}` : `ثبت دستی، ${i.expert ?? 'کارشناس'} (با گوشی خودش)`;
   return <li className={`vc-ci${fresh ? ' fresh' : ''}`} data-testid="vc-item" data-kind={i.kind}>
     <div className="vc-cih"><span className="vc-cic" aria-hidden="true">{i.kind === 'manual' ? <PenLine className="i" /> : <Headset className="i" />}</span>
-      <b>{atText(i.at)}</b>{i.s132?.fixed ? <S132Pair sim={i.s132.sim} expert={i.s132.fixed} /> : <VcStat s={i.s132?.auto ? (i.s132.expert ?? i.s132.sim) : i.status} />}<NoAnsSms on={i.noanswerSms} />{dur ? <span className="vc-cid"><Clock className="i" aria-hidden="true" />{dur}</span> : null}</div>
+      <b>{atText(i.at)}</b>{i.s132?.fixed ? <S132Pair sim={i.s132.sim} expert={i.s132.fixed} /> : <VcStat s={i.s132?.auto ? (i.s132.expert ?? i.s132.sim) : i.status} s132={s132 || i.s132 != null} />}<NoAnsSms on={i.noanswerSms} />{dur ? <span className="vc-cid"><Clock className="i" aria-hidden="true" />{dur}</span> : null}</div>
     <p className="vc-cis">{src}</p>
     <Rec i={i} />
     {i.result ? <p className="vc-cir"><span className="muted">نتیجه:</span> {i.result.label ? i.result.label : ''}{i.result.label && i.result.note ? '؛ ' : ''}{i.result.note ? `«${i.result.note}»` : ''}</p>
@@ -250,7 +267,7 @@ export function CustomerCallHistory({ customerId }: { customerId: number }) {
     <div className="vc-hh"><h3 id="vc-hist-h"><History className="i" aria-hidden="true" /> سابقه‌ی تماس‌ها</h3>{h.data ? <span className="muted">{faNum(items.length)} تماس</span> : null}</div>
     <p className="muted vc-hn">تماس‌های تلفن ویپ خودشان این‌جا می‌آیند: وضعیت، مدت و فایل ضبط. ثبت‌های دستی قدیمی هم می‌مانند.</p>
     {h.isLoading ? <div className="dp-skel" role="status">در حال بارگذاری…</div> : h.isError ? <p className="dp-err" role="alert">سابقه بارگذاری نشد. <button type="button" className="btn btn-ghost" onClick={() => void h.refetch()}>تلاش دوباره</button></p>
-      : items.length ? <ol className="vc-cil">{items.map((i) => <VcCallItem key={i.id} i={i} />)}</ol> : <p className="muted">هنوز تماسی ثبت نشده.</p>}
+      : items.length ? <ol className="vc-cil">{items.map((i) => <VcCallItem key={i.id} i={i} s132={Boolean(me?.s132)} />)}</ol> : <p className="muted">هنوز تماسی ثبت نشده.</p>}
   </section>;
 }
 
@@ -282,9 +299,14 @@ export function S132AutoBar({ b }: { b: S132Bar }) {
     try { await f(); after?.(); } catch (e) { setErr(e instanceof VcError ? e.message : 'ثبت نشد؛ دوباره امتحان کن.'); } finally { setBusy(false); vcRefresh(qc); }
   };
   const why = st === 'no_answer' ? 'بوق خورد و برنداشت.' : st === 'busy' ? 'خط مشتری اشغال بود.' : st === 'failed' ? 'شماره در دسترس نبود یا شبکه وصل نکرد.' : '';
-  const src = b.source === 'expert' ? 'با انتخاب تو' : 'از سیموتل';
-  const sub = ok ? `${src}، امروز ${hhmm(b.at)}. چیزی پرسیده نشد: فایل ضبط و متن مکالمه ذخیره می‌شود و تسک خودکار از «کارهای امروز من» رفت.`
+  // SIMOTEL-132 c (item 9): «ثبت خودکار» only when Simotel decided; a status the expert picked reads «ثبت شد … با انتخاب تو».
+  const mine = b.source === 'expert';
+  const src = mine ? 'با انتخاب تو' : 'از سیموتل';
+  // item 8: the next step comes from the call summary; without one the board's rule decides.
+  const nextTxt = b.nextStep ? ` قدم بعد از خلاصه: ${b.nextStep.replace(/[.。]\s*$/, '')}.` : ' قدم بعد: پیگیری طبق قاعده‌ی تخته.';
+  const sub = ok ? `${src}، امروز ${hhmm(b.at)}. چیزی پرسیده نشد: فایل ضبط و متن مکالمه ذخیره می‌شود و تسک خودکار از «کارهای امروز من» رفت.${nextTxt}`
     : `${src}، امروز ${hhmm(b.at)}. ${why} تسک بعدی باز شد.`;
+  const smsT = b.smsAt ? hhmm(b.smsAt) : '';
   const dur = durText(b.durationSeconds);
   const note = edit ? <div className="vc-anb ed" data-testid="vc-note-edit">
       <label className="sr-only" htmlFor={`vc-note-${b.callId}`}>یادداشت تماس</label>
@@ -300,38 +322,41 @@ export function S132AutoBar({ b }: { b: S132Bar }) {
   return <section className={`vcx vc-adn card ${ok ? 'ok' : st === 'failed' ? 'fl' : 'bz'}`} aria-label="ثبت خودکار از سیموتل" data-testid="vc-auto-bar" data-st={st}>
     <span className="vc-ad-ic" aria-hidden="true">{ok ? <Check className="i" /> : <Headset className="i" />}</span>
     <div className="vc-ad-b">
-      <p className="vc-ad-t"><b>ثبت خودکار: {nm}</b><span className="muted">#{faNum(b.customerId)}</span>
-        {b.fixedStatus ? <S132Pair sim={b.simStatus} expert={b.fixedStatus} /> : <VcStat s={st} />}
+      <p className="vc-ad-t"><b data-testid="vc-auto-title">{mine ? 'ثبت شد' : 'ثبت خودکار'}: {nm}</b><span className="dp-id">#{faNum(b.customerId)}</span>
+        {b.fixedStatus ? <S132Pair sim={b.simStatus} expert={b.fixedStatus} /> : <VcStat s={st} s132 />}
         {ok && dur ? <span className="vc-cid"><Clock className="i" aria-hidden="true" />{dur}</span> : null}
-        {b.smsSent ? <span className="vc-chip q" data-testid="vc-nosms"><MessageSquare className="i" aria-hidden="true" />پیامک عدم پاسخ رفت</span> : null}
+        {b.smsSent || b.smsAt ? <span className="vc-chip q" data-testid="vc-nosms"><MessageSquare className="i" aria-hidden="true" />پیامک عدم پاسخ رفت{smsT ? `، ساعت ${smsT}` : ''}</span> : null}
         {b.canFix && !b.fixedStatus ? <button type="button" className="vc-fx" onClick={() => setFix(true)} data-testid="vc-fix-open">اشتباهه؟</button> : null}</p>
-      <p className="vc-ad-s">{sub}</p>
+      <p className="vc-ad-s" data-testid="vc-auto-sub">{sub}</p>
       {note}
       {err ? <p className="dp-err vc-err" role="alert">{err}</p> : null}
     </div>
     {!ok && !edit && !b.note ? <button type="button" className="btn btn-ghost sm vc-ad-add" onClick={() => setEdit(true)} data-testid="vc-note-add"><PenLine size={14} aria-hidden="true" /> افزودن یادداشت</button> : null}
-    <button type="button" className="vc-ad-x" aria-label="بستن" disabled={busy} onClick={() => void run(() => vcApi.closeBar(b.callId))} data-testid="vc-bar-close"><X className="i" /></button>
     {fix ? <S132FixSheet b={b} busy={busy} onClose={() => setFix(false)} onSave={(v) => void run(() => vcApi.fix(b.callId, v), () => setFix(false))} /> : null}
   </section>;
 }
 function S132FixSheet({ b, busy, onClose, onSave }: { b: S132Bar; busy: boolean; onClose: () => void; onSave: (s: S132Status) => void }) {
   const sim = b.simStatus ?? b.status ?? 'failed';
-  const [v, setV] = useState<S132Status | null>(null);
+  // item 2 / Q15: when Simotel said «جواب داد», «جواب داد» starts selected.
+  const [v, setV] = useState<S132Status | null>(sim === 'answered' ? 'answered' : null);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { ref.current?.focus(); const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose]);
   const nm = b.customerName ?? 'مشتری';
   return <div className="vc-shx" dir="rtl">
     <div className="vc-shs" onClick={onClose} aria-hidden="true" />
-    <div ref={ref} className="vc-sh" role="dialog" aria-modal="true" aria-labelledby="vc-fix-t" tabIndex={-1} data-testid="vc-fix-sheet">
+    <div ref={ref} className="vc-sh s132c" role="dialog" aria-modal="true" aria-labelledby="vc-fix-t" tabIndex={-1} data-testid="vc-fix-sheet" data-nodnd="">
+      <button type="button" className="vc-sh-x" aria-label="بستن" onClick={onClose} data-testid="vc-fix-x"><X className="i" /></button>
       <p className="muted vc-sh-e">تماس امروز {hhmm(b.at)} از تلفن ویپ</p>
-      <h3 id="vc-fix-t">اصلاح وضعیت، {nm}</h3>
-      <p className="vc-fx-s">سیموتل ثبت کرد: <VcStat s={sim} /></p>
+      <h3 id="vc-fix-t">اصلاح وضعیت، {nm} <span className="dp-id" data-testid="vc-fix-id">#{faNum(b.customerId)}</span></h3>
+      <p className="vc-fx-s">سیموتل ثبت کرد: <VcStat s={sim} s132 /></p>
       <fieldset className="vc-fxg"><legend>وضعیت درست</legend>
-        <div role="radiogroup" className="vc-fxo">{(['answered', 'no_answer', 'busy', 'failed'] as S132Status[]).map((s) => <label key={s} className={`vc-fxr${v === s ? ' on' : ''}`}>
-          <input type="radio" name={`vc-fix-${b.callId}`} value={s} checked={v === s} onChange={() => setV(s)} data-testid={`vc-fix-${s}`} /><span>{S_LBL[s]}</span>{s === sim ? <small>سیموتل</small> : null}</label>)}</div></fieldset>
+        <div role="radiogroup" aria-labelledby="vc-fix-t" className="vc-fxo pills">{(['answered', 'no_answer', 'busy', 'failed'] as S132Status[]).map((s) => <button key={s} type="button" role="radio" aria-checked={v === s} className={`vc-fxp ${s}${v === s ? ' on' : ''}`}
+          onClick={() => setV(s)} data-testid={`vc-fix-${s}`}><span className="vc-fxl">{S_LBL[s]}</span>{s === sim ? <small>سیموتل</small> : null}</button>)}</div></fieldset>
       <p className="muted vc-sh-h">هر دو در سابقه می‌ماند: «سیموتل: {S_LBL[sim]}» و «کارشناس: {v ? S_LBL[v] : '…'}». با هر گزینه، از جمله «جواب داد»، فقط وضعیت عوض می‌شود و فرمی باز نمی‌شود.</p>
-      {b.smsSent ? <p className="muted vc-sh-h">پیامکی که رفته پس گرفته نمی‌شود؛ چیپش در سابقه می‌ماند.</p> : null}
-      <div className="vc-sh-a"><button type="button" className="btn btn-primary" disabled={busy || !v || v === sim} onClick={() => v && onSave(v)} data-testid="vc-fix-save">ذخیره</button>
+      {b.smsSent || b.smsAt ? <><p className="vc-sh-h"><span className="vc-chip q" data-testid="vc-fix-sms"><MessageSquare className="i" aria-hidden="true" />پیامک عدم پاسخ رفت{b.smsAt ? `، ساعت ${hhmm(b.smsAt)}` : ''}</span></p>
+        <p className="muted vc-sh-h">پیامکی که رفته پس گرفته نمی‌شود؛ چیپش در سابقه می‌ماند.</p></> : null}
+      <p className="vc-sh-lk" data-testid="vc-fix-lock"><Lock className="i" aria-hidden="true" /><span><b>نوبت عقب نمی‌رود:</b> تسک جاری همان می‌ماند و نتیجه فقط به سابقه‌ی {nm} اضافه می‌شود.</span></p>
+      <div className="vc-sh-a"><button type="button" className="btn btn-primary" disabled={busy || !v || v === sim} onClick={() => v && onSave(v)} data-testid="vc-fix-save"><Check size={16} aria-hidden="true" /> ذخیره</button>
         <button type="button" className="btn btn-ghost" onClick={onClose} data-testid="vc-fix-cancel">انصراف</button></div>
     </div>
   </div>;

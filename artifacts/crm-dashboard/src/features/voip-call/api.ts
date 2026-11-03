@@ -25,6 +25,8 @@ export type S132Call = { firstCall: boolean; phase: 'live' | 'waiting' | 'late' 
   simStatus: S132Status | null; expertStatus: S132Status | null };
 export type S132Bar = { callId: number; customerId: number; customerName: string | null; fileId: number | null; status: S132Status | null; simStatus: S132Status | null;
   expertStatus: S132Status | null; fixedStatus: S132Status | null; source: 'simotel' | 'expert' | null; at: string | null; durationSeconds: number | null; smsSent: boolean;
+  /** SIMOTEL-132 c: time the «عدم پاسخ» SMS actually went; the summary's next step (answered only). */
+  smsAt?: string | null; nextStep?: string | null;
   noteState: 'pending' | 'ready' | 'none' | null; note: string; noteEdited: boolean; canFix: boolean };
 export type VcMe = { on: boolean; extension?: string | null; call?: VcCall | null; timeoutSeconds?: number; s132?: { last: S132Bar | null };
   /** SIMOTEL-132 B (flag.simotel132b[.user.<id>]): present only while B is on for this user. */

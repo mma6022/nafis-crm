@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
-import { Check, ChevronDown, Clock, FileText, Lock, Phone, PhoneIncoming, Search, X } from 'lucide-react';
+import { Check, ChevronDown, Clock, FileText, Flag, Lock, Phone, PhoneIncoming, Search, X } from 'lucide-react';
 import { cqFollowUpAt, CqResultFields, cqResultError, emptyCqResult, focusCallResult, type CqResultValue } from '@/features/call-queue/ResultFields';
 import { announceCallSaved, faClock, faNum, tehranParts, useCqConfig } from '@/features/call-queue/api';
 import { custList, dpApi, DpError, useDpConfig, type DpItem, type DpToday } from './api';
@@ -12,7 +12,7 @@ import { IncomingTopButton, IncomingWizard, fullTel, phone11 } from '@/features/
 import { useSalesShellV2 } from '@/features/sales-shell/api';
 import { CallNumber, CALLED_LABEL, useNarrow } from '@/features/call-number/CallNumber';
 import { useVcMe, vcApi, vcRefresh } from '@/features/voip-call/api';
-import { VoipCallBox } from '@/features/voip-call/VoipCall';
+import { S132TopBar, VoipCallBox } from '@/features/voip-call/VoipCall';
 import { S132bToday } from '@/features/voip-call/S132bToday';
 import { TodayCarousel } from './TodayCarousel';
 import { useSsIncoming } from '@/features/sales-shell/api';
@@ -36,9 +36,11 @@ export const faDate = (ymd: string) => {
 /** REMINDER-68 (Armita review #1): experts see the CRM's masked form ۰۹۱۲***۰۰۱۲ (same helper as the incoming wizard); tel: still dials the full number. */
 const telFa = (p: string) => fullTel(phone11(p) ?? p.replace(/^\+98/, '0')); // UNMASK-EXPERT t674u: full number (own customer)
 
-export function Chips({ i }: { i: DpItem }) {
+/** SIMOTEL-132 c (item 11): progress / reason lines read «، » and Persian digits (flag-on only). */
+export const s132Line = (t: string) => t.replace(/ · /g, '، ').replace(/[0-9]/g, (x) => '۰۱۲۳۴۵۶۷۸۹'[+x]);
+export function Chips({ i, s132 }: { i: DpItem; s132?: boolean }) {
   return <span className="dp-chips">
-    {i.typeLabel ? <span className={`dp-chip t-${i.type}`}>{i.typeLabel}</span> : null}
+    {i.typeLabel ? s132 && i.type === 'first' ? <span className="dp-chip vc-chip fc1" data-testid="dp-fc1"><Flag size={13} aria-hidden="true" />{i.typeLabel}</span> : <span className={`dp-chip t-${i.type}`}>{i.typeLabel}</span> : null}
     {i.label ? <span className={`dp-chip l-${i.source}`} data-testid="dp-label">{i.label}</span> : null}
     {i.urgent && i.type !== 'urgent' ? <span className="dp-chip t-urgent">فوری</span> : null}
     {i.priority === 1 ? <span className="dp-chip p1">اولویت ۱</span> : null}
@@ -83,6 +85,7 @@ export default function TodayPage() {
   if (!('eligible' in d) || !d.eligible) return <div className="dp-page"><h1>کارهای امروز</h1><div className="dp-box" data-testid="dp-not-eligible">«کارهای امروز» برای کارشناس‌های فروش است. برای حساب تو لیستی ساخته نمی‌شود.</div></div>;
   if (cfg.carousel === true) return <TodayCarousel d={d} refresh={refresh} />; // incoming2-59 flag.today_carousel (8/2/3 only); OFF → the view below, unchanged
   return <div className="dp-page" data-testid="dp-today" data-state={d.state}>
+    <S132TopBar />{/* SIMOTEL-132 c: the «ثبت خودکار» strip at the top of the page (renders nothing while flag.simotel132 is off) */}
     <Head d={d} />
     {locked ? <IncomingTopButton onClick={() => { if (!inbound) void elApi.open().catch(() => undefined); setInbound(true); }} testId="dp-inbound-open" /> : null}
     {d.pendingCall ? <div className="dp-box warn" role="alert" data-testid="dp-pending-other">تماس باز با <b>{d.pendingCall.customerName}</b> هنوز نتیجه ندارد. اول نتیجه و یادداشتش را ثبت کن (از «تماس ورودی» همین صفحه یا پرونده‌ی مشتری).</div> : null}
@@ -103,13 +106,15 @@ export default function TodayPage() {
 
 function Head({ d }: { d: Working }) {
   const p = d.progress; const left = d.upcoming.filter((i) => i.bucket === 'main').length;
+  const s132 = Boolean(useVcMe().data?.s132);
   return <header className="dp-head card" data-testid="dp-head">
     <div className="dp-head-t"><div><h1>کارهای امروز</h1><p>{faDate(d.date)}</p></div>
       {d.mode === 'auto' ? <span className="dp-chip l-auto" data-testid="dp-mode-auto">لیست خودکار</span> : d.assistantNote ? <span className="dp-note-chip" title={d.assistantNote}>یادداشت دستیار</span> : null}</div>
     {p.total ? <>
       <div className="dp-pos" data-testid="dp-pos"><b>{faNum(p.position || p.done)} از {faNum(p.total)}</b><small>کار فعلی</small></div>
       <div className="dp-bar" role="progressbar" aria-valuemin={0} aria-valuemax={p.total} aria-valuenow={p.done} aria-label="انجام لیست اصلی"><i style={{ width: `${Math.round((p.done / p.total) * 100)}%` }} /></div>
-      <p className="dp-sub" data-testid="dp-sub">{faNum(p.done)} انجام شد · {faNum(left)} کار بعد از این{p.extraDone ? ` · کار اضافه: ${faNum(p.extraDone)}` : ''}{p.outOfList ? ` · خارج از لیست: ${faNum(p.outOfList)}` : ''}</p>
+      <p className="dp-sub" data-testid="dp-sub">{s132 ? s132Line(`${faNum(p.done)} انجام شد · ${faNum(left)} کار بعد از این${p.extraDone ? ` · کار اضافه: ${faNum(p.extraDone)}` : ''}${p.outOfList ? ` · خارج از لیست: ${faNum(p.outOfList)}` : ''}`)
+        : <>{faNum(p.done)} انجام شد · {faNum(left)} کار بعد از این{p.extraDone ? ` · کار اضافه: ${faNum(p.extraDone)}` : ''}{p.outOfList ? ` · خارج از لیست: ${faNum(p.outOfList)}` : ''}</>}</p>
     </> : null}
     {d.assistantNote && d.mode !== 'auto' ? <blockquote className="dp-anote" data-testid="dp-assistant-note">{d.assistantNote}</blockquote> : null}
   </header>;
@@ -200,9 +205,9 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
       <Link href={`/customers/${cur.customerId}`} className="btn btn-ghost" data-testid="dp-file"><FileText size={16} aria-hidden="true" /> پرونده</Link>
       <a href={`/customers/${cur.customerId}#sec-calls`} target="_blank" rel="noopener" className="btn btn-ghost" title="تاریخچه‌ی تماس‌ها و یادداشت‌های قبلی (برگه‌ی جدید)" data-testid="dp-history"><Clock size={16} aria-hidden="true" /> تاریخچه</a></>;
   const middle = <>
-    <div className="dp-cur-top"><span className="dp-count">{cur.bucket === 'main' ? <>کار {faNum(d.progress.position)} از {faNum(d.progress.total)}</> : 'کار اضافه'}</span><Chips i={cur} /></div>
+    <div className="dp-cur-top"><span className="dp-count">{cur.bucket === 'main' ? <>کار {faNum(d.progress.position)} از {faNum(d.progress.total)}</> : 'کار اضافه'}</span><Chips i={cur} s132={s132} /></div>
     <h2 id="dp-cur-name">{cur.name} <span className="dp-id">#{faNum(cur.customerId)}</span></h2>
-    {cur.reason ? <p className="dp-reason" data-testid="dp-reason">{cur.reason}</p> : null}
+    {cur.reason ? <p className="dp-reason" data-testid="dp-reason">{s132 ? s132Line(cur.reason) : cur.reason}</p> : null}
     {cur.keyNote ? <div className="dp-keynote"><small><FileText size={13} aria-hidden="true" /> نکته از یادداشت‌ها</small><q>{cur.keyNote}</q></div> : null}
     {!c3 ? <SiteAnswersBlock customerId={cur.customerId} enabled={formKind !== 'wait'} /> : null}
     {cur.phone ? <p className="dp-phone cn-line" data-testid="dp-phone"><CallNumber phone={cur.phone} onDial={() => { if (!busy) void call(true); }} disabled={busy} testId="dp-ph" /></p> : null}

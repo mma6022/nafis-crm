@@ -91,6 +91,7 @@ const OVERLAY_SEL = '[aria-modal="true"],[role="dialog"],[role="alertdialog"],.m
 function useForeignOverlay() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(false); // v3: a form/modal (not the phone nav menu) — drives the phone «مزاحم نشو» bar
+  const [nodnd, setNodnd] = useState(false); // SIMOTEL-132 c: every open form is marked data-nodnd (flag-on VoIP forms/sheets) → no «مزاحم نشو» bar
   useEffect(() => {
     let f = 0;
     const check = () => {
@@ -101,7 +102,9 @@ function useForeignOverlay() {
         const cs = getComputedStyle(el); return cs.visibility !== 'hidden' && cs.display !== 'none';
       });
       setOpen(shown.length > 0);
-      setForm(shown.some(el => !el.closest('.mobile-nav-overlay,.mobile-nav-drawer,.sn-panel')));
+      const forms = shown.filter(el => !el.closest('.mobile-nav-overlay,.mobile-nav-drawer,.sn-panel'));
+      setForm(forms.length > 0);
+      setNodnd(forms.length > 0 && forms.every(el => !!el.closest('[data-nodnd]')));
     };
     const sch = () => { if (!f) f = requestAnimationFrame(check); };
     const mo = new MutationObserver(sch);
@@ -109,7 +112,7 @@ function useForeignOverlay() {
     sch();
     return () => { mo.disconnect(); if (f) cancelAnimationFrame(f); };
   }, []);
-  return { open, form };
+  return { open, form, nodnd };
 }
 const typingInField = () => { const el = document.activeElement as HTMLElement | null; return Boolean(el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit'].includes((el as HTMLInputElement).type)) || el.isContentEditable) && !el.closest('.nas-chw')); };
 type Anchor = { top: number; bottom: number; left: number; right: number; cx: number };
@@ -374,7 +377,7 @@ export function AssistantDock({ user, bottomOffset, phone, shellV2 = false }: { 
   const openRef = useRef(openId); openRef.current = openId;
   const prefsNow = prefs ?? mine.data?.prefs ?? EMPTY.prefs;
   const prefsRef = useRef(prefsNow); prefsRef.current = prefsNow;
-  const { open: overlay, form: formOpen } = useForeignOverlay();
+  const { open: overlay, form: formOpen, nodnd: formNodnd } = useForeignOverlay();
   const overlayRef = useRef(overlay); overlayRef.current = overlay;
   // Messages that arrived while a form was open / the user was typing (by id, so re-delivered messages count once).
   const queueRef = useRef(new Map<number, AsMessage>());
@@ -390,7 +393,7 @@ export function AssistantDock({ user, bottomOffset, phone, shellV2 = false }: { 
   const [barOff, setBarOff] = useState(false);
   useEffect(() => { if (!overlay) setBarOff(false); }, [overlay]);
   // SALES-SHELL v2: the bar lives IN-FLOW under the open form's header on every width (never fixed; no nas-dnd-on offsets).
-  const dndBar = (shellV2 || phone) && formOpen && !barOff;
+  const dndBar = (shellV2 || phone) && formOpen && !formNodnd && !barOff;
   const dndBarRef = useRef(dndBar); dndBarRef.current = dndBar;
   useEffect(() => {
     const root = document.documentElement;

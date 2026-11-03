@@ -70,7 +70,7 @@ function S132bOnLayer({ userId }: { userId: number }) {
   return <>
     {inc.length ? <div className="s1b-top" data-testid="s1b-top">{inc.map((c) => <InCard key={c.id} c={c} onClose={() => close(c.id)} onNew={(p) => setWiz(p)} />)}</div> : null}
     {out.length ? <div className="s1b-bot" data-testid="s1b-bot">{out.map((c) => <OutToast key={c.id} c={c} onClose={() => close(c.id)} onSaved={refresh} />)}</div> : null}
-    {form ? <SimpleCallForm customer={form.c} userId={userId} voip={{ callId: form.id }} eyebrow="تماس بیرون از صف"
+    {form ? <SimpleCallForm customer={form.c} userId={userId} voip={{ callId: form.id, b: true }} eyebrow="تماس بیرون از صف"
       onClose={() => { setForm(null); refresh(); }} onDone={() => { void qc.invalidateQueries({ queryKey: ['daily-plan'] }); }} onNext={() => { setForm(null); refresh(); }} /> : null}
     {wiz ? <IncomingWizard currentNo={null} presetPhone={wiz} onClose={() => setWiz(null)} onSaved={() => { void qc.invalidateQueries({ queryKey: ['daily-plan'] }); refresh(); }} /> : null}
   </>;

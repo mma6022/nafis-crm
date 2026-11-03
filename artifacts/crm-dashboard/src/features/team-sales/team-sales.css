@@ -354,3 +354,15 @@ textarea.ts-inp { resize: vertical; line-height: 1.8; }
 .cv .tmr{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted,#64748b)}
 .cv .cvb.gh{background:transparent}
 .cv .cvb[aria-disabled=true]{opacity:.5;cursor:not-allowed}
+/* SIMOTEL-132 c (design 14): VoIP first-call form, 6 steps — classes only exist while flag.simotel132 is on */
+.ts-v6 .ts-progress .row.v6 { justify-content: flex-start; gap: 8px; }
+.ts-v6 .ts-progress .row.v6 b { font-size: 14px; }
+.ts-v6-steps { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 10px 0 0; padding: 0; }
+.ts-v6-steps li { display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 0 9px; border-radius: 8px; font-size: 12px; font-weight: 600; background: var(--nf-surface-2, #f3f5fa); color: var(--nf-ink-muted, #667085); }
+.ts-v6-steps li.on { background: var(--nf-brand-50, #eef3ff); color: var(--nf-ink, #101828); font-weight: 800; }
+.ts-v6-steps li.dn { color: var(--nf-ink-soft, #344054); }
+.ts-v6-lock { border: 1px solid var(--nf-brand-300, #9aa6e6); background: var(--nf-brand-50, #eef3ff); border-radius: 14px; padding: 10px 14px; margin-bottom: 14px; }
+.ts-v6-lock p { display: flex; align-items: center; gap: 8px; margin: 0; flex-wrap: wrap; }
+.ts-v6-lock p.h { margin-bottom: 8px; }
+.ts-v6-lock .ts-muted { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.ts-v6 .ts-wz-head .vc-chip.fc1 .i { width: 14px; height: 14px; }

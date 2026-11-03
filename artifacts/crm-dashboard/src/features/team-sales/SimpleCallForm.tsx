@@ -1,5 +1,5 @@
 import { AutoGrowTextarea } from '../../components/AutoGrowTextarea';
-import { AlertCircle, AlertTriangle, Ban, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, HelpCircle, Info, Search, Timer, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Ban, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Flag, HelpCircle, Info, Lock, Search, Timer, X } from 'lucide-react';
 import { CALL_NOTE_MIN, callNoteLength, callNoteMinMessage } from '@/lib/call-note';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { TransferCheckBox } from './TransferCheckBox';
@@ -251,7 +251,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   file?: FileFormMode;
   /** SIMOTEL-132 (flag.simotel132 only): opened by itself after the customer's first VoIP call was answered. Step 1's call outcome comes
    *  from Simotel (read-only «جواب داد»); the form is required: no X, scrim, Escape or «بستن» until it is saved. Absent → unchanged. */
-  voip?: { callId: number };
+  voip?: { callId: number; b?: boolean }; // b: SIMOTEL-132 B out-of-queue form (keeps its own layout)
 }) {
   const iccOn = useIccEnabled(); // instant-credit-check per-user flag (OFF = step hidden)
   const key = draftKey(userId, customer.id);
@@ -320,10 +320,13 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
     <span>{pfCount ? <b>{saFaN(pfCount)} جواب از فرم سایت پر شد</b> : <b>جواب‌های فرم سایت به‌عنوان راهنما آمده</b>} ({saWhen(site.submittedAt)})؛ همه قابل تغییر است. بقیه را از مشتری بپرس.</span></p> : null;
 
   const answered = d.callResult === 'answered';
-  const steps = file ? [2, 3, STEP_PROFILE, 4] : edit ? [2, 3, STEP_PROFILE, 4, 5, STEP_NOTE] : answered ? [1, 2, 3, STEP_PROFILE, 4, 5, STEP_NOTE] : [1, STEP_NOTE];
+  // SIMOTEL-132 c (Armita on-05 / design 14): the VoIP first-call form has the design's 6 steps — «متقاضی» is one step (3 + profile).
+  const v6 = Boolean(voip) && !voip?.b && !edit && !file;
+  const steps = file ? [2, 3, STEP_PROFILE, 4] : edit ? [2, 3, STEP_PROFILE, 4, 5, STEP_NOTE] : answered ? (v6 ? [1, 2, 3, 4, 5, STEP_NOTE] : [1, 2, 3, STEP_PROFILE, 4, 5, STEP_NOTE]) : [1, STEP_NOTE];
+  useEffect(() => { if (v6 && d.step === STEP_PROFILE) setD((c) => ({ ...c, step: 3 })); }, [v6, d.step]); // an older draft parked on the sub-step
   const total = steps.length;
   const idx = Math.max(0, steps.indexOf(d.step)) + 1;
-  const titles: Record<number, string> = { 1: 'نتیجه‌ی تماس', 2: 'نیاز و مدارک', 3: 'متقاضی — رتبه و چک', [STEP_PROFILE]: 'متقاضی — خدمت، شغل و شهر', 4: 'ضامن', 5: 'طرح‌های مناسب', 6: answered ? 'یادداشت و فوریت' : 'یادداشت' };
+  const titles: Record<number, string> = { 1: 'نتیجه‌ی تماس', 2: 'نیاز و مدارک', 3: v6 ? 'متقاضی' : 'متقاضی — رتبه و چک', [STEP_PROFILE]: 'متقاضی — خدمت، شغل و شهر', 4: 'ضامن', 5: 'طرح‌های مناسب', 6: answered ? 'یادداشت و فوریت' : 'یادداشت' };
 
   const validate = (step: number): Record<string, string> => {
     const e: Record<string, string> = {};
@@ -349,7 +352,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
       if (!d.cheque) e.cheque = 'یکی از گزینه‌ها را انتخاب کن.';
       if (!d.bounced) e.bounced = 'چک برگشتی را مشخص کن.';
     }
-    if (step === STEP_PROFILE) {
+    if (step === STEP_PROFILE || (v6 && step === 3)) {
       if (!d.military) e.military = 'وضعیت نظام وظیفه را انتخاب کن (یا «نمی‌دونه»).';
       if (!d.jobType) e.jobType = 'شغل متقاضی را انتخاب کن (یا «نمی‌دونه»).';
       if (!d.sso) e.sso = 'یکی را انتخاب کن.';
@@ -433,11 +436,11 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   const toggleNoPlan = () => set(noPlan ? { noPlan: false } : { noPlan: true, selected: [] });
   // Prefill the city from the customer's file once (never overwrites what the expert typed).
   useEffect(() => {
-    if (d.step !== STEP_PROFILE || d.cityTouched || d.city) return;
+    if ((d.step !== STEP_PROFILE && !(v6 && d.step === 3)) || d.cityTouched || d.city) return;
     let live = true;
     fetchCities(customer.id, '').then((r) => { if (live && r.customerCity) setD((c) => (c.cityTouched || c.city ? c : { ...c, city: r.customerCity ?? '' })); }).catch(() => {});
     return () => { live = false; };
-  }, [d.step, d.cityTouched, d.city, customer.id]);
+  }, [d.step, d.cityTouched, d.city, customer.id, v6]);
 
   const submitEdit = async (send: boolean, transferOverrideReason?: string) => {
     if (!edit) return;
@@ -603,7 +606,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   } else if (d.step === 1) {
     body = <>
       <div className="ts-script"><b>بگو:</b><p>«سلام، وقتتون بخیر. از نفیس وام تماس می‌گیرم، شماره‌تون رو برای مشاوره‌ی وام گذاشته بودید.»</p></div>
-      {voip ? <div className="ts-q ts-voip-st" data-testid="ts-voip-status"><b>نتیجه‌ی تماس</b>
+      {voip && v6 ? null : voip ? <div className="ts-q ts-voip-st" data-testid="ts-voip-status"><b>نتیجه‌ی تماس</b>
         <p><span className="vc-chip s"><Check className="i" size={14} aria-hidden="true" />جواب داد</span><span className="ts-muted">از سیموتل، فقط‌خواندنی</span></p></div>
       : <ManualOutcomeField value={d.manual ?? ''} idPrefix="ts" showError={Boolean(errors.manual)} submitLabel="بعدی"
         onChange={(m) => set(m === 'answered' ? { manual: m, callResult: d.callResult && d.callResult !== 'no_answer' ? d.callResult : 'answered' } : { manual: m, callResult: 'no_answer' })} />}
@@ -626,6 +629,8 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
     </>;
   } else if (file) {
     body = <div className="ffq" data-testid="ff-body">{steps.map((st) => <section key={st} className="ffs"><h4 className="fsh">{titles[st]}</h4>{stepBody(st)}</section>)}</div>;
+  } else if (v6 && d.step === 3) {
+    body = <>{stepBody(3)}{stepBody(STEP_PROFILE)}</>;
   } else if (d.step === 2 || d.step === 3 || d.step === STEP_PROFILE || d.step === 4) {
     body = stepBody(d.step);
   } else if (d.step === 5) {
@@ -695,7 +700,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   }
 
   const lastStep = d.step === steps[steps.length - 1];
-  const nextLabel = 'بعدی';
+  const nextLabel = v6 && !lastStep ? `بعدی: ${titles[steps[Math.min(steps.indexOf(d.step) + 1, steps.length - 1)]]}` : 'بعدی';
   const missing = strict && !done && !edit ? validate(d.step) : {};
   const blocked = Object.keys(missing).length > 0;
   const shown = Object.keys(errors).filter((k) => errors[k]);
@@ -709,24 +714,28 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   const strictSummary = (strict || file) && shown.length ? <button type="button" className="ts-fcount" onClick={jumpToFirst} aria-label={`${shown.map((k) => STRICT_LABELS[k] ?? k).join('، ')} — برو به اولین مورد`} data-testid="ts-missing">{shown.length === 1 ? 'یک مورد مانده' : shown.length === 2 ? 'دو مورد مانده' : `${fa(shown.length)} مورد مانده`}</button> : null;
   return <div className="ts-layer" dir="rtl">
     <div className="ts-scrim" onClick={onClose} aria-hidden="true" />
-    <div ref={dialogRef} className={`ts-wz${strict || file ? ' strict' : ''}${file ? ' ffm' : ''}`} role="dialog" aria-modal="true" aria-labelledby="ts-wz-title" tabIndex={-1} data-testid="ts-simple-form">
+    <div ref={dialogRef} className={`ts-wz${strict || file ? ' strict' : ''}${file ? ' ffm' : ''}${v6 ? ' ts-v6' : ''}`} role="dialog" aria-modal="true" aria-labelledby="ts-wz-title" tabIndex={-1} data-testid="ts-simple-form" data-nodnd={v6 || undefined}>
       <div className="ts-wz-head">
         <div className="ts-wz-who">
           {eyebrow ? <p className="ts-eyebrow" data-testid="ts-eyebrow">{eyebrow}</p> : null}
-          <h2 id="ts-wz-title">{file ? (file.complete ? 'ویرایش پرونده مشتری' : 'تکمیل پرونده مشتری') : edit ? 'ویرایش خلاصه‌ی تماس اول' : 'فرم تماس'} — <CustomerName id={customer.id} name={customer.name} badgeTestId="ts-wz-customer-id" /></h2>
+          <h2 id="ts-wz-title">{file ? (file.complete ? 'ویرایش پرونده مشتری' : 'تکمیل پرونده مشتری') : edit ? 'ویرایش خلاصه‌ی تماس اول' : v6 ? 'فرم تماس اول' : 'فرم تماس'}{v6 ? '، ' : ' — '}<CustomerName id={customer.id} name={customer.name} badgeTestId="ts-wz-customer-id" /></h2>
           <div className="sub"><span className="ltr" dir="ltr" data-testid="ts-phone">{fa(customer.phone) /* UNMASK-EXPERT t674u: full number for the expert's own customer */}</span>
             {strict || file ? null : <button type="button" className="ts-copy" onClick={copyPhone} aria-label={`کپی شماره‌ی ${customer.name}`} data-testid="ts-copy-phone"><Copy size={13} /> {copied ? 'کپی شد' : 'کپی'}</button>}
-            <span className="ts-badge gray">{prio}</span> <span className="ts-badge">نسخه‌ی ساده</span></div>
+            <span className="ts-badge gray">{prio}</span>{v6 ? null : <> <span className="ts-badge">نسخه‌ی ساده</span></>}</div>
         </div>
-        {voipLock ? <span className="vc-chip fc1" data-testid="ts-first-chip">تماس اول</span> : <button type="button" className="ts-ib" onClick={onClose} aria-label="بستن" data-testid="ts-close"><X size={22} /></button>}
+        {voipLock ? <span className="vc-chip fc1" data-testid="ts-first-chip">{v6 ? <Flag className="i" aria-hidden="true" /> : null}تماس اول</span> : <button type="button" className="ts-ib" onClick={onClose} aria-label="بستن" data-testid="ts-close"><X size={22} /></button>}
       </div>
       {reopenNotice && !done ? <div className="ts-reopen" role="status" data-testid="ts-reopen"><b>اطلاعات تماس اول این مشتری هنوز ثبت نشده</b>
         <small>مقادیر قبلی نگه داشته شده · کار این مشتری در لیست امروز باز است</small></div> : null}
       {file ? <p className="fmh" data-testid="ff-head">همان سؤال‌های فرم تماس اول · {file.answers ? 'پاسخ‌های قبلی پر شده‌اند' : 'هنوز پاسخی ثبت نشده'}{Object.keys(fileMissing).length ? <> · <span className="mc">{fa(Object.keys(fileMissing).length)} مورد مانده</span></> : null}</p> : <div className="ts-progress">
-        <div className="row"><b>{done ? 'نتیجه' : titles[d.step]}</b><span className="ts-muted" data-testid="ts-step-of">{editResult ? 'ذخیره شد' : result ? 'ثبت شد' : `مرحله ${fa(idx)} از ${fa(total)}`}</span></div>
+        {v6 && !done ? <div className="row v6"><b data-testid="ts-step-of">مرحله {fa(idx)} از {fa(total)}</b><span className="ts-muted">{titles[d.step]}</span></div>
+          : <div className="row"><b>{done ? 'نتیجه' : titles[d.step]}</b><span className="ts-muted" data-testid="ts-step-of">{editResult ? 'ذخیره شد' : result ? 'ثبت شد' : `مرحله ${fa(idx)} از ${fa(total)}`}</span></div>}
         <div className="bars" aria-hidden="true">{Array.from({ length: total }, (_, i) => <span key={i} className={done || i < idx ? 'on' : ''} />)}</div>
+        {v6 && !done ? <ol className="ts-v6-steps" aria-label="مراحل فرم" data-testid="ts-v6-steps">{steps.map((st, i) => <li key={st} className={i + 1 < idx ? 'dn' : i + 1 === idx ? 'on' : ''} aria-current={i + 1 === idx ? 'step' : undefined}>
+          {i + 1 < idx ? <Check size={12} aria-hidden="true" /> : null}{titles[st]}</li>)}</ol> : null}
       </div>}
-      <div className="ts-wz-body" ref={bodyRef}>{onChangeCustomer && !done ? <div className="ts-picked-customer" data-testid="ts-picked-customer"><div><b><CustomerName id={customer.id} name={customer.name} badgeTestId="ts-picked-customer-id" /></b><span className="ts-muted"> | {prio}</span></div><button type="button" onClick={onChangeCustomer} data-testid="ts-change-customer"><ChevronRight size={16} aria-hidden="true" /> تغییر مشتری</button></div> : null}{body}</div>
+      <div className="ts-wz-body" ref={bodyRef}>{v6 && !done ? <div className="ts-v6-lock" data-testid="ts-voip-status"><p className="h"><Lock size={14} aria-hidden="true" /><b>مرحله‌ی ۱، نتیجه‌ی تماس: از سیموتل</b></p>
+        <p><span className="vc-chip s"><Check className="i" size={14} aria-hidden="true" />جواب داد</span><span className="ts-muted"><Lock size={12} aria-hidden="true" /> از سیموتل، فقط‌خواندنی</span></p></div> : null}{onChangeCustomer && !done ? <div className="ts-picked-customer" data-testid="ts-picked-customer"><div><b><CustomerName id={customer.id} name={customer.name} badgeTestId="ts-picked-customer-id" /></b><span className="ts-muted"> | {prio}</span></div><button type="button" onClick={onChangeCustomer} data-testid="ts-change-customer"><ChevronRight size={16} aria-hidden="true" /> تغییر مشتری</button></div> : null}{body}</div>
       {copyToast ? <div className={`ts-toast${copied ? ' ok' : ''}`} role="status" data-testid="ts-copy-toast">{copyToast}</div> : null}
       <div className="ts-wz-foot">
         {strictSummary ? <div className="ts-fcount-row" role="status">{strictSummary}</div> : null}

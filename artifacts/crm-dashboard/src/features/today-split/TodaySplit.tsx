@@ -22,7 +22,7 @@ import '@/features/daily-plan/daily-plan.css';
 import '@/features/files-carousel/files-carousel.css';
 import './today-split.css';
 import { useVcMe, vcRefresh } from '@/features/voip-call/api';
-import { VoipCallBox, VcCallItem, vcCallAsItem, useMyName, useVcForFile } from '@/features/voip-call/VoipCall';
+import { S132InSplit, S132TopBar, VoipCallBox, VcCallItem, vcCallAsItem, useMyName, useVcForFile } from '@/features/voip-call/VoipCall';
 
 const JF = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', weekday: 'long', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const at = (iso?: string | null) => { if (!iso) return ''; const d = new Date(iso); if (Number.isNaN(d.getTime())) return '';
@@ -64,12 +64,13 @@ function TodaySplit({ potential, board }: { potential: ReactNode; board: boolean
         مشتریان بالفعل {v ? remaining > 0 ? <span className="tc hot" data-testid="ts-act-count" aria-label={`${faNum(remaining)} تسک مانده`}>{faNum(remaining)}</span>
           : v.total > 0 ? <span className="tc ok" data-testid="ts-act-ok" aria-label="تمام شد"><Check size={15} aria-hidden="true" /></span> : <span className="tc" data-testid="ts-act-count">۰</span> : null}</button>
     </div>
+    <S132TopBar split />{/* SIMOTEL-132 c: once, under the tabs and above the progress card (nothing while flag.simotel132 is off) */}
     <section role="tabpanel" id="ts-p-act" aria-labelledby="ts-t-act" hidden={cur !== 'act'} data-testid="ts-panel-act">
       {fq.isLoading ? <div className="dp-skel" role="status">در حال بارگذاری تسک‌ها…</div>
         : fq.isError || !v ? <div className="dp-box err" role="alert" data-testid="ts-act-error">تسک‌ها بارگذاری نشد. <button type="button" className="btn btn-ghost" onClick={() => void fq.refetch()}>تلاش دوباره</button></div>
         : <ActPanel v={v} board={board} onGoPot={() => setTab('pot')} />}
     </section>
-    <section role="tabpanel" id="ts-p-pot" aria-labelledby="ts-t-pot" hidden={cur !== 'pot'} className="ts-pot" data-testid="ts-panel-pot">{potential}
+    <section role="tabpanel" id="ts-p-pot" aria-labelledby="ts-t-pot" hidden={cur !== 'pot'} className="ts-pot" data-testid="ts-panel-pot"><S132InSplit.Provider value={true}>{potential}</S132InSplit.Provider>
       <p className="ts-potnote" data-testid="ts-pot-note"><FileText size={16} aria-hidden="true" /><span>مشتری‌هایی که پرونده‌ی وام دارند در این لیست نمی‌آیند؛ تسک‌هایشان در «مشتریان بالفعل» است.</span></p></section>
   </div>;
 }
@@ -134,7 +135,7 @@ function TaskCard({ c, pos, total, onResult, onFile }: { c: FcCard; pos: number;
     <aside className="ts-hist" aria-label="سابقه‌ی پیگیری"><h4><History size={17} aria-hidden="true" /> سابقه‌ی پیگیری</h4>
       {c.lastFollowUp ? <div className="ts-he"><b>{at(c.lastFollowUp.at)}</b><p>{c.lastFollowUp.outcomeLabel ?? 'پیگیری'}</p></div> : <p className="dp-sub">هنوز پیگیری نشده.</p>}
       {c.fc?.last_activity_at ? <div className="ts-he"><b>آخرین فعالیت پرونده</b><p>{fcDay(c.fc.last_activity_at)}</p></div> : null}
-      {vcc ? <ol className="vcx vc-cil"><VcCallItem i={vcCallAsItem(vcc, myName)} fresh /></ol> : null}</aside>
+      {vcc ? <ol className="vcx vc-cil"><VcCallItem i={vcCallAsItem(vcc, myName)} fresh s132={Boolean(vme?.s132)} /></ol> : null}</aside>
     <div className="ts-main">
       <div className="ts-chips"><span className="dp-count">تسک {faNum(pos)} از {faNum(total)}</span>{c.fc ? <CatPill c={c.fc} /> : <span className="dp-chip">{c.groupLabel}</span>}</div>
       <h2 id="ts-card-h">{c.customerName} <span className="dp-id">#{faNum(c.customerId)}</span></h2>
@@ -185,7 +186,7 @@ function ResultDialog({ c, v, pos, onClose, onSaved }: { c: FcCard; v: FcView; p
         <ol className="ts-steps" aria-label={`گام ${faNum(step)} از ۳`}>{['تماس', 'نتیجه', 'یادداشت و ثبت'].map((t, i) => <li key={t} className={i + 1 < step ? 'dn' : i + 1 === step ? 'on' : ''} aria-current={i + 1 === step ? 'step' : undefined}>
           <span>{i + 1 < step ? <Check size={13} aria-hidden="true" /> : faNum(i + 1)}</span>{t}</li>)}</ol>
         {vcc ? <div className="vcx vc-atc" data-testid="vc-attached"><p className="vc-atch"><Check className="i" aria-hidden="true" /><b>این تماس خودکار به پرونده وصل شد</b></p>
-          <ol className="vc-cil"><VcCallItem i={vcCallAsItem(vcc, myName)} /></ol></div>
+          <ol className="vc-cil"><VcCallItem i={vcCallAsItem(vcc, myName)} s132={vcc.s132 != null} /></ol></div>
           : c.phone ? <div className="ts-ph sm"><small>شماره‌ی مشتری</small><CallNumber phone={c.phone} customerId={c.customerId} via="files" testId="ts-r-ph" /></div> : null}
         <fieldset className="ts-res"><legend>نتیجه</legend><div className="ts-rlist" role="radiogroup">{v.outcomes.map((x) => <label key={x.code} className={`ts-rr${o === x.code ? ' on' : ''}${x.code === 'cancelled' ? ' cx' : ''}`}>
           <input type="radio" name="ts-o" value={x.code} checked={o === x.code} onChange={() => { setO(x.code); setErr(''); setConfirm(false); }} data-testid={`ts-o-${x.code}`} /> {x.label}{pre === x.code ? <small className="vc-pre" data-testid="vc-pre"> از تماس</small> : null}</label>)}</div></fieldset>

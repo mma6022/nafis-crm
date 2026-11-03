@@ -19,6 +19,7 @@ import { fcExpertFollowup } from "./files-carousel";
 import { dpAfterFirstCallForm } from "./daily-plan";
 import { storedCallSummary } from "./recording-summary-jobs";
 import { vnaSent } from "./voip-noanswer-sms";
+import { resolveEvent, experts, customerMatcher, normalizePhone } from "./voip-after-call";
 
 export const S132_WAIT_S = 120; // R2 decides 60 s after the last leg ends (+ the 20 s poll); then the design's 60 s
 export const S132_STATUSES = ["answered", "no_answer", "busy", "failed"] as const;
@@ -59,6 +60,29 @@ export function s132SimStatus(custStatus: string | null | undefined, outcome: st
   if (s === "NO ANSWER" || s === "CANCEL") return "no_answer";
   if (s === "FAILED" || s === "CONGESTION" || s === "CHANUNAVAIL" || s === "NOT_DIALED") return "failed";
   return outcome === "answered" ? "answered" : outcome === "busy" ? "busy" : outcome === "no_answer" ? "no_answer" : "failed";
+}
+const EV_STATUS: Record<S132Status, string> = { answered: "ANSWERED", no_answer: "NO ANSWER", busy: "BUSY", failed: "FAILED" };
+/** SIMOTEL-132 c (Armita on-03b): the expert picked a status but the call has no call log yet (no live NewState row, or its customer was not
+ *  matched) → link the call's own live row, or add one the same way a NewState row is added (live-…, live_cuid = the call's cuid, so a later
+ *  CDR is merged into it, never a second history row). Returns the call log id, or null. Only reached for a flagged expert's own pick. */
+function ensureExpertLog(c: VcRow, status: S132Status, now: Date): number | null {
+  let eventId = c.event_id;
+  if (eventId == null && (c.cuid || c.leg_cuid)) {
+    eventId = queryRow<{ id: number }>(`SELECT id FROM voip_after_call_events WHERE extension=? AND direction='outgoing' AND live_cuid IN (?,?)
+      AND id NOT IN (SELECT event_id FROM voip_click_calls WHERE event_id IS NOT NULL) ORDER BY id LIMIT 1`, [c.extension, c.cuid ?? "", c.leg_cuid ?? ""])?.id ?? null;
+  }
+  if (eventId == null) {
+    const started = c.me_answered_at ?? c.created_at; const ended = c.ended_at ?? iso(now);
+    executeChanges(`INSERT OR IGNORE INTO voip_after_call_events(external_id,phone,direction,status,started_at,ended_at,extension,extensions_json,has_recording,is_live,live_cuid,auto_capture,customer_id)
+      VALUES(?,?,'outgoing',?,?,?,?,?,0,0,?,1,?)`, [`live-s132-${c.id}`, normalizePhone(c.phone) ?? c.phone, EV_STATUS[status], started, ended, c.extension, JSON.stringify([c.extension]), c.cuid ?? c.leg_cuid ?? null, c.customer_id]);
+    eventId = queryRow<{ id: number }>("SELECT id FROM voip_after_call_events WHERE external_id=?", [`live-s132-${c.id}`])?.id ?? null;
+  }
+  if (eventId == null) return null;
+  executeChanges("UPDATE voip_click_calls SET event_id=? WHERE id=? AND event_id IS NULL", [eventId, c.id]);
+  executeChanges("UPDATE voip_after_call_events SET customer_id=? WHERE id=? AND customer_id IS NULL", [c.customer_id, eventId]);
+  resolveEvent(eventId, experts(), customerMatcher());
+  const e = queryRow<{ call_log_id: number | null; customer_id: number | null }>("SELECT call_log_id, customer_id FROM voip_after_call_events WHERE id=?", [eventId]);
+  return e && Number(e.customer_id) === Number(c.customer_id) ? e.call_log_id : null;
 }
 const callResultOf = (s: S132Status) => s === "answered" ? "answered" : s === "busy" ? "off_or_busy" : "no_answer";
 
@@ -111,9 +135,14 @@ function processOne(r: S132Row, c: VcRow, now: Date): void {
   const user = getAuthUserById(r.user_id) as any;
   if (!user || user.active === false) { markManual(r.call_id, "no_user", now); return; }
   const taskOutcome = status === "answered" ? "answered" : "no_answer";
-  const logId = c.event_id != null ? queryRow<{ call_log_id: number | null }>("SELECT call_log_id FROM voip_after_call_events WHERE id=?", [c.event_id])?.call_log_id ?? null : null;
+  let logId = c.event_id != null ? queryRow<{ call_log_id: number | null }>("SELECT call_log_id FROM voip_after_call_events WHERE id=?", [c.event_id])?.call_log_id ?? null : null;
+  let eventId = c.event_id;
   try {
     savepoint(() => {
+      if (logId == null && c.file_id == null && r.expert_status) { // the expert's pick saves now (on-03b); never left «در انتظار نتیجه»
+        logId = ensureExpertLog(c, status, now);
+        eventId = queryRow<{ event_id: number | null }>("SELECT event_id FROM voip_click_calls WHERE id=?", [c.id])?.event_id ?? null;
+      }
       let fu: number | null = null; let kind: string;
       if (c.file_id != null) {
         const res: any = fcExpertFollowup(user, { fileId: c.file_id, outcome: taskOutcome, note: "", voipCallId: c.id }, now, { auto: true });
@@ -128,7 +157,7 @@ function processOne(r: S132Row, c: VcRow, now: Date): void {
         }
         dpAfterFirstCallForm(user, c.customer_id, logId, taskOutcome, now);
         executeChanges("UPDATE voip_click_calls SET result_saved_at=COALESCE(result_saved_at,?), result_outcome=? WHERE id=?", [iso(now), taskOutcome, c.id]);
-        if (c.event_id != null) completeEvent(c.event_id, r.user_id, taskOutcome, now);
+        if (eventId != null) completeEvent(eventId, r.user_id, taskOutcome, now);
         kind = "dp";
       }
       if (logId != null) executeChanges("UPDATE call_logs SET call_result=? WHERE id=? AND call_result IS NULL", [callResultOf(status), logId]);
@@ -237,10 +266,28 @@ export function s132LastBar(userId: number, now = new Date()) {
   return { callId: r.call_id, customerId: r.customer_id, customerName: r.name, fileId: r.file_id, status, simStatus: r.sim_status,
     expertStatus: r.status_source === "expert" ? r.expert_status : null, fixedStatus: r.fixed_status, source: r.status_source,
     at: r.ended_at ?? r.auto_at, durationSeconds: status === "answered" && r.billsec != null ? r.billsec : null,
-    smsSent: r.sim_status !== "answered" && vnaSent(r.call_id), noteState: r.note_state, note: r.note ?? "", noteEdited: !!r.note_edited_at,
+    smsSent: r.sim_status !== "answered" && vnaSent(r.call_id), smsAt: r.sim_status !== "answered" ? smsSentAt(r.call_id) : null,
+    nextStep: status === "answered" ? summaryNextStep(r.event_id) : null, noteState: r.note_state, note: r.note ?? "", noteEdited: !!r.note_edited_at,
     canFix: !!r.auto_at && tehranDay(new Date(r.auto_at)) === tehranDay(now) };
 }
 
+/** SIMOTEL-132 c (on-04): time of the «عدم پاسخ» SMS that actually went for this call (the R3 table appears with the first decision). */
+function smsSentAt(callId: number): string | null {
+  try {
+    if (!queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='voip_noanswer_sms'")) return null;
+    return queryRow<{ t: string | null }>("SELECT COALESCE(updated_at,created_at) t FROM voip_noanswer_sms WHERE call_id=? AND status='sent'", [callId])?.t ?? null;
+  } catch { return null; }
+}
+/** SIMOTEL-132 c (on-06/07): the next step from the call's own summary when it carries one (nextStep); else null → the board's rule. */
+function summaryNextStep(eventId: number | null): string | null {
+  try {
+    if (eventId == null) return null;
+    const e = queryRow<{ pid: string | null }>("SELECT COALESCE(recording_provider_id,external_id) pid FROM voip_after_call_events WHERE id=?", [eventId]);
+    const sum: any = e?.pid ? storedCallSummary(e.pid) : null;
+    const n = sum && sum.summaryState === "completed" && typeof sum.nextStep === "string" ? sum.nextStep.replace(/\s+/g, " ").trim() : "";
+    return n ? n.slice(0, 200) : null;
+  } catch { return null; }
+}
 type Res = { status: number; body: any };
 const fail = (status: number, error: string, message: string): Res => ({ status, body: { error, message } });
 function ownRow(u: U, id: number): { r: S132Row; c: VcRow } | Res {

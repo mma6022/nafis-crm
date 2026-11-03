@@ -117,3 +117,41 @@ body[data-shot] .vc-cwi{animation:none!important}
 .vc-sh-a{display:flex;gap:8px;margin-top:14px}.vc-sh-a .btn{flex:1}
 .ts-voip-st p{display:flex;align-items:center;gap:8px;margin:6px 0 0}
 @media (max-width:699.98px){.vc-adn{flex-wrap:wrap}.vc-ad-add{width:100%}}
+
+/* ---------- SIMOTEL-132 c (corrective, flag-on markup only: vc-adn / vc-sh.s132c / s132l / s132w / body[data-s132]) ---------- */
+/* item 1: a long edited note wraps inside its box */
+.vc-adn .vc-ad-b{padding-inline-end:0}
+.vc-adn .vc-anb{min-width:0;max-width:100%;box-sizing:border-box}
+.vc-adn .vc-anb-t,.vc-adn .vc-ad-s,.vc-adn .vc-ad-t b{overflow-wrap:anywhere;word-break:break-word;white-space:pre-wrap;min-width:0}
+.vc-adn .vc-ad-t b{white-space:normal}
+/* item 5: the strip at the top of the page */
+.vc-adn.s132top,.dp-page>.vc-adn,.tc-page>.vc-adn,.ts-page .vc-adn{margin:0 0 12px}
+/* item 13: late report = neutral blue, no ringing pulse; icons on the four buttons */
+.vc-cw.s132l .vc-cwi{animation:none;background:#fff;color:var(--nf-brand-600);border:1.5px solid var(--nf-brand-200,#c7cdf0)}
+.vcx .btn .vc-sdot{width:8px;height:8px;border-radius:50%;background:currentColor;display:inline-block;flex:none}
+/* item 2 / 15: fix sheet — × close, bold title + #id, pill buttons, lock line */
+.vc-sh.s132c{padding-top:22px;width:min(480px,calc(100vw - 24px))}
+.vc-sh.s132c h3{font-size:18px;font-weight:800;line-height:1.5;margin:4px 0 12px;padding-inline-end:36px;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.vc-sh.s132c .vc-sh-e{padding-inline-end:36px}
+.vc-sh-x{position:absolute;top:10px;inset-inline-end:10px;width:40px;height:40px;display:grid;place-items:center;border:0;border-radius:10px;background:none;color:var(--nf-ink-muted);cursor:pointer}
+.vc-sh-x:hover{background:rgba(0,0,0,.05)}.vc-sh-x .i{width:18px;height:18px}
+.vc-fxo.pills{display:flex;flex-wrap:wrap;gap:8px}
+.vc-fxp{display:inline-flex;flex-direction:column;justify-content:center;align-items:center;line-height:1.3;min-height:48px;padding:0 14px;border:1.5px solid var(--nf-line-strong,#cfd6e4);border-radius:14px;background:#fff;font:inherit;font-size:15px;font-weight:700;color:var(--nf-ink);cursor:pointer}
+.vc-fxp .i{width:16px;height:16px}.vc-fxp .vc-fxl{display:inline-flex;align-items:center;gap:6px}
+.vc-fxp small{font-size:12px;font-weight:600;color:var(--nf-ink-muted)}
+.vc-fxp.on{border-color:var(--nf-brand-600);background:var(--nf-brand-50);color:var(--nf-brand-800)}
+.vc-fxp.answered.on{border-color:var(--nf-call-ok,#2e7d4f);background:var(--nf-call-ok-50,#eef8f1);color:var(--nf-call-ok,#1f6b41)}
+.vc-fxp:focus-visible{outline:2px solid var(--nf-brand-600);outline-offset:2px}
+.vc-sh-lk{display:flex;gap:8px;align-items:flex-start;margin:12px 0 0;padding:10px 12px;border-radius:10px;background:var(--nf-surface-2,#f4f6fa);font-size:14px;line-height:1.7;color:var(--nf-ink-soft)}
+.vc-sh-lk .i{width:16px;height:16px;flex:none;margin-top:4px}
+/* item 14: header pill while Simotel's result is on its way */
+.vc-hb.s132w{border-radius:999px}
+/* item 12: mobile 390 — the assistant badge stays on its own button */
+@media (max-width:1023px){
+  body[data-s132] .ss-asttop{margin-inline-end:6px}
+  body[data-s132] .ss-asttop .ss-bdg{top:-6px;inset-inline-end:-4px;min-width:14px;height:18px;line-height:18px;padding:0 4px;font-size:12px;border-width:1.5px}
+}
+/* item 17: desktop — the floating bottom bar never covers the last lines («بعدی: …») */
+@media (min-width:1024px){
+  body[data-s132] .app-shell.ssv2::after{content:"";position:fixed;left:0;right:0;bottom:0;height:calc(var(--ss-dock-h) + var(--ss-gap) + 10px);background:linear-gradient(to top,#f5f7fb 78%,rgba(245,247,251,0));z-index:39;pointer-events:none}
+}

@@ -10,13 +10,14 @@ import { elApi } from '@/features/expert-lockdown/api';
 import { IncomingTopButton, IncomingWizard } from '@/features/expert-lockdown/IncomingWizard';
 import { useSsIncoming } from '@/features/sales-shell/api';
 import { dpApi, type DpItem } from './api';
-import { Chips, CurrentCard, StateBox, faDate, type Working } from './TodayPage';
+import { Chips, CurrentCard, StateBox, faDate, s132Line, type Working } from './TodayPage';
 import './carousel.css';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 import { getGetAuthSessionQueryKey, useGetAuthSession } from '@workspace/api-client-react';
 import { announceCallSaved } from '@/features/call-queue/api';
 import { useQueryClient } from '@tanstack/react-query';
-import { vcApi, vcRefresh } from '@/features/voip-call/api';
+import { useVcMe, vcApi, vcRefresh } from '@/features/voip-call/api';
+import { S132TopBar } from '@/features/voip-call/VoipCall';
 import { S132bToday } from '@/features/voip-call/S132bToday';
 
 const OUT: Record<string, string> = { connected: 'صحبت شد', no_answer: 'جواب نداد', follow_up: 'پیگیری', not_interested: 'تمایل ندارد', wrong_number: 'شماره اشتباه' };
@@ -85,6 +86,7 @@ export function TodayCarousel({ d, refresh }: { d: Working; refresh: () => void 
   };
 
   const mainUp = d.upcoming.filter((i) => i.bucket === 'main');
+  const s132 = Boolean(useVcMe().data?.s132); // SIMOTEL-132 c: flag-on only wording below
   const next = d.upcoming[0] ?? null;
   const posLine = cur
     ? cur.bucket === 'main' ? <>کار <b>{faNum(p.position)}</b> از <b>{faNum(p.total)}</b></> : <>کار اضافه · لیست اصلی {faNum(p.done)} از {faNum(p.total)}</>
@@ -99,10 +101,11 @@ export function TodayCarousel({ d, refresh }: { d: Working; refresh: () => void 
       {d.mode === 'auto' ? <span className="dp-chip l-auto" data-testid="dp-mode-auto">لیست خودکار</span> : null}
     </header>
     <IncomingTopButton onClick={openWiz} testId="tc-inb" />
+    <S132TopBar />{/* SIMOTEL-132 c: top of the page, above the progress card (nothing while flag.simotel132 is off) */}
 
     {p.total || cur ? <section className="tc-kp" aria-label="پیشرفت لیست اصلی" data-testid="tc-progress">
       <div className="tc-kpr"><span className="tc-pos" data-testid="tc-pos">{posLine}</span>
-        <small>{faNum(p.done)} انجام شد · {faNum(mainUp.length)} کار بعد از این</small>
+        <small>{s132 ? s132Line(`${faNum(p.done)} انجام شد · ${faNum(mainUp.length)} کار بعد از این`) : <>{faNum(p.done)} انجام شد · {faNum(mainUp.length)} کار بعد از این</>}</small>
         {p.extraDone ? <span className="dp-chip extra" data-testid="tc-extra">کار اضافه: {faNum(p.extraDone)} (جدا شمرده می‌شود)</span> : null}
         {p.outOfList ? <span className="dp-chip l-out_of_list">خارج از لیست: {faNum(p.outOfList)}</span> : null}</div>
       {p.total ? <div className="tc-bar" role="progressbar" aria-valuemin={0} aria-valuemax={p.total} aria-valuenow={p.done} aria-label="انجام لیست اصلی"><i style={{ width: `${Math.round((p.done / p.total) * 100)}%` }} /></div> : null}
@@ -133,7 +136,7 @@ export function TodayCarousel({ d, refresh }: { d: Working; refresh: () => void 
 
     {onCurrent && next ? <p className="tc-dots" data-testid="tc-next"><span className="tc-nxt">بعدی: <b>{next.name}</b> <span className="dp-id">#{faNum(next.customerId)}</span>
       {next.urgent ? <span className="dp-chip t-urgent">فوری</span> : seen.current && !seen.current.has(next.id) ? <span className="dp-chip">تازه اضافه شد</span> : null}</span>
-      <small><Lock size={12} aria-hidden="true" /> ترتیب ثابت است · فقط کارت جاری باز است</small></p> : null}
+      <small><Lock size={12} aria-hidden="true" /> {s132 ? 'ترتیب ثابت است، فقط کارت جاری باز است' : 'ترتیب ثابت است · فقط کارت جاری باز است'}</small></p> : null}
     {d.moved.length ? <p className="dp-hint" data-testid="tc-moved">جابه‌جاشده‌ها: {d.moved.map((m) => `${m.name}${m.movedTo ? ` (${faClock(m.movedTo)})` : ''}`).join('، ')}</p> : null}
 
     <p className="tc-live" aria-live="polite" role="status" data-testid="tc-live">{live}</p>
