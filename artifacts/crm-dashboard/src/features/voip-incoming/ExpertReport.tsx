@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, BarChart3, Headset, HelpCircle, Phone, PhoneIncoming, PhoneMissed, Radio } from 'lucide-react';
 import { formatJalaliValue, jalaliValueToGregorian, todayJalali } from '@/lib/jalali';
 import { dur, fa, hm, viApi, viReq, ViError, type ViLive, type ViReport } from './api';
+import { useCtConfig } from '@/features/call-transcripts/api';
 import './vi.css';
 
 type P = 'today' | 'week' | 'month';
@@ -22,8 +23,9 @@ export function ExpertReport({ onCalls }: { onCalls: (userId: number, r: { from:
   const lq = useQuery<{ live: ViLive[] }, ViError>({ queryKey: ['voip-incoming', 'live'], retry: false, queryFn: () => viReq('GET', '/voip-incoming/live'), refetchInterval: 5_000, refetchIntervalInBackground: false });
   const live = lq.data?.live ?? q.data?.live ?? [];
   const rows = q.data?.rows ?? [];
+  const viewOnly = useCtConfig().data?.manager === false; // plain admin (t742s2933): same numbers, read-only
   return <div className="vi vi-rep" data-testid="vi-report">
-    <div className="hrow"><h2>گزارش کارشناسان</h2><span className="muted">{new Intl.DateTimeFormat('fa-IR', { timeZone: 'Asia/Tehran', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</span></div>
+    <div className="hrow"><h2>گزارش کارشناسان</h2><span className="muted">{new Intl.DateTimeFormat('fa-IR', { timeZone: 'Asia/Tehran', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</span>{viewOnly ? <span className="chip n" data-testid="vi-admin-view">فقط مشاهده</span> : null}</div>
     <section className="card vi-live" aria-labelledby="vi-live-h" data-testid="vi-live">
       <div className="vi-mch"><h3 id="vi-live-h"><Radio className="i" aria-hidden="true" /> وضعیت زنده</h3><span className="muted">هر چند ثانیه به‌روز می‌شود</span></div>
       <ul className="vi-leg" aria-label="راهنمای رنگ‌ها">{(['idle', 'ringing', 'inuse', 'pause'] as const).map((k) => <li key={k}><span className={`vi-dot ${ST[k][1]}`} aria-hidden="true" />{ST[k][0]}</li>)}</ul>

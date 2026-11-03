@@ -15,7 +15,7 @@ import { customerMatcher, normalizePhone } from "./voip-after-call";
 import { vcOn, vcStart, vcStartUnknown, vcTableExists } from "./voip-call";
 import { elCustomerAccess, elLocked, elNewCreate, elOwnCustomer } from "./expert-lockdown";
 import { dayRow, fcDeck, fcEnabledFor, fcToday, FC_STAGE_LABELS } from "./files-carousel";
-import { isCtManager, MANAGER_EXCLUDED } from "./call-transcripts";
+import { ctAdminViewer, MANAGER_EXCLUDED } from "./call-transcripts";
 import { isSalesManagerUser } from "./sales-manager";
 import { notifyCallReport } from "./voip-call-notifications";
 import { ensureViExtState, ensureViMarks, viExtension, viFlag, viIncomingFor, viIsSupport, viReportOn, viSince } from "./voip-incoming-flags";
@@ -297,8 +297,10 @@ export function viNewCustomer(u: U, body: any, now = new Date()): R {
 }
 
 /* ---------------- part 6: experts report ---------------- */
-/** Part 6 «گزارش کارشناسان»: the same guard as /call-center's manager views — «مدیر فروش» only (isCtManager), never a plain admin. */
-export const viReportAccess = (u: U) => isCtManager(u);
+/** Part 6 «گزارش کارشناسان»: the same guard as the /call-center report — «مدیر فروش» and, read-only, a plain admin (ctAdminViewer; not user 29).
+ *  Mohammad t742s2933: «گزارش‌ها و متن تماس‌ها برای ادمین هم بمونه». The tab has no actions (counts + live state + drill-down filter only);
+ *  the popup and missed list stay off for a plain admin (viPopupRole). */
+export const viReportAccess = (u: U) => ctAdminViewer(u);
 type Person = { id: number; name: string; extension: string; role: string; roleName: string | null; support: boolean };
 function people(): Person[] {
   return queryRows<{ id: number; name: string; extension: string; role: string; roleName: string | null }>(`SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name),''),u.username) name, e.extension, u.role,
