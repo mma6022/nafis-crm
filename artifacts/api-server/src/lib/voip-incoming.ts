@@ -16,6 +16,7 @@ import { vcOn, vcStart, vcStartUnknown, vcTableExists } from "./voip-call";
 import { elCustomerAccess, elLocked, elNewCreate, elOwnCustomer } from "./expert-lockdown";
 import { dayRow, fcDeck, fcEnabledFor, fcToday, FC_STAGE_LABELS } from "./files-carousel";
 import { isCtManager, MANAGER_EXCLUDED } from "./call-transcripts";
+import { isSalesManagerUser } from "./sales-manager";
 import { notifyCallReport } from "./voip-call-notifications";
 import { ensureViExtState, ensureViMarks, viExtension, viFlag, viIncomingFor, viIsSupport, viReportOn, viSince } from "./voip-incoming-flags";
 
@@ -104,12 +105,13 @@ function popupView(u: U, e: Ev) {
   const phone = normalizePhone(e.phone);
   const cid = phone ? matchCustomer(phone) : null; const c = cid ? custById(cid) : null;
   const owner = c ? ownerOf(c) : null;
+  const mgr = isSalesManagerUser(u); // «مدیر فروش» has admin-equivalent access: another expert's customer keeps kind other (transfer) but shows number, file, last call
   let kind: ViKind; let showPhone = false;
   if (!phone) kind = "hidden";
   else if (support) { kind = c ? "support" : "unknown"; showPhone = !c || Number(c.registered_by) === Number(u.id); }
   else if (!c) { kind = "unknown"; showPhone = true; }
   else if (isOwn(u, c)) { kind = "own"; showPhone = true; }
-  else { kind = "other"; }
+  else { kind = "other"; showPhone = mgr; }
   const ended = !e.is_live;
   const answered = e.status === "ANSWERED" || e.status === "ACTIVE";
   const dur = ended && answered ? (e.duration_seconds ?? Math.max(0, Math.round((ms(e.ended_at) - ms(e.started_at)) / 1000))) : null;
@@ -119,13 +121,13 @@ function popupView(u: U, e: Ev) {
     recording: e.has_recording || e.recording_file || e.recording_provider_id ? "ready" : ended && answered ? "processing" : "none",
     kind, support, extension: e.extension,
     customer: c && kind !== "hidden" ? { id: c.id, name: c.name ?? "" } : null,
-    file: c && (kind === "own" || kind === "support") ? fileOf(c.id) : null,
+    file: c && (kind === "own" || kind === "support" || (mgr && kind === "other")) ? fileOf(c.id) : null,
     phone: showPhone ? phone : null,
     ownerName: kind === "other" || kind === "support" ? owner?.name ?? "بدون کارشناس" : null,
-    lastCall: c && (kind === "own" || (kind === "support" && showPhone)) ? lastCallOf(c.id, e.id) : null,
+    lastCall: c && (kind === "own" || (kind === "support" && showPhone) || (mgr && kind === "other")) ? lastCallOf(c.id, e.id) : null,
     transfer: kind === "other" && !ended ? transferInfo(owner) : null,
     // own / unknown after an answered call: «ثبت تماس ورودی» or «بعداً» (§6 default 5: optional, no lock).
-    canLog: ended && answered && (kind === "own" || kind === "unknown") && !!e.expert_user_id && Number(e.expert_user_id) === Number(u.id),
+    canLog: ended && answered && (kind === "own" || kind === "unknown" || (mgr && kind === "other")) && !!e.expert_user_id && Number(e.expert_user_id) === Number(u.id),
   };
 }
 export type ViPopup = ReturnType<typeof popupView>;
@@ -295,7 +297,8 @@ export function viNewCustomer(u: U, body: any, now = new Date()): R {
 }
 
 /* ---------------- part 6: experts report ---------------- */
-export const viReportAccess = (u: U) => isCtManager(u) || u.role === "sales_manager"; // TODO(rebase): follow /call-center's guard once sales_manager lands
+/** Part 6 «گزارش کارشناسان»: the same guard as /call-center's manager views — «مدیر فروش» only (isCtManager), never a plain admin. */
+export const viReportAccess = (u: U) => isCtManager(u);
 type Person = { id: number; name: string; extension: string; role: string; roleName: string | null; support: boolean };
 function people(): Person[] {
   return queryRows<{ id: number; name: string; extension: string; role: string; roleName: string | null }>(`SELECT u.id, COALESCE(NULLIF(TRIM(u.full_name),''),u.username) name, e.extension, u.role,

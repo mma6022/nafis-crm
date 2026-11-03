@@ -1,6 +1,6 @@
 /**
  * SIMOTEL-456 — incoming popup (part 4), today's missed calls (part 5), experts report + live state (part 6). Design simotel v1.2.
- * Flags (all OFF → 404): flag.voip_incoming[.user.<id>], flag.voip_missed[.user.<id>], flag.voip_report. The popup is never shown to the admin role.
+ * Flags (all OFF → 404): flag.voip_incoming[.user.<id>], flag.voip_missed[.user.<id>], flag.voip_report. Popup + missed: experts, support and «مدیر فروش», never a plain admin; report: «مدیر فروش» only.
  * Numbers are decided server-side (another expert's customer → no number); the browser never sends a phone.
  */
 import { Router, type IRouter, type Response } from "express";
@@ -9,7 +9,7 @@ import { requirePermission } from "../lib/access-control";
 import { runTransaction } from "../lib/crm-db";
 import { tehranRange } from "../lib/call-transcripts";
 import { viAct, viFlag, viIncomingFor, viLive, viMe, viMissed, viNewCustomer, viRedial, viReport, viReportAccess, viReportOn, viTransfer } from "../lib/voip-incoming";
-import { viExtension } from "../lib/voip-incoming-flags";
+import { viExtension, viPopupRole } from "../lib/voip-incoming-flags";
 
 const router: IRouter = Router();
 const me = (res: Response) => res.locals.authUser as AuthUser;
@@ -17,7 +17,7 @@ const nostore = (res: Response) => res.setHeader("Cache-Control", "private, no-s
 const send = (res: Response, r: { status: number; body: any }) => void res.status(r.status).json(r.body);
 const offIncoming = (res: Response) => { nostore(res); if (viIncomingFor(me(res))) return false;
   res.status(404).json({ error: "voip_incoming_off", message: "پنجره‌ی تماس ورودی برای شما فعال نیست.", enabled: false }); return true; };
-const offMissed = (res: Response) => { nostore(res); const u = me(res); if (viFlag("missed", u.id) && u.role !== "admin" && (viExtension(u.id) != null || u.salespersonId != null)) return false;
+const offMissed = (res: Response) => { nostore(res); const u = me(res); if (viFlag("missed", u.id) && viPopupRole(u) && (viExtension(u.id) != null || u.salespersonId != null)) return false;
   res.status(404).json({ error: "voip_missed_off", message: "تماس‌های بی‌پاسخ برای شما فعال نیست.", enabled: false }); return true; };
 const idOf = (v: unknown) => { const n = Number(v); return Number.isSafeInteger(n) && n > 0 ? n : null; };
 
@@ -34,7 +34,7 @@ for (const action of ["close", "later", "log", "transfer"] as const) {
 }
 router.post("/voip-incoming/new-customer", requirePermission("customers.create"), (req, res) => {
   const u = me(res); nostore(res);
-  const on = req.body?.source === "missed" ? viFlag("missed", u.id) && u.role !== "admin" : viIncomingFor(u);
+  const on = req.body?.source === "missed" ? viFlag("missed", u.id) && viPopupRole(u) : viIncomingFor(u);
   if (!on) return void res.status(404).json({ error: "voip_incoming_off", message: "این امکان برای شما فعال نیست.", enabled: false });
   send(res, viNewCustomer(u, req.body));
 });
