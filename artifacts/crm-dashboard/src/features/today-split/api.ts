@@ -3,11 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 import { DpError } from '@/features/daily-plan/api';
 import { FC_USERS, fcApi } from '@/features/files-carousel/api';
 
-async function splitReq(): Promise<{ on: boolean; filesLock: boolean }> {
+async function splitReq(): Promise<{ on: boolean; filesLock: boolean; filesBoard: boolean }> {
   const res = await fetch('/api/files-carousel/split', { credentials: 'include' });
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new DpError((data && data.message) || 'انجام نشد.', res.status, data?.error ?? '', null);
-  return { on: data?.on === true, filesLock: data?.on === true && data?.filesLock === true }; // FILES-LOCK (stage 2): server sends the key only while its flag is on
+  const filesLock = data?.on === true && data?.filesLock === true; // FILES-LOCK (stage 2): server sends the key only while its flag is on
+  return { on: data?.on === true, filesLock, filesBoard: filesLock && data?.filesBoard === true }; // FILES-BOARD (stage 3): same, own flag
 }
 export const useTodaySplit = (userId: number | null | undefined, role?: string) =>
   useQuery({ queryKey: ['today-split', 'me', userId], queryFn: splitReq, enabled: userId != null && FC_USERS[userId] != null && role === 'salesperson', retry: false, staleTime: 60_000 });

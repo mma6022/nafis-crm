@@ -33,7 +33,15 @@ export type FcView = { enabled: true; date: string; total: number; done: number;
   categories?: boolean; mode?: 'cards' | 'list'; lateReturns?: FcLateReturn[];
   /** TODAY-SPLIT: present only with the per-user flag. */
   split?: { on: true; remaining: number; unlocked: boolean; addedAfterUnlock: number } };
+/** FILES-BOARD (stage 3): present only with the user's own flag.files_board (GET /files-carousel/board, else 404). One turn for the whole board. */
+export type FbState = 'turn' | 'locked' | 'later' | 'closed';
+export type FbCard = { fileId: number; customerId: number; customerName: string; phone: string | null; stage: string; status: string; createdAt: string;
+  state: FbState; rank: number | null; followedToday: { at: string; source: 'result' | 'call' } | null;
+  lastFollowUp: FcCard['lastFollowUp']; closedAt: string | null; fc: FcCat };
+export type FbBoard = { on: true; date: string; closedDays: number; total: number; cards: FbCard[];
+  turn: { fileId: number; customerId: number; customerName: string; stage: string; status: string } | null };
 export const fcApi = {
+  board: () => req<FbBoard>('GET', '/files-carousel/board'),
   config: () => req<{ enabled: boolean }>('GET', '/files-carousel/config'),
   today: () => req<FcView>('GET', '/files-carousel/today'),
   list: (p: { q: string; page: number; pageSize: number }) => req<FcList>('GET', `/files-carousel/list?${new URLSearchParams({ q: p.q, page: String(p.page), page_size: String(p.pageSize) })}`),

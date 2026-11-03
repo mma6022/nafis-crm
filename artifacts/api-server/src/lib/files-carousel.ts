@@ -12,6 +12,7 @@ import { cqRaw, isWorkDay, tParts, tYmd, fromTehran, CQ_OUTCOMES } from "./call-
 import { EL_USERS } from "./expert-lockdown";
 import { tsOnSp } from "./today-split";
 import { flOn, FL_MESSAGE } from "./files-lock";
+import { fbOn, fbState, fbWriteBlock } from "./files-board";
 import { maskCustomerName } from "./cross-owner-search";
 import { faDigits, fcCategories, fcInGroupCompare, fcOldDays, FC_GROUP_LABELS83, FC_OLD_DAYS_KEY, FC_OLD_DAYS_DEFAULT, type FcCategory } from "./files-category";
 
@@ -114,9 +115,9 @@ export function ensureFcSchema(): void {
 }
 
 /* ---------------- files ---------------- */
-type FileRow = { id: number; customer_id: number; cur_customer_id: number; name: string | null; stage: string; status: string; plan_name: string | null;
+export type FileRow = { id: number; customer_id: number; cur_customer_id: number; name: string | null; stage: string; status: string; plan_name: string | null;
   created_at: string; last_fc: string | null; last_fc_outcome: string | null; last_call: string | null; last_call_outcome: string | null };
-const FILE_SELECT = `SELECT a.id, a.customer_id, cc.id cur_customer_id, cc.name, a.stage, a.status, p.name plan_name, a.created_at,
+export const FILE_SELECT = `SELECT a.id, a.customer_id, cc.id cur_customer_id, cc.name, a.stage, a.status, p.name plan_name, a.created_at,
     (SELECT f.created_at FROM fc_followups f WHERE f.file_id=a.id ORDER BY f.created_at DESC, f.id DESC LIMIT 1) last_fc,
     (SELECT f.outcome FROM fc_followups f WHERE f.file_id=a.id ORDER BY f.created_at DESC, f.id DESC LIMIT 1) last_fc_outcome,
     (SELECT l.created_at FROM call_logs l WHERE l.customer_id=cc.id ORDER BY l.created_at DESC, l.id DESC LIMIT 1) last_call,
@@ -126,13 +127,13 @@ const FILE_SELECT = `SELECT a.id, a.customer_id, cc.id cur_customer_id, cc.name,
   JOIN customers cc ON cc.id=CASE WHEN c.merged_into_customer_id IS NULL THEN c.id ELSE ma.survivor_customer_id END AND cc.merged_into_customer_id IS NULL
   LEFT JOIN loan_plans p ON p.id=COALESCE(a.plan_id, CASE WHEN json_valid(a.plan_ids) THEN CAST(json_extract(a.plan_ids,'$[0]') AS INTEGER) ELSE CAST(a.plan_ids AS INTEGER) END)`;
 /** PM 10:35 (Armita v1.1): drafts — incl. pre-registration drafts — stay in the deck with a «پیش‌نویس» chip. */
-const OPEN_WHERE = `a.deleted_at IS NULL AND a.status<>'rejected' AND a.stage<>'completed'`;
+export const OPEN_WHERE = `a.deleted_at IS NULL AND a.status<>'rejected' AND a.stage<>'completed'`;
 function openFiles(sp: number): FileRow[] { ensureFcSchema(); return queryRows<FileRow>(`${FILE_SELECT} WHERE ${OPEN_WHERE} AND cc.salesperson_id=?`, [sp]); }
-function fileById(id: number): (FileRow & { owner: number | null; open: number }) | null {
+export function fileById(id: number): (FileRow & { owner: number | null; open: number }) | null {
   ensureFcSchema();
   return queryRow<any>(`${FILE_SELECT.replace("SELECT a.id,", "SELECT cc.salesperson_id owner, CASE WHEN " + OPEN_WHERE + " THEN 1 ELSE 0 END open, a.id,")} WHERE a.id=?`, [id]) ?? null;
 }
-const lastFollowUp = (f: FileRow) => {
+export const lastFollowUp = (f: FileRow) => {
   const a = f.last_fc, b = f.last_call; if (!a && !b) return null;
   const useFc = Boolean(a && (!b || a >= b));
   const at = useFc ? a! : b!; const outcome = useFc ? f.last_fc_outcome : f.last_call_outcome;
@@ -148,7 +149,7 @@ function latestOrder(sp: number, day: string): { version: number; items: OrderRo
   return r ? { version: Number(r.version), items: JSON.parse(r.items_json), set_at: r.set_at, assistant_id: r.assistant_id } : null;
 }
 type FcDay = { started_at: string | null; current_file_id: number | null; list_opened_at: string | null };
-const dayRow = (sp: number, day: string): FcDay | null => queryRow<FcDay>("SELECT started_at,current_file_id,list_opened_at FROM fc_days WHERE salesperson_id=? AND day=?", [sp, day]) ?? null;
+export const dayRow = (sp: number, day: string): FcDay | null => queryRow<FcDay>("SELECT started_at,current_file_id,list_opened_at FROM fc_days WHERE salesperson_id=? AND day=?", [sp, day]) ?? null;
 type Fu = { file_id: number; customer_id: number; outcome: string; note: string; created_at: string; user_id: number };
 const followupsOf = (sp: number, day: string) => queryRows<Fu>("SELECT file_id,customer_id,outcome,note,created_at,user_id FROM fc_followups WHERE salesperson_id=? AND day=? ORDER BY created_at, id", [sp, day]);
 
@@ -398,6 +399,12 @@ export function fcExpertFollowup(u: U, body: any, now = new Date()) {
   execute("INSERT OR IGNORE INTO fc_days(salesperson_id,day,started_at,current_file_id,updated_at) VALUES(?,?,?,NULL,?)", [sp, day, now.toISOString(), now.toISOString()]);
   const deck = fcDeck(sp, day, now);
   let card: { f: FileRow; state: "done" | "current" | "pending" } | undefined = deck.cards.find(c => c.f.id === fid);
+  // FILES-BOARD (stage 3, flag.files_board.user.<id> only): outside today's «بالفعل» tasks, a result goes only to the board's turn file;
+  // own closed files are read-only (PM defaults 1, 2). After the list opened this also holds for tasks appended to today's order (t673 wins).
+  // Flag off → this line does nothing.
+  if ((!card || (deck.listOpen && card.state !== "done")) && fbOn(Number(u.id))) { const f = fileById(fid);
+    if (f && Number(f.owner) === sp) { const b = !f.open ? { error: "board_closed", message: "پرونده‌ی بسته فقط‌خواندنی است؛ ویرایش یا اقدامی ندارد." } : fbState(sp, now).turn !== fid ? { error: "board_turn", message: "نوبت این پرونده نیست؛ پرونده‌ها به ترتیب باز می‌شوند." } : null;
+      if (b) return err(423, b.error, b.message, { fileId: fid }); } }
   // REL-83 (ب): once the list is open, «پیگیری» works on any OWN file of the list (no lock; one result per file per day).
   // v1.0.1 PM 5: completed / cancelled rows keep today's access — a result + note is fine, «لغو» of an already closed file is not.
   if (!card && deck.catMode && deck.listOpen) { const f = fileById(fid);
@@ -522,6 +529,8 @@ export function filesCarouselGuard(req: any, res: any, next: any): void {
   const m = /^\/loan-applications\/(\d+)(\/|$)/.exec(req.path);
   if (!m || !fcOn()) { next(); return; }
   try {
+    // FILES-BOARD (stage 3): with the user's own flag.files_board the whole-board turn replaces the stage-1/2 checks (reads stay open).
+    if (fbOn(Number(u!.id))) { const b = fbWriteBlock(u!, Number(m[1])); if (b) { res.status(423).json(b); return; } next(); return; }
     if (fcWriteLocked(u!, Number(m[1])) && !fcNewToday(u!, Number(m[1]))) {
       res.status(423).json({ error: "files_locked", message: "اول نتیجه‌ی پیگیری پرونده‌ی جاری را ثبت کن؛ این پرونده هنوز نوبتش نشده.", details: { fileId: Number(m[1]) } }); return;
     }

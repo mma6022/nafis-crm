@@ -12,11 +12,12 @@ import { faNum } from '@/features/call-queue/api';
 import { dpApi, useDpConfig, type DpToday } from '@/features/daily-plan/api';
 import { faDate } from '@/features/daily-plan/TodayPage';
 import { CallNumber } from '@/features/call-number/CallNumber';
-import { fcApi, type FcCard, type FcView } from '@/features/files-carousel/api';
+import { fcApi, type FbBoard, type FcCard, type FcView } from '@/features/files-carousel/api';
 import { CatPill, RNote, fcDay } from '@/features/files-carousel/FcLabels';
 import { loanStageLabel } from '@/lib/loan-labels';
 import { FB_STEPS, fbColumnLabel, fbColumnOf } from './columns';
 import { useTodaySplit } from './api';
+import { useBoard } from './FilesBoard';
 import '@/features/daily-plan/daily-plan.css';
 import '@/features/files-carousel/files-carousel.css';
 import './today-split.css';
@@ -32,11 +33,11 @@ export default function TodaySplitGate({ children }: { children: ReactNode }) {
   const u = session?.user as { id?: number; role?: string } | undefined;
   const s = useTodaySplit(u?.id != null ? Number(u.id) : null, u?.role);
   if (!s.data?.on) return <>{children}</>;
-  return <TodaySplit potential={children} />;
+  return <TodaySplit potential={children} board={s.data.filesBoard} />;
 }
 
 type Tab = 'act' | 'pot';
-function TodaySplit({ potential }: { potential: ReactNode }) {
+function TodaySplit({ potential, board }: { potential: ReactNode; board: boolean }) {
   const fq = useQuery({ queryKey: ['files-carousel', 'today'], queryFn: fcApi.today, refetchInterval: 60_000, retry: false });
   const dpOn = Boolean(useDpConfig().data?.flags.daily_plan);
   const dq = useQuery({ queryKey: ['daily-plan', 'today'], queryFn: dpApi.today, enabled: dpOn, refetchInterval: 30_000, retry: false });
@@ -64,15 +65,16 @@ function TodaySplit({ potential }: { potential: ReactNode }) {
     <section role="tabpanel" id="ts-p-act" aria-labelledby="ts-t-act" hidden={cur !== 'act'} data-testid="ts-panel-act">
       {fq.isLoading ? <div className="dp-skel" role="status">در حال بارگذاری تسک‌ها…</div>
         : fq.isError || !v ? <div className="dp-box err" role="alert" data-testid="ts-act-error">تسک‌ها بارگذاری نشد. <button type="button" className="btn btn-ghost" onClick={() => void fq.refetch()}>تلاش دوباره</button></div>
-        : <ActPanel v={v} onGoPot={() => setTab('pot')} />}
+        : <ActPanel v={v} board={board} onGoPot={() => setTab('pot')} />}
     </section>
     <section role="tabpanel" id="ts-p-pot" aria-labelledby="ts-t-pot" hidden={cur !== 'pot'} className="ts-pot" data-testid="ts-panel-pot">{potential}
       <p className="ts-potnote" data-testid="ts-pot-note"><FileText size={16} aria-hidden="true" /><span>مشتری‌هایی که پرونده‌ی وام دارند در این لیست نمی‌آیند؛ تسک‌هایشان در «مشتریان بالفعل» است.</span></p></section>
   </div>;
 }
 
-function ActPanel({ v, onGoPot }: { v: FcView; onGoPot: () => void }) {
+function ActPanel({ v, board, onGoPot }: { v: FcView; board: boolean; onGoPot: () => void }) {
   const qc = useQueryClient();
+  const bq = useBoard(board); // FILES-BOARD (stage 3): the sheet's turn = the whole-board turn
   const [wiz, setWiz] = useState<FcCard | null>(null);
   const [sheet, setSheet] = useState<FcCard | null>(null);
   const [toast, setToast] = useState('');
@@ -82,7 +84,7 @@ function ActPanel({ v, onGoPot }: { v: FcView; onGoPot: () => void }) {
   const remaining = v.cards.filter((c) => c.state !== 'done').length;
   const total = v.cards.length; const done = total - remaining;
   const next = cur ? v.cards.slice(curIdx + 1).find((c) => c.state === 'pending') ?? null : null;
-  const saved = (nv: FcView, name: string) => { qc.setQueryData(['files-carousel', 'today'], nv); setWiz(null); setToast(`${name}: پیگیری ثبت شد`); };
+  const saved = (nv: FcView, name: string) => { qc.setQueryData(['files-carousel', 'today'], nv); if (board) void qc.invalidateQueries({ queryKey: ['files-carousel', 'board'] }); setWiz(null); setToast(`${name}: پیگیری ثبت شد`); };
   return <>
     <p className="ts-info" data-testid="ts-act-info"><FileText size={17} aria-hidden="true" /> تسک‌های مشتریانی که پرونده‌ی وام دارند فقط این‌جا می‌آیند.{!v.split?.unlocked && v.mode !== 'list' && total > 0 ? ' تا تمام نشوند، «پرونده‌های من» بسته است.' : ''}</p>
     {v.split?.unlocked && remaining > 0 ? <div className="dp-box ts-more" role="status" data-testid="ts-act-more"><AlertCircle size={17} aria-hidden="true" /> یک تسک تازه رسید. «پرونده‌های من» باز می‌ماند؛ فقط شمار بالا رفت.</div> : null}
@@ -109,7 +111,7 @@ function ActPanel({ v, onGoPot }: { v: FcView; onGoPot: () => void }) {
       </section>
     </>}
     {wiz ? <ResultDialog c={wiz} v={v} pos={v.cards.indexOf(wiz) + 1} onClose={() => setWiz(null)} onSaved={saved} /> : null}
-    {sheet ? <FileSheet c={sheet} turn={cur} unlocked={Boolean(v.split?.unlocked || v.mode === 'list')} onClose={() => setSheet(null)} /> : null}
+    {sheet ? <FileSheet c={sheet} turn={cur} unlocked={Boolean(v.split?.unlocked || v.mode === 'list')} board={board ? bq.data ?? null : undefined} onClose={() => setSheet(null)} /> : null}
     {toast ? <div className="fc-toast ok" role="status" data-testid="ts-toast"><Check size={15} aria-hidden="true" /><span>{toast}</span></div> : null}
   </>;
 }
@@ -190,9 +192,12 @@ function ResultDialog({ c, v, pos, onClose, onSaved }: { c: FcCard; v: FcView; p
 
 /** act_file / act_file_turn: the board card sheet of the same customer. Stage 1: the turn = today's current بالفعل task (the only file the
  * FILES-61 write lock lets through); stage 3 swaps in the whole-board turn. «باز کردن پرونده: مرحله» only on the turn, else the turn hint. */
-function FileSheet({ c, turn, unlocked, onClose }: { c: FcCard; turn: FcCard | null; unlocked: boolean; onClose: () => void }) {
+function FileSheet({ c, turn, unlocked, board, onClose }: { c: FcCard; turn: FcCard | null; unlocked: boolean; board?: FbBoard | null; onClose: () => void }) {
   // Stage 1: after the list opens (REL-83 (ب)) FILES-61 locks nothing, so every file opens; the chip still marks the current task's file.
-  const isTurn = turn?.fileId === c.fileId; const canOpen = isTurn || unlocked;
+  // Stage 3 (own flag.files_board): the whole-board turn decides; unlocking opens nothing extra (t673), closed = read-only.
+  const bc = board !== undefined ? board?.cards.find((x) => x.fileId === c.fileId) ?? null : null;
+  const isTurn = board !== undefined ? board?.turn?.fileId === c.fileId : turn?.fileId === c.fileId; const canOpen = board !== undefined ? isTurn : isTurn || unlocked;
+  const turnName = board !== undefined ? board?.turn?.customerName ?? null : turn?.customerName ?? null;
   const col = fbColumnOf(c.stage, c.status); const ci = FB_STEPS.findIndex((s) => s.key === col);
   const box = useRef<HTMLDivElement>(null); const first = useRef<HTMLButtonElement>(null);
   useEffect(() => { const prev = document.activeElement as HTMLElement | null; first.current?.focus(); return () => prev?.focus?.(); }, []);
@@ -206,15 +211,16 @@ function FileSheet({ c, turn, unlocked, onClose }: { c: FcCard; turn: FcCard | n
         <button type="button" ref={first} className="ts-x" onClick={onClose} aria-label="بستن"><X size={20} aria-hidden="true" /></button></header>
       <div className="ts-body">
         <div className="ts-chips">{isTurn ? <span className="ts-turn" data-testid="ts-turn"><Flag size={14} aria-hidden="true" /> نوبت این پرونده‌ست</span>
-          : unlocked ? null : <span className="ts-noturn" data-testid="ts-noturn"><Lock size={14} aria-hidden="true" /> نوبتش نیست</span>}{c.fc ? <CatPill c={c.fc} /> : null}</div>
+          : bc?.state === 'closed' ? <span className="ts-noturn" data-testid="ts-ro">فقط‌خواندنی</span>
+          : unlocked && board === undefined ? null : <span className="ts-noturn" data-testid="ts-noturn"><Lock size={14} aria-hidden="true" /> نوبتش نیست</span>}{c.fc ? <CatPill c={c.fc} /> : null}</div>
         <ol className="ts-stepper" aria-label={`مرحله: ${fbColumnLabel(col)}`}>{FB_STEPS.map((s, i) => <li key={s.key} className={i < ci ? 'dn' : i === ci ? 'on' : ''} aria-current={i === ci ? 'step' : undefined}>
           <span>{i < ci ? <Check size={12} aria-hidden="true" /> : faNum(i + 1)}</span>{s.label}</li>)}</ol>
         {c.phone ? <div className="ts-ph sm"><small>شماره‌ی مشتری</small><CallNumber phone={c.phone} customerId={c.customerId} via="files" testId="ts-s-ph" /></div> : null}
         <dl className="ts-kv"><dt>مرحله</dt><dd>{stage}</dd><dt>آخرین فعالیت</dt><dd>{fcDay(c.fc?.last_activity_at)}</dd>
-          <dt>پیگیری امروز</dt><dd data-testid="ts-s-today">{c.state === 'done' ? `امروز ثبت شد${c.lastFollowUp?.outcomeLabel ? `، ${c.lastFollowUp.outcomeLabel}` : ''}` : 'هنوز تماسی ثبت نشده'}</dd>
+          <dt>پیگیری امروز</dt><dd data-testid="ts-s-today">{bc?.followedToday ? 'پیگیری شد، فردا' : c.state === 'done' ? `امروز ثبت شد${c.lastFollowUp?.outcomeLabel ? `، ${c.lastFollowUp.outcomeLabel}` : ''}` : 'هنوز تماسی ثبت نشده'}</dd>
           <dt>آخرین پیگیری</dt><dd>{c.lastFollowUp ? `${at(c.lastFollowUp.at)}${c.lastFollowUp.outcomeLabel ? `، ${c.lastFollowUp.outcomeLabel}` : ''}` : 'هنوز پیگیری نشده'}</dd></dl>
         {canOpen ? <p className="ts-hint"><Lock size={14} aria-hidden="true" /> مرحله فقط با فرم خود پرونده جلو می‌رود؛ جابه‌جا کردن کارت روی تخته نیست.</p>
-          : <p className="ts-hint" role="note" data-testid="ts-turn-hint"><Lock size={14} aria-hidden="true" /> نوبت این پرونده نیست. پرونده‌ها به ترتیب باز می‌شوند{turn ? <>؛ الان نوبت <b>{turn.customerName}</b> است.</> : '.'}</p>}
+          : <p className="ts-hint" role="note" data-testid="ts-turn-hint"><Lock size={14} aria-hidden="true" /> {bc?.state === 'closed' ? 'پرونده‌ی بسته فقط‌خواندنی است؛ ویرایش یا اقدامی ندارد.' : <>نوبت این پرونده نیست. پرونده‌ها به ترتیب باز می‌شوند{turnName ? <>؛ الان نوبت <b>{turnName}</b> است.</> : '.'}</>}</p>}
       </div>
       <footer>{canOpen ? <Link href={`/loan-applications/${c.fileId}`} className="btn btn-primary" data-testid="ts-open"><Upload size={16} aria-hidden="true" /> باز کردن پرونده: {stage}</Link>
         : <><button type="button" className="btn btn-primary" disabled aria-disabled="true" data-testid="ts-open"><Lock size={16} aria-hidden="true" /> باز کردن پرونده</button>

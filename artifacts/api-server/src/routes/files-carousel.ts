@@ -6,6 +6,7 @@ import { Router, type IRouter, type Response } from "express";
 import type { AuthUser } from "../lib/auth";
 import { tsOn } from "../lib/today-split";
 import { flOn } from "../lib/files-lock";
+import { fbBoard, fbOn } from "../lib/files-board";
 import { fcAdminUncancel, fcCatOn, fcEnabledFor, fcExpertFollowup, fcExpertList, fcExpertOpened, fcExpertTel, fcExpertView, fcIsErr, fcTarget, fcOn } from "../lib/files-carousel";
 
 const router: IRouter = Router();
@@ -19,7 +20,8 @@ router.get("/files-carousel/config", (_req, res) => { const u = me(res) as any; 
 router.get("/files-carousel/split", (_req, res) => { const u = me(res) as any; res.setHeader("Cache-Control", "private, no-store");
   const on = Boolean(u && fcEnabledFor(u) && fcCatOn() && tsOn(Number(u.id)));
   // FILES-LOCK: the key exists only while that user's own flag.files_lock is on (flag off → same body as before).
-  res.json(on && flOn(Number(u.id)) ? { on, filesLock: true } : { on }); });
+  // FILES-BOARD: `filesBoard` only while that user's own flag.files_board is on (flag off → the stage-2 body, byte for byte).
+  res.json(on && flOn(Number(u.id)) ? (fbOn(Number(u.id)) ? { on, filesLock: true, filesBoard: true } : { on, filesLock: true }) : { on }); });
 router.get("/files-carousel/today", (_req, res) => { if (off(res)) return; res.json(fcExpertView(me(res) as any)); });
 router.post("/files-carousel/followup", (req, res) => {
   if (off(res)) return;
@@ -35,6 +37,10 @@ const catOff = (res: Response) => {
 };
 const send = (res: Response, r: any) => { if (fcIsErr(r)) return void res.status(r.status).json({ error: r.error, message: r.message, details: r.details ?? null }); res.json(r); };
 router.get("/files-carousel/list", (req, res) => { if (catOff(res)) return; send(res, fcExpertList(me(res) as any, req.query ?? {})); });
+/** FILES-BOARD (stage 3): the 7-column board with one whole-board turn. Read-only. Flag off → 404 files_board_off. */
+router.get("/files-carousel/board", (_req, res) => { if (catOff(res)) return; const u = me(res) as any; res.setHeader("Cache-Control", "private, no-store");
+  if (!fbOn(Number(u.id))) return void res.status(404).json({ error: "files_board_off", message: "تخته‌ی پرونده‌ها فعال نیست.", details: null });
+  res.json(fbBoard(u)); });
 router.post("/files-carousel/opened", (req, res) => { if (catOff(res)) return; send(res, fcExpertOpened(me(res) as any, req.body ?? {})); });
 router.get("/files-carousel/tel/:fileId", (req, res) => { if (catOff(res)) return; res.setHeader("Cache-Control", "no-store"); send(res, fcExpertTel(me(res) as any, req.params.fileId)); });
 /** FILES-CANCEL: admin-only un-cancel of a «لغو شده» file (no flag dependency; everyone else 403). */

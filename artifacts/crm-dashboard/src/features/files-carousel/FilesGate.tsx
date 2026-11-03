@@ -15,6 +15,6 @@ export default function FilesGate({ children }: { children: ReactNode }) {
   const ts = useTodaySplit(target ? Number(u!.id) : null, u?.role);
   if (!target) return <>{children}</>;
   if (cfg.isLoading || ts.isLoading) return <div className="dp-page"><div className="dp-skel" role="status">در حال بارگذاری پرونده‌ها…</div></div>;
-  if (cfg.data?.enabled) return ts.data?.filesLock ? <FilesLockGate /> : <FilesCarousel />;
+  if (cfg.data?.enabled) return ts.data?.filesLock ? <FilesLockGate board={ts.data.filesBoard} /> : <FilesCarousel />;
   return <>{children}</>;
 }

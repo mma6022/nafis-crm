@@ -13,17 +13,18 @@ import '@/features/daily-plan/daily-plan.css';
 import './today-split.css';
 
 /** Locked = tasks remain and the list has not opened today (unlock never re-locks: list_opened_at stays set). */
+import FilesBoard from './FilesBoard';
 export const flLocked = (v: FcView | undefined) => {
   if (!v) return null;
   const remaining = v.cards.filter((c) => c.state !== 'done').length;
   return remaining > 0 && !v.split?.unlocked && v.mode !== 'list' ? { remaining, total: v.cards.length, done: v.cards.length - remaining } : null;
 };
 
-export default function FilesLockGate() {
+export default function FilesLockGate({ board = false }: { board?: boolean }) {
   const q = useQuery({ queryKey: ['files-carousel', 'today'], queryFn: fcApi.today, refetchInterval: 60_000, retry: false });
   if (q.isLoading) return <div className="dp-page"><div className="dp-skel" role="status">در حال بارگذاری پرونده‌ها…</div></div>;
   const l = flLocked(q.data);
-  if (!l) return <FilesCarousel />;
+  if (!l) return board ? <FilesBoard /> : <FilesCarousel />; // FILES-BOARD (stage 3): own flag; else the stage-2 carousel/list
   return <FilesLock {...l} />;
 }
 
