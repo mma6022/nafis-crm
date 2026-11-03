@@ -23,6 +23,7 @@
  * code that does not normalize (or an older release after a rollback) sees a sales row with no expert → scope "0", nobody eligible.
  */
 import { isManualOutcome, MANUAL_OUTCOME_LABELS, type ManualOutcome } from "./call-outcome";
+import { isSalesManagerUser, roleSql } from "./sales-manager";
 import { cqFlag, tParts, REMINDER_START_MIN, rmAfterClose } from "./call-queue";
 const before10 = (ms: number) => { const p = tParts(new Date(ms)); return p.h * 60 + p.mi < REMINDER_START_MIN; }; // 10:00 rule (t651u)
 import { leadSourceFilter, registeredByRange, registeredByReport } from "./registered-by-report";
@@ -278,7 +279,7 @@ export function createAssistants(deps: Deps) {
   function userEligible(a: any, u: { id: number; role: string; salesperson_id: number | null; active?: number }): boolean {
     if (!u || EXCLUDED_USER_IDS.includes(u.id) || u.active === 0) return false;
     if (u.role === "salesperson" && (!u.salesperson_id || TRAINEE_SALESPERSON_IDS.includes(u.salesperson_id))) return false;
-    if (a.kind === "manager") return u.role === "admin"; // v8: Ahmad talks to admins only (29 excluded above)
+    if (a.kind === "manager") return u.role === "admin" && isSalesManagerUser(u); // v8: Ahmad talks to admins only (29 excluded above); since 2026-11-03 only «مدیر فروش»
     if (a.scope_rule === "manager") return false; // un-normalized manager row: fail closed
     if (a.kind === "sales") return u.id === a.bound_user_id && u.role === "salesperson";
     return u.role === "registrar" || u.role === "admin"; // v6: Sarina is registrar/admin only
@@ -291,12 +292,12 @@ export function createAssistants(deps: Deps) {
   /** For Sarina: may this user see a message bound to this customer? (registrar/admin all in-scope; sales only own). */
   function userSeesCase(a: any, u: any, customerId: number | null): boolean {
     if (a.kind === "sales") return customerId == null || inScope(a, customerId);
-    if (a.kind === "manager") return u?.role === "admin" && !EXCLUDED_USER_IDS.includes(Number(u?.id)) && (customerId == null || inScope(a, customerId));
+    if (a.kind === "manager") return u?.role === "admin" && isSalesManagerUser(u) && !EXCLUDED_USER_IDS.includes(Number(u?.id)) && (customerId == null || inScope(a, customerId));
     if (u?.role !== "registrar" && u?.role !== "admin") return false; // v6: Sarina lines only for registrar/admin
     if (customerId == null) return true; // user-authored, case-less lines in registrar/admin threads
     return inScope(a, customerId);
   }
-  const userRow = (id: number) => row<any>("SELECT id,role,salesperson_id,active,full_name,username FROM users WHERE id=?", id);
+  const userRow = (id: number) => row<any>(`SELECT id,${roleSql()} AS role,role AS base_role,salesperson_id,active,full_name,username FROM users WHERE id=?`, id);
   function threadFor(a: any, userId: number, create: boolean) {
     let t = row<any>("SELECT * FROM assistant_threads WHERE assistant_id=? AND user_id=?", a.id, userId);
     if (!t && create) { run("INSERT OR IGNORE INTO assistant_threads(assistant_id,user_id,created_at) VALUES(?,?,?)", a.id, userId, iso()); t = row<any>("SELECT * FROM assistant_threads WHERE assistant_id=? AND user_id=?", a.id, userId); }
@@ -321,7 +322,7 @@ export function createAssistants(deps: Deps) {
     if (m.suppressed_reason === "digested" || m.customer_id == null) return;
     if (a.kind !== "filing" && !BELL_KINDS[m.kind] && m.priority !== "high") return; // sales chat replies stay in the chat
     if (filingRecipientBlocked(a, u)) return; // v6: never a Sarina bell row for a sales expert
-    if (assistantBellBlocked(row<any>("SELECT id,role,salesperson_id FROM users WHERE id=?", u?.id) ?? u)) return; // AR30: never 29 / trainees
+    if (assistantBellBlocked(row<any>(`SELECT id,${roleSql()} AS role,role AS base_role,salesperson_id FROM users WHERE id=?`, u?.id) ?? u)) return; // AR30: never 29 / trainees
     if (!userEligible(a, u) || !userSeesCase(a, u, m.customer_id)) return;
     if (!bellReady) bellReady = hasTable("site_notification_events") && rows<{ name: string }>("PRAGMA table_info(site_notification_events)").some(c => c.name === "recipient_user_id");
     if (!bellReady) return;
@@ -573,7 +574,7 @@ export function createAssistants(deps: Deps) {
     const xt = excludeTestOn(db); const tIds = xt ? testCustomerIds(db) : new Set<number>();
     const n = row<{ n: number }>(`SELECT COUNT(*) n FROM customers c WHERE ${s.sql}${xt ? ` AND NOT ${testCustomerSql("c")}` : ""}`, ...s.params)?.n ?? 0;
     const users = a.kind === "sales" ? [a.bound_user_id].filter(Boolean).map(id => userRow(id)).filter(Boolean)
-      : rows<any>("SELECT id,role,salesperson_id,active,full_name,username FROM users WHERE active=1 ORDER BY id").filter(u => userEligible(a, u));
+      : rows<any>(`SELECT id,${roleSql()} AS role,role AS base_role,salesperson_id,active,full_name,username FROM users WHERE active=1 ORDER BY id`).filter(u => userEligible(a, u));
     const threads = users.map((u: any) => ({ userId: u.id, name: u.full_name || u.username, role: u.role, threadId: threadFor(a, u.id, false)?.id ?? null, ...prefsOf(u.id) }));
     // v7: sales assistants also get the box of 3 (same lib/sales-assist.ts logic, no impression is recorded) and today's counters.
     let sales: any = {};
@@ -1581,6 +1582,8 @@ export function createAssistants(deps: Deps) {
   const me = (res: Response) => { const x = deps.actor(res); return x ? userRow(x.id) : undefined; };
   /** v8: user 29 never reaches the manager assistant (dock, chat, report preview, thresholds, its admin card) — other admin access unchanged. */
   const noMgr = (u: any) => EXCLUDED_USER_IDS.includes(Number(u?.id));
+  /** Ahmad (kind manager) is for «مدیر فروش» only; plain admins (and 29) never see him. */
+  const noAhmad = (u: any) => noMgr(u) || !isSalesManagerUser(u);
   /* Task D «تحلیل عملکرد من» (session): a sales expert sees only their own numbers and analyses; admin any expert (filter);
    * trainees, registrars and user 29 get 403. Counts and money only — no answered / result / duration, no customer rows. */
   const perfWho = (req: Request, res: Response): number | null => {
@@ -1608,13 +1611,15 @@ export function createAssistants(deps: Deps) {
     if (req.query.periodStart && !ps) return fail(res, 422, "bad_period_start");
     const u = me(res)!;
     const rep = performanceReport(db, sp, period, now(), excludeTestOn(db), ps);
-    const analysis = listAnalyses(db, { salespersonIds: [sp], period, periodStart: rep.periodStart, limit: 1 })[0] ?? null;
+    // «تحلیل احمد»: experts keep their own; among admins only «مدیر فروش» sees Ahmad's analyses (2026-11-03).
+    const analysis = noAhmad(u) && u.role === "admin" ? null : listAnalyses(db, { salespersonIds: [sp], period, periodStart: rep.periodStart, limit: 1 })[0] ?? null;
     res.json({ ...rep, analysis, experts: u.role === "admin" ? managerExperts(db).filter(e => !e.trainee).map(e => ({ salespersonId: e.salespersonId, name: e.name })) : undefined });
   });
   staff.get("/my-performance/analyses", (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     const u = me(res); if (!u) return fail(res, 403, "forbidden");
     const id = req.query.id ? Number(req.query.id) : null;
+    if (u.role === "admin" && noAhmad(u)) { if (perfWho(req, res) == null) return; res.json({ analyses: [] }); return; }
     const allAdmin = u.role === "admin" && !noMgr(u) && (req.query.salespersonId == null || req.query.salespersonId === "");
     let ids: number[] | null;
     if (allAdmin) ids = managerExperts(db).filter(e => !e.trainee).map(e => e.salespersonId);
@@ -1658,7 +1663,7 @@ export function createAssistants(deps: Deps) {
   }
   function threadAccess(req: Request, res: Response) {
     const u = me(res); if (!u) { fail(res, 401, "unauthorized"); return null; }
-    if (noMgr(u)) { const ta = row<any>("SELECT a.* FROM assistant_threads t JOIN assistants a ON a.id=t.assistant_id WHERE t.id=?", Number(req.params.id));
+    if (noAhmad(u)) { const ta = row<any>("SELECT a.* FROM assistant_threads t JOIN assistants a ON a.id=t.assistant_id WHERE t.id=?", Number(req.params.id));
       if (ta && normAssistant(ta)?.kind === "manager") { audit({ req, a: ta, userId: u.id, actorLabel: u.full_name || u.username, action: `${req.method} manager thread`, outcome: "forbidden" }); fail(res, 403, "forbidden"); return null; } }
     const t = row<any>("SELECT * FROM assistant_threads WHERE id=? AND user_id=?", Number(req.params.id), u.id);
     const a = t ? mine(u).find(x => x.id === t.assistant_id) : undefined;
@@ -1793,7 +1798,8 @@ export function createAssistants(deps: Deps) {
     res.json({ creditInquiryPermission: v });
   });
   staff.get("/admin/assistants", admin, (_req, res) => { res.json({ globalEnabled: globalOn(), creditInquiryPermission: setting("credit_inquiry_permission", "manager"), managerAccess: !noMgr(res.locals.assistantAdmin),
-    assistants: rows<any>("SELECT * FROM assistants ORDER BY id").filter(r => !(noMgr(res.locals.assistantAdmin) && normAssistant(r)?.kind === "manager")).map(adminView) }); });
+    ahmadAccess: !noAhmad(res.locals.assistantAdmin),
+    assistants: rows<any>("SELECT * FROM assistants ORDER BY id").filter(r => !(noAhmad(res.locals.assistantAdmin) && normAssistant(r)?.kind === "manager")).map(adminView) }); });
   // crm-urgent-history: Mohammad's own switch for the assistant urgent write (admin only; default OFF; logged in assistant_audit).
   staff.get("/admin/assistants/urgent-write", admin, (_req, res) => { if (noMgr(res.locals.assistantAdmin)) return fail(res, 403, "forbidden"); res.json({ enabled: setting(ASSISTANT_URGENT_WRITE_KEY, "0") === "1", assistantIds: setting(ASSISTANT_URGENT_IDS_KEY, "").split(",").map(Number).filter((n) => n > 0) }); });
   staff.put("/admin/assistants/urgent-write", admin, (req, res) => {
@@ -1811,9 +1817,10 @@ export function createAssistants(deps: Deps) {
     res.json({ globalEnabled: globalOn() });
   });
   const adminA = (req: Request, res: Response) => { const a = normAssistant(row<any>("SELECT * FROM assistants WHERE id=?", Number(req.params.id))); if (!a) { fail(res, 404, "not_found"); return a; }
-    if (a.kind === "manager" && noMgr(res.locals.assistantAdmin)) { mgrForbidden(req, res); return null; } return a; };
+    if (a.kind === "manager" && noAhmad(res.locals.assistantAdmin)) { mgrForbidden(req, res); return null; } return a; };
   const mgrForbidden = (req: Request, res: Response) => { const u = res.locals.assistantAdmin; audit({ req, userId: u?.id ?? null, actorLabel: u ? (u.full_name || u.username) : undefined, action: `${req.method} ${req.path.replace(/\/\d+(?=\/|$)/g, "/:id")}`.slice(0, 80), outcome: "forbidden" }); fail(res, 403, "forbidden"); };
   const mgrAdmin = (req: Request, res: Response, next: NextFunction) => noMgr(res.locals.assistantAdmin) ? mgrForbidden(req, res) : next();
+  const ahmadAdmin = (req: Request, res: Response, next: NextFunction) => noAhmad(res.locals.assistantAdmin) ? mgrForbidden(req, res) : next();
   for (const [p, v] of [["enable", 1], ["disable", 0]] as const) staff.post(`/admin/assistants/:id/${p}`, admin, (req, res) => {
     const a = adminA(req, res); if (!a) return; const u = res.locals.assistantAdmin;
     run("UPDATE assistants SET enabled=?, updated_at=?, updated_by_user_id=? WHERE id=?", v, iso(), u.id, a.id);
@@ -1821,8 +1828,8 @@ export function createAssistants(deps: Deps) {
     res.json(adminView(row<any>("SELECT * FROM assistants WHERE id=?", a.id)));
   });
   /* v8 manager thresholds (assistant_settings manager_* keys only) + an admin preview of the manager report. */
-  staff.get("/admin/assistants/manager-settings", admin, mgrAdmin, (_req, res) => { res.json({ thresholds: mgrSettings(), defaults: MANAGER_DEFAULTS }); });
-  staff.put("/admin/assistants/manager-settings", admin, mgrAdmin, (req, res) => {
+  staff.get("/admin/assistants/manager-settings", admin, ahmadAdmin, (_req, res) => { res.json({ thresholds: mgrSettings(), defaults: MANAGER_DEFAULTS }); });
+  staff.put("/admin/assistants/manager-settings", admin, ahmadAdmin, (req, res) => {
     const v = validateManagerSettings(req.body); const u = res.locals.assistantAdmin;
     if (!v.ok) return fail(res, 422, v.error, v.field ? `مقدار «${v.field}» معتبر نیست.` : undefined);
     for (const [k, val] of v.values) run("INSERT INTO assistant_settings(key,value,updated_at,updated_by_user_id) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at,updated_by_user_id=excluded.updated_by_user_id", k, val, iso(), u.id);
@@ -1847,14 +1854,14 @@ export function createAssistants(deps: Deps) {
     const range = puRange(req, res); if (!range) return;
     res.json(pageUsageReport(db, range, now()));
   });
-  staff.get("/admin/assistants/manager-report", admin, mgrAdmin, (req, res) => {
+  staff.get("/admin/assistants/manager-report", admin, ahmadAdmin, (req, res) => {
     const r = String(req.query.range ?? "today");
     if (!(MANAGER_RANGES as readonly string[]).includes(r)) return fail(res, 422, "range_not_supported");
     res.json(maskAll(managerReport(mgrDeps(), r as ManagerRange)));
   });
   // v11 admin previews (user 29 refused, like every manager admin route)
-  staff.get("/admin/assistants/manager-invoices", admin, mgrAdmin, (_req, res) => { res.json(maskAll(openInvoices(workDeps()))); });
-  staff.get("/admin/assistants/manager-registration", admin, mgrAdmin, (req, res) => {
+  staff.get("/admin/assistants/manager-invoices", admin, ahmadAdmin, (_req, res) => { res.json(maskAll(openInvoices(workDeps()))); });
+  staff.get("/admin/assistants/manager-registration", admin, ahmadAdmin, (req, res) => {
     const p = regParams(req, res); if (!p) return; res.json(maskAll(registrationReport(workDeps(), p.range, p.stuckHours, p.src)));
   });
   staff.put("/admin/assistants/:id", admin, (req, res) => {
@@ -1875,7 +1882,7 @@ export function createAssistants(deps: Deps) {
   });
   staff.post("/admin/assistant-tokens/:id/revoke", admin, (req, res) => {
     const t = row<any>("SELECT * FROM assistant_tokens WHERE id=?", Number(req.params.id)); if (!t) return fail(res, 404, "not_found");
-    if (noMgr(res.locals.assistantAdmin) && normAssistant(row<any>("SELECT * FROM assistants WHERE id=?", t.assistant_id))?.kind === "manager") return mgrForbidden(req, res);
+    if (noAhmad(res.locals.assistantAdmin) && normAssistant(row<any>("SELECT * FROM assistants WHERE id=?", t.assistant_id))?.kind === "manager") return mgrForbidden(req, res);
     const u = res.locals.assistantAdmin;
     run("UPDATE assistant_tokens SET revoked_at=COALESCE(revoked_at,?), revoked_by_user_id=COALESCE(revoked_by_user_id,?) WHERE id=?", iso(), u.id, t.id);
     audit({ req, a: row<any>("SELECT * FROM assistants WHERE id=?", t.assistant_id), userId: u.id, actorLabel: u.full_name || u.username, action: "admin.token_revoke", outcome: "ok", detail: { tokenId: t.id } });
@@ -1885,7 +1892,7 @@ export function createAssistants(deps: Deps) {
     const aid = req.query.assistantId ? Number(req.query.assistantId) : null;
     const limit = Math.max(1, Math.min(200, Number(req.query.limit ?? 100) || 100));
     // user 29 (excluded) never sees the manager assistant's audit rows; the rest of the audit stays visible
-    const hideMgr = noMgr(res.locals.assistantAdmin);
+    const hideMgr = noAhmad(res.locals.assistantAdmin);
     const w = [aid ? "assistant_id=?" : "", hideMgr ? "(assistant_id IS NULL OR assistant_id NOT IN (SELECT id FROM assistants WHERE scope_rule='manager'))" : ""].filter(Boolean);
     const items = rows<any>(`SELECT * FROM assistant_audit ${w.length ? "WHERE " + w.join(" AND ") : ""} ORDER BY id DESC LIMIT ?`, ...(aid ? [aid] : []), limit)
       .map(x => ({ id: x.id, at: x.at, assistantId: x.assistant_id, actor: x.actor_label, action: x.action, customerId: x.customer_id, outcome: x.outcome, detail: x.detail_json ? JSON.parse(x.detail_json) : null }));

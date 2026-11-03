@@ -6470,7 +6470,7 @@ router.patch("/roles/:slug", requireAdmin, (req, res): void => {
     res.status(404).json({ error: "Role not found" });
     return;
   }
-  if (slug === "admin") {
+  if (slug === "admin" || slug === "sales_manager") {
     res.status(400).json({ error: "The admin role cannot be changed" });
     return;
   }

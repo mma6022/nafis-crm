@@ -32,6 +32,7 @@ import { realCallSql } from "./real-call";
 import { testCustomerSql } from "./test-customers";
 import { openInvoices, registrationReport } from "./manager-work";
 import { P1_NO_CALL_DAYS } from "./expert-performance";
+import { ADMIN_LIKE_SQL } from "./sales-manager";
 
 const OFFSET = 210 * 60_000; const DAY = 86_400_000; const HOUR = 3_600_000;
 const dayStart = (t: number) => Math.floor((t + OFFSET) / DAY) * DAY - OFFSET;
@@ -289,7 +290,7 @@ export function noCommissionAlerts(db: DatabaseSync, now: Date, excludeTest: boo
   const cols = new Set((db.prepare("SELECT name FROM pragma_table_info('site_notification_events')").all() as any[]).map(r => String(r.name)));
   if (!cols.has("recipient_user_id") || !cols.has("actor_key")) return 0;
   const team = managerExperts(db).map(e => e.salespersonId); if (!team.length) return 0;
-  const admins = (db.prepare("SELECT id FROM users WHERE role='admin' AND active=1 AND id<>29 ORDER BY id").all() as any[]).map(r => Number(r.id));
+  const admins = (db.prepare(`SELECT id FROM users WHERE role IN ${ADMIN_LIKE_SQL} AND active=1 AND id<>29 ORDER BY id`).all() as any[]).map(r => Number(r.id));
   if (!admins.length) return 0;
   const rows = db.prepare(`SELECT g.id, g.customer_id, c.name, c.salesperson_id FROM goods_purchases g JOIN customers c ON c.id=g.customer_id
       WHERE g.stage='completed' AND g.completed_at IS NOT NULL AND julianday(g.completed_at)>=julianday(?) AND julianday(g.completed_at)<julianday(?)

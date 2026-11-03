@@ -18,6 +18,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { managerExperts } from "./assistant-manager";
 import { testCustomerSql } from "./test-customers";
 import { maskPhone } from "./smart-filing";
+import { roleSql } from "./sales-manager";
 
 export const AMOUNT_UNIT = "toman" as const;
 const HOUR = 3_600_000; const DAY = 86_400_000; const OFFSET = 210 * 60_000;
@@ -33,7 +34,7 @@ function scope(d: WorkDeps): { sql: string; params: number[] } {
   if (!ids.length) return { sql: "0", params: [] };
   return { sql: `c.merged_into_customer_id IS NULL AND c.salesperson_id IN (${ids.map(() => "?").join(",")})${d.excludeTest ? ` AND NOT ${testCustomerSql("c")}` : ""}`, params: ids };
 }
-function users(db: DatabaseSync) { return new Map((db.prepare("SELECT id, role, full_name, username FROM users").all() as any[]).map(u => [Number(u.id), u])); }
+function users(db: DatabaseSync) { return new Map((db.prepare(`SELECT id, ${roleSql()} AS role, full_name, username FROM users`).all() as any[]).map(u => [Number(u.id), u])); }
 function salespersons(db: DatabaseSync) { return new Map((db.prepare("SELECT id, name FROM salespersons").all() as any[]).map(s => [Number(s.id), s.name as string])); }
 
 /* ======================= 1) open invoices (goods purchases) ======================= */

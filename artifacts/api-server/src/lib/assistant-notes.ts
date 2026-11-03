@@ -11,6 +11,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { maskText } from "./smart-filing";
 import { maskPhonesInText } from "./lead-annotator";
 import { LOAN_STAGE_LABELS } from "./manager-work";
+import { roleSql } from "./sales-manager";
 
 /* ---------------- masking ---------------- */
 const D = "[0-9۰-۹٠-٩]";
@@ -62,7 +63,7 @@ export function makeAuthors(db: DatabaseSync) {
     const n = Number(id);
     if (!Number.isSafeInteger(n) || n < 1) return { name: fallbackName ? String(fallbackName) : null, role: fallbackRole, roleLabel: ROLE_FA[fallbackRole] };
     if (!cache.has(n)) {
-      const u = db.prepare("SELECT id,full_name,username,role FROM users WHERE id=?").get(n) as any;
+      const u = db.prepare(`SELECT id,full_name,username,${roleSql()} AS role FROM users WHERE id=?`).get(n) as any;
       const role = !u ? fallbackRole : mgr.includes(n) ? "manager" : u.role === "admin" || u.role === "registrar" || u.role === "salesperson" ? u.role : "unknown";
       cache.set(n, { name: u ? (u.full_name || u.username || null) : (fallbackName ? String(fallbackName) : null), role, roleLabel: ROLE_FA[role] });
     }

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart3 } from 'lucide-react';
+import { useGetAuthSession, getGetAuthSessionQueryKey } from '@workspace/api-client-react';
 import { toPersianDigits } from '@/lib/customer-id';
 import './customers.css';
 import './my-performance.css';
@@ -89,6 +90,9 @@ export default function MyPerformance() {
   const hp = new URLSearchParams({ period, limit: '12' }); if (sp) hp.set('salespersonId', sp);
   const hist = useQuery({ queryKey: ['my-performance-history', period, sp], queryFn: () => getJson<{ analyses: Analysis[] }>(`/api/my-performance/analyses?${hp}`), staleTime: 60_000 });
   const r = q.data; const tab = TABS.find(t => t.id === period)!;
+  // 2026-11-03: «تحلیل احمد» belongs to «مدیر فروش» and experts; the plain admin role does not see it.
+  const me = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } }).data?.user;
+  const plainAdmin = me?.role === 'admin' && !me?.salesManager;
   const analysis = picked && picked.period === period && (!r || picked.periodStart === r.periodStart) ? picked : r?.analysis ?? null;
   const n = r?.numbers; const p = r?.previousNumbers;
   const choose = (t: Period) => { setPeriod(t); setPeriodStart(''); setPicked(null); };
@@ -118,14 +122,14 @@ export default function MyPerformance() {
       </div>
     </div> : null}
     {r && !r.complete ? <p className="mp-def">بازه‌ی جاری تا همین الان حساب شده و با همان مدت از بازه‌ی قبل مقایسه شده است.</p> : null}
-    <article className={`mp-an${deep && analysis?.id === deep ? ' mp-hl' : ''}`} data-testid="perf-analysis" aria-live="polite">
+    {plainAdmin ? null : <article className={`mp-an${deep && analysis?.id === deep ? ' mp-hl' : ''}`} data-testid="perf-analysis" aria-live="polite">
       <h2>تحلیل احمد</h2>
       {analysis ? <>
         <p className="mp-meta">{analysis.authorLabel ?? 'دستیار مدیر فروش'} · {faDate(analysis.createdAt)}</p>
         <SafeMarkdown text={analysis.body} />
       </> : <p className="csx-meta">برای این بازه هنوز تحلیلی ثبت نشده است.</p>}
-    </article>
-    {hist.data?.analyses?.length ? <details className="mp-hist"><summary>تحلیل‌های قبلی ({fa(hist.data.analyses.length)})</summary>
+    </article>}
+    {!plainAdmin && hist.data?.analyses?.length ? <details className="mp-hist"><summary>تحلیل‌های قبلی ({fa(hist.data.analyses.length)})</summary>
       <ul>{hist.data.analyses.map(a => <li key={a.id}><button type="button" data-testid={`analysis-${a.id}`} onClick={() => { setPeriodStart(a.periodStart); setPicked(a); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>
         {psLabel(a.period, a.periodStart)}{a.salespersonName && r?.experts ? ` · ${a.salespersonName}` : ''} · {faDate(a.createdAt)}</button></li>)}</ul></details> : null}
   </section>;

@@ -6,6 +6,7 @@ import { isAdminRole } from "./customer-integrity";
 import { withNotificationActor } from "./notification-actor-context";
 import { hasLeadAnnotator } from "./lead-annotator";
 import { hasRegistrarView } from "./registrar-view";
+import { effectiveRole, SALES_MANAGER_ROLE } from "./sales-manager";
 
 const SESSION_COOKIE = "crm_session";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -58,6 +59,10 @@ export type AuthUser = {
   leadAnnotator?: boolean;
   /** registrar_view capability (lib/registrar-view.ts): read-only on customers this user registered (registered_by), any owner. */
   registrarView?: boolean;
+  /** «مدیر فروش»: users.role='sales_manager' acts as role 'admin' everywhere; this flag (and baseRole) marks the
+   * sales-manager-only surfaces (Ahmad, call-center manager views, call popups) that plain admins no longer see. */
+  salesManager?: boolean;
+  baseRole?: string;
 };
 
 type AuthUserRow = {
@@ -83,6 +88,8 @@ function userFromRow(row: AuthUserRow): AuthUser {
   } catch {
     priorityColors = {};
   }
+  const salesManager = row.role === SALES_MANAGER_ROLE;
+  const role = effectiveRole(row.role);
   return {
     id: Number(row.id),
     username: row.username,
@@ -90,16 +97,18 @@ function userFromRow(row: AuthUserRow): AuthUser {
     mobile: row.mobile ?? null,
     telegramId: row.telegram_id ?? null,
     priorityColors,
-    role: row.role,
+    role,
     roleName: row.role_name ?? row.role,
-    permissions: permissionsForRole(row.role),
-    customerScope: row.role === "admin" ? "all" : row.customer_scope === "assigned" ? "assigned" : "all",
+    permissions: permissionsForRole(role),
+    customerScope: role === "admin" ? "all" : row.customer_scope === "assigned" ? "assigned" : "all",
     salespersonId: row.salesperson_id == null ? null : Number(row.salesperson_id),
     salespersonName: row.salesperson_name ?? null,
     active: Boolean(row.active),
     createdAt: row.created_at,
     leadAnnotator: hasLeadAnnotator(crmDb, Number(row.id)),
-    registrarView: hasRegistrarView(crmDb, Number(row.id), row.role, row.salesperson_id == null ? null : Number(row.salesperson_id)),
+    registrarView: hasRegistrarView(crmDb, Number(row.id), role, row.salesperson_id == null ? null : Number(row.salesperson_id)),
+    salesManager,
+    baseRole: row.role,
   };
 }
 

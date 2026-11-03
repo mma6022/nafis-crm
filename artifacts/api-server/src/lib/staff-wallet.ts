@@ -8,6 +8,7 @@
 import { queryRow, queryRows } from "./crm-db";
 import { commissionStatusSearchSql } from "./customer-id-search";
 import type { AuthUser } from "./auth";
+// sales_manager acts as admin (lib/sales-manager.ts)
 import {
   COMMISSION_KINDS, ensureTeamCommissionSchema, jalaliDateStart, nextPersianMonth, persianMonthOf, qualifierP1Event, salespersonBreakdown, settingsAt, teamMembers,
   type TeamCommissionSettings,
@@ -118,7 +119,7 @@ const LEDGER_SELECT = `SELECT l.id,l.purchase_id purchaseId,l.customer_id custom
     ${MONTH_SQL} month,m.meta_json metaJson,m.settings_version_id settingsVersionId,${NEUTRALIZED_SQL} neutralized,
     g.completed_at completedAt,o.id paymentOrderId,o.stage paymentOrderStage,
     (SELECT MAX(e.created_at) FROM goods_purchase_events e WHERE e.purchase_id=l.purchase_id AND e.action='team_commission_posted' AND e.created_at<=l.created_at) depositAt,
-    (SELECT pu.role FROM users pu WHERE pu.id=o.paid_by) paidByRole
+    (SELECT CASE WHEN pu.role='sales_manager' THEN 'admin' ELSE pu.role END FROM users pu WHERE pu.id=o.paid_by) paidByRole
   FROM goods_finance_ledger l LEFT JOIN team_commission_ledger_meta m ON m.ledger_id=l.id LEFT JOIN goods_purchases g ON g.id=l.purchase_id
   LEFT JOIN customers c ON c.id=l.customer_id LEFT JOIN customer_payment_orders o ON o.purchase_id=l.purchase_id`;
 function ledgerRow(r: any) {
@@ -261,7 +262,7 @@ export function commissionStatusDetail(u: AuthUser, purchaseId: number) {
   const timeline: Array<{ at: string; action: string; actorName?: string | null; actorRole?: string | null; detail?: Record<string, unknown> | null }> = [];
   timeline.push({ at: r.entered_at ?? r.completed_at, action: "entered" });
   if (r.order_id) {
-    const ev = queryRows<any>(`SELECT e.action,e.created_at,e.detail,COALESCE(NULLIF(u.full_name,''),u.username) actor_name,u.role actor_role FROM customer_payment_order_events e
+    const ev = queryRows<any>(`SELECT e.action,e.created_at,e.detail,COALESCE(NULLIF(u.full_name,''),u.username) actor_name,(CASE WHEN u.role='sales_manager' THEN 'admin' ELSE u.role END) actor_role FROM customer_payment_order_events e
       LEFT JOIN users u ON u.id=e.actor_id WHERE e.order_id=? AND e.action IN ('created','sales_approved','admin_approved','payment_recorded','payment_reverted') ORDER BY e.created_at,e.id`, [r.order_id]);
     for (const e of ev) {
       const d = json(e.detail);

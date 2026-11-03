@@ -3,6 +3,7 @@ import multer from "multer";
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { Readable } from "node:stream";
+import { roleSql } from "./sales-manager";
 
 type Dependencies = {
   db: DatabaseSync; requireAuth: RequestHandler; requirePermission: RequestHandler;
@@ -54,7 +55,7 @@ export function createInternalChatRouter(deps: Dependencies) {
   const row = <T>(sql: string, args: (string | number | null)[] = []) => db.prepare(sql).get(...args) as T | undefined;
   const rows = <T>(sql: string, args: (string | number | null)[] = []) => db.prepare(sql).all(...args) as T[];
   const run = (sql: string, args: (string | number | null)[] = []) => db.prepare(sql).run(...args);
-  const activeUser = (id: number) => row<Actor>("SELECT id,role,full_name AS name FROM users WHERE id=? AND active=1", [id]);
+  const activeUser = (id: number) => row<Actor>(`SELECT id,${roleSql()} AS role,full_name AS name FROM users WHERE id=? AND active=1`, [id]);
   function actor(res: Response) {
     const current = activeUser(Number(res.locals.authUser?.id));
     if (!current) throw fail(401, "حساب کاربری فعال نیست.");
@@ -64,7 +65,7 @@ export function createInternalChatRouter(deps: Dependencies) {
     const group = GROUPS.find(g => g.id === conversationId);
     if (group) {
       if (!group.roles.includes(user.role)) throw fail(404, "گفتگو در دسترس نیست.");
-      return rows<Actor>(`SELECT id,role,full_name AS name FROM users WHERE active=1 AND role IN (${group.roles.map(() => "?").join(",")}) ORDER BY full_name,id`, group.roles);
+      return rows<Actor>(`SELECT id,${roleSql()} AS role,full_name AS name FROM users WHERE active=1 AND ${roleSql()} IN (${group.roles.map(() => "?").join(",")}) ORDER BY full_name,id`, group.roles);
     }
     const direct = row<{user_low:number;user_high:number}>("SELECT user_low,user_high FROM internal_chat_directs WHERE conversation_id=?", [conversationId]);
     if (!direct || ![direct.user_low, direct.user_high].includes(user.id)) throw fail(404, "گفتگو در دسترس نیست.");
@@ -114,7 +115,7 @@ export function createInternalChatRouter(deps: Dependencies) {
     const directs = rows<{conversation_id:string}>("SELECT conversation_id FROM internal_chat_directs WHERE user_low=? OR user_high=?", [user.id, user.id]);
     for (const direct of directs) { try { members(direct.conversation_id, user); ids.push(direct.conversation_id); } catch { /* disabled peers are not available */ } }
     const conversations = ids.map(id => conversationView(id, user)).sort((a,b) => (b.lastMessage?.id ?? 0) - (a.lastMessage?.id ?? 0));
-    res.json({ myId: user.id, conversations, users: rows<Actor>("SELECT id,role,full_name AS name FROM users WHERE active=1 AND id<>? ORDER BY full_name,id", [user.id]).map(userView),
+    res.json({ myId: user.id, conversations, users: rows<Actor>(`SELECT id,${roleSql()} AS role,full_name AS name FROM users WHERE active=1 AND id<>? ORDER BY full_name,id`, [user.id]).map(userView),
       unreadCount: conversations.reduce((n, c) => n + c.unreadCount, 0) });
   });
   router.post("/conversations", (req, res) => {
@@ -134,7 +135,7 @@ export function createInternalChatRouter(deps: Dependencies) {
     if (q) { condition += " AND deleted_at IS NULL AND (text LIKE ? ESCAPE '\\' OR file_name LIKE ? ESCAPE '\\')"; const term = `%${q.replace(/[\\%_]/g, "\\$&")}%`; args.push(term, term); }
     const page = rows<Message>(`SELECT * FROM internal_chat_messages WHERE conversation_id=?${condition} ORDER BY id DESC LIMIT 61`, args);
     const allowed = members(id, user).map(x => x.id);
-    const typing = rows<Actor>(`SELECT u.id,u.role,u.full_name AS name FROM internal_chat_typing t JOIN users u ON u.id=t.user_id
+    const typing = rows<Actor>(`SELECT u.id,${roleSql("u.role")} AS role,u.full_name AS name FROM internal_chat_typing t JOIN users u ON u.id=t.user_id
       WHERE t.conversation_id=? AND t.user_id<>? AND t.last_seen>? AND u.active=1`, [id, user.id, new Date(Date.now()-6500).toISOString()]).filter(u => allowed.includes(u.id));
     res.json({ messages: page.slice(0,60).reverse().map(m => messageView(m,user)), hasMore: page.length > 60, typingUsers: typing.map(userView) });
   });

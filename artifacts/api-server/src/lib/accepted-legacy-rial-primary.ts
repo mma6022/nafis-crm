@@ -1,4 +1,5 @@
 import { isStrictSignedProviderState } from "./emzame-signature";
+// sales_manager acts as admin (lib/sales-manager.ts)
 
 export const ACCEPTED_LEGACY_RIAL_ACTION = "legacy-rial-primary-accepted-without-reissue";
 type Query = (sql: string, args?: any[]) => any;
@@ -25,7 +26,7 @@ export function acceptedLegacyRialPrimary(
       !Number.isSafeInteger(duration) || duration < 1 || duration > 600 ||
       duration !== Number(application.duration_months) ||
       duration !== Number(application.requested_duration_months ?? application.duration_months)) return false;
-  const row = queryRow(`SELECT h.reason,h.actor_id,h.created_at,u.role AS actor_role
+  const row = queryRow(`SELECT h.reason,h.actor_id,h.created_at,(CASE WHEN u.role='sales_manager' THEN 'admin' ELSE u.role END) AS actor_role
     FROM loan_application_stage_history h JOIN users u ON u.id=h.actor_id
     WHERE h.application_id=? AND h.action=? ORDER BY h.id DESC LIMIT 1`,
   [Number(application.id), ACCEPTED_LEGACY_RIAL_ACTION]);

@@ -21,6 +21,8 @@ export function AfterCallPopup() {
   const user = session?.user;
   const allowed = Boolean(user && (user.role === 'admin' || user.permissions?.includes('calls.view')));
   const isAdmin = user?.role === 'admin';
+  // 2026-11-03 (Mohammad): no incoming/outgoing call popups for the plain admin role; «مدیر فروش» and experts keep them.
+  const noPopup = isAdmin && !user?.salesManager;
   const key = getListPendingVoipAfterCallsQueryKey();
   // perf 2026-10-26: the change stream pushes every call event, so with it open a 15 s safety poll is enough (was 2 s per tab).
   // The stream and the poll run only while this tab is visible; showing the tab refetches at once.
@@ -58,6 +60,7 @@ export function AfterCallPopup() {
   useEffect(()=>{setDeferred([]);setShown(null);setDirty(false);setErr('');},[user?.id]);
 
   useEffect(() => {
+    if (noPopup) { if (shown != null) setShown(null); return; }
     const own=items.filter(i=>i.expertUserId===user?.id);
     const live=own.find(i=>i.isLive&&!deferred.includes(i.id));
     if(live && live.id!==shown && !dirty && !items.find(i=>i.id===shown)?.isLive){setShown(live.id);return;}
@@ -65,7 +68,7 @@ export function AfterCallPopup() {
       const next = own.find((i) => !deferred.includes(i.id));
       if (next) setShown(next.id);
     }
-  }, [items, deferred, shown,dirty,user?.id]);
+  }, [items, deferred, shown,dirty,user?.id,noPopup]);
 
   if (!allowed) return null;
   const current = shown != null ? items.find((i) => i.id === shown) : undefined;
@@ -100,13 +103,13 @@ export function AfterCallPopup() {
       {data?.syncError ? <span role="alert" style={{ color: '#991b1b' }} data-testid="text-after-call-sync-error">خطای همگام‌سازی: {data.syncError}</span> : null}
       {pendingQ.isError ? <span role="alert" style={{ color: '#991b1b' }}>دریافت تماس‌های در انتظار ناموفق بود.</span> : null}
       <button type="button" className="btn btn-ghost" style={{ padding: '2px 8px' }} onClick={() => pendingQ.refetch()} disabled={pendingQ.isFetching} data-testid="button-after-call-retry"><RefreshCw size={13} /> بررسی مجدد</button>
-      {deferredPending.length > 0 ? <button type="button" className="btn btn-primary" style={{ padding: '2px 10px' }} onClick={() => { setShown(deferredPending[0].id); setDeferred((d) => d.filter((x) => x !== deferredPending[0].id)); }} data-testid="button-after-call-reopen">تماس‌های ثبت‌نشده: {deferredPending.length.toLocaleString('fa-IR')}</button> : null}
+      {deferredPending.length > 0 && !noPopup ? <button type="button" className="btn btn-primary" style={{ padding: '2px 10px' }} onClick={() => { setShown(deferredPending[0].id); setDeferred((d) => d.filter((x) => x !== deferredPending[0].id)); }} data-testid="button-after-call-reopen">تماس‌های ثبت‌نشده: {deferredPending.length.toLocaleString('fa-IR')}</button> : null}
     </div>
     {isAdmin && data && !data.liveEventSeenAt ? <div className="cr-setup" data-testid="setup-live-events">
       برای دریافت زنده تماس‌ها، در پنل سرویس‌دهنده این تنظیمات لازم است (تا زمانی که رویداد داخلی نرسد، اتصال زنده تأیید نمی‌شود): Maintenance &gt; Settings &gt; AP Settings، فعال‌سازی Event Webhooks، حالت G4 با POST JSON، رویدادهای IncomingCall، OutgoingCall، New State و CDR، نشانی <span dir="ltr" className="mono">{origin}{import.meta.env.BASE_URL.replace(/\/$/, '')}/api/voip/simotel/events</span>، احراز Basic Auth با نام کاربری <span dir="ltr" className="mono">crm-events</span> و گذرواژه برابر کلید حساب API سیموتل.
     </div> : null}
     </> : null}
-    {shown != null ? <Modal key={shown} title={current?.isLive ? 'تماس در جریان' : 'نتیجه تماس'} eyebrow={current ? `تماس ${current.direction === 'incoming' ? 'ورودی' : 'خروجی'}${items.length > 1 ? ` · ${items.length.toLocaleString('fa-IR')} مورد در صف` : ''}` : 'گزارش تماس'} onClose={closeEditor} testId="after-call" wide>
+    {shown != null && !noPopup ? <Modal key={shown} title={current?.isLive ? 'تماس در جریان' : 'نتیجه تماس'} eyebrow={current ? `تماس ${current.direction === 'incoming' ? 'ورودی' : 'خروجی'}${items.length > 1 ? ` · ${items.length.toLocaleString('fa-IR')} مورد در صف` : ''}` : 'گزارش تماس'} onClose={closeEditor} testId="after-call" wide>
       <CallReportEditor source={{ kind: 'event', id: shown }} onDirtyChange={setDirty}
         onSaved={async (r, sent) => { if (current && !r.isLive) await finish(shown, sent); }}
         footer={() => <>

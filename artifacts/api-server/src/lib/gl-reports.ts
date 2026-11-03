@@ -13,6 +13,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { financeSettingAsOf } from "./ledger";
 import { openingBaseDate, opening2101Check, openingApprovalReadiness, tehranDateOf, tomanToRial } from "./gl-posting";
+import { roleSql } from "./sales-manager";
 
 export const GL_REPORTS_MIGRATION = "general-ledger-g5-reports";
 export const GL_REPORTS_DDL = `
@@ -264,7 +265,7 @@ function eligibleFinanceUsers(db: DatabaseSync): FinUser[] {
   if (!hasTable(db, "users")) return [];
   const cols = all<{ name: string }>(db, "PRAGMA table_info(users)").map((c) => c.name);
   const sp = cols.includes("salesperson_id") ? "salesperson_id" : "NULL";
-  return all<{ id: number; role: string; sp: number | null }>(db, `SELECT id, role, ${sp} sp FROM users WHERE active=1 AND role IN ('admin','${ROLE_ACC}','${ROLE_APR}')`)
+  return all<{ id: number; role: string; sp: number | null }>(db, `SELECT id, ${roleSql()} AS role, ${sp} sp FROM users WHERE active=1 AND role IN ('admin','sales_manager','${ROLE_ACC}','${ROLE_APR}')`)
     .filter((u) => !GL_FINANCE_EXCLUDED_USER_IDS.includes(Number(u.id)) && !(u.sp != null && GL_FINANCE_TRAINEE_SALESPERSON_IDS.includes(Number(u.sp))))
     .map((u) => ({ id: Number(u.id), role: u.role }));
 }

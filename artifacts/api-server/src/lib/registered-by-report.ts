@@ -28,6 +28,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { REGISTRATION_SOURCES, DEFAULT_OWNER_EXCLUDED_USER_IDS, CUSTOMER_SOURCE_LABELS } from "./registration-sources";
 import { testCustomerSql } from "./test-customers";
 import { intakeStartedAt, LEAD_SOURCES, isLeadSource, type LeadSource } from "./lead-intake";
+import { roleSql } from "./sales-manager";
 
 const OFFSET_MS = 3.5 * 3600_000;
 const has = (db: DatabaseSync, t: string) => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(t));
@@ -109,7 +110,7 @@ export function registeredByReport(db: DatabaseSync, range: RegisteredByRange, o
         ${lf ? (rrCols ? "AND COALESCE(r.lead_source,'none')=?" : "AND 0") : ""}
         ${opts.excludeTest ? `AND NOT EXISTS (SELECT 1 FROM customers c WHERE c.id=r.customer_id AND ${testCustomerSql("c")})` : ""}
       GROUP BY r.created_by_user_id`).all(...(lf && rrCols ? [fromIso, toIso, lf] : [fromIso, toIso])) as { registrar: number | null; n: number }[] : [];
-  const users = new Map((db.prepare("SELECT u.id, u.full_name, u.username, u.salesperson_id, u.role FROM users u").all() as any[]).map((u) => [Number(u.id), u]));
+  const users = new Map((db.prepare(`SELECT u.id, u.full_name, u.username, u.salesperson_id, ${roleSql("u.role")} AS role FROM users u`).all() as any[]).map((u) => [Number(u.id), u]));
   const sps = new Map((db.prepare("SELECT id, name FROM salespersons").all() as any[]).map((s) => [Number(s.id), String(s.name ?? "")]));
   type Out = { key: string; userId: number | null; name: string; salespersonId: number | null; salespersonName: string | null; registered: number;
     called: number; repeatRequests: number; byLeadSource: { leadSource: string | null; label: string; count: number }[]; reachedRegistration: number; reachedDeposit: number; depositGoods: number; depositPaymentOrders: number;

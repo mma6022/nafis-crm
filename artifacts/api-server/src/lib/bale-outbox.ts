@@ -26,6 +26,7 @@ import { baleSessionAad, openBaleSession, BaleKeyMissing, type KeyEnv } from "./
 import { BaleSidecarError, type BaleSidecar } from "./bale-sidecar-client";
 import type { BalePlanFiles } from "./bale-plan-files";
 import { AR_BLOCK_FA, arVoice, createBaleAutoreply, ensureBaleAutoreplySchema, type ArBlock, type ArTarget } from "./bale-autoreply";
+import { ADMIN_LIKE_SQL } from "./sales-manager";
 
 export const BALE_MAX_TEXT = 4000; // NOTES-NOMAX: Bale platform text limit (sidecar MAX_TEXT); the only cap, enforced in the sending layer
 export const BALE_SENDING_STALE_MS = 2 * 60_000;
@@ -407,7 +408,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     const owner = ctx.userRow(a.user_id);
     const ring = (uid: number, title: string, body: string) => customerId && row("SELECT 1 FROM customers WHERE id=?", customerId) ? bell(uid, customerId, "bale-stopped", title, body) : bellNoCustomer(uid, title, body);
     ring(a.user_id, "ارسال بله متوقف شد", `${why}؛ حالت ارسال و پاسخ خودکار خاموش شد. از صفحه‌ی «اتصال بله» وضعیت را ببینید.`);
-    for (const ad of rows<any>("SELECT id FROM users WHERE role='admin' AND COALESCE(active,1)=1 AND id<>29"))
+    for (const ad of rows<any>(`SELECT id FROM users WHERE role IN ${ADMIN_LIKE_SQL} AND COALESCE(active,1)=1 AND id<>29`))
       ring(ad.id, `ارسال بله‌ی ${ctx.nameOf(owner) ?? "کارشناس"} متوقف شد`, `${why}؛ حالت ارسال و پاسخ خودکار خاموش شد.`);
   }
 
@@ -574,7 +575,7 @@ export function createBaleOutbox(ctx: OutboxCtx) {
     if (!force && t - lastSilence < SILENCE_EVERY_MS) return 0;
     lastSilence = t;
     if (!inWorkWindow(t, cfg)) return 0;
-    const admins = rows<any>("SELECT id FROM users WHERE role='admin' AND COALESCE(active,1)=1 ORDER BY id").filter(u => !EXCLUDED_USER_IDS.includes(Number(u.id)));
+    const admins = rows<any>(`SELECT id FROM users WHERE role IN ${ADMIN_LIKE_SQL} AND COALESCE(active,1)=1 ORDER BY id`).filter(u => !EXCLUDED_USER_IDS.includes(Number(u.id)));
     if (!admins.length) return 0;
     let n = 0;
     for (const a of rows<any>("SELECT * FROM bale_accounts WHERE kind<>'system_test' AND status='connected' AND session_ct IS NOT NULL ORDER BY id")) {

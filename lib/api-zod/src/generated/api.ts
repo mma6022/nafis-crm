@@ -1255,7 +1255,8 @@ export const LoginResponse = zod.object({
   "salespersonId": zod.number().int().nullish(),
   "salespersonName": zod.string().nullish(),
   "active": zod.boolean(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "salesManager": zod.boolean().optional().describe('«مدیر فروش» (users.role sales_manager): role reads \'admin\'; true only for the sales manager.')
 })
 })
 
@@ -1288,7 +1289,8 @@ export const GetAuthSessionResponse = zod.object({
   "salespersonId": zod.number().int().nullish(),
   "salespersonName": zod.string().nullish(),
   "active": zod.boolean(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "salesManager": zod.boolean().optional().describe('«مدیر فروش» (users.role sales_manager): role reads \'admin\'; true only for the sales manager.')
 })
 })
 
@@ -1341,7 +1343,8 @@ export const UpdateAuthProfileResponse = zod.object({
   "salespersonId": zod.number().int().nullish(),
   "salespersonName": zod.string().nullish(),
   "active": zod.boolean(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "salesManager": zod.boolean().optional().describe('«مدیر فروش» (users.role sales_manager): role reads \'admin\'; true only for the sales manager.')
 })
 })
 
@@ -7622,7 +7625,8 @@ export const ListUsersResponseItem = zod.object({
   "salespersonId": zod.number().int().nullish(),
   "salespersonName": zod.string().nullish(),
   "active": zod.boolean(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "salesManager": zod.boolean().optional().describe('«مدیر فروش» (users.role sales_manager): role reads \'admin\'; true only for the sales manager.')
 })
 export const ListUsersResponse = zod.array(ListUsersResponseItem)
 
@@ -7677,7 +7681,8 @@ export const CreateUserResponse = zod.object({
   "salespersonId": zod.number().int().nullish(),
   "salespersonName": zod.string().nullish(),
   "active": zod.boolean(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "salesManager": zod.boolean().optional().describe('«مدیر فروش» (users.role sales_manager): role reads \'admin\'; true only for the sales manager.')
 })
 
 
@@ -7800,7 +7805,8 @@ export const UpdateUserResponse = zod.object({
   "salespersonId": zod.number().int().nullish(),
   "salespersonName": zod.string().nullish(),
   "active": zod.boolean(),
-  "createdAt": zod.string()
+  "createdAt": zod.string(),
+  "salesManager": zod.boolean().optional().describe('«مدیر فروش» (users.role sales_manager): role reads \'admin\'; true only for the sales manager.')
 })
 
 

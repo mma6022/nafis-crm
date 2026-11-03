@@ -6423,6 +6423,9 @@ components:
         salespersonName: { type: ["string", "null"] }
         active: { type: boolean }
         createdAt: { type: string }
+        salesManager:
+          type: boolean
+          description: "«مدیر فروش» (users.role sales_manager): role reads 'admin'; true only for the sales manager."
     AuthProfileUpdate:
       type: object
       properties:

@@ -18,9 +18,9 @@ export function canReapproveInitialDecision(a: any, d: ReentryDependencies): boo
   const returned = d.queryRow(`SELECT h.id FROM loan_application_stage_history h
     JOIN users u ON u.id=h.actor_id
     WHERE h.application_id=? AND (
-      (h.action='admin-stage-corrected' AND u.role='admin'
+      (h.action='admin-stage-corrected' AND u.role IN ('admin','sales_manager')
         AND h.to_stage='funder_initial_approval' AND h.from_stage<>'funder_initial_approval')
-      OR (h.action='funder-initial-reject' AND u.role IN ('admin','registrar')
+      OR (h.action='funder-initial-reject' AND u.role IN ('admin','sales_manager','registrar')
         AND h.to_stage='customer_documents_upload' AND json_valid(h.reason)
         AND json_extract(h.reason,'$.returnedToSales')=1))
       AND h.id>COALESCE((SELECT MAX(id) FROM loan_application_stage_history

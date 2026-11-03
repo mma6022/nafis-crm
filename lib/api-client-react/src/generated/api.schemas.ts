@@ -786,6 +786,8 @@ export interface CrmUser {
   salespersonName?: string | null;
   active: boolean;
   createdAt: string;
+  /** «مدیر فروش» (users.role sales_manager): role reads 'admin'; true only for the sales manager. */
+  salesManager?: boolean;
 }
 
 export interface AuthSession {

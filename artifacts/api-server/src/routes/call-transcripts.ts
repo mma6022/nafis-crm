@@ -67,7 +67,7 @@ router.patch("/call-transcripts/calls/:eventId/summary", requirePermission("call
 router.post("/call-transcripts/calls/:eventId/retranscribe", requirePermission("calls.view"), (req, res) => {
   if (off(res)) return; const e = eventOf(req, res); if (!e) return;
   const u = me(res);
-  if (!isCtManager(u)) return fail(res, 403, "manager_only", "تبدیل مجدد فقط برای مدیر فروش و مدیر سیستم است.");
+  if (!isCtManager(u)) return fail(res, 403, "manager_only", "تبدیل مجدد فقط برای مدیر فروش است.");
   if (!e.has_recording || !e.recording_file) return fail(res, 422, "no_recording", "این تماس فایل ضبط ندارد.");
   try { queueTranscript(e.provider_id, e.recording_file, callReportDay(e.started_at), callReportDay(e.ended_at), u.id, true); }
   catch (error) { if (error instanceof TranscriptionError) return fail(res, 422, "queue_refused", error.message); throw error; }
@@ -86,7 +86,7 @@ router.put("/call-transcripts/calls/:eventId/review", requirePermission("calls.v
 });
 router.get("/call-transcripts/report", requirePermission("calls.view"), (req, res) => {
   if (off(res)) return; const u = me(res);
-  if (!isCtManager(u)) return fail(res, 403, "manager_only", "گزارش مرکز تماس فقط برای مدیر فروش و مدیر سیستم است.");
+  if (!isCtManager(u)) return fail(res, 403, "manager_only", "گزارش مرکز تماس فقط برای مدیر فروش است.");
   const r = tehranRange(req.query.from, req.query.to, 93);
   if (!r) return fail(res, 400, "bad_range", "بازه‌ی تاریخ معتبر نیست (حداکثر ۹۳ روز).");
   const expert = req.query.expert == null || req.query.expert === "" ? null : Number(req.query.expert);

@@ -81,7 +81,10 @@ export function speakerRoles(result: Result, direction: string): { roles: Record
 }
 
 /* ---------------- access ---------------- */
-export const isCtManager = (u: AuthUser) => u.active && u.role === "admin" && !MANAGER_EXCLUDED.includes(u.id);
+/** Manager features (call-center report, review «بررسی مدیر فروش (احمد)», retranscribe): «مدیر فروش» only since 2026-11-03.
+ *  Plain admins keep reading every call (ctAdminViewer) but no longer get the sales-manager views. */
+export const isCtManager = (u: AuthUser) => u.active && u.role === "admin" && u.salesManager === true && !MANAGER_EXCLUDED.includes(u.id);
+const ctAdminViewer = (u: AuthUser) => u.active && u.role === "admin" && !MANAGER_EXCLUDED.includes(u.id);
 type Ev = { id: number; external_id: string; provider_id: string; phone: string; direction: string; status: string; started_at: string; ended_at: string;
   extension: string | null; expert_user_id: number | null; expert_name: string | null; customer_id: number | null; call_log_id: number | null;
   has_recording: number; recording_file: string | null; mobile_device_id: number | null; duration_seconds: number | null; customer_name: string | null;
@@ -100,7 +103,7 @@ const EV = `SELECT e.id,e.external_id,COALESCE(e.recording_provider_id,e.externa
 const ownExtension = (u: AuthUser) => queryRow<{ extension: string | null }>("SELECT extension FROM voip_extensions WHERE user_id=?", [u.id])?.extension ?? null;
 function canSee(e: Ev, u: AuthUser) {
   if (Date.parse(e.started_at) < Date.parse(CALL_LIST_START)) return false;
-  if (isCtManager(u)) return true;
+  if (ctAdminViewer(u)) return true;
   if (!u.active || e.expert_user_id !== u.id) return false;
   return e.mobile_device_id != null || ownExtension(u) === e.extension;
 }

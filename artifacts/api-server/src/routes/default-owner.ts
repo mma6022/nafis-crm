@@ -12,6 +12,7 @@ import { ensureDefaultOwnerSchema, DEFAULT_OWNER_EXCLUDED_USER_IDS, REGISTRATION
 import { leadSourceFilter, registeredByRange, registeredByReport } from "../lib/registered-by-report";
 import { ensureLeadIntakeSchema } from "../lib/lead-intake";
 import { excludeTestOn } from "../lib/test-customers";
+import { roleSql } from "../lib/sales-manager";
 
 // Tables exist from boot (the live enable script and the report need them before anyone opens the page).
 ensureDefaultOwnerSchema();
@@ -23,7 +24,7 @@ function options() {
   return {
     salespersons: queryRows<{ id: number; name: string }>("SELECT id, name FROM salespersons WHERE active=1 ORDER BY id").map((s) => ({ id: Number(s.id), name: s.name })),
     registrars: queryRows<{ id: number; full_name: string | null; username: string; role: string; salesperson_id: number | null }>(
-      "SELECT id, full_name, username, role, salesperson_id FROM users WHERE active=1 ORDER BY id")
+      `SELECT id, full_name, username, ${roleSql()} AS role, salesperson_id FROM users WHERE active=1 ORDER BY id`)
       .filter((u) => !DEFAULT_OWNER_EXCLUDED_USER_IDS.includes(Number(u.id)))
       .map((u) => ({ id: Number(u.id), name: u.full_name || u.username, role: u.role, salespersonId: u.salesperson_id == null ? null : Number(u.salesperson_id) })),
     sources: Object.entries(REGISTRATION_SOURCES).map(([key, label]) => ({ key, label, reserved: key === "assistant" || key === "api" })),

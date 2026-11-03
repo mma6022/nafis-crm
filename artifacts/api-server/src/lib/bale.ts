@@ -32,6 +32,7 @@ import { listOfficialHolidays, addOfficialHoliday, deleteOfficialHoliday, replac
 import multer from "multer";
 import { ensureCustomerBaleLinks, matchContacts, maskPhone, normMobile, peerTag, type BaleScanContact, type MatchRow } from "./bale-contact-links";
 import { createBalePlanFiles, ensureBalePlanFilesSchema, BALE_PLAN_FILE_MAX_BYTES, BALE_PLAN_FILE_TYPES } from "./bale-plan-files";
+import { roleSql } from "./sales-manager";
 
 type Db = DatabaseSync;
 export type BaleActor = { id: number } | null;
@@ -183,7 +184,7 @@ export function createBale(deps: BaleDeps) {
   const fail = (res: Response, status: number, error: string) => { if (!res.headersSent) res.status(status).json({ error, message: ERR_FA[error] ?? ERR_FA.unknown }); };
   const setting = (k: string) => row<{ value: string }>("SELECT value FROM bale_settings WHERE key=?", k)?.value ?? BALE_DEFAULT_SETTINGS[k] ?? AR_DEFAULT_SETTINGS[k];
   const masterOn = () => setting("master_enabled") === "1";
-  const userRow = (id: number) => row<any>("SELECT id,role,salesperson_id,active,full_name,username FROM users WHERE id=?", id);
+  const userRow = (id: number) => row<any>(`SELECT id,${roleSql()} AS role,salesperson_id,active,full_name,username FROM users WHERE id=?`, id);
   const nameOf = (u: any) => u ? (u.full_name || u.username || `کاربر ${u.id}`) : null;
   const me = (res: Response) => { const a = deps.actor(res); return a ? userRow(a.id) : undefined; };
   /** Audit detail is whitelisted: never a phone, code, password, token or message text. */

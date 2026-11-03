@@ -74,12 +74,15 @@ const defaults = [
   ["salesperson", "کارشناس فروش", "دسترسی به مشتریان تخصیص‌یافته", "assigned", 1],
   ["funder", "تأمین‌کننده مالی", "بررسی و تأیید مالی پرونده‌های تسهیلات", "all", 1],
   ["accounting", "حسابداری", "ثبت واریز دستور پرداخت و اسناد مالی", "all", 1],
+  // «مدیر فروش» (2026-11-03): admin-equivalent access, plus the sales-manager-only Ahmad / call-center views.
+  ["sales_manager", "مدیر فروش", "دسترسی کامل مثل مدیر سیستم، به‌علاوه‌ی دستیار مدیر فروش و گزارش مرکز تماس", "all", 1],
 ] as const;
 for (const role of defaults) {
   execute("INSERT OR IGNORE INTO app_roles (slug, name, description, customer_scope, is_system, created_at) VALUES (?, ?, ?, ?, ?, ?)", [...role, now]);
 }
 const standard = PERMISSIONS.filter((permission) => !/^(goods_|payment_orders\.|bank_accounts\.|accounting\.|callbacks\.)/.test(permission) && !permission.startsWith("users.") && !permission.startsWith("notifications.") && permission !== "database.manage" && permission !== "customers.delete" && permission !== "loan_applications.approve" && permission !== "loan_applications.delete" && permission !== "wallets.transfer");
 for (const permission of PERMISSIONS) execute("INSERT OR IGNORE INTO role_permissions (role_slug, permission) VALUES ('admin', ?)", [permission]);
+for (const permission of PERMISSIONS) execute("INSERT OR IGNORE INTO role_permissions (role_slug, permission) VALUES ('sales_manager', ?)", [permission]);
 for (const role of ["funder","accounting"]) execute("INSERT OR IGNORE INTO role_permissions(role_slug,permission) VALUES(?,'internal_chat.use')",[role]);
 for (const role of ["registrar", "salesperson"]) {
   for (const permission of standard.filter(p => p !== "reports.view" || role === "salesperson")) execute("INSERT OR IGNORE INTO role_permissions (role_slug, permission) VALUES (?, ?)", [role, permission]);
@@ -127,7 +130,7 @@ if (!queryRows("SELECT 1 AS hit FROM schema_migrations WHERE version='gl_roles_v
 }
 
 export function permissionsForRole(role: string): string[] {
-  if (role === "admin") return [...PERMISSIONS];
+  if (role === "admin" || role === "sales_manager") return [...PERMISSIONS];
   return queryRows<{ permission: string }>("SELECT permission FROM role_permissions WHERE role_slug = ? ORDER BY permission", [role]).map((row) => row.permission);
 }
 

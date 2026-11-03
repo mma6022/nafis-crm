@@ -10,6 +10,7 @@ import { noteText } from "./note-text";
 import { crmDb, execute, executeChanges, queryRow, queryRows, type SqlValue } from "./crm-db";
 import { ensureOfficialHolidaysSchema, isOfficialHoliday } from "./official-holidays";
 import { openUrgentFlags } from "./lead-intake";
+import { ADMIN_LIKE_SQL } from "./sales-manager";
 
 export const CQ_TRAINEE_SALESPERSON_IDS: readonly number[] = [5, 19, 20];
 export const CQ_TRAINEE_USER_IDS: readonly number[] = [6, 27, 28];
@@ -155,7 +156,7 @@ export function cqEligible(u: CqUser | null | undefined): boolean {
 }
 export const cqManager = (u: CqUser | null | undefined) => Boolean(u && u.role === "admin" && !CQ_EXCLUDED_USER_IDS.includes(Number(u.id)));
 export function cqManagerIds(): number[] {
-  return queryRows<{ id: number }>("SELECT id FROM users WHERE role='admin' AND active=1 ORDER BY id").map(r => Number(r.id)).filter(id => !CQ_EXCLUDED_USER_IDS.includes(id));
+  return queryRows<{ id: number }>(`SELECT id FROM users WHERE role IN ${ADMIN_LIKE_SQL} AND active=1 ORDER BY id`).map(r => Number(r.id)).filter(id => !CQ_EXCLUDED_USER_IDS.includes(id));
 }
 
 /* ---------------- Tehran working time (fixed +03:30; Iran has no DST) ---------------- */
