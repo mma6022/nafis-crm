@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { crmDb, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
 import { eventFor, experts, customerMatcher, normalizePhone, resolveEvent, finishSavedLiveReport, ensureAfterCallSchema } from "./voip-after-call";
 import { notifyCallReport } from "./voip-call-notifications";
+import { viExtState, viReportOn } from "./voip-incoming-flags"; // SIMOTEL-456 (flag.voip_report, OFF → not called)
 import { vcOnNewState, vcOnOutgoing } from "./voip-call"; // VOIP-CALL (flag.voip_call, OFF → both return false at once)
 
 type Signal = { cuid:string; phone:string; direction:string };
@@ -64,6 +65,8 @@ export function receiveSimotelCallEvent(payload:unknown,now=new Date()) {
   if(!["incomingcall","outgoingcall","newstate","cdr"].includes(name))return {handled:false,cdr:false};
   ensureCallSignalSchema();
   const cuid=identifier(body);
+  // SIMOTEL-456 part 6 (flag.voip_report only): extension live state; a Pause/Idle NewState may come without a cuid.
+  if(name==="newstate" && viReportOn()) { const st=viExtState(body,now); if(!cuid && st) return {handled:true,cdr:false}; }
   if(!cuid && name!=="cdr")throw new Error("invalid_event");
   let handled=false,liveHandled=false;
   runTransaction(()=>{

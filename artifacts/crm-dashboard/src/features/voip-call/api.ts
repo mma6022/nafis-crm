@@ -18,7 +18,8 @@ export type VcCall = { id: number; state: VcState; outcome: VcOutcome; customerI
   createdAt: string; secondsLeft: number | null; meAnsweredAt: string | null; custAnsweredAt: string | null; endedAt: string | null; durationSeconds: number | null;
   cdr: boolean; recording: 'processing' | 'ready' | 'none'; eventId: number | null; active: boolean; needsResult: boolean; resultSaved: boolean;
   resultOutcome: string | null; prefill: 'answered' | 'no_answer' | null; oneTap: boolean; errorCode: string | null };
-export type VcMe = { on: boolean; extension?: string | null; call?: VcCall | null; timeoutSeconds?: number };
+/** `incoming`: SIMOTEL-456 — an incoming call is live on my VoIP phone (only sent while flag.voip_incoming is on for me) → the call button is closed. */
+export type VcMe = { on: boolean; extension?: string | null; call?: VcCall | null; timeoutSeconds?: number; incoming?: boolean };
 export type VcHistItem = { kind: 'voip' | 'simotel' | 'manual'; id: string; at: string; status: 'answered' | 'no_answer' | 'busy' | null; direction?: string;
   durationSeconds: number | null; expert: string | null; fileId: number | null; recording: 'processing' | 'ready' | 'none'; playable: boolean; eventId: number | null;
   result: { label: string | null; note: string } | null; pending: boolean };

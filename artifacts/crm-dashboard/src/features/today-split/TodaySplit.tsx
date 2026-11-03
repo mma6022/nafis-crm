@@ -23,6 +23,8 @@ import '@/features/files-carousel/files-carousel.css';
 import './today-split.css';
 import { useVcMe, vcRefresh } from '@/features/voip-call/api';
 import { VoipCallBox, VcCallItem, vcCallAsItem, useMyName, useVcForFile } from '@/features/voip-call/VoipCall';
+import { useViMissed, type ViMissed } from '@/features/voip-incoming/api';
+import { MissedCard, MissedLink } from '@/features/voip-incoming/MissedCard';
 
 const JF = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', weekday: 'long', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const at = (iso?: string | null) => { if (!iso) return ''; const d = new Date(iso); if (Number.isNaN(d.getTime())) return '';
@@ -55,8 +57,10 @@ function TodaySplit({ potential, board }: { potential: ReactNode; board: boolean
   const onKey = (e: React.KeyboardEvent) => { if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Home' && e.key !== 'End') return; e.preventDefault();
     const n: Tab = cur === 'act' ? 'pot' : 'act'; setTab(n); tabsRef.current?.querySelector<HTMLElement>(`[data-tab="${n}"]`)?.focus(); };
   const day = v?.date ?? tehranYmd();
+  const mq = useViMissed(); // SIMOTEL-456 part 5: 404 → { on:false } → no link, no card
+  const openMissed = () => { setTab('act'); setTimeout(() => { const el = document.getElementById('vi-missed'); el?.scrollIntoView({ behavior: 'smooth', block: 'start' }); el?.focus({ preventScroll: true }); }, 0); };
   return <div className="ts-page" data-testid="ts-page" data-tab={cur}>
-    <div className="ts-top"><h1>کارهای امروز من</h1><span className="ts-date">{faDate(day)}</span></div>
+    <div className="ts-top"><h1>کارهای امروز من</h1><span className="ts-date">{faDate(day)}</span><MissedLink d={mq.data} onOpen={openMissed} /></div>
     <div className="ts-tabs" role="tablist" aria-label="کارهای امروز" ref={tabsRef} onKeyDown={onKey}>
       <button type="button" role="tab" id="ts-t-pot" data-tab="pot" aria-selected={cur === 'pot'} aria-controls="ts-p-pot" tabIndex={cur === 'pot' ? 0 : -1} onClick={() => setTab('pot')} data-testid="ts-tab-pot">
         مشتریان بالقوه {potLeft != null ? <span className="tc" data-testid="ts-pot-count" aria-label={`${faNum(potLeft)} کار مانده`}>{faNum(potLeft)}</span> : null}</button>
@@ -67,14 +71,14 @@ function TodaySplit({ potential, board }: { potential: ReactNode; board: boolean
     <section role="tabpanel" id="ts-p-act" aria-labelledby="ts-t-act" hidden={cur !== 'act'} data-testid="ts-panel-act">
       {fq.isLoading ? <div className="dp-skel" role="status">در حال بارگذاری تسک‌ها…</div>
         : fq.isError || !v ? <div className="dp-box err" role="alert" data-testid="ts-act-error">تسک‌ها بارگذاری نشد. <button type="button" className="btn btn-ghost" onClick={() => void fq.refetch()}>تلاش دوباره</button></div>
-        : <ActPanel v={v} board={board} onGoPot={() => setTab('pot')} />}
+        : <ActPanel v={v} board={board} onGoPot={() => setTab('pot')} missed={mq.data} />}
     </section>
     <section role="tabpanel" id="ts-p-pot" aria-labelledby="ts-t-pot" hidden={cur !== 'pot'} className="ts-pot" data-testid="ts-panel-pot">{potential}
       <p className="ts-potnote" data-testid="ts-pot-note"><FileText size={16} aria-hidden="true" /><span>مشتری‌هایی که پرونده‌ی وام دارند در این لیست نمی‌آیند؛ تسک‌هایشان در «مشتریان بالفعل» است.</span></p></section>
   </div>;
 }
 
-function ActPanel({ v, board, onGoPot }: { v: FcView; board: boolean; onGoPot: () => void }) {
+function ActPanel({ v, board, onGoPot, missed }: { v: FcView; board: boolean; onGoPot: () => void; missed?: ViMissed }) {
   const qc = useQueryClient();
   const bq = useBoard(board); // FILES-BOARD (stage 3): the sheet's turn = the whole-board turn
   const [wiz, setWiz] = useState<FcCard | null>(null);
@@ -86,12 +90,15 @@ function ActPanel({ v, board, onGoPot }: { v: FcView; board: boolean; onGoPot: (
   const remaining = v.cards.filter((c) => c.state !== 'done').length;
   const total = v.cards.length; const done = total - remaining;
   const next = cur ? v.cards.slice(curIdx + 1).find((c) => c.state === 'pending') ?? null : null;
+  const goTask = () => { const el = document.querySelector<HTMLElement>('[data-testid="ts-card"]'); el?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  const missedCard = <MissedCard d={missed} curPos={cur ? curIdx + 1 : null} onTask={goTask} />;
   const saved = (nv: FcView, name: string) => { qc.setQueryData(['files-carousel', 'today'], nv); if (board) void qc.invalidateQueries({ queryKey: ['files-carousel', 'board'] }); setWiz(null); setToast(`${name}: پیگیری ثبت شد`); };
   return <>
     <p className="ts-info" data-testid="ts-act-info"><FileText size={17} aria-hidden="true" /> تسک‌های مشتریانی که پرونده‌ی وام دارند فقط این‌جا می‌آیند.{!v.split?.unlocked && v.mode !== 'list' && total > 0 ? ' تا تمام نشوند، «پرونده‌های من» بسته است.' : ''}</p>
     {v.split?.unlocked && remaining > 0 ? <div className="dp-box ts-more" role="status" data-testid="ts-act-more"><AlertCircle size={17} aria-hidden="true" /> یک تسک تازه رسید. «پرونده‌های من» باز می‌ماند؛ فقط شمار بالا رفت.</div> : null}
     {total === 0 ? <div className="dp-box ts-calm" data-testid="ts-act-empty"><ClipboardList size={22} aria-hidden="true" /><div><b>امروز تسکی برای مشتریان بالفعل نیست.</b>
-      <p>کارهای امروزت در «مشتریان بالقوه» است.</p><button type="button" className="btn btn-ghost" onClick={onGoPot} data-testid="ts-go-pot">برو به مشتریان بالقوه</button></div></div> : <>
+      <p>کارهای امروزت در «مشتریان بالقوه» است.</p><button type="button" className="btn btn-ghost" onClick={onGoPot} data-testid="ts-go-pot">برو به مشتریان بالقوه</button></div></div> : null}
+    {total === 0 ? missedCard : <>
       <div className="card ts-prog" data-testid="ts-prog">
         <div className="ts-prog-h"><b data-testid="ts-pos">تسک {faNum(cur ? curIdx + 1 : total)} از {faNum(total)}</b><small>از «پرونده‌های من»، به ترتیب اولویت</small></div>
         <div className="dp-bar ts-bar" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} aria-label="پیشرفت تسک‌های بالفعل"><i style={{ width: `${Math.round((done / total) * 100)}%` }} /></div>
@@ -102,6 +109,7 @@ function ActPanel({ v, board, onGoPot }: { v: FcView; board: boolean; onGoPot: (
           <p>«پرونده‌های من» باز است.</p><div className="ts-acts"><Link href="/loan-applications" className="btn btn-primary" data-testid="ts-go-files">برو به پرونده‌های من</Link>
           <button type="button" className="btn btn-ghost" onClick={onGoPot} data-testid="ts-go-pot">مشتریان بالقوه</button></div></div></div>}
       {next ? <p className="fc-next ts-next" data-testid="ts-next"><Lock size={13} aria-hidden="true" /> بعدی: <b>{next.customerName}</b> <span className="dp-id">#{faNum(next.customerId)}</span> · ترتیب ثابت است، فقط تسک جاری باز است</p> : null}
+      {missedCard}
       <section className="card aq" aria-labelledby="ts-order-h" data-testid="ts-order">
         <h3 id="ts-order-h"><ListOrdered size={18} aria-hidden="true" /> ترتیب امروز</h3>
         <p className="dp-sub">ترتیب ثابت است: اول برگشتی‌ها، بعد امضاها (ردشده اول)، بعد وثیقه یا صف فروش، بعد پرونده‌های قدیمی.</p>
