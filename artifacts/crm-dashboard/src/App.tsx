@@ -12,6 +12,7 @@ import MyPerformance from '@/pages/MyPerformance';
 import SalesAssistSettings from '@/pages/SalesAssistSettings';
 import MyQueuePage from '@/features/call-queue/MyQueue';
 import TodayPage from '@/features/daily-plan/TodayPage';
+import TodaySplitGate from '@/features/today-split/TodaySplit';
 import { DpBoardPage, DpCapacityPage, DpExpertListPage, DpReportPage, DpSettingsPage } from '@/features/daily-plan/AdminPages';
 import { CallQueueDisciplinePage, CallQueueEventsPage, CallQueueSettingsPage } from '@/features/call-queue/AdminPages';
 import DefaultOwnerSettings from '@/pages/DefaultOwnerSettings';
@@ -281,7 +282,7 @@ function AppWithRoutes() {
                     <Route path="/sales-assist-settings"><AdminOnlyRoute><SalesAssistSettings /></AdminOnlyRoute></Route>
                     <Route path="/my-queue"><PermissionRoute permission="customers.view"><MyQueuePage /></PermissionRoute></Route>
                     {/* crm-daily-plan «کارهای امروز»: pages answer «فعال نیست» while flag.daily_plan is OFF; the server enforces everything */}
-                    <Route path="/today"><PermissionRoute permission="customers.view"><TodayPage /></PermissionRoute></Route>
+                    <Route path="/today"><PermissionRoute permission="customers.view"><TodaySplitGate><TodayPage /></TodaySplitGate></PermissionRoute></Route>
                     <Route path="/daily-plans"><AdminOnlyRoute><DpBoardPage /></AdminOnlyRoute></Route>
                     <Route path="/daily-plans/report"><AdminOnlyRoute><DpReportPage /></AdminOnlyRoute></Route>
                     <Route path="/daily-plans/settings"><AdminOnlyRoute><DpSettingsPage /></AdminOnlyRoute></Route>

@@ -30,7 +30,9 @@ export type FcReturnSource = 'registrar' | 'funder';
 export type FcLateReturn = { type: 'file_returned'; file_id: number; customer_name: string; return_type: FcReturnType | null; return_note: string | null; returned_at: string | null; return_source?: FcReturnSource | null };
 export type FcView = { enabled: true; date: string; total: number; done: number; index: number | null; currentFileId: number | null; orderSource: 'assistant' | 'default'; waiting?: { total: number; groups: Array<{ code: string; label: string; count: number }> };
   outcomes: { code: string; label: string }[]; noteMax: number; cancelReasonMax?: number; cards: FcCard[];
-  categories?: boolean; mode?: 'cards' | 'list'; lateReturns?: FcLateReturn[] };
+  categories?: boolean; mode?: 'cards' | 'list'; lateReturns?: FcLateReturn[];
+  /** TODAY-SPLIT: present only with the per-user flag. */
+  split?: { on: true; remaining: number; unlocked: boolean; addedAfterUnlock: number } };
 export const fcApi = {
   config: () => req<{ enabled: boolean }>('GET', '/files-carousel/config'),
   today: () => req<FcView>('GET', '/files-carousel/today'),
