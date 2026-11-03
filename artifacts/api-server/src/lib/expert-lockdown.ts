@@ -13,6 +13,7 @@
  * owner name; the owner gets a CRM bell + a top Today item «تماس با مشتری ارجاعی» only when the caller presses «ارجاع» (no SMS, no Bale, nothing to the customer).
  */
 import { vcFlagOn } from "./voip-call";
+import { s132FlagOn } from "./simotel132";
 import { createHmac, randomBytes } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { crmDb, execute, queryRow, queryRows, runTransaction } from "./crm-db";
@@ -222,6 +223,11 @@ function vcLockdownIds(req: Request, path: string, userId: number): number[] | n
   if (req.method === "POST" && path === "/voip-call/start") { const c = Number((req.body as any)?.customerId); return Number.isSafeInteger(c) && c > 0 ? [c] : null; }
   const h = /^\/voip-call\/customers\/(\d+)\/history$/.exec(path);
   if (h && req.method === "GET") return [Number(h[1])];
+  if (s132FlagOn(userId)) { // SIMOTEL-132 (flag on only): own-call actions (owner checked in the handler) + the first-call check for one customer
+    if (req.method === "POST" && /^\/voip-call\/\d+\/(status|fix|note|close-bar)$/.test(path)) return [];
+    const f = /^\/voip-call\/customers\/(\d+)\/s132$/.exec(path);
+    if (f && req.method === "GET") return [Number(f[1])];
+  }
   const a = /^\/voip-call\/calls\/(\d+)\/audio$/.exec(path);
   if (a && req.method === "GET") {
     const r = queryRow<{ cid: number | null }>(`SELECT COALESCE(l.customer_id,e.customer_id) cid FROM voip_after_call_events e

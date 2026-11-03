@@ -255,7 +255,7 @@ const err = (status: number, error: string, message: string, details?: object) =
 /** The expert's panel state: the live call, else the latest ended call still waiting for a result, else a recent timeout / error notice. */
 export function vcMe(u: U, now = new Date()) {
   const ext = vcExtension(u.id);
-  if (!vcTableExists()) return { on: true, extension: ext, call: null, timeoutSeconds: VC_ME_TIMEOUT_S };
+  if (!vcTableExists()) return { on: true, extension: ext, call: null, timeoutSeconds: VC_ME_TIMEOUT_S, ...(s132On(u) ? { s132: { last: null } } : {}) };
   vcSweep(now);
   let c = queryRow<VcRow>("SELECT * FROM voip_click_calls WHERE user_id=? AND active=1", [u.id])
     ?? queryRow<VcRow>(`SELECT * FROM voip_click_calls WHERE user_id=? AND dismissed_at IS NULL AND result_saved_at IS NULL

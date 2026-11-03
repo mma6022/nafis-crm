@@ -161,7 +161,13 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
   const s132Busy = s132 && ((vcc?.s132 != null && vcc.s132.phase !== 'manual') || vme?.s132?.last?.customerId === cur.customerId);
   const openVoipFirst = (callId: number) => { if (cust) onFirstCall(fcOf(cust), { callId }); };
   const fcShown = useRef<number | null>(null);
-  useEffect(() => { if (vcc?.s132?.phase === 'first_form' && cust && fcShown.current !== vcc.id) { fcShown.current = vcc.id; openVoipFirst(vcc.id); } }, [vcc?.s132?.phase, vcc?.id, Boolean(cust)]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a mandatory reminder popup already open stays on top: the form opens by itself once it is gone (the «فرم تماس اول» button also opens it)
+  useEffect(() => {
+    if (vcc?.s132?.phase !== 'first_form' || !cust || fcShown.current === vcc.id) return;
+    const id = vcc.id;
+    const tryOpen = () => { if (fcShown.current === id || document.querySelector('.rmm-root [data-testid=rm-overlay]')) return; fcShown.current = id; openVoipFirst(id); };
+    tryOpen(); const iv = window.setInterval(tryOpen, 1500); return () => window.clearInterval(iv);
+  }, [vcc?.s132?.phase, vcc?.id, Boolean(cust)]); // eslint-disable-line react-hooks/exhaustive-deps
   const call = async (dialIt: boolean = narrow, quiet = false) => {
     setBusy(true); setErr('');
     try { const r = await dpApi.start(cur.id); setOpened(true); setCallAt(new Date().toISOString()); if (dialIt) { watchBack(r.callId, onDone); dial(r.tel); } if (!quiet && formKind !== 'legacy') { if (cust) openFirst(); else setAutoFirst(true); } }

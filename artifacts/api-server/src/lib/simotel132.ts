@@ -143,6 +143,24 @@ function processOne(r: S132Row, c: VcRow, now: Date): void {
 function pendingRows(where: string, params: SqlValue[]) {
   return queryRows<S132Row>(`SELECT s.* FROM s132_calls s WHERE s.auto_at IS NULL AND ${where} ORDER BY s.call_id LIMIT 50`, params);
 }
+/** The first-call form was saved (its call log has a call result, made after the call) → the call leaves the panel and its after-call
+ *  event is closed, even if the browser never sent «dismiss» (reload / closed tab): the next task's call button never stays locked. */
+function firstFormDone(now: Date, userId: number | null) {
+  const rows = queryRows<S132Row & { event_id: number | null }>(`SELECT s.*, k.event_id FROM s132_calls s JOIN voip_click_calls k ON k.id=s.call_id
+     WHERE s.auto_kind='first_form' AND julianday(s.created_at)>=julianday(?)-1 ${userId == null ? "" : "AND s.user_id=?"}
+       AND EXISTS (SELECT 1 FROM call_logs l WHERE l.customer_id=s.customer_id AND l.call_result IS NOT NULL AND julianday(l.created_at)>=julianday(s.auto_at))`,
+    userId == null ? [iso(now)] : [iso(now), userId]);
+  for (const r of rows) {
+    try {
+      savepoint(() => {
+        executeChanges("UPDATE s132_calls SET auto_kind='first_done' WHERE call_id=? AND auto_kind='first_form'", [r.call_id]);
+        executeChanges("UPDATE voip_click_calls SET result_saved_at=COALESCE(result_saved_at,?), result_outcome=COALESCE(result_outcome,'answered'), dismissed_at=COALESCE(dismissed_at,?) WHERE id=?",
+          [iso(now), iso(now), r.call_id]);
+        if (r.event_id != null) completeEvent(r.event_id, r.user_id, "answered", now);
+      });
+    } catch { /* retried on the next tick */ }
+  }
+}
 /** Auto-save pass + summary notes. userId given → only that expert (GET /voip-call/me); else everyone (the CDR poller). */
 export function s132Tick(now = new Date(), userId: number | null = null) {
   if (!vcTableExists() || !s132TableExists()) return;
@@ -152,6 +170,7 @@ export function s132Tick(now = new Date(), userId: number | null = null) {
     const c = queryRow<VcRow>("SELECT * FROM voip_click_calls WHERE id=?", [r.call_id]);
     if (c) processOne(r, c, now);
   }
+  firstFormDone(now, userId);
   noteTick(now, userId);
 }
 /** CDR poller hook (voip-after-call.ts, right after vcIngestOriginate). Own savepoints; never throws. */
