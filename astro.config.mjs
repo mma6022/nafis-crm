@@ -37,7 +37,7 @@ if (fs.existsSync(blogDir)) {
   }
 }
 function inSitemap(path) {
-  if (path.endsWith('/404') || path === '/request' || path === '/loan-plans' || /\/\d+$/.test(path) || hiddenPostPaths.has(path)) return false;
+  if (path.endsWith('/404') || path === '/request' || path === '/links' || path === '/loan-plans' || /\/\d+$/.test(path) || hiddenPostPaths.has(path)) return false;
   const cat = path.match(/^\/blog\/category\/([^/]+)$/)?.[1];
   if (cat) return indexedCategories.has(cat);
   // SEO audit 2026-10-27: tag archives are all noindex → never in the sitemap

@@ -1,0 +1,159 @@
+---
+/**
+ * links v1.0 — nafisvam.com/links (design: nafis-design/screens/links, scenes `pub` / `pub_tap`; spec §۱، §۵.۲).
+ * Standalone, mobile-first, no site chrome. The buttons come from the CRM (GET {crm}/api/public/link-page, cached server-side and
+ * cleared on every save). While the CRM flag is OFF that endpoint answers 401/404 → this page shows the site's «not found» copy.
+ * Fully inline (no new _astro asset): the only new file in a build is links/index.html. Not in the sitemap (astro.config inSitemap).
+ * Clicks: navigator.sendBeacon → {crm}/api/public/link-page/click/{id} (no cookie, no personal data; bots/prefetch not counted).
+ * Public copy rule: no numbers/rates and none of the words banned by scripts/check-copy.mjs.
+ */
+import fontAr400 from '../assets/fonts/vazirmatn-arabic-400-normal.woff2?url';
+import fontAr800 from '../assets/fonts/vazirmatn-arabic-800-normal.woff2?url';
+import fontLa400 from '../assets/fonts/vazirmatn-latin-400-normal.woff2?url';
+import fontLa800 from '../assets/fonts/vazirmatn-latin-800-normal.woff2?url';
+import { GLYPHS, ICONS, NAFIS_MARK, NAFIS_MARK_VIEWBOX } from '../lib/link-glyphs';
+
+const endpoint = (import.meta.env.PUBLIC_LEAD_ENDPOINT as string | undefined)?.trim() || '';
+let api = '';
+try { api = new URL(endpoint).origin; } catch { api = ''; }
+const AR = 'U+0600-06FF,U+0750-077F,U+0870-088E,U+0890-0891,U+0897-08E1,U+08E3-08FF,U+200C-200E,U+2010-2011,U+204F,U+2E41,U+FB50-FDFF,U+FE70-FE74,U+FE76-FEFC';
+const LA = 'U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD';
+const fonts = `@font-face{font-family:'Vazirmatn';font-style:normal;font-display:swap;font-weight:400;src:url('${fontAr400}') format('woff2');unicode-range:${AR}}
+@font-face{font-family:'Vazirmatn';font-style:normal;font-display:swap;font-weight:800;src:url('${fontAr800}') format('woff2');unicode-range:${AR}}
+@font-face{font-family:'Vazirmatn';font-style:normal;font-display:swap;font-weight:400;src:url('${fontLa400}') format('woff2');unicode-range:${LA}}
+@font-face{font-family:'Vazirmatn';font-style:normal;font-display:swap;font-weight:800;src:url('${fontLa800}') format('woff2');unicode-range:${LA}}`;
+const LG = Object.fromEntries(Object.entries(GLYPHS).map(([k, v]) => [k, v]));
+const D = { api, glyphs: LG, chev: ICONS.chev, mark: NAFIS_MARK, markVb: NAFIS_MARK_VIEWBOX };
+---
+<!doctype html>
+<html lang="fa-IR" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <link rel="preload" as="font" type="font/woff2" href={fontAr400} crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href={fontAr800} crossorigin />
+    <title>نفیس وام</title>
+    <meta name="description" content="درخواست وام آنلاین و مشاوره با کارشناس‌های نفیس" />
+    <link rel="canonical" href="https://nafisvam.com/links/" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0B1450" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
+    {api && <link rel="preconnect" href={api} crossorigin />}
+    <style is:inline set:html={fonts}></style>
+    <style is:inline>
+:root{--nf-brand-50:#EEF0FA;--nf-brand-100:#DDE1F5;--nf-brand-500:#3A48B0;--nf-brand-600:#29369B;--nf-brand-700:#212C85;--nf-ink:#0B1450;--nf-ink-soft:#3D4A6B;--nf-ink-muted:#5F6B85;--nf-line:#E3E6F0;--nf-line-strong:#C9CEDF;--nf-gold-50:#FEF8EA;--nf-gold-100:#FDEFC9;--nf-gold-300:#F7D27F;--nf-gold-700:#8A6212;--nf-shadow-card:0 1px 2px rgba(11,20,80,.04),0 6px 20px -8px rgba(11,20,80,.12);--nf-shadow-xs:0 1px 2px rgba(11,20,80,.05);--nf-shadow-raised:0 2px 4px #0b14500a,0 16px 36px -12px rgba(41,55,160,.302);--nf-shadow-button:0 1px 2px #0b14501a,0 6px 14px -6px rgba(41,55,160,.451);--nf-ring:0 0 0 4px rgba(41,55,160,.22);--nf-dur-fast:150ms}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;font-family:'Vazirmatn',system-ui,sans-serif;font-size:16px;line-height:1.8;color:var(--nf-ink-soft);background:linear-gradient(180deg,var(--nf-brand-50) 0,#fff 420px) no-repeat,#fff;min-height:100vh}
+h1,p{margin:0}
+a{text-decoration:none}
+:focus-visible{outline:none;box-shadow:var(--nf-ring)}
+.i{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.lp{max-width:480px;margin:0 auto;padding:40px 20px 28px;text-align:center}
+.lp-av{width:96px;height:96px;border-radius:50%;background:#fff;display:grid;place-items:center;margin:0 auto 14px;box-shadow:0 0 0 3px #fff,0 0 0 5px var(--nf-gold-300),var(--nf-shadow-card)}
+.lp-av svg{width:60px;height:60px}
+.lp-av img{width:70%;height:70%;object-fit:contain}
+.lp h1{font-size:24px;font-weight:800;color:var(--nf-ink);line-height:1.5}
+.lp-in{font-size:15px;color:var(--nf-ink-soft);margin-top:4px;line-height:1.8}
+.lp-l{display:flex;flex-direction:column;gap:12px;margin:24px 0 0;list-style:none;padding:0}
+.lb{display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;min-height:62px;padding:8px;background:#fff;border:1px solid var(--nf-line);border-radius:18px;box-shadow:var(--nf-shadow-xs);font-weight:700;color:var(--nf-ink);font-size:16px;text-decoration:none;transition:transform var(--nf-dur-fast),box-shadow var(--nf-dur-fast)}
+.lb .t{text-align:center;line-height:1.5}
+.lb .go{display:grid;place-items:center;color:var(--nf-ink-muted)}
+.lb:hover{box-shadow:var(--nf-shadow-raised)}
+.lb.lead{background:var(--nf-brand-600);color:#fff;border-color:transparent;box-shadow:var(--nf-shadow-button)}
+.lb.lead .go{color:#fff}
+.lb.lead .lg.nf{border:0}
+.lb.press{transform:scale(.98);background:var(--nf-brand-700);box-shadow:0 0 0 4px var(--nf-brand-100)}
+.lb .spn{width:20px;height:20px;border:2.5px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:lkspin .8s linear infinite}
+@keyframes lkspin{to{transform:rotate(360deg)}}
+.lg{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;flex:none;color:#fff;background:var(--nf-brand-600)}
+.lg svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.lg.nf{background:#fff;border:1px solid var(--nf-line)}
+.lg.nf svg{width:30px;height:30px;stroke:none}
+.lg.up{background:#fff;border:1px solid var(--nf-line);overflow:hidden;padding:0}
+.lg img{width:100%;height:100%;object-fit:contain;border-radius:inherit;background:#fff}
+.lg-ig{background:linear-gradient(45deg,#FCAF45,#E1306C 55%,#833AB4)}.lg-wa{background:#1FA855}.lg-bale{background:#16A085}.lg-tg{background:#2AABEE}.lg-eitaa{background:#EF7F1A}.lg-rubika{background:#7B3FE4}.lg-li{background:#0A66C2}.lg-aparat{background:#DF0F50}.lg-tel{background:var(--nf-brand-600)}.lg-sms{background:var(--nf-brand-500)}.lg-mail{background:var(--nf-brand-700)}.lg-map{background:#D9483B}.lg-web{background:var(--nf-ink-soft)}
+.lp-f{margin-top:28px;font-size:14px;color:var(--nf-ink-muted);display:flex;flex-direction:column;align-items:center;gap:2px}
+.lp-f a{min-height:44px;display:inline-flex;align-items:center;padding:0 12px;color:var(--nf-brand-600);font-weight:700}
+.lp-e{margin-top:24px;padding:18px;border:1.5px dashed var(--nf-line-strong);border-radius:18px;color:var(--nf-ink-muted);font-size:15px}
+.sk{display:block;min-height:62px;border-radius:18px;background:linear-gradient(90deg,#fff 0,var(--nf-brand-50) 50%,#fff 100%);background-size:200% 100%;border:1px solid var(--nf-line);animation:lksk 1.2s linear infinite}
+@keyframes lksk{to{background-position:-200% 0}}
+.nf404 .cta{display:inline-flex;align-items:center;justify-content:center;min-height:48px;margin-top:20px;padding:0 22px;border-radius:14px;background:var(--nf-brand-600);color:#fff;font-weight:800}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media (max-width:699.98px){.lp{padding-top:32px}}
+@media (prefers-reduced-motion:reduce){.lb .spn,.sk{animation:none}.lb{transition:none}}
+    </style>
+  </head>
+  <body>
+    <main class="lp" id="lp" aria-busy="true">
+      <div class="lp-av"><svg viewBox={NAFIS_MARK_VIEWBOX} aria-hidden="true" set:html={NAFIS_MARK}></svg></div>
+      <h1 id="lp-name">نفیس وام</h1>
+      <p class="lp-in" id="lp-in"></p>
+      <ul class="lp-l" id="lp-l" aria-hidden="true"><li><span class="sk"></span></li><li><span class="sk"></span></li><li><span class="sk"></span></li></ul>
+      <noscript><p class="lp-e">برای دیدن طرح‌ها و ثبت درخواست، به سایت نفیس وام سر بزن.</p></noscript>
+      <div class="lp-f"><a href="/">nafisvam.com</a><span>گروه مالی نفیس</span></div>
+    </main>
+    <script is:inline define:vars={{ D }}>
+(function () {
+  var main = document.getElementById('lp');
+  var esc = function (s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var safeUrl = function (u) { return /^(https:\/\/|tel:|sms:|mailto:)/i.test(String(u)) ? String(u) : null; };
+  var chev = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true">' + D.chev + '</svg>';
+  var mark = '<svg viewBox="' + D.markVb + '" aria-hidden="true">' + D.mark + '</svg>';
+  var logoUrl = function (id) { return D.api + '/api/public/link-page/logo/' + Number(id); };
+  var logo = function (r) {
+    if (r && r.kind === 'upload') return '<span class="lg up" aria-hidden="true"><img src="' + logoUrl(r.id) + '" alt="" loading="lazy" decoding="async"></span>';
+    var k = r && r.key ? String(r.key) : 'web';
+    if (k === 'nafis') return '<span class="lg nf">' + mark + '</span>';
+    var g = D.glyphs[k] || D.glyphs.web;
+    return '<span class="lg lg-' + esc(k) + '"><svg viewBox="0 0 24 24" aria-hidden="true">' + g + '</svg></span>';
+  };
+  var notFound = function () {
+    document.title = 'صفحه پیدا نشد | نفیس وام';
+    var m = document.querySelector('meta[name=robots]'); if (m) m.setAttribute('content', 'noindex, follow');
+    var c = document.querySelector('link[rel=canonical]'); if (c) c.remove();
+    main.className = 'lp nf404'; main.removeAttribute('aria-busy');
+    main.innerHTML = '<div class="lp-av">' + mark + '</div><h1>این صفحه پیدا نشد</h1><p class="lp-in">شاید نشانی را اشتباه نوشته‌ای یا این صفحه دیگر نیست.</p><a class="cta" href="/">صفحه‌ی اصلی نفیس وام</a><div class="lp-f"><a href="/">nafisvam.com</a><span>گروه مالی نفیس</span></div>';
+  };
+  var beacon = function (id) {
+    var u = D.api + '/api/public/link-page/click/' + Number(id);
+    try { if (navigator.sendBeacon && navigator.sendBeacon(u)) return; } catch (e) { /* fall through */ }
+    try { fetch(u, { method: 'POST', mode: 'no-cors', keepalive: true, credentials: 'omit' }); } catch (e) { /* never block the tap */ }
+  };
+  var render = function (p) {
+    var name = String(p.name || 'نفیس وام');
+    document.title = name;
+    if (p.intro) { var d = document.querySelector('meta[name=description]'); if (d) d.setAttribute('content', String(p.intro)); }
+    var links = (p.links || []).filter(function (l) { return safeUrl(l.url); });
+    var av = p.logo && p.logo.kind === 'upload' ? '<img src="' + logoUrl(p.logo.id) + '" alt="">' : mark;
+    var items = links.map(function (l) {
+      var lead = l.type === 'lead' || l.lead === true;
+      var ext = !/^https:\/\/(www\.)?nafisvam\.com(\/|$)/i.test(l.url) && /^https:/i.test(l.url);
+      return '<li><a class="lb' + (lead ? ' lead' : '') + '" href="' + esc(safeUrl(l.url)) + '" data-id="' + Number(l.id) + '"' + (ext ? ' rel="noopener"' : '') + '>' + logo(l.logo) + '<span class="t">' + esc(l.title) + '</span><span class="go">' + chev + '</span></a></li>';
+    }).join('');
+    main.removeAttribute('aria-busy');
+    main.innerHTML = '<div class="lp-av">' + av + '</div><h1>' + esc(name) + '</h1>' + (p.intro ? '<p class="lp-in">' + esc(p.intro) + '</p>' : '') +
+      (links.length ? '<ul class="lp-l" aria-label="لینک‌های ' + esc(name) + '">' + items + '</ul>' : '<p class="lp-e">برای دیدن طرح‌ها و ثبت درخواست، به سایت نفیس وام سر بزن. <a href="/">nafisvam.com</a></p>') +
+      '<div class="lp-f"><a href="/">nafisvam.com</a><span>گروه مالی نفیس</span></div>';
+  };
+  main.addEventListener('click', function (e) {
+    var a = e.target && e.target.closest ? e.target.closest('a.lb') : null; if (!a) return;
+    beacon(a.getAttribute('data-id'));
+    if (a.classList.contains('lead') && !(e.metaKey || e.ctrlKey || e.shiftKey || e.button)) {
+      a.classList.add('press'); a.setAttribute('aria-busy', 'true');
+      var g = a.querySelector('.go'); if (g) g.innerHTML = '<span class="spn" aria-hidden="true"></span><span class="sr">در حال باز کردن فرم</span>';
+    }
+  });
+  window.addEventListener('pageshow', function (e) { if (e.persisted) main.querySelectorAll('.lb.press').forEach(function (a) { a.classList.remove('press'); a.removeAttribute('aria-busy'); var g = a.querySelector('.go'); if (g) g.innerHTML = chev; }); });
+  if (!D.api || !window.fetch) { notFound(); return; }
+  var ctl = 'AbortController' in window ? new AbortController() : null;
+  var t = setTimeout(function () { if (ctl) ctl.abort(); }, 8000);
+  fetch(D.api + '/api/public/link-page', { credentials: 'omit', headers: { Accept: 'application/json' }, signal: ctl ? ctl.signal : undefined })
+    .then(function (r) { clearTimeout(t); if (r.status === 401 || r.status === 404) { notFound(); return null; } if (!r.ok) throw new Error('down'); return r.json(); })
+    .then(function (p) { if (p) render(p); })
+    .catch(function () { clearTimeout(t); render({ name: 'نفیس وام', links: [] }); }); // network trouble: the design's empty state (site link), never a fake 404
+})();
+    </script>
+  </body>
+</html>
