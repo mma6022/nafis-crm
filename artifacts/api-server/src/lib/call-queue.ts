@@ -254,8 +254,50 @@ export type CqCallInput = { active: boolean; resultOn: boolean; outcome: CqOutco
 export const CQ_MANUAL_TYPES = { in_person: "حضوری", bale: "بله" } as const;
 /** R2 lock is active only with «نتیجه‌ی تماس» on too: the report that unlocks needs a result + one-line note. */
 export const cqLockOn = (user: CqUser, f = cqFlags()) => cqEligible(user) && f.call_lock && f.result;
+/**
+ * OWNER-CHANGE-UNBLOCK (Mohammad t154u, 2026-11-03): an unreported CRM-button call («تماس» on the old owner's Today / queue) for a
+ * customer that has since moved to another expert (priority down → Kazemi, or any reassignment) can never be reported by the old
+ * expert (expert_lockdown: not their customer any more), yet cqPendingCall() kept returning it → «تماس باز با … هنوز نتیجه ندارد»
+ * banner + 423 call_pending on every next item: the expert was stuck. Such a call is closed here:
+ *  - if the old expert already saved a call log on that customer since the click, it is linked exactly like a report (call_log_id,
+ *    on_time by the usual rule);
+ *  - otherwise exactly as dpMove closes an unreported call (report_saved_at=now, on_time=0, call_log_id NULL: not on time).
+ * Plus one call_queue_events row (kind call_closed_owner_changed — not a report kind). No bell, no SMS. Only calls of a salesperson
+ * who no longer owns the customer; the new owner's calls, the customer, its reminders and dp_items are untouched.
+ * Scope: { customerId } (owner-change paths) or { userId } (gate backstop). Returns the closed call ids.
+ */
+export const CQ_OWNER_CHANGED_EVENT = "call_closed_owner_changed" as const;
+export function cqCloseCallsOfFormerOwner(scope: { customerId?: number; userId?: number }, at: string, reason = "owner_changed"): number[] {
+  ensureCallQueueSchema();
+  if (scope.customerId == null && scope.userId == null) return [];
+  const w: string[] = []; const args: SqlValue[] = [];
+  if (scope.customerId != null) { w.push("q.customer_id=?"); args.push(Number(scope.customerId)); }
+  if (scope.userId != null) { w.push("q.user_id=?"); args.push(Number(scope.userId)); }
+  const rows = queryRows<{ id: number; user_id: number; salesperson_id: number; customer_id: number; link_issued_at: string; returned_at: string | null; owner: number | null }>(
+    `SELECT q.id, q.user_id, q.salesperson_id, q.customer_id, q.link_issued_at, q.returned_at, c.salesperson_id owner
+       FROM call_queue_calls q JOIN customers c ON c.id=q.customer_id
+      WHERE ${w.join(" AND ")} AND q.report_saved_at IS NULL AND q.salesperson_id IS NOT NULL
+        AND (c.salesperson_id IS NULL OR c.salesperson_id<>q.salesperson_id) ORDER BY q.id`, args);
+  const closed: number[] = [];
+  for (const r of rows) {
+    const log = queryRow<{ id: number; created_at: string }>(
+      "SELECT id, created_at FROM call_logs WHERE customer_id=? AND created_by_user_id=? AND created_at>=? ORDER BY created_at DESC, id DESC LIMIT 1",
+      [r.customer_id, r.user_id, r.link_issued_at]);
+    const ok = log
+      ? executeChanges("UPDATE call_queue_calls SET report_saved_at=?, call_log_id=?, on_time=? WHERE id=? AND report_saved_at IS NULL",
+          [log.created_at, log.id, cqOnTime(r.link_issued_at, r.returned_at, log.created_at) ? 1 : 0, r.id])
+      : executeChanges("UPDATE call_queue_calls SET report_saved_at=?, on_time=0 WHERE id=? AND report_saved_at IS NULL", [at, r.id]);
+    if (!ok) continue;
+    closed.push(Number(r.id));
+    cqEvent(CQ_OWNER_CHANGED_EVENT, { userId: Number(r.user_id), salespersonId: Number(r.salesperson_id), customerId: Number(r.customer_id), callId: Number(r.id), reason,
+      data: { newOwnerSalespersonId: r.owner == null ? null : Number(r.owner), linkedCallLogId: log ? Number(log.id) : null }, at });
+  }
+  return closed;
+}
 export function cqPendingCall(userId: number): { id: number; customer_id: number; link_issued_at: string; returned_at: string | null } | null {
   ensureCallQueueSchema();
+  // OWNER-CHANGE-UNBLOCK backstop: a call on a customer that is no longer this expert's never blocks them (closed, audited).
+  cqCloseCallsOfFormerOwner({ userId }, new Date().toISOString(), "owner_changed");
   return queryRow<any>("SELECT id,customer_id,link_issued_at,returned_at FROM call_queue_calls WHERE user_id=? AND report_saved_at IS NULL ORDER BY id DESC LIMIT 1", [userId]) ?? null;
 }
 /** Reads the raw request body (zod strips unknown keys). Returns an error message (400) or the parsed input. */
