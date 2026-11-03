@@ -183,6 +183,19 @@ export async function vcStart(u: U, body: any, now = new Date()) {
   const raw = queryRow<{ phone: string | null }>("SELECT phone FROM customers WHERE id=?", [cid])?.phone ?? "";
   const phone = normalizePhone(raw);
   if (!phone) return err(422, "no_phone", "شماره‌ی این مشتری معتبر نیست.");
+  return vcLaunch(u, ext, cid, fid, phone, now);
+}
+/** SIMOTEL-456 (part 5, flag.voip_missed): «تماس دوباره» to an unknown number from «تماس‌های بی‌پاسخ امروز». The number comes from the
+ *  server-side missed-call event (never from the browser); customer_id 0 = no customer; no file → never a task lock. Same one-call / needs_result locks. */
+export async function vcStartUnknown(u: U, rawPhone: string, now = new Date()) {
+  ensureVcSchema(); vcSweep(now);
+  const ext = vcExtension(u.id);
+  if (!ext) return err(422, "no_extension", "برای تو داخلی ویپ (سیموتل) تعریف نشده؛ شماره را کپی کن و با گوشی خودت بگیر.");
+  const phone = normalizePhone(rawPhone);
+  if (!phone) return err(422, "no_phone", "این شماره معتبر نیست.");
+  return vcLaunch(u, ext, 0, null, phone, now);
+}
+async function vcLaunch(u: U, ext: string, cid: number, fid: number | null, phone: string, now: Date) {
   let excluded = false; try { excluded = !!queryRow("SELECT 1 x FROM voip_call_display_exclusions WHERE phone=?", [phone]); } catch { /* table absent */ }
   if (excluded) return err(422, "excluded_phone", "تماس با این شماره از سامانه بسته است.");
   const busy = queryRow<VcRow>("SELECT * FROM voip_click_calls WHERE user_id=? AND active=1", [u.id]);

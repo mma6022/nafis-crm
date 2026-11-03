@@ -61,6 +61,7 @@ import { SocialMonitorReports } from '@/features/SocialMonitorReports';
 import '@/features/social-monitor-reports.css';
 import { VoipProvider } from '@/components/voip/VoipProvider';
 import { AfterCallPopup } from '@/components/voip/AfterCallPopup';
+import { IncomingPopup } from '@/features/voip-incoming/IncomingPopup';
 import MobileCalls from '@/pages/MobileCalls';
 import SalesReports from '@/pages/SalesReports';
 import { VoipDock } from '@/components/voip/VoipDock';
@@ -220,6 +221,7 @@ function AppWithRoutes() {
       <TooltipProvider>
         <VoipProvider>
           <AfterCallPopup />
+          <IncomingPopup />
           <Switch>
             <Route path="/" component={HomeRoute} />
             <Route path="/login" component={LoginPage} />

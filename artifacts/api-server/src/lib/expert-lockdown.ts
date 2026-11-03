@@ -13,6 +13,7 @@
  * owner name; the owner gets a CRM bell + a top Today item «تماس با مشتری ارجاعی» only when the caller presses «ارجاع» (no SMS, no Bale, nothing to the customer).
  */
 import { vcFlagOn } from "./voip-call";
+import { viLockdownIds } from "./voip-incoming-flags";
 import { createHmac, randomBytes } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { crmDb, execute, queryRow, queryRows, runTransaction } from "./crm-db";
@@ -158,7 +159,8 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   // call-transcripts v1.1 (only while flag.call_transcripts.ui = 1): the customer page's «متن و خلاصه‌ی تماس» follows the same
   // single-customer rule as the customer page itself; nothing else under /call-transcripts opens for a locked expert.
   // VOIP-CALL (flag.voip_call for this user only): «تماس از تلفن ویپ» + the customer's call history follow the same single-customer rule.
-  const ctIds = ctLockdownIds(req, path, Number(u!.id)) ?? vcLockdownIds(req, path, Number(u!.id));
+  // SIMOTEL-456 (flag.voip_incoming / flag.voip_missed for this user): /voip-incoming/* is own-only; «تماس دوباره» re-checks this same rule in the handler.
+  const ctIds = ctLockdownIds(req, path, Number(u!.id)) ?? vcLockdownIds(req, path, Number(u!.id)) ?? viLockdownIds(req, path, Number(u!.id));
   if (ctIds) {
     for (const id of ctIds) if (!elCustomerAccess(u!, id) && !elOwnCustomer(u!, id))
       return deny(res, "expert_lockdown_customer", "این مشتری فعلاً برای شما باز نیست (فقط مشتری‌های «کارهای امروز»، پرونده‌های خودت یا «تماس ورودی»).");
