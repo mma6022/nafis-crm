@@ -38,6 +38,7 @@ export const CANCEL_REASON_FA: Record<CancelReason, string> = {
 };
 /** data-src values the site sends (CALLBACK-HANDOFF.md). Unknown values are shown as-is. */
 export const SRC_FA: Record<string, string> = {
+  links: 'صفحه لینک‌ها',
   'home-callback': 'صفحه اصلی · بخش درخواست تماس',
   'finder-result': 'صفحه اصلی · زیر نتیجه طرح‌یاب',
   'vam-fori-callback': 'وام فوری · پایین صفحه',

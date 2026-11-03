@@ -67,6 +67,7 @@ import loanRequestDraftsRouter from "./loan-request-drafts";
 import reminderFollowRouter from "./reminder-follow";
 import salesShellRouter from "./sales-shell";
 import { ensureReminderFollowSchema } from "../lib/reminder-follow";
+import linkPageRouter from "./link-page";
 
 const router: IRouter = Router();
 startDatabaseBackupScheduler();
@@ -143,5 +144,6 @@ router.use(accountingRouter);
 router.use(glReportsRouter);
 router.use(instagramRouter);
 router.use(createSiteNotificationRouter());
+router.use(linkPageRouter); // links v1.0 (flag.links_page, OFF → falls through)
 
 export default router;

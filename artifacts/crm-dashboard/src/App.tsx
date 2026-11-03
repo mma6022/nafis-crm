@@ -5,6 +5,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
+import LinksAdmin from '@/features/link-page/LinksAdmin';
 import Dashboard from '@/pages/Dashboard';
 import Customers from '@/pages/Customers';
 import MyTransfers from '@/pages/MyTransfers';
@@ -296,6 +297,7 @@ function AppWithRoutes() {
                     <Route path="/daily-plans/capacity/:sp"><AdminOnlyRoute><DpCapacityPage /></AdminOnlyRoute></Route>
                     <Route path="/settings/call-queue"><AdminOnlyRoute><CallQueueSettingsPage /></AdminOnlyRoute></Route>
                     <Route path="/call-queue-events"><AdminOnlyRoute><CallQueueEventsPage /></AdminOnlyRoute></Route>
+                    <Route path="/settings/links"><LinksAdmin /></Route>
                     <Route path="/settings/default-owner"><AdminOnlyRoute><DefaultOwnerSettings /></AdminOnlyRoute></Route>
                     {/* lead_annotator: the page itself checks /api/lead-annotator/me; the server enforces everything */}
                     <Route path="/lead-annotator"><LeadAnnotator /></Route>

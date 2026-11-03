@@ -76,6 +76,7 @@ export const ROLE_MENUS: Record<MenuKind, RoleMenu> = {
       { id: 'finance', label: 'مالی', hrefs: ['/sales-commissions', '/my-performance', '/my-wallet', '/wallet-management', '/bank-accounts', '/accounting'] },
       { id: 'comms', label: 'پیام و تلفن', hrefs: ['/chat', '/messengers', '/settings/bale', '/instagram-inbox', '/mobile-calls', '/phone', '/call-center'] },
       { id: 'exceptions', label: 'استثناها', hrefs: ['/manual-verifications', '/credit-rank-overrides'] },
+      { id: 'manage', label: 'مدیریت', hrefs: ['/settings/links'] }, // links v1.0 («بیشتر > مدیریت > صفحه‌ی لینک‌ها»); empty → hidden while the flag is off
       { id: 'settings', label: 'تنظیمات', hrefs: ['/social-monitor-reports', '/voice-notes-usage', '/users', '/settings/notifications', '/settings/releases'] },
     ],
     shortcuts: ['/', '/loan-applications', '/customers', '/internal-chat'],

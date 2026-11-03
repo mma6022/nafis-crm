@@ -4,6 +4,7 @@ import { ensureSiteLeadSchema, recordSiteLeadRequest } from "./site-leads-store"
 import { insertCustomerRecord } from "./customer-create";
 import { normalizeCustomerMobile, normalizePersianSearchText } from "./customer-integrity";
 import { isWorkingHours } from "./callback-config";
+import { srcLineFa } from "./link-src";
 
 /** Website lead intake (POST /api/public/leads). Every row has source='website'. */
 export const LEAD_SOURCE = "website";
@@ -304,7 +305,7 @@ export function leadDescription(lead: PublicLead, planName?: string | null): str
     lines.push(`طرح انتخابی: ${planName ? `${planName} ` : ""}(#${lead.planId})${lead.term ? `، ${lead.term} ماهه` : ""}`);
   }
   lines.push(`زمان مناسب تماس: ${TIME_FA[lead.contactTime]}`);
-  if (lead.src) lines.push(`منبع صفحه: ${lead.src}`);
+  if (lead.src) lines.push(`منبع صفحه: ${srcLineFa(lead.src)}`);
   const utm = Object.entries(lead.utm).map(([key, value]) => `${key}=${value}`).join(" ");
   if (utm) lines.push(`UTM: ${utm}`);
   return lines.join("\n");

@@ -40,6 +40,7 @@ export function saText(k: keyof SiteAnswers, v: unknown): string {
 }
 
 const SRC_FA: Record<string, string> = {
+  links: 'صفحه لینک‌ها',
   'home-header': 'صفحه‌ی اصلی', 'home-hero-2': 'صفحه‌ی اصلی', 'home-steps': 'صفحه‌ی اصلی', 'home-mid-1': 'صفحه‌ی اصلی', 'home-calc': 'صفحه‌ی اصلی', home: 'صفحه‌ی اصلی',
   'plans-table': 'صفحه‌ی طرح‌ها', 'how-it-works': 'صفحه‌ی «چطور کار می‌کند»', contact: 'صفحه‌ی تماس', about: 'صفحه‌ی درباره‌ی ما',
   'vam-bedun-zamen': 'صفحه‌ی وام بدون ضامن', 'vam-fori-bedun-zamen': 'صفحه‌ی وام فوری بدون ضامن', 'vam-bedun-chek': 'صفحه‌ی وام بدون چک',

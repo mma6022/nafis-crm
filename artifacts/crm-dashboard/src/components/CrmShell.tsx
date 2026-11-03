@@ -37,6 +37,7 @@ import { CallQueueHost } from '@/features/call-queue/CallQueueHost';
 import { dpActive, dpManager, useDpConfig } from '@/features/daily-plan/api';
 import { useLeadAnnotatorMe } from '@/features/lead-annotator/api';
 import { useCtConfig } from '@/features/call-transcripts/api';
+import { useLinkPageMe } from '@/features/link-page/api';
 import { useSalesShellV2, useNavBadges, ssRequestIncoming, tehranHm } from '@/features/sales-shell/api';
 import { SalesShellNav, useDockHeight, useSsOverlay, type SsItem, type SsGroup } from '@/features/sales-shell/SalesShellNav';
 import { CustLocked, RemLocked } from '@/features/sales-shell/LockedPages';
@@ -45,7 +46,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLab
 
 const nafissLogoUrl = `${import.meta.env.BASE_URL}nafiss-financial-logo.png`;
 
-type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin' | 'discipline'; dp?: 'today' | 'admin'; leadAnnotator?: boolean; ct?: boolean };
+type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin' | 'discipline'; dp?: 'today' | 'admin'; leadAnnotator?: boolean; ct?: boolean; lp?: boolean };
 
 // Routes and permission rules are unchanged; only grouping, order, labels of groups and icons are new.
 const allNavItems: NavItem[] = [
@@ -86,6 +87,7 @@ const allNavItems: NavItem[] = [
   { href: '/smart-filing', label: 'ثبت هوشمند', icon: Bot, smartFiling: true },
   { href: '/settings/assistants', label: 'دستیارهای هوشمند', icon: Bot, adminOnly: true },
   { href: '/settings/default-owner', label: 'قانون ثبت مشتری', icon: UserCog, adminOnly: true },
+  { href: '/settings/links', label: 'صفحه‌ی لینک‌ها', icon: Link2, lp: true }, // links v1.0: only while flag.links_page is ON, admin + sales_manager (server decides)
   { href: '/call-center', label: 'گزارش مرکز تماس', icon: Headset, ct: true },
   { href: '/lead-annotator', label: 'یادداشت سرنخ (اینستاگرام)', icon: Instagram, leadAnnotator: true },
   { href: '/users', label: 'کاربران CRM', icon: UserCog, permission: 'users.view' },
@@ -108,7 +110,7 @@ const navGroups: NavGroup[] = [
   { id: 'finance', label: 'مالی و پرداخت', icon: Banknote, hrefs: ['/payment-orders', '/wallet-management', '/bank-accounts', '/accounting'] },
   { id: 'comms', label: 'پیام‌ها و تلفن', icon: Headset, hrefs: ['/chat', '/internal-chat', '/messengers', '/settings/bale', '/bale/autoreply', '/instagram-inbox', '/mobile-calls', '/phone', '/call-center'] },
   { id: 'reports', label: 'گزارش‌ها', icon: PieChart, hrefs: ['/sales-reports', '/social-monitor-reports', '/voice-notes-usage', '/call-queue-events', '/call-queue-discipline', '/daily-plans'] },
-  { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/settings/notifications', '/settings/assistants', '/settings/default-owner', '/call-queue-events', '/settings/call-queue', '/settings/releases'] },
+  { id: 'admin', label: 'مدیریت و تنظیمات', icon: SlidersHorizontal, hrefs: ['/users', '/settings/notifications', '/settings/assistants', '/settings/default-owner', '/settings/links', '/call-queue-events', '/settings/call-queue', '/settings/releases'] },
 ];
 
 const OPEN_GROUPS_KEY = 'nafis.nav.openGroups';
@@ -225,7 +227,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const leadAnnotatorMe = useLeadAnnotatorMe(Boolean(user) && !isAdminUser);
   // call-transcripts v1.1: «گزارش مرکز تماس» only while flag.call_transcripts.ui is ON, for admins except user 29 (server decides «manager»).
   const ctCfg = useCtConfig(Boolean(user) && isAdminUser).data;
-  const basePageTitle = isAdminUser && (location === '/my-wallet' || location.startsWith('/my-wallet/')) ? 'کیف پول کارشناس‌ها' : titleFor(location);
+  const lpMe = useLinkPageMe(Boolean(user) && isAdminUser).data; // links v1.0
+  const basePageTitle = isAdminUser && (location === '/my-wallet' || location.startsWith('/my-wallet/')) ? 'کیف پول کارشناس‌ها' : location === '/settings/links' && !lpMe?.enabled ? 'تنظیمات' /* links v1.0 off: same title as before */ : titleFor(location);
   
   // SALES-SHELL v2 (per-user flag.sales_shell_v2.user.<id>; ALL OFF by default): no sidebar, bottom dock / tab bar.
   const ssV2 = useSalesShellV2(user ? Number(user.id) : null, Boolean(user) && !panelMode);
@@ -241,6 +244,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
     if (item.cq === 'queue') return cqOn(cqCfg, 'queue') && !dpOnForMe;
     if (item.cq === 'admin') return Boolean(cqCfg?.manager && Object.values(cqCfg.flags).some(Boolean));
     if (item.leadAnnotator) return Boolean(leadAnnotatorMe.data?.enabled);
+    if (item.lp) return Boolean(lpMe?.enabled && lpMe.canManage);
     if (item.ct) return Boolean(ctCfg?.enabled && (ctCfg.manager || ctCfg.viewer)); // t742s2933: plain admin keeps the report (read-only)
     if (item.cq === 'discipline') return Boolean(cqCfg?.manager && cqCfg.flags.discipline);
     // R2 «پنل محدود»: only «صف تماس من» and «یادآورها» stay in the menu.
@@ -356,6 +360,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
         {href === '/goods-purchases' && pendingGoods > 0 ? <b className="side-badge pending" aria-label={`${pendingGoods} مشتری در انتظار ایجاد خرید کالا`} data-testid={`${mobile ? 'badge-mobile-pending-goods' : 'badge-pending-goods'}`}>{pendingGoods.toLocaleString('fa-IR')}</b> : null}
         {href === '/payment-orders' && pendingPayments > 0 ? <b className="side-badge pending" aria-label={`${pendingPayments} خرید در انتظار ایجاد دستور پرداخت`} data-testid={`${mobile ? 'badge-mobile-pending-payments' : 'badge-pending-payments'}`}>{pendingPayments.toLocaleString('fa-IR')}</b> : null}
         {href === '/payment-orders' && pendingPayments === 0 && (awaitingMark.data ?? 0) > 0 ? <b className="side-badge gold" aria-label={`${awaitingMark.data} دستور در انتظار علامت پرداخت`} data-testid={`${mobile ? 'badge-mobile-awaiting-mark' : 'badge-awaiting-mark'}`}>{awaitingMark.data!.toLocaleString('fa-IR')}</b> : null}
+        {item.lp ? <b className="side-badge gold" aria-label="تازه" data-testid={`${mobile ? 'badge-mobile-links-new' : 'badge-links-new'}`}>تازه</b> : null}
         <NavNotificationBadge href={href} />
       </Link>
     );

@@ -29,6 +29,7 @@ import { CodexLoginController } from "./lib/diagnostic-codex-login";
 import { VpsRepairConnection } from "./lib/diagnostic-vps-connection";
 import { socialMonitorFeature } from "./lib/social-monitor";
 import { mountPublicLeads } from "./routes/public-leads";
+import { mountPublicLinkPage } from "./routes/link-page";
 import { smartFilingRunnerRouter } from "./routes/smart-filing";
 import { assistantRunnerRouter } from "./routes/assistants";
 import { baleInternalRouter } from "./routes/bale";
@@ -61,6 +62,8 @@ app.use(
 );
 // Public website lead intake has its own strict CORS and must run first.
 mountPublicLeads(app);
+// links v1.0: nafisvam.com/links data + click beacon (own CORS; falls through while flag.links_page is OFF)
+mountPublicLinkPage(app);
 app.use(cors({ credentials: true, origin: true }));
 // Meta signature verification must operate on the exact unparsed request bytes.
 app.use(
