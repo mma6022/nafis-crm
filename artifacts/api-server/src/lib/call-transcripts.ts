@@ -84,7 +84,9 @@ export function speakerRoles(result: Result, direction: string): { roles: Record
 /** Manager features (call-center report, review «بررسی مدیر فروش (احمد)», retranscribe): «مدیر فروش» only since 2026-11-03.
  *  Plain admins keep reading every call (ctAdminViewer) but no longer get the sales-manager views. */
 export const isCtManager = (u: AuthUser) => u.active && u.role === "admin" && u.salesManager === true && !MANAGER_EXCLUDED.includes(u.id);
-const ctAdminViewer = (u: AuthUser) => u.active && u.role === "admin" && !MANAGER_EXCLUDED.includes(u.id);
+/** Report viewer: every active admin (plain admin and «مدیر فروش»), not user 29. Mohammad t742s2933: «گزارش‌ها و متن تماس‌ها برای ادمین هم بمونه».
+ *  Plain admin reads the /call-center report and every transcript, but gets no review («بررسی مدیر فروش (احمد)»), no flags and no retranscribe. */
+export const ctAdminViewer = (u: AuthUser) => u.active && u.role === "admin" && !MANAGER_EXCLUDED.includes(u.id);
 type Ev = { id: number; external_id: string; provider_id: string; phone: string; direction: string; status: string; started_at: string; ended_at: string;
   extension: string | null; expert_user_id: number | null; expert_name: string | null; customer_id: number | null; call_log_id: number | null;
   has_recording: number; recording_file: string | null; mobile_device_id: number | null; duration_seconds: number | null; customer_name: string | null;
@@ -148,7 +150,7 @@ export function rowView(e: Ev, summary: (id: string) => any) {
 export function callView(e: Ev, u: AuthUser, summary: (id: string) => any) {
   const manager = isCtManager(u), own = e.expert_user_id === u.id;
   const st = textState(e);
-  return { ...rowView(e, summary), isManager: manager, canEdit: own && st === "completed", canRetranscribe: manager && (st === "failed" || st === "completed") && !!e.recording_file,
+  return { ...rowView(e, summary), ...(manager || own ? {} : { flagged: false }), isManager: manager, isViewer: ctAdminViewer(u), canEdit: own && st === "completed", canRetranscribe: manager && (st === "failed" || st === "completed") && !!e.recording_file,
     recording: e.has_recording && e.recording_file ? { externalId: e.provider_id, from: callReportDay(e.started_at), to: callReportDay(e.ended_at) } : null,
     transcript: transcriptView(e),
     review: manager || own ? { flagged: !!e.r_flagged, note: e.r_note ?? "", updatedAt: e.r_at, updatedByName: e.r_by } : null };

@@ -17,10 +17,10 @@ export type CtRow = { eventId: number; callLogId: number | null; customerId: num
   textState: TextState; textPhase: string | null; textError: string | null; attempts: number; nextAttemptAt: string | null; summary: CtSummary | null; flagged: boolean };
 export type CtSegment = { speakerId: string; role: 'expert' | 'customer' | null; label: string; start: number; end: number; text: string };
 export type CtTranscript = { audioSeparation: 'stereo_channels' | 'diarization' | null; roleSource: string; durationSeconds: number | null; speakers: { id: string; role: string | null; label: string }[]; segments: CtSegment[] };
-export type CtCall = CtRow & { isManager: boolean; canEdit: boolean; canRetranscribe: boolean; recording: { externalId: string; from: string; to: string } | null;
+export type CtCall = CtRow & { isManager: boolean; isViewer?: boolean; canEdit: boolean; canRetranscribe: boolean; recording: { externalId: string; from: string; to: string } | null;
   transcript: CtTranscript | null; review: { flagged: boolean; note: string; updatedAt: string | null; updatedByName: string | null } | null };
-export type CtReport = { from: string; to: string; total: number; page: number; pageSize: number; experts: { id: number; name: string }[]; rows: CtRow[] };
-export type CtConfig = { enabled: boolean; manager?: boolean };
+export type CtReport = { from: string; to: string; total: number; page: number; pageSize: number; manager?: boolean; experts: { id: number; name: string }[]; rows: CtRow[] };
+export type CtConfig = { enabled: boolean; manager?: boolean; viewer?: boolean };
 
 export const useCtConfig = (enabled = true) => useQuery<CtConfig>({ queryKey: ['call-transcripts', 'config'], enabled, staleTime: 60_000, retry: false,
   queryFn: () => ctReq<CtConfig>('GET', '/call-transcripts/config').catch(() => ({ enabled: false })) });

@@ -22,7 +22,7 @@ export default function CallView() {
     <Link className="btn lk" href="/">بازگشت</Link></div>;
   const c = q.data, mgr = c.isManager && c.expertUserId !== null && !c.canEdit;
   return <div className="ctp" dir="rtl" data-testid="ct-call-view">
-    <p className="cvbk">{c.isManager ? <Link className="btn lk" href="/call-center"><ArrowRight className="i" />بازگشت به تماس‌های کارشناسان</Link>
+    <p className="cvbk">{c.isManager || (c.isViewer && !c.canEdit) ? <Link className="btn lk" href="/call-center"><ArrowRight className="i" />بازگشت به تماس‌های کارشناسان</Link>
       : <Link className="btn lk" href={c.customerId ? `/customers/${c.customerId}` : '/calls'}><ArrowRight className="i" />بازگشت به سابقه‌ی تماس‌ها</Link>}</p>
     <div className="hrow cu"><h2>{c.customerName ?? 'مشتری ثبت‌نشده'}</h2>{c.customerId ? <span className="cid">#{fa(c.customerId)}</span> : null}</div>
     <section className="card cvm" aria-label="مشخصات تماس">

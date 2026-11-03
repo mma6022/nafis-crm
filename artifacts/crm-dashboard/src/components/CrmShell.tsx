@@ -241,7 +241,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
     if (item.cq === 'queue') return cqOn(cqCfg, 'queue') && !dpOnForMe;
     if (item.cq === 'admin') return Boolean(cqCfg?.manager && Object.values(cqCfg.flags).some(Boolean));
     if (item.leadAnnotator) return Boolean(leadAnnotatorMe.data?.enabled);
-    if (item.ct) return Boolean(ctCfg?.enabled && ctCfg.manager);
+    if (item.ct) return Boolean(ctCfg?.enabled && (ctCfg.manager || ctCfg.viewer)); // t742s2933: plain admin keeps the report (read-only)
     if (item.cq === 'discipline') return Boolean(cqCfg?.manager && cqCfg.flags.discipline);
     // R2 «پنل محدود»: only «صف تماس من» and «یادآورها» stay in the menu.
     if (cqRestricted && item.href !== '/my-queue' && item.href !== '/today' && item.href !== '/reminders') return false;

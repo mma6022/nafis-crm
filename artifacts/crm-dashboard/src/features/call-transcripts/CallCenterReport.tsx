@@ -1,11 +1,11 @@
-/** «گزارش مرکز تماس» (design v1.1 scenes 22–23): recorded calls of all experts for the sales manager (احمد) and admins (not user 29). No stats or scores here. */
+/** «گزارش مرکز تماس» (design v1.1 scenes 22–23): recorded calls of all experts for the sales manager (احمد) and, read-only (no flags/review/retranscribe), plain admins (not user 29; Mohammad t742s2933). No stats or scores here. */
 import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Eye, Filter, Flag, Phone as PhoneIcon, RefreshCw, User, X } from 'lucide-react';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { formatJalaliValue, gregorianToJalaliValue, jalaliValueToGregorian, todayJalali } from '@/lib/jalali';
-import { atText, CtError, ctReq, dirText, durText, fa, type CtReport, type CtRow } from './api';
+import { atText, CtError, ctReq, dirText, durText, fa, useCtConfig, type CtReport, type CtRow } from './api';
 import { Phone, StatusChip, TextChip } from './shared';
 import './ct.css';
 
@@ -28,14 +28,14 @@ export default function CallCenterReport() {
   const qs = new URLSearchParams({ from: f.from, to: f.to, callStatus: f.callStatus, textStatus: f.textStatus, page: String(f.page), ...(f.expert ? { expert: f.expert } : {}), ...(f.flagged ? { flagged: '1' } : {}) });
   const q = useQuery<CtReport, CtError>({ queryKey: ['call-transcripts', 'report', qs.toString()], retry: false, queryFn: () => ctReq<CtReport>('GET', `/call-transcripts/report?${qs}`),
     refetchInterval: (query) => (query.state.data?.rows.some((r) => ['queued', 'processing', 'waiting'].includes(r.textState)) ? 15_000 : false) });
-  const d = q.data; const expertName = d?.experts.find((e) => String(e.id) === f.expert)?.name;
+  const d = q.data; const cfg = useCtConfig().data; const mgr = d ? d.manager !== false : Boolean(cfg?.manager); const expertName = d?.experts.find((e) => String(e.id) === f.expert)?.name;
   const summaryLine = [f.p === 'today' ? 'امروز' : f.p === 'week' ? 'این هفته' : f.p === 'month' ? 'این ماه' : `${fa(gregorianToJalaliValue(f.from))} تا ${fa(gregorianToJalaliValue(f.to))}`,
-    expertName ? `کارشناس: ${expertName}` : '', f.textStatus !== 'all' ? `وضعیت متن: ${TS.find(([k]) => k === f.textStatus)?.[1]}` : '', f.flagged ? 'فقط علامت‌خورده' : ''].filter(Boolean).join('؛ ');
+    expertName ? `کارشناس: ${expertName}` : '', f.textStatus !== 'all' ? `وضعیت متن: ${TS.find(([k]) => k === f.textStatus)?.[1]}` : '', f.flagged && mgr ? 'فقط علامت‌خورده' : ''].filter(Boolean).join('؛ ');
   if (q.isError && (q.error.code === 'call_transcripts_off' || q.error.status === 403)) return <div className="ctp" dir="rtl"><p className="note"><AlertTriangle className="i" />{q.error.message}</p></div>;
   const pages = d ? Math.max(1, Math.ceil(d.total / d.pageSize)) : 1;
   return <div className="ctp" dir="rtl" data-testid="ct-report">
     <div className="hrow"><h2>تماس‌های ضبط‌شده‌ی کارشناسان</h2><span className="muted">{new Intl.DateTimeFormat('fa-IR', { timeZone: 'Asia/Tehran', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())}</span>
-      <span className="chip b"><User className="i" />نمای احمد، مدیر فروش</span></div>
+      {!mgr ? <span className="chip n" data-testid="ct-admin-view"><Eye className="i" />نمای مدیر سیستم، فقط مشاهده</span> : <span className="chip b"><User className="i" />نمای احمد، مدیر فروش</span>}</div>
     <p className="note rq"><PhoneIcon className="i" /><span>هر تماس ضبط‌شده خودکار به متن کامل تبدیل و خلاصه‌اش ذخیره می‌شود تا نحوه‌ی صحبت کارشناسان را مرور کنی. در این صفحه آمار، درصد یا نمره‌ای نشان داده نمی‌شود.</span></p>
     <details className="card flt" open={typeof window === 'undefined' || window.innerWidth >= 700}><summary><Filter className="i" />فیلترها<span className="muted">{summaryLine}</span></summary><div className="flt-b">
       <label className={`fsel${f.expert ? ' on' : ''}`}><small>کارشناس</small><select value={f.expert} onChange={(e) => up({ expert: e.target.value })} data-testid="ct-f-expert">
@@ -46,13 +46,13 @@ export default function CallCenterReport() {
           <PersianDatePicker value={gregorianToJalaliValue(f.to)} onChange={(v) => { const g = v && jalaliValueToGregorian(v); if (g) up({ to: g, p: null }); }} testId="ct-f-to" /></div></div>
       <label className={`fsel${f.callStatus !== 'all' ? ' on' : ''}`}><small>وضعیت تماس</small><select value={f.callStatus} onChange={(e) => up({ callStatus: e.target.value })} data-testid="ct-f-call">{CS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
       <label className={`fsel${f.textStatus !== 'all' ? ' on' : ''}`}><small>وضعیت متن</small><select value={f.textStatus} onChange={(e) => up({ textStatus: e.target.value })} data-testid="ct-f-text">{TS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
-      <button className="btn gh fflag" type="button" aria-pressed={f.flagged} onClick={() => up({ flagged: !f.flagged })} data-testid="ct-f-flag"><Flag className="i" />فقط علامت‌خورده برای بررسی</button>
+      {mgr ? <button className="btn gh fflag" type="button" aria-pressed={f.flagged} onClick={() => up({ flagged: !f.flagged })} data-testid="ct-f-flag"><Flag className="i" />فقط علامت‌خورده برای بررسی</button> : null}
     </div></details>
     {q.isError ? <p className="note"><AlertTriangle className="i" />{q.error.message}</p> : null}
     <div className="mlh"><b data-testid="ct-count">{q.isLoading ? 'در حال دریافت…' : `${fa(d?.total ?? 0)} تماس در این فیلتر`}</b><span className="muted">تازه‌ترین بالا</span>
       {f.textStatus !== 'all' ? <button className="btn lk" type="button" onClick={() => up({ textStatus: 'all' })}><X className="i" />پاک کردن فیلتر وضعیت متن</button> : null}
       {f.expert ? <button className="btn lk" type="button" onClick={() => up({ expert: '' })}><X className="i" />پاک کردن فیلتر کارشناس</button> : null}</div>
-    <ol className="mrl">{d?.rows.map((r) => <Row key={r.eventId} r={r} onDone={() => void q.refetch()} />)}</ol>
+    <ol className="mrl">{d?.rows.map((r) => <Row key={r.eventId} r={r} mgr={mgr} onDone={() => void q.refetch()} />)}</ol>
     {d && !d.rows.length ? <p className="muted">در این فیلتر تماسی نیست.</p> : null}
     {pages > 1 ? <div className="pg"><button className="btn gh" type="button" disabled={f.page <= 1} onClick={() => setF({ ...f, page: f.page - 1 })}>قبلی</button>
       <span className="muted">صفحه‌ی {fa(f.page)} از {fa(pages)}</span><button className="btn gh" type="button" disabled={f.page >= pages} onClick={() => setF({ ...f, page: f.page + 1 })}>بعدی</button></div> : null}
@@ -65,7 +65,7 @@ function snip(r: CtRow) {
   if (r.textState === 'no_recording') return 'مکالمه‌ای برقرار نشد یا فایل ضبط ندارد؛ متن ندارد.';
   return 'خلاصه بعد از آماده شدن متن، خودکار ساخته می‌شود.';
 }
-function Row({ r, onDone }: { r: CtRow; onDone: () => void }) {
+function Row({ r, mgr, onDone }: { r: CtRow; mgr: boolean; onDone: () => void }) {
   const [, nav] = useLocation(); const qc = useQueryClient(); const [confirm, setConfirm] = useState(false);
   const go = r.hasRecording ? `/call-view/${r.eventId}` : null;
   const retx = useMutation<unknown, CtError>({ mutationFn: () => ctReq('POST', `/call-transcripts/calls/${r.eventId}/retranscribe`),
@@ -77,7 +77,7 @@ function Row({ r, onDone }: { r: CtRow; onDone: () => void }) {
     <div className="mr-m"><StatusChip status={r.status} /><span className="ci-d">{durText(r.durationSeconds) ?? 'بی‌مکالمه'}</span><TextChip row={r} /></div>
     <p className={`mr-s${r.textState === 'completed' && r.summary?.subject ? '' : ' muted'}`}>{r.textState === 'completed' && r.summary?.subject ? <span className="muted">خلاصه: </span> : null}{snip(r)}</p>
     <div className="mr-a"><Phone phone={r.phone} /><span className="sp" />
-      {r.textState === 'failed' ? (confirm ? <><button className="btn pri" type="button" disabled={retx.isPending} onClick={() => retx.mutate()}><RefreshCw className="i" />بله، تبدیل مجدد (هزینه دارد)</button>
+      {r.textState === 'failed' && mgr ? (confirm ? <><button className="btn pri" type="button" disabled={retx.isPending} onClick={() => retx.mutate()}><RefreshCw className="i" />بله، تبدیل مجدد (هزینه دارد)</button>
         <button className="btn gh" type="button" onClick={() => setConfirm(false)}>انصراف</button></> : <button className="btn gh" type="button" onClick={() => setConfirm(true)} data-testid={`ct-retx-${r.eventId}`}><RefreshCw className="i" />تبدیل مجدد</button>) : null}
       {go ? <Link className={`btn ${r.textState === 'completed' ? 'pri' : 'gh'}`} href={go}><Eye className="i" />باز کردن تماس</Link> : null}</div>
     {retx.isError ? <p className="err" role="alert">{retx.error.message}</p> : null}
