@@ -66,6 +66,14 @@ export function canAccessAfterCallCustomer(event: AfterCallEvent, actor: AuthUse
   return actor.role === "admin" || actor.customerScope === "all"
     || (actor.salespersonId != null && event.customer_owner === actor.salespersonId);
 }
+/** NOOUTPOP (Mohammad t759u, 2026-11-03): the big outgoing-call popup («تماس در جریان» / «نتیجه تماس» · تماس خروجی) must not open.
+ *  call_queue_settings flag.outgoing_call_popup: absent or anything but '1' → outgoing events are left out of the popup queue
+ *  (GET /voip/after-call/pending, read only by AfterCallPopup). Call logging (call_logs, call lists, transcripts, VoIP-button
+ *  result box) and incoming popups are untouched; '1' restores the old behaviour at once, no deploy. */
+export function outgoingCallPopupOn(): boolean {
+  try { return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key='flag.outgoing_call_popup'")?.value === "1"; }
+  catch { return false; }
+}
 export function pendingAfterCalls(actor: AuthUser) {
   const params: Array<string | number> = [CALL_LIST_START];
   let scope = " AND julianday(e.started_at)>=julianday(?)";
@@ -74,6 +82,7 @@ export function pendingAfterCalls(actor: AuthUser) {
   }
   scope += " AND NOT EXISTS (SELECT 1 FROM voip_call_display_exclusions hidden WHERE hidden.phone=e.phone)";
   scope += vcClickEventFilterSql(); // VOIP-CALL: a click call asks for its result once (files-carousel form); flag off → ""
+  if (!outgoingCallPopupOn()) scope += " AND e.direction<>'outgoing'"; // NOOUTPOP: outgoing calls never open the big popup
   const rows = queryRows<AfterCallEvent>(`${select} WHERE e.completed_at IS NULL${scope} ORDER BY e.is_live DESC,e.id LIMIT 100`, params);
   const total = queryRow<{ count: number }>(`SELECT COUNT(*) count FROM (${select} WHERE e.completed_at IS NULL${scope})`, params)?.count ?? 0;
   return { rows, total };
