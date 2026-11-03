@@ -1,6 +1,6 @@
 /**
  * SIMOTEL-456 — incoming popup (part 4), today's missed calls (part 5), experts report + live state (part 6). Design simotel v1.2.
- * Flags (all OFF → 404): flag.voip_incoming[.user.<id>], flag.voip_missed[.user.<id>], flag.voip_report. Popup + missed: experts, support and «مدیر فروش», never a plain admin; report: «مدیر فروش» only.
+ * Flags (all OFF → 404): flag.voip_incoming[.user.<id>], flag.voip_missed[.user.<id>], flag.voip_report. Popup + missed: experts, support and «مدیر فروش», never a plain admin; report: «مدیر فروش» + plain admin read-only (not user 29).
  * Numbers are decided server-side (another expert's customer → no number); the browser never sends a phone.
  */
 import { Router, type IRouter, type Response } from "express";
@@ -50,7 +50,7 @@ router.post("/voip-incoming/missed/:eventId/call", requirePermission("calls.crea
 });
 const reportGate = (res: Response) => { nostore(res);
   if (!viReportOn()) { res.status(404).json({ error: "voip_report_off", message: "گزارش کارشناسان فعال نیست.", enabled: false }); return true; }
-  if (!viReportAccess(me(res))) { res.status(403).json({ error: "forbidden", message: "این گزارش فقط برای مدیر فروش است." }); return true; }
+  if (!viReportAccess(me(res))) { res.status(403).json({ error: "forbidden", message: "این گزارش فقط برای مدیر فروش و مدیر سیستم است." }); return true; }
   return false; };
 router.get("/voip-incoming/report", requirePermission("calls.view"), (req, res) => {
   if (reportGate(res)) return;
