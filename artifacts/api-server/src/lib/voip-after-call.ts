@@ -6,6 +6,7 @@ import "./call-display-exclusions";
 import { CALL_LIST_START, callIsInDisplayPeriod } from "./call-list-cutoff";
 import { notifyCallReport } from "./voip-call-notifications";
 import { vcClickEventFilterSql } from "./voip-call";
+import { viPendingFilterSql } from "./voip-incoming-flags";
 
 export function ensureAfterCallSchema() {
   crmDb.exec(`
@@ -73,6 +74,7 @@ export function pendingAfterCalls(actor: AuthUser) {
     scope += " AND e.expert_user_id=? AND (e.mobile_device_id IS NOT NULL OR EXISTS (SELECT 1 FROM voip_extensions own WHERE own.user_id=? AND own.extension=e.extension))"; params.push(actor.id,actor.id);
   }
   scope += " AND NOT EXISTS (SELECT 1 FROM voip_call_display_exclusions hidden WHERE hidden.phone=e.phone)";
+  scope += viPendingFilterSql(); // SIMOTEL-456 part 4: incoming calls go to the new popup while flag.voip_incoming is on; flag off → ""
   scope += vcClickEventFilterSql(); // VOIP-CALL: a click call asks for its result once (files-carousel form); flag off → ""
   const rows = queryRows<AfterCallEvent>(`${select} WHERE e.completed_at IS NULL${scope} ORDER BY e.is_live DESC,e.id LIMIT 100`, params);
   const total = queryRow<{ count: number }>(`SELECT COUNT(*) count FROM (${select} WHERE e.completed_at IS NULL${scope})`, params)?.count ?? 0;

@@ -2,12 +2,14 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Eye, Filter, Flag, Phone as PhoneIcon, RefreshCw, User, X } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Eye, Filter, Flag, Phone as PhoneIcon, RefreshCw, User, X } from 'lucide-react';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { formatJalaliValue, gregorianToJalaliValue, jalaliValueToGregorian, todayJalali } from '@/lib/jalali';
 import { atText, CtError, ctReq, dirText, durText, fa, useCtConfig, type CtReport, type CtRow } from './api';
 import { Phone, StatusChip, TextChip } from './shared';
 import './ct.css';
+import { useViReportOn } from '@/features/voip-incoming/api';
+import { ExpertReport } from '@/features/voip-incoming/ExpertReport';
 
 const tehranDay = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 const addDays = (day: string, n: number) => { const d = new Date(`${day}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
@@ -21,9 +23,26 @@ type F = { from: string; to: string; p: 'today' | 'week' | 'month' | null; exper
 const TS: [string, string][] = [['all', 'همه'], ['completed', 'متن و خلاصه آماده'], ['pending_or_failed', 'در حال تبدیل به متن یا ناموفق'], ['pending', 'در حال تبدیل به متن'], ['failed', 'ناموفق'], ['no_recording', 'بدون ضبط']];
 const CS: [string, string][] = [['all', 'همه'], ['answered', 'پاسخ داد'], ['missed', 'پاسخ نداد یا اشغال']];
 
+/** SIMOTEL-456 part 6: with flag.voip_report on (and the server's report gate), the page gets two tabs «تماس‌ها» | «گزارش کارشناسان».
+ *  Flag off / no access → exactly the old page (CallsTab with no props). */
 export default function CallCenterReport() {
+  const on = useViReportOn().data === true;
+  const [tab, setTab] = useState<'calls' | 'experts'>('calls');
+  const [drill, setDrill] = useState<{ id: number; from: string; to: string; p: F['p'] } | null>(null);
+  if (!on) return <CallsTab />;
+  return <div className="ctp ctp-tabs" dir="rtl" data-testid="ct-tabs-page">
+    <div className="ct-tabs" role="tablist" aria-label="گزارش مرکز تماس">
+      <button type="button" role="tab" aria-selected={tab === 'calls'} onClick={() => setTab('calls')} data-testid="ct-tab-calls">تماس‌ها</button>
+      <button type="button" role="tab" aria-selected={tab === 'experts'} onClick={() => setTab('experts')} data-testid="ct-tab-experts">گزارش کارشناسان</button></div>
+    {tab === 'experts' ? <ExpertReport onCalls={(id, r) => { setDrill({ id, ...r }); setTab('calls'); }} />
+      : <CallsTab key={drill ? `d${drill.id}${drill.from}${drill.to}` : 'all'} embedded init={drill ? { expert: String(drill.id), from: drill.from, to: drill.to, p: drill.p } : undefined}
+          onBack={drill ? () => { setDrill(null); setTab('experts'); } : undefined} />}
+  </div>;
+}
+
+function CallsTab({ embedded, init: seed, onBack }: { embedded?: boolean; init?: Pick<F, 'expert' | 'from' | 'to' | 'p'>; onBack?: () => void } = {}) {
   const init = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
-  const [f, setF] = useState<F>(() => ({ ...preset('week'), p: 'week', expert: init.get('expert') ?? '', callStatus: 'all', textStatus: init.get('text') ?? 'all', flagged: init.get('flagged') === '1', page: 1 }));
+  const [f, setF] = useState<F>(() => ({ ...preset('week'), p: 'week', expert: init.get('expert') ?? '', ...(seed ?? {}), callStatus: 'all', textStatus: init.get('text') ?? 'all', flagged: init.get('flagged') === '1', page: 1 }));
   const up = (x: Partial<F>) => setF((o) => ({ ...o, page: 1, ...x }));
   const qs = new URLSearchParams({ from: f.from, to: f.to, callStatus: f.callStatus, textStatus: f.textStatus, page: String(f.page), ...(f.expert ? { expert: f.expert } : {}), ...(f.flagged ? { flagged: '1' } : {}) });
   const q = useQuery<CtReport, CtError>({ queryKey: ['call-transcripts', 'report', qs.toString()], retry: false, queryFn: () => ctReq<CtReport>('GET', `/call-transcripts/report?${qs}`),
@@ -33,7 +52,8 @@ export default function CallCenterReport() {
     expertName ? `کارشناس: ${expertName}` : '', f.textStatus !== 'all' ? `وضعیت متن: ${TS.find(([k]) => k === f.textStatus)?.[1]}` : '', f.flagged && mgr ? 'فقط علامت‌خورده' : ''].filter(Boolean).join('؛ ');
   if (q.isError && (q.error.code === 'call_transcripts_off' || q.error.status === 403)) return <div className="ctp" dir="rtl"><p className="note"><AlertTriangle className="i" />{q.error.message}</p></div>;
   const pages = d ? Math.max(1, Math.ceil(d.total / d.pageSize)) : 1;
-  return <div className="ctp" dir="rtl" data-testid="ct-report">
+  return <div className={embedded ? 'ctp-in' : 'ctp'} dir="rtl" data-testid="ct-report">
+    {onBack ? <button className="btn lk ct-back" type="button" onClick={onBack} data-testid="ct-back"><ArrowRight className="i" />بازگشت به گزارش کارشناسان</button> : null}
     <div className="hrow"><h2>تماس‌های ضبط‌شده‌ی کارشناسان</h2><span className="muted">{new Intl.DateTimeFormat('fa-IR', { timeZone: 'Asia/Tehran', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())}</span>
       {!mgr ? <span className="chip n" data-testid="ct-admin-view"><Eye className="i" />نمای مدیر سیستم، فقط مشاهده</span> : <span className="chip b"><User className="i" />نمای احمد، مدیر فروش</span>}</div>
     <p className="note rq"><PhoneIcon className="i" /><span>هر تماس ضبط‌شده خودکار به متن کامل تبدیل و خلاصه‌اش ذخیره می‌شود تا نحوه‌ی صحبت کارشناسان را مرور کنی. در این صفحه آمار، درصد یا نمره‌ای نشان داده نمی‌شود.</span></p>
