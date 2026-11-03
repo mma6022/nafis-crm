@@ -122,12 +122,14 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
     const first = sc.firstCall;
     const k = sc.phase;
     const left = sc.waitSeconds ?? 0;
+    // SIMOTEL-132 d (item 1): the copy reads the server's real wait (S132_WAIT_S, seconds after hang-up), never a hard-coded number.
+    const tot = faNum(String(sc.waitTotalSeconds ?? 120));
     const saving = k === 'waiting' && sc.expertStatus != null;
     const t = saving ? [`ثبت وضعیت: ${S_LBL[sc.expertStatus!]}`, 'وضعیتی که زدی ذخیره شد؛ همین الان کار جاری بسته می‌شود.']
       : k === 'waiting' ? ['در انتظار نتیجه از سیموتل', 'تماس قطع شد. وضعیت و مدت تماس چند ثانیه‌ی دیگر خودش می‌رسد؛ لازم نیست چیزی بزنی.']
       : k === 'first_form' ? ['تماس اول: جواب داد', 'نتیجه از سیموتل آمد. فرم تماس اول را پر کن؛ مرحله‌ی اول از سیموتل پر شده است.']
       : ['نتیجه از سیموتل نرسید', first ? 'تماس اول این مشتری است: اگر جواب داد، فرم تماس اول باز می‌شود. اگر جواب نداد، اشغال بود یا ناموفق، فقط وضعیت ثبت می‌شود و «تماس اول» برای تماس بعدی می‌ماند.'
-        : '۲ دقیقه بعد از قطع تماس، وضعیتی نیامد. فقط بزن چه شد؛ فرمی باز نمی‌شود و اگر مکالمه ضبط شده باشد، یادداشت از خلاصه‌ی تماس خودش نوشته می‌شود.'];
+        : `${tot} ثانیه بعد از قطع تماس، وضعیتی نیامد. فقط بزن چه شد؛ فرمی باز نمی‌شود و اگر مکالمه ضبط شده باشد، یادداشت از خلاصه‌ی تماس خودش نوشته می‌شود.`];
     const SI: Record<S132Status, ReactNode> = { answered: <Check size={16} aria-hidden="true" />, no_answer: <X size={16} aria-hidden="true" />, busy: <span className="vc-sdot" aria-hidden="true" />, failed: <AlertCircle size={16} aria-hidden="true" /> };
     const sb = (s: S132Status, label: string, pri = false) => <button key={s} type="button" className={`btn ${pri ? 'btn-primary' : 'btn-ghost'}`} disabled={busy} onClick={() => void pick(s)} data-testid={`vc-st-${s}`}>{SI[s]}{label}</button>;
     const btns = saving ? <button type="button" className="btn btn-ghost vc-btn" aria-disabled="true" onClick={(e) => e.preventDefault()} data-testid="vc-saving-btn"><Check size={16} aria-hidden="true" />{S_LBL[sc.expertStatus!]} ثبت شد</button>
@@ -135,7 +137,7 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
       : k === 'first_form' ? <button type="button" className="btn btn-primary" onClick={() => onFirstForm?.(c.id)} data-testid="vc-first-form"><Flag size={16} aria-hidden="true" /> فرم تماس اول</button>
       : <>{sb('answered', first ? 'جواب داد، فرم تماس اول' : 'جواب داد', true)}{sb('no_answer', 'جواب نداد')}{sb('busy', 'اشغال')}{sb('failed', 'ناموفق')}
         {vBtn('دوباره زنگ بزن', <RefreshCw size={16} aria-hidden="true" />, false, 'vc-again')}</>;
-    const lockTxt = saving ? 'وضعیت ثبت شد؛ تسک بعدی چند ثانیه‌ی دیگر خودش باز می‌شود.' : k === 'waiting' ? 'نتیجه‌ی همین تماس در راه است؛ دکمه‌های دستی لازم نیست. اگر تا ۲ دقیقه نرسید، فقط چهار دکمه‌ی وضعیت می‌آید.'
+    const lockTxt = saving ? 'وضعیت ثبت شد؛ تسک بعدی چند ثانیه‌ی دیگر خودش باز می‌شود.' : k === 'waiting' ? `نتیجه‌ی همین تماس در راه است؛ دکمه‌های دستی لازم نیست. اگر تا ${tot} ثانیه بعد از قطع نرسید${left > 0 ? ` (${faNum(String(left))} ثانیه‌ی دیگر)` : ''}، فقط چهار دکمه‌ی وضعیت می‌آید.`
       : k === 'first_form' ? 'تسک بعدی تا ثبت فرم تماس اول قفل است.'
       : first ? 'تسک بعدی تا زدن وضعیت (و با «جواب داد»، تا ثبت فرم تماس اول) قفل است.' : 'فقط یک ضربه: تسک با زدن وضعیت از «کارهای امروز من» می‌رود و تسک بعدی باز می‌شود.';
     return <div className="vcx" data-testid="vc-box" data-state={st} data-kind={`s132-${saving ? 'saving' : k}`}>
@@ -197,7 +199,7 @@ export function VcHeaderBadge() {
   const on132 = Boolean(me?.on && me.s132);
   useEffect(() => { if (!on132) return; document.body.dataset.s132 = '1'; return () => { delete document.body.dataset.s132; }; }, [on132]);
   if (on132 && c && !LIVE.has(c.state) && c.s132?.phase === 'waiting' && c.s132.expertStatus == null) {
-    return <span className="vc-hb dial s132w" role="status" aria-label="در انتظار نتیجه از سیموتل" data-testid="vc-badge-s132"><Headset className="i" aria-hidden="true" /><span><b className="vc-hb-l">در انتظار نتیجه از سیموتل</b><b className="vc-hb-s" aria-hidden="true">نتیجه…</b>{c.customerName ? <small>{c.customerName}</small> : null}</span></span>;
+    return <span className="vc-hb dial s132w" role="status" aria-label="در انتظار نتیجه از سیموتل" data-testid="vc-badge-s132"><Headset className="i" aria-hidden="true" /><i className="vc-hb-dot" aria-hidden="true" /><span><b className="vc-hb-l">در انتظار نتیجه از سیموتل</b><b className="vc-hb-s" aria-hidden="true">نتیجه…</b>{c.customerName ? <small>{c.customerName}</small> : null}</span></span>;
   }
   if (!c || !LIVE.has(c.state)) return null;
   const t = c.state === 'in_call' ? `در مکالمه ${mmss(talkSeconds(c))}` : c.state === 'dial_cust' ? 'در حال گرفتن مشتری' : 'تلفن ویپ شما زنگ می‌خورد';
@@ -283,6 +285,10 @@ export function useVcForFile(fileId: number): VcCall | null {
 
 /* ---------------- SIMOTEL-132 (flag.simotel132 only; nothing below renders while me.s132 is absent) ---------------- */
 const S_LBL: Record<S132Status, string> = { answered: 'جواب داد', no_answer: 'جواب نداد', busy: 'اشغال', failed: 'ناموفق' };
+const tday = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tehran' }).format(d);
+const dayWord = (iso: string) => { const d = new Date(iso); const n = new Date(); const t = tday(d);
+  if (t === tday(n)) return 'امروز'; if (t === tday(new Date(n.getTime() + 864e5))) return 'فردا';
+  return new Intl.DateTimeFormat('fa-IR', { timeZone: 'Asia/Tehran', weekday: 'long', day: 'numeric', month: 'long' }).format(d); };
 const hhmm = (iso: string | null) => (iso ? new Intl.DateTimeFormat('fa-IR', { timeZone: 'Asia/Tehran', hour: '2-digit', minute: '2-digit' }).format(new Date(iso)) : '');
 /** «اشتباهه؟» keeps both: «سیموتل: X» / «کارشناس: Y». */
 function S132Pair({ sim, expert }: { sim: S132Status | null; expert: S132Status }) {
@@ -303,7 +309,12 @@ export function S132AutoBar({ b }: { b: S132Bar }) {
   const mine = b.source === 'expert';
   const src = mine ? 'با انتخاب تو' : 'از سیموتل';
   // item 8: the next step comes from the call summary; without one the board's rule decides.
-  const nextTxt = b.nextStep ? ` قدم بعد از خلاصه: ${b.nextStep.replace(/[.。]\s*$/, '')}.` : ' قدم بعد: پیگیری طبق قاعده‌ی تخته.';
+  // SIMOTEL-132 d (item 5): without a summary next step, state the board rule's actual result (reminder time / «فردا» for a file).
+  const bn = b.boardNext;
+  const nextTxt = b.nextStep ? ` قدم بعد از خلاصه: ${b.nextStep.replace(/[.。]\s*$/, '')}.`
+    : bn?.kind === 'reminder' && bn.at ? ` قدم بعد: ${dayWord(bn.at)} ${hhmm(bn.at)}، طبق قاعده‌ی تخته (یادآور همین مشتری).`
+    : bn?.kind === 'file' ? ' قدم بعد: فردا، پرونده سر نوبت خودش در ترتیب برمی‌گردد («پیگیری شد، فردا»)، طبق قاعده‌ی تخته.'
+    : bn?.kind === 'none' ? ' قدم بعد: زمان تازه‌ای گذاشته نشد (یادآور باز ندارد)، طبق قاعده‌ی تخته.' : ' قدم بعد: پیگیری طبق قاعده‌ی تخته.';
   const sub = ok ? `${src}، امروز ${hhmm(b.at)}. چیزی پرسیده نشد: فایل ضبط و متن مکالمه ذخیره می‌شود و تسک خودکار از «کارهای امروز من» رفت.${nextTxt}`
     : `${src}، امروز ${hhmm(b.at)}. ${why} تسک بعدی باز شد.`;
   const smsT = b.smsAt ? hhmm(b.smsAt) : '';
@@ -346,8 +357,8 @@ function S132FixSheet({ b, busy, onClose, onSave }: { b: S132Bar; busy: boolean;
     <div className="vc-shs" onClick={onClose} aria-hidden="true" />
     <div ref={ref} className="vc-sh s132c" role="dialog" aria-modal="true" aria-labelledby="vc-fix-t" tabIndex={-1} data-testid="vc-fix-sheet" data-nodnd="">
       <button type="button" className="vc-sh-x" aria-label="بستن" onClick={onClose} data-testid="vc-fix-x"><X className="i" /></button>
-      <p className="muted vc-sh-e">تماس امروز {hhmm(b.at)} از تلفن ویپ</p>
-      <h3 id="vc-fix-t">اصلاح وضعیت، {nm} <span className="dp-id" data-testid="vc-fix-id">#{faNum(b.customerId)}</span></h3>
+      <div className="vc-sh-hd" data-testid="vc-fix-hd"><p className="muted vc-sh-e">تماس امروز {hhmm(b.at)} از تلفن ویپ</p>
+      <h3 id="vc-fix-t">اصلاح وضعیت، {nm} <span className="dp-id" data-testid="vc-fix-id">#{faNum(b.customerId)}</span></h3></div>
       <p className="vc-fx-s">سیموتل ثبت کرد: <VcStat s={sim} s132 /></p>
       <fieldset className="vc-fxg"><legend>وضعیت درست</legend>
         <div role="radiogroup" aria-labelledby="vc-fix-t" className="vc-fxo pills">{(['answered', 'no_answer', 'busy', 'failed'] as S132Status[]).map((s) => <button key={s} type="button" role="radio" aria-checked={v === s} className={`vc-fxp ${s}${v === s ? ' on' : ''}`}

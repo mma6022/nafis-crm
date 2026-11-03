@@ -7,7 +7,8 @@
  *    form; step 1 comes from Simotel. Every other VoIP click call is saved by itself from the Simotel CDR (customer leg, R2):
  *      «بالفعل» file task → fcExpertFollowup (note optional, auto); «بالقوه» daily-plan task → dpAfterFirstCallForm-style close.
  *    The note is filled from the call's own summary (voip_recording_summaries) and stays editable; the R3 no-answer SMS is only shown.
- *  - No CDR within S132_WAIT_S after hang-up → the expert picks one of four statuses (status only). A later CDR keeps the expert's pick.
+ *  - No CDR within S132_WAIT_S after hang-up → the expert picks one of four statuses (status only). A later CDR keeps the expert's pick and
+ *    only updates that same call (event status, call-log title, sim_status): no second event or call log (c2).
  *  - «اشتباهه؟»: status-only fix of an own auto-saved call (same Tehran day); both statuses are kept (s132_calls + s132_fixes).
  *  - Any failure in the automatic save → that call falls back to the existing manual result flow (auto_kind 'manual').
  */
@@ -200,9 +201,48 @@ export function s132Tick(now = new Date(), userId: number | null = null) {
     if (c) processOne(r, c, now);
   }
   firstFormDone(now, userId);
+  simAfterSave(now, userId);
   noteTick(now, userId);
 }
 /** CDR poller hook (voip-after-call.ts, right after vcIngestOriginate). Own savepoints; never throws. */
+/** SIMOTEL-132 c2: a Simotel report that arrives AFTER the expert's pick updates that same call (the live-s132 event and its call log), never a
+ *  second history row. Called by the CDR ingest for an incoming/outgoing CDR row and by the NewState webhook; null/false unless the row belongs to a
+ *  flagged expert's click call whose event was added by the expert's pick (ensureExpertLog). Never throws. */
+export function s132CdrTarget(cuid: string | null | undefined, direction: string, phone: string): number | null {
+  try {
+    const cu = String(cuid ?? "").replace(/\s+/g, "");
+    if (!cu || !s132TableExists() || !vcTableExists()) return null;
+    const e = queryRow<{ id: number; phone: string }>(`SELECT e.id, e.phone FROM voip_click_calls k JOIN s132_calls s ON s.call_id=k.id JOIN voip_after_call_events e ON e.id=k.event_id
+      WHERE (k.cuid=? OR k.leg_cuid=?) AND e.direction=? ORDER BY k.id DESC LIMIT 1`, [cu, cu, direction]);
+    return e && normalizePhone(e.phone) != null && normalizePhone(e.phone) === normalizePhone(phone) ? e.id : null;
+  } catch { return null; }
+}
+/** SIMOTEL-132 d (c, report first): a CDR-only event just added for a flagged expert's click call that has no event yet gets the call's
+ *  conversation id (live_cuid), so the originate settle step (vcIngestOriginate) adopts that same row instead of adding a second one. Never throws. */
+export function s132TagCdr(cuid: string | null | undefined, direction: string, phone: string, externalId: string): void {
+  try {
+    const cu = String(cuid ?? "").replace(/\s+/g, "");
+    if (!cu || direction !== "outgoing" || !s132TableExists() || !vcTableExists()) return;
+    const k = queryRow<{ phone: string }>(`SELECT k.phone FROM voip_click_calls k JOIN s132_calls s ON s.call_id=k.id
+      WHERE (k.cuid=? OR k.leg_cuid=?) AND k.event_id IS NULL ORDER BY k.id DESC LIMIT 1`, [cu, cu]);
+    if (!k || normalizePhone(k.phone) == null || normalizePhone(k.phone) !== normalizePhone(phone)) return;
+    executeChanges("UPDATE voip_after_call_events SET live_cuid=? WHERE external_id=? AND live_cuid IS NULL AND direction='outgoing'", [cu, externalId]);
+  } catch { /* never blocks the ingest */ }
+}
+export function s132LiveEnded(cuid: string, extension: string): boolean {
+  try {
+    if (!cuid || !s132TableExists() || !vcTableExists()) return false;
+    return !!queryRow(`SELECT 1 x FROM voip_click_calls k JOIN s132_calls s ON s.call_id=k.id JOIN voip_after_call_events e ON e.id=k.event_id
+      WHERE (k.cuid=? OR k.leg_cuid=?) AND k.extension=? AND e.external_id LIKE 'live-s132-%' AND e.is_live=0`, [cuid, cuid, extension]);
+  } catch { return false; }
+}
+/** A CDR that arrives after the save: keep Simotel's own status next to the expert's pick (the pick stays the call's result). */
+function simAfterSave(now: Date, userId: number | null) {
+  const rows = queryRows<{ call_id: number; cust_status: string; outcome: string | null }>(`SELECT s.call_id, k.cust_status, k.outcome FROM s132_calls s JOIN voip_click_calls k ON k.id=s.call_id
+    WHERE s.sim_status IS NULL AND s.auto_at IS NOT NULL AND k.cust_status IS NOT NULL AND julianday(s.created_at)>=julianday(?)-1${userId == null ? "" : " AND s.user_id=?"}`,
+    userId == null ? [iso(now)] : [iso(now), userId]);
+  for (const x of rows) executeChanges("UPDATE s132_calls SET sim_status=? WHERE call_id=? AND sim_status IS NULL", [s132SimStatus(x.cust_status, x.outcome), x.call_id]);
+}
 export function s132AfterIngest(now = new Date()) {
   try { if (!s132TableExists()) return; runImmediateTransaction(() => s132Tick(now, null)); }
   catch { /* the manual flow stays */ }
@@ -239,7 +279,7 @@ function noteTick(now: Date, userId: number | null) {
 }
 
 /** Extra fields for the expert's own click call (only added to the payload while the flag is on). */
-export type S132CallView = { firstCall: boolean; phase: "live" | "waiting" | "late" | "first_form" | "auto" | "manual"; waitSeconds: number | null;
+export type S132CallView = { firstCall: boolean; phase: "live" | "waiting" | "late" | "first_form" | "auto" | "manual"; waitSeconds: number | null; waitTotalSeconds: number;
   simStatus: string | null; expertStatus: string | null };
 export function s132CallView(c: VcRow, now = new Date()): S132CallView | null {
   if (!s132TableExists()) return null;
@@ -250,7 +290,7 @@ export function s132CallView(c: VcRow, now = new Date()): S132CallView | null {
     : r.auto_kind === "first_form" ? "first_form" : r.auto_kind === "manual" ? "manual" : r.auto_at ? "auto"
     : r.expert_status ? "waiting" : Number.isFinite(endedMs) && now.getTime() - endedMs >= S132_WAIT_S * 1000 ? "late" : "waiting";
   return { firstCall: !!r.first_call, phase, simStatus: r.sim_status, expertStatus: r.expert_status,
-    waitSeconds: phase === "waiting" && Number.isFinite(endedMs) ? Math.max(0, S132_WAIT_S - Math.floor((now.getTime() - endedMs) / 1000)) : null };
+    waitSeconds: phase === "waiting" && Number.isFinite(endedMs) ? Math.max(0, S132_WAIT_S - Math.floor((now.getTime() - endedMs) / 1000)) : null, waitTotalSeconds: S132_WAIT_S };
 }
 /** «ثبت خودکار» bar: the expert's latest auto-saved call (until the next call starts, the bar is closed, or 30 min pass). */
 export function s132LastBar(userId: number, now = new Date()) {
@@ -267,7 +307,8 @@ export function s132LastBar(userId: number, now = new Date()) {
     expertStatus: r.status_source === "expert" ? r.expert_status : null, fixedStatus: r.fixed_status, source: r.status_source,
     at: r.ended_at ?? r.auto_at, durationSeconds: status === "answered" && r.billsec != null ? r.billsec : null,
     smsSent: r.sim_status !== "answered" && vnaSent(r.call_id), smsAt: r.sim_status !== "answered" ? smsSentAt(r.call_id) : null,
-    nextStep: status === "answered" ? summaryNextStep(r.event_id) : null, noteState: r.note_state, note: r.note ?? "", noteEdited: !!r.note_edited_at,
+    nextStep: status === "answered" ? summaryNextStep(r.event_id) : null,
+    boardNext: status === "answered" ? boardNext(r.customer_id, r.file_id, now) : null, noteState: r.note_state, note: r.note ?? "", noteEdited: !!r.note_edited_at,
     canFix: !!r.auto_at && tehranDay(new Date(r.auto_at)) === tehranDay(now) };
 }
 
@@ -276,6 +317,16 @@ function smsSentAt(callId: number): string | null {
   try {
     if (!queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='voip_noanswer_sms'")) return null;
     return queryRow<{ t: string | null }>("SELECT COALESCE(updated_at,created_at) t FROM voip_noanswer_sms WHERE call_id=? AND status='sent'", [callId])?.t ?? null;
+  } catch { return null; }
+}
+/** SIMOTEL-132 d (item 5): the board rule's actual result when the summary has no next step — the customer's next open reminder
+ * (its time), else for a file «فردا، سر نوبت خودش» (today-split v1.0.4 «پیگیری شد، فردا»), else nothing scheduled. Read-only. */
+function boardNext(customerId: number | null, fileId: number | null, now: Date): { kind: "reminder" | "file" | "none"; at: string | null } | null {
+  try {
+    if (customerId == null) return null;
+    const r = queryRow<{ t: string }>("SELECT remind_at t FROM reminders WHERE customer_id=? AND done=0 AND julianday(remind_at)>julianday(?) ORDER BY julianday(remind_at) LIMIT 1", [customerId, iso(now)]);
+    if (r?.t) return { kind: "reminder", at: r.t };
+    return { kind: fileId != null ? "file" : "none", at: null };
   } catch { return null; }
 }
 /** SIMOTEL-132 c (on-06/07): the next step from the call's own summary when it carries one (nextStep); else null → the board's rule. */

@@ -7,6 +7,7 @@ import { CALL_LIST_START, callIsInDisplayPeriod } from "./call-list-cutoff";
 import { notifyCallReport } from "./voip-call-notifications";
 import { vcClickEventFilterSql } from "./voip-call";
 import { s132bPendingFilterSql } from "./simotel132b";
+import { s132CdrTarget, s132TagCdr } from "./simotel132";
 
 export function ensureAfterCallSchema() {
   crmDb.exec(`
@@ -213,6 +214,13 @@ export function ingestAfterCalls(rows: SimotelCall[], now = new Date()) {
         [row.cuid?.replace(/\s+/g,"")??"",row.type,row._id,JSON.stringify(extensions),startedAt,new Date(ended).toISOString()])
         .filter(e=>normalizePhone(e.phone)===normalizePhone(phone) && normalizePhone(phone)!=null);
       const real = queryRow<{id:number}>("SELECT id FROM voip_after_call_events WHERE external_id=?",[row._id]);
+      // SIMOTEL-132 c2/d: a flagged expert's click call already has its event (expert pick or an earlier report) → this report updates that same row only.
+      const s132Ev = real ? null : s132CdrTarget(row.cuid, row.type, phone);
+      if (s132Ev != null) {
+        executeChanges(`UPDATE voip_after_call_events SET recording_provider_id=COALESCE(recording_provider_id,?),status=?,is_live=0,ended_at=?,
+          has_recording=MAX(has_recording,?),recording_file=COALESCE(?,recording_file) WHERE id=?`,[row._id,row.disposition,new Date(ended).toISOString(),row.record?1:0,row.record??null,s132Ev]);
+        continue;
+      }
       if (!real && matches.length>0 && new Set(matches.map(e=>e.extension)).size===matches.length) {
         for(const [index,live] of matches.entries()){
           // Transfer participants retain separate expert reports, but share the
@@ -232,7 +240,7 @@ export function ingestAfterCalls(rows: SimotelCall[], now = new Date()) {
         [row._id, phone, row.type, row.disposition,
           startedAt, new Date(ended).toISOString(), extension, JSON.stringify(extensions), row.record ? 1 : 0,row.record??null,startedAt>=reportingStart?1:0],
       );
-      if (change) inserted++;
+      if (change) { inserted++; s132TagCdr(row.cuid, row.type, phone, row._id); }
       else executeChanges(`UPDATE voip_after_call_events SET has_recording=?,recording_file=COALESCE(?,recording_file),
         status=?,is_live=0,ended_at=? WHERE external_id=? OR recording_provider_id=?`,
         [row.record?1:0,row.record??null,row.disposition,new Date(ended).toISOString(),row._id,row._id]);

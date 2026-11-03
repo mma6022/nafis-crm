@@ -4,6 +4,7 @@ import { eventFor, experts, customerMatcher, normalizePhone, resolveEvent, finis
 import { notifyCallReport } from "./voip-call-notifications";
 import { vcOnNewState, vcOnOutgoing } from "./voip-call"; // VOIP-CALL (flag.voip_call, OFF → both return false at once)
 import { s132bOnNewState } from "./simotel132b"; // SIMOTEL-132 B (flag.simotel132b, OFF → returns at once)
+import { s132LiveEnded } from "./simotel132"; // SIMOTEL-132 c2 (no s132_calls table → false at once)
 
 type Signal = { cuid:string; phone:string; direction:string };
 function text(value:unknown,max=128) {
@@ -49,6 +50,7 @@ function markLive(body:Record<string,unknown>,now:Date) {
     "SELECT id,is_live,status FROM voip_after_call_events WHERE external_id=? OR (live_cuid=? AND extension=? AND phone=? AND direction=?) ORDER BY id DESC LIMIT 1",
     [external,cuid,extension,phone,direction]);
   if(previous && !previous.is_live)return true; // Late/duplicate start events cannot resurrect ended calls.
+  if(!previous && s132LiveEnded(cuid,extension))return true; // SIMOTEL-132 c2: a late start of a click call the expert already saved
   const nextStatus=state==="ringing" || body.dialer==="yes" ? "RINGING" : "ACTIVE";
   if(previous) executeChanges("UPDATE voip_after_call_events SET status=CASE WHEN status='ACTIVE' THEN status ELSE ? END WHERE id=?",[nextStatus,previous.id]);
   else executeChanges(`INSERT OR IGNORE INTO voip_after_call_events(external_id,phone,direction,status,started_at,ended_at,extension,

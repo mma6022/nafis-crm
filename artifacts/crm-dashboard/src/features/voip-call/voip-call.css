@@ -155,3 +155,19 @@ body[data-shot] .vc-cwi{animation:none!important}
 @media (min-width:1024px){
   body[data-s132] .app-shell.ssv2::after{content:"";position:fixed;left:0;right:0;bottom:0;height:calc(var(--ss-dock-h) + var(--ss-gap) + 10px);background:linear-gradient(to top,#f5f7fb 78%,rgba(245,247,251,0));z-index:39;pointer-events:none}
 }
+/* ---------- SIMOTEL-132 d (flag-on only: body[data-s132] / vc-sh.s132c / vc-hb.s132w) ---------- */
+/* item 3: fix sheet — navy title + a divider with spacing under the header */
+.vc-sh.s132c .vc-sh-hd{margin:0 -18px 14px;padding:0 18px 12px;border-bottom:1px solid var(--nf-line,#e6e9f2)}
+.vc-sh.s132c .vc-sh-hd h3{color:#0B1450;margin-bottom:0}
+/* item 2: mobile — the waiting pill is only the headset icon with a status dot, so the page title stays whole */
+.vc-hb .vc-hb-dot{display:none}
+@media (max-width:699.98px){
+  .vc-hb.s132w{position:relative;width:40px;height:40px;min-height:40px;max-width:40px;padding:0;justify-content:center;flex:none}
+  .vc-hb.s132w>span{display:none}
+  .vc-hb.s132w .vc-hb-dot{display:block;position:absolute;top:5px;inset-inline-end:5px;width:9px;height:9px;border-radius:50%;background:#E8A21A;box-shadow:0 0 0 2px #fff}
+  /* …and it sits just under the header (left), out of the title's row, so neither is cut */
+  .app-shell.ssv2 .topbar.ss-top .vc-hb.s132w{position:absolute;top:calc(100% + 6px);left:12px;z-index:31;background:#fff;box-shadow:0 2px 8px rgba(11,20,80,.14)}
+}
+/* item 4: real bottom room under the last row (desktop ~125px above the dock, mobile ~100px + safe area) */
+@media (min-width:1024px){ body[data-s132] .app-shell.ssv2 .app-main{padding-bottom:calc(var(--ss-dock-h) + var(--ss-gap) + 125px)} }
+@media (max-width:1023px){ body[data-s132] .app-shell.ssv2 .app-main{padding-bottom:calc(var(--ss-dock-h) + 100px + env(safe-area-inset-bottom))} }
