@@ -13,6 +13,7 @@ import { storedCallSummary } from "../lib/recording-summary-jobs";
 import { appendSummaryEdit, SummaryEditConflict } from "../lib/recording-summary-edits";
 import { TranscriptionError } from "../lib/recording-transcription";
 import { callReportDay } from "../lib/call-reports";
+import { s132bReport, s132bReportOn } from "../lib/simotel132b";
 
 const router: IRouter = Router();
 const me = (res: Response) => res.locals.authUser as AuthUser;
@@ -33,7 +34,15 @@ const eventOf = (req: Request, res: Response) => {
 router.get("/call-transcripts/config", (_req, res) => {
   res.setHeader("Cache-Control", "private, no-store");
   const on = ctFlag("ui"); const u = me(res);
-  res.json(on ? { enabled: true, manager: isCtManager(u), viewer: ctAdminViewer(u) } : { enabled: false });
+  // SIMOTEL-132 B: «گزارش کارشناسان» tab only for a viewer with flag.simotel132b (key absent otherwise → payload unchanged)
+  res.json(on ? { enabled: true, manager: isCtManager(u), viewer: ctAdminViewer(u), ...(s132bReportOn(u, ctAdminViewer) ? { s132b: true } : {}) } : { enabled: false });
+});
+router.get("/call-transcripts/b-report", requirePermission("calls.view"), (req, res) => {
+  if (off(res)) return;
+  const u = me(res);
+  if (!s132bReportOn(u, ctAdminViewer)) return fail(res, 404, "simotel132b_off", "این گزارش برای شما فعال نیست.");
+  const r = String(req.query.range ?? "today");
+  res.json(s132bReport(r === "week" || r === "month" ? r : "today"));
 });
 /** CallHistory link map: call_log_id → event for one customer (only the actor's visible calls). */
 router.get("/call-transcripts/customer/:customerId/calls", requirePermission("calls.view"), (req, res) => {

@@ -8,6 +8,7 @@ import { formatJalaliValue, gregorianToJalaliValue, jalaliValueToGregorian, toda
 import { atText, CtError, ctReq, dirText, durText, fa, useCtConfig, type CtReport, type CtRow } from './api';
 import { Phone, StatusChip, TextChip } from './shared';
 import './ct.css';
+import { S132bReportTab } from './S132bReport';
 
 const tehranDay = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 const addDays = (day: string, n: number) => { const d = new Date(`${day}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
@@ -21,7 +22,7 @@ type F = { from: string; to: string; p: 'today' | 'week' | 'month' | null; exper
 const TS: [string, string][] = [['all', 'همه'], ['completed', 'متن و خلاصه آماده'], ['pending_or_failed', 'در حال تبدیل به متن یا ناموفق'], ['pending', 'در حال تبدیل به متن'], ['failed', 'ناموفق'], ['no_recording', 'بدون ضبط']];
 const CS: [string, string][] = [['all', 'همه'], ['answered', 'پاسخ داد'], ['missed', 'پاسخ نداد یا اشغال']];
 
-export default function CallCenterReport() {
+function CallsTab() {
   const init = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
   const [f, setF] = useState<F>(() => ({ ...preset('week'), p: 'week', expert: init.get('expert') ?? '', callStatus: 'all', textStatus: init.get('text') ?? 'all', flagged: init.get('flagged') === '1', page: 1 }));
   const up = (x: Partial<F>) => setF((o) => ({ ...o, page: 1, ...x }));
@@ -81,4 +82,18 @@ function Row({ r, mgr, onDone }: { r: CtRow; mgr: boolean; onDone: () => void })
       {go ? <Link className={`btn ${r.textState === 'completed' ? 'pri' : 'gh'}`} href={go}><Eye className="i" />باز کردن تماس</Link> : null}</div>
     {retx.isError ? <p className="err" role="alert">{retx.error.message}</p> : null}
   </li>;
+}
+
+/** SIMOTEL-132 B (design §7.3 mgr_report): «تماس‌ها» | «گزارش کارشناسان» tabs only when the config carries `s132b` (flag.simotel132b on
+ *  for this viewer). Off → exactly the calls list above, same element tree. */
+export default function CallCenterReport() {
+  const cfg = useCtConfig().data as (ReturnType<typeof useCtConfig>['data'] & { s132b?: boolean }) | undefined;
+  const [tab, setTab] = useState<'calls' | 'experts'>('calls');
+  if (!cfg?.s132b) return <CallsTab />;
+  return <>
+    <div className="s1b-tabs" role="tablist" dir="rtl" data-testid="s1b-tabs">
+      <button type="button" role="tab" aria-selected={tab === 'calls'} onClick={() => setTab('calls')} data-testid="s1b-tab-calls">تماس‌ها</button>
+      <button type="button" role="tab" aria-selected={tab === 'experts'} onClick={() => setTab('experts')} data-testid="s1b-tab-experts">گزارش کارشناسان</button></div>
+    {tab === 'calls' ? <CallsTab /> : <S132bReportTab />}
+  </>;
 }

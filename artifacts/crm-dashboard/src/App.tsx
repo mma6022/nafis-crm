@@ -61,6 +61,7 @@ import { SocialMonitorReports } from '@/features/SocialMonitorReports';
 import '@/features/social-monitor-reports.css';
 import { VoipProvider } from '@/components/voip/VoipProvider';
 import { AfterCallPopup } from '@/components/voip/AfterCallPopup';
+import { S132bLayer } from '@/features/voip-call/S132bLayer'; // SIMOTEL-132 B: renders nothing unless flag.simotel132b is on
 import MobileCalls from '@/pages/MobileCalls';
 import SalesReports from '@/pages/SalesReports';
 import { VoipDock } from '@/components/voip/VoipDock';
@@ -220,6 +221,7 @@ function AppWithRoutes() {
       <TooltipProvider>
         <VoipProvider>
           <AfterCallPopup />
+          <S132bLayer />
           <Switch>
             <Route path="/" component={HomeRoute} />
             <Route path="/login" component={LoginPage} />

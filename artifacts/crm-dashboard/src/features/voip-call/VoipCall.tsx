@@ -84,6 +84,10 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
     <span className="sr-only" id="vc-hint">{hint}</span></>;
   const errLine = err ? <p className="dp-err vc-err" role="alert" data-testid="vc-err">{err}</p> : null;
 
+  // SIMOTEL-132 B (flag.simotel132b only; `me.s132b` is absent while off): a call taken or dialed on the VoIP phone itself closes the button.
+  if (me.s132b?.busy && !(c && live)) return <div className="vcx" data-testid="vc-box" data-state="b-busy">
+    <div className="dp-actions vc-row">{lockedBtn('یک تماس در جریان است')}{resBtn(false)}{extra}</div>
+    <p className="vc-note one" role="note" data-testid="vc-one-b"><Lock className="i" aria-hidden="true" /><span>الان روی تلفن ویپ در تماس هستی؛ بعد از قطع آن، این دکمه باز می‌شود. کپی شماره همچنان کار می‌کند.</span></p></div>;
   // Another customer's call is live, or waiting for its result → this button is closed (one call at a time).
   const oPh = s132 && c && !mine ? c.s132?.phase : undefined;
   if (c && !mine && (live || c.needsResult || oPh === 'waiting' || oPh === 'late' || oPh === 'first_form')) {
@@ -114,13 +118,13 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
     const t = k === 'waiting' ? ['در انتظار نتیجه از سیموتل', 'تماس قطع شد. وضعیت و مدت تماس چند ثانیه‌ی دیگر خودش می‌رسد؛ لازم نیست چیزی بزنی.']
       : k === 'first_form' ? ['تماس اول: جواب داد', 'نتیجه از سیموتل آمد. فرم تماس اول را پر کن؛ مرحله‌ی اول از سیموتل پر شده است.']
       : ['نتیجه از سیموتل نرسید', first ? 'تماس اول این مشتری است: اگر جواب داد، فرم تماس اول باز می‌شود. اگر جواب نداد، اشغال بود یا ناموفق، فقط وضعیت ثبت می‌شود و «تماس اول» برای تماس بعدی می‌ماند.'
-        : '۶۰ ثانیه بعد از قطع تماس، وضعیتی نیامد. فقط بزن چه شد؛ فرمی باز نمی‌شود و اگر مکالمه ضبط شده باشد، یادداشت از خلاصه‌ی تماس خودش نوشته می‌شود.'];
+        : '۲ دقیقه بعد از قطع تماس، وضعیتی نیامد. فقط بزن چه شد؛ فرمی باز نمی‌شود و اگر مکالمه ضبط شده باشد، یادداشت از خلاصه‌ی تماس خودش نوشته می‌شود.'];
     const sb = (s: S132Status, label: string, pri = false) => <button key={s} type="button" className={`btn ${pri ? 'btn-primary' : 'btn-ghost'}`} disabled={busy} onClick={() => void pick(s)} data-testid={`vc-st-${s}`}>{label}</button>;
     const btns = k === 'waiting' ? <button type="button" className="btn btn-ghost vc-btn" aria-disabled="true" onClick={(e) => e.preventDefault()} data-testid="vc-wait-btn"><Lock size={16} aria-hidden="true" />در انتظار نتیجه</button>
       : k === 'first_form' ? <button type="button" className="btn btn-primary" onClick={() => onFirstForm?.(c.id)} data-testid="vc-first-form"><Flag size={16} aria-hidden="true" /> فرم تماس اول</button>
       : <>{sb('answered', first ? 'جواب داد، فرم تماس اول' : 'جواب داد', true)}{sb('no_answer', 'جواب نداد')}{sb('busy', 'اشغال')}{sb('failed', 'ناموفق')}
         {vBtn('دوباره زنگ بزن', <RefreshCw size={16} aria-hidden="true" />, false, 'vc-again')}</>;
-    const lockTxt = k === 'waiting' ? 'نتیجه‌ی همین تماس در راه است؛ دکمه‌های دستی لازم نیست. اگر تا ۶۰ ثانیه نرسید، فقط چهار دکمه‌ی وضعیت می‌آید.'
+    const lockTxt = k === 'waiting' ? 'نتیجه‌ی همین تماس در راه است؛ دکمه‌های دستی لازم نیست. اگر تا ۲ دقیقه نرسید، فقط چهار دکمه‌ی وضعیت می‌آید.'
       : k === 'first_form' ? 'تسک بعدی تا ثبت فرم تماس اول قفل است.'
       : first ? 'تسک بعدی تا زدن وضعیت (و با «جواب داد»، تا ثبت فرم تماس اول) قفل است.' : 'فقط یک ضربه: تسک با زدن وضعیت از «کارهای امروز من» می‌رود و تسک بعدی باز می‌شود.';
     return <div className="vcx" data-testid="vc-box" data-state={st} data-kind={`s132-${k}`}>

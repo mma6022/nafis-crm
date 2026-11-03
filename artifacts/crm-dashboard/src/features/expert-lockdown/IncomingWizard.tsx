@@ -107,13 +107,15 @@ export function IncomingTopButton({ onClick, testId }: { onClick: () => void; te
 
 const PATHS = { old: ['نوع تماس', 'شماره', 'ثبت تماس'], new: ['نوع تماس', 'شماره و نام', 'ثبت تماس'] } as const;
 
-export function IncomingWizard({ currentNo, onClose, onSaved, onEvent }: {
+export function IncomingWizard({ currentNo, onClose, onSaved, onEvent, presetPhone }: {
   currentNo: number | null; onClose: (why: 'cancel' | 'done') => void; onSaved: (msg: string) => void; onEvent?: (name: string) => void;
+  /** SIMOTEL-132 B (flag.simotel132b only): «ثبت مشتری جدید» from an unknown-number call opens on the new-customer form with that number. Absent → unchanged. */
+  presetPhone?: string;
 }) {
   const ev = (n: string) => onEvent?.(n);
-  const [step, setStep] = useState<Step>('choose');
-  const [path, setPath] = useState<'old' | 'new'>('old');
-  const [phone, setPhone] = useState(''); const [name, setName] = useState('');
+  const [step, setStep] = useState<Step>(presetPhone ? 'new_form' : 'choose');
+  const [path, setPath] = useState<'old' | 'new'>(presetPhone ? 'new' : 'old');
+  const [phone, setPhone] = useState(presetPhone ?? ''); const [name, setName] = useState('');
   const [cust, setCust] = useState<{ id: number; name: string } | null>(null); const [created, setCreated] = useState(false);
   const [owner, setOwner] = useState<{ name: string; notified: boolean; cust?: string; refToken?: string | null; referable?: boolean; referred?: boolean } | null>(null);
   const [refd, setRefd] = useState<{ at: string; already: boolean } | null>(null);

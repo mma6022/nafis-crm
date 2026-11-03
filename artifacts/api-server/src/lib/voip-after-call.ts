@@ -6,6 +6,7 @@ import "./call-display-exclusions";
 import { CALL_LIST_START, callIsInDisplayPeriod } from "./call-list-cutoff";
 import { notifyCallReport } from "./voip-call-notifications";
 import { vcClickEventFilterSql } from "./voip-call";
+import { s132bPendingFilterSql } from "./simotel132b";
 
 export function ensureAfterCallSchema() {
   crmDb.exec(`
@@ -83,6 +84,7 @@ export function pendingAfterCalls(actor: AuthUser) {
   scope += " AND NOT EXISTS (SELECT 1 FROM voip_call_display_exclusions hidden WHERE hidden.phone=e.phone)";
   scope += vcClickEventFilterSql(); // VOIP-CALL: a click call asks for its result once (files-carousel form); flag off → ""
   if (!outgoingCallPopupOn()) scope += " AND e.direction<>'outgoing'"; // NOOUTPOP: outgoing calls never open the big popup
+  scope += s132bPendingFilterSql(); // SIMOTEL-132 B: a flagged expert's calls are saved by themselves (no B key → "")
   const rows = queryRows<AfterCallEvent>(`${select} WHERE e.completed_at IS NULL${scope} ORDER BY e.is_live DESC,e.id LIMIT 100`, params);
   const total = queryRow<{ count: number }>(`SELECT COUNT(*) count FROM (${select} WHERE e.completed_at IS NULL${scope})`, params)?.count ?? 0;
   return { rows, total };
@@ -279,6 +281,9 @@ export function syncAfterCalls() {
           // SIMOTEL-132: auto-save of flagged experts' click calls (returns at once while s132_calls does not exist; never throws).
           const { s132AfterIngest } = await import("./simotel132");
           s132AfterIngest(now);
+          // SIMOTEL-132 B: flagged experts' non-click calls (one settings read and return while no flag.simotel132b key is on; never throws).
+          const { s132bAfterIngest } = await import("./simotel132b");
+          s132bAfterIngest(now);
         }
         catch (e) { const { logger } = await import("./logger"); logger.error({ err: e instanceof Error ? e.message.slice(0, 200) : "error" }, "vc_cdr_ingest_failed"); }
         executeChanges("UPDATE voip_after_call_state SET last_checked_at=?,sync_error=NULL WHERE id=1",

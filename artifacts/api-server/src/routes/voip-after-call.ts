@@ -7,6 +7,7 @@ import { requirePermission } from "../lib/access-control";
 import type { AuthUser } from "../lib/auth";
 import { executeChanges, runTransaction, queryRow } from "../lib/crm-db";
 import { subscribeCallReports, notifyCallReport } from "../lib/voip-call-notifications";
+import { s132bOn } from "../lib/simotel132b";
 import { afterCallState, canSeeAfterCall, canAccessAfterCallCustomer, ensureAfterCallSchema, eventFor, pendingAfterCalls } from "../lib/voip-after-call";
 import { storedCallSummary } from "../lib/recording-summary-jobs";
 import { applyNonP1TransferInTx, NONP1_TRANSFER_HEADER } from "../lib/nonp1-transfer";
@@ -33,7 +34,7 @@ router.get("/voip/after-call/pending", requirePermission("calls.view"), (_req, r
   res.setHeader("Cache-Control", "private, no-store");
   const actor = res.locals.authUser as AuthUser, state = afterCallState();
   const { rows, total } = pendingAfterCalls(actor);
-  res.json(ListPendingVoipAfterCallsResponse.parse({
+  const out: any = ListPendingVoipAfterCallsResponse.parse({
     items: rows.map(e => ({
       id: e.id, externalId: e.recording_provider_id??e.external_id, phone: e.phone, direction: e.direction, status: e.status,
       startedAt: e.started_at, endedAt: e.ended_at, extension: e.extension,
@@ -53,7 +54,10 @@ router.get("/voip/after-call/pending", requirePermission("calls.view"), (_req, r
     canComplete: actor.role === "admin" || actor.permissions.includes("calls.create"),
     canEditPriority: actor.role === "admin" || actor.permissions.includes("customers.update"),
     liveEventSeenAt:queryRow<{live_event_seen_at:string|null}>("SELECT live_event_seen_at FROM voip_call_reporting_state WHERE id=1")?.live_event_seen_at??null,
-  }));
+  });
+  // SIMOTEL-132 B: the only signal the global layer reads to start its own small poll (flag off → key absent, payload unchanged)
+  if (s132bOn(actor as any)) out.s132b = { on: true };
+  res.json(out);
 });
 router.patch("/voip/after-call/:id", requirePermission("calls.view"), requirePermission("calls.create"), (req, res) => {
   const params = CompleteVoipAfterCallParams.safeParse(req.params), parsed = CompleteVoipAfterCallBody.safeParse(req.body);

@@ -3,6 +3,7 @@ import { crmDb, executeChanges, queryRow, queryRows, runTransaction } from "./cr
 import { eventFor, experts, customerMatcher, normalizePhone, resolveEvent, finishSavedLiveReport, ensureAfterCallSchema } from "./voip-after-call";
 import { notifyCallReport } from "./voip-call-notifications";
 import { vcOnNewState, vcOnOutgoing } from "./voip-call"; // VOIP-CALL (flag.voip_call, OFF → both return false at once)
+import { s132bOnNewState } from "./simotel132b"; // SIMOTEL-132 B (flag.simotel132b, OFF → returns at once)
 
 type Signal = { cuid:string; phone:string; direction:string };
 function text(value:unknown,max=128) {
@@ -90,6 +91,7 @@ export function receiveSimotelCallEvent(payload:unknown,now=new Date()) {
       handled=markLive(body,now);
       liveHandled=handled;
       if(vcOnNewState(body,now))handled=true;
+      s132bOnNewState(extension,state,now); // SIMOTEL-132 B: live status for the manager report (no B key → returns; never throws)
     } else handled=true;
     if(liveHandled)executeChanges("UPDATE voip_call_reporting_state SET live_event_seen_at=? WHERE id=1",[now.toISOString()]);
     executeChanges("DELETE FROM simotel_call_signals WHERE julianday(received_at)<julianday(?)-2",[now.toISOString()]);

@@ -14,6 +14,7 @@
  */
 import { vcFlagOn } from "./voip-call";
 import { s132FlagOn } from "./simotel132";
+import { s132bFlagOn } from "./simotel132b";
 import { createHmac, randomBytes } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { crmDb, execute, queryRow, queryRows, runTransaction } from "./crm-db";
@@ -228,6 +229,8 @@ function vcLockdownIds(req: Request, path: string, userId: number): number[] | n
     const f = /^\/voip-call\/customers\/(\d+)\/s132$/.exec(path);
     if (f && req.method === "GET") return [Number(f[1])];
   }
+  // SIMOTEL-132 B (flag on only): own-call endpoints; the handler checks the call / customer is the expert's own
+  if (s132bFlagOn(userId) && /^\/voip-call\/b\//.test(path)) return [];
   const a = /^\/voip-call\/calls\/(\d+)\/audio$/.exec(path);
   if (a && req.method === "GET") {
     const r = queryRow<{ cid: number | null }>(`SELECT COALESCE(l.customer_id,e.customer_id) cid FROM voip_after_call_events e

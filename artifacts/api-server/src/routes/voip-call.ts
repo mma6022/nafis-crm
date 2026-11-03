@@ -12,6 +12,7 @@ import { getSimotelAudio, SimotelError } from "../lib/simotel";
 import { vcCustomerAllowed, vcDismiss, vcHistory, vcMe, vcOn, vcRecordingFile, vcStart } from "../lib/voip-call";
 import { runImmediateTransaction, runTransaction } from "../lib/crm-db";
 import { s132CloseBar, s132Fix, s132IsFirstCall, s132Note, s132On, s132SetStatus } from "../lib/simotel132";
+import { s132bClose, s132bCompleteName, s132bFormOpened, s132bLive, s132bMissed, s132bMissedCount, s132bNoName, s132bNote, s132bOn, s132bSaveName } from "../lib/simotel132b";
 
 const router: IRouter = Router();
 const me = (res: Response) => res.locals.authUser as AuthUser;
@@ -27,10 +28,21 @@ const send = (res: Response, r: { status: number; body?: any; error?: string; me
 
 router.get("/voip-call/me", requirePermission("calls.view"), (_req, res) => {
   if (off(res)) return;
-  res.json(runTransaction(() => vcMe(me(res) as any)));
+  const r: any = runTransaction(() => vcMe(me(res) as any));
+  // SIMOTEL-132 B (flag on only): a live non-button call locks the VoIP button; missed-today count; «بدون نام» customers to name
+  if (s132bOn(me(res) as any)) {
+    try { const l = runImmediateTransaction(() => s132bLive(me(res) as any)); r.s132b = { busy: l.busy, missed: s132bMissedCount(me(res) as any), noName: s132bNoName(me(res) as any) }; }
+    catch { r.s132b = { busy: false, missed: 0, noName: [] }; }
+  }
+  res.json(r);
 });
 router.post("/voip-call/start", requirePermission("calls.create"), async (req, res) => {
   if (off(res)) return;
+  // SIMOTEL-132 B (flag on only): one call at a time also counts a call dialled or received on the VoIP phone itself
+  if (s132bOn(me(res) as any)) {
+    let busy = false; try { busy = runImmediateTransaction(() => s132bLive(me(res) as any)).busy; } catch { busy = false; }
+    if (busy) return void res.status(409).json({ error: "one_call", message: "یک تماس در جریان است؛ بعد از قطع آن دوباره بزن." });
+  }
   try { send(res, await vcStart(me(res) as any, req.body)); }
   catch { res.status(500).json({ error: "start_failed", message: "شروع تماس ناموفق بود." }); }
 });
@@ -54,6 +66,34 @@ s132Route("status", (u, id, b) => s132SetStatus(u, id, b));
 s132Route("fix", (u, id, b) => s132Fix(u, id, b));
 s132Route("note", (u, id, b) => s132Note(u, id, b));
 s132Route("close-bar", (u, id) => s132CloseBar(u, id));
+// SIMOTEL-132 B (flag.simotel132b[.user.<id>]): own non-button calls (cards/toasts), missed today, name / note / close. 404 when off.
+const bOff = (res: Response) => {
+  if (off(res)) return true;
+  if (s132bOn(me(res) as any)) return false;
+  res.status(404).json({ error: "simotel132b_off", message: "این امکان برای شما فعال نیست." }); return true;
+};
+router.get("/voip-call/b/live", requirePermission("calls.view"), (_req, res) => {
+  if (bOff(res)) return;
+  try { res.json(runImmediateTransaction(() => s132bLive(me(res) as any))); }
+  catch { res.status(500).json({ error: "live_failed", message: "خواندن تماس ناموفق بود." }); }
+});
+router.get("/voip-call/b/missed", requirePermission("calls.view"), (_req, res) => {
+  if (bOff(res)) return;
+  res.json(runTransaction(() => s132bMissed(me(res) as any)));
+});
+const bRoute = (path: string, f: (u: any, id: number, body: any) => { status: number; body: any }) =>
+  router.post(`/voip-call/b/${path}`, requirePermission("calls.create"), (req, res) => {
+    if (bOff(res)) return;
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) return void res.status(400).json({ error: "bad_id", message: "شناسه معتبر نیست." });
+    try { send(res, runImmediateTransaction(() => f(me(res) as any, id, req.body ?? {}))); }
+    catch { res.status(500).json({ error: "save_failed", message: "ثبت ناموفق بود؛ دوباره امتحان کن." }); }
+  });
+bRoute(":id/close", (u, id) => s132bClose(u, id));
+bRoute(":id/form-opened", (u, id) => s132bFormOpened(u, id));
+bRoute(":id/name", (u, id, b) => s132bSaveName(u, id, b));
+bRoute(":id/note", (u, id, b) => s132bNote(u, id, b));
+bRoute("customers/:id/name", (u, id, b) => s132bCompleteName(u, id, b));
 // SIMOTEL-132: «تماس اول» chip before the call (read-only; 404 when off).
 router.get("/voip-call/customers/:id/s132", requirePermission("calls.view"), (req, res) => {
   if (off(res)) return;

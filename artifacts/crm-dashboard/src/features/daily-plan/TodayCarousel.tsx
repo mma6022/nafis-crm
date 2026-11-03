@@ -17,6 +17,7 @@ import { getGetAuthSessionQueryKey, useGetAuthSession } from '@workspace/api-cli
 import { announceCallSaved } from '@/features/call-queue/api';
 import { useQueryClient } from '@tanstack/react-query';
 import { vcApi, vcRefresh } from '@/features/voip-call/api';
+import { S132bToday } from '@/features/voip-call/S132bToday';
 
 const OUT: Record<string, string> = { connected: 'صحبت شد', no_answer: 'جواب نداد', follow_up: 'پیگیری', not_interested: 'تمایل ندارد', wrong_number: 'شماره اشتباه' };
 const ev = (name: string, itemId?: number | null, cardIndex?: number | null) => { void dpApi.carouselEvent(`today_carousel_${name}`, { itemId: itemId ?? null, cardIndex: cardIndex ?? null }).catch(() => undefined); };
@@ -112,6 +113,7 @@ export function TodayCarousel({ d, refresh }: { d: Working; refresh: () => void 
     {urgent ? <div className="tc-urgent" role="alert" data-testid="tc-urgent"><AlertTriangle size={16} aria-hidden="true" /> مشتری فوری درست بعد از کار جاری اضافه شد
       <button type="button" className="dp-x" onClick={() => setUrgent(false)} aria-label="بستن"><X size={16} /></button></div> : null}
     {!cur && !finished ? <StateBox d={d} /> : null}
+    <S132bToday />{/* SIMOTEL-132 B: renders nothing while flag.simotel132b is off */}
 
     <div className={`tc-deck${anim ? ` a-${anim}` : ''}`} ref={deckRef} data-testid="tc-deck">
       {onCurrent && next ? <i className="tc-pk" aria-hidden="true" /> : null}
