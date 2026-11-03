@@ -32,14 +32,14 @@ function Steps({ n }: { n: number }) {
     <b>{i < n ? <Check className="i" aria-hidden="true" /> : faNum(i + 1)}</b>{s}</li>)}</ol>;
 }
 
-type BoxProps = { customerId: number; fileId?: number | null; customerName: string; onResult?: () => void; extra?: ReactNode; variant?: 'task' | 'customer' };
+type BoxProps = { customerId: number; fileId?: number | null; customerName: string; onResult?: () => void; extra?: ReactNode; variant?: 'task' | 'customer'; onStarted?: () => void };
 /** Returns null while off: callers keep their old buttons. */
 export function VoipCallBox(p: BoxProps) {
   const q = useVcMe(); const me = q.data;
   if (!me?.on) return null;
   return <VcBoxOn me={me} {...p} />;
 }
-function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra, variant = 'task' }: BoxProps & { me: VcMe }) {
+function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra, variant = 'task', onStarted }: BoxProps & { me: VcMe }) {
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
   const c = me.call ?? null; const total = me.timeoutSeconds ?? 30;
@@ -48,7 +48,7 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
   useTick(Boolean(mine && live));
   const start = async () => {
     if (busy) return; setBusy(true); setErr('');
-    try { const r = await vcApi.start({ customerId, fileId }); qc.setQueryData<VcMe>(VC_ME_KEY, (o) => ({ ...(o ?? { on: true }), on: true, call: r.call })); }
+    try { const r = await vcApi.start({ customerId, fileId }); qc.setQueryData<VcMe>(VC_ME_KEY, (o) => ({ ...(o ?? { on: true }), on: true, call: r.call })); if (r.call?.state !== 'error') onStarted?.(); }
     catch (e) { setErr(e instanceof VcError ? e.message : 'شروع تماس ناموفق بود.'); vcRefresh(qc); }
     finally { setBusy(false); }
   };

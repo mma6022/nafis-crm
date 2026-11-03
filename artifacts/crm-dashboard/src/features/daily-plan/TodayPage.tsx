@@ -11,6 +11,8 @@ import { elApi, useLockdownMe } from '@/features/expert-lockdown/api';
 import { IncomingTopButton, IncomingWizard, fullTel, phone11 } from '@/features/expert-lockdown/IncomingWizard';
 import { useSalesShellV2 } from '@/features/sales-shell/api';
 import { CallNumber, CALLED_LABEL, useNarrow } from '@/features/call-number/CallNumber';
+import { useVcMe } from '@/features/voip-call/api';
+import { VoipCallBox } from '@/features/voip-call/VoipCall';
 import { TodayCarousel } from './TodayCarousel';
 import { useSsIncoming } from '@/features/sales-shell/api';
 
@@ -145,9 +147,13 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
   const narrow = useNarrow();
   // CALL-COPY v1.0.4: desktop «تماس گرفتم، ثبت نتیجه» = the same server call-start (dpApi.start) without any tel:; below 700px tapping the
   // number does the same start and then dials.
-  const call = async (dialIt: boolean = narrow) => {
+  // VOIP-CALL t743u (flag.voip_call + own extension; OFF → vcOn false, the card below is unchanged): «تماس از تلفن ویپ» on every «مشتریان بالقوه» card.
+  // A started VoIP call opens this item's call the same way «تماس گرفتم» does (dpApi.start → the plan's result lock), quietly: the first-call form
+  // waits for its button so the live call panel stays in view. One call at a time + the 30 s ring timeout come from the server (vcLaunch).
+  const vcOn = Boolean(useVcMe().data?.on);
+  const call = async (dialIt: boolean = narrow, quiet = false) => {
     setBusy(true); setErr('');
-    try { const r = await dpApi.start(cur.id); setOpened(true); setCallAt(new Date().toISOString()); if (dialIt) { watchBack(r.callId, onDone); dial(r.tel); } if (formKind !== 'legacy') { if (cust) openFirst(); else setAutoFirst(true); } }
+    try { const r = await dpApi.start(cur.id); setOpened(true); setCallAt(new Date().toISOString()); if (dialIt) { watchBack(r.callId, onDone); dial(r.tel); } if (!quiet && formKind !== 'legacy') { if (cust) openFirst(); else setAutoFirst(true); } }
     catch (e) { setErr(e instanceof Error ? e.message : 'تماس باز نشد.'); } finally { setBusy(false); }
   };
   const save = async () => {
@@ -171,6 +177,9 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
   const [toast, setToast] = useState('');
   useEffect(() => { if (!toast) return; const t = window.setTimeout(() => setToast(''), 5000); return () => window.clearTimeout(t); }, [toast]);
   const fa = fileQ.data?.answers;
+  const dpLinks = <>
+      <Link href={`/customers/${cur.customerId}`} className="btn btn-ghost" data-testid="dp-file"><FileText size={16} aria-hidden="true" /> پرونده</Link>
+      <a href={`/customers/${cur.customerId}#sec-calls`} target="_blank" rel="noopener" className="btn btn-ghost" title="تاریخچه‌ی تماس‌ها و یادداشت‌های قبلی (برگه‌ی جدید)" data-testid="dp-history"><Clock size={16} aria-hidden="true" /> تاریخچه</a></>;
   const middle = <>
     <div className="dp-cur-top"><span className="dp-count">{cur.bucket === 'main' ? <>کار {faNum(d.progress.position)} از {faNum(d.progress.total)}</> : 'کار اضافه'}</span><Chips i={cur} /></div>
     <h2 id="dp-cur-name">{cur.name} <span className="dp-id">#{faNum(cur.customerId)}</span></h2>
@@ -179,11 +188,11 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
     {!c3 ? <SiteAnswersBlock customerId={cur.customerId} enabled={formKind !== 'wait'} /> : null}
     {cur.phone ? <p className="dp-phone cn-line" data-testid="dp-phone"><CallNumber phone={cur.phone} onDial={() => { if (!busy) void call(true); }} disabled={busy} testId="dp-ph" /></p> : null}
     {opened ? <div className="dp-box ok sm" role="status" data-testid="dp-called"><Phone size={14} aria-hidden="true" /> {callAt ? `${faClock(callAt)} ` : ''}«تماس گرفتم» زدی · حالا نتیجه را ثبت کن</div> : null}
-    <div className="dp-actions">
+    {vcOn ? <VoipCallBox customerId={cur.customerId} customerName={cur.name} onResult={opened ? undefined : () => void call(false)} onStarted={opened ? undefined : () => void call(false, true)} extra={dpLinks} />
+    : <div className="dp-actions">
       {opened ? null : <button type="button" className="btn btn-primary dp-call cn-called" disabled={busy} onClick={() => void call(false)} data-testid="dp-call"><Check size={16} aria-hidden="true" /> {CALLED_LABEL}</button>}
-      <Link href={`/customers/${cur.customerId}`} className="btn btn-ghost" data-testid="dp-file"><FileText size={16} aria-hidden="true" /> پرونده</Link>
-      <a href={`/customers/${cur.customerId}#sec-calls`} target="_blank" rel="noopener" className="btn btn-ghost" title="تاریخچه‌ی تماس‌ها و یادداشت‌های قبلی (برگه‌ی جدید)" data-testid="dp-history"><Clock size={16} aria-hidden="true" /> تاریخچه</a>
-    </div>
+      {dpLinks}
+    </div>}
     <div className="dp-move-row">
       <button type="button" className="dp-link" disabled={cur.movesLeft <= 0 || busy} onClick={() => setMove(true)} data-testid="dp-move-open"><Clock size={15} aria-hidden="true" /> به ساعت دیگه‌ی امروز</button>
       <small data-testid="dp-move-count">جابه‌جایی {faNum(cur.moveCount)} از {faNum(d.moveMax)}</small>
@@ -198,7 +207,7 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
     </div> : opened ? <div className="dp-result" data-testid="dp-result">
       <CqResultFields value={val} onChange={setVal} showErrors={show} idPrefix="dp" submitLabel="ثبت نتیجه" creditCustomerId={cur.customerId} />
       <button type="button" className={`btn btn-primary dp-save${val.manual ? '' : ' dis'}`} disabled={busy} aria-disabled={!val.manual || undefined} onClick={() => void save()} data-testid="dp-save">{saveLabel ?? <>ثبت نتیجه و رفتن به کار {faNum(nextNo)}</>}</button>
-    </div> : <p className="dp-hint"><Lock size={13} aria-hidden="true" /> {firstForm ? 'بعد از تماس با گوشی خودت «تماس گرفتم، ثبت نتیجه» را بزن؛ «فرم تماس اول» باز می‌شود. کار بعدی تا ثبت آن قفل است.' : 'بعد از تماس با گوشی خودت «تماس گرفتم، ثبت نتیجه» را بزن؛ فرم «نتیجه‌ی تماس» همین‌جا باز می‌شود. کار بعدی تا ثبت نتیجه و یادداشت قفل است.'}</p>}
+    </div> : vcOn ? null : <p className="dp-hint"><Lock size={13} aria-hidden="true" /> {firstForm ? 'بعد از تماس با گوشی خودت «تماس گرفتم، ثبت نتیجه» را بزن؛ «فرم تماس اول» باز می‌شود. کار بعدی تا ثبت آن قفل است.' : 'بعد از تماس با گوشی خودت «تماس گرفتم، ثبت نتیجه» را بزن؛ فرم «نتیجه‌ی تماس» همین‌جا باز می‌شود. کار بعدی تا ثبت نتیجه و یادداشت قفل است.'}</p>}
     <CallLaunchStatus status={launcher.status} onRetry={launcher.retry} onCancel={launcher.cancel} />
     {err ? <p className="dp-err" role="alert" data-testid="dp-err">{err}</p> : null}
     {move ? <MoveSheet d={d} cur={cur} onClose={() => setMove(false)} onMoved={() => { setMove(false); onDone(); }} /> : null}
