@@ -9,6 +9,8 @@ import {
   type PublicLead,
 } from "../lib/public-leads";
 import { recordSiteApply, siteApplySummary, validateSiteApply } from "../lib/site-apply";
+import { crmDb } from "../lib/crm-db";
+import { claimSiteLeadSms, finishSiteLeadSms } from "../lib/site-lead-sms";
 
 export const PUBLIC_LEADS_PATH = "/api/public/leads";
 /**
@@ -65,7 +67,8 @@ export class AttemptLimiter {
 }
 
 /**
- * Notification options for a lead created through this endpoint: no customer SMS, Telegram labelled «سایت».
+ * Notification options for a lead created through this endpoint: no customer SMS by default (notifyWebsiteLead turns it
+ * on for a NEW customer when flag.site_lead_customer_sms is ON), Telegram labelled «سایت».
  * `type`/`preferredTime` are read structurally so a callback variant of the form carries its time automatically.
  */
 export function websiteLeadNotification(lead: object): NewCustomerNotificationOptions {
@@ -76,6 +79,28 @@ export function websiteLeadNotification(lead: object): NewCustomerNotificationOp
     kind: extra.type === "callback" ? "callback" : "request",
     ...(typeof extra.preferredTime === "string" && extra.preferredTime.trim() ? { preferredTime: extra.preferredTime } : {}),
   };
+}
+
+/**
+ * SITESMS (t754s2995): sends the staff Telegram exactly as before and, only when the switch flag.site_lead_customer_sms
+ * is ON and this submission CREATED the customer (once per customer, no backfill), also the «مشتری جدید» customer SMS.
+ * When the SMS is attempted, the Telegram no longer says «پیامک خودکار برای مشتری ارسال نشد». Never throws.
+ */
+export async function notifyWebsiteLead(customerId: number, created: boolean, options: NewCustomerNotificationOptions): Promise<void> {
+  let decision = "off";
+  try { decision = claimSiteLeadSms(crmDb, customerId, created); } catch (error) {
+    logger.warn({ customerId, err: error instanceof Error ? error.message : "unknown" }, "Site lead SMS claim failed");
+    decision = "error";
+  }
+  const send = decision === "send";
+  await notifyNewCustomer(customerId, send ? { ...options, customerSms: true } : options);
+  if (send) {
+    let status = "unknown";
+    try { status = finishSiteLeadSms(crmDb, customerId); } catch { status = "finish_failed"; }
+    logger.info({ customerId, status }, "Site lead customer SMS");
+  } else if (decision !== "off") {
+    logger.info({ customerId, decision }, "Site lead customer SMS not sent");
+  }
 }
 
 function fail(res: Response, status: number, error: string, extra: Record<string, unknown> = {}): void {
@@ -172,7 +197,7 @@ function handleApply(req: Request, res: Response): void {
   logger.info({ customerId: result.customerId, created: result.created, src: apply.src }, "Website apply form recorded");
   res.status(201).json({ ok: true, trackingCode: result.trackingCode });
   const requestDetails = siteApplySummary(apply.answers, result.planName, apply.planId, apply.term);
-  void notifyNewCustomer(result.customerId, {
+  void notifyWebsiteLead(result.customerId, result.created, {
     customerSms: false, source: "website", kind: "request", requestDetails,
     ...(result.created ? {} : { existingCustomer: true }),
   });
@@ -238,8 +263,10 @@ export function createPublicLeadsRouter(limiter = new AttemptLimiter()): Router 
       // Product decision (website leads): staff Telegram only, never the automatic customer SMS. An existing
       // customer gets the same single alert, marked «مشتری قبلی» (decision 2026-10-23). The 10-minute duplicate
       // window above returns before this point, so a resubmission never alerts twice.
-      void notifyNewCustomer(
+      // SITESMS: a NEW customer also gets the «مشتری جدید» SMS when flag.site_lead_customer_sms is ON (see notifyWebsiteLead).
+      void notifyWebsiteLead(
         result.customerId,
+        result.created,
         result.created ? websiteLeadNotification(lead) : existingCustomerLeadNotification(lead),
       );
     },
