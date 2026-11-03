@@ -68,6 +68,12 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
         ? <>هر بار فقط یک تماس. الان در تماس با <b>{nm}</b> هستی؛ بعد از قطع تماس از تلفن ویپ، این دکمه باز می‌شود. کپی شماره همچنان کار می‌کند.</>
         : <>اول نتیجه‌ی تماس با <b>{nm}</b> را ثبت کن؛ تا آن موقع تماس تازه بسته است. کپی شماره همچنان کار می‌کند.</>}</span></p></div>;
   }
+  // SIMOTEL-456: an incoming call is live on my VoIP phone → closed until it ends (the current task and turn do not change).
+  if (me.incoming && (!mine || !c || !live)) {
+    return <div className="vcx" data-testid="vc-box" data-state="incoming">
+      <div className="dp-actions vc-row">{lockedBtn('یک تماس ورودی روی تلفن ویپ توست')}{c && mine && c.needsResult ? resBtn(true) : resBtn(false)}{extra}</div>
+      <p className="vc-note one" role="note" data-testid="vc-incoming"><Lock className="i" aria-hidden="true" /><span>یک تماس ورودی روی تلفن ویپ توست؛ تا پایانش دکمه‌ی تماس بسته است. کار جاری و نوبت عوض نمی‌شود.</span></p></div>;
+  }
   if (!mine || !c || (c.state === 'ended' && !c.needsResult && c.fileId != null)) {
     return <div className="vcx" data-testid="vc-box" data-state="idle">
       <div className="dp-actions vc-row">{vBtn('تماس از تلفن ویپ', <Headset size={18} aria-hidden="true" />)}{resBtn(false)}{extra}</div>

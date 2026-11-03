@@ -11,6 +11,7 @@ import { requirePermission } from "../lib/access-control";
 import { getSimotelAudio, SimotelError } from "../lib/simotel";
 import { vcCustomerAllowed, vcDismiss, vcHistory, vcMe, vcOn, vcRecordingFile, vcStart } from "../lib/voip-call";
 import { runTransaction } from "../lib/crm-db";
+import { viBusy, viIncomingFor } from "../lib/voip-incoming";
 
 const router: IRouter = Router();
 const me = (res: Response) => res.locals.authUser as AuthUser;
@@ -26,10 +27,13 @@ const send = (res: Response, r: { status: number; body?: any; error?: string; me
 
 router.get("/voip-call/me", requirePermission("calls.view"), (_req, res) => {
   if (off(res)) return;
-  res.json(runTransaction(() => vcMe(me(res) as any)));
+  const u = me(res);
+  // SIMOTEL-456: `incoming` only while flag.voip_incoming is on for this user (flag off → response unchanged).
+  res.json(runTransaction(() => viIncomingFor(u) ? { ...vcMe(u as any), incoming: viBusy(u) } : vcMe(u as any)));
 });
 router.post("/voip-call/start", requirePermission("calls.create"), async (req, res) => {
   if (off(res)) return;
+  if (viBusy(me(res))) return void res.status(409).json({ error: "one_call", message: "یک تماس ورودی روی تلفن ویپ تو در جریان است؛ هر بار یک تماس." });
   try { send(res, await vcStart(me(res) as any, req.body)); }
   catch { res.status(500).json({ error: "start_failed", message: "شروع تماس ناموفق بود." }); }
 });
