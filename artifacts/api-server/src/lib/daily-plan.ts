@@ -17,6 +17,7 @@ import { cqEligibleUsers } from "./call-queue-r2";
 import { realCallSql } from "./real-call";
 import { getTeamSalesConfig } from "./team-sales";
 import { salesAssistScope, suggestionsFor } from "./sales-assist";
+import { tsOnSp } from "./today-split";
 
 /* ---------------- constants & names (final names for Armita: see DECISIONS) ---------------- */
 export const DP_TYPES = ["urgent", "due", "first", "followup", "loan_followup"] as const;
@@ -25,7 +26,7 @@ export const DP_TYPE_LABELS: Record<DpType, string> = { urgent: "فوری", due:
 const RANK: Record<DpType, number> = { urgent: 0, due: 1, first: 2, followup: 3, loan_followup: 3 };
 export const DP_EVENTS = { finished: "daily_plan_finished", rejected: "daily_plan_rejected", capacityOverride: "daily_plan_capacity_override", backlog: "daily_plan_backlog", boost: "daily_plan_boost", skip: "daily_plan_skip" } as const;
 export const DP_LABELS = { auto: "لیست خودکار", added: "تازه اضافه شد", urgent: "فوری", due: "سررسید", carried: "مانده از دیروز", supplementary: "تکمیلی",
-  transferred: "منتقل شد", coveredReminder: "یادآور امروز دارد", coveredCalled: "امروز تماس ثبت شد", replacement: "جایگزین خودکار", skipped: "کنار گذاشته شد (دستیار)", outOfList: "خارج از لیست", outOfGuard: "خارج از حد", autoDay: "خودکار", boost: "اولویت دستیار", referral: "تماس با مشتری ارجاعی" } as const;
+  transferred: "منتقل شد", coveredReminder: "یادآور امروز دارد", coveredCalled: "امروز تماس ثبت شد", coveredFile: "پرونده‌ی وام باز دارد", replacement: "جایگزین خودکار", skipped: "کنار گذاشته شد (دستیار)", outOfList: "خارج از لیست", outOfGuard: "خارج از حد", autoDay: "خودکار", boost: "اولویت دستیار", referral: "تماس با مشتری ارجاعی" } as const;
 export const DP_BOOST_MAX = 20;
 export const DP_MOVE_MAX = 2;
 export const DP_MOVE_LAST_MIN = 17 * 60 + 45;
@@ -714,7 +715,15 @@ function dpSelfHeal(p: Plan) {
  *     AFTER it was on the list stays «done» (LOGGED-CALL-63, counts). Kazemi's first-call hold and an open card dial are never touched. */
 const dpDayStart = (day: string) => atTehran(day, 0).toISOString();
 const dpDayEnd = (day: string) => new Date(atTehran(day, 0).getTime() + 86_400_000).toISOString();
-export function dpCovered(p: Plan, customerId: number): { kind: "reminder" | "called"; callId: number | null; outcome: string | null } | null {
+/** TODAY-SPLIT (PM via t476u): with the expert's own flag.today_split.user.<id> on, a customer with at least one OPEN loan file (not deleted, not
+ *  cancelled = status 'rejected', not completed; incl. drafts and files left on a merged-away duplicate) is not a «مشتریان بالقوه» card —
+ *  the file is the work («مشتریان بالفعل»). Flag off: never consulted (same plan as before). */
+export function dpHasOpenFile(customerId: number): boolean {
+  return Boolean(queryRow(`SELECT 1 x FROM loan_applications a JOIN customers c ON c.id=a.customer_id WHERE (c.id=? OR c.merged_into_customer_id=?)
+      AND a.deleted_at IS NULL AND a.status<>'rejected' AND a.stage<>'completed' LIMIT 1`, [customerId, customerId]));
+}
+export function dpCovered(p: Plan, customerId: number): { kind: "reminder" | "called" | "file"; callId: number | null; outcome: string | null } | null {
+  if (tsOnSp(p.salesperson_id) && dpHasOpenFile(customerId)) return { kind: "file", callId: null, outcome: null };
   const r = queryRow<{ id: number }>("SELECT id FROM reminders WHERE user_id=? AND customer_id=? AND done=0 AND voided_at IS NULL AND remind_at<? LIMIT 1",
     [p.user_id, customerId, dpDayEnd(p.day)]);
   if (r) return { kind: "reminder", callId: null, outcome: null };
@@ -731,7 +740,7 @@ function dpCoverItem(p: Plan, it: Item, at: string): boolean {
   // first-call hold: a generic call never closes it (only the first-call form does); an open reminder today still covers it (rule 1).
   if (c.kind === "called" && dpFirstCallIncomplete(p, it)) return false;
   return executeChanges("UPDATE dp_items SET status='covered', label=?, outcome=COALESCE(?,outcome), call_log_id=COALESCE(?,call_log_id), done_at=? WHERE id=? AND status=?",
-    [c.kind === "reminder" ? DP_LABELS.coveredReminder : DP_LABELS.coveredCalled, c.outcome, c.callId, at, it.id, it.status]) > 0;
+    [c.kind === "file" ? DP_LABELS.coveredFile : c.kind === "reminder" ? DP_LABELS.coveredReminder : DP_LABELS.coveredCalled, c.outcome, c.callId, at, it.id, it.status]) > 0;
 }
 const DP_QUOTA_EXTRA = new Set(["auto", "carried_extra"]);
 function dpCoverAndRefill(p: Plan, now: Date) {
@@ -1003,7 +1012,7 @@ export function dpExpertView(user: CqUser, now = new Date()) {
     done: all.filter(i => i.status === "done").sort((a, b) => String(b.done_at).localeCompare(String(a.done_at))).map(i => itemView(i)),
     undone: all.filter(i => i.status === "undone").map(i => itemView(i)),
     transferred: all.filter(i => i.status === "transferred").map(i => itemView(i)),
-    covered: all.filter(i => i.status === "covered").map(i => itemView(i)),
+    covered: all.filter(i => i.status === "covered" && i.label !== DP_LABELS.coveredFile).map(i => itemView(i)),
     skipped: all.filter(i => i.status === "skipped").map(i => itemView(i)),
     progress: { done: st.mainDone, total: st.main, position: Math.min(st.main, st.mainDone + curMain), pct: st.completionPct, extraDone: st.extraDone, outOfList: st.outOfList },
     waitUntil: p.finished_at && !p.auto_at ? new Date(Date.parse(p.finished_at) + dpSettings().waitMin * 60_000).toISOString() : null,

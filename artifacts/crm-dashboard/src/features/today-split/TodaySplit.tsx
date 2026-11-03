@@ -66,7 +66,8 @@ function TodaySplit({ potential }: { potential: ReactNode }) {
         : fq.isError || !v ? <div className="dp-box err" role="alert" data-testid="ts-act-error">تسک‌ها بارگذاری نشد. <button type="button" className="btn btn-ghost" onClick={() => void fq.refetch()}>تلاش دوباره</button></div>
         : <ActPanel v={v} onGoPot={() => setTab('pot')} />}
     </section>
-    <section role="tabpanel" id="ts-p-pot" aria-labelledby="ts-t-pot" hidden={cur !== 'pot'} className="ts-pot" data-testid="ts-panel-pot">{potential}</section>
+    <section role="tabpanel" id="ts-p-pot" aria-labelledby="ts-t-pot" hidden={cur !== 'pot'} className="ts-pot" data-testid="ts-panel-pot">{potential}
+      <p className="ts-potnote" data-testid="ts-pot-note"><FileText size={16} aria-hidden="true" /><span>مشتری‌هایی که پرونده‌ی وام دارند در این لیست نمی‌آیند؛ تسک‌هایشان در «مشتریان بالفعل» است.</span></p></section>
   </div>;
 }
 
