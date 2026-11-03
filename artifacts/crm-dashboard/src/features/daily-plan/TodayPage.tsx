@@ -11,7 +11,7 @@ import { elApi, useLockdownMe } from '@/features/expert-lockdown/api';
 import { IncomingTopButton, IncomingWizard, fullTel, phone11 } from '@/features/expert-lockdown/IncomingWizard';
 import { useSalesShellV2 } from '@/features/sales-shell/api';
 import { CallNumber, CALLED_LABEL, useNarrow } from '@/features/call-number/CallNumber';
-import { useVcMe } from '@/features/voip-call/api';
+import { useVcMe, vcApi, vcRefresh } from '@/features/voip-call/api';
 import { VoipCallBox } from '@/features/voip-call/VoipCall';
 import { TodayCarousel } from './TodayCarousel';
 import { useSsIncoming } from '@/features/sales-shell/api';
@@ -66,6 +66,9 @@ export default function TodayPage() {
   const locked = useLockdownMe(false).data?.locked === true; // expert_lockdown (assistants54): reads the shell's cached /expert-lockdown/me, never fetches
   // FIRSTCALL-62: the first-call form lives here (not in CurrentCard) so the 30s refetch / next item never unmounts its result screen.
   const [fc, setFc] = useState<FcCustomer | null>(null);
+  const [fcVoip, setFcVoip] = useState<{ callId: number } | null>(null); // SIMOTEL-132: required first-call form after an answered VoIP first call
+  const vqc = useQueryClient();
+  const fcEnd = () => { const v = fcVoip; setFc(null); setFcVoip(null); if (v) void vcApi.dismiss(v.callId).catch(() => undefined).finally(() => vcRefresh(vqc)); refresh(); };
   const fcSession = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   // release 69 (Armita live-59 #2/#3): lockdown list view — the incoming wizard's save shows a 3 s bottom toast (same as the carousel).
   const [iwToast, setIwToast] = useState('');
@@ -83,9 +86,9 @@ export default function TodayPage() {
     {locked ? <IncomingTopButton onClick={() => { if (!inbound) void elApi.open().catch(() => undefined); setInbound(true); }} testId="dp-inbound-open" /> : null}
     {d.pendingCall ? <div className="dp-box warn" role="alert" data-testid="dp-pending-other">تماس باز با <b>{d.pendingCall.customerName}</b> هنوز نتیجه ندارد. اول نتیجه و یادداشتش را ثبت کن (از «تماس ورودی» همین صفحه یا پرونده‌ی مشتری).</div> : null}
     <StateBox d={d} />
-    {d.current ? <CurrentCard key={`${d.current.id}-${d.current.moveCount}`} d={d} cur={d.current} onDone={refresh} onFirstCall={setFc} /> : null}
-    {fc ? <SimpleCallForm customer={fc} userId={fcSession.data?.user?.id} onClose={() => { setFc(null); refresh(); }}
-      onDone={(r) => { announceCallSaved(r.callLogId, fc.id); refresh(); }} onNext={() => { setFc(null); refresh(); }} /> : null}
+    {d.current ? <CurrentCard key={`${d.current.id}-${d.current.moveCount}`} d={d} cur={d.current} onDone={refresh} onFirstCall={(c, v) => { setFc(c); setFcVoip(v ?? null); }} /> : null}
+    {fc ? <SimpleCallForm customer={fc} userId={fcSession.data?.user?.id} onClose={fcEnd} voip={fcVoip ?? undefined}
+      onDone={(r) => { announceCallSaved(r.callLogId, fc.id); refresh(); }} onNext={fcEnd} /> : null}
     {locked ? null : <div className="dp-inbound-row">
       <button type="button" className="btn btn-ghost" onClick={() => { if (locked && !inbound) void elApi.open().catch(() => undefined); setInbound((v) => !v); }} aria-expanded={inbound} data-testid="dp-inbound-open"><PhoneIncoming size={16} aria-hidden="true" /> {locked ? 'تماس ورودی داشتم' : 'تماس ورودی'}</button>
       <small>فقط وقتی مشتری خودش زنگ زده؛ کار جاری عوض نمی‌شود.</small>
@@ -123,7 +126,7 @@ export function StateBox({ d }: { d: Working }) {
   return null;
 }
 
-export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }: { d: Working; cur: NonNullable<Working['current']>; onDone: () => void; onSaved?: (cur: DpItem) => void; saveLabel?: string; onFirstCall: (c: FcCustomer) => void }) {
+export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }: { d: Working; cur: NonNullable<Working['current']>; onDone: () => void; onSaved?: (cur: DpItem) => void; saveLabel?: string; onFirstCall: (c: FcCustomer, voip?: { callId: number }) => void }) {
   const cq = useCqConfig().data;
   // FIRSTCALL-62 (Mohammad 10:33): a first call opens EXACTLY the existing first-call form — same rule as the customer page's «ثبت تماس»
   // (useCallLauncher → usesSimpleForm: the qualifier's own in-progress customer with no priority yet). Everything else keeps the result form below.
@@ -150,7 +153,15 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
   // VOIP-CALL t743u (flag.voip_call + own extension; OFF → vcOn false, the card below is unchanged): «تماس از تلفن ویپ» on every «مشتریان بالقوه» card.
   // A started VoIP call opens this item's call the same way «تماس گرفتم» does (dpApi.start → the plan's result lock), quietly: the first-call form
   // waits for its button so the live call panel stays in view. One call at a time + the 30 s ring timeout come from the server (vcLaunch).
-  const vcOn = Boolean(useVcMe().data?.on);
+  const vme = useVcMe().data; const vcOn = Boolean(vme?.on);
+  // SIMOTEL-132 (flag.simotel132 only; vme.s132 absent → unchanged): Simotel saves this call by itself — no result form here; an answered
+  // first call opens the first-call form by itself (step 1 from Simotel, required). A late CDR shows the four status buttons in VoipCallBox.
+  const s132 = Boolean(vme?.s132);
+  const vcc = s132 && vme?.call && vme.call.customerId === cur.customerId ? vme.call : null;
+  const s132Busy = s132 && ((vcc?.s132 != null && vcc.s132.phase !== 'manual') || vme?.s132?.last?.customerId === cur.customerId);
+  const openVoipFirst = (callId: number) => { if (cust) onFirstCall(fcOf(cust), { callId }); };
+  const fcShown = useRef<number | null>(null);
+  useEffect(() => { if (vcc?.s132?.phase === 'first_form' && cust && fcShown.current !== vcc.id) { fcShown.current = vcc.id; openVoipFirst(vcc.id); } }, [vcc?.s132?.phase, vcc?.id, Boolean(cust)]); // eslint-disable-line react-hooks/exhaustive-deps
   const call = async (dialIt: boolean = narrow, quiet = false) => {
     setBusy(true); setErr('');
     try { const r = await dpApi.start(cur.id); setOpened(true); setCallAt(new Date().toISOString()); if (dialIt) { watchBack(r.callId, onDone); dial(r.tel); } if (!quiet && formKind !== 'legacy') { if (cust) openFirst(); else setAutoFirst(true); } }
@@ -187,8 +198,8 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
     {cur.keyNote ? <div className="dp-keynote"><small><FileText size={13} aria-hidden="true" /> نکته از یادداشت‌ها</small><q>{cur.keyNote}</q></div> : null}
     {!c3 ? <SiteAnswersBlock customerId={cur.customerId} enabled={formKind !== 'wait'} /> : null}
     {cur.phone ? <p className="dp-phone cn-line" data-testid="dp-phone"><CallNumber phone={cur.phone} onDial={() => { if (!busy) void call(true); }} disabled={busy} testId="dp-ph" /></p> : null}
-    {opened ? <div className="dp-box ok sm" role="status" data-testid="dp-called"><Phone size={14} aria-hidden="true" /> {callAt ? `${faClock(callAt)} ` : ''}«تماس گرفتم» زدی · حالا نتیجه را ثبت کن</div> : null}
-    {vcOn ? <VoipCallBox customerId={cur.customerId} customerName={cur.name} onResult={opened ? undefined : () => void call(false)} onStarted={opened ? undefined : () => void call(false, true)} extra={dpLinks} />
+    {opened && !s132Busy ? <div className="dp-box ok sm" role="status" data-testid="dp-called"><Phone size={14} aria-hidden="true" /> {callAt ? `${faClock(callAt)} ` : ''}«تماس گرفتم» زدی · حالا نتیجه را ثبت کن</div> : null}
+    {vcOn ? <VoipCallBox customerId={cur.customerId} customerName={cur.name} onResult={opened ? undefined : () => void call(false)} onStarted={opened ? undefined : () => void call(false, true)} extra={dpLinks} onFirstForm={openVoipFirst} />
     : <div className="dp-actions">
       {opened ? null : <button type="button" className="btn btn-primary dp-call cn-called" disabled={busy} onClick={() => void call(false)} data-testid="dp-call"><Check size={16} aria-hidden="true" /> {CALLED_LABEL}</button>}
       {dpLinks}
@@ -200,7 +211,7 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
     {cur.movesLeft <= 0 ? <p className="dp-hint" data-testid="dp-move-limit">این کار ۲ بار جابه‌جا شده؛ باید نتیجه‌ی تماس ثبت شود.</p> : null}
     {c3 && hx.data?.ask?.length && !opened ? <div className="hx-askb" data-testid="c3-ask"><b>چی بپرسه</b><ul className="hx-ask">{hx.data.ask.map((a) => <li key={a}>{a}</li>)}</ul></div> : null}
     {c3 ? <RetireeHint sso={fa?.ssoRetiree} rel={fa?.ssoRetireeRelation ?? null} /> : null}
-    {opened && formKind !== 'legacy' ? <div className="dp-result" data-testid="dp-result-first">
+    {opened && s132Busy ? null : opened && formKind !== 'legacy' ? <div className="dp-result" data-testid="dp-result-first">
       {firstForm ? <button type="button" className="btn btn-primary dp-save" disabled={busy} onClick={openFirst} data-testid="dp-first-open"><FileText size={16} aria-hidden="true" /> فرم تماس اول</button>
         : <p className="dp-hint" role="status" data-testid="dp-first-wait">در حال آماده‌سازی فرم تماس…</p>}
       <p className="dp-hint"><Lock size={13} aria-hidden="true" /> تماس اول با «فرم تماس اول» ثبت می‌شود (اطلاعات اولیه‌ی مشتری). بعد از ثبت، کار بعدی باز می‌شود.</p>

@@ -15,6 +15,8 @@ import './carousel.css';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 import { getGetAuthSessionQueryKey, useGetAuthSession } from '@workspace/api-client-react';
 import { announceCallSaved } from '@/features/call-queue/api';
+import { useQueryClient } from '@tanstack/react-query';
+import { vcApi, vcRefresh } from '@/features/voip-call/api';
 
 const OUT: Record<string, string> = { connected: 'صحبت شد', no_answer: 'جواب نداد', follow_up: 'پیگیری', not_interested: 'تمایل ندارد', wrong_number: 'شماره اشتباه' };
 const ev = (name: string, itemId?: number | null, cardIndex?: number | null) => { void dpApi.carouselEvent(`today_carousel_${name}`, { itemId: itemId ?? null, cardIndex: cardIndex ?? null }).catch(() => undefined); };
@@ -34,6 +36,9 @@ export function TodayCarousel({ d, refresh }: { d: Working; refresh: () => void 
   const pendingAdvance = useRef<{ name: string } | null>(null);
   // FIRSTCALL-62 in the carousel: a first-call item opens the existing first-call form, held at page level (the card unmounts on advance).
   const [fc, setFc] = useState<{ id: number; name: string; phone: string; priority?: number | null } | null>(null);
+  const [fcVoip, setFcVoip] = useState<{ callId: number } | null>(null); // SIMOTEL-132 (flag only)
+  const vqc = useQueryClient();
+  const fcEnd = () => { const v = fcVoip; setFc(null); setFcVoip(null); if (v) void vcApi.dismiss(v.callId).catch(() => undefined).finally(() => vcRefresh(vqc)); refresh(); };
   const fcSession = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   const seen = useRef<Set<number> | null>(null);
   const deckRef = useRef<HTMLDivElement>(null);
@@ -112,7 +117,7 @@ export function TodayCarousel({ d, refresh }: { d: Working; refresh: () => void 
       {onCurrent && next ? <i className="tc-pk" aria-hidden="true" /> : null}
       {onCurrent && d.upcoming[1] ? <i className="tc-pk tc-pk2" aria-hidden="true" /> : null}
       <div className="tc-card" key={onCurrent ? `c${cur!.id}-${cur!.moveCount}` : viewDone ? `d${viewDone.id}` : 'fin'} data-testid="tc-card">
-        {onCurrent ? <CurrentCard d={d} cur={cur!} onDone={refresh} saveLabel="ثبت نتیجه و کار بعدی" onSaved={(it) => { pendingAdvance.current = { name: it.name }; }} onFirstCall={setFc} />
+        {onCurrent ? <CurrentCard d={d} cur={cur!} onDone={refresh} saveLabel="ثبت نتیجه و کار بعدی" onSaved={(it) => { pendingAdvance.current = { name: it.name }; }} onFirstCall={(c, v) => { setFc(c); setFcVoip(v ?? null); }} />
           : viewDone ? <DoneCard it={viewDone} no={done.indexOf(viewDone) + 1} of={reviewLen} />
           : finished ? <FinishedCard d={d} /> : null}
       </div>
@@ -131,8 +136,8 @@ export function TodayCarousel({ d, refresh }: { d: Working; refresh: () => void 
 
     <p className="tc-live" aria-live="polite" role="status" data-testid="tc-live">{live}</p>
     {toast ? <div className="tc-ctoast" role="status" data-testid="tc-toast"><Check size={15} aria-hidden="true" /> {toast}</div> : null}
-    {fc ? <SimpleCallForm customer={fc} userId={fcSession.data?.user?.id} onClose={() => { setFc(null); refresh(); }}
-      onDone={(r) => { announceCallSaved(r.callLogId, fc.id); pendingAdvance.current = { name: fc.name }; refresh(); }} onNext={() => { setFc(null); refresh(); }} /> : null}
+    {fc ? <SimpleCallForm customer={fc} userId={fcSession.data?.user?.id} onClose={fcEnd} voip={fcVoip ?? undefined}
+      onDone={(r) => { announceCallSaved(r.callLogId, fc.id); pendingAdvance.current = { name: fc.name }; refresh(); }} onNext={fcEnd} /> : null}
     {wiz ? <IncomingWizard currentNo={curNo} onClose={(why) => { setWiz(false); setBack(0); if (why === 'cancel') ev('incoming_cancel'); window.setTimeout(() => focusHead(deckRef.current), 0); }} onSaved={(m) => { refresh(); flash(m); }} onEvent={(n) => ev(n)} /> : null}
   </div>;
 }

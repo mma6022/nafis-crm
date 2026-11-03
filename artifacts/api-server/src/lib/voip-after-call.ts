@@ -276,6 +276,9 @@ export function syncAfterCalls() {
               await Promise.all([import("./voip-noanswer-sms"), import("./expert-intro-sms"), import("./customer-notifications")]);
             void vnaAfterDecisions(decisions, { send: sendExpertIntroPattern, ippanelEnabled: () => getNotificationSettings().ippanelEnabled });
           }
+          // SIMOTEL-132: auto-save of flagged experts' click calls (returns at once while s132_calls does not exist; never throws).
+          const { s132AfterIngest } = await import("./simotel132");
+          s132AfterIngest(now);
         }
         catch (e) { const { logger } = await import("./logger"); logger.error({ err: e instanceof Error ? e.message.slice(0, 200) : "error" }, "vc_cdr_ingest_failed"); }
         executeChanges("UPDATE voip_after_call_state SET last_checked_at=?,sync_error=NULL WHERE id=1",

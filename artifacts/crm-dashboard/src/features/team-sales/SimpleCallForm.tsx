@@ -225,7 +225,7 @@ const STRICT_LABELS: Record<string, string> = { manual: 'نتیجه‌ی تما�
 /** release 69 polish: rule codes «(H2)» are internal; digits Persian («۱ از ۳»، «۴ ساعت»). */
 export const reasonText = (x: string) => fa(String(x ?? '').replace(/\s*\((?:H|R)\d+\)/g, ''));
 
-export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onClose: onCloseRaw, onDone, onNext, onChangeCustomer, edit, file, strict = false, confirmClose = false, closeConfirmBody, reopenNotice = false, returnLabel, eyebrow }: {
+export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onClose: onCloseRaw, onDone, onNext, onChangeCustomer, edit, file, strict = false, confirmClose = false, closeConfirmBody, reopenNotice = false, returnLabel, eyebrow, voip }: {
   customer: { id: number; name: string; phone: string; priority?: number | null };
   userId: number | undefined; noteMin?: number;
   onClose: () => void; onDone: (r: QualifyResult) => void; onNext: () => void;
@@ -249,10 +249,15 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   eyebrow?: string;
   /** HISTORY-A v1.2: Today-card file column «تکمیل/ویرایش پرونده مشتری» — answers only, single «ذخیره‌ی پرونده», no call/priority. */
   file?: FileFormMode;
+  /** SIMOTEL-132 (flag.simotel132 only): opened by itself after the customer's first VoIP call was answered. Step 1's call outcome comes
+   *  from Simotel (read-only «جواب داد»); the form is required: no X, scrim, Escape or «بستن» until it is saved. Absent → unchanged. */
+  voip?: { callId: number };
 }) {
   const iccOn = useIccEnabled(); // instant-credit-check per-user flag (OFF = step hidden)
   const key = draftKey(userId, customer.id);
-  const [d, setD] = useState<Draft>(() => { if (file) return draftFromAnswers(file.answers, file.city); if (edit) return draftFromFirstCall(edit.fc); try { const raw = localStorage.getItem(key); return raw ? { ...EMPTY, ...migrateCallback(JSON.parse(raw)) } : EMPTY; } catch { return EMPTY; } });
+  const [d, setD] = useState<Draft>(() => { if (file) return draftFromAnswers(file.answers, file.city); if (edit) return draftFromFirstCall(edit.fc); let base = EMPTY; try { const raw = localStorage.getItem(key); base = raw ? { ...EMPTY, ...migrateCallback(JSON.parse(raw)) } : EMPTY; } catch { base = EMPTY; }
+    // SIMOTEL-132: «جواب داد» from Simotel; «چه شد؟» stays the expert's choice
+    return voip ? { ...base, manual: 'answered', callResult: base.callResult && base.callResult !== 'no_answer' ? base.callResult : 'answered' } : base; });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
   const [serverError, setServerError] = useState('');
@@ -266,7 +271,10 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   const [cfm, setCfm] = useState(false);
   const doneRef = useRef(false); doneRef.current = done;
   const cfmRef = useRef(false); cfmRef.current = cfm;
+  const voipLock = Boolean(voip) && !done; // SIMOTEL-132: required form, no close before the save
+  const voipLockRef = useRef(false); voipLockRef.current = voipLock;
   const onClose = useCallback(() => {
+    if (voipLockRef.current) return;
     if (cfmRef.current) { setCfm(false); return; }
     if (confirmClose && !doneRef.current) setCfm(true); else onCloseRaw();
   }, [confirmClose, onCloseRaw]);
@@ -595,8 +603,10 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   } else if (d.step === 1) {
     body = <>
       <div className="ts-script"><b>بگو:</b><p>«سلام، وقتتون بخیر. از نفیس وام تماس می‌گیرم، شماره‌تون رو برای مشاوره‌ی وام گذاشته بودید.»</p></div>
-      <ManualOutcomeField value={d.manual ?? ''} idPrefix="ts" showError={Boolean(errors.manual)} submitLabel="بعدی"
-        onChange={(m) => set(m === 'answered' ? { manual: m, callResult: d.callResult && d.callResult !== 'no_answer' ? d.callResult : 'answered' } : { manual: m, callResult: 'no_answer' })} />
+      {voip ? <div className="ts-q ts-voip-st" data-testid="ts-voip-status"><b>نتیجه‌ی تماس</b>
+        <p><span className="vc-chip s"><Check className="i" size={14} aria-hidden="true" />جواب داد</span><span className="ts-muted">از سیموتل، فقط‌خواندنی</span></p></div>
+      : <ManualOutcomeField value={d.manual ?? ''} idPrefix="ts" showError={Boolean(errors.manual)} submitLabel="بعدی"
+        onChange={(m) => set(m === 'answered' ? { manual: m, callResult: d.callResult && d.callResult !== 'no_answer' ? d.callResult : 'answered' } : { manual: m, callResult: 'no_answer' })} />}
       {d.manual === 'answered' ? <fieldset className="ts-q"><legend>چه شد؟ <span className="req">*</span></legend>
         <Chips name="callResult" list={ANSWERED_RESULTS} value={d.callResult} onChange={(v) => set({ callResult: v })} cols />{err('callResult')}</fieldset>
         : d.manual ? <div className="crs" role="note" data-testid="ts-na-optional"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>
@@ -708,7 +718,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
             {strict || file ? null : <button type="button" className="ts-copy" onClick={copyPhone} aria-label={`کپی شماره‌ی ${customer.name}`} data-testid="ts-copy-phone"><Copy size={13} /> {copied ? 'کپی شد' : 'کپی'}</button>}
             <span className="ts-badge gray">{prio}</span> <span className="ts-badge">نسخه‌ی ساده</span></div>
         </div>
-        <button type="button" className="ts-ib" onClick={onClose} aria-label="بستن" data-testid="ts-close"><X size={22} /></button>
+        {voipLock ? <span className="vc-chip fc1" data-testid="ts-first-chip">تماس اول</span> : <button type="button" className="ts-ib" onClick={onClose} aria-label="بستن" data-testid="ts-close"><X size={22} /></button>}
       </div>
       {reopenNotice && !done ? <div className="ts-reopen" role="status" data-testid="ts-reopen"><b>اطلاعات تماس اول این مشتری هنوز ثبت نشده</b>
         <small>مقادیر قبلی نگه داشته شده · کار این مشتری در لیست امروز باز است</small></div> : null}
@@ -731,7 +741,7 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
           <button type="button" className="ts-ghost" onClick={onClose} data-testid="ts-open-file">پرونده مشتری</button>
           <button type="button" className="ts-primary" onClick={onNext} data-testid="ts-next-customer">مشتری بعدی صف</button>
         </div> : <div className="ts-two grow">
-          {idx > 1 ? <button type="button" className="ts-ghost narrow" onClick={back}><ChevronRight size={18} /> قبلی</button> : <button type="button" className="ts-ghost narrow" onClick={onClose}>بستن</button>}
+          {idx > 1 ? <button type="button" className="ts-ghost narrow" onClick={back}><ChevronRight size={18} /> قبلی</button> : voipLock ? null : <button type="button" className="ts-ghost narrow" onClick={onClose}>بستن</button>}
           {d.step === 5 ? <span className="ts-foot-note" data-testid="ts-selected-count">{noPlan ? 'هیچ طرحی نمی‌خوره' : d.selected.length ? `${fa(selectedPlans.length || d.selected.length)} طرح انتخاب شد` : 'انتخاب اختیاری است'}</span> : null}
           {lastStep && edit ? <>
             <button type="button" className="ts-ghost" onClick={() => void submitEdit(false)} disabled={pending} data-testid="ts-edit-save">{pending ? 'در حال ذخیره…' : 'فقط ذخیره'}</button>

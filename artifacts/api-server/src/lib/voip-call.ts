@@ -12,6 +12,7 @@
  */
 import type { AuthUser } from "./auth";
 import { crmDb, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
+import { s132On, s132Tick, s132CallView, s132LastBar, s132OnStart, s132HistoryInfo } from "./simotel132";
 import { normalizePhone, resolveEvent, experts, customerMatcher } from "./voip-after-call";
 import { simotelOriginate, SimotelError, type SimotelCall } from "./simotel";
 import { vnaSent } from "./voip-noanswer-sms";
@@ -260,6 +261,15 @@ export function vcMe(u: U, now = new Date()) {
     ?? queryRow<VcRow>(`SELECT * FROM voip_click_calls WHERE user_id=? AND dismissed_at IS NULL AND result_saved_at IS NULL
         AND (state='ended' OR julianday(updated_at)>=julianday(?)-?/86400.0) ORDER BY id DESC LIMIT 1`, [u.id, iso(now), NOTICE_KEEP_S]);
   if (c) c = vcLink(c, now);
+  // SIMOTEL-132 (flag.simotel132[.user.<id>], OFF → this block is skipped and the payload is unchanged)
+  if (s132On(u)) {
+    s132Tick(now, u.id);
+    if (c) c = queryRow<VcRow>("SELECT * FROM voip_click_calls WHERE id=?", [c.id]) ?? c;
+    if (c && c.result_saved_at) c = undefined;
+    const v: any = c ? vcView(c, now) : null;
+    if (v) v.s132 = s132CallView(c!, now);
+    return { on: true, extension: ext, call: v, timeoutSeconds: VC_ME_TIMEOUT_S, s132: { last: s132LastBar(u.id, now) } };
+  }
   return { on: true, extension: ext, call: c ? vcView(c, now) : null, timeoutSeconds: VC_ME_TIMEOUT_S };
 }
 export function vcCustomerAllowed(u: U, customerId: number): boolean {
@@ -299,6 +309,7 @@ export async function vcStart(u: U, body: any, now = new Date()) {
       .run(u.id, ext, cid, fid, phone, iso(now), iso(now));
     id = Number(r.lastInsertRowid);
   } catch { return err(409, "one_call", "یک تماس در جریان است؛ هر بار فقط یک تماس."); }
+  try { s132OnStart(u, id, cid, fid, now); } catch { /* SIMOTEL-132: without its row the call keeps the manual flow */ }
   try {
     const ctx = setting("voip_call.context") || "main_routing";
     const callerId = setting("voip_call.caller_id") || ext;
@@ -414,11 +425,12 @@ export function vcHistory(u: U, customerId: number, now = new Date()) {
   const linked = new Set(clicks.map((c) => c.event_id).filter((x) => x != null));
   const outLabel: Record<string, string> = { answered: "جواب داد", no_answer: "جواب نداد", follow_up: "پیگیری بعدی", cancelled: "لغو شده" };
   const noteOf = (c: VcRow) => c.result_saved_at ? queryRow<{ note: string }>("SELECT note FROM fc_followups WHERE user_id=? AND customer_id=? AND julianday(created_at)>=julianday(?) ORDER BY id LIMIT 1", [c.user_id, c.customer_id, c.created_at])?.note ?? "" : "";
+  const s132h = s132HistoryInfo(clicks.map((c) => c.id)); // SIMOTEL-132: empty unless s132_calls exists
   const items: any[] = clicks.map((c) => { const v = vcView(c, now); return {
     kind: "voip", id: `k${c.id}`, at: c.created_at, status: c.outcome, durationSeconds: v.durationSeconds, expert: c.expert ?? null,
     fileId: c.file_id, recording: v.recording, playable: v.recording === "ready" && (u.role === "admin" || c.user_id === u.id), eventId: c.event_id,
-    result: c.result_outcome ? { label: outLabel[c.result_outcome] ?? c.result_outcome, note: noteOf(c) } : null, pending: !c.result_saved_at,
-    noanswerSms: v.noanswerSmsSent };
+    result: c.result_outcome ? { label: outLabel[c.result_outcome] ?? c.result_outcome, note: s132h.get(c.id)?.auto ? (s132h.get(c.id)!.note ?? "") : noteOf(c) } : null, pending: !c.result_saved_at,
+    noanswerSms: v.noanswerSmsSent, ...(s132h.has(c.id) ? { s132: s132h.get(c.id) } : {}) };
   });
   // Other Simotel calls of this customer (incoming or from the panel), CDR-final only.
   for (const e of queryRows<{ id: number; started_at: string; ended_at: string; status: string; direction: string; has_recording: number; recording_file: string | null; expert_name: string | null; expert_user_id: number | null; expert_notes: string }>(

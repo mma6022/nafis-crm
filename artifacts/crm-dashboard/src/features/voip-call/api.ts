@@ -17,11 +17,20 @@ export type VcOutcome = 'answered' | 'no_answer' | 'busy' | null;
 export type VcCall = { id: number; state: VcState; outcome: VcOutcome; customerId: number; fileId: number | null; extension: string; customerName: string | null;
   createdAt: string; secondsLeft: number | null; meAnsweredAt: string | null; custAnsweredAt: string | null; endedAt: string | null; durationSeconds: number | null;
   cdr: boolean; recording: 'processing' | 'ready' | 'none'; eventId: number | null; active: boolean; needsResult: boolean; resultSaved: boolean;
-  resultOutcome: string | null; prefill: 'answered' | 'no_answer' | null; oneTap: boolean; errorCode: string | null; noanswerSmsSent?: boolean };
-export type VcMe = { on: boolean; extension?: string | null; call?: VcCall | null; timeoutSeconds?: number };
+  resultOutcome: string | null; prefill: 'answered' | 'no_answer' | null; oneTap: boolean; errorCode: string | null; noanswerSmsSent?: boolean;
+  custStatus?: string | null; billsec?: number | null; s132?: S132Call | null };
+/** SIMOTEL-132 (flag.simotel132[.user.<id>]): present only while the flag is on for this user; absent → today's UI unchanged. */
+export type S132Status = 'answered' | 'no_answer' | 'busy' | 'failed';
+export type S132Call = { firstCall: boolean; phase: 'live' | 'waiting' | 'late' | 'first_form' | 'auto' | 'manual'; waitSeconds: number | null;
+  simStatus: S132Status | null; expertStatus: S132Status | null };
+export type S132Bar = { callId: number; customerId: number; customerName: string | null; fileId: number | null; status: S132Status | null; simStatus: S132Status | null;
+  expertStatus: S132Status | null; fixedStatus: S132Status | null; source: 'simotel' | 'expert' | null; at: string | null; durationSeconds: number | null; smsSent: boolean;
+  noteState: 'pending' | 'ready' | 'none' | null; note: string; noteEdited: boolean; canFix: boolean };
+export type VcMe = { on: boolean; extension?: string | null; call?: VcCall | null; timeoutSeconds?: number; s132?: { last: S132Bar | null } };
 export type VcHistItem = { kind: 'voip' | 'simotel' | 'manual'; id: string; at: string; status: 'answered' | 'no_answer' | 'busy' | null; direction?: string;
   durationSeconds: number | null; expert: string | null; fileId: number | null; recording: 'processing' | 'ready' | 'none'; playable: boolean; eventId: number | null;
-  result: { label: string | null; note: string } | null; pending: boolean; noanswerSms?: boolean };
+  result: { label: string | null; note: string } | null; pending: boolean; noanswerSms?: boolean;
+  s132?: { sim: S132Status | null; expert: S132Status | null; fixed: S132Status | null; fixedAt: string | null; auto: boolean; note: string | null } };
 
 export const VC_ME_KEY = ['voip-call', 'me'] as const;
 const OFF: VcMe = { on: false };
@@ -29,15 +38,25 @@ const OFF: VcMe = { on: false };
 export const useVcMe = (enabled = true) => useQuery<VcMe>({
   queryKey: VC_ME_KEY, enabled, retry: false, staleTime: 1_000,
   queryFn: () => req<VcMe>('GET', '/voip-call/me').catch((e) => { if (e instanceof VcError && (e.status === 404 || e.status === 403 || e.status === 401)) return OFF; throw e; }),
-  refetchInterval: (q) => { const d = q.state.data as VcMe | undefined; if (!d?.on) return false; return d.call?.active ? 1_500 : 15_000; },
+  refetchInterval: (q) => { const d = q.state.data as VcMe | undefined; if (!d?.on) return false;
+    return d.call?.active ? 1_500 : d.call?.s132?.phase === 'waiting' || d.s132?.last?.noteState === 'pending' ? 3_000 : 15_000; },
   refetchIntervalInBackground: false,
 });
 export const vcApi = {
   start: (b: { customerId: number; fileId?: number | null }) => req<{ ok: true; call: VcCall }>('POST', '/voip-call/start', b),
   dismiss: (id: number) => req<{ ok: true }>('POST', `/voip-call/${id}/dismiss`, {}),
+  // SIMOTEL-132 (404 while the flag is off)
+  status: (id: number, status: S132Status) => req<{ ok: true; phase: S132Call['phase']; bar: S132Bar | null; call: VcCall }>('POST', `/voip-call/${id}/status`, { status }),
+  fix: (id: number, status: S132Status) => req<{ ok: true; bar: S132Bar | null }>('POST', `/voip-call/${id}/fix`, { status }),
+  note: (id: number, note: string) => req<{ ok: true; bar: S132Bar | null }>('POST', `/voip-call/${id}/note`, { note }),
+  closeBar: (id: number) => req<{ ok: true }>('POST', `/voip-call/${id}/close-bar`, {}),
 };
 export const useVcHistory = (customerId: number | null | undefined, enabled: boolean) => useQuery<{ items: VcHistItem[] }>({
   queryKey: ['voip-call', 'history', customerId], enabled: enabled && Boolean(customerId), retry: false, staleTime: 10_000,
   queryFn: () => req('GET', `/voip-call/customers/${customerId}/history`) });
+/** SIMOTEL-132: is the next call with this customer their first call (only asked while me.s132 is present). */
+export const useS132First = (customerId: number, enabled: boolean) => useQuery<{ firstCall: boolean }>({
+  queryKey: ['voip-call', 's132-first', customerId], enabled: enabled && customerId > 0, retry: false, staleTime: 30_000,
+  queryFn: () => req('GET', `/voip-call/customers/${customerId}/s132`) });
 export const vcRefresh = (qc: QueryClient) => { void qc.invalidateQueries({ queryKey: ['voip-call'] }); };
 export const vcAudioSrc = (eventId: number) => `/api/voip-call/calls/${eventId}/audio`;

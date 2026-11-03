@@ -10,7 +10,8 @@ import type { AuthUser } from "../lib/auth";
 import { requirePermission } from "../lib/access-control";
 import { getSimotelAudio, SimotelError } from "../lib/simotel";
 import { vcCustomerAllowed, vcDismiss, vcHistory, vcMe, vcOn, vcRecordingFile, vcStart } from "../lib/voip-call";
-import { runTransaction } from "../lib/crm-db";
+import { runImmediateTransaction, runTransaction } from "../lib/crm-db";
+import { s132CloseBar, s132Fix, s132IsFirstCall, s132Note, s132On, s132SetStatus } from "../lib/simotel132";
 
 const router: IRouter = Router();
 const me = (res: Response) => res.locals.authUser as AuthUser;
@@ -38,6 +39,28 @@ router.post("/voip-call/:id/dismiss", requirePermission("calls.view"), (req, res
   const id = Number(req.params.id);
   if (!Number.isSafeInteger(id) || id <= 0) return void res.status(400).json({ error: "bad_id", message: "شناسه معتبر نیست." });
   send(res, vcDismiss(me(res) as any, id));
+});
+// SIMOTEL-132 (flag.simotel132[.user.<id>]): status pick when the CDR is late, «اشتباهه؟», note edit, bar close. Own calls only; 404 when off.
+const s132Route = (path: string, f: (u: any, id: number, body: any) => { status: number; body: any }) =>
+  router.post(`/voip-call/:id/${path}`, requirePermission("calls.create"), (req, res) => {
+    if (off(res)) return;
+    if (!s132On(me(res) as any)) return void res.status(404).json({ error: "simotel132_off", message: "این امکان برای شما فعال نیست." });
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) return void res.status(400).json({ error: "bad_id", message: "شناسه معتبر نیست." });
+    try { send(res, runImmediateTransaction(() => f(me(res) as any, id, req.body ?? {}))); }
+    catch { res.status(500).json({ error: "save_failed", message: "ثبت ناموفق بود؛ دوباره امتحان کن." }); }
+  });
+s132Route("status", (u, id, b) => s132SetStatus(u, id, b));
+s132Route("fix", (u, id, b) => s132Fix(u, id, b));
+s132Route("note", (u, id, b) => s132Note(u, id, b));
+s132Route("close-bar", (u, id) => s132CloseBar(u, id));
+// SIMOTEL-132: «تماس اول» chip before the call (read-only; 404 when off).
+router.get("/voip-call/customers/:id/s132", requirePermission("calls.view"), (req, res) => {
+  if (off(res)) return;
+  if (!s132On(me(res) as any)) return void res.status(404).json({ error: "simotel132_off", message: "این امکان برای شما فعال نیست." });
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0 || !vcCustomerAllowed(me(res) as any, id)) return void res.status(404).json({ error: "not_found", message: "این مشتری در دسترس شما نیست." });
+  res.json({ firstCall: s132IsFirstCall(me(res) as any, id) });
 });
 router.get("/voip-call/customers/:id/history", requirePermission("calls.view"), (req, res) => {
   if (off(res)) return;

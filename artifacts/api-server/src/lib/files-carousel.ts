@@ -383,7 +383,7 @@ export function fcExpertView(u: U, now = new Date()) {
     cards: deck.cards.map(c => ({ ...expertCore(c.f), customerName: c.f.name ?? "", phone: c.state === "current" ? phone : null, returnedToday: c.returnedToday, position: c.position, state: c.state, reason: c.meta?.reason ?? null, ask: c.meta?.ask ?? null, fc: catCore(c.cat),
       todayFollowUp: c.fu ? { at: c.fu.created_at, outcome: c.fu.outcome, outcomeLabel: FC_OUTCOME_LABELS[c.fu.outcome] ?? null, note: c.fu.note } : null })) };
 }
-export function fcExpertFollowup(u: U, body: any, now = new Date()) {
+export function fcExpertFollowup(u: U, body: any, now = new Date(), opts?: { auto?: boolean }) {
   ensureFcSchema();
   const sp = Number(u.salespersonId); const day = fcToday(now);
   const fid = Number(body?.fileId); const outcome = String(body?.outcome ?? ""); const cx = outcome === FC_CANCEL;
@@ -397,7 +397,7 @@ export function fcExpertFollowup(u: U, body: any, now = new Date()) {
   if (cx) {
     if (!note) return err(422, "reason_required", "دلیل لغو را بنویس؛ بدون دلیل، پرونده لغو نمی‌شود.", { field: "cancelReason" });
   } else {
-    if (!note && !vc.noteOptional) return err(422, "note_required", "یادداشت یک‌خطی لازم است.", { field: "note" });
+    if (!note && !vc.noteOptional && !opts?.auto) return err(422, "note_required", "یادداشت یک‌خطی لازم است.", { field: "note" });
   }
   if (cx) { const f = fileById(fid); if (f && Number(f.owner) !== sp) return err(403, "not_own_file", "فقط پرونده‌ی مشتری خودت را می‌توانی لغو کنی."); }
   if (queryRow("SELECT 1 x FROM fc_followups WHERE salesperson_id=? AND day=? AND file_id=?", [sp, day, fid])) return err(409, "already_done", "نتیجه‌ی این پرونده امروز ثبت شده است.");
