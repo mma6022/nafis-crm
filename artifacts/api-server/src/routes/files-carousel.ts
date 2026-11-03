@@ -4,6 +4,7 @@
  */
 import { Router, type IRouter, type Response } from "express";
 import type { AuthUser } from "../lib/auth";
+import { tsOn } from "../lib/today-split";
 import { fcAdminUncancel, fcCatOn, fcEnabledFor, fcExpertFollowup, fcExpertList, fcExpertOpened, fcExpertTel, fcExpertView, fcIsErr, fcTarget, fcOn } from "../lib/files-carousel";
 
 const router: IRouter = Router();
@@ -13,6 +14,9 @@ const off = (res: Response) => {
   res.status(404).json({ error: "files_carousel_off", message: "«پرونده‌های من» تک‌کارتی فعال نیست.", details: null, enabled: false }); return true;
 };
 router.get("/files-carousel/config", (_req, res) => { const u = me(res) as any; res.json({ enabled: Boolean(fcTarget(u) && fcOn()) }); });
+/** TODAY-SPLIT: is the two-tab «کارهای امروز من» on for me? Any signed-in user may ask; false unless 8/2/3 + both file flags + own flag. */
+router.get("/files-carousel/split", (_req, res) => { const u = me(res) as any; res.setHeader("Cache-Control", "private, no-store");
+  res.json({ on: Boolean(u && fcEnabledFor(u) && fcCatOn() && tsOn(Number(u.id))) }); });
 router.get("/files-carousel/today", (_req, res) => { if (off(res)) return; res.json(fcExpertView(me(res) as any)); });
 router.post("/files-carousel/followup", (req, res) => {
   if (off(res)) return;

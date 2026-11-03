@@ -10,6 +10,7 @@ import { noteText } from "./note-text";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import { cqRaw, isWorkDay, tParts, tYmd, fromTehran, CQ_OUTCOMES } from "./call-queue";
 import { EL_USERS } from "./expert-lockdown";
+import { tsOnSp } from "./today-split";
 import { maskCustomerName } from "./cross-owner-search";
 import { faDigits, fcCategories, fcInGroupCompare, fcOldDays, FC_GROUP_LABELS83, FC_OLD_DAYS_KEY, FC_OLD_DAYS_DEFAULT, type FcCategory } from "./files-category";
 
@@ -188,13 +189,16 @@ export function fcDeck(sp: number, day: string, now = new Date()) {
     const px = pos.get(x.id), py = pos.get(y.id);
     if (px != null && py != null) return px - py; if (px != null) return -1; if (py != null) return 1;
     return catMode ? fcInGroupCompare({ id: x.id, c: cats.get(x.id)! }, { id: y.id, c: cats.get(y.id)! }) : fcDefaultCompare(x, y); };
+  // TODAY-SPLIT (PM, act_more): with flag.today_split for this expert, a file task that appears after the list opened is appended to
+  // today's order (count rises) and becomes the «بالفعل» current card in turn. The list stays open: list_opened_at is never cleared.
+  const actMore = Boolean(catMode && listOpenedAt && tsOnSp(sp));
   let current: number | null = null;
   if (d?.started_at) {
     // PM 10:31: the current card never leaves the deck (even if its step moves away or the file closes mid-card).
     let pinnedOk = d.current_file_id != null && !doneIds.has(d.current_file_id);
     if (pinnedOk && !byId.has(d.current_file_id!)) { const f = fileById(d.current_file_id!); if (f && Number(f.owner) === sp) byId.set(f.id, f); else pinnedOk = false; }
     if (pinnedOk) current = d.current_file_id;
-    else if (listOpenedAt) current = null;
+    else if (listOpenedAt && !actMore) current = null;
     else {
       current = step.filter(f => !doneIds.has(f.id)).sort(rank)[0]?.id ?? null;
     }
@@ -202,7 +206,7 @@ export function fcDeck(sp: number, day: string, now = new Date()) {
   } else {
     current = null;
   }
-  const pending = listOpenedAt ? [] : step.filter(f => !doneIds.has(f.id) && f.id !== current).sort(rank);
+  const pending = listOpenedAt && !actMore ? [] : step.filter(f => !doneIds.has(f.id) && f.id !== current).sort(rank);
   // REL-83: the deck ran out (or was empty) after the day started → the list opens for the rest of the day.
   let listOpen = Boolean(listOpenedAt);
   if (catMode && d?.started_at && !listOpenedAt && current == null && pending.length === 0) {
@@ -223,7 +227,7 @@ export function fcDeck(sp: number, day: string, now = new Date()) {
     ...pending.map(f => ({ f, state: "pending" as const })),
   ];
   const fuBy = new Map(fus.map(f => [f.file_id, f]));
-  return { ord, current, returned, catMode, cats, listOpen, lateReturns, pos,
+  return { ord, current, returned, catMode, cats, listOpen, lateReturns, pos, actMore, listOpenedAt,
     cards: seq.map((x, i) => ({ ...x, position: i + 1, returnedToday: returned.has(x.f.id), meta: meta.get(x.f.id) ?? null, fu: fuBy.get(x.f.id) ?? null, cat: cats.get(x.f.id) ?? null })), doneCount: fus.length };
 }
 const fileCore = (f: FileRow) => {
@@ -369,6 +373,9 @@ export function fcExpertView(u: U, now = new Date()) {
     // REL-83 (flag.fc_categories): mode «list» = cards ran out / none → the UI opens the full list (GET /files-carousel/list); lateReturns = the bar (no lock).
     categories: deck.catMode, mode: deck.catMode && deck.listOpen ? "list" : "cards",
     lateReturns: deck.lateReturns.map(f => { const c = deck.cats.get(f.id)!; return { type: "file_returned", file_id: f.id, customer_name: f.name ?? "", return_type: c.return_type, return_note: c.return_note, returned_at: c.returned_at, return_source: c.return_source }; }),
+    // TODAY-SPLIT: only with the per-user flag (absent otherwise, so the old pages see the same payload).
+    ...(tsOnSp(sp) ? { split: { on: true as const, remaining: deck.cards.filter(c => c.state !== "done").length, unlocked: Boolean(deck.listOpen),
+      addedAfterUnlock: deck.actMore ? deck.cards.filter(c => c.state !== "done").length : 0 } } : {}),
     orderSource: deck.ord ? "assistant" : "default", waiting: fcWaiting(sp, new Set(deck.cards.map(c => c.f.id))), outcomes: FC_OUTCOMES.map(o => ({ code: o, label: FC_OUTCOME_LABELS[o] })), noteMax: FC_NOTE_MAX, cancelReasonMax: FC_CANCEL_REASON_MAX,
     cards: deck.cards.map(c => ({ ...expertCore(c.f), customerName: c.f.name ?? "", phone: c.state === "current" ? phone : null, returnedToday: c.returnedToday, position: c.position, state: c.state, reason: c.meta?.reason ?? null, ask: c.meta?.ask ?? null, fc: catCore(c.cat),
       todayFollowUp: c.fu ? { at: c.fu.created_at, outcome: c.fu.outcome, outcomeLabel: FC_OUTCOME_LABELS[c.fu.outcome] ?? null, note: c.fu.note } : null })) };
@@ -397,6 +404,8 @@ export function fcExpertFollowup(u: U, body: any, now = new Date()) {
   // REL-83: «لغو» of an own file that is already closed is always 409 under the categories flag (list open or not).
   if (!card && cx && deck.catMode) { const f = fileById(fid); if (f && Number(f.owner) === sp && !f.open) return err(409, "case_already_closed", "این پرونده بسته است.", { fileId: fid }); }
   if (!card) return err(404, "file_not_found", "این پرونده در کارهای امروزت نیست.");
+  // TODAY-SPLIT act_more: after the list opened, a task appended to today's order stays actionable from the open list (REL-83 (ب)).
+  if (card.state === "pending" && deck.catMode && deck.listOpen) card = { f: card.f, state: "current" };
 
   // HOTFIX-77h (Mohammad 17:11 Tehran «کارشناس فروشم بذار لغو کنه پرونده رو»): «لغو شده» works on any OWN open card of today's deck
   // (current or pending); the other outcomes still need the current card.
@@ -473,6 +482,8 @@ export function fcWriteLocked(u: U, fileId: number, now = new Date()): boolean {
   const f = fileById(fileId); if (!f || !f.open || Number(f.owner) !== sp) return false;
   if (queryRow("SELECT 1 x FROM fc_followups WHERE salesperson_id=? AND day=? AND file_id=?", [sp, day, fileId])) return false;
   const d = dayRow(sp, day); if (!d?.started_at) return false;
+  // TODAY-SPLIT: once the list opened today nothing is write-locked (REL-83 (ب)), also when act_more added new tasks.
+  if (d.list_opened_at) return false;
   const deck = fcDeck(sp, day, now);
   // only files waiting in the deck are locked; files whose step is elsewhere (review/admin/wallet) are not the carousel's business.
   return deck.cards.some(c => c.f.id === fileId && c.state === "pending");
