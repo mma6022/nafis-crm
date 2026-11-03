@@ -1105,6 +1105,87 @@ export function createAssistants(deps: Deps) {
     audit({ req, a, tokenId: TK(res), action: act, customerId: cid, outcome: "ok", detail: { reminderId: r.id, old: { remindAt: r.remind_at, subject: r.subject ?? null, message: r.message ?? null }, actor, reason: reason || null } });
     res.status(200).json({ ok: true, reminderId: r.id, status: "cancelled", cancelledAt: t, actor, reason: reason || null, softDeleted: true, cancelsLeftToday: left });
   });
+  /* assistantsrs (Mohammad t147u/t148u, 2 Nov): «برنامه‌ی یادآورها» — READ ONLY.
+   * GET /api/assistant-runner/reminders/schedule?from=YYYY-MM-DD&days=N  (from = Tehran day, default Tehran today; days default 15, max 31)
+   * ALL open reminders (done=0 AND voided_at IS NULL) whose owner (reminders.user_id) is this assistant's OWN bound expert — every
+   * customer priority, plus the expert's personal reminders (customer_id NULL: time only, never subject/message/note).
+   * Overdue open reminders before `from` are always included (overdue:true). The expert comes ONLY from the token's bound user; any
+   * user/userId/salespersonId query param is ignored. Customer name/subject follow the runner's existing visibility: in scope → name +
+   * masked subject (as /customers/:id/reminders); out of scope (e.g. a P2 customer for a p1 assistant) → maskName, subject null.
+   * No phone numbers. Per Tehran day and hour: counts and flags (> 8 / day, > 1 / hour). No writes except the usual audit row. */
+  const RS_DAY_LIMIT = 8, RS_HOUR_LIMIT = 1, RS_DEFAULT_DAYS = 15, RS_MAX_DAYS = 31, RS_MAX_ITEMS = 1000, TEHRAN_MS = 210 * 60_000;
+  const rsParse = (v: unknown) => { const s = String(v ?? ""); return Date.parse(/^\d{4}-\d\d-\d\d[ T]\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(s) ? s.replace(" ", "T") + "Z" : s); };
+  const rsDay = (ms: number) => new Date(ms + TEHRAN_MS).toISOString().slice(0, 10);
+  const rsHm = (ms: number) => new Date(ms + TEHRAN_MS).toISOString().slice(11, 16);
+  runner.get("/reminders/schedule", (req, res) => {
+    const act = "GET /reminders/schedule"; const a = A(res);
+    if (a.kind !== "sales" || a.scope_rule === "manager" || !a.bound_user_id || !a.bound_salesperson_id
+      || TRAINEE_SALESPERSON_IDS.includes(Number(a.bound_salesperson_id)) || EXCLUDED_USER_IDS.includes(Number(a.bound_user_id))) {
+      audit({ req, a, tokenId: TK(res), action: act, outcome: "sales_only" });
+      return fail(res, 403, "sales_only", "برنامه‌ی یادآورها فقط برای دستیار فروشِ خودِ کارشناس است.");
+    }
+    const nowMs = now().getTime(); const today = rsDay(nowMs);
+    const fromRaw = latin(req.query.from); const from = fromRaw || today;
+    const fromMs0 = /^\d{4}-\d\d-\d\d$/.test(from) ? Date.parse(`${from}T00:00:00Z`) : NaN;
+    if (!Number.isFinite(fromMs0) || new Date(fromMs0).toISOString().slice(0, 10) !== from) return fail(res, 400, "invalid_from", "from باید تاریخ میلادی YYYY-MM-DD (روز تهران) باشد.");
+    const daysRaw = latin(req.query.days);
+    if (daysRaw && !/^\d{1,4}$/.test(daysRaw)) return fail(res, 400, "invalid_days", "days باید عدد صحیح ۱ تا ۳۱ باشد.");
+    const daysAsked = daysRaw ? Number(daysRaw) : RS_DEFAULT_DAYS;
+    if (daysAsked < 1) return fail(res, 400, "invalid_days", "days باید عدد صحیح ۱ تا ۳۱ باشد.");
+    const days = Math.min(RS_MAX_DAYS, daysAsked);
+    const startMs = fromMs0 - TEHRAN_MS, endMs = startMs + days * 86_400_000;
+    const expert = Number(a.bound_user_id);
+    const rows = db.prepare(`SELECT r.id, r.customer_id, r.subject, r.source, r.remind_at, r.snooze_until,
+        c.id AS c_id, c.first_name, c.last_name, c.name, c.priority
+      FROM reminders r LEFT JOIN customers c ON c.id=r.customer_id
+      WHERE r.user_id=? AND r.done=0 AND r.voided_at IS NULL ORDER BY r.remind_at, r.id`).all(expert) as any[];
+    const picked: any[] = [];
+    for (const r of rows) {
+      const ms = rsParse(r.remind_at); if (!Number.isFinite(ms)) continue;
+      const overdue = ms < nowMs;
+      if (ms >= endMs || (ms < startMs && !overdue)) continue;
+      picked.push({ r, ms, overdue });
+    }
+    picked.sort((x, y) => x.ms - y.ms || Number(x.r.id) - Number(y.r.id));
+    const truncated = picked.length > RS_MAX_ITEMS; const list = picked.slice(0, RS_MAX_ITEMS);
+    const scopeCache = new Map<number, boolean>();
+    const items = list.map(({ r, ms, overdue }) => {
+      const at = new Date(ms).toISOString(); const base = { id: Number(r.id), remindAt: at, tehranDate: rsDay(ms), tehranTime: rsHm(ms), tehranFa: tehranTextFa(at), overdue,
+        snoozedUntil: r.snooze_until ? String(r.snooze_until) : null };
+      if (r.customer_id == null) return { ...base, kind: "personal" as const };
+      const cid = Number(r.customer_id);
+      if (!scopeCache.has(cid)) scopeCache.set(cid, inScope(a, cid));
+      const vis = scopeCache.get(cid)!; const nm = r.c_id == null ? null : custName(r);
+      return { ...base, kind: "customer" as const, customerId: cid, inScope: vis,
+        customerName: nm == null ? null : vis ? maskText(nm).slice(0, 120) : maskName(nm),
+        priority: r.priority == null ? null : Number(r.priority), source: r.source == null ? null : String(r.source).slice(0, 40),
+        subject: vis && r.subject != null ? maskText(r.subject).slice(0, 300) : null };
+    });
+    const dayList: any[] = [];
+    for (let i = 0; i < days; i++) {
+      const d = rsDay(startMs + i * 86_400_000 + 1); const inDay = items.filter(x => x.tehranDate === d);
+      const hourMap = new Map<string, number>(); for (const x of inDay) { const h = x.tehranTime.slice(0, 2); hourMap.set(h, (hourMap.get(h) ?? 0) + 1); }
+      const hours = [...hourMap.entries()].sort().map(([hour, count]) => ({ hour, count, overHourLimit: count > RS_HOUR_LIMIT }));
+      dayList.push({ date: d, dateFa: tehranTextFa(new Date(startMs + i * 86_400_000 + 6 * 3600_000).toISOString())?.slice(0, 10) ?? null, count: inDay.length,
+        customerCount: inDay.filter(x => x.kind === "customer").length, personalCount: inDay.filter(x => x.kind === "personal").length,
+        overdueCount: inDay.filter(x => x.overdue).length, overDayLimit: inDay.length > RS_DAY_LIMIT, hours, overHours: hours.filter(h => h.overHourLimit).map(h => h.hour) });
+    }
+    const before = items.filter(x => x.overdue && x.tehranDate < from);
+    const byDay = new Map<string, number>(); for (const x of before) byDay.set(x.tehranDate, (byDay.get(x.tehranDate) ?? 0) + 1);
+    const out = {
+      expert: { userId: expert, salespersonId: Number(a.bound_salesperson_id) },
+      range: { from, days, daysRequested: daysAsked, clamped: daysAsked > days, toExclusive: rsDay(endMs), startAt: new Date(startMs).toISOString(), endAt: new Date(endMs).toISOString(), timezone: "Asia/Tehran (UTC+03:30)" },
+      now: new Date(nowMs).toISOString(), nowTehran: tehranText(new Date(nowMs).toISOString()),
+      limits: { perDay: RS_DAY_LIMIT, perHour: RS_HOUR_LIMIT },
+      totals: { items: items.length, customer: items.filter(x => x.kind === "customer").length, personal: items.filter(x => x.kind === "personal").length,
+        overdue: items.filter(x => x.overdue).length, overdueBeforeFrom: before.length, truncated },
+      overdueBeforeFrom: { count: before.length, byDay: [...byDay.entries()].sort().map(([date, count]) => ({ date, count })) },
+      days: dayList, overLimitDays: dayList.filter(d => d.overDayLimit).map(d => d.date),
+      items,
+    };
+    audit({ req, a, tokenId: TK(res), action: act, outcome: "ok", detail: { from, days, items: items.length, overdue: out.totals.overdue } });
+    res.json(out);
+  });
   runner.post("/typing", (req, res) => {
     const a = A(res); const t = row<any>("SELECT * FROM assistant_threads WHERE id=? AND assistant_id=?", Number(req.body?.threadId), a.id);
     if (!t) return fail(res, 404, "thread_not_found");
