@@ -4838,6 +4838,8 @@ button.gp-chip { cursor: pointer; font-family: inherit; }
 .diag-bar i{display:block;height:100%;background:#bc9252}
 .diag-inline{display:inline-flex;gap:5px;align-items:center;border:1px solid #d5dbe6;background:#fff;border-radius:8px;padding:4px 9px;font-size:12px;cursor:pointer;margin-inline-end:8px}
 .diag-floating{position:fixed;bottom:18px;left:18px;z-index:99999;display:flex;align-items:center;gap:7px;padding:10px 14px;border:1px solid #d5dbe6;border-radius:24px;background:#fff;color:#1a305e;box-shadow:0 3px 14px #15264720;font:inherit;font-size:12px;cursor:pointer}
+/* ARMITA-B2 item 4: on mobile «گزارش خطا» lives in the top bar (file-detail design 1.1), so the floating pill no longer covers the last card. */
+@media (max-width:640px){.topbar .diag-topbar-btn{display:inline-flex!important;visibility:visible!important}body:has(.topbar .diag-topbar-btn) .diag-floating{display:none!important}}
 .diag-backdrop,.diag-panel,.diag-text{box-sizing:border-box}
 .diag-panel{min-width:0;max-width:100%}
 .diag-text{max-width:100%}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Lock } from 'lucide-react';
 import { CustomerIdBadge } from '@/components/customer/CustomerName';
 import { toPersianDigits } from '@/lib/customer-id';
 import './doc-upload-error.css';
@@ -17,6 +17,18 @@ export type DocUpErr =
   | { kind: 'network' }
   | { kind: 'closed' }
   | { kind: 'default' };
+
+/** ARMITA-B2 item 2: every document name on screen goes through the Persian digit conversion («۳ ماهه»). Display only; the stored label is unchanged. */
+export const docName = (label: unknown) => toPersianDigits(label);
+export const DOC_CLOSED_TEXT = 'این پرونده بسته شده است و دیگر نمی‌شود مدرکی به آن اضافه کرد.';
+/** ARMITA-B2 item 1: shown once, at the top of a closed file's documents list. */
+export function DocClosedLine() {
+  return <div role="note" className="doc-closed-line" data-testid="doc-closed-line"><Lock size={14} aria-hidden className="doc-closed-ico" /><span>{DOC_CLOSED_TEXT}</span></div>;
+}
+/** ARMITA-B2 item 1: grey chip for a document that was never uploaded on a closed file (instead of «در انتظار بارگذاری»). */
+export function DocMissingChip({ testId }: { testId?: string }) {
+  return <span className="doc-missing-chip" data-testid={testId ?? 'chip-doc-missing'}>بارگذاری نشد</span>;
+}
 
 export const mb = (b: number) => toPersianDigits(String(Math.round((b / 1048576) * 10) / 10)).replace('.', '٫');
 
@@ -49,10 +61,11 @@ export function DocUploadError({ err, onPickOther, onRetry, onGoFile }: { err: D
     case 'turn':
       body = err.name
         ? <>مدارک پرونده‌ها به ترتیب باز می‌شود؛ اول پرونده‌ی <b>{err.name}</b>{err.fileId ? <> <CustomerIdBadge id={err.fileId} testId="doc-err-turn-id" /></> : null} را کامل کن.</>
-        : err.fileId ? <>مدارک پرونده‌ها به ترتیب باز می‌شود؛ اول پرونده‌ی #{toPersianDigits(err.fileId)} را کامل کن.</>
+        : err.fileId ? <>مدارک پرونده‌ها به ترتیب باز می‌شود؛ اول پرونده‌ی <CustomerIdBadge id={err.fileId} testId="doc-err-turn-id" /> را کامل کن.</>
         : <>مدارک پرونده‌ها به ترتیب باز می‌شود؛ اول پرونده‌ی نوبت را کامل کن.</>;
       // Armita: the real customer name from the API; empty / missing name → «#۲۱۴» (never dots).
-      if (err.fileId) btn = B(`رفتن به پرونده‌ی ${err.name ?? `#${toPersianDigits(err.fileId)}`}`, () => onGoFile(err.fileId!), 'doc-err-go-file');
+      // ARMITA-B2 item 3: the go-to-file button is a normal (neutral) button, not red text.
+      if (err.fileId) btn = <button type="button" className="btn btn-ghost dup-btn-go" data-testid="doc-err-go-file" onClick={() => onGoFile(err.fileId!)}>{`رفتن به پرونده‌ی ${err.name ?? `#${toPersianDigits(err.fileId)}`}`}</button>;
       break;
     case 'size':
       body = err.mb ? <>حجم این فایل {mb(err.mb)} مگابایت است؛ حداکثر {mb(err.maxMb)} مگابایت مجاز است. فایل کوچک‌تری انتخاب کن.</> : <>حجم این فایل بیشتر از حد مجاز است؛ حداکثر {mb(err.maxMb)} مگابایت مجاز است. فایل کوچک‌تری انتخاب کن.</>;
@@ -61,7 +74,7 @@ export function DocUploadError({ err, onPickOther, onRetry, onGoFile }: { err: D
       body = <>این نوع فایل پذیرفته نمی‌شود. فقط {err.list} را می‌شود بارگذاری کرد.</>;
       btn = B('انتخاب فایل دیگر', onPickOther, 'doc-err-pick'); break;
     case 'closed':
-      body = <>این پرونده بسته شده است و دیگر نمی‌شود مدرکی به آن اضافه کرد.</>; break; // no button (Armita)
+      body = <>{DOC_CLOSED_TEXT}</>; break; // no button (Armita)
     case 'network':
       body = <>اتصال برقرار نشد و مدرک بارگذاری نشد. اینترنت را بررسی کن و دوباره امتحان کن.</>;
       btn = B('دوباره امتحان کن', onRetry, 'doc-err-retry'); break;

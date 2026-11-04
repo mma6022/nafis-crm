@@ -74,7 +74,7 @@ import '@/pages/customers.css';
 import '@/pages/loan-requests.css';
 import { ChevronLeft as ChevronLeftIcon, User as UserIcon } from 'lucide-react';
 import { CustomerName } from '@/components/customer/CustomerName';
-import { DocUploadError, docClientCheck, docMaxBytes, docServerError, mb, type DocUpErr } from '@/features/doc-upload/DocUploadError';
+import { DocUploadError, DocClosedLine, DocMissingChip, docName, docClientCheck, docMaxBytes, docServerError, mb, type DocUpErr } from '@/features/doc-upload/DocUploadError';
 import { SmartFilingButton } from '@/features/smart-filing/SmartFilingButton';
 
 const STAGE_LABELS: Record<string, string> = {
@@ -479,9 +479,9 @@ export default function LoanApplicationDetail() {
     setReviewModal(decision);
   };
   const funderItems = [
-    ...customerDocs.map((d: any) => ({ source: 'document', id: d.id, label: d.label || d.original_name || `مدرک ${d.id}` })),
+    ...customerDocs.map((d: any) => ({ source: 'document', id: d.id, label: d.label ? docName(d.label) : d.original_name || `مدرک ${d.id}` })),
     ...guarantorDocs.map((d: any) => ({ source: 'guarantor', id: d.id, label: d.requirement_key || `مدرک ضامن ${d.id}` })),
-    ...collaterals.map((d: any) => ({ source: 'collateral', id: d.id, label: d.dataJson?.label || `وثیقه ${d.id}` })),
+    ...collaterals.map((d: any) => ({ source: 'collateral', id: d.id, label: d.dataJson?.label ? docName(d.dataJson.label) : `وثیقه ${d.id}` })),
   ];
   const customerDocumentsApproved = customerDocs.every((doc: any) => doc.status === 'approved');
   const identityDocumentsApproved = identityDocs.length === 5 && identityDocs.every((doc: any) => Boolean(doc.approvedAt || doc.approved_at));
@@ -1200,7 +1200,8 @@ function DocumentSection({ appId, docs, title, type, canUpload: canUploadIn, can
   // REVIEWWAIT web (Armita): the size limit is the API's (documentUploadMaxBytes = multer's LOAN_DOCUMENT_MAX_BYTES); a closed file shows no upload button at all.
   const appQ = useGetLoanApplication(appId);
   const maxBytes = docMaxBytes((appQ.data as any)?.documentUploadMaxBytes);
-  const canUpload = canUploadIn && (appQ.data as any)?.fileClosed !== true;
+  const fileClosed = (appQ.data as any)?.fileClosed === true;
+  const canUpload = canUploadIn && !fileClosed;
 
   const uploadCustomer = useUploadLoanApplicationDocument({ mutation: { onError: (e) => setUpErr(docServerError(e, maxBytes)), onSuccess: () => { queryClient.invalidateQueries(); setUploadOpen(false); setLabel(''); setFile(null); setSelectedRequirement(null); } } });
   const uploadGuarantor = useUploadLoanApplicationGuarantorDocument({ mutation: { onError: (e) => setUpErr(docServerError(e, maxBytes)), onSuccess: () => { queryClient.invalidateQueries(); setUploadOpen(false); setLabel(''); setFile(null); } } });
@@ -1293,22 +1294,23 @@ function DocumentSection({ appId, docs, title, type, canUpload: canUploadIn, can
       </div>
       
       <div className="docs-list" style={{ display: 'grid', gap: 10 }}>
+        {fileClosed && <DocClosedLine />}
         {docs.length > 0 ? docs.map(doc => (
           <div key={doc.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 12, border: '1px solid #e2e8f0', borderRadius: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ width: 48, height: 48, borderRadius: 8, background: '#f1f5f9', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><FileText size={18} /></div>
               <div>
-                <strong style={{ display: 'block', fontSize: 13, color: '#334155' }}>{doc.label || doc.filename || 'سند بدون نام'}</strong>
-                <span style={{ fontSize: 11, color: doc.status === 'approved' ? '#0f766e' : (doc.status === 'rejected' || doc.status === 'incomplete') ? '#be123c' : '#94a3b8' }}>
+                <strong style={{ display: 'block', fontSize: 13, color: '#334155' }}>{doc.label ? docName(doc.label) : doc.filename || 'سند بدون نام'}</strong>
+                {fileClosed && !hasFile(doc) ? <DocMissingChip testId={`chip-doc-missing-${doc.id}`} /> : <span style={{ fontSize: 11, color: doc.status === 'approved' ? '#0f766e' : (doc.status === 'rejected' || doc.status === 'incomplete') ? '#be123c' : '#94a3b8' }}>
                   {!hasFile(doc) ? 'در انتظار بارگذاری' : doc.status === 'approved' ? 'تأیید شده' : doc.status === 'incomplete' ? 'نقص مدرک' : doc.status === 'rejected' ? 'رد شده' : 'در انتظار بررسی'}
-                </span>
+                </span>}
                 {hasFile(doc) && <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}><bdi dir="ltr">{fileName(doc)}</bdi></div>}
                 {doc.reviewReason && <div style={{ fontSize: 10, color: '#be123c', marginTop: 2 }}>{doc.reviewReason}</div>}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               {canUpload && <button data-testid={`button-upload-document-${doc.id}`} className="btn btn-ghost" style={{ padding: '0 9px', height: 32 }} onClick={() => openUpload(doc)}><UploadCloud size={14} /> {hasFile(doc) ? 'جایگزینی' : 'آپلود'}</button>}
-              {hasFile(doc) && <button data-testid={`button-preview-document-${doc.id}`} className="btn btn-ghost" style={{ padding: '0 9px', height: 32 }} onClick={() => setPreviewDoc({ title: doc.label || fileName(doc) || 'مدرک', mime: mimeType(doc), url: downloadUrl(doc, true), downloadUrl: downloadUrl(doc) })}><Search size={14} /> مشاهده</button>}
+              {hasFile(doc) && <button data-testid={`button-preview-document-${doc.id}`} className="btn btn-ghost" style={{ padding: '0 9px', height: 32 }} onClick={() => setPreviewDoc({ title: doc.label ? docName(doc.label) : fileName(doc) || 'مدرک', mime: mimeType(doc), url: downloadUrl(doc, true), downloadUrl: downloadUrl(doc) })}><Search size={14} /> مشاهده</button>}
               {hasFile(doc) && <a data-testid={`link-download-document-${doc.id}`} className="btn btn-ghost" style={{ padding: '0 9px', height: 32, textDecoration: 'none' }} href={downloadUrl(doc)} download><Download size={14} /> دانلود</a>}
               {canReview && hasFile(doc) && doc.status !== 'approved' && <button className="icon-button" style={{ width: 32, height: 32, color: '#047857', borderColor: '#a7f3d0', background: '#ecfdf5' }} onClick={() => handleReview(doc.id, 'approved')} title="تأیید"><CheckCircle2 size={14} /></button>}
               {canReview && hasFile(doc) && doc.status !== 'incomplete' && <button className="icon-button" style={{ width: 32, height: 32, color: '#b45309', borderColor: '#fde68a', background: '#fffbeb' }} onClick={() => handleReview(doc.id, 'incomplete')} title="نقص مدرک"><XCircle size={14} /></button>}
@@ -1347,7 +1349,7 @@ function DocumentSection({ appId, docs, title, type, canUpload: canUploadIn, can
       )}
 
       {uploadOpen && (
-        <Modal title={selectedRequirement ? `بارگذاری ${selectedRequirement.label}` : 'بارگذاری مدرک'} onClose={() => { setUploadOpen(false); setSelectedRequirement(null); }} testId="upload-document-modal">
+        <Modal title={selectedRequirement ? `بارگذاری ${docName(selectedRequirement.label)}` : 'بارگذاری مدرک'} onClose={() => { setUploadOpen(false); setSelectedRequirement(null); }} testId="upload-document-modal">
           <form onSubmit={handleUpload} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {!selectedRequirement && <div className="field">
               <label>عنوان فارسی مدرک</label>
@@ -1478,13 +1480,16 @@ function GuarantorSection({ appId, docs, guarantor, canRegister, canUpload, canR
   );
 }
 
-function CollateralSection({ appId, collaterals, requiredCollateral, canUpload, canReview, canSubmit, onSubmit, submitPending }: { appId: number, collaterals: any[], requiredCollateral: any[], canUpload: boolean, canReview: boolean, canSubmit: boolean, onSubmit: () => void, submitPending: boolean }) {
+function CollateralSection({ appId, collaterals, requiredCollateral, canUpload: canUploadIn, canReview, canSubmit, onSubmit, submitPending }: { appId: number, collaterals: any[], requiredCollateral: any[], canUpload: boolean, canReview: boolean, canSubmit: boolean, onSubmit: () => void, submitPending: boolean }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ requirementKey: requiredCollateral[0]?.key || '', file: null as File | null });
   const [reviewOpen, setReviewOpen] = useState<{ id: number, decision: 'incomplete' | 'rejected' } | null>(null);
   const [reviewReason, setReviewReason] = useState('');
   const [preview, setPreview] = useState<PreviewFile | null>(null);
+  // ARMITA-B2: closed file (deleted / rejected / completed) → one closed line, «بارگذاری نشد» for missing slots, no upload.
+  const fileClosed = (useGetLoanApplication(appId).data as any)?.fileClosed === true;
+  const canUpload = canUploadIn && !fileClosed;
   
   const submitMut = useSubmitLoanApplicationCollateral({ mutation: { onSuccess: () => { queryClient.invalidateQueries(); setOpen(false); } } });
   const reviewMut = useReviewLoanApplicationCollateral({ mutation: { onSuccess: () => { queryClient.invalidateQueries(); setReviewOpen(null); setReviewReason(''); } } });
@@ -1519,6 +1524,7 @@ function CollateralSection({ appId, collaterals, requiredCollateral, canUpload, 
       </div>
 
       <div style={{ display: 'grid', gap: 10 }}>
+        {fileClosed && <DocClosedLine />}
         {collaterals.map(c => (
           (() => {
             const metadata = collateralMetadata(c);
@@ -1539,7 +1545,7 @@ function CollateralSection({ appId, collaterals, requiredCollateral, canUpload, 
             </div>
             <div style={{ display: 'flex', gap: 4 }}>
               {canUpload && <button data-testid={`button-upload-collateral-${c.id}`} className="btn btn-ghost" style={{ padding: '0 9px', height: 32 }} onClick={() => { setForm({ requirementKey: metadata.requirementKey || '', file: null }); setOpen(true); }}><UploadCloud size={14} /> {hasFile(c) ? 'جایگزینی' : 'آپلود'}</button>}
-              {hasFile(c) && <button data-testid={`button-preview-collateral-${c.id}`} className="btn btn-ghost" style={{ padding: '0 9px', height: 32 }} onClick={() => setPreview({ title: metadata.label || 'وثیقه', mime: metadata.mimeType || '', url: collateralDownloadUrl(c, true), downloadUrl: collateralDownloadUrl(c) })}><Search size={14} /> مشاهده</button>}
+              {hasFile(c) && <button data-testid={`button-preview-collateral-${c.id}`} className="btn btn-ghost" style={{ padding: '0 9px', height: 32 }} onClick={() => setPreview({ title: metadata.label ? docName(metadata.label) : 'وثیقه', mime: metadata.mimeType || '', url: collateralDownloadUrl(c, true), downloadUrl: collateralDownloadUrl(c) })}><Search size={14} /> مشاهده</button>}
               {hasFile(c) && <a data-testid={`link-download-collateral-${c.id}`} className="btn btn-ghost" style={{ padding: '0 9px', height: 32, textDecoration: 'none' }} href={collateralDownloadUrl(c)}><Download size={14} /> دانلود</a>}
               {canReview && hasFile(c) && c.status !== 'approved' && <button className="icon-button" style={{ width: 32, height: 32, color: '#047857', borderColor: '#a7f3d0', background: '#ecfdf5' }} onClick={() => handleReview(c.id, 'approved')}><CheckCircle2 size={14} /></button>}
               {canReview && hasFile(c) && c.status !== 'incomplete' && <button className="icon-button" style={{ width: 32, height: 32, color: '#b45309', borderColor: '#fde68a', background: '#fffbeb' }} onClick={() => handleReview(c.id, 'incomplete')}><XCircle size={14} /></button>}
@@ -1550,7 +1556,7 @@ function CollateralSection({ appId, collaterals, requiredCollateral, canUpload, 
           })()
         ))}
         {collaterals.length === 0 && <div className="empty-state compact-empty"><p>وثیقه‌ای ثبت نشده است.</p></div>}
-        {requiredCollateral.filter((slot) => !uploadedKeys.has(slot.key)).map((slot) => <div key={slot.key} style={{ padding: 12, border: '1px dashed #f59e0b', borderRadius: 10, color: '#92400e', fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span>در انتظار بارگذاری: {slot.label}</span>{canUpload && <button data-testid={`button-upload-collateral-${slot.key}`} className="btn btn-ghost" onClick={() => { setForm({ requirementKey: slot.key, file: null }); setOpen(true); }}><UploadCloud size={14} /> آپلود</button>}</div>)}
+        {requiredCollateral.filter((slot) => !uploadedKeys.has(slot.key)).map((slot) => fileClosed ? <div key={slot.key} style={{ padding: 12, border: '1px solid #e2e8f0', borderRadius: 10, color: '#334155', fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}><strong style={{ fontSize: 13 }}>{docName(slot.label)}</strong><DocMissingChip testId={`chip-collateral-missing-${slot.key}`} /></div> : <div key={slot.key} style={{ padding: 12, border: '1px dashed #f59e0b', borderRadius: 10, color: '#92400e', fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><span>در انتظار بارگذاری: {docName(slot.label)}</span>{canUpload && <button data-testid={`button-upload-collateral-${slot.key}`} className="btn btn-ghost" onClick={() => { setForm({ requirementKey: slot.key, file: null }); setOpen(true); }}><UploadCloud size={14} /> آپلود</button>}</div>)}
       </div>
       {canSubmit && !allUploaded && <div style={{ color: '#b45309', fontSize: 11, marginTop: 10 }}>همه تصاویر وثیقه موردنیاز طرح را بارگذاری کنید.</div>}
 
@@ -1560,7 +1566,7 @@ function CollateralSection({ appId, collaterals, requiredCollateral, canUpload, 
             <div className="field">
               <label>تصویر موردنیاز طرح</label>
               <select value={form.requirementKey} onChange={e => setForm({...form, requirementKey: e.target.value})}>
-                {requiredCollateral.map((slot) => <option key={slot.key} value={slot.key}>{slot.label}</option>)}
+                {requiredCollateral.map((slot) => <option key={slot.key} value={slot.key}>{docName(slot.label)}</option>)}
               </select>
             </div>
             <div className="field">

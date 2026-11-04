@@ -243,7 +243,7 @@ function ReportView({ report, loading, onLeave, onNew }: { report: DiagnosticRep
 export function DiagnosticsButton() {
   const d = useDiagnostics();
   if (!d) return null;
-  return <button type="button" className="icon-button" onClick={d.open} aria-label="گزارش خطا" title="گزارش خطا" data-testid="button-open-diagnostics"><Bug size={17} /></button>;
+  return <button type="button" className="icon-button diag-topbar-btn" onClick={d.open} aria-label="گزارش خطا" title="گزارش خطا" data-testid="button-open-diagnostics"><Bug size={17} /></button>;
 }
 
 /** Compact inline variant for popup headers. Renders nothing outside staff shell. */

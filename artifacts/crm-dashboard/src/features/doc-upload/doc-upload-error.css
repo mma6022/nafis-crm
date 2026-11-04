@@ -10,3 +10,10 @@
 .dup-pick-btn{height:36px;padding:0 12px;flex:none}
 .dup-pick-btn:focus-visible{outline:2px solid var(--nf-brand-600,#5060DC);outline-offset:2px}
 .dup-fname{font-size:12px;color:#475569;min-width:0;overflow-wrap:anywhere}
+/* ARMITA-B2: item 3 — the #id inside the red message is the standard grey copy badge (not red); go-to-file is a normal button. */
+.dup-err .cust-id-badge{color:#6b7280;vertical-align:middle;margin:0 2px}
+.dup-btn-go{align-self:flex-start;height:32px;padding:0 12px}
+/* item 1 — closed file: one neutral line on top of the documents list; grey «بارگذاری نشد» chip. */
+.doc-closed-line{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid #e2e8f0;background:#f8fafc;color:#475569;border-radius:10px;font-size:12.5px;line-height:1.8}
+.doc-closed-ico{flex:none;color:#64748b}
+.doc-missing-chip{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:999px;background:#f1f3f5;border:1px solid #e3e6ea;color:#6b7280;font-size:11px;font-weight:500;white-space:nowrap}
