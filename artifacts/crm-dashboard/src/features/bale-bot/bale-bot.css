@@ -671,3 +671,17 @@
 
 /* global chat.css owns .tg; neutralise it inside the inbox */
 .cv-r .tg{height:auto;min-height:0;background:none;border:0;border-radius:0;overflow:visible;grid-template-columns:none}
+
+/* mobile chat: full-screen fixed column — header/strip stay, only the thread scrolls, composer pinned at bottom */
+@media (max-width:1023px){
+.bbt .pg.chv .pane.ch{position:fixed;inset:0;z-index:60;height:100vh;height:100dvh;min-height:0;overflow:hidden;display:flex;flex-direction:column;background:#fff}
+.bbt .pg.chv .pane.ch>*{flex:none}
+.bbt .pg.chv .pane.ch>.th{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.bbt .pg.chv .chh{position:relative;top:auto}
+.bbt .pg.chv .cz{position:relative}
+}
+/* token hint: lock icon inline with the text */
+.bbt .hint{display:flex;align-items:flex-start;gap:6px}.bbt .hint .i{width:16px;height:16px;flex:none;margin-top:4px}
+/* stored file whose bytes are not a viewable image */
+.bbt .media.broken{height:auto;min-height:0;background:var(--nf-surface-2);display:flex;align-items:center;justify-content:center;padding:18px}
+.bbt .media .nopv{font-size:14px;color:var(--nf-ink-soft);text-align:center}
