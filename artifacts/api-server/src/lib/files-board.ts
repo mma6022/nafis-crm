@@ -11,10 +11,17 @@
 import { queryRow, queryRows } from "./crm-db";
 import { tParts, fromTehran } from "./call-queue";
 import { flOn } from "./files-lock";
-import { catCore, dayRow, ensureFcSchema, fcDeck, fcListOrder, fcToday, fcFullPhone, FILE_SELECT, FC_SALES_STAGES, fileById, lastFollowUp, type FileRow } from "./files-carousel";
+import { catCore, dayRow, ensureFcSchema, fcDeck, fcListOrder, fcToday, fcFullPhone, FILE_SELECT, FC_SALES_STAGES, FC_WAIT_GROUPS, fileById, lastFollowUp, type FileRow } from "./files-carousel";
 
 export const FB_FLAG_PREFIX = "flag.files_board.user.";
 export const FB_CLOSED_DAYS = 30;
+/** REVIEWWAIT (Mohammad t817s3302 «پرونده‌ای که منتظر بررسی مدارکه نوبت کارشناس رو نگیره»): a file on a stage where it waits on someone
+ *  else (FC_WAIT_GROUPS: registrar document review, provider/funder queue, admin approval, wallet charge — no salesperson action) never
+ *  takes the board turn and stays locked like any other non-turn file. A rejection / return moves the stage back to an expert step
+ *  (return-customer-documents / funder-initial-reject → customer_documents_upload, return-guarantor-documents → guarantor_documents_upload,
+ *  return-collateral → collateral_upload, …), so the file rejoins the turn at its rank at once (recomputed on every request; nothing stored).
+ *  Resolved lazily: files-carousel imports this module. */
+export const fbWaitGroup = (stage: string | null | undefined) => FC_WAIT_GROUPS.find(g => g.stages.includes(String(stage ?? ""))) ?? null;
 export function fbOn(userId: number | null | undefined): boolean {
   if (!userId || !flOn(Number(userId))) return false;
   try { return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [`${FB_FLAG_PREFIX}${Number(userId)}`])?.value === "1"; }
@@ -68,7 +75,8 @@ export function fbState(sp: number, now = new Date()) {
   // stage-history row today is this expert's own write, that is still on an expert step and has no follow-up today, keeps the turn until
   // its «پیگیری» result. Such a row exists only for a write the guard already allowed, so no locked file opens; a reviewer action or a
   // return after it (latest row not the expert's) and files re-entered after a follow-up keep the normal rank. Nothing is stored.
-  const base = order.filter(id => !isClosed(id) && !followed(id));
+  const reviewWait = (id: number) => fbWaitGroup(byId.get(id)?.stage) != null;
+  const base = order.filter(id => !isClosed(id) && !followed(id) && !reviewWait(id));
   const inProgress = new Set<number>();
   if (base.length) {
     const ph = base.map(() => "?").join(",");
@@ -82,7 +90,7 @@ export function fbState(sp: number, now = new Date()) {
   }
   const queue = [...base.filter(id => inProgress.has(id)), ...base.filter(id => !inProgress.has(id))];
   const turn = queue[0] ?? null;
-  return { day, order, onBoard, queue, turn, cats, byId, followed, isClosed, inProgress };
+  return { day, order, onBoard, queue, turn, cats, byId, followed, isClosed, inProgress, reviewWait };
 }
 export type FbState = ReturnType<typeof fbState>;
 
@@ -112,6 +120,9 @@ export function fbWriteBlock(u: U, fileId: number, now = new Date()): { error: "
   const s = fbState(sp, now);
   if (s.turn === fileId) return null;
   const t = s.turn != null ? s.byId.get(s.turn) : null;
+  const w = fbWaitGroup(s.byId.get(fileId)?.stage);
+  if (w && !s.isClosed(fileId)) return { error: "board_turn", message: `این پرونده منتظر اقدام ${w.label} است و تا برگشت به شما نوبت نمی‌گیرد.${t ? ` اول پرونده‌ی ${t.name ?? ""} را باز کن.` : ""}`,
+    details: { fileId, turnFileId: s.turn, turnFileName: t?.name ?? null, waitingOn: w.code } };
   return { error: "board_turn", message: t ? `به ترتیب باز می‌شود؛ اول پرونده‌ی ${t.name ?? ""} را باز کن.` : "امروز همه‌ی پرونده‌ها پیگیری شده‌اند؛ فردا به ترتیب باز می‌شوند.",
     details: { fileId, turnFileId: s.turn, turnFileName: t?.name ?? null } };
 }
