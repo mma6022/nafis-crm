@@ -244,6 +244,24 @@ try {
     assert.equal(empty.status, 200); assert.equal(empty.body.experts.length, 0);
     flag("flag.call_summary_fields_v1", null);
   });
+  await ok("expert lockdown (user 8): cs endpoints follow the single-customer rule only while the flag is on; report stays closed", async () => {
+    const el = await import("../src/lib/expert-lockdown.ts");
+    const guard = (method, p) => { let st = 0, nx = false; const res = { locals: { authUser: actors.kazemi }, status(c) { st = c; return this; }, json() { return this; } };
+      el.expertLockdownGuard({ method, path: p, query: {}, body: {} }, res, () => { nx = true; }); return nx ? "next" : st; };
+    flag("flag.expert_lockdown", "1"); flag("flag.call_summary_fields_v1", null); flag("flag.call_summary_fields_v1.user.8", null);
+    assert.equal(guard("GET", "/call-summary-fields/config"), 403); // flag off → unchanged (closed)
+    flag("flag.call_summary_fields_v1.user.8", "1");
+    const own = queryRow("SELECT id FROM customers WHERE salesperson_id=6 AND merged_into_customer_id IS NULL LIMIT 1").id;
+    const oth = queryRow("SELECT id FROM customers WHERE salesperson_id=5 AND merged_into_customer_id IS NULL LIMIT 1").id;
+    assert.equal(guard("GET", "/call-summary-fields/config"), "next");
+    assert.equal(guard("GET", `/call-summary-fields/customers/${own}/items`), "next");
+    assert.equal(guard("GET", `/call-summary-fields/customers/${own}/prefill`), "next");
+    assert.equal(guard("PUT", `/call-summary-fields/customers/${own}/items/arrears`), "next");
+    assert.equal(guard("GET", `/call-summary-fields/customers/${oth}/items`), 403);
+    assert.equal(guard("GET", "/call-summary-fields/report"), 403);
+    assert.equal(guard("GET", "/call-summary-fields/calls/999999999"), 403);
+    flag("flag.call_summary_fields_v1.user.8", null); flag("flag.expert_lockdown", null);
+  });
   await ok("no network, no SMS rows written by this feature", async () => {
     assert.equal(netCalls, 0);
   });

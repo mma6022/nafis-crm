@@ -25,6 +25,7 @@ import { MANAGER_TRAINEE_SALESPERSON_IDS } from "./assistant-manager";
 import { insertCustomerRecord } from "./customer-create";
 import { normalizeCustomerMobile } from "./customer-integrity";
 import { ssOn } from "./sales-shell";
+import { csOn } from "./call-summary-fields-core";
 
 export const EL_FLAG_KEY = "flag.expert_lockdown";
 /** users.id → their salespersons.id (checked against the session: a user whose salespersonId differs is not locked). */
@@ -161,7 +162,8 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   // call-transcripts v1.1 (only while flag.call_transcripts.ui = 1): the customer page's «متن و خلاصه‌ی تماس» follows the same
   // single-customer rule as the customer page itself; nothing else under /call-transcripts opens for a locked expert.
   // VOIP-CALL (flag.voip_call for this user only): «تماس از تلفن ویپ» + the customer's call history follow the same single-customer rule.
-  const ctIds = ctLockdownIds(req, path, Number(u!.id)) ?? vcLockdownIds(req, path, Number(u!.id));
+  // cs-fields v1 (flag.call_summary_fields_v1[.user.<id>] only): «موارد اجباری» on the call view / file follow the same single-customer rule.
+  const ctIds = ctLockdownIds(req, path, Number(u!.id)) ?? vcLockdownIds(req, path, Number(u!.id)) ?? csLockdownIds(req, path, Number(u!.id));
   if (ctIds) {
     for (const id of ctIds) if (!elCustomerAccess(u!, id) && !elOwnCustomer(u!, id))
       return deny(res, "expert_lockdown_customer", "این مشتری فعلاً برای شما باز نیست (فقط مشتری‌های «کارهای امروز»، پرونده‌های خودت یا «تماس ورودی»).");
@@ -215,6 +217,32 @@ function ctLockdownIds(req: Request, path: string, userId: number): number[] | n
       LEFT JOIN call_logs l ON l.id=e.call_log_id WHERE e.id=?`, [Number(call[1])]);
     return r?.cid ? [Number(r.cid)] : null; // a call without a customer stays closed
   }
+  return null;
+}
+/** cs-fields v1: null = not opened (flag off → normal lockdown = closed); [] = feature switch / own call; [customerId] = that customer's check.
+ *  The manager report stays closed for a locked expert. Handlers re-check access (own call / file-edit rule). */
+function csLockdownIds(req: Request, path: string, userId: number): number[] | null {
+  if (!path.startsWith("/call-summary-fields/")) return null;
+  try { if (!csOn(userId)) return null; } catch { return null; }
+  if (req.method === "GET" && path === "/call-summary-fields/config") return [];
+  const call = /^\/call-summary-fields\/calls\/(\d+)(?:\/items\/[A-Za-z]+|\/confirm|\/proposals\/apply-all)?$/.exec(path);
+  if (call) {
+    const okMethod = req.method === "GET" ? !/\/(items|confirm|proposals)/.test(path) : req.method === "PUT" ? path.includes("/items/") : req.method === "POST" && !path.includes("/items/");
+    if (!okMethod) return null;
+    if (req.method === "GET" && ctOwnEvent("id=?", Number(call[1]), userId)) return [];
+    const r = queryRow<{ cid: number | null }>(`SELECT COALESCE(l.customer_id,e.customer_id) cid FROM voip_after_call_events e
+      LEFT JOIN call_logs l ON l.id=e.call_log_id WHERE e.id=?`, [Number(call[1])]);
+    return r?.cid ? [Number(r.cid)] : null;
+  }
+  const pr = /^\/call-summary-fields\/proposals\/(\d+)\/(apply|reject)$/.exec(path);
+  if (pr && req.method === "POST") {
+    try {
+      const r = queryRow<{ cid: number | null }>("SELECT customer_id cid FROM cs_file_proposals WHERE id=?", [Number(pr[1])]);
+      return r?.cid ? [Number(r.cid)] : null;
+    } catch { return null; }
+  }
+  const cu = /^\/call-summary-fields\/customers\/(\d+)\/(items(?:\/[A-Za-z]+)?|prefill)$/.exec(path);
+  if (cu && (req.method === "GET" ? !cu[2].includes("/") : req.method === "PUT" && cu[2].startsWith("items/"))) return [Number(cu[1])];
   return null;
 }
 /** VOIP-CALL: null = not opened (flag off → normal lockdown = closed); [] = own-only endpoint; [customerId] = that customer's check. */
