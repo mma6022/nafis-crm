@@ -190,3 +190,9 @@ body[data-shot] .vc-cwi{animation:none!important}
 .vcx.vc-s132p{margin-bottom:76px;scroll-margin-bottom:84px}
 @media (max-width:1023px){.vcx.vc-s132p{margin-bottom:calc(var(--nf-bottom-bar-h,64px) + env(safe-area-inset-bottom,0px) + 72px);scroll-margin-bottom:calc(var(--nf-bottom-bar-h,64px) + env(safe-area-inset-bottom,0px) + 72px)}}
 html.ssv2-on .vcx.vc-s132p{margin-bottom:calc(var(--ss-dock-h,64px) + 150px + env(safe-area-inset-bottom,0px));scroll-margin-bottom:calc(var(--ss-dock-h,64px) + 150px + env(safe-area-inset-bottom,0px))}
+/* REVIEWWAIT web (Armita item 5, 390): the wait card no longer pushes the next row («تماس سیستمی» / «ثبت مشاوره») down under the floating «گزارش خطا»;
+   the page content gets the bottom room instead, so the auto-scroll still lifts the card above the dock (scroll-margin unchanged). */
+@media (max-width:699.98px){
+  html.ssv2-on .vcx.vc-s132p{margin-bottom:16px}
+  html.ssv2-on .app-main{padding-bottom:calc(var(--ss-dock-h,64px) + 150px + env(safe-area-inset-bottom,0px))}
+}
