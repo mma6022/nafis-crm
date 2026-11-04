@@ -67,7 +67,8 @@ const S132_WAIT = 120;
 /** SIMOTEL-FAST 1.3.4 (Armita): true while this customer's own call waits for the Simotel result (fast mode only) → manual «تماس گرفتم، ثبت نتیجه» is hidden. */
 export function useVcFastWaiting(customerId: number): boolean {
   const c = useVcMe().data?.call; const sc = c?.s132;
-  return Boolean(c && c.customerId === customerId && sc && sc.phase === 'waiting' && sc.fast === true && sc.expertStatus == null);
+  // REVIEWWAIT web (Armita): also the timeout card («نتیجه از سیموتل نرسید») — only the four status buttons + «دوباره زنگ بزن», at 1280 the same as at 390.
+  return Boolean(c && c.customerId === customerId && sc && (sc.phase === 'waiting' || sc.phase === 'late') && sc.fast === true && sc.expertStatus == null);
 }
 function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra, variant = 'task', onStarted, onFirstForm }: BoxProps & { me: VcMe }) {
   const qc = useQueryClient();

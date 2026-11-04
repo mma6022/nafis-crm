@@ -74,7 +74,7 @@ import '@/pages/customers.css';
 import '@/pages/loan-requests.css';
 import { ChevronLeft as ChevronLeftIcon, User as UserIcon } from 'lucide-react';
 import { CustomerName } from '@/components/customer/CustomerName';
-import { DocUploadError, docClientCheck, docServerError, type DocUpErr } from '@/features/doc-upload/DocUploadError';
+import { DocUploadError, docClientCheck, docMaxBytes, docServerError, mb, type DocUpErr } from '@/features/doc-upload/DocUploadError';
 import { SmartFilingButton } from '@/features/smart-filing/SmartFilingButton';
 
 const STAGE_LABELS: Record<string, string> = {
@@ -1183,7 +1183,7 @@ function IdentityDocumentsSection({ appId, customerId, documents, canReview, can
   );
 }
 
-function DocumentSection({ appId, docs, title, type, canUpload, canReview, correctionMode = false, canAddRequirement, canSubmit, onSubmit, submitPending, submitError }: { appId: number, docs: any[], title: string, type: 'customer' | 'guarantor', canUpload: boolean, canReview: boolean, correctionMode?: boolean, canAddRequirement?: boolean, canSubmit?: boolean, onSubmit?: () => void, submitPending?: boolean, submitError?: boolean }) {
+function DocumentSection({ appId, docs, title, type, canUpload: canUploadIn, canReview, correctionMode = false, canAddRequirement, canSubmit, onSubmit, submitPending, submitError }: { appId: number, docs: any[], title: string, type: 'customer' | 'guarantor', canUpload: boolean, canReview: boolean, correctionMode?: boolean, canAddRequirement?: boolean, canSubmit?: boolean, onSubmit?: () => void, submitPending?: boolean, submitError?: boolean }) {
   const queryClient = useQueryClient();
   const [uploadOpen, setUploadOpen] = useState(false);
   const [reqOpen, setReqOpen] = useState(false);
@@ -1197,9 +1197,13 @@ function DocumentSection({ appId, docs, title, type, canUpload, canReview, corre
   const [upErr, setUpErr] = useState<DocUpErr | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [, navTo] = useLocation();
+  // REVIEWWAIT web (Armita): the size limit is the API's (documentUploadMaxBytes = multer's LOAN_DOCUMENT_MAX_BYTES); a closed file shows no upload button at all.
+  const appQ = useGetLoanApplication(appId);
+  const maxBytes = docMaxBytes((appQ.data as any)?.documentUploadMaxBytes);
+  const canUpload = canUploadIn && (appQ.data as any)?.fileClosed !== true;
 
-  const uploadCustomer = useUploadLoanApplicationDocument({ mutation: { onError: (e) => setUpErr(docServerError(e)), onSuccess: () => { queryClient.invalidateQueries(); setUploadOpen(false); setLabel(''); setFile(null); setSelectedRequirement(null); } } });
-  const uploadGuarantor = useUploadLoanApplicationGuarantorDocument({ mutation: { onError: (e) => setUpErr(docServerError(e)), onSuccess: () => { queryClient.invalidateQueries(); setUploadOpen(false); setLabel(''); setFile(null); } } });
+  const uploadCustomer = useUploadLoanApplicationDocument({ mutation: { onError: (e) => setUpErr(docServerError(e, maxBytes)), onSuccess: () => { queryClient.invalidateQueries(); setUploadOpen(false); setLabel(''); setFile(null); setSelectedRequirement(null); } } });
+  const uploadGuarantor = useUploadLoanApplicationGuarantorDocument({ mutation: { onError: (e) => setUpErr(docServerError(e, maxBytes)), onSuccess: () => { queryClient.invalidateQueries(); setUploadOpen(false); setLabel(''); setFile(null); } } });
   const delCustomer = useDeleteLoanApplicationDocument({ mutation: { onSuccess: () => queryClient.invalidateQueries() } });
   const delGuarantor = useDeleteLoanApplicationGuarantorDocument({ mutation: { onSuccess: () => queryClient.invalidateQueries() } });
   const reviewCustomer = useReviewLoanApplicationDocument({ mutation: { onSuccess: () => { queryClient.invalidateQueries(); setReviewOpen(null); setReviewReason(''); } } });
@@ -1213,7 +1217,7 @@ function DocumentSection({ appId, docs, title, type, canUpload, canReview, corre
   const handleUpload = (e: React.FormEvent) => {
     e.preventDefault();
     if (!file || (!selectedRequirement && type === 'customer' && !/[\u0600-\u06FF]/.test(label.trim()))) return;
-    const pre = docClientCheck(file); if (pre) { setUpErr(pre); return; }
+    const pre = docClientCheck(file, maxBytes); if (pre) { setUpErr(pre); return; }
     setUpErr(null);
     const req = { id: appId, data: {
       file,
@@ -1298,7 +1302,7 @@ function DocumentSection({ appId, docs, title, type, canUpload, canReview, corre
                 <span style={{ fontSize: 11, color: doc.status === 'approved' ? '#0f766e' : (doc.status === 'rejected' || doc.status === 'incomplete') ? '#be123c' : '#94a3b8' }}>
                   {!hasFile(doc) ? 'در انتظار بارگذاری' : doc.status === 'approved' ? 'تأیید شده' : doc.status === 'incomplete' ? 'نقص مدرک' : doc.status === 'rejected' ? 'رد شده' : 'در انتظار بررسی'}
                 </span>
-                {hasFile(doc) && <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{fileName(doc)}</div>}
+                {hasFile(doc) && <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}><bdi dir="ltr">{fileName(doc)}</bdi></div>}
                 {doc.reviewReason && <div style={{ fontSize: 10, color: '#be123c', marginTop: 2 }}>{doc.reviewReason}</div>}
               </div>
             </div>
@@ -1351,9 +1355,14 @@ function DocumentSection({ appId, docs, title, type, canUpload, canReview, corre
               {label.trim() && !/[\u0600-\u06FF]/.test(label.trim()) && <small style={{ color: '#be123c' }}>عنوان مدرک باید فارسی باشد.</small>}
             </div>}
             <div className="field">
-              <label>انتخاب فایل</label>
-              <input ref={fileInputRef} type="file" onChange={e => { const f = e.target.files?.[0] || null; setFile(f); setUpErr(docClientCheck(f)); }} required style={{ padding: '8px 10px', background: '#fff' }} />
-              <small style={{ color: '#64748b' }}>همه نوع فایل تا حجم ۱۰ مگابایت قابل بارگذاری است.</small>
+              <span className="dup-flabel" id={`dup-file-label-${type}`}>فایل مدرک</span>
+              {/* Armita: the native input is hidden; the Persian «انتخاب فایل» button (a real <button>, Tab + Enter/Space) opens it. */}
+              <input ref={fileInputRef} type="file" className="dup-native" tabIndex={-1} aria-hidden="true" data-testid="input-document-file" onChange={e => { const f = e.target.files?.[0] || null; setFile(f); setUpErr(docClientCheck(f, maxBytes)); }} />
+              <div className="dup-pick">
+                <button type="button" className="btn btn-ghost dup-pick-btn" onClick={() => fileInputRef.current?.click()} aria-describedby={`dup-file-label-${type} dup-file-name-${type}`} data-testid="button-pick-document-file"><UploadCloud size={15} aria-hidden="true" /> انتخاب فایل</button>
+                <span className="dup-fname" id={`dup-file-name-${type}`} data-testid="text-picked-file-name">{file ? <bdi dir="ltr">{file.name}</bdi> : 'هنوز فایلی انتخاب نشده'}</span>
+              </div>
+              <small style={{ color: '#64748b' }}>همه نوع فایل تا حجم {mb(maxBytes)} مگابایت قابل بارگذاری است.</small>
             </div>
             {upErr ? <DocUploadError err={upErr}
               onPickOther={() => fileInputRef.current?.click()}

@@ -63,7 +63,14 @@ fs.mkdirSync(identityRoot, { recursive: true, mode: 0o700 });
 try { fs.chmodSync(uploadRoot, 0o700); } catch { /* explicit private mode */ }
 const uploadRootReal = fs.realpathSync(uploadRoot);
 const identityRootReal = fs.realpathSync(identityRoot);
-const upload = multer({ limits: { fileSize: 10 * 1024 * 1024 }, storage: multer.memoryStorage() });
+/** REVIEWWAIT web (Armita): the one loan-document size limit — multer checks it and GET /loan-applications/:id sends it as documentUploadMaxBytes, so the upload dialog never hard-codes 10 MB. */
+export const LOAN_DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
+const upload = multer({ limits: { fileSize: LOAN_DOCUMENT_MAX_BYTES }, storage: multer.memoryStorage() });
+/** Loan / guarantor documents: an over-limit file answers 413 { details.maxBytes } (was Express's default 500 page), so the dialog shows its size state. */
+const docUpload = (req: any, res: any, next: any) => upload.single("file")(req, res, (e: any) => {
+  if (e?.code === "LIMIT_FILE_SIZE") { res.status(413).json({ error: "file_too_large", message: "حجم فایل بیشتر از حد مجاز است.", details: { maxBytes: LOAN_DOCUMENT_MAX_BYTES } }); return; }
+  next(e);
+});
 const fileType = supportedDocumentUpload;
 const rasterImageType = (mime: unknown) => new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]).has(String(mime).toLowerCase());
 function safeExtension(filename: string): string {
@@ -1680,6 +1687,9 @@ router.get("/loan-applications/:id", requirePermission("loan_applications.view")
   { const me = user(res) as any; if (me?.salespersonId && fcCatOn()) { try { fcMarkOpened(Number(me.salespersonId), Number(r.id)); } catch { /* badge only */ } } }
   r.documents = loanProcessingDocuments(r.id)
     .map((document) => ({ ...document, original_name: normalizedUploadName(document.original_name), fileAvailable: fileExists(document.storage_path) }));
+  r.documentUploadMaxBytes = LOAN_DOCUMENT_MAX_BYTES;
+  // REVIEWWAIT web: closed (deleted / rejected / completed — the board's OPEN_WHERE) → the page hides every upload button.
+  r.fileClosed = Boolean(r.deleted_at) || r.status === "rejected" || r.stage === "completed";
   r.history = queryRows("SELECT * FROM loan_application_stage_history WHERE application_id=? ORDER BY id", [r.id]);
   r.physicalChecks = queryRows("SELECT * FROM loan_physical_checks WHERE application_id=? ORDER BY id", [r.id]);
   r.physicalDocuments = queryRows<any>("SELECT id,original_name AS originalName,mime_type AS mimeType,size_bytes AS sizeBytes,created_at AS createdAt,storage_path FROM loan_physical_documents WHERE application_id=? ORDER BY id", [r.id])
@@ -1964,7 +1974,7 @@ router.delete("/loan-applications/:id/manual-requirements/:documentId", requireP
   const r = scoped(Number(req.params.id), user(res)); if (!r) return error(res, 404, "loan_application_not_found");
   executeChanges("DELETE FROM loan_application_documents WHERE id=? AND application_id=? AND source='manual'", [Number(req.params.documentId), r.id]); res.status(204).end();
 });
-router.post("/loan-applications/:id/documents", requirePermission("loan_applications.update"), upload.single("file"), (req, res) => {
+router.post("/loan-applications/:id/documents", requirePermission("loan_applications.update"), docUpload, (req, res) => {
   const r = scoped(Number(req.params.id), user(res)); if (!r) return error(res, 404, "loan_application_not_found");
   if (!["customer_documents_upload", "funder_documents_correction"].includes(r.stage) || !canAct(r.stage, user(res), r.customer_id, r.status)) return error(res, 409, "document_upload_stage_required");
   if (!req.file) return error(res, 400, "file_required");
@@ -1990,7 +2000,7 @@ router.post("/loan-applications/:id/documents", requirePermission("loan_applicat
   recordReview(r.id, r.stage, `customer_document_uploaded:${id}`, null, user(res).id);
   res.status(201).json(queryRow("SELECT * FROM loan_application_documents WHERE id=?", [id]));
 });
-router.post("/loan-applications/:id/guarantor/documents", requirePermission("loan_applications.update"), upload.single("file"), (req, res) => {
+router.post("/loan-applications/:id/guarantor/documents", requirePermission("loan_applications.update"), docUpload, (req, res) => {
   const r = scoped(Number(req.params.id), user(res)); const g = r && queryRow<any>("SELECT id FROM loan_application_guarantors WHERE application_id=?", [r.id]);
   if (!r || !g || !req.file) return error(res, 400, "guarantor_or_file_required");
   if (loanCaseFinancialTermsLocked(r)) return error(res, 409, "admin_case_financial_terms_locked");
