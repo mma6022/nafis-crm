@@ -35,7 +35,7 @@ export const EL_SEARCH_WINDOW_MS = 10 * 60_000;
 export const EL_BELL_WINDOW_MS = 30 * 60_000; // at most one owner bell per caller + customer in this window
 export const EL_ADMIN_USER_IDS = [1, 5];
 /** Dashboard routes (hrefs) the locked experts keep. */
-export const EL_ALLOWED_PAGES = ["/today", "/loan-applications", "/payment-orders", "/goods-purchases", "/messengers", "/internal-chat"];
+export const EL_ALLOWED_PAGES = ["/today", "/loan-applications", "/payment-orders", "/goods-purchases", "/messengers", "/internal-chat", "/bale-bot"];
 
 type U = { id: number; role: string; salespersonId: number | null; fullName?: string | null; customerScope?: string };
 
@@ -104,7 +104,7 @@ const ALLOW: RegExp[] = [
   /^\/loan-options(\/|$)/, /^\/plan-quote(\/|$)/, /^\/filing-fee(\/|$)/, /^\/identity-documents(\/|$)/, /^\/credit-checks(\/|$)/, /^\/smart-filing\/eligibility\/\d+$/,
   /^\/goods-purchases(\/|$)/, /^\/goods-documents(\/|$)/, /^\/payment-orders(\/|$)/, /^\/contracts\/[^/]+/, /^\/contract-updates(\/|$)/,
   // messengers + internal chat + the assistant chat drawer
-  /^\/bale(\/|$)/, /^\/messengers(\/|$)/, /^\/internal-chat(\/|$)/, /^\/assistant\/(mine|prefs)$/, /^\/assistant\/threads\/\d+\/messages$/,
+  /^\/bale(\/|$)/, /^\/bale-bot\/(?!admin\/)/, /^\/messengers(\/|$)/, /^\/internal-chat(\/|$)/, /^\/assistant\/(mine|prefs)$/, /^\/assistant\/threads\/\d+\/messages$/,
   // REMINDER-68: the assistant's suggestion buttons (each handler scopes itself to the caller's own thread / proposal / reminder).
   /^\/assistant\/threads\/\d+\/read$/, /^\/assistant\/messages\/\d+\/action$/, /^\/assistant\/reminder-proposals\/\d+\/decide$/,
   /^\/reminders\/\d+\/acknowledge$/,
