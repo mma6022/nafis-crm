@@ -175,3 +175,4 @@ html.ssv2-on .diag-floating{bottom:calc(var(--ss-dock-h) + 28px + env(safe-area-
 .ss-lockb{background:#fff;color:var(--nf-brand-700,#2b3a9b);border-color:var(--nf-line,#dfe3ee)}
 /* armita2-fu (Armita): desktop «گزارش خطا» never over the notes column — right side, centred on the dock row (same spot as file-detail 1.1). Mobile untouched. */
 @media (min-width:1024px){html.ssv2-on .diag-floating{right:24px!important;left:auto!important;bottom:calc(var(--ss-gap,16px) + (var(--ss-dock-h,90px) - 44px) / 2 + env(safe-area-inset-bottom,0px))!important;min-height:44px}}
+@media (min-width:1024px) and (max-width:1279.98px){html.ssv2-on .diag-floating{width:44px;height:44px;padding:0;justify-content:center;font-size:0;gap:0}}
