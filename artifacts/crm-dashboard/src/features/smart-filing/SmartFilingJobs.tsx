@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
 import { Bot, KeyRound } from 'lucide-react';
@@ -7,11 +7,16 @@ import { useGetAuthSession, getGetAuthSessionQueryKey } from '@workspace/api-cli
 import { sfScope } from './access';
 import { useSfJobs, useSfPanels, sfFetch, money, when, fa, TONE, type SfPanel } from './api';
 import './smart-filing.css';
+import { VcaLeadCard, VoipCallAnywhere, useVoipAnywhereOwn } from '@/features/voip-call/VoipAnywhere'; // VOIP-ANYWHERE (design v1.0 smart_list)
 
 /** Jobs list (admin: all; registrar: linked plans; sales: own customers — filtered on the server) + admin-only panel settings. */
 export default function SmartFilingJobs() {
   const q = useSfJobs();
+  const vcaOwn = useVoipAnywhereOwn((q.data?.jobs ?? []).slice(0, 200).map((j) => j.customerId)); // VOIP-ANYWHERE (null while off)
   const { data: session } = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
+  // VOIP-ANYWHERE (design smart_list): the selected own job's customer card with the full «تماس» beside the list (one column under 700px).
+  const vcaItems = vcaOwn ? [...new Map((q.data?.jobs ?? []).filter((j) => vcaOwn.has(j.customerId)).map((j) => [j.customerId, { customerId: j.customerId, name: j.customerName || '—', at: when(j.lastMessageAt ?? j.createdAt) }])).values()] : [];
+  const vcaWrap = (list: ReactNode) => vcaItems.length ? <div className="vca-grid" data-testid="vca-sf-grid"><VcaLeadCard testId="vca-sf-lead" source="ثبت هوشمند" items={vcaItems} ownIds={vcaOwn} />{list}</div> : list;
   const isAdmin = sfScope(session?.user as { role?: string; salespersonId?: number | null } | undefined) === 'admin';
   return (
     <section className="data-page" data-testid="smart-filing-page">
@@ -22,18 +27,20 @@ export default function SmartFilingJobs() {
           <p>پرونده‌هایی که سارینا در پنل ازکی‌وام ثبت می‌کند. روی هر کار بزنید تا گفتگو، اسکرین‌شات‌ها و درخواست کد را ببینید. ارسال نهایی پنل فقط بعد از «تأیید ارسال» شما انجام می‌شود.</p>
         </div>
       </div>
-      {q.isLoading ? <SkeletonPanel rows={4} /> : q.isError || !q.data ? <ErrorState onRetry={() => void q.refetch()} /> : (
+      {q.isLoading ? <SkeletonPanel rows={4} /> : q.isError || !q.data ? <ErrorState onRetry={() => void q.refetch()} /> : vcaWrap(
         <div className="sf-list" data-testid="smart-filing-jobs">
           {q.data.jobs.length === 0 ? <div className="panel sf-empty">هنوز کاری ساخته نشده. از صفحه‌ی پرونده دکمه‌ی «ثبت هوشمند با سارینا» را بزنید.</div> : null}
-          {q.data.jobs.map(j => (
+          {q.data.jobs.map(j => { const row = (
             <Link key={j.id} href={`/smart-filing/jobs/${j.id}`} className="sf-row" data-testid={`sf-job-${j.id}`}>
               <span><b>{j.customerName || '—'}</b><span className="sf-sub"> · پرونده #{fa(j.applicationId)}{j.jobType === 'training' ? ' · آموزشی' : ''}</span></span>
               <span className="sf-hide-m">{j.planName || '—'}<span className="sf-sub"> · {j.panelName}</span></span>
               <span className="sf-hide-m">{money(j.amountToman)}</span>
               <span className={`sf-pill ${TONE[j.status]}`}>{j.statusLabel}{j.progress ? ` · ${fa(j.progress)}٪` : ''}</span>
               <span className="sf-sub">آخرین پیام: {when(j.lastMessageAt ?? j.createdAt)}</span>
-            </Link>
-          ))}
+            </Link>);
+            // VOIP-ANYWHERE (design smart_list): `.vi` icon on own rows only (next to the link, never inside it); flag off → the row is unchanged
+            return vcaOwn?.has(j.customerId) ? <div key={j.id} className="vca-sfrow" data-testid={`vca-sfrow-${j.id}`}>{row}<VoipCallAnywhere customerId={j.customerId} customerName={j.customerName || ''} ownIds={vcaOwn} compact boxOnMine={false} testId={`vca-sf-${j.id}`} /></div> : row;
+          })}
         </div>
       )}
       {isAdmin ? <PanelSettings /> : null}

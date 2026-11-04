@@ -8,6 +8,7 @@ import { cqApi, cqOn, faNum, faWhen, GROUP_FA, useCqConfig, type MyDiscipline, t
 import './call-queue.css';
 import { useQueueBadges, type Badge } from '@/features/lead-intake/api';
 import { QueueLine } from '@/features/lead-intake/QueueLine';
+import { VoipCallAnywhere, useVoipAnywhereOwn } from '@/features/voip-call/VoipAnywhere'; // VOIP-ANYWHERE (design v1.0 .vi row icon)
 
 const LETTER: Record<QueueGroup, string> = { due: 'الف', new: 'ب', p1: 'ج', assist: 'د' };
 const gFa = (g: QueueCardGroup) => g === 'urgent' ? 'مشتری فوری' : GROUP_FA[g];
@@ -17,6 +18,7 @@ export default function MyQueuePage() {
   const on = cqOn(cfg, 'queue');
   const q = useQuery({ queryKey: ['call-queue', 'queue'], queryFn: cqApi.queue, enabled: on, refetchInterval: 60_000, retry: false });
   const badges = useQueueBadges((q.data?.cards ?? []).slice(0, 200).map((c) => c.customerId)).data;
+  const vcaOwn = useVoipAnywhereOwn((q.data?.cards ?? []).slice(0, 200).map((c) => c.customerId)); // VOIP-ANYWHERE (null while off)
   const dq = useQuery({ queryKey: ['call-queue', 'discipline', 'me'], queryFn: cqApi.myDiscipline, enabled: cqOn(cfg, 'discipline') || cqOn(cfg, 'transfer_check'), refetchInterval: 120_000, retry: false });
   if (!cfg) return <div className="cq-page"><p role="status">در حال بارگذاری…</p></div>;
   if (!on) return <div className="cq-page"><h1>صف تماس من</h1><p data-testid="cq-queue-off">این بخش هنوز فعال نشده است.</p></div>;
@@ -41,14 +43,14 @@ export default function MyQueuePage() {
         const cards = data.cards.filter((c) => c.group === g); if (!cards.length) return null;
         return <section key={g} id={`cq-g-${g}`} className={`cq-group g-${g}`} aria-labelledby={`cq-gh-${g}`}>
           <h2 id={`cq-gh-${g}`}><span className="cq-letter">{letters[g]}</span> {gFa(g)} <small>{faNum(cards.length)} مورد</small></h2>
-          {cards.map((c) => <QueueCardView key={c.customerId} c={c} letters={letters} voidReasons={cfg.voidReasons} badge={badges?.get(c.customerId)} />)}
+          {cards.map((c) => <QueueCardView key={c.customerId} c={c} letters={letters} voidReasons={cfg.voidReasons} badge={badges?.get(c.customerId)} vcaOwn={vcaOwn} />)}
         </section>;
       })}
     </> : q.isLoading ? <p role="status">در حال بارگذاری صف…</p> : null}
   </div>;
 }
 
-function QueueCardView({ c, letters, voidReasons, badge }: { c: QueueCard; letters: Record<QueueCardGroup, string>; voidReasons: { key: string; label: string }[]; badge?: Badge }) {
+function QueueCardView({ c, letters, voidReasons, badge, vcaOwn }: { c: QueueCard; letters: Record<QueueCardGroup, string>; voidReasons: { key: string; label: string }[]; badge?: Badge; vcaOwn?: Set<number> | null }) {
   const [, navigate] = useLocation();
   const r = c.reminder; const ai = r?.source === 'assistant';
   const [mode, setMode] = useState<'' | 'edit' | 'void'>('');
@@ -79,6 +81,7 @@ function QueueCardView({ c, letters, voidReasons, badge }: { c: QueueCard; lette
     <div className="cq-qcard-btns">
       {/* CALL-COPY v1.0.4: «تماس» (tel:) + «ثبت تماس» → full number + copy, and one primary through the same call-start / log path. */}
       {c.phone ? <CallNumber phone={c.phone} customerId={c.customerId} via="queue" size="md" testId="cq-card-ph" /> : null}
+      {vcaOwn ? <VoipCallAnywhere customerId={c.customerId} customerName={c.name} ownIds={vcaOwn} compact testId={`vca-cq-${c.customerId}`} /> : null}
       <button type="button" className="btn btn-primary cn-called" onClick={() => void calledThenForm(c.customerId, 'queue', () => navigate(`/customers/${c.customerId}?cq=call`), (m) => window.alert(m))} data-testid="cq-card-log"><Check size={15} aria-hidden="true" /> {CALLED_LABEL}</button>
     </div>
   </article>;

@@ -16,6 +16,7 @@
     "test:voip-after-call": "node scripts/voip-after-call-fixture.mjs",
     "test:recording-transcript": "node scripts/recording-transcript-fixture.mjs",
     "test:voip": "pnpm run build && node scripts/voip-fixture.mjs",
+    "test:voip-registrar-scope": "NODE_ENV=production node scripts/run-bundled-fixture.mjs scripts/voip-registrar-scope-fixture.mjs",
     "test:loan-workflow": "pnpm run build && node scripts/loan-workflow-fixture.mjs",
     "test:filing-fee": "pnpm run build && node scripts/filing-fee-fixture.mjs",
     "test:dashboard-stats": "pnpm run build && node scripts/dashboard-stats-fixture.mjs",

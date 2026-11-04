@@ -18,6 +18,8 @@ import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 import { elApi, type ElSearch, type ElSuggest } from './api';
 import { liveQueryReady } from './IncomingCall';
 import './lockdown.css';
+import { VoipCallAnywhere } from '@/features/voip-call/VoipAnywhere'; // VOIP-ANYWHERE (design v1.0 in_card / in_missed)
+import { VCA_REDIAL_LABEL, vcaIncomingButton } from '@/features/voip-call/anywhere-rules';
 import { OutOfListLog } from './OutOfListLog';
 import { HistoryBox } from '@/features/history/HistoryBox';
 import '@/features/daily-plan/carousel.css';
@@ -197,7 +199,10 @@ export function IncomingWizard({ currentNo, onClose, onSaved, onEvent, presetPho
     {kind === 'new' ? <Plus size={18} aria-hidden="true" /> : kind === 'dup' ? <AlertTriangle size={18} aria-hidden="true" /> : <Check size={18} aria-hidden="true" />}
     <div><b>{cust?.name} <span className="dp-id">#{faNum(cust?.id ?? 0)}</span></b><small><span className="dp-chip l-own" data-testid="iw-own-badge">{SC.own}</span> {kind === 'new' ? 'ساخته شد · ' : ''}<bdi dir="ltr" data-testid="iw-tel">{ph ? fullTel(ph) : tail ? (tail.length > 4 ? fullTel(phone11(tail) ?? tail) : `••••${faNum(tail)}`) : ''}</bdi>{kind === 'dup' ? ' · مشتری تازه ساخته نشد' : ''}</small>
       {kind === 'own' && cust ? <span className="iw-links"><a href={`/customers/${cust.id}`} target="_blank" rel="noopener" data-testid="iw-file"><FileText size={13} aria-hidden="true" /> پرونده</a> · <a href={`/customers/${cust.id}#sec-calls`} target="_blank" rel="noopener" data-testid="iw-history">تاریخچه و یادداشت‌ها</a></span> : null}</div>
-    {kind === 'dup' ? null : telBtn ?? (cust ? <PickedTel id={cust.id} /> : null)}</div>;
+    {kind === 'dup' ? null : telBtn ?? (cust ? <PickedTel id={cust.id} /> : null)}
+    {/* VOIP-ANYWHERE design in_card: no call button while the caller is on the line; in_missed: «تماس دوباره» only when the wizard was opened
+        from a missed incoming call (presetPhone ← «تماس‌های بی‌پاسخ امروز»). Flag off → nothing. */}
+    {cust && vcaIncomingButton({ onLine: !presetPhone, missed: Boolean(presetPhone), kind }) === 'redial' ? <VoipCallAnywhere customerId={cust.id} customerName={cust.name} own label={VCA_REDIAL_LABEL} testId="iw-vca-redial" /> : null}</div>;
   return <div className="tc-ov" role="presentation" style={fcOpen ? { display: 'none' } : undefined} onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) close(step === 'ok' ? 'done' : 'cancel'); }}>
     <div className="tc-dlg iw-dlg" role="dialog" aria-modal="true" aria-labelledby="iw-h" ref={dlg} data-testid="iw-wizard" data-step={step} data-path={path}>
       <div className="tc-dlg-h"><div><small className="dp-hint"><PhoneIncoming size={13} aria-hidden="true" /> تماس ورودی{counted ? ` · مرحله‌ی ${faNum(stepNo)} از ${faNum(P.length)}` : ''}</small>

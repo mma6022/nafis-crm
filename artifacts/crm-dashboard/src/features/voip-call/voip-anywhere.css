@@ -1,0 +1,31 @@
+/* VOIP-ANYWHERE (flag.voip_call_anywhere, default OFF) — Armita «تماس ویپ از همه‌جا» v1.0 (screens/voip-everywhere/src/ve.css).
+   Every class here is only rendered while the flag is on, so flag OFF = no visual change. */
+.vca { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.vca-box { display: block; width: 100%; margin-top: 6px; }
+.vca-row .vc-err { font-size: 12px; max-width: 220px; }
+/* design .vi — 44×44 row icon, brand-600, white headset; closed = surface-2 + lock */
+.vi { width: 44px; height: 44px; min-width: 44px; display: grid; place-items: center; border-radius: 12px; border: 0; padding: 0; cursor: pointer;
+  background: var(--nf-brand-600); color: #fff; }
+.vi:focus-visible { outline: 3px solid var(--nf-brand-300, #93c5fd); outline-offset: 2px; }
+.vi[aria-disabled=true] { background: var(--nf-surface-2); color: var(--nf-ink-muted); cursor: not-allowed; }
+.vca-sfrow { display: flex; align-items: center; gap: 8px; }
+.vca-sfrow > .sf-row { flex: 1 1 auto; min-width: 0; }
+.vca-ff { display: contents; } /* SimpleCallForm brings its own .ts-layer / scrim */
+/* design .vgrid — lead card 1.4fr + list 1fr; one column under 700px (card first) */
+.vca-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; align-items: start; }
+.vca-grid > * { min-width: 0; }
+.vca-lead { background: var(--nf-surface, #fff); border: 1px solid var(--nf-line); border-radius: 16px; padding: 16px; }
+.vca-vh { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
+.vca-vh h3 { font-size: 18px; font-weight: 800; margin: 0; }
+.vca-cid { font-size: 13px; color: var(--nf-ink-muted); }
+.vca-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; padding: 2px 10px; border-radius: 999px; }
+.vca-chip.g { background: var(--nf-ok-50, #ecfdf3); color: var(--nf-ok-700, #067647); }
+.vca-chip.b { background: var(--nf-brand-50); color: var(--nf-brand-700, var(--nf-brand-600)); }
+.vca-vm { font-size: 14px; color: var(--nf-ink-muted); margin: 4px 0 0; }
+.vca-phr { margin: 10px 0 4px; }
+.vca-ph { display: inline-flex; align-items: center; gap: 8px; }
+.vca-num { unicode-bidi: isolate; direction: ltr; font-size: 22px; font-weight: 800; letter-spacing: .02em; }
+.vca-ph a { color: inherit; text-decoration: none; }
+.vca-cp { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; border: 1px solid var(--nf-line); background: transparent; color: var(--nf-ink-muted); cursor: pointer; }
+.vca-lead .vca-box { margin-top: 10px; }
+@media (max-width: 699.98px) { .vca-grid { grid-template-columns: 1fr; } }

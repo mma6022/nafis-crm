@@ -38,7 +38,9 @@ type BoxProps = { customerId: number; fileId?: number | null; customerName: stri
   /** SIMOTEL-132: «فرم تماس اول» after the customer's first VoIP call was answered (only reached while me.s132 is present). */
   onFirstForm?: (callId: number) => void;
   /** SIMOTEL-132: a call was saved by itself (the task left «کارهای امروز من»); the lists are refreshed here too. */
-  onAuto?: () => void };
+  onAuto?: () => void;
+  /** VOIP-ANYWHERE: idle button text (default «تماس از تلفن ویپ»; «تماس» where it is the only call button). */
+  label?: string };
 /** Returns null while off: callers keep their old buttons. */
 export function VoipCallBox(p: BoxProps) {
   const q = useVcMe(); const me = q.data;
@@ -70,7 +72,7 @@ export function useVcFastWaiting(customerId: number): boolean {
   // REVIEWWAIT web (Armita): also the timeout card («نتیجه از سیموتل نرسید») — only the four status buttons + «دوباره زنگ بزن», at 1280 the same as at 390.
   return Boolean(c && c.customerId === customerId && sc && (sc.phase === 'waiting' || sc.phase === 'late') && sc.fast === true && sc.expertStatus == null);
 }
-function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra, variant = 'task', onStarted, onFirstForm }: BoxProps & { me: VcMe }) {
+function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra, variant = 'task', onStarted, onFirstForm, label }: BoxProps & { me: VcMe }) {
   const qc = useQueryClient();
   const s132 = Boolean(me.s132); // SIMOTEL-132 flag on for this user (absent → everything below is today's UI)
   const firstQ = useS132First(customerId, s132);
@@ -129,7 +131,7 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
   if (!mine || !c || (c.state === 'ended' && !c.needsResult && c.fileId != null && !scPending)) {
     const fc1 = s132 && firstQ.data?.firstCall === true;
     return <div className="vcx" data-testid="vc-box" data-state="idle">
-      <div className="dp-actions vc-row">{vBtn('تماس از تلفن ویپ', <Headset size={18} aria-hidden="true" />)}{resBtn(false)}{extra}</div>
+      <div className="dp-actions vc-row">{vBtn(label || 'تماس از تلفن ویپ', <Headset size={18} aria-hidden="true" />)}{resBtn(false)}{extra}</div>
       <p className="vc-lock vln"><Headset className="i" aria-hidden="true" /><span>اول تلفن ویپ شما زنگ می‌خورد؛ جواب بده تا شماره‌ی مشتری خودکار گرفته شود. {s132 ? <span data-testid="vc-s132-line">{fc1 ? 'تماس اول این مشتری است: بعد از مکالمه، فرم تماس اول باز می‌شود. ' : 'نتیجه‌ی تماس را خود سیموتل می‌فرستد و چیزی پرسیده نمی‌شود. '}</span> : null}خط تو: داخلی <bdi>{faNum(me.extension ?? '')}</bdi>
         <span className="vc-mo"> زدن روی شماره از سیم‌کارت گوشی خودت می‌گیرد؛ این دکمه از داخلی ویپ.</span></span></p>{errLine}</div>;
   }

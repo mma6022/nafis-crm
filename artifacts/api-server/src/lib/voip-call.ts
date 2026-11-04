@@ -16,6 +16,7 @@ import { s132On, s132Tick, s132CallView, s132LastBar, s132OnStart, s132HistoryIn
 import { normalizePhone, resolveEvent, experts, customerMatcher } from "./voip-after-call";
 import { simotelOriginate, SimotelError, invalidateSimotelCallCache, type SimotelCall } from "./simotel";
 import { vnaSent } from "./voip-noanswer-sms";
+import { vcIsScopedRegistrar, vcRegistrarWhy } from "./voip-registrar-scope";
 
 export const VC_ME_TIMEOUT_S = 30;
 const REQUEST_STALE_S = 45, DIAL_STALE_S = 180, TALK_STALE_S = 4 * 3600, NOTICE_KEEP_S = 15 * 60;
@@ -362,6 +363,8 @@ export function vcMe(u: U, now = new Date()) {
 export function vcCustomerAllowed(u: U, customerId: number): boolean {
   const c = queryRow<{ salesperson_id: number | null }>("SELECT salesperson_id FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [customerId]);
   if (!c) return false;
+  // VOIP-ANYWHERE registrar scope (flag.voip_call.registrar_scope, default OFF): a registrar is limited to registered / open filing / incoming grant.
+  if (u.role !== "admin" && vcIsScopedRegistrar(u)) return vcRegistrarWhy(u, customerId) != null;
   return u.role === "admin" || u.customerScope === "all" || (u.salespersonId != null && Number(u.salespersonId) === Number(c.salesperson_id));
 }
 let originateImpl = simotelOriginate;

@@ -54,6 +54,7 @@ import { VoiceNoteButton } from '@/features/voice-notes/VoiceNoteButton';
 import { BaleChatSection } from '@/features/bale/BaleChatSection';
 import { BaleLinkBadge } from '@/features/bale/BaleLinkBadge';
 import { baleChatVisible } from '@/features/bale/api';
+import { useDetailCallButtons } from '@/features/voip-call/VoipAnywhere'; // VOIP-ANYWHERE single-button rule
 
 const faNum = (n: number) => n.toLocaleString('fa-IR');
 const faId = (n: number) => n.toLocaleString('fa-IR', { useGrouping: false });
@@ -261,7 +262,9 @@ function CustomerDetailFull() {
     customerQuery.refetch();
   };
 
-  const { dial, canCall, connection, call } = useVoip();
+  const { dial, canCall: canCallRaw, connection, call } = useVoip();
+  // VOIP-ANYWHERE single-button rule (flag.voip_call_anywhere; OFF → showSystem true, today's buttons): VoIP on → only «تماس», «تماس سیستمی» hidden
+  const oneBtn = useDetailCallButtons(customer?.id); const canCall = canCallRaw && oneBtn.showSystem; // + registrar scope: VoIP only for her customers
   const hasCallsView = session.data?.user.role === 'admin' || session.data?.user.permissions?.includes('calls.view') === true;
   const [historyPage, setHistoryPage] = useState(1);
   const historyQuery = useVoipHistory(historyPage, id, hasCallsView);
@@ -562,7 +565,7 @@ function CustomerDetailFull() {
       {canUpdate ? <button type="button" className="csx-ghost" onClick={() => setEditing(true)} data-testid="button-toggle-customer-edit" aria-haspopup="dialog"><Pencil size={18} /> ویرایش</button> : null}
       {canNewLoan ? <Link href={loanWizardHref(customer.id)} className="csx-primary wide" data-testid="button-new-loan-from-customer"><Plus size={20} /> درخواست تسهیلات جدید</Link> : null}
     </div>
-    <div className="csx-vc"><VoipCallBox customerId={customer.id} customerName={customer.name} variant="customer" onFirstForm={(id) => openSimpleVoip(id)} /></div>
+    {oneBtn.showVoip ? <div className="csx-vc"><VoipCallBox customerId={customer.id} customerName={customer.name} variant="customer" label={oneBtn.voipLabel} onFirstForm={(id) => openSimpleVoip(id)} /></div> : null}
     {canCall || canConsult ? <div className="acts2">
       {canCall ? <button type="button" className="csx-ghost sm" title={canDialSystem ? 'تماس با تلفن شرکت' : 'برای تماس سیستمی، ابتدا در بخش تلفن شرکت متصل شوید'} onClick={() => { if (canDialSystem) dial(customer.phone); else setLocation('/phone'); }} data-testid="button-sys-call-customer"><Phone size={18} color={canDialSystem ? undefined : '#94a3b8'} /> تماس سیستمی</button> : null}
       {canConsult ? <button type="button" className="csx-ghost sm" onClick={() => setConsultationFormOpen(true)} data-testid="button-create-consultation"><FileText size={18} /> ثبت مشاوره</button> : null}

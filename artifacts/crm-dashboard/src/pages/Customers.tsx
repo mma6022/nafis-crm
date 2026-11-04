@@ -32,6 +32,7 @@ import { SalesAssistBox } from '@/features/sales-assist/SalesAssistBox';
 import { notifySalesAssistCallSaved } from '@/features/sales-assist/api';
 import { useRegistrarMe } from '@/features/registrar-view/api';
 import { DeadlineCountdown, PreferredTimeNote, SiteLeadChips, hideTagForSiteLead, topOfListOf } from '@/features/site-leads/SiteLead';
+import { VoipCallAnywhere, useVoipAnywhereRegistrarOwn } from '@/features/voip-call/VoipAnywhere'; // VOIP-ANYWHERE (design v1.0 search_list: .vi on own rows)
 
 const fa = (n: number) => n.toLocaleString('fa-IR');
 const faId = (n: number) => n.toLocaleString('fa-IR', { useGrouping: false });
@@ -257,6 +258,7 @@ export default function Customers() {
   const clearFilters = () => { setCustomerId(''); setPriority(''); if (!isSalesperson) setSalespersonId(''); setTag(''); setSource(''); setDateFrom(''); setDateTo(''); setMinCallCount(''); setMaxCallCount(''); setLastCallSort(undefined); resetPaging(); };
   const hasQuery = Boolean(search) || activeFilters.length > 0;
   const items = page?.items ?? [];
+  const vcaReg = useVoipAnywhereRegistrarOwn(items.slice(0, 200).map((c) => c.id)); // VOIP-ANYWHERE registrar scope only (null for experts)
   const total = page?.total ?? 0;
   const ownSalespersonId = session.data?.user.salespersonId ?? null;
 
@@ -295,6 +297,7 @@ export default function Customers() {
   const rowActions = (customer: Customer) => {
     const form = callLauncher.choose(customer);
     return <>
+      <VoipCallAnywhere customerId={customer.id} customerName={customer.name} salespersonId={customer.salespersonId ?? null} ownIds={vcaReg} compact testId={`vca-row-${customer.id}`} />
       {canCall ? <button type="button" className="csx-ract call" onClick={() => openCall(customer)} aria-label={`ثبت تماس برای ${customer.name}`} title={form === 'simple' ? 'فرم ساده‌ی ۳ مرحله‌ای' : 'فرم ثبت تماس'} data-testid={`button-new-call-${customer.id}`} aria-busy={callLauncher.pending?.id === customer.id ? true : undefined} data-form={form}><PhoneCall size={17} aria-hidden="true" /> ثبت تماس</button> : null}
       {canConsult ? <button type="button" className="csx-ract consult" onClick={() => setNewConsultFor(customer)} aria-label={`ثبت مشاوره برای ${customer.name}`} data-testid={`button-new-consult-${customer.id}`}><FileText size={17} aria-hidden="true" /> ثبت مشاوره</button> : null}
     </>;

@@ -12,6 +12,8 @@ import { getSimotelAudio, SimotelError } from "../lib/simotel";
 import { vcCustomerAllowed, vcDismiss, vcHistory, vcMe, vcOn, vcRecordingFile, vcStart } from "../lib/voip-call";
 import { runImmediateTransaction, runTransaction } from "../lib/crm-db";
 import { s132CloseBar, s132Fix, s132IsFirstCall, s132Note, s132On, s132SetStatus } from "../lib/simotel132";
+import { vcAnywhereFlagOn, vcAnywhereOn, vcAnywhereOwnIds } from "../lib/voip-anywhere";
+import { vcIsScopedRegistrar } from "../lib/voip-registrar-scope";
 import { s132bClose, s132bCompleteName, s132bFormOpened, s132bLive, s132bMissed, s132bMissedCount, s132bNoName, s132bNote, s132bOn, s132bSaveName } from "../lib/simotel132b";
 
 const router: IRouter = Router();
@@ -34,7 +36,17 @@ router.get("/voip-call/me", requirePermission("calls.view"), (_req, res) => {
     try { const l = runImmediateTransaction(() => s132bLive(me(res) as any)); r.s132b = { busy: l.busy, missed: s132bMissedCount(me(res) as any), noName: s132bNoName(me(res) as any) }; }
     catch { r.s132b = { busy: false, missed: 0, noName: [] }; }
   }
+  // VOIP-ANYWHERE (flag.voip_call_anywhere[.user.<id>], OFF → field absent, payload unchanged): UI gate for «تماس» outside the customer page
+  // oneCallButton = the designer's single-button rule (VoIP on for this user → only «تماس», «تماس سیستمی» hidden); anywhere = the own-customer «تماس» buttons.
+  try { if (vcAnywhereFlagOn(me(res).id)) { r.oneCallButton = true; if (vcAnywhereOn(me(res) as any)) { r.anywhere = true; if (vcIsScopedRegistrar(me(res) as any)) r.anywhereRegistrar = true; } } } catch { /* stays off */ }
   res.json(r);
+});
+// VOIP-ANYWHERE: which of ?ids=1,2,3 (max 200) are the expert's OWN customers, for rows that do not carry the owner. Read-only;
+// 404 when off. Not opened by expert lockdown (a locked expert only gets «تماس» in the incoming wizard / LockedInbound own block).
+router.get("/voip-call/anywhere/own", requirePermission("calls.view"), (req, res) => {
+  if (off(res)) return;
+  if (!vcAnywhereOn(me(res) as any)) return void res.status(404).json({ error: "voip_anywhere_off", message: "این امکان برای شما فعال نیست." });
+  res.json({ own: vcAnywhereOwnIds(me(res) as any, req.query.ids) });
 });
 router.post("/voip-call/start", requirePermission("calls.create"), async (req, res) => {
   if (off(res)) return;

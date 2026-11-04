@@ -30,7 +30,13 @@ export type S132Bar = { callId: number; customerId: number; customerName: string
   noteState: 'pending' | 'ready' | 'none' | null; note: string; noteEdited: boolean; canFix: boolean };
 export type VcMe = { on: boolean; extension?: string | null; call?: VcCall | null; timeoutSeconds?: number; s132?: { last: S132Bar | null };
   /** SIMOTEL-132 B (flag.simotel132b[.user.<id>]): present only while B is on for this user. */
-  s132b?: { busy: boolean; missed: number; noName: { id: number; createdAt: string }[] } };
+  s132b?: { busy: boolean; missed: number; noName: { id: number; createdAt: string }[] };
+  /** VOIP-ANYWHERE (flag.voip_call_anywhere[.user.<id>]): present (true) only while on for this user (needs voip_call + extension + SIMOTEL-132 + a salesperson). */
+  anywhere?: true;
+  /** VOIP-ANYWHERE registrar scope (flag.voip_call.registrar_scope): true for a registrar — her rows come only from /voip-call/anywhere/own. */
+  anywhereRegistrar?: true;
+  /** VOIP-ANYWHERE single-button rule (same flag; VoIP on for this user): only the VoIP «تماس», «تماس سیستمی» hidden. */
+  oneCallButton?: true };
 export type VcHistItem = { kind: 'voip' | 'simotel' | 'manual'; id: string; at: string; status: 'answered' | 'no_answer' | 'busy' | null; direction?: string;
   durationSeconds: number | null; expert: string | null; fileId: number | null; recording: 'processing' | 'ready' | 'none'; playable: boolean; eventId: number | null;
   result: { label: string | null; note: string } | null; pending: boolean; noanswerSms?: boolean;
@@ -62,6 +68,13 @@ export const useVcHistory = (customerId: number | null | undefined, enabled: boo
 export const useS132First = (customerId: number, enabled: boolean) => useQuery<{ firstCall: boolean }>({
   queryKey: ['voip-call', 's132-first', customerId], enabled: enabled && customerId > 0, retry: false, staleTime: 30_000,
   queryFn: () => req('GET', `/voip-call/customers/${customerId}/s132`) });
+/** VOIP-ANYWHERE: which of these customers are the expert's own (rows that do not carry the owner). Only asked while me.anywhere. */
+export const useVcOwnIds = (ids: number[], enabled: boolean) => {
+  const key = [...new Set(ids.filter((n) => Number.isSafeInteger(n) && n > 0))].sort((a, b) => a - b).slice(0, 200);
+  return useQuery<Set<number>>({
+    queryKey: ['voip-call', 'anywhere-own', key.join(',')], enabled: enabled && key.length > 0, retry: false, staleTime: 60_000,
+    queryFn: () => req<{ own: number[] }>('GET', `/voip-call/anywhere/own?ids=${key.join(',')}`).then((r) => new Set(r.own ?? [])).catch(() => new Set<number>()) });
+};
 export const vcRefresh = (qc: QueryClient) => { void qc.invalidateQueries({ queryKey: ['voip-call'] }); };
 export const vcAudioSrc = (eventId: number) => `/api/voip-call/calls/${eventId}/audio`;
 

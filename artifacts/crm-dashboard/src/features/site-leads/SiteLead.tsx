@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { AlarmClock, Globe, PhoneCall, Repeat2, Sun, Sunset, Timer } from 'lucide-react';
 import { Link } from 'wouter';
 import './site-leads.css';
+import { VcaLeadCard, VoipCallAnywhere, useVoipAnywhere, useVoipAnywhereRegistrarOwn, vcaCanCall } from '@/features/voip-call/VoipAnywhere'; // VOIP-ANYWHERE (design v1.0 lead_*)
 
 /**
  * crm-site-leads: «سرنخ سایت» / «درخواست چندباره» chips, the «اول لیست» deadline countdown and the customer's
@@ -123,12 +124,18 @@ export function useSiteLeadQueue() {
 export function SiteLeadQueuePanel({ onCall, showOwner = false }: { onCall?: (c: { id: number; name: string }) => void; showOwner?: boolean }) {
   const q = useSiteLeadQueue();
   const items = q.data?.items ?? [];
+  const vca = useVoipAnywhere(); // VOIP-ANYWHERE: own rows only (flag off → [] → today's panel, byte-for-byte)
+  const vcaReg = useVoipAnywhereRegistrarOwn(items.slice(0, 200).map((i) => i.customerId)); // registrar only (null for experts / while off)
+  const vcaRows = items.filter((i) => vcaCanCall(vca, { customerId: i.customerId, salespersonId: i.salespersonId ?? null, ownIds: vcaReg }));
   if (q.isLoading || q.isError || !items.length) return null;
   const sites = items.filter((i) => i.kind === 'site_lead').length;
   return <section className="panel slq" data-testid="site-lead-queue" aria-label="اول لیست تماس">
     <div className="slq-head"><h3><PhoneCall size={16} aria-hidden="true" /> اول لیست تماس</h3>
       <span className="slq-sum">{sites ? `${fa(sites)} سرنخ سایت` : ''}{sites && items.length > sites ? ' · ' : ''}{items.length > sites ? `${fa(items.length - sites)} از کاظمی` : ''}</span></div>
-    <ul className="slq-list">
+    {vcaRows.length ? <div className="vca-grid" data-testid="vca-slq-grid"><VcaLeadCard testId="vca-slq-lead" source="لید سایت" ownIds={vcaReg}
+      items={vcaRows.map((i) => ({ customerId: i.customerId, name: i.name, salespersonId: i.salespersonId, source: i.kind === 'site_lead' ? 'سرنخ سایت' : 'از کاظمی' }))} />{list(true)}</div> : list(false)}
+  </section>;
+  function list(vc: boolean) { return <ul className="slq-list">
       {items.map((i) => <li key={`${i.kind}-${i.customerId}`} data-testid={`site-lead-queue-${i.customerId}`} data-kind={i.kind}>
         <div className="slq-name"><Link href={`/customers/${i.customerId}`}>{i.name}</Link><span className="slq-id">#{fa(i.customerId)}</span></div>
         <div className="slq-chips">
@@ -138,8 +145,8 @@ export function SiteLeadQueuePanel({ onCall, showOwner = false }: { onCall?: (c:
           {i.siteLead && (i.siteLead.contactTime === 'morning' || i.siteLead.contactTime === 'evening') ? <span className={`slc is-time${i.siteLead.windowNow ? ' is-now' : ''}`}>{i.siteLead.contactTime === 'morning' ? 'صبح' : 'عصر'}</span> : null}
           {showOwner ? <span className="slq-owner">{i.salespersonName || 'بدون کارشناس'}</span> : null}
         </div>
+        {vc ? <VoipCallAnywhere customerId={i.customerId} customerName={i.name} salespersonId={i.salespersonId ?? null} ownIds={vcaReg} compact boxOnMine={false} testId={`vca-slq-${i.customerId}`} /> : null}
         {onCall ? <button type="button" className="btn btn-primary slq-call" onClick={() => onCall({ id: i.customerId, name: i.name })} data-testid={`site-lead-queue-call-${i.customerId}`}>ثبت تماس</button> : null}
       </li>)}
-    </ul>
-  </section>;
+    </ul>; }
 }

@@ -1,5 +1,6 @@
 import { ReminderMustHost } from '@/features/reminder-must/ReminderMust';
 import { VcHeaderBadge } from '@/features/voip-call/VoipCall';
+import { VoipAnywhereFirstFormHost } from '@/features/voip-call/VoipAnywhere';
 import { useRmConfig } from '@/features/reminder-must/api';
 import { CustomerName } from '@/components/customer/CustomerName';
 import { Moon, Lock, AudioLines, BarChart3, Bot, Banknote, Bell, BellRing, ChevronDown, ClipboardList, Contact, FileSignature, HandCoins, Headset, Landmark, Layers, LayoutDashboard, Link2, LifeBuoy, LogOut, Menu, MessageCircle, MoreHorizontal, Sparkles, MessagesSquare, Pencil, Phone, PhoneCall, PhoneIncoming, PieChart, Radar, Receipt, Rocket, Save, Send, Settings, ShieldAlert, ShieldCheck, ShoppingBag, SlidersHorizontal, Smartphone, Store, UserCog, UsersRound, Wallet, Building2, Coins, Instagram, Calculator, X, ListChecks, type LucideIcon } from 'lucide-react';
@@ -475,6 +476,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
           <div className="ss-ttl"><h1>{pageTitle}</h1><p>امروز، تمرکز روی قدم بعدی مشتری است.</p></div>
           <div className="top-actions">
             <VcHeaderBadge />
+            <VoipAnywhereFirstFormHost />
             {elLocked ? <span className="ss-lkchip" role="note" aria-label="پنل محدود" data-testid="ss-lkchip"><Lock size={16} aria-hidden="true" /><span className="lt" aria-hidden="true">پنل محدود</span></span> : null}
             {dndUntil ? <button type="button" className="ss-dndchip" aria-label={`مزاحم نشو روشن است تا ${tehranHm(dndUntil)}؛ برای خاموش کردن بزن`} onClick={() => void dndOff()} data-testid="ss-dndchip"><Moon size={18} aria-hidden="true" /><span className="dl">مزاحم نشو </span>تا {tehranHm(dndUntil)}</button> : null}
             <span className={`ss-stx${health?.status === 'ok' ? '' : ' chk'}`} title="پشتیبانی تیم" data-testid="ss-health">{health?.status === 'ok' ? 'در دسترس' : 'در حال بررسی'}</span>
@@ -587,6 +589,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
           </div>
           <div className="top-actions">
             <VcHeaderBadge />
+            <VoipAnywhereFirstFormHost />
             <DiagnosticsButton />
             <div className="nas-slot nas-slot-top" ref={setAsTopSlot} />
             <NotificationBell user={user} />
