@@ -6,6 +6,7 @@ import { CallSummaryError, summarizeCall } from "./recording-call-summary";
 import { SimotelError } from "./simotel";
 import { latestSummaryEdit } from "./recording-summary-edits";
 import { ctFlag, systemActor, SYSTEM_REQUESTER } from "./call-transcripts";
+import { ensureRestartRetrySchema, recoverInterruptedSummaries, restartRetryOn } from "./stt-restart-retry";
 
 type SummaryJob = { external_id: string; source_hash: string; requested_by: number; range_from: string; range_to: string;
   state: "queued" | "processing" | "completed" | "failed"; error: string | null; result_json: string | null };
@@ -53,13 +54,15 @@ export function queueCallSummary(id: string, userId: number, from: string, to: s
     requested_by=excluded.requested_by,range_from=excluded.range_from,range_to=excluded.range_to,state=excluded.state,
     error=excluded.error,result_json=NULL,lease_until=NULL,updated_at=excluded.updated_at`,
     [id, source.hash, userId, from, to, full ? "failed" : "queued", full ? "صف تهیهٔ خلاصه پر است؛ کمی بعد دوباره تلاش کنید." : null, now, now]);
+  if (restartRetryOn()) { ensureRestartRetrySchema(); executeChanges("UPDATE voip_recording_summaries SET interrupt_retries=0,retry_at=NULL WHERE external_id=?", [id]); }
 }
 let busy = false;
 export async function processCallSummaryQueue() {
   if (busy) return;
-  executeChanges("UPDATE voip_recording_summaries SET state='failed',error=?,lease_until=NULL WHERE state='processing' AND lease_until<?",
-    ["تهیهٔ خلاصهٔ قبلی قطع شد؛ دوباره تلاش کنید.", new Date().toISOString()]);
-  const job = queryRow<SummaryJob>("SELECT * FROM voip_recording_summaries WHERE state='queued' ORDER BY created_at LIMIT 1");
+  recoverInterruptedSummaries(); // STT-RETRY: orphaned by a restart → re-queued (max 2, backoff), else failed as before
+  const job = restartRetryOn()
+    ? queryRow<SummaryJob>("SELECT * FROM voip_recording_summaries WHERE state='queued' AND (retry_at IS NULL OR retry_at<=?) ORDER BY created_at LIMIT 1", [new Date().toISOString()])
+    : queryRow<SummaryJob>("SELECT * FROM voip_recording_summaries WHERE state='queued' ORDER BY created_at LIMIT 1");
   if (!job) return;
   busy = true;
   try {

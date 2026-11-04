@@ -13,6 +13,7 @@ import {authorizedVoipRecording} from "../routes/simotel-recordings";
 import {transcribeRecording,TranscriptionError,speechConfigured} from "./recording-transcription";
 import {callSummaryDTO,queueCallSummary,processCallSummaryQueue} from "./recording-summary-jobs";
 import {ctFlag,ensureCallTranscriptSchema,retryPlan,systemActor,SYSTEM_REQUESTER} from "./call-transcripts";
+import {ensureRestartRetrySchema,recoverInterruptedTranscripts,recoverInterruptedSummaries,restartRetryOn} from "./stt-restart-retry";
 
 type Job={external_id:string;source_file:string;range_from:string;range_to:string;requested_by:number;state:string;
   phase:string|null;error:string|null;result_json:string|null;completed_at:string|null;lease_until:string|null;attempts?:number|null};
@@ -54,17 +55,20 @@ export function queueTranscript(id:string,file:string,from:string,to:string,user
     [id,file,from,to,userId,now,now]);
   // call-transcripts (auto flag): a fresh request restarts the retry budget.
   if(ctFlag("auto")){ensureCallTranscriptSchema();executeChanges("UPDATE voip_recording_transcripts SET attempts=0,next_attempt_at=NULL WHERE external_id=?",[id]);}
+  // STT-RETRY: a fresh request restarts the restart-retry budget too.
+  if(restartRetryOn()){ensureRestartRetrySchema();executeChanges("UPDATE voip_recording_transcripts SET interrupt_retries=0,next_attempt_at=NULL WHERE external_id=?",[id]);}
 }
 let busy=false;
 export async function processTranscriptQueue(){
   if(busy)return;
-  executeChanges(`UPDATE voip_recording_transcripts SET state='failed',phase=NULL,error=?,lease_until=NULL,updated_at=?
-    WHERE state='processing' AND lease_until<?`,["پردازش قبلی قطع شده است؛ برای تلاش دوباره دکمهٔ تبدیل را بزنید.",new Date().toISOString(),new Date().toISOString()]);
+  recoverInterruptedTranscripts(); // STT-RETRY: orphaned by a restart → re-queued (max 2, backoff), else failed as before
   const auto=ctFlag("auto");
+  const rr=restartRetryOn();
   if(auto)ensureCallTranscriptSchema();
   const job=queryRow<Job>(auto
     ?"SELECT * FROM voip_recording_transcripts WHERE state='queued' AND (next_attempt_at IS NULL OR next_attempt_at<=?) ORDER BY created_at LIMIT 1"
-    :"SELECT * FROM voip_recording_transcripts WHERE state='queued' ORDER BY created_at LIMIT 1",auto?[new Date().toISOString()]:[]);
+    :rr?"SELECT * FROM voip_recording_transcripts WHERE state='queued' AND (next_attempt_at IS NULL OR next_attempt_at<=?) ORDER BY created_at LIMIT 1"
+    :"SELECT * FROM voip_recording_transcripts WHERE state='queued' ORDER BY created_at LIMIT 1",auto||rr?[new Date().toISOString()]:[]);
   if(!job)return;
   busy=true;
   let temporary:string|undefined,heartbeat:NodeJS.Timeout|undefined;
@@ -119,6 +123,10 @@ export async function processTranscriptQueue(){
 }
 export function startTranscriptWorker(){
   ensureTranscriptSchema();
+  // STT-RETRY: recover jobs orphaned by the previous process right at startup (lease-expired ones; the rest on later ticks).
+  try{ensureRestartRetrySchema();const t=recoverInterruptedTranscripts(),m=recoverInterruptedSummaries();
+    if(t.requeued||t.failed||m.requeued||m.failed)logger.info({transcripts:t,summaries:m},"Recovered interrupted recording jobs");}
+  catch(error){logger.warn({errorType:error instanceof Error?error.name:"unknown"},"Interrupted job recovery failed");}
   const failed=(error:unknown)=>logger.error({errorType:error instanceof Error?error.name:"unknown"},"Recording transcription queue failed");
   void processTranscriptQueue().catch(failed);
    void processCallSummaryQueue().catch(failed);
