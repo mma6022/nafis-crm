@@ -1,0 +1,5 @@
+.dup-err{display:flex;gap:8px;align-items:flex-start;background:#fff1f2;border:1px solid #fecdd3;color:#9f1239;border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.9}
+.dup-ico{flex:none;margin-top:4px;color:#e11d48}
+.dup-main{display:flex;flex-direction:column;gap:8px;min-width:0}
+.dup-txt b{font-weight:700}
+.dup-btn{align-self:flex-start;height:32px;padding:0 12px;border:1px solid #9f1239 !important;color:#9f1239 !important;background:#fff !important}

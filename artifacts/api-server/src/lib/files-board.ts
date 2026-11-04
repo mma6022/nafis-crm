@@ -113,5 +113,5 @@ export function fbWriteBlock(u: U, fileId: number, now = new Date()): { error: "
   if (s.turn === fileId) return null;
   const t = s.turn != null ? s.byId.get(s.turn) : null;
   return { error: "board_turn", message: t ? `به ترتیب باز می‌شود؛ اول پرونده‌ی ${t.name ?? ""} را باز کن.` : "امروز همه‌ی پرونده‌ها پیگیری شده‌اند؛ فردا به ترتیب باز می‌شوند.",
-    details: { fileId, turnFileId: s.turn } };
+    details: { fileId, turnFileId: s.turn, turnFileName: t?.name ?? null } };
 }

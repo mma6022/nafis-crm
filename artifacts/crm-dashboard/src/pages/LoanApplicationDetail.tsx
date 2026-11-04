@@ -74,6 +74,7 @@ import '@/pages/customers.css';
 import '@/pages/loan-requests.css';
 import { ChevronLeft as ChevronLeftIcon, User as UserIcon } from 'lucide-react';
 import { CustomerName } from '@/components/customer/CustomerName';
+import { DocUploadError, docClientCheck, docServerError, type DocUpErr } from '@/features/doc-upload/DocUploadError';
 import { SmartFilingButton } from '@/features/smart-filing/SmartFilingButton';
 
 const STAGE_LABELS: Record<string, string> = {
@@ -243,6 +244,7 @@ function sameTomanReplacementTerms(
     && first.tomanTemplateId === second.tomanTemplateId
     && first.tomanTemplateName === second.tomanTemplateName);
 }
+
 export default function LoanApplicationDetail() {
   const { id } = useParams<{ id: string }>();
   const appId = Number(id);
@@ -1192,9 +1194,12 @@ function DocumentSection({ appId, docs, title, type, canUpload, canReview, corre
   const [reqLabel, setReqLabel] = useState('');
   const [selectedRequirement, setSelectedRequirement] = useState<any | null>(null);
   const [previewDoc, setPreviewDoc] = useState<PreviewFile | null>(null);
+  const [upErr, setUpErr] = useState<DocUpErr | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [, navTo] = useLocation();
 
-  const uploadCustomer = useUploadLoanApplicationDocument({ mutation: { onSuccess: () => { queryClient.invalidateQueries(); setUploadOpen(false); setLabel(''); setFile(null); setSelectedRequirement(null); } } });
-  const uploadGuarantor = useUploadLoanApplicationGuarantorDocument({ mutation: { onSuccess: () => { queryClient.invalidateQueries(); setUploadOpen(false); setLabel(''); setFile(null); } } });
+  const uploadCustomer = useUploadLoanApplicationDocument({ mutation: { onError: (e) => setUpErr(docServerError(e)), onSuccess: () => { queryClient.invalidateQueries(); setUploadOpen(false); setLabel(''); setFile(null); setSelectedRequirement(null); } } });
+  const uploadGuarantor = useUploadLoanApplicationGuarantorDocument({ mutation: { onError: (e) => setUpErr(docServerError(e)), onSuccess: () => { queryClient.invalidateQueries(); setUploadOpen(false); setLabel(''); setFile(null); } } });
   const delCustomer = useDeleteLoanApplicationDocument({ mutation: { onSuccess: () => queryClient.invalidateQueries() } });
   const delGuarantor = useDeleteLoanApplicationGuarantorDocument({ mutation: { onSuccess: () => queryClient.invalidateQueries() } });
   const reviewCustomer = useReviewLoanApplicationDocument({ mutation: { onSuccess: () => { queryClient.invalidateQueries(); setReviewOpen(null); setReviewReason(''); } } });
@@ -1208,6 +1213,8 @@ function DocumentSection({ appId, docs, title, type, canUpload, canReview, corre
   const handleUpload = (e: React.FormEvent) => {
     e.preventDefault();
     if (!file || (!selectedRequirement && type === 'customer' && !/[\u0600-\u06FF]/.test(label.trim()))) return;
+    const pre = docClientCheck(file); if (pre) { setUpErr(pre); return; }
+    setUpErr(null);
     const req = { id: appId, data: {
       file,
       label: selectedRequirement?.label || label || undefined,
@@ -1236,6 +1243,7 @@ function DocumentSection({ appId, docs, title, type, canUpload, canReview, corre
     setSelectedRequirement(doc || null);
     setLabel(doc?.label || '');
     setFile(null);
+    setUpErr(null);
     setUploadOpen(true);
   };
 
@@ -1344,13 +1352,16 @@ function DocumentSection({ appId, docs, title, type, canUpload, canReview, corre
             </div>}
             <div className="field">
               <label>انتخاب فایل</label>
-              <input type="file" onChange={e => setFile(e.target.files?.[0] || null)} required style={{ padding: '8px 10px', background: '#fff' }} />
+              <input ref={fileInputRef} type="file" onChange={e => { const f = e.target.files?.[0] || null; setFile(f); setUpErr(docClientCheck(f)); }} required style={{ padding: '8px 10px', background: '#fff' }} />
               <small style={{ color: '#64748b' }}>همه نوع فایل تا حجم ۱۰ مگابایت قابل بارگذاری است.</small>
             </div>
-            {uploadCustomer.isError || uploadGuarantor.isError ? <div style={{color: '#be123c', fontSize: 12}}>خطا در بارگذاری مدرک. دوباره تلاش کنید.</div> : null}
+            {upErr ? <DocUploadError err={upErr}
+              onPickOther={() => fileInputRef.current?.click()}
+              onRetry={() => { setUpErr(null); if (!file) return; const req = { id: appId, data: { file, label: selectedRequirement?.label || label || undefined, requirementKey: selectedRequirement?.requirement_key || selectedRequirement?.requirementKey || undefined } }; if (type === 'customer') uploadCustomer.mutate(req); else uploadGuarantor.mutate(req); }}
+              onGoFile={(fid) => { setUploadOpen(false); setSelectedRequirement(null); setUpErr(null); navTo(`/loan-applications/${fid}`); }} /> : null}
             <div className="form-footer" style={{ justifyContent: 'flex-end' }}>
               <button type="button" className="btn btn-ghost" onClick={() => setUploadOpen(false)} disabled={isPending}>انصراف</button>
-              <button type="submit" className="btn btn-primary" disabled={isPending || !file || (!selectedRequirement && type === 'customer' && !/[\u0600-\u06FF]/.test(label.trim()))}>
+              <button type="submit" className="btn btn-primary" disabled={isPending || !file || Boolean(upErr) || (!selectedRequirement && type === 'customer' && !/[\u0600-\u06FF]/.test(label.trim()))}>
                 {isPending ? 'در حال بارگذاری...' : 'بارگذاری'}
               </button>
             </div>
