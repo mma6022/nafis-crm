@@ -13,7 +13,7 @@
  *  - Any failure in the automatic save → that call falls back to the existing manual result flow (auto_kind 'manual').
  */
 import { crmDb, executeChanges, queryRow, queryRows, runImmediateTransaction, type SqlValue } from "./crm-db";
-import { vcOn, vcTableExists, vcView, type VcRow } from "./voip-call";
+import { vcOn, vcTableExists, vcView, vcFastOn, type VcRow } from "./voip-call";
 import { getTeamSalesConfig } from "./team-sales";
 import { getAuthUserById } from "./auth";
 import { fcExpertFollowup } from "./files-carousel";
@@ -23,6 +23,9 @@ import { vnaSent } from "./voip-noanswer-sms";
 import { resolveEvent, experts, customerMatcher, normalizePhone } from "./voip-after-call";
 
 export const S132_WAIT_S = 120; // R2 decides 60 s after the last leg ends (+ the 20 s poll); then the design's 60 s
+/** SIMOTEL-FAST (flag.simotel_fast[.user.<id>]): the result normally lands 5–8 s after hang-up, so the no-CDR wait is 30 s (Armita 1.3.4); OFF → 120 s. */
+export const S132_FAST_WAIT_S = 30;
+export function s132WaitS(userId: number | null | undefined): number { return vcFastOn(userId) ? S132_FAST_WAIT_S : S132_WAIT_S; }
 export const S132_STATUSES = ["answered", "no_answer", "busy", "failed"] as const;
 export type S132Status = typeof S132_STATUSES[number];
 const NOTE_MAX = 500, NOTE_GIVE_UP_MIN = 45, NO_LOG_GIVE_UP_MIN = 10, BAR_KEEP_MIN = 30;
@@ -280,17 +283,18 @@ function noteTick(now: Date, userId: number | null) {
 
 /** Extra fields for the expert's own click call (only added to the payload while the flag is on). */
 export type S132CallView = { firstCall: boolean; phase: "live" | "waiting" | "late" | "first_form" | "auto" | "manual"; waitSeconds: number | null; waitTotalSeconds: number;
-  simStatus: string | null; expertStatus: string | null };
+  simStatus: string | null; expertStatus: string | null; fast?: true };
 export function s132CallView(c: VcRow, now = new Date()): S132CallView | null {
   if (!s132TableExists()) return null;
   const r = queryRow<S132Row>("SELECT * FROM s132_calls WHERE call_id=?", [c.id]);
   if (!r) return null;
-  const endedMs = ms(c.ended_at);
+  const endedMs = ms(c.ended_at), WAIT = s132WaitS(c.user_id);
   const phase: S132CallView["phase"] = c.active ? "live" : c.state !== "ended" ? "manual"
     : r.auto_kind === "first_form" ? "first_form" : r.auto_kind === "manual" ? "manual" : r.auto_at ? "auto"
-    : r.expert_status ? "waiting" : Number.isFinite(endedMs) && now.getTime() - endedMs >= S132_WAIT_S * 1000 ? "late" : "waiting";
+    : r.expert_status ? "waiting" : Number.isFinite(endedMs) && now.getTime() - endedMs >= WAIT * 1000 ? "late" : "waiting";
   return { firstCall: !!r.first_call, phase, simStatus: r.sim_status, expertStatus: r.expert_status,
-    waitSeconds: phase === "waiting" && Number.isFinite(endedMs) ? Math.max(0, S132_WAIT_S - Math.floor((now.getTime() - endedMs) / 1000)) : null, waitTotalSeconds: S132_WAIT_S };
+    waitSeconds: phase === "waiting" && Number.isFinite(endedMs) ? Math.max(0, WAIT - Math.floor((now.getTime() - endedMs) / 1000)) : null, waitTotalSeconds: WAIT,
+    ...(vcFastOn(c.user_id) ? { fast: true as const } : {}) }; // SIMOTEL-FAST: the 1.3.4 waiting copy; off → payload unchanged
 }
 /** «ثبت خودکار» bar: the expert's latest auto-saved call (until the next call starts, the bar is closed, or 30 min pass). */
 export function s132LastBar(userId: number, now = new Date()) {

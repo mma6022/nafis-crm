@@ -9,7 +9,7 @@
  *    stays editable; small corner cards / toasts show the live call (no phone for another expert's customer).
  */
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
-import { vcOn, vcTableExists } from "./voip-call";
+import { vcFastAny, vcOn, vcTableExists } from "./voip-call";
 import { customerMatcher, experts, normalizePhone, resolveEvent } from "./voip-after-call";
 import { getAuthUserById, type AuthUser } from "./auth";
 import { dpAfterFirstCallForm } from "./daily-plan";
@@ -55,6 +55,25 @@ export function s132bPendingFilterSql(): string {
     const ids = s132bUserIds();
     return ids.length ? ` AND COALESCE(e.expert_user_id,0) NOT IN (${ids.map((x) => Number(x)).join(",")})` : "";
   } catch { return ""; }
+}
+
+/* ---------------- customer timeline: Simotel status in Persian (Armita 1.3.2 bug fix) ---------------- */
+const S132B_ST: Record<string, string> = { ANSWERED: "جواب داد", "NO ANSWER": "جواب نداد", NOANSWER: "جواب نداد", NO_ANSWER: "جواب نداد", BUSY: "اشغال" };
+const S132B_LIVE = new Set(["RINGING", "ACTIVE", "UP", "RING", "INUSE"]);
+export const S132B_LIVE_FA = "در حال تماس";
+/** «تماس ورودی مرکز تماس (NO ANSWER)» → «تماس ورودی مرکز تماس: جواب نداد». A live code (RINGING/ACTIVE) reads «در حال تماس» for up to
+ *  3 h, then «ناموفق»; anything else unknown reads «ناموفق» — never a raw code. Other subjects are returned as they are. */
+export function s132bSubjectFa(subject: string | null, createdAt?: string | null, now = Date.now()): string | null {
+  if (!subject) return subject;
+  const m = /^(.*مرکز تماس) \(([^()]*)\)$/.exec(subject); if (!m) return subject;
+  const code = m[2].trim().toUpperCase().replace(/\s+/g, " ");
+  const fresh = !createdAt || now - Date.parse(createdAt) < 3 * 3600_000;
+  return `${m[1]}: ${S132B_LIVE.has(code) ? (fresh ? S132B_LIVE_FA : "ناموفق") : S132B_ST[code] ?? "ناموفق"}`;
+}
+/** Display only (the stored subject is not changed). Only while a Phase B or SIMOTEL-FAST key is on; off → rows untouched. */
+export function s132bActivityFa<T extends { subject: string | null; createdAt?: string | null }>(rows: T[]): T[] {
+  try { if (!s132bAnyOn() && !vcFastAny()) return rows; return rows.map((r) => ({ ...r, subject: s132bSubjectFa(r.subject, r.createdAt) })); }
+  catch { return rows; }
 }
 
 /* ---------------- schema (lazy, flag on only) ---------------- */

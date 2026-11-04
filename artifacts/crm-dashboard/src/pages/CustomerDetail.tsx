@@ -706,7 +706,7 @@ function CustomerDetailFull() {
         <div style={{ minWidth: 0 }}>
           <div className="who">{item.salespersonName || 'کارشناس تیم'}، {formatDateTime(item.createdAt)}</div>
           <p className="tx"><b>{item.subject || 'تماس با مشتری'}</b></p>
-          <p className="tx q">{item.customerRequest || 'درخواست مشتری ثبت نشده است.'}{item.expertNotes ? ` — ${item.expertNotes}` : ''}</p>
+          <p className="tx q">{item.customerRequest || (item.subject?.endsWith(': در حال تماس') ? 'تماس در جریان است؛ وضعیت نهایی خودش ثبت می‌شود.' : 'درخواست مشتری ثبت نشده است.')}{item.expertNotes ? ` — ${item.expertNotes}` : ''}</p>
         </div>
       </li>)}</ol>
       : <p className="muted" style={{ margin: 0 }}>هنوز تماس یا یادداشتی ثبت نشده است.</p>}
