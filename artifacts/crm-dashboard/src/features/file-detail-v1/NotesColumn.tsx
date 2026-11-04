@@ -1,7 +1,7 @@
 /** FILE-DETAIL v1.1 · notes column (Armita §chat): internal staff notes, newest at the BOTTOM (Mohammad), only the list scrolls,
  *  states «در حال ثبت / ثبت شد / ثبت نشد» with «ارسال دوباره». Same endpoints as CaseNotesRoom (fetchNotes/postNote, 5s poll). */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Check, ChevronDown, ChevronRight, Download, File as FileIcon, Lock, Mic, Paperclip, Play, Pause, RefreshCw, Send, Square, StickyNote, X } from 'lucide-react';
+import { AlertCircle, Check, ChevronDown, ChevronRight, Crown, Download, File as FileIcon, Lock, Mic, Paperclip, Play, Pause, RefreshCw, Send, Square, StickyNote, X } from 'lucide-react';
 import { CaseApiError, MAX_FILE_BYTES, canReadNotes, canWriteNotes, fetchNotes, postNote, withBase, type CaseNote, type CaseUser } from '@/loan-case-history/api';
 import { useVoiceRecorder } from '@/loan-case-history/useVoiceRecorder';
 import { dayKey, dayLabel, fd, hm, sizeFa } from './fdv1-api';
@@ -47,7 +47,8 @@ function Meta({ tm, st, onRetry }: { tm: string; st?: 'sending' | 'sent' | 'fail
   </span>;
 }
 
-export function NotesColumn({ appId, user, onBack }: { appId: number; user: CaseUser & { name?: string | null }; onBack: () => void }) {
+export type SysLine = { id: string; at: string; text: string };
+export function NotesColumn({ appId, user, onBack, title, sys = [] }: { appId: number; user: CaseUser & { name?: string | null }; onBack: () => void; title?: string; sys?: SysLine[] }) {
   const readable = canReadNotes(user), writable = canWriteNotes(user);
   const me = user?.id ?? null;
   const [notes, setNotes] = useState<CaseNote[]>([]);
@@ -104,7 +105,11 @@ export function NotesColumn({ appId, user, onBack }: { appId: number; user: Case
     if (keepFromBottom.current != null) { el.scrollTop = el.scrollHeight - keepFromBottom.current; keepFromBottom.current = null; return; }
     if (stick.current) el.scrollTop = el.scrollHeight;
   }, [notes, pending, status]);
-  useEffect(() => { const el = ta.current; if (!el) return; el.style.height = 'auto'; el.style.height = `${Math.min(el.scrollHeight, 160)}px`; }, [text]);
+  useEffect(() => { const el = ta.current; if (!el) return; el.style.height = 'auto';
+    // Armita r1 §11: grow to at most 3 lines, then scroll inside the box
+    const cs = window.getComputedStyle(el); const lh = parseFloat(cs.lineHeight) || 24;
+    const max = Math.round(lh * 3 + (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0));
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`; el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden'; }, [text]);
 
   const send = async (p: Pending) => {
     setPending(prev => [...prev.filter(x => x.clientId !== p.clientId), { ...p, st: 'sending' }]);
@@ -135,11 +140,20 @@ export function NotesColumn({ appId, user, onBack }: { appId: number; user: Case
   const rows: React.JSX.Element[] = [];
   let lastDay = '';
   const dayRow = (iso: string) => { const k = dayKey(iso); if (k !== lastDay) { lastDay = k; rows.push(<div className="day" key={`d${k}`}>{dayLabel(iso)}</div>); } };
-  for (const n of notes) {
-    dayRow(n.createdAt);
+  // system lines (registered / contract signed / sent / cancelled) only inside the loaded notes window, so paging stays honest
+  const oldest = notes.length && cursor ? notes[0].createdAt : null;
+  const feed: ({ k: 'n'; at: string; n: CaseNote } | { k: 's'; at: string; s: SysLine })[] = [
+    ...notes.map(n => ({ k: 'n' as const, at: n.createdAt, n })),
+    ...(status === 'ok' ? sys.filter(x => !oldest || Date.parse(x.at) >= Date.parse(oldest)).map(x => ({ k: 's' as const, at: x.at, s: x })) : []),
+  ].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  for (const f of feed) {
+    dayRow(f.at);
+    if (f.k === 's') { rows.push(<div key={`s${f.s.id}`} className="sys" data-testid={`fdv1-sys-${f.s.id}`}><span>{f.s.text} · {hm(f.at)}</span></div>); continue; }
+    const n = f.n;
     const out = me != null && n.author.id === me;
-    rows.push(<div key={n.id} className={`msg ${out ? 'out' : 'in'}`} data-st={out ? 'sent' : undefined} data-testid={`fdv1-note-${n.id}`}>
-      <div className="bb">{!out ? <span className="by">{n.author.name}</span> : null}<Att note={n} />{n.text ? <span className="tt">{n.text}</span> : null}</div>
+    const mgr = !out && Boolean((n.author as { manager?: boolean }).manager);
+    rows.push(<div key={n.id} className={`msg ${out ? 'out' : 'in'}${mgr ? ' mg' : ''}`} data-st={out ? 'sent' : undefined} data-testid={`fdv1-note-${n.id}`}>
+      <div className="bb">{mgr ? <span className="au"><Crown className="i" aria-hidden />مدیر فروش</span> : null}{!out ? <span className="by">{n.author.name}</span> : null}<Att note={n} />{n.text ? <span className="tt">{n.text}</span> : null}</div>
       <Meta tm={hm(n.createdAt)} st={out ? 'sent' : undefined} />
     </div>);
   }
@@ -154,7 +168,7 @@ export function NotesColumn({ appId, user, onBack }: { appId: number; user: Case
 
   return <aside className="fchat" aria-label="یادداشت‌های پرونده" data-testid="fdv1-notes">
     <div className="chh"><button className="ib bkb" type="button" aria-label="برگشت به پرونده" onClick={onBack}><ChevronRight className="i" aria-hidden /></button>
-      <div className="t"><div className="nmr"><span className="nm">یادداشت‌های پرونده</span><span className="chip in"><Lock className="i" aria-hidden />داخلی</span></div><p>فقط همکاران می‌بینند؛ برای مشتری نمی‌رود</p></div>
+      <div className="t"><div className="nmr"><span className="nm">یادداشت‌های پرونده</span>{title ? <span className="fno">{title}</span> : null}<span className="chip in"><Lock className="i" aria-hidden />داخلی</span></div><p>فقط همکاران می‌بینند؛ برای مشتری نمی‌رود</p></div>
       {people.length ? <span className="avs" aria-label={`در این یادداشت‌ها: ${people.join('، ')}`}>{people.map((nm, i) => <span key={i} className={`ava c${(i % 4) + 1}`}>{nm.trim().replace(/^(آقای|خانم)\s+/, '').slice(0, 1) || '؟'}</span>)}</span> : null}
     </div>
     <div className="cmsgs" ref={list} tabIndex={0} aria-label="یادداشت‌ها، تازه‌ترین پایین" aria-live="polite" data-testid="fdv1-notes-list"
