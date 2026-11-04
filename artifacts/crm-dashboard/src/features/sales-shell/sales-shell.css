@@ -173,3 +173,5 @@ html.ssv2-on .diag-floating{bottom:calc(var(--ss-dock-h) + 28px + env(safe-area-
 .ph .phc:hover,.ph .phc.done{background:var(--nf-surface-2,#F3F4F9);color:var(--nf-brand-600,#29369B)}
 .ss-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .ss-lockb{background:#fff;color:var(--nf-brand-700,#2b3a9b);border-color:var(--nf-line,#dfe3ee)}
+/* armita2-fu (Armita): desktop «گزارش خطا» never over the notes column — right side, centred on the dock row (same spot as file-detail 1.1). Mobile untouched. */
+@media (min-width:1024px){html.ssv2-on .diag-floating{right:24px!important;left:auto!important;bottom:calc(var(--ss-gap,16px) + (var(--ss-dock-h,90px) - 44px) / 2 + env(safe-area-inset-bottom,0px))!important;min-height:44px}}
