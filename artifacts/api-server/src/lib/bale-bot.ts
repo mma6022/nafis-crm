@@ -31,6 +31,9 @@ export const BB_FLAG = "flag.bale_bot";
 export const bbUserFlag = (userId: number) => `${BB_FLAG}.user.${userId}`;
 export const BB_EXCLUDED_USER_IDS = [29];
 export const BB_TRAINEE_SALESPERSON_IDS = [5, 19, 20];
+/** Non-salesperson logins that get their own Bale bot inbox exactly like an expert (Bale inbox only; role/permissions untouched).
+ * 7 = Sarina Tajik (registrar) — Mohammad, PM card t826s3343, 2026-11-04. */
+export const BB_EXTRA_EXPERT_USER_IDS = [7];
 export const BB_LIMITS = { textMax: 4096, inMaxBytes: 20 * 1024 * 1024, photoBytes: 10 * 1024 * 1024, fileBytes: 50 * 1024 * 1024, voiceBytes: 1024 * 1024, deleteHours: 48 } as const;
 export const BB_API = "https://tapi.bale.ai";
 export const ASK_CONTACT_TEXT = "بی‌زحمت شماره‌تون رو با دکمه‌ی زیر بفرستید تا پرونده‌تون رو پیدا کنم.";
@@ -117,7 +120,9 @@ export type BbUser = { id: number; role: string; base_role: string; salesperson_
 export const bbUser = (id: number) => queryRow<BbUser>(`SELECT id,${roleSql()} AS role,role AS base_role,salesperson_id,active,full_name,username FROM users WHERE id=?`, [id]);
 export const nameOf = (u: { full_name?: string | null; username?: string; id: number } | undefined | null) => u ? (u.full_name || u.username || `کاربر ${u.id}`) : null;
 export function isBotExpert(u: BbUser | undefined | null): boolean {
-  return !!u && u.active !== 0 && u.role === "salesperson" && !!u.salesperson_id && !BB_TRAINEE_SALESPERSON_IDS.includes(Number(u.salesperson_id)) && !BB_EXCLUDED_USER_IDS.includes(u.id);
+  if (!u || u.active === 0 || BB_EXCLUDED_USER_IDS.includes(u.id)) return false;
+  if (BB_EXTRA_EXPERT_USER_IDS.includes(u.id)) return true;
+  return u.role === "salesperson" && !!u.salesperson_id && !BB_TRAINEE_SALESPERSON_IDS.includes(Number(u.salesperson_id));
 }
 /** "all" = admin + sales manager (read + write every chat); "own" = an expert's own bot; null = no access. Needs both flags. */
 export function bbView(u: BbUser | undefined | null): "all" | "own" | null {

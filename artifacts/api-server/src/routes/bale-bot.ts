@@ -15,7 +15,7 @@ import { insertCustomerRecord } from "../lib/customer-create";
 import { baleBotAad, baleBotHasKey, sealBotToken } from "../lib/bale-bot-crypto";
 import {
   ASK_CONTACT_TEXT, BaleBotWorker, BB_LIMITS, baleCall, bbCanManage, bbLog, bbMasterOn, bbNoSendSp, bbUser, bbUserOn, bbView, botById, botLive, botOfUser, botSends,
-  bbNotice, chatName, ensureBaleBotSchema, fileOwnerUsers, normPhone, filesDir, isBotExpert, messageView, nameOf, redact, tokenShapeOk, type BbUser,
+  bbNotice, chatName, ensureBaleBotSchema, fileOwnerUsers, normPhone, filesDir, isBotExpert, BB_EXTRA_EXPERT_USER_IDS, messageView, nameOf, redact, tokenShapeOk, type BbUser,
 } from "../lib/bale-bot";
 
 export const baleBotWorker = new BaleBotWorker();
@@ -279,7 +279,7 @@ export function createBaleBotRouter(): IRouter {
         return { existing: k.id };
       }
       const id = insertCustomerRecord({ name, phone, description: [`منبع: بله${bot.bot_username ? ` (ربات @${bot.bot_username})` : ""}`, note].filter(Boolean).join("\n"),
-        salespersonId: owner?.salesperson_id ?? null, assignedSalespersonId: owner?.salesperson_id ?? null, registeredByUserId: u.id, registrationSource: "staff_form", skipDefaultOwnerRule: true,
+        salespersonId: owner?.salesperson_id ?? null, assignedSalespersonId: owner?.salesperson_id ?? null, registeredByUserId: u.id, registrationSource: "staff_form", skipDefaultOwnerRule: owner?.salesperson_id != null, // no own salesperson (registrar bot) -> normal default-owner rule
         intake: { leadSource: "other", leadSourceOther: "بله", registrarNote: note || null } });
       executeChanges("UPDATE bale_bot_chats SET customer_id=?, link_method='lead', linked_at=?, linked_by=?, lead_phone_verified=? WHERE id=?", [id, t(), u.id, verified ? 1 : 0, c.id]);
       return { created: id };
@@ -303,7 +303,7 @@ export function createBaleBotRouter(): IRouter {
   const adm = (res: Response) => { const u = U(res); if (!bbCanManage(u)) { fail(res, 403, "forbidden"); return null; } return u; };
   r.get("/bale-bot/admin/bots", (_req, res) => {
     if (!adm(res)) return;
-    const experts = queryRows<BbUser>(`SELECT id,role,role AS base_role,salesperson_id,active,full_name,username FROM users WHERE role='salesperson' AND active=1 ORDER BY id`).filter(isBotExpert);
+    const experts = queryRows<BbUser>(`SELECT id,role,role AS base_role,salesperson_id,active,full_name,username FROM users WHERE (role='salesperson' OR id IN (${BB_EXTRA_EXPERT_USER_IDS.map(Number).join(",") || "-1"})) AND active=1 ORDER BY id`).filter(isBotExpert);
     res.json({ hasKey: baleBotHasKey(process.env), noSend: bbNoSendSp(), experts: experts.map(e => ({ id: e.id, name: nameOf(e), salespersonId: e.salesperson_id, flagOn: bbUserOn(e.id), bot: botView(botOfUser(e.id)), noSend: bbNoSendSp().includes(Number(e.salesperson_id)) })) });
   });
   /** getMe with a token typed in the wizard (not stored). The token is only in the body; the answer never echoes it. */
