@@ -13,6 +13,7 @@ import { vcFastAny, vcOn, vcTableExists } from "./voip-call";
 import { customerMatcher, experts, normalizePhone, resolveEvent } from "./voip-after-call";
 import { getAuthUserById, type AuthUser } from "./auth";
 import { dpAfterFirstCallForm } from "./daily-plan";
+import { ctfAppend, ctfOn } from "./ct-fastnote";
 import { storedCallSummary } from "./recording-summary-jobs";
 import { insertCustomerRecord } from "./customer-create";
 import { getTeamSalesConfig } from "./team-sales";
@@ -203,6 +204,7 @@ function processEvent(u: AuthUser, e: Ev, now: Date) {
   executeChanges("UPDATE s132b_events SET auto_at=?, auto_kind=?, first_form=?, note_state=? WHERE event_id=?",
     [iso(now), e.call_log_id != null ? "saved" : "no_log", firstForm, e.call_log_id != null && answered ? "pending" : "none", e.id]);
 }
+export function s132bCtfTick(now: Date, userId: number) { try { if (queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='s132b_events'")) noteTick(now, userId); } catch { /* next tick */ } }
 function noteTick(now: Date, userId: number | null) {
   const rows = queryRows<any>(`SELECT s.*, e.call_log_id log, COALESCE(e.recording_provider_id,e.external_id) pid, e.has_recording FROM s132b_events s
     JOIN voip_after_call_events e ON e.id=s.event_id WHERE s.note_state='pending'${userId == null ? "" : " AND s.user_id=?"} ORDER BY s.event_id LIMIT 50`, userId == null ? [] : [userId]);
@@ -214,7 +216,10 @@ function noteTick(now: Date, userId: number | null) {
         const subj = typeof sum.callSubject === "string" ? sum.callSubject.trim() : "";
         const note = noteText(subj ? `${subj}: ${sum.customerRequestSummary}` : sum.customerRequestSummary);
         savepoint(() => {
-          if (!r.note_edited_at) {
+          if (!r.note_edited_at && ctfOn(r.user_id) && !r.first_form) { // CT-FASTNOTE: append (fill when empty, else below; never twice)
+            if (r.log != null) ctfAppend("call_logs", "expert_notes", r.log, note);
+            ctfAppend("voip_after_call_events", "expert_notes", r.event_id, note);
+          } else if (!r.note_edited_at) {
             if (r.log != null) executeChanges("UPDATE call_logs SET expert_notes=? WHERE id=? AND COALESCE(expert_notes,'')=''", [note, r.log]);
             executeChanges("UPDATE voip_after_call_events SET expert_notes=? WHERE id=? AND COALESCE(expert_notes,'')=''", [note, r.event_id]);
           }

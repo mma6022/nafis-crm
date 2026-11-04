@@ -97,7 +97,7 @@ export async function processTranscriptQueue(){
      catch { logger.warn("Unable to queue call summary; transcript remains available"); }
   }catch(error){
     // call-transcripts (auto flag): the recording often appears in Simotel minutes after hangup → requeue with backoff, cap, then fail.
-    const plan=auto?retryPlan(error,Number(job.attempts??0)):null;
+    const plan=auto?retryPlan(error,Number(job.attempts??0),job.external_id):null;
     if(plan?.retry){
       executeChanges("UPDATE voip_recording_transcripts SET state='queued',phase=NULL,error=NULL,attempts=attempts+1,next_attempt_at=?,updated_at=?,lease_until=NULL WHERE external_id=?",
         [plan.nextAt,new Date().toISOString(),job.external_id]);

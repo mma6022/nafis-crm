@@ -321,4 +321,19 @@ export function startAfterCallMonitor() {
   ensureAfterCallSchema();
   void syncAfterCalls();
   setInterval(() => { void syncAfterCalls(); }, 20000).unref();
+  setInterval(() => { void ctfFastTick(); }, 3000).unref(); // CT-FASTNOTE: one settings read per tick while the flag is off
+}
+/** CT-FASTNOTE: queue flagged experts' recordings ~12 s after hang-up and write their summary notes without waiting for the 20 s poll. */
+let ctfRunning = false;
+export async function ctfFastTick(now = new Date()) {
+  if (ctfRunning) return; ctfRunning = true;
+  try {
+    const { ctfAny, ctfUserIds } = await import("./ct-fastnote");
+    if (!ctfAny()) return;
+    const { ctFlag } = await import("./call-transcripts");
+    if (ctFlag("auto")) { const { queueAutomaticCallReports } = await import("./automatic-call-reports"); await queueAutomaticCallReports(); }
+    const [{ s132CtfTick }, { s132bCtfTick }, { runImmediateTransaction }] = await Promise.all([import("./simotel132"), import("./simotel132b"), import("./crm-db")]);
+    for (const id of ctfUserIds()) { try { runImmediateTransaction(() => { s132CtfTick(now, id); s132bCtfTick(now, id); }); } catch { /* next tick */ } }
+  } catch (e) { const { logger } = await import("./logger"); logger.error({ err: e instanceof Error ? e.message.slice(0, 200) : "error" }, "ct_fastnote_tick_failed"); }
+  finally { ctfRunning = false; }
 }

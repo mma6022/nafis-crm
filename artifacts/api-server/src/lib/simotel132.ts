@@ -18,6 +18,7 @@ import { getTeamSalesConfig } from "./team-sales";
 import { getAuthUserById } from "./auth";
 import { fcExpertFollowup } from "./files-carousel";
 import { dpAfterFirstCallForm } from "./daily-plan";
+import { ctfAppend, ctfFirstCallTick, ctfOn, ctfSummaryStatus } from "./ct-fastnote";
 import { storedCallSummary } from "./recording-summary-jobs";
 import { vnaSent } from "./voip-noanswer-sms";
 import { resolveEvent, experts, customerMatcher, normalizePhone } from "./voip-after-call";
@@ -206,6 +207,7 @@ export function s132Tick(now = new Date(), userId: number | null = null) {
   firstFormDone(now, userId);
   simAfterSave(now, userId);
   noteTick(now, userId);
+  ctfFirstCallTick(now, storedCallSummary as any, userId); // CT-FASTNOTE: no-op while the flag is off
 }
 /** CDR poller hook (voip-after-call.ts, right after vcIngestOriginate). Own savepoints; never throws. */
 /** SIMOTEL-132 c2: a Simotel report that arrives AFTER the expert's pick updates that same call (the live-s132 event and its call log), never a
@@ -259,6 +261,19 @@ function applyNote(r: S132Row, note: string, overwrite: boolean) {
   const ev = queryRow<{ event_id: number | null }>("SELECT event_id FROM voip_click_calls WHERE id=?", [r.call_id])?.event_id;
   if (ev != null) executeChanges(`UPDATE voip_after_call_events SET expert_notes=? WHERE id=?${overwrite ? "" : " AND COALESCE(expert_notes,'')=''"}`, [note, ev]);
 }
+/** CT-FASTNOTE: the summary is appended to the note (filled when empty, else added below; never twice). */
+function ctfApplyNote(r: S132Row, note: string) {
+  if (r.fu_id != null) ctfAppend("fc_followups", "note", r.fu_id, note);
+  if (r.call_log_id != null) ctfAppend("call_logs", "expert_notes", r.call_log_id, note);
+  const ev = queryRow<{ event_id: number | null }>("SELECT event_id FROM voip_click_calls WHERE id=?", [r.call_id])?.event_id;
+  if (ev != null) ctfAppend("voip_after_call_events", "expert_notes", ev, note);
+}
+/** CT-FASTNOTE fast pass (every few seconds, flagged experts only): summary notes + the first-call append. */
+export function s132CtfTick(now: Date, userId: number) {
+  if (!vcTableExists() || !s132TableExists()) return;
+  noteTick(now, userId);
+  ctfFirstCallTick(now, storedCallSummary as any, userId);
+}
 function noteTick(now: Date, userId: number | null) {
   const rows = queryRows<S132Row & { ev: number | null }>(`SELECT s.*, k.event_id ev FROM s132_calls s JOIN voip_click_calls k ON k.id=s.call_id
     WHERE s.note_state='pending'${userId == null ? "" : " AND s.user_id=?"} ORDER BY s.call_id LIMIT 50`, userId == null ? [] : [userId]);
@@ -271,7 +286,7 @@ function noteTick(now: Date, userId: number | null) {
         const subj = typeof sum.callSubject === "string" ? sum.callSubject.trim() : "";
         const note = noteText(subj ? `${subj}: ${sum.customerRequestSummary}` : sum.customerRequestSummary);
         savepoint(() => {
-          if (!r.note_edited_at) applyNote(r, note, false);
+          if (!r.note_edited_at) { if (ctfOn(r.user_id)) ctfApplyNote(r, note); else applyNote(r, note, false); }
           executeChanges("UPDATE s132_calls SET note_state='ready', note=COALESCE(?,note) WHERE call_id=?", [r.note_edited_at ? null : note, r.call_id]);
         });
       } else if (sum?.summaryState === "failed" || (e && !e.has_recording && old) || old || r.note_edited_at) {
@@ -283,7 +298,7 @@ function noteTick(now: Date, userId: number | null) {
 
 /** Extra fields for the expert's own click call (only added to the payload while the flag is on). */
 export type S132CallView = { firstCall: boolean; phase: "live" | "waiting" | "late" | "first_form" | "auto" | "manual"; waitSeconds: number | null; waitTotalSeconds: number;
-  simStatus: string | null; expertStatus: string | null; fast?: true };
+  simStatus: string | null; expertStatus: string | null; fast?: true; summaryStatus?: "pending" | "ready" | "failed" | null };
 export function s132CallView(c: VcRow, now = new Date()): S132CallView | null {
   if (!s132TableExists()) return null;
   const r = queryRow<S132Row>("SELECT * FROM s132_calls WHERE call_id=?", [c.id]);
@@ -294,7 +309,8 @@ export function s132CallView(c: VcRow, now = new Date()): S132CallView | null {
     : r.expert_status ? "waiting" : Number.isFinite(endedMs) && now.getTime() - endedMs >= WAIT * 1000 ? "late" : "waiting";
   return { firstCall: !!r.first_call, phase, simStatus: r.sim_status, expertStatus: r.expert_status,
     waitSeconds: phase === "waiting" && Number.isFinite(endedMs) ? Math.max(0, WAIT - Math.floor((now.getTime() - endedMs) / 1000)) : null, waitTotalSeconds: WAIT,
-    ...(vcFastOn(c.user_id) ? { fast: true as const } : {}) }; // SIMOTEL-FAST: the 1.3.4 waiting copy; off → payload unchanged
+    ...(vcFastOn(c.user_id) ? { fast: true as const } : {}),
+    ...(ctfOn(c.user_id) && !c.active && c.state === "ended" ? { summaryStatus: ctfSummaryStatus(c.event_id, storedCallSummary as any, now) } : {}) }; // CT-FASTNOTE // SIMOTEL-FAST: the 1.3.4 waiting copy; off → payload unchanged
 }
 /** «ثبت خودکار» bar: the expert's latest auto-saved call (until the next call starts, the bar is closed, or 30 min pass). */
 export function s132LastBar(userId: number, now = new Date()) {
@@ -313,7 +329,8 @@ export function s132LastBar(userId: number, now = new Date()) {
     smsSent: r.sim_status !== "answered" && vnaSent(r.call_id), smsAt: r.sim_status !== "answered" ? smsSentAt(r.call_id) : null,
     nextStep: status === "answered" ? summaryNextStep(r.event_id) : null,
     boardNext: status === "answered" ? boardNext(r.customer_id, r.file_id, now) : null, noteState: r.note_state, note: r.note ?? "", noteEdited: !!r.note_edited_at,
-    canFix: !!r.auto_at && tehranDay(new Date(r.auto_at)) === tehranDay(now) };
+    canFix: !!r.auto_at && tehranDay(new Date(r.auto_at)) === tehranDay(now),
+    ...(ctfOn(userId) ? { summaryStatus: status === "answered" ? ctfSummaryStatus(r.event_id, storedCallSummary as any, now) : null } : {}) }; // CT-FASTNOTE
 }
 
 /** SIMOTEL-132 c (on-04): time of the «عدم پاسخ» SMS that actually went for this call (the R3 table appears with the first decision). */
@@ -394,11 +411,12 @@ export function s132CloseBar(u: U, id: number, now = new Date()): Res {
   return { status: 200, body: { ok: true } };
 }
 /** History rows: «سیموتل: X» / «کارشناس: Y» and the fix line (own calls of the flagged expert only add data; never removes anything). */
-export function s132HistoryInfo(callIds: number[]): Map<number, { sim: string | null; expert: string | null; fixed: string | null; fixedAt: string | null; auto: boolean; note: string | null }> {
-  const m = new Map<number, { sim: string | null; expert: string | null; fixed: string | null; fixedAt: string | null; auto: boolean; note: string | null }>();
+export function s132HistoryInfo(callIds: number[]): Map<number, { sim: string | null; expert: string | null; fixed: string | null; fixedAt: string | null; auto: boolean; note: string | null; summaryStatus?: "pending" | "ready" | "failed" | null }> {
+  const m = new Map<number, { sim: string | null; expert: string | null; fixed: string | null; fixedAt: string | null; auto: boolean; note: string | null; summaryStatus?: "pending" | "ready" | "failed" | null }>();
   if (!callIds.length || !s132TableExists()) return m;
   for (const r of queryRows<S132Row>(`SELECT * FROM s132_calls WHERE call_id IN (${callIds.map(() => "?").join(",")})`, callIds))
     m.set(r.call_id, { sim: r.sim_status, expert: r.status_source === "expert" ? r.expert_status : null, fixed: r.fixed_status, fixedAt: r.fixed_at,
-      auto: r.auto_kind === "fc" || r.auto_kind === "dp", note: r.note });
+      auto: r.auto_kind === "fc" || r.auto_kind === "dp", note: r.note,
+      ...(ctfOn(r.user_id) ? { summaryStatus: ctfSummaryStatus(queryRow<{ e: number | null }>("SELECT event_id e FROM voip_click_calls WHERE id=?", [r.call_id])?.e, storedCallSummary as any) } : {}) }); // CT-FASTNOTE
   return m;
 }

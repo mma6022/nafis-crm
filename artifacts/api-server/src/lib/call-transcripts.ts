@@ -13,6 +13,7 @@ import { SimotelError } from "./simotel";
 import { callReportDay } from "./call-reports";
 import { CALL_LIST_START } from "./call-list-cutoff";
 import { isExcludedCallPhone } from "./call-display-exclusions";
+import { ctfExpertOf, ctfOn, ctfRetry } from "./ct-fastnote";
 
 export const SYSTEM_REQUESTER = 0;
 /** Simotel publishes the CDR row + recording a little after hangup; queue no earlier than this. */
@@ -50,8 +51,9 @@ export function systemActor(externalId: string): AuthUser | null {
     active: true, createdAt: "1970-01-01T00:00:00.000Z" };
 }
 /** Retry decision for a failed transcript job (auto flag ON). null → fail now. */
-export function retryPlan(error: unknown, attempts: number): { retry: true; nextAt: string } | { retry: false; message: string } | null {
+export function retryPlan(error: unknown, attempts: number, externalId?: string): { retry: true; nextAt: string } | { retry: false; message: string } | null {
   if (!(error instanceof SimotelError) || !RETRYABLE.has(error.code)) return null;
+  if (externalId && ctfOn(ctfExpertOf(externalId))) return ctfRetry(attempts, CT_MISSING_FINAL); // CT-FASTNOTE: 5 s, 15 s, 30 s, 2 min, then failed
   const done = attempts + 1;
   if (done >= CT_MAX_ATTEMPTS) return { retry: false, message: CT_MISSING_FINAL };
   return { retry: true, nextAt: new Date(Date.now() + CT_BACKOFF_MINUTES[done - 1] * 60000).toISOString() };
