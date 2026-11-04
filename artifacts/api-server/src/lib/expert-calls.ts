@@ -69,7 +69,15 @@ export function expertCalls(db: DatabaseSync, sp: number, fromIso: string, toIso
     return { at: parseAt(r.at), outcome: o, callLogId: r.lid == null ? null : Number(r.lid) };
   });
 }
-export type TeamCallRow = { sp: number; customerId: number | null; at: number; callLogId: number | null };
+export type TeamCallRow = { sp: number; customerId: number | null; at: number; callLogId: number | null; companyNoAnswer: boolean };
+/** Mohammad 2026-11-04 (PM card t855s3478, option B), REPORTS ONLY: «تماس بی‌پاسخ خط شرکت» = an INCOMING company-line call that
+ *  rang no one: phone-system status NO ANSWER, no expert (no salesperson, no expert user, no expert name) and no extension; for a
+ *  call_logs row also no «ثبت‌کننده» (salesperson_id NULL, empty name snapshot). Such calls are credited to the customer's owner only
+ *  by the no-expert rule; the team report shows them as a separate figure and NOT in the expert's call count.
+ *  Guest «مهمون» / alias rules are unchanged (a guest-logged row has a name snapshot, so it is never a company-line call). */
+const COMPANY_NO_ANSWER_EVENT = (e: string) => `(${e}.id IS NOT NULL AND ${e}.direction='incoming' AND ${e}.status='NO ANSWER' AND ${e}.salesperson_id IS NULL
+  AND ${e}.expert_user_id IS NULL AND trim(COALESCE(${e}.expert_name,''))='' AND ${e}.extension IS NULL)`;
+export const companyNoAnswerLogSql = (l: string, e: string) => `(${l}.salesperson_id IS NULL AND trim(COALESCE(${l}.salesperson_name_snapshot,''))='' AND ${COMPANY_NO_ANSWER_EVENT(e)})`;
 /** Every real call in [from, to) with the salesperson it counts for in reports (same attribution as expertCalls(…, {reportAliases})).
  *  Rows whose attribution is unknown (no expert and no owner) are dropped. Counts only — no outcome, duration or phone. */
 export function teamCallRows(db: DatabaseSync, fromIso: string, toIso: string, opts: { excludeTest?: boolean } = {}): TeamCallRow[] {
@@ -79,13 +87,15 @@ export function teamCallRows(db: DatabaseSync, fromIso: string, toIso: string, o
   const tv = opts.excludeTest && vcid ? `AND ${notTestCustomerIdSql("e.customer_id")}` : "";
   const at = voip ? "COALESCE(e.started_at,l.created_at)" : "l.created_at";
   const rep = reportSpSql(db);
-  const sql = `SELECT ${rep.log} sp, l.customer_id cid, l.id lid, ${at} at
+  const snap = db.prepare("SELECT 1 FROM pragma_table_info('call_logs') WHERE name='salesperson_name_snapshot'").get() != null;
+  const coLog = voip && snap ? companyNoAnswerLogSql("l", "e") : "0";
+  const sql = `SELECT ${rep.log} sp, l.customer_id cid, l.id lid, ${at} at, ${coLog} co
     FROM call_logs l ${voip ? "LEFT JOIN voip_after_call_events e ON e.call_log_id=l.id" : ""} LEFT JOIN customers gc ON gc.id=l.customer_id
     WHERE ${realCallSql("l.subject")} ${voip ? "AND COALESCE(e.is_live,0)=0" : ""} ${tl} AND julianday(${at})>=julianday(?) AND julianday(${at})<julianday(?)
-    ${voip ? `UNION ALL SELECT ${vcid ? rep.voip : "e.salesperson_id"} sp, ${vcid ? "e.customer_id" : "NULL"} cid, NULL lid, e.started_at at FROM voip_after_call_events e ${vcid ? "LEFT JOIN customers gc ON gc.id=e.customer_id" : ""}
+    ${voip ? `UNION ALL SELECT ${vcid ? rep.voip : "e.salesperson_id"} sp, ${vcid ? "e.customer_id" : "NULL"} cid, NULL lid, e.started_at at, ${COMPANY_NO_ANSWER_EVENT("e")} co FROM voip_after_call_events e ${vcid ? "LEFT JOIN customers gc ON gc.id=e.customer_id" : ""}
       WHERE e.call_log_id IS NULL AND e.is_live=0 ${tv} AND julianday(e.started_at)>=julianday(?) AND julianday(e.started_at)<julianday(?)` : ""}`;
   const p: any[] = [...rep.logParams, fromIso, toIso]; if (voip) p.push(fromIso, toIso);
-  return (db.prepare(sql).all(...p) as any[]).filter(r => r.sp != null).map(r => ({ sp: Number(r.sp), customerId: r.cid == null ? null : Number(r.cid), at: parseAt(r.at), callLogId: r.lid == null ? null : Number(r.lid) }));
+  return (db.prepare(sql).all(...p) as any[]).filter(r => r.sp != null).map(r => ({ sp: Number(r.sp), customerId: r.cid == null ? null : Number(r.cid), at: parseAt(r.at), callLogId: r.lid == null ? null : Number(r.lid), companyNoAnswer: Number(r.co) === 1 }));
 }
 export function expertCallStats(list: ExpertCall[]) {
   const answered = list.filter(c => c.outcome === "yes").length, notAnswered = list.filter(c => c.outcome === "no").length;

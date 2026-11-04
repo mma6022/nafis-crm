@@ -14,7 +14,7 @@ import './sales-report.css';
 type Range = 'today' | 'yesterday' | 'week' | 'month' | 'prev_month' | 'custom';
 type Ov = { overdueReminders: number; p1NoCall: number };
 type Flags = { traineeMoney: boolean; overdueCard: boolean; noCommissionAlert: boolean };
-type TRow = { salespersonId?: number; name?: string; trainee?: boolean; label?: string; calls: number; previousCalls: number; sentToRegistration: number; deposits: number;
+type TRow = { salespersonId?: number; name?: string; trainee?: boolean; label?: string; calls: number; previousCalls: number; companyLineNoAnswer?: number; sentToRegistration: number; deposits: number;
   payoutToman: string | null; commissionToman: string | null; openPaymentOrders: number | null; overdue: Ov };
 type Stage = { stage: string; label: string; count: number; amount: number };
 type Old = { customerId: number; customerName: string; stageLabel: string; daysInStage: number; link: string; purchaseId?: number; applicationId?: number };
@@ -24,7 +24,7 @@ type Report = {
   kpis: {
     deposited: { current: { count: number; payoutToman: string }; previous: { count: number; payoutToman: string } };
     commission: { current: string; previous: string; openPaymentOrders: number; noCommissionDeposits: number };
-    calls: { current: number; previous: number }; sentToRegistration: { current: number; previous: number };
+    calls: { current: number; previous: number; companyLineNoAnswer?: number; previousCompanyLineNoAnswer?: number }; sentToRegistration: { current: number; previous: number };
     leads: { current: number; previous: number; siteLeadsNoCall: number }; overdue: { now: Ov; weekAgo: Ov | null } | null;
   };
   table: { experts: TRow[]; expertsTotal: TRow; trainees: TRow[]; traineesTotal: TRow | null };
@@ -116,11 +116,12 @@ export default function SalesReports() {
   const money = (v: string | null) => (v == null ? <span className="tsr-na" title="کارآموزها سهم ندارند">سهم ندارد</span> : toman(v));
   const ovCell = (o: Ov) => <span className={`tsr-od${o.overdueReminders + o.p1NoCall > 20 ? ' hi' : ''}`}>{fa(o.overdueReminders)} + {fa(o.p1NoCall)}</span>;
   const trRow = (x: TRow, cls = 'row') => <tr key={x.salespersonId ?? x.label} className={`${cls}${x.salespersonId != null && String(x.salespersonId) === expert ? ' pick' : ''}`} onClick={x.salespersonId != null ? () => pickExpert(x.salespersonId) : undefined} data-testid={x.salespersonId != null ? `row-expert-${x.salespersonId}` : `row-total-${x.trainee === undefined ? (x.label?.includes('کارآموز') && !x.label.includes('بدون') ? 'trainees' : 'experts') : ''}`}>
-    <td>{x.name ?? x.label}</td><td className="num">{fa(x.calls)}<small><Delta cur={x.calls} prev={x.previousCalls} /></small></td><td className="num">{fa(x.sentToRegistration)}</td><td className="num">{fa(x.deposits)}</td>
+    <td>{x.name ?? x.label}</td><td className="num">{fa(x.calls)}<small><Delta cur={x.calls} prev={x.previousCalls} /></small>{x.companyLineNoAnswer ? <span className="tsr-co" title="تماس بی‌پاسخ خط شرکت (جزو تماس کارشناس نیست)" data-testid={`co-noanswer-${x.salespersonId ?? 'total'}`}>+{fa(x.companyLineNoAnswer)} بی‌پاسخ خط شرکت</span> : null}</td><td className="num">{fa(x.sentToRegistration)}</td><td className="num">{fa(x.deposits)}</td>
     <td className="num">{money(x.payoutToman)}</td><td className="num">{money(x.commissionToman)}</td><td className="num">{x.openPaymentOrders == null ? <span className="tsr-na">—</span> : fa(x.openPaymentOrders)}</td>{flags?.overdueCard ? <td className="num">{ovCell(x.overdue)}</td> : null}</tr>;
   const card = (x: TRow) => <button type="button" key={x.salespersonId} className={`tsr-ecard${String(x.salespersonId) === expert ? ' pick' : ''}`} onClick={() => pickExpert(x.salespersonId)} data-testid={`card-expert-${x.salespersonId}`}>
     <div className="hd">{x.name}</div>
     <div className="g"><div><span>تماس</span><b>{fa(x.calls)}</b></div><div><span>ارسال به ثبت</span><b>{fa(x.sentToRegistration)}</b></div><div><span>واریز</span><b>{fa(x.deposits)}</b></div></div>
+    {x.companyLineNoAnswer ? <div className="tsr-co" data-testid={`card-co-noanswer-${x.salespersonId}`}>تماس بی‌پاسخ خط شرکت: <b>{fa(x.companyLineNoAnswer)}</b> (جدا، جزو تماس نیست)</div> : null}
     <div className="money"><span>مبلغ: <b>{money(x.payoutToman)}</b></span><span>پورسانت: <b>{money(x.commissionToman)}</b></span>{flags?.overdueCard ? <span>عقب‌افتاده: {ovCell(x.overdue)}</span> : null}</div></button>;
   const oldList = (items: Old[], tail: (o: Old) => ReactNode) => <ul className="tsr-olist">{items.map(o => <li key={o.link}><div className="cn"><a href={o.link}>{o.customerName}</a> <CustomerIdBadge id={o.customerId} /><div className="cm">{o.stageLabel}</div></div><div className="am">{tail(o)}</div></li>)}</ul>;
   const stages = (s: Stage[], withAmount: boolean) => { const max = Math.max(1, ...s.map(x => x.count)); return <div className="tsr-stg">{s.map((x, i) => <div key={x.stage} className={`s${i === 0 ? ' top' : ''}`}><span className="nm">{x.label}</span><span className="tr"><i style={{ width: `${(x.count / max) * 100}%` }} /></span><b>{fa(x.count)}{withAmount ? <span className="tsr-muted"> · {short(x.amount)}</span> : null}</b></div>)}</div>; };
@@ -154,7 +155,7 @@ export default function SalesReports() {
             <Kpi wide testId="kpi-commission" title="پورسانت ثبت‌شده" value={toman(k.commission.current)} unit="تومان"
               sub={<div className={`tsr-sub${k.commission.noCommissionDeposits ? ' bad' : ''}`}>دستور پرداخت باز: <b>{fa(k.commission.openPaymentOrders)}</b> · واریز بدون پورسانت: <b>{fa(k.commission.noCommissionDeposits)}</b></div>}
               cmp={<><Delta cur={big(k.commission.current)} prev={big(k.commission.previous)} /><span>قبل: <b>{short(k.commission.previous)}</b> تومان</span></>} />
-            <Kpi testId="kpi-calls" title="تماس‌ها" value={fa(k.calls.current)} cmp={<><Delta cur={k.calls.current} prev={k.calls.previous} /><span>قبل: <b>{fa(k.calls.previous)}</b></span></>} />
+            <Kpi testId="kpi-calls" title="تماس‌ها" value={fa(k.calls.current)} sub={<div className="tsr-sub" data-testid="kpi-co-noanswer">تماس بی‌پاسخ خط شرکت: <b>{fa(k.calls.companyLineNoAnswer ?? 0)}</b> <span className="tsr-muted">(جدا)</span></div>} cmp={<><Delta cur={k.calls.current} prev={k.calls.previous} /><span>قبل: <b>{fa(k.calls.previous)}</b></span></>} />
             <Kpi testId="kpi-sent" title="ارسال به ثبت" value={fa(k.sentToRegistration.current)} cmp={<><Delta cur={k.sentToRegistration.current} prev={k.sentToRegistration.previous} /><span>قبل: <b>{fa(k.sentToRegistration.previous)}</b></span></>} />
             <Kpi testId="kpi-leads" title="سرنخ تازه" value={fa(k.leads.current)} sub={<div className={`tsr-sub${k.leads.siteLeadsNoCall ? ' bad' : ''}`}>سرنخ سایت بی‌تماس: <b>{fa(k.leads.siteLeadsNoCall)}</b></div>}
               cmp={<><Delta cur={k.leads.current} prev={k.leads.previous} /><span>قبل: <b>{fa(k.leads.previous)}</b></span></>} />

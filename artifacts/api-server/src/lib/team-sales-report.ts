@@ -144,11 +144,11 @@ const goodsPlanSql = (x: Ctx, g = "g") => x.plan == null ? { sql: "1", params: [
 type Row = { sp: number; customerId: number | null; at: number };
 type Money = Row & { amount: bigint };
 export type SrNumbers = {
-  calls: number; sentToRegistration: number; registrationDone: number; applicationsCreated: number; leads: number; contacted: number;
+  calls: number; companyLineNoAnswer: number; sentToRegistration: number; registrationDone: number; applicationsCreated: number; leads: number; contacted: number;
   siteLeadsNoCall: number; deposited: { count: number; payoutToman: string }; commissionToman: string; noCommissionDeposits: number;
 };
 type WindowData = {
-  calls: TeamCallRow[]; sent: Row[]; done: Row[]; created: Row[]; leads: Row[]; contacted: Row[]; siteNoCall: Row[];
+  calls: TeamCallRow[]; companyNoAnswer: TeamCallRow[]; sent: Row[]; done: Row[]; created: Row[]; leads: Row[]; contacted: Row[]; siteNoCall: Row[];
   deposits: (Money & { purchaseId: number; commissioned: boolean })[]; commission: Money[];
 };
 const inW = (w: SrWindow) => [w.from, w.to];
@@ -165,7 +165,8 @@ function windowData(x: Ctx, w: SrWindow, firstCall: Map<number, number>): Window
     const f = firstCall.get(r.customerId); if (f == null || f < Date.parse(w.from)) continue;
     contactedSeen.add(r.customerId); contacted.push({ sp: r.sp, customerId: r.customerId, at: r.at });
   }
-  const out: WindowData = { calls: callsP, sent: [], done: [], created: [], leads: [], contacted, siteNoCall: [], deposits: [], commission: [] };
+  // option B (Mohammad 2026-11-04): unanswered company-line calls are a separate figure, not the expert's calls. «تماس گرفته‌شده» unchanged (all calls).
+  const out: WindowData = { calls: callsP.filter(r => !r.companyNoAnswer), companyNoAnswer: callsP.filter(r => r.companyNoAnswer), sent: [], done: [], created: [], leads: [], contacted, siteNoCall: [], deposits: [], commission: [] };
   if (has(db, "loan_applications") && has(db, "loan_application_stage_history")) {
     const ap = appPlanSql(x, "a");
     const snap = "COALESCE(a.salesperson_id_snapshot,c.salesperson_id)";
@@ -209,7 +210,7 @@ function windowData(x: Ctx, w: SrWindow, firstCall: Map<number, number>): Window
 function numbersOf(d: WindowData, sps: number[] | null): SrNumbers {
   const f = <T extends { sp: number }>(a: T[]) => (sps ? a.filter(r => sps.includes(r.sp)) : a);
   const dep = f(d.deposits);
-  return { calls: f(d.calls).length, sentToRegistration: f(d.sent).length, registrationDone: f(d.done).length, applicationsCreated: f(d.created).length,
+  return { calls: f(d.calls).length, companyLineNoAnswer: f(d.companyNoAnswer).length, sentToRegistration: f(d.sent).length, registrationDone: f(d.done).length, applicationsCreated: f(d.created).length,
     leads: f(d.leads).length, contacted: f(d.contacted).length, siteLeadsNoCall: f(d.siteNoCall).length,
     deposited: { count: dep.length, payoutToman: dep.reduce((s, r) => s + r.amount, 0n).toString() },
     commissionToman: f(d.commission).reduce((s, r) => s + r.amount, 0n).toString(), noCommissionDeposits: dep.filter(r => !r.commissioned).length };
@@ -359,14 +360,14 @@ export function teamSalesReport(db: DatabaseSync, q: SalesReportQuery, now: Date
   const kpis = {
     deposited: { current: kc.deposited, previous: kp.deposited },
     commission: { current: kc.commissionToman, previous: kp.commissionToman, openPaymentOrders: poSum(scope), noCommissionDeposits: kc.noCommissionDeposits },
-    calls: { current: kc.calls, previous: kp.calls },
+    calls: { current: kc.calls, previous: kp.calls, companyLineNoAnswer: kc.companyLineNoAnswer, previousCompanyLineNoAnswer: kp.companyLineNoAnswer },
     sentToRegistration: { current: kc.sentToRegistration, previous: kp.sentToRegistration },
     leads: { current: kc.leads, previous: kp.leads, siteLeadsNoCall: kc.siteLeadsNoCall },
     overdue: flags.overdueCard ? { now: sum(ovNow, scope), weekAgo: overdueWeekAgo(db, now, scope, x.plan) } : null,
   };
   const row = (sps: number[], money: boolean) => {
     const n = numbersOf(cur, sps); const p = numbersOf(prev, sps);
-    return { calls: n.calls, previousCalls: p.calls, sentToRegistration: n.sentToRegistration, deposits: n.deposited.count,
+    return { calls: n.calls, previousCalls: p.calls, companyLineNoAnswer: n.companyLineNoAnswer, sentToRegistration: n.sentToRegistration, deposits: n.deposited.count,
       payoutToman: money ? n.deposited.payoutToman : null, commissionToman: money ? n.commissionToman : null,
       openPaymentOrders: money ? poSum(sps) : null, overdue: sum(ovNow, sps) };
   };
@@ -427,10 +428,10 @@ export function teamSalesReport(db: DatabaseSync, q: SalesReportQuery, now: Date
     table: { experts: expertRows, expertsTotal: { label: "جمع کارشناس‌ها (بدون کارآموزها)", ...row(expSps, true) },
       trainees: traineeRows, traineesTotal: trSps.length ? { label: "جمع کارآموزها", ...row(trSps, flags.traineeMoney) } : null },
     funnel, trend, sources, openInvoices: openInv, stuck,
-    empty: kc.calls + kc.leads + kc.sentToRegistration + kc.deposited.count + kc.applicationsCreated + kc.registrationDone === 0,
+    empty: kc.calls + kc.companyLineNoAnswer + kc.leads + kc.sentToRegistration + kc.deposited.count + kc.applicationsCreated + kc.registrationDone === 0,
     definitions: {
       scope: "کارت‌ها کل تیم را می‌شمارند (کارشناس‌ها و کارآموزها). ردیف «جمع کارشناس‌ها» کارآموزها را ندارد.",
-      calls: "تعداد تماس‌ها به نام کسی که تماس گرفته است. تماس‌های «محدثه ابوالقاسمی» برای خانم قاسمی و تماس‌های بدون کارشناس یا حساب «مهمون» برای مالک سرنخ حساب می‌شود.",
+      calls: "تعداد تماس‌ها به نام کسی که تماس گرفته است. تماس‌های «محدثه ابوالقاسمی» برای خانم قاسمی و تماس‌های بدون کارشناس یا حساب «مهمون» برای مالک سرنخ حساب می‌شود. «تماس بی‌پاسخ خط شرکت» (تماس ورودی که به هیچ کارشناس و داخلی‌ای وصل نشد و جواب داده نشد) جدا نشان داده می‌شود و جزو تماس کارشناس نیست.",
       sentToRegistration: "پرونده‌هایی که برای اولین بار در این بازه به «بررسی مدارک مشتری» رفته‌اند.",
       registrationDone: "«تکمیل ثبت»: پرونده‌هایی که برای اولین بار در این بازه به مرحله‌ی «تکمیل شده» رسیده‌اند (بعد از آن منتظر واریز است).",
       deposited: "خریدهایی که در این بازه «واریز شد» شده‌اند: تعداد و جمع مبلغ واریزی به مشتری.",
