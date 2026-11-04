@@ -1,7 +1,7 @@
 /** FILE-DETAIL v1.1 · notes column (Armita §chat): internal staff notes, newest at the BOTTOM (Mohammad), only the list scrolls,
  *  states «در حال ثبت / ثبت شد / ثبت نشد» with «ارسال دوباره». Same endpoints as CaseNotesRoom (fetchNotes/postNote, 5s poll). */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Check, ChevronDown, ChevronRight, Crown, Download, File as FileIcon, Lock, Mic, Paperclip, Play, Pause, RefreshCw, Send, Square, StickyNote, X } from 'lucide-react';
+import { AlertCircle, Ban, Check, ChevronDown, ChevronRight, Crown, FilePlus2, PenLine, Download, File as FileIcon, Lock, Mic, Paperclip, Play, Pause, RefreshCw, Send, Square, StickyNote, X } from 'lucide-react';
 import { CaseApiError, MAX_FILE_BYTES, canReadNotes, canWriteNotes, fetchNotes, postNote, withBase, type CaseNote, type CaseUser } from '@/loan-case-history/api';
 import { useVoiceRecorder } from '@/loan-case-history/useVoiceRecorder';
 import { dayKey, dayLabel, fd, hm, sizeFa } from './fdv1-api';
@@ -47,7 +47,8 @@ function Meta({ tm, st, onRetry }: { tm: string; st?: 'sending' | 'sent' | 'fail
   </span>;
 }
 
-export type SysLine = { id: string; at: string; text: string };
+export type SysLine = { id: string; at: string; text: string; kind?: 'created' | 'signed' | 'sent' | 'canceled' };
+const SYS_ICON = { created: FilePlus2, signed: PenLine, sent: Send, canceled: Ban } as const;
 export function NotesColumn({ appId, user, onBack, title, sys = [] }: { appId: number; user: CaseUser & { name?: string | null }; onBack: () => void; title?: string; sys?: SysLine[] }) {
   const readable = canReadNotes(user), writable = canWriteNotes(user);
   const me = user?.id ?? null;
@@ -148,12 +149,13 @@ export function NotesColumn({ appId, user, onBack, title, sys = [] }: { appId: n
   ].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
   for (const f of feed) {
     dayRow(f.at);
-    if (f.k === 's') { rows.push(<div key={`s${f.s.id}`} className="sys" data-testid={`fdv1-sys-${f.s.id}`}><span>{f.s.text} · {hm(f.at)}</span></div>); continue; }
+    if (f.k === 's') { const SI = SYS_ICON[f.s.kind || 'sent'];
+      rows.push(<div key={`s${f.s.id}`} className={`sys k-${f.s.kind || 'sent'}`} data-testid={`fdv1-sys-${f.s.id}`}><SI className="i" aria-hidden /><span>{f.s.text}</span><span className="sm-t">{hm(f.at)}</span></div>); continue; }
     const n = f.n;
     const out = me != null && n.author.id === me;
     const mgr = !out && Boolean((n.author as { manager?: boolean }).manager);
     rows.push(<div key={n.id} className={`msg ${out ? 'out' : 'in'}${mgr ? ' mg' : ''}`} data-st={out ? 'sent' : undefined} data-testid={`fdv1-note-${n.id}`}>
-      <div className="bb">{mgr ? <span className="au"><Crown className="i" aria-hidden />مدیر فروش</span> : null}{!out ? <span className="by">{n.author.name}</span> : null}<Att note={n} />{n.text ? <span className="tt">{n.text}</span> : null}</div>
+      <div className="bb">{mgr ? <span className="au"><Crown className="i" aria-hidden />مدیر فروش: {n.author.name.replace(/^مدیر فروش\s*[:：]?\s*/, '')}</span> : !out ? <span className="by">{n.author.name}</span> : null}<Att note={n} />{n.text ? <span className="tt">{n.text}</span> : null}</div>
       <Meta tm={hm(n.createdAt)} st={out ? 'sent' : undefined} />
     </div>);
   }
