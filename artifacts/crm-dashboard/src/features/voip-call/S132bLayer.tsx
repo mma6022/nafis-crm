@@ -103,7 +103,7 @@ function NoteBox({ c }: { c: S132bCard }) {
 function InCard({ c, onClose, onNew }: { c: S132bCard; onClose: () => void; onNew: (phone: string) => void }) {
   const cu = c.customer;
   const head = c.live ? (ringing(c) ? 'تماس ورودی؛ تلفن ویپ شما زنگ می‌خورد' : 'تماس ورودی؛ در مکالمه')
-    : `تماس ورودی تمام شد: ${isAns(c) ? 'پاسخ داد' : 'بی‌پاسخ'}`;
+    : `تماس ورودی تمام شد: ${isAns(c) ? 'پاسخ داد' : 'جواب نداد'}`;
   const support = c.cls === 'support';
   return <section className={`s1b-card${c.live ? ' live' : ''}`} role="region" aria-live="polite" aria-label={head} data-testid="s1b-in" data-cls={c.cls} data-live={c.live ? '1' : '0'}>
     <header className="s1b-h"><span className={`s1b-ic${ringing(c) ? ' rg' : ''}`}><Headset size={20} aria-hidden="true" /></span>

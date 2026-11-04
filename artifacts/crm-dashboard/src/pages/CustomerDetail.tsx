@@ -1,5 +1,5 @@
 import { ArrowUp, AlertCircle, ArrowRight, Check, ChevronLeft, Copy, FileText, Flag, Gauge, History, Layers, Lock, MessageSquarePlus, Pencil, Phone, PhoneCall, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, Wallet, X } from 'lucide-react';
-import { CustomerCallHistory, VoipCallBox } from '@/features/voip-call/VoipCall';
+import { CustomerCallHistory, VoipCallBox, useVcFastWaiting } from '@/features/voip-call/VoipCall';
 import { SiteAnswersBlock } from '@/features/site-answers/SiteAnswersBlock';
 import { announceCallSaved, cqTelClick } from '@/features/call-queue/api';
 import { CustomerIntroLog } from '@/features/expert-intro-sms/CustomerIntroLog';
@@ -132,6 +132,7 @@ function CustomerDetailFull() {
   const renewCredit = useRenewCustomerCreditCheckOtp();
   const refreshCredit = useRefreshCustomerCreditCheckStatus();
   const customer = customerQuery.data;
+  const vcFastWaiting = useVcFastWaiting(id); // SIMOTEL-FAST 1.3.4: no manual result button while the Simotel result is on its way
   const tagCatalog = useListCustomerTags({ query: { queryKey: getListCustomerTagsQueryKey() } });
   const [reviewingRepeat, setReviewingRepeat] = useState(false);
   const walletQuery = useQuery<{ cash: { balanceToman: string; ledger: Array<{ amountToman: string; kind: string; createdAt: string }> }; credit: { balanceToman: string; ledger: Array<{ amountToman: string; kind: string; createdAt: string }> } }>({
@@ -544,7 +545,7 @@ function CustomerDetailFull() {
       </div>
     </div>
     <div className="acts">
-      {showSimpleForm ? <button type="button" className="csx-call" onClick={() => setSimpleFormOpen(true)} data-testid="button-ts-simple-form"><PhoneCall size={20} /> {CALLED_LABEL}</button>
+      {vcFastWaiting ? null : showSimpleForm ? <button type="button" className="csx-call" onClick={() => setSimpleFormOpen(true)} data-testid="button-ts-simple-form"><PhoneCall size={20} /> {CALLED_LABEL}</button>
         : canCallsCreate || isAdmin ? <button type="button" className="csx-call" onClick={() => void calledThenForm(customer.id, 'customer', () => callLauncher.launch(customer), setToast)} data-testid="link-call-customer"><PhoneCall size={20} /> {CALLED_LABEL}</button> : null}
       {showUpgrade && showsUpgradeButton(tsConfig.data, session.data?.user, customer) ? <button type="button" className="ts-up-btn hero" onClick={() => setUpgradeOpen(true)} data-testid="button-ts-upgrade-hero"><ArrowUp size={18} aria-hidden="true" /> ارتقا به اولویت ۱</button> : null}
       {canUpdate ? <button type="button" className="csx-ghost" onClick={() => setEditing(true)} data-testid="button-toggle-customer-edit" aria-haspopup="dialog"><Pencil size={18} /> ویرایش</button> : null}

@@ -64,6 +64,11 @@ export function S132TopBar({ split }: { split?: boolean }) {
   return last && (split || !inSplit) ? <S132AutoBar b={last} /> : null;
 }
 const S132_WAIT = 120;
+/** SIMOTEL-FAST 1.3.4 (Armita): true while this customer's own call waits for the Simotel result (fast mode only) → manual «تماس گرفتم، ثبت نتیجه» is hidden. */
+export function useVcFastWaiting(customerId: number): boolean {
+  const c = useVcMe().data?.call; const sc = c?.s132;
+  return Boolean(c && c.customerId === customerId && sc && sc.phase === 'waiting' && sc.fast === true && sc.expertStatus == null);
+}
 function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra, variant = 'task', onStarted, onFirstForm }: BoxProps & { me: VcMe }) {
   const qc = useQueryClient();
   const s132 = Boolean(me.s132); // SIMOTEL-132 flag on for this user (absent → everything below is today's UI)
@@ -84,6 +89,17 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
     if (busy || !c) return; setBusy(true); setErr('');
     try { await vcApi.status(c.id, st); } catch (e) { setErr(e instanceof VcError ? e.message : 'ثبت نشد؛ دوباره بزن.'); } finally { setBusy(false); vcRefresh(qc); }
   };
+  // SIMOTEL-FAST 1.3.4 (Armita items 2+4): when the wait / timeout card appears, bring its bottom (status buttons) above the bottom bar and «گزارش خطا».
+  const pendRef = useRef<HTMLDivElement>(null);
+  const pendKey = sc && (sc.phase === 'waiting' || sc.phase === 'late') ? `${sc.phase}${sc.expertStatus ? '-s' : ''}` : '';
+  useEffect(() => {
+    const el = pendRef.current; if (!pendKey || !el) return;
+    const t = window.setTimeout(() => {
+      const r = el.getBoundingClientRect(); const m = parseFloat(getComputedStyle(el).scrollMarginBottom) || 0;
+      if (r.bottom + m > window.innerHeight && r.top > 0) el.scrollIntoView({ block: 'end', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    }, 60);
+    return () => window.clearTimeout(t);
+  }, [pendKey]);
   const dismiss = async () => { if (!c) return; try { await vcApi.dismiss(c.id); } catch { /* still refresh */ } vcRefresh(qc); };
   const resBtn = (pri: boolean) => onResult ? <button type="button" className={`btn ${pri ? 'btn-primary' : 'btn-ghost'}`} onClick={onResult} data-testid="ts-call"><Check size={16} aria-hidden="true" /> تماس گرفتم، ثبت نتیجه</button> : null;
   const vBtn = (label: string, icon: ReactNode, pri = true, testId = 'vc-call') => <button type="button" className={`btn ${pri ? 'btn-primary' : 'btn-ghost'} vc-btn`} onClick={() => void start()} disabled={busy} aria-busy={busy || undefined} data-testid={testId}>{icon}{busy ? 'در حال شروع…' : label}</button>;
@@ -143,7 +159,7 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
         : `نتیجه‌ی همین تماس در راه است؛ دکمه‌های دستی لازم نیست. اگر تا ${tot} ثانیه بعد از قطع نرسید${left > 0 ? ` (${faNum(String(left))} ثانیه‌ی دیگر)` : ''}، فقط چهار دکمه‌ی وضعیت می‌آید.`)
       : k === 'first_form' ? 'تسک بعدی تا ثبت فرم تماس اول قفل است.'
       : first ? 'تسک بعدی تا زدن وضعیت (و با «جواب داد»، تا ثبت فرم تماس اول) قفل است.' : 'فقط یک ضربه: تسک با زدن وضعیت از «کارهای امروز من» می‌رود و تسک بعدی باز می‌شود.';
-    return <div className="vcx" data-testid="vc-box" data-state={st} data-kind={`s132-${saving ? 'saving' : k}`}>
+    return <div ref={pendRef} className="vcx vc-s132p" data-testid="vc-box" data-state={st} data-kind={`s132-${saving ? 'saving' : k}`}>
       <section className={`vc-cw ${k === 'first_form' || saving ? 'ok' : 'dial'}${k === 'late' ? ' s132l' : ''}`} aria-label="وضعیت تماس" role="status" aria-live="polite" data-testid="vc-panel">
         <Steps n={k === 'first_form' ? 4 : 3} four />
         <div className="vc-cwh"><span className="vc-cwi" aria-hidden="true">{k === 'first_form' || saving ? <Check className="i" /> : <Clock className="i" />}</span>
@@ -151,7 +167,7 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
         {k === 'waiting' && !saving && fast ? <div className="vc-cdn s132f" data-testid="vc-wait-fast"><span className="vc-spn" aria-hidden="true" /><span className="muted">نتیجه تا چند ثانیه‌ی دیگر می‌آید</span>
           <span className="vc-bar" role="progressbar" aria-label="انتظار برای نتیجه از سیموتل" aria-valuemin={0} aria-valuemax={W} aria-valuenow={done} aria-valuetext={`${faNum(String(done))} ثانیه از ${faNum(String(W))}`}>
           <i style={{ width: `${Math.round((done / W) * 100)}%` }} /></span></div>
-        : k === 'waiting' && !saving ? <div className="vc-cdn"><span className="vc-bar" role="progressbar" aria-label="انتظار برای نتیجه از سیموتل" aria-valuemin={0} aria-valuemax={S132_WAIT} aria-valuenow={S132_WAIT - left}>
+        : k === 'waiting' && !saving ? <div className="vc-cdn"><span className="vc-bar" role="progressbar" aria-label="انتظار برای نتیجه از سیموتل" aria-valuemin={0} aria-valuemax={S132_WAIT} aria-valuenow={S132_WAIT - left} aria-valuetext={`${faNum(String(S132_WAIT - left))} ثانیه از ${faNum(String(S132_WAIT))}`}>
           <i style={{ width: `${Math.round(((S132_WAIT - left) / S132_WAIT) * 100)}%` }} /></span><span className="muted">معمولاً چند ثانیه</span></div> : null}
       </section>
       <div className="dp-actions vc-row">{btns}{extra}</div>
