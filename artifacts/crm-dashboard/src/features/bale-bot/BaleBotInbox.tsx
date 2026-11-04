@@ -146,6 +146,11 @@ function CStrip({ chat, toast, onAsk, onSearch, onLead }: { chat: BbChat; toast:
   return <div className="cstrip"><span className="chip r"><I n="user-x" />وصل‌نشده به مشتری</span><div className="acts"><LinkActs canWrite={chat.canWrite} onAsk={onAsk} onSearch={onSearch} onLead={onLead} /></div></div>;
 }
 
+/** server codes from the contact auto-link (bale-bot.ts): never show the raw code. */
+const MATCH_NOTE: Record<string, string> = {
+  none: 'شماره‌ای که مشتری فرستاد به هیچ پرونده‌ای نخورد.',
+  many: 'شماره‌ای که مشتری فرستاد به چند پرونده می‌خورد؛ با «جستجو و وصل» درستش را انتخاب کنید.',
+};
 function CustPane({ chat, toast, onAsk, onSearch, onLead }: { me: BbMe; chat: BbChat; toast: (t: string) => void; onAsk: () => void; onSearch: () => void; onLead: () => void }) {
   const c = chat.customer;
   const prof = <><div className="pf"><Ava name={chat.name} seed={chat.id} cls="lg2" /><b dir={/^[\x20-\x7e]+$/.test(chat.name) ? 'ltr' : undefined}>{chat.name}</b>{chat.username ? <Uname u={chat.username} /> : <span className="u">نام کاربری ندارد</span>}</div>
@@ -157,7 +162,7 @@ function CustPane({ chat, toast, onAsk, onSearch, onLead }: { me: BbMe; chat: Bb
     {c.canOpen ? <Link className="btn gh sm" href={`/customers/${c.id}`}><I n="file" />باز کردن پرونده</Link> : null}</div>;
   else if (chat.contactAskedAt) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip g"><I n="clock" />منتظر شماره‌ی مشتری</span><p className="m">وقتی مشتری دکمه‌ی اشتراک را بزند و شماره مال خودش باشد، خودکار به پرونده وصل می‌شود.</p>
     <button className="btn gh sm" type="button" onClick={onSearch}><I n="search" />جستجو و وصل</button><button className="btn gh sm" type="button" onClick={onLead}><I n="plus" />ثبت سرنخ جدید</button></div>;
-  else crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip r"><I n="user-x" />وصل‌نشده به مشتری</span>{chat.matchNote ? <p className="m">{chat.matchNote}</p> : null}<LinkActs canWrite={chat.canWrite} onAsk={onAsk} onSearch={onSearch} onLead={onLead} /></div>;
+  else crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip r"><I n="user-x" />وصل‌نشده به مشتری</span>{chat.matchNote ? <p className="m"><I n="alert" />{MATCH_NOTE[chat.matchNote] ?? 'شماره‌ای که مشتری فرستاد خودکار وصل نشد.'}</p> : null}<LinkActs canWrite={chat.canWrite} onAsk={onAsk} onSearch={onSearch} onLead={onLead} /></div>;
   return <aside className="pane cp" aria-label="مشتری">{prof}{crm}</aside>;
 }
 
@@ -170,6 +175,8 @@ function ChatPane({ me, chat, messages, toast, err, refresh, onAsk, onSearch, on
   const lastId = messages[messages.length - 1]?.id;
   useEffect(() => { const el = thRef.current; const th = el?.parentElement; if (th && th.scrollHeight > th.clientHeight + 1) th.scrollTop = th.scrollHeight; else if (el && window.innerWidth < 1024) el.scrollIntoView({ block: 'end' }); }, [lastId, chat.id]);
   useEffect(() => { setMenu(null); setReply(null); setEdit(null); }, [chat.id]);
+  // the action menu opens under the tapped bubble; on a phone the last bubble can sit at the very bottom, so bring the menu into view.
+  useEffect(() => { if (menu == null) return; const h = requestAnimationFrame(() => document.querySelector('.bbt .mmenu')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })); return () => cancelAnimationFrame(h); }, [menu]);
   const seen = async (id: number) => { try { await bbFetch(`/bale-bot/notices/${id}/seen`, { body: {} }); refresh(); } catch (e) { err(e); } };
   const items: React.ReactNode[] = []; let day = '';
   for (const m of messages) {
