@@ -265,7 +265,7 @@ export function FileDetailV1(p: Props) {
     <div className="crow"><nav className="crumb" aria-label="مسیر"><Link href="/loan-applications"><ChevronRight {...I} />پرونده‌های من</Link></nav>
 </div>
     <div className="fhd-r1"><div className="who"><span className="eyb">پرونده‌ی تسهیلات {fd(app.id)}، {app.planName ? (/^\s*طرح/.test(app.planName) ? app.planName : `طرح ${app.planName}`) : 'طرح ثبت نشده'}</span>
-      <div className="nmr"><h2>{custName}</h2>{app.customerId ? <button className="cid" type="button" aria-label={`شناسه‌ی ${fd(app.customerId)}، کپی`} onClick={() => { void copyText(`#${app.customerId}`).then(ok => ok && show('کپی شد')); }}>#{fd(app.customerId)}</button> : null}</div>
+      <div className="nmr"><h2>{custName}</h2>{app.customerId ? <button className="cid" type="button" aria-label={`شناسه‌ی ${fd(app.customerId)}، کپی`} onClick={() => { void copyText(`#${app.customerId}`).then(ok => ok && show('کپی شد')); }}>#{fd(app.customerId)}<Copy className="i cpi" aria-hidden /></button> : null}</div>
       {phone ? <span className="ph big"><a className="phn" href={`tel:${phone}`} dir="ltr" aria-label={`تماس با ${fd(phone)}`}>{fd(phone)}</a>
         <button className={`phc${copied ? ' done' : ''}`} type="button" aria-label={`کپی شماره‌ی ${fd(phone)}`} onClick={() => { void copyText(phone).then(ok => { if (ok) { setCopied(true); show('کپی شد'); } }); }}>{copied ? <Check {...I} /> : <Copy {...I} />}<span>کپی</span></button></span> : null}</div>
       <div className="fhd-act">{app.customerId ? <Link className="btn gh sm" href={`/customers/${app.customerId}`}><User {...I} />پرونده‌ی مشتری</Link> : null}
