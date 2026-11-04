@@ -1,7 +1,7 @@
 /** VOIP-ANYWHERE (t836u) — pure UI rules (no React), unit-tested in scripts/voip-anywhere-fixture.mjs.
  *  These only decide what is SHOWN. Who may start a call is still decided on the server (vcCustomerAllowed, expert lockdown, one_call, needs_result, no_extension). */
 export type VcaMe = { on?: boolean; anywhere?: boolean; anywhereRegistrar?: boolean; oneCallButton?: boolean; s132?: unknown;
-  call?: { id: number; customerId: number; state: string; active?: boolean; needsResult?: boolean; s132?: { phase?: string } | null } | null;
+  call?: { id: number; customerId: number; state: string; active?: boolean; needsResult?: boolean; s132?: { phase?: string; firstCall?: boolean } | null } | null;
   s132b?: { busy?: boolean } } | null | undefined;
 export type VcaUser = { id?: number; salespersonId?: number | null } | null | undefined;
 export type VcaGate = { on: boolean; sp: number | null; registrar?: boolean };
@@ -47,11 +47,21 @@ export function vcaDetailButtons(me: VcaMe, g: VcaGate, ownIds: ReadonlySet<numb
   if (!g.registrar) return { showVoip: true, ...vcaSingleButton(me) };
   return ownIds?.has(customerId) ? { showVoip: true, showSystem: false, voipLabel: VCA_LABEL } : { showVoip: false, showSystem: true };
 }
-/** Required first-call form auto-open: only for a call started from an anywhere button, once it reaches SIMOTEL-132 phase first_form
- *  (first call + answered). Non-first calls never reach first_form → nothing opens (status from the CDR, note from the summary). */
-export function vcaAutoOpen(me: VcaMe, g: VcaGate, started: ReadonlySet<number>, shown: number | null): number | null {
-  const c = me?.call; if (!g.on || !c || !started.has(c.id) || shown === c.id) return null;
-  return c.s132?.phase === 'first_form' ? c.id : null;
+/** Required first-call form auto-open, same moments as FIRSTFORM-VOIP (47e9e2a, Mohammad t831u: a first call opens the mandatory form by itself):
+ *  only for a call started from an anywhere button and only when SIMOTEL-132 says first call —
+ *  'talk' = picked up, customer being dialed / talking (not during the ring, so «جواب بده» stays in view);
+ *  'form' = hung up, Simotel «جواب داد», form not saved yet (first_form) — reopens if the talk-time form was closed.
+ *  Each (call, stage) opens once (`shown` = keys already opened, `${id}:${stage}`). Non-first calls never open anything. */
+export type VcaFormStage = 'talk' | 'form';
+const VCA_TALK = new Set(['dial_cust', 'in_call']);
+export function vcaAutoOpen(me: VcaMe, g: VcaGate, started: ReadonlySet<number>, shown: ReadonlySet<string>): { id: number; stage: VcaFormStage; key: string } | null {
+  const c = me?.call;
+  if (!g.on || !c || !started.has(c.id)) return null;
+  const sc = c.s132; if (!sc) return null;
+  const stage: VcaFormStage | null = sc.phase === 'first_form' ? 'form' : sc.phase === 'live' && sc.firstCall && c.active && VCA_TALK.has(c.state) ? 'talk' : null;
+  if (!stage) return null;
+  const key = `${c.id}:${stage}`;
+  return shown.has(key) ? null : { id: c.id, stage, key };
 }
 
 /** Design v1.0 in_card / in_missed (spec §۶ default 1): the incoming card never shows a call button while the caller is on the line;

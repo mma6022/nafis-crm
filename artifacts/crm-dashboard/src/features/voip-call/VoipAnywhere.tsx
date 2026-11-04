@@ -2,7 +2,7 @@
  *  «تماس» = the existing VoIP click call (VoipCallBox → POST /api/voip-call/start → vcStart) for the expert's OWN customers outside the customer page.
  *  Renders nothing unless GET /voip-call/me says `anywhere: true` (flag.voip_call_anywhere[.user.<id>] + voip_call + extension + SIMOTEL-132 + salesperson).
  *  No server permission changed: the server still answers not_own_customer / expert lockdown / one_call / needs_result / no_extension.
- *  First call (SIMOTEL-132 first_call): once answered (phase first_form) the existing required first-call form opens by itself (VoipAnywhereFirstFormHost);
+ *  First call (SIMOTEL-132 first_call): the existing required first-call form opens by itself at pickup and again at first_form (VoipAnywhereFirstFormHost, = 47e9e2a);
  *  non-first calls open nothing — status from the Simotel CDR, note from the call summary. Calls start with fileId = null (no file task). */
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -15,6 +15,7 @@ import { copyText, useNarrow } from '@/features/call-number/CallNumber';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
 import { useS132First, useVcMe, useVcOwnIds, vcApi, VcError, VC_ME_KEY, vcRefresh, type VcMe } from './api';
 import { VoipCallBox } from './VoipCall';
+import { useVoipFormRelease } from './firstForm';
 import { VCA_LABEL, vcaAutoOpen, vcaCanCall, vcaDetailButtons, vcaGate, vcaRowState, vcaSingleButton, type VcaGate } from './anywhere-rules';
 import './voip-anywhere.css';
 
@@ -124,37 +125,43 @@ function VcaPhone({ phone, testId }: { phone: string; testId: string }) {
 }
 
 /** Mounted once in CrmShell. Opens the existing required first-call form (SimpleCallForm voip mode: no close before save, «تماس اول» chip)
- *  for an anywhere-started call that reached first_form; a mandatory reminder popup stays on top first, an already open form is never doubled. */
+ *  for an anywhere-started FIRST call at the same moments as FIRSTFORM-VOIP (47e9e2a): at pickup (customer dialed / talking) and again at
+ *  first_form if it is not saved yet. Never doubled: skipped while any first-call form (page flow: Today / customer page) is open; a mandatory
+ *  reminder popup stays on top first. A talk-time form is closed again (draft kept) when Simotel says no answer (useVoipFormRelease). */
 export function VoipAnywhereFirstFormHost() {
   const g = useVoipAnywhere(); const qc = useQueryClient();
   const { data: s } = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false, staleTime: 60_000 } });
   const [form, setForm] = useState<{ callId: number; customer: { id: number; name: string; phone: string; priority: number | null } } | null>(null);
-  const shown = useRef<number | null>(null); const [tick, setTick] = useState(0);
+  const [saved, setSaved] = useState(false);
+  const shown = useRef<Set<string>>(new Set()); const pending = useRef<string | null>(null); const [tick, setTick] = useState(0);
   const call = g.me?.call ?? null;
-  const open = async (id: number) => {
-    if (!call || call.id !== id || shown.current === id) return;
+  const open = async (id: number, key: string) => {
+    if (!call || call.id !== id || shown.current.has(key) || pending.current === key) return;
     if (document.querySelector('.rmm-root [data-testid=rm-overlay]') || document.querySelector('[data-testid=ts-simple-form]')) return;
-    shown.current = id;
+    pending.current = key;
     let c: { id: number; name: string; phone: string; priority: number | null } = { id: call.customerId, name: call.customerName ?? '', phone: '', priority: null };
     try { const f: any = await getCustomer(call.customerId); c = { id: call.customerId, name: f?.name ?? c.name, phone: f?.phone ?? '', priority: f?.priority ?? null }; } catch { /* name from the call */ }
-    if (document.querySelector('[data-testid=ts-simple-form]')) return; // another page opened it meanwhile
-    setForm({ callId: id, customer: c });
+    pending.current = null;
+    if (shown.current.has(key) || document.querySelector('[data-testid=ts-simple-form]')) return; // another page opened it meanwhile
+    shown.current.add(key); setSaved(false); setForm({ callId: id, customer: c });
   };
   useEffect(() => {
-    const on = (e: Event) => { const id = Number((e as CustomEvent).detail); if (shown.current === id) shown.current = null; setTick((x) => x + 1); };
+    // «فرم تماس اول» pressed in a box: allow this call's form again
+    const on = (e: Event) => { const id = Number((e as CustomEvent).detail); for (const k of [...shown.current]) if (k.startsWith(`${id}:`) && e.type === OPEN_EV) shown.current.delete(k); setTick((x) => x + 1); };
     window.addEventListener('vca:started', on); window.addEventListener(OPEN_EV, on);
     return () => { window.removeEventListener('vca:started', on); window.removeEventListener(OPEN_EV, on); };
   }, []);
-  const id = vcaAutoOpen(g.me, g, started(), form ? form.callId : shown.current);
+  const want = form ? null : vcaAutoOpen(g.me, g, started(), shown.current);
   useEffect(() => {
-    if (id == null || form) return;
+    if (!want) return;
     // after the page's own flow (TodayPage / customer page) had its chance; then every 1.5 s until the reminder popup is gone
-    const t0 = window.setTimeout(() => void open(id), 700); const iv = window.setInterval(() => void open(id), 1500);
+    const t0 = window.setTimeout(() => void open(want.id, want.key), 700); const iv = window.setInterval(() => void open(want.id, want.key), 1500);
     return () => { window.clearTimeout(t0); window.clearInterval(iv); };
-  }, [id, tick, Boolean(form)]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [want?.key, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+  useVoipFormRelease(form ? { callId: form.callId } : null, saved, () => setForm(null));
   if (!form) return null;
   const end = () => { const v = form; setForm(null); void vcApi.dismiss(v.callId).catch(() => undefined).finally(() => vcRefresh(qc)); };
   // portal: the host sits in the top bar; the form is a full-screen dialog
   return createPortal(<div className="vca-ff" data-testid="vca-first-form"><SimpleCallForm customer={form.customer} userId={s?.user?.id} onClose={end} voip={{ callId: form.callId }}
-    onDone={(r) => { announceCallSaved(r.callLogId, form.customer.id); vcRefresh(qc); }} onNext={end} /></div>, document.body);
+    onDone={(r) => { setSaved(true); announceCallSaved(r.callLogId, form.customer.id); vcRefresh(qc); }} onNext={end} /></div>, document.body);
 }

@@ -15,8 +15,11 @@ Unchanged server rules: vcCustomerAllowed (403 not_own_customer for other expert
 No-answer SMS untouched. Calls started here have fileId=null: they are customer calls, not file tasks, so needsResult/file-lock rules for
 file tasks do not apply and the result goes to the customer (as on the customer page today).
 
-First call: when SIMOTEL-132 marks the call first_call, the required first-call form opens by itself once Simotel says «جواب داد»
-(phase first_form) — VoipAnywhereFirstFormHost, never doubled with the page's own FIRSTFORM-VOIP opener (customer page / Today). Later calls ask nothing.
+First call (Mohammad: a first call auto-opens the mandatory form — same as FIRSTFORM-VOIP 47e9e2a): when SIMOTEL-132 marks the call
+first_call, the required first-call form opens by itself as soon as the expert picks up and the customer is dialed / talking (not during
+the ring), and again after the hang-up if Simotel says «جواب داد» and it is still unsaved (first_form). If Simotel says no answer, a
+talk-time form closes again (draft kept). VoipAnywhereFirstFormHost, never doubled with a page's own opener (customer page / Today):
+it waits 700 ms and skips while any first-call form is open. Later calls ask nothing.
 
 Registrar scope (Mohammad, steering 3b): with the flag ON, a user with role registrar and no salesperson id (user 7) may VoIP-call ONLY
 customers (not merged) that she registered (customers.registered_by = her), or that have an open smart-filing job (finished_at IS NULL) she created or approved for submit,

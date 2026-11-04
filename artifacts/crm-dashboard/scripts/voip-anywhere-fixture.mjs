@@ -68,18 +68,25 @@ t("one call at a time: another live / unsaved / first_form / waiting / s132b bus
   assert.equal(vcaRowState(c({ state: "in_call" }), 99), "mine");
   assert.equal(vcaRowState(ON, 10), "idle");
 });
-t("first call (answered → first_form) auto-opens the mandatory form once, only for anywhere-started calls", () => {
-  const g = vcaGate(ON, expert8);
-  const me = { ...ON, call: { id: 5, customerId: 10, state: "ended", s132: { phase: "first_form" } } };
-  assert.equal(vcaAutoOpen(me, g, new Set([5]), null), 5);
-  assert.equal(vcaAutoOpen(me, g, new Set([5]), 5), null, "already shown");
-  assert.equal(vcaAutoOpen(me, g, new Set(), null), null, "started elsewhere (Today / customer page own flows)");
-  assert.equal(vcaAutoOpen(me, vcaGate({ ...ON, anywhere: undefined }, expert8), new Set([5]), null), null, "flag off");
+t("first call auto-opens the mandatory form at pickup (= 47e9e2a) and again at first_form, once per stage, only for anywhere-started calls", () => {
+  const g = vcaGate(ON, expert8); const E = new Set();
+  const live = (state, active = true) => ({ ...ON, call: { id: 5, customerId: 10, state, active, s132: { phase: "live", firstCall: true } } });
+  assert.equal(vcaAutoOpen(live("ringing"), g, new Set([5]), E), null, "ring: «جواب بده» panel stays in view");
+  assert.deepEqual(vcaAutoOpen(live("dial_cust"), g, new Set([5]), E), { id: 5, stage: "talk", key: "5:talk" }, "picked up, customer dialed");
+  assert.deepEqual(vcaAutoOpen(live("in_call"), g, new Set([5]), E)?.stage, "talk");
+  assert.equal(vcaAutoOpen(live("in_call"), g, new Set([5]), new Set(["5:talk"])), null, "talk form already opened once");
+  assert.equal(vcaAutoOpen(live("in_call", false), g, new Set([5]), E), null, "not active");
+  const ff = { ...ON, call: { id: 5, customerId: 10, state: "ended", active: false, s132: { phase: "first_form", firstCall: true } } };
+  assert.deepEqual(vcaAutoOpen(ff, g, new Set([5]), new Set(["5:talk"])), { id: 5, stage: "form", key: "5:form" }, "answered + unsaved → opens again");
+  assert.equal(vcaAutoOpen(ff, g, new Set([5]), new Set(["5:talk", "5:form"])), null, "already shown");
+  assert.equal(vcaAutoOpen(ff, g, new Set(), E), null, "started elsewhere (Today / customer page own flows)");
+  assert.equal(vcaAutoOpen(ff, vcaGate({ ...ON, anywhere: undefined }, expert8), new Set([5]), E), null, "flag off");
 });
 t("non-first call never opens a form (auto / manual / live / waiting)", () => {
-  const g = vcaGate(ON, expert8);
-  for (const ph of ["auto", "manual", "live", "waiting", "late"]) assert.equal(vcaAutoOpen({ ...ON, call: { id: 6, customerId: 10, state: "ended", s132: { phase: ph } } }, g, new Set([6]), null), null);
-  assert.equal(vcaAutoOpen({ ...ON, call: { id: 6, customerId: 10, state: "ended", s132: null } }, g, new Set([6]), null), null);
+  const g = vcaGate(ON, expert8); const E = new Set();
+  for (const ph of ["auto", "manual", "live", "waiting", "late"]) assert.equal(vcaAutoOpen({ ...ON, call: { id: 6, customerId: 10, state: "ended", s132: { phase: ph } } }, g, new Set([6]), E), null);
+  assert.equal(vcaAutoOpen({ ...ON, call: { id: 6, customerId: 10, state: "in_call", active: true, s132: { phase: "live", firstCall: false } } }, g, new Set([6]), E), null, "talking, not first call");
+  assert.equal(vcaAutoOpen({ ...ON, call: { id: 6, customerId: 10, state: "in_call", active: true, s132: null } }, g, new Set([6]), E), null);
 });
 t("single-button rule: flag on + VoIP on → only «تماس», system hidden; flag off or no extension → unchanged", () => {
   assert.equal(VCA_LABEL, "تماس");
