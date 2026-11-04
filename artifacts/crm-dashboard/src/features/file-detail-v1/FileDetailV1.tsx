@@ -13,7 +13,7 @@ import { ACTION_ROLE_NAMES, BUSINESS_STATUS_LABELS, LOAN_STAGE_LABELS, loanBusin
 // @ts-ignore -- untyped .mjs helper, imported the same way as CaseHistoryDialog
 import { historyActionLabel } from '@/lib/loan-history-fa.mjs';
 import { fetchHistory, postNote, type HistoryEvent } from '@/loan-case-history/api';
-import { docClientCheck, docServerError, DOC_UPLOAD_MAX_BYTES, DOC_UPLOAD_TYPES, type DocUpErr } from '@/features/doc-upload/DocUploadError';
+import { docClientCheck, docServerError, DocMissingChip, DOC_UPLOAD_MAX_BYTES, DOC_UPLOAD_TYPES, type DocUpErr } from '@/features/doc-upload/DocUploadError';
 import { useDiagnostics } from '@/diagnostics/DiagnosticsProvider';
 import { LoanCaseCancellation } from '@/components/loan-applications/LoanCaseCancellation';
 import { SmartFilingButton } from '@/features/smart-filing/SmartFilingButton';
@@ -320,7 +320,7 @@ export function FileDetailV1(p: Props) {
     const act = !id && canUp ? (s === 'miss' ? <button className="btn pri sm" type="button" onClick={() => openUpload(d)}><Upload {...I} />بارگذاری</button>
       : <>{view}<button className="btn lk sm" type="button" onClick={() => openUpload(d)}>{s === 'bad' || s === 'rej' ? 'بارگذاری مجدد' : 'جایگزینی'}</button></>) : view;
     return <li className="dr" key={`${id ? 'i' : 'd'}${d.id}`}><span className="fi">{id ? <IdCard {...I} /> : <FileText {...I} />}</span>
-      <span className="tx"><b>{id ? (IDL[d.documentType] || 'مدرک هویتی') : docName(d)}</b><span className={`chip ${c}`}><Ic {...I} />{t}</span>{when ? <small>{when}</small> : null}{reason ? <small>{reason}</small> : null}</span>
+      <span className="tx"><b>{id ? (IDL[d.documentType] || 'مدرک هویتی') : docName(d)}</b>{closed && !id && s === 'miss' ? <DocMissingChip testId="fdv1-chip-missing" /> : closed && !id && s === 'wait' ? <span className="doc-missing-chip" data-testid="fdv1-chip-unreviewed">بررسی نشد</span> : <span className={`chip ${c}`}><Ic {...I} />{t}</span>}{when ? <small>{when}</small> : null}{reason ? <small>{reason}</small> : null}</span>
       {act ? <span className="ac">{act}</span> : null}</li>;
   };
   const done = custDocs.filter(d => docSt(d) !== 'miss').length + idDocs.filter(d => idSt(d) !== 'miss').length;
@@ -330,7 +330,7 @@ export function FileDetailV1(p: Props) {
     <section className="card sec" aria-labelledby="fdv1-dfl"><div className="sh"><h3 id="fdv1-dfl"><IdCard {...I} />مدارک موردنیاز تسهیلات</h3>
       {!closed && p.canUploadDocs ? <button className="btn gh sm" type="button" onClick={lgxOpen}><Plus {...I} />درخواست مدرک جدید</button> : null}</div>
       <ul className="dl">{custDocs.map(d => docRow(d, false))}</ul></section>
-    {idDocs.length ? <section className="card sec" aria-labelledby="fdv1-did"><div className="sh"><h3 id="fdv1-did"><Shield {...I} />مدارک هویتی سراسری مشتری</h3><span className="muted">برای همه‌ی پرونده‌های این مشتری</span></div>
+    {idDocs.length ? <section className="card sec" aria-labelledby="fdv1-did"><div className="sh"><div className="sht"><h3 id="fdv1-did"><Shield {...I} />مدارک هویتی</h3><small className="shs">برای همه‌ی پرونده‌های این مشتری</small></div></div>
       <ul className="dl">{idDocs.map(d => docRow(d, true))}</ul></section> : null}</>;
 
   const resendBtn = (it: ResendItem, title: string) => {
