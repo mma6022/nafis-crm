@@ -201,7 +201,7 @@ export function createBaleBotRouter(): IRouter {
     const u = U(res); const m = queryRow<any>("SELECT * FROM bale_bot_messages WHERE id=? AND file_state='stored'", [num(req.params.id)]);
     if (!m || !chatForAny(u, m.chat_row)) return fail(res, 404, "not_found");
     const full = path.resolve(filesDir(), m.file_path); if (!full.startsWith(path.resolve(filesDir()) + path.sep) || !fs.existsSync(full)) return fail(res, 404, "not_found");
-    res.setHeader("Content-Type", /^(image\/(jpeg|png|webp|gif)|audio\/|video\/|application\/pdf)/.test(m.mime ?? "") ? m.mime : "application/octet-stream");
+    res.setHeader("Content-Type", bbServeType(full, m.mime));
     res.setHeader("Content-Disposition", `${req.query.dl ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(m.file_name ?? "file")}`);
     res.setHeader("X-Content-Type-Options", "nosniff"); res.setHeader("Content-Security-Policy", "sandbox"); res.setHeader("Cache-Control", "private, max-age=3600");
     fs.createReadStream(full).pipe(res);
@@ -367,3 +367,16 @@ export function createBaleBotRouter(): IRouter {
 export default createBaleBotRouter();
 // Supervisor: one settings SELECT per tick while flag.bale_bot is OFF. BALE_BOT_WORKER=0 disables it (tests / maintenance).
 if (process.env.BALE_BOT_WORKER !== "0" && process.env.NODE_ENV !== "test") baleBotWorker.start();
+
+/** Content-Type for a stored file: the declared mime only when the file's magic bytes agree (else octet-stream, so a mislabelled file is never rendered inline). */
+export function bbServeType(full: string, mime: string | null): string {
+  const mt = String(mime ?? "").toLowerCase(); let h = Buffer.alloc(0);
+  try { const fd = fs.openSync(full, "r"); const b = Buffer.alloc(16); const n = fs.readSync(fd, b, 0, 16, 0); fs.closeSync(fd); h = b.subarray(0, n); } catch { return "application/octet-stream"; }
+  const at = (o: number, hex: string) => h.subarray(o, o + hex.length / 2).toString("hex") === hex;
+  const ok: Record<string, boolean> = {
+    "image/jpeg": at(0, "ffd8ff"), "image/png": at(0, "89504e470d0a1a0a"), "image/gif": at(0, "47494638"), "image/webp": at(0, "52494646") && at(8, "57454250"),
+    "application/pdf": at(0, "255044462d"), "audio/ogg": at(0, "4f676753"), "audio/mpeg": at(0, "494433") || (h[0] === 0xff && (h[1] & 0xe0) === 0xe0),
+    "video/mp4": at(4, "66747970"), "audio/mp4": at(4, "66747970"), "audio/x-m4a": at(4, "66747970"),
+  };
+  return ok[mt] ? mt : "application/octet-stream";
+}
