@@ -5,7 +5,7 @@ import { authorizedVoipRecording } from "../routes/simotel-recordings";
 import { CallSummaryError, summarizeCall } from "./recording-call-summary";
 import { SimotelError } from "./simotel";
 import { latestSummaryEdit } from "./recording-summary-edits";
-import { ctFlag, manualSummaryText, systemActor, SYSTEM_REQUESTER } from "./call-transcripts";
+import { ctFlag, manualSummaryText, roleLabelledVariants, systemActor, SYSTEM_REQUESTER } from "./call-transcripts";
 import { ensureRestartRetrySchema, recoverInterruptedSummaries, restartRetryOn } from "./stt-restart-retry";
 
 type SummaryJob = { external_id: string; source_hash: string; requested_by: number; range_from: string; range_to: string;
@@ -23,32 +23,46 @@ function transcript(id: string) {
   const plain = row?.result_json ? JSON.parse(row.result_json).text : null;
   const text = typeof plain === "string" && plain.trim() ? summaryText(id, plain) : plain;
   return row && row.state === "completed" && typeof text === "string" && text.trim()
-    ? { ...row, text, hash: digest(row.source_file, text) } : null;
+    ? { ...row, text, plain: plain as string, hash: digest(row.source_file, text) } : null;
 }
+/** CT-KEEP (Mohammad t859u «ویرایش دستی حفظ بشه و خلاصه دوباره ساخته نشه»): «hand-edited» = the call has a row in
+ *  voip_recording_summary_edits (every manual save appends one, with edited_by/edited_at; rows exist since summary editing shipped,
+ *  so older edits count too — no new column). Such an edit survives a manager role swap: it stays valid when its source_hash is the
+ *  hash of the same transcript under any speaker roles (plain text or either role-labelled dialogue). Only a new transcript text
+ *  (re-transcription that changed the words) still marks it stale, exactly as before. */
+function sameTranscriptHashes(id: string, file: string, plain: string | null): Set<string> {
+  const out = new Set<string>();
+  if (plain && plain.trim()) out.add(digest(file, plain));
+  for (const v of roleLabelledVariants(id)) out.add(digest(file, v));
+  return out;
+}
+const editKept = (edit: { source_hash: string } | undefined, hash: string | null, id: string, file: string, plain: string | null) =>
+  !!edit && !!hash && (edit.source_hash === hash || sameTranscriptHashes(id, file, plain).has(edit.source_hash));
 /** CT-CHAT: role-labelled dialogue when a manager set the roles (see manualSummaryText), else the plain transcript text. */
 const summaryText = (id: string, plain: string) => manualSummaryText(id) ?? plain;
 export function callSummaryDTO(id: string, file: string, plainText: string | null) {
   const text = plainText && plainText.trim() ? summaryText(id, plainText) : plainText;
   const job = text ? getJob(id) : undefined;
   const hash = text ? digest(file, text) : null, edit = latestSummaryEdit(id);
-  const edited = !!edit && edit.source_hash === hash;
+  const edited = editKept(edit, hash, id, file, plainText);
+  const keptOnSwap = edited && edit!.source_hash !== hash; // made under other speaker roles, kept untouched (CT-KEEP)
   const current = !!job && job.source_hash === hash;
   return { summaryState: edited ? "completed" as const : current ? job!.state : "not_started" as const,
     summaryError: edited ? null : current ? job!.error : null, callSubject: null, customerRequestSummary: null,
     ...(current && job!.state === "completed" && job!.result_json ? JSON.parse(job!.result_json) : {}),
     ...(edited ? { callSubject: edit!.subject, customerRequestSummary: edit!.customer_request } : {}),
     summaryRevision: edit?.revision ?? 0, summarySourceHash: hash, summaryEdited: edited,
-    summaryEditStale: !!edit && !edited };
+    summaryEditStale: !!edit && !edited, ...(keptOnSwap ? { summaryKeptOnSwap: true } : {}) };
 }
 export function storedCallSummary(id: string) {
   if (!queryRow("SELECT 1 FROM sqlite_master WHERE type='table' AND name='voip_recording_transcripts'")) return null;
   const source = transcript(id);
-  return source ? callSummaryDTO(id, source.source_file, source.text) : null;
+  return source ? callSummaryDTO(id, source.source_file, source.plain) : null; // plain: the DTO applies the role labelling itself (same text/hash)
 }
 export function queueCallSummary(id: string, userId: number, from: string, to: string, retry = false) {
   const source = transcript(id);
   if (!source) return;
-  if (latestSummaryEdit(id)?.source_hash === source.hash) return;
+  if (editKept(latestSummaryEdit(id), source.hash, id, source.source_file, source.plain)) return; // hand-edited → never regenerated (CT-KEEP)
   const previous = getJob(id);
   if (previous?.source_hash === source.hash && (previous.state !== "failed" || !retry)) return;
   const full = (queryRow<{ n: number }>("SELECT COUNT(*) n FROM voip_recording_summaries WHERE state IN ('queued','processing')")?.n ?? 0) >= 20;
@@ -91,10 +105,13 @@ export async function processCallSummaryQueue() {
 }/** CT-CHAT: after a «مدیر فروش» role swap, regenerate the summary through the normal queue (one row per call → never a duplicate job;
  *  a summary already being made for the old roles is superseded: its result is dropped by the source_hash guard). Never notifies anyone.
  *  Uses the range the transcript was made with. Returns false (and the role save stays saved) when nothing could be queued. */
-export function queueSummaryAfterRoleSwap(providerId: string, actorId: number): boolean {
+export function queueSummaryAfterRoleSwap(providerId: string, actorId: number): boolean | "kept_edit" {
   try {
     const t = queryRow<{ range_from: string; range_to: string }>("SELECT range_from,range_to FROM voip_recording_transcripts WHERE external_id=? AND state='completed'", [providerId]);
     if (!t) return false;
+    // CT-KEEP (Mohammad t859u): a hand-edited summary is kept untouched — nothing is queued (roles stay saved, transcript re-renders).
+    const source = transcript(providerId);
+    if (source && editKept(latestSummaryEdit(providerId), source.hash, providerId, source.source_file, source.plain)) return "kept_edit";
     queueCallSummary(providerId, actorId, t.range_from, t.range_to, true);
     return true;
   } catch { return false; }

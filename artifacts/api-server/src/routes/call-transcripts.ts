@@ -112,6 +112,7 @@ router.put("/call-transcripts/calls/:eventId/speaker-roles", requirePermission("
   const err = saveSpeakerRoles(e.id, u, b.expertSpeakerId, b.transcriptAt ?? null);
   if (err) return fail(res, ROLE_ERR[err][0], err, ROLE_ERR[err][1]);
   // Mohammad t851: regenerate the summary after a swap (existing queue, no notification); a failure here never undoes the save.
+  // Mohammad t859u (CT-KEEP): a hand-edited summary is kept untouched ("kept_edit": nothing queued; the view says so).
   if (!queueSummaryAfterRoleSwap(e.provider_id, u.id)) req.log?.warn?.({ eventId: e.id }, "ct-chat: summary regeneration not queued");
   res.json(callView(ctEvent(e.id)!, u, summary));
 });

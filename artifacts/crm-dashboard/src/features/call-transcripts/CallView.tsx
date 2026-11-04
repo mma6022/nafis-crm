@@ -67,7 +67,8 @@ function SummaryCard({ c, onSaved }: { c: CtCall; onSaved: (c: CtCall) => void }
     {c.canEdit && ready ? <button className="btn gh" type="button" onClick={() => { setSubject(s!.subject ?? ''); setReq(s!.request ?? ''); setEd(true); }} data-testid="ct-edit"><Pencil className="i" />ویرایش</button>
       : c.isManager ? <span className="muted">ویرایش خلاصه با کارشناس همین تماس است</span> : null}</div>
     {ready ? <><dl className="kv2"><dt>موضوع تماس</dt><dd>{s!.subject}</dd><dt>خلاصه درخواست مشتری</dt><dd>{s!.request}</dd></dl>
-      <p className="muted mch"><Sparkles className="i" /><span>{s!.edited ? 'ویرایش‌شده توسط کارشناس.' : 'خودکار از متن ماشینی ساخته و ذخیره شد؛ برای تصمیم، صدای اصلی را هم گوش بده.'}</span></p></>
+      <p className="muted mch"><Sparkles className="i" /><span>{s!.edited ? 'ویرایش‌شده توسط کارشناس.' : 'خودکار از متن ماشینی ساخته و ذخیره شد؛ برای تصمیم، صدای اصلی را هم گوش بده.'}</span></p>
+      {s!.edited && s!.keptOnSwap ? <p className="muted mch" role="status" data-testid="ct-summary-kept"><ShieldCheck className="i" /><span>نقش گوینده‌ها عوض شد؛ خلاصه چون دستی ویرایش شده بود تغییر نکرد.</span></p> : null}</>
       : <dl className="kv2"><dt>موضوع تماس</dt><dd className="sk">{s?.state === 'failed' ? 'خلاصه ساخته نشد.' : 'هنوز آماده نشده است.'}</dd><dt>خلاصه درخواست مشتری</dt><dd className="sk">{s?.state === 'failed' ? 'خلاصه ساخته نشد.' : 'هنوز آماده نشده است.'}</dd></dl>}
     {!ready && regen(c) ? <p className="muted mch" role="status" data-testid="ct-summary-regen"><Sparkles className="i" /><span>نقش گوینده‌ها عوض شد؛ خلاصه دوباره ساخته می‌شود و چند لحظه بعد همین‌جا می‌آید.</span></p> : null}
   </section>;

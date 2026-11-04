@@ -11,7 +11,7 @@ export async function ctReq<T>(method: string, path: string, body?: unknown): Pr
 }
 
 export type TextState = 'no_recording' | 'waiting' | 'queued' | 'processing' | 'completed' | 'failed';
-export type CtSummary = { state: string; subject: string | null; request: string | null; edited: boolean; revision: number; sourceHash: string | null; error: string | null };
+export type CtSummary = { state: string; subject: string | null; request: string | null; edited: boolean; revision: number; sourceHash: string | null; error: string | null; keptOnSwap?: boolean };
 export type CtRow = { eventId: number; callLogId: number | null; customerId: number | null; customerName: string | null; phone: string | null; direction: 'incoming' | 'outgoing' | string;
   status: string; startedAt: string; endedAt: string | null; durationSeconds: number | null; expertUserId: number | null; expertName: string | null; hasRecording: boolean;
   textState: TextState; textPhase: string | null; textError: string | null; attempts: number; nextAttemptAt: string | null; summary: CtSummary | null; flagged: boolean };

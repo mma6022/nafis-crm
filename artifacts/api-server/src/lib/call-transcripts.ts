@@ -128,7 +128,8 @@ function summaryOf(e: Ev, summary: (id: string) => any) {
   if (textState(e) !== "completed") return null;
   const s = summary(e.provider_id);
   return s ? { state: s.summaryState as string, subject: s.callSubject as string | null, request: s.customerRequestSummary as string | null,
-    edited: !!s.summaryEdited, revision: Number(s.summaryRevision ?? 0), sourceHash: s.summarySourceHash as string | null, error: s.summaryError as string | null } : null;
+    edited: !!s.summaryEdited, revision: Number(s.summaryRevision ?? 0), sourceHash: s.summarySourceHash as string | null, error: s.summaryError as string | null,
+    ...(s.summaryKeptOnSwap ? { keptOnSwap: true } : {}) } : null;
 }
 /* ---------------- CT-CHAT: manual speaker roles (flag.call_transcripts.chat) ---------------- */
 /** Chat view on for this user: global flag or per-user flag. The ui flag (off() guard) still gates every route. */
@@ -209,6 +210,20 @@ export function manualSummaryText(providerId: string): string | null {
       .map(x => `${roles[x.speakerId] === "expert" ? "کارشناس" : "مشتری"}: ${x.text.trim()}`);
     return lines.length ? lines.join("\n") : null;
   } catch { return null; }
+}
+
+/** CT-KEEP (Mohammad t859u): every summary input this transcript can produce for its two speakers — the plain text is added by the
+ *  caller; here both role-labelled dialogues (either speaker as «کارشناس»). An edit whose source_hash is one of these was made on the
+ *  SAME transcript, only under other speaker roles, so a role swap keeps it (a re-transcription with new text still makes it stale). */
+export function roleLabelledVariants(providerId: string): string[] {
+  try {
+    const t = queryRow<{ result_json: string | null }>("SELECT result_json FROM voip_recording_transcripts WHERE external_id=? AND state='completed'", [providerId]);
+    if (!t?.result_json) return [];
+    const r = JSON.parse(t.result_json) as Result; const ids = (r.speakers ?? []).map(x => x.id);
+    if (ids.length !== 2) return [];
+    return ids.map(expert => (r.segments ?? []).filter(x => typeof x.text === "string" && x.text.trim() && ids.includes(x.speakerId))
+      .map(x => `${x.speakerId === expert ? "کارشناس" : "مشتری"}: ${x.text.trim()}`).join("\n")).filter(Boolean);
+  } catch { return []; }
 }
 
 export function transcriptView(e: Ev, opts: { maskNames?: boolean } = {}) {
