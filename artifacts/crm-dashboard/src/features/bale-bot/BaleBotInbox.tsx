@@ -11,6 +11,7 @@ import { I, Ava, Nm, Cid, Ph, Uname, Unverified, useToast, Steps, Modal, copyTex
 
 export const CUST_STATUS: Record<string, string> = { in_progress: 'در حال انجام', cancelled: 'لغو شده', completed: 'اتمام' };
 const STATUS: Record<string, [string, string]> = { sending: ['refresh', 'در حال ارسال'], sent: ['check', 'ارسال شد'], failed: ['alert', 'ارسال ناموفق'], wait: ['clock', 'کمی صبر کنید، دوباره ارسال می‌شود'] };
+const WV = [6, 12, 18, 10, 22, 14, 8, 16, 24, 12, 7, 18, 13, 20, 9, 15, 11, 6, 14, 19, 10, 8];
 const OTHER_HINT = 'مشتری کارشناس دیگر با این جستجو پیدا نمی‌شود؛ برای اتصال، از مشتری «درخواست شماره» بزنید';
 const PREV_IC: Record<string, string> = { photo: 'img', video: 'video', animation: 'video', document: 'doc', audio: 'play', voice: 'mic', sticker: 'img', contact: 'contact', location: 'pin' };
 const canned = (me: BbMe): [string, string][] => [
@@ -57,10 +58,15 @@ function Inbox({ me }: { me: BbMe }) {
   const allEmpty = listQ.data && listQ.data.counts.all === 0 && !q && filter === 'all' && !expert;
   const mob = sel != null ? 'chat' : 'list';
   useEffect(() => { document.title = 'گفتگوهای بله | نفیس وام'; }, []);
+  // desktop (three columns): never show an empty middle column — open the first chat of the current list
+  const first = listQ.data?.chats[0]?.id;
+  useEffect(() => { if (sel == null && first != null && window.matchMedia('(min-width:1024px)').matches) nav(`/bale-bot/${first}`, { replace: true }); }, [sel, first, nav]);
   const err = (e: unknown) => toast(e instanceof BbError ? e.message : 'درخواست انجام نشد. دوباره تلاش کنید.');
   const askContact = async () => { if (!chat) return; try { await bbFetch(`/bale-bot/chats/${chat.id}/request-contact`, { body: {} }); toast('درخواست شماره فرستاده شد'); refresh(); } catch (e) { err(e); } };
 
   return <div className="bbt" dir="rtl" data-testid="bale-bot-inbox">
+    {/* the floating «گزارش خطا» launcher sat on the bubbles of an open chat on phones; the top-bar bug icon stays */}
+    <style>{'@media (max-width:1023px){body:has(.bbt .pg.chv) .diag-floating{display:none!important}}'}</style>
     <main className={`pg bbpg${mob === 'chat' ? ' chv' : ''}`}>
       <div className={`bx${allEmpty || !sel ? ' np' : ''}`} data-m={mob}>
         <ListPane me={me} data={listQ.data} loading={listQ.isLoading} sel={sel} filter={filter} setFilter={setFilter} q={q} setQ={setQ} expert={expert} setExpert={setExpert} toast={toast} />
@@ -75,7 +81,7 @@ function Inbox({ me }: { me: BbMe }) {
     </main>
     {modal?.k === 'search' && chat ? <SearchModal chat={chat} toast={toast} close={() => setModal(null)} onAsk={() => { setModal(null); void askContact(); }} onLead={() => setModal({ k: 'lead' })} done={(name) => { setModal(null); toast(`گفتگو به پرونده‌ی ${name} وصل شد.`); refresh(); }} /> : null}
     {modal?.k === 'lead' && chat ? <LeadModal me={me} chat={chat} toast={toast} close={() => setModal(null)} onAsk={askContact} done={(name) => { setModal(null); toast(`سرنخ ${name} ثبت شد و گفتگو به پرونده وصل شد.`); refresh(); }} /> : null}
-    {modal?.k === 'del' ? <div className="mx cfx"><div className="md cf" role="alertdialog" aria-modal="true" aria-labelledby="cft" aria-describedby="cfd">
+    {modal?.k === 'del' ? <div className="mx cfx" data-bbdnd=""><div className="md cf" role="alertdialog" aria-modal="true" aria-labelledby="cft" aria-describedby="cfd">
       <div className="cfb"><div className="ci"><I n="trash" /></div><h2 id="cft">پیام حذف شود؟</h2><ul id="cfd"><li>پیام برای مشتری هم در بله پاک می‌شود.</li><li>در CRM با برچسب «حذف شد» می‌ماند.</li></ul></div>
       <div className="mf"><button className="btn dng" type="button" onClick={async () => { const m = modal.m; setModal(null); try { await bbFetch(`/bale-bot/messages/${m.id}/delete`, { body: {} }); toast('پیام حذف شد'); refresh(); } catch (e) { err(e); } }}>حذف پیام</button>
         <button className="btn gh" type="button" onClick={() => setModal(null)}>انصراف</button></div></div></div> : null}
@@ -162,7 +168,7 @@ function ChatPane({ me, chat, messages, toast, err, refresh, onAsk, onSearch, on
   const thRef = useRef<HTMLDivElement>(null);
   const byId = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
   const lastId = messages[messages.length - 1]?.id;
-  useEffect(() => { const el = thRef.current; if (el) el.scrollIntoView({ block: 'end' }); }, [lastId, chat.id]);
+  useEffect(() => { const el = thRef.current; const th = el?.parentElement; if (th && th.scrollHeight > th.clientHeight + 1) th.scrollTop = th.scrollHeight; else if (el && window.innerWidth < 1024) el.scrollIntoView({ block: 'end' }); }, [lastId, chat.id]);
   useEffect(() => { setMenu(null); setReply(null); setEdit(null); }, [chat.id]);
   const seen = async (id: number) => { try { await bbFetch(`/bale-bot/notices/${id}/seen`, { body: {} }); refresh(); } catch (e) { err(e); } };
   const items: React.ReactNode[] = []; let day = '';
@@ -171,7 +177,8 @@ function ChatPane({ me, chat, messages, toast, err, refresh, onAsk, onSearch, on
     if (m.dir === 'in' && m.kind === 'text' && m.text?.trim() === '/start') { items.push(<div key={m.id} className="sys" role="status"><I n="bale" /><span>{chat.name} گفتگو را با /start شروع کرد</span></div>); continue; }
     items.push(<Bubble key={m.id} m={m} chat={chat} me={me} reply={m.replyTo ? byId.get(m.replyTo) : undefined} sel={menu === m.id} toast={toast} onClick={() => setMenu(menu === m.id ? null : m.id)}
       onRetry={async () => { try { await bbFetch(`/bale-bot/messages/${m.id}/retry`, { body: {} }); refresh(); } catch (e) { err(e); } }} />);
-    if (m.kind === 'contact' && m.contact?.own && chat.customer && chat.linkMethod === 'contact') items.push(<div key={`l${m.id}`} className="sys ok" role="status"><I n="check" /><span>وصل شد به پرونده‌ی {chat.customer.name}</span></div>);
+    if (m.kind === 'contact' && m.contact?.own && chat.customer && chat.linkMethod === 'contact') items.push(<div key={`l${m.id}`} className="sys ok" role="status"><I n="check" /><span>وصل شد به پرونده‌ی {chat.customer.name}<Cid id={chat.customer.id} toast={toast} /></span></div>);
+    if (m.kind === 'contact' && m.contact?.own && chat.customer && chat.linkMethod === 'contact_other') items.push(<div key={`l${m.id}`} className="sys ok" role="status"><I n="link" /><span>وصل شد به پرونده‌ی کارشناس دیگر</span></div>);
     if (menu === m.id && !m.deleted) items.push(<div key={`mm${m.id}`} className="mmenu" role="menu" aria-label="کارهای پیام">
       {chat.canWrite ? <button type="button" role="menuitem" onClick={() => { setReply(m); setEdit(null); setMenu(null); }}><I n="reply" />پاسخ</button> : null}
       {m.text ? <button type="button" role="menuitem" onClick={() => { copyText(m.text!, toast); setMenu(null); }}><I n="copy" />کپی متن</button> : null}
@@ -228,12 +235,15 @@ function Composer({ me, chat, reply, edit, clear, toast, err, refresh }: { me: B
   const [file, setFile] = useState<{ f: File; kind: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [rec, setRec] = useState<{ r: MediaRecorder; start: number; chunks: Blob[] } | null>(null);
-  const [recS, setRecS] = useState(0);
+  const [recS, setRecS] = useState(0); const [recB, setRecB] = useState(0);
   const pick = useRef<HTMLInputElement>(null); const kindRef = useRef('document');
   useEffect(() => { setText(edit?.text ?? ''); }, [edit]);
   useEffect(() => { setText(''); setFile(null); setPop(null); }, [chat.id]);
-  useEffect(() => { if (!rec) return; const h = setInterval(() => setRecS(Math.floor((Date.now() - rec.start) / 1000)), 250); return () => clearInterval(h); }, [rec]);
-  if (!chat.canWrite) return <div className="cz"><p className="czoff"><I n="alert" />{chat.sendBlocked === 'no_send' ? 'ارسال از این ربات فعلاً بسته است؛ پیام‌ها فقط خوانده می‌شوند.' : 'ربات قطع است؛ تا وصل شدن دوباره پیامی فرستاده نمی‌شود.'}</p></div>;
+  useEffect(() => { if (!rec) return; const h = setInterval(() => { setRecS(Math.floor((Date.now() - rec.start) / 1000)); setRecB(rec.chunks.reduce((a, c) => a + c.size, 0)); }, 250); return () => clearInterval(h); }, [rec]);
+  // bot off/err: the design's disabled state. Read-only bot (server-enforced no_send): the design has no wording → disabled silently.
+  if (!chat.canWrite && chat.sendBlocked !== 'no_send') return <div className="cz"><p className="czoff"><I n="alert" />ربات قطع است؛ تا وصل شدن دوباره پیامی فرستاده نمی‌شود.</p></div>;
+  if (!chat.canWrite) return <div className="cz"><div className="row"><button className="ib" type="button" aria-label="پیوست" disabled><I n="clip" /></button><button className="ib" type="button" aria-label="پاسخ‌های آماده" disabled><I n="note" /></button>
+    <textarea className="ta3" rows={1} aria-label={`پیام به ${chat.name}`} placeholder="پیام بنویسید" disabled /><button className="snd" type="button" aria-label="ارسال" aria-disabled="true"><I n="send" /></button></div></div>;
   const n = [...text].length;
   const limit = file ? (file.kind === 'photo' ? L.photoBytes : L.fileBytes) : 0;
   const tooBig = !!file && file.f.size > limit;
@@ -259,7 +269,7 @@ function Composer({ me, chat, reply, edit, clear, toast, err, refresh }: { me: B
     if (!rec) return; const { r, chunks } = rec;
     r.onstop = () => { r.stream.getTracks().forEach((t) => t.stop()); if (!keep) return; const type = r.mimeType || 'audio/webm'; const ext = /ogg/.test(type) ? 'ogg' : 'webm';
       setFile({ f: new File(chunks, `voice.${ext}`, { type }), kind: 'voice' }); };
-    r.stop(); setRec(null); setRecS(0);
+    r.stop(); setRec(null); setRecS(0); setRecB(0);
   };
   const cn = canned(me).filter(([t, b]) => !cq || t.includes(cq) || b.includes(cq));
   const sizeMB = (b: number) => fa(Math.round(b / 1048576));
@@ -276,7 +286,7 @@ function Composer({ me, chat, reply, edit, clear, toast, err, refresh }: { me: B
     {tooBig ? <p className="aerr" role="alert"><I n="alert" />این فایل {sizeMB(file.f.size)} مگابایت است؛ بله {file.kind === 'photo' ? 'عکس' : 'فایل'} را تا {fa(limit / 1048576)} مگابایت می‌فرستد. فایل کوچک‌تری انتخاب کنید.</p> : null}</>;
   else if (reply) top = <div className="czs"><I n="reply" c="i0" /><span className="tx"><b>پاسخ به {reply.dir === 'in' ? chat.name : 'پیام خودتان'}</b><span>{reply.text ?? 'پیوست'}</span></span><button className="ib" type="button" aria-label="لغو پاسخ" onClick={clear}><I n="x" /></button></div>;
   else if (edit) top = <div className="czs"><I n="pen" c="i0" /><span className="tx"><b>ویرایش پیام</b><span>{edit.text}</span></span><button className="ib" type="button" aria-label="لغو ویرایش" onClick={clear}><I n="x" /></button></div>;
-  const row = rec ? <><button className="ib" type="button" aria-label="لغو ضبط" onClick={() => stopRec(false)}><I n="trash" /></button><div className="rec" role="status" aria-label="در حال ضبط پیام صوتی"><span className="dot" /><b>{bbDur(recS)}</b></div>
+  const row = rec ? <><button className="ib" type="button" aria-label="لغو ضبط" onClick={() => stopRec(false)}><I n="trash" /></button><div className="rec" role="status" aria-label="در حال ضبط پیام صوتی"><span className="dot" /><b>{bbDur(recS)}</b><span className="wv" aria-hidden="true">{WV.map((v, i) => <i key={i} style={{ height: v }} className="on" />)}</span></div>
     <button className="snd" type="button" aria-label="پایان ضبط" onClick={() => stopRec(true)}><I n="check" /></button></>
     : <><button className="ib" type="button" aria-label="پیوست" aria-expanded={pop === 'attach'} onClick={() => setPop(pop === 'attach' ? null : 'attach')} disabled={!!edit}><I n="clip" /></button>
       <button className="ib" type="button" aria-label="پاسخ‌های آماده" aria-expanded={pop === 'canned'} onClick={() => setPop(pop === 'canned' ? null : 'canned')}><I n="note" /></button>
@@ -285,9 +295,9 @@ function Composer({ me, chat, reply, edit, clear, toast, err, refresh }: { me: B
       {!n && !file && !edit && typeof MediaRecorder !== 'undefined' ? <button className="ib" type="button" aria-label="ضبط پیام صوتی" onClick={startRec}><I n="mic" /></button> : null}
       <button className="snd" type="button" aria-label={edit ? 'ذخیره‌ی ویرایش' : 'ارسال'} aria-disabled={!canSend} onClick={send}><I n={edit ? 'check' : 'send'} /></button></>;
   return <div className="cz">{top}<div className="row">{row}</div>
-    <input ref={pick} type="file" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { setFile({ f, kind: kindRef.current }); setPop(null); } }} />
-    {rec ? <p className="recm"><b>تا {fa(L.voiceBytes / 1048576)} مگابایت</b>؛ اگر بیشتر شود، به‌صورت فایل صوتی فرستاده می‌شود.</p>
-      : n >= warn ? <p className="cnt" role="status">{fa(n)} از {fa(L.textMax)} نویسه</p>
+    <input ref={pick} type="file" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { const k = kindRef.current === 'document' && /^video\//.test(f.type) ? 'video' : kindRef.current === 'document' && /^image\//.test(f.type) ? 'photo' : kindRef.current; setFile({ f, kind: k }); setPop(null); } }} />
+    {rec ? <p className="recm"><b>{fd((recB / 1048576).toFixed(1)).replace('.', '٫')} از {fa(L.voiceBytes / 1048576)} مگابایت</b>؛ اگر بیشتر شود، به‌صورت فایل صوتی فرستاده می‌شود.</p>
+      : n >= warn ? <p className="cnt" role="status">{fd(n)} از {fd(L.textMax)} نویسه</p>
       : me.view === 'all' ? <p className="czh"><I n="lock" />مشتری پیام را از ربات {chat.expert.name} می‌بیند؛ برچسب نام شما فقط در CRM است.</p> : null}
   </div>;
 }
@@ -298,7 +308,7 @@ function SearchModal({ chat, toast, close, onAsk, onLead, done }: { chat: BbChat
   const rq = useQuery<{ results: { id: number; name: string; phone: string | null; status: string | null }[] }>({ queryKey: ['bb-search', chat.id, term], enabled: term.length >= 2, queryFn: () => bbFetch(`/bale-bot/chats/${chat.id}/search?q=${encodeURIComponent(toLatin(term))}`) });
   const R = rq.data?.results ?? []; const picked = R.find((r) => r.id === pickId);
   const link = async () => { if (!picked) return; setBusy(true); try { await bbFetch(`/bale-bot/chats/${chat.id}/link`, { body: { customerId: picked.id } }); done(picked.name); } catch (e) { toast(e instanceof BbError ? e.message : 'وصل نشد.'); } finally { setBusy(false); } };
-  return <Modal cls="cf2" title="وصل کردن گفتگو به مشتری" sub={`گفتگوی بله با ${chat.name}${chat.username ? `، @${chat.username}` : ''}`} onClose={close}
+  return <Modal cls="cf2" title="وصل کردن گفتگو به مشتری" sub={<>گفتگوی بله با {chat.name}{chat.username ? <>، <Uname u={chat.username} /></> : null}</>} onClose={close}
     foot={<><button className="btn pri" type="button" aria-disabled={!picked || busy} onClick={link}><I n="link" />{picked ? `وصل به ${picked.name}` : 'وصل'}</button><button className="btn gh" type="button" onClick={close}>انصراف</button></>}>
     <label className="srch" style={{ maxWidth: 'none' }}><I n="search" /><input type="search" aria-label="جستجوی مشتری" value={q} onChange={(e) => { setQ(e.target.value); setPick(null); }} autoFocus /></label>
     <p className="hint">فقط در مشتری‌های خود شما؛ با نام، شماره یا شناسه.</p>
@@ -337,7 +347,7 @@ function LeadModal({ me, chat, toast, close, onAsk, done }: { me: BbMe; chat: Bb
     <div className="fld"><label className="flab" htmlFor="lf">نام</label><input id="lf" className="inp tx" value={first} onChange={(e) => setFirst(e.target.value)} />{chat.firstName ? <p className="hint">از پروفایل بله پر شد؛ می‌شود عوضش کرد.</p> : null}</div>
     <div className="fld"><label className="flab" htmlFor="ll">نام خانوادگی</label><input id="ll" className="inp tx" value={last} onChange={(e) => setLast(e.target.value)} /></div>
     <div className="fld"><label className="flab" htmlFor="lm">موبایل <span className="req">الزامی</span></label><div className="lmr">
-      <input id="lm" className={`inp lt${phone ? ' phi' : ''}`} dir="ltr" inputMode="tel" required aria-required="true" value={phone} onChange={(e) => { setPhone(e.target.value); if (state !== 'ask') setState(null); }} placeholder={state === 'ask' ? 'منتظر شماره‌ی مشتری' : 'با ۰۹ شروع شود'} aria-invalid={state === 'err' || state === 'dup' ? true : undefined} aria-describedby={sub ? 'lme' : undefined} />
+      <input id="lm" className={`inp lt${phone ? ' phi' : ''}`} dir="ltr" inputMode="tel" required aria-required="true" value={phone} onChange={(e) => { setPhone(fd(e.target.value)); if (state !== 'ask') setState(null); }} placeholder={state === 'ask' ? 'منتظر شماره‌ی مشتری' : 'با ۰۹ شروع شود'} aria-invalid={state === 'err' || state === 'dup' ? true : undefined} aria-describedby={sub ? 'lme' : undefined} />
       {state === 'ask' || auto || !chat.canWrite ? null : <button className="btn gh sm lmq" type="button" onClick={() => { onAsk(); setState('ask'); }}><I n="contact" />درخواست شماره</button>}</div>{sub}</div>
     <div className="fld"><label className="flab" htmlFor="ln">یادداشت</label><textarea id="ln" className="ta2" value={note} onChange={(e) => setNote(e.target.value)} /></div></>
     : <><div className="rvw"><div className="r"><span className="k">نام</span><span className="v">{chk?.state === 'own' ? chk.customer?.name : `${first} ${last}`.trim()}</span></div>
