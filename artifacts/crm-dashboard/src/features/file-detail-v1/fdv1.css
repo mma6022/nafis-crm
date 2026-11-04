@@ -559,3 +559,19 @@ html.fdv1-chv .fdv1{margin-inline:-14px}
 @media (max-width:480px){.fdv1 .ct .tx{min-width:0}.fdv1 .ct .chs .chip{white-space:normal}}
 /* r2 §7: tabs fit at 360 */
 @media (max-width:379.98px){.fdv1 .st-i{padding:0 7px;font-size:13.5px}}
+
+/* r4 §2: 12px between chips everywhere */
+.fdv1 .fhd-chips,.fdv1 .ct .chs,.fdv1 .dr .chs{gap:8px 12px}
+.fdv1 .dr .tx,.fdv1 .ct .tx{column-gap:12px}
+/* r4 §3: at least 8px between contract/doc actions */
+.fdv1 .dr .ac,.fdv1 .ct .ac{gap:8px}
+/* r4 §5: document names stay on one line with ellipsis */
+.fdv1 .dr .tx{min-width:0}
+.fdv1 .dr .tx b{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* r4 §7: copy icon in the #id badge */
+.fdv1 .cid{display:inline-flex;align-items:center;gap:4px}
+.fdv1 .cid .cpi{width:14px;height:14px;flex:none;opacity:.7}
+/* r4 §6: technical details collapsed */
+.fdv1 .fdv1-tech{margin-top:6px;font-size:13px;color:var(--nf-ink-muted)}
+.fdv1 .fdv1-tech summary{cursor:pointer;font-weight:700;min-height:32px;display:inline-flex;align-items:center}
+.fdv1 .fdv1-tech div{display:flex;flex-wrap:wrap;gap:4px 12px}

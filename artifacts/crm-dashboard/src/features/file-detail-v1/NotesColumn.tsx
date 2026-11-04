@@ -1,7 +1,7 @@
 /** FILE-DETAIL v1.1 · notes column (Armita §chat): internal staff notes, newest at the BOTTOM (Mohammad), only the list scrolls,
  *  states «در حال ثبت / ثبت شد / ثبت نشد» with «ارسال دوباره». Same endpoints as CaseNotesRoom (fetchNotes/postNote, 5s poll). */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Ban, Check, ChevronDown, ChevronRight, Crown, FilePlus2, PenLine, Download, File as FileIcon, Lock, Mic, Paperclip, Play, Pause, RefreshCw, Send, Square, StickyNote, X } from 'lucide-react';
+import { AlertCircle, Ban, Check, ChevronDown, ChevronRight, FilePlus2, User as UserIcon, PenLine, Download, File as FileIcon, Lock, Mic, Paperclip, Play, Pause, RefreshCw, Send, Square, StickyNote, X } from 'lucide-react';
 import { CaseApiError, MAX_FILE_BYTES, canReadNotes, canWriteNotes, fetchNotes, postNote, withBase, type CaseNote, type CaseUser } from '@/loan-case-history/api';
 import { useVoiceRecorder } from '@/loan-case-history/useVoiceRecorder';
 import { dayKey, dayLabel, fd, hm, sizeFa } from './fdv1-api';
@@ -105,7 +105,7 @@ export function NotesColumn({ appId, user, onBack, title, sys = [] }: { appId: n
     const el = list.current; if (!el) return;
     if (keepFromBottom.current != null) { el.scrollTop = el.scrollHeight - keepFromBottom.current; keepFromBottom.current = null; return; }
     if (stick.current) el.scrollTop = el.scrollHeight;
-  }, [notes, pending, status]);
+  }, [notes, pending, status, sys.length]); // r4 §1: a new system line (e.g. after sending) scrolls into view
   useEffect(() => { const el = ta.current; if (!el) return; el.style.height = 'auto';
     // Armita r1 §11: grow to at most 3 lines, then scroll inside the box
     const cs = window.getComputedStyle(el); const lh = parseFloat(cs.lineHeight) || 24;
@@ -155,7 +155,7 @@ export function NotesColumn({ appId, user, onBack, title, sys = [] }: { appId: n
     const out = me != null && n.author.id === me;
     const mgr = !out && Boolean((n.author as { manager?: boolean }).manager);
     rows.push(<div key={n.id} className={`msg ${out ? 'out' : 'in'}${mgr ? ' mg' : ''}`} data-st={out ? 'sent' : undefined} data-testid={`fdv1-note-${n.id}`}>
-      <div className="bb">{mgr ? <span className="au"><Crown className="i" aria-hidden />مدیر فروش: {n.author.name.replace(/^مدیر فروش\s*[:：]?\s*/, '')}</span> : !out ? <span className="by">{n.author.name}</span> : null}<Att note={n} />{n.text ? <span className="tt">{n.text}</span> : null}</div>
+      <div className="bb">{mgr ? <span className="au"><UserIcon className="i" aria-hidden />مدیر فروش: {n.author.name.replace(/^مدیر فروش\s*[:：]?\s*/, '')}</span> : !out ? <span className="by">{n.author.name}</span> : null}<Att note={n} />{n.text ? <span className="tt">{n.text}</span> : null}</div>
       <Meta tm={hm(n.createdAt)} st={out ? 'sent' : undefined} />
     </div>);
   }

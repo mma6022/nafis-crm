@@ -1636,6 +1636,7 @@ function isCurrentAuthorizedTomanReplacementSource(
     && primaryDoc.isCurrentPrimary !== false);
 }
 function ContractSection({ appId, docs = [], currentPrimaryGenerationId, tomanReplacement, canSubmit, canConfirmSigned = false, canIssuePrimary = false, canResend = false, isReplacement = false, manualValues = {}, manualVariables = [], canVerify, readOnlySignatureStatus = false, canUpload, canReview }: { appId: number, docs: any[], currentPrimaryGenerationId: number | null, tomanReplacement?: TomanReplacementState | null, canSubmit: boolean, canConfirmSigned?: boolean, canIssuePrimary?: boolean, canResend?: boolean, isReplacement?: boolean, manualValues?: Record<string, string>, manualVariables?: { variable: string; label: string }[], canVerify: boolean, readOnlySignatureStatus?: boolean, canUpload: boolean, canReview: boolean }) {
+  const techFold = useFileDetailV1Flag(); // file-detail v1 r4 §6: raw provider status / generation id behind «جزئیات فنی»
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [signatureResult, setSignatureResult] = useState<{
@@ -1821,12 +1822,15 @@ function ContractSection({ appId, docs = [], currentPrimaryGenerationId, tomanRe
                 <strong style={{ display: 'block', fontSize: 13, color: '#334155' }}>نوع: {c.kind === 'primary' ? 'قرارداد اصلی' : c.kind === 'invoice' ? 'صورت‌حساب' : 'رسید'}</strong>
                 {historicalPrimary && <span style={{ display: 'block', fontSize: 11, color: '#9f1239', fontWeight: 700 }}>نسخه پیشین · فقط برای مشاهده سوابق؛ قرارداد معتبر فعلی نیست</span>}
                 <span style={{ fontSize: 11, color: c.signed ? '#0f766e' : '#94a3b8' }}>
-                  وضعیت ثبت امضا در پرونده: {c.signed ? 'تأیید شده' : 'تأیید ثبت نشده'} · وضعیت بررسی: {c.status === 'approved' ? 'تأیید شده' : c.status === 'rejected' ? 'رد شده' : c.status === 'incomplete' ? 'ناقص' : 'در انتظار بررسی'} (شناسه صدور: {c.contractGenerationId})
+                  وضعیت ثبت امضا در پرونده: {c.signed ? 'تأیید شده' : 'تأیید ثبت نشده'} · وضعیت بررسی: {c.status === 'approved' ? 'تأیید شده' : c.status === 'rejected' ? 'رد شده' : c.status === 'incomplete' ? 'ناقص' : 'در انتظار بررسی'}{techFold ? null : <> (شناسه صدور: {c.contractGenerationId})</>}
                 </span>
                 {typeof c.provider_status === 'string' && c.provider_status.trim() !== '' && <div data-testid={`status-emzame-${c.id}`} role="status" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'baseline', marginTop: 5, fontSize: 11, color: providerReportsSigned(c.provider_status) ? '#047857' : '#475569' }}>
                   <strong>{providerReportsSigned(c.provider_status) ? 'امضامی امضا را گزارش کرده است' : 'وضعیت امضامی'}</strong>
-                  <span>وضعیت خام: <bdi dir="auto">{c.provider_status}</bdi></span>
+                  {techFold ? null : <span>وضعیت خام: <bdi dir="auto">{c.provider_status}</bdi></span>}
                 </div>}
+                {techFold ? <details className="fdv1-tech" data-testid={`tech-${c.id}`}><summary>جزئیات فنی</summary>
+                  <div>{c.contractGenerationId != null ? <span>شناسه صدور: {Number(c.contractGenerationId).toLocaleString('fa-IR', { useGrouping: false })}</span> : null}
+                    {typeof c.provider_status === 'string' && c.provider_status.trim() !== '' ? <span>وضعیت خام: <bdi dir="auto">{c.provider_status}</bdi></span> : null}</div></details> : null}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
