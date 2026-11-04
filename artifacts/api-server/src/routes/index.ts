@@ -25,6 +25,7 @@ import voipAfterCallRouter from "./voip-after-call";
 import recordingTranscriptsRouter from "./recording-transcripts";
 import voipCallRouter from "./voip-call";
 import callTranscriptsRouter from "./call-transcripts";
+import callSummaryFieldsRouter from "./call-summary-fields";
 import voiceNotesRouter from "./voice-notes";
 import smartFilingRouter from "./smart-filing";
 import assistantsRouter from "./assistants";
@@ -130,6 +131,7 @@ router.use(simotelRecordingsRouter);
 router.use(voipAfterCallRouter);
 router.use(recordingTranscriptsRouter);
 router.use(callTranscriptsRouter); // call-transcripts v1.1 (flag.call_transcripts.ui, OFF → 404)
+router.use(callSummaryFieldsRouter); // «موارد اجباری» v1.2 (flag.call_summary_fields_v1[.user.<id>], OFF → 404)
 router.use(voipCallRouter); // VOIP-CALL (flag.voip_call[.user.<id>], OFF → 404)
 router.use(voiceNotesRouter);
 router.use(smartFilingRouter);

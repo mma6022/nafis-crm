@@ -16,6 +16,7 @@ import { TeamSalesError, firstCallEditAccess, getTeamSalesConfig, latestFirstCal
 import { normalizeFirstCallAnswers, validateAnswers, type QualifierAnswers } from "./team-sales-rules";
 import { FC_STAGE_GROUPS, FC_GROUP_CODES, FC_GROUP_LABELS, FC_WAIT_GROUPS } from "./files-carousel";
 import { realCallSql } from "./real-call";
+import { CS_KEYS, csCheckView, csMarked, csOn, csPrepare, csValuesOfAnswers, ensureCsSchema } from "./call-summary-fields-core";
 
 export const HX_REASON_MAX = null;
 export const HX_SOURCE = "expert_upgrade" as const;
@@ -276,16 +277,24 @@ export function saveFileOnly(customerId: number, actor: Actor, raw: unknown, now
   if (!c || c.merged_into_customer_id != null) throw new TeamSalesError(404, "Customer not found");
   if (!firstCallEditAccess(actor, c).canEdit) throw new TeamSalesError(403, "تکمیل پرونده فقط برای مدیر، کارشناس تماس اول و کارشناس همین مشتری است.");
   const src = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-  const a = { ...src, mode: "simple", formVersion: 2, callResult: "answered" } as QualifierAnswers;
-  const err = !a.ssoRetiree ? "بازنشستگی تأمین اجتماعی (متقاضی یا خانواده) را مشخص کنید." : validateAnswers(a, now);
+  let a = { ...src, mode: "simple", formVersion: 2, callResult: "answered" } as QualifierAnswers;
+  // «موارد اجباری» (flag.call_summary_fields_v1 on + csFields:1): empty items allowed, docs[] → derived docsReady. Off = unchanged.
+  const cs = csMarked(src) && csOn(actor.id);
+  let err: string | null;
+  if (cs) {
+    const { csItems: _meta, ...rest } = a as QualifierAnswers & { csItems?: unknown };
+    const p = csPrepare(rest as Record<string, unknown>); a = p.answers as QualifierAnswers;
+    err = p.err ?? validateAnswers(csCheckView(p.answers) as QualifierAnswers, now);
+  }
+  else err = !a.ssoRetiree ? "بازنشستگی تأمین اجتماعی (متقاضی یا خانواده) را مشخص کنید." : validateAnswers(a, now);
   if (err) throw new TeamSalesError(400, err);
   const n = normalizeFirstCallAnswers(a) as Record<string, unknown>;
   const KEEP = ["amountMillion", "urgency", "docsReady", "creditRank", "checkStatus", "canPromissory", "bouncedCheque", "military", "jobType", "city",
-    "ssoRetiree", "ssoRetireeRelation", "guarantorAvailable", "guarantorCheque", "gRank", "gJobType"];
+    "ssoRetiree", "ssoRetireeRelation", "guarantorAvailable", "guarantorCheque", "gRank", "gJobType", ...(cs ? ["arrears", "docs", "docsNone", "csFields"] : [])];
   const stored: Record<string, unknown> = {}; for (const k of KEEP) stored[k] = n[k] ?? null;
   const cur = fileCard(c.id, actor);
   const prev = cur?.answers ? { answers: cur.answers } : null;
-  const fields = [...KEEP.filter((k) => k !== "checkStatus" && k !== "canPromissory"), "cheque"];
+  const fields = [...KEEP.filter((k) => k !== "checkStatus" && k !== "canPromissory" && k !== "csFields" && k !== "docsNone"), "cheque"];
   const val = (o: Record<string, unknown> | null | undefined, k: string) => (o ? (k === "cheque" ? chequeOf(o) : o[k] ?? null) : null);
   const changed = fields.filter((k) => JSON.stringify(val(prev?.answers, k)) !== JSON.stringify(val(stored, k)))
     .map((k) => ({ field: k, old: val(prev?.answers, k), new: val(stored, k) }));
@@ -293,7 +302,42 @@ export function saveFileOnly(customerId: number, actor: Actor, raw: unknown, now
   const actorName = queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [actor.salespersonId ?? -1])?.name ?? actor.fullName ?? null;
   const id = execute(`INSERT INTO ${FILE_TABLE} (customer_id, actor_user_id, actor_name, answers_json, before_json, changed_json, created_at) VALUES (?,?,?,?,?,?,?)`,
     [c.id, actor.id, actorName, JSON.stringify(stored), prev ? JSON.stringify(prev.answers) : null, JSON.stringify(changed), now.toISOString()]);
+  if (cs) csFileSaveHistory(c.id, actor.id, actorName, prev?.answers ?? null, stored, now.toISOString());
   return { id, changed, priorityBefore: c.priority, priorityAfter: c.priority };
+}
+/** Flag-on «ذخیره‌ی پرونده»: one file-history row per changed «مورد اجباری» (approver = the expert who saved). */
+function csFileSaveHistory(customerId: number, actorId: number, actorName: string | null, before: Record<string, unknown> | null, after: Record<string, unknown>, at: string) {
+  ensureCsSchema();
+  const b = csValuesOfAnswers(before, null), n = csValuesOfAnswers(after, null);
+  for (const k of CS_KEYS) if (k !== "planType" && n[k] != null && JSON.stringify(b[k] ?? null) !== JSON.stringify(n[k]))
+    execute(`INSERT INTO cs_file_values (customer_id, item_key, value_json, source, approved_by, approved_name, created_at) VALUES (?,?,?,?,?,?,?)`,
+      [customerId, k, JSON.stringify(n[k]), "file_edit", actorId, actorName, at]);
+}
+/** «موارد اجباری»: the file's current answers (same merge as fileCard: a newer «ذخیره‌ی پرونده» wins over the first-call record). */
+export function currentFileAnswers(customerId: number): { answers: Record<string, unknown> | null; source: "file" | "first_call" | null; at: string | null; by: string | null; firstCall: ReturnType<typeof latestFirstCall> } {
+  const fc = latestFirstCall(customerId);
+  const fo0 = latestFileOnly(customerId);
+  const fo = fo0 && (!fc || Date.parse(fo0.at) > Date.parse(fc.createdAt)) ? fo0 : null;
+  return { answers: fo ? { ...fo.answers } : fc ? { ...fc.answers } : null, source: fo ? "file" : fc ? "first_call" : null, at: fo?.at ?? fc?.createdAt ?? null, by: fo?.by ?? fc?.actorName ?? null, firstCall: fc };
+}
+/**
+ * «موارد اجباری» «اعمال در پرونده»: one more file-layer record (before/changed kept) with the approved patch. Called only from an
+ * explicit expert action (apply one / apply all / complete an item); never automatically. Priority, owner, status are untouched.
+ */
+export function appendFileAnswers(customerId: number, actor: { id: number; salespersonId: number | null; fullName: string | null }, patch: Record<string, unknown>, now = new Date()) {
+  ensureFileSchema();
+  const cur = currentFileAnswers(customerId);
+  if (!cur.answers) throw new TeamSalesError(409, "این مشتری هنوز پرونده (فرم تماس اول) ندارد.");
+  const prev = cur.answers;
+  const next: Record<string, unknown> = { ...prev, ...patch };
+  const keys = [...new Set([...Object.keys(prev), ...Object.keys(next)])].filter((k) => k !== "csFields" && k !== "docsNone" && k !== "cheque");
+  const changed = keys.filter((k) => JSON.stringify(prev[k] ?? null) !== JSON.stringify(next[k] ?? null)).map((k) => ({ field: k, old: prev[k] ?? null, new: next[k] ?? null }));
+  if (!changed.length) return null;
+  delete next.cheque;
+  const actorName = queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [actor.salespersonId ?? -1])?.name ?? actor.fullName ?? null;
+  const id = execute(`INSERT INTO ${FILE_TABLE} (customer_id, actor_user_id, actor_name, answers_json, before_json, changed_json, created_at) VALUES (?,?,?,?,?,?,?)`,
+    [customerId, actor.id, actorName, JSON.stringify(next), JSON.stringify(prev), JSON.stringify(changed), now.toISOString()]);
+  return { id, changed, actorName };
 }
 /** Real calls of one customer, newest first, keyset-paged by id (`before`). daily_plan mirrors and upgrade rows are excluded (realCallSql). */
 export function callHistory(customerId: number, limit = 20, before: number | null = null) {

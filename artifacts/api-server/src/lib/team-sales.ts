@@ -20,6 +20,7 @@ import { noteSalespersonChange } from "./expert-intro-sms";
 import { applyNonP1TransferInTx } from "./nonp1-transfer";
 import { chooseCloserFor, type CloserChoice } from "./closer-return";
 import { cqTransferGate } from "./call-queue-r3";
+import { csCheckView, csMarked, csMetaOf, csOn, csPrepare, csRecordForm, csRulesView, csValuesOfAnswers, type CsKey, type CsMeta } from "./call-summary-fields-core";
 import { consultProfile, dataFromAnswers, latestConsultApplicantProfile, officialGrade, recordFirstCallVersion, recordFirstCallEditVersion } from "./consult-profile";
 
 export const TEAM_SALES_CONFIG_KEY = "team_sales_config";
@@ -390,6 +391,18 @@ function autoMatches(answers: QualifierAnswers, plans: ReturnType<typeof plansFr
 }
 
 /**
+ * «موارد اجباری خلاصه‌ی تماس» (flag.call_summary_fields_v1, OFF = this returns null and every path below is unchanged).
+ * Flag-on answered first-call answers marked csFields:1: empty items allowed, docs[] → derived docsReady, letter ranks accepted.
+ */
+function csIn(raw: QualifierAnswers, actorId: number | null | undefined): { stored: QualifierAnswers; check: QualifierAnswers; err: string | null; meta: Partial<Record<CsKey, CsMeta>> } | null {
+  if (!csMarked(raw) || !isFirstCallForm(raw) || raw.callResult !== "answered" || !csOn(actorId ?? null)) return null;
+  const { csItems, ...rest } = raw as QualifierAnswers & { csItems?: unknown };
+  const p = csPrepare(rest as Record<string, unknown>);
+  return { stored: p.answers as QualifierAnswers, check: csCheckView(p.answers) as QualifierAnswers, err: p.err, meta: csMetaOf(csItems) };
+}
+const csR = (cs: unknown, a: QualifierAnswers): QualifierAnswers => (cs ? (csRulesView(a as Record<string, unknown>) as QualifierAnswers) : a);
+
+/**
  * crm-no-plan-option (14:51): plan matching uses the OFFICIAL grade when an inquiry report exists (not invalidated by an
  * identity change); the customer's declared grade stays in the stored answers («اظهار مشتری»).
  */
@@ -400,11 +413,12 @@ function withOfficialGrade(customerId: number, answers: QualifierAnswers): Quali
 }
 
 /** Step 5 of the first-call form: every active plan with status fit|depends|no and structured reasons. No writes. */
-export function planOptions(customerId: number, answers: QualifierAnswers, now = new Date()) {
+export function planOptions(customerId: number, answers: QualifierAnswers, now = new Date(), actorId?: number) {
   ensureTeamSalesSchema();
-  const err = validateAnswers(answers, now, legacyRanks(customerId), { forPlans: true });
+  const cs = actorId != null ? csIn(answers, actorId) : null;
+  const err = cs ? cs.err ?? validateAnswers(cs.check, now, legacyRanks(customerId), { forPlans: true }) : validateAnswers(answers, now, legacyRanks(customerId), { forPlans: true });
   if (err) throw new TeamSalesError(400, err);
-  const plans = evaluatePlans(withOfficialGrade(customerId, answers), activePlans());
+  const plans = evaluatePlans(withOfficialGrade(customerId, cs ? csR(cs, normalizeFirstCallAnswers(cs.stored)) : answers), activePlans());
   // crm-no-plan-option: the form pre-checks «هیچ طرحی نمی‌خوره» when no plan is fit or depends.
   return { plans, noPlanDefault: !plans.some((p) => p.status !== "no") };
 }
@@ -528,16 +542,20 @@ export function latestFirstCall(customerId: number) {
       guarantorAvailable: pick("guarantorAvailable"), guarantorCheque: pick("guarantorCheque"), gRank: pick("gRank"),
       military: pick("military"), jobType: pick("jobType"), gJobType: pick("gJobType"), city: pick("city"),
       ssoRetiree: pick("ssoRetiree"), ssoRetireeRelation: pick("ssoRetireeRelation"),
+      // «موارد اجباری» (flag-on forms only carry csFields:1 → older records keep the exact same object)
+      ...(a.csFields === 1 ? { csFields: 1, arrears: pick("arrears"), docs: pick("docs"), docsNone: a.docsNone === true } : {}),
     },
   };
 }
 
 /** Preview only: no writes. */
-export function previewQualification(customerId: number, answers: QualifierAnswers, now = new Date()) {
+export function previewQualification(customerId: number, answers: QualifierAnswers, now = new Date(), actorId?: number) {
   ensureTeamSalesSchema();
   const cfg = getTeamSalesConfig();
-  const err = validateAnswers(answers, now, legacyRanks(customerId));
+  const cs = actorId != null ? csIn(answers, actorId) : null;
+  const err = cs ? cs.err ?? validateAnswers(cs.check, now, legacyRanks(customerId)) : validateAnswers(answers, now, legacyRanks(customerId));
   if (err) throw new TeamSalesError(400, err);
+  if (cs) answers = csR(cs, normalizeFirstCallAnswers(cs.stored));
   const { matches } = autoMatches(withOfficialGrade(customerId, isFirstCallForm(answers) ? normalizeFirstCallAnswers(answers) : answers), activePlans());
   return { result: computeLeadPriority(answers, matches, consecutiveNoAnswers(customerId), now, cfg), matches: matches.slice(0, 5) };
 }
@@ -556,8 +574,10 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
   selectedPlans: unknown = null, noPlanNote: unknown = null, manualOutcome: ManualOutcome | null = null) {
   ensureTeamSalesSchema();
   const cfg = getTeamSalesConfig();
-  const err = validateAnswers(rawAnswers, now, legacyRanks(customerId));
+  const cs = csIn(rawAnswers, actor.id);
+  const err = cs ? cs.err ?? validateAnswers(cs.check, now, legacyRanks(customerId)) : validateAnswers(rawAnswers, now, legacyRanks(customerId));
   if (err) throw new TeamSalesError(400, err);
+  if (cs) rawAnswers = cs.stored;
   // Release 81: «جواب نداد» / «خاموش یا اشغال» is a no-answer form (only step 1 + note); «جواب داد» can't be a no-answer result.
   if (manualOutcome && (manualOutcome === "answered") === (rawAnswers.callResult === "no_answer"))
     throw new TeamSalesError(422, manualOutcome === "answered"
@@ -587,9 +607,9 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
     // The first-call form decides the priority, so it is only for customers that have none yet (P1/P2/P3 use the normal call form).
     if (c.priority != null)
       throw new TeamSalesError(409, "فرم تماس اول فقط برای مشتریان بدون اولویت است؛ برای این مشتری از فرم ثبت تماس معمولی استفاده کنید.");
-    const { matches, evals } = autoMatches(withOfficialGrade(c.id, answers), plans);
+    const { matches, evals } = autoMatches(withOfficialGrade(c.id, csR(cs, answers)), plans);
     const selected = firstCall && answers.callResult === "answered" ? selectedSnapshot(selectedPlans, evals) : [];
-    const result: LeadOutcome = computeLeadPriority(answers, matches, consecutiveNoAnswers(customerId), now, cfg);
+    const result: LeadOutcome = computeLeadPriority(csR(cs, answers), matches, consecutiveNoAnswers(customerId), now, cfg);
     // Defence in depth: the rules never return P1 for «هیچ طرحی نمی‌خوره»; never hand off automatically if they ever did.
     if (noPlanFit && result.priority === 1) throw new TeamSalesError(500, "no_plan_fit_auto_p1_blocked");
     const spName = queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [c.salesperson_id])?.name ?? null;
@@ -613,6 +633,8 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
         firstCall && answers.callResult === "answered" ? JSON.stringify(selected) : null, noPlanFit ? 1 : null, cleanNoPlanNote]);
     const questionsSkipped = manualOutcome ? manualOutcome !== "answered" : null;
     if (questionsSkipped != null) { ensureQuestionsSkippedColumn(); executeChanges("UPDATE team_sales_qualifications SET questions_skipped=? WHERE id=?", [questionsSkipped ? 1 : 0, qualificationId]); }
+    if (cs) csRecordForm({ customerId: c.id, qualificationId, actorId: actor.id, actorName: queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [actor.salespersonId ?? -1])?.name ?? actor.fullName ?? null,
+      answers: answers as Record<string, unknown>, plan: selected.length ? selected.map((p) => p.name).join("، ") : null, meta: cs.meta, at: now.toISOString() });
     // crm-no-plan-option (14:51): the answers also go to the customer's «اطلاعات مشاوره» history (append-only).
     if (firstCall && answers.callResult === "answered") {
       const submitter = queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [actor.salespersonId ?? -1])?.name
@@ -777,9 +799,10 @@ export function editFirstCall(customerId: number, actor: Actor, rawAnswers: Qual
   if (!cfg.enabled) throw new TeamSalesError(404, "Team sales is not enabled");
   if (!rawAnswers || !isFirstCallForm(rawAnswers) || rawAnswers.callResult !== "answered")
     throw new TeamSalesError(400, "ویرایش فقط برای فرم تماس اولِ پاسخ‌داده‌شده است.");
-  const err = validateAnswers(rawAnswers, now, legacyRanks(customerId));
+  const cs = csIn(rawAnswers, actor.id);
+  const err = cs ? cs.err ?? validateAnswers(cs.check, now, legacyRanks(customerId)) : validateAnswers(rawAnswers, now, legacyRanks(customerId));
   if (err) throw new TeamSalesError(400, err);
-  const answers = normalizeFirstCallAnswers(rawAnswers);
+  const answers = normalizeFirstCallAnswers(cs ? cs.stored : rawAnswers);
   const noPlanFit = answers.noPlanFit === true;
   const { selectedPlans, noPlanNote } = opts;
   if (noPlanNote != null && typeof noPlanNote !== "string") throw new TeamSalesError(400, "توضیح «چرا؟» معتبر نیست.");
@@ -806,9 +829,9 @@ export function editFirstCall(customerId: number, actor: Actor, rawAnswers: Qual
     if (!base || baseAnswers.formVersion !== 2) throw new TeamSalesError(404, "فرم تماس اولی برای ویرایش پیدا نشد.");
     if (opts.baseId != null && Number(opts.baseId) !== Number(base.id))
       throw new TeamSalesError(409, "خلاصه‌ی تماس اول در این فاصله عوض شد؛ صفحه را تازه کنید و دوباره ویرایش کنید.");
-    const { matches, evals } = autoMatches(withOfficialGrade(c.id, answers), plans);
+    const { matches, evals } = autoMatches(withOfficialGrade(c.id, csR(cs, answers)), plans);
     const selected = selectedSnapshot(selectedPlans ?? null, evals);
-    const result = computeLeadPriority(answers, matches, 0, now, cfg);
+    const result = computeLeadPriority(csR(cs, answers), matches, 0, now, cfg);
     if (noPlanFit && result.priority === 1) throw new TeamSalesError(500, "no_plan_fit_auto_p1_blocked");
     const baseSelected = parseSelected(base.selected_plans_json);
     const before: FirstCallVersion = { answers: baseAnswers, note: base.note, selectedPlanIds: baseSelected.map((p) => Number(p.id)),
@@ -817,6 +840,10 @@ export function editFirstCall(customerId: number, actor: Actor, rawAnswers: Qual
     const after: FirstCallVersion = { answers: storedAnswers, note: cleanNote, selectedPlanIds: selected.map((p) => p.id),
       selectedPlanNames: selected.map((p) => p.name), noPlanFit, noPlanNote: cleanNoPlanNote };
     const changed = diffVersions(before, after);
+    if (cs) for (const f of ["arrears", "docs"]) {
+      const o = (baseAnswers as Record<string, unknown>)[f] ?? null, n = storedAnswers[f] ?? null;
+      if (JSON.stringify(o) !== JSON.stringify(n)) changed.push({ field: f as FirstCallEditField, old: o, new: n });
+    }
     if (!changed.length && !opts.send) throw new TeamSalesError(400, "تغییری ثبت نشد.");
     const nowIso = now.toISOString();
     const actorName = queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [actor.salespersonId ?? -1])?.name ?? actor.fullName ?? null;
@@ -856,6 +883,9 @@ export function editFirstCall(customerId: number, actor: Actor, rawAnswers: Qual
         priority_before, priority_suggested, priority_after, sent_to_closer, promote_call_log_id, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [c.id, base.id, actor.id, actorName, JSON.stringify(before), JSON.stringify(after), JSON.stringify(changed),
         c.priority, suggested, priorityAfter, handoff ? 1 : 0, handoff?.callLogId ?? null, nowIso]) : null;
+    if (cs && changed.length) csRecordForm({ customerId: c.id, qualificationId: base.id, actorId: actor.id, actorName, answers: storedAnswers,
+      plan: selected.length ? selected.map((p) => p.name).join("، ") : null, meta: cs.meta, at: nowIso, edit: true,
+      before: csValuesOfAnswers(baseAnswers, baseSelected.length ? baseSelected.map((p) => p.name).join("، ") : null) });
     return { editId, changed, suggestedPriority: suggested, reasons: result.reasons, priorityBefore: c.priority, priorityAfter,
       priorityRaised: priorityAfter !== c.priority && !handoff, handoff, selectedPlans: selected, noPlanFit, noPlanNote: cleanNoPlanNote,
       noSuitablePlan: !evals.some((e) => e.status !== "no"), cityWritten, transferredToQualifier };

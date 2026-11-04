@@ -168,7 +168,7 @@ router.post("/customers/:id/team-sales/qualify/preview", requirePermission("cust
   if (!id || !answers) { res.status(400).json({ error: "Invalid request" }); return; }
   if (!getTeamSalesConfig().enabled) { res.status(404).json({ error: "Team sales is not enabled" }); return; }
   if (!getCustomer(id, res.locals.authUser as AuthUser)) { res.status(404).json({ error: "Customer not found" }); return; }
-  try { res.json(previewQualification(id, answers)); } catch (e) { fail(res, e); }
+  try { res.json(previewQualification(id, answers, new Date(), (res.locals.authUser as AuthUser).id)); } catch (e) { fail(res, e); }
 });
 
 /** First-call form step 5: all active plans with status fit|depends|no and structured reasons (no writes). */
@@ -178,7 +178,7 @@ router.post("/customers/:id/team-sales/qualify/plans", requirePermission("custom
   if (!id || !answers) { res.status(400).json({ error: "Invalid request" }); return; }
   if (!getTeamSalesConfig().enabled) { res.status(404).json({ error: "Team sales is not enabled" }); return; }
   if (!getCustomer(id, res.locals.authUser as AuthUser)) { res.status(404).json({ error: "Customer not found" }); return; }
-  try { res.json(planOptions(id, answers)); } catch (e) { fail(res, e); }
+  try { res.json(planOptions(id, answers, new Date(), (res.locals.authUser as AuthUser).id)); } catch (e) { fail(res, e); }
 });
 
 router.post("/customers/:id/team-sales/qualify", requirePermission("calls.create"), (req, res): void => {

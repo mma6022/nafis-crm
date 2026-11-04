@@ -1,3 +1,5 @@
+import { csAnyOn } from "./call-summary-fields-core";
+import { csAfterSummary } from "./call-summary-fields";
 import { createHash } from "node:crypto";
 import { crmDb, queryRow, executeChanges } from "./crm-db";
 import { getAuthUserById } from "./auth";
@@ -97,6 +99,8 @@ export async function processCallSummaryQueue() {
     if (transcript(job.external_id)?.hash !== job.source_hash) throw new CallSummaryError("متن مکالمه در حین تهیهٔ خلاصه تغییر کرد؛ خلاصهٔ تازه‌ای درخواست کنید.");
     executeChanges("UPDATE voip_recording_summaries SET state='completed',error=NULL,result_json=?,lease_until=NULL,updated_at=? WHERE external_id=? AND source_hash=? AND state='processing'",
       [JSON.stringify(result), new Date().toISOString(), job.external_id, job.source_hash]);
+    // «موارد اجباری» v1.2: extract the 7 items from the same transcript (flag OFF → no call, no table). Never fails the summary.
+    if (csAnyOn()) { try { await csAfterSummary(job.external_id, job.source_hash); } catch { /* summary stays completed */ } }
   } catch (error) {
     executeChanges("UPDATE voip_recording_summaries SET state='failed',error=?,lease_until=NULL,updated_at=? WHERE external_id=? AND source_hash=? AND state='processing'",
       [error instanceof CallSummaryError || error instanceof SimotelError ? error.message : "تهیهٔ خلاصه ناموفق بود؛ دوباره تلاش کنید.",

@@ -91,7 +91,7 @@ export const isCtManager = (u: AuthUser) => u.active && u.role === "admin" && u.
 /** Report viewer: every active admin (plain admin and «مدیر فروش»), not user 29. Mohammad t742s2933: «گزارش‌ها و متن تماس‌ها برای ادمین هم بمونه».
  *  Plain admin reads the /call-center report and every transcript, but gets no review («بررسی مدیر فروش (احمد)»), no flags and no retranscribe. */
 export const ctAdminViewer = (u: AuthUser) => u.active && u.role === "admin" && !MANAGER_EXCLUDED.includes(u.id);
-type Ev = { id: number; external_id: string; provider_id: string; phone: string; direction: string; status: string; started_at: string; ended_at: string;
+export type Ev = { id: number; external_id: string; provider_id: string; phone: string; direction: string; status: string; started_at: string; ended_at: string;
   extension: string | null; expert_user_id: number | null; expert_name: string | null; customer_id: number | null; call_log_id: number | null;
   has_recording: number; recording_file: string | null; mobile_device_id: number | null; duration_seconds: number | null; customer_name: string | null;
   t_state: string | null; t_phase: string | null; t_error: string | null; t_result: string | null; t_file: string | null; t_completed: string | null;
@@ -118,7 +118,7 @@ export function visibleEvent(id: number, u: AuthUser) { const e = ctEvent(id); r
 
 /* ---------------- DTOs ---------------- */
 export type TextState = "no_recording" | "waiting" | "queued" | "processing" | "completed" | "failed";
-function textState(e: Ev): TextState {
+export function textState(e: Ev): TextState {
   if (!e.has_recording || !e.recording_file) return "no_recording";
   if (!e.t_state || (e.t_file && e.t_file !== e.recording_file)) return e.t_state ? "failed" : "waiting";
   return e.t_state as TextState;
