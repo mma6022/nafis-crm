@@ -295,6 +295,14 @@ export function syncAfterCalls() {
               await Promise.all([import("./voip-noanswer-sms"), import("./expert-intro-sms"), import("./customer-notifications")]);
             void vnaAfterDecisions(decisions, { send: sendExpertIntroPattern, ippanelEnabled: () => getNotificationSettings().ippanelEnabled });
           }
+          // VNA-DESK: the same no-answer SMS for a call dialed directly from the desk phone (own flag, default OFF → one settings read; never throws).
+          try {
+            const { vnaDeskOnSince, vnaDeskAfterIngest } = await import("./voip-noanswer-desk");
+            if (vnaDeskOnSince()) {
+              const [{ sendExpertIntroPattern }, { getNotificationSettings }] = await Promise.all([import("./expert-intro-sms"), import("./customer-notifications")]);
+              void vnaDeskAfterIngest(result.rows, { send: sendExpertIntroPattern, ippanelEnabled: () => getNotificationSettings().ippanelEnabled }, now);
+            }
+          } catch (e) { const { logger } = await import("./logger"); logger.error({ err: e instanceof Error ? e.message.slice(0, 120) : "error" }, "voip_noanswer_desk_failed"); }
           // SIMOTEL-132: auto-save of flagged experts' click calls (returns at once while s132_calls does not exist; never throws).
           const { s132AfterIngest } = await import("./simotel132");
           s132AfterIngest(now);

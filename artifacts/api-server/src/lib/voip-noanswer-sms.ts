@@ -35,7 +35,7 @@ export function ensureVnaSchema(): void {
     CREATE UNIQUE INDEX IF NOT EXISTS ux_vna_cust_day ON voip_noanswer_sms(customer_id, tehran_day) WHERE status<>'skipped';`);
   ready = true;
 }
-const hasTable = () => ready || !!queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='voip_noanswer_sms'");
+export const hasTable = () => ready || !!queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='voip_noanswer_sms'");
 /** ON since (ISO, the flag row's updated_at) or null when OFF. */
 export function vnaOnSince(): string | null {
   try { const r = queryRow<{ value: string; updated_at: string | null }>("SELECT value, updated_at FROM call_queue_settings WHERE key=?", [VNA_FLAG]); return r?.value === "1" ? r.updated_at || null : null; }
@@ -49,7 +49,7 @@ export function vnaSent(callId: number): boolean {
 }
 
 type Click = { id: number; user_id: number; customer_id: number; phone: string; created_at: string };
-type Prepared = { row: { call_id: number; customer_id: number; user_id: number; tehran_day: string; cust_status: string; started: string; ended: string };
+export type Prepared = { row: { call_id: number; customer_id: number; user_id: number; tehran_day: string; cust_status: string; started: string; ended: string };
   reason: string | null; send?: SendArgs };
 /** Pure decision for one notAnswered click call (no writes). */
 export function vnaPrepare(d: VnaDecision, since: string, now: Date, ippanelOn: boolean): Prepared | null {
@@ -88,11 +88,15 @@ function insert(p: Prepared, status: "claimed" | "skipped", reason: string | nul
 }
 
 let chain: Promise<unknown> = Promise.resolve();
-/** Poller hook (after vcIngestOriginate). Serialized; never throws. */
-export function vnaAfterDecisions(decisions: VnaDecision[], deps: VnaDeps, now = new Date()): Promise<void> {
-  const next = chain.then(() => run(decisions, deps, now)).catch((e) => logger.error({ err: e instanceof Error ? e.message.slice(0, 120) : "error" }, "voip_noanswer_sms_failed"));
+/** Shared serial queue for the click path and the desk-phone path (VNA-DESK) so the per-customer-per-day claim never races. */
+export function vnaEnqueue(job: () => Promise<void>): Promise<void> {
+  const next = chain.then(job).catch((e) => logger.error({ err: e instanceof Error ? e.message.slice(0, 120) : "error" }, "voip_noanswer_sms_failed"));
   chain = next;
   return next as Promise<void>;
+}
+/** Poller hook (after vcIngestOriginate). Serialized; never throws. */
+export function vnaAfterDecisions(decisions: VnaDecision[], deps: VnaDeps, now = new Date()): Promise<void> {
+  return vnaEnqueue(() => run(decisions, deps, now));
 }
 async function run(decisions: VnaDecision[], deps: VnaDeps, now: Date): Promise<void> {
   const todo = decisions.filter((d) => d.notAnswered);
@@ -104,23 +108,28 @@ async function run(decisions: VnaDecision[], deps: VnaDeps, now: Date): Promise<
     if (!vnaOnSince()) return; // auto-off mid-batch
     const p = vnaPrepare(d, since, now, deps.ippanelEnabled());
     if (!p) continue;
-    if (p.reason || !p.send) {
-      if (insert(p, "skipped", p.reason, now)) logger.info({ callId: d.callId, customerId: p.row.customer_id, reason: p.reason }, "voip_noanswer_sms_skipped");
-      continue;
-    }
-    if (!insert(p, "claimed", null, now)) {
-      // lost the per-day race (or the call already has a row)
-      if (insert(p, "skipped", "already_today", now)) logger.info({ callId: d.callId, customerId: p.row.customer_id, reason: "already_today" }, "voip_noanswer_sms_skipped");
-      continue;
-    }
-    let status: "sent" | "failed" | "uncertain", result: string, providerId: string | null = null;
-    try { providerId = await deps.send(p.send); status = "sent"; result = "ok"; }
-    catch (e) { const code = e instanceof Error ? e.message : "sms_failed"; status = code === "sms_delivery_unknown" ? "uncertain" : "failed"; result = code.slice(0, 80); }
-    executeChanges("UPDATE voip_noanswer_sms SET status=?, provider_result=?, provider_id=?, updated_at=? WHERE call_id=? AND status='claimed'",
-      [status, result, providerId, new Date().toISOString(), d.callId]);
-    logger.info({ callId: d.callId, customerId: p.row.customer_id, status, result }, "voip_noanswer_sms_attempt");
-    if (status !== "sent") autoOff();
+    await vnaDeliver(p, deps, now);
   }
+}
+/** Claim (or record the skip) and send one prepared row. Same steps for click calls and desk-phone calls (VNA-DESK). */
+export async function vnaDeliver(p: Prepared, deps: VnaDeps, now: Date): Promise<void> {
+  const callId = p.row.call_id;
+  if (p.reason || !p.send) {
+    if (insert(p, "skipped", p.reason, now)) logger.info({ callId, customerId: p.row.customer_id, reason: p.reason }, "voip_noanswer_sms_skipped");
+    return;
+  }
+  if (!insert(p, "claimed", null, now)) {
+    // lost the per-day race (or the call already has a row)
+    if (insert(p, "skipped", "already_today", now)) logger.info({ callId, customerId: p.row.customer_id, reason: "already_today" }, "voip_noanswer_sms_skipped");
+    return;
+  }
+  let status: "sent" | "failed" | "uncertain", result: string, providerId: string | null = null;
+  try { providerId = await deps.send(p.send); status = "sent"; result = "ok"; }
+  catch (e) { const code = e instanceof Error ? e.message : "sms_failed"; status = code === "sms_delivery_unknown" ? "uncertain" : "failed"; result = code.slice(0, 80); }
+  executeChanges("UPDATE voip_noanswer_sms SET status=?, provider_result=?, provider_id=?, updated_at=? WHERE call_id=? AND status='claimed'",
+    [status, result, providerId, new Date().toISOString(), callId]);
+  logger.info({ callId, customerId: p.row.customer_id, status, result }, "voip_noanswer_sms_attempt");
+  if (status !== "sent") autoOff();
 }
 /** 3 consecutive real attempts failed/uncertain → flag '0'. */
 function autoOff() {
