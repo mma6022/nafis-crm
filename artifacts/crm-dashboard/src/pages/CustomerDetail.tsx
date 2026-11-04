@@ -3,6 +3,7 @@ import { CustomerCallHistory, VoipCallBox, useVcFastWaiting } from '@/features/v
 import { SiteAnswersBlock } from '@/features/site-answers/SiteAnswersBlock';
 import { announceCallSaved, cqTelClick } from '@/features/call-queue/api';
 import { CustomerIntroLog } from '@/features/expert-intro-sms/CustomerIntroLog';
+import BaleBotCustomerSection from '@/features/bale-bot/BaleBotCustomerSection';
 import { CustomerAnnotations } from '@/features/lead-annotator/CustomerAnnotations';
 import { RestrictedCase } from '@/features/lead-annotator/RestrictedCase';
 import { elApi, useLockdownMe } from '@/features/expert-lockdown/api';
@@ -713,6 +714,7 @@ function CustomerDetailFull() {
       : <p className="muted" style={{ margin: 0 }}>هنوز تماس یا یادداشتی ثبت نشده است.</p>}
     {canCallsCreate ? <button type="button" className="csx-ghost sm" onClick={() => callLauncher.launch(customer)} data-testid="button-add-call-detail" data-form={callChoice} aria-busy={callLauncher.pending ? true : undefined}><MessageSquarePlus size={18} /> ثبت تماس / یادداشت</button> : null}
     <CustomerCallHistory key={`vch-${id}`} customerId={id} />
+    <BaleBotCustomerSection key={`bb-${id}`} customerId={id} />
     <SiteLeadHistory customer={customer} />
     <CustomerIntroLog key={`eis-${id}`} customerId={id} />
     <CustomerAnnotations key={`ann-${id}`} customerId={id} />

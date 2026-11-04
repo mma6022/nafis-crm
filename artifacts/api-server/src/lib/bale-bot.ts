@@ -66,7 +66,7 @@ export function ensureBaleBotSchema(): void {
     CREATE TABLE IF NOT EXISTS bale_bot_chats(
       id INTEGER PRIMARY KEY AUTOINCREMENT, bot_id INTEGER NOT NULL, chat_id TEXT NOT NULL, bale_user_id TEXT, first_name TEXT, last_name TEXT,
       username TEXT, bio TEXT, profile_checked INTEGER NOT NULL DEFAULT 0, customer_id INTEGER, link_method TEXT, linked_at TEXT, linked_by INTEGER,
-      verified_phone TEXT, contact_asked_at TEXT, match_note TEXT, unread INTEGER NOT NULL DEFAULT 0, last_at TEXT, last_preview TEXT, last_out INTEGER NOT NULL DEFAULT 0,
+      verified_phone TEXT, lead_phone_verified INTEGER, contact_asked_at TEXT, match_note TEXT, unread INTEGER NOT NULL DEFAULT 0, last_at TEXT, last_preview TEXT, last_out INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL, UNIQUE(bot_id, chat_id));
     CREATE INDEX IF NOT EXISTS ix_bbc_customer ON bale_bot_chats(customer_id);
     CREATE INDEX IF NOT EXISTS ix_bbc_last ON bale_bot_chats(bot_id, last_at);
@@ -86,6 +86,7 @@ export function ensureBaleBotSchema(): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, user_id INTEGER, bot_id INTEGER, chat_row INTEGER, customer_id INTEGER,
       action TEXT NOT NULL, outcome TEXT NOT NULL, detail TEXT);
   `);
+  try { crmDb.exec("ALTER TABLE bale_bot_chats ADD COLUMN lead_phone_verified INTEGER"); } catch { /* already there */ }
   schemaReady = true;
 }
 export const _resetSchemaFlagForTests = () => { schemaReady = false; };

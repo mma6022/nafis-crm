@@ -6,6 +6,8 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import LinksAdmin from '@/features/link-page/LinksAdmin';
+import BaleBotInbox from '@/features/bale-bot/BaleBotInbox';
+import BaleBotAdmin from '@/features/bale-bot/BaleBotAdmin';
 import Dashboard from '@/pages/Dashboard';
 import Customers from '@/pages/Customers';
 import MyTransfers from '@/pages/MyTransfers';
@@ -298,6 +300,9 @@ function AppWithRoutes() {
                     <Route path="/settings/call-queue"><AdminOnlyRoute><CallQueueSettingsPage /></AdminOnlyRoute></Route>
                     <Route path="/call-queue-events"><AdminOnlyRoute><CallQueueEventsPage /></AdminOnlyRoute></Route>
                     <Route path="/settings/links"><LinksAdmin /></Route>
+                    <Route path="/bale-bot/admin"><BaleBotAdmin /></Route>{/* bale v1.1: pages render nothing (redirect) while flag.bale_bot is OFF */}
+                    <Route path="/bale-bot/:id"><BaleBotInbox /></Route>
+                    <Route path="/bale-bot"><BaleBotInbox /></Route>
                     <Route path="/settings/default-owner"><AdminOnlyRoute><DefaultOwnerSettings /></AdminOnlyRoute></Route>
                     {/* lead_annotator: the page itself checks /api/lead-annotator/me; the server enforces everything */}
                     <Route path="/lead-annotator"><LeadAnnotator /></Route>

@@ -38,6 +38,7 @@ import { dpActive, dpManager, useDpConfig } from '@/features/daily-plan/api';
 import { useLeadAnnotatorMe } from '@/features/lead-annotator/api';
 import { useCtConfig } from '@/features/call-transcripts/api';
 import { useLinkPageMe } from '@/features/link-page/api';
+import { useBaleBotMe } from '@/features/bale-bot/api';
 import { useSalesShellV2, useNavBadges, ssRequestIncoming, tehranHm } from '@/features/sales-shell/api';
 import { SalesShellNav, useDockHeight, useSsOverlay, type SsItem, type SsGroup } from '@/features/sales-shell/SalesShellNav';
 import { CustLocked, RemLocked } from '@/features/sales-shell/LockedPages';
@@ -46,7 +47,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLab
 
 const nafissLogoUrl = `${import.meta.env.BASE_URL}nafiss-financial-logo.png`;
 
-type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin' | 'discipline'; dp?: 'today' | 'admin'; leadAnnotator?: boolean; ct?: boolean; lp?: boolean };
+type NavItem = { href: string; label: string; icon: LucideIcon; permission?: string | string[]; staffOnly?: boolean; adminOnly?: boolean; smartFiling?: boolean; bale?: boolean; walletOwner?: boolean; adminLabel?: string; perf?: boolean; cq?: 'queue' | 'admin' | 'discipline'; dp?: 'today' | 'admin'; leadAnnotator?: boolean; ct?: boolean; lp?: boolean; bb?: 'inbox' | 'admin' };
 
 // Routes and permission rules are unchanged; only grouping, order, labels of groups and icons are new.
 const allNavItems: NavItem[] = [
@@ -87,6 +88,8 @@ const allNavItems: NavItem[] = [
   { href: '/smart-filing', label: 'ثبت هوشمند', icon: Bot, smartFiling: true },
   { href: '/settings/assistants', label: 'دستیارهای هوشمند', icon: Bot, adminOnly: true },
   { href: '/settings/default-owner', label: 'قانون ثبت مشتری', icon: UserCog, adminOnly: true },
+  { href: '/bale-bot', label: 'گفتگوهای بله', icon: Send, bb: 'inbox' }, // bale v1.1: only while flag.bale_bot (+ per-user flag) is ON
+  { href: '/bale-bot/admin', label: 'ربات‌های بله', icon: Bot, bb: 'admin' },
   { href: '/settings/links', label: 'صفحه‌ی لینک‌ها', icon: Link2, lp: true }, // links v1.0: only while flag.links_page is ON, admin + sales_manager (server decides)
   { href: '/call-center', label: 'گزارش مرکز تماس', icon: Headset, ct: true },
   { href: '/lead-annotator', label: 'یادداشت سرنخ (اینستاگرام)', icon: Instagram, leadAnnotator: true },
@@ -227,6 +230,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const leadAnnotatorMe = useLeadAnnotatorMe(Boolean(user) && !isAdminUser);
   // call-transcripts v1.1: «گزارش مرکز تماس» only while flag.call_transcripts.ui is ON, for admins except user 29 (server decides «manager»).
   const ctCfg = useCtConfig(Boolean(user) && isAdminUser).data;
+  const bbMe = useBaleBotMe().data; // bale v1.1
   const lpMe = useLinkPageMe(Boolean(user) && isAdminUser).data; // links v1.0
   const basePageTitle = isAdminUser && (location === '/my-wallet' || location.startsWith('/my-wallet/')) ? 'کیف پول کارشناس‌ها' : location === '/settings/links' && !lpMe?.enabled ? 'تنظیمات' /* links v1.0 off: same title as before */ : titleFor(location);
   
@@ -244,6 +248,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
     if (item.cq === 'queue') return cqOn(cqCfg, 'queue') && !dpOnForMe;
     if (item.cq === 'admin') return Boolean(cqCfg?.manager && Object.values(cqCfg.flags).some(Boolean));
     if (item.leadAnnotator) return Boolean(leadAnnotatorMe.data?.enabled);
+    if (item.bb === 'inbox') return Boolean(bbMe?.enabled && bbMe.bot?.hasToken || bbMe?.view === 'all');
+    if (item.bb === 'admin') return Boolean(bbMe?.enabled && bbMe.canManage);
     if (item.lp) return Boolean(lpMe?.enabled && lpMe.canManage);
     if (item.ct) return Boolean(ctCfg?.enabled && (ctCfg.manager || ctCfg.viewer)); // t742s2933: plain admin keeps the report (read-only)
     if (item.cq === 'discipline') return Boolean(cqCfg?.manager && cqCfg.flags.discipline);
@@ -360,6 +366,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
         {href === '/goods-purchases' && pendingGoods > 0 ? <b className="side-badge pending" aria-label={`${pendingGoods} مشتری در انتظار ایجاد خرید کالا`} data-testid={`${mobile ? 'badge-mobile-pending-goods' : 'badge-pending-goods'}`}>{pendingGoods.toLocaleString('fa-IR')}</b> : null}
         {href === '/payment-orders' && pendingPayments > 0 ? <b className="side-badge pending" aria-label={`${pendingPayments} خرید در انتظار ایجاد دستور پرداخت`} data-testid={`${mobile ? 'badge-mobile-pending-payments' : 'badge-pending-payments'}`}>{pendingPayments.toLocaleString('fa-IR')}</b> : null}
         {href === '/payment-orders' && pendingPayments === 0 && (awaitingMark.data ?? 0) > 0 ? <b className="side-badge gold" aria-label={`${awaitingMark.data} دستور در انتظار علامت پرداخت`} data-testid={`${mobile ? 'badge-mobile-awaiting-mark' : 'badge-awaiting-mark'}`}>{awaitingMark.data!.toLocaleString('fa-IR')}</b> : null}
+        {item.bb === 'inbox' && (bbMe?.unread ?? 0) > 0 ? <b className="side-badge" aria-label={`${bbMe!.unread} پیام بله‌ی خوانده‌نشده`} data-testid={`${mobile ? 'badge-mobile-bale-unread' : 'badge-bale-unread'}`}>{bbMe!.unread.toLocaleString('fa-IR')}</b> : null}
         {item.lp ? <b className="side-badge gold" aria-label="تازه" data-testid={`${mobile ? 'badge-mobile-links-new' : 'badge-links-new'}`}>تازه</b> : null}
         <NavNotificationBadge href={href} />
       </Link>
