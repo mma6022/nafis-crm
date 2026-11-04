@@ -115,6 +115,7 @@ const LOAN_REFUSAL_MESSAGES: Record<string, string> = {
   primary_toman_replacement_unverified: "قرارداد جایگزین تومانی این پرونده هنوز امضا یا تأیید نشده است.",
   approved_amount_missing: "مبلغ مصوب این پرونده ثبت نشده است؛ ابتدا مرحلهٔ تصویب مبلغ وام باید انجام شود.",
   toman_replacement_terms_unverifiable: "قرارداد جایگزین تومانی این پرونده هنوز امضا یا تأیید نشده است.",
+  primary_contract_duration_shorter_than_signed: "مدت پرونده از مدت قرارداد امضاشده کمتر است؛ ادمین باید بررسی کند.",
   legacy_signed_primary_terms_unverifiable: "شرایط قرارداد اصلی امضاشده این پرونده قدیمی قابل تأیید نیست. پیش از تصمیم نهایی، قرارداد قبلی باید بررسی و اصلاح شود.",
   approved_financial_terms_reconciliation_conflict: "اطلاعات پرونده هم‌زمان تغییر کرده است. صفحه را تازه کنید و دوباره تلاش کنید.",
   final_funder_approval_has_no_term_inputs: "در این مرحله امکان تغییر شرایط تسهیلات وجود ندارد.",
@@ -131,7 +132,7 @@ const LOAN_REFUSAL_MESSAGES: Record<string, string> = {
   loan_plan_condition_not_matched: "مبلغ یا تعداد اقساط با شرایط طرح این پرونده سازگار نیست.",
   workflow_error: "ثبت این اقدام به دلیل خطای داخلی انجام نشد.",
 };
-function error(res: any, status: number, rawCode: string, rawReason?: string) {
+function error(res: any, status: number, rawCode: string, rawReason?: string, rawMessage?: string) {
   // Only stable snake_case codes reach the client; anything else (e.g. a
   // database exception message) is reported as workflow_error.
   const code = /^[a-z][a-z0-9_]{1,80}$/.test(String(rawCode)) ? rawCode : "workflow_error";
@@ -143,7 +144,8 @@ function error(res: any, status: number, rawCode: string, rawReason?: string) {
     res.req.log?.warn({ code, status, applicationId: Number(res.req.params?.id) || null,
       action: String(res.req.route.path).split("/").pop(), reason: rawReason }, "loan application action rejected");
   const reason = rawReason && /^[a-z][a-z0-9_]{1,80}$/.test(rawReason) ? rawReason : undefined;
-  const message = (reason && LOAN_REFUSAL_MESSAGES[reason]) || LOAN_REFUSAL_MESSAGES[code];
+  const message = (typeof rawMessage === "string" && rawMessage.trim() ? rawMessage : "") ||
+    (reason && LOAN_REFUSAL_MESSAGES[reason]) || LOAN_REFUSAL_MESSAGES[code];
   return res.status(status).json({ error: code, code, ...(reason ? { reason } : {}), ...(message ? { message } : {}) });
 }
 function fileExists(rawPath: unknown): boolean {
@@ -820,6 +822,38 @@ function primaryTemplateMatchesSnapshot(application: any, generation: any, snaps
   const snapshotTemplateCreatedAt = Date.parse(String(snapshotTemplate?.created_at ?? ""));
   return Boolean(own && snapshotTemplate) && Number.isFinite(sentAt) && Number.isFinite(snapshotTemplateCreatedAt) &&
     sentAt < snapshotTemplateCreatedAt;
+}
+// TPLFREEZE (Mohammad t800s3219): the final funder approval refuses a case whose
+// months are FEWER than the months of its signed primary contract. The signed months
+// are the contract's own stored installment value (e.g. crmApprovedInstallments) when
+// the contract carries one; otherwise the requested months the contract was issued for.
+// Equal or longer durations behave exactly as before. Contract rows are only read.
+const toPersianDigits = (value: number) => String(value).replace(/\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)]);
+function signedPrimaryContractMonths(application: any): number | null {
+  const primary = applicationPrimaryDocument(application);
+  if (!primary || String(primary.status ?? "") !== "signed" || primary.deleted_at || primary.superseded_at) return null;
+  const mappings = parseJson(primary.mappings_snapshot_json);
+  const values = parseJson(primary.manual_values_json);
+  const normalize = (value: unknown) => String(value ?? "")
+    .replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
+    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+    .replace(/[,\u060c\u066c\s]/g, "");
+  const durationValues = Array.isArray(mappings) && values && typeof values === "object"
+    ? mappings.filter((mapping: any) => (mapping?.sourceType ?? (mapping?.loanPlanField ? "loanPlan" : "")) === "loanPlan" &&
+        ["loanPlan.installments", "loanPlan.durationMonths"].includes(String(mapping?.loanPlanField)))
+      .map((mapping: any) => normalize(values[mapping.variable])) : [];
+  const unique = [...new Set(durationValues)];
+  const months = unique.length === 1 && /^[1-9]\d{0,2}$/.test(unique[0])
+    ? Number(unique[0]) : Number(application?.requested_duration_months);
+  return Number.isSafeInteger(months) && months >= 1 && months <= 600 ? months : null;
+}
+function assertDurationNotShorterThanSignedPrimary(application: any) {
+  const signedMonths = signedPrimaryContractMonths(application);
+  const fileMonths = Number(application?.duration_months);
+  if (signedMonths == null || !Number.isSafeInteger(fileMonths) || fileMonths >= signedMonths) return;
+  throw Object.assign(new Error("primary_contract_duration_shorter_than_signed"), {
+    persianMessage: `مدت پرونده ${toPersianDigits(fileMonths)} ماهه است ولی قرارداد ${toPersianDigits(signedMonths)} ماهه امضا شده؛ ادمین باید بررسی کند.`,
+  });
 }
 function signedPrimaryMatchesApprovedTerms(application: any, approvedAmount: string, durationMonths: number, readContent = false): boolean {
   lastPrimaryTermsRefusal = "";
@@ -2312,6 +2346,7 @@ router.post("/loan-applications/:id/expert-approve", requirePermission("loan_app
   if (Object.keys(req.body ?? {}).length) return error(res, 400, "final_funder_approval_has_no_term_inputs");
   if (r.stage !== "expert_approval" || !canAct(r.stage, actor, r.customer_id, r.status)) return error(res, 403, "action_forbidden");
   try {
+    assertDurationNotShorterThanSignedPrimary(r);
     const replacementRequired = Boolean(latestTomanReplacementConsent(Number(r.id))) ||
       String(applicationPrimaryDocument(r)?.generation_purpose ?? "") === TOMAN_REPLACEMENT_PURPOSE;
     if (replacementRequired) {
@@ -2326,6 +2361,7 @@ router.post("/loan-applications/:id/expert-approve", requirePermission("loan_app
       const current = queryRow<any>("SELECT * FROM loan_applications WHERE id=? AND deleted_at IS NULL", [r.id]);
       if (!current || current.stage !== "expert_approval" || current.status === "rejected") throw new Error("invalid_stage_transition");
       if (!canAct(current.stage, actor, r.customer_id, current.status)) throw new Error("action_forbidden");
+      assertDurationNotShorterThanSignedPrimary(current);
       const currentPrimary = applicationPrimaryDocument(current);
       const currentReplacementRequired = Boolean(latestTomanReplacementConsent(Number(current.id))) ||
         String(currentPrimary?.generation_purpose ?? "") === TOMAN_REPLACEMENT_PURPOSE;
@@ -2375,7 +2411,8 @@ router.post("/loan-applications/:id/expert-approve", requirePermission("loan_app
     });
     res.json(shape(scoped(r.id, actor), actor));
   } catch (e) {
-    return error(res, 409, e instanceof Error ? e.message : "workflow_error", (e as { reason?: string })?.reason);
+    return error(res, 409, e instanceof Error ? e.message : "workflow_error", (e as { reason?: string })?.reason,
+      (e as { persianMessage?: string })?.persianMessage);
   }
 });
 action("complete", "loan_applications.update", "completed");

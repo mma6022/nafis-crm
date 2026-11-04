@@ -51,8 +51,15 @@ function applyPlanTemplateToUnsignedApplications(planId: number, templateId: num
   const apps = queryRows<any>("SELECT id,plan_snapshot_json FROM loan_applications WHERE plan_id=? AND deleted_at IS NULL AND status<>'rejected'", [planId]);
   for (const app of apps) {
     const signed = queryRow("SELECT 1 FROM contract_generations WHERE loan_application_id=? AND status='signed' AND deleted_at IS NULL AND superseded_at IS NULL LIMIT 1", [app.id]);
+    // TPLFREEZE (Mohammad t800s3219): a case whose primary contract was already sent
+    // keeps the template it was sent with; only future plan-template changes are affected.
+    const sentPrimary = queryRow(`SELECT 1 FROM contract_generations g
+      WHERE (g.loan_application_id=? OR g.id=(SELECT current_primary_generation_id FROM loan_applications WHERE id=?)
+        OR g.id IN (SELECT contract_generation_id FROM loan_application_generated_documents WHERE application_id=? AND kind='primary'))
+        AND COALESCE(g.generation_purpose,'primary')='primary' AND g.deleted_at IS NULL AND g.superseded_at IS NULL
+        AND (g.status IN ('sent','signed') OR g.sent_at IS NOT NULL) LIMIT 1`, [app.id, app.id, app.id]);
     const snapshot = parse(app.plan_snapshot_json);
-    if (signed || !snapshot || templateOf(snapshot) === templateId) continue;
+    if (signed || sentPrimary || !snapshot || templateOf(snapshot) === templateId) continue;
     snapshot.contract_template_id = templateId;
     if (snapshot.primary_contract_template_id !== undefined) snapshot.primary_contract_template_id = templateId;
     executeChanges("UPDATE loan_applications SET plan_snapshot_json=? WHERE id=?", [JSON.stringify(snapshot), app.id]);
