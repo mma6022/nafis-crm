@@ -8,8 +8,9 @@
  *   write notification_settings.expert_intro_sms_enabled (the separate hand-off intro stays independent).
  * - One row per (customer, source) — PRIMARY KEY(customer_id, source) — so a repeat registration never re-sends.
  * - Only customers created while the flag is ON are enqueued (no backfill).
- * - Queue: waiting_expert until customers.salesperson_id is an eligible expert (not a trainee 5/19/20); then sent in
- *   08:00–21:00 Tehran. Waits at most 3 days, then «کارشناس تعیین نشد».
+ * - Queue: waiting_expert until customers.salesperson_id is an eligible expert (not a trainee 5/19/20); then sent at
+ *   any hour, 24/7 (Mohammad t522u 2026-11-04: «تو همه ساعات شبانه روز بفرست»; no 08:00–21:00 window for this SMS,
+ *   the 2-minute settle stays). Waits at most 3 days, then «کارشناس تعیین نشد».
  * - Any empty variable (name, sale_name, sale_mobile) → status blocked + log; never sent (no «مشتری» fallback here).
  * - Skips: test/staff number, bad mobile, merged, already got an expert-intro SMS (either feature), IPPanel off.
  * DB handle, clock and sender are injected (no crm-db import) so the fixture runs it on a copy with a mocked provider.
@@ -18,7 +19,7 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
   EXPERT_INTRO_PARAM_CUSTOMER, EXPERT_INTRO_PARAM_NAME, EXPERT_INTRO_PARAM_PHONE, EXPERT_INTRO_TRAINEE_SALESPERSON_IDS,
-  ensureExpertIntroSchema, expertInfo, failureText, getExpertIntroSettings, inSendWindow, isTestOrStaffPhone, logIntro, mobileKey,
+  ensureExpertIntroSchema, expertInfo, failureText, getExpertIntroSettings, isTestOrStaffPhone, logIntro, mobileKey,
   type Sender,
 } from "./expert-intro-sms-core";
 
@@ -141,7 +142,7 @@ export async function einsTick(db: Db, deps: { send: Sender; now?: () => Date; i
       if (age > EINS_MAX_WAIT_MS) finish(r, "skipped", EINS_REASONS.noExpert, sp, null); else out.waiting++;
       continue;
     }
-    if (age < EINS_SETTLE_MS || !inSendWindow(now)) { out.waiting++; continue; }
+    if (age < EINS_SETTLE_MS) { out.waiting++; continue; }
     if (age > EINS_MAX_WAIT_MS) { finish(r, "skipped", EINS_REASONS.noExpert, sp, null); continue; }
     const expert = expertInfo(db, sp!) ?? { salespersonId: sp!, name: "", userId: null, phone: null };
     const name = (c.name ?? "").trim().slice(0, 40);
