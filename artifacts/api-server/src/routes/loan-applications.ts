@@ -784,7 +784,7 @@ function legacySignedPrimaryTerms(application: any): { amount: string; netAmount
   const planSnapshot = parseJson(application.plan_snapshot_json);
   if (!planSnapshot || (planSnapshot.id != null && Number(planSnapshot.id) !== Number(application.plan_id))) return fail();
   const expectedTemplateId = Number(planSnapshot.contract_template_id ?? planSnapshot.primary_contract_template_id);
-  if (!expectedTemplateId || Number(link.template_id) !== expectedTemplateId) return fail();
+  if (!expectedTemplateId || !primaryTemplateMatchesSnapshot(application, link, expectedTemplateId)) return fail();
   // NO-CONTRACT-CHECK: the amount comes from the CRM case, never from the contract.
   const amount = String(application.approved_amount ?? application.requested_amount ?? "");
   if (!/^[1-9]\d{0,17}$/.test(amount)) return fail();
@@ -797,6 +797,29 @@ function legacySignedPrimaryTerms(application: any): { amount: string; netAmount
   let netAmount: string;
   try { netAmount = netLoanAmount({ ...application, approved_amount: amount, duration_months: duration }); } catch { return fail(); }
   return { amount, netAmount, generationId: Number(link.id) };
+}
+// LEGACY-193 (Mohammad t799u): when an admin switches a plan's contract template,
+// applyPlanTemplateToUnsignedApplications rewrites plan_snapshot_json of every case
+// without a *signed* contract, including cases whose contract was already sent for
+// signature. If the customer then signs that already-sent contract, the signed
+// contract carries the template that was current when it was sent, and the snapshot
+// names a template that did not even exist yet. Accept the signed contract's own
+// template only in that case: signed (strict provider state), primary purpose, same
+// plan, and sent before the snapshot template was created. Contract text, terms and
+// templates are never read or changed here; every other mismatch is still refused.
+function primaryTemplateMatchesSnapshot(application: any, generation: any, snapshotTemplateId: number): boolean {
+  if (!generation || !snapshotTemplateId) return false;
+  if (Number(generation.template_id) === Number(snapshotTemplateId)) return true;
+  if (String(generation.status ?? "") !== "signed" || !isStrictSignedProviderState(generation.provider_status) ||
+      !generation.provider_contract_id || generation.deleted_at || generation.superseded_at ||
+      String(generation.generation_purpose ?? "primary") !== "primary" ||
+      Number(generation.loan_plan_id) !== Number(application?.plan_id) || !(Number(generation.template_id) > 0)) return false;
+  const own = queryRow<any>("SELECT id FROM contract_templates WHERE id=?", [Number(generation.template_id)]);
+  const snapshotTemplate = queryRow<any>("SELECT created_at FROM contract_templates WHERE id=?", [Number(snapshotTemplateId)]);
+  const sentAt = Date.parse(String(generation.sent_at ?? ""));
+  const snapshotTemplateCreatedAt = Date.parse(String(snapshotTemplate?.created_at ?? ""));
+  return Boolean(own && snapshotTemplate) && Number.isFinite(sentAt) && Number.isFinite(snapshotTemplateCreatedAt) &&
+    sentAt < snapshotTemplateCreatedAt;
 }
 function signedPrimaryMatchesApprovedTerms(application: any, approvedAmount: string, durationMonths: number, readContent = false): boolean {
   lastPrimaryTermsRefusal = "";
@@ -954,11 +977,12 @@ function verifiedPrimaryPrincipal(application: any, primary: any, approvedAmount
   const snapshot = parseJson(application.plan_snapshot_json);
   const templateId = Number(snapshot?.contract_template_id ?? snapshot?.primary_contract_template_id);
   if (!snapshot || (snapshot.id != null && Number(snapshot.id) !== Number(application.plan_id)) ||
-      !templateId || Number(primary.template_id) !== templateId) return refusePrimaryTerms("primary_contract_template_mismatch");
+      !templateId || !primaryTemplateMatchesSnapshot(application, primary, templateId)) return refusePrimaryTerms("primary_contract_template_mismatch");
   if (!storedContractPdfIntact(primary)) return refusePrimaryTerms("primary_contract_file_unverifiable");
   // NO-CONTRACT-CHECK: no amount / installments / PDF-text comparison on any gate.
   if (!readContent) return true;
-  const template = queryRow<any>("SELECT mappings_json,updated_at FROM contract_templates WHERE id=? AND deleted_at IS NULL", [templateId]);
+  // The signed contract's own template (equal to the snapshot template except in the LEGACY-193 case).
+  const template = queryRow<any>("SELECT mappings_json,updated_at FROM contract_templates WHERE id=? AND deleted_at IS NULL", [Number(primary.template_id)]);
   if (!template) return refusePrimaryTerms("primary_contract_template_mismatch");
   let mappings = parseJson(primary.mappings_snapshot_json);
   if (!Array.isArray(mappings) || !mappings.length) {
