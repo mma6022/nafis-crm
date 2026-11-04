@@ -67,6 +67,8 @@ import { RejectedContractResend } from '@/components/loan-applications/RejectedC
 import { PhysicalSubmission } from '@/components/loan-applications/PhysicalSubmission';
 import { classifySignatureVerificationError, providerReportsSigned, providerReportsRejected, type SignatureStatusWorkflowOutcome } from '@/lib/loan-signature-verification-errors.mjs';
 import { CaseNotesRoom } from '@/loan-case-history/CaseNotesRoom';
+import { FileDetailV1 } from '@/features/file-detail-v1/FileDetailV1';
+import { useFileDetailV1Flag } from '@/features/file-detail-v1/fdv1-api';
 import { CaseHistoryDialog } from '@/loan-case-history/CaseHistoryDialog';
 import { loanDecisionErrorMessage } from '@/lib/loan-decision-errors';
 import { ACTION_ROLE_NAMES, BUSINESS_STATUS_LABELS, loanBusinessStatus } from '@/lib/loan-labels';
@@ -257,6 +259,8 @@ export default function LoanApplicationDetail() {
   const { data: app, isLoading, isError, error, refetch } = useGetLoanApplication(appId, {
     query: { queryKey: getGetLoanApplicationQueryKey(appId), enabled: !isNaN(appId), refetchInterval: 20000, refetchOnWindowFocus: true }
   });
+  // FILE-DETAIL v1: per-user flag (flag.file_detail_v1.user.N, missing = off); old page stays the default.
+  const fdV1 = useFileDetailV1Flag(!isNaN(appId));
   const caseOpen = app?.status !== 'rejected';
   const canUpdate = caseOpen && (user?.role === 'admin' || user?.permissions?.includes('loan_applications.update'));
   const canReview = caseOpen && (user?.role === 'admin' || user?.permissions?.includes('loan_applications.review'));
@@ -541,7 +545,7 @@ export default function LoanApplicationDetail() {
   const turnText = closed ? '' : appAny.actionRequired ? 'نیازمند اقدام شما' : businessStatus === 'waiting_customer_signature' ? 'نوبت اقدام: مشتری' : appAny.actionRole ? `نوبت اقدام: ${ACTION_ROLE_NAMES[appAny.actionRole] ?? appAny.actionRole}` : '';
   const fa = (n: number) => n.toLocaleString('fa-IR');
 
-  return (
+  const legacyPage = (
     <section className="data-page csx ldx" data-testid="loan-application-detail">
       <nav className="ldx-crumb" aria-label="مسیر"><Link href="/loan-applications">درخواست تسهیلات</Link><ChevronLeftIcon /><span>پرونده #{app.id}</span></nav>
       <div className="ldx-grid">
@@ -1011,7 +1015,7 @@ export default function LoanApplicationDetail() {
               <button type="button" className="btn btn-ghost" onClick={() => setHistoryOpen(true)} data-testid="button-open-case-history"><Clock size={16} /> تاریخچه پرونده</button>
             </div>
           </div>
-          <CaseNotesRoom key={`${appId}:${user?.id ?? 0}`} applicationId={appId} user={user as any} />
+          {!fdV1 && <CaseNotesRoom key={`${appId}:${user?.id ?? 0}`} applicationId={appId} user={user as any} />}
           {historyOpen && <CaseHistoryDialog applicationId={appId} onClose={() => setHistoryOpen(false)} />}
 
         </aside>
@@ -1071,6 +1075,14 @@ export default function LoanApplicationDetail() {
       )}
     </section>
   );
+  if (fdV1) {
+    const step = currentStepIndex >= 0 ? timelineSteps[currentStepIndex] : null;
+    const canAct = Boolean(canUpdate && canSalespersonAct && app.stage === 'customer_documents_upload');
+    return <FileDetailV1 app={app} user={user} appId={appId} steps={timelineSteps} currentStepIndex={currentStepIndex}
+      stageLabel={step?.label || STAGE_LABELS[app.stage || 'draft'] || ''} canUploadDocs={canAct} canSubmitDocs={canAct}
+      submitDocs={submitCustDocs as any} legacy={legacyPage} />;
+  }
+  return legacyPage;
 }
 
 function ReviewDecisionButtons({ approveLabel, allReviewed, allApproved, hasDefect, onApprove, onReject, hint }: { approveLabel: string; allReviewed: boolean; allApproved: boolean; hasDefect: boolean; onApprove: () => void; onReject: () => void; hint: string }) {

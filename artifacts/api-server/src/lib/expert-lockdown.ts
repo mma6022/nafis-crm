@@ -100,6 +100,7 @@ const ALLOW: RegExp[] = [
   // FIRSTCALL-62: the first-call form's city autocomplete (city names only; ?customerId= is still checked below).
   /^\/team-sales\/cities$/, /^\/team-sales\/first-call-incomplete\/\d+$/, // incoming2-59 (read-only, own customers only)
   // «پرونده‌های من» + «خرید کالا» + «دستور پرداخت» (+ the reads used inside them)
+  /^\/file-detail-v1\/(me|files\/\d+\/link-resends)$/, // file-detail v1.1 (flagged; the route re-checks the customer owner)
   /^\/loan-applications(\/|$)/, /^\/loan-request-drafts(\/|$)/, /^\/applications(\/|$)/, /^\/loan-plans(\/|$)/, /^\/loan-plan-rates(\/|$)/,
   /^\/loan-options(\/|$)/, /^\/plan-quote(\/|$)/, /^\/filing-fee(\/|$)/, /^\/identity-documents(\/|$)/, /^\/credit-checks(\/|$)/, /^\/smart-filing\/eligibility\/\d+$/,
   /^\/goods-purchases(\/|$)/, /^\/goods-documents(\/|$)/, /^\/payment-orders(\/|$)/, /^\/contracts\/[^/]+/, /^\/contract-updates(\/|$)/,
