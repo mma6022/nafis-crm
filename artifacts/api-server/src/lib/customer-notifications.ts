@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { smsFetch } from "./sms-proxy";
-import { execute, queryRow, queryRows } from "./crm-db";
+import { crmDb, execute, queryRow, queryRows } from "./crm-db";
+import { EINS_NOTIFY_TEXT, einsNotifyState } from "./expert-intro-newlead-core";
 
 export type NotificationSettings = {
   ippanelEnabled: boolean;
@@ -139,7 +140,11 @@ function telegramText(customer: NotificationCustomer, settings: NotificationSett
   ];
   const preferredTime = cleanLine(options.preferredTime, 120);
   if (preferredTime) header.push(`⏰ زمان ترجیحی تماس: ${preferredTime}`);
-  if (options.customerSms === false) header.push("ℹ️ پیامک خودکار برای مشتری ارسال نشد؛ لطفاً تماس بگیرید.");
+  // Mohammad t792s3173: the expert-intro SMS status instead of «پیامک خودکار برای مشتری ارسال نشد» (same place, same condition).
+  if (options.customerSms === false) {
+    const state = existing ? "not_sent" : einsNotifyState(crmDb, customer.id, settings.ippanelEnabled);
+    header.push(EINS_NOTIFY_TEXT[state]);
+  }
   const details = typeof options.requestDetails === "string" ? options.requestDetails.trim().slice(0, 1500) : "";
   if (details) header.push("", "📝 این درخواست:", details);
   return `${header.join("\n")}\n\n${body}`;

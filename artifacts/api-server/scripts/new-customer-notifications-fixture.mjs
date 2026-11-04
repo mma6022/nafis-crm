@@ -95,7 +95,8 @@ const unitSource = `
   assert.match(c[0].body.text, /📝 این درخواست:\\nدرخواست از سایت nafisvam\\.com/);
   assert.match(c[0].body.text, /درخواست جدید از مشتری قبلی/);
   assert.doesNotMatch(c[0].body.text, /مشتری جدید ثبت شد/);
-  assert.match(c[0].body.text, /پیامک خودکار برای مشتری ارسال نشد/);
+  assert.match(c[0].body.text, /⚠️ پیامک معرفی نرفت، تماس بگیرید\./);
+  assert.doesNotMatch(c[0].body.text, /پیامک خودکار/);
   assert.deepEqual(deliveries(1), [{ channel: "telegram", status: "sent" }, { channel: "telegram", status: "sent" }]);
   // Callback from an existing customer: marker with the file number; without it, no marker.
   assert.equal(await notifyWebsiteCallback({ name: "مشتری قدیم", phone: "09000000011", contactTimeFa: "عصر", description: "☎️ درخواست تماس (فرم مشاوره سایت)", existingCustomerId: 1762 }), "sent");

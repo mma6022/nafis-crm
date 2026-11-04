@@ -182,6 +182,48 @@ export async function einsTick(db: Db, deps: { send: Sender; now?: () => Date; i
   return out;
 }
 
+/**
+ * Staff Telegram line for a site lead (replaces «پیامک خودکار برای مشتری ارسال نشد»; Mohammad t792s3173). Read at
+ * notification time = right after the customer INSERT, i.e. normally BEFORE the 2-min settle, so a fresh row is
+ * 'waiting_expert'. Read-only (no write, no send). Predicts the einsTick blockers that are already knowable:
+ * sent → "sent"; sending / waiting_expert with no known blocker (incl. expert not assigned yet) → "queued";
+ * no row (callback, existing customer, flag was off, not a site lead), failed/uncertain/blocked/skipped, or a
+ * known blocker (flag off, merged, bad/test phone, already introduced, empty name, expert without name/contact
+ * phone, IPPanel off) → "not_sent". Any error → "not_sent" (staff then call, the safe side).
+ */
+export type EinsNotifyState = "sent" | "queued" | "not_sent";
+export function einsNotifyState(db: Db, customerId: number, ippanelEnabled: boolean): EinsNotifyState {
+  try {
+    if (!(customerId > 0) || !hasTable(db, "expert_intro_newlead")) return "not_sent";
+    const r = row<{ status: string }>(db, "SELECT status FROM expert_intro_newlead WHERE customer_id=? AND source='site_request'", customerId);
+    if (!r) return "not_sent";
+    if (r.status === "sent") return "sent";
+    if (r.status === "sending") return "queued";
+    if (r.status !== "waiting_expert") return "not_sent";
+    if (!einsEnabled(db) || !ippanelEnabled) return "not_sent";
+    const c = row<Cust>(db, "SELECT id, name, phone, salesperson_id, merged_into_customer_id FROM customers WHERE id=?", customerId);
+    if (!c || c.merged_into_customer_id != null) return "not_sent";
+    if (!c.phone || !mobileKey(c.phone) || isTestOrStaffPhone(db, c.phone, getExpertIntroSettings(db))) return "not_sent";
+    if (!(c.name ?? "").trim()) return "not_sent";
+    if ((hasTable(db, "expert_intro_sms") && row(db, "SELECT 1 AS x FROM expert_intro_sms WHERE customer_id=? AND status IN ('sent','sending','uncertain')", c.id)) ||
+      row(db, "SELECT 1 AS x FROM expert_intro_newlead WHERE customer_id=? AND source<>'site_request' AND status IN ('sent','sending','uncertain')", c.id)) return "not_sent";
+    const sp = c.salesperson_id == null ? null : Number(c.salesperson_id);
+    const isExpert = sp != null && !(EXPERT_INTRO_TRAINEE_SALESPERSON_IDS as readonly number[]).includes(sp) &&
+      !!row(db, "SELECT 1 AS x FROM salespersons WHERE id=? AND active=1", sp);
+    if (isExpert) {
+      const e = expertInfo(db, sp!);
+      if (!e || !e.name.trim() || !(e.phone ?? "").trim()) return "not_sent";
+    }
+    return "queued";
+  } catch { return "not_sent"; }
+}
+
+export const EINS_NOTIFY_TEXT: Record<EinsNotifyState, string> = {
+  sent: "✅ پیامک معرفی کارشناس رفت.",
+  queued: "⏳ پیامک معرفی کارشناس توی صفه.",
+  not_sent: "⚠️ پیامک معرفی نرفت، تماس بگیرید.",
+};
+
 export function einsStats(db: Db): Record<string, number> {
   if (!hasTable(db, "expert_intro_newlead")) return {};
   return Object.fromEntries(rows<{ status: string; n: number }>(db, "SELECT status, COUNT(*) AS n FROM expert_intro_newlead GROUP BY status").map((r) => [r.status, Number(r.n)]));
