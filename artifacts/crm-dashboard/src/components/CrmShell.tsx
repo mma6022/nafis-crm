@@ -300,9 +300,11 @@ export function CrmShell({ children }: { children: ReactNode }) {
     return next;
   }), []);
 
+  // «بیشتر» can turn active after load (e.g. the bale items appear once /bale-bot/me answers), so watch it too.
+  useEffect(() => { if (moreActive) setMoreOpen(true); }, [moreActive, location]);
+
   useEffect(() => {
     // Open the active page's group without closing the others the user opened.
-    if (moreActive) setMoreOpen(true);
     if (activeGroupId) setOpenGroups(current => {
       if (current.includes(activeGroupId)) return current;
       const next = [...current, activeGroupId];
