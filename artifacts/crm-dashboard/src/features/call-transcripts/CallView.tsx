@@ -8,6 +8,7 @@ import { atText, CtError, ctReq, durText, fa, mmss, PHASES, phaseIndex, type CtC
 import { Phone, StatusChip, TextChip } from './shared';
 import { ChatTranscriptCard } from './ChatTranscript';
 import './ct.css';
+import CsItemsCard from '@/features/call-summary-fields/ItemsCard';
 
 const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
 const pending = (s: CtCall['textState']) => s === 'queued' || s === 'processing' || s === 'waiting';
@@ -36,6 +37,7 @@ export default function CallView() {
       {c.isManager ? <p className="muted cvph"><Eye className="i" /><span>شماره‌ها برای مدیر فروش کامل است، طبق قاعده‌ی شماره‌ی کامل CRM.</span></p> : null}
     </section>
     <SummaryCard c={c} onSaved={set} />
+    <CsItemsCard eventId={c.eventId} starts={(c.transcript?.segments ?? []).map((s) => s.start)} />
     {c.isManager ? <ReviewCard c={c} onSaved={set} /> : null}
     {c.chat ? <ChatTranscriptCard c={c} onSaved={set} before={<ExpertReviewNote c={c} />} /> : <TranscriptCard c={c} onSaved={set} mgr={mgr || c.isManager} />}
   </div>;

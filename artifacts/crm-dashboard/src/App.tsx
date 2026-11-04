@@ -16,6 +16,7 @@ import SalesAssistSettings from '@/pages/SalesAssistSettings';
 import MyQueuePage from '@/features/call-queue/MyQueue';
 import CallTranscriptView from '@/features/call-transcripts/CallView';
 import CallCenterReport from '@/features/call-transcripts/CallCenterReport';
+import CsMgrReport from '@/features/call-summary-fields/MgrReport';
 import TodayPage from '@/features/daily-plan/TodayPage';
 import TodaySplitGate from '@/features/today-split/TodaySplit';
 import { DpBoardPage, DpCapacityPage, DpExpertListPage, DpReportPage, DpSettingsPage } from '@/features/daily-plan/AdminPages';
@@ -249,6 +250,7 @@ function AppWithRoutes() {
                       <Route path="/calls"><PermissionRoute permission="calls.view"><Calls /></PermissionRoute></Route>
                       <Route path="/call-view/:id"><PermissionRoute permission="calls.view"><CallTranscriptView /></PermissionRoute></Route>
                       <Route path="/call-center"><AdminOnlyRoute><CallCenterReport /></AdminOnlyRoute></Route>
+                      <Route path="/cs-report"><AdminOnlyRoute><CsMgrReport /></AdminOnlyRoute></Route>
                       <Route path="/instagram-inbox"><InstagramInbox /></Route>
                       <Route path="/phone"><PermissionRoute permission="calls.view"><PhonePage /></PermissionRoute></Route>
                       <Route path="/consultations"><PermissionRoute permission="consultations.view"><Consultations /></PermissionRoute></Route>

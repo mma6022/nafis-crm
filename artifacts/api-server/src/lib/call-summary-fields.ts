@@ -183,7 +183,7 @@ export function callItems(eventId: number, u: AuthUser) {
   if (kind === "later") syncProposals(e);
   const ts = textState(e);
   const exs = ex(e.id)?.state ?? null;
-  const pendingText = ts === "waiting" || ts === "queued" || ts === "processing" || (ts === "completed" && (exs == null || exs === "processing") && false);
+  const pendingText = ts === "waiting" || ts === "queued" || ts === "processing";
   const extraction = ts === "no_recording" ? "none" : pendingText ? "processing" : exs === "done" ? "done" : exs === "failed" ? "failed" : exs === "processing" ? "processing" : "none";
   const eRows = latestRows(`e:${e.id}`);
   const linked = kind === "first" && form != null;

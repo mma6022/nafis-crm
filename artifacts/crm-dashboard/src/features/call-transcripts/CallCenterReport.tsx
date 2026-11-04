@@ -9,6 +9,7 @@ import { atText, CtError, ctReq, dirText, durText, fa, useCtConfig, type CtRepor
 import { Phone, StatusChip, TextChip } from './shared';
 import './ct.css';
 import { S132bReportTab } from './S132bReport';
+import { useCsConfig } from '@/features/call-summary-fields/api';
 
 const tehranDay = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 const addDays = (day: string, n: number) => { const d = new Date(`${day}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
@@ -29,6 +30,7 @@ function CallsTab() {
   const qs = new URLSearchParams({ from: f.from, to: f.to, callStatus: f.callStatus, textStatus: f.textStatus, page: String(f.page), ...(f.expert ? { expert: f.expert } : {}), ...(f.flagged ? { flagged: '1' } : {}) });
   const q = useQuery<CtReport, CtError>({ queryKey: ['call-transcripts', 'report', qs.toString()], retry: false, queryFn: () => ctReq<CtReport>('GET', `/call-transcripts/report?${qs}`),
     refetchInterval: (query) => (query.state.data?.rows.some((r) => ['queued', 'processing', 'waiting'].includes(r.textState)) ? 15_000 : false) });
+  const csOn = useCsConfig().data?.enabled === true;
   const d = q.data; const cfg = useCtConfig().data; const mgr = d ? d.manager !== false : Boolean(cfg?.manager); const expertName = d?.experts.find((e) => String(e.id) === f.expert)?.name;
   const summaryLine = [f.p === 'today' ? 'امروز' : f.p === 'week' ? 'این هفته' : f.p === 'month' ? 'این ماه' : `${fa(gregorianToJalaliValue(f.from))} تا ${fa(gregorianToJalaliValue(f.to))}`,
     expertName ? `کارشناس: ${expertName}` : '', f.textStatus !== 'all' ? `وضعیت متن: ${TS.find(([k]) => k === f.textStatus)?.[1]}` : '', f.flagged && mgr ? 'فقط علامت‌خورده' : ''].filter(Boolean).join('؛ ');
@@ -36,7 +38,8 @@ function CallsTab() {
   const pages = d ? Math.max(1, Math.ceil(d.total / d.pageSize)) : 1;
   return <div className="ctp" dir="rtl" data-testid="ct-report">
     <div className="hrow"><h2>تماس‌های ضبط‌شده‌ی کارشناسان</h2><span className="muted">{new Intl.DateTimeFormat('fa-IR', { timeZone: 'Asia/Tehran', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())}</span>
-      {!mgr ? <span className="chip n" data-testid="ct-admin-view"><Eye className="i" />نمای مدیر سیستم، فقط مشاهده</span> : <span className="chip b"><User className="i" />نمای احمد، مدیر فروش</span>}</div>
+      {!mgr ? <span className="chip n" data-testid="ct-admin-view"><Eye className="i" />نمای مدیر سیستم، فقط مشاهده</span> : <span className="chip b"><User className="i" />نمای احمد، مدیر فروش</span>}
+      {csOn ? <Link className="btn lk sm" href="/cs-report" data-testid="cs-report-link"><Flag className="i" />گزارش موارد اجباری</Link> : null}</div>
     <details className="card flt" open={typeof window === 'undefined' || window.innerWidth >= 700}><summary><Filter className="i" />فیلترها<span className="muted">{summaryLine}</span></summary><div className="flt-b">
       <label className={`fsel${f.expert ? ' on' : ''}`}><small>کارشناس</small><select value={f.expert} onChange={(e) => up({ expert: e.target.value })} data-testid="ct-f-expert">
         <option value="">همه‌ی کارشناسان</option>{d?.experts.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}</select></label>

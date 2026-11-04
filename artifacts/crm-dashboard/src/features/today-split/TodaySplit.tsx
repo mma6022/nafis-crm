@@ -22,6 +22,7 @@ import '@/features/daily-plan/daily-plan.css';
 import '@/features/files-carousel/files-carousel.css';
 import './today-split.css';
 import { useVcMe, vcRefresh } from '@/features/voip-call/api';
+import { CsResultChips } from '@/features/call-summary-fields/ItemsCard';
 import { S132InSplit, S132TopBar, VoipCallBox, VcCallItem, vcCallAsItem, useMyName, useVcForFile } from '@/features/voip-call/VoipCall';
 
 const JF = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', weekday: 'long', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -186,7 +187,7 @@ function ResultDialog({ c, v, pos, onClose, onSaved }: { c: FcCard; v: FcView; p
         <ol className="ts-steps" aria-label={`گام ${faNum(step)} از ۳`}>{['تماس', 'نتیجه', 'یادداشت و ثبت'].map((t, i) => <li key={t} className={i + 1 < step ? 'dn' : i + 1 === step ? 'on' : ''} aria-current={i + 1 === step ? 'step' : undefined}>
           <span>{i + 1 < step ? <Check size={13} aria-hidden="true" /> : faNum(i + 1)}</span>{t}</li>)}</ol>
         {vcc ? <div className="vcx vc-atc" data-testid="vc-attached"><p className="vc-atch"><Check className="i" aria-hidden="true" /><b>این تماس خودکار به پرونده وصل شد</b></p>
-          <ol className="vc-cil"><VcCallItem i={vcCallAsItem(vcc, myName)} s132={vcc.s132 != null} /></ol></div>
+          <ol className="vc-cil"><VcCallItem i={vcCallAsItem(vcc, myName)} s132={vcc.s132 != null} /></ol><CsResultChips eventId={vcc.eventId} /></div>
           : c.phone ? <div className="ts-ph sm"><small>شماره‌ی مشتری</small><CallNumber phone={c.phone} customerId={c.customerId} via="files" testId="ts-r-ph" /></div> : null}
         <fieldset className="ts-res"><legend>نتیجه</legend><div className="ts-rlist" role="radiogroup">{v.outcomes.map((x) => <label key={x.code} className={`ts-rr${o === x.code ? ' on' : ''}${x.code === 'cancelled' ? ' cx' : ''}`}>
           <input type="radio" name="ts-o" value={x.code} checked={o === x.code} onChange={() => { setO(x.code); setErr(''); setConfirm(false); }} data-testid={`ts-o-${x.code}`} /> {x.label}{pre === x.code ? <small className="vc-pre" data-testid="vc-pre"> از تماس</small> : null}</label>)}</div></fieldset>
