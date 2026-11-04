@@ -525,6 +525,19 @@ export function fcFilesLocked(u: U, fileId: number, now = new Date()): boolean {
   if (deck.listOpen || deck.current === fileId) return false;
   return deck.cards.some(c => c.state !== "done");
 }
+/** BOARDTURN: true only for POST /loan-applications/:id/generated-documents whose contractGenerationId is a contract of THIS file
+ *  (loan_application_id = id, same customer) that is already sent/signed at the provider and not deleted/superseded. Read-only;
+ *  every other write keeps the board/lock rules, and the route itself still applies all its own link checks. */
+export function fcLinksSentContractOfFile(req: any, fileId: number): boolean {
+  try {
+    if (req.method !== "POST" || !/^\/loan-applications\/\d+\/generated-documents\/?$/.test(String(req.path))) return false;
+    const gid = Number(req.body?.contractGenerationId);
+    if (!Number.isSafeInteger(gid) || gid <= 0 || !["primary", "amendment", "invoice", "acknowledgement"].includes(String(req.body?.kind ?? ""))) return false;
+    return Boolean(queryRow<any>(`SELECT 1 x FROM contract_generations g JOIN loan_applications a ON a.id=g.loan_application_id
+      WHERE g.id=? AND g.loan_application_id=? AND a.deleted_at IS NULL AND g.customer_id=a.customer_id AND g.deleted_at IS NULL AND g.superseded_at IS NULL
+        AND COALESCE(g.provider_contract_id,'')<>'' AND g.status IN ('sent','signed') AND g.sent_at IS NOT NULL`, [gid, fileId]));
+  } catch { return false; }
+}
 /** Express guard (after expertLockdownGuard): users 8/2/3 while ON — a write on another open file of theirs (not current, not done today) → 423 files_locked. */
 export function filesCarouselGuard(req: any, res: any, next: any): void {
   const u = res.locals.authUser as U | undefined;
@@ -535,9 +548,13 @@ export function filesCarouselGuard(req: any, res: any, next: any): void {
   if (!fcTarget(u) || req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") { next(); return; }
   const m = /^\/loan-applications\/(\d+)(\/|$)/.exec(req.path);
   if (!m || !fcOn()) { next(); return; }
+  // BOARDTURN (Mohammad t802u): finishing a contract issuance whose contract was ALREADY generated for this file and sent to the
+  // customer is not blocked by the turn order (else the sent contract stays unlinked: file #98 → 423 board_turn). board_closed stays.
+  const sentLink = fcLinksSentContractOfFile(req, Number(m[1]));
   try {
     // FILES-BOARD (stage 3): with the user's own flag.files_board the whole-board turn replaces the stage-1/2 checks (reads stay open).
-    if (fbOn(Number(u!.id))) { const b = fbWriteBlock(u!, Number(m[1])); if (b) { res.status(423).json(b); return; } next(); return; }
+    if (fbOn(Number(u!.id))) { const b = fbWriteBlock(u!, Number(m[1])); if (b && !(sentLink && b.error === "board_turn")) { res.status(423).json(b); return; } next(); return; }
+    if (sentLink) { next(); return; }
     if (fcWriteLocked(u!, Number(m[1])) && !fcNewToday(u!, Number(m[1]))) {
       res.status(423).json({ error: "files_locked", message: "اول نتیجه‌ی پیگیری پرونده‌ی جاری را ثبت کن؛ این پرونده هنوز نوبتش نشده.", details: { fileId: Number(m[1]) } }); return;
     }
