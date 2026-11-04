@@ -191,6 +191,26 @@ export function saveSpeakerRoles(eventId: number, actor: AuthUser, expertSpeaker
   return null;
 }
 
+/** CT-CHAT summary input: when a valid manual role override exists for this recording (same transcript), the summary is made
+ *  from the role-labelled dialogue («کارشناس: …» / «مشتری: …», no names), so a manager swap yields a different source hash and
+ *  the existing summary pipeline regenerates it. Applies whether or not the chat flag is on (saved roles keep applying). */
+export function manualSummaryText(providerId: string): string | null {
+  try {
+    if (!hasChatTable()) return null;
+    const m = queryRow<{ transcript_at: string | null; roles_json: string; t_completed: string | null; t_result: string | null }>(
+      `SELECT m.transcript_at,m.roles_json,t.completed_at t_completed,t.result_json t_result FROM voip_call_speaker_roles m
+       CROSS JOIN voip_after_call_events e ON e.id=m.event_id JOIN voip_recording_transcripts t ON t.external_id=COALESCE(e.recording_provider_id,e.external_id)
+       WHERE COALESCE(e.recording_provider_id,e.external_id)=? AND e.is_live=0 AND t.state='completed' ORDER BY m.updated_at DESC LIMIT 1`, [providerId]);
+    if (!m || !m.t_result || (m.transcript_at ?? null) !== (m.t_completed ?? null)) return null;
+    const r = JSON.parse(m.t_result) as Result, roles = JSON.parse(m.roles_json) as Record<string, Role>;
+    const ids = (r.speakers ?? []).map(x => x.id);
+    if (ids.length !== 2 || !ids.every(id => roles[id] === "expert" || roles[id] === "customer") || new Set(ids.map(id => roles[id])).size !== 2) return null;
+    const lines = (r.segments ?? []).filter(x => typeof x.text === "string" && x.text.trim() && roles[x.speakerId])
+      .map(x => `${roles[x.speakerId] === "expert" ? "کارشناس" : "مشتری"}: ${x.text.trim()}`);
+    return lines.length ? lines.join("\n") : null;
+  } catch { return null; }
+}
+
 export function transcriptView(e: Ev, opts: { maskNames?: boolean } = {}) {
   const st = textState(e);
   if (st !== "completed" || !e.t_result) return null;

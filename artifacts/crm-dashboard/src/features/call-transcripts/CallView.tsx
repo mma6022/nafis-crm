@@ -11,13 +11,15 @@ import './ct.css';
 
 const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
 const pending = (s: CtCall['textState']) => s === 'queued' || s === 'processing' || s === 'waiting';
+/** CT-CHAT: summary being re-made after a «مدیر فروش» role swap (chat view only) → keep refreshing until it lands. */
+const regen = (c: CtCall) => !!c.chat && c.transcript?.roleSource === 'manual' && (c.summary?.state === 'queued' || c.summary?.state === 'processing');
 
 export default function CallView() {
   const { id } = useParams<{ id: string }>(); const eventId = Number(id);
   const qc = useQueryClient();
   const key = ['call-transcripts', 'call', eventId];
   const q = useQuery<CtCall, CtError>({ queryKey: key, enabled: Number.isInteger(eventId) && eventId > 0, retry: false,
-    queryFn: () => ctReq<CtCall>('GET', `/call-transcripts/calls/${eventId}`), refetchInterval: (query) => (query.state.data && pending(query.state.data.textState) ? 10_000 : false) });
+    queryFn: () => ctReq<CtCall>('GET', `/call-transcripts/calls/${eventId}`), refetchInterval: (query) => (query.state.data && (pending(query.state.data.textState) || regen(query.state.data)) ? 10_000 : false) });
   const set = (c: CtCall) => qc.setQueryData(key, c);
   if (q.isLoading) return <div className="ctp" dir="rtl"><p className="muted">در حال دریافت تماس…</p></div>;
   if (q.isError || !q.data) return <div className="ctp" dir="rtl"><p className="note"><AlertTriangle className="i" />{q.error?.code === 'call_transcripts_off' ? 'صفحه‌ی متن و خلاصه‌ی تماس فعال نیست.' : (q.error?.message ?? 'این تماس پیدا نشد.')}</p>
@@ -67,6 +69,7 @@ function SummaryCard({ c, onSaved }: { c: CtCall; onSaved: (c: CtCall) => void }
     {ready ? <><dl className="kv2"><dt>موضوع تماس</dt><dd>{s!.subject}</dd><dt>خلاصه درخواست مشتری</dt><dd>{s!.request}</dd></dl>
       <p className="muted mch"><Sparkles className="i" /><span>{s!.edited ? 'ویرایش‌شده توسط کارشناس.' : 'خودکار از متن ماشینی ساخته و ذخیره شد؛ برای تصمیم، صدای اصلی را هم گوش بده.'}</span></p></>
       : <dl className="kv2"><dt>موضوع تماس</dt><dd className="sk">{s?.state === 'failed' ? 'خلاصه ساخته نشد.' : 'هنوز آماده نشده است.'}</dd><dt>خلاصه درخواست مشتری</dt><dd className="sk">{s?.state === 'failed' ? 'خلاصه ساخته نشد.' : 'هنوز آماده نشده است.'}</dd></dl>}
+    {!ready && regen(c) ? <p className="muted mch" role="status" data-testid="ct-summary-regen"><Sparkles className="i" /><span>نقش گوینده‌ها عوض شد؛ خلاصه دوباره ساخته می‌شود و چند لحظه بعد همین‌جا می‌آید.</span></p> : null}
   </section>;
 }
 

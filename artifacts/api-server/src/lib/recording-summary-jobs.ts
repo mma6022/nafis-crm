@@ -5,7 +5,7 @@ import { authorizedVoipRecording } from "../routes/simotel-recordings";
 import { CallSummaryError, summarizeCall } from "./recording-call-summary";
 import { SimotelError } from "./simotel";
 import { latestSummaryEdit } from "./recording-summary-edits";
-import { ctFlag, systemActor, SYSTEM_REQUESTER } from "./call-transcripts";
+import { ctFlag, manualSummaryText, systemActor, SYSTEM_REQUESTER } from "./call-transcripts";
 import { ensureRestartRetrySchema, recoverInterruptedSummaries, restartRetryOn } from "./stt-restart-retry";
 
 type SummaryJob = { external_id: string; source_hash: string; requested_by: number; range_from: string; range_to: string;
@@ -20,11 +20,15 @@ const digest = (file: string, text: string) => createHash("sha256").update(JSON.
 const getJob = (id: string) => queryRow<SummaryJob>("SELECT * FROM voip_recording_summaries WHERE external_id=?", [id]);
 function transcript(id: string) {
   const row = queryRow<Transcript>("SELECT source_file,state,result_json FROM voip_recording_transcripts WHERE external_id=?", [id]);
-  const text = row?.result_json ? JSON.parse(row.result_json).text : null;
+  const plain = row?.result_json ? JSON.parse(row.result_json).text : null;
+  const text = typeof plain === "string" && plain.trim() ? summaryText(id, plain) : plain;
   return row && row.state === "completed" && typeof text === "string" && text.trim()
     ? { ...row, text, hash: digest(row.source_file, text) } : null;
 }
-export function callSummaryDTO(id: string, file: string, text: string | null) {
+/** CT-CHAT: role-labelled dialogue when a manager set the roles (see manualSummaryText), else the plain transcript text. */
+const summaryText = (id: string, plain: string) => manualSummaryText(id) ?? plain;
+export function callSummaryDTO(id: string, file: string, plainText: string | null) {
+  const text = plainText && plainText.trim() ? summaryText(id, plainText) : plainText;
   const job = text ? getJob(id) : undefined;
   const hash = text ? digest(file, text) : null, edit = latestSummaryEdit(id);
   const edited = !!edit && edit.source_hash === hash;
@@ -84,4 +88,14 @@ export async function processCallSummaryQueue() {
       [error instanceof CallSummaryError || error instanceof SimotelError ? error.message : "تهیهٔ خلاصه ناموفق بود؛ دوباره تلاش کنید.",
         new Date().toISOString(), job.external_id, job.source_hash]);
   } finally { busy = false; }
+}/** CT-CHAT: after a «مدیر فروش» role swap, regenerate the summary through the normal queue (one row per call → never a duplicate job;
+ *  a summary already being made for the old roles is superseded: its result is dropped by the source_hash guard). Never notifies anyone.
+ *  Uses the range the transcript was made with. Returns false (and the role save stays saved) when nothing could be queued. */
+export function queueSummaryAfterRoleSwap(providerId: string, actorId: number): boolean {
+  try {
+    const t = queryRow<{ range_from: string; range_to: string }>("SELECT range_from,range_to FROM voip_recording_transcripts WHERE external_id=? AND state='completed'", [providerId]);
+    if (!t) return false;
+    queueCallSummary(providerId, actorId, t.range_from, t.range_to, true);
+    return true;
+  } catch { return false; }
 }

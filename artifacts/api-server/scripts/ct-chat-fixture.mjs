@@ -39,7 +39,7 @@ const NOW = new Date().toISOString(), T1 = "2026-11-01T10:00:00.000Z", T2 = "202
 }
 globalThis.fetch = async (u) => { throw new Error(`unexpected network call in ct-chat fixture: ${String(u).slice(0, 40)}`); };
 const bundle = path.join(dir, "bundle.mjs");
-await build({ stdin: { contents: "export*from'./src/lib/call-transcripts.ts';export{queryRow,queryRows,executeChanges}from'./src/lib/crm-db.ts';", resolveDir: path.resolve(".") },
+await build({ stdin: { contents: "export*from'./src/lib/call-transcripts.ts';export{queryRow,queryRows,executeChanges}from'./src/lib/crm-db.ts';export{queueSummaryAfterRoleSwap,storedCallSummary}from'./src/lib/recording-summary-jobs.ts';", resolveDir: path.resolve(".") },
   outfile: bundle, bundle: true, format: "esm", platform: "node", logLevel: "silent",
   banner: { js: `import {createRequire} from 'node:module';const require=createRequire(${JSON.stringify(pathToFileURL(path.resolve("package.json")).href)});` },
   plugins: [{ name: "logger", setup(b) { b.onResolve({ filter: /\/logger$/ }, () => ({ path: "logger", namespace: "fx" })); b.onLoad({ filter: /.*/, namespace: "fx" }, () => ({ contents: "const n=()=>{};export const logger={error:n,warn:n,info:n,debug:n,child(){return logger}};export default logger;" })); } }] });
@@ -116,5 +116,53 @@ ok("re-transcription invalidates the override (falls back to automatic guess)", 
   assert.equal(view(E.two, mgr).transcript.roleSource, "manual");
 });
 ok("migration is additive + idempotent", () => { L.ensureCtChatSchema(); L.ensureCtChatSchema(); assert.deepEqual(tbl(), ["voip_call_speaker_role_log", "voip_call_speaker_roles"]); });
+// ---- summary regeneration after a manager swap (Mohammad t851) ----
+const notifyTables = queryRows("SELECT name FROM sqlite_master WHERE type='table' AND (name LIKE '%notif%' OR name LIKE '%sms%' OR name LIKE '%push%' OR name LIKE '%outbox%' OR name LIKE '%bale%message%')").map((r) => r.name);
+const notifyCounts = () => Object.fromEntries(notifyTables.map((t) => [t, queryRow(`SELECT COUNT(*) n FROM "${t}"`).n]));
+const notify0 = notifyCounts();
+const job = (id = "ctchat-two") => queryRow("SELECT * FROM voip_recording_summaries WHERE external_id=?", [id]);
+const jobs = (id = "ctchat-two") => queryRow("SELECT COUNT(*) n FROM voip_recording_summaries WHERE external_id=?", [id]).n;
+ok("summary input = role-labelled dialogue only with a valid manual override (no names)", () => {
+  const t = L.manualSummaryText("ctchat-two"); assert.ok(t); const lines = t.split("\n");
+  assert.ok(lines.every((l) => l.startsWith("کارشناس: ") || l.startsWith("مشتری: "))); assert.ok(lines[0].startsWith("کارشناس: "), "speaker-1 is expert now");
+  assert.equal(L.manualSummaryText("ctchat-three"), null); assert.equal(L.manualSummaryText("ctchat-proc"), null); assert.equal(L.manualSummaryText("nope"), null);
+});
+let h1;
+ok("swap queues ONE regeneration through the summary queue (requested by the manager)", () => {
+  const h0 = L.storedCallSummary("ctchat-two").summarySourceHash;
+  executeChanges("DELETE FROM voip_recording_summaries WHERE external_id='ctchat-two'");
+  executeChanges("INSERT INTO voip_recording_summaries(external_id,source_hash,requested_by,range_from,range_to,state,result_json,created_at,updated_at) VALUES('ctchat-two',?,5,'2026-11-01','2026-11-01','completed',?,?,?)",
+    [h0, JSON.stringify({ callSubject: "x", customerRequestSummary: "y" }), NOW, NOW]);
+  assert.equal(L.storedCallSummary("ctchat-two").summaryState, "completed");
+  assert.equal(L.saveSpeakerRoles(E.two, mgr, "speaker-2", T2), null);
+  assert.equal(L.queueSummaryAfterRoleSwap("ctchat-two", mgr.id), true);
+  const j = job(); h1 = L.storedCallSummary("ctchat-two").summarySourceHash;
+  assert.notEqual(h1, h0); assert.equal(j.source_hash, h1); assert.equal(j.state, "queued"); assert.equal(j.requested_by, 5); assert.equal(j.result_json, null);
+  assert.equal(j.range_from, "2026-11-01"); assert.equal(jobs(), 1);
+  assert.equal(L.storedCallSummary("ctchat-two").summaryState, "queued");
+});
+ok("no duplicate job: same roles again → nothing new", () => {
+  const before = job(); assert.equal(L.queueSummaryAfterRoleSwap("ctchat-two", mgr.id), true);
+  assert.deepEqual(job(), before); assert.equal(jobs(), 1);
+});
+ok("regen already running: superseded, its late result is dropped by the hash guard", () => {
+  executeChanges("UPDATE voip_recording_summaries SET state='processing',lease_until=? WHERE external_id='ctchat-two'", [new Date(Date.now() + 120000).toISOString()]);
+  assert.equal(L.saveSpeakerRoles(E.two, mgr, "speaker-1", T2), null);
+  assert.equal(L.queueSummaryAfterRoleSwap("ctchat-two", mgr.id), true);
+  const j = job(); assert.equal(j.state, "queued"); assert.notEqual(j.source_hash, h1); assert.equal(jobs(), 1);
+  // what the worker does when the old (h1) run finishes: guarded by source_hash → 0 rows
+  assert.equal(executeChanges("UPDATE voip_recording_summaries SET state='completed',result_json='{}' WHERE external_id='ctchat-two' AND source_hash=? AND state='processing'", [h1]), 0);
+  assert.equal(job().state, "queued");
+});
+ok("queue failure never breaks the role save", () => {
+  assert.equal(L.queueSummaryAfterRoleSwap("missing-call", mgr.id), false);
+  executeChanges("ALTER TABLE voip_recording_summaries RENAME TO voip_recording_summaries_tmp");
+  try {
+    assert.equal(L.saveSpeakerRoles(E.two, mgr, "speaker-2", T2), null);
+    assert.equal(L.queueSummaryAfterRoleSwap("ctchat-two", mgr.id), false);
+    assert.equal(JSON.parse(queryRow(`SELECT roles_json FROM voip_call_speaker_roles WHERE event_id=${E.two}`).roles_json)["speaker-2"], "expert");
+  } finally { executeChanges("ALTER TABLE voip_recording_summaries_tmp RENAME TO voip_recording_summaries"); }
+});
+ok("no staff/customer notification rows written by swaps or regeneration", () => { assert.deepEqual(notifyCounts(), notify0); assert.ok(notifyTables.length >= 0); });
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(`ct-chat fixture: ${passed} passed`);

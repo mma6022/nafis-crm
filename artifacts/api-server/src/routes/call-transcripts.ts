@@ -9,7 +9,7 @@ import { requirePermission } from "../lib/access-control";
 import { queryRows } from "../lib/crm-db";
 import { callView, ctAdminViewer, ctChatOn, ctFlag, ctSchemaReady, isCtManager, reportRows, rowView, saveReview, saveSpeakerRoles, tehranRange, visibleEvent, ctEvent } from "../lib/call-transcripts";
 import { queueTranscript, transcriptDTO } from "../lib/recording-transcript-jobs";
-import { storedCallSummary } from "../lib/recording-summary-jobs";
+import { queueSummaryAfterRoleSwap, storedCallSummary } from "../lib/recording-summary-jobs";
 import { appendSummaryEdit, SummaryEditConflict } from "../lib/recording-summary-edits";
 import { TranscriptionError } from "../lib/recording-transcription";
 import { callReportDay } from "../lib/call-reports";
@@ -111,6 +111,8 @@ router.put("/call-transcripts/calls/:eventId/speaker-roles", requirePermission("
     return fail(res, 400, "bad_roles", "گوینده‌ی کارشناس را انتخاب کنید.");
   const err = saveSpeakerRoles(e.id, u, b.expertSpeakerId, b.transcriptAt ?? null);
   if (err) return fail(res, ROLE_ERR[err][0], err, ROLE_ERR[err][1]);
+  // Mohammad t851: regenerate the summary after a swap (existing queue, no notification); a failure here never undoes the save.
+  if (!queueSummaryAfterRoleSwap(e.provider_id, u.id)) req.log?.warn?.({ eventId: e.id }, "ct-chat: summary regeneration not queued");
   res.json(callView(ctEvent(e.id)!, u, summary));
 });
 router.get("/call-transcripts/report", requirePermission("calls.view"), (req, res) => {
