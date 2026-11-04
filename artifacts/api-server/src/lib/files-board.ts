@@ -11,7 +11,7 @@
 import { queryRow, queryRows } from "./crm-db";
 import { tParts, fromTehran } from "./call-queue";
 import { flOn } from "./files-lock";
-import { catCore, dayRow, ensureFcSchema, fcDeck, fcListOrder, fcToday, fcFullPhone, FILE_SELECT, fileById, lastFollowUp, type FileRow } from "./files-carousel";
+import { catCore, dayRow, ensureFcSchema, fcDeck, fcListOrder, fcToday, fcFullPhone, FILE_SELECT, FC_SALES_STAGES, fileById, lastFollowUp, type FileRow } from "./files-carousel";
 
 export const FB_FLAG_PREFIX = "flag.files_board.user.";
 export const FB_CLOSED_DAYS = 30;
@@ -63,9 +63,26 @@ export function fbState(sp: number, now = new Date()) {
   const cutoff = new Date(now.getTime() - FB_CLOSED_DAYS * 86_400_000).toISOString();
   const isClosed = (id: number) => (cats.get(id)?.priority_group ?? 0) > 5;
   const onBoard = order.filter(id => !isClosed(id) || (cats.get(id)?.closed_at ?? "") >= cutoff);
-  const queue = order.filter(id => !isClosed(id) && !followed(id));
+  // DOCFIX (file #214, Nov 4): the order is recomputed on every request from last_activity_at, so the expert's own write on the turn file
+  // (the first of two document uploads) moved it behind the next file and the second upload got 423 board_turn. A file whose latest
+  // stage-history row today is this expert's own write, that is still on an expert step and has no follow-up today, keeps the turn until
+  // its «پیگیری» result. Such a row exists only for a write the guard already allowed, so no locked file opens; a reviewer action or a
+  // return after it (latest row not the expert's) and files re-entered after a follow-up keep the normal rank. Nothing is stored.
+  const base = order.filter(id => !isClosed(id) && !followed(id));
+  const inProgress = new Set<number>();
+  if (base.length) {
+    const ph = base.map(() => "?").join(",");
+    for (const r of queryRows<{ application_id: number }>(`SELECT h.application_id FROM loan_application_stage_history h
+        WHERE h.application_id IN (${ph}) AND h.created_at>=?
+          AND h.id=(SELECT MAX(x.id) FROM loan_application_stage_history x WHERE x.application_id=h.application_id)
+          AND h.actor_id IN (SELECT id FROM users WHERE salesperson_id=?)`, [...base, since, sp])) {
+      const id = Number(r.application_id);
+      if (!fu.has(id) && (FC_SALES_STAGES as readonly string[]).includes(String(byId.get(id)?.stage ?? ""))) inProgress.add(id);
+    }
+  }
+  const queue = [...base.filter(id => inProgress.has(id)), ...base.filter(id => !inProgress.has(id))];
   const turn = queue[0] ?? null;
-  return { day, order, onBoard, queue, turn, cats, byId, followed, isClosed };
+  return { day, order, onBoard, queue, turn, cats, byId, followed, isClosed, inProgress };
 }
 export type FbState = ReturnType<typeof fbState>;
 

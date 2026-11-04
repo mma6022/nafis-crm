@@ -15,7 +15,8 @@ import { tsOnSp } from "./today-split";
 import { flOn, FL_MESSAGE } from "./files-lock";
 import { fbOn, fbState, fbWriteBlock } from "./files-board";
 import { maskCustomerName } from "./cross-owner-search";
-import { faDigits, fcCategories, fcInGroupCompare, fcOldDays, FC_GROUP_LABELS83, FC_OLD_DAYS_KEY, FC_OLD_DAYS_DEFAULT, type FcCategory } from "./files-category";
+import { faDigits, fcCategories, fcInGroupCompare, fcOldDays, FC_GROUP_LABELS83, FC_OLD_DAYS_KEY, FC_OLD_DAYS_DEFAULT, FC_SALES_STAGES, type FcCategory } from "./files-category";
+export { FC_SALES_STAGES };
 
 export const FC_FLAG_KEY = "flag.files_carousel";
 /** REL-83: category order (برگشتی → امضا → وثیقه/ضامن → قدیمی → بقیه) + list fallback + late-return bar. Seeded '0' (deploy = no-op). */
