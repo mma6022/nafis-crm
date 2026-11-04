@@ -7,7 +7,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import type { AuthUser } from "../lib/auth";
 import { requirePermission } from "../lib/access-control";
 import { queryRows } from "../lib/crm-db";
-import { callView, ctAdminViewer, ctFlag, ctSchemaReady, isCtManager, reportRows, rowView, saveReview, tehranRange, visibleEvent, ctEvent } from "../lib/call-transcripts";
+import { callView, ctAdminViewer, ctChatOn, ctFlag, ctSchemaReady, isCtManager, reportRows, rowView, saveReview, saveSpeakerRoles, tehranRange, visibleEvent, ctEvent } from "../lib/call-transcripts";
 import { queueTranscript, transcriptDTO } from "../lib/recording-transcript-jobs";
 import { storedCallSummary } from "../lib/recording-summary-jobs";
 import { appendSummaryEdit, SummaryEditConflict } from "../lib/recording-summary-edits";
@@ -35,7 +35,8 @@ router.get("/call-transcripts/config", (_req, res) => {
   res.setHeader("Cache-Control", "private, no-store");
   const on = ctFlag("ui"); const u = me(res);
   // SIMOTEL-132 B: «گزارش کارشناسان» tab only for a viewer with flag.simotel132b (key absent otherwise → payload unchanged)
-  res.json(on ? { enabled: true, manager: isCtManager(u), viewer: ctAdminViewer(u), ...(s132bReportOn(u, ctAdminViewer) ? { s132b: true } : {}) } : { enabled: false });
+  res.json(on ? { enabled: true, manager: isCtManager(u), viewer: ctAdminViewer(u), ...(s132bReportOn(u, ctAdminViewer) ? { s132b: true } : {}), ...(ctChatOn(u) ? { chat: true } : {}) } : { enabled: false });
+  // CT-CHAT: «chat» key only while flag.call_transcripts.chat(.user.<id>) is on → payload unchanged otherwise
 });
 router.get("/call-transcripts/b-report", requirePermission("calls.view"), (req, res) => {
   if (off(res)) return;
@@ -91,6 +92,25 @@ router.put("/call-transcripts/calls/:eventId/review", requirePermission("calls.v
   const flagged = b.flagged == null ? !!e.r_flagged : typeof b.flagged === "boolean" ? b.flagged : null;
   if (note == null || note.length > 1000 || flagged == null) return fail(res, 400, "bad_review", "علامت (بله/خیر) و یادداشت تا ۱۰۰۰ نویسه.");
   saveReview(e.id, u, flagged, note);
+  res.json(callView(ctEvent(e.id)!, u, summary));
+});
+/** CT-CHAT (flag.call_transcripts.chat): «مدیر فروش» sets which of the two speakers is the expert; saved for everyone (roleSource=manual), audited. */
+const ROLE_ERR: Record<string, [number, string]> = {
+  not_completed: [422, "متن این تماس هنوز آماده نیست."],
+  not_two_speakers: [422, "تعیین نقش فقط برای تماس دو گوینده‌ای است."],
+  bad_speaker: [400, "گوینده‌ی انتخاب‌شده در این تماس نیست."],
+  stale_transcript: [409, "متن تماس دوباره ساخته شده است؛ صفحه را تازه کنید."],
+};
+router.put("/call-transcripts/calls/:eventId/speaker-roles", requirePermission("calls.view"), (req, res) => {
+  if (off(res)) return; const u = me(res);
+  if (!ctChatOn(u)) return fail(res, 404, "chat_off", "نمای گفت‌وگو برای شما فعال نیست.");
+  const e = eventOf(req, res); if (!e) return;
+  if (!isCtManager(u)) return fail(res, 403, "manager_only", "تعیین نقش گوینده‌ها فقط برای مدیر فروش است.");
+  const b = req.body ?? {};
+  if (typeof b.expertSpeakerId !== "string" || !b.expertSpeakerId || b.expertSpeakerId.length > 64 || (b.transcriptAt != null && typeof b.transcriptAt !== "string"))
+    return fail(res, 400, "bad_roles", "گوینده‌ی کارشناس را انتخاب کنید.");
+  const err = saveSpeakerRoles(e.id, u, b.expertSpeakerId, b.transcriptAt ?? null);
+  if (err) return fail(res, ROLE_ERR[err][0], err, ROLE_ERR[err][1]);
   res.json(callView(ctEvent(e.id)!, u, summary));
 });
 router.get("/call-transcripts/report", requirePermission("calls.view"), (req, res) => {

@@ -14,6 +14,7 @@
     "fixture:voip": "node scripts/voip-fixture.mjs",
     "test:simotel-recordings": "node scripts/simotel-recordings-fixture.mjs",
     "test:voip-after-call": "node scripts/voip-after-call-fixture.mjs",
+    "test:ct-chat": "node scripts/ct-chat-fixture.mjs",
     "test:recording-transcript": "node scripts/recording-transcript-fixture.mjs",
     "test:voip": "pnpm run build && node scripts/voip-fixture.mjs",
     "test:voip-registrar-scope": "NODE_ENV=production node scripts/run-bundled-fixture.mjs scripts/voip-registrar-scope-fixture.mjs",

@@ -6,9 +6,10 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getGetAuthSessionQueryKey, useGetAuthSession } from '@workspace/api-client-react';
-import { AlertCircle, AlertTriangle, Check, Clock, EyeOff, Flag, Headset, History, Lock, MessageSquare, PenLine, Play, Pause, RefreshCw, Sparkles, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Check, Clock, EyeOff, Flag, Headset, History, Lock, MessageSquare, MessageSquareText, PenLine, Play, Pause, RefreshCw, Sparkles, X } from 'lucide-react';
 import { faNum } from '@/features/call-queue/api';
-import { atText, durText, mmss } from '@/features/call-transcripts/api';
+import { atText, durText, mmss, TXS, useCtConfig, useCustomerCtCalls, type TextState } from '@/features/call-transcripts/api';
+import { Link } from 'wouter';
 import { useS132First, useVcHistory, useVcMe, vcApi, vcAudioSrc, VcError, VC_ME_KEY, vcRefresh, type S132Bar, type S132Status, type VcCall, type VcHistItem, type VcMe } from './api';
 import './voip-call.css';
 
@@ -262,7 +263,13 @@ function Rec({ i }: { i: Pick<VcHistItem, 'kind' | 'recording' | 'playable' | 'e
   if (i.kind === 'manual') return <p className="vc-rp none"><EyeOff className="i" aria-hidden="true" /><span>ثبت دستی پیش از سیموتل؛ مدت و فایل ضبط ندارد.</span></p>;
   return <p className="vc-rp none"><EyeOff className="i" aria-hidden="true" /><span>فایل ضبط ندارد؛ مکالمه‌ای برقرار نشد.</span></p>;
 }
-export function VcCallItem({ i, fresh, s132 }: { i: VcHistItem; fresh?: boolean; s132?: boolean }) {
+/** CT-CHAT (flag.call_transcripts.chat): «متن تماس» → /call-view/<eventId> only on completed rows; a status chip on the rest. */
+function CtLink({ eventId, state }: { eventId: number; state: TextState }) {
+  if (state === 'completed') return <Link href={`/call-view/${eventId}`} className="vc-ctl" data-testid={`link-call-transcript-e${eventId}`}><MessageSquareText className="i" aria-hidden="true" />متن تماس</Link>;
+  const [label, tone] = TXS[state] ?? ['', 'n'];
+  return <span className="vc-cts" data-testid={`ct-state-e${eventId}`} data-state={state}><span className={`vc-chip ${tone === 'r' ? 'r' : tone === 'n' ? 'q' : ''}`}>{label}</span>{state === 'queued' || state === 'waiting' ? <span className="vc-chip q">در صف</span> : null}</span>;
+}
+export function VcCallItem({ i, fresh, s132, ct }: { i: VcHistItem; fresh?: boolean; s132?: boolean; ct?: TextState | null }) {
   const dur = durText(i.durationSeconds);
   const src = i.kind === 'voip' ? `تماس از تلفن ویپ، ${i.expert ?? 'کارشناس'}، ${i.fileId != null ? `خودکار به پرونده ${faNum(i.fileId)} وصل شد` : 'خودکار به سابقه‌ی مشتری وصل شد'}`
     : i.kind === 'simotel' ? `تماس ${i.direction === 'incoming' ? 'ورودی' : 'خروجی'} سیموتل، ${i.expert ?? 'کارشناس'}` : `ثبت دستی، ${i.expert ?? 'کارشناس'} (با گوشی خودش)`;
@@ -271,6 +278,7 @@ export function VcCallItem({ i, fresh, s132 }: { i: VcHistItem; fresh?: boolean;
       <b>{atText(i.at)}</b>{i.s132?.fixed ? <S132Pair sim={i.s132.sim} expert={i.s132.fixed} /> : <VcStat s={i.s132?.auto ? (i.s132.expert ?? i.s132.sim) : i.status} s132={s132 || i.s132 != null} />}<NoAnsSms on={i.noanswerSms} />{dur ? <span className="vc-cid"><Clock className="i" aria-hidden="true" />{dur}</span> : null}</div>
     <p className="vc-cis">{src}</p>
     <Rec i={i} />
+    {ct && i.eventId != null ? <CtLink eventId={i.eventId} state={ct} /> : null}
     {i.result ? <p className="vc-cir"><span className="muted">نتیجه:</span> {i.result.label ? i.result.label : ''}{i.result.label && i.result.note ? '؛ ' : ''}{i.result.note ? `«${i.result.note}»` : ''}</p>
       : i.pending ? <p className="vc-cir wait"><Lock className="i" aria-hidden="true" /><span>نتیجه هنوز ثبت نشده</span></p> : null}
   </li>;
@@ -288,13 +296,16 @@ export function CustomerCallHistory({ customerId }: { customerId: number }) {
   const live = me?.call && me.call.customerId === customerId ? me.call.state : null;
   const qc = useQueryClient();
   useEffect(() => { if (live === 'ended') void qc.invalidateQueries({ queryKey: ['voip-call', 'history', customerId] }); }, [live, customerId, qc]);
+  const ctChat = Boolean(useCtConfig(on).data?.chat); // CT-CHAT: flag off → no request, nothing new renders
+  const ctCalls = useCustomerCtCalls(customerId, on && ctChat).data?.calls ?? [];
+  const ctBy = new Map(ctCalls.map((c) => [c.eventId, c.textState]));
   if (!on) return null;
   const items = h.data?.items ?? [];
   return <section className="vcx vc-hist card" aria-labelledby="vc-hist-h" data-testid="vc-history">
     <div className="vc-hh"><h3 id="vc-hist-h"><History className="i" aria-hidden="true" /> سابقه‌ی تماس‌ها</h3>{h.data ? <span className="muted">{faNum(items.length)} تماس</span> : null}</div>
     <p className="muted vc-hn">تماس‌های تلفن ویپ خودشان این‌جا می‌آیند: وضعیت، مدت و فایل ضبط. ثبت‌های دستی قدیمی هم می‌مانند.</p>
     {h.isLoading ? <div className="dp-skel" role="status">در حال بارگذاری…</div> : h.isError ? <p className="dp-err" role="alert">سابقه بارگذاری نشد. <button type="button" className="btn btn-ghost" onClick={() => void h.refetch()}>تلاش دوباره</button></p>
-      : items.length ? <ol className="vc-cil">{items.map((i) => <VcCallItem key={i.id} i={i} s132={Boolean(me?.s132)} />)}</ol> : <p className="muted">هنوز تماسی ثبت نشده.</p>}
+      : items.length ? <ol className="vc-cil">{items.map((i) => <VcCallItem key={i.id} i={i} s132={Boolean(me?.s132)} ct={ctChat && i.eventId != null ? ctBy.get(i.eventId) ?? null : null} />)}</ol> : <p className="muted">هنوز تماسی ثبت نشده.</p>}
   </section>;
 }
 

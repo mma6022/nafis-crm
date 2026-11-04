@@ -5,10 +5,12 @@
  *   flag.call_transcripts.ui    : call page + «گزارش مرکز تماس» + review card
  *   flag.call_transcripts.ahmad : GET /api/assistant-runner/manager/call-transcripts
  *   call_transcripts.stereo_expert_channel : left | right | by_direction (unset → role from text heuristic)
+ *   flag.call_transcripts.chat (+ .user.<id>) : chat-style call view (Armita «متن تماس به شکل چت» v1.0) + manager speaker-role swap.
+ *     OFF → payloads are byte-identical to before (no chat/canAssignRoles/fullText keys) and the old view renders.
  * Schema additions are additive and only applied once a flag is ON (ensureCallTranscriptSchema).
  */
 import type { AuthUser } from "./auth";
-import { crmDb, queryRow, queryRows, executeChanges } from "./crm-db";
+import { crmDb, queryRow, queryRows, executeChanges, runImmediateTransaction } from "./crm-db";
 import { SimotelError } from "./simotel";
 import { callReportDay } from "./call-reports";
 import { CALL_LIST_START } from "./call-list-cutoff";
@@ -128,15 +130,76 @@ function summaryOf(e: Ev, summary: (id: string) => any) {
   return s ? { state: s.summaryState as string, subject: s.callSubject as string | null, request: s.customerRequestSummary as string | null,
     edited: !!s.summaryEdited, revision: Number(s.summaryRevision ?? 0), sourceHash: s.summarySourceHash as string | null, error: s.summaryError as string | null } : null;
 }
+/* ---------------- CT-CHAT: manual speaker roles (flag.call_transcripts.chat) ---------------- */
+/** Chat view on for this user: global flag or per-user flag. The ui flag (off() guard) still gates every route. */
+export const ctChatOn = (u: AuthUser | null | undefined) => !!u && (setting("flag.call_transcripts.chat") === "1" || setting(`flag.call_transcripts.chat.user.${Number(u.id)}`) === "1");
+/** Additive tables, created on the first manager write only (never at boot, never while the flag is off).
+ *  voip_call_speaker_roles: one row per event, valid only for the transcript it was set on (transcript_at = t.completed_at),
+ *  so a re-transcription silently falls back to the automatic guess. voip_call_speaker_role_log: append-only audit. */
+let chatEnsured = false;
+export function ensureCtChatSchema() {
+  if (chatEnsured) return;
+  crmDb.exec(`CREATE TABLE IF NOT EXISTS voip_call_speaker_roles(event_id INTEGER PRIMARY KEY, transcript_at TEXT, roles_json TEXT NOT NULL,
+    updated_by INTEGER NOT NULL, updated_at TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS voip_call_speaker_role_log(id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER NOT NULL, transcript_at TEXT,
+    before_json TEXT, before_source TEXT, after_json TEXT NOT NULL, actor_id INTEGER NOT NULL, at TEXT NOT NULL);
+  CREATE INDEX IF NOT EXISTS idx_voip_call_speaker_role_log_event ON voip_call_speaker_role_log(event_id, id);`);
+  chatEnsured = true;
+}
+let chatTable = false;
+const hasChatTable = () => chatTable || (chatTable = !!queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='voip_call_speaker_roles'"));
+type Manual = { roles: Record<string, Role>; by: string | null; at: string };
+function manualRoles(e: Ev, speakerIds: string[]): Manual | null {
+  if (!hasChatTable()) return null;
+  const m = queryRow<{ transcript_at: string | null; roles_json: string; updated_at: string; by_name: string | null }>(
+    "SELECT m.transcript_at,m.roles_json,m.updated_at,u.full_name by_name FROM voip_call_speaker_roles m LEFT JOIN users u ON u.id=m.updated_by WHERE m.event_id=?", [e.id]);
+  if (!m || (m.transcript_at ?? null) !== (e.t_completed ?? null)) return null;
+  try {
+    const roles = JSON.parse(m.roles_json) as Record<string, Role>;
+    const ok = speakerIds.length === 2 && speakerIds.every(id => roles[id] === "expert" || roles[id] === "customer") && new Set(speakerIds.map(id => roles[id])).size === 2;
+    return ok ? { roles, by: m.by_name, at: m.updated_at } : null;
+  } catch { return null; }
+}
+/** Effective roles for an event: a valid manual override wins ("for everyone": call page, Ahmad feed), else the automatic guess. */
+function effectiveRoles(e: Ev, r: Result): { roles: Record<string, Role>; source: "channel" | "text" | "manual" | null; manual: Manual | null } {
+  const manual = manualRoles(e, (r.speakers ?? []).map(s => s.id));
+  if (manual) return { roles: manual.roles, source: "manual", manual };
+  return { ...speakerRoles(r, e.direction), manual: null };
+}
+export type RoleSaveError = "not_completed" | "not_two_speakers" | "bad_speaker" | "stale_transcript";
+/** Manager-only (checked by the route). Sets which of exactly two speakers is the expert; the other becomes the customer. Audited. */
+export function saveSpeakerRoles(eventId: number, actor: AuthUser, expertSpeakerId: string, transcriptAt?: string | null): RoleSaveError | null {
+  const e = ctEvent(eventId);
+  if (!e || textState(e) !== "completed" || !e.t_result) return "not_completed";
+  if (transcriptAt !== undefined && transcriptAt !== null && transcriptAt !== e.t_completed) return "stale_transcript";
+  const r = JSON.parse(e.t_result) as Result;
+  const ids = (r.speakers ?? []).map(s => s.id);
+  if (ids.length !== 2) return "not_two_speakers";
+  if (!ids.includes(expertSpeakerId)) return "bad_speaker";
+  ensureCtChatSchema();
+  const before = effectiveRoles(e, r);
+  const roles: Record<string, Role> = Object.fromEntries(ids.map(id => [id, id === expertSpeakerId ? "expert" : "customer"]));
+  const now = new Date().toISOString();
+  runImmediateTransaction(() => {
+    executeChanges(`INSERT INTO voip_call_speaker_roles(event_id,transcript_at,roles_json,updated_by,updated_at) VALUES(?,?,?,?,?)
+      ON CONFLICT(event_id) DO UPDATE SET transcript_at=excluded.transcript_at,roles_json=excluded.roles_json,updated_by=excluded.updated_by,updated_at=excluded.updated_at`,
+      [e.id, e.t_completed, JSON.stringify(roles), actor.id, now]);
+    executeChanges("INSERT INTO voip_call_speaker_role_log(event_id,transcript_at,before_json,before_source,after_json,actor_id,at) VALUES(?,?,?,?,?,?,?)",
+      [e.id, e.t_completed, JSON.stringify(before.roles), before.source, JSON.stringify(roles), actor.id, now]);
+  });
+  chatTable = true;
+  return null;
+}
+
 export function transcriptView(e: Ev, opts: { maskNames?: boolean } = {}) {
   const st = textState(e);
   if (st !== "completed" || !e.t_result) return null;
   const r = JSON.parse(e.t_result) as Result & { notice?: string; durationSeconds?: number };
-  const { roles, source } = speakerRoles(r, e.direction);
+  const { roles, source, manual } = effectiveRoles(e, r);
   const label = (id: string, i: number) => roles[id] === "expert" ? (opts.maskNames || !e.expert_name ? "کارشناس" : `${e.expert_name} (کارشناس)`)
     : roles[id] === "customer" ? (opts.maskNames || !e.customer_name ? "مشتری" : `${e.customer_name} (مشتری)`) : `گوینده ${(i + 1).toLocaleString("fa-IR")}`;
   const ids = (r.speakers ?? []).map(s => s.id);
-  return { audioSeparation: r.audioSeparation ?? null, roleSource: source, durationSeconds: r.durationSeconds ?? null,
+  return { audioSeparation: r.audioSeparation ?? null, roleSource: source, ...(manual ? { roleByName: opts.maskNames ? null : manual.by, roleAt: manual.at } : {}), durationSeconds: r.durationSeconds ?? null,
     speakers: ids.map((id, i) => ({ id, role: roles[id] ?? null, label: label(id, i) })),
     segments: (r.segments ?? []).map(s => ({ speakerId: s.speakerId, role: roles[s.speakerId] ?? null, label: label(s.speakerId, ids.indexOf(s.speakerId)), start: s.startSeconds, end: s.endSeconds, text: s.text })) };
 }
@@ -155,7 +218,14 @@ export function callView(e: Ev, u: AuthUser, summary: (id: string) => any) {
   return { ...rowView(e, summary), ...(manager || own ? {} : { flagged: false }), isManager: manager, isViewer: ctAdminViewer(u), canEdit: own && st === "completed", canRetranscribe: manager && (st === "failed" || st === "completed") && !!e.recording_file,
     recording: e.has_recording && e.recording_file ? { externalId: e.provider_id, from: callReportDay(e.started_at), to: callReportDay(e.ended_at) } : null,
     transcript: transcriptView(e),
-    review: manager || own ? { flagged: !!e.r_flagged, note: e.r_note ?? "", updatedAt: e.r_at, updatedByName: e.r_by } : null };
+    review: manager || own ? { flagged: !!e.r_flagged, note: e.r_note ?? "", updatedAt: e.r_at, updatedByName: e.r_by } : null,
+    ...(ctChatOn(u) ? chatExtras(e, manager, st) : {}) };
+}
+/** CT-CHAT additions to the call payload (only when the chat flag is on for the viewer). */
+function chatExtras(e: Ev, manager: boolean, st: TextState) {
+  let fullText: string | null = null, speakers = 0;
+  if (st === "completed" && e.t_result) { try { const r = JSON.parse(e.t_result) as Result; fullText = typeof r.text === "string" ? r.text : null; speakers = (r.speakers ?? []).length; } catch { /* ignore */ } }
+  return { chat: true, canAssignRoles: manager && st === "completed" && speakers === 2, fullText, transcriptAt: st === "completed" ? e.t_completed : null, simCall: e.mobile_device_id != null };
 }
 
 /* ---------------- report ---------------- */

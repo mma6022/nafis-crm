@@ -16,11 +16,13 @@ export type CtRow = { eventId: number; callLogId: number | null; customerId: num
   status: string; startedAt: string; endedAt: string | null; durationSeconds: number | null; expertUserId: number | null; expertName: string | null; hasRecording: boolean;
   textState: TextState; textPhase: string | null; textError: string | null; attempts: number; nextAttemptAt: string | null; summary: CtSummary | null; flagged: boolean };
 export type CtSegment = { speakerId: string; role: 'expert' | 'customer' | null; label: string; start: number; end: number; text: string };
-export type CtTranscript = { audioSeparation: 'stereo_channels' | 'diarization' | null; roleSource: string; durationSeconds: number | null; speakers: { id: string; role: string | null; label: string }[]; segments: CtSegment[] };
+export type CtTranscript = { audioSeparation: 'stereo_channels' | 'diarization' | null; roleSource: 'channel' | 'text' | 'manual' | 'none' | string; roleByName?: string | null; roleAt?: string | null; durationSeconds: number | null; speakers: { id: string; role: string | null; label: string }[]; segments: CtSegment[] };
 export type CtCall = CtRow & { isManager: boolean; isViewer?: boolean; canEdit: boolean; canRetranscribe: boolean; recording: { externalId: string; from: string; to: string } | null;
-  transcript: CtTranscript | null; review: { flagged: boolean; note: string; updatedAt: string | null; updatedByName: string | null } | null };
+  transcript: CtTranscript | null;
+  /* CT-CHAT (flag.call_transcripts.chat): only present when the chat flag is ON for this user */
+  chat?: boolean; canAssignRoles?: boolean; fullText?: string | null; transcriptAt?: string | null; simCall?: boolean; review: { flagged: boolean; note: string; updatedAt: string | null; updatedByName: string | null } | null };
 export type CtReport = { from: string; to: string; total: number; page: number; pageSize: number; manager?: boolean; experts: { id: number; name: string }[]; rows: CtRow[] };
-export type CtConfig = { enabled: boolean; manager?: boolean; viewer?: boolean };
+export type CtConfig = { enabled: boolean; manager?: boolean; viewer?: boolean; chat?: boolean };
 
 export const useCtConfig = (enabled = true) => useQuery<CtConfig>({ queryKey: ['call-transcripts', 'config'], enabled, staleTime: 60_000, retry: false,
   queryFn: () => ctReq<CtConfig>('GET', '/call-transcripts/config').catch(() => ({ enabled: false })) });

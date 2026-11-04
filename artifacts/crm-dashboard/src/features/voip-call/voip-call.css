@@ -196,3 +196,7 @@ html.ssv2-on .vcx.vc-s132p{margin-bottom:calc(var(--ss-dock-h,64px) + 150px + en
   html.ssv2-on .vcx.vc-s132p{margin-bottom:16px}
   html.ssv2-on .app-main{padding-bottom:calc(var(--ss-dock-h,64px) + 150px + env(safe-area-inset-bottom,0px))}
 }
+/* CT-CHAT «متن تماس» on the customer «سابقه‌ی تماس‌ها» (flag.call_transcripts.chat) */
+.vc-ctl{align-self:flex-start;display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 14px;margin-top:6px;border:1px solid var(--nf-line);border-radius:12px;background:#fff;color:var(--nf-ink);font-size:14px;font-weight:700;text-decoration:none}
+.vc-ctl .i{width:16px;height:16px}.vc-ctl:focus-visible{outline:2px solid var(--nf-brand-600);outline-offset:2px}
+.vc-cts{display:inline-flex;flex-wrap:wrap;gap:6px;margin-top:6px}

@@ -49,6 +49,7 @@ function C3Note({ text }: { text: string }) {
     {long ? <button type="button" className="c3-nmore" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'کمتر' : 'بیشتر'}</button> : null}
   </>;
 }
+const r3sub = (s: string) => (s === 'queued' || s === 'waiting' ? '، در صف' : ''); // CT-CHAT status chip suffix
 export function C3History({ customerId }: { customerId: number }) {
   const q = useCallHistory(customerId);
   const items = q.data?.items ?? [];
@@ -56,9 +57,11 @@ export function C3History({ customerId }: { customerId: number }) {
   const shown = all ? items : items.slice(0, C3_SHOW);
   const more = items.length - shown.length;
   // CALL-TRANSCRIPTS (flag.call_transcripts.ui): link a recorded call to its call view (the v2 shell has no CallHistory).
-  const ctOn = Boolean(useCtConfig(Boolean(customerId)).data?.enabled);
+  const ctCfg = useCtConfig(Boolean(customerId)).data;
+  const ctOn = Boolean(ctCfg?.enabled);
+  const ctChat = Boolean(ctCfg?.chat); // CT-CHAT (flag.call_transcripts.chat): «متن تماس» only on completed rows, a status chip on the rest
   const ctCalls = useCustomerCtCalls(customerId, ctOn).data?.calls ?? [];
-  const ctByLog = new Map(ctCalls.filter((c) => c.hasRecording && c.callLogId != null).map((c) => [c.callLogId as number, c]));
+  const ctByLog = new Map(ctCalls.filter((c) => (ctChat || c.hasRecording) && c.callLogId != null).map((c) => [c.callLogId as number, c]));
   return <Side cls="c3h" icon={<History size={16} aria-hidden="true" />} title="سابقه‌ی تماس‌ها" testId="c3-history"
     sub={q.isLoading ? 'در حال بارگذاری…' : `${faN(items.length)}${q.data?.nextBefore ? '+' : ''} تماس، جدیدترین بالا`}>
     {q.isError ? <p className="hx-err" role="alert">سابقه بارگذاری نشد.</p>
@@ -67,7 +70,10 @@ export function C3History({ customerId }: { customerId: number }) {
         <div className="clh"><span className="cd">{jAt(c.at)}</span><span className={`hx-tg ${c.tone}`}>{c.result}</span></div>
         {c.by ? <span className="ce"><User size={13} aria-hidden="true" /> {c.by}</span> : null}
         {c.note ? <C3Note text={faN(c.note)} /> : null}
-        {ctByLog.has(c.id) ? <span className="c3-ctr"><Link href={`/call-view/${ctByLog.get(c.id)!.eventId}`} className="c3-ct" data-testid={`c3-ct-${c.id}`}>متن و خلاصه‌ی تماس</Link><span className={`c3-cts t-${ctByLog.get(c.id)!.textState}`}>{TXS[ctByLog.get(c.id)!.textState]?.[0]}</span></span> : null}</li>)}</ol>
+        {ctChat && ctByLog.has(c.id) ? <span className="c3-ctr">{ctByLog.get(c.id)!.textState === 'completed'
+          ? <Link href={`/call-view/${ctByLog.get(c.id)!.eventId}`} className="c3-ct" data-testid={`c3-ct-${c.id}`}>متن تماس</Link>
+          : <span className={`c3-cts t-${ctByLog.get(c.id)!.textState}`} data-testid={`c3-cts-${c.id}`}>{TXS[ctByLog.get(c.id)!.textState]?.[0]}{r3sub(ctByLog.get(c.id)!.textState)}</span>}</span>
+        : ctByLog.has(c.id) ? <span className="c3-ctr"><Link href={`/call-view/${ctByLog.get(c.id)!.eventId}`} className="c3-ct" data-testid={`c3-ct-${c.id}`}>متن و خلاصه‌ی تماس</Link><span className={`c3-cts t-${ctByLog.get(c.id)!.textState}`}>{TXS[ctByLog.get(c.id)!.textState]?.[0]}</span></span> : null}</li>)}</ol>
         {more > 0 ? <button type="button" className="c3-more" onClick={() => setAll(true)} data-testid="c3-calls-more">{faN(more)}{q.data?.nextBefore ? '+' : ''} تماس دیگر</button>
           : all && items.length > C3_SHOW ? <button type="button" className="c3-more" onClick={() => setAll(false)} data-testid="c3-calls-less">نمایش کمتر</button> : null}</>}
   </Side>;

@@ -5,7 +5,7 @@ import { CallReportDialog } from '@/components/voip/CallReportDialog';
 import { getListCallsQueryKey, useListCalls, type CallRecord } from '@workspace/api-client-react';
 import '@/components/voip/CallReportDialog.css';
 import { Link } from 'wouter';
-import { useCtConfig, useCustomerCtCalls } from '@/features/call-transcripts/api';
+import { TXS, useCtConfig, useCustomerCtCalls } from '@/features/call-transcripts/api';
 import { Modal } from '@/components/DataTools';
 import { formatDateTime } from '@/components/CrmShell';
 import { Pagination } from '@/components/DataTools';
@@ -41,9 +41,12 @@ export function CustomerCallHistory({
   });
   const items = calls.data?.items ?? [];
   // call-transcripts v1.1 (flag.call_transcripts.ui; OFF = nothing below renders): «متن و خلاصه‌ی تماس» link per recorded call.
-  const ctOn = Boolean(useCtConfig(Boolean(customerId)).data?.enabled);
+  const ctCfg = useCtConfig(Boolean(customerId)).data;
+  const ctOn = Boolean(ctCfg?.enabled);
+  const ctChat = Boolean(ctCfg?.chat); // CT-CHAT (flag.call_transcripts.chat): «متن تماس» only on completed rows, a status chip on the rest
   const ctCalls = useCustomerCtCalls(customerId, ctOn).data?.calls ?? [];
   const ctByLog = new Map(ctCalls.filter((c) => c.hasRecording && c.callLogId != null).map((c) => [c.callLogId as number, c.eventId]));
+  const ctRow = new Map(ctCalls.filter((c) => c.callLogId != null).map((c) => [c.callLogId as number, c]));
   const [openId, setOpenId] = useState<number | null>(null);
   const selectedRowRef = useRef<HTMLButtonElement | null>(null);
 
@@ -93,7 +96,10 @@ export function CustomerCallHistory({
             <span>کارشناس فعلی پرونده: {call.customerSalespersonName || 'بدون تخصیص'}</span>
           </span>
         </button>
-        {ctByLog.has(call.id) ? <Link href={`/call-view/${ctByLog.get(call.id)}`} className="call-history-ct" style={{ alignSelf: 'flex-start', fontSize: 14, fontWeight: 600, color: 'var(--nf-brand-600)', padding: '4px 10px', minHeight: 32 }} data-testid={`link-call-transcript-${call.id}`}>متن و خلاصه‌ی تماس</Link> : null}
+        {ctChat ? (() => { const r = ctRow.get(call.id); if (!r) return null;
+          return r.textState === 'completed' ? <Link href={`/call-view/${r.eventId}`} className="call-history-ct" style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 600, color: 'var(--nf-brand-600)', padding: '0 12px', minHeight: 44, border: '1px solid var(--nf-line)', borderRadius: 12, background: '#fff' }} data-testid={`link-call-transcript-${call.id}`}><MessageSquareText size={16} aria-hidden="true" />متن تماس</Link>
+            : <span className="call-history-cts" style={{ alignSelf: 'flex-start', fontSize: 13, fontWeight: 600, color: 'var(--nf-ink-muted)', padding: '4px 10px', borderRadius: 8, background: 'var(--nf-surface-2)' }} data-testid={`ct-state-${call.id}`} data-state={r.textState}>{TXS[r.textState]?.[0]}{r.textState === 'queued' || r.textState === 'waiting' ? '، در صف' : ''}</span>; })()
+        : ctByLog.has(call.id) ? <Link href={`/call-view/${ctByLog.get(call.id)}`} className="call-history-ct" style={{ alignSelf: 'flex-start', fontSize: 14, fontWeight: 600, color: 'var(--nf-brand-600)', padding: '4px 10px', minHeight: 32 }} data-testid={`link-call-transcript-${call.id}`}>متن و خلاصه‌ی تماس</Link> : null}
         </div>
       ))}
     </div>

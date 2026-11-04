@@ -1,10 +1,12 @@
-/** «یک تماس» page (design v1.1 scenes 18–21 expert, 24–26 manager): summary on top, sticky player, chat transcript with speakers. */
+/** «یک تماس» page (design v1.1 scenes 18–21 expert, 24–26 manager): summary on top, sticky player, chat transcript with speakers.
+ *  CT-CHAT: when the server marks the call `chat` (flag.call_transcripts.chat ON for this user) the transcript section is ChatTranscriptCard; otherwise the old TranscriptCard. */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'wouter';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ArrowRight, Check, Copy, Eye, Flag, Lock, MessageSquareText, Pause, Pencil, Phone as PhoneIcon, Play, RefreshCw, ShieldCheck, Sparkles, StickyNote } from 'lucide-react';
 import { atText, CtError, ctReq, durText, fa, mmss, PHASES, phaseIndex, type CtCall } from './api';
 import { Phone, StatusChip, TextChip } from './shared';
+import { ChatTranscriptCard } from './ChatTranscript';
 import './ct.css';
 
 const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
@@ -33,7 +35,7 @@ export default function CallView() {
     </section>
     <SummaryCard c={c} onSaved={set} />
     {c.isManager ? <ReviewCard c={c} onSaved={set} /> : null}
-    <TranscriptCard c={c} onSaved={set} mgr={mgr || c.isManager} />
+    {c.chat ? <ChatTranscriptCard c={c} onSaved={set} before={<ExpertReviewNote c={c} />} /> : <TranscriptCard c={c} onSaved={set} mgr={mgr || c.isManager} />}
   </div>;
 }
 
