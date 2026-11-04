@@ -685,3 +685,25 @@
 /* stored file whose bytes are not a viewable image */
 .bbt .media.broken{height:auto;min-height:0;background:var(--nf-surface-2);display:flex;align-items:center;justify-content:center;padding:18px}
 .bbt .media .nopv{font-size:14px;color:var(--nf-ink-soft);text-align:center}
+
+/* desktop (≥1024): three bounded columns between the CRM top bar and the dock — list | chat | customer; only the thread scrolls,
+   the composer sits at the bottom of the chat column (same model as 390) and never under the dock */
+@media (min-width:1024px){
+.bbt .bbpg{container-type:inline-size}
+.bbt .bx{align-items:stretch;height:calc(100vh - 220px);height:calc(100dvh - 220px);min-height:440px}
+.bbt .bx>.pane{height:100%;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.bbt .bx>.pane.ch{display:flex;flex-direction:column;overflow:hidden}
+.bbt .bx>.pane.ch>*{flex:none}
+.bbt .bx>.pane.ch>.th{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.bbt .bx>.pane.ch>.cz{position:relative;bottom:auto}
+.bbt .bx .chh{position:relative;top:auto}
+.bbt .bx .cz .pop{max-height:min(380px,calc(100dvh - 380px));overflow-y:auto}
+}
+@media (max-width:1199px) and (min-width:1024px){.bbt .bx{grid-template-columns:280px minmax(0,1fr) 240px}.bbt .bx .cp{display:block}}
+@container (max-width:1060px){.bbt .bx{grid-template-columns:270px minmax(0,1fr) 230px}.bbt .bx.np{grid-template-columns:270px minmax(0,1fr)}}
+/* Bale-own «مزاحم نشو» bar: in-flow under the modal header, one line */
+.bbt .md .bdnd{margin:0 0 14px;padding:6px 6px 6px 12px}
+.bbt .md .bdnd span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bbt .md .bdnd .btn{flex:none;white-space:nowrap}
+/* @username / @botfather inside Persian text: an unbreakable LTR island */
+.bbt .u[dir=ltr]{unicode-bidi:isolate;white-space:nowrap}

@@ -28,7 +28,7 @@ export const Unverified = () => <span className="chip uv" title="شماره را
 
 export function useToast() {
   const [t, setT] = useState<string | null>(null);
-  useEffect(() => { if (!t) return; const h = setTimeout(() => setT(null), 2600); return () => clearTimeout(h); }, [t]);
+  useEffect(() => { if (!t) return; const h = setTimeout(() => setT(null), 4000); return () => clearTimeout(h); }, [t]);
   return { toast: setT, node: t ? <div className="toast on" role="status"><I n="check" /><span>{t}</span></div> : null };
 }
 export function Steps({ labels, s, err, onBack }: { labels: string[]; s: number; err?: boolean; onBack?: (n: number) => void }) {
@@ -40,13 +40,21 @@ export function Steps({ labels, s, err, onBack }: { labels: string[]; s: number;
       <li key={l} className={`${dn ? 'dn' : ''}${er ? ' er' : ''}`} aria-current={cur ? 'step' : undefined}>{inner}</li>];
   })}</ol>;
 }
-export function Modal({ cls = '', title, sub, steps, onClose, children, foot }: { cls?: string; title: string; sub: string; steps?: ReactNode; onClose: () => void; children: ReactNode; foot: ReactNode }) {
+/* «مزاحم نشو» for Bale forms: in-flow under the modal header (not fixed; scrolls with the form). The CRM-wide DND pill/bar
+   skips anything inside [data-bbdnd] — see AssistantDock useForeignOverlay. «خاموش کن» hides it for this session only. */
+let dndOff = false;
+function DndBar() {
+  const [off, setOff] = useState(dndOff);
+  if (off) return null;
+  return <div className="dnd bdnd" role="status"><I n="moon" /><span>مزاحم نشو تا این فرم باز است</span><button className="btn" type="button" onClick={() => { dndOff = true; setOff(true); }}>خاموش کن</button></div>;
+}
+export function Modal({ cls = '', title, sub, steps, onClose, children, foot }: { cls?: string; title: string; sub: ReactNode; steps?: ReactNode; onClose: () => void; children: ReactNode; foot: ReactNode }) {
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose]);
-  return <div className="mx"><div className={`md ${cls}`} role="dialog" aria-modal="true" aria-labelledby="mdt">
+  return <div className="mx" data-bbdnd=""><div className={`md ${cls}`} role="dialog" aria-modal="true" aria-labelledby="mdt">
     <div className="mh"><div className="t"><h2 id="mdt">{title}</h2><p>{sub}</p>{steps}</div><button className="ib" type="button" onClick={onClose} aria-label="بستن"><I n="x" /></button></div>
-    <div className="mb">{children}</div><div className="mf">{foot}</div></div></div>;
+    <div className="mb"><DndBar />{children}</div><div className="mf">{foot}</div></div></div>;
 }
 export function Confirm({ title, items, foot, ic = 'alert' }: { title: string; items: string[]; foot: ReactNode; ic?: string }) {
-  return <div className="mx cfx"><div className="md cf" role="alertdialog" aria-modal="true" aria-labelledby="cft" aria-describedby="cfd">
+  return <div className="mx cfx" data-bbdnd=""><div className="md cf" role="alertdialog" aria-modal="true" aria-labelledby="cft" aria-describedby="cfd">
     <div className="cfb"><div className="ci"><I n={ic} /></div><h2 id="cft">{title}</h2><ul id="cfd">{items.map((t) => <li key={t}>{t}</li>)}</ul></div><div className="mf">{foot}</div></div></div>;
 }

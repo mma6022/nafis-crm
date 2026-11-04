@@ -353,7 +353,9 @@ function CustomerDetailFull() {
     const nodes = ids.map((key) => document.getElementById(`sec-${key}`)).filter(Boolean) as HTMLElement[];
     if (!nodes.length || typeof IntersectionObserver === 'undefined') return;
     const observer = new IntersectionObserver((entries) => {
-      const visible = entries.filter((entry) => entry.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+      const vis = entries.filter((entry) => entry.isIntersecting);
+      // bale v1.1: #sec-bale sits inside #sec-calls; when it is in the band it wins over its parent
+      const visible = vis.find((entry) => entry.target.id === 'sec-bale') ?? vis.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
       if (visible) setActiveSec(visible.target.id.replace('sec-', ''));
     }, { rootMargin: '-80px 0px -55% 0px' });
     nodes.forEach((node) => observer.observe(node));
