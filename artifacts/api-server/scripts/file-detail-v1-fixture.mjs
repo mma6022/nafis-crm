@@ -56,6 +56,9 @@ try {
   const t1 = new Date("2026-01-01T09:11:00.000Z");
   assert.equal((await L.fdResendSignatureLink(sp(3), 98, 263, t1)).status, 501, "provider not confirmed: refuse honestly");
   assert.equal(count("SELECT COUNT(*) n FROM file_detail_link_resends"), 0);
+  assert.equal(gens(), before, "501: no contract/generation row created or changed");
+  assert.equal(count("SELECT COUNT(*) n FROM contract_generations"), 4, "501: no new generation");
+  assert.equal(count("SELECT COUNT(*) n FROM loan_application_stage_history"), 0, "501: nothing logged as sent");
   assert.deepEqual(L.fdLinkResendState(98, t1), { available: false, items: [{ generationId: 263, purpose: "primary", contractNumber: "N1", providerStatus: "readyForSign",
     createdAt: "2026-01-01T09:00:00.000Z", firstSentAt: "2026-01-01T09:00:00.000Z", lastSentAt: "2026-01-01T09:00:00.000Z", retryAfterSeconds: 0 }] });
 
