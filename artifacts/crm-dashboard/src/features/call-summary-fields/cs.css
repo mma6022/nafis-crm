@@ -146,3 +146,4 @@
 .csf .rcs ul,.csf.rcs ul{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px}
 .csf.rcs li{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:14px}
 .csf.rcs{margin-top:12px;padding:12px;border:1px solid var(--nf-line);border-radius:12px;background:var(--nf-surface)}
+.csf .hx li.rj{opacity:.62;background:transparent;border:1px dashed var(--nf-line)}.csf .hx li.rj b{text-decoration:line-through}

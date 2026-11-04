@@ -6,7 +6,8 @@
  * - First call: the first-call form is the file; its items are saved with the form (cs_call_items q:<id>, cs_file_values).
  * - Later calls: values stay in that call's summary. A value different from the file becomes a PROPOSAL; the file changes only
  *   when the expert presses «اعمال در پرونده» (one) or «اعمال همه». «نه» keeps the file value. NEVER an automatic file update.
- * - History (cs_file_values): value, date, source call, approver. Rejected proposals never enter it.
+ * - History (cs_file_values): value, date, source call, approver. Rejected proposals are listed in the history too (Mohammad,
+ *   §6 Q14 change): date, source call and who rejected, marked rejected; they never change the file value.
  * Nothing here sends a message / SMS / notification.
  */
 import type { AuthUser } from "./auth";
@@ -290,13 +291,20 @@ export function customerItems(customerId: number, u: AuthUser) {
   const { cur, values } = fileValues(customerId);
   const hist = queryRows<{ id: number; item_key: CsKey; value_json: string | null; source: string; event_id: number | null; approved_name: string | null; created_at: string }>(
     "SELECT id,item_key,value_json,source,event_id,approved_name,created_at FROM cs_file_values WHERE customer_id=? ORDER BY id", [customerId]);
+  const rejected = queryRows<{ item_key: CsKey; event_id: number; new_value_json: string | null; file_value_json: string | null; decided_name: string | null; decided_at: string | null; created_at: string }>(
+    "SELECT item_key,event_id,new_value_json,file_value_json,decided_name,decided_at,created_at FROM cs_file_proposals WHERE customer_id=? AND status='rejected' ORDER BY id", [customerId]);
   const items = CS_KEYS.map((k) => {
     const h = hist.filter((x) => x.item_key === k).map((x) => ({ value: parse(x.value_json), at: x.created_at, source: SRC_LABEL[x.source] ?? x.source, sourceKey: x.source,
       eventId: x.event_id, by: x.approved_name }));
     const v = values ? values[k] : null;
     const last = h.length && csSame(k, h[h.length - 1].value, v) ? h[h.length - 1] : null;
     const meta = last ?? (v != null ? { value: v, at: cur.at, source: cur.source === "file" ? "پرونده" : "تماس اول", sourceKey: cur.source ?? "first_call", eventId: null, by: cur.by } : null);
-    return { key: k, label: CS_LABEL[k], value: v, meta, history: last ? h.slice(0, -1).reverse() : h.slice().reverse() };
+    // v1.2.1 §5.2: every value with its status (applied / not_applied) and user; the current value is in the list too, a rejected one never is current
+    const kept = h.map((x) => ({ ...x, status: "applied" as "applied" | "not_applied", rejected: false as boolean, fileValue: null as unknown }));
+    const rej = rejected.filter((x) => x.item_key === k).map((x) => ({ value: parse(x.new_value_json), at: x.decided_at ?? x.created_at, source: SRC_LABEL.proposal, sourceKey: "proposal_rejected",
+      eventId: x.event_id, by: x.decided_name, status: "not_applied" as "applied" | "not_applied", rejected: true as boolean, fileValue: parse(x.file_value_json) }));
+    const history = [...kept, ...rej].map((x, n) => ({ x, n })).sort((a, b) => (a.x.at < b.x.at ? 1 : a.x.at > b.x.at ? -1 : b.n - a.n)).map((y) => y.x);
+    return { key: k, label: CS_LABEL[k], value: v, meta, history };
   });
   const pending = queryRows<{ event_id: number; n: number }>("SELECT event_id, COUNT(*) n FROM cs_file_proposals WHERE customer_id=? AND status='pending' GROUP BY event_id ORDER BY MAX(id) DESC", [customerId]);
   return { customerId, hasFile: values != null, items, count: items.filter((i) => i.value != null).length, total: 7,

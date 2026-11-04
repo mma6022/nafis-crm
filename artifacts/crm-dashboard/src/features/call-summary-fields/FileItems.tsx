@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Link } from 'wouter';
 import { ChevronDown, Clock, Flag, Pencil, X } from 'lucide-react';
 import { CsControl, countLine } from './controls';
-import { fa, shortDay, useCsConfig, useCsFile, useCsFileSet, valueText, type CsHist, type CsKey } from './api';
+import { dayText, fa, shortDay, useCsConfig, useCsFile, useCsFileSet, valueText, type CsHist, type CsKey } from './api';
 import './cs.css';
 
 const srcLine = (m: CsHist) => `${m.source}${m.at ? `، ${shortDay(m.at)}` : ''}${m.by && m.sourceKey === 'proposal' ? `؛ تأیید: ${m.by}` : ''}`;
@@ -30,9 +30,9 @@ export default function CsFileItems({ customerId }: { customerId: number }) {
           {d.canEdit && i.key !== 'planType' && open !== i.key ? <button type="button" className="btn lk sm ed" onClick={() => setOpen(i.key)} data-testid={`cs-file-edit-${i.key}`}><Pencil className="i" aria-hidden="true" />{i.value == null ? 'تکمیل' : 'اصلاح'}</button> : null}</div>
         {open === i.key ? <div className="mi-c"><CsControl k={i.key} value={i.value} onChange={(v) => set.mutate({ key: i.key, value: v }, { onSuccess: () => setOpen(null) })} />
           <button type="button" className="btn lk sm" onClick={() => setOpen(null)}>بستن</button></div> : null}
-        {i.history.length ? <details className="hx" open data-testid={`cs-hist-${i.key}`}><summary><Clock className="i" aria-hidden="true" />تاریخچه</summary><ul>{i.history.map((h, n) => <li key={n}>
-          <b>{valueText(i.key, h.value) || 'بی‌مقدار'}</b>{h.at ? <span>{shortDay(h.at)}</span> : null}
-          {h.eventId ? <Link href={`/call-view/${h.eventId}`}>{h.source}</Link> : <span>{h.source}</span>}{h.by ? <span>{h.sourceKey === 'proposal' ? 'تأیید' : 'ثبت'}: {h.by}</span> : null}</li>)}</ul></details> : null}
+        {i.history.length ? <details className="hx" open data-testid={`cs-hist-${i.key}`}><summary><Clock className="i" aria-hidden="true" />تاریخچه</summary><ul>{i.history.map((h, n) => <li key={n} className={h.rejected ? 'rj' : undefined} data-status={h.status ?? 'applied'} data-testid={`cs-hist-${i.key}-${n}`}>
+          <b>{valueText(i.key, h.value) || 'بی‌مقدار'}</b>{h.rejected ? <span className="chip" data-testid={`cs-hist-rj-${i.key}`}><X className="i" aria-hidden="true" />اعمال نشد</span> : null}{h.at ? <span>{dayText(h.at)}</span> : null}
+          {h.eventId ? <Link href={`/call-view/${h.eventId}`}>{h.source}</Link> : <span>{h.source}</span>}{h.by ? <span>{h.rejected ? 'رد' : h.sourceKey === 'proposal' ? 'تأیید' : 'ثبت'}: {h.by}</span> : null}</li>)}</ul></details> : null}
       </li>)}</ul>}
     {set.error instanceof Error ? <p className="err" role="alert">{set.error.message}</p> : null}
   </section>;

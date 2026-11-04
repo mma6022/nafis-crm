@@ -161,7 +161,7 @@ try {
     assert.equal(cs.customerItems(cOn, kazemi).pendingCount, 3, "file badge «3 پیشنهاد تغییر»");
     assert.equal(await cs.csAfterSummary(later.ext, "hash-1", mock([])), 0, "same hash → skipped");
   });
-  await ok("«نه» keeps the file value, shows rejected; history has no rejected value", async () => {
+  await ok("«نه» keeps the file value, shows rejected; the file history lists the rejection (date, source call, who rejected)", async () => {
     const p = cs.callItems(later.id, kazemi).proposals.find((x) => x.key === "arrears");
     const r = await call("POST", `/call-summary-fields/proposals/${p.id}/reject`, "kazemi");
     assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -169,6 +169,14 @@ try {
     assert.equal(ha.currentFileAnswers(cOn).answers.arrears, "yes");
     assert.equal(queryRow("SELECT COUNT(*) n FROM cs_file_values WHERE customer_id=? AND item_key='arrears' AND value_json='\"no\"'", [cOn]).n, 0);
     assert.equal((await call("POST", `/call-summary-fields/proposals/${p.id}/apply`, "kazemi")).status, 409, "decided → not again");
+    const ar = cs.customerItems(cOn, kazemi).items.find((i) => i.key === "arrears");
+    assert.equal(ar.value, "yes", "file value unchanged");
+    const rj = ar.history.filter((h) => h.rejected);
+    assert.equal(rj.length, 1, "one rejected entry in history");
+    assert.equal(rj[0].value, "no"); assert.equal(rj[0].fileValue, "yes"); assert.equal(rj[0].eventId, later.id); assert.equal(rj[0].sourceKey, "proposal_rejected");
+    assert.equal(rj[0].by, queryRow("SELECT name FROM salespersons WHERE id=6").name); assert.ok(rj[0].at, "rejection date");
+    assert.equal(rj[0].status, "not_applied");
+    assert.ok(ar.history.some((h) => !h.rejected && h.status === "applied" && h.value === "yes"), "current value listed as applied");
   });
   await ok("another expert cannot decide (403); a non-visible call is 404", async () => {
     const p = cs.callItems(later.id, kazemi).proposals.find((x) => x.key === "creditRank");

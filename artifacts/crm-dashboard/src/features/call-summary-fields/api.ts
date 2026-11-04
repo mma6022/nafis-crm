@@ -14,7 +14,7 @@ export type CsItem = { key: CsKey; label: string; state: CsState; value: unknown
 export type CsProposal = { id: number; key: CsKey; fileValue: unknown; newValue: unknown; status: 'pending' | 'applied' | 'rejected'; decidedBy: string | null; decidedAt: string | null };
 export type CsCall = { eventId: number; customerId: number | null; customerName?: string | null; kind: 'first' | 'later' | 'none'; items: CsItem[]; proposals: CsProposal[]; count: number; total: number;
   pendingCount?: number; canEdit: boolean; canDecide: boolean; required: boolean; formSavedAt: string | null; qualificationId?: number | null; extraction: 'none' | 'processing' | 'done' | 'failed'; sim: boolean; textState?: string };
-export type CsHist = { value: unknown; at: string | null; source: string; sourceKey: string; eventId: number | null; by: string | null };
+export type CsHist = { value: unknown; at: string | null; source: string; sourceKey: string; eventId: number | null; by: string | null; status?: 'applied' | 'not_applied'; rejected?: boolean; fileValue?: unknown };
 export type CsFile = { customerId: number; hasFile: boolean; items: { key: CsKey; label: string; value: unknown; meta: CsHist | null; history: CsHist[] }[]; count: number; total: number; pendingCount: number; pendingEventId: number | null; canEdit: boolean };
 export type CsPrefill = { eventId: number | null; items: { key: CsKey; state: CsState; value: unknown; text: string | null; atSec: number | null; reason: string | null }[] };
 export type CsReport = { from: string; to: string; totals: { calls: number; withEmpty: number; empty: number }; experts: { userId: number; name: string; calls: number; withEmpty: number; empty: number; top: { key: CsKey; label: string; n: number } | null }[] };
