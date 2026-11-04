@@ -9,7 +9,7 @@
  *    stays editable; small corner cards / toasts show the live call (no phone for another expert's customer).
  */
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
-import { vcFastAny, vcOn, vcTableExists } from "./voip-call";
+import { vcFastAny, vcOn, vcTableExists, VC_LIVE_MAX_S } from "./voip-call";
 import { customerMatcher, experts, normalizePhone, resolveEvent } from "./voip-after-call";
 import { getAuthUserById, type AuthUser } from "./auth";
 import { dpAfterFirstCallForm } from "./daily-plan";
@@ -281,14 +281,16 @@ export function s132bLive(u: AuthUser, now = new Date()) {
     AND (e.is_live=1 OR julianday(e.ended_at)>=julianday(?)-?/1440.0)
     AND NOT EXISTS (SELECT 1 FROM voip_call_display_exclusions h WHERE h.phone=e.phone)
     ORDER BY e.is_live DESC, e.id DESC LIMIT 6`, [u.id, ext ?? "", tehranDayStartIso(now), iso(now), CARD_KEEP_MIN]);
-  const cards = [];
+  const cards = []; let busy = false;
   for (const e of rows) {
     const s = queryRow<any>("SELECT * FROM s132b_events WHERE event_id=?", [e.id]);
     if (s?.auto_kind === "click" || s?.closed_at) continue;
     if (!s && isClickEvent(e)) continue;
-    cards.push(cardOf(u, e, s));
+    const card = cardOf(u, e, s); cards.push(card);
+    // UNSTICK-1646: a live event whose hang-up never arrived stops closing the VoIP button 2 h after it started (the card itself is unchanged).
+    if (card.live && now.getTime() - Date.parse(e.started_at) <= VC_LIVE_MAX_S * 1000) busy = true;
   }
-  return { cards: cards.slice(0, 3), busy: cards.some((c) => c.live) };
+  return { cards: cards.slice(0, 3), busy };
 }
 function ownEvent(u: U, id: number) {
   return queryRow<Ev>("SELECT * FROM voip_after_call_events WHERE id=? AND expert_user_id=? AND mobile_device_id IS NULL", [id, u.id]) ?? null;

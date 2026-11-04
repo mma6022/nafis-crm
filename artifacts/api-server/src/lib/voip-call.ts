@@ -19,6 +19,13 @@ import { vnaSent } from "./voip-noanswer-sms";
 
 export const VC_ME_TIMEOUT_S = 30;
 const REQUEST_STALE_S = 45, DIAL_STALE_S = 180, TALK_STALE_S = 4 * 3600, NOTICE_KEEP_S = 15 * 60;
+/** UNSTICK-1646 (Mohammad t820u): hard safety net so no click call keeps the VoIP button closed / «در جریان» for long. Release only: it never
+ *  fills a result, never touches the call outcome / CDR / after-call event and never sends an SMS (the no-answer SMS is decided by the CDR alone).
+ *  - An ended call with no saved result leaves the panel (dismissed_at, the same write as «باشه») 3 min after its hang-up / CDR, whichever is
+ *    later; the result stays fillable from the customer's own call / first-call form (and a late first-call form still closes it, firstFormDone).
+ *    Exception, unchanged by design: a file task's ended call (needsResult) keeps the task lock until its result is saved (HANDOFF §برای آدیتیا).
+ *  - A call still marked live 2 h after it started (hang-up never arrived) is closed as error 'stale_cap' (no outcome → no result, no lock). */
+export const VC_RELEASE_AFTER_S = 3 * 60, VC_LIVE_MAX_S = 2 * 3600;
 type U = Pick<AuthUser, "id" | "role"> & { salespersonId?: number | null; customerScope?: string | null; name?: string | null };
 export type VcState = "requesting" | "ring_me" | "dial_cust" | "in_call" | "ended" | "me_timeout" | "error";
 export type VcOutcome = "answered" | "no_answer" | "busy" | null;
@@ -89,13 +96,18 @@ export function vcSweep(now = new Date()) {
   if (!vcTableExists()) return;
   for (const c of queryRows<VcRow>("SELECT * FROM voip_click_calls WHERE active=1")) {
     const age = (now.getTime() - ms(c.updated_at)) / 1000;
-    if (c.state === "ring_me" && c.ring_deadline && now.getTime() >= ms(c.ring_deadline)) end(c.id, "me_timeout", null, now);
+    if ((now.getTime() - ms(c.created_at)) / 1000 > VC_LIVE_MAX_S) end(c.id, "error", null, now, { error_code: "stale_cap" }); // UNSTICK-1646
+    else if (c.state === "ring_me" && c.ring_deadline && now.getTime() >= ms(c.ring_deadline)) end(c.id, "me_timeout", null, now);
     else if (c.state === "requesting" && (now.getTime() - ms(c.created_at)) / 1000 > REQUEST_STALE_S) end(c.id, "error", null, now, { error_code: "request_stale" });
     // R2 VC-CDR: after the expert answers the call stays in dial_cust for the whole talk (the expert's own inuse is not the customer's answer);
     // the idle NewState or the originate CDR ends it, this is only the lost-webhook safety net.
     else if (c.state === "dial_cust" && age > (c.me_answered_at ? TALK_STALE_S : DIAL_STALE_S)) end(c.id, "ended", "no_answer", now);
     else if (c.state === "in_call" && age > TALK_STALE_S) end(c.id, "ended", "answered", now);
   }
+  // UNSTICK-1646: release an ended call's panel / other-customer lock 3 min after hang-up or CDR (never a file task's needsResult lock).
+  executeChanges(`UPDATE voip_click_calls SET dismissed_at=? WHERE active=0 AND state='ended' AND dismissed_at IS NULL AND result_saved_at IS NULL
+      AND NOT (outcome IS NOT NULL AND file_id IS NOT NULL) AND ended_at IS NOT NULL
+      AND julianday(CASE WHEN cdr_at IS NOT NULL AND cdr_at>ended_at THEN cdr_at ELSE ended_at END)<julianday(?)-?/86400.0`, [iso(now), iso(now), VC_RELEASE_AFTER_S]);
 }
 
 /** The CDR (through the existing after-call pipeline) refines the outcome, adds the recording and the event id. Idempotent. */

@@ -177,12 +177,13 @@ function processOne(r: S132Row, c: VcRow, now: Date): void {
 function pendingRows(where: string, params: SqlValue[]) {
   return queryRows<S132Row>(`SELECT s.* FROM s132_calls s WHERE s.auto_at IS NULL AND ${where} ORDER BY s.call_id LIMIT 50`, params);
 }
-/** The first-call form was saved (its call log has a call result, made after the call) → the call leaves the panel and its after-call
+/** The first-call form was saved (its call log has a call result, made at or after the call's start — UNSTICK-1646: the form is often saved
+ *  before the hang-up / CDR sets auto_at) → the call leaves the panel and its after-call
  *  event is closed, even if the browser never sent «dismiss» (reload / closed tab): the next task's call button never stays locked. */
 function firstFormDone(now: Date, userId: number | null) {
   const rows = queryRows<S132Row & { event_id: number | null }>(`SELECT s.*, k.event_id FROM s132_calls s JOIN voip_click_calls k ON k.id=s.call_id
      WHERE s.auto_kind='first_form' AND julianday(s.created_at)>=julianday(?)-1 ${userId == null ? "" : "AND s.user_id=?"}
-       AND EXISTS (SELECT 1 FROM call_logs l WHERE l.customer_id=s.customer_id AND l.call_result IS NOT NULL AND julianday(l.created_at)>=julianday(s.auto_at))`,
+       AND EXISTS (SELECT 1 FROM call_logs l WHERE l.customer_id=s.customer_id AND l.call_result IS NOT NULL AND julianday(l.created_at)>=julianday(k.created_at))`, // UNSTICK-1646: a form saved during the call (before hang-up / CDR) counts
     userId == null ? [iso(now)] : [iso(now), userId]);
   for (const r of rows) {
     try {

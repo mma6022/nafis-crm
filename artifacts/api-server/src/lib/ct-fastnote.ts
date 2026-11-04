@@ -90,8 +90,8 @@ export function ctfFirstCallTick(now: Date, storedCallSummary: (id: string) => S
   if (!ctfAny()) return;
   try { if (!queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='s132_calls'")) return; } catch { return; }
   ensureCtfSchema();
-  const rows = queryRows<{ call_id: number; user_id: number; customer_id: number; auto_at: string; event_id: number | null }>(
-    `SELECT s.call_id, s.user_id, s.customer_id, s.auto_at, k.event_id FROM s132_calls s JOIN voip_click_calls k ON k.id=s.call_id
+  const rows = queryRows<{ call_id: number; user_id: number; customer_id: number; auto_at: string; event_id: number | null; call_at: string }>(
+    `SELECT s.call_id, s.user_id, s.customer_id, s.auto_at, k.event_id, k.created_at call_at FROM s132_calls s JOIN voip_click_calls k ON k.id=s.call_id
      WHERE s.first_call=1 AND s.auto_kind='first_done' AND julianday(s.created_at)>=julianday(?)-1${userId == null ? "" : " AND s.user_id=?"}
        AND NOT EXISTS (SELECT 1 FROM ct_fastnote_appends a WHERE a.call_id=s.call_id) ORDER BY s.call_id LIMIT 50`,
     userId == null ? [now.toISOString()] : [now.toISOString(), userId]);
@@ -104,7 +104,7 @@ export function ctfFirstCallTick(now: Date, storedCallSummary: (id: string) => S
       const st = ctfSummaryStatus(r.event_id, storedCallSummary, now);
       const old = now.getTime() - Date.parse(r.auto_at) > CTF_GIVE_UP_MIN * 60000;
       if (note) {
-        const log = queryRow<{ id: number }>(`SELECT id FROM call_logs WHERE customer_id=? AND call_result IS NOT NULL AND julianday(created_at)>=julianday(?) ORDER BY id LIMIT 1`, [r.customer_id, r.auto_at]);
+        const log = queryRow<{ id: number }>(`SELECT id FROM call_logs WHERE customer_id=? AND call_result IS NOT NULL AND julianday(created_at)>=julianday(?) ORDER BY id LIMIT 1`, [r.customer_id, r.call_at]); // UNSTICK-1646: form saved before auto_at
         if (!log) continue;
         crmDb.exec("SAVEPOINT ctf");
         try {
