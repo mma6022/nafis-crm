@@ -289,7 +289,11 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const drawer = useRef<HTMLElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
   const activeGroupId = visibleNavGroups.find(group => group.items.some(item => isNavItemActive(item.href)))?.id;
-  const pageTitle = roleTitle ?? basePageTitle;
+  // FILE-DETAIL v1 (Armita r1 §8): the flagged file page names itself in the MOBILE sales-shell top bar; desktop keeps the shell title.
+  const [pageTitleOv, setPageTitleOv] = useState<string | null>(null);
+  useEffect(() => { const on = (e: Event) => setPageTitleOv((e as CustomEvent<{ title?: string | null }>).detail?.title ?? null);
+    window.addEventListener('nafis:page-title', on); return () => window.removeEventListener('nafis:page-title', on); }, []);
+  const pageTitle = (ssV2 && ssMobile && pageTitleOv) || (roleTitle ?? basePageTitle);
   // «بیشتر» starts collapsed on every load (not persisted); it opens by itself only when the current page lives inside it.
   const moreActive = Boolean(roleLayout?.more.some(g => g.items.some(item => isNavItemActive(item.href))));
   const [moreOpen, setMoreOpen] = useState(false);

@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { crmDb, execute, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import { requirePermission } from "./access-control";
 import type { AuthUser } from "./auth";
+import { SALES_MANAGER_ROLE } from "./sales-manager";
 import { saveChatObject, readChatObject, deleteChatObject, validateChatFile } from "./chat-storage";
 
 type Scope = (id: number, actor: AuthUser) => any;
@@ -26,11 +27,15 @@ export function installLoanCaseNotesSchema() {
     UNIQUE(application_id,author_id,client_id));
     CREATE INDEX IF NOT EXISTS idx_loan_case_notes_page ON loan_application_notes(application_id,id DESC);`);
 }
+// FILE-DETAIL v1.1 (Armita r1): notes by a sales manager get the gold bubble; additive field, read-only lookup.
+function isSalesManager(authorId: number): boolean {
+  try { return (queryRow<{ role: string }>("SELECT role FROM users WHERE id=?", [authorId])?.role ?? "") === SALES_MANAGER_ROLE; } catch { return false; }
+}
 function view(note: Note) {
   return {
     id: Number(note.id), applicationId: Number(note.application_id), text: note.text,
     clientId: note.client_id, createdAt: note.created_at,
-    author: { id: Number(note.author_id), name: note.author_name, avatarUrl: null },
+    author: { id: Number(note.author_id), name: note.author_name, avatarUrl: null, manager: isSalesManager(Number(note.author_id)) },
     attachment: note.object_path ? {
       fileName: note.file_name, mimeType: note.mime_type, fileSize: note.file_size, kind: note.kind,
       fileUrl: `/api/loan-applications/${note.application_id}/notes/${note.id}/file`,

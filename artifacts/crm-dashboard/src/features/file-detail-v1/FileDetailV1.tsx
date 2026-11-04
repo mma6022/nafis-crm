@@ -78,9 +78,9 @@ function ModalShell({ cls, title, sub, onClose, children, foot, top, diag }: { c
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return <div className={`mx${cls.startsWith('cf') ? ' cfx' : ''}`} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
     <div className={`md ${cls}`} role="dialog" aria-modal="true" aria-labelledby="fdv1-mdt" ref={box}>
-      <div className="mh"><div className="t"><h2 id="fdv1-mdt">{title}</h2><p>{sub}</p>{top}</div>
+      <header className="mh"><div className="t"><h2 id="fdv1-mdt">{title}</h2><p>{sub}</p>{top}</div>
         {diag ? <button className="btn lk sm mdg" type="button" onClick={diag}><Flag {...I} />گزارش خطا</button> : null}
-        <button className="ib" type="button" aria-label="بستن" onClick={onClose}><X {...I} /></button></div>
+        <button className="ib" type="button" aria-label="بستن" onClick={onClose}><X {...I} /></button></header>
       <div className="mb">{children}</div><div className="mf">{foot}</div>
     </div></div>;
 }
@@ -111,6 +111,13 @@ const histCat = (a: string): Exclude<HCat, 'all'> => {
   if (/doc|identity|collateral|physical|guarantor|_corrected|_incomplete/.test(k)) return 'doc';
   return 'step';
 };
+const SIGNED = new Set(['primary_signature_verified', 'approved-primary-signature-verified', 'confirm-signed-primary', 'toman-replacement-signature-verified', 'amendment_signature_verified']);
+const sysText = (a: string) => { const k = a.split(':')[0];
+  if (k === 'created' || k === 'customer_portal_created') return 'پرونده ثبت شد';
+  if (SIGNED.has(k)) return 'قرارداد امضا شد';
+  if (k === 'submit-customer-documents') return 'پرونده برای کارشناس ثبت فرستاده شد';
+  if (k === 'cancel-case') return 'پرونده لغو شد';
+  return null; };
 const histLabel = (a: string) => String(historyActionLabel(a)).replace(/\s*\(شناسه[^)]*\)\s*$/, '');
 
 export function FileDetailV1(p: Props) {
@@ -131,7 +138,7 @@ export function FileDetailV1(p: Props) {
   const biz = loanBusinessStatus(app);
   const closed = biz === 'completed' || biz === 'canceled' || app.status === 'rejected';
   const turn: 'me' | 'closed' | string = closed ? 'closed' : app.actionRequired ? 'me'
-    : biz === 'waiting_customer_signature' ? 'مشتری' : app.actionRole ? (ACTION_ROLE_NAMES[app.actionRole] || '') : '';
+    : biz === 'waiting_customer_signature' ? 'مشتری' : app.actionRole ? (app.actionRole === 'registrar' ? 'کارشناس ثبت' : ACTION_ROLE_NAMES[app.actionRole] || '') : '';
   const custDocs: any[] = (app.documents || []).filter((d: any) => d.source !== 'identity_vault' && !['guarantee_check', 'guarantee_promissory'].includes(d.requirement_key || d.requirementKey));
   const idDocs: any[] = app.identityDocuments || [];
   const gens: any[] = app.generatedDocuments || [];
@@ -210,6 +217,10 @@ export function FileDetailV1(p: Props) {
     }).sort((a, b) => Number(a.old) - Number(b.old) || b.gen - a.gen);
   }, [gens, resends.data]);
   const currentCt = contracts.find(c => !c.old);
+  const sysLines = useMemo(() => hist.flatMap(e => { const t = sysText(e.action); return t ? [{ id: String(e.id), at: e.createdAt, text: t }] : []; }), [hist]);
+  // Armita r1 §8: mobile top-bar title names the file (desktop keeps the shell title)
+  useEffect(() => { window.dispatchEvent(new CustomEvent('nafis:page-title', { detail: { title: `پرونده‌ی ${fd(app.id)}` } }));
+    return () => { window.dispatchEvent(new CustomEvent('nafis:page-title', { detail: { title: null } })); }; }, [app.id]);
 
   const doResend = async (it: ResendItem) => {
     if (sending) return;
@@ -239,7 +250,7 @@ export function FileDetailV1(p: Props) {
   const nSteps = p.steps.length;
   const path = <div className={`path${stepsOpen ? ' open' : ''}`} data-testid="fdv1-path">
     <div className="pl-r"><span className="pl-t">مسیر پرونده</span>
-      <span className="pl-n">{closed ? <b>{BUSINESS_STATUS_LABELS[biz as string] || 'پرونده بسته شده'}</b> : cur >= 0 ? <>مرحله‌ی {fd(cur + 1)} از {fd(nSteps)}: <b>{p.stageLabel}</b></> : <b>{p.stageLabel}</b>}</span>
+      <span className="pl-n">{closed ? <b>{BUSINESS_STATUS_LABELS[biz as string] || 'پرونده بسته شده'}</b> : cur >= 0 ? <>مرحله‌ی {fd(cur + 1)} از {fd(nSteps)}: <b>{p.steps[cur]?.label || p.stageLabel}</b></> : <b>{p.stageLabel}</b>}</span>
       <button className="btn lk sm" type="button" aria-expanded={stepsOpen} onClick={() => setStepsOpen(o => !o)}>{stepsOpen ? 'بستن' : 'همه‌ی مراحل'}<ChevronDown className={`i${stepsOpen ? ' up' : ''}`} aria-hidden /></button></div>
     <div className="pl-bar" aria-hidden="true">{p.steps.map((s, i) => <i key={s.id} className={i < cur ? 'dn' : i === cur ? 'now' : undefined} />)}</div>
     {stepsOpen ? <ol className="pl-list">{p.steps.map((s, i) => { const st = i < cur ? 'dn' : i === cur ? 'now' : '';
@@ -249,7 +260,7 @@ export function FileDetailV1(p: Props) {
 
   const head = <section className="card fhd" aria-label="سربرگ پرونده">
     <div className="crow"><nav className="crumb" aria-label="مسیر"><Link href="/loan-applications"><ChevronRight {...I} />پرونده‌های من</Link></nav>
-      {openDiag ? <button className="ib tdg" type="button" aria-label="گزارش خطا" onClick={openDiag}><Flag {...I} /><span>گزارش خطا</span></button> : null}</div>
+</div>
     <div className="fhd-r1"><div className="who"><span className="eyb">پرونده‌ی تسهیلات {fd(app.id)}، {app.planName ? (/^\s*طرح/.test(app.planName) ? app.planName : `طرح ${app.planName}`) : 'طرح ثبت نشده'}</span>
       <div className="nmr"><h2>{custName}</h2>{app.customerId ? <button className="cid" type="button" aria-label={`شناسه‌ی ${fd(app.customerId)}، کپی`} onClick={() => { void copyText(`#${app.customerId}`).then(ok => ok && show('کپی شد')); }}>#{fd(app.customerId)}</button> : null}</div>
       {phone ? <span className="ph big"><a className="phn" href={`tel:${phone}`} dir="ltr" aria-label={`تماس با ${fd(phone)}`}>{fd(phone)}</a>
@@ -270,6 +281,8 @@ export function FileDetailV1(p: Props) {
       {t}{k === 'docs' && docsLeft ? <span className="bdg n" aria-hidden="true">{fd(docsLeft)}</span> : null}</a>)}</nav>;
 
   const eh = (t: string) => <><span className="eh"><Flag {...I} />تصمیم‌گیری</span><b>{t}</b></>;
+  // r1: «بررسی وضعیت امضا» opens the old panel inline under the contracts card; the resend button and notes column stay in place.
+  const sigOpen = () => { setLgx(true); window.setTimeout(() => lgxRef.current?.querySelector('summary')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 60); };
   const lgxOpen = () => { setLgx(true); setTab('ov'); window.setTimeout(() => lgxRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); };
   const missText = missing.map(docName).join(' و ');
   let nxa: ReactNode;
@@ -334,10 +347,11 @@ export function FileDetailV1(p: Props) {
     const it = c.rs; const line = it ? rsLine[it.generationId] : undefined; const left = it ? leftFor(it) : 0;
     const meta = it ? <>{it.firstSentAt ? `فرستاده شد: ${shortDay(it.firstSentAt)}` : null}{it.lastSentAt ? <span className="rlast">آخرین ارسال لینک: <b>{whenShort(it.lastSentAt)}</b></span> : null}</>
       : c.doc?.signed && c.doc?.created_at ? `امضای مشتری: ${shortDay(c.doc.created_at)}` : c.doc?.created_at ? shortDay(c.doc.created_at) : '';
-    const view = c.doc?.downloadUrl && c.doc.fileAvailable !== false ? <a className="btn gh sm" href={c.doc.downloadUrl} target="_blank" rel="noopener noreferrer"><Eye {...I} />مشاهده</a> : null;
+    const vUrl = c.doc?.downloadUrl && c.doc.fileAvailable !== false ? c.doc.downloadUrl : c.gen ? `/api/contracts/generations/${c.gen}/download/pdf?preview=1` : null;
+    const view = vUrl ? <a className="btn gh sm" href={vUrl} target="_blank" rel="noopener noreferrer" data-testid="fdv1-ct-view"><Eye {...I} />مشاهده</a> : null;
     return <li className={`ct${c.old ? ' old' : ''}`} key={c.key} data-testid={`fdv1-ct-${c.gen}`}><span className="fi"><PenLine {...I} /></span>
       <span className="tx"><b>{c.title}</b><span className="chs">{ctChips(c)}</span><small>{meta}</small></span>
-      <span className="ac">{it && !closed && resends.data?.available ? resendBtn(it, c.title) : null}{view}{it && !closed && !c.old ? <button className="btn lk sm" type="button" onClick={lgxOpen} data-testid="fdv1-sigcheck"><RefreshCw {...I} />بررسی وضعیت امضا</button> : null}</span>
+      <span className="ac">{it && !closed && resends.data?.available ? resendBtn(it, c.title) : null}{view}{!closed && !c.old ? <button className="btn lk sm" type="button" onClick={sigOpen} data-testid="fdv1-sigcheck"><RefreshCw {...I} />بررسی وضعیت امضا</button> : null}</span>
       {it && line?.kind === 'wait' && left > 0 ? <p className="rsn" role="status" id="fdv1-rsn"><Clock {...I} /><span>لینک همین چند دقیقه پیش فرستاده شد؛ تا ۱۰ دقیقه بعد از هر ارسال نمی‌شود دوباره فرستاد.</span></p> : null}
       {it && line?.kind === 'error' ? <div className="ferr box rse" role="alert" id="fdv1-rse"><CircleAlert {...I} /><div><span>{GENERIC}</span>
         {left <= 0 ? <div className="fa2"><button className="btn gh sm" type="button" onClick={() => setModal({ k: 'rs', item: it, title: c.title })}><RefreshCw {...I} />دوباره امتحان کن</button></div> : null}</div></div> : null}
@@ -353,7 +367,7 @@ export function FileDetailV1(p: Props) {
       : <span className="chip g">منتظر امضای مشتری</span>}</> : 'هنوز قراردادی ساخته نشده است.'}</p></section>;
 
   const hItem = (e: HistoryEvent) => { const Ic = histIcon(e.action);
-    return <li key={e.id}><span className="ic"><Ic {...I} /></span><span className="tx">{histLabel(e.action)}<small>{e.author?.name || 'سامانه'}</small></span><span className="tm">{hm(e.createdAt)}</span></li>; };
+    return <li key={e.id}><span className="ic"><Ic {...I} /></span><b className="tl">{histLabel(e.action)}</b><span className="by">{e.author?.name || 'سامانه'}</span><span className="tm">{hm(e.createdAt)}</span></li>; };
   const shown = hist.filter(e => hCat === 'all' || histCat(e.action) === hCat);
   const days: [string, HistoryEvent[]][] = [];
   for (const e of shown) { const k = dayKey(e.createdAt); const last = days[days.length - 1]; if (last && last[0] === k) last[1].push(e); else days.push([k, [e]]); }
@@ -373,7 +387,7 @@ export function FileDetailV1(p: Props) {
   let body: ReactNode = null;
   if (tab === 'ov' || tab === 'chat') body = <>{nxa}<div className="g2">{amount}{hasDocs ? docsSummary : null}{contractSummary}{historySummary}</div>{legacyBlock}</>;
   if (tab === 'docs') body = docsTab;
-  if (tab === 'contract') body = contractTab;
+  if (tab === 'contract') body = <>{contractTab}{legacyBlock}</>;
   if (tab === 'hist') body = historyTab;
 
   // ---------- modals ----------
@@ -432,7 +446,7 @@ export function FileDetailV1(p: Props) {
   return <div className="fdv1" data-testid="file-detail-v1">
     <main className="pg fpg" {...(md ? { inert: '' as any, 'aria-hidden': true } : {})}><div className="fgrid">
       <div className="fmain">{head}{tabs}<div className="tabp">{body}</div></div>
-      <NotesColumn appId={appId} user={user} onBack={() => setTab('ov')} />
+      <NotesColumn appId={appId} user={user} onBack={() => setTab('ov')} title={`پرونده‌ی ${fd(app.id)}، ${custName}`} sys={sysLines} />
     </div></main>
     {md}
     <div className={`toast${toast ? ' on' : ''}`} role="status" aria-live="polite">{toast ? <><Check {...I} /><span>{toast}</span></> : null}</div>
