@@ -9,7 +9,7 @@ import {
   History as HistoryIcon, IdCard, Lock, EllipsisVertical, PenLine, Plus, RefreshCw, Send, Shield, Upload, User, X, Zap,
 } from 'lucide-react';
 import { useGetCustomer, useUploadLoanApplicationDocument, getGetCustomerQueryKey } from '@workspace/api-client-react';
-import { ACTION_ROLE_NAMES, BUSINESS_STATUS_LABELS, loanBusinessStatus } from '@/lib/loan-labels';
+import { ACTION_ROLE_NAMES, BUSINESS_STATUS_LABELS, LOAN_STAGE_LABELS, loanBusinessStatus } from '@/lib/loan-labels';
 // @ts-ignore -- untyped .mjs helper, imported the same way as CaseHistoryDialog
 import { historyActionLabel } from '@/lib/loan-history-fa.mjs';
 import { fetchHistory, postNote, type HistoryEvent } from '@/loan-case-history/api';
@@ -118,6 +118,9 @@ const sysText = (a: string) => { const k = a.split(':')[0];
   if (k === 'submit-customer-documents') return 'پرونده برای کارشناس ثبت فرستاده شد';
   if (k === 'cancel-case') return 'پرونده لغو شد';
   return null; };
+// r2 §4: each system-line event has its own icon
+const sysKind = (a: string): 'created' | 'signed' | 'sent' | 'canceled' => { const k = a.split(':')[0];
+  return k === 'created' || k === 'customer_portal_created' ? 'created' : SIGNED.has(k) ? 'signed' : k === 'cancel-case' ? 'canceled' : 'sent'; };
 const histLabel = (a: string) => String(historyActionLabel(a)).replace(/\s*\(شناسه[^)]*\)\s*$/, '');
 
 export function FileDetailV1(p: Props) {
@@ -217,7 +220,7 @@ export function FileDetailV1(p: Props) {
     }).sort((a, b) => Number(a.old) - Number(b.old) || b.gen - a.gen);
   }, [gens, resends.data]);
   const currentCt = contracts.find(c => !c.old);
-  const sysLines = useMemo(() => hist.flatMap(e => { const t = sysText(e.action); return t ? [{ id: String(e.id), at: e.createdAt, text: t }] : []; }), [hist]);
+  const sysLines = useMemo(() => hist.flatMap(e => { const t = sysText(e.action); return t ? [{ id: String(e.id), at: e.createdAt, text: t, kind: sysKind(e.action) }] : []; }), [hist]);
   // Armita r1 §8: mobile top-bar title names the file (desktop keeps the shell title)
   useEffect(() => { window.dispatchEvent(new CustomEvent('nafis:page-title', { detail: { title: `پرونده‌ی ${fd(app.id)}` } }));
     return () => { window.dispatchEvent(new CustomEvent('nafis:page-title', { detail: { title: null } })); }; }, [app.id]);
@@ -250,7 +253,7 @@ export function FileDetailV1(p: Props) {
   const nSteps = p.steps.length;
   const path = <div className={`path${stepsOpen ? ' open' : ''}`} data-testid="fdv1-path">
     <div className="pl-r"><span className="pl-t">مسیر پرونده</span>
-      <span className="pl-n">{closed ? <b>{BUSINESS_STATUS_LABELS[biz as string] || 'پرونده بسته شده'}</b> : cur >= 0 ? <>مرحله‌ی {fd(cur + 1)} از {fd(nSteps)}: <b>{p.steps[cur]?.label || p.stageLabel}</b></> : <b>{p.stageLabel}</b>}</span>
+      <span className="pl-n">{closed ? <b>{BUSINESS_STATUS_LABELS[biz as string] || 'پرونده بسته شده'}</b> : cur >= 0 ? <>مرحله‌ی {fd(cur + 1)} از {fd(nSteps)}: <b>{LOAN_STAGE_LABELS[app.stage as string] || p.steps[cur]?.label || p.stageLabel}</b></> : <b>{p.stageLabel}</b>}</span>
       <button className="btn lk sm" type="button" aria-expanded={stepsOpen} onClick={() => setStepsOpen(o => !o)}>{stepsOpen ? 'بستن' : 'همه‌ی مراحل'}<ChevronDown className={`i${stepsOpen ? ' up' : ''}`} aria-hidden /></button></div>
     <div className="pl-bar" aria-hidden="true">{p.steps.map((s, i) => <i key={s.id} className={i < cur ? 'dn' : i === cur ? 'now' : undefined} />)}</div>
     {stepsOpen ? <ol className="pl-list">{p.steps.map((s, i) => { const st = i < cur ? 'dn' : i === cur ? 'now' : '';
@@ -351,10 +354,9 @@ export function FileDetailV1(p: Props) {
     const view = vUrl ? <a className="btn gh sm" href={vUrl} target="_blank" rel="noopener noreferrer" data-testid="fdv1-ct-view"><Eye {...I} />مشاهده</a> : null;
     return <li className={`ct${c.old ? ' old' : ''}`} key={c.key} data-testid={`fdv1-ct-${c.gen}`}><span className="fi"><PenLine {...I} /></span>
       <span className="tx"><b>{c.title}</b><span className="chs">{ctChips(c)}</span><small>{meta}</small></span>
-      <span className="ac">{it && !closed && resends.data?.available ? resendBtn(it, c.title) : null}{view}{!closed && !c.old ? <button className="btn lk sm" type="button" onClick={sigOpen} data-testid="fdv1-sigcheck"><RefreshCw {...I} />بررسی وضعیت امضا</button> : null}</span>
-      {it && line?.kind === 'wait' && left > 0 ? <p className="rsn" role="status" id="fdv1-rsn"><Clock {...I} /><span>لینک همین چند دقیقه پیش فرستاده شد؛ تا ۱۰ دقیقه بعد از هر ارسال نمی‌شود دوباره فرستاد.</span></p> : null}
-      {it && line?.kind === 'error' ? <div className="ferr box rse" role="alert" id="fdv1-rse"><CircleAlert {...I} /><div><span>{GENERIC}</span>
-        {left <= 0 ? <div className="fa2"><button className="btn gh sm" type="button" onClick={() => setModal({ k: 'rs', item: it, title: c.title })}><RefreshCw {...I} />دوباره امتحان کن</button></div> : null}</div></div> : null}
+      {/* r3 §8 (Mohammad): no CRM-side resend; «بررسی وضعیت امضا» is the primary action while waiting for the customer's signature */}
+      <span className="ac">{view}{!closed && !c.old ? <button className={`btn sm ${c.rs || !c.doc?.signed ? 'pri' : 'lk'}`} type="button" onClick={sigOpen} data-testid="fdv1-sigcheck"><RefreshCw {...I} />بررسی وضعیت امضا</button> : null}</span>
+      {!closed && !c.old && (c.rs || (c.doc && !c.doc.signed)) ? <p className="rsn sgn" data-testid="fdv1-sign-hint"><Send {...I} /><span>لینک امضا را امضامی برای مشتری فرستاده است. اگر به دستش نرسیده، «بررسی وضعیت امضا» را بزن.</span></p> : null}
       {it && line?.kind === 'turn' ? <div className="ferr box rse" role="alert"><CircleAlert {...I} /><div><span>{line.name ? <>کارهای پرونده‌ها به ترتیب نوبت انجام می‌شود؛ اول پرونده‌ی <b>{line.name}</b> را کامل کن.</> : 'کارهای پرونده‌ها به ترتیب نوبت انجام می‌شود؛ اول پرونده‌ی نوبت را کامل کن.'}</span>
         {line.fileId ? <div className="fa2"><button className="btn gh sm" type="button" onClick={() => navigate(`/loan-applications/${line.fileId}`)}><ArrowLeft {...I} />رفتن به پرونده‌ی {line.name ?? fd(line.fileId)}</button></div> : null}</div></div> : null}
     </li>;

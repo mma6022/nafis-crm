@@ -320,7 +320,7 @@
 .fdv1 .nores .oth{display:flex;gap:6px;align-items:flex-start;font-size:14px;color:var(--nf-ink-soft);margin:0}
 .fdv1 .nores .oth .i{width:16px;height:16px;margin-top:3px;flex:none}
 .fdv1 .ferr.dup span{flex:1}
-.fdv1{--vh:800px;--chat-w:380px}
+.fdv1{--chat-w:380px}
 .fdv1 .muted{color:var(--nf-ink-muted);font-size:14px;font-weight:600}
 .fdv1 .fpg{max-width:1280px}
 .fdv1 .fgrid{display:grid;grid-template-columns:minmax(0,1fr) var(--chat-w);gap:20px;align-items:start}
@@ -414,7 +414,7 @@
 .fdv1 .ftl .tx small{display:block;font-size:14px;color:var(--nf-ink-muted)}
 .fdv1 .ftl .tm{font-size:14px;color:var(--nf-ink-muted);font-weight:600}
 .fdv1 .btn.more{margin-top:6px}
-.fdv1 .fchat{position:sticky;top:calc(var(--top-h) + 16px);height:calc(var(--vh) - var(--top-h) - 16px - var(--dock-h) - var(--dock-gap) - 20px);min-height:420px;display:flex;flex-direction:column;background:#fff;border:1px solid var(--nf-line);border-radius:var(--nf-radius-card);box-shadow:var(--nf-shadow-card);overflow:hidden}
+.fdv1 .fchat{position:sticky;top:calc(var(--top-h) + 16px);height:calc(var(--vh, 100dvh) - var(--top-h) - 16px - var(--dock-h) - var(--dock-gap) - 20px);min-height:420px;display:flex;flex-direction:column;background:#fff;border:1px solid var(--nf-line);border-radius:var(--nf-radius-card);box-shadow:var(--nf-shadow-card);overflow:hidden}
 .fdv1 .fchat .chh{position:static;border-radius:0;flex:none}
 .fdv1 .fchat .chh .t{min-width:0;flex:1}
 .fdv1 .fchat .chh .t .nmr{gap:6px;flex-wrap:wrap}
@@ -548,3 +548,14 @@ html.fdv1-chv .fdv1{margin-inline:-14px}
 
 /* r1 #8: at 360 the file title must fit next to the live top-bar actions */
 @media (max-width:380px){html.fdv1-on .ss-top .top-actions{gap:4px}html.fdv1-on .ss-top .ss-ttl h1{font-size:16px}}
+
+/* r2 §4: system lines — own icon per event, time in a separate muted span (no «·») */
+.fdv1 .sys{gap:8px}
+.fdv1 .sys .sm-t{font-weight:500;color:var(--nf-ink-muted);font-size:13px;margin-inline-start:4px}
+/* r2 §6: contract chips never touch the resend button */
+.fdv1 .ct .tx{min-width:auto}
+.fdv1 .ct .chs .chip{white-space:nowrap}
+.fdv1 .ct{column-gap:12px}
+@media (max-width:480px){.fdv1 .ct .tx{min-width:0}.fdv1 .ct .chs .chip{white-space:normal}}
+/* r2 §7: tabs fit at 360 */
+@media (max-width:379.98px){.fdv1 .st-i{padding:0 7px;font-size:13.5px}}
