@@ -14,7 +14,7 @@ import type { AuthUser } from "./auth";
 import { crmDb, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
 import { s132On, s132Tick, s132CallView, s132LastBar, s132OnStart, s132HistoryInfo } from "./simotel132";
 import { normalizePhone, resolveEvent, experts, customerMatcher } from "./voip-after-call";
-import { simotelOriginate, SimotelError, type SimotelCall } from "./simotel";
+import { simotelOriginate, SimotelError, invalidateSimotelCallCache, type SimotelCall } from "./simotel";
 import { vnaSent } from "./voip-noanswer-sms";
 
 export const VC_ME_TIMEOUT_S = 30;
@@ -145,6 +145,63 @@ export function vcCustomerLeg(rows: SimotelCall[], phone: string): { custStatus:
   return { custStatus: "UNKNOWN", billsec: Math.max(legBill, rowBill), answered: false, notAnswered: false };
 }
 const ORIG_SETTLE_MS = 60_000; // every leg of one originate is published within seconds; wait so the decision sees all of them
+/** SIMOTEL-FAST (flag.simotel_fast[.user.<id>], absent/≠'1' → OFF = the 60 s settle and the 20 s poller only, unchanged).
+ *  ON for the expert: a DEFINITE customer leg (ANSWERED / one definite failure) decides FAST_SETTLE_MS after the last leg ends, and a targeted
+ *  CDR sync is scheduled right at that moment (and retried a few times) instead of waiting for the next 20 s poller tick. An ambiguous leg
+ *  (UNKNOWN / NOT_DIALED) keeps the old 60 s settle so a leg published late can still change it. */
+export const FAST_SETTLE_MS = 5_000;
+export function vcFastOn(userId: number | null | undefined): boolean {
+  if (!userId) return false;
+  return setting("flag.simotel_fast") === "1" || setting(`flag.simotel_fast.user.${Number(userId)}`) === "1";
+}
+export function vcFastAny(): boolean {
+  try { return setting("flag.simotel_fast") === "1" || !!queryRow("SELECT 1 x FROM call_queue_settings WHERE key LIKE 'flag.simotel_fast.user.%' AND value='1' LIMIT 1"); } catch { return false; }
+}
+/** SIMOTEL-FAST (Armita 1.3.2 fix): a live row's call log was titled at ring time («… مرکز تماس (RINGING)»/«(ACTIVE)»); give it the final
+ *  status when the CDR / final event lands, in place (never a second row). authoritative=false (Idle guess) only replaces a live code. OFF → no-op. */
+export function vcFinalizeLiveSubject(logId: number | null | undefined, status: string | null | undefined, authoritative: boolean): void {
+  if (logId == null || !vcFastAny()) return;
+  const st = String(status ?? "").trim().toUpperCase().replace(/[^A-Z _]/g, "").slice(0, 32) || "UNKNOWN";
+  if (/^(RINGING|ACTIVE|UP|RING|INUSE)$/.test(st)) return;
+  try {
+    const cur = queryRow<{ subject: string | null }>("SELECT subject FROM call_logs WHERE id=?", [logId])?.subject ?? "";
+    const m = /^((?:پشتیبانی، )?تماس (?:ورودی|خروجی) مرکز تماس) \(([A-Z _]{1,32})\)$/.exec(cur);
+    if (!m || m[2] === st || (!authoritative && !/^(RINGING|ACTIVE)$/.test(m[2]))) return;
+    executeChanges("UPDATE call_logs SET subject=? WHERE id=? AND subject=?", [`${m[1]} (${st})`, logId, cur]);
+  } catch { /* display mapping still hides the code */ }
+}
+const FAST_RETRY_MS = [0, 2_500, 6_000, 12_000, 25_000, 55_000]; // after the first due time; the 20 s poller keeps running as before
+const fastTimers = new Map<number, ReturnType<typeof setTimeout>>();
+let fastSyncImpl: () => Promise<unknown> = async () => { const { syncAfterCalls } = await import("./voip-after-call"); return syncAfterCalls(); };
+/** Test seam only. */
+export function __setFastSyncForTests(f: () => Promise<unknown>) { fastSyncImpl = f; }
+export function vcFastPending(): number[] { return [...fastTimers.keys()]; }
+/** Schedule a fresh CDR sync for one click call at dueMs (epoch ms). Idempotent per call (an earlier due time wins). Never throws. */
+export function vcScheduleFastSync(callId: number, dueMs: number, attempt = 0) {
+  try {
+    if (attempt >= FAST_RETRY_MS.length) return;
+    const at = dueMs + FAST_RETRY_MS[attempt];
+    const old = fastTimers.get(callId) as (ReturnType<typeof setTimeout> & { at?: number; attempt?: number }) | undefined;
+    if (old && old.attempt === attempt && (old.at ?? Infinity) <= at) return;
+    if (old) clearTimeout(old);
+    const t = setTimeout(async () => {
+      fastTimers.delete(callId);
+      try {
+        const c = queryRow<{ cust_status: string | null }>("SELECT cust_status FROM voip_click_calls WHERE id=?", [callId]);
+        if (!c || c.cust_status != null) return;
+        invalidateSimotelCallCache();
+        await fastSyncImpl();
+        // A sync that was already running when the timer fired used older data → run once more right after it.
+        const again = queryRow<{ cust_status: string | null }>("SELECT cust_status FROM voip_click_calls WHERE id=?", [callId]);
+        if (again && again.cust_status == null) { invalidateSimotelCallCache(); await fastSyncImpl(); }
+        const last = queryRow<{ cust_status: string | null }>("SELECT cust_status FROM voip_click_calls WHERE id=?", [callId]);
+        if (last && last.cust_status == null) vcScheduleFastSync(callId, dueMs, attempt + 1);
+      } catch { /* the 20 s poller is still the safety net */ }
+    }, Math.max(0, at - Date.now())) as ReturnType<typeof setTimeout> & { at?: number; attempt?: number };
+    t.at = at; t.attempt = attempt; (t as { unref?: () => void }).unref?.();
+    fastTimers.set(callId, t);
+  } catch { /* never blocks the caller */ }
+}
 export type VcCdrDecision = { callId: number; custStatus: string; notAnswered: boolean; startedAt: string | null; endedAt: string | null };
 /** R2 VC-CDR: called by syncAfterCalls with each day's CDR rows. Idempotent (only click calls whose cust_status is still NULL). */
 export function vcIngestOriginate(rows: SimotelCall[], now = new Date()): VcCdrDecision[] {
@@ -165,8 +222,17 @@ export function vcIngestOriginate(rows: SimotelCall[], now = new Date()): VcCdrD
     const ends = legs.map((r) => Number(r.endtime?.$date?.$numberLong));
     if (ends.some((e) => !Number.isFinite(e) || e <= 0 || e > now.getTime())) continue;
     const lastEnd = Math.max(...ends);
-    if (now.getTime() - lastEnd < ORIG_SETTLE_MS) continue;
+    const fast = vcFastOn(c.user_id);
+    if (now.getTime() - lastEnd < (fast ? FAST_SETTLE_MS : ORIG_SETTLE_MS)) {
+      if (fast) vcScheduleFastSync(c.id, lastEnd + FAST_SETTLE_MS + 300);
+      continue;
+    }
     const leg = vcCustomerLeg(legs, c.phone);
+    // SIMOTEL-FAST: only a definite customer leg decides early; an ambiguous one waits for the old settle (a late leg may still change it).
+    if (fast && !leg.answered && !leg.notAnswered && now.getTime() - lastEnd < ORIG_SETTLE_MS) {
+      vcScheduleFastSync(c.id, lastEnd + ORIG_SETTLE_MS + 300);
+      continue;
+    }
     const main = legs.find((r) => !!r.record) ?? legs.find((r) => /SIP\//.test(String((r as { dstchannel?: string }).dstchannel ?? ""))) ?? legs[0];
     const cdrOutcome: VcOutcome = leg.answered ? "answered" : leg.notAnswered ? (leg.custStatus === "BUSY" ? "busy" : "no_answer")
       : leg.custStatus === "UNKNOWN" ? CDR_OUT(String(main.disposition ?? "")) : null;
@@ -199,6 +265,8 @@ export function vcIngestOriginate(rows: SimotelCall[], now = new Date()): VcCdrD
         // The live row's call log was titled from the expert's NewState (e.g. «(ACTIVE)»); the customer's leg is the real status.
         const log = queryRow<{ call_log_id: number | null }>("SELECT call_log_id FROM voip_after_call_events WHERE id=?", [eventId])?.call_log_id;
         if (log != null) executeChanges("UPDATE call_logs SET subject=? WHERE id=? AND subject LIKE 'تماس خروجی مرکز تماس (%)'", [`تماس خروجی مرکز تماس (${leg.custStatus})`, log]);
+      } else if (eventId != null && vcFastOn(c.user_id)) { // SIMOTEL-FAST: an ambiguous final decision must not leave «(RINGING)» behind
+        vcFinalizeLiveSubject(queryRow<{ call_log_id: number | null }>("SELECT call_log_id FROM voip_after_call_events WHERE id=?", [eventId])?.call_log_id, leg.custStatus || "UNKNOWN", true);
       }
       const fresh = queryRow<VcRow>("SELECT * FROM voip_click_calls WHERE id=?", [c.id])!;
       if (fresh.result_saved_at && fresh.event_id != null) vcCompleteEvent(fresh.event_id, fresh.user_id, now);
@@ -375,6 +443,8 @@ export function vcOnNewState(body: Record<string, unknown>, now = new Date()): b
   if (["idle", "unavailable", "pause", "notinuse"].includes(state)) {
     if (rm) end(c.id, "me_timeout", null, now);
     else end(c.id, "ended", c.state === "in_call" ? "answered" : "no_answer", now); // the CDR may still correct no_answer → busy / answered
+    // SIMOTEL-FAST: hang-up → look the CDR up right after the settle even if the Cdr webhook is lost (no status is set from this alone).
+    if (vcFastOn(c.user_id)) vcScheduleFastSync(c.id, now.getTime() + FAST_SETTLE_MS + 500);
     return true;
   }
   return false;

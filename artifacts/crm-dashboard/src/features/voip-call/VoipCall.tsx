@@ -124,9 +124,11 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
     const left = sc.waitSeconds ?? 0;
     // SIMOTEL-132 d (item 1): the copy reads the server's real wait (S132_WAIT_S, seconds after hang-up), never a hard-coded number.
     const tot = faNum(String(sc.waitTotalSeconds ?? 120));
+    // SIMOTEL-FAST (Armita 1.3.4, server sends fast:true only when the flag is on): new waiting copy + spinner, bar over the server wait.
+    const fast = sc.fast === true; const W = fast ? Math.max(1, sc.waitTotalSeconds ?? 30) : S132_WAIT; const done = Math.min(W, Math.max(0, W - left));
     const saving = k === 'waiting' && sc.expertStatus != null;
     const t = saving ? [`ثبت وضعیت: ${S_LBL[sc.expertStatus!]}`, 'وضعیتی که زدی ذخیره شد؛ همین الان کار جاری بسته می‌شود.']
-      : k === 'waiting' ? ['در انتظار نتیجه از سیموتل', 'تماس قطع شد. وضعیت و مدت تماس چند ثانیه‌ی دیگر خودش می‌رسد؛ لازم نیست چیزی بزنی.']
+      : k === 'waiting' ? ['در انتظار نتیجه از سیموتل', fast ? 'تماس قطع شد. وضعیت و مدت تماس خودش می‌رسد؛ لازم نیست چیزی بزنی.' : 'تماس قطع شد. وضعیت و مدت تماس چند ثانیه‌ی دیگر خودش می‌رسد؛ لازم نیست چیزی بزنی.']
       : k === 'first_form' ? ['تماس اول: جواب داد', 'نتیجه از سیموتل آمد. فرم تماس اول را پر کن؛ مرحله‌ی اول از سیموتل پر شده است.']
       : ['نتیجه از سیموتل نرسید', first ? 'تماس اول این مشتری است: اگر جواب داد، فرم تماس اول باز می‌شود. اگر جواب نداد، اشغال بود یا ناموفق، فقط وضعیت ثبت می‌شود و «تماس اول» برای تماس بعدی می‌ماند.'
         : `${tot} ثانیه بعد از قطع تماس، وضعیتی نیامد. فقط بزن چه شد؛ فرمی باز نمی‌شود و اگر مکالمه ضبط شده باشد، یادداشت از خلاصه‌ی تماس خودش نوشته می‌شود.`];
@@ -137,7 +139,8 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
       : k === 'first_form' ? <button type="button" className="btn btn-primary" onClick={() => onFirstForm?.(c.id)} data-testid="vc-first-form"><Flag size={16} aria-hidden="true" /> فرم تماس اول</button>
       : <>{sb('answered', first ? 'جواب داد، فرم تماس اول' : 'جواب داد', true)}{sb('no_answer', 'جواب نداد')}{sb('busy', 'اشغال')}{sb('failed', 'ناموفق')}
         {vBtn('دوباره زنگ بزن', <RefreshCw size={16} aria-hidden="true" />, false, 'vc-again')}</>;
-    const lockTxt = saving ? 'وضعیت ثبت شد؛ تسک بعدی چند ثانیه‌ی دیگر خودش باز می‌شود.' : k === 'waiting' ? `نتیجه‌ی همین تماس در راه است؛ دکمه‌های دستی لازم نیست. اگر تا ${tot} ثانیه بعد از قطع نرسید${left > 0 ? ` (${faNum(String(left))} ثانیه‌ی دیگر)` : ''}، فقط چهار دکمه‌ی وضعیت می‌آید.`
+    const lockTxt = saving ? 'وضعیت ثبت شد؛ تسک بعدی چند ثانیه‌ی دیگر خودش باز می‌شود.' : k === 'waiting' ? (fast ? `نتیجه‌ی همین تماس در راه است؛ دکمه‌های دستی لازم نیست. اگر تا حداکثر ${tot} ثانیه نرسید، فقط چهار دکمه‌ی وضعیت می‌آید.`
+        : `نتیجه‌ی همین تماس در راه است؛ دکمه‌های دستی لازم نیست. اگر تا ${tot} ثانیه بعد از قطع نرسید${left > 0 ? ` (${faNum(String(left))} ثانیه‌ی دیگر)` : ''}، فقط چهار دکمه‌ی وضعیت می‌آید.`)
       : k === 'first_form' ? 'تسک بعدی تا ثبت فرم تماس اول قفل است.'
       : first ? 'تسک بعدی تا زدن وضعیت (و با «جواب داد»، تا ثبت فرم تماس اول) قفل است.' : 'فقط یک ضربه: تسک با زدن وضعیت از «کارهای امروز من» می‌رود و تسک بعدی باز می‌شود.';
     return <div className="vcx" data-testid="vc-box" data-state={st} data-kind={`s132-${saving ? 'saving' : k}`}>
@@ -145,7 +148,10 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
         <Steps n={k === 'first_form' ? 4 : 3} four />
         <div className="vc-cwh"><span className="vc-cwi" aria-hidden="true">{k === 'first_form' || saving ? <Check className="i" /> : <Clock className="i" />}</span>
           <div><h3 data-testid="vc-title">{t[0]}</h3><p>{t[1]}</p></div></div>
-        {k === 'waiting' && !saving ? <div className="vc-cdn"><span className="vc-bar" role="progressbar" aria-label="انتظار برای نتیجه از سیموتل" aria-valuemin={0} aria-valuemax={S132_WAIT} aria-valuenow={S132_WAIT - left}>
+        {k === 'waiting' && !saving && fast ? <div className="vc-cdn s132f" data-testid="vc-wait-fast"><span className="vc-spn" aria-hidden="true" /><span className="muted">نتیجه تا چند ثانیه‌ی دیگر می‌آید</span>
+          <span className="vc-bar" role="progressbar" aria-label="انتظار برای نتیجه از سیموتل" aria-valuemin={0} aria-valuemax={W} aria-valuenow={done} aria-valuetext={`${faNum(String(done))} ثانیه از ${faNum(String(W))}`}>
+          <i style={{ width: `${Math.round((done / W) * 100)}%` }} /></span></div>
+        : k === 'waiting' && !saving ? <div className="vc-cdn"><span className="vc-bar" role="progressbar" aria-label="انتظار برای نتیجه از سیموتل" aria-valuemin={0} aria-valuemax={S132_WAIT} aria-valuenow={S132_WAIT - left}>
           <i style={{ width: `${Math.round(((S132_WAIT - left) / S132_WAIT) * 100)}%` }} /></span><span className="muted">معمولاً چند ثانیه</span></div> : null}
       </section>
       <div className="dp-actions vc-row">{btns}{extra}</div>
@@ -206,7 +212,7 @@ export function VcHeaderBadge() {
   const k = c.state === 'in_call' ? 'talk' : c.state === 'dial_cust' ? 'dial' : 'ring';
   // narrow screens: the short label keeps the page title visible (icon + timer / one word); the full text stays for screen readers
   const sh = c.state === 'in_call' ? mmss(talkSeconds(c)) : c.state === 'dial_cust' ? 'گرفتن…' : 'زنگ…';
-  return <span className={`vc-hb ${k}`} role="status" aria-label={t} data-testid="vc-badge"><Headset className="i" aria-hidden="true" /><span><b className="vc-hb-l">{t}</b><b className="vc-hb-s" aria-hidden="true">{sh}</b>{c.customerName ? <small>{c.customerName}</small> : null}</span></span>;
+  return <span className={`vc-hb ${k}`} role="status" aria-label={t} data-testid="vc-badge"><Headset className="i" aria-hidden="true" /><i className="vc-hb-dot" aria-hidden="true" /><span><b className="vc-hb-l">{t}</b><b className="vc-hb-s" aria-hidden="true">{sh}</b>{c.customerName ? <small>{c.customerName}</small> : null}</span></span>;
 }
 
 const SPEEDS = [1, 1.25, 1.5, 2];

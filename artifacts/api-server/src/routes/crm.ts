@@ -14,6 +14,7 @@ import { creditProviderFailure } from "../lib/credit-provider-failure";
 import { publicDocumentLabel } from "../lib/public-document-labels";
 import { saveUserVoipExtension } from "../lib/user-voip-extension";
 import { pendingAfterCallLogId, savePendingAfterCallHistory } from "../lib/voip-after-call";
+import { s132bActivityFa } from "../lib/simotel132b";
 import { ensureManualOutcomeSchema, manualOutcomeError, readManualOutcome } from "../lib/call-outcome";
 import { callReportDateBounds } from "../lib/call-report-filters";
 import { callHistoryScope, callListActorScope, isCallExportRequest } from "../lib/call-history-scope";
@@ -4522,7 +4523,7 @@ router.get(
       res.status(404).json({ error: "Customer not found" });
       return;
     }
-    res.json(ListCustomerActivityResponse.parse(getActivity(parsed.data.id)));
+    res.json(ListCustomerActivityResponse.parse(s132bActivityFa(getActivity(parsed.data.id))));
   },
 );
 

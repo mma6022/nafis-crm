@@ -3,6 +3,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { receiveSimotelCallEvent } from "../lib/simotel-call-events";
 import { syncAfterCalls } from "../lib/voip-after-call";
 import { invalidateSimotelCallCache } from "../lib/simotel";
+import { vcFastAny } from "../lib/voip-call";
+import { logger } from "../lib/logger";
 const router=Router();
 // SIMOTEL-WEBHOOK: dedicated webhook secret (SIMOTEL_WEBHOOK_PASSWORD, from the root-only EnvironmentFile
 // /etc/nafisvam/simotel-webhook.env); falls back to SIMOTEL_API_KEY when unset so existing behaviour is unchanged.
@@ -35,6 +37,11 @@ router.post(["/","/:event"],(req,res)=>{
     const result=receiveSimotelCallEvent(body);
     if(result.cdr){invalidateSimotelCallCache();void syncAfterCalls().catch(()=>{});}
     res.json({ok:true,handled:result.handled});
-  } catch {res.status(400).json({error:"ساختار رویداد تماس معتبر نیست."});}
+  } catch (e) {
+    // SIMOTEL-FAST: tell a validation reject apart from an internal failure in the log (error class/message code only, no payload).
+    try { if(vcFastAny()) logger.warn({kind:e instanceof Error && e.message==="invalid_event"?"invalid_event":"internal",errorType:e instanceof Error?e.name:"unknown",
+      code:e instanceof Error?e.message.replace(/[0-9]/g,"#").slice(0,60):"", event:pathEvent.slice(0,24)},"simotel_event_rejected"); } catch { /* ignore */ }
+    res.status(400).json({error:"ساختار رویداد تماس معتبر نیست."});
+  }
 });
 export default router;

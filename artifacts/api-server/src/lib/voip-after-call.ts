@@ -5,7 +5,7 @@ import type { AuthUser } from "./auth";
 import "./call-display-exclusions";
 import { CALL_LIST_START, callIsInDisplayPeriod } from "./call-list-cutoff";
 import { notifyCallReport } from "./voip-call-notifications";
-import { vcClickEventFilterSql } from "./voip-call";
+import { vcClickEventFilterSql, vcFastAny, vcFinalizeLiveSubject } from "./voip-call";
 import { s132bPendingFilterSql } from "./simotel132b";
 import { s132CdrTarget, s132TagCdr } from "./simotel132";
 
@@ -193,6 +193,13 @@ export function resolveEvent(id: number, available: Expert[], lookupCustomer: (p
 export function ingestAfterCalls(rows: SimotelCall[], now = new Date()) {
   const state = afterCallState(), available = experts(), known = available.map(x => x.extension), lookupCustomer = customerMatcher();
   let inserted = 0;
+  // SIMOTEL-FAST (any flag.simotel_fast key on): the live row is adopted by its own CDR when the PBX conversation id, direction, extension
+  // and number all match and the live row started up to 10 min after the CDR start (it was only bounded to 5 s before) — otherwise the CDR
+  // adds a second row and the live one stays «… (RINGING)» in the customer timeline. OFF → the 5 s window, unchanged.
+  const fastLive = vcFastAny(), liveEarly = fastLive ? 600 : 5;
+  // SIMOTEL-FAST: the adopted live row's «… مرکز تماس (RINGING)» log gets the CDR's final status (click calls: vcIngestOriginate decides).
+  const finLiveLog = (id: number, st: string) => { if (!fastLive) return;
+    vcFinalizeLiveSubject(queryRow<{ call_log_id: number | null }>(`SELECT e.call_log_id FROM voip_after_call_events e WHERE e.id=?${vcClickEventFilterSql()}`, [id])?.call_log_id, st, true); };
   runTransaction(() => {
     for (const row of rows) {
       if (!["incoming", "outgoing"].includes(row.type)) continue;
@@ -209,7 +216,7 @@ export function ingestAfterCalls(rows: SimotelCall[], now = new Date()) {
       const matches = queryRows<AfterCallEvent>(`${select} WHERE e.live_cuid=? AND e.direction=?
         AND (e.recording_provider_id IS NULL OR e.recording_provider_id=?)
         AND e.extension IN (SELECT value FROM json_each(?))
-        AND julianday(e.started_at)>=julianday(?)-5.0/86400
+        AND julianday(e.started_at)>=julianday(?)-${liveEarly}.0/86400
         AND julianday(e.started_at)<=julianday(?)+10.0/86400`,
         [row.cuid?.replace(/\s+/g,"")??"",row.type,row._id,JSON.stringify(extensions),startedAt,new Date(ended).toISOString()])
         .filter(e=>normalizePhone(e.phone)===normalizePhone(phone) && normalizePhone(phone)!=null);
@@ -229,6 +236,7 @@ export function ingestAfterCalls(rows: SimotelCall[], now = new Date()) {
             has_recording=?,recording_file=? WHERE id=?`,
             [index===0?row._id:live.external_id,row._id,startedAt,new Date(ended).toISOString(),row.disposition,row.record?1:0,row.record??null,live.id]);
           if(live.call_log_id!=null) executeChanges("UPDATE call_logs SET created_at=? WHERE id=?",[startedAt,live.call_log_id]);
+          finLiveLog(live.id,row.disposition);
           if(live.report_saved_at && !live.completed_at) finishSavedLiveReport(live.id);
         }
         continue;
@@ -244,6 +252,7 @@ export function ingestAfterCalls(rows: SimotelCall[], now = new Date()) {
       else executeChanges(`UPDATE voip_after_call_events SET has_recording=?,recording_file=COALESCE(?,recording_file),
         status=?,is_live=0,ended_at=? WHERE external_id=? OR recording_provider_id=?`,
         [row.record?1:0,row.record??null,row.disposition,new Date(ended).toISOString(),row._id,row._id]);
+      if (!change && fastLive) for (const r of queryRows<{id:number}>("SELECT id FROM voip_after_call_events WHERE external_id=? OR recording_provider_id=?",[row._id,row._id])) finLiveLog(r.id,row.disposition);
     }
     for (const pending of queryRows<{ id: number }>("SELECT id FROM voip_after_call_events WHERE completed_at IS NULL")) {
       resolveEvent(pending.id, available, lookupCustomer);

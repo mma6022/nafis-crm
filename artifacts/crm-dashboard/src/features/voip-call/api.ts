@@ -21,7 +21,7 @@ export type VcCall = { id: number; state: VcState; outcome: VcOutcome; customerI
   custStatus?: string | null; billsec?: number | null; s132?: S132Call | null };
 /** SIMOTEL-132 (flag.simotel132[.user.<id>]): present only while the flag is on for this user; absent → today's UI unchanged. */
 export type S132Status = 'answered' | 'no_answer' | 'busy' | 'failed';
-export type S132Call = { firstCall: boolean; phase: 'live' | 'waiting' | 'late' | 'first_form' | 'auto' | 'manual'; waitSeconds: number | null; waitTotalSeconds?: number;
+export type S132Call = { firstCall: boolean; phase: 'live' | 'waiting' | 'late' | 'first_form' | 'auto' | 'manual'; waitSeconds: number | null; waitTotalSeconds?: number; fast?: boolean;
   simStatus: S132Status | null; expertStatus: S132Status | null };
 export type S132Bar = { callId: number; customerId: number; customerName: string | null; fileId: number | null; status: S132Status | null; simStatus: S132Status | null;
   expertStatus: S132Status | null; fixedStatus: S132Status | null; source: 'simotel' | 'expert' | null; at: string | null; durationSeconds: number | null; smsSent: boolean;
