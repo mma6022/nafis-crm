@@ -219,6 +219,8 @@ function shape(r: any, actor: AuthUser): any {
     creditRankIgnored: parseJson(r.condition_snapshot_json)?.credit_rank_ignored === true,
     conditionSnapshot: parseJson(r.condition_snapshot_json), calculation: r.net_amount ? { requestedAmount: r.requested_amount, approvedAmount: r.approved_amount, netAmount: r.net_amount } : null,
     documents: r.documents ?? [], identityDocuments: r.identityDocuments ?? [], requiredCollateral: r.requiredCollateral ?? [],
+    // REVIEWWAIT web (Armita): the upload dialog's limit = multer's; closed (deleted / rejected / completed, the board's OPEN_WHERE) → no upload buttons.
+    documentUploadMaxBytes: LOAN_DOCUMENT_MAX_BYTES, fileClosed: Boolean(r.deleted_at) || r.status === "rejected" || r.stage === "completed",
      guarantor: r.guarantor ?? null, collateral: r.collateral ?? [], currentPrimaryGenerationId: primaryGenerationId,
      primaryContractStatus: primaryGenerationId == null ? null
        : (r.generatedDocuments ?? []).find((d: any) => d.kind === "primary" && Number(d.contract_generation_id) === primaryGenerationId)?.generation_status ?? null,
@@ -1687,9 +1689,6 @@ router.get("/loan-applications/:id", requirePermission("loan_applications.view")
   { const me = user(res) as any; if (me?.salespersonId && fcCatOn()) { try { fcMarkOpened(Number(me.salespersonId), Number(r.id)); } catch { /* badge only */ } } }
   r.documents = loanProcessingDocuments(r.id)
     .map((document) => ({ ...document, original_name: normalizedUploadName(document.original_name), fileAvailable: fileExists(document.storage_path) }));
-  r.documentUploadMaxBytes = LOAN_DOCUMENT_MAX_BYTES;
-  // REVIEWWAIT web: closed (deleted / rejected / completed — the board's OPEN_WHERE) → the page hides every upload button.
-  r.fileClosed = Boolean(r.deleted_at) || r.status === "rejected" || r.stage === "completed";
   r.history = queryRows("SELECT * FROM loan_application_stage_history WHERE application_id=? ORDER BY id", [r.id]);
   r.physicalChecks = queryRows("SELECT * FROM loan_physical_checks WHERE application_id=? ORDER BY id", [r.id]);
   r.physicalDocuments = queryRows<any>("SELECT id,original_name AS originalName,mime_type AS mimeType,size_bytes AS sizeBytes,created_at AS createdAt,storage_path FROM loan_physical_documents WHERE application_id=? ORDER BY id", [r.id])
