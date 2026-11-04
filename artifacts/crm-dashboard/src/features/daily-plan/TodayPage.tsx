@@ -20,6 +20,7 @@ import { useSsIncoming } from '@/features/sales-shell/api';
 import { getGetAuthSessionQueryKey, getGetCustomerQueryKey, useGetAuthSession, useGetCustomer } from '@workspace/api-client-react';
 import { CallLaunchStatus, useCallLauncher } from '@/features/team-sales/useCallLauncher';
 import { SimpleCallForm } from '@/features/team-sales/SimpleCallForm';
+import { useVoipFirstFormOpen, useVoipFormRelease } from '@/features/voip-call/firstForm';
 import { useHistorySummary, useFileCard } from '@/features/history/api';
 import { C3File, C3History, C3Upgrade, RetireeHint } from '@/features/history/TodayC3';
 import { SiteAnswersBlock } from '@/features/site-answers/SiteAnswersBlock';
@@ -71,7 +72,9 @@ export default function TodayPage() {
   const [fc, setFc] = useState<FcCustomer | null>(null);
   const [fcVoip, setFcVoip] = useState<{ callId: number } | null>(null); // SIMOTEL-132: required first-call form after an answered VoIP first call
   const vqc = useQueryClient();
-  const fcEnd = () => { const v = fcVoip; setFc(null); setFcVoip(null); if (v) void vcApi.dismiss(v.callId).catch(() => undefined).finally(() => vcRefresh(vqc)); refresh(); };
+  const [fcSaved, setFcSaved] = useState(false);
+  const fcEnd = () => { const v = fcVoip; setFc(null); setFcVoip(null); setFcSaved(false); if (v) void vcApi.dismiss(v.callId).catch(() => undefined).finally(() => vcRefresh(vqc)); refresh(); };
+  useVoipFormRelease(fcVoip, fcSaved, () => { setFc(null); setFcVoip(null); refresh(); }); // FIRSTFORM-VOIP: unanswered / late / saved elsewhere
   const fcSession = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   // release 69 (Armita live-59 #2/#3): lockdown list view — the incoming wizard's save shows a 3 s bottom toast (same as the carousel).
   const [iwToast, setIwToast] = useState('');
@@ -91,9 +94,9 @@ export default function TodayPage() {
     {d.pendingCall ? <div className="dp-box warn" role="alert" data-testid="dp-pending-other">تماس باز با <b>{d.pendingCall.customerName}</b> هنوز نتیجه ندارد. اول نتیجه و یادداشتش را ثبت کن (از «تماس ورودی» همین صفحه یا پرونده‌ی مشتری).</div> : null}
     <StateBox d={d} />
     <S132bToday />{/* SIMOTEL-132 B: renders nothing while flag.simotel132b is off */}
-    {d.current ? <CurrentCard key={`${d.current.id}-${d.current.moveCount}`} d={d} cur={d.current} onDone={refresh} onFirstCall={(c, v) => { setFc(c); setFcVoip(v ?? null); }} /> : null}
+    {d.current ? <CurrentCard key={`${d.current.id}-${d.current.moveCount}`} d={d} cur={d.current} onDone={refresh} onFirstCall={(c, v) => { if (fc?.id !== c.id) setFcSaved(false); setFc(c); setFcVoip(v ?? null); }} /> : null}
     {fc ? <SimpleCallForm customer={fc} userId={fcSession.data?.user?.id} onClose={fcEnd} voip={fcVoip ?? undefined}
-      onDone={(r) => { announceCallSaved(r.callLogId, fc.id); refresh(); }} onNext={fcEnd} /> : null}
+      onDone={(r) => { setFcSaved(true); announceCallSaved(r.callLogId, fc.id); refresh(); }} onNext={fcEnd} /> : null}
     {locked ? null : <div className="dp-inbound-row">
       <button type="button" className="btn btn-ghost" onClick={() => { if (locked && !inbound) void elApi.open().catch(() => undefined); setInbound((v) => !v); }} aria-expanded={inbound} data-testid="dp-inbound-open"><PhoneIncoming size={16} aria-hidden="true" /> {locked ? 'تماس ورودی داشتم' : 'تماس ورودی'}</button>
       <small>فقط وقتی مشتری خودش زنگ زده؛ کار جاری عوض نمی‌شود.</small>
@@ -167,14 +170,9 @@ export function CurrentCard({ d, cur, onDone, onSaved, saveLabel, onFirstCall }:
   const vcc = s132 && vme?.call && vme.call.customerId === cur.customerId ? vme.call : null;
   const s132Busy = s132 && ((vcc?.s132 != null && vcc.s132.phase !== 'manual') || vme?.s132?.last?.customerId === cur.customerId);
   const openVoipFirst = (callId: number) => { if (cust) onFirstCall(fcOf(cust), { callId }); };
-  const fcShown = useRef<number | null>(null);
-  // a mandatory reminder popup already open stays on top: the form opens by itself once it is gone (the «فرم تماس اول» button also opens it)
-  useEffect(() => {
-    if (vcc?.s132?.phase !== 'first_form' || !cust || fcShown.current === vcc.id) return;
-    const id = vcc.id;
-    const tryOpen = () => { if (fcShown.current === id || document.querySelector('.rmm-root [data-testid=rm-overlay]')) return; fcShown.current = id; openVoipFirst(id); };
-    tryOpen(); const iv = window.setInterval(tryOpen, 1500); return () => window.clearInterval(iv);
-  }, [vcc?.s132?.phase, vcc?.id, Boolean(cust)]); // eslint-disable-line react-hooks/exhaustive-deps
+  // FIRSTFORM-VOIP (t831u): the first-call form opens by itself on a VoIP first call — once the expert picked up (customer being dialed /
+  // talking, like the old path's form at call start) and again after an answered hang-up while it is not saved (first_form).
+  useVoipFirstFormOpen(cur.customerId, firstForm, (id) => { if (!cust) return; if (id != null) openVoipFirst(id); else onFirstCall(fcOf(cust)); }, vcOn && Boolean(cust));
   const call = async (dialIt: boolean = narrow, quiet = false) => {
     setBusy(true); setErr('');
     try { const r = await dpApi.start(cur.id); setOpened(true); setCallAt(new Date().toISOString()); if (dialIt) { watchBack(r.callId, onDone); dial(r.tel); } if (!quiet && formKind !== 'legacy') { if (cust) openFirst(); else setAutoFirst(true); } }

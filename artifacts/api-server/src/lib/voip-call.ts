@@ -12,7 +12,7 @@
  */
 import type { AuthUser } from "./auth";
 import { crmDb, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
-import { s132On, s132Tick, s132CallView, s132LastBar, s132OnStart, s132HistoryInfo } from "./simotel132";
+import { s132On, s132Tick, s132CallView, s132LastBar, s132OnStart, s132HistoryInfo, s132TableExists } from "./simotel132";
 import { normalizePhone, resolveEvent, experts, customerMatcher } from "./voip-after-call";
 import { simotelOriginate, SimotelError, invalidateSimotelCallCache, type SimotelCall } from "./simotel";
 import { vnaSent } from "./voip-noanswer-sms";
@@ -105,9 +105,16 @@ export function vcSweep(now = new Date()) {
     else if (c.state === "in_call" && age > TALK_STALE_S) end(c.id, "ended", "answered", now);
   }
   // UNSTICK-1646: release an ended call's panel / other-customer lock 3 min after hang-up or CDR (never a file task's needsResult lock).
+  // FIRSTFORM-VOIP (Mohammad t831u, rule t765u): an answered first call waiting for its first-call form (s132 auto_kind='first_form') is NOT
+  // released after 3 min — the form stays required, as before UNSTICK-1646. Stuck safety kept: the exemption ends when the form is no longer due
+  // (customer has a priority / left in_progress / merged → the call is released by the 3-min rule) or 2 h after hang-up / CDR.
+  const ff = s132TableExists() ? ` AND NOT EXISTS (SELECT 1 FROM s132_calls s JOIN customers cu ON cu.id=s.customer_id WHERE s.call_id=voip_click_calls.id
+      AND s.auto_kind='first_form' AND cu.priority IS NULL AND COALESCE(cu.status,'in_progress')='in_progress' AND cu.merged_into_customer_id IS NULL
+      AND julianday(CASE WHEN voip_click_calls.cdr_at IS NOT NULL AND voip_click_calls.cdr_at>voip_click_calls.ended_at THEN voip_click_calls.cdr_at ELSE voip_click_calls.ended_at END)>=julianday(?)-?/86400.0)` : "";
   executeChanges(`UPDATE voip_click_calls SET dismissed_at=? WHERE active=0 AND state='ended' AND dismissed_at IS NULL AND result_saved_at IS NULL
       AND NOT (outcome IS NOT NULL AND file_id IS NOT NULL) AND ended_at IS NOT NULL
-      AND julianday(CASE WHEN cdr_at IS NOT NULL AND cdr_at>ended_at THEN cdr_at ELSE ended_at END)<julianday(?)-?/86400.0`, [iso(now), iso(now), VC_RELEASE_AFTER_S]);
+      AND julianday(CASE WHEN cdr_at IS NOT NULL AND cdr_at>ended_at THEN cdr_at ELSE ended_at END)<julianday(?)-?/86400.0${ff}`,
+    ff ? [iso(now), iso(now), VC_RELEASE_AFTER_S, iso(now), VC_LIVE_MAX_S] : [iso(now), iso(now), VC_RELEASE_AFTER_S]);
 }
 
 /** The CDR (through the existing after-call pipeline) refines the outcome, adds the recording and the event id. Idempotent. */

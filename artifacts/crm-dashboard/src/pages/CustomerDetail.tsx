@@ -1,5 +1,6 @@
 import { ArrowUp, AlertCircle, ArrowRight, Check, ChevronLeft, Copy, FileText, Flag, Gauge, History, Layers, Lock, MessageSquarePlus, Pencil, Phone, PhoneCall, Plus, RefreshCw, ShieldCheck, Trash2, UserRound, Wallet, X } from 'lucide-react';
 import { CustomerCallHistory, VoipCallBox, useVcFastWaiting } from '@/features/voip-call/VoipCall';
+import { useVoipFirstFormOpen, useVoipFormRelease } from '@/features/voip-call/firstForm';
 import { SiteAnswersBlock } from '@/features/site-answers/SiteAnswersBlock';
 import { announceCallSaved, cqTelClick } from '@/features/call-queue/api';
 import { CustomerIntroLog } from '@/features/expert-intro-sms/CustomerIntroLog';
@@ -337,6 +338,13 @@ function CustomerDetailFull() {
     callLauncher.launch(customer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customer?.id, canCallsCreate]);
+  // FIRSTFORM-VOIP (t831u): a VoIP first call to this customer opens the first-call form here too (same rule as the Today card): once the
+  // expert picked up, and after an answered hang-up while unsaved; the «فرم تماس اول» button of the VoIP box opens it as well.
+  const [simpleVoip, setSimpleVoip] = useState<{ callId: number } | null>(null);
+  const [simpleSaved, setSimpleSaved] = useState(false);
+  const openSimpleVoip = (callId: number | null) => { if (!customer || fcReopen) return; setSimpleSaved(false); setSimpleVoip(callId != null ? { callId } : null); setSimpleFormOpen(true); };
+  useVoipFirstFormOpen(customer?.id, Boolean(customer) && canCallsCreate && callLauncher.choose(customer!) === 'simple', openSimpleVoip, Boolean(customer) && canCallsCreate);
+  useVoipFormRelease(simpleVoip, simpleSaved, () => { setSimpleFormOpen(false); setSimpleVoip(null); });
   // incoming2-59 PM rule: the qualifier's customer whose first-call form is incomplete → opening the file reopens the form
   // (closing only via «بستن بدون ثبت تماس؟», temporary: next open reopens it). Server decides (read-only, inferred from first-call data).
   const [fcReopen, setFcReopen] = useState(false);
@@ -554,7 +562,7 @@ function CustomerDetailFull() {
       {canUpdate ? <button type="button" className="csx-ghost" onClick={() => setEditing(true)} data-testid="button-toggle-customer-edit" aria-haspopup="dialog"><Pencil size={18} /> ویرایش</button> : null}
       {canNewLoan ? <Link href={loanWizardHref(customer.id)} className="csx-primary wide" data-testid="button-new-loan-from-customer"><Plus size={20} /> درخواست تسهیلات جدید</Link> : null}
     </div>
-    <div className="csx-vc"><VoipCallBox customerId={customer.id} customerName={customer.name} variant="customer" /></div>
+    <div className="csx-vc"><VoipCallBox customerId={customer.id} customerName={customer.name} variant="customer" onFirstForm={(id) => openSimpleVoip(id)} /></div>
     {canCall || canConsult ? <div className="acts2">
       {canCall ? <button type="button" className="csx-ghost sm" title={canDialSystem ? 'تماس با تلفن شرکت' : 'برای تماس سیستمی، ابتدا در بخش تلفن شرکت متصل شوید'} onClick={() => { if (canDialSystem) dial(customer.phone); else setLocation('/phone'); }} data-testid="button-sys-call-customer"><Phone size={18} color={canDialSystem ? undefined : '#94a3b8'} /> تماس سیستمی</button> : null}
       {canConsult ? <button type="button" className="csx-ghost sm" onClick={() => setConsultationFormOpen(true)} data-testid="button-create-consultation"><FileText size={18} /> ثبت مشاوره</button> : null}
@@ -829,7 +837,7 @@ function CustomerDetailFull() {
       />
     )}
     {toast ? <div className="csx-toast" role="status">{toast}</div> : null}
-    {simpleFormOpen ? <SimpleCallForm customer={customer} userId={userId} noteMin={tsConfig.data?.noteMinLength ?? 10} strict={fcReopen} confirmClose={fcReopen} reopenNotice={fcReopen} onClose={() => { setSimpleFormOpen(false); setFcReopen(false); }} onDone={(r) => { if (fcReopen) void elApi.firstCallLogged(customer.id, r.callLogId).catch(() => undefined); afterSimpleForm(r); }} onNext={() => { setSimpleFormOpen(false); setLocation('/customers'); }} /> : null}
+    {simpleFormOpen ? <SimpleCallForm customer={customer} userId={userId} noteMin={tsConfig.data?.noteMinLength ?? 10} strict={fcReopen} confirmClose={fcReopen} reopenNotice={fcReopen} voip={simpleVoip ?? undefined} onClose={() => { setSimpleFormOpen(false); setFcReopen(false); setSimpleVoip(null); }} onDone={(r) => { setSimpleSaved(true); if (fcReopen) void elApi.firstCallLogged(customer.id, r.callLogId).catch(() => undefined); afterSimpleForm(r); }} onNext={() => { setSimpleFormOpen(false); setSimpleVoip(null); setLocation('/customers'); }} /> : null}
     {fcEditOpen && firstCall && fcEditInfo.data ? <SimpleCallForm customer={customer} userId={userId} noteMin={tsConfig.data?.noteMinLength ?? 10}
       edit={{ fc: firstCall, canSend: fcEditInfo.data.canSend, sendBlockedReason: fcEditInfo.data.sendBlockedReason, onSaved: afterFirstCallEdit }}
       onClose={() => setFcEditOpen(false)} onDone={() => {}} onNext={() => setFcEditOpen(false)} /> : null}
