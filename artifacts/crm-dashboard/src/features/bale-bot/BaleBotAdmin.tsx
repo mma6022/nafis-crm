@@ -38,7 +38,7 @@ function AdminPage() {
       const b = e.bot; const st = b?.status ?? 'off'; const [cl, ic, t] = ST[st] ?? ST.off;
       return <li key={e.id} className={`br${fresh === e.id ? ' new' : ''}`}><span className="ava c2" aria-hidden="true">{e.name.trim()[0]}</span>
         <div className="tx"><b>{e.name}</b>{b && b.hasToken ? <><span className="u">@{b.username}</span><span className="m">{b.name}، وصل از {since(b.connectedAt)}</span></> : <span className="m">ربات وصل نیست</span>}
-          {!e.flagOn ? <span className="m">صندوق بله برای این کارشناس هنوز روشن نشده است.</span> : null}{e.noSend ? <span className="m">ارسال بسته است (فقط خواندن).</span> : null}</div>
+          {!e.flagOn ? <span className="m">صندوق بله برای این کارشناس هنوز روشن نشده است.</span> : null}</div>
         <div className="stc"><span className={cl}><I n={ic} />{t}</span>{b?.hasToken ? <span className="tsv"><I n="lock" />توکن ذخیره شده</span> : null}</div>
         <div className="ac">{st === 'on' && b?.hasToken ? <><button className="btn gh sm" type="button" onClick={() => setW({ k: 'saved', e })}><I n="shield" />تنظیمات</button><button className="btn lk sm" type="button" onClick={() => setW({ k: 'off', e })}>قطع اتصال</button></>
           : st === 'err' && b?.hasToken ? <><button className="btn pri sm" type="button" onClick={() => setW({ k: 'wiz', s: 2, userId: e.id, replace: true })}><I n="refresh" />تعویض توکن</button><button className="btn lk sm" type="button" onClick={() => setW({ k: 'off', e })}>قطع اتصال</button></>
