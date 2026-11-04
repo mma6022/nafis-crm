@@ -37,7 +37,7 @@ const num = (v: unknown) => { const n = Number(v); return Number.isSafeInteger(n
 const t = () => new Date().toISOString();
 
 type ChatRow = { id: number; bot_id: number; chat_id: string; bale_user_id: string | null; first_name: string | null; last_name: string | null; username: string | null; bio: string | null;
-  customer_id: number | null; link_method: string | null; linked_at: string | null; verified_phone: string | null; contact_asked_at: string | null; match_note: string | null;
+  customer_id: number | null; link_method: string | null; linked_at: string | null; verified_phone: string | null; lead_phone_verified: number | null; contact_asked_at: string | null; match_note: string | null;
   unread: number; last_at: string | null; last_preview: string | null; last_out: number; created_at: string };
 /** The chat, if this user may see it: "all" → any; "own" → only chats of the user's own bot. */
 function chatFor(u: BbUser, id: number): (ChatRow & { owner_id: number }) | undefined {
@@ -67,7 +67,7 @@ function chatView(c: ChatRow & { owner_id: number }, u: BbUser) {
   const lastOutAuthor = c.last_out ? queryRow<{ a: number | null }>("SELECT author_user_id a FROM bale_bot_messages WHERE chat_row=? AND dir='out' ORDER BY id DESC LIMIT 1", [c.id])?.a ?? null : null;
   return { id: c.id, name: chatName(c), firstName: c.first_name, lastName: c.last_name, username: c.username, bio: c.bio, unread: c.unread, lastAt: c.last_at, lastPreview: c.last_preview, lastOut: !!c.last_out,
     customer: cust, linkMethod: c.link_method, otherExpert: !!full && owner?.salesperson_id !== full.salespersonId, notices: noticesFor(u, c.id),
-    lastByManager: !!lastOutAuthor && lastOutAuthor !== c.owner_id, verifiedPhone: c.verified_phone, contactAskedAt: c.contact_asked_at, matchNote: c.match_note,
+    lastByManager: !!lastOutAuthor && lastOutAuthor !== c.owner_id, verifiedPhone: c.verified_phone, phoneVerified: c.customer_id == null ? null : c.link_method === 'contact' || c.link_method === 'contact_other' ? true : c.lead_phone_verified == null ? null : !!c.lead_phone_verified, contactAskedAt: c.contact_asked_at, matchNote: c.match_note,
     expert: { id: c.owner_id, name: nameOf(owner) }, bot: { username: bot.bot_username, status: bot.status }, canWrite: botLive(bot) && botSends(bot), sendBlocked: !botSends(bot) ? "no_send" : !botLive(bot) ? "bot_off" : null,
     mine: c.owner_id === u.id };
 }
@@ -237,7 +237,12 @@ export function createBaleBotRouter(): IRouter {
     const u = U(res); const c = chatFor(u, num(req.params.id)); if (!c) return fail(res, 404, "not_found");
     if (c.customer_id) return fail(res, 409, "already_linked");
     const owner = bbUser(c.owner_id); const cid = num(req.body?.customerId);
-    if (!queryRow("SELECT 1 FROM customers WHERE id=? AND salesperson_id=? AND merged_into_customer_id IS NULL", [cid, owner?.salesperson_id ?? -1])) return fail(res, 404, "not_found");
+    // Own refusal (independent of expert_lockdown): only the bot owner's own customers can be linked by hand.
+    // Same 404 for "another expert's file" and "no such file", so nothing about other files leaks (link_search_none).
+    if (!queryRow("SELECT 1 FROM customers WHERE id=? AND salesperson_id=? AND merged_into_customer_id IS NULL", [cid, owner?.salesperson_id ?? -1])) {
+      bbLog({ userId: u.id, botId: c.bot_id, chatRow: c.id, action: "link.manual", outcome: "refused_not_own" });
+      return fail(res, 404, "not_found");
+    }
     executeChanges("UPDATE bale_bot_chats SET customer_id=?, link_method='manual', linked_at=?, linked_by=? WHERE id=? AND customer_id IS NULL", [cid, t(), u.id, c.id]);
     bbLog({ userId: u.id, botId: c.bot_id, chatRow: c.id, customerId: cid, action: "link.manual", outcome: "ok" });
     res.json({ chat: chatView(chatFor(u, c.id)!, u) });
@@ -264,21 +269,23 @@ export function createBaleBotRouter(): IRouter {
     const first = String(req.body?.firstName ?? "").trim().slice(0, 60), last = String(req.body?.lastName ?? "").trim().slice(0, 60), note = String(req.body?.note ?? "").trim().slice(0, 500);
     const name = [first, last].filter(Boolean).join(" "); if (!name) return fail(res, 400, "bad_name");
     const owner = bbUser(c.owner_id); const bot = botById(c.bot_id)!;
+    // Typed mobile is allowed (design v1.1); stored verified=false and labelled «تأییدنشده» internally. request_contact stays the preferred path.
+    const verified = !!c.verified_phone && normPhone(c.verified_phone) === phone;
     const out = runImmediateTransaction(() => {
       const k = phoneCheck(phone, owner?.salesperson_id ?? null);
       if (k.state === "other") return { other: true as const };
       if (k.state === "own") {
-        executeChanges("UPDATE bale_bot_chats SET customer_id=?, link_method='manual', linked_at=?, linked_by=? WHERE id=?", [k.id, t(), u.id, c.id]);
+        executeChanges("UPDATE bale_bot_chats SET customer_id=?, link_method='manual', linked_at=?, linked_by=?, lead_phone_verified=? WHERE id=?", [k.id, t(), u.id, verified ? 1 : 0, c.id]);
         return { existing: k.id };
       }
       const id = insertCustomerRecord({ name, phone, description: [`منبع: بله${bot.bot_username ? ` (ربات @${bot.bot_username})` : ""}`, note].filter(Boolean).join("\n"),
         salespersonId: owner?.salesperson_id ?? null, assignedSalespersonId: owner?.salesperson_id ?? null, registeredByUserId: u.id, registrationSource: "staff_form", skipDefaultOwnerRule: true,
         intake: { leadSource: "other", leadSourceOther: "بله", registrarNote: note || null } });
-      executeChanges("UPDATE bale_bot_chats SET customer_id=?, link_method='lead', linked_at=?, linked_by=? WHERE id=?", [id, t(), u.id, c.id]);
+      executeChanges("UPDATE bale_bot_chats SET customer_id=?, link_method='lead', linked_at=?, linked_by=?, lead_phone_verified=? WHERE id=?", [id, t(), u.id, verified ? 1 : 0, c.id]);
       return { created: id };
     });
     if ("other" in out) { bbLog({ userId: u.id, botId: c.bot_id, chatRow: c.id, action: "lead", outcome: "dup_other" }); return fail(res, 409, "phone_other"); }
-    bbLog({ userId: u.id, botId: c.bot_id, chatRow: c.id, customerId: out.created ?? out.existing, action: "lead", outcome: out.created ? "created" : "existing", detail: { verified: phone === c.verified_phone } });
+    bbLog({ userId: u.id, botId: c.bot_id, chatRow: c.id, customerId: out.created ?? out.existing, action: "lead", outcome: out.created ? "created" : "existing", detail: { verified } });
     res.json({ ...out, chat: chatView(chatFor(u, c.id)!, u) });
   });
 
