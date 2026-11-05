@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlarmClock, BellRing, Check, Clock, Info, Phone, TriangleAlert } from 'lucide-react';
 import { announceCallSaved, faClock, faNum } from '@/features/call-queue/api';
+import { DpError } from '@/features/daily-plan/api';
 import { rmApi, useRmConfig, type RmFeed, type RmItem, type RmNext, type RmOutcome } from './api';
 import { ManualOutcomeField } from '@/features/call-queue/ResultFields';
 import { C3File, C3History } from '@/features/history/TodayC3';
@@ -217,15 +218,28 @@ function MustDialog({ ssV2 = false, feed, item, index, total, rest, onDone, onSn
     if (ctBlock) { setCtBad(true); if (!pk) setPk(true); window.setTimeout(() => (hoursRef.current?.querySelector<HTMLElement>('.rct-h:not([aria-disabled])') ?? hoursRef.current)?.focus(), 30); return; }
     if (nextErr) return;
     setSending(true); setErr('');
+    const one = note.trim(); // NOMAX: keep line breaks; the server normalizes (noteText)
+    const body = () => ({ callId: 0 as number, outcome: outcome!, note: one, next: next!, reason: reason.replace(/\s+/g, ' ').trim(),
+      ...(next === 'custom' && ct ? { remindAt: rctIso(ct) } : {}) });
+    const saveFresh = async () => {
+      const c = await rmApi.saveCall({ customerId: item.customerId, subject: 'یادآور سررسید', customerRequest: '', expertNotes: one, outcome, call_result: manual, oneLineNote: one, outOfList: true, context: 'out_of_list' });
+      sessionStorage.setItem(callKey(item.reminderId), String(c.id)); announceCallSaved(c.id, item.customerId);
+      return c.id;
+    };
     try {
       let callId = Number(sessionStorage.getItem(callKey(item.reminderId)) || 0);
-      if (!callId) {
-        const one = note.trim(); // NOMAX: keep line breaks; the server normalizes (noteText)
-        const c = await rmApi.saveCall({ customerId: item.customerId, subject: 'یادآور سررسید', customerRequest: '', expertNotes: one, outcome, call_result: manual, oneLineNote: one, outOfList: true, context: 'out_of_list' });
-        callId = c.id; sessionStorage.setItem(callKey(item.reminderId), String(callId)); announceCallSaved(callId, item.customerId);
+      if (!callId) callId = await saveFresh();
+      let res;
+      try {
+        res = await rmApi.complete(item.reminderId, { ...body(), callId });
+      } catch (e) {
+        // Stale cached callId (reuse of yesterday's VoIP after-call) → clear and retry once with a fresh call_log.
+        const code = e instanceof DpError ? e.code : String((e as { code?: string })?.code ?? '');
+        if (code !== 'call_mismatch' && code !== 'call_used') throw e;
+        sessionStorage.removeItem(callKey(item.reminderId));
+        callId = await saveFresh();
+        res = await rmApi.complete(item.reminderId, { ...body(), callId });
       }
-      const res = await rmApi.complete(item.reminderId, { callId, outcome: outcome!, note: note.trim(), next: next!, reason: reason.replace(/\s+/g, ' ').trim(),
-        ...(next === 'custom' && ct ? { remindAt: rctIso(ct) } : {}) });
       sessionStorage.removeItem(callKey(item.reminderId));
       onDone(res.remaining, res.nextAt ? `یادآور بعدی ${item.customerName?.trim() || 'مشتری'}: ${rctLong(rctFromIso(res.nextAt))}` : undefined);
     } catch (e) {

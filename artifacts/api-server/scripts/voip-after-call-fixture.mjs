@@ -23,6 +23,8 @@ db.exec(`
  INSERT INTO customers(id,name,phone,salesperson_id,merged_into_customer_id,priority) VALUES(1,'مشتری یک','09120000001',11,NULL,1),(2,'مشتری دو','09120000002',12,NULL,1),(3,'ادغام‌شده','09120000004',12,1,1);
  INSERT INTO customers VALUES(4,'آرشیو لغوشده','09120000001',12,NULL,1,'cancelled');
  INSERT INTO voip_extensions VALUES(2,'201'),(3,'202');
+ CREATE TABLE call_queue_settings(key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
+ INSERT INTO call_queue_settings VALUES('flag.outgoing_call_popup','1','2026-10-04');
 `);
 const call = (id, extension, phone, start = "2026-10-04T10:00:00Z", type = "outgoing") => ({
   _id: id, cuid: "duplicate-cuid", src: type === "incoming" ? phone : extension,
@@ -78,6 +80,7 @@ try {
         export const execute=(s,p=[])=>Number(crmDb.prepare(s).run(...p).lastInsertRowid);
         export const executeChanges=(s,p=[])=>Number(crmDb.prepare(s).run(...p).changes);
         export function runTransaction(fn){crmDb.exec('BEGIN');try{const v=fn();crmDb.exec('COMMIT');return v}catch(e){crmDb.exec('ROLLBACK');throw e}}
+        export function runImmediateTransaction(fn){crmDb.exec('BEGIN IMMEDIATE');try{const v=fn();crmDb.exec('COMMIT');return v}catch(e){crmDb.exec('ROLLBACK');throw e}}
       ` }));
     } }],
   });
@@ -206,6 +209,8 @@ try {
   assert.equal(db.prepare("SELECT customer_id FROM voip_after_call_events WHERE id=?").get(ambiguous.id).customer_id, 1,
     "Active customer takes precedence over a cancelled duplicate, including after ambiguity is resolved");
   db.prepare("INSERT INTO customers VALUES(6,'ثبت دستی آزمایشی','09120000006',11,NULL,1,'in_progress')").run();
+  // Pin «now» inside the 1h reuse window of the Oct-4 seed calls (fixsefarnia: stale >1h must NOT reuse).
+  mod.__setPendingReuseNow(Date.parse("2026-10-04T10:20:00Z"));
   const manualRows = [
     call("manual-first","201","09120000006","2026-10-04T10:05:00Z"),
     call("manual-second","201","09120000006","2026-10-04T10:10:00Z"),
@@ -239,6 +244,18 @@ try {
   assert.equal(mod.pendingAfterCalls(manualActor).rows.some(e=>e.id===queued.id),false,"Saved history exits the durable queue");
   assert.equal(db.prepare("SELECT completed_at FROM voip_after_call_events WHERE external_id='manual-second'").get().completed_at,null);
   assert.equal(db.prepare("SELECT completed_at FROM voip_after_call_events WHERE external_id='manual-other-expert'").get().completed_at,null);
+  // Stale (>1h) incomplete after-call must NOT be reused by a manual history save (Sefarnia / reminder-must call_mismatch).
+  db.prepare("INSERT INTO customers VALUES(7,'کهنه','09120000007',11,NULL,1,'in_progress')").run();
+  mod.ingestAfterCalls([call("stale-old","201","09120000007","2026-10-04T08:00:00Z")], new Date("2026-10-04T13:00:00Z"));
+  const staleEv = db.prepare("SELECT * FROM voip_after_call_events WHERE external_id='stale-old'").get();
+  assert.ok(staleEv && staleEv.call_log_id, "stale seed has a call_log");
+  mod.__setPendingReuseNow(Date.parse("2026-10-04T10:20:00Z")); // 2h20 after stale start → outside window
+  assert.equal(mod.pendingAfterCallLogId(7, manualActor), null, "stale after-call is not offered for reuse");
+  assert.equal(mod.savePendingAfterCallHistory(7, manualActor, manualFields), null, "stale after-call is not consumed");
+  assert.equal(mod.eventFor(staleEv.id).completed_at, null, "stale after-call stays queued for AfterCallPopup");
+  mod.__setPendingReuseNow(Date.parse("2026-10-04T08:30:00Z")); // within 1h of stale → reuse OK
+  assert.equal(mod.pendingAfterCallLogId(7, manualActor), staleEv.call_log_id, "fresh-enough after-call still reuses");
+  mod.__setPendingReuseNow(Date.parse("2026-10-04T10:20:00Z"));
   mod.ingestAfterCalls(manualRows,new Date("2026-10-04T13:00:00Z"));
   assert.equal(mod.pendingAfterCalls(manualActor).rows.some(e=>e.id===queued.id),false,"Re-polling never requeues the registered history");
   const discardRows = [call("discard-matched", "201", "09120000001"), call("discard-unmatched", "201", "09120000009"), call("discard-cross-owner", "201", "09120000002")];
@@ -321,6 +338,7 @@ try {
   }
   console.log("PASS: IncomingCall/OutgoingCall + New State, callback authentication, same-report CDR reconciliation, live draft preservation, optimistic conflicts, own-extension isolation, cross-owner redaction, future-only deduplication and discard tombstones.");
   }
+  try { mod.__setPendingReuseNow(null); } catch {}
 } finally {
   if (server) await new Promise(resolve => server.close(resolve));
   globalThis.fetch = originalFetch;

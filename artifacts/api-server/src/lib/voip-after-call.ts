@@ -92,11 +92,23 @@ export function pendingAfterCalls(actor: AuthUser) {
 }
 // Called inside the history/profile/reminder transaction. A manual history
 // completes one corresponding queue entry, not other experts' or later calls.
+/** Align with rmComplete's 1h call_mismatch window: never hand a stale VoIP call_log to a
+ *  manual history / reminder-must save. Older incomplete after-call rows stay for AfterCallPopup
+ *  (its own complete API); a later manual save inserts a fresh call_log instead. */
+const PENDING_REUSE_MS = 60 * 60_000;
+/** Test hook: fixtures pin «now» so historical seed rows stay within the reuse window. */
+let pendingReuseNowMs: () => number = () => Date.now();
+export function __setPendingReuseNow(ms: number | null): void {
+  pendingReuseNowMs = ms == null ? () => Date.now() : () => ms;
+}
+function pendingReuseCutoffIso(): string {
+  return new Date(pendingReuseNowMs() - PENDING_REUSE_MS).toISOString();
+}
 /** Release 81: the call_logs id a manual save would complete (an automatic VoIP / mobile call), or null for a plain manual log. Read-only. */
 export function pendingAfterCallLogId(customerId: number, actor: AuthUser): number | null {
   const event = queryRows<AfterCallEvent>(
-    `${select} WHERE e.completed_at IS NULL AND c.id=? AND l.id IS NOT NULL ORDER BY e.id`,
-    [customerId],
+    `${select} WHERE e.completed_at IS NULL AND c.id=? AND l.id IS NOT NULL AND l.created_at>=? ORDER BY e.id`,
+    [customerId, pendingReuseCutoffIso()],
   ).find(e => canSeeAfterCall(e, actor) && canAccessAfterCallCustomer(e, actor));
   return event?.call_log_id ?? null;
 }
@@ -104,8 +116,8 @@ export function savePendingAfterCallHistory(customerId: number, actor: AuthUser,
   subject: string | null; customerRequest: string | null; expertNotes: string | null;
 }): number | null {
   const event = queryRows<AfterCallEvent>(
-    `${select} WHERE e.completed_at IS NULL AND c.id=? AND l.id IS NOT NULL ORDER BY e.id`,
-    [customerId],
+    `${select} WHERE e.completed_at IS NULL AND c.id=? AND l.id IS NOT NULL AND l.created_at>=? ORDER BY e.id`,
+    [customerId, pendingReuseCutoffIso()],
   ).find(e => canSeeAfterCall(e, actor) && canAccessAfterCallCustomer(e, actor));
   if (!event || event.call_log_id == null) return null;
   const notes = fields.expertNotes ?? "";
