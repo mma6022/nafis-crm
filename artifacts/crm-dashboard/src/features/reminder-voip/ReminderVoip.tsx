@@ -8,7 +8,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Bell, Calendar, Check, Clock, Copy, Eye, EyeOff, Flag, Headset, Lock, Phone, Plus, Shield, User, Users, X, ArrowLeftRight } from 'lucide-react';
 import type { Reminder } from '@workspace/api-client-react';
 import { useVoip } from '@/components/voip/VoipProvider';
-import { useVcMe, VC_ME_KEY, vcRefresh, type VcCall, type VcMe } from '@/features/voip-call/api';
+import { useVcMe, VC_ME_KEY, vcRefresh, type VcCall, type VcMe, type S132Bar } from '@/features/voip-call/api';
 import { useVoipAnywhere, vcaRegister } from '@/features/voip-call/VoipAnywhere';
 import { copyText, useNarrow } from '@/features/call-number/CallNumber';
 import { announceCallSaved, faNum } from '@/features/call-queue/api';
@@ -18,8 +18,11 @@ import './reminder-voip.css';
 const TEH = 'Asia/Tehran';
 const dayKey = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: TEH, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 const hm = (iso: string) => faNum(new Intl.DateTimeFormat('en-GB', { timeZone: TEH, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso)));
-const dayFa = (iso: string) => new Intl.DateTimeFormat('fa-IR', { timeZone: TEH, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(iso));
-const dayShort = (iso: string) => new Intl.DateTimeFormat('fa-IR', { timeZone: TEH, weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(iso));
+// «پنجشنبه ۱۴ آبان ۱۴۰۵» (design order; Chrome's fa-IR pattern puts the year first)
+const faParts = (iso: string) => Object.fromEntries(new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: TEH, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  .formatToParts(new Date(iso)).map((p) => [p.type, p.value])) as Record<string, string>;
+const dayFa = (iso: string) => { const p = faParts(iso); return `${p.weekday} ${p.day} ${p.month} ${p.year}`; };
+const dayShort = (iso: string) => { const p = faParts(iso); return `${p.weekday} ${p.day} ${p.month}`; };
 export const isTodayTeh = (iso: string | null | undefined) => Boolean(iso) && dayKey(new Date(iso!)) === dayKey(new Date());
 function whenLabel(iso: string) {
   const d = new Date(iso); const today = dayKey(new Date()); const k = dayKey(d);
@@ -35,7 +38,17 @@ const OUTS: { k: RvOutcome; l: string; ic: ReactNode }[] = [
   { k: 'follow_up', l: 'پیگیری بعدی', ic: <Calendar aria-hidden="true" /> },
 ];
 const outLabel = (o: string | null | undefined) => OUTS.find((x) => x.k === o)?.l ?? 'ثبت شد';
-const RING = new Set(['requesting', 'ring_me', 'dial_cust']);
+/** Simotel's verdict (CDR) for an ended click call; null until it arrives (no guessing from the line state). */
+const callStatus = (c: VcCall): 'answered' | 'no_answer' | null => {
+  // before the CDR the line-state guess (no customer pickup is ever reported live) is not a verdict: show nothing rather than «جواب نداد»
+  const v = c.s132?.simStatus ?? (c.cdr ? (c.prefill ?? (c.custStatus ? (c.custStatus === 'ANSWERED' ? 'answered' : 'no_answer') : null)) : null);
+  return v === 'answered' ? 'answered' : v ? 'no_answer' : null;
+};
+// Simotel never reports the customer's pickup live (R2 VC-CDR: only the CDR decides): once the expert's phone is picked up (dial_cust) the
+// card shows the in-call strip with the timer from that moment; in_call (after the CDR) is the same strip.
+const barStatus = (b: S132Bar): 'answered' | 'no_answer' | null => { const v = b.simStatus ?? b.status; return v === 'answered' ? 'answered' : v ? 'no_answer' : null; };
+const RING = new Set(['requesting', 'ring_me']);
+const TALK = new Set(['dial_cust', 'in_call']);
 
 /* ---- calls started from a reminder (this tab): reminderId → callId; and which ended calls already auto-opened the form ---- */
 const MAP_KEY = 'rv.calls', SHOWN_KEY = 'rv.shown';
@@ -111,16 +124,18 @@ function RvCard({ r, it, meta, late, onForm, onOpen }: { r: Reminder; it: RvItem
   const c = me?.call ?? null;
   const mine = Boolean(c && callId && c.id === callId && !fin);
   const ring = mine && RING.has(c!.state);
-  const talk = mine && c!.state === 'in_call';
+  const talk = mine && TALK.has(c!.state);
   const ended = mine && !ring && !talk;
   const firstCall = Boolean(mine && (c!.s132?.firstCall || it?.callFirst));
-  const otherBusy = !mine && Boolean((c && (c.active || RING.has(c.state) || c.state === 'in_call' || c.needsResult || ['waiting', 'late', 'first_form'].includes(c.s132?.phase ?? ''))) || me?.s132b?.busy);
+  const otherBusy = !mine && Boolean((c && (c.active || RING.has(c.state) || TALK.has(c.state) || c.needsResult || ['waiting', 'late', 'first_form'].includes(c.s132?.phase ?? ''))) || me?.s132b?.busy);
   const voipMode = Boolean(meta.voip && g.on && me?.on);
   const sysMode = !voipMode && sys.canCall && sys.connection === 'registered';
   const callable = kind === 'own' || kind === 'support_own';
   const ext = me?.extension ? faNum(me.extension) : '';
-  const dur = c ? (c.durationSeconds ?? c.billsec ?? me?.s132?.last?.durationSeconds ?? null) : null;
-  const answered = c ? (c.s132?.simStatus ?? c.outcome ?? c.prefill) === 'answered' : false;
+  // once Simotel's CDR is in, the s132 auto-save takes the call out of /me's `call`; its verdict stays on s132.last (same call id)
+  const bar = !fin && callId && !mine && me?.s132?.last?.callId === callId ? me.s132.last : null;
+  const dur = c && mine ? (c.durationSeconds ?? c.billsec ?? null) : bar ? bar.durationSeconds : null;
+  const st = c && mine ? callStatus(c) : bar ? barStatus(bar) : null;
   useTick(talk);
   const talkSecs = talk && (c!.custAnsweredAt || c!.meAnsweredAt) ? Math.max(0, (Date.now() - new Date((c!.custAnsweredAt || c!.meAnsweredAt)!).getTime()) / 1000) : 0;
 
@@ -196,8 +211,8 @@ function RvCard({ r, it, meta, late, onForm, onOpen }: { r: Reminder; it: RvItem
     {fin && result ? <p className="rv-res"><span className={`rv-chip ${result.outcome === 'no_answer' ? 'n' : 's'}`}>{result.outcome === 'no_answer' ? <X aria-hidden="true" /> : <Check aria-hidden="true" />}{outLabel(result.outcome)}</span>
       <span className="rv-nt">«{result.note}»</span><small>ثبت: {isTodayTeh(result.savedAt) ? 'امروز' : dayShort(result.savedAt)} ساعت {hm(result.savedAt)}</small></p> : null}
     {ring ? <p className="rv-cst ring" role="status"><Headset aria-hidden="true" /><span><b>در حال زنگ خوردن…</b><small>اول تلفن ویپ شما{ext ? ` (داخلی ${ext})` : ''} زنگ می‌خورد، بعد شماره‌ی مشتری گرفته می‌شود.</small></span></p> : null}
-    {talk ? <p className="rv-cst talk" role="status"><Headset aria-hidden="true" /><span><b>در مکالمه با {name}</b><small className="rv-rec">در حال ضبط</small></span><span className="rv-tmr" dir="ltr">{mmss(talkSecs)}</span></p> : null}
-    {ended && !fin ? <p className="rv-cst ok" role="status"><Check aria-hidden="true" /><span><b>تماس تمام شد{answered ? '، جواب داد' : c?.outcome === 'no_answer' || c?.s132?.simStatus === 'no_answer' ? '، جواب نداد' : ''}</b><small>{dur != null ? `${durFa(dur)}؛ ` : ''}هنوز چیزی ثبت نشده</small></span></p> : null}
+    {talk ? <p className="rv-cst talk" role="status"><Headset aria-hidden="true" /><span><b>{c!.state === 'in_call' ? 'در مکالمه با' : 'در تماس با'} {name}</b><small className="rv-rec">در حال ضبط</small></span><span className="rv-tmr" dir="ltr">{mmss(talkSecs)}</span></p> : null}
+    {(ended || bar) && !fin ? <p className="rv-cst ok" role="status"><Check aria-hidden="true" /><span><b>تماس تمام شد{st === 'answered' ? '، جواب داد' : st === 'no_answer' ? '، جواب نداد' : ''}</b><small>{dur != null ? `${durFa(dur)}؛ ` : st ? '' : 'در انتظار نتیجه از سیموتل؛ '}هنوز چیزی ثبت نشده</small></span></p> : null}
     {hangHint && (ring || talk) ? <p className="rv-hint" role="status">برای قطع، از خود تلفن ویپ قطع کن.</p> : null}
     {xfer && kind === 'other' ? <p className="rv-hint" role="status">این مشتری با {it?.ownerName || 'کارشناس دیگر'} است{it?.ownerExt ? `؛ تماس را روی داخلی ${faNum(it.ownerExt)} بفرست` : ''}.</p> : null}
     {err ? <p className="rv-err" role="alert">{err}</p> : null}
@@ -208,13 +223,27 @@ function RvCard({ r, it, meta, late, onForm, onOpen }: { r: Reminder; it: RvItem
 /** «تماس گرفتم، ثبت نتیجه»: result (required) + one-line note (required, ≤ 80). Desktop dialog, mobile bottom sheet. Closing without save keeps the reminder open. */
 function RvResultForm({ r, it, call, auto, onClose }: FormState & { onClose: () => void }) {
   const qc = useQueryClient();
-  const pre: RvOutcome | null = call ? ((call.s132?.simStatus ?? call.prefill ?? call.outcome) === 'answered' ? 'answered' : (call.s132?.simStatus ?? call.prefill ?? call.outcome) ? 'no_answer' : null) : null;
+  // the form may open the moment the line goes idle (before Simotel's CDR): follow the live call until its status/duration arrive
+  const lme = useVcMe().data;
+  const live = lme?.call;
+  const cur = call && live && live.id === call.id ? live : call;
+  const lbar = call && lme?.s132?.last?.callId === call.id ? lme.s132.last : null;
+  const st = (lbar ? barStatus(lbar) : null) ?? (cur ? callStatus(cur) : null);
+  const pre: RvOutcome | null = st === 'answered' ? 'answered' : st ? 'no_answer' : null;
   const [outcome, setOutcome] = useState<RvOutcome | null>(pre);
+  const touched = useRef(false);
+  useEffect(() => { if (!touched.current && pre) setOutcome(pre); }, [pre]);
+  const dur = cur ? (cur.durationSeconds ?? cur.billsec ?? lbar?.durationSeconds ?? null) : null;
+  const waiting = Boolean(call && (!st || dur == null));
+  useEffect(() => {
+    if (!waiting) return; let n = 0;
+    const t = setInterval(() => { if (++n > 40) clearInterval(t); vcRefresh(qc); }, 3000);
+    return () => clearInterval(t);
+  }, [waiting, qc]);
   const [note, setNote] = useState(''); const [saving, setSaving] = useState(false); const [err, setErr] = useState('');
   const inp = useRef<HTMLInputElement>(null);
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose]);
   const name = r.customerName?.trim() || 'بدون نام';
-  const dur = call ? (call.durationSeconds ?? call.billsec ?? null) : null;
   const one = note.replace(/\s+/g, ' ').trim();
   const ok = Boolean(outcome) && one.length > 0 && one.length <= 80;
   async function save() {
@@ -245,7 +274,7 @@ function RvResultForm({ r, it, call, auto, onClose }: FormState & { onClose: () 
         <div className="rv-due"><Bell aria-hidden="true" /><p><b>یادآور: {whenLabel(r.remindAt)}</b><br />{r.subject}؛ با ثبت این تماس، این یادآور «انجام شد» می‌شود.</p></div>
         <div className="rv-fld"><span className="rv-lbl" id={`rvO${r.id}`}>نتیجه‌ی تماس<span className="rv-req">*</span></span>
           <div className="rv-seg" role="radiogroup" aria-labelledby={`rvO${r.id}`} aria-required="true">
-            {OUTS.map((o) => <button key={o.k} type="button" role="radio" aria-checked={outcome === o.k} className={outcome === o.k ? 'on' : ''} data-testid={`rv-out-${o.k}`} onClick={() => setOutcome(o.k)}>{o.ic}{o.l}</button>)}
+            {OUTS.map((o) => <button key={o.k} type="button" role="radio" aria-checked={outcome === o.k} className={outcome === o.k ? 'on' : ''} data-testid={`rv-out-${o.k}`} onClick={() => { touched.current = true; setOutcome(o.k); }}>{o.ic}{o.l}</button>)}
           </div></div>
         <div className="rv-fld"><div className="rv-fh"><label className="rv-lbl" htmlFor={`rvN${r.id}`}>یادداشت یک‌خطی<span className="rv-req">*</span> <small>تک‌خط، حداکثر ۸۰ نویسه</small></label>
           <span className="rv-cnt"><b>{faNum(note.length)}</b> / ۸۰</span></div>
