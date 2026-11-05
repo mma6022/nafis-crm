@@ -16,7 +16,7 @@ import { TeamSalesError, firstCallEditAccess, getTeamSalesConfig, latestFirstCal
 import { normalizeFirstCallAnswers, validateAnswers, type QualifierAnswers } from "./team-sales-rules";
 import { FC_STAGE_GROUPS, FC_GROUP_CODES, FC_GROUP_LABELS, FC_WAIT_GROUPS } from "./files-carousel";
 import { realCallSql } from "./real-call";
-import { CS_KEYS, csCheckView, csMarked, csOn, csPrepare, csValuesOfAnswers, ensureCsSchema } from "./call-summary-fields-core";
+import { CS_KEYS, csCheckView, csLegacyTolerate, csMarked, csOn, csPrepare, csValuesOfAnswers, ensureCsSchema } from "./call-summary-fields-core";
 
 export const HX_REASON_MAX = null;
 export const HX_SOURCE = "expert_upgrade" as const;
@@ -280,17 +280,22 @@ export function saveFileOnly(customerId: number, actor: Actor, raw: unknown, now
   let a = { ...src, mode: "simple", formVersion: 2, callResult: "answered" } as QualifierAnswers;
   // «موارد اجباری» (flag.call_summary_fields_v1 on + csFields:1): empty items allowed, docs[] → derived docsReady. Off = unchanged.
   const cs = csMarked(src) && csOn(actor.id);
-  let err: string | null;
+  let err: string | null; let tol = false;
   if (cs) {
     const { csItems: _meta, ...rest } = a as QualifierAnswers & { csItems?: unknown };
     const p = csPrepare(rest as Record<string, unknown>); a = p.answers as QualifierAnswers;
     err = p.err ?? validateAnswers(csCheckView(p.answers) as QualifierAnswers, now);
   }
-  else err = !a.ssoRetiree ? "بازنشستگی تأمین اجتماعی (متقاضی یا خانواده) را مشخص کنید." : validateAnswers(a, now);
+  else {
+    // CS-OFFTOL: flag off, data already in the «موارد اجباری» format (stale flag-on tab, or a file saved with the flag on) → tolerated.
+    const lg = csLegacyTolerate(a as Record<string, unknown>, currentFileAnswers(c.id).answers);
+    if (lg) { tol = true; a = lg.stored as QualifierAnswers; err = lg.err ?? (!lg.check.ssoRetiree && !lg.ssoEmptyOk ? "بازنشستگی تأمین اجتماعی (متقاضی یا خانواده) را مشخص کنید." : validateAnswers(lg.check as QualifierAnswers, now)); }
+    else err = !a.ssoRetiree ? "بازنشستگی تأمین اجتماعی (متقاضی یا خانواده) را مشخص کنید." : validateAnswers(a, now);
+  }
   if (err) throw new TeamSalesError(400, err);
   const n = normalizeFirstCallAnswers(a) as Record<string, unknown>;
   const KEEP = ["amountMillion", "urgency", "docsReady", "creditRank", "checkStatus", "canPromissory", "bouncedCheque", "military", "jobType", "city",
-    "ssoRetiree", "ssoRetireeRelation", "guarantorAvailable", "guarantorCheque", "gRank", "gJobType", ...(cs ? ["arrears", "docs", "docsNone", "csFields"] : [])];
+    "ssoRetiree", "ssoRetireeRelation", "guarantorAvailable", "guarantorCheque", "gRank", "gJobType", ...(cs || tol ? ["arrears", "docs", "docsNone", "csFields"] : [])];
   const stored: Record<string, unknown> = {}; for (const k of KEEP) stored[k] = n[k] ?? null;
   const cur = fileCard(c.id, actor);
   const prev = cur?.answers ? { answers: cur.answers } : null;

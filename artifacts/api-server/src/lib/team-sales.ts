@@ -20,7 +20,7 @@ import { noteSalespersonChange } from "./expert-intro-sms";
 import { applyNonP1TransferInTx } from "./nonp1-transfer";
 import { chooseCloserFor, type CloserChoice } from "./closer-return";
 import { cqTransferGate } from "./call-queue-r3";
-import { csCheckView, csMarked, csMetaOf, csOn, csPrepare, csRecordForm, csRulesView, csValuesOfAnswers, type CsKey, type CsMeta } from "./call-summary-fields-core";
+import { csCheckView, csLegacyTolerate, csMarked, csMetaOf, csOn, csPrepare, csRecordForm, csRulesView, csValuesOfAnswers, type CsKey, type CsMeta } from "./call-summary-fields-core";
 import { consultProfile, dataFromAnswers, latestConsultApplicantProfile, officialGrade, recordFirstCallVersion, recordFirstCallEditVersion } from "./consult-profile";
 
 export const TEAM_SALES_CONFIG_KEY = "team_sales_config";
@@ -400,6 +400,14 @@ function csIn(raw: QualifierAnswers, actorId: number | null | undefined): { stor
   const p = csPrepare(rest as Record<string, unknown>);
   return { stored: p.answers as QualifierAnswers, check: csCheckView(p.answers) as QualifierAnswers, err: p.err, meta: csMetaOf(csItems) };
 }
+/** CS-OFFTOL (flag off): see csLegacyTolerate. `base` = the answers being edited (null for a new form). */
+function csOff(raw: QualifierAnswers, base: Record<string, unknown> | null) {
+  return csLegacyTolerate(raw as unknown as Record<string, unknown>, base) as { stored: QualifierAnswers; check: QualifierAnswers; err: string | null; ssoEmptyOk: boolean } | null;
+}
+function lastAnsweredAnswers(customerId: number): Record<string, unknown> | null {
+  const r = queryRow<{ answers_json: string }>("SELECT answers_json FROM team_sales_qualifications WHERE customer_id=? AND call_result='answered' ORDER BY id DESC LIMIT 1", [customerId]);
+  try { return r ? JSON.parse(r.answers_json) ?? null : null; } catch { return null; }
+}
 const csR = (cs: unknown, a: QualifierAnswers): QualifierAnswers => (cs ? (csRulesView(a as Record<string, unknown>) as QualifierAnswers) : a);
 
 /**
@@ -416,9 +424,11 @@ function withOfficialGrade(customerId: number, answers: QualifierAnswers): Quali
 export function planOptions(customerId: number, answers: QualifierAnswers, now = new Date(), actorId?: number) {
   ensureTeamSalesSchema();
   const cs = actorId != null ? csIn(answers, actorId) : null;
-  const err = cs ? cs.err ?? validateAnswers(cs.check, now, legacyRanks(customerId), { forPlans: true }) : validateAnswers(answers, now, legacyRanks(customerId), { forPlans: true });
+  const lg = cs ? null : csOff(answers, lastAnsweredAnswers(customerId)); // edit's plan step: the record being edited
+  const cx = cs ?? lg;
+  const err = cx ? cx.err ?? validateAnswers(cx.check, now, legacyRanks(customerId), { forPlans: true }) : validateAnswers(answers, now, legacyRanks(customerId), { forPlans: true });
   if (err) throw new TeamSalesError(400, err);
-  const plans = evaluatePlans(withOfficialGrade(customerId, cs ? csR(cs, normalizeFirstCallAnswers(cs.stored)) : answers), activePlans());
+  const plans = evaluatePlans(withOfficialGrade(customerId, cx ? csR(cx, normalizeFirstCallAnswers(cx.stored)) : answers), activePlans());
   // crm-no-plan-option: the form pre-checks «هیچ طرحی نمی‌خوره» when no plan is fit or depends.
   return { plans, noPlanDefault: !plans.some((p) => p.status !== "no") };
 }
@@ -553,9 +563,10 @@ export function previewQualification(customerId: number, answers: QualifierAnswe
   ensureTeamSalesSchema();
   const cfg = getTeamSalesConfig();
   const cs = actorId != null ? csIn(answers, actorId) : null;
-  const err = cs ? cs.err ?? validateAnswers(cs.check, now, legacyRanks(customerId)) : validateAnswers(answers, now, legacyRanks(customerId));
+  const cx = cs ?? csOff(answers, lastAnsweredAnswers(customerId));
+  const err = cx ? cx.err ?? validateAnswers(cx.check, now, legacyRanks(customerId)) : validateAnswers(answers, now, legacyRanks(customerId));
   if (err) throw new TeamSalesError(400, err);
-  if (cs) answers = csR(cs, normalizeFirstCallAnswers(cs.stored));
+  if (cx) answers = csR(cx, normalizeFirstCallAnswers(cx.stored));
   const { matches } = autoMatches(withOfficialGrade(customerId, isFirstCallForm(answers) ? normalizeFirstCallAnswers(answers) : answers), activePlans());
   return { result: computeLeadPriority(answers, matches, consecutiveNoAnswers(customerId), now, cfg), matches: matches.slice(0, 5) };
 }
@@ -575,9 +586,11 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
   ensureTeamSalesSchema();
   const cfg = getTeamSalesConfig();
   const cs = csIn(rawAnswers, actor.id);
-  const err = cs ? cs.err ?? validateAnswers(cs.check, now, legacyRanks(customerId)) : validateAnswers(rawAnswers, now, legacyRanks(customerId));
+  const lg = cs ? null : csOff(rawAnswers, null);
+  const cx = cs ?? lg;
+  const err = cx ? cx.err ?? validateAnswers(cx.check, now, legacyRanks(customerId)) : validateAnswers(rawAnswers, now, legacyRanks(customerId));
   if (err) throw new TeamSalesError(400, err);
-  if (cs) rawAnswers = cs.stored;
+  if (cx) rawAnswers = cx.stored;
   // Release 81: «جواب نداد» / «خاموش یا اشغال» is a no-answer form (only step 1 + note); «جواب داد» can't be a no-answer result.
   if (manualOutcome && (manualOutcome === "answered") === (rawAnswers.callResult === "no_answer"))
     throw new TeamSalesError(422, manualOutcome === "answered"
@@ -607,9 +620,9 @@ export function submitQualification(customerId: number, actor: Actor, rawAnswers
     // The first-call form decides the priority, so it is only for customers that have none yet (P1/P2/P3 use the normal call form).
     if (c.priority != null)
       throw new TeamSalesError(409, "فرم تماس اول فقط برای مشتریان بدون اولویت است؛ برای این مشتری از فرم ثبت تماس معمولی استفاده کنید.");
-    const { matches, evals } = autoMatches(withOfficialGrade(c.id, csR(cs, answers)), plans);
+    const { matches, evals } = autoMatches(withOfficialGrade(c.id, csR(cx, answers)), plans);
     const selected = firstCall && answers.callResult === "answered" ? selectedSnapshot(selectedPlans, evals) : [];
-    const result: LeadOutcome = computeLeadPriority(csR(cs, answers), matches, consecutiveNoAnswers(customerId), now, cfg);
+    const result: LeadOutcome = computeLeadPriority(csR(cx, answers), matches, consecutiveNoAnswers(customerId), now, cfg);
     // Defence in depth: the rules never return P1 for «هیچ طرحی نمی‌خوره»; never hand off automatically if they ever did.
     if (noPlanFit && result.priority === 1) throw new TeamSalesError(500, "no_plan_fit_auto_p1_blocked");
     const spName = queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [c.salesperson_id])?.name ?? null;
@@ -800,9 +813,11 @@ export function editFirstCall(customerId: number, actor: Actor, rawAnswers: Qual
   if (!rawAnswers || !isFirstCallForm(rawAnswers) || rawAnswers.callResult !== "answered")
     throw new TeamSalesError(400, "ویرایش فقط برای فرم تماس اولِ پاسخ‌داده‌شده است.");
   const cs = csIn(rawAnswers, actor.id);
-  const err = cs ? cs.err ?? validateAnswers(cs.check, now, legacyRanks(customerId)) : validateAnswers(rawAnswers, now, legacyRanks(customerId));
+  const lg = cs ? null : csOff(rawAnswers, lastAnsweredAnswers(customerId));
+  const cx = cs ?? lg;
+  const err = cx ? cx.err ?? validateAnswers(cx.check, now, legacyRanks(customerId)) : validateAnswers(rawAnswers, now, legacyRanks(customerId));
   if (err) throw new TeamSalesError(400, err);
-  const answers = normalizeFirstCallAnswers(cs ? cs.stored : rawAnswers);
+  const answers = normalizeFirstCallAnswers(cx ? cx.stored : rawAnswers);
   const noPlanFit = answers.noPlanFit === true;
   const { selectedPlans, noPlanNote } = opts;
   if (noPlanNote != null && typeof noPlanNote !== "string") throw new TeamSalesError(400, "توضیح «چرا؟» معتبر نیست.");
@@ -829,9 +844,9 @@ export function editFirstCall(customerId: number, actor: Actor, rawAnswers: Qual
     if (!base || baseAnswers.formVersion !== 2) throw new TeamSalesError(404, "فرم تماس اولی برای ویرایش پیدا نشد.");
     if (opts.baseId != null && Number(opts.baseId) !== Number(base.id))
       throw new TeamSalesError(409, "خلاصه‌ی تماس اول در این فاصله عوض شد؛ صفحه را تازه کنید و دوباره ویرایش کنید.");
-    const { matches, evals } = autoMatches(withOfficialGrade(c.id, csR(cs, answers)), plans);
+    const { matches, evals } = autoMatches(withOfficialGrade(c.id, csR(cx, answers)), plans);
     const selected = selectedSnapshot(selectedPlans ?? null, evals);
-    const result = computeLeadPriority(csR(cs, answers), matches, 0, now, cfg);
+    const result = computeLeadPriority(csR(cx, answers), matches, 0, now, cfg);
     if (noPlanFit && result.priority === 1) throw new TeamSalesError(500, "no_plan_fit_auto_p1_blocked");
     const baseSelected = parseSelected(base.selected_plans_json);
     const before: FirstCallVersion = { answers: baseAnswers, note: base.note, selectedPlanIds: baseSelected.map((p) => Number(p.id)),

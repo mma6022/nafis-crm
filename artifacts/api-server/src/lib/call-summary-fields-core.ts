@@ -73,6 +73,29 @@ export function csCheckView<T extends Record<string, unknown>>(a: T): T {
   if (o.guarantorAvailable == null) o.guarantorAvailable = "unknown";
   return o as T;
 }
+/**
+ * CS-OFFTOL: the flag is OFF but the data is already in the «موارد اجباری» format, so the old validation must not reject it:
+ *  the record being edited was saved with the flag on (base.csFields:1) → an item that was left empty there (or a letter rank)
+ *    and is still unchanged passes the old checks; arrears / docs[] are carried so turning the flag back on loses nothing.
+ * Returns null when neither applies (plain old behaviour, byte-identical).
+ */
+const CS_TOL_KEYS = ["creditRank", "gRank", "bouncedCheque", "docsReady", "guarantorAvailable", "guarantorCheque", "ssoRetiree"] as const;
+export function csLegacyTolerate<T extends Record<string, unknown>>(raw: T, base: Record<string, unknown> | null | undefined): { stored: T; check: T; err: string | null; ssoEmptyOk: boolean } | null {
+  if (!raw || typeof raw !== "object" || csMarked(raw)) return null; // a csFields payload with the flag off stays rejected the old way
+  if (!csMarked(base)) return null;
+  const b = base as Record<string, unknown>;
+  const view = csCheckView(raw as Record<string, unknown>) as Record<string, unknown>;
+  const check: Record<string, unknown> = { ...raw };
+  const same = (k: string) => JSON.stringify(raw[k] ?? null) === JSON.stringify(b[k] ?? null);
+  for (const k of CS_TOL_KEYS) if (same(k) && view[k] !== raw[k] && view[k] !== undefined) check[k] = view[k];
+  const stored: Record<string, unknown> = { ...raw, csFields: 1 };
+  if (!("arrears" in raw)) stored.arrears = b.arrears ?? null;
+  if (!("docs" in raw) && !("docsNone" in raw)) {
+    if (same("docsReady")) { stored.docs = Array.isArray(b.docs) ? b.docs : null; stored.docsNone = b.docsNone === true; }
+    else { delete stored.docs; delete stored.docsNone; } // the old form changed «مدارک»: the legacy status is the value from now on
+  }
+  return { stored: stored as T, check: check as T, err: null, ssoEmptyOk: raw.ssoRetiree == null && same("ssoRetiree") };
+}
 /** What the plan rules / priority see: an empty rank is «نمی‌دانم» (the rules treat null as excluded). */
 export function csRulesView<T extends Record<string, unknown>>(a: T): T {
   const o: Record<string, unknown> = { ...a };

@@ -26,6 +26,7 @@ import { insertCustomerRecord } from "./customer-create";
 import { normalizeCustomerMobile } from "./customer-integrity";
 import { ssOn } from "./sales-shell";
 import { csOn } from "./call-summary-fields-core";
+const csOnSafe = (id: number) => { try { return csOn(id); } catch { return false; } };
 
 export const EL_FLAG_KEY = "flag.expert_lockdown";
 /** users.id → their salespersons.id (checked against the session: a user whose salespersonId differs is not locked). */
@@ -178,7 +179,13 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   // REMINDER-68: «ثبت یادآور» (POST /reminders: own customer, or no customer = personal) and «done» (PATCH /reminders: the handler scopes to user_id).
   const reminderWrite = (req.method === "POST" || req.method === "PATCH") && path === "/reminders";
   const upgradeWrite = req.method === "POST" && /^\/customers\/\d+\/(upgrade-priority|priority|reactivate)$/.test(path); // + REMINDERS-FOLLOW reactivate (owner)
-  const ownLevel = req.method === "GET" || req.method === "HEAD" || reminderWrite || upgradeWrite;
+  // CS-OWNQ (Mohammad t877s3596 «آره، بتونه ثبت کنه»): ارزیابی + طرح‌ها for the expert's OWN customer even when it is not on
+  // today's list: the first-call form (qualify + its preview / plan step), its «ویرایش», «ذخیره‌ی پرونده» (file-card answers) and
+  // «اطلاعات مشاوره». Other experts' customers stay 403; every other write keeps the today / incoming / case rule; handlers re-check.
+  // Shipped with «موارد اجباری»: only while flag.call_summary_fields_v1 is on for the caller (flag off → the old lockdown, unchanged).
+  const ownQualifyWrite = ((req.method === "POST" && EL_OWN_QUALIFY_WRITES.some((re) => re.test(path)))
+    || (req.method === "PATCH" && /^\/customers\/\d+\/consult-profile$/.test(path))) && csOnSafe(u!.id);
+  const ownLevel = req.method === "GET" || req.method === "HEAD" || reminderWrite || upgradeWrite || ownQualifyWrite;
   // SALES-SHELL v2 (spec §9): «یادآورها» view-only while locked = GET /reminders without a customer (the handler lists only the
   // caller's own rows: r.user_id = caller, assigned scope). Only for users whose sales_shell_v2 flag is ON; writes are unchanged.
   const ownReminderList = req.method === "GET" && path === "/reminders" && ids.length === 0 && ssOn(Number(u!.id));
@@ -269,6 +276,9 @@ function vcLockdownIds(req: Request, path: string, userId: number): number[] | n
   return null;
 }
 /** List endpoints the customer page calls with ?customerId=N (scoped to that one customer). */
+/** CS-OWNQ: POST paths opened for the expert's own customer off today's list (qualification + plans saves only). */
+export const EL_OWN_QUALIFY_WRITES: RegExp[] = [/^\/customers\/\d+\/team-sales\/qualify(\/(preview|plans))?$/,
+  /^\/customers\/\d+\/team-sales\/first-call\/edit$/, /^\/customers\/\d+\/file-card$/];
 export const EL_CUSTOMER_SCOPED_READS: RegExp[] = [/^\/calls$/, /^\/consultations$/, /^\/reminders$/, /^\/callback-requests$/, /^\/voip\/calls$/,
   /^\/chat(\/|$)/, /^\/wallet(\/|$)/, /^\/contracts$/, /^\/call-reports(\/|$)/, /^\/mobile-calls$/, /^\/recordings(\/|$)/];
 

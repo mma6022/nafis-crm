@@ -354,6 +354,10 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
   const idx = Math.max(0, groups.indexOf(cs ? csGroup(d.step) : d.step)) + 1;
   const titles: Record<number, string> = { 1: 'نتیجه‌ی تماس', 2: cs ? 'نیاز و مبلغ' : 'نیاز و مدارک', 3: v6 || cs ? 'متقاضی' : 'متقاضی — رتبه و چک', 8: file ? 'موارد اجباری — رتبه‌ها و نوع طرح' : 'موارد اجباری', 9: file ? 'موارد اجباری — مدارک، بازنشستگی، معوقه، چک' : 'موارد اجباری', [STEP_PROFILE]: 'متقاضی — خدمت، شغل و شهر', 4: 'ضامن', 5: 'طرح‌های مناسب', 6: answered ? 'یادداشت و فوریت' : 'یادداشت' };
 
+  // CS-OFFTOL: flag OFF while editing a record saved with the flag on — an item left empty there may stay empty (server tolerates the same).
+  const csBase = !cs ? ((edit?.fc.answers ?? file?.answers ?? null) as Record<string, unknown> | null) : null;
+  const csTol = (k: string, v: unknown) => !!csBase && csBase.csFields === 1 && (csBase[k] ?? null) === null && v == null;
+  const csLetterOk = (v: string | null) => !!csBase && csBase.csFields === 1 && v != null && csBase.creditRank === v;
   const validate = (step: number): Record<string, string> => {
     const e: Record<string, string> = {};
     if (step === 1) {
@@ -372,27 +376,27 @@ export function SimpleCallForm({ customer, userId, noteMin = CALL_NOTE_MIN, onCl
     if (step === 2) {
       const amount = Number(toDigits(d.amount));
       if (!d.amount.trim() || !Number.isFinite(amount) || amount < 10 || amount > 5000) e.amount = 'مبلغ را بین ۱۰ تا ۵۰۰۰ میلیون تومان بنویس.';
-      if (!cs && !d.docsReady) e.docsReady = 'وضعیت مدارک را انتخاب کن.';
+      if (!cs && !d.docsReady && !csTol('docsReady', d.docsReady)) e.docsReady = 'وضعیت مدارک را انتخاب کن.';
       if (file && !d.urgency) e.urgency = 'فوریت را انتخاب کن.';
     }
     if (step === 3) {
-      if (cs) { /* rank → «موارد اجباری» */ } else if (!d.creditRank) e.creditRank = rankLetter ? `زیررتبه‌ی ${rankLetter} را انتخاب کن (${rankLetter}1، ${rankLetter}2 یا ${rankLetter}3) یا «نمی‌دونه» را بزن.` : 'رتبه‌ی اعتباری را انتخاب کن (یا «نمی‌دونه»).';
-      else if (isLegacy(d.creditRank)) e.creditRank = `رتبه‌ی ${d.creditRank} قدیمی است؛ زیررتبه را دوباره انتخاب کن.`;
+      if (cs) { /* rank → «موارد اجباری» */ } else if (!d.creditRank) { if (!csTol('creditRank', d.creditRank)) e.creditRank = rankLetter ? `زیررتبه‌ی ${rankLetter} را انتخاب کن (${rankLetter}1، ${rankLetter}2 یا ${rankLetter}3) یا «نمی‌دونه» را بزن.` : 'رتبه‌ی اعتباری را انتخاب کن (یا «نمی‌دونه»).'; }
+      else if (isLegacy(d.creditRank) && !csLetterOk(d.creditRank)) e.creditRank = `رتبه‌ی ${d.creditRank} قدیمی است؛ زیررتبه را دوباره انتخاب کن.`;
       if (!d.cheque) e.cheque = 'یکی از گزینه‌ها را انتخاب کن.';
-      if (!cs && !d.bounced) e.bounced = 'چک برگشتی را مشخص کن.';
+      if (!cs && !d.bounced && !csTol('bouncedCheque', d.bounced)) e.bounced = 'چک برگشتی را مشخص کن.';
     }
     if (step === STEP_PROFILE || (v6 && step === 3)) {
       if (!d.military) e.military = 'وضعیت نظام وظیفه را انتخاب کن (یا «نمی‌دونه»).';
       if (!d.jobType) e.jobType = 'شغل متقاضی را انتخاب کن (یا «نمی‌دونه»).';
-      if (!cs && !d.sso) e.sso = 'یکی را انتخاب کن.';
+      if (!cs && !d.sso && !csTol('ssoRetiree', d.sso)) e.sso = 'یکی را انتخاب کن.';
       if ([...d.ssoRel.trim()].length > SSO_REL_MAX) e.sso = `نسبت حداکثر ${SSO_REL_MAX} نویسه.`;
     }
     if (step === 4) {
-      if (!d.gAvail) e.gAvail = 'یکی از گزینه‌ها را انتخاب کن.';
+      if (!d.gAvail && !csTol('guarantorAvailable', d.gAvail)) e.gAvail = 'یکی از گزینه‌ها را انتخاب کن.';
       if (d.gAvail === 'yes') {
         if (!d.gJobType) e.gJobType = 'شغل ضامن را انتخاب کن (یا «نمی‌دونه»).';
-        if (!d.gCheque) e.gCheque = 'چک ضامن را مشخص کن (یا «نمی‌دونه»).';
-        if (!cs && !d.gRank) e.gRank = gRankLetter ? `زیررتبه‌ی ${gRankLetter} را انتخاب کن (${gRankLetter}1، ${gRankLetter}2 یا ${gRankLetter}3) یا «نمی‌دونه» را بزن.` : 'رتبه‌ی ضامن را انتخاب کن (یا «نمی‌دونه»).';
+        if (!d.gCheque && !csTol('guarantorCheque', d.gCheque)) e.gCheque = 'چک ضامن را مشخص کن (یا «نمی‌دونه»).';
+        if (!cs && !d.gRank && !csTol('gRank', d.gRank)) e.gRank = gRankLetter ? `زیررتبه‌ی ${gRankLetter} را انتخاب کن (${gRankLetter}1، ${gRankLetter}2 یا ${gRankLetter}3) یا «نمی‌دونه» را بزن.` : 'رتبه‌ی ضامن را انتخاب کن (یا «نمی‌دونه»).';
       }
     }
     if (step === STEP_NOTE) {

@@ -11,6 +11,7 @@
  * Nothing here sends a message / SMS / notification.
  */
 import type { AuthUser } from "./auth";
+import { logger } from "./logger";
 import { execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import { ctAdminViewer, ctEvent, isCtManager, tehranRange, textState, visibleEvent, type Ev } from "./call-transcripts";
 import { TeamSalesError, firstCallEditAccess, getTeamSalesConfig, type Actor } from "./team-sales";
@@ -174,7 +175,7 @@ function stateOf(r: Row | undefined, fallback: State): State {
     default: return fallback;
   }
 }
-const ex = (eventId: number) => queryRow<{ state: string; source_hash: string | null }>("SELECT state, source_hash FROM cs_extractions WHERE event_id=?", [eventId]);
+const ex = (eventId: number) => queryRow<{ state: string; source_hash: string | null; updated_at: string }>("SELECT state, source_hash, updated_at FROM cs_extractions WHERE event_id=?", [eventId]);
 export function callItems(eventId: number, u: AuthUser) {
   ensureCsSchema();
   const e = visibleEvent(eventId, u);
@@ -183,7 +184,9 @@ export function callItems(eventId: number, u: AuthUser) {
   const { kind, form } = kindOf(e);
   if (kind === "later") syncProposals(e);
   const ts = textState(e);
-  const exs = ex(e.id)?.state ?? null;
+  const x0 = ex(e.id);
+  // a 'processing' row older than 5 min (process restarted mid-request) reads as failed: items stay manual, the page never spins forever
+  const exs = x0?.state === "processing" && Date.now() - Date.parse(x0.updated_at ?? "") > 5 * 60000 ? "failed" : x0?.state ?? null;
   const pendingText = ts === "waiting" || ts === "queued" || ts === "processing";
   const extraction = ts === "no_recording" ? "none" : pendingText ? "processing" : exs === "done" ? "done" : exs === "failed" ? "failed" : exs === "processing" ? "processing" : "none";
   const eRows = latestRows(`e:${e.id}`);
@@ -379,7 +382,12 @@ export function reportDetail(u: AuthUser, expert: unknown, from: unknown, to: un
 }
 
 /* ------------------------------------------------------------------ transcript extraction (summary-pipeline hook) */
-export class CsExtractError extends Error {}
+export class CsExtractError extends Error { constructor(message: string, readonly provider = false) { super(message); } }
+/** CS-429: after a provider rate-limit / out-of-credit answer, extraction pauses (in-memory, per process); calls and forms are never affected. */
+export const CS_EXTRACT_COOLDOWN_MS = 30 * 60 * 1000;
+let csPauseUntil = 0;
+export const csExtractPaused = (at = Date.now()) => at < csPauseUntil;
+export function csResetExtractPause() { csPauseUntil = 0; }
 type Seg = { start: number; text: string; speaker: string | null };
 function segmentsOf(providerId: string): Seg[] | null {
   const row = queryRow<{ result_json: string | null; state: string }>("SELECT result_json, state FROM voip_recording_transcripts WHERE external_id=?", [providerId]);
@@ -416,7 +424,12 @@ export async function extractItems(segs: Seg[], plans: string[], fetchImpl: type
             properties: { key: { type: "string", enum: [...CS_KEYS] }, value: { type: "string" }, confidence: { type: "string", enum: ["clear", "unclear"] }, line: { type: "integer" } } } } } } } } }),
     });
   } catch { throw new CsExtractError("ارتباط با OpenAI قطع شد."); }
-  if (!response.ok) { await response.body?.cancel(); throw new CsExtractError(`OpenAI ${response.status}`); }
+  if (!response.ok) {
+    // 429 (rate limit / insufficient_quota) or 402/403 billing → provider cool-down: no further extraction calls for a while (no retry storm).
+    let code = ""; try { const t = (await response.text()).slice(0, 4000); code = String(JSON.parse(t)?.error?.code ?? JSON.parse(t)?.error?.type ?? ""); } catch { /* body unreadable */ }
+    const credit = response.status === 429 || response.status === 402 || /insufficient_quota|billing/i.test(code);
+    throw new CsExtractError(`OpenAI ${response.status}${code ? ` ${code.slice(0, 40)}` : ""}`, credit);
+  }
   const reader = response.body?.getReader();
   if (!reader) throw new CsExtractError("پاسخ خالی است.");
   const chunks: Uint8Array[] = []; let size = 0;
@@ -458,6 +471,11 @@ export async function csAfterSummary(providerId: string, sourceHash: string, fet
   const segs = segmentsOf(providerId);
   if (!segs) return 0;
   const now = () => new Date().toISOString();
+  if (csExtractPaused()) { // provider out of credit / rate-limited: items stay «پرسیده نشد», no request at all
+    for (const e of todo) execute("INSERT INTO cs_extractions (event_id, source_hash, state, error, updated_at) VALUES (?,?,?,?,?) ON CONFLICT(event_id) DO UPDATE SET source_hash=excluded.source_hash, state=excluded.state, error=excluded.error, updated_at=excluded.updated_at",
+      [e.id, sourceHash, "failed", "paused_provider", now()]);
+    return 0;
+  }
   for (const e of todo) execute("INSERT INTO cs_extractions (event_id, source_hash, state, error, updated_at) VALUES (?,?,?,?,?) ON CONFLICT(event_id) DO UPDATE SET source_hash=excluded.source_hash, state=excluded.state, error=NULL, updated_at=excluded.updated_at",
     [e.id, sourceHash, "processing", null, now()]);
   try {
@@ -477,7 +495,12 @@ export async function csAfterSummary(providerId: string, sourceHash: string, fet
     });
     return got.size;
   } catch (err) {
-    for (const e of todo) executeChanges("UPDATE cs_extractions SET state='failed', error=?, updated_at=? WHERE event_id=?", [err instanceof CsExtractError ? err.message : "استخراج ناموفق بود.", now(), e.id]);
+    const msg = err instanceof CsExtractError ? err.message : "استخراج ناموفق بود.";
+    if (err instanceof CsExtractError && err.provider) {
+      if (!csExtractPaused()) logger.warn({ err: msg, events: todo.map((e) => e.id), pauseMin: CS_EXTRACT_COOLDOWN_MS / 60000 }, "cs-fields extraction paused: provider limit / credit");
+      csPauseUntil = Date.now() + CS_EXTRACT_COOLDOWN_MS;
+    } else logger.warn({ err: msg, events: todo.map((e) => e.id) }, "cs-fields extraction failed");
+    try { for (const e of todo) executeChanges("UPDATE cs_extractions SET state='failed', error=?, updated_at=? WHERE event_id=?", [msg, now(), e.id]); } catch { /* never throws into the pipeline */ }
     return 0;
   }
 }

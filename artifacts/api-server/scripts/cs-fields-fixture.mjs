@@ -262,6 +262,89 @@ try {
     assert.equal(guard("GET", "/call-summary-fields/calls/999999999"), 403);
     flag("flag.call_summary_fields_v1.user.8", null); flag("flag.expert_lockdown", null);
   });
+  await ok("CS-OWNQ lockdown: own customer off today's list → ارزیابی / plans / edit / file-card 200; other expert 403; other writes + report 403; flag off → unchanged", async () => {
+    const el = await import("../src/lib/expert-lockdown.ts");
+    const guard = (method, p) => { let st = 0, nx = false; const res = { locals: { authUser: actors.kazemi }, status(c) { st = c; return this; }, json() { return this; } };
+      el.expertLockdownGuard({ method, path: p, query: {}, body: {} }, res, () => { nx = true; }); return nx ? "next" : st; };
+    flag("flag.expert_lockdown", "1"); flag("flag.call_summary_fields_v1", "1");
+    const offList = (sp) => queryRows("SELECT id FROM customers WHERE salesperson_id=? AND merged_into_customer_id IS NULL ORDER BY id DESC LIMIT 300", [sp])
+      .map((r) => Number(r.id)).find((id) => !pool.includes(id) && el.elCustomerAccess(actors.kazemi, id) == null);
+    const own = offList(6), oth = offList(5);
+    assert.ok(own && oth, "need an own and another expert's customer off today's list");
+    assert.equal(el.elOwnCustomer(actors.kazemi, own), true); assert.equal(el.elOwnCustomer(actors.kazemi, oth), false);
+    const W = [["POST", (c) => `/customers/${c}/team-sales/qualify`], ["POST", (c) => `/customers/${c}/team-sales/qualify/preview`], ["POST", (c) => `/customers/${c}/team-sales/qualify/plans`],
+      ["POST", (c) => `/customers/${c}/team-sales/first-call/edit`], ["POST", (c) => `/customers/${c}/file-card`], ["PATCH", (c) => `/customers/${c}/consult-profile`]];
+    for (const [m, p] of W) { assert.equal(guard(m, p(own)), "next", p(own)); assert.equal(guard(m, p(oth)), 403, p(oth)); }
+    for (const [m, p] of [["PATCH", `/customers/${own}`], ["DELETE", `/customers/${own}`], ["POST", `/customers/${own}/team-sales/qualify/x`]]) assert.equal(guard(m, p), 403, p);
+    assert.equal(guard("GET", "/call-summary-fields/report"), 403);
+    // through the real routers (guard mounted the way app.ts mounts it)
+    const app2 = express(); app2.use(express.json());
+    app2.use((req, res, next) => { res.locals.authUser = actors[req.headers["x-actor"]]; next(); });
+    app2.use("/api", el.expertLockdownGuard, tsRouter, csRouter);
+    const sock2 = path.join(dir, "api2.sock"); const s2 = app2.listen(sock2); await once(s2, "listening");
+    const call2 = (method, url, body) => new Promise((resolve, reject) => {
+      const payload = JSON.stringify(body ?? {});
+      const r = http.request({ socketPath: sock2, path: "/api" + url, method, headers: { "x-actor": "kazemi", "content-type": "application/json" } }, (res) => {
+        let t = ""; res.on("data", (c) => (t += c)); res.on("end", () => { let j = null; try { j = JSON.parse(t); } catch { /* */ } resolve({ status: res.statusCode, body: j }); }); });
+      r.on("error", reject); r.write(payload); r.end();
+    });
+    try {
+      execute("UPDATE customers SET priority=NULL WHERE id=?", [own]);
+      const ans = { ...base, csFields: 1, creditRank: null, bouncedCheque: null, guarantorAvailable: null, ssoRetiree: null, docs: [], docsNone: false };
+      assert.equal((await call2("POST", `/customers/${own}/team-sales/qualify/plans`, { answers: ans })).status, 200);
+      const q = await call2("POST", `/customers/${own}/team-sales/qualify`, { answers: ans, note, call_result: "answered" });
+      assert.equal(q.status, 200, JSON.stringify(q.body)); assert.ok(ts.latestFirstCall(own));
+      assert.equal((await call2("POST", `/customers/${oth}/team-sales/qualify`, { answers: ans, note, call_result: "answered" })).status, 403);
+      assert.equal((await call2("POST", `/customers/${oth}/team-sales/qualify/plans`, { answers: ans })).status, 403);
+      assert.equal((await call2("GET", "/call-summary-fields/report")).status, 403);
+      // cs flag OFF → the old lockdown, unchanged
+      flag("flag.call_summary_fields_v1", null);
+      for (const [m, p] of W) assert.equal(guard(m, p(own)), 403, p(own));
+      assert.equal((await call2("POST", `/customers/${own}/team-sales/qualify/plans`, { answers: legacy })).status, 403);
+      // lockdown OFF → open as before
+      flag("flag.expert_lockdown", null); flag("flag.call_summary_fields_v1", "1");
+      for (const [m, p] of W) assert.equal(guard(m, p(own)), "next");
+    } finally { s2.close(); flag("flag.call_summary_fields_v1", null); flag("flag.expert_lockdown", null); }
+  });
+  await ok("CS-OFFTOL: saved with empty items (flag on), edited with the flag OFF → old validation tolerates unchanged empties; arrears/docs kept; changes still checked", async () => {
+    const el = await import("../src/lib/expert-lockdown.ts");
+    const cTol = queryRows("SELECT id FROM customers WHERE salesperson_id=6 AND merged_into_customer_id IS NULL ORDER BY id LIMIT 400").map((r) => Number(r.id))
+      .find((id) => !pool.includes(id) && !ts.latestFirstCall(id) && el.elOwnCustomer(actors.kazemi, id));
+    assert.ok(cTol);
+    execute("UPDATE customers SET priority=NULL WHERE id=?", [cTol]);
+    flag("flag.call_summary_fields_v1.user.8", "1");
+    ts.submitQualification(cTol, kazemi, { ...base, csFields: 1, creditRank: null, bouncedCheque: null, guarantorAvailable: null, ssoRetiree: null, arrears: "no", docs: ["payslip"], docsNone: false }, note, T(40));
+    flag("flag.call_summary_fields_v1.user.8", null); assert.equal(cs.csOn(8), false);
+    const fc = ts.latestFirstCall(cTol); assert.equal(fc.answers.csFields, 1);
+    // what the flag-off form sends back: no cs keys, the empty items untouched, one real change
+    const old = { ...base, amountMillion: 150, docsReady: fc.answers.docsReady ?? null, creditRank: null, bouncedCheque: null, guarantorAvailable: null, ssoRetiree: null };
+    ts.editFirstCall(cTol, kazemi, old, note, { now: T(30) });
+    const a = ts.latestFirstCall(cTol).answers;
+    assert.equal(a.amountMillion, 150); assert.equal(a.arrears, "no"); assert.deepEqual(a.docs, ["payslip"]); assert.equal(a.csFields, 1); assert.equal(a.creditRank ?? null, null);
+    assert.throws(() => ts.editFirstCall(cTol, kazemi, { ...old, creditRank: "Z9" }, note, { now: T(29) }), /.+/, "a changed value is still checked the old way");
+    ha.saveFileOnly(cTol, kazemi, { ...old, amountMillion: 160 });
+    const f = ha.currentFileAnswers(cTol).answers; assert.equal(f.amountMillion, 160); assert.equal(f.arrears, "no");
+    // a record saved without the flag is still checked exactly as before
+    assert.throws(() => ts.editFirstCall(cOff, kazemi, { ...legacy, creditRank: null }, note, { now: T(20) }), /.+/);
+    assert.throws(() => ts.submitQualification(cTol, kazemi, { ...base, csFields: 1 }, note, T(19)), /.+/, "a csFields payload with the flag off is still rejected");
+  });
+  await ok("CS-429: provider 429 / out of credit → call saved, items unasked, error logged once, cool-down (no retry storm), page still works", async () => {
+    flag("flag.call_summary_fields_v1.user.8", "1");
+    let n = 0; const f429 = async () => { n++; return new Response(JSON.stringify({ error: { code: "insufficient_quota", type: "insufficient_quota", message: "quota" } }), { status: 429 }); };
+    const a = seedEvent(cFirst, 9, ["الو", "رتبه‌ام A است"]), b = seedEvent(cFirst, 8, ["سلام"]);
+    assert.equal(await cs.csAfterSummary(a.ext, "h-429a", f429), 0);
+    assert.equal(await cs.csAfterSummary(b.ext, "h-429b", f429), 0);
+    assert.equal(n, 1, "second call skipped during the cool-down");
+    assert.equal(cs.csExtractPaused(), true);
+    const st = (e) => queryRow("SELECT state, error FROM cs_extractions WHERE event_id=?", [e.id]);
+    assert.equal(st(a).state, "failed"); assert.equal(st(b).state, "failed"); assert.equal(st(b).error, "paused_provider");
+    const v = await call("GET", `/call-summary-fields/calls/${a.id}`, "kazemi");
+    assert.equal(v.status, 200); assert.ok(v.body.items.every((i) => i.value == null), "items stay unasked/empty");
+    cs.csResetExtractPause();
+    assert.equal(await cs.csAfterSummary(seedEvent(cFirst, 7, ["x"]).ext, "h-thr", async () => { throw new Error("boom"); }), 0, "never throws into the summary pipeline");
+    assert.equal(cs.csExtractPaused(), false, "a plain failure does not pause");
+    cs.csResetExtractPause(); flag("flag.call_summary_fields_v1.user.8", null);
+  });
   await ok("no network, no SMS rows written by this feature", async () => {
     assert.equal(netCalls, 0);
   });

@@ -17,7 +17,8 @@ import { noteText } from "./note-text";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
 import { cqRaw, fromTehran, nextWorkDayAt, toWorkingTime, tParts, tYmd, isWorkDay, WORK_END_MIN, REMINDER_START_MIN, rmBeforeOpen, rmOpenAt } from "./call-queue";
 import { listOfficialHolidays } from "./official-holidays";
-import { EL_USERS, elCustomerAccess, elLocked } from "./expert-lockdown";
+import { EL_USERS, elCustomerAccess, elLocked, elOwnCustomer } from "./expert-lockdown";
+import { csOn } from "./call-summary-fields-core";
 
 export const RM_FLAG_KEY = "flag.reminder_must";
 export const RM_SNOOZE_MIN = 10;
@@ -140,9 +141,9 @@ export function rmFeed(u: NonNullable<U>, now = new Date()) {
     createdAt: r.created_at, remindAt: r.remind_at, outsideHours: toWorkingTime(new Date(r.remind_at)).shifted,
   })) : [];
   // REMINDER-3COL: «تکمیل/ویرایش پرونده» in the popup's file column only where the today card could save it too
-  // (expert_lockdown unchanged: POST /customers/:id/file-card stays limited to today's plan / incoming / case customers).
+  // (CS-OWNQ: POST /customers/:id/file-card is open for the expert's own customers too; other experts' customers stay locked).
   const head = items[0] ? { ...items[0], lastCalls: lastCalls(items[0].customerId),
-    fileEdit: !elLocked(u) || elCustomerAccess(u, items[0].customerId, now) != null } : null;
+    fileEdit: !elLocked(u) || elCustomerAccess(u, items[0].customerId, now) != null || (csOn(u.id) && elOwnCustomer(u, items[0].customerId)) } : null; // CS-OWNQ: own customer (flag on)
   return { enabled: true, workTime: work, opensAt: rmBeforeOpen(now) ? rmOpenAt(now).toISOString() : null, pendingCount: rows.length, items: head ? [head, ...items.slice(1)] : [], snooze, serverNow: now.toISOString(),
     rules: { noteMin: RM_NOTE_MIN, noteMax: RM_NOTE_MAX, reasonMin: RM_REASON_MIN, reasonMax: RM_REASON_MAX, outcomes: RM_OUTCOMES, next: RM_NEXT,
       todayPmOpen: todayPm(now) != null, custom: rmCustomRules(now) } };
