@@ -15,6 +15,7 @@
 import { vcFlagOn } from "./voip-call";
 import { s132FlagOn } from "./simotel132";
 import { s132bFlagOn } from "./simotel132b";
+import { rvLockdownIds } from "./reminder-voip";
 import { createHmac, randomBytes } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { crmDb, execute, queryRow, queryRows, runTransaction } from "./crm-db";
@@ -164,7 +165,8 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   // single-customer rule as the customer page itself; nothing else under /call-transcripts opens for a locked expert.
   // VOIP-CALL (flag.voip_call for this user only): «تماس از تلفن ویپ» + the customer's call history follow the same single-customer rule.
   // cs-fields v1 (flag.call_summary_fields_v1[.user.<id>] only): «موارد اجباری» on the call view / file follow the same single-customer rule.
-  const ctIds = ctLockdownIds(req, path, Number(u!.id)) ?? vcLockdownIds(req, path, Number(u!.id)) ?? csLockdownIds(req, path, Number(u!.id));
+  // REMINDER-VOIP (flag.reminder_voip for this user only): «تماس» on an own reminder = the same single-customer rule as the VoIP click call.
+  const ctIds = ctLockdownIds(req, path, Number(u!.id)) ?? vcLockdownIds(req, path, Number(u!.id)) ?? csLockdownIds(req, path, Number(u!.id)) ?? rvLockdownIds(req.method, path, Number(u!.id));
   if (ctIds) {
     for (const id of ctIds) if (!elCustomerAccess(u!, id) && !elOwnCustomer(u!, id))
       return deny(res, "expert_lockdown_customer", "این مشتری فعلاً برای شما باز نیست (فقط مشتری‌های «کارهای امروز»، پرونده‌های خودت یا «تماس ورودی»).");

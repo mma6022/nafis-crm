@@ -7,6 +7,7 @@ import { Eye, UsersRound, ArrowLeft } from 'lucide-react';
 import { useListReminders, getListRemindersQueryKey, type Reminder } from '@workspace/api-client-react';
 import { dpApi } from '@/features/daily-plan/api';
 import { faNum, tehranHm } from './api';
+import { RvList, useReminderVoip } from '@/features/reminder-voip/ReminderVoip';
 
 export function CustLocked() {
   const t = useQuery({ queryKey: ['ss-cur-task'], queryFn: dpApi.today, staleTime: 30_000, retry: false });
@@ -38,7 +39,10 @@ export function RemLocked() {
   const pOpen = { done: false };
   const pDone = { done: true };
   const open = useListReminders(pOpen, { query: { queryKey: getListRemindersQueryKey(pOpen), refetchInterval: 30_000 } });
-  const done = useListReminders(pDone, { query: { queryKey: getListRemindersQueryKey(pDone), enabled: tab === 'done' } });
+  // REMINDER-VOIP (flag.reminder_voip): meta 404 → off → this page renders exactly as before.
+  const rvProbe = useReminderVoip(open.data, undefined);
+  const done = useListReminders(pDone, { query: { queryKey: getListRemindersQueryKey(pDone), enabled: tab === 'done' || rvProbe.on, ...(rvProbe.on ? { refetchInterval: 30_000 } : {}) } });
+  const rv = useReminderVoip(open.data, rvProbe.on ? done.data : undefined);
   const now = Date.now(); const today = dayKey(new Date());
   const g = useMemo(() => {
     const rows = open.data ?? [];
@@ -67,12 +71,16 @@ export function RemLocked() {
   }, [g.later]);
 
   return <div className="ss-page" data-testid="ss-rem-locked">
-    <div className="ss-rhead"><h2>یادآورهای من</h2><span className="ss-ro" data-testid="ss-view-only"><Eye size={15} aria-hidden="true" /> فقط دیدن</span></div>
+    <div className="ss-rhead"><h2>یادآورهای من</h2>{rv.on ? null : <span className="ss-ro" data-testid="ss-view-only"><Eye size={15} aria-hidden="true" /> فقط دیدن</span>}</div>
     <p className="ss-rnote">در حالت محدود این فهرست فقط برای دیدن است. هر یادآور سررسیده به نوبت در پنجره‌ی یادآور باز می‌شود و نتیجه همان‌جا ثبت می‌شود.</p>
     <div className="ss-seg" role="tablist" aria-label="دسته‌ی یادآورها">
       {tabs.map((t) => <button key={t.k} type="button" role="tab" aria-selected={tab === t.k} className={tab === t.k ? 'on' : ''} onClick={() => setTab(t.k)} data-testid={`ss-rem-tab-${t.k}`}>{t.l}{t.n ? <span className="n">{faNum(t.n)}</span> : null}</button>)}
     </div>
     {open.isLoading ? <div className="ss-empty" role="status">در حال بارگذاری…</div> : open.isError ? <div className="ss-empty" role="alert">فهرست یادآورها باز نشد. کمی بعد دوباره سر بزن.</div>
+      : rv.on && tab !== 'done' ? (() => {
+        const rows = tab === 'today' ? [...g.overdue, ...g.laterToday, ...rv.finished] : g.later;
+        return rows.length ? <RvList rows={rows} meta={rv.meta} testId={`rv-list-${tab}`} /> : <div className="ss-empty">{tab === 'today' ? 'برای امروز یادآوری نمانده.' : 'یادآوری برای روزهای بعد نیست.'}</div>;
+      })()
       : tab === 'today' ? <>
         {g.overdue.length ? <section className="ss-rgrp red"><h3>سررسیده، {faNum(g.overdue.length)} · به نوبت در پنجره‌ی یادآور باز می‌شوند</h3><ul>{g.overdue.map((r) => row(r, true))}</ul></section> : null}
         {g.laterToday.length ? <section className="ss-rgrp"><h3>بعداً در امروز</h3><ul>{g.laterToday.map((r) => row(r, false))}</ul></section> : null}
