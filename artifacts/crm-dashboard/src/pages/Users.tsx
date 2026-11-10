@@ -1,7 +1,7 @@
 import { Link } from 'wouter';
 import { UserAvatar, AvatarPicker } from '@/components/UserAvatar';
 import { Edit3, Shield, UserCog, Plus, KeyRound, Trash2 } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useTableState } from '@/hooks/use-table-state';
 import { useQueryClient } from '@tanstack/react-query';
 import { getGetAuthSessionQueryKey, getListRolesQueryKey, getListUsersQueryKey, useCreateRole, useCreateUser, useDeleteRole, useGetAuthSession, useListRoles, useListUsers, useUpdateRole, useUpdateUser, type AppRole, type CrmUser, type CrmUserUpdate, type CrmUserInput, type RoleInput } from '@workspace/api-client-react';
@@ -16,6 +16,19 @@ function saveError(error: unknown) {
   const e = error as { status?: number; data?: { error?: string } };
   if (e.status === 409) return e.data?.error?.includes('داخلی') ? e.data.error : 'نام کاربری یا داخلی تلفن به کاربر دیگری اختصاص داده شده است.';
   return 'ذخیره کاربر ناموفق بود؛ اطلاعات را بررسی کنید و دوباره تلاش کنید.';
+}
+
+
+/** Same-origin return from the team-builder «ساخت کاربر جدید» link (§5.2). */
+function salesTeamsReturn(): string | null {
+  if (typeof window === 'undefined') return null;
+  const raw = new URLSearchParams(window.location.search).get('return');
+  if (!raw) return null;
+  let path = raw;
+  try { path = decodeURIComponent(raw); } catch { /* keep */ }
+  if (!path.startsWith('/sales-teams')) return null;
+  if (path.startsWith('//') || path.includes('://')) return null;
+  return path;
 }
 
 export default function Users() {
@@ -42,7 +55,18 @@ export default function Users() {
   };
   const save = (id: number, data: CrmUserUpdate) => update.mutate({ id, data }, { onSuccess: () => { setEditing(null); refreshUsers(); } });
   const toggle = (user: CrmUser) => save(user.id, { active: !user.active });
-  const handleCreate = (data: CrmUserInput) => create.mutate({ data }, { onSuccess: () => { setCreating(false); refreshUsers(); } });
+  const backToTeams = salesTeamsReturn();
+  useEffect(() => { if (backToTeams && canManageUsers) setCreating(true); }, [backToTeams, canManageUsers]);
+  const handleCreate = (data: CrmUserInput) => create.mutate({ data }, { onSuccess: (user) => {
+    setCreating(false);
+    refreshUsers();
+    if (backToTeams) {
+      const u = new URL(backToTeams, window.location.origin);
+      u.searchParams.set('pickedUserId', String(user.id));
+      if (user.salespersonId != null) u.searchParams.set('pickedSalespersonId', String(user.salespersonId));
+      window.location.assign(u.pathname + u.search);
+    }
+  } });
   
   return (
     <section className="data-page">

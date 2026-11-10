@@ -92,7 +92,7 @@ export function insertCustomerRecord(input: CustomerCreateInput): number {
   let leadSplitApplied = false;
   if (!input.skipDefaultOwnerRule && mtFlagOn()) {
     const pri = input.priority === 1 || input.priority === 2 || input.priority === 3 ? input.priority : null;
-    owner = assignLeadOwner(pri).salespersonId;
+    owner = assignLeadOwner(pri, new Date(), "new_customers").salespersonId;
     if (!(rule.apply && rule.ownerSalespersonId === owner)) {
       rule = { apply: false, skip: "multi_team_lead_split" };
       leadSplitApplied = true;

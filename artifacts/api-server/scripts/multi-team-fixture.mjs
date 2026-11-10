@@ -52,6 +52,7 @@ const { validateDefaultSourceBySeller } = await import("../src/lib/lead-intake.t
 const { assistantBellBlocked, ensureAssistantSchema } = await import("../src/lib/assistants.ts");
 const { financeRoles } = await import("../src/lib/gl-reports.ts");
 const mt = await import("../src/lib/multi-team.ts");
+const admin = await import("../src/lib/sales-teams-admin.ts");
 const ts = await import("../src/lib/team-sales.ts");
 const { elUsers } = await import("../src/lib/expert-lockdown.ts");
 const urgent = await import("../src/lib/customer-urgent.ts");
@@ -140,6 +141,20 @@ ok("seeded teams match t963s4018 ticks (no fixed roles, P1 1–2 owners)", () =>
     [5, false, false, true, false, false, 1],
   ]);
   assert.equal(mt.validateStoredTeam(t2).length, 0);
+  assert.equal(t1.name, "تیم فروش ۱");
+  assert.equal(t2.name, "تیم فروش ۲");
+  assert.equal(mt.teamUiDisplayName(20, "صالح"), "حسین خردکار");
+  const intake = mt.loadAllIntakeSplits();
+  assert.deepEqual(intake.map((r) => [r.source, r.teamIds]), [["new_customers", [1]], ["site_leads", [1]]]);
+});
+
+ok("legacy seed titles are renamed to the official names", () => {
+  execute("UPDATE sales_teams SET name=? WHERE id=1", ["تیم ۱ — کاظمی، حسنی، قاسمی"]);
+  execute("UPDATE sales_teams SET name=? WHERE id=2", ["تیم ۲ — خردکار، اصلانیان"]);
+  assert.equal(mt.renameLegacyTeamNames(), true);
+  assert.equal(mt.loadTeam(1).name, "تیم فروش ۱");
+  assert.equal(mt.loadTeam(2).name, "تیم فروش ۲");
+  assert.equal(mt.renameLegacyTeamNames(), false);
 });
 
 ok("validation: size, one lead, unique members, priority owners", () => {
@@ -308,17 +323,18 @@ ok("lead split stays 100% team 1 until quotas change", () => {
   assert.equal(mt.readLegacyCloserCursor(), global0);
 });
 
-ok("lead split respects per-team quotas when set", () => {
-  execute("UPDATE sales_teams SET lead_split_quota=1 WHERE id IN (1,2)");
-  execute("UPDATE sales_lead_split_state SET cursor_index=0, cursor_used=0 WHERE id=1");
-  const got = [];
+ok("intake rotation is per source, no quotas, and defaults stay on team 1", () => {
+  mt.saveIntakeSplit("new_customers", [1, 2]);
+  const gotNew = [];
+  const gotSite = [];
   runImmediateTransaction(() => {
-    for (let i = 0; i < 4; i++) got.push(mt.nextLeadSplitTeam().id);
+    for (let i = 0; i < 4; i++) gotNew.push(mt.nextLeadSplitTeam(new Date(), "new_customers").id);
+    for (let i = 0; i < 2; i++) gotSite.push(mt.nextLeadSplitTeam(new Date(), "site_leads").id);
   });
-  execute("UPDATE sales_teams SET lead_split_quota=? WHERE id=1", [1]);
-  execute("UPDATE sales_teams SET lead_split_quota=0 WHERE id=2");
-  execute("UPDATE sales_lead_split_state SET cursor_index=0, cursor_used=0 WHERE id=1");
-  assert.deepEqual(got, [1, 2, 1, 2]);
+  assert.deepEqual(gotNew, [1, 2, 1, 2]);
+  assert.deepEqual(gotSite, [1, 1]); // site leads still default to team 1
+  mt.saveIntakeSplit("new_customers", [1]);
+  mt.saveIntakeSplit("site_leads", [1]);
 });
 
 
@@ -392,7 +408,9 @@ ok("move script --execute on a copy swaps the selected books only", () => {
 ok("flag on: team members leave trainee lists; Younesi stays a trainee everywhere", () => {
   mt.migrateMultiTeam();
   mt.installAssistantBellGuard(crmDb);
-  assert.deepEqual(mt.traineeSalespersonIdsOn(crmDb), [19]);
+  const traineeIds = mt.traineeSalespersonIdsOn(crmDb);
+  assert.ok(traineeIds.includes(19));
+  assert.ok(!traineeIds.includes(5) && !traineeIds.includes(20) && !traineeIds.includes(3));
   assert.equal(mt.isTraineeSalespersonOn(crmDb, 5), false);
   assert.equal(mt.isTraineeSalespersonOn(crmDb, 20), false);
   assert.equal(mt.isTraineeSalespersonOn(crmDb, 19), true);
@@ -422,9 +440,60 @@ ok("flag on: team members leave trainee lists; Younesi stays a trainee everywher
   assert.equal(assistantBellBlocked(kheradkar, crmDb), false);
   assert.equal(assistantBellBlocked(younesi, crmDb), true);
   const sql = triggerSql();
-  assert.match(sql, /salesperson_id IN \(19\)/);
+  assert.match(sql, /NOT EXISTS/);
+  assert.match(sql, /sales_team_members/);
   assert.doesNotMatch(sql, /salesperson_id IN \(5,19,20\)/);
   financeRoles(crmDb); // still a trainee-safe read; Younesi/team-2 are salespersons, not finance roles
+});
+
+
+ok("t965s4040: flag-on trainee follows enabled-team membership, including Younesi", () => {
+  setFlag(true);
+  assert.equal(mt.isTraineeSalespersonOn(crmDb, 19), true);
+  const extras = queryRows("SELECT id FROM salespersons WHERE active=1 AND id NOT IN (3,4,5,6,20)");
+  for (const r of extras) assert.equal(mt.isTraineeSalespersonOn(crmDb, Number(r.id)), true, `sp ${r.id} should be a trainee`);
+  execute("INSERT INTO sales_team_members(team_id,salesperson_id,is_lead,owns_none,owns_p1,owns_p2,owns_p3,sort_order) VALUES(2,19,0,0,0,0,0,2)");
+  mt.installAssistantBellGuard(crmDb);
+  assert.equal(mt.isTraineeSalespersonOn(crmDb, 19), false);
+  assert.equal(mt.isTraineeUserOn(crmDb, 27), false);
+  execute("DELETE FROM sales_team_members WHERE salesperson_id=19");
+  mt.installAssistantBellGuard(crmDb);
+  assert.equal(mt.isTraineeSalespersonOn(crmDb, 19), true);
+  assert.equal(mt.isTraineeUserOn(crmDb, 27), true);
+});
+
+ok("t965s4040: cannot disable a team that is an intake destination", () => {
+  const blocked = admin.disableTeam(1);
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.status, 409);
+  assert.equal(blocked.error, "intake_destination");
+  assert.ok(String(blocked.message).includes("مقصد"));
+  assert.equal(mt.loadTeam(1).enabled, true);
+  assert.equal(mt.loadTeam(1).members.length, 3);
+  mt.saveIntakeSplit("new_customers", [2]);
+  mt.saveIntakeSplit("site_leads", [2]);
+  const off = admin.disableTeam(1);
+  assert.equal(off.ok, true);
+  assert.equal(mt.loadTeam(1).enabled, false);
+  assert.equal(mt.loadTeam(1).members.length, 0);
+  const still = admin.disableTeam(2);
+  assert.equal(still.ok, false);
+  const en = admin.enableTeam(1, [
+    { salespersonId: 6, isLead: true, ownsNone: true, ownsP2: true, ownsP3: true, sortOrder: 0 },
+    { salespersonId: 3, ownsP1: true, sortOrder: 1 },
+    { salespersonId: 4, ownsP1: true, sortOrder: 2 },
+  ]);
+  assert.equal(en.ok, true);
+  mt.saveIntakeSplit("new_customers", [1]);
+  mt.saveIntakeSplit("site_leads", [1]);
+});
+
+ok("t965s4040: team UI display names do not write users or salespersons", () => {
+  const beforeU = queryRow("SELECT full_name n FROM users WHERE id=28")?.n;
+  const beforeS = queryRow("SELECT name n FROM salespersons WHERE id=20")?.n;
+  assert.equal(admin.presentTeam(mt.loadTeam(2)).members.find((m) => m.salespersonId === 20).displayName, "حسین خردکار");
+  assert.equal(queryRow("SELECT full_name n FROM users WHERE id=28")?.n, beforeU);
+  assert.equal(queryRow("SELECT name n FROM salespersons WHERE id=20")?.n, beforeS);
 });
 
 ok("flag on then off restores trainee + legacy config behaviour", () => {

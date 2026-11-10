@@ -73,6 +73,7 @@ import salesShellRouter from "./sales-shell";
 import fileDetailV1Router from "./file-detail-v1";
 import { ensureReminderFollowSchema } from "../lib/reminder-follow";
 import linkPageRouter from "./link-page";
+import salesTeamsRouter from "./sales-teams";
 import baleBotRouter from "./bale-bot";
 
 const router: IRouter = Router();
@@ -156,6 +157,7 @@ router.use(glReportsRouter);
 router.use(instagramRouter);
 router.use(createSiteNotificationRouter());
 router.use(linkPageRouter); // links v1.0 (flag.links_page, OFF → falls through)
+router.use(salesTeamsRouter); // multi-team v1 (flag.multi_team_v1, OFF → falls through)
 router.use(baleBotRouter); // Bale bot inbox v1.0 (flag.bale_bot, OFF → falls through, no network)
 
 export default router;

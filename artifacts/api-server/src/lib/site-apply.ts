@@ -241,7 +241,7 @@ export function recordSiteApply(apply: SiteApply, ipHash: string, userAgent: str
       if (mtFlagOn()) {
         try {
           const pri = priority === 1 || priority === 2 || priority === 3 ? priority : null;
-          owner = assignLeadOwner(pri, now).salespersonId;
+          owner = assignLeadOwner(pri, now, "site_leads").salespersonId;
         } catch {
           owner = qualifier;
         }

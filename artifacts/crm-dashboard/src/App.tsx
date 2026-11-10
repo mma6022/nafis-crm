@@ -6,6 +6,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import LinksAdmin from '@/features/link-page/LinksAdmin';
+import SalesTeamsPage from '@/features/sales-teams/SalesTeamsPage';
 import BaleBotInbox from '@/features/bale-bot/BaleBotInbox';
 import BaleBotAdmin from '@/features/bale-bot/BaleBotAdminPage';
 import Dashboard from '@/pages/Dashboard';
@@ -302,6 +303,7 @@ function AppWithRoutes() {
                     <Route path="/settings/call-queue"><AdminOnlyRoute><CallQueueSettingsPage /></AdminOnlyRoute></Route>
                     <Route path="/call-queue-events"><AdminOnlyRoute><CallQueueEventsPage /></AdminOnlyRoute></Route>
                     <Route path="/settings/links"><LinksAdmin /></Route>
+                    <Route path="/sales-teams"><SalesTeamsPage /></Route>
                     <Route path="/bale-bot/admin"><BaleBotAdmin /></Route>{/* bale v1.1: pages render nothing (redirect) while flag.bale_bot is OFF */}
                     <Route path="/bale-bot/:id"><BaleBotInbox /></Route>
                     <Route path="/bale-bot"><BaleBotInbox /></Route>

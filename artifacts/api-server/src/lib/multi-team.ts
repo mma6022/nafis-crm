@@ -11,9 +11,12 @@
  *  - Every priority (none / 1 / 2 / 3) has an owner.
  *  - P1 may have one or two owners (rotation uses the per-team p1_cursor).
  *  - none / P2 / P3 have exactly one owner each.
- *  - Lead-split quotas (new customers + site leads) are per team.
+ *  - Incoming leads start 100% at team 1 until a manager changes intake.
+ *  - Intake is per source (new_customers / site_leads): one team or several rotating, no percentages.
+ *  - A team that is an intake destination cannot be disabled until it is removed.
  *  - Team-commission config is per team (team 2 is seeded at zero).
  *  - Future membership changes do not move existing customers.
+ *  - Team UI display names are labels only (no users-table writes). Kheradkar: «حسین خردکار».
  */
 import { crmDb, execute, queryRow, queryRows } from "./crm-db";
 import { mergeTeamSalesConfig, type TeamSalesConfig } from "./team-sales-rules";
@@ -21,6 +24,37 @@ import { mergeTeamSalesConfig, type TeamSalesConfig } from "./team-sales-rules";
 export const MT_FLAG = "flag.multi_team_v1";
 export const LEGACY_TEAM_SALES_CONFIG_KEY = "team_sales_config";
 export const LEGACY_TEAM_SALES_CURSOR_KEY = "team_sales_closer_cursor";
+
+export const TEAM_SEED_NAMES: Readonly<Record<number, string>> = { 1: "تیم فروش ۱", 2: "تیم فروش ۲" };
+const LEGACY_TEAM_SEED_NAMES: readonly string[] = [
+  "تیم ۱ — کاظمی، حسنی، قاسمی",
+  "تیم ۲ — خردکار، اصلانیان",
+];
+
+/** Team-UI-only labels. Never written to users / salespersons. */
+export const TEAM_UI_DISPLAY_NAMES: Readonly<Record<number, string>> = {
+  3: "خانم حسنی",
+  4: "خانم قاسمی",
+  5: "آرش اصلانیان",
+  6: "آقای کاظمی",
+  19: "خانم یونسی",
+  20: "حسین خردکار",
+};
+export function teamUiDisplayName(salespersonId: number, fallback?: string | null): string {
+  const over = TEAM_UI_DISPLAY_NAMES[Number(salespersonId)];
+  if (over) return over;
+  const fa = (v: string) => v.replace(/[0-9]/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)]!);
+  const fb = (fallback ?? "").trim();
+  return fa(fb || `کارشناس ${salespersonId}`);
+}
+
+export const INTAKE_SOURCES = ["new_customers", "site_leads"] as const;
+export type IntakeSource = (typeof INTAKE_SOURCES)[number];
+export type IntakeSplitRow = { source: IntakeSource; teamIds: number[]; cursorIndex: number; cursorUsed: number; updatedAt: string };
+
+export function isIntakeSource(v: unknown): v is IntakeSource {
+  return v === "new_customers" || v === "site_leads";
+}
 
 export type CallPriority = 1 | 2 | 3 | null;
 export type TeamMemberRow = {
@@ -97,8 +131,17 @@ export function ensureMultiTeamSchema(): void {
       cursor_used INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS sales_intake_split (
+      source TEXT PRIMARY KEY CHECK (source IN ('new_customers','site_leads')),
+      team_ids_json TEXT NOT NULL,
+      cursor_index INTEGER NOT NULL DEFAULT 0,
+      cursor_used INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
   `);
   schemaReady = true;
+  seedIntakeSplitIfNeeded();
+  renameLegacyTeamNames();
 }
 
 /** Idempotent seed of team 1 (from legacy config + cursor) and team 2. Never writes notification_settings. */
@@ -115,7 +158,7 @@ export function seedMultiTeamIfNeeded(now = new Date()): { seeded: string[] } {
     execute(
       `INSERT INTO sales_teams(id,name,enabled,lead_split_quota,p1_cursor,commission_json,created_at,updated_at)
        VALUES(1,?,1,1,?,'{"mode":"inherit"}',?,?)`,
-      ["تیم ۱ — کاظمی، حسنی، قاسمی", cursor, at, at],
+      [TEAM_SEED_NAMES[1], cursor, at, at],
     );
     execute(
       `INSERT INTO sales_team_members(team_id,salesperson_id,is_lead,owns_none,owns_p1,owns_p2,owns_p3,sort_order)
@@ -136,7 +179,7 @@ export function seedMultiTeamIfNeeded(now = new Date()): { seeded: string[] } {
     execute(
       `INSERT INTO sales_teams(id,name,enabled,lead_split_quota,p1_cursor,commission_json,created_at,updated_at)
        VALUES(2,?,?,0,0,'{"mode":"zero"}',?,?)`,
-      ["تیم ۲ — خردکار، اصلانیان", 1, at, at],
+      [TEAM_SEED_NAMES[2], 1, at, at],
     );
     // خردکار (sp 20) lead + none/P2/P3; اصلانیان (sp 5) P1 only.
     execute(`INSERT INTO sales_team_members(team_id,salesperson_id,is_lead,owns_none,owns_p1,owns_p2,owns_p3,sort_order)
@@ -150,7 +193,115 @@ export function seedMultiTeamIfNeeded(now = new Date()): { seeded: string[] } {
     execute("INSERT INTO sales_lead_split_state(id,cursor_index,cursor_used,updated_at) VALUES(1,0,0,?)", [at]);
     seeded.push("lead_split_state");
   }
+  const intake = seedIntakeSplitIfNeeded(now);
+  seeded.push(...intake);
+  if (renameLegacyTeamNames()) seeded.push("team_names");
   return { seeded };
+}
+
+/** Official names (t965s4040). Idempotent rename of the earlier long seed titles. */
+export function renameLegacyTeamNames(): boolean {
+  let changed = false;
+  for (const [id, name] of Object.entries(TEAM_SEED_NAMES)) {
+    const row = queryRow<{ name: string }>("SELECT name FROM sales_teams WHERE id=?", [Number(id)]);
+    if (row && LEGACY_TEAM_SEED_NAMES.includes(row.name) && row.name !== name) {
+      execute("UPDATE sales_teams SET name=?, updated_at=? WHERE id=?", [name, new Date().toISOString(), Number(id)]);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function parseTeamIdsJson(raw: string | null | undefined): number[] {
+  try {
+    const v = JSON.parse(raw || "[]");
+    if (!Array.isArray(v)) return [1];
+    const ids = v.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0);
+    return ids.length ? [...new Set(ids)] : [1];
+  } catch { return [1]; }
+}
+
+/** Default both sources to team 1 — 100% of incoming leads until a manager changes it. */
+export function seedIntakeSplitIfNeeded(now = new Date()): string[] {
+  const at = now.toISOString();
+  const seeded: string[] = [];
+  try {
+    crmDb.exec(`CREATE TABLE IF NOT EXISTS sales_intake_split (
+      source TEXT PRIMARY KEY CHECK (source IN ('new_customers','site_leads')),
+      team_ids_json TEXT NOT NULL,
+      cursor_index INTEGER NOT NULL DEFAULT 0,
+      cursor_used INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    )`);
+  } catch { /* already exists or no db */ }
+  for (const source of INTAKE_SOURCES) {
+    if (!queryRow("SELECT 1 x FROM sales_intake_split WHERE source=?", [source])) {
+      execute(
+        "INSERT INTO sales_intake_split(source,team_ids_json,cursor_index,cursor_used,updated_at) VALUES(?, '[1]', 0, 0, ?)",
+        [source, at],
+      );
+      seeded.push(`intake:${source}`);
+    }
+  }
+  return seeded;
+}
+
+export function loadIntakeSplit(source: IntakeSource): IntakeSplitRow {
+  ensureMultiTeamSchema();
+  seedIntakeSplitIfNeeded();
+  const row = queryRow<{ team_ids_json: string; cursor_index: number; cursor_used: number; updated_at: string }>(
+    "SELECT team_ids_json, cursor_index, cursor_used, updated_at FROM sales_intake_split WHERE source=?",
+    [source],
+  );
+  return {
+    source,
+    teamIds: parseTeamIdsJson(row?.team_ids_json),
+    cursorIndex: Math.max(0, Number(row?.cursor_index) || 0),
+    cursorUsed: Math.max(0, Number(row?.cursor_used) || 0),
+    updatedAt: row?.updated_at ?? "",
+  };
+}
+
+export function loadAllIntakeSplits(): IntakeSplitRow[] {
+  return INTAKE_SOURCES.map((s) => loadIntakeSplit(s));
+}
+
+/** Team ids that currently receive at least one intake source. */
+export function intakeDestinationTeamIds(): number[] {
+  const ids = new Set<number>();
+  for (const row of loadAllIntakeSplits()) for (const id of row.teamIds) ids.add(id);
+  return [...ids];
+}
+
+export function teamIsIntakeDestination(teamId: number): boolean {
+  return intakeDestinationTeamIds().includes(Number(teamId));
+}
+
+export function disableBlockedByIntakeMessage(teamId: number): string | null {
+  if (!teamIsIntakeDestination(teamId)) return null;
+  const sources = loadAllIntakeSplits()
+    .filter((r) => r.teamIds.includes(Number(teamId)))
+    .map((r) => r.source === "new_customers" ? "مشتری جدید" : "لید فرم سایت");
+  const which = sources.length ? sources.join(" و ") : "تقسیم ورودی";
+  return `این تیم مقصد ${which} است. اول مقصد تقسیم را عوض کنید، بعد غیرفعال کنید.`;
+}
+
+export function saveIntakeSplit(source: IntakeSource, teamIds: number[], now = new Date()): IntakeSplitRow {
+  ensureMultiTeamSchema();
+  const ids = [...new Set(teamIds.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  if (!ids.length) throw Object.assign(new Error("حداقل یک تیم برای این منبع انتخاب کنید."), { field: "teamIds" });
+  for (const id of ids) {
+    const t = loadTeam(id);
+    if (!t) throw Object.assign(new Error("تیم انتخاب‌شده پیدا نشد."), { field: "teamIds" });
+    if (!t.enabled) throw Object.assign(new Error("تیم غیرفعال را نمی‌شود در تقسیم ورودی گذاشت."), { field: "teamIds" });
+  }
+  const at = now.toISOString();
+  execute(
+    `INSERT INTO sales_intake_split(source,team_ids_json,cursor_index,cursor_used,updated_at) VALUES(?,?,0,0,?)
+     ON CONFLICT(source) DO UPDATE SET team_ids_json=excluded.team_ids_json, cursor_index=0, cursor_used=0, updated_at=excluded.updated_at`,
+    [source, JSON.stringify(ids), at],
+  );
+  return loadIntakeSplit(source);
 }
 
 export function migrateMultiTeam(now = new Date()) {
@@ -217,7 +368,7 @@ export function validateTeamMembers(members: TeamMemberRow[], opts: { otherTeamS
     errors.push({ field: "members", message: "هر تیم باید ۲ تا ۴ عضو داشته باشد." });
   }
   const leads = members.filter((m) => m.isLead);
-  if (leads.length !== 1) errors.push({ field: "is_lead", message: "هر تیم باید دقیقاً یک سرپرست داشته باشد." });
+  if (leads.length !== 1) errors.push({ field: "is_lead", message: "هر تیم باید دقیقاً یک سرپرست تیم داشته باشد." });
   const seen = new Set<number>();
   for (const m of members) {
     if (seen.has(m.salespersonId)) errors.push({ field: "salesperson_id", message: `کارشناس ${m.salespersonId} دوبار در تیم آمده است.` });
@@ -232,12 +383,14 @@ export function validateTeamMembers(members: TeamMemberRow[], opts: { otherTeamS
     2: members.filter((m) => m.ownsP2),
     3: members.filter((m) => m.ownsP3),
   };
-  if (owners.none.length !== 1) errors.push({ field: "owns_none", message: "اولویت «بدون اولویت» باید دقیقاً یک صاحب داشته باشد." });
-  if (owners[2].length !== 1) errors.push({ field: "owns_p2", message: "اولویت ۲ باید دقیقاً یک صاحب داشته باشد." });
-  if (owners[3].length !== 1) errors.push({ field: "owns_p3", message: "اولویت ۳ باید دقیقاً یک صاحب داشته باشد." });
-  if (owners[1].length < 1 || owners[1].length > 2) {
-    errors.push({ field: "owns_p1", message: "اولویت ۱ باید یک یا دو صاحب داشته باشد." });
-  }
+  if (owners.none.length === 0) errors.push({ field: "owns_none", message: "بدون اولویت هنوز مسئول ندارد." });
+  else if (owners.none.length > 1) errors.push({ field: "owns_none", message: "بدون اولویت فقط برای یک نفر است." });
+  if (owners[2].length === 0) errors.push({ field: "owns_p2", message: "اولویت ۲ هنوز مسئول ندارد." });
+  else if (owners[2].length > 1) errors.push({ field: "owns_p2", message: "اولویت ۲ فقط برای یک نفر است." });
+  if (owners[3].length === 0) errors.push({ field: "owns_p3", message: "اولویت ۳ هنوز مسئول ندارد." });
+  else if (owners[3].length > 1) errors.push({ field: "owns_p3", message: "اولویت ۳ فقط برای یک نفر است." });
+  if (owners[1].length === 0) errors.push({ field: "owns_p1", message: "اولویت ۱ هنوز مسئول ندارد." });
+  else if (owners[1].length > 2) errors.push({ field: "owns_p1", message: "اولویت ۱ حداکثر برای دو نفر است." });
   return errors;
 }
 
@@ -376,36 +529,27 @@ export function teamCommissionMode(team: SalesTeam | null): "inherit" | "zero" {
 
 /* ---------------- lead split (new customers + site leads) ---------------- */
 
-export function nextLeadSplitTeam(now = new Date()): SalesTeam {
+export function nextLeadSplitTeam(now = new Date(), source: IntakeSource = "new_customers"): SalesTeam {
   migrateMultiTeam();
-  const teams = loadAllTeams().filter((t) => t.enabled && t.leadSplitQuota > 0);
-  if (!teams.length) {
-    const fallback = loadTeam(1);
-    if (!fallback) throw new Error("هیچ تیمی برای تخصیص سرنخ تعریف نشده است.");
-    return fallback;
-  }
-  const state = queryRow<{ cursor_index: number; cursor_used: number }>(
-    "SELECT cursor_index, cursor_used FROM sales_lead_split_state WHERE id=1",
-  ) ?? { cursor_index: 0, cursor_used: 0 };
-  let index = Math.max(0, Number(state.cursor_index) || 0) % teams.length;
-  let used = Math.max(0, Number(state.cursor_used) || 0);
-  const quota = Math.max(1, teams[index].leadSplitQuota);
-  if (used >= quota) {
-    index = (index + 1) % teams.length;
-    used = 0;
-  }
+  const row = loadIntakeSplit(source);
+  const enabled = row.teamIds
+    .map((id) => loadTeam(id))
+    .filter((t): t is SalesTeam => Boolean(t && t.enabled));
+  const teams = enabled.length ? enabled : [loadTeam(1)].filter((t): t is SalesTeam => Boolean(t));
+  if (!teams.length) throw new Error("هیچ تیمی برای تخصیص سرنخ تعریف نشده است.");
+  let index = Math.max(0, Number(row.cursorIndex) || 0) % teams.length;
   const chosen = teams[index];
+  const nextIndex = teams.length === 1 ? 0 : (index + 1) % teams.length;
   execute(
-    `INSERT INTO sales_lead_split_state(id,cursor_index,cursor_used,updated_at) VALUES(1,?,?,?)
-     ON CONFLICT(id) DO UPDATE SET cursor_index=excluded.cursor_index, cursor_used=excluded.cursor_used, updated_at=excluded.updated_at`,
-    [index, used + 1, now.toISOString()],
+    `UPDATE sales_intake_split SET cursor_index=?, cursor_used=?, updated_at=? WHERE source=?`,
+    [nextIndex, (Number(row.cursorUsed) || 0) + 1, now.toISOString(), source],
   );
   return chosen;
 }
 
 /** Owner of a new lead for a given priority, advancing P1 rotation when needed. */
-export function assignLeadOwner(priority: CallPriority, now = new Date()): { team: SalesTeam; salespersonId: number } {
-  const team = nextLeadSplitTeam(now);
+export function assignLeadOwner(priority: CallPriority, now = new Date(), source: IntakeSource = "new_customers"): { team: SalesTeam; salespersonId: number } {
+  const team = nextLeadSplitTeam(now, source);
   const owner = priority === 1 && p1OwnerIds(team).length ? nextP1Owner(team) : ownerForPriority(team, priority);
   if (owner == null) {
     const fallback = noneOwnerId(team) ?? team.members[0]?.salespersonId;
@@ -417,33 +561,46 @@ export function assignLeadOwner(priority: CallPriority, now = new Date()): { tea
 
 /* ---------------- trainees / EL map ---------------- */
 
-/** Hard-coded trainee salesperson ids (Younesi stays even when the flag is on). */
+/** Legacy trainee list (flag OFF only). */
 export const BASE_TRAINEE_SALESPERSON_IDS: readonly number[] = [5, 19, 20];
 export const BASE_TRAINEE_USER_IDS: readonly number[] = [6, 27, 28];
 
+function isEnabledTeamMember(salespersonId: number): boolean {
+  try {
+    return Boolean(queryRow(
+      `SELECT 1 x FROM sales_team_members m JOIN sales_teams t ON t.id=m.team_id AND t.enabled=1
+        WHERE m.salesperson_id=?`,
+      [salespersonId],
+    ));
+  } catch { return false; }
+}
+
 /**
- * With the flag ON, team members (currently 5 and 20) are no longer treated as trainees.
- * Younesi (19 / user 27) remains a trainee.
+ * Flag OFF: the legacy list [5, 19, 20].
+ * Flag ON: anyone who is not a member of an enabled team is a trainee; a member is not.
+ * Younesi (19) is not on a team, so he stays a trainee until he is added.
  */
 export function isTraineeSalesperson(salespersonId: number | null | undefined): boolean {
   if (salespersonId == null) return false;
   const sp = Number(salespersonId);
-  if (!BASE_TRAINEE_SALESPERSON_IDS.includes(sp)) return false;
-  if (mtFlagOn() && teamOfSalesperson(sp)) return false;
-  return true;
+  if (!Number.isInteger(sp) || sp <= 0) return false;
+  if (mtFlagOn()) return !isEnabledTeamMember(sp);
+  return BASE_TRAINEE_SALESPERSON_IDS.includes(sp);
 }
 
 export function isTraineeUser(userId: number | null | undefined, salespersonId?: number | null): boolean {
   if (userId == null) return false;
   const uid = Number(userId);
-  if (!BASE_TRAINEE_USER_IDS.includes(uid)) return false;
+  if (!Number.isInteger(uid) || uid <= 0) return false;
+  const sp = salespersonId != null ? Number(salespersonId) : queryRow<{ salesperson_id: number | null }>(
+    "SELECT salesperson_id FROM users WHERE id=?", [uid],
+  )?.salesperson_id ?? null;
   if (mtFlagOn()) {
-    const sp = salespersonId != null ? Number(salespersonId) : queryRow<{ salesperson_id: number | null }>(
-      "SELECT salesperson_id FROM users WHERE id=?", [uid],
-    )?.salesperson_id;
-    if (sp != null && teamOfSalesperson(Number(sp))) return false;
+    if (sp == null) return false;
+    return isTraineeSalesperson(Number(sp));
   }
-  return true;
+  if (sp != null && BASE_TRAINEE_SALESPERSON_IDS.includes(Number(sp))) return true;
+  return BASE_TRAINEE_USER_IDS.includes(uid);
 }
 
 /** userId → salespersonId for every member of enabled teams (plus the legacy three). */
@@ -479,48 +636,103 @@ export function mtFlagOnDb(db: TraineeQueryDb): boolean {
     return ((db.prepare("SELECT value FROM call_queue_settings WHERE key=?").get(MT_FLAG) as { value?: string } | undefined)?.value === "1");
   } catch { return false; }
 }
-function isTeamMemberOn(db: TraineeQueryDb, salespersonId: number): boolean {
+function isEnabledTeamMemberOn(db: TraineeQueryDb, salespersonId: number): boolean {
   try {
-    if (!tableExistsOn(db, "sales_team_members")) return false;
-    return Boolean(db.prepare("SELECT 1 x FROM sales_team_members WHERE salesperson_id=?").get(salespersonId));
+    if (!tableExistsOn(db, "sales_team_members") || !tableExistsOn(db, "sales_teams")) return false;
+    return Boolean(db.prepare(
+      `SELECT 1 x FROM sales_team_members m JOIN sales_teams t ON t.id=m.team_id AND t.enabled=1 WHERE m.salesperson_id=?`,
+    ).get(salespersonId));
   } catch { return false; }
 }
 
 /**
- * db-injected form of isTraineeSalesperson. Flag OFF (or no team row) = the base list.
- * Flag ON + team membership = not a trainee. Younesi (19) is never a team member, so always a trainee.
+ * db-injected form of isTraineeSalesperson.
+ * Flag OFF = the legacy list. Flag ON = not a member of an enabled team.
  */
 export function isTraineeSalespersonOn(db: TraineeQueryDb, salespersonId: number | null | undefined): boolean {
   if (salespersonId == null) return false;
   const sp = Number(salespersonId);
-  if (!BASE_TRAINEE_SALESPERSON_IDS.includes(sp)) return false;
-  if (mtFlagOnDb(db) && isTeamMemberOn(db, sp)) return false;
-  return true;
+  if (!Number.isInteger(sp) || sp <= 0) return false;
+  if (mtFlagOnDb(db)) return !isEnabledTeamMemberOn(db, sp);
+  return BASE_TRAINEE_SALESPERSON_IDS.includes(sp);
 }
 export function isTraineeUserOn(db: TraineeQueryDb, userId: number | null | undefined, salespersonId?: number | null): boolean {
   if (userId == null) return false;
   const uid = Number(userId);
-  if (!BASE_TRAINEE_USER_IDS.includes(uid)) return false;
-  if (mtFlagOnDb(db)) {
-    const sp = salespersonId != null ? Number(salespersonId) : (db.prepare("SELECT salesperson_id FROM users WHERE id=?").get(uid) as { salesperson_id: number | null } | undefined)?.salesperson_id;
-    if (sp != null && isTeamMemberOn(db, Number(sp))) return false;
+  if (!Number.isInteger(uid) || uid <= 0) return false;
+  let sp = salespersonId != null ? Number(salespersonId) : null;
+  if (sp == null) {
+    try { sp = (db.prepare("SELECT salesperson_id FROM users WHERE id=?").get(uid) as { salesperson_id: number | null } | undefined)?.salesperson_id ?? null; }
+    catch { sp = null; }
   }
-  return true;
+  if (mtFlagOnDb(db)) {
+    if (sp == null) return false;
+    return isTraineeSalespersonOn(db, Number(sp));
+  }
+  if (sp != null && BASE_TRAINEE_SALESPERSON_IDS.includes(Number(sp))) return true;
+  return BASE_TRAINEE_USER_IDS.includes(uid);
 }
-/** Current trainee salesperson ids for SQL IN-lists and admin payloads. Flag OFF → [5,19,20]; flag ON after seed → [19]. */
+/** Flag OFF → [5,19,20]. Flag ON → every salesperson who is not on an enabled team. */
 export function traineeSalespersonIdsOn(db: TraineeQueryDb): number[] {
-  return BASE_TRAINEE_SALESPERSON_IDS.filter((sp) => isTraineeSalespersonOn(db, sp));
+  if (!mtFlagOnDb(db)) return BASE_TRAINEE_SALESPERSON_IDS.slice();
+  try {
+    const rows = (db.prepare(
+      `SELECT s.id AS id FROM salespersons s
+        WHERE s.active=1 AND NOT EXISTS (
+          SELECT 1 FROM sales_team_members m JOIN sales_teams t ON t.id=m.team_id AND t.enabled=1
+          WHERE m.salesperson_id=s.id
+        )`,
+    ).all ? db.prepare(
+      `SELECT s.id AS id FROM salespersons s
+        WHERE s.active=1 AND NOT EXISTS (
+          SELECT 1 FROM sales_team_members m JOIN sales_teams t ON t.id=m.team_id AND t.enabled=1
+          WHERE m.salesperson_id=s.id
+        )`,
+    ).all() : []) as { id: number }[];
+    return rows.map((r) => Number(r.id)).filter((n) => n > 0);
+  } catch {
+    return [];
+  }
 }
 export function traineeUserIdsOn(db: TraineeQueryDb): number[] {
-  return BASE_TRAINEE_USER_IDS.filter((id) => isTraineeUserOn(db, id));
+  if (!mtFlagOnDb(db)) return BASE_TRAINEE_USER_IDS.slice();
+  try {
+    const rows = (db.prepare(
+      `SELECT u.id AS id FROM users u
+        WHERE u.salesperson_id IS NOT NULL AND u.active=1 AND NOT EXISTS (
+          SELECT 1 FROM sales_team_members m JOIN sales_teams t ON t.id=m.team_id AND t.enabled=1
+          WHERE m.salesperson_id=u.salesperson_id
+        )`,
+    ).all ? db.prepare(
+      `SELECT u.id AS id FROM users u
+        WHERE u.salesperson_id IS NOT NULL AND u.active=1 AND NOT EXISTS (
+          SELECT 1 FROM sales_team_members m JOIN sales_teams t ON t.id=m.team_id AND t.enabled=1
+          WHERE m.salesperson_id=u.salesperson_id
+        )`,
+    ).all() : []) as { id: number }[];
+    return rows.map((r) => Number(r.id)).filter((n) => n > 0);
+  } catch {
+    return BASE_TRAINEE_USER_IDS.filter((id) => isTraineeUserOn(db, id));
+  }
 }
 export function traineeSalespersonIds(): number[] { return traineeSalespersonIdsOn(crmDb); }
 
-/** AR30 assistant-bell trigger, rebuilt from the current trainee list so flag ON no longer blocks team-2 experts. */
+/** AR30 assistant-bell trigger. Flag ON uses membership-of-enabled-team, not a fixed list. */
 export function assistantBellGuardTriggerSql(db: TraineeQueryDb, excludedUserIds: readonly number[] = [29]): string {
+  const ex = excludedUserIds.length ? excludedUserIds.join(",") : "NULL";
+  if (mtFlagOnDb(db) && tableExistsOn(db, "sales_team_members") && tableExistsOn(db, "sales_teams")) {
+    return `CREATE TRIGGER IF NOT EXISTS trg_assistant_bell_recipient_guard BEFORE INSERT ON site_notification_events
+  WHEN NEW.actor_key LIKE 'assistant:%' AND NEW.recipient_user_id IS NOT NULL AND (NEW.recipient_user_id IN (${ex})
+    OR EXISTS(SELECT 1 FROM users u WHERE u.id=NEW.recipient_user_id AND (u.role='trainee' OR (
+      u.salesperson_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM sales_team_members m JOIN sales_teams t ON t.id=m.team_id AND t.enabled=1
+        WHERE m.salesperson_id=u.salesperson_id
+      )
+    ))))
+  BEGIN SELECT RAISE(IGNORE); END`;
+  }
   const trainees = traineeSalespersonIdsOn(db);
   const inList = trainees.length ? trainees.join(",") : "NULL";
-  const ex = excludedUserIds.length ? excludedUserIds.join(",") : "NULL";
   return `CREATE TRIGGER IF NOT EXISTS trg_assistant_bell_recipient_guard BEFORE INSERT ON site_notification_events
   WHEN NEW.actor_key LIKE 'assistant:%' AND NEW.recipient_user_id IS NOT NULL AND (NEW.recipient_user_id IN (${ex})
     OR EXISTS(SELECT 1 FROM users WHERE id=NEW.recipient_user_id AND (role='trainee' OR salesperson_id IN (${inList}))))
