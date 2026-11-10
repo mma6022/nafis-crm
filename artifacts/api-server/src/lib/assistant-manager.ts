@@ -13,6 +13,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { expertCalls, expertCallStats } from "./expert-calls";
 import { realCallSql } from "./real-call";
 import { testCustomerSql } from "./test-customers";
+import { isTraineeSalespersonOn } from "./multi-team";
 
 export const MANAGER_TRAINEE_SALESPERSON_IDS = [5, 19, 20];
 export const MANAGER_EXCLUDED_USER_IDS = [29];
@@ -94,7 +95,7 @@ export function managerExperts(db: DatabaseSync): Expert[] {
   for (const r of rows) {
     const sp = Number(r.sp);
     if (MANAGER_EXCLUDED_USER_IDS.includes(Number(r.id))) continue; // trainees are read (read-only); user 29 never
-    const e: Expert = by.get(sp) ?? { salespersonId: sp, name: r.sp_name, trainee: MANAGER_TRAINEE_SALESPERSON_IDS.includes(sp), userIds: [] as number[], userName: r.full_name || r.username || null };
+    const e: Expert = by.get(sp) ?? { salespersonId: sp, name: r.sp_name, trainee: isTraineeSalespersonOn(db, sp), userIds: [] as number[], userName: r.full_name || r.username || null };
     e.userIds.push(Number(r.id)); by.set(sp, e);
   }
   return [...by.values()];

@@ -155,7 +155,9 @@ export function seedMultiTeamIfNeeded(now = new Date()): { seeded: string[] } {
 
 export function migrateMultiTeam(now = new Date()) {
   ensureMultiTeamSchema();
-  return seedMultiTeamIfNeeded(now);
+  const seeded = seedMultiTeamIfNeeded(now);
+  installAssistantBellGuard(crmDb);
+  return seeded;
 }
 
 /* ---------------- load / validate ---------------- */
@@ -459,6 +461,78 @@ export function teamExpertUserMap(base: Readonly<Record<number, number>> = { 8: 
     if (u) out[Number(u.id)] = sp;
   }
   return out;
+}
+
+/** Minimal handle so db-injected modules (assistants, intro, GL, …) never have to import crm-db. */
+export type TraineeQueryDb = {
+  prepare: (sql: string) => { get: (...params: unknown[]) => unknown; all?: (...params: unknown[]) => unknown[] };
+  exec?: (sql: string) => void;
+};
+
+function tableExistsOn(db: TraineeQueryDb, name: string): boolean {
+  try { return Boolean(db.prepare("SELECT 1 x FROM sqlite_master WHERE type='table' AND name=?").get(name)); }
+  catch { return false; }
+}
+export function mtFlagOnDb(db: TraineeQueryDb): boolean {
+  try {
+    if (!tableExistsOn(db, "call_queue_settings")) return false;
+    return ((db.prepare("SELECT value FROM call_queue_settings WHERE key=?").get(MT_FLAG) as { value?: string } | undefined)?.value === "1");
+  } catch { return false; }
+}
+function isTeamMemberOn(db: TraineeQueryDb, salespersonId: number): boolean {
+  try {
+    if (!tableExistsOn(db, "sales_team_members")) return false;
+    return Boolean(db.prepare("SELECT 1 x FROM sales_team_members WHERE salesperson_id=?").get(salespersonId));
+  } catch { return false; }
+}
+
+/**
+ * db-injected form of isTraineeSalesperson. Flag OFF (or no team row) = the base list.
+ * Flag ON + team membership = not a trainee. Younesi (19) is never a team member, so always a trainee.
+ */
+export function isTraineeSalespersonOn(db: TraineeQueryDb, salespersonId: number | null | undefined): boolean {
+  if (salespersonId == null) return false;
+  const sp = Number(salespersonId);
+  if (!BASE_TRAINEE_SALESPERSON_IDS.includes(sp)) return false;
+  if (mtFlagOnDb(db) && isTeamMemberOn(db, sp)) return false;
+  return true;
+}
+export function isTraineeUserOn(db: TraineeQueryDb, userId: number | null | undefined, salespersonId?: number | null): boolean {
+  if (userId == null) return false;
+  const uid = Number(userId);
+  if (!BASE_TRAINEE_USER_IDS.includes(uid)) return false;
+  if (mtFlagOnDb(db)) {
+    const sp = salespersonId != null ? Number(salespersonId) : (db.prepare("SELECT salesperson_id FROM users WHERE id=?").get(uid) as { salesperson_id: number | null } | undefined)?.salesperson_id;
+    if (sp != null && isTeamMemberOn(db, Number(sp))) return false;
+  }
+  return true;
+}
+/** Current trainee salesperson ids for SQL IN-lists and admin payloads. Flag OFF → [5,19,20]; flag ON after seed → [19]. */
+export function traineeSalespersonIdsOn(db: TraineeQueryDb): number[] {
+  return BASE_TRAINEE_SALESPERSON_IDS.filter((sp) => isTraineeSalespersonOn(db, sp));
+}
+export function traineeUserIdsOn(db: TraineeQueryDb): number[] {
+  return BASE_TRAINEE_USER_IDS.filter((id) => isTraineeUserOn(db, id));
+}
+export function traineeSalespersonIds(): number[] { return traineeSalespersonIdsOn(crmDb); }
+
+/** AR30 assistant-bell trigger, rebuilt from the current trainee list so flag ON no longer blocks team-2 experts. */
+export function assistantBellGuardTriggerSql(db: TraineeQueryDb, excludedUserIds: readonly number[] = [29]): string {
+  const trainees = traineeSalespersonIdsOn(db);
+  const inList = trainees.length ? trainees.join(",") : "NULL";
+  const ex = excludedUserIds.length ? excludedUserIds.join(",") : "NULL";
+  return `CREATE TRIGGER IF NOT EXISTS trg_assistant_bell_recipient_guard BEFORE INSERT ON site_notification_events
+  WHEN NEW.actor_key LIKE 'assistant:%' AND NEW.recipient_user_id IS NOT NULL AND (NEW.recipient_user_id IN (${ex})
+    OR EXISTS(SELECT 1 FROM users WHERE id=NEW.recipient_user_id AND (role='trainee' OR salesperson_id IN (${inList}))))
+  BEGIN SELECT RAISE(IGNORE); END`;
+}
+export function installAssistantBellGuard(db: TraineeQueryDb): void {
+  if (typeof db.exec !== "function") return;
+  try {
+    if (!tableExistsOn(db, "site_notification_events") || !tableExistsOn(db, "users")) return;
+    db.exec("DROP TRIGGER IF EXISTS trg_assistant_bell_recipient_guard");
+    db.exec(assistantBellGuardTriggerSql(db));
+  } catch { /* leave whatever trigger is already there */ }
 }
 
 export function resetMultiTeamSchemaCache(): void { schemaReady = false; }

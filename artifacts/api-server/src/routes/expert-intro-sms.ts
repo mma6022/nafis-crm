@@ -6,11 +6,12 @@ import { crmDb } from "../lib/crm-db";
 import { getNotificationSettings } from "../lib/customer-notifications";
 import { getCustomer } from "./crm";
 import {
-  EXPERT_INTRO_PARAM_CUSTOMER, EXPERT_INTRO_PARAM_NAME, EXPERT_INTRO_PARAM_PHONE, customerParam, EXPERT_INTRO_TEMPLATE, EXPERT_INTRO_TRAINEE_SALESPERSON_IDS, ExpertIntroError,
+  EXPERT_INTRO_PARAM_CUSTOMER, EXPERT_INTRO_PARAM_NAME, EXPERT_INTRO_PARAM_PHONE, customerParam, EXPERT_INTRO_TEMPLATE, ExpertIntroError,
   customerIntroLog, ensureExpertIntroSchema, expertInfo, expertOverview, failureText, getExpertIntroSettings, introStats, logIntro,
   mobileKey, normalizeContactPhone, renderIntroText, saveExpertIntroSettings, setUserContactPhone, userContactPhones,
 } from "../lib/expert-intro-sms-core";
 import { sendExpertIntroPattern, teamSalesIds } from "../lib/expert-intro-sms";
+import { traineeSalespersonIdsOn } from "../lib/multi-team";
 
 const router: IRouter = Router();
 ensureExpertIntroSchema(crmDb);
@@ -28,7 +29,7 @@ function view() {
     template: EXPERT_INTRO_TEMPLATE, paramNames: { customer: EXPERT_INTRO_PARAM_CUSTOMER, name: EXPERT_INTRO_PARAM_NAME, phone: EXPERT_INTRO_PARAM_PHONE },
     provider: "IPPanel", fromNumber: ns.ippanelFromNumber, ippanelEnabled: ns.ippanelEnabled,
     relayConfigured: Boolean(process.env.IR_RELAY_SHARED_SECRET),
-    sendWindow: "08:00–21:00 Asia/Tehran", traineeSalespersonIds: [...EXPERT_INTRO_TRAINEE_SALESPERSON_IDS],
+    sendWindow: "08:00–21:00 Asia/Tehran", traineeSalespersonIds: traineeSalespersonIdsOn(crmDb),
     qualifierSalespersonId: ids.qualifierId, experts: expertOverview(crmDb, ids.qualifierId, ids.closerIds), stats: introStats(crmDb),
   };
 }

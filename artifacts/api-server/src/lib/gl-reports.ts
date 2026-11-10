@@ -14,6 +14,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { financeSettingAsOf } from "./ledger";
 import { openingBaseDate, opening2101Check, openingApprovalReadiness, tehranDateOf, tomanToRial } from "./gl-posting";
 import { roleSql } from "./sales-manager";
+import { isTraineeSalespersonOn } from "./multi-team";
 
 export const GL_REPORTS_MIGRATION = "general-ledger-g5-reports";
 export const GL_REPORTS_DDL = `
@@ -266,7 +267,7 @@ function eligibleFinanceUsers(db: DatabaseSync): FinUser[] {
   const cols = all<{ name: string }>(db, "PRAGMA table_info(users)").map((c) => c.name);
   const sp = cols.includes("salesperson_id") ? "salesperson_id" : "NULL";
   return all<{ id: number; role: string; sp: number | null }>(db, `SELECT id, ${roleSql()} AS role, ${sp} sp FROM users WHERE active=1 AND role IN ('admin','sales_manager','${ROLE_ACC}','${ROLE_APR}')`)
-    .filter((u) => !GL_FINANCE_EXCLUDED_USER_IDS.includes(Number(u.id)) && !(u.sp != null && GL_FINANCE_TRAINEE_SALESPERSON_IDS.includes(Number(u.sp))))
+    .filter((u) => !GL_FINANCE_EXCLUDED_USER_IDS.includes(Number(u.id)) && !(u.sp != null && isTraineeSalespersonOn(db, Number(u.sp))))
     .map((u) => ({ id: Number(u.id), role: u.role }));
 }
 /** Who can draft (admin / gl_accountant) and who can approve (admin / gl_voucher_approver) a manual voucher; solo = no distinct pair. */

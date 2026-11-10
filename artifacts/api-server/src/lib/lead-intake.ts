@@ -14,6 +14,7 @@
  * db-injected (DatabaseSync parameter).
  */
 import type { DatabaseSync } from "node:sqlite";
+import { isTraineeSalespersonOn } from "./multi-team";
 import { ensureUrgentSchema, parseStaffUrgentReason, parseUrgentReason, recordUrgentAttempt, setCustomerUrgent, URGENT_CLEAR_NOTE_MAX, URGENT_CLEAR_REASONS, type UrgentActor } from "./customer-urgent";
 
 export const LEAD_SOURCES = {
@@ -105,7 +106,7 @@ export function validateDefaultSourceBySeller(db: DatabaseSync, raw: unknown): {
   const out: Record<string, LeadSource> = {};
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     if (!/^\d+$/.test(k) || !isLeadSource(v) || v === "other") return { ok: false, error: "کلید باید شناسه‌ی فروشنده و مقدار یکی از منبع‌ها (به‌جز «سایر») باشد." };
-    if ([5, 19, 20].includes(Number(k))) return { ok: false, error: "کارآموزها منبع پیش‌فرض ندارند." };
+    if (isTraineeSalespersonOn(db, Number(k))) return { ok: false, error: "کارآموزها منبع پیش‌فرض ندارند." };
     if (!db.prepare("SELECT 1 FROM salespersons WHERE id=?").get(Number(k))) return { ok: false, error: `فروشنده‌ی ${k} پیدا نشد.` };
     out[String(Number(k))] = v;
   }

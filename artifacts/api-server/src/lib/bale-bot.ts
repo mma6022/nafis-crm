@@ -28,6 +28,7 @@ import { isSalesManagerUser, roleSql } from "./sales-manager";
 import { baleBotAad, openBotToken, type BotKeyEnv } from "./bale-bot-crypto";
 import * as baleContact from "./bale-contact";
 import * as customerBale from "./customer-bale";
+import { isTraineeSalesperson } from "./multi-team";
 
 export const BB_FLAG = "flag.bale_bot";
 export const bbUserFlag = (userId: number) => `${BB_FLAG}.user.${userId}`;
@@ -124,7 +125,7 @@ export const nameOf = (u: { full_name?: string | null; username?: string; id: nu
 export function isBotExpert(u: BbUser | undefined | null): boolean {
   if (!u || u.active === 0 || BB_EXCLUDED_USER_IDS.includes(u.id)) return false;
   if (BB_EXTRA_EXPERT_USER_IDS.includes(u.id)) return true;
-  return u.role === "salesperson" && !!u.salesperson_id && !BB_TRAINEE_SALESPERSON_IDS.includes(Number(u.salesperson_id));
+  return u.role === "salesperson" && !!u.salesperson_id && !isTraineeSalesperson(Number(u.salesperson_id));
 }
 /** "all" = admin + sales manager (read + write every chat); "own" = an expert's own bot; null = no access. Needs both flags. */
 export function bbView(u: BbUser | undefined | null): "all" | "own" | null {

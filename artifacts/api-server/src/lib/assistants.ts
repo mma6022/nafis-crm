@@ -37,6 +37,7 @@ import express, { Router, type Request, type Response, type NextFunction } from 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { ensureSchemaObject } from "./schema-objects";
+import { isTraineeSalespersonOn, installAssistantBellGuard } from "./multi-team";
 import { maskData, maskText, maskPhone } from "./smart-filing";
 import { loanRequests, allNotes, latestNote, customerFamily } from "./assistant-notes";
 import { expertCallsToday, EXPERT_CALLS_DEFINITION, tehranDayStartMs } from "./expert-calls";
@@ -73,9 +74,10 @@ export const TRAINEE_SALESPERSON_IDS = [5, 19, 20];
 export const EXCLUDED_USER_IDS = [29];
 /** AR30: an assistant bell row (actor_key 'assistant:*') never goes to user 29, a trainee role or a user bound to a trainee
  *  salesperson id (5/19/20). Checked in code (bell(), expert-analysis bell) AND by the DB trigger trg_assistant_bell_recipient_guard. */
-export function assistantBellBlocked(u: { id?: unknown; role?: unknown; salesperson_id?: unknown } | null | undefined): boolean {
+export function assistantBellBlocked(u: { id?: unknown; role?: unknown; salesperson_id?: unknown } | null | undefined, db?: { prepare: (sql: string) => { get: (...params: unknown[]) => unknown } }): boolean {
   if (!u) return true;
-  return EXCLUDED_USER_IDS.includes(Number(u.id)) || u.role === "trainee" || (u.salesperson_id != null && TRAINEE_SALESPERSON_IDS.includes(Number(u.salesperson_id)));
+  const trainee = u.salesperson_id != null && (db ? isTraineeSalespersonOn(db, Number(u.salesperson_id)) : TRAINEE_SALESPERSON_IDS.includes(Number(u.salesperson_id)));
+  return EXCLUDED_USER_IDS.includes(Number(u.id)) || u.role === "trainee" || trainee;
 }
 export const ASSISTANT_BELL_GUARD_TRIGGER = `CREATE TRIGGER IF NOT EXISTS trg_assistant_bell_recipient_guard BEFORE INSERT ON site_notification_events
   WHEN NEW.actor_key LIKE 'assistant:%' AND NEW.recipient_user_id IS NOT NULL AND (NEW.recipient_user_id IN (${EXCLUDED_USER_IDS.join(",")})
@@ -180,8 +182,8 @@ export function ensureAssistantSchema(db: Db, nowIso = new Date().toISOString())
   }
   ensurePageUsageSchema(db); // v10: additive table page_usage_events + 2 indexes
   // AR30: DB-level recipient guard for assistant bell rows (existing rows are left as they are).
-  const t = (n: string) => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(n));
-  if (t("site_notification_events") && t("users")) db.exec(ASSISTANT_BELL_GUARD_TRIGGER);
+  // Rebuilt from the current trainee list so flag.multi_team_v1 no longer blocks team-2 experts; flag OFF stays [5,19,20].
+  installAssistantBellGuard(db);
 }
 
 /** ي/ك → ی/ک, drop ZWNJ/zero-width + tatweel, آ → ا, so «برآورد»/«براورد»/«برآ‌ورد» (ZWNJ inside) all match. */
@@ -232,7 +234,7 @@ export function createAssistants(deps: Deps) {
     }
     if (a.kind === "sales" && a.scope_rule === "manager") return { sql: "0", params: [] }; // un-normalized manager row: fail closed
     if (a.kind === "sales") {
-      if (!a.bound_salesperson_id || TRAINEE_SALESPERSON_IDS.includes(a.bound_salesperson_id)) return { sql: "0", params: [] };
+      if (!a.bound_salesperson_id || isTraineeSalespersonOn(db, a.bound_salesperson_id)) return { sql: "0", params: [] };
       return { sql: `${base} AND c.salesperson_id=? AND COALESCE(c.status,'') NOT IN ('cancelled','completed')${a.scope_rule === "p1" ? " AND c.priority=1" : ""}`, params: [a.bound_salesperson_id] };
     }
     if (!hasTable("smart_filing_jobs") || !hasTable("smart_filing_panel_plans")) return { sql: "0", params: [] };
@@ -250,7 +252,7 @@ export function createAssistants(deps: Deps) {
    *  the Bale inbound ownCustomer check) reaches the sales assistant whatever the customer's status (completed / cancelled too). Read/delivery
    *  only: queue, suggestions, writes and every other event type keep inScope(); the p1 rule and trainee / manager exclusions stay. */
   function baleInboundDeliverable(a: any, customerId: number): boolean {
-    if (a.kind !== "sales" || a.scope_rule === "manager" || !a.bound_salesperson_id || TRAINEE_SALESPERSON_IDS.includes(a.bound_salesperson_id)) return false;
+    if (a.kind !== "sales" || a.scope_rule === "manager" || !a.bound_salesperson_id || isTraineeSalespersonOn(db, a.bound_salesperson_id)) return false;
     if (!Number.isSafeInteger(customerId) || customerId < 1) return false;
     return Boolean(row(`SELECT 1 FROM customers c WHERE c.id=? AND c.merged_into_customer_id IS NULL AND c.salesperson_id=?${a.scope_rule === "p1" ? " AND c.priority=1" : ""}`,
       customerId, a.bound_salesperson_id));
@@ -259,10 +261,10 @@ export function createAssistants(deps: Deps) {
    *  logged a call, a note or a follow-up on, even after the customer moved to another expert or was closed. Never the queue,
    *  suggestions or any write; ownership is untouched. Trainee assistants, trainee-owned customers, merged customers and user 29 are excluded. */
   function historyReadable(a: any, customerId: number): boolean {
-    if (a.kind !== "sales" || a.scope_rule === "manager" || !a.bound_salesperson_id || TRAINEE_SALESPERSON_IDS.includes(a.bound_salesperson_id)) return false;
+    if (a.kind !== "sales" || a.scope_rule === "manager" || !a.bound_salesperson_id || isTraineeSalespersonOn(db, a.bound_salesperson_id)) return false;
     if (!Number.isSafeInteger(customerId) || customerId < 1) return false;
     const c = row<any>("SELECT id,salesperson_id,merged_into_customer_id FROM customers WHERE id=?", customerId);
-    if (!c || c.merged_into_customer_id != null || TRAINEE_SALESPERSON_IDS.includes(Number(c.salesperson_id))) return false;
+    if (!c || c.merged_into_customer_id != null || isTraineeSalespersonOn(db, Number(c.salesperson_id))) return false;
     const uid = Number(a.bound_user_id) || 0; const sp = a.bound_salesperson_id;
     if (EXCLUDED_USER_IDS.includes(uid)) return false;
     if (row("SELECT 1 FROM call_logs WHERE customer_id=? AND (salesperson_id=? OR (?>0 AND created_by_user_id=?)) LIMIT 1", customerId, sp, uid, uid)) return true;
@@ -278,7 +280,7 @@ export function createAssistants(deps: Deps) {
   /** Humans who may chat with this assistant at all. */
   function userEligible(a: any, u: { id: number; role: string; salesperson_id: number | null; active?: number }): boolean {
     if (!u || EXCLUDED_USER_IDS.includes(u.id) || u.active === 0) return false;
-    if (u.role === "salesperson" && (!u.salesperson_id || TRAINEE_SALESPERSON_IDS.includes(u.salesperson_id))) return false;
+    if (u.role === "salesperson" && (!u.salesperson_id || isTraineeSalespersonOn(db, u.salesperson_id))) return false;
     if (a.kind === "manager") return u.role === "admin" && isSalesManagerUser(u); // v8: Ahmad talks to admins only (29 excluded above); since 2026-11-03 only «مدیر فروش»
     if (a.scope_rule === "manager") return false; // un-normalized manager row: fail closed
     if (a.kind === "sales") return u.id === a.bound_user_id && u.role === "salesperson";
@@ -322,7 +324,7 @@ export function createAssistants(deps: Deps) {
     if (m.suppressed_reason === "digested" || m.customer_id == null) return;
     if (a.kind !== "filing" && !BELL_KINDS[m.kind] && m.priority !== "high") return; // sales chat replies stay in the chat
     if (filingRecipientBlocked(a, u)) return; // v6: never a Sarina bell row for a sales expert
-    if (assistantBellBlocked(row<any>(`SELECT id,${roleSql()} AS role,role AS base_role,salesperson_id FROM users WHERE id=?`, u?.id) ?? u)) return; // AR30: never 29 / trainees
+    if (assistantBellBlocked(row<any>(`SELECT id,${roleSql()} AS role,role AS base_role,salesperson_id FROM users WHERE id=?`, u?.id) ?? u, db)) return; // AR30: never 29 / trainees
     if (!userEligible(a, u) || !userSeesCase(a, u, m.customer_id)) return;
     if (!bellReady) bellReady = hasTable("site_notification_events") && rows<{ name: string }>("PRAGMA table_info(site_notification_events)").some(c => c.name === "recipient_user_id");
     if (!bellReady) return;
@@ -578,7 +580,7 @@ export function createAssistants(deps: Deps) {
     const threads = users.map((u: any) => ({ userId: u.id, name: u.full_name || u.username, role: u.role, threadId: threadFor(a, u.id, false)?.id ?? null, ...prefsOf(u.id) }));
     // v7: sales assistants also get the box of 3 (same lib/sales-assist.ts logic, no impression is recorded) and today's counters.
     let sales: any = {};
-    if (a.kind === "sales" && a.bound_salesperson_id && !TRAINEE_SALESPERSON_IDS.includes(a.bound_salesperson_id)) {
+    if (a.kind === "sales" && a.bound_salesperson_id && !isTraineeSalespersonOn(db, a.bound_salesperson_id)) {
       const sp = Number(a.bound_salesperson_id); const t = now();
       let today: any = null, box: any[] = [], pool: number | null = null, unavailable = false;
       try { today = deps.sales?.today ? deps.sales.today(sp, t) : null; } catch { unavailable = true; }
@@ -762,7 +764,7 @@ export function createAssistants(deps: Deps) {
   runner.post("/customers/:id/assistant-notes", (req, res) => {
     const c = scopedCustomer(req, res); if (!c) return; const a = A(res);
     // v8: the manager reads trainees' customers but writes nothing on them (no change of any kind to trainees).
-    if (a.kind === "manager" && TRAINEE_SALESPERSON_IDS.includes(Number(c.salesperson_id))) { audit({ req, a, tokenId: TK(res), action: "POST /customers/:id/assistant-notes", customerId: c.id, outcome: "trainee_read_only" }); return fail(res, 403, "trainee_read_only", "مشتری‌های کارآموز برای دستیار مدیر فقط خواندنی است."); }
+    if (a.kind === "manager" && isTraineeSalespersonOn(db, Number(c.salesperson_id))) { audit({ req, a, tokenId: TK(res), action: "POST /customers/:id/assistant-notes", customerId: c.id, outcome: "trainee_read_only" }); return fail(res, 403, "trainee_read_only", "مشتری‌های کارآموز برای دستیار مدیر فقط خواندنی است."); }
     const body = String(req.body?.body ?? "").trim();
     if (!body || body.length > MAX_BODY) return fail(res, 422, "bad_body");
     if (hasBannedWord(body)) { audit({ req, a, tokenId: TK(res), action: "POST /customers/:id/assistant-notes", customerId: c.id, outcome: "banned_word", detail: { len: body.length } }); return fail(res, 422, "banned_word"); }
@@ -785,7 +787,7 @@ export function createAssistants(deps: Deps) {
     if (setting(ASSISTANT_URGENT_WRITE_KEY, "0") !== "1") { audit({ req, a, tokenId: TK(res), action: act, outcome: "urgent_write_disabled" }); return fail(res, 423, "urgent_write_disabled", "نوشتن «فوری» برای دستیارها خاموش است."); }
     if (!urgentWriteAllowed(a)) { audit({ req, a, tokenId: TK(res), action: act, outcome: "urgent_write_not_allowed" }); return fail(res, 403, "urgent_write_not_allowed", "زدن «فوری» برای این دستیار فعال نیست."); }
     const c = scopedCustomer(req, res); if (!c) return;
-    if (TRAINEE_SALESPERSON_IDS.includes(Number(c.salesperson_id))) { audit({ req, a, tokenId: TK(res), action: act, customerId: c.id, outcome: "trainee_read_only" }); return fail(res, 403, "trainee_read_only"); }
+    if (isTraineeSalespersonOn(db, Number(c.salesperson_id))) { audit({ req, a, tokenId: TK(res), action: act, customerId: c.id, outcome: "trainee_read_only" }); return fail(res, 403, "trainee_read_only"); }
     if (req.body?.isUrgent === false) { audit({ req, a, tokenId: TK(res), action: act, customerId: c.id, outcome: "set_only" }); return fail(res, 403, "set_only", "دستیار فقط می‌تواند «فوری» بزند؛ برداشتن آن خودکار (با ثبت تماس) یا با مدیر است."); }
     if (req.body?.isUrgent !== undefined && req.body?.isUrgent !== true) return fail(res, 422, "bad_body");
     const pr = parseUrgentReason(req.body, false);
@@ -1123,7 +1125,7 @@ export function createAssistants(deps: Deps) {
   runner.get("/reminders/schedule", (req, res) => {
     const act = "GET /reminders/schedule"; const a = A(res);
     if (a.kind !== "sales" || a.scope_rule === "manager" || !a.bound_user_id || !a.bound_salesperson_id
-      || TRAINEE_SALESPERSON_IDS.includes(Number(a.bound_salesperson_id)) || EXCLUDED_USER_IDS.includes(Number(a.bound_user_id))) {
+      || isTraineeSalespersonOn(db, Number(a.bound_salesperson_id)) || EXCLUDED_USER_IDS.includes(Number(a.bound_user_id))) {
       audit({ req, a, tokenId: TK(res), action: act, outcome: "sales_only" });
       return fail(res, 403, "sales_only", "برنامه‌ی یادآورها فقط برای دستیار فروشِ خودِ کارشناس است.");
     }
@@ -1360,7 +1362,7 @@ export function createAssistants(deps: Deps) {
     const ex = managerExperts(db).find(e => e.salespersonId === sp);
     const bad = (code: string, msg: string, st = 422) => { audit({ req, a, tokenId: TK(res), action: "POST /manager/expert-analysis", outcome: code, detail: { salespersonId: b.salespersonId ?? null, period: b.period ?? null } }); fail(res, st, code, msg); };
     if (!ex) return bad("not_found", "کارشناس در محدوده‌ی دستیار مدیر نیست.", 404);
-    if (ex.trainee || TRAINEE_SALESPERSON_IDS.includes(sp)) return bad("trainee_read_only", "برای کارآموزها تحلیل ثبت نمی‌شود (فقط خواندنی).", 403);
+    if (ex.trainee || isTraineeSalespersonOn(db, sp)) return bad("trainee_read_only", "برای کارآموزها تحلیل ثبت نمی‌شود (فقط خواندنی).", 403);
     const period = perfPeriod(b.period); if (!period) return bad("bad_period", "period یکی از day | week | month است.");
     const ps = b.periodStart == null || b.periodStart === "" ? defaultPeriodStart(period, now()) : validPeriodStart(period, b.periodStart, now());
     if (!ps) return bad("bad_period_start", "periodStart باید تاریخ شروع همان بازه (YYYY-MM-DD تهران) باشد؛ روز = دیروز یا قبل‌تر، هفته = شنبه، ماه = اول ماه شمسی.");
@@ -1376,7 +1378,7 @@ export function createAssistants(deps: Deps) {
       const PF: Record<string, string> = { day: "روز گذشته", week: "هفته", month: "ماه" };
       const first = body.split("\n").map(x => x.replace(/^[#>*\-\s]+/, "").trim()).find(Boolean) ?? "";
       for (const u of rows<any>("SELECT id,role,salesperson_id FROM users WHERE salesperson_id=? AND role='salesperson' AND active=1", sp)) {
-        if (assistantBellBlocked(u)) continue; // AR30: never 29 / trainees
+        if (assistantBellBlocked(u, db)) continue; // AR30: never 29 / trainees
         run(`INSERT INTO site_notification_events(customer_id,customer_name,owner_id,resource_type,resource_id,kind,title,body,permission,created_at,actor_key,recipient_user_id)
           VALUES(0,'',?,'expert-analysis',?,'expert-analysis',?,?,'assistant.recipient',?,?,?)`, sp, id, `${label(a)} · تحلیل عملکرد ${PF[period]}`, first.slice(0, 160), at, `assistant:${a.slug}`, u.id);
         notified.push(Number(u.id));
@@ -1591,7 +1593,7 @@ export function createAssistants(deps: Deps) {
     if (!u || !u.active || noMgr(u)) { fail(res, 403, "forbidden"); return null; }
     if (u.role === "salesperson") {
       const sp = Number(u.salesperson_id);
-      if (!sp || TRAINEE_SALESPERSON_IDS.includes(sp)) { fail(res, 403, "forbidden"); return null; }
+      if (!sp || isTraineeSalespersonOn(db, sp)) { fail(res, 403, "forbidden"); return null; }
       if (req.query.salespersonId != null && req.query.salespersonId !== "" && Number(req.query.salespersonId) !== sp) { fail(res, 403, "forbidden"); return null; }
       return sp;
     }

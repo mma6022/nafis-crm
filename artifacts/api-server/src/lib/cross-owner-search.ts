@@ -18,6 +18,7 @@ import type { AuthUser } from "./auth";
 import { crmDb, execute, queryRow, queryRows } from "./crm-db";
 import { normalizeCustomerMobile, normalizePersianSearchText } from "./customer-integrity";
 import { parseCustomerIdQuery, toLatinDigits } from "./customer-id-search";
+import { isTraineeSalesperson } from "./multi-team";
 
 /** Task C (2026-10-26): name and mobile leave the server masked («سهیلا د***», «0912*****67»). */
 export type OtherOwnerMatch = { id: number; name: string; maskedPhone: string; ownerName: string };
@@ -201,7 +202,7 @@ export function transferCallHint(
   let notifyReason: string | null = null;
   if (opts.notify === false) notifyReason = "disabled";
   else if (!owner) notifyReason = "no_user";
-  else if (TRAINEE_IDS.includes(Number(c.salesperson_id)) || CROSS_OWNER_EXCLUDED_USER_IDS.includes(Number(owner.id))) notifyReason = "not_eligible";
+  else if (isTraineeSalesperson(Number(c.salesperson_id)) || CROSS_OWNER_EXCLUDED_USER_IDS.includes(Number(owner.id))) notifyReason = "not_eligible";
   else {
     const recent = queryRow("SELECT 1 x FROM cross_owner_lookup_log WHERE user_id=? AND action='transfer_click' AND notified=1 AND customer_ids=? AND created_at>=?",
       [Number(user.id), JSON.stringify([customerId]), new Date(now - TRANSFER_CALL_NOTIFY_WINDOW_MS).toISOString()]);

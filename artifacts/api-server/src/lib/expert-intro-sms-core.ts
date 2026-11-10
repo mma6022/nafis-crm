@@ -14,6 +14,7 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { smsFetch } from "./sms-proxy";
 import type { DatabaseSync } from "node:sqlite";
+import { isTraineeSalespersonOn } from "./multi-team";
 
 export const EXPERT_INTRO_ENABLED_KEY = "expert_intro_sms_enabled";
 export const EXPERT_INTRO_PATTERN_KEY = "expert_intro_sms_pattern_code";
@@ -226,7 +227,7 @@ type CustomerRow = { id: number; name?: string | null; phone: string | null; sal
 function checkEligibility(db: Db, c: CustomerRow, expert: ExpertInfo, s: IntroSettings, qualifierId: number, ippanelEnabled: boolean): string | null {
   if (c.merged_into_customer_id != null) return REASONS.merged;
   if (expert.salespersonId === qualifierId) return REASONS.qualifier;
-  if ((EXPERT_INTRO_TRAINEE_SALESPERSON_IDS as readonly number[]).includes(expert.salespersonId)) return REASONS.trainee;
+  if (isTraineeSalespersonOn(db, expert.salespersonId)) return REASONS.trainee;
   if (isOldCustomer(db, c.id, qualifierId)) return REASONS.oldCustomer;
   if (!c.phone || !mobileKey(c.phone)) return REASONS.badCustomerPhone;
   if (isTestOrStaffPhone(db, c.phone, s)) return REASONS.testNumber;
@@ -383,7 +384,7 @@ export function expertOverview(db: Db, qualifierId: number | null, closerIds: nu
     const u = row<{ id: number; username: string; customer_contact_phone: string | null }>(db,
       "SELECT id, username, customer_contact_phone FROM users WHERE salesperson_id=? AND active=1 ORDER BY (role='salesperson') DESC, id LIMIT 1", sp.id);
     const id = Number(sp.id);
-    const kind: ExpertRow["kind"] = id === qualifierId ? "qualifier" : (EXPERT_INTRO_TRAINEE_SALESPERSON_IDS as readonly number[]).includes(id) ? "trainee" : closerIds.includes(id) ? "closer" : "other";
+    const kind: ExpertRow["kind"] = id === qualifierId ? "qualifier" : isTraineeSalespersonOn(db, id) ? "trainee" : closerIds.includes(id) ? "closer" : "other";
     return { salespersonId: id, name: String(sp.name ?? ""), active: Number(sp.active) === 1, userId: u ? Number(u.id) : null, username: u?.username ?? null,
       phone: u?.customer_contact_phone ? normalizeContactPhone(u.customer_contact_phone) ?? null : null, kind };
   });

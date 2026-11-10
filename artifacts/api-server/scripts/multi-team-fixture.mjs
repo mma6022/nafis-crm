@@ -43,7 +43,14 @@ process.env.SESSION_SECRET ||= `fixture-only-${Math.random().toString(36).slice(
 let passed = 0;
 const ok = (name, fn) => { fn(); passed++; console.log("ok -", name); };
 
-const { queryRow, queryRows, execute, runImmediateTransaction } = await import("../src/lib/crm-db.ts");
+const { queryRow, queryRows, execute, runImmediateTransaction, crmDb } = await import("../src/lib/crm-db.ts");
+const { isBotExpert } = await import("../src/lib/bale-bot.ts");
+const { managerExperts } = await import("../src/lib/assistant-manager.ts");
+const { expertOverview } = await import("../src/lib/expert-intro-sms-core.ts");
+const { grantLeadAnnotator, isLeadAnnotatorBlockedSalesperson } = await import("../src/lib/lead-annotator.ts");
+const { validateDefaultSourceBySeller } = await import("../src/lib/lead-intake.ts");
+const { assistantBellBlocked, ensureAssistantSchema } = await import("../src/lib/assistants.ts");
+const { financeRoles } = await import("../src/lib/gl-reports.ts");
 const mt = await import("../src/lib/multi-team.ts");
 const ts = await import("../src/lib/team-sales.ts");
 const { elUsers } = await import("../src/lib/expert-lockdown.ts");
@@ -184,6 +191,47 @@ ok("flag still off after seed: resolver and cursor stay on the legacy path", () 
   execute("UPDATE notification_settings SET value=? WHERE key='team_sales_closer_cursor'", [String(c0)]);
 });
 
+const aslanian = { id: 6, role: "salesperson", salesperson_id: 5, active: 1 };
+const kheradkar = { id: 28, role: "salesperson", salesperson_id: 20, active: 1 };
+const younesi = { id: 27, role: "salesperson", salesperson_id: 19, active: 1 };
+const hasani = { id: 2, role: "salesperson", salesperson_id: 3, active: 1 };
+const traineeFlag = (id) => managerExperts(crmDb).find((e) => e.salespersonId === id)?.trainee;
+const introKind = (id) => expertOverview(crmDb, 6, [3, 4]).find((e) => e.salespersonId === id)?.kind;
+const triggerSql = () => String(queryRow("SELECT sql FROM sqlite_master WHERE type='trigger' AND name='trg_assistant_bell_recipient_guard'")?.sql ?? "");
+
+ok("flag off: remaining trainee lists still treat 5/19/20 (Younesi always) as trainees", () => {
+  ensureAssistantSchema(crmDb);
+  mt.installAssistantBellGuard(crmDb);
+  assert.deepEqual(mt.traineeSalespersonIdsOn(crmDb), [5, 19, 20]);
+  assert.equal(isBotExpert(aslanian), false);
+  assert.equal(isBotExpert(kheradkar), false);
+  assert.equal(isBotExpert(younesi), false);
+  assert.equal(isBotExpert(hasani), true);
+  assert.equal(traineeFlag(5), true);
+  assert.equal(traineeFlag(20), true);
+  assert.equal(traineeFlag(19), true);
+  assert.equal(traineeFlag(3), false);
+  assert.equal(introKind(5), "trainee");
+  assert.equal(introKind(20), "trainee");
+  assert.equal(introKind(19), "trainee");
+  assert.equal(isLeadAnnotatorBlockedSalesperson(crmDb, 5), true);
+  assert.equal(isLeadAnnotatorBlockedSalesperson(crmDb, 20), true);
+  assert.equal(isLeadAnnotatorBlockedSalesperson(crmDb, 19), true);
+  assert.throws(() => grantLeadAnnotator(crmDb, 6, "multi-team-fixture"), /user_not_allowed/);
+  assert.throws(() => grantLeadAnnotator(crmDb, 27, "multi-team-fixture"), /user_not_allowed/);
+  assert.throws(() => grantLeadAnnotator(crmDb, 28, "multi-team-fixture"), /user_not_allowed/);
+  assert.equal(validateDefaultSourceBySeller(crmDb, { "5": "instagram" }).ok, false);
+  assert.equal(validateDefaultSourceBySeller(crmDb, { "20": "instagram" }).ok, false);
+  assert.equal(validateDefaultSourceBySeller(crmDb, { "19": "instagram" }).ok, false);
+  assert.equal(assistantBellBlocked(aslanian, crmDb), true);
+  assert.equal(assistantBellBlocked(kheradkar, crmDb), true);
+  assert.equal(assistantBellBlocked(younesi, crmDb), true);
+  assert.equal(assistantBellBlocked(hasani, crmDb), false);
+  const sql = triggerSql();
+  assert.match(sql, /salesperson_id IN \(5,19,20\)/);
+  assert.equal(mt.isTraineeSalespersonOn(crmDb, 19), true);
+});
+
 setFlag(true);
 ok("flag on: team 1 config unchanged; team 2 routes by ticks", () => {
   const t1 = ts.teamConfigFor({ salespersonId: 6 });
@@ -274,8 +322,6 @@ ok("lead split respects per-team quotas when set", () => {
 });
 
 
-const { crmDb } = await import("../src/lib/crm-db.ts");
-
 ok("urgent bells: team members are not no-bell; extra recipient is the team's none-owner", () => {
   const kId = Number(queryRow("SELECT id FROM customers WHERE salesperson_id=20 AND merged_into_customer_id IS NULL LIMIT 1").id);
   const aId = Number(queryRow("SELECT id FROM customers WHERE salesperson_id=5 AND merged_into_customer_id IS NULL LIMIT 1").id);
@@ -343,11 +389,61 @@ ok("move script --execute on a copy swaps the selected books only", () => {
   assert.equal(Number(queryRow("SELECT COUNT(*) n FROM customer_priority_history WHERE source=?", [SOURCE]).n), 0);
 });
 
+ok("flag on: team members leave trainee lists; Younesi stays a trainee everywhere", () => {
+  mt.migrateMultiTeam();
+  mt.installAssistantBellGuard(crmDb);
+  assert.deepEqual(mt.traineeSalespersonIdsOn(crmDb), [19]);
+  assert.equal(mt.isTraineeSalespersonOn(crmDb, 5), false);
+  assert.equal(mt.isTraineeSalespersonOn(crmDb, 20), false);
+  assert.equal(mt.isTraineeSalespersonOn(crmDb, 19), true);
+  assert.equal(mt.isTraineeUserOn(crmDb, 6), false);
+  assert.equal(mt.isTraineeUserOn(crmDb, 28), false);
+  assert.equal(mt.isTraineeUserOn(crmDb, 27), true);
+  assert.equal(isBotExpert(aslanian), true);
+  assert.equal(isBotExpert(kheradkar), true);
+  assert.equal(isBotExpert(younesi), false);
+  assert.equal(isBotExpert(hasani), true);
+  assert.equal(traineeFlag(5), false);
+  assert.equal(traineeFlag(20), false);
+  assert.equal(traineeFlag(19), true);
+  assert.equal(introKind(5), "other");
+  assert.equal(introKind(20), "other");
+  assert.equal(introKind(19), "trainee");
+  assert.equal(isLeadAnnotatorBlockedSalesperson(crmDb, 5), false);
+  assert.equal(isLeadAnnotatorBlockedSalesperson(crmDb, 20), false);
+  assert.equal(isLeadAnnotatorBlockedSalesperson(crmDb, 19), true);
+  assert.throws(() => grantLeadAnnotator(crmDb, 27, "multi-team-fixture"), /user_not_allowed/);
+  const granted = grantLeadAnnotator(crmDb, 6, "multi-team-fixture");
+  assert.ok(granted === "granted" || granted === "already");
+  assert.equal(validateDefaultSourceBySeller(crmDb, { "5": "instagram" }).ok, true);
+  assert.equal(validateDefaultSourceBySeller(crmDb, { "20": "instagram" }).ok, true);
+  assert.equal(validateDefaultSourceBySeller(crmDb, { "19": "instagram" }).ok, false);
+  assert.equal(assistantBellBlocked(aslanian, crmDb), false);
+  assert.equal(assistantBellBlocked(kheradkar, crmDb), false);
+  assert.equal(assistantBellBlocked(younesi, crmDb), true);
+  const sql = triggerSql();
+  assert.match(sql, /salesperson_id IN \(19\)/);
+  assert.doesNotMatch(sql, /salesperson_id IN \(5,19,20\)/);
+  financeRoles(crmDb); // still a trainee-safe read; Younesi/team-2 are salespersons, not finance roles
+});
+
 ok("flag on then off restores trainee + legacy config behaviour", () => {
   setFlag(false);
+  mt.installAssistantBellGuard(crmDb);
   assert.equal(mt.mtFlagOn(), false);
   assert.equal(mt.isTraineeSalesperson(5), true);
   assert.equal(mt.isTraineeSalesperson(20), true);
+  assert.equal(mt.isTraineeSalesperson(19), true);
+  assert.deepEqual(mt.traineeSalespersonIdsOn(crmDb), [5, 19, 20]);
+  assert.equal(isBotExpert(aslanian), false);
+  assert.equal(isBotExpert(younesi), false);
+  assert.equal(traineeFlag(5), true);
+  assert.equal(traineeFlag(19), true);
+  assert.equal(isLeadAnnotatorBlockedSalesperson(crmDb, 5), true);
+  assert.equal(isLeadAnnotatorBlockedSalesperson(crmDb, 19), true);
+  assert.equal(validateDefaultSourceBySeller(crmDb, { "5": "instagram" }).ok, false);
+  assert.equal(assistantBellBlocked(aslanian, crmDb), true);
+  assert.match(triggerSql(), /salesperson_id IN \(5,19,20\)/);
   assert.equal(ts.teamConfigFor({ salespersonId: 20 }).qualifierSalespersonId, 6);
   assert.deepEqual(elUsers(), { 8: 6, 2: 3, 3: 4 });
   const final = snapSettings();

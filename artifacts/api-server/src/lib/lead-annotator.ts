@@ -18,12 +18,18 @@
  * db-injected (no crm-db import).
  */
 import type { DatabaseSync } from "node:sqlite";
+import { isTraineeSalespersonOn } from "./multi-team";
 
 export const LEAD_ANNOTATOR = "lead_annotator";
 export const LEAD_ANNOTATOR_NOTE_LABEL = "اینستاگرام";
 export const LEAD_ANNOTATOR_BLOCKED_USERS = [29];
 export const LEAD_ANNOTATOR_BLOCKED_SALESPERSONS = [5, 19, 20];
 export const NOTE_MAX = null;
+
+/** Flag OFF: salespersons 5/19/20. Flag ON: only remaining trainees (Younesi, 19). */
+export function isLeadAnnotatorBlockedSalesperson(db: DatabaseSync, salespersonId: number | null | undefined): boolean {
+  return isTraineeSalespersonOn(db, salespersonId);
+}
 
 export function ensureLeadAnnotatorSchema(db: DatabaseSync): void {
   db.exec(`CREATE TABLE IF NOT EXISTS access_capabilities (
@@ -94,7 +100,7 @@ export function grantLeadAnnotator(db: DatabaseSync, userId: number, by: string)
   ensureLeadAnnotatorSchema(db);
   const u = db.prepare("SELECT id, active, salesperson_id FROM users WHERE id=?").get(userId) as { id: number; active: number; salesperson_id: number | null } | undefined;
   if (!u || Number(u.active) !== 1) throw new Error("user_not_active");
-  if (LEAD_ANNOTATOR_BLOCKED_USERS.includes(userId) || LEAD_ANNOTATOR_BLOCKED_SALESPERSONS.includes(Number(u.salesperson_id))) throw new Error("user_not_allowed");
+  if (LEAD_ANNOTATOR_BLOCKED_USERS.includes(userId) || isLeadAnnotatorBlockedSalesperson(db, u.salesperson_id)) throw new Error("user_not_allowed");
   const at = new Date().toISOString();
   const r = db.prepare("INSERT OR IGNORE INTO access_capabilities(subject_kind,subject_id,capability,granted_by,granted_at) VALUES('user',?,?,?,?)").run(userId, LEAD_ANNOTATOR, by, at);
   if (!Number(r.changes)) return "already";
