@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
+import { vthOf } from '@/features/voip-task-hold/api';
 import { Bell, Calendar, Check, Clock, Copy, Eye, EyeOff, Flag, Headset, Lock, Phone, Plus, Shield, User, Users, X, ArrowLeftRight } from 'lucide-react';
 import type { Reminder } from '@workspace/api-client-react';
 import { useVoip } from '@/components/voip/VoipProvider';
@@ -245,6 +246,7 @@ function RvResultForm({ r, it, call, auto, onClose }: FormState & { onClose: () 
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, [onClose]);
   const name = r.customerName?.trim() || 'بدون نام';
   const one = note.replace(/\s+/g, ' ').trim();
+  const vthMe = useVcMe().data; const vthLabel = vthOf(vthMe as any)?.on && vthOf(vthMe as any)?.queue ? vthOf(vthMe as any)!.saveLabel : null;
   const ok = Boolean(outcome) && one.length > 0 && one.length <= 80;
   async function save() {
     if (!ok || saving) { if (!outcome) setErr('نتیجه‌ی تماس را انتخاب کن.'); else if (!one) { setErr('یادداشت یک‌خطی را بنویس.'); inp.current?.focus(); } return; }
@@ -283,7 +285,7 @@ function RvResultForm({ r, it, call, auto, onClose }: FormState & { onClose: () 
         {err ? <p className="rv-err" role="alert">{err}</p> : null}
       </div>
       <footer className="rv-mf">
-        <button type="button" className="rv-btn pri" aria-disabled={!ok || saving ? true : undefined} data-testid="rv-save" onClick={() => void save()}><Check aria-hidden="true" />{saving ? 'در حال ثبت…' : 'ثبت تماس همین حالا'}</button>
+        <button type="button" className="rv-btn pri" aria-disabled={!ok || saving ? true : undefined} data-testid="rv-save" onClick={() => void save()}><Check aria-hidden="true" />{saving ? 'در حال ثبت…' : (vthLabel || 'ثبت تماس همین حالا')}</button>
         <button type="button" className="rv-btn gh rv-close" data-testid="rv-cancel" onClick={onClose}>انصراف</button>
       </footer>
     </section>

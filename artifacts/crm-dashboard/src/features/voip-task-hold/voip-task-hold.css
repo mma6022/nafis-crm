@@ -1,0 +1,29 @@
+/* VOIP-TASK-HOLD (flag.voip_task_hold_v1, default OFF) — Armita v1.0 (screens/voip-task-hold/src/vth.css + status/form rules). */
+.vh-date{font-size:14px;color:var(--nf-ink-muted);margin-bottom:12px;display:flex;gap:8px}
+.vh-task{padding:16px;display:grid;gap:10px}.vh-task-head{display:flex;gap:8px;align-items:center}
+.vh-status{display:flex;gap:10px;align-items:flex-start;padding:14px;border:1px solid var(--nf-brand-100);border-radius:14px;background:var(--nf-brand-50);font-size:14px;color:var(--nf-ink);margin:12px 0}
+.vh-status>.i,.vh-status>svg.i{flex:none;width:20px;height:20px;margin-top:4px}.vh-status p{margin-top:6px}.vh-status small{display:block;color:var(--nf-ink-muted);margin-top:6px}
+.vh-status.ok{background:var(--nf-success-50);border-color:var(--nf-line)}.vh-status.err{background:var(--nf-gold-50);border-color:var(--nf-gold-300)}
+.vh-status b{display:block}
+.vh-draft{display:block;color:var(--nf-gold-700);font-size:13px;margin-bottom:6px}.vh-hidden{color:var(--nf-ink-muted);margin-top:8px}
+.fdv1 .vh-call[disabled],.fdv1 button.vh-call:disabled{background:var(--nf-surface-2);color:var(--nf-ink-muted);cursor:not-allowed;box-shadow:none}
+.vh-task .btn[disabled],.vh-status .btn[disabled]{background:var(--nf-surface-2);color:var(--nf-ink-muted);cursor:not-allowed;box-shadow:none}
+.vth-form.rv-mdl{position:static;width:100%;max-height:none;overflow:visible;box-shadow:none;border:1px solid var(--nf-line);z-index:auto;margin:12px 0;border-radius:16px;background:var(--nf-surface,#fff)}
+.vth-form .rv-auto{white-space:normal}.vth-form .rv-mf{flex-wrap:wrap}.vth-form .rv-mf [data-close]{margin-inline-start:0}
+.vth-form .rv-mh small{font-size:14px;color:var(--nf-ink-muted)}
+.vth-form .rv-mh,.vth-form .rv-mb,.vth-form .rv-mf{padding:12px 16px}
+.vth-form .rv-mt h2{font-size:20px;margin:6px 0}
+.vth-form .rv-seg{display:flex;gap:8px;flex-wrap:wrap}
+.vth-form .rv-seg button{flex:1;min-height:44px;border:1px solid var(--nf-line);border-radius:12px;background:var(--nf-surface);padding:8px 10px;display:inline-flex;gap:6px;align-items:center;justify-content:center}
+.vth-form .rv-seg button.on{border-color:var(--nf-brand);background:var(--nf-brand-50)}
+.vth-form .rv-lbl{display:block;font-weight:600}.vth-form .req,.vth-form .rv-req{color:var(--nf-danger,#b91c1c);margin-inline-start:4px}
+.vth-form .rv-fh{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
+.vth-form .rv-inp{width:100%;min-height:44px;border:1px solid var(--nf-line);border-radius:12px;padding:8px 12px}
+.vth-form .rv-cnt{font-size:13px;color:var(--nf-ink-muted)}
+.vth-form .rv-due{display:flex;gap:8px;padding:10px;border-radius:12px;background:var(--nf-brand-50);margin-bottom:10px}
+@media(min-width:1024px){/* notes stay in the column; call status is in the main column */}
+@media(max-width:1023.98px){
+ .vh-task .btn{white-space:normal;text-align:center}.vh-status .btn{white-space:normal}
+ .vth-form.rv-mdl{border-radius:16px}.vth-form .rv-mf .btn{flex:1 1 100%;white-space:normal}
+ .vth-form .rv-auto{font-size:13px}.vth-form .rv-mt h2{font-size:18px}
+}

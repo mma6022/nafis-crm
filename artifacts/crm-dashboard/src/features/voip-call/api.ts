@@ -36,7 +36,10 @@ export type VcMe = { on: boolean; extension?: string | null; call?: VcCall | nul
   /** VOIP-ANYWHERE registrar scope (flag.voip_call.registrar_scope): true for a registrar — her rows come only from /voip-call/anywhere/own. */
   anywhereRegistrar?: true;
   /** VOIP-ANYWHERE single-button rule (same flag; VoIP on for this user): only the VoIP «تماس», «تماس سیستمی» hidden. */
-  oneCallButton?: true };
+  oneCallButton?: true;
+  /** VOIP-TASK-HOLD (flag.voip_task_hold_v1[.user.<id>]): present only while on for this user. */
+  vth?: { on: true; phase: 'idle' | 'in_call' | 'pending_status' | 'status_error' | 'final' | 'saved'; entry: 'file' | 'carousel' | 'reminder' | 'lead' | 'search' | null;
+    queue: boolean; form: 'first_call' | 'reminder_result' | 'result' | null; reminderId: number | null; nextBlocked: boolean; saveLabel: 'ثبت نتیجه و کار بعدی' | 'ثبت نتیجه' } };
 export type VcHistItem = { kind: 'voip' | 'simotel' | 'manual'; id: string; at: string; status: 'answered' | 'no_answer' | 'busy' | null; direction?: string;
   durationSeconds: number | null; expert: string | null; fileId: number | null; recording: 'processing' | 'ready' | 'none'; playable: boolean; eventId: number | null;
   result: { label: string | null; note: string } | null; pending: boolean; noanswerSms?: boolean;
@@ -49,11 +52,11 @@ export const useVcMe = (enabled = true) => useQuery<VcMe>({
   queryKey: VC_ME_KEY, enabled, retry: false, staleTime: 1_000,
   queryFn: () => req<VcMe>('GET', '/voip-call/me').catch((e) => { if (e instanceof VcError && (e.status === 404 || e.status === 403 || e.status === 401)) return OFF; throw e; }),
   refetchInterval: (q) => { const d = q.state.data as VcMe | undefined; if (!d?.on) return false;
-    return d.call?.active ? 1_500 : d.call?.s132?.phase === 'waiting' || d.s132?.last?.noteState === 'pending' || d.s132b?.busy ? 3_000 : 15_000; },
+    return d.call?.active || d.vth?.phase === 'pending_status' || d.vth?.phase === 'status_error' ? 1_500 : d.call?.s132?.phase === 'waiting' || d.s132?.last?.noteState === 'pending' || d.s132b?.busy || d.vth?.phase === 'final' ? 3_000 : 15_000; },
   refetchIntervalInBackground: false,
 });
 export const vcApi = {
-  start: (b: { customerId: number; fileId?: number | null }) => req<{ ok: true; call: VcCall }>('POST', '/voip-call/start', b),
+  start: (b: { customerId: number; fileId?: number | null; entry?: 'file' | 'carousel' | 'reminder' | 'lead' | 'search'; reminderId?: number }) => req<{ ok: true; call: VcCall }>('POST', '/voip-call/start', b),
   dismiss: (id: number) => req<{ ok: true }>('POST', `/voip-call/${id}/dismiss`, {}),
   // SIMOTEL-132 (404 while the flag is off)
   status: (id: number, status: S132Status) => req<{ ok: true; phase: S132Call['phase']; bar: S132Bar | null; call: VcCall }>('POST', `/voip-call/${id}/status`, { status }),
