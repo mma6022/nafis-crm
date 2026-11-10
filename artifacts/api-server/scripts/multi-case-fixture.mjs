@@ -33,7 +33,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { Worker } from 'node:worker_threads';
 import { crmDb, execute, queryRow } from './src/lib/crm-db';
 import * as mc from './src/lib/multi-case';
-import { createDraft, ensureLoanRequestDraftSchema, reloadLoanRequestDraftSchema } from './src/lib/loan-request-drafts';
+import { closeDraftsForCase, createDraft, ensureLoanRequestDraftSchema, reloadLoanRequestDraftSchema } from './src/lib/loan-request-drafts';
+import { advanceWizard, filingFeeIsZero, zeroFeeOnHydrate } from '../crm-dashboard/src/lib/wizard-advance.ts';
 import { expertLockdownGuard, elTarget, elFlagOn } from './src/lib/expert-lockdown';
 import { cqRaw } from './src/lib/call-queue';
 
@@ -53,8 +54,8 @@ CREATE TABLE loan_filing_fee_charges(
 CREATE TABLE loan_request_drafts(
   id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, status TEXT, source TEXT,
   created_by_user_id INTEGER, salesperson_id INTEGER, step INTEGER, payload_json TEXT,
-  fee_charge_id INTEGER, application_id INTEGER, version INTEGER, created_at TEXT, updated_at TEXT,
-  updated_by_user_id INTEGER, deleted_at TEXT, request_key TEXT
+  fee_charge_id INTEGER REFERENCES loan_filing_fee_charges(id), application_id INTEGER, version INTEGER, created_at TEXT, updated_at TEXT,
+  updated_by_user_id INTEGER, deleted_at TEXT, deleted_by INTEGER, delete_reason TEXT, request_key TEXT
 );
 CREATE TABLE loan_request_draft_events(id INTEGER PRIMARY KEY AUTOINCREMENT, draft_id INTEGER, customer_id INTEGER, action TEXT, actor_user_id INTEGER, reason TEXT, detail_json TEXT, created_at TEXT);
 CREATE TABLE customer_credit_checks(id INTEGER PRIMARY KEY, customer_id INTEGER, status TEXT, completed_at TEXT);
@@ -166,6 +167,37 @@ assert.deepEqual(order, [9, 31, 30, 32, 17, 1]);
 assert.equal(order.at(-1), 1);
 assert.ok(order.indexOf(17) > order.indexOf(32), 'disabled plans sit after the active plans and the top 3');
 assert.equal(order.filter((id) => id === 17).length, 1, 'an unready plan is not also kept in the top 3');
+
+// A click belongs to the step it was drawn for. The leaving «ادامه» cannot skip the fee step.
+let wizard = { step: 3, sub: 0 };
+wizard = advanceWizard(wizard, 3);
+assert.deepEqual(wizard, { step: 3, sub: 1 }, 'plan step first continues into amount');
+wizard = advanceWizard(wizard, 3);
+assert.deepEqual(wizard, { step: 4, sub: 0 }, 'amount continues into the fee step');
+assert.deepEqual(advanceWizard(wizard, 3), wizard, 'the leaving step-3 button does not skip the fee step');
+assert.deepEqual(advanceWizard(wizard, 4), { step: 5, sub: 0 }, 'the fee step itself still advances');
+assert.equal(filingFeeIsZero('0'), true);
+assert.equal(filingFeeIsZero(0), true);
+assert.equal(filingFeeIsZero('300000'), false);
+assert.equal(filingFeeIsZero(''), false);
+assert.equal(filingFeeIsZero(null), false);
+assert.equal(zeroFeeOnHydrate(null, '0'), true, 'hydrate restores a zero fee when the draft has no charge');
+assert.equal(zeroFeeOnHydrate(null, '300000'), false);
+assert.equal(zeroFeeOnHydrate(4, '0'), false, 'a stored charge is not treated as a zero fee');
+
+// Zero-fee create with an open draft must not write fee_charge_id=0 (that breaks the charge FK).
+const zeroDraft = createDraft(admin, { customerId: 2, step: 10, payload: { planId: 99, amount: '1000000' }, requestKey: 'zero-fee-draft' });
+assert.equal(queryRow('SELECT fee_charge_id FROM loan_request_drafts WHERE id=?', [zeroDraft.id]).fee_charge_id, null);
+const chargesBeforeClose = queryRow('SELECT COUNT(*) n FROM loan_filing_fee_charges').n;
+crmDb.exec('PRAGMA foreign_keys=ON');
+assert.throws(() => crmDb.prepare('UPDATE loan_request_drafts SET fee_charge_id=0 WHERE id=?').run(zeroDraft.id), /FOREIGN KEY|constraint/i);
+closeDraftsForCase(2, null, appZero, admin.id, zeroDraft.id);
+const closedDraft = queryRow('SELECT status, fee_charge_id, application_id, deleted_at FROM loan_request_drafts WHERE id=?', [zeroDraft.id]);
+assert.equal(closedDraft.status, 'submitted');
+assert.equal(closedDraft.fee_charge_id, null, 'zero-fee close keeps fee_charge_id null');
+assert.equal(closedDraft.application_id, appZero);
+assert.ok(closedDraft.deleted_at);
+assert.equal(queryRow('SELECT COUNT(*) n FROM loan_filing_fee_charges').n, chargesBeforeClose, 'closing a zero-fee draft inserts no charge');
 
 // Case link ownership. Missing choice stays general.
 const caseId = app2;

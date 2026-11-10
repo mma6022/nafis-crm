@@ -434,14 +434,15 @@ export function draftForSubmit(draftId: unknown, customerId: number, feeChargeId
   if (r && r.fee_charge_id != null && Number(r.fee_charge_id) !== feeChargeId) throw new Error("draft_fee_mismatch");
   return r;
 }
-export function closeDraftsForCase(customerId: number, feeChargeId: number, applicationId: number, actorId: number | null, draftId?: number | null) {
+export function closeDraftsForCase(customerId: number, feeChargeId: number | null, applicationId: number, actorId: number | null, draftId?: number | null) {
   const ts = new Date().toISOString();
-  const rows = queryRows<any>(`SELECT id,customer_id FROM loan_request_drafts WHERE deleted_at IS NULL AND customer_id=? AND (fee_charge_id=? OR id=?)`,
-    [customerId, feeChargeId, draftId ?? -1]);
+  const chargeId = feeChargeId != null && Number.isSafeInteger(feeChargeId) && feeChargeId > 0 ? feeChargeId : null;
+  const rows = queryRows<any>(`SELECT id,customer_id FROM loan_request_drafts WHERE deleted_at IS NULL AND customer_id=? AND ((? IS NOT NULL AND fee_charge_id=?) OR id=?)`,
+    [customerId, chargeId, chargeId, draftId ?? -1]);
   for (const r of rows) {
     executeChanges(`UPDATE loan_request_drafts SET status='submitted',application_id=?,deleted_at=?,deleted_by=?,delete_reason='submitted',updated_at=?,
-      fee_charge_id=COALESCE(fee_charge_id,?) WHERE id=? AND deleted_at IS NULL`, [applicationId, ts, actorId, ts, feeChargeId, r.id]);
-    audit(Number(r.id), customerId, "submitted", actorId, null, { applicationId, feeChargeId }, ts);
+      fee_charge_id=CASE WHEN ? IS NULL THEN fee_charge_id ELSE COALESCE(fee_charge_id, ?) END WHERE id=? AND deleted_at IS NULL`, [applicationId, ts, actorId, ts, chargeId, chargeId, r.id]);
+    audit(Number(r.id), customerId, "submitted", actorId, null, { applicationId, feeChargeId: chargeId }, ts);
   }
 }
 

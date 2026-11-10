@@ -1924,7 +1924,7 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
      if (charge) executeChanges("UPDATE loan_filing_fee_charges SET application_id=? WHERE id=? AND application_id IS NULL", [appId, charge.id]);
      if (multi) claimSlotForApplication(customerId, planId, charge ? Number(charge.id) : null, Number(appId));
      // Same transaction: the «در انتظار ثبت» draft of this fee (or the one named by draftId) is closed as submitted.
-     closeDraftsForCase(customerId, charge ? Number(charge.id) : 0, appId, u.id, draft ? Number(draft.id) : null);
+     closeDraftsForCase(customerId, charge ? Number(charge.id) : null, appId, u.id, draft ? Number(draft.id) : null);
     if (overrideReason) {
       logCreditRankOverride({ action: "case_created", actor: u, customerId, applicationId: appId, planId, conditionId, reason: overrideReason, at: ts });
       // Earlier uses for this customer (preview / filing fee) by the same person now belong to this case.
