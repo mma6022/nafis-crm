@@ -53,6 +53,15 @@ const stages = ["funder_initial_approval", "draft", "primary_contract_pending_si
 type Stage = typeof stages[number];
 import { closeDraftsForCase, draftForFeeCharge, draftForSubmit, linkDraftFee } from "../lib/loan-request-drafts";
 import { fcCatOn, fcMarkOpened } from "../lib/files-carousel";
+
+function isFromBaleApp(id: number): boolean {
+  try {
+    const has = queryRow<{ n: number }>("SELECT 1 AS n FROM sqlite_master WHERE type='table' AND name='customer_bale_apps'");
+    if (!has) return false;
+    return !!queryRow("SELECT application_id FROM customer_bale_apps WHERE application_id=?", [id]);
+  } catch { return false; }
+}
+
 const now = () => new Date().toISOString();
 const user = (res: any) => res.locals.authUser as AuthUser;
 const uploadRoot = path.join(path.dirname(databasePath), "loan-application-files");
@@ -98,7 +107,7 @@ function storeIdentityFile(customerId: number, f: Express.Multer.File): string {
 function scoped(id: number, u: AuthUser): any {
   const condition = u.role === "admin" || u.customerScope !== "assigned" ? "" : " AND current_customer.salesperson_id = ?";
   const params: any[] = [id]; if (condition) params.push(u.salespersonId);
-  return queryRow<any>(`SELECT a.*,c.name customer_name,cs.id customer_salesperson_id,cs.name customer_salesperson_name,p.name plan_name
+  return queryRow<any>(`SELECT a.*,c.name customer_name,cs.id customer_salesperson_id,cs.name customer_salesperson_name,p.name plan_name, p.bank_name plan_bank_name
     FROM loan_applications a JOIN customers c ON c.id=a.customer_id
     LEFT JOIN customer_merge_audit merge_audit ON merge_audit.source_customer_id=c.id AND merge_audit.survivor_customer_id=c.merged_into_customer_id
     JOIN customers current_customer ON current_customer.id=CASE WHEN c.merged_into_customer_id IS NULL THEN c.id ELSE merge_audit.survivor_customer_id END AND current_customer.merged_into_customer_id IS NULL
@@ -199,7 +208,7 @@ function shape(r: any, actor: AuthUser): any {
     salespersonIdSnapshot: r.salesperson_id_snapshot == null ? null : Number(r.salesperson_id_snapshot),
     salespersonNameSnapshot: r.salesperson_name_snapshot ?? null,
     planId: Number(r.plan_id ?? (Array.isArray(planIds) ? planIds[0] : r.plan_ids)), planIds: Array.isArray(planIds) ? planIds : [Number(r.plan_id ?? r.plan_ids)],
-    planName: r.plan_name ?? null, consultationId: Number(r.consultation_id),
+    planName: r.plan_name ?? null, planBankName: r.plan_bank_name ?? null, fromBale: isFromBaleApp(Number(r.id)), consultationId: Number(r.consultation_id),
      requestedAmount: r.requested_amount, requestedDurationMonths: Number(r.requested_duration_months ?? r.duration_months), approvedAmount: r.approved_amount ?? null, netAmount: r.net_amount ?? null,
       approvedAmountSource: r.approved_amount_source ?? null,
       approvedAmountGenerationId: r.approved_amount_generation_id == null ? null : Number(r.approved_amount_generation_id),
@@ -1392,7 +1401,7 @@ router.get("/loan-applications", requirePermission("loan_applications.view"), (r
     COALESCE((SELECT MAX(julianday(h.created_at)) FROM loan_application_stage_history h WHERE h.application_id=a.id),0),
     COALESCE((SELECT MAX(julianday(n.created_at)) FROM loan_application_notes n WHERE n.application_id=a.id),0),
     COALESCE((SELECT MAX(julianday(e.created_at)) FROM site_notification_events e WHERE e.resource_type='loan' AND e.resource_id=a.id),0))`;
-  const rows = queryRows<any>(`SELECT a.*,c.name customer_name,cs.name customer_salesperson_name,p.name plan_name ${source} ORDER BY ${loanRank.sql}${activity} DESC,a.id DESC LIMIT ? OFFSET ?`, [...params, ...loanRank.params, limit, (page - 1) * limit]);
+  const rows = queryRows<any>(`SELECT a.*,c.name customer_name,cs.name customer_salesperson_name,p.name plan_name, p.bank_name plan_bank_name ${source} ORDER BY ${loanRank.sql}${activity} DESC,a.id DESC LIMIT ? OFFSET ?`, [...params, ...loanRank.params, limit, (page - 1) * limit]);
   const items = rows.map((row) => shape(row, u));
   if (req.query.mode === "board") {
     const board: Record<string, any[]> = {};
@@ -1418,7 +1427,7 @@ router.get("/loan-applications/attribution-review", requirePermission("loan_appl
   const rows = queryRows<any>(`SELECT a.id,a.customer_id,a.consultation_id,a.requested_by_user_id,a.created_at,a.stage,a.status,a.requested_amount,a.approved_amount,
     a.salesperson_id_snapshot,a.salesperson_name_snapshot,c.name customer_name,c.salesperson_id current_salesperson_id,
     s.name current_salesperson_name,u.username requester_username,u.full_name requester_name,u.salesperson_id requester_current_salesperson_id,
-    p.name plan_name
+    p.name plan_name, p.bank_name plan_bank_name
     FROM loan_applications a
     JOIN customers c ON c.id=a.customer_id
     LEFT JOIN salespersons s ON s.id=c.salesperson_id
@@ -1428,7 +1437,7 @@ router.get("/loan-applications/attribution-review", requirePermission("loan_appl
     ORDER BY a.id DESC LIMIT 20 OFFSET ?`, [(page - 1) * 20]);
   const items = rows.map((r) => ({
     id: r.id, customerId: r.customer_id, customerName: r.customer_name, consultationId: r.consultation_id,
-    planName: r.plan_name, createdAt: r.created_at, stage: r.stage, status: r.status,
+    planName: r.plan_name, planBankName: r.plan_bank_name ?? null, fromBale: isFromBaleApp(Number(r.id)), createdAt: r.created_at, stage: r.stage, status: r.status,
     requestedAmount: r.requested_amount, approvedAmount: r.approved_amount,
     salespersonId: r.salesperson_id_snapshot, salespersonName: r.salesperson_name_snapshot,
     currentSalespersonId: r.current_salesperson_id, currentSalespersonName: r.current_salesperson_name,

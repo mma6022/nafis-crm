@@ -71,3 +71,7 @@ Thumbs.db
 *.sqlite3
 *.pem
 *.key
+
+artifacts/api-server/.cache-listen/
+artifacts/api-server/scripts/local-listen.mjs
+artifacts/api-server/scripts/local-entry.ts

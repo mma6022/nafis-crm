@@ -5,7 +5,14 @@ import { useQuery } from '@tanstack/react-query';
 
 export type BbLimits = { textMax: number; textWarn?: number; inBytes?: number; photoBytes: number; fileBytes: number; voiceBytes: number; deleteHours: number };
 export type BbBot = { id: number; username: string | null; name: string | null; status: 'on' | 'off' | 'err'; connectedAt: string | null; lastOkAt: string | null; lastError: string | null; hasToken: boolean } | null;
-export type BbMe = { enabled: boolean; view: 'own' | 'all'; canManage: boolean; name: string; bot: BbBot; unread: number; limits: BbLimits; contactFeature?: boolean };
+export type BbCustomerBotFlags = { tracking: boolean; ai: boolean; filing: boolean; any: boolean };
+export type BbCustomerBot = {
+  restricted?: boolean; flags?: BbCustomerBotFlags;
+  filing?: { id: number; step: number; stepTitle: string; stepLine: string; waitKind: string | null; waitTitle: string | null; planLabel: string | null; applicationId: number | null; contractStatus: string | null } | null;
+  handoff?: { id: number; question: string; answer: string; reason: string; claimedBy: number | null; at: string } | null;
+  tasks?: { id: number; kind: string; status: string; detail: string | null; created_at: string; application_id: number | null }[];
+} | null;
+export type BbMe = { enabled: boolean; view: 'own' | 'all'; canManage: boolean; name: string; bot: BbBot; unread: number; limits: BbLimits; contactFeature?: boolean; customerBot?: BbCustomerBotFlags };
 export type BbCustomer = { id: number; name: string; phone: string | null; status: string | null; salespersonId: number | null; expert: string | null; restricted: boolean; canOpen: boolean } | null;
 export type BbNotice = { id: number; kind: string; at: string; actor: string | null };
 export type BbChat = {
@@ -15,6 +22,7 @@ export type BbChat = {
   contactFeature?: boolean; pendingTypedPhone?: string | null; pendingTypedAt?: string | null; linkSource?: string | null; sourceLine?: string | null; linkActor?: string | null;
   leadFromBale?: boolean; canApproveTyped?: boolean; canRejectTyped?: boolean; canManualEnter?: boolean; canResendAsk?: boolean;
   typedMatch?: { id: number; name: string; status: string | null; expert: string | null; own?: boolean } | null; waitingNumber?: boolean;
+  customerBot?: BbCustomerBot;
 };
 export type BbMessage = {
   id: number; dir: 'in' | 'out' | 'sys'; kind: string; text: string | null; at: string; editedAt: string | null; deleted: boolean;
