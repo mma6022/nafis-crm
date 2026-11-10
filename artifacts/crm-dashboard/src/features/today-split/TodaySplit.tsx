@@ -9,6 +9,7 @@ import { Link } from 'wouter';
 import { AlertCircle, Check, ClipboardList, FileText, Flag, History, ListOrdered, Lock, Upload, X } from 'lucide-react';
 import { getGetAuthSessionQueryKey, useGetAuthSession } from '@workspace/api-client-react';
 import { faNum } from '@/features/call-queue/api';
+import { toPersianDigits } from '@/lib/customer-id';
 import { dpApi, useDpConfig, type DpToday } from '@/features/daily-plan/api';
 import { faDate } from '@/features/daily-plan/TodayPage';
 import { CallNumber } from '@/features/call-number/CallNumber';
@@ -26,6 +27,7 @@ import { useVcMe, vcRefresh } from '@/features/voip-call/api';
 import { CsResultChips } from '@/features/call-summary-fields/ItemsCard';
 import { S132InSplit, S132TopBar, VoipCallBox, VcCallItem, vcCallAsItem, useMyName, useVcForFile } from '@/features/voip-call/VoipCall';
 
+const faName = (s?: string | null) => toPersianDigits(s ?? '');
 const JF = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', weekday: 'long', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const at = (iso?: string | null) => { if (!iso) return ''; const d = new Date(iso); if (Number.isNaN(d.getTime())) return '';
   const p = Object.fromEntries(JF.formatToParts(d).map((x) => [x.type, x.value])); return `${p.weekday} ${p.day} ${p.month}، ${p.hour}:${p.minute}`; };
@@ -108,13 +110,13 @@ function ActPanel({ v, board, onGoPot }: { v: FcView; board: boolean; onGoPot: (
         : <div className="dp-box ok ts-done" data-testid="ts-act-done"><Check size={22} aria-hidden="true" /><div><b>تسک‌های مشتریان بالفعل امروز تمام شد.</b>
           <p>«پرونده‌های من» باز است.</p><div className="ts-acts"><Link href="/loan-applications" className="btn btn-primary" data-testid="ts-go-files">برو به پرونده‌های من</Link>
           <button type="button" className="btn btn-ghost" onClick={onGoPot} data-testid="ts-go-pot">مشتریان بالقوه</button></div></div></div>}
-      {next ? <p className="fc-next ts-next" data-testid="ts-next"><Lock size={13} aria-hidden="true" /> بعدی: <b>{next.customerName}</b> <span className="dp-id">#{faNum(next.customerId)}</span> · ترتیب ثابت است، فقط تسک جاری باز است</p> : null}
+      {next ? <p className="fc-next ts-next" data-testid="ts-next"><Lock size={13} aria-hidden="true" /> بعدی: <b>{faName(next.customerName)}</b> <span className="dp-id">#{faNum(next.customerId)}</span> · ترتیب ثابت است، فقط تسک جاری باز است</p> : null}
       <section className="card aq" aria-labelledby="ts-order-h" data-testid="ts-order">
         <h3 id="ts-order-h"><ListOrdered size={18} aria-hidden="true" /> ترتیب امروز</h3>
         <p className="dp-sub">ترتیب ثابت است: اول برگشتی‌ها، بعد امضاها (ردشده اول)، بعد وثیقه یا صف فروش، بعد پرونده‌های قدیمی.</p>
         <ol className="aq-l">{v.cards.map((c, i) => <li key={c.fileId} className={`aq-r${c.state === 'done' ? ' dn' : c.state === 'current' ? ' on' : ''}`} data-testid="ts-order-row" data-state={c.state}>
           <span className="aq-n" aria-hidden="true">{c.state === 'done' ? <Check size={16} /> : faNum(i + 1)}</span>
-          <button type="button" className="aq-b" onClick={() => setSheet(c)} aria-label={`${c.customerName}، برگه‌ی پرونده`}><b>{c.customerName}</b> <span className="dp-id">#{faNum(c.customerId)}</span>{c.fc ? <CatPill c={c.fc} small /> : <span className="dp-chip">{c.groupLabel}</span>}</button>
+          <button type="button" className="aq-b" onClick={() => setSheet(c)} aria-label={`${faName(c.customerName)}، برگه‌ی پرونده`}><b>{faName(c.customerName)}</b> <span className="dp-id">#{faNum(c.customerId)}</span>{c.fc ? <CatPill c={c.fc} small /> : <span className="dp-chip">{c.groupLabel}</span>}</button>
           <span className="aq-s">{c.state === 'done' ? 'انجام شد' : c.state === 'current' ? 'جاری' : <><Lock size={16} aria-hidden="true" /><span className="sr-only">قفل</span></>}</span>
         </li>)}</ol>
       </section>
@@ -144,13 +146,13 @@ function TaskCard({ c, pos, total, onResult, onFile }: { c: FcCard; pos: number;
       {vcc ? <ol className="vcx vc-cil"><VcCallItem i={vcCallAsItem(vcc, myName)} fresh s132={Boolean(vme?.s132)} /></ol> : null}</aside>
     <div className="ts-main">
       <div className="ts-chips"><span className="dp-count">تسک {faNum(pos)} از {faNum(total)}</span>{c.fc ? <CatPill c={c.fc} /> : <span className="dp-chip">{c.groupLabel}</span>}</div>
-      <h2 id="ts-card-h">{c.customerName} <span className="dp-id">#{faNum(c.customerId)}</span></h2>
+      <h2 id="ts-card-h">{faName(c.customerName)} <span className="dp-id">#{faNum(c.customerId)}</span></h2>
       <p className="ts-fno" data-testid="ts-fileno">پرونده {faNum(c.fileId)}، {loanStageLabel(c.stage)}</p>
       {c.fc ? <RNote c={c.fc} /> : null}
       {r ? <div className="dp-keynote ts-reason"><small>{r.k}</small><q data-testid="ts-reason">{r.t}</q></div> : null}
       {c.ask ? <div className="dp-keynote"><small>چی بپرسم</small><q>{c.ask}</q></div> : null}
       {c.phone ? <div className="ts-ph"><small>شماره‌ی مشتری</small><CallNumber phone={c.phone} customerId={c.customerId} via="files" testId="ts-ph" /></div> : null}
-      {vcOn ? <VoipCallBox customerId={c.customerId} fileId={c.fileId} entry="carousel" customerName={c.customerName} onResult={onResult} extra={fileBtn} /> : <>
+      {vcOn ? <VoipCallBox customerId={c.customerId} fileId={c.fileId} entry="carousel" customerName={faName(c.customerName)} onResult={onResult} extra={fileBtn} /> : <>
       <div className="dp-actions"><button type="button" className="btn btn-primary" onClick={onResult} data-testid="ts-call"><Check size={16} aria-hidden="true" /> تماس گرفتم، ثبت نتیجه</button>
         {fileBtn}</div>
       <p className="ts-lock"><Lock size={13} aria-hidden="true" /> با گوشی خودت شماره را بگیر، بعد «تماس گرفتم، ثبت نتیجه» را بزن. تسک بعدی تا ثبت نتیجه قفل است.</p></>}
@@ -178,7 +180,7 @@ function ResultDialog({ c, v, pos, onClose, onSaved }: { c: FcCard; v: FcView; p
     if (cx && !confirm) { setConfirm(true); return; }
     setBusy(true); setErr('');
     try { const r = await fcApi.followup(cx ? { fileId: c.fileId, outcome: 'cancelled', cancelReason: note.trim(), voipCallId: vcc?.id } : { fileId: c.fileId, outcome: o, note: note.trim(), voipCallId: vcc?.id });
-      if (vcc) vcRefresh(qc); onSaved(r.view, c.customerName); }
+      if (vcc) vcRefresh(qc); onSaved(r.view, faName(c.customerName)); }
     catch (e) { setConfirm(false); setErr(e instanceof Error ? e.message : 'ثبت نشد.'); } finally { setBusy(false); }
   };
   const onKey = (e: React.KeyboardEvent) => { if (e.key === 'Escape' && !busy) { e.preventDefault(); onClose(); return; }
@@ -186,7 +188,7 @@ function ResultDialog({ c, v, pos, onClose, onSaved }: { c: FcCard; v: FcView; p
       const a = f[0], b = f[f.length - 1]; if (e.shiftKey && document.activeElement === a) { e.preventDefault(); b.focus(); } else if (!e.shiftKey && document.activeElement === b) { e.preventDefault(); a.focus(); } } };
   return <div className="ts-ov" onKeyDown={onKey} data-testid="ts-result-wrap">
     <div className="ts-dlg" role="dialog" aria-modal="true" aria-labelledby="ts-r-h" ref={box} data-testid="ts-result">
-      <header><div><small>تسک {faNum(pos)} از {faNum(v.cards.length)} مشتریان بالفعل، پرونده {faNum(c.fileId)}</small><h2 id="ts-r-h">ثبت نتیجه، {c.customerName} <span className="dp-id">#{faNum(c.customerId)}</span></h2></div>
+      <header><div><small>تسک {faNum(pos)} از {faNum(v.cards.length)} مشتریان بالفعل، پرونده {faNum(c.fileId)}</small><h2 id="ts-r-h">ثبت نتیجه، {faName(c.customerName)} <span className="dp-id">#{faNum(c.customerId)}</span></h2></div>
         <button type="button" ref={first} className="ts-x" onClick={onClose} disabled={busy} aria-label="بستن"><X size={20} aria-hidden="true" /></button></header>
       <div className="ts-body">
         <ol className="ts-steps" aria-label={`گام ${faNum(step)} از ۳`}>{['تماس', 'نتیجه', 'یادداشت و ثبت'].map((t, i) => <li key={t} className={i + 1 < step ? 'dn' : i + 1 === step ? 'on' : ''} aria-current={i + 1 === step ? 'step' : undefined}>
@@ -232,7 +234,7 @@ function FileSheet({ c, turn, unlocked, board, onClose }: { c: FcCard; turn: FcC
   const stage = loanStageLabel(c.stage);
   return <div className="ts-ov" onKeyDown={onKey} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} data-testid="ts-sheet-wrap">
     <div className="ts-dlg" role="dialog" aria-modal="true" aria-labelledby="ts-s-h" ref={box} data-testid="ts-sheet" data-turn={isTurn ? '1' : '0'}>
-      <header><div><small>پرونده {faNum(c.fileId)}، ستون «{fbColumnLabel(col)}»</small><h2 id="ts-s-h">{c.customerName} <span className="dp-id">#{faNum(c.customerId)}</span></h2></div>
+      <header><div><small>پرونده {faNum(c.fileId)}، ستون «{fbColumnLabel(col)}»</small><h2 id="ts-s-h">{faName(c.customerName)} <span className="dp-id">#{faNum(c.customerId)}</span></h2></div>
         <button type="button" ref={first} className="ts-x" onClick={onClose} aria-label="بستن"><X size={20} aria-hidden="true" /></button></header>
       <div className="ts-body">
         <div className="ts-chips">{isTurn ? <span className="ts-turn" data-testid="ts-turn"><Flag size={14} aria-hidden="true" /> نوبت این پرونده‌ست</span>
@@ -245,7 +247,7 @@ function FileSheet({ c, turn, unlocked, board, onClose }: { c: FcCard; turn: FcC
           <dt>پیگیری امروز</dt><dd data-testid="ts-s-today">{bc?.followedToday ? 'پیگیری شد، فردا' : c.state === 'done' ? `امروز ثبت شد${c.lastFollowUp?.outcomeLabel ? `، ${c.lastFollowUp.outcomeLabel}` : ''}` : 'هنوز تماسی ثبت نشده'}</dd>
           <dt>آخرین پیگیری</dt><dd>{c.lastFollowUp ? `${at(c.lastFollowUp.at)}${c.lastFollowUp.outcomeLabel ? `، ${c.lastFollowUp.outcomeLabel}` : ''}` : 'هنوز پیگیری نشده'}</dd></dl>
         {canOpen ? <p className="ts-hint"><Lock size={14} aria-hidden="true" /> مرحله فقط با فرم خود پرونده جلو می‌رود؛ جابه‌جا کردن کارت روی تخته نیست.</p>
-          : <p className="ts-hint" role="note" data-testid="ts-turn-hint"><Lock size={14} aria-hidden="true" /> {bc?.state === 'closed' ? 'پرونده‌ی بسته فقط‌خواندنی است؛ ویرایش یا اقدامی ندارد.' : <>نوبت این پرونده نیست. پرونده‌ها به ترتیب باز می‌شوند{turnName ? <>؛ الان نوبت <b>{turnName}</b> است.</> : '.'}</>}</p>}
+          : <p className="ts-hint" role="note" data-testid="ts-turn-hint"><Lock size={14} aria-hidden="true" /> {bc?.state === 'closed' ? 'پرونده‌ی بسته فقط‌خواندنی است؛ ویرایش یا اقدامی ندارد.' : <>نوبت این پرونده نیست. پرونده‌ها به ترتیب باز می‌شوند{turnName ? <>؛ الان نوبت <b>{faName(turnName)}</b> است.</> : '.'}</>}</p>}
       </div>
       <footer>{canOpen ? <Link href={`/loan-applications/${c.fileId}`} className="btn btn-primary" data-testid="ts-open"><Upload size={16} aria-hidden="true" /> باز کردن پرونده: {stage}</Link>
         : <><button type="button" className="btn btn-primary" disabled aria-disabled="true" data-testid="ts-open"><Lock size={16} aria-hidden="true" /> باز کردن پرونده</button>
