@@ -141,13 +141,32 @@ export function dciAccess(user: AuthUser, customerId: number): "own" | "manager"
 const FA = "۰۱۲۳۴۵۶۷۸۹";
 export const faDigits = (v: string | number) => String(v).replace(/[0-9]/g, (d) => FA[Number(d)]);
 
+/** HH:MM in Persian digits, always zero-padded (e.g. ۰۰:۴۸, ۰۹:۴۸). Never Latin digits. */
+export function faHm(h: number | string, m: number | string): string {
+  const hi = Math.min(23, Math.max(0, Number(String(h).replace(/[۰-۹]/g, (d) => String(FA.indexOf(d)))) || 0));
+  const mi = Math.min(59, Math.max(0, Number(String(m).replace(/[۰-۹]/g, (d) => String(FA.indexOf(d)))) || 0));
+  return faDigits(`${String(hi).padStart(2, "0")}:${String(mi).padStart(2, "0")}`);
+}
+
+/** Rewrite every H:MM / HH:MM clock in a label to zero-padded Persian digits. Leaves other text alone (do not use on phone numbers). */
+export function faClockText(s: string | null | undefined): string {
+  if (!s) return "";
+  return String(s).replace(/[0-9۰-۹]{1,2}:[0-9۰-۹]{2}/g, (hm) => {
+    const [h, m] = hm.split(":");
+    return faHm(h, m);
+  });
+}
+
 export function tehranClock(iso: string | null | undefined): string {
   if (!iso) return "";
   try {
-    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tehran", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date(iso));
-    const h = parts.find((p) => p.type === "hour")?.value ?? "00";
-    const m = parts.find((p) => p.type === "minute")?.value ?? "00";
-    return faDigits(`${h}:${m}`);
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return faClockText(String(iso));
+    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tehran", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(d);
+    let h = parts.find((p) => p.type === "hour")?.value ?? "00";
+    let m = parts.find((p) => p.type === "minute")?.value ?? "00";
+    if (h === "24") h = "00";
+    return faHm(h, m);
   } catch { return ""; }
 }
 
@@ -365,7 +384,7 @@ export function dciInbounds(customerId: number) {
     return {
       id: Number(r.id),
       callLogId: r.call_log_id == null ? null : Number(r.call_log_id),
-      t: tehranDateLine(r.started_at),
+      t: faClockText(tehranDateLine(r.started_at)),
       at: r.started_at,
       r: missed ? "بی‌پاسخ" : "جواب داد",
       rc: missed ? "no" : "ok",
@@ -381,7 +400,7 @@ export function dciHistory(customerId: number) {
     const { items } = callHistory(customerId, 30);
     return items.map((h) => ({
       id: h.id,
-      t: tehranDateLine(h.at),
+      t: faClockText(tehranDateLine(h.at)),
       at: h.at,
       k: /ورودی/.test(h.result) ? "ورودی" : "خروجی",
       r: h.result,

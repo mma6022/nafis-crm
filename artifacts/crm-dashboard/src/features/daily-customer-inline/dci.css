@@ -16,7 +16,20 @@ body:has([data-testid="dci-page"]) .diag-floating{display:none!important}
   }
   .dci-board{flex:1 1 auto;min-height:0;align-items:stretch}
   .dci-col{max-height:100%;overflow-y:auto;overscroll-behavior:contain}
+  /* Mid: keep the call action with the identity card while cases scroll — never stuck alone to the column edge. */
+  .dci-mid .dci-head{
+    position:sticky;top:-16px;z-index:3;background:#fff;
+    margin:-16px -16px 12px;padding:16px 16px 8px;
+  }
+  .dci-mid .dci-acts{position:static}
+  /* Lead «بعدی» stays fully visible at the bottom of the left column, above the dock. */
+  .dci-left .dci-fstep:not([hidden]){padding-bottom:56px}
+  .dci-left .dci-fc .dci-acts{
+    position:sticky;bottom:0;z-index:2;background:#fff;
+    padding-top:8px;padding-bottom:2px;
+  }
 }
+
 .dci-date{display:flex;gap:8px;align-items:center;font-size:14px;color:var(--nf-ink-muted);margin:16px 0 8px}
 .dci-page>h1{font-size:24px;font-weight:800;color:var(--nf-ink);margin:0 0 12px}
 /* خط زمان */

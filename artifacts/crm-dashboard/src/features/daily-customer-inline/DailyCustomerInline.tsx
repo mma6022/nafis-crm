@@ -203,12 +203,14 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     ? <span><span className="lbl">کد ملی</span> <b dir="ltr">{fd(m.customer.nationalCode)}</b></span>
     : <span><span className="lbl">کد ملی</span> هنوز ثبت نشده است</span>;
   return <section className="dci-col dci-mid" aria-label="اطلاعات تماس و پرونده‌ها">
+    <div className="dci-head">
     <p className="dci-cur">{m.call}</p>
     <div className="dci-who"><h2>{m.customer.name}</h2> {cidBtn(m.customer.id, onCopy)}</div>
     <div className="dci-idrow">{m.customer.phone ? <Phone raw={m.customer.phone} big={!ext} onCopy={onCopy} /> : null}{nid}</div>
     <div className="dci-tags">{tags}</div>
     {prio}
     <CallActs ext={ext} place="head" narrow={narrow} onCall={onCall} onResult={onResult} />
+    </div>
     <CasesBlock rows={m.cases} href={m.newCaseHref} />
   </section>;
 }
