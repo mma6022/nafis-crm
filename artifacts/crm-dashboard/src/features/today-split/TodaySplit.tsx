@@ -17,6 +17,7 @@ import { CatPill, RNote, fcDay } from '@/features/files-carousel/FcLabels';
 import { loanStageLabel } from '@/lib/loan-labels';
 import { FB_STEPS, fbColumnLabel, fbColumnOf } from './columns';
 import { useTodaySplit } from './api';
+import { useDciStatus } from '@/features/daily-customer-inline/api';
 import { useBoard } from './FilesBoard';
 import '@/features/daily-plan/daily-plan.css';
 import '@/features/files-carousel/files-carousel.css';
@@ -35,6 +36,9 @@ export default function TodaySplitGate({ children }: { children: ReactNode }) {
   const { data: session } = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   const u = session?.user as { id?: number; role?: string } | undefined;
   const s = useTodaySplit(u?.id != null ? Number(u.id) : null, u?.role);
+  const dci = useDciStatus();
+  // flag.daily_customer_inline_v1 ON: this page replaces the two-tab split (timeline + three columns). Flag OFF: unchanged.
+  if (dci.data?.enabled) return <>{children}</>;
   if (!s.data?.on) return <>{children}</>;
   return <TodaySplit potential={children} board={s.data.filesBoard} />;
 }

@@ -166,7 +166,7 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   // VOIP-CALL (flag.voip_call for this user only): «تماس از تلفن ویپ» + the customer's call history follow the same single-customer rule.
   // cs-fields v1 (flag.call_summary_fields_v1[.user.<id>] only): «موارد اجباری» on the call view / file follow the same single-customer rule.
   // REMINDER-VOIP (flag.reminder_voip for this user only): «تماس» on an own reminder = the same single-customer rule as the VoIP click call.
-  const ctIds = ctLockdownIds(req, path, Number(u!.id)) ?? vcLockdownIds(req, path, Number(u!.id)) ?? csLockdownIds(req, path, Number(u!.id)) ?? rvLockdownIds(req.method, path, Number(u!.id)) ?? mcLockdownIds(req, path);
+  const ctIds = ctLockdownIds(req, path, Number(u!.id)) ?? vcLockdownIds(req, path, Number(u!.id)) ?? csLockdownIds(req, path, Number(u!.id)) ?? rvLockdownIds(req.method, path, Number(u!.id)) ?? mcLockdownIds(req, path) ?? dciLockdownIds(req, path);
   if (ctIds) {
     for (const id of ctIds) if (!elCustomerAccess(u!, id) && !elOwnCustomer(u!, id))
       return deny(res, "expert_lockdown_customer", "این مشتری فعلاً برای شما باز نیست (فقط مشتری‌های «کارهای امروز»، پرونده‌های خودت یا «تماس ورودی»).");
@@ -203,6 +203,17 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
     }
   }
   next();
+}
+/** daily-customer-inline v1.1: null = not this API. [] = let the DCI handlers enforce owner/manager
+ *  access (including the designed 403 not_owner board for another expert's customer). Status/today
+ *  carry no customer id. Writes still go through dciAccess in the route. Flag OFF is unchanged. */
+function dciLockdownIds(req: Request, path: string): number[] | null {
+  if (!path.startsWith("/daily-customer-inline")) return null;
+  const method = req.method;
+  if ((path === "/daily-customer-inline/status" || path === "/daily-customer-inline/today") && (method === "GET" || method === "HEAD")) return [];
+  if ((method === "GET" || method === "HEAD" || method === "POST") && /^\/daily-customer-inline\/customers\/\d+(\/notes)?$/.test(path)) return [];
+  if (method === "POST" && /^\/daily-customer-inline\/inbounds\/\d+\/note$/.test(path)) return [];
+  return null;
 }
 /** MULTI-CASE: null = not this API. [] = flag read (any logged-in locked expert). [customerId] = the same single-customer rule as GET /customers/:id. */
 function mcLockdownIds(req: Request, path: string): number[] | null {
