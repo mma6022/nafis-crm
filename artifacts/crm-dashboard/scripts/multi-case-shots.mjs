@@ -30,9 +30,10 @@
  *     fills MC_CUSTOMER_ID from the first seeded expert when MC_CUSTOMER_ID is unset.
  *     When the manifest has flow.customerId, the script also opens that synthetic
  *     customer (verified identity, fresh credit, an open plan whose primary contract
- *     is present) and walks #mc-plans, scene 12, a plan condition, review, and the
- *     customer page created banner. That walk is inside the same recording as the
- *     rest of the script, so MC_VIDEO=1 includes it in flow.webm.
+ *     is present) and walks #mc-plans, scene 12, scene 13 (disabled plan tile),
+ *     a plan condition, review, and the customer page created banner. That walk is
+ *     inside the same recording as the rest of the script, so MC_VIDEO=1 includes
+ *     it in flow.webm.
  *   Design scene 10 (general in-call, «در حال تماس») is the voip in-call screen.
  *   This script does not open it: there is no product surface for that state apart
  *   from the accepted voip-task-hold gap.
@@ -52,12 +53,14 @@ let customerId = process.env.MC_CUSTOMER_ID || "";
 let flowCustomerId = process.env.MC_FLOW_CUSTOMER_ID || "";
 let openPlanId = process.env.MC_OPEN_PLAN_ID || "";
 let freePlanId = process.env.MC_FREE_PLAN_ID || "";
+let unreadyPlanId = process.env.MC_UNREADY_PLAN_ID || "17";
 if (process.env.MC_SEED_MANIFEST) {
   const manifest = JSON.parse(readFileSync(process.env.MC_SEED_MANIFEST, "utf8"));
   if (!customerId) customerId = String(manifest.experts?.find((row) => row.customerId)?.customerId || "");
   if (!flowCustomerId && manifest.flow?.customerId) flowCustomerId = String(manifest.flow.customerId);
   if (!openPlanId && manifest.flow?.openPlanId) openPlanId = String(manifest.flow.openPlanId);
   if (!freePlanId && manifest.flow?.freePlanId) freePlanId = String(manifest.flow.freePlanId);
+  if (!process.env.MC_UNREADY_PLAN_ID && manifest.flow?.unreadyPlanId) unreadyPlanId = String(manifest.flow.unreadyPlanId);
 }
 if (!customerId) { console.error("required: MC_CUSTOMER_ID or MC_SEED_MANIFEST"); process.exit(1); }
 
@@ -133,6 +136,26 @@ async function at(width) {
   await page.setViewport({ width, height: width === 390 ? 844 : 900, deviceScaleFactor: width === 390 ? 2 : 1 });
 }
 
+const PLAN_BTN = "#mc-plans button:not([disabled]):not([aria-disabled='true'])";
+
+async function shotDisabledPlan() {
+  const exists = await page.$("#mc-plans .mc-plan-off");
+  if (!exists) { note("scene 13: disabled plan tile was not in the plan list"); return; }
+  let shown = "";
+  for (const width of [1280, 390]) {
+    await at(width);
+    shown = await page.evaluate((prefer) => {
+      const tiles = [...document.querySelectorAll("#mc-plans .mc-plan-off")];
+      const tile = tiles.find((el) => el.getAttribute("data-plan-id") === prefer) || tiles[tiles.length - 1];
+      if (!(tile instanceof HTMLElement)) return "";
+      tile.scrollIntoView({ block: "center", inline: "nearest" });
+      return tile.getAttribute("data-plan-id") || "";
+    }, unreadyPlanId);
+    await shot("13-wizard-plan-disabled", width);
+  }
+  if (shown && shown !== unreadyPlanId) note(`scene 13: showed plan ${shown}; plan ${unreadyPlanId} was not in the list`);
+}
+
 async function both(name, scrollCases) {
   for (const width of [1280, 390]) {
     await at(width);
@@ -202,10 +225,11 @@ try {
       if (!(await advance())) break;
       await new Promise((r) => setTimeout(r, 500));
     }
-    const plansReady = await page.waitForSelector("#mc-plans button:not([disabled])", { timeout: 8000 }).then(() => true).catch(() => false);
+    const plansReady = await page.waitForSelector(PLAN_BTN, { timeout: 8000 }).then(() => true).catch(() => false);
     if (!plansReady) note("scene 12: wizard did not reach a selectable plan list");
     else {
-      const opened = await page.$$eval("#mc-plans button:not([disabled])", (nodes) => nodes.map((n) => n.getAttribute("data-plan-id"))).catch(() => []);
+      await shotDisabledPlan();
+      const opened = await page.$$eval(PLAN_BTN, (nodes) => nodes.map((n) => n.getAttribute("data-plan-id"))).catch(() => []);
       const order = openPlanId && opened.includes(openPlanId) ? [openPlanId, ...opened.filter((id) => id !== openPlanId)] : opened;
       for (const id of order) {
         await clickSel(`#mc-plans [data-plan-id="${id}"]`);
@@ -235,7 +259,8 @@ try {
       }
       if (await page.$("#mc-plans")) {
         await both("02-wizard-plans");
-        const ids = await page.$$eval("#mc-plans button:not([disabled])", (nodes) => nodes.map((node) => node.getAttribute("data-plan-id"))).catch(() => []);
+        await shotDisabledPlan();
+        const ids = await page.$$eval(PLAN_BTN, (nodes) => nodes.map((node) => node.getAttribute("data-plan-id"))).catch(() => []);
         const prefer = openPlanId && ids.includes(openPlanId) ? [openPlanId, ...ids.filter((id) => id !== openPlanId)] : ids;
         let blockedId = "";
         for (const id of prefer) {

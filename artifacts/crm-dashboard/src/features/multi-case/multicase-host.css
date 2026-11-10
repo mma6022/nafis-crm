@@ -120,7 +120,7 @@ body:has(.mc-wizard-host) .csx-pager { display: none; }
 .lwz.mc-host .ss-dnd,
 .mc-wbody .ss-dnd { position: static; inset: auto; z-index: auto; min-height: 44px; }
 .lwz.mc-host .mc-choice { gap: 8px; }
-.lwz.mc-host .mc-choice button { min-height: 56px; padding: 8px 12px; }
+.lwz.mc-host .mc-choice button:not(.mc-plan-off) { min-height: 56px; padding: 8px 12px; }
 .lwz.mc-host .mc-warning { margin: 0; }
 @media (max-width: 1023.98px) {
   .mc-wizard-host { position: fixed; top: var(--nf-topbar-h, 68px); bottom: 0; padding-bottom: calc(var(--ss-dock-h, 72px) + 8px); }

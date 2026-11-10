@@ -15,7 +15,7 @@ import { useLocation } from "wouter";
 import { clearLoanDraft, readLoanDraft, writeLoanDraft } from "@/lib/loan-draft";
 import { useMultiCaseCustomer, useMultiCaseStatus } from "@/lib/multi-case";
 import { SamePlanBlock } from "@/components/multi-case/CaseContextPicker";
-import { MULTI_CASE_UNREADY_PLAN, MULTI_CASE_UNREADY_REASON, multiCasePlanLabel } from "@/lib/multi-case-plan-label";
+import { MULTI_CASE_POPULAR_HEADING, MULTI_CASE_POPULAR_LINE, MULTI_CASE_UNREADY_PLAN, MULTI_CASE_UNREADY_REASON, multiCasePlanLabel } from "@/lib/multi-case-plan-label";
 import { CidChip, faCaseStage, faDigits, faLatinRanks } from "@/components/multi-case/CaseContextPicker";
 import { DRAFTS_KEY, DraftHttpError, filingFeeIdempotencyKey, openPreRegistrationFor, type OpenPreRegistration, canUseDrafts, draftsApi, tehranTime, type DraftPayload, type RequestDraft } from "@/lib/request-drafts";
 import { toast } from "@/hooks/use-toast";
@@ -122,6 +122,7 @@ function apiErrorMessage(error: unknown, fallback: string) {
     verification_conflict: "اطلاعات هویتی با اطلاعات ثبت‌شده مشتری دیگری تعارض دارد.",
     invalid_contract_template: "قالب Word قابل پردازش نیست. علامت‌های متغیر یا ساختار فایل قرارداد را بررسی کنید.",
     primary_template_missing_principal_mapping: "قالب قرارداد این طرح، نگاشت اصل تسهیلات ندارد. برای ثبت درخواست، مدیر باید نگاشت مبلغ اصل تسهیلات را در قالب قرارداد تنظیم کند.",
+    plan_not_selectable: "فعلاً قابل انتخاب نیست؛ مبلغ وام در قرارداد این طرح مشخص نشده است.",
     document_generation_failed: "ساخت فایل قرارداد در سرور انجام نشد.",
     pdf_conversion_failed: "فایل Word ساخته شد، اما تبدیل آن به PDF انجام نشد.",
     formula_value_invalid: "مقدار یکی از فیلدهای فرمولی طرح برای مدت انتخاب‌شده عددی یا قابل محاسبه نیست.",
@@ -293,7 +294,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   const chooseOtherPlan = () => {
     setSelectedPlanId(null); setSelectedPlan(null); setAmount(""); setDuration(""); setTermsAttempted(false); setSub(0);
     requestAnimationFrame(() => {
-      const tile = document.getElementById("mc-plans")?.querySelector("button");
+      const tile = document.getElementById("mc-plans")?.querySelector('button:not([aria-disabled="true"])');
       if (tile instanceof HTMLElement) tile.focus();
     });
   };
@@ -1698,7 +1699,24 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
     groups.set(match.planId, matches);
     return groups;
   }, new Map<number, CustomerEligiblePlan[]>()).values());
-  const selectedGroup = groupedPlans.find((matches) => matches[0].planId === selectedPlanId);
+  const catalog = eligibleResponse as { popularPlanIds?: number[]; planOrder?: number[] } | undefined;
+  const popularIds = multiCase ? (catalog?.popularPlanIds ?? []) : [];
+  const orderedGroups = (() => {
+    const source = multiCase && MULTI_CASE_UNREADY_PLAN === "hide"
+      ? groupedPlans.filter((group) => group[0].primaryContractPresent)
+      : groupedPlans;
+    const planOrder = multiCase ? catalog?.planOrder : undefined;
+    if (!planOrder?.length) return source;
+    const rank = new Map(planOrder.map((id, index) => [id, index]));
+    return [...source].sort((a, b) => (rank.get(a[0].planId) ?? 10000) - (rank.get(b[0].planId) ?? 10000));
+  })();
+  useEffect(() => {
+    if (!multiCase || selectedPlanId == null) return;
+    const group = groupedPlans.find((matches) => matches[0].planId === selectedPlanId);
+    if (group && !group[0].primaryContractPresent) onChooseOther?.();
+  }, [multiCase, selectedPlanId, eligibleResponse]);
+  const selectedGroupRaw = groupedPlans.find((matches) => matches[0].planId === selectedPlanId);
+  const selectedGroup = selectedGroupRaw && !(multiCase && !selectedGroupRaw[0].primaryContractPresent) ? selectedGroupRaw : undefined;
   const currentCondition = selectedGroup?.find((match) => match.conditionId === selectedPlan?.conditionId);
   const maximumAmount = Number(selectedPlan?.maximumAmount || 0);
   const amountStep = maximumAmount >= 100_000_000
@@ -1758,48 +1776,95 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
           ) : isError ? <div role="alert" className="lwz-note bad">دریافت طرح‌ها ناموفق بود. <button type="button" className="text-link" onClick={() => void refetch()}>تلاش دوباره</button></div> : eligibleMatches.length > 0 ? (
             <div className={multiCase ? "lwz-opts mc-choice" : "lwz-opts"} id={multiCase ? "mc-plans" : undefined} role={multiCase ? "radiogroup" : "group"} aria-label="طرح‌های واجد شرایط">
                {(() => {
-                 const listed = multiCase && MULTI_CASE_UNREADY_PLAN === "hide"
-                   ? groupedPlans.filter((group) => group[0].primaryContractPresent)
-                   : groupedPlans;
-                 const blocked = Boolean(multiCase && blockedCaseId);
-                 const rest = listed.filter((group) => group[0].planId !== selectedPlanId);
-                 const selected = listed.filter((group) => group[0].planId === selectedPlanId);
-                 return blocked ? [...selected, ...rest] : listed;
-               })().map((matches) => {
-                 const plan = matches[0];
-                 const planMaximum = Math.max(...matches.map((match) => Number(match.maximumAmount)));
-                 const label = multiCase ? multiCasePlanLabel({ planId: plan.planId, bankName: (plan as { bankName?: string | null }).bankName }) : plan.name;
-                 const marked = selectedPlanId === plan.planId;
-                 return (
-                  <React.Fragment key={plan.planId}>
-                  <button
-                    type="button"
-                    data-testid={`plan-card-${plan.planId}`}
-                    data-plan-id={plan.planId}
-                    data-plan-label={label}
-                    onClick={() => onSelectPlanGroup(plan.planId)}
-                    disabled={!plan.primaryContractPresent || planLocked}
-                    aria-pressed={multiCase ? undefined : marked}
-                    role={multiCase ? "radio" : undefined}
-                    aria-checked={multiCase ? marked : undefined}
-                    className={multiCase ? undefined : `lwz-opt${marked ? ' on' : ''}`}
-                    style={{ opacity: plan.primaryContractPresent && (!planLocked || marked) ? 1 : 0.6 }}
-                 >
-                    {multiCase ? <>
-                      <b>{label}</b>
-                      <span>{!plan.primaryContractPresent ? MULTI_CASE_UNREADY_REASON : blockedCaseId && marked ? "یک پرونده‌ی باز با این طرح دارید" : `تا ${planMaximum.toLocaleString('fa-IR')} تومان`}</span>
-                    </> : <>
-                    <span className="dot" aria-hidden="true" />
-                    <span className="txt">
-                       <strong>{label}</strong>
-                       <small>تا {planMaximum.toLocaleString('fa-IR')} تومان، {matches.length.toLocaleString('fa-IR')} شرط</small>
-                       {!plan.primaryContractPresent && <small className="lwz-err">قرارداد اصلی برای این طرح تعریف نشده است.</small>}
-                    </span>
-                    </>}
-                  </button>
-                  {multiCase && blockedCaseId && marked ? <SamePlanBlock caseId={blockedCaseId} onChooseOther={() => onChooseOther?.()} onOpenCase={() => onOpenBlockedCase?.()} /> : null}
-                  </React.Fragment>
-                ); })}
+                 const ready = orderedGroups.filter((group) => !multiCase || group[0].primaryContractPresent);
+                 const disabled = multiCase ? orderedGroups.filter((group) => !group[0].primaryContractPresent) : [];
+                 const popularSet = new Set(popularIds);
+                 let rest = ready.filter((group) => !popularSet.has(group[0].planId));
+                 let popular = popularIds
+                   .map((id) => ready.find((group) => group[0].planId === id))
+                   .filter((group): group is typeof ready[number] => Boolean(group));
+                 let pinned: typeof ready[number] | null = null;
+                 if (multiCase && blockedCaseId) {
+                   const picked = [...rest, ...popular].find((group) => group[0].planId === selectedPlanId) ?? null;
+                   if (picked) {
+                     pinned = picked;
+                     rest = rest.filter((group) => group[0].planId !== picked[0].planId);
+                     popular = popular.filter((group) => group[0].planId !== picked[0].planId);
+                   }
+                 }
+                 const activeTile = (matches: typeof ready[number], popularTile: boolean) => {
+                   const plan = matches[0];
+                   const planMaximum = Math.max(...matches.map((match) => Number(match.maximumAmount)));
+                   const label = multiCase ? multiCasePlanLabel({ planId: plan.planId, bankName: (plan as { bankName?: string | null }).bankName }) : plan.name;
+                   const marked = selectedPlanId === plan.planId;
+                   const line = popularTile
+                     ? MULTI_CASE_POPULAR_LINE
+                     : blockedCaseId && marked ? "یک پرونده‌ی باز با این طرح دارید" : `تا ${planMaximum.toLocaleString('fa-IR')} تومان`;
+                   return (
+                    <React.Fragment key={plan.planId}>
+                    <button
+                      type="button"
+                      data-testid={`plan-card-${plan.planId}`}
+                      data-plan-id={plan.planId}
+                      data-plan-label={label}
+                      onClick={() => onSelectPlanGroup(plan.planId)}
+                      disabled={!plan.primaryContractPresent || planLocked}
+                      aria-pressed={multiCase ? undefined : marked}
+                      role={multiCase ? "radio" : undefined}
+                      aria-checked={multiCase ? marked : undefined}
+                      className={multiCase ? undefined : `lwz-opt${marked ? ' on' : ''}`}
+                      style={multiCase ? undefined : { opacity: plan.primaryContractPresent && (!planLocked || marked) ? 1 : 0.6 }}
+                    >
+                      {multiCase ? <>
+                        <b>{label}</b>
+                        <span>{line}</span>
+                      </> : <>
+                      <span className="dot" aria-hidden="true" />
+                      <span className="txt">
+                         <strong>{label}</strong>
+                         <small>تا {planMaximum.toLocaleString('fa-IR')} تومان، {matches.length.toLocaleString('fa-IR')} شرط</small>
+                         {!plan.primaryContractPresent && <small className="lwz-err">قرارداد اصلی برای این طرح تعریف نشده است.</small>}
+                      </span>
+                      </>}
+                    </button>
+                    {multiCase && blockedCaseId && marked ? <SamePlanBlock caseId={blockedCaseId} onChooseOther={() => onChooseOther?.()} onOpenCase={() => onOpenBlockedCase?.()} /> : null}
+                    </React.Fragment>
+                   );
+                 };
+                 const disabledTile = (matches: typeof ready[number]) => {
+                   const plan = matches[0];
+                   const label = multiCasePlanLabel({ planId: plan.planId, bankName: (plan as { bankName?: string | null }).bankName });
+                   return (
+                    <button
+                      key={plan.planId}
+                      type="button"
+                      className="mc-plan-off"
+                      data-testid={`plan-card-${plan.planId}`}
+                      data-plan-id={plan.planId}
+                      data-plan-label={label}
+                      data-plan-unready="1"
+                      aria-disabled="true"
+                      tabIndex={-1}
+                      title={MULTI_CASE_UNREADY_REASON}
+                      onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}
+                      onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); } }}
+                    >
+                      <span className="mc-plan-off-head">
+                        <span className="mc-plan-off-fade"><b>{label}</b></span>
+                        <span className="mc-off-chip">غیرفعال</span>
+                      </span>
+                      <span className="mc-plan-off-why">{MULTI_CASE_UNREADY_REASON}</span>
+                    </button>
+                   );
+                 };
+                 return <>
+                   {pinned ? activeTile(pinned, false) : null}
+                   {rest.map((group) => activeTile(group, false))}
+                   {multiCase && popular.length ? <p className="mc-plan-pop" data-testid="mc-plan-pop">{MULTI_CASE_POPULAR_HEADING}</p> : null}
+                   {popular.map((group) => activeTile(group, true))}
+                   {disabled.map(disabledTile)}
+                 </>;
+               })()}
             </div>
          ) : (
              !ignoreCreditRank && eligibleResponse && !eligibleResponse.credit.fresh ? (
