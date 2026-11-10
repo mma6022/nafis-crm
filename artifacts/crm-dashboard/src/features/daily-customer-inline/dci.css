@@ -48,9 +48,11 @@ body:has([data-testid="dci-page"]) .diag-floating{display:none!important}
 }
 /* Short HD screens (1366×768): tighten the title block so the columns get the height. */
 @media(min-width:1024px) and (max-height:800px){
-  /* Grow the board down to the dock so «تماس» is not clipped by the extra main padding. */
+  /* Keep the last mid-column row (ارتقا / تماس) above the floating dock: dock height + gap. */
   body:has([data-testid="dci-page"]) .app-shell.ssv2 .app-main{
-    padding-bottom:calc(var(--ss-dock-h,90px) + 8px)!important;
+    padding-bottom:calc(var(--ss-dock-h,90px) + var(--ss-gap,16px))!important;
+    box-sizing:border-box;
+    max-height:100dvh;
   }
   .dci-mid .dci-head{position:static;top:auto;margin-top:0}
   .dci-date{margin:4px 0 2px}
