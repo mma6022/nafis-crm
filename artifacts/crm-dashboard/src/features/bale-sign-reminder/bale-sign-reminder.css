@@ -68,12 +68,30 @@
 /* Error toast must not cover the confirm/error modal (retry/cancel, «امضای قرارداد»). */
 .bbt:has(.sr-modal) .toast,body:has(.sr-modal) .bbt .toast{display:none!important}
 
-/* Armita r2 §5: last full customer-column row stays ≥16px above the live dock at 1280×900. */
+/* Armita r2 §5 / r3: card stays above the dock; the customer pane scrolls to the last row
+   so «مشاهده‌ی پرونده» / the expiry reason are fully visible with ≥16px clearance. */
 @media (min-width:1024px){
   .bbt .pg.bbpg .bx{
     height:calc(100dvh - var(--ss-dock-h,90px) - var(--ss-gap,16px) - 32px - 120px);
     max-height:calc(100dvh - var(--ss-dock-h,90px) - var(--ss-gap,16px) - 32px - 120px);
   }
   .bbt .pg.bbpg .bx>.pane{padding-bottom:16px;box-sizing:border-box}
-  .bbt .pg.bbpg .bx>.pane.cp{padding-bottom:16px}
+  .bbt .pg.bbpg .bx>.pane.cp{
+    overflow-x:hidden;
+    overflow-y:auto;
+    overscroll-behavior:contain;
+    padding-bottom:16px;
+    box-sizing:border-box;
+  }
+  /* Flex children must not shrink and clip the last row; the pane scrolls instead. */
+  .bbt .pg.bbpg .bx>.pane.cp>*,
+  .bbt .pg.bbpg .bx>.pane.cp .sec{
+    flex:none;
+    min-height:auto;
+    overflow:visible;
+  }
+  .bbt .pg.bbpg .bx>.pane.cp .sec>:last-child,
+  .bbt .pg.bbpg .bx>.pane.cp>:last-child{
+    scroll-margin-bottom:16px;
+  }
 }

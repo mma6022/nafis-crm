@@ -596,4 +596,8 @@ html.fdv1-chv .fdv1{margin-inline:-14px}
 @media (max-width:1023.98px){
   .fdv1 .fpg{padding-bottom:calc(var(--dock-h,72px) + 32px)}
   .fdv1 .ftl li{scroll-margin-bottom:calc(var(--dock-h,72px) + 24px);scroll-margin-top:12px}
+  /* r3 non-blocking: «همه» chip must not sit on «تاریخچه‌ی پرونده». Title on its own row, chips below. */
+  .fdv1 .sh:has(> h3 + .seg){flex-direction:column;align-items:stretch;gap:10px}
+  .fdv1 .sh:has(> h3 + .seg) h3{flex:none;min-width:0;overflow:visible}
+  .fdv1 .sh:has(> h3 + .seg) .seg{margin:0;width:100%}
 }
