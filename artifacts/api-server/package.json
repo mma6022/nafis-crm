@@ -19,6 +19,7 @@
     "test:ct-chat": "node scripts/ct-chat-fixture.mjs",
     "test:cs-fields": "node scripts/run-bundled-fixture.mjs scripts/cs-fields-fixture.mjs",
     "test:daily-customer-inline": "node scripts/run-bundled-fixture.mjs scripts/daily-customer-inline-fixture.mjs && node scripts/run-bundled-fixture.mjs scripts/daily-customer-inline-wiring-fixture.mjs",
+    "test:inquiry-yes-no": "node --experimental-strip-types scripts/inquiry-yes-no-fixture.mjs",
     "test:sales-experts-priority-status": "node scripts/run-bundled-fixture.mjs scripts/sales-experts-priority-status-fixture.mjs",
     "test:recording-transcript": "node scripts/recording-transcript-fixture.mjs",
     "test:voip": "pnpm run build && node scripts/voip-fixture.mjs",
