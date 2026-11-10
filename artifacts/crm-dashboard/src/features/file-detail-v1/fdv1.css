@@ -470,7 +470,10 @@
 .fdv1 .kvg{grid-template-columns:1fr 1fr}
 .fdv1 .kvc .v{font-size:16px}
 .fdv1 .diag{display:none}
-html.fdv1-chv .fdv1 .fmain,html.fdv1-chv .fdv1 .diag{display:none}
+html.fdv1-chv .fdv1 .diag{display:none}
+/* voip-task-hold: keep call status above the notes tab (design scene mobile_notes). */
+html.fdv1-chv .fdv1 .fmain{display:flex}
+html.fdv1-chv .fdv1 .fhd,html.fdv1-chv .fdv1 .stabs,html.fdv1-chv .fdv1 .tabp{display:none}
 html.fdv1-chv .fdv1 .fchat{display:flex;position:static;height:auto;min-height:100vh;border:0;border-radius:0;box-shadow:none;overflow:visible}
 html.fdv1-chv .fdv1 .fchat .chh{position:sticky;top:0;z-index:5}
 html.fdv1-chv .fdv1 .chh .bkb{display:grid}

@@ -75,6 +75,7 @@ import { ensureReminderFollowSchema } from "../lib/reminder-follow";
 import linkPageRouter from "./link-page";
 import salesTeamsRouter from "./sales-teams";
 import baleBotRouter from "./bale-bot";
+import voipTaskHoldRouter from "./voip-task-hold";
 
 const router: IRouter = Router();
 startDatabaseBackupScheduler();
@@ -140,6 +141,7 @@ router.use(recordingTranscriptsRouter);
 router.use(callTranscriptsRouter); // call-transcripts v1.1 (flag.call_transcripts.ui, OFF → 404)
 router.use(callSummaryFieldsRouter); // «موارد اجباری» v1.2 (flag.call_summary_fields_v1[.user.<id>], OFF → 404)
 router.use(voipCallRouter); // VOIP-CALL (flag.voip_call[.user.<id>], OFF → 404)
+router.use(voipTaskHoldRouter); // VOIP-TASK-HOLD (flag.voip_task_hold_v1, default OFF → 404)
 router.use(voiceNotesRouter);
 router.use(smartFilingRouter);
 router.use(assistantsRouter);

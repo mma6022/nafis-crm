@@ -150,7 +150,7 @@ function TaskCard({ c, pos, total, onResult, onFile }: { c: FcCard; pos: number;
       {r ? <div className="dp-keynote ts-reason"><small>{r.k}</small><q data-testid="ts-reason">{r.t}</q></div> : null}
       {c.ask ? <div className="dp-keynote"><small>چی بپرسم</small><q>{c.ask}</q></div> : null}
       {c.phone ? <div className="ts-ph"><small>شماره‌ی مشتری</small><CallNumber phone={c.phone} customerId={c.customerId} via="files" testId="ts-ph" /></div> : null}
-      {vcOn ? <VoipCallBox customerId={c.customerId} fileId={c.fileId} customerName={c.customerName} onResult={onResult} extra={fileBtn} /> : <>
+      {vcOn ? <VoipCallBox customerId={c.customerId} fileId={c.fileId} entry="carousel" customerName={c.customerName} onResult={onResult} extra={fileBtn} /> : <>
       <div className="dp-actions"><button type="button" className="btn btn-primary" onClick={onResult} data-testid="ts-call"><Check size={16} aria-hidden="true" /> تماس گرفتم، ثبت نتیجه</button>
         {fileBtn}</div>
       <p className="ts-lock"><Lock size={13} aria-hidden="true" /> با گوشی خودت شماره را بگیر، بعد «تماس گرفتم، ثبت نتیجه» را بزن. تسک بعدی تا ثبت نتیجه قفل است.</p></>}

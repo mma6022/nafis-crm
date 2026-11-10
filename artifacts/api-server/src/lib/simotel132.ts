@@ -22,6 +22,7 @@ import { ctfAppend, ctfFirstCallTick, ctfOn, ctfSummaryStatus } from "./ct-fastn
 import { storedCallSummary } from "./recording-summary-jobs";
 import { vnaSent } from "./voip-noanswer-sms";
 import { resolveEvent, experts, customerMatcher, normalizePhone } from "./voip-after-call";
+import { vthSuppressAutoSave } from "./voip-task-hold";
 
 export const S132_WAIT_S = 120; // R2 decides 60 s after the last leg ends (+ the 20 s poll); then the design's 60 s
 /** SIMOTEL-FAST (flag.simotel_fast[.user.<id>]): the result normally lands 5–8 s after hang-up, so the no-CDR wait is 30 s (Armita 1.3.4); OFF → 120 s. */
@@ -139,6 +140,8 @@ function processOne(r: S132Row, c: VcRow, now: Date): void {
   }
   const user = getAuthUserById(r.user_id) as any;
   if (!user || user.active === false) { markManual(r.call_id, "no_user", now); return; }
+  // VOIP-TASK-HOLD: do not auto-write a follow-up or close the daily-plan task; the expert must save the form first.
+  if (vthSuppressAutoSave(r.user_id)) return;
   const taskOutcome = status === "answered" ? "answered" : "no_answer";
   let logId = c.event_id != null ? queryRow<{ call_log_id: number | null }>("SELECT call_log_id FROM voip_after_call_events WHERE id=?", [c.event_id])?.call_log_id ?? null : null;
   let eventId = c.event_id;
