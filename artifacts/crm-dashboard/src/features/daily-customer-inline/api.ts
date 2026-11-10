@@ -36,6 +36,8 @@ export type DciBoard = {
   hasExtension: boolean;
   canPromote: boolean;
   canEditPriorityStatus?: boolean;
+  /** UI-only: show inert chips + grey reason (no permission). Not set by the server. */
+  priorityStatusLocked?: boolean;
   priorityDemoteTransfer?: { expertName: string } | null;
   customer: { id: number; name: string; phone: string | null; nationalCode: string | null; priority: number | null; status?: string | null; tags: string[] };
   call: string;

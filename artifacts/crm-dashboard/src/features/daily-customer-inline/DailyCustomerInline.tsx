@@ -225,14 +225,16 @@ function ChipGroup({ label, aria, testId, kind, children }: { label: string; ari
   </div>;
 }
 
-function CaseCard({ f, canEdit, busy, onCancel }: { f: DciCase; canEdit: boolean; busy: boolean; onCancel: (f: DciCase) => void }) {
+function CaseCard({ f, canEdit, locked, busy, onCancel }: { f: DciCase; canEdit: boolean; locked?: boolean; busy: boolean; onCancel: (f: DciCase) => void }) {
   const life = f.life ?? "in_progress";
-  const chips = canEdit ? <ChipGroup label="وضعیت پرونده" aria="وضعیت پرونده" testId={`dci-ps-case-${f.id}`} kind="status">
+  const show = canEdit || !!locked;
+  const chips = show ? <ChipGroup label="وضعیت پرونده" aria="وضعیت پرونده" testId={`dci-ps-case-${f.id}`} kind="status">
     {PS_STATUSES.map((key) => {
       const checked = life === key;
-      const disable = busy || (key === "completed" && !checked) || (key === "in_progress" && life === "cancelled") || (key === "cancelled" && !f.canCancel && !checked);
-      return <button key={key} type="button" className="csx-chip" role="radio" aria-checked={checked} data-s={key}
-        disabled={disable} onClick={() => key === "cancelled" && f.canCancel && !checked && onCancel(f)}
+      const disable = !canEdit || busy || (key === "completed" && !checked) || (key === "in_progress" && life === "cancelled") || (key === "cancelled" && !f.canCancel && !checked);
+      return <button key={key} type="button" className={`csx-chip${!canEdit ? " is-inert" : ""}`} role="radio" aria-checked={checked} data-s={key}
+        aria-disabled={!canEdit ? true : undefined}
+        disabled={canEdit && disable} onClick={() => canEdit && key === "cancelled" && f.canCancel && !checked && onCancel(f)}
         data-testid={`chip-status-${key}-${f.id}`}>{STATUS_LABEL[key]}</button>;
     })}
   </ChipGroup> : null;
@@ -245,9 +247,9 @@ function CaseCard({ f, canEdit, busy, onCancel }: { f: DciCase; canEdit: boolean
   </article>;
 }
 
-function CasesBlock({ rows, href, canEdit, busy, onCancel }: { rows: DciCase[]; href: string; canEdit: boolean; busy: boolean; onCancel: (f: DciCase) => void }) {
+function CasesBlock({ rows, href, canEdit, locked, busy, onCancel }: { rows: DciCase[]; href: string; canEdit: boolean; locked?: boolean; busy: boolean; onCancel: (f: DciCase) => void }) {
   return <>
-    {rows.length ? <div className="dci-cases">{rows.map((f) => <CaseCard key={f.id} f={f} canEdit={canEdit} busy={busy} onCancel={onCancel} />)}</div> : null}
+    {rows.length ? <div className="dci-cases">{rows.map((f) => <CaseCard key={f.id} f={f} canEdit={canEdit} locked={locked} busy={busy} onCancel={onCancel} />)}</div> : null}
     <div className="dci-new"><Link className="btn pri" href={href}>درخواست تسهیلات جدید</Link></div>
   </>;
 }
@@ -326,13 +328,47 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
       onError: (error) => { setPendingPriority(undefined); setFailedPriority(value); setPsError(psErrMsg(error, "priority")); },
     });
   };
+  const p1ChipRef = useRef<HTMLButtonElement>(null);
+  const p1BtnRef = useRef<HTMLButtonElement>(null);
+  const promoFrom = useRef<"chip" | "button">("button");
+  const canEditPs = !!m.canEditPriorityStatus && !m.priorityStatusLocked;
+  const showPs = canEditPs || !!m.priorityStatusLocked;
+  const noPermHint = "اجازهٔ تغییر اولویت در این حساب نیست.";
+  const openPromo = (from: "chip" | "button") => {
+    if (!canEditPs || curPriority === 1) return;
+    promoFrom.current = from;
+    onPromote();
+  };
+  const closePromo = () => { promo?.onClose(); };
+  const promoWasOpen = useRef(false);
+  useEffect(() => {
+    if (promo?.open) { promoWasOpen.current = true; return; }
+    if (!promoWasOpen.current) return;
+    promoWasOpen.current = false;
+    const from = promoFrom.current;
+    let tries = 0;
+    let id = 0;
+    const focusOpener = () => {
+      const el = from === "chip" ? p1ChipRef.current : p1BtnRef.current;
+      if (el && !el.closest("[inert]")) { el.focus(); return; }
+      if (tries++ < 20) id = window.setTimeout(focusOpener, 16);
+    };
+    id = window.setTimeout(focusOpener, 0);
+    return () => window.clearTimeout(id);
+  }, [promo?.open]);
   const askPriority = (value: number | null) => {
-    if (curPriority === value || update.isPending) return;
-    // Item 4 / PM: the P1 chip does not promote; «ارتقا به اولویت ۱» stays the only promote path.
-    if (value === 1 && curPriority !== 1) return;
+    if (!canEditPs || curPriority === value || update.isPending) return;
+    // P1 is never a form-less patch: the chip and the button open the same promote form.
+    if (value === 1 && curPriority !== 1) { openPromo("chip"); return; }
     if (curPriority === 1 && value !== 1 && transferName) { setPendingPriority(value); return; }
     savePriority(value);
   };
+  useEffect(() => {
+    if (!promo?.open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); closePromo(); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [promo?.open]);
   const openCancel = (f: DciCase) => { setCx(f); setCxReason(""); setCxErr(""); setPsError(""); setPsOk(""); };
   const submitCancel = () => {
     if (!cx) return;
@@ -343,14 +379,28 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
       onError: (error) => setCxErr(psErrMsg(error)),
     });
   };
-  const ps = m.canEditPriorityStatus ? <div className="csx dci-ps" data-testid="dci-ps">
+  const ps = showPs ? <div className="csx dci-ps" data-testid="dci-ps">
     <ChipGroup label="اولویت" aria="اولویت" testId="dci-ps-priority" kind="priority">
-      {PS_PRIORITIES.map((value) =>
-        <button key={String(value)} type="button" className="csx-chip" role="radio" aria-checked={curPriority === value}
-          data-p={value ?? undefined} disabled={update.isPending || (value === 1 && curPriority !== 1)}
-          onClick={() => askPriority(value)}
-          data-testid={`chip-priority-${value ?? "none"}`}>{value ? `اولویت ${fd(value)}` : "بدون اولویت"}</button>)}
+      {PS_PRIORITIES.map((value) => {
+        const isP1 = value === 1;
+        const alreadyP1 = isP1 && curPriority === 1;
+        const canOpenPromo = canEditPs && isP1 && curPriority !== 1;
+        const inert = !canEditPs || alreadyP1;
+        const cls = `csx-chip${canOpenPromo ? " p1-up" : ""}${inert ? " is-inert" : ""}`;
+        return <button key={String(value)} ref={isP1 ? p1ChipRef : undefined} type="button" className={cls}
+          role={canOpenPromo ? "button" : "radio"}
+          aria-checked={canOpenPromo ? undefined : curPriority === value}
+          aria-haspopup={canOpenPromo ? "dialog" : undefined}
+          aria-label={canOpenPromo ? "ارتقا به اولویت ۱" : undefined}
+          aria-disabled={inert ? true : undefined}
+          title={!canEditPs ? noPermHint : undefined}
+          data-p={value ?? undefined}
+          disabled={update.isPending && !inert}
+          onClick={() => { if (inert) return; if (canOpenPromo) openPromo("chip"); else askPriority(value); }}
+          data-testid={`chip-priority-${value ?? "none"}`}>{value ? `اولویت ${fd(value)}` : "بدون اولویت"}</button>;
+      })}
     </ChipGroup>
+    {!canEditPs ? <p className="csx-hint dci-ps-hint" data-testid="dci-ps-noperm">{noPermHint}</p> : null}
     {psOk ? <p className="dci-ps-ok" role="status" data-testid="dci-ps-ok">{psOk}</p> : null}
     {psError ? <div className="dci-ps-err" role="alert" data-testid="dci-ps-err">
       <svg className="dci-ps-err-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8 2.6 20.2h18.8L12 3.8z" /><path d="M12 9.5v5.2M12 17.4v.6" /></svg>
@@ -359,8 +409,8 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     </div> : null}
   </div> : null;
   const prio = m.prio
-    ? <div className="dci-prio"><span className="dci-prio-on">اولویت ۱</span></div>
-    : (m.canPromote ? <div className="dci-prio"><button className="btn gh" type="button" disabled={promoting} onClick={onPromote}>ارتقا به اولویت ۱</button></div> : null);
+    ? <div className="dci-prio"><span className="dci-prio-on ps-p1on">اولویت ۱</span></div>
+    : (m.canPromote && canEditPs ? <div className="dci-prio"><button ref={p1BtnRef} className="btn gh" type="button" disabled={promoting} onClick={() => openPromo("button")} data-testid="dci-upgrade-p1">ارتقا به اولویت ۱</button></div> : null);
   const nid = m.customer.nationalCode
     ? <span><span className="lbl">کد ملی</span> <b dir="ltr">{fd(m.customer.nationalCode)}</b></span>
     : <span><span className="lbl">کد ملی</span> هنوز ثبت نشده است</span>;
@@ -372,14 +422,17 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     <div className="dci-tags">{tags}</div>
     {ps}
     {prio}
-    {promo?.open ? <div className="dci-promo" data-testid="dci-promote">
-      <label htmlFor="dci-p1r">دلیل ارتقا</label>
-      <textarea id="dci-p1r" rows={2} value={promo.reason} onChange={(e) => promo.setReason(e.target.value)} placeholder="دلیل ارتقا به اولویت ۱" />
-      <div className="dci-acts">
-        <button className="btn pri" type="button" disabled={promoting || !promo.reason.trim()} onClick={promo.onSave}>ثبت ارتقا</button>
-        <button className="btn gh" type="button" onClick={promo.onClose}>انصراف</button>
+    {promo?.open ? createPortal(<div className="dci-dlgw" data-testid="dci-promote-wrap" data-nodnd="true">
+      <div className="dci-dlg dci-dlg-promo" role="dialog" aria-modal="true" aria-labelledby="dci-p1-t" data-testid="dci-promote">
+        <h2 id="dci-p1-t">ارتقا به اولویت ۱</h2>
+        <label className="dci-cxl" htmlFor="dci-p1r">دلیل ارتقا<span className="req" aria-hidden="true">*</span></label>
+        <textarea id="dci-p1r" className="dci-cx-inp" rows={4} value={promo.reason} onChange={(e) => promo.setReason(e.target.value)} placeholder="دلیل ارتقا به اولویت ۱" autoFocus />
+        <div className="dci-dlg-acts">
+          <button className="btn pri" type="button" disabled={promoting || !promo.reason.trim()} onClick={promo.onSave} data-testid="dci-promote-save">ثبت ارتقا</button>
+          <button className="btn gh" type="button" onClick={closePromo} data-testid="dci-promote-close">انصراف</button>
+        </div>
       </div>
-    </div> : null}
+    </div>, document.body) : null}
     <CallActs ext={ext} place="head" narrow={narrow} onCall={onCall} onResult={onResult} />
     </div>
     {result?.open ? <div className="dci-result dp-result" data-testid="dci-result">
@@ -391,7 +444,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
       </div>
       {result.err ? <p className="dci-empty" role="alert" data-testid="dci-result-err">{result.err}</p> : null}
     </div> : null}
-    <CasesBlock rows={m.cases} href={m.newCaseHref} canEdit={!!m.canEditPriorityStatus} busy={cancelCase.isPending} onCancel={openCancel} />
+    <CasesBlock rows={m.cases} href={m.newCaseHref} canEdit={canEditPs} locked={!!m.priorityStatusLocked} busy={cancelCase.isPending} onCancel={openCancel} />
     {pendingPriority !== undefined ? createPortal(<div className="dci-dlgw" data-testid="dci-xfer-wrap" data-nodnd="true">
       <div className="dci-dlg" role="alertdialog" aria-modal="true" aria-labelledby="dci-xfer-t" data-testid="dci-xfer-dialog">
         <h2 id="dci-xfer-t">تغییر اولویت</h2>
