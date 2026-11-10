@@ -16,6 +16,7 @@ import { insertCustomerRecord, lastCustomerCreateOutcome } from "./customer-crea
 import {
   ASK_CONTACT_BUTTON,
   bbCanManage,
+  bbView,
   bbLog,
   bbNoSendSp,
   bbUser,
@@ -272,6 +273,23 @@ export function bcCanAct(u: BbUser, ownerId: number): boolean {
   if (!u || u.active === 0) return false;
   if (bbCanManage(u)) return true;
   return u.id === ownerId;
+}
+
+/** Header payload for a linked customer in the bale chat (inbox / chat GET), not the case page. */
+export type BcCustomerBrief = {
+  id: number; name: string; phone: string | null; status: string | null;
+  salespersonId: number | null; expert: string | null;
+};
+export type BcCustomerHeader = BcCustomerBrief & { restricted: boolean; canOpen: boolean };
+
+/** t924s3807: other experts get the full phone and «مشاهده‌ی پرونده» in this header only (read-only).
+ *  `restricted` stays true so message bodies / lastPreview still redact phones.
+ *  Approve / reject / manual stay behind bcCanAct (own expert + admin). The case page is unchanged. */
+export function bcCustomerForViewer(u: BbUser, full: BcCustomerBrief, flagOn = bcFlagOn()): BcCustomerHeader {
+  const own = bbView(u) === "all" || (u.salesperson_id != null && full.salespersonId === u.salesperson_id);
+  if (own) return { ...full, restricted: false, canOpen: true };
+  if (flagOn) return { ...full, restricted: true, canOpen: true };
+  return { id: full.id, name: full.name, expert: full.expert, phone: null, status: null, salespersonId: null, restricted: true, canOpen: false };
 }
 
 export function bcResendAsk(chat: ChatRow, bot: BotRow, u: BbUser, at = nowIso()): { ok: true; messageId: number } | { ok: false; error: string } {

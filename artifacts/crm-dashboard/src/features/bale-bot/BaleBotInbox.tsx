@@ -51,6 +51,8 @@ function Inbox({ me }: { me: BbMe }) {
   const [q, setQ] = useState('');
   const [expert, setExpert] = useState<number | ''>('');
   const [modal, setModal] = useState<Modal>(null);
+  const [manualWiz, setManualWiz] = useState(false);
+  useEffect(() => { setManualWiz(false); }, [sel]);
   const qs = new URLSearchParams({ filter, ...(q.trim() ? { q: q.trim() } : {}), ...(expert ? { expert: String(expert) } : {}) }).toString();
   const listQ = useQuery<BbChats>({ queryKey: ['bb-chats', qs], queryFn: () => bbFetch(`/bale-bot/chats?${qs}`), refetchInterval: 5000 });
   const chatQ = useQuery<{ chat: BbChat; messages: BbMessage[] }>({ queryKey: ['bb-chat', sel], enabled: sel != null, queryFn: () => bbFetch(`/bale-bot/chats/${sel}`), refetchInterval: 4000 });
@@ -73,8 +75,10 @@ function Inbox({ me }: { me: BbMe }) {
         <ListPane me={me} data={listQ.data} loading={listQ.isLoading} sel={sel} filter={filter} setFilter={setFilter} q={q} setQ={setQ} expert={expert} setExpert={setExpert} toast={toast} />
         {sel != null && chat ? <>
           <ChatPane me={me} chat={chat} messages={chatQ.data!.messages} toast={toast} err={err} refresh={refresh} onAsk={askContact}
-            onSearch={() => setModal({ k: 'search' })} onLead={() => setModal({ k: 'lead' })} onDelete={(m) => setModal({ k: 'del', m })} back={() => nav('/bale-bot')} />
-          <CustPane me={me} chat={chat} toast={toast} onAsk={askContact} onSearch={() => setModal({ k: 'search' })} onLead={() => setModal({ k: 'lead' })} />
+            onSearch={() => setModal({ k: 'search' })} onLead={() => setModal({ k: 'lead' })} onDelete={(m) => setModal({ k: 'del', m })} back={() => nav('/bale-bot')}
+            wiz={manualWiz} setWiz={setManualWiz} />
+          <CustPane me={me} chat={chat} toast={toast} onAsk={askContact} onSearch={() => setModal({ k: 'search' })} onLead={() => setModal({ k: 'lead' })}
+            onManual={() => setManualWiz(true)} wiz={manualWiz} />
         </> : sel != null && chatQ.isError ? <section className="pane ch"><div className="na" style={{ margin: 'auto' }}><div className="ci"><I n="lock" /></div><b>این گفتگو پیدا نشد</b><p>شاید به ربات شما مربوط نیست.</p><Link className="btn pri" href="/bale-bot"><I n="chat" />گفتگوهای بله</Link></div></section>
           : sel != null ? <section className="pane ch"><span className="bbsk" /></section>
           : allEmpty ? <EmptyMain me={me} toast={toast} /> : me.contactFeature
@@ -126,7 +130,8 @@ function ListPane({ me, data, loading, sel, filter, setFilter, q, setQ, expert, 
           <a className="cv-hit" href={`#${c.id}`} onClick={(e) => { e.preventDefault(); nav(`/bale-bot/${c.id}`); }} aria-label={`گفتگو با ${c.name}${c.unread ? `، ${fa(c.unread)} پیام خوانده‌نشده` : ''}`} />
           <Ava name={c.name} seed={c.id} /><span className="nmr"><Nm name={c.name} />{showCid ? <Cid id={c.customer!.id} toast={toast} /> : null}</span><span className="tm">{bbListTime(c.lastAt)}</span>
           <span className="pv">{c.lastByManager ? 'مدیر: ' : c.lastOut ? 'شما: ' : ''}{pvKind ? <I n={PREV_IC[pvKind]} /> : null}{me.contactFeature && c.lastPreview && !pvKind ? faPhoneString(c.lastPreview) : c.lastPreview}</span>{c.unread ? <span className="ub" aria-hidden="true">{fa(c.unread)}</span> : null}
-          {tags.length ? <span className="tg">{tags}</span> : null}</li>; })}</ul>
+          {tags.length ? <span className="tg">{tags}</span> : null}
+          {me.contactFeature && otherFile(c) && (c.customer?.phone || c.customer?.canOpen) ? <div className="bc-row-more">{c.customer!.phone ? <Ph phone={c.customer!.phone} toast={toast} /> : null}{c.customer!.canOpen ? <Link className="btn gh sm" href={`/customers/${c.customer!.id}`} onClick={(e) => e.stopPropagation()}><I n="file" />مشاهده‌ی پرونده</Link> : null}{c.customer!.expert ? <span className="bc-own">مسئول: {c.customer!.expert}</span> : null}</div> : null}</li>; })}</ul>
       : <div className="lempty"><b>گفتگویی پیدا نشد</b></div>}
     {data && data.counts.all ? <p className="lfoot"><I n="clock" />فقط پیام‌هایی که به ربات داده می‌شود؛ پیام‌های شخصی بله این‌جا نیست.</p> : null}
   </section>;
@@ -162,14 +167,15 @@ const MATCH_NOTE: Record<string, string> = {
   none: 'شماره‌ای که مشتری فرستاد به هیچ پرونده‌ای نخورد.',
   many: 'شماره‌ای که مشتری فرستاد به چند پرونده می‌خورد؛ با «جستجو و وصل» درستش را انتخاب کنید.',
 };
-function CustPane({ chat, toast, onAsk, onSearch, onLead }: { me: BbMe; chat: BbChat; toast: (t: string) => void; onAsk: () => void; onSearch: () => void; onLead: () => void }) {
+function CustPane({ chat, toast, onAsk, onSearch, onLead, onManual, wiz }: { me: BbMe; chat: BbChat; toast: (t: string) => void; onAsk: () => void; onSearch: () => void; onLead: () => void; onManual?: () => void; wiz?: boolean }) {
   const c = chat.customer;
   const prof = <><div className="pf"><Ava name={chat.name} seed={chat.id} cls="lg2" /><b dir={/^[\x20-\x7e]+$/.test(chat.name) ? 'ltr' : undefined}>{chat.name}</b>{chat.username ? <Uname u={chat.username} /> : <span className="u">نام کاربری ندارد</span>}</div>
     {chat.bio ? <p className="bio"><small>بیو در بله</small>{chat.bio}</p> : null}</>;
   let crm: React.ReactNode;
-  if (chat.contactFeature && c && c.restricted) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip s"><I n="link" />وصل شد به پرونده‌ی کارشناس دیگر</span><div className="nmr">{c.name}<Cid id={c.id} toast={toast} /></div><div className="kv2"><span>مسئول پرونده</span><b>{c.expert}</b></div><p className="m"><I n="lock" />شماره و جزئیات پرونده با مسئول آن است.</p></div>;
+  if (chat.contactFeature && c && c.restricted && (c.phone || c.canOpen)) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip s"><I n="link" />وصل شد به پرونده‌ی کارشناس دیگر</span><div className="nmr">{c.name}<Cid id={c.id} toast={toast} /></div>{c.phone ? <Ph phone={c.phone} toast={toast} /> : null}<div className="kv2"><span>مسئول پرونده</span><b>{c.expert}</b></div>{c.canOpen ? <Link className="btn gh sm" href={`/customers/${c.id}`}><I n="file" />مشاهده‌ی پرونده</Link> : null}<p className="bc-perm">تأیید شماره فقط با کارشناس مشتری یا ادمین</p></div>;
+  else if (chat.contactFeature && c && c.restricted) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip s"><I n="link" />وصل شد به پرونده‌ی کارشناس دیگر</span><div className="nmr">{c.name}<Cid id={c.id} toast={toast} /></div><div className="kv2"><span>مسئول پرونده</span><b>{c.expert}</b></div><p className="m"><I n="lock" />شماره و جزئیات پرونده با مسئول آن است.</p></div>;
   else if (chat.contactFeature && chat.pendingTypedPhone) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip g"><I n="clock" />شمارهٔ تایپی، در انتظار تأیید</span><Ph phone={chat.pendingTypedPhone} toast={toast} />{chat.typedMatch ? <><div className="nmr">{chat.typedMatch.name}<Cid id={chat.typedMatch.id} toast={toast} /></div><p className="m">قبل از تأیید، پرونده‌ی تطبیق‌شده را ببینید. دکمه‌های تأیید و رد در سربرگ گفتگو هستند.</p></> : <p className="m">با تأیید، لید تازه ساخته می‌شود و طبق قاعده‌ی توزیع فعلی به کارشناس می‌رسد. دکمه‌های تأیید و رد در سربرگ گفتگو هستند.</p>}</div>;
-  else if (chat.contactFeature && chat.waitingNumber) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip mut"><I n="clock" />در انتظار اشتراک شماره</span><p className="m">وقتی مشتری شماره را با دکمه بفرستد، یا شما شماره را تأیید یا وارد کنید، گفتگو وصل می‌شود.</p>{chat.canResendAsk ? <button className="btn gh sm" type="button" onClick={onAsk}><I n="contact" />ارسال دوباره‌ی درخواست شماره</button> : null}</div>;
+  else if (chat.contactFeature && chat.waitingNumber) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip mut"><I n="clock" />در انتظار اشتراک شماره</span>{wiz ? null : <p className="m">وقتی مشتری شماره را با دکمه بفرستد، یا شما شماره را تأیید یا وارد کنید، گفتگو وصل می‌شود.</p>}{wiz ? <p className="m">فرم ورود دستی شماره در گفتگو باز است.</p> : null}{chat.canResendAsk ? <button className="btn gh sm" type="button" onClick={onAsk}><I n="contact" />ارسال دوباره‌ی درخواست شماره</button> : null}{chat.canManualEnter ? <button className="btn gh sm" type="button" onClick={onManual}><I n="pen" />ورود دستی شماره</button> : null}</div>;
   else if (chat.contactFeature && c && chat.leadFromBale) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip ld"><I n="plus" />لید جدید از بله</span><div className="nmr">{c.name}<Cid id={c.id} toast={toast} /></div>{c.phone ? <Ph phone={c.phone} toast={toast} /> : null}<div className="kv2"><span>کارشناس</span><b>{c.expert ?? '—'}</b></div>{c.status ? <div className="kv2"><span>وضعیت</span><b>{CUST_STATUS[c.status] ?? c.status}</b></div> : null}{chat.sourceLine ? <p className="bc-src">{chat.sourceLine}</p> : null}{c.canOpen ? <Link className="btn gh sm" href={`/customers/${c.id}`}><I n="file" />مشاهده‌ی پرونده</Link> : null}</div>;
   else if (chat.contactFeature && c) crm = <div className="sec"><h3>پرونده در CRM</h3><div className="nmr">{c.name}<Cid id={c.id} toast={toast} /></div>{c.phone ? <Ph phone={c.phone} toast={toast} /> : null}<div className="kv2"><span>کارشناس</span><b>{c.expert ?? '—'}</b></div>{c.status ? <div className="kv2"><span>وضعیت</span><b>{CUST_STATUS[c.status] ?? c.status}</b></div> : null}{chat.sourceLine ? <p className="bc-src">{chat.sourceLine}</p> : null}{c.canOpen ? <Link className="btn gh sm" href={`/customers/${c.id}`}><I n="file" />مشاهده‌ی پرونده</Link> : null}</div>;
   else if (c && c.restricted) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip s"><I n="link" />وصل شد به پرونده‌ی کارشناس دیگر</span><div className="nmr">{c.name}<Cid id={c.id} toast={toast} /></div><div className="kv2"><span>مسئول پرونده</span><b>{c.expert}</b></div><p className="m"><I n="lock" />جزئیات پرونده با مسئول آن است؛ شما این گفتگو را جواب می‌دهید.</p></div>;
@@ -182,16 +188,15 @@ function CustPane({ chat, toast, onAsk, onSearch, onLead }: { me: BbMe; chat: Bb
   return <aside className="pane cp" aria-label="مشتری">{prof}{crm}</aside>;
 }
 
-function ChatPane({ me, chat, messages, toast, err, refresh, onAsk, onSearch, onLead, onDelete, back }: { me: BbMe; chat: BbChat; messages: BbMessage[]; toast: (t: string) => void; err: (e: unknown) => void; refresh: () => void; onAsk: () => void; onSearch: () => void; onLead: () => void; onDelete: (m: BbMessage) => void; back: () => void }) {
+function ChatPane({ me, chat, messages, toast, err, refresh, onAsk, onSearch, onLead, onDelete, back, wiz, setWiz }: { me: BbMe; chat: BbChat; messages: BbMessage[]; toast: (t: string) => void; err: (e: unknown) => void; refresh: () => void; onAsk: () => void; onSearch: () => void; onLead: () => void; onDelete: (m: BbMessage) => void; back: () => void; wiz: boolean; setWiz: (v: boolean) => void }) {
   const [menu, setMenu] = useState<number | null>(null);
   const [reply, setReply] = useState<BbMessage | null>(null);
   const [edit, setEdit] = useState<BbMessage | null>(null);
-  const [wiz, setWiz] = useState(false);
   const thRef = useRef<HTMLDivElement>(null);
   const byId = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
   const lastId = messages[messages.length - 1]?.id;
   useEffect(() => { const el = thRef.current; const th = el?.parentElement; if (th && th.scrollHeight > th.clientHeight + 1) th.scrollTop = th.scrollHeight; else if (el && window.innerWidth < 1024) el.scrollIntoView({ block: 'end' }); }, [lastId, chat.id]);
-  useEffect(() => { setMenu(null); setReply(null); setEdit(null); setWiz(false); }, [chat.id]);
+  useEffect(() => { setMenu(null); setReply(null); setEdit(null); }, [chat.id]);
   // the action menu opens under the tapped bubble; on a phone the last bubble can sit at the very bottom, so bring the menu into view.
   useEffect(() => { if (menu == null) return; const h = requestAnimationFrame(() => document.querySelector('.bbt .mmenu')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })); return () => cancelAnimationFrame(h); }, [menu]);
   const seen = async (id: number) => { try { await bbFetch(`/bale-bot/notices/${id}/seen`, { body: {} }); refresh(); } catch (e) { err(e); } };
@@ -210,6 +215,13 @@ function ChatPane({ me, chat, messages, toast, err, refresh, onAsk, onSearch, on
       {m.canDelete ? <button type="button" role="menuitem" onClick={() => { setMenu(null); onDelete(m); }}><I n="trash" />حذف</button>
         : m.dir === 'out' && m.deleteExpired ? <><button type="button" role="menuitem" aria-disabled="true"><I n="trash" />حذف</button><span className="why">حذف فقط تا ۴۸ ساعت بعد از ارسال ممکن است.</span></> : null}
     </div>);
+  }
+  if (chat.contactFeature && chat.customer && (chat.linkSource === 'typed' || chat.linkSource === 'manual')) {
+    const actor = chat.linkActor ?? chat.customer.expert ?? chat.expert.name;
+    const fresh = !!chat.leadFromBale;
+    items.push(<div key="link-chip" className="sys ok" role="status"><I n="check" /><span>{chat.linkSource === 'typed'
+      ? <>وصل شد به {fresh ? 'لید تازه' : 'پرونده‌ی'} {chat.customer.name}<Cid id={chat.customer.id} toast={toast} /> پس از تأیید {actor}</>
+      : <>وصل شد به {fresh ? 'لید تازه' : 'پرونده‌ی'} {chat.customer.name}<Cid id={chat.customer.id} toast={toast} /> با ورود دستی {actor}</>}</span></div>);
   }
   const sub = chat.contactFeature
     ? (chat.pendingTypedPhone ? <p className="bc-un">در انتظار تأیید کارشناس</p> : chat.waitingNumber ? <p className="bc-un">هنوز به مشتری وصل نشده</p> : <p className="bc-un">{chat.username ? <Uname u={chat.username} /> : 'بدون نام کاربری'}{me.view === 'all' ? `، کارشناس: ${chat.expert.name}` : ''}</p>)
@@ -240,7 +252,7 @@ function Bubble({ m, chat, me, reply, sel, toast, onClick, onRetry }: { m: BbMes
   else if (f && url && (m.kind === 'voice' || m.kind === 'audio')) inner = <><div className="vc"><audio src={url} controls preload="none" /><span className="d">{bbDur(f.duration)}</span></div>{m.text ? <span className="cap">{m.text}</span> : null}</>;
   else if (f && url) inner = <><div className="frow"><span className="fi"><I n="doc" /></span><span className="tx"><b>{f.name ?? 'file'}</b><span>{bbSize(f.size)}</span></span><a className="ib" href={url} download aria-label={`دانلود ${f.name ?? ''}`} onClick={(e) => e.stopPropagation()}><I n="dl" /></a></div>{m.text ? <span className="cap">{m.text}</span> : null}</>;
   else if (m.kind === 'contact' && m.contact) {
-    const hideNum = !!chat.customer?.restricted || !!m.contact.hidden;
+    const hideNum = (!!chat.customer?.restricted && !chat.customer?.phone) || (!!m.contact.hidden && !chat.customer?.phone);
     inner = <div className="ctc"><div className="r"><span className="ava c2" aria-hidden="true">{(m.contact.name || '؟')[0]}</span><div><b>{m.contact.name || 'مخاطب'}</b>{hideNum || !m.contact.phone ? null : <Ph phone={m.contact.phone} toast={toast} />}</div></div>
     {hideNum ? <span className="chip s"><I n="lock" />شماره نمایش داده نمی‌شود</span> : m.contact.own ? <span className="chip s"><I n="check" />شماره‌ی خود مشتری</span> : <span className="chip"><I n="contact" />مخاطب فرستاده‌شده؛ شماره‌ی خود فرستنده نیست</span>}</div>;
   }
@@ -399,6 +411,7 @@ function ContactMeta({ chat, toast, err, refresh, onAsk, onManual, wiz }: { chat
   const c = chat.customer;
   const approve = async () => { try { await bbFetch(`/bale-bot/chats/${chat.id}/typed/approve`, { body: {} }); toast('شماره تأیید شد و گفتگو وصل شد'); refresh(); } catch (e) { err(e); } };
   const reject = async () => { try { await bbFetch(`/bale-bot/chats/${chat.id}/typed/reject`, { body: {} }); toast('شماره‌ی تایپی رد شد'); refresh(); } catch (e) { err(e); } };
+  if (c && c.restricted && (c.phone || c.canOpen)) return <div className="bc-meta"><span className="chip s"><I n="link" />پرونده‌ی کارشناس دیگر</span>{c.phone ? <Ph phone={c.phone} toast={toast} /> : null}<span className="kv">مسئول پرونده <b>{c.expert}</b></span>{c.canOpen ? <Link className="btn gh sm" href={`/customers/${c.id}`}><I n="file" />مشاهده‌ی پرونده</Link> : null}<p className="bc-perm">تأیید شماره فقط با کارشناس مشتری یا ادمین</p></div>;
   if (c && c.restricted) return <div className="bc-meta"><span className="chip s"><I n="link" />پرونده‌ی کارشناس دیگر</span><span className="kv">مسئول پرونده <b>{c.expert}</b></span><p className="bc-lock"><I n="lock" />شماره و جزئیات پرونده نمایش داده نمی‌شود؛ جزئیات با مسئول پرونده است.</p></div>;
   if (chat.pendingTypedPhone) return <div className="bc-meta typ"><span className="chip g"><I n="clock" />شمارهٔ تایپی، در انتظار تأیید</span><Ph phone={chat.pendingTypedPhone} toast={toast} />
     {chat.typedMatch

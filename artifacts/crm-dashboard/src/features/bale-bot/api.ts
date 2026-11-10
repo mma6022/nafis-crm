@@ -12,7 +12,7 @@ export type BbChat = {
   id: number; name: string; firstName: string | null; lastName: string | null; username: string | null; bio: string | null; unread: number; lastAt: string | null; lastPreview: string | null; lastOut: boolean;
   customer: BbCustomer; linkMethod: string | null; otherExpert: boolean; notices: BbNotice[]; lastByManager: boolean; verifiedPhone: string | null; phoneVerified: boolean | null;
   contactAskedAt: string | null; matchNote: string | null; expert: { id: number; name: string }; bot: { username: string | null; status: string }; canWrite: boolean; sendBlocked: 'no_send' | 'bot_off' | null; mine: boolean;
-  contactFeature?: boolean; pendingTypedPhone?: string | null; pendingTypedAt?: string | null; linkSource?: string | null; sourceLine?: string | null;
+  contactFeature?: boolean; pendingTypedPhone?: string | null; pendingTypedAt?: string | null; linkSource?: string | null; sourceLine?: string | null; linkActor?: string | null;
   leadFromBale?: boolean; canApproveTyped?: boolean; canRejectTyped?: boolean; canManualEnter?: boolean; canResendAsk?: boolean;
   typedMatch?: { id: number; name: string; status: string | null; expert: string | null; own?: boolean } | null; waitingNumber?: boolean;
 };

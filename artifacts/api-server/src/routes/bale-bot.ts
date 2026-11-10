@@ -18,7 +18,7 @@ import {
   bbNotice, chatName, messageView, redactPhonesInText, ensureBaleBotSchema, fileOwnerUsers, normPhone, filesDir, isBotExpert, BB_EXTRA_EXPERT_USER_IDS, nameOf, redact, tokenShapeOk, type BbUser,
 } from "../lib/bale-bot";
 import {
-  bcApproveTyped, bcCanAct, bcCommitManual, bcFlagOn, bcInboxTitle, bcPreviewManual, bcRejectTyped,
+  bcApproveTyped, bcCanAct, bcCommitManual, bcCustomerForViewer, bcFlagOn, bcInboxTitle, bcPreviewManual, bcRejectTyped,
   bcResendAsk, bcSourceLine, bcTypedMatch, ensureBaleContactSchema, runBaleContactBatch,
 } from "../lib/bale-contact";
 
@@ -60,12 +60,13 @@ function customerBrief(cid: number | null) {
   const owner = queryRow<any>("SELECT id,full_name,username FROM users WHERE salesperson_id=? AND role='salesperson' ORDER BY active DESC, id LIMIT 1", [c.salesperson_id ?? -1]);
   return { id: c.id, name: c.name, phone: c.phone, status: c.status, salespersonId: c.salesperson_id, expert: owner ? nameOf(owner) : c.spn ?? null };
 }
-/** Q8 default (server-side): an expert whose chat got linked to ANOTHER expert's file sees only name, #id and the file owner —
- * no mobile, no status, no «باز کردن پرونده». Admin/sales manager and the file's own expert see the full brief. */
+/** Linked-customer card in the bale chat header (not the case page).
+ * Flag OFF: Q8 default — other experts see only name, #id and owner.
+ * Flag ON (t924s3807): other experts also get the full phone and canOpen for «مشاهده‌ی پرونده»;
+ * message bodies still redact phones (`restricted`); expert_lockdown on the case page is unchanged. */
 function customerFor(u: BbUser, cid: number | null) {
   const full = customerBrief(cid); if (!full) return null;
-  if (bbView(u) === "all" || (u.salesperson_id != null && full.salespersonId === u.salesperson_id)) return { ...full, restricted: false, canOpen: true };
-  return { id: full.id, name: full.name, expert: full.expert, phone: null, status: null, salespersonId: null, restricted: true, canOpen: false };
+  return bcCustomerForViewer(u, full, bcFlagOn());
 }
 const noticesFor = (u: BbUser, chatRow: number) => queryRows<any>("SELECT id,kind,actor_user_id,customer_id,at FROM bale_bot_notices WHERE user_id=? AND chat_row=? AND seen_at IS NULL ORDER BY id", [u.id, chatRow])
   .map(n => ({ id: n.id, kind: n.kind, at: n.at, actor: n.actor_user_id ? nameOf(bbUser(n.actor_user_id)) : null }));
@@ -78,9 +79,9 @@ function chatView(c: ChatRow & { owner_id: number }, u: BbUser) {
   const typedPhone = feature && c.pending_typed_phone && canAct ? c.pending_typed_phone : null;
   const typedMatch = typedPhone ? bcTypedMatch(typedPhone, owner?.salesperson_id ?? null) : null;
   const title = feature ? bcInboxTitle(c, cust && !c.pending_typed_phone ? cust.name : null) : chatName(c);
-  return { id: c.id, name: title, firstName: c.first_name, lastName: c.last_name, username: c.username, bio: c.bio, unread: c.unread, lastAt: c.last_at, lastPreview: (cust && cust.restricted) ? redactPhonesInText(c.last_preview) : c.last_preview, lastOut: !!c.last_out,
+  return { id: c.id, name: title, firstName: c.first_name, lastName: c.last_name, username: c.username, bio: c.bio, unread: c.unread, lastAt: c.last_at, lastPreview: (cust && cust.restricted && !cust.phone) ? redactPhonesInText(c.last_preview) : c.last_preview, lastOut: !!c.last_out,
     customer: cust, linkMethod: c.link_method, otherExpert: !!full && owner?.salesperson_id !== full.salespersonId, notices: noticesFor(u, c.id),
-    lastByManager: !!lastOutAuthor && lastOutAuthor !== c.owner_id, verifiedPhone: (cust && cust.restricted) ? null : c.verified_phone, phoneVerified: c.customer_id == null ? null : c.link_method === 'contact' || c.link_method === 'contact_other' ? true : c.lead_phone_verified == null ? null : !!c.lead_phone_verified, contactAskedAt: c.contact_asked_at, matchNote: c.match_note,
+    lastByManager: !!lastOutAuthor && lastOutAuthor !== c.owner_id, verifiedPhone: (cust && cust.restricted && !cust.phone) ? null : c.verified_phone, phoneVerified: c.customer_id == null ? null : c.link_method === 'contact' || c.link_method === 'contact_other' ? true : c.lead_phone_verified == null ? null : !!c.lead_phone_verified, contactAskedAt: c.contact_asked_at, matchNote: c.match_note,
     expert: { id: c.owner_id, name: nameOf(owner) }, bot: { username: bot.bot_username, status: bot.status }, canWrite: botLive(bot) && botSends(bot), sendBlocked: !botSends(bot) ? "no_send" : !botLive(bot) ? "bot_off" : null,
     mine: c.owner_id === u.id,
     contactFeature: feature,
@@ -88,6 +89,7 @@ function chatView(c: ChatRow & { owner_id: number }, u: BbUser) {
     pendingTypedAt: typedPhone ? c.pending_typed_at : null,
     linkSource: feature ? (c.link_source ?? null) : null,
     sourceLine: feature && c.customer_id ? bcSourceLine(c) : null,
+    linkActor: feature && c.customer_id && c.linked_by ? nameOf(bbUser(c.linked_by)) : null,
     leadFromBale: feature && !!c.lead_from_bale,
     canApproveTyped: !!(feature && canAct && c.pending_typed_phone && !c.customer_id),
     canRejectTyped: !!(feature && canAct && c.pending_typed_phone && !c.customer_id),
@@ -149,7 +151,7 @@ export function createBaleBotRouter(): IRouter {
     const msgs = queryRows<any>(`SELECT * FROM bale_bot_messages WHERE chat_row=? ${after ? "AND id>?" : ""} ORDER BY id DESC LIMIT 300`, after ? [c.id, after] : [c.id]).reverse();
     if (c.owner_id === u.id && c.unread) executeChanges("UPDATE bale_bot_chats SET unread=0 WHERE id=?", [c.id]); // a manager opening it does not clear the expert's badge
     const view = chatView({ ...c, unread: c.owner_id === u.id ? 0 : c.unread }, u);
-    res.json({ chat: view, messages: msgs.map(m => messageView(m, c.owner_id, { hidePhone: !!view.customer?.restricted })) });
+    res.json({ chat: view, messages: msgs.map(m => messageView(m, c.owner_id, { hidePhone: !!view.customer?.restricted && !view.customer?.phone })) });
   });
 
   const writable = (u: BbUser, id: number, res: Response) => {
@@ -343,7 +345,7 @@ export function createBaleBotRouter(): IRouter {
     res.json({ chats: chats.map(c => {
       const view = chatView(c, u);
       return { ...view, canOpen: v === "all" || c.owner_id === u.id,
-        timeline: queryRows<any>("SELECT * FROM bale_bot_messages WHERE chat_row=? ORDER BY id DESC LIMIT 30", [c.id]).map(m => messageView(m, c.owner_id, { hidePhone: !!view.customer?.restricted })) };
+        timeline: queryRows<any>("SELECT * FROM bale_bot_messages WHERE chat_row=? ORDER BY id DESC LIMIT 30", [c.id]).map(m => messageView(m, c.owner_id, { hidePhone: !!view.customer?.restricted && !view.customer?.phone })) };
     }) });
   });
 

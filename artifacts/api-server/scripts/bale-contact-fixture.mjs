@@ -9,7 +9,7 @@ import {
 import {
   BC_FLAG, BC_ASK_FIRST, BC_ASK_EXIST, BC_OK_KNOWN, BC_OK_NEW, BC_TYPED_OK, BC_TYPED_BAD, BC_OTHER_REPLY, BC_REJECT_TEXT,
   BC_GHASEMI_USER_ID, bcFlagOn, ensureBaleContactSchema, _resetBcSchemaFlagForTests, bcAfterInbound,
-  bcApproveTyped, bcRejectTyped, bcPreviewManual, bcCommitManual, bcResendAsk, bcCanAct, bcTickReminders,
+  bcApproveTyped, bcRejectTyped, bcPreviewManual, bcCommitManual, bcResendAsk, bcCanAct, bcCustomerForViewer, bcTickReminders,
   runBaleContactBatch, looksLikePhoneAttempt, bcInboxTitle, bcSourceLine, BC_BATCH_ENABLED,
 } from "../src/lib/bale-contact.ts";
 
@@ -302,7 +302,7 @@ check("manual entry: preview + commit (known), bad phone rejected", () => {
   assert.ok(bcSourceLine(c2).includes("ورود دستی"));
 });
 
-check("permissions: only the chat owner expert and admin may approve / manual; other expert cannot", () => {
+check("permissions: only the chat owner expert and admin may approve / reject / manual; other expert cannot (403 forbidden)", () => {
   const fromId = nextId();
   storeUpdate(kazemi, upd(nextId(), { fromId, text: "سلام" }));
   storeUpdate(kazemi, upd(nextId(), { fromId, text: "09120000038" }));
@@ -316,11 +316,50 @@ check("permissions: only the chat owner expert and admin may approve / manual; o
   const denied = bcApproveTyped(c, kazemi, hasaniU);
   assert.equal(denied.ok, false);
   assert.equal(denied.error, "forbidden");
+  const rej = bcRejectTyped(c, kazemi, hasaniU);
+  assert.equal(rej.ok, false);
+  assert.equal(rej.error, "forbidden");
   const man = bcCommitManual(c, kazemi, hasaniU, "09120000031");
   assert.equal(man.ok, false);
   assert.equal(man.error, "forbidden");
   // still pending — Hasani did not change it
   assert.equal(chatOf(kazemi.id, fromId).pending_typed_phone, "09120000038");
+});
+
+check("t924s3807 header: other expert sees full phone and canOpen; flag off hides them; case-page lockdown not widened", () => {
+  const hasaniU = bbUser(2), kazemiU = bbUser(8), adminU = bbUser(1);
+  const briefH = { id: knownH, name: "مریم حسینی", phone: "09120000032", status: "in_progress", salespersonId: 3, expert: "خانم حسنی" };
+  const briefK = { id: knownK, name: "سمیرا نادری", phone: "09120000031", status: "in_progress", salespersonId: 6, expert: "آقای کاظمی" };
+
+  const otherOn = bcCustomerForViewer(kazemiU, briefH, true);
+  assert.equal(otherOn.phone, "09120000032");
+  assert.equal(otherOn.status, "in_progress");
+  assert.equal(otherOn.canOpen, true);
+  assert.equal(otherOn.restricted, true); // thread still redacts; header uses phone + canOpen
+  assert.equal(otherOn.expert, "خانم حسنی");
+  assert.equal(otherOn.salespersonId, 3);
+
+  const otherOff = bcCustomerForViewer(kazemiU, briefH, false);
+  assert.equal(otherOff.phone, null);
+  assert.equal(otherOff.status, null);
+  assert.equal(otherOff.canOpen, false);
+  assert.equal(otherOff.restricted, true);
+  assert.equal(otherOff.salespersonId, null);
+
+  const owner = bcCustomerForViewer(hasaniU, briefH, true);
+  assert.equal(owner.phone, "09120000032");
+  assert.equal(owner.canOpen, true);
+  assert.equal(owner.restricted, false);
+
+  const admin = bcCustomerForViewer(adminU, briefH, true);
+  assert.equal(admin.phone, "09120000032");
+  assert.equal(admin.canOpen, true);
+  assert.equal(admin.restricted, false);
+
+  const ownFile = bcCustomerForViewer(kazemiU, briefK, true);
+  assert.equal(ownFile.restricted, false);
+  assert.equal(ownFile.canOpen, true);
+  assert.equal(ownFile.phone, "09120000031");
 });
 
 check("other expert: contact phone and typed numbers are hidden in messageView", () => {

@@ -91,6 +91,29 @@ body.bc-bot{background:var(--nf-surface);margin:0}
 .bc-comp{display:flex;align-items:center;gap:8px;padding:8px 12px calc(10px + env(safe-area-inset-bottom,0px));background:#fff;border-top:1px solid var(--nf-line);flex:none}
 .bc-comp .fld{flex:1;min-height:44px;border:1px solid var(--nf-line);border-radius:14px;padding:8px 12px;background:var(--nf-surface);color:var(--nf-ink-muted);font-size:14px;font-weight:500}
 
+/* Armita r1: inbox filter pills stay on one row at 1280 (nowrap, tighter chips, horizontal scroll). */
+.bbt.bc-on .flt {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.bbt.bc-on .fb {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 10px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.bbt.bc-on .fb .n {
+  min-width: 18px;
+  font-size: 12px;
+  line-height: 18px;
+  padding: 0 4px;
+}
+
 /* هدر و نوار CRM برای گفتگوی ربات نفیس وام */
 .bc-un{display:block;font-size:12px;font-weight:600;color:var(--nf-ink-soft);line-height:1.4;margin:0}
 .bbt .chh .t .nmr{display:flex;align-items:center;flex-wrap:wrap;gap:0}
@@ -160,3 +183,11 @@ body.bc-bot{background:var(--nf-surface);margin:0}
   box-shadow:var(--nf-shadow-button);
 }
 .bbt .bc-iso{unicode-bidi:isolate;direction:ltr;display:inline}
+
+/* v1.2: کارشناس دیگر شماره و لینک پرونده را می‌بیند؛ اقدام‌های تأیید مخفی می‌ماند */
+.bbt .bc-perm{margin:0;width:100%;flex-basis:100%;font-size:13px;font-weight:600;color:var(--nf-ink-muted);line-height:1.6}
+.bbt .bc-meta .bc-perm{padding-top:4px}
+.bbt .cp .bc-perm{margin-top:6px}
+.bbt .cv-r .bc-row-more{grid-column:2/4;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;position:relative;z-index:1;min-width:0}
+.bbt .cv-r .bc-row-more .ph,.bbt .cv-r .bc-row-more .btn{flex:none}
+.bbt .cv-r .bc-own{font-size:13px;font-weight:600;color:var(--nf-ink-soft);line-height:1.4}
