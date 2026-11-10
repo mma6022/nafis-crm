@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { Copy } from "lucide-react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { Copy, Phone } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { toPersianDigits } from "@/lib/customer-id";
 import { loanStageLabel } from "@/lib/loan-labels";
@@ -91,11 +92,23 @@ export function CaseContextPicker({
   const title = mode === "reminder" ? "این یادآور برای کدام پرونده است؟" : "این تماس برای کدام پرونده است؟";
   const general = mode === "reminder" ? "یادآور عمومی مشتری" : "تماس عمومی مشتری";
   const open = cases.filter((row) => row.open);
-  return (
-    <div className="mc-overlay mc-host" data-testid="case-context-picker" data-mode={mode}>
-      <section className="card mc-picker" role="dialog" aria-modal="true" aria-labelledby="mc-picker-title">
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const main = document.querySelector("main.app-main");
+    if (!main) return;
+    const slot = document.createElement("div");
+    slot.className = "mc-picker-host";
+    const header = main.querySelector(":scope > header");
+    if (header) header.insertAdjacentElement("afterend", slot);
+    else main.prepend(slot);
+    setHost(slot);
+    return () => slot.remove();
+  }, []);
+  const page = (
+    <div className="pg mc-page mc-host mc-picker-page" data-testid="case-context-picker" data-mode={mode}>
+      <section className="card mc-picker" aria-labelledby="mc-picker-title">
         <button type="button" className="mc-close" data-testid="mc-picker-close" onClick={onClose}>بستن</button>
-        <span className="mc-muted">{mode === "reminder" ? "یادآور جدید" : "تماس از صفحه‌ی مشتری"}</span>
+        <span className="mc-eyebrow">{mode === "reminder" ? "یادآور جدید" : "تماس از صفحه‌ی مشتری"}</span>
         <h2 id="mc-picker-title">{title}</h2>
         <span className="mc-customer"><b>{customerName}</b><CidChip id={customerId} />{sample ? <span className="smp">نمونه</span> : null}</span>
         {phone ? <PhoneChip phone={phone} sample={sample} /> : null}
@@ -120,11 +133,12 @@ export function CaseContextPicker({
           <label className="mc-field">زمان<input value={when} onChange={(event) => setWhen(event.target.value)} data-testid="mc-reminder-when" /></label>
         </> : null}
         <button type="button" className="btn pri" data-testid="mc-picker-confirm" onClick={() => onConfirm(choice)}>
-          {mode === "reminder" ? "ثبت یادآور" : "ثبت تماس"}
+          {mode === "reminder" ? "ثبت یادآور" : <><Phone size={18} aria-hidden />تماس</>}
         </button>
       </section>
     </div>
   );
+  return host ? createPortal(page, host) : page;
 }
 
 /** v1.1: gold block, primary «انتخاب طرح دیگر», ghost «مشاهده‌ی پرونده». ادامه stays outside, disabled. */

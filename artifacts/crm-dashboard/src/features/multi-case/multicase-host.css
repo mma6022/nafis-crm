@@ -4,12 +4,28 @@
   min-height: 26px; height: auto; padding: 0 8px; border-radius: 8px; border: 0;
   background: var(--nf-surface-2); color: var(--nf-ink-muted); font-size: 14px; font-weight: 600;
 }
-.mc-overlay {
-  position: fixed; inset: 0; z-index: 80; background: rgba(11, 20, 80, .35);
-  display: flex; justify-content: center; align-items: flex-start; overflow: auto;
-  padding: 24px 16px 48px;
+/* Scenes 07 and 09: the picker is the page under the shell header, not a dialog. */
+.mc-picker-host {
+  position: absolute;
+  z-index: 25;
+  inset-inline: 0;
+  top: var(--nf-topbar-h, 84px);
+  bottom: 0;
+  overflow: auto;
+  background: var(--nf-surface, #F7F8FC);
 }
-.mc-overlay .mc-picker { width: min(720px, 100%); position: relative; border-radius: 20px; background: #fff; }
+.mc-picker { position: relative; }
+.mc-picker > .btn.pri { width: 100%; }
+@media (max-width: 1023.98px) {
+  .mc-picker-host {
+    position: fixed;
+    z-index: 35;
+    top: var(--nf-topbar-h, 68px);
+    bottom: var(--ss-dock-h, 72px);
+    inset-inline: 0;
+  }
+  .mc-picker-host .mc-picker { max-width: none; width: 100%; min-height: 100%; box-sizing: border-box; }
+}
 .mc-hero-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .mc-hero-actions .btn { min-height: 48px; }
 .mc-hero-actions .btn.pri { background: rgb(41, 54, 155); color: #fff; }
@@ -26,6 +42,9 @@
 }
 .mc-overlay .mc-picker { padding-top: 64px; }
 .mc-host .btn.pri { width: auto; }
+.mc-picker-page .mc-picker { padding-top: 64px; }
+.mc-picker-page .mc-picker > .btn.pri { width: 100%; }
+.app-main { position: relative; }
 .mc-warning .btn.pri { min-height: 48px; }
 .mc-host .btn[aria-disabled="true"] { pointer-events: none; }
 .ph .phc { border: 0; background: transparent; cursor: pointer; font: inherit; }
