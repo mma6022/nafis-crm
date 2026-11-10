@@ -148,7 +148,7 @@ body:has([data-testid="dci-page"]) .diag-floating{display:none!important}
 .dci-grade{display:inline-flex;align-items:center;justify-content:center;min-width:48px;min-height:44px;padding:0 12px;border-radius:12px;background:var(--nf-success-50);color:var(--nf-success);font-weight:800;font-size:18px}
 .dci-gstat{font-size:16px;font-weight:800;color:var(--nf-ink);margin:0 0 6px}
 .dci-cond{margin:0;font-size:13px;color:var(--nf-ink);line-height:1.7}
-.dci-consent{display:flex;flex-direction:column;align-items:flex-start;gap:10px}
+.dci-consent{--fu-inquiry-jalali:1;display:flex;flex-direction:column;align-items:flex-start;gap:10px}
 .dci-consent label{display:flex;align-items:flex-start;gap:8px;font-size:13px;line-height:1.7;min-height:44px}
 .dci-consent input[type=checkbox]{width:20px;height:20px;margin-top:2px;flex:none}
 .dci-wait{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:700;min-height:44px}
