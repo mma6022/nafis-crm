@@ -442,7 +442,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
   return <section className="dci-col dci-mid" aria-label="اطلاعات تماس و پرونده‌ها">
     <div className="dci-head">
     <p className="dci-cur">{m.call}</p>
-    <div className="dci-who"><h2>{m.customer.name}</h2> {cidBtn(m.customer.id, onCopy)}</div>
+    <div className="dci-who"><h2>{fd(m.customer.name)}</h2> {cidBtn(m.customer.id, onCopy)}</div>
     <div className="dci-idrow">{m.customer.phone ? <Phone raw={m.customer.phone} big={!ext} onCopy={onCopy} /> : null}{nid}</div>
     <div className="dci-tags">{tags}</div>
     {ps}
@@ -483,7 +483,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     {cx ? createPortal(<div className="dci-dlgw" data-testid="dci-cx-wrap" data-nodnd="true">
       <div className="dci-dlg dci-dlg-cx" role="alertdialog" aria-modal="true" aria-labelledby="dci-cx-t" data-testid="dci-cx-dialog">
         <div className="dci-cxhd"><h2 id="dci-cx-t">پرونده لغو شود؟</h2></div>
-        <p>پروندهٔ {fd(cx.id)}، {m.customer.name}</p>
+        <p>پروندهٔ {fd(cx.id)}، {fd(m.customer.name)}</p>
         <label className="dci-cxl" htmlFor="dci-cx-reason"><b>دلیل لغو<span className="req" aria-hidden="true">*</span></b></label>
         <textarea id="dci-cx-reason" className={`dci-cx-inp${cxErr ? " bad" : ""}`} rows={3} maxLength={1000} value={cxReason}
           aria-required="true" aria-invalid={cxErr ? true : undefined}
@@ -703,7 +703,7 @@ export default function DailyCustomerInline() {
       {sticky && board && !resultOpen && !reasonOpen ? <div className="dci-sticky"><CallActs ext={ext} place="sticky" narrow={narrow} onCall={startCall} onResult={() => void startResult()} /></div> : null}
     </main>
     {fcOpen && board ? <SimpleCallForm
-      customer={{ id: board.customer.id, name: board.customer.name, phone: board.customer.phone ?? "", priority: board.customer.priority }}
+      customer={{ id: board.customer.id, name: fd(board.customer.name), phone: board.customer.phone ?? "", priority: board.customer.priority }}
       userId={userId}
       onClose={() => setFcOpen(false)}
       onDone={() => { setFcOpen(false); void boardQ.refetch(); void todayQ.refetch(); }}
