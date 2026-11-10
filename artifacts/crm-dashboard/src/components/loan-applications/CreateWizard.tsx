@@ -224,7 +224,6 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   const multiOn = multiStatus.data?.enabled === true && Boolean(requestKey);
   const [mcHost, setMcHost] = useState<HTMLElement | null>(null);
   const [mcIntro, setMcIntro] = useState(false);
-  const [createdCase, setCreatedCase] = useState<{ id: number } | null>(null);
   const introArmed = useRef(false);
   useEffect(() => {
     if (!multiOn) { setMcHost(null); return; }
@@ -636,11 +635,13 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
       clearLoanDraft(userId, selectedCustomer.id, requestKey);
       if (srvRef.current) {
         void queryClient.invalidateQueries({ queryKey: DRAFTS_KEY });
-        toast({ title: 'درخواست ثبت شد', description: `پرونده‌ی ${fa(application.id)} برای ${selectedCustomer.name} ساخته شد و از «در انتظار ثبت» خارج شد.`, duration: 5000 });
+        if (!multiOn) toast({ title: 'درخواست ثبت شد', description: `پرونده‌ی ${fa(application.id)} برای ${selectedCustomer.name} ساخته شد و از «در انتظار ثبت» خارج شد.`, duration: 5000 });
         srvRef.current = null;
       }
       if (multiOn) {
-        setCreatedCase({ id: application.id });
+        const previousId = openRows.find((row) => row.id !== application.id)?.id ?? null;
+        window.sessionStorage.setItem(`mc-created:${selectedCustomer.id}`, JSON.stringify({ id: application.id, previousId }));
+        onClose();
         return;
       }
       // Close first: the customer-page entry's close navigates back to the customer; the case page must win.
@@ -711,7 +712,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
     if (selectedCustomer && step > 1) setExitOpen(true);
     else onClose();
   };
-  const railStep = mcIntro ? 2 : createdCase ? 10 : displayStep;
+  const railStep = mcIntro ? 2 : displayStep;
   const mcRail = (
     <nav className="card mc-rail" aria-label="مراحل ثبت درخواست" data-testid="wizard-rail">
       <h3>ثبت درخواست تسهیلات</h3>
@@ -728,7 +729,6 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
         {WIZARD_DISPLAY_STEPS.map((d) => <i key={d.n} className={d.n <= railStep ? "on" : ""} />)}
       </div>
       <p className="mc-muted">مرحله‌ی {fa(railStep)} از {fa(WIZARD_TOTAL_STEPS)}</p>
-      <button type="button" className="btn gh mc-wiz-x" onClick={requestExit} data-testid="wizard-close">بستن</button>
     </>
   );
   const rail = (
@@ -808,7 +808,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
             </div> : null}
             {creditNudge && displayStep >= 5 ? <p className="lwz-note warn" role="alert" data-testid="wizard-credit-stale"><AlertCircle size={18} aria-hidden="true" /> <span><b>استعلام اعتبار باید تازه شود.</b> استعلام قبلی بیش از ۲۴ ساعت پیش گرفته شده است. <button type="button" className="text-link" onClick={() => jumpTo(4)} data-testid="btn-refresh-credit">تازه‌کردن استعلام</button></span></p> : null}
             {step !== 6 && submitError && <p className="form-error" role="alert" data-testid="wizard-recovery-error">{submitError}</p>}
-            {multiOn && (mcIntro || createdCase || displayStep === 5 || displayStep === 10) ? null : multiOn ? (
+            {multiOn && (mcIntro || displayStep === 5 || displayStep === 10) ? null : multiOn ? (
               <h2 data-testid="wizard-step-title">{current?.label}</h2>
             ) : <div className="lwz-head">
               <span className="k">مرحله {fa(displayStep)} از {fa(WIZARD_TOTAL_STEPS)}</span>
@@ -816,13 +816,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
               {STEP_LEADS[displayStep] ? <p>{STEP_LEADS[displayStep]}</p> : null}
             </div>}
 
-      {multiOn && createdCase && selectedCustomer ? <McCreated
-        applicationId={createdCase.id}
-        customer={selectedCustomer}
-        previous={openRows[0] ?? null}
-        onOpen={() => { onClose(); setLocation(`/loan-applications/${createdCase.id}`); }}
-        onCustomer={() => { onClose(); setLocation(`/customers/${selectedCustomer.id}`); }}
-      /> : multiOn && mcIntro && selectedCustomer ? <McSecondStart
+      {multiOn && mcIntro && selectedCustomer ? <McSecondStart
         customer={selectedCustomer}
         openCase={openRows[0] ?? null}
         onContinue={() => setMcIntro(false)}
@@ -1000,7 +994,7 @@ function McSecondStart({ customer, openCase, onContinue }: {
   return (
     <div data-testid="mc-second-start">
       <h2>درخواست تازه برای همین مشتری</h2>
-      <p className="mc-customer"><CustomerName id={customer.id} name={customer.name} /> <CidChip id={customer.id} /></p>
+      <p className="mc-customer"><b>{customer.name}</b> <CidChip id={customer.id} /></p>
       <p className="mc-muted">مشتری انتخاب شده؛ پرونده‌ی جدید شناسه‌ی مستقل می‌گیرد.</p>
       <h3>پرونده‌ی باز فعلی</h3>
       {openCase ? (
@@ -1012,26 +1006,6 @@ function McSecondStart({ customer, openCase, onContinue }: {
       <label className="mc-check"><input type="checkbox" checked disabled readOnly /> اطلاعات هویتی و تماس از همین مشتری</label>
       <p className="mc-muted">مبلغ، طرح، مدارک مالی و یادداشت‌های پرونده‌ی قبلی کپی نمی‌شوند.</p>
       <button type="button" className="btn pri" onClick={onContinue} data-testid="mc-second-start-continue">ادامه</button>
-    </div>
-  );
-}
-
-function McCreated({ applicationId, customer, previous, onOpen, onCustomer }: {
-  applicationId: number;
-  customer: Customer;
-  previous: { id: number } | null;
-  onOpen: () => void;
-  onCustomer: () => void;
-}) {
-  const fa = (n: number) => n.toLocaleString("fa-IR", { useGrouping: false });
-  return (
-    <div data-testid="mc-created">
-      <p className="mc-success" role="status" data-testid="mc-created-banner">پرونده #{fa(applicationId)} ایجاد شد{previous ? `؛ پرونده #${fa(previous.id)} همچنان باز است` : ""}</p>
-      <p className="mc-customer"><CustomerName id={customer.id} name={customer.name} /> <CidChip id={customer.id} /></p>
-      <div className="form-footer">
-        <button type="button" className="btn pri" onClick={onOpen} data-testid="mc-created-open">باز کردن پرونده‌ی جدید</button>
-        <button type="button" className="btn gh" onClick={onCustomer} data-testid="mc-created-customer">بازگشت به مشتری</button>
-      </div>
     </div>
   );
 }
@@ -1708,17 +1682,6 @@ type Step3PlanAndTermsProps = {
 
 function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPlanGroup, onSelectPlan, planLocked, feeRecoveryPending, amount, setAmount, duration, setDuration, onNext, onPrev, attempted, onAttempt, ignoreCreditRank, overrideReason, part = 0, multiCase, blockedCaseId, onChooseOther, onOpenBlockedCase }: Step3PlanAndTermsProps) {
   const [planAttempted, setPlanAttempted] = useState(false);
-  useEffect(() => {
-    if (!multiCase || !blockedCaseId) return;
-    const run = () => {
-      const box = document.querySelector('[data-testid="same-plan-block"]');
-      if (!(box instanceof HTMLElement)) return;
-      box.scrollIntoView({ block: "end", inline: "nearest" });
-    };
-    run();
-    const frame = requestAnimationFrame(run);
-    return () => cancelAnimationFrame(frame);
-  }, [multiCase, blockedCaseId, selectedPlanId]);
   const planTried = attempted || planAttempted;
   const { data: eligibleResponse, isLoading, isError, refetch } = useListCustomerEligiblePlans(customer.id, { ignoreCreditRank, creditRankOverrideReason: overrideReason }, {
     query: { queryKey: ["eligible-plans", customer.id, ignoreCreditRank, overrideReason ?? null], staleTime: 0 }
@@ -1777,26 +1740,33 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
 
   return (
     <div className="lwz-step" data-testid="wizard-step-3" data-part={part}>
-      {multiCase && part === 0 ? <><h2>کدام طرح؟</h2><p className="mc-customer"><CustomerName id={customer.id} name={customer.name} /> <CidChip id={customer.id} /></p></> : null}
+      {multiCase && part === 0 ? <><h2>کدام طرح؟</h2><p className="mc-customer"><b>{customer.name}</b> <CidChip id={customer.id} /></p></> : null}
       {part === 0 && <>
+      {multiCase ? <p className="mc-muted">درخواست تازه؛ یک پرونده‌ی باز با همین طرح ساخته نمی‌شود.</p> : <>
       {ignoreCreditRank && <div role="status" className="lwz-note warn">انتخاب طرح، شرط و ثبت پرونده بدون تطابق رتبه اعتباری؛ این انتخاب در پرونده ثبت می‌شود و سایر کنترل‌های هویتی و مالی برقرارند.</div>}
       {ignoreCreditRank && <p role="status" className="lwz-muted">در این حالت رتبه، نبود نتیجه یا قدیمی بودن استعلام اعتباری مانع ادامه پرونده نمی‌شود؛ کنترل‌های هویتی، مبلغ، اقساط و مدارک برقرارند.</p>}
       {ignoreCreditRank && overrideReason && <p className="lwz-muted" data-testid="override-reason-summary">دلیل ثبت‌شده: «{overrideReason}»</p>}
       {eligibleResponse && <GuarantorGradeLine guarantor={eligibleResponse.guarantor} waived={ignoreCreditRank} />}
+      </>}
       <div className="lwz-plans">
          {isLoading ? (
             <div className="lwz-loading" role="status">در حال بارگذاری طرح‌ها...</div>
           ) : isError ? <div role="alert" className="lwz-note bad">دریافت طرح‌ها ناموفق بود. <button type="button" className="text-link" onClick={() => void refetch()}>تلاش دوباره</button></div> : eligibleMatches.length > 0 ? (
             <div className={multiCase ? "lwz-opts mc-choice" : "lwz-opts"} id={multiCase ? "mc-plans" : undefined} role={multiCase ? "radiogroup" : "group"} aria-label="طرح‌های واجد شرایط">
-               {groupedPlans.map((matches) => {
+               {(() => {
+                 const blocked = Boolean(multiCase && blockedCaseId);
+                 const rest = groupedPlans.filter((group) => group[0].planId !== selectedPlanId);
+                 const selected = groupedPlans.filter((group) => group[0].planId === selectedPlanId);
+                 return blocked ? [...selected, ...rest] : groupedPlans;
+               })().map((matches) => {
                  const plan = matches[0];
                  const planMaximum = Math.max(...matches.map((match) => Number(match.maximumAmount)));
                  const label = multiCase ? multiCasePlanLabel({ planId: plan.planId, bankName: (plan as { bankName?: string | null }).bankName }) : plan.name;
                  const marked = selectedPlanId === plan.planId;
                  return (
+                  <React.Fragment key={plan.planId}>
                   <button
                     type="button"
-                    key={plan.planId}
                     data-testid={`plan-card-${plan.planId}`}
                     data-plan-id={plan.planId}
                     data-plan-label={label}
@@ -1820,6 +1790,8 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
                     </span>
                     </>}
                   </button>
+                  {multiCase && blockedCaseId && marked ? <SamePlanBlock caseId={blockedCaseId} onChooseOther={() => onChooseOther?.()} onOpenCase={() => onOpenBlockedCase?.()} /> : null}
+                  </React.Fragment>
                 ); })}
             </div>
          ) : (
@@ -1835,8 +1807,6 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
          )}
       </div>
        {planTried && !selectedPlanId && <small role="alert" className="lwz-err" data-testid="error-plan-selection">برای ادامه یک طرح تسهیلاتی انتخاب کنید.</small>}
-       {multiCase && blockedCaseId ? <SamePlanBlock caseId={blockedCaseId} onChooseOther={() => onChooseOther?.()} onOpenCase={() => onOpenBlockedCase?.()} /> : null}
-
       {planLocked && (
         <p role="status" className="lwz-note ok">
           {feeRecoveryPending
@@ -1939,7 +1909,7 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
       )}
 
       <div className="form-footer">
-        {multiCase && blockedCaseId ? null : <button type="button" className="btn btn-ghost" onClick={onPrev} data-testid={part === 1 ? 'btn-prev-3' : 'btn-prev-3-0'}><ChevronRight size={18} /> قبلی</button>}
+        {multiCase && part === 0 ? null : <button type="button" className="btn btn-ghost" onClick={onPrev} data-testid={part === 1 ? 'btn-prev-3' : 'btn-prev-3-0'}><ChevronRight size={18} /> قبلی</button>}
         {part === 0
           ? blockedCaseId
             ? <button type="button" className="btn pri" aria-disabled="true" tabIndex={-1} data-testid="btn-next-3-0" onClick={(event) => event.preventDefault()}>ادامه</button>
@@ -2105,7 +2075,7 @@ function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPendi
       {part === 1 && multiCase ? (
         <div data-testid="mc-review">
           <h2>بازبینی و ثبت</h2>
-          <p className="mc-customer"><CustomerName id={customer.id} name={customer.name} /> <CidChip id={customer.id} /></p>
+          <p className="mc-customer"><b>{customer.name}</b> <CidChip id={customer.id} /></p>
           <div className="mc-review"><dl>
             <div><dt>درخواست تازه</dt><dd data-testid="review-plan-name">{multiCasePlanLabel({ planId: plan.planId, bankName: plan.bankName })}</dd></div>
             <div><dt>مبلغ درخواستی</dt><dd data-testid="review-amount">{Number(amount).toLocaleString("fa-IR")} تومان</dd></div>
@@ -2148,14 +2118,14 @@ function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPendi
       </>}
 
       <div className="form-footer">
-          {multiCase && part === 1
-            ? <button type="button" className="btn gh" onClick={() => onEdit?.(5)} disabled={isPending} data-testid="btn-edit-plan">ویرایش طرح</button>
-            : <button type="button" className="btn btn-ghost" onClick={onPrev} disabled={isPending} data-testid={part === 1 ? 'btn-prev-5' : 'btn-prev-5-0'}><ChevronRight size={18} /> قبلی</button>}
           {part === 0
             ? <button type="button" className="btn btn-primary" onClick={continueManual} data-testid="btn-next-5-0">ادامه <ChevronLeft size={18} /></button>
             : <button type="button" className={`btn ${multiCase ? "pri" : "btn-primary"}`} onClick={submitReview} disabled={isPending} data-testid="btn-submit-wizard">
                 {isPending ? <><RefreshCw size={18} className="spin" /> در حال ثبت پرونده...</> : (multiCase ? "ثبت پرونده‌ی جدید" : "ثبت پرونده و مشاهده جزئیات")}
               </button>}
+          {multiCase && part === 1
+            ? <button type="button" className="btn gh" onClick={() => onEdit?.(5)} disabled={isPending} data-testid="btn-edit-plan">ویرایش طرح</button>
+            : <button type="button" className="btn btn-ghost" onClick={onPrev} disabled={isPending} data-testid={part === 1 ? 'btn-prev-5' : 'btn-prev-5-0'}><ChevronRight size={18} /> قبلی</button>}
       </div>
     </div>
   );

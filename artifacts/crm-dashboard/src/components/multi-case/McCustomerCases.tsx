@@ -100,7 +100,6 @@ export function McFlagPage({
           </div>
           <span className="chip">فقط‌خواندنی</span>
         </section>
-        <McCustomerCases customer={customer} loans={loans} cases={cases} sample={sample} canOpen canNew={false} onOpen={onOpen} onNew={onNew} />
       </>
     );
   }

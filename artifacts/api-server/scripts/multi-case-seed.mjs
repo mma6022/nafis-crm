@@ -20,8 +20,31 @@ if (!has("customers") || !has("loan_applications") || !has("loan_plans")) {
 }
 const planCols = cols("loan_plans");
 const bankSql = planCols.includes("bank_name") ? "bank_name" : "NULL";
-const plans = db.prepare(`SELECT id, name, ${bankSql} AS bank_name FROM loan_plans WHERE COALESCE(active,1)=1 ORDER BY id LIMIT 2`).all();
-if (plans.length < 2) { console.error("need two active loan_plans rows; this script does not insert or rename plans"); process.exit(1); }
+const templateSql = [
+  planCols.includes("contract_template_id") ? "contract_template_id" : "NULL AS contract_template_id",
+  planCols.includes("primary_contract_template_id") ? "primary_contract_template_id" : "NULL AS primary_contract_template_id",
+].join(", ");
+const activePlans = db.prepare(`SELECT id, name, ${bankSql} AS bank_name, ${templateSql} FROM loan_plans WHERE COALESCE(active,1)=1 ORDER BY id`).all();
+if (activePlans.length < 2) { console.error("need two active loan_plans rows; this script does not insert or rename plans"); process.exit(1); }
+const templateOf = (plan) => Number(plan.contract_template_id || plan.primary_contract_template_id || 0);
+const withTemplate = activePlans.filter((plan) => templateOf(plan) > 0);
+let plans = (withTemplate.length >= 2 ? withTemplate : activePlans).slice(0, 2);
+const templateCol = planCols.includes("contract_template_id") ? "contract_template_id" : planCols.includes("primary_contract_template_id") ? "primary_contract_template_id" : "";
+if (templateCol && has("contract_templates")) {
+  let template = null;
+  try { template = db.prepare("SELECT id FROM contract_templates WHERE deleted_at IS NULL ORDER BY id LIMIT 1").get(); } catch { template = null; }
+  if (template) {
+    for (const plan of plans) {
+      if (templateOf(plan) > 0) continue;
+      db.prepare(`UPDATE loan_plans SET ${templateCol}=? WHERE id=? AND (${templateCol} IS NULL OR ${templateCol}=0)`).run(template.id, plan.id);
+      plan[templateCol] = template.id;
+    }
+  }
+}
+if (!plans.every((plan) => templateOf(plan) > 0)) {
+  console.error("need two active plans whose primary contract is present; this script does not rename plans");
+  process.exit(1);
+}
 
 const now = new Date().toISOString();
 const settingsCols = cols("call_queue_settings");
