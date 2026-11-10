@@ -177,13 +177,8 @@ scoped.post("/sales-teams/:id/disable", (req, res) => {
   if (!n) return void res.status(400).json({ error: "bad_id", message: "شناسه تیم معتبر نیست." });
   const result = disableTeam(n);
   if (!result.ok) {
-    // Scene 13 copy when the team is still an intake destination.
-    const message = result.error === "intake_destination"
-      ? (result.sources && result.sources.length
-          ? `این تیم مقصد ${result.sources.map((s) => s === "site_leads" ? "لید فرم سایت" : "تقسیم مشتری جدید").join(" و ")} است. تا وقتی مقصد عوض نشود، تیم غیرفعال نمی‌شود.`
-          : result.message)
-      : result.message;
-    return void res.status(result.status).json({ error: result.error, message, sources: result.sources });
+    // Scene 13: blocked disable when the team still has more than 0% on a source.
+    return void res.status(result.status).json({ error: result.error, message: result.message, sources: result.sources });
   }
   res.json({ team: result.team });
 });

@@ -14,7 +14,7 @@ export type Ticks = { ownsNone: boolean; ownsP1: boolean; ownsP2: boolean; ownsP
 export type View =
   | "list" | "empty" | "create-name" | "create-members" | "create-priorities" | "create-review"
   | "err-unowned" | "err-duplicate" | "add-pick" | "add-priorities" | "add-review" | "lead-mark"
-  | "deactivate" | "readonly" | "intake" | "intake-edit" | "loading" | "error";
+  | "deactivate" | "readonly" | "intake" | "intake-edit" | "intake-err" | "loading" | "error";
 
 export type MountOpts = {
   root: HTMLElement;
@@ -32,8 +32,7 @@ const STEPS4 = ["نام", "اعضا", "اولویت‌ها", "بررسی"];
 const STEPS3 = ["کارشناس", "اولویت‌ها", "بررسی"];
 const NOTE_NEW = "تغییرها فقط برای مشتری جدید اعمال می‌شود. انتقال مشتری فعلی در کار نیست.";
 const NOTE_PANEL = "با ثبت تیم، پنل این کارشناس‌ها به پنل تیم فروش تغییر می‌کند.";
-const traineeNote = (n: string) => `با افزودن، ${n} از فهرست کارآموز خارج می‌شود و قاعدهٔ این تیم برایش اعمال می‌شود.`;
-const traineeNoteReview = (n: string) => `${n} از فهرست کارآموز خارج می‌شود و قاعدهٔ همین تیم برایش اعمال می‌شود.`;
+const TRAINEE_NOTE = "این کارشناس از فهرست کارآموز خارج می‌شود و قاعدهٔ این تیم برایش اعمال می‌شود.";
 
 type TickMap = Record<number, Ticks>;
 type State = {
@@ -55,6 +54,7 @@ type State = {
   editTeamId: number | null;
   addSp: number | null;
   intakeDraft: Record<IntakeSource, Record<number, number>>;
+  intakeError: Partial<Record<IntakeSource, string>>;
   disableTeamId: number | null;
   busy: boolean;
   formError: string | null;
@@ -130,13 +130,31 @@ export function mountSalesTeams(opts: MountOpts): () => void {
     view: "loading", loading: true, error: null, teams: [], intake: [], todayLabel: "", people: [],
     canManage: opts.me.canManage, canDisable: opts.me.canDisable,
     name: "", selected: [], ticks: {}, leadId: null, p1Order: [], addTeamId: null, editTeamId: null, addSp: null,
-    intakeDraft: { new_customers: { 1: 100, 2: 0 }, site_leads: { 1: 100, 2: 0 } }, disableTeamId: null, busy: false, formError: null,
+    intakeDraft: { new_customers: { 1: 100, 2: 0 }, site_leads: { 1: 100, 2: 0 } }, intakeError: {}, disableTeamId: null, busy: false, formError: null,
   };
 
   function person(id: number): Person | undefined { return st.people.find((p) => p.salespersonId === id); }
   function personName(id: number) { return person(id)?.displayName || `کارشناس ${fd(id)}`; }
   function personExt(id: number) { return person(id)?.extensionLabel || "داخلی ندارد"; }
   function findTeam(id: number) { return st.teams.find((t) => t.id === id); }
+  function isAvailable(id: number) { return Boolean(person(id)?.available); }
+  function validSelected() { return st.selected.filter(isAvailable); }
+  const enDigit = (v: string) => String(v).replace(/[۰-۹]/g, (d) => String(FD.indexOf(d)));
+  function readPct(v: string | number) {
+    const n = Number.parseInt(enDigit(String(v ?? "0")) || "0", 10);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return n > 100 ? 100 : n;
+  }
+  function intakeSum(percents: Record<number, number>) {
+    return Object.values(percents).reduce((n, v) => n + (Number(v) || 0), 0);
+  }
+  function sumError(source: IntakeSource, sum: number) {
+    const label = source === "site_leads" ? "لید فرم سایت" : "مشتری جدید";
+    return `جمع درصدهای ${label} ${fd(sum)}٪ است؛ باید ۱۰۰٪ باشد.`;
+  }
+  function sourceLabel(source: IntakeSource) {
+    return source === "site_leads" ? "لید فرم سایت" : "مشتری جدید";
+  }
 
   function go(view: View) { st.view = view; st.formError = null; render(); }
   function ticksFromMember(m: Member): Ticks { return { ownsNone: m.ownsNone, ownsP1: m.ownsP1, ownsP2: m.ownsP2, ownsP3: m.ownsP3 }; }
@@ -193,7 +211,7 @@ export function mountSalesTeams(opts: MountOpts): () => void {
       "err-unowned": ["تیم جدید", "مرحلهٔ ۳ از ۴"], "err-duplicate": ["تیم جدید", "مرحلهٔ ۳ از ۴"],
       "add-pick": ["عضو جدید", "مرحلهٔ ۱ از ۳"], "add-priorities": ["عضو جدید", "مرحلهٔ ۲ از ۳"], "add-review": ["عضو جدید", "مرحلهٔ ۳ از ۳"],
       "lead-mark": ["سرپرست تیم", ""], deactivate: ["تیم‌های فروش", ""], readonly: ["تیم من", ""],
-      intake: ["تقسیم مشتری جدید", ""], "intake-edit": ["تقسیم مشتری جدید", "ویرایش"],
+      intake: ["تقسیم مشتری جدید", ""], "intake-edit": ["تقسیم مشتری جدید", "ویرایش"], "intake-err": ["تقسیم مشتری جدید", "ویرایش"],
       loading: ["تیم‌های فروش", ""], error: ["تیم‌های فروش", ""],
     };
     if (opts.me.readonly && (view === "list" || view === "readonly")) return ["تیم من", ""];
@@ -211,7 +229,9 @@ export function mountSalesTeams(opts: MountOpts): () => void {
   }
 
   function expertBtn(p: Person, pressed: boolean) {
-    return `<li><button class="st-ex" type="button" data-act="toggle-person" data-id="${p.salespersonId}" ${p.available ? "" : "disabled aria-disabled=\"true\""} aria-pressed="${pressed ? "true" : "false"}"><span><b>${p.displayName}</b><small>${p.extensionLabel}${p.reason ? "؛ " + p.reason : ""}</small></span></button></li>`;
+    const on = Boolean(p.available && pressed);
+    const badge = p.isTrainee ? '<span class="st-badge trn">کارآموز</span>' : "";
+    return `<li><button class="st-ex" type="button" data-act="toggle-person" data-id="${p.salespersonId}" ${p.available ? "" : "disabled aria-disabled=\"true\""} aria-pressed="${on ? "true" : "false"}"><span class="st-ex-main"><span class="st-ex-id"><b>${p.displayName}</b>${badge}</span><small>${p.extensionLabel}${p.reason ? "؛ " + p.reason : ""}</small></span></button></li>`;
   }
 
   function tmpRow(active: "first" | "p1" | "", id: number) {
@@ -291,22 +311,6 @@ export function mountSalesTeams(opts: MountOpts): () => void {
     }
     return out;
   }
-  function intakeSentence(source: IntakeSource, percents: Record<number, number>) {
-    const subject = source === "site_leads" ? "لید فرم سایت" : "مشتری جدید";
-    const active = Object.entries(percents)
-      .map(([id, percent]) => ({ id: Number(id), percent: Number(percent) || 0 }))
-      .filter((s) => s.percent > 0)
-      .sort((a, b) => a.id - b.id);
-    const nameOf = (id: number) => findTeam(id)?.name || `تیم ${fd(id)}`;
-    if (active.length <= 1) return `${subject} به ${nameOf(active[0]?.id ?? 1)} می‌رود.`;
-    const parts = active.map((s) => `${fd(s.percent)}٪ به ${nameOf(s.id)}`);
-    if (parts.length === 2) return `${subject} ${parts[0]} و ${parts[1]} می‌رود.`;
-    return `${subject} ${parts.slice(0, -1).join("، ")} و ${parts[parts.length - 1]} می‌رود.`;
-  }
-  function intakeSum(percents: Record<number, number>) {
-    return Object.values(percents).reduce((n, v) => n + (Number(v) || 0), 0);
-  }
-
   function viewHtml(view: View): string {
     const ro = !st.canManage || view === "readonly";
     if (view === "loading") return `<div class="st-head"><div><h2>${ro ? "تیم من" : "تیم‌های فروش"}</h2></div></div><div class="st-skel" role="status" aria-live="polite"><span class="sr-only">در حال بارگذاری</span><i></i><i></i></div>`;
@@ -319,9 +323,10 @@ export function mountSalesTeams(opts: MountOpts): () => void {
     }
     if (view === "create-name") return `<div class="st-wiz">${prog(STEPS4, 0)}<h2>نام تیم</h2><p class="st-help">نامی که در فهرست و تقسیم مشتری دیده می‌شود.</p><div class="st-field"><label for="st-name">نام تیم</label><input class="inp" id="st-name" value="${escapeAttr(st.name)}" autocomplete="off"></div>${wizActs(null, "بعدی", false, "to-members")}</div>`;
     if (view === "create-members") {
-      const n = st.selected.length;
-      const people = st.people;
-      return `<div class="st-wiz">${prog(STEPS4, 1)}<h2>اعضای تیم</h2><p class="st-help">بین ۲ تا ۴ کارشناس فعال که هنوز در تیمی نیستند.</p><p class="st-count">${fd(n)} نفر انتخاب شده‌اند؛ حداکثر ۴ نفر.</p><ul class="st-pick">${people.map((p) => expertBtn(p, st.selected.includes(p.salespersonId))).join("")}</ul><p><a class="st-link" href="${usersHref()}">اگر این فرد حساب ندارد، ساخت کاربر جدید</a></p>${wizActs("create-name", "بعدی", n < 2 || n > 4, "to-priorities")}</div>`;
+      const valid = validSelected();
+      const n = valid.length;
+      const traineeOn = valid.some((id) => person(id)?.isTrainee);
+      return `<div class="st-wiz">${prog(STEPS4, 1)}<h2>اعضای تیم</h2><p class="st-help">بین ۲ تا ۴ کارشناس فعال که هنوز در تیمی نیستند.</p><p class="st-count">${fd(n)} نفر انتخاب شده‌اند؛ حداکثر ۴ نفر.</p><ul class="st-pick">${st.people.map((p) => expertBtn(p, valid.includes(p.salespersonId))).join("")}</ul>${traineeOn ? `<p class="st-note">${TRAINEE_NOTE}</p>` : ""}<p><a class="st-link" href="${usersHref()}">اگر این فرد حساب ندارد، ساخت کاربر جدید</a></p>${wizActs("create-name", "بعدی", n < 2 || n > 4, "to-priorities")}</div>`;
     }
     if (view === "create-priorities" || view === "err-unowned" || view === "err-duplicate") {
       const errs = validateTicks(st.selected, st.ticks, st.leadId);
@@ -334,7 +339,7 @@ export function mountSalesTeams(opts: MountOpts): () => void {
     if (view === "add-pick") {
       const team = findTeam(st.addTeamId || 0);
       const sel = st.addSp ? person(st.addSp) : null;
-      return `<div class="st-wiz">${prog(STEPS3, 0)}<h2>انتخاب کارشناس</h2><p class="st-help">افزودن به ${team?.name ?? "تیم"}. فقط کارشناس فعالِ بدون تیم.</p><ul class="st-pick">${st.people.map((p) => expertBtn(p, st.addSp === p.salespersonId)).join("")}</ul>${sel?.isTrainee ? `<p class="st-note">${traineeNote(sel.displayName)}</p>` : ""}<p><a class="st-link" href="${usersHref()}">اگر این فرد حساب ندارد، ساخت کاربر جدید</a></p>${wizActs("list", "بعدی", !st.addSp, "to-add-pri")}</div>`;
+      return `<div class="st-wiz">${prog(STEPS3, 0)}<h2>انتخاب کارشناس</h2><p class="st-help">افزودن به ${team?.name ?? "تیم"}. فقط کارشناس فعالِ بدون تیم.</p><ul class="st-pick">${st.people.map((p) => expertBtn(p, st.addSp === p.salespersonId)).join("")}</ul>${sel?.isTrainee ? `<p class="st-note">${TRAINEE_NOTE}</p>` : ""}<p><a class="st-link" href="${usersHref()}">اگر این فرد حساب ندارد، ساخت کاربر جدید</a></p>${wizActs("list", "بعدی", !st.addSp, "to-add-pri")}</div>`;
     }
     if (view === "add-priorities") {
       const id = st.addSp!;
@@ -347,27 +352,42 @@ export function mountSalesTeams(opts: MountOpts): () => void {
       const team = findTeam(st.addTeamId || 0);
       const sel = person(id);
       const lose = loseForAdd();
-      return `<div class="st-wiz">${prog(STEPS3, 2)}<h2>بررسی و ثبت</h2><ul class="st-rev"><li><b>${personName(id)}</b> به ${team?.name ?? "تیم"} اضافه می‌شود؛ ${personExt(id)}؛ ${labels.join("، ")}</li></ul>${lose.map((l) => `<p class="st-lose">${l}</p>`).join("")}${sel?.isTrainee ? `<p class="st-note">${traineeNoteReview(sel.displayName)}</p>` : ""}<p class="st-note">${NOTE_NEW}</p><p class="st-note">${NOTE_PANEL}</p>${wizActs("add-priorities", "ثبت", false, "save-add")}</div>`;
+      return `<div class="st-wiz">${prog(STEPS3, 2)}<h2>بررسی و ثبت</h2><ul class="st-rev"><li><b>${personName(id)}</b> به ${team?.name ?? "تیم"} اضافه می‌شود؛ ${personExt(id)}؛ ${labels.join("، ")}</li></ul>${lose.map((l) => `<p class="st-lose">${l}</p>`).join("")}${sel?.isTrainee ? `<p class="st-note">${TRAINEE_NOTE}</p>` : ""}<p class="st-note">${NOTE_NEW}</p><p class="st-note">${NOTE_PANEL}</p>${wizActs("add-priorities", "ثبت", false, "save-add")}</div>`;
     }
     if (view === "lead-mark") {
       const team = findTeam(st.editTeamId || 0);
       const errs = validateTicks(st.selected, st.ticks, st.leadId);
       return `<div class="st-wiz"><h2>سرپرست ${team?.name ?? st.name}</h2><p class="st-help">در هر تیم فقط یک سرپرست است.</p>${errs[0] ? `<p class="st-err" role="alert">${errs[0].message}</p>` : ""}<div class="st-mcards">${st.selected.map(mcard).join("")}</div><p class="st-note">${NOTE_NEW}</p><div class="st-wiz-acts"><div class="st-row"><button class="btn gh" type="button" data-act="list">انصراف</button><button class="btn pri" type="button" data-act="save-edit" ${errs.length ? "disabled aria-disabled=\"true\"" : ""}>ثبت</button></div></div></div>`;
     }
-    if (view === "intake") {
-      return `<div class="st-head"><div><h2>تقسیم مشتری جدید</h2></div></div><section class="card st-intake">${st.intake.map((r) => `<p class="st-sent">${r.sentence}</p>`).join("")}<div class="st-actions"><button class="btn pri" type="button" data-act="intake-edit">ویرایش</button></div></section>`;
-    }
-    if (view === "intake-edit") {
+    if (view === "intake" || view === "intake-edit" || view === "intake-err") {
+      const ro = view === "intake";
+      const live = !ro;
       const enabledTeams = st.teams.filter((t) => t.enabled);
-      const box = (source: IntakeSource, title: string) => {
+      const srcBox = (source: IntakeSource) => {
         const percents = st.intakeDraft[source] || {};
         const sum = intakeSum(percents);
-        const rows = enabledTeams.map((t) => `<div class="st-pct-row"><label for="st-pct-${source}-${t.id}">${t.name}</label><input class="inp" id="st-pct-${source}-${t.id}" type="number" inputmode="numeric" min="0" max="100" step="1" value="${percents[t.id] ?? 0}" data-act="intake-percent" data-source="${source}" data-id="${t.id}"></div>`).join("");
-        const sumCls = sum === 100 ? "st-pct-sum" : "st-pct-sum st-err";
-        return `<section class="card st-src"><h3>${title}</h3><div class="st-pct" role="group" aria-label="${title}">${rows}</div><p class="${sumCls}">جمع: ${fd(sum)}٪ از ۱۰۰</p><p class="st-preview">${intakeSentence(source, percents)}</p></section>`;
+        const bad = sum !== 100;
+        const errText = st.intakeError[source] || (live && bad ? sumError(source, sum) : "");
+        const rows = enabledTeams.map((t) => {
+          const val = percents[t.id] ?? 0;
+          const zero = val === 0;
+          const id = `st-pct-${source}-${t.id}`;
+          return `<div class="st-pct-row${zero ? " muted" : ""}"><div class="st-pct-who"><span class="st-pct-name">${t.name}</span>${zero ? '<span class="st-noshr">بدون سهم ورودی</span>' : ""}</div><label class="st-pct"><span class="sr-only">درصد ${t.name}</span><input id="${id}" class="st-pct-in" dir="ltr" inputmode="numeric" maxlength="3" value="${fd(val)}" ${ro ? "readonly" : ""} aria-label="درصد ${t.name}" data-act="intake-percent" data-source="${source}" data-id="${t.id}"><span class="st-pct-suf" aria-hidden="true">٪</span></label></div>`;
+        }).join("");
+        return `<section class="card st-src" data-src="${source}"${live ? ' data-live="1"' : ""}><h3>${sourceLabel(source)}</h3>${rows}<p class="st-total${bad ? " bad" : ""}" data-sum>جمع: ${fd(sum)}٪</p>${errText ? `<p class="st-err" role="alert">${errText}</p>` : ""}</section>`;
       };
-      const sumsOk = intakeSum(st.intakeDraft.new_customers) === 100 && intakeSum(st.intakeDraft.site_leads) === 100;
-      return `<div class="st-wiz"><h2>ویرایش تقسیم</h2><p class="st-help">برای هر منبع درصد هر تیم را جدا بگذارید. جمع هر منبع باید ۱۰۰ باشد.</p>${st.formError ? `<p class="st-err" role="alert">${st.formError}</p>` : ""}${box("new_customers", "مشتری جدید")}${box("site_leads", "لید فرم سایت")}<div class="st-wiz-acts"><div class="st-row"><button class="btn gh" type="button" data-act="intake">انصراف</button><button class="btn pri" type="button" data-act="save-intake" ${sumsOk ? "" : "disabled aria-disabled=\"true\""}>ثبت</button></div></div></div>`;
+      if (ro) {
+        return `<div class="st-head"><div><h2>تقسیم مشتری جدید</h2></div></div><div class="st-wiz">${srcBox("new_customers")}${srcBox("site_leads")}<div class="st-wiz-acts"><div class="st-row"><button class="btn pri" type="button" data-act="intake-edit">ویرایش</button></div></div></div>`;
+      }
+      const sums = (["new_customers", "site_leads"] as IntakeSource[]).map((source) => {
+        const sum = intakeSum(st.intakeDraft[source] || {});
+        const bad = sum !== 100;
+        const err = st.intakeError[source] || (bad ? sumError(source, sum) : "");
+        return { source, sum, bad, err };
+      });
+      const allOk = sums.every((x) => !x.bad);
+      const footRows = sums.map((x) => `<p class="${x.bad ? "st-total bad" : "st-total"}" data-foot="${x.source}">${sourceLabel(x.source)}، جمع: ${fd(x.sum)}٪</p>${x.err ? `<p class="st-err" role="alert">${x.err}</p>` : ""}`).join("");
+      return `<div class="st-wiz"><h2>ویرایش تقسیم</h2><p class="st-help">برای هر منبع، درصد هر تیم فعال را با عدد درست وارد کنید. جمع هر منبع باید ۱۰۰٪ باشد.</p>${srcBox("new_customers")}${srcBox("site_leads")}<div class="st-intake-foot is-sticky"><div class="st-foot-sums">${footRows}</div><div class="st-row"><button class="btn gh" type="button" data-act="intake">انصراف</button><button class="btn pri" type="button" data-act="save-intake" id="st-save" ${allOk ? "" : "disabled aria-disabled=\"true\""}>ثبت</button></div></div></div>`;
     }
     if (view === "deactivate") {
       const team = findTeam(st.disableTeamId || 0);
@@ -375,7 +395,7 @@ export function mountSalesTeams(opts: MountOpts): () => void {
       const list = viewHtml("list");
       const title = team?.enabled ? `غیرفعال کردن ${team?.name ?? "تیم"}` : `فعال کردن ${team?.name ?? "تیم"}`;
       const body = blocked
-        ? `<p class="st-err" id="st-off-d" role="alert">این تیم مقصد تقسیم مشتری جدید و لید فرم سایت است. تا وقتی مقصد عوض نشود، تیم غیرفعال نمی‌شود.</p><div class="st-row"><button class="btn gh" type="button" data-act="list">انصراف</button><button class="btn pri" type="button" data-act="intake">رفتن به تقسیم مشتری جدید</button></div>`
+        ? `<p class="st-err" id="st-off-d" role="alert">${st.formError || "این تیم در تقسیم مشتری جدید یا لید فرم سایت بیش از ۰٪ دارد. تا وقتی سهمش ۰٪ نشود، تیم غیرفعال نمی‌شود."}</p><div class="st-row"><button class="btn gh" type="button" data-act="list">انصراف</button><button class="btn pri" type="button" data-act="intake">رفتن به تقسیم مشتری جدید</button></div>`
         : team && !team.enabled
           ? `<p id="st-off-d">تیم غیرفعال دوباره فعال می‌شود؟ اگر عضوی به تیم دیگری رفته باشد باید دوباره انتخاب شود.</p><div class="st-row"><button class="btn gh" type="button" data-act="list">انصراف</button><button class="btn pri" type="button" data-act="do-enable">فعال کردن</button></div>`
           : `<p id="st-off-d">با غیرفعال شدن، عضویت تمام می‌شود و مشتری‌های فعلی پیش همان کارشناس می‌مانند.</p><div class="st-row"><button class="btn gh" type="button" data-act="list">انصراف</button><button class="btn dang" type="button" data-act="do-disable">غیرفعال کردن</button></div>`;
@@ -416,28 +436,61 @@ export function mountSalesTeams(opts: MountOpts): () => void {
       nameInp.focus();
       nameInp.selectionStart = nameInp.value.length;
     }
-    root.querySelectorAll<HTMLInputElement>("input[data-act=intake-percent]").forEach((inp) => {
+    root.querySelectorAll<HTMLInputElement>("input[data-act=intake-percent]:not([readonly])").forEach((inp) => {
       inp.addEventListener("input", () => {
         const source = inp.getAttribute("data-source") as IntakeSource;
         const id = Number(inp.getAttribute("data-id"));
-        const raw = inp.value.trim();
-        const n = raw === "" ? 0 : Number.parseInt(raw, 10);
-        st.intakeDraft[source] = { ...st.intakeDraft[source], [id]: Number.isInteger(n) ? n : 0 };
+        if (!source || !id) return;
+        let raw = enDigit(inp.value).replace(/[^0-9]/g, "").slice(0, 3);
+        if (Number.parseInt(raw || "0", 10) > 100) raw = "100";
+        const n = readPct(raw || "0");
+        inp.value = fd(raw || "0");
+        st.intakeDraft[source] = { ...st.intakeDraft[source], [id]: n };
+        delete st.intakeError[source];
         const box = inp.closest(".st-src");
-        const percents = st.intakeDraft[source] || {};
-        const sum = intakeSum(percents);
-        const sumEl = box?.querySelector(".st-pct-sum");
-        if (sumEl) {
-          sumEl.textContent = `جمع: ${fd(sum)}٪ از ۱۰۰`;
-          sumEl.className = sum === 100 ? "st-pct-sum" : "st-pct-sum st-err";
+        const row = inp.closest(".st-pct-row");
+        if (row) {
+          row.classList.toggle("muted", n === 0);
+          const who = row.querySelector(".st-pct-who");
+          let tag = row.querySelector(".st-noshr");
+          if (n === 0 && !tag && who) who.insertAdjacentHTML("beforeend", '<span class="st-noshr">بدون سهم ورودی</span>');
+          else if (n !== 0 && tag) tag.remove();
         }
-        const preview = box?.querySelector(".st-preview");
-        if (preview) preview.textContent = intakeSentence(source, percents);
+        const sum = intakeSum(st.intakeDraft[source] || {});
+        const ok = sum === 100;
+        const tot = box?.querySelector("[data-sum]");
+        if (tot) { tot.textContent = `جمع: ${fd(sum)}٪`; tot.classList.toggle("bad", !ok); }
+        let err = box?.querySelector(".st-err");
+        const msg = ok ? "" : (st.intakeError[source] || sumError(source, sum));
+        if (msg) {
+          if (!err) { box?.insertAdjacentHTML("beforeend", `<p class="st-err" role="alert">${msg}</p>`); err = box?.querySelector(".st-err"); }
+          else err.textContent = msg;
+          (err as HTMLElement).hidden = false;
+        } else if (err) err.remove();
+        const foot = root.querySelector(`[data-foot="${source}"]`);
+        if (foot) { foot.textContent = `${sourceLabel(source)}، جمع: ${fd(sum)}٪`; foot.classList.toggle("bad", !ok); foot.classList.add("st-total"); }
+        const allOk = intakeSum(st.intakeDraft.new_customers) === 100 && intakeSum(st.intakeDraft.site_leads) === 100;
+        const footErrs = root.querySelectorAll(".st-intake-foot .st-err");
+        footErrs.forEach((el) => {
+          const prev = el.previousElementSibling as HTMLElement | null;
+          const src = prev?.getAttribute("data-foot") as IntakeSource | null;
+          if (!src) return;
+          const ssum = intakeSum(st.intakeDraft[src] || {});
+          if (ssum === 100) el.remove();
+          else el.textContent = st.intakeError[src] || sumError(src, ssum);
+        });
+        (["new_customers", "site_leads"] as IntakeSource[]).forEach((src) => {
+          const ssum = intakeSum(st.intakeDraft[src] || {});
+          if (ssum === 100) return;
+          const footSum = root.querySelector(`[data-foot="${src}"]`);
+          if (footSum && !footSum.nextElementSibling?.classList.contains("st-err")) {
+            footSum.insertAdjacentHTML("afterend", `<p class="st-err" role="alert">${st.intakeError[src] || sumError(src, ssum)}</p>`);
+          }
+        });
         const save = root.querySelector<HTMLButtonElement>("[data-act=save-intake]");
-        const ok = intakeSum(st.intakeDraft.new_customers) === 100 && intakeSum(st.intakeDraft.site_leads) === 100;
         if (save) {
-          save.disabled = !ok;
-          if (ok) save.removeAttribute("aria-disabled");
+          save.disabled = !allOk;
+          if (allOk) save.removeAttribute("aria-disabled");
           else save.setAttribute("aria-disabled", "true");
         }
       });
@@ -461,13 +514,18 @@ export function mountSalesTeams(opts: MountOpts): () => void {
       else if (act === "reload") await load();
       else if (act === "to-members") { st.name = (root.querySelector("#st-name") as HTMLInputElement)?.value?.trim() || st.name; if (!st.name) { st.formError = "نام تیم را بنویسید."; render(); return; } go("create-members"); }
       else if (act === "toggle-person") {
+        if (!isAvailable(id)) return;
         if (st.view === "add-pick") { st.addSp = st.addSp === id ? null : id; render(); return; }
-        const on = st.selected.includes(id);
+        const on = validSelected().includes(id);
         if (on) { st.selected = st.selected.filter((x) => x !== id); delete st.ticks[id]; if (st.leadId === id) st.leadId = null; st.p1Order = st.p1Order.filter((x) => x !== id); }
-        else if (st.selected.length < 4) { st.selected = [...st.selected, id]; st.ticks[id] = st.ticks[id] || emptyTicks(); }
+        else if (validSelected().length < 4) { st.selected = [...validSelected(), id]; st.ticks[id] = st.ticks[id] || emptyTicks(); }
         render();
       }
-      else if (act === "to-priorities") { if (st.selected.length < 2 || st.selected.length > 4) return; go("create-priorities"); }
+      else if (act === "to-priorities") {
+        st.selected = validSelected();
+        if (st.selected.length < 2 || st.selected.length > 4) return;
+        go("create-priorities");
+      }
       else if (act === "tick") {
         const k = btn.getAttribute("data-k") as keyof Ticks;
         const on = btn.getAttribute("aria-pressed") !== "true";
@@ -485,7 +543,7 @@ export function mountSalesTeams(opts: MountOpts): () => void {
       else if (act === "edit") { const t = findTeam(id); if (t) startEdit(t); }
       else if (act === "deactivate") { st.disableTeamId = id; go("deactivate"); }
       else if (act === "to-add-pri") {
-        if (!st.addSp) return;
+        if (!st.addSp || !isAvailable(st.addSp)) return;
         st.ticks[st.addSp] = st.ticks[st.addSp] || emptyTicks();
         go("add-priorities");
       }
@@ -494,6 +552,7 @@ export function mountSalesTeams(opts: MountOpts): () => void {
       else if (act === "save-edit") await saveEdit();
       else if (act === "intake-edit") {
         st.formError = null;
+        st.intakeError = {};
         st.intakeDraft = draftFromIntake(st.intake);
         go("intake-edit");
       }
@@ -511,6 +570,7 @@ export function mountSalesTeams(opts: MountOpts): () => void {
     if (st.busy) return;
     st.busy = true;
     try {
+      st.selected = validSelected();
       const body = { name: st.name, members: memberPayload(st.selected, st.ticks, st.leadId, st.p1Order) };
       if (st.editTeamId) await api(`/sales-teams/${st.editTeamId}`, { method: "PATCH", body: JSON.stringify(body) });
       else await api("/sales-teams", { method: "POST", body: JSON.stringify(body) });
@@ -548,8 +608,15 @@ export function mountSalesTeams(opts: MountOpts): () => void {
       }));
       const body = await api("/sales-teams/intake", { method: "PUT", body: JSON.stringify({ sources }) });
       st.intake = body.intake;
+      st.intakeError = {};
       go("intake");
-    } catch (e) { st.formError = (e as Error).message; render(); }
+    } catch (e: any) {
+      const src = e.body?.source as IntakeSource | undefined;
+      st.intakeError = src ? { [src]: e.message } : st.intakeError;
+      st.formError = e.message;
+      st.view = "intake-err";
+      render();
+    }
     finally { st.busy = false; }
   }
   async function doDisable() {
@@ -578,6 +645,7 @@ export function mountSalesTeams(opts: MountOpts): () => void {
       const list = await api("/sales-teams");
       st.teams = list.teams || [];
       st.intake = list.intake || [];
+      st.intakeDraft = draftFromIntake(st.intake);
       st.todayLabel = list.todayLabel || "";
       st.canManage = list.canManage ?? opts.me.canManage;
       st.canDisable = list.canDisable ?? opts.me.canDisable;
@@ -615,7 +683,7 @@ export function mountSalesTeams(opts: MountOpts): () => void {
     const younesi = byName("یونسی")?.salespersonId;
     if (scene === "create-name" || scene.startsWith("create-") || scene.startsWith("err-")) {
       st.name = t2?.name || "تیم فروش ۲";
-      if (kherad && aslani) {
+      if (kherad && aslani && scene !== "create-members") {
         st.selected = [kherad, aslani];
         st.ticks[kherad] = { ownsNone: true, ownsP1: false, ownsP2: scene !== "err-unowned", ownsP3: true };
         st.ticks[aslani] = { ownsNone: scene === "err-duplicate", ownsP1: true, ownsP2: false, ownsP3: false };
@@ -623,14 +691,24 @@ export function mountSalesTeams(opts: MountOpts): () => void {
         st.p1Order = [aslani];
       }
     }
+    if (scene === "create-members") {
+      st.selected = st.selected.filter(isAvailable);
+    }
     if (scene.startsWith("add-") && t2 && younesi) {
       st.addTeamId = t2.id; st.addSp = younesi;
       st.ticks[younesi] = { ownsNone: false, ownsP1: false, ownsP2: true, ownsP3: false };
     }
     if (scene === "lead-mark" && t1) startEdit(t1);
     if (scene === "deactivate" && t1) st.disableTeamId = t1.id;
-    if (scene === "intake-edit") {
-      st.intakeDraft = draftFromIntake(st.intake);
+    st.intakeDraft = draftFromIntake(st.intake);
+    if (scene === "intake-err") {
+      const t1 = st.teams.find((t) => t.name.includes("۱"))?.id || 1;
+      const t2id = st.teams.find((t) => t.name.includes("۲"))?.id || 2;
+      st.intakeDraft = {
+        new_customers: { ...st.intakeDraft.new_customers, [t1]: 90, [t2id]: 0 },
+        site_leads: { ...st.intakeDraft.site_leads, [t1]: 100, [t2id]: 0 },
+      };
+      st.intakeError = { new_customers: sumError("new_customers", 90) };
     }
     if (scene === "empty") { st.teams = []; }
     if (scene === "error") { st.view = "error"; render(); return; }
@@ -649,8 +727,8 @@ export function mountSalesTeams(opts: MountOpts): () => void {
     if (raw && (q.get("resume") || picked)) {
       const saved = JSON.parse(raw);
       Object.assign(st, saved);
-      if (picked && st.view === "create-members" && !st.selected.includes(picked)) st.selected.push(picked);
-      if (picked && st.view === "add-pick") st.addSp = picked;
+      if (picked && st.view === "create-members" && isAvailable(picked) && !st.selected.includes(picked)) st.selected.push(picked);
+      if (picked && st.view === "add-pick" && isAvailable(picked)) st.addSp = picked;
     }
   } catch { /* ignore */ }
 

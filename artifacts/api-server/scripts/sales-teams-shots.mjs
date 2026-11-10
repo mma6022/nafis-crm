@@ -1,6 +1,6 @@
 /**
  * Local shots of the team-builder on a disposable masked copy.
- * No live DB, no staff login (x-actor stub). Writes /workspace/team-model/shots/.
+ * No live DB, no staff login (x-actor stub). Writes SHOTS_OUT or /workspace/team-model/shots/.
  */
 import fs from "node:fs";
 import http from "node:http";
@@ -13,13 +13,16 @@ import { DatabaseSync } from "node:sqlite";
 globalThis.__DatabaseSync = DatabaseSync;
 
 const LIVE = "/var/lib/nafisvam/customers.db";
-const OUT = "/workspace/team-model/shots";
+const OUT = process.env.SHOTS_OUT || "/workspace/team-model/shots";
 const ROOT = "/workspace/team-model/src/artifacts/api-server";
 const UI = "/workspace/team-model/src/artifacts/crm-dashboard/src/features/sales-teams/sales-teams-ui.ts";
 const STANDALONE = "/workspace/nafis-design/screens/sales-teams/index.html";
 const PUPPETEER = "/workspace/team-model/src/artifacts/crm-dashboard/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js";
 
-const SCENES = "list empty create-name create-members create-priorities create-review err-unowned err-duplicate add-pick add-priorities add-review lead-mark deactivate readonly intake intake-edit loading error".split(" ");
+const ALL_SCENES = "list empty create-name create-members create-priorities create-review err-unowned err-duplicate add-pick add-priorities add-review lead-mark deactivate readonly intake intake-edit loading error intake-err".split(" ");
+const sceneFilter = (process.env.SHOTS_SCENES || "").split(",").map((x) => x.trim()).filter(Boolean);
+const SCENES = sceneFilter.length ? ALL_SCENES.filter((sc) => sceneFilter.includes(sc)) : ALL_SCENES;
+const sceneNo = (sc) => String(ALL_SCENES.indexOf(sc) + 1).padStart(2, "0");
 const ACTOR = { deactivate: "admin", readonly: "kazemi" };
 
 const candidates = [
@@ -131,7 +134,7 @@ if (process.env.RESET_SHOTS === "1") {
   }
 }
 
-const sizes = [
+const allSizes = [
   { key: "390", w: 390, h: 844, scale: 1 },
   { key: "390@2x", w: 390, h: 844, scale: 2 },
   { key: "768", w: 768, h: 1024, scale: 1 },
@@ -139,17 +142,19 @@ const sizes = [
   { key: "1366x768", w: 1366, h: 768, scale: 1 },
   { key: "1920x1080", w: 1920, h: 1080, scale: 1 },
 ];
+const sizeFilter = (process.env.SHOTS_SIZES || "").split(",").map((x) => x.trim()).filter(Boolean);
+const sizes = sizeFilter.length ? allSizes.filter((sz) => sizeFilter.includes(sz.key)) : allSizes;
 
 const files = [];
 const page = await browser.newPage();
 for (let i = 0; i < SCENES.length; i++) {
   const sc = SCENES[i];
-  const n = String(i + 1).padStart(2, "0");
+  const n = sceneNo(sc);
   const as = ACTOR[sc] || "manager";
   for (const sz of sizes) {
     const file = `${n}-${sc}-${sz.key}.png`;
     const dest = path.join(OUT, file);
-    if (fs.existsSync(dest) && fs.statSync(dest).size > 0) { files.push({ file, scene: sc, n: i + 1, size: sz.key, actor: as, text: "" }); process.stdout.write("s"); continue; }
+    if (fs.existsSync(dest) && fs.statSync(dest).size > 0) { files.push({ file, scene: sc, n: Number(n), size: sz.key, actor: as, text: "" }); process.stdout.write("s"); continue; }
     await page.setViewport({ width: sz.w, height: sz.h, deviceScaleFactor: sz.scale });
     const url = `${base}/?sc=${sc}&shot=1&as=${as}`;
     let text = "";
@@ -189,46 +194,48 @@ const titles = {
   list: "فهرست دو تیم و بخش تقسیم (دید مدیر فروش؛ هر دو منبع به تیم فروش ۱)",
   empty: "هنوز تیمی نیست؛ «تیم جدید»",
   "create-name": "ویزارد ساخت، مرحلهٔ ۱، نام",
-  "create-members": "مرحلهٔ ۲، انتخاب اعضا",
+  "create-members": "مرحلهٔ ۲، انتخاب اعضا (عضو تیم دیگر خاکستری؛ نشان کارآموز از سرور)",
   "create-priorities": "مرحلهٔ ۳، اولویت‌ها و قالب سریع و سرپرست",
   "create-review": "مرحلهٔ ۴، بررسی و ثبت",
   "err-unowned": "اعتبار: اولویت بدون مسئول",
   "err-duplicate": "اعتبار: اولویت تکراری",
-  "add-pick": "ویزارد عضو جدید، مرحلهٔ ۱ (خط خروج خانم یونسی از کارآموز)",
+  "add-pick": "ویزارد عضو جدید، مرحلهٔ ۱ (نشان کارآموز سرور و خط عمومی خروج)",
   "add-priorities": "عضو جدید، مرحلهٔ ۲",
-  "add-review": "عضو جدید، مرحلهٔ ۳ (گرفتن اولویت و خروج از کارآموز)",
+  "add-review": "عضو جدید، مرحلهٔ ۳ (گرفتن اولویت و خط عمومی خروج از کارآموز)",
   "lead-mark": "ویرایش سرپرست و اولویت‌های تیم فروش ۱",
-  deactivate: "غیرفعال کردن تیم فروش ۱ مسدود است چون مقصد تقسیم است (دید مدیر سامانه)",
+  deactivate: "غیرفعال کردن تیم فروش ۱ مسدود است چون سهمش بیش از ۰٪ است (دید مدیر سامانه)",
   readonly: "تیم من، فقط مشاهده (دید آقای کاظمی)",
-  intake: "بخش تقسیم با جمله‌های پیش‌فرض روز روشن‌شدن",
-  "intake-edit": "ویرایش دو منبع؛ بدون درصد",
+  intake: "بخش تقسیم با درصد پیش‌فرض ۱۰۰/۰ و برچسب بدون سهم ورودی",
+  "intake-edit": "ویرایش درصد هر تیم در هر منبع؛ جمع زنده؛ ثبت فقط با جمع ۱۰۰٪",
+  "intake-err": "جمع مشتری جدید ۹۰٪؛ خطای سرخ کنار منبع و کنار ثبت",
   loading: "اسکلت بارگذاری",
   error: "فهرست تیم‌ها الآن نیامد",
 };
 
 const lines = [
-  "# Team-builder shots (sales-teams v1.1)",
+  `# Team-builder shots (sales-teams v1.2${sceneFilter.length ? ", r2" : ""})`,
   "",
   "Taken locally on a disposable masked copy of the CRM database. No live writes and no staff login (stub `x-actor` auth).",
   `Source dump: \`${src}\`. Flag \`flag.multi_team_v1\` was turned on only in the copy.`,
-  "The page is the team-builder UI in \`artifacts/crm-dashboard/src/features/sales-teams/\`, wrapped in Armita's v1.1 sales-shell chrome for these shots.",
+  "The page is the team-builder UI in \`artifacts/crm-dashboard/src/features/sales-teams/\`, wrapped in Armita's v1.2 sales-shell chrome for these shots.",
   "",
-  "Widths: official **1280@1x** and **390@2x**, plus **390@1x**, **768**, **1366**, and **1920**. Every one of the 18 scenes was shot at every width. Height is at least the named frame (800 / 844 / 1024 / 768 / 1080) and grows to the document height so the fixed dock sits under the content, the same way Armita's official 01-list is 1280x1350. The page already reserves `dock-h + gap + 32px` (28px + safe-area on mobile) at the bottom of `.pg`, so list and wizard actions, the trainee note, and «ساخت کاربر جدید» never sit under the dock.",
+  `Widths this run: ${sizes.map((sz) => "**" + sz.key + "**").join(", ")}. Scene numbers follow the official v1.2 list (19 scenes). Height is at least the named frame and grows to the document so the fixed dock sits under the content.`,
   "",
-  "Actor: scenes 1–12 and 15–18 as sales manager (محمدحسین مهرپور); scene 13 as admin (مدیر سامانه); scene 14 as آقای کاظمی.",
+  "Actor: list and wizard scenes as sales manager (محمدحسین مهرپور); scene 13 as admin (مدیر سامانه); scene 14 as آقای کاظمی.",
   "",
   "| Scene | Name | What it shows | Files |",
   "| ---: | --- | --- | --- |",
 ];
-for (let i = 0; i < SCENES.length; i++) {
-  const sc = SCENES[i];
-  const n = String(i + 1).padStart(2, "0");
+for (const sc of SCENES) {
+  const n = sceneNo(sc);
   const names = sizes.map((sz) => `\`${n}-${sc}-${sz.key}.png\``).join(", ");
-  lines.push(`| ${i + 1} | \`${sc}\` | ${titles[sc]} | ${names} |`);
+  lines.push(`| ${Number(n)} | \`${sc}\` | ${titles[sc]} | ${names} |`);
 }
 lines.push("", "## Notes", "");
 lines.push("- Display name «حسین خردکار» comes from the team-UI override, not a users-table write.");
-lines.push("- The masked dump has a seventh active salesperson, shown as «کارشناس ۲۲». The mockup only has the six named people, so picker scenes (4 and 9) are taller than the handoff; the frame grows so the trainee note, «ساخت کاربر جدید», and wizard actions stay above the dock.");
+lines.push("- «کارشناس ۲۲» (user 31 / sp 22) is a server-flagged trainee; scenes 4 and 9 show the کارآموز badge, and selecting a trainee shows the generic leaving-traineeship line.");
+lines.push("- Scene 4 does not select people already on another team (حسین خردکار and آرش اصلانیان stay grey, are not counted, and «بعدی» stays disabled until two valid picks).");
+lines.push("- Intake is per-source percentages (100/0 seed). Scene 19 shows the 90% sum error. A 409 on disable is scene 13's blocked state.");
 lines.push("- Production CRM chrome (CrmShell / sales-shell v2 when that flag is on) is not identical to this shot wrap; the page body (`.st-page`) is the same UI.");
 lines.push("");
 fs.writeFileSync(path.join(OUT, "INDEX.md"), lines.join("\n"));

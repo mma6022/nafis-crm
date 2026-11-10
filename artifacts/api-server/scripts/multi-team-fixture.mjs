@@ -520,7 +520,7 @@ ok("t965s4040: cannot disable a team that is an intake destination", () => {
   assert.equal(blocked.ok, false);
   assert.equal(blocked.status, 409);
   assert.equal(blocked.error, "intake_destination");
-  assert.ok(String(blocked.message).includes("مقصد"));
+  assert.match(String(blocked.message), /۰٪/);
   assert.equal(mt.loadTeam(1).enabled, true);
   assert.equal(mt.loadTeam(1).members.length, 3);
   mt.saveIntakeShares("new_customers", [{ teamId: 1, percent: 0 }, { teamId: 2, percent: 100 }]);
@@ -564,6 +564,31 @@ ok("t969s4061: disabling a team with more than 0% is rejected; disabled teams ca
   assert.equal(en.ok, true);
   mt.saveIntakeShares("new_customers", [{ teamId: 1, percent: 100 }, { teamId: 2, percent: 0 }]);
   mt.saveIntakeShares("site_leads", [{ teamId: 1, percent: 100 }, { teamId: 2, percent: 0 }]);
+});
+
+ok("t969s4061: picker marks user 31 / sp 22 as a trainee and greys members of other teams", () => {
+  const people = admin.pickerPeople();
+  const byId = (id) => people.find((p) => p.salespersonId === id);
+  assert.equal(byId(22).isTrainee, true);
+  assert.equal(byId(22).available, true);
+  assert.equal(byId(19).isTrainee, true);
+  assert.equal(byId(20).isTrainee, false);
+  assert.equal(byId(20).available, false);
+  assert.match(String(byId(20).reason), /تیم فروش ۲/);
+  assert.equal(byId(5).available, false);
+  assert.equal(byId(6).available, false);
+});
+
+ok("t969s4061: server rejects members who already belong to another team", () => {
+  const bad = admin.createTeam("تیم آزمایش", [
+    { salespersonId: 20, isLead: true, ownsNone: true, ownsP2: true, ownsP3: true, sortOrder: 0 },
+    { salespersonId: 19, ownsP1: true, sortOrder: 1 },
+  ]);
+  assert.equal(bad.ok, false);
+  assert.equal(bad.status, 400);
+  assert.match(String(bad.message), /تیم دیگری/);
+  assert.equal(mt.loadTeam(1).members.length, 3);
+  assert.equal(mt.loadTeam(2).members.length, 2);
 });
 
 ok("t965s4040: team UI display names do not write users or salespersons", () => {

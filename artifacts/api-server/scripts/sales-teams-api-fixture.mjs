@@ -120,7 +120,7 @@ try {
     const a = await call("admin", "POST", "/sales-teams/1/disable", {});
     assert.equal(a.s, 409);
     assert.equal(a.b.error, "intake_destination");
-    assert.match(String(a.b.message), /مقصد/);
+    assert.match(String(a.b.message), /۰٪/);
   });
 
   await ok("intake put rejects a sum other than 100", async () => {
@@ -154,6 +154,28 @@ try {
       { source: "site_leads", teams: [{ teamId: 1, percent: 100 }, { teamId: 2, percent: 0 }] },
     ] });
     assert.equal(back.s, 200);
+  });
+
+  await ok("creating a team rejects a member who is already on another team", async () => {
+    const r = await call("manager", "POST", "/sales-teams", {
+      name: "تیم آزمایش",
+      members: [
+        { salespersonId: 20, isLead: true, ownsNone: true, ownsP2: true, ownsP3: true, sortOrder: 0 },
+        { salespersonId: 19, ownsP1: true, sortOrder: 1 },
+      ],
+    });
+    assert.equal(r.s, 400);
+    assert.match(String(r.b.message), /تیم دیگری/);
+  });
+
+  await ok("picker flags sp 22 as a trainee and members of other teams as unavailable", async () => {
+    const r = await call("manager", "GET", "/sales-teams/picker");
+    assert.equal(r.s, 200);
+    const byId = (id) => r.b.people.find((p) => p.salespersonId === id);
+    assert.equal(byId(22).isTrainee, true);
+    assert.equal(byId(19).isTrainee, true);
+    assert.equal(byId(20).available, false);
+    assert.equal(byId(20).isTrainee, false);
   });
 
   await ok("validation errors match the design copy", async () => {

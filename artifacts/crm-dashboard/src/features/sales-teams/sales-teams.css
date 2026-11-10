@@ -1,4 +1,4 @@
-/* sales-teams v1.1 — تیم‌های فروش. پوسته از shell.css است. */
+/* sales-teams v1.2 — تیم‌های فروش. پوسته از shell.css است. */
 .st-page{max-width:960px;margin:0 auto}
 /* Production (no shell `.pg`): same dock reserve as Armita sales-shell. `.pg.st-page` already has this from shell.css. */
 main.st-page:not(.pg){padding-bottom:calc(var(--ss-dock-h, var(--dock-h, 84px)) + var(--ss-gap, var(--dock-gap, 16px)) + 32px)}
@@ -24,6 +24,7 @@ main.st-page:not(.pg){padding-bottom:calc(var(--ss-dock-h, var(--dock-h, 84px)) 
 .st-badge.off{background:var(--nf-surface-2);color:var(--nf-ink-muted)}
 .st-badge.lead{background:var(--nf-brand-50);color:var(--nf-brand-800)}
 .st-badge.ro{background:var(--nf-gold-50);color:var(--nf-gold-700)}
+.st-badge.trn{background:var(--nf-gold-50);color:var(--nf-gold-700)}
 .st-mems{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0}
 .st-mem{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid var(--nf-line);flex-wrap:wrap}
 .st-mem:first-child{border-top:0;padding-top:0}
@@ -62,6 +63,8 @@ body.rm .st-skel i{animation:none}
 .st-ex:disabled,.st-ex[aria-disabled=true]{background:var(--nf-surface-2);color:var(--nf-ink-muted);cursor:not-allowed;box-shadow:none}
 .st-ex b{font-weight:800}
 .st-ex small{display:block;font-size:13px;font-weight:600;color:var(--nf-ink-muted)}
+.st-ex-main{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0}
+.st-ex-id{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .st-link{display:inline-flex;align-items:center;min-height:44px;color:var(--nf-brand-600);font-weight:700;text-decoration:none}
 .st-count{margin:0 0 12px;color:var(--nf-ink-muted);font-size:15px}
 .st-mcards{display:flex;flex-direction:column;gap:12px}
@@ -92,12 +95,31 @@ body.rm .st-skel i{animation:none}
 .st-teams{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
 .st-teams button{min-height:44px;padding:0 14px;border-radius:99px;border:1px solid var(--nf-line-strong);background:#fff;font:inherit;font-weight:700;color:var(--nf-ink);cursor:pointer}
 .st-teams button[aria-pressed=true]{border-color:var(--nf-brand-600);background:var(--nf-brand-50);color:var(--nf-brand-800)}
-.st-pct{display:flex;flex-direction:column;gap:8px;margin:0 0 8px}
-.st-pct-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px}
-.st-pct-row label{font-weight:700}
-.st-pct-row input{width:88px;text-align:center}
-.st-pct-sum{margin:0;color:var(--nf-ink-soft)}
 .st-preview{margin:0;color:var(--nf-ink-soft)}
+.st-pct-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:6px 0}
+.st-pct-who{display:flex;flex-direction:column;gap:2px;min-width:0}
+.st-pct-name{font-weight:800;color:var(--nf-ink)}
+.st-noshr{font-size:13px;font-weight:700;color:var(--nf-ink-muted)}
+.st-pct{display:inline-flex;align-items:center;gap:4px;min-height:44px;min-width:44px;padding:0 10px;border:1px solid var(--nf-line-strong);border-radius:var(--nf-radius-control);background:#fff}
+.st-pct:focus-within{outline:2px solid var(--nf-brand-400);border-color:var(--nf-brand-600)}
+.st-pct-in{width:4.5ch;min-height:44px;border:0;background:transparent;font:inherit;font-weight:800;font-size:18px;text-align:center;color:var(--nf-ink)}
+.st-pct-in:focus{outline:none}
+.st-pct-in[readonly]{color:var(--nf-ink)}
+.st-pct-suf{font-weight:800;color:var(--nf-ink-soft)}
+.st-pct-row.muted .st-pct-name{color:var(--nf-ink-muted)}
+.st-pct-row.muted .st-pct{background:var(--nf-surface-2)}
+.st-total{margin:8px 0 0;font-weight:800;color:var(--nf-ink)}
+.st-total.bad{color:var(--nf-danger)}
+.st-src .st-err{margin:8px 0 0}
+.st-intake-foot{display:flex;flex-direction:column;gap:10px;margin-top:12px;padding-top:4px;background:transparent}
+.st-foot-sums{display:flex;flex-direction:column;gap:4px}
+.st-foot-sums p{margin:0;font-weight:800;color:var(--nf-ink);font-size:15px}
+.st-intake-foot .st-row{display:flex;gap:8px;flex-wrap:wrap}
+@media(max-width:1023.98px){
+  .st-intake-foot.is-sticky{position:sticky;bottom:calc(var(--ss-dock-h, var(--dock-h, 72px)) + env(safe-area-inset-bottom, 0px));z-index:15;margin-inline:-14px;padding:12px 14px 16px;border-top:1px solid var(--nf-line);box-shadow:0 -8px 20px rgba(11,20,80,.08);background:var(--nf-bg, #f6f7fb)}
+  .st-intake-foot .st-row .btn{flex:1 1 auto}
+  .st-pct-row{flex-wrap:nowrap}
+}
 .st-scrim{position:fixed;inset:0;z-index:50;background:rgba(11,20,80,.4)}
 .st-modal{position:fixed;z-index:51;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,calc(100vw - 32px));padding:24px;border-radius:24px;background:#fff;box-shadow:var(--nf-shadow-pop)}
 .st-modal h2{margin:0 0 8px;color:var(--nf-ink);font-size:20px;font-weight:800}

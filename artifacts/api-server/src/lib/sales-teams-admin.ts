@@ -10,12 +10,14 @@ import {
   installAssistantBellGuard,
   INTAKE_SOURCES,
   isIntakeSource,
+  isTraineeSalesperson,
   loadAllIntakeSplits,
   loadAllTeams,
   loadIntakeSplit,
   loadTeam,
   migrateMultiTeam,
   mtFlagOn,
+  normalizeIncomingShares,
   saveIntakeShares,
   seedIntakeSplitIfNeeded,
   TEAM_SEED_NAMES,
@@ -173,12 +175,15 @@ export function todayJalaliLabel(now = new Date()): string {
 
 export function intakeSentence(source: IntakeSource, shares: { teamId: number; percent: number }[]): string {
   const subject = source === "site_leads" ? "لید فرم سایت" : "مشتری جدید";
-  const active = shares.filter((s) => s.percent > 0);
   const nameOf = (id: number) => loadTeam(id)?.name || TEAM_SEED_NAMES[id] || `تیم ${faDigits(id)}`;
-  if (active.length <= 1) return `${subject} به ${nameOf(active[0]?.teamId ?? 1)} می‌رود.`;
-  const parts = active.map((s) => `${faDigits(s.percent)}٪ به ${nameOf(s.teamId)}`);
-  if (parts.length === 2) return `${subject} ${parts[0]} و ${parts[1]} می‌رود.`;
-  return `${subject} ${parts.slice(0, -1).join("، ")} و ${parts[parts.length - 1]} می‌رود.`;
+  const parts = [...shares].sort((a, b) => a.teamId - b.teamId).map((s) => {
+    const name = nameOf(s.teamId);
+    return s.percent === 0
+      ? `${name} ${faDigits(0)}٪، بدون سهم ورودی`
+      : `${name} ${faDigits(s.percent)}٪`;
+  });
+  if (!parts.length) return `${subject}: ${nameOf(1)} ${faDigits(100)}٪.`;
+  return `${subject}: ${parts.join("؛ ")}.`;
 }
 
 export function presentIntake() {
@@ -239,9 +244,8 @@ export function pickerPeople(opts: { excludeTeamId?: number } = {}): PickerPerso
       teamId: onEnabled ? team!.id : null,
       teamName: onEnabled ? team!.name : null,
       reason: onEnabled ? `عضو ${team!.name}` : null,
-      isTrainee: !onEnabled,
+      isTrainee: isTraineeSalesperson(sp),
     });
-    void isTrainee;
   }
   out.sort((a, b) => Number(b.available) - Number(a.available) || a.salespersonId - b.salespersonId);
   return out;
@@ -491,17 +495,19 @@ function parsePutShares(item: {
 export function putIntake(body: { sources?: { source: string; teams?: { teamId: number; percent: number }[]; shares?: { teamId: number; percent: number }[]; percents?: Record<string, number> }[] }, now = new Date()) {
   migrateMultiTeam();
   const items = Array.isArray(body?.sources) ? body.sources : [];
+  const prepared: { source: IntakeSource; shares: { teamId: number; percent: number }[] }[] = [];
   for (const item of items) {
     if (!isIntakeSource(item.source)) {
       return { ok: false as const, status: 400, error: "invalid_source", message: "منبع تقسیم معتبر نیست." };
     }
     try {
-      saveIntakeShares(item.source, parsePutShares(item), now);
+      prepared.push({ source: item.source, shares: normalizeIncomingShares(item.source, parsePutShares(item)) });
     } catch (e) {
-      const err = e as Error & { field?: string; status?: number; error?: string };
-      return { ok: false as const, status: err.status || 422, error: err.error || "invalid_intake", message: err.message };
+      const err = e as Error & { field?: string; status?: number; error?: string; source?: string; sum?: number };
+      return { ok: false as const, status: err.status || 422, error: err.error || "invalid_intake", message: err.message, source: err.source, sum: err.sum };
     }
   }
+  for (const item of prepared) saveIntakeShares(item.source, item.shares, now);
   return { ok: true as const, intake: presentIntake() };
 }
 

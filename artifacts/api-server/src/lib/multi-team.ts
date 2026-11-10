@@ -372,14 +372,17 @@ export function teamIsIntakeDestination(teamId: number): boolean {
 
 export function disableBlockedByIntakeMessage(teamId: number): string | null {
   if (!teamIsIntakeDestination(teamId)) return null;
-  const sources = loadAllIntakeSplits()
-    .filter((r) => r.shares.some((s) => s.teamId === Number(teamId) && s.percent > 0))
-    .map((r) => r.source === "new_customers" ? "مشتری جدید" : "لید فرم سایت");
-  const which = sources.length ? sources.join(" و ") : "تقسیم ورودی";
-  return `این تیم مقصد ${which} است. اول مقصد تقسیم را عوض کنید، بعد غیرفعال کنید.`;
+  return "این تیم در تقسیم مشتری جدید یا لید فرم سایت بیش از ۰٪ دارد. تا وقتی سهمش ۰٪ نشود، تیم غیرفعال نمی‌شود.";
 }
 
-function normalizeIncomingShares(raw: { teamId: number; percent: number }[]): { teamId: number; percent: number }[] {
+function intakeSourceLabel(source: IntakeSource): string {
+  return source === "site_leads" ? "لید فرم سایت" : "مشتری جدید";
+}
+function faInt(n: number): string {
+  return String(n).replace(/[0-9]/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)]!);
+}
+
+export function normalizeIncomingShares(source: IntakeSource, raw: { teamId: number; percent: number }[]): { teamId: number; percent: number }[] {
   const byId = new Map<number, number>();
   for (const item of raw || []) {
     const teamId = Number(item.teamId);
@@ -394,7 +397,11 @@ function normalizeIncomingShares(raw: { teamId: number; percent: number }[]): { 
   for (const id of knownTeamIds()) if (!byId.has(id)) byId.set(id, 0);
   const shares = [...byId.entries()].map(([teamId, percent]) => ({ teamId, percent })).sort((a, b) => a.teamId - b.teamId);
   const sum = shares.reduce((n, s) => n + s.percent, 0);
-  if (sum !== 100) throw intakeError("جمع درصدهای هر منبع باید دقیقاً ۱۰۰ باشد.");
+  if (sum !== 100) {
+    const err = intakeError(`جمع درصدهای ${intakeSourceLabel(source)} ${faInt(sum)}٪ است؛ باید ۱۰۰٪ باشد.`);
+    Object.assign(err, { source, sum });
+    throw err;
+  }
   for (const s of shares) {
     const t = loadTeam(s.teamId);
     if (!t) throw intakeError("تیم انتخاب‌شده پیدا نشد.", "invalid_intake", 422, "teamId");
@@ -408,7 +415,7 @@ function normalizeIncomingShares(raw: { teamId: number; percent: number }[]): { 
 /** Persist integer percents for one source and reset that source's deficit counters. */
 export function saveIntakeShares(source: IntakeSource, shares: { teamId: number; percent: number }[], now = new Date()): IntakeSplitRow {
   ensureMultiTeamSchema();
-  const next = normalizeIncomingShares(shares);
+  const next = normalizeIncomingShares(source, shares);
   const at = now.toISOString();
   for (const s of next) upsertShare(source, s.teamId, s.percent, 0, at);
   return loadIntakeSplit(source);
