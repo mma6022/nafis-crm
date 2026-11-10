@@ -18,6 +18,7 @@ import { CatPill, RNote, fcDay } from '@/features/files-carousel/FcLabels';
 import { loanStageLabel } from '@/lib/loan-labels';
 import { FB_STEPS, fbColumnLabel, fbColumnOf } from './columns';
 import { useTodaySplit } from './api';
+import { pendingItemLabel } from './pending-item-label';
 import { useDciStatus } from '@/features/daily-customer-inline/api';
 import { useBoard } from './FilesBoard';
 import '@/features/daily-plan/daily-plan.css';
@@ -131,7 +132,10 @@ function reasonOf(c: FcCard): { k: string; t: string } | null {
   const f = c.fc; if (!f) return c.reason ? { k: 'دلیل', t: c.reason } : null;
   if (f.priority_category === 'returned' && f.return_note) return { k: 'یادداشت کارشناس ثبت', t: f.return_note };
   if (f.signature_reject_reason) return { k: 'دلیل رد امضا (از پرونده)', t: f.signature_reject_reason };
-  if (f.pending_item) return { k: 'منتظر', t: f.pending_item };
+  if (f.pending_item) {
+    const t = pendingItemLabel(f.pending_item);
+    return t ? { k: 'منتظر', t } : null;
+  }
   return c.reason ? { k: 'دلیل', t: c.reason } : null;
 }
 function TaskCard({ c, pos, total, onResult, onFile }: { c: FcCard; pos: number; total: number; onResult: () => void; onFile: () => void }) {
@@ -149,7 +153,7 @@ function TaskCard({ c, pos, total, onResult, onFile }: { c: FcCard; pos: number;
       <h2 id="ts-card-h">{faName(c.customerName)} <span className="dp-id">#{faNum(c.customerId)}</span></h2>
       <p className="ts-fno" data-testid="ts-fileno">پرونده {faNum(c.fileId)}، {loanStageLabel(c.stage)}</p>
       {c.fc ? <RNote c={c.fc} /> : null}
-      {r ? <div className="dp-keynote ts-reason"><small>{r.k}</small><q data-testid="ts-reason">{r.t}</q></div> : null}
+      {r ? <div className="dp-keynote ts-reason"><small>{r.k}</small>{r.k === "منتظر" ? <span data-testid="ts-reason">{r.t}</span> : <q data-testid="ts-reason">{r.t}</q>}</div> : null}
       {c.ask ? <div className="dp-keynote"><small>چی بپرسم</small><q>{c.ask}</q></div> : null}
       {c.phone ? <div className="ts-ph"><small>شماره‌ی مشتری</small><CallNumber phone={c.phone} customerId={c.customerId} via="files" testId="ts-ph" /></div> : null}
       {vcOn ? <VoipCallBox customerId={c.customerId} fileId={c.fileId} entry="carousel" customerName={faName(c.customerName)} onResult={onResult} extra={fileBtn} /> : <>
