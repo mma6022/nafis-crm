@@ -2,9 +2,10 @@ import { Router, type RequestHandler } from "express";
 import { requireAuth, type AuthUser } from "../lib/auth";
 import {
   DraftError, canViewDrafts, createDraft, deleteDraft, draftCounts, ensureLoanRequestDraftSchema, getDraft, listDrafts,
-  autoDeleteEnabled, listLegacyPreRegistrations, listOrphanPaidFees, openDraftForCustomer, seesAllDrafts, startLoanRequestDraftScheduler, updateDraft,
+  autoDeleteEnabled, listLegacyPreRegistrations, listOpenDraftsForCustomer, listOrphanPaidFees, openDraftForCustomer, seesAllDrafts, startLoanRequestDraftScheduler, updateDraft,
 } from "../lib/loan-request-drafts";
 import { queryRow } from "../lib/crm-db";
+import { mcFlagOn } from "../lib/multi-case";
 
 ensureLoanRequestDraftSchema();
 startLoanRequestDraftScheduler();
@@ -41,7 +42,8 @@ router.get("/loan-request-drafts/by-customer/:customerId", wrap((req, res) => {
   const u = user(res), customerId = intId(req.params.customerId);
   const c = queryRow<any>("SELECT salesperson_id FROM customers WHERE id=?", [customerId]);
   if (!c || (!seesAllDrafts(u) && c.salesperson_id !== u.salespersonId)) throw new DraftError(404, "customer_not_found");
-  res.json({ draft: openDraftForCustomer(customerId, u) });
+  const draft = openDraftForCustomer(customerId, u);
+  res.json(mcFlagOn(u.id) ? { draft, drafts: listOpenDraftsForCustomer(customerId, u) } : { draft });
 }));
 router.get("/loan-request-drafts/:id", wrap((req, res) => { res.json({ draft: getDraft(intId(req.params.id), user(res)) }); }));
 router.post("/loan-request-drafts", wrap((req, res) => { res.status(201).json({ draft: createDraft(user(res), req.body) }); }));

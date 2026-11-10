@@ -1,4 +1,5 @@
 import { registrarCanTag } from "../lib/registrar-view";
+import { caseChoiceErrorBody, mcFlagOn, resolveCaseLink } from "../lib/multi-case";
 import { rfCleanNote, rfCleanReactivationReason, rfCleanReactivationSource, rfRecordReactivation, rfTagHandoff, type RfReactivationSource } from "../lib/reminder-follow";
 import { cqAfterCall, cqParseCall, type CqCallResult, rmBeforeOpen, toReminderTime, tParts, REMINDER_START_MIN, rmAfterClose } from "../lib/call-queue";
 import { dpAfterCall, dpAfterCommit, dpPreCall, dpSearchCheck } from "../lib/daily-plan";
@@ -4771,6 +4772,15 @@ router.post(
         return;
       }
     }
+    let reminderCaseId: number | null = null;
+    if (mcFlagOn(user.id) && parsed.data.customerId != null) {
+      try { reminderCaseId = resolveCaseLink(user, parsed.data.customerId, req.body); }
+      catch (error) {
+        const choice = caseChoiceErrorBody(error);
+        if (choice) { res.status(choice.status).json(choice.body); return; }
+        throw error;
+      }
+    }
     // REMINDERS-FOLLOW item 1: optional note (≤80) and the creator are stored; item 12: the one-open trigger replaces the
     // customer's previous open reminder in this same statement (replaced_by / replaced_at, kept in history).
     const rfNote = rfCleanNote(req.body?.note);
@@ -4803,6 +4813,7 @@ router.post(
       res.status(500).json({ error: "Reminder was not created" });
       return;
     }
+    if (reminderCaseId) executeChanges("UPDATE reminders SET loan_application_id=? WHERE id=?", [reminderCaseId, id]);
     res.status(201).json(CreateReminderResponse.parse(reminderFromRow(row, user)));
   },
 );
@@ -5079,6 +5090,15 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
     res.status(400).json({ error: "موعد یادآور باید در آینده باشد." });
     return;
   }
+  let callCaseId: number | null = null;
+  if (mcFlagOn(user.id)) {
+    try { callCaseId = resolveCaseLink(user, body.customerId, req.body); }
+    catch (error) {
+      const choice = caseChoiceErrorBody(error);
+      if (choice) { res.status(choice.status).json(choice.body); return; }
+      throw error;
+    }
+  }
   let profile: {
     nationalCode: string | null;
     postalCode: string | null;
@@ -5180,8 +5200,9 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
         new Date().toISOString(),
       ],
     );
-    if (body.reminder)
-      execute(
+    if (callCaseId) executeChanges("UPDATE call_logs SET loan_application_id=? WHERE id=? AND customer_id=?", [callCaseId, callId, body.customerId]);
+    if (body.reminder) {
+      const reminderId = execute(
         `INSERT INTO reminders
         (user_id, salesperson_id, customer_id, subject, message, remind_at, sent_sms, done, created_at, call_id)
        VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`,
@@ -5196,6 +5217,8 @@ router.post("/calls", requirePermission("calls.create"), (req, res): void => {
           callId,
         ],
       );
+      if (callCaseId) executeChanges("UPDATE reminders SET loan_application_id=? WHERE id=?", [callCaseId, reminderId]);
+    }
     if (manualOutcome) { ensureManualOutcomeSchema(); executeChanges("UPDATE call_logs SET call_result=? WHERE id=?", [manualOutcome, callId]); }
     cqResult = cqAfterCall(callId, cqInput, user, body.customerId);
     dpResult = dpAfterCall(req.body, callId, user, body.customerId);

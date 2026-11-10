@@ -6,6 +6,7 @@
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction, type SqlValue } from "./crm-db";
 import type { AuthUser } from "./auth";
 import { customerSearchSql } from "./customer-id-search";
+import { mcFlagOn } from "./multi-case";
 
 export const DRAFT_STEP_LABELS = [
   "انتخاب مشتری", "اطلاعات هویتی", "احراز هویت", "رتبه اعتباری", "طرح و شرط",
@@ -67,9 +68,18 @@ export const DRAFTS_DDL = `
   );`;
 
 let ensured = false;
+export const DRAFT_REQUEST_KEY = /^[A-Za-z0-9][A-Za-z0-9_.:-]{7,79}$/;
 export function ensureLoanRequestDraftSchema() {
   if (ensured) return;
   crmDb.exec(DRAFTS_DDL);
+  const cols = queryRows<{ name: string }>("PRAGMA table_info(loan_request_drafts)");
+  if (!cols.some((c) => c.name === "request_key")) crmDb.exec("ALTER TABLE loan_request_drafts ADD COLUMN request_key TEXT");
+  // NULL request_key stays one open draft per customer. Independent requests use request_key.
+  crmDb.exec(`DROP INDEX IF EXISTS idx_loan_request_drafts_one_open;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_request_drafts_one_legacy
+      ON loan_request_drafts(customer_id) WHERE deleted_at IS NULL AND request_key IS NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_request_drafts_request
+      ON loan_request_drafts(customer_id, request_key) WHERE deleted_at IS NULL AND request_key IS NOT NULL;`);
   ensured = true;
 }
 
@@ -161,6 +171,7 @@ export function shapeDraft(r: any, u: AuthUser | null, nowMs = Date.now()) {
     daysUntilAutoDelete: autoDeleteAt ? Math.max(0, Math.ceil((Date.parse(autoDeleteAt) - nowMs) / DAY_MS)) : null,
     creditFresh, creditCheckAt: r.credit_completed_at ?? null,
     applicationId: r.application_id ?? r.fee_application_id ?? null,
+    requestKey: r.request_key ?? null,
     deletedAt: r.deleted_at ?? null, deleteReason: r.delete_reason ?? null,
     canContinue: !!u && !r.deleted_at && canCreateDrafts(u) && (seesAllDrafts(u) || r.customer_salesperson_id === u.salespersonId),
     canDelete: !!u && !r.deleted_at && u.role === "admin" && r.fee_charge_id == null,
@@ -277,8 +288,11 @@ export function getDraft(id: number, u: AuthUser, nowMs = Date.now()) {
   return shapeDraft(r, u, nowMs);
 }
 export function openDraftForCustomer(customerId: number, u: AuthUser | null) {
-  const r = queryRow<any>(`${SELECT} WHERE d.customer_id=? AND ${OPEN}`, [customerId]);
+  const r = queryRow<any>(`${SELECT} WHERE d.customer_id=? AND ${OPEN} ORDER BY CASE WHEN d.request_key IS NULL THEN 0 ELSE 1 END, d.id DESC LIMIT 1`, [customerId]);
   return r ? shapeDraft(r, u) : null;
+}
+export function listOpenDraftsForCustomer(customerId: number, u: AuthUser | null) {
+  return queryRows<any>(`${SELECT} WHERE d.customer_id=? AND ${OPEN} ORDER BY d.id ASC`, [customerId]).map((r) => shapeDraft(r, u));
 }
 
 // ---------------------------------------------------------------- writing
@@ -306,15 +320,19 @@ export function createDraft(u: AuthUser, body: any) {
   if (!Number.isSafeInteger(customerId) || customerId <= 0) throw new DraftError(400, "invalid_customer");
   const payload = cleanPayload(body?.payload);
   if (payload.ignoreCreditRank === true && !["admin", "salesperson"].includes(u.role)) payload.ignoreCreditRank = false;
+  const requestKey = mcFlagOn(u.id) && body?.requestKey != null && String(body.requestKey) !== "" ? String(body.requestKey) : null;
+  if (requestKey && !DRAFT_REQUEST_KEY.test(requestKey)) throw new DraftError(400, "invalid_request_key");
   return runImmediateTransaction(() => {
     const customer = scopedCustomer(customerId, u);
     if (!customer) throw new DraftError(404, "customer_not_found");
     syncDraftsWithCases(Date.now(), customerId);
-    const existing = queryRow<any>(`${SELECT} WHERE d.customer_id=? AND ${OPEN}`, [customerId]);
+    const existing = requestKey
+      ? queryRow<any>(`${SELECT} WHERE d.customer_id=? AND d.request_key=? AND ${OPEN}`, [customerId, requestKey])
+      : queryRow<any>(`${SELECT} WHERE d.customer_id=? AND d.request_key IS NULL AND ${OPEN}`, [customerId]);
     if (existing) throw new DraftError(409, "draft_exists", { draft: shapeDraft(existing, u) });
     const ts = new Date().toISOString();
-    const id = execute(`INSERT INTO loan_request_drafts(customer_id,source,created_by_user_id,salesperson_id,step,payload_json,created_at,updated_at,updated_by_user_id)
-      VALUES(?,?,?,?,?,?,?,?,?)`, [customerId, "crm", u.id, customer.salesperson_id ?? null, clampStep(body?.step, 2), JSON.stringify(payload), ts, ts, u.id]);
+    const id = execute(`INSERT INTO loan_request_drafts(customer_id,source,created_by_user_id,salesperson_id,step,payload_json,request_key,created_at,updated_at,updated_by_user_id)
+      VALUES(?,?,?,?,?,?,?,?,?,?)`, [customerId, "crm", u.id, customer.salesperson_id ?? null, clampStep(body?.step, 2), JSON.stringify(payload), requestKey, ts, ts, u.id]);
     audit(id, customerId, "created", u.id, null, null, ts);
     return shapeDraft(rowById(id), u);
   });

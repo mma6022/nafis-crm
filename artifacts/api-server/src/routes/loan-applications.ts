@@ -28,6 +28,7 @@ import { loanPlanNetAmount } from "../lib/loan-plan-net-amount";
 import { classifyProviderState, isStrictSignedProviderState, providerContractState } from "../lib/emzame-signature";
 import { emzameRequest } from "../lib/emzame-client";
 import { creditLoanWallet, wallet } from "../lib/wallets";
+import { bindSlotCharge, claimSlotForApplication, mcFlagOn, openSamePlanBody, reserveOpenPlan } from "../lib/multi-case";
 import {
   isAttestedTomanTemplate,
   renderedPdfContainsInstallmentCount,
@@ -137,6 +138,7 @@ const LOAN_REFUSAL_MESSAGES: Record<string, string> = {
   initial_funder_decision_already_recorded: "تصمیم اولیهٔ تأمین‌کننده قبلاً برای این پرونده ثبت شده است.",
   loan_plan_condition_not_found: "شرط طرح متناسب با مبلغ و تعداد اقساط انتخاب‌شده پیدا نشد.",
   loan_plan_condition_not_matched: "مبلغ یا تعداد اقساط با شرایط طرح این پرونده سازگار نیست.",
+  open_same_plan_case: "برای این مشتری یک پروندهٔ باز با همین طرح وجود دارد. تا بسته شدن آن، پروندهٔ تازه با همین طرح ساخته نمی‌شود.",
   workflow_error: "ثبت این اقدام به دلیل خطای داخلی انجام نشد.",
 };
 function error(res: any, status: number, rawCode: string, rawReason?: string, rawMessage?: string) {
@@ -1632,6 +1634,10 @@ router.post("/loan-applications/filing-fee-charges", requirePermission("loan_app
         const own = queryRow<any>("SELECT * FROM loan_filing_fee_charges WHERE id=?", [draft.fee_charge_id]);
         if (own && own.application_id == null) return { chargeId: Number(own.id), amountToman: String(own.amount_toman), applicationId: null, repeated: true };
       }
+      if (mcFlagOn(actor.id)) {
+        // New idempotency key. Same-plan open case or another request's unattached fee conflicts before any debit.
+        reserveOpenPlan(customerId, planId);
+      } else {
       const reusable = reusableFilingFeeCharge(customerId, planId);
       if (reusable) {
         return linked({
@@ -1643,6 +1649,7 @@ router.post("/loan-applications/filing-fee-charges", requirePermission("loan_app
       }
       // A paid fee that already created a (hidden) pre-registration case is continued on that case, never charged again.
       if (openPreRegistrationCase(customerId)) throw new Error("open_pre_registration_case");
+      }
       const profile = queryRow<any>("SELECT * FROM customers WHERE id=?", [customerId]);
       const prerequisiteError = filingFeePrerequisiteError(profile, ignoreCreditRank);
       if (prerequisiteError) throw new Error(prerequisiteError);
@@ -1659,6 +1666,7 @@ router.post("/loan-applications/filing-fee-charges", requirePermission("loan_app
       const chargeId = execute(
         "INSERT INTO loan_filing_fee_charges(customer_id,plan_id,amount_toman,idempotency_key,actor_user_id,created_at) VALUES(?,?,?,?,?,?)",
         [customerId, planId, amount, key, actor.id, ts]);
+      if (mcFlagOn(actor.id)) bindSlotCharge(customerId, planId, Number(chargeId));
       if (overrideReason) logCreditRankOverride({ action: "filing_fee_charged", actor, customerId, planId, reason: overrideReason, at: ts });
       if (BigInt(amount) > 0n) {
         executeChanges("UPDATE wallet_accounts_v2 SET balance=? WHERE id=?", [(BigInt(cash.balance) - BigInt(amount)).toString(), cash.id]);
@@ -1674,6 +1682,8 @@ router.post("/loan-applications/filing-fee-charges", requirePermission("loan_app
       chargeId: result.chargeId, amountToman: result.amountToman, applicationId: result.applicationId,
     });
   } catch (e) {
+    const samePlan = openSamePlanBody(e);
+    if (samePlan) return res.status(409).json(samePlan);
     const code = e instanceof Error ? e.message : "";
     if (["filing_fee_idempotency_conflict", "insufficient_cash_balance", "draft_fee_plan_locked", "draft_closed", "open_pre_registration_case"].includes(code)) return error(res, 409, code);
     if (["invalid_draft", "draft_not_found"].includes(code)) return error(res, code === "invalid_draft" ? 400 : 404, code);
@@ -1856,7 +1866,10 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
   }
   if (!hasFreshIdentityDocuments(customerId)) return error(res, 422, "identity_documents_missing");
    const ts = now(), requirements = (() => { try { return (JSON.parse(plan.required_documents || "[]") as unknown[]).filter((key) => !separateRequirementKeys.has(String(key))); } catch { return []; } })();
-   const id = runTransaction(() => {
+   const multi = mcFlagOn(u.id);
+   let id: number;
+   try {
+   id = (multi ? runImmediateTransaction : runTransaction)(() => {
      const currentCharge = queryRow<any>("SELECT application_id FROM loan_filing_fee_charges WHERE id=?", [charge.id]);
      if (currentCharge?.application_id) return Number(currentCharge.application_id);
     let consultationId = Number(b.consultationId);
@@ -1872,6 +1885,7 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
      for (const item of requirements) execute("INSERT INTO loan_application_documents(application_id,requirement_key,label,source,created_at) VALUES(?,?,?,?,?)", [appId, String(item), documentLabel(String(item)), "plan", ts]);
       execute("INSERT INTO loan_application_stage_history(application_id,to_stage,action,actor_id,created_at) VALUES(?,?,?,?,?)", [appId, "draft", "created", u.id, ts]);
      executeChanges("UPDATE loan_filing_fee_charges SET application_id=? WHERE id=? AND application_id IS NULL", [appId, charge.id]);
+     if (multi) claimSlotForApplication(customerId, planId, Number(charge.id), Number(appId));
      // Same transaction: the «در انتظار ثبت» draft of this fee (or the one named by draftId) is closed as submitted.
      closeDraftsForCase(customerId, Number(charge.id), appId, u.id, draft ? Number(draft.id) : null);
     if (overrideReason) {
@@ -1882,6 +1896,11 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
     }
     return appId;
   });
+  } catch (e) {
+    const samePlan = openSamePlanBody(e);
+    if (samePlan) return res.status(409).json(samePlan);
+    throw e;
+  }
   res.status(201).json(scoped(id, u));
 });
 registerLoanCaseAdminControls(router, { scoped, stages, workflowStatus, effectivePlanTerms, validatedPrimaryManualValues, loanRankOverrideSnapshot, documentLabel });
