@@ -8,7 +8,7 @@ import './bale-bot.css';
 import './bale-contact.css';
 import { bbFetch, BbError, useBaleBotMe, bbListTime, bbTime, bbDay, bbDayKey, bbSize, bbDur, fa, fd, toLatin, PHONE_OK, bbUrl,
   type BbMe, type BbChat, type BbChats, type BbMessage } from './api';
-import { I, Ava, Nm, Cid, Ph, Uname, Unverified, useToast, Steps, Modal, copyText } from './ui';
+import { I, Ava, Nm, Cid, Ph, Uname, Unverified, useToast, Steps, Modal, copyText, FaPhones, faPhoneString } from './ui';
 
 export const CUST_STATUS: Record<string, string> = { in_progress: 'در حال انجام', cancelled: 'لغو شده', completed: 'اتمام' };
 const STATUS: Record<string, [string, string]> = { sending: ['refresh', 'در حال ارسال'], sent: ['check', 'ارسال شد'], failed: ['alert', 'ارسال ناموفق'], wait: ['clock', 'کمی صبر کنید، دوباره ارسال می‌شود'] };
@@ -59,13 +59,13 @@ function Inbox({ me }: { me: BbMe }) {
   const allEmpty = listQ.data && listQ.data.counts.all === 0 && !q && filter === 'all' && !expert;
   const mob = sel != null ? 'chat' : 'list';
   useEffect(() => { document.title = 'گفتگوهای بله | نفیس وام'; }, []);
-  // desktop (three columns): never show an empty middle column — open the first chat of the current list
+  // flag OFF: desktop auto-opens the first chat. flag ON: leave the mid pane empty (Armita scene 10).
   const first = listQ.data?.chats[0]?.id;
-  useEffect(() => { if (sel == null && first != null && window.matchMedia('(min-width:1024px)').matches) nav(`/bale-bot/${first}`, { replace: true }); }, [sel, first, nav]);
+  useEffect(() => { if (me.contactFeature) return; if (sel == null && first != null && window.matchMedia('(min-width:1024px)').matches) nav(`/bale-bot/${first}`, { replace: true }); }, [sel, first, nav, me.contactFeature]);
   const err = (e: unknown) => toast(e instanceof BbError ? e.message : 'درخواست انجام نشد. دوباره تلاش کنید.');
   const askContact = async () => { if (!chat) return; try { await bbFetch(`/bale-bot/chats/${chat.id}/request-contact`, { body: {} }); toast('درخواست شماره فرستاده شد'); refresh(); } catch (e) { err(e); } };
 
-  return <div className="bbt" dir="rtl" data-testid="bale-bot-inbox">
+  return <div className={`bbt${me.contactFeature ? " bc-on" : ""}`} dir="rtl" data-testid="bale-bot-inbox">
     {/* the floating «گزارش خطا» launcher sat on the bubbles of an open chat on phones; the top-bar bug icon stays */}
     <style>{'@media (max-width:1023px){body:has(.bbt .pg.chv) .diag-floating{display:none!important}}'}</style>
     <main className={`pg bbpg${mob === 'chat' ? ' chv' : ''}`}>
@@ -77,7 +77,9 @@ function Inbox({ me }: { me: BbMe }) {
           <CustPane me={me} chat={chat} toast={toast} onAsk={askContact} onSearch={() => setModal({ k: 'search' })} onLead={() => setModal({ k: 'lead' })} />
         </> : sel != null && chatQ.isError ? <section className="pane ch"><div className="na" style={{ margin: 'auto' }}><div className="ci"><I n="lock" /></div><b>این گفتگو پیدا نشد</b><p>شاید به ربات شما مربوط نیست.</p><Link className="btn pri" href="/bale-bot"><I n="chat" />گفتگوهای بله</Link></div></section>
           : sel != null ? <section className="pane ch"><span className="bbsk" /></section>
-          : allEmpty ? <EmptyMain me={me} toast={toast} /> : <section className="pane ch" aria-label="شروع"><div className="na" style={{ margin: 'auto' }}><div className="ci" style={{ background: 'var(--nf-brand-50)', color: 'var(--nf-brand-600)' }}><I n="chat" /></div><b>یک گفتگو را انتخاب کنید</b><p>پیام‌ها و پرونده‌ی مشتری این‌جا باز می‌شود.</p></div></section>}
+          : allEmpty ? <EmptyMain me={me} toast={toast} /> : me.contactFeature
+            ? <section className="pane ch" aria-label="شروع"><div className="bc-empty"><b>یک گفتگو را انتخاب کنید</b><p>نام مشتری‌ها در فهرست دیده می‌شود؛ گفتگوهای در انتظار شماره یا تأیید علامت دارند.</p></div></section>
+            : <section className="pane ch" aria-label="شروع"><div className="na" style={{ margin: 'auto' }}><div className="ci" style={{ background: 'var(--nf-brand-50)', color: 'var(--nf-brand-600)' }}><I n="chat" /></div><b>یک گفتگو را انتخاب کنید</b><p>پیام‌ها و پرونده‌ی مشتری این‌جا باز می‌شود.</p></div></section>}
       </div>
     </main>
     {modal?.k === 'search' && chat ? <SearchModal chat={chat} toast={toast} close={() => setModal(null)} onAsk={() => { setModal(null); void askContact(); }} onLead={() => setModal({ k: 'lead' })} done={(name) => { setModal(null); toast(`گفتگو به پرونده‌ی ${name} وصل شد.`); refresh(); }} /> : null}
@@ -123,7 +125,7 @@ function ListPane({ me, data, loading, sel, filter, setFilter, q, setQ, expert, 
         return <li key={c.id} className={`cv-r${c.unread ? ' un' : ''}`} aria-current={c.id === sel ? true : undefined} onClick={() => nav(`/bale-bot/${c.id}`)}>
           <a className="cv-hit" href={`#${c.id}`} onClick={(e) => { e.preventDefault(); nav(`/bale-bot/${c.id}`); }} aria-label={`گفتگو با ${c.name}${c.unread ? `، ${fa(c.unread)} پیام خوانده‌نشده` : ''}`} />
           <Ava name={c.name} seed={c.id} /><span className="nmr"><Nm name={c.name} />{showCid ? <Cid id={c.customer!.id} toast={toast} /> : null}</span><span className="tm">{bbListTime(c.lastAt)}</span>
-          <span className="pv">{c.lastByManager ? 'مدیر: ' : c.lastOut ? 'شما: ' : ''}{pvKind ? <I n={PREV_IC[pvKind]} /> : null}{c.lastPreview}</span>{c.unread ? <span className="ub" aria-hidden="true">{fa(c.unread)}</span> : null}
+          <span className="pv">{c.lastByManager ? 'مدیر: ' : c.lastOut ? 'شما: ' : ''}{pvKind ? <I n={PREV_IC[pvKind]} /> : null}{me.contactFeature && c.lastPreview && !pvKind ? faPhoneString(c.lastPreview) : c.lastPreview}</span>{c.unread ? <span className="ub" aria-hidden="true">{fa(c.unread)}</span> : null}
           {tags.length ? <span className="tg">{tags}</span> : null}</li>; })}</ul>
       : <div className="lempty"><b>گفتگویی پیدا نشد</b></div>}
     {data && data.counts.all ? <p className="lfoot"><I n="clock" />فقط پیام‌هایی که به ربات داده می‌شود؛ پیام‌های شخصی بله این‌جا نیست.</p> : null}
@@ -200,7 +202,7 @@ function ChatPane({ me, chat, messages, toast, err, refresh, onAsk, onSearch, on
     items.push(<Bubble key={m.id} m={m} chat={chat} me={me} reply={m.replyTo ? byId.get(m.replyTo) : undefined} sel={menu === m.id} toast={toast} onClick={() => setMenu(menu === m.id ? null : m.id)}
       onRetry={async () => { try { await bbFetch(`/bale-bot/messages/${m.id}/retry`, { body: {} }); refresh(); } catch (e) { err(e); } }} />);
     if (m.kind === 'contact' && m.contact?.own && chat.customer && chat.linkMethod === 'contact') items.push(<div key={`l${m.id}`} className="sys ok" role="status"><I n="check" /><span>وصل شد به پرونده‌ی {chat.customer.name}<Cid id={chat.customer.id} toast={toast} /></span></div>);
-    if (m.kind === 'contact' && m.contact?.own && chat.customer && chat.linkMethod === 'contact_other') items.push(<div key={`l${m.id}`} className="sys ok" role="status"><I n="link" /><span>وصل شد به پرونده‌ی کارشناس دیگر</span></div>);
+    if (m.kind === 'contact' && m.contact?.own && chat.customer && chat.linkMethod === 'contact_other') items.push(<div key={`l${m.id}`} className="sys ok lko" role="status"><span className="chip s"><I n="link" />وصل شد به پرونده‌ی کارشناس دیگر</span><span>{chat.customer.name} <Cid id={chat.customer.id} toast={toast} />؛ مسئول پرونده: {chat.customer.expert}</span></div>);
     if (menu === m.id && !m.deleted) items.push(<div key={`mm${m.id}`} className="mmenu" role="menu" aria-label="کارهای پیام">
       {chat.canWrite ? <button type="button" role="menuitem" onClick={() => { setReply(m); setEdit(null); setMenu(null); }}><I n="reply" />پاسخ</button> : null}
       {m.text ? <button type="button" role="menuitem" onClick={() => { copyText(m.text!, toast); setMenu(null); }}><I n="copy" />کپی متن</button> : null}
@@ -245,7 +247,7 @@ function Bubble({ m, chat, me, reply, sel, toast, onClick, onRetry }: { m: BbMes
   else if (m.kind === 'location' && m.location) inner = <a className="media" href={`https://www.openstreetmap.org/?mlat=${m.location.lat}&mlon=${m.location.lng}#map=16/${m.location.lat}/${m.location.lng}`} target="_blank" rel="noreferrer" aria-label="موقعیت، باز کردن روی نقشه">
     <svg className="art" viewBox="0 0 260 170" aria-hidden="true"><rect width="260" height="170" fill="#E8F3EC" /><path d="M0 120 260 70M60 0 120 170M0 40 260 30M180 0 200 170" stroke="#fff" strokeWidth="12" /><path d="M130 52c-14 0-24 10-24 23 0 18 24 40 24 40s24-22 24-40c0-13-10-23-24-23z" fill="#D9483B" /><circle cx="130" cy="75" r="8" fill="#fff" /></svg><span className="bdx">{fd(m.location.lat.toFixed(4))}، {fd(m.location.lng.toFixed(4))}</span></a>;
   else if (m.askContact) inner = <>{m.text}<span className="kbd" aria-hidden="true"><I n="contact" />اشتراک شماره</span><span className="kbn">دکمه‌ای که مشتری در بله می‌بیند</span></>;
-  else inner = <span style={{ whiteSpace: 'pre-wrap' }}>{m.text}</span>;
+  else inner = <span style={{ whiteSpace: 'pre-wrap' }}>{chat.contactFeature && m.text ? <FaPhones text={m.text} /> : m.text}</span>;
   const st = out && m.status ? STATUS[m.status] : null;
   return <div className={`msg ${out ? 'out' : 'in'}${m.status === 'failed' ? ' failed' : ''}${sel ? ' sel' : ''}${au ? ' mg' : ''}`} data-st={m.status ?? undefined}>
     <div className={`bb${m.kind === 'sticker' ? ' stkw' : ''}`} onClick={onClick} role="button" tabIndex={0} aria-haspopup="menu" aria-expanded={sel}>

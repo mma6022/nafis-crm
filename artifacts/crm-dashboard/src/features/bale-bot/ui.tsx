@@ -58,3 +58,24 @@ export function Confirm({ title, items, foot, ic = 'alert' }: { title: string; i
   return <div className="mx cfx" data-bbdnd=""><div className="md cf" role="alertdialog" aria-modal="true" aria-labelledby="cft" aria-describedby="cfd">
     <div className="cfb"><div className="ci"><I n={ic} /></div><h2 id="cft">{title}</h2><ul id="cfd">{items.map((t) => <li key={t}>{t}</li>)}</ul></div><div className="mf">{foot}</div></div></div>;
 }
+
+/** Persian digits for a phone-like or #id run. Stored values stay Latin 09… */
+const PHONE_OR_ID = /(?:#\s*)?(?:\+98|0098|98|0)?9\d{8,9}|#\s*\d{2,}/g;
+export function faPhoneString(text: string | null | undefined): string {
+  if (!text) return text ?? '';
+  return text.replace(PHONE_OR_ID, (m) => fd(m));
+}
+/** Render text with phone/id runs in Persian digits and dir=ltr. */
+export function FaPhones({ text }: { text: string }) {
+  const re = new RegExp(PHONE_OR_ID.source, 'g');
+  const parts: ReactNode[] = [];
+  let last = 0, m: RegExpExecArray | null, i = 0;
+  while ((m = re.exec(text))) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    parts.push(<bdi key={i++} className="bc-iso" dir="ltr">{fd(m[0])}</bdi>);
+    last = m.index + m[0].length;
+  }
+  if (!parts.length) return <>{text}</>;
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
+}

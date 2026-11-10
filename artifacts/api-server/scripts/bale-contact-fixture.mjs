@@ -188,6 +188,16 @@ check("known shared contact links bale_user_id and replies OK_KNOWN (no new lead
   assert.equal(bcInboxTitle(c, "سمیرا نادری"), "سمیرا نادری");
 });
 
+check("known share of another expert's customer links without a thank-you bubble", () => {
+  const fromId = nextId();
+  storeUpdate(kazemi, upd(nextId(), { fromId, text: "سلام" }));
+  storeUpdate(kazemi, upd(nextId(), { fromId, contact: { phone_number: "09120000032", first_name: "مریم", user_id: fromId } }));
+  const c = chatOf(kazemi.id, fromId);
+  assert.equal(c.customer_id, knownH);
+  assert.equal(c.link_method, "contact_other");
+  assert.notEqual(lastOut(c.id).text, BC_OK_KNOWN);
+});
+
 check("new shared contact creates a lead via the current default-owner rule (Kazemi)", () => {
   const fromId = nextId();
   const phone = "09120000034";
@@ -258,7 +268,9 @@ check("approve typed (known) links existing; reject clears pending", () => {
   c = chatOf(kazemi.id, fromId);
   assert.equal(c.customer_id, knownH);
   assert.equal(c.link_source, "typed");
-  assert.equal(lastOut(c.id).text, BC_OK_KNOWN);
+  // other expert's file: no thank-you bubble (matches Armita scene 11)
+  assert.notEqual(lastOut(c.id).text, BC_OK_KNOWN);
+  assert.equal(lastOut(c.id).text, BC_TYPED_OK);
 
   const from2 = nextId();
   storeUpdate(kazemi, upd(nextId(), { fromId: from2, text: "سلام" }));

@@ -239,7 +239,7 @@ export function bcAfterInbound(bot: BotRow, chatId: number, p: {
       return;
     }
     const r = bcLinkOrCreateLead(chat, bot, p.contact.phone, "share", null, at);
-    if (r.ok) bcQueueText(chat, bot, r.kind === "new" ? BC_OK_NEW : BC_OK_KNOWN, null, at);
+    if (r.ok && !(r.kind === "known" && r.own === false)) bcQueueText(chat, bot, r.kind === "new" ? BC_OK_NEW : BC_OK_KNOWN, null, at);
     return;
   }
 
@@ -310,7 +310,7 @@ export function bcApproveTyped(chat: ChatRow, bot: BotRow, u: BbUser, at = nowIs
   const phone = chat.pending_typed_phone ? normPhone(chat.pending_typed_phone) : null;
   if (!phone) return { ok: false, error: "no_pending" };
   const r = bcLinkOrCreateLead(chat, bot, phone, "typed", u.id, at);
-  if (r.ok) bcQueueText(chat, bot, r.kind === "new" ? BC_OK_NEW : BC_OK_KNOWN, null, at);
+  if (r.ok && !(r.kind === "known" && r.own === false)) bcQueueText(chat, bot, r.kind === "new" ? BC_OK_NEW : BC_OK_KNOWN, null, at);
   return { ok: true, result: r };
 }
 

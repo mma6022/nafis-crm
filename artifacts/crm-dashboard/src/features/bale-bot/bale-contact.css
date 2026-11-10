@@ -151,3 +151,12 @@ body.bc-bot{background:var(--nf-surface);margin:0}
   .bc-acts{flex-direction:column;align-items:stretch}
   .bc-acts .btn{flex:none;width:100%}
 }
+
+/* flag-ON only: composer send button stays the filled navy control from the design, even when the field is empty. */
+.bbt.bc-on .cz .snd,
+.bbt.bc-on .cz .snd[aria-disabled=true]{
+  background:var(--nf-brand-600);
+  color:#fff;
+  box-shadow:var(--nf-shadow-button);
+}
+.bbt .bc-iso{unicode-bidi:isolate;direction:ltr;display:inline}
