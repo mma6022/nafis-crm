@@ -7,7 +7,8 @@
  *
  * While ON (on top of the existing Simotel click-to-call; no hang-up API):
  *  - Hold the current customer / task across file, carousel, reminder, lead and search until hang-up + a valid
- *    final CDR status + a successful explicit result save. End of call alone never advances a queue.
+ *    final CDR status + a successful explicit result save. That save completes the task the same way the current
+ *    UI does (rvResult / fcExpertFollowup / dpAfterFirstCallForm). End of call alone never advances a queue.
  *  - In-call status is neutral: the expert's own phone answering is not the customer's answer; no "answered"
  *    or customer talk time without a valid customer-leg CDR.
  *  - After a real hang-up with an unknown status: pending_status (retry is a CDR re-query, never a manual end).
@@ -20,6 +21,7 @@
  */
 import { crmDb, executeChanges, queryRow, queryRows } from "./crm-db";
 import { vcIsScopedRegistrar, vcRegistrarWhy, type VcRegistrarWhy } from "./voip-registrar-scope";
+import { vthCallLogId, vthCompleteExisting } from "./voip-task-hold-complete";
 
 export const VTH_FLAG = "flag.voip_task_hold_v1";
 export const VTH_ENTRIES = ["file", "carousel", "reminder", "lead", "search"] as const;
@@ -241,6 +243,7 @@ export function vthContext(u: U, customerId: number, now = new Date()): VthConte
   return {
     on: true,
     canCall: allowed,
+    // Follow-up: the general customer GET is unchanged and may still include the number; the UI hides it when this is false.
     phoneVisible: allowed,
     notesWritable: !support, // design: support notes stay conservatively read-only
     eligibility: elig,
@@ -303,7 +306,11 @@ export function vthSuppressAutoSave(userId: number): boolean {
 const VTH_OUTCOMES = ["answered", "no_answer", "follow_up"] as const;
 const NOTE_MAX = 80;
 
-/** Explicit result save. Never called by hang-up or cancel. Advances a queue only for carousel (follow-up) or when the caller also completes a reminder. */
+/** Explicit result save. Never called by hang-up or cancel.
+ *  After validation, a successful save completes the current task through the existing UI path:
+ *  reminder → rvResult, carousel → fcExpertFollowup, lead → dpAfterFirstCallForm (only when a call log exists).
+ *  File / search only save the VoIP result and release the hold. Those existing functions are called first so a
+ *  409/422 does not leave a half-saved hold. */
 export function vthSaveResult(u: U, callId: number, body: any, now = new Date()): { status: number; body: any } {
   if (!vthFlagOn(u.id)) return { status: 404, body: { error: "voip_task_hold_off", message: "این امکان برای شما فعال نیست.", enabled: false } };
   const outcome = String(body?.outcome ?? "");
@@ -317,13 +324,15 @@ export function vthSaveResult(u: U, callId: number, body: any, now = new Date())
   if (c.result_saved_at) return { status: 200, body: { ok: true, replayed: true, stay: !vthQueue(holdOf(c.id)?.entry), phase: "saved" } };
   if (!vthFinalStatus(c)) return { status: 409, body: { error: "pending_status", message: "وضعیت نهایی تماس هنوز نرسیده است." } };
   const hold = holdOf(c.id);
+  const done = vthCompleteExisting(u, hold, c, outcome, note, now);
+  if (done && done.status >= 400) return done;
   const at = iso(now);
-  executeChanges("UPDATE voip_click_calls SET result_saved_at=COALESCE(result_saved_at,?), result_outcome=? WHERE id=?", [at, outcome, c.id]);
-  vthRelease(c.id, now);
+  if (!queryRow<{ result_saved_at: string | null }>("SELECT result_saved_at FROM voip_click_calls WHERE id=?", [c.id])?.result_saved_at) {
+    executeChanges("UPDATE voip_click_calls SET result_saved_at=COALESCE(result_saved_at,?), result_outcome=? WHERE id=?", [at, outcome, c.id]);
+    vthRelease(c.id, now);
+  }
   try {
-    const logId = c.event_id != null
-      ? queryRow<{ call_log_id: number | null }>("SELECT call_log_id FROM voip_after_call_events WHERE id=?", [c.event_id])?.call_log_id ?? null
-      : queryRow<{ call_log_id: number | null }>("SELECT call_log_id FROM voip_after_call_events e JOIN voip_click_calls k ON k.event_id=e.id WHERE k.id=?", [c.id])?.call_log_id ?? null;
+    const logId = vthCallLogId(c);
     if (logId != null) executeChanges("UPDATE call_logs SET expert_notes=CASE WHEN COALESCE(expert_notes,'')='' THEN ? ELSE expert_notes END, one_line_note=COALESCE(NULLIF(one_line_note,''),?) WHERE id=?", [note, note, logId]);
   } catch { /* call log is best-effort */ }
   return { status: 200, body: { ok: true, stay: !vthQueue(hold?.entry), phase: "saved", entry: hold?.entry ?? null, reminderId: hold?.reminder_id ?? null } };
