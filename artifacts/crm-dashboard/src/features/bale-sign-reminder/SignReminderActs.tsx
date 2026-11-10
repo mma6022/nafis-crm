@@ -1,6 +1,7 @@
 /** bale-sign-reminder v1.0 — CRM actions, confirm modal, banners. Pixel-for-pixel from Armita's handoff CSS.
  *  Hidden entirely while flag.bale_sign_reminder is OFF (server omits chat.signReminder). */
 import { useState } from 'react';
+import { Link } from 'wouter';
 import { bbFetch, BbError, type BbChat, type SrView } from '../bale-bot/api';
 import { I, Cid, Ph } from '../bale-bot/ui';
 import './bale-sign-reminder.css';
@@ -21,13 +22,15 @@ export function SignReminderActs({
   err?: (e: unknown) => void;
   onRefreshStatus: () => void;
 }) {
+  void err;
+
   const sr = chat.signReminder;
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<'confirm' | 'sending' | 'error'>('confirm');
   const [serverErr, setServerErr] = useState<string | null>(null);
   if (!sr?.enabled) return null;
 
-  const hideBtn = sr.state === 'already_signed' || sr.state === 'link_expired' || sr.state === 'no_contract' || sr.state === 'no_token' || (sr.otherExpert && !sr.canSend && sr.state !== 'cooldown');
+  const hideBtn = sr.state === 'already_signed' || sr.state === 'link_expired' || sr.state === 'no_contract' || (sr.state === 'no_token' && !sr.canOpenKeyCard) || (sr.otherExpert && !sr.canSend && sr.state !== 'cooldown' && sr.state !== 'no_token');
   const otherLocked = sr.otherExpert && !sr.canSend;
   const disabled = sr.state === 'bot_not_started' || sr.state === 'cooldown' || !sr.canSend;
   const cool = sr.state === 'cooldown' || (sr.state === 'ready' && sr.lockUntilFa && !sr.canSend);
@@ -35,7 +38,7 @@ export function SignReminderActs({
   const reminderBtn = () => {
     if (hideBtn && !otherLocked) return null;
     if (otherLocked && sr.state !== 'cooldown') return null;
-    if (sr.state === 'bot_not_started') {
+    if (sr.state === 'bot_not_started' || sr.state === 'no_token') {
       return <button className="btn pri sm" type="button" aria-disabled="true" tabIndex={-1} data-testid="sr-remind">یادآوری امضا در بله</button>;
     }
     if (sr.state === 'cooldown' || cool) {
@@ -46,7 +49,13 @@ export function SignReminderActs({
   const refreshBtn = <button className="btn gh sm" type="button" data-testid="sr-refresh" onClick={onRefreshStatus}>به‌روزرسانی وضعیت</button>;
 
   const why = (() => {
-    if (sr.state === 'bot_not_started' || sr.state === 'no_token') return <p className="sr-why">{sr.reason}</p>;
+    if (sr.state === 'no_token') {
+      return <>
+        <p className="sr-why">{sr.reason}</p>
+        {sr.canOpenKeyCard ? <div className="sr-key-link"><Link className="btn gh sm" href="/bale-bot/admin?tab=keys" data-testid="sr-key-card">رفتن به کارت کلید</Link></div> : null}
+      </>;
+    }
+    if (sr.state === 'bot_not_started') return <p className="sr-why">{sr.reason}</p>;
     if (sr.state === 'link_expired' || sr.state === 'already_signed') return <p className="sr-why">{sr.reason}</p>;
     if (otherLocked) {
       return <>
@@ -71,12 +80,12 @@ export function SignReminderActs({
     } catch (e) {
       setPhase('error');
       setServerErr(e instanceof BbError ? e.message : 'ارتباط با بله برقرار نشد. دوباره تلاش کنید.');
-      err?.(e);
+      /* Error stays in the modal; do not toast it over retry/cancel or «امضای قرارداد». */
     }
   };
 
-  const modal = open ? <div className="sr-modal" role="presentation" data-testid="sr-modal">
-    <div className="sr-dialog" role="dialog" aria-modal="true" aria-labelledby="sr-ttl">
+  const modal = open ? <div className="sr-modal" role="presentation" data-testid="sr-modal" data-nodnd>
+    <div className="sr-dialog" role="dialog" aria-modal="true" aria-labelledby="sr-ttl" data-nodnd>
       <h3 id="sr-ttl">ارسال یادآوری امضا در بله</h3>
       <div className="sr-who">
         <span className="nm">{chat.customer?.name ?? chat.name}</span>

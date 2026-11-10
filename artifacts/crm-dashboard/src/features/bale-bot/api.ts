@@ -19,7 +19,7 @@ export type SrView = {
   applicationId: number | null; generationId: number | null; planLabel: string | null;
   messageText: string | null; buttonLabel: string; signUrl: string | null;
   lastSentAt: string | null; lastSentFa: string | null; lockUntil: string | null; lockUntilFa: string | null;
-  lockHours: number; reason: string | null; otherExpert: boolean;
+  lockHours: number; reason: string | null; otherExpert: boolean; canOpenKeyCard?: boolean;
 };
 export type BbMe = { enabled: boolean; view: 'own' | 'all'; canManage: boolean; name: string; bot: BbBot; unread: number; limits: BbLimits; contactFeature?: boolean; customerBot?: BbCustomerBotFlags; signReminder?: boolean };
 export type BbCustomer = { id: number; name: string; phone: string | null; status: string | null; salespersonId: number | null; expert: string | null; restricted: boolean; canOpen: boolean } | null;

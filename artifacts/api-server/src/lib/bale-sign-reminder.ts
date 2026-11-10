@@ -8,7 +8,7 @@
  */
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import { bcMaySendFromBot } from "./bale-contact";
-import { bbLog, bbUser, botById } from "./bale-bot";
+import { bbCanManage, bbLog, bbUser, botById } from "./bale-bot";
 import { cbActiveFiling, planLabelForCustomer } from "./customer-bale";
 import { classifyProviderState } from "./emzame-signature";
 
@@ -35,6 +35,7 @@ export const SR_TEXTS = {
   signed: "قرارداد امضا شده است؛ یادآوری لازم نیست.",
   expired: "لینک امضا منقضی شده است. یادآوری فرستاده نمی‌شود. لینک تازه فقط از مسیر صدور فعلی فرستاده می‌شود.",
   noToken: "کلید ربات بله روی سرور ثبت نشده است. یادآوری فرستاده نمی‌شود.",
+  noTokenExpert: "یادآوری امضا در بله الان در دسترس نیست.",
   forbidden: "ارسال یادآوری فقط با کارشناس مشتری یا ادمین.",
   baleFailed: "ارتباط با بله برقرار نشد. دوباره تلاش کنید.",
   sentBanner: "فرستاده شد",
@@ -388,7 +389,18 @@ export type SrView = {
   lockHours: number;
   reason: string | null;
   otherExpert: boolean;
+  canOpenKeyCard: boolean;
 };
+
+function srCanOpenKeyCard(viewer: { id: number; role: string }): boolean {
+  if (viewer.role === "admin") return true;
+  try {
+    const u = bbUser(viewer.id);
+    return u ? bbCanManage(u) : false;
+  } catch {
+    return false;
+  }
+}
 
 export async function srChatView(chatRow: number, viewer: { id: number; role: string; salesperson_id?: number | null }, now = new Date()): Promise<SrView | null> {
   if (!srFlagOn()) return null;
@@ -397,7 +409,7 @@ export async function srChatView(chatRow: number, viewer: { id: number; role: st
     enabled: true, state: "no_contract", canSend: false, canRefresh: srOtherExpertRefresh(),
     applicationId: null, generationId: null, planLabel: null, messageText: null, buttonLabel: SR_BUTTON,
     signUrl: null, lastSentAt: null, lastSentFa: null, lockUntil: null, lockUntilFa: null,
-    lockHours: srLockHours(), reason: null, otherExpert: false, ...extra,
+    lockHours: srLockHours(), reason: null, otherExpert: false, canOpenKeyCard: false, ...extra,
   });
   const chat = queryRow<{ customer_id: number | null; bot_id: number }>("SELECT customer_id, bot_id FROM bale_bot_chats WHERE id=?", [chatRow]);
   if (!chat) return empty({ state: "hidden", enabled: true });
@@ -418,6 +430,7 @@ export async function srChatView(chatRow: number, viewer: { id: number; role: st
     messageText: text, signUrl: link, lastSentAt: last?.sentAt ?? null, lastSentFa: lastFa,
     lockUntil: last?.lockUntil ?? null, lockUntilFa: untilFa, otherExpert, canSend: false,
     canRefresh: canSend || srOtherExpertRefresh(),
+    canOpenKeyCard: srCanOpenKeyCard(viewer),
   });
   if (sign === "signed" && srHideAfterSigned()) {
     return { ...base, state: "already_signed", reason: SR_TEXTS.signed, canSend: false };
@@ -429,7 +442,11 @@ export async function srChatView(chatRow: number, viewer: { id: number; role: st
     return { ...base, state: "bot_not_started", reason: SR_TEXTS.botNotStarted, canSend: false };
   }
   if (!srTargetHasToken(cse.customerId, chatRow)) {
-    return { ...base, state: "no_token", reason: SR_TEXTS.noToken, canSend: false };
+    const canOpenKeyCard = base.canOpenKeyCard;
+    return {
+      ...base, state: "no_token", canSend: false, canOpenKeyCard,
+      reason: canOpenKeyCard ? SR_TEXTS.noToken : SR_TEXTS.noTokenExpert,
+    };
   }
   if (locked) {
     return {

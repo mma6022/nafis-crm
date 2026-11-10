@@ -591,3 +591,9 @@ html.fdv1-chv .fdv1{margin-inline:-14px}
 .fdv1 .sh .sht h3{flex:none;white-space:nowrap}
 .fdv1 .sh .shs{font-size:12px;font-weight:400;color:var(--nf-ink-soft);padding-inline-start:28px}
 .fdv1 .dr .doc-missing-chip{align-self:flex-start}
+
+/* Armita r2 §6: history event can sit fully above the live dock at 390. */
+@media (max-width:1023.98px){
+  .fdv1 .fpg{padding-bottom:calc(var(--dock-h,72px) + 32px)}
+  .fdv1 .ftl li{scroll-margin-bottom:calc(var(--dock-h,72px) + 24px);scroll-margin-top:12px}
+}

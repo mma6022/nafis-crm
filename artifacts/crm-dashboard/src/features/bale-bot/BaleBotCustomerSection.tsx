@@ -8,7 +8,7 @@ import { I, Uname } from './ui';
 
 type C = BbChat & { canOpen: boolean; timeline: BbMessage[] };
 const IC: Record<string, string> = { text: 'chat', photo: 'img', video: 'video', animation: 'video', document: 'doc', voice: 'play', audio: 'play', sticker: 'img', contact: 'contact', location: 'pin' };
-const line = (m: BbMessage) => m.deleted ? 'پیام حذف شد' : m.kind === 'text' ? (m.text?.trim() === '/start' ? 'شروع گفتگو با /start' : (m.text ?? '').slice(0, 90))
+const line = (m: BbMessage) => m.deleted ? 'پیام حذف شد' : m.kind === 'text' ? (m.text?.trim() === '/start' ? 'شروع گفتگو' : (m.text ?? '').slice(0, 90))
   : m.kind === 'photo' ? `عکس${m.text ? `: ${m.text}` : ''}` : m.kind === 'voice' ? `پیام صوتی، ${bbDur(m.file?.duration)}` : m.kind === 'contact' ? 'اشتراک شماره' : m.kind === 'location' ? 'موقعیت'
   : `${m.file?.name ?? 'فایل'}${m.file?.state === 'stored' ? '، در پرونده ذخیره شد' : ''}`;
 

@@ -12,6 +12,11 @@ import { bbFetch, BbError, useBaleBotMe, bbListTime, bbTime, bbDay, bbDayKey, bb
   type BbMe, type BbChat, type BbChats, type BbMessage } from './api';
 import { I, Ava, Nm, Cid, Ph, Uname, Unverified, useToast, Steps, Modal, copyText, FaPhones, faPhoneString } from './ui';
 
+function faChatPreview(text: string | null | undefined) {
+  if (!text) return text ?? null;
+  return text.trim() === '/start' ? 'شروع گفتگو' : text;
+}
+
 export const CUST_STATUS: Record<string, string> = { in_progress: 'در حال انجام', cancelled: 'لغو شده', completed: 'اتمام' };
 const STATUS: Record<string, [string, string]> = { sending: ['refresh', 'در حال ارسال'], sent: ['check', 'ارسال شد'], failed: ['alert', 'ارسال ناموفق'], wait: ['clock', 'کمی صبر کنید، دوباره ارسال می‌شود'] };
 const WV = [6, 12, 18, 10, 22, 14, 8, 16, 24, 12, 7, 18, 13, 20, 9, 15, 11, 6, 14, 19, 10, 8];
@@ -133,7 +138,7 @@ function ListPane({ me, data, loading, sel, filter, setFilter, q, setQ, expert, 
         return <li key={c.id} className={`cv-r${c.unread ? ' un' : ''}`} aria-current={c.id === sel ? true : undefined} onClick={() => nav(`/bale-bot/${c.id}`)}>
           <a className="cv-hit" href={`#${c.id}`} onClick={(e) => { e.preventDefault(); nav(`/bale-bot/${c.id}`); }} aria-label={`گفتگو با ${c.name}${c.unread ? `، ${fa(c.unread)} پیام خوانده‌نشده` : ''}`} />
           <Ava name={c.name} seed={c.id} /><span className="nmr"><Nm name={c.name} />{showCid ? <Cid id={c.customer!.id} toast={toast} /> : null}</span><span className="tm">{bbListTime(c.lastAt)}</span>
-          <span className="pv">{c.listTag ? c.listTag : <>{c.lastByManager ? 'مدیر: ' : c.lastOut ? 'شما: ' : ''}{pvKind ? <I n={PREV_IC[pvKind]} /> : null}{c.customerBot?.handoff && !c.customerBot.handoff.claimedBy ? 'واگذاری از پاسخ خودکار' : c.customerBot?.filing ? (c.customerBot.filing.stepLine.replace(/\d+/g, (d: string) => fa(d))) : (me.contactFeature && c.lastPreview && !pvKind ? faPhoneString(c.lastPreview) : c.lastPreview)}</>}</span>{c.unread ? <span className="ub" aria-hidden="true">{fa(c.unread)}</span> : null}
+          <span className="pv">{c.listTag ? c.listTag : <>{c.lastByManager ? 'مدیر: ' : c.lastOut ? 'شما: ' : ''}{pvKind ? <I n={PREV_IC[pvKind]} /> : null}{c.customerBot?.handoff && !c.customerBot.handoff.claimedBy ? 'واگذاری از پاسخ خودکار' : c.customerBot?.filing ? (c.customerBot.filing.stepLine.replace(/\d+/g, (d: string) => fa(d))) : (me.contactFeature && c.lastPreview && !pvKind ? faPhoneString(c.lastPreview) : faChatPreview(c.lastPreview))}</>}</span>{c.unread ? <span className="ub" aria-hidden="true">{fa(c.unread)}</span> : null}
           {tags.length ? <span className="tg">{tags}</span> : null}
           {me.contactFeature && otherFile(c) && (c.customer?.phone || c.customer?.canOpen) ? <div className="bc-row-more">{c.customer!.phone ? <Ph phone={c.customer!.phone} toast={toast} /> : null}{c.customer!.canOpen ? <Link className="btn gh sm" href={`/customers/${c.customer!.id}`} onClick={(e) => e.stopPropagation()}><I n="file" />مشاهده‌ی پرونده</Link> : null}{c.customer!.expert ? <span className="bc-own">مسئول: {c.customer!.expert}</span> : null}</div> : null}</li>; })}</ul>
       : <div className="lempty"><b>گفتگویی پیدا نشد</b></div>}
@@ -273,7 +278,7 @@ function ChatPane({ me, chat, messages, toast, err, refresh, onAsk, onSearch, on
   const items: React.ReactNode[] = []; let day = '';
   for (const m of messages) {
     const dk = bbDayKey(m.at); if (dk !== day) { day = dk; items.push(<div key={`d${m.id}`} className="day">{bbDay(m.at)}</div>); }
-    if (m.dir === 'in' && m.kind === 'text' && m.text?.trim() === '/start') { items.push(<div key={m.id} className="sys" role="status"><I n="bale" /><span>{chat.name} گفتگو را با /start شروع کرد</span></div>); continue; }
+    if (m.dir === 'in' && m.kind === 'text' && m.text?.trim() === '/start') { items.push(<div key={m.id} className="sys" role="status"><I n="bale" /><span>{chat.name} گفتگو را شروع کرد</span></div>); continue; }
     items.push(<Bubble key={m.id} m={m} chat={chat} me={me} reply={m.replyTo ? byId.get(m.replyTo) : undefined} sel={menu === m.id} toast={toast} onClick={() => setMenu(menu === m.id ? null : m.id)}
       onRetry={async () => { try { await bbFetch(`/bale-bot/messages/${m.id}/retry`, { body: {} }); refresh(); } catch (e) { err(e); } }} />);
     if (m.kind === 'contact' && m.contact?.own && chat.customer && chat.linkMethod === 'contact') items.push(<div key={`l${m.id}`} className="sys ok" role="status"><I n="check" /><span>وصل شد به پرونده‌ی {chat.customer.name}<Cid id={chat.customer.id} toast={toast} /></span></div>);

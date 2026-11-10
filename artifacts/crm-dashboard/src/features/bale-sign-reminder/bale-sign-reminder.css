@@ -2,7 +2,7 @@
 .sr-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px;width:100%;flex-basis:100%;min-width:0}
 .sr-acts .btn{flex:0 1 auto;min-width:0}
 .sr-acts .btn.pri:not(.sr-cool){flex:1 1 auto}
-.sr-cool{white-space:normal;height:auto;min-height:44px;line-height:1.6;text-align:start;flex:1 1 100%;width:100%;max-width:100%;min-width:0}
+.sr-cool,.bbt .sr-acts .btn.sr-cool,.bbt .cp .btn.sr-cool,.bc-meta .sr-acts .btn.sr-cool{white-space:normal;height:auto;min-height:44px;max-height:none;line-height:1.6;text-align:start;justify-content:flex-start;align-items:flex-start;padding-block:8px;flex:1 1 100%;width:100%;max-width:100%;min-width:0;overflow:visible;text-overflow:unset;overflow-wrap:anywhere;box-sizing:border-box}
 .sr-why,.sr-last,.bc-meta .bc-perm{margin:0;width:100%;flex-basis:100%;min-width:0;font-size:13px;font-weight:600;color:var(--nf-ink-muted);line-height:1.7}
 .sr-last b{color:var(--nf-ink);font-weight:700}
 .sr-banner{display:flex;align-items:flex-start;gap:8px;border-radius:14px;padding:12px 14px;font-size:14px;line-height:1.6;margin:10px 14px 0}
@@ -12,7 +12,7 @@
 .sr-banner.wait{background:var(--nf-surface-2);color:var(--nf-ink-soft)}
 .sr-banner b{display:block;font-size:14px}
 .sr-banner .i{width:20px;height:20px;flex:none;margin-top:1px}
-.sr-modal{position:fixed;inset:0;background:rgba(11,20,80,.35);display:flex;align-items:flex-start;justify-content:center;padding:16px;z-index:40;overflow:auto}
+.sr-modal{position:fixed;inset:0;background:rgba(11,20,80,.35);display:flex;align-items:flex-start;justify-content:center;padding:16px;z-index:80;overflow:auto}
 .sr-dialog{background:#fff;border-radius:18px;padding:20px;max-width:460px;width:100%;margin:auto;box-shadow:0 12px 40px rgba(11,20,80,.16)}
 .sr-dialog h3{margin:0 0 10px;font-size:18px;font-weight:800;color:var(--nf-ink)}
 .sr-who{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:0 0 8px}
@@ -62,3 +62,18 @@
 /* Inline «امضای قرارداد» button on the CRM thread / preview (reuses .bc-ik when present). */
 .sr-ikb{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .sr-ikb .sr-ik,.sr-ikb a.sr-ik{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:8px 14px;border-radius:12px;background:#fff;border:1px solid var(--nf-line,#d8dce8);color:rgb(41,54,155);font-weight:700;font-size:14px;text-decoration:none}
+
+.sr-key-link{margin-top:8px;width:100%;flex-basis:100%;min-width:0}
+.sr-key-link .btn{min-height:44px}
+/* Error toast must not cover the confirm/error modal (retry/cancel, «امضای قرارداد»). */
+.bbt:has(.sr-modal) .toast,body:has(.sr-modal) .bbt .toast{display:none!important}
+
+/* Armita r2 §5: last full customer-column row stays ≥16px above the live dock at 1280×900. */
+@media (min-width:1024px){
+  .bbt .pg.bbpg .bx{
+    height:calc(100dvh - var(--ss-dock-h,90px) - var(--ss-gap,16px) - 32px - 120px);
+    max-height:calc(100dvh - var(--ss-dock-h,90px) - var(--ss-gap,16px) - 32px - 120px);
+  }
+  .bbt .pg.bbpg .bx>.pane{padding-bottom:16px;box-sizing:border-box}
+  .bbt .pg.bbpg .bx>.pane.cp{padding-bottom:16px}
+}

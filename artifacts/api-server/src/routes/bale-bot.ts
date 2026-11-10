@@ -90,7 +90,9 @@ function chatView(c: ChatRow & { owner_id: number }, u: BbUser) {
   const typedPhone = feature && c.pending_typed_phone && canAct ? c.pending_typed_phone : null;
   const typedMatch = typedPhone ? bcTypedMatch(typedPhone, owner?.salesperson_id ?? null) : null;
   const title = feature ? bcInboxTitle(c, cust && !c.pending_typed_phone ? cust.name : null) : chatName(c);
-  return { id: c.id, name: title, firstName: c.first_name, lastName: c.last_name, username: c.username, bio: c.bio, unread: c.unread, lastAt: c.last_at, lastPreview: (cust && cust.restricted && !cust.phone) ? redactPhonesInText(c.last_preview) : c.last_preview, lastOut: !!c.last_out,
+  const rawPreview = (cust && cust.restricted && !cust.phone) ? redactPhonesInText(c.last_preview) : c.last_preview;
+  const lastPreview = rawPreview?.trim() === "/start" ? "شروع گفتگو" : rawPreview;
+  return { id: c.id, name: title, firstName: c.first_name, lastName: c.last_name, username: c.username, bio: c.bio, unread: c.unread, lastAt: c.last_at, lastPreview, lastOut: !!c.last_out,
     customer: cust, linkMethod: c.link_method, otherExpert: !!full && owner?.salesperson_id !== full.salespersonId, notices: noticesFor(u, c.id),
     lastByManager: !!lastOutAuthor && lastOutAuthor !== c.owner_id, verifiedPhone: (cust && cust.restricted && !cust.phone) ? null : c.verified_phone, phoneVerified: c.customer_id == null ? null : c.link_method === 'contact' || c.link_method === 'contact_other' ? true : c.lead_phone_verified == null ? null : !!c.lead_phone_verified, contactAskedAt: c.contact_asked_at, matchNote: c.match_note,
     expert: { id: shared ? 0 : c.owner_id, name: shared ? assignedName : nameOf(owner) }, bot: { username: bot.bot_username, status: bot.status, shared, displayName: shared ? (bot.bot_name || "ربات نفیس وام") : bot.bot_name }, canWrite: botLive(bot) && botSends(bot), sendBlocked: !botSends(bot) ? "no_send" : !botLive(bot) ? "bot_off" : null,

@@ -387,7 +387,14 @@ await checkAsync("no-token is inert: no send, no deliver, no sendContract, no SM
     const view = await srChatView(tokenChat.id, kazemi, NOW);
     assert.equal(view.state, "no_token");
     assert.equal(view.canSend, false);
-    assert.equal(view.reason, SR_TEXTS.noToken);
+    assert.equal(view.canOpenKeyCard, false);
+    assert.equal(view.reason, SR_TEXTS.noTokenExpert);
+    const admin = { id: 1, role: "admin" };
+    const adminView = await srChatView(tokenChat.id, admin, NOW);
+    assert.equal(adminView.state, "no_token");
+    assert.equal(adminView.canSend, false);
+    assert.equal(adminView.canOpenKeyCard, true);
+    assert.equal(adminView.reason, SR_TEXTS.noToken);
     const send = await srSend(tokenChat.id, kazemi, NOW);
     assert.equal(send.ok, false);
     assert.equal(send.status, 409);
