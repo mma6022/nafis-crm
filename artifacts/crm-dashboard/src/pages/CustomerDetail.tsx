@@ -36,6 +36,7 @@ import { CustomerTagEditor } from '@/components/CustomerTagEditor';
 import { RepeatRequestReview, RepeatRequestTag } from '@/components/RepeatRequestReview';
 import { clearLoanDraft, listLoanDrafts, loanWizardHref, readLoanDraft, type LoanDraft } from '@/lib/loan-draft';
 import { useMultiCaseCustomer, useMultiCaseStatus } from '@/lib/multi-case';
+import { useDciStatus } from '@/features/daily-customer-inline/api';
 import { CaseContextPicker, isSampleCustomer, PhoneChip, type CaseChoice } from '@/components/multi-case/CaseContextPicker';
 import { McFlagPage, weekdayJalali } from '@/components/multi-case/McCustomerCases';
 import { multiCasePlanLabel } from '@/lib/multi-case-plan-label';
@@ -95,6 +96,8 @@ function inquiryErrorMessage(error: unknown, fallback: string) {
 export default function CustomerDetail() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
+  const [, setLocation] = useLocation();
+  const dci = useDciStatus();
   const la = useLeadAnnotatorMe();
   const laOn = la.data?.enabled === true;
   // registrar_view (assistants53): a customer I registered but no longer own opens read-only (server 403s every write).
@@ -104,6 +107,9 @@ export default function CustomerDetail() {
   const elOn = useLockdownMe(false).data?.locked === true;
   const probe = useGetCustomer(id, { query: { queryKey: getGetCustomerQueryKey(id), enabled: Number.isFinite(id) && (laOn || rvOn || elOn), retry: false } });
   const loading = <div className="csx" dir="rtl" aria-busy="true" data-testid="customer-detail-loading"><span className="csx-sr" role="status">در حال بارگذاری پرونده مشتری…</span></div>;
+  // flag.daily_customer_inline_v1 ON: the separate «پرونده مشتری» page is replaced by the Today board.
+  useEffect(() => { if (dci.data?.enabled && Number.isFinite(id) && id > 0 && !laOn && !rvOn) setLocation(`/today?customer=${id}`); }, [dci.data?.enabled, id, laOn, rvOn, setLocation]);
+  if (dci.data?.enabled && !laOn && !rvOn) return loading;
   if (la.isLoading || rv.isLoading) return loading;
   if (elOn) {
     if (probe.isLoading) return loading;

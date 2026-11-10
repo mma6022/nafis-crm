@@ -67,6 +67,7 @@ import { ensureQuestionsSkippedColumn } from "../lib/team-sales";
 import staffWalletRouter from "./staff-wallet";
 import loanRequestDraftsRouter from "./loan-request-drafts";
 import multiCaseRouter from "./multi-case";
+import dailyCustomerInlineRouter from "./daily-customer-inline";
 import reminderFollowRouter from "./reminder-follow";
 import salesShellRouter from "./sales-shell";
 import fileDetailV1Router from "./file-detail-v1";
@@ -126,6 +127,7 @@ router.use("/chat", staffChatRouter);
 router.use(contractsRouter);
 router.use(loanRequestDraftsRouter);
 router.use(multiCaseRouter);
+router.use(dailyCustomerInlineRouter); // daily-customer-inline v1.1 (flag.daily_customer_inline_v1, default OFF → 404)
 router.use(loanApplicationsRouter);
 router.use(walletsRouter);
 router.use(walletManagementRouter);

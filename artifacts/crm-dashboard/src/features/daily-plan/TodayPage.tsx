@@ -25,6 +25,8 @@ import { useVoipFirstFormOpen, useVoipFormRelease } from '@/features/voip-call/f
 import { useHistorySummary, useFileCard } from '@/features/history/api';
 import { C3File, C3History, C3Upgrade, RetireeHint } from '@/features/history/TodayC3';
 import { SiteAnswersBlock } from '@/features/site-answers/SiteAnswersBlock';
+import DailyCustomerInline from '@/features/daily-customer-inline/DailyCustomerInline';
+import { useDciStatus } from '@/features/daily-customer-inline/api';
 
 /** FIRSTCALL-62: the customer handed to the existing first-call form (team-sales/SimpleCallForm), same props as the customer page. */
 type FcCustomer = { id: number; name: string; phone: string; priority?: number | null };
@@ -62,6 +64,7 @@ function watchBack(callId: number, done: () => void) {
 }
 
 export default function TodayPage() {
+  const dci = useDciStatus();
   const cfg = useDpConfig().data;
   const on = Boolean(cfg?.flags.daily_plan);
   const qc = useQueryClient();
@@ -82,6 +85,7 @@ export default function TodayPage() {
   // SALES-SHELL v2: the dock's «الان مشتری جدید دارم» opens the same flow here (the carousel view takes it itself).
   useSsIncoming(() => { if (!cfg || !q.data || cfg.carousel === true) return false; if (!inbound && locked) void elApi.open().catch(() => undefined); setInbound(true); return true; });
   useEffect(() => { if (!iwToast) return; const t = window.setTimeout(() => setIwToast(''), 3000); return () => window.clearTimeout(t); }, [iwToast]);
+  if (dci.data?.enabled) return <DailyCustomerInline />;
   if (!cfg || (on && q.isLoading)) return <div className="dp-page"><div className="dp-skel" role="status" data-testid="dp-loading">در حال بارگذاری کارهای امروز…</div></div>;
   if (!on) return <div className="dp-page"><h1>کارهای امروز</h1><p data-testid="dp-off">این بخش هنوز فعال نشده است.</p></div>;
   if (q.isError || !q.data) return <div className="dp-page"><h1>کارهای امروز</h1><div className="dp-box err" role="alert" data-testid="dp-error">لیست امروز بارگذاری نشد. <button type="button" className="btn btn-ghost" onClick={() => void q.refetch()}>تلاش دوباره</button></div></div>;
