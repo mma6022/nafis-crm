@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import './bale-bot-kb.css';
 import { bbFetch, BbError, type BbAdminExpert } from '../bale-bot/api';
 import { I, useToast, Confirm } from '../bale-bot/ui';
+import { jalaliWeekdayDate } from '../bale-bot/jalali';
 import { BotWizard, Saved } from '../bale-bot/BaleBotAdmin';
 
 export type KbRow = {
@@ -25,10 +26,7 @@ const SCOPES_FALLBACK = ['همهٔ ربات‌ها', 'فقط ربات نفیس �
 const CATS_FALLBACK = ['مدارک', 'مراحل پرونده', 'ساعات پاسخگویی', 'شرایط عمومی'];
 
 export function jalaliSaved(iso: string | null | undefined): string {
-  if (!iso) return '';
-  return new Date(iso).toLocaleDateString('fa-IR-u-ca-persian', {
-    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Tehran',
-  });
+  return jalaliWeekdayDate(iso);
 }
 
 type Tab = 'kb' | 'keys' | 'bots';
