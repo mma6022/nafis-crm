@@ -46,10 +46,6 @@ body:has([data-testid="dci-page"]) .diag-floating{display:none!important}
     padding-top:8px;padding-bottom:2px;
   }
 }
-/* 1024–1279: keep 3 columns but relax the 240/400/252 mins so text and cases aren't crushed. */
-@media(min-width:1024px) and (max-width:1279.98px){
-  .dci-board{grid-template-columns:minmax(200px,.9fr) minmax(280px,1.45fr) minmax(200px,1fr);gap:12px}
-}
 /* Short HD screens (1366×768): tighten the title block so the columns get the height. */
 @media(min-width:1024px) and (max-height:800px){
   .dci-date{margin:8px 0 4px}
@@ -167,11 +163,9 @@ body:has([data-testid="dci-page"]) .diag-floating{display:none!important}
 }
 .dci-tabs,.dci-sticky{display:none}
 @media(max-width:1023.98px){
-  .dci-page{padding:0 12px calc(var(--ss-dock-h,72px) + 48px + 96px + env(safe-area-inset-bottom,0px))}
-  .dci-page>h1{font-size:22px}
-  .dci-node{min-width:124px;max-width:148px;padding:8px 8px}
-  .dci-right,.dci-left{scroll-margin-bottom:calc(var(--ss-dock-h,72px) + 48px + 24px + env(safe-area-inset-bottom,0px));scroll-margin-top:8px}
-  .dci-board{display:flex;flex-direction:column;gap:12px}
+  /* Stacked board: columns fill the full width (768 was shrinking mid to ~338px because align-items:start leaked from the desktop grid). */
+  .dci-board{display:flex;flex-direction:column;gap:12px;align-items:stretch;width:100%}
+  .dci-col{width:100%;max-width:100%;box-sizing:border-box}
   .dci-mid{order:1}
   .dci-tabs{order:2;display:flex;gap:8px;margin:0}
   .dci-right,.dci-left{display:none;order:3}
@@ -179,16 +173,49 @@ body:has([data-testid="dci-page"]) .diag-floating{display:none!important}
   .dci-board.show-file .dci-left{display:block}
   .dci-tabs button{flex:1;min-height:44px;border-radius:12px;border:1px solid var(--nf-line);background:#fff;font:inherit;font-weight:700;color:var(--nf-ink)}
   .dci-tabs button[aria-selected=true]{background:var(--nf-brand-50);border-color:var(--nf-brand-200);color:var(--nf-brand-700)}
-  .dci-sticky{display:block;position:fixed;left:0;right:0;bottom:calc(var(--ss-dock-h,72px) + 48px + env(safe-area-inset-bottom,0px));z-index:39;background:#fff;border-top:1px solid var(--nf-line);padding:10px 0}
-  .dci-sticky .btn{width:calc(100% - 24px);margin:0 12px;min-height:48px}
+  .dci-page>h1{font-size:22px}
+  .dci-node{min-width:124px;max-width:148px;padding:8px 8px}
   .dci-calls>li{grid-template-columns:1fr}
-  body.dci-stick .dci-page{padding-bottom:calc(var(--ss-dock-h,72px) + 48px + 96px + env(safe-area-inset-bottom,0px))}
-  body.dci-stick .dci-page:has([data-testid="dci-result"]){padding-bottom:calc(var(--ss-dock-h,72px) + 32px + env(safe-area-inset-bottom,0px))}
-  .dci-result .dci-acts{position:sticky;bottom:0;z-index:2;background:#fff;padding-top:8px;padding-bottom:4px}
+  /* Sticky «تماس» sits flush on the mobile tab-bar (no gap for «ادامهٔ ثبت» / «درخواست تسهیلات جدید» to collide with «+»). */
+  body:has([data-testid="dci-page"]){--dci-sticky-h:68px}
+  .dci-sticky{display:block;position:fixed;left:0;right:0;bottom:calc(var(--ss-dock-h,72px) + env(safe-area-inset-bottom,0px));z-index:39;background:#fff;border-top:1px solid var(--nf-line);padding:10px 0}
+  .dci-sticky .btn{width:calc(100% - 24px);margin:0 12px;min-height:48px}
+  .dci-page,body.dci-stick .dci-page{padding:0 12px calc(var(--ss-dock-h,72px) + var(--dci-sticky-h,68px) + 16px + env(safe-area-inset-bottom,0px))}
+  .dci-case .btn.pri,.dci-new .btn,.dci-mid a.btn{
+    scroll-margin-bottom:calc(var(--ss-dock-h,72px) + var(--dci-sticky-h,68px) + 16px + env(safe-area-inset-bottom,0px));
+  }
+  .dci-right,.dci-left{scroll-margin-bottom:calc(var(--ss-dock-h,72px) + var(--dci-sticky-h,68px) + 16px + env(safe-area-inset-bottom,0px));scroll-margin-top:8px}
+  /* When a mid-column form is open the sticky bar is hidden: keep the action row above the dock «+» (~24px). */
+  body.dci-stick .dci-page:has([data-testid="dci-result"],[data-testid="dci-promote"]){
+    padding-bottom:calc(var(--ss-dock-h,72px) + 24px + env(safe-area-inset-bottom,0px));
+  }
+  .dci-result .dci-acts{
+    position:sticky;bottom:calc(var(--ss-dock-h,72px) + 24px + env(safe-area-inset-bottom,0px));
+    z-index:2;background:#fff;padding-top:8px;padding-bottom:4px;
+    scroll-margin-bottom:calc(var(--ss-dock-h,72px) + 24px + env(safe-area-inset-bottom,0px));
+  }
+  .dci-promo .dci-acts{
+    margin-bottom:24px;
+    scroll-margin-bottom:calc(var(--ss-dock-h,72px) + 24px + env(safe-area-inset-bottom,0px));
+  }
 }
 @media(max-width:430px){
   .dci-node{min-width:112px;max-width:140px}
   .dci-page .ph.big .phn{font-size:20px;word-break:break-all}
+  /* Tighten the identity block so «ادامهٔ ثبت» on the first case card clears the sticky bar at first paint. */
+  .dci-date{margin:8px 0 4px}
+  .dci-page>h1{font-size:20px;margin:0 0 8px}
+  .dci-tl{padding-bottom:6px}
+  .dci-cur{margin-bottom:6px}
+  .dci-who{margin-bottom:4px}
+  .dci-who h2{font-size:20px}
+  .dci-idrow{margin:4px 0}
+  .dci-tags{margin:4px 0 8px}
+  .dci-prio{margin:0 0 8px;min-height:44px}
+  .dci-head .dci-acts{margin:0 0 8px}
+  .dci-cases{gap:8px}
+  .dci-case{padding:10px;gap:6px}
+  .dci-new{margin-top:8px}
 }
 
 
@@ -236,3 +263,34 @@ body:has([data-testid="dci-page"]) .ts-wz{
 .dci-result{max-width:100%;box-sizing:border-box;min-width:0;scroll-margin-top:8px;scroll-margin-bottom:8px}
 .dci-promo{scroll-margin-top:8px;scroll-margin-bottom:8px}
 .dci-result .cq-result,.dci-result .crp{max-width:100%;min-width:0}
+
+
+/* r2 (Armita dci-resp): 1024 must not horizontally overflow — ~36px inset and a mid min that fits. */
+@media(min-width:1024px) and (max-width:1279.98px){
+  body:has([data-testid="dci-page"]) .app-shell.ssv2 .app-main{padding-inline:18px!important}
+  main.pg.dci-page{padding-left:0;padding-right:0}
+  .dci-board{grid-template-columns:minmax(200px,.9fr) minmax(360px,1.45fr) minmax(200px,1fr);gap:12px}
+}
+
+/* r2: cap promote/result fields at 36rem on wide HD; mid column itself stays free for cards. */
+@media(min-width:1440px){
+  .dci-mid .dci-promo,
+  .dci-mid .dci-result,
+  .dci-mid .dci-result .cq-result,
+  .dci-mid .dci-result .crp{max-width:36rem;width:100%;margin-inline-start:0;margin-inline-end:auto;box-sizing:border-box}
+}
+
+/* r2: short desktop — result and credit-start scroll inside the column; save/continue stay above the column edge. */
+@media(min-width:1024px){
+  .dci-col{scroll-padding-bottom:16px;overflow-x:hidden}
+  .dci-result .dci-acts,
+  [data-testid="dci-credit-start"] .cvr,
+  [data-testid="dci-credit-start"] .cvb{
+    position:sticky;bottom:0;z-index:2;background:#fff;padding-top:8px;padding-bottom:8px;scroll-margin-bottom:8px
+  }
+}
+
+/* Later .dci-promo .dci-acts{margin:0} must not cancel the 360/mobile clearance under the dock «+». */
+@media(max-width:1023.98px){
+  .dci-promo .dci-acts{margin-bottom:24px}
+}
