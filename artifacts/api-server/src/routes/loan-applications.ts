@@ -257,6 +257,17 @@ function shape(r: any, actor: AuthUser): any {
       actionRequired: !["primary_contract_pending_signature", "approved_contract_pending_signature"].includes(r.stage) && canAct(r.stage, actor, Number(r.customer_id), r.status), actionRole: actionRoles[r.stage] ?? "customer", businessStatus, createdAt: r.created_at, updatedAt: r.updated_at ?? r.created_at };
 }
 function parseJson(value: any) { try { return value ? JSON.parse(value) : null; } catch { return null; } }
+function mappingSource(mapping: any): string {
+  return mapping?.sourceType ?? (mapping?.customerField ? "customer" : mapping?.loanPlanField ? "loanPlan" : "manual");
+}
+/** A primary template can create a case only when it maps the loan principal exactly once. */
+function primaryTemplateReady(templateId: number | null): boolean {
+  if (!templateId) return false;
+  const template = queryRow<any>("SELECT mappings_json FROM contract_templates WHERE id=? AND deleted_at IS NULL", [templateId]);
+  const mappings = parseJson(template?.mappings_json);
+  if (!Array.isArray(mappings)) return false;
+  return mappings.filter((mapping: any) => mappingSource(mapping) === "loanPlan" && mapping?.loanPlanField === "loanPlan.principalAmount").length === 1;
+}
 export function freshSuccessfulCredit(customerId: number) {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   return queryRow<any>(
@@ -1532,6 +1543,7 @@ router.get("/customers/:customerId/eligible-plans", requirePermission("loan_appl
        const required = (parseJson(plan.required_documents) ?? []).filter((key: unknown) => !separateRequirementKeys.has(String(key))).map((key: unknown) => documentLabel(String(key)));
       const terms = effectivePlanTerms(plan, ignoreCreditRank ? { ...c, max_principal: "0" } : c);
        const templateId = Number(plan.contract_template_id ?? plan.primary_contract_template_id) || null;
+       const templateReady = mcFlagOn(user(res).id) ? primaryTemplateReady(templateId) : Boolean(templateId);
        const template = templateId ? queryRow<any>("SELECT mappings_json FROM contract_templates WHERE id=? AND deleted_at IS NULL", [templateId]) : null;
        const manualVariables = (parseJson(template?.mappings_json) ?? []).filter((mapping: any) =>
          (mapping.sourceType ?? (mapping.customerField ? "customer" : mapping.loanPlanField ? "loanPlan" : "manual")) === "manual"
@@ -1543,7 +1555,7 @@ router.get("/customers/:customerId/eligible-plans", requirePermission("loan_appl
         needsGuarantor: Boolean(c.needs_guarantor ?? plan.needs_guarantor),
         ...(() => { const v = guarantorGradeVerdict(c, guarantor.rank, plan);
           return { guarantorRanks: v.ranks, guarantorGradeStatus: v.status, guarantorGradeNote: v.note }; })(),
-         primaryContractPresent: Boolean(templateId), contractTemplateId: templateId, manualVariables };
+         primaryContractPresent: templateReady, contractTemplateId: templateReady ? templateId : null, manualVariables };
     });
   });
   res.json({ customerId: customer.id, credit: { fresh, status: credit?.status ?? "missing", rank: credit?.score_label ?? null, checkedAt: credit?.completed_at ?? null },

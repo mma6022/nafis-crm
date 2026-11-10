@@ -50,10 +50,14 @@ if (!base || !user || !pass || !out) {
 }
 let customerId = process.env.MC_CUSTOMER_ID || "";
 let flowCustomerId = process.env.MC_FLOW_CUSTOMER_ID || "";
+let openPlanId = process.env.MC_OPEN_PLAN_ID || "";
+let freePlanId = process.env.MC_FREE_PLAN_ID || "";
 if (process.env.MC_SEED_MANIFEST) {
   const manifest = JSON.parse(readFileSync(process.env.MC_SEED_MANIFEST, "utf8"));
   if (!customerId) customerId = String(manifest.experts?.find((row) => row.customerId)?.customerId || "");
   if (!flowCustomerId && manifest.flow?.customerId) flowCustomerId = String(manifest.flow.customerId);
+  if (!openPlanId && manifest.flow?.openPlanId) openPlanId = String(manifest.flow.openPlanId);
+  if (!freePlanId && manifest.flow?.freePlanId) freePlanId = String(manifest.flow.freePlanId);
 }
 if (!customerId) { console.error("required: MC_CUSTOMER_ID or MC_SEED_MANIFEST"); process.exit(1); }
 
@@ -199,13 +203,14 @@ try {
       await new Promise((r) => setTimeout(r, 500));
     }
     const opened = await page.$$eval("#mc-plans button:not([disabled])", (nodes) => nodes.map((n) => n.getAttribute("data-plan-id"))).catch(() => []);
-    for (const id of opened) {
+    const order = openPlanId && opened.includes(openPlanId) ? [openPlanId, ...opened.filter((id) => id !== openPlanId)] : opened;
+    for (const id of order) {
       await clickSel(`#mc-plans [data-plan-id="${id}"]`);
-      await new Promise((r) => setTimeout(r, 300));
-      if (await page.$('[data-testid="same-plan-block"]')) break;
+      const shown = await page.waitForSelector('[data-testid="same-plan-block"]', { timeout: 2500 }).then(() => true).catch(() => false);
+      if (shown) break;
     }
     if (await page.$('[data-testid="same-plan-block"]')) await both("12-wizard-same-plan-blocked");
-    else note("scene 12: same-plan box not shown (no eligible plan already has an open case)");
+    else note("scene 12: same-plan box not shown (no selectable plan already has an open case)");
     await page.keyboard.press("Escape");
   } else note("new-case button not found");
 
@@ -227,16 +232,19 @@ try {
       if (await page.$("#mc-plans")) {
         await both("02-wizard-plans");
         const ids = await page.$$eval("#mc-plans button:not([disabled])", (nodes) => nodes.map((node) => node.getAttribute("data-plan-id"))).catch(() => []);
+        const prefer = openPlanId && ids.includes(openPlanId) ? [openPlanId, ...ids.filter((id) => id !== openPlanId)] : ids;
         let blockedId = "";
-        for (const id of ids) {
+        for (const id of prefer) {
           await clickSel(`#mc-plans [data-plan-id="${id}"]`);
-          await new Promise((r) => setTimeout(r, 300));
-          if (await page.$('[data-testid="same-plan-block"]')) { blockedId = id; break; }
+          const shown = await page.waitForSelector('[data-testid="same-plan-block"]', { timeout: 2500 }).then(() => true).catch(() => false);
+          if (shown) { blockedId = id; break; }
         }
         if (blockedId) await both("12-wizard-same-plan-blocked");
         else note("scene 12: open plan tile was not selectable (primary contract missing)");
         await clickSel('[data-testid="button-choose-other-plan"]');
-        const freeId = ids.find((id) => id && id !== blockedId);
+        const freeId = freePlanId && ids.includes(freePlanId) && freePlanId !== blockedId
+          ? freePlanId
+          : ids.find((id) => id && id !== blockedId);
         if (freeId) {
           await clickSel(`#mc-plans [data-plan-id="${freeId}"]`);
           await new Promise((r) => setTimeout(r, 300));
@@ -262,11 +270,14 @@ try {
           await clickSel('[data-testid="btn-pay-filing-fee"]');
           await page.waitForSelector('[data-testid="btn-next-fee"]', { timeout: 20000 }).catch(() => note("flow wizard: filing fee did not complete"));
         }
-        const fields = await page.$$('[data-testid^="contract-variable-"]');
-        for (const field of fields) {
-          await field.click({ clickCount: 3 }).catch(() => {});
-          await field.type("آزمایش").catch(() => {});
-        }
+        await page.evaluate(() => {
+          const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+          document.querySelectorAll('[data-testid^="contract-variable-"]').forEach((node) => {
+            if (!(node instanceof HTMLInputElement) || !set) return;
+            set.call(node, "آزمایش");
+            node.dispatchEvent(new Event("input", { bubbles: true }));
+          });
+        }).catch(() => {});
         const moved = await clickSel('[data-testid="btn-next-fee"], [data-testid="btn-next-4"], [data-testid="btn-next-5-0"], [data-testid="btn-next-3"]');
         if (!moved) break;
         await new Promise((r) => setTimeout(r, 500));
@@ -274,7 +285,10 @@ try {
       if (await page.$('[data-testid="mc-review"]')) {
         await both("05-wizard-review");
         if (await clickSel('[data-testid="btn-submit-wizard"]')) {
-          await page.waitForSelector('[data-testid="mc-created-banner"]', { timeout: 30000 }).catch(() => note("flow wizard: created banner did not appear on the customer page"));
+          await page.waitForSelector('[data-testid="mc-created-banner"]', { timeout: 30000 }).catch(async () => {
+            const err = await page.$eval('[role="alert"], .form-error', (el) => (el.textContent || "").trim()).catch(() => "");
+            note(`flow wizard: created banner did not appear on the customer page${err ? ` (${err})` : ""}`);
+          });
           if (await page.$('[data-testid="mc-created-banner"]')) await both("06-second-case-created");
         }
       } else note(`flow wizard stopped at step ${await step()}`);

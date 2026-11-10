@@ -2080,7 +2080,7 @@ function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPendi
             <div><dt>درخواست تازه</dt><dd data-testid="review-plan-name">{multiCasePlanLabel({ planId: plan.planId, bankName: plan.bankName })}</dd></div>
             <div><dt>مبلغ درخواستی</dt><dd data-testid="review-amount">{Number(amount).toLocaleString("fa-IR")} تومان</dd></div>
             <div><dt>مدت درخواستی</dt><dd data-testid="review-duration">{Number(duration).toLocaleString("fa-IR", { useGrouping: false })} ماه</dd></div>
-            <div><dt>پرونده‌ی قبلی</dt><dd>{previousOpen ? `پرونده #${Number(previousOpen.id).toLocaleString("fa-IR", { useGrouping: false })} همچنان باز است` : "پرونده‌ی باز دیگری نیست"}</dd></div>
+            <div><dt>پرونده‌ی قبلی</dt><dd>{previousOpen ? <>پرونده <bdi dir="ltr">#{Number(previousOpen.id).toLocaleString("fa-IR", { useGrouping: false })}</bdi> همچنان باز است</> : "پرونده‌ی باز دیگری نیست"}</dd></div>
             <div><dt>اطلاعات مشتری</dt><dd>همان هویت و شماره؛ مشتری جدید ساخته نمی‌شود</dd></div>
             <div><dt>مدارک مالی و یادداشت‌ها</dt><dd>مستقل؛ از پرونده‌ی قبلی کپی نشده</dd></div>
           </dl></div>

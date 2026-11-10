@@ -10,7 +10,9 @@
   z-index: 36;
   inset-inline: 0;
   top: var(--nf-topbar-h, 84px);
-  bottom: var(--ss-dock-h, 72px);
+  bottom: 0;
+  padding-bottom: calc(var(--ss-dock-h, 90px) + 12px);
+  box-sizing: border-box;
   overflow: hidden;
   background: var(--nf-surface, #F7F8FC);
   display: flex;
@@ -43,13 +45,24 @@ body:has(.mc-wizard-host, .mc-picker-host, .mc-host) .nas-dock,
 body:has(.mc-wizard-host, .mc-picker-host, .mc-host) .nas-pop,
 body:has(.mc-wizard-host, .mc-picker-host, .mc-host) .nas-head,
 body:has(.mc-wizard-host, .mc-picker-host, .mc-host) .csx-fab,
+body:has(.mc-wizard-host, .mc-picker-host, .mc-host) .diag-floating,
 body:has(.mc-wizard-host, .mc-picker-host, .mc-host) [data-testid="floating-chat"] { display: none; }
+body:has(.mc-wizard-host) .lrx-head,
+body:has(.mc-wizard-host) .lrx-tabs,
+body:has(.mc-wizard-host) .lrx-tools,
+body:has(.mc-wizard-host) .lrx-table,
+body:has(.mc-wizard-host) .csx-table,
+body:has(.mc-wizard-host) .lrx-card,
+body:has(.mc-wizard-host) .lrx-board,
+body:has(.mc-wizard-host) .csx-pager { display: none; }
 .mc-wizard-host {
   position: absolute;
   z-index: 36;
   inset-inline: 0;
   top: var(--nf-topbar-h, 84px);
-  bottom: var(--ss-dock-h, 72px);
+  bottom: 0;
+  padding-bottom: calc(var(--ss-dock-h, 90px) + 12px);
+  box-sizing: border-box;
   overflow: hidden;
   background: var(--nf-surface, #F7F8FC);
 }
@@ -79,7 +92,11 @@ body:has(.mc-wizard-host, .mc-picker-host, .mc-host) [data-testid="floating-chat
 .lwz.mc-host .mc-progress,
 .lwz.mc-host .mc-wbody > .mc-muted { position: sticky; top: 0; background: #fff; z-index: 2; }
 .lwz.mc-host .mc-wbody h2 { position: sticky; top: 40px; background: #fff; z-index: 2; }
-.lwz.mc-host .form-footer { justify-content: flex-start; }
+.lwz.mc-host .form-footer { justify-content: flex-start; position: sticky; bottom: 0; background: #fff; z-index: 3; }
+.lwz.mc-host .lwz-plans,
+.lwz.mc-host .mc-review,
+.lwz.mc-host .mc-wbody .lwz-step { scroll-margin-bottom: 96px; }
+.lwz.mc-host .lwz-inner { padding-bottom: 88px; }
 .mc-rail h3 { margin: 0 0 18px; font-size: 16px; }
 .mc-rail p { display: flex; gap: 8px; align-items: center; min-height: 48px; font-size: 14px; color: var(--nf-ink-muted); padding: 6px; border-radius: 10px; margin: 0; }
 .mc-rail p.cur { background: var(--nf-brand-50); color: var(--nf-brand-700); font-weight: 800; }
@@ -100,10 +117,8 @@ body:has(.mc-wizard-host, .mc-picker-host, .mc-host) [data-testid="floating-chat
 .lwz.mc-host .mc-choice { gap: 8px; }
 .lwz.mc-host .mc-choice button { min-height: 56px; padding: 8px 12px; }
 .lwz.mc-host .mc-warning { margin: 0; }
-body:has(.mc-wizard-host) .lrx-card,
-body:has(.mc-wizard-host) .lrx-board { visibility: hidden; }
 @media (max-width: 1023.98px) {
-  .mc-wizard-host { position: fixed; top: var(--nf-topbar-h, 68px); bottom: var(--ss-dock-h, 72px); }
+  .mc-wizard-host { position: fixed; top: var(--nf-topbar-h, 68px); bottom: 0; padding-bottom: calc(var(--ss-dock-h, 72px) + 8px); }
   .lwz.mc-host .lwz-body.mc-wizard { grid-template-columns: 1fr; padding: 14px; }
   .mc-rail { display: none; }
   .mc-wbody h2 { font-size: 20px; }
