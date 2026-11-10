@@ -8,6 +8,7 @@ import { noteText } from "./note-text";
  * Nothing here changes a stage, contract, template, amount, wallet or customer, sends SMS/Bale/customer messages or rings any staff bell.
  */
 import { vcFollowupCheck, vcFollowupSaved } from "./voip-call";
+import { vthRedactCarousel } from "./voip-task-hold";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import { cqRaw, isWorkDay, tParts, tYmd, fromTehran, CQ_OUTCOMES } from "./call-queue";
 import { EL_USERS, elUsers } from "./expert-lockdown";
@@ -373,7 +374,7 @@ export function fcExpertView(u: U, now = new Date()) {
   const curCust = deck.current == null ? null : deck.cards.find(c => c.f.id === deck.current)!.f.cur_customer_id;
   const phone = curCust == null ? null : queryRow<{ phone: string | null }>("SELECT phone FROM customers WHERE id=? AND salesperson_id=?", [curCust, sp])?.phone ?? null;
   const idx = deck.current == null ? null : deck.cards.findIndex(c => c.f.id === deck.current) + 1;
-  return { enabled: true, date: day, total: deck.cards.length, done: deck.doneCount, index: idx, currentFileId: deck.current,
+  return vthRedactCarousel(u, { enabled: true, date: day, total: deck.cards.length, done: deck.doneCount, index: idx, currentFileId: deck.current,
     // REL-83 (flag.fc_categories): mode «list» = cards ran out / none → the UI opens the full list (GET /files-carousel/list); lateReturns = the bar (no lock).
     categories: deck.catMode, mode: deck.catMode && deck.listOpen ? "list" : "cards",
     lateReturns: deck.lateReturns.map(f => { const c = deck.cats.get(f.id)!; return { type: "file_returned", file_id: f.id, customer_name: f.name ?? "", return_type: c.return_type, return_note: c.return_note, returned_at: c.returned_at, return_source: c.return_source }; }),
@@ -382,7 +383,7 @@ export function fcExpertView(u: U, now = new Date()) {
       addedAfterUnlock: deck.actMore ? deck.cards.filter(c => c.state !== "done").length : 0 } } : {}),
     orderSource: deck.ord ? "assistant" : "default", waiting: fcWaiting(sp, new Set(deck.cards.map(c => c.f.id))), outcomes: FC_OUTCOMES.map(o => ({ code: o, label: FC_OUTCOME_LABELS[o] })), noteMax: FC_NOTE_MAX, cancelReasonMax: FC_CANCEL_REASON_MAX,
     cards: deck.cards.map(c => ({ ...expertCore(c.f), customerName: c.f.name ?? "", phone: c.state === "current" ? phone : null, returnedToday: c.returnedToday, position: c.position, state: c.state, reason: c.meta?.reason ?? null, ask: c.meta?.ask ?? null, fc: catCore(c.cat),
-      todayFollowUp: c.fu ? { at: c.fu.created_at, outcome: c.fu.outcome, outcomeLabel: FC_OUTCOME_LABELS[c.fu.outcome] ?? null, note: c.fu.note } : null })) };
+      todayFollowUp: c.fu ? { at: c.fu.created_at, outcome: c.fu.outcome, outcomeLabel: FC_OUTCOME_LABELS[c.fu.outcome] ?? null, note: c.fu.note } : null })) }, now);
 }
 export function fcExpertFollowup(u: U, body: any, now = new Date(), opts?: { auto?: boolean }) {
   ensureFcSchema();

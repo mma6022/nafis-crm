@@ -12,6 +12,7 @@ import { atText, durText, mmss, TXS, useCtConfig, useCustomerCtCalls, type TextS
 import { Link } from 'wouter';
 import { useS132First, useVcHistory, useVcMe, vcApi, vcAudioSrc, VcError, VC_ME_KEY, vcRefresh, type S132Bar, type S132Status, type VcCall, type VcHistItem, type VcMe } from './api';
 import './voip-call.css';
+import { vthOf, vthApi, vthRefresh, type VcMeVth } from '@/features/voip-task-hold/api';
 
 const LIVE = new Set(['requesting', 'ring_me', 'dial_cust', 'in_call']);
 const ms = (s: string | null) => (s ? new Date(s).getTime() : NaN);
@@ -35,7 +36,7 @@ function Steps({ n, four }: { n: number; four?: boolean }) {
     <b>{i < n ? <Check className="i" aria-hidden="true" /> : faNum(i + 1)}</b>{s}</li>)}</ol>;
 }
 
-type BoxProps = { customerId: number; fileId?: number | null; customerName: string; onResult?: () => void; extra?: ReactNode; variant?: 'task' | 'customer'; onStarted?: () => void;
+type BoxProps = { customerId: number; fileId?: number | null; entry?: 'file' | 'carousel' | 'reminder' | 'lead' | 'search'; customerName: string; onResult?: () => void; extra?: ReactNode; variant?: 'task' | 'customer'; onStarted?: () => void;
   /** SIMOTEL-132: «فرم تماس اول» after the customer's first VoIP call was answered (only reached while me.s132 is present). */
   onFirstForm?: (callId: number) => void;
   /** SIMOTEL-132: a call was saved by itself (the task left «کارهای امروز من»); the lists are refreshed here too. */
@@ -73,9 +74,10 @@ export function useVcFastWaiting(customerId: number): boolean {
   // REVIEWWAIT web (Armita): also the timeout card («نتیجه از سیموتل نرسید») — only the four status buttons + «دوباره زنگ بزن», at 1280 the same as at 390.
   return Boolean(c && c.customerId === customerId && sc && (sc.phase === 'waiting' || sc.phase === 'late') && sc.fast === true && sc.expertStatus == null);
 }
-function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra, variant = 'task', onStarted, onFirstForm, label }: BoxProps & { me: VcMe }) {
+function VcBoxOn({ me, customerId, fileId = null, entry, customerName, onResult, extra, variant = 'task', onStarted, onFirstForm, label }: BoxProps & { me: VcMe }) {
   const qc = useQueryClient();
   const s132 = Boolean(me.s132); // SIMOTEL-132 flag on for this user (absent → everything below is today's UI)
+  const vth = vthOf(me as VcMeVth);
   const firstQ = useS132First(customerId, s132);
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
   const c = me.call ?? null; const total = me.timeoutSeconds ?? 30;
@@ -84,7 +86,7 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
   useTick(Boolean(mine && live));
   const start = async () => {
     if (busy) return; setBusy(true); setErr('');
-    try { const r = await vcApi.start({ customerId, fileId }); qc.setQueryData<VcMe>(VC_ME_KEY, (o) => ({ ...(o ?? { on: true }), on: true, call: r.call })); if (r.call?.state !== 'error') onStarted?.(); }
+    try { const r = await vcApi.start({ customerId, fileId, ...(entry ? { entry } : {}) }); qc.setQueryData<VcMe>(VC_ME_KEY, (o) => ({ ...(o ?? { on: true }), on: true, call: r.call })); if (r.call?.state !== 'error') onStarted?.(); }
     catch (e) { setErr(e instanceof VcError ? e.message : 'شروع تماس ناموفق بود.'); vcRefresh(qc); }
     finally { setBusy(false); }
   };
@@ -157,6 +159,7 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
     const btns = saving ? <button type="button" className="btn btn-ghost vc-btn" aria-disabled="true" onClick={(e) => e.preventDefault()} data-testid="vc-saving-btn"><Check size={16} aria-hidden="true" />{S_LBL[sc.expertStatus!]} ثبت شد</button>
       : k === 'waiting' ? <button type="button" className="btn btn-ghost vc-btn" aria-disabled="true" onClick={(e) => e.preventDefault()} data-testid="vc-wait-btn"><Lock size={16} aria-hidden="true" />در انتظار نتیجه</button>
       : k === 'first_form' ? <button type="button" className="btn btn-primary" onClick={() => onFirstForm?.(c.id)} data-testid="vc-first-form"><Flag size={16} aria-hidden="true" /> فرم تماس اول</button>
+      : vth ? <button type="button" className="btn btn-ghost" onClick={() => void vthApi.retry(c.id).finally(() => vthRefresh(qc))} data-testid="vth-retry"><RefreshCw size={16} aria-hidden="true" />تلاش دوباره برای وضعیت</button>
       : <>{sb('answered', first ? 'جواب داد، فرم تماس اول' : 'جواب داد', true)}{sb('no_answer', 'جواب نداد')}{sb('busy', 'اشغال')}{sb('failed', 'ناموفق')}
         {vBtn('دوباره زنگ بزن', <RefreshCw size={16} aria-hidden="true" />, false, 'vc-again')}</>;
     const lockTxt = saving ? 'وضعیت ثبت شد؛ تسک بعدی چند ثانیه‌ی دیگر خودش باز می‌شود.' : k === 'waiting' ? (fast ? `نتیجه‌ی همین تماس در راه است؛ دکمه‌های دستی لازم نیست. اگر تا حداکثر ${tot} ثانیه نرسید، فقط چهار دکمه‌ی وضعیت می‌آید.`
@@ -186,8 +189,8 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
   const fileTxt = c.fileId != null ? `تماس خودکار به پرونده ${faNum(c.fileId)} وصل شد` : 'تماس خودکار به سابقه‌ی همین مشتری وصل شد';
   const P: Record<string, [string, string]> = {
     ring: ['تلفن ویپ شما زنگ می‌خورد، جواب بده', `بعد از جواب دادن، شماره‌ی ${nm} خودکار گرفته می‌شود.`],
-    dial: ['در حال گرفتن شماره‌ی مشتری…', 'روی خط بمان؛ صدای بوق را از همان تلفن ویپ می‌شنوی.'],
-    talk: [`در مکالمه با ${nm}`, 'برای پایان، قطع تماس از تلفن ویپ. این تماس ضبط می‌شود.'],
+    dial: vth ? ['در حال تماس', 'برای قطع از گوشی ویپ استفاده کنید'] : ['در حال گرفتن شماره‌ی مشتری…', 'روی خط بمان؛ صدای بوق را از همان تلفن ویپ می‌شنوی.'],
+    talk: vth ? ['در حال تماس', 'برای قطع از گوشی ویپ استفاده کنید'] : [`در مکالمه با ${nm}`, 'برای پایان، قطع تماس از تلفن ویپ. این تماس ضبط می‌شود.'],
     ok: [s132 ? 'تماس تمام شد: جواب داد' : 'تماس تمام شد: پاسخ داد', `${dur ? `${dur}. ` : ''}${fileTxt}؛ ${c.recording === 'ready' ? 'فایل ضبط آماده است.' : c.recording === 'processing' ? 'فایل ضبط در حال آماده شدن است.' : 'فایل ضبط ندارد.'}`],
     na: s132 ? ['مشتری جواب نداد', `بوق خورد ولی برنداشت. با وضعیت «جواب نداد»، ${fileTxt}.`] : ['مشتری پاسخ نداد', `بوق خورد ولی برنداشت. با وضعیت «پاسخ نداد»، ${fileTxt}.`],
     bz: ['خط مشتری اشغال بود', `با وضعیت «اشغال»، ${fileTxt}.`],
@@ -210,7 +213,7 @@ function VcBoxOn({ me, customerId, fileId = null, customerName, onResult, extra,
         <div><h3 data-testid="vc-title">{P[kind][0]}</h3><p>{P[kind][1]}</p>{kind === 'na' || kind === 'bz' ? <NoAnsSms on={c.noanswerSmsSent} /> : null}</div></div>
       {kind === 'ring' ? <div className="vc-cdn"><span className="vc-bar" role="progressbar" aria-label="زمان جواب دادن" aria-valuemin={0} aria-valuemax={total} aria-valuenow={left} aria-valuetext={`${faNum(left)} ثانیه مانده`}>
         <i style={{ width: `${Math.round((left / total) * 100)}%` }} /></span><span className="muted" data-testid="vc-left">{faNum(left)} ثانیه مانده</span></div> : null}
-      {kind === 'talk' ? <p className="vc-tmr"><span dir="ltr" data-testid="vc-timer" aria-label="زمان مکالمه">{mmss(talkSeconds(c))}</span><span className="vc-recdot">در حال ضبط</span></p> : null}
+      {kind === 'talk' && !vth ? <p className="vc-tmr"><span dir="ltr" data-testid="vc-timer" aria-label="زمان مکالمه">{mmss(talkSeconds(c))}</span><span className="vc-recdot">در حال ضبط</span></p> : kind === 'talk' && vth ? <p className="muted" data-testid="vth-neutral">گوشی کارشناس وصل است؛ پاسخ مشتری هنوز تأیید نشده.</p> : null}
     </section>
     <div className="dp-actions vc-row">{btns}{extra}</div>
     <p className="vc-lock">{live || c.needsResult ? <Lock className="i" aria-hidden="true" /> : <Check className="i" aria-hidden="true" />}<span>{lockTxt}</span></p>{errLine}

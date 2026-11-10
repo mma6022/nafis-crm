@@ -17,6 +17,7 @@ import { normalizePhone, resolveEvent, experts, customerMatcher } from "./voip-a
 import { simotelOriginate, SimotelError, invalidateSimotelCallCache, type SimotelCall } from "./simotel";
 import { vnaSent } from "./voip-noanswer-sms";
 import { vcIsScopedRegistrar, vcRegistrarWhy } from "./voip-registrar-scope";
+import { vthFlagOn, vthAnyOn, vthAttach, vthRelease, vthOpenCall, vthSameTarget, vthMePayload, vthFinalStatus, ensureVthSchema } from "./voip-task-hold";
 
 export const VC_ME_TIMEOUT_S = 30;
 const REQUEST_STALE_S = 45, DIAL_STALE_S = 180, TALK_STALE_S = 4 * 3600, NOTICE_KEEP_S = 15 * 60;
@@ -112,9 +113,10 @@ export function vcSweep(now = new Date()) {
   const ff = s132TableExists() ? ` AND NOT EXISTS (SELECT 1 FROM s132_calls s JOIN customers cu ON cu.id=s.customer_id WHERE s.call_id=voip_click_calls.id
       AND s.auto_kind='first_form' AND cu.priority IS NULL AND COALESCE(cu.status,'in_progress')='in_progress' AND cu.merged_into_customer_id IS NULL
       AND julianday(CASE WHEN voip_click_calls.cdr_at IS NOT NULL AND voip_click_calls.cdr_at>voip_click_calls.ended_at THEN voip_click_calls.cdr_at ELSE voip_click_calls.ended_at END)>=julianday(?)-?/86400.0)` : "";
+  const vthHoldSql = vthAnyOn() ? " AND NOT EXISTS (SELECT 1 FROM call_queue_settings s WHERE s.value='1' AND (s.key='flag.voip_task_hold_v1' OR s.key='flag.voip_task_hold_v1.user.'||voip_click_calls.user_id))" : "";
   executeChanges(`UPDATE voip_click_calls SET dismissed_at=? WHERE active=0 AND state='ended' AND dismissed_at IS NULL AND result_saved_at IS NULL
       AND NOT (outcome IS NOT NULL AND file_id IS NOT NULL) AND ended_at IS NOT NULL
-      AND julianday(CASE WHEN cdr_at IS NOT NULL AND cdr_at>ended_at THEN cdr_at ELSE ended_at END)<julianday(?)-?/86400.0${ff}`,
+      AND julianday(CASE WHEN cdr_at IS NOT NULL AND cdr_at>ended_at THEN cdr_at ELSE ended_at END)<julianday(?)-?/86400.0${ff}${vthHoldSql}`,
     ff ? [iso(now), iso(now), VC_RELEASE_AFTER_S, iso(now), VC_LIVE_MAX_S] : [iso(now), iso(now), VC_RELEASE_AFTER_S]);
 }
 
@@ -332,9 +334,11 @@ export function vcView(c: VcRow, now = new Date()): VcView {
     customerName: queryRow<{ name: string }>("SELECT name FROM customers WHERE id=?", [c.customer_id])?.name ?? null,
     createdAt: c.created_at, secondsLeft: c.state === "ring_me" && c.ring_deadline ? Math.max(0, Math.ceil((ms(c.ring_deadline) - now.getTime()) / 1000)) : null,
     meAnsweredAt: c.me_answered_at, custAnsweredAt: c.cust_answered_at, endedAt: c.ended_at, durationSeconds: talking ?? talk, cdr: !!c.cdr_at,
-    recording: rec, eventId: c.event_id, active: !!c.active, needsResult: counts && c.file_id != null && !c.result_saved_at, resultSaved: !!c.result_saved_at,
+    recording: rec, eventId: c.event_id, active: !!c.active, needsResult: vthFlagOn(c.user_id)
+      ? (c.state === "ended" && !c.result_saved_at)
+      : counts && c.file_id != null && !c.result_saved_at, resultSaved: !!c.result_saved_at,
     resultOutcome: c.result_outcome, prefill: !counts ? null : c.outcome === "answered" ? "answered" : "no_answer",
-    oneTap: counts && (c.outcome === "no_answer" || c.outcome === "busy"), errorCode: c.error_code,
+    oneTap: counts && (c.outcome === "no_answer" || c.outcome === "busy") && !vthFlagOn(c.user_id), errorCode: c.error_code,
     custStatus: c.cust_status ?? null, billsec: c.billsec ?? null, noanswerSmsSent: c.outcome !== "answered" && vnaSent(c.id),
   };
 }
@@ -356,9 +360,13 @@ export function vcMe(u: U, now = new Date()) {
     if (c && c.result_saved_at) c = undefined;
     const v: any = c ? vcView(c, now) : null;
     if (v) v.s132 = s132CallView(c!, now);
-    return { on: true, extension: ext, call: v, timeoutSeconds: VC_ME_TIMEOUT_S, s132: { last: s132LastBar(u.id, now) } };
+    const out: any = { on: true, extension: ext, call: v, timeoutSeconds: VC_ME_TIMEOUT_S, s132: { last: s132LastBar(u.id, now) } };
+    const vth = vthMePayload(u, c ?? null, now); if (vth) out.vth = vth;
+    return out;
   }
-  return { on: true, extension: ext, call: c ? vcView(c, now) : null, timeoutSeconds: VC_ME_TIMEOUT_S };
+  const out: any = { on: true, extension: ext, call: c ? vcView(c, now) : null, timeoutSeconds: VC_ME_TIMEOUT_S };
+  const vth = vthMePayload(u, c ?? null, now); if (vth) out.vth = vth;
+  return out;
 }
 export function vcCustomerAllowed(u: U, customerId: number): boolean {
   const c = queryRow<{ salesperson_id: number | null }>("SELECT salesperson_id FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [customerId]);
@@ -389,9 +397,18 @@ export async function vcStart(u: U, body: any, now = new Date()) {
   if (busy) return err(409, "one_call", "یک تماس در جریان است؛ هر بار فقط یک تماس.", { call: vcView(busy, now) });
   // Design (HANDOFF §برای آدیتیا): answered / no answer / busy keep the task lock until the result is saved. A redial of the same file is
   // allowed («دوباره زنگ بزن») and supersedes the unsaved call; any other customer waits for that result.
-  const open = queryRow<VcRow>(`SELECT * FROM voip_click_calls WHERE user_id=? AND state='ended' AND outcome IS NOT NULL AND file_id IS NOT NULL
+  // VOIP-TASK-HOLD (flag.voip_task_hold_v1, OFF → this block is the file-task-only rule above): the same lock applies to every entry
+  // (carousel / reminder / lead / search / file) while a call is live, the final status is unknown, or the result is unsaved.
+  const vthOpen = vthFlagOn(u.id) ? vthOpenCall(u) : null;
+  if (vthOpen && (vthOpen.state !== "ended" || !vthSameTarget(vthOpen, cid, fid))) {
+    const row = queryRow<VcRow>("SELECT * FROM voip_click_calls WHERE id=?", [vthOpen.id])!;
+    return err(409, "needs_result", "اول نتیجه‌ی تماس قبلی را ثبت کن؛ کار بعدی تا ثبت نتیجه قفل است.", { call: vcView(row, now) });
+  }
+  const open = vthOpen && vthOpen.state === "ended" ? queryRow<VcRow>("SELECT * FROM voip_click_calls WHERE id=?", [vthOpen.id])
+    : queryRow<VcRow>(`SELECT * FROM voip_click_calls WHERE user_id=? AND state='ended' AND outcome IS NOT NULL AND file_id IS NOT NULL
     AND result_saved_at IS NULL AND dismissed_at IS NULL ORDER BY id DESC LIMIT 1`, [u.id]);
-  if (open && open.file_id !== fid) return err(409, "needs_result", "اول نتیجه‌ی تماس قبلی را ثبت کن؛ تسک بعدی تا ثبت نتیجه قفل است.", { call: vcView(open, now) });
+  if (open && !vthFlagOn(u.id) && open.file_id !== fid) return err(409, "needs_result", "اول نتیجه‌ی تماس قبلی را ثبت کن؛ تسک بعدی تا ثبت نتیجه قفل است.", { call: vcView(open, now) });
+  if (open && vthFlagOn(u.id) && !vthSameTarget(open, cid, fid)) return err(409, "needs_result", "اول نتیجه‌ی تماس قبلی را ثبت کن؛ کار بعدی تا ثبت نتیجه قفل است.", { call: vcView(open, now) });
   if (open) executeChanges("UPDATE voip_click_calls SET dismissed_at=? WHERE id=?", [iso(now), open.id]);
   let id: number;
   try {
@@ -399,6 +416,7 @@ export async function vcStart(u: U, body: any, now = new Date()) {
       .run(u.id, ext, cid, fid, phone, iso(now), iso(now));
     id = Number(r.lastInsertRowid);
   } catch { return err(409, "one_call", "یک تماس در جریان است؛ هر بار فقط یک تماس."); }
+  try { if (vthFlagOn(u.id)) { ensureVthSchema(); vthAttach(u, id, body, now); } } catch { /* hold row is additive; the call still starts */ }
   try { s132OnStart(u, id, cid, fid, now); } catch { /* SIMOTEL-132: without its row the call keeps the manual flow */ }
   try {
     const ctx = setting("voip_call.context") || "main_routing";
@@ -420,6 +438,7 @@ export function vcDismiss(u: U, id: number, now = new Date()) {
   if (!c) return err(404, "not_found", "این تماس پیدا نشد.");
   if (c.active) return err(409, "still_active", "تماس هنوز در جریان است.");
   if (c.state === "ended" && c.file_id != null && !c.result_saved_at) return err(409, "needs_result", "نتیجه‌ی این تماس هنوز ثبت نشده است.");
+  if (vthFlagOn(u.id) && c.state === "ended" && !c.result_saved_at) return err(409, "needs_result", "نتیجه‌ی این تماس هنوز ثبت نشده است.");
   executeChanges("UPDATE voip_click_calls SET dismissed_at=? WHERE id=?", [iso(now), id]);
   return { status: 200, body: { ok: true } };
 }
@@ -464,6 +483,8 @@ export function vcOnNewState(body: Record<string, unknown>, now = new Date()): b
   }
   if (["idle", "unavailable", "pause", "notinuse"].includes(state)) {
     if (rm) end(c.id, "me_timeout", null, now);
+    // VOIP-TASK-HOLD: a real hang-up with no valid CDR yet is "ended" with no guessed outcome (pending_status). Flag off → today's guess.
+    else if (vthFlagOn(c.user_id)) end(c.id, "ended", null, now);
     else end(c.id, "ended", c.state === "in_call" ? "answered" : "no_answer", now); // the CDR may still correct no_answer → busy / answered
     // SIMOTEL-FAST: hang-up → look the CDR up right after the settle even if the Cdr webhook is lost (no status is set from this alone).
     if (vcFastOn(c.user_id)) vcScheduleFastSync(c.id, now.getTime() + FAST_SETTLE_MS + 500);
@@ -505,6 +526,7 @@ export function vcFollowupCheck(u: U, body: any, customerId: number | null, outc
 export function vcFollowupSaved(call: VcRow | null, outcome: string, now = new Date()) {
   if (!call) return;
   executeChanges("UPDATE voip_click_calls SET result_saved_at=COALESCE(result_saved_at,?), result_outcome=? WHERE id=?", [iso(now), outcome, call.id]);
+  try { vthRelease(call.id, now); } catch { /* additive */ }
   const c = queryRow<VcRow>("SELECT * FROM voip_click_calls WHERE id=?", [call.id]);
   if (c?.event_id != null) vcCompleteEvent(c.event_id, c.user_id, now);
 }

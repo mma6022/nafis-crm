@@ -21,6 +21,7 @@ import { crmDb, execute, executeChanges, queryRow, queryRows, runTransaction } f
 import { vcCustomerAllowed, vcOn, vcStart } from "./voip-call";
 import { s132IsFirstCall, s132On } from "./simotel132";
 import { vcIsScopedRegistrar } from "./voip-registrar-scope";
+import { vthRelease } from "./voip-task-hold";
 
 type U = { id: number; role?: string | null; salespersonId?: number | null; customerScope?: string | null };
 type Err = { status: number; body: { error: string; message: string; details?: unknown } };
@@ -184,7 +185,7 @@ export async function rvStart(u: U, id: number, now = new Date()) {
   if (kind !== "own" && kind !== "support_own") return err(403, "not_own_customer", kind === "support_other" ? "این مشتری را خودت ثبت‌نام نکرده‌ای." : "فقط با مشتری خودت می‌توانی تماس بگیری.");
   if (!vcCustomerAllowed(u as any, Number(r.customer_id))) return err(403, "not_own_customer", "فقط با مشتری خودت می‌توانی تماس بگیری.");
   if (!cleanPhone(c?.phone)) return err(422, "no_phone", "شماره‌ی این مشتری ثبت نشده است.");
-  const res: any = await vcStart(u as any, { customerId: Number(r.customer_id), fileId: null }, now);
+  const res: any = await vcStart(u as any, { customerId: Number(r.customer_id), fileId: null, entry: "reminder", reminderId: r.id }, now);
   if (res?.status === 200 && res.body?.call?.id) {
     const callId = Number(res.body.call.id);
     let first = 0;
@@ -234,6 +235,10 @@ export function rvResult(u: U, id: number, b: any, now = new Date()) {
       [r.id, u.id, r.customer_id, logId, outcome, note, at, source, at]);
     executeChanges("UPDATE reminders SET done=1, closed_at=COALESCE(closed_at,?), closed_by_call_id=COALESCE(closed_by_call_id,?) WHERE id=? AND user_id=? AND done=0",
       [at, logId, r.id, u.id]);
+    if (callId != null) {
+      executeChanges("UPDATE voip_click_calls SET result_saved_at=COALESCE(result_saved_at,?), result_outcome=? WHERE id=? AND user_id=?", [at, outcome, callId, u.id]);
+      try { vthRelease(callId, now); } catch { /* additive */ }
+    }
   });
   return { status: 200, body: { ok: true, result: { outcome, note, savedAt: at, source } } };
 }

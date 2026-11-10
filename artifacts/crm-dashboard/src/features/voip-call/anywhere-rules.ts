@@ -58,7 +58,8 @@ export function vcaAutoOpen(me: VcaMe, g: VcaGate, started: ReadonlySet<number>,
   const c = me?.call;
   if (!g.on || !c || !started.has(c.id)) return null;
   const sc = c.s132; if (!sc) return null;
-  const stage: VcaFormStage | null = sc.phase === 'first_form' ? 'form' : sc.phase === 'live' && sc.firstCall && c.active && VCA_TALK.has(c.state) ? 'talk' : null;
+  const hold = Boolean((me as { vth?: { on?: boolean } } | null)?.vth?.on);
+  const stage: VcaFormStage | null = sc.phase === 'first_form' ? 'form' : (!hold && sc.phase === 'live' && sc.firstCall && c.active && VCA_TALK.has(c.state)) ? 'talk' : null;
   if (!stage) return null;
   const key = `${c.id}:${stage}`;
   return shown.has(key) ? null : { id: c.id, stage, key };

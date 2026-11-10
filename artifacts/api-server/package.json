@@ -15,6 +15,7 @@
     "test:simotel-recordings": "node scripts/simotel-recordings-fixture.mjs",
     "test:voip-after-call": "node scripts/voip-after-call-fixture.mjs",
     "test:after-call-fix": "node scripts/after-call-fix-fixture.mjs",
+    "test:voip-task-hold": "NODE_ENV=production node scripts/run-bundled-fixture.mjs scripts/voip-task-hold-fixture.mjs",
     "test:ct-chat": "node scripts/ct-chat-fixture.mjs",
     "test:cs-fields": "node scripts/run-bundled-fixture.mjs scripts/cs-fields-fixture.mjs",
     "test:daily-customer-inline": "node scripts/run-bundled-fixture.mjs scripts/daily-customer-inline-fixture.mjs && node scripts/run-bundled-fixture.mjs scripts/daily-customer-inline-wiring-fixture.mjs",

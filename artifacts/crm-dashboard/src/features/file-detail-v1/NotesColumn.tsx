@@ -5,6 +5,7 @@ import { AlertCircle, Ban, Check, ChevronDown, ChevronRight, FilePlus2, User as 
 import { CaseApiError, MAX_FILE_BYTES, canReadNotes, canWriteNotes, fetchNotes, postNote, withBase, type CaseNote, type CaseUser } from '@/loan-case-history/api';
 import { useVoiceRecorder } from '@/loan-case-history/useVoiceRecorder';
 import { dayKey, dayLabel, fd, hm, sizeFa } from './fdv1-api';
+import { vthDraftRead, vthDraftWrite, vthDraftClear } from '@/features/voip-task-hold/notes-draft';
 
 type Pending = { clientId: string; text: string; file: File | null; st: 'sending' | 'failed'; createdAt: string };
 const visible = () => typeof document === 'undefined' || document.visibilityState === 'visible';
@@ -49,7 +50,7 @@ function Meta({ tm, st, onRetry }: { tm: string; st?: 'sending' | 'sent' | 'fail
 
 export type SysLine = { id: string; at: string; text: string; kind?: 'created' | 'signed' | 'sent' | 'canceled' };
 const SYS_ICON = { created: FilePlus2, signed: PenLine, sent: Send, canceled: Ban } as const;
-export function NotesColumn({ appId, user, onBack, title, sys = [] }: { appId: number; user: CaseUser & { name?: string | null }; onBack: () => void; title?: string; sys?: SysLine[] }) {
+export function NotesColumn({ appId, user, onBack, title, sys = [], draftKey }: { appId: number; user: CaseUser & { name?: string | null }; onBack: () => void; title?: string; sys?: SysLine[]; draftKey?: string }) {
   const readable = canReadNotes(user), writable = canWriteNotes(user);
   const me = user?.id ?? null;
   const [notes, setNotes] = useState<CaseNote[]>([]);
@@ -57,8 +58,9 @@ export function NotesColumn({ appId, user, onBack, title, sys = [] }: { appId: n
   const [cursor, setCursor] = useState<string | null>(null);
   const [status, setStatus] = useState<'loading' | 'error' | 'ok'>('loading');
   const [older, setOlder] = useState(false);
-  const [text, setText] = useState('');
+  const [text, setText] = useState(() => (draftKey ? vthDraftRead(draftKey) : ''));
   const [file, setFile] = useState<File | null>(null);
+  useEffect(() => { if (draftKey) vthDraftWrite(draftKey, text); }, [draftKey, text]);
   const [err, setErr] = useState('');
   const list = useRef<HTMLDivElement>(null);
   const pick = useRef<HTMLInputElement>(null);
@@ -128,7 +130,7 @@ export function NotesColumn({ appId, user, onBack, title, sys = [] }: { appId: n
   const submit = () => {
     if (!canSend) return;
     const p: Pending = { clientId: crypto.randomUUID(), text: text.trim(), file, st: 'sending', createdAt: new Date().toISOString() };
-    setText(''); setFile(null); setErr('');
+    setText(''); setFile(null); setErr(''); if (draftKey) vthDraftClear(draftKey);
     void send(p);
   };
 
@@ -183,6 +185,7 @@ export function NotesColumn({ appId, user, onBack, title, sys = [] }: { appId: n
     </div>
     <div className="cz">
       {!writable ? <div className="czro"><Lock className="i" aria-hidden />شما فقط اجازهٔ مشاهدهٔ یادداشت‌ها را دارید.</div> : <>
+        {draftKey && (text.trim() || file) ? <small className="vh-draft" data-testid="vth-draft">پیش‌نویس؛ هنوز ثبت نشده</small> : null}
         {file ? <div className="apv"><span className="fi"><FileIcon className="i" aria-hidden /></span><span className="tx"><b dir="auto">{file.name}</b><span>{sizeFa(file.size)}</span></span>
           <button className="ib" type="button" aria-label="حذف پیوست" onClick={() => setFile(null)}><X className="i" aria-hidden /></button></div> : null}
         {err ? <p className="ferr inl" role="alert"><AlertCircle className="i" aria-hidden />{err}</p> : null}
