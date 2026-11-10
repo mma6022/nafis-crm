@@ -285,8 +285,8 @@ function ChatPane({ me, chat, messages, toast, err, refresh, onAsk, onSearch, on
       : <>وصل شد به {fresh ? 'لید تازه' : 'پرونده‌ی'} {chat.customer.name}<Cid id={chat.customer.id} toast={toast} /> با ورود دستی {actor}</>}</span></div>);
   }
   const sub = chat.contactFeature
-    ? (chat.pendingTypedPhone ? <p className="bc-un">در انتظار تأیید کارشناس</p> : chat.waitingNumber ? <p className="bc-un">هنوز به مشتری وصل نشده</p> : <p className="bc-un">{chat.username ? <Uname u={chat.username} /> : 'بدون نام کاربری'}{me.view === 'all' ? `، کارشناس: ${chat.expert.name}` : ''}</p>)
-    : <p>{chat.username ? <Uname u={chat.username} /> : 'بدون نام کاربری'}{me.view === 'all' ? `، کارشناس: ${chat.expert.name}` : ''}</p>;
+    ? (chat.pendingTypedPhone ? <p className="bc-un">در انتظار تأیید کارشناس</p> : chat.waitingNumber ? <p className="bc-un">هنوز به مشتری وصل نشده</p> : <p className="bc-un">{chat.username ? <Uname u={chat.username} /> : 'بدون نام کاربری'}{me.view === 'all' && chat.expert.name ? `، کارشناس: ${chat.expert.name}` : ''}</p>)
+    : <p>{chat.username ? <Uname u={chat.username} /> : 'بدون نام کاربری'}{me.view === 'all' && chat.expert.name ? `، کارشناس: ${chat.expert.name}` : ''}</p>;
   return <section className="pane ch" aria-label={`گفتگو با ${chat.name}`}>
     <div className="chh"><button className="ib bkb" type="button" onClick={back} aria-label="برگشت به گفتگوها"><I n="next" /></button><Ava name={chat.name} seed={chat.id} />
       <div className="t"><div className="nmr"><Nm name={chat.name} />{chat.customer && !chat.pendingTypedPhone ? <Cid id={chat.customer.id} toast={toast} /> : null}</div>{sub}</div></div>

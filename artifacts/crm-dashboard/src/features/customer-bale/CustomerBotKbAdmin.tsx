@@ -367,7 +367,7 @@ function BotsTab({ d, toast, reload }: { d: KbAdminPayload; toast: (t: string) =
   const expertsQ = useQuery<{ hasKey: boolean; noSend: number[]; experts: BbAdminExpert[] }>({
     queryKey: ['bb-admin'], queryFn: () => bbFetch('/bale-bot/admin/bots'),
   });
-  const ex = expertsQ.data?.experts ?? [];
+  const ex = (expertsQ.data?.experts ?? []).filter((e) => e.id !== 3);
   const [w, setW] = useState<null | { k: 'wiz'; s: number; userId: number | null; replace: boolean } | { k: 'saved'; e: BbAdminExpert } | { k: 'off'; e: BbAdminExpert }>(null);
   const [tok, setTok] = useState('');
   const [tokBusy, setTokBusy] = useState(false);

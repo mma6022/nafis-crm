@@ -19,7 +19,7 @@ import {
 } from "../lib/bale-bot";
 import {
   bcApproveTyped, bcCanAct, bcCommitManual, bcCustomerForViewer, bcFlagOn, bcInboxTitle, bcPreviewManual, bcRejectTyped,
-  bcResendAsk, bcSourceLine, bcTypedMatch, ensureBaleContactSchema, runBaleContactBatch,
+  BC_GHASEMI_USER_ID, bcResendAsk, bcSourceLine, bcTypedMatch, ensureBaleContactSchema, runBaleContactBatch,
 } from "../lib/bale-contact";
 
 export const baleBotWorker = new BaleBotWorker();
@@ -426,7 +426,7 @@ export function createBaleBotRouter(): IRouter {
   const adm = (res: Response) => { const u = U(res); if (!bbCanManage(u)) { fail(res, 403, "forbidden"); return null; } return u; };
   r.get("/bale-bot/admin/bots", (_req, res) => {
     if (!adm(res)) return;
-    const experts = queryRows<BbUser>(`SELECT id,role,role AS base_role,salesperson_id,active,full_name,username FROM users WHERE (role='salesperson' OR id IN (${BB_EXTRA_EXPERT_USER_IDS.map(Number).join(",") || "-1"})) AND active=1 ORDER BY id`).filter(isBotExpert);
+    const experts = queryRows<BbUser>(`SELECT id,role,role AS base_role,salesperson_id,active,full_name,username FROM users WHERE (role='salesperson' OR id IN (${BB_EXTRA_EXPERT_USER_IDS.map(Number).join(",") || "-1"})) AND active=1 ORDER BY id`).filter((e) => isBotExpert(e) && e.id !== BC_GHASEMI_USER_ID);
     res.json({ hasKey: baleBotHasKey(process.env), noSend: bbNoSendSp(), experts: experts.map(e => ({ id: e.id, name: nameOf(e), salespersonId: e.salesperson_id, flagOn: bbUserOn(e.id), bot: botView(botOfUser(e.id)), noSend: bbNoSendSp().includes(Number(e.salesperson_id)) })) });
   });
   /** getMe with a token typed in the wizard (not stored). The token is only in the body; the answer never echoes it. */
