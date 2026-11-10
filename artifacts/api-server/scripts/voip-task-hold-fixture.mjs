@@ -21,9 +21,9 @@ process.env.CRM_DATABASE_PATH = file;
 process.env.SESSION_SECRET ||= "voip-task-hold-fixture-not-a-secret";
 
 const { crmDb: raw, execute, executeChanges, queryRow, queryRows } = await import("../src/lib/crm-db.ts");
-const { ensureVcSchema, vcStart, vcDismiss, vcMe, vcView, vcOnNewState, vcSweep, vcFollowupSaved, __setOriginateForTests, VC_RELEASE_AFTER_S } = await import("../src/lib/voip-call.ts");
+const { ensureVcSchema, vcStart, vcDismiss, vcMe, vcView, vcOnNewState, vcSweep, vcFollowupSaved, vcHistory, __setOriginateForTests, VC_RELEASE_AFTER_S } = await import("../src/lib/voip-call.ts");
 const vth = await import("../src/lib/voip-task-hold.ts");
-const { vthFlagOn, vthAttach, vthPhaseOf, vthBlockNext, vthOpenCall, vthMePayload, vthFinalStatus, vthRedactCarousel, vthSaveResult, vthContext, vthSuppressAutoSave, ensureVthSchema, VTH_FLAG } = vth;
+const { vthFlagOn, vthAttach, vthPhaseOf, vthBlockNext, vthOpenCall, vthMePayload, vthFinalStatus, vthRedactCarousel, vthSaveResult, vthManualEnd, vthContext, vthSuppressAutoSave, ensureVthSchema, VTH_FLAG, VTH_MANUAL_END_AFTER_MS } = vth;
 const { rvStart, RV_FLAG } = await import("../src/lib/reminder-voip.ts");
 const { ensureFcSchema, fcToday } = await import("../src/lib/files-carousel.ts");
 const { ensureDailyPlanSchema, dpToday, dpOn, dpIsExpert } = await import("../src/lib/daily-plan.ts");
@@ -171,6 +171,7 @@ await t("real hang-up without a CDR is pending_status: no guessed outcome, no di
   const me = vcMe(U);
   assert.equal(me.vth.phase, "pending_status");
   assert.equal(me.vth.nextBlocked, true);
+  assert.equal(me.vth.canManualEnd, false);
   const d = vcDismiss(U, after.id, new Date());
   assert.equal(d.status, 409);
   assert.equal(d.body.error, "needs_result");
@@ -292,6 +293,8 @@ await t("file entry save does not mark a reminder done or write a carousel follo
   const ok = vthSaveResult(U, c.id, { outcome: "answered", note: "فقط نتیجه تماس" }, new Date());
   assert.equal(ok.status, 200, JSON.stringify(ok.body));
   assert.equal(ok.body.stay, true);
+  assert.equal(ok.body.callId, c.id);
+  assert.ok(ok.body.savedAt);
   assert.equal(Number(queryRow("SELECT done FROM reminders WHERE id=?", [remId]).done), 0);
   const fuAfter = Number(queryRow("SELECT COUNT(*) n FROM fc_followups WHERE salesperson_id=? AND day=?", [U.salespersonId, day])?.n ?? 0);
   assert.equal(fuAfter, fuBefore);
@@ -355,6 +358,105 @@ await t("support / other-owner context: phone hidden and canCall false when not 
   // expert (not a registrar) has no eligibility object
   assert.equal(ctxOther.eligibility, null);
   assert.equal(ctxOther.notesWritable, true);
+  assert.ok(ctxOther.expert?.name, "support / other-owner card needs the file's real expert name");
+  const ctxOwn = vthContext(U, own.id);
+  assert.equal(ctxOwn.canCall, true);
+  assert.equal(ctxOwn.phoneVisible, true);
+  assert.ok(ctxOwn.expert?.name);
+});
+
+await t("search and file «ثبت نتیجه» stay; only carousel/lead entries call the advancing completers", async () => {
+  ensureFcSchema();
+  const day = fcToday(new Date());
+  const fuBefore = Number(queryRow("SELECT COUNT(*) n FROM fc_followups WHERE salesperson_id=? AND day=?", [U.salespersonId, day])?.n ?? 0);
+  clearActive();
+  const c = await startCall({ customerId: own.id, fileId: null, entry: "search" });
+  endCallFinal(c.id);
+  const ok = vthSaveResult(U, c.id, { outcome: "answered", note: "جست‌وجو ماند" }, new Date());
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(ok.body.stay, true);
+  assert.equal(ok.body.entry, "search");
+  const fuAfter = Number(queryRow("SELECT COUNT(*) n FROM fc_followups WHERE salesperson_id=? AND day=?", [U.salespersonId, day])?.n ?? 0);
+  assert.equal(fuAfter, fuBefore);
+});
+
+await t("manual end is refused in-call and before the 10-minute window; after hang-up and the window it opens the one form with an audit flag and no invented CDR", async () => {
+  clearActive();
+  const c = await startCall({ customerId: own.id, fileId, entry: "file" });
+  const startedLive = new Date(Date.now() - VTH_MANUAL_END_AFTER_MS - 5_000);
+  executeChanges("UPDATE voip_click_calls SET created_at=? WHERE id=?", [startedLive.toISOString(), c.id]);
+  let me = vcMe(U);
+  assert.equal(me.vth.phase, "in_call");
+  assert.equal(me.vth.canManualEnd, false);
+  const live = vthManualEnd(U, c.id, new Date());
+  assert.equal(live.status, 409);
+  assert.equal(live.body.error, "still_active");
+
+  executeChanges("UPDATE voip_click_calls SET state='ended', active=0, ended_at=?, updated_at=?, created_at=?, outcome=NULL, cust_status=NULL, cdr_at=NULL, billsec=NULL WHERE id=?",
+    [nowIso(), nowIso(), nowIso(), c.id]);
+  me = vcMe(U);
+  assert.equal(me.vth.phase, "pending_status");
+  assert.equal(me.vth.canManualEnd, false);
+  const early = vthManualEnd(U, c.id, new Date());
+  assert.equal(early.status, 409);
+  assert.equal(early.body.error, "too_early");
+  assert.equal(queryRow("SELECT manual_ended_at FROM voip_click_calls WHERE id=?", [c.id]).manual_ended_at, null);
+
+  const started = new Date(Date.now() - VTH_MANUAL_END_AFTER_MS - 5_000);
+  executeChanges("UPDATE voip_click_calls SET created_at=? WHERE id=?", [started.toISOString(), c.id]);
+  me = vcMe(U);
+  assert.equal(me.vth.canManualEnd, true);
+  assert.equal(me.vth.phase, "pending_status");
+  const ok = vthManualEnd(U, c.id, new Date());
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(ok.body.manualEnd, true);
+  assert.equal(ok.body.phase, "final");
+  assert.equal(ok.body.final, true);
+  const row = queryRow("SELECT state, active, manual_ended_at, outcome, cust_status, result_saved_at, cdr_at FROM voip_click_calls WHERE id=?", [c.id]);
+  assert.equal(row.state, "ended");
+  assert.equal(Number(row.active), 0);
+  assert.ok(row.manual_ended_at);
+  assert.equal(row.outcome, null);
+  assert.equal(row.cust_status, null);
+  assert.equal(row.result_saved_at, null);
+  assert.equal(row.cdr_at, null);
+  me = vcMe(U);
+  assert.equal(me.vth.phase, "final");
+  assert.equal(me.vth.manualEnd, true);
+  assert.equal(me.vth.canManualEnd, false);
+  assert.equal(me.vth.form, "result");
+  assert.equal(me.vth.nextBlocked, true);
+  assert.equal(me.call.manualEnd, true);
+  assert.equal(me.call.durationSeconds, null);
+  assert.equal(me.call.prefill, null);
+  assert.equal(vthBlockNext(U), true);
+  const hist = vcHistory(U, own.id);
+  const item = (hist.items || []).find((it) => it.id === `k${c.id}` || (it.kind === "voip" && String(it.id) === `k${c.id}`));
+  assert.ok(item, "manual end must appear in call history");
+  assert.equal(item.manualEnd, true);
+  const ctx = vthContext(U, own.id);
+  assert.ok((ctx.manualEnds || []).some((e) => Number(e.callId) === Number(c.id) && e.at), "audit line must be listed for the file notes");
+
+  // §6.4 confirmed default: late CDR is logged only; manual end stays; nothing reopens
+  executeChanges("UPDATE voip_click_calls SET cust_status='ANSWERED', billsec=90, cdr_at=?, outcome=CASE WHEN manual_ended_at IS NOT NULL THEN outcome ELSE 'answered' END WHERE id=?", [nowIso(), c.id]);
+  const afterCdr = queryRow("SELECT manual_ended_at, active, state, outcome FROM voip_click_calls WHERE id=?", [c.id]);
+  assert.ok(afterCdr.manual_ended_at);
+  assert.equal(Number(afterCdr.active), 0);
+  assert.equal(afterCdr.state, "ended");
+  assert.equal(afterCdr.outcome, null);
+  me = vcMe(U);
+  assert.equal(me.vth.phase, "final");
+  assert.equal(me.vth.manualEnd, true);
+  assert.equal(me.call.durationSeconds, null);
+  assert.equal(me.call.prefill, null);
+
+  const saved = vthSaveResult(U, c.id, { outcome: "answered", note: "پایان دستی" }, new Date());
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  assert.equal(saved.body.stay, true);
+  assert.equal(saved.body.phase, "saved");
+  const again = vthManualEnd(U, c.id, new Date());
+  assert.equal(again.status, 409);
+  assert.equal(again.body.error, "already_saved");
 });
 
 await t("no SMS and no contract / notification_settings writes happened in this fixture", () => {

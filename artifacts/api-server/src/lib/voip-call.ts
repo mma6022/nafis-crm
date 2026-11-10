@@ -277,12 +277,14 @@ export function vcIngestOriginate(rows: SimotelCall[], now = new Date()): VcCdrD
         eventId = queryRow<{ id: number }>("SELECT id FROM voip_after_call_events WHERE external_id=?", [main._id])?.id ?? null;
         if (eventId != null) resolveEvent(eventId, experts(), customerMatcher());
       } else if (taken) eventId = queryRow<{ id: number }>("SELECT id FROM voip_after_call_events WHERE id=? AND id NOT IN (SELECT event_id FROM voip_click_calls WHERE event_id IS NOT NULL)", [taken.id])?.id ?? null;
-      if (c.active) end(c.id, cdrOutcome ? "ended" : c.state === "ring_me" || c.state === "requesting" ? "me_timeout" : "ended", cdrOutcome, now);
+      const keptManual = Boolean((c as { manual_ended_at?: string | null }).manual_ended_at);
+      // §6.4 default: a late Simotel report after a manual end is logged only; do not reopen the call or overwrite the audit flag.
+      if (c.active && !keptManual) end(c.id, cdrOutcome ? "ended" : c.state === "ring_me" || c.state === "requesting" ? "me_timeout" : "ended", cdrOutcome, now);
       executeChanges(`UPDATE voip_click_calls SET cust_status=?, billsec=?, cdr_at=COALESCE(cdr_at,?), event_id=COALESCE(event_id,?),
-        outcome=CASE WHEN ? IS NOT NULL THEN ? ELSE outcome END,
-        state=CASE WHEN ? IS NOT NULL AND state IN ('me_timeout','ended') THEN 'ended' ELSE state END,
-        cust_answered_at=CASE WHEN ?=1 THEN cust_answered_at ELSE NULL END, updated_at=? WHERE id=? AND cust_status IS NULL`,
-        [leg.custStatus, leg.billsec, iso(now), eventId, cdrOutcome, cdrOutcome, cdrOutcome, leg.answered ? 1 : 0, iso(now), c.id]);
+        outcome=CASE WHEN ?=1 THEN outcome WHEN ? IS NOT NULL THEN ? ELSE outcome END,
+        state=CASE WHEN ?=1 THEN state WHEN ? IS NOT NULL AND state IN ('me_timeout','ended') THEN 'ended' ELSE state END,
+        cust_answered_at=CASE WHEN ?=1 THEN cust_answered_at WHEN ?=1 THEN cust_answered_at ELSE NULL END, updated_at=? WHERE id=? AND cust_status IS NULL`,
+        [leg.custStatus, leg.billsec, iso(now), eventId, keptManual ? 1 : 0, cdrOutcome, cdrOutcome, keptManual ? 1 : 0, cdrOutcome, keptManual ? 1 : 0, leg.answered ? 1 : 0, iso(now), c.id]);
       if (eventId != null && (leg.answered || leg.notAnswered)) {
         // The live row's call log was titled from the expert's NewState (e.g. «(ACTIVE)»); the customer's leg is the real status.
         const log = queryRow<{ call_log_id: number | null }>("SELECT call_log_id FROM voip_after_call_events WHERE id=?", [eventId])?.call_log_id;
@@ -317,6 +319,7 @@ export type VcView = {
   durationSeconds: number | null; cdr: boolean; recording: "processing" | "ready" | "none"; eventId: number | null; active: boolean;
   needsResult: boolean; resultSaved: boolean; resultOutcome: string | null; prefill: "answered" | "no_answer" | null; oneTap: boolean; errorCode: string | null;
   custStatus: string | null; billsec: number | null; noanswerSmsSent: boolean;
+  manualEnd: boolean; manualEndedAt: string | null;
 };
 export function vcView(c: VcRow, now = new Date()): VcView {
   const e0 = c.event_id != null ? queryRow<{ has_recording: number; recording_file: string | null; fin: number; started_at: string; ended_at: string }>(
@@ -329,17 +332,19 @@ export function vcView(c: VcRow, now = new Date()): VcView {
   const talking = c.state === "in_call" && c.cust_answered_at ? Math.max(0, Math.round((now.getTime() - ms(c.cust_answered_at)) / 1000)) : null;
   const rec: VcView["recording"] = c.outcome !== "answered" ? "none" : e && !e.is_live ? (e.has_recording && e.recording_file ? "ready" : "none") : "processing";
   const counts = ended && (c.state === "ended") && c.outcome != null;
+  const manual = Boolean((c as { manual_ended_at?: string | null }).manual_ended_at);
   return {
-    id: c.id, state: c.state, outcome: c.outcome, customerId: c.customer_id, fileId: c.file_id, extension: c.extension,
+    id: c.id, state: c.state, outcome: manual ? null : c.outcome, customerId: c.customer_id, fileId: c.file_id, extension: c.extension,
     customerName: queryRow<{ name: string }>("SELECT name FROM customers WHERE id=?", [c.customer_id])?.name ?? null,
     createdAt: c.created_at, secondsLeft: c.state === "ring_me" && c.ring_deadline ? Math.max(0, Math.ceil((ms(c.ring_deadline) - now.getTime()) / 1000)) : null,
-    meAnsweredAt: c.me_answered_at, custAnsweredAt: c.cust_answered_at, endedAt: c.ended_at, durationSeconds: talking ?? talk, cdr: !!c.cdr_at,
+    meAnsweredAt: c.me_answered_at, custAnsweredAt: manual ? null : c.cust_answered_at, endedAt: c.ended_at, durationSeconds: manual ? null : (talking ?? talk), cdr: !!c.cdr_at,
     recording: rec, eventId: c.event_id, active: !!c.active, needsResult: vthFlagOn(c.user_id)
       ? (c.state === "ended" && !c.result_saved_at)
       : counts && c.file_id != null && !c.result_saved_at, resultSaved: !!c.result_saved_at,
-    resultOutcome: c.result_outcome, prefill: !counts ? null : c.outcome === "answered" ? "answered" : "no_answer",
-    oneTap: counts && (c.outcome === "no_answer" || c.outcome === "busy") && !vthFlagOn(c.user_id), errorCode: c.error_code,
-    custStatus: c.cust_status ?? null, billsec: c.billsec ?? null, noanswerSmsSent: c.outcome !== "answered" && vnaSent(c.id),
+    resultOutcome: c.result_outcome, prefill: manual ? null : (!counts ? null : c.outcome === "answered" ? "answered" : "no_answer"),
+    oneTap: counts && (c.outcome === "no_answer" || c.outcome === "busy") && !vthFlagOn(c.user_id) && !manual, errorCode: c.error_code,
+    custStatus: c.cust_status ?? null, billsec: manual ? null : (c.billsec ?? null), noanswerSmsSent: c.outcome !== "answered" && vnaSent(c.id),
+    manualEnd: manual, manualEndedAt: manual ? ((c as { manual_ended_at?: string | null }).manual_ended_at ?? null) : null,
   };
 }
 const err = (status: number, error: string, message: string, details?: object) => ({ status, body: { error, message, ...(details ? { details } : {}) } });
@@ -543,7 +548,7 @@ export function vcHistory(u: U, customerId: number, now = new Date()) {
   const items: any[] = clicks.map((c) => { const v = vcView(c, now); return {
     kind: "voip", id: `k${c.id}`, at: c.created_at, status: c.outcome, durationSeconds: v.durationSeconds, expert: c.expert ?? null,
     fileId: c.file_id, recording: v.recording, playable: v.recording === "ready" && (u.role === "admin" || c.user_id === u.id), eventId: c.event_id,
-    result: c.result_outcome ? { label: outLabel[c.result_outcome] ?? c.result_outcome, note: s132h.get(c.id)?.auto ? (s132h.get(c.id)!.note ?? "") : noteOf(c) } : null, pending: !c.result_saved_at,
+    result: c.result_outcome ? { label: outLabel[c.result_outcome] ?? c.result_outcome, note: s132h.get(c.id)?.auto ? (s132h.get(c.id)!.note ?? "") : noteOf(c) } : null, pending: !c.result_saved_at, manualEnd: Boolean((c as any).manual_ended_at),
     noanswerSms: v.noanswerSmsSent, ...(s132h.has(c.id) ? { s132: s132h.get(c.id) } : {}) };
   });
   // Other Simotel calls of this customer (incoming or from the panel), CDR-final only.

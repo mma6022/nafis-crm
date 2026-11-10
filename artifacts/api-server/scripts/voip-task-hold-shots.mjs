@@ -2,7 +2,8 @@
  * Local masked-copy shots of voip-task-hold (flag.voip_task_hold_v1).
  * No live DB, no staff login. Writes SHOTS_OUT or /workspace/voip-task-hold/shots/.
  * Page chrome is file-detail v1.1 CSS + the production VTH / reminder-voip CSS.
- * Names and phones come from a disposable masked copy (already masked).
+ * Names and phones come from a disposable masked copy. The dump itself stores Latin masked numbers
+ * (e.g. 0912***2133); the UI does not apply that mask. Shots format the stored value with Persian digits, LTR, and a copy button.
  */
 import fs from "node:fs";
 import http from "node:http";
@@ -26,6 +27,10 @@ const ALL_SCENES = [
   "task_done_next",
   "support_own",
   "support_other",
+  "disconnected_pending_error",
+  "disconnected_pending_late",
+  "manual_end_confirm",
+  "manual_end_result",
 ];
 const sceneFilter = (process.env.SHOTS_SCENES || "").split(",").map((x) => x.trim()).filter(Boolean);
 const SCENES = sceneFilter.length ? ALL_SCENES.filter((sc) => sceneFilter.includes(sc)) : ALL_SCENES;
@@ -82,6 +87,7 @@ function I(name) {
     flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/>',
     coins: '<circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/>',
     headset: '<path d="M3 11v5a2 2 0 0 0 2 2h1"/><path d="M21 11v5a2 2 0 0 1-2 2h-1"/><path d="M3 11a9 9 0 0 1 18 0"/><circle cx="5" cy="16" r="2"/><circle cx="19" cy="16" r="2"/>',
+    eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
     eyeoff: '<path d="M10.733 5.076a10.74 10.74 0 0 1 11.27 6.18 10.75 10.75 0 0 1-4.44 5.32"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M17.94 17.94A10.75 10.75 0 0 1 1.99 11.26a10.73 10.73 0 0 1 5.2-4.69"/><line x1="2" x2="22" y1="2" y2="22"/>',
     more: '<circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>',
     zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
@@ -97,12 +103,18 @@ function callBtn(label, disabled) {
 
 function statusBlock(sc) {
   if (sc === "file_idle" || sc === "support_other") return "";
-  if (sc === "file_active_notes" || sc === "mobile_notes" || sc === "support_own") {
+  if (sc === "file_active_notes" || sc === "mobile_notes") {
     return `<section class="vh-status" role="status" data-testid="vth-status" data-phase="in_call">${I("phone")}<div>
       <b>در حال تماس</b><p>برای قطع از گوشی ویپ استفاده کنید</p>
       <small>گوشی کارشناس وصل است؛ پاسخ مشتری هنوز تأیید نشده.</small></div></section>`;
   }
   if (sc === "disconnected_pending_status") {
+    return `<section class="vh-status" role="status" data-testid="vth-status" data-phase="pending_status">${I("phone")}<div>
+      <b>تماس قطع شد؛ در انتظار وضعیت نهایی</b>
+      <p>کار جاری حفظ شده؛ هنوز کار بعدی باز نمی‌شود.</p>
+    </div></section>`;
+  }
+  if (sc === "disconnected_pending_error") {
     return `<section class="vh-status err" role="status" data-testid="vth-status" data-phase="status_error">${I("phone")}<div>
       <b>تماس قطع شد؛ در انتظار وضعیت نهایی</b>
       <p>کار جاری حفظ شده؛ هنوز کار بعدی باز نمی‌شود.</p>
@@ -110,19 +122,31 @@ function statusBlock(sc) {
       <button class="btn gh sm" type="button" data-testid="vth-retry">${I("refresh")}تلاش دوباره برای وضعیت</button>
     </div></section>`;
   }
+  if (sc === "disconnected_pending_late" || sc === "manual_end_confirm") {
+    return `<section class="vh-status" role="status" data-testid="vth-status" data-phase="pending_status" data-can-manual-end="1">${I("phone")}<div>
+      <b>تماس قطع شد؛ در انتظار وضعیت نهایی</b>
+      <p>کار جاری حفظ شده؛ هنوز کار بعدی باز نمی‌شود.</p>
+      <p>گزارش پایان از سیموتل نرسیده است.</p>
+      <button class="btn pri vh-end" type="button" data-testid="vth-manual-end">تماس تموم شد</button>
+    </div></section>`;
+  }
+  if (sc === "manual_end_result") {
+    return `<div class="vh-status ok" role="status" data-testid="vth-status" data-phase="final" data-manual-end="1">${I("check")}
+      <div><b>تماس به‌صورت دستی پایان یافت؛ آقای کاظمی؛ پنجشنبه ۷ آبان ساعت ${fa("14:22")}</b></div></div>`;
+  }
   if (sc === "final_result") {
     return `<div class="vh-status ok" role="status" data-testid="vth-status" data-phase="final">${I("check")}
       <div><b>قطع کامل؛ وضعیت نهایی: پاسخ داد، ${fa(1)} دقیقه و ${fa(12)} ثانیه</b></div></div>`;
   }
   if (sc === "task_done_next") {
     return `<div class="vh-status ok" role="status" data-testid="vth-status" data-phase="saved">${I("check")}
-      <div><b>نتیجه روی تماس #${fa(8462)} ثبت شد؛ کار جاری تمام شد</b></div></div>`;
+      <div><b>نتیجه روی تماس <bdi dir="ltr">#${fa(8462)}</bdi> ثبت شد؛ پنجشنبه ۷ آبان ساعت ${fa("12:36")}؛ کار جاری تمام شد</b></div></div>`;
   }
   return "";
 }
 
 function taskCard(sc) {
-  const hold = ["file_active_notes", "mobile_notes", "disconnected_pending_status", "final_result", "support_own"].includes(sc);
+  const hold = ["file_active_notes", "mobile_notes", "disconnected_pending_status", "disconnected_pending_error", "disconnected_pending_late", "manual_end_confirm", "final_result", "manual_end_result"].includes(sc);
   const saved = sc === "task_done_next";
   const entry = sc === "task_done_next" ? "گردونه‌ی پرونده‌ها" : "جزئیات پرونده";
   return `<section class="card vh-task" data-testid="vth-task">
@@ -134,16 +158,13 @@ function taskCard(sc) {
 
 function supportCard(sc) {
   if (sc !== "support_own" && sc !== "support_other") return "";
-  if (sc === "support_own") {
-    return `<section class="card vh-task" data-testid="vth-support">
-      <span class="chip b">پشتیبانی، داخلی ۲۲۰</span>
-      <p>پرونده‌ی ثبت‌نام اکنون با شماست</p>
-    </section>`;
-  }
+  const expert = sc === "support_other" ? other.owner : own.owner;
+  const reason = sc === "support_own" ? "پرونده‌ی ثبت‌نام اکنون با شماست" : "مشتری شما نیست؛ دسترسی نامعتبر یا مهلت پاسخ تمام شده";
   return `<section class="card vh-task" data-testid="vth-support">
     <span class="chip b">پشتیبانی، داخلی ۲۲۰</span>
-    <p>مشتری شما نیست؛ دسترسی نامعتبر یا مهلت پاسخ تمام شده</p>
-    <p>کارشناس: ${other.owner} (فقط برای اطلاع)</p>
+    <p>${reason}</p>
+    <p data-testid="vth-support-expert">کارشناس: ${expert} (فقط برای اطلاع)</p>
+    <a class="btn gh sm" href="#" data-testid="vth-open-filing">${I("eye")}باز کردن پرونده (نمای ثبت‌نام)</a>
   </section>`;
 }
 
@@ -153,18 +174,18 @@ function otherBanner(sc) {
     <span>مشتری شما نیست؛ مجوز تماس یا مهلت پاسخ معتبر نیست.</span></div>`;
 }
 
-function resultForm(file) {
+function resultForm(file, manual) {
   return `<section class="rv-mdl vth-form" role="region" aria-labelledby="vth-rvT" data-testid="vth-form">
     <header class="rv-mh"><div class="rv-mt">
-      <span class="chip s rv-auto" data-testid="vth-auto">${I("headset")}خودکار باز شد؛ قطع کامل و وضعیت نهایی تأیید شد</span>
+      <span class="chip s rv-auto" data-testid="vth-auto">${I("headset")}${manual ? "پایان تماس به‌صورت دستی ثبت شد" : "خودکار باز شد؛ قطع کامل و وضعیت نهایی تأیید شد"}</span>
       <h2 id="vth-rvT">ثبت نتیجه‌ی تماس</h2>
-      <small>تماس ویپ #${fa(8462)}؛ پاسخ داد، ${fa(1)} دقیقه و ${fa(12)} ثانیه</small>
-      <p class="rn"><b>${file.name}</b><span class="cid">#${fa(file.customer_id)}</span></p>
+      <small>تماس ویپ <bdi dir="ltr">#${fa(8462)}</bdi>؛ ${manual ? "بدون گزارش پایان سیموتل" : `پاسخ داد، ${fa(1)} دقیقه و ${fa(12)} ثانیه`}</small>
+      <p class="rn"><b>${fa(file.name)}</b><span class="cid">#${fa(file.customer_id)}</span></p>
     </div><button class="ib" type="button" aria-label="بستن" data-testid="vth-form-close">${I("x")}</button></header>
     <div class="rv-mb">
       <div class="rv-fld"><span class="rv-lbl">نتیجه‌ی تماس<span class="req">*</span></span>
         <div class="rv-seg" role="radiogroup" aria-label="نتیجه‌ی تماس" aria-required="true">
-          <button type="button" role="radio" aria-checked="true" class="on" data-testid="vth-out-answered">پاسخ داد</button>
+          <button type="button" role="radio" aria-checked="${manual ? "false" : "true"}" class="${manual ? "" : "on"}" data-testid="vth-out-answered">پاسخ داد</button>
           <button type="button" role="radio" aria-checked="false" data-testid="vth-out-no_answer">پاسخ نداد</button>
           <button type="button" role="radio" aria-checked="false" data-testid="vth-out-follow_up">پیگیری بعدی</button>
         </div></div>
@@ -180,17 +201,19 @@ function resultForm(file) {
 }
 
 function notesCol(file, sc) {
-  const showDraft = ["file_active_notes", "mobile_notes", "disconnected_pending_status", "final_result"].includes(sc);
+  const showDraft = ["file_active_notes", "mobile_notes", "disconnected_pending_status", "disconnected_pending_error", "disconnected_pending_late", "manual_end_confirm", "final_result", "manual_end_result", "task_done_next"].includes(sc);
   const ro = sc === "support_own" || sc === "support_other";
   return `<aside class="fchat" aria-label="یادداشت‌های پرونده" data-testid="fdv1-notes">
     <div class="chh"><button class="ib bkb" type="button" aria-label="برگشت به پرونده">${I("chevr")}</button>
       <div class="t"><div class="nmr"><span class="nm">یادداشت‌های پرونده</span>
-        <span class="fno">پرونده‌ی ${fa(file.file_id)}، ${file.name}</span>
+        <span class="fno">پرونده‌ی ${fa(file.file_id)}، ${fa(file.name)}</span>
         <span class="chip in">${I("lock")}داخلی</span></div>
         <p>فقط همکاران می‌بینند؛ برای مشتری نمی‌رود</p></div>
     </div>
     <div class="cmsgs" tabindex="0" aria-label="یادداشت‌ها، تازه‌ترین پایین" data-testid="fdv1-notes-list">
-      <div class="cempty"><b>هنوز یادداشتی ثبت نشده است.${ro ? "" : " اولین یادداشت را بنویسید."}</b></div>
+      ${sc === "manual_end_result"
+        ? `<div class="sys k-voip" data-testid="fdv1-sys-vth-me">${I("phone")}<span>پایان تماس به‌صورت دستی ثبت شد؛ آقای کاظمی؛ پنجشنبه ۷ آبان ساعت ${fa("14:22")}</span></div>`
+        : `<div class="cempty"><b>هنوز یادداشتی ثبت نشده است.${ro ? "" : " اولین یادداشت را بنویسید."}</b></div>`}
     </div>
     <div class="cz">${ro ? `<div class="czro">${I("lock")}شما فقط اجازهٔ مشاهدهٔ یادداشت‌ها را دارید.</div>` : `
       ${showDraft ? '<small class="vh-draft" data-testid="vth-draft">پیش‌نویس؛ هنوز ثبت نشده</small>' : ""}
@@ -209,8 +232,12 @@ function pageHtml(sc) {
   const actor = support ? "خانم تاجیک" : "آقای کاظمی";
   const ext = support ? "۲۲۰" : "۲۱۲";
   const canCall = sc !== "support_other";
-  const hold = ["file_active_notes", "mobile_notes", "disconnected_pending_status", "final_result", "support_own"].includes(sc);
+  const liveCall = ["file_active_notes", "mobile_notes"].includes(sc);
+  const dropped = ["disconnected_pending_status", "disconnected_pending_error", "disconnected_pending_late", "manual_end_confirm", "final_result", "manual_end_result"].includes(sc);
+  const holdBtn = liveCall || dropped;
   const showPhone = canCall;
+  const dispName = fa(file.name);
+  const dispPhone = file.phone ? fa(file.phone) : "";
   const notesTab = sc === "mobile_notes";
   const expertChip = support
     ? (sc === "support_own" ? `${file.owner} (فقط برای اطلاع)` : `${file.owner} (فقط برای اطلاع)`)
@@ -218,12 +245,12 @@ function pageHtml(sc) {
   const head = `<section class="card fhd" aria-label="سربرگ پرونده">
     <div class="crow"><nav class="crumb" aria-label="مسیر"><a href="#">${I("chevr")}پرونده‌های من</a></nav></div>
     <div class="fhd-r1"><div class="who"><span class="eyb">پرونده‌ی تسهیلات ${fa(file.file_id)}، طرح ثبت نشده</span>
-      <div class="nmr"><h2>${file.name}</h2><button class="cid" type="button">#${fa(file.customer_id)}${I("copy")}</button></div>
-      ${showPhone && file.phone ? `<span class="ph big"><a class="phn" href="#" dir="ltr">${file.phone}</a>
+      <div class="nmr"><h2>${dispName}</h2><button class="cid" type="button">#${fa(file.customer_id)}${I("copy")}</button></div>
+      ${showPhone && dispPhone ? `<span class="ph big"><a class="phn" href="#" dir="ltr">${dispPhone}</a>
         <button class="phc" type="button">${I("copy")}<span>کپی</span></button></span>`
         : (sc === "support_other" ? '<p class="vh-hidden" data-testid="vth-hidden-phone">شماره نشان داده نمی‌شود</p>' : "")}
     </div>
-      <div class="fhd-act">${canCall ? callBtn(hold ? "در حال تماس" : "تماس", hold) : '<span class="chip" data-testid="vth-not-yours">مشتری شما نیست</span>'}
+      <div class="fhd-act">${canCall ? callBtn(liveCall ? "در حال تماس" : "تماس", holdBtn) : '<span class="chip" data-testid="vth-not-yours">مشتری شما نیست</span>'}
         <a class="btn gh sm" href="#">${I("user")}پرونده‌ی مشتری</a>
         <button class="ib wb" type="button" aria-label="کارهای بیشتر">${I("more")}</button>
       </div></div>
@@ -242,7 +269,7 @@ function pageHtml(sc) {
   const body = `<div class="tabp">
     <section class="card nxa"><div class="t"><span class="eh">${I("flag")}تصمیم‌گیری</span><b>اقدام با شماست</b><span>بارگذاری مدارک</span></div></section>
     <section class="card sec" aria-labelledby="fdv1-amt"><div class="sh"><h3 id="fdv1-amt">${I("coins")}اطلاعات پایه</h3></div>
-      <div class="kvg"><div><span>مشتری</span><b>${file.name}</b></div><div><span>شناسه</span><b>#${fa(file.customer_id)}</b></div></div>
+      <div class="kvg"><div><span>مشتری</span><b>${dispName}</b></div><div><span>شناسه</span><b>#${fa(file.customer_id)}</b></div></div>
     </section>
   </div>`;
   return `<!DOCTYPE html><html lang="fa" dir="rtl" class="fdv1-on${notesTab ? " fdv1-chv" : ""}"><head>
@@ -263,7 +290,10 @@ html,body{margin:0;background:var(--nf-surface,#F6F7FB);font-family:var(--nf-fon
 .shot-top .av{width:40px;height:40px;border-radius:50%;background:var(--nf-brand-100);color:var(--nf-brand-900);font-weight:800;display:grid;place-items:center}
 .btn.btn-primary,.vc-btn.btn-primary{background:var(--nf-brand-600,#2f54eb);color:#fff;box-shadow:var(--nf-shadow-button,none)}
 .btn.btn-ghost,.vc-btn.btn-ghost{background:#fff;border:1px solid var(--nf-line-strong,#d0d5dd);color:var(--nf-ink)}
-.vcx .vc-btn{min-height:48px}
+.vcx .vc-btn,.fdv1 .vth-head-call .btn{box-sizing:border-box;min-height:44px;min-width:44px}
+.fdv1 .ph.big .phc,.fdv1 .ph .phc{box-sizing:border-box;min-height:44px;min-width:44px;height:auto}
+.vh-status .btn,.vh-status button,.vth-form .rv-seg button{box-sizing:border-box;min-height:44px;min-width:44px}
+.vcx .vc-btn.btn-primary{min-height:48px}
 .chip.s{background:var(--nf-success-50,#ecfdf3);color:var(--nf-success,#067647)}
 .vh-date{font-size:14px;color:var(--nf-ink-muted);margin-bottom:8px}
 </style>
@@ -281,7 +311,8 @@ html,body{margin:0;background:var(--nf-surface,#F6F7FB);font-family:var(--nf-fon
       ${taskCard(sc)}
       ${tabs}
       ${body}
-      ${sc === "final_result" ? resultForm(file) : ""}
+      ${sc === "final_result" ? resultForm(file, false) : sc === "manual_end_result" ? resultForm(file, true) : ""}
+      ${sc === "manual_end_confirm" ? `<div class="vh-cfw" role="presentation" data-testid="vth-manual-end-confirm"><div class="vh-cf" role="dialog" aria-modal="true" aria-labelledby="vhCfT"><h2 id="vhCfT">پایان تماس به‌صورت دستی ثبت شود؟</h2><p>گزارش پایان از سیموتل نرسیده است.</p><div class="vh-cfa"><button class="btn pri" type="button" data-testid="vth-manual-end-ok">تماس تموم شد</button><button class="btn gh" type="button" data-testid="vth-manual-end-cancel">انصراف</button></div></div></div>` : ""}
     </div>
     ${notesCol(file, sc)}
   </div></main>
@@ -370,11 +401,15 @@ const titles = {
   file_idle: "دکمه‌ی ویپ داخل پرونده‌ی تسهیلات (پرونده‌ی آقای کاظمی؛ فلگ روشن)",
   file_active_notes: "تماس خنثی، پرونده و ستون یادداشت، متن ثبت‌نشده («پیش‌نویس؛ هنوز ثبت نشده»)",
   mobile_notes: "همان تماس با زبانه‌ی یادداشت‌های پرونده در موبایل؛ وضعیت تماس بالای یادداشت می‌ماند",
-  disconnected_pending_status: "قطع واقعی، انتظار وضعیت نهایی (حالت خطا با تلاش دوباره)؛ کار بعدی قفل است",
-  final_result: "وضعیت نهایی معتبر و فرم نتیجه‌ی موجود خودکار باز؛ برچسب ذخیره «ثبت نتیجه» (ورودی پرونده)",
-  task_done_next: "ذخیره‌ی موفق تماس گردونه و مجوز کار بعدی؛ مشتری بعدی آشکار نشده",
-  support_own: "خانم تاجیک، داخلی ۲۲۰؛ مسیر assigned («پرونده‌ی ثبت‌نام اکنون با شماست»)؛ تماس مجاز",
+  disconnected_pending_status: "قطع واقعی، انتظار وضعیت نهایی پیش از پنجره‌ی ده دقیقه؛ بدون «تماس تموم شد»؛ کار بعدی قفل است",
+  final_result: "وضعیت نهایی معتبر و فرم نتیجه‌ی موجود خودکار باز؛ دکمه به «تماس» خنثی و غیرفعال برگشته؛ برچسب ذخیره «ثبت نتیجه»",
+  task_done_next: "ذخیره‌ی موفق تماس گردونه با زمان جلالی ثبت؛ پیش‌نویس همان پرونده مانده؛ مشتری بعدی آشکار نشده",
+  support_own: "خانم تاجیک، داخلی ۲۲۰؛ مسیر assigned («پرونده‌ی ثبت‌نام اکنون با شماست»)؛ حالت آماده با دکمه‌ی اصلی «تماس»",
   support_other: "خانم تاجیک؛ نامجاز، شماره پنهان، بدون دکمه‌ی تماس؛ نام و داخلی کارشناس فقط برای اطلاع",
+  disconnected_pending_error: "همان انتظار، حالت خطا، پیش از پنجره؛ فقط «تلاش دوباره برای وضعیت»؛ بدون «تماس تموم شد»",
+  disconnected_pending_late: "پس از پنجره‌ی سرور، گزارش پایان نرسیده؛ دکمه‌ی اصلی «تماس تموم شد»؛ سربرگ «تماس» خنثی",
+  manual_end_confirm: "تأیید سبک پایان دستی؛ حفظ کار هنوز برقرار است",
+  manual_end_result: "پس از تأیید؛ تماس پایان‌یافته، یک فرم نتیجه بدون پاسخ یا مدت ساختگی؛ خط تاریخچه در یادداشت‌ها",
 };
 const actors = {
   file_idle: "آقای کاظمی",
@@ -385,10 +420,14 @@ const actors = {
   task_done_next: "آقای کاظمی",
   support_own: "خانم تاجیک",
   support_other: "خانم تاجیک",
+  disconnected_pending_error: "آقای کاظمی",
+  disconnected_pending_late: "آقای کاظمی",
+  manual_end_confirm: "آقای کاظمی",
+  manual_end_result: "آقای کاظمی",
 };
 
 const lines = [
-  "# voip-task-hold shots (v1.0, flag.voip_task_hold_v1)",
+  "# voip-task-hold shots r2 (v1.1 + Armita review fixes, flag.voip_task_hold_v1)",
   "",
   "Taken locally on a disposable masked copy of the CRM database. No live writes and no staff login.",
   `Source dump: \`${src}\`. Flag \`flag.voip_task_hold_v1\` is shown as ON only in this shot page (the copy itself was not written for these shots; markup is the production file-detail + VTH CSS and copy).`,
@@ -407,8 +446,18 @@ for (const sc of SCENES) {
   lines.push(`| ${Number(n)} | \`${sc}\` | ${titles[sc]} | ${actors[sc]} | ${names} |`);
 }
 lines.push("", "## Notes", "");
-lines.push("- Scene 4 is shown in the `status=error` variant (retry = CDR re-query only), which is the design’s delayed/error path of `disconnected_pending_status`.");
-lines.push("- Scene 6 uses a carousel entry so the saved chip is «انجام شد؛ آماده‌ی نمایش کار بعدی». The next customer is not named or preloaded.");
+lines.push("- Round-2 shots: Armita v1.1 (scenes 9–12, «تماس تموم شد») plus the eight review fixes of ce5d434, applied on top of 6e46234. Design index.html sha256 74b4436f011cd3016b246ba4d63598b75d15b289c3b0106ac42134d479a91847.");
+lines.push("- **Fix 1 (all scenes with a number):** the `0912***2133` mask is already in the masked dump (`customers.phone`); the product UI does not apply that mask. Authorized live pages show `customer.phone` with Persian digits, LTR, and a copy button (`fd()` in FileDetailV1). These shots format the dump value the same way (Persian digits, LTR, copy). Latin digits in names are also converted for display (e.g. «مشتری نمونه ۲۱۳۳»). Permission / `phoneVisible` is unchanged: scene 8 still hides the number.");
+lines.push("- **Fix 2 + dropped-call header (scenes 4, 5, 9–12):** after the call has dropped, the header button is a disabled neutral «تماس», never «در حال تماس». Only a live call (scenes 2–3) stays «در حال تماس». Official v1.1 mockups 4/9/10 still show «در حال تماس» in the header; the product follows this dropped-call rule.");
+lines.push("- **Fix 3 (scene 7):** shot in the ready state with a primary «تماس» button; no in-call status strip.");
+lines.push("- **Fix 4 (scenes 2–6):** the notes draft stays after hang-up and after a successful result save on the same file (scene 6 keeps «فیش حقوقی رسید…»). It is keyed per file/customer and is not carried to another task.");
+lines.push("- **Fix 5 (hook, not a separate scene):** reminder completion on a successful save is unchanged. `fcExpertFollowup` / `dpAfterFirstCallForm` run only for carousel / lead queue entries («ثبت نتیجه و کار بعدی»). File and search «ثبت نتیجه» stay on the page. Scene 5 is a file entry (save label «ثبت نتیجه»); scene 6 is a carousel entry (chip «انجام شد؛ آماده‌ی نمایش کار بعدی»). The next customer is not named or preloaded.");
+lines.push("- **Fix 6 (scenes 7–8):** the support card includes «باز کردن پرونده (نمای ثبت‌نام)» and «کارشناس: … (فقط برای اطلاع)» with that file's real expert name.");
+lines.push("- **Fix 7 (scene 6):** success line is «نتیجه روی تماس #۸۴۶۲ ثبت شد؛ پنجشنبه ۷ آبان ساعت ۱۲:۳۶؛ کار جاری تمام شد». Call id and time use Persian digits; the datetime is the design-sample Jalali moment in Tehran (product UI uses the real `savedAt` in Asia/Tehran).");
+lines.push("- **Fix 8 (390 / 390@2x):** touch area for «کپی», «در حال تماس», «تلاش دوباره برای وضعیت», and result options is at least 44px.");
+lines.push("- Scene 4 is the default waiting state (no retry, no «تماس تموم شد»). The error-before-window path is now official scene 9.");
+lines.push("- **v1.1 scenes 9-12:** scene 9 is error-before-window (only retry). Scene 10 shows the server-owned 10-minute window with primary «تماس تموم شد» (the client does not compute the window). Scene 11 is the light confirmation. Scene 12 opens only the result form, with no fake answered/duration («بدون گزارش پایان سیموتل»), a disabled header «تماس», the next-work gate still closed, the notes draft kept, and the history line «پایان تماس به‌صورت دستی ثبت شد؛ آقای کاظمی؛ پنجشنبه ۷ آبان ساعت ۱۴:۲۲».");
+lines.push("- **§6.4 (confirmed default):** if a Simotel CDR arrives after a manual end, the manual end stays, the CDR is only logged to history, and nothing reopens.");
 lines.push("- User 7 in this masked dump is stored as «کاربر 7» (`s.tajik`, extension 220). The shots use the published display name «خانم تاجیک». The eligibility chip maps the published `open_filing` rule to the design label `assigned` / «پرونده‌ی ثبت‌نام اکنون با شماست» without changing the server rule.");
 lines.push("- Call #۸۴۶۲ and the date «پنجشنبه ۷ آبان ۱۴۰۵» are the design sample identifiers, not live rows.");
 lines.push("- No SMS, no contract writes, and no notification_settings writes were performed for these shots.");

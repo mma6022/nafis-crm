@@ -7,15 +7,19 @@ export type VthEntry = 'file' | 'carousel' | 'reminder' | 'lead' | 'search';
 export type VthPhase = 'idle' | 'in_call' | 'pending_status' | 'status_error' | 'final' | 'saved';
 export type VthForm = 'first_call' | 'reminder_result' | 'result' | null;
 export type VthEligWhy = 'registered' | 'assigned' | 'callback';
+export type VthManualEndLine = { callId: number; at: string; expertName: string | null };
 export type VthMe = {
   on: true; phase: VthPhase; entry: VthEntry | null; queue: boolean; form: VthForm;
   reminderId: number | null; nextBlocked: boolean; saveLabel: 'ثبت نتیجه و کار بعدی' | 'ثبت نتیجه';
+  canManualEnd: boolean; manualEnd: boolean; manualEndedAt: string | null; manualEndExpert: string | null;
 };
 export type VthContext = {
   on: true; canCall: boolean; phoneVisible: boolean; notesWritable: boolean;
   eligibility: { allowed: boolean; why: VthEligWhy | null; reason: string } | null;
   otherOwner: { name: string | null; extension: string | null } | null;
+  expert: { name: string | null; extension: string | null } | null;
   own: boolean; support: boolean;
+  manualEnds?: VthManualEndLine[];
 };
 export type VcMeVth = VcMe & { vth?: VthMe };
 
@@ -48,7 +52,8 @@ export function useVthContext(customerId: number | null | undefined, enabled: bo
 export const vthApi = {
   retry: (id: number) => req<{ ok: true; phase: VthPhase; final: boolean }>('POST', `/voip-task-hold/${id}/status-retry`, {}),
   result: (id: number, b: { outcome: 'answered' | 'no_answer' | 'follow_up'; note: string }) =>
-    req<{ ok: true; stay: boolean; phase: 'saved'; entry: VthEntry | null; reminderId: number | null }>('POST', `/voip-task-hold/${id}/result`, b),
+    req<{ ok: true; stay: boolean; phase: 'saved'; entry: VthEntry | null; reminderId: number | null; callId: number; savedAt: string }>('POST', `/voip-task-hold/${id}/result`, b),
+  manualEnd: (id: number) => req<{ ok: true; phase: VthPhase; manualEnd: true; endedAt: string; final: boolean; form?: VthForm; replayed?: boolean }>('POST', `/voip-task-hold/${id}/manual-end`, {}),
   start: (b: { customerId: number; fileId?: number | null; entry?: VthEntry; reminderId?: number }) => vcApi.start(b as any),
 };
 export const vthRefresh = (qc: QueryClient) => { void qc.invalidateQueries({ queryKey: ['voip-call'] }); void qc.invalidateQueries({ queryKey: ['voip-task-hold'] }); void qc.invalidateQueries({ queryKey: ['files-carousel'] }); void qc.invalidateQueries({ queryKey: ['daily-plan'] }); };

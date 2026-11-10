@@ -18,7 +18,7 @@ export type VcCall = { id: number; state: VcState; outcome: VcOutcome; customerI
   createdAt: string; secondsLeft: number | null; meAnsweredAt: string | null; custAnsweredAt: string | null; endedAt: string | null; durationSeconds: number | null;
   cdr: boolean; recording: 'processing' | 'ready' | 'none'; eventId: number | null; active: boolean; needsResult: boolean; resultSaved: boolean;
   resultOutcome: string | null; prefill: 'answered' | 'no_answer' | null; oneTap: boolean; errorCode: string | null; noanswerSmsSent?: boolean;
-  custStatus?: string | null; billsec?: number | null; s132?: S132Call | null };
+  custStatus?: string | null; billsec?: number | null; s132?: S132Call | null; manualEnd?: boolean; manualEndedAt?: string | null };
 /** SIMOTEL-132 (flag.simotel132[.user.<id>]): present only while the flag is on for this user; absent → today's UI unchanged. */
 export type S132Status = 'answered' | 'no_answer' | 'busy' | 'failed';
 export type S132Call = { firstCall: boolean; phase: 'live' | 'waiting' | 'late' | 'first_form' | 'auto' | 'manual'; waitSeconds: number | null; waitTotalSeconds?: number; fast?: boolean;
