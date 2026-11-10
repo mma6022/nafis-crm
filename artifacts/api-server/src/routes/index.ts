@@ -66,6 +66,7 @@ import { backfillFollowUpAt, ensureManualOutcomeSchema } from "../lib/call-outco
 import { ensureQuestionsSkippedColumn } from "../lib/team-sales";
 import staffWalletRouter from "./staff-wallet";
 import loanRequestDraftsRouter from "./loan-request-drafts";
+import multiCaseRouter from "./multi-case";
 import reminderFollowRouter from "./reminder-follow";
 import salesShellRouter from "./sales-shell";
 import fileDetailV1Router from "./file-detail-v1";
@@ -124,6 +125,7 @@ router.use(mobileCallsRouter);
 router.use("/chat", staffChatRouter);
 router.use(contractsRouter);
 router.use(loanRequestDraftsRouter);
+router.use(multiCaseRouter);
 router.use(loanApplicationsRouter);
 router.use(walletsRouter);
 router.use(walletManagementRouter);

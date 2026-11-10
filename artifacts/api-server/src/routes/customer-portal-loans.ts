@@ -39,6 +39,7 @@ import {
   reusableFilingFeeCharge,
   validatedPrimaryManualValues,
 } from "./loan-applications";
+import { bindSlotCharge, claimSlotForApplication, mcGlobalOn, openSamePlanBody, reserveOpenPlan } from "../lib/multi-case";
 
 const router = Router();
 router.use(requireCustomerPortal);
@@ -101,6 +102,7 @@ const filingFeeMessages: Record<string, string> = {
   loan_plan_not_found: "این طرح دیگر قابل ثبت نیست. طرح‌های موجود را به‌روزرسانی کنید.",
   customer_profile_incomplete: "ابتدا مشخصات هویتی موردنیاز را تکمیل کنید.",
   filing_fee_idempotency_conflict: "این شناسه پرداخت متعلق به درخواست دیگری است. صفحه را دوباره باز کنید.",
+  open_same_plan_case: "برای این طرح یک پروندهٔ باز وجود دارد. تا بسته شدن آن، درخواست تازه با همین طرح ثبت نمی‌شود.",
   invalid_filing_fee: "هزینه تشکیل پرونده طرح درست تنظیم نشده است. با پشتیبانی تماس بگیرید.",
   invalid_wallet_balance: "امکان بررسی موجودی کیف پول وجود ندارد. با پشتیبانی تماس بگیرید؛ هزینه‌ای کسر نشده است.",
   filing_fee_charge_failed: "پرداخت هزینه تشکیل پرونده ثبت نشد. موجودی را به‌روزرسانی و دوباره تلاش کنید.",
@@ -854,6 +856,9 @@ router.post("/filing-fee", (req, res) => {
           repeated: true,
         };
       }
+      if (mcGlobalOn()) {
+        reserveOpenPlan(customer.id, planId);
+      } else {
       const reusable = reusableFilingFeeCharge(customer.id, planId);
       if (reusable) {
         return {
@@ -862,6 +867,7 @@ router.post("/filing-fee", (req, res) => {
           applicationId: reusable.active_application_id == null ? null : Number(reusable.active_application_id),
           repeated: true,
         };
+      }
       }
       // Mobile ownership and basic identity were checked by portal middleware.
       // Postal/Sana are intentionally after this fixed-fee-only intake charge.
@@ -890,6 +896,7 @@ router.post("/filing-fee", (req, res) => {
          VALUES(?,?,?,?,NULL,?,?)`,
         [customer.id, planId, feeAmount, key, customer.id, ts],
       );
+      if (mcGlobalOn()) bindSlotCharge(customer.id, planId, Number(chargeId));
       if (BigInt(feeAmount) > 0n) {
         executeChanges(
           "UPDATE wallet_accounts_v2 SET balance=? WHERE id=?",
@@ -920,6 +927,8 @@ router.post("/filing-fee", (req, res) => {
       status: result.applicationId == null ? "charged" : "application_exists",
     });
   } catch (error) {
+    const samePlan = openSamePlanBody(error);
+    if (samePlan) return res.status(409).json(samePlan);
     const code = error instanceof Error ? error.message : "";
     if (["filing_fee_idempotency_conflict", "insufficient_cash_balance"].includes(code)) return jsonError(res, 409, code);
     if ([
@@ -1002,8 +1011,9 @@ router.post("/applications", (req, res) => {
   const notes = body.notes === undefined ? null : body.notes;
   if (notes !== null && (typeof notes !== "string" || notes.trim().length > 2000)) return jsonError(res, 400, "invalid_application_notes");
   const ts = now();
+  const multi = mcGlobalOn();
   try {
-    const applicationId = runTransaction(() => {
+    const applicationId = (multi ? runImmediateTransaction : runTransaction)(() => {
       const currentCharge = queryRow<{ application_id: number | null }>(
         "SELECT application_id FROM loan_filing_fee_charges WHERE id=? AND customer_id=? AND plan_id=?",
         [charge.id, customer.id, planId],
@@ -1054,12 +1064,15 @@ router.post("/applications", (req, res) => {
         [id, charge.id, customer.id],
       );
       if (changed !== 1) throw new Error("filing_fee_already_used");
+      if (multi) claimSlotForApplication(customer.id, planId, Number(charge.id), Number(id));
       return id;
     });
     const application = portalApplication(applicationId, customer.id);
     if (!application) return jsonError(res, 500, "loan_application_create_failed");
     return res.status(201).json(application);
   } catch (error) {
+    const samePlan = openSamePlanBody(error);
+    if (samePlan) return res.status(409).json(samePlan);
     const code = error instanceof Error ? error.message : "";
     if (code === "filing_fee_already_used") return jsonError(res, 409, code);
     return jsonError(res, 500, "loan_application_create_failed");
