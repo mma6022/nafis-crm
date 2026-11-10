@@ -222,7 +222,7 @@ body { font-size: var(--nf-font-body); line-height: 1.75; color: var(--nf-ink); 
   .topbar h1 { font-size: 19px; }
   .topbar p { display: none; }
   .top-actions { gap: 6px; }
-  .icon-button { width: 42px; height: 42px; }
+  .icon-button { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
   .avatar { width: 42px; height: 42px; }
   .page-intro h2 { font-size: 22px; }
   .page-intro p { font-size: 14.5px; }

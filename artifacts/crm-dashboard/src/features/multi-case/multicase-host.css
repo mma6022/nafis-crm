@@ -48,8 +48,12 @@ body:has(.mc-wizard-host, .mc-picker-host, .mc-host) .nas-head,
 body:has(.mc-wizard-host, .mc-picker-host, .mc-host) .csx-fab,
 html[data-mc-on] body:has([data-testid="el-customer-closed"]) .diag-floating,
 html[data-mc-on] body:has([data-testid="el-page-closed"]) .diag-floating,
-body:has(.mc-wizard-host, .mc-picker-host, .mc-host) .diag-floating,
+body:has(.mc-wizard-host, .mc-picker-host) .diag-floating,
 body:has(.mc-wizard-host, .mc-picker-host, .mc-host) [data-testid="floating-chat"] { display: none; }
+/* Armita report-error-placement r3: file-detail (.mc-host) shows the desktop pill; hide it only below 1024. */
+@media (max-width: 1023.98px) {
+  body:has(.mc-host) .diag-floating { display: none; }
+}
 body:has(.mc-wizard-host) .lrx-head,
 body:has(.mc-wizard-host) .lrx-tabs,
 body:has(.mc-wizard-host) .lrx-tools,

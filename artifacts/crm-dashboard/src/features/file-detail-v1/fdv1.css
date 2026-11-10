@@ -515,6 +515,12 @@ html.fdv1-on .ss-top .ss-ttl h1{white-space:nowrap;overflow:hidden;text-overflow
 .fdv1 .toast{z-index:85}
 /* «گزارش خطا»: aligned with the dock at desktop; on mobile it is the live top-bar button (no pill on the header card) */
 html.fdv1-on.ssv2-on .diag-floating,html.fdv1-on .diag-floating{right:24px!important;left:auto!important;bottom:calc(var(--ss-gap,16px) + (var(--ss-dock-h,90px) - 44px) / 2)!important}
+@media (min-width:1024px) and (max-width:1279.98px){
+  html.fdv1-on .diag-floating{width:44px;height:44px;min-height:44px;padding:0;justify-content:center;font-size:0;gap:0;position:fixed;overflow:visible}
+  html.fdv1-on .diag-floating::after{content:"گزارش خطا";position:absolute;bottom:calc(100% + 8px);right:0;padding:6px 10px;border-radius:8px;background:#1a305e;color:#fff;font-size:12px;line-height:1.4;white-space:nowrap;box-shadow:0 3px 14px #15264730;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .12s}
+  html.fdv1-on .diag-floating:hover::after,html.fdv1-on .diag-floating:focus-visible::after{opacity:1;visibility:visible}
+  html.fdv1-on .diag-floating:focus-visible{outline:2px solid #1a305e;outline-offset:2px}
+}
 @media (max-width:1023.98px){html.fdv1-on .diag-floating{display:none!important}}
 .fdv1 .crow{display:flex;align-items:center;gap:8px}
 /* the assistant drawer (live .nas-chw) sits over the main column, never over the notes column */
