@@ -88,7 +88,7 @@ type CustomerNameProps = {
 
 /** Customer name followed by its id badge. Use this wherever staff see a customer name. */
 export function CustomerName({ id, name, href, className, nameClassName, nameTestId, badgeTestId, children }: CustomerNameProps) {
-  const label = name === null || name === undefined || name === '' ? '—' : name;
+  const label = name === null || name === undefined || name === '' ? '—' : (typeof name === 'string' ? toPersianDigits(name) : name);
   return (
     <span className={`cust-name${className ? ` ${className}` : ''}`}>
       {href
@@ -103,6 +103,6 @@ export function CustomerName({ id, name, href, className, nameClassName, nameTes
 /** Plain-text form for places that can only hold text (e.g. <option>, document titles). */
 export function customerNameText(name: unknown, id: unknown): string {
   const value = customerIdOf(id);
-  const label = String(name ?? '').trim() || '—';
+  const label = toPersianDigits(String(name ?? '').trim() || '—');
   return value === null ? label : `${label} #${toPersianDigits(value)}`;
 }

@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { AlertCircle, Bell, Check, Clock, Eye, Flag, Layers, Lock, Plus, Upload, X } from 'lucide-react';
 import { faNum } from '@/features/call-queue/api';
+import { toPersianDigits } from '@/lib/customer-id';
 import { CallNumber } from '@/features/call-number/CallNumber';
 import { CreateWizard } from '@/components/loan-applications/CreateWizard';
 import { fcApi, type FbBoard, type FbCard, type FcView } from '@/features/files-carousel/api';
@@ -17,12 +18,13 @@ import '@/features/daily-plan/daily-plan.css';
 import '@/features/files-carousel/files-carousel.css';
 import './today-split.css';
 
+const faName = (s?: string | null) => toPersianDigits(s ?? '');
 /** Column subtitles (tsf.js COLS). Half-space labels («تکمیل‌شده», «لغوشده») stay inside the board only (PM default 4). */
 const SUB: Record<FbColumn, string> = { draft: 'نوبت تو', documents: 'نوبت تو', collateral: 'نوبت تو', signature: 'نوبت مشتری و تو', review: 'نزد کارشناس ثبت یا تأمین‌کننده', completed: 'بسته، ۳۰ روز اخیر', cancelled: 'بسته، ۳۰ روز اخیر' };
 const CLOSED_COLS = new Set<FbColumn>(['completed', 'cancelled']);
 export const FB_NODRAG = 'کارت‌ها کشیدنی نیستند؛ پرونده را باز کن و از فرم خودش ادامه بده';
 export const FB_LATER = 'امروز پیگیری شد (تماس تسک بالفعل یا ثبت نتیجه در پرونده)؛ فردا سر جای خودش در ترتیب برمی‌گردد';
-export const fbLockHint = (turnName: string | null | undefined) => turnName ? `به ترتیب باز می‌شود؛ اول پرونده‌ی ${turnName} را باز کن` : 'امروز همه‌ی پرونده‌های باز پیگیری شدند؛ فردا به ترتیب باز می‌شوند';
+export const fbLockHint = (turnName: string | null | undefined) => turnName ? `به ترتیب باز می‌شود؛ اول پرونده‌ی ${toPersianDigits(turnName)} را باز کن` : 'امروز همه‌ی پرونده‌های باز پیگیری شدند؛ فردا به ترتیب باز می‌شوند';
 const JT = new Intl.DateTimeFormat('fa-IR', { timeZone: 'Asia/Tehran', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const hm = (iso?: string | null) => { if (!iso) return ''; const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : JT.format(d); };
 const dayAt = (iso?: string | null) => { const d = fcDay(iso); return d === 'امروز' && iso ? `امروز ${hm(iso)}` : d; };
@@ -70,10 +72,10 @@ function Board({ b }: { b: FbBoard }) {
     <div className="fb-hrow"><h1>پرونده‌های من</h1><span className="fb-muted" data-testid="fb-total">{faNum(b.total)} پرونده</span><span className="fb-sp" />
       <button type="button" className="btn btn-primary fb-new" onClick={() => setWizard(true)} data-testid="fb-new"><Plus size={16} aria-hidden="true" /> ثبت پرونده جدید</button></div>
     <p className="fb-note fb-kbo" data-testid="fb-turn-note"><Flag size={16} aria-hidden="true" /><span>{turn
-      ? <>پرونده‌ها یکی‌یکی و به ترتیب باز می‌شوند. الان نوبت <b>{turn.customerName}</b> است (ستون «{fbColumnLabel(turnCol!)}»)؛ بقیه قفل‌اند تا آن پیگیری شود. پیگیری امروز، چه ثبت نتیجه در پرونده چه تماس تسک بالفعل، اگر نتیجه‌ی نهایی نداشته باشد «پیگیری شد، فردا» می‌شود و نوبت به بعدی می‌رسد. پرونده‌های بسته همیشه فقط‌خواندنی بازند.</>
+      ? <>پرونده‌ها یکی‌یکی و به ترتیب باز می‌شوند. الان نوبت <b>{faName(turn.customerName)}</b> است (ستون «{fbColumnLabel(turnCol!)}»)؛ بقیه قفل‌اند تا آن پیگیری شود. پیگیری امروز، چه ثبت نتیجه در پرونده چه تماس تسک بالفعل، اگر نتیجه‌ی نهایی نداشته باشد «پیگیری شد، فردا» می‌شود و نوبت به بعدی می‌رسد. پرونده‌های بسته همیشه فقط‌خواندنی بازند.</>
       : <>امروز همه‌ی پرونده‌های باز پیگیری شدند؛ فردا هر کدام سر جای خودش در ترتیب برمی‌گردد. پرونده‌های بسته همیشه فقط‌خواندنی بازند.</>}</span></p>
-    {retTurn ? <p className="fb-note fb-kbe" data-testid="fb-ret-note"><Bell size={16} aria-hidden="true" /><span>پرونده‌ی <b>{retTurn.customerName}</b> امروز {hm(retTurn.fc.returned_at)} برگشت خورد و نوبت اوست.</span></p> : null}
-    {recent ? <p className="fb-note fb-kbe" role="status" data-testid="fb-after-note"><Check size={16} aria-hidden="true" /><span>{recent.followedToday!.source === 'call' ? 'تماس' : 'نتیجه‌ی پیگیری'} با <b>{recent.customerName}</b> ثبت شد ({hm(recent.followedToday!.at)}). نتیجه‌ی نهایی نبود، پس پرونده «پیگیری شد، فردا» شد{turn ? <> و نوبت به <b>{turn.customerName}</b> رسید</> : null}.</span></p> : null}
+    {retTurn ? <p className="fb-note fb-kbe" data-testid="fb-ret-note"><Bell size={16} aria-hidden="true" /><span>پرونده‌ی <b>{faName(retTurn.customerName)}</b> امروز {hm(retTurn.fc.returned_at)} برگشت خورد و نوبت اوست.</span></p> : null}
+    {recent ? <p className="fb-note fb-kbe" role="status" data-testid="fb-after-note"><Check size={16} aria-hidden="true" /><span>{recent.followedToday!.source === 'call' ? 'تماس' : 'نتیجه‌ی پیگیری'} با <b>{faName(recent.customerName)}</b> ثبت شد ({hm(recent.followedToday!.at)}). نتیجه‌ی نهایی نبود، پس پرونده «پیگیری شد، فردا» شد{turn ? <> و نوبت به <b>{faName(turn.customerName)}</b> رسید</> : null}.</span></p> : null}
     <p className="fb-note fb-kbn"><Lock size={16} aria-hidden="true" /><span>وضعیت هر پرونده فقط با فرم‌های خود پرونده عوض می‌شود؛ کارت‌ها کشیدنی نیستند. در هر ستون، کارت‌ها به ترتیب اولویت‌اند.</span></p>
     <div className="fb-chips" role="tablist" aria-label="ستون‌های وضعیت" ref={chips} onKeyDown={onChipKey} data-testid="fb-chips">{FB_COLUMNS.map((c, i) =>
       <button key={c.key} type="button" role="tab" id={`fb-t-${c.key}`} aria-controls={`fb-c-${c.key}`} aria-selected={i === sel} tabIndex={i === sel ? 0 : -1} className={`fb-ch${CLOSED_COLS.has(c.key) ? ' cl' : ''}`} onClick={() => goCol(i)} data-testid="fb-chip">
@@ -104,8 +106,8 @@ function BoardCard({ f, lockHint, onOpen, onToast }: { f: FbCard; lockHint: stri
     onPointerMove={(e) => { if (!x0.current || e.pointerType === 'touch') return; if (Math.hypot(e.clientX - x0.current[0], e.clientY - x0.current[1]) > 24) { x0.current = null; onToast(FB_NODRAG); } }}
     onDragStart={(e) => e.preventDefault()}>
     <div className="fb-fn-row">{nx || cl
-      ? <button type="button" className="fb-fn" onClick={onOpen} aria-label={nx ? `باز کردن پرونده‌ی ${f.customerName}، پرونده ${faNum(f.fileId)}، نوبت این پرونده است` : `دیدن پرونده‌ی ${f.customerName}، پرونده ${faNum(f.fileId)}، بسته و فقط‌خواندنی`} data-testid="fb-fn">{f.customerName}</button>
-      : <button type="button" className="fb-fn" aria-disabled="true" onClick={() => onToast(hint)} aria-label={`پرونده‌ی ${f.customerName}، پرونده ${faNum(f.fileId)}، قفل؛ ${hint}`} data-testid="fb-fn">{f.customerName}</button>}
+      ? <button type="button" className="fb-fn" onClick={onOpen} aria-label={nx ? `باز کردن پرونده‌ی ${faName(f.customerName)}، پرونده ${faNum(f.fileId)}، نوبت این پرونده است` : `دیدن پرونده‌ی ${faName(f.customerName)}، پرونده ${faNum(f.fileId)}، بسته و فقط‌خواندنی`} data-testid="fb-fn">{faName(f.customerName)}</button>
+      : <button type="button" className="fb-fn" aria-disabled="true" onClick={() => onToast(hint)} aria-label={`پرونده‌ی ${faName(f.customerName)}، پرونده ${faNum(f.fileId)}، قفل؛ ${hint}`} data-testid="fb-fn">{faName(f.customerName)}</button>}
       <span className="dp-id">#{faNum(f.customerId)}</span>{nx || cl ? null : <span className="fb-fcl" aria-hidden="true"><Lock size={15} /></span>}</div>
     {nx ? <span className="ts-turn fb-nxb" data-testid="fb-turn-chip"><Flag size={14} aria-hidden="true" /> نوبت این پرونده‌ست</span> : null}
     <CatPill c={f.fc} small />
@@ -126,10 +128,10 @@ function BoardSheet({ f, turn, onClose, onSaved, onToast }: { f: FbCard; turn: F
     if (e.key === 'Tab' && box.current) { const q = [...box.current.querySelectorAll<HTMLElement>('a[href],button:not([disabled])')]; if (!q.length) return;
       const a = q[0], z = q[q.length - 1]; if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); } else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); } } };
   const stage = loanStageLabel(f.stage);
-  if (res && isTurn) return <BoardResult f={f} onClose={() => setRes(false)} onSaved={() => onSaved(f.customerName)} />;
+  if (res && isTurn) return <BoardResult f={f} onClose={() => setRes(false)} onSaved={() => onSaved(faName(f.customerName))} />;
   return <div className="ts-ov" onKeyDown={onKey} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} data-testid="fb-sheet-wrap">
     <div className="ts-dlg" role="dialog" aria-modal="true" aria-labelledby="fb-s-h" ref={box} data-testid="fb-sheet" data-state={f.state}>
-      <header><div><small>پرونده {faNum(f.fileId)}، ستون «{fbColumnLabel(col)}»</small><h2 id="fb-s-h">{f.customerName} <span className="dp-id">#{faNum(f.customerId)}</span></h2></div>
+      <header><div><small>پرونده {faNum(f.fileId)}، ستون «{fbColumnLabel(col)}»</small><h2 id="fb-s-h">{faName(f.customerName)} <span className="dp-id">#{faNum(f.customerId)}</span></h2></div>
         <button type="button" ref={first} className="ts-x" onClick={onClose} aria-label="بستن"><X size={20} aria-hidden="true" /></button></header>
       <div className="ts-body">
         <div className="ts-chips">{isTurn ? <span className="ts-turn" data-testid="fb-s-turn"><Flag size={14} aria-hidden="true" /> نوبت این پرونده‌ست</span>
@@ -143,7 +145,7 @@ function BoardSheet({ f, turn, onClose, onSaved, onToast }: { f: FbCard; turn: F
           <dt>آخرین پیگیری</dt><dd>{f.lastFollowUp ? `${dayAt(f.lastFollowUp.at)}${f.lastFollowUp.outcomeLabel ? `، ${f.lastFollowUp.outcomeLabel}` : ''}` : 'هنوز پیگیری نشده'}</dd></dl>
         {cl ? <p className="ts-hint" role="note" data-testid="fb-s-ro-note"><Eye size={14} aria-hidden="true" /> پرونده‌ی بسته همیشه باز است ولی فقط‌خواندنی؛ ویرایش یا اقدامی ندارد و در ترتیب نوبت نیست.</p>
           : isTurn ? <p className="ts-hint"><Lock size={14} aria-hidden="true" /> مرحله فقط با فرم خود پرونده جلو می‌رود؛ جابه‌جا کردن کارت روی تخته نیست.</p>
-          : <p className="ts-hint" role="note" data-testid="fb-s-hint"><Lock size={14} aria-hidden="true" /> {f.state === 'later' ? FB_LATER + '.' : <>نوبت این پرونده نیست. پرونده‌ها به ترتیب باز می‌شوند{turn ? <>؛ الان نوبت <b>{turn.customerName}</b> است.</> : '.'}</>}</p>}
+          : <p className="ts-hint" role="note" data-testid="fb-s-hint"><Lock size={14} aria-hidden="true" /> {f.state === 'later' ? FB_LATER + '.' : <>نوبت این پرونده نیست. پرونده‌ها به ترتیب باز می‌شوند{turn ? <>؛ الان نوبت <b>{faName(turn.customerName)}</b> است.</> : '.'}</>}</p>}
       </div>
       {cl ? null : <footer className="fb-sf">{isTurn ? <><Link href={`/loan-applications/${f.fileId}`} className="btn btn-primary" data-testid="fb-open"><Upload size={16} aria-hidden="true" /> باز کردن پرونده: {stage}</Link>
           <button type="button" className="btn btn-ghost" onClick={() => setRes(true)} data-testid="fb-result">تماس گرفتم، ثبت نتیجه</button></>
@@ -174,7 +176,7 @@ function BoardResult({ f, onClose, onSaved }: { f: FbCard; onClose: () => void; 
   };
   return <div className="ts-ov" onKeyDown={(e) => { if (e.key === 'Escape' && !busy) { e.preventDefault(); onClose(); } }} data-testid="fb-result-wrap">
     <div className="ts-dlg" role="dialog" aria-modal="true" aria-labelledby="fb-r-h" data-testid="fb-result-dlg">
-      <header><div><small>پرونده {faNum(f.fileId)}، نوبت این پرونده</small><h2 id="fb-r-h">ثبت نتیجه، {f.customerName} <span className="dp-id">#{faNum(f.customerId)}</span></h2></div>
+      <header><div><small>پرونده {faNum(f.fileId)}، نوبت این پرونده</small><h2 id="fb-r-h">ثبت نتیجه، {faName(f.customerName)} <span className="dp-id">#{faNum(f.customerId)}</span></h2></div>
         <button type="button" ref={first} className="ts-x" onClick={onClose} disabled={busy} aria-label="بستن"><X size={20} aria-hidden="true" /></button></header>
       <div className="ts-body">
         {f.phone ? <div className="ts-ph sm"><small>شماره‌ی مشتری</small><CallNumber phone={f.phone} customerId={f.customerId} via="files" testId="fb-r-ph" /></div> : null}
