@@ -1,0 +1,94 @@
+/* bottom-nav-v2 v1.0 — rules applied ON TOP of sales-shell.css.
+   Only under .app-shell.ssv2.bnv2 (flag.bottom_nav_v2 = 1). Do not edit sales-shell.css. */
+.app-shell.ssv2.bnv2 .ss-lb,
+.app-shell.ssv2.bnv2 .ss-tb-i > .ss-lb {
+  white-space: normal;
+  text-align: center;
+  max-width: 100%;
+  overflow: visible;
+  text-overflow: unset;
+  line-height: 1.25;
+  hyphens: none;
+}
+.app-shell.ssv2.bnv2 .ss-i {
+  width: 86px;
+  height: 84px;
+}
+.app-shell.ssv2.bnv2 .ss-lb {
+  font-size: 13px;
+  padding-inline: 2px;
+}
+@media (max-width: 1199px) and (min-width: 1024px) {
+  .app-shell.ssv2.bnv2 .ss-i { width: 64px; height: 60px; }
+  .app-shell.ssv2.bnv2 .ss-i .ss-lb { display: none; }
+}
+
+@media (max-width: 1023px) {
+  .app-shell.ssv2.bnv2 .ss-tb { padding-top: 6px; padding-inline: 2px; }
+  .app-shell.ssv2.bnv2 .ss-tb-i,
+  .app-shell.ssv2.bnv2 .ss-tb-p {
+    min-width: 0;
+    overflow: hidden;
+    white-space: normal;
+  }
+  .app-shell.ssv2.bnv2 .ss-tb-i {
+    font-size: 12px;
+    gap: 1px;
+    padding: 0 1px;
+    min-height: 64px;
+  }
+  .app-shell.ssv2.bnv2 .ss-tb-i > .ss-lb {
+    display: block;
+    width: 100%;
+    max-width: 4.6em;
+    margin-inline: auto;
+    font-size: 12px;
+    line-height: 1.2;
+    overflow: hidden;
+    text-align: center;
+  }
+  .app-shell.ssv2.bnv2 .ss-tb-p .ss-ps,
+  .app-shell.ssv2.bnv2 .ss-tb-p .ss-pf {
+    max-width: 100%;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.2;
+    overflow: hidden;
+  }
+}
+
+/* «گزارش خطا» stays beside the dock on desktop; icon-only 1024–1279; hidden on today and mobile.
+   Product class is .diag-floating (existing report-button rule). */
+html.ssv2-on.bnv2-on .diag-floating {
+  inset-inline-start: auto;
+  right: 24px;
+  left: auto;
+}
+html.ssv2-on.bnv2-on[data-ss-page-today] .diag-floating,
+html.ssv2-on.bnv2-on body[data-page="today"] .diag-floating,
+html.ssv2-on.bnv2-on .app-shell.ssv2.bnv2[data-ss-page="today"] .diag-floating {
+  display: none !important;
+}
+@media (max-width: 1279px) and (min-width: 1024px) {
+  html.ssv2-on.bnv2-on .diag-floating {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+}
+@media (max-width: 1023px) {
+  html.ssv2-on.bnv2-on .diag-floating { display: none; }
+}
+.app-shell.ssv2.bnv2 .ib.tdg,
+.app-shell.ssv2.bnv2 .icon-button.tdg {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+}

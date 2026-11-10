@@ -23,7 +23,8 @@
     "test:receipt-time": "node --experimental-strip-types scripts/receipt-time-fixture.mjs",
     "test:contract-send-errors": "node scripts/contract-send-errors-fixture.mjs",
     "check:no-request-type": "node scripts/no-request-type-check.mjs",
-    "test:voip-anywhere": "node --experimental-strip-types scripts/voip-anywhere-fixture.mjs"
+    "test:voip-anywhere": "node --experimental-strip-types scripts/voip-anywhere-fixture.mjs",
+    "test:bottom-nav-v2": "node --experimental-strip-types scripts/bottom-nav-v2-fixture.mjs"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

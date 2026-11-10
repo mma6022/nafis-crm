@@ -44,6 +44,10 @@ import { useSalesTeamsMe } from '@/features/sales-teams/api';
 import { useSalesPerformanceMe } from '@/features/sales-performance/api';
 import { useBaleBotMe } from '@/features/bale-bot/api';
 import { useSalesShellV2, useNavBadges, ssRequestIncoming, tehranHm } from '@/features/sales-shell/api';
+import { useBottomNavV2 } from '@/features/bottom-nav-v2/api';
+import { BaleIcon } from '@/features/bottom-nav-v2/BaleIcon';
+import { bnv2Slots, bnv2Rest } from '@/features/bottom-nav-v2/layout';
+import '@/features/bottom-nav-v2/bottom-nav-v2.css';
 import { SalesShellNav, useDockHeight, useSsOverlay, type SsItem, type SsGroup } from '@/features/sales-shell/SalesShellNav';
 import { CustLocked, RemLocked } from '@/features/sales-shell/LockedPages';
 import { useSiteNotifications } from '@/site-notifications/NotificationBell';
@@ -244,6 +248,13 @@ export function CrmShell({ children }: { children: ReactNode }) {
   
   // SALES-SHELL v2 (per-user flag.sales_shell_v2.user.<id>; ALL OFF by default): no sidebar, bottom dock / tab bar.
   const ssV2 = useSalesShellV2(user ? Number(user.id) : null, Boolean(user) && !panelMode);
+  const bnv2 = useBottomNavV2(user ? Number(user.id) : null, Boolean(user) && !panelMode && ssV2);
+  useEffect(() => {
+    if (!bnv2) return;
+    const today = location === '/today' || location === '/';
+    document.documentElement.toggleAttribute('data-ss-page-today', today);
+    return () => document.documentElement.removeAttribute('data-ss-page-today');
+  }, [bnv2, location]);
   const mcOn = useMultiCaseStatus(Boolean(user) && !panelMode).data?.enabled === true;
   const mcSurface = mcOn && (/^\/customers\/\d+(?:\/|$)/.test(location) || (location === '/loan-applications' && /(?:^|[?&])new=1(?:&|$)/.test(typeof window !== 'undefined' ? window.location.search : '')));
   // Multi-case customer and wizard pages use the sales-shell header and dock. Other pages stay on the admin sidebar unless sales_shell_v2 is on.
@@ -488,7 +499,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
     return (
     <DiagnosticsProvider actorId={user?.id ?? 'anon'} isAdmin={user?.role === 'admin'}>
     <NotificationProvider user={user}>
-    <div className="app-shell ssv2" data-testid="ss-shell">
+    <div className={`app-shell ssv2${bnv2 ? ' bnv2' : ''}`} data-testid="ss-shell" data-bnv2={bnv2 ? 'on' : 'off'}>
       <SsMain setMainEl={setMainEl} mainEl={mainEl} stickyTop={stickyTop}>
         <header className="topbar ss-top" ref={setTopEl}>
           <Link href={navItems.some(i => i.href === '/today') ? '/today' : '/'} className="ss-brand" aria-label="گروه مالی نفیس — خانه"><img src={nafissLogoUrl} alt="" aria-hidden="true" /><small>پنل مشتریان</small></Link>
@@ -533,7 +544,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
         onLogout={() => logoutMutation.mutate()} logoutPending={logoutMutation.isPending} canRem={Boolean(canRem)} onRemind={headerReminder.open} onProfile={() => setProfileOpen(true)}
         overdue={ssBadges?.reminders.overdue ?? 0} drafts={pendingDrafts} draftsLate={(draftCounts.data?.paidOver24h ?? 0) > 0} team={team.data?.unreadCount ?? 0}
         pendingGoods={pendingGoods} pendingPayments={pendingPayments} callbacks={callbacksBadge.data?.new ?? 0}
-        ast={hasAssistant ? { name: astName, unread: astUnread, dnd: astDnd, open: openAst } : null} />
+        ast={hasAssistant ? { name: astName, unread: astUnread, dnd: astDnd, open: openAst } : null}
+        bnv2={bnv2} role={user?.role ?? null} baleUnread={bbMe?.unread ?? 0} hasOwnBaleInbox={Boolean(bbMe?.enabled && (bbMe.view === 'own' || bbMe.view === 'all'))} />
       {user ? <AssistantDock user={user as { id: number; role?: string | null; salespersonId?: number | null }} phone={ssMobile} shellV2 slot={null} bottomOffset={0} /> : null}
       {profileOpen && user ? <ProfileModal user={user} onClose={() => setProfileOpen(false)} /> : null}
       {headerReminder.node}
@@ -676,6 +688,7 @@ type SsHostProps = {
   onLogout: () => void; logoutPending: boolean; canRem: boolean; onRemind: () => void; onProfile: () => void;
   overdue: number; drafts: number; draftsLate: boolean; team: number; pendingGoods: number; pendingPayments: number; callbacks: number;
   ast: { name: string; unread: number; dnd: boolean; open: () => void } | null;
+  bnv2: boolean; role: string | null; baleUnread: number; hasOwnBaleInbox: boolean;
 };
 const SS_MAIN: Record<string, { key: string; label: string; full: string; testId: string }> = {
   '/today': { key: 'today', label: 'امروز', full: 'کارهای امروز من', testId: 'today' },
@@ -697,43 +710,60 @@ function SsNavHost(p: SsHostProps) {
   // FILES-LOCK (stage 2): cache-only hint; null unless that user's flag.files_lock is on and «بالفعل» tasks remain.
   const { data: ssSession } = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   const fl = useFilesLockHint(ssSession?.user?.id != null ? Number(ssSession.user.id) : null);
+  const slots = bnv2Slots({ flagOn: p.bnv2, role: p.role, visible: p.navItems.map(i => i.href), hasOwnBaleInbox: p.hasOwnBaleInbox });
   const badgeFor = (href: string): SsItem['badge'] => {
     if (fl && (href === '/today' || href === '/')) return { n: fl.remaining, tone: 'r', what: 'تسک بالفعل مانده' };
+    if (p.bnv2 && href === '/customers') return null; // §6.3: customers count badge is removed with the dock item
     if (href === '/reminders') return p.overdue ? { n: p.overdue, tone: 'r', what: 'یادآور سررسیده' } : null;
     if (href === '/loan-applications') return p.drafts ? { n: p.drafts, tone: p.draftsLate ? 'r' : 'g', what: 'درخواست در انتظار ثبت' } : null;
     if (href === '/messengers') return n(href) ? { n: n(href), tone: 'n', what: 'پیام تازه' } : null;
+    if (href === '/bale-bot') {
+      const u = p.baleUnread || n(href) || n('/messengers');
+      return u ? { n: u, tone: 'n', what: 'پیام خوانده‌نشده' } : null;
+    }
     if (href === '/internal-chat') return p.team ? { n: p.team, tone: 'n', what: 'پیام خوانده‌نشده' } : null;
     if (href === '/goods-purchases') return p.pendingGoods ? { n: p.pendingGoods, tone: 'r', what: 'مشتری در انتظار ایجاد خرید کالا' } : null;
     if (href === '/payment-orders') return p.pendingPayments ? { n: p.pendingPayments, tone: 'r', what: 'خرید در انتظار ایجاد دستور پرداخت' } : null;
     if (href === '/callback-requests') return p.callbacks ? { n: p.callbacks, tone: 'r', what: 'درخواست تماس جدید' } : null;
     return n(href) ? { n: n(href), tone: 'n', what: 'مورد تازه' } : null;
   };
-  // «امروز»: the daily-plan page when on; otherwise the overview.
-  const todayHref = has('/today') ? '/today' : has('/') ? '/' : null;
-  const mainOf = (href: string | null): SsItem | null => {
+  const metaOf = (href: string) => slots.labels[href] ?? SS_MAIN[href] ?? (href === '/' ? slots.labels['/today'] ?? SS_MAIN['/today'] : null);
+  const iconOf = (href: string, fallback: LucideIcon | undefined) => {
+    if (p.bnv2 && href === '/bale-bot') return <BaleIcon size={24} />;
+    return fallback ? ic(fallback) : <BaleIcon size={24} />;
+  };
+  const itemOf = (href: string | null): SsItem | null => {
     if (!href) return null;
-    const it = has(href); if (!it) return null;
-    const m = SS_MAIN[href] ?? (href === '/' ? SS_MAIN['/today'] : null); if (!m) return null;
-    const base: SsItem = { ...m, href, icon: ic(it.icon), badge: badgeFor(href) };
+    const it = has(href);
+    if (!it && !(href === '/bale-bot' && p.bnv2 && p.hasOwnBaleInbox)) return null;
+    const m = metaOf(href); if (!m) return null;
+    const base: SsItem = { ...m, href, icon: iconOf(href, it?.icon), badge: badgeFor(href) };
     return fl && href === '/loan-applications' ? { ...base, lock: true, full: `${m.full}، بسته تا پایان ${faNum(fl.remaining)} تسک بالفعل` } : base;
   };
-  const today = mainOf(todayHref), cust = mainOf('/customers'), files = mainOf('/loan-applications'), rem = mainOf('/reminders'), msg = mainOf('/messengers'), team = mainOf('/internal-chat');
-  const astItem: SsItem | null = p.ast ? { key: 'ast', label: 'دستیار', full: `چت دستیار (${p.ast.name})`, icon: <>{p.ast.name.slice(0, 1)}</>, avatar: true, testId: 'ast', onSelect: p.ast.open, moon: p.ast.dnd,
+  const toItems = (hrefs: string[]) => hrefs.map(itemOf).filter((x): x is SsItem => x !== null);
+  const astItem: SsItem | null = p.ast && !(p.bnv2 && slots.kind === 'admin') ? { key: 'ast', label: 'دستیار', full: `چت دستیار (${p.ast.name})`, icon: <>{p.ast.name.slice(0, 1)}</>, avatar: true, testId: 'ast', onSelect: p.ast.open, moon: p.ast.dnd,
     badge: p.ast.unread ? { n: p.ast.unread, tone: 'n', what: 'پیام تازه از دستیار' } : null } : null;
-  const used = new Set<string>(['/today', '/', '/customers', '/loan-applications', '/reminders', '/messengers', '/internal-chat', ...SS_ACCOUNT]);
-  // spec §3: every other option keeps its place in «بیشتر» › «پرونده و پرداخت» (route order of the old menu); wallet hidden while locked (PM).
-  const rest: SsItem[] = p.navItems.filter(i => !used.has(i.href) || (i.href === '/' && todayHref !== '/')).map(i => ({ key: i.href, href: i.href, label: i.label, full: i.label, icon: ic(i.icon), badge: badgeFor(i.href), testId: i.href.replace(/^\//, '').replace(/\//g, '-') || 'home' }));
+  const todayHref = slots.before[0] === '/' || slots.before[0] === '/today' ? slots.before[0] : (itemOf('/today') ? '/today' : itemOf('/') ? '/' : null);
+  const lists: SsItem[] = [
+    ...toItems(slots.listsFirst),
+    ...bnv2Rest(p.navItems.map(i => i.href), slots.used, slots.listsFirst).map(itemOf).filter((x): x is SsItem => x !== null),
+  ];
+  // flag off: keep the previous «پرونده و پرداخت» bag (everything not on the dock / account).
+  const rest: SsItem[] = p.bnv2 ? lists : p.navItems.filter(i => !slots.used.includes(i.href) || (i.href === '/' && todayHref !== '/')).map(i => ({ key: i.href, href: i.href, label: i.label, full: i.label, icon: ic(i.icon), badge: badgeFor(i.href), testId: i.href.replace(/^\//, '').replace(/\//g, '-') || 'home' }));
   const account: SsItem[] = [
     ...SS_ACCOUNT.filter(h => has(h) && !(p.locked && h === '/my-wallet')).map(h => { const i = has(h)!; return { key: h, href: h, label: i.label, full: i.label, icon: ic(i.icon), badge: badgeFor(h), testId: h.slice(1) }; }),
     ...(p.canRem && p.mobile ? [{ key: 'remind', label: 'ثبت یادآور', full: 'ثبت یادآور', icon: ic(Bell), testId: 'remind', onSelect: p.onRemind }] : []),
     { key: 'profile', label: 'ویرایش کاربر', full: 'ویرایش کاربر', icon: ic(Pencil), testId: 'profile', onSelect: p.onProfile },
   ];
-  const groups: SsGroup[] = [{ title: 'پرونده و پرداخت', items: rest }, { title: 'حساب من', items: account }];
-  const isP = <T,>(x: T | null): x is T => x !== null;
-  const primary = todayHref === '/today' ? () => { ssRequestIncoming(); if (p.location !== '/today') setLocation('/today'); } : null;
+  const groups: SsGroup[] = p.bnv2
+    ? [ ...(rest.length ? [{ title: 'فهرست‌ها', items: rest }] : []), { title: 'حساب من', items: account } ]
+    : [{ title: 'پرونده و پرداخت', items: rest }, { title: 'حساب من', items: account }];
+  const primary = slots.primary ? () => { ssRequestIncoming(); if (p.location !== '/today') setLocation('/today'); } : null;
+  const withAst = (hrefs: string[], includeAst: boolean) => [...toItems(hrefs), ...(includeAst && astItem ? [astItem] : [])];
+  const showAst = Boolean(astItem) && slots.kind !== 'admin';
   return <SalesShellNav
-    before={[today, cust, files, rem].filter(isP)} after={[msg, team, astItem].filter(isP)}
-    tabs={[today, cust, files].filter(isP)} daily={[rem, msg, team, astItem].filter(isP)} groups={groups}
+    before={toItems(slots.before)} after={withAst(slots.after, showAst)} midSep={slots.midSep}
+    tabs={toItems(slots.tabs)} daily={withAst(slots.daily, showAst)} groups={groups}
     primary={primary} isActive={p.isActive} healthOk={p.healthOk} onLogout={p.onLogout} logoutPending={p.logoutPending}
     location={p.location} mobile={p.mobile} blocked={ov.any} />;
 }
