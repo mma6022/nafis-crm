@@ -27,6 +27,7 @@ import { clearLoanDraft, listLoanDrafts, type LoanDraft } from "@/lib/loan-draft
 import "./customers.css";
 import "./loan-requests.css";
 import { CustomerIdBadge, CustomerName, customerNameText } from '@/components/customer/CustomerName';
+import { planLabelForCustomer } from '../features/bale-bot/plan-label';
 
 const STAGE_LABELS: Record<string, string> = {
   draft: "پیش‌نویس",
@@ -69,7 +70,7 @@ const amountEmpty = (value?: string | null) => {
 const fromBaleAmount = (app: { fromBale?: boolean; requestedAmount?: string | null }) =>
   app.fromBale && amountEmpty(app.requestedAmount) ? "—" : toman(app.requestedAmount);
 type LoanRow = LoanApplication & { customerSalespersonName?: string | null; customerSubmitted?: boolean; fromBale?: boolean; planBankName?: string | null };
-const publicPlan = (app: LoanRow) => app.fromBale && app.planBankName ? `لندتک / ${String(app.planBankName).trim().replace(/ - /g, '، ')}` : (app.planName || 'بدون طرح');
+const publicPlan = (app: LoanRow) => app.fromBale && app.planBankName ? planLabelForCustomer(app.planBankName) : (app.planName || 'بدون طرح');
 
 function turnLabel(app: LoanRow, bs: string) {
   if (bs === "completed" || bs === "canceled") return "—";

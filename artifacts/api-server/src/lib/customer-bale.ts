@@ -7,6 +7,7 @@ import { bcMaySendFromBot } from "./bale-contact";
 type BotRow = { id: number; user_id: number; [k: string]: unknown };
 type ChatRow = { id: number; owner_id?: number; customer_id?: number | null; [k: string]: unknown };
 import { LOAN_STAGE_LABELS } from "./manager-work";
+import { planLabelForCustomer, publicBankNames } from "./plan-label";
 
 export const CB_FLAGS = {
   tracking: "flag.customer_bale_tracking",
@@ -72,7 +73,7 @@ export const CB_TEXTS = {
   createdHint: "این پرونده به نام شماست و در فهرست کارشناس خودتان دیده می‌شود.",
   contractPending: "قرارداد از مسیر صدور فعلی برای امضا برایتان ارسال شد.",
   contractPendingNext: "وضعیت از همان مسیر امضا می‌آید. اگر لینک برایتان آمده، از همان لینک امضا کنید. زمان مشخصی اعلام نمی‌شود.",
-  contractPendingHint: "یادآوری امضا هم از همین مسیر موجود فرستاده می‌شود.",
+  contractPendingHint: "وضعیت امضا از مسیر بررسی وضعیت فعلی خوانده می‌شود. متن قرارداد عوض نمی‌شود.",
   contractSigned: "امضا شد. وضعیت را مسیر صدور فعلی گزارش کرده است.",
   adminWait: "پرونده‌ی شما به مرحله‌ی تأیید نهایی رسیده است.",
   adminWaitNext: "تأیید مدیر و شارژ اعتبار توسط کارشناس مربوط انجام می‌شود. زمان مشخصی اعلام نمی‌شود.",
@@ -349,10 +350,7 @@ export function faDigits(v: string | number): string {
 }
 
 /** Public plan name for customers only. Internal plan name is never used. */
-export function planLabelForCustomer(bankName: string | null | undefined): string {
-  const bank = String(bankName ?? "").trim().replace(/ - /g, "، ");
-  return bank ? `لندتک / ${bank}` : "لندتک";
-}
+export { planLabelForCustomer, publicBankNames };
 
 export function stepLine(n: number, title?: string): string {
   const titleText = title ?? STEPS[n - 1] ?? "";
@@ -1210,6 +1208,31 @@ export function ensureSharedCustomerBot(at = nowIso()): number {
 
 export function cbSharedBot() {
   return queryRow("SELECT * FROM bale_bots WHERE user_id=?", [CB_SHARED_BOT_USER_ID]) as any;
+}
+
+/** Admin/API view of the shared bot: never includes the token. Status is «off»
+ *  unless a token is stored, even if the row was left status='on'. */
+export function cbSharedBotPublic(shared = cbSharedBot()) {
+  if (!shared) return null;
+  const hasToken = !!shared.token_ct;
+  const raw = String(shared.status || "off");
+  const status = hasToken ? (raw === "err" ? "err" : "on") : "off";
+  return {
+    id: shared.id,
+    name: shared.bot_name || CB_SHARED_BOT_NAME,
+    username: shared.bot_username ?? null,
+    status,
+    hasToken,
+    connectedAt: hasToken ? (shared.connected_at ?? null) : null,
+  };
+}
+
+export function cbClearSharedBotToken(at = nowIso()): void {
+  const id = ensureSharedCustomerBot(at);
+  executeChanges(
+    "UPDATE bale_bots SET token_ct=NULL, token_key_id=NULL, status='off', connected_at=NULL, last_error=NULL, updated_at=? WHERE id=?",
+    [at, id],
+  );
 }
 
 export function cbAssignedSalespersonId(customerId: number | null | undefined): number | null {

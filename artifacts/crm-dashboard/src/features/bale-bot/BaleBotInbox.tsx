@@ -160,7 +160,7 @@ function LinkActs({ onAsk, onSearch, onLead, canWrite }: { onAsk: () => void; on
 function CStrip({ chat, toast, onAsk, onSearch, onLead }: { chat: BbChat; toast: (t: string) => void; onAsk: () => void; onSearch: () => void; onLead: () => void }) {
   const c = chat.customer;
   if (c && c.restricted) return <div className="cstrip"><span className="nmr">{c.name}<Cid id={c.id} toast={toast} /></span><span className="chip s"><I n="link" />پرونده‌ی {c.expert}</span></div>;
-  if (c) return <div className="cstrip"><span className="nmr">{c.name}<Cid id={c.id} toast={toast} /></span>{c.phone ? <Ph phone={c.phone} toast={toast} /> : null}{chat.phoneVerified === false ? <Unverified /> : null}<span className="sp" />{c.canOpen ? <Link className="btn lk sm" href={`/customers/${c.id}`}>پرونده</Link> : null}</div>;
+  if (c) return <div className="cstrip"><span className="nmr">{c.name}<Cid id={c.id} toast={toast} /></span>{c.phone ? <Ph phone={c.phone} toast={toast} /> : null}{chat.phoneVerified === false ? <Unverified /> : null}<span className="sp" />{!chat.waitingAssignment && c.canOpen ? <Link className="btn lk sm" href={`/customers/${c.id}`}>پرونده</Link> : null}</div>;
   if (chat.contactAskedAt) return <div className="cstrip"><span className="chip g"><I n="clock" />منتظر شماره‌ی مشتری</span><span className="sp" /><button className="btn lk sm" type="button" onClick={onSearch}>جستجو و وصل</button></div>;
   return <div className="cstrip"><span className="chip r"><I n="user-x" />وصل‌نشده به مشتری</span><div className="acts"><LinkActs canWrite={chat.canWrite} onAsk={onAsk} onSearch={onSearch} onLead={onLead} /></div></div>;
 }
@@ -198,7 +198,7 @@ function CustomerBotBits({ chat, toast, refresh, err, where }: { chat: BbChat; t
     if (task && (task.kind === 'docs_review' || task.kind === 'identity_manual' || task.kind === 'credit_fail' || task.kind === 'fee_unpaid' || task.kind === 'admin_approval'))
       return <div className="bc-meta"><span className="chip mut"><I n="clock" />در انتظار کارشناس</span><span className="kv">کار <b>{TASK_FA[task.kind] ?? task.kind}</b></span></div>;
     if (cb.filing?.contractStatus && cb.filing.contractStatus !== 'signed' && cb.filing.step >= 7)
-      return <div className="bc-meta">{chat.customer?.phone ? <Ph phone={chat.customer.phone} toast={toast} /> : null}<span className="kv">وضعیت امضا <b>در انتظار امضا</b></span><button className="btn gh sm" type="button" onClick={remind}>یادآوری امضا</button></div>;
+      return <div className="bc-meta">{chat.customer?.phone ? <Ph phone={chat.customer.phone} toast={toast} /> : null}<span className="kv">وضعیت امضا <b>در انتظار امضا</b></span><button className="btn gh sm" type="button" onClick={remind}>به‌روزرسانی وضعیت</button></div>;
     if (cb.filing)
       return <div className="bc-meta">{chat.customer?.phone ? <Ph phone={chat.customer.phone} toast={toast} /> : null}<span className="kv">ثبت درخواست <b>{filingLine(cb)}</b></span><span className="kv">کارشناس <b>{chat.expert.name}</b></span>{cb.filing.applicationId ? <Link className="btn gh sm" href={`/loan-applications/${cb.filing.applicationId}`}><I n="file" />مشاهده‌ی پرونده</Link> : null}</div>;
     return null;
@@ -208,7 +208,7 @@ function CustomerBotBits({ chat, toast, refresh, err, where }: { chat: BbChat; t
       {cb.filing ? <div className="kv2"><span>پیشرفت ربات</span><b>{filingLine(cb)}</b></div> : null}
       {task ? <div className="kv2"><span>کار شما</span><b>{TASK_FA[task.kind] ?? task.kind} ارسال‌شده از بله</b></div> : null}
       {cb.filing?.contractStatus ? <div className="kv2"><span>وضعیت امضا</span><b>{cb.filing.contractStatus === 'signed' ? 'امضا شد' : 'در انتظار امضا'}</b></div> : null}
-      {cb.filing?.contractStatus && cb.filing.contractStatus !== 'signed' ? <p className="m">یادآوری فقط از مسیر صدور فعلی فرستاده می‌شود؛ متن قرارداد در ربات تغییر نمی‌کند.</p> : null}
+      {cb.filing?.contractStatus && cb.filing.contractStatus !== 'signed' ? <p className="m">وضعیت امضا از مسیر بررسی وضعیت فعلی خوانده می‌شود. متن قرارداد عوض نمی‌شود.</p> : null}
       {cb.handoff && !cb.handoff.claimedBy ? <p className="m">سؤال مشتری و پاسخ خودکار در گفتگو آمده است. با «واگذار به من» این گفتگو را جواب می‌دهید.</p> : null}
     </>;
   }
@@ -491,7 +491,7 @@ function ContactMeta({ chat, toast, err, refresh, onAsk, onManual, wiz }: { chat
     {chat.waitingAssignment ? <span className="chip mut"><I n="clock" />در انتظار کارشناس</span> : null}
     {c.status && !chat.sharedCustomerBot ? <span className="kv">وضعیت <b>{CUST_STATUS[c.status] ?? c.status}</b></span> : null}
     {!chat.waitingAssignment ? <span className="kv">کارشناس <b>{c.expert ?? chat.assignedExpertName ?? chat.expert.name}</b></span> : null}
-    {c.canOpen ? <Link className="btn gh sm" href={`/customers/${c.id}`}><I n="file" />مشاهده‌ی پرونده</Link> : null}
+    {!chat.waitingAssignment && c.canOpen ? <Link className="btn gh sm" href={`/customers/${c.id}`}><I n="file" />مشاهده‌ی پرونده</Link> : null}
     {chat.sourceLine && !chat.sharedCustomerBot ? <p className="bc-src">{chat.sourceLine}</p> : null}
   </div>;
   return null;

@@ -369,20 +369,28 @@ function BotsTab({ d, toast, reload }: { d: KbAdminPayload; toast: (t: string) =
   const [w, setW] = useState<null | { k: 'wiz'; s: number; userId: number | null; replace: boolean } | { k: 'saved'; e: BbAdminExpert } | { k: 'off'; e: BbAdminExpert }>(null);
   const [tok, setTok] = useState('');
   const [tokBusy, setTokBusy] = useState(false);
+  const [tokMode, setTokMode] = useState<'idle' | 'replace'>('idle');
+  const [tokDel, setTokDel] = useState(false);
+  const [tokErr, setTokErr] = useState<string | null>(null);
   const shared = d.sharedBot;
+  const hasToken = !!shared?.hasToken;
   const saveShared = async () => {
     if (tok.trim().length < 8 || tokBusy) return;
-    const toSend = tok; setTok(''); setTokBusy(true);
+    const toSend = tok; setTok(''); setTokBusy(true); setTokErr(null);
     try {
       await bbFetch('/bale-bot/customer-bot/admin/shared-bot/token', { body: { token: toSend } });
+      setTokMode('idle');
       reload(); toast('توکن ربات نفیس وام ثبت شد');
-    } catch (x) { toast(x instanceof BbError ? x.message : 'انجام نشد.'); }
+    } catch (x) { setTokErr(x instanceof BbError ? x.message : 'انجام نشد.'); }
     finally { setTokBusy(false); }
   };
   const stChip = (status: string) => status === 'on'
     ? <span className="chip s"><I n="check" />وصل</span>
     : status === 'err' ? <span className="chip r"><I n="alert" />خطای توکن</span>
-    : <span className="chip">قطع</span>;
+    : <span className="chip off">قطع</span>;
+  const sharedChip = hasToken
+    ? stChip(shared?.status === 'err' ? 'err' : 'on')
+    : <span className="chip off">قطع</span>;
 
   return <>
     <ul className="bk-bots">
@@ -393,18 +401,30 @@ function BotsTab({ d, toast, reload }: { d: KbAdminPayload; toast: (t: string) =
           {shared?.username ? <span className="u" dir="ltr">@{shared.username}</span> : null}
           <span className="chip src">ربات مشترک مشتریان</span>
         </div>
-        {stChip(shared?.status || 'off')}
-        {shared?.hasToken && shared.connectedAt
-          ? <span style={{ fontSize: 13, color: 'var(--nf-ink-muted)' }}>وصل از {jalaliSaved(shared.connectedAt)}</span>
-          : shared?.hasToken ? <span style={{ fontSize: 13, color: 'var(--nf-ink-muted)' }}>توکن ثبت شده</span>
+        {sharedChip}
+        {hasToken && tokMode === 'idle'
+          ? <div className="bk-st"><I n="check" />ثبت شده{shared?.connectedAt ? `، ${jalaliSaved(shared.connectedAt)}` : ''}</div>
           : null}
-        {!shared?.hasToken ? <div className="bk-field" style={{ gridColumn: '1 / -1', marginTop: 8 }}>
-          <label htmlFor="shared-tok">توکن ربات نفیس وام</label>
+        {tokErr ? <div className="bk-banner err" role="alert" style={{ gridColumn: '1 / -1' }}><I n="alert" /><div><b>ذخیره انجام نشد</b>پیام سرور: {tokErr}</div></div> : null}
+        {(!hasToken || tokMode === 'replace') ? <div className="bk-field" style={{ gridColumn: '1 / -1', marginTop: 8 }}>
+          <label htmlFor="shared-tok">{tokMode === 'replace' ? 'توکن تازه‌ی ربات نفیس وام' : 'توکن ربات نفیس وام'}</label>
           <input id="shared-tok" className="pw" type="password" autoComplete="off" value={tok} onChange={(e) => setTok(e.target.value)} disabled={tokBusy} aria-label="توکن ربات نفیس وام، نمایش داده نمی‌شود" />
           <div className="bk-actions" style={{ marginTop: 8 }}>
-            <button className="btn pri sm" type="button" disabled={tokBusy || tok.trim().length < 8} onClick={() => void saveShared()}>{tokBusy ? 'در حال ذخیره' : 'ذخیره توکن'}</button>
+            <button className="btn pri sm" type="button" disabled={tokBusy || tok.trim().length < 8} onClick={() => void saveShared()}>{tokBusy ? 'در حال ذخیره' : (tokMode === 'replace' ? 'ذخیره توکن تازه' : 'ذخیره توکن')}</button>
+            {tokMode === 'replace' ? <button className="btn gh sm" type="button" disabled={tokBusy} onClick={() => { setTok(''); setTokErr(null); setTokMode('idle'); }}>انصراف</button> : null}
           </div>
-        </div> : null}
+        </div> : <div className="bk-actions" style={{ gridColumn: '1 / -1' }}>
+          <button className="btn pri sm" type="button" onClick={() => { setTok(''); setTokErr(null); setTokMode('replace'); }}>جایگزینی توکن</button>
+          <button className="btn gh sm" type="button" onClick={() => setTokDel(true)}>حذف توکن</button>
+        </div>}
+        {tokDel ? <div className="bk-modal" role="dialog" aria-modal="true" aria-labelledby="mdt-shared-tok"><div className="bk-dialog">
+          <h3 id="mdt-shared-tok">توکن ربات نفیس وام حذف شود؟</h3>
+          <p>پس از حذف، ربات قطع می‌شود و پیامی فرستاده نمی‌شود تا توکن تازه‌ای ثبت شود. خود توکن در این صفحه دیده نمی‌شود.</p>
+          <div className="bk-actions">
+            <button className="btn dng" type="button" onClick={async () => { try { await bbFetch('/bale-bot/customer-bot/admin/shared-bot/token/delete', { body: {} }); setTokDel(false); setTokMode('idle'); setTok(''); reload(); toast('توکن حذف شد'); } catch (x) { toast(x instanceof BbError ? x.message : 'انجام نشد.'); } }}>حذف توکن</button>
+            <button className="btn gh" type="button" onClick={() => setTokDel(false)}>انصراف</button>
+          </div>
+        </div></div> : null}
       </li>
       {ex.map((e) => {
         const b = e.bot; const st = b?.status ?? 'off';
