@@ -10,9 +10,18 @@
   padding: 24px 16px 48px;
 }
 .mc-overlay .mc-picker { width: min(720px, 100%); position: relative; border-radius: 20px; background: #fff; }
+.mc-hero-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.mc-hero-actions .btn { min-height: 48px; }
+.mc-hero-actions .btn.pri { background: rgb(41, 54, 155); color: #fff; }
+.mc-hero-actions .btn.gh { background: #fff; border: 1px solid var(--nf-line-strong); color: var(--nf-ink); }
+.mc-cases { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 12px; }
+.mc-case { padding: 20px; border-radius: 20px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.mc-field { display: flex; flex-direction: column; gap: 8px; font-weight: 700; font-size: 15px; }
+.mc-field input { width: 100%; min-height: 48px; border: 1px solid var(--nf-line-strong); border-radius: 12px; padding: 10px; background: #fff; color: var(--nf-ink); font-family: inherit; }
+.nas-dndbar { position: static; inset: auto; z-index: auto; height: auto; min-height: 44px; }
 .mc-close {
   position: absolute; top: 12px; inset-inline-start: 12px; z-index: 2;
-  height: 44px; min-height: 44px; padding: 0 14px; border-radius: 14px;
+  height: 48px; min-height: 48px; padding: 0 14px; border-radius: 14px;
   border: 1px solid var(--nf-line-strong, #C9CEDF); background: #fff; font: inherit; cursor: pointer;
 }
 .mc-overlay .mc-picker { padding-top: 64px; }
@@ -40,4 +49,6 @@
 @media (max-width: 1023.98px) {
   .mc-page .fhd h2 { font-size: 22px; }
   .mc-wbody { padding: 16px; }
+  .mc-cases { grid-template-columns: 1fr; }
 }
+.lwz.mc-host .lwz-rail { width: 250px; }

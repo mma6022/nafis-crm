@@ -16,6 +16,7 @@ import { clearLoanDraft, readLoanDraft, writeLoanDraft } from "@/lib/loan-draft"
 import { useMultiCaseCustomer, useMultiCaseStatus } from "@/lib/multi-case";
 import { SamePlanBlock } from "@/components/multi-case/CaseContextPicker";
 import { multiCasePlanLabel } from "@/lib/multi-case-plan-label";
+import { faDigits, faLatinRanks } from "@/components/multi-case/CaseContextPicker";
 import { DRAFTS_KEY, DraftHttpError, filingFeeIdempotencyKey, openPreRegistrationFor, type OpenPreRegistration, canUseDrafts, draftsApi, tehranTime, type DraftPayload, type RequestDraft } from "@/lib/request-drafts";
 import { toast } from "@/hooks/use-toast";
 import "./request-drafts.css";
@@ -678,7 +679,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
 
   const current = WIZARD_DISPLAY_STEPS[displayStep - 1];
   const upcoming = WIZARD_DISPLAY_STEPS[displayStep];
-  const fa = (n: number) => n.toLocaleString('fa-IR');
+  const fa = (n: number) => n.toLocaleString('fa-IR', { useGrouping: false });
   const requestExit = () => {
     if (selectedCustomer && step > 1) setExitOpen(true);
     else onClose();
@@ -710,7 +711,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
         {WIZARD_DISPLAY_STEPS.map((d) => <i key={d.n} className={`${d.n <= displayStep ? "on " : ""}${d.n < displayStep ? 'done' : d.n === displayStep ? 'cur' : ''}`} />)}
       </div>
       <div className="meta">
-        <span>مرحله <b>{fa(displayStep)} از {fa(WIZARD_TOTAL_STEPS)}</b> · {current ? WIZARD_PHASES[current.phase] : ''}</span>
+        <span>مرحلهٔ <b>{fa(displayStep)} از {fa(WIZARD_TOTAL_STEPS)}</b>{multiOn ? "، " : " · "}{current ? WIZARD_PHASES[current.phase] : ''}</span>
         {upcoming ? <span className="nx">بعدی: {upcoming.label}</span> : <span className="nx">مرحله آخر</span>}
       </div>
     </div>
@@ -734,7 +735,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
           <span className="av" aria-hidden="true">{selectedCustomer?.name ? selectedCustomer.name.trim().charAt(0) : <User size={16} />}</span>
           <span className="tx">
             <strong data-testid="wizard-customer-name">{selectedCustomer?.name || 'هنوز انتخاب نشده'}{selectedCustomer ? <> <CustomerIdBadge id={selectedCustomer.id} testId="wizard-customer-id" /></> : null}</strong>
-            <small>{selectedCustomer?.phone ? <span data-testid="wizard-customer-phone"><CallNumber phone={selectedCustomer.phone} customerId={selectedCustomer.id} via="drafts" size="sm" testId="wz-cust-ph" /></span> : <bdi dir="ltr" data-testid="wizard-customer-phone">—</bdi>} · کد ملی <bdi dir="ltr" data-testid="wizard-customer-national-code">{selectedCustomer ? selectedCustomer.nationalCode || 'ثبت نشده' : '—'}</bdi></small>
+            <small>{selectedCustomer?.phone ? <span data-testid="wizard-customer-phone">{multiOn ? <bdi dir="ltr">{faDigits(selectedCustomer.phone)}</bdi> : <CallNumber phone={selectedCustomer.phone} customerId={selectedCustomer.id} via="drafts" size="sm" testId="wz-cust-ph" />}</span> : <bdi dir="ltr" data-testid="wizard-customer-phone">—</bdi>}{multiOn ? "، " : " · "}کد ملی <bdi dir="ltr" data-testid="wizard-customer-national-code">{selectedCustomer ? (multiOn ? faDigits(selectedCustomer.nationalCode || "ثبت نشده") : selectedCustomer.nationalCode || 'ثبت نشده') : '—'}</bdi></small>
           </span>
         </section>
       </header>
@@ -799,6 +800,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
           )}
           {step === 2 && selectedCustomer && (
             <Step2ProfileAndCredit
+               multiCase={multiOn}
                canIgnoreCreditRank={canIgnoreCreditRank}
                ignoreCreditRank={previewAllPlans}
                previewLocked={Boolean(feeChargeId) || hasPendingFeeAttempt}
@@ -1101,7 +1103,7 @@ function Step1Customer({ search, setSearch, customers, otherOwnerPage, loading, 
 }
 
 // --- Step 2 ---
-function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, canIgnoreCreditRank, ignoreCreditRank, onIgnoreCreditRankChange, previewLocked, part = 0, onExitToCustomer }: any) {
+function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, canIgnoreCreditRank, ignoreCreditRank, onIgnoreCreditRankChange, previewLocked, part = 0, onExitToCustomer, multiCase }: any) {
   const queryClient = useQueryClient();
   const updateCustomer = useUpdateCustomer();
   const verifyIdentity = useVerifyCustomerIdentity();
@@ -1406,10 +1408,10 @@ function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, can
       {part === 0 && (editMode ? (
         <form id={profileFormId} noValidate onSubmit={handleSaveProfile} className="lwz-form" data-testid="wizard-profile-form">
           {customer.verificationCheckedAt ? <p className="lwz-note warn" role="note"><AlertCircle size={18} aria-hidden="true" /> تغییر این اطلاعات، احراز هویت قبلی مشتری را باطل می‌کند.</p> : null}
-          <div className="field"><label htmlFor="wz-national-code">کد ملی</label><input id="wz-national-code" dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={e => { setForm({...form, nationalCode: e.target.value}); setProfileErrors(current => ({ ...current, nationalCode: '' })); }} aria-invalid={Boolean(profileErrors.nationalCode)} aria-describedby={profileErrors.nationalCode ? 'err-profile-nationalCode' : undefined} data-testid="input-national-code" />{fieldError('nationalCode')}</div>
-          <div className="field"><label htmlFor="wz-phone">شماره همراه</label><input id="wz-phone" dir="ltr" inputMode="tel" value={form.phone} onChange={e => { setForm({...form, phone: e.target.value}); setProfileErrors(current => ({ ...current, phone: '' })); }} aria-invalid={Boolean(profileErrors.phone)} aria-describedby={profileErrors.phone ? 'err-profile-phone' : undefined} data-testid="input-phone" />{fieldError('phone')}</div>
+          <div className="field"><label htmlFor="wz-national-code">کد ملی</label><input id="wz-national-code" dir="ltr" inputMode="numeric" value={multiCase ? faDigits(form.nationalCode) : form.nationalCode} onChange={e => { setForm({...form, nationalCode: e.target.value.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/\D/g, "")}); setProfileErrors(current => ({ ...current, nationalCode: '' })); }} aria-invalid={Boolean(profileErrors.nationalCode)} aria-describedby={profileErrors.nationalCode ? 'err-profile-nationalCode' : undefined} data-testid="input-national-code" />{fieldError('nationalCode')}</div>
+          <div className="field"><label htmlFor="wz-phone">شماره همراه</label><input id="wz-phone" dir="ltr" inputMode="tel" value={multiCase ? faDigits(form.phone) : form.phone} onChange={e => { setForm({...form, phone: e.target.value.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/\D/g, "")}); setProfileErrors(current => ({ ...current, phone: '' })); }} aria-invalid={Boolean(profileErrors.phone)} aria-describedby={profileErrors.phone ? 'err-profile-phone' : undefined} data-testid="input-phone" />{fieldError('phone')}</div>
           <div className="field"><label>تاریخ تولد (شمسی)</label><PersianDatePicker value={form.birthDateJalali} onChange={v => { setForm({...form, birthDateJalali: v}); setProfileErrors(current => ({ ...current, birthDateJalali: '' })); }} testId="input-birth-date" birthDate />{fieldError('birthDateJalali')}</div>
-          <div className="field"><label htmlFor="wz-postal-code">کد پستی</label><input id="wz-postal-code" dir="ltr" inputMode="numeric" value={form.postalCode} onChange={e => { setForm({...form, postalCode: e.target.value}); setProfileErrors(current => ({ ...current, postalCode: '' })); }} aria-invalid={Boolean(profileErrors.postalCode)} aria-describedby={profileErrors.postalCode ? 'err-profile-postalCode' : undefined} data-testid="input-postal-code" />{fieldError('postalCode')}</div>
+          <div className="field"><label htmlFor="wz-postal-code">کد پستی</label><input id="wz-postal-code" dir="ltr" inputMode="numeric" value={multiCase ? faDigits(form.postalCode) : form.postalCode} onChange={e => { setForm({...form, postalCode: e.target.value.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/\D/g, "")}); setProfileErrors(current => ({ ...current, postalCode: '' })); }} aria-invalid={Boolean(profileErrors.postalCode)} aria-describedby={profileErrors.postalCode ? 'err-profile-postalCode' : undefined} data-testid="input-postal-code" />{fieldError('postalCode')}</div>
           {profileError && <div className="profile-form-error" role="alert" data-testid="error-save-profile">{profileError}</div>}
         </form>
       ) : (
@@ -1693,7 +1695,7 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
                     <span className="dot" aria-hidden="true" />
                     <span className="txt">
                        <strong>{label}</strong>
-                       <small>تا {planMaximum.toLocaleString('fa-IR')} تومان · {matches.length.toLocaleString('fa-IR')} شرط</small>
+                       <small>تا {planMaximum.toLocaleString('fa-IR')} تومان، {matches.length.toLocaleString('fa-IR')} شرط</small>
                        {!plan.primaryContractPresent && <small className="lwz-err">قرارداد اصلی برای این طرح تعریف نشده است.</small>}
                     </span>
                     </>}
@@ -1736,10 +1738,10 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
                  onClick={() => onSelectPlan(condition)}>
                  <span className="dot" aria-hidden="true" />
                  <span className="txt">
-                 <strong>{condition.conditionName} · {condition.needsGuarantor ? 'با ضامن' : 'بدون ضامن'}</strong>
-                 <small>سقف {Number(condition.maximumAmount).toLocaleString('fa-IR')} تومان · {condition.allowedDurations.map((months) => `${months.toLocaleString('fa-IR')} ماهه`).join('، ')}</small>
+                 <strong>{condition.conditionName}، {condition.needsGuarantor ? 'با ضامن' : 'بدون ضامن'}</strong>
+                 <small>سقف {Number(condition.maximumAmount).toLocaleString('fa-IR')} تومان، {condition.allowedDurations.map((months) => `${months.toLocaleString('fa-IR')} ماهه`).join('، ')}</small>
                  {condition.conditionNotes && <small>{condition.conditionNotes}</small>}
-                 {!ignoreCreditRank && condition.guarantorGradeNote && <small className="lwz-guarantor-note" style={{ color: "var(--warn-ink, #b54708)" }} data-testid={`guarantor-note-${condition.conditionId}`}>{condition.guarantorGradeNote}</small>}
+                 {!ignoreCreditRank && condition.guarantorGradeNote && <small className="lwz-guarantor-note" style={{ color: "var(--warn-ink, #b54708)" }} data-testid={`guarantor-note-${condition.conditionId}`}>{multiCase ? faLatinRanks(faDigits(condition.guarantorGradeNote)) : condition.guarantorGradeNote}</small>}
                  </span>
                </button>
              ))}

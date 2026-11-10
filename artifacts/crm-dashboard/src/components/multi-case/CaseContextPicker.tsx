@@ -33,8 +33,19 @@ async function copyText(text: string): Promise<boolean> {
   } catch { return false; }
 }
 
+const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
+export function faDigits(value: unknown): string {
+  return String(value ?? "").replace(/[0-9]/g, (d) => FA_DIGITS[Number(d)]).replace(/[٠-٩]/g, (d) => FA_DIGITS["٠١٢٣٤٥٦٧٨٩".indexOf(d)]);
+}
+export function faId(id: number): string {
+  return faDigits(Math.trunc(Math.abs(id)));
+}
+export function faLatinRanks(text: string): string {
+  return text.replace(/\bA\b/g, "الف").replace(/\bB\b/g, "ب").replace(/\bC\b/g, "ج");
+}
+
 export function CidChip({ id }: { id: number }) {
-  const fa = id.toLocaleString("fa-IR");
+  const fa = faId(id);
   return (
     <button type="button" className="cid" data-cid={id} data-testid={`cid-${id}`} aria-label={`شناسه‌ی ${fa}، کپی`}
       onClick={() => { void copyText(String(id)).then((ok) => toast(ok ? { title: "کپی شد", duration: 1600 } : { title: "کپی نشد", duration: 2500 })); }}>
@@ -75,6 +86,8 @@ export function CaseContextPicker({
   onClose: () => void;
 }) {
   const [choice, setChoice] = useState<CaseChoice>("general");
+  const [subject, setSubject] = useState("پیگیری فیش حقوقی");
+  const [when, setWhen] = useState("شنبه ۹ آبان ۱۴۰۵، ساعت ۱۰:۰۰");
   const title = mode === "reminder" ? "این یادآور برای کدام پرونده است؟" : "این تماس برای کدام پرونده است؟";
   const general = mode === "reminder" ? "یادآور عمومی مشتری" : "تماس عمومی مشتری";
   const open = cases.filter((row) => row.open);
@@ -96,16 +109,19 @@ export function CaseContextPicker({
             const stage = faCaseStage(row.stage);
             return (
             <button key={row.id} type="button" role="radio" aria-checked={choice === row.id} onClick={() => setChoice(row.id)}>
-              <b><span className="mc-caseid">پرونده <b dir="ltr">#{row.id.toLocaleString("fa-IR")}</b></span>، طرح {multiCasePlanLabel(row)}</b>
+              <b><span className="mc-caseid">پرونده <b dir="ltr">#{faId(row.id)}</b></span>، طرح {multiCasePlanLabel(row)}</b>
               <span>{money ? `${stage}؛ ${money}` : stage}</span>
             </button>
             );
           })}
         </div>
+        {mode === "reminder" ? <>
+          <label className="mc-field">موضوع یادآور<input value={subject} onChange={(event) => setSubject(event.target.value)} data-testid="mc-reminder-subject" /></label>
+          <label className="mc-field">زمان<input value={when} onChange={(event) => setWhen(event.target.value)} data-testid="mc-reminder-when" /></label>
+        </> : null}
         <button type="button" className="btn pri" data-testid="mc-picker-confirm" onClick={() => onConfirm(choice)}>
           {mode === "reminder" ? "ثبت یادآور" : "ثبت تماس"}
         </button>
-        <button type="button" className="btn gh" data-testid="mc-picker-back" onClick={onClose}>بازگشت به مشتری</button>
       </section>
     </div>
   );
@@ -113,7 +129,7 @@ export function CaseContextPicker({
 
 /** v1.1: gold block, primary «انتخاب طرح دیگر», ghost «مشاهده‌ی پرونده». ادامه stays outside, disabled. */
 export function SamePlanBlock({ caseId, onChooseOther, onOpenCase }: { caseId: number; onChooseOther: () => void; onOpenCase: () => void }) {
-  const fa = caseId.toLocaleString("fa-IR");
+  const fa = faId(caseId);
   return (
     <div className="mc-warning" role="alert" data-testid="same-plan-block">
       <p>این مشتری از قبل پرونده‌ی باز با همین طرح دارد (پرونده <b dir="ltr">#{fa}</b>). تا لغو یا تکمیل آن، پرونده‌ی تازه با همین طرح ساخته نمی‌شود.</p>

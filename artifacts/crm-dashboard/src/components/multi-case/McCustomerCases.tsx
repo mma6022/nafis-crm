@@ -2,7 +2,7 @@ import { multiCasePlanLabel } from "@/lib/multi-case-plan-label";
 import { loanBusinessStatus } from "@/lib/loan-labels";
 import type { LoanApplication } from "@workspace/api-client-react";
 import type { MultiCaseRow } from "./types";
-import { CidChip, faCaseStage, PhoneChip } from "./CaseContextPicker";
+import { CidChip, faCaseStage, faId, PhoneChip } from "./CaseContextPicker";
 
 const toman = (value: string | null | undefined) => { try { return BigInt(value || "0").toLocaleString("fa-IR"); } catch { return value || "—"; } };
 
@@ -39,7 +39,7 @@ export function McCustomerCases({
         return (
           <article key={loan.id} className="card mc-case" data-case={loan.id} data-testid={`mc-case-${loan.id}`}>
             <div className="mc-row">
-              <span className="mc-caseid">پرونده <b dir="ltr">#{loan.id.toLocaleString("fa-IR")}</b></span>
+              <span className="mc-caseid">پرونده <b dir="ltr">#{faId(loan.id)}</b></span>
               <span className={`chip ${loan.stage === "draft" ? "g" : "b"}`}>{status}</span>
             </div>
             <span className="mc-customer"><b>{customer.name}</b><CidChip id={customer.id} />{sample ? <span className="smp">نمونه</span> : null}</span>
@@ -114,7 +114,7 @@ export function McFlagPage({
           {sample ? <span className="smp">نمونه</span> : null}
         </div>
         {customer.phone ? <span data-testid="text-customer-phone"><PhoneChip phone={customer.phone} big sample={sample} /></span> : null}
-        <div className="mc-row">
+        <div className="mc-row mc-hero-actions">
           <span className="chip">کارشناس: {owner}</span>
           {canNew ? <button type="button" className="btn pri" data-testid="button-new-loan-from-customer" onClick={onNew}>پرونده‌ی جدید</button> : null}
           {canCall ? <button type="button" className="btn gh" data-testid="link-call-customer" onClick={onCall}>تماس</button> : null}
