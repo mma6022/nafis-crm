@@ -20,7 +20,25 @@ import { bcLinkOrCreateLead, BC_OK_NEW, BC_ASK_FIRST_SHARED } from "../src/lib/b
 import { botSends, isSharedCustomerBot as isSharedBotRow } from "../src/lib/bale-bot.ts";
 import { jalaliWeekdayDate } from "../../crm-dashboard/src/features/bale-bot/jalali.ts";
 
-if (!process.env.CRM_DATABASE_PATH) throw new Error("CRM_DATABASE_PATH required (scratch copy only)");
+if (!process.env.CRM_DATABASE_PATH) {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const LIVE = "/var/lib/nafisvam/customers.db";
+  const candidates = [
+    process.env.CUSTOMER_BALE_FIXTURE_DB, process.env.MASKED_DB,
+    "/workspace/team-model/rel/masked-pkgtest.db",
+    "/workspace/perm-status/masked_live.db",
+  ].filter((p) => p && fs.existsSync(p));
+  if (!candidates.length) throw new Error("CRM_DATABASE_PATH required (scratch copy only)");
+  const src = path.resolve(candidates[0]);
+  if (src === path.resolve(LIVE)) throw new Error("Refusing live DB");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cb-fx-"));
+  const dest = path.join(dir, "customers.db");
+  fs.copyFileSync(src, dest);
+  fs.chmodSync(dest, 0o600);
+  process.env.CRM_DATABASE_PATH = dest;
+}
 process.env.BALE_BOT_WORKER = "0";
 process.env.NODE_ENV = "test";
 

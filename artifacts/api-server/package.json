@@ -84,7 +84,9 @@
     "test:bale-autoreply": "node scripts/run-bundled-fixture.mjs scripts/bale-autoreply-fixture.mjs",
     "test:reminder-schedule": "node scripts/run-bundled-fixture.mjs scripts/reminder-schedule-fixture.mjs",
     "test:stt-restart-retry": "node scripts/run-bundled-fixture.mjs scripts/stt-restart-retry-fixture.ts",
-    "test:bale-contact": "node scripts/run-bundled-fixture.mjs scripts/bale-contact-fixture.mjs"
+    "test:bale-contact": "node scripts/run-bundled-fixture.mjs scripts/bale-contact-fixture.mjs",
+    "test:ai-master-switch": "node scripts/run-bundled-fixture.mjs scripts/ai-master-switch-fixture.mjs",
+    "test:customer-bale": "bash scripts/run-customer-bale-fixture.sh"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.3.0",

@@ -8,6 +8,7 @@ import {
   cbSecretMeta, cbSetSetting, cbSharedBot, cbStoreSecret, cbTestSecret, cbFilingView, ensureCustomerBaleSchema,
   cbClearSharedBotToken, cbSharedBotPublic, ensureSharedCustomerBot, getCbSignPath, lockDownOn, planLabelForCustomer,
 } from "../lib/customer-bale";
+import { AI_NO_KEY_CODE, AI_NO_KEY_MSG, AiMasterError, aiMasterStatus, aiSetEnabled, ensureAiMasterSchema } from "../lib/ai-master";
 import { baleBotAad, baleBotHasKey, sealBotToken } from "../lib/bale-bot-crypto";
 import { botById, botToken, isSharedCustomerBot } from "../lib/bale-bot";
 import { bbCanManage, bbUser } from "../lib/bale-bot";
@@ -82,7 +83,33 @@ export function registerCustomerBaleRoutes(r: IRouter, opts: { kick: () => void 
       categories: CB_KB_CATEGORIES,
       defaultScope: CB_KB_SCOPES[0],
       sharedBot: cbSharedBotPublic(shared),
+      ai: aiMasterStatus(),
     });
+  });
+
+  r.get("/bale-bot/customer-bot/admin/ai", (_req: Request, res: Response) => {
+    if (!requireAdminFeature(res)) return;
+    ensureAiMasterSchema();
+    res.json(aiMasterStatus());
+  });
+
+  r.patch("/bale-bot/customer-bot/admin/ai", (req: Request, res: Response) => {
+    const u = requireAdminFeature(res);
+    if (!u) return;
+    const raw = req.body?.ai_enabled;
+    const on = raw === true || raw === 1 || raw === "1" || raw === "true";
+    const off = raw === false || raw === 0 || raw === "0" || raw === "false";
+    if (!on && !off) return fail(res, 400, "invalid");
+    try {
+      res.json(aiSetEnabled(on, u.id));
+    } catch (e) {
+      if (e instanceof AiMasterError) {
+        res.status(e.status).json({ error: e.code, message: e.message });
+        return;
+      }
+      const message = e instanceof Error && e.message && !/\d{5,}/.test(e.message) ? e.message : "الان نمی‌شود هوش مصنوعی را عوض کرد.";
+      res.status(500).json({ error: "save_failed", message });
+    }
   });
 
   /* Shared «نفیس وام» bot token: sealed like expert bot tokens; never returned. No live Bale call here when a test hook is set. */
@@ -125,8 +152,8 @@ export function registerCustomerBaleRoutes(r: IRouter, opts: { kick: () => void 
     if (!requireAdminFeature(res)) return;
     const kind = req.body?.kind === "deepseek" ? "deepseek" : req.body?.kind === "openai" ? "openai" : null;
     if (!kind) return fail(res, 400, "invalid");
-    cbDeleteSecret(kind);
-    res.json({ ok: true, [kind]: cbSecretMeta(kind) });
+    cbDeleteSecret(kind, me(res).id);
+    res.json({ ok: true, [kind]: cbSecretMeta(kind), ai: aiMasterStatus() });
   });
 
   r.post("/bale-bot/customer-bot/admin/secret/test", async (req: Request, res: Response) => {

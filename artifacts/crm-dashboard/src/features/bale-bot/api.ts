@@ -55,7 +55,7 @@ export async function bbFetch<T>(path: string, init?: { method?: string; body?: 
     body: init?.raw ?? (init?.body !== undefined ? JSON.stringify(init.body) : undefined),
   });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) { const code = (data as any).error as string | undefined; throw new BbError(BB_ERR[code ?? ''] ?? BB_ERR.unknown, r.status, code); }
+  if (!r.ok) { const code = (data as any).error as string | undefined; const serverMsg = typeof (data as any).message === 'string' ? (data as any).message.trim() : ''; throw new BbError(serverMsg || (BB_ERR[code ?? ''] ?? BB_ERR.unknown), r.status, code); }
   return data as T;
 }
 /** null while OFF (404) or not enabled for this user. Never retries, so an OFF flag costs one request per minute at most. */

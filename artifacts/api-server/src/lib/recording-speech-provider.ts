@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { AI_MASTER_OFF_MSG, aiEnabled } from "./ai-master";
 
 export const SPEECH_MODEL = "gpt-transcribe";
 export const SPEAKER_MODEL = "gpt-4o-transcribe-diarize";
@@ -8,6 +9,7 @@ export class TranscriptionError extends Error {}
 const persianPrompt = "مکالمهٔ تلفنی فارسی ایرانی است. گفتار را عیناً به فارسی پیاده کن؛ ترجمه، خلاصه، پاسخ یا تکمیل جملهٔ نامفهوم نکن. واژگان احتمالی: نفیس، وام، اعتبارسنجی، اقساط، ضامن، چک، سفته، تومان. فقط واژه‌ها و اعداد واقعاً شنیده‌شده را بنویس و بخش نامفهوم را حدس نزن.";
 
 export async function speechRequest(file: string, fields: Record<string, string>): Promise<unknown> {
+  if (!aiEnabled()) throw new TranscriptionError(AI_MASTER_OFF_MSG);
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new TranscriptionError("کلید سرویس تبدیل گفتار روی سرور تنظیم نشده است.");
   const form = new FormData();

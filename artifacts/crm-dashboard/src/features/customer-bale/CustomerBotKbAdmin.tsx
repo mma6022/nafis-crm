@@ -16,10 +16,12 @@ export type KbRow = {
 };
 type SecretMeta = { set: boolean; savedAt: string | null; last4?: unknown; model?: string; defaultModel?: string };
 type SharedBot = { id: number; name: string; username: string | null; status: string; hasToken: boolean; connectedAt?: string | null };
+export type AiMasterStatus = { ai_enabled: boolean; has_key: boolean };
 export type KbAdminPayload = {
   openai: SecretMeta; deepseek: SecretMeta;
   kb: KbRow[]; scopes: string[]; categories: string[]; defaultScope: string;
   sharedBot: SharedBot | null;
+  ai?: AiMasterStatus;
 };
 
 const SCOPES_FALLBACK = ['همهٔ ربات‌ها', 'فقط ربات نفیس وام', 'ربات‌های کارشناس'];
@@ -48,7 +50,7 @@ export function DesignedNoAccess() {
       <div className="bk-na">
         <div className="lk"><I n="lock" /></div>
         <b>این بخش برای مدیر سیستم است</b>
-        <p>ویرایش پایگاه دانش و کلیدهای پاسخ خودکار فقط با مدیر سیستم است. گفتگوهای ربات خودتان در «گفتگوهای بله» است.</p>
+        <p>ویرایش پایگاه دانش، کلیدهای پاسخ خودکار و روشن یا خاموش کردن هوش مصنوعی فقط با مدیر سیستم است. گفتگوهای ربات خودتان در «گفتگوهای بله» است.</p>
         <Link className="btn pri" href="/bale-bot"><I n="chat" />گفتگوهای بله‌ی من</Link>
       </div>
     </main>
@@ -257,11 +259,79 @@ function KbPreview({ entry, onBack, onEdit }: { entry: KbRow; onBack: () => void
 type KeyKind = 'openai' | 'deepseek';
 const KEY_LABEL: Record<KeyKind, string> = { openai: 'OpenAI', deepseek: 'DeepSeek' };
 
+/** §6.3 provisional default (await Mohammad): confirm before turning off. Keep in sync with AI_MASTER_DEFAULTS.confirmOff. */
+const CONFIRM_OFF = true;
+const OFF_LINE = 'تا وقتی خاموش است، پاسخ ربات بله، تبدیل گفتار به متن، خلاصهٔ تماس، و پر کردن خودکار فیلدهای لازم خلاصه اجرا نمی‌شود.';
+const ON_LINE = 'هوش مصنوعی روشن است.';
+const NO_KEY_LINE = 'برای روشن کردن، حداقل یک کلید باید ثبت شده باشد.';
+
 function KeysTab({ d, toast, reload }: { d: KbAdminPayload; toast: (t: string) => void; reload: () => void }) {
   return <>
+    <AiCard status={d.ai ?? { ai_enabled: false, has_key: !!(d.openai?.set || d.deepseek?.set) }} toast={toast} reload={reload} />
     <KeyCard kind="openai" meta={d.openai} toast={toast} reload={reload} />
     <KeyCard kind="deepseek" meta={d.deepseek} toast={toast} reload={reload} />
   </>;
+}
+
+function AiCard({ status, toast, reload }: { status: AiMasterStatus; toast: (t: string) => void; reload: () => void }) {
+  const on = !!status.ai_enabled;
+  const hasKey = !!status.has_key;
+  const disabled = !hasKey && !on;
+  const [confirm, setConfirm] = useState<null | 'on' | 'off'>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const apply = async (next: boolean) => {
+    if (busy) return;
+    setBusy(true); setErr(null);
+    try {
+      await bbFetch('/bale-bot/customer-bot/admin/ai', { method: 'PATCH', body: { ai_enabled: next } });
+      setConfirm(null);
+      reload();
+      if (next) toast('هوش مصنوعی روشن شد.');
+    } catch (x) {
+      setConfirm(null);
+      setErr(x instanceof BbError ? x.message : 'الان نمی‌شود هوش مصنوعی را عوض کرد.');
+    } finally { setBusy(false); }
+  };
+
+  const st = disabled ? 'خاموش، بدون کلید ثبت‌شده' : (on ? 'روشن' : 'خاموش');
+  const line = disabled ? NO_KEY_LINE : (on ? ON_LINE : OFF_LINE);
+  const label = on ? 'روشن' : 'خاموش';
+
+  return <section className="bk-ai" aria-label="هوش مصنوعی" data-testid="ai-master-card">
+    <div className="bk-ai-row">
+      <div><h3>هوش مصنوعی</h3><p className={`bk-ai-st${on ? ' on' : ''}`}>{st}</p></div>
+      <button type="button" className={`sw${on ? ' on' : ''}`} role="switch" aria-checked={on ? 'true' : 'false'}
+        aria-label={`هوش مصنوعی، ${label}`} aria-disabled={disabled || busy ? true : undefined}
+        disabled={disabled || busy} data-testid="ai-master-switch"
+        onClick={() => { if (disabled || busy) return; setErr(null); if (on) { if (CONFIRM_OFF) setConfirm('off'); else void apply(false); } else setConfirm('on'); }}>
+        <i />{label}
+      </button>
+    </div>
+    <p className="bk-ai-line">{line}</p>
+    {err ? <div className="bk-ai-err" role="alert" data-testid="ai-master-error"><I n="alert" /><div>
+      <b>تغییر انجام نشد</b>پیام سرور: {err}
+      <div className="bk-actions"><button className="btn pri sm" type="button" onClick={() => { setErr(null); setConfirm('on'); }}>تلاش دوباره</button></div>
+    </div></div> : null}
+    {disabled ? <div className="bk-actions"><a className="btn gh" href="#key-OpenAI">رفتن به کارت کلید</a></div> : null}
+    {confirm === 'on' ? <div className="bk-modal" role="dialog" aria-modal="true" aria-labelledby="mdt-ai-on" data-testid="ai-confirm-on"><div className="bk-dialog">
+      <h3 id="mdt-ai-on">هوش مصنوعی روشن شود؟</h3>
+      <p>با روشن شدن، پاسخ ربات بله، تبدیل گفتار به متن، خلاصهٔ تماس، و پر کردن خودکار فیلدهای لازم خلاصه شروع می‌شود و از کلید پولی ثبت‌شده استفاده می‌شود.</p>
+      <div className="bk-actions">
+        <button className="btn pri" type="button" disabled={busy} onClick={() => void apply(true)}>روشن کردن</button>
+        <button className="btn gh" type="button" disabled={busy} onClick={() => setConfirm(null)}>انصراف</button>
+      </div>
+    </div></div> : null}
+    {confirm === 'off' ? <div className="bk-modal" role="dialog" aria-modal="true" aria-labelledby="mdt-ai-off" data-testid="ai-confirm-off"><div className="bk-dialog">
+      <h3 id="mdt-ai-off">هوش مصنوعی خاموش شود؟</h3>
+      <p>با خاموش شدن، همه‌ی کار هوش مصنوعی می‌ایستد.</p>
+      <div className="bk-actions">
+        <button className="btn pri" type="button" disabled={busy} onClick={() => void apply(false)}>خاموش کردن</button>
+        <button className="btn gh" type="button" disabled={busy} onClick={() => setConfirm(null)}>انصراف</button>
+      </div>
+    </div></div> : null}
+  </section>;
 }
 
 function KeyCard({ kind, meta, toast, reload }: { kind: KeyKind; meta: SecretMeta; toast: (t: string) => void; reload: () => void }) {
@@ -347,7 +417,7 @@ function KeyCard({ kind, meta, toast, reload }: { kind: KeyKind; meta: SecretMet
     </div>
   </>;
 
-  return <section className="bk-key" aria-label={`کلید ${name}`}>
+  return <section className="bk-key" id={`key-${name}`} aria-label={`کلید ${name}`}>
     <h3 dir="ltr">{name}</h3>
     {mid}
     {del ? <div className="bk-modal" role="dialog" aria-modal="true" aria-labelledby={`mdt-${kind}`}><div className="bk-dialog">

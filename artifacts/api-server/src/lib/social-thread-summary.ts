@@ -1,8 +1,10 @@
+import { AI_MASTER_OFF_MSG, aiEnabled } from "./ai-master";
 export function socialSummaryConfigured() {
-  return !!(process.env.OPENAI_API_KEY || (process.env.AI_INTEGRATIONS_OPENAI_API_KEY && process.env.AI_INTEGRATIONS_OPENAI_BASE_URL));
+  return aiEnabled() && !!(process.env.OPENAI_API_KEY || (process.env.AI_INTEGRATIONS_OPENAI_API_KEY && process.env.AI_INTEGRATIONS_OPENAI_BASE_URL));
 }
 
 async function summarizePart(text: string, final: boolean): Promise<string> {
+  if (!aiEnabled()) throw new Error(AI_MASTER_OFF_MSG);
   const direct = !!process.env.OPENAI_API_KEY;
   const key = direct ? process.env.OPENAI_API_KEY : process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
   const base = direct ? "https://api.openai.com/v1" : process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;

@@ -8,6 +8,7 @@ type BotRow = { id: number; user_id: number; [k: string]: unknown };
 type ChatRow = { id: number; owner_id?: number; customer_id?: number | null; [k: string]: unknown };
 import { LOAN_STAGE_LABELS } from "./manager-work";
 import { planLabelForCustomer, publicBankNames } from "./plan-label";
+import { aiAutoOffIfNoKey, aiEnabled } from "./ai-master";
 
 export const CB_FLAGS = {
   tracking: "flag.customer_bale_tracking",
@@ -202,8 +203,9 @@ export function cbStoreSecret(kind: "openai" | "deepseek", plaintext: string, at
   );
 }
 
-export function cbDeleteSecret(kind: "openai" | "deepseek"): void {
+export function cbDeleteSecret(kind: "openai" | "deepseek", actorId: number | null = null): void {
   executeChanges("DELETE FROM customer_bale_secrets WHERE kind=?", [kind]);
+  aiAutoOffIfNoKey(actorId);
 }
 
 /** Status only: whether a key is stored, and when. Never last4, dots, or any remnant of the key. */
@@ -766,6 +768,7 @@ export type ChatCompletionsFn = (opts: {
 }) => Promise<{ ok: true; text: string } | { ok: false; status?: number; error: string }>;
 
 export const defaultChatCompletions: ChatCompletionsFn = async ({ baseUrl, apiKey, model, messages, timeoutMs }) => {
+  if (!aiEnabled()) return { ok: false as const, error: "ai_off" };
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), timeoutMs);
   try {
@@ -793,7 +796,12 @@ export type AiResult =
   | { kind: "answer"; text: string; provider: "openai" | "deepseek" }
   | { kind: "handoff"; reason: "unknown" | "guard" | "error"; text: string; provider?: string };
 
+export function cbAiLive(): boolean {
+  return cbFlagOn("ai") && aiEnabled();
+}
+
 export async function cbAnswerAi(question: string, opts?: { fetchFn?: ChatCompletionsFn; timeoutMs?: number }): Promise<AiResult> {
+  if (!aiEnabled()) return { kind: "handoff", reason: "error", text: CB_TEXTS.aiHandoffBody };
   const fetchFn = opts?.fetchFn ?? defaultChatCompletions;
   const timeoutMs = opts?.timeoutMs ?? 12_000;
   const kb = cbKbText();
@@ -959,20 +967,20 @@ export async function cbHandleInbound(ctx: InboundCtx): Promise<CbReply | null> 
 
   /* ---- AI ---- */
   if (t === CB_TEXTS.menuAi) {
-    if (!cbFlagOn("ai")) return send(ctx, { text: CB_TEXTS.featureOff, keyboard: "cb_menu" });
+    if (!cbAiLive()) return send(ctx, { text: CB_TEXTS.featureOff, keyboard: "cb_menu" });
     cbSetAiMode(ctx.chat.id, true);
     return send(ctx, { text: "سؤال خود را بنویسید. پاسخ از پایگاه دانش است و نرخ یا وعده‌ی تصویب داده نمی‌شود.", keyboard: "cb_back" });
   }
 
   const filing = cbActiveFiling(ctx.chat.id);
-  const inAi = cbFlagOn("ai") && !filing && t && t !== CB_TEXTS.menuApply && t !== CB_BTNS.apply && t !== CB_BTNS.resume
+  const inAi = cbAiLive() && !filing && t && t !== CB_TEXTS.menuApply && t !== CB_BTNS.apply && t !== CB_BTNS.resume
     && t !== CB_BTNS.cancel && t !== CB_BTNS.cancelYes && t !== CB_BTNS.confirm && t !== CB_BTNS.sendCode
     && t !== CB_BTNS.later && t !== CB_TEXTS.backMenu;
 
   // If user is mid-filing, text is for the wizard, not AI — except "پرسش"
   const mid = !!filing && filing.cancelled === 0;
 
-  if (cbFlagOn("ai") && !mid && t && t !== CB_TEXTS.menuTrack && t !== CB_TEXTS.menuApply && t !== CB_TEXTS.menuExpert
+  if (cbAiLive() && !mid && t && t !== CB_TEXTS.menuTrack && t !== CB_TEXTS.menuApply && t !== CB_TEXTS.menuExpert
       && t !== CB_BTNS.apply && t !== CB_BTNS.details && t !== CB_BTNS.resume && t.length > 1
       && (cbAiMode(ctx.chat.id) || t === CB_TEXTS.menuAi || looksLikeQuestion(t))) {
     if (t === CB_TEXTS.menuAi) { /* already handled */ }

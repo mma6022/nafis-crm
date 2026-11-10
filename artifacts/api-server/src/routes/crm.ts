@@ -167,6 +167,7 @@ import {
   type AuthUser,
 } from "../lib/auth";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { aiEnabled } from "../lib/ai-master";
 import {
   getNotificationSettings,
   notifyNewCustomer,
@@ -1948,6 +1949,20 @@ router.post(
           description: localDescription,
         }),
       );
+      return;
+    }
+    if (!aiEnabled()) {
+      if (name || phone) {
+        res.json(
+          ParseCustomerTextResponse.parse({
+            name,
+            phone,
+            description: localDescription,
+          }),
+        );
+        return;
+      }
+      res.status(503).json({ error: "ai_off", message: "هوش مصنوعی خاموش است." });
       return;
     }
     try {

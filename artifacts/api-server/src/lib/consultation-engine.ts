@@ -1,4 +1,5 @@
 import { createConsultationClient } from "@workspace/integrations-openai-ai-server/consultation";
+import { AI_MASTER_OFF_MSG, aiEnabled } from "./ai-master";
 
 const consultation = createConsultationClient();
 
@@ -31,6 +32,7 @@ export async function invokeConsultationModel(
     requireComplete?: boolean;
   } = {},
 ): Promise<string> {
+  if (!aiEnabled()) throw new Error(AI_MASTER_OFF_MSG);
   const timeoutMs = options.timeoutMs;
   let timeout: NodeJS.Timeout | undefined;
   try {

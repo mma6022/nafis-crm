@@ -2,7 +2,10 @@
 import type { Response } from "express";
 import type { AuthUser } from "../lib/auth";
 import { crmDb } from "../lib/crm-db";
-import { createVoiceNotesRouter, type FetchLike } from "../lib/voice-notes-core";
+import { aiEnabled } from "../lib/ai-master";
+import { createVoiceNotesRouter, setVoiceNotesAiGate, type FetchLike } from "../lib/voice-notes-core";
+
+setVoiceNotesAiGate(aiEnabled);
 
 const router = createVoiceNotesRouter({
   db: crmDb,

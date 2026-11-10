@@ -98,3 +98,23 @@ body.bk-admin .pg{padding-bottom:96px}
   .bk-wrap{padding:12px 12px 20px}
   .bk-tools select{flex:1 1 140px;min-width:0;width:100%}
 }
+
+/* ai-master-switch v1.0: کلید اصلی هوش مصنوعی در زبانهٔ کلیدها. ماکاپ طراحی. پوسته و کارت کلید از bale-bot-kb v1.0 بدون تغییر است. */
+.bk-ai{background:#fff;border:1px solid var(--nf-line);border-radius:16px;padding:16px;display:grid;gap:12px;margin-bottom:12px}
+.bk-ai-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.bk-ai h3{margin:0;font-size:16px;font-weight:800;color:var(--nf-ink)}
+.bk-ai-st{margin:4px 0 0;font-size:13px;font-weight:700;color:var(--nf-ink-muted)}
+.bk-ai-st.on{color:#146C3A}
+.bk-ai-line{margin:0;font-size:14px;color:var(--nf-ink-soft);line-height:1.7}
+.bk-ai-err{display:flex;align-items:flex-start;gap:8px;border-radius:14px;padding:12px 14px;font-size:14px;line-height:1.6;background:var(--nf-danger-50);color:var(--nf-danger)}
+.bk-ai-err .i{flex:0 0 20px;width:20px;height:20px;margin-top:2px}
+.bk-ai-err b{display:block;font-size:14px;color:var(--nf-danger)}
+.bk-ai-err .bk-actions{margin-top:8px}
+.sw[aria-disabled=true],.sw[disabled]{opacity:.55;cursor:not-allowed}
+.sw:focus-visible{outline:2px solid rgb(41, 54, 155);outline-offset:3px;border-radius:8px}
+@media(max-width:720px){
+  .bk-ai{padding:14px}
+}
+
+/* staff-wallet.css defines a page-level .sw { display:grid; width:100% }. That must not stretch this toggle. */
+button.sw{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 4px;border:0;background:transparent;font:700 13px var(--nf-font-sans);color:var(--nf-ink);cursor:pointer;width:auto;max-width:none;margin:0}

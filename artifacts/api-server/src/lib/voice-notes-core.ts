@@ -12,6 +12,12 @@
  */
 import express, { Router, type IRouter, type Request, type Response } from "express";
 
+/** Optional AND-gate (master AI switch). Default allows work so the isolated fixture stays crm-db-free.
+ *  Production wiring in routes/voice-notes.ts sets this to aiEnabled(). */
+const AI_OFF = "هوش مصنوعی خاموش است.";
+let aiWorkAllowed: () => boolean = () => true;
+export function setVoiceNotesAiGate(fn: (() => boolean) | null) { aiWorkAllowed = fn ?? (() => true); }
+
 export type Db = {
   exec(sql: string): void;
   prepare(sql: string): { run(...p: any[]): unknown; all(...p: any[]): unknown[]; get(...p: any[]): unknown };
@@ -256,6 +262,7 @@ export function validateTranscript(text: unknown): string {
 }
 
 export async function transcribe(cfg: SttConfig, env: Env, input: TranscribeInput, fetchImpl: FetchLike): Promise<{ text: string; durationSec: number | null }> {
+  if (!aiWorkAllowed()) throw new VoiceNoteError(403, "ai_off", AI_OFF);
   const key = apiKey(env, cfg.provider);
   if (!key) throw new VoiceNoteError(503, "no_key", "سرویس تبدیل صدا به متن روی سرور تنظیم نشده است؛ به مدیر اطلاع دهید.");
   const ext = AUDIO_TYPES[input.mime] ?? "webm";
@@ -316,7 +323,7 @@ export function createVoiceNotesRouter(deps: VoiceNotesDeps): IRouter {
   router.get("/voice-notes/config", (_req: Request, res: Response) => {
     const actor = deps.actor(res);
     const cfg = readSttConfig(deps.env());
-    if (!actor || !cfg.enabled || !allowedRole(actor.role)) { res.json({ enabled: false }); return; }
+    if (!actor || !cfg.enabled || !allowedRole(actor.role) || !aiWorkAllowed()) { res.json({ enabled: false }); return; }
     ready();
     const used = usedSecondsToday(deps.db, actor.id, now());
     res.json({ enabled: true, maxSeconds: cfg.maxSeconds, dailyLimitSeconds: cfg.dailyLimitSeconds, remainingSeconds: Math.max(0, Math.floor(cfg.dailyLimitSeconds - used)) });
@@ -326,6 +333,7 @@ export function createVoiceNotesRouter(deps: VoiceNotesDeps): IRouter {
     const cfg = readSttConfig(deps.env());
     const actor = deps.actor(res);
     if (!cfg.enabled) { res.status(404).json({ error: "Not found" }); return; }
+    if (!aiWorkAllowed()) { res.status(403).json({ error: AI_OFF, code: "ai_off" }); return; }
     if (!actor) { res.status(401).json({ error: "Unauthorized" }); return; }
     if (!allowedRole(actor.role)) { res.status(403).json({ error: "تبدیل صدا به متن فقط برای کارشناس فروش و مدیر فعال است." }); return; }
     const mime = baseMime(req.headers["content-type"]);
