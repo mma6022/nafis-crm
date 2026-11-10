@@ -20,6 +20,7 @@ import { useVcMe, vcApi, vcRefresh } from '@/features/voip-call/api';
 import { useVoipFormRelease } from '@/features/voip-call/firstForm';
 import { S132TopBar } from '@/features/voip-call/VoipCall';
 import { S132bToday } from '@/features/voip-call/S132bToday';
+import { MissedIncomingToday } from '@/features/after-call-fix/MissedIncomingToday';
 
 const OUT: Record<string, string> = { connected: 'صحبت شد', no_answer: 'جواب نداد', follow_up: 'پیگیری', not_interested: 'تمایل ندارد', wrong_number: 'شماره اشتباه' };
 const ev = (name: string, itemId?: number | null, cardIndex?: number | null) => { void dpApi.carouselEvent(`today_carousel_${name}`, { itemId: itemId ?? null, cardIndex: cardIndex ?? null }).catch(() => undefined); };
@@ -120,6 +121,7 @@ export function TodayCarousel({ d, refresh }: { d: Working; refresh: () => void 
       <button type="button" className="dp-x" onClick={() => setUrgent(false)} aria-label="بستن"><X size={16} /></button></div> : null}
     {!cur && !finished ? <StateBox d={d} /> : null}
     <S132bToday />{/* SIMOTEL-132 B: renders nothing while flag.simotel132b is off */}
+    <MissedIncomingToday />{/* INCALL-FIX step 3: renders nothing while flag.after_call_skip_missed is off */}
 
     <div className={`tc-deck${anim ? ` a-${anim}` : ''}`} ref={deckRef} data-testid="tc-deck">
       {onCurrent && next ? <i className="tc-pk" aria-hidden="true" /> : null}

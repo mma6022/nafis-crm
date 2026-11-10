@@ -1,0 +1,22 @@
+/* INCALL-FIX step 3: missed incoming in «کارهای امروز». Badge + «تماس دوباره» from Armita daily-customer-inline v1.1 (handoff history-notes / inbound scene).
+   Flag off → the component is not mounted. Tokens are the CRM --nf-* theme. */
+.mit-today { background: #fff; border: 1px solid var(--nf-line, #e6e8f0); border-radius: 18px; padding: 16px 16px 18px; margin: 0 0 16px; min-width: 0; }
+.mit-today > h2 { font-size: 16px; font-weight: 800; margin: 0 0 12px; color: var(--nf-ink, #1a1d2b); display: flex; align-items: center; gap: 8px; }
+.mit-today > h2 .mit-cnt { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; padding: 0 7px; border-radius: 999px; background: var(--nf-danger-50, #fde8e8); color: var(--nf-danger, #c23b3b); font-size: 12px; font-weight: 800; }
+.mit-in { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; list-style: none; }
+.mit-incall { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--nf-line, #e6e8f0); }
+.mit-incall:last-child { border-bottom: 0; padding-bottom: 0; }
+.mit-cmeta { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.mit-cmeta .mit-who { font-size: 14px; font-weight: 800; color: var(--nf-ink, #1a1d2b); }
+.mit-cmeta .mit-who .mit-id { font-weight: 700; color: var(--nf-ink-muted, #5c6378); }
+.mit-cmeta .mit-when { font-size: 13px; color: var(--nf-ink-muted, #5c6378); }
+.mit-res { display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border-radius: 8px; font-size: 12px; font-weight: 700; background: var(--nf-danger-50, #fde8e8); color: var(--nf-danger, #c23b3b); }
+.mit-incall .btn { min-height: 44px; align-self: flex-start; }
+.mit-incall .btn.pri { background: var(--nf-brand-600, #29369b); color: #fff; box-shadow: var(--nf-shadow-button, 0 6px 16px -6px rgba(41, 54, 155, .55)); border: 0; border-radius: 12px; padding: 0 16px; font: inherit; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.mit-incall .btn.pri:disabled, .mit-incall .btn.pri[disabled] { background: var(--nf-surface-2, #f3f4f8); color: var(--nf-ink-muted, #5c6378); box-shadow: none; cursor: not-allowed; }
+.mit-empty { margin: 0; font-size: 13px; color: var(--nf-ink-muted, #5c6378); }
+.mit-err { margin: 0; font-size: 13px; color: var(--nf-danger, #c23b3b); }
+@media (max-width: 700px) {
+  .mit-today { padding: 14px 14px 16px; }
+  .mit-incall .btn { min-height: 48px; }
+}

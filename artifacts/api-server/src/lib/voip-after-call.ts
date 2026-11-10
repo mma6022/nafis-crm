@@ -76,7 +76,133 @@ export function outgoingCallPopupOn(): boolean {
   try { return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key='flag.outgoing_call_popup'")?.value === "1"; }
   catch { return false; }
 }
+
+/** INCALL-FIX (Mohammad t943s3926): three independent flags, absent or anything but '1' = OFF (shipped default). */
+export const AFTER_CALL_STALE_LIVE_FLAG = "flag.after_call_stale_live";
+export const AFTER_CALL_AUTOCLOSE_FLAG = "flag.after_call_autoclose_answered";
+export const AFTER_CALL_SKIP_MISSED_FLAG = "flag.after_call_skip_missed";
+/** Stuck «تماس در جریان» rows older than this are swept. 60 min keeps a long consult live; the stuck rows were hours or a day old. */
+export const STALE_LIVE_MS = 60 * 60_000;
+const MISSED_STATUSES = ["NO ANSWER", "BUSY", "FAILED", "CANCEL", "CANCELLED", "CONGESTION"] as const;
+function afterCallSetting(key: string): string | null {
+  try { return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [key])?.value ?? null; }
+  catch { return null; }
+}
+export function staleLiveFlagOn(): boolean { return afterCallSetting(AFTER_CALL_STALE_LIVE_FLAG) === "1"; }
+export function autocloseAnsweredFlagOn(): boolean { return afterCallSetting(AFTER_CALL_AUTOCLOSE_FLAG) === "1"; }
+export function skipMissedFlagOn(): boolean { return afterCallSetting(AFTER_CALL_SKIP_MISSED_FLAG) === "1"; }
+let afterCallFixNowMs: () => number = () => Date.now();
+/** Test hook: fixtures pin «now» so stale/auto-close/missed-today windows are deterministic. */
+export function __setAfterCallFixNow(ms: number | null): void {
+  afterCallFixNowMs = ms == null ? () => Date.now() : () => ms;
+}
+function afterCallFixNow(): Date { return new Date(afterCallFixNowMs()); }
+export function isMissedIncomingStatus(status: string, isLive: number | boolean): boolean {
+  if (isLive) return false;
+  return (MISSED_STATUSES as readonly string[]).includes(String(status ?? "").trim().toUpperCase());
+}
+export function missedPendingFilterSql(): string {
+  if (!skipMissedFlagOn()) return "";
+  const list = MISSED_STATUSES.map(s => `'${s.replace(/'/g, "''")}'`).join(",");
+  return ` AND NOT (e.direction='incoming' AND e.is_live=0 AND upper(e.status) IN (${list}))`;
+}
+/** Step 1: clear is_live on rows that started more than STALE_LIVE_MS ago. Does not complete the row. Flag off → 0. */
+export function sweepStaleLive(now = afterCallFixNow()): number {
+  if (!staleLiveFlagOn()) return 0;
+  const cutoff = new Date(now.getTime() - STALE_LIVE_MS).toISOString();
+  const rows = queryRows<{ id: number; status: string; call_log_id: number | null }>(
+    "SELECT id,status,call_log_id FROM voip_after_call_events WHERE is_live=1 AND julianday(started_at)<julianday(?)",
+    [cutoff],
+  );
+  if (!rows.length) return 0;
+  const ended = now.toISOString();
+  for (const row of rows) {
+    const final = row.status === "ACTIVE" || row.status === "ANSWERED" ? "ANSWERED"
+      : (MISSED_STATUSES as readonly string[]).includes(String(row.status ?? "").trim().toUpperCase()) ? row.status
+      : "NO ANSWER";
+    executeChanges(
+      "UPDATE voip_after_call_events SET is_live=0,ended_at=CASE WHEN ended_at IS NULL OR ended_at<=started_at THEN ? ELSE ended_at END,status=? WHERE id=? AND is_live=1",
+      [ended, final, row.id],
+    );
+    vcFinalizeLiveSubject(row.call_log_id, final, false);
+    finishSavedLiveReport(row.id);
+  }
+  notifyCallReport(null);
+  return rows.length;
+}
+/** Step 2: incoming ANSWERED with a landed recording leaves the mandatory popup and never reopens. Flag off → 0. Outgoing untouched. */
+export function autocloseAnsweredRecorded(now = afterCallFixNow()): number {
+  if (!autocloseAnsweredFlagOn()) return 0;
+  const payload = JSON.stringify({ source: "auto_answered_recorded" });
+  const at = now.toISOString();
+  const ids = queryRows<{ id: number }>(
+    `SELECT id FROM voip_after_call_events WHERE completed_at IS NULL AND is_live=0 AND direction='incoming'
+      AND upper(status)='ANSWERED' AND has_recording=1 AND recording_file IS NOT NULL AND trim(recording_file)<>''`,
+  );
+  if (!ids.length) return 0;
+  for (const row of ids) {
+    executeChanges(
+      "UPDATE voip_after_call_events SET completed_at=?,completed_by_user_id=NULL,completed_payload=? WHERE id=? AND completed_at IS NULL",
+      [at, payload, row.id],
+    );
+  }
+  notifyCallReport(null);
+  return ids.length;
+}
+/** Run step 1 then 2 when their flags are on. No-op when both are off. */
+export function applyAfterCallFixes(now = afterCallFixNow()): { swept: number; closed: number } {
+  const swept = sweepStaleLive(now);
+  const closed = autocloseAnsweredRecorded(now);
+  return { swept, closed };
+}
+export type MissedIncomingTodayItem = {
+  id: number; startedAt: string; status: string; statusLabel: string;
+  customerId: number; customerName: string; phone: string | null;
+};
+function tehranDayBounds(now: Date): { start: string; end: string } {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
+  const ymd = ["year", "month", "day"].map((k) => parts.find((p) => p.type === k)!.value).join("-");
+  return { start: new Date(`${ymd}T00:00:00+03:30`).toISOString(), end: new Date(`${ymd}T23:59:59.999+03:30`).toISOString() };
+}
+function missedStatusLabel(_status: string): string { return "بی‌پاسخ"; }
+/** Step 3: today's missed incoming for the expert's own customers only. Flag off → enabled:false, no rows. */
+export function listTodayMissedIncoming(actor: AuthUser, now = afterCallFixNow()): { enabled: boolean; items: MissedIncomingTodayItem[] } {
+  if (!skipMissedFlagOn()) return { enabled: false, items: [] };
+  const { start, end } = tehranDayBounds(now);
+  const list = MISSED_STATUSES.map(s => `'${s.replace(/'/g, "''")}'`).join(",");
+  const params: Array<string | number> = [start, end];
+  let own = " AND c.id IS NOT NULL AND c.merged_into_customer_id IS NULL";
+  if (actor.role !== "admin") {
+    if (actor.salespersonId == null) return { enabled: true, items: [] };
+    own += " AND e.expert_user_id=? AND c.salesperson_id=?";
+    params.push(actor.id, actor.salespersonId);
+  } else if (actor.salespersonId != null) {
+    own += " AND c.salesperson_id=?";
+    params.push(actor.salespersonId);
+  } else {
+    return { enabled: true, items: [] };
+  }
+  const rows = queryRows<AfterCallEvent>(
+    `${select} WHERE e.direction='incoming' AND e.is_live=0 AND upper(e.status) IN (${list})
+      AND julianday(e.started_at)>=julianday(?) AND julianday(e.started_at)<=julianday(?)${own}
+      ORDER BY e.started_at DESC, e.id DESC LIMIT 100`,
+    params,
+  );
+  return {
+    enabled: true,
+    items: rows.map((e) => ({
+      id: e.id,
+      startedAt: e.started_at,
+      status: e.status,
+      statusLabel: missedStatusLabel(e.status),
+      customerId: e.actual_customer_id ?? e.customer_id!,
+      customerName: e.customer_name ?? "مشتری",
+      phone: e.phone ?? null,
+    })),
+  };
+}
 export function pendingAfterCalls(actor: AuthUser) {
+  applyAfterCallFixes();
   const params: Array<string | number> = [CALL_LIST_START];
   let scope = " AND julianday(e.started_at)>=julianday(?)";
   if (actor.role !== "admin") {
@@ -85,6 +211,7 @@ export function pendingAfterCalls(actor: AuthUser) {
   scope += " AND NOT EXISTS (SELECT 1 FROM voip_call_display_exclusions hidden WHERE hidden.phone=e.phone)";
   scope += vcClickEventFilterSql(); // VOIP-CALL: a click call asks for its result once (files-carousel form); flag off → ""
   if (!outgoingCallPopupOn()) scope += " AND e.direction<>'outgoing'"; // NOOUTPOP: outgoing calls never open the big popup
+  scope += missedPendingFilterSql(); // INCALL-FIX step 3: missed incoming leave the mandatory popup (flag off → "")
   scope += s132bPendingFilterSql(); // SIMOTEL-132 B: a flagged expert's calls are saved by themselves (no B key → "")
   const rows = queryRows<AfterCallEvent>(`${select} WHERE e.completed_at IS NULL${scope} ORDER BY e.is_live DESC,e.id LIMIT 100`, params);
   const total = queryRow<{ count: number }>(`SELECT COUNT(*) count FROM (${select} WHERE e.completed_at IS NULL${scope})`, params)?.count ?? 0;
@@ -270,6 +397,7 @@ export function ingestAfterCalls(rows: SimotelCall[], now = new Date()) {
       resolveEvent(pending.id, available, lookupCustomer);
     }
   });
+  applyAfterCallFixes();
   notifyCallReport(null);
   return inserted;
 }
@@ -289,6 +417,7 @@ export function syncAfterCalls() {
   if (running) return running;
   running = (async () => {
     try {
+      applyAfterCallFixes();
       const state = afterCallState(), now = new Date();
       const baseline = state.last_checked_at ?? state.activated_at;
       // One-day overlap catches delayed CDR delivery and midnight-spanning calls.
