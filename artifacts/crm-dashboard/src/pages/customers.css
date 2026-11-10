@@ -438,3 +438,14 @@ a.csx-primary, a.csx-ghost, a.csx-call { text-decoration: none; }
 /* crm-row-menu-fix: row ⋯ is the shared portalled RowActionsMenu (the old .csx-menu .pop was clipped by .csx-tablewrap overflow-x:auto on one-row results). */
 .csx-tact .csx-rowmenu { border-color: var(--nf-line); }
 .rv-scope { padding: 0 16px 8px; }
+.mc-pick { position: fixed; inset: 0; background: rgba(17, 24, 39, .45); display: grid; place-items: end center; z-index: 80; }
+.mc-pick-card { background: #fff; width: min(520px, 100%); border-radius: 18px 18px 0 0; padding: 18px 16px 22px; display: grid; gap: 10px; }
+.mc-step { color: #667085; font-size: 12px; margin: 0; }
+.mc-opts { display: grid; gap: 8px; }
+.mc-opts label { display: flex; gap: 10px; align-items: flex-start; border: 1px solid #e4e7ec; border-radius: 12px; padding: 10px 12px; cursor: pointer; }
+.mc-opts label.on { border-color: #1d4e89; background: #f3f7fb; }
+.mc-opts small, .mc-opts b { display: block; }
+.mc-opts small { color: #667085; font-weight: 400; }
+.mc-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.mc-err { color: #b42318; margin: 0; }
+@media (min-width: 800px) { .mc-pick { place-items: center; } .mc-pick-card { border-radius: 18px; } }

@@ -1,0 +1,192 @@
+/**
+ * Synthetic multi-case fixture. No live database, no wallet provider, no SMS.
+ * Plans use the real product names ترنم and ترنم ( بازنشسته ها ).
+ */
+import { build } from "esbuild";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const temp = await mkdtemp(path.join(tmpdir(), "multi-case-fixture-"));
+const dbFile = path.join(temp, "synthetic.db");
+const database = `
+import { DatabaseSync } from 'node:sqlite';
+export const crmDb = new DatabaseSync(process.env.MC_FIXTURE_DB);
+crmDb.exec('PRAGMA foreign_keys=OFF; PRAGMA busy_timeout=1000');
+export const queryRow = (s, p = []) => crmDb.prepare(s).get(...p);
+export const queryRows = (s, p = []) => crmDb.prepare(s).all(...p);
+export const execute = (s, p = []) => Number(crmDb.prepare(s).run(...p).lastInsertRowid);
+export const executeChanges = (s, p = []) => Number(crmDb.prepare(s).run(...p).changes);
+export const runImmediateTransaction = (fn) => {
+  crmDb.exec('BEGIN IMMEDIATE');
+  try { const r = fn(); crmDb.exec('COMMIT'); return r; }
+  catch (e) { try { crmDb.exec('ROLLBACK'); } catch { /* already rolled */ } throw e; }
+};
+`;
+const worker = `
+import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import { Worker } from 'node:worker_threads';
+import { crmDb, execute, queryRow } from './src/lib/crm-db';
+import * as mc from './src/lib/multi-case';
+import { createDraft, ensureLoanRequestDraftSchema } from './src/lib/loan-request-drafts';
+
+crmDb.exec(\`
+CREATE TABLE customers(id INTEGER PRIMARY KEY, name TEXT, salesperson_id INTEGER, merged_into_customer_id INTEGER, phone TEXT);
+CREATE TABLE salespersons(id INTEGER PRIMARY KEY, name TEXT);
+CREATE TABLE users(id INTEGER PRIMARY KEY, full_name TEXT, username TEXT, salesperson_id INTEGER);
+CREATE TABLE loan_plans(id INTEGER PRIMARY KEY, name TEXT, active INTEGER, filing_fee_toman TEXT);
+CREATE TABLE loan_applications(
+  id INTEGER PRIMARY KEY, customer_id INTEGER, plan_id INTEGER, stage TEXT, status TEXT,
+  deleted_at TEXT, requested_amount TEXT, created_at TEXT
+);
+CREATE TABLE loan_filing_fee_charges(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, plan_id INTEGER, amount_toman TEXT,
+  idempotency_key TEXT UNIQUE, application_id INTEGER, actor_user_id INTEGER, actor_customer_id INTEGER, created_at TEXT
+);
+CREATE TABLE loan_request_drafts(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, status TEXT, source TEXT,
+  created_by_user_id INTEGER, salesperson_id INTEGER, step INTEGER, payload_json TEXT,
+  fee_charge_id INTEGER, application_id INTEGER, version INTEGER, created_at TEXT, updated_at TEXT,
+  updated_by_user_id INTEGER, deleted_at TEXT, request_key TEXT
+);
+CREATE TABLE loan_request_draft_events(id INTEGER PRIMARY KEY AUTOINCREMENT, draft_id INTEGER, customer_id INTEGER, action TEXT, actor_user_id INTEGER, reason TEXT, detail_json TEXT, created_at TEXT);
+CREATE TABLE customer_credit_checks(id INTEGER PRIMARY KEY, customer_id INTEGER, status TEXT, completed_at TEXT);
+CREATE TABLE call_queue_settings(key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE call_logs(id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, subject TEXT, created_at TEXT);
+CREATE TABLE reminders(id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, subject TEXT, remind_at TEXT, user_id INTEGER);
+INSERT INTO customers VALUES(1,'مشتری آزمایشی',11,NULL,'09120000000'),(2,'مشتری دیگر',22,NULL,'09120000001');
+INSERT INTO salespersons VALUES(11,'کارشناس آزمایشی'),(22,'کارشناس دیگر');
+INSERT INTO users VALUES(1,'مدیر','admin',NULL),(8,'کارشناس','expert',11),(9,'کارشناس دیگر','other',22);
+INSERT INTO loan_plans VALUES(7,'ترنم',1,'1000'),(21,'ترنم ( بازنشسته ها )',1,'1000');
+\`);
+
+const admin = { id: 1, role: 'admin', customerScope: 'all', permissions: ['loan_applications.create'], salespersonId: null };
+const expert = { id: 8, role: 'salesperson', customerScope: 'assigned', salespersonId: 11, permissions: ['loan_applications.create'] };
+const other = { id: 9, role: 'salesperson', customerScope: 'assigned', salespersonId: 22, permissions: ['loan_applications.create'] };
+const setFlag = (on) => crmDb.prepare("INSERT INTO call_queue_settings(key,value) VALUES('flag.multi_case_v1',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(on ? '1' : '0');
+
+setFlag(false);
+assert.equal(mc.mcFlagOn(1), false, 'flag default off');
+assert.equal(mc.mcGlobalOn(), false);
+mc.ensureMultiCaseSchema();
+ensureLoanRequestDraftSchema();
+
+// Flag off: a second keyed request is stored as a legacy draft (request key ignored) and then conflicts.
+const first = createDraft(admin, { customerId: 1, step: 2, payload: { amount: '1000' }, requestKey: 'request-one-legacy' });
+assert.equal(first.requestKey, null, 'flag off does not store a request key');
+assert.throws(() => createDraft(admin, { customerId: 1, step: 2, payload: {}, requestKey: 'request-two-legacy' }), (e) => e.code === 'draft_exists');
+
+setFlag(true);
+assert.equal(mc.mcFlagOn(8), true);
+const second = createDraft(admin, { customerId: 1, step: 3, payload: { planId: 21, planName: 'ترنم ( بازنشسته ها )', amount: '2000' }, requestKey: 'request-tarnam-retirees' });
+assert.equal(second.requestKey, 'request-tarnam-retirees');
+assert.notEqual(second.id, first.id);
+assert.throws(() => createDraft(admin, { customerId: 1, step: 3, payload: {}, requestKey: 'request-tarnam-retirees' }), (e) => e.code === 'draft_exists');
+const open = queryRow('SELECT COUNT(*) n FROM loan_request_drafts WHERE customer_id=1 AND deleted_at IS NULL');
+assert.equal(Number(open.n), 2, 'two open drafts for one customer');
+
+// Two plans can be reserved. The second same-plan reserve conflicts and inserts no charge.
+const fee = (customerId, planId, key) => mc.runImmediateTransaction?.() ;
+mc.reserveOpenPlan(1, 7);
+mc.bindSlotCharge(1, 7, execute("INSERT INTO loan_filing_fee_charges(customer_id,plan_id,amount_toman,idempotency_key,created_at) VALUES(?,?,?,?,?)", [1, 7, '1000', 'fee-tarnam-1', new Date().toISOString()]));
+mc.reserveOpenPlan(1, 21);
+mc.bindSlotCharge(1, 21, execute("INSERT INTO loan_filing_fee_charges(customer_id,plan_id,amount_toman,idempotency_key,created_at) VALUES(?,?,?,?,?)", [1, 21, '1000', 'fee-retire-1', new Date().toISOString()]));
+assert.equal(queryRow('SELECT COUNT(*) n FROM loan_filing_fee_charges').n, 2);
+let clash;
+try { mc.reserveOpenPlan(1, 7); } catch (e) { clash = e; }
+assert.equal(clash?.message, 'open_same_plan_case');
+assert.equal(clash.held, 'request');
+assert.equal(queryRow('SELECT COUNT(*) n FROM loan_filing_fee_charges').n, 2, 'conflict does not add a fee');
+
+const app1 = execute("INSERT INTO loan_applications(customer_id,plan_id,stage,status,requested_amount,created_at) VALUES(1,7,'draft','requested','5000000',?)", [new Date().toISOString()]);
+mc.claimSlotForApplication(1, 7, queryRow('SELECT id FROM loan_filing_fee_charges WHERE idempotency_key=?','fee-tarnam-1'.includes('x') ? '' : 'fee-tarnam-1').id, app1);
+execute("UPDATE loan_filing_fee_charges SET application_id=? WHERE idempotency_key='fee-tarnam-1'", [app1]);
+const app2 = execute("INSERT INTO loan_applications(customer_id,plan_id,stage,status,requested_amount,created_at) VALUES(1,21,'draft','requested','8000000',?)", [new Date().toISOString()]);
+mc.claimSlotForApplication(1, 21, queryRow("SELECT id FROM loan_filing_fee_charges WHERE idempotency_key='fee-retire-1'").id, app2);
+try { mc.claimSlotForApplication(1, 7, 999, app2 + 50); assert.fail('second open same plan must conflict'); }
+catch (e) { assert.equal(e.message, 'open_same_plan_case'); assert.equal(e.held, 'case'); assert.equal(e.applicationId, app1); assert.equal(e.planName, 'ترنم'); }
+
+// Closing the case releases the plan. A later case gets its own fee.
+execute("UPDATE loan_applications SET status='rejected' WHERE id=?", [app1]);
+assert.equal(queryRow('SELECT COUNT(*) n FROM loan_plan_open_slots WHERE plan_id=7').n, 0, 'trigger released the slot');
+assert.equal(mc.findOpenSamePlan(1, 7), undefined);
+mc.reserveOpenPlan(1, 7);
+const fee2 = execute("INSERT INTO loan_filing_fee_charges(customer_id,plan_id,amount_toman,idempotency_key,created_at) VALUES(1,7,'1000','fee-tarnam-2',?)", [new Date().toISOString()]);
+mc.bindSlotCharge(1, 7, fee2);
+assert.notEqual(fee2, queryRow("SELECT id FROM loan_filing_fee_charges WHERE idempotency_key='fee-tarnam-1'").id);
+
+// Case link ownership. Missing choice stays general.
+const caseId = app2;
+assert.equal(mc.resolveCaseLink(expert, 1, {}), null);
+assert.equal(mc.resolveCaseLink(expert, 1, { caseScope: 'general' }), null);
+assert.equal(mc.resolveCaseLink(expert, 1, { loanApplicationId: caseId, caseScope: 'case' }), caseId);
+assert.throws(() => mc.resolveCaseLink(other, 1, { loanApplicationId: caseId }), (e) => e.message === 'case_not_found' && e.status === 404);
+assert.throws(() => mc.resolveCaseLink(expert, 2, { loanApplicationId: caseId }), (e) => e.message === 'case_customer_mismatch' && e.status === 409);
+assert.throws(() => mc.resolveCaseLink(expert, 1, { loanApplicationId: 99999 }), (e) => e.message === 'case_not_found');
+assert.equal(mc.customerVisible(expert, 1), true);
+assert.equal(mc.customerVisible(expert, 2), false);
+assert.equal(mc.customerVisible({ id: 3, role: 'registrar', customerScope: 'all', salespersonId: null }, 2), true);
+
+// Concurrent reserve: the open write lock makes the second insert fail closed.
+const childCode = \`
+import { DatabaseSync } from 'node:sqlite';
+const db = new DatabaseSync(process.env.MC_FIXTURE_DB);
+db.exec('PRAGMA busy_timeout=200');
+try {
+  db.exec('BEGIN IMMEDIATE');
+  db.prepare('INSERT INTO loan_plan_open_slots(customer_id,plan_id,created_at) VALUES(2,7,?)').run(new Date().toISOString());
+  db.exec('COMMIT');
+  console.log('inserted');
+} catch (e) {
+  console.log('blocked:' + (e && e.message ? e.message : e));
+}
+\`;
+import { writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+writeFileSync(process.env.MC_CHILD, childCode);
+crmDb.exec('BEGIN IMMEDIATE');
+execute("INSERT INTO loan_plan_open_slots(customer_id,plan_id,created_at) VALUES(2,21,?)", [new Date().toISOString()]);
+const child = spawnSync(process.execPath, [process.env.MC_CHILD], { env: process.env, encoding: 'utf8' });
+const out = (child.stdout || '') + (child.stderr || '');
+assert.match(out, /blocked:/, out);
+crmDb.exec('ROLLBACK');
+const after = spawnSync(process.execPath, [process.env.MC_CHILD], { env: process.env, encoding: 'utf8' });
+assert.match(after.stdout || '', /inserted/);
+assert.equal(queryRow('SELECT COUNT(*) n FROM loan_plan_open_slots WHERE customer_id=2 AND plan_id=7').n, 1);
+
+console.log('PASS multi-case fixture: flag off legacy draft, two plans, same-plan conflict, separate fees, close-and-reopen, expert/registrar scope, concurrent slot');
+`;
+// The claim line above has a silly ternary. I'll fix the worker source before build.
+const fixed = worker.replace(
+  `mc.claimSlotForApplication(1, 7, queryRow('SELECT id FROM loan_filing_fee_charges WHERE idempotency_key=?','fee-tarnam-1'.includes('x') ? '' : 'fee-tarnam-1').id, app1);`,
+  `mc.claimSlotForApplication(1, 7, queryRow("SELECT id FROM loan_filing_fee_charges WHERE idempotency_key='fee-tarnam-1'").id, app1);`,
+);
+const childPath = path.join(temp, "child.mjs");
+await writeFile(path.join(temp, "worker.ts"), fixed);
+const output = path.join(temp, "fixture.mjs");
+try {
+  await build({
+    stdin: { contents: fixed, resolveDir: root, sourcefile: "multi-case-fixture.ts", loader: "ts" },
+    bundle: true, platform: "node", format: "esm", outfile: output, logLevel: "silent",
+    banner: { js: "import {createRequire} from 'node:module';const require=createRequire(import.meta.url);" },
+    plugins: [{ name: "synthetic-db", setup(ctx) {
+      ctx.onResolve({ filter: /\/crm-db$/ }, () => ({ path: "db", namespace: "fixture" }));
+      ctx.onLoad({ filter: /^db$/, namespace: "fixture" }, () => ({ contents: database, loader: "js" }));
+    } }],
+  });
+  const result = spawnSync(process.execPath, [output], {
+    encoding: "utf8",
+    timeout: 60000,
+    env: { ...process.env, MC_FIXTURE_DB: dbFile, MC_CHILD: childPath, SESSION_SECRET: "fixture-secret" },
+  });
+  process.stdout.write(result.stdout || "");
+  process.stderr.write(result.stderr || "");
+  if (result.status !== 0) throw new Error(`multi-case fixture failed (${result.status})`);
+} finally {
+  await rm(temp, { recursive: true, force: true });
+}

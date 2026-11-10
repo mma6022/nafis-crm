@@ -269,6 +269,7 @@ export function FileDetailV1(p: Props) {
       {phone ? <span className="ph big"><a className="phn" href={`tel:${phone}`} dir="ltr" aria-label={`تماس با ${fd(phone)}`}>{fd(phone)}</a>
         <button className={`phc${copied ? ' done' : ''}`} type="button" aria-label={`کپی شماره‌ی ${fd(phone)}`} onClick={() => { void copyText(phone).then(ok => { if (ok) { setCopied(true); show('کپی شد'); } }); }}>{copied ? <Check {...I} /> : <Copy {...I} />}<span>کپی</span></button></span> : null}</div>
       <div className="fhd-act">{app.customerId ? <Link className="btn gh sm" href={`/customers/${app.customerId}`}><User {...I} />پرونده‌ی مشتری</Link> : null}
+        {app.customerId ? <Link className="btn gh sm" href={`/customers/${app.customerId}?caseCall=${app.id}`} data-testid="link-case-call">ثبت تماس این پرونده</Link> : null}
         <button className="ib wb" type="button" aria-label="کارهای بیشتر: ثبت هوشمند با سارینا، لغو پرونده" aria-haspopup="menu" aria-expanded={more} onClick={() => setMore(m => !m)}><EllipsisVertical {...I} /></button>
         {more ? <div className="fmenu" role="menu" onKeyDown={e => { if (e.key === 'Escape') setMore(false); }}><SmartFilingButton applicationId={appId} /><LoanCaseCancellation application={app} /></div> : null}</div></div>
     <div className="fhd-chips">{BUSINESS_STATUS_LABELS[biz as string] ? <span className="chip b">{BUSINESS_STATUS_LABELS[biz as string]}</span> : null}{turnChip}

@@ -19,6 +19,7 @@ export type RequestDraft = {
   autoDeleteAt: string | null; expiringSoon: boolean; daysUntilAutoDelete: number | null;
   creditFresh: boolean; creditCheckAt: string | null;
   applicationId: number | null; deletedAt: string | null; deleteReason: string | null;
+  requestKey?: string | null;
   canContinue: boolean; canDelete: boolean;
 };
 /** Admin only (server-enforced): a paid filing fee with no case and no open draft. Read-only, computed at read time; never converted. */
@@ -62,8 +63,9 @@ export const draftsApi = {
   list: (scope: 'mine' | 'all' = 'all', search = '') => call<DraftList>('GET', `/loan-request-drafts?scope=${scope}${search.trim() ? `&search=${encodeURIComponent(search.trim())}` : ''}`),
   counts: () => call<DraftCounts>('GET', '/loan-request-drafts/counts'),
   get: (id: number) => call<{ draft: RequestDraft }>('GET', `/loan-request-drafts/${id}`).then((r) => r.draft),
-  byCustomer: (customerId: number) => call<{ draft: RequestDraft | null }>('GET', `/loan-request-drafts/by-customer/${customerId}`).then((r) => r.draft),
-  create: (customerId: number, step: number, payload: DraftPayload) => call<{ draft: RequestDraft }>('POST', '/loan-request-drafts', { customerId, step, payload }).then((r) => r.draft),
+  byCustomer: (customerId: number) => call<{ draft: RequestDraft | null; drafts?: RequestDraft[] }>('GET', `/loan-request-drafts/by-customer/${customerId}`),
+  create: (customerId: number, step: number, payload: DraftPayload, requestKey?: string | null) =>
+    call<{ draft: RequestDraft }>('POST', '/loan-request-drafts', { customerId, step, payload, ...(requestKey ? { requestKey } : {}) }).then((r) => r.draft),
   save: (id: number, version: number, step: number, payload: DraftPayload) =>
     call<{ draft: RequestDraft }>('PUT', `/loan-request-drafts/${id}`, { version, step, payload }, { 'If-Match': `"${version}"` }).then((r) => r.draft),
   remove: (id: number, reason: string) => call<{ ok: boolean }>('DELETE', `/loan-request-drafts/${id}`, { reason }),

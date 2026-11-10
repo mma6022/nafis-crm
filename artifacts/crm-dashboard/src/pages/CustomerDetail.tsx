@@ -19,7 +19,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getGetAuthSessionQueryKey, getGetCustomerQueryKey, getGetCustomerWalletPaymentQueryKey, getListCustomerActivityQueryKey, getListCustomerTagsQueryKey, getListCustomersQueryKey, getListConsultationsQueryKey, getListSalespersonsQueryKey, getListCustomerCreditChecksQueryKey, getListLoanApplicationsQueryKey, getListCallsQueryKey, getListRemindersQueryKey, useDeleteCustomer, useGetAuthSession, useGetCustomer, useGetCustomerWalletPayment, useListCustomerActivity, useListCustomerTags, useListSalespersons, useListCustomerCreditChecks, useInitiateCustomerCreditCheck, useValidateCustomerCreditCheck, useRenewCustomerCreditCheckOtp, useRefreshCustomerCreditCheckStatus, useUpdateCustomer, useCreateConsultation, useCreateCall, useListLoanApplications, type CallInput, type CustomerUpdate, type CustomerUpdateStatus, type ConsultationInput, type LoanApplication } from '@workspace/api-client-react';
 import { ErrorState, formatDateTime } from '@/components/CrmShell';
 import { formatPhoneForDisplay } from '@/lib/phone';
-import { CallForm, CreateConsultationForm } from '@/components/Forms';
+import { CallForm, CreateConsultationForm, CreateReminderForm } from '@/components/Forms';
 import { CustomerConsultationStatus } from '@/components/CustomerConsultationStatus';
 import { PersianDatePicker } from '@/components/PersianDatePicker';
 import { WalletPaymentResult } from '@/components/WalletPaymentResult';
@@ -34,7 +34,9 @@ import { getListCustomerWalletShareLinksQueryKey } from '@workspace/api-client-r
 import { NATIONAL_CODE_CLEAR_HINT, nationalCodePatch, normalizeDigits, serverFieldErrors, validateIranianMobile, validateIranianNationalCode, validateIranianPostalCode, validateJalaliBirthDate, validateOtp } from '@/lib/customer-field-validation';
 import { CustomerTagEditor } from '@/components/CustomerTagEditor';
 import { RepeatRequestReview, RepeatRequestTag } from '@/components/RepeatRequestReview';
-import { clearLoanDraft, loanWizardHref, readLoanDraft, type LoanDraft } from '@/lib/loan-draft';
+import { clearLoanDraft, listLoanDrafts, loanWizardHref, readLoanDraft, type LoanDraft } from '@/lib/loan-draft';
+import { useMultiCaseCustomer, useMultiCaseStatus } from '@/lib/multi-case';
+import { CaseContextPicker, type CaseChoice } from '@/components/multi-case/CaseContextPicker';
 import { DRAFTS_KEY, canUseDrafts, draftHref, draftWait, draftsApi, fa as faDraft, tehranTime } from '@/lib/request-drafts';
 import { BUSINESS_STATUS_LABELS, WIZARD_DISPLAY_STEPS, WIZARD_TOTAL_STEPS, loanBusinessStatus, loanStageLabel } from '@/lib/loan-labels';
 import { ConfirmDialog, initialsOf, jalaliDate, PriorityLabel, relativeTime, Sheet, STATUS_LABEL, StatusPill } from './customers-ui';
@@ -300,10 +302,21 @@ function CustomerDetailFull() {
   const loansTotal = loansQuery.data && 'total' in loansQuery.data ? loansQuery.data.total : loans.length;
   // Server-side «در انتظار ثبت» draft for this customer (falls back to the local browser draft below).
   const draftsOn = canUseDrafts(session.data?.user) && Number.isSafeInteger(id);
+  const multi = useMultiCaseStatus();
+  const multiOn = multi.data?.enabled === true;
+  const caseCtx = useMultiCaseCustomer(id, multiOn);
+  const openCases = (caseCtx.data?.cases ?? []).filter((row) => row.open);
+  const [casePick, setCasePick] = useState<null | 'call' | 'reminder'>(null);
+  const [chosenCase, setChosenCase] = useState<CaseChoice | null>(null);
+  const [caseReminderOpen, setCaseReminderOpen] = useState(false);
   const srvDraftQuery = useQuery({ queryKey: [...DRAFTS_KEY, 'by-customer', id], queryFn: () => draftsApi.byCustomer(id), enabled: draftsOn, staleTime: 15_000, retry: false });
   const [draft, setDraft] = useState<LoanDraft | null>(null);
+  const [localDrafts, setLocalDrafts] = useState<LoanDraft[]>([]);
   useEffect(() => {
-    const sync = () => setDraft(readLoanDraft(userId, id));
+    const sync = () => {
+      setDraft(readLoanDraft(userId, id));
+      setLocalDrafts(listLoanDrafts(userId).filter((row) => row.customerId === id));
+    };
     sync();
     window.addEventListener('nafis-loan-draft', sync);
     window.addEventListener('storage', sync);
@@ -334,6 +347,22 @@ function CustomerDetailFull() {
   useEffect(() => { setHandoff(null); setSimpleFormOpen(false); setUpgradeOpen(false); }, [id]);
   // crm-call-queue: «ثبت تماس» on a «صف تماس من» card links here with ?cq=call → open the same call form once.
   const cqCallDone = useRef(false);
+  const caseQueryDone = useRef(false);
+  useEffect(() => {
+    if (caseQueryDone.current || !customer || !multiOn) return;
+    const params = new URLSearchParams(window.location.search);
+    const callId = Number(params.get('caseCall'));
+    const remId = Number(params.get('caseReminder'));
+    if (Number.isSafeInteger(callId) && callId > 0 && canCallsCreate) {
+      caseQueryDone.current = true;
+      setChosenCase(callId);
+      setCallFormOpen(true);
+    } else if (Number.isSafeInteger(remId) && remId > 0 && can('reminders.manage')) {
+      caseQueryDone.current = true;
+      setChosenCase(remId);
+      setCaseReminderOpen(true);
+    }
+  }, [customer?.id, multiOn, canCallsCreate]);
   useEffect(() => {
     if (cqCallDone.current || !customer || !canCallsCreate) return;
     if (new URLSearchParams(window.location.search).get('cq') !== 'call') return;
@@ -456,9 +485,14 @@ function CustomerDetailFull() {
     void queryClient.invalidateQueries({ queryKey: getListCustomerActivityQueryKey(id) });
     void queryClient.invalidateQueries({ queryKey: ['team-data-accuracy', id] });
   };
+  const caseFields = () => (
+    !multiOn || chosenCase == null ? {}
+      : chosenCase === 'general' ? { caseScope: 'general' as const, loanApplicationId: null }
+        : { caseScope: 'case' as const, loanApplicationId: chosenCase }
+  );
   const handleSaveCall = async (data: CallInput) => {
     try {
-      const saved = await createCall.mutateAsync({ data });
+      const saved = await createCall.mutateAsync({ data: { ...data, ...caseFields() } });
       setCallFormOpen(false);
       await removeCompletedAfterCallFromQueue(queryClient, { callLogId: saved.id });
       void queryClient.invalidateQueries({ queryKey: getListCallsQueryKey() });
@@ -475,7 +509,7 @@ function CustomerDetailFull() {
   };
   /** «اعتبارسنجی سریع»: the call is saved first (nothing lost), then the existing inquiry step of the request wizard opens. */
   const handleSaveCallAndCredit = async (data: CallInput) => {
-    const saved = await createCall.mutateAsync({ data });
+    const saved = await createCall.mutateAsync({ data: { ...data, ...caseFields() } });
     setCallFormOpen(false);
     await removeCompletedAfterCallFromQueue(queryClient, { callLogId: saved.id });
     void queryClient.invalidateQueries({ queryKey: getListCallsQueryKey() });
@@ -561,10 +595,12 @@ function CustomerDetailFull() {
     </div>
     <div className="acts">
       {vcFastWaiting ? null : showSimpleForm ? <button type="button" className="csx-call" onClick={() => setSimpleFormOpen(true)} data-testid="button-ts-simple-form"><PhoneCall size={20} /> {CALLED_LABEL}</button>
-        : canCallsCreate || isAdmin ? <button type="button" className="csx-call" onClick={() => void calledThenForm(customer.id, 'customer', () => callLauncher.launch(customer), setToast)} data-testid="link-call-customer"><PhoneCall size={20} /> {CALLED_LABEL}</button> : null}
+        : canCallsCreate || isAdmin ? <button type="button" className="csx-call" onClick={() => { if (multiOn && openCases.length && callLauncher.choose(customer) !== 'simple') { setCasePick('call'); return; } void calledThenForm(customer.id, 'customer', () => callLauncher.launch(customer), setToast); }} data-testid="link-call-customer"><PhoneCall size={20} /> {CALLED_LABEL}</button> : null}
       {showUpgrade && showsUpgradeButton(tsConfig.data, session.data?.user, customer) ? <button type="button" className="ts-up-btn hero" onClick={() => setUpgradeOpen(true)} data-testid="button-ts-upgrade-hero"><ArrowUp size={18} aria-hidden="true" /> ارتقا به اولویت ۱</button> : null}
       {canUpdate ? <button type="button" className="csx-ghost" onClick={() => setEditing(true)} data-testid="button-toggle-customer-edit" aria-haspopup="dialog"><Pencil size={18} /> ویرایش</button> : null}
-      {canNewLoan ? <Link href={loanWizardHref(customer.id)} className="csx-primary wide" data-testid="button-new-loan-from-customer"><Plus size={20} /> درخواست تسهیلات جدید</Link> : null}
+      {canNewLoan ? (multiOn
+        ? <button type="button" className="csx-primary wide" data-testid="button-new-loan-from-customer" onClick={() => setLocation(loanWizardHref(customer.id, false, 'customer', crypto.randomUUID()))}><Plus size={20} /> درخواست تسهیلات جدید</button>
+        : <Link href={loanWizardHref(customer.id)} className="csx-primary wide" data-testid="button-new-loan-from-customer"><Plus size={20} /> درخواست تسهیلات جدید</Link>) : null}
     </div>
     {oneBtn.showVoip ? <div className="csx-vc"><VoipCallBox customerId={customer.id} customerName={customer.name} variant="customer" label={oneBtn.voipLabel} onFirstForm={(id) => openSimpleVoip(id)} /></div> : null}
     {canCall || canConsult ? <div className="acts2">
@@ -676,8 +712,10 @@ function CustomerDetailFull() {
     </details> : null}
   </section> : null;
 
-  const serverDraft = srvDraftQuery.data ?? null;
-  const serverDraftNote = serverDraft ? (() => { const w = draftWait(serverDraft.waitingHours); return <div className={`csx-note ${serverDraft.paidOver24h ? 'bad' : 'warn'}`} data-testid="server-draft-note">
+  const serverBundle = srvDraftQuery.data;
+  const serverDraft = serverBundle?.draft ?? null;
+  const serverDraftList = multiOn ? (serverBundle?.drafts ?? []) : (serverDraft ? [serverDraft] : []);
+  const serverDraftNote = !multiOn && serverDraft ? (() => { const w = draftWait(serverDraft.waitingHours); return <div className={`csx-note ${serverDraft.paidOver24h ? 'bad' : 'warn'}`} data-testid="server-draft-note">
     <History size={18} />
     <div style={{ display: 'grid', gap: 6, flex: 1 }}>
       <p><b>درخواست در انتظار ثبت</b>، مرحله {faDraft(serverDraft.step)} از {faDraft(serverDraft.totalSteps)} ({serverDraft.stepLabel}){serverDraft.planName ? `، ${serverDraft.planName}` : ''}</p>
@@ -686,7 +724,18 @@ function CustomerDetailFull() {
       {serverDraft.canContinue ? <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}><Link href={draftHref(serverDraft)} className="csx-ghost sm" data-testid="link-resume-server-draft">ادامه‌ی درخواست</Link></div> : <p className="hint">این درخواست مال کارشناس دیگری است.</p>}
     </div>
   </div>; })() : null;
-  const draftNote = canNewLoan && draft && !serverDraft ? <div className="csx-note warn" data-testid="loan-draft-note">
+  const serverDraftNotes = multiOn ? serverDraftList.map((row) => {
+    const w = draftWait(row.waitingHours);
+    return <div key={row.id} className={`csx-note ${row.paidOver24h ? 'bad' : 'warn'}`} data-testid={`server-draft-note-${row.id}`}>
+      <History size={18} />
+      <div style={{ display: 'grid', gap: 6, flex: 1 }}>
+        <p><b>درخواست در انتظار ثبت</b>، مرحله {faDraft(row.step)} از {faDraft(row.totalSteps)} ({row.stepLabel}){row.planName ? `، ${row.planName}` : ''}</p>
+        <p className="hint">{row.paid ? `هزینه‌ی پرونده واریز شده (${faDraft(Number(row.feeAmountToman ?? 0))} تومان)؛ پرونده هنوز ساخته نشده.` : 'هزینه‌ی پرونده هنوز واریز نشده.'} منتظر {w.text}</p>
+        {row.canContinue ? <Link href={draftHref(row)} className="csx-ghost sm" data-testid={`link-resume-server-draft-${row.id}`}>ادامه‌ی این درخواست</Link> : <p className="hint">این درخواست مال کارشناس دیگری است.</p>}
+      </div>
+    </div>;
+  }) : null;
+  const draftNote = canNewLoan && !multiOn && draft && !serverDraft ? <div className="csx-note warn" data-testid="loan-draft-note">
     <History size={18} />
     <div style={{ display: 'grid', gap: 6, flex: 1 }}>
       <p><b>پیش‌نویس درخواست تسهیلات</b>، مرحله {faNum(draft.step)} از {faNum(WIZARD_TOTAL_STEPS)} ({WIZARD_DISPLAY_STEPS[draft.step - 1]?.label}){draft.planName ? `، ${draft.planName}` : ''}، {relativeTime(draft.updatedAt)}</p>
@@ -697,11 +746,25 @@ function CustomerDetailFull() {
       </div>
     </div>
   </div> : null;
+  const localDraftNotes = multiOn ? localDrafts.filter((row) => !serverDraftList.some((server) => server.requestKey && server.requestKey === row.requestKey)).map((row) => (
+    <div key={row.requestKey ?? 'legacy'} className="csx-note warn" data-testid={`loan-draft-note-${row.requestKey ?? 'legacy'}`}>
+      <History size={18} />
+      <div style={{ display: 'grid', gap: 6, flex: 1 }}>
+        <p><b>پیش‌نویس درخواست</b>، مرحله {faNum(row.step)} از {faNum(WIZARD_TOTAL_STEPS)}{row.planName ? `، ${row.planName}` : ''}</p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Link href={loanWizardHref(customer.id, true, 'customer', row.requestKey)} className="csx-ghost sm">ادامه پیش‌نویس</Link>
+          <button type="button" className="csx-link" onClick={() => { clearLoanDraft(userId, customer.id, row.requestKey); setToast('پیش‌نویس حذف شد.'); }}>حذف پیش‌نویس</button>
+        </div>
+      </div>
+    </div>
+  )) : null;
 
   const loansSec = canLoansView ? <section className="csx-sec" id="sec-loans" aria-labelledby="h-loans" data-testid="section-customer-loans">
     <header><h2 id="h-loans"><Layers size={20} /> درخواست‌های تسهیلات</h2>{loansQuery.data ? <span className="muted" data-testid="text-customer-loans-summary">{faNum(loansTotal)} پرونده{loans.length ? (() => { const done = loans.filter((l) => loanBusinessStatus(l) === 'completed').length; const cx = loans.filter((l) => loanBusinessStatus(l) === 'canceled').length; const act = loans.length - done - cx; return `، ${faNum(act)} فعال${done ? `، ${faNum(done)} تکمیل‌شده` : ''}${cx ? `، ${faNum(cx)} لغوشده` : ''}`; })() : ''}</span> : null}</header>
     {serverDraftNote}
+    {serverDraftNotes}
     {draftNote}
+    {localDraftNotes}
     {loansQuery.isLoading ? <div className="stack" aria-busy="true"><span className="csx-sk" style={{ height: 72 }} /><span className="csx-sk" style={{ height: 72 }} /></div>
       : loansQuery.isError ? <div className="csx-note bad" role="alert"><AlertCircle size={18} /><p>فهرست تسهیلات دریافت نشد. <button type="button" className="csx-link" onClick={() => loansQuery.refetch()}>تلاش دوباره</button></p></div>
       : loans.length ? <div className="stack">{loans.map((loan) => { const [label, tone] = LOAN_STATUS[loan.status] ?? [loan.status, 'open']; const bs = loanBusinessStatus(loan); const stage = bs !== 'canceled' && bs !== 'completed' ? loanStageLabel(loan.stage) : ''; return <Link key={loan.id} href={`/loan-applications/${loan.id}`} className="csx-loan" data-ls={tone} data-testid={`link-customer-loan-${loan.id}`}>
@@ -711,7 +774,9 @@ function CustomerDetailFull() {
         <div className="muted">ثبت {jalaliDate(loan.createdAt)}{loan.updatedAt ? <span data-testid={`text-customer-loan-updated-${loan.id}`}>{` · ${bs === 'completed' ? 'تکمیل' : bs === 'canceled' ? 'لغو' : 'آخرین تغییر'} ${jalaliDate(loan.updatedAt)}`}</span> : null}</div>
       </Link>; })}</div>
       : <p className="muted" style={{ margin: 0 }}>برای این مشتری هنوز درخواست تسهیلاتی ثبت نشده است.</p>}
-    {canNewLoan ? <Link href={loanWizardHref(customer.id)} className="csx-ghost sm" data-testid="link-new-loan-for-customer"><Plus size={18} /> ثبت درخواست تسهیلات برای این مشتری</Link> : null}
+    {canNewLoan ? (multiOn
+      ? <button type="button" className="csx-ghost sm" data-testid="link-new-loan-for-customer" onClick={() => setLocation(loanWizardHref(customer.id, false, 'customer', crypto.randomUUID()))}><Plus size={18} /> ثبت درخواست تسهیلات برای این مشتری</button>
+      : <Link href={loanWizardHref(customer.id)} className="csx-ghost sm" data-testid="link-new-loan-for-customer"><Plus size={18} /> ثبت درخواست تسهیلات برای این مشتری</Link>) : null}
   </section> : null;
 
   const callsSec = <section className="csx-sec" id="sec-calls" aria-labelledby="h-calls" data-testid="section-customer-calls">
@@ -721,12 +786,13 @@ function CustomerDetailFull() {
         <span className="ic" aria-hidden="true"><PhoneCall size={16} /></span>
         <div style={{ minWidth: 0 }}>
           <div className="who">{item.salespersonName || 'کارشناس تیم'}، {formatDateTime(item.createdAt)}</div>
-          <p className="tx"><b>{item.subject || 'تماس با مشتری'}</b></p>
+          <p className="tx"><b>{item.subject || 'تماس با مشتری'}</b>{multiOn ? (() => { const link = caseCtx.data?.calls.find((row) => row.id === item.id); if (!link) return null; const named = link.loanApplicationId == null ? 'تماس عمومی' : `پرونده ${link.loanApplicationId.toLocaleString('fa-IR')}${caseCtx.data?.cases.find((row) => row.id === link.loanApplicationId)?.planName ? ` — ${caseCtx.data?.cases.find((row) => row.id === link.loanApplicationId)?.planName}` : ''}`; return <span className="muted"> · {named}</span>; })() : null}</p>
           <p className="tx q">{item.customerRequest || (item.subject?.endsWith(': در حال تماس') ? 'تماس در جریان است؛ وضعیت نهایی خودش ثبت می‌شود.' : 'درخواست مشتری ثبت نشده است.')}{item.expertNotes ? ` — ${item.expertNotes}` : ''}</p>
         </div>
       </li>)}</ol>
       : <p className="muted" style={{ margin: 0 }}>هنوز تماس یا یادداشتی ثبت نشده است.</p>}
-    {canCallsCreate ? <button type="button" className="csx-ghost sm" onClick={() => callLauncher.launch(customer)} data-testid="button-add-call-detail" data-form={callChoice} aria-busy={callLauncher.pending ? true : undefined}><MessageSquarePlus size={18} /> ثبت تماس / یادداشت</button> : null}
+    {canCallsCreate ? <button type="button" className="csx-ghost sm" onClick={() => { if (multiOn && openCases.length) { setCasePick('call'); return; } if (multiOn) setChosenCase('general'); callLauncher.launch(customer); }} data-testid="button-add-call-detail" data-form={callChoice} aria-busy={callLauncher.pending ? true : undefined}><MessageSquarePlus size={18} /> ثبت تماس / یادداشت</button> : null}
+    {multiOn && can('reminders.manage') ? <button type="button" className="csx-ghost sm" data-testid="button-case-reminder" onClick={() => { if (openCases.length) setCasePick('reminder'); else { setChosenCase('general'); setCaseReminderOpen(true); } }}>یادآور برای پرونده یا عمومی</button> : null}
     <CustomerCallHistory key={`vch-${id}`} customerId={id} />
     <BaleBotCustomerSection key={`bb-${id}`} customerId={id} />
     <SiteLeadHistory customer={customer} />
@@ -820,6 +886,15 @@ function CustomerDetailFull() {
       <p>این کار برگشت‌پذیر نیست.</p>
       <p className="hint">پرونده و تمام تماس‌ها و مشاوره‌های مرتبط برای همیشه حذف می‌شوند.</p>
     </ConfirmDialog> : null}
+    {casePick ? <CaseContextPicker
+      title={casePick === 'call' ? 'این تماس برای کدام پرونده است؟' : 'این یادآور برای کدام پرونده است؟'}
+      lead={casePick === 'call' ? 'قبل از ثبت تماس یکی را انتخاب کنید. تماس عمومی به هیچ پرونده‌ای وصل نمی‌شود.' : 'یادآور را به یک پرونده وصل کنید، یا یادآور عمومی مشتری را انتخاب کنید.'}
+      generalLabel={casePick === 'call' ? 'تماس عمومی مشتری' : 'یادآور عمومی مشتری'}
+      cases={openCases}
+      onClose={() => setCasePick(null)}
+      onConfirm={(choice) => { setChosenCase(choice); setCasePick(null); if (casePick === 'call') setCallFormOpen(true); else setCaseReminderOpen(true); }}
+    /> : null}
+    {caseReminderOpen ? <CreateReminderForm initialCustomerId={customer.id} lockedApplicationId={typeof chosenCase === 'number' ? chosenCase : null} caseScope={chosenCase === 'general' ? 'general' : undefined} onClose={() => setCaseReminderOpen(false)} /> : null}
     {callFormOpen ? <CallForm customers={[customer]} salespersons={salespersons.data ?? []} pending={createCall.isPending} error={createCall.isError} errorDetail={createCall.error} initialCustomerId={customer.id} onClose={() => setCallFormOpen(false)} onSave={handleSaveCall}
       quickCredit={{ canAct: canNewLoan && (isAdmin || role === 'registrar' || (session.data?.user.salespersonId != null && session.data.user.salespersonId === customer.salespersonId)), onSaveAndCredit: handleSaveCallAndCredit }} /> : null}
     {consultationFormOpen && (
