@@ -438,3 +438,17 @@ a.csx-primary, a.csx-ghost, a.csx-call { text-decoration: none; }
 /* crm-row-menu-fix: row ⋯ is the shared portalled RowActionsMenu (the old .csx-menu .pop was clipped by .csx-tablewrap overflow-x:auto on one-row results). */
 .csx-tact .csx-rowmenu { border-color: var(--nf-line); }
 .rv-scope { padding: 0 16px 8px; }
+.mc-frame-host { position: fixed; inset: 0; z-index: 80; background: #fff; }
+.mc-frame-full { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+.mc-frame-embed { width: 100%; min-height: 720px; border: 0; background: #fff; border-radius: 16px; }
+.mc-warning { background: #FEF8EA; border: 1px solid #F7D27F; padding: 12px; border-radius: 12px; font-size: 14px; line-height: 1.8; display: flex; flex-direction: column; gap: 12px; }
+.mc-host .btn[aria-disabled="true"] { pointer-events: none; }
+.mc-step { color: #667085; font-size: 12px; margin: 0; }
+.mc-opts { display: grid; gap: 8px; }
+.mc-opts label { display: flex; gap: 10px; align-items: flex-start; border: 1px solid #e4e7ec; border-radius: 12px; padding: 10px 12px; cursor: pointer; }
+.mc-opts label.on { border-color: #1d4e89; background: #f3f7fb; }
+.mc-opts small, .mc-opts b { display: block; }
+.mc-opts small { color: #667085; font-weight: 400; }
+.mc-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.mc-err { color: #b42318; margin: 0; }
+@media (min-width: 800px) { .mc-pick { place-items: center; } .mc-pick-card { border-radius: 18px; } }

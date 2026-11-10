@@ -6,6 +6,7 @@
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction, type SqlValue } from "./crm-db";
 import type { AuthUser } from "./auth";
 import { customerSearchSql } from "./customer-id-search";
+import { mcFlagOn } from "./multi-case";
 
 export const DRAFT_STEP_LABELS = [
   "انتخاب مشتری", "اطلاعات هویتی", "احراز هویت", "رتبه اعتباری", "طرح و شرط",
@@ -48,7 +49,6 @@ export const DRAFTS_DDL = `
     delete_reason TEXT,
     delete_kind TEXT CHECK(delete_kind IS NULL OR delete_kind IN ('manual','auto_expired'))
   );
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_request_drafts_one_open ON loan_request_drafts(customer_id) WHERE deleted_at IS NULL;
   CREATE INDEX IF NOT EXISTS idx_loan_request_drafts_open ON loan_request_drafts(deleted_at,updated_at);
   CREATE TABLE IF NOT EXISTS loan_request_draft_events(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,10 +67,30 @@ export const DRAFTS_DDL = `
   );`;
 
 let ensured = false;
+export const DRAFT_REQUEST_KEY = /^[A-Za-z0-9][A-Za-z0-9_.:-]{7,79}$/;
 export function ensureLoanRequestDraftSchema() {
   if (ensured) return;
   crmDb.exec(DRAFTS_DDL);
+  const cols = queryRows<{ name: string }>("PRAGMA table_info(loan_request_drafts)");
+  if (!cols.some((c) => c.name === "request_key")) crmDb.exec("ALTER TABLE loan_request_drafts ADD COLUMN request_key TEXT");
+  // The old index forbids every second open draft. Multi-case keeps several, so never recreate it.
+  // NULL request_key stays one open draft per customer. Independent requests use request_key.
+  crmDb.exec("DROP INDEX IF EXISTS idx_loan_request_drafts_one_open");
+  try {
+    crmDb.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_request_drafts_one_legacy
+      ON loan_request_drafts(customer_id) WHERE deleted_at IS NULL AND request_key IS NULL`);
+  } catch { /* two legacy drafts already open: do not block boot */ }
+  try {
+    crmDb.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_request_drafts_request
+      ON loan_request_drafts(customer_id, request_key) WHERE deleted_at IS NULL AND request_key IS NOT NULL`);
+  } catch { /* duplicate keyed drafts: do not block boot */ }
   ensured = true;
+}
+
+/** Run the guard again, as an API process does on the next boot. */
+export function reloadLoanRequestDraftSchema() {
+  ensured = false;
+  ensureLoanRequestDraftSchema();
 }
 
 export class DraftError extends Error {
@@ -161,6 +181,7 @@ export function shapeDraft(r: any, u: AuthUser | null, nowMs = Date.now()) {
     daysUntilAutoDelete: autoDeleteAt ? Math.max(0, Math.ceil((Date.parse(autoDeleteAt) - nowMs) / DAY_MS)) : null,
     creditFresh, creditCheckAt: r.credit_completed_at ?? null,
     applicationId: r.application_id ?? r.fee_application_id ?? null,
+    requestKey: r.request_key ?? null,
     deletedAt: r.deleted_at ?? null, deleteReason: r.delete_reason ?? null,
     canContinue: !!u && !r.deleted_at && canCreateDrafts(u) && (seesAllDrafts(u) || r.customer_salesperson_id === u.salespersonId),
     canDelete: !!u && !r.deleted_at && u.role === "admin" && r.fee_charge_id == null,
@@ -277,8 +298,11 @@ export function getDraft(id: number, u: AuthUser, nowMs = Date.now()) {
   return shapeDraft(r, u, nowMs);
 }
 export function openDraftForCustomer(customerId: number, u: AuthUser | null) {
-  const r = queryRow<any>(`${SELECT} WHERE d.customer_id=? AND ${OPEN}`, [customerId]);
+  const r = queryRow<any>(`${SELECT} WHERE d.customer_id=? AND ${OPEN} ORDER BY CASE WHEN d.request_key IS NULL THEN 0 ELSE 1 END, d.id DESC LIMIT 1`, [customerId]);
   return r ? shapeDraft(r, u) : null;
+}
+export function listOpenDraftsForCustomer(customerId: number, u: AuthUser | null) {
+  return queryRows<any>(`${SELECT} WHERE d.customer_id=? AND ${OPEN} ORDER BY d.id ASC`, [customerId]).map((r) => shapeDraft(r, u));
 }
 
 // ---------------------------------------------------------------- writing
@@ -306,15 +330,19 @@ export function createDraft(u: AuthUser, body: any) {
   if (!Number.isSafeInteger(customerId) || customerId <= 0) throw new DraftError(400, "invalid_customer");
   const payload = cleanPayload(body?.payload);
   if (payload.ignoreCreditRank === true && !["admin", "salesperson"].includes(u.role)) payload.ignoreCreditRank = false;
+  const requestKey = mcFlagOn(u.id) && body?.requestKey != null && String(body.requestKey) !== "" ? String(body.requestKey) : null;
+  if (requestKey && !DRAFT_REQUEST_KEY.test(requestKey)) throw new DraftError(400, "invalid_request_key");
   return runImmediateTransaction(() => {
     const customer = scopedCustomer(customerId, u);
     if (!customer) throw new DraftError(404, "customer_not_found");
     syncDraftsWithCases(Date.now(), customerId);
-    const existing = queryRow<any>(`${SELECT} WHERE d.customer_id=? AND ${OPEN}`, [customerId]);
+    const existing = requestKey
+      ? queryRow<any>(`${SELECT} WHERE d.customer_id=? AND d.request_key=? AND ${OPEN}`, [customerId, requestKey])
+      : queryRow<any>(`${SELECT} WHERE d.customer_id=? AND d.request_key IS NULL AND ${OPEN}`, [customerId]);
     if (existing) throw new DraftError(409, "draft_exists", { draft: shapeDraft(existing, u) });
     const ts = new Date().toISOString();
-    const id = execute(`INSERT INTO loan_request_drafts(customer_id,source,created_by_user_id,salesperson_id,step,payload_json,created_at,updated_at,updated_by_user_id)
-      VALUES(?,?,?,?,?,?,?,?,?)`, [customerId, "crm", u.id, customer.salesperson_id ?? null, clampStep(body?.step, 2), JSON.stringify(payload), ts, ts, u.id]);
+    const id = execute(`INSERT INTO loan_request_drafts(customer_id,source,created_by_user_id,salesperson_id,step,payload_json,request_key,created_at,updated_at,updated_by_user_id)
+      VALUES(?,?,?,?,?,?,?,?,?,?)`, [customerId, "crm", u.id, customer.salesperson_id ?? null, clampStep(body?.step, 2), JSON.stringify(payload), requestKey, ts, ts, u.id]);
     audit(id, customerId, "created", u.id, null, null, ts);
     return shapeDraft(rowById(id), u);
   });
@@ -391,20 +419,30 @@ export function linkDraftFee(draft: any, chargeId: number, u: AuthUser) {
   audit(Number(draft.id), Number(draft.customer_id), "fee_linked", u.id, null, { feeChargeId: chargeId }, ts);
 }
 /** Called inside the create-case transaction: validates the draft before, closes it after. */
-export function draftForSubmit(draftId: unknown, customerId: number, feeChargeId: number, u: AuthUser) {
+export function draftForSubmit(draftId: unknown, customerId: number, feeChargeId: number | null, u: AuthUser) {
   if (draftId == null || draftId === "") return null;
+  if (feeChargeId == null) {
+    const id = Number(draftId);
+    if (!Number.isSafeInteger(id) || id <= 0) throw new Error("invalid_draft");
+    const row = rowById(id);
+    if (!row || Number(row.customer_id) !== customerId || (!seesAllDrafts(u) && row.customer_salesperson_id !== u.salespersonId)) throw new Error("draft_not_found");
+    if (row.deleted_at) throw new Error("draft_closed");
+    if (row.fee_charge_id != null) throw new Error("draft_fee_mismatch");
+    return row;
+  }
   const r = draftForFeeCharge(draftId, customerId, Number(queryRow<any>("SELECT plan_id FROM loan_filing_fee_charges WHERE id=?", [feeChargeId])?.plan_id), u);
   if (r && r.fee_charge_id != null && Number(r.fee_charge_id) !== feeChargeId) throw new Error("draft_fee_mismatch");
   return r;
 }
-export function closeDraftsForCase(customerId: number, feeChargeId: number, applicationId: number, actorId: number | null, draftId?: number | null) {
+export function closeDraftsForCase(customerId: number, feeChargeId: number | null, applicationId: number, actorId: number | null, draftId?: number | null) {
   const ts = new Date().toISOString();
-  const rows = queryRows<any>(`SELECT id,customer_id FROM loan_request_drafts WHERE deleted_at IS NULL AND customer_id=? AND (fee_charge_id=? OR id=?)`,
-    [customerId, feeChargeId, draftId ?? -1]);
+  const chargeId = feeChargeId != null && Number.isSafeInteger(feeChargeId) && feeChargeId > 0 ? feeChargeId : null;
+  const rows = queryRows<any>(`SELECT id,customer_id FROM loan_request_drafts WHERE deleted_at IS NULL AND customer_id=? AND ((? IS NOT NULL AND fee_charge_id=?) OR id=?)`,
+    [customerId, chargeId, chargeId, draftId ?? -1]);
   for (const r of rows) {
     executeChanges(`UPDATE loan_request_drafts SET status='submitted',application_id=?,deleted_at=?,deleted_by=?,delete_reason='submitted',updated_at=?,
-      fee_charge_id=COALESCE(fee_charge_id,?) WHERE id=? AND deleted_at IS NULL`, [applicationId, ts, actorId, ts, feeChargeId, r.id]);
-    audit(Number(r.id), customerId, "submitted", actorId, null, { applicationId, feeChargeId }, ts);
+      fee_charge_id=CASE WHEN ? IS NULL THEN fee_charge_id ELSE COALESCE(fee_charge_id, ?) END WHERE id=? AND deleted_at IS NULL`, [applicationId, ts, actorId, ts, chargeId, chargeId, r.id]);
+    audit(Number(r.id), customerId, "submitted", actorId, null, { applicationId, feeChargeId: chargeId }, ts);
   }
 }
 

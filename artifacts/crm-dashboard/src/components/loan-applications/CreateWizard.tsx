@@ -13,10 +13,15 @@ import React, { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { clearLoanDraft, readLoanDraft, writeLoanDraft } from "@/lib/loan-draft";
+import { useMultiCaseCustomer, useMultiCaseStatus } from "@/lib/multi-case";
+import { SamePlanBlock } from "@/components/multi-case/CaseContextPicker";
+import { MULTI_CASE_POPULAR_HEADING, MULTI_CASE_POPULAR_LINE, MULTI_CASE_UNREADY_PLAN, MULTI_CASE_UNREADY_REASON, multiCasePlanLabel } from "@/lib/multi-case-plan-label";
+import { CidChip, faCaseStage, faDigits, faLatinRanks } from "@/components/multi-case/CaseContextPicker";
 import { DRAFTS_KEY, DraftHttpError, filingFeeIdempotencyKey, openPreRegistrationFor, type OpenPreRegistration, canUseDrafts, draftsApi, tehranTime, type DraftPayload, type RequestDraft } from "@/lib/request-drafts";
 import { toast } from "@/hooks/use-toast";
 import "./request-drafts.css";
 import { WIZARD_DISPLAY_STEPS, WIZARD_PHASES, WIZARD_TOTAL_STEPS } from "@/lib/loan-labels";
+import { advanceWizard, filingFeeIsZero, WIZARD_STEP_PARTS, zeroFeeOnHydrate } from "@/lib/wizard-advance";
 import { ConfirmDialog, useMinWidth } from "@/pages/customers-ui";
 import "@/pages/customers.css";
 import "@/pages/loan-requests.css";
@@ -38,6 +43,7 @@ import {
   listCustomerEligiblePlans,
   getListCustomerEligiblePlansQueryKey,
   useGetFilingFeePlans,
+  getFilingFeePlans,
   getGetFilingFeePlansQueryKey,
   chargeFilingFee,
   logCustomerCreditRankOverride,
@@ -118,6 +124,7 @@ function apiErrorMessage(error: unknown, fallback: string) {
     verification_conflict: "اطلاعات هویتی با اطلاعات ثبت‌شده مشتری دیگری تعارض دارد.",
     invalid_contract_template: "قالب Word قابل پردازش نیست. علامت‌های متغیر یا ساختار فایل قرارداد را بررسی کنید.",
     primary_template_missing_principal_mapping: "قالب قرارداد این طرح، نگاشت اصل تسهیلات ندارد. برای ثبت درخواست، مدیر باید نگاشت مبلغ اصل تسهیلات را در قالب قرارداد تنظیم کند.",
+    plan_not_selectable: "فعلاً قابل انتخاب نیست؛ مبلغ وام در قرارداد این طرح مشخص نشده است.",
     document_generation_failed: "ساخت فایل قرارداد در سرور انجام نشد.",
     pdf_conversion_failed: "فایل Word ساخته شد، اما تبدیل آن به PDF انجام نشد.",
     formula_value_invalid: "مقدار یکی از فیلدهای فرمولی طرح برای مدت انتخاب‌شده عددی یا قابل محاسبه نیست.",
@@ -129,6 +136,7 @@ function apiErrorMessage(error: unknown, fallback: string) {
     customer_profile_incomplete: "پیش از پرداخت، اطلاعات الزامی پروفایل مشتری را کامل کنید.",
     insufficient_cash_balance: "موجودی کیف پول نقدی مشتری برای هزینه تشکیل پرونده کافی نیست.",
     filing_fee_idempotency_conflict: "تلاش پرداخت قبلی به مشتری یا طرح دیگری تعلق دارد.",
+    open_same_plan_case: "برای این مشتری یک پروندهٔ باز با همین طرح وجود دارد. تا لغو یا تکمیل آن، پروندهٔ تازه با همین طرح ساخته نمی‌شود. طرح دیگر آزاد است و هزینهٔ هر پرونده جدا حساب می‌شود.",
     loan_plan_not_found: "طرح انتخاب‌شده دیگر برای ثبت درخواست فعال نیست.",
     artifact_integrity: "فایل PDF قرارداد معتبر نیست؛ قرارداد را دوباره تولید کنید.",
     certificate_inactive: CERTIFICATE_INACTIVE_MESSAGE,
@@ -150,7 +158,8 @@ function apiErrorMessage(error: unknown, fallback: string) {
 
 // Display parts per internal step (see WIZARD_DISPLAY_STEPS): the six internal steps are
 // shown as ten small screens; the internal step order and its guards are unchanged.
-const STEP_PARTS: Record<number, number> = { 1: 1, 2: 3, 3: 2, 4: 1, 5: 1, 6: 2 };
+
+const STEP_PARTS = WIZARD_STEP_PARTS;
 const STEP_LEADS: Record<number, string> = {
   1: "مشتری را جستجو و انتخاب کنید.",
   2: "برای استعلام هویت لازم است. اگر قبلاً ثبت شده، فقط بررسی کنید.",
@@ -164,7 +173,7 @@ const STEP_LEADS: Record<number, string> = {
   10: "اطلاعات را بازبینی و پرونده را ثبت کنید.",
 };
 
-export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCustomer, serverDraftId }: { onClose: () => void; initialCustomerId?: number; resumeDraft?: boolean; fromCustomer?: boolean; serverDraftId?: number }) {
+export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCustomer, serverDraftId, requestKey }: { onClose: () => void; initialCustomerId?: number; resumeDraft?: boolean; fromCustomer?: boolean; serverDraftId?: number; requestKey?: string | null }) {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const reduceMotion = useReducedMotion();
@@ -213,9 +222,37 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   );
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [feeChargeId, setFeeChargeId] = useState<number | null>(null);
+  const [zeroFee, setZeroFee] = useState(false);
   // Resume guard: this customer's paid fee already made a case → continue there (no second charge).
   const [existingCase, setExistingCase] = useState<OpenPreRegistration | null>(null);
+  const multiStatus = useMultiCaseStatus();
+  const multiOn = multiStatus.data?.enabled === true && Boolean(requestKey);
+  const [mcHost, setMcHost] = useState<HTMLElement | null>(null);
+  const [mcIntro, setMcIntro] = useState(false);
+  const introArmed = useRef(false);
+  useEffect(() => {
+    if (!multiOn) { setMcHost(null); return; }
+    const main = document.querySelector("main.app-main");
+    if (!main) { setMcHost(document.body); return; }
+    const el = document.createElement("div");
+    el.className = "mc-wizard-host";
+    const header = main.querySelector(":scope > .app-header");
+    if (header?.nextSibling) main.insertBefore(el, header.nextSibling);
+    else main.appendChild(el);
+    setMcHost(el);
+    return () => { el.remove(); setMcHost(null); };
+  }, [multiOn]);
+  const caseCustomerId = selectedCustomer?.id ?? initialCustomerId ?? 0;
+  const openCases = useMultiCaseCustomer(caseCustomerId, multiOn && caseCustomerId > 0);
+  useEffect(() => {
+    if (introArmed.current || !multiOn || !fromCustomer) return;
+    const open = (openCases.data?.cases ?? []).some((row) => row.open);
+    if (!open) return;
+    introArmed.current = true;
+    setMcIntro(true);
+  }, [multiOn, fromCustomer, openCases.data]);
   const checkExistingCase = async (customerId: number): Promise<boolean> => {
+    if (multiOn) return false;
     try {
       const app = await openPreRegistrationFor(customerId);
       if (app) { setExistingCase(app); return true; }
@@ -256,6 +293,14 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
 
   // Financing terms
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
+  const blockedOpen = (openCases.data?.cases ?? []).find((row) => row.open && row.planId != null && row.planId === selectedPlanId);
+  const chooseOtherPlan = () => {
+    setSelectedPlanId(null); setSelectedPlan(null); setAmount(""); setDuration(""); setTermsAttempted(false); setSub(0);
+    requestAnimationFrame(() => {
+      const tile = document.getElementById("mc-plans")?.querySelector('button:not([aria-disabled="true"])');
+      if (tile instanceof HTMLElement) tile.focus();
+    });
+  };
   const [selectedPlan, setSelectedPlan] = useState<CustomerEligiblePlan | null>(null);
   const [amount, setAmount] = useState("");
   const [duration, setDuration] = useState("");
@@ -267,6 +312,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
     && window.sessionStorage.getItem(`loan-fee:${selectedCustomer.id}:${selectedPlanId}`));
   const selectPlanGroup = (planId: number) => {
     if (feeChargeId || hasPendingFeeAttempt || selectedPlanId === planId) return;
+    setZeroFee(false);
     setSelectedPlanId(planId);
     setSelectedPlan(null);
     setAmount('');
@@ -327,7 +373,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
         try {
           const saved = await draftsApi.save(srvRef.current!.id, srvRef.current!.version, latest.current.step, latest.current.payload);
           setSrv(saved); setSaveState('saved'); ok = true;
-          if (userId) clearLoanDraft(userId, saved.customerId);
+          if (userId) clearLoanDraft(userId, saved.customerId, requestKey);
           break;
         } catch (e) {
           // Version conflict: adopt the server version and write this (active) session's state once more.
@@ -347,7 +393,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   const createFor = async (customer: Customer): Promise<boolean> => {
     setSaveState('saving');
     try {
-      const d = await draftsApi.create(customer.id, latest.current.step, latest.current.payload);
+      const d = await draftsApi.create(customer.id, latest.current.step, latest.current.payload, multiOn ? requestKey : null);
       setSrv(d); setSaveState('saved'); setHydrated(true);
       void queryClient.invalidateQueries({ queryKey: DRAFTS_KEY });
       return true;
@@ -376,7 +422,19 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
     const ignore = false;
     setIgnoreCreditRank(false); setOverrideReason(null);
     if (Boolean(p.ignoreCreditRank) && canIgnoreCreditRank) setDraftNotice('این درخواست با «نادیده گرفتن رتبه» ذخیره شده بود؛ برای ادامه با همان حالت، آن را دوباره با ذکر دلیل فعال کنید.');
-    if (d.feeChargeId) setFeeChargeId(d.feeChargeId);
+    if (d.feeChargeId) { setFeeChargeId(d.feeChargeId); setZeroFee(false); }
+    else if (p.planId) {
+      try {
+        const feeParams = { customerId: d.customerId, ignoreCreditRank: false as const };
+        let feePlans = queryClient.getQueryData(getGetFilingFeePlansQueryKey(feeParams)) as { plans?: { planId: number; filingFeeToman: string }[] } | undefined;
+        if (!feePlans) {
+          feePlans = await getFilingFeePlans(feeParams);
+          queryClient.setQueryData(getGetFilingFeePlansQueryKey(feeParams), feePlans);
+        }
+        const feeRow = feePlans?.plans?.find((item) => item.planId === p.planId);
+        setZeroFee(zeroFeeOnHydrate(null, feeRow?.filingFeeToman));
+      } catch { setZeroFee(false); }
+    } else setZeroFee(false);
     if (p.planId) setSelectedPlanId(p.planId);
     let n = Math.max(2, d.step);
     if (p.planId && n >= 5) {
@@ -399,13 +457,16 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   };
   const openServerDraft = async (customerId: number, draftId?: number) => {
     try {
-      const d = draftId ? await draftsApi.get(draftId) : await draftsApi.byCustomer(customerId);
+      const bundle = draftId ? { draft: await draftsApi.get(draftId), drafts: undefined as undefined } : await draftsApi.byCustomer(customerId);
+      const d = requestKey
+        ? (bundle.drafts?.find((row) => row.requestKey === requestKey) ?? (bundle.draft?.requestKey === requestKey ? bundle.draft : null))
+        : bundle.draft;
       if (d && d.customerId === customerId && d.status === 'pending_registration') { await hydrate(d); return; }
       if (draftId) setDraftNotice('این درخواست دیگر در انتظار ثبت نیست؛ درخواست تازه شروع شد.');
     } catch (e) {
       if (e instanceof DraftHttpError && e.offline) {
         setSaveState('offline');
-        const local = readLoanDraft(userId, customerId);
+        const local = readLoanDraft(userId, customerId, requestKey);
         if (local) { draftRestore.current = { planId: local.planId, amount: local.amount, duration: local.duration }; if (local.planId) setSelectedPlanId(local.planId); setRestoredDraft(true); }
         return;
       }
@@ -413,12 +474,12 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
     }
     const c = entryCustomer.data as unknown as Customer | undefined;
     // «ادامه» of a device draft (no server copy yet): carry its step and terms over instead of restarting at step 2.
-    const local = resumeDraft && !draftId ? readLoanDraft(userId, customerId) : null;
+    const local = resumeDraft && !draftId ? readLoanDraft(userId, customerId, requestKey) : null;
     if (c && local && local.step > 2) {
       setSaveState('saving');
       try {
         const payload = { ...(local.planId ? { planId: local.planId } : {}), ...(local.amount ? { amount: local.amount } : {}), ...(local.duration ? { duration: local.duration } : {}) } as DraftPayload;
-        const d = await draftsApi.create(c.id, local.step, payload);
+        const d = await draftsApi.create(c.id, local.step, payload, multiOn ? requestKey : null);
         void queryClient.invalidateQueries({ queryKey: DRAFTS_KEY });
         await hydrate(d); return;
       } catch (e) {
@@ -463,20 +524,21 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   const [restoredDraft, setRestoredDraft] = useState(false);
   useEffect(() => {
     if (entryApplied.current || !initialCustomerId || !entryCustomer.data || !session.data) return;
+    if (requestKey && multiStatus.isLoading) return;
     entryApplied.current = true;
     selectCustomer(entryCustomer.data as unknown as Customer);
     setStep(2);
     void checkExistingCase(initialCustomerId).then((found) => {
       if (found) { setHydrated(true); return; }
       if (draftsAllowed) { void openServerDraft(initialCustomerId, serverDraftId); return; }
-      const draft = resumeDraft ? readLoanDraft(userId, initialCustomerId) : null;
+      const draft = resumeDraft ? readLoanDraft(userId, initialCustomerId, requestKey) : null;
       if (draft) {
         draftRestore.current = { planId: draft.planId, amount: draft.amount, duration: draft.duration };
         if (draft.planId) setSelectedPlanId(draft.planId);
         setRestoredDraft(true);
       }
     });
-  }, [entryCustomer.data, initialCustomerId, resumeDraft, session.data, userId, serverDraftId]);
+  }, [entryCustomer.data, initialCustomerId, resumeDraft, session.data, userId, serverDraftId, requestKey, multiStatus.isLoading]);
   useEffect(() => {
     const restore = draftRestore.current;
     if (!restore || !selectedPlan || selectedPlan.planId !== restore.planId) return;
@@ -488,7 +550,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   useEffect(() => {
     if (!selectedCustomer || !userId || step < 2 || existingCase) return;
     if (draftsAllowed && hydrated && saveState !== 'offline') return;
-    const previous = readLoanDraft(userId, selectedCustomer.id);
+    const previous = readLoanDraft(userId, selectedCustomer.id, requestKey);
     writeLoanDraft(userId, {
       customerId: selectedCustomer.id, customerName: selectedCustomer.name,
       step: Math.max(displayStep, previous?.step ?? 0),
@@ -496,15 +558,20 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
       planName: selectedPlan?.name ?? previous?.planName ?? null,
       amount: selectedPlan ? amount : previous?.amount ?? '',
       duration: selectedPlan ? duration : previous?.duration ?? '',
+      requestKey: requestKey ?? null,
     });
   }, [selectedCustomer?.id, step, displayStep, selectedPlanId, selectedPlan?.planId, amount, duration, userId, saveState, hydrated, existingCase]);
 
 
-  const handleNext = () => {
+  const handleNext = (expectedStep: number) => {
     if (saveBlocked) { if (srvRef.current) void flush(); else void ensureDraft(); return; }
-    if (sub + 1 < (STEP_PARTS[step] ?? 1)) { setSub(sub + 1); return; }
+    // The leaving step stays mounted for the exit animation. Its click still carries
+    // the step it was drawn for; once the wizard has moved on, that click does nothing.
+    if (expectedStep !== stepNow.current) return;
+    const next = advanceWizard({ step: expectedStep, sub }, expectedStep);
+    if (next.step === expectedStep) { setSub(next.sub); return; }
     pendingSub.current = 0;
-    setStep((s) => Math.min(s + 1, 6) as any);
+    setStep(next.step as 1 | 2 | 3 | 4 | 5 | 6);
   };
   const handlePrev = () => {
     if (sub > 0) { setSub(sub - 1); return; }
@@ -526,7 +593,21 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   const handleSubmit = async (manualValues: Record<string, string>) => {
     if (checkingSubmission || createMutation.isPending) return;
     if (saveBlocked) { void flush(); return; }
-    if (!selectedCustomer || !selectedPlan || !feeChargeId || !selectedPlan.contractTemplateId) {
+    let feeOk = Boolean(feeChargeId) || zeroFee;
+    if (!feeOk && selectedCustomer && selectedPlan) {
+      const params = { customerId: selectedCustomer.id, ignoreCreditRank: previewAllPlans, creditRankOverrideReason: overrideReasonParam };
+      const cached = queryClient.getQueryData(getGetFilingFeePlansQueryKey(params)) as { plans?: { planId: number; filingFeeToman: string }[] } | undefined;
+      let plans = cached;
+      if (!plans) {
+        try { plans = await getFilingFeePlans(params); } catch { plans = undefined; }
+      }
+      const row = plans?.plans?.find((item) => item.planId === selectedPlan.planId);
+      if (filingFeeIsZero(row?.filingFeeToman)) {
+        feeOk = true;
+        setZeroFee(true);
+      }
+    }
+    if (!selectedCustomer || !selectedPlan || !feeOk || !selectedPlan.contractTemplateId) {
       setSubmitError('اطلاعات مشتری، طرح، هزینه تشکیل پرونده یا قالب قرارداد کامل نیست.');
       return;
     }
@@ -571,7 +652,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
         ignoreCreditRank: previewAllPlans,
         creditRankOverrideReason: overrideReasonParam,
         customerId: selectedCustomer.id,
-        feeChargeId,
+        ...(feeChargeId ? { feeChargeId } : {}),
         planIds: [selectedPlan.planId],
         planId: selectedPlan.planId,
         conditionId: selectedPlan.conditionId,
@@ -586,11 +667,18 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
       const application = await createMutation.mutateAsync({ data: applicationInput as typeof applicationInput });
       await queryClient.invalidateQueries({ queryKey: ["/api/loan-applications"] });
       window.sessionStorage.removeItem(`loan-fee:${selectedCustomer.id}:${selectedPlan.planId}`);
-      clearLoanDraft(userId, selectedCustomer.id);
+      if (requestKey) window.sessionStorage.removeItem(`loan-fee:${selectedCustomer.id}:${selectedPlan.planId}:${requestKey}`);
+      clearLoanDraft(userId, selectedCustomer.id, requestKey);
       if (srvRef.current) {
         void queryClient.invalidateQueries({ queryKey: DRAFTS_KEY });
-        toast({ title: 'درخواست ثبت شد', description: `پرونده‌ی ${fa(application.id)} برای ${selectedCustomer.name} ساخته شد و از «در انتظار ثبت» خارج شد.`, duration: 5000 });
+        if (!multiOn) toast({ title: 'درخواست ثبت شد', description: `پرونده‌ی ${fa(application.id)} برای ${selectedCustomer.name} ساخته شد و از «در انتظار ثبت» خارج شد.`, duration: 5000 });
         srvRef.current = null;
+      }
+      if (multiOn) {
+        const previousId = openRows.find((row) => row.id !== application.id)?.id ?? null;
+        window.sessionStorage.setItem(`mc-created:${selectedCustomer.id}`, JSON.stringify({ id: application.id, previousId }));
+        onClose();
+        return;
       }
       // Close first: the customer-page entry's close navigates back to the customer; the case page must win.
       onClose();
@@ -655,13 +743,32 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
 
   const current = WIZARD_DISPLAY_STEPS[displayStep - 1];
   const upcoming = WIZARD_DISPLAY_STEPS[displayStep];
-  const fa = (n: number) => n.toLocaleString('fa-IR');
+  const fa = (n: number) => n.toLocaleString('fa-IR', { useGrouping: false });
   const requestExit = () => {
     if (selectedCustomer && step > 1) setExitOpen(true);
     else onClose();
   };
+  const railStep = mcIntro ? 2 : displayStep;
+  const mcRail = (
+    <nav className="card mc-rail" aria-label="مراحل ثبت درخواست" data-testid="wizard-rail">
+      <h3>ثبت درخواست تسهیلات</h3>
+      {WIZARD_DISPLAY_STEPS.map((d) => (
+        <p key={d.n} className={d.n === railStep ? "cur" : ""}>
+          <b>{d.n < railStep ? <Check size={14} /> : fa(d.n)}</b>{d.n === 9 ? "اطلاعات تکمیلی" : d.label}
+        </p>
+      ))}
+    </nav>
+  );
+  const mcProgress = (
+    <>
+      <div className="mc-progress" role="progressbar" aria-valuemin={1} aria-valuemax={WIZARD_TOTAL_STEPS} aria-valuenow={railStep} aria-label={`مرحله ${fa(railStep)} از ${fa(WIZARD_TOTAL_STEPS)}`} data-testid="wizard-stepper">
+        {WIZARD_DISPLAY_STEPS.map((d) => <i key={d.n} className={d.n <= railStep ? "on" : ""} />)}
+      </div>
+      <p className="mc-muted">مرحله‌ی {fa(railStep)} از {fa(WIZARD_TOTAL_STEPS)}</p>
+    </>
+  );
   const rail = (
-    <nav className="lwz-rail" aria-label="مراحل ثبت درخواست" data-testid="wizard-stepper">
+    <nav className="lwz-rail" aria-label="مراحل ثبت درخواست" data-testid="wizard-rail">
       {WIZARD_PHASES.map((phaseName, phase) => (
         <div key={phaseName} className="lwz-phase">
           <span className="ph">{phaseName}</span>
@@ -683,26 +790,28 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   );
   const progress = (
     <div className="lwz-progress" data-testid="wizard-stepper">
-      <div className="lwz-bar" role="progressbar" aria-valuemin={1} aria-valuemax={WIZARD_TOTAL_STEPS} aria-valuenow={displayStep} aria-label={`مرحله ${fa(displayStep)} از ${fa(WIZARD_TOTAL_STEPS)}`}>
-        {WIZARD_DISPLAY_STEPS.map((d) => <i key={d.n} className={d.n < displayStep ? 'done' : d.n === displayStep ? 'cur' : ''} />)}
+      <div className={`lwz-bar${multiOn ? " mc-progress" : ""}`} role="progressbar" aria-valuemin={1} aria-valuemax={WIZARD_TOTAL_STEPS} aria-valuenow={displayStep} aria-label={`مرحله ${fa(displayStep)} از ${fa(WIZARD_TOTAL_STEPS)}`}>
+        {WIZARD_DISPLAY_STEPS.map((d) => <i key={d.n} className={`${d.n <= displayStep ? "on " : ""}${d.n < displayStep ? 'done' : d.n === displayStep ? 'cur' : ''}`} />)}
       </div>
       <div className="meta">
-        <span>مرحله <b>{fa(displayStep)} از {fa(WIZARD_TOTAL_STEPS)}</b> · {current ? WIZARD_PHASES[current.phase] : ''}</span>
+        <span>مرحلهٔ <b>{fa(displayStep)} از {fa(WIZARD_TOTAL_STEPS)}</b>{multiOn ? "، " : " · "}{current ? WIZARD_PHASES[current.phase] : ''}</span>
         {upcoming ? <span className="nx">بعدی: {upcoming.label}</span> : <span className="nx">مرحله آخر</span>}
       </div>
     </div>
   );
 
+  if (multiOn && !mcHost) return null;
+  const openRows = (openCases.data?.cases ?? []).filter((row) => row.open);
   return createPortal(
-    <div className="csx lwz" data-save-blocked={saveBlocked ? 'true' : undefined} role="dialog" aria-modal="true" aria-labelledby="lwz-title" dir="rtl" data-testid="create-loan-application-wizard"
+    <div className={`csx lwz${multiOn ? " mc-host" : ""}`} data-save-blocked={saveBlocked ? 'true' : undefined} role="dialog" aria-modal="true" aria-labelledby="lwz-title" dir="rtl" data-testid="create-loan-application-wizard"
       onKeyDown={(event) => { if (event.key === 'Escape' && !exitOpen) { event.stopPropagation(); requestExit(); } }}>
-      <header className="lwz-top">
+      {multiOn ? null : <header className="lwz-top">
         <button type="button" className="lwz-x" onClick={requestExit} aria-label="بستن ثبت درخواست" data-testid="wizard-close"><X size={24} /></button>
         <h2 id="lwz-title" tabIndex={-1} ref={titleRef}>ثبت درخواست تسهیلات</h2>
         {selectedCustomer && step > 1 && !draftsAllowed ? <span className="lwz-saved" role="status" data-testid="wizard-draft-saved"><Check size={16} aria-hidden="true" /> <span className="t">ذخیره شد</span></span> : null}
         {selectedCustomer && (step > 1 || saveState === 'offline') && draftsAllowed ? <span className={`lwz-save${saveState === 'saved' ? ' ok' : saveState === 'offline' || saveState === 'closed' ? ' bad' : ''}`} role="status" aria-live="polite" data-testid="wizard-draft-saved" data-state={saveState}>
           {saveState === 'saving' ? <><RefreshCw size={15} aria-hidden="true" /> <span className="t">در حال ذخیره…</span></>
-            : saveState === 'offline' ? <><AlertCircle size={15} aria-hidden="true" /> <span className="t">ذخیره نشد، اتصال قطع است</span> <button type="button" onClick={() => { if (srvRef.current) void flush(); else void ensureDraft().then((ok) => { if (ok && step === 1) handleNext(); }); }} data-testid="wizard-save-retry">تلاش دوباره</button></>
+            : saveState === 'offline' ? <><AlertCircle size={15} aria-hidden="true" /> <span className="t">ذخیره نشد، اتصال قطع است</span> <button type="button" onClick={() => { if (srvRef.current) void flush(); else void ensureDraft().then((ok) => { if (ok && step === 1) handleNext(1); }); }} data-testid="wizard-save-retry">تلاش دوباره</button></>
             : saveState === 'closed' ? <><AlertCircle size={15} aria-hidden="true" /> <span className="t">این درخواست دیگر در انتظار ثبت نیست</span></>
             : srv ? <><Check size={15} aria-hidden="true" /> <span className="t">ذخیره شد، </span><span className="tm">{tehranTime(srv.updatedAt)}</span></> : null}
         </span> : null}
@@ -711,17 +820,18 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
           <span className="av" aria-hidden="true">{selectedCustomer?.name ? selectedCustomer.name.trim().charAt(0) : <User size={16} />}</span>
           <span className="tx">
             <strong data-testid="wizard-customer-name">{selectedCustomer?.name || 'هنوز انتخاب نشده'}{selectedCustomer ? <> <CustomerIdBadge id={selectedCustomer.id} testId="wizard-customer-id" /></> : null}</strong>
-            <small>{selectedCustomer?.phone ? <span data-testid="wizard-customer-phone"><CallNumber phone={selectedCustomer.phone} customerId={selectedCustomer.id} via="drafts" size="sm" testId="wz-cust-ph" /></span> : <bdi dir="ltr" data-testid="wizard-customer-phone">—</bdi>} · کد ملی <bdi dir="ltr" data-testid="wizard-customer-national-code">{selectedCustomer ? selectedCustomer.nationalCode || 'ثبت نشده' : '—'}</bdi></small>
+            <small>{selectedCustomer?.phone ? <span data-testid="wizard-customer-phone">{multiOn ? <bdi dir="ltr">{faDigits(selectedCustomer.phone)}</bdi> : <CallNumber phone={selectedCustomer.phone} customerId={selectedCustomer.id} via="drafts" size="sm" testId="wz-cust-ph" />}</span> : <bdi dir="ltr" data-testid="wizard-customer-phone">—</bdi>}{multiOn ? "، " : " · "}کد ملی <bdi dir="ltr" data-testid="wizard-customer-national-code">{selectedCustomer ? (multiOn ? faDigits(selectedCustomer.nationalCode || "ثبت نشده") : selectedCustomer.nationalCode || 'ثبت نشده') : '—'}</bdi></small>
           </span>
         </section>
-      </header>
-      {!isDesktop ? progress : null}
-      <div className="lwz-body">
-        {isDesktop ? rail : null}
-        <main className="lwz-main" ref={mainRef}>
+      </header>}
+      {!multiOn && !isDesktop ? progress : null}
+      <div className={`lwz-body${multiOn ? " mc-wizard" : ""}`}>
+        {multiOn ? mcRail : (isDesktop ? rail : null)}
+        <main className={`lwz-main${multiOn ? " card mc-wbody" : ""}`} ref={mainRef}>
+          {multiOn ? mcProgress : null}
           <div className="lwz-inner">
-            {fromCustomer && selectedCustomer && entryApplied.current && displayStep > 1 ? <p className="lwz-note ok" data-testid="wizard-from-customer-note"><User size={18} aria-hidden="true" /> <span>مشتری از پرونده مشتری انتخاب شد: <b>{selectedCustomer.name}</b>. <button type="button" className="text-link" onClick={() => jumpTo(1)} disabled={isSubmitting} data-testid="btn-change-customer">تغییر مشتری</button></span></p> : null}
-            {restoredDraft && step <= 3 ? <p className="lwz-note" role="status" data-testid="wizard-draft-restored"><FileClock size={18} aria-hidden="true" /> <span><b>پیش‌نویس بازیابی شد.</b> اعتبار مشتری دوباره بررسی می‌شود و طرح و مبلغ انتخابی قبلی در مرحله «طرح و شرط» پیشنهاد می‌شود.</span></p> : null}
+            {!multiOn && fromCustomer && selectedCustomer && entryApplied.current && displayStep > 1 ? <p className="lwz-note ok" data-testid="wizard-from-customer-note"><User size={18} aria-hidden="true" /> <span>مشتری از پرونده مشتری انتخاب شد: <b>{selectedCustomer.name}</b>. <button type="button" className="text-link" onClick={() => jumpTo(1)} disabled={isSubmitting} data-testid="btn-change-customer">تغییر مشتری</button></span></p> : null}
+            {!multiOn && restoredDraft && step <= 3 ? <p className="lwz-note" role="status" data-testid="wizard-draft-restored"><FileClock size={18} aria-hidden="true" /> <span><b>پیش‌نویس بازیابی شد.</b> اعتبار مشتری دوباره بررسی می‌شود و طرح و مبلغ انتخابی قبلی در مرحله «طرح و شرط» پیشنهاد می‌شود.</span></p> : null}
             {initialCustomerId && entryCustomer.isError && !selectedCustomer ? <p className="lwz-note bad" role="alert" data-testid="wizard-entry-customer-error"><AlertCircle size={18} aria-hidden="true" /> اطلاعات مشتری #{fa(initialCustomerId)} دریافت نشد؛ درخواست ذخیره‌شده دست نخورده است. صفحه را دوباره باز کن.</p> : null}
             {draftNotice ? <p className="lwz-note" role="status" data-testid="wizard-draft-notice">{draftNotice}</p> : null}
             {resumeInfo && selectedCustomer && resumeInfo.customerId === selectedCustomer.id && displayStep === resumeAt ? <div className="lwz-resume" data-testid="wizard-resume-box">
@@ -734,13 +844,19 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
             </div> : null}
             {creditNudge && displayStep >= 5 ? <p className="lwz-note warn" role="alert" data-testid="wizard-credit-stale"><AlertCircle size={18} aria-hidden="true" /> <span><b>استعلام اعتبار باید تازه شود.</b> استعلام قبلی بیش از ۲۴ ساعت پیش گرفته شده است. <button type="button" className="text-link" onClick={() => jumpTo(4)} data-testid="btn-refresh-credit">تازه‌کردن استعلام</button></span></p> : null}
             {step !== 6 && submitError && <p className="form-error" role="alert" data-testid="wizard-recovery-error">{submitError}</p>}
-            <div className="lwz-head">
+            {multiOn && (mcIntro || displayStep === 5 || displayStep === 10) ? null : multiOn ? (
+              <h2 data-testid="wizard-step-title">{current?.label}</h2>
+            ) : <div className="lwz-head">
               <span className="k">مرحله {fa(displayStep)} از {fa(WIZARD_TOTAL_STEPS)}</span>
               <h3 data-testid="wizard-step-title">{current?.label}</h3>
               {STEP_LEADS[displayStep] ? <p>{STEP_LEADS[displayStep]}</p> : null}
-            </div>
+            </div>}
 
-      {existingCase && selectedCustomer ? <div className="lwz-resume" role="status" data-testid="wizard-existing-case">
+      {multiOn && mcIntro && selectedCustomer ? <McSecondStart
+        customer={selectedCustomer}
+        openCase={openRows[0] ?? null}
+        onContinue={() => setMcIntro(false)}
+      /> : existingCase && selectedCustomer ? <div className="lwz-resume" role="status" data-testid="wizard-existing-case">
         <div className="h"><span><RotateCcw size={16} aria-hidden="true" /> این درخواست قبلاً ثبت شده است</span><span className="muted">{existingCase.feePaid ? 'هزینه‌ی پرونده واریز شده' : 'بدون هزینه'}</span></div>
         <div>مشتری: <b>{selectedCustomer.name}</b> <CustomerIdBadge id={selectedCustomer.id} /> · پرونده‌ی {fa(existingCase.id)}</div>
         <b>هزینه‌ی تشکیل پرونده قبلاً کسر شده و پرونده ساخته شده است؛ ادامه از خود پرونده انجام می‌شود (صدور قرارداد اولیه). مبلغی دوباره کسر نمی‌شود.</b>
@@ -758,7 +874,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
           key={step}
           initial={{ opacity: 0, x: -10 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: 10 }}
+          exit={{ opacity: 0, x: 10, pointerEvents: "none" }}
           transition={{ duration: reduceMotion ? 0 : 0.15 }}
           className="lwz-motion"
         >
@@ -771,11 +887,12 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
                elSearch={elSearch}
                selectedCustomer={selectedCustomer} 
                 setSelectedCustomer={selectCustomer} 
-               onNext={() => { void (async () => { if (selectedCustomer && await checkExistingCase(selectedCustomer.id)) return; if (await ensureDraft()) handleNext(); })(); }} 
+               onNext={() => { void (async () => { if (selectedCustomer && await checkExistingCase(selectedCustomer.id)) return; if (await ensureDraft()) handleNext(1); })(); }} 
             />
           )}
           {step === 2 && selectedCustomer && (
             <Step2ProfileAndCredit
+               multiCase={multiOn}
                canIgnoreCreditRank={canIgnoreCreditRank}
                ignoreCreditRank={previewAllPlans}
                previewLocked={Boolean(feeChargeId) || hasPendingFeeAttempt}
@@ -785,7 +902,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
                  applyIgnoreCreditRank(false);
                }}
                customer={selectedCustomer}
-               onNext={handleNext}
+               onNext={() => handleNext(2)}
                onPrev={handlePrev}
                onCustomerUpdate={setSelectedCustomer}
                part={sub}
@@ -793,6 +910,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
             />
            )}
            {step === 3 && selectedCustomer && (
+            <>
             <Step3PlanAndTerms
                ignoreCreditRank={previewAllPlans}
                overrideReason={overrideReasonParam}
@@ -809,20 +927,26 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
                setDuration={setDuration}
                 attempted={termsAttempted}
                 onAttempt={() => setTermsAttempted(true)}
-               onNext={handleNext}
+               onNext={() => { if (blockedOpen) return; handleNext(3); }}
                onPrev={handlePrev}
                part={sub}
+               multiCase={multiOn}
+               blockedCaseId={blockedOpen?.id ?? null}
+               onChooseOther={chooseOtherPlan}
+               onOpenBlockedCase={() => { const id = blockedOpen?.id; onClose(); if (id) setLocation(`/loan-applications/${id}`); }}
             />
+            </>
           )}
             {step === 4 && selectedCustomer && selectedPlan && (
               <StepFilingFee customer={selectedCustomer} selectedPlan={selectedPlan} ignoreCreditRank={previewAllPlans} draftId={srv?.id} overrideReason={overrideReasonParam}
-                feeChargeId={feeChargeId} setFeeChargeId={setFeeChargeId} onNext={handleNext} onPrev={handlePrev}
+                requestKey={multiOn ? requestKey : null}
+                feeChargeId={feeChargeId} setFeeChargeId={setFeeChargeId} onZeroFee={() => setZeroFee(true)} onNext={() => handleNext(4)} onPrev={handlePrev}
                 onExistingCase={() => { if (selectedCustomer) void checkExistingCase(selectedCustomer.id); }} />
           )}
            {step === 5 && selectedCustomer && (
             <Step4IdentityDocs
                customer={selectedCustomer}
-               onNext={handleNext}
+               onNext={() => handleNext(5)}
                onPrev={handlePrev}
             />
           )}
@@ -838,9 +962,11 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
                 error={submitError}
                 serverErrors={submitFieldErrors}
                 part={sub}
-                onPartNext={handleNext}
+                onPartNext={() => handleNext(6)}
                 onEdit={jumpTo}
                 feePaid={Boolean(feeChargeId)}
+                multiCase={multiOn}
+                previousOpen={openRows[0] ?? null}
             />
           )}
         </motion.div>
@@ -887,18 +1013,43 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
         onConfirm={() => { if (dupDraft.canContinue) void hydrate(dupDraft); }}
         onClose={() => { setDupDraft(null); setSrv(null); selectCustomer(null); setResumeInfo(null); setSaveState('idle'); if (step !== 1) { pendingSub.current = 0; setStep(1); } }}>
         <p><b>{dupDraft.customerName}</b> <CustomerIdBadge id={dupDraft.customerId} /> · مرحله {fa(dupDraft.step)} از {fa(dupDraft.totalSteps)} ({dupDraft.stepLabel}){dupDraft.paid ? ' · هزینه‌ی پرونده واریز شده' : ''}</p>
-        <p className="lwz-muted">آخرین ذخیره {new Date(dupDraft.updatedAt).toLocaleDateString('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran' })}، {tehranTime(dupDraft.updatedAt)}{dupDraft.updatedByName ? `، توسط ${dupDraft.updatedByName}` : ''}. برای هر مشتری فقط یک درخواست باز ممکن است.</p>
+        <p className="lwz-muted">آخرین ذخیره {new Date(dupDraft.updatedAt).toLocaleDateString('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran' })}، {tehranTime(dupDraft.updatedAt)}{dupDraft.updatedByName ? `، توسط ${dupDraft.updatedByName}` : ''}. {requestKey ? 'ادامه، همین درخواست را باز می‌کند و درخواست دیگر این مشتری را عوض نمی‌کند.' : 'برای هر مشتری فقط یک درخواست باز ممکن است.'}</p>
         {!dupDraft.canContinue ? <p className="lwz-note bad">این درخواست مال کارشناس دیگری است.</p> : null}
       </ConfirmDialog> : null}
     </div>,
-    document.body,
+    multiOn && mcHost ? mcHost : document.body,
   );
 }
 
-function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, onNext, onPrev, ignoreCreditRank, draftId, overrideReason, onExistingCase }: {
-  ignoreCreditRank: boolean; draftId?: number; overrideReason?: string; onExistingCase?: () => void;
+function McSecondStart({ customer, openCase, onContinue }: {
+  customer: Customer;
+  openCase: { id: number; bankName?: string | null; planId?: number | null; requestedAmount?: number | null; durationMonths?: number | null; stage?: string | null; status?: string | null } | null;
+  onContinue: () => void;
+}) {
+  const fa = (n: number) => n.toLocaleString("fa-IR", { useGrouping: false });
+  return (
+    <div data-testid="mc-second-start">
+      <h2>درخواست تازه برای همین مشتری</h2>
+      <p className="mc-customer"><b>{customer.name}</b> <CidChip id={customer.id} /></p>
+      <p className="mc-muted">مشتری انتخاب شده؛ پرونده‌ی جدید شناسه‌ی مستقل می‌گیرد.</p>
+      <h3>پرونده‌ی باز فعلی</h3>
+      {openCase ? (
+        <article className="mc-case" data-testid="mc-second-start-case">
+          <div><b>طرح {multiCasePlanLabel({ planId: openCase.planId, bankName: openCase.bankName })}</b><span className="chip g">{faCaseStage(openCase.stage)}</span></div>
+          <p className="meta">{openCase.requestedAmount ? `${Number(openCase.requestedAmount).toLocaleString("fa-IR")} تومان` : "مبلغ ثبت نشده"}{openCase.durationMonths ? `، ${fa(openCase.durationMonths)} ماه` : ""}</p>
+        </article>
+      ) : null}
+      <label className="mc-check"><input type="checkbox" checked disabled readOnly /> اطلاعات هویتی و تماس از همین مشتری</label>
+      <p className="mc-muted">مبلغ، طرح، مدارک مالی و یادداشت‌های پرونده‌ی قبلی کپی نمی‌شوند.</p>
+      <button type="button" className="btn pri" onClick={onContinue} data-testid="mc-second-start-continue">ادامه</button>
+    </div>
+  );
+}
+
+function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, onZeroFee, onNext, onPrev, ignoreCreditRank, draftId, overrideReason, onExistingCase, requestKey }: {
+  ignoreCreditRank: boolean; draftId?: number; overrideReason?: string; onExistingCase?: () => void; requestKey?: string | null;
   customer: Customer; selectedPlan: CustomerEligiblePlan;
-  feeChargeId: number | null; setFeeChargeId: (id: number | null) => void; onNext: () => void; onPrev: () => void;
+  feeChargeId: number | null; setFeeChargeId: (id: number | null) => void; onZeroFee?: () => void; onNext: () => void; onPrev: () => void;
 }) {
   const queryClient = useQueryClient();
   const { data, isLoading, error, refetch } = useGetFilingFeePlans({ customerId: customer.id, ignoreCreditRank, creditRankOverrideReason: overrideReason });
@@ -910,26 +1061,32 @@ function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, on
   const [shareSmsSent, setShareSmsSent] = useState(false);
   const keyRef = useRef<string | null>(null);
   const plan = data?.plans.find((p) => p.planId === selectedPlan.planId);
+  const feeIsZero = Boolean(plan && BigInt(plan.filingFeeToman) === 0n);
   const affordable = plan && data && BigInt(data.cashBalanceToman) >= BigInt(plan.filingFeeToman);
-  const hasPendingKey = Boolean(plan && window.sessionStorage.getItem(`loan-fee:${customer.id}:${plan.planId}`));
+  const storageKey = !plan ? '' : requestKey ? `loan-fee:${customer.id}:${plan.planId}:${requestKey}` : `loan-fee:${customer.id}:${plan.planId}`;
+  const hasPendingKey = Boolean(plan && storageKey && window.sessionStorage.getItem(storageKey));
 
   const pay = async () => {
     if (!plan || pending || feeChargeId) return;
     setPending(true);
     setFeeError('');
-    const storageKey = `loan-fee:${customer.id}:${plan.planId}`;
     // One key per server draft + plan: a double click, a second tab or a resumed draft replays the same charge.
-    keyRef.current ??= filingFeeIdempotencyKey(draftId, customer.id, plan.planId) ?? window.sessionStorage.getItem(storageKey) ?? crypto.randomUUID();
+    const feeKey = requestKey && draftId ? `draft-${draftId}-plan-${plan.planId}-req-${requestKey}` : filingFeeIdempotencyKey(draftId, customer.id, plan.planId);
+    keyRef.current ??= feeKey ?? window.sessionStorage.getItem(storageKey) ?? crypto.randomUUID();
     window.sessionStorage.setItem(storageKey, keyRef.current);
     try {
       const feeInput = { customerId: customer.id, planId: plan.planId, ignoreCreditRank, creditRankOverrideReason: overrideReason, ...(draftId ? { draftId } : {}) };
       const charge = await chargeFilingFee(feeInput as Parameters<typeof chargeFilingFee>[0],
         { headers: { 'Idempotency-Key': keyRef.current } });
-      if ((charge as { applicationId?: number | null }).applicationId) { onExistingCase?.(); return; }
+      if ((charge as { applicationId?: number | null }).applicationId) {
+        if (requestKey) { setFeeError('این پرداخت به پروندهٔ دیگری وصل است. برای طرحی که پروندهٔ باز دارد درخواست تازه ساخته نمی‌شود.'); return; }
+        onExistingCase?.(); return;
+      }
       setFeeChargeId(charge.chargeId);
       await queryClient.invalidateQueries({ queryKey: getGetFilingFeePlansQueryKey({ customerId: customer.id, ignoreCreditRank, creditRankOverrideReason: overrideReason }) });
     } catch (e) {
-      if ((e as { data?: { error?: string } })?.data?.error === 'open_pre_registration_case' || /open_pre_registration_case/.test(String((e as Error)?.message ?? ''))) { onExistingCase?.(); return; }
+      if ((e as { data?: { error?: string } })?.data?.error === 'open_same_plan_case') { setFeeError(apiErrorMessage(e, 'برای این طرح پروندهٔ باز وجود دارد.')); return; }
+      if (!requestKey && ((e as { data?: { error?: string } })?.data?.error === 'open_pre_registration_case' || /open_pre_registration_case/.test(String((e as Error)?.message ?? '')))) { onExistingCase?.(); return; }
       setFeeError(apiErrorMessage(e, 'کسر هزینه انجام نشد. موجودی کیف پول نقدی را بررسی کنید.'));
       refetch();
     } finally { setPending(false); }
@@ -982,20 +1139,21 @@ function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, on
         </dl>
         {plan && !affordable && !feeChargeId && !hasPendingKey && <p role="alert" className="lwz-note warn">موجودی کافی نیست. ابتدا کیف پول نقدی مشتری را از <a href={`/customers/${customer.id}`}>پرونده مشتری</a> شارژ کنید، سپس به این مرحله برگردید.</p>}
         {feeError && <p role="alert" className="lwz-note bad">{feeError}</p>}
-         {!feeChargeId && plan && <div className="lwz-card lwz-share">
+         {!feeChargeId && plan && !feeIsZero && <div className="lwz-card lwz-share">
            <strong>پرداخت توسط مشتری</strong>
            <span className="lwz-muted">لینک شارژ کسری کیف پول را برای مشتری ارسال کنید؛ شارژ بدون تأیید پرداخت انجام نمی‌شود.</span>
            <button type="button" className="btn btn-gold" disabled={sharePending || Boolean(shareUrl)} onClick={createShareLink}>{sharePending ? 'در حال ارسال…' : shareSmsSent ? 'پیامک ارسال شد' : 'ارسال لینک شارژ کیف پول (پیامک)'}</button>
            {shareSmsSent && <span role="status" className="lwz-ok">لینک شارژ با پیامک برای مشتری ارسال شد.</span>}
            {shareUrl && <><span>مبلغ لینک: <strong>{BigInt(shareAmount || '0').toLocaleString('fa-IR')} تومان</strong></span><div className="wallet-share-link"><div><input readOnly dir="ltr" value={shareUrl} aria-label="لینک شارژ" /><button type="button" className="btn btn-ghost" onClick={async () => { try { await navigator.clipboard.writeText(shareUrl); } catch { setFeeError('کپی لینک انجام نشد؛ لینک را به‌صورت دستی از کادر انتخاب و کپی کنید.'); } }}><Copy size={16} /> کپی</button></div></div><button type="button" className="btn btn-ghost" onClick={() => refetch()}><RefreshCw size={16} /> به‌روزرسانی موجودی پس از پرداخت</button></>}
          </div>}
+        {feeIsZero && !feeChargeId && <p role="status" className="lwz-note ok" data-testid="filing-fee-zero">این طرح هزینه تشکیل پرونده ندارد. مبلغی از کیف پول کسر نمی‌شود.</p>}
         {feeChargeId && <p role="status" className="lwz-note ok" data-testid="filing-fee-locked"><CheckCircle2 size={18} aria-hidden="true" /> <b>انجام‌شده.</b> هزینه همین طرح ثبت شد؛ طرح، شرط و مبلغ قفل شدند و می‌توانید مدارک پرونده را تکمیل کنید.</p>}
       </>
     )}
     <div className="form-footer">
       <button type="button" className="btn btn-ghost" onClick={onPrev}><ChevronRight size={18} /> قبلی</button>
-      {!feeChargeId && <button type="button" className="btn btn-primary" disabled={!plan || (!affordable && !hasPendingKey) || pending} onClick={pay} data-testid="btn-pay-filing-fee">{pending ? 'در حال ثبت...' : hasPendingKey ? 'بازیابی نتیجه پرداخت و ادامه' : 'کسر هزینه و ادامه'}</button>}
-      {feeChargeId && <button type="button" className="btn btn-primary" onClick={onNext} data-testid="btn-next-fee">ادامه <ChevronLeft size={18} /></button>}
+      {!feeChargeId && !feeIsZero && <button type="button" className="btn btn-primary" disabled={!plan || (!affordable && !hasPendingKey) || pending} onClick={pay} data-testid="btn-pay-filing-fee">{pending ? 'در حال ثبت...' : hasPendingKey ? 'بازیابی نتیجه پرداخت و ادامه' : 'کسر هزینه و ادامه'}</button>}
+      {(feeChargeId || feeIsZero) && <button type="button" className="btn btn-primary" onClick={() => { if (feeIsZero) onZeroFee?.(); onNext(); }} data-testid="btn-next-fee">ادامه <ChevronLeft size={18} /></button>}
     </div>
   </div>;
 }
@@ -1065,7 +1223,7 @@ function Step1Customer({ search, setSearch, customers, otherOwnerPage, loading, 
 }
 
 // --- Step 2 ---
-function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, canIgnoreCreditRank, ignoreCreditRank, onIgnoreCreditRankChange, previewLocked, part = 0, onExitToCustomer }: any) {
+function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, canIgnoreCreditRank, ignoreCreditRank, onIgnoreCreditRankChange, previewLocked, part = 0, onExitToCustomer, multiCase }: any) {
   const queryClient = useQueryClient();
   const updateCustomer = useUpdateCustomer();
   const verifyIdentity = useVerifyCustomerIdentity();
@@ -1370,10 +1528,10 @@ function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, can
       {part === 0 && (editMode ? (
         <form id={profileFormId} noValidate onSubmit={handleSaveProfile} className="lwz-form" data-testid="wizard-profile-form">
           {customer.verificationCheckedAt ? <p className="lwz-note warn" role="note"><AlertCircle size={18} aria-hidden="true" /> تغییر این اطلاعات، احراز هویت قبلی مشتری را باطل می‌کند.</p> : null}
-          <div className="field"><label htmlFor="wz-national-code">کد ملی</label><input id="wz-national-code" dir="ltr" inputMode="numeric" value={form.nationalCode} onChange={e => { setForm({...form, nationalCode: e.target.value}); setProfileErrors(current => ({ ...current, nationalCode: '' })); }} aria-invalid={Boolean(profileErrors.nationalCode)} aria-describedby={profileErrors.nationalCode ? 'err-profile-nationalCode' : undefined} data-testid="input-national-code" />{fieldError('nationalCode')}</div>
-          <div className="field"><label htmlFor="wz-phone">شماره همراه</label><input id="wz-phone" dir="ltr" inputMode="tel" value={form.phone} onChange={e => { setForm({...form, phone: e.target.value}); setProfileErrors(current => ({ ...current, phone: '' })); }} aria-invalid={Boolean(profileErrors.phone)} aria-describedby={profileErrors.phone ? 'err-profile-phone' : undefined} data-testid="input-phone" />{fieldError('phone')}</div>
-          <div className="field"><label>تاریخ تولد (شمسی)</label><PersianDatePicker value={form.birthDateJalali} onChange={v => { setForm({...form, birthDateJalali: v}); setProfileErrors(current => ({ ...current, birthDateJalali: '' })); }} testId="input-birth-date" birthDate />{fieldError('birthDateJalali')}</div>
-          <div className="field"><label htmlFor="wz-postal-code">کد پستی</label><input id="wz-postal-code" dir="ltr" inputMode="numeric" value={form.postalCode} onChange={e => { setForm({...form, postalCode: e.target.value}); setProfileErrors(current => ({ ...current, postalCode: '' })); }} aria-invalid={Boolean(profileErrors.postalCode)} aria-describedby={profileErrors.postalCode ? 'err-profile-postalCode' : undefined} data-testid="input-postal-code" />{fieldError('postalCode')}</div>
+          <div className="field"><label htmlFor="wz-national-code">کد ملی</label><input id="wz-national-code" dir="ltr" inputMode="numeric" value={multiCase ? faDigits(form.nationalCode) : form.nationalCode} onChange={e => { setForm({...form, nationalCode: e.target.value.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/\D/g, "")}); setProfileErrors(current => ({ ...current, nationalCode: '' })); }} aria-invalid={Boolean(profileErrors.nationalCode)} aria-describedby={profileErrors.nationalCode ? 'err-profile-nationalCode' : undefined} data-testid="input-national-code" />{fieldError('nationalCode')}</div>
+          <div className="field"><label htmlFor="wz-phone">شماره همراه</label><input id="wz-phone" dir="ltr" inputMode="tel" value={multiCase ? faDigits(form.phone) : form.phone} onChange={e => { setForm({...form, phone: e.target.value.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/\D/g, "")}); setProfileErrors(current => ({ ...current, phone: '' })); }} aria-invalid={Boolean(profileErrors.phone)} aria-describedby={profileErrors.phone ? 'err-profile-phone' : undefined} data-testid="input-phone" />{fieldError('phone')}</div>
+          <div className="field"><label>تاریخ تولد (شمسی)</label><PersianDatePicker value={form.birthDateJalali} onChange={v => { setForm({...form, birthDateJalali: v.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))}); setProfileErrors(current => ({ ...current, birthDateJalali: '' })); }} testId="input-birth-date" birthDate displayDigits={multiCase} />{fieldError('birthDateJalali')}</div>
+          <div className="field"><label htmlFor="wz-postal-code">کد پستی</label><input id="wz-postal-code" dir="ltr" inputMode="numeric" value={multiCase ? faDigits(form.postalCode) : form.postalCode} onChange={e => { setForm({...form, postalCode: e.target.value.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/\D/g, "")}); setProfileErrors(current => ({ ...current, postalCode: '' })); }} aria-invalid={Boolean(profileErrors.postalCode)} aria-describedby={profileErrors.postalCode ? 'err-profile-postalCode' : undefined} data-testid="input-postal-code" />{fieldError('postalCode')}</div>
           {profileError && <div className="profile-form-error" role="alert" data-testid="error-save-profile">{profileError}</div>}
         </form>
       ) : (
@@ -1382,10 +1540,10 @@ function Step2ProfileAndCredit({ customer, onNext, onPrev, onCustomerUpdate, can
             {!isVerified && <button type="button" className="text-link" onClick={() => setEditing(true)} data-testid="btn-edit-profile">ویرایش</button>}
           </div>
           <dl className="lwz-kv">
-            <div><dt>کد ملی</dt><dd data-testid="display-national-code">{customer.nationalCode}</dd></div>
-            <div><dt>شماره همراه</dt><dd dir="ltr" data-testid="display-phone">{customer.phone}</dd></div>
-            <div><dt>تاریخ تولد</dt><dd data-testid="display-birth-date">{customer.birthDateJalali}</dd></div>
-            <div><dt>کد پستی</dt><dd dir="ltr">{customer.postalCode || '—'}</dd></div>
+            <div><dt>کد ملی</dt><dd dir="ltr" data-testid="display-national-code">{multiCase ? faDigits(customer.nationalCode) : customer.nationalCode}</dd></div>
+            <div><dt>شماره همراه</dt><dd dir="ltr" data-testid="display-phone">{multiCase ? faDigits(customer.phone) : customer.phone}</dd></div>
+            <div><dt>تاریخ تولد</dt><dd dir="ltr" data-testid="display-birth-date">{multiCase ? faDigits(customer.birthDateJalali) : customer.birthDateJalali}</dd></div>
+            <div><dt>کد پستی</dt><dd dir="ltr">{multiCase ? (customer.postalCode ? faDigits(customer.postalCode) : '—') : (customer.postalCode || '—')}</dd></div>
             <div><dt>وضعیت هویت</dt><dd>{isVerified ? <span className="lwz-ok" data-testid="status-verified">احراز شده</span> : <span className="lwz-warn" data-testid="status-unverified">احراز نشده</span>}</dd></div>
           </dl>
         </div>
@@ -1554,9 +1712,13 @@ type Step3PlanAndTermsProps = {
   onNext: () => void;
   onPrev: () => void;
   part?: number;
+  multiCase?: boolean;
+  blockedCaseId?: number | null;
+  onChooseOther?: () => void;
+  onOpenBlockedCase?: () => void;
 };
 
-function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPlanGroup, onSelectPlan, planLocked, feeRecoveryPending, amount, setAmount, duration, setDuration, onNext, onPrev, attempted, onAttempt, ignoreCreditRank, overrideReason, part = 0 }: Step3PlanAndTermsProps) {
+function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPlanGroup, onSelectPlan, planLocked, feeRecoveryPending, amount, setAmount, duration, setDuration, onNext, onPrev, attempted, onAttempt, ignoreCreditRank, overrideReason, part = 0, multiCase, blockedCaseId, onChooseOther, onOpenBlockedCase }: Step3PlanAndTermsProps) {
   const [planAttempted, setPlanAttempted] = useState(false);
   const planTried = attempted || planAttempted;
   const { data: eligibleResponse, isLoading, isError, refetch } = useListCustomerEligiblePlans(customer.id, { ignoreCreditRank, creditRankOverrideReason: overrideReason }, {
@@ -1570,7 +1732,24 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
     groups.set(match.planId, matches);
     return groups;
   }, new Map<number, CustomerEligiblePlan[]>()).values());
-  const selectedGroup = groupedPlans.find((matches) => matches[0].planId === selectedPlanId);
+  const catalog = eligibleResponse as { popularPlanIds?: number[]; planOrder?: number[] } | undefined;
+  const popularIds = multiCase ? (catalog?.popularPlanIds ?? []) : [];
+  const orderedGroups = (() => {
+    const source = multiCase && MULTI_CASE_UNREADY_PLAN === "hide"
+      ? groupedPlans.filter((group) => group[0].primaryContractPresent)
+      : groupedPlans;
+    const planOrder = multiCase ? catalog?.planOrder : undefined;
+    if (!planOrder?.length) return source;
+    const rank = new Map(planOrder.map((id, index) => [id, index]));
+    return [...source].sort((a, b) => (rank.get(a[0].planId) ?? 10000) - (rank.get(b[0].planId) ?? 10000));
+  })();
+  useEffect(() => {
+    if (!multiCase || selectedPlanId == null) return;
+    const group = groupedPlans.find((matches) => matches[0].planId === selectedPlanId);
+    if (group && !group[0].primaryContractPresent) onChooseOther?.();
+  }, [multiCase, selectedPlanId, eligibleResponse]);
+  const selectedGroupRaw = groupedPlans.find((matches) => matches[0].planId === selectedPlanId);
+  const selectedGroup = selectedGroupRaw && !(multiCase && !selectedGroupRaw[0].primaryContractPresent) ? selectedGroupRaw : undefined;
   const currentCondition = selectedGroup?.find((match) => match.conditionId === selectedPlan?.conditionId);
   const maximumAmount = Number(selectedPlan?.maximumAmount || 0);
   const amountStep = maximumAmount >= 100_000_000
@@ -1616,38 +1795,110 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
 
   return (
     <div className="lwz-step" data-testid="wizard-step-3" data-part={part}>
+      <div className="lwz-step-scroll">
+      {multiCase && part === 0 ? <><h2>کدام طرح؟</h2><p className="mc-customer"><b>{customer.name}</b> <CidChip id={customer.id} /></p></> : null}
       {part === 0 && <>
+      {multiCase ? <p className="mc-muted">درخواست تازه؛ یک پرونده‌ی باز با همین طرح ساخته نمی‌شود.</p> : <>
       {ignoreCreditRank && <div role="status" className="lwz-note warn">انتخاب طرح، شرط و ثبت پرونده بدون تطابق رتبه اعتباری؛ این انتخاب در پرونده ثبت می‌شود و سایر کنترل‌های هویتی و مالی برقرارند.</div>}
       {ignoreCreditRank && <p role="status" className="lwz-muted">در این حالت رتبه، نبود نتیجه یا قدیمی بودن استعلام اعتباری مانع ادامه پرونده نمی‌شود؛ کنترل‌های هویتی، مبلغ، اقساط و مدارک برقرارند.</p>}
       {ignoreCreditRank && overrideReason && <p className="lwz-muted" data-testid="override-reason-summary">دلیل ثبت‌شده: «{overrideReason}»</p>}
       {eligibleResponse && <GuarantorGradeLine guarantor={eligibleResponse.guarantor} waived={ignoreCreditRank} />}
+      </>}
       <div className="lwz-plans">
          {isLoading ? (
             <div className="lwz-loading" role="status">در حال بارگذاری طرح‌ها...</div>
           ) : isError ? <div role="alert" className="lwz-note bad">دریافت طرح‌ها ناموفق بود. <button type="button" className="text-link" onClick={() => void refetch()}>تلاش دوباره</button></div> : eligibleMatches.length > 0 ? (
-            <div className="lwz-opts" role="group" aria-label="طرح‌های واجد شرایط">
-               {groupedPlans.map((matches) => {
-                 const plan = matches[0];
-                 const planMaximum = Math.max(...matches.map((match) => Number(match.maximumAmount)));
-                 return (
-                  <button
-                    type="button"
-                    key={plan.planId}
-                    data-testid={`plan-card-${plan.planId}`}
-                    onClick={() => onSelectPlanGroup(plan.planId)}
-                    disabled={!plan.primaryContractPresent || planLocked}
-                    aria-pressed={selectedPlanId === plan.planId}
-                    className={`lwz-opt${selectedPlanId === plan.planId ? ' on' : ''}`}
-                    style={{ opacity: plan.primaryContractPresent && (!planLocked || selectedPlanId === plan.planId) ? 1 : 0.6 }}
-                 >
-                    <span className="dot" aria-hidden="true" />
-                    <span className="txt">
-                       <strong>{plan.name}</strong>
-                       <small>تا {planMaximum.toLocaleString('fa-IR')} تومان · {matches.length.toLocaleString('fa-IR')} شرط</small>
-                       {!plan.primaryContractPresent && <small className="lwz-err">قرارداد اصلی برای این طرح تعریف نشده است.</small>}
-                    </span>
-                  </button>
-                ); })}
+            <div className={multiCase ? "lwz-opts mc-choice" : "lwz-opts"} id={multiCase ? "mc-plans" : undefined} role={multiCase ? "radiogroup" : "group"} aria-label="طرح‌های واجد شرایط">
+               {(() => {
+                 const ready = orderedGroups.filter((group) => !multiCase || group[0].primaryContractPresent);
+                 const disabled = multiCase ? orderedGroups.filter((group) => !group[0].primaryContractPresent) : [];
+                 const popularSet = new Set(popularIds);
+                 let rest = ready.filter((group) => !popularSet.has(group[0].planId));
+                 let popular = popularIds
+                   .map((id) => ready.find((group) => group[0].planId === id))
+                   .filter((group): group is typeof ready[number] => Boolean(group));
+                 let pinned: typeof ready[number] | null = null;
+                 if (multiCase && blockedCaseId) {
+                   const picked = [...rest, ...popular].find((group) => group[0].planId === selectedPlanId) ?? null;
+                   if (picked) {
+                     pinned = picked;
+                     rest = rest.filter((group) => group[0].planId !== picked[0].planId);
+                     popular = popular.filter((group) => group[0].planId !== picked[0].planId);
+                   }
+                 }
+                 const activeTile = (matches: typeof ready[number], popularTile: boolean) => {
+                   const plan = matches[0];
+                   const planMaximum = Math.max(...matches.map((match) => Number(match.maximumAmount)));
+                   const label = multiCase ? multiCasePlanLabel({ planId: plan.planId, bankName: (plan as { bankName?: string | null }).bankName }) : plan.name;
+                   const marked = selectedPlanId === plan.planId;
+                   const line = popularTile
+                     ? MULTI_CASE_POPULAR_LINE
+                     : blockedCaseId && marked ? "یک پرونده‌ی باز با این طرح دارید" : `تا ${planMaximum.toLocaleString('fa-IR')} تومان`;
+                   return (
+                    <React.Fragment key={plan.planId}>
+                    <button
+                      type="button"
+                      data-testid={`plan-card-${plan.planId}`}
+                      data-plan-id={plan.planId}
+                      data-plan-label={label}
+                      onClick={() => onSelectPlanGroup(plan.planId)}
+                      disabled={!plan.primaryContractPresent || planLocked}
+                      aria-pressed={multiCase ? undefined : marked}
+                      role={multiCase ? "radio" : undefined}
+                      aria-checked={multiCase ? marked : undefined}
+                      className={multiCase ? undefined : `lwz-opt${marked ? ' on' : ''}`}
+                      style={multiCase ? undefined : { opacity: plan.primaryContractPresent && (!planLocked || marked) ? 1 : 0.6 }}
+                    >
+                      {multiCase ? <>
+                        <b>{label}</b>
+                        <span>{line}</span>
+                      </> : <>
+                      <span className="dot" aria-hidden="true" />
+                      <span className="txt">
+                         <strong>{label}</strong>
+                         <small>تا {planMaximum.toLocaleString('fa-IR')} تومان، {matches.length.toLocaleString('fa-IR')} شرط</small>
+                         {!plan.primaryContractPresent && <small className="lwz-err">قرارداد اصلی برای این طرح تعریف نشده است.</small>}
+                      </span>
+                      </>}
+                    </button>
+                    {multiCase && blockedCaseId && marked ? <SamePlanBlock caseId={blockedCaseId} onChooseOther={() => onChooseOther?.()} onOpenCase={() => onOpenBlockedCase?.()} /> : null}
+                    </React.Fragment>
+                   );
+                 };
+                 const disabledTile = (matches: typeof ready[number]) => {
+                   const plan = matches[0];
+                   const label = multiCasePlanLabel({ planId: plan.planId, bankName: (plan as { bankName?: string | null }).bankName });
+                   return (
+                    <button
+                      key={plan.planId}
+                      type="button"
+                      className="mc-plan-off"
+                      data-testid={`plan-card-${plan.planId}`}
+                      data-plan-id={plan.planId}
+                      data-plan-label={label}
+                      data-plan-unready="1"
+                      aria-disabled="true"
+                      tabIndex={-1}
+                      title={MULTI_CASE_UNREADY_REASON}
+                      onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}
+                      onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); } }}
+                    >
+                      <span className="mc-plan-off-head">
+                        <span className="mc-plan-off-fade"><b>{label}</b></span>
+                        <span className="mc-off-chip">غیرفعال</span>
+                      </span>
+                      <span className="mc-plan-off-why">{MULTI_CASE_UNREADY_REASON}</span>
+                    </button>
+                   );
+                 };
+                 return <>
+                   {pinned ? activeTile(pinned, false) : null}
+                   {rest.map((group) => activeTile(group, false))}
+                   {multiCase && popular.length ? <p className="mc-plan-pop" data-testid="mc-plan-pop">{MULTI_CASE_POPULAR_HEADING}</p> : null}
+                   {popular.map((group) => activeTile(group, true))}
+                   {disabled.map(disabledTile)}
+                 </>;
+               })()}
             </div>
          ) : (
              !ignoreCreditRank && eligibleResponse && !eligibleResponse.credit.fresh ? (
@@ -1662,7 +1913,6 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
          )}
       </div>
        {planTried && !selectedPlanId && <small role="alert" className="lwz-err" data-testid="error-plan-selection">برای ادامه یک طرح تسهیلاتی انتخاب کنید.</small>}
-
       {planLocked && (
         <p role="status" className="lwz-note ok">
           {feeRecoveryPending
@@ -1671,7 +1921,7 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
         </p>
       )}
 
-       {selectedGroup && (
+       {selectedGroup && !(multiCase && blockedCaseId) && (
          <div className="lwz-conds" data-testid="plan-conditions">
            <strong className="lwz-label">شرط دریافت این طرح را انتخاب کنید</strong>
            <div className="lwz-opts" role="group" aria-label="شروط طرح">
@@ -1684,10 +1934,10 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
                  onClick={() => onSelectPlan(condition)}>
                  <span className="dot" aria-hidden="true" />
                  <span className="txt">
-                 <strong>{condition.conditionName} · {condition.needsGuarantor ? 'با ضامن' : 'بدون ضامن'}</strong>
-                 <small>سقف {Number(condition.maximumAmount).toLocaleString('fa-IR')} تومان · {condition.allowedDurations.map((months) => `${months.toLocaleString('fa-IR')} ماهه`).join('، ')}</small>
+                 <strong>{condition.conditionName}، {condition.needsGuarantor ? 'با ضامن' : 'بدون ضامن'}</strong>
+                 <small>سقف {Number(condition.maximumAmount).toLocaleString('fa-IR')} تومان، {condition.allowedDurations.map((months) => `${months.toLocaleString('fa-IR')} ماهه`).join('، ')}</small>
                  {condition.conditionNotes && <small>{condition.conditionNotes}</small>}
-                 {!ignoreCreditRank && condition.guarantorGradeNote && <small className="lwz-guarantor-note" style={{ color: "var(--warn-ink, #b54708)" }} data-testid={`guarantor-note-${condition.conditionId}`}>{condition.guarantorGradeNote}</small>}
+                 {!ignoreCreditRank && condition.guarantorGradeNote && <small className="lwz-guarantor-note" style={{ color: "var(--warn-ink, #b54708)" }} data-testid={`guarantor-note-${condition.conditionId}`}>{multiCase ? faLatinRanks(faDigits(condition.guarantorGradeNote)) : condition.guarantorGradeNote}</small>}
                  </span>
                </button>
              ))}
@@ -1764,11 +2014,16 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
          </div>
       )}
 
+      </div>
       <div className="form-footer">
-        <button type="button" className="btn btn-ghost" onClick={onPrev} data-testid={part === 1 ? 'btn-prev-3' : 'btn-prev-3-0'}><ChevronRight size={18} /> قبلی</button>
+        {multiCase && part === 0 ? null : <button type="button" className="btn btn-ghost" onClick={onPrev} data-testid={part === 1 ? 'btn-prev-3' : 'btn-prev-3-0'}><ChevronRight size={18} /> قبلی</button>}
         {part === 0
-          ? <button type="button" className="btn btn-primary" onClick={continuePlan} disabled={isLoading} data-testid="btn-next-3-0">ادامه <ChevronLeft size={18} /></button>
-          : <button type="button" className="btn btn-primary" onClick={continueTerms} disabled={!eligibleResponse || (!ignoreCreditRank && !eligibleResponse.credit.fresh) || isLoading || isError} data-testid="btn-next-3">ادامه <ChevronLeft size={18} /></button>}
+          ? blockedCaseId
+            ? <button type="button" className="btn pri" aria-disabled="true" tabIndex={-1} data-testid="btn-next-3-0" onClick={(event) => event.preventDefault()}>ادامه</button>
+            : <button type="button" className="btn btn-primary" onClick={continuePlan} disabled={isLoading} data-testid="btn-next-3-0">ادامه <ChevronLeft size={18} /></button>
+          : blockedCaseId
+            ? <button type="button" className="btn pri" aria-disabled="true" tabIndex={-1} data-testid="btn-next-3" onClick={(event) => event.preventDefault()}>ادامه</button>
+            : <button type="button" className="btn btn-primary" onClick={continueTerms} disabled={!eligibleResponse || (!ignoreCreditRank && !eligibleResponse.credit.fresh) || isLoading || isError} data-testid="btn-next-3">ادامه <ChevronLeft size={18} /></button>}
       </div>
     </div>
   );
@@ -1886,7 +2141,7 @@ function Step4IdentityDocs({ customer, onNext, onPrev }: any) {
 }
 
 // --- Step 5 ---
-function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPending, error, serverErrors = {}, part = 0, onPartNext, onEdit, feePaid }: any) {
+function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPending, error, serverErrors = {}, part = 0, onPartNext, onEdit, feePaid, multiCase, previousOpen }: any) {
   const [manualValues, setManualValues] = useState<Record<string, string>>({});
   const [attempted, setAttempted] = useState(false);
   const manualVariables = plan.manualVariables ?? [];
@@ -1903,6 +2158,7 @@ function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPendi
   const editLink = (n: number, label: string) => onEdit ? <button type="button" className="text-link" onClick={() => onEdit(n)} disabled={isPending} aria-label={`ویرایش ${label}`}>ویرایش</button> : null;
   return (
     <div className="lwz-step" data-testid="wizard-step-5" data-part={part}>
+      <div className="lwz-step-scroll">
       {part === 0 && (manualVariables.length > 0 ? (
         <div className="lwz-form" data-testid="wizard-contract-fields">
           {manualVariables.map((item: any) => {
@@ -1924,7 +2180,21 @@ function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPendi
         </div>
       ) : <p className="lwz-note" role="note" data-testid="wizard-no-contract-fields"><Info size={18} aria-hidden="true" /> قالب قرارداد این طرح فیلد دستی ندارد؛ ادامه دهید.</p>)}
 
-      {part === 1 && <>
+      {part === 1 && multiCase ? (
+        <div data-testid="mc-review">
+          <h2>بازبینی و ثبت</h2>
+          <p className="mc-customer"><b>{customer.name}</b> <CidChip id={customer.id} /></p>
+          <div className="mc-review"><dl>
+            <div><dt>درخواست تازه</dt><dd data-testid="review-plan-name">{multiCasePlanLabel({ planId: plan.planId, bankName: plan.bankName })}</dd></div>
+            <div><dt>مبلغ درخواستی</dt><dd data-testid="review-amount">{Number(amount).toLocaleString("fa-IR")} تومان</dd></div>
+            <div><dt>مدت درخواستی</dt><dd data-testid="review-duration">{Number(duration).toLocaleString("fa-IR", { useGrouping: false })} ماه</dd></div>
+            <div><dt>پرونده‌ی قبلی</dt><dd>{previousOpen ? <>پرونده <bdi dir="ltr">#{Number(previousOpen.id).toLocaleString("fa-IR", { useGrouping: false })}</bdi> همچنان باز است</> : "پرونده‌ی باز دیگری نیست"}</dd></div>
+            <div><dt>اطلاعات مشتری</dt><dd>همان هویت و شماره؛ مشتری جدید ساخته نمی‌شود</dd></div>
+            <div><dt>مدارک مالی و یادداشت‌ها</dt><dd>مستقل؛ از پرونده‌ی قبلی کپی نشده</dd></div>
+          </dl></div>
+          {error && <div className="form-error" role="alert">{error}</div>}
+        </div>
+      ) : part === 1 && <>
         <section className="lwz-card lwz-review" aria-label="مشتری">
           <div className="lwz-cardh"><strong>مشتری</strong>{editLink(2, 'اطلاعات هویتی')}</div>
           <dl className="lwz-kv">
@@ -1932,10 +2202,10 @@ function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPendi
             <div className="full"><dt>کارشناس فروش</dt><dd>{customer.salespersonName || 'بدون تخصیص'}</dd></div>
           </dl>
         </section>
-        <section className="lwz-card lwz-review" aria-label="تسهیلات">
+        <section className={`lwz-card lwz-review${multiCase ? " mc-review" : ""}`} aria-label="تسهیلات">
           <div className="lwz-cardh"><strong>تسهیلات</strong>{feePaid ? <span className="lwz-muted">قفل پس از پرداخت هزینه</span> : editLink(5, 'طرح و شرط')}</div>
           <dl className="lwz-kv">
-            <div className="full"><dt>طرح تسهیلاتی</dt><dd data-testid="review-plan-name">{plan.name}</dd></div>
+            <div className="full"><dt>طرح تسهیلاتی</dt><dd data-testid="review-plan-name">{multiCase ? multiCasePlanLabel({ planId: plan.planId, bankName: plan.bankName }) : plan.name}</dd></div>
             <div><dt>مبلغ درخواستی</dt><dd data-testid="review-amount">{Number(amount).toLocaleString('fa-IR')} تومان</dd>
               {serverErrors.amount && <small role="alert" className="lwz-err" data-testid="error-submit-amount">{serverErrors.amount}</small>}</div>
             <div><dt>مدت اقساط</dt><dd data-testid="review-duration">{Number(duration).toLocaleString('fa-IR')} ماه</dd>
@@ -1955,13 +2225,16 @@ function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPendi
         {attempted && !plan.contractTemplateId && <div className="form-error" role="alert" data-testid="error-contract-template">برای طرح انتخاب‌شده قالب قرارداد قابل استفاده ثبت نشده است.</div>}
       </>}
 
+      </div>
       <div className="form-footer">
-          <button type="button" className="btn btn-ghost" onClick={onPrev} disabled={isPending} data-testid={part === 1 ? 'btn-prev-5' : 'btn-prev-5-0'}><ChevronRight size={18} /> قبلی</button>
           {part === 0
             ? <button type="button" className="btn btn-primary" onClick={continueManual} data-testid="btn-next-5-0">ادامه <ChevronLeft size={18} /></button>
-            : <button type="button" className="btn btn-primary" onClick={submitReview} disabled={isPending} data-testid="btn-submit-wizard">
-                {isPending ? <><RefreshCw size={18} className="spin" /> در حال ثبت پرونده...</> : 'ثبت پرونده و مشاهده جزئیات'}
+            : <button type="button" className={`btn ${multiCase ? "pri" : "btn-primary"}`} onClick={submitReview} disabled={isPending} data-testid="btn-submit-wizard">
+                {isPending ? <><RefreshCw size={18} className="spin" /> در حال ثبت پرونده...</> : (multiCase ? "ثبت پرونده‌ی جدید" : "ثبت پرونده و مشاهده جزئیات")}
               </button>}
+          {multiCase && part === 1
+            ? <button type="button" className="btn gh" onClick={() => onEdit?.(5)} disabled={isPending} data-testid="btn-edit-plan">ویرایش طرح</button>
+            : <button type="button" className="btn btn-ghost" onClick={onPrev} disabled={isPending} data-testid={part === 1 ? 'btn-prev-5' : 'btn-prev-5-0'}><ChevronRight size={18} /> قبلی</button>}
       </div>
     </div>
   );

@@ -4,6 +4,10 @@ import 'react-day-picker/style.css';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { dateToJalaliValue, jalaliValueToDate } from '@/lib/jalali';
 
+function faDateDigits(value: string): string {
+  return value.replace(/\d/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)] ?? d);
+}
+
 const calendarStart = new Date(1920, 0, 1);
 const calendarEnd = new Date(new Date().getFullYear() + 20, 11, 31);
 
@@ -16,6 +20,7 @@ export function PersianDatePicker({
   minValue,
   popoverClassName,
   noFuture = false,
+  displayDigits = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -26,6 +31,8 @@ export function PersianDatePicker({
   popoverClassName?: string;
   /** Disable days after today (e.g. a real deposit date). */
   noFuture?: boolean;
+  /** Show Persian digits in the trigger. The stored value stays Latin. */
+  displayDigits?: boolean;
 }) {
   const selected = value ? jalaliValueToDate(value) : undefined;
   const today = new Date();
@@ -37,7 +44,7 @@ export function PersianDatePicker({
       <PopoverTrigger asChild>
         <button type="button" className={`persian-date-trigger ${value ? 'has-value' : ''}`} data-testid={testId}>
           <CalendarDays size={15} />
-          <span>{value || placeholder}</span>
+          <span dir="ltr">{displayDigits && value ? faDateDigits(value) : (value || placeholder)}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent className={`persian-date-popover ${popoverClassName ?? ''}`} align="start" dir="rtl">

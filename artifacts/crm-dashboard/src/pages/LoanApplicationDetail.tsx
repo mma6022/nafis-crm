@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CERTIFICATE_INACTIVE_MESSAGE } from '@/lib/contract-send-errors.mjs';
+import { useMultiCaseCase, useMultiCaseStatus } from '@/lib/multi-case';
+import { multiCasePlanLabel } from '@/lib/multi-case-plan-label';
 import { documentFileAccept } from '@/lib/document-upload-type';
 import { Link, useLocation, useParams } from 'wouter';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -256,11 +258,14 @@ export default function LoanApplicationDetail() {
     query: { queryKey: getGetAuthSessionQueryKey(), retry: false },
   });
   const user = session?.user;
+  const mcOn = useMultiCaseStatus(Boolean(user)).data?.enabled === true;
+  const mcCase = useMultiCaseCase(appId, mcOn);
   const { data: app, isLoading, isError, error, refetch } = useGetLoanApplication(appId, {
     query: { queryKey: getGetLoanApplicationQueryKey(appId), enabled: !isNaN(appId), refetchInterval: 20000, refetchOnWindowFocus: true }
   });
   // FILE-DETAIL v1: per-user flag (flag.file_detail_v1.user.N, missing = off); old page stays the default.
   const fdV1 = useFileDetailV1Flag(!isNaN(appId));
+  const planHeading = mcOn ? multiCasePlanLabel({ planId: mcCase.data?.case?.planId ?? app?.planId, bankName: mcCase.data?.case?.bankName }) : (app?.planName || 'ناشناس');
   const caseOpen = app?.status !== 'rejected';
   const canUpdate = caseOpen && (user?.role === 'admin' || user?.permissions?.includes('loan_applications.update'));
   const canReview = caseOpen && (user?.role === 'admin' || user?.permissions?.includes('loan_applications.review'));
@@ -559,7 +564,7 @@ export default function LoanApplicationDetail() {
         </div>
         <div className="eyebrow">پرونده تسهیلات #{app.id}</div>
         <h1 className="ldx-name"><CustomerName id={app.customerId} name={app.customerName || 'مشتری'} /></h1>
-        <p className="ldx-meta">ثبت شده در {formatDate(app.createdAt)} · طرح {app.planName || 'ناشناس'}{app.stage && !closed ? <> · مرحله: {STAGE_LABELS[app.stage] || app.stage}</> : null}</p>
+        <p className="ldx-meta" data-testid="mc-case-header-plan">ثبت شده در {formatDate(app.createdAt)} · طرح {planHeading}{app.stage && !closed ? <> · مرحله: {STAGE_LABELS[app.stage] || app.stage}</> : null}</p>
         {app.creditRankIgnored && <p role="status" className="ldx-warn">این پرونده با انتخاب مدیر یا کارشناس فروش، بدون تطابق رتبه اعتباری ثبت شده است.</p>}
         {user?.role === 'admin' ? <CaseCreditRankOverrides applicationId={app.id} /> : null}
         <dl className="ldx-stats">
@@ -572,6 +577,7 @@ export default function LoanApplicationDetail() {
         </dl>
         <div className="ldx-acts">
           {app.customerId ? <Link className="csx-ghost" href={`/customers/${app.customerId}`} data-testid="link-loan-customer"><UserIcon /> پرونده مشتری</Link> : null}
+          {app.customerId ? <Link className="csx-ghost" href={`/customers/${app.customerId}?caseCall=${app.id}`} data-testid="link-case-call">ثبت تماس این پرونده</Link> : null}
           <LoanCaseCancellation application={app} />
           <AdminCaseCorrections applicationId={appId} />
           <SmartFilingButton applicationId={appId} />

@@ -93,6 +93,7 @@ function useForeignOverlay() {
   const [form, setForm] = useState(false); // v3: a form/modal (not the phone nav menu) — drives the phone «مزاحم نشو» bar
   const [own, setOwn] = useState(false); // bale v1.1: Bale forms ([data-bbdnd]) render their own in-flow «مزاحم نشو» bar → no CRM bar/pill
   const [nodnd, setNodnd] = useState(false); // SIMOTEL-132 c: every open form is marked data-nodnd (flag-on VoIP forms/sheets) → no «مزاحم نشو» bar
+  const [mc, setMc] = useState(false); // multi-case wizard / picker: the bar is in-flow, never a fixed strip
   useEffect(() => {
     let f = 0;
     const check = () => {
@@ -107,6 +108,7 @@ function useForeignOverlay() {
       setForm(forms.length > 0);
       setNodnd(forms.length > 0 && forms.every(el => !!el.closest('[data-nodnd]')));
       setOwn(forms.length > 0 && forms.every(el => !!el.closest('[data-bbdnd]')));
+      setMc(forms.some(el => !!el.closest('[data-testid="create-loan-application-wizard"], [data-testid="case-context-picker"]')));
     };
     const sch = () => { if (!f) f = requestAnimationFrame(check); };
     const mo = new MutationObserver(sch);
@@ -114,7 +116,7 @@ function useForeignOverlay() {
     sch();
     return () => { mo.disconnect(); if (f) cancelAnimationFrame(f); };
   }, []);
-  return { open, form, nodnd, own };
+  return { open, form, nodnd, own, mc };
 }
 const typingInField = () => { const el = document.activeElement as HTMLElement | null; return Boolean(el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit'].includes((el as HTMLInputElement).type)) || el.isContentEditable) && !el.closest('.nas-chw')); };
 type Anchor = { top: number; bottom: number; left: number; right: number; cx: number };
@@ -201,11 +203,18 @@ function SsInflow({ children }: { children: ReactNode }) {
       });
       const d = ds.find(el => el.closest('.rmm-x')) ?? ds[ds.length - 1];
       if (!d) { if (cur) { cur.remove(); cur = null; setHost(null); } return; }
-      if (cur && d.contains(cur)) return;
-      if (cur) cur.remove();
-      const h = document.createElement('div'); h.className = 'ss-dnd-host';
-      const head = d.querySelector<HTMLElement>('.modal-head, .rmm-h, header');
-      if (head && head.parentElement && head.closest(SS_FORM_SEL) === d) head.insertAdjacentElement('afterend', h); else d.prepend(h);
+      const h = cur && d.contains(cur) ? cur : document.createElement('div');
+      if (h !== cur) h.className = 'ss-dnd-host';
+      const mcTitle = d.querySelector<HTMLElement>('.mc-wbody h2');
+      if (mcTitle) {
+        if (cur === h && mcTitle.nextElementSibling === h) return;
+        if (mcTitle.nextElementSibling !== h) mcTitle.insertAdjacentElement('afterend', h);
+      } else if (cur && d.contains(cur)) return;
+      else {
+        const head = d.querySelector<HTMLElement>('.modal-head, .rmm-h, header');
+        if (head && head.parentElement && head.closest(SS_FORM_SEL) === d) head.insertAdjacentElement('afterend', h); else d.prepend(h);
+      }
+      if (cur && cur !== h) cur.remove();
       cur = h; setHost(h);
     };
     const sch = () => { if (!f) f = requestAnimationFrame(find); };
@@ -379,7 +388,7 @@ export function AssistantDock({ user, bottomOffset, phone, shellV2 = false }: { 
   const openRef = useRef(openId); openRef.current = openId;
   const prefsNow = prefs ?? mine.data?.prefs ?? EMPTY.prefs;
   const prefsRef = useRef(prefsNow); prefsRef.current = prefsNow;
-  const { open: overlay, form: formOpen, nodnd: formNodnd, own: formOwn } = useForeignOverlay();
+  const { open: overlay, form: formOpen, nodnd: formNodnd, own: formOwn, mc: mcForm } = useForeignOverlay();
   const overlayRef = useRef(overlay); overlayRef.current = overlay;
   // Messages that arrived while a form was open / the user was typing (by id, so re-delivered messages count once).
   const queueRef = useRef(new Map<number, AsMessage>());
@@ -399,9 +408,9 @@ export function AssistantDock({ user, bottomOffset, phone, shellV2 = false }: { 
   const dndBarRef = useRef(dndBar); dndBarRef.current = dndBar;
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.toggle('nas-dnd-on', dndBar && !shellV2);
+    root.classList.toggle('nas-dnd-on', dndBar && !shellV2 && !mcForm);
     return () => root.classList.remove('nas-dnd-on');
-  }, [dndBar]);
+  }, [dndBar, shellV2, mcForm]);
   // v3 bell: «باز کردن گفتگو» on an assistant row opens that chat (only if it is one of this user's threads).
   useEffect(() => {
     // Sidebar «چت دستیار» sends { first: true } (no threadId): open this user's first assistant chat.
@@ -620,12 +629,12 @@ export function AssistantDock({ user, bottomOffset, phone, shellV2 = false }: { 
       {avatars}
     </div> : null}
     {!dragging && !hidePhone && pop ? <HeadPop head={headRect} side={side} phone={phone} top={bTop} testid="assistant-pop">{pop}</HeadPop> : null}
-    {!dragging && !phone && overlay && !formOwn && !safe.hidden ? (modalBox ? (effHead && safe.gutter ? <DndCard head={effHead} side={effSide} gutter={safe.gutter}><div className="nas-dndc"><Moon size={14} /> <span><b>مزاحم نشو</b> تا این پنجره باز است{queued ? ` · ${faNum(queued)} پیام در صف` : ''}</span></div></DndCard> : null)
-      : <HeadPop head={headRect} side={side} phone={false} top={bTop} testid="assistant-dnd-card"><div className="nas-dndc"><Moon size={14} /> <span><b>مزاحم نشو</b> تا این پنجره باز است{queued ? ` · ${faNum(queued)} پیام در صف` : ''}</span></div></HeadPop>) : null}
-    {dndBar ? createPortal(<div className="nas-dndbar" role="status" aria-live="polite" dir="rtl" data-testid="assistant-dnd-bar">
+    {!dragging && !phone && overlay && !formOwn && !safe.hidden && !mcForm ? (modalBox ? (effHead && safe.gutter ? <DndCard head={effHead} side={effSide} gutter={safe.gutter}><div className="nas-dndc"><Moon size={14} /> <span><b>مزاحم نشو</b> تا این پنجره باز است{queued ? `، ${faNum(queued)} پیام در صف` : ''}</span></div></DndCard> : null)
+      : <HeadPop head={headRect} side={side} phone={false} top={bTop} testid="assistant-dnd-card"><div className="nas-dndc"><Moon size={14} /> <span><b>مزاحم نشو</b> تا این پنجره باز است{queued ? `، ${faNum(queued)} پیام در صف` : ''}</span></div></HeadPop>) : null}
+    {dndBar && !shellV2 ? <SsInflow><div className="nas-dndbar" role="status" aria-live="polite" dir="rtl" data-testid="assistant-dnd-bar">
       <Moon size={18} aria-hidden="true" /><span className="t"><b>مزاحم نشو</b> — تا این فرم باز است؛ {queued ? `${faNum(queued)} پیام در صف` : 'پیام‌ها در صف می‌مانند'}</span>
       <button type="button" onClick={() => setBarOff(true)} data-testid="button-assistant-dnd-bar-off">خاموش کن</button>
-    </div>, document.body) : null}
+    </div></SsInflow> : null}
     {openA ? <ChatPanel a={openA} t={openThread ?? EMPTY} prefs={prefsNow} phone={phone} customerId={ctxCustomer} onClose={() => setOpenId(null)} onAct={act} onPrefs={savePrefs} onDecided={decided} onSent={chatSent} /> : null}
     {quickFor ? <QuickReminder m={quickFor} onClose={() => setQuickFor(null)} onFull={() => { setRemindFor(quickFor); setQuickFor(null); }} /> : null}
     {remindFor ? <CreateReminderForm onClose={() => setRemindFor(null)} /> : null}

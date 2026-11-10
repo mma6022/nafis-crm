@@ -28,6 +28,7 @@ import { loanPlanNetAmount } from "../lib/loan-plan-net-amount";
 import { classifyProviderState, isStrictSignedProviderState, providerContractState } from "../lib/emzame-signature";
 import { emzameRequest } from "../lib/emzame-client";
 import { creditLoanWallet, wallet } from "../lib/wallets";
+import { bindSlotCharge, claimSlotForApplication, mcFlagOn, newCasePlanBlock, openSamePlanBody, orderMultiCasePlanIds, planRequiresFilingFee, popularPlanIds, reserveOpenPlan } from "../lib/multi-case";
 import {
   isAttestedTomanTemplate,
   renderedPdfContainsInstallmentCount,
@@ -137,6 +138,7 @@ const LOAN_REFUSAL_MESSAGES: Record<string, string> = {
   initial_funder_decision_already_recorded: "تصمیم اولیهٔ تأمین‌کننده قبلاً برای این پرونده ثبت شده است.",
   loan_plan_condition_not_found: "شرط طرح متناسب با مبلغ و تعداد اقساط انتخاب‌شده پیدا نشد.",
   loan_plan_condition_not_matched: "مبلغ یا تعداد اقساط با شرایط طرح این پرونده سازگار نیست.",
+  open_same_plan_case: "برای این مشتری یک پروندهٔ باز با همین طرح وجود دارد. تا بسته شدن آن، پروندهٔ تازه با همین طرح ساخته نمی‌شود.",
   workflow_error: "ثبت این اقدام به دلیل خطای داخلی انجام نشد.",
 };
 function error(res: any, status: number, rawCode: string, rawReason?: string, rawMessage?: string) {
@@ -255,6 +257,17 @@ function shape(r: any, actor: AuthUser): any {
       actionRequired: !["primary_contract_pending_signature", "approved_contract_pending_signature"].includes(r.stage) && canAct(r.stage, actor, Number(r.customer_id), r.status), actionRole: actionRoles[r.stage] ?? "customer", businessStatus, createdAt: r.created_at, updatedAt: r.updated_at ?? r.created_at };
 }
 function parseJson(value: any) { try { return value ? JSON.parse(value) : null; } catch { return null; } }
+function mappingSource(mapping: any): string {
+  return mapping?.sourceType ?? (mapping?.customerField ? "customer" : mapping?.loanPlanField ? "loanPlan" : "manual");
+}
+/** A primary template can create a case only when it maps the loan principal exactly once. */
+function primaryTemplateReady(templateId: number | null): boolean {
+  if (!templateId) return false;
+  const template = queryRow<any>("SELECT mappings_json FROM contract_templates WHERE id=? AND deleted_at IS NULL", [templateId]);
+  const mappings = parseJson(template?.mappings_json);
+  if (!Array.isArray(mappings)) return false;
+  return mappings.filter((mapping: any) => mappingSource(mapping) === "loanPlan" && mapping?.loanPlanField === "loanPlan.principalAmount").length === 1;
+}
 export function freshSuccessfulCredit(customerId: number) {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   return queryRow<any>(
@@ -1530,22 +1543,38 @@ router.get("/customers/:customerId/eligible-plans", requirePermission("loan_appl
        const required = (parseJson(plan.required_documents) ?? []).filter((key: unknown) => !separateRequirementKeys.has(String(key))).map((key: unknown) => documentLabel(String(key)));
       const terms = effectivePlanTerms(plan, ignoreCreditRank ? { ...c, max_principal: "0" } : c);
        const templateId = Number(plan.contract_template_id ?? plan.primary_contract_template_id) || null;
+       const templateReady = mcFlagOn(user(res).id) ? primaryTemplateReady(templateId) : Boolean(templateId);
        const template = templateId ? queryRow<any>("SELECT mappings_json FROM contract_templates WHERE id=? AND deleted_at IS NULL", [templateId]) : null;
        const manualVariables = (parseJson(template?.mappings_json) ?? []).filter((mapping: any) =>
          (mapping.sourceType ?? (mapping.customerField ? "customer" : mapping.loanPlanField ? "loanPlan" : "manual")) === "manual"
        ).map((mapping: any) => ({ variable: String(mapping.variable), label: String(mapping.label || mapping.variable) }));
-       return { planId: Number(plan.id), name: plan.name, conditionId: Number(c.id),
+       return { planId: Number(plan.id), name: plan.name, bankName: plan.bank_name == null ? null : String(plan.bank_name), conditionId: Number(c.id),
          conditionName: String(c.name ?? c.title ?? `شرط ${index + 1}`),
          conditionNotes: c.notes ? String(c.notes) : null, maximumAmount: terms.maximum.toString(),
         allowedDurations: terms.durations, requiredDocuments: required,
         needsGuarantor: Boolean(c.needs_guarantor ?? plan.needs_guarantor),
         ...(() => { const v = guarantorGradeVerdict(c, guarantor.rank, plan);
           return { guarantorRanks: v.ranks, guarantorGradeStatus: v.status, guarantorGradeNote: v.note }; })(),
-         primaryContractPresent: Boolean(templateId), contractTemplateId: templateId, manualVariables };
+         primaryContractPresent: templateReady, contractTemplateId: templateReady ? templateId : null, manualVariables };
     });
   });
-  res.json({ customerId: customer.id, credit: { fresh, status: credit?.status ?? "missing", rank: credit?.score_label ?? null, checkedAt: credit?.completed_at ?? null },
-    guarantor: { rank: guarantor.rank, hasGuarantor: guarantor.hasGuarantor, source: guarantor.source, at: guarantor.at }, plans });
+  const creditBody = { fresh, status: credit?.status ?? "missing", rank: credit?.score_label ?? null, checkedAt: credit?.completed_at ?? null };
+  const guarantorBody = { rank: guarantor.rank, hasGuarantor: guarantor.hasGuarantor, source: guarantor.source, at: guarantor.at };
+  if (!mcFlagOn(user(res).id)) return res.json({ customerId: customer.id, credit: creditBody, guarantor: guarantorBody, plans });
+  const ids: number[] = [];
+  const seen = new Set<number>();
+  const unready: number[] = [];
+  for (const plan of plans) {
+    if (seen.has(plan.planId)) continue;
+    seen.add(plan.planId);
+    ids.push(plan.planId);
+    if (!plan.primaryContractPresent) unready.push(plan.planId);
+  }
+  const popular = popularPlanIds(ids.filter((id) => !unready.includes(id)));
+  res.json({
+    customerId: customer.id, credit: creditBody, guarantor: guarantorBody, plans,
+    popularPlanIds: popular, planOrder: orderMultiCasePlanIds(ids, popular, unready),
+  });
 });
 // «نادیده گرفتن رتبه» switched on in the wizard: the reason is mandatory and the use is logged before any preview.
 router.post("/customers/:customerId/credit-rank-override", requirePermission("loan_applications.create"), (req, res) => {
@@ -1632,6 +1661,10 @@ router.post("/loan-applications/filing-fee-charges", requirePermission("loan_app
         const own = queryRow<any>("SELECT * FROM loan_filing_fee_charges WHERE id=?", [draft.fee_charge_id]);
         if (own && own.application_id == null) return { chargeId: Number(own.id), amountToman: String(own.amount_toman), applicationId: null, repeated: true };
       }
+      if (mcFlagOn(actor.id)) {
+        // New idempotency key. Same-plan open case or another request's unattached fee conflicts before any debit.
+        reserveOpenPlan(customerId, planId);
+      } else {
       const reusable = reusableFilingFeeCharge(customerId, planId);
       if (reusable) {
         return linked({
@@ -1643,6 +1676,7 @@ router.post("/loan-applications/filing-fee-charges", requirePermission("loan_app
       }
       // A paid fee that already created a (hidden) pre-registration case is continued on that case, never charged again.
       if (openPreRegistrationCase(customerId)) throw new Error("open_pre_registration_case");
+      }
       const profile = queryRow<any>("SELECT * FROM customers WHERE id=?", [customerId]);
       const prerequisiteError = filingFeePrerequisiteError(profile, ignoreCreditRank);
       if (prerequisiteError) throw new Error(prerequisiteError);
@@ -1659,6 +1693,7 @@ router.post("/loan-applications/filing-fee-charges", requirePermission("loan_app
       const chargeId = execute(
         "INSERT INTO loan_filing_fee_charges(customer_id,plan_id,amount_toman,idempotency_key,actor_user_id,created_at) VALUES(?,?,?,?,?,?)",
         [customerId, planId, amount, key, actor.id, ts]);
+      if (mcFlagOn(actor.id)) bindSlotCharge(customerId, planId, Number(chargeId));
       if (overrideReason) logCreditRankOverride({ action: "filing_fee_charged", actor, customerId, planId, reason: overrideReason, at: ts });
       if (BigInt(amount) > 0n) {
         executeChanges("UPDATE wallet_accounts_v2 SET balance=? WHERE id=?", [(BigInt(cash.balance) - BigInt(amount)).toString(), cash.id]);
@@ -1674,6 +1709,8 @@ router.post("/loan-applications/filing-fee-charges", requirePermission("loan_app
       chargeId: result.chargeId, amountToman: result.amountToman, applicationId: result.applicationId,
     });
   } catch (e) {
+    const samePlan = openSamePlanBody(e);
+    if (samePlan) return res.status(409).json(samePlan);
     const code = e instanceof Error ? e.message : "";
     if (["filing_fee_idempotency_conflict", "insufficient_cash_balance", "draft_fee_plan_locked", "draft_closed", "open_pre_registration_case"].includes(code)) return error(res, 409, code);
     if (["invalid_draft", "draft_not_found"].includes(code)) return error(res, code === "invalid_draft" ? 400 : 404, code);
@@ -1821,14 +1858,20 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
   if (!customerId || !plan || !conditionId || !/^[1-9]\d*$/.test(amount) || !Number.isInteger(duration) || duration < 1) return error(res, 400, "invalid_application_input");
    const u = user(res), customer = queryRow<any>("SELECT * FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [customerId]);
    if (!customer || (u.customerScope === "assigned" && customer.salesperson_id !== u.salespersonId)) return error(res, 404, "loan_application_not_found");
+  if (mcFlagOn(u.id)) {
+    const templateId = Number(plan.contract_template_id ?? plan.primary_contract_template_id) || null;
+    const block = newCasePlanBlock(primaryTemplateReady(templateId));
+    if (block) return error(res, 422, block);
+  }
+  const feeRequired = planRequiresFilingFee(plan.filing_fee_toman);
   const feeChargeId = Number(b.feeChargeId);
-  const charge = Number.isSafeInteger(feeChargeId) ? queryRow<any>(
+  const charge = feeRequired && Number.isSafeInteger(feeChargeId) ? queryRow<any>(
     "SELECT * FROM loan_filing_fee_charges WHERE id=? AND customer_id=? AND plan_id=?", [feeChargeId, customerId, planId]) : null;
-  if (!charge) return error(res, 422, "filing_fee_required");
+  if (feeRequired && !charge) return error(res, 422, "filing_fee_required");
   let draft: any = null;
-  try { draft = draftForSubmit(b.draftId, customerId, charge.id, u); }
-  catch (e) { const code = e instanceof Error ? e.message : "invalid_draft"; if (!(charge.application_id && code === "draft_closed")) return error(res, code === "draft_not_found" ? 404 : code === "invalid_draft" ? 400 : 409, code); }
-  if (charge.application_id) {
+  try { draft = draftForSubmit(b.draftId, customerId, charge ? Number(charge.id) : null, u); }
+  catch (e) { const code = e instanceof Error ? e.message : "invalid_draft"; if (!(charge?.application_id && code === "draft_closed")) return error(res, code === "draft_not_found" ? 404 : code === "invalid_draft" ? 400 : 409, code); }
+  if (charge?.application_id) {
     const existing = scoped(charge.application_id, u);
     return existing ? res.status(200).json(existing) : error(res, 409, "filing_fee_already_used");
   }
@@ -1856,9 +1899,16 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
   }
   if (!hasFreshIdentityDocuments(customerId)) return error(res, 422, "identity_documents_missing");
    const ts = now(), requirements = (() => { try { return (JSON.parse(plan.required_documents || "[]") as unknown[]).filter((key) => !separateRequirementKeys.has(String(key))); } catch { return []; } })();
-   const id = runTransaction(() => {
-     const currentCharge = queryRow<any>("SELECT application_id FROM loan_filing_fee_charges WHERE id=?", [charge.id]);
-     if (currentCharge?.application_id) return Number(currentCharge.application_id);
+   const multi = mcFlagOn(u.id);
+   let id: number;
+   try {
+   id = (multi ? runImmediateTransaction : runTransaction)(() => {
+     if (charge) {
+       const currentCharge = queryRow<any>("SELECT application_id FROM loan_filing_fee_charges WHERE id=?", [charge.id]);
+       if (currentCharge?.application_id) return Number(currentCharge.application_id);
+     } else if (multi) {
+       reserveOpenPlan(customerId, planId);
+     }
     let consultationId = Number(b.consultationId);
     if (!consultationId || !queryRow("SELECT id FROM consultation_forms WHERE id=? AND customer_id=?", [consultationId, customerId])) {
       consultationId = execute("INSERT INTO consultation_forms(customer_id,requested_amount,extra_notes,updated_at) VALUES(?,?,?,?)", [customerId, amount, b.notes ?? null, ts]);
@@ -1871,9 +1921,10 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
         [consultationId, customerId, u.id, JSON.stringify([planId]), planId, amount, duration, duration, "draft", "requested", JSON.stringify(plan), JSON.stringify(ignoreCreditRank ? loanRankOverrideSnapshot(condition, u.id, ts, terms.maximum.toString(), overrideReason) : condition ?? null), JSON.stringify(requirements.map((key) => ({ key: String(key), label: documentLabel(String(key)) }))), JSON.stringify(manualInput.values), preRegistration, customer.salesperson_id ?? null, salespersonSnapshot?.name ?? null, 1, ts, ts]);
      for (const item of requirements) execute("INSERT INTO loan_application_documents(application_id,requirement_key,label,source,created_at) VALUES(?,?,?,?,?)", [appId, String(item), documentLabel(String(item)), "plan", ts]);
       execute("INSERT INTO loan_application_stage_history(application_id,to_stage,action,actor_id,created_at) VALUES(?,?,?,?,?)", [appId, "draft", "created", u.id, ts]);
-     executeChanges("UPDATE loan_filing_fee_charges SET application_id=? WHERE id=? AND application_id IS NULL", [appId, charge.id]);
+     if (charge) executeChanges("UPDATE loan_filing_fee_charges SET application_id=? WHERE id=? AND application_id IS NULL", [appId, charge.id]);
+     if (multi) claimSlotForApplication(customerId, planId, charge ? Number(charge.id) : null, Number(appId));
      // Same transaction: the «در انتظار ثبت» draft of this fee (or the one named by draftId) is closed as submitted.
-     closeDraftsForCase(customerId, Number(charge.id), appId, u.id, draft ? Number(draft.id) : null);
+     closeDraftsForCase(customerId, charge ? Number(charge.id) : null, appId, u.id, draft ? Number(draft.id) : null);
     if (overrideReason) {
       logCreditRankOverride({ action: "case_created", actor: u, customerId, applicationId: appId, planId, conditionId, reason: overrideReason, at: ts });
       // Earlier uses for this customer (preview / filing fee) by the same person now belong to this case.
@@ -1882,6 +1933,11 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
     }
     return appId;
   });
+  } catch (e) {
+    const samePlan = openSamePlanBody(e);
+    if (samePlan) return res.status(409).json(samePlan);
+    throw e;
+  }
   res.status(201).json(scoped(id, u));
 });
 registerLoanCaseAdminControls(router, { scoped, stages, workflowStatus, effectivePlanTerms, validatedPrimaryManualValues, loanRankOverrideSnapshot, documentLabel });
