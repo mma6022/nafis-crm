@@ -48,6 +48,25 @@ function dto(row: Row) {
     canLeave: true, version: row.version, resolvedRelease: row.status === "resolved" ? row.target_release : null };
 }
 
+export const RESOLUTION_STATUSES = ["open", "in_progress", "resolved", "wont_fix"] as const;
+export type ResolutionStatus = (typeof RESOLUTION_STATUSES)[number];
+
+/** Additive, idempotent columns for nightly review of «گزارش خطا». Does not change the auto-repair `status` column or the save path. */
+export function ensureDiagnosticResolutionColumns(db: DatabaseSync): void {
+  const cols = new Set((db.prepare("PRAGMA table_info(diagnostic_reports)").all() as { name: string }[]).map((c) => c.name));
+  const add: Array<[string, string]> = [
+    ["resolution_status", "TEXT NOT NULL DEFAULT 'open'"],
+    ["resolved_at", "TEXT"],
+    ["resolved_by", "TEXT"],
+    ["resolution_note", "TEXT"],
+    ["fix_ref", "TEXT"],
+  ];
+  for (const [name, def] of add) {
+    if (!cols.has(name)) db.exec(`ALTER TABLE diagnostic_reports ADD COLUMN ${name} ${def}`);
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_diagnostic_reports_resolution ON diagnostic_reports(resolution_status, id)");
+}
+
 export function createDiagnosticRouter(deps: Dependencies) {
   const { db } = deps;
   db.exec(`
@@ -67,6 +86,7 @@ export function createDiagnosticRouter(deps: Dependencies) {
     CREATE TABLE IF NOT EXISTS diagnostic_worker_nonces(nonce_hash TEXT PRIMARY KEY,expires_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS diagnostic_worker_state(id INTEGER PRIMARY KEY CHECK(id=1),last_seen INTEGER NOT NULL);
   `);
+  ensureDiagnosticResolutionColumns(db);
   const row = (id: number) => db.prepare("SELECT * FROM diagnostic_reports WHERE id=?").get(id) as Row | undefined;
   const connected = () => Boolean((deps.workerSecret()?.length ?? 0) >= 32 &&
     Number((db.prepare("SELECT last_seen FROM diagnostic_worker_state WHERE id=1").get() as {last_seen:number}|undefined)?.last_seen ?? 0) > Date.now() - 90_000);
