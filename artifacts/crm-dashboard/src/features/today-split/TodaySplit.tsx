@@ -38,7 +38,8 @@ export default function TodaySplitGate({ children }: { children: ReactNode }) {
   const s = useTodaySplit(u?.id != null ? Number(u.id) : null, u?.role);
   const dci = useDciStatus();
   // flag.daily_customer_inline_v1 ON: this page replaces the two-tab split (timeline + three columns). Flag OFF: unchanged.
-  if (dci.data?.enabled) return <>{children}</>;
+  // Wait for the flag read so GET /daily-plans/today (which auto-covers file customers and refills the queue) does not run first.
+  if (dci.isLoading || dci.data?.enabled) return <>{children}</>;
   if (!s.data?.on) return <>{children}</>;
   return <TodaySplit potential={children} board={s.data.filesBoard} />;
 }

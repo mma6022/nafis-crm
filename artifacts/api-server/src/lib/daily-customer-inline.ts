@@ -208,7 +208,8 @@ export function dciTodayTimeline(user: AuthUser, now = new Date()): { date: stri
       const rows = queryRows<any>(
         `SELECT i.id, i.customer_id, i.type, i.source, i.status, i.moved_to, i.became_current_at, i.created_at, i.done_at, c.name
          FROM dp_items i JOIN customers c ON c.id=i.customer_id
-         WHERE i.plan_id=? AND i.status NOT IN ('skipped','transferred','covered','reserve')
+         WHERE i.plan_id=? AND i.status NOT IN ('skipped','transferred','reserve')
+           AND (i.status <> 'covered' OR i.label = 'پرونده‌ی وام باز دارد')
          ORDER BY CASE i.status WHEN 'current' THEN 0 WHEN 'pending' THEN 1 WHEN 'moved' THEN 2 WHEN 'done' THEN 3 ELSE 4 END, i.position, i.id`,
         [plan.id],
       );
@@ -530,20 +531,40 @@ function tagsOf(customerId: number): string[] {
   return queryRows<{ tag: string }>("SELECT tag FROM customer_tags WHERE customer_id=? ORDER BY tag", [customerId]).map((r) => String(r.tag));
 }
 
-function currentCallLine(customerId: number): string {
-  if (!tableExists("voip_after_call_events")) return "تماس ثبت‌شده‌ای در جریان نیست";
-  const ev = queryRow<any>(
-    `SELECT direction, status, started_at FROM voip_after_call_events WHERE customer_id=? ORDER BY id DESC LIMIT 1`,
-    [customerId],
-  );
+function lineFromEvent(ev: { direction?: string; status?: string } | null | undefined): string {
   if (!ev) return "تماس ثبت‌شده‌ای در جریان نیست";
-  const inn = /in/i.test(String(ev.direction));
+  const dir = String(ev.direction ?? "").trim().toLowerCase();
+  const inn = dir === "incoming" || dir === "inbound" || dir === "in";
   const missed = inboundMissed(ev.status);
   if (inn) return missed ? "تماس ورودی؛ بی‌پاسخ" : "تماس ورودی؛ جواب داد";
   return missed ? "تماس خروجی؛ جواب نداد" : "تماس خروجی؛ جواب داد";
 }
 
-export function dciBoard(user: AuthUser, customerId: number) {
+/** Mid-column current-call line. An inbound timeline task uses that event; a today-plan task prefers the latest outgoing. */
+function currentCallLine(customerId: number, task?: string | null): string {
+  if (!tableExists("voip_after_call_events")) return "تماس ثبت‌شده‌ای در جریان نیست";
+  if (task && /^in-\d+$/.test(task)) {
+    const ev = queryRow<any>(
+      "SELECT customer_id, direction, status, started_at FROM voip_after_call_events WHERE id=?",
+      [Number(task.slice(3))],
+    );
+    if (ev && Number(ev.customer_id) === customerId) return lineFromEvent(ev);
+  }
+  const outgoing = queryRow<any>(
+    `SELECT direction, status, started_at FROM voip_after_call_events
+     WHERE customer_id=? AND lower(direction) IN ('outgoing','outbound')
+     ORDER BY started_at DESC, id DESC LIMIT 1`,
+    [customerId],
+  );
+  if (outgoing) return lineFromEvent(outgoing);
+  const ev = queryRow<any>(
+    `SELECT direction, status, started_at FROM voip_after_call_events WHERE customer_id=? ORDER BY started_at DESC, id DESC LIMIT 1`,
+    [customerId],
+  );
+  return lineFromEvent(ev);
+}
+
+export function dciBoard(user: AuthUser, customerId: number, task?: string | null) {
   const access = dciAccess(user, customerId);
   if (access === "missing") return { access: "missing" as const };
   const meta = dciCustomerMeta(customerId)!;
@@ -570,7 +591,7 @@ export function dciBoard(user: AuthUser, customerId: number) {
       priority: meta.priority,
       tags: tagsOf(customerId),
     },
-    call: currentCallLine(customerId),
+    call: currentCallLine(customerId, task),
     prio: meta.priority === 1,
     hist: dciHistory(customerId),
     notes: dciNotes(customerId),

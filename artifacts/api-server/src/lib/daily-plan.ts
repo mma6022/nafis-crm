@@ -744,6 +744,13 @@ function dpCoverItem(p: Plan, it: Item, at: string): boolean {
 }
 const DP_QUOTA_EXTRA = new Set(["auto", "carried_extra"]);
 function dpCoverAndRefill(p: Plan, now: Date) {
+  // When the inline today page is on, covering file customers and auto-refilling
+  // the queue would hide today's work and inject leftover sample cards into the timeline.
+  try {
+    const g = queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", ["flag.daily_customer_inline_v1"]);
+    const u = queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [`flag.daily_customer_inline_v1.user.${p.user_id}`]);
+    if (g?.value === "1" || u?.value === "1") return;
+  } catch { /* settings table may be missing in some fixtures */ }
   const at = now.toISOString(); let main = 0, extra = 0;
   for (const it of items(p.id, "status IN ('pending','current','moved','reserve') AND bucket<>'outside'")) {
     if (!dpCoverItem(p, it, at) || it.status === "reserve") continue;

@@ -259,7 +259,7 @@ export default function DailyCustomerInline() {
     return tasks[0] ?? null;
   }, [tasks, search, qCust]);
   const customerId = selectedTask?.customerId ?? (Number.isFinite(qCust) && qCust > 0 ? qCust : null);
-  const boardQ = useDciBoard(customerId, customerId != null);
+  const boardQ = useDciBoard(customerId, customerId != null, selectedTask?.id ?? null);
   const [toast, setToast] = useState("");
   const [promoting, setPromoting] = useState(false);
   const [reasonOpen, setReasonOpen] = useState(false);

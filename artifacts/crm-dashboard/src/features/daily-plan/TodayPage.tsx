@@ -68,7 +68,7 @@ export default function TodayPage() {
   const cfg = useDpConfig().data;
   const on = Boolean(cfg?.flags.daily_plan);
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: ['daily-plan', 'today'], queryFn: dpApi.today, enabled: on, refetchInterval: 30_000, retry: false });
+  const q = useQuery({ queryKey: ['daily-plan', 'today'], queryFn: dpApi.today, enabled: on && !dci.isLoading && dci.data?.enabled !== true, refetchInterval: 30_000, retry: false });
   const refresh = () => void qc.invalidateQueries({ queryKey: ['daily-plan', 'today'] });
   const [inbound, setInbound] = useState(false);
   const locked = useLockdownMe(false).data?.locked === true; // expert_lockdown (assistants54): reads the shell's cached /expert-lockdown/me, never fetches

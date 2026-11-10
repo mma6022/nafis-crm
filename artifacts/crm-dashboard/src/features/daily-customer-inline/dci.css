@@ -1,5 +1,22 @@
 /* daily-customer-inline v1.1 — خط زمان افقی و سه ستون؛ پوسته از shell.css است. */
-.dci-page{max-width:1240px;margin:0 auto;padding:0 24px calc(var(--dock-h) + var(--dock-gap) + 32px)}
+/* Live sales-shell uses --ss-dock-h / --ss-gap; map design --dock-h so content clears the dock. */
+.dci,body:has([data-testid="dci-page"]){--dock-h:var(--ss-dock-h,90px);--dock-gap:var(--ss-gap,16px)}
+.dci-page{max-width:1240px;margin:0 auto;padding:0 24px calc(var(--dock-h) + var(--dock-gap) + 40px)}
+/* Same rule as multi-case r9: hide the floating «گزارش خطا» pill on this page (top-bar icon stays). */
+body:has([data-testid="dci-page"]) .diag-floating{display:none!important}
+/* Desktop: the page fills the space above the dock; columns scroll inside so wallet / notes / «تماس دوباره» / «بعدی» never sit under it. */
+@media(min-width:1024px){
+  body:has([data-testid="dci-page"]) .app-shell.ssv2 .app-main{
+    display:flex;flex-direction:column;height:100vh;max-height:100vh;overflow:hidden;box-sizing:border-box;
+    padding-bottom:calc(var(--ss-dock-h,90px) + var(--ss-gap,16px) + 8px);
+  }
+  body:has([data-testid="dci-page"]) .dci,
+  body:has([data-testid="dci-page"]) .dci-page{
+    flex:1 1 auto;min-height:0;display:flex;flex-direction:column;padding-bottom:8px;
+  }
+  .dci-board{flex:1 1 auto;min-height:0;align-items:stretch}
+  .dci-col{max-height:100%;overflow-y:auto;overscroll-behavior:contain}
+}
 .dci-date{display:flex;gap:8px;align-items:center;font-size:14px;color:var(--nf-ink-muted);margin:16px 0 8px}
 .dci-page>h1{font-size:24px;font-weight:800;color:var(--nf-ink);margin:0 0 12px}
 /* خط زمان */
@@ -107,7 +124,7 @@
 }
 .dci-tabs,.dci-sticky{display:none}
 @media(max-width:1023.98px){
-  .dci-page{padding:0 12px calc(88px + env(safe-area-inset-bottom,0px))}
+  .dci-page{padding:0 12px calc(var(--ss-dock-h,72px) + 48px + 88px + env(safe-area-inset-bottom,0px))}
   .dci-page>h1{font-size:22px}
   .dci-board{display:flex;flex-direction:column;gap:12px}
   .dci-mid{order:1}
@@ -117,10 +134,10 @@
   .dci-board.show-file .dci-left{display:block}
   .dci-tabs button{flex:1;min-height:44px;border-radius:12px;border:1px solid var(--nf-line);background:#fff;font:inherit;font-weight:700;color:var(--nf-ink)}
   .dci-tabs button[aria-selected=true]{background:var(--nf-brand-50);border-color:var(--nf-brand-200);color:var(--nf-brand-700)}
-  .dci-sticky{display:block;position:fixed;left:0;right:0;bottom:var(--dock-h);z-index:35;background:#fff;border-top:1px solid var(--nf-line);padding:10px 0}
+  .dci-sticky{display:block;position:fixed;left:0;right:0;bottom:calc(var(--ss-dock-h,72px) + 48px + env(safe-area-inset-bottom,0px));z-index:39;background:#fff;border-top:1px solid var(--nf-line);padding:10px 0}
   .dci-sticky .btn{width:calc(100% - 24px);margin:0 12px;min-height:48px}
   .dci-calls>li{grid-template-columns:1fr}
-  body.dci-stick .dci-page{padding-bottom:calc(var(--dock-h) + 88px + env(safe-area-inset-bottom,0px))}
+  body.dci-stick .dci-page{padding-bottom:calc(var(--ss-dock-h,72px) + 48px + 88px + env(safe-area-inset-bottom,0px))}
 }
 
 /* Integration helpers (from Armita shell.css), scoped so global CRM .btn is unchanged outside this page. */

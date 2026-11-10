@@ -6,11 +6,14 @@ import { useQuery } from '@tanstack/react-query';
 import { Eye, UsersRound, ArrowLeft } from 'lucide-react';
 import { useListReminders, getListRemindersQueryKey, type Reminder } from '@workspace/api-client-react';
 import { dpApi } from '@/features/daily-plan/api';
+import { useDciStatus } from '@/features/daily-customer-inline/api';
 import { faNum, tehranHm } from './api';
 import { RvList, useReminderVoip } from '@/features/reminder-voip/ReminderVoip';
 
 export function CustLocked() {
-  const t = useQuery({ queryKey: ['ss-cur-task'], queryFn: dpApi.today, staleTime: 30_000, retry: false });
+  const dci = useDciStatus();
+  // GET /daily-plans/today auto-covers file customers and refills the queue; skip it while the inline page is on.
+  const t = useQuery({ queryKey: ['ss-cur-task'], queryFn: dpApi.today, staleTime: 30_000, retry: false, enabled: !dci.isLoading && dci.data?.enabled !== true });
   const d = t.data && 'current' in t.data ? t.data : null;
   const cur = d?.current ?? null;
   return <div className="ss-page" data-testid="ss-cust-locked">
