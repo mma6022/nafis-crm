@@ -1,0 +1,79 @@
+/* bale-bot v1.0 — برای اعمال مستقیم روی مؤلفه‌های React، نه iframe.
+   اجزای پایهٔ حباب / صفحه‌کلید / کارت در bale-contact v1.0 هم آمده است. رنگ برند را rgb بنویسید. */
+:root{
+  --nf-font-sans:'Vazirmatn', Tahoma, 'Segoe UI', system-ui, sans-serif;
+  --nf-ink: #0B1450;
+  --nf-ink-soft: #3D4A6B;
+  --nf-ink-muted: #5F6B85;
+  --nf-brand-600: rgb(41, 54, 155);
+  --nf-brand-50: #EEF0FA;
+  --nf-surface: #F7F8FC;
+  --nf-surface-2: #EFF1F8;
+  --nf-line: #E3E6F0;
+  --nf-gold-50: #FEF8EA;
+  --nf-gold-300: #F7D27F;
+  --nf-gold-700: #8A6212;
+  --nf-radius-pill: 999px;
+}
+/* سند باید lang=fa و dir=rtl داشته باشد. */
+.bbt.cb-on .smp, .cb-scope .smp {display:inline-block;font-size:14px;font-weight:600;color:var(--nf-gold-700);background:var(--nf-gold-50);border:1px dashed var(--nf-gold-300);border-radius:var(--nf-radius-pill);padding:0 8px;line-height:22px;margin-inline-start:6px}
+.bbt.cb-on .cid, .cb-scope .cid {display:inline-flex;align-items:center;min-height:26px;padding:0 8px;border-radius:8px;background:var(--nf-surface-2);color:var(--nf-ink-muted);font-size:14px;font-weight:600;margin-inline-start:8px;border:0;cursor:pointer;font-family:inherit}
+.bbt.cb-on .btn, .cb-scope .btn {display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:48px;padding:8px 16px;border-radius:14px;font-family:var(--nf-font-sans);font-size:15px;font-weight:700;text-decoration:none;border:1px solid transparent;cursor:pointer}
+.bbt.cb-on .btn.sm, .cb-scope .btn.sm {min-height:44px;padding:6px 12px;font-size:14px}
+.bbt.cb-on .btn.pri, .cb-scope .btn.pri {background:var(--nf-brand-600);color:#fff}
+.bbt.cb-on .btn.gh, .cb-scope .btn.gh {background:#fff;color:var(--nf-ink);border-color:var(--nf-line)}
+.bbt.cb-on .btn[aria-disabled=true], .cb-scope .btn[aria-disabled=true] {background:var(--nf-surface-2);color:var(--nf-ink-muted);cursor:not-allowed;box-shadow:none}
+
+/* bale-bot v1.0: پیگیری، ثبت درخواست و پاسخ هوش مصنوعی در ربات نفیس وام.
+   اجزای پایه (حباب، دکمهٔ درون‌خطی، صفحه‌کلید، کارت) از bc.css می‌آیند. */
+.bbt.cb-on .bb-step, .cb-scope .bb-step {display:block;font-size:12px;font-weight:700;color:rgb(41, 54, 155);background:var(--nf-brand-50);border-radius:var(--nf-radius-pill);padding:4px 10px;margin-bottom:8px;width:max-content;max-width:100%}
+.bbt.cb-on .bb-prog, .cb-scope .bb-prog {display:flex;gap:4px;margin:8px 0 4px;width:100%}
+.bbt.cb-on .bb-prog i, .cb-scope .bb-prog i {flex:1;height:6px;border-radius:99px;background:var(--nf-surface-2);display:block}
+.bbt.cb-on .bb-prog i.on, .cb-scope .bb-prog i.on {background:rgb(41, 54, 155)}
+.bbt.cb-on .bb-prog i.now, .cb-scope .bb-prog i.now {background:rgb(41, 54, 155);opacity:.55}
+.bbt.cb-on .bb-phlab, .cb-scope .bb-phlab {display:flex;justify-content:space-between;gap:8px;font-size:11px;font-weight:600;color:var(--nf-ink-muted);margin-top:2px}
+.bbt.cb-on .bb-fcard, .cb-scope .bb-fcard {background:#fff;border:1px solid var(--nf-line);border-radius:16px;padding:12px;min-width:240px;max-width:300px}
+.bbt.cb-on .bb-fcard h3, .cb-scope .bb-fcard h3 {margin:0 0 8px;font-size:15px;font-weight:800;color:var(--nf-ink);display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+.bbt.cb-on .bb-fcard .fid, .cb-scope .bb-fcard .fid {display:inline-flex;align-items:center;min-height:24px;padding:0 8px;border-radius:8px;background:var(--nf-surface-2);color:var(--nf-ink-muted);font-size:13px;font-weight:700;margin-inline-start:4px}
+.bbt.cb-on .bb-kv, .cb-scope .bb-kv {display:flex;justify-content:space-between;gap:8px;font-size:13px;font-weight:600;line-height:1.7;margin:2px 0}
+.bbt.cb-on .bb-kv span, .cb-scope .bb-kv span {color:var(--nf-ink-soft)}
+.bbt.cb-on .bb-kv b, .cb-scope .bb-kv b {color:var(--nf-ink);font-weight:800;text-align:end}
+.bbt.cb-on .bb-amt, .cb-scope .bb-amt {unicode-bidi:isolate;font-variant-numeric:tabular-nums}
+.bbt.cb-on .bb-wait, .cb-scope .bb-wait {display:flex;align-items:flex-start;gap:8px;background:var(--nf-surface-2);border:1px solid var(--nf-line);border-radius:14px;padding:12px;margin:6px 0;font-size:14px;font-weight:600;color:var(--nf-ink);line-height:1.7}
+.bbt.cb-on .bb-wait .i, .cb-scope .bb-wait .i {width:18px;height:18px;flex:none;margin-top:3px;color:var(--nf-ink-muted)}
+.bbt.cb-on .bb-wait small, .cb-scope .bb-wait small {display:block;font-size:13px;font-weight:500;color:var(--nf-ink-soft);margin-top:4px}
+.bbt.cb-on .bb-warn, .cb-scope .bb-warn {background:#FEF8EA;border:1px solid #F7D27F;border-radius:12px;padding:12px;font-size:14px;line-height:1.8;color:var(--nf-ink);margin:6px 0}
+.bbt.cb-on .bb-warn .mc-row, .cb-scope .bb-warn .mc-row, .bbt.cb-on .bb-actions, .cb-scope .bb-actions {display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.bbt.cb-on .bb-docs, .cb-scope .bb-docs {list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.bbt.cb-on .bb-docs li, .cb-scope .bb-docs li {display:flex;align-items:center;gap:8px;min-height:44px;padding:6px 8px;border-radius:12px;font-size:14px;font-weight:600}
+.bbt.cb-on .bb-docs li.now, .cb-scope .bb-docs li.now {background:var(--nf-brand-50);color:rgb(41, 54, 155)}
+.bbt.cb-on .bb-docs li.dn, .cb-scope .bb-docs li.dn {color:var(--nf-ink-soft)}
+.bbt.cb-on .bb-docs li .st, .cb-scope .bb-docs li .st {margin-inline-start:auto;font-size:12px;font-weight:700}
+.bbt.cb-on .bb-up, .cb-scope .bb-up {display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:96px;border:1.5px dashed var(--nf-line-strong,#C9CEDF);border-radius:14px;background:var(--nf-surface);color:var(--nf-ink-soft);font-size:14px;font-weight:600;margin-top:8px;padding:12px;width:100%}
+.bbt.cb-on .bb-up .i, .cb-scope .bb-up .i {width:24px;height:24px}
+.bbt.cb-on .bb-up.on, .cb-scope .bb-up.on {border-style:solid;background:#fff;color:var(--nf-ink)}
+.bbt.cb-on .bb-plan, .cb-scope .bb-plan {background:#fff;border:1.5px solid var(--nf-line);border-radius:16px;padding:12px;width:100%;text-align:start;font-family:var(--nf-font-sans);cursor:pointer;min-height:64px}
+.bbt.cb-on .bb-plan[aria-checked=true], .cb-scope .bb-plan[aria-checked=true] {border-color:rgb(41, 54, 155);background:var(--nf-brand-50)}
+.bbt.cb-on .bb-plan b, .cb-scope .bb-plan b {display:block;font-size:15px;font-weight:800;color:var(--nf-ink)}
+.bbt.cb-on .bb-plan span, .cb-scope .bb-plan span {display:block;font-size:13px;font-weight:600;color:var(--nf-ink-soft);margin-top:2px}
+.bbt.cb-on .bb-plans, .cb-scope .bb-plans {display:flex;flex-direction:column;gap:8px;margin-top:8px;width:100%;min-width:220px}
+.bbt.cb-on .bb-field, .cb-scope .bb-field {display:flex;flex-direction:column;gap:4px;margin-top:8px;width:100%}
+.bbt.cb-on .bb-field label, .cb-scope .bb-field label {font-size:13px;font-weight:700;color:var(--nf-ink)}
+.bbt.cb-on .bb-field input, .cb-scope .bb-field input, .bbt.cb-on .bb-otp, .cb-scope .bb-otp {min-height:48px;border:1px solid var(--nf-line);border-radius:14px;padding:8px 12px;font-family:var(--nf-font-sans);font-size:16px;background:#fff;width:100%;box-sizing:border-box}
+.bbt.cb-on .bb-otp, .cb-scope .bb-otp {direction:ltr;unicode-bidi:isolate;letter-spacing:.3em;text-align:center;font-weight:700}
+.bbt.cb-on .bb-check, .cb-scope .bb-check {display:flex;align-items:flex-start;gap:8px;margin-top:10px;font-size:14px;font-weight:600;line-height:1.7;min-height:44px}
+.bbt.cb-on .bb-check input, .cb-scope .bb-check input {width:22px;height:22px;flex:none;margin-top:2px}
+.bbt.cb-on .bb-ai, .cb-scope .bb-ai {display:block;width:max-content;font-size:11px;font-weight:700;color:var(--nf-ink-muted);background:var(--nf-surface-2);border-radius:var(--nf-radius-pill);padding:2px 8px;margin-bottom:8px}
+.bbt.cb-on .bb-rev dt, .cb-scope .bb-rev dt {font-size:12px;font-weight:700;color:var(--nf-ink-soft);margin-top:8px}
+.bbt.cb-on .bb-rev dd, .cb-scope .bb-rev dd {margin:0;font-size:14px;font-weight:700;color:var(--nf-ink)}
+.bbt.cb-on .chip.fromb, .cb-scope .chip.fromb {background:var(--nf-brand-50);color:rgb(41, 54, 155);border:0}
+.bbt.cb-on .bb-task, .cb-scope .bb-task {display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--nf-line);border-radius:16px;background:#fff;margin:8px 0}
+.bbt.cb-on .bb-task b, .cb-scope .bb-task b {font-size:15px}
+.bbt.cb-on .bb-ctx, .cb-scope .bb-ctx {background:var(--nf-surface);border-radius:12px;padding:10px 12px;font-size:13px;line-height:1.7;margin:8px 0}
+.bbt.cb-on .bb-ctx small, .cb-scope .bb-ctx small {display:block;font-weight:700;color:var(--nf-ink-soft);margin-bottom:4px}
+.bbt.cb-on .btn[aria-disabled=true], .cb-scope .btn[aria-disabled=true] {background:var(--nf-surface-2);color:var(--nf-ink-muted);cursor:not-allowed;box-shadow:none}
+
+.bbt.cb-on .bb-plan .sub, .cb-scope .bb-plan .sub {display:block;font-size:13px;font-weight:600;color:var(--nf-ink-soft);margin-top:2px}
+.bbt.cb-on .bb-plan span.smp, .cb-scope .bb-plan span.smp {display:inline-block;margin-top:0}
+.bbt.cb-on .fid, .cb-scope .fid {direction:ltr;unicode-bidi:isolate;display:inline-flex;align-items:center;min-height:24px;padding:0 8px;border-radius:8px;background:var(--nf-surface-2);color:var(--nf-ink-muted);font-size:13px;font-weight:700}
+.bbt.cb-on .fid-w, .cb-scope .fid-w {margin-inline-start:0;display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:700;color:var(--nf-ink-muted);white-space:nowrap}

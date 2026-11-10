@@ -95,18 +95,22 @@ function chatView(c: ChatRow & { owner_id: number }, u: BbUser) {
     canResendAsk: !!(feature && canAct && !c.customer_id && botLive(bot) && botSends(bot)),
     typedMatch: typedMatch && typedMatch.state === "known" ? typedMatch.customer : null,
     waitingNumber: feature && !c.customer_id && !c.pending_typed_phone,
+    customerBot: attachCustomerBotToChat(c.id, c.owner_id, u),
   };
 }
 function botView(b: ReturnType<typeof botOfUser>) {
   return b ? { id: b.id, username: b.bot_username, name: b.bot_name, status: b.status, connectedAt: b.connected_at, lastOkAt: b.last_ok_at, lastError: b.last_error, hasToken: !!b.token_ct } : null;
 }
 
+import { attachCustomerBotToChat, customerBotFlagsPayload, registerCustomerBaleRoutes } from "./customer-bale";
+import { ensureCustomerBaleSchema, cbAnyFlagOn } from "../lib/customer-bale";
 export function createBaleBotRouter(): IRouter {
   const r: IRouter = Router();
   r.use("/bale-bot", (_req: Request, res: Response, next: NextFunction) => {
     if (!bbMasterOn()) return next("router");
     ensureBaleBotSchema();
     if (bcFlagOn()) ensureBaleContactSchema();
+    if (cbAnyFlagOn()) ensureCustomerBaleSchema();
     const u = me(res); if (!u || !bbView(u)) return fail(res, 403, "not_enabled");
     res.locals.bbUser = u; next();
   });
@@ -117,7 +121,7 @@ export function createBaleBotRouter(): IRouter {
     const u = U(res); const v = bbView(u)!;
     const unread = v === "all" ? queryRow<{ n: number }>("SELECT COUNT(*) n FROM bale_bot_chats WHERE unread>0")!.n
       : queryRow<{ n: number }>("SELECT COUNT(*) n FROM bale_bot_chats c JOIN bale_bots b ON b.id=c.bot_id WHERE b.user_id=? AND c.unread>0", [u.id])!.n;
-    res.json({ enabled: true, view: v, canManage: bbCanManage(u), name: nameOf(u), bot: botView(botOfUser(u.id)), unread, limits: BB_LIMITS, contactFeature: bcFlagOn() });
+    res.json({ enabled: true, view: v, canManage: bbCanManage(u), name: nameOf(u), bot: botView(botOfUser(u.id)), unread, limits: BB_LIMITS, contactFeature: bcFlagOn(), customerBot: customerBotFlagsPayload() });
   });
 
   r.get("/bale-bot/chats", (req, res) => {
@@ -457,6 +461,7 @@ export function createBaleBotRouter(): IRouter {
   });
   // Last line of defence: no error from this router may carry a token.
   r.use("/bale-bot", (err: any, _req: Request, res: Response, _next: NextFunction) => { bbLog({ action: "route.error", outcome: redact(err?.type ?? err?.message ?? "error").slice(0, 60) }); fail(res, err?.status === 413 ? 413 : 500, err?.status === 413 ? "file_too_big" : "unknown"); });
+  registerCustomerBaleRoutes(r, { kick });
   return r;
 }
 export default createBaleBotRouter();

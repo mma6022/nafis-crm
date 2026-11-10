@@ -6,6 +6,7 @@ import { Link, useLocation, useParams } from 'wouter';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import './bale-bot.css';
 import './bale-contact.css';
+import '../customer-bale/customer-bale.css';
 import { bbFetch, BbError, useBaleBotMe, bbListTime, bbTime, bbDay, bbDayKey, bbSize, bbDur, fa, fd, toLatin, PHONE_OK, bbUrl,
   type BbMe, type BbChat, type BbChats, type BbMessage } from './api';
 import { I, Ava, Nm, Cid, Ph, Uname, Unverified, useToast, Steps, Modal, copyText, FaPhones, faPhoneString } from './ui';
@@ -65,7 +66,7 @@ function Inbox({ me }: { me: BbMe }) {
   const err = (e: unknown) => toast(e instanceof BbError ? e.message : 'درخواست انجام نشد. دوباره تلاش کنید.');
   const askContact = async () => { if (!chat) return; try { await bbFetch(`/bale-bot/chats/${chat.id}/request-contact`, { body: {} }); toast('درخواست شماره فرستاده شد'); refresh(); } catch (e) { err(e); } };
 
-  return <div className={`bbt${me.contactFeature ? " bc-on" : ""}`} dir="rtl" data-testid="bale-bot-inbox">
+  return <div className={`bbt${me.contactFeature ? " bc-on" : ""}${me.customerBot?.any ? " cb-on" : ""}`} dir="rtl" data-testid="bale-bot-inbox">
     {/* the floating «گزارش خطا» launcher sat on the bubbles of an open chat on phones; the top-bar bug icon stays */}
     <style>{'@media (max-width:1023px){body:has(.bbt .pg.chv) .diag-floating{display:none!important}}'}</style>
     <main className={`pg bbpg${mob === 'chat' ? ' chv' : ''}`}>
@@ -125,7 +126,7 @@ function ListPane({ me, data, loading, sel, filter, setFilter, q, setQ, expert, 
         return <li key={c.id} className={`cv-r${c.unread ? ' un' : ''}`} aria-current={c.id === sel ? true : undefined} onClick={() => nav(`/bale-bot/${c.id}`)}>
           <a className="cv-hit" href={`#${c.id}`} onClick={(e) => { e.preventDefault(); nav(`/bale-bot/${c.id}`); }} aria-label={`گفتگو با ${c.name}${c.unread ? `، ${fa(c.unread)} پیام خوانده‌نشده` : ''}`} />
           <Ava name={c.name} seed={c.id} /><span className="nmr"><Nm name={c.name} />{showCid ? <Cid id={c.customer!.id} toast={toast} /> : null}</span><span className="tm">{bbListTime(c.lastAt)}</span>
-          <span className="pv">{c.lastByManager ? 'مدیر: ' : c.lastOut ? 'شما: ' : ''}{pvKind ? <I n={PREV_IC[pvKind]} /> : null}{me.contactFeature && c.lastPreview && !pvKind ? faPhoneString(c.lastPreview) : c.lastPreview}</span>{c.unread ? <span className="ub" aria-hidden="true">{fa(c.unread)}</span> : null}
+          <span className="pv">{c.lastByManager ? 'مدیر: ' : c.lastOut ? 'شما: ' : ''}{pvKind ? <I n={PREV_IC[pvKind]} /> : null}{c.customerBot?.handoff && !c.customerBot.handoff.claimedBy ? 'واگذاری از پاسخ خودکار' : c.customerBot?.filing ? (c.customerBot.filing.stepLine.replace(/\d+/g, (d: string) => fa(d))) : (me.contactFeature && c.lastPreview && !pvKind ? faPhoneString(c.lastPreview) : c.lastPreview)}</span>{c.unread ? <span className="ub" aria-hidden="true">{fa(c.unread)}</span> : null}
           {tags.length ? <span className="tg">{tags}</span> : null}</li>; })}</ul>
       : <div className="lempty"><b>گفتگویی پیدا نشد</b></div>}
     {data && data.counts.all ? <p className="lfoot"><I n="clock" />فقط پیام‌هایی که به ربات داده می‌شود؛ پیام‌های شخصی بله این‌جا نیست.</p> : null}
@@ -162,6 +163,56 @@ const MATCH_NOTE: Record<string, string> = {
   none: 'شماره‌ای که مشتری فرستاد به هیچ پرونده‌ای نخورد.',
   many: 'شماره‌ای که مشتری فرستاد به چند پرونده می‌خورد؛ با «جستجو و وصل» درستش را انتخاب کنید.',
 };
+
+const TASK_FA: Record<string, string> = {
+  docs_review: 'بررسی مدارک', credit_fail: 'اعتبارسنجی ناموفق', identity_manual: 'هویت دستی',
+  fee_unpaid: 'کارمزد پرداخت‌نشده', ai_handoff: 'واگذاری از پاسخ خودکار', talk_expert: 'گفتگو با کارشناس',
+  admin_approval: 'تأیید مدیر',
+};
+function filingLine(cb: NonNullable<BbChat['customerBot']>) {
+  if (!cb?.filing) return null;
+  const n = cb.filing.step;
+  return cb.filing.stepLine.replace(/\d+/g, (d) => String(d).replace(/[0-9]/g, x => '۰۱۲۳۴۵۶۷۸۹'[Number(x)]));
+}
+function CustomerBotBits({ chat, toast, refresh, err, where }: { chat: BbChat; toast: (t: string) => void; refresh?: () => void; err?: (e: unknown) => void; where: 'meta' | 'pane' | 'thread' }) {
+  const cb = chat.customerBot;
+  if (!cb || cb.restricted || !cb.flags?.any) return null;
+  const claim = async () => {
+    if (!cb.handoff || !refresh || !err) return;
+    try { await bbFetch(`/bale-bot/chats/${chat.id}/customer-bot/claim-handoff`, { body: { id: cb.handoff.id } }); toast('واگذار شد'); refresh(); } catch (e) { err(e); }
+  };
+  const remind = async () => {
+    if (!refresh || !err) return;
+    try { const r = await bbFetch(`/bale-bot/chats/${chat.id}/customer-bot/check-sign`, { body: {} }); toast(r.status === 'signed' ? 'امضا شد' : 'وضعیت امضا به‌روز شد'); refresh(); } catch (e) { err(e); }
+  };
+  const task = (cb.tasks && cb.tasks[0]) || null;
+  if (where === 'meta') {
+    if (cb.handoff && !cb.handoff.claimedBy) return <div className="bc-meta"><span className="chip mut"><I n="bell" />واگذاری از پاسخ خودکار</span><button className="btn pri sm" type="button" onClick={claim}>واگذار به من</button></div>;
+    if (task && (task.kind === 'docs_review' || task.kind === 'identity_manual' || task.kind === 'credit_fail' || task.kind === 'fee_unpaid' || task.kind === 'admin_approval'))
+      return <div className="bc-meta"><span className="chip mut"><I n="clock" />در انتظار کارشناس</span><span className="kv">کار <b>{TASK_FA[task.kind] ?? task.kind}</b></span></div>;
+    if (cb.filing?.contractStatus && cb.filing.contractStatus !== 'signed' && cb.filing.step >= 7)
+      return <div className="bc-meta">{chat.customer?.phone ? <Ph phone={chat.customer.phone} toast={toast} /> : null}<span className="kv">وضعیت امضا <b>در انتظار امضا</b></span><button className="btn gh sm" type="button" onClick={remind}>یادآوری امضا</button></div>;
+    if (cb.filing)
+      return <div className="bc-meta">{chat.customer?.phone ? <Ph phone={chat.customer.phone} toast={toast} /> : null}<span className="kv">ثبت درخواست <b>{filingLine(cb)}</b></span><span className="kv">کارشناس <b>{chat.expert.name}</b></span>{cb.filing.applicationId ? <Link className="btn gh sm" href={`/loan-applications/${cb.filing.applicationId}`}><I n="file" />مشاهده‌ی پرونده</Link> : null}</div>;
+    return null;
+  }
+  if (where === 'pane') {
+    return <>
+      {cb.filing ? <div className="kv2"><span>پیشرفت ربات</span><b>{filingLine(cb)}</b></div> : null}
+      {task ? <div className="kv2"><span>کار شما</span><b>{TASK_FA[task.kind] ?? task.kind} ارسال‌شده از بله</b></div> : null}
+      {cb.filing?.contractStatus ? <div className="kv2"><span>وضعیت امضا</span><b>{cb.filing.contractStatus === 'signed' ? 'امضا شد' : 'در انتظار امضا'}</b></div> : null}
+      {cb.filing?.contractStatus && cb.filing.contractStatus !== 'signed' ? <p className="m">یادآوری فقط از مسیر صدور فعلی فرستاده می‌شود؛ متن قرارداد در ربات تغییر نمی‌کند.</p> : null}
+      {cb.handoff && !cb.handoff.claimedBy ? <p className="m">سؤال مشتری و پاسخ خودکار در گفتگو آمده است. با «واگذار به من» این گفتگو را جواب می‌دهید.</p> : null}
+    </>;
+  }
+  if (where === 'thread' && cb.handoff) {
+    return <><div className="sys" role="status">واگذاری به کارشناس فروش، {chat.expert.name}</div>
+      <div className="bb-ctx"><small>متن سؤال مشتری</small>{cb.handoff.question}</div>
+      <div className="bb-ctx"><small>پاسخ خودکار</small>{cb.handoff.answer}</div></>;
+  }
+  return null;
+}
+
 function CustPane({ chat, toast, onAsk, onSearch, onLead }: { me: BbMe; chat: BbChat; toast: (t: string) => void; onAsk: () => void; onSearch: () => void; onLead: () => void }) {
   const c = chat.customer;
   const prof = <><div className="pf"><Ava name={chat.name} seed={chat.id} cls="lg2" /><b dir={/^[\x20-\x7e]+$/.test(chat.name) ? 'ltr' : undefined}>{chat.name}</b>{chat.username ? <Uname u={chat.username} /> : <span className="u">نام کاربری ندارد</span>}</div>
@@ -171,7 +222,7 @@ function CustPane({ chat, toast, onAsk, onSearch, onLead }: { me: BbMe; chat: Bb
   else if (chat.contactFeature && chat.pendingTypedPhone) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip g"><I n="clock" />شمارهٔ تایپی، در انتظار تأیید</span><Ph phone={chat.pendingTypedPhone} toast={toast} />{chat.typedMatch ? <><div className="nmr">{chat.typedMatch.name}<Cid id={chat.typedMatch.id} toast={toast} /></div><p className="m">قبل از تأیید، پرونده‌ی تطبیق‌شده را ببینید. دکمه‌های تأیید و رد در سربرگ گفتگو هستند.</p></> : <p className="m">با تأیید، لید تازه ساخته می‌شود و طبق قاعده‌ی توزیع فعلی به کارشناس می‌رسد. دکمه‌های تأیید و رد در سربرگ گفتگو هستند.</p>}</div>;
   else if (chat.contactFeature && chat.waitingNumber) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip mut"><I n="clock" />در انتظار اشتراک شماره</span><p className="m">وقتی مشتری شماره را با دکمه بفرستد، یا شما شماره را تأیید یا وارد کنید، گفتگو وصل می‌شود.</p>{chat.canResendAsk ? <button className="btn gh sm" type="button" onClick={onAsk}><I n="contact" />ارسال دوباره‌ی درخواست شماره</button> : null}</div>;
   else if (chat.contactFeature && c && chat.leadFromBale) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip ld"><I n="plus" />لید جدید از بله</span><div className="nmr">{c.name}<Cid id={c.id} toast={toast} /></div>{c.phone ? <Ph phone={c.phone} toast={toast} /> : null}<div className="kv2"><span>کارشناس</span><b>{c.expert ?? '—'}</b></div>{c.status ? <div className="kv2"><span>وضعیت</span><b>{CUST_STATUS[c.status] ?? c.status}</b></div> : null}{chat.sourceLine ? <p className="bc-src">{chat.sourceLine}</p> : null}{c.canOpen ? <Link className="btn gh sm" href={`/customers/${c.id}`}><I n="file" />مشاهده‌ی پرونده</Link> : null}</div>;
-  else if (chat.contactFeature && c) crm = <div className="sec"><h3>پرونده در CRM</h3><div className="nmr">{c.name}<Cid id={c.id} toast={toast} /></div>{c.phone ? <Ph phone={c.phone} toast={toast} /> : null}<div className="kv2"><span>کارشناس</span><b>{c.expert ?? '—'}</b></div>{c.status ? <div className="kv2"><span>وضعیت</span><b>{CUST_STATUS[c.status] ?? c.status}</b></div> : null}{chat.sourceLine ? <p className="bc-src">{chat.sourceLine}</p> : null}{c.canOpen ? <Link className="btn gh sm" href={`/customers/${c.id}`}><I n="file" />مشاهده‌ی پرونده</Link> : null}</div>;
+  else if (chat.contactFeature && c) crm = <div className="sec"><h3>پرونده در CRM</h3><div className="nmr">{c.name}<Cid id={c.id} toast={toast} /></div>{c.phone ? <Ph phone={c.phone} toast={toast} /> : null}<div className="kv2"><span>کارشناس</span><b>{c.expert ?? '—'}</b></div>{c.status ? <div className="kv2"><span>وضعیت</span><b>{CUST_STATUS[c.status] ?? c.status}</b></div> : null}{chat.sourceLine ? <p className="bc-src">{chat.sourceLine}</p> : null}<CustomerBotBits chat={chat} toast={toast} where="pane" />{c.canOpen ? <Link className="btn gh sm" href={`/customers/${c.id}`}><I n="file" />مشاهده‌ی پرونده</Link> : null}</div>;
   else if (c && c.restricted) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip s"><I n="link" />وصل شد به پرونده‌ی کارشناس دیگر</span><div className="nmr">{c.name}<Cid id={c.id} toast={toast} /></div><div className="kv2"><span>مسئول پرونده</span><b>{c.expert}</b></div><p className="m"><I n="lock" />جزئیات پرونده با مسئول آن است؛ شما این گفتگو را جواب می‌دهید.</p></div>;
   else if (c) crm = <div className="sec"><h3>پرونده در CRM</h3><div className="nmr">{c.name}<Cid id={c.id} toast={toast} /></div>{c.phone ? <Ph phone={c.phone} toast={toast} /> : null}{chat.phoneVerified === false ? <Unverified /> : null}
     <div className="kv2"><span>کارشناس</span><b>{c.expert ?? '—'}</b></div>{c.status ? <div className="kv2"><span>وضعیت</span><b>{CUST_STATUS[c.status] ?? c.status}</b></div> : null}
@@ -217,12 +268,15 @@ function ChatPane({ me, chat, messages, toast, err, refresh, onAsk, onSearch, on
   return <section className="pane ch" aria-label={`گفتگو با ${chat.name}`}>
     <div className="chh"><button className="ib bkb" type="button" onClick={back} aria-label="برگشت به گفتگوها"><I n="next" /></button><Ava name={chat.name} seed={chat.id} />
       <div className="t"><div className="nmr"><Nm name={chat.name} />{chat.customer && !chat.pendingTypedPhone ? <Cid id={chat.customer.id} toast={toast} /> : null}</div>{sub}</div></div>
-    {chat.contactFeature
-      ? <ContactMeta chat={chat} toast={toast} err={err} refresh={refresh} onAsk={onAsk} onManual={() => setWiz(true)} wiz={wiz} />
-      : <CStrip chat={chat} toast={toast} onAsk={onAsk} onSearch={onSearch} onLead={onLead} />}
+    {(() => { const cb = chat.customerBot; const hasCb = !!(cb && !cb.restricted && (cb.handoff || cb.filing || (cb.tasks && cb.tasks.length)));
+      if (hasCb) return <CustomerBotBits chat={chat} toast={toast} refresh={refresh} err={err} where="meta" />;
+      return chat.contactFeature
+        ? <ContactMeta chat={chat} toast={toast} err={err} refresh={refresh} onAsk={onAsk} onManual={() => setWiz(true)} wiz={wiz} />
+        : <CStrip chat={chat} toast={toast} onAsk={onAsk} onSearch={onSearch} onLead={onLead} />;
+    })()}
     {chat.contactFeature && wiz && chat.canManualEnter ? <ManualWiz chat={chat} toast={toast} err={err} refresh={refresh} close={() => setWiz(false)} /> : null}
     {chat.notices.map((n) => <div key={n.id} className="ntc" role="status"><I n="bell" /><span>{noticeText(n.kind, n.actor, n.at, chat)}</span><button className="btn lk sm" type="button" onClick={() => seen(n.id)}>باشه</button></div>)}
-    <div className="th" role="log" aria-label="پیام‌ها">{items}<div ref={thRef} /></div>
+    <div className="th" role="log" aria-label="پیام‌ها">{items}<CustomerBotBits chat={chat} toast={toast} where="thread" /><div ref={thRef} /></div>
     <Composer me={me} chat={chat} reply={reply} edit={edit} clear={() => { setReply(null); setEdit(null); }} toast={toast} err={err} refresh={refresh} />
   </section>;
 }

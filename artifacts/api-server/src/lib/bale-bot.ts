@@ -27,6 +27,7 @@ import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransa
 import { isSalesManagerUser, roleSql } from "./sales-manager";
 import { baleBotAad, openBotToken, type BotKeyEnv } from "./bale-bot-crypto";
 import * as baleContact from "./bale-contact";
+import * as customerBale from "./customer-bale";
 
 export const BB_FLAG = "flag.bale_bot";
 export const bbUserFlag = (userId: number) => `${BB_FLAG}.user.${userId}`;
@@ -266,6 +267,24 @@ export function storeUpdate(bot: BotRow, u: any): number[] {
   if (baleContact.bcFlagOn()) {
     baleContact.ensureBaleContactSchema();
     baleContact.bcAfterInbound(bot, c.id, { kind: p.kind, text: p.text, contact: p.contact, fromId, contactOwn: own, isNewChat: false });
+    const after = queryRow<any>("SELECT * FROM bale_bot_chats WHERE id=?", [c.id]);
+    if (after && customerBale.cbAnyFlagOn()) {
+      customerBale.ensureCustomerBaleSchema();
+      const linkedNow = after.customer_id && !c.customer_id;
+      if (linkedNow) {
+        const cust = queryRow<{ first_name: string; last_name: string; name: string }>("SELECT first_name, last_name, name FROM customers WHERE id=?", [after.customer_id]);
+        const nm = cust ? (cust.first_name || cust.name || "") : "";
+        customerBale.cbWelcomeAfterLink(after, bot, nm);
+      } else if (after.customer_id) {
+        const cust = queryRow<{ first_name: string; last_name: string; name: string }>("SELECT first_name, last_name, name FROM customers WHERE id=?", [after.customer_id]);
+        const nm = cust ? (cust.first_name || cust.name || "") : "";
+        customerBale.cbEnqueueInbound({
+          chat: after, bot, customerId: after.customer_id, customerName: nm,
+          text: p.kind === "text" ? (p.text ?? "") : (p.kind === "photo" ? "ارسال عکس" : ""),
+          hasPhoto: p.kind === "photo",
+        });
+      }
+    }
   } else if (p.contact && own === 1 && p.contact.phone) {
     executeChanges("UPDATE bale_bot_chats SET verified_phone=? WHERE id=?", [p.contact.phone, c.id]);
     if (c.customer_id == null) {
@@ -324,6 +343,10 @@ export async function attemptSend(msgId: number): Promise<void> {
     const body: Record<string, unknown> = { chat_id: m.chat_id, text: m.text };
     if (replyId) body.reply_to_message_id = replyId;
     if (m.keyboard === "contact") body.reply_markup = { keyboard: [[{ text: ASK_CONTACT_BUTTON, request_contact: true }]], resize_keyboard: true, one_time_keyboard: true };
+    else {
+      const mk = customerBale.cbReplyMarkup(m.keyboard);
+      if (mk) body.reply_markup = mk;
+    }
     r = await baleCall(token, "sendMessage", body);
   } else {
     const [method, field] = METHOD[m.send_as ?? m.kind] ?? METHOD.document;
@@ -377,6 +400,7 @@ export class BaleBotWorker {
     }
   }
   async flushOutbox(): Promise<void> {
+    await customerBale.cbDrainInbound();
     if (this.sending || !bbMasterOn()) return; this.sending = true;
     try {
       for (;;) {
