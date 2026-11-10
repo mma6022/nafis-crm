@@ -62,6 +62,7 @@ function useRoving(count: number, activeIdx: number) {
 
 type Props = {
   before: SsItem[]; after: SsItem[]; // desktop dock, right → left around the primary button
+  midSep?: boolean; // desktop separator between before/after when there is no primary (admin dock)
   tabs: SsItem[]; // mobile: today, customers | files
   daily: SsItem[]; // mobile «بیشتر» › کار هر روز
   groups: SsGroup[]; // «پرونده و پرداخت», «حساب من»
@@ -134,7 +135,10 @@ export function SalesShellNav(p: Props) {
     const i = n++;
     if (o === 'p') { if (!p.mobile) nodes.push(<span key="sep1" className="ss-sep" aria-hidden="true" />); nodes.push(primaryEl(i)); if (!p.mobile) nodes.push(<span key="sep2" className="ss-sep" aria-hidden="true" />); }
     else if (o === 'm') { if (!p.mobile) nodes.push(<span key="sep3" className="ss-sep" aria-hidden="true" />); nodes.push(moreEl(i)); }
-    else nodes.push(itemEl(o, i));
+    else {
+      nodes.push(itemEl(o, i));
+      if (!p.mobile && p.midSep && !p.primary && i === p.before.length - 1) nodes.push(<span key="sep-mid" className="ss-sep" aria-hidden="true" />);
+    }
   }
   void dockList;
 
