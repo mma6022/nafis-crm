@@ -21,6 +21,8 @@ export function PersianDatePicker({
   popoverClassName,
   noFuture = false,
   displayDigits = false,
+  formatDisplay,
+  ariaLabel,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -33,6 +35,9 @@ export function PersianDatePicker({
   noFuture?: boolean;
   /** Show Persian digits in the trigger. The stored value stays Latin. */
   displayDigits?: boolean;
+  /** Optional visible label (e.g. «۱۹ آبان ۱۴۰۵»). The stored value stays Jalali YYYY/MM/DD. */
+  formatDisplay?: (value: string) => string;
+  ariaLabel?: string;
 }) {
   const selected = value ? jalaliValueToDate(value) : undefined;
   const today = new Date();
@@ -42,9 +47,9 @@ export function PersianDatePicker({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" className={`persian-date-trigger ${value ? 'has-value' : ''}`} data-testid={testId}>
+        <button type="button" className={`persian-date-trigger ${value ? 'has-value' : ''}`} data-testid={testId} aria-label={ariaLabel}>
           <CalendarDays size={15} />
-          <span dir="ltr">{displayDigits && value ? faDateDigits(value) : (value || placeholder)}</span>
+          <span dir={formatDisplay && value ? 'rtl' : 'ltr'}>{value ? (formatDisplay ? formatDisplay(value) : (displayDigits ? faDateDigits(value) : value)) : placeholder}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent className={`persian-date-popover ${popoverClassName ?? ''}`} align="start" dir="rtl">

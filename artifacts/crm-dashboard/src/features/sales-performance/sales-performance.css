@@ -130,3 +130,30 @@ body.rm .sp-skel i{animation:none}
 /* production page (inside CrmShell): keep the table's own horizontal scroll */
 .sp-page{padding:0 0 24px}
 .sp-inc{display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:600;color:var(--nf-ink-muted);line-height:1.4}
+
+/* Jalali picker in the custom range (reuses PersianDatePicker; no native type=date). */
+.sp-field .sp-date{width:100%}
+.sp-field .persian-date-trigger{
+  width:100%;min-height:48px;display:flex;align-items:center;gap:8px;
+  border:1px solid var(--nf-line-strong);border-radius:var(--nf-radius-control,12px);
+  background:#fff;color:var(--nf-ink-muted,#8a96a7);padding:0 14px;font:inherit;text-align:right;cursor:pointer
+}
+.sp-field .persian-date-trigger.has-value{color:var(--nf-ink,var(--ink-deep,#10203a))}
+.sp-field .persian-date-trigger:focus-visible{outline:2px solid var(--nf-brand-400,#9bb4ff);border-color:var(--nf-brand-600,#2450c8)}
+.sp-field .persian-date-trigger span{flex:1}
+
+/* Popover is portaled to document.body; keep the same look as the rest of the CRM picker. */
+.persian-date-popover{width:auto;padding:8px;direction:rtl;z-index:200;background:#fff;border:1px solid var(--nf-line,#dce3ec);border-radius:12px;box-shadow:0 8px 24px rgba(11,20,80,.12)}
+.persian-date-popover .rdp-root{
+  --rdp-accent-color:var(--nafiss-blue,var(--nf-brand-600,#2450c8));
+  --rdp-accent-background-color:#e9efff;
+  --rdp-day-height:34px;--rdp-day-width:34px;margin:0;font-family:inherit
+}
+.persian-date-popover .rdp-dropdowns{display:flex;align-items:center;gap:8px}
+.persian-date-popover .rdp-dropdown{min-height:34px;border:1px solid #dce3ec;border-radius:8px;background:#fff;color:var(--nf-ink,var(--ink-deep,#10203a));padding:0 8px;font:inherit;cursor:pointer}
+.persian-date-popover .rdp-month_caption{font-size:12px;font-weight:800;color:var(--nf-ink,var(--ink-deep,#10203a))}
+.persian-date-popover .rdp-weekday{color:#8490a1;font-size:10px}
+.persian-date-popover .rdp-day_button{font-family:inherit;font-size:11px;border-radius:8px}
+.persian-date-popover .rdp-selected .rdp-day_button{background:var(--nafiss-blue,var(--nf-brand-600,#2450c8));color:#fff;border-color:var(--nafiss-blue,var(--nf-brand-600,#2450c8))}
+.persian-date-popover .rdp-today:not(.rdp-selected) .rdp-day_button{color:var(--nafiss-blue,var(--nf-brand-600,#2450c8));background:#eef3ff;font-weight:800}
+.persian-date-clear{width:100%;margin-top:6px;padding:8px;display:flex;align-items:center;justify-content:center;gap:5px;border:0;border-top:1px solid #edf0f4;background:transparent;color:#7d8999;font:inherit;cursor:pointer}
