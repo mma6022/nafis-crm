@@ -49,7 +49,6 @@ export const DRAFTS_DDL = `
     delete_reason TEXT,
     delete_kind TEXT CHECK(delete_kind IS NULL OR delete_kind IN ('manual','auto_expired'))
   );
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_request_drafts_one_open ON loan_request_drafts(customer_id) WHERE deleted_at IS NULL;
   CREATE INDEX IF NOT EXISTS idx_loan_request_drafts_open ON loan_request_drafts(deleted_at,updated_at);
   CREATE TABLE IF NOT EXISTS loan_request_draft_events(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,13 +73,24 @@ export function ensureLoanRequestDraftSchema() {
   crmDb.exec(DRAFTS_DDL);
   const cols = queryRows<{ name: string }>("PRAGMA table_info(loan_request_drafts)");
   if (!cols.some((c) => c.name === "request_key")) crmDb.exec("ALTER TABLE loan_request_drafts ADD COLUMN request_key TEXT");
+  // The old index forbids every second open draft. Multi-case keeps several, so never recreate it.
   // NULL request_key stays one open draft per customer. Independent requests use request_key.
-  crmDb.exec(`DROP INDEX IF EXISTS idx_loan_request_drafts_one_open;
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_request_drafts_one_legacy
-      ON loan_request_drafts(customer_id) WHERE deleted_at IS NULL AND request_key IS NULL;
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_request_drafts_request
-      ON loan_request_drafts(customer_id, request_key) WHERE deleted_at IS NULL AND request_key IS NOT NULL;`);
+  crmDb.exec("DROP INDEX IF EXISTS idx_loan_request_drafts_one_open");
+  try {
+    crmDb.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_request_drafts_one_legacy
+      ON loan_request_drafts(customer_id) WHERE deleted_at IS NULL AND request_key IS NULL`);
+  } catch { /* two legacy drafts already open: do not block boot */ }
+  try {
+    crmDb.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_loan_request_drafts_request
+      ON loan_request_drafts(customer_id, request_key) WHERE deleted_at IS NULL AND request_key IS NOT NULL`);
+  } catch { /* duplicate keyed drafts: do not block boot */ }
   ensured = true;
+}
+
+/** Run the guard again, as an API process does on the next boot. */
+export function reloadLoanRequestDraftSchema() {
+  ensured = false;
+  ensureLoanRequestDraftSchema();
 }
 
 export class DraftError extends Error {

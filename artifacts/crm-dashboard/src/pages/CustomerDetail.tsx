@@ -37,7 +37,7 @@ import { RepeatRequestReview, RepeatRequestTag } from '@/components/RepeatReques
 import { clearLoanDraft, listLoanDrafts, loanWizardHref, readLoanDraft, type LoanDraft } from '@/lib/loan-draft';
 import { useMultiCaseCustomer, useMultiCaseStatus } from '@/lib/multi-case';
 import { CaseContextPicker, isSampleCustomer, PhoneChip, type CaseChoice } from '@/components/multi-case/CaseContextPicker';
-import { McCustomerCases, weekdayJalali } from '@/components/multi-case/McCustomerCases';
+import { McFlagPage, weekdayJalali } from '@/components/multi-case/McCustomerCases';
 import { multiCasePlanLabel } from '@/lib/multi-case-plan-label';
 import { DRAFTS_KEY, canUseDrafts, draftHref, draftWait, draftsApi, fa as faDraft, tehranTime } from '@/lib/request-drafts';
 import { BUSINESS_STATUS_LABELS, WIZARD_DISPLAY_STEPS, WIZARD_TOTAL_STEPS, loanBusinessStatus, loanStageLabel } from '@/lib/loan-labels';
@@ -769,7 +769,6 @@ function CustomerDetailFull() {
     {localDraftNotes}
     {loansQuery.isLoading ? <div className="stack" aria-busy="true"><span className="csx-sk" style={{ height: 72 }} /><span className="csx-sk" style={{ height: 72 }} /></div>
       : loansQuery.isError ? <div className="csx-note bad" role="alert"><AlertCircle size={18} /><p>فهرست تسهیلات دریافت نشد. <button type="button" className="csx-link" onClick={() => loansQuery.refetch()}>تلاش دوباره</button></p></div>
-      : multiOn ? <McCustomerCases customer={customer} loans={loans} cases={caseCtx.data?.cases ?? []} sample={isSampleCustomer(customer)} canOpen={canLoansView} canNew={canNewLoan} onOpen={(caseId) => setLocation(`/loan-applications/${caseId}`)} onNew={() => setLocation(loanWizardHref(customer.id, false, 'customer', crypto.randomUUID()))} />
       : loans.length ? <div className="stack">{loans.map((loan) => { const [label, tone] = LOAN_STATUS[loan.status] ?? [loan.status, 'open']; const bs = loanBusinessStatus(loan); const stage = bs !== 'canceled' && bs !== 'completed' ? loanStageLabel(loan.stage) : ''; return <Link key={loan.id} href={`/loan-applications/${loan.id}`} className="csx-loan" data-ls={tone} data-testid={`link-customer-loan-${loan.id}`}>
         <div className="r1"><b>پرونده #{faId(loan.id)}</b>{bs && BUSINESS_STATUS_LABELS[bs] ? <span className="csx-st" data-bs={bs}>{BUSINESS_STATUS_LABELS[bs]}</span> : <span className="csx-st">{label}</span>}</div>
         {stage ? <div className="csx-loan-stage" data-testid={`text-customer-loan-stage-${loan.id}`}>مرحله: {stage}</div> : null}
@@ -847,7 +846,9 @@ function CustomerDetailFull() {
   </section> : null;
 
   const otherOwner = multiOn && session.data?.user.salespersonId != null && customer.salespersonId != null && session.data.user.salespersonId !== customer.salespersonId;
-  return <div className={`csx csx-detail${multiOn ? " pg mc-page mc-host" : ""}`} dir="rtl" data-testid="customer-detail" data-owner={otherOwner ? "other" : "own"}>
+  const startNewCase = () => setLocation(loanWizardHref(customer.id, false, 'customer', crypto.randomUUID()));
+  const startCall = () => { if (openCases.length && callLauncher.choose(customer) !== 'simple') { setCasePick('call'); return; } void calledThenForm(customer.id, 'customer', () => callLauncher.launch(customer), setToast); };
+  return <div className={multiOn ? "pg mc-page mc-host" : "csx csx-detail"} dir="rtl" data-testid="customer-detail" data-owner={otherOwner ? "other" : "own"}>
     {reviewingRepeat && <RepeatRequestReview customer={customer} onClose={() => setReviewingRepeat(false)} />}
     {returnedPaymentId !== null && <WalletPaymentResult
       result={returnedPayment.data}
@@ -856,10 +857,11 @@ function CustomerDetailFull() {
       onRetry={() => returnedPayment.refetch()}
       onClose={closePaymentResult}
     />}
+    {multiOn ? <>
+      <p className="mc-date" data-testid="mc-today">{weekdayJalali(new Date().toISOString())}{isSampleCustomer(customer) ? <span className="smp">نمونه</span> : null}</p>
+      <McFlagPage customer={customer} loans={loans} cases={caseCtx.data?.cases ?? []} sample={isSampleCustomer(customer)} registrar={role === "registrar"} otherOwner={otherOwner} canNew={canNewLoan} canCall={canCallsCreate || isAdmin} onNew={startNewCase} onCall={startCall} onOpen={(caseId) => setLocation(`/loan-applications/${caseId}`)} />
+    </> : <>
     <nav className="csx-crumb" aria-label="مسیر"><Link href="/customers" data-testid="link-back-customers"><ArrowRight size={16} /> مشتریان</Link><ChevronLeft size={14} aria-hidden="true" /><span aria-current="page">{customerNameText(customer.name, customer.id)}</span></nav>
-    {multiOn ? <p className="mc-date" data-testid="mc-today">{weekdayJalali(new Date().toISOString())}{isSampleCustomer(customer) ? <span className="smp">نمونه</span> : null}</p> : null}
-    {multiOn && role === "registrar" ? <section className="card mc-picker" data-testid="mc-support-view"><h2>نمای پشتیبانی</h2><p className="mc-muted">کارشناس: {customer.salespersonName || "بدون تخصیص"}</p></section> : null}
-    {otherOwner ? <section className="card mc-picker" data-testid="mc-other-owner"><h2>این مشتری در دسترس شما نیست</h2><p className="mc-muted">کارشناس: {customer.salespersonName || "بدون تخصیص"}</p></section> : null}
     {hero}
     <LeadIntakePanel key={`li-${id}`} customerId={id} />
     {tsCard ? <div className="m-only">{tsCard}</div> : null}
@@ -870,6 +872,7 @@ function CustomerDetailFull() {
       <div className="colA"><ConsultProfileCard customerId={customer.id} onEditFirstCall={canEditFirstCall ? openFcEdit : undefined} /><SiteAnswersBlock customerId={customer.id} />{firstCall ? <FirstCallSummaryCard fc={firstCall} editInfo={fcEditInfo.data} onEdit={canEditFirstCall ? openFcEdit : undefined} /> : null}<CsFileItems customerId={customer.id} />{infoSec}{loansSec}{callsSec}{baleOn ? <BaleChatSection customerId={customer.id} /> : null}</div>
       <div className="colB">{tsCard ? <div className="d-only">{tsCard}</div> : null}<div className="d-only"><DataAccuracyCard customerId={id} place="d" onSubmitted={refreshAfterAccuracy} /></div>{statusSec}{creditSec}{walletSec}{adminSec}</div>
     </div>
+    </>}
     {editing ? <div className="csx-formhost"><Sheet title={`ویرایش پرونده ${customer.name}`} onClose={() => { setEditing(false); setProfileErrors({}); }} testId="customer-edit-sheet" initialFocus='[data-testid="input-detail-name"]' footer={<>
       <button className="csx-ghost" type="button" onClick={() => { setEditing(false); setProfileErrors({}); }}>انصراف</button>
       <button className="csx-primary" type="submit" form="customer-edit-form" disabled={update.isPending} data-testid="button-save-detail">{update.isPending ? 'در حال ذخیره...' : 'ذخیره تغییرات'}</button>

@@ -33,7 +33,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { Worker } from 'node:worker_threads';
 import { crmDb, execute, queryRow } from './src/lib/crm-db';
 import * as mc from './src/lib/multi-case';
-import { createDraft, ensureLoanRequestDraftSchema } from './src/lib/loan-request-drafts';
+import { createDraft, ensureLoanRequestDraftSchema, reloadLoanRequestDraftSchema } from './src/lib/loan-request-drafts';
 import { expertLockdownGuard, elTarget, elFlagOn } from './src/lib/expert-lockdown';
 import { cqRaw } from './src/lib/call-queue';
 
@@ -194,7 +194,14 @@ assert.equal(lockHit(registrar, '/multi-case/customers/3').next, true, 'registra
 assert.equal(mc.customerVisible(registrar, 3), true);
 assert.equal(mc.customerVisible({ id: 7, role: 'registrar', customerScope: 'assigned', salespersonId: 99 }, 3), false, 'registrar assigned scope unchanged');
 
-console.log('PASS multi-case fixture: flag off legacy draft, two plans, same-plan conflict, separate fees, close-and-reopen, expert/registrar scope, lockdown, concurrent slot');
+crmDb.exec("DROP INDEX IF EXISTS idx_loan_request_drafts_one_open; DROP INDEX IF EXISTS idx_loan_request_drafts_one_legacy; DROP INDEX IF EXISTS idx_loan_request_drafts_request;");
+reloadLoanRequestDraftSchema();
+assert.equal(queryRow("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_loan_request_drafts_one_open'"), undefined, 'boot must not recreate the one-open-draft index');
+assert.ok(queryRow("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_loan_request_drafts_one_legacy'"), 'legacy null-key index');
+const stillTwo = queryRow('SELECT COUNT(*) n FROM loan_request_drafts WHERE customer_id=1 AND deleted_at IS NULL');
+assert.equal(Number(stillTwo.n), 2, 'two open drafts survive a schema reload');
+
+console.log('PASS multi-case fixture: flag off legacy draft, two plans, same-plan conflict, separate fees, close-and-reopen, expert/registrar scope, lockdown, draft-schema restart, concurrent slot');
 `;
 // The claim line above has a silly ternary. I'll fix the worker source before build.
 const fixed = worker.replace(
