@@ -1,7 +1,7 @@
 /** FILE-DETAIL v1.1 · notes column (Armita §chat): internal staff notes, newest at the BOTTOM (Mohammad), only the list scrolls,
  *  states «در حال ثبت / ثبت شد / ثبت نشد» with «ارسال دوباره». Same endpoints as CaseNotesRoom (fetchNotes/postNote, 5s poll). */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Ban, Check, ChevronDown, ChevronRight, FilePlus2, User as UserIcon, PenLine, Download, File as FileIcon, Lock, Mic, Paperclip, Play, Pause, RefreshCw, Send, Square, StickyNote, X } from 'lucide-react';
+import { AlertCircle, Ban, Check, ChevronDown, ChevronRight, FilePlus2, User as UserIcon, PenLine, Download, File as FileIcon, Lock, Mic, Paperclip, Play, Pause, Phone, RefreshCw, Send, Square, StickyNote, X } from 'lucide-react';
 import { CaseApiError, MAX_FILE_BYTES, canReadNotes, canWriteNotes, fetchNotes, postNote, withBase, type CaseNote, type CaseUser } from '@/loan-case-history/api';
 import { useVoiceRecorder } from '@/loan-case-history/useVoiceRecorder';
 import { dayKey, dayLabel, fd, hm, sizeFa } from './fdv1-api';
@@ -48,8 +48,8 @@ function Meta({ tm, st, onRetry }: { tm: string; st?: 'sending' | 'sent' | 'fail
   </span>;
 }
 
-export type SysLine = { id: string; at: string; text: string; kind?: 'created' | 'signed' | 'sent' | 'canceled' };
-const SYS_ICON = { created: FilePlus2, signed: PenLine, sent: Send, canceled: Ban } as const;
+export type SysLine = { id: string; at: string; text: string; kind?: 'created' | 'signed' | 'sent' | 'canceled' | 'voip' };
+const SYS_ICON = { created: FilePlus2, signed: PenLine, sent: Send, canceled: Ban, voip: Phone } as const;
 export function NotesColumn({ appId, user, onBack, title, sys = [], draftKey }: { appId: number; user: CaseUser & { name?: string | null }; onBack: () => void; title?: string; sys?: SysLine[]; draftKey?: string }) {
   const readable = canReadNotes(user), writable = canWriteNotes(user);
   const me = user?.id ?? null;

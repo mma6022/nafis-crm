@@ -6,7 +6,7 @@ import { Link, useLocation } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Calendar, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock, Coins, Copy, Eye, File as FileIcon, FileText, Flag,
-  History as HistoryIcon, IdCard, Lock, EllipsisVertical, PenLine, Plus, RefreshCw, Send, Shield, Upload, User, X, Zap,
+  History as HistoryIcon, IdCard, Lock, EllipsisVertical, PenLine, Phone, Plus, RefreshCw, Send, Shield, Upload, User, X, Zap,
 } from 'lucide-react';
 import { useGetCustomer, useUploadLoanApplicationDocument, getGetCustomerQueryKey } from '@workspace/api-client-react';
 import { useMultiCaseCase, useMultiCaseStatus } from '@/lib/multi-case';
@@ -23,7 +23,7 @@ import { NotesColumn } from './NotesColumn';
 import { faAmount, fd, leftText, longDate, resendSignatureLink, shortDay, sizeFa, useLinkResends, whenShort, dayKey, dayLabel, hm, type ResendItem } from './fdv1-api';
 import './fdv1.css';
 import { VoipCallBox } from '@/features/voip-call/VoipCall';
-import { VthStatus, VthTaskCard, VthSupportCard, VthResultForm, useVth, useVthContext, vthApi, vthRefresh } from '@/features/voip-task-hold/VoipTaskHold';
+import { VthStatus, VthTaskCard, VthSupportCard, VthResultForm, useVth, useVthContext, vthApi, vthRefresh, vthHeadCallLabel, vthSavedWhen } from '@/features/voip-task-hold/VoipTaskHold';
 
 type Step = { id: string; label: string; stages: string[] };
 type Tab = 'ov' | 'docs' | 'contract' | 'hist' | 'chat';
@@ -161,6 +161,7 @@ export function FileDetailV1(p: Props) {
   const { vth, call: vthCall, on: vthOn } = useVth();
   const vthCtx = useVthContext(app.customerId ?? null, vthOn).data;
   const [vthForm, setVthForm] = useState(false);
+  const [vthSaved, setVthSaved] = useState<{ id: number; at: string } | null>(null);
   const showPhone = !vthOn || vthCtx?.phoneVisible !== false;
   const canVthCall = !vthOn || vthCtx == null || vthCtx.canCall === true;
   useEffect(() => {
@@ -236,7 +237,15 @@ export function FileDetailV1(p: Props) {
     }).sort((a, b) => Number(a.old) - Number(b.old) || b.gen - a.gen);
   }, [gens, resends.data]);
   const currentCt = contracts.find(c => !c.old);
-  const sysLines = useMemo(() => hist.flatMap(e => { const t = sysText(e.action); return t ? [{ id: String(e.id), at: e.createdAt, text: t, kind: sysKind(e.action) }] : []; }), [hist]);
+  const sysLines = useMemo(() => {
+    const histLines = hist.flatMap(e => { const t = sysText(e.action); return t ? [{ id: String(e.id), at: e.createdAt, text: t, kind: sysKind(e.action) }] : []; });
+    const vthLines = (vthCtx?.manualEnds ?? []).map(e => {
+      const when = vthSavedWhen(e.at);
+      const bits = ['پایان تماس به‌صورت دستی ثبت شد', e.expertName || '', when].filter(Boolean);
+      return { id: `vth-me-${e.callId}`, at: e.at, text: bits.join('؛ '), kind: 'voip' as const };
+    });
+    return [...histLines, ...vthLines];
+  }, [hist, vthCtx?.manualEnds]);
   // Armita r1 §8: mobile top-bar title names the file (desktop keeps the shell title)
   useEffect(() => { window.dispatchEvent(new CustomEvent('nafis:page-title', { detail: { title: `پرونده‌ی ${fd(app.id)}` } }));
     return () => { window.dispatchEvent(new CustomEvent('nafis:page-title', { detail: { title: null } })); }; }, [app.id]);
@@ -254,7 +263,7 @@ export function FileDetailV1(p: Props) {
   // ---------- pieces ----------
   const go = (t: Tab) => { setTab(t); setMore(false); };
   const openUpload = (doc: any) => { setUpFile(null); setUpErr(null); setModal({ k: 'up', doc }); };
-  const custName = app.customerName || 'مشتری';
+  const custName = fd(app.customerName || 'مشتری');
   const isMine = user?.role === 'salesperson' && user?.salespersonId != null && app.customerSalespersonId === user.salespersonId;
 
   const turnChip = turn === 'me' ? <span className="chip g"><Zap {...I} />اقدام با شماست</span>
@@ -288,7 +297,9 @@ export function FileDetailV1(p: Props) {
       {showPhone && phone ? <span className="ph big"><a className="phn" href={`tel:${phone}`} dir="ltr" aria-label={`تماس با ${fd(phone)}`}>{fd(phone)}</a>
         <button className={`phc${copied ? ' done' : ''}`} type="button" aria-label={`کپی شماره‌ی ${fd(phone)}`} onClick={() => { void copyText(phone).then(ok => { if (ok) { setCopied(true); show('کپی شد'); } }); }}>{copied ? <Check {...I} /> : <Copy {...I} />}<span>کپی</span></button></span>
         : vthOn && !showPhone ? <p className="vh-hidden" data-testid="vth-hidden-phone">شماره نشان داده نمی‌شود</p> : null}</div>
-      <div className="fhd-act">{vthOn && app.customerId && canVthCall ? <span className="vth-head-call" data-testid="vth-head-call"><VoipCallBox customerId={app.customerId} fileId={appId} entry="file" customerName={custName} variant="customer" label={vth && (vth.phase==='in_call'||vth.phase==='pending_status'||vth.phase==='status_error'||vth.phase==='final') ? 'در حال تماس' : 'تماس'} /></span> : null}
+      <div className="fhd-act">{vthOn && app.customerId && canVthCall ? <span className="vth-head-call" data-testid="vth-head-call">{(() => { const h = vthHeadCallLabel(vth?.phase); return h.disabled
+        ? <button type="button" className="btn gh vc-btn" disabled aria-disabled="true" data-testid="vc-call"><Phone className="i" aria-hidden />{h.label}</button>
+        : <VoipCallBox customerId={app.customerId} fileId={appId} entry="file" customerName={custName} variant="customer" label={h.label} />; })()}</span> : null}
         {vthOn && app.customerId && !canVthCall ? <span className="chip" data-testid="vth-not-yours">{vthCtx?.support ? 'مشتری شما نیست' : 'مشتری کارشناس دیگر'}</span> : null}
         {app.customerId ? <Link className="btn gh sm" href={`/customers/${app.customerId}`}><User {...I} />پرونده‌ی مشتری</Link> : null}
         {!vthOn && app.customerId ? <Link className="btn gh sm" href={`/customers/${app.customerId}?caseCall=${app.id}`} data-testid="link-case-call">ثبت تماس این پرونده</Link> : null}
@@ -470,8 +481,8 @@ export function FileDetailV1(p: Props) {
 
   return <div className="fdv1" data-testid="file-detail-v1">
     <main className="pg fpg" {...(md ? { inert: '' as any, 'aria-hidden': true } : {})}><div className="fgrid">
-      <div className="fmain">{head}{vthOn && vth ? <><VthStatus call={vthCall && vthCall.customerId===app.customerId ? vthCall : null} vth={vth} onRetry={() => { if (vthCall) void vthApi.retry(vthCall.id).finally(() => vthRefresh(qcVth)); }} />{vthCtx ? <VthSupportCard ctx={vthCtx} /> : null}<VthTaskCard vth={vth} /></> : null}{tabs}<div className="tabp">{body}</div>
-        {vthOn && vth && vthForm && vthCall && vth.phase==='final' && vth.form && vth.form!=='first_call' ? <VthResultForm call={vthCall} vth={vth} name={custName} customerId={app.customerId} phone={showPhone ? phone : null} onClose={() => setVthForm(false)} onSaved={() => { setVthForm(false); vthRefresh(qcVth); }} /> : null}
+      <div className="fmain">{head}{vthOn && vth ? <><VthStatus call={vthCall && vthCall.customerId===app.customerId ? vthCall : null} vth={vth} savedAt={vthSaved?.at} savedCallId={vthSaved?.id} onRetry={() => { if (vthCall) void vthApi.retry(vthCall.id).finally(() => vthRefresh(qcVth)); }} />{vthCtx ? <VthSupportCard ctx={vthCtx} customerId={app.customerId} /> : null}<VthTaskCard vth={vth} /></> : null}{tabs}<div className="tabp">{body}</div>
+        {vthOn && vth && vthForm && vthCall && vth.phase==='final' && vth.form && vth.form!=='first_call' ? <VthResultForm call={vthCall} vth={vth} name={custName} customerId={app.customerId} phone={showPhone ? phone : null} onClose={() => setVthForm(false)} onSaved={(_stay, meta) => { if (meta) setVthSaved(meta); setVthForm(false); vthRefresh(qcVth); }} /> : null}
       </div>
       <NotesColumn appId={appId} user={user} onBack={() => setTab('ov')} title={`پرونده‌ی ${fd(app.id)}، ${custName}`} sys={sysLines} draftKey={vthOn ? `vth-draft:${appId}:${app.customerId || 0}:file` : undefined} />
     </div></main>
