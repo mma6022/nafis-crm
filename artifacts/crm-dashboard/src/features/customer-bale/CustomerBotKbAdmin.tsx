@@ -410,7 +410,7 @@ function KeyCard({ kind, meta, toast, reload }: { kind: KeyKind; meta: SecretMet
     <div className="bk-st"><I n="check" />ثبت شده{meta.savedAt ? `، ${jalaliSaved(meta.savedAt)}` : ''}</div>
     {test?.ok ? <div className="bk-banner ok" role="status"><I n="check" /><div><b>{test.title}</b>{test.message}</div></div> : null}
     {test && !test.ok ? <div className="bk-banner err" role="alert"><I n="alert" /><div><b>{test.title}</b>{test.message}</div></div> : null}
-    <div className="bk-actions">
+    <div className="bk-actions bk-key-saved-acts">
       <button className="btn pri sm" type="button" onClick={() => { setVal(''); setTest(null); setMode('replace'); }}>جایگزینی کلید</button>
       <button className="btn gh sm" type="button" onClick={() => setDel(true)}>حذف کلید</button>
       <button className="btn gh sm" type="button" onClick={() => void runTest()}>آزمایش کلید</button>

@@ -26,7 +26,13 @@ html{font-family:var(--nf-font-sans)}
 .btn[aria-disabled=true],.btn:disabled{background:var(--nf-surface-2);color:var(--nf-ink-muted);cursor:not-allowed;box-shadow:none;border-color:transparent}
 
 /* bale-bot-kb v1.0: پایگاه دانش و ربات مشترک نفیس وام. ماکاپ طراحی. */
-body.bk-admin .pg{padding-bottom:96px}
+/* Live admin chrome is not body.bk-admin (the hook is .bbt.bk-admin).
+   Keep enough space under the last key card so it can scroll fully above
+   the bottom bar: bar height + 16px (Armita bottom-bar note). */
+.bbt.bk-admin .pg{padding-bottom:calc(var(--dock-h, 84px) + var(--dock-gap, 16px) + 16px)}
+@media (max-width:1023px){
+  .bbt.bk-admin .pg{padding-bottom:calc(var(--nf-bottom-bar-h, var(--dock-h, 72px)) + 16px + env(safe-area-inset-bottom, 0px))}
+}
 .bk-wrap{max-width:1080px;margin:0 auto;padding:16px 20px 24px}
 .bk-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
 .bk-head h2{margin:0;font-size:20px;font-weight:800;color:var(--nf-ink)}
@@ -114,6 +120,12 @@ body.bk-admin .pg{padding-bottom:96px}
 .sw:focus-visible{outline:2px solid rgb(41, 54, 155);outline-offset:3px;border-radius:8px}
 @media(max-width:720px){
   .bk-ai{padding:14px}
+}
+/* Armita r1 note: at 390, registered OpenAI card — «جایگزینی کلید» full-width, the other two side by side below. */
+@media (max-width:430px){
+  .bk-key .bk-actions.bk-key-saved-acts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .bk-key .bk-actions.bk-key-saved-acts>.btn.pri{grid-column:1/-1;width:100%}
+  .bk-key .bk-actions.bk-key-saved-acts>.btn.gh{width:100%}
 }
 
 /* staff-wallet.css defines a page-level .sw { display:grid; width:100% }. That must not stretch this toggle. */
