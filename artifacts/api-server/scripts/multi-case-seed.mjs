@@ -81,6 +81,9 @@ const experts = [
   { key: "ghasemi", userId: 3, salespersonId: 4, phone: "09120000023", name: "مشتری آزمایشی قاسمی" },
 ];
 const manifest = { plans: plans.map((p) => ({ id: p.id, name: p.name, bankName: p.bank_name ?? null })), experts: [], flag: "flag.multi_case_v1=1" };
+manifest.unreadyPlans = activePlans
+  .filter((plan) => !templateCanCreate(templateOf(plan)))
+  .map((plan) => ({ id: plan.id, name: plan.name, bankName: plan.bank_name ?? null }));
 
 function digits(value) {
   return String(value ?? "").replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(/\D/g, "");
@@ -231,7 +234,8 @@ if (host) try {
     freePlanId: plans[1].id,
     caseId: flowCase,
     phone: "09120000024",
-    note: "Verified identity, fresh credit rank A, cash wallet, and one open case. The other active plan is free so the wizard can pass the same-plan block and reach review.",
+    unreadyPlanId: (manifest.unreadyPlans.find((plan) => plan.id === 17) ?? manifest.unreadyPlans[0])?.id ?? null,
+    note: "Verified identity, fresh credit rank A, cash wallet, and one open case. The other active plan is free so the wizard can pass the same-plan block and reach review. Template-excluded plans, including plan 17 when it is active, stay in the plan list as disabled tiles.",
   };
 } catch (error) {
   manifest.flow = { error: error instanceof Error ? error.message : String(error) };

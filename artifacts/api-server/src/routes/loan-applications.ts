@@ -28,7 +28,7 @@ import { loanPlanNetAmount } from "../lib/loan-plan-net-amount";
 import { classifyProviderState, isStrictSignedProviderState, providerContractState } from "../lib/emzame-signature";
 import { emzameRequest } from "../lib/emzame-client";
 import { creditLoanWallet, wallet } from "../lib/wallets";
-import { bindSlotCharge, claimSlotForApplication, mcFlagOn, openSamePlanBody, planRequiresFilingFee, reserveOpenPlan } from "../lib/multi-case";
+import { bindSlotCharge, claimSlotForApplication, mcFlagOn, newCasePlanBlock, openSamePlanBody, orderMultiCasePlanIds, planRequiresFilingFee, popularPlanIds, reserveOpenPlan } from "../lib/multi-case";
 import {
   isAttestedTomanTemplate,
   renderedPdfContainsInstallmentCount,
@@ -1558,8 +1558,23 @@ router.get("/customers/:customerId/eligible-plans", requirePermission("loan_appl
          primaryContractPresent: templateReady, contractTemplateId: templateReady ? templateId : null, manualVariables };
     });
   });
-  res.json({ customerId: customer.id, credit: { fresh, status: credit?.status ?? "missing", rank: credit?.score_label ?? null, checkedAt: credit?.completed_at ?? null },
-    guarantor: { rank: guarantor.rank, hasGuarantor: guarantor.hasGuarantor, source: guarantor.source, at: guarantor.at }, plans });
+  const creditBody = { fresh, status: credit?.status ?? "missing", rank: credit?.score_label ?? null, checkedAt: credit?.completed_at ?? null };
+  const guarantorBody = { rank: guarantor.rank, hasGuarantor: guarantor.hasGuarantor, source: guarantor.source, at: guarantor.at };
+  if (!mcFlagOn(user(res).id)) return res.json({ customerId: customer.id, credit: creditBody, guarantor: guarantorBody, plans });
+  const ids: number[] = [];
+  const seen = new Set<number>();
+  const unready: number[] = [];
+  for (const plan of plans) {
+    if (seen.has(plan.planId)) continue;
+    seen.add(plan.planId);
+    ids.push(plan.planId);
+    if (!plan.primaryContractPresent) unready.push(plan.planId);
+  }
+  const popular = popularPlanIds(ids.filter((id) => !unready.includes(id)));
+  res.json({
+    customerId: customer.id, credit: creditBody, guarantor: guarantorBody, plans,
+    popularPlanIds: popular, planOrder: orderMultiCasePlanIds(ids, popular, unready),
+  });
 });
 // «نادیده گرفتن رتبه» switched on in the wizard: the reason is mandatory and the use is logged before any preview.
 router.post("/customers/:customerId/credit-rank-override", requirePermission("loan_applications.create"), (req, res) => {
@@ -1843,6 +1858,11 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
   if (!customerId || !plan || !conditionId || !/^[1-9]\d*$/.test(amount) || !Number.isInteger(duration) || duration < 1) return error(res, 400, "invalid_application_input");
    const u = user(res), customer = queryRow<any>("SELECT * FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [customerId]);
    if (!customer || (u.customerScope === "assigned" && customer.salesperson_id !== u.salespersonId)) return error(res, 404, "loan_application_not_found");
+  if (mcFlagOn(u.id)) {
+    const templateId = Number(plan.contract_template_id ?? plan.primary_contract_template_id) || null;
+    const block = newCasePlanBlock(primaryTemplateReady(templateId));
+    if (block) return error(res, 422, block);
+  }
   const feeRequired = planRequiresFilingFee(plan.filing_fee_toman);
   const feeChargeId = Number(b.feeChargeId);
   const charge = feeRequired && Number.isSafeInteger(feeChargeId) ? queryRow<any>(

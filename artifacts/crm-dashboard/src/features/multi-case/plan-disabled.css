@@ -1,0 +1,96 @@
+/* multi-case v1.2 — کاشی طرح غیرفعال در گام «کدام طرح؟»
+   تصمیم محمد (به گزارش نفیس، کارت t930s3853).
+   فقط این فایل را برای طرح ۱۷ «سامان / مسکن» روی کاشی انتخاب طرح اعمال کنید.
+   قرارداد و قالب قرارداد را تغییر ندهید؛ کاشی تا اصلاح مبلغ وام در قرارداد همین‌طور می‌ماند.
+   پرونده‌های موجود همین طرح عادی نمایش داده می‌شوند؛ فقط انتخاب تازه مسدود است.
+   این کاشی هرگز پیش‌فرض یا یکی از سه طرح پراستفاده‌ی ۳۰ روز گذشته نیست و در شمارش آن‌ها نمی‌آید؛ همیشه بعد از طرح‌های فعال و آن سه طرح می‌نشیند.
+*/
+
+.mc-choice [role=radiogroup]{display:grid;gap:10px}
+.mc-plan-pop{margin:6px 0 0;font-size:13px;font-weight:600;color:#5B6472;line-height:1.6}
+
+.mc-choice .mc-plan-off,
+button.mc-plan-off{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  text-align:right;
+  gap:8px;
+  width:100%;
+  padding:16px;
+  min-height:44px;
+  background:#F5F6F8;
+  border:1px dashed #D5D9E0;
+  border-radius:14px;
+  box-shadow:none;
+  transform:none;
+  cursor:not-allowed;
+  color:inherit;
+  font:inherit;
+}
+
+.mc-choice .mc-plan-off:hover,
+.mc-choice .mc-plan-off:focus,
+.mc-choice .mc-plan-off:focus-visible,
+.mc-choice .mc-plan-off:active,
+button.mc-plan-off:hover,
+button.mc-plan-off:focus,
+button.mc-plan-off:focus-visible,
+button.mc-plan-off:active{
+  background:#F5F6F8;
+  border:1px dashed #D5D9E0;
+  box-shadow:none;
+  transform:none;
+  outline:none;
+  filter:none;
+}
+
+/* نام طرح محو و خاکستری است؛ تراشه و خط توضیح بیرون از opacity می‌مانند تا خوانا باشند */
+.mc-plan-off-head{display:flex;align-items:center;flex-wrap:wrap;gap:8px;width:100%}
+.mc-plan-off-fade{opacity:.55;filter:grayscale(1);min-width:0}
+.mc-plan-off-fade b{font-size:15px;font-weight:800;color:var(--nf-ink, #1E243A)}
+
+.mc-off-chip{
+  display:inline-flex;
+  align-items:center;
+  flex:none;
+  padding:0 8px;
+  min-height:22px;
+  border-radius:8px;
+  background:#E6E8EC;
+  color:#5B6472;
+  font-size:12px;
+  font-weight:700;
+  line-height:1;
+  white-space:nowrap;
+}
+
+.mc-plan-off-why{
+  margin:0;
+  font-size:13px;
+  font-weight:600;
+  color:#5B6472;
+  line-height:1.6;
+}
+
+@media (max-width: 1023.98px){
+  .mc-choice .mc-plan-off,
+  button.mc-plan-off{padding:12px;min-height:44px}
+}
+
+/* v1.1 `.mc-choice button span` would restyle the chip. Keep Armita's chip outside the fade. */
+.mc-choice button .mc-off-chip{
+  font-size:12px;
+  font-weight:700;
+  color:#5B6472;
+  background:#E6E8EC;
+  opacity:1;
+  filter:none;
+}
+.mc-choice button .mc-plan-off-why{
+  font-size:13px;
+  font-weight:600;
+  color:#5B6472;
+  opacity:1;
+  filter:none;
+}

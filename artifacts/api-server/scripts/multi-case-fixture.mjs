@@ -146,6 +146,27 @@ execute("UPDATE loan_filing_fee_charges SET application_id=? WHERE id=?", [appPa
 assert.equal(queryRow('SELECT amount_toman, application_id FROM loan_filing_fee_charges WHERE id=?', [paid]).amount_toman, '300000');
 assert.equal(queryRow('SELECT application_id FROM loan_filing_fee_charges WHERE id=?', [paid]).application_id, appPaid, 'fee above 0 keeps its own charge');
 
+// A template-excluded plan is rejected, stays out of the 30-day top 3, and sorts last.
+assert.equal(mc.newCasePlanBlock(false), 'plan_not_selectable');
+assert.equal(mc.newCasePlanBlock(true), null);
+const recentAt = new Date().toISOString();
+const oldAt = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
+const addCase = (planId, at) => execute("INSERT INTO loan_applications(customer_id,plan_id,stage,status,requested_amount,created_at) VALUES(2,?,'draft','requested','1000',?)", [planId, at]);
+for (let i = 0; i < 5; i++) addCase(17, recentAt);
+addCase(30, recentAt);
+addCase(31, recentAt); addCase(31, recentAt);
+addCase(32, recentAt);
+for (let i = 0; i < 9; i++) addCase(40, oldAt);
+const top = mc.popularPlanIds([30, 31, 32, 40]);
+assert.deepEqual(top, [31, 30, 32], 'top 3 is the last 30 days, and plan 17 is not counted');
+assert.equal(top.includes(17), false);
+assert.equal(top.includes(40), false, 'cases older than 30 days are not in the top 3');
+const order = mc.orderMultiCasePlanIds([9, 30, 17, 31, 32, 1], [17, 31, 30, 32], [17, 1]);
+assert.deepEqual(order, [9, 31, 30, 32, 17, 1]);
+assert.equal(order.at(-1), 1);
+assert.ok(order.indexOf(17) > order.indexOf(32), 'disabled plans sit after the active plans and the top 3');
+assert.equal(order.filter((id) => id === 17).length, 1, 'an unready plan is not also kept in the top 3');
+
 // Case link ownership. Missing choice stays general.
 const caseId = app2;
 assert.equal(mc.resolveCaseLink(expert, 1, {}), null);

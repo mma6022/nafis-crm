@@ -33,6 +33,63 @@ export function planRequiresFilingFee(fee: unknown): boolean {
   if (!/^(0|[1-9]\d*)$/.test(text)) return true;
   return BigInt(text) > 0n;
 }
+
+/** Create refuses a plan the template rule cannot submit. Flag-on create returns this code. */
+export const PLAN_NOT_SELECTABLE = "plan_not_selectable";
+export const MC_POPULAR_DAYS = 30;
+export const MC_POPULAR_LIMIT = 3;
+
+export function newCasePlanBlock(selectable: boolean): string | null {
+  return selectable ? null : PLAN_NOT_SELECTABLE;
+}
+
+/**
+ * Up to three plan ids with the most cases in the last 30 days.
+ * Only ids in `selectableIds` are counted, so a template-excluded plan never enters the top 3.
+ */
+export function popularPlanIds(selectableIds: readonly number[], now = Date.now()): number[] {
+  const allowed = new Set(selectableIds.map((id) => Number(id)).filter((id) => Number.isSafeInteger(id) && id > 0));
+  if (!allowed.size || !tableExists("loan_applications") || !columnExists("loan_applications", "plan_id") || !columnExists("loan_applications", "created_at")) return [];
+  const since = new Date(now - MC_POPULAR_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const deleted = columnExists("loan_applications", "deleted_at") ? "AND deleted_at IS NULL" : "";
+  const rows = queryRows<{ plan_id: number; n: number }>(
+    `SELECT plan_id, COUNT(*) AS n FROM loan_applications
+     WHERE plan_id IS NOT NULL AND created_at >= ? ${deleted}
+     GROUP BY plan_id
+     ORDER BY n DESC, plan_id ASC`,
+    [since],
+  );
+  const ids: number[] = [];
+  for (const row of rows) {
+    const id = Number(row.plan_id);
+    if (!allowed.has(id)) continue;
+    ids.push(id);
+    if (ids.length === MC_POPULAR_LIMIT) break;
+  }
+  return ids;
+}
+
+/**
+ * Selectable plans that are not in the top 3, then the top 3, then unready plans.
+ * An unready id is dropped from the top 3 even if the caller listed it there.
+ */
+export function orderMultiCasePlanIds(ids: readonly number[], popularIds: readonly number[], unreadyIds: readonly number[]): number[] {
+  const unready = new Set(unreadyIds.map(Number));
+  const popular = popularIds.map(Number).filter((id) => !unready.has(id));
+  const popularSet = new Set(popular);
+  const seen = new Set<number>();
+  const active: number[] = [];
+  const disabled: number[] = [];
+  for (const id of ids) {
+    const planId = Number(id);
+    if (seen.has(planId)) continue;
+    seen.add(planId);
+    if (unready.has(planId)) disabled.push(planId);
+    else if (!popularSet.has(planId)) active.push(planId);
+  }
+  const popularOrdered = popular.filter((id) => seen.has(id) && !unready.has(id));
+  return [...active, ...popularOrdered, ...disabled];
+}
 export const OPEN_SAME_PLAN = "open_same_plan_case";
 export const OPEN_SAME_PLAN_CASE_MESSAGE =
   "برای این مشتری یک پروندهٔ باز با همین طرح وجود دارد. تا وقتی آن پرونده لغو یا تکمیل نشود، پروندهٔ تازه با همین طرح ساخته نمی‌شود. طرح دیگر آزاد است و هزینهٔ هر پرونده جداگانه حساب می‌شود.";
