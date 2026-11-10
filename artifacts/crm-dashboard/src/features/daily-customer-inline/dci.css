@@ -458,3 +458,5 @@ body:has([data-testid="dci-page"]) .ts-wz{
   .dci-dlgw{align-items:flex-end;padding:0}
   .dci-dlg{width:100%;border-radius:18px 18px 0 0;max-height:92vh;padding-bottom:calc(18px + env(safe-area-inset-bottom))}
 }
+
+/* r1 follow-up: Jalali inquiry time and Persian website_lead label on Today */
