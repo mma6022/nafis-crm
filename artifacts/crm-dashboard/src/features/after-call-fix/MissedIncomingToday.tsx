@@ -1,14 +1,16 @@
 /** INCALL-FIX step 3 (flag.after_call_skip_missed): missed incoming in «کارهای امروز».
- *  Armita daily-customer-inline v1.1 inbound scene: «بی‌پاسخ» badge + «تماس دوباره».
+ *  Armita daily-customer-inline v1.1 inbound scene + review r2 (incall-fix-step3/REVIEW.md):
+ *  «بی‌پاسخ» badge and «تماس دوباره»; no «·» next to digits (time on its own line, then «ورودی؛ بی‌پاسخ»);
+ *  full LTR phone with copy (CallNumber, server already scopes to the expert's own customers);
+ *  copyable grey #id badge after the name (CustomerName); flat primary button (no heavy shadow).
  *  Flag off → the endpoint returns {enabled:false} and this renders nothing (no extra chrome).
- *  The expert sees only their own customers. Calling uses the existing call-button rule
- *  (VoipCallAnywhere «تماس دوباره» when that rule allows it; otherwise the same tel: path as کارهای امروز). */
+ *  Optional per-call note and moving this list into the right column are out of scope (daily-customer-inline v1.1). */
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'wouter';
 import { PhoneCall } from 'lucide-react';
 import { faClock, faNum } from '@/features/call-queue/api';
 import { CallNumber } from '@/features/call-number/CallNumber';
+import { CustomerName } from '@/components/customer/CustomerName';
 import { VoipCallAnywhere } from '@/features/voip-call/VoipAnywhere';
 import { VCA_REDIAL_LABEL } from '@/features/voip-call/anywhere-rules';
 import { useVcMe, vcApi, VcError, VC_ME_KEY } from '@/features/voip-call/api';
@@ -61,13 +63,14 @@ function MissedRow({ it }: { it: MitItem }) {
   const when = faClock(it.startedAt);
   return <li className="mit-incall" data-testid="mit-row" data-id={it.id}>
     <div className="mit-cmeta">
-      <span className="mit-who"><Link href={`/customers/${it.customerId}`}>{it.customerName}</Link> <span className="mit-id" dir="ltr">#{faNum(it.customerId)}</span></span>
-      <span className="mit-when">امروز، ساعت {when} · ورودی؛ <span className="mit-res" data-testid="mit-badge">{it.statusLabel || 'بی‌پاسخ'}</span></span>
-      {it.phone ? <CallNumber phone={it.phone} testId={`mit-ph-${it.id}`} /> : null}
+      <CustomerName id={it.customerId} name={it.customerName} href={`/customers/${it.customerId}`} className="mit-who" badgeTestId={`mit-id-${it.id}`} />
+      <span className="mit-when" data-testid="mit-when">امروز، ساعت {when}</span>
+      <span className="mit-dir">ورودی؛ <span className="mit-res" data-testid="mit-badge">{it.statusLabel || 'بی‌پاسخ'}</span></span>
+      {it.phone ? <CallNumber phone={it.phone} customerId={it.customerId} size="md" testId={`mit-ph-${it.id}`} /> : null}
     </div>
     {anywhere ? <VoipCallAnywhere customerId={it.customerId} customerName={it.customerName} own label={VCA_REDIAL_LABEL} testId={`mit-vca-${it.id}`} />
-      : vcOn ? <button type="button" className="btn pri" disabled={busy} onClick={() => void redialVoip()} data-testid={`mit-redial-${it.id}`}><PhoneCall size={15} aria-hidden="true" />تماس دوباره</button>
-      : it.phone ? <a className="btn pri" href={`tel:${it.phone}`} data-testid={`mit-tel-${it.id}`}>تماس دوباره</a>
+      : vcOn ? <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void redialVoip()} data-testid={`mit-redial-${it.id}`}><PhoneCall size={15} aria-hidden="true" />تماس دوباره</button>
+      : it.phone ? <a className="btn btn-primary" href={`tel:${it.phone}`} data-testid={`mit-tel-${it.id}`}>تماس دوباره</a>
       : null}
     {msg ? <p className="mit-err" role="alert">{msg}</p> : null}
   </li>;
