@@ -40,6 +40,8 @@ try {
   const express = (await import("express")).default;
   const crmRouter = (await import("../src/routes/crm.ts")).default;
   const dciRouter = (await import("../src/routes/daily-customer-inline.ts")).default;
+  const loanRouter = (await import("../src/routes/loan-applications.ts")).default;
+  const filesRouter = (await import("../src/routes/files-carousel.ts")).default;
 
   const P = ["customers.view", "customers.update", "calls.create", "calls.view"];
   const actors = {
@@ -52,12 +54,13 @@ try {
     : execute("INSERT INTO call_queue_settings(key,value,updated_at) VALUES(?,?,datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [k, v]);
 
   const ts = new Date().toISOString();
-  const CID_H = 910041, CID_G = 910042, CID_H2 = 910043, CID_K = 910044;
+  const CID_H = 910041, CID_G = 910042, CID_H2 = 910043, CID_K = 910044, CID_CX = 910046;
   for (const c of [
     [CID_H, "HasaniOwn", "09120000041", 3],
     [CID_G, "GhasemiOwn", "09120000042", 4],
     [CID_H2, "HasaniTwo", "09120000043", 3],
     [CID_K, "KazemiOwn", "09120000044", 6],
+    [CID_CX, "HasaniCancel", "09120000046", 3],
   ]) {
     execute("DELETE FROM loan_applications WHERE customer_id=?", [c[0]]);
     execute("DELETE FROM goods_purchases WHERE customer_id=?", [c[0]]);
@@ -103,7 +106,7 @@ try {
     if (!res.locals.authUser) { res.sendStatus(401); return; }
     next();
   });
-  app.use("/api", expertLockdownGuard, crmRouter, dciRouter);
+  app.use("/api", expertLockdownGuard, crmRouter, dciRouter, loanRouter, filesRouter);
   const sock = path.join(dir, "api.sock");
   server = app.listen(sock); await once(server, "listening");
   const call = (method, url, actor, body) => new Promise((resolve, reject) => {
@@ -114,6 +117,20 @@ try {
     r.on("error", reject); if (payload) r.write(payload); r.end();
   });
   const rowOf = (id) => queryRow("SELECT status, priority FROM customers WHERE id=?", [id]);
+  const insertLoan = (customerId, stage = "draft", status = "requested") => {
+    const consult = Number(queryRow("SELECT consultation_id AS id FROM loan_applications WHERE consultation_id IS NOT NULL LIMIT 1")?.id ?? 0);
+    execute("PRAGMA foreign_keys=OFF");
+    const id = execute(
+      "INSERT INTO loan_applications(consultation_id,customer_id,plan_ids,requested_amount,status,created_at,stage,deleted_at) VALUES(?,?, '[]', '1000000', ?, ?, ?, NULL)",
+      [consult, customerId, status, ts, stage],
+    );
+    execute("PRAGMA foreign_keys=ON");
+    return Number(id);
+  };
+  const fcFor = (fileId) => queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='fc_cancels'")
+    ? queryRow("SELECT * FROM fc_cancels WHERE file_id=? ORDER BY id DESC LIMIT 1", [fileId])
+    : null;
+
 
   await ok("flag helper is OFF when absent", () => {
     assert.equal(ps.psFlagOn(2), false);
@@ -157,6 +174,17 @@ try {
     const back = await call("PATCH", `/customers/${CID_H2}`, "admin", { status: "in_progress", priority: 2 });
     assert.equal(back.status, 200);
   });
+
+  await ok("flag OFF: POST /loan-applications/:id/cancel does not write fc_cancels", async () => {
+    const before = count("fc_cancels");
+    const loanId = insertLoan(CID_CX, "draft", "requested");
+    const r = await call("POST", `/loan-applications/${loanId}/cancel`, "hasani", { reason: "دلیل لغو آزمایشی پرچم خاموش" });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(queryRow("SELECT status FROM loan_applications WHERE id=?", [loanId]).status, "rejected");
+    assert.equal(count("fc_cancels"), before);
+    assert.ok(!fcFor(loanId), "flag OFF must not write fc_cancels");
+  });
+
 
   flag("flag.sales_experts_priority_status_v1", "1");
   assert.equal(ps.psFlagOn(2), true);
@@ -257,6 +285,58 @@ try {
     assert.equal(ps.psCaseLife("rejected", "draft"), "cancelled");
     assert.equal(ps.psCaseLife("requested", "completed"), "completed");
     assert.equal(ps.psCaseLife("requested", "draft"), "in_progress");
+  });
+
+
+  await ok("flag ON: Today-board cancel writes fc_cancels and admin uncancel restores the case", async () => {
+    const loan = queryRow("SELECT id, status, stage FROM loan_applications WHERE customer_id=? AND deleted_at IS NULL ORDER BY id DESC LIMIT 1", [CID_K]);
+    assert.ok(loan?.id, "seed loan for CID_K");
+    const prevStatus = loan.status, prevStage = loan.stage;
+    const reason = "مشتری از بانک دیگری وام گرفت.";
+    const before = count("fc_cancels");
+    const cx = await call("POST", `/loan-applications/${loan.id}/cancel`, "kazemi", { reason });
+    assert.equal(cx.status, 200, JSON.stringify(cx.body));
+    const closed = queryRow("SELECT status, stage FROM loan_applications WHERE id=?", [loan.id]);
+    assert.equal(closed.status, "rejected");
+    assert.equal(closed.stage, prevStage);
+    const row = fcFor(loan.id);
+    assert.ok(row, "fc_cancels row");
+    assert.equal(Number(row.file_id), Number(loan.id));
+    assert.equal(Number(row.customer_id), CID_K);
+    assert.equal(Number(row.salesperson_id), 6);
+    assert.equal(Number(row.user_id), 8);
+    assert.equal(row.reason, reason);
+    assert.equal(row.prev_status, prevStatus);
+    assert.equal(row.prev_stage, prevStage);
+    assert.ok(row.created_at);
+    assert.equal(row.uncancelled_at, null);
+    assert.equal(count("fc_cancels"), before + 1);
+    ps.psRecordFcCancel({
+      userId: 8, fileId: Number(loan.id), customerId: CID_K, salespersonId: 6,
+      reason, prevStatus, prevStage, at: new Date().toISOString(),
+    });
+    assert.equal(count("fc_cancels"), before + 1, "idempotent: no second open row");
+    const again = await call("POST", `/loan-applications/${loan.id}/cancel`, "kazemi", { reason });
+    assert.equal(again.status, 409);
+    assert.equal(count("fc_cancels"), before + 1);
+
+    const forbidden = await call("POST", `/files/${loan.id}/uncancel`, "kazemi", { reason: "نباید بشود" });
+    assert.equal(forbidden.status, 403);
+    assert.equal(queryRow("SELECT status FROM loan_applications WHERE id=?", [loan.id]).status, "rejected");
+
+    const un = await call("POST", `/files/${loan.id}/uncancel`, "admin", { reason: "بازگشت آزمایشی" });
+    assert.equal(un.status, 200, JSON.stringify(un.body));
+    assert.equal(un.body?.status, prevStatus);
+    assert.equal(un.body?.stage, prevStage);
+    const restored = queryRow("SELECT status, stage FROM loan_applications WHERE id=?", [loan.id]);
+    assert.equal(restored.status, prevStatus);
+    assert.equal(restored.stage, prevStage);
+    const after = queryRow("SELECT uncancelled_at, uncancelled_by, uncancel_note FROM fc_cancels WHERE id=?", [row.id]);
+    assert.ok(after.uncancelled_at);
+    assert.equal(Number(after.uncancelled_by), 1);
+    assert.equal(after.uncancel_note, "بازگشت آزمایشی");
+    const hist = queryRow("SELECT action FROM loan_application_stage_history WHERE application_id=? AND action='uncancel-case' ORDER BY id DESC LIMIT 1", [loan.id]);
+    assert.ok(hist);
   });
 
   await ok("no SMS, Bale, network, or guarded tables changed", () => {

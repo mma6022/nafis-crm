@@ -190,7 +190,7 @@ import { verifyCustomer } from "../lib/sapi";
 import { NO_CREDIT_FA, ProviderNoCreditError } from "../lib/provider-credit";
 import { TeamSalesError, latestFirstCall, latestNoPlanFit, latestSelectedPlans, logPriorityChange } from "../lib/team-sales";
 import { assertP1RevertAllowed } from "../lib/history-a";
-import { applyNonP1TransferInTx, NONP1_TRANSFER_HEADER, type NonP1Result } from "../lib/nonp1-transfer";
+import { applyNonP1TransferInTx, setNonP1TransferredHeader, type NonP1Result } from "../lib/nonp1-transfer";
 import { kazemiSourceFilterSql, kazemiSourceOf, kazemiSources } from "../lib/kazemi-source";
 import { ACTIVE_SITE_LEAD_EXISTS_SQL, activeSiteLeads, siteLeadHistory, siteLeadQueue, siteLeadsTableReady, topOfList, topOrderSql } from "../lib/site-leads";
 import { IDENTITY_LOG_TABLE, canActOnCustomerProfile, ensureIdentityLogSchema } from "../lib/consult-profile";
@@ -2151,7 +2151,7 @@ router.post(
       res.status(500).json({ error: "Customer was not created" });
       return;
     }
-    if (transferredOnCreate) res.setHeader(NONP1_TRANSFER_HEADER, String(id));
+    if (transferredOnCreate) setNonP1TransferredHeader(res, id);
     res.status(201).json(CreateCustomerResponse.parse(customer));
     void notifyNewCustomer(id);
   },
@@ -3307,7 +3307,7 @@ const customerPatchHandler = (req: express.Request, res: express.Response): void
       res.status(404).json({ error: "Customer not found" });
       return;
     }
-    if (nonP1Moved) res.setHeader(NONP1_TRANSFER_HEADER, String(params.data.id));
+    if (nonP1Moved) setNonP1TransferredHeader(res, params.data.id);
     res.json(UpdateCustomerResponse.parse(customer));
 };
 router.patch("/customers/:id", requirePermission("customers.update"), customerPatchHandler);

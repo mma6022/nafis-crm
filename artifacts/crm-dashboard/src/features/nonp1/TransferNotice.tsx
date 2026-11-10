@@ -1,7 +1,8 @@
 /**
  * crm-nonp1-to-kazemi: every API write that moved a customer to Kazemi (priority ≠ 1 on a closer's customer)
  * answers with the X-Nafis-Customer-Transferred header. One global listener turns it into the toast
- * «مشتری به آقای کاظمی منتقل شد» on every path (quick edit, customer page, customer form, board, call result, API),
+ * «مشتری به {name} منتقل شد» on every path (quick edit, customer page, customer form, board, call result, API),
+ * with the first-call expert's name read from the X-Nafis-Customer-Transferred-To header,
  * refreshes the lists, and takes an expert off the page of a customer they no longer own.
  * No other notification: this toast is the only signal.
  */
@@ -11,6 +12,7 @@ import { useLocation } from 'wouter';
 import './transfer-notice.css';
 
 export const TRANSFER_HEADER = 'x-nafis-customer-transferred';
+export const TRANSFER_TO_HEADER = 'x-nafis-customer-transferred-to';
 export const TRANSFER_EVENT = 'nafis:customer-transferred';
 export const TRANSFER_TOAST = 'مشتری به آقای کاظمی منتقل شد';
 
@@ -25,7 +27,12 @@ export function installTransferNotice(): void {
     const response = await original(...args);
     try {
       const id = response.headers.get(TRANSFER_HEADER);
-      if (id && /^\d+$/.test(id)) window.dispatchEvent(new CustomEvent(TRANSFER_EVENT, { detail: { customerId: Number(id) } }));
+      if (id && /^\d+$/.test(id)) {
+        const raw = response.headers.get(TRANSFER_TO_HEADER) || '';
+        let expertName = '';
+        if (raw) { try { expertName = decodeURIComponent(raw); } catch { expertName = raw; } }
+        window.dispatchEvent(new CustomEvent(TRANSFER_EVENT, { detail: { customerId: Number(id), expertName } }));
+      }
     } catch { /* header read must never break a request */ }
     return response;
   };
@@ -34,11 +41,14 @@ installTransferNotice();
 
 export function TransferNotice({ isAdmin }: { isAdmin: boolean }) {
   const [shown, setShown] = useState(0);
+  const [expertName, setExpertName] = useState('');
   const queryClient = useQueryClient();
   const [location, setLocation] = useLocation();
   useEffect(() => {
     const onTransfer = (e: Event) => {
-      const customerId = (e as CustomEvent<{ customerId: number }>).detail?.customerId;
+      const detail = (e as CustomEvent<{ customerId: number; expertName?: string }>).detail;
+      const customerId = detail?.customerId;
+      setExpertName((detail?.expertName || '').trim());
       setShown(Date.now());
       void queryClient.invalidateQueries();
       // The expert no longer owns this customer: leave its page instead of showing «not found».
@@ -52,5 +62,6 @@ export function TransferNotice({ isAdmin }: { isAdmin: boolean }) {
     const t = window.setTimeout(() => setShown(0), 4000);
     return () => window.clearTimeout(t);
   }, [shown]);
-  return shown ? <div className="nf-transfer-toast" role="status" aria-live="polite" data-testid="toast-nonp1-transfer">{TRANSFER_TOAST}</div> : null;
+  const toast = expertName ? `مشتری به ${expertName} منتقل شد` : TRANSFER_TOAST;
+  return shown ? <div className="nf-transfer-toast" role="status" aria-live="polite" data-testid="toast-nonp1-transfer">{toast}</div> : null;
 }

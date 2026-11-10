@@ -10,7 +10,7 @@ import { subscribeCallReports, notifyCallReport } from "../lib/voip-call-notific
 import { s132bOn } from "../lib/simotel132b";
 import { afterCallState, canSeeAfterCall, canAccessAfterCallCustomer, ensureAfterCallSchema, eventFor, listTodayMissedIncoming, pendingAfterCalls } from "../lib/voip-after-call";
 import { storedCallSummary } from "../lib/recording-summary-jobs";
-import { applyNonP1TransferInTx, NONP1_TRANSFER_HEADER } from "../lib/nonp1-transfer";
+import { applyNonP1TransferInTx, setNonP1TransferredHeader } from "../lib/nonp1-transfer";
 
 const router: IRouter = Router();
 const reportDay = (value: string) => {
@@ -130,6 +130,6 @@ router.patch("/voip/after-call/:id", requirePermission("calls.view"), requirePer
     }
     response = { ok: true, callLogId: event.call_log_id };
   });
-  if (response) {notifyCallReport(actor.id);if (transferred != null) res.setHeader(NONP1_TRANSFER_HEADER, String(transferred));res.json(response);}
+  if (response) {notifyCallReport(actor.id);if (transferred != null) setNonP1TransferredHeader(res, transferred);res.json(response);}
 });
 export default router;

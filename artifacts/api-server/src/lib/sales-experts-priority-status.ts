@@ -7,7 +7,9 @@
  *  every salesperson can change a customer's priority (own customers only; assigned scope unchanged).
  *  Case status chips (در حال انجام / اتمام / لغو شده) sit on each loan case card.
  *  «لغو شده» reuses POST /loan-applications/:id/cancel (reason required). Completing a mid-workflow
- *  case is not a shortcut here. Un-cancel is admin-only (POST /files/:id/uncancel, files-carousel cancels).
+ *  case is not a shortcut here. When the flag is ON, that cancel also writes an fc_cancels row
+ *  (same shape as files-carousel) so admin can undo via POST /files/:id/uncancel. Flag OFF does not
+ *  write fc_cancels. Un-cancel stays admin-only.
  *  The expert_lockdown guard still allows a status/priority-only PATCH for an own customer.
  *  The daily-customer-inline board exposes canEditPriorityStatus and per-case canCancel.
  *
@@ -22,11 +24,13 @@
  *   UPDATE call_queue_settings SET value = '0', updated_at = datetime('now')
  *   WHERE key = 'flag.sales_experts_priority_status_v1' OR key LIKE 'flag.sales_experts_priority_status_v1.user.%';
  */
-import { queryRow } from "./crm-db";
+import { execute, queryRow } from "./crm-db";
+import { ensureFcSchema } from "./files-carousel";
 import { getTeamSalesConfig } from "./team-sales";
 import {
   NONP1_PROTECTED_CUSTOMER_IDS,
   NONP1_TRAINEE_SALESPERSON_IDS,
+  nonP1QualifierDisplayName,
   openCaseReason,
 } from "./nonp1-transfer";
 
@@ -62,22 +66,7 @@ export function psIsSalesExpert(user: { role?: string | null } | null | undefine
 
 /** Display name of the current first-call expert (qualifier), e.g. «آقای کاظمی». Never a fixed string. */
 export function psQualifierExpertName(): string | null {
-  try {
-    const cfg = getTeamSalesConfig();
-    const q = Number(cfg.qualifierSalespersonId);
-    if (!cfg.enabled || !Number.isFinite(q)) return null;
-    const u = queryRow<{ n: string | null }>(
-      "SELECT full_name AS n FROM users WHERE salesperson_id=? AND role='salesperson' AND active=1 ORDER BY id LIMIT 1",
-      [q],
-    );
-    const name = (u?.n || "").trim();
-    if (name) return name;
-    const s = queryRow<{ n: string | null }>("SELECT name AS n FROM salespersons WHERE id=?", [q]);
-    const sn = (s?.n || "").trim();
-    return sn || null;
-  } catch {
-    return null;
-  }
+  return nonP1QualifierDisplayName();
 }
 
 /**
@@ -119,3 +108,38 @@ export function psCaseLife(loanStatus: string | null | undefined, stage: string 
   return "in_progress";
 }
 
+/** When the flag is ON, record a files-carousel-shaped fc_cancels row for this loan-application cancel
+ *  so POST /files/:id/uncancel can restore it. Additive and idempotent: flag OFF is a no-op; an already
+ *  open (not uncancelled) row for the same file is left alone. Does not change the cancel itself. */
+export function psRecordFcCancel(opts: {
+  userId: number;
+  fileId: number;
+  customerId: number;
+  salespersonId: number;
+  reason: string;
+  prevStatus: string;
+  prevStage: string;
+  at: string;
+}): void {
+  if (!psFlagOn(opts.userId)) return;
+  const fileId = Number(opts.fileId);
+  const customerId = Number(opts.customerId);
+  const salespersonId = Number(opts.salespersonId);
+  const userId = Number(opts.userId);
+  const reason = String(opts.reason || "").trim();
+  if (!Number.isSafeInteger(fileId) || fileId <= 0) return;
+  if (!Number.isSafeInteger(customerId) || customerId <= 0) return;
+  if (!Number.isSafeInteger(salespersonId) || salespersonId <= 0) return;
+  if (!Number.isSafeInteger(userId) || userId <= 0) return;
+  if (!reason) return;
+  ensureFcSchema();
+  const open = queryRow<{ id: number }>(
+    "SELECT id FROM fc_cancels WHERE file_id=? AND uncancelled_at IS NULL ORDER BY id DESC LIMIT 1",
+    [fileId],
+  );
+  if (open) return;
+  execute(
+    "INSERT INTO fc_cancels(file_id,customer_id,salesperson_id,user_id,reason,prev_status,prev_stage,created_at) VALUES(?,?,?,?,?,?,?,?)",
+    [fileId, customerId, salespersonId, userId, reason, String(opts.prevStatus), String(opts.prevStage), opts.at],
+  );
+}

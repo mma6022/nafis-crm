@@ -2,9 +2,11 @@ import type { Router, Response } from "express";
 import type { AuthUser } from "./auth";
 import { CancelLoanApplicationBody } from "@workspace/api-zod";
 import { execute, executeChanges, runImmediateTransaction } from "./crm-db";
+import { psRecordFcCancel } from "./sales-experts-priority-status";
 
 type CaseRow = {
   id: number; stage: string; status: string;
+  customer_id?: number | null;
   customer_salesperson_id?: number | null;
 };
 
@@ -48,6 +50,17 @@ export function registerLoanCaseCancellation(
         "INSERT INTO loan_application_stage_history(application_id,from_stage,to_stage,action,reason,actor_id,created_at) VALUES(?,?,?,?,?,?,?)",
         [id, row.stage, row.stage, "cancel-case", parsed.data.reason, actor.id, ts],
       );
+      // Flag ON only: same fc_cancels row files-carousel writes, so admin can POST /files/:id/uncancel.
+      psRecordFcCancel({
+        userId: Number(actor.id),
+        fileId: id,
+        customerId: Number(row.customer_id),
+        salespersonId: Number(row.customer_salesperson_id) || Number(actor.salespersonId),
+        reason: parsed.data.reason,
+        prevStatus: row.status,
+        prevStage: row.stage,
+        at: ts,
+      });
       return { status: 200 };
     });
     if (outcome.status !== 200) {

@@ -380,12 +380,18 @@ body:has([data-testid="dci-page"]) .ts-wz{
 @media(min-width:768px){
   .dci-page .dci-ps{margin:0 0 8px}
   .dci-page .dci-ps .csx-chips{flex-wrap:nowrap;gap:6px}
-  .dci-page .dci-ps .csx-chip{min-height:40px;padding:0 12px;font-size:13px}
+  .dci-page .dci-ps .csx-chip{min-height:44px;padding:0 12px;font-size:13px}
 }
 /* Mobile: one full-width row of joined segments, 44px / 14px, horizontal scroll if it overflows. */
 @media(max-width:767.98px){
   .dci-page .dci-ps{margin:0 0 8px}
-  .dci-page .dci-ps .csx-chips{flex-wrap:nowrap;gap:0;overflow-x:auto;width:100%;max-width:100%;min-width:0;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+  .dci-page .dci-ps .csx-chips{
+    flex-wrap:nowrap;gap:0;overflow-x:auto;width:100%;max-width:100%;min-width:0;
+    -webkit-overflow-scrolling:touch;scrollbar-width:thin;
+    /* Soft fade on the physical left (RTL overflow edge) so «بدون اولویت» is not hard-cut. */
+    -webkit-mask-image:linear-gradient(to left,#000 0%,#000 calc(100% - 28px),transparent 100%);
+    mask-image:linear-gradient(to left,#000 0%,#000 calc(100% - 28px),transparent 100%);
+  }
   .dci-page .dci-ps .csx-chip{min-height:44px;height:44px;flex:1 0 auto;padding:0 10px;font-size:14px;border-radius:0;margin:0}
   .dci-page .dci-ps .csx-chip:first-child{border-start-start-radius:12px;border-end-start-radius:12px;border-start-end-radius:0;border-end-end-radius:0}
   .dci-page .dci-ps .csx-chip:last-child{border-start-end-radius:12px;border-end-end-radius:12px;border-start-start-radius:0;border-end-start-radius:0}
@@ -407,6 +413,7 @@ body:has([data-testid="dci-page"]) .ts-wz{
 .dci-dlg-acts{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
 .dci-dlg-acts .btn{min-height:44px}
 .dci-cx-yes{background:var(--nf-danger,#b42318)!important;border-color:var(--nf-danger,#b42318)!important;color:#fff!important}
+.dci-cx-yes:disabled{background:#d0d5dd!important;border-color:#c5cad3!important;color:#fff!important;opacity:1;cursor:not-allowed;box-shadow:none}
 @media(max-width:767.98px){
   .dci-dlgw{align-items:flex-end;padding:0}
   .dci-dlg{width:100%;border-radius:18px 18px 0 0;max-height:92vh;padding-bottom:calc(18px + env(safe-area-inset-bottom))}

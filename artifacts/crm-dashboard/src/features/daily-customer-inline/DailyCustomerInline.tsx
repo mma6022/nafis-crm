@@ -22,10 +22,14 @@ const fa = (n: string | number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "�
 const fd = (v: string | number) => String(v).replace(/[0-9]/g, (d) => FD[Number(d)]);
 const PS_STATUSES: CustomerUpdateStatus[] = ["in_progress", "completed", "cancelled"];
 const PS_PRIORITIES: Array<number | null> = [1, 2, 3, null];
-function psErrMsg(error: unknown): string {
+function psErrMsg(error: unknown, kind: "status" | "priority" = "status"): string {
+  const statusFb = "تغییر وضعیت ذخیره نشد. دوباره تلاش کنید.";
+  const prioFb = "تغییر اولویت ذخیره نشد. دوباره تلاش کنید.";
+  const fallback = kind === "priority" ? prioFb : statusFb;
   const e = error as { message?: string; data?: { error?: string; message?: string }; response?: { data?: { error?: string; message?: string } } };
   const msg = e?.data?.message || e?.data?.error || e?.response?.data?.message || e?.response?.data?.error || e?.message;
-  return typeof msg === "string" && /[\u0600-\u06FF]/.test(msg) ? msg : "تغییر وضعیت ذخیره نشد. دوباره تلاش کنید.";
+  if (kind === "priority") return fallback;
+  return typeof msg === "string" && /[\u0600-\u06FF]/.test(msg) && msg !== prioFb ? msg : fallback;
 }
 const toLatin = (v: string) => v.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
 /** Compact form asks for تومان; the existing first-call draft stores میلیون تومان. */
@@ -299,11 +303,13 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
         setPsOk(transferName && curPriority === 1 && value !== 1 ? `مشتری به ${transferName} منتقل شد.` : "اولویت ذخیره شد.");
         refresh();
       },
-      onError: (error) => { setPendingPriority(undefined); setPsError(psErrMsg(error)); },
+      onError: (error) => { setPendingPriority(undefined); setPsError(psErrMsg(error, "priority")); },
     });
   };
   const askPriority = (value: number | null) => {
     if (curPriority === value || update.isPending) return;
+    // Item 4 / PM: the P1 chip does not promote; «ارتقا به اولویت ۱» stays the only promote path.
+    if (value === 1 && curPriority !== 1) return;
     if (curPriority === 1 && value !== 1 && transferName) { setPendingPriority(value); return; }
     savePriority(value);
   };
@@ -321,7 +327,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     <ChipGroup label="اولویت" aria="اولویت" testId="dci-ps-priority" kind="priority">
       {PS_PRIORITIES.map((value) =>
         <button key={String(value)} type="button" className="csx-chip" role="radio" aria-checked={curPriority === value}
-          data-p={value ?? undefined} disabled={update.isPending}
+          data-p={value ?? undefined} disabled={update.isPending || (value === 1 && curPriority !== 1)}
           onClick={() => askPriority(value)}
           data-testid={`chip-priority-${value ?? "none"}`}>{value ? `اولویت ${fd(value)}` : "بدون اولویت"}</button>)}
     </ChipGroup>
@@ -375,7 +381,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     {cx ? createPortal(<div className="dci-dlgw" data-testid="dci-cx-wrap" data-nodnd="true">
       <div className="dci-dlg dci-dlg-cx" role="alertdialog" aria-modal="true" aria-labelledby="dci-cx-t" data-testid="dci-cx-dialog">
         <div className="dci-cxhd"><h2 id="dci-cx-t">پرونده لغو شود؟</h2></div>
-        <p>پرونده‌ی {fd(cx.id)} · {m.customer.name}</p>
+        <p>پروندهٔ {fd(cx.id)}، {m.customer.name}</p>
         <label className="dci-cxl" htmlFor="dci-cx-reason"><b>دلیل لغو<span className="req" aria-hidden="true">*</span></b></label>
         <textarea id="dci-cx-reason" className={`dci-cx-inp${cxErr ? " bad" : ""}`} rows={3} maxLength={1000} value={cxReason}
           aria-required="true" aria-invalid={cxErr ? true : undefined}
@@ -386,7 +392,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
         <p className="dci-cxn" data-testid="dci-cx-info">برگرداندن لغو فقط با ادمین است.</p>
         <div className="dci-dlg-acts">
           <button type="button" className="btn gh" autoFocus data-testid="dci-cx-back" disabled={cancelCase.isPending} onClick={() => { if (!cancelCase.isPending) setCx(null); }}>برگشت</button>
-          <button type="button" className="btn dci-cx-yes" data-testid="dci-cx-yes" disabled={cancelCase.isPending} onClick={submitCancel}>{cancelCase.isPending ? "در حال لغو…" : "بله، لغو شود"}</button>
+          <button type="button" className="btn dci-cx-yes" data-testid="dci-cx-yes" disabled={cancelCase.isPending || !cxReason.trim()} onClick={submitCancel}>{cancelCase.isPending ? "در حال لغو…" : "بله، لغو شود"}</button>
         </div>
       </div>
     </div>, document.body) : null}

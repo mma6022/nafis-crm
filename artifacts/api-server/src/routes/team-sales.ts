@@ -12,7 +12,7 @@ import {
   TeamSalesError, citySuggestions, editFirstCall, firstCallEditInfo, formatDue, getTeamSalesConfig, peekCloserFor, peekNextCloser, planOptions, previewQualification, priorityHistory, promoteToPriorityOne, submitQualification,
 } from "../lib/team-sales";
 import { manualOutcomeError, readManualOutcome } from "../lib/call-outcome";
-import { NONP1_TRANSFER_HEADER } from "../lib/nonp1-transfer";
+import { setNonP1TransferredHeader } from "../lib/nonp1-transfer";
 import { addWorkingHours, type QualifierAnswers } from "../lib/team-sales-rules";
 import { ConsultProfileError, canActOnCustomerProfile, consultProfile, editConsultProfile } from "../lib/consult-profile";
 import { isAdminRole } from "../lib/customer-integrity";
@@ -193,7 +193,7 @@ router.post("/customers/:id/team-sales/qualify", requirePermission("calls.create
   if (!("value" in manualIn)) { res.status(422).json(manualOutcomeError("missing" in manualIn ? "missing" : "invalid")); return; }
   try {
     const out = withTransferOverride(req.body?.transferOverrideReason, () => submitQualification(id, actorOf(res), answers, note, new Date(), selectedPlans, noPlanNote, manualIn.value));
-    if (out.transferredToQualifier) res.setHeader(NONP1_TRANSFER_HEADER, String(id));
+    if (out.transferredToQualifier) setNonP1TransferredHeader(res, id);
     // FIRSTCALL-62: close this customer's open «کارهای امروز» item (the form's call is already saved; this never undoes it).
     let dailyPlan: Record<string, unknown> | null = null;
     try {
@@ -223,7 +223,7 @@ router.post("/customers/:id/team-sales/first-call/edit", requirePermission("cust
   try {
     const out = withTransferOverride(req.body?.transferOverrideReason, () => editFirstCall(id, actorOf(res), answers, note, { selectedPlans: req.body?.selectedPlans ?? null,
       noPlanNote: req.body?.noPlanNote ?? null, send: req.body?.send === true, baseId: req.body?.baseId ?? null }));
-    if (out.transferredToQualifier) res.setHeader(NONP1_TRANSFER_HEADER, String(id));
+    if (out.transferredToQualifier) setNonP1TransferredHeader(res, id);
     res.json(out);
   } catch (e) { fail(res, e); }
 });

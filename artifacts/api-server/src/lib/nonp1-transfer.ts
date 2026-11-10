@@ -32,9 +32,36 @@ import { getTeamSalesConfig, logPriorityChange } from "./team-sales";
 export const NONP1_TRANSFER_SOURCE = "nonp1_auto_transfer" as const;
 /** Response header set by every endpoint whose write moved the customer; the dashboard shows the toast from it. */
 export const NONP1_TRANSFER_HEADER = "X-Nafis-Customer-Transferred";
+/** UTF-8 name of the current first-call expert, percent-encoded, set alongside the id header. */
+export const NONP1_TRANSFER_TO_HEADER = "X-Nafis-Customer-Transferred-To";
 /** customer_priority_history.reason of a transfer caused by reactivating a cancelled / completed customer. */
 export const NONP1_REACTIVATION_REASON = "reactivation" as const;
 export const NONP1_TOAST = "مشتری به آقای کاظمی منتقل شد";
+
+/** Display name of the current first-call expert (qualifier), e.g. «آقای کاظمی». Never a fixed string. */
+export function nonP1QualifierDisplayName(): string | null {
+  try {
+    const cfg = getTeamSalesConfig();
+    const q = Number(cfg.qualifierSalespersonId);
+    if (!cfg.enabled || !Number.isFinite(q)) return null;
+    const u = queryRow<{ n: string | null }>(
+      "SELECT full_name AS n FROM users WHERE salesperson_id=? AND role='salesperson' AND active=1 ORDER BY id LIMIT 1",
+      [q],
+    );
+    const name = (u?.n || "").trim();
+    if (name) return name;
+    const s = queryRow<{ n: string | null }>("SELECT name AS n FROM salespersons WHERE id=?", [q]);
+    return ((s?.n || "").trim() || null);
+  } catch {
+    return null;
+  }
+}
+
+export function setNonP1TransferredHeader(res: { setHeader(name: string, value: string): void }, customerId: number): void {
+  res.setHeader(NONP1_TRANSFER_HEADER, String(customerId));
+  const name = nonP1QualifierDisplayName();
+  if (name) res.setHeader(NONP1_TRANSFER_TO_HEADER, encodeURIComponent(name));
+}
 /** Trainees (کارآموز): never touched. */
 export const NONP1_TRAINEE_SALESPERSON_IDS: readonly number[] = [5, 19, 20];
 /** Customers the PM explicitly excluded. */
