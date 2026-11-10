@@ -18,6 +18,7 @@ import {
 } from "../src/lib/customer-bale.ts";
 import { bcLinkOrCreateLead, BC_OK_NEW, BC_ASK_FIRST_SHARED } from "../src/lib/bale-contact.ts";
 import { botSends, isSharedCustomerBot as isSharedBotRow } from "../src/lib/bale-bot.ts";
+import { jalaliWeekdayDate } from "../../crm-dashboard/src/features/bale-bot/jalali.ts";
 
 if (!process.env.CRM_DATABASE_PATH) throw new Error("CRM_DATABASE_PATH required (scratch copy only)");
 process.env.BALE_BOT_WORKER = "0";
@@ -609,6 +610,18 @@ check("shared bot first-ask text is the designed start copy", () => {
   );
 });
 
+
+
+check("Jalali dates on bale-bot/KB surfaces use design order weekday day month year", () => {
+  assert.equal(jalaliWeekdayDate(null), "");
+  assert.equal(jalaliWeekdayDate(""), "");
+  // پنجشنبه ۷ آبان ۱۴۰۵ in Asia/Tehran
+  assert.equal(jalaliWeekdayDate("2026-10-29T08:30:00.000Z"), "پنجشنبه ۷ آبان ۱۴۰۵");
+  assert.equal(jalaliWeekdayDate("2026-10-28T20:30:00.000Z"), "پنجشنبه ۷ آبان ۱۴۰۵");
+  const s = jalaliWeekdayDate("2026-10-29T08:30:00.000Z");
+  assert.ok(!s.startsWith("۱۴۰۵"), "must not lead with the year (fa-IR default order)");
+  assert.ok(!s.includes("،"), "design date has spaces only, no comma");
+});
 
 if (failures.length) {
   console.error("\nFAILED", failures.length, failures.join(", "));
