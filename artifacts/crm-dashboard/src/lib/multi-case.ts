@@ -26,3 +26,11 @@ export function useMultiCaseCustomer(customerId: number, enabled: boolean) {
     enabled: enabled && customerId > 0, staleTime: 15_000, retry: false,
   });
 }
+
+export function useMultiCaseCase(caseId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ["multi-case-case", caseId],
+    queryFn: () => getJson<{ enabled: boolean; case?: { id: number; planId: number | null; planName: string | null; bankName: string | null } }>(`/api/multi-case/cases/${caseId}`),
+    enabled: enabled && caseId > 0, staleTime: 15_000, retry: false,
+  });
+}

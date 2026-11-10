@@ -1536,7 +1536,7 @@ router.get("/customers/:customerId/eligible-plans", requirePermission("loan_appl
        const manualVariables = (parseJson(template?.mappings_json) ?? []).filter((mapping: any) =>
          (mapping.sourceType ?? (mapping.customerField ? "customer" : mapping.loanPlanField ? "loanPlan" : "manual")) === "manual"
        ).map((mapping: any) => ({ variable: String(mapping.variable), label: String(mapping.label || mapping.variable) }));
-       return { planId: Number(plan.id), name: plan.name, conditionId: Number(c.id),
+       return { planId: Number(plan.id), name: plan.name, bankName: plan.bank_name == null ? null : String(plan.bank_name), conditionId: Number(c.id),
          conditionName: String(c.name ?? c.title ?? `شرط ${index + 1}`),
          conditionNotes: c.notes ? String(c.notes) : null, maximumAmount: terms.maximum.toString(),
         allowedDurations: terms.durations, requiredDocuments: required,

@@ -18,7 +18,12 @@ const has = (table) => !!db.prepare("SELECT 1 x FROM sqlite_master WHERE type='t
 db.exec("DROP TRIGGER IF EXISTS trg_mc_release_open_slot");
 db.exec("DROP TABLE IF EXISTS loan_plan_open_slots");
 if (has("call_queue_settings")) {
-  db.prepare("UPDATE call_queue_settings SET value='0' WHERE key=? OR key LIKE 'flag.multi_case_v1.user.%'").run("flag.multi_case_v1");
+  const cols = db.prepare("PRAGMA table_info(call_queue_settings)").all().map((c) => c.name);
+  if (cols.includes("updated_at")) {
+    db.prepare("UPDATE call_queue_settings SET value='0', updated_at=datetime('now') WHERE key=? OR key LIKE 'flag.multi_case_v1.user.%'").run("flag.multi_case_v1");
+  } else {
+    db.prepare("UPDATE call_queue_settings SET value='0' WHERE key=? OR key LIKE 'flag.multi_case_v1.user.%'").run("flag.multi_case_v1");
+  }
 }
 if (has("loan_request_drafts")) {
   const dup = db.prepare("SELECT customer_id, COUNT(*) n FROM loan_request_drafts WHERE deleted_at IS NULL GROUP BY customer_id HAVING n>1").all();

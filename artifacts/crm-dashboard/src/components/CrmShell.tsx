@@ -25,7 +25,7 @@ import { callbacksApi } from '@/lib/callbacks-api';
 import { usePaymentOrderCount } from '@/lib/payment-order-queries';
 import { usePendingCounts } from '@/lib/pending-create';
 import { canUseDrafts, useDraftCounts } from '@/lib/request-drafts';
-import { CreateReminderForm } from './Forms';
+import { useHeaderReminder } from '@/components/multi-case/HeaderReminder';
 import { sfScope } from '@/features/smart-filing/access';
 import { baleNavVisible } from '@/features/bale/api';
 import { layoutFor, menuKindFor, TRAINEE_SALESPERSON_IDS } from './nav-layout';
@@ -150,7 +150,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const onChatPage = /^\/(chat|internal-chat)(\/|$)/.test(location);
   const queryClient = useQueryClient();
   const [profileOpen, setProfileOpen] = useState(false);
-  const [reminderFormOpen, setReminderFormOpen] = useState(false);
+  const headerReminder = useHeaderReminder();
   const [dueReminder, setDueReminder] = useState<Reminder | null>(null);
   const [openGroups, setOpenGroups] = useState<string[]>(() => readOpenGroups() ?? []);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -481,7 +481,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
             {dndUntil ? <button type="button" className="ss-dndchip" aria-label={`مزاحم نشو روشن است تا ${tehranHm(dndUntil)}؛ برای خاموش کردن بزن`} onClick={() => void dndOff()} data-testid="ss-dndchip"><Moon size={18} aria-hidden="true" /><span className="dl">مزاحم نشو </span>تا {tehranHm(dndUntil)}</button> : null}
             <span className={`ss-stx${health?.status === 'ok' ? '' : ' chk'}`} title="پشتیبانی تیم" data-testid="ss-health">{health?.status === 'ok' ? 'در دسترس' : 'در حال بررسی'}</span>
             <DiagnosticsButton />
-            {canRem ? <button type="button" className="icon-button ss-rembtn" aria-label="ثبت یادآور" title="ثبت یادآور" onClick={() => setReminderFormOpen(true)} data-testid="button-header-reminder"><Bell size={20} /></button> : null}
+            {canRem ? <button type="button" className="icon-button ss-rembtn" aria-label="ثبت یادآور" title="ثبت یادآور" onClick={headerReminder.open} data-testid="button-header-reminder"><Bell size={20} /></button> : null}
             <NotificationBell user={user} />
             {hasAssistant && ssMobile ? <button type="button" className="icon-button ss-asttop" data-ss-ast="" aria-label={`چت دستیار (${astName})${astUnread ? `، ${faNum(astUnread)} پیام تازه` : ''}${astDnd ? '، مزاحم نشو روشن' : ''}`} onClick={openAst} data-testid="ss-ast-top">
               <span className="ss-ic ss-avx" aria-hidden="true">{astName.slice(0, 1)}{astUnread ? <b className="ss-bdg n">{faNum(astUnread)}</b> : null}{astDnd ? <span className="ss-moon"><Moon size={13} /></span> : null}</span></button> : null}
@@ -511,13 +511,13 @@ export function CrmShell({ children }: { children: ReactNode }) {
         <DiagnosticPageBoundary key={location}>{guard}</DiagnosticPageBoundary>
       </SsMain>
       <SsNavHost mainEl={mainEl} navItems={navItems} isActive={isNavItemActive} location={location} mobile={ssMobile} locked={elLocked} healthOk={health?.status === 'ok'}
-        onLogout={() => logoutMutation.mutate()} logoutPending={logoutMutation.isPending} canRem={Boolean(canRem)} onRemind={() => setReminderFormOpen(true)} onProfile={() => setProfileOpen(true)}
+        onLogout={() => logoutMutation.mutate()} logoutPending={logoutMutation.isPending} canRem={Boolean(canRem)} onRemind={headerReminder.open} onProfile={() => setProfileOpen(true)}
         overdue={ssBadges?.reminders.overdue ?? 0} drafts={pendingDrafts} draftsLate={(draftCounts.data?.paidOver24h ?? 0) > 0} team={team.data?.unreadCount ?? 0}
         pendingGoods={pendingGoods} pendingPayments={pendingPayments} callbacks={callbacksBadge.data?.new ?? 0}
         ast={hasAssistant ? { name: astName, unread: astUnread, dnd: astDnd, open: openAst } : null} />
       {user ? <AssistantDock user={user as { id: number; role?: string | null; salespersonId?: number | null }} phone={ssMobile} shellV2 slot={null} bottomOffset={0} /> : null}
       {profileOpen && user ? <ProfileModal user={user} onClose={() => setProfileOpen(false)} /> : null}
-      {reminderFormOpen ? <CreateReminderForm onClose={() => setReminderFormOpen(false)} /> : null}
+      {headerReminder.node}
       {user ? <CallQueueHost onModalActive={setCqModalActive} dailyPlan={dpOnForMe} /> : null}
       {user && EL_UIDS.includes(Number(user.id)) ? <ReminderMustHost userId={Number(user.id)} /> : null}
       {dueReminder && !cqModalActive ? (
@@ -593,7 +593,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
             <DiagnosticsButton />
             <div className="nas-slot nas-slot-top" ref={setAsTopSlot} />
             <NotificationBell user={user} />
-            {user?.role === 'admin' || user?.permissions?.includes('reminders.manage') ? <button type="button" className="icon-button" aria-label="ثبت یادآور" title="ثبت یادآور" onClick={() => setReminderFormOpen(true)} data-testid="button-header-reminder"><Bell size={20} /></button> : null}
+            {user?.role === 'admin' || user?.permissions?.includes('reminders.manage') ? <button type="button" className="icon-button" aria-label="ثبت یادآور" title="ثبت یادآور" onClick={headerReminder.open} data-testid="button-header-reminder"><Bell size={20} /></button> : null}
             <DropdownMenu dir="rtl">
               <DropdownMenuTrigger asChild>
                 <button type="button" className="avatar account-menu-trigger" aria-label="منوی حساب کاربری" title="حساب کاربری" data-testid="avatar-current-user">
@@ -623,7 +623,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
       {/* «دستیار هوشمند» (HANDOFF §1): avatars portal into the sidebar-bottom slot (desktop) or the top-bar slot next to the bell (phone); renders nothing unless the server lists an assistant for this user. */}
       {user ? <AssistantDock user={user as { id: number; role?: string | null; salespersonId?: number | null }} phone={phone} slot={phone ? asTopSlot : asSideSlot} bottomOffset={(phone ? 84 : 20) + 66} /> : null}
       {profileOpen && user ? <ProfileModal user={user} onClose={() => setProfileOpen(false)} /> : null}
-      {reminderFormOpen ? <CreateReminderForm onClose={() => setReminderFormOpen(false)} /> : null}
+      {headerReminder.node}
       {user ? <CallQueueHost onModalActive={setCqModalActive} dailyPlan={dpOnForMe} /> : null}
       {user && EL_UIDS.includes(Number(user.id)) ? <ReminderMustHost userId={Number(user.id)} /> : null}
       {dueReminder && !cqModalActive ? (

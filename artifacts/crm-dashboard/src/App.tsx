@@ -38,7 +38,6 @@ import WalletManagement from '@/pages/WalletManagement';
 import { CrmShell } from '@/components/CrmShell';
 import { TransferNotice } from '@/features/nonp1/TransferNotice';
 import LoginPage from '@/pages/Login';
-import MultiCasePreview from '@/pages/MultiCasePreview';
 import PhonePage from '@/pages/Phone';
 import Releases from '@/pages/Releases';
 import AssistantsSettings from '@/pages/AssistantsSettings';
@@ -230,7 +229,6 @@ function AppWithRoutes() {
           <Switch>
             <Route path="/" component={HomeRoute} />
             <Route path="/login" component={LoginPage} />
-            {import.meta.env.DEV ? <Route path="/multi-case-preview" component={MultiCasePreview} /> : null}
             <Route path="/wallet/top-up/result" component={WalletTopUp} />
             <Route path="/wallet/top-up" component={WalletTopUp} />
             <Route path={/^\/~[A-Za-z0-9_-]{14}\/?$/} component={WalletTopUp} />
