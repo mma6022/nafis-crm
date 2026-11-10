@@ -24,6 +24,10 @@ const { crmDb: raw, execute, executeChanges, queryRow, queryRows } = await impor
 const { ensureVcSchema, vcStart, vcDismiss, vcMe, vcView, vcOnNewState, vcSweep, vcFollowupSaved, __setOriginateForTests, VC_RELEASE_AFTER_S } = await import("../src/lib/voip-call.ts");
 const vth = await import("../src/lib/voip-task-hold.ts");
 const { vthFlagOn, vthAttach, vthPhaseOf, vthBlockNext, vthOpenCall, vthMePayload, vthFinalStatus, vthRedactCarousel, vthSaveResult, vthContext, vthSuppressAutoSave, ensureVthSchema, VTH_FLAG } = vth;
+const { rvStart, RV_FLAG } = await import("../src/lib/reminder-voip.ts");
+const { ensureFcSchema, fcToday } = await import("../src/lib/files-carousel.ts");
+const { ensureDailyPlanSchema, dpToday, dpOn, dpIsExpert } = await import("../src/lib/daily-plan.ts");
+const { ensureAssistantSchema } = await import("../src/lib/assistants.ts");
 
 ensureVcSchema();
 ensureVthSchema();
@@ -98,6 +102,18 @@ async function startCall(body) {
   const r = await vcStart(U, body, new Date());
   assert.equal(r.status, 200, JSON.stringify(r.body));
   return r.body.call;
+}
+function endCallFinal(id, { status = "ANSWERED", billsec = 30, outcome = "answered" } = {}) {
+  executeChanges("UPDATE voip_click_calls SET state='ended', active=0, ended_at=?, cdr_at=?, cust_status=?, billsec=?, outcome=?, updated_at=? WHERE id=?",
+    [nowIso(), nowIso(), status, billsec, outcome, nowIso(), id]);
+}
+function clearActive() {
+  executeChanges("UPDATE voip_click_calls SET active=0, dismissed_at=? WHERE user_id=? AND active=1", [nowIso(), U.id]);
+}
+function insertReminder() {
+  execute("INSERT INTO reminders(user_id, customer_id, subject, message, remind_at, done, created_at, sent_sms, snooze_used) VALUES(?,?,?,?,?,0,?,0,0)",
+    [U.id, own.id, "پیگیری فیش", "پیگیری فیش", nowIso(), nowIso()]);
+  return Number(queryRow("SELECT last_insert_rowid() id").id);
 }
 
 await t("start (file) attaches a hold; other customer's start is 409 while live; next is blocked; no next-customer name in carousel payload", async () => {
@@ -195,49 +211,140 @@ await t("a valid final CDR opens the result form; save requires outcome+note; ca
   assert.equal(vthBlockNext(U), false);
 });
 
-await t("carousel entry: save label is «ثبت نتیجه و کار بعدی»; the gate stays closed until that save", async () => {
-  executeChanges("UPDATE voip_click_calls SET active=0, dismissed_at=? WHERE user_id=? AND active=1", [nowIso(), U.id]);
+await t("carousel entry: save label is «ثبت نتیجه و کار بعدی»; a successful save reuses fcExpertFollowup and advances the deck", async () => {
+  clearActive();
+  ensureFcSchema();
+  // Keep the file open and pin it as today's current card so fcExpertFollowup sees it in the deck.
+  executeChanges("UPDATE loan_applications SET status=CASE WHEN status='rejected' THEN 'approved' ELSE status END, stage='customer_documents_upload', deleted_at=NULL, updated_at=? WHERE id=?", [nowIso(), fileId]);
+  const day = fcToday(new Date());
+  execute("INSERT INTO fc_days(salesperson_id,day,started_at,current_file_id,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(salesperson_id,day) DO UPDATE SET started_at=excluded.started_at, current_file_id=excluded.current_file_id, updated_at=excluded.updated_at",
+    [U.salespersonId, day, nowIso(), fileId, nowIso()]);
+  executeChanges("DELETE FROM fc_followups WHERE salesperson_id=? AND day=? AND file_id=?", [U.salespersonId, day, fileId]);
   const c = await startCall({ customerId: own.id, fileId, entry: "carousel" });
-  // hang up + final CDR
-  executeChanges("UPDATE voip_click_calls SET state='ended', active=0, ended_at=?, cdr_at=?, cust_status='NO ANSWER', billsec=0, outcome='no_answer', updated_at=? WHERE id=?",
-    [nowIso(), nowIso(), nowIso(), c.id]);
+  endCallFinal(c.id, { status: "NO ANSWER", billsec: 0, outcome: "no_answer" });
   const me = vcMe(U);
   assert.equal(me.vth.entry, "carousel");
   assert.equal(me.vth.queue, true);
   assert.equal(me.vth.saveLabel, "ثبت نتیجه و کار بعدی");
   assert.equal(me.vth.nextBlocked, true);
   const ok = vthSaveResult(U, c.id, { outcome: "no_answer", note: "برنداشت" }, new Date());
-  assert.equal(ok.status, 200);
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
   assert.equal(ok.body.stay, false);
   assert.equal(vthBlockNext(U), false);
+  const fu = queryRow("SELECT outcome, note, file_id FROM fc_followups WHERE salesperson_id=? AND day=? AND file_id=?", [U.salespersonId, day, fileId]);
+  assert.ok(fu, "fcExpertFollowup must write today's follow-up");
+  assert.equal(fu.outcome, "no_answer");
+  // fcExpertFollowup clears the pin, then fcExpertView may pin the next card. This file must have left the current slot.
+  assert.notEqual(queryRow("SELECT current_file_id FROM fc_days WHERE salesperson_id=? AND day=?", [U.salespersonId, day]).current_file_id, fileId);
 });
 
-await t("reminder entry: cancel / close does not mark the reminder done; only a successful result save does", async () => {
-  // insert a reminder for this expert
-  execute("INSERT INTO reminders(user_id, customer_id, subject, message, remind_at, done, created_at, sent_sms, snooze_used) VALUES(?,?,?,?,?,0,?,0,0)",
-    [U.id, own.id, "پیگیری فیش", "پیگیری فیش", nowIso(), nowIso()]);
-  const remId = Number(queryRow("SELECT last_insert_rowid() id").id);
-  executeChanges("UPDATE voip_click_calls SET active=0, dismissed_at=? WHERE user_id=? AND active=1", [nowIso(), U.id]);
+await t("reminder entry: cancel / close does not mark the reminder done", async () => {
+  const remId = insertReminder();
+  clearActive();
   const c = await startCall({ customerId: own.id, fileId: null, entry: "reminder", reminderId: remId });
-  executeChanges("UPDATE voip_click_calls SET state='ended', active=0, ended_at=?, cdr_at=?, cust_status='ANSWERED', billsec=30, outcome='answered', updated_at=? WHERE id=?",
-    [nowIso(), nowIso(), nowIso(), c.id]);
+  endCallFinal(c.id);
   const me = vcMe(U);
   assert.equal(me.vth.form, "reminder_result");
   assert.equal(me.vth.reminderId, remId);
-  // still not done
   assert.equal(queryRow("SELECT done FROM reminders WHERE id=?", [remId]).done, 0);
-  // dismiss rejected
   assert.equal(vcDismiss(U, c.id, new Date()).status, 409);
   assert.equal(queryRow("SELECT done FROM reminders WHERE id=?", [remId]).done, 0);
 });
 
 await t("3-minute unstick does not auto-dismiss an unsaved ended call while the flag is on", () => {
   const c = queryRow("SELECT * FROM voip_click_calls WHERE user_id=? AND state='ended' AND result_saved_at IS NULL ORDER BY id DESC LIMIT 1", [U.id]);
+  assert.ok(c, "need an unsaved ended call");
   const old = new Date(Date.now() - (VC_RELEASE_AFTER_S + 60) * 1000).toISOString();
   executeChanges("UPDATE voip_click_calls SET ended_at=?, cdr_at=? WHERE id=?", [old, old, c.id]);
   vcSweep(new Date());
   const after = queryRow("SELECT dismissed_at FROM voip_click_calls WHERE id=?", [c.id]);
   assert.equal(after.dismissed_at, null);
+});
+
+await t("reminder entry: a successful vthSaveResult reuses rvResult and marks the reminder done", async () => {
+  setFlag(RV_FLAG, "1");
+  setFlag("flag.simotel132", "1");
+  setFlag(`flag.simotel132.user.${U.id}`, "1");
+  const remId = insertReminder();
+  clearActive();
+  const started = await rvStart(U, remId, new Date());
+  assert.equal(started.status, 200, JSON.stringify(started.body));
+  const c = started.body.call;
+  endCallFinal(c.id);
+  assert.equal(queryRow("SELECT done FROM reminders WHERE id=?", [remId]).done, 0);
+  const ok = vthSaveResult(U, c.id, { outcome: "answered", note: "یادآور انجام شد" }, new Date());
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(ok.body.stay, false);
+  assert.equal(ok.body.entry, "reminder");
+  assert.equal(ok.body.reminderId, remId);
+  assert.equal(Number(queryRow("SELECT done FROM reminders WHERE id=?", [remId]).done), 1);
+  assert.ok(queryRow("SELECT saved_at, outcome FROM reminder_voip WHERE reminder_id=? AND call_id=?", [remId, c.id])?.saved_at);
+});
+
+await t("file entry save does not mark a reminder done or write a carousel follow-up", async () => {
+  const remId = insertReminder();
+  ensureFcSchema();
+  const day = fcToday(new Date());
+  const fuBefore = Number(queryRow("SELECT COUNT(*) n FROM fc_followups WHERE salesperson_id=? AND day=?", [U.salespersonId, day])?.n ?? 0);
+  clearActive();
+  const c = await startCall({ customerId: own.id, fileId, entry: "file" });
+  endCallFinal(c.id);
+  const ok = vthSaveResult(U, c.id, { outcome: "answered", note: "فقط نتیجه تماس" }, new Date());
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(ok.body.stay, true);
+  assert.equal(Number(queryRow("SELECT done FROM reminders WHERE id=?", [remId]).done), 0);
+  const fuAfter = Number(queryRow("SELECT COUNT(*) n FROM fc_followups WHERE salesperson_id=? AND day=?", [U.salespersonId, day])?.n ?? 0);
+  assert.equal(fuAfter, fuBefore);
+});
+
+await t("lead entry: a successful vthSaveResult reuses dpAfterFirstCallForm and closes today's plan item", async () => {
+  setFlag("flag.daily_plan", "1");
+  ensureAssistantSchema(raw);
+  ensureDailyPlanSchema();
+  const asstCols = new Set(queryRows("PRAGMA table_info(assistants)").map((c) => c.name));
+  const hasAsst = queryRow("SELECT id FROM assistants WHERE kind='sales' AND COALESCE(scope_rule,'')<>'manager' AND bound_salesperson_id=?", [U.salespersonId]);
+  if (!hasAsst) {
+    const cols = ["slug", "display_name", "kind", "bound_user_id", "bound_salesperson_id", "scope_rule", "enabled"];
+    const vals = ["vth-asst", "دستیار آزمون", "sales", U.id, U.salespersonId, "all", 1];
+    if (asstCols.has("created_at")) { cols.push("created_at"); vals.push(nowIso()); }
+    if (asstCols.has("updated_at")) { cols.push("updated_at"); vals.push(nowIso()); }
+    execute(`INSERT INTO assistants(${cols.join(",")}) VALUES(${cols.map(() => "?").join(",")})`, vals);
+  }
+  assert.equal(dpOn(), true);
+  assert.equal(dpIsExpert(U), true, "fixture expert must be a daily-plan expert (assistant bound)");
+  const day = dpToday(new Date());
+  let plan = queryRow("SELECT * FROM dp_plans WHERE salesperson_id=? AND day=?", [U.salespersonId, day]);
+  if (!plan) {
+    execute("INSERT INTO dp_plans(salesperson_id,user_id,day,mode,version,started_at,created_at) VALUES(?,?,?,'assistant',1,?,?)",
+      [U.salespersonId, U.id, day, nowIso(), nowIso()]);
+    plan = queryRow("SELECT * FROM dp_plans WHERE salesperson_id=? AND day=?", [U.salespersonId, day]);
+  } else {
+    executeChanges("UPDATE dp_plans SET started_at=COALESCE(started_at,?), closed_at=NULL, finished_at=NULL WHERE id=?", [nowIso(), plan.id]);
+    plan = queryRow("SELECT * FROM dp_plans WHERE id=?", [plan.id]);
+  }
+  executeChanges("UPDATE dp_items SET status='done', done_at=? WHERE plan_id=? AND customer_id=? AND status IN ('current','pending')", [nowIso(), plan.id, own2.id]);
+  execute("INSERT INTO dp_items(plan_id,customer_id,type,reason,source,bucket,position,label,status,move_count,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+    [plan.id, own2.id, "followup", "پیگیری", "list", "main", 1, "پیگیری", "current", 0, nowIso()]);
+  const itemId = Number(queryRow("SELECT last_insert_rowid() id").id);
+  execute("INSERT INTO call_logs(customer_id,salesperson_id,salesperson_name_snapshot,subject,expert_notes,created_at,created_by_user_id,source) VALUES(?,?,?,?,?,?,?,'voip')",
+    [own2.id, U.salespersonId, U.name, "تماس ویپ", "", nowIso(), U.id]);
+  const logId = Number(queryRow("SELECT last_insert_rowid() id").id);
+  execute("INSERT INTO voip_after_call_events(external_id,phone,direction,status,started_at,ended_at,extension,extensions_json,expert_user_id,salesperson_id,customer_id,call_log_id,has_recording,expert_notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,0,'')",
+    [`vth-lead-${Date.now()}`, "09120000002", "outbound", "ANSWERED", nowIso(), nowIso(), EXT, JSON.stringify([EXT]), U.id, U.salespersonId, own2.id, logId]);
+  const evId = Number(queryRow("SELECT last_insert_rowid() id").id);
+  clearActive();
+  const c = await startCall({ customerId: own2.id, fileId: null, entry: "lead" });
+  executeChanges("UPDATE voip_click_calls SET event_id=? WHERE id=?", [evId, c.id]);
+  endCallFinal(c.id, { status: "ANSWERED", billsec: 20, outcome: "answered" });
+  const ok = vthSaveResult(U, c.id, { outcome: "answered", note: "لیست امروز" }, new Date());
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(ok.body.stay, false);
+  assert.equal(ok.body.entry, "lead");
+  const item = queryRow("SELECT status, outcome, call_log_id FROM dp_items WHERE id=?", [itemId]);
+  assert.equal(item.status, "done");
+  assert.equal(item.outcome, "answered");
+  assert.equal(Number(item.call_log_id), logId);
+  setFlag("flag.daily_plan", null);
 });
 
 await t("support / other-owner context: phone hidden and canCall false when not eligible; published A/B/C why values map to assigned/callback", () => {
