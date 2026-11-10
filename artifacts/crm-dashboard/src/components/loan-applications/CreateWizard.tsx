@@ -13,6 +13,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { clearLoanDraft, readLoanDraft, writeLoanDraft } from "@/lib/loan-draft";
+import { useMultiCaseCustomer, useMultiCaseStatus } from "@/lib/multi-case";
+import { SamePlanBlock } from "@/components/multi-case/CaseContextPicker";
 import { DRAFTS_KEY, DraftHttpError, filingFeeIdempotencyKey, openPreRegistrationFor, type OpenPreRegistration, canUseDrafts, draftsApi, tehranTime, type DraftPayload, type RequestDraft } from "@/lib/request-drafts";
 import { toast } from "@/hooks/use-toast";
 import "./request-drafts.css";
@@ -129,6 +131,7 @@ function apiErrorMessage(error: unknown, fallback: string) {
     customer_profile_incomplete: "پیش از پرداخت، اطلاعات الزامی پروفایل مشتری را کامل کنید.",
     insufficient_cash_balance: "موجودی کیف پول نقدی مشتری برای هزینه تشکیل پرونده کافی نیست.",
     filing_fee_idempotency_conflict: "تلاش پرداخت قبلی به مشتری یا طرح دیگری تعلق دارد.",
+    open_same_plan_case: "برای این مشتری یک پروندهٔ باز با همین طرح وجود دارد. تا لغو یا تکمیل آن، پروندهٔ تازه با همین طرح ساخته نمی‌شود. طرح دیگر آزاد است و هزینهٔ هر پرونده جدا حساب می‌شود.",
     loan_plan_not_found: "طرح انتخاب‌شده دیگر برای ثبت درخواست فعال نیست.",
     artifact_integrity: "فایل PDF قرارداد معتبر نیست؛ قرارداد را دوباره تولید کنید.",
     certificate_inactive: CERTIFICATE_INACTIVE_MESSAGE,
@@ -164,7 +167,7 @@ const STEP_LEADS: Record<number, string> = {
   10: "اطلاعات را بازبینی و پرونده را ثبت کنید.",
 };
 
-export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCustomer, serverDraftId }: { onClose: () => void; initialCustomerId?: number; resumeDraft?: boolean; fromCustomer?: boolean; serverDraftId?: number }) {
+export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCustomer, serverDraftId, requestKey }: { onClose: () => void; initialCustomerId?: number; resumeDraft?: boolean; fromCustomer?: boolean; serverDraftId?: number; requestKey?: string | null }) {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const reduceMotion = useReducedMotion();
@@ -215,7 +218,12 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   const [feeChargeId, setFeeChargeId] = useState<number | null>(null);
   // Resume guard: this customer's paid fee already made a case → continue there (no second charge).
   const [existingCase, setExistingCase] = useState<OpenPreRegistration | null>(null);
+  const multiStatus = useMultiCaseStatus();
+  const multiOn = multiStatus.data?.enabled === true && Boolean(requestKey);
+  const caseCustomerId = selectedCustomer?.id ?? initialCustomerId ?? 0;
+  const openCases = useMultiCaseCustomer(caseCustomerId, multiOn && caseCustomerId > 0);
   const checkExistingCase = async (customerId: number): Promise<boolean> => {
+    if (multiOn) return false;
     try {
       const app = await openPreRegistrationFor(customerId);
       if (app) { setExistingCase(app); return true; }
@@ -256,6 +264,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
 
   // Financing terms
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
+  const blockedOpen = (openCases.data?.cases ?? []).find((row) => row.open && row.planId != null && row.planId === selectedPlanId);
   const [selectedPlan, setSelectedPlan] = useState<CustomerEligiblePlan | null>(null);
   const [amount, setAmount] = useState("");
   const [duration, setDuration] = useState("");
@@ -327,7 +336,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
         try {
           const saved = await draftsApi.save(srvRef.current!.id, srvRef.current!.version, latest.current.step, latest.current.payload);
           setSrv(saved); setSaveState('saved'); ok = true;
-          if (userId) clearLoanDraft(userId, saved.customerId);
+          if (userId) clearLoanDraft(userId, saved.customerId, requestKey);
           break;
         } catch (e) {
           // Version conflict: adopt the server version and write this (active) session's state once more.
@@ -347,7 +356,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   const createFor = async (customer: Customer): Promise<boolean> => {
     setSaveState('saving');
     try {
-      const d = await draftsApi.create(customer.id, latest.current.step, latest.current.payload);
+      const d = await draftsApi.create(customer.id, latest.current.step, latest.current.payload, multiOn ? requestKey : null);
       setSrv(d); setSaveState('saved'); setHydrated(true);
       void queryClient.invalidateQueries({ queryKey: DRAFTS_KEY });
       return true;
@@ -399,13 +408,16 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   };
   const openServerDraft = async (customerId: number, draftId?: number) => {
     try {
-      const d = draftId ? await draftsApi.get(draftId) : await draftsApi.byCustomer(customerId);
+      const bundle = draftId ? { draft: await draftsApi.get(draftId), drafts: undefined as undefined } : await draftsApi.byCustomer(customerId);
+      const d = requestKey
+        ? (bundle.drafts?.find((row) => row.requestKey === requestKey) ?? (bundle.draft?.requestKey === requestKey ? bundle.draft : null))
+        : bundle.draft;
       if (d && d.customerId === customerId && d.status === 'pending_registration') { await hydrate(d); return; }
       if (draftId) setDraftNotice('این درخواست دیگر در انتظار ثبت نیست؛ درخواست تازه شروع شد.');
     } catch (e) {
       if (e instanceof DraftHttpError && e.offline) {
         setSaveState('offline');
-        const local = readLoanDraft(userId, customerId);
+        const local = readLoanDraft(userId, customerId, requestKey);
         if (local) { draftRestore.current = { planId: local.planId, amount: local.amount, duration: local.duration }; if (local.planId) setSelectedPlanId(local.planId); setRestoredDraft(true); }
         return;
       }
@@ -413,12 +425,12 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
     }
     const c = entryCustomer.data as unknown as Customer | undefined;
     // «ادامه» of a device draft (no server copy yet): carry its step and terms over instead of restarting at step 2.
-    const local = resumeDraft && !draftId ? readLoanDraft(userId, customerId) : null;
+    const local = resumeDraft && !draftId ? readLoanDraft(userId, customerId, requestKey) : null;
     if (c && local && local.step > 2) {
       setSaveState('saving');
       try {
         const payload = { ...(local.planId ? { planId: local.planId } : {}), ...(local.amount ? { amount: local.amount } : {}), ...(local.duration ? { duration: local.duration } : {}) } as DraftPayload;
-        const d = await draftsApi.create(c.id, local.step, payload);
+        const d = await draftsApi.create(c.id, local.step, payload, multiOn ? requestKey : null);
         void queryClient.invalidateQueries({ queryKey: DRAFTS_KEY });
         await hydrate(d); return;
       } catch (e) {
@@ -463,20 +475,21 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   const [restoredDraft, setRestoredDraft] = useState(false);
   useEffect(() => {
     if (entryApplied.current || !initialCustomerId || !entryCustomer.data || !session.data) return;
+    if (requestKey && multiStatus.isLoading) return;
     entryApplied.current = true;
     selectCustomer(entryCustomer.data as unknown as Customer);
     setStep(2);
     void checkExistingCase(initialCustomerId).then((found) => {
       if (found) { setHydrated(true); return; }
       if (draftsAllowed) { void openServerDraft(initialCustomerId, serverDraftId); return; }
-      const draft = resumeDraft ? readLoanDraft(userId, initialCustomerId) : null;
+      const draft = resumeDraft ? readLoanDraft(userId, initialCustomerId, requestKey) : null;
       if (draft) {
         draftRestore.current = { planId: draft.planId, amount: draft.amount, duration: draft.duration };
         if (draft.planId) setSelectedPlanId(draft.planId);
         setRestoredDraft(true);
       }
     });
-  }, [entryCustomer.data, initialCustomerId, resumeDraft, session.data, userId, serverDraftId]);
+  }, [entryCustomer.data, initialCustomerId, resumeDraft, session.data, userId, serverDraftId, requestKey, multiStatus.isLoading]);
   useEffect(() => {
     const restore = draftRestore.current;
     if (!restore || !selectedPlan || selectedPlan.planId !== restore.planId) return;
@@ -488,7 +501,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   useEffect(() => {
     if (!selectedCustomer || !userId || step < 2 || existingCase) return;
     if (draftsAllowed && hydrated && saveState !== 'offline') return;
-    const previous = readLoanDraft(userId, selectedCustomer.id);
+    const previous = readLoanDraft(userId, selectedCustomer.id, requestKey);
     writeLoanDraft(userId, {
       customerId: selectedCustomer.id, customerName: selectedCustomer.name,
       step: Math.max(displayStep, previous?.step ?? 0),
@@ -496,6 +509,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
       planName: selectedPlan?.name ?? previous?.planName ?? null,
       amount: selectedPlan ? amount : previous?.amount ?? '',
       duration: selectedPlan ? duration : previous?.duration ?? '',
+      requestKey: requestKey ?? null,
     });
   }, [selectedCustomer?.id, step, displayStep, selectedPlanId, selectedPlan?.planId, amount, duration, userId, saveState, hydrated, existingCase]);
 
@@ -586,7 +600,8 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
       const application = await createMutation.mutateAsync({ data: applicationInput as typeof applicationInput });
       await queryClient.invalidateQueries({ queryKey: ["/api/loan-applications"] });
       window.sessionStorage.removeItem(`loan-fee:${selectedCustomer.id}:${selectedPlan.planId}`);
-      clearLoanDraft(userId, selectedCustomer.id);
+      if (requestKey) window.sessionStorage.removeItem(`loan-fee:${selectedCustomer.id}:${selectedPlan.planId}:${requestKey}`);
+      clearLoanDraft(userId, selectedCustomer.id, requestKey);
       if (srvRef.current) {
         void queryClient.invalidateQueries({ queryKey: DRAFTS_KEY });
         toast({ title: 'درخواست ثبت شد', description: `پرونده‌ی ${fa(application.id)} برای ${selectedCustomer.name} ساخته شد و از «در انتظار ثبت» خارج شد.`, duration: 5000 });
@@ -793,6 +808,9 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
             />
            )}
            {step === 3 && selectedCustomer && (
+            <>
+            {multiOn && (openCases.data?.cases ?? []).some((row) => row.open) ? <div className="lwz-note" data-testid="wizard-open-cases">پرونده‌های باز جدا می‌مانند و مبلغ یا یادداشتشان کپی نمی‌شود. {(openCases.data?.cases ?? []).filter((row) => row.open).map((row) => <span key={row.id}>پرونده {row.id.toLocaleString('fa-IR')} — {row.planName || 'طرح'}؛ </span>)}</div> : null}
+            {blockedOpen ? <SamePlanBlock planName={blockedOpen.planName || 'این طرح'} caseId={blockedOpen.id} /> : null}
             <Step3PlanAndTerms
                ignoreCreditRank={previewAllPlans}
                overrideReason={overrideReasonParam}
@@ -809,13 +827,15 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
                setDuration={setDuration}
                 attempted={termsAttempted}
                 onAttempt={() => setTermsAttempted(true)}
-               onNext={handleNext}
+               onNext={() => { if (blockedOpen) return; handleNext(); }}
                onPrev={handlePrev}
                part={sub}
             />
+            </>
           )}
             {step === 4 && selectedCustomer && selectedPlan && (
               <StepFilingFee customer={selectedCustomer} selectedPlan={selectedPlan} ignoreCreditRank={previewAllPlans} draftId={srv?.id} overrideReason={overrideReasonParam}
+                requestKey={multiOn ? requestKey : null}
                 feeChargeId={feeChargeId} setFeeChargeId={setFeeChargeId} onNext={handleNext} onPrev={handlePrev}
                 onExistingCase={() => { if (selectedCustomer) void checkExistingCase(selectedCustomer.id); }} />
           )}
@@ -887,7 +907,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
         onConfirm={() => { if (dupDraft.canContinue) void hydrate(dupDraft); }}
         onClose={() => { setDupDraft(null); setSrv(null); selectCustomer(null); setResumeInfo(null); setSaveState('idle'); if (step !== 1) { pendingSub.current = 0; setStep(1); } }}>
         <p><b>{dupDraft.customerName}</b> <CustomerIdBadge id={dupDraft.customerId} /> · مرحله {fa(dupDraft.step)} از {fa(dupDraft.totalSteps)} ({dupDraft.stepLabel}){dupDraft.paid ? ' · هزینه‌ی پرونده واریز شده' : ''}</p>
-        <p className="lwz-muted">آخرین ذخیره {new Date(dupDraft.updatedAt).toLocaleDateString('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran' })}، {tehranTime(dupDraft.updatedAt)}{dupDraft.updatedByName ? `، توسط ${dupDraft.updatedByName}` : ''}. برای هر مشتری فقط یک درخواست باز ممکن است.</p>
+        <p className="lwz-muted">آخرین ذخیره {new Date(dupDraft.updatedAt).toLocaleDateString('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran' })}، {tehranTime(dupDraft.updatedAt)}{dupDraft.updatedByName ? `، توسط ${dupDraft.updatedByName}` : ''}. {requestKey ? 'ادامه، همین درخواست را باز می‌کند و درخواست دیگر این مشتری را عوض نمی‌کند.' : 'برای هر مشتری فقط یک درخواست باز ممکن است.'}</p>
         {!dupDraft.canContinue ? <p className="lwz-note bad">این درخواست مال کارشناس دیگری است.</p> : null}
       </ConfirmDialog> : null}
     </div>,
@@ -895,8 +915,8 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   );
 }
 
-function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, onNext, onPrev, ignoreCreditRank, draftId, overrideReason, onExistingCase }: {
-  ignoreCreditRank: boolean; draftId?: number; overrideReason?: string; onExistingCase?: () => void;
+function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, onNext, onPrev, ignoreCreditRank, draftId, overrideReason, onExistingCase, requestKey }: {
+  ignoreCreditRank: boolean; draftId?: number; overrideReason?: string; onExistingCase?: () => void; requestKey?: string | null;
   customer: Customer; selectedPlan: CustomerEligiblePlan;
   feeChargeId: number | null; setFeeChargeId: (id: number | null) => void; onNext: () => void; onPrev: () => void;
 }) {
@@ -911,25 +931,30 @@ function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, on
   const keyRef = useRef<string | null>(null);
   const plan = data?.plans.find((p) => p.planId === selectedPlan.planId);
   const affordable = plan && data && BigInt(data.cashBalanceToman) >= BigInt(plan.filingFeeToman);
-  const hasPendingKey = Boolean(plan && window.sessionStorage.getItem(`loan-fee:${customer.id}:${plan.planId}`));
+  const storageKey = !plan ? '' : requestKey ? `loan-fee:${customer.id}:${plan.planId}:${requestKey}` : `loan-fee:${customer.id}:${plan.planId}`;
+  const hasPendingKey = Boolean(plan && storageKey && window.sessionStorage.getItem(storageKey));
 
   const pay = async () => {
     if (!plan || pending || feeChargeId) return;
     setPending(true);
     setFeeError('');
-    const storageKey = `loan-fee:${customer.id}:${plan.planId}`;
     // One key per server draft + plan: a double click, a second tab or a resumed draft replays the same charge.
-    keyRef.current ??= filingFeeIdempotencyKey(draftId, customer.id, plan.planId) ?? window.sessionStorage.getItem(storageKey) ?? crypto.randomUUID();
+    const feeKey = requestKey && draftId ? `draft-${draftId}-plan-${plan.planId}-req-${requestKey}` : filingFeeIdempotencyKey(draftId, customer.id, plan.planId);
+    keyRef.current ??= feeKey ?? window.sessionStorage.getItem(storageKey) ?? crypto.randomUUID();
     window.sessionStorage.setItem(storageKey, keyRef.current);
     try {
       const feeInput = { customerId: customer.id, planId: plan.planId, ignoreCreditRank, creditRankOverrideReason: overrideReason, ...(draftId ? { draftId } : {}) };
       const charge = await chargeFilingFee(feeInput as Parameters<typeof chargeFilingFee>[0],
         { headers: { 'Idempotency-Key': keyRef.current } });
-      if ((charge as { applicationId?: number | null }).applicationId) { onExistingCase?.(); return; }
+      if ((charge as { applicationId?: number | null }).applicationId) {
+        if (requestKey) { setFeeError('این پرداخت به پروندهٔ دیگری وصل است. برای طرحی که پروندهٔ باز دارد درخواست تازه ساخته نمی‌شود.'); return; }
+        onExistingCase?.(); return;
+      }
       setFeeChargeId(charge.chargeId);
       await queryClient.invalidateQueries({ queryKey: getGetFilingFeePlansQueryKey({ customerId: customer.id, ignoreCreditRank, creditRankOverrideReason: overrideReason }) });
     } catch (e) {
-      if ((e as { data?: { error?: string } })?.data?.error === 'open_pre_registration_case' || /open_pre_registration_case/.test(String((e as Error)?.message ?? ''))) { onExistingCase?.(); return; }
+      if ((e as { data?: { error?: string } })?.data?.error === 'open_same_plan_case') { setFeeError(apiErrorMessage(e, 'برای این طرح پروندهٔ باز وجود دارد.')); return; }
+      if (!requestKey && ((e as { data?: { error?: string } })?.data?.error === 'open_pre_registration_case' || /open_pre_registration_case/.test(String((e as Error)?.message ?? '')))) { onExistingCase?.(); return; }
       setFeeError(apiErrorMessage(e, 'کسر هزینه انجام نشد. موجودی کیف پول نقدی را بررسی کنید.'));
       refetch();
     } finally { setPending(false); }

@@ -578,12 +578,12 @@ export function CreateConsultationForm({ customers: sourceCustomers, pending, in
   </Modal>;
 }
 
-export function CreateReminderForm({ onClose }: { onClose: () => void }) {
+export function CreateReminderForm({ onClose, initialCustomerId, lockedApplicationId, caseScope }: { onClose: () => void; initialCustomerId?: number; lockedApplicationId?: number | null; caseScope?: 'general' }) {
   const queryClient = useQueryClient();
   const defaultReminder = defaultReminderJalali();
   const [search, setSearch] = useState('');
   const [form, setForm] = useState({
-    customerId: '',
+    customerId: initialCustomerId ? String(initialCustomerId) : '',
     subject: '',
     message: '',
     date: formatJalaliValue(defaultReminder.year, defaultReminder.month, defaultReminder.day),
@@ -627,6 +627,8 @@ export function CreateReminderForm({ onClose }: { onClose: () => void }) {
           subject: form.subject.trim(),
           message: form.message.trim(),
           remindAt,
+          ...(lockedApplicationId ? { loanApplicationId: lockedApplicationId, caseScope: 'case' as const } : {}),
+          ...(caseScope === 'general' ? { caseScope: 'general' as const, loanApplicationId: null } : {}),
         },
       },
       {
@@ -652,7 +654,8 @@ export function CreateReminderForm({ onClose }: { onClose: () => void }) {
         <div className="form-grid">
           <div className="field full">
             <label htmlFor="header-reminder-customer">مشتری <span className="field-optional">(اختیاری)</span></label>
-            <select id="header-reminder-customer" value={form.customerId} onChange={(event) => setForm({ ...form, customerId: event.target.value })} data-testid="select-header-reminder-customer">
+            {lockedApplicationId ? <p className="hint" data-testid="reminder-locked-case">این یادآور برای پرونده {lockedApplicationId.toLocaleString('fa-IR')} ثبت می‌شود.</p> : caseScope === 'general' ? <p className="hint" data-testid="reminder-general">یادآور عمومی مشتری؛ به پرونده‌ای وصل نمی‌شود.</p> : null}
+            <select id="header-reminder-customer" value={form.customerId} onChange={(event) => setForm({ ...form, customerId: event.target.value })} data-testid="select-header-reminder-customer" disabled={Boolean(initialCustomerId)}>
               <option value="">بدون اتصال به مشتری</option>
               {(customers.data?.items ?? []).map((customer) => <option key={customer.id} value={customer.id}>{customerNameText(customer.name, customer.id)} · {customer.phone} · کارشناس پرونده: {customer.salespersonName || 'بدون تخصیص'}</option>)}
             </select>

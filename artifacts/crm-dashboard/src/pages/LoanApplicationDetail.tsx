@@ -572,6 +572,7 @@ export default function LoanApplicationDetail() {
         </dl>
         <div className="ldx-acts">
           {app.customerId ? <Link className="csx-ghost" href={`/customers/${app.customerId}`} data-testid="link-loan-customer"><UserIcon /> پرونده مشتری</Link> : null}
+          {app.customerId ? <Link className="csx-ghost" href={`/customers/${app.customerId}?caseCall=${app.id}`} data-testid="link-case-call">ثبت تماس این پرونده</Link> : null}
           <LoanCaseCancellation application={app} />
           <AdminCaseCorrections applicationId={appId} />
           <SmartFilingButton applicationId={appId} />

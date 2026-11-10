@@ -122,13 +122,21 @@ export default function LoanApplications() {
   const [, setLocation] = useLocation();
   // Wizard entry: from the URL (customer page, links) AND from in-page «ادامه» (banner / drafts popup).
   // The URL used to be read once on mount, so «ادامه» only changed the address bar and nothing opened.
-  type WizardEntry = { customerId: number; draftId?: number; resume: boolean; fromCustomer: boolean; n: number };
+  type WizardEntry = { customerId: number; draftId?: number; resume: boolean; fromCustomer: boolean; requestKey?: string; n: number };
   const entryFromSearch = (search: string, n: number): WizardEntry | null => {
     const p = new URLSearchParams(search);
     const raw = p.get("customerId");
     if (p.get("new") !== "1" || !raw || !/^[1-9]\d*$/.test(raw)) return null;
     const d = p.get("draftId");
-    return { customerId: Number(raw), draftId: d && /^[1-9]\d*$/.test(d) ? Number(d) : undefined, resume: p.get("draft") === "1", fromCustomer: p.get("from") === "customer", n };
+    const request = p.get("request");
+    return {
+      customerId: Number(raw),
+      draftId: d && /^[1-9]\d*$/.test(d) ? Number(d) : undefined,
+      resume: p.get("draft") === "1",
+      fromCustomer: p.get("from") === "customer",
+      requestKey: request && /^[A-Za-z0-9][A-Za-z0-9_.:-]{7,79}$/.test(request) ? request : undefined,
+      n,
+    };
   };
   const [entry, setEntry] = useState<WizardEntry | null>(() => entryFromSearch(window.location.search, 0));
   const urlSearch = useSearch();
@@ -148,7 +156,7 @@ export default function LoanApplications() {
     const closing = entry;
     setEntry(null);
     const url = new URL(window.location.href);
-    ["new", "customerId", "from", "draft", "draftId"].forEach((name) => url.searchParams.delete(name));
+    ["new", "customerId", "from", "draft", "draftId", "request"].forEach((name) => url.searchParams.delete(name));
     window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
     lastSearch.current = url.search.replace(/^\?/, "");
     if (closing?.fromCustomer) setLocation(`/customers/${closing.customerId}`);
@@ -473,7 +481,7 @@ export default function LoanApplications() {
 
       {wizardOpen && <CreateWizard onClose={() => setWizardOpen(false)} />}
       {queueOpen && !wizardOpen && canCreate ? <CreateWizard key={`q:${queueOpen.draftId}`} initialCustomerId={queueOpen.customerId} serverDraftId={queueOpen.draftId} onClose={() => setQueueOpen(null)} /> : null}
-      {!wizardOpen && entry && session && canCreate ? <CreateWizard key={`${entry.customerId}:${entry.draftId ?? ""}:${entry.n}`} initialCustomerId={entry.customerId} serverDraftId={entry.draftId} resumeDraft={entry.resume} fromCustomer={entry.fromCustomer} onClose={closeEntryWizard} /> : null}
+      {!wizardOpen && entry && session && canCreate ? <CreateWizard key={`${entry.customerId}:${entry.draftId ?? ""}:${entry.requestKey ?? ""}:${entry.n}`} initialCustomerId={entry.customerId} serverDraftId={entry.draftId} resumeDraft={entry.resume} fromCustomer={entry.fromCustomer} requestKey={entry.requestKey} onClose={closeEntryWizard} /> : null}
 
       {draftToDelete ? <ConfirmDialog title="حذف پیش‌نویس؟" confirmLabel="حذف پیش‌نویس" testId="delete-loan-draft-dialog"
         onClose={() => setDraftToDelete(null)}
