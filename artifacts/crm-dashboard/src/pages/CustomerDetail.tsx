@@ -867,7 +867,7 @@ function CustomerDetailFull() {
     />}
     {multiOn ? <>
       <p className="mc-date" data-testid="mc-today">{weekdayJalali(new Date().toISOString())}{isSampleCustomer(customer) ? <span className="smp">نمونه</span> : null}</p>
-      {mcCreated ? <p className="mc-success" role="status" data-testid="mc-created-banner">پرونده <b dir="ltr">#{mcCreated.id.toLocaleString("fa-IR", { useGrouping: false })}</b> ایجاد شد{mcCreated.previousId ? <>؛ پرونده <b dir="ltr">#{mcCreated.previousId.toLocaleString("fa-IR", { useGrouping: false })}</b> همچنان باز است</> : null}</p> : null}
+      {mcCreated ? <p className="mc-success" role="status" data-testid="mc-created-banner">پرونده <bdi dir="ltr">#{mcCreated.id.toLocaleString("fa-IR", { useGrouping: false })}</bdi> ایجاد شد{mcCreated.previousId ? <>؛ پرونده <bdi dir="ltr">#{mcCreated.previousId.toLocaleString("fa-IR", { useGrouping: false })}</bdi> همچنان باز است</> : null}</p> : null}
       <McFlagPage customer={customer} loans={loans} cases={caseCtx.data?.cases ?? []} sample={isSampleCustomer(customer)} registrar={role === "registrar"} otherOwner={otherOwner} canNew={canNewLoan} canCall={canCallsCreate || isAdmin} onNew={startNewCase} onCall={startCall} onOpen={(caseId) => setLocation(`/loan-applications/${caseId}`)} />
     </> : <>
     <nav className="csx-crumb" aria-label="مسیر"><Link href="/customers" data-testid="link-back-customers"><ArrowRight size={16} /> مشتریان</Link><ChevronLeft size={14} aria-hidden="true" /><span aria-current="page">{customerNameText(customer.name, customer.id)}</span></nav>

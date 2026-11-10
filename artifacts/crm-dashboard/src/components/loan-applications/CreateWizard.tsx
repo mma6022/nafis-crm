@@ -21,6 +21,7 @@ import { DRAFTS_KEY, DraftHttpError, filingFeeIdempotencyKey, openPreRegistratio
 import { toast } from "@/hooks/use-toast";
 import "./request-drafts.css";
 import { WIZARD_DISPLAY_STEPS, WIZARD_PHASES, WIZARD_TOTAL_STEPS } from "@/lib/loan-labels";
+import { advanceWizard, filingFeeIsZero, WIZARD_STEP_PARTS, zeroFeeOnHydrate } from "@/lib/wizard-advance";
 import { ConfirmDialog, useMinWidth } from "@/pages/customers-ui";
 import "@/pages/customers.css";
 import "@/pages/loan-requests.css";
@@ -42,6 +43,7 @@ import {
   listCustomerEligiblePlans,
   getListCustomerEligiblePlansQueryKey,
   useGetFilingFeePlans,
+  getFilingFeePlans,
   getGetFilingFeePlansQueryKey,
   chargeFilingFee,
   logCustomerCreditRankOverride,
@@ -156,7 +158,8 @@ function apiErrorMessage(error: unknown, fallback: string) {
 
 // Display parts per internal step (see WIZARD_DISPLAY_STEPS): the six internal steps are
 // shown as ten small screens; the internal step order and its guards are unchanged.
-const STEP_PARTS: Record<number, number> = { 1: 1, 2: 3, 3: 2, 4: 1, 5: 1, 6: 2 };
+
+const STEP_PARTS = WIZARD_STEP_PARTS;
 const STEP_LEADS: Record<number, string> = {
   1: "مشتری را جستجو و انتخاب کنید.",
   2: "برای استعلام هویت لازم است. اگر قبلاً ثبت شده، فقط بررسی کنید.",
@@ -419,7 +422,19 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
     const ignore = false;
     setIgnoreCreditRank(false); setOverrideReason(null);
     if (Boolean(p.ignoreCreditRank) && canIgnoreCreditRank) setDraftNotice('این درخواست با «نادیده گرفتن رتبه» ذخیره شده بود؛ برای ادامه با همان حالت، آن را دوباره با ذکر دلیل فعال کنید.');
-    if (d.feeChargeId) setFeeChargeId(d.feeChargeId);
+    if (d.feeChargeId) { setFeeChargeId(d.feeChargeId); setZeroFee(false); }
+    else if (p.planId) {
+      try {
+        const feeParams = { customerId: d.customerId, ignoreCreditRank: false as const };
+        let feePlans = queryClient.getQueryData(getGetFilingFeePlansQueryKey(feeParams)) as { plans?: { planId: number; filingFeeToman: string }[] } | undefined;
+        if (!feePlans) {
+          feePlans = await getFilingFeePlans(feeParams);
+          queryClient.setQueryData(getGetFilingFeePlansQueryKey(feeParams), feePlans);
+        }
+        const feeRow = feePlans?.plans?.find((item) => item.planId === p.planId);
+        setZeroFee(zeroFeeOnHydrate(null, feeRow?.filingFeeToman));
+      } catch { setZeroFee(false); }
+    } else setZeroFee(false);
     if (p.planId) setSelectedPlanId(p.planId);
     let n = Math.max(2, d.step);
     if (p.planId && n >= 5) {
@@ -548,11 +563,15 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   }, [selectedCustomer?.id, step, displayStep, selectedPlanId, selectedPlan?.planId, amount, duration, userId, saveState, hydrated, existingCase]);
 
 
-  const handleNext = () => {
+  const handleNext = (expectedStep: number) => {
     if (saveBlocked) { if (srvRef.current) void flush(); else void ensureDraft(); return; }
-    if (sub + 1 < (STEP_PARTS[step] ?? 1)) { setSub(sub + 1); return; }
+    // The leaving step stays mounted for the exit animation. Its click still carries
+    // the step it was drawn for; once the wizard has moved on, that click does nothing.
+    if (expectedStep !== stepNow.current) return;
+    const next = advanceWizard({ step: expectedStep, sub }, expectedStep);
+    if (next.step === expectedStep) { setSub(next.sub); return; }
     pendingSub.current = 0;
-    setStep((s) => Math.min(s + 1, 6) as any);
+    setStep(next.step as 1 | 2 | 3 | 4 | 5 | 6);
   };
   const handlePrev = () => {
     if (sub > 0) { setSub(sub - 1); return; }
@@ -574,7 +593,21 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   const handleSubmit = async (manualValues: Record<string, string>) => {
     if (checkingSubmission || createMutation.isPending) return;
     if (saveBlocked) { void flush(); return; }
-    if (!selectedCustomer || !selectedPlan || (!feeChargeId && !zeroFee) || !selectedPlan.contractTemplateId) {
+    let feeOk = Boolean(feeChargeId) || zeroFee;
+    if (!feeOk && selectedCustomer && selectedPlan) {
+      const params = { customerId: selectedCustomer.id, ignoreCreditRank: previewAllPlans, creditRankOverrideReason: overrideReasonParam };
+      const cached = queryClient.getQueryData(getGetFilingFeePlansQueryKey(params)) as { plans?: { planId: number; filingFeeToman: string }[] } | undefined;
+      let plans = cached;
+      if (!plans) {
+        try { plans = await getFilingFeePlans(params); } catch { plans = undefined; }
+      }
+      const row = plans?.plans?.find((item) => item.planId === selectedPlan.planId);
+      if (filingFeeIsZero(row?.filingFeeToman)) {
+        feeOk = true;
+        setZeroFee(true);
+      }
+    }
+    if (!selectedCustomer || !selectedPlan || !feeOk || !selectedPlan.contractTemplateId) {
       setSubmitError('اطلاعات مشتری، طرح، هزینه تشکیل پرونده یا قالب قرارداد کامل نیست.');
       return;
     }
@@ -778,7 +811,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
         {selectedCustomer && step > 1 && !draftsAllowed ? <span className="lwz-saved" role="status" data-testid="wizard-draft-saved"><Check size={16} aria-hidden="true" /> <span className="t">ذخیره شد</span></span> : null}
         {selectedCustomer && (step > 1 || saveState === 'offline') && draftsAllowed ? <span className={`lwz-save${saveState === 'saved' ? ' ok' : saveState === 'offline' || saveState === 'closed' ? ' bad' : ''}`} role="status" aria-live="polite" data-testid="wizard-draft-saved" data-state={saveState}>
           {saveState === 'saving' ? <><RefreshCw size={15} aria-hidden="true" /> <span className="t">در حال ذخیره…</span></>
-            : saveState === 'offline' ? <><AlertCircle size={15} aria-hidden="true" /> <span className="t">ذخیره نشد، اتصال قطع است</span> <button type="button" onClick={() => { if (srvRef.current) void flush(); else void ensureDraft().then((ok) => { if (ok && step === 1) handleNext(); }); }} data-testid="wizard-save-retry">تلاش دوباره</button></>
+            : saveState === 'offline' ? <><AlertCircle size={15} aria-hidden="true" /> <span className="t">ذخیره نشد، اتصال قطع است</span> <button type="button" onClick={() => { if (srvRef.current) void flush(); else void ensureDraft().then((ok) => { if (ok && step === 1) handleNext(1); }); }} data-testid="wizard-save-retry">تلاش دوباره</button></>
             : saveState === 'closed' ? <><AlertCircle size={15} aria-hidden="true" /> <span className="t">این درخواست دیگر در انتظار ثبت نیست</span></>
             : srv ? <><Check size={15} aria-hidden="true" /> <span className="t">ذخیره شد، </span><span className="tm">{tehranTime(srv.updatedAt)}</span></> : null}
         </span> : null}
@@ -841,7 +874,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
           key={step}
           initial={{ opacity: 0, x: -10 }}
           animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: 10 }}
+          exit={{ opacity: 0, x: 10, pointerEvents: "none" }}
           transition={{ duration: reduceMotion ? 0 : 0.15 }}
           className="lwz-motion"
         >
@@ -854,7 +887,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
                elSearch={elSearch}
                selectedCustomer={selectedCustomer} 
                 setSelectedCustomer={selectCustomer} 
-               onNext={() => { void (async () => { if (selectedCustomer && await checkExistingCase(selectedCustomer.id)) return; if (await ensureDraft()) handleNext(); })(); }} 
+               onNext={() => { void (async () => { if (selectedCustomer && await checkExistingCase(selectedCustomer.id)) return; if (await ensureDraft()) handleNext(1); })(); }} 
             />
           )}
           {step === 2 && selectedCustomer && (
@@ -869,7 +902,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
                  applyIgnoreCreditRank(false);
                }}
                customer={selectedCustomer}
-               onNext={handleNext}
+               onNext={() => handleNext(2)}
                onPrev={handlePrev}
                onCustomerUpdate={setSelectedCustomer}
                part={sub}
@@ -894,7 +927,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
                setDuration={setDuration}
                 attempted={termsAttempted}
                 onAttempt={() => setTermsAttempted(true)}
-               onNext={() => { if (blockedOpen) return; handleNext(); }}
+               onNext={() => { if (blockedOpen) return; handleNext(3); }}
                onPrev={handlePrev}
                part={sub}
                multiCase={multiOn}
@@ -907,13 +940,13 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
             {step === 4 && selectedCustomer && selectedPlan && (
               <StepFilingFee customer={selectedCustomer} selectedPlan={selectedPlan} ignoreCreditRank={previewAllPlans} draftId={srv?.id} overrideReason={overrideReasonParam}
                 requestKey={multiOn ? requestKey : null}
-                feeChargeId={feeChargeId} setFeeChargeId={setFeeChargeId} onZeroFee={() => setZeroFee(true)} onNext={handleNext} onPrev={handlePrev}
+                feeChargeId={feeChargeId} setFeeChargeId={setFeeChargeId} onZeroFee={() => setZeroFee(true)} onNext={() => handleNext(4)} onPrev={handlePrev}
                 onExistingCase={() => { if (selectedCustomer) void checkExistingCase(selectedCustomer.id); }} />
           )}
            {step === 5 && selectedCustomer && (
             <Step4IdentityDocs
                customer={selectedCustomer}
-               onNext={handleNext}
+               onNext={() => handleNext(5)}
                onPrev={handlePrev}
             />
           )}
@@ -929,7 +962,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
                 error={submitError}
                 serverErrors={submitFieldErrors}
                 part={sub}
-                onPartNext={handleNext}
+                onPartNext={() => handleNext(6)}
                 onEdit={jumpTo}
                 feePaid={Boolean(feeChargeId)}
                 multiCase={multiOn}
@@ -1762,6 +1795,7 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
 
   return (
     <div className="lwz-step" data-testid="wizard-step-3" data-part={part}>
+      <div className="lwz-step-scroll">
       {multiCase && part === 0 ? <><h2>کدام طرح؟</h2><p className="mc-customer"><b>{customer.name}</b> <CidChip id={customer.id} /></p></> : null}
       {part === 0 && <>
       {multiCase ? <p className="mc-muted">درخواست تازه؛ یک پرونده‌ی باز با همین طرح ساخته نمی‌شود.</p> : <>
@@ -1980,6 +2014,7 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
          </div>
       )}
 
+      </div>
       <div className="form-footer">
         {multiCase && part === 0 ? null : <button type="button" className="btn btn-ghost" onClick={onPrev} data-testid={part === 1 ? 'btn-prev-3' : 'btn-prev-3-0'}><ChevronRight size={18} /> قبلی</button>}
         {part === 0
@@ -2123,6 +2158,7 @@ function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPendi
   const editLink = (n: number, label: string) => onEdit ? <button type="button" className="text-link" onClick={() => onEdit(n)} disabled={isPending} aria-label={`ویرایش ${label}`}>ویرایش</button> : null;
   return (
     <div className="lwz-step" data-testid="wizard-step-5" data-part={part}>
+      <div className="lwz-step-scroll">
       {part === 0 && (manualVariables.length > 0 ? (
         <div className="lwz-form" data-testid="wizard-contract-fields">
           {manualVariables.map((item: any) => {
@@ -2189,6 +2225,7 @@ function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPendi
         {attempted && !plan.contractTemplateId && <div className="form-error" role="alert" data-testid="error-contract-template">برای طرح انتخاب‌شده قالب قرارداد قابل استفاده ثبت نشده است.</div>}
       </>}
 
+      </div>
       <div className="form-footer">
           {part === 0
             ? <button type="button" className="btn btn-primary" onClick={continueManual} data-testid="btn-next-5-0">ادامه <ChevronLeft size={18} /></button>
