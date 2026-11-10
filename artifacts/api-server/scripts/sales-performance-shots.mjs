@@ -19,6 +19,8 @@ const OUT = process.env.SHOTS_OUT || "/workspace/sales-perf/shots";
 const UI = "/workspace/sales-perf/src/artifacts/crm-dashboard/src/features/sales-performance/sales-performance-ui.ts";
 const CSS_SP = "/workspace/sales-perf/src/artifacts/crm-dashboard/src/features/sales-performance/sales-performance.css";
 const CSS_SS = "/workspace/sales-perf/src/artifacts/crm-dashboard/src/features/sales-shell/sales-shell.css";
+const DASH_SRC = "/workspace/sales-perf/src/artifacts/crm-dashboard/src";
+const RDP_CSS = "/workspace/sales-perf/src/artifacts/crm-dashboard/node_modules/react-day-picker/src/style.css";
 const STANDALONE = "/workspace/nafis-design/screens/sales-performance/index.html";
 const PUPPETEER = "/workspace/sales-perf/src/artifacts/crm-dashboard/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js";
 const ESBUILD = "/workspace/sales-perf/src/artifacts/api-server/node_modules/esbuild/bin/esbuild";
@@ -199,16 +201,22 @@ const STATES = {
 };
 
 const bundle = path.join(dir, "sales-performance-ui.js");
-const bundled = spawnSync(ESBUILD, [UI, "--bundle", "--format=iife", `--outfile=${bundle}`, "--global-name=SalesPerformanceUI", "--platform=browser"], { encoding: "utf8" });
+const bundled = spawnSync(ESBUILD, [
+  UI, "--bundle", "--format=iife", `--outfile=${bundle}`,
+  "--global-name=SalesPerformanceUI", "--platform=browser",
+  `--alias:@=${DASH_SRC}`, "--loader:.css=empty", "--jsx=automatic",
+], { encoding: "utf8" });
 if (bundled.status !== 0) { console.error(bundled.stdout, bundled.stderr); process.exit(1); }
 
 const standalone = fs.readFileSync(STANDALONE, "utf8");
 const style = standalone.slice(standalone.indexOf("<style>"), standalone.indexOf("</style>") + 8);
 const ssCss = fs.readFileSync(CSS_SS, "utf8");
 const spCss = fs.readFileSync(CSS_SP, "utf8");
+const rdpCss = fs.existsSync(RDP_CSS) ? fs.readFileSync(RDP_CSS, "utf8") : "";
 const extra = `<style>
 ${ssCss}
 ${spCss}
+${rdpCss}
 /* shots: current sales-shell dock; hide the older mock dock from the design stylesheet */
 .demo,.dock,.tabbar,.pg-dock,footer.dock,nav.dock{display:none!important}
 .app-shell.ssv2{min-height:100vh;background:var(--nf-surface,#F7F8FC)}
@@ -301,7 +309,7 @@ const sizes = [
 
 const notes = {
   overview: "دید مدیر، همهٔ کارشناسان، بازهٔ امروز (۱۹ آبان ۱۴۰۵)",
-  "range-custom": "بازهٔ دلخواه ۱ تا ۱۰ نوامبر ۲۰۲۶ و انتخابگر؛ ممکن است «داده‌ی ناقص» دیده شود چون بازه قبل از ۳ نوامبر را هم در بر می‌گیرد",
+  "range-custom": "بازهٔ دلخواه ۱۰ تا ۱۹ آبان ۱۴۰۵، انتخابگر جلالی باز و پر؛ ممکن است «داده‌ی ناقص» دیده شود چون بازه قبل از ۱۲ آبان را هم در بر می‌گیرد",
   expert: "جزئیات آقای کاظمی از دید مدیر، با شکست وزن",
   ranks: "رتبه‌بندی تعداد تماس؛ کارآموزان جدا",
   score: "امتیاز عملکرد به تفکیک نقش",
@@ -309,7 +317,7 @@ const notes = {
   compare: "مقایسهٔ تیم فروش ۱ و تیم فروش ۲",
   self: "دید خود آقای کاظمی؛ رتبه بدون نام بقیه",
   trainee: "دید خود خانم یونسی، بدون رتبه و امتیاز",
-  empty: "بازهٔ دلخواه بدون داده (۱–۲ سپتامبر ۲۰۲۶)",
+  empty: "بازهٔ دلخواه بدون داده (۱۰ تا ۱۱ شهریور ۱۴۰۵)، فیلدهای از/تا جلالی و پر",
   loading: "اسکلت بارگذاری",
   error: "خطا با «تلاش دوباره»",
 };
@@ -322,8 +330,16 @@ try {
       await page.setViewport({ width: sz.w, height: sz.h, deviceScaleFactor: sz.scale });
       await page.goto(`${base}/?sc=${encodeURIComponent(sc)}`, { waitUntil: "networkidle0", timeout: 30000 });
       await page.evaluate(() => { document.documentElement.classList.add("ssv2-on"); });
+      if (sc === "range-custom") {
+        await page.waitForSelector('[data-testid="input-sp-from"]', { timeout: 10000 });
+        await page.click('[data-testid="input-sp-from"]');
+        await page.waitForSelector(".rdp-root, .persian-date-popover", { timeout: 10000 });
+        await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+      }
       const height = await page.evaluate((minH) => {
-        const doc = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, minH);
+        const pop = document.querySelector(".persian-date-popover, [data-radix-popper-content-wrapper]");
+        const popBottom = pop ? Math.ceil(pop.getBoundingClientRect().bottom + window.scrollY + 24) : 0;
+        const doc = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, minH, popBottom);
         return doc;
       }, sz.h);
       if (height > sz.h) await page.setViewport({ width: sz.w, height: height, deviceScaleFactor: sz.scale });
@@ -338,11 +354,14 @@ try {
     }
   }
 
-  const index = `# گزارش عملکرد فروش v1.0 — masked/synth shots
+  const r2 = /shots-r2\/?$/.test(OUT);
+  const index = `# گزارش عملکرد فروش v1.0${r2 ? " r2 (Jalali picker)" : ""} — masked/synth shots
 
 Local only. Captured from the \`feat/sales-performance\` worktree against a disposable synthetic dataset (schema from a masked copy; no live staff logins, no live writes). Phones in the fixture are placeholders and never appear in the UI or these files. User 29 is excluded and does not appear.
 
 Flag \`flag.sales_performance_v1\` is ON only in this shot dataset so the UI can be captured. The release package keeps the flag OFF (absent).
+
+Custom-range «از» / «تا» use the CRM \`PersianDatePicker\` (Jalali, Persian digits, e.g. «۱۰ آبان ۱۴۰۵»), not \`input type=date\`. The API still receives Gregorian Tehran-day \`from\`/\`to\`.
 
 Bottom nav is the **current sales-shell dock** (\`ss-dock\` / \`ss-tb\`), not the older dock in Armita's mock shots. \`bottom-nav-v2\` is still later.
 
@@ -363,7 +382,7 @@ Flat aliases at the shots root: \`<scene>-1280.png\`, \`<scene>-1280@2x.png\`, \
 
 | # | Scene | Notes |
 |---|---|---|
-${ALL_SCENES.map((sc, i) => `| ${String(i + 1).padStart(2, "0")} | ${sc} | ${notes[sc]} |`).join("\n")}
+${SCENES.map((sc) => `| ${sceneNo(sc)} | ${sc} | ${notes[sc]} |`).join("\n")}
 
 ## Known differences from the design mock
 

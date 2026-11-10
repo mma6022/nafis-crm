@@ -2,7 +2,11 @@
  * گزارش عملکرد فروش UI (Armita v1.0). DOM renderer used by the React page and local shots.
  * Class names and structure follow src/sp.css / HANDOFF.md. Numbers are live (no «نمونه» label).
  */
+import { createElement, useState } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { PersianDatePicker } from '../../components/PersianDatePicker';
 import type { SpCell, SpDelta, SpExpert, SpMe, SpReport, SpTeam } from './api';
+import { formatSpJalaliField, toApiDay, toJalaliValue } from './sales-performance-dates';
 
 export type SpView = 'overview' | 'range-custom' | 'expert' | 'ranks' | 'score' | 'team' | 'compare' | 'self' | 'trainee' | 'empty' | 'loading' | 'error';
 
@@ -108,9 +112,11 @@ function filters(st: SpUiState, opts: { range: string; view: string; picker?: bo
       `<a class="sp-chip" href="${hrefOf(st, { view: sc as SpView, period: st.period })}" aria-pressed="${opts.view === sc || (opts.view === 'score' && sc === 'ranks') || (opts.view === 'compare' && sc === 'team') ? 'true' : 'false'}">${lb}</a>`).join('')
   }</div>`;
   const custom = range === 'custom';
+  const fromDay = st.customFrom || st.report?.range.from || '';
+  const toDay = st.customTo || st.report?.range.to || '';
   const customBox = custom ? `<div class="sp-custom">
-    <div class="sp-field"><label for="sp-from">از</label><input class="inp" id="sp-from" data-sp-from type="date" value="${st.customFrom || st.report?.range.from || ''}"></div>
-    <div class="sp-field"><label for="sp-to">تا</label><input class="inp" id="sp-to" data-sp-to type="date" value="${st.customTo || st.report?.range.to || ''}"></div>
+    <div class="sp-field"><label id="sp-from-label">از</label><div class="sp-date" data-sp-from-host></div><input type="hidden" data-sp-from value="${fromDay}"></div>
+    <div class="sp-field"><label id="sp-to-label">تا</label><div class="sp-date" data-sp-to-host></div><input type="hidden" data-sp-to value="${toDay}"></div>
     <button class="btn pri" type="button" data-sp-apply>اعمال بازه</button>
   </div>` : '';
   const pickerBtn = isSelf ? '' : `<div class="sp-row"><span class="sp-lab">فهرست</span>
@@ -354,13 +360,52 @@ export function renderSalesPerformance(st: SpUiState): string {
   return viewOverview(st);
 }
 
+function SpDateField({ initial, testId, ariaLabel, onValue }: {
+  initial: string; testId: string; ariaLabel: string; onValue: (gregorian: string) => void;
+}) {
+  const [value, setValue] = useState(toJalaliValue(initial));
+  return createElement(PersianDatePicker, {
+    value,
+    onChange(next: string) {
+      setValue(next);
+      onValue(toApiDay(next) || '');
+    },
+    placeholder: 'انتخاب تاریخ شمسی',
+    testId,
+    ariaLabel,
+    formatDisplay: (v: string) => formatSpJalaliField(v),
+  });
+}
+
 export type MountHandles = { destroy: () => void };
 export function mountSalesPerformance(root: HTMLElement, st: SpUiState, on?: { applyRange?: (from: string, to: string) => void; retry?: () => void }): MountHandles {
   root.innerHTML = `<div class="sp-page">${renderSalesPerformance(st)}</div>`;
+  const fromInput = root.querySelector('[data-sp-from]') as HTMLInputElement | null;
+  const toInput = root.querySelector('[data-sp-to]') as HTMLInputElement | null;
+  const range = {
+    from: fromInput?.value || st.customFrom || st.report?.range.from || '',
+    to: toInput?.value || st.customTo || st.report?.range.to || '',
+  };
+  const setHidden = (el: HTMLInputElement | null, v: string) => { if (el) el.value = v; };
+  const roots: Root[] = [];
+  const mountPicker = (host: Element | null, initial: string, testId: string, ariaLabel: string, which: 'from' | 'to') => {
+    if (!host) return;
+    const r = createRoot(host);
+    roots.push(r);
+    r.render(createElement(SpDateField, {
+      initial, testId, ariaLabel,
+      onValue(gregorian: string) {
+        range[which] = gregorian;
+        setHidden(which === 'from' ? fromInput : toInput, gregorian);
+      },
+    }));
+  };
+  mountPicker(root.querySelector('[data-sp-from-host]'), range.from, 'input-sp-from', 'از', 'from');
+  mountPicker(root.querySelector('[data-sp-to-host]'), range.to, 'input-sp-to', 'تا', 'to');
   const apply = root.querySelector('[data-sp-apply]');
   const onApply = () => {
-    const fr = (root.querySelector('[data-sp-from]') as HTMLInputElement | null)?.value;
-    const to = (root.querySelector('[data-sp-to]') as HTMLInputElement | null)?.value;
+    const fr = toApiDay(range.from || fromInput?.value);
+    const to = toApiDay(range.to || toInput?.value);
     if (fr && to) on?.applyRange?.(fr, to);
   };
   apply?.addEventListener('click', onApply);
@@ -371,6 +416,7 @@ export function mountSalesPerformance(root: HTMLElement, st: SpUiState, on?: { a
     destroy() {
       apply?.removeEventListener('click', onApply);
       retry?.removeEventListener('click', onRetry);
+      for (const r of roots) r.unmount();
       root.innerHTML = '';
     },
   };

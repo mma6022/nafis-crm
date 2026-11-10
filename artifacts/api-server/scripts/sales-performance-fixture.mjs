@@ -38,6 +38,7 @@ process.env.SESSION_SECRET ||= `fixture-only-${Math.random().toString(36).slice(
 
 const { crmDb, execute } = await import("../src/lib/crm-db.ts");
 const sp = await import("../src/lib/sales-performance.ts");
+const dates = await import("../../crm-dashboard/src/features/sales-performance/sales-performance-dates.ts");
 const router = (await import("../src/routes/sales-performance.ts")).default;
 
 /* ---------------- Part A: synthetic scoring / period / incomplete ---------------- */
@@ -269,6 +270,26 @@ await ok("custom range previous window is the same number of days immediately be
   const r = sp.salesPerformanceReport(syn, admin, { period: "custom", from: "2026-11-01", to: "2026-11-10" }, NOW);
   assert.equal(r.range.previousFrom, "2026-10-22");
   assert.equal(r.range.previousTo, "2026-10-31");
+});
+
+await ok("Jalali custom range converts to Tehran-day Gregorian bounds", () => {
+  assert.equal(dates.toApiDay("1405/08/10"), "2026-11-01");
+  assert.equal(dates.toApiDay("۱۴۰۵/۰۸/۱۹"), "2026-11-10");
+  assert.equal(dates.toApiDay("2026-11-01"), "2026-11-01");
+  assert.equal(dates.toJalaliValue("2026-11-01"), "1405/08/10");
+  assert.equal(dates.toJalaliValue("2026-11-10"), "1405/08/19");
+  assert.equal(dates.formatSpJalaliField("2026-11-01"), "۱۰ آبان ۱۴۰۵");
+  assert.equal(dates.formatSpJalaliField("۱۴۰۵/۰۸/۱۹"), "۱۹ آبان ۱۴۰۵");
+  const from = dates.toApiDay("۱۴۰۵/۰۸/۱۰");
+  const to = dates.toApiDay("۱۴۰۵/۰۸/۱۹");
+  const w = sp.performanceWindow({ period: "custom", from, to }, NOW);
+  assert.equal(w.current.fromIso, "2026-10-31T20:30:00.000Z");
+  assert.equal(w.current.toIso, "2026-11-10T20:30:00.000Z");
+  // 20:29Z is still the previous Tehran day; 20:30Z is the start of 1 Nov (۱۰ آبان).
+  const tehranDay = (iso) => Math.floor((Date.parse(iso) + 210 * 60_000) / 86_400_000);
+  assert.equal(tehranDay("2026-10-31T20:29:59.000Z"), tehranDay("2026-10-31T20:30:00.000Z") - 1);
+  assert.equal(tehranDay(w.current.fromIso), tehranDay("2026-11-01T00:00:00.000+03:30"));
+  assert.equal(tehranDay(new Date(Date.parse(w.current.toIso) - 1).toISOString()), tehranDay("2026-11-10T23:59:59.000+03:30"));
 });
 
 await ok("team unique is not a naive sum of member uniques", () => {
