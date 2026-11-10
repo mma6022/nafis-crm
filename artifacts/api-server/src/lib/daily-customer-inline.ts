@@ -23,6 +23,7 @@ import { dpToday } from "./daily-plan";
 import { callHistory, currentFileAnswers } from "./history-a";
 import { listCustomerCases } from "./multi-case";
 import { getWalletSummaryReadOnly } from "./wallets";
+import { JOB_LABELS } from "./plan-profile-match";
 import { psCaseLife, psFlagOn, psPriorityDemoteTransferName } from "./sales-experts-priority-status";
 
 export const DCI_FLAG = "flag.daily_customer_inline_v1";
@@ -513,7 +514,7 @@ function guarantorOf(customerId: number): { v: "yes" | "no" | "unknown"; cond: s
     const bits: string[] = [];
     if (a.guarantorCheque) bits.push(`چک ضامن: ${a.guarantorCheque}`);
     if (a.gRank) bits.push(`رتبهٔ ضامن ${a.gRank}`);
-    if (a.gJobType) bits.push(`شغل ضامن: ${a.gJobType}`);
+    if (a.gJobType) bits.push(`شغل ضامن: ${JOB_LABELS[String(a.gJobType)] ?? a.gJobType}`);
     if (typeof a.guarantorCondition === "string" && a.guarantorCondition.trim()) bits.push(String(a.guarantorCondition).trim());
     const cond = bits.length ? `شرایط: ${bits.join("؛ ")}` : null;
     return { v: "yes", cond };
