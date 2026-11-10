@@ -12,7 +12,7 @@ import { createTelemetry, stripPage } from './telemetry';
 import type { DiagnosticReportInput } from '@workspace/api-client-react';
 
 const ACTIVE = ['queued', 'investigating', 'fixing', 'testing', 'deploying', 'verifying'];
-const TERMINAL = ['resolved', 'failed'];
+const TERMINAL = ['resolved', 'failed', 'received'];
 const MAX_POLLS = 600;
 
 type Ctx = { open: () => void; hasReport: boolean };
@@ -136,7 +136,8 @@ function DiagnosticsInner({ actorId, isAdmin, children }: { actorId: string; isA
         <Layer onClose={close}>
           {mode === 'form' ? (
             <FormView text={text} setText={setText} onCancel={close} onSubmit={submit} pending={create.isPending} error={submitError}
-              notice={availability.data && !availability.data.connected ? availability.data.message : availability.isError ? 'وضعیت اتصال سرویس تعمیر بررسی نشد.' : ''} />
+              forwardOnly={availability.data?.automaticPublishing === false}
+              notice={availability.data && (!availability.data.connected || availability.data.automaticPublishing === false) ? availability.data.message : availability.isError ? 'وضعیت اتصال سرویس تعمیر بررسی نشد.' : ''} />
           ) : (
             <>
               {polled.isError ? <div role="alert" className="diag-notice">ارتباط برای دریافت وضعیت قطع شد؛ حل‌شدن مشکل هنوز تأیید نشده است.
@@ -183,7 +184,7 @@ function Layer({ onClose, children }: { onClose: () => void; children: ReactNode
   );
 }
 
-function FormView({ text, setText, onCancel, onSubmit, pending, error, notice }: { text: string; setText: (v: string) => void; onCancel: () => void; onSubmit: () => void; pending: boolean; error: string; notice: string }) {
+function FormView({ text, setText, onCancel, onSubmit, pending, error, notice, forwardOnly = false }: { text: string; setText: (v: string) => void; onCancel: () => void; onSubmit: () => void; pending: boolean; error: string; notice: string; forwardOnly?: boolean }) {
   const len = text.trim().length;
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }}>
@@ -193,7 +194,7 @@ function FormView({ text, setText, onCancel, onSubmit, pending, error, notice }:
       <div className="diag-count">{len.toLocaleString('fa-IR')} / {(4000).toLocaleString('fa-IR')} {len > 0 && len < 10 ? ' (حداقل ۱۰ نویسه)' : ''}</div>
       {error ? <div className="profile-form-error" role="alert" data-testid="error-diagnostics">{error}</div> : null}
       <div className="form-footer">
-        <button className="btn btn-primary" type="submit" disabled={pending || len < 10} data-testid="button-submit-diagnostics">{pending ? 'در حال ارسال…' : 'حل فوری خطا'}</button>
+        <button className="btn btn-primary" type="submit" disabled={pending || len < 10} data-testid="button-submit-diagnostics">{pending ? 'در حال ارسال…' : forwardOnly ? 'ارسال گزارش' : 'حل فوری خطا'}</button>
         <button className="btn btn-ghost" type="button" onClick={onCancel} data-testid="button-cancel-diagnostics">انصراف</button>
       </div>
     </form>
@@ -221,6 +222,15 @@ function ReportView({ report, loading, onLeave, onNew }: { report: DiagnosticRep
         <strong>مشکل حل شد</strong>
         <p>برای دریافت نسخهٔ جدید Ctrl+F5 بزنید</p>
         <div className="form-footer"><button type="button" className="btn btn-primary" onClick={onNew}>گزارش تازه</button><button type="button" className="btn btn-ghost" onClick={onLeave}>بستن</button></div>
+      </div>
+    );
+  }
+  if (report.status === 'received') {
+    return (
+      <div className="diag-working" data-testid="diagnostics-received">
+        <strong>گزارش ثبت شد</strong>
+        <p>{report.message}</p>
+        <div className="form-footer"><button type="button" className="btn btn-primary" onClick={onNew}>گزارش تازه</button><button type="button" className="btn btn-ghost" onClick={onLeave} data-testid="button-leave-diagnostics">بستن</button></div>
       </div>
     );
   }

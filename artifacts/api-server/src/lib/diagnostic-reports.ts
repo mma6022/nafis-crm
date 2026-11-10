@@ -1,14 +1,23 @@
-import { Router, type RequestHandler } from "express";
+import { Router, type RequestHandler, type Request } from "express";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { CreateDiagnosticReportBody } from "@workspace/api-zod";
 import { diagnosticPath, redactDiagnosticText, recentDiagnosticRequests } from "./diagnostic-safety";
 import { diagnosticWorkerAuth } from "./diagnostic-worker-auth";
+import type { ForwardResult, ReportForwarder, ReportWebhookPayload } from "./report-webhook";
+
+/** Feature flag (call_queue_settings). Absent or any value other than "1" is OFF. */
+export const REPORT_WEBHOOK_FLAG = "flag.report_webhook_v1";
 
 type Build = { release: string; sha256: string };
 type Dependencies = {
   db: DatabaseSync; requireAuth: RequestHandler; workerSecret: () => string | undefined;
   currentBuild: () => Build | null; healthy: () => Promise<boolean>;
+  /** When the flag is ON and this is configured, reports are forwarded to the webhook. */
+  forwarder?: ReportForwarder;
+  /** Secret for loopback-only (SSH-local) admin reads; >= 32 chars or disabled. */
+  readKey?: () => string | undefined;
+  localPort?: () => number;
 };
 const stages = {
   awaiting_connection: [0, "گزارش ثبت شد؛ عامل تعمیر خودکار هنوز متصل نیست."],
@@ -20,6 +29,7 @@ const stages = {
   verifying: [95, "نسخهٔ منتشرشده و سلامت سرور در حال بررسی است."],
   resolved: [100, "مشکل حل شد"],
   failed: [0, "تعمیر خودکار تکمیل نشد؛ گزارش برای پیگیری محفوظ است."],
+  received: [100, "گزارش ثبت شد و برای تیم فنی ارسال شد. پس از بررسی، اصلاح در نسخهٔ بعدی منتشر می‌شود."],
 } as const;
 type Status = keyof typeof stages;
 type Row = {
@@ -28,8 +38,10 @@ type Row = {
   created_at: string; updated_at: string; version: number; lease_hash: string | null;
   lease_until: number | null; baseline_release: string | null; baseline_sha256: string | null;
   target_release: string | null; target_sha256: string | null; tests_json: string | null; failure: string | null;
+  user_agent?: string | null; forward_status?: string | null; forward_attempts?: number | null;
+  forward_error?: string | null; forwarded_at?: string | null;
 };
-const terminal = new Set<Status>(["resolved", "failed"]);
+const terminal = new Set<Status>(["resolved", "failed", "received"]);
 const active = ["investigating", "fixing", "testing", "deploying", "verifying"];
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const now = () => new Date().toISOString();
@@ -42,8 +54,9 @@ const failures: Record<string, string> = {
   candidate_verification_failed: "اصلاح پیشنهادی در بررسی مستقل تأیید نشد؛ نسخهٔ تأییدنشده منتشر نشد.",
 };
 function dto(row: Row) {
-  return { id: row.id, status: row.status, progress: stages[row.status][0],
-    message: row.status === "failed" && row.failure && failures[row.failure] ? failures[row.failure] : stages[row.status][1],
+  const stage = stages[row.status] ?? stages.failed;
+  return { id: row.id, status: row.status, progress: stage[0],
+    message: row.status === "failed" && row.failure && failures[row.failure] ? failures[row.failure] : stage[1],
     page: row.page, createdAt: row.created_at, updatedAt: row.updated_at,
     canLeave: true, version: row.version, resolvedRelease: row.status === "resolved" ? row.target_release : null };
 }
@@ -67,6 +80,25 @@ export function createDiagnosticRouter(deps: Dependencies) {
     CREATE TABLE IF NOT EXISTS diagnostic_worker_nonces(nonce_hash TEXT PRIMARY KEY,expires_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS diagnostic_worker_state(id INTEGER PRIMARY KEY CHECK(id=1),last_seen INTEGER NOT NULL);
   `);
+  // Additive, nullable columns only: older releases ignore them (rollback-safe).
+  const columns = new Set((db.prepare("PRAGMA table_info(diagnostic_reports)").all() as {name:string}[]).map(c => c.name));
+  for (const [name, type] of [["user_agent", "TEXT"], ["forward_status", "TEXT"], ["forward_attempts", "INTEGER"],
+    ["forward_error", "TEXT"], ["forwarded_at", "TEXT"]] as const)
+    if (!columns.has(name)) db.exec(`ALTER TABLE diagnostic_reports ADD COLUMN ${name} ${type}`);
+  const flagOn = () => {
+    try {
+      const row = db.prepare("SELECT value FROM call_queue_settings WHERE key=?").get(REPORT_WEBHOOK_FLAG) as { value: string } | undefined;
+      return row?.value === "1";
+    } catch { return false; }
+  };
+  const forwarding = () => flagOn() && deps.forwarder?.enabled() === true;
+  const recordForward = (id: number, result: ForwardResult) => db.prepare(
+    "UPDATE diagnostic_reports SET forward_status=?,forward_attempts=COALESCE(forward_attempts,0)+?,forward_error=?,forwarded_at=? WHERE id=?")
+    .run(result.delivered ? "delivered" : "failed", result.attempts, result.error ?? null, result.delivered ? now() : null, id);
+  const reporter = (userId: number) => {
+    const row = db.prepare("SELECT id,role FROM users WHERE id=?").get(userId) as { id: number; role: string } | undefined;
+    return { id: userId, role: row?.role ?? "unknown" };
+  };
   const row = (id: number) => db.prepare("SELECT * FROM diagnostic_reports WHERE id=?").get(id) as Row | undefined;
   const connected = () => Boolean((deps.workerSecret()?.length ?? 0) >= 32 &&
     Number((db.prepare("SELECT last_seen FROM diagnostic_worker_state WHERE id=1").get() as {last_seen:number}|undefined)?.last_seen ?? 0) > Date.now() - 90_000);
@@ -95,6 +127,9 @@ export function createDiagnosticRouter(deps: Dependencies) {
     res.setHeader("Cache-Control", "no-store"); expire(); next();
   });
   router.get("/diagnostics/availability", (_req, res) => {
+    if (forwarding()) {
+      res.json({ connected: true, automaticPublishing: false, message: "گزارش شما مستقیم برای تیم فنی ارسال می‌شود." }); return;
+    }
     const ready = connected();
     res.json({ connected: ready, automaticPublishing: true,
       message: ready ? "عامل تعمیر متصل است؛ انتشار فقط پس از آزمون و بررسی سلامت انجام می‌شود." : stages.awaiting_connection[1] });
@@ -114,13 +149,15 @@ export function createDiagnosticRouter(deps: Dependencies) {
     const input = parsed.data, actorId = Number(res.locals.authUser.id);
     const existing = db.prepare("SELECT * FROM diagnostic_reports WHERE user_id=? AND client_id=?").get(actorId, input.clientId) as Row | undefined;
     if (existing) { res.status(201).json(dto(existing)); return; }
-    const pending = db.prepare("SELECT * FROM diagnostic_reports WHERE user_id=? AND status NOT IN ('resolved','failed') ORDER BY id DESC LIMIT 1")
+    const pending = db.prepare("SELECT * FROM diagnostic_reports WHERE user_id=? AND status NOT IN ('resolved','failed','received') ORDER BY id DESC LIMIT 1")
       .get(actorId) as Row | undefined;
     if (pending) { res.status(409).json({ error: "diagnostic_report_pending", reportId: pending.id }); return; }
     const count = db.prepare("SELECT COUNT(*) n FROM diagnostic_reports WHERE user_id=? AND created_at>?")
       .get(actorId, new Date(Date.now() - 24 * 60 * 60_000).toISOString()) as { n: number };
     if (count.n >= 10) { res.status(429).json({ error: "diagnostic_report_rate_limited" }); return; }
-    const build = deps.currentBuild(), status = connected() ? "queued" : "awaiting_connection";
+    const build = deps.currentBuild(), forward = forwarding();
+    const status: Status = forward ? "received" : connected() ? "queued" : "awaiting_connection";
+    const userAgent = redactDiagnosticText(req.get("user-agent") ?? "", 300) || null;
     const browserEvents = (input.browserEvents ?? []).map(event => ({
       kind: event.kind, message: redactDiagnosticText(event.message), at: redactDiagnosticText(event.at, 40),
       ...(event.path ? { path: diagnosticPath(event.path) } : {}),
@@ -129,13 +166,19 @@ export function createDiagnosticRouter(deps: Dependencies) {
     }));
     const id = transaction(() => {
       const result = db.prepare(`INSERT INTO diagnostic_reports(user_id,client_id,description,page,status,browser_events_json,
-        server_events_json,created_at,updated_at,baseline_release,baseline_sha256) VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
+        server_events_json,created_at,updated_at,baseline_release,baseline_sha256,user_agent,forward_status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`)
         .run(actorId, input.clientId, redactDiagnosticText(input.description.trim(), 4000), diagnosticPath(input.page), status,
           JSON.stringify(browserEvents), JSON.stringify(recentDiagnosticRequests(actorId)), now(), now(),
-          build?.release ?? null, build?.sha256 ?? null);
+          build?.release ?? null, build?.sha256 ?? null, userAgent, forward ? "pending" : null);
       const id = Number(result.lastInsertRowid); step(id, status); return id;
     });
-    res.status(201).json(dto(row(id)!));
+    const saved = row(id)!;
+    res.status(201).json(dto(saved));
+    // After the response is committed: delivery can never block or fail the save.
+    if (forward) {
+      try { deps.forwarder!.forward(webhookPayload(saved, reporter(actorId)), recordForward); }
+      catch { /* payload construction must never affect the saved report */ }
+    }
   });
   router.get("/diagnostics/reports/:id", (req, res) => {
     const id = Number(req.params.id), report = Number.isSafeInteger(id) && id > 0 ? row(id) : undefined;
@@ -143,6 +186,55 @@ export function createDiagnosticRouter(deps: Dependencies) {
       res.status(404).json({ error: "diagnostic_report_not_found" }); return;
     }
     res.json(dto(report));
+  });
+
+  // Admin-only read API for forwarded reports. Either an admin session, or an
+  // SSH-local request straight to the API port (no proxy headers) carrying
+  // X-Report-Read-Key. Responses can contain report text: never cache. Phones
+  // and national ids are redacted the same way as at save time.
+  const loopbackKey = (req: Request) => {
+    const key = deps.readKey?.(), given = req.get("X-Report-Read-Key") ?? "";
+    const addr = req.socket.remoteAddress ?? "";
+    if (!key || key.length < 32 || !given) return false;
+    if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(addr) || req.headers["x-forwarded-for"] || req.headers["x-real-ip"])
+      return false;
+    const a = createHash("sha256").update(key).digest(), b = createHash("sha256").update(given).digest();
+    return timingSafeEqual(a, b);
+  };
+  router.use("/diagnostics-admin", (req, res, next) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (loopbackKey(req)) { next(); return; }
+    deps.requireAuth(req, res, () => {
+      if (res.locals.authUser?.role !== "admin") { res.status(403).json({ error: "Forbidden" }); return; }
+      next();
+    });
+  });
+  router.get("/diagnostics-admin/reports", (req, res) => {
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
+    const items = db.prepare(`SELECT r.id,r.created_at,r.status,r.page,r.forward_status,r.forward_attempts,r.user_id,u.role
+      FROM diagnostic_reports r LEFT JOIN users u ON u.id=r.user_id ORDER BY r.id DESC LIMIT ?`).all(limit);
+    res.json({ reports: items });
+  });
+  router.get("/diagnostics-admin/reports/:id", (req, res) => {
+    const id = Number(req.params.id), report = Number.isSafeInteger(id) && id > 0 ? row(id) : undefined;
+    if (!report) { res.status(404).json({ error: "diagnostic_report_not_found" }); return; }
+    const steps = db.prepare("SELECT status,created_at,details FROM diagnostic_report_steps WHERE report_id=? ORDER BY id").all(id);
+    res.json({
+      ...webhookPayload(report, reporter(report.user_id)),
+      state: { status: report.status, failure: report.failure, updatedAt: report.updated_at,
+        baselineRelease: report.baseline_release, targetRelease: report.target_release,
+        forwardStatus: report.forward_status ?? null, forwardAttempts: report.forward_attempts ?? 0,
+        forwardError: report.forward_error ?? null, forwardedAt: report.forwarded_at ?? null },
+      steps,
+    });
+  });
+  router.post("/diagnostics-admin/reports/:id/forward", async (req, res) => {
+    const id = Number(req.params.id), report = Number.isSafeInteger(id) && id > 0 ? row(id) : undefined;
+    if (!report) { res.status(404).json({ error: "diagnostic_report_not_found" }); return; }
+    if (!deps.forwarder || !forwarding()) { res.status(503).json({ error: "report_webhook_not_configured" }); return; }
+    const result = await deps.forwarder.deliver(webhookPayload(report, reporter(report.user_id)));
+    recordForward(id, result);
+    res.status(result.delivered ? 200 : 502).json(result);
   });
 
   // This is an authenticated pull protocol, not an arbitrary command executor.
@@ -223,4 +315,21 @@ export function createDiagnosticRouter(deps: Dependencies) {
     res.json(dto(row(report.id)!));
   });
   return router;
+}
+
+/** Webhook body: report text (already redacted at save), page, user id/role,
+ *  timestamp, and build RID only. No phones, national ids, usernames, events,
+ *  or customer records. */
+export function webhookPayload(row: Row, who: { id: number; role: string }): ReportWebhookPayload {
+  return {
+    type: "nafis.bug_report.created", schemaVersion: 1,
+    report: {
+      id: row.id,
+      text: redactDiagnosticText(row.description, 4000),
+      page: row.page,
+      createdAt: row.created_at,
+      release: row.baseline_release,
+    },
+    reporter: { id: who.id, role: who.role },
+  };
 }
