@@ -409,6 +409,7 @@
 .fdv1 .ftl .by{flex:1 1 auto;min-width:0;font-size:14px;color:var(--nf-ink-muted);line-height:1.6}
 .fdv1 .ftl .by::before{content:"·";margin-inline-end:8px;color:var(--nf-line-strong)}
 .fdv1 .ftl .ic{width:36px;height:36px;border-radius:10px;background:var(--nf-surface-2);color:var(--nf-ink-soft);display:grid;place-items:center}
+.fdv1 .ftl .ic.on{background:#EEF0FA;color:rgb(41, 54, 155)}
 .fdv1 .ftl .ic .i{width:18px;height:18px}
 .fdv1 .ftl .tx{font-size:15px;color:var(--nf-ink);line-height:1.6}
 .fdv1 .ftl .tx small{display:block;font-size:14px;color:var(--nf-ink-muted)}

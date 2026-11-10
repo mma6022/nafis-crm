@@ -6,7 +6,7 @@ import { Link, useLocation } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Calendar, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock, Coins, Copy, Eye, File as FileIcon, FileText, Flag,
-  History as HistoryIcon, IdCard, Lock, EllipsisVertical, PenLine, Phone, Plus, RefreshCw, Send, Shield, Upload, User, X, Zap,
+  Bell, History as HistoryIcon, IdCard, Lock, EllipsisVertical, PenLine, Phone, Plus, RefreshCw, Send, Shield, Upload, User, X, Zap,
 } from 'lucide-react';
 import { useGetCustomer, useUploadLoanApplicationDocument, getGetCustomerQueryKey } from '@workspace/api-client-react';
 import { useMultiCaseCase, useMultiCaseStatus } from '@/lib/multi-case';
@@ -99,6 +99,7 @@ function WzSteps({ n }: { n: 1 | 2 }) {
 const histIcon = (a: string) => {
   const k = a.split(':')[0];
   if (k === 'signature-link-resent') return Send;
+  if (k === 'bale-sign-reminder-sent') return Bell;
   if (/cancel/.test(k)) return X;
   if (/reject|incomplete|defect|return/.test(k)) return CircleAlert;
   if (/sign/.test(k)) return PenLine;
@@ -403,7 +404,8 @@ export function FileDetailV1(p: Props) {
       : <span className="chip g">منتظر امضای مشتری</span>}</> : 'هنوز قراردادی ساخته نشده است.'}</p></section>;
 
   const hItem = (e: HistoryEvent) => { const Ic = histIcon(e.action);
-    return <li key={e.id}><span className="ic"><Ic {...I} /></span><b className="tl">{histLabel(e.action)}</b><span className="by">{e.author?.name || 'سامانه'}</span><span className="tm">{hm(e.createdAt)}</span></li>; };
+    const by = e.action.split(':')[0] === 'bale-sign-reminder-sent' && e.reason && e.author?.name ? `${e.author.name}، ${e.reason}` : (e.author?.name || 'سامانه');
+    return <li key={e.id}><span className={`ic${e.action.split(':')[0] === 'bale-sign-reminder-sent' ? ' on' : ''}`}><Ic {...I} /></span><b className="tl">{histLabel(e.action)}</b><span className="by">{by}</span><span className="tm">{hm(e.createdAt)}</span></li>; };
   const shown = hist.filter(e => hCat === 'all' || histCat(e.action) === hCat);
   const days: [string, HistoryEvent[]][] = [];
   for (const e of shown) { const k = dayKey(e.createdAt); const last = days[days.length - 1]; if (last && last[0] === k) last[1].push(e); else days.push([k, [e]]); }

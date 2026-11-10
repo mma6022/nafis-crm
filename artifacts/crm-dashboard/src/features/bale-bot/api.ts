@@ -12,7 +12,16 @@ export type BbCustomerBot = {
   handoff?: { id: number; question: string; answer: string; reason: string; claimedBy: number | null; at: string } | null;
   tasks?: { id: number; kind: string; status: string; detail: string | null; created_at: string; application_id: number | null }[];
 } | null;
-export type BbMe = { enabled: boolean; view: 'own' | 'all'; canManage: boolean; name: string; bot: BbBot; unread: number; limits: BbLimits; contactFeature?: boolean; customerBot?: BbCustomerBotFlags };
+
+export type SrState = 'ready' | 'cooldown' | 'bot_not_started' | 'already_signed' | 'link_expired' | 'no_contract' | 'no_token' | 'hidden';
+export type SrView = {
+  enabled: boolean; state: SrState; canSend: boolean; canRefresh: boolean;
+  applicationId: number | null; generationId: number | null; planLabel: string | null;
+  messageText: string | null; buttonLabel: string; signUrl: string | null;
+  lastSentAt: string | null; lastSentFa: string | null; lockUntil: string | null; lockUntilFa: string | null;
+  lockHours: number; reason: string | null; otherExpert: boolean;
+};
+export type BbMe = { enabled: boolean; view: 'own' | 'all'; canManage: boolean; name: string; bot: BbBot; unread: number; limits: BbLimits; contactFeature?: boolean; customerBot?: BbCustomerBotFlags; signReminder?: boolean };
 export type BbCustomer = { id: number; name: string; phone: string | null; status: string | null; salespersonId: number | null; expert: string | null; restricted: boolean; canOpen: boolean } | null;
 export type BbNotice = { id: number; kind: string; at: string; actor: string | null };
 export type BbChat = {
@@ -25,6 +34,7 @@ export type BbChat = {
   customerBot?: BbCustomerBot;
   sharedCustomerBot?: boolean; sourceChip?: string | null; waitingAssignment?: boolean; assignedExpertName?: string | null;
   routedExisting?: boolean; listTag?: string | null;
+  signReminder?: SrView | null;
 };
 
 export type BbMessage = {
@@ -32,6 +42,7 @@ export type BbMessage = {
   file: { name: string | null; mime: string | null; size: number | null; duration: number | null; state: string; url: string | null } | null;
   contact: { phone: string | null; name: string | null; own: boolean; hidden?: boolean } | null; location: { lat: number; lng: number } | null; replyTo: number | null; askContact: boolean;
   status: 'sending' | 'sent' | 'failed' | 'wait' | null; errorCode: string | null; author: string | null; canEdit: boolean; canDelete: boolean; deleteExpired: boolean;
+  inlineButtons?: { text: string; url?: string }[];
 };
 export type BbChats = { counts: { all: number; unread: number; unlinked: number; pending?: number; typedPending?: number }; chats: BbChat[]; experts: { id: number; name: string }[] };
 export type BbAdminExpert = { id: number; name: string; salespersonId: number | null; flagOn: boolean; bot: BbBot; noSend: boolean };
@@ -47,6 +58,7 @@ export const BB_ERR: Record<string, string> = {
   phone_other: 'این شماره قبلاً برای مشتری یک کارشناس دیگر ثبت شده است؛ سرنخ تکراری ساخته نمی‌شود.',
   flag_off: 'این قابلیت فعلاً خاموش است.', no_pending: 'شماره‌ی تایپی در انتظار تأیید نیست.', rate_limited: 'لطفاً کمی صبر کنید و دوباره درخواست شماره را بفرستید.', batch_disabled: 'ارسال یک‌باره به مشتریان فعلی خاموش است.', bad_token: 'بله این توکن را نشناخت.', key_missing: 'کلید رمزنگاری روی سرور نیست؛ با مدیر فنی هماهنگ کنید.',
   has_bot: 'این کارشناس ربات وصل دارد؛ از فهرست «تعویض توکن» را بزنید.', bot_in_use: 'این ربات برای کارشناس دیگری وصل است.', not_expert: 'این کاربر کارشناس فروش نیست.', unknown: 'درخواست انجام نشد. دوباره تلاش کنید.',
+  bot_not_started: 'این مشتری ربات را شروع نکرده است. یادآوری در بله فرستاده نمی‌شود. لینک یا کد تصویر ربات را از مسیر تماس بله برایش بفرستید. پیامک فرستاده نمی‌شود.', no_token: 'کلید ربات بله روی سرور ثبت نشده است. یادآوری فرستاده نمی‌شود.', already_signed: 'قرارداد امضا شده است؛ یادآوری لازم نیست.', link_expired: 'لینک امضا منقضی شده است. یادآوری فرستاده نمی‌شود. لینک تازه فقط از مسیر صدور فعلی فرستاده می‌شود.', bale_failed: 'ارتباط با بله برقرار نشد. دوباره تلاش کنید.',
 };
 export async function bbFetch<T>(path: string, init?: { method?: string; body?: unknown; raw?: Blob | File; headers?: Record<string, string> }): Promise<T> {
   const r = await fetch(bbUrl(path), {

@@ -88,7 +88,8 @@
     "test:bale-contact": "node scripts/run-bundled-fixture.mjs scripts/bale-contact-fixture.mjs",
     "test:ai-master-switch": "node scripts/run-bundled-fixture.mjs scripts/ai-master-switch-fixture.mjs",
     "test:customer-bale": "bash scripts/run-customer-bale-fixture.sh",
-    "test:diagnostic-report-resolution": "node scripts/run-bundled-fixture.mjs scripts/diagnostic-report-resolution-fixture.ts"
+    "test:diagnostic-report-resolution": "node scripts/run-bundled-fixture.mjs scripts/diagnostic-report-resolution-fixture.ts",
+    "test:bale-sign-reminder": "node scripts/run-bale-sign-reminder-test.mjs"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.3.0",

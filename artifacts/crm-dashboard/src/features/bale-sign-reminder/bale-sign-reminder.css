@@ -1,0 +1,64 @@
+/* bale-sign-reminder v1.0: یادآوری امضا در بله. ماکاپ طراحی. */
+.sr-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px;width:100%;flex-basis:100%;min-width:0}
+.sr-acts .btn{flex:0 1 auto;min-width:0}
+.sr-acts .btn.pri:not(.sr-cool){flex:1 1 auto}
+.sr-cool{white-space:normal;height:auto;min-height:44px;line-height:1.6;text-align:start;flex:1 1 100%;width:100%;max-width:100%;min-width:0}
+.sr-why,.sr-last,.bc-meta .bc-perm{margin:0;width:100%;flex-basis:100%;min-width:0;font-size:13px;font-weight:600;color:var(--nf-ink-muted);line-height:1.7}
+.sr-last b{color:var(--nf-ink);font-weight:700}
+.sr-banner{display:flex;align-items:flex-start;gap:8px;border-radius:14px;padding:12px 14px;font-size:14px;line-height:1.6;margin:10px 14px 0}
+.th .sr-banner{margin:10px 0 0}
+.sr-banner.ok{background:#ECF8F1;color:#146C3A}
+.sr-banner.err{background:#FDECEC;color:#9B1C1C}
+.sr-banner.wait{background:var(--nf-surface-2);color:var(--nf-ink-soft)}
+.sr-banner b{display:block;font-size:14px}
+.sr-banner .i{width:20px;height:20px;flex:none;margin-top:1px}
+.sr-modal{position:fixed;inset:0;background:rgba(11,20,80,.35);display:flex;align-items:flex-start;justify-content:center;padding:16px;z-index:40;overflow:auto}
+.sr-dialog{background:#fff;border-radius:18px;padding:20px;max-width:460px;width:100%;margin:auto;box-shadow:0 12px 40px rgba(11,20,80,.16)}
+.sr-dialog h3{margin:0 0 10px;font-size:18px;font-weight:800;color:var(--nf-ink)}
+.sr-who{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:0 0 8px}
+.sr-who .nm{font-size:16px;font-weight:800}
+.sr-dialog .ph{margin:0 0 10px}
+.sr-note{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--nf-ink-soft);line-height:1.8}
+.sr-note .nw{white-space:nowrap}
+.sr-prev{background:var(--nf-surface-2);border-radius:16px;padding:12px;margin:0 0 16px}
+.sr-prev .plab{display:block;font-size:12px;font-weight:700;color:var(--nf-ink-muted);margin:0 0 8px}
+.sr-prev .bc-msg{margin:0}
+.sr-prev .bc-bub{background:#fff;max-width:100%}
+.sr-acts-dlg{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end}
+.sr-acts-dlg .btn{min-height:44px}
+.cp .sr-acts{margin-top:10px}
+.cp .sr-banner{margin:10px 0 0}
+.cp .sr-why,.cp .sr-last{margin-top:8px}
+.btn[aria-disabled=true],.btn:disabled{background:var(--nf-surface-2);color:var(--nf-ink-muted);cursor:not-allowed;box-shadow:none;border-color:transparent}
+.sr-file{max-width:820px;margin:0 auto;padding:16px 20px 24px}
+.sr-fhd{background:#fff;border:1px solid var(--nf-line);border-radius:18px;padding:16px 18px;margin-bottom:14px}
+.sr-fhd .ey{display:block;font-size:13px;font-weight:600;color:var(--nf-ink-muted);margin:0 0 4px}
+.sr-fhd h2{margin:0;font-size:22px;font-weight:800}
+.sr-fhd .nmr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 0}
+.sr-fhd .meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin-top:10px}
+.sr-fhd .kv{font-size:13px;font-weight:600;color:var(--nf-ink-muted)}
+.sr-fhd .kv b{color:var(--nf-ink);font-weight:700;margin-inline-start:4px}
+.sr-fid{unicode-bidi:isolate}
+.sr-hist{background:#fff;border:1px solid var(--nf-line);border-radius:18px;padding:14px 16px}
+.sr-hist .sh{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.sr-hist h3{display:flex;align-items:center;gap:8px;margin:0;font-size:16px;font-weight:800;color:var(--nf-ink)}
+.sr-hist h3 .i{width:20px;height:20px;color:rgb(41, 54, 155)}
+.hday{font-size:14px;font-weight:700;color:var(--nf-ink-muted);margin:12px 0 0}
+.ftl{list-style:none;margin:0;padding:0}
+.ftl li{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:4px 12px;padding:12px 0;border-top:1px solid var(--nf-line);align-items:start}
+.ftl li:first-child{border-top:0}
+.ftl .ic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:var(--nf-surface-2);color:var(--nf-ink-soft)}
+.ftl .ic.on{background:#EEF0FA;color:rgb(41, 54, 155)}
+.ftl .ic .i{width:20px;height:20px}
+.ftl .tx{font-size:15px;color:var(--nf-ink);line-height:1.7;min-width:0}
+.ftl .tx small{display:block;font-size:13px;color:var(--nf-ink-muted)}
+.ftl .tm{font-size:14px;color:var(--nf-ink-muted);font-weight:600;white-space:nowrap}
+@media(max-width:720px){
+  .sr-file{padding:12px 12px 20px}
+  .sr-dialog{padding:16px}
+  .sr-acts-dlg .btn{flex:1 1 auto}
+}
+
+/* Inline «امضای قرارداد» button on the CRM thread / preview (reuses .bc-ik when present). */
+.sr-ikb{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.sr-ikb .sr-ik,.sr-ikb a.sr-ik{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:8px 14px;border-radius:12px;background:#fff;border:1px solid var(--nf-line,#d8dce8);color:rgb(41,54,155);font-weight:700;font-size:14px;text-decoration:none}

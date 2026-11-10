@@ -46,6 +46,7 @@ const actions = {
   'guarantor-registered': 'ثبت ضامن',
   'case-note-added': 'ثبت یادداشت پرونده',
   'signature-link-resent': 'لینک امضا دوباره فرستاده شد',
+  'bale-sign-reminder-sent': 'یادآوری امضا در بله فرستاده شد',
   'guarantor-review-reopened-for-upload': 'بازگشت برای تکمیل اطلاعات و مدارک ضامن',
   'authorize-toman-replacement': 'ثبت اجازه جایگزینی قرارداد قدیمی ریالی با قرارداد تومانی',
   'toman-replacement-signature-verified': 'تأیید امضای قرارداد جایگزین تومانی',

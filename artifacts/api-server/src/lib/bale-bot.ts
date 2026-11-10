@@ -28,6 +28,7 @@ import { isSalesManagerUser, roleSql } from "./sales-manager";
 import { baleBotAad, openBotToken, type BotKeyEnv } from "./bale-bot-crypto";
 import * as baleContact from "./bale-contact";
 import * as customerBale from "./customer-bale";
+import * as signReminder from "./bale-sign-reminder";
 import { isTraineeSalesperson } from "./multi-team";
 
 export const BB_FLAG = "flag.bale_bot";
@@ -354,7 +355,8 @@ export async function attemptSend(msgId: number): Promise<void> {
     if (replyId) body.reply_to_message_id = replyId;
     if (m.keyboard === "contact") body.reply_markup = { keyboard: [[{ text: ASK_CONTACT_BUTTON, request_contact: true }]], resize_keyboard: true, one_time_keyboard: true };
     else {
-      const mk = customerBale.cbReplyMarkup(m.keyboard);
+      const sr = signReminder.srReplyMarkup(m.keyboard);
+      const mk = sr ?? customerBale.cbReplyMarkup(m.keyboard);
       if (mk) body.reply_markup = mk;
     }
     r = await baleCall(token, "sendMessage", body);
@@ -503,10 +505,13 @@ export function messageView(m: any, ownerId: number | null = null, opts?: { hide
     if (text) text = redactPhonesInText(text);
     if (contact) contact = { ...contact, phone: null, hidden: true };
   }
+  const signUrl = signReminder.srKeyboardUrl(m.keyboard);
+  const inlineButtons = signUrl && !m.deleted_at ? [{ text: signReminder.SR_BUTTON, url: signUrl }] : undefined;
   return { id: m.id, dir: m.dir, kind: m.kind, text, at: m.created_at, editedAt: m.edited_at, deleted: !!m.deleted_at,
     file: m.file_state ? { name: m.file_name, mime: m.mime, size: m.size, duration: m.duration, state: m.file_state, url: m.file_state === "stored" ? `/api/bale-bot/files/${m.id}` : null } : null,
     contact,
     location: m.kind === "location" ? { lat: m.lat, lng: m.lng } : null, replyTo: m.reply_to, askContact: m.keyboard === "contact",
+    inlineButtons,
     status: m.dir === "out" ? (m.status === "sending" && m.error_code === "rate_limited" ? "wait" : m.status) : null, errorCode: m.dir === "out" && m.status === "failed" ? m.error_code : null,
     author, canEdit: m.dir === "out" && m.status === "sent" && m.kind === "text" && !m.deleted_at && !m.keyboard,
     canDelete: m.dir === "out" && m.status === "sent" && !m.deleted_at && ageH < BB_LIMITS.deleteHours, deleteExpired: m.dir === "out" && m.status === "sent" && !m.deleted_at && ageH >= BB_LIMITS.deleteHours };

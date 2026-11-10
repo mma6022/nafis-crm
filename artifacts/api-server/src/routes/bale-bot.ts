@@ -122,6 +122,8 @@ function botView(b: ReturnType<typeof botOfUser>) {
 }
 
 import { attachCustomerBotToChat, customerBotFlagsPayload, registerCustomerBaleRoutes } from "./customer-bale";
+import { registerSignReminderRoutes } from "./bale-sign-reminder";
+import { srChatView, srFlagOn } from "../lib/bale-sign-reminder";
 import { ensureCustomerBaleSchema, cbAnyFlagOn } from "../lib/customer-bale";
 export function createBaleBotRouter(): IRouter {
   const r: IRouter = Router();
@@ -140,7 +142,7 @@ export function createBaleBotRouter(): IRouter {
     const u = U(res); const v = bbView(u)!;
     const unread = v === "all" ? queryRow<{ n: number }>("SELECT COUNT(*) n FROM bale_bot_chats WHERE unread>0")!.n
       : queryRow<{ n: number }>("SELECT COUNT(*) n FROM bale_bot_chats c JOIN bale_bots b ON b.id=c.bot_id WHERE b.user_id=? AND c.unread>0", [u.id])!.n;
-    res.json({ enabled: true, view: v, canManage: bbCanManage(u), name: nameOf(u), bot: botView(botOfUser(u.id)), unread, limits: BB_LIMITS, contactFeature: bcFlagOn(), customerBot: customerBotFlagsPayload() });
+    res.json({ enabled: true, view: v, canManage: bbCanManage(u), name: nameOf(u), bot: botView(botOfUser(u.id)), unread, limits: BB_LIMITS, contactFeature: bcFlagOn(), customerBot: customerBotFlagsPayload(), signReminder: srFlagOn() });
   });
 
   r.get("/bale-bot/chats", (req, res) => {
@@ -171,13 +173,14 @@ export function createBaleBotRouter(): IRouter {
     res.json({ counts, chats: list.map(c => chatView(c, u)), experts });
   });
 
-  r.get("/bale-bot/chats/:id", (req, res) => {
+  r.get("/bale-bot/chats/:id", async (req, res) => {
     const u = U(res); const c = chatFor(u, num(req.params.id)); if (!c) return fail(res, 404, "not_found");
     const after = num(req.query.after);
     const msgs = queryRows<any>(`SELECT * FROM bale_bot_messages WHERE chat_row=? ${after ? "AND id>?" : ""} ORDER BY id DESC LIMIT 300`, after ? [c.id, after] : [c.id]).reverse();
     if (c.owner_id === u.id && c.unread) executeChanges("UPDATE bale_bot_chats SET unread=0 WHERE id=?", [c.id]); // a manager opening it does not clear the expert's badge
     const view = chatView({ ...c, unread: c.owner_id === u.id ? 0 : c.unread }, u);
-    res.json({ chat: view, messages: msgs.map(m => messageView(m, c.owner_id, { hidePhone: !!view.customer?.restricted && !view.customer?.phone })) });
+    const signReminder = srFlagOn() ? await srChatView(c.id, u) : null;
+    res.json({ chat: { ...view, signReminder }, messages: msgs.map(m => messageView(m, c.owner_id, { hidePhone: !!view.customer?.restricted && !view.customer?.phone })) });
   });
 
   const writable = (u: BbUser, id: number, res: Response) => {
@@ -486,6 +489,7 @@ export function createBaleBotRouter(): IRouter {
   // Last line of defence: no error from this router may carry a token.
   r.use("/bale-bot", (err: any, _req: Request, res: Response, _next: NextFunction) => { bbLog({ action: "route.error", outcome: redact(err?.type ?? err?.message ?? "error").slice(0, 60) }); fail(res, err?.status === 413 ? 413 : 500, err?.status === 413 ? "file_too_big" : "unknown"); });
   registerCustomerBaleRoutes(r, { kick });
+  registerSignReminderRoutes(r, { kick });
   return r;
 }
 export default createBaleBotRouter();
