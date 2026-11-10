@@ -14,7 +14,7 @@
  *      "0" = unseeded installs match the design default (all AI work stops).
  *      Release MUST seed an explicit "0" or "1"; the seed script refuses to guess.
  *
- * Report both release options; do not decide them here.
+ * Mohammad t987s4152: release seed is 1 («کلید هوش مصنوعی موقع انتشار روشن باشه تا همه چی مثل الان کار کنه»). A.sh/B.sh set AI_ENABLED_SEED=1.
  */
 import { execute, executeChanges, queryRow, queryRows } from "./crm-db";
 
