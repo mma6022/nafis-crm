@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation, useSearch } from "wouter";
-import { getGetAuthSessionQueryKey, useCancelLoanApplication, useGetAuthSession, useUpdateCustomer, type CustomerUpdateStatus } from "@workspace/api-client-react";
+import { getGetAuthSessionQueryKey, getListCustomerTagsQueryKey, useCancelLoanApplication, useGetAuthSession, useListCustomerTags, useUpdateCustomer, type CustomerUpdateStatus } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { STATUS_LABEL } from "@/pages/customers-ui";
 import { announceCallSaved, useCqConfig } from "@/features/call-queue/api";
@@ -18,6 +18,14 @@ import { DciIcon, DciSprites } from "./icons";
 import "./dci.css";
 
 const FD = "۰۱۲۳۴۵۶۷۸۹";
+/** Existing catalog labels (customer_tag_catalog). Fallback if the catalog has not loaded yet. */
+const TAG_LABEL_FALLBACK: Record<string, string> = {
+  website_lead: "سرنخ سایت",
+  repeat_request: "درخواست چند باره",
+};
+export function dciTagLabel(key: string, catalog?: ReadonlyArray<{ key: string; label: string }> | null): string {
+  return catalog?.find((item) => item.key === key)?.label || TAG_LABEL_FALLBACK[key] || key;
+}
 const fa = (n: string | number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "٬").replace(/[0-9]/g, (d) => FD[Number(d)]);
 const fd = (v: string | number) => String(v).replace(/[0-9]/g, (d) => FD[Number(d)]);
 const PS_STATUSES: CustomerUpdateStatus[] = ["in_progress", "completed", "cancelled"];
@@ -302,7 +310,8 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     onChange: (v: CqResultValue) => void; onSave: () => void; onClose: () => void;
   };
 }) {
-  const tags = (m.customer.tags || []).map((x) => <span key={x}>{x}</span>);
+  const tagCatalog = useListCustomerTags({ query: { queryKey: getListCustomerTagsQueryKey() } });
+  const tags = (m.customer.tags || []).map((x) => <span key={x}>{dciTagLabel(x, tagCatalog.data)}</span>);
   const qc = useQueryClient();
   const update = useUpdateCustomer();
   const cancelCase = useCancelLoanApplication();

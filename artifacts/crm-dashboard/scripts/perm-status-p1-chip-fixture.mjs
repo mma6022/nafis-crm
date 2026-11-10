@@ -68,13 +68,38 @@ await ok("source: no-perm and already-p1 are inert / disabled, not a second prim
   assert.match(css, /0 0 0 6px var\(--nf-brand-600/);
   assert.match(css, /min-height:44px/);
 });
+await ok("source: tags use the catalog / Persian fallback, never raw website_lead", () => {
+  assert.match(src, /function dciTagLabel/);
+  assert.match(src, /useListCustomerTags/);
+  assert.match(src, /website_lead: "سرنخ سایت"/);
+  assert.match(src, /repeat_request: "درخواست چند باره"/);
+  assert.match(src, /dciTagLabel\(x, tagCatalog\.data\)/);
+  // The render path must not dump the raw tag key.
+  assert.doesNotMatch(src, /\.map\(\(x\) => <span key=\{x\}>\{x\}<\/span>\)/);
+});
+await ok("css: 1280 scroller keeps the last full row 16px above the dock; chip min-height stays 44px", () => {
+  assert.match(css, /r4c \(Armita REVIEW-r4b\)/);
+  assert.match(css, /body:has\(\[data-testid="dci-page"\]\) \.dci-board\{align-items:stretch;overflow:hidden\}/);
+  assert.match(css, /padding-bottom:16px;scroll-padding-bottom:16px/);
+  // Desktop chip height is unchanged (restore = stop clipping, not shrink the chip).
+  const desk = css.match(/@media\(min-width:768px\)\{[\s\S]*?\.dci-page \.dci-ps \.csx-chip\{min-height:44px/);
+  assert.ok(desk, "desktop status/priority chips stay min-height 44px");
+  // 390 dock/main padding rules are not rewritten by this polish.
+  assert.match(css, /padding:0 12px calc\(var\(--ss-dock-h,72px\) \+ var\(--dci-sticky-h,68px\) \+ 16px \+ env\(safe-area-inset-bottom,0px\)\)/);
+});
+await ok("css: 390 P1 focus ring is padded inside the chips row", () => {
+  const mob = css.match(/@media\(max-width:767\.98px\)\{[\s\S]*?\.dci-page \.dci-ps \.csx-chips\{([\s\S]*?)\}\n/);
+  assert.ok(mob, "mobile chips row rule");
+  assert.match(mob[1], /padding:6px/);
+  assert.match(mob[1], /overflow-x:auto/);
+});
 
 const ui = process.env.PERM_CHIP_UI;
 const tokenPath = process.env.PERM_CHIP_TOKEN || "/workspace/perm-status/db/r4b-session.token";
 if (ui && existsSync(tokenPath)) {
   const token = readFileSync(tokenPath, "utf8").trim();
   const P3 = process.env.PERM_CHIP_P3 || "819";
-  const P1 = process.env.PERM_CHIP_P1 || "2229";
+  const P1 = process.env.PERM_CHIP_P1 || "1902";
   const puppeteer = await import("/workspace/dci/src/artifacts/crm-dashboard/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js");
   const browser = await puppeteer.default.launch({
     executablePath: process.env.PERM_CHROME || "/usr/bin/google-chrome",
