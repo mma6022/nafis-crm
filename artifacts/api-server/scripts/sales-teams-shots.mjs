@@ -201,7 +201,7 @@ const titles = {
   "err-duplicate": "اعتبار: اولویت تکراری",
   "add-pick": "ویزارد عضو جدید، مرحلهٔ ۱ (نشان کارآموز سرور و خط عمومی خروج)",
   "add-priorities": "عضو جدید، مرحلهٔ ۲",
-  "add-review": "عضو جدید، مرحلهٔ ۳ (گرفتن اولویت و خط عمومی خروج از کارآموز)",
+  "add-review": "عضو جدید، مرحلهٔ ۳: افزودن کارشناس ۲۲ به تیم فروش ۲؛ اولویت ۲ از حسین خردکار و خط عمومی خروج از کارآموز",
   "lead-mark": "ویرایش سرپرست و اولویت‌های تیم فروش ۱",
   deactivate: "غیرفعال کردن تیم فروش ۱ مسدود است چون سهمش بیش از ۰٪ است (دید مدیر سامانه)",
   readonly: "تیم من، فقط مشاهده (دید آقای کاظمی)",
@@ -234,6 +234,7 @@ for (const sc of SCENES) {
 lines.push("", "## Notes", "");
 lines.push("- Display name «حسین خردکار» comes from the team-UI override, not a users-table write.");
 lines.push("- «کارشناس ۲۲» (user 31 / sp 22) is a server-flagged trainee; scenes 4 and 9 show the کارآموز badge, and selecting a trainee shows the generic leaving-traineeship line.");
+lines.push("- Scene 11 on this copy adds کارشناس ۲۲ to تیم فروش ۲ with اولویت ۲, so «اولویت ۲ از حسین خردکار گرفته می‌شود.» appears next to the generic leaving-traineeship line. (Official v1.2 mockup uses Younesi for this scene; the copy uses 22 only.)");
 lines.push("- Scene 4 does not select people already on another team (حسین خردکار and آرش اصلانیان stay grey, are not counted, and «بعدی» stays disabled until two valid picks).");
 lines.push("- Intake is per-source percentages (100/0 seed). Scene 19 shows the 90% sum error. A 409 on disable is scene 13's blocked state.");
 lines.push("- Production CRM chrome (CrmShell / sales-shell v2 when that flag is on) is not identical to this shot wrap; the page body (`.st-page`) is the same UI.");

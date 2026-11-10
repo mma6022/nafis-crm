@@ -694,9 +694,14 @@ export function mountSalesTeams(opts: MountOpts): () => void {
     if (scene === "create-members") {
       st.selected = st.selected.filter(isAvailable);
     }
-    if (scene.startsWith("add-") && t2 && younesi) {
-      st.addTeamId = t2.id; st.addSp = younesi;
-      st.ticks[younesi] = { ownsNone: false, ownsP1: false, ownsP2: true, ownsP3: false };
+    if (scene.startsWith("add-") && t2) {
+      const exp22 = st.people.find((p) => p.salespersonId === 22) || byName("کارشناس ۲۲") || byName("۲۲");
+      const who = scene === "add-review" ? exp22?.salespersonId : younesi;
+      if (who) {
+        st.addTeamId = t2.id;
+        st.addSp = who;
+        st.ticks[who] = { ownsNone: false, ownsP1: false, ownsP2: true, ownsP3: false };
+      }
     }
     if (scene === "lead-mark" && t1) startEdit(t1);
     if (scene === "deactivate" && t1) st.disableTeamId = t1.id;
