@@ -6,6 +6,14 @@ export const MULTI_CASE_PLAN_LABELS: Readonly<Record<number, string>> = {};
 
 export const MULTI_CASE_PLAN_UNKNOWN = "لندتک / بانک نامشخص";
 
+/**
+ * A plan whose primary template cannot be submitted.
+ * "hide" (default) drops the tile. "show" keeps it disabled with a short reason.
+ * Switch this one constant; the server rule stays the same.
+ */
+export const MULTI_CASE_UNREADY_PLAN: "hide" | "show" = "hide";
+export const MULTI_CASE_UNREADY_REASON = "قالب قرارداد این طرح اصل تسهیلات را ندارد";
+
 export function multiCasePlanLabel(plan: {
   id?: number | null;
   planId?: number | null;

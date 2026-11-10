@@ -26,6 +26,13 @@
 import { crmDb, execute, executeChanges, queryRow, queryRows } from "./crm-db";
 
 export const MC_FLAG = "flag.multi_case_v1";
+
+/** A plan fee of 0 does not need a filing-fee charge. Anything else, including a missing or invalid fee, still does. */
+export function planRequiresFilingFee(fee: unknown): boolean {
+  const text = String(fee ?? "").trim();
+  if (!/^(0|[1-9]\d*)$/.test(text)) return true;
+  return BigInt(text) > 0n;
+}
 export const OPEN_SAME_PLAN = "open_same_plan_case";
 export const OPEN_SAME_PLAN_CASE_MESSAGE =
   "برای این مشتری یک پروندهٔ باز با همین طرح وجود دارد. تا وقتی آن پرونده لغو یا تکمیل نشود، پروندهٔ تازه با همین طرح ساخته نمی‌شود. طرح دیگر آزاد است و هزینهٔ هر پرونده جداگانه حساب می‌شود.";
@@ -202,7 +209,7 @@ export function bindSlotCharge(customerId: number, planId: number, chargeId: num
 }
 
 /** After the new application row exists, same immediate transaction. */
-export function claimSlotForApplication(customerId: number, planId: number, chargeId: number, applicationId: number) {
+export function claimSlotForApplication(customerId: number, planId: number, chargeId: number | null, applicationId: number) {
   ensureMultiCaseSchema();
   const other = findOpenSamePlan(customerId, planId, applicationId);
   if (other) clash({ held: "case", applicationId: Number(other.id), planId, planName: other.plan_name });

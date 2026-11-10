@@ -28,7 +28,7 @@ import { loanPlanNetAmount } from "../lib/loan-plan-net-amount";
 import { classifyProviderState, isStrictSignedProviderState, providerContractState } from "../lib/emzame-signature";
 import { emzameRequest } from "../lib/emzame-client";
 import { creditLoanWallet, wallet } from "../lib/wallets";
-import { bindSlotCharge, claimSlotForApplication, mcFlagOn, openSamePlanBody, reserveOpenPlan } from "../lib/multi-case";
+import { bindSlotCharge, claimSlotForApplication, mcFlagOn, openSamePlanBody, planRequiresFilingFee, reserveOpenPlan } from "../lib/multi-case";
 import {
   isAttestedTomanTemplate,
   renderedPdfContainsInstallmentCount,
@@ -1843,14 +1843,15 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
   if (!customerId || !plan || !conditionId || !/^[1-9]\d*$/.test(amount) || !Number.isInteger(duration) || duration < 1) return error(res, 400, "invalid_application_input");
    const u = user(res), customer = queryRow<any>("SELECT * FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [customerId]);
    if (!customer || (u.customerScope === "assigned" && customer.salesperson_id !== u.salespersonId)) return error(res, 404, "loan_application_not_found");
+  const feeRequired = planRequiresFilingFee(plan.filing_fee_toman);
   const feeChargeId = Number(b.feeChargeId);
-  const charge = Number.isSafeInteger(feeChargeId) ? queryRow<any>(
+  const charge = feeRequired && Number.isSafeInteger(feeChargeId) ? queryRow<any>(
     "SELECT * FROM loan_filing_fee_charges WHERE id=? AND customer_id=? AND plan_id=?", [feeChargeId, customerId, planId]) : null;
-  if (!charge) return error(res, 422, "filing_fee_required");
+  if (feeRequired && !charge) return error(res, 422, "filing_fee_required");
   let draft: any = null;
-  try { draft = draftForSubmit(b.draftId, customerId, charge.id, u); }
-  catch (e) { const code = e instanceof Error ? e.message : "invalid_draft"; if (!(charge.application_id && code === "draft_closed")) return error(res, code === "draft_not_found" ? 404 : code === "invalid_draft" ? 400 : 409, code); }
-  if (charge.application_id) {
+  try { draft = draftForSubmit(b.draftId, customerId, charge ? Number(charge.id) : null, u); }
+  catch (e) { const code = e instanceof Error ? e.message : "invalid_draft"; if (!(charge?.application_id && code === "draft_closed")) return error(res, code === "draft_not_found" ? 404 : code === "invalid_draft" ? 400 : 409, code); }
+  if (charge?.application_id) {
     const existing = scoped(charge.application_id, u);
     return existing ? res.status(200).json(existing) : error(res, 409, "filing_fee_already_used");
   }
@@ -1882,8 +1883,12 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
    let id: number;
    try {
    id = (multi ? runImmediateTransaction : runTransaction)(() => {
-     const currentCharge = queryRow<any>("SELECT application_id FROM loan_filing_fee_charges WHERE id=?", [charge.id]);
-     if (currentCharge?.application_id) return Number(currentCharge.application_id);
+     if (charge) {
+       const currentCharge = queryRow<any>("SELECT application_id FROM loan_filing_fee_charges WHERE id=?", [charge.id]);
+       if (currentCharge?.application_id) return Number(currentCharge.application_id);
+     } else if (multi) {
+       reserveOpenPlan(customerId, planId);
+     }
     let consultationId = Number(b.consultationId);
     if (!consultationId || !queryRow("SELECT id FROM consultation_forms WHERE id=? AND customer_id=?", [consultationId, customerId])) {
       consultationId = execute("INSERT INTO consultation_forms(customer_id,requested_amount,extra_notes,updated_at) VALUES(?,?,?,?)", [customerId, amount, b.notes ?? null, ts]);
@@ -1896,10 +1901,10 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
         [consultationId, customerId, u.id, JSON.stringify([planId]), planId, amount, duration, duration, "draft", "requested", JSON.stringify(plan), JSON.stringify(ignoreCreditRank ? loanRankOverrideSnapshot(condition, u.id, ts, terms.maximum.toString(), overrideReason) : condition ?? null), JSON.stringify(requirements.map((key) => ({ key: String(key), label: documentLabel(String(key)) }))), JSON.stringify(manualInput.values), preRegistration, customer.salesperson_id ?? null, salespersonSnapshot?.name ?? null, 1, ts, ts]);
      for (const item of requirements) execute("INSERT INTO loan_application_documents(application_id,requirement_key,label,source,created_at) VALUES(?,?,?,?,?)", [appId, String(item), documentLabel(String(item)), "plan", ts]);
       execute("INSERT INTO loan_application_stage_history(application_id,to_stage,action,actor_id,created_at) VALUES(?,?,?,?,?)", [appId, "draft", "created", u.id, ts]);
-     executeChanges("UPDATE loan_filing_fee_charges SET application_id=? WHERE id=? AND application_id IS NULL", [appId, charge.id]);
-     if (multi) claimSlotForApplication(customerId, planId, Number(charge.id), Number(appId));
+     if (charge) executeChanges("UPDATE loan_filing_fee_charges SET application_id=? WHERE id=? AND application_id IS NULL", [appId, charge.id]);
+     if (multi) claimSlotForApplication(customerId, planId, charge ? Number(charge.id) : null, Number(appId));
      // Same transaction: the «در انتظار ثبت» draft of this fee (or the one named by draftId) is closed as submitted.
-     closeDraftsForCase(customerId, Number(charge.id), appId, u.id, draft ? Number(draft.id) : null);
+     closeDraftsForCase(customerId, charge ? Number(charge.id) : 0, appId, u.id, draft ? Number(draft.id) : null);
     if (overrideReason) {
       logCreditRankOverride({ action: "case_created", actor: u, customerId, applicationId: appId, planId, conditionId, reason: overrideReason, at: ts });
       // Earlier uses for this customer (preview / filing fee) by the same person now belong to this case.

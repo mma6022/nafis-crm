@@ -419,8 +419,17 @@ export function linkDraftFee(draft: any, chargeId: number, u: AuthUser) {
   audit(Number(draft.id), Number(draft.customer_id), "fee_linked", u.id, null, { feeChargeId: chargeId }, ts);
 }
 /** Called inside the create-case transaction: validates the draft before, closes it after. */
-export function draftForSubmit(draftId: unknown, customerId: number, feeChargeId: number, u: AuthUser) {
+export function draftForSubmit(draftId: unknown, customerId: number, feeChargeId: number | null, u: AuthUser) {
   if (draftId == null || draftId === "") return null;
+  if (feeChargeId == null) {
+    const id = Number(draftId);
+    if (!Number.isSafeInteger(id) || id <= 0) throw new Error("invalid_draft");
+    const row = rowById(id);
+    if (!row || Number(row.customer_id) !== customerId || (!seesAllDrafts(u) && row.customer_salesperson_id !== u.salespersonId)) throw new Error("draft_not_found");
+    if (row.deleted_at) throw new Error("draft_closed");
+    if (row.fee_charge_id != null) throw new Error("draft_fee_mismatch");
+    return row;
+  }
   const r = draftForFeeCharge(draftId, customerId, Number(queryRow<any>("SELECT plan_id FROM loan_filing_fee_charges WHERE id=?", [feeChargeId])?.plan_id), u);
   if (r && r.fee_charge_id != null && Number(r.fee_charge_id) !== feeChargeId) throw new Error("draft_fee_mismatch");
   return r;

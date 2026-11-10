@@ -15,7 +15,7 @@ import { useLocation } from "wouter";
 import { clearLoanDraft, readLoanDraft, writeLoanDraft } from "@/lib/loan-draft";
 import { useMultiCaseCustomer, useMultiCaseStatus } from "@/lib/multi-case";
 import { SamePlanBlock } from "@/components/multi-case/CaseContextPicker";
-import { multiCasePlanLabel } from "@/lib/multi-case-plan-label";
+import { MULTI_CASE_UNREADY_PLAN, MULTI_CASE_UNREADY_REASON, multiCasePlanLabel } from "@/lib/multi-case-plan-label";
 import { CidChip, faCaseStage, faDigits, faLatinRanks } from "@/components/multi-case/CaseContextPicker";
 import { DRAFTS_KEY, DraftHttpError, filingFeeIdempotencyKey, openPreRegistrationFor, type OpenPreRegistration, canUseDrafts, draftsApi, tehranTime, type DraftPayload, type RequestDraft } from "@/lib/request-drafts";
 import { toast } from "@/hooks/use-toast";
@@ -218,6 +218,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   );
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [feeChargeId, setFeeChargeId] = useState<number | null>(null);
+  const [zeroFee, setZeroFee] = useState(false);
   // Resume guard: this customer's paid fee already made a case → continue there (no second charge).
   const [existingCase, setExistingCase] = useState<OpenPreRegistration | null>(null);
   const multiStatus = useMultiCaseStatus();
@@ -307,6 +308,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
     && window.sessionStorage.getItem(`loan-fee:${selectedCustomer.id}:${selectedPlanId}`));
   const selectPlanGroup = (planId: number) => {
     if (feeChargeId || hasPendingFeeAttempt || selectedPlanId === planId) return;
+    setZeroFee(false);
     setSelectedPlanId(planId);
     setSelectedPlan(null);
     setAmount('');
@@ -571,7 +573,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   const handleSubmit = async (manualValues: Record<string, string>) => {
     if (checkingSubmission || createMutation.isPending) return;
     if (saveBlocked) { void flush(); return; }
-    if (!selectedCustomer || !selectedPlan || !feeChargeId || !selectedPlan.contractTemplateId) {
+    if (!selectedCustomer || !selectedPlan || (!feeChargeId && !zeroFee) || !selectedPlan.contractTemplateId) {
       setSubmitError('اطلاعات مشتری، طرح، هزینه تشکیل پرونده یا قالب قرارداد کامل نیست.');
       return;
     }
@@ -616,7 +618,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
         ignoreCreditRank: previewAllPlans,
         creditRankOverrideReason: overrideReasonParam,
         customerId: selectedCustomer.id,
-        feeChargeId,
+        ...(feeChargeId ? { feeChargeId } : {}),
         planIds: [selectedPlan.planId],
         planId: selectedPlan.planId,
         conditionId: selectedPlan.conditionId,
@@ -904,7 +906,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
             {step === 4 && selectedCustomer && selectedPlan && (
               <StepFilingFee customer={selectedCustomer} selectedPlan={selectedPlan} ignoreCreditRank={previewAllPlans} draftId={srv?.id} overrideReason={overrideReasonParam}
                 requestKey={multiOn ? requestKey : null}
-                feeChargeId={feeChargeId} setFeeChargeId={setFeeChargeId} onNext={handleNext} onPrev={handlePrev}
+                feeChargeId={feeChargeId} setFeeChargeId={setFeeChargeId} onZeroFee={() => setZeroFee(true)} onNext={handleNext} onPrev={handlePrev}
                 onExistingCase={() => { if (selectedCustomer) void checkExistingCase(selectedCustomer.id); }} />
           )}
            {step === 5 && selectedCustomer && (
@@ -1010,10 +1012,10 @@ function McSecondStart({ customer, openCase, onContinue }: {
   );
 }
 
-function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, onNext, onPrev, ignoreCreditRank, draftId, overrideReason, onExistingCase, requestKey }: {
+function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, onZeroFee, onNext, onPrev, ignoreCreditRank, draftId, overrideReason, onExistingCase, requestKey }: {
   ignoreCreditRank: boolean; draftId?: number; overrideReason?: string; onExistingCase?: () => void; requestKey?: string | null;
   customer: Customer; selectedPlan: CustomerEligiblePlan;
-  feeChargeId: number | null; setFeeChargeId: (id: number | null) => void; onNext: () => void; onPrev: () => void;
+  feeChargeId: number | null; setFeeChargeId: (id: number | null) => void; onZeroFee?: () => void; onNext: () => void; onPrev: () => void;
 }) {
   const queryClient = useQueryClient();
   const { data, isLoading, error, refetch } = useGetFilingFeePlans({ customerId: customer.id, ignoreCreditRank, creditRankOverrideReason: overrideReason });
@@ -1025,6 +1027,7 @@ function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, on
   const [shareSmsSent, setShareSmsSent] = useState(false);
   const keyRef = useRef<string | null>(null);
   const plan = data?.plans.find((p) => p.planId === selectedPlan.planId);
+  const feeIsZero = Boolean(plan && BigInt(plan.filingFeeToman) === 0n);
   const affordable = plan && data && BigInt(data.cashBalanceToman) >= BigInt(plan.filingFeeToman);
   const storageKey = !plan ? '' : requestKey ? `loan-fee:${customer.id}:${plan.planId}:${requestKey}` : `loan-fee:${customer.id}:${plan.planId}`;
   const hasPendingKey = Boolean(plan && storageKey && window.sessionStorage.getItem(storageKey));
@@ -1102,20 +1105,21 @@ function StepFilingFee({ customer, selectedPlan, feeChargeId, setFeeChargeId, on
         </dl>
         {plan && !affordable && !feeChargeId && !hasPendingKey && <p role="alert" className="lwz-note warn">موجودی کافی نیست. ابتدا کیف پول نقدی مشتری را از <a href={`/customers/${customer.id}`}>پرونده مشتری</a> شارژ کنید، سپس به این مرحله برگردید.</p>}
         {feeError && <p role="alert" className="lwz-note bad">{feeError}</p>}
-         {!feeChargeId && plan && <div className="lwz-card lwz-share">
+         {!feeChargeId && plan && !feeIsZero && <div className="lwz-card lwz-share">
            <strong>پرداخت توسط مشتری</strong>
            <span className="lwz-muted">لینک شارژ کسری کیف پول را برای مشتری ارسال کنید؛ شارژ بدون تأیید پرداخت انجام نمی‌شود.</span>
            <button type="button" className="btn btn-gold" disabled={sharePending || Boolean(shareUrl)} onClick={createShareLink}>{sharePending ? 'در حال ارسال…' : shareSmsSent ? 'پیامک ارسال شد' : 'ارسال لینک شارژ کیف پول (پیامک)'}</button>
            {shareSmsSent && <span role="status" className="lwz-ok">لینک شارژ با پیامک برای مشتری ارسال شد.</span>}
            {shareUrl && <><span>مبلغ لینک: <strong>{BigInt(shareAmount || '0').toLocaleString('fa-IR')} تومان</strong></span><div className="wallet-share-link"><div><input readOnly dir="ltr" value={shareUrl} aria-label="لینک شارژ" /><button type="button" className="btn btn-ghost" onClick={async () => { try { await navigator.clipboard.writeText(shareUrl); } catch { setFeeError('کپی لینک انجام نشد؛ لینک را به‌صورت دستی از کادر انتخاب و کپی کنید.'); } }}><Copy size={16} /> کپی</button></div></div><button type="button" className="btn btn-ghost" onClick={() => refetch()}><RefreshCw size={16} /> به‌روزرسانی موجودی پس از پرداخت</button></>}
          </div>}
+        {feeIsZero && !feeChargeId && <p role="status" className="lwz-note ok" data-testid="filing-fee-zero">این طرح هزینه تشکیل پرونده ندارد. مبلغی از کیف پول کسر نمی‌شود.</p>}
         {feeChargeId && <p role="status" className="lwz-note ok" data-testid="filing-fee-locked"><CheckCircle2 size={18} aria-hidden="true" /> <b>انجام‌شده.</b> هزینه همین طرح ثبت شد؛ طرح، شرط و مبلغ قفل شدند و می‌توانید مدارک پرونده را تکمیل کنید.</p>}
       </>
     )}
     <div className="form-footer">
       <button type="button" className="btn btn-ghost" onClick={onPrev}><ChevronRight size={18} /> قبلی</button>
-      {!feeChargeId && <button type="button" className="btn btn-primary" disabled={!plan || (!affordable && !hasPendingKey) || pending} onClick={pay} data-testid="btn-pay-filing-fee">{pending ? 'در حال ثبت...' : hasPendingKey ? 'بازیابی نتیجه پرداخت و ادامه' : 'کسر هزینه و ادامه'}</button>}
-      {feeChargeId && <button type="button" className="btn btn-primary" onClick={onNext} data-testid="btn-next-fee">ادامه <ChevronLeft size={18} /></button>}
+      {!feeChargeId && !feeIsZero && <button type="button" className="btn btn-primary" disabled={!plan || (!affordable && !hasPendingKey) || pending} onClick={pay} data-testid="btn-pay-filing-fee">{pending ? 'در حال ثبت...' : hasPendingKey ? 'بازیابی نتیجه پرداخت و ادامه' : 'کسر هزینه و ادامه'}</button>}
+      {(feeChargeId || feeIsZero) && <button type="button" className="btn btn-primary" onClick={() => { if (feeIsZero) onZeroFee?.(); onNext(); }} data-testid="btn-next-fee">ادامه <ChevronLeft size={18} /></button>}
     </div>
   </div>;
 }
@@ -1754,10 +1758,13 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
           ) : isError ? <div role="alert" className="lwz-note bad">دریافت طرح‌ها ناموفق بود. <button type="button" className="text-link" onClick={() => void refetch()}>تلاش دوباره</button></div> : eligibleMatches.length > 0 ? (
             <div className={multiCase ? "lwz-opts mc-choice" : "lwz-opts"} id={multiCase ? "mc-plans" : undefined} role={multiCase ? "radiogroup" : "group"} aria-label="طرح‌های واجد شرایط">
                {(() => {
+                 const listed = multiCase && MULTI_CASE_UNREADY_PLAN === "hide"
+                   ? groupedPlans.filter((group) => group[0].primaryContractPresent)
+                   : groupedPlans;
                  const blocked = Boolean(multiCase && blockedCaseId);
-                 const rest = groupedPlans.filter((group) => group[0].planId !== selectedPlanId);
-                 const selected = groupedPlans.filter((group) => group[0].planId === selectedPlanId);
-                 return blocked ? [...selected, ...rest] : groupedPlans;
+                 const rest = listed.filter((group) => group[0].planId !== selectedPlanId);
+                 const selected = listed.filter((group) => group[0].planId === selectedPlanId);
+                 return blocked ? [...selected, ...rest] : listed;
                })().map((matches) => {
                  const plan = matches[0];
                  const planMaximum = Math.max(...matches.map((match) => Number(match.maximumAmount)));
@@ -1780,7 +1787,7 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
                  >
                     {multiCase ? <>
                       <b>{label}</b>
-                      <span>{blockedCaseId && marked ? "یک پرونده‌ی باز با این طرح دارید" : `تا ${planMaximum.toLocaleString('fa-IR')} تومان`}</span>
+                      <span>{!plan.primaryContractPresent ? MULTI_CASE_UNREADY_REASON : blockedCaseId && marked ? "یک پرونده‌ی باز با این طرح دارید" : `تا ${planMaximum.toLocaleString('fa-IR')} تومان`}</span>
                     </> : <>
                     <span className="dot" aria-hidden="true" />
                     <span className="txt">

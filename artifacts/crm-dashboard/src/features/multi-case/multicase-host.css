@@ -45,6 +45,8 @@ body:has(.mc-wizard-host, .mc-picker-host, .mc-host) .nas-dock,
 body:has(.mc-wizard-host, .mc-picker-host, .mc-host) .nas-pop,
 body:has(.mc-wizard-host, .mc-picker-host, .mc-host) .nas-head,
 body:has(.mc-wizard-host, .mc-picker-host, .mc-host) .csx-fab,
+html[data-mc-on] body:has([data-testid="el-customer-closed"]) .diag-floating,
+html[data-mc-on] body:has([data-testid="el-page-closed"]) .diag-floating,
 body:has(.mc-wizard-host, .mc-picker-host, .mc-host) .diag-floating,
 body:has(.mc-wizard-host, .mc-picker-host, .mc-host) [data-testid="floating-chat"] { display: none; }
 body:has(.mc-wizard-host) .lrx-head,
@@ -93,10 +95,13 @@ body:has(.mc-wizard-host) .csx-pager { display: none; }
 .lwz.mc-host .mc-wbody > .mc-muted { position: sticky; top: 0; background: #fff; z-index: 2; }
 .lwz.mc-host .mc-wbody h2 { position: sticky; top: 40px; background: #fff; z-index: 2; }
 .lwz.mc-host .form-footer { justify-content: flex-start; position: sticky; bottom: 0; background: #fff; z-index: 3; }
+.lwz.mc-host .lwz-main {
+  scroll-padding-bottom: calc(72px + var(--ss-dock-h, 90px) + env(safe-area-inset-bottom, 0px));
+}
 .lwz.mc-host .lwz-plans,
-.lwz.mc-host .mc-review,
-.lwz.mc-host .mc-wbody .lwz-step { scroll-margin-bottom: 96px; }
-.lwz.mc-host .lwz-inner { padding-bottom: 88px; }
+.lwz.mc-host [data-testid="mc-review"] {
+  margin-bottom: calc(72px + var(--ss-dock-h, 90px) + env(safe-area-inset-bottom, 0px));
+}
 .mc-rail h3 { margin: 0 0 18px; font-size: 16px; }
 .mc-rail p { display: flex; gap: 8px; align-items: center; min-height: 48px; font-size: 14px; color: var(--nf-ink-muted); padding: 6px; border-radius: 10px; margin: 0; }
 .mc-rail p.cur { background: var(--nf-brand-50); color: var(--nf-brand-700); font-weight: 800; }

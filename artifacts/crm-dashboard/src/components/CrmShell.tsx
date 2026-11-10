@@ -245,6 +245,10 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const ssMobile = useMediaQuery('(max-width: 1023px)');
   const ssBadges = useNavBadges(shellOn).data;
   useEffect(() => { if (!shellOn) return; document.documentElement.classList.add('ssv2-on'); return () => document.documentElement.classList.remove('ssv2-on'); }, [shellOn]);
+  useEffect(() => {
+    document.documentElement.toggleAttribute('data-mc-on', mcOn);
+    return () => document.documentElement.removeAttribute('data-mc-on');
+  }, [mcOn]);
   const navItems = allNavItems.filter(item => {
     // v2 (PM): «مشتریان» and «یادآورها» stay in the dock while locked — they render cust_locked / view-only reminders, never the list.
     if (elLocked && elMe?.locked && !elMe.allowedPages.includes(item.href) && !(ssV2 && (item.href === '/customers' || item.href === '/reminders'))) return false; // lockdown only removes items; the normal checks below still apply

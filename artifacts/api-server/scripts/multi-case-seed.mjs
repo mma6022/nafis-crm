@@ -118,6 +118,37 @@ function consultationFor(customerId) {
   if (!has("consultation_forms") || !appCols.includes("consultation_id")) return null;
   return insertRow("consultation_forms", { customer_id: customerId, requested_amount: "0", extra_notes: "multi-case-sample", updated_at: now, created_at: now });
 }
+function primeIdentity(customerId, nationalCode) {
+  const patch = {
+    national_code: nationalCode,
+    birth_date_jalali: "1370/01/01",
+    postal_code: "1234567890",
+    verification_status: "verified",
+    verification_checked_at: now,
+    shahkar_ok: 1,
+    person_info_ok: 1,
+    postal_code_info_ok: 1,
+    sana_ok: 1,
+    credit_rank: "A",
+  };
+  const names = Object.keys(patch).filter((key) => cols("customers").includes(key));
+  if (names.length) db.prepare(`UPDATE customers SET ${names.map((name) => `${name}=?`).join(",")} WHERE id=?`).run(...names.map((name) => patch[name]), customerId);
+  if (has("customer_credit_checks")) {
+    insertRow("customer_credit_checks", {
+      customer_id: customerId, national_code: nationalCode, status: "report_generated",
+      score: 750, score_label: "A", completed_at: now, created_at: now, updated_at: now,
+    });
+  }
+  if (has("customer_identity_documents")) {
+    for (const documentType of ["national_card_front", "national_card_back", "birth_cert_p1", "birth_cert_p2", "birth_cert_p3"]) {
+      insertRow("customer_identity_documents", {
+        customer_id: customerId, document_type: documentType, storage_path: "synthetic/multi-case-sample",
+        original_name: `${documentType}.jpg`, mime_type: "image/jpeg", size_bytes: 1,
+        sha256: "0".repeat(64), created_at: now, is_latest: 1, version: 1,
+      });
+    }
+  }
+}
 function insertApp(customerId, planId, amount) {
   const actor = has("users") ? db.prepare("SELECT id FROM users ORDER BY id LIMIT 1").get() : null;
   return insertRow("loan_applications", {
@@ -131,6 +162,7 @@ for (const expert of experts) {
   const person = has("salespersons") ? db.prepare("SELECT id FROM salespersons WHERE id=?").get(expert.salespersonId) : { id: expert.salespersonId };
   if (!person) { manifest.experts.push({ ...expert, skipped: "salesperson missing" }); continue; }
   const customerId = insertCustomer(expert);
+  primeIdentity(customerId, `100000000${experts.indexOf(expert) + 1}`);
   const cases = [insertApp(customerId, plans[0].id, "250000000"), insertApp(customerId, plans[1].id, "180000000")];
   manifest.experts.push({ key: expert.key, userId: expert.userId, salespersonId: expert.salespersonId, customerId, caseIds: cases, phone: expert.phone, name: expert.name });
 }

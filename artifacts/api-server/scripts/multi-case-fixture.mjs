@@ -122,6 +122,30 @@ const fee2 = execute("INSERT INTO loan_filing_fee_charges(customer_id,plan_id,am
 mc.bindSlotCharge(1, 7, fee2);
 assert.notEqual(fee2, queryRow("SELECT id FROM loan_filing_fee_charges WHERE idempotency_key='fee-tarnam-1'").id);
 
+// Fee 0 does not need a charge row. Fee above 0 still does, and that charge stays on its own plan.
+assert.equal(mc.planRequiresFilingFee('0'), false);
+assert.equal(mc.planRequiresFilingFee(0), false);
+assert.equal(mc.planRequiresFilingFee('300000'), true);
+assert.equal(mc.planRequiresFilingFee(''), true);
+assert.equal(mc.planRequiresFilingFee('12a'), true);
+const beforeZero = queryRow('SELECT COUNT(*) n FROM loan_filing_fee_charges').n;
+mc.reserveOpenPlan(2, 99);
+const appZero = execute("INSERT INTO loan_applications(customer_id,plan_id,stage,status,requested_amount,created_at) VALUES(2,99,'draft','requested','1000000',?)", [new Date().toISOString()]);
+mc.claimSlotForApplication(2, 99, null, appZero);
+assert.equal(queryRow('SELECT COUNT(*) n FROM loan_filing_fee_charges').n, beforeZero, 'fee 0 does not insert a charge');
+assert.equal(queryRow('SELECT application_id FROM loan_plan_open_slots WHERE customer_id=2 AND plan_id=99').application_id, appZero);
+assert.equal(queryRow('SELECT charge_id FROM loan_plan_open_slots WHERE customer_id=2 AND plan_id=99').charge_id, null);
+try { mc.reserveOpenPlan(2, 99); assert.fail('a second open zero-fee case on the same plan must conflict'); }
+catch (e) { assert.equal(e.message, 'open_same_plan_case'); }
+mc.reserveOpenPlan(2, 98);
+const paid = execute("INSERT INTO loan_filing_fee_charges(customer_id,plan_id,amount_toman,idempotency_key,created_at) VALUES(2,98,'300000','fee-positive',?)", [new Date().toISOString()]);
+mc.bindSlotCharge(2, 98, paid);
+const appPaid = execute("INSERT INTO loan_applications(customer_id,plan_id,stage,status,requested_amount,created_at) VALUES(2,98,'draft','requested','1000000',?)", [new Date().toISOString()]);
+mc.claimSlotForApplication(2, 98, paid, appPaid);
+execute("UPDATE loan_filing_fee_charges SET application_id=? WHERE id=?", [appPaid, paid]);
+assert.equal(queryRow('SELECT amount_toman, application_id FROM loan_filing_fee_charges WHERE id=?', [paid]).amount_toman, '300000');
+assert.equal(queryRow('SELECT application_id FROM loan_filing_fee_charges WHERE id=?', [paid]).application_id, appPaid, 'fee above 0 keeps its own charge');
+
 // Case link ownership. Missing choice stays general.
 const caseId = app2;
 assert.equal(mc.resolveCaseLink(expert, 1, {}), null);

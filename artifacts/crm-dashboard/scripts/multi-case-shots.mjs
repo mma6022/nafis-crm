@@ -202,15 +202,19 @@ try {
       if (!(await advance())) break;
       await new Promise((r) => setTimeout(r, 500));
     }
-    const opened = await page.$$eval("#mc-plans button:not([disabled])", (nodes) => nodes.map((n) => n.getAttribute("data-plan-id"))).catch(() => []);
-    const order = openPlanId && opened.includes(openPlanId) ? [openPlanId, ...opened.filter((id) => id !== openPlanId)] : opened;
-    for (const id of order) {
-      await clickSel(`#mc-plans [data-plan-id="${id}"]`);
-      const shown = await page.waitForSelector('[data-testid="same-plan-block"]', { timeout: 2500 }).then(() => true).catch(() => false);
-      if (shown) break;
+    const plansReady = await page.waitForSelector("#mc-plans button:not([disabled])", { timeout: 8000 }).then(() => true).catch(() => false);
+    if (!plansReady) note("scene 12: wizard did not reach a selectable plan list");
+    else {
+      const opened = await page.$$eval("#mc-plans button:not([disabled])", (nodes) => nodes.map((n) => n.getAttribute("data-plan-id"))).catch(() => []);
+      const order = openPlanId && opened.includes(openPlanId) ? [openPlanId, ...opened.filter((id) => id !== openPlanId)] : opened;
+      for (const id of order) {
+        await clickSel(`#mc-plans [data-plan-id="${id}"]`);
+        const shown = await page.waitForSelector('[data-testid="same-plan-block"]', { timeout: 2500 }).then(() => true).catch(() => false);
+        if (shown) break;
+      }
+      if (await page.$('[data-testid="same-plan-block"]')) await both("12-wizard-same-plan-blocked");
+      else note("scene 12: same-plan box not shown (no selectable plan already has an open case)");
     }
-    if (await page.$('[data-testid="same-plan-block"]')) await both("12-wizard-same-plan-blocked");
-    else note("scene 12: same-plan box not shown (no selectable plan already has an open case)");
     await page.keyboard.press("Escape");
   } else note("new-case button not found");
 
