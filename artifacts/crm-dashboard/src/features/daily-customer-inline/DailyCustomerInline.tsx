@@ -241,9 +241,10 @@ function InBoundBlock({ rows, ext, onCall }: { rows: DciInbound[]; ext: boolean;
   </>;
 }
 
-function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting, result }: {
+function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting, result, promo }: {
   m: DciBoard; ext: boolean; narrow: boolean; onCopy: (v: string) => void; onCall: () => void; onResult: () => void;
   onPromote: () => void; promoting: boolean;
+  promo?: { open: boolean; reason: string; setReason: (v: string) => void; onSave: () => void; onClose: () => void };
   result?: {
     open: boolean; val: CqResultValue; show: boolean; busy: boolean; err: string;
     onChange: (v: CqResultValue) => void; onSave: () => void; onClose: () => void;
@@ -263,6 +264,14 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     <div className="dci-idrow">{m.customer.phone ? <Phone raw={m.customer.phone} big={!ext} onCopy={onCopy} /> : null}{nid}</div>
     <div className="dci-tags">{tags}</div>
     {prio}
+    {promo?.open ? <div className="dci-promo" data-testid="dci-promote">
+      <label htmlFor="dci-p1r">دلیل ارتقا</label>
+      <textarea id="dci-p1r" rows={2} value={promo.reason} onChange={(e) => promo.setReason(e.target.value)} placeholder="دلیل ارتقا به اولویت ۱" />
+      <div className="dci-acts">
+        <button className="btn pri" type="button" disabled={promoting || !promo.reason.trim()} onClick={promo.onSave}>ثبت ارتقا</button>
+        <button className="btn gh" type="button" onClick={promo.onClose}>انصراف</button>
+      </div>
+    </div> : null}
     <CallActs ext={ext} place="head" narrow={narrow} onCall={onCall} onResult={onResult} />
     </div>
     {result?.open ? <div className="dci-result dp-result" data-testid="dci-result">
@@ -417,6 +426,26 @@ export default function DailyCustomerInline() {
 
   const sticky = narrow && board && !denied && !loadingBoard && !errorBoard;
   useEffect(() => { if (sticky) document.body.classList.add("dci-stick"); else document.body.classList.remove("dci-stick"); return () => document.body.classList.remove("dci-stick"); }, [sticky]);
+  useEffect(() => {
+    if (!resultOpen && !reasonOpen) return;
+    const sel = resultOpen ? "[data-testid=dci-result]" : "[data-testid=dci-promote]";
+    const align: "start" | "end" = resultOpen ? "start" : "end";
+    const run = () => {
+      const el = document.querySelector(sel);
+      if (!el) return;
+      const col = el.closest(".dci-col") as HTMLElement | null;
+      const canCol = Boolean(col && col.scrollHeight > col.clientHeight + 4 && getComputedStyle(col).overflowY !== "visible");
+      if (canCol && col) {
+        const er = el.getBoundingClientRect();
+        const cr = col.getBoundingClientRect();
+        col.scrollTop += align === "start" ? er.top - cr.top - 8 : er.bottom - cr.bottom + 8;
+      } else {
+        el.scrollIntoView({ block: align, inline: "nearest" });
+      }
+    };
+    const id = window.setTimeout(run, 50);
+    return () => window.clearTimeout(id);
+  }, [resultOpen, reasonOpen]);
 
   let boardEl: JSX.Element;
   if (todayQ.isLoading && !todayQ.data) {
@@ -438,6 +467,7 @@ export default function DailyCustomerInline() {
     boardEl = <div className={`dci-board${show}`} id="dci-board">
       <RightCol m={board} ext={ext} onCall={startCall} />
       <MidCol m={board} ext={ext} narrow={narrow} onCopy={copy} onCall={startCall} onResult={() => void startResult()} onPromote={() => setReasonOpen(true)} promoting={promoting}
+        promo={{ open: reasonOpen, reason, setReason, onSave: () => void doPromote(), onClose: () => setReasonOpen(false) }}
         result={{ open: resultOpen, val: resultVal, show: resultShow, busy: resultBusy, err: resultErr, onChange: setResultVal, onSave: () => void saveResult(), onClose: () => { setResultOpen(false); setResultErr(""); } }} />
       <div className="dci-tabs" role="tablist" aria-label="بخش‌های دیگر">
         <button type="button" role="tab" id="tab-talk" aria-selected={tab === "talk" ? "true" : "false"} data-pane="talk"
@@ -456,13 +486,7 @@ export default function DailyCustomerInline() {
       <h1>کارهای امروز من</h1>
       <Timeline tasks={tasks} selected={selectedTask?.id ?? null} onPick={setSel} />
       {boardEl}
-      {sticky && board ? <div className="dci-sticky"><CallActs ext={ext} place="sticky" narrow={narrow} onCall={startCall} onResult={() => void startResult()} /></div> : null}
-      {reasonOpen && customerId ? <div className="dci-prio" style={{ marginTop: 12 }}>
-        <label htmlFor="dci-p1r">دلیل ارتقا</label>
-        <textarea id="dci-p1r" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="دلیل ارتقا به اولویت ۱" />
-        <button className="btn pri" type="button" disabled={promoting || !reason.trim()} onClick={() => void doPromote()}>ثبت ارتقا</button>
-        <button className="btn gh" type="button" onClick={() => setReasonOpen(false)}>انصراف</button>
-      </div> : null}
+      {sticky && board && !resultOpen && !reasonOpen ? <div className="dci-sticky"><CallActs ext={ext} place="sticky" narrow={narrow} onCall={startCall} onResult={() => void startResult()} /></div> : null}
     </main>
     {fcOpen && board ? <SimpleCallForm
       customer={{ id: board.customer.id, name: board.customer.name, phone: board.customer.phone ?? "", priority: board.customer.priority }}
