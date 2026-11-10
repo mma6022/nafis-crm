@@ -36,7 +36,7 @@ import { CustomerTagEditor } from '@/components/CustomerTagEditor';
 import { RepeatRequestReview, RepeatRequestTag } from '@/components/RepeatRequestReview';
 import { clearLoanDraft, listLoanDrafts, loanWizardHref, readLoanDraft, type LoanDraft } from '@/lib/loan-draft';
 import { useMultiCaseCustomer, useMultiCaseStatus } from '@/lib/multi-case';
-import { CaseContextPicker, type CaseChoice } from '@/components/multi-case/CaseContextPicker';
+import { CaseContextPicker, McFrame, mcDesignSrc, mcLiveQuery, type CaseChoice } from '@/components/multi-case/CaseContextPicker';
 import { DRAFTS_KEY, canUseDrafts, draftHref, draftWait, draftsApi, fa as faDraft, tehranTime } from '@/lib/request-drafts';
 import { BUSINESS_STATUS_LABELS, WIZARD_DISPLAY_STEPS, WIZARD_TOTAL_STEPS, loanBusinessStatus, loanStageLabel } from '@/lib/loan-labels';
 import { ConfirmDialog, initialsOf, jalaliDate, PriorityLabel, relativeTime, Sheet, STATUS_LABEL, StatusPill } from './customers-ui';
@@ -307,6 +307,7 @@ function CustomerDetailFull() {
   const caseCtx = useMultiCaseCustomer(id, multiOn);
   const openCases = (caseCtx.data?.cases ?? []).filter((row) => row.open);
   const [casePick, setCasePick] = useState<null | 'call' | 'reminder'>(null);
+  const [designHref, setDesignHref] = useState<string | null>(null);
   const [chosenCase, setChosenCase] = useState<CaseChoice | null>(null);
   const [caseReminderOpen, setCaseReminderOpen] = useState(false);
   const srvDraftQuery = useQuery({ queryKey: [...DRAFTS_KEY, 'by-customer', id], queryFn: () => draftsApi.byCustomer(id), enabled: draftsOn, staleTime: 15_000, retry: false });
@@ -356,7 +357,7 @@ function CustomerDetailFull() {
     if (Number.isSafeInteger(callId) && callId > 0 && canCallsCreate) {
       caseQueryDone.current = true;
       setChosenCase(callId);
-      setCallFormOpen(true);
+      setDesignHref(mcDesignSrc('file_call_active', { case: String(callId) }));
     } else if (Number.isSafeInteger(remId) && remId > 0 && can('reminders.manage')) {
       caseQueryDone.current = true;
       setChosenCase(remId);
@@ -767,6 +768,20 @@ function CustomerDetailFull() {
     {localDraftNotes}
     {loansQuery.isLoading ? <div className="stack" aria-busy="true"><span className="csx-sk" style={{ height: 72 }} /><span className="csx-sk" style={{ height: 72 }} /></div>
       : loansQuery.isError ? <div className="csx-note bad" role="alert"><AlertCircle size={18} /><p>فهرست تسهیلات دریافت نشد. <button type="button" className="csx-link" onClick={() => loansQuery.refetch()}>تلاش دوباره</button></p></div>
+      : multiOn ? <McFrame embed title="پرونده‌های این مشتری" src={mcDesignSrc('customer_multiple', { embed: '1', ...mcLiveQuery({ n: customer.name, id: customer.id, phone: customer.phone, owner: customer.salespersonName || undefined }, loans.map((loan) => ({ id: loan.id, p: loan.planName || 'طرح', a: toman(loan.approvedAmount || loan.requestedAmount), m: String(loan.durationMonths ?? loan.requestedDurationMonths ?? ''), s: loanBusinessStatus(loan) === 'completed' ? 'تکمیل' : loanBusinessStatus(loan) === 'canceled' ? 'لغو' : 'باز', stage: loanStageLabel(loan.stage) || '', date: jalaliDate(loan.createdAt) }))) })} onNav={(href) => {
+        const q = new URLSearchParams(href.replace(/^\?/, ''));
+        const sc = q.get('sc');
+        const caseId = Number(q.get('case'));
+        if (sc === 'call_case_picker') { setCasePick('call'); return; }
+        if (sc === 'second_case_start' || sc === 'wizard_plan' || sc === 'wizard_review') { setLocation(loanWizardHref(customer.id, false, 'customer', crypto.randomUUID())); return; }
+        if (sc === 'file_call_active' && caseId > 0) {
+          const loan = loans.find((row) => row.id === caseId);
+          setChosenCase(caseId);
+          setDesignHref(mcDesignSrc('file_call_active', { case: String(caseId), ...mcLiveQuery({ n: customer.name, id: customer.id, phone: customer.phone, owner: customer.salespersonName || undefined }, loan ? [{ id: loan.id, p: loan.planName || 'طرح', a: toman(loan.approvedAmount || loan.requestedAmount), m: String(loan.durationMonths ?? loan.requestedDurationMonths ?? ''), s: 'باز', stage: loanStageLabel(loan.stage) || '', date: jalaliDate(loan.createdAt) }] : []) }));
+          return;
+        }
+        if (caseId > 0) setLocation(`/loan-applications/${caseId}`);
+      }} />
       : loans.length ? <div className="stack">{loans.map((loan) => { const [label, tone] = LOAN_STATUS[loan.status] ?? [loan.status, 'open']; const bs = loanBusinessStatus(loan); const stage = bs !== 'canceled' && bs !== 'completed' ? loanStageLabel(loan.stage) : ''; return <Link key={loan.id} href={`/loan-applications/${loan.id}`} className="csx-loan" data-ls={tone} data-testid={`link-customer-loan-${loan.id}`}>
         <div className="r1"><b>پرونده #{faId(loan.id)}</b>{bs && BUSINESS_STATUS_LABELS[bs] ? <span className="csx-st" data-bs={bs}>{BUSINESS_STATUS_LABELS[bs]}</span> : <span className="csx-st">{label}</span>}</div>
         {stage ? <div className="csx-loan-stage" data-testid={`text-customer-loan-stage-${loan.id}`}>مرحله: {stage}</div> : null}
@@ -886,10 +901,14 @@ function CustomerDetailFull() {
       <p>این کار برگشت‌پذیر نیست.</p>
       <p className="hint">پرونده و تمام تماس‌ها و مشاوره‌های مرتبط برای همیشه حذف می‌شوند.</p>
     </ConfirmDialog> : null}
+    {designHref ? <div className="mc-frame-host" data-testid="mc-case-call">
+      <button type="button" className="mc-frame-close" onClick={() => setDesignHref(null)}>بستن</button>
+      {typeof chosenCase === 'number' ? <button type="button" className="mc-frame-close" style={{ left: 88 }} onClick={() => { setDesignHref(null); setCallFormOpen(true); }}>ثبت نتیجه تماس</button> : null}
+      <McFrame title="تماس پرونده" src={designHref} />
+    </div> : null}
     {casePick ? <CaseContextPicker
-      title={casePick === 'call' ? 'این تماس برای کدام پرونده است؟' : 'این یادآور برای کدام پرونده است؟'}
-      lead={casePick === 'call' ? 'قبل از ثبت تماس یکی را انتخاب کنید. تماس عمومی به هیچ پرونده‌ای وصل نمی‌شود.' : 'یادآور را به یک پرونده وصل کنید، یا یادآور عمومی مشتری را انتخاب کنید.'}
-      generalLabel={casePick === 'call' ? 'تماس عمومی مشتری' : 'یادآور عمومی مشتری'}
+      mode={casePick}
+      customer={{ n: customer.name, id: customer.id, phone: customer.phone, owner: customer.salespersonName || undefined }}
       cases={openCases}
       onClose={() => setCasePick(null)}
       onConfirm={(choice) => { setChosenCase(choice); setCasePick(null); if (casePick === 'call') setCallFormOpen(true); else setCaseReminderOpen(true); }}

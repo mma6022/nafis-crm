@@ -1,50 +1,79 @@
-import { useState } from "react";
-import { faCase, type MultiCaseRow } from "./types";
+import { useEffect } from "react";
+import type { MultiCaseRow } from "./types";
 
 export type CaseChoice = number | "general";
 
-/** Step before a customer-page call or reminder: pick one open case, or a general customer record. */
-export function CaseContextPicker({
-  title, lead, generalLabel, cases, onConfirm, onClose,
+export type McCustomer = { n: string; id: number; phone?: string; owner?: string };
+
+/** Designer shell (public/multi-case/index.html). Default scenes match her sample DOM. */
+export function mcDesignSrc(scene: string, extra?: Record<string, string | undefined>) {
+  const q = new URLSearchParams({ sc: scene });
+  for (const [key, value] of Object.entries(extra ?? {})) if (value) q.set(key, value);
+  return `/multi-case/index.html?${q.toString()}`;
+}
+
+export function mcLiveQuery(customer: McCustomer, cases: Array<{ id: number; p: string; a: string; m: string; s: string; stage: string; date: string }>) {
+  return { live: "1", payload: encodeURIComponent(JSON.stringify({ customer, cases })) };
+}
+
+export function McFrame({
+  src, title, embed, onNav,
 }: {
-  title: string; lead: string; generalLabel: string; cases: MultiCaseRow[];
-  onConfirm: (choice: CaseChoice) => void; onClose: () => void;
+  src: string;
+  title: string;
+  embed?: boolean;
+  onNav?: (href: string, assoc: string | null) => void;
 }) {
-  const open = cases.filter((row) => row.open);
-  const [choice, setChoice] = useState<CaseChoice | null>(null);
-  const [tried, setTried] = useState(false);
+  useEffect(() => {
+    if (!onNav) return;
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data;
+      if (!data || typeof data !== "object") return;
+      if (data.type === "mc-nav" || data.type === "mc-choice") onNav(String(data.href || ""), data.assoc == null ? null : String(data.assoc));
+      if (data.type === "mc-reminder") onNav(`reminder`, data.assoc == null ? "general" : String(data.assoc));
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [onNav]);
+  return <iframe className={embed ? "mc-frame-embed" : "mc-frame-full"} src={src} title={title} data-testid={embed ? "mc-embed" : "mc-frame"} />;
+}
+
+/** Full-screen designer picker. General is the default, matching her scene. */
+export function CaseContextPicker({
+  mode, customer, cases, onConfirm, onClose,
+}: {
+  mode: "call" | "reminder";
+  customer: McCustomer;
+  cases: MultiCaseRow[];
+  onConfirm: (choice: CaseChoice) => void;
+  onClose: () => void;
+}) {
+  const rows = cases.filter((row) => row.open).map((row) => ({
+    id: row.id,
+    p: row.planName || "طرح",
+    a: "—",
+    m: "—",
+    s: "باز",
+    stage: row.stage || "پرونده",
+    date: "",
+  }));
+  const src = mcDesignSrc(mode === "reminder" ? "reminder_case_picker" : "call_case_picker", mcLiveQuery(customer, rows.length ? rows : cases.map((row) => ({
+    id: row.id, p: row.planName || "طرح", a: "—", m: "—", s: row.open ? "باز" : "بسته", stage: row.stage || "", date: "",
+  }))));
   return (
-    <div className="mc-pick" role="dialog" aria-modal="true" aria-labelledby="mc-pick-title" data-testid="case-context-picker">
-      <div className="mc-pick-card" dir="rtl">
-        <p className="mc-step">گام ۱ از ۲</p>
-        <h2 id="mc-pick-title">{title}</h2>
-        <p>{lead}</p>
-        <div className="mc-opts" role="radiogroup" aria-label={title}>
-          {open.map((row) => (
-            <label key={row.id} className={choice === row.id ? "on" : ""}>
-              <input type="radio" name="mc-case" checked={choice === row.id} onChange={() => setChoice(row.id)} data-testid={`case-choice-${row.id}`} />
-              <span><b>پرونده {faCase(row.id)}</b><small>{row.planName || "طرح تسهیلات"}</small></span>
-            </label>
-          ))}
-          <label className={choice === "general" ? "on" : ""}>
-            <input type="radio" name="mc-case" checked={choice === "general"} onChange={() => setChoice("general")} data-testid="case-choice-general" />
-            <span><b>{generalLabel}</b><small>به هیچ پرونده‌ای وصل نمی‌شود</small></span>
-          </label>
-        </div>
-        {tried && choice == null ? <p className="mc-err" role="alert">یکی را انتخاب کنید.</p> : null}
-        <div className="mc-acts">
-          <button type="button" className="btn btn-primary" data-testid="case-choice-continue" onClick={() => { setTried(true); if (choice != null) onConfirm(choice); }}>ادامه</button>
-          <button type="button" className="btn btn-ghost" onClick={onClose}>انصراف</button>
-        </div>
-      </div>
+    <div className="mc-frame-host" data-testid="case-context-picker">
+      <button type="button" className="mc-frame-close" onClick={onClose}>بستن</button>
+      <McFrame title={mode === "reminder" ? "انتخاب پرونده برای یادآور" : "انتخاب پرونده برای تماس"} src={src} onNav={(_href, assoc) => {
+        onConfirm(assoc && assoc !== "general" && Number(assoc) > 0 ? Number(assoc) : "general");
+      }} />
     </div>
   );
 }
 
 export function SamePlanBlock({ planName, caseId }: { planName: string; caseId: number }) {
   return (
-    <div className="lwz-note bad" role="alert" data-testid="same-plan-block">
-      <p><b>این طرح پروندهٔ باز دارد.</b> پرونده {faCase(caseId)} با طرح «{planName}» هنوز باز است. تا لغو یا تکمیل آن، پروندهٔ تازه با همین طرح ساخته نمی‌شود. طرح دیگر را انتخاب کنید؛ هزینهٔ هر پرونده جدا است.</p>
-    </div>
+    <p className="mc-warning" role="alert" data-testid="same-plan-block">
+      {planName} در پرونده #{caseId.toLocaleString("fa-IR")} باز است. تا لغو یا تکمیل آن، پروندهٔ تازه با همین طرح ساخته نمی‌شود. طرح دیگر آزاد است و هزینهٔ هر پرونده جدا حساب می‌شود.
+    </p>
   );
 }
