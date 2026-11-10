@@ -203,11 +203,18 @@ function SsInflow({ children }: { children: ReactNode }) {
       });
       const d = ds.find(el => el.closest('.rmm-x')) ?? ds[ds.length - 1];
       if (!d) { if (cur) { cur.remove(); cur = null; setHost(null); } return; }
-      if (cur && d.contains(cur)) return;
-      if (cur) cur.remove();
-      const h = document.createElement('div'); h.className = 'ss-dnd-host';
-      const head = d.querySelector<HTMLElement>('.modal-head, .rmm-h, header');
-      if (head && head.parentElement && head.closest(SS_FORM_SEL) === d) head.insertAdjacentElement('afterend', h); else d.prepend(h);
+      const h = cur && d.contains(cur) ? cur : document.createElement('div');
+      if (h !== cur) h.className = 'ss-dnd-host';
+      const mcTitle = d.querySelector<HTMLElement>('.mc-wbody h2');
+      if (mcTitle) {
+        if (cur === h && mcTitle.nextElementSibling === h) return;
+        if (mcTitle.nextElementSibling !== h) mcTitle.insertAdjacentElement('afterend', h);
+      } else if (cur && d.contains(cur)) return;
+      else {
+        const head = d.querySelector<HTMLElement>('.modal-head, .rmm-h, header');
+        if (head && head.parentElement && head.closest(SS_FORM_SEL) === d) head.insertAdjacentElement('afterend', h); else d.prepend(h);
+      }
+      if (cur && cur !== h) cur.remove();
       cur = h; setHost(h);
     };
     const sch = () => { if (!f) f = requestAnimationFrame(find); };

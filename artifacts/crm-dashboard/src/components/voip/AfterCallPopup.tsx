@@ -19,6 +19,7 @@ export function AfterCallPopup() {
   const [location]=useLocation();
   const multiOn = useMultiCaseStatus().data?.enabled === true;
   const queueSep = multiOn ? "، " : " · ";
+  const mcSurface = multiOn && (/^\/customers\/\d+(?:\/|$)/.test(location) || (location.startsWith('/loan-applications') && /(?:^|[?&])new=1(?:&|$)/.test(typeof window !== 'undefined' ? window.location.search : '')));
   const queryClient = useQueryClient();
   const { data: session } = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   const user = session?.user;
@@ -63,7 +64,7 @@ export function AfterCallPopup() {
   useEffect(()=>{setDeferred([]);setShown(null);setDirty(false);setErr('');},[user?.id]);
 
   useEffect(() => {
-    if (noPopup) { if (shown != null) setShown(null); return; }
+    if (noPopup || mcSurface) { if (shown != null) setShown(null); return; }
     const own=items.filter(i=>i.expertUserId===user?.id);
     const live=own.find(i=>i.isLive&&!deferred.includes(i.id));
     if(live && live.id!==shown && !dirty && !items.find(i=>i.id===shown)?.isLive){setShown(live.id);return;}
@@ -71,7 +72,7 @@ export function AfterCallPopup() {
       const next = own.find((i) => !deferred.includes(i.id));
       if (next) setShown(next.id);
     }
-  }, [items, deferred, shown,dirty,user?.id,noPopup]);
+  }, [items, deferred, shown,dirty,user?.id,noPopup,mcSurface]);
 
   if (!allowed) return null;
   const current = shown != null ? items.find((i) => i.id === shown) : undefined;
@@ -112,7 +113,7 @@ export function AfterCallPopup() {
       برای دریافت زنده تماس‌ها، در پنل سرویس‌دهنده این تنظیمات لازم است (تا زمانی که رویداد داخلی نرسد، اتصال زنده تأیید نمی‌شود): Maintenance &gt; Settings &gt; AP Settings، فعال‌سازی Event Webhooks، حالت G4 با POST JSON، رویدادهای IncomingCall، OutgoingCall، New State و CDR، نشانی <span dir="ltr" className="mono">{origin}{import.meta.env.BASE_URL.replace(/\/$/, '')}/api/voip/simotel/events</span>، احراز Basic Auth با نام کاربری <span dir="ltr" className="mono">crm-events</span> و گذرواژه برابر کلید حساب API سیموتل.
     </div> : null}
     </> : null}
-    {shown != null && !noPopup ? <Modal key={shown} title={current?.isLive ? 'تماس در جریان' : 'نتیجه تماس'} eyebrow={current ? `تماس ${current.direction === 'incoming' ? 'ورودی' : 'خروجی'}${items.length > 1 ? `${queueSep}${items.length.toLocaleString('fa-IR')} مورد در صف` : ''}` : 'گزارش تماس'} onClose={closeEditor} testId="after-call" wide>
+    {shown != null && !noPopup && !mcSurface ? <Modal key={shown} title={current?.isLive ? 'تماس در جریان' : 'نتیجه تماس'} eyebrow={current ? `تماس ${current.direction === 'incoming' ? 'ورودی' : 'خروجی'}${items.length > 1 ? `${queueSep}${items.length.toLocaleString('fa-IR')} مورد در صف` : ''}` : 'گزارش تماس'} onClose={closeEditor} testId="after-call" wide>
       <CallReportEditor source={{ kind: 'event', id: shown }} onDirtyChange={setDirty}
         onSaved={async (r, sent) => { if (current && !r.isLive) await finish(shown, sent); }}
         footer={() => <>

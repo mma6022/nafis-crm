@@ -29,8 +29,13 @@
  *   MC_SEED_MANIFEST=/path/to/customers.copy.db.multi-case-seed.json
  *     fills MC_CUSTOMER_ID from the first seeded expert when MC_CUSTOMER_ID is unset.
  *     When the manifest has flow.customerId, the script also opens that synthetic
- *     customer (verified identity + fresh credit) and tries to reach review (step 10)
- *     and the created screen.
+ *     customer (verified identity, fresh credit, an open plan whose primary contract
+ *     is present) and walks #mc-plans, scene 12, a plan condition, review, and the
+ *     customer page created banner. That walk is inside the same recording as the
+ *     rest of the script, so MC_VIDEO=1 includes it in flow.webm.
+ *   Design scene 10 (general in-call, «در حال تماس») is the voip in-call screen.
+ *   This script does not open it: there is no product surface for that state apart
+ *   from the accepted voip-task-hold gap.
  */
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -213,30 +218,46 @@ try {
         await clickSel('[data-testid="mc-second-start-continue"]');
       }
       const step = async () => page.$eval('[role="progressbar"]', (el) => el.getAttribute("aria-valuenow")).catch(() => "");
-      const advance = async () => clickSel('[data-testid="btn-next-1"], [data-testid="btn-save-profile"], [data-testid="btn-next-2"], [data-testid="btn-next-2-0"], [data-testid="btn-next-2-1"], [data-testid="btn-next-2-2"], [data-testid="btn-next-3-0"], [data-testid="btn-next-3"], [data-testid="btn-next-fee"], [data-testid="btn-next-4"], [data-testid="btn-next-5-0"]');
-      for (let i = 0; i < 24; i++) {
-        const n = await step();
-        if (n === "2") await both("02-flow-wizard-step-2");
-        if (await page.$('[data-testid="mc-review"]') || n === "10") break;
-        if (await page.$("#mc-plans")) {
-          const ids = await page.$$eval("#mc-plans button:not([disabled])", (nodes) => nodes.map((node) => node.getAttribute("data-plan-id"))).catch(() => []);
-          let picked = false;
-          for (const id of ids) {
-            await clickSel(`#mc-plans [data-plan-id="${id}"]`);
-            await new Promise((r) => setTimeout(r, 300));
-            if (!(await page.$('[data-testid="same-plan-block"]'))) { picked = true; break; }
-          }
-          if (!picked) { note("flow wizard: every plan is blocked"); break; }
+      const early = async () => clickSel('[data-testid="btn-next-1"], [data-testid="btn-save-profile"], [data-testid="btn-next-2"], [data-testid="btn-next-2-0"], [data-testid="btn-next-2-1"], [data-testid="btn-next-2-2"]');
+      for (let i = 0; i < 16 && !(await page.$("#mc-plans")); i++) {
+        if ((await step()) === "2") await both("02-flow-wizard-step-2");
+        if (!(await early())) break;
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      if (await page.$("#mc-plans")) {
+        await both("02-wizard-plans");
+        const ids = await page.$$eval("#mc-plans button:not([disabled])", (nodes) => nodes.map((node) => node.getAttribute("data-plan-id"))).catch(() => []);
+        let blockedId = "";
+        for (const id of ids) {
+          await clickSel(`#mc-plans [data-plan-id="${id}"]`);
+          await new Promise((r) => setTimeout(r, 300));
+          if (await page.$('[data-testid="same-plan-block"]')) { blockedId = id; break; }
+        }
+        if (blockedId) await both("12-wizard-same-plan-blocked");
+        else note("scene 12: open plan tile was not selectable (primary contract missing)");
+        await clickSel('[data-testid="button-choose-other-plan"]');
+        const freeId = ids.find((id) => id && id !== blockedId);
+        if (freeId) {
+          await clickSel(`#mc-plans [data-plan-id="${freeId}"]`);
+          await new Promise((r) => setTimeout(r, 300));
+          await clickSel('[data-testid^="condition-"]:not([disabled])');
+          await new Promise((r) => setTimeout(r, 300));
+          await clickSel('[data-testid="btn-next-3-0"]');
+          await new Promise((r) => setTimeout(r, 400));
           await page.evaluate(() => {
             const amount = document.querySelector('[data-testid="input-amount"]');
-            if (amount instanceof HTMLInputElement && !amount.value) {
-              amount.value = "10000000";
+            if (amount instanceof HTMLInputElement) {
+              const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+              set?.call(amount, "10000000");
               amount.dispatchEvent(new Event("input", { bubbles: true }));
             }
             const duration = document.querySelector('[data-testid^="duration-"]');
             if (duration instanceof HTMLElement) duration.click();
           }).catch(() => {});
+          await clickSel('[data-testid="btn-next-3"]');
         }
+      } else note("flow wizard: #mc-plans was not reached");
+      for (let i = 0; i < 12 && !(await page.$('[data-testid="mc-review"]')); i++) {
         if (await page.$('[data-testid="btn-pay-filing-fee"]')) {
           await clickSel('[data-testid="btn-pay-filing-fee"]');
           await page.waitForSelector('[data-testid="btn-next-fee"]', { timeout: 20000 }).catch(() => note("flow wizard: filing fee did not complete"));
@@ -246,14 +267,15 @@ try {
           await field.click({ clickCount: 3 }).catch(() => {});
           await field.type("آزمایش").catch(() => {});
         }
-        if (!(await advance())) break;
+        const moved = await clickSel('[data-testid="btn-next-fee"], [data-testid="btn-next-4"], [data-testid="btn-next-5-0"], [data-testid="btn-next-3"]');
+        if (!moved) break;
         await new Promise((r) => setTimeout(r, 500));
       }
       if (await page.$('[data-testid="mc-review"]')) {
         await both("05-wizard-review");
         if (await clickSel('[data-testid="btn-submit-wizard"]')) {
-          await page.waitForSelector('[data-testid="mc-created"]', { timeout: 30000 }).catch(() => note("flow wizard: created screen did not appear"));
-          if (await page.$('[data-testid="mc-created"]')) await both("06-second-case-created");
+          await page.waitForSelector('[data-testid="mc-created-banner"]', { timeout: 30000 }).catch(() => note("flow wizard: created banner did not appear on the customer page"));
+          if (await page.$('[data-testid="mc-created-banner"]')) await both("06-second-case-created");
         }
       } else note(`flow wizard stopped at step ${await step()}`);
       await page.keyboard.press("Escape");

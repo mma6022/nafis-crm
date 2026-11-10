@@ -26,6 +26,7 @@ import { usePaymentOrderCount } from '@/lib/payment-order-queries';
 import { usePendingCounts } from '@/lib/pending-create';
 import { canUseDrafts, useDraftCounts } from '@/lib/request-drafts';
 import { useHeaderReminder } from '@/components/multi-case/HeaderReminder';
+import { useMultiCaseStatus } from '@/lib/multi-case';
 import { sfScope } from '@/features/smart-filing/access';
 import { baleNavVisible } from '@/features/bale/api';
 import { layoutFor, menuKindFor, TRAINEE_SALESPERSON_IDS } from './nav-layout';
@@ -237,9 +238,13 @@ export function CrmShell({ children }: { children: ReactNode }) {
   
   // SALES-SHELL v2 (per-user flag.sales_shell_v2.user.<id>; ALL OFF by default): no sidebar, bottom dock / tab bar.
   const ssV2 = useSalesShellV2(user ? Number(user.id) : null, Boolean(user) && !panelMode);
+  const mcOn = useMultiCaseStatus(Boolean(user) && !panelMode).data?.enabled === true;
+  const mcSurface = mcOn && (/^\/customers\/\d+(?:\/|$)/.test(location) || (location === '/loan-applications' && /(?:^|[?&])new=1(?:&|$)/.test(typeof window !== 'undefined' ? window.location.search : '')));
+  // Multi-case customer and wizard pages use the sales-shell header and dock. Other pages stay on the admin sidebar unless sales_shell_v2 is on.
+  const shellOn = ssV2 || mcSurface;
   const ssMobile = useMediaQuery('(max-width: 1023px)');
-  const ssBadges = useNavBadges(ssV2).data;
-  useEffect(() => { if (!ssV2) return; document.documentElement.classList.add('ssv2-on'); return () => document.documentElement.classList.remove('ssv2-on'); }, [ssV2]);
+  const ssBadges = useNavBadges(shellOn).data;
+  useEffect(() => { if (!shellOn) return; document.documentElement.classList.add('ssv2-on'); return () => document.documentElement.classList.remove('ssv2-on'); }, [shellOn]);
   const navItems = allNavItems.filter(item => {
     // v2 (PM): «مشتریان» and «یادآورها» stay in the dock while locked — they render cust_locked / view-only reminders, never the list.
     if (elLocked && elMe?.locked && !elMe.allowedPages.includes(item.href) && !(ssV2 && (item.href === '/customers' || item.href === '/reminders'))) return false; // lockdown only removes items; the normal checks below still apply
@@ -294,7 +299,9 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const [pageTitleOv, setPageTitleOv] = useState<string | null>(null);
   useEffect(() => { const on = (e: Event) => setPageTitleOv((e as CustomEvent<{ title?: string | null }>).detail?.title ?? null);
     window.addEventListener('nafis:page-title', on); return () => window.removeEventListener('nafis:page-title', on); }, []);
-  const pageTitle = (ssV2 && ssMobile && pageTitleOv) || (roleTitle ?? basePageTitle);
+  const pageTitle = mcSurface && /^\/customers\/\d+/.test(location) ? 'پرونده‌ی مشتری'
+    : mcSurface && location === '/loan-applications' ? 'ثبت درخواست تسهیلات'
+    : (ssV2 && ssMobile && pageTitleOv) || (roleTitle ?? basePageTitle);
   // «بیشتر» starts collapsed on every load (not persisted); it opens by itself only when the current page lives inside it.
   const moreActive = Boolean(roleLayout?.more.some(g => g.items.some(item => isNavItemActive(item.href))));
   const [moreOpen, setMoreOpen] = useState(false);
@@ -454,7 +461,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
     </NotificationProvider>
     </DiagnosticsProvider>
   );
-  if (ssV2) {
+  if (shellOn) {
     const canRem = user?.role === 'admin' || user?.permissions?.includes('reminders.manage');
     const dndUntil = ssBadges?.dndUntil && Date.parse(ssBadges.dndUntil) > Date.now() ? ssBadges.dndUntil : null;
     const astName = asMine.data?.assistants?.[0]?.name ?? 'دستیار';
