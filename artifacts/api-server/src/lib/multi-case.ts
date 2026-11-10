@@ -38,6 +38,18 @@ export function planRequiresFilingFee(fee: unknown): boolean {
 export const PLAN_NOT_SELECTABLE = "plan_not_selectable";
 export const MC_POPULAR_DAYS = 30;
 export const MC_POPULAR_LIMIT = 3;
+/** Default / plan 17 note (v1.2). */
+export const MULTI_CASE_UNREADY_REASON = "فعلاً قابل انتخاب نیست؛ مبلغ وام در قرارداد این طرح مشخص نشده است.";
+/** Per-plan notes from Armita spec v1.3. Tile body, title, and 422 message. */
+export const MULTI_CASE_UNREADY_REASONS: Readonly<Record<number, string>> = {
+  1: "فعلاً قابل انتخاب نیست؛ قالب قرارداد این طرح هنوز آماده نشده است.",
+  17: "فعلاً قابل انتخاب نیست؛ مبلغ وام در قرارداد این طرح مشخص نشده است.",
+};
+export function multiCaseUnreadyReason(planId?: number | null): string {
+  const id = Number(planId);
+  if (Number.isSafeInteger(id) && id > 0 && MULTI_CASE_UNREADY_REASONS[id]) return MULTI_CASE_UNREADY_REASONS[id];
+  return MULTI_CASE_UNREADY_REASON;
+}
 
 export function newCasePlanBlock(selectable: boolean): string | null {
   return selectable ? null : PLAN_NOT_SELECTABLE;
@@ -88,6 +100,8 @@ export function orderMultiCasePlanIds(ids: readonly number[], popularIds: readon
     else if (!popularSet.has(planId)) active.push(planId);
   }
   const popularOrdered = popular.filter((id) => seen.has(id) && !unready.has(id));
+  // Spec v1.3: disabled tiles at the end are plan 1, then plan 17 (id ascending).
+  disabled.sort((a, b) => a - b);
   return [...active, ...popularOrdered, ...disabled];
 }
 export const OPEN_SAME_PLAN = "open_same_plan_case";

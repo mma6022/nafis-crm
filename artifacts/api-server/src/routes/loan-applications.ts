@@ -28,7 +28,7 @@ import { loanPlanNetAmount } from "../lib/loan-plan-net-amount";
 import { classifyProviderState, isStrictSignedProviderState, providerContractState } from "../lib/emzame-signature";
 import { emzameRequest } from "../lib/emzame-client";
 import { creditLoanWallet, wallet } from "../lib/wallets";
-import { bindSlotCharge, claimSlotForApplication, mcFlagOn, newCasePlanBlock, openSamePlanBody, orderMultiCasePlanIds, planRequiresFilingFee, popularPlanIds, reserveOpenPlan } from "../lib/multi-case";
+import { bindSlotCharge, claimSlotForApplication, mcFlagOn, multiCaseUnreadyReason, newCasePlanBlock, openSamePlanBody, orderMultiCasePlanIds, planRequiresFilingFee, popularPlanIds, reserveOpenPlan } from "../lib/multi-case";
 import {
   isAttestedTomanTemplate,
   renderedPdfContainsInstallmentCount,
@@ -139,6 +139,7 @@ const LOAN_REFUSAL_MESSAGES: Record<string, string> = {
   loan_plan_condition_not_found: "شرط طرح متناسب با مبلغ و تعداد اقساط انتخاب‌شده پیدا نشد.",
   loan_plan_condition_not_matched: "مبلغ یا تعداد اقساط با شرایط طرح این پرونده سازگار نیست.",
   open_same_plan_case: "برای این مشتری یک پروندهٔ باز با همین طرح وجود دارد. تا بسته شدن آن، پروندهٔ تازه با همین طرح ساخته نمی‌شود.",
+  plan_not_selectable: "فعلاً قابل انتخاب نیست؛ مبلغ وام در قرارداد این طرح مشخص نشده است.",
   workflow_error: "ثبت این اقدام به دلیل خطای داخلی انجام نشد.",
 };
 function error(res: any, status: number, rawCode: string, rawReason?: string, rawMessage?: string) {
@@ -1345,7 +1346,10 @@ function transition(id: number, to: Stage, action: string, actor: AuthUser, reas
 
 router.get("/loan-applications", requirePermission("loan_applications.view"), (req, res): void => {
   const u = user(res), page = Math.max(1, Number(req.query.page) || 1), limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
-  const where = `${u.role === "admin" || u.customerScope !== "assigned" ? "" : " AND current_customer.salesperson_id = ?"} AND (COALESCE(a.is_pre_registration,0)=0 OR a.stage<>'draft')`;
+  // The files board hides in-progress pre-registration drafts. A customer-page list
+  // (customerId set) must include them so a just-created multi-case row is visible.
+  const hidePreRegDrafts = !req.query.customerId;
+  const where = `${u.role === "admin" || u.customerScope !== "assigned" ? "" : " AND current_customer.salesperson_id = ?"}${hidePreRegDrafts ? " AND (COALESCE(a.is_pre_registration,0)=0 OR a.stage<>'draft')" : ""}`;
   const params: any[] = u.role === "admin" || u.customerScope !== "assigned" ? [] : [u.salespersonId];
   const filters: string[] = [];
   const add = (sql: string, value: any) => { filters.push(sql); params.push(value); };
@@ -1555,7 +1559,7 @@ router.get("/customers/:customerId/eligible-plans", requirePermission("loan_appl
         needsGuarantor: Boolean(c.needs_guarantor ?? plan.needs_guarantor),
         ...(() => { const v = guarantorGradeVerdict(c, guarantor.rank, plan);
           return { guarantorRanks: v.ranks, guarantorGradeStatus: v.status, guarantorGradeNote: v.note }; })(),
-         primaryContractPresent: templateReady, contractTemplateId: templateReady ? templateId : null, manualVariables };
+         primaryContractPresent: templateReady, unreadyReason: templateReady ? null : multiCaseUnreadyReason(Number(plan.id)), contractTemplateId: templateReady ? templateId : null, manualVariables };
     });
   });
   const creditBody = { fresh, status: credit?.status ?? "missing", rank: credit?.score_label ?? null, checkedAt: credit?.completed_at ?? null };
@@ -1861,7 +1865,7 @@ router.post("/loan-applications", requirePermission("loan_applications.create"),
   if (mcFlagOn(u.id)) {
     const templateId = Number(plan.contract_template_id ?? plan.primary_contract_template_id) || null;
     const block = newCasePlanBlock(primaryTemplateReady(templateId));
-    if (block) return error(res, 422, block);
+    if (block) return error(res, 422, block, undefined, multiCaseUnreadyReason(planId));
   }
   const feeRequired = planRequiresFilingFee(plan.filing_fee_toman);
   const feeChargeId = Number(b.feeChargeId);

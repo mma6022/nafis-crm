@@ -19,9 +19,10 @@
   flex-direction: column;
 }
 .mc-picker-host > .mc-picker-page { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
-.mc-picker { position: relative; }
-.mc-picker-host .mc-picker { flex: 1; min-height: 0; overflow: auto; }
-.mc-picker > .btn.pri { width: 100%; position: sticky; bottom: 0; z-index: 2; }
+.mc-picker { position: relative; display: flex; flex-direction: column; min-height: 0; }
+.mc-picker-host .mc-picker { flex: 1; min-height: 0; overflow: hidden; }
+.mc-picker-scroll { flex: 1; min-height: 0; overflow: auto; padding-bottom: 8px; }
+.mc-picker > .btn.pri { width: 100%; position: static; flex: none; z-index: 2; margin-top: 12px; background: rgb(41, 54, 155); }
 @media (max-width: 1023.98px) {
   .mc-picker-host {
     position: fixed;
@@ -93,7 +94,13 @@ body:has(.mc-wizard-host) .csx-pager { display: none; }
 .lwz.mc-host .mc-rail { position: sticky; top: 0; align-self: start; max-height: 100%; overflow: auto; }
 .lwz.mc-host .mc-progress,
 .lwz.mc-host .mc-wbody > .mc-muted { position: sticky; top: 0; background: #fff; z-index: 2; }
-.lwz.mc-host .mc-wbody h2 { position: sticky; top: 40px; background: #fff; z-index: 2; }
+/* The step title lives inside .lwz-step-scroll; the progress bar does not. top:40px was pulling the title down over the DND bar and tiles. */
+.lwz.mc-host .mc-wbody h2 { position: sticky; top: 0; background: #fff; z-index: 3; padding-bottom: 8px; margin-bottom: 0; }
+.lwz.mc-host .lwz-step-scroll { scroll-padding-top: 72px; }
+.lwz.mc-host .mc-wbody .mc-choice,
+.lwz.mc-host .mc-wbody .mc-choice > button,
+.lwz.mc-host .mc-wbody .mc-plan-off,
+.lwz.mc-host .mc-wbody .mc-warning { scroll-margin-top: 72px; }
 .lwz.mc-host .form-footer { justify-content: flex-start; position: static; background: #fff; z-index: 3; flex: 0 0 auto; }
 .lwz.mc-host .lwz-inner { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .lwz.mc-host .lwz-motion { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
@@ -120,21 +127,39 @@ body:has(.mc-wizard-host) .csx-pager { display: none; }
 .mc-wbody h3 { font-size: 16px; margin: 0; }
 .mc-wbody > .btn { align-self: flex-start; min-height: 44px; }
 .mc-check { display: flex; gap: 8px; font-size: 14px; align-items: center; }
-.mc-success { display: flex; gap: 8px; align-items: center; padding: 14px; border-radius: 14px; background: var(--nf-success-50, #ECFDF3); color: var(--nf-success, #067647); margin: 0; }
+.mc-success { display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 14px; border-radius: 14px; background: var(--nf-success-50, #ECFDF3); color: var(--nf-success, #067647); margin: 0; text-align: start; }
+.mc-success-line { display: block; width: 100%; unicode-bidi: isolate; }
+.mc-success bdi { unicode-bidi: isolate; }
 .mc-review { background: var(--nf-surface-2); padding: 18px; border-radius: 14px; }
 .lwz.mc-host .ss-dnd-host,
-.mc-wbody .ss-dnd-host { position: static; margin: 12px 0 0; flex: none; }
+.mc-wbody .ss-dnd-host { position: static; margin: 8px 0 4px; flex: none; z-index: 0; }
 .lwz.mc-host .nas-dndbar,
 .lwz.mc-host .ss-dnd,
-.mc-wbody .ss-dnd { position: static; inset: auto; z-index: auto; min-height: 44px; }
+.mc-wbody .ss-dnd { position: static; inset: auto; z-index: 0; min-height: 44px; }
 .lwz.mc-host .mc-choice { gap: 8px; }
 .lwz.mc-host .mc-choice button:not(.mc-plan-off) { min-height: 56px; padding: 8px 12px; }
 .lwz.mc-host .mc-warning { margin: 0; }
 @media (max-width: 1023.98px) {
   .mc-wizard-host { position: fixed; top: var(--nf-topbar-h, 68px); bottom: 0; padding-bottom: calc(var(--ss-dock-h, 72px) + 8px); }
-  .lwz.mc-host .lwz-body.mc-wizard { grid-template-columns: 1fr; padding: 14px; }
+  .lwz.mc-host .lwz-body.mc-wizard { grid-template-columns: 1fr; padding: 10px 12px 12px; }
   .mc-rail { display: none; }
   .mc-wbody h2 { font-size: 20px; }
+  .lwz.mc-host .mc-wbody { padding: 10px 12px; gap: 8px; }
+  .lwz.mc-host .mc-choice button:not(.mc-plan-off) { min-height: 48px; padding: 8px 10px; }
+  .mc-warning { padding: 10px; gap: 8px; }
+  .mc-warning .mc-row { flex-direction: column; align-items: stretch; gap: 8px; }
+  .mc-warning .mc-row .btn { width: 100%; min-height: 44px; }
+  .lwz.mc-host .ss-dnd-host { margin: 6px 0 0; }
+  .lwz.mc-host .ss-dnd { margin: 0; padding: 6px 8px 6px 10px; font-size: 13px; line-height: 1.5; min-height: 0; gap: 8px; }
+  .lwz.mc-host .ss-dnd .btn { min-height: 36px; padding: 0 10px; }
+  .mc-page .fhd { padding: 12px 14px 10px; }
+  .mc-page .fhd h2 { font-size: 20px; }
+  .ph.big { font-size: 20px; }
+  .ph.big .phn { font-size: 20px; min-height: 40px; }
+  .mc-case { padding: 14px; gap: 6px; }
+  .mc-section > h2 { font-size: 18px; }
+  .mc-hero-actions .btn { min-height: 44px; }
+  .mc-success { padding: 10px 12px; }
 }
 .mc-close {
   position: absolute; top: 12px; inset-inline-start: 12px; z-index: 2;
@@ -167,8 +192,8 @@ body:has(.mc-wizard-host) .csx-pager { display: none; }
 .ph.big .phn { font-size: 24px; font-weight: 800; min-height: 48px; }
 .ph.big .phc { width: auto; min-width: 44px; height: 44px; padding: 0 12px; gap: 6px; display: inline-flex; align-items: center; border: 1px solid var(--nf-line-strong); border-radius: 12px; background: var(--nf-surface); color: var(--nf-ink); font-size: 14px; font-weight: 700; }
 @media (max-width: 1023.98px) {
-  .mc-page .fhd h2 { font-size: 22px; }
-  .mc-wbody { padding: 16px; }
+  .mc-page .fhd h2 { font-size: 20px; }
+  .mc-wbody { padding: 12px 14px; }
   .mc-cases { grid-template-columns: 1fr; }
 }
 .lwz.mc-host .lwz-rail { width: 250px; }
