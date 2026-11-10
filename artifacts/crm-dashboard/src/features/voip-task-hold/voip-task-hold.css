@@ -27,3 +27,27 @@
  .vth-form.rv-mdl{border-radius:16px}.vth-form .rv-mf .btn{flex:1 1 100%;white-space:normal}
  .vth-form .rv-auto{font-size:13px}.vth-form .rv-mt h2{font-size:18px}
 }
+
+/* Armita r2 §۸: at 390, «کپی», «در حال تماس», retry, and result options have a ≥44px touch area. */
+.fdv1 .ph.big .phc,.fdv1 .ph .phc{box-sizing:border-box;min-height:44px;min-width:44px;height:auto}
+.vcx .vc-btn,.fdv1 .vth-head-call .btn,.fdv1 .vth-head-call .vc-btn{box-sizing:border-box;min-height:44px;min-width:44px}
+.vh-status .btn,.vh-status button{box-sizing:border-box;min-height:44px;min-width:44px;padding:10px 14px}
+.vth-form .rv-seg button{box-sizing:border-box;min-height:44px;min-width:44px}
+@media(max-width:1023.98px){
+ .fdv1 .ph.big .phc,.fdv1 .ph .phc,.vcx .vc-btn,.fdv1 .vth-head-call .btn,.vh-status .btn,.vh-status button,.vth-form .rv-seg button{min-height:44px;min-width:44px}
+}
+
+
+/* v1.1: پایان دستی پس از پنجره‌ی سرور */
+.vh-end{margin-top:10px;min-height:48px;min-width:44px}
+.vh-status .vh-end{display:inline-flex}
+.vh-cfw{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:24px 16px 88px;background:rgba(22,24,38,.28)}
+.vh-cf{width:min(400px,100%);background:#fff;border-radius:16px;padding:20px 20px 16px;box-shadow:var(--nf-shadow-card,0 8px 28px rgba(22,24,38,.12));border:1px solid var(--nf-line)}
+.vh-cf h2{margin:0 0 8px;font-size:18px;font-weight:800;color:var(--nf-ink);line-height:1.5}
+.vh-cf p{margin:0 0 16px;font-size:14px;color:var(--nf-ink-muted);line-height:1.6}
+.vh-cfa{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-start}
+.vh-cfa .btn{min-height:48px;min-width:44px}
+@media(max-width:1023.98px){
+ .vh-status .vh-end{width:100%}
+ .vh-cfa .btn{flex:1 1 100%}
+}

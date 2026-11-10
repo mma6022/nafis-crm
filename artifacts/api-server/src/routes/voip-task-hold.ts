@@ -4,7 +4,7 @@
 import { Router, type IRouter } from "express";
 import { requirePermission } from "../lib/access-control";
 import type { AuthUser } from "../lib/auth";
-import { vthFlagOn, vthContext, vthStatusRetry, vthSaveResult, vthMePayload, ensureVthSchema } from "../lib/voip-task-hold";
+import { vthFlagOn, vthContext, vthStatusRetry, vthSaveResult, vthManualEnd, vthMePayload, ensureVthSchema } from "../lib/voip-task-hold";
 import { queryRow } from "../lib/crm-db";
 
 const router: IRouter = Router();
@@ -42,6 +42,15 @@ router.post("/voip-task-hold/:id/result", requirePermission("calls.create"), (re
   const id = Number(req.params.id);
   if (!Number.isSafeInteger(id) || id <= 0) return void res.status(400).json({ error: "bad_call", message: "تماس معتبر نیست." });
   const r = vthSaveResult(me(res) as any, id, req.body ?? {});
+  res.status(r.status).json(r.body);
+});
+
+/** Server prep only (t984s4140). No client UI until Armita's design arrives. */
+router.post("/voip-task-hold/:id/manual-end", requirePermission("calls.create"), (req, res) => {
+  if (off(res)) return;
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return void res.status(400).json({ error: "bad_call", message: "تماس معتبر نیست." });
+  const r = vthManualEnd(me(res) as any, id);
   res.status(r.status).json(r.body);
 });
 

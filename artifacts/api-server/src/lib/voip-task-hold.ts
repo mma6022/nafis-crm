@@ -1,5 +1,5 @@
 /**
- * VOIP-TASK-HOLD (flag.voip_task_hold_v1, default OFF). Armita «تماس ویپ و حفظ کار جاری» v1.0.
+ * VOIP-TASK-HOLD (flag.voip_task_hold_v1, default OFF). Armita «تماس ویپ و حفظ کار جاری» v1.1.
  *
  * Global flag.voip_task_hold_v1='1' or per-user flag.voip_task_hold_v1.user.<id>='1'. Absent / anything else = OFF
  * → every hold hook is a no-op, /voip-call/me stays unchanged (no `vth` field), and today's VoIP / s132 / carousel
@@ -11,8 +11,11 @@
  *    UI does (rvResult / fcExpertFollowup / dpAfterFirstCallForm). End of call alone never advances a queue.
  *  - In-call status is neutral: the expert's own phone answering is not the customer's answer; no "answered"
  *    or customer talk time without a valid customer-leg CDR.
- *  - After a real hang-up with an unknown status: pending_status (retry is a CDR re-query, never a manual end).
- *  - Exactly one form after a valid final status (first-call wizard first, else reminder result, else result form).
+ *  - After a real hang-up with an unknown status: pending_status (retry is a CDR re-query only).
+ *  - If no Simotel end report has arrived, the server may allow «تماس تموم شد» after 10 minutes from call start
+ *    (never while in_call). Confirming writes the manual_ended_at audit flag, opens the one result form, and
+ *    invents no answered/duration. A late CDR after that is logged only; the manual end and form stay (§6.4 default).
+ *  - Exactly one form after a valid final status or a confirmed manual end (first-call wizard first, else reminder result, else result form).
  *  - Cancel / close never completes a reminder or advances the queue.
  *  - Next-customer PII is not disclosed while the gate is closed (including other tabs).
  *  - Tajik eligibility is the already-published registrar-scope rule (registered / open_filing / incoming_grant);
@@ -39,7 +42,7 @@ type U = { id: number; role?: string | null; salespersonId?: number | null; cust
 type CallLite = {
   id: number; user_id: number; customer_id: number; file_id: number | null; state: string; outcome: string | null;
   active: number; result_saved_at: string | null; dismissed_at: string | null; ended_at: string | null; cdr_at: string | null;
-  cust_status?: string | null; billsec?: number | null; error_code?: string | null; event_id?: number | null;
+  cust_status?: string | null; billsec?: number | null; error_code?: string | null; event_id?: number | null; manual_ended_at?: string | null; created_at?: string | null;
 };
 
 const setting = (key: string): string | null => {
@@ -58,12 +61,19 @@ export function vthAnyOn(): boolean {
 }
 
 let ensured = false;
+/** Earliest the server allows «تماس تموم شد», measured from call start (created_at). The client must not compute this window. */
+export const VTH_MANUAL_END_AFTER_MS = 10 * 60 * 1000;
+
 export function ensureVthSchema() {
   if (ensured) return;
   crmDb.exec(`CREATE TABLE IF NOT EXISTS voip_task_holds(
       call_id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, customer_id INTEGER NOT NULL, file_id INTEGER, reminder_id INTEGER,
       entry TEXT NOT NULL, created_at TEXT NOT NULL, released_at TEXT, last_retry_at TEXT, last_retry_ok INTEGER);
     CREATE INDEX IF NOT EXISTS idx_vth_user ON voip_task_holds(user_id, released_at, call_id);`);
+  try {
+    const cols = queryRows<{ name: string }>("PRAGMA table_info(voip_click_calls)");
+    if (cols.length && !cols.some((c) => c.name === "manual_ended_at")) crmDb.exec("ALTER TABLE voip_click_calls ADD COLUMN manual_ended_at TEXT");
+  } catch { /* voip_click_calls may be absent in a bare schema */ }
   ensured = true;
 }
 function tableOk(): boolean {
@@ -121,8 +131,10 @@ function loadCall(userId: number, now = new Date()): CallLite | null {
 
 export function vthPhaseOf(c: CallLite | null, hold: HoldRow | null): VthPhase {
   if (!c) return "idle";
-  if (LIVE.has(c.state) && c.active) return "in_call";
   if (c.result_saved_at) return "saved";
+  // Confirmed manual end stays final even if a late Simotel CDR arrives later (§6.4 default).
+  if (c.manual_ended_at) return "final";
+  if (LIVE.has(c.state) && c.active) return "in_call";
   if (c.state === "me_timeout" || (c.state === "error" && !c.ended_at && !c.cdr_at)) return "idle";
   if (c.state === "ended" || (c.state === "error" && c.ended_at)) {
     if (vthFinalStatus(c)) return "final";
@@ -130,6 +142,26 @@ export function vthPhaseOf(c: CallLite | null, hold: HoldRow | null): VthPhase {
     return "pending_status";
   }
   return "idle";
+}
+
+function vthUserName(userId: number): string | null {
+  try {
+    return queryRow<{ name: string | null }>(
+      `SELECT COALESCE(us.full_name, sp.name) name
+         FROM users us LEFT JOIN salespersons sp ON sp.id=us.salesperson_id
+        WHERE us.id=?`, [userId])?.name ?? null;
+  } catch { return null; }
+}
+
+/** Server-owned 10-minute window: pending/error, no final CDR, not already manual-ended. Never during in_call. */
+export function vthCanManualEnd(c: CallLite | null, hold: HoldRow | null, now = new Date()): boolean {
+  if (!c || c.result_saved_at || c.manual_ended_at) return false;
+  if (vthFinalStatus(c)) return false;
+  const phase = vthPhaseOf(c, hold);
+  if (phase !== "pending_status" && phase !== "status_error") return false;
+  const startMs = c.created_at ? Date.parse(c.created_at) : NaN;
+  if (!Number.isFinite(startMs) || now.getTime() < startMs + VTH_MANUAL_END_AFTER_MS) return false;
+  return true;
 }
 
 export function vthFormOf(c: CallLite | null, hold: HoldRow | null, phase: VthPhase): VthForm {
@@ -171,6 +203,7 @@ export function vthSameTarget(open: CallLite, customerId: number, fileId: number
   return true;
 }
 
+export type VthManualEndLine = { callId: number; at: string; expertName: string | null };
 export type VthMe = {
   on: true;
   phase: VthPhase;
@@ -180,6 +213,10 @@ export type VthMe = {
   reminderId: number | null;
   nextBlocked: boolean;
   saveLabel: "ثبت نتیجه و کار بعدی" | "ثبت نتیجه";
+  canManualEnd: boolean;
+  manualEnd: boolean;
+  manualEndedAt: string | null;
+  manualEndExpert: string | null;
 };
 
 export function vthMePayload(u: U, call: CallLite | null, now = new Date()): VthMe | undefined {
@@ -189,9 +226,14 @@ export function vthMePayload(u: U, call: CallLite | null, now = new Date()): Vth
   const entry = hold?.entry ?? null;
   const form = vthFormOf(call, hold, phase);
   const blocked = phase === "in_call" || phase === "pending_status" || phase === "status_error" || phase === "final";
+  const manual = Boolean(call?.manual_ended_at);
   return {
     on: true, phase, entry, queue: vthQueue(entry), form, reminderId: hold?.reminder_id ?? null, nextBlocked: blocked,
     saveLabel: vthQueue(entry) ? "ثبت نتیجه و کار بعدی" : "ثبت نتیجه",
+    canManualEnd: vthCanManualEnd(call, hold, now),
+    manualEnd: manual,
+    manualEndedAt: call?.manual_ended_at ?? null,
+    manualEndExpert: manual && call ? vthUserName(call.user_id) : null,
   };
 }
 
@@ -225,8 +267,10 @@ export type VthContext = {
   notesWritable: boolean; // support notes stay read-only; this is not a new write grant
   eligibility: { allowed: boolean; why: VthEligWhy | null; reason: string } | null;
   otherOwner: { name: string | null; extension: string | null } | null;
+  expert: { name: string | null; extension: string | null } | null;
   own: boolean;
   support: boolean;
+  manualEnds: VthManualEndLine[];
 };
 
 export function vthContext(u: U, customerId: number, now = new Date()): VthContext {
@@ -248,9 +292,23 @@ export function vthContext(u: U, customerId: number, now = new Date()): VthConte
     notesWritable: !support, // design: support notes stay conservatively read-only
     eligibility: elig,
     otherOwner: other,
+    expert: (owner.name || owner.extension) ? { name: owner.name, extension: owner.extension } : null,
     own: allowed && !support,
     support,
+    manualEnds: vthManualEndsForCustomer(customerId),
   };
+}
+
+function vthManualEndsForCustomer(customerId: number): VthManualEndLine[] {
+  try {
+    return queryRows<{ callId: number; at: string; expertName: string | null }>(
+      `SELECT k.id callId, k.manual_ended_at at, COALESCE(us.full_name, sp.name) expertName
+         FROM voip_click_calls k
+         LEFT JOIN users us ON us.id=k.user_id
+         LEFT JOIN salespersons sp ON sp.id=us.salesperson_id
+        WHERE k.customer_id=? AND k.manual_ended_at IS NOT NULL
+        ORDER BY k.id`, [customerId]);
+  } catch { return []; }
 }
 
 /** Redact next-customer identity on a files-carousel (or similar) payload while the hold gate is closed. */
@@ -308,8 +366,8 @@ const NOTE_MAX = 80;
 
 /** Explicit result save. Never called by hang-up or cancel.
  *  After validation, a successful save completes the current task through the existing UI path:
- *  reminder → rvResult, carousel → fcExpertFollowup, lead → dpAfterFirstCallForm (only when a call log exists).
- *  File / search only save the VoIP result and release the hold. Those existing functions are called first so a
+ *  reminder → rvResult (marks the reminder done). Queue advance (fcExpertFollowup / dpAfterFirstCallForm) only
+ *  for carousel / lead entries, i.e. the «ثبت نتیجه و کار بعدی» path. File / search («ثبت نتیجه») only save the VoIP result and stay. Those existing functions are called first so a
  *  409/422 does not leave a half-saved hold. */
 export function vthSaveResult(u: U, callId: number, body: any, now = new Date()): { status: number; body: any } {
   if (!vthFlagOn(u.id)) return { status: 404, body: { error: "voip_task_hold_off", message: "این امکان برای شما فعال نیست.", enabled: false } };
@@ -321,8 +379,8 @@ export function vthSaveResult(u: U, callId: number, body: any, now = new Date())
   const c = queryRow<CallLite>("SELECT * FROM voip_click_calls WHERE id=? AND user_id=?", [callId, u.id]);
   if (!c) return { status: 404, body: { error: "not_found", message: "این تماس پیدا نشد." } };
   if (c.active) return { status: 409, body: { error: "still_active", message: "تماس هنوز در جریان است." } };
-  if (c.result_saved_at) return { status: 200, body: { ok: true, replayed: true, stay: !vthQueue(holdOf(c.id)?.entry), phase: "saved" } };
-  if (!vthFinalStatus(c)) return { status: 409, body: { error: "pending_status", message: "وضعیت نهایی تماس هنوز نرسیده است." } };
+  if (c.result_saved_at) return { status: 200, body: { ok: true, replayed: true, stay: !vthQueue(holdOf(c.id)?.entry), phase: "saved", callId: c.id, savedAt: c.result_saved_at } };
+  if (!vthFinalStatus(c) && !c.manual_ended_at) return { status: 409, body: { error: "pending_status", message: "وضعیت نهایی تماس هنوز نرسیده است." } };
   const hold = holdOf(c.id);
   const done = vthCompleteExisting(u, hold, c, outcome, note, now);
   if (done && done.status >= 400) return done;
@@ -335,5 +393,48 @@ export function vthSaveResult(u: U, callId: number, body: any, now = new Date())
     const logId = vthCallLogId(c);
     if (logId != null) executeChanges("UPDATE call_logs SET expert_notes=CASE WHEN COALESCE(expert_notes,'')='' THEN ? ELSE expert_notes END, one_line_note=COALESCE(NULLIF(one_line_note,''),?) WHERE id=?", [note, note, logId]);
   } catch { /* call log is best-effort */ }
-  return { status: 200, body: { ok: true, stay: !vthQueue(hold?.entry), phase: "saved", entry: hold?.entry ?? null, reminderId: hold?.reminder_id ?? null } };
+  const savedAt = queryRow<{ result_saved_at: string | null }>("SELECT result_saved_at FROM voip_click_calls WHERE id=?", [c.id])?.result_saved_at ?? at;
+  return { status: 200, body: { ok: true, stay: !vthQueue(hold?.entry), phase: "saved", entry: hold?.entry ?? null, reminderId: hold?.reminder_id ?? null, callId: c.id, savedAt } };
 }
+
+/**
+ * «تماس تموم شد» after the server-owned 10-minute window (t984s4140 / Armita v1.1).
+ * Allowed only in pending_status / status_error when no final Simotel report has arrived.
+ * Never during in_call, even after 10 minutes. Does not invent a CDR outcome or duration.
+ * Writes the manual_ended_at audit flag (timestamp + this call's expert user_id) and opens the one result form.
+ * The next-work gate stays closed until an explicit result save. A late CDR does not reopen the call or a second form.
+ */
+export function vthManualEnd(u: U, callId: number, now = new Date()): { status: number; body: any } {
+  if (!vthFlagOn(u.id)) return { status: 404, body: { error: "voip_task_hold_off", message: "این امکان برای شما فعال نیست.", enabled: false } };
+  ensureVthSchema();
+  const c = queryRow<CallLite>("SELECT * FROM voip_click_calls WHERE id=? AND user_id=?", [callId, u.id]);
+  if (!c) return { status: 404, body: { error: "not_found", message: "این تماس پیدا نشد." } };
+  if (c.result_saved_at) return { status: 409, body: { error: "already_saved", message: "نتیجه‌ی این تماس قبلاً ثبت شده است." } };
+  const hold = holdOf(c.id);
+  if (c.manual_ended_at) {
+    const phase = vthPhaseOf(c, hold);
+    return { status: 200, body: { ok: true, replayed: true, phase, manualEnd: true, endedAt: c.manual_ended_at, final: phase === "final", form: vthFormOf(c, hold, phase) } };
+  }
+  if (LIVE.has(c.state) && c.active) {
+    return { status: 409, body: { error: "still_active", message: "تماس هنوز در جریان است. برای قطع از گوشی ویپ استفاده کنید." } };
+  }
+  if (vthFinalStatus(c)) {
+    return { status: 409, body: { error: "already_final", message: "وضعیت نهایی این تماس از سیموتل رسیده است." } };
+  }
+  if (!vthCanManualEnd(c, hold, now)) {
+    const startMs = c.created_at ? Date.parse(c.created_at) : NaN;
+    const phase = vthPhaseOf(c, hold);
+    if ((phase === "pending_status" || phase === "status_error") && Number.isFinite(startMs) && now.getTime() < startMs + VTH_MANUAL_END_AFTER_MS) {
+      const left = Math.max(0, Math.ceil((startMs + VTH_MANUAL_END_AFTER_MS - now.getTime()) / 1000));
+      return { status: 409, body: { error: "too_early", message: "هنوز ۱۰ دقیقه از شروع تماس نگذشته است.", retryAfterSeconds: left } };
+    }
+    return { status: 409, body: { error: "not_allowed", message: "الان نمی‌توان پایان دستی ثبت کرد." } };
+  }
+  const at = iso(now);
+  executeChanges("UPDATE voip_click_calls SET state='ended', active=0, ended_at=COALESCE(ended_at,?), manual_ended_at=?, updated_at=? WHERE id=? AND user_id=?",
+    [at, at, at, c.id, u.id]);
+  const after = queryRow<CallLite>("SELECT * FROM voip_click_calls WHERE id=?", [c.id]);
+  const phase = vthPhaseOf(after ?? null, holdOf(c.id));
+  return { status: 200, body: { ok: true, phase, manualEnd: true, endedAt: at, final: phase === "final", form: vthFormOf(after ?? null, holdOf(c.id), phase), expertName: vthUserName(u.id) } };
+}
+

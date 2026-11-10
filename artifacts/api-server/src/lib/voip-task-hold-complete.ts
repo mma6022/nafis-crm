@@ -3,8 +3,8 @@
  *
  * Reuses the same server functions the current after-call UI already uses:
  *   entry=reminder → rvResult (POST /reminder-voip/:id/result)
- *   entry=carousel → fcExpertFollowup (POST /files-carousel/followup)
- *   entry=lead     → dpAfterFirstCallForm (the non-file s132 / first-call queue path)
+ *   entry=carousel → fcExpertFollowup (POST /files-carousel/followup) — only this queue entry; the function itself advances the deck
+ *   entry=lead     → dpAfterFirstCallForm (the non-file s132 / first-call queue path) — only this queue entry; the function itself promotes the next plan item
  *
  * No duplicate completion rules live here. File / search entries return null so
  * vthSaveResult only saves the VoIP result and releases the hold. Cancel never
