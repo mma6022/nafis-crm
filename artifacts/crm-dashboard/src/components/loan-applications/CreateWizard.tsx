@@ -684,7 +684,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
     else onClose();
   };
   const rail = (
-    <nav className="lwz-rail" aria-label="مراحل ثبت درخواست" data-testid="wizard-stepper">
+    <nav className={`lwz-rail${multiOn ? " card mc-rail" : ""}`} aria-label="مراحل ثبت درخواست" data-testid="wizard-rail">
       {WIZARD_PHASES.map((phaseName, phase) => (
         <div key={phaseName} className="lwz-phase">
           <span className="ph">{phaseName}</span>
@@ -706,8 +706,8 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   );
   const progress = (
     <div className="lwz-progress" data-testid="wizard-stepper">
-      <div className="lwz-bar" role="progressbar" aria-valuemin={1} aria-valuemax={WIZARD_TOTAL_STEPS} aria-valuenow={displayStep} aria-label={`مرحله ${fa(displayStep)} از ${fa(WIZARD_TOTAL_STEPS)}`}>
-        {WIZARD_DISPLAY_STEPS.map((d) => <i key={d.n} className={d.n < displayStep ? 'done' : d.n === displayStep ? 'cur' : ''} />)}
+      <div className={`lwz-bar${multiOn ? " mc-progress" : ""}`} role="progressbar" aria-valuemin={1} aria-valuemax={WIZARD_TOTAL_STEPS} aria-valuenow={displayStep} aria-label={`مرحله ${fa(displayStep)} از ${fa(WIZARD_TOTAL_STEPS)}`}>
+        {WIZARD_DISPLAY_STEPS.map((d) => <i key={d.n} className={`${d.n <= displayStep ? "on " : ""}${d.n < displayStep ? 'done' : d.n === displayStep ? 'cur' : ''}`} />)}
       </div>
       <div className="meta">
         <span>مرحله <b>{fa(displayStep)} از {fa(WIZARD_TOTAL_STEPS)}</b> · {current ? WIZARD_PHASES[current.phase] : ''}</span>
@@ -739,9 +739,9 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
         </section>
       </header>
       {!isDesktop ? progress : null}
-      <div className="lwz-body">
+      <div className={`lwz-body${multiOn ? " mc-wizard" : ""}`}>
         {isDesktop ? rail : null}
-        <main className="lwz-main" ref={mainRef}>
+        <main className={`lwz-main${multiOn ? " card mc-wbody" : ""}`} ref={mainRef}>
           <div className="lwz-inner">
             {fromCustomer && selectedCustomer && entryApplied.current && displayStep > 1 ? <p className="lwz-note ok" data-testid="wizard-from-customer-note"><User size={18} aria-hidden="true" /> <span>مشتری از پرونده مشتری انتخاب شد: <b>{selectedCustomer.name}</b>. <button type="button" className="text-link" onClick={() => jumpTo(1)} disabled={isSubmitting} data-testid="btn-change-customer">تغییر مشتری</button></span></p> : null}
             {restoredDraft && step <= 3 ? <p className="lwz-note" role="status" data-testid="wizard-draft-restored"><FileClock size={18} aria-hidden="true" /> <span><b>پیش‌نویس بازیابی شد.</b> اعتبار مشتری دوباره بررسی می‌شود و طرح و مبلغ انتخابی قبلی در مرحله «طرح و شرط» پیشنهاد می‌شود.</span></p> : null}
@@ -759,7 +759,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
             {step !== 6 && submitError && <p className="form-error" role="alert" data-testid="wizard-recovery-error">{submitError}</p>}
             <div className="lwz-head">
               <span className="k">مرحله {fa(displayStep)} از {fa(WIZARD_TOTAL_STEPS)}</span>
-              <h3 data-testid="wizard-step-title">{current?.label}</h3>
+              <h3 data-testid="wizard-step-title">{multiOn && displayStep === 5 ? "کدام طرح؟" : current?.label}</h3>
               {STEP_LEADS[displayStep] ? <p>{STEP_LEADS[displayStep]}</p> : null}
             </div>
 
@@ -871,6 +871,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
                 onPartNext={handleNext}
                 onEdit={jumpTo}
                 feePaid={Boolean(feeChargeId)}
+                multiCase={multiOn}
             />
           )}
         </motion.div>
@@ -1682,15 +1683,20 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
                     aria-pressed={multiCase ? undefined : marked}
                     role={multiCase ? "radio" : undefined}
                     aria-checked={multiCase ? marked : undefined}
-                    className={`lwz-opt${marked ? ' on' : ''}`}
+                    className={multiCase ? undefined : `lwz-opt${marked ? ' on' : ''}`}
                     style={{ opacity: plan.primaryContractPresent && (!planLocked || marked) ? 1 : 0.6 }}
                  >
+                    {multiCase ? <>
+                      <b>{label}</b>
+                      <span>{blockedCaseId && marked ? "یک پرونده‌ی باز با این طرح دارید" : `تا ${planMaximum.toLocaleString('fa-IR')} تومان`}</span>
+                    </> : <>
                     <span className="dot" aria-hidden="true" />
                     <span className="txt">
                        <strong>{label}</strong>
-                       <small>تا {planMaximum.toLocaleString('fa-IR')} تومان · {matches.length.toLocaleString('fa-IR')} شرط{multiCase && blockedCaseId && marked ? " · یک پرونده‌ی باز با این طرح دارید" : ""}</small>
+                       <small>تا {planMaximum.toLocaleString('fa-IR')} تومان · {matches.length.toLocaleString('fa-IR')} شرط</small>
                        {!plan.primaryContractPresent && <small className="lwz-err">قرارداد اصلی برای این طرح تعریف نشده است.</small>}
                     </span>
+                    </>}
                   </button>
                 ); })}
             </div>
@@ -1717,7 +1723,7 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
         </p>
       )}
 
-       {selectedGroup && (
+       {selectedGroup && !(multiCase && blockedCaseId) && (
          <div className="lwz-conds" data-testid="plan-conditions">
            <strong className="lwz-label">شرط دریافت این طرح را انتخاب کنید</strong>
            <div className="lwz-opts" role="group" aria-label="شروط طرح">
@@ -1936,7 +1942,7 @@ function Step4IdentityDocs({ customer, onNext, onPrev }: any) {
 }
 
 // --- Step 5 ---
-function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPending, error, serverErrors = {}, part = 0, onPartNext, onEdit, feePaid }: any) {
+function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPending, error, serverErrors = {}, part = 0, onPartNext, onEdit, feePaid, multiCase }: any) {
   const [manualValues, setManualValues] = useState<Record<string, string>>({});
   const [attempted, setAttempted] = useState(false);
   const manualVariables = plan.manualVariables ?? [];
@@ -1982,10 +1988,10 @@ function Step5Review({ customer, plan, amount, duration, onNext, onPrev, isPendi
             <div className="full"><dt>کارشناس فروش</dt><dd>{customer.salespersonName || 'بدون تخصیص'}</dd></div>
           </dl>
         </section>
-        <section className="lwz-card lwz-review" aria-label="تسهیلات">
+        <section className={`lwz-card lwz-review${multiCase ? " mc-review" : ""}`} aria-label="تسهیلات">
           <div className="lwz-cardh"><strong>تسهیلات</strong>{feePaid ? <span className="lwz-muted">قفل پس از پرداخت هزینه</span> : editLink(5, 'طرح و شرط')}</div>
           <dl className="lwz-kv">
-            <div className="full"><dt>طرح تسهیلاتی</dt><dd data-testid="review-plan-name">{plan.name}</dd></div>
+            <div className="full"><dt>طرح تسهیلاتی</dt><dd data-testid="review-plan-name">{multiCase ? multiCasePlanLabel({ planId: plan.planId, bankName: plan.bankName }) : plan.name}</dd></div>
             <div><dt>مبلغ درخواستی</dt><dd data-testid="review-amount">{Number(amount).toLocaleString('fa-IR')} تومان</dd>
               {serverErrors.amount && <small role="alert" className="lwz-err" data-testid="error-submit-amount">{serverErrors.amount}</small>}</div>
             <div><dt>مدت اقساط</dt><dd data-testid="review-duration">{Number(duration).toLocaleString('fa-IR')} ماه</dd>

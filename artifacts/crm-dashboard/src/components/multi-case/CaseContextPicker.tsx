@@ -2,8 +2,21 @@ import { useState } from "react";
 import { Copy } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { toPersianDigits } from "@/lib/customer-id";
+import { loanStageLabel } from "@/lib/loan-labels";
 import { multiCasePlanLabel } from "@/lib/multi-case-plan-label";
 import type { MultiCaseRow } from "./types";
+
+/** Never show a raw English stage code on a multi-case surface. */
+export function faCaseStage(stage?: string | null): string {
+  const label = loanStageLabel(stage);
+  if (!label || /[A-Za-z]/.test(label)) return "باز";
+  return label;
+}
+
+function faAmount(value?: string | null): string {
+  if (!value) return "";
+  try { return `${BigInt(value).toLocaleString("fa-IR")} تومان`; } catch { return ""; }
+}
 
 export type CaseChoice = number | "general";
 
@@ -30,15 +43,16 @@ export function CidChip({ id }: { id: number }) {
   );
 }
 
-export function PhoneChip({ phone, sample }: { phone: string; sample?: boolean }) {
+export function PhoneChip({ phone, sample, big }: { phone: string; sample?: boolean; big?: boolean }) {
   const shown = toPersianDigits(phone);
   return (
-    <span className="ph">
+    <span className={`ph${big ? " big" : ""}`}>
       <a className="phn" dir="ltr" href={`tel:${phone}`}>{shown}</a>
       {sample ? <span className="phs">نمونه</span> : null}
       <button type="button" className="phc" aria-label={`کپی شماره‌ی ${shown}`} data-copy={phone}
         onClick={() => { void copyText(phone).then((ok) => toast(ok ? { title: "کپی شد", duration: 1600 } : { title: "کپی نشد", duration: 2500 })); }}>
         <Copy size={18} aria-hidden />
+        {big ? <span>کپی</span> : null}
       </button>
     </span>
   );
@@ -77,12 +91,16 @@ export function CaseContextPicker({
             <b>{general}</b>
             <span>بدون اتصال به یک پرونده‌ی تسهیلات</span>
           </button>
-          {open.map((row) => (
+          {open.map((row) => {
+            const money = faAmount(row.requestedAmount);
+            const stage = faCaseStage(row.stage);
+            return (
             <button key={row.id} type="button" role="radio" aria-checked={choice === row.id} onClick={() => setChoice(row.id)}>
-              <b>پرونده #{row.id.toLocaleString("fa-IR")}، طرح {multiCasePlanLabel(row)}</b>
-              <span>{row.stage || "باز"}</span>
+              <b><span className="mc-caseid">پرونده <b dir="ltr">#{row.id.toLocaleString("fa-IR")}</b></span>، طرح {multiCasePlanLabel(row)}</b>
+              <span>{money ? `${stage}؛ ${money}` : stage}</span>
             </button>
-          ))}
+            );
+          })}
         </div>
         <button type="button" className="btn pri" data-testid="mc-picker-confirm" onClick={() => onConfirm(choice)}>
           {mode === "reminder" ? "ثبت یادآور" : "ثبت تماس"}

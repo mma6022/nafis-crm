@@ -43,17 +43,49 @@ const experts = [
 ];
 const manifest = { plans: plans.map((p) => ({ id: p.id, name: p.name, bankName: p.bank_name ?? null })), experts: [], flag: "flag.multi_case_v1=1" };
 
-function insertCustomer(row) {
-  const data = { name: row.name, phone: row.phone, salesperson_id: row.salespersonId, description: "multi-case-sample", status: "in_progress", created_at: now };
-  const keys = Object.keys(data).filter((k) => custCols.includes(k));
-  const info = db.prepare(`INSERT INTO customers(${keys.join(",")}) VALUES(${keys.map(() => "?").join(",")})`).run(...keys.map((k) => data[k]));
+function digits(value) {
+  return String(value ?? "").replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(/\D/g, "");
+}
+function mobileKey(value) {
+  let n = digits(value);
+  if (n.startsWith("0098") && n.length === 14) n = `0${n.slice(4)}`;
+  else if (n.startsWith("98") && n.length === 12) n = `0${n.slice(2)}`;
+  else if (n.length === 10 && n.startsWith("9")) n = `0${n}`;
+  return n;
+}
+db.function("crm_customer_mobile_key", (value) => mobileKey(value));
+db.function("crm_customer_national_code_key", (value) => digits(value));
+db.function("crm_persian_search_key", (value) => String(value ?? "").normalize("NFC").replace(/[يى]/g, "ی").replace(/ك/g, "ک"));
+
+function meta(table) { try { return db.prepare(`PRAGMA table_info(${table})`).all(); } catch { return []; } }
+function fillRequired(table, data) {
+  for (const col of meta(table)) {
+    if (!col.notnull || col.dflt_value != null || col.pk || data[col.name] !== undefined) continue;
+    const type = String(col.type || "").toUpperCase();
+    data[col.name] = /INT|REAL|NUM/.test(type) ? 0 : "";
+  }
+  return data;
+}
+function insertRow(table, data) {
+  fillRequired(table, data);
+  const names = Object.keys(data).filter((key) => cols(table).includes(key));
+  const info = db.prepare(`INSERT INTO ${table}(${names.join(",")}) VALUES(${names.map(() => "?").join(",")})`).run(...names.map((key) => data[key]));
   return Number(info.lastInsertRowid);
 }
+function insertCustomer(row) {
+  return insertRow("customers", { name: row.name, phone: row.phone, salesperson_id: row.salespersonId, description: "multi-case-sample", status: "in_progress", created_at: now });
+}
+function consultationFor(customerId) {
+  if (!has("consultation_forms") || !appCols.includes("consultation_id")) return null;
+  return insertRow("consultation_forms", { customer_id: customerId, requested_amount: "0", extra_notes: "multi-case-sample", updated_at: now, created_at: now });
+}
 function insertApp(customerId, planId, amount) {
-  const data = { customer_id: customerId, plan_id: planId, stage: "draft", status: "requested", requested_amount: amount, created_at: now, deleted_at: null };
-  const keys = Object.keys(data).filter((k) => appCols.includes(k));
-  const info = db.prepare(`INSERT INTO loan_applications(${keys.join(",")}) VALUES(${keys.map(() => "?").join(",")})`).run(...keys.map((k) => data[k]));
-  return Number(info.lastInsertRowid);
+  const actor = has("users") ? db.prepare("SELECT id FROM users ORDER BY id LIMIT 1").get() : null;
+  return insertRow("loan_applications", {
+    customer_id: customerId, plan_id: planId, plan_ids: JSON.stringify([planId]), consultation_id: consultationFor(customerId),
+    requested_by_user_id: actor?.id ?? null, stage: "draft", status: "requested", requested_amount: amount,
+    duration_months: 12, requested_duration_months: 12, created_at: now, updated_at: now, new_case_workflow: 1, is_pre_registration: 0,
+  });
 }
 
 for (const expert of experts) {

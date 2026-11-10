@@ -297,8 +297,14 @@ const OPEN_SQL = "a.deleted_at IS NULL AND a.status<>'rejected' AND COALESCE(a.s
 
 export function listCustomerCases(customerId: number) {
   const bank = columnExists("loan_plans", "bank_name") ? "lp.bank_name" : "NULL";
-  return queryRows<{ id: number; plan_id: number | null; plan_name: string | null; bank_name: string | null; stage: string | null; status: string; open: number }>(
+  const amount = columnExists("loan_applications", "requested_amount") ? "a.requested_amount" : "NULL";
+  const hasMonths = columnExists("loan_applications", "duration_months");
+  const hasRequestedMonths = columnExists("loan_applications", "requested_duration_months");
+  const months = hasMonths && hasRequestedMonths ? "COALESCE(a.duration_months, a.requested_duration_months)"
+    : hasMonths ? "a.duration_months" : hasRequestedMonths ? "a.requested_duration_months" : "NULL";
+  return queryRows<{ id: number; plan_id: number | null; plan_name: string | null; bank_name: string | null; stage: string | null; status: string; open: number; requested_amount: string | null; months: number | null }>(
     `SELECT a.id, a.plan_id, lp.name AS plan_name, ${bank} AS bank_name, a.stage, a.status,
+       ${amount} AS requested_amount, ${months} AS months,
        CASE WHEN ${OPEN_SQL} THEN 1 ELSE 0 END AS open
      FROM loan_applications a LEFT JOIN loan_plans lp ON lp.id=a.plan_id
      WHERE a.customer_id=? AND a.deleted_at IS NULL ORDER BY a.id DESC`,
@@ -310,6 +316,8 @@ export function listCustomerCases(customerId: number) {
     bankName: row.bank_name ?? null,
     stage: row.stage ?? null,
     status: row.status,
+    requestedAmount: row.requested_amount ?? null,
+    durationMonths: row.months == null ? null : Number(row.months),
     open: Number(row.open) === 1,
   }));
 }
