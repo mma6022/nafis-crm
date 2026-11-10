@@ -151,7 +151,7 @@
    header nor its bottom buttons, and card buttons on the page behind are untouched. Messages keep queueing. */
 .nas-dndbar{display:none}
 @media (max-width:640px){
- .nas-dndbar{position:fixed;z-index:2147483000;top:0;left:0;right:0;height:44px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 12px;padding-top:env(safe-area-inset-top,0px);background:#0B1450;color:#E3E6F7;font-size:13px;line-height:1.4;box-shadow:0 2px 10px rgba(11,20,80,.25)}
+ .nas-dndbar{position:static;inset:auto;z-index:auto;height:auto;min-height:44px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 12px;background:#0B1450;color:#E3E6F7;font-size:13px;line-height:1.4}
  .nas-dndbar .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
  .nas-dndbar b{color:#fff}
  .nas-dndbar button{flex:none;min-height:32px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.35);background:transparent;color:#fff;font:inherit;font-size:12.5px;cursor:pointer}

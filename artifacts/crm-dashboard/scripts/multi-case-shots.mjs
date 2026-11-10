@@ -141,14 +141,14 @@ try {
   await openCustomer(customerId);
   if (await clickSel('[data-testid="link-call-customer"]')) {
     await page.waitForSelector('[data-testid="case-context-picker"]', { timeout: 10000 }).catch(() => {});
-    if (await page.$('[data-testid="case-context-picker"]')) { await both("04-call-picker"); await clickSel('[data-testid="mc-picker-back"]'); }
+    if (await page.$('[data-testid="case-context-picker"]')) { await both("04-call-picker"); await clickSel('[data-testid="mc-picker-close"]'); }
     else note("call control did not open the picker");
   }
   if (await clickSel('[data-testid="button-header-reminder"]')) {
     await page.waitForSelector('[data-testid="case-context-picker"]', { timeout: 10000 }).catch(() => {});
     if (await page.$('[data-testid="case-context-picker"]')) {
       await both("04-reminder-picker");
-      await clickSel('[data-testid="mc-picker-back"]');
+      await clickSel('[data-testid="mc-picker-close"]');
       await at(1280);
       await shot("05-after-return", 1280);
     }
