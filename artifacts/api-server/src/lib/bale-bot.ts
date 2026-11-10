@@ -190,8 +190,17 @@ export function botToken(b: BotRow): string | null {
     return o.plaintext;
   } catch { return null; }
 }
-export const botSends = (b: BotRow) => { const u = bbUser(b.user_id); return !!u && !bbNoSendSp().includes(Number(u.salesperson_id)); };
-export const botLive = (b: BotRow) => b.status === "on" && !!b.token_ct && bbMasterOn() && bbUserOn(b.user_id) && isBotExpert(bbUser(b.user_id));
+/** Sentinel users.id for the shared «نفیس وام» customer bot (no owner expert). */
+export const BB_SHARED_BOT_USER_ID = 0;
+export const isSharedCustomerBot = (b: { user_id: number } | null | undefined) => !!b && Number(b.user_id) === BB_SHARED_BOT_USER_ID;
+export const botSends = (b: BotRow) => {
+  if (isSharedCustomerBot(b)) return true;
+  const u = bbUser(b.user_id); return !!u && !bbNoSendSp().includes(Number(u.salesperson_id));
+};
+export const botLive = (b: BotRow) => {
+  if (isSharedCustomerBot(b)) return b.status === "on" && !!b.token_ct && bbMasterOn();
+  return b.status === "on" && !!b.token_ct && bbMasterOn() && bbUserOn(b.user_id) && isBotExpert(bbUser(b.user_id));
+};
 
 /* ---------------- inbound ---------------- */
 const now = () => new Date().toISOString();

@@ -10,7 +10,7 @@
 .lrx-st { display: grid; gap: 2px; justify-items: start; }
 .lrx-st small { font-size: 13.5px; color: var(--nf-ink-muted); }
 .lrx-card .lrx-need { justify-self: start; }
-.lrx-card .lrx-id { font-weight: 800; color: var(--nf-ink); }
+.lrx-card .lrx-id, .lrx-table .lrx-id { display: inline-block; direction: ltr; unicode-bidi: isolate; font-weight: 800; color: var(--nf-ink); }
 .lrx-money b { font-size: 20px; font-weight: 800; letter-spacing: .2px; }
 .lrx-stage { font-size: 15px; color: var(--nf-ink-soft); }
 .lrx-stage b { color: var(--nf-ink); }

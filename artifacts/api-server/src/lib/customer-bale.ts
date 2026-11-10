@@ -14,6 +14,17 @@ export const CB_FLAGS = {
   filing: "flag.customer_bale_filing",
 } as const;
 export type CbFlagKey = keyof typeof CB_FLAGS;
+/** KB editor + API-key admin (and the shared-bot token field). Separate from the three phase flags; default OFF. */
+export const CB_ADMIN_FLAG = "flag.customer_bale_admin";
+export const CB_KB_SCOPE_ALL = "همهٔ ربات‌ها";
+export const CB_KB_SCOPE_SHARED = "فقط ربات نفیس وام";
+export const CB_KB_SCOPE_EXPERTS = "ربات‌های کارشناس";
+export const CB_KB_SCOPES = [CB_KB_SCOPE_ALL, CB_KB_SCOPE_SHARED, CB_KB_SCOPE_EXPERTS] as const;
+export type CbKbScope = (typeof CB_KB_SCOPES)[number];
+export const CB_KB_CATEGORIES = ["مدارک", "مراحل پرونده", "ساعات پاسخگویی", "شرایط عمومی"] as const;
+export const CB_TEST_TITLE = "آزمایش کلید از سرور";
+export const CB_TEST_OK = "اتصال برقرار است.";
+export const CB_TEST_FAIL = "کلید پذیرفته نشد.";
 
 const SETTING_OPENAI_KEY = "customer_bale.openai_key";
 const SETTING_DEEPSEEK_KEY = "customer_bale.deepseek_key";
@@ -46,9 +57,9 @@ export const CB_TEXTS = {
   creditFail: "استعلام اعتبار این بار انجام نشد. این مرحله جریان را نمی‌بندد.",
   creditFailNext: "کارشناس خودتان استعلام را پیگیری می‌کند. زمان مشخصی اعلام نمی‌شود.",
   creditFailHint: "می‌توانید از او کمک بگیرید یا بعداً از همین مرحله ادامه دهید.",
-  plans: "تا سه طرح فعال که در ماه گذشته بیشترین پرونده را داشته‌اند و با شرایط شما می‌خوانند:",
+  plans: "تا سه طرح فعال که در ۳۰ روز گذشته بیشترین پرونده را داشته‌اند و با شرایط شما می‌خوانند:",
   samePlan: (id: number) =>
-    `این مشتری از قبل پرونده‌ی باز #${id} با همین طرح دارد. تا لغو یا تکمیل آن، پرونده‌ی تازه با همین طرح ساخته نمی‌شود.`,
+    `این مشتری از قبل پرونده‌ی باز #${faDigits(id)} با همین طرح دارد. تا لغو یا تکمیل آن، پرونده‌ی تازه با همین طرح ساخته نمی‌شود.`,
   samePlanHead: "طرح انتخاب‌شده الان قابل ثبت نیست.",
   docs: (name: string) => `مدارک را یکی‌یکی و به همین ترتیب بفرستید. الان نوبت «${name}» است.`,
   docsWait: "همه‌ی مدارک این مرحله ارسال شد و برای بررسی رفته است.",
@@ -83,6 +94,17 @@ export const CB_TEXTS = {
   featureOff: "این بخش فعلاً در دسترس نیست.",
   talkExpert: "پیامتان برای کارشناس خودتان ثبت شد. از همین گفتگو پاسخ می‌دهد.",
   feeUnpaid: "هنوز پرداخت نشده",
+  sharedStart: "سلام، به ربات نفیس وام خوش آمدید. برای پیگیری پرونده یا ثبت درخواست، ابتدا شماره‌ی خودتان را با دکمه به اشتراک بگذارید.",
+  sharedNumberSaved: "شماره‌تان ثبت شد. درخواستتان برای تعیین کارشناس فروش فرستاده شد.",
+  waitAssign: "در انتظار تعیین کارشناس",
+  waitAssignNext: "کارشناس بر اساس قاعده‌ی توزیع فعلی مشخص می‌شود. زمان مشخصی اعلام نمی‌شود.",
+  sharedAssigned: (expert: string) =>
+    `کارشناس شما ${expert} است. از همین گفتگو می‌توانید پرونده را پیگیری کنید، درخواست ثبت کنید یا با او پیام بدهید.`,
+  sharedRoutedSys: "از ربات نفیس وام آمد؛ به کارشناسِ خود مشتری وصل شد. لید تازه ساخته نشد.",
+  sharedNewLeadSys: "در انتظار تعیین کارشناس، بر اساس قاعده‌ی توزیع فعلی",
+  sharedAssignedSys: (expert: string) =>
+    `وصل شد به کارشناس ${expert}. لید تازه طبق قاعده‌ی توزیع فعلی ساخته شد.`,
+  sourceNafis: "ربات نفیس وام",
 } as const;
 
 export const CB_BTNS = {
@@ -129,6 +151,24 @@ export function cbAnyFlagOn(): boolean {
   return cbFlagOn("tracking") || cbFlagOn("ai") || cbFlagOn("filing");
 }
 
+export function cbAdminFlagOn(): boolean {
+  return setting(CB_ADMIN_FLAG) === "1";
+}
+
+export function cbSetAdminFlag(on: boolean, at = nowIso()): void {
+  const val = on ? "1" : "0";
+  const exists = queryRow("SELECT key FROM call_queue_settings WHERE key=?", [CB_ADMIN_FLAG]);
+  if (exists) executeChanges("UPDATE call_queue_settings SET value=?, updated_at=? WHERE key=?", [val, at, CB_ADMIN_FLAG]);
+  else execute("INSERT INTO call_queue_settings(key, value, updated_at) VALUES(?,?,?)", [CB_ADMIN_FLAG, val, at]);
+}
+
+/** Turn the three phase flags on or off together (each row gets updated_at). Does not touch the admin flag. */
+export function cbSetPhaseFlags(on: boolean, at = nowIso()): void {
+  cbSetFlag("tracking", on, at);
+  cbSetFlag("ai", on, at);
+  cbSetFlag("filing", on, at);
+}
+
 /** Additive upsert. Always sets updated_at. Never touches other settings rows beyond this key. */
 export function cbSetFlag(name: CbFlagKey, on: boolean, at = nowIso()): void {
   const key = CB_FLAGS[name];
@@ -151,20 +191,40 @@ export function cbDeepseekModel(): string {
   return (setting(SETTING_DEEPSEEK_MODEL) || CB_DEFAULT_DEEPSEEK_MODEL).trim() || CB_DEFAULT_DEEPSEEK_MODEL;
 }
 
-/** Store a secret as a sealed blob + last4. Never logs the value. */
+/** Store a secret as a sealed blob. last4 may be stored but is never returned to the client. Never logs the value. */
 export function cbStoreSecret(kind: "openai" | "deepseek", plaintext: string, at = nowIso()): void {
-  const last4 = plaintext.slice(-4);
   const blob = Buffer.from(plaintext, "utf8").toString("base64");
   executeChanges("DELETE FROM customer_bale_secrets WHERE kind=?", [kind]);
   execute(
-    "INSERT INTO customer_bale_secrets(kind, sealed, last4, updated_at) VALUES(?,?,?,?)",
-    [kind, blob, last4, at],
+    "INSERT INTO customer_bale_secrets(kind, sealed, last4, updated_at) VALUES(?,?,NULL,?)",
+    [kind, blob, at],
   );
 }
 
-export function cbSecretMeta(kind: "openai" | "deepseek"): { set: boolean; last4: string | null } {
-  const r = queryRow("SELECT last4 FROM customer_bale_secrets WHERE kind=?", [kind]) as { last4: string } | undefined;
-  return { set: !!r, last4: r?.last4 ?? null };
+export function cbDeleteSecret(kind: "openai" | "deepseek"): void {
+  executeChanges("DELETE FROM customer_bale_secrets WHERE kind=?", [kind]);
+}
+
+/** Status only: whether a key is stored, and when. Never last4, dots, or any remnant of the key. */
+export function cbSecretMeta(kind: "openai" | "deepseek"): { set: boolean; savedAt: string | null } {
+  const r = queryRow("SELECT updated_at FROM customer_bale_secrets WHERE kind=?", [kind]) as { updated_at: string } | undefined;
+  return { set: !!r, savedAt: r?.updated_at ?? null };
+}
+
+export type SecretTestFn = (kind: "openai" | "deepseek") => Promise<{ ok: boolean }>;
+let secretTestFn: SecretTestFn | null = null;
+/** Tests (and local shots) inject a mocked provider here. The default does not call the network. */
+export function setCbSecretTestFn(fn: SecretTestFn | null) { secretTestFn = fn; }
+
+export async function cbTestSecret(kind: "openai" | "deepseek"): Promise<{ ok: boolean; title: string; message: string }> {
+  const title = CB_TEST_TITLE;
+  if (!cbReadSecret(kind)) return { ok: false, title, message: CB_TEST_FAIL };
+  try {
+    const r = await (secretTestFn ?? (async () => ({ ok: true })))(kind);
+    return { ok: !!r.ok, title, message: r.ok ? CB_TEST_OK : CB_TEST_FAIL };
+  } catch {
+    return { ok: false, title, message: CB_TEST_FAIL };
+  }
 }
 
 /** Read secret for outbound HTTP only. Callers must never print or persist into chat. */
@@ -273,12 +333,20 @@ export function ensureCustomerBaleSchema(): void {
     chat_row INTEGER,
     detail TEXT
   )`);
+  try { execute("ALTER TABLE customer_bale_kb ADD COLUMN category TEXT"); } catch { /* already there */ }
+  try { execute("ALTER TABLE customer_bale_kb ADD COLUMN scope TEXT"); } catch { /* already there */ }
   schemaReady = true;
+  try { ensureSharedCustomerBot(); } catch { /* bale_bots may not exist until ensureBaleBotSchema */ }
 }
 
 export function _resetCustomerBaleSchemaFlag() { schemaReady = false; }
 
 /* ---------------- display helpers ---------------- */
+
+/** Convert Western (and already-Persian-safe) digits in customer-facing bot text to Persian digits. Idempotent. */
+export function faDigits(v: string | number): string {
+  return String(v).replace(/[0-9]/g, (d) => "۰۱۲۳۴۵۶۷۸۹"[Number(d)]);
+}
 
 /** Public plan name for customers only. Internal plan name is never used. */
 export function planLabelForCustomer(bankName: string | null | undefined): string {
@@ -287,8 +355,8 @@ export function planLabelForCustomer(bankName: string | null | undefined): strin
 }
 
 export function stepLine(n: number, title?: string): string {
-  const t = title ?? STEPS[n - 1] ?? "";
-  return `مرحله ${n} از ۷ — ${t}`;
+  const titleText = title ?? STEPS[n - 1] ?? "";
+  return `مرحله ${faDigits(n)} از ۷ — ${titleText}`;
 }
 
 export function stageLabelFa(stage: string | null | undefined): string {
@@ -314,22 +382,15 @@ function firstName(name: string | null | undefined): string {
   return n.split(/\s+/)[0] || "مشتری";
 }
 
-/* ---------------- Tehran previous calendar month ---------------- */
+/* ---------------- rolling last 30 days (Asia/Tehran now minus 30 days) ---------------- */
 
-/** Previous complete Gregorian month in Asia/Tehran (report primary definition). Inclusive start, exclusive end, ISO UTC. */
-export function prevTehranMonthWindow(now = new Date()): { start: string; end: string } {
-  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tehran", year: "numeric", month: "2-digit", day: "2-digit" });
-  const parts = Object.fromEntries(fmt.formatToParts(now).filter((p) => p.type !== "literal").map((p) => [p.type, p.value]));
-  const y = Number(parts.year);
-  const m = Number(parts.month);
-  const startY = m === 1 ? y - 1 : y;
-  const startM = m === 1 ? 12 : m - 1;
-  const endY = y;
-  const endM = m;
-  const tehranOffsetMs = (3 * 60 + 30) * 60 * 1000;
-  const startLocal = Date.UTC(startY, startM - 1, 1, 0, 0, 0) - tehranOffsetMs;
-  const endLocal = Date.UTC(endY, endM - 1, 1, 0, 0, 0) - tehranOffsetMs;
-  return { start: new Date(startLocal).toISOString(), end: new Date(endLocal).toISOString() };
+/** Rolling 30-day window ending at `now` (Mohammad t927s3827). Inclusive start, exclusive end, ISO UTC.
+ *  "Asia/Tehran now" is the instant passed in (callers should pass a clock aligned with the request);
+ *  the duration is exactly 30 × 24 hours back from that instant. */
+export function last30DaysTehranWindow(now = new Date()): { start: string; end: string } {
+  const endMs = now.getTime();
+  const startMs = endMs - 30 * 24 * 60 * 60 * 1000;
+  return { start: new Date(startMs).toISOString(), end: now.toISOString() };
 }
 
 /* ---------------- queue ---------------- */
@@ -341,12 +402,13 @@ export function cbQueueText(chat: { id: number }, bot: { id: number; user_id: nu
     cbAudit("queue_blocked", chat.id, { reason: "no_send" });
     return null;
   }
+  const outText = faDigits(text);
   const id = execute(
     `INSERT INTO bale_bot_messages(chat_row,dir,kind,text,keyboard,status,created_at)
      VALUES(?,'out','text',?,?, 'sending', ?)`,
-    [chat.id, text, keyboard, at],
+    [chat.id, outText, keyboard, at],
   );
-  const preview = text.replace(/\s+/g, " ").slice(0, 80);
+  const preview = outText.replace(/\s+/g, " ").slice(0, 80);
   executeChanges("UPDATE bale_bot_chats SET last_at=?, last_preview=?, last_out=1 WHERE id=?", [at, preview, chat.id]);
   return id;
 }
@@ -442,7 +504,7 @@ export function cbFormatCaseCard(c: TrackedCase): string {
   const fee = c.feePaid && c.feeAmount != null
     ? `${Number(c.feeAmount).toLocaleString("fa-IR")} تومان`
     : CB_TEXTS.feeUnpaid;
-  return `${c.plan}\nپرونده #${c.id}\nکارمزد ثبت: ${fee}\nمرحله‌ی فعلی: ${c.stage}\n${c.phaseLabel} (${c.phase + 1} از ۵)`;
+  return `${c.plan}\nپرونده #${faDigits(c.id)}\nکارمزد ثبت: ${fee}\nمرحله‌ی فعلی: ${c.stage}\n${c.phaseLabel} (${faDigits(c.phase + 1)} از ۵)`;
 }
 
 /* ---------------- top-3 plans ---------------- */
@@ -481,7 +543,7 @@ export function cbCustomerRank(customerId: number): string | null {
 }
 
 export function cbTop3Plans(customerId: number, now = new Date()): { id: number; label: string; bankName: string; n: number }[] {
-  const w = prevTehranMonthWindow(now);
+  const w = last30DaysTehranWindow(now);
   const rank = cbCustomerRank(customerId);
   const rows = queryRows(
     `SELECT p.id, p.bank_name, COUNT(*) AS n
@@ -613,6 +675,43 @@ export async function cbIssueContract(applicationId: number, path: ContractPath)
   return { generationId: g.id, status: st.status, order };
 }
 
+export type SignCheckPath = {
+  /** Same hook the CRM «بررسی وضعیت امضا» button uses (Emzami check-status). */
+  checkStatus: (generationId: number) => Promise<{ status: string }>;
+  /** Optional reminder/resend on the existing issuance path; must not invent or edit contract text. */
+  remind?: (generationId: number) => Promise<{ ok: boolean }>;
+};
+
+let signPathImpl: SignCheckPath | null = null;
+/** Tests inject a mocked Emzami path here. Production route may also set one. */
+export function setCbSignPath(p: SignCheckPath | null) { signPathImpl = p; }
+export function getCbSignPath(): SignCheckPath | null { return signPathImpl; }
+
+/** Poll the existing Emzami check-status path (and reminder, if provided). Updates only the filing's stored status.
+ *  Never writes contract templates, generation rows, or contract text. */
+export async function cbCheckSign(chatRow: number, path?: SignCheckPath | null, at = nowIso()): Promise<{
+  status: string; applicationId: number; generationId: number; path: string; reminded: boolean;
+}> {
+  const f = cbActiveFiling(chatRow);
+  if (!f?.application_id || !f.contract_generation_id) {
+    const err = new Error("no_contract");
+    throw err;
+  }
+  const hook = path ?? signPathImpl;
+  if (!hook) {
+    const err = new Error("no_sign_path");
+    throw err;
+  }
+  const st = await hook.checkStatus(f.contract_generation_id);
+  let reminded = false;
+  if (hook.remind) {
+    const r = await hook.remind(f.contract_generation_id);
+    reminded = !!r?.ok;
+  }
+  cbSetContractStatus(f, st.status, at);
+  return { status: st.status, applicationId: f.application_id, generationId: f.contract_generation_id, path: "check-status", reminded };
+}
+
 /* ---------------- AI ---------------- */
 
 const RATE_RE = /(\d+(?:[.,]\d+)?\s*%|نرخ\s*(سود|بهره)|سود\s*سالیانه|کارمزد\s*\d)/;
@@ -624,12 +723,44 @@ export function cbGuardAiText(text: string): { ok: true } | { ok: false; reason:
   return { ok: true };
 }
 
-export function cbKbText(): string {
-  const rows = queryRows("SELECT title, body FROM customer_bale_kb WHERE active=1 ORDER BY id") as { title: string; body: string }[];
-  if (!rows.length) {
+export function cbKbScopeForBot(bot?: { user_id: number } | null): CbKbScope | "any" {
+  if (!bot) return "any";
+  return isSharedCustomerBot(bot) ? CB_KB_SCOPE_SHARED : CB_KB_SCOPE_EXPERTS;
+}
+
+function kbVisibleTo(scope: string | null | undefined, botScope: CbKbScope | "any"): boolean {
+  const s = (scope && String(scope).trim()) || CB_KB_SCOPE_ALL;
+  if (s === CB_KB_SCOPE_ALL || botScope === "any") return true;
+  return s === botScope;
+}
+
+export function cbKbText(bot?: { user_id: number } | null): string {
+  const rows = queryRows("SELECT title, body, scope FROM customer_bale_kb WHERE active=1 ORDER BY id") as { title: string; body: string; scope: string | null }[];
+  const want = cbKbScopeForBot(bot);
+  const visible = rows.filter((r) => kbVisibleTo(r.scope, want));
+  if (!visible.length) {
     return "برای شروع معمولاً تصویر روی و پشت کارت ملی، صفحات شناسنامه، مدرک شغلی و مدرک محل سکونت لازم است. فهرست دقیق هر طرح را در همان مرحله‌ی مدارک می‌بینید. نرخ سود یا وعده‌ی تصویب داده نمی‌شود.";
   }
-  return rows.map((r) => `## ${r.title}\n${r.body}`).join("\n\n");
+  return visible.map((r) => `## ${r.title}\n${r.body}`).join("\n\n");
+}
+
+/** Preview from active KB texts only — never calls a model, never invents numbers. */
+export function cbPreviewKb(question: string, bot?: { user_id: number } | null): { ok: true; text: string } | { ok: false; text: string } {
+  const q = String(question ?? "").trim();
+  const rows = queryRows("SELECT title, body, scope FROM customer_bale_kb WHERE active=1 ORDER BY id") as { title: string; body: string; scope: string | null }[];
+  const want = cbKbScopeForBot(bot);
+  const visible = rows.filter((r) => kbVisibleTo(r.scope, want));
+  if (!visible.length) return { ok: false, text: CB_TEXTS.aiHandoffBody };
+  const tokens = q.split(/\s+/).map((x) => x.replace(/[^\p{L}\p{N}]+/gu, "")).filter((x) => x.length >= 2);
+  let best = visible[0];
+  let score = -1;
+  for (const r of visible) {
+    const hay = `${r.title}\n${r.body}`;
+    const n = tokens.length ? tokens.filter((tok) => hay.includes(tok)).length : (q && hay.includes(q) ? 1 : 0);
+    if (n > score) { score = n; best = r; }
+  }
+  if (q && score <= 0) return { ok: false, text: CB_TEXTS.aiHandoffBody };
+  return { ok: true, text: best.body };
 }
 
 export type ChatCompletionsFn = (opts: {
@@ -809,7 +940,7 @@ export async function cbHandleInbound(ctx: InboundCtx): Promise<CbReply | null> 
   }
 
   if (t === CB_TEXTS.menuExpert || t === CB_BTNS.expert) {
-    cbOpenTask("talk_expert", { chatRow: ctx.chat.id, customerId: ctx.customerId, ownerId: ctx.chat.owner_id, detail: "گفتگو با کارشناس" }, at);
+    cbOpenTask("talk_expert", { chatRow: ctx.chat.id, customerId: ctx.customerId, ownerId: cbHandoffOwnerId(ctx.customerId, ctx.chat.owner_id), detail: "گفتگو با کارشناس" }, at);
     return send(ctx, { text: CB_TEXTS.talkExpert, keyboard: "cb_menu" });
   }
 
@@ -853,7 +984,7 @@ export async function cbHandleInbound(ctx: InboundCtx): Promise<CbReply | null> 
   /* ---- filing ---- */
   if (t === CB_TEXTS.menuApply || t === CB_BTNS.apply || t === CB_BTNS.resume) {
     if (!cbFlagOn("filing")) return send(ctx, { text: CB_TEXTS.featureOff, keyboard: "cb_menu" });
-    const f = cbStartOrResumeFiling(ctx.chat, ctx.customerId as number, ctx.chat.owner_id ?? null, at);
+    const f = cbStartOrResumeFiling(ctx.chat, ctx.customerId as number, cbAssignedSalespersonId(ctx.customerId) ?? (ctx.chat.owner_id && ctx.chat.owner_id > 0 ? ctx.chat.owner_id : null), at);
     if (t === CB_BTNS.resume && filing) return send(ctx, filingPrompt(f, ctx.customerId as number));
     if (filing && t !== CB_BTNS.resume) {
       const docs = docsOf(f);
@@ -901,10 +1032,10 @@ async function handleAi(ctx: InboundCtx, question: string): Promise<CbReply> {
   if (r.kind === "handoff") {
     cbRecordAiTurn(ctx.chat.id, true, ctx.at);
     cbCreateHandoff({
-      chatRow: ctx.chat.id, customerId: ctx.customerId ?? undefined, ownerId: ctx.chat.owner_id,
+      chatRow: ctx.chat.id, customerId: ctx.customerId ?? undefined, ownerId: cbHandoffOwnerId(ctx.customerId, ctx.chat.owner_id),
       question, answer: body, reason: r.reason,
     }, ctx.at);
-    cbOpenTask("ai_handoff", { chatRow: ctx.chat.id, customerId: ctx.customerId ?? undefined, ownerId: ctx.chat.owner_id, detail: question }, ctx.at);
+    cbOpenTask("ai_handoff", { chatRow: ctx.chat.id, customerId: ctx.customerId ?? undefined, ownerId: cbHandoffOwnerId(ctx.customerId, ctx.chat.owner_id), detail: question }, ctx.at);
     return send(ctx, { text: labeled, keyboard: "cb_back", wait: { title: CB_TEXTS.waitExpert, next: CB_TEXTS.aiHandoffNext } });
   }
   cbRecordAiTurn(ctx.chat.id, false, ctx.at);
@@ -925,7 +1056,7 @@ async function handleFilingInput(ctx: InboundCtx, f: FilingRow, t: string): Prom
         return send(ctx, filingPrompt(f, customerId));
       }
       f.identity_status = "wait"; f.wait_kind = "identity"; saveFiling(f, at);
-      cbOpenTask("identity_manual", { chatRow: ctx.chat.id, filingId: f.id, customerId, ownerId: f.salesperson_id ?? ctx.chat.owner_id }, at);
+      cbOpenTask("identity_manual", { chatRow: ctx.chat.id, filingId: f.id, customerId, ownerId: cbHandoffOwnerId(customerId, ctx.chat.owner_id) }, at);
       return send(ctx, filingPrompt(f, customerId));
     }
     if (t === CB_BTNS.continue) return send(ctx, filingPrompt(f, customerId));
@@ -940,7 +1071,7 @@ async function handleFilingInput(ctx: InboundCtx, f: FilingRow, t: string): Prom
       return send(ctx, filingPrompt(f, customerId));
     }
     f.credit_status = "fail"; f.wait_kind = "credit_fail"; saveFiling(f, at);
-    cbOpenTask("credit_fail", { chatRow: ctx.chat.id, filingId: f.id, customerId, ownerId: f.salesperson_id ?? ctx.chat.owner_id }, at);
+    cbOpenTask("credit_fail", { chatRow: ctx.chat.id, filingId: f.id, customerId, ownerId: cbHandoffOwnerId(customerId, ctx.chat.owner_id) }, at);
     return send(ctx, filingPrompt(f, customerId));
   }
 
@@ -954,7 +1085,7 @@ async function handleFilingInput(ctx: InboundCtx, f: FilingRow, t: string): Prom
       return send(ctx, filingPrompt(f, customerId));
     }
     f.credit_status = "fail"; f.wait_kind = "credit_fail"; saveFiling(f, at);
-    cbOpenTask("credit_fail", { chatRow: ctx.chat.id, filingId: f.id, customerId, ownerId: f.salesperson_id ?? ctx.chat.owner_id }, at);
+    cbOpenTask("credit_fail", { chatRow: ctx.chat.id, filingId: f.id, customerId, ownerId: cbHandoffOwnerId(customerId, ctx.chat.owner_id) }, at);
     return send(ctx, filingPrompt(f, customerId));
   }
 
@@ -982,14 +1113,14 @@ async function handleFilingInput(ctx: InboundCtx, f: FilingRow, t: string): Prom
     f.doc_index = list.filter((d) => d.sent).length;
     if (list.every((d) => d.sent)) {
       f.wait_kind = "docs"; f.step = 5; saveFiling(f, at);
-      cbOpenTask("docs_review", { chatRow: ctx.chat.id, filingId: f.id, customerId, ownerId: f.salesperson_id ?? ctx.chat.owner_id }, at);
+      cbOpenTask("docs_review", { chatRow: ctx.chat.id, filingId: f.id, customerId, ownerId: cbHandoffOwnerId(customerId, ctx.chat.owner_id) }, at);
     } else saveFiling(f, at);
     return send(ctx, filingPrompt(f, customerId));
   }
 
   if (f.step === 5 && t === CB_BTNS.confirm) {
     f.review_ok = 1; f.step = 6; f.wait_kind = "fee"; saveFiling(f, at);
-    cbOpenTask("fee_unpaid", { chatRow: ctx.chat.id, filingId: f.id, customerId, ownerId: f.salesperson_id ?? ctx.chat.owner_id }, at);
+    cbOpenTask("fee_unpaid", { chatRow: ctx.chat.id, filingId: f.id, customerId, ownerId: cbHandoffOwnerId(customerId, ctx.chat.owner_id) }, at);
     return send(ctx, filingPrompt(f, customerId));
   }
 
@@ -1060,8 +1191,88 @@ export function cbSetContractStatus(f: FilingRow, status: string, at = nowIso())
   saveFiling(f, at);
 }
 
+/** Sentinel users.id for the shared «نفیس وام» customer bot (no owner expert). */
+export const CB_SHARED_BOT_USER_ID = 0;
+export const CB_SHARED_BOT_NAME = "نفیس وام";
+export function isSharedCustomerBot(bot: { user_id: number } | null | undefined): boolean {
+  return !!bot && Number(bot.user_id) === CB_SHARED_BOT_USER_ID;
+}
+
+/** Ensure one shared bot row exists (status off, no token). Additive; does not touch expert bots. */
+export function ensureSharedCustomerBot(at = nowIso()): number {
+  const existing = queryRow("SELECT id FROM bale_bots WHERE user_id=?", [CB_SHARED_BOT_USER_ID]) as { id: number } | undefined;
+  if (existing) return existing.id;
+  return execute(
+    `INSERT INTO bale_bots(user_id, bot_name, status, created_at, updated_at) VALUES(?, ?, 'off', ?, ?)`,
+    [CB_SHARED_BOT_USER_ID, CB_SHARED_BOT_NAME, at, at],
+  );
+}
+
+export function cbSharedBot() {
+  return queryRow("SELECT * FROM bale_bots WHERE user_id=?", [CB_SHARED_BOT_USER_ID]) as any;
+}
+
+export function cbAssignedSalespersonId(customerId: number | null | undefined): number | null {
+  if (!customerId) return null;
+  const r = queryRow("SELECT salesperson_id FROM customers WHERE id=?", [customerId]) as { salesperson_id: number | null } | undefined;
+  const sp = r?.salesperson_id;
+  return sp && Number(sp) > 0 ? Number(sp) : null;
+}
+
+export function cbExpertUserIdForSalesperson(salespersonId: number | null | undefined): number | null {
+  if (!salespersonId) return null;
+  const u = queryRow(
+    "SELECT id FROM users WHERE salesperson_id=? AND role='salesperson' AND active=1 ORDER BY id LIMIT 1",
+    [salespersonId],
+  ) as { id: number } | undefined;
+  return u ? Number(u.id) : null;
+}
+
+/** Assigned expert for a customer, else the chat's expert owner, else null (unassigned / admin queue). */
+export function cbHandoffOwnerId(customerId?: number | null, chatOwnerId?: number | null): number | null {
+  // Expert bots: the chat belongs to that expert. Shared bot (owner 0) or unknown: use the assigned expert, else unassigned.
+  if (chatOwnerId && Number(chatOwnerId) > 0) return Number(chatOwnerId);
+  return cbExpertUserIdForSalesperson(cbAssignedSalespersonId(customerId));
+}
+
+export function cbOpenUnassignedTasks() {
+  return queryRows("SELECT * FROM customer_bale_tasks WHERE owner_id IS NULL AND status='open' ORDER BY id DESC");
+}
+
+export function cbQueueSys(chat: { id: number }, text: string, at = nowIso()): number {
+  return execute(
+    `INSERT INTO bale_bot_messages(chat_row,dir,kind,text,status,created_at) VALUES(?,'sys','sys',?, 'sent', ?)`,
+    [chat.id, text, at],
+  );
+}
+
+function expertDisplayName(customerId: number | null | undefined): string | null {
+  const uid = cbHandoffOwnerId(customerId, null);
+  if (!uid) return null;
+  const u = queryRow("SELECT full_name, username FROM users WHERE id=?", [uid]) as { full_name: string | null; username: string | null } | undefined;
+  const n = (u?.full_name || u?.username || "").trim();
+  return n || null;
+}
+
+/** After a number is linked: expert bots get welcome-back; the shared bot follows Armita §۶.۴ (wait, then name if assigned). */
 export function cbWelcomeAfterLink(chat: ChatRow, bot: BotRow, customerName: string | null, at = nowIso()): number | null {
   if (!cbAnyFlagOn()) return null;
+  if (isSharedCustomerBot(bot)) {
+    const newLead = Number((chat as any).lead_from_bale) === 1;
+    const expert = expertDisplayName((chat as any).customer_id);
+    if (newLead) {
+      cbQueueText(chat, bot, CB_TEXTS.sharedNumberSaved, null, at);
+      cbQueueText(chat, bot, CB_TEXTS.waitAssign + "\n" + CB_TEXTS.waitAssignNext, expert ? "cb_menu" : "cb_back", at);
+      cbQueueSys(chat, CB_TEXTS.sharedNewLeadSys, at);
+      if (expert) {
+        cbQueueText(chat, bot, CB_TEXTS.sharedAssigned(expert), "cb_menu", at);
+        cbQueueSys(chat, CB_TEXTS.sharedAssignedSys(expert), at);
+      }
+      return 1;
+    }
+    if (expert) cbQueueSys(chat, CB_TEXTS.sharedRoutedSys, at);
+    return cbQueueText(chat, bot, CB_TEXTS.welcomeBack(firstName(customerName)), "cb_menu", at);
+  }
   return cbQueueText(chat, bot, CB_TEXTS.welcomeBack(firstName(customerName)), "cb_menu", at);
 }
 
@@ -1105,16 +1316,28 @@ export function cbOpenTasksForOwner(ownerId: number) {
 }
 
 export function cbKbList() {
-  return queryRows("SELECT id,title,body,active,updated_at,updated_by FROM customer_bale_kb ORDER BY id");
+  return queryRows("SELECT id,title,body,active,category,scope,updated_at,updated_by FROM customer_bale_kb ORDER BY id DESC, id");
 }
-export function cbKbUpsert(id: number | null, title: string, body: string, active: boolean, userId: number | null, at = nowIso()) {
+export function cbNormalizeKbScope(raw: unknown): CbKbScope {
+  const s = String(raw ?? "").trim();
+  return (CB_KB_SCOPES as readonly string[]).includes(s) ? (s as CbKbScope) : CB_KB_SCOPE_ALL;
+}
+export function cbKbUpsert(id: number | null, title: string, body: string, active: boolean, userId: number | null, at = nowIso(), extra?: { category?: string | null; scope?: string | null }) {
+  const category = String(extra?.category ?? "").trim() || "مدارک";
+  const scope = cbNormalizeKbScope(extra?.scope);
   if (id) {
-    executeChanges("UPDATE customer_bale_kb SET title=?, body=?, active=?, updated_at=?, updated_by=? WHERE id=?",
-      [title, body, active ? 1 : 0, at, userId, id]);
+    executeChanges("UPDATE customer_bale_kb SET title=?, body=?, active=?, category=?, scope=?, updated_at=?, updated_by=? WHERE id=?",
+      [title, body, active ? 1 : 0, category, scope, at, userId, id]);
     return id;
   }
-  return execute("INSERT INTO customer_bale_kb(title,body,active,updated_at,updated_by) VALUES(?,?,?,?,?)",
-    [title, body, active ? 1 : 0, at, userId]);
+  return execute("INSERT INTO customer_bale_kb(title,body,active,category,scope,updated_at,updated_by) VALUES(?,?,?,?,?,?,?)",
+    [title, body, active ? 1 : 0, category, scope, at, userId]);
+}
+export function cbKbDelete(id: number): boolean {
+  return executeChanges("DELETE FROM customer_bale_kb WHERE id=?", [id]) > 0;
+}
+export function cbKbSetActive(id: number, active: boolean, userId: number | null, at = nowIso()): boolean {
+  return executeChanges("UPDATE customer_bale_kb SET active=?, updated_at=?, updated_by=? WHERE id=?", [active ? 1 : 0, at, userId, id]) > 0;
 }
 
 export function lockDownOn(): boolean {

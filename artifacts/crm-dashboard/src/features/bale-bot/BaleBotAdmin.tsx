@@ -45,7 +45,6 @@ function AdminPage() {
           : <button className="btn pri sm" type="button" onClick={() => setW({ k: 'wiz', s: 2, userId: e.id, replace: false })}><I n="plus" />وصل کردن ربات</button>}</div>
         {st === 'err' && b?.hasToken ? <p className="er"><I n="alert" />بله این توکن را دیگر قبول نمی‌کند. پیام‌های تازه فقط ۲۴ ساعت روی بله می‌ماند؛ زود توکن تازه بگذارید.</p> : null}</li>; })
       : <li className="br"><span /><div className="tx"><span className="m">کارشناس فروشی پیدا نشد.</span></div></li>}</ul></section>
-    <CustomerBotAdmin toast={toast} />
     <section className="card howc"><b>ساختن ربات برای کارشناس تازه</b><ol><li>کارشناس در بله به <Uname u="botfather" /> پیام می‌دهد و ربات تازه می‌سازد.</li><li>توکنی که <Uname u="botfather" /> می‌دهد را فقط این‌جا در «وصل کردن ربات» می‌گذارید.</li><li>لینک ربات را کارشناس به مشتری‌هایش می‌دهد؛ گفتگو با /start مشتری شروع می‌شود.</li></ol></section>
   </main>
   {w?.k === 'wiz' ? <BotWizard experts={ex} init={w} close={() => setW(null)} toast={toast} done={(e) => { setW(null); setFresh(e.id); toast(`ربات ${e.name} وصل شد؛ پیام‌ها از همین حالا می‌رسد.`); reload(); }} /> : null}
@@ -55,7 +54,7 @@ function AdminPage() {
   {node}</div>;
 }
 
-function BotWizard({ experts, init, close, toast, done }: { experts: BbAdminExpert[]; init: { s: number; userId: number | null; replace: boolean }; close: () => void; toast: (t: string) => void; done: (e: BbAdminExpert) => void }) {
+export function BotWizard({ experts, init, close, toast, done }: { experts: BbAdminExpert[]; init: { s: number; userId: number | null; replace: boolean }; close: () => void; toast: (t: string) => void; done: (e: BbAdminExpert) => void }) {
   const [s, setS] = useState(init.userId ? init.s : 1); const [uid, setUid] = useState<number | null>(init.userId);
   const [tok, setTok] = useState(''); const [er, setEr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const [bot, setBot] = useState<{ name: string | null; username: string | null } | null>(null);
@@ -88,7 +87,7 @@ function BotWizard({ experts, init, close, toast, done }: { experts: BbAdminExpe
     steps={<Steps labels={BOTST} s={s} err={s === 2 && !!er} onBack={(n) => { if (n === 1 && init.userId) return; setS(n); }} />} foot={foot}>{body}</Modal>;
 }
 
-function Saved({ e, close, toast, reload, onReplace, onOff }: { e: BbAdminExpert; close: () => void; toast: (t: string) => void; reload: () => void; onReplace: () => void; onOff: () => void }) {
+export function Saved({ e, close, toast, reload, onReplace, onOff }: { e: BbAdminExpert; close: () => void; toast: (t: string) => void; reload: () => void; onReplace: () => void; onOff: () => void }) {
   const b = e.bot as NonNullable<BbBot>; const [busy, setBusy] = useState(false);
   const test = async () => { setBusy(true); try { await bbFetch(`/bale-bot/admin/bots/${b.id}/test`, { body: {} }); toast('اتصال برقرار است'); } catch (x) { toast(x instanceof BbError ? x.message : 'انجام نشد.'); } finally { setBusy(false); reload(); } };
   return <Modal title={`ربات ${e.name}`} sub="تنظیمات ربات بله" onClose={close} foot={<><button className="btn dng" type="button" onClick={onOff}>قطع اتصال</button><button className="btn gh" type="button" onClick={close}>بستن</button></>}>
@@ -97,53 +96,4 @@ function Saved({ e, close, toast, reload, onReplace, onOff }: { e: BbAdminExpert
       <button className="btn gh sm" type="button" aria-disabled={busy} onClick={test}><I n="refresh" />تست اتصال</button><button className="btn gh sm" type="button" onClick={onReplace}><I n="pen" />تعویض توکن</button></div><p className="hint">توکن رمزنگاری‌شده نگه داشته می‌شود و دیگر نمایش داده نمی‌شود.</p></div>
     <div className="rvw"><div className="r"><span className="k">کارشناس</span><span className="v">{e.name}</span></div><div className="r"><span className="k">وصل از</span><span className="v">{since(b.connectedAt)}</span></div><div className="r"><span className="k">لینک ربات</span><span className="v ltr">ble.ir/{b.username}</span></div></div>
   </Modal>;
-}
-
-
-function CustomerBotAdmin({ toast }: { toast: (t: string) => void }) {
-  const q = useQuery<any>({ queryKey: ['cb-admin'], queryFn: () => bbFetch('/bale-bot/customer-bot/admin') });
-  const [oa, setOa] = useState(''); const [ds, setDs] = useState('');
-  const [title, setTitle] = useState(''); const [body, setBody] = useState('');
-  const [busy, setBusy] = useState(false);
-  const d = q.data;
-  const saveKey = async (kind: 'openai' | 'deepseek', value: string) => {
-    if (!value.trim()) return;
-    setBusy(true);
-    try {
-      await bbFetch('/bale-bot/customer-bot/admin/secret', { body: { kind, value: value.trim() } });
-      if (kind === 'openai') setOa(''); else setDs('');
-      toast('کلید ذخیره شد');
-      void q.refetch();
-    } catch (x) { toast(x instanceof BbError ? x.message : 'انجام نشد.'); }
-    finally { setBusy(false); }
-  };
-  const saveKb = async () => {
-    if (!title.trim() || !body.trim()) return;
-    setBusy(true);
-    try {
-      await bbFetch('/bale-bot/customer-bot/admin/kb', { body: { title: title.trim(), body: body.trim() } });
-      setTitle(''); setBody(''); toast('به پایگاه دانش اضافه شد'); void q.refetch();
-    } catch (x) { toast(x instanceof BbError ? x.message : 'انجام نشد.'); }
-    finally { setBusy(false); }
-  };
-  return <section className="card cb-scope" aria-label="ربات مشتریان" data-testid="customer-bot-admin">
-    <b>ربات مشتریان — کلیدها و پایگاه دانش</b>
-    <p className="m">کلیدها فقط در فیلد masked ذخیره می‌شوند و بعد از ذخیره نمایش داده نمی‌شوند. مدل پیش‌فرض OpenAI: {d?.openai?.defaultModel ?? 'gpt-6-luna'}؛ پشتیبان DeepSeek: {d?.deepseek?.defaultModel ?? 'deepseek-flash'}.</p>
-    <div className="fld"><span className="flab">کلید OpenAI</span>
-      <input className="inp" type="password" autoComplete="off" value={oa} onChange={(e) => setOa(e.target.value)} aria-label="کلید OpenAI" />
-      <span className="hint">{d?.openai?.set ? `ذخیره شده، انتها: •••${d.openai.last4}` : 'ذخیره نشده'}</span>
-      <button className="btn gh sm" type="button" aria-disabled={busy || !oa} onClick={() => saveKey('openai', oa)}>ذخیره کلید OpenAI</button>
-    </div>
-    <div className="fld"><span className="flab">کلید DeepSeek</span>
-      <input className="inp" type="password" autoComplete="off" value={ds} onChange={(e) => setDs(e.target.value)} aria-label="کلید DeepSeek" />
-      <span className="hint">{d?.deepseek?.set ? `ذخیره شده، انتها: •••${d.deepseek.last4}` : 'ذخیره نشده'}</span>
-      <button className="btn gh sm" type="button" aria-disabled={busy || !ds} onClick={() => saveKey('deepseek', ds)}>ذخیره کلید DeepSeek</button>
-    </div>
-    <div className="fld"><span className="flab">افزودن به پایگاه دانش</span>
-      <input className="inp" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="عنوان" aria-label="عنوان دانش" />
-      <textarea className="inp" rows={3} value={body} onChange={(e) => setBody(e.target.value)} placeholder="متن" aria-label="متن دانش" />
-      <button className="btn pri sm" type="button" aria-disabled={busy || !title || !body} onClick={saveKb}>ذخیره دانش</button>
-    </div>
-    <ul>{(d?.kb ?? []).map((k: any) => <li key={k.id}><b>{k.title}</b> — {k.active ? 'فعال' : 'غیرفعال'}</li>)}</ul>
-  </section>;
 }

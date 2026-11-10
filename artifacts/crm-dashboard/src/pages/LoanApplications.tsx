@@ -61,6 +61,13 @@ const STATUS_LABELS: Record<string, string> = {
 const BOARD_COLUMNS = Object.keys(BUSINESS_STATUS_LABELS);
 const fa = (n: number) => n.toLocaleString("fa-IR");
 const toman = (value?: string | null) => { try { return BigInt(value || "0").toLocaleString("fa-IR"); } catch { return value || "—"; } };
+const amountEmpty = (value?: string | null) => {
+  const s = String(value ?? "").trim();
+  if (!s) return true;
+  try { return BigInt(s) === 0n; } catch { return false; }
+};
+const fromBaleAmount = (app: { fromBale?: boolean; requestedAmount?: string | null }) =>
+  app.fromBale && amountEmpty(app.requestedAmount) ? "—" : toman(app.requestedAmount);
 type LoanRow = LoanApplication & { customerSalespersonName?: string | null; customerSubmitted?: boolean; fromBale?: boolean; planBankName?: string | null };
 const publicPlan = (app: LoanRow) => app.fromBale && app.planBankName ? `لندتک / ${String(app.planBankName).trim().replace(/ - /g, '، ')}` : (app.planName || 'بدون طرح');
 
@@ -308,7 +315,7 @@ export default function LoanApplications() {
               <Link key={app.id} href={`/loan-applications/${app.id}`} className={`lrx-bcard${app.actionRequired ? " hl" : ""}`} data-testid={`board-card-${app.id}`}>
                 <b><CustomerName id={app.customerId} name={app.customerName || "مشتری ناشناس"} /></b>
                 <span className="muted">#{fa(app.id)} · {publicPlan(app)}</span>
-                <span className="amt">{toman(app.requestedAmount)} <small>تومان</small></span>
+                <span className="amt">{fromBaleAmount(app)}{fromBaleAmount(app) !== "—" ? <> <small>تومان</small></> : null}</span>
                 {app.stage && columnName !== "completed" && columnName !== "canceled" ? <span className="muted">مرحله: {loanStageLabel(app.stage)}</span> : null}
                 {app.actionRequired ? <span className="csx-tag warn">نیازمند اقدام شما</span> : null}
               </Link>
@@ -328,8 +335,8 @@ export default function LoanApplications() {
             <div className="r1">{bs && BUSINESS_STATUS_LABELS[bs] ? <span className="csx-st" data-bs={bs}>{BUSINESS_STATUS_LABELS[bs]}</span> : <span className="csx-st" data-bs="waiting_registration">{STATUS_LABELS[app.status] || app.status}</span>}<span className="age"><Clock size={15} aria-hidden="true" /> {relativeTime(app.createdAt)}</span></div>
             {app.actionRequired ? <span className="csx-tag bad lrx-need"><AlertCircle size={15} aria-hidden="true" /> نیازمند اقدام شما</span> : null}
             <h3 className="nm"><CustomerName id={app.customerId} name={app.customerName || "مشتری ناشناس"} href={`/loan-applications/${app.id}`} /></h3>
-            <div className="muted">پرونده <b className="lrx-id">#{fa(app.id)}</b> · {publicPlan(app)}{app.customerSubmitted ? <> <span className="csx-tag info" data-testid={`tag-customer-submitted-${app.id}`}>درخواست مشتری ثبت</span></> : null}{app.fromBale ? <> <span className="chip fromb" data-testid={`tag-from-bale-${app.id}`}>از بله</span></> : null}</div>
-            <div className="lrx-money"><b>{toman(app.requestedAmount)}</b> <span className="muted">تومان{duration ? ` · ${fa(Number(duration))} ماهه` : ""}</span></div>
+            <div className="muted">پرونده <b className="lrx-id" dir="ltr">#{fa(app.id)}</b> {publicPlan(app)}{app.customerSubmitted ? <> <span className="csx-tag info" data-testid={`tag-customer-submitted-${app.id}`}>درخواست مشتری ثبت</span></> : null}{app.fromBale ? <> <span className="chip fromb" data-testid={`tag-from-bale-${app.id}`}>از بله</span></> : null}</div>
+            <div className="lrx-money">{fromBaleAmount(app) === "—" ? <b>—</b> : <><b>{fromBaleAmount(app)}</b> <span className="muted">تومان{duration ? ` · ${fa(Number(duration))} ماهه` : ""}</span></>}</div>
             {stage ? <div className="lrx-stage">مرحله: <b>{stage}</b></div> : null}
             {!app.actionRequired && turnLabel(app, bs) !== "—" ? <div className="muted">نوبت اقدام: {turnLabel(app, bs)}</div> : null}
             <div className="muted">{app.customerSalespersonName || "بدون کارشناس فروش"} · ثبت {jalaliDate(app.createdAt)}</div>
@@ -345,8 +352,8 @@ export default function LoanApplications() {
               const bs = loanBusinessStatus(app);
               const duration = app.durationMonths ?? app.requestedDurationMonths;
               return <tr key={app.id} className={app.actionRequired ? "hl" : undefined} data-testid={`loan-row-${app.id}`}>
-                <td><p className="nm"><CustomerName id={app.customerId} name={app.customerName || "مشتری ناشناس"} href={`/loan-applications/${app.id}`} badgeTestId={`badge-loan-customer-id-${app.id}`} /></p><span className="muted">#{fa(app.id)} · {publicPlan(app)}</span>{app.customerSubmitted ? <div><span className="csx-tag info" data-testid={`tag-customer-submitted-${app.id}`}>درخواست مشتری ثبت</span></div> : null}{app.fromBale ? <div><span className="chip fromb" data-testid={`tag-from-bale-${app.id}`}>از بله</span></div> : null}</td>
-                <td><b className="lrx-amt">{toman(app.requestedAmount)}</b>{duration ? <div className="muted">{fa(Number(duration))} ماهه</div> : null}{app.approvedAmount ? <div className="lrx-ok">مصوب: {toman(app.approvedAmount)}</div> : null}</td>
+                <td><p className="nm"><CustomerName id={app.customerId} name={app.customerName || "مشتری ناشناس"} href={`/loan-applications/${app.id}`} badgeTestId={`badge-loan-customer-id-${app.id}`} /></p><span className="muted"><b className="lrx-id" dir="ltr">#{fa(app.id)}</b> {publicPlan(app)}</span>{app.customerSubmitted ? <div><span className="csx-tag info" data-testid={`tag-customer-submitted-${app.id}`}>درخواست مشتری ثبت</span></div> : null}{app.fromBale ? <div><span className="chip fromb" data-testid={`tag-from-bale-${app.id}`}>از بله</span></div> : null}</td>
+                <td><b className="lrx-amt">{fromBaleAmount(app)}</b>{fromBaleAmount(app) !== "—" && duration ? <div className="muted">{fa(Number(duration))} ماهه</div> : null}{app.approvedAmount ? <div className="lrx-ok">مصوب: {toman(app.approvedAmount)}</div> : null}</td>
                 <td><StatusCell app={app} /></td>
                 <td>{app.actionRequired ? <span className="csx-tag bad" title="نیازمند اقدام شما"><AlertCircle size={15} aria-hidden="true" /> شما</span> : <span>{turnLabel(app, bs)}</span>}</td>
                 <td><div>{app.customerSalespersonName || "بدون تخصیص"}</div><div className="muted">ثبت {jalaliDate(app.createdAt)}{app.salespersonNameSnapshot && app.salespersonNameSnapshot !== app.customerSalespersonName ? ` · ثبت‌کننده: ${app.salespersonNameSnapshot}` : ""}</div></td>

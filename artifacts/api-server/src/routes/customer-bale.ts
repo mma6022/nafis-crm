@@ -2,11 +2,14 @@
 import type { IRouter, Request, Response } from "express";
 import {
   CB_DEFAULT_DEEPSEEK_MODEL, CB_DEFAULT_OPENAI_MODEL, CB_FLAGS,
-  cbAnyFlagOn, cbClaimHandoff, cbFlagOn, cbIsFromBale, cbKbList, cbKbUpsert,
-  cbOpenaiModel, cbDeepseekModel, cbOpenHandoff, cbOpenTasksForOwner,
-  cbSecretMeta, cbSetSetting, cbStoreSecret, cbFilingView, ensureCustomerBaleSchema,
-  lockDownOn, planLabelForCustomer,
+  CB_KB_CATEGORIES, CB_KB_SCOPES, CB_SHARED_BOT_NAME, cbAdminFlagOn, cbAnyFlagOn, cbCheckSign, cbClaimHandoff, cbFlagOn,
+  cbDeleteSecret, cbHandoffOwnerId, cbIsFromBale, cbKbDelete, cbKbList, cbKbSetActive, cbKbUpsert, cbPreviewKb,
+  cbOpenaiModel, cbDeepseekModel, cbOpenHandoff, cbOpenTasksForOwner, cbOpenUnassignedTasks,
+  cbSecretMeta, cbSetSetting, cbSharedBot, cbStoreSecret, cbTestSecret, cbFilingView, ensureCustomerBaleSchema,
+  ensureSharedCustomerBot, getCbSignPath, lockDownOn, planLabelForCustomer,
 } from "../lib/customer-bale";
+import { baleBotAad, baleBotHasKey, sealBotToken } from "../lib/bale-bot-crypto";
+import { botById, botToken, isSharedCustomerBot } from "../lib/bale-bot";
 import { bbCanManage, bbUser } from "../lib/bale-bot";
 import { executeChanges, queryRow, queryRows } from "../lib/crm-db";
 
@@ -19,13 +22,16 @@ export function customerBotFlagsPayload() {
     ai: cbFlagOn("ai"),
     filing: cbFlagOn("filing"),
     any: cbAnyFlagOn(),
+    admin: cbAdminFlagOn(),
   };
 }
 
 export function attachCustomerBotToChat(chatId: number, ownerId: number, viewer: { id: number; role: string }) {
   if (!cbAnyFlagOn()) return null;
   ensureCustomerBaleSchema();
-  const locked = lockDownOn() && viewer.id !== ownerId && viewer.role !== "admin" && viewer.role !== "sales_manager";
+  const chat = queryRow<{ customer_id: number | null }>("SELECT customer_id FROM bale_bot_chats WHERE id=?", [chatId]);
+  const assigned = cbHandoffOwnerId(chat?.customer_id ?? null, ownerId);
+  const locked = lockDownOn() && viewer.id !== ownerId && viewer.id !== assigned && viewer.role !== "admin" && viewer.role !== "sales_manager";
   if (locked) return { restricted: true, flags: customerBotFlagsPayload() };
   const filing = cbFilingView(chatId);
   const handoff = cbOpenHandoff(chatId);
@@ -55,21 +61,50 @@ export function registerCustomerBaleRoutes(r: IRouter, opts: { kick: () => void 
     res.json({ flags: customerBotFlagsPayload(), openaiModel: cbOpenaiModel(), deepseekModel: cbDeepseekModel() });
   });
 
-  r.get("/bale-bot/customer-bot/admin", (_req, res) => {
+  const requireAdminFeature = (res: Response) => {
     const u = me(res);
-    if (!bbCanManage(u as any)) return fail(res, 403, "forbidden");
+    if (!bbCanManage(u as any)) { fail(res, 403, "forbidden"); return null; }
+    if (!cbAdminFlagOn()) { fail(res, 403, "admin_flag_off"); return null; }
     ensureCustomerBaleSchema();
+    ensureSharedCustomerBot();
+    return u;
+  };
+
+  r.get("/bale-bot/customer-bot/admin", (_req, res) => {
+    if (!requireAdminFeature(res)) return;
+    const shared = cbSharedBot();
     res.json({
       flags: customerBotFlagsPayload(),
       openai: { ...cbSecretMeta("openai"), model: cbOpenaiModel(), defaultModel: CB_DEFAULT_OPENAI_MODEL },
       deepseek: { ...cbSecretMeta("deepseek"), model: cbDeepseekModel(), defaultModel: CB_DEFAULT_DEEPSEEK_MODEL },
       kb: cbKbList(),
+      scopes: CB_KB_SCOPES,
+      categories: CB_KB_CATEGORIES,
+      defaultScope: CB_KB_SCOPES[0],
+      sharedBot: shared ? { id: shared.id, name: shared.bot_name || CB_SHARED_BOT_NAME, username: shared.bot_username ?? null, status: shared.status, hasToken: !!shared.token_ct, connectedAt: (shared as any).connected_at ?? null } : null,
     });
   });
 
+  /* Shared «نفیس وام» bot token: sealed like expert bot tokens; never returned. No live Bale call here when a test hook is set. */
+  r.post("/bale-bot/customer-bot/admin/shared-bot/token", (req: Request, res: Response) => {
+    if (!requireAdminFeature(res)) return;
+    const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+    if (token.length < 8) return fail(res, 400, "invalid");
+    if (!baleBotHasKey(process.env)) return fail(res, 503, "key_missing");
+    const id = ensureSharedCustomerBot();
+    const sealed = sealBotToken(process.env, token, baleBotAad(id, 0));
+    const at = new Date().toISOString();
+    executeChanges(
+      "UPDATE bale_bots SET token_ct=?, token_key_id=?, updated_at=? WHERE id=?",
+      [sealed.value, sealed.keyId, at, id],
+    );
+    const shared = cbSharedBot();
+    res.json({ ok: true, sharedBot: { id: shared.id, name: shared.bot_name || CB_SHARED_BOT_NAME, username: shared.bot_username ?? null, status: shared.status, hasToken: !!shared.token_ct, connectedAt: (shared as any).connected_at ?? null } });
+  });
+
   r.post("/bale-bot/customer-bot/admin/secret", (req: Request, res: Response) => {
+    if (!requireAdminFeature(res)) return;
     const u = me(res);
-    if (!bbCanManage(u as any)) return fail(res, 403, "forbidden");
     ensureCustomerBaleSchema();
     const kind = req.body?.kind === "deepseek" ? "deepseek" : req.body?.kind === "openai" ? "openai" : null;
     const value = typeof req.body?.value === "string" ? req.body.value.trim() : "";
@@ -81,15 +116,64 @@ export function registerCustomerBaleRoutes(r: IRouter, opts: { kick: () => void 
     res.json({ ok: true, [kind]: cbSecretMeta(kind) });
   });
 
+  r.post("/bale-bot/customer-bot/admin/secret/delete", (req: Request, res: Response) => {
+    if (!requireAdminFeature(res)) return;
+    const kind = req.body?.kind === "deepseek" ? "deepseek" : req.body?.kind === "openai" ? "openai" : null;
+    if (!kind) return fail(res, 400, "invalid");
+    cbDeleteSecret(kind);
+    res.json({ ok: true, [kind]: cbSecretMeta(kind) });
+  });
+
+  r.post("/bale-bot/customer-bot/admin/secret/test", async (req: Request, res: Response) => {
+    if (!requireAdminFeature(res)) return;
+    const kind = req.body?.kind === "deepseek" ? "deepseek" : req.body?.kind === "openai" ? "openai" : null;
+    if (!kind) return fail(res, 400, "invalid");
+    const out = await cbTestSecret(kind);
+    res.json({ ok: out.ok, title: out.title, message: out.message, kind });
+  });
+
   r.post("/bale-bot/customer-bot/admin/kb", (req: Request, res: Response) => {
+    if (!requireAdminFeature(res)) return;
     const u = me(res);
-    if (!bbCanManage(u as any)) return fail(res, 403, "forbidden");
-    ensureCustomerBaleSchema();
     const title = String(req.body?.title ?? "").trim();
     const body = String(req.body?.body ?? "").trim();
     if (!title || !body) return fail(res, 400, "invalid");
-    const id = cbKbUpsert(req.body?.id ? Number(req.body.id) : null, title, body, req.body?.active !== false, u.id);
+    const id = cbKbUpsert(
+      req.body?.id ? Number(req.body.id) : null,
+      title,
+      body,
+      req.body?.active !== false,
+      u.id,
+      undefined,
+      { category: req.body?.category ?? null, scope: req.body?.scope ?? null },
+    );
     res.json({ ok: true, id, kb: cbKbList() });
+  });
+
+  r.post("/bale-bot/customer-bot/admin/kb/delete", (req: Request, res: Response) => {
+    if (!requireAdminFeature(res)) return;
+    const id = Number(req.body?.id);
+    if (!id) return fail(res, 400, "invalid");
+    cbKbDelete(id);
+    res.json({ ok: true, kb: cbKbList() });
+  });
+
+  r.post("/bale-bot/customer-bot/admin/kb/active", (req: Request, res: Response) => {
+    if (!requireAdminFeature(res)) return;
+    const u = me(res);
+    const id = Number(req.body?.id);
+    if (!id) return fail(res, 400, "invalid");
+    cbKbSetActive(id, req.body?.active !== false, u.id);
+    res.json({ ok: true, kb: cbKbList() });
+  });
+
+  r.post("/bale-bot/customer-bot/admin/kb/preview", (req: Request, res: Response) => {
+    if (!requireAdminFeature(res)) return;
+    const question = String(req.body?.question ?? "").trim();
+    if (!question) return fail(res, 400, "invalid");
+    const botKind = req.body?.bot === "shared" ? { user_id: 0 } : req.body?.bot === "expert" ? { user_id: 2 } : null;
+    const out = cbPreviewKb(question, botKind);
+    res.json({ ok: out.ok, text: out.text });
   });
 
   r.post("/bale-bot/chats/:id/customer-bot/claim-handoff", (req, res) => {
@@ -106,22 +190,34 @@ export function registerCustomerBaleRoutes(r: IRouter, opts: { kick: () => void 
   r.get("/bale-bot/customer-bot/tasks", (_req, res) => {
     const u = me(res);
     ensureCustomerBaleSchema();
-    res.json({ tasks: cbOpenTasksForOwner(u.id) });
+    const tasks = cbOpenTasksForOwner(u.id);
+    if (u.role === "admin" || u.role === "sales_manager") {
+      res.json({ tasks, unassigned: cbOpenUnassignedTasks() });
+    } else res.json({ tasks });
   });
 
-  /* Sign follow-up: only polls the existing check-status hook; never invents contract text. */
-  r.post("/bale-bot/chats/:id/customer-bot/check-sign", (req, res) => {
+  /* Sign follow-up: calls the existing Emzami check-status (and reminder) path; never invents contract text. */
+  r.post("/bale-bot/chats/:id/customer-bot/check-sign", async (req, res) => {
     const u = me(res);
     ensureCustomerBaleSchema();
     const chatId = Number(req.params.id);
     const f = cbFilingView(chatId);
     if (!f?.applicationId) return fail(res, 404, "no_contract");
     if (lockDownOn()) {
-      const chat = queryRow<{ bot_id: number }>("SELECT c.bot_id FROM bale_bot_chats c WHERE c.id=?", [chatId]);
+      const chat = queryRow<{ bot_id: number; customer_id: number | null }>("SELECT c.bot_id, c.customer_id FROM bale_bot_chats c WHERE c.id=?", [chatId]);
       const bot = chat ? queryRow<{ user_id: number }>("SELECT user_id FROM bale_bots WHERE id=?", [chat.bot_id]) : null;
-      if (bot && bot.user_id !== u.id && u.role !== "admin") return fail(res, 403, "expert_lockdown");
+      const assigned = cbHandoffOwnerId(chat?.customer_id ?? null, bot?.user_id ?? null);
+      if (bot && bot.user_id !== u.id && assigned !== u.id && u.role !== "admin") return fail(res, 403, "expert_lockdown");
     }
-    res.json({ ok: true, status: f.contractStatus ?? "pending", applicationId: f.applicationId, path: "check-status" });
+    try {
+      const out = await cbCheckSign(chatId, getCbSignPath());
+      res.json({ ok: true, status: out.status, applicationId: out.applicationId, generationId: out.generationId, path: out.path, reminded: out.reminded });
+    } catch (e: any) {
+      const code = String(e?.message ?? "error");
+      if (code === "no_contract") return fail(res, 404, "no_contract");
+      if (code === "no_sign_path") return fail(res, 503, "sign_path_unavailable");
+      return fail(res, 502, "provider_status_failed");
+    }
   });
 
   void opts;
