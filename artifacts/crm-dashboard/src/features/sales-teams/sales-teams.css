@@ -1,5 +1,10 @@
 /* sales-teams v1.1 — تیم‌های فروش. پوسته از shell.css است. */
 .st-page{max-width:960px;margin:0 auto}
+/* Production (no shell `.pg`): same dock reserve as Armita sales-shell. `.pg.st-page` already has this from shell.css. */
+main.st-page:not(.pg){padding-bottom:calc(var(--ss-dock-h, var(--dock-h, 84px)) + var(--ss-gap, var(--dock-gap, 16px)) + 32px)}
+@media(max-width:1023.98px){
+  main.st-page:not(.pg){padding-bottom:calc(var(--ss-dock-h, var(--dock-h, 72px)) + 28px + env(safe-area-inset-bottom, 0px))}
+}
 .st-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin:8px 0 24px;flex-wrap:wrap}
 .st-head h2{margin:0;font-size:var(--nf-text-h2);line-height:var(--nf-lh-h2);color:var(--nf-ink);font-weight:800}
 .st-head p{margin:4px 0 0;color:var(--nf-ink-muted);font-size:15px}

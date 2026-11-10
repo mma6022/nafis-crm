@@ -158,6 +158,16 @@ for (let i = 0; i < SCENES.length; i++) {
         await page.goto(url, { waitUntil: "networkidle0", timeout: 30000 });
         await page.waitForSelector("main.st-page, .st-skel, .st-state, .st-wiz, .st-team, .st-empty", { timeout: 10000 });
         await new Promise((r) => setTimeout(r, 180));
+        // Grow the frame to the document height so the fixed dock sits at the
+        // bottom of the PNG (Armita official 01-list is 1280x1350, not 800).
+        // `.pg` already reserves dock-h + gap + 32px (28px + safe-area on mobile).
+        const contentH = await page.evaluate(() => Math.max(
+          document.documentElement.scrollHeight,
+          document.body ? document.body.scrollHeight : 0,
+        ));
+        const fitH = Math.max(sz.h, Math.ceil(contentH));
+        await page.setViewport({ width: sz.w, height: fitH, deviceScaleFactor: sz.scale });
+        await new Promise((r) => setTimeout(r, 120));
         await page.screenshot({ path: dest, fullPage: false, type: "png" });
         text = await page.evaluate(() => document.body.innerText);
         break;
@@ -203,7 +213,7 @@ const lines = [
   `Source dump: \`${src}\`. Flag \`flag.multi_team_v1\` was turned on only in the copy.`,
   "The page is the team-builder UI in \`artifacts/crm-dashboard/src/features/sales-teams/\`, wrapped in Armita's v1.1 sales-shell chrome for these shots.",
   "",
-  "Viewports: official design sizes **1280×800@1x** and **390×844@2x**, plus the requested **390@1x**, **768×1024**, **1366×768**, and **1920×1080**. Every one of the 18 scenes was shot at every size. Files are viewport PNGs (dock stays at the bottom, matching the official 1280 and 390 frames).",
+  "Widths: official **1280@1x** and **390@2x**, plus **390@1x**, **768**, **1366**, and **1920**. Every one of the 18 scenes was shot at every width. Height is at least the named frame (800 / 844 / 1024 / 768 / 1080) and grows to the document height so the fixed dock sits under the content, the same way Armita's official 01-list is 1280x1350. The page already reserves `dock-h + gap + 32px` (28px + safe-area on mobile) at the bottom of `.pg`, so list and wizard actions, the trainee note, and «ساخت کاربر جدید» never sit under the dock.",
   "",
   "Actor: scenes 1–12 and 15–18 as sales manager (محمدحسین مهرپور); scene 13 as admin (مدیر سامانه); scene 14 as آقای کاظمی.",
   "",
@@ -218,7 +228,7 @@ for (let i = 0; i < SCENES.length; i++) {
 }
 lines.push("", "## Notes", "");
 lines.push("- Display name «حسین خردکار» comes from the team-UI override, not a users-table write.");
-lines.push("- The masked dump has a seventh active salesperson, shown as «کارشناس ۲۲». The mockup only has the six named people, so picker scenes (4 and 9) are taller than the handoff.");
+lines.push("- The masked dump has a seventh active salesperson, shown as «کارشناس ۲۲». The mockup only has the six named people, so picker scenes (4 and 9) are taller than the handoff; the frame grows so the trainee note, «ساخت کاربر جدید», and wizard actions stay above the dock.");
 lines.push("- Production CRM chrome (CrmShell / sales-shell v2 when that flag is on) is not identical to this shot wrap; the page body (`.st-page`) is the same UI.");
 lines.push("");
 fs.writeFileSync(path.join(OUT, "INDEX.md"), lines.join("\n"));
