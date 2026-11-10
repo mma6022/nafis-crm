@@ -109,7 +109,7 @@ export function TodayCarousel({ d, refresh }: { d: Working; refresh: () => void 
 
     {p.total || cur ? <section className="tc-kp" aria-label="پیشرفت لیست اصلی" data-testid="tc-progress">
       <div className="tc-kpr"><span className="tc-pos" data-testid="tc-pos">{posLine}</span>
-        <small>{s132 ? s132Line(`${faNum(p.done)} انجام شد · ${faNum(mainUp.length)} کار بعد از این`) : <>{faNum(p.done)} انجام شد · {faNum(mainUp.length)} کار بعد از این</>}</small>
+        <small>{s132 ? s132Line(`${faNum(p.done)} انجام شد؛ ${faNum(mainUp.length)} کار بعد از این`) : <>{faNum(p.done)} انجام شد؛ {faNum(mainUp.length)} کار بعد از این</>}</small>
         {p.extraDone ? <span className="dp-chip extra" data-testid="tc-extra">کار اضافه: {faNum(p.extraDone)} (جدا شمرده می‌شود)</span> : null}
         {p.outOfList ? <span className="dp-chip l-out_of_list">خارج از لیست: {faNum(p.outOfList)}</span> : null}</div>
       {p.total ? <div className="tc-bar" role="progressbar" aria-valuemin={0} aria-valuemax={p.total} aria-valuenow={p.done} aria-label="انجام لیست اصلی"><i style={{ width: `${Math.round((p.done / p.total) * 100)}%` }} /></div> : null}

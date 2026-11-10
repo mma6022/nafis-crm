@@ -118,8 +118,8 @@ function Head({ d }: { d: Working }) {
     {p.total ? <>
       <div className="dp-pos" data-testid="dp-pos"><b>{faNum(p.position || p.done)} از {faNum(p.total)}</b><small>کار فعلی</small></div>
       <div className="dp-bar" role="progressbar" aria-valuemin={0} aria-valuemax={p.total} aria-valuenow={p.done} aria-label="انجام لیست اصلی"><i style={{ width: `${Math.round((p.done / p.total) * 100)}%` }} /></div>
-      <p className="dp-sub" data-testid="dp-sub">{s132 ? s132Line(`${faNum(p.done)} انجام شد · ${faNum(left)} کار بعد از این${p.extraDone ? ` · کار اضافه: ${faNum(p.extraDone)}` : ''}${p.outOfList ? ` · خارج از لیست: ${faNum(p.outOfList)}` : ''}`)
-        : <>{faNum(p.done)} انجام شد · {faNum(left)} کار بعد از این{p.extraDone ? ` · کار اضافه: ${faNum(p.extraDone)}` : ''}{p.outOfList ? ` · خارج از لیست: ${faNum(p.outOfList)}` : ''}</>}</p>
+      <p className="dp-sub" data-testid="dp-sub">{s132 ? s132Line(`${faNum(p.done)} انجام شد؛ ${faNum(left)} کار بعد از این${p.extraDone ? ` · کار اضافه: ${faNum(p.extraDone)}` : ''}${p.outOfList ? ` · خارج از لیست: ${faNum(p.outOfList)}` : ''}`)
+        : <>{faNum(p.done)} انجام شد؛ {faNum(left)} کار بعد از این{p.extraDone ? ` · کار اضافه: ${faNum(p.extraDone)}` : ''}{p.outOfList ? ` · خارج از لیست: ${faNum(p.outOfList)}` : ''}</>}</p>
     </> : null}
     {d.assistantNote && d.mode !== 'auto' ? <blockquote className="dp-anote" data-testid="dp-assistant-note">{d.assistantNote}</blockquote> : null}
   </header>;
