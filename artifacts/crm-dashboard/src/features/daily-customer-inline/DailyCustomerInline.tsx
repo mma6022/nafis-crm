@@ -1,5 +1,5 @@
 /** Armita daily-customer-inline v1.1 — rendered in the existing sales shell. Flag-on Today page only. */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation, useSearch } from "wouter";
 import { getGetAuthSessionQueryKey, useCancelLoanApplication, useGetAuthSession, useUpdateCustomer, type CustomerUpdateStatus } from "@workspace/api-client-react";
@@ -201,9 +201,27 @@ function FirstCall({ customerId, userId, onOpenForm }: { customerId: number; use
 }
 
 function ChipGroup({ label, aria, testId, kind, children }: { label: string; aria: string; testId: string; kind: "status" | "priority"; children: ReactNode }) {
+  const row = useRef<HTMLDivElement>(null);
+  const [atEnd, setAtEnd] = useState(false);
+  useLayoutEffect(() => {
+    const el = row.current;
+    if (!el) return;
+    const check = () => {
+      const last = el.lastElementChild as HTMLElement | null;
+      if (!last || el.scrollWidth <= el.clientWidth + 1) { setAtEnd(true); return; }
+      const er = last.getBoundingClientRect();
+      const cr = el.getBoundingClientRect();
+      setAtEnd(er.left >= cr.left - 1 && er.right <= cr.right + 1);
+    };
+    check();
+    el.addEventListener("scroll", check, { passive: true });
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => { el.removeEventListener("scroll", check); ro.disconnect(); };
+  }, [children]);
   return <div className={`dci-ps dci-ps-${kind}`} data-testid={testId}>
     <span className="dci-ps-lbl">{label}</span>
-    <div className="csx-chips" role="radiogroup" aria-label={aria}>{children}</div>
+    <div ref={row} className={`csx-chips${atEnd ? " scroll-end" : ""}`} role="radiogroup" aria-label={aria}>{children}</div>
   </div>;
 }
 
@@ -289,6 +307,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
   const [psError, setPsError] = useState("");
   const [psOk, setPsOk] = useState("");
   const [pendingPriority, setPendingPriority] = useState<number | null | undefined>(undefined);
+  const [failedPriority, setFailedPriority] = useState<number | null | undefined>(undefined);
   const [cx, setCx] = useState<DciCase | null>(null);
   const [cxReason, setCxReason] = useState("");
   const [cxErr, setCxErr] = useState("");
@@ -300,10 +319,11 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     update.mutate({ id: m.customer.id, data: { priority: value } }, {
       onSuccess: () => {
         setPendingPriority(undefined);
+        setFailedPriority(undefined);
         setPsOk(transferName && curPriority === 1 && value !== 1 ? `مشتری به ${transferName} منتقل شد.` : "اولویت ذخیره شد.");
         refresh();
       },
-      onError: (error) => { setPendingPriority(undefined); setPsError(psErrMsg(error, "priority")); },
+      onError: (error) => { setPendingPriority(undefined); setFailedPriority(value); setPsError(psErrMsg(error, "priority")); },
     });
   };
   const askPriority = (value: number | null) => {
@@ -332,7 +352,11 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
           data-testid={`chip-priority-${value ?? "none"}`}>{value ? `اولویت ${fd(value)}` : "بدون اولویت"}</button>)}
     </ChipGroup>
     {psOk ? <p className="dci-ps-ok" role="status" data-testid="dci-ps-ok">{psOk}</p> : null}
-    {psError ? <p className="dci-empty" role="alert" data-testid="dci-ps-err">{psError}</p> : null}
+    {psError ? <div className="dci-ps-err" role="alert" data-testid="dci-ps-err">
+      <svg className="dci-ps-err-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8 2.6 20.2h18.8L12 3.8z" /><path d="M12 9.5v5.2M12 17.4v.6" /></svg>
+      <p>{psError}</p>
+      <button type="button" className="btn gh" data-testid="dci-ps-retry" disabled={update.isPending || failedPriority === undefined} onClick={() => { if (failedPriority !== undefined) savePriority(failedPriority); }}>تلاش دوباره</button>
+    </div> : null}
   </div> : null;
   const prio = m.prio
     ? <div className="dci-prio"><span className="dci-prio-on">اولویت ۱</span></div>
@@ -388,7 +412,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
           placeholder="دلیل لغو این پرونده را بنویسید…"
           onChange={(e) => { setCxReason(e.target.value); if (cxErr && e.target.value.trim()) setCxErr(""); }}
           data-testid="dci-cx-reason" />
-        {cxErr ? <p className="dci-empty" role="alert" data-testid="dci-cx-err">{cxErr}</p> : null}
+        {cxErr ? <p className="dci-cx-err" role="alert" data-testid="dci-cx-err">{cxErr}</p> : null}
         <p className="dci-cxn" data-testid="dci-cx-info">برگرداندن لغو فقط با ادمین است.</p>
         <div className="dci-dlg-acts">
           <button type="button" className="btn gh" autoFocus data-testid="dci-cx-back" disabled={cancelCase.isPending} onClick={() => { if (!cancelCase.isPending) setCx(null); }}>برگشت</button>
