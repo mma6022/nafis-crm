@@ -45,7 +45,8 @@ router.get("/daily-customer-inline/customers/:id", dciAuth, (req, res) => {
     return;
   }
   res.setHeader("Cache-Control", "no-store");
-  const board = dciBoard(user, customerId);
+  const task = typeof req.query.task === "string" ? req.query.task : null;
+  const board = dciBoard(user, customerId, task);
   if (board.access === "missing") {
     res.status(404).json({ error: "customer_not_found", message: "مشتری پیدا نشد." });
     return;

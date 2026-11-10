@@ -53,7 +53,7 @@ export type DciDenied = { error: "not_owner"; message: string; customerId: numbe
 export const dciApi = {
   status: () => req<{ enabled: boolean }>("GET", "/daily-customer-inline/status"),
   today: () => req<DciToday>("GET", "/daily-customer-inline/today"),
-  board: (id: number) => req<DciBoard>("GET", `/daily-customer-inline/customers/${id}`),
+  board: (id: number, task?: string | null) => req<DciBoard>("GET", `/daily-customer-inline/customers/${id}${task ? `?task=${encodeURIComponent(task)}` : ""}`),
   addNote: (id: number, body: string) => req<{ ok: true; notes: DciNote[] }>("POST", `/daily-customer-inline/customers/${id}/notes`, { body }),
   inboundNote: (eventId: number, body: string) => req<{ ok: true; customerId: number }>("POST", `/daily-customer-inline/inbounds/${eventId}/note`, { body }),
 };
@@ -68,10 +68,10 @@ export function useDciStatus(enabled = true) {
 export function useDciToday(enabled = true) {
   return useQuery({ queryKey: ["dci-today"], queryFn: dciApi.today, enabled, staleTime: 15_000, retry: false });
 }
-export function useDciBoard(customerId: number | null, enabled = true) {
+export function useDciBoard(customerId: number | null, enabled = true, task?: string | null) {
   return useQuery({
-    queryKey: ["dci-board", customerId],
-    queryFn: () => dciApi.board(Number(customerId)),
+    queryKey: ["dci-board", customerId, task ?? ""],
+    queryFn: () => dciApi.board(Number(customerId), task),
     enabled: enabled && Boolean(customerId), staleTime: 10_000, retry: false,
   });
 }
