@@ -16,7 +16,7 @@ export type KbRow = {
 };
 type SecretMeta = { set: boolean; savedAt: string | null; last4?: unknown; model?: string; defaultModel?: string };
 type SharedBot = { id: number; name: string; username: string | null; status: string; hasToken: boolean; connectedAt?: string | null };
-export type AiMasterStatus = { ai_enabled: boolean; has_key: boolean };
+export type AiMasterStatus = { ai_enabled: boolean; has_key: boolean; openai_key_source?: "tab" | "env" | null; xai_fallback_source?: "env" | null };
 export type KbAdminPayload = {
   openai: SecretMeta; deepseek: SecretMeta;
   kb: KbRow[]; scopes: string[]; categories: string[]; defaultScope: string;

@@ -69,6 +69,7 @@ am._resetAiMasterSchemaFlag();
 cb.ensureCustomerBaleSchema();
 am.ensureAiMasterSchema();
 vn.setVoiceNotesAiGate(am.aiEnabled);
+vn.setVoiceNotesOpenAiKey(() => am.aiOpenAiKey(["STT_API_KEY", "OPENAI_API_KEY"]));
 
 const SECRET = "sk-test-fixture-secret-NEVER-LEAK-9f3a2c";
 const setSetting = (key, value) => {
@@ -227,6 +228,8 @@ try {
     assert.equal(r.s, 200);
     assert.equal(r.b.ai.ai_enabled, false);
     assert.equal(r.b.ai.has_key, true);
+    assert.equal(r.b.ai.openai_key_source, "tab");
+    assert.equal(r.b.ai.xai_fallback_source, "env");
     assert.equal(r.b.openai.set, true);
     assert.equal(r.b.deepseek.set, false);
     assert.ok(!blobHasSecret(r.b));
@@ -325,6 +328,130 @@ try {
     setSetting(cb.CB_FLAGS.ai, "0");
     assert.equal(cb.cbAiLive(), false);
     cb.cbDeleteSecret("openai", 1);
+  });
+
+  // ---- tab-first OpenAI key, env fallback (STT / summary / voice-notes primary). Bale stays tab-only. ----
+  const ENV_KEY = process.env.OPENAI_API_KEY;
+  const bearer = (init) => {
+    const h = init?.headers;
+    const raw = h instanceof Headers ? h.get("Authorization") : (h && (h.Authorization || h.authorization)) || "";
+    return String(raw).replace(/^Bearer\s+/i, "");
+  };
+  const withCapturedFetch = async (fn) => {
+    let used = null;
+    const prev = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      const u = String(url);
+      if (/api\.openai\.com|api\.x\.ai/i.test(u)) {
+        used = bearer(init);
+        return new Response(JSON.stringify({ error: "fixture-mock" }), { status: 500, headers: { "content-type": "application/json" } });
+      }
+      return prev(url, init);
+    };
+    try { await fn(() => used); } finally { globalThis.fetch = prev; }
+  };
+  const dummyAudio = path.join(dir, "dummy.mp3");
+  fs.writeFileSync(dummyAudio, Buffer.alloc(32));
+
+  await ok("status: tab present → openai_key_source=tab; tab empty → env", async () => {
+    cb.cbStoreSecret("openai", SECRET);
+    const tab = am.aiMasterStatus();
+    assert.equal(tab.openai_key_source, "tab");
+    assert.equal(tab.xai_fallback_source, "env");
+    assert.equal(am.aiOpenAiKey()?.source, "tab");
+    assert.equal(am.aiOpenAiKey()?.key, SECRET);
+    cb.cbDeleteSecret("openai");
+    const envS = am.aiMasterStatus();
+    assert.equal(envS.has_key, false);
+    assert.equal(envS.openai_key_source, "env");
+    assert.equal(am.aiOpenAiKey()?.source, "env");
+    assert.equal(am.aiOpenAiKey()?.key, ENV_KEY);
+    assert.ok(!blobHasSecret(tab) && !blobHasSecret(envS));
+  });
+
+  await ok("tab present → summarizeCall / extractItems / speechRequest use the tab key, not env", async () => {
+    cb.cbStoreSecret("openai", SECRET);
+    setSetting(am.AI_ENABLED_SETTING, "1");
+    await withCapturedFetch(async (get) => {
+      await summarizeCall("سلام این یک متن مکالمه برای خلاصه است.").catch(() => {});
+      assert.equal(get(), SECRET, "summarizeCall must use tab key");
+    });
+    await withCapturedFetch(async (get) => {
+      await extractItems([{ speaker: "a", text: "سلام", start: 0 }], ["طرح یک"]).catch(() => {});
+      assert.equal(get(), SECRET, "extractItems must use tab key");
+    });
+    await withCapturedFetch(async (get) => {
+      await speechRequest(dummyAudio, { model: "gpt-transcribe" }).catch(() => {});
+      assert.equal(get(), SECRET, "speechRequest must use tab key");
+    });
+    cb.cbDeleteSecret("openai");
+  });
+
+  await ok("tab empty → summarizeCall / extractItems / speechRequest use the env key", async () => {
+    cb.cbDeleteSecret("openai");
+    setSetting(am.AI_ENABLED_SETTING, "1");
+    assert.equal(am.aiOpenAiKey()?.source, "env");
+    await withCapturedFetch(async (get) => {
+      await summarizeCall("سلام این یک متن مکالمه برای خلاصه است.").catch(() => {});
+      assert.equal(get(), ENV_KEY, "summarizeCall must use env key");
+    });
+    await withCapturedFetch(async (get) => {
+      await extractItems([{ speaker: "a", text: "سلام", start: 0 }], ["طرح یک"]).catch(() => {});
+      assert.equal(get(), ENV_KEY, "extractItems must use env key");
+    });
+    await withCapturedFetch(async (get) => {
+      await speechRequest(dummyAudio, { model: "gpt-transcribe" }).catch(() => {});
+      assert.equal(get(), ENV_KEY, "speechRequest must use env key");
+    });
+  });
+
+  await ok("voice-notes primary: tab present → tab key; tab empty → env; xAI path stays on env XAI_API_KEY", async () => {
+    setSetting(am.AI_ENABLED_SETTING, "1");
+    const cfgO = { provider: "openai", model: "gpt-4o-transcribe", baseUrl: "https://api.openai.com/v1", timeoutMs: 1000 };
+    const cfgX = { provider: "xai", model: "grok-voice-transcribe-2.0", baseUrl: "https://api.x.ai/v1", timeoutMs: 1000 };
+    const input = { audio: Buffer.alloc(300), mime: "audio/webm", plans: [] };
+    cb.cbStoreSecret("openai", SECRET);
+    await withCapturedFetch(async (get) => {
+      await vn.transcribe(cfgO, process.env, input, globalThis.fetch).catch(() => {});
+      assert.equal(get(), SECRET, "voice notes openai must use tab key");
+    });
+    cb.cbDeleteSecret("openai");
+    // delete auto-offs; seed/release can still leave the switch on with an empty tab (env fallback).
+    setSetting(am.AI_ENABLED_SETTING, "1");
+    await withCapturedFetch(async (get) => {
+      await vn.transcribe(cfgO, process.env, input, globalThis.fetch).catch(() => {});
+      assert.equal(get(), ENV_KEY, "voice notes openai must fall back to env");
+    });
+    await withCapturedFetch(async (get) => {
+      await vn.transcribe(cfgX, process.env, input, globalThis.fetch).catch(() => {});
+      assert.equal(get(), process.env.XAI_API_KEY, "voice notes xAI must stay on env XAI_API_KEY");
+    });
+  });
+
+  await ok("master off → still no provider call even when a tab or env key exists", async () => {
+    cb.cbStoreSecret("openai", SECRET);
+    setSetting(am.AI_ENABLED_SETTING, "0");
+    netCalls.length = 0;
+    await withCapturedFetch(async (get) => {
+      await summarizeCall("سلام این یک متن مکالمه است.").catch((e) => {
+        assert.ok(e instanceof CallSummaryError);
+        assert.match(String(e.message), /هوش مصنوعی خاموش است/);
+      });
+      assert.equal(get(), null, "must not send a key when master is off");
+    });
+    assert.equal(netCalls.length, 0);
+    cb.cbDeleteSecret("openai");
+  });
+
+  await ok("cbAnswerAi stays tab-only: empty tab does not fall back to env", async () => {
+    cb.cbDeleteSecret("openai");
+    cb.cbDeleteSecret("deepseek");
+    setSetting(am.AI_ENABLED_SETTING, "1");
+    setSetting(cb.CB_FLAGS.ai, "1");
+    let called = 0;
+    const r = await cb.cbAnswerAi("ساعات پاسخگویی چیست؟", { fetchFn: async ({ apiKey }) => { called++; return { ok: true, text: "سلام" }; } });
+    assert.equal(called, 0, "Bale must not use the env OpenAI key");
+    assert.equal(r.kind, "handoff");
   });
 
 } finally {

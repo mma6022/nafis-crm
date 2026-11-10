@@ -3,6 +3,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { VoipTranscriptSegment, VoipTranscriptSpeaker } from "@workspace/api-zod";
+import { aiOpenAiKey } from "./ai-master";
 import { accurateSpeech, speechRequest, SPEECH_MODEL, SPEAKER_MODEL, TranscriptionError } from "./recording-speech-provider";
 import { joinSpeechWindows, speechWindows } from "./recording-speech-windows";
 export { TranscriptionError, validateSpeechText } from "./recording-speech-provider";
@@ -11,7 +12,7 @@ const run = promisify(execFile);
 export const TRANSCRIPTION_MODEL = SPEECH_MODEL;
 const formats = "wav,mp3,ogg,flac,mov,matroska,webm,gsm,amr,aac";
 const safeInput = ["-protocol_whitelist", "file,pipe", "-format_whitelist", formats];
-export function speechConfigured() { return !!process.env.OPENAI_API_KEY; }
+export function speechConfigured() { return aiOpenAiKey() != null; }
 async function media(command: string, args: string[], binary = false) {
   try {
     return await run(command, args, { timeout: 180000, maxBuffer: binary ? 10*1024*1024 : 1024*1024,

@@ -1,10 +1,11 @@
-import { AI_MASTER_OFF_MSG, aiEnabled } from "./ai-master";
+import { AI_MASTER_OFF_MSG, aiEnabled, aiOpenAiKey } from "./ai-master";
 export class CallSummaryError extends Error {}
 
 export async function summarizeCall(text: string) {
   if (!aiEnabled()) throw new CallSummaryError(AI_MASTER_OFF_MSG);
   if (!text.trim() || text.length > 300000) throw new CallSummaryError("متن کامل مکالمه برای تهیهٔ خلاصه معتبر نیست.");
-  const key = process.env.OPENAI_API_KEY;
+  const cred = aiOpenAiKey();
+  const key = cred?.key;
   if (!key) throw new CallSummaryError("کلید OpenAI برای تهیهٔ خلاصه تنظیم نشده است.");
   let response: Response;
   try {

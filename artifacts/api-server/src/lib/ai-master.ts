@@ -115,9 +115,61 @@ export function aiHasRegisteredKey(): boolean {
   }
 }
 
+export type AiKeySource = "tab" | "env";
+export type AiMasterStatus = {
+  ai_enabled: boolean;
+  has_key: boolean;
+  /** Which OpenAI key the STT/summary paths would use. Never the key itself. */
+  openai_key_source: AiKeySource | null;
+  /** Voice-note xAI fallback has no Keys-tab card; "env" when XAI_API_KEY is set. */
+  xai_fallback_source: "env" | null;
+};
+
+/** Same decode as cbReadSecret("openai"). Kept here to avoid a cycle with customer-bale. Never log the value. */
+function readTabOpenAiSecret(): string | null {
+  try {
+    const has = queryRow("SELECT 1 n FROM sqlite_master WHERE type='table' AND name='customer_bale_secrets'");
+    if (!has) return null;
+    const r = queryRow<{ sealed: string }>("SELECT sealed FROM customer_bale_secrets WHERE kind=?", ["openai"]);
+    if (!r?.sealed) return null;
+    const v = Buffer.from(r.sealed, "base64").toString("utf8").trim();
+    return v || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * OpenAI key for call transcripts, call summary, summary fields, and voice-notes primary.
+ * Keys tab first; if none, fall back to env (default OPENAI_API_KEY; voice notes also pass STT_API_KEY).
+ * Never logs the value. Bale cbAnswerAi does not use this — it stays tab-only.
+ */
+export function aiOpenAiKey(envNames: readonly string[] = ["OPENAI_API_KEY"]): { key: string; source: AiKeySource } | null {
+  const tab = readTabOpenAiSecret();
+  if (tab) return { key: tab, source: "tab" };
+  for (const name of envNames) {
+    const v = (process.env[name] ?? "").trim();
+    if (v) return { key: v, source: "env" };
+  }
+  return null;
+}
+
+export function aiOpenAiKeySource(envNames: readonly string[] = ["OPENAI_API_KEY"]): AiKeySource | null {
+  return aiOpenAiKey(envNames)?.source ?? null;
+}
+
+export function aiXaiFallbackSource(): "env" | null {
+  return (process.env.XAI_API_KEY ?? "").trim() ? "env" : null;
+}
+
 /** Status for GET. Never includes a key, last4, or remnant. */
-export function aiMasterStatus(): { ai_enabled: boolean; has_key: boolean } {
-  return { ai_enabled: aiEnabled(), has_key: aiHasRegisteredKey() };
+export function aiMasterStatus(): AiMasterStatus {
+  return {
+    ai_enabled: aiEnabled(),
+    has_key: aiHasRegisteredKey(),
+    openai_key_source: aiOpenAiKeySource(),
+    xai_fallback_source: aiXaiFallbackSource(),
+  };
 }
 
 export function aiAudit(action: "on" | "off" | "auto_off_no_key", userId: number | null, at = nowIso()): void {
@@ -135,7 +187,7 @@ export function seedAiEnabledIfAbsent(value: "0" | "1", at = nowIso()): boolean 
   return true;
 }
 
-export function aiSetEnabled(on: boolean, actorId: number | null, at = nowIso()): { ai_enabled: boolean; has_key: boolean } {
+export function aiSetEnabled(on: boolean, actorId: number | null, at = nowIso()): AiMasterStatus {
   ensureAiMasterSchema();
   if (on && !aiHasRegisteredKey()) {
     throw new AiMasterError(409, AI_NO_KEY_CODE, AI_NO_KEY_MSG);

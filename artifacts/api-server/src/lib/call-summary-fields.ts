@@ -11,7 +11,7 @@
  * Nothing here sends a message / SMS / notification.
  */
 import type { AuthUser } from "./auth";
-import { AI_MASTER_OFF_MSG, aiEnabled } from "./ai-master";
+import { AI_MASTER_OFF_MSG, aiEnabled, aiOpenAiKey } from "./ai-master";
 import { logger } from "./logger";
 import { execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import { ctAdminViewer, ctEvent, isCtManager, tehranRange, textState, visibleEvent, type Ev } from "./call-transcripts";
@@ -413,7 +413,8 @@ export async function extractItems(segs: Seg[], plans: string[], fetchImpl: type
   if (!aiEnabled()) throw new CsExtractError(AI_MASTER_OFF_MSG);
   const lines = segs.map((s, i) => `[${i}] ${s.speaker ?? ""}: ${s.text}`).join("\n");
   if (!lines.trim() || lines.length > 300000) throw new CsExtractError("متن مکالمه معتبر نیست.");
-  const key = process.env.OPENAI_API_KEY;
+  const cred = aiOpenAiKey();
+  const key = cred?.key;
   if (!key) throw new CsExtractError("کلید OpenAI تنظیم نشده است.");
   let response: Response;
   try {

@@ -18,6 +18,13 @@ const AI_OFF = "هوش مصنوعی خاموش است.";
 let aiWorkAllowed: () => boolean = () => true;
 export function setVoiceNotesAiGate(fn: (() => boolean) | null) { aiWorkAllowed = fn ?? (() => true); }
 
+/** Optional Keys-tab-first OpenAI lookup for the primary (non-xAI) path. Default is env only so the isolated fixture stays crm-db-free.
+ *  Production routes/voice-notes.ts sets this to aiOpenAiKey(["STT_API_KEY","OPENAI_API_KEY"]).
+ *  xAI fallback never uses this hook; it stays on env XAI_API_KEY (no Keys-tab xAI card). */
+export type VoiceNotesOpenAiKeyFn = () => { key: string; source: "tab" | "env" } | null;
+let openAiKeyLookup: VoiceNotesOpenAiKeyFn | null = null;
+export function setVoiceNotesOpenAiKey(fn: VoiceNotesOpenAiKeyFn | null) { openAiKeyLookup = fn; }
+
 export type Db = {
   exec(sql: string): void;
   prepare(sql: string): { run(...p: any[]): unknown; all(...p: any[]): unknown[]; get(...p: any[]): unknown };
@@ -88,7 +95,9 @@ export function fallbackSttConfig(env: Env, primary: Provider = "xai"): SttConfi
 export const PRIMARY_TIMEOUT_WITH_FALLBACK_MS = 20_000;
 export const FALLBACK_TIMEOUT_MS = 30_000;
 function apiKey(env: Env, provider: Provider): string {
-  return ((provider === "xai" ? env.XAI_API_KEY : env.STT_API_KEY || env.OPENAI_API_KEY) ?? "").trim();
+  if (provider === "xai") return ((env.XAI_API_KEY) ?? "").trim();
+  if (openAiKeyLookup) return (openAiKeyLookup()?.key ?? "").trim();
+  return ((env.STT_API_KEY || env.OPENAI_API_KEY) ?? "").trim();
 }
 
 export class VoiceNoteError extends Error {

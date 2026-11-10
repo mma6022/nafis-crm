@@ -2,10 +2,11 @@
 import type { Response } from "express";
 import type { AuthUser } from "../lib/auth";
 import { crmDb } from "../lib/crm-db";
-import { aiEnabled } from "../lib/ai-master";
-import { createVoiceNotesRouter, setVoiceNotesAiGate, type FetchLike } from "../lib/voice-notes-core";
+import { aiEnabled, aiOpenAiKey } from "../lib/ai-master";
+import { createVoiceNotesRouter, setVoiceNotesAiGate, setVoiceNotesOpenAiKey, type FetchLike } from "../lib/voice-notes-core";
 
 setVoiceNotesAiGate(aiEnabled);
+setVoiceNotesOpenAiKey(() => aiOpenAiKey(["STT_API_KEY", "OPENAI_API_KEY"]));
 
 const router = createVoiceNotesRouter({
   db: crmDb,
