@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { CaseContextPicker, SamePlanBlock, type CaseChoice } from "@/components/multi-case/CaseContextPicker";
-import { faCase } from "@/lib/multi-case";
+import { faCase } from "@/components/multi-case/types";
 import "@/pages/customers.css";
 import "@/pages/loan-requests.css";
 import "./multi-case-preview.css";

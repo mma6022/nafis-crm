@@ -438,8 +438,8 @@ a.csx-primary, a.csx-ghost, a.csx-call { text-decoration: none; }
 /* crm-row-menu-fix: row ⋯ is the shared portalled RowActionsMenu (the old .csx-menu .pop was clipped by .csx-tablewrap overflow-x:auto on one-row results). */
 .csx-tact .csx-rowmenu { border-color: var(--nf-line); }
 .rv-scope { padding: 0 16px 8px; }
-.mc-pick { position: fixed; inset: 0; background: rgba(17, 24, 39, .45); display: grid; place-items: end center; z-index: 80; }
-.mc-pick-card { background: #fff; width: min(520px, 100%); border-radius: 18px 18px 0 0; padding: 18px 16px 22px; display: grid; gap: 10px; }
+.mc-pick { position: fixed; inset: 0; background: rgba(17, 24, 39, .45); display: grid; place-items: end center; z-index: 80; overflow: auto; }
+.mc-pick-card { background: #fff; width: min(520px, 100%); border-radius: 18px 18px 0 0; padding: 18px 16px 22px; display: grid; gap: 10px; max-height: calc(100vh - 12px); overflow: auto; }
 .mc-step { color: #667085; font-size: 12px; margin: 0; }
 .mc-opts { display: grid; gap: 8px; }
 .mc-opts label { display: flex; gap: 10px; align-items: flex-start; border: 1px solid #e4e7ec; border-radius: 12px; padding: 10px 12px; cursor: pointer; }
