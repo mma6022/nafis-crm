@@ -8,7 +8,7 @@ import type { AuthUser } from "../lib/auth";
 import { executeChanges, runTransaction, queryRow } from "../lib/crm-db";
 import { subscribeCallReports, notifyCallReport } from "../lib/voip-call-notifications";
 import { s132bOn } from "../lib/simotel132b";
-import { afterCallState, canSeeAfterCall, canAccessAfterCallCustomer, ensureAfterCallSchema, eventFor, pendingAfterCalls } from "../lib/voip-after-call";
+import { afterCallState, canSeeAfterCall, canAccessAfterCallCustomer, ensureAfterCallSchema, eventFor, listTodayMissedIncoming, pendingAfterCalls } from "../lib/voip-after-call";
 import { storedCallSummary } from "../lib/recording-summary-jobs";
 import { applyNonP1TransferInTx, NONP1_TRANSFER_HEADER } from "../lib/nonp1-transfer";
 
@@ -29,6 +29,11 @@ router.get("/voip/after-call/stream",requirePermission("calls.view"),(req,res)=>
   const unsubscribe=subscribeCallReports(expert=>{if(actor.role==="admin" || expert==null || expert===actor.id)res.write("data: {\"changed\":true}\n\n");});
   const heartbeat=setInterval(()=>res.write(": heartbeat\n\n"),15000);
   req.on("close",()=>{clearInterval(heartbeat);unsubscribe();});
+});
+router.get("/voip/after-call/missed-today", requirePermission("calls.view"), (_req, res) => {
+  res.setHeader("Cache-Control", "private, no-store");
+  const actor = res.locals.authUser as AuthUser;
+  res.json(listTodayMissedIncoming(actor));
 });
 router.get("/voip/after-call/pending", requirePermission("calls.view"), (_req, res) => {
   res.setHeader("Cache-Control", "private, no-store");

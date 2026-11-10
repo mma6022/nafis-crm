@@ -14,6 +14,7 @@ import { CallNumber, CALLED_LABEL, useNarrow } from '@/features/call-number/Call
 import { useVcMe, vcApi, vcRefresh } from '@/features/voip-call/api';
 import { S132TopBar, VoipCallBox } from '@/features/voip-call/VoipCall';
 import { S132bToday } from '@/features/voip-call/S132bToday';
+import { MissedIncomingToday } from '@/features/after-call-fix/MissedIncomingToday';
 import { TodayCarousel } from './TodayCarousel';
 import { useSsIncoming } from '@/features/sales-shell/api';
 
@@ -94,6 +95,7 @@ export default function TodayPage() {
     {d.pendingCall ? <div className="dp-box warn" role="alert" data-testid="dp-pending-other">تماس باز با <b>{d.pendingCall.customerName}</b> هنوز نتیجه ندارد. اول نتیجه و یادداشتش را ثبت کن (از «تماس ورودی» همین صفحه یا پرونده‌ی مشتری).</div> : null}
     <StateBox d={d} />
     <S132bToday />{/* SIMOTEL-132 B: renders nothing while flag.simotel132b is off */}
+    <MissedIncomingToday />{/* INCALL-FIX step 3: renders nothing while flag.after_call_skip_missed is off */}
     {d.current ? <CurrentCard key={`${d.current.id}-${d.current.moveCount}`} d={d} cur={d.current} onDone={refresh} onFirstCall={(c, v) => { if (fc?.id !== c.id) setFcSaved(false); setFc(c); setFcVoip(v ?? null); }} /> : null}
     {fc ? <SimpleCallForm customer={fc} userId={fcSession.data?.user?.id} onClose={fcEnd} voip={fcVoip ?? undefined}
       onDone={(r) => { setFcSaved(true); announceCallSaved(r.callLogId, fc.id); refresh(); }} onNext={fcEnd} /> : null}
