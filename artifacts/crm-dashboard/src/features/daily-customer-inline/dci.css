@@ -283,9 +283,7 @@ body:has([data-testid="dci-page"]) .ts-wz{
 /* r2: short desktop — result and credit-start scroll inside the column; save/continue stay above the column edge. */
 @media(min-width:1024px){
   .dci-col{scroll-padding-bottom:16px;overflow-x:hidden}
-  .dci-result .dci-acts,
-  [data-testid="dci-credit-start"] .cvr,
-  [data-testid="dci-credit-start"] .cvb{
+  .dci-result .dci-acts{
     position:sticky;bottom:0;z-index:2;background:#fff;padding-top:8px;padding-bottom:8px;scroll-margin-bottom:8px
   }
 }
@@ -293,4 +291,39 @@ body:has([data-testid="dci-page"]) .ts-wz{
 /* Later .dci-promo .dci-acts{margin:0} must not cancel the 360/mobile clearance under the dock «+». */
 @media(max-width:1023.98px){
   .dci-promo .dci-acts{margin-bottom:24px}
+}
+
+
+/* r3 (Armita dci-resp): sticky result acts must not cover the mandatory note (short desktop) or the follow-up block (360). */
+.dci-result{--dci-acts-h:64px}
+@media(min-width:1024px){
+  .dci-result .cq-result{padding-bottom:calc(var(--dci-acts-h) + 8px);box-sizing:border-box}
+  .dci-result .field:has([data-testid="cq-one-line"]),
+  .dci-result [data-testid="cq-one-line"]{scroll-margin-bottom:calc(var(--dci-acts-h) + 12px)}
+  .dci-mid:has([data-testid="dci-result"]){scroll-padding-bottom:calc(var(--dci-acts-h) + 12px)}
+}
+@media(max-width:1023.98px){
+  .dci-result .cq-result{padding-bottom:calc(var(--dci-acts-h) + 8px);box-sizing:border-box}
+  .dci-result .cq-fu,
+  .dci-result [data-testid="cq-fu-step"]{
+    scroll-margin-bottom:calc(var(--ss-dock-h,72px) + 24px + var(--dci-acts-h) + env(safe-area-inset-bottom,0px));
+  }
+}
+
+/* r3: compact the credit-start form on short desktop so title, field and button fit in one column frame. */
+@media(min-width:1024px) and (max-height:800px){
+  .dci-left{padding:10px 12px 10px}
+  .dci-left>h2{margin:0 0 2px;font-size:14px}
+  .dci-left .dci-block{margin-bottom:6px}
+  /* The start form already titles itself «اعتبارسنجی فوری»; drop the repeated heading and empty-rank line so title, field and button fit in the 1366×768 column frame. */
+  .dci-left .dci-block:has([data-testid="dci-credit-start"])>h3,
+  .dci-left .dci-block:has([data-testid="dci-credit-start"])>.dci-consent>.dci-empty{display:none}
+  .dci-left .dci-block h3{margin:0 0 4px;font-size:13px}
+  .dci-left [data-testid="dci-credit-start"] .cv,
+  .dci-left .cv{padding:6px 10px;gap:4px;margin:0 0 4px}
+  .dci-left .cv .cvh h4{font-size:14px}
+  .dci-left .cv .cns{min-height:44px;padding:6px 10px}
+  .dci-left .cv .ts-muted.small,.dci-left .cv .cvn{margin:0;font-size:11px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+  .dci-left .cv .cvr{gap:4px}
+  .dci-left .cv .flab{margin:0 0 2px}
 }
