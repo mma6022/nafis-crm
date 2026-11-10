@@ -163,10 +163,15 @@ assert.deepEqual(top, [31, 30, 32], 'top 3 is the last 30 days, and plan 17 is n
 assert.equal(top.includes(17), false);
 assert.equal(top.includes(40), false, 'cases older than 30 days are not in the top 3');
 const order = mc.orderMultiCasePlanIds([9, 30, 17, 31, 32, 1], [17, 31, 30, 32], [17, 1]);
-assert.deepEqual(order, [9, 31, 30, 32, 17, 1]);
-assert.equal(order.at(-1), 1);
-assert.ok(order.indexOf(17) > order.indexOf(32), 'disabled plans sit after the active plans and the top 3');
+assert.deepEqual(order, [9, 31, 30, 32, 1, 17]);
+assert.deepEqual(order.slice(-2), [1, 17], 'disabled tiles at the end are plan 1 then plan 17');
+assert.equal(order.at(-1), 17);
+assert.ok(order.indexOf(1) > order.indexOf(32), 'disabled plans sit after the active plans and the top 3');
 assert.equal(order.filter((id) => id === 17).length, 1, 'an unready plan is not also kept in the top 3');
+assert.equal(order.filter((id) => id === 1).length, 1);
+assert.equal(mc.multiCaseUnreadyReason(1), 'فعلاً قابل انتخاب نیست؛ قالب قرارداد این طرح هنوز آماده نشده است.');
+assert.equal(mc.multiCaseUnreadyReason(17), 'فعلاً قابل انتخاب نیست؛ مبلغ وام در قرارداد این طرح مشخص نشده است.');
+assert.equal(mc.multiCaseUnreadyReason(99), mc.MULTI_CASE_UNREADY_REASON);
 
 // A click belongs to the step it was drawn for. The leaving «ادامه» cannot skip the fee step.
 let wizard = { step: 3, sub: 0 };

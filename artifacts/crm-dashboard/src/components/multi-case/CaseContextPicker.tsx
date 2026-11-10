@@ -108,6 +108,7 @@ export function CaseContextPicker({
     <div className="pg mc-page mc-host mc-picker-page" data-testid="case-context-picker" data-mode={mode}>
       <section className="card mc-picker" aria-labelledby="mc-picker-title">
         <button type="button" className="mc-close" data-testid="mc-picker-close" onClick={onClose}>بستن</button>
+        <div className="mc-picker-scroll">
         <span className="mc-eyebrow">{mode === "reminder" ? "یادآور جدید" : "تماس از صفحه‌ی مشتری"}</span>
         <h2 id="mc-picker-title">{title}</h2>
         <span className="mc-customer"><b>{customerName}</b><CidChip id={customerId} />{sample ? <span className="smp">نمونه</span> : null}</span>
@@ -132,6 +133,7 @@ export function CaseContextPicker({
           <label className="mc-field">موضوع یادآور<input value={subject} onChange={(event) => setSubject(event.target.value)} data-testid="mc-reminder-subject" /></label>
           <label className="mc-field">زمان<input value={when} onChange={(event) => setWhen(event.target.value)} data-testid="mc-reminder-when" /></label>
         </> : null}
+        </div>
         <button type="button" className="btn pri" data-testid="mc-picker-confirm" onClick={() => onConfirm(choice)}>
           {mode === "reminder" ? "ثبت یادآور" : <><Phone size={18} aria-hidden />تماس</>}
         </button>

@@ -15,7 +15,7 @@ import { useLocation } from "wouter";
 import { clearLoanDraft, readLoanDraft, writeLoanDraft } from "@/lib/loan-draft";
 import { useMultiCaseCustomer, useMultiCaseStatus } from "@/lib/multi-case";
 import { SamePlanBlock } from "@/components/multi-case/CaseContextPicker";
-import { MULTI_CASE_POPULAR_HEADING, MULTI_CASE_POPULAR_LINE, MULTI_CASE_UNREADY_PLAN, MULTI_CASE_UNREADY_REASON, multiCasePlanLabel } from "@/lib/multi-case-plan-label";
+import { MULTI_CASE_POPULAR_HEADING, MULTI_CASE_POPULAR_LINE, MULTI_CASE_UNREADY_PLAN, multiCasePlanLabel, multiCaseUnreadyReason } from "@/lib/multi-case-plan-label";
 import { CidChip, faCaseStage, faDigits, faLatinRanks } from "@/components/multi-case/CaseContextPicker";
 import { DRAFTS_KEY, DraftHttpError, filingFeeIdempotencyKey, openPreRegistrationFor, type OpenPreRegistration, canUseDrafts, draftsApi, tehranTime, type DraftPayload, type RequestDraft } from "@/lib/request-drafts";
 import { toast } from "@/hooks/use-toast";
@@ -42,6 +42,7 @@ import {
   useListCustomerEligiblePlans,
   listCustomerEligiblePlans,
   getListCustomerEligiblePlansQueryKey,
+  getListLoanApplicationsQueryKey,
   useGetFilingFeePlans,
   getFilingFeePlans,
   getGetFilingFeePlansQueryKey,
@@ -665,7 +666,8 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
       };
       window.clearTimeout(timer.current);
       const application = await createMutation.mutateAsync({ data: applicationInput as typeof applicationInput });
-      await queryClient.invalidateQueries({ queryKey: ["/api/loan-applications"] });
+      await queryClient.invalidateQueries({ queryKey: getListLoanApplicationsQueryKey({ customerId: selectedCustomer.id, limit: 20 }) });
+      await queryClient.invalidateQueries({ queryKey: ["multi-case-customer", selectedCustomer.id] });
       window.sessionStorage.removeItem(`loan-fee:${selectedCustomer.id}:${selectedPlan.planId}`);
       if (requestKey) window.sessionStorage.removeItem(`loan-fee:${selectedCustomer.id}:${selectedPlan.planId}:${requestKey}`);
       clearLoanDraft(userId, selectedCustomer.id, requestKey);
@@ -1868,6 +1870,7 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
                  const disabledTile = (matches: typeof ready[number]) => {
                    const plan = matches[0];
                    const label = multiCasePlanLabel({ planId: plan.planId, bankName: (plan as { bankName?: string | null }).bankName });
+                   const reason = (plan as { unreadyReason?: string | null }).unreadyReason || multiCaseUnreadyReason(plan.planId);
                    return (
                     <button
                       key={plan.planId}
@@ -1879,7 +1882,7 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
                       data-plan-unready="1"
                       aria-disabled="true"
                       tabIndex={-1}
-                      title={MULTI_CASE_UNREADY_REASON}
+                      title={reason}
                       onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}
                       onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); } }}
                     >
@@ -1887,7 +1890,7 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
                         <span className="mc-plan-off-fade"><b>{label}</b></span>
                         <span className="mc-off-chip">غیرفعال</span>
                       </span>
-                      <span className="mc-plan-off-why">{MULTI_CASE_UNREADY_REASON}</span>
+                      <span className="mc-plan-off-why">{reason}</span>
                     </button>
                    );
                  };

@@ -312,8 +312,21 @@ function CustomerDetailFull() {
     const raw = window.sessionStorage.getItem(`mc-created:${id}`);
     if (!raw) { setMcCreated(null); return; }
     window.sessionStorage.removeItem(`mc-created:${id}`);
-    try { setMcCreated(JSON.parse(raw) as { id: number; previousId: number | null }); } catch { setMcCreated(null); }
-  }, [multiOn, id]);
+    let created: { id: number; previousId: number | null };
+    try { created = JSON.parse(raw) as { id: number; previousId: number | null }; } catch { setMcCreated(null); return; }
+    let cancelled = false;
+    void (async () => {
+      try {
+        await Promise.all([
+          queryClient.refetchQueries({ queryKey: getListLoanApplicationsQueryKey({ customerId: id, limit: 20 }) }),
+          queryClient.refetchQueries({ queryKey: ["multi-case-customer", id] }),
+        ]);
+      } finally {
+        if (!cancelled) setMcCreated(created);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [multiOn, id, queryClient]);
   const caseCtx = useMultiCaseCustomer(id, multiOn);
   const openCases = (caseCtx.data?.cases ?? []).filter((row) => row.open);
   const [casePick, setCasePick] = useState<null | 'call' | 'reminder'>(null);
@@ -867,7 +880,10 @@ function CustomerDetailFull() {
     />}
     {multiOn ? <>
       <p className="mc-date" data-testid="mc-today">{weekdayJalali(new Date().toISOString())}{isSampleCustomer(customer) ? <span className="smp">نمونه</span> : null}</p>
-      {mcCreated ? <p className="mc-success" role="status" data-testid="mc-created-banner">پرونده <bdi dir="ltr">#{mcCreated.id.toLocaleString("fa-IR", { useGrouping: false })}</bdi> ایجاد شد{mcCreated.previousId ? <>؛ پرونده <bdi dir="ltr">#{mcCreated.previousId.toLocaleString("fa-IR", { useGrouping: false })}</bdi> همچنان باز است</> : null}</p> : null}
+      {mcCreated ? <p className="mc-success" role="status" data-testid="mc-created-banner">
+        <span className="mc-success-line">پرونده <bdi>#{mcCreated.id.toLocaleString("fa-IR", { useGrouping: false })}</bdi> ایجاد شد{mcCreated.previousId ? "؛" : ""}</span>
+        {mcCreated.previousId ? <span className="mc-success-line">پرونده <bdi>#{mcCreated.previousId.toLocaleString("fa-IR", { useGrouping: false })}</bdi> همچنان باز است</span> : null}
+      </p> : null}
       <McFlagPage customer={customer} loans={loans} cases={caseCtx.data?.cases ?? []} sample={isSampleCustomer(customer)} registrar={role === "registrar"} otherOwner={otherOwner} canNew={canNewLoan} canCall={canCallsCreate || isAdmin} onNew={startNewCase} onCall={startCall} onOpen={(caseId) => setLocation(`/loan-applications/${caseId}`)} />
     </> : <>
     <nav className="csx-crumb" aria-label="مسیر"><Link href="/customers" data-testid="link-back-customers"><ArrowRight size={16} /> مشتریان</Link><ChevronLeft size={14} aria-hidden="true" /><span aria-current="page">{customerNameText(customer.name, customer.id)}</span></nav>
