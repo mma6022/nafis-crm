@@ -9,6 +9,8 @@ import {
   History as HistoryIcon, IdCard, Lock, EllipsisVertical, PenLine, Plus, RefreshCw, Send, Shield, Upload, User, X, Zap,
 } from 'lucide-react';
 import { useGetCustomer, useUploadLoanApplicationDocument, getGetCustomerQueryKey } from '@workspace/api-client-react';
+import { useMultiCaseCase, useMultiCaseStatus } from '@/lib/multi-case';
+import { multiCasePlanLabel } from '@/lib/multi-case-plan-label';
 import { ACTION_ROLE_NAMES, BUSINESS_STATUS_LABELS, LOAN_STAGE_LABELS, loanBusinessStatus } from '@/lib/loan-labels';
 // @ts-ignore -- untyped .mjs helper, imported the same way as CaseHistoryDialog
 import { historyActionLabel } from '@/lib/loan-history-fa.mjs';
@@ -261,10 +263,13 @@ export function FileDetailV1(p: Props) {
         <span className="m">{st === 'dn' ? stepDate(s) : st === 'now' ? (turn === 'me' ? 'الان: اقدام با شماست' : turn && turn !== 'closed' ? `الان: نوبت اقدام: ${turn}` : '') : ''}</span></li>; })}</ol> : null}
   </div>;
 
-  const head = <section className="card fhd" aria-label="سربرگ پرونده">
+  const mcOn = useMultiCaseStatus().data?.enabled === true;
+  const mcCase = useMultiCaseCase(appId, mcOn);
+  const planHead = mcOn ? multiCasePlanLabel({ planId: mcCase.data?.case?.planId ?? app.planId, bankName: mcCase.data?.case?.bankName }) : (app.planName ? (/^\s*طرح/.test(app.planName) ? app.planName : `طرح ${app.planName}`) : 'طرح ثبت نشده');
+  const head = <section className={`card fhd${mcOn ? ' mc-host' : ''}`} aria-label="سربرگ پرونده">
     <div className="crow"><nav className="crumb" aria-label="مسیر"><Link href="/loan-applications"><ChevronRight {...I} />پرونده‌های من</Link></nav>
 </div>
-    <div className="fhd-r1"><div className="who"><span className="eyb">پرونده‌ی تسهیلات {fd(app.id)}، {app.planName ? (/^\s*طرح/.test(app.planName) ? app.planName : `طرح ${app.planName}`) : 'طرح ثبت نشده'}</span>
+    <div className="fhd-r1"><div className="who"><span className="eyb" data-testid="mc-case-header-plan">پرونده‌ی تسهیلات {fd(app.id)}، {planHead}</span>
       <div className="nmr"><h2>{custName}</h2>{app.customerId ? <button className="cid" type="button" aria-label={`شناسه‌ی ${fd(app.customerId)}، کپی`} onClick={() => { void copyText(`#${app.customerId}`).then(ok => ok && show('کپی شد')); }}>#{fd(app.customerId)}<Copy className="i cpi" aria-hidden /></button> : null}</div>
       {phone ? <span className="ph big"><a className="phn" href={`tel:${phone}`} dir="ltr" aria-label={`تماس با ${fd(phone)}`}>{fd(phone)}</a>
         <button className={`phc${copied ? ' done' : ''}`} type="button" aria-label={`کپی شماره‌ی ${fd(phone)}`} onClick={() => { void copyText(phone).then(ok => { if (ok) { setCopied(true); show('کپی شد'); } }); }}>{copied ? <Check {...I} /> : <Copy {...I} />}<span>کپی</span></button></span> : null}</div>

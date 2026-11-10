@@ -1,79 +1,108 @@
-import { useEffect } from "react";
+import { useState } from "react";
+import { Copy } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
+import { toPersianDigits } from "@/lib/customer-id";
+import { multiCasePlanLabel } from "@/lib/multi-case-plan-label";
 import type { MultiCaseRow } from "./types";
 
 export type CaseChoice = number | "general";
 
-export type McCustomer = { n: string; id: number; phone?: string; owner?: string };
-
-/** Designer shell (public/multi-case/index.html). Default scenes match her sample DOM. */
-export function mcDesignSrc(scene: string, extra?: Record<string, string | undefined>) {
-  const q = new URLSearchParams({ sc: scene });
-  for (const [key, value] of Object.entries(extra ?? {})) if (value) q.set(key, value);
-  return `/multi-case/index.html?${q.toString()}`;
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return true; }
+  } catch { /* fall through */ }
+  try {
+    const area = document.createElement("textarea");
+    area.value = text; area.setAttribute("readonly", "");
+    area.style.position = "fixed"; area.style.opacity = "0";
+    document.body.appendChild(area); area.select();
+    const ok = document.execCommand("copy"); area.remove(); return ok;
+  } catch { return false; }
 }
 
-export function mcLiveQuery(customer: McCustomer, cases: Array<{ id: number; p: string; a: string; m: string; s: string; stage: string; date: string }>) {
-  return { live: "1", payload: encodeURIComponent(JSON.stringify({ customer, cases })) };
+export function CidChip({ id }: { id: number }) {
+  const fa = id.toLocaleString("fa-IR");
+  return (
+    <button type="button" className="cid" data-cid={id} data-testid={`cid-${id}`} aria-label={`شناسه‌ی ${fa}، کپی`}
+      onClick={() => { void copyText(String(id)).then((ok) => toast(ok ? { title: "کپی شد", duration: 1600 } : { title: "کپی نشد", duration: 2500 })); }}>
+      #{fa}
+    </button>
+  );
 }
 
-export function McFrame({
-  src, title, embed, onNav,
-}: {
-  src: string;
-  title: string;
-  embed?: boolean;
-  onNav?: (href: string, assoc: string | null) => void;
-}) {
-  useEffect(() => {
-    if (!onNav) return;
-    const onMessage = (event: MessageEvent) => {
-      const data = event.data;
-      if (!data || typeof data !== "object") return;
-      if (data.type === "mc-nav" || data.type === "mc-choice") onNav(String(data.href || ""), data.assoc == null ? null : String(data.assoc));
-      if (data.type === "mc-reminder") onNav(`reminder`, data.assoc == null ? "general" : String(data.assoc));
-    };
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [onNav]);
-  return <iframe className={embed ? "mc-frame-embed" : "mc-frame-full"} src={src} title={title} data-testid={embed ? "mc-embed" : "mc-frame"} />;
+export function PhoneChip({ phone, sample }: { phone: string; sample?: boolean }) {
+  const shown = toPersianDigits(phone);
+  return (
+    <span className="ph">
+      <a className="phn" dir="ltr" href={`tel:${phone}`}>{shown}</a>
+      {sample ? <span className="phs">نمونه</span> : null}
+      <button type="button" className="phc" aria-label={`کپی شماره‌ی ${shown}`} data-copy={phone}
+        onClick={() => { void copyText(phone).then((ok) => toast(ok ? { title: "کپی شد", duration: 1600 } : { title: "کپی نشد", duration: 2500 })); }}>
+        <Copy size={18} aria-hidden />
+      </button>
+    </span>
+  );
 }
 
-/** Full-screen designer picker. General is the default, matching her scene. */
+export function isSampleCustomer(customer: { name?: string | null; description?: string | null; phone?: string | null }) {
+  return /multi-case-sample|آزمایشی/.test(`${customer.description || ""} ${customer.name || ""}`) || /^09120000\d{3}$/.test(customer.phone || "");
+}
+
 export function CaseContextPicker({
-  mode, customer, cases, onConfirm, onClose,
+  mode, customerName, customerId, phone, sample, cases, onConfirm, onClose,
 }: {
   mode: "call" | "reminder";
-  customer: McCustomer;
+  customerName: string;
+  customerId: number;
+  phone?: string | null;
+  sample?: boolean;
   cases: MultiCaseRow[];
   onConfirm: (choice: CaseChoice) => void;
   onClose: () => void;
 }) {
-  const rows = cases.filter((row) => row.open).map((row) => ({
-    id: row.id,
-    p: row.planName || "طرح",
-    a: "—",
-    m: "—",
-    s: "باز",
-    stage: row.stage || "پرونده",
-    date: "",
-  }));
-  const src = mcDesignSrc(mode === "reminder" ? "reminder_case_picker" : "call_case_picker", mcLiveQuery(customer, rows.length ? rows : cases.map((row) => ({
-    id: row.id, p: row.planName || "طرح", a: "—", m: "—", s: row.open ? "باز" : "بسته", stage: row.stage || "", date: "",
-  }))));
+  const [choice, setChoice] = useState<CaseChoice>("general");
+  const title = mode === "reminder" ? "این یادآور برای کدام پرونده است؟" : "این تماس برای کدام پرونده است؟";
+  const general = mode === "reminder" ? "یادآور عمومی مشتری" : "تماس عمومی مشتری";
+  const open = cases.filter((row) => row.open);
   return (
-    <div className="mc-frame-host" data-testid="case-context-picker">
-      <button type="button" className="mc-frame-close" onClick={onClose}>بستن</button>
-      <McFrame title={mode === "reminder" ? "انتخاب پرونده برای یادآور" : "انتخاب پرونده برای تماس"} src={src} onNav={(_href, assoc) => {
-        onConfirm(assoc && assoc !== "general" && Number(assoc) > 0 ? Number(assoc) : "general");
-      }} />
+    <div className="mc-overlay mc-host" data-testid="case-context-picker" data-mode={mode}>
+      <section className="card mc-picker" role="dialog" aria-modal="true" aria-labelledby="mc-picker-title">
+        <button type="button" className="mc-close" data-testid="mc-picker-close" onClick={onClose}>بستن</button>
+        <span className="mc-muted">{mode === "reminder" ? "یادآور جدید" : "تماس از صفحه‌ی مشتری"}</span>
+        <h2 id="mc-picker-title">{title}</h2>
+        <span className="mc-customer"><b>{customerName}</b><CidChip id={customerId} />{sample ? <span className="smp">نمونه</span> : null}</span>
+        {phone ? <PhoneChip phone={phone} sample={sample} /> : null}
+        <div className="mc-choice" role="radiogroup" aria-label="پرونده‌ی مرتبط">
+          <button type="button" role="radio" aria-checked={choice === "general"} onClick={() => setChoice("general")}>
+            <b>{general}</b>
+            <span>بدون اتصال به یک پرونده‌ی تسهیلات</span>
+          </button>
+          {open.map((row) => (
+            <button key={row.id} type="button" role="radio" aria-checked={choice === row.id} onClick={() => setChoice(row.id)}>
+              <b>پرونده #{row.id.toLocaleString("fa-IR")}، طرح {multiCasePlanLabel(row)}</b>
+              <span>{row.stage || "باز"}</span>
+            </button>
+          ))}
+        </div>
+        <button type="button" className="btn pri" data-testid="mc-picker-confirm" onClick={() => onConfirm(choice)}>
+          {mode === "reminder" ? "ثبت یادآور" : "ثبت تماس"}
+        </button>
+        <button type="button" className="btn gh" data-testid="mc-picker-back" onClick={onClose}>بازگشت به مشتری</button>
+      </section>
     </div>
   );
 }
 
-export function SamePlanBlock({ planName, caseId }: { planName: string; caseId: number }) {
+/** v1.1: gold block, primary «انتخاب طرح دیگر», ghost «مشاهده‌ی پرونده». ادامه stays outside, disabled. */
+export function SamePlanBlock({ caseId, onChooseOther, onOpenCase }: { caseId: number; onChooseOther: () => void; onOpenCase: () => void }) {
+  const fa = caseId.toLocaleString("fa-IR");
   return (
-    <p className="mc-warning" role="alert" data-testid="same-plan-block">
-      {planName} در پرونده #{caseId.toLocaleString("fa-IR")} باز است. تا لغو یا تکمیل آن، پروندهٔ تازه با همین طرح ساخته نمی‌شود. طرح دیگر آزاد است و هزینهٔ هر پرونده جدا حساب می‌شود.
-    </p>
+    <div className="mc-warning" role="alert" data-testid="same-plan-block">
+      <p>این مشتری از قبل پرونده‌ی باز با همین طرح دارد (پرونده <b dir="ltr">#{fa}</b>). تا لغو یا تکمیل آن، پرونده‌ی تازه با همین طرح ساخته نمی‌شود.</p>
+      <div className="mc-row">
+        <button type="button" className="btn pri" data-testid="button-choose-other-plan" onClick={onChooseOther}>انتخاب طرح دیگر</button>
+        <button type="button" className="btn gh" data-testid="button-open-blocked-case" onClick={onOpenCase}>مشاهده‌ی پرونده</button>
+      </div>
+    </div>
   );
 }

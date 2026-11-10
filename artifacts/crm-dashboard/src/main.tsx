@@ -7,6 +7,11 @@ import { startAppVersionWatch } from '@/lib/app-version';
 import './index.css';
 import './theme/nafis-theme.css';
 import './theme/tokens.css';
+import './features/multi-case/multicase.css';
+import './features/multi-case/multicase-host.css';
+
+document.documentElement.lang = 'fa';
+document.documentElement.dir = 'rtl';
 
 createRoot(document.getElementById('root')!, {
   // Keeps caught errors off reportError(), which would raise the dev overlay.

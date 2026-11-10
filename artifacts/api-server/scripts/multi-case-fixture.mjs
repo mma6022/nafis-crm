@@ -15,7 +15,7 @@ const dbFile = path.join(temp, "synthetic.db");
 const database = `
 import { DatabaseSync } from 'node:sqlite';
 export const crmDb = new DatabaseSync(process.env.MC_FIXTURE_DB);
-crmDb.exec('PRAGMA foreign_keys=OFF; PRAGMA busy_timeout=1000');
+crmDb.exec('PRAGMA foreign_keys=OFF; PRAGMA busy_timeout=1000; CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, full_name TEXT, username TEXT, salesperson_id INTEGER, telegram_id TEXT)');
 export const queryRow = (s, p = []) => crmDb.prepare(s).get(...p);
 export const queryRows = (s, p = []) => crmDb.prepare(s).all(...p);
 export const execute = (s, p = []) => Number(crmDb.prepare(s).run(...p).lastInsertRowid);
@@ -25,6 +25,7 @@ export const runImmediateTransaction = (fn) => {
   try { const r = fn(); crmDb.exec('COMMIT'); return r; }
   catch (e) { try { crmDb.exec('ROLLBACK'); } catch { /* already rolled */ } throw e; }
 };
+export const runTransaction = runImmediateTransaction;
 `;
 const worker = `
 import assert from 'node:assert/strict';
@@ -33,11 +34,13 @@ import { Worker } from 'node:worker_threads';
 import { crmDb, execute, queryRow } from './src/lib/crm-db';
 import * as mc from './src/lib/multi-case';
 import { createDraft, ensureLoanRequestDraftSchema } from './src/lib/loan-request-drafts';
+import { expertLockdownGuard, elTarget, elFlagOn } from './src/lib/expert-lockdown';
+import { cqRaw } from './src/lib/call-queue';
 
 crmDb.exec(\`
 CREATE TABLE customers(id INTEGER PRIMARY KEY, name TEXT, salesperson_id INTEGER, merged_into_customer_id INTEGER, phone TEXT);
 CREATE TABLE salespersons(id INTEGER PRIMARY KEY, name TEXT);
-CREATE TABLE users(id INTEGER PRIMARY KEY, full_name TEXT, username TEXT, salesperson_id INTEGER);
+CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, full_name TEXT, username TEXT, salesperson_id INTEGER);
 CREATE TABLE loan_plans(id INTEGER PRIMARY KEY, name TEXT, active INTEGER, filing_fee_toman TEXT);
 CREATE TABLE loan_applications(
   id INTEGER PRIMARY KEY, customer_id INTEGER, plan_id INTEGER, stage TEXT, status TEXT,
@@ -55,19 +58,19 @@ CREATE TABLE loan_request_drafts(
 );
 CREATE TABLE loan_request_draft_events(id INTEGER PRIMARY KEY AUTOINCREMENT, draft_id INTEGER, customer_id INTEGER, action TEXT, actor_user_id INTEGER, reason TEXT, detail_json TEXT, created_at TEXT);
 CREATE TABLE customer_credit_checks(id INTEGER PRIMARY KEY, customer_id INTEGER, status TEXT, completed_at TEXT);
-CREATE TABLE call_queue_settings(key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE call_queue_settings(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_by INTEGER, updated_at TEXT NOT NULL);
 CREATE TABLE call_logs(id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, subject TEXT, created_at TEXT);
 CREATE TABLE reminders(id INTEGER PRIMARY KEY AUTOINCREMENT, customer_id INTEGER, subject TEXT, remind_at TEXT, user_id INTEGER);
 INSERT INTO customers VALUES(1,'مشتری آزمایشی',11,NULL,'09120000000'),(2,'مشتری دیگر',22,NULL,'09120000001');
 INSERT INTO salespersons VALUES(11,'کارشناس آزمایشی'),(22,'کارشناس دیگر');
-INSERT INTO users VALUES(1,'مدیر','admin',NULL),(8,'کارشناس','expert',11),(9,'کارشناس دیگر','other',22);
+INSERT INTO users(id,full_name,username,salesperson_id) VALUES(1,'مدیر','admin',NULL),(8,'کارشناس','expert',11),(9,'کارشناس دیگر','other',22);
 INSERT INTO loan_plans VALUES(7,'ترنم',1,'1000'),(21,'ترنم ( بازنشسته ها )',1,'1000');
 \`);
 
 const admin = { id: 1, role: 'admin', customerScope: 'all', permissions: ['loan_applications.create'], salespersonId: null };
 const expert = { id: 8, role: 'salesperson', customerScope: 'assigned', salespersonId: 11, permissions: ['loan_applications.create'] };
 const other = { id: 9, role: 'salesperson', customerScope: 'assigned', salespersonId: 22, permissions: ['loan_applications.create'] };
-const setFlag = (on) => crmDb.prepare("INSERT INTO call_queue_settings(key,value) VALUES('flag.multi_case_v1',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(on ? '1' : '0');
+const setFlag = (on) => crmDb.prepare("INSERT INTO call_queue_settings(key,value,updated_at) VALUES('flag.multi_case_v1',?,datetime('now')) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at").run(on ? '1' : '0');
 
 setFlag(false);
 assert.equal(mc.mcFlagOn(1), false, 'flag default off');
@@ -159,7 +162,39 @@ const after = spawnSync(process.execPath, [process.env.MC_CHILD], { env: process
 assert.match(after.stdout || '', /inserted/);
 assert.equal(queryRow('SELECT COUNT(*) n FROM loan_plan_open_slots WHERE customer_id=2 AND plan_id=7').n, 1);
 
-console.log('PASS multi-case fixture: flag off legacy draft, two plans, same-plan conflict, separate fees, close-and-reopen, expert/registrar scope, concurrent slot');
+crmDb.exec(\`ALTER TABLE reminders ADD COLUMN done INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE customers ADD COLUMN registered_by INTEGER;
+INSERT INTO salespersons VALUES(6,'کاظمی آزمایشی'),(3,'حسنی آزمایشی');
+INSERT INTO customers(id,name,salesperson_id,merged_into_customer_id,phone) VALUES(3,'مشتری قفل کاظمی',6,NULL,'09120000031'),(4,'مشتری قفل حسنی',3,NULL,'09120000032');
+INSERT INTO loan_applications(customer_id,plan_id,stage,status,requested_amount,created_at) VALUES(3,7,'draft','requested','1000','2026-11-10T00:00:00Z'),(4,21,'draft','requested','1000','2026-11-10T00:00:00Z');
+INSERT INTO call_queue_settings(key,value,updated_at) VALUES('flag.expert_lockdown','1',datetime('now'));
+\`);
+const lockHit = (user, path) => {
+  let status = 200, body = null, next = false;
+  const res = { locals: { authUser: user }, status(code) { status = code; return this; }, json(payload) { body = payload; return this; } };
+  expertLockdownGuard({ method: 'GET', path, query: {}, body: {} }, res, () => { next = true; });
+  return { status, body, next };
+};
+const kazemi = { id: 8, role: 'salesperson', salespersonId: 6 };
+const hasani = { id: 2, role: 'salesperson', salespersonId: 3 };
+const registrar = { id: 7, role: 'registrar', customerScope: 'all', salespersonId: null };
+assert.equal(lockHit(kazemi, '/multi-case/status').next, true, 'status is open for a locked expert');
+assert.equal(lockHit(kazemi, '/multi-case/customers/3').next, true, 'assigned expert');
+const denied = lockHit(hasani, '/multi-case/customers/3');
+let cqErr = '';
+try { cqRaw('flag.expert_lockdown'); } catch (e) { cqErr = e && e.message ? e.message : String(e); }
+if (denied.next) throw new Error(JSON.stringify({ target: elTarget(hasani), flagOn: elFlagOn(), cqErr }));
+assert.equal(denied.next, false, 'other expert');
+assert.equal(denied.status, 403);
+assert.ok(denied.body && (denied.body.error === 'expert_lockdown_customer' || denied.body.error === 'expert_lockdown'));
+const lockedCase = queryRow('SELECT id FROM loan_applications WHERE customer_id=3').id;
+assert.equal(lockHit(kazemi, '/multi-case/cases/' + lockedCase).next, true, 'assigned expert case');
+assert.equal(lockHit(hasani, '/multi-case/cases/' + lockedCase).status, 403, 'other expert case');
+assert.equal(lockHit(registrar, '/multi-case/customers/3').next, true, 'registrar is not locked');
+assert.equal(mc.customerVisible(registrar, 3), true);
+assert.equal(mc.customerVisible({ id: 7, role: 'registrar', customerScope: 'assigned', salespersonId: 99 }, 3), false, 'registrar assigned scope unchanged');
+
+console.log('PASS multi-case fixture: flag off legacy draft, two plans, same-plan conflict, separate fees, close-and-reopen, expert/registrar scope, lockdown, concurrent slot');
 `;
 // The claim line above has a silly ternary. I'll fix the worker source before build.
 const fixed = worker.replace(
@@ -177,6 +212,14 @@ try {
     plugins: [{ name: "synthetic-db", setup(ctx) {
       ctx.onResolve({ filter: /\/crm-db$/ }, () => ({ path: "db", namespace: "fixture" }));
       ctx.onLoad({ filter: /^db$/, namespace: "fixture" }, () => ({ contents: database, loader: "js" }));
+      ctx.onLoad({ filter: /\/routes\/simotel-recordings\.ts$/ }, () => ({ contents: "export function authorizedVoipRecording(){return null}", loader: "js" }));
+      ctx.onResolve({ filter: /^(express|pino|@workspace\/)/ }, (args) => ({ path: args.path, namespace: "stub" }));
+      ctx.onLoad({ filter: /.*/, namespace: "stub" }, (args) => ({
+        loader: "js",
+        contents: args.path === "pino"
+          ? "export default function pino(){const l={info(){},warn(){},error(){},debug(){},child(){return l},fatal(){}};return l}"
+          : "const z=new Proxy(function(){},{get:()=>z,apply:()=>z}); export default z; export {z};",
+      }));
     } }],
   });
   const result = spawnSync(process.execPath, [output], {

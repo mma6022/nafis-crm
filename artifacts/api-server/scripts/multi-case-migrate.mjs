@@ -5,7 +5,14 @@
  *   node scripts/multi-case-migrate.mjs /path/to/customers.db
  *
  * Does not set the flag. Leave flag.multi_case_v1 absent (OFF) until release.
- * Does not edit contract templates or contract rows.
+ * Does not edit contract templates, contract rows, or loan_plans rows.
+ *
+ * updated_at is NOT NULL. Turn the flag on and off like the other flags:
+ *   INSERT INTO call_queue_settings(key, value, updated_at)
+ *   VALUES ('flag.multi_case_v1', '1', datetime('now'))
+ *   ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
+ *   UPDATE call_queue_settings SET value = '0', updated_at = datetime('now')
+ *   WHERE key = 'flag.multi_case_v1' OR key LIKE 'flag.multi_case_v1.user.%';
  */
 import { DatabaseSync } from "node:sqlite";
 

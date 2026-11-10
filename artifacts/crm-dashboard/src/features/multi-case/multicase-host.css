@@ -1,0 +1,23 @@
+/* Layout the v1.1 sheet does not spell out. The sheet itself is imported verbatim. */
+.mc-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; width: 100%; }
+.mc-host .cust-id-badge {
+  min-height: 26px; height: auto; padding: 0 8px; border-radius: 8px; border: 0;
+  background: var(--nf-surface-2); color: var(--nf-ink-muted); font-size: 14px; font-weight: 600;
+}
+.mc-overlay {
+  position: fixed; inset: 0; z-index: 80; background: rgba(11, 20, 80, .35);
+  display: flex; justify-content: center; align-items: flex-start; overflow: auto;
+  padding: 24px 16px 48px;
+}
+.mc-overlay .mc-picker { width: min(720px, 100%); position: relative; border-radius: 20px; background: #fff; }
+.mc-close {
+  position: absolute; top: 12px; inset-inline-start: 12px; z-index: 2;
+  height: 44px; min-height: 44px; padding: 0 14px; border-radius: 14px;
+  border: 1px solid var(--nf-line-strong, #C9CEDF); background: #fff; font: inherit; cursor: pointer;
+}
+.mc-overlay .mc-picker { padding-top: 64px; }
+.mc-host .btn.pri { width: auto; }
+.mc-warning .btn.pri { min-height: 48px; }
+.mc-host .btn[aria-disabled="true"] { pointer-events: none; }
+.ph .phc { border: 0; background: transparent; cursor: pointer; font: inherit; }
+.mc-date { margin: 0 0 12px; color: var(--nf-ink-muted); font-size: 14px; }

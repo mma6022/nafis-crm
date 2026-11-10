@@ -1,0 +1,301 @@
+/* multicase.css — گزیدهٔ آماده از منبع طرح مصوب چندپروندهٔ نفیس (v1.1)
+ * منبع: screens/multi-case/src/{mc.css,shell.css,bl.css} و tokens/tokens.css
+ * این فایل جایگزین کل پوسته‌ی CRM نیست؛ فقط کارت پرونده، انتخاب‌گر پرونده،
+ * بازبینی ویزارد، نشان‌های #id، دکمه، هشدار مسدود طرح تکراری و توکن‌های لازم.
+ * رنگ اصلی را همیشه به صورت rgb(41, 54, 155) بنویسید، نه هگز.
+ */
+@import url("https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700;800&display=swap");
+
+:root {
+  --nf-font-sans: "Vazirmatn", Tahoma, "Segoe UI", system-ui, sans-serif;
+  --nf-brand-50: #EEF0FA;
+  --nf-brand-100: #DDE1F5;
+  --nf-brand-600: rgb(41, 54, 155); /* PRIMARY */
+  --nf-brand-700: #212C85;
+  --nf-brand-900: #0B1450;
+  --nf-ink: #0B1450;
+  --nf-ink-soft: #3D4A6B;
+  --nf-ink-muted: #5F6B85;
+  --nf-line: #E3E6F0;
+  --nf-line-strong: #C9CEDF;
+  --nf-surface: #F7F8FC;
+  --nf-surface-2: #EFF1F8;
+  --nf-gold-50: #FEF8EA;
+  --nf-gold-300: #F7D27F;
+  --nf-gold-700: #8A6212;
+  --nf-success-50: #E8F5EE;
+  --nf-radius-control: 14px;
+  --nf-radius-card: 20px;
+  --nf-radius-pill: 999px;
+  --nf-shadow-card: 0 1px 2px rgba(11, 20, 80, .04), 0 6px 20px -8px rgba(11, 20, 80, .12);
+  --nf-shadow-button: 0 1px 2px rgba(11, 20, 80, .10), 0 6px 14px -6px rgba(41, 54, 155, .45);
+}
+
+/* روی سند بگذارید: <html lang="fa" dir="rtl"> */
+
+html[dir="rtl"] body,
+body {
+  margin: 0;
+  font-family: var(--nf-font-sans);
+  font-size: 16px;
+  line-height: 1.8;
+  color: var(--nf-ink-soft);
+  background: var(--nf-surface);
+}
+
+.pg {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 24px 32px;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid var(--nf-line);
+  border-radius: var(--nf-radius-card);
+  box-shadow: var(--nf-shadow-card);
+}
+
+/* —— نشان شناسهٔ مشتری: خاکستری، قابل کپی، بعد از نام —— */
+.cid {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: var(--nf-surface-2);
+  color: var(--nf-ink-muted);
+  font-size: 14px;
+  font-weight: 600;
+  margin-inline-start: 8px;
+  vertical-align: middle;
+}
+
+.mc-customer {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.mc-customer .cid { margin: 0; }
+.mc-customer b { font-size: 16px; color: var(--nf-ink); }
+
+/* برچسب پرونده جدا از شناسهٔ مشتری: «پرونده #۲۱۴» */
+.mc-caseid {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--nf-brand-700);
+}
+
+/* «نمونه» فقط روی دادهٔ آزمایشی */
+.smp,
+.ph .phs {
+  display: inline-block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--nf-gold-700);
+  background: var(--nf-gold-50);
+  border: 1px dashed var(--nf-gold-300);
+  border-radius: var(--nf-radius-pill);
+  padding: 0 8px;
+  line-height: 22px;
+  margin-inline-start: 6px;
+}
+
+/* تلفن کامل LTR + دکمهٔ کپی ۴۴×۴۴ */
+.ph {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--nf-ink);
+  font-size: 15px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.ph .phn,
+.phi {
+  direction: ltr;
+  unicode-bidi: isolate;
+  white-space: nowrap;
+}
+.ph .phn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 4px;
+  color: var(--nf-ink);
+  font-weight: 800;
+  letter-spacing: .02em;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+.ph .phc {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--nf-ink-muted);
+}
+
+/* —— دکمه‌ها: یک primary در هر ردیف —— */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 18px;
+  border-radius: var(--nf-radius-control);
+  font-weight: 600;
+  font-size: 15px;
+  font-family: inherit;
+  white-space: nowrap;
+  border: 0;
+  cursor: pointer;
+}
+.btn.pri {
+  background: var(--nf-brand-600);
+  color: #fff;
+  box-shadow: var(--nf-shadow-button);
+}
+.btn.gh {
+  background: #fff;
+  border: 1px solid var(--nf-line-strong);
+  color: var(--nf-ink);
+}
+.btn.sm {
+  min-height: 44px;
+  padding: 0 12px;
+  font-size: 14px;
+}
+.btn[aria-disabled="true"] {
+  background: var(--nf-surface-2);
+  color: var(--nf-ink-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+  min-height: 48px;
+}
+
+/* —— کارت پرونده —— */
+.mc-cases {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+.mc-case {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.mc-case h3 { font-size: 18px; color: var(--nf-ink); margin: 0; }
+.mc-muted { font-size: 14px; color: var(--nf-ink-muted); }
+
+/* —— انتخاب‌گر پرونده (تماس / یادآور) —— */
+.mc-picker {
+  max-width: 720px;
+  margin-inline: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.mc-picker h2,
+.mc-wbody h2 {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--nf-ink);
+  margin: 0;
+}
+.mc-choice { display: grid; gap: 10px; }
+.mc-choice button {
+  padding: 16px;
+  min-height: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: right;
+  border: 1.5px solid var(--nf-line-strong);
+  border-radius: 14px;
+  gap: 6px;
+  color: var(--nf-ink);
+  background: #fff;
+  font-size: 15px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.mc-choice button[aria-checked="true"] {
+  border-color: var(--nf-brand-600);
+  background: var(--nf-brand-50);
+  box-shadow: 0 0 0 1px var(--nf-brand-600);
+}
+.mc-choice button[aria-checked="true"] b::before {
+  content: "◉";
+  margin-inline-end: 8px;
+  color: var(--nf-brand-600);
+}
+.mc-choice button span { font-size: 14px; color: var(--nf-ink-muted); }
+
+/* طرح یکسان مجاز نیست (v1.1). جعبهٔ طلایی مسدود است؛ «ادامه» باید aria-disabled باشد. */
+.mc-warning {
+  background: var(--nf-gold-50); /* #FEF8EA */
+  border: 1px solid var(--nf-gold-300); /* #F7D27F */
+  padding: 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mc-warning p { margin: 0; }
+
+/* بازبینی ویزارد */
+.mc-review {
+  background: var(--nf-surface-2);
+  padding: 18px;
+  border-radius: 14px;
+}
+.mc-review dl {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 14px;
+  font-size: 15px;
+  margin: 0;
+}
+.mc-review dt { color: var(--nf-ink-muted); }
+.mc-review dd { color: var(--nf-ink); font-weight: 700; margin: 0; }
+
+.mc-wizard {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.mc-progress { display: flex; gap: 4px; }
+.mc-progress i {
+  height: 5px;
+  flex: 1;
+  background: var(--nf-line);
+  border-radius: 5px;
+}
+.mc-progress i.on { background: var(--nf-brand-600); }
+
+@media (max-width: 1023.98px) {
+  .mc-wizard { grid-template-columns: 1fr; }
+  .mc-cases { grid-template-columns: 1fr; }
+  .mc-review dl { grid-template-columns: 1fr; gap: 6px; }
+  .mc-review dd { margin-bottom: 10px; }
+  .mc-picker { padding: 16px; }
+  .mc-picker h2 { font-size: 20px; }
+  .mc-choice button { padding: 12px; }
+  .mc-case .mc-row .btn { width: 100%; }
+  .pg { padding: 14px 14px calc(80px + 28px + env(safe-area-inset-bottom)); }
+}

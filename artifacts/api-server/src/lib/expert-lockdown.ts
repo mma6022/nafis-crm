@@ -166,7 +166,7 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
   // VOIP-CALL (flag.voip_call for this user only): «تماس از تلفن ویپ» + the customer's call history follow the same single-customer rule.
   // cs-fields v1 (flag.call_summary_fields_v1[.user.<id>] only): «موارد اجباری» on the call view / file follow the same single-customer rule.
   // REMINDER-VOIP (flag.reminder_voip for this user only): «تماس» on an own reminder = the same single-customer rule as the VoIP click call.
-  const ctIds = ctLockdownIds(req, path, Number(u!.id)) ?? vcLockdownIds(req, path, Number(u!.id)) ?? csLockdownIds(req, path, Number(u!.id)) ?? rvLockdownIds(req.method, path, Number(u!.id));
+  const ctIds = ctLockdownIds(req, path, Number(u!.id)) ?? vcLockdownIds(req, path, Number(u!.id)) ?? csLockdownIds(req, path, Number(u!.id)) ?? rvLockdownIds(req.method, path, Number(u!.id)) ?? mcLockdownIds(req, path);
   if (ctIds) {
     for (const id of ctIds) if (!elCustomerAccess(u!, id) && !elOwnCustomer(u!, id))
       return deny(res, "expert_lockdown_customer", "این مشتری فعلاً برای شما باز نیست (فقط مشتری‌های «کارهای امروز»، پرونده‌های خودت یا «تماس ورودی»).");
@@ -203,6 +203,17 @@ export function expertLockdownGuard(req: Request, res: Response, next: NextFunct
     }
   }
   next();
+}
+/** MULTI-CASE: null = not this API. [] = flag read (any logged-in locked expert). [customerId] = the same single-customer rule as GET /customers/:id. */
+function mcLockdownIds(req: Request, path: string): number[] | null {
+  if (req.method !== "GET" && req.method !== "HEAD") return null;
+  if (path === "/multi-case/status") return [];
+  const customer = /^\/multi-case\/customers\/(\d+)$/.exec(path);
+  if (customer) return [Number(customer[1])];
+  const application = /^\/multi-case\/cases\/(\d+)$/.exec(path);
+  if (!application) return null;
+  const row = queryRow<{ customer_id: number }>("SELECT customer_id FROM loan_applications WHERE id=? AND deleted_at IS NULL", [Number(application[1])]);
+  return row ? [Number(row.customer_id)] : null;
 }
 /** call-transcripts v1.1: null = not opened (normal lockdown rules apply); [] = feature switch; [customerId] = that customer's check. */
 // CT-OWN (Mohammad 2026-11-03): a locked expert opens the transcript, summary and audio of THEIR OWN calls (expert_user_id = caller),

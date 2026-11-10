@@ -15,6 +15,7 @@ import { useLocation } from "wouter";
 import { clearLoanDraft, readLoanDraft, writeLoanDraft } from "@/lib/loan-draft";
 import { useMultiCaseCustomer, useMultiCaseStatus } from "@/lib/multi-case";
 import { SamePlanBlock } from "@/components/multi-case/CaseContextPicker";
+import { multiCasePlanLabel } from "@/lib/multi-case-plan-label";
 import { DRAFTS_KEY, DraftHttpError, filingFeeIdempotencyKey, openPreRegistrationFor, type OpenPreRegistration, canUseDrafts, draftsApi, tehranTime, type DraftPayload, type RequestDraft } from "@/lib/request-drafts";
 import { toast } from "@/hooks/use-toast";
 import "./request-drafts.css";
@@ -265,6 +266,13 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   // Financing terms
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
   const blockedOpen = (openCases.data?.cases ?? []).find((row) => row.open && row.planId != null && row.planId === selectedPlanId);
+  const chooseOtherPlan = () => {
+    setSelectedPlanId(null); setSelectedPlan(null); setAmount(""); setDuration(""); setTermsAttempted(false); setSub(0);
+    requestAnimationFrame(() => {
+      const tile = document.getElementById("mc-plans")?.querySelector("button");
+      if (tile instanceof HTMLElement) tile.focus();
+    });
+  };
   const [selectedPlan, setSelectedPlan] = useState<CustomerEligiblePlan | null>(null);
   const [amount, setAmount] = useState("");
   const [duration, setDuration] = useState("");
@@ -709,7 +717,7 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
   );
 
   return createPortal(
-    <div className="csx lwz" data-save-blocked={saveBlocked ? 'true' : undefined} role="dialog" aria-modal="true" aria-labelledby="lwz-title" dir="rtl" data-testid="create-loan-application-wizard"
+    <div className={`csx lwz${multiOn ? " mc-host" : ""}`} data-save-blocked={saveBlocked ? 'true' : undefined} role="dialog" aria-modal="true" aria-labelledby="lwz-title" dir="rtl" data-testid="create-loan-application-wizard"
       onKeyDown={(event) => { if (event.key === 'Escape' && !exitOpen) { event.stopPropagation(); requestExit(); } }}>
       <header className="lwz-top">
         <button type="button" className="lwz-x" onClick={requestExit} aria-label="بستن ثبت درخواست" data-testid="wizard-close"><X size={24} /></button>
@@ -809,8 +817,6 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
            )}
            {step === 3 && selectedCustomer && (
             <>
-            {multiOn && (openCases.data?.cases ?? []).some((row) => row.open) ? <div className="lwz-note" data-testid="wizard-open-cases">پرونده‌های باز جدا می‌مانند و مبلغ یا یادداشتشان کپی نمی‌شود. {(openCases.data?.cases ?? []).filter((row) => row.open).map((row) => <span key={row.id}>پرونده {row.id.toLocaleString('fa-IR')} — {row.planName || 'طرح'}؛ </span>)}</div> : null}
-            {blockedOpen ? <SamePlanBlock planName={blockedOpen.planName || 'این طرح'} caseId={blockedOpen.id} /> : null}
             <Step3PlanAndTerms
                ignoreCreditRank={previewAllPlans}
                overrideReason={overrideReasonParam}
@@ -830,6 +836,10 @@ export function CreateWizard({ onClose, initialCustomerId, resumeDraft, fromCust
                onNext={() => { if (blockedOpen) return; handleNext(); }}
                onPrev={handlePrev}
                part={sub}
+               multiCase={multiOn}
+               blockedCaseId={blockedOpen?.id ?? null}
+               onChooseOther={chooseOtherPlan}
+               onOpenBlockedCase={() => { const id = blockedOpen?.id; onClose(); if (id) setLocation(`/loan-applications/${id}`); }}
             />
             </>
           )}
@@ -1579,9 +1589,13 @@ type Step3PlanAndTermsProps = {
   onNext: () => void;
   onPrev: () => void;
   part?: number;
+  multiCase?: boolean;
+  blockedCaseId?: number | null;
+  onChooseOther?: () => void;
+  onOpenBlockedCase?: () => void;
 };
 
-function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPlanGroup, onSelectPlan, planLocked, feeRecoveryPending, amount, setAmount, duration, setDuration, onNext, onPrev, attempted, onAttempt, ignoreCreditRank, overrideReason, part = 0 }: Step3PlanAndTermsProps) {
+function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPlanGroup, onSelectPlan, planLocked, feeRecoveryPending, amount, setAmount, duration, setDuration, onNext, onPrev, attempted, onAttempt, ignoreCreditRank, overrideReason, part = 0, multiCase, blockedCaseId, onChooseOther, onOpenBlockedCase }: Step3PlanAndTermsProps) {
   const [planAttempted, setPlanAttempted] = useState(false);
   const planTried = attempted || planAttempted;
   const { data: eligibleResponse, isLoading, isError, refetch } = useListCustomerEligiblePlans(customer.id, { ignoreCreditRank, creditRankOverrideReason: overrideReason }, {
@@ -1650,25 +1664,31 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
          {isLoading ? (
             <div className="lwz-loading" role="status">در حال بارگذاری طرح‌ها...</div>
           ) : isError ? <div role="alert" className="lwz-note bad">دریافت طرح‌ها ناموفق بود. <button type="button" className="text-link" onClick={() => void refetch()}>تلاش دوباره</button></div> : eligibleMatches.length > 0 ? (
-            <div className="lwz-opts" role="group" aria-label="طرح‌های واجد شرایط">
+            <div className={multiCase ? "lwz-opts mc-choice" : "lwz-opts"} id={multiCase ? "mc-plans" : undefined} role={multiCase ? "radiogroup" : "group"} aria-label="طرح‌های واجد شرایط">
                {groupedPlans.map((matches) => {
                  const plan = matches[0];
                  const planMaximum = Math.max(...matches.map((match) => Number(match.maximumAmount)));
+                 const label = multiCase ? multiCasePlanLabel({ planId: plan.planId, bankName: (plan as { bankName?: string | null }).bankName }) : plan.name;
+                 const marked = selectedPlanId === plan.planId;
                  return (
                   <button
                     type="button"
                     key={plan.planId}
                     data-testid={`plan-card-${plan.planId}`}
+                    data-plan-id={plan.planId}
+                    data-plan-label={label}
                     onClick={() => onSelectPlanGroup(plan.planId)}
                     disabled={!plan.primaryContractPresent || planLocked}
-                    aria-pressed={selectedPlanId === plan.planId}
-                    className={`lwz-opt${selectedPlanId === plan.planId ? ' on' : ''}`}
-                    style={{ opacity: plan.primaryContractPresent && (!planLocked || selectedPlanId === plan.planId) ? 1 : 0.6 }}
+                    aria-pressed={multiCase ? undefined : marked}
+                    role={multiCase ? "radio" : undefined}
+                    aria-checked={multiCase ? marked : undefined}
+                    className={`lwz-opt${marked ? ' on' : ''}`}
+                    style={{ opacity: plan.primaryContractPresent && (!planLocked || marked) ? 1 : 0.6 }}
                  >
                     <span className="dot" aria-hidden="true" />
                     <span className="txt">
-                       <strong>{plan.name}</strong>
-                       <small>تا {planMaximum.toLocaleString('fa-IR')} تومان · {matches.length.toLocaleString('fa-IR')} شرط</small>
+                       <strong>{label}</strong>
+                       <small>تا {planMaximum.toLocaleString('fa-IR')} تومان · {matches.length.toLocaleString('fa-IR')} شرط{multiCase && blockedCaseId && marked ? " · یک پرونده‌ی باز با این طرح دارید" : ""}</small>
                        {!plan.primaryContractPresent && <small className="lwz-err">قرارداد اصلی برای این طرح تعریف نشده است.</small>}
                     </span>
                   </button>
@@ -1687,6 +1707,7 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
          )}
       </div>
        {planTried && !selectedPlanId && <small role="alert" className="lwz-err" data-testid="error-plan-selection">برای ادامه یک طرح تسهیلاتی انتخاب کنید.</small>}
+       {multiCase && blockedCaseId ? <SamePlanBlock caseId={blockedCaseId} onChooseOther={() => onChooseOther?.()} onOpenCase={() => onOpenBlockedCase?.()} /> : null}
 
       {planLocked && (
         <p role="status" className="lwz-note ok">
@@ -1792,8 +1813,12 @@ function Step3PlanAndTerms({ customer, selectedPlanId, selectedPlan, onSelectPla
       <div className="form-footer">
         <button type="button" className="btn btn-ghost" onClick={onPrev} data-testid={part === 1 ? 'btn-prev-3' : 'btn-prev-3-0'}><ChevronRight size={18} /> قبلی</button>
         {part === 0
-          ? <button type="button" className="btn btn-primary" onClick={continuePlan} disabled={isLoading} data-testid="btn-next-3-0">ادامه <ChevronLeft size={18} /></button>
-          : <button type="button" className="btn btn-primary" onClick={continueTerms} disabled={!eligibleResponse || (!ignoreCreditRank && !eligibleResponse.credit.fresh) || isLoading || isError} data-testid="btn-next-3">ادامه <ChevronLeft size={18} /></button>}
+          ? blockedCaseId
+            ? <button type="button" className="btn pri" aria-disabled="true" tabIndex={-1} data-testid="btn-next-3-0" onClick={(event) => event.preventDefault()}>ادامه</button>
+            : <button type="button" className="btn btn-primary" onClick={continuePlan} disabled={isLoading} data-testid="btn-next-3-0">ادامه <ChevronLeft size={18} /></button>
+          : blockedCaseId
+            ? <button type="button" className="btn pri" aria-disabled="true" tabIndex={-1} data-testid="btn-next-3" onClick={(event) => event.preventDefault()}>ادامه</button>
+            : <button type="button" className="btn btn-primary" onClick={continueTerms} disabled={!eligibleResponse || (!ignoreCreditRank && !eligibleResponse.credit.fresh) || isLoading || isError} data-testid="btn-next-3">ادامه <ChevronLeft size={18} /></button>}
       </div>
     </div>
   );

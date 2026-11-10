@@ -13,6 +13,15 @@
  *  - Drafts may set request_key so two requests of one customer do not replace each other.
  *  - Calls and reminders may store loan_application_id after an ownership check.
  *    Omitting the choice stays a general customer record (legacy clients and automatic logs).
+ *
+ * Activate (call_queue_settings.updated_at is NOT NULL, same as the other flags):
+ *   INSERT INTO call_queue_settings(key, value, updated_at)
+ *   VALUES ('flag.multi_case_v1', '1', datetime('now'))
+ *   ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
+ * Off:
+ *   UPDATE call_queue_settings SET value = '0', updated_at = datetime('now')
+ *   WHERE key = 'flag.multi_case_v1' OR key LIKE 'flag.multi_case_v1.user.%';
+ * Do not rename loan_plans rows. Multi-case screens label a plan from bank_name.
  */
 import { crmDb, execute, executeChanges, queryRow, queryRows } from "./crm-db";
 
@@ -287,8 +296,9 @@ export function customerVisible(actor: McActor, customerId: number): boolean {
 const OPEN_SQL = "a.deleted_at IS NULL AND a.status<>'rejected' AND COALESCE(a.stage,'')<>'completed'";
 
 export function listCustomerCases(customerId: number) {
-  return queryRows<{ id: number; plan_id: number | null; plan_name: string | null; stage: string | null; status: string; open: number }>(
-    `SELECT a.id, a.plan_id, lp.name AS plan_name, a.stage, a.status,
+  const bank = columnExists("loan_plans", "bank_name") ? "lp.bank_name" : "NULL";
+  return queryRows<{ id: number; plan_id: number | null; plan_name: string | null; bank_name: string | null; stage: string | null; status: string; open: number }>(
+    `SELECT a.id, a.plan_id, lp.name AS plan_name, ${bank} AS bank_name, a.stage, a.status,
        CASE WHEN ${OPEN_SQL} THEN 1 ELSE 0 END AS open
      FROM loan_applications a LEFT JOIN loan_plans lp ON lp.id=a.plan_id
      WHERE a.customer_id=? AND a.deleted_at IS NULL ORDER BY a.id DESC`,
@@ -297,10 +307,20 @@ export function listCustomerCases(customerId: number) {
     id: Number(row.id),
     planId: row.plan_id == null ? null : Number(row.plan_id),
     planName: row.plan_name ?? null,
+    bankName: row.bank_name ?? null,
     stage: row.stage ?? null,
     status: row.status,
     open: Number(row.open) === 1,
   }));
+}
+
+export function getCaseRow(applicationId: number) {
+  const bank = columnExists("loan_plans", "bank_name") ? "lp.bank_name" : "NULL";
+  return queryRow<{ id: number; customer_id: number; plan_id: number | null; plan_name: string | null; bank_name: string | null; stage: string | null; status: string; deleted_at: string | null }>(
+    `SELECT a.id, a.customer_id, a.plan_id, lp.name AS plan_name, ${bank} AS bank_name, a.stage, a.status, a.deleted_at
+     FROM loan_applications a LEFT JOIN loan_plans lp ON lp.id=a.plan_id WHERE a.id=?`,
+    [applicationId],
+  );
 }
 
 export function listCaseCalls(customerId: number, applicationId?: number) {
