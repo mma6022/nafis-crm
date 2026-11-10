@@ -35,7 +35,8 @@ export type DciBoard = {
   access: "own" | "manager";
   hasExtension: boolean;
   canPromote: boolean;
-  customer: { id: number; name: string; phone: string | null; nationalCode: string | null; priority: number | null; tags: string[] };
+  canEditPriorityStatus?: boolean;
+  customer: { id: number; name: string; phone: string | null; nationalCode: string | null; priority: number | null; status?: string | null; tags: string[] };
   call: string;
   prio: boolean;
   hist: DciHist[];

@@ -23,6 +23,7 @@ import { dpToday } from "./daily-plan";
 import { callHistory, currentFileAnswers } from "./history-a";
 import { listCustomerCases } from "./multi-case";
 import { getWalletSummaryReadOnly } from "./wallets";
+import { psFlagOn } from "./sales-experts-priority-status";
 
 export const DCI_FLAG = "flag.daily_customer_inline_v1";
 export const DCI_OFF = "dci_off";
@@ -596,18 +597,21 @@ export function dciBoard(user: AuthUser, customerId: number, task?: string | nul
   const cases = dciCases(customerId);
   const showWallet = access === "own" || access === "manager";
   const canPromote = access === "own" || dciIsManager(user);
+  const canEditPriorityStatus = psFlagOn(user.id) && canPromote;
   const credit = creditOf(customerId);
   const guar = guarantorOf(customerId);
   return {
     access,
     hasExtension: dciHasExtension(user.id),
     canPromote,
+    canEditPriorityStatus,
     customer: {
       id: meta.id,
       name: meta.name,
       phone: meta.phone,
       nationalCode: meta.nationalCode,
       priority: meta.priority,
+      status: meta.status ?? "in_progress",
       tags: tagsOf(customerId),
     },
     call: currentCallLine(customerId, task),

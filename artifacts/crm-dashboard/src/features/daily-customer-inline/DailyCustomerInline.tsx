@@ -1,7 +1,9 @@
 /** Armita daily-customer-inline v1.1 — rendered in the existing sales shell. Flag-on Today page only. */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
-import { getGetAuthSessionQueryKey, useGetAuthSession } from "@workspace/api-client-react";
+import { getGetAuthSessionQueryKey, useGetAuthSession, useUpdateCustomer, type CustomerUpdateStatus } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { STATUS_LABEL } from "@/pages/customers-ui";
 import { announceCallSaved, useCqConfig } from "@/features/call-queue/api";
 import { CqResultFields, cqFollowUpAt, cqResultError, emptyCqResult, type CqResultValue } from "@/features/call-queue/ResultFields";
 import { dpApi } from "@/features/daily-plan/api";
@@ -17,6 +19,13 @@ import "./dci.css";
 const FD = "۰۱۲۳۴۵۶۷۸۹";
 const fa = (n: string | number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "٬").replace(/[0-9]/g, (d) => FD[Number(d)]);
 const fd = (v: string | number) => String(v).replace(/[0-9]/g, (d) => FD[Number(d)]);
+const PS_STATUSES: CustomerUpdateStatus[] = ["in_progress", "completed", "cancelled"];
+const PS_PRIORITIES: Array<number | null> = [1, 2, 3, null];
+function psErrMsg(error: unknown): string {
+  const e = error as { message?: string; data?: { error?: string; message?: string }; response?: { data?: { error?: string; message?: string } } };
+  const msg = e?.data?.message || e?.data?.error || e?.response?.data?.message || e?.response?.data?.error || e?.message;
+  return typeof msg === "string" && /[\u0600-\u06FF]/.test(msg) ? msg : "تغییر وضعیت ذخیره نشد. دوباره تلاش کنید.";
+}
 const toLatin = (v: string) => v.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
 /** Compact form asks for تومان; the existing first-call draft stores میلیون تومان. */
 function tomanToMillion(raw: string): string {
@@ -251,6 +260,30 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
   };
 }) {
   const tags = (m.customer.tags || []).map((x) => <span key={x}>{x}</span>);
+  const qc = useQueryClient();
+  const update = useUpdateCustomer();
+  const [psError, setPsError] = useState("");
+  const curStatus = ((m.customer.status ?? "in_progress") as CustomerUpdateStatus);
+  const curPriority = m.customer.priority ?? null;
+  const patchPs = (data: { status?: CustomerUpdateStatus; priority?: number | null }) => {
+    setPsError("");
+    update.mutate({ id: m.customer.id, data }, {
+      onSuccess: () => { void qc.invalidateQueries({ queryKey: ["dci-board", m.customer.id] }); },
+      onError: (error) => setPsError(psErrMsg(error)),
+    });
+  };
+  const ps = m.canEditPriorityStatus ? <div className="csx dci-ps" data-testid="dci-ps">
+    <div className="csx-chips" role="radiogroup" aria-label="وضعیت">{PS_STATUSES.map((key) =>
+      <button key={key} type="button" className="csx-chip" role="radio" aria-checked={curStatus === key} data-s={key}
+        disabled={update.isPending} onClick={() => curStatus !== key && patchPs({ status: key })}
+        data-testid={`chip-status-${key}`}>{STATUS_LABEL[key]}</button>)}</div>
+    <div className="csx-chips" role="radiogroup" aria-label="اولویت">{PS_PRIORITIES.map((value) =>
+      <button key={String(value)} type="button" className="csx-chip" role="radio" aria-checked={curPriority === value}
+        data-p={value ?? undefined} disabled={update.isPending}
+        onClick={() => curPriority !== value && patchPs({ priority: value })}
+        data-testid={`chip-priority-${value ?? "none"}`}>{value ? `اولویت ${fd(value)}` : "بدون اولویت"}</button>)}</div>
+    {psError ? <p className="dci-empty" role="alert" data-testid="dci-ps-err">{psError}</p> : null}
+  </div> : null;
   const prio = m.prio
     ? <div className="dci-prio"><span className="dci-prio-on">اولویت ۱</span></div>
     : (m.canPromote ? <div className="dci-prio"><button className="btn gh" type="button" disabled={promoting} onClick={onPromote}>ارتقا به اولویت ۱</button></div> : null);
@@ -263,6 +296,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     <div className="dci-who"><h2>{m.customer.name}</h2> {cidBtn(m.customer.id, onCopy)}</div>
     <div className="dci-idrow">{m.customer.phone ? <Phone raw={m.customer.phone} big={!ext} onCopy={onCopy} /> : null}{nid}</div>
     <div className="dci-tags">{tags}</div>
+    {ps}
     {prio}
     {promo?.open ? <div className="dci-promo" data-testid="dci-promote">
       <label htmlFor="dci-p1r">دلیل ارتقا</label>

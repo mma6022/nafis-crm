@@ -327,3 +327,24 @@ body:has([data-testid="dci-page"]) .ts-wz{
   .dci-left .cv .cvr{gap:4px}
   .dci-left .cv .flab{margin:0 0 2px}
 }
+
+/* Reused from pages/customers.css (وضعیت / اولویت chips). No new design.
+   Scoped to the Today board so the rest of the approved DCI layout is untouched. */
+.dci-page .dci-ps{display:grid;gap:8px;margin:0 0 12px}
+.dci-page .dci-ps.csx{--csx-line-strong:#c9cedf}
+.dci-page .dci-ps .csx-chips{display:flex;flex-wrap:wrap;gap:8px}
+.dci-page .dci-ps .csx-chip{min-height:48px;padding:0 14px;border-radius:12px;border:1.5px solid var(--csx-line-strong,#c9cedf);background:#fff;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;color:var(--nf-ink);white-space:nowrap;font:inherit}
+.dci-page .dci-ps .csx-chip[aria-checked="true"]{border-color:var(--nf-brand-600);background:var(--nf-brand-50);color:var(--nf-brand-800);box-shadow:inset 0 0 0 1px var(--nf-brand-600)}
+.dci-page .dci-ps .csx-chip[data-s="in_progress"]{--c:var(--nf-brand-700)}
+.dci-page .dci-ps .csx-chip[data-s="completed"]{--c:var(--nf-success)}
+.dci-page .dci-ps .csx-chip[data-s="cancelled"]{--c:var(--nf-ink-muted)}
+.dci-page .dci-ps .csx-chip[data-p="1"]{--c:#B42318}
+.dci-page .dci-ps .csx-chip[data-p="2"]{--c:#B54708}
+.dci-page .dci-ps .csx-chip[data-p="3"]{--c:#1F7A4D}
+.dci-page .dci-ps .csx-chip[data-p]::before{content:"";width:10px;height:10px;border-radius:3px;background:var(--c,var(--csx-line-strong,#c9cedf))}
+.dci-page .dci-ps .csx-chip[data-s]::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--c)}
+.dci-page .dci-ps .csx-chip:disabled{opacity:.5;cursor:not-allowed}
+@media(max-width:767.98px){
+  .dci-page .dci-ps{margin:0 0 8px}
+  .dci-page .dci-ps .csx-chip{min-height:44px;padding:0 12px}
+}
