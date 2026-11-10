@@ -1,0 +1,153 @@
+/* bale-contact v1.1 — برای اعمال مستقیم روی مؤلفه‌های React، نه iframe.
+   منبع: screens/bale-contact. رنگ برند را rgb بنویسید، نه هگز. */
+:root{
+  --nf-font-sans:'Vazirmatn', Tahoma, 'Segoe UI', system-ui, sans-serif;
+  --nf-ink: #0B1450;
+  --nf-ink-soft: #3D4A6B;
+  --nf-ink-muted: #5F6B85;
+  --nf-brand-600: rgb(41, 54, 155);
+  --nf-brand-50: #EEF0FA;
+  --nf-brand-100: #DDE1F5;
+  --nf-brand-200: #BCC3EC;
+  --nf-surface: #F7F8FC;
+  --nf-surface-2: #EFF1F8;
+  --nf-line: #E3E6F0;
+  --nf-gold-50: #FEF8EA;
+  --nf-gold-300: #F7D27F;
+  --nf-gold-700: #8A6212;
+  --nf-radius-pill: 999px;
+  --nf-shadow-card: 0 1px 2px rgba(0,0,0,.06);
+}
+html{font-family:var(--nf-font-sans)}
+/* سند باید lang=fa (یا fa-IR) و dir=rtl داشته باشد. */
+
+.bbt .smp{display:inline-block;font-size:14px;font-weight:600;color:var(--nf-gold-700);background:var(--nf-gold-50);border:1px dashed var(--nf-gold-300);border-radius:var(--nf-radius-pill);padding:0 8px;line-height:22px;margin-inline-start:6px}
+.bbt .cid{display:inline-flex;align-items:center;min-height:26px;padding:0 8px;border-radius:8px;background:var(--nf-surface-2);color:var(--nf-ink-muted);font-size:14px;font-weight:600;margin-inline-start:8px;vertical-align:middle;border:0;cursor:pointer;font-family:inherit}
+.bbt .ph{display:inline-flex;align-items:center;flex-wrap:wrap;gap:0}
+.bbt .ph .phs{font-size:14px;font-weight:600;color:var(--nf-gold-700);background:var(--nf-gold-50);border:1px dashed var(--nf-gold-300);border-radius:var(--nf-radius-pill);padding:0 7px;margin-inline-start:6px;line-height:20px;display:inline-block}
+.bbt .ph .phn{display:inline-flex;align-items:center;min-height:44px;min-width:44px;padding:0 4px;color:var(--nf-ink);font-weight:800;letter-spacing:.02em;text-decoration:none;unicode-bidi:isolate;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+.bbt .ph .phc{width:44px;height:44px;display:grid;place-items:center;border-radius:12px;color:var(--nf-ink-muted);border:0;background:none;cursor:pointer}
+.bbt .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:48px;padding:8px 16px;border-radius:14px;font-family:var(--nf-font-sans);font-size:15px;font-weight:700;text-decoration:none;border:1px solid transparent;cursor:pointer}
+.bbt .btn.sm{min-height:44px;padding:6px 12px;font-size:14px}
+.bbt .btn.pri{background:var(--nf-brand-600);color:#fff}
+.bbt .btn.gh{background:#fff;color:var(--nf-ink);border-color:var(--nf-line)}
+.bbt .chip{display:inline-flex;align-items:center;gap:4px;min-height:24px;padding:0 8px;border-radius:var(--nf-radius-pill);font-size:12px;font-weight:700}
+.bbt .chip.mut{background:var(--nf-surface-2);color:var(--nf-ink-soft);border:1px solid var(--nf-line)}
+.bbt .chip.ld{background:var(--nf-brand-50);color:var(--nf-brand-600);border:0}
+.bbt .chip.s{background:#E8F5EE;color:#1F7A4D}
+.bbt .chip.g{background:#FEF8EA;color:#8A6212;white-space:normal;height:auto;max-width:100%;line-height:1.4}
+
+/* bale-contact v1.1: اشتراک شماره در ربات نفیس وام + نمای CRM.
+   اجزای قابل‌استفادهٔ گفتگوی ربات (حباب، دکمهٔ درون‌خطی، صفحه‌کلید پاسخ، کارت)
+   برای همین نسخه و فاز ۲. */
+.bc-priv{display:block;margin-top:8px;font-size:13px;font-weight:500;color:var(--nf-ink-soft);line-height:1.7}
+body.bc-bot{background:var(--nf-surface);margin:0}
+.bc-stage{min-height:100vh;display:flex;justify-content:center;align-items:flex-start;padding:24px 16px 32px}
+.bc-phone{width:380px;max-width:100%;background:#fff;border:1px solid var(--nf-line);border-radius:36px;box-shadow:var(--nf-shadow-card);overflow:hidden;display:flex;flex-direction:column;min-height:780px}
+.bc-status{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 20px 4px;font-size:13px;font-weight:700;color:var(--nf-ink);flex:none}
+.bc-status .dots{display:flex;gap:5px;align-items:center;color:var(--nf-ink-muted)}
+.bc-status .dots i{display:block;width:4px;height:4px;border-radius:50%;background:currentColor}
+.bc-ph-bar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--nf-line);min-height:56px;background:#fff;flex:none}
+.bc-ph-bar .bbk{width:44px;height:44px;display:grid;place-items:center;border:0;background:none;color:var(--nf-ink-muted);border-radius:12px;flex:none;padding:0}
+.bc-ph-bar .bbk .i{width:20px;height:20px;transform:scaleX(-1)}
+.bc-ph-bar .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:0}
+.bc-ph-bar .t b{font-size:16px;font-weight:800;color:var(--nf-ink);line-height:1.3}
+.bc-ph-bar .t span{font-size:12px;font-weight:600;color:var(--nf-ink-soft);line-height:1.4}
+.bc-ava-bot{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--nf-brand-50);color:rgb(41, 54, 155);font-weight:800;font-size:16px;flex:none}
+.bc-ph-th{flex:1;display:flex;flex-direction:column;gap:8px;padding:14px 12px 16px;background:var(--nf-surface);min-height:0}
+.bc-day{align-self:center;font-size:12px;font-weight:700;color:var(--nf-ink-soft);background:var(--nf-surface-2);border-radius:var(--nf-radius-pill);padding:4px 12px;margin:4px 0 8px}
+
+/* حباب */
+.bc-msg{max-width:84%;display:flex;flex-direction:column;gap:4px}
+.bc-msg.in{align-self:flex-start;align-items:flex-start}
+.bc-msg.out{align-self:flex-end;align-items:flex-end}
+.bc-bub{padding:10px 14px;font-size:15px;line-height:1.8;color:var(--nf-ink);word-wrap:break-word}
+.bc-msg.in .bc-bub{background:#fff;border:1px solid var(--nf-line);border-radius:6px 18px 18px 18px}
+.bc-msg.out .bc-bub{background:var(--nf-brand-50);border:1px solid var(--nf-brand-100);border-radius:18px 6px 18px 18px}
+.bc-tm{font-size:11px;font-weight:600;color:var(--nf-ink-muted);padding:0 4px}
+
+/* دکمهٔ درون‌خطی (زیر پیام؛ قابل‌استفاده در فاز ۲) */
+.bc-ikb{display:flex;flex-direction:column;gap:6px;margin-top:2px;width:100%;min-width:200px}
+.bc-ik{min-height:44px;width:100%;padding:8px 12px;border:1px solid var(--nf-brand-200);background:#fff;border-radius:12px;color:rgb(41, 54, 155);font-family:var(--nf-font-sans);font-size:14px;font-weight:600;line-height:1.4;text-align:center;cursor:pointer}
+.bc-ik:hover{background:var(--nf-brand-50)}
+.bc-ikb.row{flex-direction:row;flex-wrap:wrap}
+.bc-ikb.row .bc-ik{flex:1;min-width:120px}
+
+/* کارت پیام (مخاطب و کارت‌های فاز ۲) */
+.bc-card{background:#fff;border:1px solid var(--nf-line);border-radius:16px;min-width:220px;max-width:280px;overflow:hidden}
+.bc-card-hd{display:flex;gap:10px;align-items:center;padding:12px}
+.bc-card-hd .ava,.bc-card-hd .bc-ava-bot{width:40px;height:40px;flex:none}
+.bc-card-hd b{display:block;font-size:15px;font-weight:800;line-height:1.3}
+.bc-card-hd .phn{display:inline-block;font-weight:700;font-variant-numeric:tabular-nums;unicode-bidi:isolate;letter-spacing:.02em}
+.bc-card-bd{padding:0 12px 12px;font-size:13px;font-weight:600;color:var(--nf-ink-soft);line-height:1.6}
+.bc-msg .bc-card{border-radius:16px}
+
+/* صفحه‌کلید پاسخ */
+.bc-rkb{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px 12px calc(12px + env(safe-area-inset-bottom,0px));background:var(--nf-surface-2);border-top:1px solid var(--nf-line);flex:none}
+.bc-rkb.one{grid-template-columns:1fr}
+.bc-key{min-height:48px;padding:8px 10px;border-radius:14px;border:1px solid var(--nf-line);background:#fff;color:var(--nf-ink);font-family:var(--nf-font-sans);font-size:14px;font-weight:600;line-height:1.45;text-align:center;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.bc-key.span2{grid-column:1/-1}
+.bc-key.pri{background:rgb(41, 54, 155);color:#fff;border-color:transparent;font-size:16px;font-weight:700}
+.bc-comp{display:flex;align-items:center;gap:8px;padding:8px 12px calc(10px + env(safe-area-inset-bottom,0px));background:#fff;border-top:1px solid var(--nf-line);flex:none}
+.bc-comp .fld{flex:1;min-height:44px;border:1px solid var(--nf-line);border-radius:14px;padding:8px 12px;background:var(--nf-surface);color:var(--nf-ink-muted);font-size:14px;font-weight:500}
+
+/* هدر و نوار CRM برای گفتگوی ربات نفیس وام */
+.bc-un{display:block;font-size:12px;font-weight:600;color:var(--nf-ink-soft);line-height:1.4;margin:0}
+.bbt .chh .t .nmr{display:flex;align-items:center;flex-wrap:wrap;gap:0}
+.bc-meta{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:8px 14px;background:#fff;border-bottom:1px solid var(--nf-line)}
+.bc-meta .kv{font-size:13px;font-weight:600;color:var(--nf-ink-soft);display:inline-flex;align-items:center;gap:6px}
+.bc-meta .kv b{color:var(--nf-ink);font-weight:700}
+.bbt .chip.mut{background:var(--nf-surface-2);color:var(--nf-ink-soft);border:1px solid var(--nf-line)}
+.bbt .chip.ld{background:var(--nf-brand-50);color:rgb(41, 54, 155);border:0}
+.bc-lock{margin:0;padding:8px 0 0;font-size:13px;font-weight:600;color:var(--nf-ink-soft);display:flex;align-items:flex-start;gap:6px;line-height:1.6}
+.bc-lock .i{width:16px;height:16px;flex:none;margin-top:2px}
+.bbt .botl .bk{font-weight:800}
+.bbt .cv-r .chip.mut,.bbt .cv-r .chip.ld{margin-top:2px}
+
+@media (max-width:1023px){
+  .bc-stage{padding:0}
+  .bc-phone{width:100%;border:0;border-radius:0;box-shadow:none;min-height:100vh}
+}
+
+.bc-card-id{display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:0}
+.bc-card-ph{display:block}
+.bc-card-ph .phn,.bc-iso{display:inline-block;direction:ltr;unicode-bidi:isolate;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;font-weight:700;letter-spacing:.02em}
+.bc-key.pri{gap:8px}
+.bc-key .bc-em{flex:none;font-size:18px;line-height:1}
+.bc-empty{margin:auto;text-align:center;padding:32px 16px;color:var(--nf-ink-soft)}
+.bc-empty b{display:block;color:var(--nf-ink);font-size:16px;margin-bottom:6px}
+
+.bc-rkb,.bc-key{direction:rtl}
+.bc-key .i{width:18px;height:18px;flex:none;margin-inline-end:6px}
+
+/* v1.1: وضعیت تایپی، منبع وصل، ورود دستی */
+.bbt .ava.c6{background:#1F6B8A}
+.bbt .ava.c7{background:#3D6B4F}
+.bc-src{margin:4px 0 0;width:100%;flex-basis:100%;font-size:13px;font-weight:600;color:var(--nf-ink-muted);line-height:1.6;padding-top:8px;border-top:1px solid var(--nf-line)}
+.bc-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px;width:100%}
+.bc-acts .btn{flex:0 1 auto;min-width:44px}
+.bc-meta.typ{align-items:flex-start}
+.bc-meta .chip.g{white-space:normal;height:auto;line-height:1.4;padding:4px 10px}
+.bbt .cv-r .chip.g{white-space:normal;height:auto;line-height:1.35;padding:3px 8px}
+.bc-note{margin:0;width:100%;font-size:14px;font-weight:600;color:var(--nf-ink-soft);line-height:1.7}
+.bc-match{display:flex;flex-direction:column;gap:8px;align-items:stretch;width:100%;padding:12px;border:1px solid var(--nf-line);border-radius:14px;background:var(--nf-surface)}
+.bc-match-id{display:flex;gap:10px;align-items:center}
+.bc-match-id .ava{flex:none}
+.bc-match-bd{min-width:0;display:flex;flex-direction:column;gap:2px}
+.bc-match-bd .nmr{display:flex;align-items:center;flex-wrap:wrap;font-size:15px;font-weight:800;color:var(--nf-ink)}
+.bc-match-bd .kv{font-size:13px;font-weight:600;color:var(--nf-ink-soft)}
+.bc-match-bd .kv b{color:var(--nf-ink);font-weight:700}
+.bc-wiz{margin:0 14px 10px;padding:14px;border:1px solid var(--nf-line);border-radius:16px;background:#fff;display:flex;flex-direction:column;gap:12px}
+.bc-wiz h3{margin:0;font-size:16px;font-weight:800;color:var(--nf-ink)}
+.bc-wiz .wst{margin:0}
+.bc-wiz .fld{margin:0}
+.bc-wiz .inp.lt{letter-spacing:.04em;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;unicode-bidi:isolate;text-align:left;direction:ltr}
+.bc-wiz .flab{display:block;font-weight:600;color:var(--nf-ink);margin-bottom:6px;font-size:15px}
+.bbt .cp .bc-src{margin-top:4px}
+.bbt .sys.long{display:block;text-align:center;line-height:1.8}
+.bbt .sys.long .bc-sys-t{display:inline;line-height:1.8}
+.bbt .sys.long .cid{vertical-align:middle;margin:0 4px}
+@media (max-width:1023px){
+  .bc-acts{flex-direction:column;align-items:stretch}
+  .bc-acts .btn{flex:none;width:100%}
+}

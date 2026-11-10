@@ -15,8 +15,12 @@ import { insertCustomerRecord } from "../lib/customer-create";
 import { baleBotAad, baleBotHasKey, sealBotToken } from "../lib/bale-bot-crypto";
 import {
   ASK_CONTACT_TEXT, BaleBotWorker, BB_LIMITS, baleCall, bbCanManage, bbLog, bbMasterOn, bbNoSendSp, bbUser, bbUserOn, bbView, botById, botLive, botOfUser, botSends,
-  bbNotice, chatName, ensureBaleBotSchema, fileOwnerUsers, normPhone, filesDir, isBotExpert, BB_EXTRA_EXPERT_USER_IDS, messageView, nameOf, redact, tokenShapeOk, type BbUser,
+  bbNotice, chatName, messageView, redactPhonesInText, ensureBaleBotSchema, fileOwnerUsers, normPhone, filesDir, isBotExpert, BB_EXTRA_EXPERT_USER_IDS, nameOf, redact, tokenShapeOk, type BbUser,
 } from "../lib/bale-bot";
+import {
+  bcApproveTyped, bcCanAct, bcCommitManual, bcFlagOn, bcInboxTitle, bcPreviewManual, bcRejectTyped,
+  bcResendAsk, bcSourceLine, bcTypedMatch, ensureBaleContactSchema, runBaleContactBatch,
+} from "../lib/bale-contact";
 
 export const baleBotWorker = new BaleBotWorker();
 const ERR_FA: Record<string, string> = {
@@ -30,6 +34,9 @@ const ERR_FA: Record<string, string> = {
   bad_token: "بله این توکن را نشناخت. توکن را دوباره از @botfather کپی کنید و همین‌جا بچسبانید.", network: "به بله وصل نشد. کمی بعد دوباره تست کنید.",
   key_missing: "کلید رمزنگاری توکن روی سرور نیست؛ توکن ذخیره نشد.", bot_in_use: "این ربات برای کارشناس دیگری وصل است.", not_expert: "این کاربر کارشناس فروش فعال نیست.",
   has_bot: "این کارشناس ربات وصل دارد؛ از فهرست «تعویض توکن» را بزنید.", unknown: "درخواست انجام نشد. دوباره تلاش کنید.",
+  flag_off: "این قابلیت فعلاً خاموش است.", no_pending: "شماره‌ی تایپی در انتظار تأیید نیست.",
+  rate_limited: "لطفاً کمی صبر کنید و دوباره درخواست شماره را بفرستید.",
+  batch_disabled: "ارسال یک‌باره به مشتریان فعلی خاموش است و بدون تأیید محمد اجرا نمی‌شود.",
 };
 const fail = (res: Response, status: number, error: string, extra: Record<string, unknown> = {}) => { if (!res.headersSent) res.status(status).json({ error, message: ERR_FA[error] ?? ERR_FA.unknown, ...extra }); };
 const me = (res: Response): BbUser | undefined => { const a = res.locals.authUser as AuthUser | undefined; return a ? bbUser(a.id) : undefined; };
@@ -37,7 +44,8 @@ const num = (v: unknown) => { const n = Number(v); return Number.isSafeInteger(n
 const t = () => new Date().toISOString();
 
 type ChatRow = { id: number; bot_id: number; chat_id: string; bale_user_id: string | null; first_name: string | null; last_name: string | null; username: string | null; bio: string | null;
-  customer_id: number | null; link_method: string | null; linked_at: string | null; verified_phone: string | null; lead_phone_verified: number | null; contact_asked_at: string | null; match_note: string | null;
+  customer_id: number | null; link_method: string | null; linked_at: string | null; linked_by: number | null; verified_phone: string | null; lead_phone_verified: number | null; contact_asked_at: string | null; match_note: string | null;
+  pending_typed_phone: string | null; pending_typed_at: string | null; link_source: string | null; first_ask_at: string | null; reminder_sent_at: string | null; welcome_sent_at: string | null; lead_from_bale: number | null;
   unread: number; last_at: string | null; last_preview: string | null; last_out: number; created_at: string };
 /** The chat, if this user may see it: "all" → any; "own" → only chats of the user's own bot. */
 function chatFor(u: BbUser, id: number): (ChatRow & { owner_id: number }) | undefined {
@@ -65,11 +73,29 @@ function chatView(c: ChatRow & { owner_id: number }, u: BbUser) {
   const owner = bbUser(c.owner_id); const bot = botById(c.bot_id)!;
   const full = customerBrief(c.customer_id); const cust = customerFor(u, c.customer_id);
   const lastOutAuthor = c.last_out ? queryRow<{ a: number | null }>("SELECT author_user_id a FROM bale_bot_messages WHERE chat_row=? AND dir='out' ORDER BY id DESC LIMIT 1", [c.id])?.a ?? null : null;
-  return { id: c.id, name: chatName(c), firstName: c.first_name, lastName: c.last_name, username: c.username, bio: c.bio, unread: c.unread, lastAt: c.last_at, lastPreview: c.last_preview, lastOut: !!c.last_out,
+  const feature = bcFlagOn();
+  const canAct = feature && bcCanAct(u, c.owner_id);
+  const typedPhone = feature && c.pending_typed_phone && canAct ? c.pending_typed_phone : null;
+  const typedMatch = typedPhone ? bcTypedMatch(typedPhone, owner?.salesperson_id ?? null) : null;
+  const title = feature ? bcInboxTitle(c, cust && !c.pending_typed_phone ? cust.name : null) : chatName(c);
+  return { id: c.id, name: title, firstName: c.first_name, lastName: c.last_name, username: c.username, bio: c.bio, unread: c.unread, lastAt: c.last_at, lastPreview: (cust && cust.restricted) ? redactPhonesInText(c.last_preview) : c.last_preview, lastOut: !!c.last_out,
     customer: cust, linkMethod: c.link_method, otherExpert: !!full && owner?.salesperson_id !== full.salespersonId, notices: noticesFor(u, c.id),
-    lastByManager: !!lastOutAuthor && lastOutAuthor !== c.owner_id, verifiedPhone: c.verified_phone, phoneVerified: c.customer_id == null ? null : c.link_method === 'contact' || c.link_method === 'contact_other' ? true : c.lead_phone_verified == null ? null : !!c.lead_phone_verified, contactAskedAt: c.contact_asked_at, matchNote: c.match_note,
+    lastByManager: !!lastOutAuthor && lastOutAuthor !== c.owner_id, verifiedPhone: (cust && cust.restricted) ? null : c.verified_phone, phoneVerified: c.customer_id == null ? null : c.link_method === 'contact' || c.link_method === 'contact_other' ? true : c.lead_phone_verified == null ? null : !!c.lead_phone_verified, contactAskedAt: c.contact_asked_at, matchNote: c.match_note,
     expert: { id: c.owner_id, name: nameOf(owner) }, bot: { username: bot.bot_username, status: bot.status }, canWrite: botLive(bot) && botSends(bot), sendBlocked: !botSends(bot) ? "no_send" : !botLive(bot) ? "bot_off" : null,
-    mine: c.owner_id === u.id };
+    mine: c.owner_id === u.id,
+    contactFeature: feature,
+    pendingTypedPhone: typedPhone,
+    pendingTypedAt: typedPhone ? c.pending_typed_at : null,
+    linkSource: feature ? (c.link_source ?? null) : null,
+    sourceLine: feature && c.customer_id ? bcSourceLine(c) : null,
+    leadFromBale: feature && !!c.lead_from_bale,
+    canApproveTyped: !!(feature && canAct && c.pending_typed_phone && !c.customer_id),
+    canRejectTyped: !!(feature && canAct && c.pending_typed_phone && !c.customer_id),
+    canManualEnter: !!(feature && canAct && !c.customer_id && !c.pending_typed_phone),
+    canResendAsk: !!(feature && canAct && !c.customer_id && botLive(bot) && botSends(bot)),
+    typedMatch: typedMatch && typedMatch.state === "known" ? typedMatch.customer : null,
+    waitingNumber: feature && !c.customer_id && !c.pending_typed_phone,
+  };
 }
 function botView(b: ReturnType<typeof botOfUser>) {
   return b ? { id: b.id, username: b.bot_username, name: b.bot_name, status: b.status, connectedAt: b.connected_at, lastOkAt: b.last_ok_at, lastError: b.last_error, hasToken: !!b.token_ct } : null;
@@ -80,6 +106,7 @@ export function createBaleBotRouter(): IRouter {
   r.use("/bale-bot", (_req: Request, res: Response, next: NextFunction) => {
     if (!bbMasterOn()) return next("router");
     ensureBaleBotSchema();
+    if (bcFlagOn()) ensureBaleContactSchema();
     const u = me(res); if (!u || !bbView(u)) return fail(res, 403, "not_enabled");
     res.locals.bbUser = u; next();
   });
@@ -90,7 +117,7 @@ export function createBaleBotRouter(): IRouter {
     const u = U(res); const v = bbView(u)!;
     const unread = v === "all" ? queryRow<{ n: number }>("SELECT COUNT(*) n FROM bale_bot_chats WHERE unread>0")!.n
       : queryRow<{ n: number }>("SELECT COUNT(*) n FROM bale_bot_chats c JOIN bale_bots b ON b.id=c.bot_id WHERE b.user_id=? AND c.unread>0", [u.id])!.n;
-    res.json({ enabled: true, view: v, canManage: bbCanManage(u), name: nameOf(u), bot: botView(botOfUser(u.id)), unread, limits: BB_LIMITS });
+    res.json({ enabled: true, view: v, canManage: bbCanManage(u), name: nameOf(u), bot: botView(botOfUser(u.id)), unread, limits: BB_LIMITS, contactFeature: bcFlagOn() });
   });
 
   r.get("/bale-bot/chats", (req, res) => {
@@ -99,9 +126,19 @@ export function createBaleBotRouter(): IRouter {
     if (v === "own") { w.push("b.user_id=?"); p.push(u.id); } else if (ex) { w.push("b.user_id=?"); p.push(ex); }
     const base = w.length ? `WHERE ${w.join(" AND ")}` : "";
     const all = queryRows<ChatRow & { owner_id: number }>(`SELECT c.*, b.user_id owner_id FROM bale_bot_chats c JOIN bale_bots b ON b.id=c.bot_id ${base} ORDER BY COALESCE(c.last_at,c.created_at) DESC LIMIT 500`, p);
-    const counts = { all: all.length, unread: all.filter(c => c.unread > 0).length, unlinked: all.filter(c => !c.customer_id).length };
-    let list = f === "unread" ? all.filter(c => c.unread > 0) : f === "unlinked" ? all.filter(c => !c.customer_id) : all;
-    if (q) { const qd = q.replace(/^[#@]/, ""); list = list.filter(c => chatName(c).includes(q) || (c.username ?? "").toLowerCase().includes(qd.toLowerCase()) || (c.customer_id != null && String(c.customer_id) === qd.replace(/[۰-۹]/g, d => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))))); }
+    const pending = all.filter(c => !c.customer_id);
+    const counts = { all: all.length, unread: all.filter(c => c.unread > 0).length, unlinked: pending.length, pending: pending.length, typedPending: all.filter(c => !c.customer_id && c.pending_typed_phone).length };
+    let list = f === "unread" ? all.filter(c => c.unread > 0) : (f === "unlinked" || f === "pending") ? pending : all;
+    if (q) {
+      const qd = q.replace(/^[#@]/, "");
+      const qn = qd.replace(/[۰-۹]/g, d => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)));
+      list = list.filter(c => {
+        const title = bcFlagOn() ? bcInboxTitle(c, customerBrief(c.customer_id)?.name ?? null) : chatName(c);
+        const cust = c.customer_id ? customerBrief(c.customer_id) : null;
+        return title.includes(q) || chatName(c).includes(q) || (c.username ?? "").toLowerCase().includes(qd.toLowerCase())
+          || (cust?.name ?? "").includes(q) || (c.customer_id != null && String(c.customer_id) === qn);
+      });
+    }
     const experts = v === "all" ? queryRows<any>("SELECT b.user_id id, u.full_name, u.username FROM bale_bots b JOIN users u ON u.id=b.user_id ORDER BY b.user_id").map(e => ({ id: e.id, name: nameOf(e) })) : [];
     res.json({ counts, chats: list.map(c => chatView(c, u)), experts });
   });
@@ -111,7 +148,8 @@ export function createBaleBotRouter(): IRouter {
     const after = num(req.query.after);
     const msgs = queryRows<any>(`SELECT * FROM bale_bot_messages WHERE chat_row=? ${after ? "AND id>?" : ""} ORDER BY id DESC LIMIT 300`, after ? [c.id, after] : [c.id]).reverse();
     if (c.owner_id === u.id && c.unread) executeChanges("UPDATE bale_bot_chats SET unread=0 WHERE id=?", [c.id]); // a manager opening it does not clear the expert's badge
-    res.json({ chat: chatView({ ...c, unread: c.owner_id === u.id ? 0 : c.unread }, u), messages: msgs.map(m => messageView(m, c.owner_id)) });
+    const view = chatView({ ...c, unread: c.owner_id === u.id ? 0 : c.unread }, u);
+    res.json({ chat: view, messages: msgs.map(m => messageView(m, c.owner_id, { hidePhone: !!view.customer?.restricted })) });
   });
 
   const writable = (u: BbUser, id: number, res: Response) => {
@@ -142,6 +180,13 @@ export function createBaleBotRouter(): IRouter {
 
   r.post("/bale-bot/chats/:id/request-contact", (req, res) => {
     const u = U(res); const c = writable(u, num(req.params.id), res); if (!c) return;
+    if (bcFlagOn()) {
+      const bot = botById(c.bot_id)!;
+      const r2 = bcResendAsk(c, bot, u);
+      if (!r2.ok) return fail(res, r2.error === "rate_limited" ? 429 : r2.error === "forbidden" ? 403 : 409, r2.error);
+      kick();
+      return res.json({ message: messageView(queryRow<any>("SELECT * FROM bale_bot_messages WHERE id=?", [r2.messageId]), c.owner_id) });
+    }
     executeChanges("UPDATE bale_bot_chats SET contact_asked_at=? WHERE id=?", [t(), c.id]);
     res.json({ message: queueOut(c, u, { kind: "text", text: ASK_CONTACT_TEXT, keyboard: "contact" }) });
   });
@@ -295,8 +340,58 @@ export function createBaleBotRouter(): IRouter {
     const cust = queryRow<any>("SELECT id,salesperson_id FROM customers WHERE id=?", [cid]); if (!cust) return fail(res, 404, "not_found");
     const chats = queryRows<ChatRow & { owner_id: number }>("SELECT c.*, b.user_id owner_id FROM bale_bot_chats c JOIN bale_bots b ON b.id=c.bot_id WHERE c.customer_id=? ORDER BY c.last_at DESC", [cid])
       .filter(c => v === "all" || c.owner_id === u.id || (u.salesperson_id != null && cust.salesperson_id === u.salesperson_id));
-    res.json({ chats: chats.map(c => ({ ...chatView(c, u), canOpen: v === "all" || c.owner_id === u.id,
-      timeline: queryRows<any>("SELECT * FROM bale_bot_messages WHERE chat_row=? ORDER BY id DESC LIMIT 30", [c.id]).map(m => messageView(m, c.owner_id)) })) });
+    res.json({ chats: chats.map(c => {
+      const view = chatView(c, u);
+      return { ...view, canOpen: v === "all" || c.owner_id === u.id,
+        timeline: queryRows<any>("SELECT * FROM bale_bot_messages WHERE chat_row=? ORDER BY id DESC LIMIT 30", [c.id]).map(m => messageView(m, c.owner_id, { hidePhone: !!view.customer?.restricted })) };
+    }) });
+  });
+
+  /* ---- bale-contact v1.1 (flag off → 409 flag_off) ---- */
+  r.post("/bale-bot/chats/:id/typed/approve", (req, res) => {
+    const u = U(res); const c = chatFor(u, num(req.params.id)); if (!c) return fail(res, 404, "not_found");
+    const bot = botById(c.bot_id)!;
+    const r2 = bcApproveTyped(c, bot, u);
+    if (!r2.ok) return fail(res, r2.error === "forbidden" ? 403 : r2.error === "flag_off" ? 409 : 400, r2.error);
+    kick();
+    res.json({ result: r2.result, chat: chatView(chatFor(u, c.id)!, u) });
+  });
+  r.post("/bale-bot/chats/:id/typed/reject", (req, res) => {
+    const u = U(res); const c = chatFor(u, num(req.params.id)); if (!c) return fail(res, 404, "not_found");
+    const bot = botById(c.bot_id)!;
+    const r2 = bcRejectTyped(c, bot, u);
+    if (!r2.ok) return fail(res, r2.error === "forbidden" ? 403 : r2.error === "flag_off" ? 409 : 400, r2.error);
+    kick();
+    res.json({ ok: true, chat: chatView(chatFor(u, c.id)!, u) });
+  });
+  r.post("/bale-bot/chats/:id/manual/preview", express.json(), (req, res) => {
+    const u = U(res); const c = chatFor(u, num(req.params.id)); if (!c) return fail(res, 404, "not_found");
+    if (!bcFlagOn()) return fail(res, 409, "flag_off");
+    if (!bcCanAct(u, c.owner_id)) return fail(res, 403, "forbidden");
+    const owner = bbUser(c.owner_id);
+    const r2 = bcPreviewManual(String(req.body?.phone ?? ""), owner?.salesperson_id ?? null);
+    if (!r2.ok) return fail(res, 400, r2.error);
+    // Lockdown / other-expert: preview shows name, #id and owner; phone of the matched file is not added here (the typed value is the expert's own input).
+    const match = r2.match.state === "known" && r2.match.customer
+      ? (r2.match.own || bbCanManage(u)
+        ? { state: "known", phone: r2.phone, customer: r2.match.customer }
+        : { state: "known", phone: r2.phone, customer: { id: r2.match.customer.id, name: r2.match.customer.name, expert: r2.match.customer.expert, status: null, own: false } })
+      : { state: r2.match.state, phone: r2.phone, customer: null };
+    res.json(match);
+  });
+  r.post("/bale-bot/chats/:id/manual", express.json(), (req, res) => {
+    const u = U(res); const c = chatFor(u, num(req.params.id)); if (!c) return fail(res, 404, "not_found");
+    const bot = botById(c.bot_id)!;
+    const r2 = bcCommitManual(c, bot, u, String(req.body?.phone ?? ""));
+    if (!r2.ok) return fail(res, r2.error === "forbidden" ? 403 : r2.error === "flag_off" ? 409 : 400, r2.error);
+    res.json({ result: r2.result, phone: r2.phone, chat: chatView(chatFor(u, c.id)!, u) });
+  });
+  r.post("/bale-bot/admin/contact-batch", (_req, res) => {
+    const u = adm(res); if (!u) return;
+    const r2 = runBaleContactBatch();
+    if (!r2.ok) return fail(res, 409, r2.error ?? "batch_disabled");
+    kick();
+    res.json({ ok: true, sent: r2.sent, skipped: r2.skipped });
   });
 
   /* ---- admin: bots ---- */

@@ -26,6 +26,7 @@ import crypto from "node:crypto";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import { isSalesManagerUser, roleSql } from "./sales-manager";
 import { baleBotAad, openBotToken, type BotKeyEnv } from "./bale-bot-crypto";
+import * as baleContact from "./bale-contact";
 
 export const BB_FLAG = "flag.bale_bot";
 export const bbUserFlag = (userId: number) => `${BB_FLAG}.user.${userId}`;
@@ -260,7 +261,12 @@ export function storeUpdate(bot: BotRow, u: any): number[] {
     VALUES(?,'in',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [c.id, m.message_id ?? null, p.kind, p.text, p.fileId ?? null, p.fileName ?? null, p.mime ?? null, p.size ?? null, p.duration ?? null, fileState,
     p.contact?.phone ?? null, p.contact?.name ?? null, own, p.lat ?? null, p.lng ?? null, replyTo, t]);
   executeChanges("UPDATE bale_bot_chats SET unread=unread+1, last_at=?, last_preview=?, last_out=0 WHERE id=?", [t, preview(p.kind, p.text), c.id]);
-  if (p.contact && own === 1 && p.contact.phone) {
+  // bale-contact v1.1 (flag.bale_contact_v1): when ON, first-ask / typed-pending / auto-lead replace this block.
+  // When the flag is OFF this block is unchanged (parity with today's inbox).
+  if (baleContact.bcFlagOn()) {
+    baleContact.ensureBaleContactSchema();
+    baleContact.bcAfterInbound(bot, c.id, { kind: p.kind, text: p.text, contact: p.contact, fromId, contactOwn: own, isNewChat: false });
+  } else if (p.contact && own === 1 && p.contact.phone) {
     executeChanges("UPDATE bale_bot_chats SET verified_phone=? WHERE id=?", [p.contact.phone, c.id]);
     if (c.customer_id == null) {
       const owner = bbUser(bot.user_id);
@@ -364,6 +370,11 @@ export class BaleBotWorker {
     for (const [id, p] of this.pollers) if (!ids.has(id) || !p.running) { p.stop(); this.pollers.delete(id); }
     for (const b of live) if (!this.pollers.has(b.id)) this.pollers.set(b.id, this.poll(b.id));
     await this.flushOutbox();
+    if (baleContact.bcFlagOn()) {
+      baleContact.ensureBaleContactSchema();
+      baleContact.bcTickReminders();
+      await this.flushOutbox();
+    }
   }
   async flushOutbox(): Promise<void> {
     if (this.sending || !bbMasterOn()) return; this.sending = true;
@@ -441,13 +452,26 @@ export function authorLabel(authorId: number | null, ownerId: number | null): st
   const u = bbUser(authorId); if (!u) return null;
   return `${isSalesManagerUser(u) ? "مدیر فروش" : u.role === "admin" ? "مدیر سیستم" : "همکار"}: ${nameOf(u)}`;
 }
-export function messageView(m: any, ownerId: number | null = null) {
+/** Mask phone-like runs in a message preview when the viewer must not see the number (other expert / restricted). */
+export function redactPhonesInText(text: string | null | undefined): string | null {
+  if (text == null || text === "") return text ?? null;
+  const toEn = text.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)));
+  const out = toEn.replace(/(?:\+98|0098|98|0)?9\d{9}/g, "••••");
+  return out === toEn ? text : out;
+}
+export function messageView(m: any, ownerId: number | null = null, opts?: { hidePhone?: boolean }) {
   if (ownerId == null && m.dir === "out") ownerId = queryRow<{ u: number }>("SELECT b.user_id u FROM bale_bot_chats c JOIN bale_bots b ON b.id=c.bot_id WHERE c.id=?", [m.chat_row])?.u ?? null;
   const author = m.dir === "out" ? authorLabel(m.author_user_id, ownerId) : null;
   const ageH = (Date.now() - Date.parse(m.sent_at ?? m.created_at)) / 3_600_000;
-  return { id: m.id, dir: m.dir, kind: m.kind, text: m.deleted_at ? null : m.text, at: m.created_at, editedAt: m.edited_at, deleted: !!m.deleted_at,
+  let text = m.deleted_at ? null : m.text as string | null;
+  let contact = m.kind === "contact" ? { phone: m.contact_phone as string | null, name: m.contact_name as string | null, own: m.contact_own === 1, hidden: false } : null;
+  if (opts?.hidePhone) {
+    if (text) text = redactPhonesInText(text);
+    if (contact) contact = { ...contact, phone: null, hidden: true };
+  }
+  return { id: m.id, dir: m.dir, kind: m.kind, text, at: m.created_at, editedAt: m.edited_at, deleted: !!m.deleted_at,
     file: m.file_state ? { name: m.file_name, mime: m.mime, size: m.size, duration: m.duration, state: m.file_state, url: m.file_state === "stored" ? `/api/bale-bot/files/${m.id}` : null } : null,
-    contact: m.kind === "contact" ? { phone: m.contact_phone, name: m.contact_name, own: m.contact_own === 1 } : null,
+    contact,
     location: m.kind === "location" ? { lat: m.lat, lng: m.lng } : null, replyTo: m.reply_to, askContact: m.keyboard === "contact",
     status: m.dir === "out" ? (m.status === "sending" && m.error_code === "rate_limited" ? "wait" : m.status) : null, errorCode: m.dir === "out" && m.status === "failed" ? m.error_code : null,
     author, canEdit: m.dir === "out" && m.status === "sent" && m.kind === "text" && !m.deleted_at && !m.keyboard,
