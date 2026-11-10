@@ -6,7 +6,7 @@ import {
   cbDeleteSecret, cbHandoffOwnerId, cbIsFromBale, cbKbDelete, cbKbList, cbKbSetActive, cbKbUpsert, cbPreviewKb,
   cbOpenaiModel, cbDeepseekModel, cbOpenHandoff, cbOpenTasksForOwner, cbOpenUnassignedTasks,
   cbSecretMeta, cbSetSetting, cbSharedBot, cbStoreSecret, cbTestSecret, cbFilingView, ensureCustomerBaleSchema,
-  ensureSharedCustomerBot, getCbSignPath, lockDownOn, planLabelForCustomer,
+  cbClearSharedBotToken, cbSharedBotPublic, ensureSharedCustomerBot, getCbSignPath, lockDownOn, planLabelForCustomer,
 } from "../lib/customer-bale";
 import { baleBotAad, baleBotHasKey, sealBotToken } from "../lib/bale-bot-crypto";
 import { botById, botToken, isSharedCustomerBot } from "../lib/bale-bot";
@@ -81,7 +81,7 @@ export function registerCustomerBaleRoutes(r: IRouter, opts: { kick: () => void 
       scopes: CB_KB_SCOPES,
       categories: CB_KB_CATEGORIES,
       defaultScope: CB_KB_SCOPES[0],
-      sharedBot: shared ? { id: shared.id, name: shared.bot_name || CB_SHARED_BOT_NAME, username: shared.bot_username ?? null, status: shared.status, hasToken: !!shared.token_ct, connectedAt: (shared as any).connected_at ?? null } : null,
+      sharedBot: cbSharedBotPublic(shared),
     });
   });
 
@@ -95,11 +95,16 @@ export function registerCustomerBaleRoutes(r: IRouter, opts: { kick: () => void 
     const sealed = sealBotToken(process.env, token, baleBotAad(id, 0));
     const at = new Date().toISOString();
     executeChanges(
-      "UPDATE bale_bots SET token_ct=?, token_key_id=?, updated_at=? WHERE id=?",
-      [sealed.value, sealed.keyId, at, id],
+      "UPDATE bale_bots SET token_ct=?, token_key_id=?, status='on', connected_at=?, last_error=NULL, updated_at=? WHERE id=?",
+      [sealed.value, sealed.keyId, at, at, id],
     );
-    const shared = cbSharedBot();
-    res.json({ ok: true, sharedBot: { id: shared.id, name: shared.bot_name || CB_SHARED_BOT_NAME, username: shared.bot_username ?? null, status: shared.status, hasToken: !!shared.token_ct, connectedAt: (shared as any).connected_at ?? null } });
+    res.json({ ok: true, sharedBot: cbSharedBotPublic() });
+  });
+
+  r.post("/bale-bot/customer-bot/admin/shared-bot/token/delete", (_req: Request, res: Response) => {
+    if (!requireAdminFeature(res)) return;
+    cbClearSharedBotToken();
+    res.json({ ok: true, sharedBot: cbSharedBotPublic() });
   });
 
   r.post("/bale-bot/customer-bot/admin/secret", (req: Request, res: Response) => {

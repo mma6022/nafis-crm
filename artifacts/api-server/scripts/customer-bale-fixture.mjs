@@ -14,7 +14,7 @@ import {
   cbDeleteSecret, cbTestSecret, setCbSecretTestFn, cbPreviewKb, cbKbText, cbKbUpsert, cbKbList, cbNormalizeKbScope,
   cbQueueText, cbWelcomeAfterLink, cbCreateHandoff, cbClaimHandoff, cbAiFailed, cbRecordAiTurn,
   cbSetAiMode, last30DaysTehranWindow, lockDownOn, cbIsFromBale,
-  ensureSharedCustomerBot, cbSharedBot, isSharedCustomerBot , setCbSignPath, cbCheckSign,
+  ensureSharedCustomerBot, cbSharedBot, cbSharedBotPublic, cbClearSharedBotToken, isSharedCustomerBot , setCbSignPath, cbCheckSign,
 } from "../src/lib/customer-bale.ts";
 import { bcLinkOrCreateLead, BC_OK_NEW, BC_ASK_FIRST_SHARED } from "../src/lib/bale-contact.ts";
 import { botSends, isSharedCustomerBot as isSharedBotRow } from "../src/lib/bale-bot.ts";
@@ -150,8 +150,11 @@ await checkAsync("flags OFF: handleInbound is a no-op", async () => {
 /* plan label */
 check("plan label is لندتک / bank, normalizes dash, never internal name", () => {
   assert.equal(planLabelForCustomer("ملت"), "لندتک / ملت");
-  assert.equal(planLabelForCustomer("  اقتصاد - نوین  "), "لندتک / اقتصاد، نوین");
   assert.equal(planLabelForCustomer("اقتصاد نوین"), "لندتک / اقتصاد نوین");
+  assert.equal(planLabelForCustomer("  اقتصاد - نوین  "), "لندتک / اقتصاد نوین");
+  assert.ok(!planLabelForCustomer("اقتصاد - نوین").includes("،"), "must not split a single bank name");
+  assert.equal(planLabelForCustomer("گردشگری - اقتصاد نوین  - دی"), "لندتک / گردشگری، اقتصاد نوین، دی");
+  assert.equal(planLabelForCustomer("بلوبانک - های بانک"), "لندتک / بلوبانک، های بانک");
   const lab = planLabelForCustomer("بلوبانک");
   assert.ok(!lab.includes("بازنشسته") && !lab.includes("چابک") && !lab.includes("ترنم"));
 });
@@ -478,6 +481,13 @@ await checkAsync("یادآوری امضا calls mocked check-status and updates 
   assert.equal(f.contract_status, "signed");
   const genAfter = queryRows("SELECT id, status FROM contract_generations ORDER BY id DESC LIMIT 3");
   assert.deepEqual(genAfter, genBefore);
+  setCbSignPath({
+    checkStatus: async (generationId) => { assert.equal(generationId, 4242); return { status: "pending" }; },
+  });
+  const readOnly = await cbCheckSign(chat.id);
+  assert.equal(readOnly.reminded, false);
+  assert.equal(readOnly.status, "pending");
+  assert.equal(readOnly.path, "check-status");
   setCbSignPath(null);
 });
 
@@ -611,6 +621,31 @@ check("shared bot first-ask text is the designed start copy", () => {
 });
 
 
+
+
+check("shared bot public view is قطع without a token and never returns the token", () => {
+  ensureSharedCustomerBot(AT);
+  const id = cbSharedBot().id;
+  executeChanges("UPDATE bale_bots SET status='on', token_ct=NULL, token_key_id=NULL, connected_at=NULL WHERE id=?", [id]);
+  const off = cbSharedBotPublic();
+  assert.equal(off.hasToken, false);
+  assert.equal(off.status, "off");
+  assert.equal(off.connectedAt, null);
+  assert.ok(!("token" in off) && !("token_ct" in off));
+  executeChanges("UPDATE bale_bots SET status='on', token_ct='sealed-not-for-display', connected_at=? WHERE id=?", [AT, id]);
+  const on = cbSharedBotPublic();
+  assert.equal(on.hasToken, true);
+  assert.equal(on.status, "on");
+  assert.equal(on.connectedAt, AT);
+  assert.ok(!("token" in on) && !("token_ct" in on));
+  const dumped = JSON.stringify(on);
+  assert.ok(!dumped.includes("sealed-not-for-display"), dumped);
+  cbClearSharedBotToken(AT);
+  const after = cbSharedBotPublic();
+  assert.equal(after.hasToken, false);
+  assert.equal(after.status, "off");
+  executeChanges("UPDATE bale_bots SET token_ct=NULL, token_key_id=NULL, status='off', connected_at=NULL WHERE id=?", [id]);
+});
 
 check("Jalali dates on bale-bot/KB surfaces use design order weekday day month year", () => {
   assert.equal(jalaliWeekdayDate(null), "");
