@@ -11,9 +11,11 @@
  *  - Every priority (none / 1 / 2 / 3) has an owner.
  *  - P1 may have one or two owners (rotation uses the per-team p1_cursor).
  *  - none / P2 / P3 have exactly one owner each.
- *  - Incoming leads start 100% at team 1 until a manager changes intake.
- *  - Intake is per source (new_customers / site_leads): one team or several rotating, no percentages.
- *  - A team that is an intake destination cannot be disabled until it is removed.
+ *  - Incoming leads start 100% at team 1 (0% team 2) until a manager changes intake.
+ *  - Intake is per source (new_customers / site_leads): integer percents per team that sum to 100.
+ *  - Assignment is a persisted deficit-counter (smooth weighted round-robin), not random.
+ *  - A team with more than 0% on any source cannot be disabled until that share is set to 0.
+ *  - A disabled team cannot have more than 0%.
  *  - Team-commission config is per team (team 2 is seeded at zero).
  *  - Future membership changes do not move existing customers.
  *  - Team UI display names are labels only (no users-table writes). Kheradkar: «حسین خردکار».
@@ -50,7 +52,8 @@ export function teamUiDisplayName(salespersonId: number, fallback?: string | nul
 
 export const INTAKE_SOURCES = ["new_customers", "site_leads"] as const;
 export type IntakeSource = (typeof INTAKE_SOURCES)[number];
-export type IntakeSplitRow = { source: IntakeSource; teamIds: number[]; cursorIndex: number; cursorUsed: number; updatedAt: string };
+export type IntakeShare = { teamId: number; percent: number; deficit: number };
+export type IntakeSplitRow = { source: IntakeSource; shares: IntakeShare[]; teamIds: number[]; updatedAt: string };
 
 export function isIntakeSource(v: unknown): v is IntakeSource {
   return v === "new_customers" || v === "site_leads";
@@ -138,6 +141,13 @@ export function ensureMultiTeamSchema(): void {
       cursor_used INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS sales_intake_shares (
+      source TEXT NOT NULL CHECK (source IN ('new_customers','site_leads')),
+      team_id INTEGER NOT NULL,
+      percent INTEGER NOT NULL CHECK (percent >= 0 AND percent <= 100),
+      deficit INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (source, team_id)
+    );
   `);
   schemaReady = true;
   seedIntakeSplitIfNeeded();
@@ -221,11 +231,25 @@ function parseTeamIdsJson(raw: string | null | undefined): number[] {
   } catch { return [1]; }
 }
 
-/** Default both sources to team 1 — 100% of incoming leads until a manager changes it. */
-export function seedIntakeSplitIfNeeded(now = new Date()): string[] {
-  const at = now.toISOString();
-  const seeded: string[] = [];
+function intakeError(message: string, error = "invalid_intake", status = 422, field = "percent"): Error {
+  return Object.assign(new Error(message), { error, status, field });
+}
+
+function knownTeamIds(): number[] {
   try {
+    return queryRows<{ id: number }>("SELECT id FROM sales_teams ORDER BY id").map((r) => Number(r.id));
+  } catch { return []; }
+}
+
+function ensureIntakeSharesTable(): void {
+  try {
+    crmDb.exec(`CREATE TABLE IF NOT EXISTS sales_intake_shares (
+      source TEXT NOT NULL CHECK (source IN ('new_customers','site_leads')),
+      team_id INTEGER NOT NULL,
+      percent INTEGER NOT NULL CHECK (percent >= 0 AND percent <= 100),
+      deficit INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (source, team_id)
+    )`);
     crmDb.exec(`CREATE TABLE IF NOT EXISTS sales_intake_split (
       source TEXT PRIMARY KEY CHECK (source IN ('new_customers','site_leads')),
       team_ids_json TEXT NOT NULL,
@@ -234,31 +258,98 @@ export function seedIntakeSplitIfNeeded(now = new Date()): string[] {
       updated_at TEXT NOT NULL
     )`);
   } catch { /* already exists or no db */ }
+}
+
+function sharesFromLegacyIds(ids: number[], teamIds: number[]): { teamId: number; percent: number }[] {
+  const dest = ids.length ? ids : [1];
+  const all = [...new Set([...teamIds, ...dest])].sort((a, b) => a - b);
+  const out = new Map<number, number>();
+  for (const id of all) out.set(id, 0);
+  if (dest.length === 1) {
+    out.set(dest[0]!, 100);
+  } else {
+    const base = Math.floor(100 / dest.length);
+    let rem = 100 - base * dest.length;
+    for (const id of dest) {
+      out.set(id, base + (rem > 0 ? 1 : 0));
+      if (rem > 0) rem -= 1;
+    }
+  }
+  return [...out.entries()].map(([teamId, percent]) => ({ teamId, percent }));
+}
+
+function upsertShare(source: IntakeSource, teamId: number, percent: number, deficit: number, at: string): void {
+  execute(
+    `INSERT INTO sales_intake_shares(source,team_id,percent,deficit) VALUES(?,?,?,?)
+     ON CONFLICT(source,team_id) DO UPDATE SET percent=excluded.percent, deficit=excluded.deficit`,
+    [source, teamId, percent, deficit],
+  );
+  const positive = queryRows<{ team_id: number }>(
+    "SELECT team_id FROM sales_intake_shares WHERE source=? AND percent>0 ORDER BY team_id",
+    [source],
+  ).map((r) => Number(r.team_id));
+  const idsJson = JSON.stringify(positive.length ? positive : [1]);
+  execute(
+    `INSERT INTO sales_intake_split(source,team_ids_json,cursor_index,cursor_used,updated_at) VALUES(?,?,0,0,?)
+     ON CONFLICT(source) DO UPDATE SET team_ids_json=excluded.team_ids_json, updated_at=excluded.updated_at`,
+    [source, idsJson, at],
+  );
+}
+
+/** Default both sources to 100% team 1 / 0% team 2 until a manager changes it. Idempotent. */
+export function seedIntakeSplitIfNeeded(now = new Date()): string[] {
+  const at = now.toISOString();
+  const seeded: string[] = [];
+  ensureIntakeSharesTable();
+  const teamIds = knownTeamIds();
   for (const source of INTAKE_SOURCES) {
-    if (!queryRow("SELECT 1 x FROM sales_intake_split WHERE source=?", [source])) {
-      execute(
-        "INSERT INTO sales_intake_split(source,team_ids_json,cursor_index,cursor_used,updated_at) VALUES(?, '[1]', 0, 0, ?)",
-        [source, at],
-      );
+    const existing = queryRows<{ team_id: number; percent: number }>(
+      "SELECT team_id, percent FROM sales_intake_shares WHERE source=?",
+      [source],
+    );
+    if (!existing.length) {
+      let initial: { teamId: number; percent: number }[] = [];
+      const legacy = queryRow<{ team_ids_json: string }>("SELECT team_ids_json FROM sales_intake_split WHERE source=?", [source]);
+      if (legacy?.team_ids_json) {
+        initial = sharesFromLegacyIds(parseTeamIdsJson(legacy.team_ids_json), teamIds);
+      } else {
+        const ids = teamIds.length ? teamIds : [1];
+        initial = ids.map((id) => ({ teamId: id, percent: id === 1 ? 100 : 0 }));
+        if (!initial.some((s) => s.teamId === 1)) initial.unshift({ teamId: 1, percent: 100 });
+      }
+      for (const s of initial) upsertShare(source, s.teamId, s.percent, 0, at);
       seeded.push(`intake:${source}`);
+    } else {
+      for (const id of teamIds) {
+        if (!existing.some((r) => Number(r.team_id) === id)) upsertShare(source, id, 0, 0, at);
+      }
     }
   }
   return seeded;
 }
 
+function readShares(source: IntakeSource): IntakeShare[] {
+  const rows = queryRows<{ team_id: number; percent: number; deficit: number }>(
+    "SELECT team_id, percent, deficit FROM sales_intake_shares WHERE source=? ORDER BY team_id",
+    [source],
+  );
+  return rows.map((r) => ({
+    teamId: Number(r.team_id),
+    percent: Math.max(0, Number(r.percent) || 0),
+    deficit: Number(r.deficit) || 0,
+  }));
+}
+
 export function loadIntakeSplit(source: IntakeSource): IntakeSplitRow {
   ensureMultiTeamSchema();
   seedIntakeSplitIfNeeded();
-  const row = queryRow<{ team_ids_json: string; cursor_index: number; cursor_used: number; updated_at: string }>(
-    "SELECT team_ids_json, cursor_index, cursor_used, updated_at FROM sales_intake_split WHERE source=?",
-    [source],
-  );
+  const shares = readShares(source);
+  const meta = queryRow<{ updated_at: string }>("SELECT updated_at FROM sales_intake_split WHERE source=?", [source]);
   return {
     source,
-    teamIds: parseTeamIdsJson(row?.team_ids_json),
-    cursorIndex: Math.max(0, Number(row?.cursor_index) || 0),
-    cursorUsed: Math.max(0, Number(row?.cursor_used) || 0),
-    updatedAt: row?.updated_at ?? "",
+    shares,
+    teamIds: shares.filter((s) => s.percent > 0).map((s) => s.teamId),
+    updatedAt: meta?.updated_at ?? "",
   };
 }
 
@@ -266,10 +357,12 @@ export function loadAllIntakeSplits(): IntakeSplitRow[] {
   return INTAKE_SOURCES.map((s) => loadIntakeSplit(s));
 }
 
-/** Team ids that currently receive at least one intake source. */
+/** Team ids that currently have more than 0% on at least one intake source. */
 export function intakeDestinationTeamIds(): number[] {
   const ids = new Set<number>();
-  for (const row of loadAllIntakeSplits()) for (const id of row.teamIds) ids.add(id);
+  for (const row of loadAllIntakeSplits()) {
+    for (const s of row.shares) if (s.percent > 0) ids.add(s.teamId);
+  }
   return [...ids];
 }
 
@@ -280,29 +373,47 @@ export function teamIsIntakeDestination(teamId: number): boolean {
 export function disableBlockedByIntakeMessage(teamId: number): string | null {
   if (!teamIsIntakeDestination(teamId)) return null;
   const sources = loadAllIntakeSplits()
-    .filter((r) => r.teamIds.includes(Number(teamId)))
+    .filter((r) => r.shares.some((s) => s.teamId === Number(teamId) && s.percent > 0))
     .map((r) => r.source === "new_customers" ? "مشتری جدید" : "لید فرم سایت");
   const which = sources.length ? sources.join(" و ") : "تقسیم ورودی";
   return `این تیم مقصد ${which} است. اول مقصد تقسیم را عوض کنید، بعد غیرفعال کنید.`;
 }
 
-export function saveIntakeSplit(source: IntakeSource, teamIds: number[], now = new Date()): IntakeSplitRow {
-  ensureMultiTeamSchema();
-  const ids = [...new Set(teamIds.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
-  if (!ids.length) throw Object.assign(new Error("حداقل یک تیم برای این منبع انتخاب کنید."), { field: "teamIds" });
-  for (const id of ids) {
-    const t = loadTeam(id);
-    if (!t) throw Object.assign(new Error("تیم انتخاب‌شده پیدا نشد."), { field: "teamIds" });
-    if (!t.enabled) throw Object.assign(new Error("تیم غیرفعال را نمی‌شود در تقسیم ورودی گذاشت."), { field: "teamIds" });
+function normalizeIncomingShares(raw: { teamId: number; percent: number }[]): { teamId: number; percent: number }[] {
+  const byId = new Map<number, number>();
+  for (const item of raw || []) {
+    const teamId = Number(item.teamId);
+    const percent = Number(item.percent);
+    if (!Number.isInteger(teamId) || teamId <= 0) throw intakeError("تیم انتخاب‌شده پیدا نشد.", "invalid_intake", 422, "teamId");
+    if (!Number.isInteger(percent) || percent < 0 || percent > 100) {
+      throw intakeError("درصد باید عدد صحیح بین ۰ و ۱۰۰ باشد.");
+    }
+    if (byId.has(teamId)) throw intakeError("درصد هر تیم در هر منبع فقط یک‌بار نوشته می‌شود.");
+    byId.set(teamId, percent);
   }
+  for (const id of knownTeamIds()) if (!byId.has(id)) byId.set(id, 0);
+  const shares = [...byId.entries()].map(([teamId, percent]) => ({ teamId, percent })).sort((a, b) => a.teamId - b.teamId);
+  const sum = shares.reduce((n, s) => n + s.percent, 0);
+  if (sum !== 100) throw intakeError("جمع درصدهای هر منبع باید دقیقاً ۱۰۰ باشد.");
+  for (const s of shares) {
+    const t = loadTeam(s.teamId);
+    if (!t) throw intakeError("تیم انتخاب‌شده پیدا نشد.", "invalid_intake", 422, "teamId");
+    if (!t.enabled && s.percent > 0) {
+      throw intakeError("تیم غیرفعال نمی‌تواند درصدی بیشتر از صفر داشته باشد.");
+    }
+  }
+  return shares;
+}
+
+/** Persist integer percents for one source and reset that source's deficit counters. */
+export function saveIntakeShares(source: IntakeSource, shares: { teamId: number; percent: number }[], now = new Date()): IntakeSplitRow {
+  ensureMultiTeamSchema();
+  const next = normalizeIncomingShares(shares);
   const at = now.toISOString();
-  execute(
-    `INSERT INTO sales_intake_split(source,team_ids_json,cursor_index,cursor_used,updated_at) VALUES(?,?,0,0,?)
-     ON CONFLICT(source) DO UPDATE SET team_ids_json=excluded.team_ids_json, cursor_index=0, cursor_used=0, updated_at=excluded.updated_at`,
-    [source, JSON.stringify(ids), at],
-  );
+  for (const s of next) upsertShare(source, s.teamId, s.percent, 0, at);
   return loadIntakeSplit(source);
 }
+
 
 export function migrateMultiTeam(now = new Date()) {
   ensureMultiTeamSchema();
@@ -532,19 +643,33 @@ export function teamCommissionMode(team: SalesTeam | null): "inherit" | "zero" {
 export function nextLeadSplitTeam(now = new Date(), source: IntakeSource = "new_customers"): SalesTeam {
   migrateMultiTeam();
   const row = loadIntakeSplit(source);
-  const enabled = row.teamIds
-    .map((id) => loadTeam(id))
-    .filter((t): t is SalesTeam => Boolean(t && t.enabled));
-  const teams = enabled.length ? enabled : [loadTeam(1)].filter((t): t is SalesTeam => Boolean(t));
-  if (!teams.length) throw new Error("هیچ تیمی برای تخصیص سرنخ تعریف نشده است.");
-  let index = Math.max(0, Number(row.cursorIndex) || 0) % teams.length;
-  const chosen = teams[index];
-  const nextIndex = teams.length === 1 ? 0 : (index + 1) % teams.length;
-  execute(
-    `UPDATE sales_intake_split SET cursor_index=?, cursor_used=?, updated_at=? WHERE source=?`,
-    [nextIndex, (Number(row.cursorUsed) || 0) + 1, now.toISOString(), source],
-  );
-  return chosen;
+  // Deficit / smooth weighted round-robin: add each team's percent, pick the
+  // highest deficit, subtract 100. Ties break to the lowest team id. Persisted
+  // per source and team so a 70/30 split yields exactly 70 and 30 over 100 leads.
+  const eligible = row.shares
+    .map((s) => ({ share: s, team: loadTeam(s.teamId) }))
+    .filter((x): x is { share: IntakeShare; team: SalesTeam } => Boolean(x.team && x.team.enabled && x.share.percent > 0));
+  const fallback = loadTeam(1);
+  if (!eligible.length) {
+    if (!fallback) throw new Error("هیچ تیمی برای تخصیص سرنخ تعریف نشده است.");
+    return fallback;
+  }
+  const deficits = new Map(row.shares.map((s) => [s.teamId, s.deficit]));
+  for (const { share } of eligible) deficits.set(share.teamId, (deficits.get(share.teamId) || 0) + share.percent);
+  let chosen = eligible[0]!;
+  for (const item of eligible) {
+    const d = deficits.get(item.share.teamId) || 0;
+    const best = deficits.get(chosen.share.teamId) || 0;
+    if (d > best || (d === best && item.share.teamId < chosen.share.teamId)) chosen = item;
+  }
+  deficits.set(chosen.share.teamId, (deficits.get(chosen.share.teamId) || 0) - 100);
+  const at = now.toISOString();
+  for (const s of row.shares) {
+    const next = deficits.has(s.teamId) ? (deficits.get(s.teamId) || 0) : s.deficit;
+    execute("UPDATE sales_intake_shares SET deficit=? WHERE source=? AND team_id=?", [next, source, s.teamId]);
+  }
+  execute("UPDATE sales_intake_split SET updated_at=? WHERE source=?", [at, source]);
+  return chosen.team;
 }
 
 /** Owner of a new lead for a given priority, advancing P1 rotation when needed. */

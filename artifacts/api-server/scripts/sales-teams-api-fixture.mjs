@@ -123,13 +123,21 @@ try {
     assert.match(String(a.b.message), /مقصد/);
   });
 
-  await ok("intake put rotates; disable works only after the team is removed from both sources", async () => {
+  await ok("intake put rejects a sum other than 100", async () => {
+    const bad = await call("manager", "PUT", "/sales-teams/intake", { sources: [
+      { source: "new_customers", teams: [{ teamId: 1, percent: 70 }, { teamId: 2, percent: 20 }] },
+    ] });
+    assert.equal(bad.s, 422);
+    assert.match(String(bad.b.message), /۱۰۰/);
+  });
+
+  await ok("intake put sets percents; disable works only after the team is at 0% on both sources", async () => {
     const put = await call("manager", "PUT", "/sales-teams/intake", { sources: [
-      { source: "new_customers", teamIds: [2] },
-      { source: "site_leads", teamIds: [2] },
+      { source: "new_customers", teams: [{ teamId: 1, percent: 0 }, { teamId: 2, percent: 100 }] },
+      { source: "site_leads", teams: [{ teamId: 1, percent: 0 }, { teamId: 2, percent: 100 }] },
     ] });
     assert.equal(put.s, 200);
-    assert.ok(put.b.intake.every((i) => i.teamIds[0] === 2));
+    assert.ok(put.b.intake.every((i) => i.teamIds[0] === 2 && i.teams.find((t) => t.teamId === 2).percent === 100));
     const off = await call("admin", "POST", "/sales-teams/1/disable", {});
     assert.equal(off.s, 200);
     assert.equal(off.b.team.enabled, false);
@@ -142,8 +150,8 @@ try {
     ] });
     assert.equal(en.s, 200);
     const back = await call("admin", "PUT", "/sales-teams/intake", { sources: [
-      { source: "new_customers", teamIds: [1] },
-      { source: "site_leads", teamIds: [1] },
+      { source: "new_customers", teams: [{ teamId: 1, percent: 100 }, { teamId: 2, percent: 0 }] },
+      { source: "site_leads", teams: [{ teamId: 1, percent: 100 }, { teamId: 2, percent: 0 }] },
     ] });
     assert.equal(back.s, 200);
   });

@@ -92,6 +92,11 @@ body.rm .st-skel i{animation:none}
 .st-teams{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
 .st-teams button{min-height:44px;padding:0 14px;border-radius:99px;border:1px solid var(--nf-line-strong);background:#fff;font:inherit;font-weight:700;color:var(--nf-ink);cursor:pointer}
 .st-teams button[aria-pressed=true]{border-color:var(--nf-brand-600);background:var(--nf-brand-50);color:var(--nf-brand-800)}
+.st-pct{display:flex;flex-direction:column;gap:8px;margin:0 0 8px}
+.st-pct-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px}
+.st-pct-row label{font-weight:700}
+.st-pct-row input{width:88px;text-align:center}
+.st-pct-sum{margin:0;color:var(--nf-ink-soft)}
 .st-preview{margin:0;color:var(--nf-ink-soft)}
 .st-scrim{position:fixed;inset:0;z-index:50;background:rgba(11,20,80,.4)}
 .st-modal{position:fixed;z-index:51;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,calc(100vw - 32px));padding:24px;border-radius:24px;background:#fff;box-shadow:var(--nf-shadow-pop)}

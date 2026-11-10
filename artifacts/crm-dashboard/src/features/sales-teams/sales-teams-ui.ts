@@ -6,7 +6,8 @@ export type Member = {
   ownsNone: boolean; ownsP1: boolean; ownsP2: boolean; ownsP3: boolean; sortOrder: number; priorities: string[];
 };
 export type Team = { id: number; name: string; enabled: boolean; leadSalespersonId: number | null; leadName: string | null; members: Member[]; intakeSources: IntakeSource[] };
-export type IntakeRow = { source: IntakeSource; label: string; teamIds: number[]; sentence: string };
+export type IntakeShareRow = { teamId: number; name: string; percent: number; enabled: boolean };
+export type IntakeRow = { source: IntakeSource; label: string; teamIds: number[]; teams?: IntakeShareRow[]; sentence: string };
 export type Person = { salespersonId: number; userId: number | null; displayName: string; avatarLetter: string; extension: string | null; extensionLabel: string; available: boolean; teamId: number | null; teamName: string | null; reason: string | null; isTrainee: boolean };
 export type Me = { enabled: boolean; canManage: boolean; canDisable: boolean; canEnable: boolean; canView: boolean; readonly: boolean; userId: number | null; salespersonId: number | null; teamId: number | null; displayName: string; roleLabel: string };
 export type Ticks = { ownsNone: boolean; ownsP1: boolean; ownsP2: boolean; ownsP3: boolean };
@@ -53,7 +54,7 @@ type State = {
   addTeamId: number | null;
   editTeamId: number | null;
   addSp: number | null;
-  intakeDraft: Record<IntakeSource, number[]>;
+  intakeDraft: Record<IntakeSource, Record<number, number>>;
   disableTeamId: number | null;
   busy: boolean;
   formError: string | null;
@@ -129,7 +130,7 @@ export function mountSalesTeams(opts: MountOpts): () => void {
     view: "loading", loading: true, error: null, teams: [], intake: [], todayLabel: "", people: [],
     canManage: opts.me.canManage, canDisable: opts.me.canDisable,
     name: "", selected: [], ticks: {}, leadId: null, p1Order: [], addTeamId: null, editTeamId: null, addSp: null,
-    intakeDraft: { new_customers: [1], site_leads: [1] }, disableTeamId: null, busy: false, formError: null,
+    intakeDraft: { new_customers: { 1: 100, 2: 0 }, site_leads: { 1: 100, 2: 0 } }, disableTeamId: null, busy: false, formError: null,
   };
 
   function person(id: number): Person | undefined { return st.people.find((p) => p.salespersonId === id); }
@@ -276,12 +277,34 @@ export function mountSalesTeams(opts: MountOpts): () => void {
     return lines;
   }
 
-  function intakeSentence(source: IntakeSource, ids: number[]) {
+  function draftFromIntake(intake: IntakeRow[]): Record<IntakeSource, Record<number, number>> {
+    const out: Record<IntakeSource, Record<number, number>> = { new_customers: {}, site_leads: {} };
+    for (const t of st.teams) {
+      out.new_customers[t.id] = t.id === 1 ? 100 : 0;
+      out.site_leads[t.id] = t.id === 1 ? 100 : 0;
+    }
+    for (const row of intake) {
+      const map: Record<number, number> = {};
+      if (row.teams?.length) for (const t of row.teams) map[t.teamId] = t.percent;
+      else for (const id of row.teamIds || []) map[id] = 0;
+      if (row.teams?.length || row.teamIds?.length) out[row.source] = { ...out[row.source], ...map };
+    }
+    return out;
+  }
+  function intakeSentence(source: IntakeSource, percents: Record<number, number>) {
     const subject = source === "site_leads" ? "لید فرم سایت" : "مشتری جدید";
-    const names = ids.map((id) => findTeam(id)?.name || `تیم ${fd(id)}`);
-    if (names.length <= 1) return `${subject} به ${names[0] ?? "تیم فروش ۱"} می‌رود.`;
-    if (names.length === 2) return `${subject} بین ${names[0]} و ${names[1]} نوبتی می‌شود.`;
-    return `${subject} بین ${names.slice(0, -1).join("، ")} و ${names[names.length - 1]} نوبتی می‌شود.`;
+    const active = Object.entries(percents)
+      .map(([id, percent]) => ({ id: Number(id), percent: Number(percent) || 0 }))
+      .filter((s) => s.percent > 0)
+      .sort((a, b) => a.id - b.id);
+    const nameOf = (id: number) => findTeam(id)?.name || `تیم ${fd(id)}`;
+    if (active.length <= 1) return `${subject} به ${nameOf(active[0]?.id ?? 1)} می‌رود.`;
+    const parts = active.map((s) => `${fd(s.percent)}٪ به ${nameOf(s.id)}`);
+    if (parts.length === 2) return `${subject} ${parts[0]} و ${parts[1]} می‌رود.`;
+    return `${subject} ${parts.slice(0, -1).join("، ")} و ${parts[parts.length - 1]} می‌رود.`;
+  }
+  function intakeSum(percents: Record<number, number>) {
+    return Object.values(percents).reduce((n, v) => n + (Number(v) || 0), 0);
   }
 
   function viewHtml(view: View): string {
@@ -337,10 +360,14 @@ export function mountSalesTeams(opts: MountOpts): () => void {
     if (view === "intake-edit") {
       const enabledTeams = st.teams.filter((t) => t.enabled);
       const box = (source: IntakeSource, title: string) => {
-        const ids = st.intakeDraft[source] || [];
-        return `<section class="card st-src"><h3>${title}</h3><div class="st-teams" role="group" aria-label="${title}">${enabledTeams.map((t) => `<button type="button" data-act="intake-toggle" data-source="${source}" data-id="${t.id}" aria-pressed="${ids.includes(t.id) ? "true" : "false"}">${t.name}</button>`).join("")}</div><p class="st-preview">${intakeSentence(source, ids)}</p></section>`;
+        const percents = st.intakeDraft[source] || {};
+        const sum = intakeSum(percents);
+        const rows = enabledTeams.map((t) => `<div class="st-pct-row"><label for="st-pct-${source}-${t.id}">${t.name}</label><input class="inp" id="st-pct-${source}-${t.id}" type="number" inputmode="numeric" min="0" max="100" step="1" value="${percents[t.id] ?? 0}" data-act="intake-percent" data-source="${source}" data-id="${t.id}"></div>`).join("");
+        const sumCls = sum === 100 ? "st-pct-sum" : "st-pct-sum st-err";
+        return `<section class="card st-src"><h3>${title}</h3><div class="st-pct" role="group" aria-label="${title}">${rows}</div><p class="${sumCls}">جمع: ${fd(sum)}٪ از ۱۰۰</p><p class="st-preview">${intakeSentence(source, percents)}</p></section>`;
       };
-      return `<div class="st-wiz"><h2>ویرایش تقسیم</h2><p class="st-help">برای هر منبع یک تیم، یا چند تیم به‌صورت نوبتی. درصد در کار نیست.</p>${box("new_customers", "مشتری جدید")}${box("site_leads", "لید فرم سایت")}<div class="st-wiz-acts"><div class="st-row"><button class="btn gh" type="button" data-act="intake">انصراف</button><button class="btn pri" type="button" data-act="save-intake">ثبت</button></div></div></div>`;
+      const sumsOk = intakeSum(st.intakeDraft.new_customers) === 100 && intakeSum(st.intakeDraft.site_leads) === 100;
+      return `<div class="st-wiz"><h2>ویرایش تقسیم</h2><p class="st-help">برای هر منبع درصد هر تیم را جدا بگذارید. جمع هر منبع باید ۱۰۰ باشد.</p>${st.formError ? `<p class="st-err" role="alert">${st.formError}</p>` : ""}${box("new_customers", "مشتری جدید")}${box("site_leads", "لید فرم سایت")}<div class="st-wiz-acts"><div class="st-row"><button class="btn gh" type="button" data-act="intake">انصراف</button><button class="btn pri" type="button" data-act="save-intake" ${sumsOk ? "" : "disabled aria-disabled=\"true\""}>ثبت</button></div></div></div>`;
     }
     if (view === "deactivate") {
       const team = findTeam(st.disableTeamId || 0);
@@ -389,6 +416,32 @@ export function mountSalesTeams(opts: MountOpts): () => void {
       nameInp.focus();
       nameInp.selectionStart = nameInp.value.length;
     }
+    root.querySelectorAll<HTMLInputElement>("input[data-act=intake-percent]").forEach((inp) => {
+      inp.addEventListener("input", () => {
+        const source = inp.getAttribute("data-source") as IntakeSource;
+        const id = Number(inp.getAttribute("data-id"));
+        const raw = inp.value.trim();
+        const n = raw === "" ? 0 : Number.parseInt(raw, 10);
+        st.intakeDraft[source] = { ...st.intakeDraft[source], [id]: Number.isInteger(n) ? n : 0 };
+        const box = inp.closest(".st-src");
+        const percents = st.intakeDraft[source] || {};
+        const sum = intakeSum(percents);
+        const sumEl = box?.querySelector(".st-pct-sum");
+        if (sumEl) {
+          sumEl.textContent = `جمع: ${fd(sum)}٪ از ۱۰۰`;
+          sumEl.className = sum === 100 ? "st-pct-sum" : "st-pct-sum st-err";
+        }
+        const preview = box?.querySelector(".st-preview");
+        if (preview) preview.textContent = intakeSentence(source, percents);
+        const save = root.querySelector<HTMLButtonElement>("[data-act=save-intake]");
+        const ok = intakeSum(st.intakeDraft.new_customers) === 100 && intakeSum(st.intakeDraft.site_leads) === 100;
+        if (save) {
+          save.disabled = !ok;
+          if (ok) save.removeAttribute("aria-disabled");
+          else save.setAttribute("aria-disabled", "true");
+        }
+      });
+    });
   }
 
   async function onClick(ev: Event) {
@@ -400,6 +453,7 @@ export function mountSalesTeams(opts: MountOpts): () => void {
     if (btn.getAttribute("aria-disabled") === "true" || (btn as HTMLButtonElement).disabled) { ev.preventDefault(); return; }
     const act = btn.getAttribute("data-act") || "";
     const id = Number(btn.getAttribute("data-id") || 0);
+    if (act === "intake-percent") return;
     ev.preventDefault();
     try {
       if (act === "list" || act === "create-name" || act === "create-members" || act === "create-priorities" || act === "intake" || act === "add-pick" || act === "add-priorities") go(act as View);
@@ -439,15 +493,9 @@ export function mountSalesTeams(opts: MountOpts): () => void {
       else if (act === "save-add") await saveAdd();
       else if (act === "save-edit") await saveEdit();
       else if (act === "intake-edit") {
-        st.intakeDraft = { new_customers: [...(st.intake.find((i) => i.source === "new_customers")?.teamIds || [1])], site_leads: [...(st.intake.find((i) => i.source === "site_leads")?.teamIds || [1])] };
+        st.formError = null;
+        st.intakeDraft = draftFromIntake(st.intake);
         go("intake-edit");
-      }
-      else if (act === "intake-toggle") {
-        const source = btn.getAttribute("data-source") as IntakeSource;
-        const cur = new Set(st.intakeDraft[source] || []);
-        if (cur.has(id)) { if (cur.size > 1) cur.delete(id); } else cur.add(id);
-        st.intakeDraft[source] = [...cur];
-        render();
       }
       else if (act === "save-intake") await saveIntake();
       else if (act === "do-disable") await doDisable();
@@ -494,7 +542,10 @@ export function mountSalesTeams(opts: MountOpts): () => void {
     if (st.busy) return;
     st.busy = true;
     try {
-      const sources = (["new_customers", "site_leads"] as IntakeSource[]).map((source) => ({ source, teamIds: st.intakeDraft[source] }));
+      const sources = (["new_customers", "site_leads"] as IntakeSource[]).map((source) => ({
+        source,
+        teams: Object.entries(st.intakeDraft[source] || {}).map(([teamId, percent]) => ({ teamId: Number(teamId), percent: Number(percent) || 0 })),
+      }));
       const body = await api("/sales-teams/intake", { method: "PUT", body: JSON.stringify({ sources }) });
       st.intake = body.intake;
       go("intake");
@@ -579,7 +630,7 @@ export function mountSalesTeams(opts: MountOpts): () => void {
     if (scene === "lead-mark" && t1) startEdit(t1);
     if (scene === "deactivate" && t1) st.disableTeamId = t1.id;
     if (scene === "intake-edit") {
-      st.intakeDraft = { new_customers: [...(st.intake.find((i) => i.source === "new_customers")?.teamIds || [1])], site_leads: [...(st.intake.find((i) => i.source === "site_leads")?.teamIds || [1])] };
+      st.intakeDraft = draftFromIntake(st.intake);
     }
     if (scene === "empty") { st.teams = []; }
     if (scene === "error") { st.view = "error"; render(); return; }

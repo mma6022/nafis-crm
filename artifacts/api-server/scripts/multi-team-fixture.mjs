@@ -145,7 +145,10 @@ ok("seeded teams match t963s4018 ticks (no fixed roles, P1 1–2 owners)", () =>
   assert.equal(t2.name, "تیم فروش ۲");
   assert.equal(mt.teamUiDisplayName(20, "صالح"), "حسین خردکار");
   const intake = mt.loadAllIntakeSplits();
-  assert.deepEqual(intake.map((r) => [r.source, r.teamIds]), [["new_customers", [1]], ["site_leads", [1]]]);
+  assert.deepEqual(intake.map((r) => [r.source, r.shares.map((x) => [x.teamId, x.percent])]), [
+    ["new_customers", [[1, 100], [2, 0]]],
+    ["site_leads", [[1, 100], [2, 0]]],
+  ]);
 });
 
 ok("legacy seed titles are renamed to the official names", () => {
@@ -323,18 +326,48 @@ ok("lead split stays 100% team 1 until quotas change", () => {
   assert.equal(mt.readLegacyCloserCursor(), global0);
 });
 
-ok("intake rotation is per source, no quotas, and defaults stay on team 1", () => {
-  mt.saveIntakeSplit("new_customers", [1, 2]);
-  const gotNew = [];
-  const gotSite = [];
-  runImmediateTransaction(() => {
-    for (let i = 0; i < 4; i++) gotNew.push(mt.nextLeadSplitTeam(new Date(), "new_customers").id);
-    for (let i = 0; i < 2; i++) gotSite.push(mt.nextLeadSplitTeam(new Date(), "site_leads").id);
-  });
-  assert.deepEqual(gotNew, [1, 2, 1, 2]);
-  assert.deepEqual(gotSite, [1, 1]); // site leads still default to team 1
-  mt.saveIntakeSplit("new_customers", [1]);
-  mt.saveIntakeSplit("site_leads", [1]);
+ok("t969s4061: intake seed is 100/0 per source and idempotent", () => {
+  const snap = () => queryRows("SELECT source, team_id, percent, deficit FROM sales_intake_shares ORDER BY source, team_id");
+  const first = snap();
+  assert.deepEqual(first.map((r) => [r.source, r.team_id, r.percent]), [
+    ["new_customers", 1, 100], ["new_customers", 2, 0],
+    ["site_leads", 1, 100], ["site_leads", 2, 0],
+  ]);
+  assert.deepEqual(mt.seedIntakeSplitIfNeeded(), []);
+  const again = mt.seedMultiTeamIfNeeded();
+  assert.ok(!again.seeded.some((k) => String(k).startsWith("intake:")));
+  assert.deepEqual(snap(), first);
+});
+
+ok("t969s4061: 70/30 over 100 leads is exactly 70/30 and isolated per source", () => {
+  mt.saveIntakeShares("new_customers", [{ teamId: 1, percent: 70 }, { teamId: 2, percent: 30 }]);
+  const counts = { 1: 0, 2: 0 };
+  for (let i = 0; i < 100; i++) counts[mt.nextLeadSplitTeam(new Date(), "new_customers").id]++;
+  assert.deepEqual(counts, { 1: 70, 2: 30 });
+  const site = [];
+  for (let i = 0; i < 10; i++) site.push(mt.nextLeadSplitTeam(new Date(), "site_leads").id);
+  assert.deepEqual(site, Array(10).fill(1));
+  mt.saveIntakeShares("new_customers", [{ teamId: 1, percent: 100 }, { teamId: 2, percent: 0 }]);
+});
+
+ok("t969s4061: intake percents must be integers that sum to 100", () => {
+  const catchSave = (shares) => {
+    try { mt.saveIntakeShares("new_customers", shares); return null; }
+    catch (e) { return e; }
+  };
+  const sum = catchSave([{ teamId: 1, percent: 70 }, { teamId: 2, percent: 20 }]);
+  assert.equal(sum?.status, 422);
+  assert.match(String(sum?.message), /۱۰۰/);
+  const range = catchSave([{ teamId: 1, percent: 101 }, { teamId: 2, percent: 0 }]);
+  assert.equal(range?.status, 422);
+  const frac = catchSave([{ teamId: 1, percent: 70.5 }, { teamId: 2, percent: 29.5 }]);
+  assert.equal(frac?.status, 422);
+  const via = admin.putIntake({ sources: [{ source: "new_customers", teams: [{ teamId: 1, percent: 90 }, { teamId: 2, percent: 20 }] }] });
+  assert.equal(via.ok, false);
+  assert.equal(via.status, 422);
+  assert.match(String(via.message), /۱۰۰/);
+  const ok = mt.loadIntakeSplit("new_customers");
+  assert.deepEqual(ok.shares.map((s) => [s.teamId, s.percent]), [[1, 100], [2, 0]]);
 });
 
 
@@ -462,6 +495,26 @@ ok("t965s4040: flag-on trainee follows enabled-team membership, including Younes
   assert.equal(mt.isTraineeUserOn(crmDb, 27), true);
 });
 
+ok("t969s4061: user 31 / sp 22 is a trainee when not on an enabled team", () => {
+  setFlag(true);
+  const sp = queryRow("SELECT id, active FROM salespersons WHERE id=22");
+  const user = queryRow("SELECT id, role, active, salesperson_id FROM users WHERE id=31");
+  assert.equal(Number(sp?.id), 22);
+  assert.equal(Number(sp?.active), 1);
+  assert.equal(Number(user?.id), 31);
+  assert.equal(user?.role, "salesperson");
+  assert.equal(Number(user?.active), 1);
+  assert.equal(Number(user?.salesperson_id), 22);
+  assert.equal(mt.isTraineeSalesperson(22), true);
+  assert.equal(mt.isTraineeSalespersonOn(crmDb, 22), true);
+  assert.equal(mt.isTraineeUser(31), true);
+  assert.equal(mt.isTraineeUserOn(crmDb, 31), true);
+  setFlag(false);
+  assert.equal(mt.isTraineeSalesperson(22), false);
+  assert.equal(mt.isTraineeUser(31), false);
+  setFlag(true);
+});
+
 ok("t965s4040: cannot disable a team that is an intake destination", () => {
   const blocked = admin.disableTeam(1);
   assert.equal(blocked.ok, false);
@@ -470,8 +523,8 @@ ok("t965s4040: cannot disable a team that is an intake destination", () => {
   assert.ok(String(blocked.message).includes("مقصد"));
   assert.equal(mt.loadTeam(1).enabled, true);
   assert.equal(mt.loadTeam(1).members.length, 3);
-  mt.saveIntakeSplit("new_customers", [2]);
-  mt.saveIntakeSplit("site_leads", [2]);
+  mt.saveIntakeShares("new_customers", [{ teamId: 1, percent: 0 }, { teamId: 2, percent: 100 }]);
+  mt.saveIntakeShares("site_leads", [{ teamId: 1, percent: 0 }, { teamId: 2, percent: 100 }]);
   const off = admin.disableTeam(1);
   assert.equal(off.ok, true);
   assert.equal(mt.loadTeam(1).enabled, false);
@@ -484,8 +537,33 @@ ok("t965s4040: cannot disable a team that is an intake destination", () => {
     { salespersonId: 4, ownsP1: true, sortOrder: 2 },
   ]);
   assert.equal(en.ok, true);
-  mt.saveIntakeSplit("new_customers", [1]);
-  mt.saveIntakeSplit("site_leads", [1]);
+  mt.saveIntakeShares("new_customers", [{ teamId: 1, percent: 100 }, { teamId: 2, percent: 0 }]);
+  mt.saveIntakeShares("site_leads", [{ teamId: 1, percent: 100 }, { teamId: 2, percent: 0 }]);
+});
+
+ok("t969s4061: disabling a team with more than 0% is rejected; disabled teams cannot go above 0%", () => {
+  mt.saveIntakeShares("new_customers", [{ teamId: 1, percent: 70 }, { teamId: 2, percent: 30 }]);
+  mt.saveIntakeShares("site_leads", [{ teamId: 1, percent: 100 }, { teamId: 2, percent: 0 }]);
+  const blocked = admin.disableTeam(2);
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.status, 409);
+  assert.equal(blocked.error, "intake_destination");
+  assert.equal(mt.loadTeam(2).enabled, true);
+  mt.saveIntakeShares("new_customers", [{ teamId: 1, percent: 100 }, { teamId: 2, percent: 0 }]);
+  const off = admin.disableTeam(2);
+  assert.equal(off.ok, true);
+  assert.equal(mt.loadTeam(2).enabled, false);
+  const put = admin.putIntake({ sources: [{ source: "new_customers", teams: [{ teamId: 1, percent: 70 }, { teamId: 2, percent: 30 }] }] });
+  assert.equal(put.ok, false);
+  assert.equal(put.status, 422);
+  assert.match(String(put.message), /غیرفعال/);
+  const en = admin.enableTeam(2, [
+    { salespersonId: 20, isLead: true, ownsNone: true, ownsP2: true, ownsP3: true, sortOrder: 0 },
+    { salespersonId: 5, ownsP1: true, sortOrder: 1 },
+  ]);
+  assert.equal(en.ok, true);
+  mt.saveIntakeShares("new_customers", [{ teamId: 1, percent: 100 }, { teamId: 2, percent: 0 }]);
+  mt.saveIntakeShares("site_leads", [{ teamId: 1, percent: 100 }, { teamId: 2, percent: 0 }]);
 });
 
 ok("t965s4040: team UI display names do not write users or salespersons", () => {

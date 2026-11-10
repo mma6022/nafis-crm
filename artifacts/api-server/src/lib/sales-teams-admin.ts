@@ -16,7 +16,7 @@ import {
   loadTeam,
   migrateMultiTeam,
   mtFlagOn,
-  saveIntakeSplit,
+  saveIntakeShares,
   seedIntakeSplitIfNeeded,
   TEAM_SEED_NAMES,
   teamIsIntakeDestination,
@@ -171,13 +171,14 @@ export function todayJalaliLabel(now = new Date()): string {
   } catch { return ""; }
 }
 
-export function intakeSentence(source: IntakeSource, teamIds: number[]): string {
+export function intakeSentence(source: IntakeSource, shares: { teamId: number; percent: number }[]): string {
   const subject = source === "site_leads" ? "لید فرم سایت" : "مشتری جدید";
-  const names = teamIds.map((id) => loadTeam(id)?.name || TEAM_SEED_NAMES[id] || `تیم ${faDigits(id)}`);
-  if (names.length <= 1) return `${subject} به ${names[0] ?? "تیم فروش ۱"} می‌رود.`;
-  if (names.length === 2) return `${subject} بین ${names[0]} و ${names[1]} نوبتی می‌شود.`;
-  const head = names.slice(0, -1).join("، ");
-  return `${subject} بین ${head} و ${names[names.length - 1]} نوبتی می‌شود.`;
+  const active = shares.filter((s) => s.percent > 0);
+  const nameOf = (id: number) => loadTeam(id)?.name || TEAM_SEED_NAMES[id] || `تیم ${faDigits(id)}`;
+  if (active.length <= 1) return `${subject} به ${nameOf(active[0]?.teamId ?? 1)} می‌رود.`;
+  const parts = active.map((s) => `${faDigits(s.percent)}٪ به ${nameOf(s.teamId)}`);
+  if (parts.length === 2) return `${subject} ${parts[0]} و ${parts[1]} می‌رود.`;
+  return `${subject} ${parts.slice(0, -1).join("، ")} و ${parts[parts.length - 1]} می‌رود.`;
 }
 
 export function presentIntake() {
@@ -188,7 +189,13 @@ export function presentIntake() {
       source,
       label: source === "site_leads" ? "لید فرم سایت" : "مشتری جدید",
       teamIds: row.teamIds,
-      sentence: intakeSentence(source, row.teamIds),
+      teams: row.shares.map((s) => ({
+        teamId: s.teamId,
+        name: loadTeam(s.teamId)?.name || TEAM_SEED_NAMES[s.teamId] || `تیم ${faDigits(s.teamId)}`,
+        percent: s.percent,
+        enabled: loadTeam(s.teamId)?.enabled ?? false,
+      })),
+      sentence: intakeSentence(source, row.shares),
     };
   });
 }
@@ -467,19 +474,32 @@ export function enableTeam(id: number, membersIn: MemberInput[] | undefined, now
   return { ok: true, team: presentTeam(loadTeam(id)!), flags };
 }
 
-export function putIntake(body: { sources?: { source: string; teamIds: number[] }[] }, now = new Date()) {
+function parsePutShares(item: {
+  teams?: { teamId?: number; percent?: number }[];
+  shares?: { teamId?: number; percent?: number }[];
+  percents?: Record<string, number>;
+}): { teamId: number; percent: number }[] {
+  if (Array.isArray(item.teams) || Array.isArray(item.shares)) {
+    return (item.teams || item.shares || []).map((t) => ({ teamId: Number(t.teamId), percent: Number(t.percent) }));
+  }
+  if (item.percents && typeof item.percents === "object") {
+    return Object.entries(item.percents).map(([id, percent]) => ({ teamId: Number(id), percent: Number(percent) }));
+  }
+  throw Object.assign(new Error("درصد هر تیم را برای این منبع بفرستید."), { status: 422, error: "invalid_intake" });
+}
+
+export function putIntake(body: { sources?: { source: string; teams?: { teamId: number; percent: number }[]; shares?: { teamId: number; percent: number }[]; percents?: Record<string, number> }[] }, now = new Date()) {
   migrateMultiTeam();
   const items = Array.isArray(body?.sources) ? body.sources : [];
-  const out = [];
   for (const item of items) {
     if (!isIntakeSource(item.source)) {
       return { ok: false as const, status: 400, error: "invalid_source", message: "منبع تقسیم معتبر نیست." };
     }
     try {
-      out.push(saveIntakeSplit(item.source, item.teamIds, now));
+      saveIntakeShares(item.source, parsePutShares(item), now);
     } catch (e) {
-      const err = e as Error & { field?: string };
-      return { ok: false as const, status: 400, error: "invalid_intake", message: err.message };
+      const err = e as Error & { field?: string; status?: number; error?: string };
+      return { ok: false as const, status: err.status || 422, error: err.error || "invalid_intake", message: err.message };
     }
   }
   return { ok: true as const, intake: presentIntake() };
