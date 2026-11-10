@@ -27,22 +27,38 @@ const templateSql = [
 const activePlans = db.prepare(`SELECT id, name, ${bankSql} AS bank_name, ${templateSql} FROM loan_plans WHERE COALESCE(active,1)=1 ORDER BY id`).all();
 if (activePlans.length < 2) { console.error("need two active loan_plans rows; this script does not insert or rename plans"); process.exit(1); }
 const templateOf = (plan) => Number(plan.contract_template_id || plan.primary_contract_template_id || 0);
-const withTemplate = activePlans.filter((plan) => templateOf(plan) > 0);
+function templateCanCreate(id) {
+  if (!id || !has("contract_templates")) return false;
+  let row = null;
+  try { row = db.prepare("SELECT mappings_json FROM contract_templates WHERE id=? AND deleted_at IS NULL").get(id); }
+  catch { try { row = db.prepare("SELECT mappings_json FROM contract_templates WHERE id=?").get(id); } catch { return false; } }
+  let mappings = null;
+  try { mappings = JSON.parse(row?.mappings_json || "null"); } catch { return false; }
+  if (!Array.isArray(mappings)) return false;
+  const source = (mapping) => mapping?.sourceType ?? (mapping?.customerField ? "customer" : mapping?.loanPlanField ? "loanPlan" : "manual");
+  return mappings.filter((mapping) => source(mapping) === "loanPlan" && mapping?.loanPlanField === "loanPlan.principalAmount").length === 1;
+}
+const withTemplate = activePlans.filter((plan) => templateCanCreate(templateOf(plan)));
 let plans = (withTemplate.length >= 2 ? withTemplate : activePlans).slice(0, 2);
 const templateCol = planCols.includes("contract_template_id") ? "contract_template_id" : planCols.includes("primary_contract_template_id") ? "primary_contract_template_id" : "";
-if (templateCol && has("contract_templates")) {
-  let template = null;
-  try { template = db.prepare("SELECT id FROM contract_templates WHERE deleted_at IS NULL ORDER BY id LIMIT 1").get(); } catch { template = null; }
-  if (template) {
-    for (const plan of plans) {
+if (templateCol && has("contract_templates") && withTemplate.length < 2) {
+  let rows = [];
+  try { rows = db.prepare("SELECT id FROM contract_templates WHERE deleted_at IS NULL ORDER BY id").all(); }
+  catch { try { rows = db.prepare("SELECT id FROM contract_templates ORDER BY id").all(); } catch { rows = []; } }
+  const good = rows.find((row) => templateCanCreate(row.id));
+  if (good) {
+    for (const plan of activePlans) {
+      if (templateCanCreate(templateOf(plan))) continue;
       if (templateOf(plan) > 0) continue;
-      db.prepare(`UPDATE loan_plans SET ${templateCol}=? WHERE id=? AND (${templateCol} IS NULL OR ${templateCol}=0)`).run(template.id, plan.id);
-      plan[templateCol] = template.id;
+      db.prepare(`UPDATE loan_plans SET ${templateCol}=? WHERE id=? AND (${templateCol} IS NULL OR ${templateCol}=0)`).run(good.id, plan.id);
+      plan[templateCol] = good.id;
+      if (activePlans.filter((item) => templateCanCreate(templateOf(item))).length >= 2) break;
     }
+    plans = activePlans.filter((plan) => templateCanCreate(templateOf(plan))).slice(0, 2);
   }
 }
-if (!plans.every((plan) => templateOf(plan) > 0)) {
-  console.error("need two active plans whose primary contract is present; this script does not rename plans");
+if (!plans.every((plan) => templateCanCreate(templateOf(plan)))) {
+  console.error("need two active plans whose primary template maps loanPlan.principalAmount exactly once; this script does not rename plans");
   process.exit(1);
 }
 
@@ -187,6 +203,10 @@ if (host) try {
   };
 } catch (error) {
   manifest.flow = { error: error instanceof Error ? error.message : String(error) };
+}
+if (has("reminders") && cols("reminders").includes("done")) {
+  const changed = db.prepare("UPDATE reminders SET done=1 WHERE user_id IN (8,2,3) AND COALESCE(done,0)=0").run();
+  manifest.remindersMarkedDone = Number(changed.changes ?? 0);
 }
 const out = `${file}.multi-case-seed.json`;
 writeFileSync(out, JSON.stringify(manifest, null, 2));
