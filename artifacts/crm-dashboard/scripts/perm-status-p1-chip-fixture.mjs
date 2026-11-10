@@ -74,8 +74,15 @@ await ok("source: tags use the catalog / Persian fallback, never raw website_lea
   assert.match(src, /website_lead: "سرنخ سایت"/);
   assert.match(src, /repeat_request: "درخواست چند باره"/);
   assert.match(src, /dciTagLabel\(x, tagCatalog\.data\)/);
+  assert.match(src, /label !== key/);
   // The render path must not dump the raw tag key.
   assert.doesNotMatch(src, /\.map\(\(x\) => <span key=\{x\}>\{x\}<\/span>\)/);
+});
+await ok("source: inquiry time is formatted Jalali with Persian digits, not a raw ISO string", () => {
+  assert.match(src, /export function creditAtLabel/);
+  assert.match(src, /استعلام‌شده در \{creditAtLabel\(at\)\}/);
+  assert.match(src, /fa-IR-u-ca-persian/);
+  assert.doesNotMatch(src, /استعلام‌شده در \{at\.replace/);
 });
 await ok("css: 1280 scroller keeps the last full row 16px above the dock; chip min-height stays 44px", () => {
   assert.match(css, /r4c \(Armita REVIEW-r4b\)/);

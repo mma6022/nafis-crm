@@ -62,6 +62,9 @@ try {
       VALUES(?,?,?,?, 'in_progress', NULL, ?, 'unverified', 0, 0, NULL, ?)`,
       [c[0], c[1], c[2], c[3], ts, c[0] === 910021 ? "B2" : null]);
   }
+  if (queryRow("SELECT 1 x FROM pragma_table_info('customers') WHERE name='credit_checked_at'")) {
+    execute("UPDATE customers SET credit_checked_at=? WHERE id=?", ["2026-11-01T06:21:41.677Z", CID_K]);
+  }
 
   const app = express(); app.use(express.json());
   app.use((req, res, next) => { res.locals.authUser = actors[req.headers["x-actor"]]; if (!res.locals.authUser) { res.sendStatus(401); return; } next(); });
@@ -166,6 +169,26 @@ try {
     const note = await call("POST", `/daily-customer-inline/customers/${CID_K}/notes`, "kazemi", { body: "پیگیری مدارک" });
     assert.equal(note.status, 200);
     assert.ok(note.body.notes.some((n) => n.body === "پیگیری مدارک"));
+  });
+
+  await ok("credit.at is Jalali with weekday and Persian digits, not a raw ISO string", async () => {
+    const formatted = dci.formatInquiryAt("2026-11-01T06:21:41.677Z");
+    assert.ok(formatted);
+    assert.equal(/\d{4}-\d{2}-\d{2}T/.test(formatted), false, formatted);
+    assert.equal(/[0-9]/.test(formatted), false, formatted);
+    assert.match(formatted, /[۰-۹]/);
+    assert.match(formatted, /شنبه/);
+    assert.match(formatted, /ساعت/);
+    const board = await call("GET", `/daily-customer-inline/customers/${CID_K}`, "kazemi");
+    assert.equal(board.status, 200);
+    assert.equal(board.body.credit.state, "ok");
+    assert.equal(board.body.credit.grade, "B2");
+    const at = board.body.credit.at;
+    assert.ok(at);
+    assert.equal(/\d{4}-\d{2}-\d{2}T/.test(at), false, at);
+    assert.equal(/[0-9]/.test(at), false, at);
+    assert.match(at, /[۰-۹]/);
+    assert.match(at, /شنبه/);
   });
 
   await ok("flag off again: 404 and no further schema change required; net unused", async () => {

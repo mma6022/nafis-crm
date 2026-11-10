@@ -23,8 +23,12 @@ const TAG_LABEL_FALLBACK: Record<string, string> = {
   website_lead: "سرنخ سایت",
   repeat_request: "درخواست چند باره",
 };
-export function dciTagLabel(key: string, catalog?: ReadonlyArray<{ key: string; label: string }> | null): string {
-  return catalog?.find((item) => item.key === key)?.label || TAG_LABEL_FALLBACK[key] || key;
+export function dciTagLabel(key: string, catalog?: ReadonlyArray<{ key?: string; tag?: string; label?: string; label_fa?: string }> | null): string {
+  const item = Array.isArray(catalog) ? catalog.find((x) => (x.key ?? x.tag) === key) : undefined;
+  const label = String(item?.label ?? item?.label_fa ?? "").trim();
+  // Prefer the Persian fallback when the catalog is missing, blank, or still stores the raw English key.
+  if (label && label !== key) return label;
+  return TAG_LABEL_FALLBACK[key] || label || key;
 }
 const fa = (n: string | number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "٬").replace(/[0-9]/g, (d) => FD[Number(d)]);
 const fd = (v: string | number) => String(v).replace(/[0-9]/g, (d) => FD[Number(d)]);
@@ -121,11 +125,23 @@ function NotesBlock({ rows, customerId }: { rows: DciNote[]; customerId: number 
   </div>;
 }
 
+/** Jalali inquiry date with weekday and Persian digits. Formats a leftover ISO string; already-Persian values keep their weekday/date (time is dropped, as before). */
+export function creditAtLabel(at: string): string {
+  const raw = at.trim();
+  if (!raw) return "";
+  const fd = (v: string) => v.replace(/[0-9]/g, (d) => FD[Number(d)]);
+  const dateOnly = (v: string) => v.replace(/، ساعت.*/, "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(raw) && /[\u0600-\u06FF]/.test(raw)) return fd(dateOnly(raw));
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return fd(dateOnly(raw));
+  return fd(new Intl.DateTimeFormat("fa-IR-u-ca-persian", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Tehran" }).format(d));
+}
+
 function CreditBlock({ customerId, state, grade, at }: { customerId: number; state: DciBoard["credit"]["state"]; grade: string | null; at: string | null }) {
   const iccOn = useIccEnabled();
   if (state === "err") return <div className="dci-consent"><p className="dci-empty">استعلام الآن انجام نشد.</p></div>;
   if (state === "ok") return <div className="dci-consent"><span className="dci-grade" dir="ltr">{grade || "—"}</span>
-    {at ? <p className="dci-empty">استعلام‌شده در {at.replace(/، ساعت.*/, "")}</p> : <p className="dci-empty">استعلام شده است.</p>}
+    {at ? <p className="dci-empty">استعلام‌شده در {creditAtLabel(at)}</p> : <p className="dci-empty">استعلام شده است.</p>}
   </div>;
   return <div className="dci-consent">
     <p className="dci-empty">رتبه هنوز استعلام نشده است.</p>

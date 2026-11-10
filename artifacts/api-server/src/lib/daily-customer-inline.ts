@@ -470,6 +470,16 @@ export function dciSaveInboundNote(eventId: number, userId: number, body: string
   return ev.customer_id;
 }
 
+/** Inquiry time for the Today file column: Jalali with weekday, Persian digits. Never a raw ISO string. */
+export function formatInquiryAt(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const s = String(iso).trim();
+  if (!s) return null;
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(s) && /[\u0600-\u06FF]/.test(s)) return faClockText(faDigits(s));
+  const line = tehranDateLine(s);
+  return line ? faClockText(faDigits(line)) : faDigits(s);
+}
+
 function creditOf(customerId: number): { state: "ok" | "start" | "err" | "none"; grade: string | null; at: string | null } {
   // Prefer stored grade on the customer, then file-card answers. Never return an inquiry/OTP/request code.
   if (tableExists("customers") && (columnExists("customers", "credit_rank") || columnExists("customers", "credit_grade"))) {
@@ -479,12 +489,12 @@ function creditOf(customerId: number): { state: "ok" | "start" | "err" | "none";
               ${columnExists("customers", "credit_checked_at") ? "credit_checked_at" : "NULL AS credit_checked_at"}
        FROM customers WHERE id=?`, [customerId]);
     const g = String(row?.credit_rank || row?.credit_grade || "").trim();
-    if (g && !/^\d{4,}$/.test(g) && !/otp|token|code/i.test(g)) return { state: "ok", grade: g, at: row?.credit_checked_at ?? null };
+    if (g && !/^\d{4,}$/.test(g) && !/otp|token|code/i.test(g)) return { state: "ok", grade: g, at: formatInquiryAt(row?.credit_checked_at) };
   }
   let file: ReturnType<typeof currentFileAnswers> = { answers: null, source: null, at: null, by: null, firstCall: null };
   try { file = currentFileAnswers(customerId); } catch { /* no file answers */ }
   const grade = file.answers && typeof (file.answers as any).creditRank === "string" ? String((file.answers as any).creditRank).trim() : "";
-  if (grade && !/^\d{4,}$/.test(grade)) return { state: "ok", grade, at: file.at };
+  if (grade && !/^\d{4,}$/.test(grade)) return { state: "ok", grade, at: formatInquiryAt(file.at) };
   if (tableExists("credit_checks") || tableExists("customer_credit_checks")) {
     const table = tableExists("credit_checks") ? "credit_checks" : "customer_credit_checks";
     const cols = queryRows<{ name: string }>(`PRAGMA table_info(${table})`).map((c) => c.name);
@@ -496,8 +506,8 @@ function creditOf(customerId: number): { state: "ok" | "start" | "err" | "none";
       if (row) {
         const g = row.grade != null ? String(row.grade).trim() : "";
         const st = String(row.status ?? "").toLowerCase();
-        if (st.includes("fail") || st.includes("error") || st.includes("err")) return { state: "err", grade: null, at: row.at ?? null };
-        if (g && !/code|otp|token/i.test(g) && !/^\d{6,}$/.test(g)) return { state: "ok", grade: g, at: row.at ?? null };
+        if (st.includes("fail") || st.includes("error") || st.includes("err")) return { state: "err", grade: null, at: formatInquiryAt(row.at) };
+        if (g && !/code|otp|token/i.test(g) && !/^\d{6,}$/.test(g)) return { state: "ok", grade: g, at: formatInquiryAt(row.at) };
       }
     }
   }
