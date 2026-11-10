@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { faCase, type MultiCaseRow } from "@/lib/multi-case";
+import { faCase, type MultiCaseRow } from "./types";
 
 export type CaseChoice = number | "general";
 

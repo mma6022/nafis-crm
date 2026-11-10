@@ -23,6 +23,7 @@ import { PersianDatePicker } from "@/components/PersianDatePicker";
 import { ConfirmDialog, Sheet, jalaliDate, relativeTime, useMinWidth } from "./customers-ui";
 import { BUSINESS_STATUS_LABELS, ACTION_ROLE_NAMES, WIZARD_DISPLAY_STEPS, WIZARD_TOTAL_STEPS, loanBusinessStatus, loanStageLabel } from "@/lib/loan-labels";
 import { clearLoanDraft, listLoanDrafts, type LoanDraft } from "@/lib/loan-draft";
+import { useMultiCaseStatus } from "@/lib/multi-case";
 import "./customers.css";
 import "./loan-requests.css";
 import { CustomerIdBadge, CustomerName, customerNameText } from '@/components/customer/CustomerName';
@@ -118,6 +119,12 @@ export default function LoanApplications() {
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const [wizardOpen, setWizardOpen] = useState(false);
+  const multiStatus = useMultiCaseStatus();
+  const [freshRequestKey, setFreshRequestKey] = useState<string | null>(null);
+  const openFreshWizard = () => {
+    setFreshRequestKey(multiStatus.data?.enabled ? crypto.randomUUID() : null);
+    setWizardOpen(true);
+  };
   // Entry point from the customer page (?new=1&customerId=<id>&from=customer[&draft=1]).
   const [, setLocation] = useLocation();
   // Wizard entry: from the URL (customer page, links) AND from in-page «ادامه» (banner / drafts popup).
@@ -429,7 +436,7 @@ export default function LoanApplications() {
       <header className="lrx-head">
         <h1>درخواست‌های تسهیلات</h1>
         {isDesktop && !reviewOpen ? searchBox : null}
-        {canCreate && isDesktop ? <button type="button" className="csx-primary" onClick={() => setWizardOpen(true)} data-testid="button-new-loan-application"><Plus size={20} /> ثبت درخواست جدید</button> : null}
+        {canCreate && isDesktop ? <button type="button" className="csx-primary" onClick={openFreshWizard} data-testid="button-new-loan-application"><Plus size={20} /> ثبت درخواست جدید</button> : null}
       </header>
 
       {reviewOpen && user?.role === "admin" ? <>{adminToggle}<AttributionReview /></> : <>
@@ -463,7 +470,7 @@ export default function LoanApplications() {
       {pager}
       </>}
 
-      {canCreate ? <button type="button" className="csx-primary csx-fab" onClick={() => setWizardOpen(true)} data-testid="fab-new-loan-application"><Plus size={22} /> درخواست جدید</button> : null}
+      {canCreate ? <button type="button" className="csx-primary csx-fab" onClick={openFreshWizard} data-testid="fab-new-loan-application"><Plus size={22} /> درخواست جدید</button> : null}
 
       {filtersOpen ? <Sheet title="فیلتر پرونده‌ها" side={isDesktop} onClose={() => setFiltersOpen(false)} testId="loan-filters-sheet"
         footer={<><button type="button" className="csx-ghost" onClick={clearFilters}>پاک کردن</button><button type="button" className="csx-primary" onClick={() => setFiltersOpen(false)} data-testid="button-apply-loan-filters">{isFetching && !appsPage ? "در حال شمارش…" : total !== undefined ? `نمایش ${fa(total)} پرونده` : "نمایش پرونده‌ها"}</button></>}>
@@ -479,7 +486,7 @@ export default function LoanApplications() {
       </Sheet> : null}
       </>}
 
-      {wizardOpen && <CreateWizard onClose={() => setWizardOpen(false)} />}
+      {wizardOpen && <CreateWizard key={freshRequestKey ?? "legacy"} requestKey={freshRequestKey} onClose={() => setWizardOpen(false)} />}
       {queueOpen && !wizardOpen && canCreate ? <CreateWizard key={`q:${queueOpen.draftId}`} initialCustomerId={queueOpen.customerId} serverDraftId={queueOpen.draftId} onClose={() => setQueueOpen(null)} /> : null}
       {!wizardOpen && entry && session && canCreate ? <CreateWizard key={`${entry.customerId}:${entry.draftId ?? ""}:${entry.requestKey ?? ""}:${entry.n}`} initialCustomerId={entry.customerId} serverDraftId={entry.draftId} resumeDraft={entry.resume} fromCustomer={entry.fromCustomer} requestKey={entry.requestKey} onClose={closeEntryWizard} /> : null}
 

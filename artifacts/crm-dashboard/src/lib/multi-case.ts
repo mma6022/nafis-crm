@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
+import type { MultiCaseRow } from "@/components/multi-case/types";
 
-export type MultiCaseRow = {
-  id: number; planId: number | null; planName: string | null; stage: string | null; status: string; open: boolean;
-};
+export type { MultiCaseRow } from "@/components/multi-case/types";
+export { faCase } from "@/components/multi-case/types";
 export type MultiCaseLink = { id: number; loanApplicationId: number | null; subject?: string | null; createdAt?: string; remindAt?: string };
 
 async function getJson<T>(url: string): Promise<T> {
@@ -26,5 +26,3 @@ export function useMultiCaseCustomer(customerId: number, enabled: boolean) {
     enabled: enabled && customerId > 0, staleTime: 15_000, retry: false,
   });
 }
-
-export const faCase = (id: number) => id.toLocaleString("fa-IR");
