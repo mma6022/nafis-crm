@@ -325,14 +325,33 @@ const notes = {
 try {
   const page = await browser.newPage();
   await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
+  await page.emulateTimezone("Asia/Tehran");
+  // Keep the picker's «امروز» on ۱۹ آبان ۱۴۰۵, matching the page's anchor time.
+  await page.evaluateOnNewDocument(() => {
+    const fixed = Date.parse("2026-11-10T08:30:00.000Z");
+    const RealDate = Date;
+    const FakeDate = function (...args) {
+      if (args.length === 0) return new RealDate(fixed);
+      return new RealDate(...args);
+    };
+    FakeDate.now = () => fixed;
+    FakeDate.parse = RealDate.parse;
+    FakeDate.UTC = RealDate.UTC;
+    FakeDate.prototype = RealDate.prototype;
+    FakeDate.toString = () => RealDate.toString();
+    Date = FakeDate;
+  });
   for (const sc of SCENES) {
     for (const sz of sizes) {
       await page.setViewport({ width: sz.w, height: sz.h, deviceScaleFactor: sz.scale });
       await page.goto(`${base}/?sc=${encodeURIComponent(sc)}`, { waitUntil: "networkidle0", timeout: 30000 });
       await page.evaluate(() => { document.documentElement.classList.add("ssv2-on"); });
       if (sc === "range-custom") {
-        await page.waitForSelector('[data-testid="input-sp-from"]', { timeout: 10000 });
-        await page.click('[data-testid="input-sp-from"]');
+        // Desktop: open «از» (both fields stay visible side by side).
+        // 390: open «تا» so the filled «از» field stays visible above the calendar.
+        const openSel = sz.w <= 390 ? '[data-testid="input-sp-to"]' : '[data-testid="input-sp-from"]';
+        await page.waitForSelector(openSel, { timeout: 10000 });
+        await page.click(openSel);
         await page.waitForSelector(".rdp-root, .persian-date-popover", { timeout: 10000 });
         await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
       }
@@ -369,7 +388,7 @@ Anchor time for the numbers: **سه‌شنبه ۱۹ آبان ۱۴۰۵، ساعت
 
 ## Layout
 
-Each of the 12 design scenes has four PNGs:
+${r2 ? "This r2 set covers the custom-range (picker open) and empty scenes requested for review, each with four PNGs:" : "Each of the 12 design scenes has four PNGs:"}
 
 - \`desktop/0N-<scene>.png\` — 1280×(at least 900), device scale 1
 - \`desktop/0N-<scene>@2x.png\` — 1280, device scale 2
