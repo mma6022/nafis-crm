@@ -438,8 +438,11 @@ a.csx-primary, a.csx-ghost, a.csx-call { text-decoration: none; }
 /* crm-row-menu-fix: row ⋯ is the shared portalled RowActionsMenu (the old .csx-menu .pop was clipped by .csx-tablewrap overflow-x:auto on one-row results). */
 .csx-tact .csx-rowmenu { border-color: var(--nf-line); }
 .rv-scope { padding: 0 16px 8px; }
-.mc-pick { position: fixed; inset: 0; background: rgba(17, 24, 39, .45); display: grid; place-items: end center; z-index: 80; overflow: auto; }
-.mc-pick-card { background: #fff; width: min(520px, 100%); border-radius: 18px 18px 0 0; padding: 18px 16px 22px; display: grid; gap: 10px; max-height: calc(100vh - 12px); overflow: auto; }
+.mc-frame-host { position: fixed; inset: 0; z-index: 80; background: #fff; }
+.mc-frame-full { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+.mc-frame-embed { width: 100%; min-height: 720px; border: 0; background: #fff; border-radius: 16px; }
+.mc-frame-close { position: absolute; top: 12px; left: 12px; z-index: 2; min-height: 40px; padding: 0 14px; border-radius: 12px; border: 1px solid #d5dbe3; background: #fff; font: inherit; }
+.mc-warning { background: #FEF8EA; border: 1px solid #E7C56A; padding: 12px; border-radius: 12px; font-size: 14px; line-height: 1.8; }
 .mc-step { color: #667085; font-size: 12px; margin: 0; }
 .mc-opts { display: grid; gap: 8px; }
 .mc-opts label { display: flex; gap: 10px; align-items: flex-start; border: 1px solid #e4e7ec; border-radius: 12px; padding: 10px 12px; cursor: pointer; }
