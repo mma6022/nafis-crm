@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 
 export type BbLimits = { textMax: number; textWarn?: number; inBytes?: number; photoBytes: number; fileBytes: number; voiceBytes: number; deleteHours: number };
 export type BbBot = { id: number; username: string | null; name: string | null; status: 'on' | 'off' | 'err'; connectedAt: string | null; lastOkAt: string | null; lastError: string | null; hasToken: boolean } | null;
-export type BbCustomerBotFlags = { tracking: boolean; ai: boolean; filing: boolean; any: boolean };
+export type BbCustomerBotFlags = { tracking: boolean; ai: boolean; filing: boolean; any: boolean; admin?: boolean };
 export type BbCustomerBot = {
   restricted?: boolean; flags?: BbCustomerBotFlags;
   filing?: { id: number; step: number; stepTitle: string; stepLine: string; waitKind: string | null; waitTitle: string | null; planLabel: string | null; applicationId: number | null; contractStatus: string | null } | null;
@@ -18,12 +18,15 @@ export type BbNotice = { id: number; kind: string; at: string; actor: string | n
 export type BbChat = {
   id: number; name: string; firstName: string | null; lastName: string | null; username: string | null; bio: string | null; unread: number; lastAt: string | null; lastPreview: string | null; lastOut: boolean;
   customer: BbCustomer; linkMethod: string | null; otherExpert: boolean; notices: BbNotice[]; lastByManager: boolean; verifiedPhone: string | null; phoneVerified: boolean | null;
-  contactAskedAt: string | null; matchNote: string | null; expert: { id: number; name: string }; bot: { username: string | null; status: string }; canWrite: boolean; sendBlocked: 'no_send' | 'bot_off' | null; mine: boolean;
+  contactAskedAt: string | null; matchNote: string | null; expert: { id: number; name: string | null }; bot: { username: string | null; status: string; shared?: boolean; displayName?: string | null }; canWrite: boolean; sendBlocked: 'no_send' | 'bot_off' | null; mine: boolean;
   contactFeature?: boolean; pendingTypedPhone?: string | null; pendingTypedAt?: string | null; linkSource?: string | null; sourceLine?: string | null; linkActor?: string | null;
   leadFromBale?: boolean; canApproveTyped?: boolean; canRejectTyped?: boolean; canManualEnter?: boolean; canResendAsk?: boolean;
   typedMatch?: { id: number; name: string; status: string | null; expert: string | null; own?: boolean } | null; waitingNumber?: boolean;
   customerBot?: BbCustomerBot;
+  sharedCustomerBot?: boolean; sourceChip?: string | null; waitingAssignment?: boolean; assignedExpertName?: string | null;
+  routedExisting?: boolean; listTag?: string | null;
 };
+
 export type BbMessage = {
   id: number; dir: 'in' | 'out' | 'sys'; kind: string; text: string | null; at: string; editedAt: string | null; deleted: boolean;
   file: { name: string | null; mime: string | null; size: number | null; duration: number | null; state: string; url: string | null } | null;

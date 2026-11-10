@@ -7,7 +7,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import LinksAdmin from '@/features/link-page/LinksAdmin';
 import BaleBotInbox from '@/features/bale-bot/BaleBotInbox';
-import BaleBotAdmin from '@/features/bale-bot/BaleBotAdmin';
+import BaleBotAdmin from '@/features/bale-bot/BaleBotAdminPage';
 import Dashboard from '@/pages/Dashboard';
 import Customers from '@/pages/Customers';
 import MyTransfers from '@/pages/MyTransfers';

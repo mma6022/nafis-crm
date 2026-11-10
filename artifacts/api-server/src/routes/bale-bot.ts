@@ -15,7 +15,7 @@ import { insertCustomerRecord } from "../lib/customer-create";
 import { baleBotAad, baleBotHasKey, sealBotToken } from "../lib/bale-bot-crypto";
 import {
   ASK_CONTACT_TEXT, BaleBotWorker, BB_LIMITS, baleCall, bbCanManage, bbLog, bbMasterOn, bbNoSendSp, bbUser, bbUserOn, bbView, botById, botLive, botOfUser, botSends,
-  bbNotice, chatName, messageView, redactPhonesInText, ensureBaleBotSchema, fileOwnerUsers, normPhone, filesDir, isBotExpert, BB_EXTRA_EXPERT_USER_IDS, nameOf, redact, tokenShapeOk, type BbUser,
+  bbNotice, chatName, messageView, redactPhonesInText, ensureBaleBotSchema, fileOwnerUsers, normPhone, filesDir, isBotExpert, BB_EXTRA_EXPERT_USER_IDS, BB_SHARED_BOT_USER_ID, isSharedCustomerBot, nameOf, redact, tokenShapeOk, type BbUser,
 } from "../lib/bale-bot";
 import {
   bcApproveTyped, bcCanAct, bcCommitManual, bcCustomerForViewer, bcFlagOn, bcInboxTitle, bcPreviewManual, bcRejectTyped,
@@ -48,10 +48,15 @@ type ChatRow = { id: number; bot_id: number; chat_id: string; bale_user_id: stri
   pending_typed_phone: string | null; pending_typed_at: string | null; link_source: string | null; first_ask_at: string | null; reminder_sent_at: string | null; welcome_sent_at: string | null; lead_from_bale: number | null;
   unread: number; last_at: string | null; last_preview: string | null; last_out: number; created_at: string };
 /** The chat, if this user may see it: "all" → any; "own" → only chats of the user's own bot. */
+function sharedBotAssignedTo(u: BbUser, c: { owner_id: number; customer_id?: number | null }): boolean {
+  if (Number(c.owner_id) !== BB_SHARED_BOT_USER_ID || !c.customer_id || u.salesperson_id == null) return false;
+  const cust = queryRow<{ salesperson_id: number | null }>("SELECT salesperson_id FROM customers WHERE id=?", [c.customer_id]);
+  return !!cust && Number(cust.salesperson_id) === Number(u.salesperson_id);
+}
 function chatFor(u: BbUser, id: number): (ChatRow & { owner_id: number }) | undefined {
   const c = queryRow<ChatRow & { owner_id: number }>("SELECT c.*, b.user_id owner_id FROM bale_bot_chats c JOIN bale_bots b ON b.id=c.bot_id WHERE c.id=?", [id]);
   if (!c) return undefined;
-  return bbView(u) === "all" || c.owner_id === u.id ? c : undefined;
+  return bbView(u) === "all" || c.owner_id === u.id || sharedBotAssignedTo(u, c) ? c : undefined;
 }
 function customerBrief(cid: number | null) {
   if (!cid) return null;
@@ -71,19 +76,31 @@ function customerFor(u: BbUser, cid: number | null) {
 const noticesFor = (u: BbUser, chatRow: number) => queryRows<any>("SELECT id,kind,actor_user_id,customer_id,at FROM bale_bot_notices WHERE user_id=? AND chat_row=? AND seen_at IS NULL ORDER BY id", [u.id, chatRow])
   .map(n => ({ id: n.id, kind: n.kind, at: n.at, actor: n.actor_user_id ? nameOf(bbUser(n.actor_user_id)) : null }));
 function chatView(c: ChatRow & { owner_id: number }, u: BbUser) {
-  const owner = bbUser(c.owner_id); const bot = botById(c.bot_id)!;
+  const owner = c.owner_id ? bbUser(c.owner_id) : undefined; const bot = botById(c.bot_id)!;
   const full = customerBrief(c.customer_id); const cust = customerFor(u, c.customer_id);
   const lastOutAuthor = c.last_out ? queryRow<{ a: number | null }>("SELECT author_user_id a FROM bale_bot_messages WHERE chat_row=? AND dir='out' ORDER BY id DESC LIMIT 1", [c.id])?.a ?? null : null;
   const feature = bcFlagOn();
-  const canAct = feature && bcCanAct(u, c.owner_id);
+  const shared = isSharedCustomerBot({ user_id: c.owner_id });
+  const canAct = feature && (bcCanAct(u, c.owner_id) || sharedBotAssignedTo(u, c));
+  const assignedName = shared ? (full?.expert ?? null) : null;
+  const waitingAssignment = !!(shared && c.customer_id && !assignedName);
+  const listTag = shared
+    ? (waitingAssignment ? "در انتظار تعیین کارشناس" : (c.lead_from_bale && assignedName ? `${assignedName} تعیین شد` : "ربات نفیس وام"))
+    : null;
   const typedPhone = feature && c.pending_typed_phone && canAct ? c.pending_typed_phone : null;
   const typedMatch = typedPhone ? bcTypedMatch(typedPhone, owner?.salesperson_id ?? null) : null;
   const title = feature ? bcInboxTitle(c, cust && !c.pending_typed_phone ? cust.name : null) : chatName(c);
   return { id: c.id, name: title, firstName: c.first_name, lastName: c.last_name, username: c.username, bio: c.bio, unread: c.unread, lastAt: c.last_at, lastPreview: (cust && cust.restricted && !cust.phone) ? redactPhonesInText(c.last_preview) : c.last_preview, lastOut: !!c.last_out,
     customer: cust, linkMethod: c.link_method, otherExpert: !!full && owner?.salesperson_id !== full.salespersonId, notices: noticesFor(u, c.id),
     lastByManager: !!lastOutAuthor && lastOutAuthor !== c.owner_id, verifiedPhone: (cust && cust.restricted && !cust.phone) ? null : c.verified_phone, phoneVerified: c.customer_id == null ? null : c.link_method === 'contact' || c.link_method === 'contact_other' ? true : c.lead_phone_verified == null ? null : !!c.lead_phone_verified, contactAskedAt: c.contact_asked_at, matchNote: c.match_note,
-    expert: { id: c.owner_id, name: nameOf(owner) }, bot: { username: bot.bot_username, status: bot.status }, canWrite: botLive(bot) && botSends(bot), sendBlocked: !botSends(bot) ? "no_send" : !botLive(bot) ? "bot_off" : null,
-    mine: c.owner_id === u.id,
+    expert: { id: shared ? 0 : c.owner_id, name: shared ? assignedName : nameOf(owner) }, bot: { username: bot.bot_username, status: bot.status, shared, displayName: shared ? (bot.bot_name || "ربات نفیس وام") : bot.bot_name }, canWrite: botLive(bot) && botSends(bot), sendBlocked: !botSends(bot) ? "no_send" : !botLive(bot) ? "bot_off" : null,
+    mine: c.owner_id === u.id || sharedBotAssignedTo(u, c),
+    sharedCustomerBot: shared,
+    sourceChip: shared ? "ربات نفیس وام" : null,
+    waitingAssignment,
+    assignedExpertName: assignedName,
+    routedExisting: !!(shared && c.customer_id && !c.lead_from_bale),
+    listTag,
     contactFeature: feature,
     pendingTypedPhone: typedPhone,
     pendingTypedAt: typedPhone ? c.pending_typed_at : null,
@@ -129,7 +146,12 @@ export function createBaleBotRouter(): IRouter {
   r.get("/bale-bot/chats", (req, res) => {
     const u = U(res); const v = bbView(u)!; const f = String(req.query.filter ?? "all"); const q = String(req.query.q ?? "").trim().slice(0, 60); const ex = num(req.query.expert);
     const w: string[] = []; const p: any[] = [];
-    if (v === "own") { w.push("b.user_id=?"); p.push(u.id); } else if (ex) { w.push("b.user_id=?"); p.push(ex); }
+    if (v === "own") {
+      if (u.salesperson_id != null) {
+        w.push("(b.user_id=? OR (b.user_id=? AND c.customer_id IS NOT NULL AND EXISTS (SELECT 1 FROM customers cu WHERE cu.id=c.customer_id AND cu.salesperson_id=?)))");
+        p.push(u.id, BB_SHARED_BOT_USER_ID, u.salesperson_id);
+      } else { w.push("b.user_id=?"); p.push(u.id); }
+    } else if (ex) { w.push("b.user_id=?"); p.push(ex); }
     const base = w.length ? `WHERE ${w.join(" AND ")}` : "";
     const all = queryRows<ChatRow & { owner_id: number }>(`SELECT c.*, b.user_id owner_id FROM bale_bot_chats c JOIN bale_bots b ON b.id=c.bot_id ${base} ORDER BY COALESCE(c.last_at,c.created_at) DESC LIMIT 500`, p);
     const pending = all.filter(c => !c.customer_id);

@@ -117,20 +117,22 @@ function ListPane({ me, data, loading, sel, filter, setFilter, q, setQ, expert, 
         if (me.contactFeature) {
           if (c.waitingNumber) tags.push(<span key="nl" className="chip mut"><I n="clock" />در انتظار شماره</span>);
           if (c.pendingTypedPhone) tags.push(<span key="tp" className="chip g"><I n="clock" />شمارهٔ تایپی، در انتظار تأیید</span>);
-          if (c.leadFromBale) tags.push(<span key="ld" className="chip ld"><I n="plus" />لید جدید از بله</span>);
+          if (c.sourceChip) tags.push(<span key="src" className="chip src"><I n="bot" />{c.sourceChip}</span>);
+          if (c.waitingAssignment) tags.push(<span key="wa" className="chip mut"><I n="clock" />در انتظار تعیین کارشناس</span>);
+          if (c.leadFromBale && !c.sharedCustomerBot) tags.push(<span key="ld" className="chip ld"><I n="plus" />لید جدید از بله</span>);
           if (otherFile(c)) tags.push(<span key="ot" className="chip s"><I n="lock" />کارشناس دیگر</span>);
         } else {
           if (!linked(c)) tags.push(<span key="nl" className="chip r"><I n="user-x" />وصل‌نشده به مشتری</span>);
           if (otherFile(c)) tags.push(<span key="ot" className="exc">پرونده‌ی {c.customer?.expert}</span>);
         }
-        if (me.view === 'all') tags.push(<span key="ex" className="exc">{c.expert.name}</span>);
+        if (me.view === 'all' && c.expert.name) tags.push(<span key="ex" className="exc">{c.expert.name}</span>);
         if (c.notices.some((n) => n.kind === 'mgr_wrote')) tags.push(<span key="mg" className="chip g"><I n="bell" />پیام مدیر</span>);
         const pvKind = c.lastPreview && PREV_IC[c.lastPreview] ? c.lastPreview : null;
         const showCid = !!c.customer && !c.pendingTypedPhone;
         return <li key={c.id} className={`cv-r${c.unread ? ' un' : ''}`} aria-current={c.id === sel ? true : undefined} onClick={() => nav(`/bale-bot/${c.id}`)}>
           <a className="cv-hit" href={`#${c.id}`} onClick={(e) => { e.preventDefault(); nav(`/bale-bot/${c.id}`); }} aria-label={`گفتگو با ${c.name}${c.unread ? `، ${fa(c.unread)} پیام خوانده‌نشده` : ''}`} />
           <Ava name={c.name} seed={c.id} /><span className="nmr"><Nm name={c.name} />{showCid ? <Cid id={c.customer!.id} toast={toast} /> : null}</span><span className="tm">{bbListTime(c.lastAt)}</span>
-          <span className="pv">{c.lastByManager ? 'مدیر: ' : c.lastOut ? 'شما: ' : ''}{pvKind ? <I n={PREV_IC[pvKind]} /> : null}{c.customerBot?.handoff && !c.customerBot.handoff.claimedBy ? 'واگذاری از پاسخ خودکار' : c.customerBot?.filing ? (c.customerBot.filing.stepLine.replace(/\d+/g, (d: string) => fa(d))) : (me.contactFeature && c.lastPreview && !pvKind ? faPhoneString(c.lastPreview) : c.lastPreview)}</span>{c.unread ? <span className="ub" aria-hidden="true">{fa(c.unread)}</span> : null}
+          <span className="pv">{c.listTag ? c.listTag : <>{c.lastByManager ? 'مدیر: ' : c.lastOut ? 'شما: ' : ''}{pvKind ? <I n={PREV_IC[pvKind]} /> : null}{c.customerBot?.handoff && !c.customerBot.handoff.claimedBy ? 'واگذاری از پاسخ خودکار' : c.customerBot?.filing ? (c.customerBot.filing.stepLine.replace(/\d+/g, (d: string) => fa(d))) : (me.contactFeature && c.lastPreview && !pvKind ? faPhoneString(c.lastPreview) : c.lastPreview)}</>}</span>{c.unread ? <span className="ub" aria-hidden="true">{fa(c.unread)}</span> : null}
           {tags.length ? <span className="tg">{tags}</span> : null}
           {me.contactFeature && otherFile(c) && (c.customer?.phone || c.customer?.canOpen) ? <div className="bc-row-more">{c.customer!.phone ? <Ph phone={c.customer!.phone} toast={toast} /> : null}{c.customer!.canOpen ? <Link className="btn gh sm" href={`/customers/${c.customer!.id}`} onClick={(e) => e.stopPropagation()}><I n="file" />مشاهده‌ی پرونده</Link> : null}{c.customer!.expert ? <span className="bc-own">مسئول: {c.customer!.expert}</span> : null}</div> : null}</li>; })}</ul>
       : <div className="lempty"><b>گفتگویی پیدا نشد</b></div>}
@@ -227,7 +229,15 @@ function CustPane({ chat, toast, onAsk, onSearch, onLead, onManual, wiz }: { me:
   else if (chat.contactFeature && c && c.restricted) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip s"><I n="link" />وصل شد به پرونده‌ی کارشناس دیگر</span><div className="nmr">{c.name}<Cid id={c.id} toast={toast} /></div><div className="kv2"><span>مسئول پرونده</span><b>{c.expert}</b></div><p className="m"><I n="lock" />شماره و جزئیات پرونده با مسئول آن است.</p></div>;
   else if (chat.contactFeature && chat.pendingTypedPhone) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip g"><I n="clock" />شمارهٔ تایپی، در انتظار تأیید</span><Ph phone={chat.pendingTypedPhone} toast={toast} />{chat.typedMatch ? <><div className="nmr">{chat.typedMatch.name}<Cid id={chat.typedMatch.id} toast={toast} /></div><p className="m">قبل از تأیید، پرونده‌ی تطبیق‌شده را ببینید. دکمه‌های تأیید و رد در سربرگ گفتگو هستند.</p></> : <p className="m">با تأیید، لید تازه ساخته می‌شود و طبق قاعده‌ی توزیع فعلی به کارشناس می‌رسد. دکمه‌های تأیید و رد در سربرگ گفتگو هستند.</p>}</div>;
   else if (chat.contactFeature && chat.waitingNumber) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip mut"><I n="clock" />در انتظار اشتراک شماره</span>{wiz ? null : <p className="m">وقتی مشتری شماره را با دکمه بفرستد، یا شما شماره را تأیید یا وارد کنید، گفتگو وصل می‌شود.</p>}{wiz ? <p className="m">فرم ورود دستی شماره در گفتگو باز است.</p> : null}{chat.canResendAsk ? <button className="btn gh sm" type="button" onClick={onAsk}><I n="contact" />ارسال دوباره‌ی درخواست شماره</button> : null}{chat.canManualEnter ? <button className="btn gh sm" type="button" onClick={onManual}><I n="pen" />ورود دستی شماره</button> : null}</div>;
-  else if (chat.contactFeature && c && chat.leadFromBale) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip ld"><I n="plus" />لید جدید از بله</span><div className="nmr">{c.name}<Cid id={c.id} toast={toast} /></div>{c.phone ? <Ph phone={c.phone} toast={toast} /> : null}<div className="kv2"><span>کارشناس</span><b>{c.expert ?? '—'}</b></div>{c.status ? <div className="kv2"><span>وضعیت</span><b>{CUST_STATUS[c.status] ?? c.status}</b></div> : null}{chat.sourceLine ? <p className="bc-src">{chat.sourceLine}</p> : null}{c.canOpen ? <Link className="btn gh sm" href={`/customers/${c.id}`}><I n="file" />مشاهده‌ی پرونده</Link> : null}</div>;
+  else if (chat.contactFeature && c && chat.sharedCustomerBot) {
+    const expertLabel = chat.waitingAssignment ? 'در انتظار تعیین کارشناس' : (c.expert ?? chat.assignedExpertName ?? '—');
+    const note = chat.waitingAssignment
+      ? 'این لید از ربات مشترک نفیس وام آمده و طبق قاعده‌ی توزیع فعلی به کارشناس می‌رسد. لید تکراری ساخته نشده است.'
+      : chat.routedExisting
+        ? 'این مشتری از قبل کارشناس دارد. از ربات مشترک آمد و به همان کارشناس وصل شد؛ لید تازه ساخته نشد.'
+        : (c.expert ? `طبق قاعده‌ی توزیع فعلی به ${c.expert} رسید. ورود از ربات نفیس وام است.` : 'طبق قاعده‌ی توزیع فعلی به کارشناس می‌رسد. ورود از ربات نفیس وام است.');
+    crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip src"><I n="bot" />{chat.sourceChip || 'ربات نفیس وام'}</span><div className="nmr">{c.name}<Cid id={c.id} toast={toast} /></div>{c.phone ? <Ph phone={c.phone} toast={toast} /> : null}<div className="kv2"><span>کارشناس</span><b>{expertLabel}</b></div><p className="m">{note}</p>{!chat.waitingAssignment && c.canOpen ? <Link className="btn gh sm" href={`/customers/${c.id}`}><I n="file" />مشاهده‌ی پرونده</Link> : null}</div>;
+  } else if (chat.contactFeature && c && chat.leadFromBale) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip ld"><I n="plus" />لید جدید از بله</span><div className="nmr">{c.name}<Cid id={c.id} toast={toast} /></div>{c.phone ? <Ph phone={c.phone} toast={toast} /> : null}<div className="kv2"><span>کارشناس</span><b>{c.expert ?? '—'}</b></div>{c.status ? <div className="kv2"><span>وضعیت</span><b>{CUST_STATUS[c.status] ?? c.status}</b></div> : null}{chat.sourceLine ? <p className="bc-src">{chat.sourceLine}</p> : null}{c.canOpen ? <Link className="btn gh sm" href={`/customers/${c.id}`}><I n="file" />مشاهده‌ی پرونده</Link> : null}</div>;
   else if (chat.contactFeature && c) crm = <div className="sec"><h3>پرونده در CRM</h3><div className="nmr">{c.name}<Cid id={c.id} toast={toast} /></div>{c.phone ? <Ph phone={c.phone} toast={toast} /> : null}<div className="kv2"><span>کارشناس</span><b>{c.expert ?? '—'}</b></div>{c.status ? <div className="kv2"><span>وضعیت</span><b>{CUST_STATUS[c.status] ?? c.status}</b></div> : null}{chat.sourceLine ? <p className="bc-src">{chat.sourceLine}</p> : null}<CustomerBotBits chat={chat} toast={toast} where="pane" />{c.canOpen ? <Link className="btn gh sm" href={`/customers/${c.id}`}><I n="file" />مشاهده‌ی پرونده</Link> : null}</div>;
   else if (c && c.restricted) crm = <div className="sec"><h3>پرونده در CRM</h3><span className="chip s"><I n="link" />وصل شد به پرونده‌ی کارشناس دیگر</span><div className="nmr">{c.name}<Cid id={c.id} toast={toast} /></div><div className="kv2"><span>مسئول پرونده</span><b>{c.expert}</b></div><p className="m"><I n="lock" />جزئیات پرونده با مسئول آن است؛ شما این گفتگو را جواب می‌دهید.</p></div>;
   else if (c) crm = <div className="sec"><h3>پرونده در CRM</h3><div className="nmr">{c.name}<Cid id={c.id} toast={toast} /></div>{c.phone ? <Ph phone={c.phone} toast={toast} /> : null}{chat.phoneVerified === false ? <Unverified /> : null}
@@ -477,11 +487,12 @@ function ContactMeta({ chat, toast, err, refresh, onAsk, onManual, wiz }: { chat
     {wiz ? null : <div className="bc-acts">{chat.canResendAsk ? <button className="btn pri sm" type="button" onClick={onAsk}><I n="contact" />ارسال دوباره‌ی درخواست شماره</button> : null}
       {chat.canManualEnter ? <button className="btn gh sm" type="button" onClick={onManual}><I n="pen" />ورود دستی شماره</button> : null}</div>}
   </div>;
-  if (c) return <div className="bc-meta">{chat.leadFromBale ? <span className="chip ld"><I n="plus" />لید جدید از بله</span> : null}{c.phone ? <Ph phone={c.phone} toast={toast} /> : null}
-    {c.status ? <span className="kv">وضعیت <b>{CUST_STATUS[c.status] ?? c.status}</b></span> : null}
-    <span className="kv">کارشناس <b>{c.expert ?? chat.expert.name}</b></span>
+  if (c) return <div className="bc-meta">{chat.sourceChip ? <span className="chip src"><I n="bot" />{chat.sourceChip}</span> : chat.leadFromBale ? <span className="chip ld"><I n="plus" />لید جدید از بله</span> : null}{c.phone ? <Ph phone={c.phone} toast={toast} /> : null}
+    {chat.waitingAssignment ? <span className="chip mut"><I n="clock" />در انتظار کارشناس</span> : null}
+    {c.status && !chat.sharedCustomerBot ? <span className="kv">وضعیت <b>{CUST_STATUS[c.status] ?? c.status}</b></span> : null}
+    {!chat.waitingAssignment ? <span className="kv">کارشناس <b>{c.expert ?? chat.assignedExpertName ?? chat.expert.name}</b></span> : null}
     {c.canOpen ? <Link className="btn gh sm" href={`/customers/${c.id}`}><I n="file" />مشاهده‌ی پرونده</Link> : null}
-    {chat.sourceLine ? <p className="bc-src">{chat.sourceLine}</p> : null}
+    {chat.sourceLine && !chat.sharedCustomerBot ? <p className="bc-src">{chat.sourceLine}</p> : null}
   </div>;
   return null;
 }

@@ -77,3 +77,39 @@
 .bbt.cb-on .bb-plan span.smp, .cb-scope .bb-plan span.smp {display:inline-block;margin-top:0}
 .bbt.cb-on .fid, .cb-scope .fid {direction:ltr;unicode-bidi:isolate;display:inline-flex;align-items:center;min-height:24px;padding:0 8px;border-radius:8px;background:var(--nf-surface-2);color:var(--nf-ink-muted);font-size:13px;font-weight:700}
 .bbt.cb-on .fid-w, .cb-scope .fid-w {margin-inline-start:0;display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:700;color:var(--nf-ink-muted);white-space:nowrap}
+
+
+/* Armita r1 items 4–5: files-list «از بله» chip and LTR-isolated #id (not only under .bbt.cb-on). */
+.lrx-id, .lrx .lrx-id, .csx-card .lrx-id, .csx-table .lrx-id {
+  display: inline-block;
+  direction: ltr;
+  unicode-bidi: isolate;
+  font-weight: 800;
+}
+.chip.fromb {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: #EEF0FA;
+  color: rgb(41, 54, 155);
+  font-weight: 700;
+  font-size: 12px;
+  border: 0;
+}
+
+/* Shared «نفیس وام» source chip (Armita bale-bot-kb v1.0). */
+.chip.src {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 2px 8px;
+  border-radius: var(--nf-radius-pill, 999px);
+  background: #EEF0FA;
+  color: rgb(41, 54, 155);
+  font-weight: 700;
+  font-size: 12px;
+  border: 0;
+}

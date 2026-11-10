@@ -4,14 +4,20 @@ import { queryRow, queryRows, execute, executeChanges } from "../src/lib/crm-db.
 import { ensureBaleBotSchema, _resetSchemaFlagForTests, setBaleBotFetch } from "../src/lib/bale-bot.ts";
 import { ensureBaleContactSchema, _resetBcSchemaFlagForTests, BC_GHASEMI_USER_ID, bcMaySendFromBot } from "../src/lib/bale-contact.ts";
 import {
-  CB_FLAGS, CB_TEXTS, CB_BTNS, CB_DEFAULT_OPENAI_MODEL, CB_DEFAULT_DEEPSEEK_MODEL,
+  CB_FLAGS, CB_ADMIN_FLAG, CB_TEXTS, CB_BTNS, CB_DEFAULT_OPENAI_MODEL, CB_DEFAULT_DEEPSEEK_MODEL,
+  CB_KB_SCOPE_ALL, CB_KB_SCOPE_SHARED, CB_KB_SCOPE_EXPERTS, CB_TEST_TITLE, CB_TEST_OK, CB_TEST_FAIL,
   ensureCustomerBaleSchema, _resetCustomerBaleSchemaFlag, cbFlagOn, cbSetFlag, cbAnyFlagOn,
+  cbAdminFlagOn, cbSetAdminFlag, cbSetPhaseFlags, faDigits, stepLine,
   cbHandleInbound, cbListCasesForCustomer, cbTop3Plans, cbOpenSamePlan, planLabelForCustomer,
   cbStartOrResumeFiling, cbActiveFiling, cbOnFeePaid, cbIssueContract, cbAdvanceContract,
   cbAnswerAi, cbGuardAiText, cbStoreSecret, cbSecretMeta, cbReadSecret, cbMaskSecretIn,
+  cbDeleteSecret, cbTestSecret, setCbSecretTestFn, cbPreviewKb, cbKbText, cbKbUpsert, cbKbList, cbNormalizeKbScope,
   cbQueueText, cbWelcomeAfterLink, cbCreateHandoff, cbClaimHandoff, cbAiFailed, cbRecordAiTurn,
-  cbSetAiMode, prevTehranMonthWindow, lockDownOn, cbIsFromBale,
+  cbSetAiMode, last30DaysTehranWindow, lockDownOn, cbIsFromBale,
+  ensureSharedCustomerBot, cbSharedBot, isSharedCustomerBot , setCbSignPath, cbCheckSign,
 } from "../src/lib/customer-bale.ts";
+import { bcLinkOrCreateLead, BC_OK_NEW, BC_ASK_FIRST_SHARED } from "../src/lib/bale-contact.ts";
+import { botSends, isSharedCustomerBot as isSharedBotRow } from "../src/lib/bale-bot.ts";
 
 if (!process.env.CRM_DATABASE_PATH) throw new Error("CRM_DATABASE_PATH required (scratch copy only)");
 process.env.BALE_BOT_WORKER = "0";
@@ -121,6 +127,9 @@ check("flags default off / any false", () => {
   assert.equal(cbFlagOn("ai"), false);
   assert.equal(cbFlagOn("filing"), false);
   assert.equal(cbAnyFlagOn(), false);
+  assert.equal(cbAdminFlagOn(), false);
+  const adminRow = queryRow("SELECT value FROM call_queue_settings WHERE key=?", [CB_ADMIN_FLAG]);
+  assert.ok(!adminRow || adminRow.value !== "1");
   for (const k of Object.values(CB_FLAGS)) {
     const r = queryRow("SELECT value, updated_at FROM call_queue_settings WHERE key=?", [k]);
     assert.equal(r.value, "0");
@@ -204,12 +213,13 @@ await checkAsync("tracking bot texts: none / many", async () => {
 });
 
 /* top 3 */
-check("top-3 active plans by last Tehran month, filtered by conditions", () => {
+check("top-3 active plans by last 30 days (rolling from now), filtered by conditions", () => {
   const now = new Date("2026-11-09T20:00:00.000Z");
-  const w = prevTehranMonthWindow(now);
-  // October 2026 Tehran starts 2026-09-30T20:30:00.000Z
-  assert.ok(w.start.startsWith("2026-09-30T20:30:00"));
-  assert.ok(w.end.startsWith("2026-10-31T20:30:00"));
+  const w = last30DaysTehranWindow(now);
+  assert.equal(w.end, "2026-11-09T20:00:00.000Z");
+  assert.equal(w.start, "2026-10-10T20:00:00.000Z");
+  assert.ok(CB_TEXTS.plans.includes("۳۰ روز گذشته"));
+  assert.ok(!CB_TEXTS.plans.includes("ماه گذشته"));
   const topA = cbTop3Plans(samiraId, now);
   assert.ok(topA.length <= 3);
   assert.ok(topA.length >= 1, "expected at least one matching plan");
@@ -383,7 +393,10 @@ check("secrets are masked, never dumped", () => {
   cbStoreSecret("openai", "sk-test-openai-zzzz");
   const meta = cbSecretMeta("openai");
   assert.equal(meta.set, true);
-  assert.equal(meta.last4, "zzzz");
+  assert.ok(meta.savedAt);
+  assert.equal("last4" in meta, false);
+  assert.ok(!JSON.stringify(meta).includes("zzzz"));
+  assert.ok(!JSON.stringify(meta).includes("sk-test"));
   const masked = JSON.stringify(cbMaskSecretIn({ authorization: "Bearer sk-test", nested: { api_key: "x" } }));
   assert.ok(!masked.includes("Bearer"));
   assert.ok(masked.includes("[redacted]"));
@@ -423,6 +436,179 @@ check("default model ids from official docs", () => {
   assert.equal(CB_DEFAULT_OPENAI_MODEL, "gpt-6-luna");
   assert.equal(CB_DEFAULT_DEEPSEEK_MODEL, "deepseek-flash");
 });
+
+
+/* r1 + A/B/C + kb v1.0 (§6 confirmed t928s3836) */
+check("Persian digits in step line, queue text, and amounts", () => {
+  assert.equal(stepLine(1, "ثبت درخواست"), "مرحله ۱ از ۷ — ثبت درخواست");
+  assert.equal(faDigits("401# 120000 تومان 2026"), "۴۰۱# ۱۲۰۰۰۰ تومان ۲۰۲۶");
+  // faDigits should not insert thousands sep unless caller does — just digit map
+  assert.equal(faDigits(401), "۴۰۱");
+  flagsOn();
+  const chat = linkChat(openChat(kazemi), samiraId);
+  wipeOut(chat.id);
+  cbQueueText(chat, kazemi, "پرونده #401 — 12,000,000 تومان", null, AT);
+  const tx = texts(chat.id).join("\n");
+  assert.ok(tx.includes("۴۰۱"), tx);
+  assert.ok(!/[0-9]/.test(tx), "ASCII digits must not remain in queued bot text: " + tx);
+});
+
+await checkAsync("یادآوری امضا calls mocked check-status and updates only the filing status", async () => {
+  flagsOn();
+  const chat = linkChat(openChat(kazemi), samiraId);
+  const f0 = cbStartOrResumeFiling(chat, samiraId, 6);
+  // attach a fake application + generation id on the filing only
+  const genBefore = queryRows("SELECT id, status FROM contract_generations ORDER BY id DESC LIMIT 3");
+  executeChanges(
+    "UPDATE customer_bale_filings SET application_id=?, contract_generation_id=?, contract_status=? WHERE id=?",
+    [99, 4242, "pending", f0.id],
+  );
+  let called = 0;
+  setCbSignPath({
+    checkStatus: async (generationId) => { called++; assert.equal(generationId, 4242); return { status: "signed" }; },
+    remind: async (generationId) => { called++; assert.equal(generationId, 4242); return { ok: true }; },
+  });
+  const out = await cbCheckSign(chat.id);
+  assert.equal(out.status, "signed");
+  assert.equal(out.path, "check-status");
+  assert.equal(out.reminded, true);
+  assert.equal(called, 2);
+  const f = cbActiveFiling(chat.id);
+  assert.equal(f.contract_status, "signed");
+  const genAfter = queryRows("SELECT id, status FROM contract_generations ORDER BY id DESC LIMIT 3");
+  assert.deepEqual(genAfter, genBefore);
+  setCbSignPath(null);
+});
+
+check("combined phase helper turns all three on/off with updated_at and leaves admin off", () => {
+  cbSetAdminFlag(false, AT);
+  cbSetPhaseFlags(true, "2026-11-09T21:00:00.000Z");
+  assert.equal(cbFlagOn("tracking"), true);
+  assert.equal(cbFlagOn("ai"), true);
+  assert.equal(cbFlagOn("filing"), true);
+  assert.equal(cbAdminFlagOn(), false);
+  for (const k of Object.values(CB_FLAGS)) {
+    const r = queryRow("SELECT value, updated_at FROM call_queue_settings WHERE key=?", [k]);
+    assert.equal(r.value, "1");
+    assert.equal(r.updated_at, "2026-11-09T21:00:00.000Z");
+  }
+  cbSetPhaseFlags(false, "2026-11-09T21:05:00.000Z");
+  assert.equal(cbAnyFlagOn(), false);
+  assert.equal(cbAdminFlagOn(), false);
+});
+
+check("KB scope defaults to All; preview uses only KB text and never calls a model", () => {
+  assert.equal(cbNormalizeKbScope(null), CB_KB_SCOPE_ALL);
+  assert.equal(cbNormalizeKbScope("nope"), CB_KB_SCOPE_ALL);
+  const id = cbKbUpsert(null, "مدارک لازم برای ثبت درخواست", "برای شروع کارت ملی و شناسنامه لازم است.", true, 1, AT, { category: "مدارک" });
+  const rows = cbKbList();
+  const row = rows.find((r) => r.id === id);
+  assert.ok(row);
+  assert.equal(row.scope, CB_KB_SCOPE_ALL);
+  const before = aiCalls.length;
+  const prev = cbPreviewKb("برای ثبت درخواست چه مدارکی لازم است؟");
+  assert.equal(prev.ok, true);
+  assert.ok(prev.text.includes("کارت ملی"));
+  assert.equal(aiCalls.length, before);
+  const miss = cbPreviewKb("zzzqqq xxxwww");
+  assert.equal(miss.ok, false);
+  assert.equal(aiCalls.length, before);
+  cbKbUpsert(null, "فقط کارشناس", "متن مخصوص ربات کارشناس", true, 1, AT, { category: "شرایط عمومی", scope: CB_KB_SCOPE_EXPERTS });
+  assert.ok(!cbKbText({ user_id: 0 }).includes("متن مخصوص ربات کارشناس"));
+  assert.ok(cbKbText({ user_id: 2 }).includes("متن مخصوص ربات کارشناس"));
+  const sharedPrev = cbPreviewKb("متن مخصوص ربات کارشناس", { user_id: 0 });
+  assert.equal(sharedPrev.ok, false);
+});
+
+await checkAsync("key test returns only server success or failure; meta never includes last4", async () => {
+  cbStoreSecret("openai", "sk-test-openai-zzzz");
+  const meta = cbSecretMeta("openai");
+  assert.deepEqual(Object.keys(meta).sort(), ["savedAt", "set"]);
+  setCbSecretTestFn(async () => ({ ok: true }));
+  const ok = await cbTestSecret("openai");
+  assert.equal(ok.ok, true);
+  assert.equal(ok.title, CB_TEST_TITLE);
+  assert.equal(ok.message, CB_TEST_OK);
+  assert.equal("ms" in ok, false);
+  assert.equal("tokens" in ok, false);
+  setCbSecretTestFn(async () => ({ ok: false }));
+  const bad = await cbTestSecret("openai");
+  assert.equal(bad.ok, false);
+  assert.equal(bad.title, CB_TEST_TITLE);
+  assert.equal(bad.message, CB_TEST_FAIL);
+  cbDeleteSecret("openai");
+  assert.equal(cbSecretMeta("openai").set, false);
+  const gone = await cbTestSecret("openai");
+  assert.equal(gone.ok, false);
+  assert.equal(gone.message, CB_TEST_FAIL);
+  setCbSecretTestFn(null);
+});
+
+check("shared نفیس وام bot exists, may send, and is not Ghasemi", () => {
+  const id = ensureSharedCustomerBot(AT);
+  const bot = cbSharedBot();
+  assert.ok(bot && bot.id === id);
+  assert.equal(Number(bot.user_id), 0);
+  assert.equal(bot.bot_name, "نفیس وام");
+  assert.equal(isSharedCustomerBot(bot), true);
+  assert.equal(isSharedBotRow(bot), true);
+  assert.equal(bcMaySendFromBot(bot), true);
+  assert.equal(bcMaySendFromBot(ghasemi), false);
+  assert.notEqual(Number(bot.user_id), 3);
+});
+
+check("shared bot new lead: wait for expert, then expert name; existing customer is routed with no new lead", () => {
+  flagsOn();
+  const shared = cbSharedBot();
+  assert.ok(shared);
+  const nCust = () => queryRow("SELECT COUNT(*) n FROM customers").n;
+
+  // new lead — unused phone
+  const before = nCust();
+  const chatNew = openChat(shared, "لیلا");
+  const rNew = bcLinkOrCreateLead(chatNew, shared, "09120000048", "share", null, AT);
+  assert.equal(rNew.ok, true);
+  assert.equal(rNew.kind, "new");
+  assert.equal(nCust(), before + 1);
+  const freshNew = queryRow("SELECT * FROM bale_bot_chats WHERE id=?", [chatNew.id]);
+  assert.equal(Number(freshNew.lead_from_bale), 1);
+  const cust = queryRow("SELECT * FROM customers WHERE id=?", [freshNew.customer_id]);
+  assert.ok(cust.salesperson_id && Number(cust.salesperson_id) > 0, "distribution rule assigned a salesperson");
+  wipeOut(freshNew.id);
+  cbWelcomeAfterLink(freshNew, shared, cust.name, AT);
+  const outNew = queryRows("SELECT dir, text FROM bale_bot_messages WHERE chat_row=? ORDER BY id", [freshNew.id]);
+  const blob = outNew.map((m) => m.text).join("\n");
+  assert.ok(blob.includes("شماره‌تان ثبت شد"));
+  assert.ok(blob.includes("در انتظار تعیین کارشناس"));
+  assert.ok(blob.includes("کارشناس شما") && blob.includes("است"), blob);
+  assert.ok(!blob.includes(BC_OK_NEW));
+  const sys = outNew.filter((m) => m.dir === "sys").map((m) => m.text).join("\n");
+  assert.ok(sys.includes("در انتظار تعیین کارشناس، بر اساس قاعده‌ی توزیع فعلی"));
+  assert.ok(sys.includes("وصل شد به کارشناس"));
+
+  // existing customer (Samira) — no new lead
+  const before2 = nCust();
+  const chatOld = openChat(shared, "سمیرا");
+  const rOld = bcLinkOrCreateLead(chatOld, shared, "09120000040", "share", null, AT);
+  assert.equal(rOld.ok, true);
+  assert.equal(rOld.kind, "known");
+  assert.equal(nCust(), before2);
+  const freshOld = queryRow("SELECT * FROM bale_bot_chats WHERE id=?", [chatOld.id]);
+  assert.equal(Number(freshOld.lead_from_bale) || 0, 0);
+  wipeOut(freshOld.id);
+  cbWelcomeAfterLink(freshOld, shared, "سمیرا نادری", AT);
+  const blobOld = queryRows("SELECT dir, text FROM bale_bot_messages WHERE chat_row=? ORDER BY id", [freshOld.id]).map((m) => `${m.dir}:${m.text}`).join("\n");
+  assert.ok(blobOld.includes("از ربات نفیس وام آمد؛ به کارشناسِ خود مشتری وصل شد. لید تازه ساخته نشد."), blobOld);
+  assert.ok(!blobOld.includes(BC_OK_NEW));
+});
+
+check("shared bot first-ask text is the designed start copy", () => {
+  assert.equal(
+    BC_ASK_FIRST_SHARED,
+    "سلام، به ربات نفیس وام خوش آمدید. برای پیگیری پرونده یا ثبت درخواست، ابتدا شماره‌ی خودتان را با دکمه به اشتراک بگذارید.",
+  );
+});
+
 
 if (failures.length) {
   console.error("\nFAILED", failures.length, failures.join(", "));

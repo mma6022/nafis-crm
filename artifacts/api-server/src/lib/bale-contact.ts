@@ -23,6 +23,7 @@ import {
   botById,
   botLive,
   botSends,
+  isSharedCustomerBot,
   chatName,
   matchPhone,
   nameOf,
@@ -41,6 +42,12 @@ export const BC_REMINDER_MS = 24 * 60 * 60_000;
 export const BC_PRIV = "شماره فقط برای پیگیری خودتان استفاده می‌شود.";
 export const BC_ASK_FIRST =
   "سلام، به ربات نفیس وام خوش آمدید. برای اینکه گفتگو به پرونده یا کارشناس خودتان وصل شود، لطفاً شماره‌تان را با دکمه‌ی زیر بفرستید.\n" + BC_PRIV;
+/** Shared «نفیس وام» bot first ask — Armita bale-bot-kb v1.0, confirmed t928s3836. */
+export const BC_ASK_FIRST_SHARED =
+  "سلام، به ربات نفیس وام خوش آمدید. برای پیگیری پرونده یا ثبت درخواست، ابتدا شماره‌ی خودتان را با دکمه به اشتراک بگذارید.";
+function bcAskFirst(bot: { user_id: number }): string {
+  return isSharedCustomerBot(bot) ? BC_ASK_FIRST_SHARED : BC_ASK_FIRST;
+}
 export const BC_ASK_EXIST =
   "سلام، برای وصل شدن این گفتگو به پرونده‌تان، لطفاً شماره‌تان را با دکمه‌ی زیر بفرستید.\n" + BC_PRIV;
 export const BC_OK_KNOWN = "ممنون، شماره‌تان ثبت شد. کارشناس شما به‌زودی پاسخ می‌دهد.";
@@ -120,6 +127,7 @@ type ChatRow = {
 
 export function bcMaySendFromBot(bot: { user_id: number }): boolean {
   if (bot.user_id === BC_GHASEMI_USER_ID) return false;
+  if (isSharedCustomerBot(bot)) return botSends(bot as any);
   if (!(BC_SEND_USER_IDS as readonly number[]).includes(bot.user_id)) return false;
   if (!botSends(bot as any)) return false;
   return true;
@@ -165,7 +173,7 @@ type LinkResult =
 
 /** Known phone → link that customer (dedupe). Unknown → new lead via the current default-owner rule. */
 export function bcLinkOrCreateLead(chat: ChatRow, bot: BotRow, phone: string, source: BcSource, actorUserId: number | null, at = nowIso()): LinkResult {
-  const owner = bbUser(bot.user_id);
+  const owner = isSharedCustomerBot(bot) ? null : bbUser(bot.user_id);
   const hit = matchPhone(phone, owner?.salesperson_id ?? null);
   if (hit && "many" in hit) {
     executeChanges("UPDATE bale_bot_chats SET match_note='many', verified_phone=COALESCE(verified_phone,?) WHERE id=?", [source === "share" ? phone : null, chat.id]);
@@ -192,7 +200,7 @@ export function bcLinkOrCreateLead(chat: ChatRow, bot: BotRow, phone: string, so
     description: [`منبع: بله${(bot as any).bot_username ? ` (ربات @${(bot as any).bot_username})` : ""}`, `اتصال: ${BC_SRC_LABEL[source]}`].join("\n"),
     salespersonId: owner?.salesperson_id ?? null,
     assignedSalespersonId: owner?.salesperson_id ?? null,
-    registeredByUserId: actorUserId ?? bot.user_id,
+    registeredByUserId: actorUserId ?? (isSharedCustomerBot(bot) ? null : bot.user_id),
     registrationSource: "staff_form",
     // Current lead distribution rule applies (do not skip it; do not change team_sales_config).
     skipDefaultOwnerRule: false,
@@ -240,7 +248,10 @@ export function bcAfterInbound(bot: BotRow, chatId: number, p: {
       return;
     }
     const r = bcLinkOrCreateLead(chat, bot, p.contact.phone, "share", null, at);
-    if (r.ok && !(r.kind === "known" && r.own === false)) bcQueueText(chat, bot, r.kind === "new" ? BC_OK_NEW : BC_OK_KNOWN, null, at);
+    // Shared bot: skip generic OK so cbWelcomeAfterLink can send the designed wait / assign sequence.
+    if (r.ok && !(r.kind === "known" && r.own === false) && !isSharedCustomerBot(bot)) {
+      bcQueueText(chat, bot, r.kind === "new" ? BC_OK_NEW : BC_OK_KNOWN, null, at);
+    }
     return;
   }
 
@@ -262,7 +273,7 @@ export function bcAfterInbound(bot: BotRow, chatId: number, p: {
   // First contact: one automatic «اشتراک شماره» request. Not on Ghasemi. Not if already asked / linked / typed-pending.
   const fresh = queryRow<ChatRow>("SELECT * FROM bale_bot_chats WHERE id=?", [chatId])!;
   if (!fresh.customer_id && !fresh.pending_typed_phone && !fresh.welcome_sent_at && !fresh.contact_asked_at) {
-    if (bcQueueText(fresh, bot, BC_ASK_FIRST, "contact", at)) {
+    if (bcQueueText(fresh, bot, bcAskFirst(bot), "contact", at)) {
       markAsked(fresh.id, at, true);
       bcAudit({ chatRow: fresh.id, botId: bot.id, baleUserId: fresh.bale_user_id, source: "first_ask", outcome: "queued" });
     }
@@ -297,7 +308,7 @@ export function bcResendAsk(chat: ChatRow, bot: BotRow, u: BbUser, at = nowIso()
   if (!bcCanAct(u, (chat as any).owner_id ?? bot.user_id)) return { ok: false, error: "forbidden" };
   if (chat.customer_id) return { ok: false, error: "already_linked" };
   if (chat.contact_asked_at && Date.parse(chat.contact_asked_at) > Date.now() - BC_RESEND_MS) return { ok: false, error: "rate_limited" };
-  const text = chat.first_ask_at || chat.welcome_sent_at ? BC_ASK_EXIST : BC_ASK_FIRST;
+  const text = chat.first_ask_at || chat.welcome_sent_at ? BC_ASK_EXIST : bcAskFirst(bot);
   const id = bcQueueText(chat, bot, text, "contact", at);
   if (!id) return { ok: false, error: "no_send" };
   markAsked(chat.id, at, !chat.first_ask_at);
@@ -328,7 +339,9 @@ export function bcApproveTyped(chat: ChatRow, bot: BotRow, u: BbUser, at = nowIs
   const phone = chat.pending_typed_phone ? normPhone(chat.pending_typed_phone) : null;
   if (!phone) return { ok: false, error: "no_pending" };
   const r = bcLinkOrCreateLead(chat, bot, phone, "typed", u.id, at);
-  if (r.ok && !(r.kind === "known" && r.own === false)) bcQueueText(chat, bot, r.kind === "new" ? BC_OK_NEW : BC_OK_KNOWN, null, at);
+  if (r.ok && !(r.kind === "known" && r.own === false) && !isSharedCustomerBot(bot)) {
+    bcQueueText(chat, bot, r.kind === "new" ? BC_OK_NEW : BC_OK_KNOWN, null, at);
+  }
   return { ok: true, result: r };
 }
 
