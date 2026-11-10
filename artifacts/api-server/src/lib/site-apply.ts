@@ -20,6 +20,7 @@ import { execute, queryRow, queryRows, runImmediateTransaction } from "./crm-db"
 import { insertCustomerRecord } from "./customer-create";
 import { ensureSiteLeadSchema, recordSiteLeadRequest } from "./site-leads-store";
 import { getTeamSalesConfig, logPriorityChange, nextCloserSalespersonId } from "./team-sales";
+import { assignLeadOwner, mtFlagOn } from "./multi-team";
 import { srcLineFa } from "./link-src";
 import {
   LEAD_SOURCE, WEBSITE_LEAD_TAG, UTM_KEYS, canonicalCustomerByMobile, ensurePublicLeadSchema, intakeGate, normalizeLeadName,
@@ -237,9 +238,18 @@ export function recordSiteApply(apply: SiteApply, ipHash: string, userAgent: str
     let owner: number | null;
     let oldPriority: number | null = null;
     if (customerId === undefined) {
-      owner = qualifier;
-      // No active closer (TeamSalesError 409) → the lead must not be lost: it stays with the qualifier, still P1.
-      if (priority === 1) { try { owner = nextCloserSalespersonId(cfg); } catch { owner = qualifier; } }
+      if (mtFlagOn()) {
+        try {
+          const pri = priority === 1 || priority === 2 || priority === 3 ? priority : null;
+          owner = assignLeadOwner(pri, now).salespersonId;
+        } catch {
+          owner = qualifier;
+        }
+      } else {
+        owner = qualifier;
+        // No active closer (TeamSalesError 409) → the lead must not be lost: it stays with the qualifier, still P1.
+        if (priority === 1) { try { owner = nextCloserSalespersonId(cfg); } catch { owner = qualifier; } }
+      }
       const description = ["درخواست از فرم سایت nafisvam.com", ...(apply.src ? [`منبع صفحه: ${srcLineFa(apply.src)}`] : [])].join("\n");
       customerId = insertCustomerRecord({
         name: apply.name, phone: apply.phone, description, priority, registeredByUserId: null, registrationSource: "site_lead",

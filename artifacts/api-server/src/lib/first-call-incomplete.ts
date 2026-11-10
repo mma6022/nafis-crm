@@ -6,12 +6,12 @@
  * Inferred from existing data only; never writes; no reminders/tasks. Closers (Hasani/Ghasemi) and everyone else: always false.
  */
 import { queryRow } from "./crm-db";
-import { getTeamSalesConfig } from "./team-sales";
+import { getTeamSalesConfig, teamConfigFor } from "./team-sales";
 
 export type FcUser = { id: number; salespersonId: number | null };
 export function firstCallIncomplete(user: FcUser, customerId: number): boolean {
-  const cfg = getTeamSalesConfig() as any;
   const sp = user.salespersonId == null ? null : Number(user.salespersonId);
+  const cfg = teamConfigFor({ salespersonId: sp }) as any;
   if (!cfg?.enabled || sp == null || sp !== Number(cfg.qualifierSalespersonId)) return false;
   const c = queryRow<{ salesperson_id: number | null; priority: number | null; status: string | null; lead_source: string | null; registered_by: number | null }>(
     "SELECT salesperson_id, priority, status, lead_source, registered_by FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [customerId]);

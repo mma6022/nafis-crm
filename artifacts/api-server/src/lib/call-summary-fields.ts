@@ -14,7 +14,7 @@ import type { AuthUser } from "./auth";
 import { logger } from "./logger";
 import { execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import { ctAdminViewer, ctEvent, isCtManager, tehranRange, textState, visibleEvent, type Ev } from "./call-transcripts";
-import { TeamSalesError, firstCallEditAccess, getTeamSalesConfig, type Actor } from "./team-sales";
+import { TeamSalesError, firstCallEditAccess, teamConfigFor, type Actor } from "./team-sales";
 import { appendFileAnswers, currentFileAnswers } from "./history-a";
 import {
   CS_DOCS, CS_KEYS, CS_LABEL, csAnyOn, csOn, csPatchFor, csSame, csValueOk, csValuesOfAnswers, ensureCsSchema, RANK_LETTER, type CsKey,
@@ -110,7 +110,7 @@ const canDecide = (u: AuthUser, e: Ev) => {
   if (e.customer_id == null) return false;
   if (e.expert_user_id === u.id) return true;
   const c = queryRow<{ salesperson_id: number | null; status: string; priority: number | null }>("SELECT salesperson_id,status,priority FROM customers WHERE id=?", [e.customer_id]);
-  return !!c && firstCallEditAccess(actorOf(u), c, getTeamSalesConfig()).canEdit;
+  return !!c && firstCallEditAccess(actorOf(u), c, teamConfigFor({ salespersonId: actorOf(u).salespersonId })).canEdit;
 };
 /** Baseline history row (the value the file had before the first approved change) so the history shows where it came from. */
 function ensureBaseline(customerId: number, key: CsKey, fileValue: unknown, cur: ReturnType<typeof currentFileAnswers>) {
@@ -282,7 +282,7 @@ function fileAccess(customerId: number, u: AuthUser) {
   const c = queryRow<{ id: number; salesperson_id: number | null; status: string; priority: number | null; merged_into_customer_id: number | null }>(
     "SELECT id,salesperson_id,status,priority,merged_into_customer_id FROM customers WHERE id=?", [customerId]);
   if (!c || c.merged_into_customer_id != null) return null;
-  const canEdit = firstCallEditAccess(actorOf(u), c, getTeamSalesConfig()).canEdit;
+  const canEdit = firstCallEditAccess(actorOf(u), c, teamConfigFor({ salespersonId: actorOf(u).salespersonId })).canEdit;
   if (!canEdit && u.role !== "admin") return null;
   return { c, canEdit };
 }

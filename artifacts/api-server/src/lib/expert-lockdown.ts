@@ -23,6 +23,7 @@ import { cqRaw } from "./call-queue";
 import { dpToday } from "./daily-plan";
 import { exactLookupOf } from "./cross-owner-search";
 import { MANAGER_TRAINEE_SALESPERSON_IDS } from "./assistant-manager";
+import { teamExpertUserMap, isTraineeSalesperson } from "./multi-team";
 import { insertCustomerRecord } from "./customer-create";
 import { normalizeCustomerMobile } from "./customer-integrity";
 import { ssOn } from "./sales-shell";
@@ -33,6 +34,10 @@ const csOnSafe = (id: number) => { try { return csOn(id); } catch { return false
 export const EL_FLAG_KEY = "flag.expert_lockdown";
 /** users.id → their salespersons.id (checked against the session: a user whose salespersonId differs is not locked). */
 export const EL_USERS: Readonly<Record<number, number>> = { 8: 6, 2: 3, 3: 4 };
+/** Flag OFF: the three original experts. Flag ON: every member of an enabled sales team. */
+export function elUsers(): Readonly<Record<number, number>> {
+  try { return teamExpertUserMap(EL_USERS); } catch { return EL_USERS; }
+}
 export const EL_GRANT_MINUTES = 30;
 export const EL_SEARCH_LIMIT = 12;           // searches per user per window
 export const EL_SEARCH_WINDOW_MS = 10 * 60_000;
@@ -44,8 +49,10 @@ export const EL_ALLOWED_PAGES = ["/today", "/loan-applications", "/payment-order
 type U = { id: number; role: string; salespersonId: number | null; fullName?: string | null; customerScope?: string };
 
 export const elFlagOn = (): boolean => { try { return cqRaw(EL_FLAG_KEY) === "1"; } catch { return false; } };
-export const elTarget = (u: U | null | undefined): boolean =>
-  Boolean(u && u.role === "salesperson" && EL_USERS[Number(u.id)] != null && Number(u.salespersonId) === EL_USERS[Number(u.id)]);
+export const elTarget = (u: U | null | undefined): boolean => {
+  const map = elUsers();
+  return Boolean(u && u.role === "salesperson" && map[Number(u.id)] != null && Number(u.salespersonId) === map[Number(u.id)]);
+};
 export const elLocked = (u: U | null | undefined): boolean => elTarget(u) && elFlagOn();
 
 let ready = false;
@@ -458,7 +465,7 @@ export const EL_REFER_WINDOW_MS = 30 * 60_000;         // one referral per calle
 export const EL_REFER_DAY_MAX = 10;                     // referrals per caller per Tehran day
 /** The referral target: an active salesperson user of that salesperson; never user 29, never a trainee (sp 5/19/20), never «بدون کارشناس». */
 function referralOwner(sp: number | null): { id: number } | null {
-  if (sp == null || MANAGER_TRAINEE_SALESPERSON_IDS.includes(sp)) return null;
+  if (sp == null || isTraineeSalesperson(sp)) return null;
   const o = queryRow<{ id: number }>("SELECT id FROM users WHERE salesperson_id=? AND role='salesperson' AND active=1 AND id<>29 ORDER BY id LIMIT 1", [sp]);
   return o ? { id: Number(o.id) } : null;
 }
@@ -617,7 +624,7 @@ export function elDailyCounts(day: string) {
     FROM el_incoming_log l LEFT JOIN salespersons s ON s.id=l.salesperson_id WHERE l.created_at>=? AND l.created_at<? GROUP BY l.user_id ORDER BY l.user_id`, [from, to]);
   const logged = (sp: number) => queryRow("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='dp_items'")
     ? Number(queryRow<{ n: number }>("SELECT count(*) n FROM dp_items i JOIN dp_plans p ON p.id=i.plan_id WHERE p.salesperson_id=? AND p.day=? AND i.bucket='outside'", [sp, day])?.n ?? 0) : 0;
-  const experts = Object.entries(EL_USERS).map(([uid, sp]) => {
+  const experts = Object.entries(elUsers()).map(([uid, sp]) => {
     const r = rows.find((x) => Number(x.user_id) === Number(uid));
     const name = r?.name ?? queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [sp])?.name ?? "";
     return { userId: Number(uid), salespersonId: sp, name, opens: Number(r?.opens ?? 0), searches: Number(r?.searches ?? 0), own: Number(r?.own ?? 0),

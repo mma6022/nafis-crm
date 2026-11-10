@@ -9,7 +9,7 @@ import { getCustomer } from "./crm";
 import { queryRow, runImmediateTransaction } from "../lib/crm-db";
 import { dpAfterCommit, dpAfterFirstCallForm } from "../lib/daily-plan";
 import {
-  TeamSalesError, citySuggestions, editFirstCall, firstCallEditInfo, formatDue, getTeamSalesConfig, peekCloserFor, peekNextCloser, planOptions, previewQualification, priorityHistory, promoteToPriorityOne, submitQualification,
+  TeamSalesError, citySuggestions, editFirstCall, firstCallEditInfo, formatDue, getTeamSalesConfig, teamConfigFor, peekCloserFor, peekNextCloser, planOptions, previewQualification, priorityHistory, promoteToPriorityOne, submitQualification,
 } from "../lib/team-sales";
 import { manualOutcomeError, readManualOutcome } from "../lib/call-outcome";
 import { setNonP1TransferredHeader } from "../lib/nonp1-transfer";
@@ -65,11 +65,11 @@ router.get("/customers/:id/site-answers", requirePermission("customers.view"), (
 
 /** Peek (no reservation) at whose turn is next, for the confirm dialog. */
 router.get("/sales/next-closer", requirePermission("customers.view"), (_req, res): void => {
-  const cfg = getTeamSalesConfig();
   const actor = actorOf(res);
+  const selfCid = customerId(typeof _req.query.customerId === "string" ? _req.query.customerId : undefined);
+  const cfg = teamConfigFor({ salespersonId: actor.salespersonId, customerId: selfCid });
   // HOTFIX-73: a closer (users 2/3) upgrading their OWN customer keeps it → the answer is «yourself», not 404.
   if (cfg.enabled) {
-    const selfCid = customerId(typeof _req.query.customerId === "string" ? _req.query.customerId : undefined);
     const self = selfNextCloser(actor, selfCid);
     if (self && "notFound" in self) { res.status(404).json({ error: "Customer not found" }); return; }
     if (self) { res.json({ ...self, dueAt: null, dueLabel: null, workingHours: 0 }); return; }
@@ -79,10 +79,10 @@ router.get("/sales/next-closer", requirePermission("customers.view"), (_req, res
   }
   // crm-kz-return: with ?customerId the answer is per customer (previous expert or fair-split turn). Same scope as promote:
   // the qualifier only for own customers, admin for any; otherwise the plain fair-split turn.
-  const cid = customerId(typeof _req.query.customerId === "string" ? _req.query.customerId : undefined);
+  const cid = selfCid;
   const own = cid ? queryRow<{ s: number | null }>("SELECT salesperson_id AS s FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [cid]) : null;
   const scoped = Boolean(own && (actor.role === "admin" || Number(own.s) === cfg.qualifierSalespersonId));
-  const next = scoped && cid ? peekCloserFor(cid) : peekNextCloser();
+  const next = scoped && cid ? peekCloserFor(cid) : peekNextCloser({ salespersonId: actor.salespersonId, customerId: cid });
   if (!next) { res.status(409).json({ error: "هیچ کارشناس پیگیری فعالی تعریف نشده است." }); return; }
   const now = new Date();
   const due = addWorkingHours(now, cfg.closerFirstCallWorkingHours, cfg);

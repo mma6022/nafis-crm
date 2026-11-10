@@ -11,8 +11,8 @@ import { noteText } from "./note-text";
  * No switches: scoped in code (EL_USERS ∩ team-sales roles). Nothing here sends anything.
  */
 import { execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
-import { EL_ADMIN_USER_IDS, EL_USERS } from "./expert-lockdown";
-import { TeamSalesError, firstCallEditAccess, getTeamSalesConfig, latestFirstCall, logPriorityChange, ensureTeamSalesSchema, promoteToPriorityOne, shortName, type Actor } from "./team-sales";
+import { EL_ADMIN_USER_IDS, elUsers } from "./expert-lockdown";
+import { TeamSalesError, firstCallEditAccess, teamConfigFor, latestFirstCall, logPriorityChange, ensureTeamSalesSchema, promoteToPriorityOne, shortName, type Actor } from "./team-sales";
 import { normalizeFirstCallAnswers, validateAnswers, type QualifierAnswers } from "./team-sales-rules";
 import { FC_STAGE_GROUPS, FC_GROUP_CODES, FC_GROUP_LABELS, FC_WAIT_GROUPS } from "./files-carousel";
 import { realCallSql } from "./real-call";
@@ -29,10 +29,10 @@ export const HX_UPGRADE_SOURCES = [HX_SOURCE, "promote"] as const;
 const isAdmin = (a: { id: number; role: string }) => a.role === "admin";
 /** One of the three locked experts (users 8/2/3 with their own salesperson). */
 export const hxExpert = (a: { id: number; role: string; salespersonId: number | null } | null | undefined): boolean =>
-  Boolean(a && a.role === "salesperson" && EL_USERS[Number(a.id)] != null && Number(a.salespersonId) === EL_USERS[Number(a.id)]);
+  Boolean(a && a.role === "salesperson" && elUsers()[Number(a.id)] != null && Number(a.salespersonId) === elUsers()[Number(a.id)]);
 /** A closer of the team-sales config (users 2/3 today) among the three experts. */
 export function hxCloser(a: Actor): boolean {
-  const cfg = getTeamSalesConfig();
+  const cfg = teamConfigFor({ salespersonId: a.salespersonId });
   return hxExpert(a) && a.salespersonId != null && cfg.closerSalespersonIds.includes(Number(a.salespersonId)) && Number(a.salespersonId) !== cfg.qualifierSalespersonId;
 }
 
@@ -82,7 +82,7 @@ export function closerSelfUpgrade(customerId: number, actor: Actor, reason: stri
 
 /** The single entry point for POST /customers/:id/priority and /customers/:id/upgrade-priority. */
 export function expertUpgrade(customerId: number, actor: Actor, reason: string | null, note: string | null) {
-  const cfg = getTeamSalesConfig();
+  const cfg = teamConfigFor({ customerId, salespersonId: actor.salespersonId });
   if (!isAdmin(actor) && hxCloser(actor)) {
     if (!cfg.enabled) throw new TeamSalesError(404, "Team sales is not enabled");
     return closerSelfUpgrade(customerId, actor, reason!, note);
@@ -189,9 +189,9 @@ export function historySummary(customerId: number, actor: Actor) {
     ask: ask.slice(0, 3),
     isP1: c.priority === 1, upgradedByExpert: p1Src === HX_SOURCE,
     revertAdminOnly: c.priority === 1 && p1Src != null && (HX_UPGRADE_SOURCES as readonly string[]).includes(p1Src), adminLine: HX_ADMIN_LINE, reasonMax: HX_REASON_MAX,
-    canUpgrade: own && c.status === "in_progress" && c.priority !== 1 && getTeamSalesConfig().enabled
-      && (isAdmin(actor) || hxCloser(actor) || Number(actor.salespersonId) === getTeamSalesConfig().qualifierSalespersonId),
-    handoff: c.priority !== 1 && !isAdmin(actor) && Number(actor.salespersonId) === getTeamSalesConfig().qualifierSalespersonId,
+    canUpgrade: own && c.status === "in_progress" && c.priority !== 1 && teamConfigFor({ customerId: c.id, salespersonId: actor.salespersonId }).enabled
+      && (isAdmin(actor) || hxCloser(actor) || Number(actor.salespersonId) === teamConfigFor({ customerId: c.id, salespersonId: actor.salespersonId }).qualifierSalespersonId),
+    handoff: c.priority !== 1 && !isAdmin(actor) && Number(actor.salespersonId) === teamConfigFor({ customerId: c.id, salespersonId: actor.salespersonId }).qualifierSalespersonId,
   };
 }
 

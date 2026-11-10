@@ -10,7 +10,7 @@ import { noteText } from "./note-text";
 import { vcFollowupCheck, vcFollowupSaved } from "./voip-call";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction } from "./crm-db";
 import { cqRaw, isWorkDay, tParts, tYmd, fromTehran, CQ_OUTCOMES } from "./call-queue";
-import { EL_USERS } from "./expert-lockdown";
+import { EL_USERS, elUsers } from "./expert-lockdown";
 import { tsOnSp } from "./today-split";
 import { flOn, FL_MESSAGE } from "./files-lock";
 import { fbOn, fbState, fbWriteBlock } from "./files-board";
@@ -72,11 +72,11 @@ export const fcIsErr = (x: any): x is FcErr => Boolean(x && typeof x === "object
 export const fcOn = (): boolean => { try { return cqRaw(FC_FLAG_KEY) === "1"; } catch { return false; } };
 type U = { id: number; role: string; salespersonId: number | null };
 export const fcTarget = (u: U | null | undefined): boolean =>
-  Boolean(u && u.role === "salesperson" && EL_USERS[Number(u.id)] != null && Number(u.salespersonId) === EL_USERS[Number(u.id)]);
+  Boolean(u && u.role === "salesperson" && elUsers()[Number(u.id)] != null && Number(u.salespersonId) === elUsers()[Number(u.id)]);
 export const fcEnabledFor = (u: U | null | undefined) => fcTarget(u) && fcOn();
 export const fcCatOn = (): boolean => { try { return cqRaw(FC_CAT_FLAG_KEY) === "1"; } catch { return false; } };
 export const fcOldDaysNow = (): number => fcOldDays(cqRaw);
-export const fcSpAllowed = (sp: number) => Object.values(EL_USERS).includes(sp);
+export const fcSpAllowed = (sp: number) => Object.values(elUsers()).includes(sp);
 export const fcToday = (now = new Date()) => tYmd(tParts(now));
 const minOf = (now: Date) => { const p = tParts(now); return p.h * 60 + p.mi; };
 const isYmd = (s: unknown): s is string => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);

@@ -18,6 +18,9 @@ import {
 import { cleanProfile, type ApplicantProfile } from "./plan-profile-match";
 import { noteSalespersonChange } from "./expert-intro-sms";
 import { applyNonP1TransferInTx } from "./nonp1-transfer";
+import {
+  mtFlagOn, resolveTeam, resolveTeamSalesConfig, nextP1Owner, peekP1Owner, type ResolveHint,
+} from "./multi-team";
 import { chooseCloserFor, type CloserChoice } from "./closer-return";
 import { cqTransferGate } from "./call-queue-r3";
 import { csCheckView, csLegacyTolerate, csMarked, csMetaOf, csOn, csPrepare, csRecordForm, csRulesView, csValuesOfAnswers, type CsKey, type CsMeta } from "./call-summary-fields-core";
@@ -103,6 +106,11 @@ export function getTeamSalesConfig(): TeamSalesConfig {
   try { return mergeTeamSalesConfig(JSON.parse(row.value)); } catch { return mergeTeamSalesConfig(null); }
 }
 
+/** Legacy config when flag.multi_team_v1 is OFF; the customer's (or actor's) team config when it is ON. */
+export function teamConfigFor(hint: ResolveHint = {}): TeamSalesConfig {
+  return mtFlagOn() ? resolveTeamSalesConfig(hint) : getTeamSalesConfig();
+}
+
 export type PriorityChange = {
   customerId: number; oldPriority: number | null; newPriority: number | null;
   oldSalespersonId: number | null; newSalespersonId: number | null;
@@ -121,7 +129,7 @@ export function logPriorityChange(c: PriorityChange): void {
   );
   // crm-expert-intro-sms: queue the customer SMS on a qualifier → expert hand-off (inert while its switch is OFF; never throws).
   if (c.oldSalespersonId !== c.newSalespersonId) noteSalespersonChange({ customerId: c.customerId, oldSalespersonId: c.oldSalespersonId,
-    newSalespersonId: c.newSalespersonId, source: c.source, qualifierId: getTeamSalesConfig().qualifierSalespersonId ?? null });
+    newSalespersonId: c.newSalespersonId, source: c.source, qualifierId: teamConfigFor({ customerId: c.customerId, salespersonId: c.newSalespersonId }).qualifierSalespersonId ?? null });
 }
 
 export function priorityHistory(customerId: number) {
@@ -135,7 +143,13 @@ export function priorityHistory(customerId: number) {
 }
 
 /** Round-robin over active closers. Must run inside a write transaction. */
-export function nextCloserSalespersonId(cfg: TeamSalesConfig): number {
+export function nextCloserSalespersonId(cfg: TeamSalesConfig, hint: ResolveHint = {}): number {
+  if (mtFlagOn()) {
+    const team = resolveTeam(hint);
+    if (!team) throw new TeamSalesError(409, "هیچ کارشناس پیگیری فعالی تعریف نشده است.");
+    try { return nextP1Owner(team); }
+    catch { throw new TeamSalesError(409, "هیچ کارشناس پیگیری فعالی تعریف نشده است."); }
+  }
   const active = new Set(queryRows<{ id: number }>(
     `SELECT id FROM salespersons WHERE active=1 AND id IN (${cfg.closerSalespersonIds.map(() => "?").join(",")})`,
     cfg.closerSalespersonIds).map((r) => Number(r.id)));
@@ -184,7 +198,7 @@ function assertQualifierAccess(actor: Actor, c: CustomerState, cfg: TeamSalesCon
  * (Kazemi keeps assertQualifierAccess unchanged), never for any other customer.
  */
 export const INBOUND_FIRST_CALL_SOURCE = "inbound_first_call" as const;
-export function isInboundSelfRegistered(actor: Actor, customerId: number, cfg: TeamSalesConfig = getTeamSalesConfig()): boolean {
+export function isInboundSelfRegistered(actor: Actor, customerId: number, cfg: TeamSalesConfig = teamConfigFor({ customerId, salespersonId: actor.salespersonId })): boolean {
   if (!cfg.enabled || actor.salespersonId == null) return false;
   const sp = Number(actor.salespersonId);
   if (sp === Number(cfg.qualifierSalespersonId) || !cfg.closerSalespersonIds.map(Number).includes(sp)) return false;
@@ -234,7 +248,7 @@ export type PromoteResult = {
 function promoteInTx(c: CustomerState, actor: Actor, cfg: TeamSalesConfig, source: PriorityChange["source"],
   reason: string | null, now: Date, note: string | null = null): PromoteResult {
   const choice = chooseCloserFor(c.id, c.salesperson_id, cfg);
-  const closer = choice.kind === "previous_expert" ? choice.salespersonId : nextCloserSalespersonId(cfg);
+  const closer = choice.kind === "previous_expert" ? choice.salespersonId : nextCloserSalespersonId(cfg, { customerId: c.id, salespersonId: c.salesperson_id });
   // crm-call-queue R3 «بررسی سپردن» (flag.transfer_check, OFF = no-op): may throw before any write of this hand-off → whole transaction (cursor too) rolls back.
   const tcOverride = cqTransferGate({ customerId: c.id, customerName: c.name, fromSp: c.salesperson_id, toSp: closer, actor, source, now });
   const nowIso = now.toISOString();
@@ -318,20 +332,26 @@ function promoteInTx(c: CustomerState, actor: Actor, cfg: TeamSalesConfig, sourc
 
 /** crm-kz-return: who a hand-off of THIS customer would go to (previous expert or fair-split turn), without reserving it. */
 export function peekCloserFor(customerId: number): { salespersonId: number; name: string; assignment: CloserChoice["kind"]; assignmentLabel: string } | null {
-  const cfg = getTeamSalesConfig();
+  const hint: ResolveHint = { customerId };
+  const cfg = teamConfigFor(hint);
   const c = queryRow<{ salesperson_id: number | null }>("SELECT salesperson_id FROM customers WHERE id=?", [customerId]);
   if (!c) return null;
-  const choice = chooseCloserFor(customerId, c.salesperson_id == null ? null : Number(c.salesperson_id), cfg);
+  hint.salespersonId = c.salesperson_id == null ? null : Number(c.salesperson_id);
+  const choice = chooseCloserFor(customerId, hint.salespersonId, cfg);
   if (choice.kind === "previous_expert") {
     const name = queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [choice.salespersonId])?.name ?? "";
     return { salespersonId: choice.salespersonId, name, assignment: choice.kind, assignmentLabel: choice.label };
   }
-  const next = peekNextCloser();
+  const next = peekNextCloser(hint);
   return next ? { ...next, assignment: choice.kind, assignmentLabel: choice.label } : null;
 }
 
 /** Name of the closer whose turn is next, without reserving it. */
-export function peekNextCloser(): { salespersonId: number; name: string } | null {
+export function peekNextCloser(hint: ResolveHint = {}): { salespersonId: number; name: string } | null {
+  if (mtFlagOn()) {
+    const team = resolveTeam(hint);
+    return team ? peekP1Owner(team) : null;
+  }
   const cfg = getTeamSalesConfig();
   const active = new Set(queryRows<{ id: number }>(
     `SELECT id FROM salespersons WHERE active=1 AND id IN (${cfg.closerSalespersonIds.map(() => "?").join(",")})`,
@@ -345,7 +365,7 @@ export function peekNextCloser(): { salespersonId: number; name: string } | null
 
 export function promoteToPriorityOne(customerId: number, actor: Actor, note: string | null = null, now = new Date()) {
   ensureTeamSalesSchema();
-  const cfg = getTeamSalesConfig();
+  const cfg = teamConfigFor({ customerId, salespersonId: actor.salespersonId });
   return runImmediateTransaction(() => {
     const c = loadCustomer(customerId);
     assertQualifierAccess(actor, c, cfg);
@@ -561,7 +581,7 @@ export function latestFirstCall(customerId: number) {
 /** Preview only: no writes. */
 export function previewQualification(customerId: number, answers: QualifierAnswers, now = new Date(), actorId?: number) {
   ensureTeamSalesSchema();
-  const cfg = getTeamSalesConfig();
+  const cfg = teamConfigFor({ customerId });
   const cs = actorId != null ? csIn(answers, actorId) : null;
   const cx = cs ?? csOff(answers, lastAnsweredAnswers(customerId));
   const err = cx ? cx.err ?? validateAnswers(cx.check, now, legacyRanks(customerId)) : validateAnswers(answers, now, legacyRanks(customerId));
@@ -584,7 +604,7 @@ const CALL_SUBJECT: Record<string, string> = {
 export function submitQualification(customerId: number, actor: Actor, rawAnswers: QualifierAnswers, note: string, now = new Date(),
   selectedPlans: unknown = null, noPlanNote: unknown = null, manualOutcome: ManualOutcome | null = null) {
   ensureTeamSalesSchema();
-  const cfg = getTeamSalesConfig();
+  const cfg = teamConfigFor({ customerId, salespersonId: actor.salespersonId });
   const cs = csIn(rawAnswers, actor.id);
   const lg = cs ? null : csOff(rawAnswers, null);
   const cx = cs ?? lg;
@@ -799,7 +819,8 @@ export function firstCallEditHistory(customerId: number) {
 export function firstCallEditInfo(customerId: number, actor: Actor) {
   ensureTeamSalesSchema();
   const c = loadCustomer(customerId);
-  return { ...firstCallEditAccess(actor, c), edits: firstCallEditHistory(customerId) };
+  const cfg = teamConfigFor({ customerId, salespersonId: actor.salespersonId ?? c.salesperson_id });
+  return { ...firstCallEditAccess(actor, c, cfg), edits: firstCallEditHistory(customerId) };
 }
 
 export function editFirstCall(customerId: number, actor: Actor, rawAnswers: QualifierAnswers, note: string, opts: {
@@ -808,7 +829,7 @@ export function editFirstCall(customerId: number, actor: Actor, rawAnswers: Qual
   ensureTeamSalesSchema();
   ensureFirstCallEditSchema();
   const now = opts.now ?? new Date();
-  const cfg = getTeamSalesConfig();
+  const cfg = teamConfigFor({ customerId, salespersonId: actor.salespersonId });
   if (!cfg.enabled) throw new TeamSalesError(404, "Team sales is not enabled");
   if (!rawAnswers || !isFirstCallForm(rawAnswers) || rawAnswers.callResult !== "answered")
     throw new TeamSalesError(400, "ویرایش فقط برای فرم تماس اولِ پاسخ‌داده‌شده است.");

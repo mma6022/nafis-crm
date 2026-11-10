@@ -1,5 +1,6 @@
 import { crmDb, execute, executeChanges, queryRow, queryRows } from "./crm-db";
 import { defaultOwnerDecision, logRuleAssignment, type RegistrationSource } from "./default-owner-rule";
+import { assignLeadOwner, mtFlagOn } from "./multi-team";
 import { customerSourceFor } from "./registration-sources";
 import { recordUrgentChange } from "./customer-urgent";
 import { intakeValuesForCreate, type IntakeInput } from "./lead-intake";
@@ -84,12 +85,21 @@ export function nextAllocatedSalesperson(programId: number): number | undefined 
  * NOT advanced) and one history row is written; registered_by / registration_source are always stored.
  */
 export function insertCustomerRecord(input: CustomerCreateInput): number {
-  const rule: ReturnType<typeof defaultOwnerDecision> = input.skipDefaultOwnerRule
+  let rule: ReturnType<typeof defaultOwnerDecision> = input.skipDefaultOwnerRule
     ? { apply: false, skip: "incoming_call_expert" }
     : defaultOwnerDecision(input.registrationSource, input.registeredByUserId ?? null);
   let owner: number | null;
-  if (rule.apply) owner = rule.ownerSalespersonId;
-  else {
+  let leadSplitApplied = false;
+  if (!input.skipDefaultOwnerRule && mtFlagOn()) {
+    const pri = input.priority === 1 || input.priority === 2 || input.priority === 3 ? input.priority : null;
+    owner = assignLeadOwner(pri).salespersonId;
+    if (!(rule.apply && rule.ownerSalespersonId === owner)) {
+      rule = { apply: false, skip: "multi_team_lead_split" };
+      leadSplitApplied = true;
+    }
+  } else if (rule.apply) {
+    owner = rule.ownerSalespersonId;
+  } else {
     const allocatedSalespersonId = input.allocationProgramId
       ? nextAllocatedSalesperson(input.allocationProgramId)
       : undefined;
@@ -136,6 +146,13 @@ export function insertCustomerRecord(input: CustomerCreateInput): number {
     input.urgentReason?.reason ?? null, { reasonCode: input.urgentReason?.code ?? null });
   if (rule.apply) logRuleAssignment({ customerId: id, registrarUserId: input.registeredByUserId ?? null, source: input.registrationSource,
     ownerSalespersonId: rule.ownerSalespersonId, priority: input.priority ?? null });
+  else if (leadSplitApplied && owner != null) {
+    execute(`INSERT INTO customer_priority_history
+      (customer_id, old_priority, new_priority, old_salesperson_id, new_salesperson_id, actor_user_id, source, reason, created_at)
+      VALUES (?,?,?,?,?,?,?,?,?)`,
+      [id, input.priority ?? null, input.priority ?? null, null, owner, input.registeredByUserId ?? null,
+        "multi_team_lead_split", "تخصیص تیمی سرنخ", createdAt]);
+  }
   // EINS (flag.expert_intro_new_lead, default OFF): queue the expert-intro SMS for a new Instagram / site-request customer. Never breaks a create.
   try { onNewLead(crmDb, id, einsSourceFor(input.registrationSource, iv.leadSource, input.siteRequest === true)); }
   catch (error) { logger.warn({ err: error instanceof Error ? error.message : "unknown" }, "expert intro (new lead) enqueue failed"); }

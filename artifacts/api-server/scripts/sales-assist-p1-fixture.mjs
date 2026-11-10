@@ -16,7 +16,7 @@ const stubDb = `
   import { DatabaseSync } from "node:sqlite";
   export const databasePath = ":memory:";
   export const crmDb = new DatabaseSync(":memory:");
-  crmDb.exec(\`CREATE TABLE customers(id INTEGER PRIMARY KEY, first_name TEXT, official_first_name TEXT, priority INTEGER, is_urgent INTEGER, credit_rank TEXT,
+  crmDb.exec(\`CREATE TABLE customers(id INTEGER PRIMARY KEY, name TEXT, first_name TEXT, last_name TEXT, official_first_name TEXT, official_last_name TEXT, phone TEXT, priority INTEGER, is_urgent INTEGER, credit_rank TEXT,
       created_at TEXT NOT NULL, status TEXT, salesperson_id INTEGER, merged_into_customer_id INTEGER);
     CREATE TABLE loan_applications(id INTEGER PRIMARY KEY, customer_id INTEGER, plan_id INTEGER, stage TEXT, deleted_at TEXT);
     CREATE TABLE customer_tags(customer_id INTEGER, tag TEXT);
@@ -30,7 +30,7 @@ const stubDb = `
   export const queryRows=(sql,params=[])=>crmDb.prepare(sql).all(...params);
   export const execute=(sql,params=[])=>Number(crmDb.prepare(sql).run(...params).lastInsertRowid);
 `;
-const stubTeam = `export const getTeamSalesConfig=()=>({enabled:true,qualifierSalespersonId:6,closerSalespersonIds:[3,4]});`;
+const stubTeam = `export const getTeamSalesConfig=()=>({enabled:true,qualifierSalespersonId:6,closerSalespersonIds:[3,4]}); export const teamConfigFor=()=>getTeamSalesConfig();`;
 const stubLeads = `export const TOP=[]; export const topOfList=()=>TOP; export const realCallSql=(c)=>"COALESCE("+c+",'')<>'note'";`;
 const plugin = { name: "fx", setup(ctx) {
   ctx.onResolve({ filter: /\/crm-db$/ }, () => ({ path: "db", namespace: "fx" }));

@@ -11,7 +11,7 @@
  * Derived at read time: no table, no writes. Never used by commission, ownership or allocation code.
  */
 import { queryRow, queryRows } from "./crm-db";
-import { ensureTeamSalesSchema, getTeamSalesConfig } from "./team-sales";
+import { ensureTeamSalesSchema, teamConfigFor } from "./team-sales";
 
 export type KazemiSourceKind = "from_kazemi" | "previous";
 export type KazemiMechanism = "qualifier_form" | "promote" | "customer_update" | "other";
@@ -26,9 +26,9 @@ export type KazemiSource = {
   returned: boolean;
 };
 
-export function kazemiSalespersonId(): number | null {
+export function kazemiSalespersonId(forSalespersonId?: number | null): number | null {
   try {
-    const id = Number(getTeamSalesConfig().qualifierSalespersonId);
+    const id = Number(teamConfigFor({ salespersonId: forSalespersonId }).qualifierSalespersonId);
     return Number.isInteger(id) && id > 0 ? id : null;
   } catch { return null; }
 }
@@ -38,9 +38,9 @@ function tableExists(name: string): boolean {
 }
 
 /** SQL fragment for the «منبع» list filter. Alias `c` = customers. Returns null for «همه» / unknown values. */
-export function kazemiSourceFilterSql(source: unknown): { sql: string; params: number[] } | null {
+export function kazemiSourceFilterSql(source: unknown, forSalespersonId?: number | null): { sql: string; params: number[] } | null {
   if (source !== "from_kazemi" && source !== "previous") return null;
-  const k = kazemiSalespersonId();
+  const k = kazemiSalespersonId(forSalespersonId);
   if (k == null) return { sql: "0", params: [] };
   ensureTeamSalesSchema();
   const exit = `EXISTS (SELECT 1 FROM customer_priority_history kzh WHERE kzh.customer_id=c.id
@@ -56,10 +56,10 @@ export function kazemiSourceFilterSql(source: unknown): { sql: string; params: n
 type HistRow = { id: number; customer_id: number; old_salesperson_id: number | null; new_salesperson_id: number | null; source: string; created_at: string };
 
 /** Labels for the given customers (current owner read from customers). Missing key = no chip. */
-export function kazemiSources(customerIds: number[]): Map<number, KazemiSource> {
+export function kazemiSources(customerIds: number[], forSalespersonId?: number | null): Map<number, KazemiSource> {
   const out = new Map<number, KazemiSource>();
   const ids = [...new Set(customerIds.map(Number).filter((id) => Number.isInteger(id) && id > 0))];
-  const k = kazemiSalespersonId();
+  const k = kazemiSalespersonId(forSalespersonId);
   if (!ids.length || k == null) return out;
   ensureTeamSalesSchema();
   const hasBulk = tableExists("team_sales_transfer_snapshot");

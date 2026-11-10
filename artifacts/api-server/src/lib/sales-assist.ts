@@ -22,7 +22,8 @@
  */
 import type { DatabaseSync } from "node:sqlite";
 import { crmDb, execute, queryRow, queryRows } from "./crm-db";
-import { getTeamSalesConfig } from "./team-sales";
+import { getTeamSalesConfig, teamConfigFor } from "./team-sales";
+import { isTraineeSalesperson, mtFlagOn, resolveTeam } from "./multi-team";
 import { topOfList, realCallSql, type TopEntry } from "./site-leads";
 
 /** Base points at level 5 (×1). */
@@ -194,7 +195,14 @@ export type ScopeMode = "own_all" | "own_p1";
 /** Kazemi (qualifier): all own customers; closers (Hasani/Ghasemi): own P1 only; trainees / anyone else: nothing. */
 export function salesAssistScope(salespersonId: number | null | undefined): ScopeMode | null {
   const sp = Number(salespersonId);
-  if (!Number.isInteger(sp) || sp <= 0 || SALES_ASSIST_EXCLUDED_SALESPERSONS.includes(sp)) return null;
+  if (!Number.isInteger(sp) || sp <= 0) return null;
+  if (isTraineeSalesperson(sp) || (!mtFlagOn() && SALES_ASSIST_EXCLUDED_SALESPERSONS.includes(sp))) return null;
+  if (mtFlagOn()) {
+    const team = resolveTeam({ salespersonId: sp });
+    const m = team?.members.find((x) => x.salespersonId === sp);
+    if (!m) return null;
+    return (m.ownsNone || m.ownsP2 || m.ownsP3) ? "own_all" : m.ownsP1 ? "own_p1" : null;
+  }
   const cfg = getTeamSalesConfig();
   if (sp === Number(cfg.qualifierSalespersonId)) return "own_all";
   if ((cfg.closerSalespersonIds ?? []).map(Number).includes(sp)) return "own_p1";
@@ -244,7 +252,7 @@ const clean = (v: string | null | undefined) => String(v ?? "").replace(/ي/g, "
 export function scoreForSalesperson(salespersonId: number, now = new Date(), w: SalesAssistWeights = getSalesAssistWeights()): ScoredCustomer[] {
   const mode = salesAssistScope(salespersonId);
   if (!mode) return [];
-  const cfg = getTeamSalesConfig();
+  const cfg = teamConfigFor({ salespersonId });
   const qualifier = Number(cfg.qualifierSalespersonId);
   const nowMs = now.getTime();
   const rows = queryRows<CRow>(`SELECT id, name, first_name, last_name, official_first_name, official_last_name, phone, priority, is_urgent, credit_rank, created_at, status FROM customers c

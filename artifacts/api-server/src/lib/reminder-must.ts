@@ -17,7 +17,7 @@ import { noteText } from "./note-text";
 import { crmDb, execute, executeChanges, queryRow, queryRows, runTransaction } from "./crm-db";
 import { cqRaw, fromTehran, nextWorkDayAt, toWorkingTime, tParts, tYmd, isWorkDay, WORK_END_MIN, REMINDER_START_MIN, rmBeforeOpen, rmOpenAt } from "./call-queue";
 import { listOfficialHolidays } from "./official-holidays";
-import { EL_USERS, elCustomerAccess, elLocked, elOwnCustomer } from "./expert-lockdown";
+import { EL_USERS, elUsers, elCustomerAccess, elLocked, elOwnCustomer } from "./expert-lockdown";
 import { csOn } from "./call-summary-fields-core";
 
 export const RM_FLAG_KEY = "flag.reminder_must";
@@ -67,7 +67,7 @@ const err = (status: number, error: string, message: string, details?: unknown):
 export const rmIsErr = (x: unknown): x is Err => Boolean(x && typeof x === "object" && "error" in (x as any) && "status" in (x as any));
 
 export const rmTarget = (u: U): boolean =>
-  Boolean(u && u.role === "salesperson" && EL_USERS[Number(u.id)] != null && Number(u.salespersonId) === EL_USERS[Number(u.id)]);
+  Boolean(u && u.role === "salesperson" && elUsers()[Number(u.id)] != null && Number(u.salespersonId) === elUsers()[Number(u.id)]);
 function flagRow(): { value: string; updated_at: string } | null {
   try { return queryRow<{ value: string; updated_at: string }>("SELECT value, updated_at FROM call_queue_settings WHERE key=?", [RM_FLAG_KEY]) ?? null; } catch { return null; }
 }

@@ -16,7 +16,7 @@ import { dpAfterFirstCallForm } from "./daily-plan";
 import { ctfAppend, ctfOn } from "./ct-fastnote";
 import { storedCallSummary } from "./recording-summary-jobs";
 import { insertCustomerRecord } from "./customer-create";
-import { getTeamSalesConfig } from "./team-sales";
+import { teamConfigFor } from "./team-sales";
 import { jalaliMonthStart, tehranWeekStart } from "./assistant-manager";
 
 type U = { id: number; role?: string; salespersonId?: number | null; fullName?: string | null };
@@ -138,7 +138,7 @@ function isClickEvent(e: Ev): boolean {
 }
 
 /* ---------------- after-ingest / poll tick ---------------- */
-const qualifierSp = () => { try { const c = getTeamSalesConfig() as any; return c?.enabled ? Number(c.qualifierSalespersonId) : null; } catch { return null; } };
+const qualifierSp = (salespersonId?: number | null) => { try { const c = teamConfigFor({ salespersonId }) as any; return c?.enabled ? Number(c.qualifierSalespersonId) : null; } catch { return null; } };
 const noteText = (v: unknown) => typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, NOTE_MAX) : "";
 function ownCalls(e: Ev) { return e.mobile_device_id == null; }
 
@@ -187,7 +187,7 @@ function processEvent(u: AuthUser, e: Ev, now: Date) {
   const outcome = answered ? "answered" : "no_answer";
   completeEvent(e, u.id, outcome, now);
   // Q14: answered new number of the qualifier → the first-call form opens once (priority 1 stays until the form decides)
-  const q = qualifierSp();
+  const q = qualifierSp(u.salespersonId);
   const firstForm = answered && row.created_customer != null && q != null && Number(u.salespersonId) === q ? 1 : 0;
   // Q13: outgoing call to an own customer with a task today → the task leaves «کارهای امروز من»
   if (e.direction === "outgoing" && e.customer_id != null && e.call_log_id != null && row.cls === "own" && !firstForm) {

@@ -10,9 +10,10 @@
  * Display / control only: no SMS, Bale, customer or staff message.
  */
 import { execute, queryRow, queryRows } from "./crm-db";
-import { CQ_EXCLUDED_USER_IDS, CQ_TRAINEE_SALESPERSON_IDS, CQ_TRAINEE_USER_IDS, cqDisciplineSettings, cqEligible, cqEvent, cqFlags, cqOnTime, ensureCallQueueSchema, fromTehran, type CqUser } from "./call-queue";
+import { CQ_EXCLUDED_USER_IDS, cqDisciplineSettings, cqEligible, cqEvent, cqFlags, cqOnTime, ensureCallQueueSchema, fromTehran, type CqUser } from "./call-queue";
+import { isTraineeSalesperson, isTraineeUser } from "./multi-team";
 import { cqDayStat, prevWorkDays, todayYmd } from "./call-queue-r2";
-import { getTeamSalesConfig } from "./team-sales";
+import { teamConfigFor } from "./team-sales";
 
 export const TRANSFER_REASON_MIN = 5;
 export const TRANSFER_REASON_MAX = 500;
@@ -63,7 +64,7 @@ export function cqReceiverCheck(toSp: number, now = new Date()): ReceiverCheck {
   const sp = queryRow<{ name: string }>("SELECT name FROM salespersons WHERE id=?", [toSp]);
   const u = queryRow<any>("SELECT id,role,salesperson_id salespersonId,active FROM users WHERE salesperson_id=? AND active=1 ORDER BY (role='salesperson') DESC, id LIMIT 1", [toSp]);
   const user: CqUser | null = u ? { id: Number(u.id), role: u.role, salespersonId: Number(u.salespersonId), active: Boolean(u.active) } : null;
-  const excluded = CQ_TRAINEE_SALESPERSON_IDS.includes(toSp) || (user != null && (CQ_EXCLUDED_USER_IDS.includes(user.id) || CQ_TRAINEE_USER_IDS.includes(user.id)
+  const excluded = isTraineeSalesperson(toSp) || (user != null && (CQ_EXCLUDED_USER_IDS.includes(user.id) || isTraineeUser(user.id, user.salespersonId)
     || s.excludedReceivers.includes(user.id)));
   const eligible = !excluded && cqEligible(user);
   const base = { salespersonId: toSp, userId: user?.id ?? null, name: sp?.name ?? "", settings: { newPct: s.newPct, newMaxOverdue: s.newMaxOverdue, mode: s.transferMode } };
@@ -172,7 +173,7 @@ export function cqTransfers(q: { outcome?: unknown; day?: unknown; limit?: unkno
 export function cqMyReceiveLine(user: CqUser, now = new Date()) {
   if (!cqTransferCheckOn() || !cqEligible(user) || cqDisciplineSettings().excludedReceivers.includes(user.id)) return null;
   // Only closers receive hand-offs (the qualifier, Kazemi, hands them out).
-  let closers: number[] = []; try { closers = getTeamSalesConfig().closerSalespersonIds; } catch { closers = []; }
+  let closers: number[] = []; try { closers = teamConfigFor({ salespersonId: user.salespersonId }).closerSalespersonIds; } catch { closers = []; }
   if (!closers.includes(Number(user.salespersonId))) return null;
   const c = cqReceiverCheck(Number(user.salespersonId), now);
   return c.ok ? { ok: true, text: "امروز می‌توانی مشتری تحویل بگیری." }

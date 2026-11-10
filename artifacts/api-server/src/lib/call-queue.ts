@@ -11,6 +11,7 @@ import { crmDb, execute, executeChanges, queryRow, queryRows, type SqlValue } fr
 import { ensureOfficialHolidaysSchema, isOfficialHoliday } from "./official-holidays";
 import { openUrgentFlags } from "./lead-intake";
 import { ADMIN_LIKE_SQL } from "./sales-manager";
+import { isTraineeSalesperson, isTraineeUser } from "./multi-team";
 
 export const CQ_TRAINEE_SALESPERSON_IDS: readonly number[] = [5, 19, 20];
 export const CQ_TRAINEE_USER_IDS: readonly number[] = [6, 27, 28];
@@ -149,10 +150,10 @@ export const cqSettingsLog = (limit = 50) => queryRows<any>("SELECT id,key,old_v
 /* ---------------- who ---------------- */
 export type CqUser = { id: number; role: string; salespersonId: number | null; active?: boolean };
 export function cqEligible(u: CqUser | null | undefined): boolean {
-  if (!u || CQ_EXCLUDED_USER_IDS.includes(Number(u.id)) || CQ_TRAINEE_USER_IDS.includes(Number(u.id))) return false;
+  if (!u || CQ_EXCLUDED_USER_IDS.includes(Number(u.id)) || isTraineeUser(Number(u.id), u.salespersonId)) return false;
   if (u.active === false || u.role !== "salesperson") return false;
   const sp = Number(u.salespersonId);
-  return Number.isInteger(sp) && sp > 0 && !CQ_TRAINEE_SALESPERSON_IDS.includes(sp);
+  return Number.isInteger(sp) && sp > 0 && !isTraineeSalesperson(sp);
 }
 export const cqManager = (u: CqUser | null | undefined) => Boolean(u && u.role === "admin" && !CQ_EXCLUDED_USER_IDS.includes(Number(u.id)));
 export function cqManagerIds(): number[] {

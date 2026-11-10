@@ -28,6 +28,7 @@ import { rfTagHandoff } from "./reminder-follow";
 import { cqCloseCallsOfFormerOwner } from "./call-queue";
 import { executeChanges, queryRow } from "./crm-db";
 import { getTeamSalesConfig, logPriorityChange } from "./team-sales";
+import { isTraineeSalesperson, mtFlagOn, ownerForPriority, resolveTeam, resolveTeamSalesConfig } from "./multi-team";
 
 export const NONP1_TRANSFER_SOURCE = "nonp1_auto_transfer" as const;
 /** Response header set by every endpoint whose write moved the customer; the dashboard shows the toast from it. */
@@ -61,6 +62,11 @@ export function setNonP1TransferredHeader(res: { setHeader(name: string, value: 
   res.setHeader(NONP1_TRANSFER_HEADER, String(customerId));
   const name = nonP1QualifierDisplayName();
   if (name) res.setHeader(NONP1_TRANSFER_TO_HEADER, encodeURIComponent(name));
+}
+
+export function nonP1ToastFor(ownerName: string | null | undefined): string {
+  const n = (ownerName ?? "").trim();
+  return n ? `مشتری به ${n} منتقل شد` : NONP1_TOAST;
 }
 /** Trainees (کارآموز): never touched. */
 export const NONP1_TRAINEE_SALESPERSON_IDS: readonly number[] = [5, 19, 20];
@@ -116,20 +122,28 @@ export type NonP1Result = { transferred: boolean; skip: string | null; fromSales
 export function nonP1Decision(input: NonP1Input): NonP1Result & { newPriority: number | null } {
   const no = (skip: string, newPriority: number | null = null, from: number | null = null) =>
     ({ transferred: false, skip, fromSalespersonId: from, toSalespersonId: null, newPriority });
-  const cfg = getTeamSalesConfig();
   const c = queryRow<{ priority: number | null; salesperson_id: number | null; status: string | null; merged_into_customer_id: number | null }>(
     "SELECT priority, salesperson_id, status, merged_into_customer_id FROM customers WHERE id=?", [input.customerId]);
   if (!c) return no("missing");
   const newPriority = c.priority == null ? null : Number(c.priority);
   const sp = c.salesperson_id == null ? null : Number(c.salesperson_id);
-  const qualifier = Number(cfg.qualifierSalespersonId);
+  const cfg = mtFlagOn()
+    ? resolveTeamSalesConfig({ customerId: input.customerId, salespersonId: sp })
+    : getTeamSalesConfig();
+  let qualifier = Number(cfg.qualifierSalespersonId);
+  if (mtFlagOn()) {
+    const team = resolveTeam({ customerId: input.customerId, salespersonId: sp });
+    const pri = newPriority === 2 || newPriority === 3 ? newPriority : null;
+    const dest = team ? ownerForPriority(team, pri as 1 | 2 | 3 | null) : null;
+    if (dest != null) qualifier = dest;
+  }
   if (!cfg.enabled || !Number.isFinite(qualifier)) return no("team_sales_disabled", newPriority, sp);
   if (!input.reactivation && (input.oldPriority ?? null) === newPriority) return no("priority_unchanged", newPriority, sp);
   if (newPriority === 1) return no("priority_1", newPriority, sp);
   if (input.actor.salespersonId != null && Number(input.actor.salespersonId) === qualifier) return no("actor_is_qualifier", newPriority, sp);
   if (input.explicitSalespersonChange) return no("explicit_salesperson", newPriority, sp);
   if (NONP1_PROTECTED_CUSTOMER_IDS.includes(input.customerId)) return no("protected_customer", newPriority, sp);
-  if (sp != null && NONP1_TRAINEE_SALESPERSON_IDS.includes(sp)) return no("trainee", newPriority, sp);
+  if (sp != null && isTraineeSalesperson(sp)) return no("trainee", newPriority, sp);
   if (sp == null || !cfg.closerSalespersonIds.map(Number).includes(sp)) return no("not_closer", newPriority, sp);
   if (c.merged_into_customer_id != null) return no("merged", newPriority, sp);
   if ((c.status ?? "in_progress") !== "in_progress") return no("not_in_progress", newPriority, sp);

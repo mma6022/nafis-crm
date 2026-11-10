@@ -15,7 +15,7 @@ import {
 } from "./call-queue";
 import { cqEligibleUsers } from "./call-queue-r2";
 import { realCallSql } from "./real-call";
-import { getTeamSalesConfig } from "./team-sales";
+import { getTeamSalesConfig, teamConfigFor } from "./team-sales";
 import { salesAssistScope, suggestionsFor } from "./sales-assist";
 import { tsOnSp } from "./today-split";
 
@@ -676,7 +676,7 @@ export function dpOwnCallSince(p: Plan, customerId: number, since: string) {
 export const DP_FIRST_CALL_HOLD = true;
 export function dpFirstCallIncomplete(p: Plan, it: { type: string; customer_id: number }): boolean {
   if (!DP_FIRST_CALL_HOLD || it.type !== "first" || !hasTable("team_sales_qualifications")) return false;
-  let q: number | null = null; try { const cfg = getTeamSalesConfig(); q = cfg.enabled ? Number(cfg.qualifierSalespersonId) : null; } catch { q = null; }
+  let q: number | null = null; try { const cfg = teamConfigFor({ salespersonId: p.salesperson_id }); q = cfg.enabled ? Number(cfg.qualifierSalespersonId) : null; } catch { q = null; }
   if (q == null || q !== p.salesperson_id) return false;
   const c = queryRow<{ salesperson_id: number | null; status: string | null; priority: number | null; merged: number | null }>(
     "SELECT salesperson_id,status,priority,merged_into_customer_id merged FROM customers WHERE id=?", [it.customer_id]);

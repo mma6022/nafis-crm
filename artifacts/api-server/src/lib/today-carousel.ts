@@ -8,14 +8,14 @@
  */
 import { crmDb, execute, queryRow, queryRows } from "./crm-db";
 import { cqRaw } from "./call-queue";
-import { EL_USERS } from "./expert-lockdown";
+import { EL_USERS, elUsers } from "./expert-lockdown";
 
 export const TC_FLAG_KEY = "flag.today_carousel";
 type U = { id: number; role: string; salespersonId: number | null } | null | undefined;
 
 export const tcFlagOn = (): boolean => { try { return cqRaw(TC_FLAG_KEY) === "1"; } catch { return false; } };
 export const tcTarget = (u: U): boolean =>
-  Boolean(u && u.role === "salesperson" && EL_USERS[Number(u.id)] != null && Number(u.salespersonId) === EL_USERS[Number(u.id)]);
+  Boolean(u && u.role === "salesperson" && elUsers()[Number(u.id)] != null && Number(u.salespersonId) === elUsers()[Number(u.id)]);
 export const tcOn = (u: U): boolean => tcTarget(u) && tcFlagOn();
 
 export const TC_EVENTS = [

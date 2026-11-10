@@ -14,6 +14,36 @@ import type { DatabaseSync } from "node:sqlite";
 export const URGENT_BELL_USER_ID = 8;
 const NO_BELL_SALESPERSONS = [5, 19, 20];
 const NO_BELL_USERS = [29];
+const MT_FLAG = "flag.multi_team_v1";
+
+function mtOn(db: DatabaseSync): boolean {
+  try { return (db.prepare("SELECT value FROM call_queue_settings WHERE key=?").get(MT_FLAG) as { value: string } | undefined)?.value === "1"; }
+  catch { return false; }
+}
+function isNoBellSalesperson(db: DatabaseSync, sp: number): boolean {
+  if (!NO_BELL_SALESPERSONS.includes(sp)) return false;
+  if (mtOn(db)) {
+    try {
+      if (db.prepare("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='sales_team_members'").get()
+        && db.prepare("SELECT 1 x FROM sales_team_members WHERE salesperson_id=?").get(sp)) return false;
+    } catch { /* keep trainee */ }
+  }
+  return true;
+}
+function qualifierBellUser(db: DatabaseSync, customerId: number): number | null {
+  if (!mtOn(db)) return URGENT_BELL_USER_ID;
+  try {
+    if (!db.prepare("SELECT 1 x FROM sqlite_master WHERE type='table' AND name='sales_team_members'").get()) return URGENT_BELL_USER_ID;
+    const c = db.prepare("SELECT salesperson_id FROM customers WHERE id=?").get(customerId) as { salesperson_id: number | null } | undefined;
+    if (c?.salesperson_id == null) return URGENT_BELL_USER_ID;
+    const mem = db.prepare("SELECT team_id FROM sales_team_members WHERE salesperson_id=?").get(Number(c.salesperson_id)) as { team_id: number } | undefined;
+    if (!mem) return URGENT_BELL_USER_ID;
+    const none = db.prepare("SELECT salesperson_id FROM sales_team_members WHERE team_id=? AND owns_none=1").get(Number(mem.team_id)) as { salesperson_id: number } | undefined;
+    if (!none) return URGENT_BELL_USER_ID;
+    const u = db.prepare("SELECT id FROM users WHERE salesperson_id=? AND role='salesperson' AND active=1 ORDER BY id LIMIT 1").get(Number(none.salesperson_id)) as { id: number } | undefined;
+    return u ? Number(u.id) : URGENT_BELL_USER_ID;
+  } catch { return URGENT_BELL_USER_ID; }
+}
 /** assistant_settings key; '0' (default) = the assistant-runner urgent endpoint answers 423. Needs Mohammad's own OK to turn on. */
 export const ASSISTANT_URGENT_WRITE_KEY = "assistant_urgent_write";
 export const URGENT_REASON_MAX = 300;
@@ -98,7 +128,7 @@ export function ensureUrgentSchema(db: DatabaseSync): void {
 /** The case owner's user (active salesperson; never a trainee owner or user 29), or null. */
 export function urgentOwnerUser(db: DatabaseSync, customerId: number): number | null {
   const c = db.prepare("SELECT salesperson_id FROM customers WHERE id=?").get(customerId) as { salesperson_id: number | null } | undefined;
-  if (c?.salesperson_id == null || NO_BELL_SALESPERSONS.includes(Number(c.salesperson_id))) return null;
+  if (c?.salesperson_id == null || isNoBellSalesperson(db, Number(c.salesperson_id))) return null;
   const o = db.prepare("SELECT id FROM users WHERE salesperson_id=? AND role='salesperson' AND active=1 ORDER BY id LIMIT 1").get(Number(c.salesperson_id)) as { id: number } | undefined;
   return o && !NO_BELL_USERS.includes(Number(o.id)) ? Number(o.id) : null;
 }
@@ -107,7 +137,8 @@ export function urgentBellRecipients(db: DatabaseSync, customerId: number, opts:
   const owner = urgentOwnerUser(db, customerId);
   if (owner != null) out.push(owner);
   if (opts.ownerOnly) return out;
-  if (db.prepare("SELECT id FROM users WHERE id=? AND active=1").get(URGENT_BELL_USER_ID) && !out.includes(URGENT_BELL_USER_ID)) out.push(URGENT_BELL_USER_ID);
+  const extra = qualifierBellUser(db, customerId);
+  if (extra != null && db.prepare("SELECT id FROM users WHERE id=? AND active=1").get(extra) && !out.includes(extra)) out.push(extra);
   return out;
 }
 

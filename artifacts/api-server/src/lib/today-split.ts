@@ -6,17 +6,17 @@
  * Read-only here: nothing in this file writes.
  */
 import { queryRow } from "./crm-db";
-import { EL_USERS } from "./expert-lockdown";
+import { EL_USERS, elUsers } from "./expert-lockdown";
 
 export const TS_FLAG_PREFIX = "flag.today_split.user.";
 export function tsOn(userId: number | null | undefined): boolean {
-  if (!userId || EL_USERS[Number(userId)] == null) return false;
+  if (!userId || elUsers()[Number(userId)] == null) return false;
   try { return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [`${TS_FLAG_PREFIX}${Number(userId)}`])?.value === "1"; }
   catch { return false; }
 }
 /** The flag of the (single) expert user bound to a salesperson id, via EL_USERS. */
 export function tsOnSp(sp: number | null | undefined): boolean {
   if (sp == null) return false;
-  const uid = Object.entries(EL_USERS).find(([, s]) => Number(s) === Number(sp))?.[0];
+  const uid = Object.entries(elUsers()).find(([, s]) => Number(s) === Number(sp))?.[0];
   return uid != null && tsOn(Number(uid));
 }

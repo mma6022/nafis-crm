@@ -18,7 +18,7 @@
  * A return does NOT advance the round-robin cursor, so it never counts toward that closer's fair-split quota.
  */
 import { queryRow, queryRows } from "./crm-db";
-import { NONP1_TRAINEE_SALESPERSON_IDS } from "./nonp1-transfer";
+import { isTraineeSalesperson } from "./multi-team";
 
 export const CLOSER_RETURN_PREVIOUS_LABEL = "کارشناس قبلی مشتری" as const;
 export const CLOSER_RETURN_FAIR_LABEL = "تقسیم عادلانه" as const;
@@ -67,7 +67,7 @@ export function chooseCloserFor(customerId: number, currentSalespersonId: number
     return activeCache.get(sp)!;
   };
   const others = ownershipTimeline(customerId, currentSalespersonId).filter((o) => o.sp != null && o.sp !== q);
-  const hit = others.find((o) => !NONP1_TRAINEE_SALESPERSON_IDS.includes(o.sp!) && closers.includes(o.sp!) && isActive(o.sp!));
+  const hit = others.find((o) => !isTraineeSalesperson(o.sp!) && closers.includes(o.sp!) && isActive(o.sp!));
   if (hit) return { kind: "previous_expert", salespersonId: hit.sp!, label: CLOSER_RETURN_PREVIOUS_LABEL, evidence: hit.evidence };
   return { kind: "fair_split", label: CLOSER_RETURN_FAIR_LABEL, why: others.length ? "no_active_expert" : "never_had_expert",
     previousSalespersonId: others.length ? others[0].sp : null };

@@ -14,7 +14,7 @@
  */
 import { crmDb, executeChanges, queryRow, queryRows, runImmediateTransaction, type SqlValue } from "./crm-db";
 import { vcOn, vcTableExists, vcView, vcFastOn, type VcRow } from "./voip-call";
-import { getTeamSalesConfig } from "./team-sales";
+import { teamConfigFor } from "./team-sales";
 import { getAuthUserById } from "./auth";
 import { fcExpertFollowup } from "./files-carousel";
 import { dpAfterFirstCallForm } from "./daily-plan";
@@ -94,7 +94,7 @@ const callResultOf = (s: S132Status) => s === "answered" ? "answered" : s === "b
 /** First call = the qualifier's own in-progress customer with no priority (the first-call form rule) and no answered call yet. */
 export function s132IsFirstCall(u: U, customerId: number): boolean {
   let q: number | null = null;
-  try { const cfg = getTeamSalesConfig() as any; q = cfg?.enabled ? Number(cfg.qualifierSalespersonId) : null; } catch { q = null; }
+  try { const cfg = teamConfigFor({ salespersonId: u.salespersonId }) as any; q = cfg?.enabled ? Number(cfg.qualifierSalespersonId) : null; } catch { q = null; }
   if (q == null || Number(u.salespersonId) !== q) return false;
   const c = queryRow<{ salesperson_id: number | null; status: string | null; priority: number | null }>(
     "SELECT salesperson_id,status,priority FROM customers WHERE id=? AND merged_into_customer_id IS NULL", [customerId]);

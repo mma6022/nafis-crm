@@ -7,12 +7,12 @@
  * never seeded). Only users 8 / 2 / 3 and only while that user's flag.today_split is on. Read-only here: nothing in this file writes.
  */
 import { queryRow } from "./crm-db";
-import { EL_USERS } from "./expert-lockdown";
+import { EL_USERS, elUsers } from "./expert-lockdown";
 import { tsOn } from "./today-split";
 
 export const FL_FLAG_PREFIX = "flag.files_lock.user.";
 export function flOn(userId: number | null | undefined): boolean {
-  if (!userId || EL_USERS[Number(userId)] == null || !tsOn(Number(userId))) return false;
+  if (!userId || elUsers()[Number(userId)] == null || !tsOn(Number(userId))) return false;
   try { return queryRow<{ value: string }>("SELECT value FROM call_queue_settings WHERE key=?", [`${FL_FLAG_PREFIX}${Number(userId)}`])?.value === "1"; }
   catch { return false; }
 }
