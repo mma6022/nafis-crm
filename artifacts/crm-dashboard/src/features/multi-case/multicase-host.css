@@ -34,7 +34,59 @@
 .mc-case { padding: 20px; border-radius: 20px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .mc-field { display: flex; flex-direction: column; gap: 8px; font-weight: 700; font-size: 15px; }
 .mc-field input { width: 100%; min-height: 48px; border: 1px solid var(--nf-line-strong); border-radius: 12px; padding: 10px; background: #fff; color: var(--nf-ink); font-family: inherit; }
-.nas-dndbar { position: static; inset: auto; z-index: auto; height: auto; min-height: 44px; }
+.nas-dndbar { position: static; inset: auto; z-index: auto; height: auto; min-height: 44px; margin: 0 0 12px; }
+/* The assistant bubble is position:fixed and sits over multi-case pages. Hide it there. */
+body:has(.mc-host) .nas-pop,
+body:has(.mc-picker-host) .nas-pop,
+body:has(.mc-wizard-host) .nas-pop { display: none !important; }
+.mc-wizard-host {
+  position: absolute;
+  z-index: 25;
+  inset-inline: 0;
+  top: var(--nf-topbar-h, 84px);
+  bottom: 0;
+  overflow: auto;
+  background: var(--nf-surface, #F7F8FC);
+}
+.mc-wizard-host .lwz.mc-host {
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+  background: transparent;
+}
+.mc-wizard-host .lwz-main { overflow: visible; flex: none; }
+.lwz.mc-host .lwz-body.mc-wizard {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  padding: 24px 32px;
+}
+.mc-rail h3 { margin: 0 0 18px; font-size: 16px; }
+.mc-rail p { display: flex; gap: 8px; align-items: center; min-height: 48px; font-size: 14px; color: var(--nf-ink-muted); padding: 6px; border-radius: 10px; margin: 0; }
+.mc-rail p.cur { background: var(--nf-brand-50); color: var(--nf-brand-700); font-weight: 800; }
+.mc-rail p b { display: grid; place-items: center; min-width: 26px; height: 26px; border: 1px solid var(--nf-line); border-radius: 50%; font-size: 12px; }
+.mc-customer { display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.mc-customer b { font-size: 16px; color: var(--nf-ink); }
+.mc-wbody h2 { font-size: 22px; font-weight: 800; color: var(--nf-ink); margin: 0; }
+.mc-wbody h3 { font-size: 16px; margin: 0; }
+.mc-wbody > .btn, .mc-wbody .mc-wiz-x { align-self: flex-start; min-height: 44px; }
+.mc-check { display: flex; gap: 8px; font-size: 14px; align-items: center; }
+.mc-success { display: flex; gap: 8px; align-items: center; padding: 14px; border-radius: 14px; background: var(--nf-success-50, #ECFDF3); color: var(--nf-success, #067647); margin: 0; }
+.mc-review { background: var(--nf-surface-2); padding: 18px; border-radius: 14px; }
+.lwz.mc-host > .ss-dnd-host { margin: 0 32px 12px; }
+.lwz.mc-host .nas-dndbar { display: flex; position: static; inset: auto; margin: 0 0 12px; min-height: 44px; }
+.lwz.mc-host .mc-choice { gap: 8px; }
+.lwz.mc-host .mc-choice button { min-height: 52px; padding: 10px 14px; }
+@media (max-width: 1023.98px) {
+  .mc-wizard-host { position: fixed; top: var(--nf-topbar-h, 68px); bottom: var(--ss-dock-h, 72px); }
+  .lwz.mc-host .lwz-body.mc-wizard { grid-template-columns: 1fr; padding: 14px; }
+  .mc-rail { display: none; }
+  .mc-wbody h2 { font-size: 20px; }
+}
 .mc-close {
   position: absolute; top: 12px; inset-inline-start: 12px; z-index: 2;
   height: 48px; min-height: 48px; padding: 0 14px; border-radius: 14px;

@@ -18,9 +18,19 @@
  *   MC_LOCKDOWN_EXPERTS='[{"username","password","ownCustomerId","otherCustomerId","key"}]'
  *     three lockdown experts (users 8 کاظمی, 2 حسنی, 3 قاسمی). Each gets own-customer and other-expert shots.
  *   MC_CHROME=/usr/bin/google-chrome
+ *   MC_PUPPETEER=/abs/path/to/puppeteer-core.js
+ *     optional. The dashboard lists puppeteer-core as a devDependency, so a normal
+ *     install resolves "puppeteer-core". Set MC_PUPPETEER only when that package
+ *     is not installed in this app (for example a copy under another node_modules).
  *   MC_VIDEO=1   writes flow.webm when this Puppeteer build can record
+ *   MC_HIDE_OVERLAYS=1
+ *     script-only. Hides the after-call modal and ReminderMust while shooting.
+ *     Product code does not read this flag.
  *   MC_SEED_MANIFEST=/path/to/customers.copy.db.multi-case-seed.json
- *     fills MC_CUSTOMER_ID from the first seeded expert when MC_CUSTOMER_ID is unset
+ *     fills MC_CUSTOMER_ID from the first seeded expert when MC_CUSTOMER_ID is unset.
+ *     When the manifest has flow.customerId, the script also opens that synthetic
+ *     customer (verified identity + fresh credit) and tries to reach review (step 10)
+ *     and the created screen.
  */
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -34,9 +44,11 @@ if (!base || !user || !pass || !out) {
   process.exit(1);
 }
 let customerId = process.env.MC_CUSTOMER_ID || "";
-if (!customerId && process.env.MC_SEED_MANIFEST) {
+let flowCustomerId = process.env.MC_FLOW_CUSTOMER_ID || "";
+if (process.env.MC_SEED_MANIFEST) {
   const manifest = JSON.parse(readFileSync(process.env.MC_SEED_MANIFEST, "utf8"));
-  customerId = String(manifest.experts?.find((row) => row.customerId)?.customerId || "");
+  if (!customerId) customerId = String(manifest.experts?.find((row) => row.customerId)?.customerId || "");
+  if (!flowCustomerId && manifest.flow?.customerId) flowCustomerId = String(manifest.flow.customerId);
 }
 if (!customerId) { console.error("required: MC_CUSTOMER_ID or MC_SEED_MANIFEST"); process.exit(1); }
 
@@ -67,11 +79,22 @@ async function login(username, password) {
 
 async function openCustomer(id) {
   await page.goto(`${base}/customers/${id}`, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await page.waitForSelector('[data-testid="customer-detail"], [data-testid="mc-hero"], [data-testid="mc-support-view"], [data-testid="mc-other-owner"]', { timeout: 20000 });
+  await page.waitForSelector('[data-testid="customer-detail"], [data-testid="mc-hero"], [data-testid="mc-support-view"], [data-testid="mc-other-owner"], [data-testid="el-customer-closed"]', { timeout: 20000 });
   await dismissPopups();
 }
 
+async function hideShotOverlays() {
+  if (process.env.MC_HIDE_OVERLAYS !== "1") return;
+  await page.addStyleTag({ content: '[data-testid="modal-after-call"],[data-testid="rm-overlay"],.rmm-root{display:none!important}' }).catch(() => {});
+  await page.evaluate(() => {
+    document.querySelector('[data-testid="modal-after-call"]')?.closest(".modal-backdrop")?.remove();
+    document.querySelector('[data-testid="rm-overlay"]')?.remove();
+    document.querySelectorAll(".rmm-root").forEach((node) => node.remove());
+  }).catch(() => {});
+}
+
 async function dismissPopups() {
+  await hideShotOverlays();
   await page.evaluate(() => {
     document.querySelectorAll('[role="dialog"], [data-testid="due-reminder"]').forEach((node) => {
       if (node.getAttribute("data-testid") === "case-context-picker" || node.closest("[data-testid='case-context-picker']")) return;
@@ -156,6 +179,11 @@ try {
 
   if (await clickSel('[data-testid="button-new-loan-from-customer"]')) {
     await page.waitForSelector('[data-testid="create-loan-application-wizard"]', { timeout: 20000 });
+    if (await page.$('[data-testid="mc-second-start"]')) {
+      await both("03-second-case-start");
+      await clickSel('[data-testid="mc-second-start-continue"]');
+      await new Promise((r) => setTimeout(r, 400));
+    }
     const step = async () => page.$eval('[role="progressbar"]', (el) => el.getAttribute("aria-valuenow")).catch(() => "");
     const advance = async () => clickSel('[data-testid="btn-next-1"], [data-testid="btn-save-profile"], [data-testid="btn-next-2"], [data-testid="btn-next-2-0"], [data-testid="btn-next-2-1"], [data-testid="btn-next-2-2"]');
     for (let i = 0; i < 14; i++) {
@@ -175,6 +203,62 @@ try {
     else note("scene 12: same-plan box not shown (no eligible plan already has an open case)");
     await page.keyboard.press("Escape");
   } else note("new-case button not found");
+
+  if (flowCustomerId) {
+    await openCustomer(flowCustomerId);
+    if (await clickSel('[data-testid="button-new-loan-from-customer"]')) {
+      await page.waitForSelector('[data-testid="create-loan-application-wizard"]', { timeout: 20000 });
+      if (await page.$('[data-testid="mc-second-start"]')) {
+        await both("03-flow-second-case-start");
+        await clickSel('[data-testid="mc-second-start-continue"]');
+      }
+      const step = async () => page.$eval('[role="progressbar"]', (el) => el.getAttribute("aria-valuenow")).catch(() => "");
+      const advance = async () => clickSel('[data-testid="btn-next-1"], [data-testid="btn-save-profile"], [data-testid="btn-next-2"], [data-testid="btn-next-2-0"], [data-testid="btn-next-2-1"], [data-testid="btn-next-2-2"], [data-testid="btn-next-3-0"], [data-testid="btn-next-3"], [data-testid="btn-next-fee"], [data-testid="btn-next-4"], [data-testid="btn-next-5-0"]');
+      for (let i = 0; i < 24; i++) {
+        const n = await step();
+        if (n === "2") await both("02-flow-wizard-step-2");
+        if (await page.$('[data-testid="mc-review"]') || n === "10") break;
+        if (await page.$("#mc-plans")) {
+          const ids = await page.$$eval("#mc-plans button:not([disabled])", (nodes) => nodes.map((node) => node.getAttribute("data-plan-id"))).catch(() => []);
+          let picked = false;
+          for (const id of ids) {
+            await clickSel(`#mc-plans [data-plan-id="${id}"]`);
+            await new Promise((r) => setTimeout(r, 300));
+            if (!(await page.$('[data-testid="same-plan-block"]'))) { picked = true; break; }
+          }
+          if (!picked) { note("flow wizard: every plan is blocked"); break; }
+          await page.evaluate(() => {
+            const amount = document.querySelector('[data-testid="input-amount"]');
+            if (amount instanceof HTMLInputElement && !amount.value) {
+              amount.value = "10000000";
+              amount.dispatchEvent(new Event("input", { bubbles: true }));
+            }
+            const duration = document.querySelector('[data-testid^="duration-"]');
+            if (duration instanceof HTMLElement) duration.click();
+          }).catch(() => {});
+        }
+        if (await page.$('[data-testid="btn-pay-filing-fee"]')) {
+          await clickSel('[data-testid="btn-pay-filing-fee"]');
+          await page.waitForSelector('[data-testid="btn-next-fee"]', { timeout: 20000 }).catch(() => note("flow wizard: filing fee did not complete"));
+        }
+        const fields = await page.$$('[data-testid^="contract-variable-"]');
+        for (const field of fields) {
+          await field.click({ clickCount: 3 }).catch(() => {});
+          await field.type("آزمایش").catch(() => {});
+        }
+        if (!(await advance())) break;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      if (await page.$('[data-testid="mc-review"]')) {
+        await both("05-wizard-review");
+        if (await clickSel('[data-testid="btn-submit-wizard"]')) {
+          await page.waitForSelector('[data-testid="mc-created"]', { timeout: 30000 }).catch(() => note("flow wizard: created screen did not appear"));
+          if (await page.$('[data-testid="mc-created"]')) await both("06-second-case-created");
+        }
+      } else note(`flow wizard stopped at step ${await step()}`);
+      await page.keyboard.press("Escape");
+    } else note("flow customer: new-case button not found");
+  }
 
   if (process.env.MC_OTHER_USERNAME && process.env.MC_OTHER_PASSWORD) {
     await login(process.env.MC_OTHER_USERNAME, process.env.MC_OTHER_PASSWORD);

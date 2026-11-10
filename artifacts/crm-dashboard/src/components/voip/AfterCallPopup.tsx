@@ -13,9 +13,12 @@ import { removeCompletedAfterCallFromQueue } from '@/components/voip/after-call-
 import { CallReportEditor } from './CallReportDialog';
 import { useLocation } from 'wouter';
 import { useTabState } from '@/lib/tab-coordinator';
+import { useMultiCaseStatus } from '@/lib/multi-case';
 
 export function AfterCallPopup() {
   const [location]=useLocation();
+  const multiOn = useMultiCaseStatus().data?.enabled === true;
+  const queueSep = multiOn ? "، " : " · ";
   const queryClient = useQueryClient();
   const { data: session } = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
   const user = session?.user;
@@ -109,7 +112,7 @@ export function AfterCallPopup() {
       برای دریافت زنده تماس‌ها، در پنل سرویس‌دهنده این تنظیمات لازم است (تا زمانی که رویداد داخلی نرسد، اتصال زنده تأیید نمی‌شود): Maintenance &gt; Settings &gt; AP Settings، فعال‌سازی Event Webhooks، حالت G4 با POST JSON، رویدادهای IncomingCall، OutgoingCall، New State و CDR، نشانی <span dir="ltr" className="mono">{origin}{import.meta.env.BASE_URL.replace(/\/$/, '')}/api/voip/simotel/events</span>، احراز Basic Auth با نام کاربری <span dir="ltr" className="mono">crm-events</span> و گذرواژه برابر کلید حساب API سیموتل.
     </div> : null}
     </> : null}
-    {shown != null && !noPopup ? <Modal key={shown} title={current?.isLive ? 'تماس در جریان' : 'نتیجه تماس'} eyebrow={current ? `تماس ${current.direction === 'incoming' ? 'ورودی' : 'خروجی'}${items.length > 1 ? ` · ${items.length.toLocaleString('fa-IR')} مورد در صف` : ''}` : 'گزارش تماس'} onClose={closeEditor} testId="after-call" wide>
+    {shown != null && !noPopup ? <Modal key={shown} title={current?.isLive ? 'تماس در جریان' : 'نتیجه تماس'} eyebrow={current ? `تماس ${current.direction === 'incoming' ? 'ورودی' : 'خروجی'}${items.length > 1 ? `${queueSep}${items.length.toLocaleString('fa-IR')} مورد در صف` : ''}` : 'گزارش تماس'} onClose={closeEditor} testId="after-call" wide>
       <CallReportEditor source={{ kind: 'event', id: shown }} onDirtyChange={setDirty}
         onSaved={async (r, sent) => { if (current && !r.isLive) await finish(shown, sent); }}
         footer={() => <>

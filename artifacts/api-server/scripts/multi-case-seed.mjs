@@ -95,6 +95,76 @@ for (const expert of experts) {
   const cases = [insertApp(customerId, plans[0].id, "250000000"), insertApp(customerId, plans[1].id, "180000000")];
   manifest.experts.push({ key: expert.key, userId: expert.userId, salespersonId: expert.salespersonId, customerId, caseIds: cases, phone: expert.phone, name: expert.name });
 }
+
+const host = manifest.experts.find((row) => row.customerId);
+if (host) try {
+  const flowId = insertRow("customers", {
+    name: "مشتری آزمایشی مسیر ثبت",
+    phone: "09120000024",
+    national_code: "1234567891",
+    birth_date_jalali: "1370/01/01",
+    postal_code: "1234567890",
+    salesperson_id: host.salespersonId,
+    description: "multi-case-sample-flow",
+    status: "in_progress",
+    verification_status: "verified",
+    verification_checked_at: now,
+    shahkar_ok: 1,
+    person_info_ok: 1,
+    postal_code_info_ok: 1,
+    sana_ok: 1,
+    credit_rank: "A",
+    created_at: now,
+  });
+  const flowCase = insertApp(flowId, plans[0].id, "250000000");
+  if (has("customer_credit_checks")) {
+    insertRow("customer_credit_checks", {
+      customer_id: flowId,
+      national_code: "1234567891",
+      status: "report_generated",
+      score: 750,
+      score_label: "A",
+      completed_at: now,
+      created_at: now,
+      updated_at: now,
+    });
+  }
+  if (has("customer_identity_documents")) {
+    for (const documentType of ["national_card_front", "national_card_back", "birth_cert_p1", "birth_cert_p2", "birth_cert_p3"]) {
+      insertRow("customer_identity_documents", {
+        customer_id: flowId,
+        document_type: documentType,
+        storage_path: "synthetic/multi-case-sample",
+        original_name: `${documentType}.jpg`,
+        mime_type: "image/jpeg",
+        size_bytes: 1,
+        sha256: "0".repeat(64),
+        created_at: now,
+        is_latest: 1,
+        version: 1,
+      });
+    }
+  }
+  if (has("wallet_accounts_v2")) {
+    insertRow("wallet_accounts_v2", {
+      customer_id: flowId,
+      wallet_type: "cash",
+      balance: "100000000",
+      created_at: now,
+    });
+  }
+  manifest.flow = {
+    customerId: flowId,
+    salespersonId: host.salespersonId,
+    openPlanId: plans[0].id,
+    freePlanId: plans[1].id,
+    caseId: flowCase,
+    phone: "09120000024",
+    note: "Verified identity, fresh credit rank A, cash wallet, and one open case. The other active plan is free so the wizard can pass the same-plan block and reach review.",
+  };
+} catch (error) {
+  manifest.flow = { error: error instanceof Error ? error.message : String(error) };
+}
 const out = `${file}.multi-case-seed.json`;
 writeFileSync(out, JSON.stringify(manifest, null, 2));
 console.log(JSON.stringify(manifest, null, 2));
