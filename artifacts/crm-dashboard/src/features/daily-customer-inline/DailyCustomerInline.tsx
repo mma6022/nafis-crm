@@ -1,7 +1,14 @@
 /** Armita daily-customer-inline v1.1 — rendered in the existing sales shell. Flag-on Today page only. */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
+import { getGetAuthSessionQueryKey, useGetAuthSession } from "@workspace/api-client-react";
+import { announceCallSaved, useCqConfig } from "@/features/call-queue/api";
+import { CqResultFields, cqFollowUpAt, cqResultError, emptyCqResult, type CqResultValue } from "@/features/call-queue/ResultFields";
+import { dpApi } from "@/features/daily-plan/api";
 import { promoteToP1 } from "@/features/history/api";
+import { InstantCreditCheck } from "@/features/team-sales/InstantCreditCheck";
+import { SimpleCallForm } from "@/features/team-sales/SimpleCallForm";
+import { saveQuickCreditNationalCode, useIccEnabled } from "@/features/team-sales/api";
 import { useVcMe, vcApi } from "@/features/voip-call/api";
 import { DciError, dciApi, useDciAddNote, useDciBoard, useDciToday, type DciBoard, type DciCase, type DciDenied, type DciHist, type DciInbound, type DciNote, type DciTask } from "./api";
 import { DciIcon, DciSprites } from "./icons";
@@ -10,6 +17,27 @@ import "./dci.css";
 const FD = "۰۱۲۳۴۵۶۷۸۹";
 const fa = (n: string | number) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "٬").replace(/[0-9]/g, (d) => FD[Number(d)]);
 const fd = (v: string | number) => String(v).replace(/[0-9]/g, (d) => FD[Number(d)]);
+const toLatin = (v: string) => v.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
+/** Compact form asks for تومان; the existing first-call draft stores میلیون تومان. */
+function tomanToMillion(raw: string): string {
+  const n = Number(toLatin(raw).replace(/\D/g, ""));
+  if (!Number.isFinite(n) || n <= 0) return "";
+  if (n >= 10_000) return String(Math.max(1, Math.round(n / 1e6)));
+  return String(n);
+}
+function prefillFirstCallDraft(userId: number | undefined, customerId: number, patch: { city?: string; amountToman?: string; note?: string; gAvail?: "yes" | "no" | "" }) {
+  const key = `nafis-ts-firstcall-draft:${userId ?? 0}:${customerId}`;
+  try {
+    const cur = JSON.parse(localStorage.getItem(key) || "{}") as Record<string, unknown>;
+    const next = { ...cur };
+    if (patch.city?.trim()) { next.city = patch.city.trim(); next.cityTouched = true; }
+    const million = patch.amountToman ? tomanToMillion(patch.amountToman) : "";
+    if (million) next.amount = million;
+    if (patch.note?.trim()) next.note = patch.note.trim();
+    if (patch.gAvail === "yes" || patch.gAvail === "no") next.gAvail = patch.gAvail;
+    localStorage.setItem(key, JSON.stringify(next));
+  } catch { /* quota / private mode */ }
+}
 
 function useNarrow(q = "(max-width:1023.98px)") {
   const [n, setN] = useState(() => typeof window !== "undefined" && window.matchMedia(q).matches);
@@ -71,22 +99,16 @@ function NotesBlock({ rows, customerId }: { rows: DciNote[]; customerId: number 
   </div>;
 }
 
-function CreditBlock({ state, grade, at }: { state: DciBoard["credit"]["state"]; grade: string | null; at: string | null }) {
-  if (state === "err") return <div className="dci-consent"><p className="dci-empty">استعلام الآن انجام نشد.</p><button className="btn pri" type="button" disabled>تلاش دوباره</button></div>;
-  if (state === "start" || state === "none") return <div className="dci-consent">
-    <p className="dci-empty">رتبه هنوز استعلام نشده است.</p>
-    {state === "start" ? <CreditStart /> : null}
-  </div>;
-  return <div className="dci-consent"><span className="dci-grade" dir="ltr">{grade || "—"}</span>
+function CreditBlock({ customerId, state, grade, at }: { customerId: number; state: DciBoard["credit"]["state"]; grade: string | null; at: string | null }) {
+  const iccOn = useIccEnabled();
+  if (state === "err") return <div className="dci-consent"><p className="dci-empty">استعلام الآن انجام نشد.</p></div>;
+  if (state === "ok") return <div className="dci-consent"><span className="dci-grade" dir="ltr">{grade || "—"}</span>
     {at ? <p className="dci-empty">استعلام‌شده در {at.replace(/، ساعت.*/, "")}</p> : <p className="dci-empty">استعلام شده است.</p>}
   </div>;
-}
-function CreditStart() {
-  const [ok, setOk] = useState(false);
-  return <>
-    <label><input type="checkbox" id="dci-ok" checked={ok} onChange={(e) => setOk(e.target.checked)} />رضایت مشتری برای استعلام اعتبار ثبت شد.</label>
-    <button className="btn pri" type="button" id="dci-ics" disabled={!ok}>شروع اعتبارسنجی</button>
-  </>;
+  return <div className="dci-consent">
+    <p className="dci-empty">رتبه هنوز استعلام نشده است.</p>
+    {state === "start" && iccOn ? <div data-testid="dci-credit-start"><InstantCreditCheck customerId={customerId} /></div> : null}
+  </div>;
 }
 
 function GuarBlock({ v, cond }: { v: "yes" | "no" | "unknown"; cond: string | null }) {
@@ -108,18 +130,44 @@ function WalletBlock({ wallet }: { wallet: DciBoard["wallet"] }) {
   </>;
 }
 
-function FirstCall() {
+function FirstCall({ customerId, userId, onOpenForm }: { customerId: number; userId: number | undefined; onOpenForm: () => void }) {
   const [step, setStep] = useState(1);
   const [g, setG] = useState<"yes" | "no" | "">("");
+  const [nid, setNid] = useState("");
+  const [city, setCity] = useState("");
+  const [amount, setAmount] = useState("");
+  const [need, setNeed] = useState("");
+  const [gcond, setGcond] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [needConfirm, setNeedConfirm] = useState(false);
+  const finish = async (confirmReplace = false) => {
+    setBusy(true); setErr("");
+    try {
+      if (nid.trim()) {
+        const r = await saveQuickCreditNationalCode(customerId, toLatin(nid).replace(/\D/g, ""), confirmReplace);
+        if (r.needsConfirm) { setNeedConfirm(true); return; }
+      }
+      prefillFirstCallDraft(userId, customerId, { city, amountToman: amount, note: [need.trim(), g === "yes" && gcond.trim() ? `شرایط ضامن: ${gcond.trim()}` : ""].filter(Boolean).join("\n"), gAvail: g });
+      setNeedConfirm(false);
+      onOpenForm();
+    } catch (e) {
+      setErr(e instanceof Error && /[\u0600-\u06FF]/.test(e.message) ? e.message : "ذخیره انجام نشد. دوباره تلاش کنید.");
+    } finally { setBusy(false); }
+  };
+  const goNext = () => {
+    if (step < 3) { setStep((s) => s + 1); return; }
+    void finish(needConfirm);
+  };
   return <div className="dci-fc" id="dci-fc" data-step={step}>
     <p className="dci-step">مرحله‌ی <span id="dci-sn">{fd(step)}</span> از {fd(3)}</p>
     <div className="dci-fstep" data-n="1" hidden={step !== 1}>
-      <label>کد ملی <input dir="ltr" inputMode="numeric" autoComplete="off" placeholder="—" /></label>
-      <label>شهر <input autoComplete="off" placeholder="—" /></label>
+      <label>کد ملی <input dir="ltr" inputMode="numeric" autoComplete="off" placeholder="—" value={nid} onChange={(e) => { setNid(e.target.value); setNeedConfirm(false); }} /></label>
+      <label>شهر <input autoComplete="off" placeholder="—" value={city} onChange={(e) => setCity(e.target.value)} /></label>
     </div>
     <div className="dci-fstep" data-n="2" hidden={step !== 2}>
-      <label>مبلغ درخواستی، تومان <input dir="ltr" inputMode="numeric" autoComplete="off" placeholder="—" /></label>
-      <label>شرح نیاز <input autoComplete="off" placeholder="—" /></label>
+      <label>مبلغ درخواستی، تومان <input dir="ltr" inputMode="numeric" autoComplete="off" placeholder="—" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
+      <label>شرح نیاز <input autoComplete="off" placeholder="—" value={need} onChange={(e) => setNeed(e.target.value)} /></label>
     </div>
     <div className="dci-fstep" data-n="3" hidden={step !== 3}>
       <p className="dci-empty" style={{ margin: 0 }}>ضامن</p>
@@ -127,11 +175,13 @@ function FirstCall() {
         <button type="button" role="radio" aria-checked={g === "yes"} data-g="yes" onClick={() => setG("yes")}>ضامن دارد</button>
         <button type="button" role="radio" aria-checked={g === "no"} data-g="no" onClick={() => setG("no")}>ضامن ندارد</button>
       </div>
-      <label id="dci-gcond" hidden={g !== "yes"}>شرایط ضامن <input autoComplete="off" placeholder="مثلاً چک ضامن" /></label>
+      <label id="dci-gcond" hidden={g !== "yes"}>شرایط ضامن <input autoComplete="off" placeholder="مثلاً چک ضامن" value={gcond} onChange={(e) => setGcond(e.target.value)} /></label>
     </div>
+    {err ? <p className="dci-empty" role="alert" data-testid="dci-fc-err">{err}</p> : null}
+    {needConfirm ? <p className="dci-empty" role="status">کد ملی با مقدار قبلی فرق دارد؛ برای جایگزینی دوباره «پایان» را بزنید.</p> : null}
     <div className="dci-acts">
       <button className="btn gh" type="button" id="dci-prev" hidden={step === 1} onClick={() => setStep((s) => Math.max(1, s - 1))}>قبلی</button>
-      <button className="btn pri" type="button" id="dci-next" onClick={() => setStep((s) => Math.min(3, s + 1))}>{step === 3 ? "پایان" : "بعدی"}</button>
+      <button className="btn pri" type="button" id="dci-next" data-testid="dci-fc-next" disabled={busy} onClick={goNext}>{step === 3 ? (needConfirm ? "تأیید و پایان" : "پایان") : "بعدی"}</button>
     </div>
   </div>;
 }
@@ -191,9 +241,13 @@ function InBoundBlock({ rows, ext, onCall }: { rows: DciInbound[]; ext: boolean;
   </>;
 }
 
-function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting }: {
+function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting, result }: {
   m: DciBoard; ext: boolean; narrow: boolean; onCopy: (v: string) => void; onCall: () => void; onResult: () => void;
   onPromote: () => void; promoting: boolean;
+  result?: {
+    open: boolean; val: CqResultValue; show: boolean; busy: boolean; err: string;
+    onChange: (v: CqResultValue) => void; onSave: () => void; onClose: () => void;
+  };
 }) {
   const tags = (m.customer.tags || []).map((x) => <span key={x}>{x}</span>);
   const prio = m.prio
@@ -211,6 +265,15 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     {prio}
     <CallActs ext={ext} place="head" narrow={narrow} onCall={onCall} onResult={onResult} />
     </div>
+    {result?.open ? <div className="dci-result dp-result" data-testid="dci-result">
+      <p className="dci-empty">نتیجه‌ی تماس را ثبت کنید.</p>
+      <CqResultFields value={result.val} onChange={result.onChange} showErrors={result.show} idPrefix="dci" submitLabel="ثبت نتیجه" creditCustomerId={m.customer.id} />
+      <div className="dci-acts">
+        <button className="btn pri" type="button" disabled={result.busy} onClick={result.onSave} data-testid="dci-result-save">ثبت نتیجه</button>
+        <button className="btn gh" type="button" disabled={result.busy} onClick={result.onClose}>انصراف</button>
+      </div>
+      {result.err ? <p className="dci-empty" role="alert" data-testid="dci-result-err">{result.err}</p> : null}
+    </div> : null}
     <CasesBlock rows={m.cases} href={m.newCaseHref} />
   </section>;
 }
@@ -225,11 +288,11 @@ function RightCol({ m, ext, onCall }: { m: DciBoard; ext: boolean; onCall: () =>
   </section>;
 }
 
-function LeftCol({ m }: { m: DciBoard }) {
+function LeftCol({ m, userId, onOpenFirstCall }: { m: DciBoard; userId: number | undefined; onOpenFirstCall: () => void }) {
   const fileInner = m.first
-    ? <><div className="dci-block"><h3>رتبه‌ی اعتباری</h3><CreditBlock state={m.credit.state} grade={m.credit.grade} at={m.credit.at} /></div>
-        <div className="dci-block"><h3>تکمیل پرونده در تماس اول</h3><FirstCall /></div></>
-    : <><div className="dci-block"><h3>رتبه‌ی اعتباری</h3><CreditBlock state={m.credit.state} grade={m.credit.grade} at={m.credit.at} /></div>
+    ? <><div className="dci-block"><h3>رتبه‌ی اعتباری</h3><CreditBlock customerId={m.customer.id} state={m.credit.state} grade={m.credit.grade} at={m.credit.at} /></div>
+        <div className="dci-block"><h3>تکمیل پرونده در تماس اول</h3><FirstCall customerId={m.customer.id} userId={userId} onOpenForm={onOpenFirstCall} /></div></>
+    : <><div className="dci-block"><h3>رتبه‌ی اعتباری</h3><CreditBlock customerId={m.customer.id} state={m.credit.state} grade={m.credit.grade} at={m.credit.at} /></div>
         <div className="dci-block"><h3>ضامن</h3><GuarBlock v={m.guar.v} cond={m.guar.cond} /></div></>;
   return <section className="dci-col dci-left" aria-label="پرونده‌ی مشتری">
     <h2>پرونده‌ی مشتری</h2>
@@ -266,7 +329,16 @@ export default function DailyCustomerInline() {
   const [promoting, setPromoting] = useState(false);
   const [reasonOpen, setReasonOpen] = useState(false);
   const [reason, setReason] = useState("");
+  const [fcOpen, setFcOpen] = useState(false);
+  const [resultOpen, setResultOpen] = useState(false);
+  const [resultVal, setResultVal] = useState<CqResultValue>(emptyCqResult());
+  const [resultShow, setResultShow] = useState(false);
+  const [resultBusy, setResultBusy] = useState(false);
+  const [resultErr, setResultErr] = useState("");
   const vme = useVcMe().data;
+  const session = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
+  const userId = session.data?.user?.id != null ? Number(session.data.user.id) : undefined;
+  const cq = useCqConfig().data;
   const copy = (v: string) => {
     if (v && navigator.clipboard) navigator.clipboard.writeText(v).catch(() => {});
     setToast("کپی شد");
@@ -283,11 +355,50 @@ export default function DailyCustomerInline() {
   const denied = boardQ.error instanceof DciError && boardQ.error.status === 403 ? (boardQ.error.body as DciDenied) : null;
   const board = boardQ.data && boardQ.data.access !== undefined ? boardQ.data : null;
   const ext = Boolean((board?.hasExtension ?? todayQ.data?.hasExtension) || vme?.on);
+  useEffect(() => {
+    setFcOpen(false); setResultOpen(false); setResultVal(emptyCqResult()); setResultShow(false); setResultErr("");
+  }, [customerId]);
   const startCall = () => {
     if (!customerId) return;
     if (ext) void vcApi.start({ customerId }).catch(() => undefined);
   };
-  const startResult = () => { /* existing after-call / result form is unchanged; button records intent only on this page */ startCall(); };
+  const startResult = async () => {
+    if (!customerId || !board) return;
+    setResultErr("");
+    if (selectedTask?.kind === "plan" && selectedTask.itemId) {
+      try { await dpApi.start(selectedTask.itemId); }
+      catch (e) { setResultErr(e instanceof Error && /[\u0600-\u06FF]/.test(e.message) ? e.message : "شروع ثبت نتیجه انجام نشد."); }
+    }
+    if (board.first) { setFcOpen(true); setResultOpen(false); return; }
+    setResultOpen(true);
+  };
+  const saveResult = async () => {
+    if (!customerId) return;
+    setResultShow(true);
+    if (cqResultError(resultVal)) { setResultErr(""); return; }
+    setResultBusy(true); setResultErr("");
+    try {
+      const one = resultVal.oneLine.trim();
+      const isPlan = selectedTask?.kind === "plan" && selectedTask.itemId;
+      const r = await dpApi.saveCall({
+        customerId,
+        salespersonId: cq?.salespersonId ?? undefined,
+        subject: isPlan ? "کارهای امروز" : "تماس ورودی",
+        customerRequest: "",
+        expertNotes: one,
+        outcome: resultVal.outcome,
+        call_result: resultVal.manual,
+        oneLineNote: one,
+        followUpAt: cqFollowUpAt(resultVal),
+        ...(isPlan ? { planItemId: selectedTask.itemId } : { outOfList: true, context: "out_of_list" }),
+      });
+      announceCallSaved(r.id, customerId);
+      setResultOpen(false); setResultVal(emptyCqResult()); setResultShow(false);
+      await Promise.all([boardQ.refetch(), todayQ.refetch()]);
+    } catch (e) {
+      setResultErr(e instanceof Error && /[\u0600-\u06FF]/.test(e.message) ? e.message : "ثبت نشد. دوباره تلاش کنید.");
+    } finally { setResultBusy(false); }
+  };
   const doPromote = async () => {
     if (!customerId || !reason.trim()) return;
     setPromoting(true);
@@ -326,14 +437,15 @@ export default function DailyCustomerInline() {
     const show = tab === "talk" ? " show-talk" : tab === "file" ? " show-file" : (openFile ? " show-file" : openTalk ? " show-talk" : "");
     boardEl = <div className={`dci-board${show}`} id="dci-board">
       <RightCol m={board} ext={ext} onCall={startCall} />
-      <MidCol m={board} ext={ext} narrow={narrow} onCopy={copy} onCall={startCall} onResult={startResult} onPromote={() => setReasonOpen(true)} promoting={promoting} />
+      <MidCol m={board} ext={ext} narrow={narrow} onCopy={copy} onCall={startCall} onResult={() => void startResult()} onPromote={() => setReasonOpen(true)} promoting={promoting}
+        result={{ open: resultOpen, val: resultVal, show: resultShow, busy: resultBusy, err: resultErr, onChange: setResultVal, onSave: () => void saveResult(), onClose: () => { setResultOpen(false); setResultErr(""); } }} />
       <div className="dci-tabs" role="tablist" aria-label="بخش‌های دیگر">
         <button type="button" role="tab" id="tab-talk" aria-selected={tab === "talk" ? "true" : "false"} data-pane="talk"
           onClick={() => setTab((t) => t === "talk" ? "" : "talk")}>گفت‌وگو</button>
         <button type="button" role="tab" id="tab-file" aria-selected={tab === "file" ? "true" : "false"} data-pane="file"
           onClick={() => setTab((t) => t === "file" ? "" : "file")}>پرونده</button>
       </div>
-      <LeftCol m={board} />
+      <LeftCol m={board} userId={userId} onOpenFirstCall={() => setFcOpen(true)} />
     </div>;
   }
 
@@ -344,7 +456,7 @@ export default function DailyCustomerInline() {
       <h1>کارهای امروز من</h1>
       <Timeline tasks={tasks} selected={selectedTask?.id ?? null} onPick={setSel} />
       {boardEl}
-      {sticky && board ? <div className="dci-sticky"><CallActs ext={ext} place="sticky" narrow={narrow} onCall={startCall} onResult={startResult} /></div> : null}
+      {sticky && board ? <div className="dci-sticky"><CallActs ext={ext} place="sticky" narrow={narrow} onCall={startCall} onResult={() => void startResult()} /></div> : null}
       {reasonOpen && customerId ? <div className="dci-prio" style={{ marginTop: 12 }}>
         <label htmlFor="dci-p1r">دلیل ارتقا</label>
         <textarea id="dci-p1r" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="دلیل ارتقا به اولویت ۱" />
@@ -352,6 +464,13 @@ export default function DailyCustomerInline() {
         <button className="btn gh" type="button" onClick={() => setReasonOpen(false)}>انصراف</button>
       </div> : null}
     </main>
+    {fcOpen && board ? <SimpleCallForm
+      customer={{ id: board.customer.id, name: board.customer.name, phone: board.customer.phone ?? "", priority: board.customer.priority }}
+      userId={userId}
+      onClose={() => setFcOpen(false)}
+      onDone={() => { setFcOpen(false); void boardQ.refetch(); void todayQ.refetch(); }}
+      onNext={() => setFcOpen(false)}
+    /> : null}
     <div className={`toast dci-toast${toast ? " on" : ""}`} id="ph-toast" role="status" aria-live="polite">{toast}</div>
   </div>;
 }

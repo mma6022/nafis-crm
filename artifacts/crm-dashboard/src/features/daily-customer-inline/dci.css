@@ -174,3 +174,7 @@ body:has([data-testid="dci-page"]) .diag-floating{display:none!important}
 .dci-page + .toast,.dci .toast.on,.toast.dci-toast.on{opacity:1;transform:none}
 .toast.dci-toast{position:fixed;z-index:90;inset-inline:0;margin-inline:auto;width:max-content;max-width:calc(100vw - 32px);bottom:calc(var(--dock-h,72px) + 16px);display:flex;align-items:center;gap:8px;padding:10px 16px;border-radius:999px;background:var(--nf-ink);color:#fff;font-size:15px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.18);opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .18s,transform .18s}
 .toast.dci-toast.on{opacity:1;transform:none}
+
+/* r4: existing CqResultFields opened from «تماس گرفتم، ثبت نتیجه» */
+.dci-result{margin:12px 0 16px;padding:12px 14px;border:1px solid var(--nf-line-strong);border-radius:12px;background:var(--nf-surface,#fff)}
+.dci-result .dci-acts{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
