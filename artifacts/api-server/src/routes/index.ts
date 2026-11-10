@@ -74,6 +74,7 @@ import fileDetailV1Router from "./file-detail-v1";
 import { ensureReminderFollowSchema } from "../lib/reminder-follow";
 import linkPageRouter from "./link-page";
 import salesTeamsRouter from "./sales-teams";
+import salesPerformanceRouter from "./sales-performance";
 import baleBotRouter from "./bale-bot";
 import voipTaskHoldRouter from "./voip-task-hold";
 
@@ -160,6 +161,7 @@ router.use(instagramRouter);
 router.use(createSiteNotificationRouter());
 router.use(linkPageRouter); // links v1.0 (flag.links_page, OFF → falls through)
 router.use(salesTeamsRouter); // multi-team v1 (flag.multi_team_v1, OFF → falls through)
+router.use(salesPerformanceRouter); // sales-performance v1 (flag.sales_performance_v1, OFF → 404)
 router.use(baleBotRouter); // Bale bot inbox v1.0 (flag.bale_bot, OFF → falls through, no network)
 
 export default router;

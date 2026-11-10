@@ -1,6 +1,7 @@
 import { ensureCompanyPurchaseReceiptSchema } from "./company-purchase-receipts";
 import { crmDb, execute, executeChanges, queryRow, runTransaction } from "./crm-db";
 import { allocateGoodsLoanCredit } from "./goods-finance";
+import { recordWalletChargeSalesperson } from "./sales-performance";
 
 export type WalletType = "cash" | "credit";
 export type WalletSummary = {
@@ -276,10 +277,12 @@ export function creditVerifiedCashPayment(intentId: number, providerRefId: strin
     }
     if (!ledger) {
       const attempt = queryRow<{ initiated_by_user_id: number | null; initiated_by_customer_id: number | null }>("SELECT initiated_by_user_id,initiated_by_customer_id FROM wallet_payment_attempts WHERE payment_intent_id=?", [intentId]);
-      execute("INSERT INTO wallet_ledger_v2(wallet_id,amount,kind,idempotency_key,actor_user_id,actor_customer_id,created_at) VALUES(?,?,?,?,?,?,?)",
+      const creditedAt = now();
+      const ledgerId = execute("INSERT INTO wallet_ledger_v2(wallet_id,amount,kind,idempotency_key,actor_user_id,actor_customer_id,created_at) VALUES(?,?,?,?,?,?,?)",
         [account.id, intent.amount_toman, "cash_payment", key, attempt?.initiated_by_user_id ?? actorId,
-          attempt?.initiated_by_customer_id ?? intent.created_by_customer_id ?? null, now()]);
+          attempt?.initiated_by_customer_id ?? intent.created_by_customer_id ?? null, creditedAt]);
       executeChanges("UPDATE wallet_accounts_v2 SET balance=? WHERE id=?", [(BigInt(account.balance) + BigInt(intent.amount_toman)).toString(), account.id]);
+      try { recordWalletChargeSalesperson(crmDb, { ledgerId: Number(ledgerId), customerId: intent.customer_id, amount: intent.amount_toman, at: creditedAt }); } catch { /* attribution is additive and must not block a credit */ }
     }
     executeChanges("UPDATE wallet_payment_intents SET status='credited',verified_at=?,provider_ref_id=?,reconciled_by_user_id=? WHERE id=?",
       [now(), providerRefId, actorId, intentId]);

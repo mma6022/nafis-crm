@@ -30,6 +30,7 @@ import {
   type TeamMemberRow,
   validateTeamMembers,
 } from "./multi-team";
+import { syncTeamMembershipHistory } from "./sales-performance";
 
 export const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
 export function faDigits(v: string | number): string {
@@ -284,6 +285,7 @@ function writeMembers(teamId: number, members: TeamMemberRow[]): void {
       [teamId, m.salespersonId, m.isLead ? 1 : 0, m.ownsNone ? 1 : 0, m.ownsP1 ? 1 : 0, m.ownsP2 ? 1 : 0, m.ownsP3 ? 1 : 0, m.sortOrder],
     );
   }
+  try { syncTeamMembershipHistory(crmDb); } catch { /* history is additive and must not block a team write */ }
 }
 
 /**
@@ -455,6 +457,7 @@ export function disableTeam(id: number, now = new Date()): DisableResult {
   runImmediateTransaction(() => {
     execute("DELETE FROM sales_team_members WHERE team_id=?", [id]);
     execute("UPDATE sales_teams SET enabled=0, updated_at=? WHERE id=?", [at, id]);
+    try { syncTeamMembershipHistory(crmDb, now, "disable"); } catch { /* history is additive and must not block disable */ }
     installAssistantBellGuard(crmDb);
   });
   return { ok: true, team: presentTeam(loadTeam(id)!) };
