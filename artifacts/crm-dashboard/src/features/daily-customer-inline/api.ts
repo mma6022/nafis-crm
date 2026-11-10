@@ -29,13 +29,14 @@ export type DciToday = { enabled: true; date: string; dateLabel: string; hasExte
 export type DciInbound = { id: number; callLogId: number | null; t: string; at: string; r: string; rc: string; text: string | null; missed: boolean; note: string };
 export type DciHist = { id: number; t: string; at: string; k: string; r: string; rc: string; note: string };
 export type DciNote = { id: string; t: string; body: string; source: string };
-export type DciCase = { id: number; plan: string; amount: string | null; months: number | null; stage: string; status: string; act: string; href: string; open: boolean };
+export type DciCase = { id: number; plan: string; amount: string | null; months: number | null; stage: string; status: string; act: string; href: string; open: boolean; life?: "in_progress" | "completed" | "cancelled"; canCancel?: boolean };
 export type DciBoard = {
   enabled: true;
   access: "own" | "manager";
   hasExtension: boolean;
   canPromote: boolean;
   canEditPriorityStatus?: boolean;
+  priorityDemoteTransfer?: { expertName: string } | null;
   customer: { id: number; name: string; phone: string | null; nationalCode: string | null; priority: number | null; status?: string | null; tags: string[] };
   call: string;
   prio: boolean;

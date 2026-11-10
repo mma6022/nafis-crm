@@ -1,7 +1,8 @@
 /** Armita daily-customer-inline v1.1 — rendered in the existing sales shell. Flag-on Today page only. */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Link, useLocation, useSearch } from "wouter";
-import { getGetAuthSessionQueryKey, useGetAuthSession, useUpdateCustomer, type CustomerUpdateStatus } from "@workspace/api-client-react";
+import { getGetAuthSessionQueryKey, useCancelLoanApplication, useGetAuthSession, useUpdateCustomer, type CustomerUpdateStatus } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { STATUS_LABEL } from "@/pages/customers-ui";
 import { announceCallSaved, useCqConfig } from "@/features/call-queue/api";
@@ -195,18 +196,36 @@ function FirstCall({ customerId, userId, onOpenForm }: { customerId: number; use
   </div>;
 }
 
-function CaseCard({ f }: { f: DciCase }) {
+function ChipGroup({ label, aria, testId, kind, children }: { label: string; aria: string; testId: string; kind: "status" | "priority"; children: ReactNode }) {
+  return <div className={`dci-ps dci-ps-${kind}`} data-testid={testId}>
+    <span className="dci-ps-lbl">{label}</span>
+    <div className="csx-chips" role="radiogroup" aria-label={aria}>{children}</div>
+  </div>;
+}
+
+function CaseCard({ f, canEdit, busy, onCancel }: { f: DciCase; canEdit: boolean; busy: boolean; onCancel: (f: DciCase) => void }) {
+  const life = f.life ?? "in_progress";
+  const chips = canEdit ? <ChipGroup label="وضعیت پرونده" aria="وضعیت پرونده" testId={`dci-ps-case-${f.id}`} kind="status">
+    {PS_STATUSES.map((key) => {
+      const checked = life === key;
+      const disable = busy || (key === "completed" && !checked) || (key === "in_progress" && life === "cancelled") || (key === "cancelled" && !f.canCancel && !checked);
+      return <button key={key} type="button" className="csx-chip" role="radio" aria-checked={checked} data-s={key}
+        disabled={disable} onClick={() => key === "cancelled" && f.canCancel && !checked && onCancel(f)}
+        data-testid={`chip-status-${key}-${f.id}`}>{STATUS_LABEL[key]}</button>;
+    })}
+  </ChipGroup> : null;
   return <article className="dci-case" data-case={f.id}>
     <div className="dci-crow"><span className="dci-chip">پرونده #{fd(f.id)}</span><span className="dci-chip">{f.status}</span></div>
+    {chips}
     <h3>طرح {f.plan}</h3>
     <p>{f.amount ? <>{fa(f.amount)} تومان {f.months ? <span style={{ color: "var(--nf-ink-muted)" }}>برای {fd(f.months)} ماه</span> : null}</> : null}</p>
     <Link className="btn pri" href={f.href}>{f.act}</Link>
   </article>;
 }
 
-function CasesBlock({ rows, href }: { rows: DciCase[]; href: string }) {
+function CasesBlock({ rows, href, canEdit, busy, onCancel }: { rows: DciCase[]; href: string; canEdit: boolean; busy: boolean; onCancel: (f: DciCase) => void }) {
   return <>
-    {rows.length ? <div className="dci-cases">{rows.map((f) => <CaseCard key={f.id} f={f} />)}</div> : null}
+    {rows.length ? <div className="dci-cases">{rows.map((f) => <CaseCard key={f.id} f={f} canEdit={canEdit} busy={busy} onCancel={onCancel} />)}</div> : null}
     <div className="dci-new"><Link className="btn pri" href={href}>درخواست تسهیلات جدید</Link></div>
   </>;
 }
@@ -262,26 +281,51 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
   const tags = (m.customer.tags || []).map((x) => <span key={x}>{x}</span>);
   const qc = useQueryClient();
   const update = useUpdateCustomer();
+  const cancelCase = useCancelLoanApplication();
   const [psError, setPsError] = useState("");
-  const curStatus = ((m.customer.status ?? "in_progress") as CustomerUpdateStatus);
+  const [psOk, setPsOk] = useState("");
+  const [pendingPriority, setPendingPriority] = useState<number | null | undefined>(undefined);
+  const [cx, setCx] = useState<DciCase | null>(null);
+  const [cxReason, setCxReason] = useState("");
+  const [cxErr, setCxErr] = useState("");
   const curPriority = m.customer.priority ?? null;
-  const patchPs = (data: { status?: CustomerUpdateStatus; priority?: number | null }) => {
-    setPsError("");
-    update.mutate({ id: m.customer.id, data }, {
-      onSuccess: () => { void qc.invalidateQueries({ queryKey: ["dci-board", m.customer.id] }); },
-      onError: (error) => setPsError(psErrMsg(error)),
+  const transferName = m.priorityDemoteTransfer?.expertName ?? "";
+  const refresh = () => { void qc.invalidateQueries({ queryKey: ["dci-board", m.customer.id] }); };
+  const savePriority = (value: number | null) => {
+    setPsError(""); setPsOk("");
+    update.mutate({ id: m.customer.id, data: { priority: value } }, {
+      onSuccess: () => {
+        setPendingPriority(undefined);
+        setPsOk(transferName && curPriority === 1 && value !== 1 ? `مشتری به ${transferName} منتقل شد.` : "اولویت ذخیره شد.");
+        refresh();
+      },
+      onError: (error) => { setPendingPriority(undefined); setPsError(psErrMsg(error)); },
+    });
+  };
+  const askPriority = (value: number | null) => {
+    if (curPriority === value || update.isPending) return;
+    if (curPriority === 1 && value !== 1 && transferName) { setPendingPriority(value); return; }
+    savePriority(value);
+  };
+  const openCancel = (f: DciCase) => { setCx(f); setCxReason(""); setCxErr(""); setPsError(""); setPsOk(""); };
+  const submitCancel = () => {
+    if (!cx) return;
+    if (!cxReason.trim()) { setCxErr("دلیل لغو را بنویس؛ بدون دلیل، پرونده لغو نمی‌شود."); document.getElementById("dci-cx-reason")?.focus(); return; }
+    setCxErr("");
+    cancelCase.mutate({ id: cx.id, data: { reason: cxReason.trim() } }, {
+      onSuccess: () => { setPsOk("پرونده لغو شد."); setCx(null); setCxReason(""); refresh(); },
+      onError: (error) => setCxErr(psErrMsg(error)),
     });
   };
   const ps = m.canEditPriorityStatus ? <div className="csx dci-ps" data-testid="dci-ps">
-    <div className="csx-chips" role="radiogroup" aria-label="وضعیت">{PS_STATUSES.map((key) =>
-      <button key={key} type="button" className="csx-chip" role="radio" aria-checked={curStatus === key} data-s={key}
-        disabled={update.isPending} onClick={() => curStatus !== key && patchPs({ status: key })}
-        data-testid={`chip-status-${key}`}>{STATUS_LABEL[key]}</button>)}</div>
-    <div className="csx-chips" role="radiogroup" aria-label="اولویت">{PS_PRIORITIES.map((value) =>
-      <button key={String(value)} type="button" className="csx-chip" role="radio" aria-checked={curPriority === value}
-        data-p={value ?? undefined} disabled={update.isPending}
-        onClick={() => curPriority !== value && patchPs({ priority: value })}
-        data-testid={`chip-priority-${value ?? "none"}`}>{value ? `اولویت ${fd(value)}` : "بدون اولویت"}</button>)}</div>
+    <ChipGroup label="اولویت" aria="اولویت" testId="dci-ps-priority" kind="priority">
+      {PS_PRIORITIES.map((value) =>
+        <button key={String(value)} type="button" className="csx-chip" role="radio" aria-checked={curPriority === value}
+          data-p={value ?? undefined} disabled={update.isPending}
+          onClick={() => askPriority(value)}
+          data-testid={`chip-priority-${value ?? "none"}`}>{value ? `اولویت ${fd(value)}` : "بدون اولویت"}</button>)}
+    </ChipGroup>
+    {psOk ? <p className="dci-ps-ok" role="status" data-testid="dci-ps-ok">{psOk}</p> : null}
     {psError ? <p className="dci-empty" role="alert" data-testid="dci-ps-err">{psError}</p> : null}
   </div> : null;
   const prio = m.prio
@@ -317,7 +361,35 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
       </div>
       {result.err ? <p className="dci-empty" role="alert" data-testid="dci-result-err">{result.err}</p> : null}
     </div> : null}
-    <CasesBlock rows={m.cases} href={m.newCaseHref} />
+    <CasesBlock rows={m.cases} href={m.newCaseHref} canEdit={!!m.canEditPriorityStatus} busy={cancelCase.isPending} onCancel={openCancel} />
+    {pendingPriority !== undefined ? createPortal(<div className="dci-dlgw" data-testid="dci-xfer-wrap" data-nodnd="true">
+      <div className="dci-dlg" role="alertdialog" aria-modal="true" aria-labelledby="dci-xfer-t" data-testid="dci-xfer-dialog">
+        <h2 id="dci-xfer-t">تغییر اولویت</h2>
+        <p data-testid="dci-xfer-msg">با این تغییر، مشتری به {transferName} منتقل می‌شود.</p>
+        <div className="dci-dlg-acts">
+          <button type="button" className="btn gh" autoFocus data-testid="dci-xfer-back" onClick={() => setPendingPriority(undefined)}>برگشت</button>
+          <button type="button" className="btn pri" data-testid="dci-xfer-yes" disabled={update.isPending} onClick={() => pendingPriority !== undefined && savePriority(pendingPriority)}>تأیید</button>
+        </div>
+      </div>
+    </div>, document.body) : null}
+    {cx ? createPortal(<div className="dci-dlgw" data-testid="dci-cx-wrap" data-nodnd="true">
+      <div className="dci-dlg dci-dlg-cx" role="alertdialog" aria-modal="true" aria-labelledby="dci-cx-t" data-testid="dci-cx-dialog">
+        <div className="dci-cxhd"><h2 id="dci-cx-t">پرونده لغو شود؟</h2></div>
+        <p>پرونده‌ی {fd(cx.id)} · {m.customer.name}</p>
+        <label className="dci-cxl" htmlFor="dci-cx-reason"><b>دلیل لغو<span className="req" aria-hidden="true">*</span></b></label>
+        <textarea id="dci-cx-reason" className={`dci-cx-inp${cxErr ? " bad" : ""}`} rows={3} maxLength={1000} value={cxReason}
+          aria-required="true" aria-invalid={cxErr ? true : undefined}
+          placeholder="دلیل لغو این پرونده را بنویسید…"
+          onChange={(e) => { setCxReason(e.target.value); if (cxErr && e.target.value.trim()) setCxErr(""); }}
+          data-testid="dci-cx-reason" />
+        {cxErr ? <p className="dci-empty" role="alert" data-testid="dci-cx-err">{cxErr}</p> : null}
+        <p className="dci-cxn" data-testid="dci-cx-info">برگرداندن لغو فقط با ادمین است.</p>
+        <div className="dci-dlg-acts">
+          <button type="button" className="btn gh" autoFocus data-testid="dci-cx-back" disabled={cancelCase.isPending} onClick={() => { if (!cancelCase.isPending) setCx(null); }}>برگشت</button>
+          <button type="button" className="btn dci-cx-yes" data-testid="dci-cx-yes" disabled={cancelCase.isPending} onClick={submitCancel}>{cancelCase.isPending ? "در حال لغو…" : "بله، لغو شود"}</button>
+        </div>
+      </div>
+    </div>, document.body) : null}
   </section>;
 }
 

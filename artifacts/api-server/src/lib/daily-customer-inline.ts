@@ -23,7 +23,7 @@ import { dpToday } from "./daily-plan";
 import { callHistory, currentFileAnswers } from "./history-a";
 import { listCustomerCases } from "./multi-case";
 import { getWalletSummaryReadOnly } from "./wallets";
-import { psFlagOn } from "./sales-experts-priority-status";
+import { psCaseLife, psFlagOn, psPriorityDemoteTransferName } from "./sales-experts-priority-status";
 
 export const DCI_FLAG = "flag.daily_customer_inline_v1";
 export const DCI_OFF = "dci_off";
@@ -317,13 +317,13 @@ function caseHref(id: number, stage: string | null, customerId: number): string 
   return `/loan-applications/${id}`;
 }
 
-export function dciCases(customerId: number) {
+export function dciCases(customerId: number, opts?: { includeCancelled?: boolean }) {
   if (!tableExists("loan_applications")) return [];
   try {
-    return listCustomerCases(customerId).filter((c) => c.open !== false || c.stage === "draft" || c.status !== "rejected").map((c) => {
+    return listCustomerCases(customerId).filter((c) => opts?.includeCancelled || c.open !== false || c.stage === "draft" || c.status !== "rejected").map((c) => {
       const stage = c.stage ?? "";
-      const status = STAGE_STATUS[stage] || (stage ? STAGE_STATUS[stage] : null) || (c.status === "rejected" ? "لغو شده" : STAGE_STATUS[stage]) || (stage === "customer_documents_upload" ? "در انتظار مدارک مشتری" : (STAGE_STATUS[stage] ?? (stage ? String(stage) : "پرونده")));
       const label = STAGE_STATUS[stage] ?? (stage === "customer_documents_upload" ? "در انتظار مدارک مشتری" : undefined);
+      const life = psCaseLife(c.status, stage);
       return {
         id: c.id,
         plan: planLabel(c.bankName, c.planName),
@@ -331,6 +331,8 @@ export function dciCases(customerId: number) {
         months: c.durationMonths ?? null,
         stage,
         status: label ?? (STAGE_STATUS[stage] ?? (c.status === "rejected" ? "لغو شده" : (stage ? stage : "پرونده"))),
+        life,
+        canCancel: life === "in_progress",
         act: STAGE_ACTION[stage] ?? "مشاهده‌ی پرونده",
         href: caseHref(c.id, c.stage, customerId),
         open: c.open,
@@ -594,10 +596,11 @@ export function dciBoard(user: AuthUser, customerId: number, task?: string | nul
   let file: ReturnType<typeof currentFileAnswers> = { answers: null, source: null, at: null, by: null, firstCall: null };
   try { file = currentFileAnswers(customerId); } catch { /* no file answers */ }
   const first = !file.answers || file.firstCall == null;
-  const cases = dciCases(customerId);
-  const showWallet = access === "own" || access === "manager";
   const canPromote = access === "own" || dciIsManager(user);
   const canEditPriorityStatus = psFlagOn(user.id) && canPromote;
+  const cases = dciCases(customerId, { includeCancelled: canEditPriorityStatus });
+  const showWallet = access === "own" || access === "manager";
+  const transferTo = canEditPriorityStatus ? psPriorityDemoteTransferName(customerId, user) : null;
   const credit = creditOf(customerId);
   const guar = guarantorOf(customerId);
   return {
@@ -605,6 +608,7 @@ export function dciBoard(user: AuthUser, customerId: number, task?: string | nul
     hasExtension: dciHasExtension(user.id),
     canPromote,
     canEditPriorityStatus,
+    priorityDemoteTransfer: transferTo ? { expertName: transferTo } : null,
     customer: {
       id: meta.id,
       name: meta.name,

@@ -48,11 +48,38 @@ body:has([data-testid="dci-page"]) .diag-floating{display:none!important}
 }
 /* Short HD screens (1366×768): tighten the title block so the columns get the height. */
 @media(min-width:1024px) and (max-height:800px){
-  .dci-date{margin:8px 0 4px}
-  .dci-page>h1{font-size:20px;margin:0 0 8px}
-  .dci-tl{padding-bottom:8px}
+  /* Grow the board down to the dock so «تماس» is not clipped by the extra main padding. */
+  body:has([data-testid="dci-page"]) .app-shell.ssv2 .app-main{
+    padding-bottom:calc(var(--ss-dock-h,90px) + 8px)!important;
+  }
+  .dci-mid .dci-head{position:static;top:auto;margin-top:0}
+  .dci-date{margin:4px 0 2px}
+  .dci-page>h1{font-size:18px;margin:0 0 4px}
+  .dci-tl{padding:2px 2px 6px}
+  .dci-node{min-height:48px;padding:6px 8px}
   .dci-promo textarea{min-height:52px}
   .dci-promo{gap:6px;margin:6px 0 8px}
+  .dci-cur{margin-bottom:4px}
+  .dci-who{margin-bottom:2px}
+  .dci-idrow{margin:2px 0}
+  .dci-tags{margin:2px 0 4px}
+  .dci-prio{margin:0;min-height:0}
+  .dci-mid .dci-head{padding-bottom:4px;margin-bottom:8px}
+  .dci-page .dci-ps{margin:0 0 6px}
+  /* ارتقا + تماس share one row so «تماس» stays above the dock at 1366×768. */
+  .dci-mid .dci-head{display:flex;flex-wrap:wrap;align-items:center}
+  .dci-mid .dci-head > .dci-cur,
+  .dci-mid .dci-head > .dci-who,
+  .dci-mid .dci-head > .dci-idrow,
+  .dci-mid .dci-head > .dci-tags,
+  .dci-mid .dci-head > .dci-ps,
+  .dci-mid .dci-head > .dci-promo{flex:1 0 100%;width:100%}
+  .dci-mid .dci-head > .dci-prio,
+  .dci-mid .dci-head > .dci-acts{flex:0 0 auto;margin:0 0 4px;width:auto}
+  .dci-mid .dci-head > .dci-acts{margin-inline-start:auto}
+  .dci-mid .dci-head > .dci-prio{margin-inline-end:8px}
+  .dci-mid .dci-head .dci-acts .btn,
+  .dci-mid .dci-head .dci-prio .btn{min-height:40px}
 }
 
 .dci-date{display:flex;gap:8px;align-items:center;font-size:14px;color:var(--nf-ink-muted);margin:16px 0 8px}
@@ -329,10 +356,12 @@ body:has([data-testid="dci-page"]) .ts-wz{
 }
 
 /* Reused from pages/customers.css (وضعیت / اولویت chips). No new design.
-   Scoped to the Today board so the rest of the approved DCI layout is untouched. */
-.dci-page .dci-ps{display:grid;gap:8px;margin:0 0 12px}
-.dci-page .dci-ps.csx{--csx-line-strong:#c9cedf}
-.dci-page .dci-ps .csx-chips{display:flex;flex-wrap:wrap;gap:8px}
+   Scoped to the Today board so the rest of the approved DCI layout is untouched.
+   Status chips live on each case card; priority chips stay under the name. */
+.dci-page .dci-ps{display:grid;gap:4px;margin:0 0 10px;min-width:0;max-width:100%}
+.dci-page .dci-ps.csx,.dci-page .csx.dci-ps{--csx-line-strong:#c9cedf}
+.dci-page .dci-ps-lbl{font-size:12px;line-height:1.4;font-weight:600;color:#667085}
+.dci-page .dci-ps .csx-chips{display:flex;flex-wrap:nowrap;gap:8px}
 .dci-page .dci-ps .csx-chip{min-height:48px;padding:0 14px;border-radius:12px;border:1.5px solid var(--csx-line-strong,#c9cedf);background:#fff;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;color:var(--nf-ink);white-space:nowrap;font:inherit}
 .dci-page .dci-ps .csx-chip[aria-checked="true"]{border-color:var(--nf-brand-600);background:var(--nf-brand-50);color:var(--nf-brand-800);box-shadow:inset 0 0 0 1px var(--nf-brand-600)}
 .dci-page .dci-ps .csx-chip[data-s="in_progress"]{--c:var(--nf-brand-700)}
@@ -344,7 +373,41 @@ body:has([data-testid="dci-page"]) .ts-wz{
 .dci-page .dci-ps .csx-chip[data-p]::before{content:"";width:10px;height:10px;border-radius:3px;background:var(--c,var(--csx-line-strong,#c9cedf))}
 .dci-page .dci-ps .csx-chip[data-s]::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--c)}
 .dci-page .dci-ps .csx-chip:disabled{opacity:.5;cursor:not-allowed}
+.dci-page .dci-ps .csx-chip:focus-visible{outline:2px solid var(--nf-brand-600);outline-offset:2px}
+.dci-page .dci-ps-ok{margin:0;font-size:13px;color:var(--nf-success,#12723a);font-weight:600}
+.dci-page .dci-case .dci-ps{margin:8px 0 10px}
+/* Desktop/tablet: one row per group, tighter gap so «تماس» stays in the 1366×768 viewport. */
+@media(min-width:768px){
+  .dci-page .dci-ps{margin:0 0 8px}
+  .dci-page .dci-ps .csx-chips{flex-wrap:nowrap;gap:6px}
+  .dci-page .dci-ps .csx-chip{min-height:40px;padding:0 12px;font-size:13px}
+}
+/* Mobile: one full-width row of joined segments, 44px / 14px, horizontal scroll if it overflows. */
 @media(max-width:767.98px){
   .dci-page .dci-ps{margin:0 0 8px}
-  .dci-page .dci-ps .csx-chip{min-height:44px;padding:0 12px}
+  .dci-page .dci-ps .csx-chips{flex-wrap:nowrap;gap:0;overflow-x:auto;width:100%;max-width:100%;min-width:0;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+  .dci-page .dci-ps .csx-chip{min-height:44px;height:44px;flex:1 0 auto;padding:0 10px;font-size:14px;border-radius:0;margin:0}
+  .dci-page .dci-ps .csx-chip:first-child{border-start-start-radius:12px;border-end-start-radius:12px;border-start-end-radius:0;border-end-end-radius:0}
+  .dci-page .dci-ps .csx-chip:last-child{border-start-end-radius:12px;border-end-end-radius:12px;border-start-start-radius:0;border-end-start-radius:0}
+  .dci-page .dci-ps .csx-chip + .csx-chip{border-inline-start-width:0}
+  .dci-page .dci-ps .csx-chip[aria-checked="true"]{position:relative;z-index:1}
+}
+/* Cancel / transfer dialogs — same idea as crm-files-cards v1.3 (red bar, alertdialog). */
+.dci-dlgw{position:fixed;inset:0;z-index:800;background:rgba(16,24,40,.45);display:flex;align-items:center;justify-content:center;padding:16px}
+.dci-dlg{background:#fff;border-radius:18px;width:min(440px,calc(100vw - 32px));max-width:calc(100vw - 32px);min-width:min(320px,calc(100vw - 32px));padding:18px 20px;display:flex!important;flex-direction:column!important;align-items:stretch;gap:12px;box-shadow:0 24px 60px -20px rgba(16,24,40,.5);box-sizing:border-box}
+.dci-dlg-cx{border-top:5px solid var(--nf-danger)}
+.dci-cxhd h2,.dci-dlg-cx h2{margin:0;font-size:19px;color:var(--nf-danger)}
+.dci-dlg h2{margin:0;font-size:19px;display:block;width:100%}
+.dci-dlg p{margin:0;font-size:14px;line-height:1.7;display:block;width:100%}
+.dci-cxl{font-size:13px}
+.dci-cxl .req{color:var(--nf-danger);margin-inline-start:2px}
+.dci-cx-inp{width:100%;min-height:72px;resize:vertical;padding:10px 12px;font:inherit;border:1.5px solid #d5d9e4;border-radius:12px;box-sizing:border-box}
+.dci-cx-inp.bad{border-color:var(--nf-danger);background:#fffafa}
+.dci-cxn{margin:0;font-size:13.5px;color:var(--nf-danger);background:var(--nf-danger-50,#fdecec);border:1px solid #F6CFC9;border-radius:12px;padding:8px 12px}
+.dci-dlg-acts{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.dci-dlg-acts .btn{min-height:44px}
+.dci-cx-yes{background:var(--nf-danger,#b42318)!important;border-color:var(--nf-danger,#b42318)!important;color:#fff!important}
+@media(max-width:767.98px){
+  .dci-dlgw{align-items:flex-end;padding:0}
+  .dci-dlg{width:100%;border-radius:18px 18px 0 0;max-height:92vh;padding-bottom:calc(18px + env(safe-area-inset-bottom))}
 }

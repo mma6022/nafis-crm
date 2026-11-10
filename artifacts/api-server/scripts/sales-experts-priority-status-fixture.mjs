@@ -72,6 +72,11 @@ try {
       VALUES(?,?,?,?, 'in_progress', 2, ?, 'unverified', 0, 0, NULL)`,
       [c[0], c[1], c[2], c[3], ts]);
   }
+  const consult = Number(queryRow("SELECT consultation_id AS id FROM loan_applications WHERE consultation_id IS NOT NULL LIMIT 1")?.id ?? 0);
+  execute("PRAGMA foreign_keys=OFF");
+  execute(`INSERT INTO loan_applications(consultation_id,customer_id,plan_ids,requested_amount,status,created_at,stage,deleted_at)
+    VALUES(?,?, '[]', '1000000', 'requested', ?, 'draft', NULL)`, [consult, CID_K, ts]);
+  execute("PRAGMA foreign_keys=ON");
 
   // Start from a known flag state: lockdown ON (as live), PS flag absent, DCI ON so the board can be probed.
   flag("flag.expert_lockdown", "1");
@@ -229,10 +234,29 @@ try {
     assert.equal(own.status, 200);
     assert.equal(own.body?.canEditPriorityStatus, true);
     assert.equal(own.body?.customer?.status, "cancelled");
+    assert.equal(own.body?.priorityDemoteTransfer, null); // qualifier's own change never transfers
+    const kase = (own.body?.cases || []).find((c) => c.life);
+    assert.ok(kase, "board should include the seed loan case");
+    assert.equal(kase.life, "in_progress");
+    assert.equal(kase.canCancel, true);
     const other = await call("GET", `/daily-customer-inline/customers/${CID_H}`, "kazemi");
     assert.equal(other.status, 403);
     assert.equal(other.body?.error, "not_owner");
     assert.equal(other.body?.canEditPriorityStatus, undefined);
+  });
+
+  await ok("flag ON: closer P1 demote preview names the first-call expert, not a fixed string", async () => {
+    const set = await call("PATCH", `/customers/${CID_H}`, "admin", { status: "in_progress", priority: 1 });
+    assert.equal(set.status, 200);
+    const own = await call("GET", `/daily-customer-inline/customers/${CID_H}`, "hasani");
+    assert.equal(own.status, 200);
+    assert.equal(own.body?.canEditPriorityStatus, true);
+    const name = own.body?.priorityDemoteTransfer?.expertName;
+    assert.equal(typeof name, "string");
+    assert.ok(name.trim().length > 0);
+    assert.equal(ps.psCaseLife("rejected", "draft"), "cancelled");
+    assert.equal(ps.psCaseLife("requested", "completed"), "completed");
+    assert.equal(ps.psCaseLife("requested", "draft"), "in_progress");
   });
 
   await ok("no SMS, Bale, network, or guarded tables changed", () => {
