@@ -9,50 +9,14 @@
 body:has([data-testid="dci-page"]) .ss-page{max-width:none;width:100%}
 /* Same rule as multi-case r9: hide the floating «گزارش خطا» pill on this page (top-bar icon stays). */
 body:has([data-testid="dci-page"]) .diag-floating{display:none!important}
-/* Desktop: the page fills the space above the dock; columns scroll inside so wallet / notes / «تماس دوباره» / «بعدی» never sit under it. */
-@media(min-width:1024px){
-  /* Constrain the flex chain (header + page wrapper) so columns scroll above the dock, including 1366×768. */
-  body:has([data-testid="dci-page"]) .app-shell.ssv2{
-    height:100dvh;max-height:100dvh;overflow:hidden;display:flex;flex-direction:column;
-  }
-  body:has([data-testid="dci-page"]) .app-shell.ssv2 .app-main{
-    display:flex;flex-direction:column;flex:1 1 auto;min-height:0;height:auto;max-height:none;overflow:hidden;box-sizing:border-box;
-    padding-bottom:calc(var(--ss-dock-h,90px) + var(--ss-gap,16px) + 40px)!important;
-  }
-  body:has([data-testid="dci-page"]) .app-shell.ssv2 .app-main>.topbar{flex:0 0 auto}
-  body:has([data-testid="dci-page"]) .app-shell.ssv2 .app-main>:not(.topbar){
-    flex:1 1 auto;min-height:0;min-width:0;display:flex;flex-direction:column;
-  }
-  body:has([data-testid="dci-page"]) .dci,
-  body:has([data-testid="dci-page"]) .dci-page{
-    flex:1 1 auto;min-height:0;display:flex;flex-direction:column;padding-bottom:8px;width:100%;
-  }
-  .dci-board{flex:1 1 0;min-height:0;height:0;align-items:stretch;width:100%;overflow:hidden}
-  .dci-col{max-height:100%;height:100%;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding-bottom:16px;scroll-padding-bottom:16px;box-sizing:border-box}
-  /* Mid: keep the call action with the identity card while cases scroll — never stuck alone to the column edge. */
-  .dci-mid .dci-head{
-    position:sticky;top:-16px;z-index:3;background:#fff;
-    margin:-16px -16px 12px;padding:16px 16px 8px;
-  }
-  /* When a mid-column form is open, let the identity head scroll away so the form is not covered. */
-  .dci-mid:has([data-testid="dci-result"]) .dci-head,
-  .dci-mid:has([data-testid="dci-promote"]) .dci-head{position:static;top:auto;margin-top:0}
-
-  .dci-mid .dci-acts{position:static}
-  /* Lead «بعدی» stays fully visible at the bottom of the left column, above the dock. */
-  .dci-left .dci-fstep:not([hidden]){padding-bottom:56px}
-  .dci-left .dci-fc .dci-acts{
-    position:sticky;bottom:0;z-index:2;background:#fff;
-    padding-top:8px;padding-bottom:2px;
-  }
-}
+/* today-layout v1.3: the early 100dvh / overflow:hidden / board height:0 lock is removed.
+   Page scroll and auto-height columns come from today-layout.css. */
 /* Short HD screens (1366×768): tighten the title block so the columns get the height. */
 @media(min-width:1024px) and (max-height:800px){
   /* Keep the last mid-column row (ارتقا / تماس) above the floating dock: dock height + gap. */
   body:has([data-testid="dci-page"]) .app-shell.ssv2 .app-main{
     padding-bottom:calc(var(--ss-dock-h,90px) + var(--ss-gap,16px))!important;
     box-sizing:border-box;
-    max-height:100dvh;
   }
   .dci-mid .dci-head{position:static;top:auto;margin-top:0}
   .dci-date{margin:4px 0 2px}
@@ -294,12 +258,7 @@ body:has([data-testid="dci-page"]) .ts-wz{
 .dci-result .cq-result,.dci-result .crp{max-width:100%;min-width:0}
 
 
-/* r2 (Armita dci-resp): 1024 must not horizontally overflow — ~36px inset and a mid min that fits. */
-@media(min-width:1024px) and (max-width:1279.98px){
-  body:has([data-testid="dci-page"]) .app-shell.ssv2 .app-main{padding-inline:18px!important}
-  main.pg.dci-page{padding-left:0;padding-right:0}
-  .dci-board{grid-template-columns:minmax(200px,.9fr) minmax(360px,1.45fr) minmax(200px,1fr);gap:12px}
-}
+/* r2 1024 three-column squeeze removed in v1.3 (two columns from 1024 to 1365). */
 
 /* r2: cap promote/result fields at 36rem on wide HD; mid column itself stays free for cards. */
 @media(min-width:1440px){
@@ -309,21 +268,9 @@ body:has([data-testid="dci-page"]) .ts-wz{
   .dci-mid .dci-result .crp{max-width:36rem;width:100%;margin-inline-start:0;margin-inline-end:auto;box-sizing:border-box}
 }
 
-/* r2: short desktop — result and credit-start scroll inside the column; save/continue stay above the column edge. */
+/* v1.3: columns are auto-height; the page scrolls. Result actions stay in flow. */
 @media(min-width:1024px){
-  .dci-col{scroll-padding-bottom:16px;overflow-x:hidden}
-  .dci-result .dci-acts{
-    position:sticky;bottom:0;z-index:2;background:#fff;padding-top:8px;padding-bottom:8px;scroll-margin-bottom:8px
-  }
-}
-/* r4c (Armita REVIEW-r4b): last full row must sit ≥16px above the dock.
-   Put that padding on the column scroller itself, not the page. Columns stretch and scroll. 390 is unchanged. */
-@media(min-width:1024px){
-  body:has([data-testid="dci-page"]) .dci-board{align-items:stretch;overflow:hidden}
-  body:has([data-testid="dci-page"]) .dci-col{
-    height:100%;max-height:100%;min-height:0;overflow-x:hidden;overflow-y:auto;
-    padding-bottom:16px;scroll-padding-bottom:16px;box-sizing:border-box;
-  }
+  .dci-result .dci-acts{position:static;padding-top:8px;padding-bottom:8px}
 }
 
 /* Later .dci-promo .dci-acts{margin:0} must not cancel the 360/mobile clearance under the dock «+». */
@@ -468,26 +415,24 @@ body:has([data-testid="dci-page"]) .ts-wz{
    easy to retune when Armita's corrective design lands. Do not change the
    header subtitle. */
 @media (min-width: 1024px) {
+  /* v1.3: do not lock the shell to 100dvh. The document scrolls. */
   body:has([data-testid="dci-page"]) .app-shell,
   body:has([data-testid="dci-page"]) .app-shell.ssv2 {
-    height: 100dvh;
-    max-height: 100dvh;
-    overflow: hidden;
+    height: auto;
+    max-height: none;
+    overflow: visible;
     display: flex;
     flex-direction: column;
   }
   body:has([data-testid="dci-page"]) .app-shell .app-main,
   body:has([data-testid="dci-page"]) .app-shell.ssv2 .app-main {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     min-height: 0;
     height: auto;
     max-height: none;
-    overflow-x: hidden;
-    overflow-y: auto;
+    overflow: visible;
     padding-bottom: calc(var(--ss-dock-h, 90px) + var(--ss-gap, 16px) + 24px) !important;
     box-sizing: border-box;
-    scrollbar-width: thin;
-    scroll-padding-bottom: calc(var(--ss-dock-h, 90px) + var(--ss-gap, 16px) + 24px);
   }
   body:has([data-testid="dci-page"]) .app-shell .app-main::-webkit-scrollbar,
   body:has([data-testid="dci-page"]) .app-shell.ssv2 .app-main::-webkit-scrollbar {

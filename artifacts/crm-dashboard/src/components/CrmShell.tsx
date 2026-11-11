@@ -548,13 +548,13 @@ export function CrmShell({ children }: { children: ReactNode }) {
         overdue={ssBadges?.reminders.overdue ?? 0} drafts={pendingDrafts} draftsLate={(draftCounts.data?.paidOver24h ?? 0) > 0} team={team.data?.unreadCount ?? 0}
         pendingGoods={pendingGoods} pendingPayments={pendingPayments} callbacks={callbacksBadge.data?.new ?? 0}
         ast={hasAssistant ? { name: astName, unread: astUnread, dnd: astDnd, open: openAst } : null}
-        bnv2={bnv2} role={user?.role ?? null} baleUnread={bbMe?.unread ?? 0} hasOwnBaleInbox={Boolean(bbMe?.enabled && (bbMe.view === 'own' || bbMe.view === 'all'))} />
+        bnv2={bnv2} role={user?.role ?? null} baleUnread={bbMe?.unread ?? 0} hasOwnBaleInbox={Boolean(bbMe?.enabled && (bbMe.view === 'own' || bbMe.view === 'all'))} userId={user ? Number(user.id) : undefined} />
       {user ? <AssistantDock user={user as { id: number; role?: string | null; salespersonId?: number | null }} phone={ssMobile} shellV2 slot={null} bottomOffset={0} /> : null}
       {profileOpen && user ? <ProfileModal user={user} onClose={() => setProfileOpen(false)} /> : null}
       {headerReminder.node}
       {user ? <CallQueueHost onModalActive={setCqModalActive} dailyPlan={dpOnForMe} /> : null}
-      {user && EL_UIDS.includes(Number(user.id)) ? <ReminderMustHost userId={Number(user.id)} /> : null}
-      {dueReminder && !cqModalActive ? (
+      {user && EL_UIDS.includes(Number(user.id)) && !(location === '/today' || location.startsWith('/today/')) ? <ReminderMustHost userId={Number(user.id)} /> : null}
+      {dueReminder && !cqModalActive && !(location === '/today' || location.startsWith('/today/')) ? (
         <Modal title={dueReminder.subject} eyebrow="زمان یادآور رسیده است" onClose={() => setDueReminder(null)} testId="due-reminder">
           <div className="due-reminder">
             <div className="due-reminder-icon"><BellRing size={22} /></div>
@@ -659,8 +659,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
       {profileOpen && user ? <ProfileModal user={user} onClose={() => setProfileOpen(false)} /> : null}
       {headerReminder.node}
       {user ? <CallQueueHost onModalActive={setCqModalActive} dailyPlan={dpOnForMe} /> : null}
-      {user && EL_UIDS.includes(Number(user.id)) ? <ReminderMustHost userId={Number(user.id)} /> : null}
-      {dueReminder && !cqModalActive ? (
+      {user && EL_UIDS.includes(Number(user.id)) && !(location === '/today' || location.startsWith('/today/')) ? <ReminderMustHost userId={Number(user.id)} /> : null}
+      {dueReminder && !cqModalActive && !(location === '/today' || location.startsWith('/today/')) ? (
         <Modal title={dueReminder.subject} eyebrow="زمان یادآور رسیده است" onClose={() => setDueReminder(null)} testId="due-reminder">
           <div className="due-reminder">
             <div className="due-reminder-icon"><BellRing size={22} /></div>
@@ -692,6 +692,7 @@ type SsHostProps = {
   overdue: number; drafts: number; draftsLate: boolean; team: number; pendingGoods: number; pendingPayments: number; callbacks: number;
   ast: { name: string; unread: number; dnd: boolean; open: () => void } | null;
   bnv2: boolean; role: string | null; baleUnread: number; hasOwnBaleInbox: boolean;
+  userId?: number;
 };
 const SS_MAIN: Record<string, { key: string; label: string; full: string; testId: string }> = {
   '/today': { key: 'today', label: 'امروز', full: 'کارهای امروز من', testId: 'today' },
@@ -768,7 +769,7 @@ function SsNavHost(p: SsHostProps) {
     before={toItems(slots.before)} after={withAst(slots.after, showAst)} midSep={slots.midSep}
     tabs={toItems(slots.tabs)} daily={withAst(slots.daily, showAst)} groups={groups}
     primary={primary} isActive={p.isActive} healthOk={p.healthOk} onLogout={p.onLogout} logoutPending={p.logoutPending}
-    location={p.location} mobile={p.mobile} blocked={ov.any} />;
+    location={p.location} mobile={p.mobile} blocked={ov.any} userId={p.userId} />;
 }
 
 function ProfileModal({ user, onClose }: { user: CrmUser; onClose: () => void }) {

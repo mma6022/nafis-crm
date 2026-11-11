@@ -16,6 +16,9 @@ import { useVcMe, vcApi } from "@/features/voip-call/api";
 import { DciError, dciApi, useDciAddNote, useDciBoard, useDciToday, type DciBoard, type DciCase, type DciDenied, type DciHist, type DciInbound, type DciNote, type DciTask } from "./api";
 import { DciIcon, DciSprites } from "./icons";
 import "./dci.css";
+import "./today-layout.css";
+import { getListRemindersQueryKey, useListReminders, useUpdateReminder } from "@workspace/api-client-react";
+import { mergeQueue, type QueueTask } from "./queue";
 
 const FD = "۰۱۲۳۴۵۶۷۸۹";
 /** Existing catalog labels (customer_tag_catalog). Fallback if the catalog has not loaded yet. */
@@ -89,21 +92,72 @@ function Phone({ raw, big, onCopy }: { raw: string; big?: boolean; onCopy: (v: s
   </span>;
 }
 
-function Timeline({ tasks, selected, onPick }: { tasks: DciTask[]; selected: string | null; onPick: (t: DciTask) => void }) {
-  const ref = useRef<HTMLAnchorElement | null>(null);
-  useEffect(() => { ref.current?.scrollIntoView({ inline: "center", block: "nearest" }); }, [selected]);
-  return <nav className="dci-tl" aria-label="کارهای امروز">{tasks.map((t) => (
-    <a key={t.id} ref={selected === t.id ? ref : undefined} className="dci-node" href={`#${t.id}`}
-      aria-current={selected === t.id ? "true" : undefined}
-      onClick={(e) => { e.preventDefault(); onPick(t); }}>
-      <span className="dci-nt"><DciIcon id={t.ic} /><span>{t.tm}؛ {t.typ}</span></span>
-      <b>{t.name}</b>
-    </a>
-  ))}</nav>;
+function Timeline({ tasks, selected, ext, onPick, onCall }: {
+  tasks: QueueTask[]; selected: string | null; ext: boolean;
+  onPick: (t: QueueTask) => void; onCall: (t: QueueTask) => void;
+}) {
+  const wrap = useRef<HTMLDivElement | null>(null);
+  const rail = useRef<HTMLElement | null>(null);
+  const nodeRef = useRef<HTMLAnchorElement | null>(null);
+  const [fade, setFade] = useState<"none" | "start" | "end" | "both">("none");
+  const [can, setCan] = useState({ prev: false, next: false });
+  const sync = () => {
+    const el = rail.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    const sl = el.scrollLeft;
+    // RTL: scrollLeft may be 0, negative, or positive depending on the engine.
+    const atStart = Math.abs(sl) < 4 || (max > 0 && Math.abs(Math.abs(sl) - 0) < 4 && sl <= 0 && el.scrollWidth - el.clientWidth - Math.abs(sl) > 4 ? sl >= -4 : Math.abs(sl) < 4);
+    const remaining = Math.max(0, el.scrollWidth - el.clientWidth - Math.abs(sl));
+    const atEnd = remaining < 4;
+    const atBegin = Math.abs(sl) < 4 || (sl > -4 && sl < 4 && remaining >= 4 && el.scrollWidth > el.clientWidth + 4 ? false : Math.abs(sl) < 4 && remaining < 4);
+    const hasOverflow = el.scrollWidth > el.clientWidth + 4;
+    const begin = Math.abs(el.scrollLeft) < 8;
+    const end = remaining < 8;
+    setCan({ prev: hasOverflow && !begin, next: hasOverflow && !end });
+    setFade(!hasOverflow ? "none" : begin ? "end" : end ? "start" : "both");
+  };
+  useEffect(() => { nodeRef.current?.scrollIntoView({ inline: "center", block: "nearest" }); }, [selected]);
+  useEffect(() => {
+    const el = rail.current;
+    if (!el) return;
+    sync();
+    el.addEventListener("scroll", sync, { passive: true });
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => { el.removeEventListener("scroll", sync); ro.disconnect(); };
+  }, [tasks]);
+  const go = (dir: 1 | -1) => {
+    const el = rail.current;
+    if (!el) return;
+    el.scrollBy({ left: dir * Math.max(160, el.clientWidth * 0.6), behavior: "smooth" });
+  };
+  return <div className="dci-tlw" ref={wrap} data-fade={fade === "none" ? undefined : fade} data-testid="dci-tlw">
+    <button className="dci-tl-btn" type="button" aria-label="قبلی" disabled={!can.prev} onClick={() => go(1)} data-testid="dci-tl-prev"><DciIcon id="i-chev-r" /></button>
+    <nav className="dci-tl" ref={rail as any} aria-label="کارهای امروز">{tasks.map((t) => (
+      <a key={t.id} ref={selected === t.id ? nodeRef : undefined} className="dci-node" href={`#${t.id}`}
+        aria-current={selected === t.id ? "true" : undefined}
+        data-overdue={t.overdue || undefined}
+        onClick={(e) => { e.preventDefault(); onPick(t); }}>
+        <span className="dci-nt">
+          <span className="dci-turn">{fd(t.turn)}</span>
+          <DciIcon id={t.ic} />
+          <span>{t.tm}</span>
+          <span className="dci-ntypes">{t.types.map((x) => <span key={x}>{x}</span>)}</span>
+          {t.overdue ? <span className="dci-od">عقب‌افتاده</span> : null}
+        </span>
+        <b>{t.name}{t.customerId ? <> {/* id shown as text to avoid nested buttons */}<span className="cid" aria-hidden="true">#{fd(t.customerId)}</span></> : null}</b>
+        {t.remText ? <p className="dci-remline">{t.remText}</p> : null}
+        {ext ? <button className="dci-ncall" type="button" aria-label="تماس از ویپ" data-testid={`dci-ncall-${t.id}`}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onCall(t); }}><DciIcon id="i-phone" /></button> : null}
+      </a>
+    ))}</nav>
+    <button className="dci-tl-btn" type="button" aria-label="بعدی" disabled={!can.next} onClick={() => go(-1)} data-testid="dci-tl-next"><DciIcon id="i-chev-l" /></button>
+  </div>;
 }
 
 function HistList({ rows }: { rows: DciHist[] }) {
-  if (!rows.length) return <p className="dci-empty">سابقه‌ی تماسی ثبت نشده است.</p>;
+  if (!rows.length) return <p className="dci-empty dci-hist-empty">سابقه‌ی تماسی ثبت نشده است.</p>;
   return <ul className="dci-calls">{rows.map((h) => (
     <li key={h.id}>
       <div className="dci-cmeta"><span>{h.t}</span><span>{h.k}؛ <span className={`dci-res ${h.rc}`}>{h.r}</span></span></div>
@@ -197,15 +251,16 @@ function FirstCall({ customerId, userId, onOpenForm }: { customerId: number; use
     if (step < 3) { setStep((s) => s + 1); return; }
     void finish(needConfirm);
   };
-  return <div className="dci-fc" id="dci-fc" data-step={step}>
+  return <div className="dci-fc" id="dci-fc" data-step={step} data-testid="dci-fc">
     <p className="dci-step">مرحله‌ی <span id="dci-sn">{fd(step)}</span> از {fd(3)}</p>
+    <div className="dci-prog" aria-hidden="true"><span style={{ width: `${(step / 3) * 100}%` }} /></div>
     <div className="dci-fstep" data-n="1" hidden={step !== 1}>
-      <label>کد ملی <input dir="ltr" inputMode="numeric" autoComplete="off" placeholder="—" value={nid} onChange={(e) => { setNid(e.target.value); setNeedConfirm(false); }} /></label>
-      <label>شهر <input autoComplete="off" placeholder="—" value={city} onChange={(e) => setCity(e.target.value)} /></label>
+      <label className="dci-flab">کد ملی <input className="dci-inp" dir="ltr" inputMode="numeric" autoComplete="off" placeholder="—" value={nid} onChange={(e) => { setNid(e.target.value); setNeedConfirm(false); }} /></label>
+      <label className="dci-flab">شهر <input className="dci-inp" autoComplete="off" placeholder="—" value={city} onChange={(e) => setCity(e.target.value)} /></label>
     </div>
     <div className="dci-fstep" data-n="2" hidden={step !== 2}>
-      <label>مبلغ درخواستی، تومان <input dir="ltr" inputMode="numeric" autoComplete="off" placeholder="—" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
-      <label>شرح نیاز <input autoComplete="off" placeholder="—" value={need} onChange={(e) => setNeed(e.target.value)} /></label>
+      <label className="dci-flab">مبلغ درخواستی، تومان <input className="dci-inp" dir="ltr" inputMode="numeric" autoComplete="off" placeholder="—" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
+      <label className="dci-flab">شرح نیاز <input className="dci-inp" autoComplete="off" placeholder="—" value={need} onChange={(e) => setNeed(e.target.value)} /></label>
     </div>
     <div className="dci-fstep" data-n="3" hidden={step !== 3}>
       <p className="dci-empty" style={{ margin: 0 }}>ضامن</p>
@@ -213,7 +268,7 @@ function FirstCall({ customerId, userId, onOpenForm }: { customerId: number; use
         <button type="button" role="radio" aria-checked={g === "yes"} data-g="yes" onClick={() => setG("yes")}>ضامن دارد</button>
         <button type="button" role="radio" aria-checked={g === "no"} data-g="no" onClick={() => setG("no")}>ضامن ندارد</button>
       </div>
-      <label id="dci-gcond" hidden={g !== "yes"}>شرایط ضامن <input autoComplete="off" placeholder="مثلاً چک ضامن" value={gcond} onChange={(e) => setGcond(e.target.value)} /></label>
+      <label className="dci-flab" id="dci-gcond" hidden={g !== "yes"}>شرایط ضامن <input className="dci-inp" autoComplete="off" placeholder="مثلاً چک ضامن" value={gcond} onChange={(e) => setGcond(e.target.value)} /></label>
     </div>
     {err ? <p className="dci-empty" role="alert" data-testid="dci-fc-err">{err}</p> : null}
     {needConfirm ? <p className="dci-empty" role="status">کد ملی با مقدار قبلی فرق دارد؛ برای جایگزینی دوباره «پایان» را بزنید.</p> : null}
@@ -280,14 +335,12 @@ function CasesBlock({ rows, href, canEdit, locked, busy, onCancel }: { rows: Dci
 
 function CallActs({ ext, place, narrow, onCall, onResult }: { ext: boolean; place: "head" | "sticky"; narrow: boolean; onCall: () => void; onResult: () => void }) {
   if (ext) {
-    const pri = <button className="btn pri" type="button" data-voip onClick={onCall}><DciIcon id="i-phone" />تماس</button>;
+    const pri = <button className="btn pri" type="button" data-voip data-testid="dci-call" onClick={onCall}><DciIcon id="i-phone" />تماس</button>;
     if (place === "sticky") return pri;
-    if (narrow) return null;
     return <div className="dci-acts">{pri}</div>;
   }
-  const pri = <button className="btn pri" type="button" data-result onClick={onResult}>تماس گرفتم، ثبت نتیجه</button>;
+  const pri = <button className="btn pri" type="button" data-result data-testid="dci-logged-call" onClick={onResult}>تماس گرفتم، ثبت نتیجه</button>;
   if (place === "sticky") return pri;
-  if (narrow) return null;
   return <div className="dci-acts">{pri}</div>;
 }
 
@@ -317,7 +370,7 @@ function InBoundBlock({ rows, ext, onCall }: { rows: DciInbound[]; ext: boolean;
   </>;
 }
 
-function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting, result, promo }: {
+function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting, result, promo, remBar, userId, onOpenFirstCall }: {
   m: DciBoard; ext: boolean; narrow: boolean; onCopy: (v: string) => void; onCall: () => void; onResult: () => void;
   onPromote: () => void; promoting: boolean;
   promo?: { open: boolean; reason: string; setReason: (v: string) => void; onSave: () => void; onClose: () => void };
@@ -325,6 +378,9 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     open: boolean; val: CqResultValue; show: boolean; busy: boolean; err: string;
     onChange: (v: CqResultValue) => void; onSave: () => void; onClose: () => void;
   };
+  remBar?: { text: string } | null;
+  userId: number | undefined;
+  onOpenFirstCall: () => void;
 }) {
   const tagCatalog = useListCustomerTags({ query: { queryKey: getListCustomerTagsQueryKey() } });
   const tags = (m.customer.tags || []).map((x) => <span key={x}>{dciTagLabel(x, tagCatalog.data)}</span>);
@@ -443,8 +499,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     <div className="dci-head">
     <p className="dci-cur">{m.call}</p>
     <div className="dci-who"><h2>{fd(m.customer.name)}</h2> {cidBtn(m.customer.id, onCopy)}</div>
-    <div className="dci-idrow">{m.customer.phone ? <Phone raw={m.customer.phone} big={!ext} onCopy={onCopy} /> : null}{nid}</div>
-    <div className="dci-tags">{tags}</div>
+    <div className="dci-idrow">{m.customer.phone ? <Phone raw={m.customer.phone} big={!ext} onCopy={onCopy} /> : null}</div>
     {ps}
     {prio}
     {promo?.open ? createPortal(<div className="dci-dlgw" data-testid="dci-promote-wrap" data-nodnd="true">
@@ -460,6 +515,7 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
     </div>, document.body) : null}
     <CallActs ext={ext} place="head" narrow={narrow} onCall={onCall} onResult={onResult} />
     </div>
+    {remBar ? <div className="dci-rembar" data-testid="dci-rembar" role="status"><p>{remBar.text}</p><span className="dci-hint">با ثبت نتیجه، این یادآور تمام می‌شود.</span></div> : null}
     {result?.open ? <div className="dci-result dp-result" data-testid="dci-result">
       <p className="dci-empty">نتیجه‌ی تماس را ثبت کنید.</p>
       <CqResultFields value={result.val} onChange={result.onChange} showErrors={result.show} idPrefix="dci" submitLabel="ثبت نتیجه" creditCustomerId={m.customer.id} />
@@ -469,6 +525,15 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
       </div>
       {result.err ? <p className="dci-empty" role="alert" data-testid="dci-result-err">{result.err}</p> : null}
     </div> : null}
+    <div className="dci-id-mid">
+      <div className="dci-idrow">{nid}</div>
+      <div className="dci-tags">{tags}</div>
+    </div>
+    <section className="dci-filecard" aria-label="پرونده‌ی مشتری" data-testid="dci-filecard">
+      <h2>پرونده‌ی مشتری</h2>
+      <div className="dci-block"><h3>رتبه‌ی اعتباری</h3><CreditBlock customerId={m.customer.id} state={m.credit.state} grade={m.credit.grade} at={m.credit.at} /></div>
+      {m.first ? <div className="dci-block"><h3>تکمیل پرونده در تماس اول</h3><FirstCall customerId={m.customer.id} userId={userId} onOpenForm={onOpenFirstCall} /></div> : null}
+    </section>
     <CasesBlock rows={m.cases} href={m.newCaseHref} canEdit={canEditPs} locked={!!m.priorityStatusLocked} busy={cancelCase.isPending} onCancel={openCancel} />
     {pendingPriority !== undefined ? createPortal(<div className="dci-dlgw" data-testid="dci-xfer-wrap" data-nodnd="true">
       <div className="dci-dlg" role="alertdialog" aria-modal="true" aria-labelledby="dci-xfer-t" data-testid="dci-xfer-dialog">
@@ -506,20 +571,23 @@ function RightCol({ m, ext, onCall }: { m: DciBoard; ext: boolean; onCall: () =>
     <InBoundBlock rows={m.inbounds} ext={ext} onCall={onCall} />
     <h2>تاریخچه‌ی تماس‌ها</h2>
     <HistList rows={m.hist} />
-    <h2>یادداشت‌ها</h2>
+    <h2 className="dci-notes-h">یادداشت‌ها</h2>
     <NotesBlock rows={m.notes} customerId={m.customer.id} />
   </section>;
 }
 
-function LeftCol({ m, userId, onOpenFirstCall }: { m: DciBoard; userId: number | undefined; onOpenFirstCall: () => void }) {
-  const fileInner = m.first
-    ? <><div className="dci-block"><h3>رتبه‌ی اعتباری</h3><CreditBlock customerId={m.customer.id} state={m.credit.state} grade={m.credit.grade} at={m.credit.at} /></div>
-        <div className="dci-block"><h3>تکمیل پرونده در تماس اول</h3><FirstCall customerId={m.customer.id} userId={userId} onOpenForm={onOpenFirstCall} /></div></>
-    : <><div className="dci-block"><h3>رتبه‌ی اعتباری</h3><CreditBlock customerId={m.customer.id} state={m.credit.state} grade={m.credit.grade} at={m.credit.at} /></div>
-        <div className="dci-block"><h3>ضامن</h3><GuarBlock v={m.guar.v} cond={m.guar.cond} /></div></>;
-  return <section className="dci-col dci-left" aria-label="پرونده‌ی مشتری">
-    <h2>پرونده‌ی مشتری</h2>
-    {fileInner}
+function LeftCol({ m }: { m: DciBoard }) {
+  const tagCatalog = useListCustomerTags({ query: { queryKey: getListCustomerTagsQueryKey() } });
+  const tags = (m.customer.tags || []).map((x) => <span key={x}>{dciTagLabel(x, tagCatalog.data)}</span>);
+  const nid = m.customer.nationalCode
+    ? <span><span className="lbl">کد ملی</span> <b dir="ltr">{fd(m.customer.nationalCode)}</b></span>
+    : <span><span className="lbl">کد ملی</span> هنوز ثبت نشده است</span>;
+  return <section className="dci-col dci-left" aria-label="ضامن و کیف پول" data-testid="dci-left">
+    <div className="dci-id-left">
+      <div className="dci-idrow">{nid}</div>
+      <div className="dci-tags">{tags}</div>
+    </div>
+    <div className="dci-block"><h3>ضامن</h3><GuarBlock v={m.guar.v} cond={m.guar.cond} /></div>
     {m.wallet ? <div className="dci-wal"><h3>کیف پول</h3><WalletBlock wallet={m.wallet} /></div> : null}
   </section>;
 }
@@ -538,7 +606,12 @@ export default function DailyCustomerInline() {
   const search = useSearch();
   const narrow = useNarrow();
   const todayQ = useDciToday(true);
-  const tasks = todayQ.data?.tasks ?? [];
+  const sessionEarly = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
+  const remUserId = sessionEarly.data?.user?.id != null ? Number(sessionEarly.data.user.id) : undefined;
+  const remQ = useListReminders({ done: false }, {
+    query: { queryKey: getListRemindersQueryKey({ done: false }), enabled: remUserId != null, retry: false, staleTime: 15_000, refetchInterval: 15_000 },
+  });
+  const tasks = useMemo(() => mergeQueue(todayQ.data?.tasks ?? [], remQ.data), [todayQ.data?.tasks, remQ.data]);
   const qCust = Number(queryParam(search, "customer") || "");
   const selectedTask = useMemo(() => {
     const id = queryParam(search, "task");
@@ -559,8 +632,9 @@ export default function DailyCustomerInline() {
   const [resultBusy, setResultBusy] = useState(false);
   const [resultErr, setResultErr] = useState("");
   const vme = useVcMe().data;
-  const session = useGetAuthSession({ query: { queryKey: getGetAuthSessionQueryKey(), retry: false } });
-  const userId = session.data?.user?.id != null ? Number(session.data.user.id) : undefined;
+  const session = sessionEarly;
+  const userId = remUserId;
+  const updateRem = useUpdateReminder();
   const cq = useCqConfig().data;
   const copy = (v: string) => {
     if (v && navigator.clipboard) navigator.clipboard.writeText(v).catch(() => {});
@@ -579,11 +653,16 @@ export default function DailyCustomerInline() {
   const board = boardQ.data && boardQ.data.access !== undefined ? boardQ.data : null;
   const ext = Boolean((board?.hasExtension ?? todayQ.data?.hasExtension) || vme?.on);
   useEffect(() => {
+    document.body.classList.toggle("dci-noext", !ext);
+    return () => document.body.classList.remove("dci-noext");
+  }, [ext]);
+  useEffect(() => {
     setFcOpen(false); setResultOpen(false); setResultVal(emptyCqResult()); setResultShow(false); setResultErr("");
   }, [customerId]);
-  const startCall = () => {
-    if (!customerId) return;
-    if (ext) void vcApi.start({ customerId }).catch(() => undefined);
+  const startCall = (id?: number) => {
+    const cid = id ?? customerId;
+    if (!cid) return;
+    if (ext) void vcApi.start({ customerId: cid }).catch(() => undefined);
   };
   const startResult = async () => {
     if (!customerId || !board) return;
@@ -616,8 +695,12 @@ export default function DailyCustomerInline() {
         ...(isPlan ? { planItemId: selectedTask.itemId } : { outOfList: true, context: "out_of_list" }),
       });
       announceCallSaved(r.id, customerId);
+      if (selectedTask?.reminderId) {
+        try { await new Promise<void>((resolve, reject) => updateRem.mutate({ data: { id: selectedTask.reminderId!, done: true } }, { onSuccess: () => resolve(), onError: (e) => reject(e) })); }
+        catch { /* result already saved; reminder list will refresh */ }
+      }
       setResultOpen(false); setResultVal(emptyCqResult()); setResultShow(false);
-      await Promise.all([boardQ.refetch(), todayQ.refetch()]);
+      await Promise.all([boardQ.refetch(), todayQ.refetch(), remQ.refetch()]);
     } catch (e) {
       setResultErr(e instanceof Error && /[\u0600-\u06FF]/.test(e.message) ? e.message : "ثبت نشد. دوباره تلاش کنید.");
     } finally { setResultBusy(false); }
@@ -638,8 +721,8 @@ export default function DailyCustomerInline() {
   const [tab, setTab] = useState<"talk" | "file" | "">(openFile ? "file" : openTalk ? "talk" : "");
   useEffect(() => { setTab(openFile ? "file" : openTalk ? "talk" : ""); }, [openFile, openTalk, customerId]);
 
-  const sticky = narrow && board && !denied && !loadingBoard && !errorBoard;
-  useEffect(() => { if (sticky) document.body.classList.add("dci-stick"); else document.body.classList.remove("dci-stick"); return () => document.body.classList.remove("dci-stick"); }, [sticky]);
+  const sticky = false;
+  useEffect(() => { document.body.classList.remove("dci-stick"); return () => document.body.classList.remove("dci-stick"); }, []);
   useEffect(() => {
     if (!resultOpen && !reasonOpen) return;
     const sel = resultOpen ? "[data-testid=dci-result]" : "[data-testid=dci-promote]";
@@ -661,9 +744,9 @@ export default function DailyCustomerInline() {
     return () => window.clearTimeout(id);
   }, [resultOpen, reasonOpen]);
 
-  let boardEl: JSX.Element;
+  let boardEl: ReactNode;
   if (todayQ.isLoading && !todayQ.data) {
-    boardEl = <div className="dci-board"><SkCol cls="dci-right" title="تاریخچه‌ی تماس‌ها" /><SkCol cls="dci-mid" title="اطلاعات مشتری" /><SkCol cls="dci-left" title="پرونده‌ی مشتری" /></div>;
+    boardEl = <div className="dci-board"><div className="dci-side"><SkCol cls="dci-right" title="تاریخچه‌ی تماس‌ها" /><SkCol cls="dci-left" title="ضامن و کیف پول" /></div><SkCol cls="dci-mid" title="اطلاعات مشتری" /></div>;
   } else if (errorBoard) {
     boardEl = <div className="dci-board"><section className="dci-col dci-mid" style={{ gridColumn: "1 / -1" }}><div className="dci-err"><p>اطلاعات مشتری الآن در دسترس نیست.</p>
       <button className="btn pri" type="button" onClick={() => { void todayQ.refetch(); void boardQ.refetch(); }}>تلاش دوباره</button></div></section></div>;
@@ -675,21 +758,26 @@ export default function DailyCustomerInline() {
       <Link className="btn pri" href="/today">رفتن به کارهای امروز</Link>
     </div></section></div>;
   } else if (loadingBoard || !board) {
-    boardEl = <div className="dci-board"><SkCol cls="dci-right" title="تاریخچه‌ی تماس‌ها" /><SkCol cls="dci-mid" title="اطلاعات مشتری" /><SkCol cls="dci-left" title="پرونده‌ی مشتری" /></div>;
+    boardEl = <div className="dci-board"><div className="dci-side"><SkCol cls="dci-right" title="تاریخچه‌ی تماس‌ها" /><SkCol cls="dci-left" title="ضامن و کیف پول" /></div><SkCol cls="dci-mid" title="اطلاعات مشتری" /></div>;
   } else {
     const show = tab === "talk" ? " show-talk" : tab === "file" ? " show-file" : (openFile ? " show-file" : openTalk ? " show-talk" : "");
+    const remBar = selectedTask && (selectedTask.reminderId || selectedTask.types.includes("یادآور"))
+      ? { text: selectedTask.remText || "یادآور سررسید" } : null;
     boardEl = <div className={`dci-board${show}`} id="dci-board">
-      <RightCol m={board} ext={ext} onCall={startCall} />
+      <div className="dci-side">
+        <RightCol m={board} ext={ext} onCall={startCall} />
+        <LeftCol m={board} />
+      </div>
       <MidCol m={board} ext={ext} narrow={narrow} onCopy={copy} onCall={startCall} onResult={() => void startResult()} onPromote={() => setReasonOpen(true)} promoting={promoting}
         promo={{ open: reasonOpen, reason, setReason, onSave: () => void doPromote(), onClose: () => setReasonOpen(false) }}
-        result={{ open: resultOpen, val: resultVal, show: resultShow, busy: resultBusy, err: resultErr, onChange: setResultVal, onSave: () => void saveResult(), onClose: () => { setResultOpen(false); setResultErr(""); } }} />
+        result={{ open: resultOpen, val: resultVal, show: resultShow, busy: resultBusy, err: resultErr, onChange: setResultVal, onSave: () => void saveResult(), onClose: () => { setResultOpen(false); setResultErr(""); } }}
+        remBar={remBar} userId={userId} onOpenFirstCall={() => setFcOpen(true)} />
       <div className="dci-tabs" role="tablist" aria-label="بخش‌های دیگر">
         <button type="button" role="tab" id="tab-talk" aria-selected={tab === "talk" ? "true" : "false"} data-pane="talk"
           onClick={() => setTab((t) => t === "talk" ? "" : "talk")}>گفت‌وگو</button>
         <button type="button" role="tab" id="tab-file" aria-selected={tab === "file" ? "true" : "false"} data-pane="file"
           onClick={() => setTab((t) => t === "file" ? "" : "file")}>پرونده</button>
       </div>
-      <LeftCol m={board} userId={userId} onOpenFirstCall={() => setFcOpen(true)} />
     </div>;
   }
 
@@ -698,9 +786,8 @@ export default function DailyCustomerInline() {
     <main className="pg dci-page">
       <p className="dci-date">{todayQ.data?.dateLabel ?? ""}</p>
       <h1>کارهای امروز من</h1>
-      <Timeline tasks={tasks} selected={selectedTask?.id ?? null} onPick={setSel} />
+      <Timeline tasks={tasks} selected={selectedTask?.id ?? null} ext={ext} onPick={setSel} onCall={(t) => { setSel(t); startCall(t.customerId); }} />
       {boardEl}
-      {sticky && board && !resultOpen && !reasonOpen ? <div className="dci-sticky"><CallActs ext={ext} place="sticky" narrow={narrow} onCall={startCall} onResult={() => void startResult()} /></div> : null}
     </main>
     {fcOpen && board ? <SimpleCallForm
       customer={{ id: board.customer.id, name: fd(board.customer.name), phone: board.customer.phone ?? "", priority: board.customer.priority }}

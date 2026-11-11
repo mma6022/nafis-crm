@@ -1,0 +1,146 @@
+/* today-layout-fix v1.3: جمع‌شدن داک نسخهٔ ۲ و مخفی‌شدن خودکار. بعد از پوسته و bottom-nav-v2. */
+/* ——— جمع‌کردن داک (t303u، t1031u) ——— */
+.dk-toggle{
+  position:absolute;top:0;inset-inline-end:8px;transform:translateY(-50%);
+  z-index:41;width:44px;height:44px;border-radius:99px;
+  display:grid;place-items:center;background:#fff;
+  border:1px solid var(--nf-line-strong);color:var(--nf-ink);
+  box-shadow:var(--nf-shadow-card, 0 4px 14px rgba(16,24,40,.12));
+}
+.dk-toggle .i{width:20px;height:20px}
+.dk-toggle:focus-visible{box-shadow:0 0 0 3px #fff,0 0 0 6px var(--nf-brand-600)}
+/* روی دسکتاپ دکمهٔ نوار موبایل پنهان است و برعکس */
+.tb .dk-toggle{display:none}
+@media (max-width:1023.98px){
+  .dock .dk-toggle{display:none}
+  .tb .dk-toggle{display:grid}
+  /* وسط نوار موبایل دکمهٔ طلایی است؛ جمع‌کردن روی لبهٔ فیزیکی چپ می‌ماند */
+  .tb{overflow:visible}
+}
+.dk-reopen{
+  display:none;position:fixed;z-index:45;
+  bottom:24px;left:24px;right:auto;
+  height:44px;min-height:44px;min-width:44px;width:auto;
+  padding:0 14px 0 12px;border-radius:999px;
+  align-items:center;justify-content:center;gap:8px;
+  background:#fff;color:var(--nf-ink);
+  border:1px solid var(--nf-line-strong);
+  box-shadow:0 8px 24px rgba(16,24,40,.16),0 2px 8px rgba(16,24,40,.08);
+  font:inherit;font-size:15px;font-weight:800;line-height:1;
+}
+.dk-reopen .i{width:20px;height:20px;stroke:currentColor;color:var(--nf-brand-600);flex:none}
+.dk-reopen .dk-reopen-lb{font-weight:800}
+.dk-reopen .bdg{
+  position:absolute;top:-6px;left:auto;right:auto;
+  inset-inline-start:-2px;
+  min-width:20px;height:20px;padding:0 5px;border-radius:99px;
+  background:var(--nf-gold-400,#f5b942);color:var(--nf-ink);font-size:12px;font-weight:800;
+  display:grid;place-items:center;border:2px solid #fff;
+}
+.dk-reopen:focus-visible{box-shadow:0 0 0 3px #fff,0 0 0 6px var(--nf-brand-600)}
+
+body.dock-collapsed .dock,
+body.dock-collapsed .tb,
+body.dock-collapsed .ss-dock,
+body.dock-collapsed .ss-tb{display:none !important}
+body.dock-collapsed .dk-reopen{display:inline-flex}
+body.dock-collapsed{
+  --dock-h:0px;
+  --dock-gap:0px;
+  --ss-dock-h:0px;
+  --ss-gap:0px;
+}
+body.dock-collapsed .dci-page,
+body.dock-collapsed main.pg.dci-page,
+body.dock-collapsed main.pg{
+  padding-bottom:calc(24px + 44px + 24px + env(safe-area-inset-bottom,0px));
+}
+/* ستون سمت فیزیکی چپ هم همین حریم را می‌گیرد تا آخر محتوا زیر قرص نرود */
+body.dock-collapsed .dci-left,
+body.dock-collapsed .dci-right{
+  padding-bottom:calc(18px + 24px + 44px + 24px);
+}
+/* در قاب نخست کوتاه، فرم یادداشت هم‌ارتفاع قرص است؛ از چپ فیزیکی جمع می‌شود تا زیر قرص نرود */
+body.dock-collapsed .dci-add{
+  padding-left:calc(24px + 80px + 24px);
+}
+/* اگر در صفحه‌ای «گزارش خطا» کنار داک باشد، در حالت جمع‌شده بالای قرص نمی‌آید؛ پایین راست می‌ماند. در امروز پنهان است. */
+body.dock-collapsed .diag{bottom:calc(24px + 44px + 24px)}
+
+.dci-tabs{display:none}
+
+.toast{
+  position:fixed;z-index:90;inset-inline:0;margin-inline:auto;width:max-content;max-width:calc(100vw - 32px);
+  bottom:calc(var(--dock-h) + var(--dock-gap) + 16px);
+  display:flex;align-items:center;gap:8px;padding:10px 16px;border-radius:999px;
+  background:var(--nf-ink);color:#fff;font-size:15px;font-weight:700;
+  box-shadow:0 8px 24px rgba(0,0,0,.18);opacity:0;transform:translateY(8px);
+  pointer-events:none;transition:opacity .18s,transform .18s;
+}
+.toast.on{opacity:1;transform:none}
+body.dock-collapsed .toast{bottom:calc(24px + 44px + 24px)}
+
+/* شماره درشت وقتی داخلی ویپ نیست */
+.dci-page .ph.big .phn{font-size:22px;font-weight:800;min-height:48px}
+.dci-who-p{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0}
+
+/* نوار یادآور زیر سربرگ */
+.dci-rembar{
+  display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;
+  margin:0 0 14px;padding:10px 12px;border-radius:12px;
+  background:#FFF8E8;border:1px solid #E8D7A8;border-inline-start:4px solid #D4A017;
+  color:var(--nf-ink);
+}
+.dci-rembar p{margin:0;font-size:15px;font-weight:600;line-height:1.6}
+.dci-rembar .dci-hint{font-size:13px;font-weight:600;color:var(--nf-ink-muted)}
+
+/* کارت پرونده‌ی مشتری (اعتبارسنجی + ویزارد تماس اول) در ستون اصلی */
+.dci-filecard{
+  margin:0 0 16px;padding:16px;border:1px solid var(--nf-line-strong);
+  border-radius:16px;background:var(--nf-surface-2,#f7f8fb);
+}
+.dci-filecard>h2{font-size:18px;font-weight:800;margin:0 0 12px;color:var(--nf-ink)}
+.dci-filecard .dci-block:last-child{margin-bottom:0}
+.dci-cv{display:flex;flex-direction:column;align-items:stretch;gap:8px}
+.dci-cvh{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dci-cvh h3{margin:0}
+.dci-opt{
+  display:inline-flex;align-items:center;min-height:24px;padding:0 8px;border-radius:99px;
+  background:#fff;border:1px solid var(--nf-line-strong);font-size:12px;font-weight:800;color:var(--nf-ink-muted);
+}
+.dci-flab,.dci-fc label{display:flex;flex-direction:column;align-items:stretch;gap:6px;width:100%;font-size:15px;font-weight:700;color:var(--nf-ink)}
+.dci-inp, .dci-fc input.dci-inp, input.dci-inp{
+  width:100%;min-height:48px;height:48px;box-sizing:border-box;
+  border:1px solid var(--nf-line-strong);border-radius:12px;padding:0 12px;
+  font:inherit;font-size:16px;font-weight:600;background:#fff;color:var(--nf-ink);
+}
+.dci-cns{display:flex;align-items:flex-start;gap:8px;min-height:44px;font-size:15px;font-weight:700;color:var(--nf-ink);cursor:pointer}
+.dci-cns input[type=checkbox]{width:20px;height:20px;margin-top:2px;flex:none;accent-color:var(--nf-brand-600)}
+.dci-cvr{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.dci-cvr .btn{min-height:48px}
+.dci-hint{font-size:13px;font-weight:600;color:var(--nf-ink-muted);line-height:1.6}
+.dci-fc{display:flex;flex-direction:column;gap:10px}
+.dci-step{margin:0;font-size:14px;font-weight:800;color:var(--nf-ink-muted)}
+.dci-prog{height:8px;border-radius:99px;background:#e7eaf2;overflow:hidden}
+.dci-prog>span{display:block;height:100%;background:var(--nf-brand-600);border-radius:99px}
+.dci-fc .dci-acts{margin:0}
+.dci-fc .dci-acts .btn{min-height:48px}
+
+/* مخفی‌شدن خودکار داک با اسکرول (t1031u): transform، بدون تغییر چیدمان یا فاصلهٔ پایین */
+.dock, .tb, .ss-dock, .ss-tb{transition:transform .2s ease}
+@media (prefers-reduced-motion: reduce){
+  .dock, .tb, .ss-dock, .ss-tb{transition:none}
+}
+body.dock-autohide:not(.dock-collapsed) .dock,
+body.dock-autohide:not(.dock-collapsed) .tb,
+body.dock-autohide:not(.dock-collapsed) .ss-dock,
+body.dock-autohide:not(.dock-collapsed) .ss-tb{
+  transform:translateY(calc(100% + 40px));
+  pointer-events:none;
+}
+body.dock-autohide:not(.dock-collapsed) .dk-reopen{display:none !important}
+/* فاصلهٔ پایین در حالت مخفی خودکار همان داک + ۲۴ می‌ماند */
+
+.ss-dock, .ss-tb, .dock, .tb{position:relative}
+.ss-dock{overflow:visible}
+.ss-dock .dk-toggle{inset-inline-end:8px}
