@@ -447,8 +447,13 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
   return <section className="dci-col dci-mid" aria-label="اطلاعات تماس و پرونده‌ها">
     <div className="dci-head">
     <p className="dci-cur">{m.call}</p>
-    <div className="dci-who"><h2>{fd(m.customer.name)}</h2> {cidBtn(m.customer.id, onCopy)}</div>
-    <div className="dci-idrow">{m.customer.phone ? <Phone raw={m.customer.phone} big={!ext} onCopy={onCopy} /> : null}</div>
+    <div className="dci-head-main">
+      <div className="dci-who-row">
+        <div className="dci-who"><h2>{fd(m.customer.name)}</h2> {cidBtn(m.customer.id, onCopy)}</div>
+        <CallActs ext={ext} place="head" narrow={narrow} onCall={onCall} onResult={onResult} />
+      </div>
+      <div className="dci-idrow dci-idrow-phone">{m.customer.phone ? <Phone raw={m.customer.phone} big={!ext} onCopy={onCopy} /> : null}</div>
+    </div>
     {ps}
     {prio}
     {promo?.open ? createPortal(<div className="dci-dlgw" data-testid="dci-promote-wrap" data-nodnd="true">
@@ -462,7 +467,6 @@ function MidCol({ m, ext, narrow, onCopy, onCall, onResult, onPromote, promoting
         </div>
       </div>
     </div>, document.body) : null}
-    <CallActs ext={ext} place="head" narrow={narrow} onCall={onCall} onResult={onResult} />
     </div>
     {remBar ? <div className="dci-rembar" data-testid="dci-rembar" role="status"><p>{remBar.text}</p><span className="dci-hint">با ثبت نتیجه، این یادآور تمام می‌شود.</span></div> : null}
     {result?.open ? <div className="dci-result dp-result" data-testid="dci-result">
