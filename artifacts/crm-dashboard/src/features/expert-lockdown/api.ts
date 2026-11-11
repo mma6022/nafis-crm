@@ -38,7 +38,7 @@ export const elApi = {
   firstCallLogged: (customerId: number, callLogId: number) => req<{ ok: true; mirrored: boolean }>('POST', '/expert-lockdown/incoming/first-call-logged', { customerId, callLogId }),
   daily: (day?: string) => req<ElDaily>('GET', `/expert-lockdown/admin/daily${day ? `?day=${day}` : ''}`),
 };
-/** Only these three accounts can ever be locked (server: EL_USERS); nobody else even asks. */
+/** Original three locked accounts (server: EL_USERS). Team members may also be locked via flag.multi_team_v1; the server decides. Do not use this list to hide the /me request. */
 export const EL_UIDS = [2, 3, 8];
 export const EL_ME_KEY = ['expert-lockdown', 'me'];
 export function useLockdownMe(enabled = true) {
