@@ -476,15 +476,38 @@ await checkAsync("owner who is an admin: first sentence only, connect link to /b
     assert.equal(send.status, 409);
     assert.equal(send.error, "bot_not_connected");
     assert.equal(send.message, SR_TEXTS.notConnectedOwner);
-    const ownerAdminBySp = { id: 900001, role: "admin", salesperson_id: kazemiSp };
-    const bySp = await srChatView(tokenChat.id, ownerAdminBySp, NOW);
-    assert.equal(bySp.state, "bot_not_connected");
-    assert.equal(bySp.showConnectLink, true);
-    assert.equal(bySp.connectHref, "/bale-bot/admin");
-    assert.equal(bySp.reason, SR_TEXTS.notConnectedOwner);
+    // Same salesperson_id but a different user id is not the owner.
+    const adminSameSp = { id: 900001, role: "admin", salesperson_id: kazemiSp };
+    const sameSp = await srChatView(tokenChat.id, adminSameSp, NOW);
+    assert.equal(sameSp.state, "bot_not_connected");
+    assert.equal(sameSp.showConnectLink, false);
+    assert.equal(sameSp.connectHref, null);
+    assert.equal(sameSp.reason, SR_TEXTS.notConnectedOther);
     assert.equal(deliveries.length, start);
     assert.equal(sendContractCalls.length, 0);
     assert.equal(smsCalls.length, 0);
+  } finally {
+    executeChanges("UPDATE bale_bots SET token_ct=?, token_key_id=?, status=? WHERE id=?", [prev.token_ct, prev.token_key_id, prev.status, botId]);
+  }
+});
+
+await checkAsync("admin viewing another expert's case gets the other-expert copy and no connect link", async () => {
+  const tokenCust = insCust("پرستو زمانی", "09120000033", kazemiSp);
+  const tokenChat = openChat(kazemiBot, "پرستو", "زمانی", tokenCust, true);
+  makeApp(tokenCust);
+  makeGen(queryRow("SELECT id FROM loan_applications WHERE customer_id=? ORDER BY id DESC LIMIT 1", [tokenCust]).id, tokenCust);
+  const botId = kazemiBot.id;
+  const prev = queryRow("SELECT token_ct, token_key_id, status FROM bale_bots WHERE id=?", [botId]);
+  try {
+    executeChanges("UPDATE bale_bots SET token_ct=NULL, token_key_id=NULL, status='off' WHERE id=?", [botId]);
+    const adminView = await srChatView(tokenChat.id, admin, NOW);
+    assert.equal(adminView.state, "bot_not_connected");
+    assert.equal(adminView.canSend, false);
+    assert.equal(adminView.showConnectLink, false);
+    assert.equal(adminView.connectHref, null);
+    assert.equal(adminView.reason, SR_TEXTS.notConnectedOther);
+    assert.equal(adminView.reason, "ربات بله‌ی کارشناس این پرونده وصل نیست، یادآور امضا فرستاده نمی‌شود.");
+    assert.notEqual(admin.id, kazemi.id);
   } finally {
     executeChanges("UPDATE bale_bots SET token_ct=?, token_key_id=?, status=? WHERE id=?", [prev.token_ct, prev.token_key_id, prev.status, botId]);
   }

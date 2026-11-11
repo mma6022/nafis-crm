@@ -7,22 +7,22 @@
 .sr-nc{display:flex;align-items:center;gap:8px;width:100%;flex-basis:100%;min-width:0;min-height:44px;padding:8px 12px;border-radius:12px;background:var(--nf-warning-50,#FEF8EA);color:var(--nf-ink,#0B1450);box-sizing:border-box;flex-shrink:0;height:auto;overflow:visible}
 .sr-nc .i{width:20px;height:20px;flex:none;color:var(--nf-warning,#8A6212)}
 .sr-nc-text{margin:0;flex:1 1 auto;min-width:0;font-size:14px;font-weight:600;line-height:1.7;color:var(--nf-ink,#0B1450)}
-.sr-nc-link{flex:none;display:inline-flex;align-items:center;justify-content:center;min-height:44px;min-width:44px;padding:8px 6px;font-size:14px;font-weight:700;line-height:1.4;color:rgb(41,54,155);text-decoration:none;white-space:nowrap}
-.sr-nc-link:hover,.sr-nc-link:focus-visible{text-decoration:underline}
+.sr-nc-link{flex:none;display:inline-flex;align-items:center;justify-content:flex-start;width:max-content;max-width:100%;min-height:44px;min-width:44px;padding:8px 0;font-size:14px;font-weight:700;line-height:1.4;color:var(--nf-brand-600,#29369B);text-decoration:underline;text-underline-offset:3px;text-decoration-color:currentColor;white-space:nowrap}
+.sr-nc-link:hover,.sr-nc-link:focus-visible{color:var(--nf-brand-700,#2A37A8);text-decoration:underline}
 .cp .sr-nc,.bc-meta .sr-nc{margin-top:8px}
 
 /* r4b (Armita): left info column at 1280 — vertical row. Full-width text; remaining link under the text, RTL-start (راست‌چین). */
 .cp .sr-nc{display:grid;grid-template-columns:20px minmax(0,1fr);grid-template-rows:auto auto;align-items:start;column-gap:8px;row-gap:2px;flex:none;min-height:max(44px,min-content);height:auto;overflow:visible}
 .cp .sr-nc .i{grid-column:1;grid-row:1}
 .cp .sr-nc-text{grid-column:2;grid-row:1;flex:none;width:100%;min-height:min-content}
-.cp .sr-nc-link{grid-column:2;grid-row:2;justify-self:start;align-self:start;min-height:44px}
+.cp .sr-nc-link{grid-column:2;grid-row:2;justify-self:start;align-self:start;justify-content:flex-start;width:max-content;margin-inline-end:auto;text-align:start;min-height:44px}
 
 /* r4b (Armita): at 390 (and all narrow viewports) put any remaining link under the text, راست‌چین. */
 @media (max-width:720px){
   .sr-nc{display:grid;grid-template-columns:20px minmax(0,1fr);grid-template-rows:auto auto;align-items:start;column-gap:8px;row-gap:2px;flex:none;min-height:max(44px,min-content);height:auto;overflow:visible}
   .sr-nc .i{grid-column:1;grid-row:1}
   .sr-nc-text{grid-column:2;grid-row:1;flex:none;width:100%;min-height:min-content}
-  .sr-nc-link{grid-column:2;grid-row:2;justify-self:start;align-self:start;min-height:44px}
+  .sr-nc-link{grid-column:2;grid-row:2;justify-self:start;align-self:start;justify-content:flex-start;width:max-content;margin-inline-end:auto;text-align:start;min-height:44px}
 }
 .sr-cool,.bbt .sr-acts .btn.sr-cool,.bbt .cp .btn.sr-cool,.bc-meta .sr-acts .btn.sr-cool{white-space:normal;height:auto;min-height:44px;max-height:none;line-height:1.6;text-align:start;justify-content:flex-start;align-items:flex-start;padding-block:8px;flex:1 1 100%;width:100%;max-width:100%;min-width:0;overflow:visible;text-overflow:unset;overflow-wrap:anywhere;box-sizing:border-box}
 .sr-why,.sr-last,.bc-meta .bc-perm{margin:0;width:100%;flex-basis:100%;min-width:0;font-size:13px;font-weight:600;color:var(--nf-ink-muted);line-height:1.7}
