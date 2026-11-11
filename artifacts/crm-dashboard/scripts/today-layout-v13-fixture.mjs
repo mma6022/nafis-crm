@@ -1,4 +1,4 @@
-/** today-layout v1.3 layout fixtures. No live DB, no phones, no secrets, no user 29. */
+/** today-layout v1.8 layout fixtures. No live DB, no phones, no secrets, no user 29. */
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -12,10 +12,15 @@ const layCss = fs.readFileSync(path.join(root, "features/daily-customer-inline/t
 const dockCss = fs.readFileSync(path.join(root, "features/bottom-nav-v2/dock-collapse.css"), "utf8");
 const shellCss = fs.readFileSync(path.join(root, "features/sales-shell/sales-shell.css"), "utf8");
 const dciTsx = fs.readFileSync(path.join(root, "features/daily-customer-inline/DailyCustomerInline.tsx"), "utf8");
+const feedTsx = fs.readFileSync(path.join(root, "features/daily-customer-inline/today-feed.tsx"), "utf8");
 const shellTsx = fs.readFileSync(path.join(root, "components/CrmShell.tsx"), "utf8");
 const navTsx = fs.readFileSync(path.join(root, "features/sales-shell/SalesShellNav.tsx"), "utf8");
 const hookTs = fs.readFileSync(path.join(root, "features/sales-shell/dock-collapse.ts"), "utf8");
-const PUPPETEER = "/workspace/multicase/r3db/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js";
+const PUPPETEER = [
+  process.env.PUPPETEER_CORE,
+  "/tmp/ppe/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js",
+  "/workspace/multicase/r3db/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js",
+].find((p) => p && fs.existsSync(p)) || "puppeteer-core";
 
 let n = 0;
 const check = (name, ok, detail = "") => {
@@ -42,12 +47,27 @@ check("body title and date are gone; Jalali date chip lives in the shell top bar
   && layCss.includes("padding-top:16px")
   && layCss.includes(".dci-date,.dci-page>h1{display:none"));
 
-check("first-call form and instant credit live in the mid-column file card",
-  dciTsx.includes('data-testid="dci-filecard"')
-  && /dci-filecard[\s\S]*FirstCall/.test(dciTsx)
-  && /dci-filecard[\s\S]*CreditBlock/.test(dciTsx)
-  && dciTsx.includes("<FirstCall")
-  && !/function LeftCol[\s\S]*<FirstCall/.test(dciTsx));
+check("پرونده box lives in the mid-column file card; credit is in the side; wallet and side guarantor are gone",
+  (() => {
+    const mid = dciTsx.slice(dciTsx.indexOf("function MidCol"), dciTsx.indexOf("function RightCol"));
+    const left = dciTsx.slice(dciTsx.indexOf("function LeftCol"));
+    const card = mid;
+    return dciTsx.includes('data-testid="dci-filecard"')
+      && dciTsx.includes("پرونده‌ی مشتری")
+      && feedTsx.includes("تکمیل پرونده")
+      && feedTsx.includes("id=\"dci-filebox\"")
+      && feedTsx.includes("id=\"dci-filewiz\"")
+      && card.includes("<FileBox")
+      && card.includes("<FirstCall")
+      && !card.includes("CreditBlock")
+      && left.includes("CreditBlock")
+      && left.includes("اعتبارسنجی فوری")
+      && !dciTsx.includes("WalletBlock")
+      && !dciTsx.includes("GuarBlock")
+      && !dciTsx.includes("یادداشت تازه")
+      && !dciTsx.includes("فقط یادداشت")
+      && dciTsx.includes("تاریخچه و یادداشت‌ها");
+  })());
 
 check("side column wraps notes then guarantor/wallet with 16px and no shared grid row",
   layCss.includes("grid-template-areas:\"mid side\"")
@@ -73,12 +93,12 @@ check("lockdown 403 still offers a path back to /today and tabs stay in the mark
   && (layCss.includes(".dci-tabs{display:none}") || dockCss.includes(".dci-tabs{display:none}")));
 
 check("inventory fields are still present",
-  ["کد ملی", "تکمیل پرونده در تماس اول", "ضامن", "کیف پول", "درخواست تسهیلات جدید", "یادداشت‌ها", "تاریخچه‌ی تماس‌ها"]
-    .every((s) => dciTsx.includes(s) || dciCss.includes(s) || layCss.includes(s)));
+  ["کد ملی", "تکمیل پرونده در تماس اول", "ضامن", "درخواست تسهیلات جدید", "تاریخچه و یادداشت‌ها", "اعتبارسنجی فوری", "خلاصه‌ی تماس", "ثبت نتیجه‌ی تماس", "اطلاعات هویتی"]
+    .every((txt) => dciTsx.includes(txt) || feedTsx.includes(txt) || dciCss.includes(txt) || layCss.includes(txt)));
 
 check("queue is a compact timeline (dot, turn, name, type tag) with no id, time, note or VoIP on the strip",
   (() => {
-    const body = dciTsx.slice(dciTsx.indexOf("function Timeline"), dciTsx.indexOf("function HistList"));
+    const body = dciTsx.slice(dciTsx.indexOf("function Timeline"), dciTsx.indexOf("function CreditBlock"));
     return dciTsx.includes("dci-tlw")
       && body.includes("dci-dot")
       && body.includes("dci-nord")
@@ -91,6 +111,42 @@ check("queue is a compact timeline (dot, turn, name, type tag) with no id, time,
       && !body.includes("{t.tm}")
       && !body.includes("cidBtn");
   })());
+
+
+check("full shell title «کارهای امروز من» is used even when the nav label is short",
+  shellTsx.includes("کارهای امروز من")
+  && /location === '\/today'[^\n]*\? 'کارهای امروز من'/.test(shellTsx));
+
+check("priority row is full width so status can sit opposite the chips at 1280",
+  /\.dci-page \.dci-prio\{[^}]*width:100%/.test(layCss)
+  && /\.dci-ps\{[^}]*min-width:0/.test(layCss)
+  && !/min-width:min\(100%,16rem\)/.test(layCss));
+
+check("one history box: notes under the call, compact result, no popup, no-ext header scrolls to it",
+  dciTsx.includes("<HistFeed")
+  && feedTsx.includes("dci-call-note")
+  && feedTsx.includes("خلاصه‌ی تماس")
+  && feedTsx.includes("ثبت نتیجه‌ی تماس")
+  && !dciTsx.includes("CqResultFields")
+  && !dciTsx.includes("SimpleCallForm")
+  && dciTsx.includes('getElementById("dci-result")'));
+
+check("after a priority transfer the today plan and reminders refetch, and 403 not_owner customers drop from the queue",
+  dciTsx.includes('queryKey: ["dci-today"]')
+  && dciTsx.includes("getListRemindersQueryKey")
+  && dciTsx.includes("droppedIds")
+  && dciTsx.includes("not_owner"));
+
+check("wizard replaces the mid پرونده box in place and ویرایش starts at step 1 with saved values",
+  feedTsx.includes('id="dci-filebox"')
+  && feedTsx.includes('id="dci-filewiz"')
+  && feedTsx.includes("hidden={open}")
+  && feedTsx.includes("hidden={!open}")
+  && feedTsx.includes("fileInitials")
+  && dciTsx.includes("useState(1)")
+  && layCss.includes("#dci-filebox[hidden]")
+  && layCss.includes("#dci-filewiz[hidden]"));
+
 
 check("ارتقا به اولویت ۱ button is gone; وضعیت مشتری saves via existing useUpdateCustomer",
   !dciTsx.includes("dci-upgrade-p1")
@@ -191,14 +247,17 @@ ${dockCss}
           <div class="dci-board" id="dci-board">
             <div class="dci-side">
               <section class="dci-col dci-right" id="col-notes">
-                <h2>تاریخچه‌ی تماس‌ها</h2>
+                <h2>تاریخچه و یادداشت‌ها</h2>
                 <p class="dci-empty dci-hist-empty">سابقه‌ی تماسی ثبت نشده است.</p>
-                <h2 class="dci-notes-h">یادداشت‌ها</h2>
-                <form class="dci-add"><label>یادداشت تازه</label><textarea></textarea><button class="btn pri" type="button">افزودن یادداشت</button></form>
+                <div class="dci-callres" id="dci-result"><h3>ثبت نتیجه‌ی تماس</h3>
+                  <div class="dci-res-chips"><button type="button" class="dci-res-chip">جواب داد</button></div>
+                  <button class="btn pri" type="button">ثبت</button>
+                </div>
               </section>
               <section class="dci-col dci-left" id="col-file" data-testid="dci-left">
-                <div class="dci-block"><h3>ضامن</h3><p>ضامن ندارد</p></div>
-                <div class="dci-wal"><h3>کیف پول</h3><p class="dci-empty">کیف پولی ساخته نشده یا تراکنشی ندارد.</p></div>
+                <div class="dci-block" data-testid="dci-credit"><div class="dci-cvh"><h3>اعتبارسنجی فوری</h3><span class="dci-opt">اختیاری</span></div>
+                  <p class="dci-empty">رتبه هنوز استعلام نشده است.</p>
+                </div>
               </section>
             </div>
             <section class="dci-col dci-mid" id="col-mid">
@@ -228,8 +287,19 @@ ${dockCss}
                 </div>
               </div>
               <div class="dci-rembar" data-testid="dci-rembar"><p>یادآور</p></div>
-              <section class="dci-filecard" data-testid="dci-filecard"><h2>پرونده‌ی مشتری</h2>
-                <div class="dci-fc"><p class="dci-step">مرحله‌ی ۱ از ۳</p><label class="dci-flab">کد ملی <input class="dci-inp"/></label></div>
+              <div class="dci-id-mid">
+                <h2 class="dci-id-h">اطلاعات هویتی</h2>
+                <div class="dci-idrow"><span class="lbl">کد ملی</span> هنوز ثبت نشده است</div>
+              </div>
+              <section class="dci-filecard" id="dci-filecard" data-testid="dci-filecard"><h2>پرونده‌ی مشتری</h2>
+                <div class="dci-filebox" id="dci-filebox">
+                  <p class="dci-empty">پرونده تماس اول هنوز تکمیل نشده است.</p>
+                  <button class="btn pri" type="button" id="dci-file-open">تکمیل پرونده</button>
+                </div>
+                <div class="dci-block" id="dci-filewiz">
+                  <h3>تکمیل پرونده در تماس اول</h3>
+                  <div class="dci-fc"><p class="dci-step">مرحله‌ی ۱ از ۳</p><label class="dci-flab">کد ملی <input class="dci-inp"/></label></div>
+                </div>
               </section>
               <div class="dci-new"><button class="btn pri" type="button">درخواست تسهیلات جدید</button></div>
             </section>
@@ -379,7 +449,7 @@ try {
     JSON.stringify({ display: at1024.display, areas: at1024.areas, cols: at1024.cols, gap: at1024.gapFileNotes, twoCol: at1024.twoCol }));
 
   const at1356 = await measure(1356, 635);
-  check("at 1356 (two columns) ضامن sits 16px under notes, with no ~200px gap",
+  check("at 1356 (two columns) اعتبارسنجی sits 16px under تاریخچه, with no ~200px gap",
     at1356.twoCol && at1356.gapFileNotes >= 12 && at1356.gapFileNotes <= 24 && at1356.gapFileNotes < 80,
     JSON.stringify({ gap: at1356.gapFileNotes, twoCol: at1356.twoCol, midH: at1356.midH, notesH: at1356.notesH }));
 
@@ -398,9 +468,9 @@ try {
     JSON.stringify({ oneCol: at390.oneCol, midTop: at390.midTop, notesTop: at390.notesTop, fileTop: at390.fileTop }));
 
   const at1280 = await measure(1280, 800);
-  check("wizard input is 48px; file card sits above loan actions; empty history to notes is 24px",
-    at1280.inpH >= 47 && at1280.filecardAboveCases && at1280.emptyToNotes >= 20 && at1280.emptyToNotes <= 32,
-    JSON.stringify({ inpH: at1280.inpH, filecardAboveCases: at1280.filecardAboveCases, emptyToNotes: at1280.emptyToNotes }));
+  check("wizard input is 48px and the mid پرونده card sits above loan actions",
+    at1280.inpH >= 47 && at1280.filecardAboveCases,
+    JSON.stringify({ inpH: at1280.inpH, filecardAboveCases: at1280.filecardAboveCases }));
 
   const c1280 = at1280.call;
   check("at 1280 «تماس» is 48px on the name row, to the left of the name, and not under the priorities",
