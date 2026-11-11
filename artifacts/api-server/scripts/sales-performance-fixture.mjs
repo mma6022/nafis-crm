@@ -40,6 +40,7 @@ const { crmDb, execute } = await import("../src/lib/crm-db.ts");
 const sp = await import("../src/lib/sales-performance.ts");
 const dates = await import("../../crm-dashboard/src/features/sales-performance/sales-performance-dates.ts");
 const router = (await import("../src/routes/sales-performance.ts")).default;
+const { expertLockdownGuard, EL_ALLOWED_PAGES } = await import("../src/lib/expert-lockdown.ts");
 
 /* ---------------- Part A: synthetic scoring / period / incomplete ---------------- */
 
@@ -422,6 +423,52 @@ try {
     assert.equal(r.b.self.score, null);
     assert.equal(r.b.self.rank, null);
     assert.equal(r.b.experts, undefined);
+  });
+
+  await ok("lockdown allow-list includes the sales-performance page and APIs", () => {
+    assert.ok(EL_ALLOWED_PAGES.includes("/sales-performance"));
+  });
+
+  await ok("locked experts 8/2/3 can read their own report and cannot read another", async () => {
+    execute(`INSERT INTO call_queue_settings(key,value,updated_at) VALUES(?,?,?)
+             ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+      ["flag.expert_lockdown", "1", NOW.toISOString()]);
+    const appL = express();
+    appL.use(express.json());
+    appL.use((req, res, next) => {
+      const a = actors[req.headers["x-actor"]];
+      if (!a) return res.sendStatus(401);
+      res.locals.authUser = a;
+      next();
+    });
+    appL.use("/api", expertLockdownGuard, router);
+    const serverL = http.createServer(appL);
+    await new Promise((r) => serverL.listen(0, "127.0.0.1", r));
+    const portL = serverL.address().port;
+    const callL = async (actor, method, url) => {
+      const r = await fetch(`http://127.0.0.1:${portL}/api${url}`, { method, headers: { "x-actor": actor } });
+      const text = await r.text();
+      let json = null; try { json = text ? JSON.parse(text) : null; } catch { json = text; }
+      return { s: r.status, b: json };
+    };
+    try {
+      const me = await callL("kazemi", "GET", "/sales-performance/me");
+      assert.equal(me.s, 200, JSON.stringify({ s: me.s, err: me.b && me.b.error }));
+      assert.equal(me.b.access, "expert");
+      assert.equal(me.b.canViewAll, false);
+      const own = await callL("kazemi", "GET", "/sales-performance?period=day&anchor=2026-11-10");
+      assert.equal(own.s, 200, JSON.stringify({ s: own.s, err: own.b && own.b.error }));
+      assert.equal(own.b.self.salespersonId, 6);
+      assert.equal(own.b.experts, undefined);
+      const other = await callL("kazemi", "GET", "/sales-performance?period=day&anchor=2026-11-10&expertId=3");
+      assert.equal(other.s, 403);
+      const admin = await callL("admin", "GET", "/sales-performance?period=day&anchor=2026-11-10");
+      assert.equal(admin.s, 200);
+      assert.ok(Array.isArray(admin.b.experts));
+    } finally {
+      await new Promise((r) => serverL.close(r));
+      execute("UPDATE call_queue_settings SET value='0' WHERE key='flag.expert_lockdown'");
+    }
   });
 
   await ok("flag off again is 404", async () => {

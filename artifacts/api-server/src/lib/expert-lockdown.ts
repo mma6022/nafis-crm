@@ -44,7 +44,7 @@ export const EL_SEARCH_WINDOW_MS = 10 * 60_000;
 export const EL_BELL_WINDOW_MS = 30 * 60_000; // at most one owner bell per caller + customer in this window
 export const EL_ADMIN_USER_IDS = [1, 5];
 /** Dashboard routes (hrefs) the locked experts keep. */
-export const EL_ALLOWED_PAGES = ["/today", "/loan-applications", "/payment-orders", "/goods-purchases", "/messengers", "/internal-chat", "/bale-bot"];
+export const EL_ALLOWED_PAGES = ["/today", "/loan-applications", "/payment-orders", "/goods-purchases", "/messengers", "/internal-chat", "/bale-bot", "/sales-performance"];
 
 type U = { id: number; role: string; salespersonId: number | null; fullName?: string | null; customerScope?: string };
 
@@ -128,6 +128,8 @@ const ALLOW: RegExp[] = [
   /^\/instant-credit-check\/me$/,
   // REMINDER-68: «ارتقا به اولویت ۱» card's closer preview (?customerId= is still checked below, own customers only).
   /^\/sales\/next-closer$/,
+  // sales-performance v1: own report only (handlers re-check; other experts stay 403).
+  /^\/sales-performance(\/|$)/,
 ];
 /** REMINDER-68: the expert's own (not merged) customer — opens READ of the file/history/notes, «ثبت یادآور» and «ارتقا به اولویت ۱»
  *  for every own customer (not only today's list). The customers list/menu stays closed; other experts' customers stay 403/404. */
