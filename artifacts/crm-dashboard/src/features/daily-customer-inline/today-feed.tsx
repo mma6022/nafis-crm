@@ -105,7 +105,7 @@ function CallSummary({ eventId, forceOpen }: { eventId: number; forceOpen?: bool
   if (q.isFetched && !has && !q.isError) return null;
   return <>
     <button className="dci-sum-btn" type="button" aria-expanded={open} data-testid="dci-sum-btn" onClick={() => setOpen((o) => !o)}>
-      <DciIcon id="i-chev-l" /> خلاصه‌ی تماس
+      <DciIcon id="i-chev-l" className="i" /> خلاصه‌ی تماس
     </button>
     <div className="dci-sum" hidden={!open} data-testid="dci-sum">
       <div className="dci-sum-box">

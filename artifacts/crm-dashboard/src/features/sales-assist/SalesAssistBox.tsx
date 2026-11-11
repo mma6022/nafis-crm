@@ -88,7 +88,7 @@ export function SalesAssistBox({ user, onCall }: { user: User; onCall: (customer
   });
 
   if (!user || (data && !data.eligible && !(isAdmin && data.previewable.length))) return null;
-  if (!data && user.role !== 'admin' && (user.salespersonId == null || [5, 19, 20].includes(user.salespersonId))) return null; // trainees: no skeleton flash (server decides)
+  if (!data && user.role !== 'admin' && (user.salespersonId == null || [19, 22].includes(user.salespersonId))) return null; // trainees: no skeleton flash (server decides)
   if (q.isError && !data) return null;
   const preview = !!data?.preview || (isAdmin && !data?.eligible);
   if (isAdmin && data && !data.eligible && previewSp == null && data.previewable.length) { queueMicrotask(() => setPreviewSp(data.previewable[0].id)); }

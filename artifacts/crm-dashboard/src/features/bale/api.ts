@@ -56,7 +56,7 @@ export type BaleChat = {
   autoReply?: { label: string; on: boolean; owner: 'assistant' | 'expert'; reason: string | null; at: string | null; by: string | null } | null;
 };
 
-export const BALE_TRAINEES: readonly number[] = [5, 19, 20];
+export const BALE_TRAINEES: readonly number[] = [5, 19, 20, 22]; // current trainees + t765u: 5/20 stay excluded from personal Bale connect
 type U = { id?: number; role?: string | null; salespersonId?: number | null } | null | undefined;
 /** May connect an own Bale account (mirrors server baleEligible). */
 export const baleCanConnect = (u: U) => Boolean(u && u.id !== 29 && u.role === 'salesperson' && u.salespersonId && !BALE_TRAINEES.includes(u.salespersonId));

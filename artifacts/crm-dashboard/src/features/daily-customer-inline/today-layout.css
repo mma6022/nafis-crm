@@ -553,7 +553,7 @@ body:has([data-testid="dci-page"]) .app-shell.ssv2 .topbar.ss-top{margin-bottom:
   cursor:pointer;
 }
 .dci-sum-btn .i{width:16px;height:16px;flex:none;transition:transform .15s}
-.dci-sum-btn[aria-expanded=true] .i{transform:rotate(180deg)}
+.dci-sum-btn[aria-expanded=true] .i{transform:rotate(-90deg)}
 .dci-sum-btn:focus-visible{box-shadow:0 0 0 3px #fff,0 0 0 6px var(--nf-brand-600);outline:none}
 .dci-sum{width:100%;max-width:100%;box-sizing:border-box;padding-top:8px;min-width:0}
 .dci-sum[hidden]{display:none !important}

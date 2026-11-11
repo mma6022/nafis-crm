@@ -53,8 +53,11 @@ export function isExpertLockdownError(error: unknown): boolean {
 }
 
 /** Default React Query retry, with an immediate stop on 403 expert_lockdown. */
-export function shouldRetryQuery(failureCount: number, error: unknown, max = 3): boolean {
+export function shouldRetryQuery(failureCount: number, error: unknown, max = 2): boolean {
   if (isExpertLockdownError(error)) return false;
+  const status = (error as { status?: number; response?: { status?: number } } | null)?.status
+    ?? (error as { response?: { status?: number } } | null)?.response?.status;
+  if (status === 401 || status === 403) return false;
   return failureCount < max;
 }
 

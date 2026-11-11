@@ -11,7 +11,8 @@ export type MoreGroup = { id: string; label?: string; hrefs: string[] };
 export type RoleMenu = { main: MainEntry[]; more: MoreGroup[]; hide?: string[]; shortcuts: string[] };
 
 /** Trainee salespeople (same list as smart filing / sales assist). */
-export const TRAINEE_SALESPERSON_IDS = [5, 19, 20];
+/** Fallback trainee salespeople (Younesi 19, Milad 22). Arash 5 and Khordkar 20 are team experts (t765u). */
+export const TRAINEE_SALESPERSON_IDS = [19, 22];
 
 export const menuKindFor = (user?: { role?: string | null; salespersonId?: number | null } | null): MenuKind | null => {
   if (!user) return null;
