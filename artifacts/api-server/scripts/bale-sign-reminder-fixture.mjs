@@ -407,7 +407,7 @@ await checkAsync("default: send only in a chat the customer started, not the uns
   assert.equal(sendContractCalls.length, 0);
 });
 
-await checkAsync("owner bot not connected: info-row copy, no send, connect link only for the owner", async () => {
+await checkAsync("owner bot not connected: regular owner gets help text and no link; admin/other-expert views unchanged", async () => {
   const tokenCust = insCust("نادر توکلی", "09120000026", kazemiSp);
   const tokenChat = openChat(kazemiBot, "نادر", "توکلی", tokenCust, true);
   makeApp(tokenCust);
@@ -421,9 +421,13 @@ await checkAsync("owner bot not connected: info-row copy, no send, connect link 
     const view = await srChatView(tokenChat.id, kazemi, NOW);
     assert.equal(view.state, "bot_not_connected");
     assert.equal(view.canSend, false);
-    assert.equal(view.showConnectLink, true);
-    assert.equal(view.connectHref, SR_CONNECT_HREF);
-    assert.equal(view.reason, SR_TEXTS.notConnectedOwner);
+    assert.equal(view.showConnectLink, false);
+    assert.equal(view.connectHref, null);
+    assert.equal(view.reason, SR_TEXTS.notConnectedOwnerExpert);
+    assert.equal(
+      view.reason,
+      "ربات بله‌ی شما وصل نیست، برای همین یادآور امضا فرستاده نمی‌شود. برای وصل کردن با ادمین هماهنگ کنید.",
+    );
     const adminView = await srChatView(tokenChat.id, admin, NOW);
     assert.equal(adminView.state, "bot_not_connected");
     assert.equal(adminView.canSend, false);
@@ -438,6 +442,40 @@ await checkAsync("owner bot not connected: info-row copy, no send, connect link 
     assert.equal(send.ok, false);
     assert.equal(send.status, 409);
     assert.equal(send.error, "bot_not_connected");
+    assert.equal(send.message, SR_TEXTS.notConnectedOwnerExpert);
+    assert.equal(deliveries.length, start);
+    assert.equal(sendContractCalls.length, 0);
+    assert.equal(smsCalls.length, 0);
+  } finally {
+    executeChanges("UPDATE bale_bots SET token_ct=?, token_key_id=?, status=? WHERE id=?", [prev.token_ct, prev.token_key_id, prev.status, botId]);
+  }
+});
+
+await checkAsync("owner who is an admin: first sentence only, connect link to /bale-bot/admin", async () => {
+  const tokenCust = insCust("سپیده مرادی", "09120000032", kazemiSp);
+  const tokenChat = openChat(kazemiBot, "سپیده", "مرادی", tokenCust, true);
+  makeApp(tokenCust);
+  makeGen(queryRow("SELECT id FROM loan_applications WHERE customer_id=? ORDER BY id DESC LIMIT 1", [tokenCust]).id, tokenCust);
+  const botId = kazemiBot.id;
+  const prev = queryRow("SELECT token_ct, token_key_id, status FROM bale_bots WHERE id=?", [botId]);
+  assert.ok(prev, "bot row");
+  const ownerAdmin = { id: kazemi.id, role: "admin", salesperson_id: kazemiSp };
+  const start = deliveries.length;
+  try {
+    executeChanges("UPDATE bale_bots SET token_ct=NULL, token_key_id=NULL, status='off' WHERE id=?", [botId]);
+    const view = await srChatView(tokenChat.id, ownerAdmin, NOW);
+    assert.equal(view.state, "bot_not_connected");
+    assert.equal(view.canSend, false);
+    assert.equal(view.showConnectLink, true);
+    assert.equal(view.connectHref, SR_CONNECT_HREF);
+    assert.equal(SR_CONNECT_HREF, "/bale-bot/admin");
+    assert.equal(view.reason, SR_TEXTS.notConnectedOwner);
+    assert.equal(view.reason, "ربات بله‌ی شما وصل نیست، برای همین یادآور امضا فرستاده نمی‌شود.");
+    const send = await srSend(tokenChat.id, ownerAdmin, NOW);
+    assert.equal(send.ok, false);
+    assert.equal(send.status, 409);
+    assert.equal(send.error, "bot_not_connected");
+    assert.equal(send.message, SR_TEXTS.notConnectedOwner);
     assert.equal(deliveries.length, start);
     assert.equal(sendContractCalls.length, 0);
     assert.equal(smsCalls.length, 0);

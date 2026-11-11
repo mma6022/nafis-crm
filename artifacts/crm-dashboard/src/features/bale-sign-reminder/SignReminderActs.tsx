@@ -52,7 +52,7 @@ export function SignReminderActs({
       {I({ n: 'alert' })}
       <p className="sr-nc-text">{sr.reason}</p>
       {sr.showConnectLink ? (
-        <Link className="sr-nc-link" href={sr.connectHref || '/bale-bot'} data-testid="sr-connect-bot">وصل کردن ربات</Link>
+        <Link className="sr-nc-link" href={sr.connectHref || '/bale-bot/admin'} data-testid="sr-connect-bot">وصل کردن ربات</Link>
       ) : null}
     </div>
   ) : null;

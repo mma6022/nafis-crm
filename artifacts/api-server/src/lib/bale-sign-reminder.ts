@@ -26,8 +26,8 @@ export const SR_DEFAULT_SIGN_URL = "https://web.emzame.ir/";
 export const SR_BUTTON = "امضای قرارداد";
 export const SR_HISTORY_ACTION = "bale-sign-reminder-sent";
 export const SR_KEYBOARD_PREFIX = "sr_sign:";
-/** Bottom-nav «ربات بله» page. Inbox has no connect-section hash today; admin token wizard is /bale-bot/admin. */
-export const SR_CONNECT_HREF = "/bale-bot";
+/** Admin token wizard (Armita r4b). Only shown to an owner who is an admin. */
+export const SR_CONNECT_HREF = "/bale-bot/admin";
 
 export const SR_TEXTS = {
   body: (first: string, plan: string) =>
@@ -40,11 +40,13 @@ export const SR_TEXTS = {
   expired: "لینک امضا منقضی شده است. یادآوری فرستاده نمی‌شود. لینک تازه فقط از مسیر صدور فعلی فرستاده می‌شود.",
   noToken: "کلید ربات بله روی سرور ثبت نشده است. یادآوری فرستاده نمی‌شود.",
   noTokenExpert: "یادآوری امضا در بله الان در دسترس نیست.",
-  /** Owner-expert copy when their bot is not connected (Armita r4). Easy to swap. */
+  /** Owner who is an admin (Armita r4b). Easy to swap. No second sentence; link goes to /bale-bot/admin. */
   notConnectedOwner: "ربات بله‌ی شما وصل نیست، برای همین یادآور امضا فرستاده نمی‌شود.",
+  /** Regular owning expert, not admin (Armita r4b). Easy to swap. No connect link. */
+  notConnectedOwnerExpert: "ربات بله‌ی شما وصل نیست، برای همین یادآور امضا فرستاده نمی‌شود. برای وصل کردن با ادمین هماهنگ کنید.",
   /** Admin or another expert viewing the case (Armita r4). Easy to swap. */
   notConnectedOther: "ربات بله‌ی کارشناس این پرونده وصل نیست، یادآور امضا فرستاده نمی‌شود.",
-  /** Text link on the owner-expert info row (Armita r4). Easy to swap. */
+  /** Text link only when the owner viewer is an admin (Armita r4b). Easy to swap. */
   connectLink: "وصل کردن ربات",
   forbidden: "ارسال یادآوری فقط با کارشناس مشتری یا ادمین.",
   baleFailed: "ارتباط با بله برقرار نشد. دوباره تلاش کنید.",
@@ -238,6 +240,23 @@ export function srOwnerBotConnected(customerId: number | null | undefined): bool
 export function srIsOwningExpert(viewer: { id: number }, customerId: number | null | undefined): boolean {
   if (customerId == null) return false;
   return srOwnerUserIds(customerId).includes(viewer.id);
+}
+
+/** Copy + link for the not-connected row. Regular expert: help sentence, no link.
+ *  Owner who is an admin: first sentence only, link to /bale-bot/admin.
+ *  Admin or another expert viewing the case: other-expert sentence, no link. */
+export function srNotConnectedFields(viewer: { id: number; role: string }, customerId: number | null | undefined): {
+  reason: string; showConnectLink: boolean; connectHref: string | null;
+} {
+  const ownerViewer = srIsOwningExpert(viewer, customerId);
+  const ownerIsAdmin = ownerViewer && viewer.role === "admin";
+  if (ownerIsAdmin) {
+    return { reason: SR_TEXTS.notConnectedOwner, showConnectLink: true, connectHref: SR_CONNECT_HREF };
+  }
+  if (ownerViewer) {
+    return { reason: SR_TEXTS.notConnectedOwnerExpert, showConnectLink: false, connectHref: null };
+  }
+  return { reason: SR_TEXTS.notConnectedOther, showConnectLink: false, connectHref: null };
 }
 
 /** Chats the customer has actually started with the owning expert's bot (r4). Never the shared bot. */
@@ -497,25 +516,13 @@ export async function srChatView(chatRow: number, viewer: { id: number; role: st
     return { ...base, state: "link_expired", reason: SR_TEXTS.expired, canSend: false };
   }
   if (!srOwnerBotConnected(cse.customerId)) {
-    const ownerViewer = srIsOwningExpert(viewer, cse.customerId);
-    return {
-      ...base, state: "bot_not_connected", canSend: false,
-      reason: ownerViewer ? SR_TEXTS.notConnectedOwner : SR_TEXTS.notConnectedOther,
-      showConnectLink: ownerViewer,
-      connectHref: ownerViewer ? SR_CONNECT_HREF : null,
-    };
+    return { ...base, state: "bot_not_connected", canSend: false, ...srNotConnectedFields(viewer, cse.customerId) };
   }
   if (!started) {
     return { ...base, state: "bot_not_started", reason: SR_TEXTS.botNotStarted, canSend: false };
   }
   if (!srTargetHasToken(cse.customerId, chatRow)) {
-    const ownerViewer = srIsOwningExpert(viewer, cse.customerId);
-    return {
-      ...base, state: "bot_not_connected", canSend: false,
-      reason: ownerViewer ? SR_TEXTS.notConnectedOwner : SR_TEXTS.notConnectedOther,
-      showConnectLink: ownerViewer,
-      connectHref: ownerViewer ? SR_CONNECT_HREF : null,
-    };
+    return { ...base, state: "bot_not_connected", canSend: false, ...srNotConnectedFields(viewer, cse.customerId) };
   }
   if (locked) {
     return {
@@ -604,21 +611,15 @@ async function doSend(
     };
   }
   if (!srOwnerBotConnected(cse.customerId)) {
-    const ownerViewer = srIsOwningExpert(viewer, cse.customerId);
-    return {
-      ok: false, status: 409, error: "bot_not_connected",
-      message: ownerViewer ? SR_TEXTS.notConnectedOwner : SR_TEXTS.notConnectedOther,
-    };
+    const nc = srNotConnectedFields(viewer, cse.customerId);
+    return { ok: false, status: 409, error: "bot_not_connected", message: nc.reason };
   }
   if (!srCustomerStartedBot(cse.customerId)) {
     return { ok: false, status: 409, error: "bot_not_started", message: SR_TEXTS.botNotStarted };
   }
   if (!srTargetHasToken(cse.customerId, chatRow)) {
-    const ownerViewer = srIsOwningExpert(viewer, cse.customerId);
-    return {
-      ok: false, status: 409, error: "bot_not_connected",
-      message: ownerViewer ? SR_TEXTS.notConnectedOwner : SR_TEXTS.notConnectedOther,
-    };
+    const nc = srNotConnectedFields(viewer, cse.customerId);
+    return { ok: false, status: 409, error: "bot_not_connected", message: nc.reason };
   }
   const sign = await srResolveSignStatus(cse);
   if (sign === "signed" && srHideAfterSigned()) {
