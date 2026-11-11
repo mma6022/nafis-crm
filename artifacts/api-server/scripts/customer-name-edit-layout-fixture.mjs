@@ -39,10 +39,13 @@ check("desktop acts sit in the field row in JSX",
   /<div className="ed-row">[\s\S]*نام خانوادگی[\s\S]*!mobile \? <div className="ed-acts">/.test(jsx)
   && /\{mobile \? <div className="ed-acts">/.test(jsx));
 
-check("desktop CSS keeps acts on the same row as the fields",
+check("desktop CSS gives fields a 180px minimum and lets the actions wrap",
   css.includes(".ed-form.ed-desk .ed-row")
-  && css.includes("grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto")
-  && css.includes(".ed-form.ed-desk .ed-acts"));
+  && css.includes("flex-wrap:wrap")
+  && css.includes("min-width:180px")
+  && css.includes(".ed-form.ed-desk .ed-acts")
+  && css.includes(".fdv1 .fhd-r1:has(.ed-form.ed-desk)")
+  && css.includes("display:contents"));
 
 // --- measured layout in a headless page ---
 const html = `<!DOCTYPE html>
@@ -53,6 +56,12 @@ const html = `<!DOCTYPE html>
 *,*::before,*::after{box-sizing:border-box}
 .fdv1 button{cursor:pointer;border:0;background:none;padding:0}
 .btn{min-height:48px;padding:0 16px;border-radius:14px;border:1px solid #ccc;font:inherit}
+.btn.sm{padding:0 12px;white-space:nowrap}
+.fdv1 .fhd{padding:16px 20px 14px;width:640px;border:1px solid #ddd}
+.fdv1 .fhd-r1{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.fdv1 .fhd .who{flex:1;min-width:240px}
+.fdv1 .fhd-act{display:flex;gap:8px;align-items:center}
+.fdv1 .ph.big{display:flex;font-size:24px;gap:8px;margin-top:8px}
 ${css}
 body{margin:0;font-family:sans-serif}
 </style>
@@ -79,6 +88,42 @@ body{margin:0;font-family:sans-serif}
       <div class="ed-row">
         <div class="ed-f"><label>نام</label><input autocomplete="given-name" value="سمیره"/></div>
         <div class="ed-f"><label>نام خانوادگی</label><input autocomplete="family-name" value="Naderi" aria-invalid="true"/><div class="ed-err">فقط حروف فارسی وارد کنید.</div></div>
+        <div class="ed-acts">
+          <button class="btn pri" type="button">ذخیره</button>
+          <button class="btn gh" type="button">انصراف</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="fdv1" style="margin-top:40px">
+  <section class="card fhd" id="header-host" aria-label="سربرگ پرونده">
+    <div class="fhd-r1">
+      <div class="who">
+        <span class="eyb">پرونده‌ی تسهیلات ۹۲۰۰۰۱، مالی / ملی</span>
+        <div class="ed-form ed-desk" id="header-form">
+          <div class="ed-row">
+            <div class="ed-f"><label>نام</label><input autocomplete="given-name" value="سمیره"/></div>
+            <div class="ed-f"><label>نام خانوادگی</label><input autocomplete="family-name" value="نادری"/></div>
+            <div class="ed-acts">
+              <button class="btn pri" type="button">ذخیره</button>
+              <button class="btn gh" type="button">انصراف</button>
+            </div>
+          </div>
+        </div>
+        <span class="ph big">۰۹۱۲***۰۰۲۱</span>
+      </div>
+      <div class="fhd-act">
+        <a class="btn gh sm">پرونده‌ی مشتری</a>
+        <a class="btn gh sm">ثبت تماس این پرونده</a>
+      </div>
+    </div>
+  </section>
+  </div>
+  <div id="narrow-host" style="width:420px;max-width:420px;margin-top:40px">
+    <div class="ed-form ed-desk" id="narrow-form">
+      <div class="ed-row">
+        <div class="ed-f"><label>نام</label><input autocomplete="given-name" value="سمیره"/></div>
+        <div class="ed-f"><label>نام خانوادگی</label><input autocomplete="family-name" value="نادری"/></div>
         <div class="ed-acts">
           <button class="btn pri" type="button">ذخیره</button>
           <button class="btn gh" type="button">انصراف</button>
@@ -127,6 +172,7 @@ try {
     return {
       penW: pen.width, penH: pen.height,
       // RTL: نام on the right, then نام خانوادگی, then buttons further left ("after")
+      firstW: first.width, lastW: last.width,
       firstRight: first.right, lastRight: last.right, lastLeft: last.left,
       saveRight: save.right, cancelRight: cancel.right,
       sameRowLastSave: sameRow(last, save),
@@ -141,6 +187,45 @@ try {
     desk.sameRowLastSave && desk.sameRowLastCancel && desk.buttonsAfterLast
     && desk.firstRight >= desk.lastRight,
     JSON.stringify(desk));
+  check("desktop fields are at least 180px wide when space allows",
+    desk.firstW >= 180 && desk.lastW >= 180,
+    JSON.stringify({ firstW: desk.firstW, lastW: desk.lastW }));
+
+  const narrow = await page.evaluate(() => {
+    const root = document.getElementById("narrow-form");
+    const first = root.querySelector('input[autocomplete="given-name"]').getBoundingClientRect();
+    const last = root.querySelector('input[autocomplete="family-name"]').getBoundingClientRect();
+    const save = [...root.querySelectorAll(".ed-acts .btn")].find((b) => b.textContent.trim() === "ذخیره").getBoundingClientRect();
+    const cancel = [...root.querySelectorAll(".ed-acts .btn")].find((b) => b.textContent.trim() === "انصراف").getBoundingClientRect();
+    const sameRow = (a, b) => Math.max(a.top, b.top) < Math.min(a.bottom, b.bottom);
+    return {
+      firstW: first.width, lastW: last.width,
+      wrapped: save.top >= last.bottom - 1 && cancel.top >= last.bottom - 1 && !sameRow(last, save),
+    };
+  });
+  check("when the row is too narrow, fields stay at least 180px and the buttons wrap to the next line",
+    narrow.firstW >= 180 && narrow.lastW >= 180 && narrow.wrapped,
+    JSON.stringify(narrow));
+
+  const header = await page.evaluate(() => {
+    const root = document.getElementById("header-form");
+    const first = root.querySelector('input[autocomplete="given-name"]').getBoundingClientRect();
+    const last = root.querySelector('input[autocomplete="family-name"]').getBoundingClientRect();
+    const save = [...root.querySelectorAll(".ed-acts .btn")].find((b) => b.textContent.trim() === "ذخیره").getBoundingClientRect();
+    const sameRow = (a, b) => Math.max(a.top, b.top) < Math.min(a.bottom, b.bottom);
+    return {
+      firstW: first.width, lastW: last.width,
+      formW: root.getBoundingClientRect().width,
+      fieldsSideBySide: sameRow(first, last),
+      buttonsOnRow: sameRow(last, save),
+      buttonsAfterLast: save.right <= last.left + 1,
+      buttonsWrapped: !sameRow(last, save) && save.top >= last.bottom - 1,
+    };
+  });
+  check("in the file header, the two fields stay side by side at least 180px wide",
+    header.fieldsSideBySide && header.firstW >= 180 && header.lastW >= 180
+    && (header.buttonsWrapped || (header.buttonsOnRow && header.buttonsAfterLast)),
+    JSON.stringify(header));
 
   const inv = await page.evaluate(() => {
     const root = document.getElementById("invalid-form");
