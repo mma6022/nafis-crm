@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { crmDb, databasePath } from "./crm-db";
+import { crmDb, databasePath, dbDriver } from "./crm-db";
 import { logger } from "./logger";
 
 const backupDir = process.env.AUTO_BACKUP_DIR
@@ -13,6 +13,9 @@ function sqlString(value: string): string {
 }
 
 export function createDatabaseBackup(prefix = "daily"): string {
+  if (dbDriver === "pg") {
+    throw new Error("VACUUM INTO is not supported on PostgreSQL; use /root/pg-migration/scripts/backup_pg.sh");
+  }
   fs.mkdirSync(backupDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const target = path.join(backupDir, `${prefix}-${stamp}.db`);
@@ -73,6 +76,10 @@ function runScheduledBackup(): void {
 }
 
 export function startDatabaseBackupScheduler(): void {
+  if (dbDriver === "pg") {
+    logger.info("database backup scheduler skipped (DB_DRIVER=pg; use backup_pg.sh)");
+    return;
+  }
   fs.mkdirSync(backupDir, { recursive: true });
   pruneDailyBackups();
   runScheduledBackup();

@@ -15,7 +15,10 @@ async function buildAll() {
   await rm(distDir, { recursive: true, force: true });
 
   await esbuild({
-    entryPoints: [path.resolve(artifactDir, "src/index.ts"), path.resolve(artifactDir, "src/gl-backfill-cli.ts")],
+    entryPoints: [
+      path.resolve(artifactDir, "src/index.ts"),
+      path.resolve(artifactDir, "src/gl-backfill-cli.ts"),
+    ],
     platform: "node",
     bundle: true,
     format: "esm",
@@ -117,6 +120,19 @@ globalThis.__filename = __bannerUrl.fileURLToPath(import.meta.url);
 globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     `,
     },
+  });
+
+  // pg uses require() internally; a bundled ESM worker throws
+  // "Dynamic require of \"events\" is not supported". Emit CJS instead.
+  await esbuild({
+    entryPoints: [path.resolve(artifactDir, "src/pg-sync-worker.ts")],
+    platform: "node",
+    bundle: true,
+    format: "cjs",
+    outfile: path.join(distDir, "pg-sync-worker.cjs"),
+    logLevel: "info",
+    external: ["pg-native", "*.node"],
+    sourcemap: "linked",
   });
 
   // esbuild-plugin-pino embeds the build machine's absolute dist path for worker

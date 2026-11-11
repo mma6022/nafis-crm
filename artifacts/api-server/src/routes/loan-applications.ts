@@ -7,6 +7,7 @@ import { customerGuarantorGrade } from "../lib/guarantor-grade-source";
 import { creditRankOverridesForApplication, listCreditRankOverrides, logCreditRankOverride } from "../lib/credit-rank-override-log";
 import { rowAllowsProfile } from "../lib/plan-profile-match";
 import { latestApplicantProfile } from "../lib/team-sales";
+import { backgroundWorkersDisabled } from "../lib/background-workers";
 export { conditionAcceptsCreditRank } from "../lib/credit-rank-eligibility";
 import { supportedDocumentUpload } from "../lib/document-upload-type";
 import fs from "node:fs";
@@ -3234,10 +3235,12 @@ export async function syncPendingCustomerSignatures() {
     signatureSyncRunning = false;
   }
 }
-const signatureSyncStartup = setTimeout(() => void syncPendingCustomerSignatures(), 5_000);
-const signatureSyncInterval = setInterval(() => void syncPendingCustomerSignatures(), 60_000);
-signatureSyncStartup.unref();
-signatureSyncInterval.unref();
+if (!backgroundWorkersDisabled()) {
+  const signatureSyncStartup = setTimeout(() => void syncPendingCustomerSignatures(), 5_000);
+  const signatureSyncInterval = setInterval(() => void syncPendingCustomerSignatures(), 60_000);
+  signatureSyncStartup.unref();
+  signatureSyncInterval.unref();
+}
 router.post("/loan-applications/:id/generated-documents/:documentId/review", requirePermission("loan_applications.review"), (req, res) => {
   const r = scoped(Number(req.params.id), user(res));
   const decision = String(req.body?.decision || "");

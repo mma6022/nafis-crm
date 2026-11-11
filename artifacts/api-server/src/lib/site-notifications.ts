@@ -132,7 +132,7 @@ export function installSiteNotifications() {
     for (const operation of source.insertOnly ? ["INSERT"] : ["INSERT","UPDATE","DELETE"]) {
       if (operation==="UPDATE" && !watched.length) continue;
       const row = operation==="DELETE" ? "OLD" : "NEW";
-      const changed = operation==="UPDATE" ? `(${watched.map(n=>`OLD.${q(n)} IS NOT NEW.${q(n)}`).join(" OR ")})` : "1";
+      const changed = operation==="UPDATE" ? `(${watched.map(n=>`OLD.${q(n)} IS NOT NEW.${q(n)}`).join(" OR ")})` : "1=1";
       const customer = source.customer(row), resource = source.resource?.(row) ?? `${row}.${q(identity)}`;
       // Deletion of the customer itself uses its immutable old owner snapshot.
       const ownCustomer = source.table==="customers";
@@ -158,7 +158,7 @@ function permitted(user: AuthUser) {
   const permissions = user.role==="admin" ? null : [...user.permissions,...(user.role==="registrar"?["instagram.staff"]:[])];
   // Notification delivery is narrower than permission to browse CRM records.
   const assigned = user.role!=="admin";
-  const owner = assigned ? "(CASE WHEN c.id IS NOT NULL THEN c.salesperson_id ELSE e.owner_id END=?)" : "1";
+  const owner = assigned ? "(CASE WHEN c.id IS NOT NULL THEN c.salesperson_id ELSE e.owner_id END=?)" : "1=1";
   // Assistant rows (recipient_user_id set) reach only their addressee, re-checked at read time with the current role scoping:
   // registrar/admin (Sarina) as addressed; a sales expert only while the customer is still theirs (never Sarina rows); trainees / excluded never.
   const blocked = EXCLUDED_USER_IDS.includes(user.id) || (user.role==="salesperson" && (!user.salespersonId || TRAINEE_SALESPERSON_IDS.includes(user.salespersonId)));
@@ -166,7 +166,7 @@ function permitted(user: AuthUser) {
   // v6: Sarina is registrar/admin only — old Sarina rows addressed to anyone else stay in the DB but never show.
   // «پیام از شماره‌ی ناشناس» (Bale, resource_type bale-unknown) has no customer: addressee only, never role-scoped.
   // BALE-FIXB-66 «سکوت بله» (bale-silence, no customer): addressee only AND the addressee must still be an admin.
-  const mine = blocked ? "0" : `e.recipient_user_id=? AND ((c.id IS NOT NULL${wide ? "" : " AND c.salesperson_id=? AND COALESCE(e.actor_key,'')<>'assistant:sarina'"}) OR e.resource_type='bale-unknown' OR e.kind='urgent-change' OR (e.resource_type IN ('expert-analysis','cq-discipline-me')${wide ? "" : ` AND e.owner_id=${Number(user.salespersonId ?? -1)}`}) OR (e.resource_type='cq-discipline'${wide ? "" : " AND 0"}) OR (e.resource_type='bale-silence'${user.role==="admin" ? "" : " AND 0"}))`;
+  const mine = blocked ? "0=1" : `e.recipient_user_id=? AND ((c.id IS NOT NULL${wide ? "" : " AND c.salesperson_id=? AND COALESCE(e.actor_key,'')<>'assistant:sarina'"}) OR e.resource_type='bale-unknown' OR e.kind='urgent-change' OR (e.resource_type IN ('expert-analysis','cq-discipline-me')${wide ? "" : ` AND e.owner_id=${Number(user.salespersonId ?? -1)}`}) OR (e.resource_type='cq-discipline'${wide ? "" : " AND 0=1"}) OR (e.resource_type='bale-silence'${user.role==="admin" ? "" : " AND 0=1"}))`;
   return {
     sql:`((e.recipient_user_id IS NULL AND ${owner} ${permissions ? `AND e.permission IN (${permissions.length?permissions.map(()=>"?").join(","):"NULL"})` : ""}) OR (${mine}))`,
     params:[...(assigned?[user.salespersonId??-1]:[]),...(permissions??[]),...(blocked?[]:[user.id,...(wide?[]:[user.salespersonId??-1])])],

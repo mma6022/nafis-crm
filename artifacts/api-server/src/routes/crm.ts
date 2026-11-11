@@ -1261,7 +1261,7 @@ const customerSelect = `
     c.created_at,
     c.salesperson_id,
     c.merged_into_customer_id,
-    s.name AS salesperson_name,
+    MAX(s.name) AS salesperson_name,
     c.priority,
     COALESCE(c.status, 'in_progress') AS status,
     COUNT(cl.id) AS activity_count,

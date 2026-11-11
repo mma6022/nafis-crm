@@ -10,6 +10,7 @@ import { startSiteLeadWorker } from "./lib/site-leads";
 import { notifySiteLeadWindow } from "./lib/customer-notifications";
 import { crmDb } from "./lib/crm-db";
 import { startPlanRateAlerts } from "./lib/plan-rates";
+import { backgroundWorkersDisabled } from "./lib/background-workers";
 import { ensureLedgerSchema } from "./lib/ledger";
 import { ensureGlShadowSchema, startGlShadowWorker } from "./lib/gl-shadow";
 import { ensureGlReportsSchema, startGlNightlyCompare } from "./lib/gl-reports";
@@ -48,13 +49,17 @@ try {
   logger.error({ err }, "general ledger reports schema not ensured");
 }
 
-app.listen(port, (err) => {
+const listenHost = process.env.HOST || process.env.LISTEN_HOST || "";
+const onListen = (err?: Error) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
   }
-
-  logger.info({ port }, "Server listening");
+  logger.info({ port, host: listenHost || undefined }, "Server listening");
+  if (backgroundWorkersDisabled()) {
+    logger.info("background workers disabled (CRM_DISABLE_BACKGROUND_WORKERS=1)");
+    return;
+  }
   startAfterCallMonitor();
   startTranscriptWorker();
   startWalletPaymentRecovery();
@@ -65,4 +70,9 @@ app.listen(port, (err) => {
   startGlShadowWorker(crmDb, logger); // inert unless gl.shadow_nonbank is ON
   startGlNightlyCompare(crmDb, logger); // inert unless gl.nightly_compare is ON; report only
   startPlanRateAlerts(logger); // daily 09:00 Tehran; CRM-internal admin rows only (nothing is sent); PLAN_RATE_ALERTS_DISABLED=1 in tests
-});
+};
+if (listenHost) {
+  app.listen(port, listenHost, onListen);
+} else {
+  app.listen(port, onListen);
+}

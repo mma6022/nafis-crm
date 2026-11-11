@@ -87,7 +87,7 @@ export function createInternalChatRouter(deps: Dependencies) {
       clientId: m.client_id, createdAt: m.created_at, editedAt: m.edited_at, deletedAt: m.deleted_at,
       replyTo: reply ? { id: reply.id, text: reply.deleted_at ? "پیام حذف شده" : reply.text || reply.file_name || "پیوست", senderName: reply.sender_name } : null,
       readBy: rows<{user_id:number}>("SELECT user_id FROM internal_chat_reads WHERE conversation_id=? AND last_message_id>=? AND user_id<>?", [m.conversation_id, m.id, m.sender_id]).map(x => x.user_id).filter(id => allowed.includes(id)),
-      reactions: m.deleted_at ? [] : rows<{emoji:string;count:number;mine:number}>("SELECT emoji,COUNT(*) AS count,MAX(user_id=?) AS mine FROM internal_chat_reactions WHERE message_id=? GROUP BY emoji ORDER BY MIN(rowid)", [user.id, m.id]).map(x => ({ ...x, mine: !!x.mine })),
+      reactions: m.deleted_at ? [] : rows<{emoji:string;count:number;mine:number}>("SELECT emoji,COUNT(*) AS count,MAX(CASE WHEN user_id=? THEN 1 ELSE 0 END) AS mine FROM internal_chat_reactions WHERE message_id=? GROUP BY emoji ORDER BY MIN(rowid)", [user.id, m.id]).map(x => ({ ...x, mine: !!x.mine })),
     };
   }
   function unread(id: string, user: Actor) {

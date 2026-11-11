@@ -1,19 +1,18 @@
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
-
-/** Runtime DB switch. PostgreSQL is prepared off-tree in /root/pg-migration; this build still speaks SQLite. */
-export const dbDriver = (process.env.DB_DRIVER || "sqlite").toLowerCase();
-if (dbDriver !== "sqlite") {
-  throw new Error(
-    `DB_DRIVER=${dbDriver} is not enabled in this build; keep SQLite until the PG driver and fixtures are green`,
-  );
-}
 import fs from "node:fs";
 import { deriveCreditRank, invalidCreditScoreMessage } from "./credit-rank";
 import { reconcileSalespersonUserIdentities } from "./salesperson-identity";
 import { logger } from "./logger";
 import { ensureSchemaObject, schemaObjectMatches } from "./schema-objects";
 import { installCustomerIdentityGuards, registerCustomerIdentityFunctions } from "./customer-integrity";
+import { openPgDatabase, type PgDatabase } from "./pg-sync";
+
+/** Runtime switch. `sqlite` (default) keeps current behavior; `pg` uses PostgreSQL via a sync worker. */
+export const dbDriver = (process.env.DB_DRIVER || "sqlite").toLowerCase();
+if (dbDriver !== "sqlite" && dbDriver !== "pg") {
+  throw new Error(`DB_DRIVER=${dbDriver} is not supported (use sqlite or pg)`);
+}
 
 export const databasePath = process.env.CRM_DATABASE_PATH
   ? path.resolve(process.env.CRM_DATABASE_PATH)
@@ -25,7 +24,7 @@ export const databasePath = process.env.CRM_DATABASE_PATH
     );
 
 const pendingDatabasePath = `${databasePath}.pending`;
-if (fs.existsSync(pendingDatabasePath)) {
+if (dbDriver === "sqlite" && fs.existsSync(pendingDatabasePath)) {
   const beforeImportDir = path.resolve(path.dirname(databasePath), "backups", "manual-imports");
   fs.mkdirSync(beforeImportDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -37,8 +36,34 @@ if (fs.existsSync(pendingDatabasePath)) {
 
 export type SqlValue = string | number | null;
 
-export const crmDb = new DatabaseSync(databasePath);
+export const crmDb: DatabaseSync | PgDatabase = dbDriver === "pg"
+  ? openPgDatabase()
+  : new DatabaseSync(databasePath);
+
+function initPostgresRuntime(): void {
+  // Compat SQL + optional /root/pg-migration/{sql,triggers} and db/pg/*.sql are
+  // applied by the worker on connect. Identity UDFs are SQL functions, not JS.
+  const dossier = `CREATE TABLE IF NOT EXISTS customer_dossier (
+    customer_id INTEGER PRIMARY KEY,
+    city TEXT,
+    amount_toman INTEGER,
+    credit_rank TEXT,
+    g_job_status TEXT,
+    g_credit_rank TEXT,
+    g_conditions TEXT,
+    customer_note TEXT,
+    answers_json TEXT,
+    updated_at TEXT,
+    actor_user_id INTEGER,
+    actor_name TEXT
+  )`;
+  crmDb.exec(dossier);
+}
+
+if (dbDriver === "sqlite") {
 crmDb.exec("PRAGMA busy_timeout=5000");
+crmDb.exec("PRAGMA journal_mode=WAL");
+crmDb.exec("PRAGMA synchronous=NORMAL");
 // Existing databases may already contain triggers using these functions before
 // the migration below updates customers. Register them before any SQL executes.
 registerCustomerIdentityFunctions(crmDb);
@@ -1568,6 +1593,9 @@ reconcileSalespersonUserIdentities(crmDb, (userId, reason) => {
     "Skipped ambiguous salesperson identity during reconciliation",
   );
 });
+} else {
+  initPostgresRuntime();
+}
 
 export function queryRows<T>(
   sql: string,

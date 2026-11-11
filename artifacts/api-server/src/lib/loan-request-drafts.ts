@@ -4,6 +4,7 @@
 // refunds or re-prices money; pricing and reuse stay in routes/loan-applications.ts.
 // Notifications are in-CRM rows in site_notification_events only (no SMS / outbound message).
 import { crmDb, execute, executeChanges, queryRow, queryRows, runImmediateTransaction, type SqlValue } from "./crm-db";
+import { backgroundWorkersDisabled } from "./background-workers";
 import type { AuthUser } from "./auth";
 import { customerSearchSql } from "./customer-id-search";
 import { mcFlagOn } from "./multi-case";
@@ -520,6 +521,7 @@ export function runDraftMaintenance(nowMs = Date.now()) {
 let timer: NodeJS.Timeout | null = null;
 /** Every 5 minutes: close drafts whose fee became a case; (auto-delete only if enabled — default off); the warning/expiry pass is cheap and idempotent; paid reminders at most once per Tehran day after 12:00. */
 export function startLoanRequestDraftScheduler() {
+  if (backgroundWorkersDisabled()) return;
   if (timer || process.env.LOAN_REQUEST_DRAFTS_JOBS === "off") return;
   const tick = () => { try { runDraftMaintenance(); } catch (e) { console.warn("loan request drafts job skipped:", e instanceof Error ? e.message : e); } };
   timer = setInterval(tick, 5 * 60_000); timer.unref?.();

@@ -77,9 +77,10 @@ import salesTeamsRouter from "./sales-teams";
 import salesPerformanceRouter from "./sales-performance";
 import baleBotRouter from "./bale-bot";
 import voipTaskHoldRouter from "./voip-task-hold";
+import { backgroundWorkersDisabled } from "../lib/background-workers";
 
 const router: IRouter = Router();
-startDatabaseBackupScheduler();
+if (!backgroundWorkersDisabled()) startDatabaseBackupScheduler();
 // The salesperson call-history scope reads team_sales_qualifications (first-call form authors).
 ensureTeamSalesSchema();
 // crm-call-queue R1: additive columns/tables, every flag seeded OFF.
@@ -90,12 +91,12 @@ try { ensureQuestionsSkippedColumn(); } catch { /* table created lazily by team-
 // Release 81 (v1.0.1): additive call_logs.follow_up_at + one idempotent fill from the old «follow_up» result's reminder (never alters outcome/reminders).
 try { ensureCallQueueSchema(); const n = backfillFollowUpAt(); if (n) console.log(`[release81] follow_up_at filled for ${n} old follow_up call logs`); } catch (e) { console.error("[release81] follow_up_at backfill skipped", (e as Error)?.message); }
 // R2: daily discipline snapshot / 3-workday alerts; does nothing while flag.discipline is OFF.
-startCallQueueJobs();
+if (!backgroundWorkersDisabled()) startCallQueueJobs();
 ensureDailyPlanSchema();
 // REMINDERS-FOLLOW: columns/tables, one-time data step (backed up), then the follow / one-open triggers.
 ensureReminderFollowSchema();
-startDailyPlanJobs();
-startInstagramWorker();
+if (!backgroundWorkersDisabled()) startDailyPlanJobs();
+if (!backgroundWorkersDisabled()) startInstagramWorker();
 
 router.use(healthRouter);
 router.use(createAvatarRouter());
