@@ -135,8 +135,10 @@ export function vthPhaseOf(c: CallLite | null, hold: HoldRow | null): VthPhase {
   // Confirmed manual end stays final even if a late Simotel CDR arrives later (§6.4 default).
   if (c.manual_ended_at) return "final";
   if (LIVE.has(c.state) && c.active) return "in_call";
-  if (c.state === "me_timeout" || (c.state === "error" && !c.ended_at && !c.cdr_at)) return "idle";
-  if (c.state === "ended" || (c.state === "error" && c.ended_at)) {
+  // Originate failures (e.g. error_code=unavailable) always get ended_at from end(), but there is
+  // no customer-leg CDR and nothing to save — unlike a real hang-up that stays in state=ended.
+  if (c.state === "me_timeout" || (c.state === "error" && !c.cdr_at)) return "idle";
+  if (c.state === "ended" || (c.state === "error" && c.ended_at && c.cdr_at)) {
     if (vthFinalStatus(c)) return "final";
     if (hold?.last_retry_at && hold.last_retry_ok === 0) return "status_error";
     return "pending_status";
@@ -192,6 +194,8 @@ export function vthOpenCall(u: U): CallLite | null {
   if (!vthFlagOn(u.id)) return null;
   const c = loadCall(u.id);
   if (!c) return null;
+  // Stale originate failure (error, no CDR) is idle and must not lock the next start.
+  if (c.state === "error" && !c.cdr_at) return null;
   const phase = vthPhaseOf(c, holdOf(c.id));
   if (phase === "in_call" || phase === "pending_status" || phase === "status_error" || phase === "final") return c;
   return null;

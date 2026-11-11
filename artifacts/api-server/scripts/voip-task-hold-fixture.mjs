@@ -459,6 +459,29 @@ await t("manual end is refused in-call and before the 10-minute window; after ha
   assert.equal(again.body.error, "already_saved");
 });
 
+await t("stale originate error with no CDR (unavailable, ended_at set) is idle and does not 409 the next start with the hold flag ON", async () => {
+  clearActive();
+  executeChanges("UPDATE voip_click_calls SET dismissed_at=COALESCE(dismissed_at,?) WHERE user_id=? AND dismissed_at IS NULL AND result_saved_at IS NULL", [nowIso(), U.id]);
+  const created = "2026-11-10T09:05:13.000Z";
+  execute("INSERT INTO voip_click_calls(user_id,extension,customer_id,file_id,phone,state,outcome,active,created_at,updated_at,ended_at,error_code,cdr_at,result_saved_at,dismissed_at) VALUES(?,?,?,?,?,'error',NULL,0,?,?,?,'unavailable',NULL,NULL,NULL)",
+    [U.id, EXT, own.id, null, "09120000001", created, created, created]);
+  const staleId = Number(queryRow("SELECT last_insert_rowid() id").id);
+  const stale = queryRow("SELECT * FROM voip_click_calls WHERE id=?", [staleId]);
+  assert.equal(stale.state, "error");
+  assert.ok(stale.ended_at);
+  assert.equal(stale.cdr_at, null);
+  assert.equal(stale.error_code, "unavailable");
+  assert.equal(vthPhaseOf(stale, null), "idle");
+  assert.equal(vthOpenCall(U), null);
+  assert.equal(vthBlockNext(U), false);
+  const next = await vcStart(U, { customerId: own2.id, entry: "search" }, new Date());
+  assert.equal(next.status, 200, JSON.stringify(next.body ?? next));
+  assert.ok(next.body?.call?.id);
+  assert.notEqual(next.body.call.id, staleId);
+  clearActive();
+  executeChanges("UPDATE voip_click_calls SET dismissed_at=COALESCE(dismissed_at,?) WHERE id IN (?, ?)", [nowIso(), staleId, next.body.call.id]);
+});
+
 await t("no SMS and no contract / notification_settings writes happened in this fixture", () => {
   // this fixture never calls SMS helpers; assert no new sms rows if the table exists
   try {
