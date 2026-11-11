@@ -3,9 +3,11 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { VoipTranscriptSegment, VoipTranscriptSpeaker } from "@workspace/api-zod";
-import { aiOpenAiKey } from "./ai-master";
+import { aiOpenAiKey, aiOpenAiTabKey } from "./ai-master";
+import { aiToggleEffective } from "./ai-feature-toggles";
 import { accurateSpeech, speechRequest, SPEECH_MODEL, SPEAKER_MODEL, TranscriptionError } from "./recording-speech-provider";
 import { joinSpeechWindows, speechWindows } from "./recording-speech-windows";
+import { STT_V2_MAX_SINGLE_SECONDS, mergeMicroSpeakers, normalizeSttV2Text, sttV2DomainPrompt } from "./stt-v2";
 export { TranscriptionError, validateSpeechText } from "./recording-speech-provider";
 
 const run = promisify(execFile);
@@ -59,12 +61,21 @@ async function originalSpeechTrack(input: string, output: string, channel?: numb
   await media("ffmpeg", ["-v","error","-nostdin","-y","-threads","1","-filter_threads","1",...safeInput,
     "-i",input,"-map","0:a:0","-vn","-af",filters,"-ac","1","-ar","16000","-c:a","flac","-compression_level","5",output]);
 }
-async function completeSpeech(file: string, directory: string, channel: number, duration: number) {
+async function completeSpeech(file: string, directory: string, channel: number, duration: number, speech?: { prompt?: string; key?: string | null; v2?: boolean }) {
+  const asr = (clip: string) => accurateSpeech(clip, speech?.v2 ? { prompt: speech.prompt, key: speech.key } : undefined);
+  if (speech?.v2 && duration <= STT_V2_MAX_SINGLE_SECONDS) {
+    try {
+      const whole = await asr(file);
+      if (whole) return normalizeSttV2Text(whole);
+    } catch {
+      // Fall back to the existing windowed path when the single-request attempt fails.
+    }
+  }
   const detection = await media("ffmpeg", ["-v","info","-nostdin","-threads","1",...safeInput,
     "-i",file,"-af","silencedetect=noise=-40dB:d=0.4","-f","null","-"]);
   const pauses = [...String(detection.stderr).matchAll(/silence_end:\s*([\d.]+)\s*\|\s*silence_duration:\s*([\d.]+)/g)]
     .map(x => Number(x[1]) - Number(x[2]) / 2);
-  const windows = speechWindows(duration, pauses);
+    const windows = speechWindows(duration, pauses);
   const texts: string[] = [];
   for (let index = 0; index < windows.length; index++) {
     const window = windows[index];
@@ -74,11 +85,14 @@ async function completeSpeech(file: string, directory: string, channel: number, 
       await media("ffmpeg", ["-v","error","-nostdin","-y","-threads","1",...safeInput,
         "-i",file,"-ss",String(start),"-t",String(end-start),"-ac","1","-c:a","flac",clip]);
       if ((await fs.stat(clip)).size > 24*1024*1024) throw new TranscriptionError("حجم قطعهٔ صوت بیشتر از ظرفیت سرویس تبدیل است.");
-      texts.push(await accurateSpeech(clip));
+      const piece = await asr(clip);
+      texts.push(speech?.v2 ? normalizeSttV2Text(piece) : piece);
     } finally { await fs.rm(clip, {force:true}); }
   }
-  return joinSpeechWindows(texts);
+  const joined = joinSpeechWindows(texts);
+  return speech?.v2 ? normalizeSttV2Text(joined) : joined;
 }
+
 type RawSegment = {speaker:string;start:number;end:number;text:string};
 export function validateDiarizedResponse(data: unknown, duration: number): RawSegment[] {
   const value = data as {text?:unknown;segments?:unknown};
@@ -96,12 +110,19 @@ export function validateDiarizedResponse(data: unknown, duration: number): RawSe
   if (value.text.trim() && !segments.length) throw new TranscriptionError("سرویس متن را بدون قطعه‌بندی گویندگان برگرداند.");
   return segments;
 }
-async function diarize(file: string, duration: number) {
+async function diarize(file: string, duration: number, key?: string | null) {
   const data = await speechRequest(file, {
     model: SPEAKER_MODEL, response_format: "diarized_json", chunking_strategy: "auto", language: "fa",
-  });
+  }, key !== undefined ? { key } : undefined);
   return validateDiarizedResponse(data,duration);
 }
+
+/** v2 opts when the sttV2 toggle is effective (master × tab OpenAI key × saved); otherwise undefined (v1 path). */
+export function transcriptionSpeechOpts(): { v2: true; prompt: string; key: string | null } | undefined {
+  if (!aiToggleEffective("sttV2")) return undefined;
+  return { v2: true, prompt: sttV2DomainPrompt(), key: aiOpenAiTabKey() };
+}
+
 export async function transcribeRecording(input: string, directory: string, phase: (value:"cleaning"|"transcribing")=>void) {
   phase("cleaning");
   const {duration,channels}=await probeRecording(input);
@@ -111,6 +132,8 @@ export async function transcribeRecording(input: string, directory: string, phas
   const originals = files.map((_, i) => path.join(directory, `original-${i}.flac`));
   for(let i=0;i<originals.length;i++)await originalSpeechTrack(input,originals[i],independent?i:undefined);
   phase("transcribing");
+  const v2 = aiToggleEffective("sttV2");
+  const speech = transcriptionSpeechOpts();
   const utterances:Array<RawSegment & {key:string}>=[];
   const references: Array<{ channel: number; text: string }> = [];
   for(let i=0;i<files.length;i++){
@@ -119,10 +142,11 @@ export async function transcribeRecording(input: string, directory: string, phas
     // Clear telephone speech must not lose quiet consonants to denoising.
     // Use the minimally processed original for the authoritative transcript;
     // retain the cleaned track for speaker detection only.
-    const reference = await completeSpeech(originals[i], directory, i, duration);
+    const reference = await completeSpeech(originals[i], directory, i, duration, speech);
     if (!reference) continue;
     references.push({ channel: i, text: reference });
-    const results=await diarize(files[i],duration);
+    const rawResults=await diarize(files[i],duration, speech?.key);
+    const results=v2 ? mergeMicroSpeakers(rawResults, duration) : rawResults;
     if (reference && !results.length) throw new TranscriptionError("متن تشخیص داده شد، ولی زمان‌بندی گویندگان قابل اعتماد نبود؛ تبدیل را دوباره انجام دهید.");
     const pieces: RawSegment[] = [];
     for (const segment of results) {
@@ -140,7 +164,8 @@ export async function transcribeRecording(input: string, directory: string, phas
         const end = Math.min(duration, segment.end + 0.35);
         await media("ffmpeg", ["-v", "error", "-nostdin", "-y", "-threads", "1", ...safeInput,
           "-i", originals[i], "-ss", String(start), "-t", String(end - start), "-ac", "1", "-c:a", "flac", clip]);
-        const text = await accurateSpeech(clip);
+        const rawText = await accurateSpeech(clip, v2 ? { prompt: speech?.prompt, key: speech?.key } : undefined);
+        const text = v2 ? normalizeSttV2Text(rawText) : rawText;
         if (text) utterances.push({ ...segment, text, key: independent ? `${i}:channel` : `${i}:${segment.speaker}` });
         await fs.rm(clip, { force: true });
       }

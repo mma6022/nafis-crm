@@ -8,10 +8,16 @@ export class TranscriptionError extends Error {}
 
 const persianPrompt = "مکالمهٔ تلفنی فارسی ایرانی است. گفتار را عیناً به فارسی پیاده کن؛ ترجمه، خلاصه، پاسخ یا تکمیل جملهٔ نامفهوم نکن. واژگان احتمالی: نفیس، وام، اعتبارسنجی، اقساط، ضامن، چک، سفته، تومان. فقط واژه‌ها و اعداد واقعاً شنیده‌شده را بنویس و بخش نامفهوم را حدس نزن.";
 
-export async function speechRequest(file: string, fields: Record<string, string>): Promise<unknown> {
+export type SpeechRequestFn = (file: string, fields: Record<string, string>, opts?: { key?: string | null }) => Promise<unknown>;
+
+let speechRequestOverride: SpeechRequestFn | null = null;
+/** Test hook only. Production leaves this null. The override must not log keys. */
+export function setSpeechRequestOverride(fn: SpeechRequestFn | null) { speechRequestOverride = fn; }
+
+export async function speechRequest(file: string, fields: Record<string, string>, opts?: { key?: string | null }): Promise<unknown> {
+  if (speechRequestOverride) return speechRequestOverride(file, fields, opts);
   if (!aiEnabled()) throw new TranscriptionError(AI_MASTER_OFF_MSG);
-  const cred = aiOpenAiKey();
-  const key = cred?.key;
+  const key = (opts?.key !== undefined ? opts.key : aiOpenAiKey()?.key) ?? null;
   if (!key) throw new TranscriptionError("کلید سرویس تبدیل گفتار روی سرور تنظیم نشده است.");
   const form = new FormData();
   const type = file.endsWith(".flac") ? "audio/flac" : file.endsWith(".mp3") ? "audio/mpeg" : "audio/mp4";
@@ -73,11 +79,11 @@ export function validateSpeechText(value: unknown): string {
   return text.trim();
 }
 
-export async function accurateSpeech(file: string) {
+export async function accurateSpeech(file: string, opts?: { prompt?: string; key?: string | null }) {
   // A transcript from another interval is not acoustic evidence. Feeding a
   // flawed whole-call transcript into every short turn propagates its errors.
-  const prompt = persianPrompt;
+  const prompt = opts?.prompt ?? persianPrompt;
   return validateSpeechText(await speechRequest(file, {
     model: SPEECH_MODEL, "languages[]": "fa", response_format: "json", temperature: "0", prompt,
-  }));
+  }, opts?.key !== undefined ? { key: opts.key } : undefined));
 }

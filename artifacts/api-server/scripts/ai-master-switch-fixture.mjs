@@ -54,6 +54,7 @@ globalThis.fetch = async (url, init) => {
 
 const { execute, queryRow, queryRows } = await import("../src/lib/crm-db.ts");
 const am = await import("../src/lib/ai-master.ts");
+const ft = await import("../src/lib/ai-feature-toggles.ts");
 const cb = await import("../src/lib/customer-bale.ts");
 const { BB_FLAG, bbUserFlag } = await import("../src/lib/bale-bot.ts");
 const { registerCustomerBaleRoutes } = await import("../src/routes/customer-bale.ts");
@@ -66,8 +67,10 @@ const { invokeConsultationModel } = await import("../src/lib/consultation-engine
 
 cb._resetCustomerBaleSchemaFlag();
 am._resetAiMasterSchemaFlag();
+ft._resetAiTogglesSchemaFlag();
 cb.ensureCustomerBaleSchema();
 am.ensureAiMasterSchema();
+ft.ensureAiTogglesSchema();
 vn.setVoiceNotesAiGate(am.aiEnabled);
 vn.setVoiceNotesOpenAiKey(() => am.aiOpenAiKey(["STT_API_KEY", "OPENAI_API_KEY"]));
 
@@ -82,6 +85,11 @@ setSetting(bbUserFlag(1), "1");
 setSetting(bbUserFlag(8), "1");
 setSetting(cb.CB_ADMIN_FLAG, "1");
 setSetting(cb.CB_FLAGS.ai, "1");
+
+const enableCbAnswerAi = () => {
+  if (!cb.cbReadSecret("openai")) cb.cbStoreSecret("openai", SECRET);
+  ft.aiSetToggle("cbAnswerAi", true, 1);
+};
 
 const actors = {
   admin: { id: 1, role: "admin", base_role: "admin", salesperson_id: null, active: 1, full_name: "نوری", username: "nouri" },
@@ -303,6 +311,7 @@ try {
   await ok("gate: when master is on, cbAnswerAi is allowed to call the injected provider", async () => {
     cb.cbStoreSecret("openai", SECRET);
     am.aiSetEnabled(true, 1);
+    enableCbAnswerAi();
     let called = 0;
     const r = await cb.cbAnswerAi("ساعات پاسخگویی چیست؟", {
       fetchFn: async ({ apiKey }) => {
@@ -317,10 +326,11 @@ try {
     cb.cbDeleteSecret("openai");
   });
 
-  await ok("cbAiLive is the AND of the phase flag and the master switch", async () => {
+  await ok("cbAiLive is the AND of the phase flag, the master switch, and the cbAnswerAi toggle", async () => {
     cb.cbStoreSecret("openai", SECRET);
     setSetting(cb.CB_FLAGS.ai, "1");
     am.aiSetEnabled(true, 1);
+    enableCbAnswerAi();
     assert.equal(cb.cbAiLive(), true);
     am.aiSetEnabled(false, 1);
     assert.equal(cb.cbAiLive(), false);

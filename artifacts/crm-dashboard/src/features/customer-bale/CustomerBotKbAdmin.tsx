@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import './bale-bot-kb.css';
 import { bbFetch, BbError, type BbAdminExpert } from '../bale-bot/api';
 import { I, useToast, Confirm } from '../bale-bot/ui';
-import { jalaliWeekdayDate } from '../bale-bot/jalali';
+import { jalaliDayMonthYear, jalaliWeekdayDate } from '../bale-bot/jalali';
 import { BotWizard, Saved } from '../bale-bot/BaleBotAdmin';
 
 export type KbRow = {
@@ -17,11 +17,14 @@ export type KbRow = {
 type SecretMeta = { set: boolean; savedAt: string | null; last4?: unknown; model?: string; defaultModel?: string };
 type SharedBot = { id: number; name: string; username: string | null; status: string; hasToken: boolean; connectedAt?: string | null };
 export type AiMasterStatus = { ai_enabled: boolean; has_key: boolean; openai_key_source?: "tab" | "env" | null; xai_fallback_source?: "env" | null };
+export type AiFeatureToggleState = { saved: boolean; effective: boolean; keyPresent: boolean; lastEnabledAt: string | null };
+export type AiFeaturesStatus = { masterEnabled: boolean; cbAnswerAi: AiFeatureToggleState; sttV2: AiFeatureToggleState };
 export type KbAdminPayload = {
   openai: SecretMeta; deepseek: SecretMeta;
   kb: KbRow[]; scopes: string[]; categories: string[]; defaultScope: string;
   sharedBot: SharedBot | null;
   ai?: AiMasterStatus;
+  aiFeatures?: AiFeaturesStatus;
 };
 
 const SCOPES_FALLBACK = ['همهٔ ربات‌ها', 'فقط ربات نفیس وام', 'ربات‌های کارشناس'];
@@ -268,6 +271,7 @@ const NO_KEY_LINE = 'برای روشن کردن، حداقل یک کلید با�
 function KeysTab({ d, toast, reload }: { d: KbAdminPayload; toast: (t: string) => void; reload: () => void }) {
   return <>
     <AiCard status={d.ai ?? { ai_enabled: false, has_key: !!(d.openai?.set || d.deepseek?.set) }} toast={toast} reload={reload} />
+    <AiFeaturesCard features={d.aiFeatures} toast={toast} reload={reload} />
     <KeyCard kind="openai" meta={d.openai} toast={toast} reload={reload} />
     <KeyCard kind="deepseek" meta={d.deepseek} toast={toast} reload={reload} />
   </>;
@@ -333,6 +337,100 @@ function AiCard({ status, toast, reload }: { status: AiMasterStatus; toast: (t: 
     </div></div> : null}
   </section>;
 }
+
+
+/** Caption for STT v2 (Mohammad t1008s4272): call recordings only, not Bale voice messages. */
+export const STT_V2_CAPTION = 'ویس‌های مشتری در تماس‌ها به متن تبدیل می‌شود.';
+
+const FT_TITLE = 'قابلیت‌های هوش مصنوعی';
+const FT_DIM_NOTE = 'هوش مصنوعی خاموش است؛ این قابلیت‌ها کار نمی‌کنند.';
+const FT_CHIP = 'کلید OpenAI وارد نشده';
+const FT_KEY_LINK = 'وارد کردن کلید';
+const CB_ANSWER_CAPTION = 'ربات بله با کمک پایگاه دانش به پیام مشتری پاسخ می‌دهد.';
+
+const FEATURES: { id: 'cbAnswerAi' | 'sttV2'; name: string; desc: string; toastOn: string; toastOff: string }[] = [
+  {
+    id: 'cbAnswerAi',
+    name: 'پاسخ هوش مصنوعی ربات بله',
+    desc: CB_ANSWER_CAPTION,
+    toastOn: 'پاسخ هوش مصنوعی ربات بله روشن شد.',
+    toastOff: 'پاسخ هوش مصنوعی ربات بله خاموش شد.',
+  },
+  {
+    id: 'sttV2',
+    name: 'تبدیل ویس به متن (نسخه‌ی ۲)',
+    desc: STT_V2_CAPTION,
+    toastOn: 'تبدیل ویس به متن (نسخه‌ی ۲) روشن شد.',
+    toastOff: 'تبدیل ویس به متن (نسخه‌ی ۲) خاموش شد.',
+  },
+];
+
+function emptyToggle(): AiFeatureToggleState {
+  return { saved: false, effective: false, keyPresent: false, lastEnabledAt: null };
+}
+
+function sinceLine(iso: string | null | undefined): string {
+  const d = jalaliDayMonthYear(iso);
+  return d ? `روشن از ${d}` : '';
+}
+
+/** ai-feature-toggles v1.0: card under the master switch, pixel-for-pixel from Armita's HANDOFF. */
+function AiFeaturesCard({ features, toast, reload }: { features?: AiFeaturesStatus; toast: (t: string) => void; reload: () => void }) {
+  const masterOn = !!features?.masterEnabled;
+  const keyPresent = !!(features?.cbAnswerAi?.keyPresent ?? features?.sttV2?.keyPresent);
+  const [busy, setBusy] = useState<null | 'cbAnswerAi' | 'sttV2'>(null);
+  const [err, setErr] = useState<{ id: 'cbAnswerAi' | 'sttV2'; message: string; next: boolean } | null>(null);
+
+  const apply = async (id: 'cbAnswerAi' | 'sttV2', enabled: boolean) => {
+    if (busy) return;
+    if (enabled && (!keyPresent || !masterOn)) return;
+    setBusy(id); setErr(null);
+    try {
+      await bbFetch('/bale-bot/customer-bot/admin/ai/features', { method: 'PATCH', body: { id, enabled } });
+      reload();
+      const feat = FEATURES.find((f) => f.id === id)!;
+      toast(enabled ? feat.toastOn : feat.toastOff);
+    } catch (x) {
+      setErr({ id, message: x instanceof BbError ? x.message : 'الان نمی‌شود این تنظیم را عوض کرد.', next: enabled });
+    } finally { setBusy(null); }
+  };
+
+  const row = (feat: typeof FEATURES[number]) => {
+    const st = features?.[feat.id] ?? emptyToggle();
+    const shownOn = keyPresent && !!st.saved;
+    const locked = !masterOn || !keyPresent || busy !== null;
+    const label = shownOn ? 'روشن' : 'خاموش';
+    const since = shownOn ? sinceLine(st.lastEnabledAt) : '';
+    return <div className="ft-row" data-feat={feat.id} data-testid={`ai-feat-${feat.id}`}>
+      <div className="ft-hd"><p className="ft-name">{feat.name}</p></div>
+      <div className="ft-sw">
+        <button type="button" className={`sw${shownOn ? ' on' : ''}`} role="switch"
+          aria-checked={shownOn ? 'true' : 'false'} aria-label={`${feat.name}، ${label}`}
+          aria-disabled={locked ? true : undefined} disabled={locked}
+          data-testid={`ai-feat-${feat.id}-switch`}
+          onClick={() => { if (locked) return; void apply(feat.id, !shownOn); }}>
+          <i />{label}
+        </button>
+      </div>
+      <p className="ft-desc">{feat.desc}</p>
+      {!keyPresent ? <div className="ft-meta" data-testid={`ai-feat-${feat.id}-no-key`}>
+        <span className="ft-chip">{FT_CHIP}</span>
+        <a className="ft-keylink" href="#key-OpenAI">{FT_KEY_LINK}</a>
+      </div> : since ? <p className="ft-since" data-testid={`ai-feat-${feat.id}-since`}>{since}</p> : null}
+    </div>;
+  };
+
+  return <section className={`ft-card${!masterOn ? ' is-dim' : ''}`} aria-label={FT_TITLE} data-testid="ai-features-card">
+    {!masterOn ? <p className="ft-note">{FT_DIM_NOTE}</p> : null}
+    <h3>{FT_TITLE}</h3>
+    <div className="ft-rows">{FEATURES.map(row)}</div>
+    {err ? <div className="bk-ai-err" role="alert" data-testid="ai-feat-error"><I n="alert" /><div>
+      <b>تغییر انجام نشد</b>پیام سرور: {err.message}
+      <div className="bk-actions"><button className="btn pri sm" type="button" onClick={() => { const e = err; setErr(null); void apply(e.id, e.next); }}>تلاش دوباره</button></div>
+    </div></div> : null}
+  </section>;
+}
+
 
 function KeyCard({ kind, meta, toast, reload }: { kind: KeyKind; meta: SecretMeta; toast: (t: string) => void; reload: () => void }) {
   const name = KEY_LABEL[kind];

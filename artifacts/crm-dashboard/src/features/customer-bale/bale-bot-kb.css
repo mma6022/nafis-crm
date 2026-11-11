@@ -13,6 +13,9 @@
   --nf-gold-50: #FEF8EA;
   --nf-gold-300: #F7D27F;
   --nf-gold-700: #8A6212;
+  --nf-ink-faint: #9AA3B8;
+  --nf-brand-200: #BCC3EC;
+  --nf-brand-700: #212C85;
   --nf-radius-pill: 999px;
 }
 html{font-family:var(--nf-font-sans)}
@@ -130,3 +133,36 @@ html{font-family:var(--nf-font-sans)}
 
 /* staff-wallet.css defines a page-level .sw { display:grid; width:100% }. That must not stretch this toggle. */
 button.sw{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 4px;border:0;background:transparent;font:700 13px var(--nf-font-sans);color:var(--nf-ink);cursor:pointer;width:auto;max-width:none;margin:0}
+
+/* ai-feature-toggles v1.0: کارت قابلیت‌های هوش مصنوعی زیر کلید اصلی. ماکاپ طراحی. پوسته و کارت کلید از ai-master-switch / bale-bot-kb بدون تغییر است. */
+.ft-card{background:#fff;border:1px solid var(--nf-line);border-radius:16px;padding:16px;display:grid;gap:4px;margin-bottom:12px}
+.ft-card h3{margin:0 0 8px;font-size:16px;font-weight:800;color:var(--nf-ink);line-height:1.7}
+.ft-note{margin:0 0 8px;padding:10px 12px;border-radius:12px;background:var(--nf-surface-2);color:var(--nf-ink-soft);font-size:14px;font-weight:600;line-height:1.7}
+.ft-card.is-dim{background:var(--nf-surface)}
+.ft-card.is-dim h3,.ft-card.is-dim .ft-rows{opacity:.45}
+.ft-rows{display:flex;flex-direction:column;margin:0}
+.ft-row{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"title sw" "desc sw" "meta sw";column-gap:12px;row-gap:4px;align-items:center;min-height:56px;padding:10px 0;border-top:1px solid var(--nf-line)}
+.ft-row:first-child{border-top:0;padding-top:4px}
+.ft-hd{grid-area:title;min-width:0}
+.ft-hd .ft-name{margin:0;font-size:15px;font-weight:800;color:var(--nf-ink);line-height:1.6}
+.ft-sw{grid-area:sw;align-self:start;justify-self:start}
+.ft-card .sw{font-size:14px;color:var(--nf-ink)}
+.ft-desc{grid-area:desc;margin:0;font-size:14px;font-weight:400;color:var(--nf-ink-soft);line-height:1.7}
+.ft-meta{grid-area:meta;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;min-width:0}
+.ft-since{margin:0;grid-area:meta;font-size:14px;font-weight:600;color:#146C3A;line-height:1.7}
+.ft-chip{display:inline-flex;align-items:center;min-height:28px;padding:0 10px;border-radius:10px;background:var(--nf-gold-50);color:var(--nf-gold-700);font-size:14px;font-weight:600;border:1px solid var(--nf-gold-300);line-height:1.4}
+.ft-keylink{display:inline-flex;align-items:center;min-height:44px;padding:0 2px;font:800 14px var(--nf-font-sans);color:rgb(41, 54, 155);text-decoration:underline;text-underline-offset:6px;text-decoration-color:var(--nf-brand-200)}
+.ft-keylink:hover{color:var(--nf-brand-700)}
+.ft-card .sw[aria-disabled=true],.ft-card .sw[disabled]{opacity:.55;cursor:not-allowed}
+.ft-card.is-dim .sw.on i{background:var(--nf-ink-faint)}
+.ft-card .sw:focus-visible{outline:2px solid rgb(41, 54, 155);outline-offset:3px;border-radius:8px}
+@media(min-width:721px){
+  .ft-row{grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"title chips sw" "desc chips sw" "meta meta sw"}
+  .ft-meta:has(.ft-chip){grid-area:chips;align-self:center;flex-wrap:nowrap;max-width:280px}
+  .ft-since{grid-area:meta}
+}
+@media(max-width:720px){
+  .ft-card{padding:14px}
+  .ft-row{padding:12px 0}
+  .ft-meta{padding-top:2px}
+}

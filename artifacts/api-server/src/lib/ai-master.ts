@@ -143,7 +143,18 @@ function readTabOpenAiSecret(): string | null {
  * OpenAI key for call transcripts, call summary, summary fields, and voice-notes primary.
  * Keys tab first; if none, fall back to env (default OPENAI_API_KEY; voice notes also pass STT_API_KEY).
  * Never logs the value. Bale cbAnswerAi does not use this — it stays tab-only.
+ * STT v2 uses aiOpenAiTabKey() instead (tab-only).
  */
+/** True when a Keys-tab OpenAI secret is stored. Never returns or logs the value. */
+export function aiOpenAiTabKeyPresent(): boolean {
+  return readTabOpenAiSecret() != null;
+}
+
+/** Tab-only OpenAI key (no env fallback). For STT v2 and admin toggles. Never log the value. */
+export function aiOpenAiTabKey(): string | null {
+  return readTabOpenAiSecret();
+}
+
 export function aiOpenAiKey(envNames: readonly string[] = ["OPENAI_API_KEY"]): { key: string; source: AiKeySource } | null {
   const tab = readTabOpenAiSecret();
   if (tab) return { key: tab, source: "tab" };

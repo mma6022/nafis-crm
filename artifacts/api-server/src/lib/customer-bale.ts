@@ -9,6 +9,7 @@ type ChatRow = { id: number; owner_id?: number; customer_id?: number | null; [k:
 import { LOAN_STAGE_LABELS } from "./manager-work";
 import { planLabelForCustomer, publicBankNames } from "./plan-label";
 import { aiAutoOffIfNoKey, aiEnabled } from "./ai-master";
+import { aiAutoOffTogglesIfNoOpenAiKey, aiToggleEffective } from "./ai-feature-toggles";
 
 export const CB_FLAGS = {
   tracking: "flag.customer_bale_tracking",
@@ -206,6 +207,7 @@ export function cbStoreSecret(kind: "openai" | "deepseek", plaintext: string, at
 export function cbDeleteSecret(kind: "openai" | "deepseek", actorId: number | null = null): void {
   executeChanges("DELETE FROM customer_bale_secrets WHERE kind=?", [kind]);
   aiAutoOffIfNoKey(actorId);
+  if (kind === "openai") aiAutoOffTogglesIfNoOpenAiKey(actorId);
 }
 
 /** Status only: whether a key is stored, and when. Never last4, dots, or any remnant of the key. */
@@ -797,11 +799,11 @@ export type AiResult =
   | { kind: "handoff"; reason: "unknown" | "guard" | "error"; text: string; provider?: string };
 
 export function cbAiLive(): boolean {
-  return cbFlagOn("ai") && aiEnabled();
+  return cbFlagOn("ai") && aiToggleEffective("cbAnswerAi");
 }
 
 export async function cbAnswerAi(question: string, opts?: { fetchFn?: ChatCompletionsFn; timeoutMs?: number }): Promise<AiResult> {
-  if (!aiEnabled()) return { kind: "handoff", reason: "error", text: CB_TEXTS.aiHandoffBody };
+  if (!aiEnabled() || !aiToggleEffective("cbAnswerAi")) return { kind: "handoff", reason: "error", text: CB_TEXTS.aiHandoffBody };
   const fetchFn = opts?.fetchFn ?? defaultChatCompletions;
   const timeoutMs = opts?.timeoutMs ?? 12_000;
   const kb = cbKbText();

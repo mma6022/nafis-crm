@@ -17,6 +17,7 @@ import {
   ensureSharedCustomerBot, cbSharedBot, cbSharedBotPublic, cbClearSharedBotToken, isSharedCustomerBot , setCbSignPath, cbCheckSign,
 } from "../src/lib/customer-bale.ts";
 import { bcLinkOrCreateLead, BC_OK_NEW, BC_ASK_FIRST_SHARED } from "../src/lib/bale-contact.ts";
+import { aiSetToggle, ensureAiTogglesSchema } from "../src/lib/ai-feature-toggles.ts";
 import { botSends, isSharedCustomerBot as isSharedBotRow } from "../src/lib/bale-bot.ts";
 import { jalaliWeekdayDate } from "../../crm-dashboard/src/features/bale-bot/jalali.ts";
 
@@ -130,6 +131,7 @@ const maryamId = insCust("مریم حسینی", "09120000042", 3, "B1");
 
 const flagsOff = () => { cbSetFlag("tracking", false, AT); cbSetFlag("ai", false, AT); cbSetFlag("filing", false, AT); };
 const flagsOn = () => { cbSetFlag("tracking", true, AT); cbSetFlag("ai", true, AT); cbSetFlag("filing", true, AT); };
+const enableCbAnswerAi = () => { ensureAiTogglesSchema(); if (!cbReadSecret("openai")) cbStoreSecret("openai", "sk-test-openai-toggle"); aiSetToggle("cbAnswerAi", true, 1); };
 flagsOff();
 
 const ctxOf = (chat, bot, customerId, name, extra = {}) => ({
@@ -370,6 +372,7 @@ check("guard rejects rates and approval promises", () => {
 await checkAsync("AI: OpenAI first, DeepSeek fallback on 429/error/timeout, no real HTTP", async () => {
   flagsOn();
   cbStoreSecret("openai", "sk-test-openai-aaaa");
+  enableCbAnswerAi();
   cbStoreSecret("deepseek", "sk-test-deepseek-bbbb");
   const calls = [];
   const fetchFn = async ({ baseUrl, model, apiKey }) => {
@@ -389,6 +392,7 @@ await checkAsync("AI: OpenAI first, DeepSeek fallback on 429/error/timeout, no r
 
 await checkAsync("AI guard + handoff after one failure, inbox visible", async () => {
   flagsOn();
+  enableCbAnswerAi();
   const chat = linkChat(openChat(kazemi, "مریم"), maryamId);
   cbSetAiMode(chat.id, true);
   let calls = 0;
