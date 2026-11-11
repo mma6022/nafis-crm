@@ -45,6 +45,7 @@ const actions = {
   application_edited_before_provider_approval: 'ویرایش درخواست پیش از تصویب تأمین‌کننده',
   'guarantor-registered': 'ثبت ضامن',
   'case-note-added': 'ثبت یادداشت پرونده',
+  'customer-name-changed': 'تغییر نام مشتری',
   'signature-link-resent': 'لینک امضا دوباره فرستاده شد',
   'bale-sign-reminder-sent': 'یادآوری امضا در بله فرستاده شد',
   'guarantor-review-reopened-for-upload': 'بازگشت برای تکمیل اطلاعات و مدارک ضامن',
