@@ -7,6 +7,8 @@ export function DciSprites() {
       <symbol id="dci-i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
       <symbol id="dci-i-today" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="17" rx="3" /><path d="M8 2.5v3M16 2.5v3M8 11l2 2 4-4M8 17h8" /></symbol>
       <symbol id="dci-i-bell" viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15zM10 20.5a2.2 2.2 0 0 0 4 0" /></symbol>
+      <symbol id="dci-i-chev-r" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" /></symbol>
+      <symbol id="dci-i-chev-l" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" /></symbol>
     </svg>
   );
 }

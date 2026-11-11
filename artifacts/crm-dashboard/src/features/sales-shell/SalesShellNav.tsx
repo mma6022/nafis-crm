@@ -3,9 +3,11 @@
  *  Layers (spec §5): header 30 < scrim 38 / «بیشتر» 39 < dock 40 < modals 60+ < reminder lock. The dock is inert under any modal. */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Link } from 'wouter';
-import { LayoutGrid, LifeBuoy, Lock, LogOut, Moon, UserPlus } from 'lucide-react';
+import { ChevronDown, LayoutGrid, LifeBuoy, Lock, LogOut, Moon, UserPlus } from 'lucide-react';
 import { faNum } from './api';
 import './sales-shell.css';
+import '@/features/bottom-nav-v2/dock-collapse.css';
+import { useDockCollapse } from './dock-collapse';
 
 export type SsBadge = { n: number; tone: 'r' | 'g' | 'n'; what: string };
 export type SsItem = { key: string; href?: string; label: string; full: string; icon: ReactNode; badge?: SsBadge | null; moon?: boolean; lock?: boolean; onSelect?: () => void; testId: string; avatar?: boolean };
@@ -71,6 +73,7 @@ type Props = {
   healthOk: boolean;
   onLogout: () => void; logoutPending: boolean;
   location: string; mobile: boolean; blocked: boolean;
+  userId?: number;
 };
 
 export function SalesShellNav(p: Props) {
@@ -93,6 +96,15 @@ export function SalesShellNav(p: Props) {
   const moreN = sumBadges(moreItems);
   const moreActive = moreItems.some((i) => i.href && p.isActive(i.href));
   const moreHas = moreItems.length > 0 || true; // «خروج» and «پشتیبانی تیم» always live there
+  const dock = useDockCollapse(p.userId, true);
+  const badgeN = sumBadges([...p.before, ...p.after, ...p.tabs, ...moreItems]);
+  const reopenAria = badgeN > 0 ? `باز کردن منو، ${faNum(badgeN)} مورد منتظر` : 'باز کردن منو';
+  const toggleBtn = (where: 'dock' | 'tb') => (
+    <button className="dk-toggle" type="button" aria-label="جمع کردن منو" aria-expanded={dock.collapsed ? 'false' : 'true'}
+      aria-controls={p.mobile ? 'ss-tabbar' : 'ss-dock'} data-testid={`dk-toggle-${where}`} onClick={dock.collapse}>
+      <ChevronDown className="i" size={20} aria-hidden="true" />
+    </button>
+  );
 
   const dockList = p.mobile ? p.tabs : [...p.before, ...p.after];
   const activeOf = (it: SsItem) => Boolean(it.href && p.isActive(it.href));
@@ -152,7 +164,12 @@ export function SalesShellNav(p: Props) {
   };
 
   return <>
-    <nav className={p.mobile ? 'ss-tb' : 'ss-dock'} aria-label="ناوبری اصلی" onKeyDown={rv.onKeyDown} inert={p.blocked || undefined} data-testid={p.mobile ? 'ss-tabbar' : 'ss-dock'}>{nodes}</nav>
+    <nav id={p.mobile ? 'dk-tb' : 'dk-main'} className={p.mobile ? 'ss-tb tb' : 'ss-dock dock'} aria-label="ناوبری اصلی" onKeyDown={rv.onKeyDown} inert={p.blocked || dock.collapsed || undefined} aria-hidden={dock.collapsed || undefined} data-testid={p.mobile ? 'ss-tabbar' : 'ss-dock'}>{nodes}{toggleBtn(p.mobile ? 'tb' : 'dock')}</nav>
+    <button className="dk-reopen" type="button" aria-label={reopenAria} aria-expanded="false" data-testid="dk-reopen" onClick={dock.expand}>
+      {badgeN > 0 ? <span className="bdg" aria-hidden="true">{badgeN > 99 ? '+۹۹' : faNum(badgeN)}</span> : null}
+      <LayoutGrid className="i" size={20} aria-hidden="true" />
+      <span className="dk-reopen-lb">منو</span>
+    </button>
     {open ? <>
       <div className={`ss-scrim${p.mobile ? '' : ' lite'}`} aria-hidden="true" onClick={() => close(false)} data-testid="ss-scrim" />
       <section ref={panel} id="ss-more" className={`ss-more ${p.mobile ? 'ss-msh' : 'ss-mpop'}`} aria-label="بیشتر" dir="rtl" data-testid="ss-more">
