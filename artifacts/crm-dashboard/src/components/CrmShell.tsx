@@ -154,6 +154,17 @@ function useMediaQuery(query: string) {
   return matches;
 }
 
+function ShellDate() {
+  const now = new Date();
+  const tz = "Asia/Tehran";
+  const parts = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { timeZone: tz, weekday: "long", day: "numeric", month: "long", year: "numeric" }).formatToParts(now);
+  const g = (k: string) => parts.find((p) => p.type === k)?.value ?? "";
+  const iso = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+  const full = `${g("weekday")} ${g("day")} ${g("month")} ${g("year")}`.replace(/\s+/g, " ").trim();
+  const short = `${g("day")} ${g("month")}`.trim();
+  return <time className="ss-date" dateTime={iso} data-testid="ss-date"><span className="ss-date-full">{full}</span><span className="ss-date-short">{short}</span></time>;
+}
+
 export function CrmShell({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
   // On the chat pages themselves the floating «گفتگو» bubble is redundant and sat on top of the composer's send button.
@@ -507,6 +518,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
         <header className="topbar ss-top" ref={setTopEl}>
           <Link href={navItems.some(i => i.href === '/today') ? '/today' : '/'} className="ss-brand" aria-label="گروه مالی نفیس — خانه"><img src={nafissLogoUrl} alt="" aria-hidden="true" /><small>پنل مشتریان</small></Link>
           <div className="ss-ttl"><h1>{pageTitle}</h1><p>امروز، تمرکز روی قدم بعدی مشتری است.</p></div>
+          <ShellDate />
           <div className="top-actions">
             <VcHeaderBadge />
             <VoipAnywhereFirstFormHost />
@@ -621,6 +633,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
             <h1>{pageTitle}</h1>
             <p>امروز، تمرکز روی قدم بعدی مشتری است.</p>
           </div>
+          <ShellDate />
           <div className="top-actions">
             <VcHeaderBadge />
             <VoipAnywhereFirstFormHost />

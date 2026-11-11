@@ -417,10 +417,10 @@ html,body{overflow-x:hidden;overflow-y:auto}
   .dci-page .dci-node{min-width:68px;max-width:100px}
 }
 
-.dci-page .dci-prio{margin:0 0 12px;display:flex;flex-wrap:nowrap;align-items:flex-end;justify-content:space-between;gap:12px 16px}
-.dci-page .dci-prio > .dci-ps{display:grid;gap:6px;margin:0;min-width:0;flex:1 1 auto}
+.dci-page .dci-prio{margin:0 0 12px;display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 16px;min-width:0;max-width:100%}
+.dci-page .dci-prio > .dci-ps{display:grid;gap:6px;margin:0;min-width:0;flex:1 1 12rem;max-width:100%}
 .dci-page .dci-ps-lbl{display:block;font-size:13px;font-weight:800;color:var(--nf-ink-muted)}
-.dci-page .dci-st{display:flex;flex-direction:column;gap:6px;min-width:180px;flex:0 0 220px}
+.dci-page .dci-st{display:flex;flex-direction:column;gap:6px;min-width:0;max-width:100%;flex:1 1 12rem;width:auto;box-sizing:border-box}
 .dci-page .dci-st-sel{
   width:100%;min-height:48px;height:48px;box-sizing:border-box;
   border:1px solid var(--nf-line-strong);border-radius:12px;padding:0 12px;
@@ -432,4 +432,27 @@ html,body{overflow-x:hidden;overflow-y:auto}
 @media (max-width:1023.98px){
   .dci-page .dci-prio{flex-wrap:wrap}
   .dci-page .dci-st{flex:1 1 100%;min-width:0;width:100%}
+}
+
+
+/* ——— v1.5 t313u: no body title/date; queue 16px under the top bar ——— */
+.dci-date,.dci-page>h1{display:none !important}
+body:has([data-testid="dci-page"]) .app-shell.ssv2 .topbar.ss-top{margin-bottom:0}
+.dci-page{padding-top:16px}
+.dci-page > .dci-tlw{margin-top:0}
+
+/* v1.4 fix 3: «عقب‌افتاده» on the same line as the type tag; strip ≤ 72px */
+.dci-page .dci-node .dci-kind{white-space:nowrap}
+.dci-page .dci-node .dci-late-t{
+  display:inline;font-size:inherit;font-weight:800;line-height:inherit;color:#6B4E12;
+}
+.dci-page .dci-tlw,.dci-page .dci-tl{max-height:72px}
+
+/* v1.4 fix 2: at 390, number 8px under the name, «تماس» 12px under the number */
+@media (max-width:429.98px){
+  .dci-head,.dci-head-main{height:auto;min-height:0;justify-content:flex-start}
+  .dci-head-main{gap:0}
+  .dci-head-main > .dci-who, .dci-who-row .dci-who{margin:0}
+  .dci-head-main > .dci-idrow-phone,.dci-head-main > .dci-idrow{margin:8px 0 0}
+  .dci-head-main .dci-acts{margin:12px 0 0;width:100%}
 }

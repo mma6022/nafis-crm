@@ -143,8 +143,7 @@ function Timeline({ tasks, selected, onPick }: { tasks: QueueTask[]; selected: s
           <span className="dci-nord" aria-hidden="true">{fd(t.turn)}</span>
           <span className="dci-dot" aria-hidden="true" />
           <b>{t.name}</b>
-          <span className="dci-kind">{typ}</span>
-          {t.overdue ? <span className="dci-late-t">عقب‌افتاده</span> : null}
+          <span className="dci-kind">{typ}{t.overdue ? <span className="dci-late-t"> · عقب‌افتاده</span> : null}</span>
         </a>;
       })}
     </nav>
@@ -810,8 +809,6 @@ export default function DailyCustomerInline() {
   return <div className="dci" data-testid="dci-page">
     <DciSprites />
     <main className="pg dci-page">
-      <p className="dci-date">{todayQ.data?.dateLabel ?? ""}</p>
-      <h1>کارهای امروز من</h1>
       <Timeline tasks={tasks} selected={selectedTask?.id ?? null} onPick={setSel} />
       {boardEl}
     </main>

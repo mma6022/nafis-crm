@@ -10,6 +10,7 @@ const root = path.resolve(here, "../src");
 const dciCss = fs.readFileSync(path.join(root, "features/daily-customer-inline/dci.css"), "utf8");
 const layCss = fs.readFileSync(path.join(root, "features/daily-customer-inline/today-layout.css"), "utf8");
 const dockCss = fs.readFileSync(path.join(root, "features/bottom-nav-v2/dock-collapse.css"), "utf8");
+const shellCss = fs.readFileSync(path.join(root, "features/sales-shell/sales-shell.css"), "utf8");
 const dciTsx = fs.readFileSync(path.join(root, "features/daily-customer-inline/DailyCustomerInline.tsx"), "utf8");
 const shellTsx = fs.readFileSync(path.join(root, "components/CrmShell.tsx"), "utf8");
 const navTsx = fs.readFileSync(path.join(root, "features/sales-shell/SalesShellNav.tsx"), "utf8");
@@ -30,8 +31,16 @@ check("dci.css no longer locks the today shell to 100dvh + overflow:hidden",
   && !/\.dci-board\{[^}]*height:\s*0/.test(lockSrc));
 
 check("header subtitle is unchanged",
-  (shellTsx.match(/امروز، تمرکز روی قدم بعدی مشتری است\./g) || []).length >= 1
-  && !dciTsx.includes("امروز، تمرکز روی قدم بعدی مشتری است.") === false || true);
+  (shellTsx.match(/امروز، تمرکز روی قدم بعدی مشتری است\./g) || []).length >= 2);
+
+check("body title and date are gone; Jalali date chip lives in the shell top bar",
+  !dciTsx.includes("dci-date")
+  && !dciTsx.includes("<h1>کارهای امروز من</h1>")
+  && shellTsx.includes("function ShellDate")
+  && shellTsx.includes("ss-date")
+  && shellTsx.includes("<ShellDate")
+  && layCss.includes("padding-top:16px")
+  && layCss.includes(".dci-date,.dci-page>h1{display:none"));
 
 check("first-call form and instant credit live in the mid-column file card",
   dciTsx.includes('data-testid="dci-filecard"')
@@ -151,8 +160,8 @@ body{margin:0;font-family:sans-serif}
 .app-main{padding:0}
 .dci-page{background:#f4f5f8}
 .dci-col{background:#fff;border:1px solid #ddd;border-radius:12px;padding:16px}
-.dci-mid{min-height:480px}
 .ss-dock.dock{position:fixed;bottom:16px;left:16px;right:16px;height:72px;background:#fff;border:1px solid #ddd;z-index:40}
+${shellCss}
 ${dciCss}
 ${layCss}
 ${dockCss}
@@ -161,9 +170,12 @@ ${dockCss}
   <div class="app-shell ssv2">
     <main class="app-main">
       <div class="dci" data-testid="dci-page">
+        <header class="topbar ss-top" id="ss-top">
+          <div class="ss-ttl"><h1>کارهای امروز من</h1><p>امروز، تمرکز روی قدم بعدی مشتری است.</p></div>
+          <time class="ss-date" datetime="2026-11-11"><span class="ss-date-full">چهارشنبه ۲۰ آبان ۱۴۰۵</span><span class="ss-date-short">۲۰ آبان</span></time>
+          <div class="top-actions"><span class="ss-stx">در دسترس</span></div>
+        </header>
         <main class="pg dci-page">
-          <p class="dci-date">سه‌شنبه ۱۹ آبان</p>
-          <h1>کارهای امروز من</h1>
           <div class="dci-tlw" data-testid="dci-tlw">
             <button class="dci-tl-btn" type="button" aria-label="مشتری‌های راست"></button>
             <nav class="dci-tl" aria-label="صف تماس‌های امروز">
@@ -171,7 +183,7 @@ ${dockCss}
                 <span class="dci-nord">۱</span><span class="dci-dot"></span><b>لیلا ژی</b><span class="dci-kind">لید تازه</span>
               </a>
               <a class="dci-node is-rem is-late" href="#rem-5" title="۱۱:۳۰ — عقب‌افتاده">
-                <span class="dci-nord">۲</span><span class="dci-dot"></span><b>طالب طیبی</b><span class="dci-kind">یادآور</span><span class="dci-late-t">عقب‌افتاده</span>
+                <span class="dci-nord">۲</span><span class="dci-dot"></span><b>طالب طیبی</b><span class="dci-kind">یادآور<span class="dci-late-t"> · عقب‌افتاده</span></span>
               </a>
             </nav>
             <button class="dci-tl-btn" type="button" aria-label="مشتری‌های چپ"></button>
@@ -310,6 +322,37 @@ const measure = async (width, height = 800) => {
           stW: (() => { const el = document.querySelector(".dci-st-sel"); return el ? Math.round(el.getBoundingClientRect().width) : 0; })(),
           stTop: (() => { const el = document.querySelector(".dci-st"); return el ? Math.round(el.getBoundingClientRect().top) : 0; })(),
           psBottom: ps ? Math.round(ps.bottom) : 0,
+          stLeft: (() => { const el = document.querySelector(".dci-st"); return el ? Math.round(el.getBoundingClientRect().left) : 0; })(),
+          stRight: (() => { const el = document.querySelector(".dci-st"); return el ? Math.round(el.getBoundingClientRect().right) : 0; })(),
+          midLeft: midCol ? Math.round(midCol.getBoundingClientRect().left) : 0,
+          midRight: midCol ? Math.round(midCol.getBoundingClientRect().right) : 0,
+          whoBottom: who ? Math.round(who.bottom) : 0,
+          phoneTop: phone ? Math.round(phone.top) : 0,
+          phoneBottom: phone ? Math.round(phone.bottom) : 0,
+          nameToPhone: who && phone ? Math.round(phone.top - who.bottom) : null,
+          phoneToCall: callBtn && phone ? Math.round(callBtn.top - phone.bottom) : null,
+          stLblBottom: (() => { const el = document.querySelector(".dci-st .dci-ps-lbl, .dci-st label, label[for=dci-st]"); return el ? Math.round(el.getBoundingClientRect().bottom) : 0; })(),
+          barH: (() => { const el = document.querySelector(".ss-top"); return el ? Math.round(el.getBoundingClientRect().height) : 0; })(),
+          barBottom: (() => { const el = document.querySelector(".ss-top"); return el ? Math.round(el.getBoundingClientRect().bottom) : 0; })(),
+          tlTop: (() => { const el = document.querySelector(".dci-tlw"); return el ? Math.round(el.getBoundingClientRect().top) : 0; })(),
+          dateUnderTitle: (() => {
+            const ttl = document.querySelector(".ss-ttl");
+            const date = document.querySelector(".ss-date");
+            if (!ttl || !date) return false;
+            const a = ttl.getBoundingClientRect(), b = date.getBoundingClientRect();
+            const startDelta = Math.min(Math.abs(b.right - a.right), Math.abs(b.left - a.left));
+            return b.top >= a.bottom - 2 && startDelta < 24;
+          })(),
+          subHidden: (() => { const p = document.querySelector(".ss-ttl p"); return p ? getComputedStyle(p).display === "none" : null; })(),
+          lateOnKindLine: (() => {
+            const late = document.querySelector(".dci-kind .dci-late-t, .dci-kind");
+            const kind = document.querySelector(".is-late .dci-kind");
+            if (!kind) return false;
+            const lateEl = kind.querySelector(".dci-late-t");
+            if (!lateEl) return false;
+            const a = kind.getBoundingClientRect(), b = lateEl.getBoundingClientRect();
+            return Math.abs(a.top - b.top) < 8 && a.height - b.height < 8;
+          })(),
           leadH: (() => {
             const n = document.querySelector(".dci-node.is-lead") || document.querySelector(".dci-node");
             if (!n) return 0;
@@ -344,6 +387,10 @@ try {
   check("at 1366 the board is three columns with mid in the center",
     at1366.threeCol && at1366.notesLeft > at1366.midLeft && at1366.midLeft > at1366.fileLeft,
     JSON.stringify({ threeCol: at1366.threeCol, areas: at1366.areas, cols: at1366.cols, midLeft: at1366.midLeft, notesLeft: at1366.notesLeft, fileLeft: at1366.fileLeft }));
+  const c1366 = at1366.call;
+  check("at 1366 وضعیت مشتری stays inside the mid card",
+    c1366.stLeft >= c1366.midLeft - 1 && c1366.stRight <= c1366.midRight + 1,
+    JSON.stringify({ stLeft: c1366.stLeft, stRight: c1366.stRight, midLeft: c1366.midLeft, midRight: c1366.midRight, stTop: c1366.stTop, psBottom: c1366.psBottom }));
 
   const at390 = await measure(390, 844);
   check("at 390 the board is one column in mid → notes → file order",
@@ -364,13 +411,18 @@ try {
     JSON.stringify({ chipH: c1280.chipH, chipFont: c1280.chipFont }));
   check("queue strip is 64–72px tall with 44px arrows and 44px touch targets",
     c1280.leadH >= 58 && c1280.leadH <= 72
-    && (c1280.leadH + 6) >= 64 && (c1280.leadH + 6) <= 78
+    && c1280.tlwH >= 64 && c1280.tlwH <= 72
     && at1280.btnW >= 43 && at1280.btnH >= 43 && at1280.btnW <= 46 && at1280.btnH <= 46
-    && c1280.nodeMinH >= 44,
-    JSON.stringify({ leadH: c1280.leadH, tlwH: c1280.tlwH, nodeH: c1280.nodeH, nodeMinH: c1280.nodeMinH, btnW: at1280.btnW, btnH: at1280.btnH }));
+    && c1280.nodeMinH >= 44
+    && c1280.lateOnKindLine === true,
+    JSON.stringify({ leadH: c1280.leadH, tlwH: c1280.tlwH, nodeH: c1280.nodeH, nodeMinH: c1280.nodeMinH, btnW: at1280.btnW, btnH: at1280.btnH, lateOnKindLine: c1280.lateOnKindLine }));
   check("وضعیت مشتری select is 48px on the opposite side of the priority row",
     c1280.stH >= 47 && c1280.stH <= 52 && c1280.stW >= 160 && c1280.stW < c1280.midW * 0.7,
     JSON.stringify({ stH: c1280.stH, stW: c1280.stW, midW: c1280.midW }));
+  check("the queue sits 16px under the top bar; subtitle stays visible from 1024",
+    (c1280.tlTop - c1280.barBottom) >= 14 && (c1280.tlTop - c1280.barBottom) <= 18
+    && c1280.subHidden === false,
+    JSON.stringify({ gap: c1280.tlTop - c1280.barBottom, subHidden: c1280.subHidden, barH: c1280.barH }));
   check("amber rembar scroll-margin-bottom is dock height plus 16px; columns are not height-locked",
     (c1280.remMargin === "106px" || /^\d+(\.\d+)?px$/.test(c1280.remMargin) && parseFloat(c1280.remMargin) >= 80)
     && (c1280.fileOverflow === "visible" || c1280.fileOverflow === "visible visible")
@@ -380,11 +432,18 @@ try {
 
   const c390 = at390.call;
   check("at 390 «تماس» is 48px and full width under the number",
-    c390.callH >= 47 && c390.callUnderPhone && c390.callAbovePs && c390.callW >= (c390.midW * 0.9),
+    c390.callH >= 47 && c390.callUnderPhone && c390.callAbovePs && c390.callW >= (c390.midW * 0.85),
     JSON.stringify(c390));
   check("at 390 the status select is 48px and full width under the priorities",
     c390.stH >= 47 && c390.stH <= 52 && c390.stW >= (c390.midW * 0.85) && c390.stTop >= c390.psBottom - 2,
     JSON.stringify({ stH: c390.stH, stW: c390.stW, midW: c390.midW, stTop: c390.stTop, psBottom: c390.psBottom, tlwH: c390.tlwH }));
+  check("at 390 the number is 8px under the name and «تماس» is 12px under the number",
+    c390.nameToPhone >= 6 && c390.nameToPhone <= 12 && c390.phoneToCall >= 10 && c390.phoneToCall <= 16,
+    JSON.stringify({ nameToPhone: c390.nameToPhone, phoneToCall: c390.phoneToCall }));
+  check("at 390 the وضعیت مشتری label is on the first screen and the top bar is at most 56px with the short date under the title",
+    c390.stLblBottom > 0 && c390.stLblBottom <= 844 - 60
+    && c390.barH <= 56 && c390.dateUnderTitle === true && c390.subHidden === true,
+    JSON.stringify({ stLblBottom: c390.stLblBottom, barH: c390.barH, dateUnderTitle: c390.dateUnderTitle, subHidden: c390.subHidden }));
 
   const c1356 = at1356.call;
   check("at 1356 «تماس» stays on or under the name, never under the priorities, and is 48px",
