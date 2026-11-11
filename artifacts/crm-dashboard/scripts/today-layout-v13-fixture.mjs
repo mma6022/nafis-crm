@@ -208,9 +208,9 @@ try {
     JSON.stringify({ gap: at1356.gapFileNotes, twoCol: at1356.twoCol, midH: at1356.midH, notesH: at1356.notesH }));
 
   const at1366 = await measure(1366, 768);
-  check("at 1366 the board is three columns",
-    at1366.threeCol,
-    JSON.stringify({ threeCol: at1366.threeCol, areas: at1366.areas, cols: at1366.cols, midTop: at1366.midTop, notesTop: at1366.notesTop, fileTop: at1366.fileTop, notesLeft: at1366.notesLeft, fileLeft: at1366.fileLeft }));
+  check("at 1366 the board is three columns with mid in the center",
+    at1366.threeCol && at1366.notesLeft > at1366.midLeft && at1366.midLeft > at1366.fileLeft,
+    JSON.stringify({ threeCol: at1366.threeCol, areas: at1366.areas, cols: at1366.cols, midLeft: at1366.midLeft, notesLeft: at1366.notesLeft, fileLeft: at1366.fileLeft }));
 
   const at390 = await measure(390, 844);
   check("at 390 the board is one column in mid → notes → file order",
