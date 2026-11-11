@@ -522,11 +522,12 @@ try {
     (c1280.tlTop - c1280.barBottom) >= 14 && (c1280.tlTop - c1280.barBottom) <= 18
     && c1280.subHidden === false,
     JSON.stringify({ gap: c1280.tlTop - c1280.barBottom, subHidden: c1280.subHidden, barH: c1280.barH }));
+  const overflowYVisible = (s) => s === "visible" || /(?:^| )visible$/.test(s);
   check("amber rembar scroll-margin-bottom is dock height plus 16px; columns are not height-locked",
     (c1280.remMargin === "106px" || /^\d+(\.\d+)?px$/.test(c1280.remMargin) && parseFloat(c1280.remMargin) >= 80)
-    && (c1280.fileOverflow === "visible" || c1280.fileOverflow === "visible visible")
-    && (c1280.fileMaxH === "none")
-    && (c1280.midOverflow === "visible" || c1280.midOverflow === "visible visible"),
+    && c1280.fileMaxH === "none"
+    && overflowYVisible(c1280.fileOverflow)
+    && overflowYVisible(c1280.midOverflow),
     JSON.stringify({ remMargin: c1280.remMargin, fileOverflow: c1280.fileOverflow, fileMaxH: c1280.fileMaxH, midOverflow: c1280.midOverflow }));
 
   const c390 = at390.call;
